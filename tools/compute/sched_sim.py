@@ -135,13 +135,26 @@ def idle_case():
     return t_alert, [a for a in be.alerts if "очередь пуста" in a], quiet.alerts
 
 
+def honest_case():
+    """v2 п.1 (замечание Судьи 4): 3×4 честных (едят по 4, busy 0,75) + честное на 8 → ждёт (спрос 20/16); на 4 → идёт (16/16 не лезет → ждёт тоже)."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56, pack="fact")
+    for i in range(3):
+        j = job("h%d" % i, "h%d" % i, "prod", 4, 2, "none", 3600, 0); core.add(j); be.cpu_rate[j["id"]] = 4
+    for _ in range(40):
+        core.tick(); be.advance(core, S.TICK)
+    w = job("w8", "w8", "prod", 8, 2, "none", 3600, be.t); core.add(w); be.cpu_rate["w8"] = 8
+    for _ in range(60):
+        core.tick(); be.advance(core, S.TICK)
+    return w["state"], any(r.get("unpinned") for r in core.running("prod"))
+
+
 def fact_case(pack):
-    """v2 п.1: 12 заданий, заявлено 4 ядра, едят по 1; в claim идут 4 (16/4), в fact — все 12 (загрузка 12/16 < 0,9)."""
+    """v2 п.1: 12 заданий, заявлено 4 ядра, едят по 1; в claim идут 4 (16/4), в fact — 11 (12-е: 11 едят + 4 заявленных > 0,9·16 — по условию Судьи)."""
     be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56, pack=pack)
     for i in range(12):
         j = job("f%02d" % i, "f%d" % i, "prod", 4, 2, "none", 3600, 0)
         core.add(j); be.cpu_rate[j["id"]] = 1
-    for _ in range(60):                                       # 5 мин
+    for _ in range(180):                                      # 15 мин
         core.tick(); be.advance(core, S.TICK)
     return len(core.running("prod"))
 
@@ -233,9 +246,9 @@ def run():
     print(f"недогруз: сигнал на {tu} с (окно {S.UNDER_S}), только на «low»: {len(au) == 1}; пустая очередь при ждущих тикетах: сигнал на {ti} с, штук {len(ai)}, без тикетов тишина: {not aq}")
     ok = ok and tu is not None and S.UNDER_S <= tu <= S.UNDER_S + 2 * S.SAMPLE_S and len(au) == 1
     ok = ok and ti is not None and 600 + S.IDLE_S <= ti <= 600 + S.IDLE_S + 2 * S.TICK and len(ai) == 1 and not aq
-    nc, nf, sq = fact_case("claim"), fact_case("fact"), seq_case()
-    print(f"v2 пакование: заявка 4 ядра, факт 1 — claim идут {nc}, fact идут {nf}; seq-диск: идут {sq}")
-    ok = ok and nc == 4 and nf == 12 and sq == ["s0", "s2", "s3"]
+    nc, nf, sq, hs = fact_case("claim"), fact_case("fact"), seq_case(), honest_case()
+    print(f"v2 пакование: заявка 4 ядра, факт 1 — claim идут {nc}, fact идут {nf}; seq-диск: идут {sq}; 3×4 честных + честное 8: {hs[0]}, сверх заявки {hs[1]}")
+    ok = ok and nc == 4 and nf == 11 and sq == ["s0", "s2", "s3"] and hs == ("queued", False)
     print("ГЕЙТ:", "ок" if ok else "ПРОВАЛ")
     return 0 if ok else 1
 

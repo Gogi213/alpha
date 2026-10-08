@@ -148,12 +148,14 @@ class Core:
             room = len(free) - legacy
             disk_full = bool(self.slots and j["disk"] != "none"
                              and sum(1 for r in self.running("prod") if r["disk"] == j["disk"]) >= self.slots)
-            if j.get("io") == "seq" and j["disk"] != "none"                     and any(r["disk"] == j["disk"] and r.get("io") == "seq" for r in self.running("prod")):
+            if j.get("io") == "seq" and j["disk"] != "none" and any(
+                    r["disk"] == j["disk"] and r.get("io") == "seq" for r in self.running("prod")):
                 disk_full = True                          # п.2: HDD-тяжёлое последовательное чтение — не больше одного на диск
             over = False
             if fact:                                      # п.1: по факту — память: MemAvailable покрывает заявку и недобранное идущими
                 mem_ok = self.mem_fits(j)
-                over = room < j["cores"] and busy < FACT_BUSY and now - self.fact_t >= FACT_SETTLE_S and mem_ok
+                over = (room < j["cores"] and now - self.fact_t >= FACT_SETTLE_S and mem_ok
+                        and busy * self.ncpu + self.ramp(now) + j["cores"] <= FACT_BUSY * self.ncpu)
                 fits = (room >= j["cores"] or over) and mem_ok and not disk_full
             else:
                 fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
@@ -168,10 +170,11 @@ class Core:
             if reserve is not None and j["max_runtime"] > reserve["shadow"]:
                 reserve["cores"] -= j["cores"]
                 reserve["mem"] -= j["mem"]
-            if over and room < j["cores"]:               # сверх заявленных: ядра с наименьшим числом заданий (пересечение допустимо)
+            if over and room < j["cores"]:               # сверх заявленных: не пинить (ядро пина не переносится, факт-загрузка ядер неизвестна)
                 self.fact_t = now
                 load = {c: sum(1 for r in self.running("prod") if c in r["cpus"]) for c in range(self.ncpu)}
-                cpus = sorted(sorted(range(self.ncpu), key=lambda c: (load[c], c))[: j["cores"]])
+                cpus = sorted(sorted(range(self.ncpu), key=lambda c: (load[c], c))[: j["cores"]])   # только учёт
+                j["unpinned"] = True
             else:
                 cpus = free[: j["cores"]]
             j.update(state="running", t_start=now, cpus=cpus)
@@ -184,6 +187,12 @@ class Core:
         self.alert_underuse(now)
         self.alert_idle(now)
         self.log_util(now, legacy)
+
+    def ramp(self, now):
+        """Недобор EWMA по свежим заданиям: EWMA с τ = 60 с видит лишь долю 1 − e^(−a/60) нагрузки задания возраста a;
+        недостающее ≤ cores·e^(−a/60) (заявка — нижняя оценка, берём её). Старше 180 с — ноль."""
+        return sum(r["cores"] * math.exp(-(now - r["t_start"]) / 60) for r in self.running("prod")
+                   if not r.get("frozen_for") and now - r["t_start"] < 180)
 
     def mem_fits(self, j):
         """Память не эластична: MemAvailable (в нём и tmpfs) покрывает заявку j и недобранное идущими до их заявки (max(заявка, факт))."""
@@ -452,7 +461,7 @@ class SystemdBackend:
     def start(self, j):
         os.makedirs(f"{DIR}/logs", exist_ok=True)
         os.makedirs(f"{DIR}/rc", exist_ok=True)
-        cpus = ",".join(map(str, j["cpus"]))
+        cpus = ",".join(map(str, range(NCPU) if j.get("unpinned") else j["cpus"]))
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
         fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; }} "
                f"> {DIR}/own/{j['id']} 2>/dev/null; ")
@@ -463,7 +472,7 @@ class SystemdBackend:
         sl = ["-p", f"Slice={self.slice(j)}"] if j["cls"] == "measure" else []
         r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", *sl, f"--working-directory={j['cwd']}",
                "-p", f"RuntimeMaxSec={int(j['max_runtime'])}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
-               "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", f"CPUQuota={len(j['cpus']) * 100}%",
+               "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') else len(j['cpus']) * 100}%",
                "-p", f"StandardOutput=append:{DIR}/logs/{j['id']}.log", "-p", "StandardError=inherit",
                "bash", "-c", inner)
         if r.returncode:
