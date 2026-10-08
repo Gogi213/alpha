@@ -71,6 +71,8 @@ pub struct HoldIdx {
     pmax: Vec<i64>,
     /// Номера строк, делающих ленту «нечистой» (локальная без биржевой половины, биржевая без локальной).
     unclean: Vec<usize>,
+    /// Все локальные сделки: (номер строки, `local_ts`), по порядку ленты.
+    trade_rows: Vec<(usize, i64)>,
     /// `ckpts[j]` — книга после первых `j · CKPT_ROWS` локальных строк (`ckpts[0]` — база).
     ckpts: Vec<DepthSnapshot>,
 }
@@ -92,6 +94,7 @@ impl HoldIdx {
         let (mut sells, mut buys) = (Vec::new(), Vec::new());
         let mut prev = i64::MIN;
         let (mut local_rows, mut pmax, mut unclean) = (Vec::new(), Vec::new(), Vec::new());
+        let mut trade_rows = Vec::new();
         let mut ckpts = vec![base_book.clone()];
         let mut last = (book.best_bid_tick(), book.best_ask_tick());
         for (i, ev) in rows.iter().enumerate().skip(base_row) {
@@ -139,6 +142,7 @@ impl HoldIdx {
                 });
             }
             if ev.is(LOCAL_TRADE_EVENT) {
+                trade_rows.push((i, ev.local_ts));
                 let tr = TradeAt {
                     tick: t,
                     row: i,
@@ -181,6 +185,7 @@ impl HoldIdx {
             local_rows,
             pmax,
             unclean,
+            trade_rows,
             ckpts,
         })
     }
@@ -219,6 +224,34 @@ impl HoldIdx {
             tick_size,
             lot_size,
         ))
+    }
+
+    /// Ближайшая локальная строка строго после `t`.
+    pub fn next_row_ts(&self, t: i64) -> Option<i64> {
+        self.local_rows
+            .get(self.local_rows.partition_point(|&(_, ts)| ts <= t))
+            .map(|&(_, ts)| ts)
+    }
+
+    /// Ближайшая строка после `t`, меняющая вход подписи удержания: лучшие цены, объём тика уровня своей стороны
+    /// (лонг — bid) или сделка на тике уровня (лонг — продажи).
+    pub fn next_sig_ts(&self, long: bool, level_tick: i64, t: i64) -> Option<i64> {
+        let side = if long { BookSide::Bid } else { BookSide::Ask };
+        [
+            self.next_best_change(t),
+            self.next_qty_change(side, level_tick, t),
+            self.next_trade(long, level_tick, t),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
+    /// Локальные сделки с `t0 < local_ts ≤ t1` (все тики), в порядке ленты — вход `observe_wall_trades`.
+    pub fn trade_events(&self, rows: &[Event], t0: i64, t1: i64, out: &mut Vec<Event>) {
+        let a = self.trade_rows.partition_point(|&(_, ts)| ts <= t0);
+        let b = self.trade_rows.partition_point(|&(_, ts)| ts <= t1);
+        out.extend(self.trade_rows[a..b].iter().map(|&(r, _)| rows[r].clone()));
     }
 
     /// Лучшие `(bid, ask)` на метке `t`: состояние после последней локальной строки с `local_ts ≤ t`.

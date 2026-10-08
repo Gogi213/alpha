@@ -1543,6 +1543,30 @@ impl StrategyState {
         ])
     }
 
+    /// Что читает подпись `hold_input_sig` помимо лучших цен: `(лонг?, тик уровня)`; `None` там же, где у подписи
+    /// (TK-048 К-4: индекс удержания прыгает по строкам, меняющим эти входы).
+    pub fn hold_watch(&self) -> Option<(bool, i64)> {
+        let (
+            Phase::Holding { .. },
+            TradePlan::Bounce {
+                level_px, tick_px, ..
+            },
+        ) = (self.phase, self.plan)
+        else {
+            return None;
+        };
+        if self.has_orphans() || self.wall_ring.is_some() {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let lt = if tick_px > 0.0 && level_px > 0.0 {
+            round_half_away(level_px / tick_px) as i64
+        } else {
+            0
+        };
+        Some((self.sigma == crate::lob::backtest::SIGMA_LONG, lt))
+    }
+
     /// Круг ждёт исполнения входа (заявка отправлена, `entry_ttl` не истёк).
     pub fn is_entry_pending(&self) -> bool {
         matches!(self.phase, Phase::EntryPending { .. })

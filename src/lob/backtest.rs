@@ -2962,6 +2962,10 @@ pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
 /// Пропуск `on_event` в удержании, когда входы решения не менялись (`ALPHA_SKIP_SAME=1`, TK-050): решение на
 /// тех же входах повторяется; умолчание — зовём на каждом шаге.
 fn skip_same() -> bool {
+    #[cfg(test)]
+    if fast_hold::FORCE_IDX.with(std::cell::Cell::get) {
+        return true;
+    }
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_some_and(|v| v == "1"))
 }

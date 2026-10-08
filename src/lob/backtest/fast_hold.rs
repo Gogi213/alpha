@@ -4,6 +4,7 @@
 //! биржевая (локальная + строки, уже дошедшие до биржи, но не до локальной стороны; их биржевые флаги в новом
 //! движке сняты, чтобы сторона не применила строку дважды).
 
+use super::hold_index::{BookSide, HoldIdx};
 use super::*;
 use hftbacktest::types::{Side, EXCH_EVENT, LOCAL_EVENT};
 use hftbacktest::types::{
@@ -428,30 +429,33 @@ impl HoldTracker<'_> {
 /// осталось (конец данных решает движок).
 fn fast_step(bot: &mut FastBot, wakeup: Option<i64>, cap: i64) -> Option<()> {
     use hftbacktest::types::Bot;
-    let step = ON_EVENT_POLL_STEP_NS;
     let now = bot.current_timestamp();
     let ne = bot.tracker.next_event_ts(now)?;
+    bot.elapse(step_duration(now, ne, wakeup, cap)).ok()?;
+    Some(())
+}
+
+/// Длина шага удержания: 10 мс или прыжок к ближайшему узлу сетки не раньше `ne` (метка ближайшего значимого
+/// события) в пределах `wakeup` и `cap`.
+fn step_duration(now: i64, ne: i64, wakeup: Option<i64>, cap: i64) -> i64 {
+    let step = ON_EVENT_POLL_STEP_NS;
     let Some(th) = wakeup else {
-        bot.elapse(step).ok()?;
-        return Some(());
+        return step;
     };
     let k_wake = th.saturating_sub(now).div_euclid(step)
         + i64::from(th.saturating_sub(now).rem_euclid(step) != 0);
     let k_cap = (cap.saturating_sub(now) - 1).div_euclid(step);
     let k = k_wake.min(k_cap);
     if k <= 1 {
-        bot.elapse(step).ok()?;
-        return Some(());
+        return step;
     }
     let target = now.saturating_add(k.saturating_mul(step));
     if ne <= target {
         let ke = (ne - now).div_euclid(step) + i64::from((ne - now).rem_euclid(step) != 0);
-        let g = now.saturating_add(ke.max(1).saturating_mul(step));
-        bot.elapse(g - now).ok()?;
+        now.saturating_add(ke.max(1).saturating_mul(step)) - now
     } else {
-        bot.elapse(target - now).ok()?;
+        target - now
     }
-    Some(())
 }
 
 /// С чем движок продолжает круг после выхода из быстрого пути.
@@ -670,6 +674,7 @@ pub fn with_fast_ctx<R>(
     if !fast_hold_on() {
         return f();
     }
+    IDX_CACHE.with(|c| *c.borrow_mut() = None);
     FAST_CTX.with(|c| {
         c.set(Some(FastCtx {
             engine,
@@ -683,6 +688,7 @@ pub fn with_fast_ctx<R>(
     });
     let out = f();
     FAST_CTX.with(|c| c.set(None));
+    IDX_CACHE.with(|c| *c.borrow_mut() = None);
     out
 }
 
@@ -725,8 +731,36 @@ where
     let Some(cur) = local_cursor_at(rows, 0, t) else {
         return FastOutcome::NotApplied;
     };
-    let book = DepthSnapshot::of(bt.depth(asset_no)).build(ctx.tick, ctx.lot);
+    let snap = DepthSnapshot::of(bt.depth(asset_no));
     let state_start = state.clone();
+    if skip_on && hold_index_on() {
+        if let Some(idx) = idx_for(rows, cur, t, &snap, ctx.tick, ctx.lot) {
+            let mut ib = IdxBot::new(&idx, rows, ctx.tick, ctx.lot, t);
+            let r = fast_hold_scan_idx(&mut ib, state, cap, decided_in_hold, stable, sig);
+            let t2 = ib.now;
+            if let Some(h) = idx.handoff(rows, cur, t2, ctx.tick, ctx.lot) {
+                if hold_index_check() {
+                    check_handoff(rows, cur, &snap, t2, &h, ctx.tick, ctx.lot);
+                }
+                *bt = build_backtest_from_handoff(
+                    &h,
+                    rows,
+                    ctx.tick,
+                    ctx.lot,
+                    ctx.latency,
+                    ctx.queue_model,
+                );
+                let _ = bt.elapse(0);
+                FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                IDX_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return FastOutcome::Swapped(Box::new(r));
+            }
+            *state = state_start;
+            FAST_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return FastOutcome::NotApplied;
+        }
+    }
+    let book = snap.build(ctx.tick, ctx.lot);
     let mut fb = FastBot::new(HoldTracker::new(rows, cur, book), t);
     let r = fast_hold_scan(&mut fb, state, cap, decided_in_hold, stable, sig, skip_on);
     let t2 = fb.current_timestamp();
@@ -792,4 +826,370 @@ where
     FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     FAST_ROWS.fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
     Some(post_step)
+}
+
+// ---- TK-048 К-4: индекс удержания (`ALPHA_HOLD_INDEX=1`) -------------------------------------------------------
+
+/// `ALPHA_HOLD_INDEX=1` — быстрый путь берёт значения подписи из индекса окна (`HoldIdx`), а не из плоской книги;
+/// нужен `ALPHA_FAST_HOLD=1` и `ALPHA_SKIP_SAME=1`. Умолчание — выкл.
+pub fn hold_index_on() -> bool {
+    #[cfg(test)]
+    if FORCE_IDX.with(std::cell::Cell::get) {
+        return true;
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_HOLD_INDEX").is_some_and(|v| v == "1"))
+}
+
+/// `ALPHA_HOLD_INDEX_CHECK=1` — на каждом выходе из индексного пути строить `handoff` ещё и плоской книгой и
+/// сверять (паника при расхождении). Только отладка (d15).
+fn hold_index_check() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_HOLD_INDEX_CHECK").is_some_and(|v| v == "1"))
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static FORCE_IDX: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Кругов, прошедших индексным путём (процесс; на итог счёта не влияет).
+pub static IDX_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+type IdxCache = Option<(usize, usize, usize, i64, std::rc::Rc<HoldIdx>)>;
+
+thread_local! {
+    /// Индекс текущего окна: (адрес ленты, длина, строка и метка базы, индекс).
+    static IDX_CACHE: std::cell::RefCell<IdxCache> = const { std::cell::RefCell::new(None) };
+}
+
+/// Книга по индексу на метке `t`: ровно то, что читают `hold_input_sig` и `on_event` в удержании.
+pub struct IdxDepth<'a> {
+    idx: &'a HoldIdx,
+    t: i64,
+    tick_size: f64,
+    lot_size: f64,
+}
+
+impl hftbacktest::depth::MarketDepth for IdxDepth<'_> {
+    fn best_bid(&self) -> f64 {
+        let t = self.best_bid_tick();
+        if t == hftbacktest::depth::INVALID_MIN {
+            f64::NAN
+        } else {
+            t as f64 * self.tick_size
+        }
+    }
+    fn best_ask(&self) -> f64 {
+        let t = self.best_ask_tick();
+        if t == hftbacktest::depth::INVALID_MAX {
+            f64::NAN
+        } else {
+            t as f64 * self.tick_size
+        }
+    }
+    fn best_bid_tick(&self) -> i64 {
+        self.idx.best_at(self.t).0
+    }
+    fn best_ask_tick(&self) -> i64 {
+        self.idx.best_at(self.t).1
+    }
+    fn best_bid_qty(&self) -> f64 {
+        self.bid_qty_at_tick(self.best_bid_tick())
+    }
+    fn best_ask_qty(&self) -> f64 {
+        self.ask_qty_at_tick(self.best_ask_tick())
+    }
+    fn tick_size(&self) -> f64 {
+        self.tick_size
+    }
+    fn lot_size(&self) -> f64 {
+        self.lot_size
+    }
+    fn bid_qty_at_tick(&self, price_tick: i64) -> f64 {
+        self.idx.qty_at(BookSide::Bid, price_tick, self.t)
+    }
+    fn ask_qty_at_tick(&self, price_tick: i64) -> f64 {
+        self.idx.qty_at(BookSide::Ask, price_tick, self.t)
+    }
+}
+
+/// Заглушка бота индексного пути: как `FastBot`, но книга и сделки — из индекса.
+pub struct IdxBot<'a> {
+    depth: IdxDepth<'a>,
+    rows: &'a [Event],
+    now: i64,
+    trades: Vec<Event>,
+    orders: hftbacktest::types::OrderMap,
+    values: hftbacktest::types::StateValues,
+    pub need_engine: bool,
+}
+
+impl<'a> IdxBot<'a> {
+    fn new(idx: &'a HoldIdx, rows: &'a [Event], tick: f64, lot: f64, now: i64) -> Self {
+        Self {
+            depth: IdxDepth {
+                idx,
+                t: now,
+                tick_size: tick,
+                lot_size: lot,
+            },
+            rows,
+            now,
+            trades: Vec::new(),
+            orders: Default::default(),
+            values: hftbacktest::types::StateValues::default(),
+            need_engine: false,
+        }
+    }
+
+    fn deny(&mut self) -> Result<hftbacktest::types::ElapseResult, BacktestError> {
+        self.need_engine = true;
+        Ok(hftbacktest::types::ElapseResult::Ok)
+    }
+}
+
+impl<'a> hftbacktest::types::Bot<IdxDepth<'a>> for IdxBot<'a> {
+    type Error = BacktestError;
+
+    fn current_timestamp(&self) -> i64 {
+        self.now
+    }
+    fn num_assets(&self) -> usize {
+        1
+    }
+    fn position(&self, _: usize) -> f64 {
+        0.0
+    }
+    fn state_values(&self, _: usize) -> &hftbacktest::types::StateValues {
+        &self.values
+    }
+    fn depth(&self, _: usize) -> &IdxDepth<'a> {
+        &self.depth
+    }
+    fn last_trades(&self, _: usize) -> &[Event] {
+        &self.trades
+    }
+    fn clear_last_trades(&mut self, _: Option<usize>) {
+        self.trades.clear();
+    }
+    fn orders(&self, _: usize) -> &hftbacktest::types::OrderMap {
+        &self.orders
+    }
+    fn submit_buy_order(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: f64,
+        _: f64,
+        _: hftbacktest::types::TimeInForce,
+        _: hftbacktest::types::OrdType,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn submit_sell_order(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: f64,
+        _: f64,
+        _: hftbacktest::types::TimeInForce,
+        _: hftbacktest::types::OrdType,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn submit_order(
+        &mut self,
+        _: usize,
+        _: hftbacktest::types::OrderRequest,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn modify(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: f64,
+        _: f64,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn cancel(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn clear_inactive_orders(&mut self, _: Option<usize>) {}
+    fn wait_order_response(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: i64,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn wait_next_feed(
+        &mut self,
+        _: bool,
+        _: i64,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn elapse(&mut self, duration: i64) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        let prev = self.now;
+        self.now += duration;
+        self.depth.t = self.now;
+        self.depth
+            .idx
+            .trade_events(self.rows, prev, self.now, &mut self.trades);
+        Ok(hftbacktest::types::ElapseResult::Ok)
+    }
+    fn elapse_bt(
+        &mut self,
+        duration: i64,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.elapse(duration)
+    }
+    fn close(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn feed_latency(&self, _: usize) -> Option<(i64, i64)> {
+        None
+    }
+    fn order_latency(&self, _: usize) -> Option<(i64, i64, i64)> {
+        None
+    }
+}
+
+/// `fast_hold_scan` на индексе: тот же цикл, но когда подпись уже повторилась (`reps ≥ 1` — следующий вызов на тех же
+/// входах будет пропущен), шаг прыгает к ближайшей строке, меняющей вход подписи, а не к любой строке ленты. Узлы
+/// сетки между ними пропустил бы `SigMemo`, так что состояние то же. Только одиночный круг.
+pub(super) fn fast_hold_scan_idx<'a>(
+    bot: &mut IdxBot<'a>,
+    state: &mut StrategyState,
+    cap: i64,
+    mut decided_in_hold: bool,
+    mut stable: bool,
+    mut sig: SigMemo,
+) -> FastResume {
+    use hftbacktest::types::Bot;
+    let idx = bot.depth.idx;
+    loop {
+        let now = bot.current_timestamp();
+        let wake = state.hold_wakeup_ns(now);
+        let out = |state: &StrategyState, decided_in_hold, stable, sig| FastResume {
+            state: state.clone(),
+            decided_in_hold,
+            stable,
+            sig,
+            post_step: false,
+        };
+        if wake.is_none() || !state.is_holding() {
+            return out(state, decided_in_hold, stable, sig);
+        }
+        let wakeup = if decided_in_hold { wake } else { None };
+        let Some(any) = idx.next_row_ts(now) else {
+            return out(state, decided_in_hold, stable, sig);
+        };
+        let ne = match state.hold_watch() {
+            Some((long, lt)) if sig.sig.is_some() && sig.reps >= 1 => {
+                idx.next_sig_ts(long, lt, now).unwrap_or(i64::MAX)
+            }
+            _ => any,
+        };
+        if bot.elapse(step_duration(now, ne, wakeup, cap)).is_err() {
+            return out(state, decided_in_hold, stable, sig);
+        }
+        let now = bot.current_timestamp();
+        state.observe_wall_trades(bot.last_trades(0));
+        bot.clear_last_trades(Some(0));
+        let held_before = state.hold_wakeup_ns(now).is_some();
+        let mark_before = state.phase_mark();
+        let sig_before = sig;
+        let skip = sig.skip(state.hold_input_sig(bot.depth(0), now));
+        let mut before = None;
+        let action = if skip {
+            Action::Idle
+        } else {
+            before = Some(state.clone());
+            match on_event(bot, state) {
+                Ok(a) => a,
+                Err(_) => Action::Idle,
+            }
+        };
+        if bot.need_engine {
+            return FastResume {
+                state: before.unwrap_or_else(|| state.clone()),
+                decided_in_hold,
+                stable,
+                sig: sig_before,
+                post_step: true,
+            };
+        }
+        if !matches!(action, Action::Idle) {
+            sig.reset();
+        }
+        decided_in_hold = held_before && state.hold_wakeup_ns(now).is_some();
+        stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
+        if state.is_idle() || !matches!(action, Action::Idle) {
+            return out(state, decided_in_hold, stable, sig);
+        }
+    }
+}
+
+/// Индекс окна для круга, начинающегося с курсора `cur` на метке `t`: из кэша окна или строится заново (по книге
+/// движка). `None` — индекс невозможен (очистка глубины, `local_ts` убывает).
+fn idx_for(
+    rows: &[Event],
+    cur: usize,
+    t: i64,
+    book: &DepthSnapshot,
+    tick: f64,
+    lot: f64,
+) -> Option<std::rc::Rc<HoldIdx>> {
+    let key = (rows.as_ptr() as usize, rows.len());
+    if let Some(i) = IDX_CACHE.with(|c| {
+        c.borrow()
+            .as_ref()
+            .filter(|(p, l, br, bt, _)| (*p, *l) == key && cur >= *br && t >= *bt)
+            .map(|e| e.4.clone())
+    }) {
+        return Some(i);
+    }
+    let idx = std::rc::Rc::new(HoldIdx::build(rows, cur, book, tick, lot)?);
+    IDX_CACHE.with(|c| *c.borrow_mut() = Some((key.0, key.1, cur, t, idx.clone())));
+    Some(idx)
+}
+
+/// Сверка `handoff` индекса с плоской книгой (`ALPHA_HOLD_INDEX_CHECK=1`).
+fn check_handoff(
+    rows: &[Event],
+    cur: usize,
+    snap: &DepthSnapshot,
+    t: i64,
+    h: &FastHandoff,
+    tick: f64,
+    lot: f64,
+) {
+    let mut tr = HoldTracker::new(rows, cur, snap.build(tick, lot));
+    tr.advance_to(t);
+    let w = tr
+        .handoff(t, tick, lot)
+        .expect("ALPHA_HOLD_INDEX_CHECK: плоская книга не отдала handoff");
+    assert!(
+        w.local == h.local && w.exch == h.exch && w.tail_start == h.tail_start,
+        "ALPHA_HOLD_INDEX_CHECK: handoff индекса расходится с плоской книгой на t={t}, cur={cur}"
+    );
+    assert_eq!(
+        w.middle.len(),
+        h.middle.len(),
+        "ALPHA_HOLD_INDEX_CHECK: middle, t={t}"
+    );
 }
