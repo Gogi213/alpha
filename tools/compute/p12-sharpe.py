@@ -10,6 +10,7 @@ import numpy as np
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 M_FAM, B = 42, 20000
+POOL = {f"2026-{i:02d}" for i in range(2, 10)}
 
 
 def load(path, mode):
@@ -54,8 +55,12 @@ def block_idx(rng, n):
 
 def analyse(P, seed):
     rng = np.random.default_rng(seed)
-    cal = next(iter(P.values()))["cal"]; months = next(iter(P.values()))["months"]; n = len(cal)
+    cal0 = next(iter(P.values()))["cal"]; months = [m for m in next(iter(P.values()))["months"] if m in POOL]
+    keep = np.array([d[:7] in POOL for d in cal0])   # §4: пул счёта фев–сен; январь — калибровка, октябрь — неполный
+    cal = [d for d, k in zip(cal0, keep) if k]; n = len(cal)
     mon = np.array([d[:7] for d in cal])
+    for p in P.values():
+        p["arr"] = p["arr"][keep]; p["dfn"] = p["dfn"] & POOL
     idx = block_idx(rng, n)
     midx = {}
     for m in months:
@@ -128,13 +133,13 @@ def main():
     print(f"== П-12 Шарп (В-208), режим {MODE}; клеток R1 {sum(1 for r in res.values() if r['pk']=='R1')} R2 {sum(1 for r in res.values() if r['pk']=='R2')}; семей {len(fams)}, m={M_FAM}")
     rows = []
     for c, r in res.items():
-        g1 = bool(holm[("польза", r["fam"])][2] and r["pwy"] == famp[r["fam"]])
+        g1 = bool(holm[("польза", r["fam"])][2] and r["pwy"] <= holm[("польза", r["fam"])][1])
         bad_m = [m for m, v in r["mon"].items() if v[1] < 0]
         g2 = not bad_m
         g3 = bool(r["c2"][0] >= 0 and r["c2"][1] >= 0)
         g4 = len(r["dm"]) >= 6
         passed = g1 and g2 and g3 and g4
-        refut = bool(holm[("вред", r["fam"])][2] and r["pharm"] == famh[r["fam"]])
+        refut = bool(holm[("вред", r["fam"])][2] and r["pharm"] <= holm[("вред", r["fam"])][1])
         fails = [i for i, g in ((1, g1), (2, g2), (3, g3), (4, g4)) if not g]
         r.update(g1=g1, g2=g2, g3=g3, g4=g4, passed=passed, refut=refut, bad_m=bad_m)
         rows.append([MODE, r["pk"], c, r["fam"], r["base"], round(r["sr"], 4), round(r["sr"] * math.sqrt(365), 2), round(r["srb"], 4), round(r["dsr"], 4),
