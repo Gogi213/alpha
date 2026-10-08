@@ -116,7 +116,7 @@ use args::SignalArg;
 pub use args::{BounceGridArgs, BounceGridSummary};
 pub(crate) use cache::cached_touches;
 use cache::{cached_approaches, DayTouches};
-use carry::{carry_boundary, carry_window_ns, extend_with_carry};
+use carry::{carry_boundary, carry_edge_window_ns, carry_window_ns, extend_with_carry};
 use drive::{day_events, day_windows, drive_day, DayParams, DayRows, OrderSizing};
 use entry_sigma::EntrySigma;
 pub use forms::{grid_forms, ExitForm, GridForm};
@@ -848,9 +848,40 @@ impl<'a> GridRun<'a> {
                         .enumerate()
                         .any(|(ti, t)| f.admits(ti, t))
                 });
+            // TK-048 C' (`ALPHA_CARRY_EDGE=1`): довесок только до края суток — последний t0 касания, которое
+            // пропускает хоть один набор, плюс горизонт (`carry_window_ns` = ttl + дедлайн + rtt); не всё окно
+            // от полуночи. Круг, открытый в t0, не живёт дольше горизонта, так что выход тот же.
+            let carry_eff = match carry_window {
+                Some(w)
+                    if !no_signal
+                        && std::env::var_os("ALPHA_CARRY_EDGE").is_some_and(|v| v == "1")
+                        && matches!(args.driver, args::DriverArg::Setups) =>
+                {
+                    let last_t0_ns = day
+                        .touches
+                        .iter()
+                        .enumerate()
+                        .filter(|&(ti, t)| {
+                            sets.iter().any(|set| {
+                                let mut f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
+                                f.holds = holds_day.as_deref();
+                                f.rows = rows_day.as_deref();
+                                f.admits(ti, t)
+                            })
+                        })
+                        .map(|(_, t)| t.start_ms.saturating_mul(1_000_000))
+                        .max();
+                    Some(carry_edge_window_ns(
+                        w,
+                        last_t0_ns,
+                        carry::day_start_ns(&carry::next_day_utc(&day.day)?)?,
+                    ))
+                }
+                other => other,
+            };
             // S4: события одних суток, не всей сессии. TK-029: при `--extra-runs` сутки символа
             // читаются один раз на все прогоны с тем же переносом (`SharedEvents`).
-            let carry_key = (day.day.clone(), args.carry_root.clone(), carry_window);
+            let carry_key = (day.day.clone(), args.carry_root.clone(), carry_eff);
             let (base, carry_boundary_ns, carry_unverified) =
                 match shared.as_ref().and_then(|s| s.get(symbol, &carry_key)) {
                     _ if no_signal => {
@@ -871,7 +902,7 @@ impl<'a> GridRun<'a> {
                         // Довесок (`--carry-root`): дописывает события D+1 в окне переноса
                         // ДО построения окон сетапов; сигналы дня от довеска не зависят.
                         let e2e_carry = e2e::Mark::now();
-                        let carry = match carry_window {
+                        let carry = match carry_eff {
                             Some(window) if !ev.is_empty() => extend_with_carry(
                                 &mut ev,
                                 &day.day,

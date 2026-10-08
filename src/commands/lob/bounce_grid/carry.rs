@@ -57,11 +57,28 @@ pub(super) fn carry_window_ns(
         .saturating_add(p95_taker_rtt_ns))
 }
 
+/// Окно довеска до края суток (TK-048 C'): круг, открытый в `last_t0_ns`, живёт не дольше `horizon_ns`
+/// (`carry_window_ns`), так что дальше `last_t0 + horizon` D+1 читать незачем. Длина от полуночи D+1
+/// (`boundary_ns`): `clamp(last_t0 + horizon − boundary, 0, horizon)`; нет касаний, пропущенных наборами, — 0.
+pub(super) fn carry_edge_window_ns(
+    horizon_ns: i64,
+    last_t0_ns: Option<i64>,
+    boundary_ns: i64,
+) -> i64 {
+    match last_t0_ns {
+        Some(t0) => t0
+            .saturating_add(horizon_ns)
+            .saturating_sub(boundary_ns)
+            .clamp(0, horizon_ns),
+        None => 0,
+    }
+}
+
 /// Следующие сутки UTC `YYYY-MM-DD` — довесок смотрит ровно на них, не дальше
 /// (круг, переживший ещё и вторую полночь, остаётся `incomplete`, как и
 /// прежде — сетка замера ограничивает окно, не гоняется за произвольной
 /// глубиной).
-fn next_day_utc(day: &str) -> anyhow::Result<String> {
+pub(super) fn next_day_utc(day: &str) -> anyhow::Result<String> {
     let d = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
         .map_err(|e| anyhow::anyhow!("сутки {day:?}: ожидается YYYY-MM-DD ({e})"))?;
     let next = d
@@ -168,7 +185,12 @@ pub(super) fn extend_with_carry(
     };
     let boundary = day_start_ns(&next_day)?;
     let until = boundary.saturating_add(window_ns);
-    let n_carry = append_carry_events(next_parts, until, events)?;
+    // Нулевое окно (C': край суток не дотягивает до полуночи) — читать нечего.
+    let n_carry = if window_ns > 0 {
+        append_carry_events(next_parts, until, events)?
+    } else {
+        0
+    };
     eprintln!(
         "bounce-grid:   довесок {next_day}: событий {} за {:.1}с окна ({} частей)",
         n_carry,
