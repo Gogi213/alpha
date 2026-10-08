@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # TK-048: «прочее» строки круга по строкам исходника — сборка debug=1 (код не меняется, исходники e20) и perf на стенде d15.
 #   build — запустить юнит сборки на VPS (alpha-e21-dbg, done: /opt/alpha-compute/tk048-dbg.done)
+#   perf  — (после run, бинарник уже на calc) повтор: perf внутри юнита стенда (stand-perf.sh), а не снаружи benchrun — снаружи видел только bash (1629 сэмплов, 08.10)
 #   run   — выложить на calc и запустить юнит tk048-dbg (perf record -F 499 по стенду d15 через benchrun; done: /data/tk048/dbg-d15/done)
 set -euo pipefail
 K=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o BatchMode=yes); V=root@13.140.29.171; C=root@89.163.242.211
@@ -28,6 +29,19 @@ D=/data/tk048/dbg-d15; cd /data/tk051
 /data/benchrun.sh stand perf record -F 499 -o \$D/perf.data -- bash stand.sh alpha-e21-dbg d15 ALPHA_SKIP_SAME=1 ALPHA_EVENT_STEPS=1 > \$D/out.txt 2>&1
 perf report -i \$D/perf.data --no-children --sort sym --stdio 2>/dev/null | grep -v '^#' | grep -v '^\$' | head -60 > \$D/top-sym.txt
 timeout 1500 perf report -i \$D/perf.data --no-children --sort srcline --stdio 2>/dev/null | grep -v '^#' | grep -v '^\$' | head -150 > \$D/top-line.txt
+touch \$D/done
+EOS
+systemctl reset-failed tk048-dbg 2>/dev/null; systemd-run --quiet --unit tk048-dbg --collect bash /data/tk048/dbg-d15/run.sh && echo юнит tk048-dbg запущен" ;;
+perf)
+ssh "${K[@]}" $C "mkdir -p /data/tk048/dbg-d15; rm -f /data/tk048/dbg-d15/done /data/tk048/dbg-d15/perf.data
+sed 's#^bash \$W/run.sh#X#; s#/usr/bin/time -f \(.*\) -o \(\S*\) bash \$W/run.sh#/usr/bin/time -f  -o  perf record -F 499 -o /data/tk048/dbg-d15/perf.data -- bash \$W/run.sh#' /data/tk051/stand.sh > /data/tk051/stand-perf.sh
+grep -c 'perf record' /data/tk051/stand-perf.sh
+cat > /data/tk048/dbg-d15/run.sh <<'EOS'
+#!/bin/bash
+D=/data/tk048/dbg-d15; cd /data/tk051
+/data/benchrun.sh stand bash stand-perf.sh alpha-e21-dbg d15 ALPHA_SKIP_SAME=1 ALPHA_EVENT_STEPS=1 > \$D/out.txt 2>&1
+perf report -i \$D/perf.data --no-children --comm alpha --sort sym --stdio 2>/dev/null | grep -v '^#' | grep -v '^\$' | head -80 > \$D/top-sym.txt
+timeout 1500 perf report -i \$D/perf.data --no-children --comm alpha --sort srcline --stdio 2>/dev/null | grep -v '^#' | grep -v '^\$' | head -200 > \$D/top-line.txt
 touch \$D/done
 EOS
 systemctl reset-failed tk048-dbg 2>/dev/null; systemd-run --quiet --unit tk048-dbg --collect bash /data/tk048/dbg-d15/run.sh && echo юнит tk048-dbg запущен" ;;

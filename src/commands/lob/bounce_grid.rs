@@ -276,9 +276,9 @@ fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSumm
         crate::lob::backtest::fast_depth::BAND_STATS_ON
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    if std::env::var_os("ALPHA_BAND_COUNT_OFF").is_some_and(|v| v == "1") {
+    if std::env::var_os("ALPHA_BAND_COUNT_OFF").is_some_and(|v| v == "0") {
         crate::lob::backtest::fast_depth::BAND_COUNT_OFF
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
     let Some(path) = args.extra_runs.as_deref() else {
         let mut run = GridRun::new(args)?;

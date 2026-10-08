@@ -88,10 +88,11 @@ pub static DEPTH_ROW_BANDS: [std::sync::atomic::AtomicU64; 4] =
 pub static DEPTH_ROW_CLASS: [std::sync::atomic::AtomicU64; 6] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 6];
 pub static BAND_STATS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// `ALPHA_BAND_COUNT_OFF=1`: не считать `DEPTH_ROW_BANDS` на каждое обновление (атомарный `fetch_add` на горячем пути);
-/// строка печатается только под `ALPHA_ATTEMPT_STATS`, там счёт включён всегда.
+/// По умолчанию `DEPTH_ROW_BANDS` не считается (атомарный `fetch_add` на каждое обновление — диагностика, ≈2–3 % ЦП);
+/// строка печатается только под `ALPHA_ATTEMPT_STATS`, там счёт включён всегда. `ALPHA_BAND_COUNT_OFF=0` — включить счёт
+/// без остальной статистики (TK-048, 08.10: умолчание перевёрнуто; `=1` прежних обёрток остаётся no-op).
 pub static BAND_COUNT_OFF: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+    std::sync::atomic::AtomicBool::new(true);
 
 thread_local! {
     static WATCH_TICK: std::cell::Cell<i64> = const { std::cell::Cell::new(i64::MIN) };
