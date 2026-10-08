@@ -3595,7 +3595,9 @@ pub static EXIT_GROUP_DIAG: [std::sync::atomic::AtomicU64; 5] = [
 ];
 
 fn diag_add(i: usize, n: u64) {
-    EXIT_GROUP_DIAG[i].fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    if fast_depth::BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        EXIT_GROUP_DIAG[i].fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Э-08 («один проход на вход», план принят Судьёй, reviews/e08-exit-group-plan-2026-09-27.md): круги
