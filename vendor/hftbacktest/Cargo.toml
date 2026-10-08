@@ -41,6 +41,7 @@ repository = "https://github.com/nkaz001/hftbacktest/"
 resolver = "2"
 
 [features]
+rdtsc-prof = []
 backtest = [
     "zip",
     "uuid",

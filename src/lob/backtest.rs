@@ -3712,12 +3712,15 @@ fn windowed_with<R: EventRows + ?Sized>(
                 None => {
                     let span = attempt_span_ns(horizon_span_ns(&sig.plan), attempt);
                     let until = sig.t0_ns.saturating_add(span);
-                    buf.clear();
-                    let mut i = start;
-                    while i < events.len() && events.row_local_ts(i) <= until {
-                        buf.push(events.row(i));
-                        i += 1;
-                    }
+                    let i = hftbacktest::prof::timed(3, || {
+                        buf.clear();
+                        let mut i = start;
+                        while i < events.len() && events.row_local_ts(i) <= until {
+                            buf.push(events.row(i));
+                            i += 1;
+                        }
+                        i
+                    });
                     (&buf[..], i >= events.len())
                 }
             };
@@ -3725,31 +3728,33 @@ fn windowed_with<R: EventRows + ?Sized>(
             let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
             // Э-04б: конец данных круга — меньшая из меток последней строки (до неё крейт не исчерпан).
             let data_end = last.map(|(local, exch)| local.min(exch));
-            with_backtest_over_window(
-                &w.depth,
-                sig.t0_ns,
-                rest,
-                windows.tick_size,
-                windows.lot_size,
-                exec_latency,
-                cfg.queue_model,
-                |bt| {
-                    let s = if bt.elapse(0)? == ElapseResult::EndOfData {
-                        SignalStep::EndOfData
-                    } else {
-                        fast_hold::with_fast_ctx(
-                            std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize,
-                            rest,
-                            windows.tick_size,
-                            windows.lot_size,
-                            exec_latency,
-                            cfg.queue_model,
-                            || step(bt, data_end),
-                        )?
-                    };
-                    Ok((s, bt.current_timestamp()))
-                },
-            )
+            hftbacktest::prof::timed(4, || {
+                with_backtest_over_window(
+                    &w.depth,
+                    sig.t0_ns,
+                    rest,
+                    windows.tick_size,
+                    windows.lot_size,
+                    exec_latency,
+                    cfg.queue_model,
+                    |bt| {
+                        let s = if bt.elapse(0)? == ElapseResult::EndOfData {
+                            SignalStep::EndOfData
+                        } else {
+                            fast_hold::with_fast_ctx(
+                                std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize,
+                                rest,
+                                windows.tick_size,
+                                windows.lot_size,
+                                exec_latency,
+                                cfg.queue_model,
+                                || step(bt, data_end),
+                            )?
+                        };
+                        Ok((s, bt.current_timestamp()))
+                    },
+                )
+            })
             .map(|(s, now)| {
                 // Крейт упёрся в конец развёрнутого — в любом из трёх видов, которыми конец данных
                 // выходит из круга; иначе (и последняя строка позже часов) он видел ровно то же, что

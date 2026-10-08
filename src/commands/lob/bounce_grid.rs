@@ -1229,6 +1229,17 @@ impl<'a> GridRun<'a> {
                             g(row)
                         );
                     }
+                    let pr = hftbacktest::prof::snapshot();
+                    if pr.iter().any(|(c, _)| *c > 0) {
+                        eprintln!(
+                            "bounce-grid:   rdtsc (Мцикл/вызовов; книга биржи, exch.process, local.process, копия строк, окно-движок): {}",
+                            pr[..5]
+                                .iter()
+                                .map(|(c, n)| format!("{}/{n}", c / 1_000_000))
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        );
+                    }
                     eprintln!(
                         "bounce-grid:   строки глубины по удалению от лучшей (≤3/≤10/≤30/дальше тиков): {}",
                         g(&crate::lob::backtest::fast_depth::DEPTH_ROW_BANDS)

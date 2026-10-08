@@ -866,6 +866,7 @@ where
     }
 
     fn process(&mut self, event: &Event) -> Result<(), BacktestError> {
+        crate::prof::timed(1, || {
         if event.is(EXCH_BID_DEPTH_CLEAR_EVENT) {
             self.depth.clear_depth(Side::Buy, event.px);
         } else if event.is(EXCH_ASK_DEPTH_CLEAR_EVENT) {
@@ -874,8 +875,10 @@ where
             self.depth.clear_depth(Side::None, 0.0);
         } else if event.is(EXCH_BID_DEPTH_EVENT) || event.is(EXCH_BID_DEPTH_SNAPSHOT_EVENT) {
             let (price_tick, prev_best_bid_tick, best_bid_tick, prev_qty, new_qty, timestamp) =
-                self.depth
-                    .update_bid_depth(event.px, event.qty, event.exch_ts);
+                crate::prof::timed(0, || {
+                    self.depth
+                        .update_bid_depth(event.px, event.qty, event.exch_ts)
+                });
             self.apply_bid_delta(
                 price_tick,
                 prev_best_bid_tick,
@@ -886,8 +889,10 @@ where
             )?;
         } else if event.is(EXCH_ASK_DEPTH_EVENT) || event.is(EXCH_ASK_DEPTH_SNAPSHOT_EVENT) {
             let (price_tick, prev_best_ask_tick, best_ask_tick, prev_qty, new_qty, timestamp) =
-                self.depth
-                    .update_ask_depth(event.px, event.qty, event.exch_ts);
+                crate::prof::timed(0, || {
+                    self.depth
+                        .update_ask_depth(event.px, event.qty, event.exch_ts)
+                });
             self.apply_ask_delta(
                 price_tick,
                 prev_best_ask_tick,
@@ -903,6 +908,7 @@ where
         }
 
         Ok(())
+        })
     }
 
     fn process_recv_order(

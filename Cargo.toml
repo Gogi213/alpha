@@ -29,6 +29,7 @@ corosensei = "0.3"
 mimalloc = { version = "0.1", optional = true, default-features = false }
 
 [features]
+rdtsc-prof = ["hftbacktest/rdtsc-prof"]
 mimalloc = ["dep:mimalloc"]
 
 [dev-dependencies]

@@ -29,6 +29,7 @@
 /// Provides backtesting features.
 #[cfg(any(feature = "backtest", doc))]
 pub mod backtest;
+pub mod prof;
 
 /// Provides market depth implementations.
 pub mod depth;

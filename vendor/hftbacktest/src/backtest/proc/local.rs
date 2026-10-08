@@ -296,6 +296,7 @@ where
     }
 
     fn process(&mut self, ev: &Event) -> Result<(), BacktestError> {
+        crate::prof::timed(2, || {
         // Processes a depth event
         if ev.is(LOCAL_BID_DEPTH_CLEAR_EVENT) {
             self.depth.clear_depth(Side::Buy, ev.px);
@@ -310,6 +311,7 @@ where
         }
         self.apply_feed(ev);
         Ok(())
+        })
     }
 
     fn process_recv_order(
