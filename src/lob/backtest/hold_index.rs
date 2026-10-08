@@ -6,14 +6,20 @@
 //! прежний).
 
 use super::fast_depth::FastMarketDepth;
+use super::fast_hold::{apply_local, finish_handoff, FastHandoff};
 use super::{round_half_away, DepthSnapshot, Event};
 use hftbacktest::depth::{L2MarketDepth, MarketDepth};
+use hftbacktest::types::EXCH_EVENT;
 use hftbacktest::types::{
     EXCH_BUY_TRADE_EVENT, EXCH_SELL_TRADE_EVENT, LOCAL_ASK_DEPTH_CLEAR_EVENT,
     LOCAL_ASK_DEPTH_EVENT, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_CLEAR_EVENT,
     LOCAL_BID_DEPTH_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT, LOCAL_DEPTH_CLEAR_EVENT, LOCAL_EVENT,
     LOCAL_TRADE_EVENT,
 };
+
+/// Строк локальной стороны между контрольными снимками книги (назначаемое число; подбор замером на d15 —
+/// кандидаты 1 024 / 4 096 / 16 384, TK-048 К-4а §3).
+pub const CKPT_ROWS: usize = 4096;
 
 /// Сторона книги / сделки в ключе тика: 0 — bid (покупатели), 1 — ask.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -60,6 +66,13 @@ pub struct HoldIdx {
     buys: Vec<TradeAt>,
     /// Первая строка ленты после последней применённой локальной (конец прохода).
     pub end_row: usize,
+    /// Локальные строки: (номер в ленте, `local_ts`) и префиксный максимум `exch_ts` по ним.
+    local_rows: Vec<(usize, i64)>,
+    pmax: Vec<i64>,
+    /// Номера строк, делающих ленту «нечистой» (локальная без биржевой половины, биржевая без локальной).
+    unclean: Vec<usize>,
+    /// `ckpts[j]` — книга после первых `j · CKPT_ROWS` локальных строк (`ckpts[0]` — база).
+    ckpts: Vec<DepthSnapshot>,
 }
 
 impl HoldIdx {
@@ -78,15 +91,28 @@ impl HoldIdx {
         let mut qty: [Vec<QtyAt>; 2] = [Vec::new(), Vec::new()];
         let (mut sells, mut buys) = (Vec::new(), Vec::new());
         let mut prev = i64::MIN;
+        let (mut local_rows, mut pmax, mut unclean) = (Vec::new(), Vec::new(), Vec::new());
+        let mut ckpts = vec![base_book.clone()];
         let mut last = (book.best_bid_tick(), book.best_ask_tick());
         for (i, ev) in rows.iter().enumerate().skip(base_row) {
             if !ev.is(LOCAL_EVENT) {
+                if ev.is(EXCH_EVENT) {
+                    unclean.push(i);
+                }
                 continue;
             }
             if ev.local_ts < prev {
                 return None;
             }
             prev = ev.local_ts;
+            if !ev.is(EXCH_EVENT) {
+                unclean.push(i);
+            }
+            local_rows.push((i, ev.local_ts));
+            pmax.push(
+                pmax.last()
+                    .map_or(ev.exch_ts, |m: &i64| (*m).max(ev.exch_ts)),
+            );
             if ev.is(LOCAL_BID_DEPTH_CLEAR_EVENT)
                 || ev.is(LOCAL_ASK_DEPTH_CLEAR_EVENT)
                 || ev.is(LOCAL_DEPTH_CLEAR_EVENT)
@@ -126,6 +152,9 @@ impl HoldIdx {
                     buys.push(tr);
                 }
             }
+            if local_rows.len() % CKPT_ROWS == 0 {
+                ckpts.push(DepthSnapshot::of(&book));
+            }
             let now = (book.best_bid_tick(), book.best_ask_tick());
             if now != last {
                 best.push(BestChange {
@@ -149,7 +178,47 @@ impl HoldIdx {
             sells,
             buys,
             end_row: rows.len(),
+            local_rows,
+            pmax,
+            unclean,
+            ckpts,
         })
+    }
+
+    /// Состояние для нового движка на `t` для круга, начавшегося с курсора `cur` (первая строка ленты, которую круг
+    /// ещё не видел): то же, что `HoldTracker::handoff` после `advance_to(t)`, но книга берётся из ближайшего
+    /// контрольного снимка + повтор ≤ `CKPT_ROWS` строк. `None` — как у трекера (нечистая лента на `[cur, курсор)` или
+    /// биржа отстаёт). `cur` не раньше базы индекса.
+    pub fn handoff(
+        &self,
+        rows: &[Event],
+        cur: usize,
+        t: i64,
+        tick_size: f64,
+        lot_size: f64,
+    ) -> Option<FastHandoff> {
+        let k = self.local_rows.partition_point(|&(_, ts)| ts <= t);
+        let lcur = self.local_rows.get(k).map_or(rows.len(), |&(r, _)| r);
+        let lo = self.unclean.partition_point(|&r| r < cur);
+        if self.unclean.get(lo).is_some_and(|&r| r < lcur) {
+            return None;
+        }
+        if k > 0 && self.pmax[k - 1] > t {
+            return None;
+        }
+        let c = (k / CKPT_ROWS).min(self.ckpts.len() - 1);
+        let mut book = self.ckpts[c].build(tick_size, lot_size);
+        for &(r, _) in &self.local_rows[c * CKPT_ROWS..k] {
+            apply_local(&mut book, &rows[r]);
+        }
+        Some(finish_handoff(
+            rows,
+            lcur,
+            DepthSnapshot::of(&book),
+            t,
+            tick_size,
+            lot_size,
+        ))
     }
 
     /// Лучшие `(bid, ask)` на метке `t`: состояние после последней локальной строки с `local_ts ≤ t`.

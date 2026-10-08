@@ -15,7 +15,7 @@ use hftbacktest::types::{
 };
 
 /// Строка локальной стороны: те же ветки, что `Local::process` крейта (глубина; сделки — в `trades`).
-fn apply_local(book: &mut FastMarketDepth, ev: &Event) {
+pub(super) fn apply_local(book: &mut FastMarketDepth, ev: &Event) {
     if ev.is(LOCAL_BID_DEPTH_CLEAR_EVENT) {
         book.clear_depth(Side::Buy, ev.px);
     } else if ev.is(LOCAL_ASK_DEPTH_CLEAR_EVENT) {
@@ -126,31 +126,50 @@ impl<'a> HoldTracker<'a> {
         if !self.clean || self.max_exch_ts > t {
             return None;
         }
-        let mut ecur = self.lcur;
-        while let Some(ev) = self.rows.get(ecur) {
-            if ev.is(EXCH_EVENT) && ev.exch_ts > t {
-                break;
-            }
-            ecur += 1;
+        Some(finish_handoff(
+            self.rows,
+            self.lcur,
+            DepthSnapshot::of(&self.book),
+            t,
+            tick_size,
+            lot_size,
+        ))
+    }
+}
+
+/// Хвост `handoff`: биржевая книга и `middle` из локальной книги `local` на курсоре `lcur` (общий для `HoldTracker`
+/// и `HoldIdx`).
+pub(super) fn finish_handoff(
+    rows: &[Event],
+    lcur: usize,
+    local: DepthSnapshot,
+    t: i64,
+    tick_size: f64,
+    lot_size: f64,
+) -> FastHandoff {
+    let mut ecur = lcur;
+    while let Some(ev) = rows.get(ecur) {
+        if ev.is(EXCH_EVENT) && ev.exch_ts > t {
+            break;
         }
-        let local = DepthSnapshot::of(&self.book);
-        let mut exch_book = local.build(tick_size, lot_size);
-        let mut middle = Vec::new();
-        for ev in &self.rows[self.lcur..ecur] {
-            apply_exch(&mut exch_book, ev);
-            if ev.is(LOCAL_EVENT) {
-                let mut e = ev.clone();
-                e.ev &= !EXCH_EVENT;
-                middle.push(e);
-            }
+        ecur += 1;
+    }
+    let mut exch_book = local.build(tick_size, lot_size);
+    let mut middle = Vec::new();
+    for ev in &rows[lcur..ecur] {
+        apply_exch(&mut exch_book, ev);
+        if ev.is(LOCAL_EVENT) {
+            let mut e = ev.clone();
+            e.ev &= !EXCH_EVENT;
+            middle.push(e);
         }
-        Some(FastHandoff {
-            t_ns: t,
-            local,
-            exch: DepthSnapshot::of(&exch_book),
-            middle,
-            tail_start: ecur,
-        })
+    }
+    FastHandoff {
+        t_ns: t,
+        local,
+        exch: DepthSnapshot::of(&exch_book),
+        middle,
+        tail_start: ecur,
     }
 }
 

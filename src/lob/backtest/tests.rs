@@ -2650,7 +2650,7 @@ fn hold_index_matches_tracker() {
         x % m
     };
     let mut ts = 1_000_000_i64;
-    for _ in 0..400 {
+    for _ in 0..9000 {
         ts += 1 + rnd(30_000_000) as i64;
         let px = 100.0 + rnd(9) as f64;
         let qty = if rnd(4) == 0 {
@@ -2670,6 +2670,7 @@ fn hold_index_matches_tracker() {
     let snap = DepthSnapshot::of(&base);
     let idx = HoldIdx::build(&rows, 0, &snap, 1.0, 1.0).expect("лента без очисток");
     let mut tr = HoldTracker::new(&rows, 0, base);
+    let mut handoffs = 0;
     let mut t0 = 0;
     let mut t = 0;
     while t < ts + 20_000_000 {
@@ -2710,7 +2711,26 @@ fn hold_index_matches_tracker() {
                 assert_eq!(got, want, "trades {tick} sell={sell} t={t}");
             }
         }
+        if (t / 10_000_000) % 37 == 0 {
+            let want = tr.handoff(t, 1.0, 1.0);
+            let got = idx.handoff(&rows, 0, t, 1.0, 1.0);
+            assert_eq!(want.is_some(), got.is_some(), "handoff t={t}");
+            if let (Some(w), Some(g)) = (want, got) {
+                assert_eq!((w.t_ns, w.tail_start), (g.t_ns, g.tail_start), "t={t}");
+                assert_eq!(w.local, g.local, "local t={t}");
+                assert_eq!(w.exch, g.exch, "exch t={t}");
+                assert_eq!(w.middle.len(), g.middle.len(), "middle t={t}");
+                for (x, y) in w.middle.iter().zip(&g.middle) {
+                    assert_eq!(
+                        (x.ev, x.local_ts, x.px, x.qty),
+                        (y.ev, y.local_ts, y.px, y.qty)
+                    );
+                }
+                handoffs += 1;
+            }
+        }
         tr.take_trades().for_each(drop);
         t0 = t;
     }
+    assert!(handoffs > 50, "handoff сравнён {handoffs} раз");
 }
