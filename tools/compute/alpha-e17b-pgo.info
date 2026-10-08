@@ -1,0 +1,7 @@
+alpha-e17b-pgo — боевой бинарник TK-048 (скорость волны), принят Судьёй 08.10 13:30 (веха ×5 янв+фев)
+исходник: коммит 15ecc1bd (Э-17: Quant — тик/лот без деления, откат на деление при невязке ≥ 0,25), цель x86-64-v3, сборка VPS tools/compute/tk051-build.sh
+бинарник md5: 83fab9c35148a04c5eefbbba758307af (/opt/alpha-compute/bin/alpha-e17b-pgo на VPS и сервере счёта)
+PGO: gen-сборка alpha-e17b-gen (/opt/alpha-compute/bin), обучение /data/tk051/pgotrain-e17b.sh (stand atom d01 d07, флаги обёртки без ALPHA_APPROACH_BIN/TOUCH_BIN), сырьё /data/tk051/pgo-raw-e17b
+обёртка: tools/compute/alpha-e17p2flag.sh (= b24c0flag с этим бинарником; ALPHA_APPROACH_BIN_DIR обязателен)
+замер: chain96/97, ABBA янв+фев 59 сут (P=20, G=8): стена 613,3/616,7 и 617,9/616,1 с (худший ×5,07 от 3 135), ЦП юнита −8,4 / −8,0 % против b24c0flag, gate 43 011 diff 0 ×8, откатов Quant 0 из 6,27·10⁹
+правило: профиль PGO переобучать при каждой правке горячего кода (урок chain95: устаревший профиль съел выигрыш)
