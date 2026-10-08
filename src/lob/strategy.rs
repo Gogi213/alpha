@@ -430,6 +430,21 @@ pub enum TradePlan {
 /// R2 (TK-065) собирается только с feature `r2` (исследовательский бинарник); боевой PGO-бинарник — без неё.
 pub const R2: bool = cfg!(feature = "r2");
 
+/// G3б (TK-065): трасса решений R2 в stderr при `ALPHA_R2_TRACE=1`; только исследовательская сборка `r2`.
+#[cfg(feature = "r2")]
+macro_rules! r2_trace {
+    ($ts:expr, $($arg:tt)*) => {{
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ON.get_or_init(|| std::env::var_os("ALPHA_R2_TRACE").is_some()) {
+            eprintln!("R2T ts={} {}", $ts, format_args!($($arg)*));
+        }
+    }};
+}
+#[cfg(not(feature = "r2"))]
+macro_rules! r2_trace {
+    ($ts:expr, $($arg:tt)*) => {};
+}
+
 /// Доливка частями (R2-A): стена делится на `eat_parts` равных долей; при съедании `j/N` стены
 /// (`j = 1..N-1`) ставится добавка `Q0/N` (spec r2-spec §1 Г-94, `K = N − 1`). `0` — выключено.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1851,6 +1866,15 @@ impl StrategyState {
             self.add_base_qty = self.entry_qty;
             self.add_base_notional = self.entry_notional;
         }
+        r2_trace!(
+            bot.current_timestamp(),
+            "pyramid_add n={} eaten={} wall={} bid={} ask={}",
+            self.adds_done + 1,
+            self.eaten_qty,
+            wall,
+            bid,
+            ask
+        );
         let id = self.take_order_id();
         self.r2.get_or_insert_with(R2Bufs::boxed).add_ids[usize::from(self.adds_done)] = id;
         self.adds_done += 1;
@@ -2083,6 +2107,14 @@ impl StrategyState {
         if qty <= 0.0 {
             return Ok(());
         }
+        r2_trace!(
+            bot.current_timestamp(),
+            "reinstall_add n={} qty={} bid={} ask={}",
+            self.adds_done + 1,
+            qty,
+            bid,
+            ask
+        );
         let id = self.take_order_id();
         self.r2.get_or_insert_with(R2Bufs::boxed).add_ids[usize::from(self.adds_done)] = id;
         self.adds_done += 1;
@@ -2563,7 +2595,18 @@ where
             );
             let mut gone = gone;
             if pyr.reinstall_n > 0 {
+                let before = gone.stop_px;
                 gone.stop_px = state.reinstall_stop(entry_side, entry_px, favourable, gone.stop_px);
+                if gone.stop_px != before {
+                    r2_trace!(
+                        bot.current_timestamp(),
+                        "stop_move {} -> {} bid={} ask={}",
+                        before,
+                        gone.stop_px,
+                        bid,
+                        ask
+                    );
+                }
             }
             let (stop_hit, take_hit) = match entry_side {
                 HbtSide::Buy => (bid <= gone.stop_px, bid >= take_px),
@@ -2698,6 +2741,15 @@ where
         reason,
         frac,
     } = decision;
+    r2_trace!(
+        bot.current_timestamp(),
+        "exit reason={:?} px={} taker={} frac={} adds={}",
+        reason,
+        px,
+        taker,
+        frac,
+        state.adds_done
+    );
     let order_id = state.take_order_id();
     // Размер выхода — **своя позиция круга** (F4, В-78), а не плановый
     // размер: вход может исполниться частично (модель очереди по
