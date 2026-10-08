@@ -91,8 +91,7 @@ pub static BAND_STATS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 /// По умолчанию `DEPTH_ROW_BANDS` не считается (атомарный `fetch_add` на каждое обновление — диагностика, ≈2–3 % ЦП);
 /// строка печатается только под `ALPHA_ATTEMPT_STATS`, там счёт включён всегда. `ALPHA_BAND_COUNT_OFF=0` — включить счёт
 /// без остальной статистики (TK-048, 08.10: умолчание перевёрнуто; `=1` прежних обёрток остаётся no-op).
-pub static BAND_COUNT_OFF: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
+pub static BAND_COUNT_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 thread_local! {
     static WATCH_TICK: std::cell::Cell<i64> = const { std::cell::Cell::new(i64::MIN) };
