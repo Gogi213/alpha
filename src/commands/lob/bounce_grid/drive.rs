@@ -277,6 +277,16 @@ fn exit_groups(
         }
     }
     eprintln!("bounce-grid:   группы выходов: групповых кругов {rounds}");
+    if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
+        let d: Vec<u64> = crate::lob::backtest::EXIT_GROUP_DIAG
+            .iter()
+            .map(|a| a.load(std::sync::atomic::Ordering::Relaxed))
+            .collect();
+        eprintln!(
+            "bounce-grid:   группы выходов (разбор, нарастающим итогом): сигналов {} в памяти {} частей {} частей≥2 {} без круга {}",
+            d[0], d[1], d[2], d[3], d[4]
+        );
+    }
     Ok(())
 }
 

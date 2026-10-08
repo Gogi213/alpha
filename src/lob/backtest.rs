@@ -3584,6 +3584,20 @@ fn group_round_in_window<R: EventRows + ?Sized>(
 /// Групповых кругов Э-08 — счётчик процесса для тестов; на итог не влияет.
 pub static EXIT_GROUP_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Разбор нулевых групповых кругов (TK-048, печатается под `ALPHA_ATTEMPT_STATS`): [сигналов-участников,
+/// уже в памяти, частей с равной входной частью, частей из ≥ 2, из них круг не получился (`None`)].
+pub static EXIT_GROUP_DIAG: [std::sync::atomic::AtomicU64; 5] = [
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+];
+
+fn diag_add(i: usize, n: u64) {
+    EXIT_GROUP_DIAG[i].fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Э-08 («один проход на вход», план принят Судьёй, reviews/e08-exit-group-plan-2026-09-27.md): круги
 /// группы форм считаются заранее одним движком на сигнал и кладутся в память кругов каждой формы — потом
 /// обычный драйвер (`drive_bounce_windowed_memo`) берёт их оттуда. Группа на сигнале — формы с равными
@@ -3617,8 +3631,10 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
     let mut buf: Vec<Event> = Vec::new();
     for members in by_t0.values() {
         let mut parts: Vec<Vec<(usize, BounceSignal)>> = Vec::new();
+        diag_add(0, members.len() as u64);
         for &(k, sig) in members {
             if memos[k].contains(&sig, OrphanCarry::NONE) {
+                diag_add(1, 1);
                 continue;
             }
             let key = (sig.sigma, sig.qty, entry_part(sig.plan));
@@ -3630,12 +3646,15 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
                 None => parts.push(vec![(k, sig)]),
             }
         }
+        diag_add(2, parts.len() as u64);
         for part in parts.into_iter().filter(|g| g.len() > 1) {
+            diag_add(3, 1);
             let rep = part[0].1;
             let plans: Vec<TradePlan> = part.iter().map(|(_, s)| s.plan).collect();
             let Some(steps) =
                 group_round_in_window(events, windows, &rep, &plans, cfg, exec_latency, &mut buf)?
             else {
+                diag_add(4, 1);
                 continue;
             };
             groups += 1;
