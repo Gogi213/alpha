@@ -74,20 +74,49 @@ R2NO = {"Г-21": _n + "пробой стены = шорт (О, отложено 
         "Г-84": _n + "окно максимума и таймфрейм MACD источником не заданы", "Г-99": _n + "вероятность исполнения только в модели очереди бэктеста, в живом боте нет (A1)",
         "Г-101": _n + "не R2: стоп/тейк в σ уже В-62, режим BTC — фильтр B1; асимметрия без чисел", "Г-125": _n + "не кодируется (r2-spec §1c)"}
 R2WAIT = {"Г-112", "Г-116", "Г-132", "Г-106", "Г-133", "Г-65"}
+def final_verdict(vs, status):
+    """Итоговый вердикт Судьи по прогонам (последний по дате; одинаковые записи на разные прогоны одного отчёта — одна) + отдельно методика; нет записи — слово из статуса пула, помеченное как не запись Судьи."""
+    ok = [v for v in vs if v[1] != "см. текст"]
+    key = lambda v: (v[3], v[1], v[0], os.path.basename(v[2] or ""))
+    runv = sorted({key(v) for v in ok if v[4]}, reverse=True)
+    meth = sorted({key(v) for v in ok if not v[4]}, reverse=True)
+    out = []
+    if runv:
+        d, vd, j, rv = runv[0]; out.append(f"{vd} ({j}, {d}, {rv})")
+        old = sorted({x[1] for x in runv[1:] if x[1] != vd})
+        if old: out.append("ранее: " + ", ".join(old))
+    if meth:
+        d, vd, j, rv = meth[0]; out.append(f"методика: {vd} ({j}, {d}, {rv})")
+    if not runv:
+        m = re.search(r"\*\*([^*]+)\*\*", status or "")
+        if m: out.append(f"по статусу пула 25.09, записи Судьи в Летописи нет: {m.group(1)}")
+    return "; ".join(out)
 rows = []
 for h in hyps:
     i = h["id"]
     # клетки гипотезы: прямая привязка клетка<->гипотеза, либо через прогоны hyp
+    # TK-089 (Судья 08.10): метка клетки (run_cells.hyp_id) главнее прогона — прогон-«зонтик» (TK-040 b14, 243 клетки) не делает все клетки клетками гипотезы
     cells = {c for (c,) in q("select cell_id from run_cells where hyp_id=?", i)}
     runs = {r for (r,) in q("select run_id from run_hypotheses where hyp_id=?", i)}
-    for r in runs:
-        cells |= {c for (c,) in q("select cell_id from run_cells where run_id=?", r)}
+    if not cells:
+        for r in runs:
+            cells |= {c for (c,) in q("select cell_id from run_cells where run_id=?", r)}
     mon = sorted({m for c in cells for (m,) in q("select distinct month from results where cell_id=?", c)}) if cells else []
     grid = ""
     if cells:
         k = {tuple(x) for c in cells for x in q("select form,set_name,entry_bps,stop_bps,take_bps,deadline_s from cells where id=?", c)}
         grid = f"{len(cells)} клеток" + (f"; стопы {sorted({x[3] for x in k if x[3] is not None})}" if len({x[3] for x in k}) > 1 else "")
-    note = ""
+        if len(cells) <= 3:  # клетки с меткой гипотезы: форма/набор и сделки/$ по месяцам прямо из results (Судья 08.10: «весь период» доказывается числами)
+            parts = []
+            for c in sorted(cells):
+                fm = q("select form,set_name from cells where id=?", c)[0]
+                rs = q("select month,trades,pnl_usd,run_id from results where cell_id=? order by month", c)
+                tr = ",".join(f"{m[5:]}:{n}" for m, n, _, _ in rs)
+                tot = sum(x[2] or 0 for x in rs)
+                parts.append(f"{fm[0]} / {fm[1]}: сделок по месяцам {tr}; Σ ${tot:+.0f}; {rs[0][3]}" if rs else f"{fm[0]} / {fm[1]}: результатов нет")
+            grid = f"{len(cells)} клетка(и): " + " | ".join(p_.split(";")[0] for p_ in parts)
+            note = "; ".join(parts)
+    note = note if cells and len(cells) <= 3 else ""
     if i in r2info:
         ms, nf, lo, hi, pos, alo, ahi, bs, apos = r2info[i]
         mon = sorted(set(mon) | set(ms)); grid = f"{nf} клеток R2 (TK-065)"
@@ -114,8 +143,8 @@ for h in hyps:
     if cls_inv(i) == "R2" and i not in r2info:
         if i in R2NO: note = R2NO[i]
         elif i in R2WAIT: note = "R2: код в кандидате TK-065 (86aa821e), клетки по спецификации §1b–1d; гейт G1 март идёт (/data/tk065/gchain.done), пул 10 мес не считан"
-    vs = q("select judge,verdict,review_path,ts from verdicts where hyp_id=?", i)
-    ver = "; ".join(f"{v[1]} ({v[0]}, {v[3]})" for v in vs if v[1] != "см. текст") or ""
+    vs = q("select judge,verdict,review_path,ts,run_id from verdicts where hyp_id=?", i)
+    ver = final_verdict(vs, h["ext"].get("status_pool_0925", ""))
     miss = [m for m in MONTHS if m not in mon]
     cls = inv.get(i, {}).get("класс_TK024", "")
     where = inv.get(i, {}).get("где_или_что_нужно", "")
