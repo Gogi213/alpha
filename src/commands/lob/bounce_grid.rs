@@ -275,6 +275,7 @@ fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSumm
     if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
         crate::lob::backtest::fast_depth::BAND_STATS_ON
             .store(true, std::sync::atomic::Ordering::Relaxed);
+        hftbacktest::prof::ROW_CLASS_ON.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     if std::env::var_os("ALPHA_BAND_COUNT_OFF").is_some_and(|v| v == "0") {
         crate::lob::backtest::fast_depth::BAND_COUNT_OFF
@@ -1211,6 +1212,10 @@ impl<'a> GridRun<'a> {
                     eprintln!(
                         "bounce-grid:   дошли по часам (local_ts <= now, 0/1/2/3+): {}",
                         g(&ATTEMPT_USED)
+                    );
+                    eprintln!(
+                        "bounce-grid:   строки движка по состоянию (до входа/живая заявка/позиция без заявок/вне шага, обе стороны): {}",
+                        g(&crate::lob::backtest::ROW_CLASSES)
                     );
                     eprintln!(
                         "bounce-grid:   шаги кругов (без заявок/с заявками/прыжок, нарастающим итогом): {}",

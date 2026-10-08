@@ -656,6 +656,7 @@ impl<P: Processor> BacktestProcessorState<P> {
 
             for rn in start..self.data.len() {
                 if let Some(ts) = self.processor.event_seen_timestamp(&self.data[rn]) {
+                    crate::prof::add_rows((rn + 1 - start) as u64);
                     self.row = Some(rn);
                     return Ok(ts);
                 }

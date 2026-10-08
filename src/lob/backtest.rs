@@ -1621,6 +1621,11 @@ where
             }
             _ => None,
         };
+        hftbacktest::prof::set_row_class(if has_open_orders(bot, asset_no) {
+            1
+        } else {
+            usize::from(state.is_holding()) * 2
+        });
         let stepped = match (wakeup, skip_cap) {
             _ if skip_step => ElapseResult::Ok,
             (Some(th), Some(cap)) => {
@@ -1634,6 +1639,7 @@ where
                 bot.elapse(ON_EVENT_POLL_STEP_NS)?
             }
         };
+        hftbacktest::prof::set_row_class(3);
         if stepped == ElapseResult::EndOfData {
             // Хвост записи: круг неполон, `Fill` не строится — вердикт пути
             // исполнения не нужен.
@@ -2988,8 +2994,16 @@ impl SigMemo {
     }
 }
 
+/// Строки, прочитанные процессорами движка, по состоянию круга (до входа / живая заявка / позиция без заявок /
+/// вне шага опроса) — замер TK-048; каждая строка читается двумя процессорами (local, exch), доли те же.
+pub static ROW_CLASSES: [std::sync::atomic::AtomicU64; 4] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+
 fn note_used(attempt: u32, rest: &[Event], now: i64) {
     if fast_depth::BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        for (a, n) in ROW_CLASSES.iter().zip(hftbacktest::prof::take_row_counts()) {
+            a.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+        }
         let used = rest.partition_point(|e| e.local_ts <= now);
         ATTEMPT_USED[(attempt as usize).min(3)]
             .fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);

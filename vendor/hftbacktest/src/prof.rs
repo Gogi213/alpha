@@ -32,3 +32,33 @@ pub fn timed<R>(_k: usize, f: impl FnOnce() -> R) -> R {
 pub fn snapshot() -> Vec<(u64, u64)> {
     (0..8).map(|i| (CYC[i].load(Relaxed), CNT[i].load(Relaxed))).collect()
 }
+
+/// Замер TK-048: строки, прочитанные процессорами движка (`advance`), по классу состояния круга (0 — до входа без
+/// заявок, 1 — есть живая заявка, 2 — позиция без заявок, 3 — вне шага опроса). Класс ставит драйвер alpha,
+/// счёт потоково-локальный и включён только `ROW_CLASS_ON` (под `ALPHA_ATTEMPT_STATS`); на итог не влияет.
+pub static ROW_CLASS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+thread_local! {
+    static ROW_CLS: std::cell::Cell<usize> = const { std::cell::Cell::new(3) };
+    static ROW_CNT: [std::cell::Cell<u64>; 4] = const { [const { std::cell::Cell::new(0) }; 4] };
+}
+
+#[inline(always)]
+pub fn set_row_class(c: usize) {
+    if ROW_CLASS_ON.load(Relaxed) {
+        ROW_CLS.with(|x| x.set(c));
+    }
+}
+
+#[inline(always)]
+pub fn add_rows(n: u64) {
+    if ROW_CLASS_ON.load(Relaxed) {
+        let c = ROW_CLS.with(std::cell::Cell::get);
+        ROW_CNT.with(|a| a[c].set(a[c].get() + n));
+    }
+}
+
+/// Забирает счёт потока (обнуляя).
+pub fn take_row_counts() -> [u64; 4] {
+    ROW_CNT.with(|a| std::array::from_fn(|i| a[i].replace(0)))
+}
