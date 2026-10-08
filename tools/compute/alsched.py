@@ -25,6 +25,10 @@ DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "16"))   # заданий н
 FREEZE_PAT = (os.environ["SCHED_PAT"].split(",") if os.environ.get("SCHED_PAT")   # SCHED_PAT — только для smoke
               else ["tk0*", "t4*", "t5*", "run-*", "tk048-*"])   # как benchrun2: всё, кроме alpha-*
 LEGACY_PAT = FREEZE_PAT
+PACK = os.environ.get("SCHED_PACK", "claim")   # claim (как было) | fact: пускать из очереди по факту ЦП/памяти, заявка --cores — нижняя оценка (TK-071 v2, п.1)
+FACT_BUSY = float(os.environ.get("SCHED_FACT_BUSY", "0.90"))      # старт сверх заявленных ядер, пока загрузка ЦП (EWMA 60 с) ниже этого
+FACT_SETTLE_S = int(os.environ.get("SCHED_FACT_SETTLE_S", "30"))  # между стартами по факту: новая задача набирает ЦП не сразу
+FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
 
 
 def mem_peak_gb():
@@ -61,8 +65,10 @@ def peak_counts(wall_s, gb, prev_gb):
 class Core:
     """Решения без побочных эффектов: be — бэкенд (systemd или макет)."""
 
-    def __init__(self, be, ncpu=NCPU, mem=MEM_GB, disk_slots=DISK_SLOTS):
+    def __init__(self, be, ncpu=NCPU, mem=MEM_GB, disk_slots=DISK_SLOTS, pack=None):
         self.be, self.ncpu, self.mem, self.slots = be, ncpu, mem, disk_slots
+        self.pack = pack or PACK
+        self.fact_t = -1e9
         self.jobs = {}
         self.frozen = False
         self.last = None
@@ -133,6 +139,8 @@ class Core:
                     j["prio"] = int(open(pj).read().strip())
                 except ValueError:
                     pass
+        fact = self.pack == "fact"
+        busy = be.busy_fact() if fact and hasattr(be, "busy_fact") else 1.0
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
@@ -140,7 +148,15 @@ class Core:
             room = len(free) - legacy
             disk_full = bool(self.slots and j["disk"] != "none"
                              and sum(1 for r in self.running("prod") if r["disk"] == j["disk"]) >= self.slots)
-            fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
+            if j.get("io") == "seq" and j["disk"] != "none"                     and any(r["disk"] == j["disk"] and r.get("io") == "seq" for r in self.running("prod")):
+                disk_full = True                          # п.2: HDD-тяжёлое последовательное чтение — не больше одного на диск
+            over = False
+            if fact:                                      # п.1: по факту — память: MemAvailable покрывает заявку и недобранное идущими
+                mem_ok = self.mem_fits(j)
+                over = room < j["cores"] and busy < FACT_BUSY and now - self.fact_t >= FACT_SETTLE_S and mem_ok
+                fits = (room >= j["cores"] or over) and mem_ok and not disk_full
+            else:
+                fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
             if fits and reserve is not None and j["max_runtime"] > reserve["shadow"] \
                     and (j["cores"] > reserve["cores"] or j["mem"] > reserve["mem"]):
                 fits = False                              # заняла бы место первой заявки и не успела бы до её старта
@@ -152,7 +168,13 @@ class Core:
             if reserve is not None and j["max_runtime"] > reserve["shadow"]:
                 reserve["cores"] -= j["cores"]
                 reserve["mem"] -= j["mem"]
-            j.update(state="running", t_start=now, cpus=free[: j["cores"]])
+            if over and room < j["cores"]:               # сверх заявленных: ядра с наименьшим числом заданий (пересечение допустимо)
+                self.fact_t = now
+                load = {c: sum(1 for r in self.running("prod") if c in r["cpus"]) for c in range(self.ncpu)}
+                cpus = sorted(sorted(range(self.ncpu), key=lambda c: (load[c], c))[: j["cores"]])
+            else:
+                cpus = free[: j["cores"]]
+            j.update(state="running", t_start=now, cpus=cpus)
             used |= set(j["cpus"])
             mem += j["mem"]
             be.start(j)
@@ -162,6 +184,12 @@ class Core:
         self.alert_underuse(now)
         self.alert_idle(now)
         self.log_util(now, legacy)
+
+    def mem_fits(self, j):
+        """Память не эластична: MemAvailable (в нём и tmpfs) покрывает заявку j и недобранное идущими до их заявки (max(заявка, факт))."""
+        av, _ = self.be.mem_state()
+        gap = sum(max(0.0, r["mem"] - (self.be.job_mem(r) if hasattr(self.be, "job_mem") else 0.0)) for r in self.running("prod"))
+        return av >= j["mem"] + gap + FACT_MEM_GAP_GB
 
     def preempt_for(self, head, room, now):
         """Вытеснение заморозкой (Slurm PreemptMode=SUSPEND): резерв не стартует за PREEMPT_S — замораживаем идущие заявки
@@ -348,6 +376,7 @@ class SystemdBackend:
         self._legacy_detail = {}
         self._last_own = {}
         self._peak = {}
+        self._memc = {}
 
     def now(self):
         return time.time()
@@ -383,6 +412,29 @@ class SystemdBackend:
         t0, i0 = getattr(self, "_hb", (tot, idle))
         self._hb = (tot, idle)
         return 1 - (idle - i0) / (tot - t0) if tot > t0 else 0.0
+
+    def busy_fact(self):
+        """Загрузка ЦП хоста для пакования по факту: EWMA с постоянной 60 с (отдельное состояние от host_busy)."""
+        v = [int(x) for x in open("/proc/stat").readline().split()[1:]]
+        tot, idle, t = sum(v), v[3] + v[4], time.time()
+        st = getattr(self, "_fb", None)
+        self._fb = (tot, idle, t, st[3] if st else 0.0)
+        if st is None or tot <= st[0]:
+            return self._fb[3]
+        inst = 1 - (idle - st[1]) / (tot - st[0])
+        a = 1 - math.exp(-(t - st[2]) / 60)
+        self._fb = (tot, idle, t, st[3] + a * (inst - st[3]))
+        return self._fb[3]
+
+    def job_mem(self, j):
+        """Факт памяти юнита, ГБ (MemoryCurrent; кэш 30 с)."""
+        c = self._memc.get(j["id"])
+        if c and time.time() - c[0] < 30:
+            return c[1]
+        r = sh("systemctl", "show", "-p", "MemoryCurrent", "--value", self.unit(j)).stdout.strip()
+        g = int(r) / 2**30 if r.isdigit() else 0.0
+        self._memc[j["id"]] = (time.time(), g)
+        return g
 
     def util_log(self, text):
         with open(f"{DIR}/util.log", "a") as f:
@@ -676,8 +728,9 @@ class SystemdBackend:
                 self._cpu[u] = int(cur)
             q = kv.get("CPUQuotaPerSecUSec", "infinity")
             quota = float(q[:-1]) if q.endswith("s") and q[:-1].replace(".", "").isdigit() else 0.0   # «12s» = 1200 %
-            self._legacy_detail[u] = max(used, quota)
-            tot += max(used, quota)       # голый юнит держит ядра по квоте (заморожен — всё равно держит), без квоты — по факту
+            held = used if PACK == "fact" else max(used, quota)     # fact: по факту, не по квоте (квота 12 при факте 1 не держит 11 пустых)
+            self._legacy_detail[u] = held
+            tot += held                   # claim: голый юнит держит ядра по квоте, без квоты — по факту
         self._legacy, self._t = tot, t
         return self._legacy
 
@@ -703,11 +756,11 @@ def parse_dur(s):
     return float(s[:-1]) * m[s[-1]] if s and s[-1] in m else float(s)
 
 
-def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5):
+def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io=""):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
     jid = time.strftime("%m%d%H%M%S") + f"{os.getpid() % 1000:03d}"
     j = dict(id=jid, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
-             prio=prio, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
+             prio=prio, io=io, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
     jobs = load_all()
     free = NCPU - sum(len(x.get("cpus", [])) for x in jobs if x["state"] == "running")
     w = warn_for(j, free, any(x["state"] == "queued" and x["cls"] == "prod" for x in jobs))
@@ -829,6 +882,7 @@ def main():
         p.add_argument("--cores", type=int, default=1)
         p.add_argument("--mem", type=int, default=8)
         p.add_argument("--disk", default="none")
+        p.add_argument("--io", default="", choices=["", "seq"], help="seq: HDD-тяжёлое последовательное чтение — не больше одного такого на диск")
         p.add_argument("--cwd", default=os.getcwd())
         p.add_argument("--prio", type=int, default=5)
         p.add_argument("--recompute", action="store_true", help="пересчитать уже посчитанное (нужен --why)")
@@ -838,7 +892,7 @@ def main():
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
-        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio)
+        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io)
         print(j["id"])
         return 0
     print(__doc__)

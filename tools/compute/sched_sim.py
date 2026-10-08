@@ -47,6 +47,9 @@ class SimBE:
     def win_begin(self, j): return None
     def win_end(self, j, s): return dict(ok=True, why=[])
 
+    def busy_fact(self):
+        return min(1.0, sum(self.cpu_rate.get(j, 0) for j, v in self.jobs.items() if v["left"] > 0 and j not in self.fz) / NCPU) if not self.frozen else 0.0
+
     def done(self, j):
         return 0 if self.jobs[j["id"]]["left"] <= 0 else None
 
@@ -132,6 +135,26 @@ def idle_case():
     return t_alert, [a for a in be.alerts if "очередь пуста" in a], quiet.alerts
 
 
+def fact_case(pack):
+    """v2 п.1: 12 заданий, заявлено 4 ядра, едят по 1; в claim идут 4 (16/4), в fact — все 12 (загрузка 12/16 < 0,9)."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56, pack=pack)
+    for i in range(12):
+        j = job("f%02d" % i, "f%d" % i, "prod", 4, 2, "none", 3600, 0)
+        core.add(j); be.cpu_rate[j["id"]] = 1
+    for _ in range(60):                                       # 5 мин
+        core.tick(); be.advance(core, S.TICK)
+    return len(core.running("prod"))
+
+
+def seq_case():
+    """v2 п.2: два seq на одном диске — второй ждёт; seq на другом диске и не-seq на том же — идут."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56)
+    for i, (d, io) in enumerate([("hdd1", "seq"), ("hdd1", "seq"), ("hdd2", "seq"), ("hdd1", "")]):
+        j = job("s%d" % i, "s%d" % i, "prod", 1, 2, d, 3600, 0); j["io"] = io; core.add(j)
+    core.tick()
+    return sorted(j["id"] for j in core.running("prod"))
+
+
 def run():
     be = SimBE()
     core = S.Core(be, ncpu=NCPU, mem=56, disk_slots=int(sys.argv[1]) if len(sys.argv) > 1 else 0)
@@ -210,6 +233,9 @@ def run():
     print(f"недогруз: сигнал на {tu} с (окно {S.UNDER_S}), только на «low»: {len(au) == 1}; пустая очередь при ждущих тикетах: сигнал на {ti} с, штук {len(ai)}, без тикетов тишина: {not aq}")
     ok = ok and tu is not None and S.UNDER_S <= tu <= S.UNDER_S + 2 * S.SAMPLE_S and len(au) == 1
     ok = ok and ti is not None and 600 + S.IDLE_S <= ti <= 600 + S.IDLE_S + 2 * S.TICK and len(ai) == 1 and not aq
+    nc, nf, sq = fact_case("claim"), fact_case("fact"), seq_case()
+    print(f"v2 пакование: заявка 4 ядра, факт 1 — claim идут {nc}, fact идут {nf}; seq-диск: идут {sq}")
+    ok = ok and nc == 4 and nf == 12 and sq == ["s0", "s2", "s3"]
     print("ГЕЙТ:", "ок" if ok else "ПРОВАЛ")
     return 0 if ok else 1
 
