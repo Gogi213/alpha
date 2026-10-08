@@ -3009,6 +3009,32 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// Горизонт развёртки попытки `attempt` для полного горизонта `span_full` (Р6). Умолчание: нулевая — не дальше
+/// `FIRST_HORIZON_NS`, первая сразу полный, дальше удвоение. `ALPHA_HORIZON_GROW=1` (TK-048): удвоение от
+/// `FIRST_HORIZON_NS` (300, 600, 1200 с…), но не больше умолчательного для той же попытки — круг, кончающийся
+/// за минуты после первой попытки, не разворачивается на часы. Точность от значения не зависит (проверка
+/// конца данных пересчитывает круг), только время.
+fn attempt_span_ns(span_full: i64, attempt: u32) -> i64 {
+    let default = match attempt {
+        0 => span_full.min(FIRST_HORIZON_NS),
+        a => span_full
+            .checked_shl(a - 1)
+            .filter(|v| *v > 0)
+            .unwrap_or(i64::MAX),
+    };
+    if attempt == 0 || !horizon_grow() {
+        return default;
+    }
+    1i64.checked_shl(attempt)
+        .and_then(|m| FIRST_HORIZON_NS.checked_mul(m))
+        .map_or(default, |v| v.min(default))
+}
+
+fn horizon_grow() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_HORIZON_GROW").is_some_and(|v| v == "1"))
+}
+
 fn horizon_span_ns(plan: &TradePlan) -> i64 {
     #[cfg(test)]
     if let Some(v) = HORIZON_SPAN_OVERRIDE_NS.with(std::cell::Cell::get) {
@@ -3489,13 +3515,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
         let (rest, whole_tail): (&[Event], bool) = match events.as_events() {
             Some(all) => (&all[w.start..], true),
             None => {
-                let span = match attempt {
-                    0 => span_full.min(FIRST_HORIZON_NS),
-                    a => span_full
-                        .checked_shl(a - 1)
-                        .filter(|v| *v > 0)
-                        .unwrap_or(i64::MAX),
-                };
+                let span = attempt_span_ns(span_full, attempt);
                 let until = rep.t0_ns.saturating_add(span);
                 buf.clear();
                 let mut i = start;
@@ -3671,14 +3691,7 @@ fn windowed_with<R: EventRows + ?Sized>(
             let (rest, whole_tail): (&[Event], bool) = match events.as_events() {
                 Some(all) => (&all[w.start..], true),
                 None => {
-                    let span = horizon_span_ns(&sig.plan);
-                    let span = match attempt {
-                        0 => span.min(FIRST_HORIZON_NS),
-                        a => span
-                            .checked_shl(a - 1)
-                            .filter(|v| *v > 0)
-                            .unwrap_or(i64::MAX),
-                    };
+                    let span = attempt_span_ns(horizon_span_ns(&sig.plan), attempt);
                     let until = sig.t0_ns.saturating_add(span);
                     buf.clear();
                     let mut i = start;
