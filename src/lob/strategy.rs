@@ -2825,15 +2825,25 @@ where
         ask,
         entry_side,
     };
-    state.pyramid_account(bot);
+    // R2 (TK-065): четыре вызова `pyramid_*` на каждом событии удержания при выключенной доливке — только
+    // накладные (PGO: +14 % инструкций d15); при `!pyramid_on()` все четыре — пустые (`adds_done == 0`,
+    // `eat_parts == 0`, `reinst_trigger` ставится только при `reinstall_n/newwall_k > 0`).
+    let pyr = state.pyramid_on();
+    if pyr {
+        state.pyramid_account(bot);
+    }
     match decide_exit(bot, state, entry_ns, now, quotes, true) {
         Some(decision) => {
-            state.pyramid_release(bot)?;
+            if pyr {
+                state.pyramid_release(bot)?;
+            }
             submit_exit(bot, state, entry_ns, exit_side, decision)
         }
         None => {
-            state.pyramid_step(bot, bid, ask, entry_side)?;
-            state.pyramid_reinstall_step(bot, bid, ask, entry_side)?;
+            if pyr {
+                state.pyramid_step(bot, bid, ask, entry_side)?;
+                state.pyramid_reinstall_step(bot, bid, ask, entry_side)?;
+            }
             Ok(Action::Idle)
         }
     }
