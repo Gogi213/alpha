@@ -1302,6 +1302,20 @@ impl StrategyState {
         }
     }
 
+    /// Средняя цена **базового** входа: пока добавок нет — общая; после — снимок до первой добавки
+    /// (спека R2 §0: сдвиг стопа/тейка/трейла идёт по ногам базового входа, добавки его не двигают).
+    fn base_entry_vwap(&self) -> Option<f64> {
+        if self.adds_done > 0 {
+            if self.add_base_qty > 0.0 {
+                Some(self.add_base_notional / self.add_base_qty)
+            } else {
+                None
+            }
+        } else {
+            self.entry_vwap()
+        }
+    }
+
     /// Зачитать исполнение ног входа в состояние (`first_id .. first_id+legs`) —
     /// накопленный объём и стоимость исполненного. Возвращает снимок: по
     /// `open` решается, жив ли ещё вход. После входа числа заморожены — ордера
@@ -2504,7 +2518,9 @@ where
             // расстояниями от входа. Сдвиг — целое число тиков
             // (`level_shift`), при полном исполнении по плановой цене
             // он ноль и числа прежних прогонов не меняются.
-            let shift = level_shift(state.entry_vwap(), entry_px, tick_px);
+            let shift = level_shift(state.base_entry_vwap(), entry_px, tick_px);
+            // Г-92: безубыток — от средней по всем ордерам (та же округлённая к тику формула).
+            let be_entry_px = entry_px + level_shift(state.entry_vwap(), entry_px, tick_px);
             let (stop_px, take_px, entry_px) = (stop_px + shift, take_px + shift, entry_px + shift);
             let pyr = match state.plan {
                 TradePlan::Bounce { pyramid, .. } => pyramid.eff(),
@@ -2596,7 +2612,8 @@ where
             let mut gone = gone;
             if pyr.reinstall_n > 0 {
                 let before = gone.stop_px;
-                gone.stop_px = state.reinstall_stop(entry_side, entry_px, favourable, gone.stop_px);
+                gone.stop_px =
+                    state.reinstall_stop(entry_side, be_entry_px, favourable, gone.stop_px);
                 if gone.stop_px != before {
                     r2_trace!(
                         bot.current_timestamp(),

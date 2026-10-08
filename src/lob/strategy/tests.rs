@@ -3243,6 +3243,32 @@ fn pyr_state(parts: u8, eaten: f64) -> (Backtest<FastMarketDepth>, StrategyState
 
 #[test]
 #[cfg(feature = "r2")]
+fn level_shift_follows_the_base_entry_not_the_adds_but_breakeven_follows_all_orders() {
+    // База 9 @ 100, добавка 3 @ 96: общая средняя 99, база 100; тик 0,5.
+    let (_hbt, mut state) = pyr_state(3, 11.0);
+    state.adds_done = 1;
+    state.add_base_qty = 9.0;
+    state.add_base_notional = 900.0;
+    state.entry_qty = 12.0;
+    state.entry_notional = 900.0 + 3.0 * 96.0;
+    let (base, all) = (state.base_entry_vwap(), state.entry_vwap());
+    assert!(
+        close(level_shift(base, 100.0, 0.5), 0.0),
+        "стоп/тейк на месте"
+    );
+    assert!(
+        close(level_shift(all, 100.0, 0.5), -1.0),
+        "общая средняя сдвинулась на 2 тика — безубыток считается от неё"
+    );
+    state.adds_done = 0;
+    assert!(
+        close(level_shift(state.base_entry_vwap(), 100.0, 0.5), -1.0),
+        "без добавок база = общая средняя"
+    );
+}
+
+#[test]
+#[cfg(feature = "r2")]
 fn fresh_entry_is_one_part_floored_to_the_lot_and_adds_are_q0_over_n() {
     let mut plan = pyr_plan(3);
     if let TradePlan::Bounce {
