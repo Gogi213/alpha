@@ -71,6 +71,7 @@ class Core:
         self.pack = pack or PACK
         self.fact_t = -1e9
         self.jobs = {}
+        self.iso = set()                                  # ядра изолированного замера: производству недоступны
         self.frozen = False
         self.last = None
         self.snaps = {}
@@ -95,6 +96,7 @@ class Core:
                 j["active_s"] = j.get("active_s", 0) + dt
             if j["active_s"] > j["max_runtime"]:
                 be.kill(j)
+        self.iso = {c for j in self.running("measure") for c in j.get("iso_cpus", [])}   # ядра изолированного замера (п.3)
         for j in self.running("measure"):                 # замер не замораживается: бюджет = стена
             if now - j["t_start"] > j["max_runtime"]:
                 be.kill(j)
@@ -105,14 +107,30 @@ class Core:
                 rc = be.done(j)
                 if rc is not None:
                     j.update(state="done", rc=rc, t_end=now, cpus=[])
+                    if j.get("iso_cpus") and hasattr(be, "iso_end"):
+                        be.iso_end()
+                        self.iso = set()
                     if j["cls"] == "measure" and j["id"] in self.snaps:
                         j["valid"] = be.win_end(j, self.snaps.pop(j["id"]))
-        if self.running("measure"):
+        ms = self.running("measure")
+        if any(not j.get("iso") for j in ms):
             self.log_util(now, 0)                         # окно видно в util.log: measure=1 раз в минуту
             return
         mq = sorted((j for j in self.jobs.values() if j["state"] == "queued" and j["cls"] == "measure"),
                     key=lambda j: j["t_submit"])
-        if mq:
+        if mq and mq[0].get("iso") and not ms and not self.frozen:
+            j = mq[0]                                     # п.3: замер на K физ. ядрах, производство идёт на остальных, без заморозки
+            cpus = be.iso_cpus(j["iso"])
+            av, su = be.mem_state()
+            risk = mem_risk(av, su, 0.0)
+            if risk:
+                be.alert(f"память перед изолированным окном {j['id']} {j['name']}: " + "; ".join(risk))
+            be.iso_begin(cpus)
+            j.update(state="running", t_start=now, cpus=cpus, iso_cpus=cpus)
+            self.iso = set(cpus)
+            self.snaps[j["id"]] = be.win_begin(j)
+            be.start(j)
+        elif mq and not mq[0].get("iso") and not ms:
             if not self.frozen:
                 be.freeze_all()
                 self.frozen = True
@@ -132,7 +150,7 @@ class Core:
             for j in self.running("prod"):
                 be.extend(j, j["max_runtime"] - j.get("active_s", 0))
         self.thaw_victims()
-        used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]}
+        used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]} | self.iso
         mem = sum(j["mem"] for j in self.running("prod"))
         legacy = math.ceil(be.legacy_busy())
         for j in self.jobs.values():                      # приоритет можно менять на ходу: prio/<id> (alsched.py reprio)
@@ -143,7 +161,8 @@ class Core:
                 except ValueError:
                     pass
         fact = self.pack == "fact"
-        busy = be.busy_fact() if fact and hasattr(be, "busy_fact") else 1.0
+        ncp = self.ncpu - len(self.iso)                   # П1: загрузка и ёмкость — по ядрам, доступным производству
+        busy = (be.busy_fact(self.iso) if self.iso else be.busy_fact()) if fact and hasattr(be, "busy_fact") else 1.0
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
@@ -158,7 +177,7 @@ class Core:
             if fact:                                      # п.1: по факту — память: MemAvailable покрывает заявку и недобранное идущими
                 mem_ok = self.mem_fits(j)
                 over = (room < j["cores"] and now - self.fact_t >= FACT_SETTLE_S and mem_ok
-                        and busy * self.ncpu + self.ramp(now) + j["cores"] <= FACT_BUSY * self.ncpu)
+                        and busy * ncp + self.ramp(now) + j["cores"] <= FACT_BUSY * ncp)
                 fits = (room >= j["cores"] or over) and mem_ok and not disk_full
             else:
                 fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
@@ -427,9 +446,22 @@ class SystemdBackend:
         self._hb = (tot, idle)
         return 1 - (idle - i0) / (tot - t0) if tot > t0 else 0.0
 
-    def busy_fact(self):
-        """Загрузка ЦП хоста для пакования по факту: EWMA с постоянной 60 с (отдельное состояние от host_busy)."""
-        v = [int(x) for x in open("/proc/stat").readline().split()[1:]]
+    @staticmethod
+    def stat_cpus(skip=()):
+        """Сумма /proc/stat по ядрам без skip (по-ядерные строки cpuN); пусто skip — общая строка cpu."""
+        if not skip:
+            return [int(x) for x in open("/proc/stat").readline().split()[1:]]
+        tot = None
+        for l in open("/proc/stat"):
+            k = l.split()
+            if k[0].startswith("cpu") and k[0] != "cpu" and int(k[0][3:]) not in skip:
+                v = [int(x) for x in k[1:]]
+                tot = v if tot is None else [a + b for a, b in zip(tot, v)]
+        return tot
+
+    def busy_fact(self, skip=()):
+        """Загрузка ЦП хоста для пакования по факту: EWMA с постоянной 60 с (отдельное состояние от host_busy); skip — ядра замера."""
+        v = self.stat_cpus(skip)
         tot, idle, t = sum(v), v[3] + v[4], time.time()
         st = getattr(self, "_fb", None)
         self._fb = (tot, idle, t, st[3] if st else 0.0)
@@ -467,6 +499,7 @@ class SystemdBackend:
         os.makedirs(f"{DIR}/logs", exist_ok=True)
         os.makedirs(f"{DIR}/rc", exist_ok=True)
         cpus = ",".join(map(str, range(NCPU) if j.get("unpinned") else j["cpus"]))
+        iso = bool(j.get("iso_cpus"))
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
         fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; }} "
                f"> {DIR}/own/{j['id']} 2>/dev/null; ")
@@ -474,14 +507,17 @@ class SystemdBackend:
         inner = f"{pre}{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
         if j["cls"] == "measure":
             self.arm_failsafe(j["max_runtime"] + 2 * TICK)
+        mem_p = ["-p", f"MemoryMin={j['mem']}G"] if iso else []        # П4: замеряемого защищаем, соседей не душим
         sl = ["-p", f"Slice={self.slice(j)}"] if j["cls"] == "measure" else []
         r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", *sl, f"--working-directory={j['cwd']}",
                "-p", f"RuntimeMaxSec={int(j['max_runtime'])}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
                "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", "MemorySwapMax=0", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') else len(j['cpus']) * 100}%",
                "-p", f"StandardOutput=append:{DIR}/logs/{j['id']}.log", "-p", "StandardError=inherit",
-               "bash", "-c", inner)
+               *mem_p, "bash", "-c", inner)
         if r.returncode:
             open(f"{DIR}/rc/{j['id']}", "w").write("125\n")
+        elif iso:       # вложенные юниты волны живут в слайсе замера: ядра и своп — на слайс
+            sh("systemctl", "set-property", "--runtime", self.slice(j), f"AllowedCPUs={cpus}", "MemorySwapMax=0")
 
     def kill(self, j):
         sh("systemctl", "stop", self.unit(j))
@@ -497,6 +533,21 @@ class SystemdBackend:
         sh("systemctl", "stop", "alpha-sm-failsafe.timer")
         sh("systemd-run", "--unit=alpha-sm-failsafe", "--collect", f"--on-active={int(secs)}s",
            "-E", f"SCHED_DIR={DIR}", "python3", os.path.abspath(__file__), "thaw")
+
+    @staticmethod
+    def cpu_cores(cpus):
+        """ЦП-секунды (без idle/iowait) по перечисленным ядрам — /proc/stat cpuN."""
+        t = 0
+        for l in open("/proc/stat"):
+            k = l.split()
+            if k[0].startswith("cpu") and k[0] != "cpu" and int(k[0][3:]) in cpus:
+                v = [int(x) for x in k[1:]]
+                t += sum(v) - v[3] - v[4]
+        return t / os.sysconf("SC_CLK_TCK")
+
+    @staticmethod
+    def oom_kills():
+        return sum(int(l.split()[1]) for l in open("/proc/vmstat") if l.startswith("oom_kill "))
 
     def cpu_host(self):
         f = open("/proc/stat").readline().split()[1:]
@@ -629,7 +680,8 @@ class SystemdBackend:
 
     def win_begin(self, j):
         b, n = self.disk_host()
-        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)), dcpu=self.daemon_cpu(), cg=self.cg_io(), swap=self.swap_pages())
+        iso = j.get("iso_cpus")
+        return dict(t=time.time(), cpu=self.cpu_cores(iso) if iso else self.cpu_host(), disk=b, ios=n, units=set() if iso else set(self.foreign_units(j)), dcpu=self.daemon_cpu(), cg=self.cg_io(), swap=self.swap_pages(), oom=self.oom_kills())
 
     def win_end(self, j, s0):
         t1 = time.time()
@@ -639,11 +691,16 @@ class SystemdBackend:
             forced = os.path.getmtime(f"{DIR}/forced-thaw") >= s0["t"]
         except OSError:
             forced = False
-        d = dict(wall_s=t1 - s0["t"], cpu_s=self.cpu_host() - s0["cpu"], own_cpu_s=own_cpu,
+        iso = j.get("iso_cpus")     # изолированное окно: чужое ЦП — на ядрах замера, посторонние юниты на других ядрах не помеха
+        d = dict(wall_s=t1 - s0["t"], cpu_s=(self.cpu_cores(iso) if iso else self.cpu_host()) - s0["cpu"], own_cpu_s=own_cpu,
                  daemon_cpu_s=self.daemon_cpu() - s0["dcpu"], disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced, swap_pages=self.swap_pages() - s0["swap"],
-                 foreign_units=s0["units"] | set(self.foreign_units(j)))
+                 foreign_units=set() if iso else s0["units"] | set(self.foreign_units(j)))
         d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"], s0["t"])
-        ok, why = judge_window(d)
+        ok, why = judge_window(d, ncpu=len(iso) if iso else NCPU)
+        if iso and ok:       # П4: OOM-убийств за окно нет
+            oom = self.oom_kills() - s0.get("oom", 0)
+            if oom:
+                ok, why = False, [f"oom_kill в окне: {oom}"]
         if ok and d["wall_s"] >= 600:     # метка для wait_for Судьи: действительная настоящая волна (≥ 10 мин) под демоном
             open(f"{DIR}/valid_real_wave", "a").write(j["id"] + "\n")
         os.makedirs(f"{DIR}/validity", exist_ok=True)
@@ -707,6 +764,36 @@ class SystemdBackend:
         out = sh("systemctl", "list-units", "--type=service", "--state=active", "--no-legend", "--plain", *pats).stdout
         return [l.split()[0] for l in out.splitlines() if l.strip()]
 
+    def iso_cpus(self, k):
+        """K физических ядер с обоими SMT-соседями (М4): с конца нумерации; топология — thread_siblings_list."""
+        sib, seen = [], set()
+        for c in range(NCPU - 1, -1, -1):
+            if c in seen:
+                continue
+            g = set()
+            for part in open(f"/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list").read().strip().split(","):
+                lo, _, hi = part.partition("-")
+                g |= set(range(int(lo), int(hi or lo) + 1))
+            seen |= g
+            sib.append(g)
+        return sorted(c for g in sib[:k] for c in g)
+
+    TOP_SLICES = ("system.slice", "user.slice", "init.scope")      # П3: ядра замера уходят со ВСЕХ верхних слайсов
+
+    def iso_begin(self, cpus):
+        rest = ",".join(str(c) for c in range(NCPU) if c not in cpus)
+        json.dump(cpus, open(f"{DIR}/iso.json", "w"))
+        for u in self.TOP_SLICES:
+            sh("systemctl", "set-property", "--runtime", u, f"AllowedCPUs={rest}")
+
+    def iso_end(self):
+        for u in self.TOP_SLICES:
+            sh("systemctl", "set-property", "--runtime", u, "AllowedCPUs=")
+        try:
+            os.remove(f"{DIR}/iso.json")
+        except OSError:
+            pass
+
     def freeze_all(self):
         us = [u for u in self.units(FREEZE_PAT) if not u.startswith("alpha-")
               and sh("systemctl", "show", "-p", "FreezerState", "--value", u).stdout.strip() != "frozen"]   # чужую заморозку (benchrun) не трогаем и не размораживаем
@@ -716,6 +803,8 @@ class SystemdBackend:
 
     def thaw_all(self):
         sh("systemctl", "stop", "alpha-sm-failsafe.timer")
+        if os.path.exists(f"{DIR}/iso.json"):               # страховка: ядра замера вернуть производству
+            self.iso_end()
         if os.path.exists(self.frozen_list):
             for u in json.load(open(self.frozen_list)):
                 sh("systemctl", "thaw", u)
@@ -770,11 +859,13 @@ def parse_dur(s):
     return float(s[:-1]) * m[s[-1]] if s and s[-1] in m else float(s)
 
 
-def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io=""):
+def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
     jid = time.strftime("%m%d%H%M%S") + f"{os.getpid() % 1000:03d}"
     j = dict(id=jid, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
              prio=prio, io=io, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
+    if iso and cls == "measure":
+        j["iso"] = iso
     jobs = load_all()
     free = NCPU - sum(len(x.get("cpus", [])) for x in jobs if x["state"] == "running")
     w = warn_for(j, free, any(x["state"] == "queued" and x["cls"] == "prod" for x in jobs))
@@ -804,7 +895,7 @@ def daemon():
     seen = {}
     mw = [j for j in load_all() if j["state"] == "running" and j["cls"] == "measure"]
     if mw:                       # перезапуск демона в окне замера: производство не размораживаем, окно недействительно
-        core.frozen = True
+        core.frozen = any(not j.get("iso_cpus") for j in mw)    # изолированное окно производство не морозило
         for j in mw:
             j["valid"] = dict(ok=False, why=["демон перезапущен в окне замера"])
             core.add(j)
@@ -898,6 +989,7 @@ def main():
         p.add_argument("--disk", default="none")
         p.add_argument("--io", default="", choices=["", "seq"], help="seq: HDD-тяжёлое последовательное чтение — не больше одного такого на диск")
         p.add_argument("--cwd", default=os.getcwd())
+        p.add_argument("--iso", type=int, default=0, help="замер: K физических ядер (оба SMT-соседа) без остановки производства (п.3); 0 — окно на весь сервер")
         p.add_argument("--prio", type=int, default=5)
         p.add_argument("--recompute", action="store_true", help="пересчитать уже посчитанное (нужен --why)")
         p.add_argument("--why", default="", help="причина пересчёта; пишется в реестр")
@@ -906,7 +998,7 @@ def main():
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
-        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io)
+        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso)
         print(j["id"])
         return 0
     print(__doc__)
