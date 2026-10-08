@@ -103,10 +103,6 @@ impl Quant {
         }
     }
 
-    pub fn step(&self) -> f64 {
-        self.step
-    }
-
     #[inline(always)]
     pub fn of(&self, x: f64) -> i64 {
         self.calls.set(self.calls.get() + 1);
