@@ -108,6 +108,7 @@ class Core:
                     if j["cls"] == "measure" and j["id"] in self.snaps:
                         j["valid"] = be.win_end(j, self.snaps.pop(j["id"]))
         if self.running("measure"):
+            self.log_util(now, 0)                         # окно видно в util.log: measure=1 раз в минуту
             return
         mq = sorted((j for j in self.jobs.values() if j["state"] == "queued" and j["cls"] == "measure"),
                     key=lambda j: j["t_submit"])
@@ -123,6 +124,7 @@ class Core:
             if risk:
                 be.alert(f"память перед окном {j['id']} {j['name']}: " + "; ".join(risk))
             be.start(j)
+            self.log_util(now, 0)
             return
         if self.frozen:
             be.thaw_all()
