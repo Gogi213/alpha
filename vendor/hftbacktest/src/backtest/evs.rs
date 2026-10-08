@@ -43,10 +43,19 @@ impl EventSet {
     pub fn next(&self) -> Option<EventIntent> {
         let mut evst_no = 0;
         let mut timestamp = unsafe { *self.timestamp.get_unchecked(0) };
-        for (i, &ev_timestamp) in self.timestamp[1..].iter().enumerate() {
-            if ev_timestamp < timestamp {
-                timestamp = ev_timestamp;
-                evst_no = i + 1;
+        if self.timestamp.len() == 4 {
+            // One asset: pairwise minimum of the 4 slots, no loop. Strict `<` keeps the lowest
+            // index on ties, same as the general path.
+            let t = &self.timestamp[..];
+            let (i01, m01) = if t[1] < t[0] { (1, t[1]) } else { (0, t[0]) };
+            let (i23, m23) = if t[3] < t[2] { (3, t[3]) } else { (2, t[2]) };
+            (evst_no, timestamp) = if m23 < m01 { (i23, m23) } else { (i01, m01) };
+        } else {
+            for (i, &ev_timestamp) in self.timestamp[1..].iter().enumerate() {
+                if ev_timestamp < timestamp {
+                    timestamp = ev_timestamp;
+                    evst_no = i + 1;
+                }
             }
         }
         // Returns None if no valid events are found.
