@@ -232,7 +232,7 @@ def run():
     bg_plus = dict(bg_only, ios=bg_only["ios"] + 60)                                              # фон + чужие 4К (60 × 21,8 мс / 60 с ≈ 2,2 % времени диска)
     chk = [S.judge_window(good)[0], S.judge_window(small_bytes, bg_ops_s=0.354)[0], not S.judge_window(bad_cpu)[0], not S.judge_window(bad_disk)[0],
            not S.judge_window(bad_unit)[0],
-           not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0], not S.judge_window(bad_swap)[0], peak_ok, S.judge_window(dict(good, swap_pages=0))[0],
+           not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0], not S.judge_window(bad_swap)[0], peak_ok, S.judge_window(dict(good, swap_pages=0))[0], S.judge_window(dict(good, swap_pages=5, swap_slice=0))[0], not S.judge_window(dict(good, swap_pages=0, swap_slice=4096))[0],
            S.judge_window(bg_only, bg_ops_s=BG)[0], not S.judge_window(bg_plus, bg_ops_s=BG)[0],
            not S.judge_window(bg_only, bg_ops_s=0.0)[0],
            not S.mem_risk(36.0, 0.0, 2.54), len(S.mem_risk(36.0, 7.0, 2.54)) == 1, len(S.mem_risk(1.0, 0.0, 2.54)) == 1, not S.mem_risk(1.0, 0.0, 0.0),

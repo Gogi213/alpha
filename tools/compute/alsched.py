@@ -112,6 +112,8 @@ class Core:
                         self.iso = set()
                     if j["cls"] == "measure" and j["id"] in self.snaps:
                         j["valid"] = be.win_end(j, self.snaps.pop(j["id"]))
+                    elif j["cls"] == "measure" and not j.get("valid"):
+                        j["valid"] = dict(ok=False, why=["нет снимка начала окна (демон перезапущен или окно не открыто) — стена недостоверна"])
         ms = self.running("measure")
         if any(not j.get("iso") for j in ms):
             self.log_util(now, 0)                         # окно видно в util.log: measure=1 раз в минуту
@@ -382,7 +384,10 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
         why.append(f"чужие чтения диска: {extra:.0f} оп сверх фона × {SEEK_S * 1000:.1f} мс = {extra * SEEK_S / max(d['wall_s'], MIN_WALL_S) * 100:.1f} % времени окна")
     if d.get("culprits") and any("диска" in w for w in why):
         why.append("кто читал диск (оп, МБ): " + "; ".join(f"{c['cgroup']} {c['ops']} оп {c['mb']} МБ" for c in d["culprits"]))
-    if d.get("swap_pages", 0) > 0:
+    if d.get("swap_slice") is not None:      # изолированный замер без --disk: годность — своп слайса замера; своп хоста справочно (судья 03:38, 09.10)
+        if d["swap_slice"] > 0:
+            why.append(f"своп слайса замера: {d['swap_slice']} байт (memory.swap.peak) — память замера вытеснена, замер недействителен")
+    elif d.get("swap_pages", 0) > 0:
         why.append(f"своп в окне: {d['swap_pages']} страниц (pswpin+pswpout) — память хоста вытесняется, замер недействителен")
     if d.get("forced_thaw"):
         why.append("страховочная разморозка в окне (аренда истекла или демон не вернул окно)")
@@ -502,7 +507,7 @@ class SystemdBackend:
         cpus = ",".join(map(str, range(NCPU) if j.get("unpinned") else j["cpus"]))
         iso = bool(j.get("iso_cpus"))
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
-        fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; grep '^oom_kill ' $cg/memory.events; }} "
+        fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; grep '^oom_kill ' $cg/memory.events; echo swap_peak $(cat $cg/memory.swap.peak 2>/dev/null || cat $cg/memory.swap.current 2>/dev/null); }} "
                f"> {DIR}/own/{j['id']} 2>/dev/null; ")
         pre = f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n" if j["cls"] == "measure" else ""
         inner = f"{pre}{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
@@ -698,6 +703,11 @@ class SystemdBackend:
                  foreign_units=set() if iso else s0["units"] | set(self.foreign_units(j)))
         d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"], s0["t"])
         d["disk_sens"] = not iso or j.get("disk", "none") != "none"
+        if not d["disk_sens"]:
+            try:
+                d["swap_slice"] = sum(int(l.split()[1]) for l in open(f"{DIR}/own/{j['id']}") if l.startswith("swap_peak "))
+            except (OSError, ValueError, IndexError):
+                d["swap_slice"] = 0
         ok, why = judge_window(d, ncpu=len(iso) if iso else NCPU)
         if iso and ok:       # П4: OOM-убийств за окно нет
             d["oom_host"] = self.oom_kills() - s0.get("oom", 0)      # справочно: чужой memcg-OOM на других ядрах замеру не помеха
