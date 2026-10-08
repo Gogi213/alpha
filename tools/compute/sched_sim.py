@@ -171,6 +171,7 @@ def run():
     bad_cpu = dict(good, cpu_s=4800 + 300 * 16 * 0.02, own_cpu_s=4800)
     bad_disk = dict(good, disk_b=1.2e9)
     bad_unit = dict(good, foreign_units={"tk064-pool-chain.service"})
+    small_bytes = dict(good, wall_s=634, cpu_s=10144, own_cpu_s=10140, disk_b=16.15e6, own_disk_b=11.26e6, ios=597, own_ios=201)      # окно 08.10: 30 % байт, 0,08 с диска
     bad_ios = dict(good, disk_b=1.001e9, ios=9000)       # байт +0,1 %, операций +11 %: поиски HDD
     bad_thaw = dict(good, forced_thaw=True)
     bad_swap = dict(good, swap_pages=120)
@@ -178,7 +179,7 @@ def run():
     BG = 0.75
     bg_only = dict(good, wall_s=60, cpu_s=960, own_cpu_s=958, ios=300 + int(BG * 60), own_ios=300, disk_b=1e9 + 180000)     # тёплая: фон без чужих
     bg_plus = dict(bg_only, ios=bg_only["ios"] + 60)                                              # фон + чужие 4К (60 × 21,8 мс / 60 с ≈ 2,2 % времени диска)
-    chk = [S.judge_window(good)[0], not S.judge_window(bad_cpu)[0], not S.judge_window(bad_disk)[0],
+    chk = [S.judge_window(good)[0], S.judge_window(small_bytes, bg_ops_s=0.354)[0], not S.judge_window(bad_cpu)[0], not S.judge_window(bad_disk)[0],
            not S.judge_window(bad_unit)[0],
            not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0], not S.judge_window(bad_swap)[0], peak_ok, S.judge_window(dict(good, swap_pages=0))[0],
            S.judge_window(bg_only, bg_ops_s=BG)[0], not S.judge_window(bg_plus, bg_ops_s=BG)[0],

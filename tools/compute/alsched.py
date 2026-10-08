@@ -268,6 +268,9 @@ SEEK_S = 0.0218
 # Фон приходит пачками до 22 оп (≈ 0,5 с диска); на окне < 60 с одна пачка — уже > 1 %, хотя на волнах (≥ 100 с) это < 0,5 %.
 # Поэтому знаменатель критерия времени диска — не меньше MIN_WALL_S (smoke-окна по 8–10 с судятся как 60-секундные).
 MIN_WALL_S = 60.0
+# Потолок HDD сервера счёта, байт/с (замер CEO 05.10 05:12: ≈ 66 МБ/с и подряд, и вразнобой): чужие БАЙТЫ чтения судятся временем диска,
+# а не долей от всех байт окна — стенд с чтением 16 МБ за 634 с (5 МБ чужих = 30 %, а диска украдено 0,08 с) был ложно недействителен (08.10).
+DISK_BPS = 66e6
 
 
 def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
@@ -280,8 +283,9 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     cap = d["wall_s"] * ncpu
     if cap > 0 and (d["cpu_s"] - d["own_cpu_s"] - d.get("daemon_cpu_s", 0.0)) / cap > tol:
         why.append(f"чужое ЦП {(d['cpu_s'] - d['own_cpu_s'] - d.get('daemon_cpu_s', 0.0)) / cap * 100:.1f} % ядер окна")
-    if d["own_disk_b"] > 0 and d["disk_b"] > 0 and (d["disk_b"] - d["own_disk_b"]) / d["disk_b"] > tol:
-        why.append(f"чужое чтение диска {(d['disk_b'] - d['own_disk_b']) / d['disk_b'] * 100:.1f} %")
+    foreign_t = (d["disk_b"] - d["own_disk_b"]) / DISK_BPS / max(d["wall_s"], MIN_WALL_S)      # доля времени окна, занятая чужими байтами
+    if d["own_disk_b"] > 0 and d["disk_b"] > 0 and foreign_t > tol:
+        why.append(f"чужое чтение диска {(d['disk_b'] - d['own_disk_b']) / d['disk_b'] * 100:.1f} % байт = {foreign_t * 100:.1f} % времени окна")
     ios, own_ios = d.get("ios", 0), d.get("own_ios", 0)
     bg = (BG_OPS_S if bg_ops_s is None else bg_ops_s) * d["wall_s"]
     extra = ios - own_ios - bg                                         # чужие операции сверх фона
