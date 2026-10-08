@@ -42,6 +42,8 @@ class SimBE:
 
     def kill(self, j): self.jobs[j["id"]]["left"] = 0; self.killed.append(j["id"])
     def extend(self, j, remaining): pass
+    mem_av, mem_swap = 36.0, 0.0
+    def mem_state(self): return self.mem_av, self.mem_swap
     def win_begin(self, j): return None
     def win_end(self, j, s): return dict(ok=True, why=[])
 
@@ -184,6 +186,7 @@ def run():
            not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0], not S.judge_window(bad_swap)[0], peak_ok, S.judge_window(dict(good, swap_pages=0))[0],
            S.judge_window(bg_only, bg_ops_s=BG)[0], not S.judge_window(bg_plus, bg_ops_s=BG)[0],
            not S.judge_window(bg_only, bg_ops_s=0.0)[0],
+           not S.mem_risk(36.0, 0.0, 2.54), len(S.mem_risk(36.0, 7.0, 2.54)) == 1, len(S.mem_risk(1.0, 0.0, 2.54)) == 1, not S.mem_risk(1.0, 0.0, 0.0),
            any("кто читал диск" in w and "session-1.scope 900 оп" in w for w in S.judge_window(dict(bad_ios, culprits=[dict(cgroup="/user.slice/session-1.scope", ops=900, mb=3.6)]))[1])]
     print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка/своп в окне — нет/нулевой своп — годна/пик памяти только с настоящей волны/фон без чужих — годна/фон+чужие — нет/без вычета фона — нет/назван виновник):", chk)
     kb = SimBE(); kc = S.Core(kb, ncpu=NCPU, mem=56)

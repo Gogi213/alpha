@@ -43,6 +43,16 @@ def prod_mem_budget_gb():
     return max(0, int(total - math.ceil(p)))
 
 
+def mem_risk(avail_gb, swap_used_gb, peak_gb):
+    """Перед окном замера: что может увести его в своп. Своп в окне = окно недействительно (judge_window), а занятый своп хост вернёт в память при первом касании страницы; нехватка available против измеренного пика волны — второй путь. Только предупреждение: старт не блокируем (занятый своп сам не освободится)."""
+    r = []
+    if swap_used_gb > 0.05:
+        r.append(f"своп занят {swap_used_gb:.1f} ГБ — страницы вернутся при касании, своп в окне сделает замер недействительным")
+    if peak_gb > 0 and avail_gb < peak_gb:
+        r.append(f"MemAvailable {avail_gb:.1f} ГБ < пика волны {peak_gb:.1f} ГБ")
+    return r
+
+
 def peak_counts(wall_s, gb, prev_gb):
     """Пик памяти волны идёт в бюджет производства только с настоящей волны (окно ≥ MIN_WALL_S), иначе проба sleep 20 занизит пик и раздует бюджет."""
     return wall_s >= MIN_WALL_S and gb > prev_gb
@@ -101,6 +111,10 @@ class Core:
             j = mq[0]
             j.update(state="running", t_start=now, cpus=list(range(self.ncpu)))
             self.snaps[j["id"]] = be.win_begin(j)
+            av, su = be.mem_state()
+            risk = mem_risk(av, su, mem_peak_gb())
+            if risk:
+                be.alert(f"память перед окном {j['id']} {j['name']}: " + "; ".join(risk))
             be.start(j)
             return
         if self.frozen:
@@ -405,6 +419,12 @@ class SystemdBackend:
                 tot += int(p[5]) * 512
                 n += int(p[3]) + int(p[4])   # завершённые + слитые: как rios у cgroup (счёт bio до слияния)
         return tot, n
+
+    @staticmethod
+    def mem_state():
+        """(MemAvailable, занятый своп), ГБ — из /proc/meminfo."""
+        m = {l.split(":")[0]: int(l.split()[1]) for l in open("/proc/meminfo")}
+        return m["MemAvailable"] / 2**20, (m["SwapTotal"] - m["SwapFree"]) / 2**20
 
     @staticmethod
     def swap_pages():
