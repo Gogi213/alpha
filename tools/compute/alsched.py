@@ -272,8 +272,8 @@ class Core:
                     self.be.alert(f"перегруз {busy:.2f}: заморожено новейшее сверх заявок {v['id']} {v['name']}")
         else:
             self.hot_t = None
-            if hot and busy < FACT_BUSY:
-                v = min(hot, key=lambda j: j["t_start"])
+            v = min(hot, key=lambda j: j["t_start"]) if hot else None
+            if v and busy * (self.ncpu - len(self.iso)) + self.need_cores(v) <= FACT_BUSY * (self.ncpu - len(self.iso)):   # оттаивать, только если влезет без нового перегруза (иначе заморозка-оттайка по кругу)
                 v.pop("frozen_for")
                 self.be.thaw_unit(self.be.unit(v))
                 self.be.extend(v, v["max_runtime"] - v.get("active_s", 0))
