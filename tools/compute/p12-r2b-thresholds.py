@@ -75,11 +75,16 @@ for mo in sorted(keys):
                     else:
                         d["dl_nowait"] += 1
     d["missing_in_w"] = len(keys[mo] - seen)
-amb = {"n": len(pend), "resolved": 0, "unresolved": 0, "no_tick": 0}
+amb = {"n": len(pend), "resolved": 0, "unresolved": 0, "no_tick": 0, "tick_changed": 0}
 for mo, sym, ep, cand, tp, cx, dl_ in pend:
-    t = statistics.median(ratios[sym]) if ratios[sym] else None
+    rs = ratios.get(sym)
+    t = statistics.median(rs) if rs else None
     if t is None:
         amb["no_tick"] += 1
+        by[mo]["no_lvl"] += 1
+        continue
+    if max(rs) / min(rs) - 1 > 1e-6:   # шаг цены символа менялся (В-172) — единого шага нет, вне популяции
+        amb["tick_changed"] += 1
         by[mo]["no_lvl"] += 1
         continue
     ok = [x for x in cand if abs(x[2] * t - ep) < t / 2 and x[1] > 0]
