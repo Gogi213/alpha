@@ -19,7 +19,7 @@ for l in open("/data/tk071/live2/pairs.txt"):
     du, dw = 100 * (r["a"]["usec"] / r["b"]["usec"] - 1), 100 * (r["a"]["wall"] / r["b"]["wall"] - 1)
     both = "verdict=good" in l
     pc = re.findall(r"([ab])=(-?\d+) \d+", l.split("pcores:")[1]) if "pcores:" in l else []
-    print(f"pair{k}: {l.split()[1]}  prod_cores min {pc}  {'ЗАЧТЕНА' if both else 'ОТБРАКОВКА'}  usage {du:+.3f} %  wall {dw:+.3f} %  ok×2 {r["a"]["ok"] and r["b"]["ok"]}  {r['a']['why'] or ''}{r['b']['why'] or ''}")
+    print(f"pair{k}: {l.split()[1]}  prod_cores min {pc}  {'ЗАЧТЕНА' if both else 'ОТБРАКОВКА'}  usage {du:+.3f} %  wall {dw:+.3f} %  ok×2 {r['a']['ok'] and r['b']['ok']}  {r['a']['why'] or ''}{r['b']['why'] or ''}")
     if both:
         dl.append((abs(du), abs(dw)))
 print(f"пар зачтено (ok×2, prod_cores≥8 во всех строках measure=1): {len(dl)}; max|Δusage| {max((x[0] for x in dl), default=None)}; max|Δwall| {max((x[1] for x in dl), default=None)}")

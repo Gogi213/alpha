@@ -797,6 +797,19 @@ class SystemdBackend:
 
     TOP_SLICES = ("system.slice", "user.slice", "init.scope")      # П3: ядра замера уходят со ВСЕХ верхних слайсов
 
+    def slice_cpus(self, u):
+        """Ядра верхнего слайса по факту (cpuset.cpus.effective) — множество; нет файла → пусто."""
+        try:
+            t = open(f"/sys/fs/cgroup/{u}/cpuset.cpus.effective").read().strip()
+        except OSError:
+            return set()
+        r = set()
+        for part in t.split(","):
+            lo, _, hi = part.partition("-")
+            if lo:
+                r |= set(range(int(lo), int(hi or lo) + 1))
+        return r
+
     def iso_begin(self, cpus):
         rest = ",".join(str(c) for c in range(NCPU) if c not in cpus)
         json.dump(cpus, open(f"{DIR}/iso.json", "w"))
@@ -804,8 +817,17 @@ class SystemdBackend:
             sh("systemctl", "set-property", "--runtime", u, f"AllowedCPUs={rest}")
 
     def iso_end(self):
+        """09.10: пустой AllowedCPUs= не вернул effective (system/user/init остались на 0-3,8-11, prod на 8 из 16 ядер, гейт (а) недействителен) —
+        ставим явный полный список и читаем назад cpuset.cpus.effective; расхождение — строка в alerts.log и повтор."""
+        full = ",".join(str(c) for c in range(NCPU))
+        want = set(range(NCPU))
         for u in self.TOP_SLICES:
-            sh("systemctl", "set-property", "--runtime", u, "AllowedCPUs=")
+            for _ in range(3):
+                sh("systemctl", "set-property", "--runtime", u, f"AllowedCPUs={full}")
+                if self.slice_cpus(u) == want:
+                    break
+            else:
+                self.alert(f"iso_end: {u} cpuset.cpus.effective={sorted(self.slice_cpus(u))} вместо 0-{NCPU - 1} после 3 попыток")
         try:
             os.remove(f"{DIR}/iso.json")
         except OSError:

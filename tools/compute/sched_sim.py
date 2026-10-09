@@ -181,6 +181,32 @@ def seq_case():
     return sorted(j["id"] for j in core.running("prod"))
 
 
+def iso_end_case():
+    """09.10: iso_end ставит полный список ядер и читает effective назад; залипшее — 3 попытки и строка в alerts."""
+    be, calls, al = S.SystemdBackend.__new__(S.SystemdBackend), [], []
+    full, stuck = set(range(S.NCPU)), {"system.slice": 0}
+    be.alert = al.append
+    be.slice_cpus = lambda u: full if (u != "system.slice" or stuck["system.slice"] >= 2) else set(range(4))
+    old = S.sh
+    def fake(*a, **k):
+        calls.append(a)
+        if a[-1].startswith("AllowedCPUs") and a[-2] == "system.slice":
+            stuck["system.slice"] += 1
+        class R: stdout = ""
+        return R
+    S.sh = fake
+    try:
+        be.iso_end()
+        n_ok, a_ok = len(calls), list(al)
+        stuck["system.slice"] = -99
+        be.slice_cpus = lambda u: set(range(4))
+        calls.clear()
+        be.iso_end()
+    finally:
+        S.sh = old
+    return n_ok, a_ok, len(calls), len(al)
+
+
 def run():
     be = SimBE()
     core = S.Core(be, ncpu=NCPU, mem=56, disk_slots=int(sys.argv[1]) if len(sys.argv) > 1 else 0)
@@ -265,6 +291,9 @@ def run():
     ok = ok and mc == 16
     print(f"v2 пакование: заявка 4 ядра, факт 1 — claim идут {nc}, fact идут {nf}; seq-диск: идут {sq}; 3×4 честных + честное 8: {hs[0]}, сверх заявки {hs[1]}")
     ok = ok and nc == 4 and nf == 11 and sq == ["s0", "s2", "s3"] and hs == ("queued", False)
+    ie = iso_end_case()
+    print(f"iso_end: залипший слайс — вызовов {ie[0]} без тревоги {not ie[1]}; не вернулся совсем — вызовов {ie[2]}, тревог {ie[3]}")
+    ok = ok and ie == (4, [], 9, 3)
     print("ГЕЙТ:", "ок" if ok else "ПРОВАЛ")
     return 0 if ok else 1
 
