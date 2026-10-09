@@ -6,7 +6,8 @@
 сигнала = плановая полная лестница) и expo.json (срабатывания механики по форме и месяцу, средний m).
 Срабатывание: g92/g93/g94/g87 — qty или entry_vwap сделки отличается от базы того же сигнала (сработала добавка/доля);
 e119 — reason == converge; e114/e117 — выход (exit_ns/reason) отличается от базы того же сигнала.
-Запуск на сервере счёта: p12-r2-expo.py /data/p12r2"""
+Запуск на сервере счёта: p12-r2-expo.py /data/p12r2 [--g95]
+--g95 (TK-120/TK-135, бывшая копия p12-r3-expo.py): ещё и g95-sw3 (m = min(1, N_ref/N_peak), как g94/g87), для волны a TK-115; без флага — как было."""
 import csv
 import glob
 import json
@@ -15,6 +16,7 @@ import sys
 from collections import defaultdict
 
 O = sys.argv[1]
+WITH_G95 = "--g95" in sys.argv[2:]
 # TK-113/В-210: EXPO_DROP=SYM,SYM — не считать срабатывания и m по этим монетам; EXPO_OUT=<файл> — писать только expo.json туда (деревья vn-b не трогать:
 # m по сделке от состава пула не зависит, vn-b после --drop уже верны)
 DROP = set(filter(None, os.environ.get("EXPO_DROP", "").split(",")))
@@ -22,10 +24,14 @@ EXPO_OUT = os.environ.get("EXPO_OUT")
 B1 = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 B3 = "ladder3x0..0.0409sw2-pct2-1to1-14400-ttl1800"
 FAM = {"pyre": "g92", "pynw": "g93", "pyeat": "g94", "pyfresh": "g87", "conv": "e119", "halfstop": "e114", "halflevel": "e114", "tsl": "e117"}
+G95 = "ladder3x0..0.0409sw3-pct2-tr1x1-14400-ttl1800"
+FAMS_M = ("g92", "g93", "g94", "g87") + (("g95",) if WITH_G95 else ())
 FIELDS = "symbol,day_utc,form,signal_index,t0_ns,dir,entry_px,exit_px,qty,net_bps,reason,exit_ns,fill_frac,entry_vwap,legs_filled,legs_rejected".split(",")
 
 
 def fam_of(form, base):
+    if WITH_G95 and form == G95:   # TK-120: g95-sw3 — вход другого веса, база B1 (sw2) того же сигнала
+        return "g95"
     if not form.startswith(base + "-"):
         return None
     suf = form[len(base) + 1:]
@@ -62,7 +68,7 @@ for rawd, bd, base in (("s-v", "v-b", B1), ("s-vt", "vt-b", B3)):
             if fam and b is None:
                 miss[fam] += 1
             if fam and b is not None:
-                if fam in ("g92", "g93", "g94", "g87"):
+                if fam in FAMS_M:
                     diff = abs(float(r["qty"]) - float(b["qty"])) > 1e-9 or abs(float(r["entry_vwap"]) - float(b["entry_vwap"])) > 1e-12
                 elif fam == "e119":
                     diff = r["reason"] == "converge"
@@ -70,7 +76,7 @@ for rawd, bd, base in (("s-v", "v-b", B1), ("s-vt", "vt-b", B3)):
                     diff = r["exit_ns"] != b["exit_ns"] or r["reason"] != b["reason"]
                 if diff:
                     fired[r["form"]][mo] += 1
-                if fam in ("g92", "g93", "g94", "g87"):
+                if fam in FAMS_M:
                     npk = float(r["qty"]) * float(r["entry_vwap"])
                     if fam in ("g92", "g93"):
                         m = float(b["qty"]) * float(b["entry_vwap"]) / npk if npk else 1.0
