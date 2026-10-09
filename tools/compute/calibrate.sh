@@ -16,7 +16,8 @@
 #              --crit units|mbps  --quick (сначала P при первом ra, потом ra при лучшем P)  --seed 1  --idle 5
 #              --job <имя|off> --ticket TK-XX (ход для экрана владельца: /data/progress через alpha-progress)
 # Выход: <out>/calibrate.tsv, таблица в stdout, последняя строка «лучший: P=…, readahead=… КБ».
-set -u -o pipefail
+set -eu -o pipefail
+trap 'echo "calibrate: сбой (код $?) в строке $LINENO: $BASH_COMMAND" >&2' ERR   # С-51: ошибка шага останавливает, не молчит
 export LC_NUMERIC=C
 SELF=$(readlink -f "$0"); ARGS=("$@")
 die() { echo "calibrate: $*" >&2; exit 2; }
@@ -136,7 +137,7 @@ snap() {   # SNAP = «сект.чт сект.зап ЦП.всего ЦП.idle Ц
 }
 rates() {  # $1 snap0 $2 snap1 $3 окно мкс → «МБ/с чт, МБ/с зап, ЦП %, iowait %» (ЦП — % всей машины)
   awk -v a="$1" -v b="$2" -v dt="$3" 'BEGIN{split(a,x," ");split(b,y," ");s=dt/1e6;tt=y[3]-x[3];
-    printf "%.1f %.1f %.1f %.1f",(y[1]-x[1])*512/1e6/s,(y[2]-x[2])*512/1e6/s,tt?100*(tt-(y[4]-x[4])-(y[5]-x[5]))/tt:0,tt?100*(y[5]-x[5])/tt:0}'
+    printf "%.1f %.1f %.1f %.1f\n",(y[1]-x[1])*512/1e6/s,(y[2]-x[2])*512/1e6/s,tt?100*(tt-(y[4]-x[4])-(y[5]-x[5]))/tt:0,tt?100*(y[5]-x[5])/tt:0}'
 }
 
 PROGJOB=
@@ -250,7 +251,7 @@ run_variant() {  # $1 = P, $2 = cur|КБ → строка в таблицу и �
     $1=="S"{s[$2]=$3} $1=="E"{e[$2]=$3; rc[$2]=$4}
     END{for(i in s){ if(!(i in e)){k++; continue} if(rc[i]!=0){f++; continue}
         d=e[i]-s[i]; if(e[i]<=t1){full++; cr+=1} else if(t1>s[i]&&d>0){cr+=(t1-s[i])/d} }
-      printf "%d %.3f %d %d", full+0, cr+0, f+0, k+0}' "$VLOG")
+      printf "%d %.3f %d %d\n", full+0, cr+0, f+0, k+0}' "$VLOG")
   upm=$(awk -v c="$credit" -v w="$win" 'BEGIN{printf "%.2f", (w>0)?c/(w/6e7):0}')
   [ "$done_" -lt "$P" ] && [ "$lines" -gt 0 ] && [ "$BROKEN" = 0 ] && [ "$failed" -eq 0 ] && note+=("завершено меньше P: единицы длиннее окна, ед/мин по долям")
   [ "$killed" -gt 0 ] && note+=("убито недоделок: $killed")
@@ -259,7 +260,7 @@ run_variant() {  # $1 = P, $2 = cur|КБ → строка в таблицу и �
   [ "$BROKEN" = 1 ] && note+=("команда падает на каждой единице: $LOGD")
   [ "$lines" -eq 0 ] && { note+=("нет единиц для запуска"); NOUNITS=1; }
   [ "$failed" -gt 0 ] && [ "$BROKEN" = 0 ] && note+=("упало: $failed, логи $LOGD")
-  [ "$failed" -eq 0 ] && rmdir "$LOGD" 2>/dev/null
+  [ "$failed" -eq 0 ] && { rmdir "$LOGD" 2>/dev/null || true; }
   [ "$failed" -eq 0 ] && [ "$killed" -eq 0 ] && rm -f "$VLOG"
   local nt="${note[*]+"${note[*]}"}"
   tsout "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$P" "$RA_NOW" "$((win / 1000000))" "$done_" "$credit" "$upm" "$failed" "$killed" "$mbr" "$mbw" "$cpu" "$iow" "$nt")"

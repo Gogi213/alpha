@@ -3,7 +3,7 @@
 Поле config (JSON): что найдено и откуда; config_status: «восстановлен: …» или «не восстановим: <причина>» (всегда причина).
 Идемпотентно: перезаписывает только строки, чей config_status начинался с «конфиг неполон» или «восстановлен»/«не восстановим»."""
 import glob, json, os, re, subprocess, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import registry as R
 
 FLAG = re.compile(r"(?<![\w-])(--(?:cells|set|hold-step|exit-group|sigma-from|verdict-csv|h3-mode|threads|latency[-\w]*|queue|prob|months?|from|to|pool|root)(?:[ =]+[\w./:+\-]+)?)")

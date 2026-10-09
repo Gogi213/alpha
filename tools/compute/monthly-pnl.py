@@ -7,11 +7,13 @@
   ext (7 клеток x-*) — data/tk113/ext/closes-cap{0,3}-2026-MM.json (как tools/compute/tk113-ext.py);
   R1 (155 клеток + B1) — data/tk113/r1-v171c/closes-cap{0,3}-<мес>.json (calc:/data/tk0113/drop2/r1; на v171c только фев–окт, января нет).
 Режим free = потолок не применён (cap0), B2 = потолок 3 (cap3).
-Сверка: B1 (+52,3/2750 free, -0,4/1503 B2); R2-клетки: итог по определённым месяцам - база = d_usd из p12-sharpe-<режим>-2026-10-09-v171c-A.csv;
+Сверка: B1 (+52,3/2750 free, -0,4/1503 B2); R2-клетки: итог по определённым месяцам - база = d_usd из p12-sharpe-<режим>-2026-10-10-v171c-D.csv;
 ext = ext-v171c-2026-10-09.csv; R1 B1 (фев–сен) = B1 из R2 (фев–сен).
 Запуск из корня репозитория: python tools/compute/monthly-pnl.py  → docs/findings/monthly-pnl-v171c-2026-10-09.{csv,md}"""
-import csv, datetime as dt, json, os, sys
+import csv, json, os, sys
 from collections import defaultdict
+import datetime as dt
+from p12lib import inputs_line, load_head, trials_effn
 
 R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-a/", "data/tk113/ext/", "data/tk113/r1-v171c/"
 OUT = "docs/findings/monthly-pnl-v171c-2026-10-09"
@@ -21,26 +23,15 @@ R1M = dict(zip("feb mar apr may jun jul aug sep oct".split(), [f"2026-{i:02d}" f
 MODES = (("free", "0"), ("B2", "3"))
 TOL = 0.5
 MN = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен"]
-UTC = dt.timezone.utc
-
-
-def mon_of(ms):
-    return dt.datetime.fromtimestamp(ms / 1000, UTC).strftime("%Y-%m")
 
 
 def load_r2(mode):
     """exec головы p12-r2-analyze.py (до бутстрепа) — как load() в p12-sharpe.py; -> ns (S, CELLS, BN, defined_of, EXPO)."""
     os.environ["P12_DIR"] = R2DIR
-    path = "tools/compute/p12-r2-analyze.py"
-    src = open(path, encoding="utf-8").read()
-    cut = src.index("rng = np.random.default_rng(63)")
-    argv0, sys.argv = sys.argv, ["x", mode]
-    ns = {"__name__": "x"}
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        exec(compile(src[:cut], path, "exec"), ns)
-    sys.argv = argv0
+        ns = load_head("tools/compute/p12-r2-analyze.py", [mode])
     if "НЕТ формы" in buf.getvalue():
         sys.exit("R2: " + buf.getvalue())
     return ns
@@ -50,7 +41,11 @@ def row(pack, family, cell, lst, months_ok):
     """lst: месяц -> [(мс, $)] -> словарь с помесячными суммами/числом сделок."""
     usd = {m: sum(v for _a, v in lst.get(m, [])) for m in months_ok + [OCT]}
     trd = {m: len(lst.get(m, [])) for m in months_ok + [OCT]}
-    return dict(pack=pack, family=family, cell=cell, usd=usd, trd=trd)
+    days = defaultdict(float)
+    for m in months_ok:
+        for ms, v in lst.get(m, []):
+            days[ms // 86400000] += v
+    return dict(pack=pack, family=family, cell=cell, usd=usd, trd=trd, days=days)
 
 
 def collect_r2(mode, cap):
@@ -123,7 +118,7 @@ def main():
     for mode, cap in MODES:
         r2, dm = collect_r2(mode, cap)
         data[mode] = dict(r2=r2, ext=collect_ext(mode, cap), r1=collect_r1(mode, cap), dm=dm)
-        sharpe[mode] = {r["cell"]: r for r in csv.DictReader(open(f"docs/findings/p12-sharpe-{mode}-2026-10-09-v171c-A.csv", encoding="utf-8"))}
+        sharpe[mode] = {r["cell"]: r for r in csv.DictReader(open(f"docs/findings/p12-sharpe-{mode}-2026-10-10-v171c-D.csv", encoding="utf-8"))}
     # ---- сверка ----
     print("== СВЕРКА")
     ok_n = {"base": 0, "R2": 0, "ext": 0, "R1B1": 0}
@@ -204,7 +199,7 @@ def main():
     f = lambda v: "—" if v is None else f"{v:+.1f}"
     L = ["# Помесячная прибыль ($) по клеткам П-12, пул v171c, янв–сен 2026", "",
          "Описание, не вердикт и не новый счёт: готовые закрытия сделок, сгруппированные по месяцу закрытия (UTC). "
-         "Скрипт `tools/compute/monthly-pnl.py`, таблица CSV — `docs/findings/monthly-pnl-v171c-2026-10-09.csv`.", "",
+         "Скрипт `tools/compute/monthly-pnl.py`, таблица CSV — `docs/findings/monthly-pnl-v171c-2026-10-09.csv`.", "", f"_{inputs_line()}_", "",
          "- **Окно:** 01.01–30.09.2026 (В-211); октябрь (до 02.10, неполный) — отдельным справочным столбцом, в итог не входит.",
          "- **Пул:** v171c — без TRUMP/TRX/BCH (В-210), потолок B2 применён заново (portfolio-sim `--drop`).",
          "- **Режимы:** free — без потолка (cap0); B2 — потолок 3 одновременных позиции (cap3).",
@@ -217,7 +212,7 @@ def main():
     L += ["## Сверка с принятыми числами", ""]
     L.append(f"- B1 янв–сен: free {tot(next(r for r in data['free']['r2'] if r['cell']=='B1')):+.1f} ({ntr(next(r for r in data['free']['r2'] if r['cell']=='B1'))} сд.) "
              f"= принято +52,3 (2750); B2 {tot(next(r for r in data['B2']['r2'] if r['cell']=='B1')):+.1f} ({ntr(next(r for r in data['B2']['r2'] if r['cell']=='B1'))} сд.) = принято -0,4 (1503).")
-    L.append(f"- R2: итог (по определённым месяцам) − база = `d_usd` из `p12-sharpe-{{free,B2}}-2026-10-09-v171c-A.csv`: сошлось {ok_n['R2']} из 80 клеток-режимов (допуск {TOL} $).")
+    L.append(f"- R2: итог (по определённым месяцам) − база = `d_usd` из `p12-sharpe-{{free,B2}}-2026-10-10-v171c-D.csv`: сошлось {ok_n['R2']} из 80 клеток-режимов (допуск {TOL} $).")
     L.append(f"- ext: итог и число сделок = `ext-v171c-2026-10-09.csv`: сошлось {ok_n['ext']} из 16 (7 клеток + B1, два режима). B1 из ext = B1 из R2 помесячно (янв–окт).")
     L.append(f"- Расхождений > {TOL} $: " + (str(len(bad)) + " — см. вывод скрипта." if bad else "нет."))
     if info:
@@ -244,6 +239,18 @@ def main():
         L += ["", f"### R1 ({len(r1) - 1} клеток + B1 как база R1), на v171c только фев–сен — январь «—», итог фев–сен", ""]
         L += table(r1)
         L.append("")
+    d0 = dt.date(2026, 1, 1).toordinal() - dt.date(1970, 1, 1).toordinal()
+    d1 = dt.date(2026, 9, 30).toordinal() - dt.date(1970, 1, 1).toordinal()
+    L += ["## Испытания и эффективное N (С-62)", ""]
+    for mode, _cap in MODES:
+        d = data[mode]
+        e = trials_effn({r["cell"]: r["days"] for r in d["r2"] + d["ext"]}, d0, d1, "B1")
+        neff_b1 = "не определено" if e["n_eff_ref"] is None else format(e["n_eff_ref"], ".1f")
+        L.append(f"- {mode}: испытаний (клеток R2 + базы + ext) {e['trials']}, из них плоских {e['flat']}; суток {e['n_days']}; "
+                 f"эфф. N клеток (Kish по корреляциям суточных рядов) {e['n_eff_cells']:.1f}; эфф. N суточного ряда B1 (автокорреляция) {neff_b1}. "
+                 f"R1 ({len(d['r1']) - 1} клеток, фев–сен) — отдельное семейство испытаний.")
+        print(f"[{mode}] испытаний {e['trials']} (плоских {e['flat']}), эфф. N клеток {e['n_eff_cells']:.1f}, эфф. N B1 {neff_b1}")
+    L.append("")
     open(OUT + ".md", "w", encoding="utf-8", newline="\n").write("\n".join(L))
     # ---- печать топов ----
     for mode, _cap in MODES:

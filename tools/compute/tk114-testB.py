@@ -11,11 +11,7 @@ import numpy as np
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 ROOT = sys.argv[2] if len(sys.argv) > 2 else "data/tk114/A"   # половина А (p13-split-2026-10-09.json)
 os.environ["P12_POOL_FROM"] = "1"
-src = open("tools/compute/p12-sharpe.py", encoding="utf-8").read()
-sys.argv = ["x", MODE]
-ns = {"__name__": "x"}
-exec(compile(src[:src.index("def main():")], "p12-sharpe.py", "exec"), ns)
-analyse = ns["analyse"]
+from p12lib import analyse   # P12_POOL_FROM выставлен выше — до импорта
 
 UTC = dt.timezone.utc
 H5 = 120 * 3600 * 1000

@@ -167,7 +167,7 @@ rounds-count), `orch-c81uY2a|Y2b|Y4.out/metrics.txt`.
 
 ## К-9 (замер, 09.10 ~20:05): Y12 — 2 891 клетка за проход
 
-Один холодный прогон `chain81w` (`tools/compute/tk048-chain81w.sh`, `tk048-k8-gen.py … uniform`, точка `x12`): 241 базовая + 2 650
+Один холодный прогон `chain81w` (`tools/compute/archive/tk048-chain81w.sh`, `tk048-k8-gen.py … uniform`, точка `x12`): 241 базовая + 2 650
 добавок вразброс (A 1 330 + B 1 320 — все B-пары 8 форм × 165 сетов, остальное A), волна 01–15.01, QALL, конфиг chain80-A, P=20,
 CPUQuota 1 500 %, через `benchrun2 wave`. Метрики: `/data/tk048/chain81w.txt`, `chain81w-mem.txt`, `orch-c81wY12.out/metrics.txt`.
 

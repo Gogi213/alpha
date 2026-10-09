@@ -4,6 +4,7 @@
 Запуск: python tools/compute/tk113-cells.py -> docs/findings/cells-v171c-2026-10-09.{csv,md}. Описание, не вердикт (отбор — Судья, В-208)."""
 import csv, os, subprocess, sys
 import numpy as np
+from p12lib import load_head
 
 POOL = {f"2026-{i:02d}" for i in range(1, 10)}
 OUT = "docs/findings/cells-v171c-2026-10-09"
@@ -11,11 +12,7 @@ OUT = "docs/findings/cells-v171c-2026-10-09"
 
 def head(mode, d):
     os.environ["P12_DIR"] = d
-    src = open("tools/compute/p12-r2-analyze.py", encoding="utf-8").read()
-    sys.argv = ["x", mode]
-    ns = {"__name__": "x"}
-    exec(compile(src[:src.index("rng = np.random.default_rng(63)")], "r2", "exec"), ns)
-    return ns
+    return load_head("tools/compute/p12-r2-analyze.py", [mode])
 
 
 def sr(x):

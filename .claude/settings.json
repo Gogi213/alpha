@@ -9,13 +9,13 @@
     "RPV_DISPATCH_ROLE_PARALLEL": "engineer:6",
     "RPV_GUARD_FORBIDDEN_HOSTS": "139.99.91.22",
     "RPV_GUARD_HEAVY_ALLOW": "^python3 /data/sched/alsched[.]py (submit|ps|cancel|wave|stand|reprio|thaw)( |$)",
-    "RPV_GUARD_HEAVY_HINT": "Обёртка: /data/benchrun.sh stand <команда> (диски — /data/tk052/benchrun2.sh; волна — wave)",
+    "RPV_GUARD_HEAVY_HINT": "Обёртка: /data/benchrun.sh stand <команда> (волна — wave; учёт дисков встроен)",
     "RPV_GUARD_HEAVY_HOST": "89.163.242.211",
     "RPV_GUARD_HOST_ROOTS": "89.163.242.211=/home/deck/alpha/,/root/tk0,/data/tk0,/data/registry/,/data/sched/,/tmp/,/opt/alpha-board/;13.140.29.171=/opt/alpha-archive/stage/,/opt/alpha-archive-tk021/dup-reimport/",
     "RPV_GUARD_REMOTE_ROOTS": "~/alpha/,$home/alpha/,${home}/alpha/,/home/deck/alpha/,/opt/alpha-compute/",
     "RPV_GUARD_STAGE": "/dev/shm/alpha-stage",
-    "RPV_JOB_OWNERS_CMD": "sh /data/tk092/jobowners.sh",
-    "RPV_JOB_STATE_CMD": "sh /data/tk092/jobstate.sh {id}",
+    "RPV_JOB_OWNERS_CMD": "sh /data/sched/jobowners.sh",
+    "RPV_JOB_STATE_CMD": "sh /data/sched/jobstate.sh {id}",
     "RPV_PROGRESS_DIR": "/data/progress",
     "RPV_STOP_STRICT": "1",
     "RPV_VPS_HOST": "root@13.140.29.171",
@@ -48,5 +48,18 @@
   },
   "enabledPlugins": {
     "role-play-vibing@role-play-vibing": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/bare_systemd_run.py\""
+          }
+        ]
+      }
+    ]
   }
 }

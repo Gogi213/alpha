@@ -6,8 +6,8 @@ O=/data/p12r3a; T=/data/tk0113/tools; D=/data/tk065; DROP=TRUMPUSDT,TRXUSDT,BCHU
 B=ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800
 cd $O || exit 2; rm -f expo2.done
 ln -sfn /data/p12r2/s-v $O/s-v; ln -sfn $O/a-b $O/v-b
-python3 /data/tk0113/p12-r3-expo.py $O > expo.log 2>&1 || { echo FAILEXPO >> fail.txt; exit 1; }
-EXPO_DROP=$DROP EXPO_OUT=$O/expo-v171c.json python3 /data/tk0113/p12-r3-expo.py $O > expo-c.log 2>&1 || { echo FAILEXPOC >> fail.txt; exit 1; }
+python3 /data/tk0113/p12-r2-expo.py $O --g95 > expo.log 2>&1 || { echo FAILEXPO >> fail.txt; exit 1; }
+EXPO_DROP=$DROP EXPO_OUT=$O/expo-v171c.json python3 /data/tk0113/p12-r2-expo.py $O --g95 > expo-c.log 2>&1 || { echo FAILEXPOC >> fail.txt; exit 1; }
 args=()
 for f in $B-halfstopf1 $B-halfstopf3 $B-halflevelf1 $B-halflevelf3 ladder3x0..0.0409sw3-pct2-tr1x1-14400-ttl1800; do args+=(--variant "$S@$f=$S/$f"); done
 for mo in $(ls vn-b | sort); do

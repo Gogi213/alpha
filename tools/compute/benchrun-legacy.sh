@@ -1,5 +1,5 @@
 #!/bin/bash
-# benchrun.sh <wave|stand> <команда…>: замок замеров с приоритетом волны (/data/benchrun.sh -> /data/tk048/benchrun.sh).
+# benchrun-legacy.sh <wave|stand> <команда…>: замок замеров с приоритетом волны (/data/benchrun.sh -> /data/tk048/benchrun.sh).
 # stand — главный замок общий (стенды идут вместе); wave — эксклюзивно, держа ворота, и на время волны ЗАМОРАЖИВАЕТ чужие счётные юниты
 # (tk0*/t4*/t5*/run-*, кроме tk048-*, alpha-*); thaw — по выходу. Список с ЦП до: $BENCH_FROZEN (читает tk048-tail.sh).
 cls=$1; shift

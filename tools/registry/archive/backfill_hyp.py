@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Бэкфилл hypotheses.jsonl (из пула гипотез 25.09) и verdicts.jsonl (из docs/research/reviews/*.md) — TK-068.
-Пересобирает оба файла целиком (канон — источники). Запуск: python tools/registry/backfill_hyp.py"""
+Пересобирает оба файла целиком (канон — источники). Запуск: python tools/registry/archive/backfill_hyp.py"""
 import glob, json, os, re
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 REG = os.path.join(ROOT, "docs", "registry")
 POOL = os.path.join(ROOT, "docs", "research", "hypothesis-pool-2026-09-25.md")
 REV = os.path.join(ROOT, "docs", "research", "reviews")

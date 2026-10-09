@@ -7,7 +7,7 @@
   alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
                                                     #   stand по умолчанию --iso 4 (без заморозки производства); --exclusive — заморозка всего; --iso K — другое K; wave — всегда заморозка
-  alsched.py ps | cancel <id> | reprio <id> <prio> | daemon
+  alsched.py ps | cancel <id> [причина] | reprio <id> <prio> | daemon
 Состояние: $SCHED_DIR (/data/sched): jobs/<id>.json (создаёт CLI, дальше пишет только демон), cancel/<id>, logs/<id>.log, rc/<id>.
 """
 import argparse, json, math, os, re, subprocess, sys, time
@@ -101,14 +101,16 @@ class Core:
             if not self.frozen and not j.get("frozen_for"):
                 j["active_s"] = j.get("active_s", 0) + dt
             if j["active_s"] > j["max_runtime"]:
+                j["kill_why"] = "снят демоном: бюджет max-runtime (активное время) вышел"
                 be.kill(j)
         self.iso = {c for j in self.running("measure") for c in j.get("iso_cpus", [])}   # ядра изолированного замера (п.3)
         for j in self.running("measure"):                 # замер не замораживается: бюджет = стена
             if now - j["t_start"] > j["max_runtime"]:
+                j["kill_why"] = "снят демоном: бюджет max-runtime замера (стена) вышел"
                 be.kill(j)
         for j in self.jobs.values():
             if j["state"] == "queued" and be.cancelled(j):
-                j.update(state="done", rc=-15, t_end=now)
+                j.update(state="done", rc=-15, t_end=now, reason="снят из очереди: " + (be.cancel_why(j) if hasattr(be, "cancel_why") else "cancel"))
             elif j["state"] == "running":
                 rc = be.done(j)
                 if rc is not None:
@@ -118,6 +120,8 @@ class Core:
                             j["reason"] = be.fail_reason(j, rc)
                         except Exception as e:
                             j["reason"] = f"rc {rc}, причина не прочитана: {e}"
+                        if j.get("kill_why"):
+                            j["reason"] = j["kill_why"] + "; " + j["reason"]
                         j["failed"] = True
                         be.alert(f"ЗАДАНИЕ УПАЛО {j['id']} {j['name']} {ticket_of(j['name'])} rc={rc}: {j['reason']}".replace("  ", " "))
                     if j.get("iso_cpus") and hasattr(be, "iso_end"):
@@ -174,8 +178,8 @@ class Core:
             if j["state"] == "queued" and os.path.exists(pj):
                 try:
                     j["prio"] = int(open(pj).read().strip())
-                except ValueError:
-                    pass
+                except ValueError as e:
+                    warn_once(f"prio-{j['id']}", f"prio/{j['id']}: не число ({e}) — приоритет не изменён")
         fact = self.pack == "fact"
         ncp = self.ncpu - len(self.iso)                   # П1: загрузка и ёмкость — по ядрам, доступным производству
         busy = (be.busy_fact(self.iso) if self.iso else be.busy_fact()) if fact and hasattr(be, "busy_fact") else 1.0
@@ -526,6 +530,25 @@ def classify_fail(rc, journal):
     return {124: "снят демоном по max-runtime", -15: "отменён", 125: "systemd-run не запустил юнит"}.get(rc, f"rc {rc}, причина в журнале не найдена")
 
 
+def alert_line(text):
+    """Строка в alerts.log; сам журнал не пишется — stderr (юнит демона → journald), демон из-за этого не падает."""
+    try:
+        with open(f"{DIR}/alerts.log", "a") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + text + "\n")
+    except OSError as e:
+        print(f"alerts.log не пишется ({e}): {text}", file=sys.stderr)
+
+
+_WARNED = set()
+
+
+def warn_once(key, text):
+    """TK-133 С-43: сбой записи/чтения состояния не глотается — одна строка в alerts.log на ключ за жизнь процесса."""
+    if key not in _WARNED:
+        _WARNED.add(key)
+        alert_line("СБОЙ СОСТОЯНИЯ: " + text)
+
+
 def sh(*a):
     return subprocess.run(a, capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
@@ -565,8 +588,7 @@ class SystemdBackend:
         return [(u, math.ceil(v)) for u, v in self._legacy_detail.items() if v >= 1]
 
     def alert(self, text):
-        with open(f"{DIR}/alerts.log", "a") as f:
-            f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + text + "\n")
+        alert_line(text)
 
     def host_busy(self):
         """Доля занятых ядер хоста с прошлого вызова (/proc/stat: 1 − (idle+iowait)/сумма)."""
@@ -627,6 +649,13 @@ class SystemdBackend:
 
     def cancelled(self, j):
         return os.path.exists(f"{DIR}/cancel/{j['id']}")
+
+    def cancel_why(self, j):
+        """текст из cancel/<id> (alsched.py cancel <id> [причина]); пусто — «cancel без причины»."""
+        try:
+            return open(f"{DIR}/cancel/{j['id']}", encoding="utf-8").read().strip() or "cancel без причины"
+        except OSError as e:
+            return f"cancel (причина не прочитана: {e})"
 
     def unit(self, j):
         return ("alpha-sm-" if j["cls"] == "measure" else "tk0s-") + f"{j['name']}-{j['id']}"
@@ -730,8 +759,8 @@ class SystemdBackend:
             try:
                 m = re.search(r"usage_usec (\d+)", open(f"/sys/fs/cgroup{cg}/cpu.stat").read())
                 c = str(int(m.group(1)) * 1000) if m else c
-            except OSError:
-                pass
+            except OSError as e:
+                warn_once("cgroup-cpu-stat", f"cpu.stat слайса {cg} не прочитан ({e}) — ЦП замера по systemctl")
         rb = rn = 0
         try:
             if cg in ("", "/"):
@@ -739,8 +768,8 @@ class SystemdBackend:
             for l in open(f"/sys/fs/cgroup{cg}/io.stat"):
                 rb += sum(int(x.split("=")[1]) for x in l.split() if x.startswith("rbytes="))
                 rn += sum(int(x.split("=")[1]) for x in l.split() if x.startswith("rios="))
-        except OSError:
-            pass
+        except OSError as e:
+            warn_once("cgroup-io-stat", f"io.stat {cg} не прочитан ({e}) — диск юнита 0")
         return (int(c) / 1e9 if c.isdigit() else 0.0), rb, rn
 
     def job_cpu(self, j):
@@ -896,8 +925,8 @@ class SystemdBackend:
         if j["cls"] == "measure":      # юнит с --collect исчезает по выходу — снять ЦП/диск юнита, пока он жив
             try:
                 self.sample_wave_mem(j)
-            except Exception:
-                pass
+            except Exception as e:
+                warn_once("wave-mem", f"sample_wave_mem {j['id']}: {e!r}")
             try:
                 new = self.unit_cpu_io(j)
                 old = self._last_own.get(j["id"], (0.0, 0, 0))
@@ -905,8 +934,8 @@ class SystemdBackend:
                 fin = self.read_final(j)
                 if fin:
                     self._last_own[j["id"]] = fin
-            except Exception:
-                pass
+            except Exception as e:
+                warn_once("unit-cpu-io", f"снятие ЦП/диска юнита {j['id']}: {e!r}")
         if os.path.exists(p):
             if j["cls"] == "measure" and self.now() - j["t_start"] >= MIN_WALL_S:
                 open(f"{DIR}/first_real_wave", "a").write(j["id"] + "\n")     #метка для wait_for: настоящая волна под демоном кончилась
@@ -967,9 +996,10 @@ class SystemdBackend:
             else:
                 self.alert(f"iso_end: {u} cpuset.cpus.effective={sorted(self.slice_cpus(u))} вместо 0-{NCPU - 1} после 3 попыток")
         try:
-            os.remove(f"{DIR}/iso.json")
-        except OSError:
-            pass
+            if os.path.exists(f"{DIR}/iso.json"):
+                os.remove(f"{DIR}/iso.json")
+        except OSError as e:
+            warn_once("iso-json", f"iso.json не удалён ({e}) — следующий демон прочтёт старую изоляцию")
 
     def freeze_all(self):
         us = [u for u in self.units(FREEZE_PAT) if not u.startswith("alpha-")
@@ -1152,7 +1182,7 @@ def main():
         return 0
     if a[0] == "cancel":
         os.makedirs(f"{DIR}/cancel", exist_ok=True)
-        open(f"{DIR}/cancel/{a[1]}", "w").close()
+        open(f"{DIR}/cancel/{a[1]}", "w", encoding="utf-8").write(" ".join(a[2:]) + "\n" if a[2:] else "")
         return 0
     if a[0] == "thaw":     # страховочный таймер аренды и ручная разморозка; метка делает идущее окно недействительным
         os.makedirs(DIR, exist_ok=True)
@@ -1229,11 +1259,7 @@ def vypiska_warn(o, max_runtime_s):
                     "объявить шаги и обернуть их в guard step")
     for msg in msgs:
         print(msg, file=sys.stderr)
-        try:
-            with open(f"{DIR}/alerts.log", "a") as f:
-                f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + msg + "\n")
-        except OSError:
-            pass
+        alert_line(msg)
     if mk is None:
         return {"file": o.vypiska or None, "missing": True}
     return {"file": o.vypiska, "steps": mk.get("steps_file"), "have": mk.get("have"), "new": mk.get("new"), "wrapper_only": bool(mk.get("wrapper_only"))}
