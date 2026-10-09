@@ -10,8 +10,9 @@
 Сверка: B1 (+52,3/2750 free, -0,4/1503 B2); R2-клетки: итог по определённым месяцам - база = d_usd из p12-sharpe-<режим>-2026-10-09-v171c-A.csv;
 ext = ext-v171c-2026-10-09.csv; R1 B1 (фев–сен) = B1 из R2 (фев–сен).
 Запуск из корня репозитория: python tools/compute/monthly-pnl.py  → docs/findings/monthly-pnl-v171c-2026-10-09.{csv,md}"""
-import csv, datetime as dt, json, os, sys
+import csv, json, os, sys
 from collections import defaultdict
+from p12lib import load_head
 
 R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-a/", "data/tk113/ext/", "data/tk113/r1-v171c/"
 OUT = "docs/findings/monthly-pnl-v171c-2026-10-09"
@@ -21,26 +22,15 @@ R1M = dict(zip("feb mar apr may jun jul aug sep oct".split(), [f"2026-{i:02d}" f
 MODES = (("free", "0"), ("B2", "3"))
 TOL = 0.5
 MN = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен"]
-UTC = dt.timezone.utc
-
-
-def mon_of(ms):
-    return dt.datetime.fromtimestamp(ms / 1000, UTC).strftime("%Y-%m")
 
 
 def load_r2(mode):
     """exec головы p12-r2-analyze.py (до бутстрепа) — как load() в p12-sharpe.py; -> ns (S, CELLS, BN, defined_of, EXPO)."""
     os.environ["P12_DIR"] = R2DIR
-    path = "tools/compute/p12-r2-analyze.py"
-    src = open(path, encoding="utf-8").read()
-    cut = src.index("rng = np.random.default_rng(63)")
-    argv0, sys.argv = sys.argv, ["x", mode]
-    ns = {"__name__": "x"}
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        exec(compile(src[:cut], path, "exec"), ns)
-    sys.argv = argv0
+        ns = load_head("tools/compute/p12-r2-analyze.py", "rng = np.random.default_rng(63)", [mode])
     if "НЕТ формы" in buf.getvalue():
         sys.exit("R2: " + buf.getvalue())
     return ns

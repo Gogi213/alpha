@@ -9,9 +9,7 @@ import numpy as np
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 CAP = "0" if MODE == "free" else "3"
-src = open("tools/compute/p12-sharpe.py", encoding="utf-8").read().rsplit("\nmain()", 1)[0]
-sys.argv = ["x", MODE]
-exec(compile(src, "p12-sharpe.py", "exec"))   # load, pack, sr, block_idx, B, POOL
+from p12lib import POOL, block_idx, load, pack, sr
 ns = load("tools/compute/p12-r2-analyze.py", MODE)
 P = pack(ns, False)
 CELLS, day_of, di = ns["CELLS"], ns["day_of"], ns["di"]
