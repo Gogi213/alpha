@@ -2,7 +2,7 @@
 # TK-048 К-4д: alpha-e39-idxt (тайминг индексного пути), d15 боевыми флагами + ALPHA_HOLD_INDEX=1 (без сверки); done: /data/tk048/e39-d15/done; в grid.log строка «индекс удержания»
 set -euo pipefail
 K=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o BatchMode=yes); V=root@13.140.29.171; C=root@89.163.242.211
-B=/opt/alpha-compute/bin; n=alpha-e39-idx
+B=/opt/alpha-compute/bin; n=alpha-e39-idxt
 ssh "${K[@]}" $V "test -e /opt/alpha-compute/tk051-$n.done"
 m=$(ssh "${K[@]}" $V "md5sum < $B/$n" | cut -d' ' -f1)
 ssh "${K[@]}" $V "cat $B/$n" | ssh "${K[@]}" $C "cat > $B/$n.new && chmod +x $B/$n.new"
@@ -14,7 +14,7 @@ F="ALPHA_SKIP_SAME=1 ALPHA_SKIP_NOSIGNAL=1 ALPHA_FAST_HOLD=1 ALPHA_EVENT_STEPS=e
 cat > /data/tk048/e39-d15/run.sh <<EOS
 #!/bin/bash
 cd /data/tk051
-/data/benchrun.sh stand bash stand.sh alpha-e39-idx d15 TAG=e39 $F > /data/tk048/e39-d15/out.txt 2>&1
+/data/benchrun.sh stand bash stand.sh alpha-e39-idxt d15 TAG=e39 $F > /data/tk048/e39-d15/out.txt 2>&1
 touch /data/tk048/e39-d15/done
 EOS
 systemctl reset-failed tk048-e39 2>/dev/null; systemd-run --quiet --unit=tk048-e39 --collect bash /data/tk048/e39-d15/run.sh && echo запущено'
