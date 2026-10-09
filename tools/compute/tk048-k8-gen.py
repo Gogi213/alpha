@@ -12,7 +12,7 @@ ENTRIES = ['ladder3x0.00409..0.02045sw2', 'ladder3x0.00409..0.0818sw2', 'ladder3
            'ladder3x0.010225..0.0818sw2', 'ladder3x0.00409..0.0409sw2', 'ladder3x0.010225..0.0409sw2',
            'ladder3x0..0.02045sw2', 'ladder3x0..0.0818sw2']
 B_FORMS = [f'{e}-pct2-tr1x1-14400-ttl1800' for e in ENTRIES]
-NEED = {2: (120, 121), 4: (360, 363)}
+NEED = {1: (0, 0), 2: (120, 121), 4: (360, 363)}
 for d in days:
     base = f'{src}/jall-jan-2026-01-{d}'
     cells = [l.rstrip('\n') for l in open(base + '.txt') if l.strip()]
