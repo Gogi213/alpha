@@ -26,3 +26,11 @@ examples/сторонние/
 
 # экран хода работ: статус, который пишет tools/pulse/collect.py (локально, раз в 5 с)
 .claude/pulse/
+
+# сырьё и пробы в корне репо (С-41): рабочее — в data/, а не в корне
+/tmp/
+/tmp-*/
+/tmp[0-9]*/
+/export/
+/hdr-*.tsv
+.playwright-mcp/
