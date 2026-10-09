@@ -325,15 +325,49 @@ class GuardTest(unittest.TestCase):
         a, b = self._bin("old", b"a"), self._bin("new", b"b")
         r, info = guard.check("prod", self._step_cmd(a), say=self.out.append, scope="touches")
         guard.done("prod", 0, pending=info["pending"], result=self.d)
-        gate = os.path.join(self.d, "gate.txt")
-        put(gate, "diff 0")
-        guard.equiv(b, a, "touches", gate)
+        po, pn = os.path.join(self.d, "probe-old.csv"), os.path.join(self.d, "probe-new.csv")
+        put(po, "a,b\n1,2\n")
+        put(pn, "a,b\n1,2\n")
+        guard.equiv(b, a, "touches", [(po, pn)])
         r2, _ = guard.check("prod", self._step_cmd(b), say=self.out.append, scope="touches")
         self.assertEqual(r2, guard.SKIP)
         r3, _ = guard.check("prod", self._step_cmd(b), say=self.out.append, scope="grid")
         self.assertEqual(r3, 0)
         with self.assertRaises(SystemExit):
-            guard.equiv(b, a, "touches", os.path.join(self.d, "нет.txt"))
+            guard.equiv(b, a, "touches", [(po, os.path.join(self.d, "нет.csv"))])
+        with self.assertRaises(SystemExit):
+            guard.equiv(b, a, "touches", [])
+
+    def test_equiv_refuses_added_columns_and_dirs_compare_all_files(self):
+        """TK-118 (Судья): «старые колонки равны + новые добавлены» — не equiv; каталоги сверяются по всем файлам."""
+        a, b = self._bin("old", b"a"), self._bin("new", b"b")
+        po, pn = os.path.join(self.d, "o.csv"), os.path.join(self.d, "n.csv")
+        put(po, "a,b\n1,2\n")
+        put(pn, "a,b,c60\n1,2,3\n")
+        with self.assertRaises(SystemExit) as e:
+            guard.equiv(b, a, "grid", [(po, pn)])
+        self.assertIn("ОТКАЗ", str(e.exception))
+        do, dn = os.path.join(self.d, "do"), os.path.join(self.d, "dn")
+        for d_ in (do, dn):
+            os.makedirs(d_)
+            put(os.path.join(d_, "s.csv"), "1\n")
+            put(os.path.join(d_, "r.csv"), "2\n")
+        n, _ = guard.verify_pairs([(do, dn)])
+        self.assertEqual(n, 2)
+        put(os.path.join(dn, "r.csv"), "3\n")
+        with self.assertRaises(SystemExit):
+            guard.verify_pairs([(do, dn)])
+
+    def test_vypiska_needs_exact_steps_file(self):
+        """TK-118 (Судья): отметка по другому файлу шагов не засчитывается; без файла — нет отметки."""
+        sf, other = os.path.join(self.d, "steps.tsv"), os.path.join(self.d, "other.tsv")
+        put(sf, "s\t\t\ttrue\n")
+        put(other, "t\t\t\ttrue\n")
+        self.assertFalse(guard.vypiska_marked(sf))
+        guard.plan(sf, say=lambda *_: None)
+        self.assertTrue(guard.vypiska_marked(sf))
+        self.assertFalse(guard.vypiska_marked(other))
+        self.assertFalse(guard.vypiska_marked(None))
 
     def test_step_skips_done_and_recomputes_missing_output(self):
         """TK-118 (1): готовый шаг пропускается, пока выход на месте; нет выхода — считается."""
@@ -400,10 +434,10 @@ class GuardTest(unittest.TestCase):
         put(out, "x")
         cmd = [sys.executable, "-c", "pass", "--root", self.root, "--out", out]
         with self.assertRaises(SystemExit):
-            guard.adopt("g", cmd, [self.root], out, os.path.join(self.d, "нет"))
-        gate = os.path.join(self.d, "gate.txt")
-        put(gate, "diff 0")
-        self.assertEqual(guard.adopt("g", cmd, [self.root], out, gate), "принят")
+            guard.adopt("g", cmd, [self.root], os.path.join(self.d, "нет"), "TK-064")
+        with self.assertRaises(SystemExit):
+            guard.adopt("g", cmd, [self.root], out, "")
+        self.assertEqual(guard.adopt("g", cmd, [self.root], out, "TK-064 той же командой"), "принят")
         self.assertEqual(guard.step("g", cmd, [self.root], out), 0)
         led = [l for l in open(os.path.join(TMP, "ledger.jsonl"), encoding="utf-8")]
         self.assertEqual(sum('"kind": "run"' in l for l in led), 1)   # step не считал заново

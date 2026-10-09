@@ -451,6 +451,7 @@ def step(name, argv, ins=(), out=None, dry=False, recompute=False, why="", norm=
         return REFUSE
     if rc == SKIP and out and not os.path.exists(out):
         say(f"отпечаток есть, но выхода {out} нет — считаем заново")
+        log_failure(f"step {name}: готовый шаг с ключом в Летописи, но выхода {out} нет (стёрт?) — считается заново (В-213: выходы с ключом не удалять)")
         rc, info = check("prod", argv, True, "выход готового шага отсутствует", say=lambda m: None, scope=name)
     if rc == SKIP:
         say("ГОТОВО — берём из реестра, не считаем")
@@ -465,19 +466,19 @@ def step(name, argv, ins=(), out=None, dry=False, recompute=False, why="", norm=
     return r
 
 
-def adopt(name, argv, ins, out, gate, norm=()):
-    """Зарегистрировать УЖЕ готовый выход шага (посчитан раньше другой обёрткой, напр. TK-064): нужен существующий выход и файл итога гейта «байт в байт»
-    (проба: тот же шаг, тот же вход, побайтно равно). Дальше `step` с тем же ключом пропустит счёт."""
-    if not out or not os.path.exists(out):
-        raise SystemExit(f"guard adopt: выхода нет: {out}")
-    if not gate or not os.path.exists(gate):
-        raise SystemExit("guard adopt: нужен --gate <файл с итогом гейта «байт в байт» (должен существовать)>")
+def adopt(name, argv, ins, out, why, norm=()):
+    """Зарегистрировать УЖЕ готовый выход шага, посчитанный ЭТОЙ ЖЕ командой другой обёрткой (напр. TK-064 старым бинарником): это запись факта «команда → выход»,
+    а не утверждение о равенстве бинарников (то — только `equiv` по сверке пар). Нужны непустой выход и --why (откуда выход). Дальше `step` с тем же ключом пропустит счёт."""
+    if not out or not os.path.exists(out) or (os.path.isdir(out) and not os.listdir(out)):
+        raise SystemExit(f"guard adopt: выхода нет или пуст: {out}")
+    if not why.strip():
+        raise SystemExit("guard adopt: нужен --why <откуда готовый выход: прогон/тикет, той же командой>")
     _step_env(ins, out, norm)
     rc, info = check("prod", argv, say=lambda *_: None, scope=name)
     if rc == SKIP:
         return "уже в журнале"
     done("prod", 0, pending=info["pending"], result=out)
-    append({"kind": "adopt", "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "step": name, "fp": info["fp"], "result_path": out, "gate": gate})
+    append({"kind": "adopt", "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "step": name, "fp": info["fp"], "result_path": out, "why": why})
     return "принят"
 
 
@@ -524,24 +525,55 @@ def plan(steps_file, say=print, mark=True):
 
 
 def vypiska_marked(steps_file=None):
-    """Есть ли отметка выписки (для alsched submit prod > 15 мин): по файлу шагов или любая за последние 12 ч."""
+    """Есть ли отметка выписки именно по этому файлу шагов (alsched submit prod > 15 мин). Без файла шагов — нет (отметка «любая за 12 ч» глушила предупреждение)."""
     d = os.path.join(os.environ.get("REG_DIR", snap.REG), "vypiska")
-    if not os.path.isdir(d):
+    if not steps_file or not os.path.isfile(steps_file):
         return False
-    if steps_file and os.path.isfile(steps_file):
-        key = hashlib.sha256(open(steps_file, "rb").read()).hexdigest()[:16]
-        return os.path.exists(os.path.join(d, key + ".json"))
-    return any(time.time() - e.stat().st_mtime < 12 * 3600 for e in os.scandir(d))
+    key = hashlib.sha256(open(steps_file, "rb").read()).hexdigest()[:16]
+    return os.path.exists(os.path.join(d, key + ".json"))
 
 
-def equiv(new, old, scope, gate):  # new/old — путь (лучше: путь старого нужен, чтобы команда нового совпала по тексту) или md5
-    """Гейт «байт в байт» нового бинарника против старого (md5 или путь) -> запись в журнал (TK-118)."""
+def _tree_md5(path):
+    """{относительное имя: md5} для файла или каталога (все файлы, рекурсивно)."""
+    if os.path.isfile(path):
+        return {"": snap.sha(path, 32)}
+    res = {}
+    for dp, _, fs in os.walk(path):
+        for f in fs:
+            fp = os.path.join(dp, f)
+            res[os.path.relpath(fp, path).replace(os.sep, "/")] = snap.sha(fp, 32)
+    return res
+
+
+def verify_pairs(pairs):
+    """Гейт «байт в байт» считает сам guard: для каждой пары (выход старого, выход нового на той же пробе) — те же имена файлов и md5 каждого.
+    Любое расхождение (в т.ч. «старые колонки равны + новые добавлены») — отказ: это новая версия смысла шага, не эквивалентность.
+    -> (число файлов, общий md5 пар)."""
+    if not pairs:
+        raise SystemExit("guard equiv: нужен хотя бы один --pair <выход старого> <выход нового> (одна проба, тот же вход)")
+    total, h = 0, hashlib.md5()
+    for old, new in pairs:
+        for x in (old, new):
+            if not os.path.exists(x):
+                raise SystemExit(f"guard equiv: нет пути пары: {x}")
+        a, b = _tree_md5(old), _tree_md5(new)
+        if not a:
+            raise SystemExit(f"guard equiv: пустой выход старого: {old}")
+        if a != b:
+            diff = sorted(set(a) ^ set(b)) or sorted(k for k in a if a[k] != b[k])
+            raise SystemExit(f"guard equiv: ОТКАЗ — выходы не равны побайтно ({old} ≠ {new}), например: {diff[:3]} — это новая версия смысла шага")
+        total += len(a)
+        h.update(json.dumps(a, sort_keys=True).encode())
+    return total, h.hexdigest()
+
+
+def equiv(new, old, scope, pairs):  # new/old — путь бинарника или md5; pairs — [(выход старого, выход нового)] на одной пробе
+    """Гейт «байт в байт» нового бинарника против старого (TK-118): guard сам сверяет все файлы пар; равенство -> запись в журнал."""
     def md(x):
         return snap.sha(x, 5) if os.path.isfile(x) else x
-    if not gate or not os.path.exists(gate):
-        raise SystemExit("guard equiv: нужен --gate <файл с итогом гейта «байт в байт»> (должен существовать)")
+    nfiles, dig = verify_pairs(pairs)
     row = {"kind": "equiv", "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "new": md(new), "old": md(old),
-           "old_path": old if os.path.isfile(old) else None, "scope": scope, "gate": gate}
+           "old_path": old if os.path.isfile(old) else None, "scope": scope, "pairs": [list(p) for p in pairs], "files": nfiles, "digest": dig}
     append(row)
     return row
 
@@ -565,7 +597,7 @@ def main():
     p.add_argument("--new")
     p.add_argument("--old")
     p.add_argument("--scope", default="*")
-    p.add_argument("--gate")
+    p.add_argument("--pair", nargs=2, action="append", default=[], metavar=("СТАРЫЙ", "НОВЫЙ"), help="equiv: выход старого и нового на одной пробе (файл/каталог); guard сверяет md5 всех файлов")
     p.add_argument("rc", nargs="?", default="0")
     p.add_argument("--recompute", action="store_true")
     p.add_argument("--why", default="")
@@ -578,13 +610,13 @@ def main():
     if o.cmd == "step":
         sys.exit(step(o.cls, argv, [x for x in o.ins.split(os.pathsep) if x], o.out, o.dry or bool(os.environ.get("GUARD_DRY")), o.recompute, o.why, o.norm))
     if o.cmd == "adopt":
-        print(adopt(o.cls, argv, [x for x in o.ins.split(os.pathsep) if x], o.out, o.gate, o.norm))
+        print(adopt(o.cls, argv, [x for x in o.ins.split(os.pathsep) if x], o.out, o.why, o.norm))
         return
     if o.cmd == "plan":
         plan(o.steps or o.cls)
         return
     if o.cmd == "equiv":
-        print(json.dumps(equiv(o.new, o.old, o.scope, o.gate), ensure_ascii=False))
+        print(json.dumps(equiv(o.new, o.old, o.scope, [tuple(x) for x in o.pair]), ensure_ascii=False))
         return
     if o.cmd == "check":
         rc, info = check(o.cls, argv, o.recompute, o.why, o.repeat)
