@@ -3612,6 +3612,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                 let steps = fast_hold::with_fast_ctx(
                     bt_addr,
                     rest,
+                    &w.depth,
                     windows.tick_size,
                     windows.lot_size,
                     exec_latency,
@@ -3812,6 +3813,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                             fast_hold::with_fast_ctx(
                                 std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize,
                                 rest,
+                                &w.depth,
                                 windows.tick_size,
                                 windows.lot_size,
                                 exec_latency,

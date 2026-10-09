@@ -654,6 +654,8 @@ struct FastCtx {
     lot: f64,
     latency: ExecLatency,
     queue_model: QueueModelKind,
+    /// Книга окна до первой строки среза (`SignalWindow::depth`): база индекса, общего для кругов окна.
+    base: *const DepthSnapshot,
 }
 
 thread_local! {
@@ -665,6 +667,7 @@ thread_local! {
 pub fn with_fast_ctx<R>(
     engine: usize,
     rows: &[Event],
+    base: &DepthSnapshot,
     tick: f64,
     lot: f64,
     latency: ExecLatency,
@@ -674,7 +677,6 @@ pub fn with_fast_ctx<R>(
     if !fast_hold_on() {
         return f();
     }
-    IDX_CACHE.with(|c| *c.borrow_mut() = None);
     FAST_CTX.with(|c| {
         c.set(Some(FastCtx {
             engine,
@@ -684,11 +686,11 @@ pub fn with_fast_ctx<R>(
             lot,
             latency,
             queue_model,
+            base: std::ptr::from_ref(base),
         }))
     });
     let out = f();
     FAST_CTX.with(|c| c.set(None));
-    IDX_CACHE.with(|c| *c.borrow_mut() = None);
     out
 }
 
@@ -736,7 +738,9 @@ where
     idx_add(2, t_snap);
     let state_start = state.clone();
     if skip_on && hold_index_on() {
-        if let Some(idx) = idx_for(rows, cur, t, &snap, ctx.tick, ctx.lot) {
+        // SAFETY: база — `SignalWindow::depth`, живёт дольше шага круга (как и срез `rows`).
+        let base = unsafe { &*ctx.base };
+        if let Some(idx) = idx_for(rows, cur, base, ctx.tick, ctx.lot) {
             let mut ib = IdxBot::new(&idx, rows, ctx.tick, ctx.lot, t);
             let t_scan = std::time::Instant::now();
             let r = fast_hold_scan_idx(&mut ib, state, cap, decided_in_hold, stable, sig);
@@ -874,10 +878,10 @@ fn idx_add(i: usize, t0: std::time::Instant) {
     );
 }
 
-type IdxCache = Option<(usize, usize, usize, i64, std::rc::Rc<HoldIdx>)>;
+type IdxCache = Option<((usize, usize, i64, i64), std::rc::Rc<HoldIdx>)>;
 
 thread_local! {
-    /// Индекс текущего окна: (адрес ленты, длина, строка и метка базы, индекс).
+    /// Индекс последнего окна: ((адрес ленты, длина, `local_ts` первой и последней строк), индекс).
     static IDX_CACHE: std::cell::RefCell<IdxCache> = const { std::cell::RefCell::new(None) };
 }
 
@@ -1162,30 +1166,35 @@ pub(super) fn fast_hold_scan_idx<'a>(
     }
 }
 
-/// Индекс окна для круга, начинающегося с курсора `cur` на метке `t`: из кэша окна или строится заново (по книге
-/// движка). `None` — индекс невозможен (очистка глубины, `local_ts` убывает).
+/// Индекс окна для круга с курсором `cur`: общий для всех кругов окна (ключ — срез ленты), строится один раз от
+/// книги окна `base` с первой строки среза. `None` — индекс невозможен (очистка глубины, `local_ts` убывает).
 fn idx_for(
     rows: &[Event],
     cur: usize,
-    t: i64,
-    book: &DepthSnapshot,
+    base: &DepthSnapshot,
     tick: f64,
     lot: f64,
 ) -> Option<std::rc::Rc<HoldIdx>> {
-    let key = (rows.as_ptr() as usize, rows.len());
+    debug_assert!(cur <= rows.len());
+    let key = (
+        rows.as_ptr() as usize,
+        rows.len(),
+        rows.first().map_or(0, |e| e.local_ts),
+        rows.last().map_or(0, |e| e.local_ts),
+    );
     if let Some(i) = IDX_CACHE.with(|c| {
         c.borrow()
             .as_ref()
-            .filter(|(p, l, br, bt, _)| (*p, *l) == key && cur >= *br && t >= *bt)
-            .map(|e| e.4.clone())
+            .filter(|(k, _)| *k == key)
+            .map(|e| e.1.clone())
     }) {
         return Some(i);
     }
     let t_build = std::time::Instant::now();
-    let idx = std::rc::Rc::new(HoldIdx::build(rows, cur, book, tick, lot)?);
+    let idx = std::rc::Rc::new(HoldIdx::build(rows, 0, base, tick, lot)?);
     IDX_TIMING[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     idx_add(1, t_build);
-    IDX_CACHE.with(|c| *c.borrow_mut() = Some((key.0, key.1, cur, t, idx.clone())));
+    IDX_CACHE.with(|c| *c.borrow_mut() = Some((key, idx.clone())));
     Some(idx)
 }
 
