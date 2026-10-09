@@ -8,6 +8,8 @@ import datetime, os, subprocess, sys, threading, time
 READY_D = True
 D_ONLY = os.environ.get("D_ONLY") == "1"  # К-5б: только файлы суток D, хвост D+1 берёт счёт
 PLAN_ONLY = os.environ.get("PLAN_ONLY") == "1"  # напечатать байты плана и выйти
+# К-5в: HINT=<файл "сутки символ"> — читать только бинлоги, которые единица декодирует целиком (стадия ev_decode прошлой волны); остальные — проба заголовка
+HINT = {tuple(l.split()) for l in open(os.environ["HINT"]) if l.strip()} if os.environ.get("HINT") else None
 AHEAD = int(os.environ.get("AHEAD", "15"))
 S, QF, G = sys.argv[1], sys.argv[2], int(sys.argv[3])
 NR = int(sys.argv[4]) if len(sys.argv) > 4 else 1
@@ -42,7 +44,7 @@ def files_of(d, k):
     for dd in ((d,) if READY_D else (d, next_day(d))):
         for s in rows[k * n // G:(k + 1) * n // G]:
             p = f"{S}/root/{s}-{dd}.binlog"
-            if os.path.exists(p):
+            if os.path.exists(p) and (HINT is None or (d, s) in HINT):
                 out.append(os.path.realpath(p))
     return sorted(out, key=phys)
 
