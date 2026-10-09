@@ -478,6 +478,10 @@ pub struct PyramidCfg {
     /// Г-106 (`nostop<X2>`): без стопа, пока лучшая цена не дала `X2/2 · trail_activate_bps` и не ушла за безубыток;
     /// затем стоп = безубыток (мягкий). `0` — выключено.
     pub nostop_x2: u8,
+    /// Г-65 (`e65-t2` → 1, `e65-t2x` → 2): цель за второй аск-стеной (шорт — бид-стеной) из журнала стен на момент
+    /// исполнения входа: `1` — на тик перед стеной, `2` — на тик за ней; `0` — выключено. Цена цели ставится
+    /// при форке группы (`set_plan_wall2`), `trail_bps = 0`.
+    pub wall2: u8,
 }
 
 impl PyramidCfg {
@@ -496,6 +500,7 @@ impl PyramidCfg {
         converge_tol1: 0,
         converge_a_bps: 0,
         nostop_x2: 0,
+        wall2: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -515,7 +520,8 @@ impl PyramidCfg {
             || self.half_level
             || self.sched_g10 > 0
             || self.converge_tol1 > 0
-            || self.nostop_x2 > 0)
+            || self.nostop_x2 > 0
+            || self.wall2 > 0)
     }
 }
 
@@ -1084,6 +1090,45 @@ impl StrategyState {
     /// поля входа к этому моменту `on_holding`/`decide_exit` уже не читают
     /// (`on_entry_pending` — единственный читатель входных полей плана,
     /// а он отработал до форка), так что подмена безопасна.
+    /// Г-65: `set_plan` для варианта с `wall2` — вторая живая стена противоположной стороны за входом на `fill_ms`
+    /// по журналу `walls`; цель = её цена ∓/± 1 тик (`wall2`: 1 — перед стеной, 2 — за ней), фиксированный
+    /// `take_px` при `trail_bps = 0`. Меньше двух стен — план без изменений (сделка = B1).
+    pub(crate) fn set_plan_wall2(
+        &mut self,
+        mut plan: TradePlan,
+        walls: &[crate::lob::levels::WallEvent],
+        fill_ms: i64,
+        long: bool,
+        live: &mut Vec<i64>,
+    ) {
+        use crate::lob::levels::{second_wall_tick, Side};
+        if let TradePlan::Bounce {
+            entry_px,
+            ref mut take_px,
+            ref mut trail_bps,
+            tick_px,
+            pyramid,
+            ..
+        } = plan
+        {
+            let w2 = pyramid.eff().wall2;
+            if w2 > 0 && tick_px > 0.0 {
+                let shift = level_shift(self.base_entry_vwap(), entry_px, tick_px);
+                let entry_tick = round_half_away((entry_px + shift) / tick_px) as i64;
+                let wall_side = if long { Side::Ask } else { Side::Bid };
+                if let Some(t) = second_wall_tick(walls, wall_side, fill_ms, entry_tick, long, live)
+                {
+                    // «перед стеной» у лонга — ниже, у шорта — выше; «за» — наоборот.
+                    let before = if long { -1 } else { 1 };
+                    let off = if w2 == 1 { before } else { -before };
+                    *take_px = (t + off) as f64 * tick_px - shift;
+                    *trail_bps = 0.0;
+                }
+            }
+        }
+        self.set_plan(plan);
+    }
+
     pub(crate) fn set_plan(&mut self, plan: TradePlan) {
         self.plan = plan;
         if matches!(plan, TradePlan::Bounce { pyramid, .. } if pyramid.on()) && self.r2.is_none() {

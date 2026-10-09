@@ -65,6 +65,7 @@ use crate::lob::costs::{
     fill_rate, format_fill_column, leg_fee_bps, net_fill_bps, net_fill_interval, FillObservation,
     NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
+use crate::lob::levels::WallEvent;
 use crate::lob::strategy::{
     on_event, Action, EntryCancelReason, ExitReason, OrphanCarry, StrategyState, TradePlan,
     MAX_ENTRY_LEGS,
@@ -2091,6 +2092,7 @@ fn run_round_group<B, MD>(
     variant_plans: &[TradePlan],
     variant_next_ids: &[u64],
     skip_cap: Option<i64>,
+    walls: Option<&[WallEvent]>,
 ) -> Result<Vec<GroupRoundResult>, B::Error>
 where
     B: Bot<MD>,
@@ -2226,12 +2228,18 @@ where
         }
     }
     // --- форк: К клонов состояния входа, каждому — свой план (выход) и свой диапазон заявок. ---
+    // Г-65 (e65): время исполнения входа — для выбора живых стен журнала; буфер один на форк.
+    let fill_ms = bot.current_timestamp() / 1_000_000;
+    let mut wall_live: Vec<i64> = Vec::new();
     let mut states: Vec<StrategyState> = variant_plans
         .iter()
         .zip(variant_next_ids)
         .map(|(&plan, &id)| {
             let mut s = entry_state.clone();
-            s.set_plan(plan);
+            match walls {
+                Some(w) => s.set_plan_wall2(plan, w, fill_ms, side == HbtSide::Buy, &mut wall_live),
+                None => s.set_plan(plan),
+            }
             s.set_next_order_id(id);
             s
         })
@@ -2500,6 +2508,7 @@ fn drive_signal_group<B, MD>(
     next_group_id: &mut u64,
     variant_carries: &mut [OrphanCarry],
     data_end_ns: Option<i64>,
+    walls: Option<&[WallEvent]>,
 ) -> Result<Vec<SignalStep>, B::Error>
 where
     B: Bot<MD>,
@@ -2562,6 +2571,7 @@ where
         variant_plans,
         &variant_ids,
         data_end_ns.filter(|_| cfg.hold_skip),
+        walls,
     )?;
     let mut steps = Vec::with_capacity(n);
     for (i, r) in results.into_iter().enumerate() {
@@ -3650,7 +3660,19 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                     windows.lot_size,
                     exec_latency,
                     cfg.queue_model,
-                    || drive_signal_group(bt, 0, rep, plans, cfg, &mut gid, &mut carries, data_end),
+                    || {
+                        drive_signal_group(
+                            bt,
+                            0,
+                            rep,
+                            plans,
+                            cfg,
+                            &mut gid,
+                            &mut carries,
+                            data_end,
+                            None,
+                        )
+                    },
                 )?;
                 let steps = steps
                     .into_iter()

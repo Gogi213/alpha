@@ -2353,6 +2353,7 @@ fn group_signal_steps(
         &mut next_group_id,
         &mut carries,
         None,
+        None,
     )
     .unwrap()
 }
