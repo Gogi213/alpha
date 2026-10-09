@@ -365,15 +365,17 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::HalfStop => {
+                crate::commands::lob::bounce_grid::ExitForm::HalfStop { q4 } => {
                     crate::lob::strategy::PyramidCfg {
                         half_stop: true,
+                        half_q4: q4,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::HalfLevel => {
+                crate::commands::lob::bounce_grid::ExitForm::HalfLevel { q4 } => {
                     crate::lob::strategy::PyramidCfg {
                         half_level: true,
+                        half_q4: q4,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }

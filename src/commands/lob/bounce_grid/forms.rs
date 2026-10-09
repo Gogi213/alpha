@@ -61,9 +61,9 @@ pub enum ExitForm {
     /// `pynw<K>u<k>` (TK-065, Г-93): в убыточной позиции на новую крупную стену — добавка `k/3·Q0`, всего не больше `K`.
     PyrNewWall { k: u8, u3: u8 },
     /// `halfstop` (TK-065, Г-114): стоп закрывает половину позиции, остаток без стопа.
-    HalfStop,
+    HalfStop { q4: u8 },
     /// `halflevel` (TK-065, Г-114): половина по рынку при первой сделке за `level_px` стены входа, остаток без стопа.
-    HalfLevel,
+    HalfLevel { q4: u8 },
     /// `tsl<G>t<Q>` (TK-065, Г-117): тейк сползает к безубытку; `γ = G/10`, `T = Q/4 · дедлайн`.
     TakeSched { g10: u8, t4: u8 },
     /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
@@ -99,8 +99,8 @@ impl ExitForm {
             ExitForm::PyrFresh { parts } => format!("pyfresh{parts}"),
             ExitForm::PyrReinstall { n, u3 } => format!("pyre{n}u{u3}"),
             ExitForm::PyrNewWall { k, u3 } => format!("pynw{k}u{u3}"),
-            ExitForm::HalfStop => "halfstop".to_string(),
-            ExitForm::HalfLevel => "halflevel".to_string(),
+            ExitForm::HalfStop { q4 } => half_label("halfstop", *q4),
+            ExitForm::HalfLevel { q4 } => half_label("halflevel", *q4),
             ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::WallEat {
@@ -203,8 +203,8 @@ impl ExitForm {
                 | ExitForm::PyrFresh { .. }
                 | ExitForm::PyrReinstall { .. }
                 | ExitForm::PyrNewWall { .. }
-                | ExitForm::HalfStop
-                | ExitForm::HalfLevel
+                | ExitForm::HalfStop { .. }
+                | ExitForm::HalfLevel { .. }
                 | ExitForm::TakeSched { .. }
                 | ExitForm::Converge { .. }
         )
@@ -258,8 +258,8 @@ impl ExitForm {
             );
             return Ok(form);
         }
-        if spec == "halfstop" {
-            return Ok(ExitForm::HalfStop);
+        if let Some(q4) = parse_half(spec, "halfstop")? {
+            return Ok(ExitForm::HalfStop { q4 });
         }
         if let Some(rest) = spec.strip_prefix("tsl") {
             let bad = || {
@@ -280,8 +280,8 @@ impl ExitForm {
             );
             return Ok(form);
         }
-        if spec == "halflevel" {
-            return Ok(ExitForm::HalfLevel);
+        if let Some(q4) = parse_half(spec, "halflevel")? {
+            return Ok(ExitForm::HalfLevel { q4 });
         }
         if let Some(rest) = spec.strip_prefix("pynw") {
             let bad = || {
@@ -444,6 +444,28 @@ pub struct GridForm {
     /// уровень всё ещё лучшая цена → выход по рынку (`ExitReason::Early`). Значения — только из
     /// предрегистрированного набора В-58 (`EARLY_EXITS_S`).
     pub early_exit_secs: Option<i64>,
+}
+
+/// Г-114: имя формы `halfstop` / `halfstop` + `f1`|`f3` (доля 1/4 или 3/4; половина — без суффикса).
+fn half_label(base: &str, q4: u8) -> String {
+    if q4 == 2 {
+        base.to_string()
+    } else {
+        format!("{base}f{q4}")
+    }
+}
+
+/// Разбор `halfstop[f1|f3]` / `halflevel[f1|f3]`: `None` — спецификация не этой формы.
+fn parse_half(spec: &str, base: &str) -> anyhow::Result<Option<u8>> {
+    let Some(rest) = spec.strip_prefix(base) else {
+        return Ok(None);
+    };
+    match rest {
+        "" => Ok(Some(2)),
+        "f1" => Ok(Some(1)),
+        "f3" => Ok(Some(3)),
+        _ => anyhow::bail!("--exit-form {spec:?}: ожидается {base}[f1|f3] (доля 1/4, 3/4; половина — без суффикса)"),
+    }
 }
 
 /// Формы сетки в порядке `stops × takes × DEADLINE_SECS`; имена —

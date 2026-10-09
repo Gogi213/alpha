@@ -3997,3 +3997,24 @@ fn set_agemax_parses_into_the_upper_age_bound() {
     assert!(FilterSet::parse("g87:agemax=x").is_err());
     assert_eq!(FilterSet::parse("g87:age=2700").unwrap().max_age_secs, None);
 }
+
+/// TK-115 (Г-114): доля `f` — суффикс `f1`/`f3`; половина — прежнее имя без суффикса; чужой суффикс — отказ.
+#[cfg(feature = "r2")]
+#[test]
+fn half_forms_take_quarter_fraction_suffix() {
+    assert_eq!(
+        ExitForm::parse("halfstop").unwrap(),
+        ExitForm::HalfStop { q4: 2 }
+    );
+    assert_eq!(
+        ExitForm::parse("halfstopf1").unwrap(),
+        ExitForm::HalfStop { q4: 1 }
+    );
+    assert_eq!(
+        ExitForm::parse("halflevelf3").unwrap(),
+        ExitForm::HalfLevel { q4: 3 }
+    );
+    assert_eq!(ExitForm::HalfLevel { q4: 3 }.label(), "halflevelf3");
+    assert!(ExitForm::parse("halfstopf2").is_err());
+    assert!(ExitForm::parse("halfstopf4").is_err());
+}
