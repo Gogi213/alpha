@@ -25,7 +25,7 @@ set -u
 . ~/.cargo/env; rustc -V; cargo -V
 python3 -m venv ~/venv && ~/venv/bin/pip -q install complexipy && ~/venv/bin/complexipy --version
 git config --global user.name "George Stern"; git config --global user.email "1993georgiy@gmail.com"
-[ -d ~/alpha/.git ] || git clone --branch audit/design-fixes-2026-09-22 https://github.com/Gogi213/alpha.git ~/alpha 2>&1 | tail -2
+[ -d ~/alpha/.git ] || git clone --branch master https://github.com/Gogi213/alpha.git ~/alpha 2>&1 | tail -2
 git -C ~/alpha log --oneline -1
 '
 step plugin
