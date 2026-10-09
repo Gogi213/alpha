@@ -75,10 +75,10 @@ pub enum ExitForm {
     Wall2 { behind: bool },
     /// `chase<мс>` (TK-115, Г-133): на дедлайне мейкер-погоня вместо рынка, окно `W` мс; по истечении — рынок.
     Chase { ms: u32 },
-    /// `tape<Q>` (TK-115, Г-112): выход по рынку, когда лента против позиции за окно с входа / размер стены ≥ `Q`, позиция в минусе. `Q` — порог (терциль по журналу B1, Исследователь). Нужен `--tape-log`.
-    Tape { q: f64 },
+    /// `tape<W>q<Q>` (TK-115, Г-112; окно W с): выход по рынку, когда лента против позиции за окно с входа / размер стены ≥ `Q`, позиция в минусе. `Q` — порог (терциль по журналу B1, Исследователь). Нужен `--tape-log`.
+    Tape { w: u32, q: f64 },
     /// `cxl<Q>` (TK-115, Г-116): то же по отменам на нашей стороне. Нужен `--tape-log`.
-    Cxl { q: f64 },
+    Cxl { w: u32, q: f64 },
 }
 
 impl ExitForm {
@@ -116,8 +116,8 @@ impl ExitForm {
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::NoStop { x2 } => format!("nostop{x2}"),
             ExitForm::Chase { ms } => format!("chase{ms}"),
-            ExitForm::Tape { q } => format!("tape{q}"),
-            ExitForm::Cxl { q } => format!("cxl{q}"),
+            ExitForm::Tape { w, q } => format!("tape{w}q{q}"),
+            ExitForm::Cxl { w, q } => format!("cxl{w}q{q}"),
             ExitForm::Wall2 { behind } => format!("wall2{}", if *behind { "x" } else { "" }),
             ExitForm::WallEat {
                 pct,
@@ -275,16 +275,20 @@ impl ExitForm {
         }
         for (pre, tape) in [("tape", true), ("cxl", false)] {
             if let Some(rest) = spec.strip_prefix(pre) {
-                let q: f64 = rest.parse().map_err(|_| {
+                let bad = || {
                     anyhow::anyhow!(
-                        "--exit-form {spec:?}: ожидается {pre}<Q>, Q > 0 (мера / размер стены)"
+                        "--exit-form {spec:?}: ожидается {pre}<W>q<Q>: окно W с > 0, Q > 0 (мера / размер стены)"
                     )
-                })?;
-                anyhow::ensure!(q.is_finite() && q > 0.0, "{pre}<Q>: Q > 0");
+                };
+                let (ws, qs) = rest.split_once('q').ok_or_else(bad)?;
+                let w: u32 = ws.parse().map_err(|_| bad())?;
+                let q: f64 = qs.parse().map_err(|_| bad())?;
+                anyhow::ensure!(w > 0, "{pre}<W>q<Q>: W > 0 с");
+                anyhow::ensure!(q.is_finite() && q > 0.0, "{pre}<W>q<Q>: Q > 0");
                 let form = if tape {
-                    ExitForm::Tape { q }
+                    ExitForm::Tape { w, q }
                 } else {
-                    ExitForm::Cxl { q }
+                    ExitForm::Cxl { w, q }
                 };
                 anyhow::ensure!(
                     form.label() == spec,

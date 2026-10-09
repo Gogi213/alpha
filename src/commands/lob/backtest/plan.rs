@@ -399,14 +399,16 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::Tape { q } => {
+                crate::commands::lob::bounce_grid::ExitForm::Tape { w, q } => {
                     crate::lob::strategy::PyramidCfg {
+                        tape_w: w,
                         tape_q: q,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::Cxl { q } => {
+                crate::commands::lob::bounce_grid::ExitForm::Cxl { w, q } => {
                     crate::lob::strategy::PyramidCfg {
+                        cxl_w: w,
                         cxl_q: q,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }

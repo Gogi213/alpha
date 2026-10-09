@@ -4090,15 +4090,17 @@ fn chase_form_parses_window_in_ms() {
 #[test]
 fn tape_cxl_forms_parse_threshold() {
     assert_eq!(
-        ExitForm::parse("tape1.5").unwrap(),
-        ExitForm::Tape { q: 1.5 }
+        ExitForm::parse("tape30q1.5").unwrap(),
+        ExitForm::Tape { w: 30, q: 1.5 }
     );
     assert_eq!(
-        ExitForm::parse("cxl0.25").unwrap(),
-        ExitForm::Cxl { q: 0.25 }
+        ExitForm::parse("cxl60q0.25").unwrap(),
+        ExitForm::Cxl { w: 60, q: 0.25 }
     );
-    assert_eq!(ExitForm::Tape { q: 1.5 }.label(), "tape1.5");
-    assert!(ExitForm::parse("tape0").is_err());
+    assert_eq!(ExitForm::Tape { w: 15, q: 1.5 }.label(), "tape15q1.5");
+    assert!(ExitForm::parse("tape30q0").is_err());
+    assert!(ExitForm::parse("tape0q1").is_err());
+    assert!(ExitForm::parse("tape1.5").is_err());
     assert!(ExitForm::parse("cxl").is_err());
-    assert!(ExitForm::parse("tape1.50").is_err());
+    assert!(ExitForm::parse("tape30q1.50").is_err());
 }
