@@ -69,16 +69,15 @@ for mo, ce in keys:
     nco = sum(1 for c in coins if tot(mo, ce, c)[1])
     lines.append(f"| {mo} | {ce} | {nn} | {tt:+.0f} | {nco} | {npos} |")
 
-# (а) не работает ничего: в минусе во всех шести комбинациях по итогу и в большинстве месяцев со сделками у каждой
+# (а) не работает ничего: минус по итогу во всех 6 комбинациях (заказ владельца 04:20); месячный признак — столбцом, не фильтром
 bad, good = [], []
 for c, t, pf, nb in rows:
-    if nb < MIN_TR:
-        continue
     act = [k for k in keys if t[k][1]]
-    if all(t[k][0] < 0 for k in act) and len(act) == len(keys) and all(pf[k][0] <= pf[k][1] * (1 - FRAC) + 1e-9 for k in act):
+    if len(act) == len(keys) and all(t[k][0] < 0 for k in act):
         bad.append(c)
-    elif all(t[k][0] > 0 for k in act) and len(act) == len(keys) and all(pf[k][0] >= pf[k][1] * FRAC for k in act):
+    elif nb >= MIN_TR and all(t[k][0] > 0 for k in act) and len(act) == len(keys) and all(pf[k][0] >= pf[k][1] * FRAC for k in act):
         good.append(c)
+DROPPED = {"TRUMPUSDT", "TRXUSDT", "BCHUSDT"}
 
 
 def stat(mo, ce, c):
@@ -92,17 +91,21 @@ def stat(mo, ce, c):
 def line(c):
     t, n, w, neg, pos, worst = stat("free", "B1", c)
     rest = " | ".join(f"{stat(mo, ce, c)[0]:+.0f}" for mo, ce in keys[1:])
-    return f"| {c} | {t:+.0f} | {n} | {w:.0%} | {neg}/{pos} | {worst:+.0f} | {rest} |"
+    mark = ("†" if c in DROPPED else "") + ("" if n >= MIN_TR else " (<10 сд.)")
+    return f"| {c}{mark} | {t:+.0f} | {n} | {w:.0%} | {neg}/{pos} | {worst:+.0f} | {rest} |"
 
 
 hdr = ("| монета | $ B1 free | сделок | доля прибыльных | мес.− / мес.+ | худший мес. $ | "
        + " | ".join(f"$ {mo} {ce}" for mo, ce in keys[1:]) + " |")
 sep = "|---|" + "---|" * (len(keys) + 4)
 lines += ["", "Колонки B1 free — полная статистика монеты (мес.−/мес.+ среди месяцев со сделками); остальные — итог $ за период.", "",
-          f"## (а) Не работает ничего — минус по итогу во всех 6 комбинациях и в плюсе не более {1 - FRAC:.0%} месяцев каждой ({len(bad)})", "", hdr, sep]
+          f"## (а) Не работает ничего — минус по итогу во всех 6 комбинациях ({len(bad)}; с >= {MIN_TR} сделок: {sum(1 for c in bad if tot('free', 'B1', c)[1] >= MIN_TR)}; † — исключены В-210)", "", hdr, sep]
 lines += [line(c) for c in sorted(bad, key=lambda c: tot("free", "B1", c)[0])] or ["| — |"]
 lines += ["", f"## (б) Стабильно в плюсе — плюс по итогу во всех 6 комбинациях и в >= {FRAC:.0%} месяцев каждой ({len(good)})", "", hdr, sep]
 lines += [line(c) for c in sorted(good, key=lambda c: -tot("free", "B1", c)[0])] or ["| — |"]
+
+lines += ["", "Без † (пул v171c): ключевой список неудачников — остальные строки (BCH †, TRUMP †, TRX † выпали). Точные итоги клеток без трёх монет "
+          "(потолок B2 применён заново) — `cells-v171c-2026-10-09.md`: free B1 −326→+56, g93-u1-K3 −90→+268, g94-n4 −170→+166; B2: B1 −97→+4, g93-u1-K3 −14→+102, g94-n4 −11→+72."]
 
 # все монеты в минусе по каждой клетке, но не по всем — «большинство вариантов в минусе»
 lines += ["", "## Число монет в минусе по итогу (из монет в счёте)", "", "| режим | клетка | в минусе | в плюсе |", "|---|---|---|---|"]

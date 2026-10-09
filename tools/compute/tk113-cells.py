@@ -33,21 +33,19 @@ for mode in ("free", "B2"):
     for tag, d in (("b", "data/p12r2/"), ("c", "data/p12r2-v171c/")):
         ns = head(mode, d)
         cal = ns["cal"]
-        for c, (fam, kind, suf) in ns["CELLS"].items():
-            f = ns["BASE"][kind] if False else ns["SET"] + ns["B1"] + suf
-            arr = ns["series"](kind, f)[0]
-            res[tag, c] = arr
-        for nm, kind, f in (("B1", "v", ns["BASE"]["v"]), ("B3", "vt", ns["BASE"]["vt"])):
-            res[tag, nm] = ns["series"](kind, f)[0]
+        for c, v in ns["S"].items():   # S собран головой анализатора: ключи форм g87 (vg) и e117 (vt) — те же, что в p12-r2-analyze
+            res[tag, c] = v[0]
     keep = np.array([x[:7] in POOL for x in cal])
     mon = np.array([x[:7] for x in cal])
-    for c in list(old) + ["B1", "B3"]:
-        if c in ("B1", "B3"):
+    for c in list(old) + ["B1", "B3", "B1g"]:
+        if c in ("B1", "B3", "B1g"):
             fam = c
             usd_b = float(res["b", c].sum()); usd_c = float(res["c", c].sum())
             kp = ""
         else:
             fam = old[c]["family"]; usd_b = float(old[c]["total_usd"]); usd_c = float(new[c]["total_usd"]); kp = new[c]["kpi_share_mean"]
+        if ("c", c) not in res or not res["c", c].any():
+            rows.append((mode, c, fam, round(usd_b, 1), round(usd_c, 1), None, None, 8, kp)); continue
         a = res["c", c]
         s_all = sr(a[keep])
         msr = [sr(a[mon == m]) for m in sorted(POOL)]
@@ -62,8 +60,8 @@ L = ["# Клетки П-12 R2 по пулу v171c (без TRUMP/TRX/BCH): $ бы
      "Доля KPI — наблюдение (среднее по месяцам, v171c). Покрыты R2 (40) + базы; R1 (154) и ext (7) — следующим заходом.", ""]
 for mode in ("free", "B2"):
     L += [f"## {mode}", "", "| клетка | семья | $ v171b | $ v171c | Шарп | мес. SR>0 | доля KPI |", "|---|---|---|---|---|---|---|"]
-    for r in sorted([r for r in rows if r[0] == mode], key=lambda r: -r[5]):
-        L.append(f"| {r[1]} | {r[2]} | {r[3]:+.0f} | {r[4]:+.0f} | {r[5]:+.3f} | {r[6]}/{r[7]} | {r[8]} |")
+    for r in sorted([r for r in rows if r[0] == mode], key=lambda r: -(r[5] if r[5] is not None else -9)):
+        L.append(f"| {r[1]} | {r[2]} | {r[3]:+.0f} | {r[4]:+.0f} | " + (f"{r[5]:+.3f} | {r[6]}/{r[7]}" if r[5] is not None else "— | —") + f" | {r[8]} |")
     L.append("")
 open(OUT + ".md", "w", encoding="utf-8", newline="\n").write("\n".join(L))
 print("\n".join(L[:22]))
