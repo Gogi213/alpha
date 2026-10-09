@@ -1,7 +1,7 @@
 #!/bin/sh
 # Сопоставление «задание alsched → тикет» (TK-092): ОДИН источник для сторожа жизни плагина и табло (RPV_JOB_OWNERS_CMD).
 # Строка на задание, поля через TAB: id, тикет (TK-NNN из имени заявки tkNNN-…, иначе пусто), юнит systemd, состояние
-# running|queued|done|failed. Берутся не завершённые и завершённые за последний час. Только чтение.
+# running|queued|done|failed; 5-е поле — у failed причина (reason из json, TK-117) либо rc=N. Берутся не завершённые и завершённые за последний час. Только чтение.
 d=${SCHED_DIR:-/data/sched}; now=$(date +%s)
 for f in $(ls -t "$d"/jobs/*.json 2>/dev/null | head -80); do
   id=$(basename "$f" .json)
@@ -18,5 +18,6 @@ for f in $(ls -t "$d"/jobs/*.json 2>/dev/null | head -80); do
   n=$(echo "$name" | sed -n 's/^tk0*\([0-9][0-9]*\).*/\1/p')
   tk=; [ -n "$n" ] && tk=$(printf 'TK-%03d' "$n")
   pre=tk0s-; [ "$cls" = measure ] && pre=alpha-sm-
-  printf '%s\t%s\t%s%s-%s\t%s\n' "$id" "$tk" "$pre" "$name" "$id" "$st"
+  why=; [ "$st" = failed ] && { why=$(g reason | tr '\t' ' '); [ -n "$why" ] || why="rc=$rc"; }
+  printf '%s\t%s\t%s%s-%s\t%s\t%s\n' "$id" "$tk" "$pre" "$name" "$id" "$st" "$why"
 done
