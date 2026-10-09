@@ -3555,18 +3555,46 @@ fn entry_part(plan: TradePlan) -> TradePlan {
     p
 }
 
-/// Лента суток и окна для общего индекса удержания: только когда события лежат в памяти одним срезом (круг
-/// видит её хвост `all[w.start..]`); буферный путь — `None`.
+/// Лента суток для общего индекса удержания (`ALPHA_HOLD_INDEX`): события в памяти — они же; иначе вид суток
+/// разворачивается один раз от самого раннего окна (`fast_hold::day_rows`), а срез круга — буфер от `skip_to(w.start)`.
 fn shared_day<'a, R: EventRows + ?Sized>(
     events: &'a R,
     windows: &'a SignalWindows,
     w: &'a SignalWindow,
 ) -> Option<fast_hold::SharedDay<'a>> {
-    let all = events.as_events()?;
+    if !fast_hold::hold_index_on() {
+        return None;
+    }
+    let first = windows.earliest()?;
+    if let Some(all) = events.as_events() {
+        return Some(fast_hold::SharedDay {
+            all,
+            base_row: first.start,
+            base_depth: &first.depth,
+            off: w.start,
+            win_depth: &w.depth,
+        });
+    }
+    let base = events.skip_to(first.start);
+    if base >= events.len() {
+        return None;
+    }
+    let key = (
+        std::ptr::from_ref(events).cast::<()>() as usize,
+        events.len(),
+        base,
+        events.row_local_ts(base),
+        events.row_local_ts(events.len() - 1),
+    );
+    let all = fast_hold::day_rows(key, || {
+        (base..events.len()).map(|i| events.row(i)).collect()
+    });
     Some(fast_hold::SharedDay {
         all,
-        first: windows.earliest()?,
-        win: w,
+        base_row: 0,
+        base_depth: &first.depth,
+        off: events.skip_to(w.start) - base,
+        win_depth: &w.depth,
     })
 }
 

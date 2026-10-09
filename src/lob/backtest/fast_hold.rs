@@ -654,26 +654,56 @@ struct FastCtx {
     lot: f64,
     latency: ExecLatency,
     queue_model: QueueModelKind,
-    /// Лента суток целиком и окна (событийный путь «всё в памяти»): срез круга — её хвост. `None` — буферный путь.
+    /// Лента суток для общего индекса (`None` — индекс выключен).
     shared: Option<SharedRaw>,
 }
 
-/// Лента суток и окна для индекса, общего для всех кругов и окон суток (`HoldIdx` в нумерации ленты `all`).
+/// Лента суток для индекса, общего для всех кругов и окон суток (`HoldIdx` в нумерации ленты `all`).
 #[derive(Clone, Copy)]
 pub struct SharedDay<'a> {
+    /// Строки суток: события в памяти целиком либо развёрнутый вид от базы индекса (`day_rows`).
     pub all: &'a [Event],
-    /// Окно с самой ранней стартовой строкой: от неё и с её книгой строится индекс.
-    pub first: &'a SignalWindow,
-    /// Окно этого круга (`all[win.start..]` — срез круга).
-    pub win: &'a SignalWindow,
+    /// Строка `all`, с которой строится индекс (самое раннее окно суток), и книга перед ней.
+    pub base_row: usize,
+    pub base_depth: &'a DepthSnapshot,
+    /// Строка `all`, с которой начинается срез круга `rows`, и книга окна перед ней (сверка `_CHECK`).
+    pub off: usize,
+    pub win_depth: &'a DepthSnapshot,
 }
 
 #[derive(Clone, Copy)]
 struct SharedRaw {
     all_ptr: *const Event,
     all_len: usize,
-    first: *const SignalWindow,
-    win: *const SignalWindow,
+    base_row: usize,
+    base_depth: *const DepthSnapshot,
+    off: usize,
+    win_depth: *const DepthSnapshot,
+}
+
+type DayKey = (usize, usize, usize, i64, i64);
+type DayCache = Option<(DayKey, std::rc::Rc<Vec<Event>>)>;
+
+thread_local! {
+    /// Развёрнутый вид суток для буферного пути: ((адрес ленты, длина, строка базы), строки от базы).
+    static DAY_CACHE: std::cell::RefCell<DayCache> = const { std::cell::RefCell::new(None) };
+}
+
+/// Строки суток от базы индекса, развёрнутые один раз на символо-сутки (кэш потока; ключ — `key`). Срез живёт до
+/// следующего вызова с другим ключом — то есть дольше круга, который его читает.
+pub fn day_rows<'a>(key: DayKey, fill: impl FnOnce() -> Vec<Event>) -> &'a [Event] {
+    DAY_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if !c.as_ref().is_some_and(|(k, _)| *k == key) {
+            let t0 = std::time::Instant::now();
+            *c = Some((key, std::rc::Rc::new(fill())));
+            idx_add(6, t0);
+        }
+        let v: &Vec<Event> = &c.as_ref().expect("только что заполнен").1;
+        // SAFETY: вектор держит `Rc` в кэше потока до замены по другому ключу; замена идёт на следующих сутках,
+        // когда круг, читающий срез, уже закончен.
+        unsafe { &*std::ptr::from_ref::<[Event]>(v.as_slice()) }
+    })
 }
 
 thread_local! {
@@ -708,8 +738,10 @@ pub fn with_fast_ctx<R>(
             shared: shared.map(|d| SharedRaw {
                 all_ptr: d.all.as_ptr(),
                 all_len: d.all.len(),
-                first: std::ptr::from_ref(d.first),
-                win: std::ptr::from_ref(d.win),
+                base_row: d.base_row,
+                base_depth: std::ptr::from_ref(d.base_depth),
+                off: d.off,
+                win_depth: std::ptr::from_ref(d.win_depth),
             }),
         }))
     });
@@ -766,35 +798,45 @@ where
         if shared.is_none() {
             IDX_TIMING[5].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        // SAFETY: лента суток и окна живут дольше шага круга (как и срез `rows` — её хвост).
+        // SAFETY: лента суток и книги окон живут дольше шага круга (как и срез `rows`).
         let day = shared.map(|s| unsafe {
             (
                 std::slice::from_raw_parts(s.all_ptr, s.all_len),
-                &*s.first,
-                &*s.win,
+                s,
+                &*s.base_depth,
+                &*s.win_depth,
             )
         });
-        let built = day.and_then(|(all, first, win)| {
-            let off = all.len() - rows.len();
-            debug_assert_eq!(off, win.start);
-            let idx = idx_for(all, first, ctx.tick, ctx.lot)?;
+        let built = day.and_then(|(all, s, base_depth, win_depth)| {
+            let idx = idx_for(all, s.base_row, base_depth, ctx.tick, ctx.lot)?;
             if hold_index_check() {
                 assert!(
-                    idx.book_before(all, win.start, ctx.tick, ctx.lot) == win.depth,
-                    "ALPHA_HOLD_INDEX_CHECK: книга индекса на w.start={} расходится с w.depth",
-                    win.start
+                    idx.book_before(all, s.off, ctx.tick, ctx.lot) == *win_depth,
+                    "ALPHA_HOLD_INDEX_CHECK: книга индекса на строке круга {} расходится с книгой окна",
+                    s.off
                 );
             }
-            Some((all, off, idx))
+            Some((all, s.off, idx))
         });
         if let Some((all, off, idx)) = built {
             let mut ib = IdxBot::new(&idx, all, ctx.tick, ctx.lot, t);
+            if off + rows.len() < all.len() {
+                ib.limit = rows.last().map_or(i64::MAX, |e| e.local_ts);
+            }
             let t_scan = std::time::Instant::now();
             let r = fast_hold_scan_idx(&mut ib, state, cap, decided_in_hold, stable, sig);
             idx_add(3, t_scan);
             let t2 = ib.now;
             let t_hand = std::time::Instant::now();
-            let handoff = idx.handoff(all, off, cur, t2, ctx.tick, ctx.lot);
+            // Срез круга короче ленты суток (буфер): индекс видит строки за его концом, плоская книга — нет.
+            // Дошли до конца буфера — круг пойдёт движком, как при отказе `handoff`.
+            let past_buf =
+                off + rows.len() < all.len() && rows.last().is_none_or(|e| t2 >= e.local_ts);
+            let handoff = if past_buf || (ib.hit_limit && t2 == t) {
+                None
+            } else {
+                idx.handoff(all, rows, off, cur, t2, ctx.tick, ctx.lot)
+            };
             if let Some(h) = handoff {
                 if hold_index_check() {
                     check_handoff(rows, cur, &snap, t2, &h, ctx.tick, ctx.lot);
@@ -914,9 +956,9 @@ thread_local! {
 /// Кругов, прошедших индексным путём (процесс; на итог счёта не влияет).
 pub static IDX_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// Диагностика индексного пути (процесс): [построений, мкс на построения, мкс на снимок книги, мкс на скан,
-/// мкс на handoff + пересборку движка, кругов на буферном пути (индекс общий не применим)]; на итог счёта не влияет.
-pub static IDX_TIMING: [std::sync::atomic::AtomicU64; 6] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 6];
+/// мкс на handoff + пересборку движка, кругов без индекса суток, мкс на развёртку суток]; на итог счёта не влияет.
+pub static IDX_TIMING: [std::sync::atomic::AtomicU64; 7] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 7];
 
 fn idx_add(i: usize, t0: std::time::Instant) {
     IDX_TIMING[i].fetch_add(
@@ -925,7 +967,10 @@ fn idx_add(i: usize, t0: std::time::Instant) {
     );
 }
 
-type IdxCache = Option<((usize, usize, i64, i64), Option<std::rc::Rc<HoldIdx>>)>;
+type IdxCache = Option<(
+    (usize, usize, i64, i64, usize),
+    Option<std::rc::Rc<HoldIdx>>,
+)>;
 
 thread_local! {
     /// Индекс последнего окна: ((адрес ленты, длина, `local_ts` первой и последней строк), индекс).
@@ -992,6 +1037,10 @@ pub struct IdxBot<'a> {
     orders: hftbacktest::types::OrderMap,
     values: hftbacktest::types::StateValues,
     pub need_engine: bool,
+    /// Метка последней строки буфера круга, если буфер короче ленты суток (иначе `i64::MAX`): шаг за неё скан не делает.
+    limit: i64,
+    /// Скан остановился у `limit` (а не по своему условию выхода).
+    hit_limit: bool,
 }
 
 impl<'a> IdxBot<'a> {
@@ -1009,6 +1058,8 @@ impl<'a> IdxBot<'a> {
             orders: Default::default(),
             values: hftbacktest::types::StateValues::default(),
             need_engine: false,
+            limit: i64::MAX,
+            hit_limit: false,
         }
     }
 
@@ -1173,7 +1224,13 @@ pub(super) fn fast_hold_scan_idx<'a>(
             }
             _ => any,
         };
-        if bot.elapse(step_duration(now, ne, wakeup, cap)).is_err() {
+        let dur = step_duration(now, ne, wakeup, cap);
+        if now.saturating_add(dur) >= bot.limit {
+            // Шаг ушёл бы за буфер круга: дальше всё равно движок (handoff невозможен за концом буфера).
+            bot.hit_limit = true;
+            return out(state, decided_in_hold, stable, sig);
+        }
+        if bot.elapse(dur).is_err() {
             return out(state, decided_in_hold, stable, sig);
         }
         let now = bot.current_timestamp();
@@ -1218,7 +1275,8 @@ pub(super) fn fast_hold_scan_idx<'a>(
 /// невозможен (очистка глубины, `local_ts` убывает).
 fn idx_for(
     all: &[Event],
-    first: &SignalWindow,
+    base_row: usize,
+    base_depth: &DepthSnapshot,
     tick: f64,
     lot: f64,
 ) -> Option<std::rc::Rc<HoldIdx>> {
@@ -1227,6 +1285,7 @@ fn idx_for(
         all.len(),
         all.first().map_or(0, |e| e.local_ts),
         all.last().map_or(0, |e| e.local_ts),
+        base_row,
     );
     if let Some(i) = IDX_CACHE.with(|c| {
         c.borrow()
@@ -1237,7 +1296,7 @@ fn idx_for(
         return i;
     }
     let t_build = std::time::Instant::now();
-    let idx = HoldIdx::build(all, first.start, &first.depth, tick, lot).map(std::rc::Rc::new);
+    let idx = HoldIdx::build(all, base_row, base_depth, tick, lot).map(std::rc::Rc::new);
     IDX_TIMING[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     idx_add(1, t_build);
     IDX_CACHE.with(|c| *c.borrow_mut() = Some((key, idx.clone())));

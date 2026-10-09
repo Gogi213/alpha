@@ -2000,6 +2000,10 @@ fn a_short_residual_is_flattened_by_buying() {
 
 /// Строка потока в компактном виде — только если она им представима побитно (иначе тест врёт о фикстуре).
 fn compact_of(e: &Event) -> CompactEvent {
+    try_compact_of(e).unwrap_or_else(|| panic!("фикстура не представима компактно: {e:?}"))
+}
+
+fn try_compact_of(e: &Event) -> Option<CompactEvent> {
     let kind = if e.is(LOCAL_BID_DEPTH_EVENT) {
         EventKind::BidDepth
     } else if e.is(LOCAL_ASK_DEPTH_EVENT) {
@@ -2009,7 +2013,9 @@ fn compact_of(e: &Event) -> CompactEvent {
     } else {
         EventKind::SellTrade
     };
-    assert_eq!(e.exch_ts % 1_000_000, 0, "метка биржи фикстуры — целые мс");
+    if e.exch_ts % 1_000_000 != 0 {
+        return None;
+    }
     let c = CompactEvent::new(
         kind,
         e.exch_ts / 1_000_000,
@@ -2018,15 +2024,12 @@ fn compact_of(e: &Event) -> CompactEvent {
         (e.qty * 1e9).round() as i64,
     );
     let back = c.expand();
-    assert!(
-        back.ev == e.ev
-            && back.exch_ts == e.exch_ts
-            && back.local_ts == e.local_ts
-            && back.px.to_bits() == e.px.to_bits()
-            && back.qty.to_bits() == e.qty.to_bits(),
-        "фикстура не представима компактно: {e:?}"
-    );
-    c
+    (back.ev == e.ev
+        && back.exch_ts == e.exch_ts
+        && back.local_ts == e.local_ts
+        && back.px.to_bits() == e.px.to_bits()
+        && back.qty.to_bits() == e.qty.to_bits())
+    .then_some(c)
 }
 
 /// Р6: сутки компактными событиями — тот же прогон по окнам (и с памятью кругов), что над 64-байтными
@@ -2232,6 +2235,21 @@ fn hold_skip_matches_polling_byte_for_byte() {
                 d.unwrap(),
                 "{name}, busy_skip {busy_skip}: индекс удержания"
             );
+            // Буферный путь (компактная лента): индекс суток развёрнут из вида, результат тот же, что без него.
+            if let Some(cf) = feed.iter().map(try_compact_of).collect::<Option<Vec<_>>>() {
+                let cw = SignalWindows::build(&cf, &[S, 3 * S], 1.0, 1.0);
+                let ca = drive_bounce_windowed(&cf, &cw, &signals, &poll, lat).unwrap();
+                fast_hold::FORCE_ON.with(|f| f.set(true));
+                fast_hold::FORCE_IDX.with(|f| f.set(true));
+                let cd = drive_bounce_windowed(&cf, &cw, &signals, &skip, lat);
+                fast_hold::FORCE_IDX.with(|f| f.set(false));
+                fast_hold::FORCE_ON.with(|f| f.set(false));
+                assert_eq!(
+                    ca,
+                    cd.unwrap(),
+                    "{name}, busy_skip {busy_skip}: индекс суток, буферный путь"
+                );
+            }
             fast_used += fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
                 + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed)
                 - used;
@@ -2728,7 +2746,7 @@ fn hold_index_matches_tracker() {
         }
         if (t / 10_000_000) % 37 == 0 {
             let want = tr.handoff(t, 1.0, 1.0);
-            let got = idx.handoff(&rows, 0, 0, t, 1.0, 1.0);
+            let got = idx.handoff(&rows, &rows, 0, 0, t, 1.0, 1.0);
             assert_eq!(want.is_some(), got.is_some(), "handoff t={t}");
             if let (Some(w), Some(g)) = (want, got) {
                 assert_eq!((w.t_ns, w.tail_start), (g.t_ns, g.tail_start), "t={t}");

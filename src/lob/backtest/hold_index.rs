@@ -210,11 +210,13 @@ impl HoldIdx {
     /// Состояние для нового движка на `t` для круга, начавшегося с курсора `cur` (первая строка ленты, которую круг
     /// ещё не видел): то же, что `HoldTracker::handoff` после `advance_to(t)`, но книга берётся из ближайшего
     /// контрольного снимка + повтор ≤ `CKPT_ROWS` строк. `None` — как у трекера (нечистая лента на `[cur, курсор)` или
-    /// биржа отстаёт). Индекс — в нумерации ленты суток `all`; круг видит её хвост `all[off..]`, `cur` — номер в
-    /// хвосте (не раньше базы индекса); в `FastHandoff` номера — в хвосте.
+    /// биржа отстаёт). Индекс — в нумерации ленты `all`; строки круга `rows` — её срез, начинающийся с `all[off]`
+    /// (хвост или буфер), `cur` — номер в `rows` (не раньше базы индекса); в `FastHandoff` номера — в `rows`.
+    #[allow(clippy::too_many_arguments)]
     pub fn handoff(
         &self,
         all: &[Event],
+        rows: &[Event],
         off: usize,
         cur: usize,
         t: i64,
@@ -223,6 +225,7 @@ impl HoldIdx {
     ) -> Option<FastHandoff> {
         let k = self.local_rows.partition_point(|&(_, ts)| ts <= t);
         let lcur = self.local_rows.get(k).map_or(all.len(), |&(r, _)| r);
+        let lcur_rows = lcur.checked_sub(off).filter(|&l| l <= rows.len())?;
         let lo = self.unclean.partition_point(|&r| r < cur + off);
         if self.unclean.get(lo).is_some_and(|&r| r < lcur) {
             return None;
@@ -236,8 +239,8 @@ impl HoldIdx {
             apply_local(&mut book, &all[r]);
         }
         Some(finish_handoff(
-            &all[off..],
-            lcur - off,
+            rows,
+            lcur_rows,
             DepthSnapshot::of(&book),
             t,
             tick_size,
