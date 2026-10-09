@@ -9,7 +9,7 @@ run() {  # run <дерево> <имя> <команда...> -> <дерево>/_ou
 both() { n=$1; shift; run old $n "$@" & run new $n "$@" & wait; }
 bothx() { n=$1; o=$2; w=$3; run old $n bash -c "$o" & run new $n bash -c "$w" & wait; }   # разные команды (слитые скрипты)
 export PYTHONHASHSEED=0
-P=python3
+P=${PY:-python3}   # на calc нет numpy: PY=/data/tk135gate/venv/bin/python3
 both sharpe-free   $P tools/compute/p12-sharpe.py free
 both sharpe-B2-v171c env P12_POOL_FROM=1 P12_DIR=data/p12r2-v171c-a/ P12_OUT=gate $P tools/compute/p12-sharpe.py B2
 both tiers-free    $P tools/compute/p12-tiers.py free
