@@ -3,7 +3,7 @@
 Вход: data/tk063/coin-rows.csv (rounds vn-b), data/p12r2/closes-vn-cap{0,3}-<мес>.json (closes, $_норм). Сопоставление close->строка: exit_ms + $ (округл. 4).
 Монета с наибольшим вкладом = max по |ΔSR-вкладу|: монета, чьё удаление (из клетки и из B1) сильнее всего уменьшает ΔSR. ΔSR и нижняя 95% — тем же блочным бутстрепом (seed 64), что p12-sharpe.py.
 Режим: free (cap0) | B2 (cap3). Печать + docs/findings/p12-coin-c2-<режим>-2026-10-08.csv."""
-import csv, json, sys
+import csv, json, os, sys
 from collections import defaultdict
 import numpy as np
 
@@ -19,7 +19,20 @@ PRE = "t-bid-btc4h-q1@ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 SUF = {"B1": ""}
 SUF.update({c: v[2] for c, v in CELLS.items() if v[0] in ("g93", "g92", "e119")})
 ROWS = defaultdict(list)   # (форма-суффикс, мес) -> [(exit_ms, $, символ, t0)]
-for r in csv.DictReader(open("data/tk063/coin-rows.csv", encoding="utf-8")):
+D = os.environ.get("P12_DIR", "data/p12r2/")   # v171c-A: data/p12r2-v171c-a/ + P12_ROWS_A=data/tk063/coin-rows-a.csv + P12_DROP=TRUMPUSDT,TRXUSDT,BCHUSDT
+DROP = set(filter(None, os.environ.get("P12_DROP", "").split(",")))
+TAG = os.environ.get("P12_OUT", "2026-10-08")
+AF = ("-pyre", "-pynw", "-pyeat", "-pyfresh")
+def _rows():
+    a_file = os.environ.get("P12_ROWS_A")
+    for r in csv.DictReader(open("data/tk063/coin-rows.csv", encoding="utf-8")):
+        if not (a_file and any(x in r["form"] for x in AF)):   # A-формы — из волны A, остальное — из старых строк
+            yield r
+    if a_file:
+        yield from csv.DictReader(open(a_file, encoding="utf-8"))
+for r in _rows():
+    if r["symbol"] in DROP:
+        continue
     suf = "" if r["form"] == "B1" else r["form"]
     usd = float(r["qty"]) * float(r["entry_vwap"]) * float(r["net_bps"]) / 1e4
     ROWS[(suf, r["month"])].append((int(r["exit_ms"]), usd, r["symbol"], int(r["t0_ms"])))
@@ -33,7 +46,7 @@ def matched(suf):
     """-> [(день, $_closes, символ, t0, exit)] по closes; по месяцам фев–сен."""
     out = []
     for m in months:
-        j = json.load(open(f"data/p12r2/closes-vn-cap{CAP}-{m}.json"))
+        j = json.load(open(f"{D}closes-vn-cap{CAP}-{m}.json"))
         lst = [(int(a), float(b)) for per in j[PRE + suf].values() for caps in per.values() for a, b in caps]
         pool = defaultdict(list)
         for ex, usd, sym, t0 in ROWS[(suf, m)]:
@@ -107,5 +120,5 @@ for c, suf in SUF.items():
     c2 = best[1] >= 0 and lo >= 0
     print(f"{c}: ΔSR {full:+.4f}; без {coin}: {best[1]:+.4f} [нижн. {lo:+.4f}] С2-монета {'да' if c2 else 'НЕТ'}; пик {pk} (B1 {pb1}); мес. пик>B1: {over}; сделок>1,25×: {cnt}")
     out.append([MODE, c, len(dm), round(full, 4), coin, round(best[1], 4), round(lo, 4), int(c2), pk, pb1, ";".join(over), ";".join(cnt)])
-with open(f"docs/findings/p12-coin-c2-{MODE}-2026-10-08.csv", "w", encoding="utf-8", newline="") as fh:
+with open(f"docs/findings/p12-coin-c2-{MODE}-{TAG}.csv", "w", encoding="utf-8", newline="") as fh:
     csv.writer(fh, lineterminator="\n").writerows(out)
