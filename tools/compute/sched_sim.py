@@ -49,6 +49,9 @@ class SimBE:
     def win_begin(self, j): return None
     def win_end(self, j, s): return dict(ok=True, why=[])
 
+    psi = 100.0
+    def psi_cpu(self): return self.psi
+
     def iso_cpus(self, k): return list(range(NCPU - 2 * k, NCPU))
     def iso_begin(self, cpus): pass
     def iso_end(self): pass
@@ -212,6 +215,23 @@ def hot_case():
     return False
 
 
+def hot_psi_case():
+    """Перегруз по PSI (Судья 20:14): host≈1,0 без конкуренции (PSI мал) — не морозим; с конкуренцией — не больше одного за FACT_SETTLE_S."""
+    out = []
+    for psi in (2.0, 60.0):
+        be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=62, pack="fact"); be.mem_av = 60.0; be.psi = psi
+        for i in range(14):
+            j = job("p%02d" % i, "p%d" % i, "prod", 4, 2, "none", 7200, 0)
+            core.add(j); be.cpu_rate[j["id"]] = 1.5
+        for k in range(130):
+            if k == 100:                         # задания выросли: с 100-го тика 150 с = 5 интервалов SETTLE
+                for i in be.cpu_rate:
+                    be.cpu_rate[i] = 4
+            core.tick(); be.advance(core, S.TICK)
+        out.append(sum(1 for j in core.jobs.values() if j.get("frozen_for") == "hot"))
+    return out
+
+
 def mem_case():
     """v2 п.1: 20 заданий × 1 ядро, заявлено 4 ГБ, факт 1,2 ГБ, MemAvailable 27 — недобор считается только для молодых (< MEM_RAMP_S): за 15 мин идут все 16 ядер."""
     be = SimBE(); be.mem_av = 27.0; core = S.Core(be, ncpu=NCPU, mem=56, pack="fact")
@@ -345,6 +365,9 @@ def run():
     lz, cp, ho = lazy_case(), cap_case(), hot_case()
     print(f"допуск по факту: заявки 12 ядер/36 ГБ, факт 5,6/14 — идут {lz[0]} (семья: {lz[1]}, {lz[2]}); потолок prod в окне (ядер, заморожено, поздняя заявка): {cp[0]}, конец окна: заморожено {cp[1]}, замер {cp[2]}; защита перегруза: {ho}")
     ok = ok and lz[0] == 2 and cp[0] is not None and cp[0][0] <= S.PROD_CAP_ISO and cp[0][1] == 12 - S.PROD_CAP_ISO and cp[0][2] == "queued" and cp[1] == 0 and cp[2] == "done" and ho
+    hp = hot_psi_case()
+    print(f"перегруз по PSI: PSI 2 % — заморожено {hp[0]}; PSI 60 % — {hp[1]} (≤ 150/SETTLE+1)")
+    ok = ok and hp[0] == 0 and 1 <= hp[1] <= 150 // S.FACT_SETTLE_S + 1
     ie = iso_end_case()
     print(f"iso_end: залипший слайс — вызовов {ie[0]} без тревоги {not ie[1]}; не вернулся совсем — вызовов {ie[2]}, тревог {ie[3]}")
     ok = ok and ie == (4, [], 9, 3)
