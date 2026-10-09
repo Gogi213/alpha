@@ -465,6 +465,22 @@ def step(name, argv, ins=(), out=None, dry=False, recompute=False, why="", norm=
     return r
 
 
+def adopt(name, argv, ins, out, gate, norm=()):
+    """Зарегистрировать УЖЕ готовый выход шага (посчитан раньше другой обёрткой, напр. TK-064): нужен существующий выход и файл итога гейта «байт в байт»
+    (проба: тот же шаг, тот же вход, побайтно равно). Дальше `step` с тем же ключом пропустит счёт."""
+    if not out or not os.path.exists(out):
+        raise SystemExit(f"guard adopt: выхода нет: {out}")
+    if not gate or not os.path.exists(gate):
+        raise SystemExit("guard adopt: нужен --gate <файл с итогом гейта «байт в байт» (должен существовать)>")
+    _step_env(ins, out, norm)
+    rc, info = check("prod", argv, say=lambda *_: None, scope=name)
+    if rc == SKIP:
+        return "уже в журнале"
+    done("prod", 0, pending=info["pending"], result=out)
+    append({"kind": "adopt", "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "step": name, "fp": info["fp"], "result_path": out, "gate": gate})
+    return "принят"
+
+
 def parse_steps(path):
     """Файл шагов: строка `имя<TAB>выход<TAB>входы через :<TAB>команда`, # — комментарий."""
     out = []
@@ -539,7 +555,7 @@ def log_failure(text):
 def main():
     a = sys.argv[1:]
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["check", "done", "step", "plan", "equiv"])
+    p.add_argument("cmd", choices=["check", "done", "step", "plan", "equiv", "adopt"])
     p.add_argument("cls", nargs="?", default="prod", help="класс; для step — имя шага; для plan/equiv не нужен")
     p.add_argument("--out")
     p.add_argument("--in", dest="ins", default="")
@@ -561,6 +577,9 @@ def main():
     argv = a[sep + 1:]
     if o.cmd == "step":
         sys.exit(step(o.cls, argv, [x for x in o.ins.split(os.pathsep) if x], o.out, o.dry or bool(os.environ.get("GUARD_DRY")), o.recompute, o.why, o.norm))
+    if o.cmd == "adopt":
+        print(adopt(o.cls, argv, [x for x in o.ins.split(os.pathsep) if x], o.out, o.gate, o.norm))
+        return
     if o.cmd == "plan":
         plan(o.steps or o.cls)
         return

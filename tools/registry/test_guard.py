@@ -394,5 +394,22 @@ class GuardTest(unittest.TestCase):
         del calls
 
 
+    def test_adopt_registers_existing_output(self):
+        """TK-118: готовый выход чужой обёртки принимается по гейту -> step с тем же ключом пропускает счёт; без гейта/выхода — отказ."""
+        out = os.path.join(self.d, "old.out")
+        put(out, "x")
+        cmd = [sys.executable, "-c", "pass", "--root", self.root, "--out", out]
+        with self.assertRaises(SystemExit):
+            guard.adopt("g", cmd, [self.root], out, os.path.join(self.d, "нет"))
+        gate = os.path.join(self.d, "gate.txt")
+        put(gate, "diff 0")
+        self.assertEqual(guard.adopt("g", cmd, [self.root], out, gate), "принят")
+        self.assertEqual(guard.step("g", cmd, [self.root], out), 0)
+        led = [l for l in open(os.path.join(TMP, "ledger.jsonl"), encoding="utf-8")]
+        self.assertEqual(sum('"kind": "run"' in l for l in led), 1)   # step не считал заново
+        for k in ("GUARD_INPUTS", "GUARD_NORM", "GUARD_OUT"):
+            os.environ.pop(k, None)
+
+
 if __name__ == "__main__":
     unittest.main()
