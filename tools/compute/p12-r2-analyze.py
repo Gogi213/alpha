@@ -36,6 +36,11 @@ for t in (0, 1, 2):
     CELLS[f"e119-tol{t}"] = ("e119", "v", f"-conv{t}a20")
 CELLS["e114-halfstop-f1d2"] = ("e114", "v", "-halfstop")
 CELLS["e114-halflevel-f1d2"] = ("e114", "v", "-halflevel")
+# TK-120: волна a TK-115 — доля f=1/4,3/4 (суффикс f1|f3) и g95-sw3 (полное имя формы без набора через «@»)
+for h in ("halfstop", "halflevel"):
+    for fs, fn in (("f1", "f1d4"), ("f3", "f3d4")):
+        CELLS[f"e114-{h}-{fn}"] = ("e114", "v", f"-{h}{fs}")
+CELLS["g95-sw3"] = ("g95", "v", "@ladder3x0..0.0409sw3-pct2-tr1x1-14400-ttl1800")
 for gi, g in (("5", "0.5"), ("10", "1"), ("20", "2")):
     for ti, t in (("1", "1d4"), ("2", "1d2"), ("4", "1")):
         CELLS[f"e117-g{g}-T{t}"] = ("e117", "vt", f"-tsl{gi}t{ti}")
@@ -115,7 +120,7 @@ S = {}   # имя -> series; базы 'B1','B3'
 for nm, kind in (("B1", "v"), ("B3", "vt"), ("B1g", "vg")):
     S[nm] = series(kind, BASE[kind])
 for c, (f, kind, suf) in CELLS.items():
-    form = BASE[kind] + suf
+    form = SET + suf[1:] if suf.startswith("@") else BASE[kind] + suf
     if form in raw[kind]:
         S[c] = series(kind, form)
         S[c] = S[c] + (form,)
