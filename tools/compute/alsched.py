@@ -632,6 +632,7 @@ class SystemdBackend:
         r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", *sl, f"--working-directory={j['cwd']}",
                "-p", f"RuntimeMaxSec={int(j['max_runtime'])}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
                "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", "MemorySwapMax=0", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') else len(j['cpus']) * 100}%",
+               "-p", f"CPUWeight={10 if j.get('prio', 5) > BARE_PRIO else 100}",      # 09.10: prio ниже боевого (синтетика, prio>5) — вес ЦП ≤1/10, боевой не страдает при конкуренции
                "-p", f"StandardOutput=append:{DIR}/logs/{j['id']}.log", "-p", "StandardError=inherit",
                *mem_p, "bash", "-c", inner)
         if r.returncode:
