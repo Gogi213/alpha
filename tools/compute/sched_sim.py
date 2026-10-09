@@ -49,7 +49,11 @@ class SimBE:
     def win_begin(self, j): return None
     def win_end(self, j, s): return dict(ok=True, why=[])
 
-    def busy_fact(self):
+    def iso_cpus(self, k): return list(range(NCPU - 2 * k, NCPU))
+    def iso_begin(self, cpus): pass
+    def iso_end(self): pass
+
+    def busy_fact(self, skip=()):
         return min(1.0, sum(self.cpu_rate.get(j, 0) for j, v in self.jobs.items() if v["left"] > 0 and j not in self.fz) / NCPU) if not self.frozen else 0.0
 
     def done(self, j):
@@ -159,6 +163,53 @@ def fact_case(pack):
     for _ in range(180):                                      # 15 мин
         core.tick(); be.advance(core, S.TICK)
     return len(core.running("prod"))
+
+
+def lazy_case():
+    """09.10 (Судья, п.3): 8 заявок по 12 ядер/36 ГБ, факт 5,6 ядра/14 ГБ — после обучения семьи идут 2 (по заявке шло бы 1: 5,6 + 12 > 0,9·16)."""
+    be = SimBE(); be.mem_av = 50.0; core = S.Core(be, ncpu=NCPU, mem=62, pack="fact")
+    for i in range(8):
+        j = job("pc%d" % i, "tk115-poolc-m%d" % i, "prod", 12, 36, "none", 7200, 0)
+        core.add(j); be.cpu_rate[j["id"]] = 5.6; be.mem_used[j["id"]] = 14.0
+    for _ in range(180):
+        core.tick(); be.advance(core, S.TICK)
+    return len(core.running("prod")), core.fam_cores.get("tk115-poolc"), core.fam_mem.get("tk115-poolc")
+
+
+def cap_case():
+    """п.4: изолированное окно при 12 однопоточных prod — незамороженных заявленных ядер ≤ N, новая заявка не стартует, по концу окна всё оттаяло."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=62, pack="claim")
+    for i in range(12):
+        core.add(job("c%02d" % i, "c%d" % i, "prod", 1, 1, "none", 7200, 0))
+    for _ in range(10):
+        core.tick(); be.advance(core, S.TICK)
+    w = job("w", "stand", "measure", NCPU, 1, "none", 600, be.t, mr=900); w["iso"] = 4; core.add(w)
+    core.add(job("late", "late", "prod", 1, 1, "none", 7200, be.t))
+    in_win = None
+    for _ in range(40):
+        core.tick(); be.advance(core, S.TICK)
+        if in_win is None and core.running("measure") and not core.running("measure")[0].get("valid"):
+            in_win = (sum(len(j["cpus"]) for j in core.running("prod") if not j.get("frozen_for")),
+                      sum(1 for j in core.running("prod") if j.get("frozen_for") == "cap"), core.jobs["late"]["state"])
+    for _ in range(200):
+        core.tick(); be.advance(core, S.TICK)
+    return in_win, sum(1 for j in core.running("prod") if j.get("frozen_for")), core.jobs["w"]["state"]
+
+
+def hot_case():
+    """Защита: загрузка ≥ 0,95 дольше FACT_SETTLE_S — замораживается новейшее сверх заявок."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=62, pack="fact"); be.mem_av = 60.0
+    for i in range(14):
+        j = job("h%02d" % i, "h%d" % i, "prod", 4, 2, "none", 7200, 0)
+        core.add(j); be.cpu_rate[j["id"]] = 1.5
+    for k in range(300):
+        if k == 100:
+            for i in be.cpu_rate:
+                be.cpu_rate[i] = 4          # задания выросли против первых минут
+        core.tick(); be.advance(core, S.TICK)
+        if any(j.get("frozen_for") == "hot" for j in core.jobs.values()):
+            return True
+    return False
 
 
 def mem_case():
@@ -291,6 +342,9 @@ def run():
     ok = ok and mc == 16
     print(f"v2 пакование: заявка 4 ядра, факт 1 — claim идут {nc}, fact идут {nf}; seq-диск: идут {sq}; 3×4 честных + честное 8: {hs[0]}, сверх заявки {hs[1]}")
     ok = ok and nc == 4 and nf == 11 and sq == ["s0", "s2", "s3"] and hs == ("queued", False)
+    lz, cp, ho = lazy_case(), cap_case(), hot_case()
+    print(f"допуск по факту: заявки 12 ядер/36 ГБ, факт 5,6/14 — идут {lz[0]} (семья: {lz[1]}, {lz[2]}); потолок prod в окне (ядер, заморожено, поздняя заявка): {cp[0]}, конец окна: заморожено {cp[1]}, замер {cp[2]}; защита перегруза: {ho}")
+    ok = ok and lz[0] == 2 and cp[0] is not None and cp[0][0] <= S.PROD_CAP_ISO and cp[0][1] == 12 - S.PROD_CAP_ISO and cp[0][2] == "queued" and cp[1] == 0 and cp[2] == "done" and ho
     ie = iso_end_case()
     print(f"iso_end: залипший слайс — вызовов {ie[0]} без тревоги {not ie[1]}; не вернулся совсем — вызовов {ie[2]}, тревог {ie[3]}")
     ok = ok and ie == (4, [], 9, 3)

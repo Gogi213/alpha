@@ -29,6 +29,8 @@ LEGACY_PAT = FREEZE_PAT
 PACK = os.environ.get("SCHED_PACK", "claim")   # claim (как было) | fact: пускать из очереди по факту ЦП/памяти, заявка --cores — нижняя оценка (TK-071 v2, п.1)
 FACT_BUSY = float(os.environ.get("SCHED_FACT_BUSY", "0.90"))      # старт сверх заявленных ядер, пока загрузка ЦП (EWMA 60 с) ниже этого
 FACT_SETTLE_S = int(os.environ.get("SCHED_FACT_SETTLE_S", "30"))  # между стартами по факту: новая задача набирает ЦП не сразу
+PROD_CAP_ISO = int(os.environ.get("SCHED_PROD_CAP_ISO", "8"))      # В-189 п.4 (Судья 09.10): заявленных ядер prod на время изолированного окна не больше N; сверх — заморозка новейших до конца окна
+HOT_BUSY = 0.95                                                    # загрузка ЦП (EWMA 60 с), выше которой дольше FACT_SETTLE_S замораживается новейшее сверх-заявочное задание
 MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
 FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
 
@@ -71,6 +73,8 @@ class Core:
         self.be, self.ncpu, self.mem, self.slots = be, ncpu, mem, disk_slots
         self.pack = pack or PACK
         self.fact_t = -1e9
+        self.fam_cores, self.fam_mem = {}, {}             # допуск по факту: ядра (EWMA) и пик памяти заданий семьи (имя без последнего «-…»)
+        self.hot_t = None
         self.jobs = {}
         self.iso = set()                                  # ядра изолированного замера: производству недоступны
         self.frozen = False
@@ -113,6 +117,7 @@ class Core:
                             j["reason"] = be.fail_reason(j, rc)
                         except Exception as e:
                             j["reason"] = f"rc {rc}, причина не прочитана: {e}"
+                        j["failed"] = True
                         be.alert(f"ЗАДАНИЕ УПАЛО {j['id']} {j['name']} {ticket_of(j['name'])} rc={rc}: {j['reason']}".replace("  ", " "))
                     if j.get("iso_cpus") and hasattr(be, "iso_end"):
                         be.iso_end()
@@ -159,6 +164,7 @@ class Core:
             for j in self.running("prod"):
                 be.extend(j, j["max_runtime"] - j.get("active_s", 0))
         self.thaw_victims()
+        self.cap_iso()
         used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]} | self.iso
         mem = sum(j["mem"] for j in self.running("prod"))
         legacy = math.ceil(be.legacy_busy())
@@ -172,6 +178,9 @@ class Core:
         fact = self.pack == "fact"
         ncp = self.ncpu - len(self.iso)                   # П1: загрузка и ёмкость — по ядрам, доступным производству
         busy = (be.busy_fact(self.iso) if self.iso else be.busy_fact()) if fact and hasattr(be, "busy_fact") else 1.0
+        self.learn(now)
+        self.guard_load(now, busy, fact)
+        capped = sum(len(r["cpus"]) for r in self.running("prod") if not r.get("frozen_for")) if self.iso else 0
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
@@ -186,10 +195,12 @@ class Core:
             if fact:                                      # п.1: по факту — память: MemAvailable покрывает заявку и недобранное идущими
                 mem_ok = self.mem_fits(j)
                 over = (room < j["cores"] and now - self.fact_t >= FACT_SETTLE_S and mem_ok
-                        and busy * ncp + self.ramp(now) + j["cores"] <= FACT_BUSY * ncp)
+                        and busy * ncp + self.ramp(now) + self.need_cores(j) <= FACT_BUSY * ncp)
                 fits = (room >= j["cores"] or over) and mem_ok and not disk_full
             else:
                 fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
+            if fits and self.iso and capped + j["cores"] > PROD_CAP_ISO:
+                fits = False                              # окно открыто: заявленных ядер prod сверх потолка не пускаем
             if fits and reserve is not None and j["max_runtime"] > reserve["shadow"] \
                     and (j["cores"] > reserve["cores"] or j["mem"] > reserve["mem"]):
                 fits = False                              # заняла бы место первой заявки и не успела бы до её старта
@@ -211,6 +222,7 @@ class Core:
             j.update(state="running", t_start=now, cpus=cpus)
             used |= set(j["cpus"])
             mem += j["mem"]
+            capped += len(j["cpus"]) if self.iso else 0
             be.start(j)
         if head and head["state"] == "queued" and now - head["t_submit"] > PREEMPT_S and head["id"] not in self.preempt                 and mem + head["mem"] <= self.mem:
             self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now)
@@ -218,6 +230,72 @@ class Core:
         self.alert_underuse(now)
         self.alert_idle(now)
         self.log_util(now, legacy)
+
+    @staticmethod
+    def family(j):
+        return re.sub(r"-[^-]+$", "", j["name"])
+
+    def learn(self, now):
+        """Допуск по факту (Судья 09.10, п.3): нужда семьи = занятые ядра (EWMA по выборкам alert_underuse) и пик памяти заданий старше MEM_RAMP_S;
+        заявка остаётся потолком. Семья без факта — по заявке."""
+        for j in self.running("prod"):
+            sm = j.get("cpu_samples") or []
+            if j.get("frozen_for") or self.frozen or now - j["t_start"] < MEM_RAMP_S or len(sm) < 2 or sm[-1][0] - sm[0][0] < SAMPLE_S:
+                continue
+            f, rate = self.family(j), (sm[-1][1] - sm[0][1]) / (sm[-1][0] - sm[0][0])
+            self.fam_cores[f] = rate if f not in self.fam_cores else self.fam_cores[f] + 0.3 * (rate - self.fam_cores[f])
+            if hasattr(self.be, "job_mem"):
+                self.fam_mem[f] = max(self.fam_mem.get(f, 0.0), self.be.job_mem(j))
+
+    def need_cores(self, j):
+        c = self.fam_cores.get(self.family(j))
+        return j["cores"] if c is None else min(j["cores"], max(1, math.ceil(c)))
+
+    def need_mem(self, j):
+        m = self.fam_mem.get(self.family(j))
+        return j["mem"] if m is None else min(j["mem"], m)
+
+    def guard_load(self, now, busy, fact):
+        """Защита: загрузка ≥ HOT_BUSY дольше FACT_SETTLE_S — замораживается новейшее задание сверх заявок (unpinned); оттаивает, когда загрузка < FACT_BUSY."""
+        hot = [j for j in self.running("prod") if j.get("frozen_for") == "hot"]
+        if not fact:
+            return
+        if busy >= HOT_BUSY:
+            self.hot_t = self.hot_t if self.hot_t is not None else now
+            if now - self.hot_t >= FACT_SETTLE_S:
+                vs = [j for j in self.running("prod") if j.get("unpinned") and not j.get("frozen_for")]
+                if vs:
+                    v = max(vs, key=lambda j: j["t_start"])
+                    v["frozen_for"] = "hot"
+                    self.be.freeze_unit(self.be.unit(v))
+                    self.hot_t = now
+                    self.be.alert(f"перегруз {busy:.2f}: заморожено новейшее сверх заявок {v['id']} {v['name']}")
+        else:
+            self.hot_t = None
+            if hot and busy < FACT_BUSY:
+                v = min(hot, key=lambda j: j["t_start"])
+                v.pop("frozen_for")
+                self.be.thaw_unit(self.be.unit(v))
+                self.be.extend(v, v["max_runtime"] - v.get("active_s", 0))
+
+    def cap_iso(self):
+        """Потолок prod в изолированном окне: заявленных ядер незамороженных ≤ PROD_CAP_ISO, лишнее — заморозка новейших; оттаивают по концу окна."""
+        be = self.be
+        if not self.iso:
+            for j in self.running("prod"):
+                if j.get("frozen_for") == "cap":
+                    j.pop("frozen_for")
+                    be.thaw_unit(be.unit(j))
+                    be.extend(j, j["max_runtime"] - j.get("active_s", 0))
+            return
+        live = sorted((j for j in self.running("prod") if not j.get("frozen_for")), key=lambda j: j["t_start"])
+        tot = sum(len(j["cpus"]) for j in live)
+        while live and tot > PROD_CAP_ISO:
+            v = live.pop()
+            tot -= len(v["cpus"])
+            v["frozen_for"] = "cap"
+            be.freeze_unit(be.unit(v))
+            be.alert(f"потолок prod в окне ({PROD_CAP_ISO} ядер): заморожено {v['id']} {v['name']}")
 
     def ramp(self, now):
         """Недобор EWMA по свежим заданиям: EWMA с τ = 60 с видит лишь долю 1 − e^(−a/60) нагрузки задания возраста a;
@@ -231,7 +309,7 @@ class Core:
         now = self.be.now()
         gap = sum(max(0.0, r["mem"] - (self.be.job_mem(r) if hasattr(self.be, "job_mem") else 0.0)) for r in self.running("prod")
                   if now - r["t_start"] < MEM_RAMP_S)   # старше MEM_RAMP_S — факт уже в MemAvailable (23:08: по заявке 41 ГБ против факта 17,5 стоял весь счёт)
-        return av >= j["mem"] + gap + FACT_MEM_GAP_GB
+        return av >= self.need_mem(j) + gap + FACT_MEM_GAP_GB
 
     def preempt_for(self, head, room, now):
         """Вытеснение заморозкой (Slurm PreemptMode=SUSPEND): резерв не стартует за PREEMPT_S — замораживаем идущие заявки
