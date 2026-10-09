@@ -3555,6 +3555,21 @@ fn entry_part(plan: TradePlan) -> TradePlan {
     p
 }
 
+/// Лента суток и окна для общего индекса удержания: только когда события лежат в памяти одним срезом (круг
+/// видит её хвост `all[w.start..]`); буферный путь — `None`.
+fn shared_day<'a, R: EventRows + ?Sized>(
+    events: &'a R,
+    windows: &'a SignalWindows,
+    w: &'a SignalWindow,
+) -> Option<fast_hold::SharedDay<'a>> {
+    let all = events.as_events()?;
+    Some(fast_hold::SharedDay {
+        all,
+        first: windows.earliest()?,
+        win: w,
+    })
+}
+
 /// Групповой круг одного сигнала в свежем движке окна (Э-08) — те же попытки горизонта развёртки, что у
 /// `windowed_with` (Р6). `None` — окна или данных после `t0` нет. Вариант с сиротами на выходе
 /// возвращается как `EndOfData` — в память он не попадёт (драйвер посчитает его сам).
@@ -3612,7 +3627,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                 let steps = fast_hold::with_fast_ctx(
                     bt_addr,
                     rest,
-                    &w.depth,
+                    shared_day(events, windows, w),
                     windows.tick_size,
                     windows.lot_size,
                     exec_latency,
@@ -3813,7 +3828,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                             fast_hold::with_fast_ctx(
                                 std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize,
                                 rest,
-                                &w.depth,
+                                shared_day(events, windows, w),
                                 windows.tick_size,
                                 windows.lot_size,
                                 exec_latency,
@@ -4197,6 +4212,11 @@ impl SignalWindows {
     pub fn window_at(&self, t0_ns: i64) -> Option<&SignalWindow> {
         let i = self.windows.partition_point(|w| w.t0_ns < t0_ns);
         self.windows.get(i).filter(|w| w.t0_ns == t0_ns)
+    }
+
+    /// Окно с самой ранней стартовой строкой (база индекса удержания суток, TK-048 К-4).
+    pub fn earliest(&self) -> Option<&SignalWindow> {
+        self.windows.iter().min_by_key(|w| w.start)
     }
 
     pub fn len(&self) -> usize {

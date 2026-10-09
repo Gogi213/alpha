@@ -654,8 +654,26 @@ struct FastCtx {
     lot: f64,
     latency: ExecLatency,
     queue_model: QueueModelKind,
-    /// Книга окна до первой строки среза (`SignalWindow::depth`): база индекса, общего для кругов окна.
-    base: *const DepthSnapshot,
+    /// Лента суток целиком и окна (событийный путь «всё в памяти»): срез круга — её хвост. `None` — буферный путь.
+    shared: Option<SharedRaw>,
+}
+
+/// Лента суток и окна для индекса, общего для всех кругов и окон суток (`HoldIdx` в нумерации ленты `all`).
+#[derive(Clone, Copy)]
+pub struct SharedDay<'a> {
+    pub all: &'a [Event],
+    /// Окно с самой ранней стартовой строкой: от неё и с её книгой строится индекс.
+    pub first: &'a SignalWindow,
+    /// Окно этого круга (`all[win.start..]` — срез круга).
+    pub win: &'a SignalWindow,
+}
+
+#[derive(Clone, Copy)]
+struct SharedRaw {
+    all_ptr: *const Event,
+    all_len: usize,
+    first: *const SignalWindow,
+    win: *const SignalWindow,
 }
 
 thread_local! {
@@ -664,10 +682,11 @@ thread_local! {
 
 /// Выставляет окно круга на время `f` (только при `ALPHA_FAST_HOLD=1`). `rows` — тот самый срез, что читает
 /// движок окна (`Backtest<FastMarketDepth>` из `with_backtest_over_window`).
+#[allow(clippy::too_many_arguments)]
 pub fn with_fast_ctx<R>(
     engine: usize,
     rows: &[Event],
-    base: &DepthSnapshot,
+    shared: Option<SharedDay<'_>>,
     tick: f64,
     lot: f64,
     latency: ExecLatency,
@@ -686,7 +705,12 @@ pub fn with_fast_ctx<R>(
             lot,
             latency,
             queue_model,
-            base: std::ptr::from_ref(base),
+            shared: shared.map(|d| SharedRaw {
+                all_ptr: d.all.as_ptr(),
+                all_len: d.all.len(),
+                first: std::ptr::from_ref(d.first),
+                win: std::ptr::from_ref(d.win),
+            }),
         }))
     });
     let out = f();
@@ -738,16 +762,39 @@ where
     idx_add(2, t_snap);
     let state_start = state.clone();
     if skip_on && hold_index_on() {
-        // SAFETY: база — `SignalWindow::depth`, живёт дольше шага круга (как и срез `rows`).
-        let base = unsafe { &*ctx.base };
-        if let Some(idx) = idx_for(rows, cur, base, ctx.tick, ctx.lot) {
-            let mut ib = IdxBot::new(&idx, rows, ctx.tick, ctx.lot, t);
+        let shared = ctx.shared;
+        if shared.is_none() {
+            IDX_TIMING[5].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        // SAFETY: лента суток и окна живут дольше шага круга (как и срез `rows` — её хвост).
+        let day = shared.map(|s| unsafe {
+            (
+                std::slice::from_raw_parts(s.all_ptr, s.all_len),
+                &*s.first,
+                &*s.win,
+            )
+        });
+        let built = day.and_then(|(all, first, win)| {
+            let off = all.len() - rows.len();
+            debug_assert_eq!(off, win.start);
+            let idx = idx_for(all, first, ctx.tick, ctx.lot)?;
+            if hold_index_check() {
+                assert!(
+                    idx.book_before(all, win.start, ctx.tick, ctx.lot) == win.depth,
+                    "ALPHA_HOLD_INDEX_CHECK: книга индекса на w.start={} расходится с w.depth",
+                    win.start
+                );
+            }
+            Some((all, off, idx))
+        });
+        if let Some((all, off, idx)) = built {
+            let mut ib = IdxBot::new(&idx, all, ctx.tick, ctx.lot, t);
             let t_scan = std::time::Instant::now();
             let r = fast_hold_scan_idx(&mut ib, state, cap, decided_in_hold, stable, sig);
             idx_add(3, t_scan);
             let t2 = ib.now;
             let t_hand = std::time::Instant::now();
-            let handoff = idx.handoff(rows, cur, t2, ctx.tick, ctx.lot);
+            let handoff = idx.handoff(all, off, cur, t2, ctx.tick, ctx.lot);
             if let Some(h) = handoff {
                 if hold_index_check() {
                     check_handoff(rows, cur, &snap, t2, &h, ctx.tick, ctx.lot);
@@ -867,9 +914,9 @@ thread_local! {
 /// Кругов, прошедших индексным путём (процесс; на итог счёта не влияет).
 pub static IDX_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// Диагностика индексного пути (процесс): [построений, мкс на построения, мкс на снимок книги, мкс на скан,
-/// мкс на handoff + пересборку движка]; на итог счёта не влияет.
-pub static IDX_TIMING: [std::sync::atomic::AtomicU64; 5] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 5];
+/// мкс на handoff + пересборку движка, кругов на буферном пути (индекс общий не применим)]; на итог счёта не влияет.
+pub static IDX_TIMING: [std::sync::atomic::AtomicU64; 6] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 6];
 
 fn idx_add(i: usize, t0: std::time::Instant) {
     IDX_TIMING[i].fetch_add(
@@ -878,7 +925,7 @@ fn idx_add(i: usize, t0: std::time::Instant) {
     );
 }
 
-type IdxCache = Option<((usize, usize, i64, i64), std::rc::Rc<HoldIdx>)>;
+type IdxCache = Option<((usize, usize, i64, i64), Option<std::rc::Rc<HoldIdx>>)>;
 
 thread_local! {
     /// Индекс последнего окна: ((адрес ленты, длина, `local_ts` первой и последней строк), индекс).
@@ -1166,21 +1213,20 @@ pub(super) fn fast_hold_scan_idx<'a>(
     }
 }
 
-/// Индекс окна для круга с курсором `cur`: общий для всех кругов окна (ключ — срез ленты), строится один раз от
-/// книги окна `base` с первой строки среза. `None` — индекс невозможен (очистка глубины, `local_ts` убывает).
+/// Индекс суток: один на ленту `all`, строится от самого раннего окна `first` с его книгой; общий для всех кругов и
+/// окон суток (ключ — адрес, длина и метки краёв ленты; неудача построения тоже запоминается). `None` — индекс
+/// невозможен (очистка глубины, `local_ts` убывает).
 fn idx_for(
-    rows: &[Event],
-    cur: usize,
-    base: &DepthSnapshot,
+    all: &[Event],
+    first: &SignalWindow,
     tick: f64,
     lot: f64,
 ) -> Option<std::rc::Rc<HoldIdx>> {
-    debug_assert!(cur <= rows.len());
     let key = (
-        rows.as_ptr() as usize,
-        rows.len(),
-        rows.first().map_or(0, |e| e.local_ts),
-        rows.last().map_or(0, |e| e.local_ts),
+        all.as_ptr() as usize,
+        all.len(),
+        all.first().map_or(0, |e| e.local_ts),
+        all.last().map_or(0, |e| e.local_ts),
     );
     if let Some(i) = IDX_CACHE.with(|c| {
         c.borrow()
@@ -1188,14 +1234,14 @@ fn idx_for(
             .filter(|(k, _)| *k == key)
             .map(|e| e.1.clone())
     }) {
-        return Some(i);
+        return i;
     }
     let t_build = std::time::Instant::now();
-    let idx = std::rc::Rc::new(HoldIdx::build(rows, 0, base, tick, lot)?);
+    let idx = HoldIdx::build(all, first.start, &first.depth, tick, lot).map(std::rc::Rc::new);
     IDX_TIMING[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     idx_add(1, t_build);
     IDX_CACHE.with(|c| *c.borrow_mut() = Some((key, idx.clone())));
-    Some(idx)
+    idx
 }
 
 /// Сверка `handoff` индекса с плоской книгой (`ALPHA_HOLD_INDEX_CHECK=1`).

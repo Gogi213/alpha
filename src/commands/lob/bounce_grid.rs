@@ -1280,12 +1280,13 @@ impl<'a> GridRun<'a> {
                 use std::sync::atomic::Ordering::Relaxed;
                 let t = &crate::lob::backtest::fast_hold::IDX_TIMING;
                 eprintln!(
-                    "bounce-grid:   индекс удержания: построений {}, мкс: построение {}, снимок книги {}, скан {}, handoff+движок {}",
+                    "bounce-grid:   индекс удержания: построений {}, мкс: построение {}, снимок книги {}, скан {}, handoff+движок {}; кругов на буферном пути (без общего индекса) {}",
                     t[0].load(Relaxed),
                     t[1].load(Relaxed),
                     t[2].load(Relaxed),
                     t[3].load(Relaxed),
-                    t[4].load(Relaxed)
+                    t[4].load(Relaxed),
+                    t[5].load(Relaxed)
                 );
             }
             if std::env::var_os("ALPHA_TICK_STATS").is_some_and(|v| v == "1") {

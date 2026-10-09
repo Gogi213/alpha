@@ -2728,7 +2728,7 @@ fn hold_index_matches_tracker() {
         }
         if (t / 10_000_000) % 37 == 0 {
             let want = tr.handoff(t, 1.0, 1.0);
-            let got = idx.handoff(&rows, 0, t, 1.0, 1.0);
+            let got = idx.handoff(&rows, 0, 0, t, 1.0, 1.0);
             assert_eq!(want.is_some(), got.is_some(), "handoff t={t}");
             if let (Some(w), Some(g)) = (want, got) {
                 assert_eq!((w.t_ns, w.tail_start), (g.t_ns, g.tail_start), "t={t}");

@@ -190,21 +190,40 @@ impl HoldIdx {
         })
     }
 
+    /// Книга перед строкой `row` ленты `all` (локальная сторона): ближайший контрольный снимок + повтор строк.
+    pub fn book_before(
+        &self,
+        all: &[Event],
+        row: usize,
+        tick_size: f64,
+        lot_size: f64,
+    ) -> DepthSnapshot {
+        let k = self.local_rows.partition_point(|&(r, _)| r < row);
+        let c = (k / CKPT_ROWS).min(self.ckpts.len() - 1);
+        let mut book = self.ckpts[c].build(tick_size, lot_size);
+        for &(r, _) in &self.local_rows[c * CKPT_ROWS..k] {
+            apply_local(&mut book, &all[r]);
+        }
+        DepthSnapshot::of(&book)
+    }
+
     /// Состояние для нового движка на `t` для круга, начавшегося с курсора `cur` (первая строка ленты, которую круг
     /// ещё не видел): то же, что `HoldTracker::handoff` после `advance_to(t)`, но книга берётся из ближайшего
     /// контрольного снимка + повтор ≤ `CKPT_ROWS` строк. `None` — как у трекера (нечистая лента на `[cur, курсор)` или
-    /// биржа отстаёт). `cur` не раньше базы индекса.
+    /// биржа отстаёт). Индекс — в нумерации ленты суток `all`; круг видит её хвост `all[off..]`, `cur` — номер в
+    /// хвосте (не раньше базы индекса); в `FastHandoff` номера — в хвосте.
     pub fn handoff(
         &self,
-        rows: &[Event],
+        all: &[Event],
+        off: usize,
         cur: usize,
         t: i64,
         tick_size: f64,
         lot_size: f64,
     ) -> Option<FastHandoff> {
         let k = self.local_rows.partition_point(|&(_, ts)| ts <= t);
-        let lcur = self.local_rows.get(k).map_or(rows.len(), |&(r, _)| r);
-        let lo = self.unclean.partition_point(|&r| r < cur);
+        let lcur = self.local_rows.get(k).map_or(all.len(), |&(r, _)| r);
+        let lo = self.unclean.partition_point(|&r| r < cur + off);
         if self.unclean.get(lo).is_some_and(|&r| r < lcur) {
             return None;
         }
@@ -214,11 +233,11 @@ impl HoldIdx {
         let c = (k / CKPT_ROWS).min(self.ckpts.len() - 1);
         let mut book = self.ckpts[c].build(tick_size, lot_size);
         for &(r, _) in &self.local_rows[c * CKPT_ROWS..k] {
-            apply_local(&mut book, &rows[r]);
+            apply_local(&mut book, &all[r]);
         }
         Some(finish_handoff(
-            rows,
-            lcur,
+            &all[off..],
+            lcur - off,
             DepthSnapshot::of(&book),
             t,
             tick_size,
@@ -248,10 +267,10 @@ impl HoldIdx {
     }
 
     /// Локальные сделки с `t0 < local_ts ≤ t1` (все тики), в порядке ленты — вход `observe_wall_trades`.
-    pub fn trade_events(&self, rows: &[Event], t0: i64, t1: i64, out: &mut Vec<Event>) {
+    pub fn trade_events(&self, all: &[Event], t0: i64, t1: i64, out: &mut Vec<Event>) {
         let a = self.trade_rows.partition_point(|&(_, ts)| ts <= t0);
         let b = self.trade_rows.partition_point(|&(_, ts)| ts <= t1);
-        out.extend(self.trade_rows[a..b].iter().map(|&(r, _)| rows[r].clone()));
+        out.extend(self.trade_rows[a..b].iter().map(|&(r, _)| all[r].clone()));
     }
 
     /// Лучшие `(bid, ask)` на метке `t`: состояние после последней локальной строки с `local_ts ≤ t`.
