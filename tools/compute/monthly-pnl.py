@@ -15,7 +15,7 @@ from collections import defaultdict
 import datetime as dt
 from p12lib import inputs_line, load_head, trials_effn
 
-R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-a/", "data/tk113/ext/", "data/tk113/r1-v171c/"
+R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-b/", "data/tk113/ext/", "data/tk113/r1-v171c/"
 OUT = "docs/findings/monthly-pnl-v171c-2026-10-09"
 JS = [f"2026-{i:02d}" for i in range(1, 10)]          # окно янв–сен
 OCT = "2026-10"
