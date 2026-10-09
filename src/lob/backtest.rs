@@ -3605,6 +3605,7 @@ fn shared_day<'a, R: EventRows + ?Sized>(
 /// Групповой круг одного сигнала в свежем движке окна (Э-08) — те же попытки горизонта развёртки, что у
 /// `windowed_with` (Р6). `None` — окна или данных после `t0` нет. Вариант с сиротами на выходе
 /// возвращается как `EndOfData` — в память он не попадёт (драйвер посчитает его сам).
+#[allow(clippy::too_many_arguments)]
 fn group_round_in_window<R: EventRows + ?Sized>(
     events: &R,
     windows: &SignalWindows,

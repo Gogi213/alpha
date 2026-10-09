@@ -2504,7 +2504,17 @@ fn group_fast_hold_matches_group_without_it() {
     let windows = SignalWindows::build(&feed, &[S], 1.0, 1.0);
     let run = || {
         let mut buf = Vec::new();
-        group_round_in_window(&feed[..], &windows, &sig, &variants, &cfg, lat, &mut buf).unwrap()
+        group_round_in_window(
+            &feed[..],
+            &windows,
+            &sig,
+            &variants,
+            &cfg,
+            lat,
+            &mut buf,
+            None,
+        )
+        .unwrap()
     };
     let a = run();
     let used = fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
