@@ -893,6 +893,7 @@ fn fill(dir: i8, entry_px: f64, exit_px: f64) -> crate::lob::backtest::Fill {
         legs_filled: 1,
         legs_rejected: 0,
         fill_by_cross: false,
+        tape_press: 0.0,
     }
 }
 

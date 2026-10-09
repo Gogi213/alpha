@@ -832,6 +832,8 @@ pub struct StrategyState {
     wall_ring: Option<Box<[WallBucket]>>,
     /// TK-115 Г-112: кольцо ленты против позиции (журнал `tape_press`); `None` — флаг выключен, прежний путь.
     tape_ring: Option<Box<[TapeBucket]>>,
+    /// TK-115 Г-112: значение `tape_press` на момент исполнения входа (0 при выключенном кольце).
+    tape_at_fill: f64,
     /// R2 (TK-065): крупные массивы добавок и известных стен — в куче и только у плана с `pyramid.on()`:
     /// клон состояния на каждом событии удержания (откат `fast_hold`) не таскает ≈ 200 Б, когда R2 выключен.
     r2: Option<Box<R2Bufs>>,
@@ -1013,6 +1015,7 @@ impl StrategyState {
             orphan_fills: 0,
             orphan_overflow: 0,
             tape_ring: None,
+            tape_at_fill: 0.0,
             wall_ring: match plan {
                 TradePlan::Bounce { wall_eat, .. } if wall_eat.on() => {
                     Some(vec![WallBucket::EMPTY; wall_eat.secs as usize].into_boxed_slice())
@@ -1493,6 +1496,14 @@ impl StrategyState {
         self.level_qty_at_entry = level_qty;
         self.level_qty_max = level_qty_max;
         self.phase = Phase::Holding { entry_ns: now };
+        if self.tape_ring.is_some() {
+            self.tape_at_fill = self.tape_press(now);
+        }
+    }
+
+    /// TK-115 Г-112: лента против позиции за `W` с до исполнения входа (кольцо включено `enable_tape`), иначе 0.
+    pub fn tape_at_fill(&self) -> f64 {
+        self.tape_at_fill
     }
 
     /// F7 (Б-75): зачесть сделки этого шага, бьющие **в стену**. Вызывается
