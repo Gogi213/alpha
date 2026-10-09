@@ -432,4 +432,6 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
         "daily": {d: round(v, 2) for d, v in sorted(realized.items())},
         # кривая по закрытиям сделок (мс закрытия, $) — для KPI «до перехая» в часах (В-120); в --json не пишется
         "_closes": sorted((x["t1"] // 1_000_000, round(x["pnl"], 4)) for x in taken),
+        # то же с монетой (TK-113, разрез по монетам); в --json не пишется
+        "_closes_sym": sorted((x["t1"] // 1_000_000, round(x["pnl"], 4), x["sym"]) for x in taken),
     }

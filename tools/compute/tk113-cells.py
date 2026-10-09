@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""TK-113/В-210: клетки П-12 R2 (40 + базы) по пулу v171c (без TRUMP/TRX/BCH, portfolio-sim --drop) против v171b: $ было/стало, Шарп (сутки, фев–сен),
+месяцы с Шарпом > 0 (из определённых), доля KPI (наблюдение). Без пересчёта бэктестов; вход — closes из data/p12r2-v171c (+ CSV p12-r2-analyze).
+Запуск: python tools/compute/tk113-cells.py -> docs/findings/cells-v171c-2026-10-09.{csv,md}. Описание, не вердикт (отбор — Судья, В-208)."""
+import csv, os, subprocess, sys
+import numpy as np
+
+POOL = {f"2026-{i:02d}" for i in range(2, 10)}
+OUT = "docs/findings/cells-v171c-2026-10-09"
+
+
+def head(mode, d):
+    os.environ["P12_DIR"] = d
+    src = open("tools/compute/p12-r2-analyze.py", encoding="utf-8").read()
+    sys.argv = ["x", mode]
+    ns = {"__name__": "x"}
+    exec(compile(src[:src.index("rng = np.random.default_rng(63)")], "r2", "exec"), ns)
+    return ns
+
+
+def sr(x):
+    return float(x.mean() / x.std(ddof=1)) if len(x) > 2 and x.std(ddof=1) > 0 else 0.0
+
+
+def rd(path):
+    return {r["cell"]: r for r in csv.DictReader(open(path, encoding="utf-8"))}
+
+
+rows = []
+for mode in ("free", "B2"):
+    old, new = rd(f"docs/findings/p12-r2-kpi-{mode}-2026-10-08.csv"), rd(f"docs/findings/p12-r2-kpi-{mode}-2026-10-08-v171c.csv")
+    res = {}
+    for tag, d in (("b", "data/p12r2/"), ("c", "data/p12r2-v171c/")):
+        ns = head(mode, d)
+        cal = ns["cal"]
+        for c, (fam, kind, suf) in ns["CELLS"].items():
+            f = ns["BASE"][kind] if False else ns["SET"] + ns["B1"] + suf
+            arr = ns["series"](kind, f)[0]
+            res[tag, c] = arr
+        for nm, kind, f in (("B1", "v", ns["BASE"]["v"]), ("B3", "vt", ns["BASE"]["vt"])):
+            res[tag, nm] = ns["series"](kind, f)[0]
+    keep = np.array([x[:7] in POOL for x in cal])
+    mon = np.array([x[:7] for x in cal])
+    for c in list(old) + ["B1", "B3"]:
+        if c in ("B1", "B3"):
+            fam = c
+            usd_b = float(res["b", c].sum()); usd_c = float(res["c", c].sum())
+            kp = ""
+        else:
+            fam = old[c]["family"]; usd_b = float(old[c]["total_usd"]); usd_c = float(new[c]["total_usd"]); kp = new[c]["kpi_share_mean"]
+        a = res["c", c]
+        s_all = sr(a[keep])
+        msr = [sr(a[mon == m]) for m in sorted(POOL)]
+        rows.append((mode, c, fam, round(usd_b, 1), round(usd_c, 1), round(s_all, 3), sum(x > 0 for x in msr), len(msr), kp))
+with open(OUT + ".csv", "w", encoding="utf-8", newline="") as fh:
+    w = csv.writer(fh, lineterminator="\n")
+    w.writerow(["mode", "cell", "family", "usd_v171b", "usd_v171c", "sharpe_day_feb_sep", "months_sr_pos", "months", "kpi_share_mean"])
+    w.writerows(rows)
+L = ["# Клетки П-12 R2 по пулу v171c (без TRUMP/TRX/BCH): $ было/стало, Шарп, месяцы с Шарпом > 0", "",
+     "TK-113/В-210, **описание, не вердикт**. Точный пересчёт portfolio-sim --drop на тех же деревьях (без нового бэктеста), равная экспозиция §6(2) (m — прежняя, "
+     "посчитана с тремя монетами), потолок B2 применён заново к оставшимся сделкам. Шарп — суточный ряд фев–сен (без годовой нормировки), мес. с Шарпом > 0 — из 8. "
+     "Доля KPI — наблюдение (среднее по месяцам, v171c). Покрыты R2 (40) + базы; R1 (154) и ext (7) — следующим заходом.", ""]
+for mode in ("free", "B2"):
+    L += [f"## {mode}", "", "| клетка | семья | $ v171b | $ v171c | Шарп | мес. SR>0 | доля KPI |", "|---|---|---|---|---|---|---|"]
+    for r in sorted([r for r in rows if r[0] == mode], key=lambda r: -r[5]):
+        L.append(f"| {r[1]} | {r[2]} | {r[3]:+.0f} | {r[4]:+.0f} | {r[5]:+.3f} | {r[6]}/{r[7]} | {r[8]} |")
+    L.append("")
+open(OUT + ".md", "w", encoding="utf-8", newline="\n").write("\n".join(L))
+print("\n".join(L[:22]))

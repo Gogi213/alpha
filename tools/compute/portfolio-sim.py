@@ -130,6 +130,7 @@ def main():
     ap.add_argument("--json")
     ap.add_argument("--closes-out", help="JSON: вариант → период → потолок → [[мс закрытия, $], …] — только строки без "
                                          "дневного стопа, выключателя, исключений и серии (KPI «до перехая», В-120)")
+    ap.add_argument("--closes-sym-out", help="как --closes-out, но [мс закрытия, $, монета] (TK-113, разрез по монетам)")
     a = ap.parse_args()
     global SIZE_MULT
     SIZE_MULT = a.size_mult
@@ -175,7 +176,7 @@ def main():
 
     head = ["вариант", "период", "поз", "дн.стоп", "выкл", "искл", "серия", "сделок", "занята", "заполн", "прибыль$", "прирост%",
             "просадка%", "закр.дд%", "ф.восст", "восст.дн", "худш.сутки%", "пик$", "стресс%"]
-    table, grid, closes = [], [], {}
+    table, grid, closes, closes_sym = [], [], {}, {}
     for mp, ds, kb, (xname, xset), ss in itertools.product(floats(a.max_pos), floats(a.day_stop_pct), floats(a.btc_kill_bps),
                                                            excl, floats(a.streak_stop)):
         for vname, _, _, data in variants:
@@ -186,8 +187,10 @@ def main():
                 r = simulate(rows, btc, klines, a.deposit_usd, int(mp), ds, kb, xset, a.stress_gap_pct, int(ss),
                              funding)
                 cl = r.pop("_closes")
-                if a.closes_out and not ds and not kb and xname == "нет" and not ss:
+                cls = r.pop("_closes_sym")
+                if (a.closes_out or a.closes_sym_out) and not ds and not kb and xname == "нет" and not ss:
                     closes.setdefault(vname, {}).setdefault(name, {})[str(int(mp))] = cl
+                    closes_sym.setdefault(vname, {}).setdefault(name, {})[str(int(mp))] = cls
                 table.append([vname, name, int(mp) or "—", ds or "—", f"-{kb / 100:g}%" if kb else "—", xname, int(ss) or "—", r["n"],
                               r["skip"]["занята"], f"{r['fill'] * 100:.0f}%", f"{r['total_usd']:+.0f}", f"{r['total_pct']:+.2f}",
                               f"-{r['dd_pct']:.2f}", f"-{r['dd_closed_pct']:.2f}",
@@ -212,6 +215,9 @@ def main():
     if a.closes_out:
         with open(a.closes_out, "w", encoding="utf-8") as fh:
             json.dump(closes, fh, ensure_ascii=False, separators=(",", ":"))
+    if a.closes_sym_out:
+        with open(a.closes_sym_out, "w", encoding="utf-8") as fh:
+            json.dump(closes_sym, fh, ensure_ascii=False, separators=(",", ":"))
 
 
 if __name__ == "__main__":

@@ -16,7 +16,8 @@ import numpy as np
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 CAP = "0" if MODE == "free" else "3"
-D = "data/p12r2/"
+D = os.environ.get("P12_DIR", "data/p12r2/")   # TK-113/В-210: data/p12r2-v171c/ — пул без TRUMP/TRX/BCH
+TAG = os.environ.get("P12_TAG", "")           # суффикс файлов выхода ("-v171c")
 SET = "t-bid-btc4h-q1@"
 B1 = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 B3 = "ladder3x0..0.0409sw2-pct2-1to1-14400-ttl1800"
@@ -64,7 +65,7 @@ for kind in raw:
                 for _p, caps in per.items():
                     for _c, lst in caps.items():
                         raw[kind][form][m] = [(int(a), float(b)) for a, b in lst]
-        if NORM and kind == "v":
+        if NORM and kind == "v" and os.path.exists(f"{D}closes-v-cap{CAP}-{m}.json"):   # v171c: сырых нет — raw_total пуст
             j = json.load(open(f"{D}closes-v-cap{CAP}-{m}.json"))
             for form, per in j.items():
                 for _p, caps in per.items():
@@ -221,12 +222,12 @@ for f, (p, thr, ok) in holm.items():
     print(f"{f}: p={p:.4f} thr={thr:.2e} {'ПРОХОДИТ п.1' if ok else 'нет'}")
 print("доля Δ̄>0:", sum(res[c]["mean"] > 0 for c in cells), "из", len(cells), "; нижняя граница ДИ > 0:", sum(res[c]["lo"] > 0 for c in cells),
       "; верхняя < 0:", sum(res[c]["hi"] < 0 for c in cells))
-with open(f"docs/findings/p12-r2-kpi-{MODE}-2026-10-08.csv", "w", encoding="utf-8", newline="") as fh:
+with open(f"docs/findings/p12-r2-kpi-{MODE}-2026-10-08{TAG}.csv", "w", encoding="utf-8", newline="") as fh:
     w = csv.writer(fh, lineterminator="\n")
     w.writerow(["mode", "cell", "family", "total_usd", "base_total_usd", "d_mean_usd_day", "ci_lo", "ci_hi", "T", "p1", "p_wy", "p_harm_wy",
                 "kpi_share_mean", "months_kpi_worse", "months_defined", "c2_wo_top2days", "n_days", "raw_total_usd", "months_defined_p8"])
     w.writerows(out)
-with open(f"docs/findings/p12-r2-kpi-monthly-{MODE}-2026-10-08.csv", "w", encoding="utf-8", newline="") as fh:
+with open(f"docs/findings/p12-r2-kpi-monthly-{MODE}-2026-10-08{TAG}.csv", "w", encoding="utf-8", newline="") as fh:
     w = csv.writer(fh, lineterminator="\n")
     w.writerow(["mode", "cell", "month", "trades", "usd_month", "kpi_share_gt5d", "defined"])
     w.writerows(rows)
