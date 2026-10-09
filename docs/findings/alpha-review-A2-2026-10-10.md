@@ -4,7 +4,7 @@
 `tk115-p12` / `tk065-r2m` / `tk084-r2dl` / `tk049-b15b` против `HEAD` (`git diff --stat HEAD...<ветка>`), их коммиты.
 `r1.rs` — это `src/lob/r1.rs` (на стволе; в `commands/lob` его нет); ветка p12 правит 5 строк.
 **Не охвачено (лимит запуска 20 мин):** построчное чтение `drive_day`/`plan_grid`; clippy `cognitive_complexity` и
-rust-code-analysis на VPS **не запускались** — п.7 дан приближённым замером (см. п.7, честная пометка). Тяжесть: блокер / важно / потом.
+rust-code-analysis не запускался; п.7 — замер clippy на VPS. Тяжесть: блокер / важно / потом.
 Рантайм: Г горячий, Т тёплый, Х холодный (`runtimes-design-2026-10-10.md`); весь А2 — Т/Х (прогонщик и CSV), кроме
 условий R2, которые попадают в Г через `strategy.rs` (чужая часть, TK-124).
 
@@ -21,7 +21,7 @@ rust-code-analysis на VPS **не запускались** — п.7 дан пр
 |---|---|---|---|
 | Д1 | **Поведение прогонщика определяется переменными окружения:** в охвате 16 разных `ALPHA_*` (`ATTEMPT_STATS, BAND_COUNT_OFF, HOLDS_MEMO, ADMIT_SOA, ADMIT_CACHE, SKIP_NOSIGNAL, TRIM_ROWS, TICK_STATS, SIG_CACHE, SHARED_CELLS, SHARED_ENGINE, APPROACH_BIN(_DIR/_LEVEL), TOUCH_BIN, E2E`), разбросаны по `bounce_grid.rs:275–1308`, `drive.rs:177–682`, `touches/{abin,tbin}.rs`. В `COMMANDS.md`/`ARCHITECTURE.md`/`CLAUDE.md` упомянуты 2 из 14 (`APPROACH_BIN`, `TOUCH_BIN`); путь счёта (`ADMIT_SOA`, `TRIM_ROWS`, `HOLDS_MEMO`, `SHARED_ENGINE`) меняется флагом без записи в выходе прогона. Все чтения — в Т-коде, на событие не влияют. Нужно: один `RunFlags::from_env()` на входе команды + печать/запись в выход (воспроизводимость). | важно | `git grep -oh ALPHA_ HEAD -- <охват>` = 16; грепы по докам |
 | Д2 | **Нарушение однонаправленности A-слоёв «команда → чистая логика»:** `bounce_grid.rs` (1 358 стр.) содержит `run()` с вложенным циклом по суткам, чтением флагов, ограничением строк (`ALPHA_TRIM_ROWS`, :1000), статистикой (:1199, :1308) — оркестрация и политика в одном теле. Плана в `plan.rs` и драйвера в `drive.rs` недостаточно: часть решений осталась в `bounce_grid.rs`. | важно | `wc -l`; позиции env-чтений выше |
-| Д3 | **R2 за `cargo`-feature `r2` (Cargo.toml `[features]`) — гейт `vps-check all` без `--features r2`**: в А2 это 4 `cfg(feature = "r2")` — все в `bounce_grid/tests.rs` на p12. Парсер форм R2 (`forms.rs` +246 стр. p12) компилируется всегда, тесты на него — только с фичей (оговорено в TK-124 Д1). Из А2 добавлю: **формы R2 не отвергаются при сборке без `r2`** — это нужно проверить (гипотеза: парсит имя, бой молча не выполняет форму). | блокер вливания R2 (общий с TK-124 Д1), гипотеза по А2 | `git grep 'feature = "r2"' tk115-p12 -- src/commands` = 4 |
+| Д3 | **R2-тесты не в стандартном гейте:** 4 блока `cfg(feature = "r2")` в `bounce_grid/tests.rs` на p12 бегут только с `--features r2`, а `vps-check.sh all` собирает без неё (общий с TK-124 Д1). **Исправление по критике Судьи:** прежняя гипотеза «формы R2 без feature молча не исполняются» **опровергнута** — `forms.rs:209` (p12): `ensure!(strategy::R2 \|\| !form.is_r2(), "…только в исследовательском бинарнике (cargo feature r2)")` отказ; `plan.rs:541` то же для `tape_log`. Тяжесть «блокер» по А2 снята: остаётся «R2-тесты не в гейте» (важно; блокер вливания — по TK-124 Д1). | важно | `git grep 'feature = "r2"' tk115-p12 -- src/commands` = 4; `forms.rs:209` |
 | Д4 | `touches`: два параллельных бинарных кэша `abin.rs` (289) и `tbin.rs` (265) с одинаковым каркасом (`enabled/stamp/put/get/encode_file/decode_file`) — см. п.3. Оба за env-флагами, умолчание = CSV. Кэш — Т/Х, на A1–A9 не влияет, границы чистые. | потом | `fn` списки обоих файлов |
 
 ## 3. Дублирование (числом копий)
@@ -58,55 +58,51 @@ rust-code-analysis на VPS **не запускались** — п.7 дан пр
 | К5 | `tk049-b15b`: `prep_events.rs` + `window_store.rs` (+1 088 стр. кода +271 тестов) — новый формат ALPREP и хранилище окон; ключевое ускорение (ALWIN закрыт по CLAUDE.md «Закрыты: ALWIN»). Если ALWIN закрыт, 1 088 стр. недовлитого кода — «мёртвый груз» ветки: решить — влить за флагом или архивировать ветку тегом. | важно | CLAUDE.md «СОСТОЯНИЕ»; `git diff --stat` |
 | К6 | За последние 9 дней `bounce_grid*`/`touches*` на стволе — 37 коммитов из 122 за всё время (30 %): очень горячий каталог; `bounce_grid/tests.rs` — главная зона конфликтов между ветками. | потом | `git log --since=2026-10-01` |
 
-## 7. Когнитивная сложность и длины (замер)
-**Метод — приближённый, не clippy:** скрипт по скобкам считает длину функции и число токенов ветвления
-(`if/match/for/while/loop/&&/||/=>`) в теле; это **не** когнитивная сложность по Sonar/clippy. Инструмент по уставу
-(`cognitive_complexity`, rust-code-analysis) на VPS в этот запуск не гонялся — **осталось сделать** (см. «Осталось»).
-Охват — нетестовые файлы `bounce_grid*`, `touches*`. Топ-20 по длине (строк / ветвлений):
+## 7. Когнитивная сложность и длины (замер инструментом)
+**Метод:** `cargo clippy -W clippy::cognitive_complexity` с `clippy.toml: cognitive-complexity-threshold = 1` на VPS (В-147, дерево `git archive HEAD` + `clippy.toml`, профиль dev, 1 м 11 с; вывод `docs/findings/alpha-review-A2-cognitive-2026-10-10.tsv` — 1 142 функции всего крейта: «балл<TAB>файл:строка»). Это метрика clippy (Sonar-подобная: ветвления с вложенностью), rust-code-analysis не гонялся. Охват А2 — нетестовые файлы `bounce_grid*`, `touches*`. Для сравнения: максимум по крейту — `lob/backtest.rs:2069` = 55 и `:1527` = 34 (часть А1), `bybit/conn.rs:726` = 33.
 
-| # | функция | файл:строка | строк | ветвл. |
-|---|---|---|---|---|
-| 1 | `plan_grid` | bounce_grid/plan.rs:101 | 243 | 34 |
-| 2 | `run_touches` | touches.rs:452 | 208 | 29 |
-| 3 | `write_form` | bounce_grid/outputs.rs:334 | 201 | 32 |
-| 4 | `open_outputs` | bounce_grid/plan.rs:416 | 165 | 24 |
-| 5 | `Sets::parse` | bounce_grid/sets.rs:282 | 151 | 33 |
-| 6 | `drive_day` | bounce_grid/drive.rs:646 | 149 | 39 |
-| 7 | `write_numbers` | touches/numbers.rs:127 | 148 | 10 |
-| 8 | `touch_row_pairs` | touches/row.rs:46 | 132 | 1 |
-| 9 | `tbin::decode_file` | touches/tbin.rs:138 | 128 | 13 |
-| 10 | `signals_for` | bounce_grid/drive.rs:47 | 117 | 19 |
-| 11 | `write_minute_flow` | touches/minute_flow.rs:42 | 111 | 17 |
-| 12 | `run_moves` | touches/moves.rs:13 | 109 | 12 |
-| 13 | `abin::decode_file` | touches/abin.rs:182 | 108 | 13 |
-| 14 | `plan::resolve` | touches/plan.rs:29 | 108 | 8 |
-| 15 | `Form::parse` | bounce_grid/forms.rs:165 | 99 | 26 |
-| 16 | `drive_day_shared` | bounce_grid/drive.rs:546 | 87 | 16 |
-| 17 | `exit_groups` | bounce_grid/drive.rs:208 | 84 | 14 |
-| 18 | `tbin::encode_file` | touches/tbin.rs:55 | 82 | 6 |
-| 19 | `forms_row` | bounce_grid/outputs.rs:182 | 81 | 5 |
-| 20 | `read::parse` | touches/read.rs:215 | 74 | 16 |
+| # | функция | файл:строка | балл |
+|---|---|---|---|
+| 1 | `run_symbol` | src/commands/lob/bounce_grid.rs:468 | 59 |
+| 2 | `decode_file (tbin)` | src/commands/lob/touches/tbin.rs:138 | 31 |
+| 3 | `decode_file (abin)` | src/commands/lob/touches/abin.rs:182 | 24 |
+| 4 | `run_touches` | src/commands/lob/touches.rs:452 | 22 |
+| 5 | `write_minute_flow` | src/commands/lob/touches/minute_flow.rs:42 | 17 |
+| 6 | `plan_grid` | src/commands/lob/bounce_grid/plan.rs:101 | 16 |
+| 7 | `run_bounce_grid_inner` | src/commands/lob/bounce_grid.rs:274 | 16 |
+| 8 | `Form::parse` | src/commands/lob/bounce_grid/forms.rs:165 | 15 |
+| 9 | `write_form` | src/commands/lob/bounce_grid/outputs.rs:334 | 13 |
+| 10 | `write_numbers` | src/commands/lob/touches/numbers.rs:127 | 11 |
+| 11 | `admits` | src/commands/lob/bounce_grid/sets.rs:605 | 11 |
+| 12 | `open_outputs` | src/commands/lob/bounce_grid/plan.rs:416 | 11 |
+| 13 | `run_moves` | src/commands/lob/touches/moves.rs:13 | 10 |
+| 14 | `grid_forms_with_axes` | src/commands/lob/bounce_grid/forms.rs:338 | 10 |
+| 15 | `admits_row` | src/commands/lob/bounce_grid/sets.rs:681 | 9 |
+| 16 | `exit_groups` | src/commands/lob/bounce_grid/drive.rs:208 | 9 |
+| 17 | `append_carry_events` | src/commands/lob/bounce_grid/carry.rs:105 | 8 |
+| 18 | `encode_file (tbin)` | src/commands/lob/touches/tbin.rs:55 | 7 |
+| 19 | `замыкание header_for` | src/commands/lob/bounce_grid/plan.rs:460 | 7 |
+| 20 | `замыкание scope.spawn` | src/commands/lob/bounce_grid/drive.rs:697 | 7 |
 
-Файлы (нетестовые): `bounce_grid.rs` 1 358 (!), `drive.rs` 854, `sets.rs` 736, `plan.rs` 681, `touches.rs` 662, `outputs.rs` 535,
-`args.rs` 513 (всё > 500 строк). Тесты: `bounce_grid/tests.rs` 3 989. Худшие по ветвлению: `drive_day` (39),
-`plan_grid` (34), `Sets::parse` (33), `write_form` (32), `run_touches` (29), `Form::parse` (26). Рекомендация: разбить `plan_grid`
-и `run_touches` на фазы (разбор → план → открытие выходов); `Form::parse` на p12 растёт на +246/+159/+136 строк —
-перейти на таблицу «префикс → разборщик».
+Порог «плохо» (в clippy по умолчанию 25): превышают **две** функции А2 — `run_symbol` (59, худшая в охвате и вторая во всём крейте) и `tbin::decode_file` (31); у `abin::decode_file` 24 — на границе, `run_touches` 22. Двойное чтение дубля (Дб1): два декодера кэша 31+24 при одном каркасе.
+Длины (грубо, по скобкам; тот же скрипт, как первый вариант отчёта): `plan_grid` 243 строки, `run_touches` 208, `write_form` 201, `open_outputs` 165, `Sets::parse` 151, `drive_day` 149. **Замечание:** длина и балл не совпадают — `drive_day` (149 строк) и `touch_row_pairs` (132 строки, данные в виде кода) по баллу вне топ-20 (< 7): они длинные, но плоские; режутся по длине, не по сложности. Опасные по сложности — `run_symbol` и два `decode_file`.
+Файлы (нетестовые): `bounce_grid.rs` 1 358 (!), `drive.rs` 854, `sets.rs` 736, `plan.rs` 681, `touches.rs` 662, `outputs.rs` 535, `args.rs` 513 (все > 500). Тесты: `bounce_grid/tests.rs` 3 989.
+Рекомендация: `run_symbol` — разрезать по фазам (подготовка суток → цикл допуска → запись), он же носитель 6 из 9 env-чтений `bounce_grid.rs` (Д1); `decode_file` ×2 — общий разборщик (Дб1).
 
 ## 8. Скорость, обещано-не-сделано, покрытие
 | # | находка | тяжесть | доказательство |
 |---|---|---|---|
 | С1 | **Цена флагов в выкл. виде:** +7,6 % ЦП на d15 (194,08 → 208,92 с user) и «d01 40,51 → …» при R2 выключенном в бинаре b15pyr4-pgo; CEO 16:25 принял её **только для бинаря R2-сеток**, боевые волны и ускорения — на бинаре без R2 (тот же разбор: гейт6 diff 0 на d15 и d01 729/729). Значит у R2 два бинарника (с `--features r2` и без), и «боевой PGO-бинарник» не проверяется общим гейтом. | важно | `.claude/tickets/archive/TK-065-log.md:384, 393` |
 | С2 | Обещано в `touches`: бинкэши `ALPHA_APPROACH_BIN`/`ALPHA_TOUCH_BIN` — «колоночный формат (297 с)» в CLAUDE.md закрыт; режим остался в коде, умолчание — выкл. Нужно решить: принят (включить) или закрыт (удалить `abin.rs`+`tbin.rs` = 554 стр.). | важно | CLAUDE.md «Закрыты: … колоночный формат» |
-| С3 | Не покрыто тестами: `touches/moves.rs` (`run_moves`, 109 стр.) и `touches/minute_flow.rs` — по именам в `touches/tests.rs` (920 стр.) не нашёл прямых тестов (**гипотеза, проверить грепом по именам функций**); R2-тесты не бегут в стандартном гейте (Д3). | важно (гипотеза) | не проверено полностью |
-| С4 | Тесты `bounce_grid/tests.rs` p12 → 4 `cfg(feature = "r2")` блока; без `--features r2` не бегут. | блокер вливания (см. Д3) | п.2 |
+| С3 | Не покрыт тестами `touches/moves.rs` (`run_moves`, 109 строк, балл 10): в `touches/tests.rs` только заполнение поля `moves: None` в конфиге (:31–33), прогона с `moves: Some` нет (`grep 'moves: Some'` = 0). **Исправление по критике:** `minute_flow` покрыт — `touches/tests.rs:775 minute_flow_dir_writes_series_and_keeps_touch_bytes`. | важно | `touches/tests.rs:31–33, 775` |
+| С4 | Тесты p12 — 4 `cfg(feature = "r2")` блока; без `--features r2` не бегут (то же, что Д3; блокер вливания — по TK-124 Д1). | важно | п.2 Д3 |
 
 ## Сводка (топ для решения Судьи)
-1. **Блокер R2-вливания:** гейт без `--features r2` (Д3/С4, общий с TK-124 Д1); плюс два бинарника (С1).
+1. **R2-тесты не в гейте** (Д3/С4, общий с TK-124 Д1 — там блокер вливания); формы R2 в бое без feature **отвергаются** (`forms.rs:209`), молчаливого игнора нет; два бинарника (С1).
 2. **Ветки:** r2m и r2dl ⊂ p12 → влить p12 одной серией и закрыть; `wip-walls` (К2) вынести/переименовать; b15b решить по ALWIN (К5).
-3. **Env-флаги:** 16 `ALPHA_*` без записи в выходе, 3 разные семантики «включён» (Д1, З4).
+3. **Сложность (замер clippy):** `run_symbol` = 59 (худшая в охвате, 2-я в крейте), `tbin::decode_file` = 31 (п.7). **Env-флаги:** 16 `ALPHA_*` без записи в выходе, 3 разные семантики «включён» (Д1, З4).
 4. **Дубли/длины:** `abin`/`tbin` (Дб1), `plan_grid`/`run_touches`/`drive_day` (п.7), `bounce_grid.rs` 1 358 стр. (Д2), `tests.rs` 3 989 стр. (З3).
 
-## Осталось (не сделано в запуске)
-- clippy `cognitive_complexity` / rust-code-analysis на VPS по охвату (п.7 заменить измеренной сложностью).
-- Прочитать `plan_grid`, `drive_day`, `write_form` построчно (дублирование внутри); проверить Д3-гипотезу (молчаливое игнорирование форм R2 без feature) и С3 (покрытие `moves`/`minute_flow`).
+## Осталось
+- rust-code-analysis не гонялся (метрика — clippy, п.7).
+- Построчное чтение `plan_grid`, `drive_day`, `write_form` (дублирование внутри) не делалось.
