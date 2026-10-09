@@ -24,7 +24,7 @@ for mn, m in zip(MS, MONTHS):
         for _p, caps in per.items():
             for _c, lst in caps.items():
                 raw[cell][m] = [(int(a), float(b)) for a, b in lst]
-cal = [(dt.date(2026, 1 if JAN else 2, 1) + dt.timedelta(i)).isoformat() for i in range((dt.date(2026, 10, 2) - dt.date(2026, 2, 1)).days + 1)]
+cal = [(dt.date(2026, 1 if JAN else 2, 1) + dt.timedelta(i)).isoformat() for i in range((dt.date(2026, 10, 2) - dt.date(2026, 1 if JAN else 2, 1)).days + 1)]
 di = {d: i for i, d in enumerate(cal)}
 
 
