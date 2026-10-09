@@ -2663,3 +2663,46 @@ fn wall_log_records_age_gate_and_loss() {
     // Рождение в 1000: возраст 2000 ≥ 1500 только к кадру 3000 (на 2000 — 1000 < 1500); в 4000 размер съеден.
     assert_eq!(ev, vec![wall(3000, true), wall(4000, false)]);
 }
+
+/// TK-115 (e65): вторая живая стена за входом на момент исполнения — по журналу, а не по кадру взвода.
+#[test]
+fn second_wall_is_taken_from_walls_alive_at_fill() {
+    let w = |ts_ms, side, price_tick, wall| WallEvent {
+        ts_ms,
+        side,
+        price_tick,
+        wall,
+    };
+    let ev = [
+        w(100, Side::Ask, 10100, true),
+        w(200, Side::Ask, 10200, true),
+        w(300, Side::Ask, 10300, true),
+        w(400, Side::Ask, 10200, false),
+        w(500, Side::Bid, 9900, true),
+        w(600, Side::Bid, 9800, true),
+    ];
+    let mut live = Vec::new();
+    // Лонг, вход 10000: на 350 живы 10100/10200/10300 — вторая 10200; на 450 вторая 10300 (10200 снята).
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 350, 10000, true, &mut live),
+        Some(10200)
+    );
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 450, 10000, true, &mut live),
+        Some(10300)
+    );
+    // Стена ниже входа не считается; до появления второй — None.
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 450, 10150, true, &mut live),
+        None
+    );
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 150, 10000, true, &mut live),
+        None
+    );
+    // Шорт, вход 10000: бид-стены ниже входа, вторая от входа — 9800.
+    assert_eq!(
+        second_wall_tick(&ev, Side::Bid, 650, 10000, false, &mut live),
+        Some(9800)
+    );
+}

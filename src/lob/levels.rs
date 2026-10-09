@@ -508,6 +508,41 @@ pub struct WallEvent {
     pub wall: bool,
 }
 
+/// TK-115 (e65): цена (в тиках) **второй** стены противоположной стороны за входом на момент `fill_ms` —
+/// по журналу стен (`WallEvent`, порядок времени): живые на `fill_ms` стены стороны `wall_side` дальше входа
+/// (лонг: аск-стены выше `entry_tick`; шорт: бид-стены ниже), по удалению от входа — вторая. Меньше двух
+/// живых — `None` (сделка = B1). `live` — переиспользуемый буфер вызывающего.
+pub fn second_wall_tick(
+    events: &[WallEvent],
+    wall_side: Side,
+    fill_ms: i64,
+    entry_tick: i64,
+    long: bool,
+    live: &mut Vec<i64>,
+) -> Option<i64> {
+    live.clear();
+    for e in events.iter().take_while(|e| e.ts_ms <= fill_ms) {
+        if e.side != wall_side {
+            continue;
+        }
+        let at = live.iter().position(|&t| t == e.price_tick);
+        match (e.wall, at) {
+            (true, None) => live.push(e.price_tick),
+            (false, Some(i)) => {
+                live.swap_remove(i);
+            }
+            _ => {}
+        }
+    }
+    live.retain(|&t| if long { t > entry_tick } else { t < entry_tick });
+    live.sort_unstable();
+    if long {
+        live.get(1).copied()
+    } else {
+        live.len().checked_sub(2).map(|i| live[i])
+    }
+}
+
 /// Снимок живого (ещё не умершего) уровня — то, что «стоит в стакане
 /// сейчас» на момент последнего кадра (таск 33, дашборд по плотностям).
 /// Только чтение состояния трекера; в горячий путь не входит.
