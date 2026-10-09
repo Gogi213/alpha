@@ -45,6 +45,7 @@ const I_OBI: usize = 31;
 const I_MICRO: usize = 35;
 const I_OFI: usize = 36;
 const I_FLIPS: usize = 38;
+const I_BURST60: usize = 40;
 
 /// Номер слота, которого ещё не было.
 const NO_SLOT: i64 = i64::MIN;
@@ -385,6 +386,14 @@ impl R1Flow {
                         w * i128::from(lots_60m[side]),
                     );
                 }
+            }
+            // TK-115 (g82-60s): тот же всплеск для окна 60 с.
+            let w = i128::from(WINS_S[W60]);
+            for (j, side) in [press, with].into_iter().enumerate() {
+                out[I_BURST60 + j] = ratio(
+                    i128::from(sums[W60].lots[side]) * 36_000_000,
+                    w * i128::from(lots_60m[side]),
+                );
             }
         }
         // Средняя сделка окна 30 с.
