@@ -68,6 +68,8 @@ pub enum ExitForm {
     TakeSched { g10: u8, t4: u8 },
     /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
     Converge { tol: u8, a_bps: u32 },
+    /// `nostop<X2>` (TK-115, Г-106): стопа нет, пока прибыль не дошла до `X2/2 · trail_activate_bps` и цена не ушла за безубыток; затем стоп = безубыток. `X2` ∈ {1, 2, 4} (×0,5; ×1; ×2).
+    NoStop { x2: u8 },
 }
 
 impl ExitForm {
@@ -103,6 +105,7 @@ impl ExitForm {
             ExitForm::HalfLevel { q4 } => half_label("halflevel", *q4),
             ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
+            ExitForm::NoStop { x2 } => format!("nostop{x2}"),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -207,6 +210,7 @@ impl ExitForm {
                 | ExitForm::HalfLevel { .. }
                 | ExitForm::TakeSched { .. }
                 | ExitForm::Converge { .. }
+                | ExitForm::NoStop { .. }
         )
     }
 
@@ -239,6 +243,13 @@ impl ExitForm {
                 form.label()
             );
             return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("nostop") {
+            let x2: u8 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается nostop<X2>, X2 ∈ {{1, 2, 4}} (×0,5; ×1; ×2 от trail_activate_bps)")
+            })?;
+            anyhow::ensure!(matches!(x2, 1 | 2 | 4), "nostop<X2>: X2 ∈ {{1, 2, 4}}");
+            return Ok(ExitForm::NoStop { x2 });
         }
         if let Some(rest) = spec.strip_prefix("conv") {
             let bad = || {

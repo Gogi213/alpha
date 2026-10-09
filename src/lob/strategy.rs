@@ -475,6 +475,9 @@ pub struct PyramidCfg {
     /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
     pub converge_tol1: u8,
     pub converge_a_bps: u32,
+    /// Г-106 (`nostop<X2>`): без стопа, пока лучшая цена не дала `X2/2 · trail_activate_bps` и не ушла за безубыток;
+    /// затем стоп = безубыток (мягкий). `0` — выключено.
+    pub nostop_x2: u8,
 }
 
 impl PyramidCfg {
@@ -492,6 +495,7 @@ impl PyramidCfg {
         sched_t4: 0,
         converge_tol1: 0,
         converge_a_bps: 0,
+        nostop_x2: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -510,7 +514,8 @@ impl PyramidCfg {
             || self.half_stop
             || self.half_level
             || self.sched_g10 > 0
-            || self.converge_tol1 > 0)
+            || self.converge_tol1 > 0
+            || self.nostop_x2 > 0)
     }
 }
 
@@ -833,6 +838,8 @@ pub struct StrategyState {
     nw_init: bool,
     /// Г-114: половина по стопу уже закрыта (защёлка).
     stop_half_done: bool,
+    /// Г-106: стоп `nostop` переведён в безубыток (защёлка).
+    nostop_armed: bool,
     /// Г-114 `halflevel`: после входа прошла сделка ленты за `level_px` (защёлка до конца круга).
     level_broken: bool,
 }
@@ -984,6 +991,7 @@ impl StrategyState {
             nw_known_n: 0,
             nw_init: false,
             stop_half_done: false,
+            nostop_armed: false,
             level_broken: false,
             orphans: OrphanCarry::NONE,
             orphan_exit_open: 0.0,
@@ -1364,6 +1372,7 @@ impl StrategyState {
         self.reinstalls = 0;
         self.reinst_trigger = false;
         self.reinst_be_active = false;
+        self.nostop_armed = false;
         self.nw_known_n = 0;
         self.nw_init = false;
         self.stop_half_done = false;
@@ -2655,6 +2664,29 @@ where
             let (stop_hit, take_hit) = match entry_side {
                 HbtSide::Buy => (bid <= gone.stop_px, bid >= take_px),
                 _ => (ask >= gone.stop_px, ask <= take_px),
+            };
+            let stop_hit = if pyr.nostop_x2 > 0 {
+                // Г-106: до активации стопа нет; после — безубыток (вход + круг комиссий).
+                if !state.nostop_armed && entry_px > 0.0 {
+                    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+                    let be_px = be_entry_px * (1.0 + f64::from(state.sigma) * fees);
+                    let gain_bps = f64::from(state.sigma) * (state.best_favourable - entry_px)
+                        / entry_px
+                        * 10_000.0;
+                    state.nostop_armed = gain_bps
+                        >= f64::from(pyr.nostop_x2) / 2.0 * trail_activate_bps
+                        && f64::from(state.sigma) * (state.best_favourable - be_px) >= 0.0;
+                }
+                state.nostop_armed && {
+                    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+                    let be_px = be_entry_px * (1.0 + f64::from(state.sigma) * fees);
+                    match entry_side {
+                        HbtSide::Buy => bid <= be_px,
+                        _ => ask >= be_px,
+                    }
+                }
+            } else {
+                stop_hit
             };
             // Знак сделки (R1): тот же множитель, что развёл
             // `observe_favourable`/`observe_gone_peak` по сторонам (`+1`
