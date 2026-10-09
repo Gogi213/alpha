@@ -671,6 +671,16 @@ struct TapeBucket {
     lots: f64,
 }
 
+/// TK-115 Г-116: снимок размеров уровней нашей стороны от `stop_px` (индекс 0) к рынку и сделки против позиции
+/// по тем же индексам; убыль снимка минус сделки на цене = отмена. Собственные ордера в книгу бэктеста не входят.
+#[derive(Debug, Clone)]
+struct CxlBook {
+    snap: [f64; NW_SCAN_MAX as usize],
+    traded: [f64; NW_SCAN_MAX as usize],
+    init: bool,
+    last_hi: i64,
+}
+
 impl WallBucket {
     const EMPTY: WallBucket = WallBucket {
         sec: i64::MIN,
@@ -862,6 +872,12 @@ pub struct StrategyState {
     tape_ring: Option<Box<[TapeBucket]>>,
     /// TK-115 Г-112: значение `tape_press` на момент исполнения входа (0 при выключенном кольце).
     tape_at_fill: f64,
+    /// TK-115 Г-116: кольцо отмен нашей стороны между `stop_px` и лучшей ценой (журнал `cxl_lots`); включается вместе с лентой.
+    cxl_ring: Option<Box<[TapeBucket]>>,
+    /// TK-115 Г-116: снимок уровней нашей стороны и сделки против, пока исполнение входа не наступило.
+    cxl_book: Option<Box<CxlBook>>,
+    /// TK-115 Г-116: значение `cxl_press` на момент исполнения входа (0 при выключенном кольце).
+    cxl_at_fill: f64,
     /// R2 (TK-065): крупные массивы добавок и известных стен — в куче и только у плана с `pyramid.on()`:
     /// клон состояния на каждом событии удержания (откат `fast_hold`) не таскает ≈ 200 Б, когда R2 выключен.
     r2: Option<Box<R2Bufs>>,
@@ -1044,6 +1060,9 @@ impl StrategyState {
             orphan_overflow: 0,
             tape_ring: tape_log_ring(),
             tape_at_fill: 0.0,
+            cxl_ring: tape_log_ring(),
+            cxl_book: None,
+            cxl_at_fill: 0.0,
             wall_ring: match plan {
                 TradePlan::Bounce { wall_eat, .. } if wall_eat.on() => {
                     Some(vec![WallBucket::EMPTY; wall_eat.secs as usize].into_boxed_slice())
@@ -1061,6 +1080,16 @@ impl StrategyState {
 
     /// TK-115 Г-112: включить кольцо ленты на `secs` секунд (журнал `[fill−W, fill]`); без вызова ничего не меняется.
     pub fn enable_tape(&mut self, secs: u32) {
+        self.cxl_ring = Some(
+            vec![
+                TapeBucket {
+                    sec: i64::MIN,
+                    lots: 0.0
+                };
+                secs.max(1) as usize
+            ]
+            .into_boxed_slice(),
+        );
         self.tape_ring = Some(
             vec![
                 TapeBucket {
@@ -1095,6 +1124,116 @@ impl StrategyState {
                 *b = TapeBucket { sec, lots: 0.0 };
             }
             b.lots += t.qty;
+        }
+    }
+
+    /// TK-115 Г-116: сумма отмен за последние `W` секунд до `now` включительно. Без кольца — 0.
+    pub fn cxl_press(&self, now: i64) -> f64 {
+        let Some(ring) = self.cxl_ring.as_ref() else {
+            return 0.0;
+        };
+        let t = now.div_euclid(1_000_000_000);
+        #[allow(clippy::cast_possible_wrap)]
+        let lo = t - ring.len() as i64 + 1;
+        ring.iter()
+            .filter(|b| b.sec >= lo && b.sec <= t)
+            .map(|b| b.lots)
+            .sum()
+    }
+
+    /// TK-115 Г-116: отмены на нашей стороне между `stop_px` и лучшей ценой: убыль размера уровня между вызовами
+    /// минус сделки против позиции на этой цене. Зовёт драйвер перед `observe_wall_trades` с теми же сделками шага
+    /// (вызов пропускается, пока сделки отложены, — снимок тогда стареет вместе с буфером). До исполнения входа.
+    pub fn observe_cancels<MD: MarketDepth>(&mut self, depth: &MD, trades: &[Event], now: i64) {
+        if !R2 || self.cxl_ring.is_none() {
+            return;
+        }
+        if matches!(
+            self.phase,
+            Phase::Holding { .. } | Phase::ExitPending { .. } | Phase::ExitCancelPending { .. }
+        ) {
+            return;
+        }
+        let TradePlan::Bounce {
+            stop_px, tick_px, ..
+        } = self.plan
+        else {
+            return;
+        };
+        let Some(side) = entry_side(self.sigma) else {
+            return;
+        };
+        if tick_px <= 0.0 {
+            return;
+        }
+        let buy = side == HbtSide::Buy;
+        let best = if buy {
+            depth.best_bid_tick()
+        } else {
+            depth.best_ask_tick()
+        };
+        if best == INVALID_MIN || best == INVALID_MAX {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let stop_t = round_half_away(stop_px / tick_px) as i64;
+        let idx_of = |tick: i64| if buy { tick - stop_t } else { stop_t - tick };
+        let want = if buy {
+            EXCH_SELL_TRADE_EVENT
+        } else {
+            EXCH_BUY_TRADE_EVENT
+        };
+        let book = self.cxl_book.get_or_insert_with(|| {
+            Box::new(CxlBook {
+                snap: [0.0; NW_SCAN_MAX as usize],
+                traded: [0.0; NW_SCAN_MAX as usize],
+                init: false,
+                last_hi: 0,
+            })
+        });
+        for t in trades.iter().filter(|t| t.ev & want == want) {
+            #[allow(clippy::cast_possible_truncation)]
+            let i = idx_of(round_half_away(t.px / tick_px) as i64);
+            if (0..NW_SCAN_MAX).contains(&i) {
+                #[allow(clippy::cast_sign_loss)]
+                {
+                    book.traded[i as usize] += t.qty;
+                }
+            }
+        }
+        let hi = idx_of(best).max(book.last_hi).min(NW_SCAN_MAX - 1);
+        let mut cancelled = 0.0;
+        for i in 0..=hi {
+            let tick = if buy { stop_t + i } else { stop_t - i };
+            let q = if buy {
+                depth.bid_qty_at_tick(tick)
+            } else {
+                depth.ask_qty_at_tick(tick)
+            };
+            #[allow(clippy::cast_sign_loss)]
+            let k = i as usize;
+            if book.init {
+                let dec = book.snap[k] - q - book.traded[k];
+                if dec > 0.0 {
+                    cancelled += dec;
+                }
+            }
+            book.snap[k] = q;
+            book.traded[k] = 0.0;
+        }
+        book.init = true;
+        book.last_hi = idx_of(best).clamp(0, NW_SCAN_MAX - 1);
+        if cancelled > 0.0 {
+            if let Some(ring) = self.cxl_ring.as_mut() {
+                let sec = now.div_euclid(1_000_000_000);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let i = sec.rem_euclid(ring.len() as i64) as usize;
+                let b = &mut ring[i];
+                if b.sec != sec {
+                    *b = TapeBucket { sec, lots: 0.0 };
+                }
+                b.lots += cancelled;
+            }
         }
     }
 
@@ -1532,12 +1671,18 @@ impl StrategyState {
         self.phase = Phase::Holding { entry_ns: now };
         if self.tape_on() {
             self.tape_at_fill = self.tape_press(now);
+            self.cxl_at_fill = self.cxl_press(now);
         }
     }
 
     /// TK-115 Г-112: лента против позиции за `W` с до исполнения входа (кольцо включено `enable_tape`), иначе 0.
     pub fn tape_at_fill(&self) -> f64 {
         self.tape_at_fill
+    }
+
+    /// TK-115 Г-116: отмены нашей стороны за `W` с до исполнения входа, иначе 0.
+    pub fn cxl_at_fill(&self) -> f64 {
+        self.cxl_at_fill
     }
 
     /// F7 (Б-75): зачесть сделки этого шага, бьющие **в стену**. Вызывается
