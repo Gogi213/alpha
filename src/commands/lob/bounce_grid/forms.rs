@@ -51,6 +51,34 @@ pub enum ExitForm {
         /// Ряд BTC (`--btc-minutes`), подставляется после разбора; в имени не участвует.
         btc: Option<&'static BtcMinutes>,
     },
+    /// `pyeat<N>` (TK-065, Г-94): вход частями — стена делится на `N` долей, добавка `Q0/N` на
+    /// съедании каждой из первых `N − 1` (spec r2-spec §1; `pyeat3` = «трети»).
+    PyrEat { parts: u8 },
+    /// `pyfresh<N>` (TK-065, Г-87): вход `Q0/N`, остальное добавками `Q0/N` на съедании `j/N`.
+    PyrFresh { parts: u8 },
+    /// `pyre<N>u<k>` (TK-065, Г-92): добавка `k/3·Q0` на каждый возврат стены, после `N`-го — безубыток.
+    PyrReinstall { n: u8, u3: u8 },
+    /// `pynw<K>u<k>` (TK-065, Г-93): в убыточной позиции на новую крупную стену — добавка `k/3·Q0`, всего не больше `K`.
+    PyrNewWall { k: u8, u3: u8 },
+    /// `halfstop` (TK-065, Г-114): стоп закрывает половину позиции, остаток без стопа.
+    HalfStop { q4: u8 },
+    /// `halflevel` (TK-065, Г-114): половина по рынку при первой сделке за `level_px` стены входа, остаток без стопа.
+    HalfLevel { q4: u8 },
+    /// `tsl<G>t<Q>` (TK-065, Г-117): тейк сползает к безубытку; `γ = G/10`, `T = Q/4 · дедлайн`.
+    TakeSched { g10: u8, t4: u8 },
+    /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
+    Converge { tol: u8, a_bps: u32 },
+    /// `nostop<X2>` (TK-115, Г-106): стопа нет, пока прибыль не дошла до `X2/2 · trail_activate_bps` и цена не ушла за безубыток; затем стоп = безубыток. `X2` ∈ {1, 2, 4} (×0,5; ×1; ×2).
+    NoStop { x2: u8 },
+    /// `wall2` / `wall2x` (TK-115, Г-65 `e65-t2`/`e65-t2x`): цель — вторая живая аск-стена (шорт — бид-стена) на момент исполнения входа
+    /// из журнала стен, на тик перед ней / за ней; фиксированный тейк, `trail_bps = 0`; меньше двух стен — сделка = B1.
+    Wall2 { behind: bool },
+    /// `chase<мс>` (TK-115, Г-133): на дедлайне мейкер-погоня вместо рынка, окно `W` мс; по истечении — рынок.
+    Chase { ms: u32 },
+    /// `tape<W>q<Q>` (TK-115, Г-112; окно W с): выход по рынку, когда лента против позиции за окно с входа / размер стены ≥ `Q`, позиция в минусе. `Q` — порог (терциль по журналу B1, Исследователь). Нужен `--tape-log`.
+    Tape { w: u32, q: f64 },
+    /// `cxl<Q>` (TK-115, Г-116): то же по отменам на нашей стороне. Нужен `--tape-log`.
+    Cxl { w: u32, q: f64 },
 }
 
 impl ExitForm {
@@ -78,6 +106,19 @@ impl ExitForm {
                 };
                 format!("gone{pct}wall{m}{buffer_bps}")
             }
+            ExitForm::PyrEat { parts } => format!("pyeat{parts}"),
+            ExitForm::PyrFresh { parts } => format!("pyfresh{parts}"),
+            ExitForm::PyrReinstall { n, u3 } => format!("pyre{n}u{u3}"),
+            ExitForm::PyrNewWall { k, u3 } => format!("pynw{k}u{u3}"),
+            ExitForm::HalfStop { q4 } => half_label("halfstop", *q4),
+            ExitForm::HalfLevel { q4 } => half_label("halflevel", *q4),
+            ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
+            ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
+            ExitForm::NoStop { x2 } => format!("nostop{x2}"),
+            ExitForm::Chase { ms } => format!("chase{ms}"),
+            ExitForm::Tape { w, q } => format!("tape{w}q{q}"),
+            ExitForm::Cxl { w, q } => format!("cxl{w}q{q}"),
+            ExitForm::Wall2 { behind } => format!("wall2{}", if *behind { "x" } else { "" }),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -163,8 +204,191 @@ impl ExitForm {
     }
 
     pub fn parse(spec: &str) -> anyhow::Result<Self> {
+        let form = Self::parse_any(spec)?;
+        anyhow::ensure!(
+            crate::lob::strategy::R2 || !form.is_r2(),
+            "--exit-form {spec:?}: форма R2 — только в исследовательском бинарнике (cargo feature r2)"
+        );
+        Ok(form)
+    }
+
+    fn is_r2(&self) -> bool {
+        matches!(
+            self,
+            ExitForm::PyrEat { .. }
+                | ExitForm::PyrFresh { .. }
+                | ExitForm::PyrReinstall { .. }
+                | ExitForm::PyrNewWall { .. }
+                | ExitForm::HalfStop { .. }
+                | ExitForm::HalfLevel { .. }
+                | ExitForm::TakeSched { .. }
+                | ExitForm::Converge { .. }
+                | ExitForm::NoStop { .. }
+                | ExitForm::Chase { .. }
+                | ExitForm::Tape { .. }
+                | ExitForm::Cxl { .. }
+                | ExitForm::Wall2 { .. }
+        )
+    }
+
+    fn parse_any(spec: &str) -> anyhow::Result<Self> {
         if spec == "none" {
             return Ok(ExitForm::None);
+        }
+        if let Some(rest) = spec.strip_prefix("pyeat") {
+            let parts: u8 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается pyeat<N>, N ∈ [2, 10]")
+            })?;
+            anyhow::ensure!((2..=10).contains(&parts), "pyeat<N>: N ∈ [2, 10]");
+            let form = ExitForm::PyrEat { parts };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("pyfresh") {
+            let parts: u8 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается pyfresh<N>, N ∈ [2, 10]")
+            })?;
+            anyhow::ensure!((2..=10).contains(&parts), "pyfresh<N>: N ∈ [2, 10]");
+            let form = ExitForm::PyrFresh { parts };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if spec == "wall2" || spec == "wall2x" {
+            return Ok(ExitForm::Wall2 {
+                behind: spec == "wall2x",
+            });
+        }
+        if let Some(rest) = spec.strip_prefix("chase") {
+            let ms: u32 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается chase<мс>, окно W в миллисекундах")
+            })?;
+            anyhow::ensure!(ms > 0, "chase<мс>: окно W > 0");
+            return Ok(ExitForm::Chase { ms });
+        }
+        for (pre, tape) in [("tape", true), ("cxl", false)] {
+            if let Some(rest) = spec.strip_prefix(pre) {
+                let bad = || {
+                    anyhow::anyhow!(
+                        "--exit-form {spec:?}: ожидается {pre}<W>q<Q>: окно W с > 0, Q > 0 (мера / размер стены)"
+                    )
+                };
+                let (ws, qs) = rest.split_once('q').ok_or_else(bad)?;
+                let w: u32 = ws.parse().map_err(|_| bad())?;
+                let q: f64 = qs.parse().map_err(|_| bad())?;
+                anyhow::ensure!(w > 0, "{pre}<W>q<Q>: W > 0 с");
+                anyhow::ensure!(q.is_finite() && q > 0.0, "{pre}<W>q<Q>: Q > 0");
+                let form = if tape {
+                    ExitForm::Tape { w, q }
+                } else {
+                    ExitForm::Cxl { w, q }
+                };
+                anyhow::ensure!(
+                    form.label() == spec,
+                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                    form.label()
+                );
+                return Ok(form);
+            }
+        }
+        if let Some(rest) = spec.strip_prefix("nostop") {
+            let x2: u8 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается nostop<X2>, X2 ∈ {{1, 2, 4}} (×0,5; ×1; ×2 от trail_activate_bps)")
+            })?;
+            anyhow::ensure!(matches!(x2, 1 | 2 | 4), "nostop<X2>: X2 ∈ {{1, 2, 4}}");
+            return Ok(ExitForm::NoStop { x2 });
+        }
+        if let Some(rest) = spec.strip_prefix("conv") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается conv<t>a<A>, t ∈ [0, 9], A — bps (D прогона)"
+                )
+            };
+            let (tol, a_bps) = rest.split_once('a').ok_or_else(bad)?;
+            let tol: u8 = tol.parse().map_err(|_| bad())?;
+            let a_bps: u32 = a_bps.parse().map_err(|_| bad())?;
+            anyhow::ensure!(tol <= 9 && a_bps > 0, "conv<t>a<A>: t ∈ [0, 9], A > 0");
+            let form = ExitForm::Converge { tol, a_bps };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(q4) = parse_half(spec, "halfstop")? {
+            return Ok(ExitForm::HalfStop { q4 });
+        }
+        if let Some(rest) = spec.strip_prefix("tsl") {
+            let bad = || {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается tsl<G>t<Q>, G ∈ [1, 99] (γ = G/10), Q ∈ [1, 4]")
+            };
+            let (g10, t4) = rest.split_once('t').ok_or_else(bad)?;
+            let g10: u8 = g10.parse().map_err(|_| bad())?;
+            let t4: u8 = t4.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=99).contains(&g10) && (1..=4).contains(&t4),
+                "tsl<G>t<Q>: G ∈ [1, 99], Q ∈ [1, 4]"
+            );
+            let form = ExitForm::TakeSched { g10, t4 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(q4) = parse_half(spec, "halflevel")? {
+            return Ok(ExitForm::HalfLevel { q4 });
+        }
+        if let Some(rest) = spec.strip_prefix("pynw") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается pynw<K>u<k>, K ∈ [1, 9], k ∈ {{1, 2, 3}}"
+                )
+            };
+            let (k, u3) = rest.split_once('u').ok_or_else(bad)?;
+            let k: u8 = k.parse().map_err(|_| bad())?;
+            let u3: u8 = u3.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=9).contains(&k) && (1..=3).contains(&u3),
+                "pynw<K>u<k>: K ∈ [1, 9], k ∈ {{1, 2, 3}}"
+            );
+            let form = ExitForm::PyrNewWall { k, u3 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("pyre") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается pyre<N>u<k>, N ∈ [1, 9], k ∈ {{1, 2, 3}}"
+                )
+            };
+            let (n, u3) = rest.split_once('u').ok_or_else(bad)?;
+            let n: u8 = n.parse().map_err(|_| bad())?;
+            let u3: u8 = u3.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=9).contains(&n) && (1..=3).contains(&u3),
+                "pyre<N>u<k>: N ∈ [1, 9], k ∈ {{1, 2, 3}}"
+            );
+            let form = ExitForm::PyrReinstall { n, u3 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("weat") {
             return Self::parse_wall_eat(spec, rest);
@@ -285,6 +509,28 @@ pub struct GridForm {
     /// уровень всё ещё лучшая цена → выход по рынку (`ExitReason::Early`). Значения — только из
     /// предрегистрированного набора В-58 (`EARLY_EXITS_S`).
     pub early_exit_secs: Option<i64>,
+}
+
+/// Г-114: имя формы `halfstop` / `halfstop` + `f1`|`f3` (доля 1/4 или 3/4; половина — без суффикса).
+fn half_label(base: &str, q4: u8) -> String {
+    if q4 == 2 {
+        base.to_string()
+    } else {
+        format!("{base}f{q4}")
+    }
+}
+
+/// Разбор `halfstop[f1|f3]` / `halflevel[f1|f3]`: `None` — спецификация не этой формы.
+fn parse_half(spec: &str, base: &str) -> anyhow::Result<Option<u8>> {
+    let Some(rest) = spec.strip_prefix(base) else {
+        return Ok(None);
+    };
+    match rest {
+        "" => Ok(Some(2)),
+        "f1" => Ok(Some(1)),
+        "f3" => Ok(Some(3)),
+        _ => anyhow::bail!("--exit-form {spec:?}: ожидается {base}[f1|f3] (доля 1/4, 3/4; половина — без суффикса)"),
+    }
 }
 
 /// Формы сетки в порядке `stops × takes × DEADLINE_SECS`; имена —

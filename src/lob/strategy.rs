@@ -422,8 +422,135 @@ pub enum TradePlan {
         /// TK-014 `weat<X>s<W>{m|l|a}<Y>`: съедание стены сделками после входа за окно `W` с,
         /// причина выхода раздельно по ходу BTC. `WallEatExit::OFF` — выключено.
         wall_eat: WallEatExit,
+        /// R2-A (TK-065, Г-94): доливка частями по мере съедания стены. `PyramidCfg::OFF` — выключено.
+        pyramid: PyramidCfg,
     },
 }
+
+/// R2 (TK-065) собирается только с feature `r2` (исследовательский бинарник); боевой PGO-бинарник — без неё.
+pub const R2: bool = cfg!(feature = "r2");
+
+/// G3б (TK-065): трасса решений R2 в stderr при `ALPHA_R2_TRACE=1`; только исследовательская сборка `r2`.
+#[cfg(feature = "r2")]
+macro_rules! r2_trace {
+    ($ts:expr, $($arg:tt)*) => {{
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ON.get_or_init(|| std::env::var_os("ALPHA_R2_TRACE").is_some()) {
+            eprintln!("R2T ts={} {}", $ts, format_args!($($arg)*));
+        }
+    }};
+}
+#[cfg(not(feature = "r2"))]
+macro_rules! r2_trace {
+    ($ts:expr, $($arg:tt)*) => {};
+}
+
+/// Доливка частями (R2-A): стена делится на `eat_parts` равных долей; при съедании `j/N` стены
+/// (`j = 1..N-1`) ставится добавка `Q0/N` (spec r2-spec §1 Г-94, `K = N − 1`). `0` — выключено.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PyramidCfg {
+    pub eat_parts: u8,
+    /// Г-87 (`pyfresh<N>`): вход — только `Q0/N`, остальное добавками `Q0/N` (а не `base/N`).
+    pub fresh: bool,
+    /// Г-92 (`pyre<N>u<k>`): добавка `k/3·Q0` на каждый возврат стены на цене, после `N`-го — стоп в
+    /// безубыток (мягкий); `0` — выключено.
+    pub reinstall_n: u8,
+    pub reinstall_u3: u8,
+    /// Г-93 (`pynw<K>u<k>`): в убыточной позиции на новую крупную стену между стопом и рынком — добавка
+    /// `k/3·Q0`, всего не больше `K`; `0` — выключено.
+    pub newwall_k: u8,
+    pub newwall_u3: u8,
+    /// Г-114 (`halfstop`): стоп закрывает ровно половину позиции один раз, остаток живёт без стопа.
+    pub half_stop: bool,
+    /// Г-114 (`halflevel`): половина закрывается по рынку при первой сделке ленты за `level_px` стены входа
+    /// (лонг — ниже, шорт — выше); остаток без стопа `pct2`.
+    pub half_level: bool,
+    /// Г-114: доля закрываемого в четвертях (`halfstopf1` → 1, `f3` → 3); `0` — как `2` (половина, умолчание).
+    pub half_q4: u8,
+    /// Г-117 (`tsl<G>t<Q>`): тейк сползает к безубытку `take(t) = take − (take − floor)·min(1, (t/T)^γ)`,
+    /// `γ = sched_g10 / 10`, `T = sched_t4 / 4 · deadline`; `sched_g10 = 0` — выключено. Нужен `trail_bps = 0`.
+    pub sched_g10: u8,
+    pub sched_t4: u8,
+    /// Г-119 (`conv<t>a<A>`): после ухода лучшей цены от `level_px` на `Dmax ≥ A` bps и возврата на
+    /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
+    pub converge_tol1: u8,
+    pub converge_a_bps: u32,
+    /// Г-106 (`nostop<X2>`): без стопа, пока лучшая цена не дала `X2/2 · trail_activate_bps` и не ушла за безубыток;
+    /// затем стоп = безубыток (мягкий). `0` — выключено.
+    pub nostop_x2: u8,
+    /// Г-65 (`e65-t2` → 1, `e65-t2x` → 2): цель за второй аск-стеной (шорт — бид-стеной) из журнала стен на момент
+    /// исполнения входа: `1` — на тик перед стеной, `2` — на тик за ней; `0` — выключено. Цена цели ставится
+    /// при форке группы (`set_plan_wall2`), `trail_bps = 0`.
+    pub wall2: u8,
+    /// Г-133 (`chase<мс>`): на дедлайне вместо рынка — мейкер-лимитка на лучшей цене стороны выхода, переставляется
+    /// вслед за ценой, окно `W` мс; по истечении — рынок. `0` — выключено.
+    pub chase_ms: u32,
+    /// Г-112 (`tape<Q>`): выход по рынку (`Tape`), когда лента против позиции за окно кольца (с входа), делённая на
+    /// `level_qty` стены, ≥ `tape_q`, а позиция в минусе. `0` — выключено. Нужно кольцо `--tape-log`.
+    pub tape_q: f64,
+    /// Г-112: окно `W`, с (последние `W` с, но не раньше входа); берётся из кольца `--tape-log` ≥ `W`.
+    pub tape_w: u32,
+    /// Г-116 (`cxl<Q>`): то же по отменам на нашей стороне (`Resilience`); `0` — выключено.
+    pub cxl_q: f64,
+    /// Г-116: окно `W`, с.
+    pub cxl_w: u32,
+}
+
+impl PyramidCfg {
+    pub const OFF: PyramidCfg = PyramidCfg {
+        eat_parts: 0,
+        fresh: false,
+        reinstall_n: 0,
+        reinstall_u3: 0,
+        newwall_k: 0,
+        newwall_u3: 0,
+        half_stop: false,
+        half_level: false,
+        half_q4: 0,
+        sched_g10: 0,
+        sched_t4: 0,
+        converge_tol1: 0,
+        converge_a_bps: 0,
+        nostop_x2: 0,
+        wall2: 0,
+        chase_ms: 0,
+        tape_q: 0.0,
+        tape_w: 0,
+        cxl_q: 0.0,
+        cxl_w: 0,
+    };
+
+    /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
+    pub fn eff(self) -> PyramidCfg {
+        if R2 {
+            self
+        } else {
+            PyramidCfg::OFF
+        }
+    }
+
+    pub fn on(self) -> bool {
+        R2 && (self.eat_parts > 0
+            || self.reinstall_n > 0
+            || self.newwall_k > 0
+            || self.half_stop
+            || self.half_level
+            || self.sched_g10 > 0
+            || self.converge_tol1 > 0
+            || self.nostop_x2 > 0
+            || self.wall2 > 0
+            || self.chase_ms > 0
+            || self.tape_q > 0.0
+            || self.cxl_q > 0.0)
+    }
+}
+
+/// Г-92: потолок числа добавок за сделку (верхняя граница «3–5» источника).
+const REINSTALL_K: u8 = 5;
+
+/// Г-93: ёмкость списка «известных» стен и потолок скана тиков между стопом и рынком (страховка).
+const NW_KNOWN: usize = 16;
+const NW_SCAN_MAX: i64 = 512;
 
 /// Режим формы `weat*` (TK-014): при каком ходе BTC съедание стены закрывает позицию.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -527,6 +654,51 @@ struct WallBucket {
     sec: i64,
     eaten: f64,
     max_qty: f64,
+}
+
+/// TK-115 Г-112: окно журнала ленты (`bounce-grid --tape-log`), секунды; 0 — выключено. Задаётся один раз до
+/// счёта, читается при постановке плана (не на пути события).
+static TAPE_LOG_SECS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Включить журнал ленты для всех состояний, созданных дальше (0 — выключить).
+pub fn set_tape_log_secs(secs: u32) {
+    TAPE_LOG_SECS.store(secs, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn tape_log_ring() -> Option<Box<[TapeBucket]>> {
+    if !R2 {
+        return None;
+    }
+    match TAPE_LOG_SECS.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        n => Some(
+            vec![
+                TapeBucket {
+                    sec: i64::MIN,
+                    lots: 0.0
+                };
+                n as usize
+            ]
+            .into_boxed_slice(),
+        ),
+    }
+}
+
+/// TK-115 Г-112: секундная корзина ленты — лоты агрессивных сделок против позиции в секунду `sec`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TapeBucket {
+    sec: i64,
+    lots: f64,
+}
+
+/// TK-115 Г-116: снимок размеров уровней нашей стороны от `stop_px` (индекс 0) к рынку и сделки против позиции
+/// по тем же индексам; убыль снимка минус сделки на цене = отмена. Собственные ордера в книгу бэктеста не входят.
+#[derive(Debug, Clone, PartialEq)]
+struct CxlBook {
+    snap: [f64; NW_SCAN_MAX as usize],
+    traded: [f64; NW_SCAN_MAX as usize],
+    init: bool,
+    last_hi: i64,
 }
 
 impl WallBucket {
@@ -634,6 +806,12 @@ pub enum ExitReason {
     WallEatBtc,
     /// TK-014 `weat*`: стену съели сделками после входа, BTC за окно > −Y bps («местный»).
     WallEatLocal,
+    /// Г-119: цена уходила от стены на `A` bps и вернулась к ней — выход по рынку.
+    Converge,
+    /// Г-112: лента против позиции за окно с входа ≥ порога (нормирована на размер стены), позиция в минусе.
+    Tape,
+    /// Г-116: отмены на нашей стороне за окно с входа ≥ порога (нормированы на размер стены), позиция в минусе.
+    Resilience,
 }
 
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
@@ -714,7 +892,66 @@ pub struct StrategyState {
     /// TK-014 `weat*`: кольцо секундных корзин ёмкостью `W`; выделяется при постановке плана и
     /// только у формы `weat*` (иначе `None` — прежний путь).
     wall_ring: Option<Box<[WallBucket]>>,
+    /// TK-115 Г-112: кольцо ленты против позиции (журнал `tape_press`); `None` — флаг выключен, прежний путь.
+    tape_ring: Option<Box<[TapeBucket]>>,
+    /// TK-115 Г-112: значение `tape_press` на момент исполнения входа (0 при выключенном кольце).
+    tape_at_fill: f64,
+    /// TK-115 Г-116: кольцо отмен нашей стороны между `stop_px` и лучшей ценой (журнал `cxl_lots`); включается вместе с лентой.
+    cxl_ring: Option<Box<[TapeBucket]>>,
+    /// TK-115 Г-116: снимок уровней нашей стороны и сделки против, пока исполнение входа не наступило.
+    cxl_book: Option<Box<CxlBook>>,
+    /// TK-115 Г-116: значение `cxl_press` на момент исполнения входа (0 при выключенном кольце).
+    cxl_at_fill: f64,
+    /// R2 (TK-065): крупные массивы добавок и известных стен — в куче и только у плана с `pyramid.on()`:
+    /// клон состояния на каждом событии удержания (откат `fast_hold`) не таскает ≈ 200 Б, когда R2 выключен.
+    r2: Option<Box<R2Bufs>>,
+    /// R2-A: число поставленных добавок (их id — `R2Bufs::add_ids`).
+    adds_done: u8,
+    /// Позиция и стоимость базового входа в момент первой добавки; `Q0` — размер базы.
+    add_base_qty: f64,
+    add_base_notional: f64,
+    /// Выход отправлен: добавки сняты и больше не ставятся.
+    adds_released: bool,
+    /// Г-92: стена снята (ниже `level_floor_qty`) и ещё не вернулась; число возвратов; возврат ждёт добавки.
+    reinst_removed: bool,
+    reinstalls: u8,
+    reinst_trigger: bool,
+    /// Г-92: стоп уже перенесён в безубыток (защёлка).
+    reinst_be_active: bool,
+    /// Г-93: тики стен, существовавших к первому событию удержания (и уже использованных); снимок сделан.
+    nw_known_n: u8,
+    nw_init: bool,
+    /// Г-114: половина по стопу уже закрыта (защёлка).
+    stop_half_done: bool,
+    /// Г-106: стоп `nostop` переведён в безубыток (защёлка).
+    nostop_armed: bool,
+    /// Г-133: момент начала погони на дедлайне (0 — не начата), цена стоящей лимитки погони и ожидание исполнения
+    /// лимиткой от начала погони, нс (−1 — не исполнена лимиткой: вышли рынком или погони не было).
+    chase_start_ns: i64,
+    chase_px: f64,
+    chase_wait_ns: i64,
+    /// Г-114 `halflevel`: после входа прошла сделка ленты за `level_px` (защёлка до конца круга).
+    level_broken: bool,
 }
+
+/// R2: id добавок (по порядку) и тики стен, существовавших к первому событию удержания.
+#[derive(Debug, Clone, PartialEq)]
+struct R2Bufs {
+    add_ids: [u64; MAX_ADDS],
+    nw_known: [i64; NW_KNOWN],
+}
+
+impl R2Bufs {
+    fn boxed() -> Box<Self> {
+        Box::new(Self {
+            add_ids: [0; MAX_ADDS],
+            nw_known: [0; NW_KNOWN],
+        })
+    }
+}
+
+/// Ёмкость списка добавок на круг (`pyeat<N>` ограничено `N ≤ 10` ⇒ `K = N − 1 ≤ 9`).
+pub const MAX_ADDS: usize = 9;
 
 /// Чьи ноги стали сиротами (F8c, К1): исполнение ноги **входа** — лишняя
 /// позиция, её гасят по рынку; исполнение ноги **выхода** — наш же выход, его
@@ -829,10 +1066,35 @@ impl StrategyState {
             exit_qty: 0.0,
             exit_accounted: 0.0,
             exit_cancel_timeouts: 0,
+            r2: match plan {
+                TradePlan::Bounce { pyramid, .. } if pyramid.on() => Some(R2Bufs::boxed()),
+                _ => None,
+            },
+            adds_done: 0,
+            add_base_qty: 0.0,
+            add_base_notional: 0.0,
+            adds_released: false,
+            reinst_removed: false,
+            reinstalls: 0,
+            reinst_trigger: false,
+            reinst_be_active: false,
+            nw_known_n: 0,
+            nw_init: false,
+            stop_half_done: false,
+            nostop_armed: false,
+            chase_start_ns: 0,
+            chase_px: 0.0,
+            chase_wait_ns: -1,
+            level_broken: false,
             orphans: OrphanCarry::NONE,
             orphan_exit_open: 0.0,
             orphan_fills: 0,
             orphan_overflow: 0,
+            tape_ring: tape_log_ring(),
+            tape_at_fill: 0.0,
+            cxl_ring: tape_log_ring(),
+            cxl_book: None,
+            cxl_at_fill: 0.0,
             wall_ring: match plan {
                 TradePlan::Bounce { wall_eat, .. } if wall_eat.on() => {
                     Some(vec![WallBucket::EMPTY; wall_eat.secs as usize].into_boxed_slice())
@@ -840,6 +1102,214 @@ impl StrategyState {
                 _ => None,
             },
         }
+    }
+
+    /// TK-115 Г-112: журнал ленты включён. Без feature `r2` константно `false` — ветки не доходят до боевого бинарника.
+    #[inline(always)]
+    fn tape_on(&self) -> bool {
+        R2 && self.tape_ring.is_some()
+    }
+
+    /// TK-115 Г-112: включить кольцо ленты на `secs` секунд (журнал `[fill−W, fill]`); без вызова ничего не меняется.
+    pub fn enable_tape(&mut self, secs: u32) {
+        self.cxl_ring = Some(
+            vec![
+                TapeBucket {
+                    sec: i64::MIN,
+                    lots: 0.0
+                };
+                secs.max(1) as usize
+            ]
+            .into_boxed_slice(),
+        );
+        self.tape_ring = Some(
+            vec![
+                TapeBucket {
+                    sec: i64::MIN,
+                    lots: 0.0
+                };
+                secs.max(1) as usize
+            ]
+            .into_boxed_slice(),
+        );
+    }
+
+    /// TK-115 Г-112: сделки этого шага, бьющие **против** позиции (лонг — продажи тейкера), в корзины секунд.
+    fn record_tape(&mut self, trades: &[Event]) {
+        let Some(entry_side) = entry_side(self.sigma) else {
+            return;
+        };
+        let want = if entry_side == HbtSide::Buy {
+            EXCH_SELL_TRADE_EVENT
+        } else {
+            EXCH_BUY_TRADE_EVENT
+        };
+        let Some(ring) = self.tape_ring.as_mut() else {
+            return;
+        };
+        for t in trades.iter().filter(|t| t.ev & want == want) {
+            let sec = t.exch_ts.div_euclid(1_000_000_000);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let i = sec.rem_euclid(ring.len() as i64) as usize;
+            let b = &mut ring[i];
+            if b.sec != sec {
+                *b = TapeBucket { sec, lots: 0.0 };
+            }
+            b.lots += t.qty;
+        }
+    }
+
+    /// TK-115 Г-116: сумма отмен за последние `W` секунд до `now` включительно. Без кольца — 0.
+    pub fn cxl_press(&self, now: i64) -> f64 {
+        let Some(ring) = self.cxl_ring.as_ref() else {
+            return 0.0;
+        };
+        let t = now.div_euclid(1_000_000_000);
+        #[allow(clippy::cast_possible_wrap)]
+        let lo = t - ring.len() as i64 + 1;
+        ring.iter()
+            .filter(|b| b.sec >= lo && b.sec <= t)
+            .map(|b| b.lots)
+            .sum()
+    }
+
+    /// TK-115 Г-116: отмены на нашей стороне между `stop_px` и лучшей ценой: убыль размера уровня между вызовами
+    /// минус сделки против позиции на этой цене. Зовёт драйвер перед `observe_wall_trades` с теми же сделками шага
+    /// (вызов пропускается, пока сделки отложены, — снимок тогда стареет вместе с буфером). До исполнения входа.
+    pub fn observe_cancels<MD: MarketDepth>(&mut self, depth: &MD, trades: &[Event], now: i64) {
+        if !R2 || self.cxl_ring.is_none() {
+            return;
+        }
+        let keep_in_hold =
+            matches!(self.plan, TradePlan::Bounce { pyramid, .. } if pyramid.cxl_q > 0.0);
+        if matches!(
+            self.phase,
+            Phase::ExitPending { .. } | Phase::ExitCancelPending { .. }
+        ) || (matches!(self.phase, Phase::Holding { .. }) && !keep_in_hold)
+        {
+            return;
+        }
+        let TradePlan::Bounce {
+            stop_px, tick_px, ..
+        } = self.plan
+        else {
+            return;
+        };
+        let Some(side) = entry_side(self.sigma) else {
+            return;
+        };
+        if tick_px <= 0.0 {
+            return;
+        }
+        let buy = side == HbtSide::Buy;
+        let best = if buy {
+            depth.best_bid_tick()
+        } else {
+            depth.best_ask_tick()
+        };
+        if best == INVALID_MIN || best == INVALID_MAX {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let stop_t = round_half_away(stop_px / tick_px) as i64;
+        let idx_of = |tick: i64| if buy { tick - stop_t } else { stop_t - tick };
+        let want = if buy {
+            EXCH_SELL_TRADE_EVENT
+        } else {
+            EXCH_BUY_TRADE_EVENT
+        };
+        let book = self.cxl_book.get_or_insert_with(|| {
+            Box::new(CxlBook {
+                snap: [0.0; NW_SCAN_MAX as usize],
+                traded: [0.0; NW_SCAN_MAX as usize],
+                init: false,
+                last_hi: 0,
+            })
+        });
+        for t in trades.iter().filter(|t| t.ev & want == want) {
+            #[allow(clippy::cast_possible_truncation)]
+            let i = idx_of(round_half_away(t.px / tick_px) as i64);
+            if (0..NW_SCAN_MAX).contains(&i) {
+                #[allow(clippy::cast_sign_loss)]
+                {
+                    book.traded[i as usize] += t.qty;
+                }
+            }
+        }
+        let hi = idx_of(best).max(book.last_hi).min(NW_SCAN_MAX - 1);
+        let mut cancelled = 0.0;
+        for i in 0..=hi {
+            let tick = if buy { stop_t + i } else { stop_t - i };
+            let q = if buy {
+                depth.bid_qty_at_tick(tick)
+            } else {
+                depth.ask_qty_at_tick(tick)
+            };
+            #[allow(clippy::cast_sign_loss)]
+            let k = i as usize;
+            if book.init {
+                let dec = book.snap[k] - q - book.traded[k];
+                if dec > 0.0 {
+                    cancelled += dec;
+                }
+            }
+            book.snap[k] = q;
+            book.traded[k] = 0.0;
+        }
+        book.init = true;
+        book.last_hi = idx_of(best).clamp(0, NW_SCAN_MAX - 1);
+        if cancelled > 0.0 {
+            if let Some(ring) = self.cxl_ring.as_mut() {
+                let sec = now.div_euclid(1_000_000_000);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let i = sec.rem_euclid(ring.len() as i64) as usize;
+                let b = &mut ring[i];
+                if b.sec != sec {
+                    *b = TapeBucket { sec, lots: 0.0 };
+                }
+                b.lots += cancelled;
+            }
+        }
+    }
+
+    /// TK-115 Г-112: лоты против позиции за последние `W` секунд до `now` включительно. Без кольца — 0.
+    pub fn tape_press(&self, now: i64) -> f64 {
+        let Some(ring) = self.tape_ring.as_ref() else {
+            return 0.0;
+        };
+        let t = now.div_euclid(1_000_000_000);
+        #[allow(clippy::cast_possible_wrap)]
+        let lo = t - ring.len() as i64 + 1;
+        ring.iter()
+            .filter(|b| b.sec >= lo && b.sec <= t)
+            .map(|b| b.lots)
+            .sum()
+    }
+
+    /// TK-115 Г-112/116: сумма корзин кольца за последние `W` с до `now`, но только секунды строго после секунды входа
+    /// (корзина секунды входа смешана с до-входом — отбрасываем: занижает меру, выход консервативнее, spec §1b).
+    fn ring_since_entry(ring: Option<&[TapeBucket]>, entry_ns: i64, now: i64, w: u32) -> f64 {
+        let Some(ring) = ring else {
+            return 0.0;
+        };
+        let t = now.div_euclid(1_000_000_000);
+        #[allow(clippy::cast_possible_wrap)]
+        let lo = (t - i64::from(w).min(ring.len() as i64) + 1)
+            .max(entry_ns.div_euclid(1_000_000_000) + 1);
+        ring.iter()
+            .filter(|b| b.sec >= lo && b.sec <= t)
+            .map(|b| b.lots)
+            .sum()
+    }
+
+    /// Г-112: лента против позиции в окне с входа (`entry_ns`), лоты. Без кольца — 0.
+    pub fn tape_since_entry(&self, entry_ns: i64, now: i64, w: u32) -> f64 {
+        Self::ring_since_entry(self.tape_ring.as_deref(), entry_ns, now, w)
+    }
+
+    /// Г-116: отмены на нашей стороне в окне с входа, лоты. Без кольца — 0.
+    pub fn cxl_since_entry(&self, entry_ns: i64, now: i64, w: u32) -> f64 {
+        Self::ring_since_entry(self.cxl_ring.as_deref(), entry_ns, now, w)
     }
 
     /// Корзина секунды `sec` кольца `weat*` (обнуляется, если в ней лежала другая секунда).
@@ -920,8 +1390,51 @@ impl StrategyState {
     /// поля входа к этому моменту `on_holding`/`decide_exit` уже не читают
     /// (`on_entry_pending` — единственный читатель входных полей плана,
     /// а он отработал до форка), так что подмена безопасна.
+    /// Г-65: `set_plan` для варианта с `wall2` — вторая живая стена противоположной стороны за входом на `fill_ms`
+    /// по журналу `walls`; цель = её цена ∓/± 1 тик (`wall2`: 1 — перед стеной, 2 — за ней), фиксированный
+    /// `take_px` при `trail_bps = 0`. Меньше двух стен — план без изменений (сделка = B1).
+    pub(crate) fn set_plan_wall2(
+        &mut self,
+        mut plan: TradePlan,
+        walls: &[crate::lob::levels::WallEvent],
+        fill_ms: i64,
+        long: bool,
+        live: &mut Vec<i64>,
+    ) {
+        use crate::book::Side;
+        use crate::lob::levels::second_wall_tick;
+        if let TradePlan::Bounce {
+            entry_px,
+            ref mut take_px,
+            ref mut trail_bps,
+            tick_px,
+            pyramid,
+            ..
+        } = plan
+        {
+            let w2 = pyramid.eff().wall2;
+            if w2 > 0 && tick_px > 0.0 {
+                let shift = level_shift(self.base_entry_vwap(), entry_px, tick_px);
+                let entry_tick = round_half_away((entry_px + shift) / tick_px) as i64;
+                let wall_side = if long { Side::Ask } else { Side::Bid };
+                if let Some(t) = second_wall_tick(walls, wall_side, fill_ms, entry_tick, long, live)
+                {
+                    // «перед стеной» у лонга — ниже, у шорта — выше; «за» — наоборот.
+                    let before = if long { -1 } else { 1 };
+                    let off = if w2 == 1 { before } else { -before };
+                    *take_px = (t + off) as f64 * tick_px - shift;
+                    *trail_bps = 0.0;
+                }
+            }
+        }
+        self.set_plan(plan);
+    }
+
     pub(crate) fn set_plan(&mut self, plan: TradePlan) {
         self.plan = plan;
+        if matches!(plan, TradePlan::Bounce { pyramid, .. } if pyramid.on()) && self.r2.is_none() {
+            self.r2 = Some(R2Bufs::boxed());
+        }
         // TK-014: клон общего входа группы получает кольцо `weat*` своего плана (раз на круг).
         if let TradePlan::Bounce { wall_eat, .. } = plan {
             if wall_eat.on()
@@ -1146,6 +1659,20 @@ impl StrategyState {
         }
     }
 
+    /// Средняя цена **базового** входа: пока добавок нет — общая; после — снимок до первой добавки
+    /// (спека R2 §0: сдвиг стопа/тейка/трейла идёт по ногам базового входа, добавки его не двигают).
+    fn base_entry_vwap(&self) -> Option<f64> {
+        if self.adds_done > 0 {
+            if self.add_base_qty > 0.0 {
+                Some(self.add_base_notional / self.add_base_qty)
+            } else {
+                None
+            }
+        } else {
+            self.entry_vwap()
+        }
+    }
+
     /// Зачитать исполнение ног входа в состояние (`first_id .. first_id+legs`) —
     /// накопленный объём и стоимость исполненного. Возвращает снимок: по
     /// `open` решается, жив ли ещё вход. После входа числа заморожены — ордера
@@ -1185,6 +1712,20 @@ impl StrategyState {
     fn enter_holding(&mut self, now: i64) {
         self.partial_done = false;
         self.eaten_qty = 0.0;
+        self.adds_done = 0;
+        self.adds_released = false;
+        self.reinst_removed = false;
+        self.reinstalls = 0;
+        self.reinst_trigger = false;
+        self.reinst_be_active = false;
+        self.nostop_armed = false;
+        self.chase_start_ns = 0;
+        self.chase_px = 0.0;
+        self.chase_wait_ns = -1;
+        self.nw_known_n = 0;
+        self.nw_init = false;
+        self.stop_half_done = false;
+        self.level_broken = false;
         let (level_qty, level_qty_max) = match self.plan {
             TradePlan::Bounce { level_qty, .. } => (level_qty.max(0.0), level_qty.max(0.0)),
             TradePlan::SpreadHold => (0.0, 0.0),
@@ -1192,6 +1733,25 @@ impl StrategyState {
         self.level_qty_at_entry = level_qty;
         self.level_qty_max = level_qty_max;
         self.phase = Phase::Holding { entry_ns: now };
+        if self.tape_on() {
+            self.tape_at_fill = self.tape_press(now);
+            self.cxl_at_fill = self.cxl_press(now);
+        }
+    }
+
+    /// TK-115 Г-112: лента против позиции за `W` с до исполнения входа (кольцо включено `enable_tape`), иначе 0.
+    pub fn tape_at_fill(&self) -> f64 {
+        self.tape_at_fill
+    }
+
+    /// TK-115 Г-133: ожидание исполнения лимиткой погони от её начала, нс; −1 — не исполнена лимиткой.
+    pub fn chase_wait_ns(&self) -> i64 {
+        self.chase_wait_ns
+    }
+
+    /// TK-115 Г-116: отмены нашей стороны за `W` с до исполнения входа, иначе 0.
+    pub fn cxl_at_fill(&self) -> f64 {
+        self.cxl_at_fill
     }
 
     /// F7 (Б-75): зачесть сделки этого шага, бьющие **в стену**. Вызывается
@@ -1207,22 +1767,44 @@ impl StrategyState {
     /// никем — прохода по буферу нет, и числа прежних прогонов не меняются
     /// (на этом стоит гейт «те же круги»).
     pub fn observe_wall_trades(&mut self, trades: &[Event]) {
+        if self.tape_on() {
+            self.record_tape(trades);
+        }
         let TradePlan::Bounce {
             level_px,
             tick_px,
             exit_eat_pct,
             exit_gone_pct,
+            pyramid,
             ..
         } = self.plan
         else {
             return;
         };
+        let pyramid = pyramid.eff();
         if self.wall_ring.is_some() {
             self.record_wall_eat(trades, level_px, tick_px);
         }
+        if let (true, false, Phase::Holding { entry_ns }) =
+            (pyramid.half_level, self.level_broken, self.phase)
+        {
+            let long = self.sigma == crate::lob::backtest::SIGMA_LONG;
+            self.level_broken = trades.iter().any(|t| {
+                t.exch_ts >= entry_ns && {
+                    let is_trade =
+                        t.ev & EXCH_SELL_TRADE_EVENT != 0 || t.ev & EXCH_BUY_TRADE_EVENT != 0;
+                    is_trade
+                        && if long {
+                            t.px < level_px
+                        } else {
+                            t.px > level_px
+                        }
+                }
+            });
+        }
         // `gone<W>` тоже читает накопленное (сравнение с половиной падения),
         // поэтому счётчик ведётся при любой из двух форм.
-        if exit_eat_pct <= 0.0 && exit_gone_pct <= 0.0 {
+        if exit_eat_pct <= 0.0 && exit_gone_pct <= 0.0 && pyramid.eat_parts == 0 {
             return;
         }
         if tick_px <= 0.0 || level_px <= 0.0 {
@@ -1487,7 +2069,7 @@ impl StrategyState {
             return None;
         };
         // TK-014 `weat*`: окно съедания и ход BTC меняются со временем без событий — шаги не пропускаются.
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() || self.pyramid_on() {
             return None;
         }
         let deadline = entry_ns.saturating_add(deadline_ns);
@@ -1516,7 +2098,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() || self.pyramid_on() {
             return None;
         }
         let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
@@ -1555,7 +2137,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() {
             return None;
         }
         #[allow(clippy::cast_possible_truncation)]
@@ -1592,7 +2174,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() || self.pyramid_on() {
             return None;
         }
         let held = |entry_ns: i64| {
@@ -1622,10 +2204,375 @@ impl StrategyState {
         self.qty
     }
 
+    /// R2-A: id поставленных добавок — драйвер круга зачитывает их исполнения во вход.
+    pub fn add_order_ids(&self) -> &[u64] {
+        self.r2
+            .as_deref()
+            .map_or(&[][..], |r| &r.add_ids[..usize::from(self.adds_done)])
+    }
+
+    /// R2-A: доливка включена — решение удержания читает добавки и сделки в стену, шаги не пропускаются.
+    fn pyramid_on(&self) -> bool {
+        matches!(self.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on())
+    }
+
     fn take_order_id(&mut self) -> u64 {
         let id = self.next_order_id;
         self.next_order_id = self.next_order_id.saturating_add(1);
         id
+    }
+
+    /// R2-A: зачесть исполнение добавок в позицию плана (`entry_*` = база + добавки).
+    #[inline(never)]
+    fn pyramid_account<MD, B>(&mut self, bot: &B)
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        if self.adds_done == 0 {
+            return;
+        }
+        let mut qty = self.add_base_qty;
+        let mut notional = self.add_base_notional;
+        for id in self.add_order_ids() {
+            let Some(order) = bot.orders(self.asset_no).get(id) else {
+                continue;
+            };
+            let executed = executed_qty(order);
+            if executed > 0.0 {
+                qty += executed;
+                notional += executed_notional(order);
+            }
+        }
+        self.entry_qty = qty;
+        self.entry_notional = notional;
+    }
+
+    /// R2-A, Г-94: на съедании `j/N` стены (`j = 1..N−1`) — добавка `Q0/N` пост-онли лимитом по
+    /// лучшей цене нашей стороны; стена съедена целиком — добавки нет; не больше одной за вызов.
+    #[inline(never)]
+    fn pyramid_step<MD, B>(
+        &mut self,
+        bot: &mut B,
+        bid: f64,
+        ask: f64,
+        side: HbtSide,
+    ) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        let TradePlan::Bounce {
+            pyramid,
+            lot_qty,
+            post_only,
+            ..
+        } = self.plan
+        else {
+            return Ok(());
+        };
+        let parts = pyramid.eat_parts;
+        if parts == 0 || self.adds_released || self.exit_qty > 0.0 || self.partial_done {
+            return Ok(());
+        }
+        let j = self.adds_done + 1;
+        if j >= parts || usize::from(self.adds_done) >= MAX_ADDS || self.level_qty_at_entry <= 0.0 {
+            return Ok(());
+        }
+        let wall = self.level_qty_at_entry;
+        if self.eaten_qty < wall * f64::from(j) / f64::from(parts) || self.eaten_qty >= wall {
+            return Ok(());
+        }
+        if self.adds_done == 0 {
+            self.add_base_qty = self.entry_qty;
+            self.add_base_notional = self.entry_notional;
+        }
+        r2_trace!(
+            bot.current_timestamp(),
+            "pyramid_add n={} eaten={} wall={} bid={} ask={}",
+            self.adds_done + 1,
+            self.eaten_qty,
+            wall,
+            bid,
+            ask
+        );
+        let id = self.take_order_id();
+        self.r2.get_or_insert_with(R2Bufs::boxed).add_ids[usize::from(self.adds_done)] = id;
+        self.adds_done += 1;
+        let raw = if pyramid.fresh {
+            self.qty / f64::from(parts)
+        } else {
+            self.add_base_qty / f64::from(parts)
+        };
+        let qty = if lot_qty > 0.0 {
+            (raw / lot_qty).floor() * lot_qty
+        } else {
+            raw
+        };
+        if qty <= 0.0 {
+            return Ok(());
+        }
+        let tif = if post_only {
+            TimeInForce::GTX
+        } else {
+            TimeInForce::GTC
+        };
+        match side {
+            HbtSide::Buy => {
+                bot.submit_buy_order(self.asset_no, id, bid, qty, tif, OrdType::Limit, true)?;
+            }
+            _ => {
+                bot.submit_sell_order(self.asset_no, id, ask, qty, tif, OrdType::Limit, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Г-92: ведёт снятие/возврат стены на цене уровня (порог — `level_floor_qty` базы). Возврат —
+    /// событие: счёт `N` и добавка; кадры не различаются (решение по состоянию книги на событии).
+    #[inline(never)]
+    fn observe_reinstall(&mut self, wall: WallNow, floor: f64) {
+        let TradePlan::Bounce { pyramid, .. } = self.plan else {
+            return;
+        };
+        if pyramid.reinstall_n == 0 || !wall.ok || floor <= 0.0 || self.adds_released {
+            return;
+        }
+        if !self.reinst_removed {
+            if wall.qty < floor {
+                self.reinst_removed = true;
+            }
+        } else if wall.qty >= floor {
+            self.reinst_removed = false;
+            self.reinstalls = self.reinstalls.saturating_add(1);
+            self.reinst_trigger = true;
+        }
+    }
+
+    /// Г-93: убыточная позиция и на нашей стороне между стопом и лучшей ценой (строго) появился уровень
+    /// размером ≥ `floor`, которого не было к первому событию удержания, — триггер добавки. Первое
+    /// событие только снимает снимок известных стен. Каждая стена даёт триггер один раз.
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn observe_newwall<MD: MarketDepth>(
+        &mut self,
+        depth: &MD,
+        side: HbtSide,
+        stop_px: f64,
+        level_px: f64,
+        tick_px: f64,
+        floor: f64,
+        bid: f64,
+        ask: f64,
+    ) {
+        let TradePlan::Bounce { pyramid, .. } = self.plan else {
+            return;
+        };
+        if pyramid.newwall_k == 0
+            || floor <= 0.0
+            || tick_px <= 0.0
+            || self.adds_released
+            || self.exit_qty > 0.0
+        {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let (stop_t, level_t) = (
+            round_half_away(stop_px / tick_px) as i64,
+            round_half_away(level_px / tick_px) as i64,
+        );
+        let buy = matches!(side, HbtSide::Buy);
+        let (from, step) = if buy {
+            (depth.best_bid_tick() - 1, -1_i64)
+        } else {
+            (depth.best_ask_tick() + 1, 1_i64)
+        };
+        let init = !self.nw_init;
+        let losing = self
+            .entry_vwap()
+            .is_some_and(|v| if buy { bid < v } else { ask > v });
+        if !init && !losing {
+            return;
+        }
+        let mut t = from;
+        let mut n = 0;
+        while n < NW_SCAN_MAX && (t - stop_t) * step < 0 {
+            n += 1;
+            let tick = t;
+            t += step;
+            if tick == level_t {
+                continue;
+            }
+            let qty = if buy {
+                depth.bid_qty_at_tick(tick)
+            } else {
+                depth.ask_qty_at_tick(tick)
+            };
+            let known = &mut self.r2.get_or_insert_with(R2Bufs::boxed).nw_known;
+            if qty < floor || known[..usize::from(self.nw_known_n)].contains(&tick) {
+                continue;
+            }
+            if usize::from(self.nw_known_n) < NW_KNOWN {
+                known[usize::from(self.nw_known_n)] = tick;
+                self.nw_known_n += 1;
+            }
+            if !init {
+                self.reinst_trigger = true;
+            }
+        }
+        self.nw_init = true;
+    }
+
+    /// Г-92: безубыток после `N`-го возврата (мягкий: переезд, когда цена у безубытка или лучше).
+    #[inline(never)]
+    fn reinstall_stop(
+        &mut self,
+        entry_side: HbtSide,
+        entry_px: f64,
+        favourable: f64,
+        stop_px: f64,
+    ) -> f64 {
+        let TradePlan::Bounce { pyramid, .. } = self.plan else {
+            return stop_px;
+        };
+        if pyramid.reinstall_n == 0 || self.reinstalls < pyramid.reinstall_n || entry_px <= 0.0 {
+            return stop_px;
+        }
+        let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+        let (be_px, at_target) = match entry_side {
+            HbtSide::Buy => {
+                let be = entry_px * (1.0 + fees);
+                (be, favourable >= be)
+            }
+            _ => {
+                let be = entry_px * (1.0 - fees);
+                (be, favourable <= be)
+            }
+        };
+        if at_target {
+            self.reinst_be_active = true;
+        }
+        if !self.reinst_be_active {
+            return stop_px;
+        }
+        match entry_side {
+            HbtSide::Buy => stop_px.max(be_px),
+            _ => stop_px.min(be_px),
+        }
+    }
+
+    /// Г-92: возврат стены — одна добавка `u·Q0` по лучшей цене нашей стороны; висящая прошлая
+    /// добавка занимает слот (новая не ставится, `adds_done` не растёт); не больше `K`.
+    #[inline(never)]
+    fn pyramid_reinstall_step<MD, B>(
+        &mut self,
+        bot: &mut B,
+        bid: f64,
+        ask: f64,
+        side: HbtSide,
+    ) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        if !self.reinst_trigger {
+            return Ok(());
+        }
+        self.reinst_trigger = false;
+        let TradePlan::Bounce {
+            pyramid,
+            lot_qty,
+            post_only,
+            ..
+        } = self.plan
+        else {
+            return Ok(());
+        };
+        let (cap, u3) = if pyramid.newwall_k > 0 {
+            (pyramid.newwall_k, pyramid.newwall_u3)
+        } else {
+            (REINSTALL_K, pyramid.reinstall_u3)
+        };
+        if (pyramid.reinstall_n == 0 && pyramid.newwall_k == 0)
+            || self.adds_released
+            || self.exit_qty > 0.0
+            || self.partial_done
+            || self.adds_done >= cap
+            || usize::from(self.adds_done) >= MAX_ADDS
+        {
+            return Ok(());
+        }
+        let busy = self.adds_done > 0
+            && bot
+                .orders(self.asset_no)
+                .get(&self.add_order_ids()[usize::from(self.adds_done) - 1])
+                .is_some_and(|o| {
+                    matches!(
+                        o.status,
+                        Status::None | Status::New | Status::PartiallyFilled
+                    )
+                });
+        if busy {
+            return Ok(());
+        }
+        if self.adds_done == 0 {
+            self.add_base_qty = self.entry_qty;
+            self.add_base_notional = self.entry_notional;
+        }
+        let raw = self.add_base_qty * f64::from(u3) / 3.0;
+        let qty = if lot_qty > 0.0 {
+            (raw / lot_qty).floor() * lot_qty
+        } else {
+            raw
+        };
+        if qty <= 0.0 {
+            return Ok(());
+        }
+        r2_trace!(
+            bot.current_timestamp(),
+            "reinstall_add n={} qty={} bid={} ask={}",
+            self.adds_done + 1,
+            qty,
+            bid,
+            ask
+        );
+        let id = self.take_order_id();
+        self.r2.get_or_insert_with(R2Bufs::boxed).add_ids[usize::from(self.adds_done)] = id;
+        self.adds_done += 1;
+        let tif = if post_only {
+            TimeInForce::GTX
+        } else {
+            TimeInForce::GTC
+        };
+        match side {
+            HbtSide::Buy => {
+                bot.submit_buy_order(self.asset_no, id, bid, qty, tif, OrdType::Limit, true)?;
+            }
+            _ => {
+                bot.submit_sell_order(self.asset_no, id, ask, qty, tif, OrdType::Limit, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// R2-A: выход отправлен — добавки снимаются, поздние исполнения гасятся как сироты входа.
+    #[inline(never)]
+    fn pyramid_release<MD, B>(&mut self, bot: &mut B) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        if self.adds_released || self.adds_done == 0 {
+            return Ok(());
+        }
+        self.adds_released = true;
+        for i in 0..usize::from(self.adds_done) {
+            let id = self.add_order_ids()[i];
+            self.cancel_open(bot, id)?;
+            let executed = bot.orders(self.asset_no).get(&id).map_or(0.0, executed_qty);
+            self.adopt_orphans(id, 1, OrphanKind::Entry, executed);
+        }
+        Ok(())
     }
 
     /// Снимает живые ноги лестницы: исполненные и уже снятые трогать нельзя —
@@ -1881,6 +2828,41 @@ struct Quotes {
 /// прилипание и дедлайн — последними. Вынесено из `on_event` (аудит 21.09,
 /// С2), чтобы порядок приоритетов был одной функцией и проверялся отдельно.
 ///
+/// Г-117: цена тейка в момент `t` от входа — линейно/степенью к безубытку (вход + круг комиссий, В-63),
+/// после `T` — пол; лонг округляется вверх до тика, шорт — вниз. Тейк не выше пола — без изменений.
+#[inline(never)]
+fn scheduled_take(
+    entry_side: HbtSide,
+    entry_px: f64,
+    take_px: f64,
+    tick_px: f64,
+    cfg: PyramidCfg,
+    t_ns: i64,
+    deadline_ns: i64,
+) -> f64 {
+    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+    let long = entry_side == HbtSide::Buy;
+    let floor = if long {
+        entry_px * (1.0 + fees)
+    } else {
+        entry_px * (1.0 - fees)
+    };
+    let horizon = deadline_ns as f64 * f64::from(cfg.sched_t4) / 4.0;
+    if entry_px <= 0.0
+        || tick_px <= 0.0
+        || horizon <= 0.0
+        || (take_px - floor) * (if long { 1.0 } else { -1.0 }) <= 0.0
+    {
+        return take_px;
+    }
+    let share = (t_ns.max(0) as f64 / horizon)
+        .powf(f64::from(cfg.sched_g10) / 10.0)
+        .min(1.0);
+    let px = take_px - (take_px - floor) * share;
+    let ticks = px / tick_px;
+    (if long { ticks.ceil() } else { ticks.floor() }) * tick_px
+}
+
 /// `maker_allowed = false` — лимитка выхода **уже стоит** в рынке
 /// (`ExitPending`, аудит 21.09 Б1): мейкерские причины (тейк 1:1, горизонт
 /// Decision 20) не рассматриваются — вторая лимитка на тот же остаток не
@@ -1934,6 +2916,7 @@ where
             gone_trail_bps,
             gone_stop,
             wall_eat,
+            level_floor_qty,
             ..
         } => {
             // F4 (В-78): стоп и тейк — от **средней цены исполненного**
@@ -1942,8 +2925,27 @@ where
             // расстояниями от входа. Сдвиг — целое число тиков
             // (`level_shift`), при полном исполнении по плановой цене
             // он ноль и числа прежних прогонов не меняются.
-            let shift = level_shift(state.entry_vwap(), entry_px, tick_px);
+            let shift = level_shift(state.base_entry_vwap(), entry_px, tick_px);
+            // Г-92: безубыток — от средней по всем ордерам (та же округлённая к тику формула).
+            let be_entry_px = entry_px + level_shift(state.entry_vwap(), entry_px, tick_px);
             let (stop_px, take_px, entry_px) = (stop_px + shift, take_px + shift, entry_px + shift);
+            let pyr = match state.plan {
+                TradePlan::Bounce { pyramid, .. } => pyramid.eff(),
+                TradePlan::SpreadHold => PyramidCfg::OFF,
+            };
+            let take_px = if pyr.sched_g10 > 0 && trail_bps <= 0.0 {
+                scheduled_take(
+                    entry_side,
+                    entry_px,
+                    take_px,
+                    tick_px,
+                    pyr,
+                    now.saturating_sub(entry_ns),
+                    deadline_ns,
+                )
+            } else {
+                take_px
+            };
             // Трейл-тейк (решение владельца 2026-09-13): следим за
             // лучшим исходом и выходим по рынку, когда цена откатилась
             // от него на `trail_bps`, но не раньше, чем прибыль дошла
@@ -1956,6 +2958,21 @@ where
             };
             state.observe_favourable(favourable);
             let wall = state.observe_wall(bot.depth(state.asset_no), entry_side, level_px, tick_px);
+            if pyr.reinstall_n > 0 {
+                state.observe_reinstall(wall, level_floor_qty);
+            }
+            if pyr.newwall_k > 0 {
+                state.observe_newwall(
+                    bot.depth(state.asset_no),
+                    entry_side,
+                    stop_px,
+                    level_px,
+                    tick_px,
+                    level_floor_qty,
+                    bid,
+                    ask,
+                );
+            }
             // F7 (Б-75): формы выхода «съели» / «сняли». Накопленное
             // исполнение **в стену** (`state.eaten_qty`) зачитывает драйвер
             // (`run_round::observe_wall_trades`): буфер последних сделок
@@ -1999,9 +3016,48 @@ where
                 stop_px,
                 level_px,
             );
+            let mut gone = gone;
+            if pyr.reinstall_n > 0 {
+                let before = gone.stop_px;
+                gone.stop_px =
+                    state.reinstall_stop(entry_side, be_entry_px, favourable, gone.stop_px);
+                if gone.stop_px != before {
+                    r2_trace!(
+                        bot.current_timestamp(),
+                        "stop_move {} -> {} bid={} ask={}",
+                        before,
+                        gone.stop_px,
+                        bid,
+                        ask
+                    );
+                }
+            }
             let (stop_hit, take_hit) = match entry_side {
                 HbtSide::Buy => (bid <= gone.stop_px, bid >= take_px),
                 _ => (ask >= gone.stop_px, ask <= take_px),
+            };
+            let stop_hit = if pyr.nostop_x2 > 0 {
+                // Г-106: до активации стопа нет; после — безубыток (вход + круг комиссий).
+                if !state.nostop_armed && entry_px > 0.0 {
+                    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+                    let be_px = be_entry_px * (1.0 + f64::from(state.sigma) * fees);
+                    let gain_bps = f64::from(state.sigma) * (state.best_favourable - entry_px)
+                        / entry_px
+                        * 10_000.0;
+                    state.nostop_armed = gain_bps
+                        >= f64::from(pyr.nostop_x2) / 2.0 * trail_activate_bps
+                        && f64::from(state.sigma) * (state.best_favourable - be_px) >= 0.0;
+                }
+                state.nostop_armed && {
+                    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+                    let be_px = be_entry_px * (1.0 + f64::from(state.sigma) * fees);
+                    match entry_side {
+                        HbtSide::Buy => bid <= be_px,
+                        _ => ask >= be_px,
+                    }
+                }
+            } else {
+                stop_hit
             };
             // Знак сделки (R1): тот же множитель, что развёл
             // `observe_favourable`/`observe_gone_peak` по сторонам (`+1`
@@ -2028,14 +3084,55 @@ where
             let eaten_all_hit = eaten_all_pct > 0.0 && wall.eaten_pct >= eaten_all_pct;
             let eaten_half_hit =
                 eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
-            if stop_hit {
+            let half_stop = pyr.half_stop;
+            let half_frac = if pyr.half_q4 == 0 {
+                0.5
+            } else {
+                f64::from(pyr.half_q4) / 4.0
+            };
+            let converge_hit = if pyr.converge_tol1 > 0 && level_px > 0.0 && tick_px > 0.0 {
+                let dmax_bps =
+                    sigma_sign * (state.best_favourable - level_px) / level_px * 10_000.0;
+                let back = sigma_sign * (favourable - level_px);
+                dmax_bps >= f64::from(pyr.converge_a_bps)
+                    && back <= f64::from(pyr.converge_tol1 - 1) * tick_px
+            } else {
+                false
+            };
+            // Г-112/116: мера в окне с входа, нормированная на размер стены; только в минусе.
+            let in_loss = sigma_sign * (favourable - entry_px) < 0.0;
+            let tape_hit = pyr.tape_q > 0.0
+                && in_loss
+                && state.level_qty_at_entry > 0.0
+                && state.tape_since_entry(entry_ns, now, pyr.tape_w) / state.level_qty_at_entry
+                    >= pyr.tape_q;
+            let cxl_hit = pyr.cxl_q > 0.0
+                && in_loss
+                && state.level_qty_at_entry > 0.0
+                && state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry
+                    >= pyr.cxl_q;
+            let plain_stop = gone.stop_px == stop_px;
+            let half_level = pyr.half_level;
+            let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
+            let level_half_hit = half_level
+                && !state.stop_half_done
+                && (state.level_broken || (stop_hit && plain_stop));
+            let stop_hit = stop_hit && !(half_level && plain_stop);
+            if level_half_hit {
+                (ExitAt::Market, ExitReason::Stop, half_frac)
+            } else if stop_hit {
                 // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
                 let reason = if gone.stop_px != stop_px {
                     ExitReason::WallGone
                 } else {
                     ExitReason::Stop
                 };
-                (ExitAt::Taker(gone.stop_px), reason, 1.0)
+                let frac = if half_stop && plain_stop {
+                    half_frac
+                } else {
+                    1.0
+                };
+                (ExitAt::Taker(gone.stop_px), reason, frac)
             } else if gone.stop_hard_exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if eaten_all_hit {
@@ -2051,6 +3148,12 @@ where
                 (ExitAt::Market, ExitReason::EatenByTrades, 1.0)
             } else if let Some(r) = wall_eat_reason {
                 (ExitAt::Market, r, 1.0)
+            } else if converge_hit {
+                (ExitAt::Market, ExitReason::Converge, 1.0)
+            } else if tape_hit {
+                (ExitAt::Market, ExitReason::Tape, 1.0)
+            } else if cxl_hit {
+                (ExitAt::Market, ExitReason::Resilience, 1.0)
             } else if gone.exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if gone.trail_hit {
@@ -2069,7 +3172,26 @@ where
                 // рынку.
                 (ExitAt::Market, ExitReason::Early, 1.0)
             } else if now.saturating_sub(entry_ns) >= deadline_ns {
-                (ExitAt::Market, ExitReason::Deadline, 1.0)
+                // Г-133: погоня — пока не истекло окно `W`, мейкер на лучшей цене стороны выхода (не пересекая спред);
+                // стоящую лимитку тейка под погоню снимает рыночное решение (`maker_allowed == false`, погони ещё нет).
+                if pyr.chase_ms > 0 && (maker_allowed || state.chase_start_ns != 0) {
+                    if state.chase_start_ns == 0 {
+                        state.chase_start_ns = now;
+                    }
+                    if now.saturating_sub(state.chase_start_ns)
+                        < i64::from(pyr.chase_ms) * 1_000_000
+                    {
+                        let px = match entry_side {
+                            HbtSide::Buy => ask,
+                            _ => bid,
+                        };
+                        (ExitAt::Maker(px), ExitReason::Deadline, 1.0)
+                    } else {
+                        (ExitAt::Market, ExitReason::Deadline, 1.0)
+                    }
+                } else {
+                    (ExitAt::Market, ExitReason::Deadline, 1.0)
+                }
             } else {
                 return None;
             }
@@ -2110,6 +3232,15 @@ where
         reason,
         frac,
     } = decision;
+    r2_trace!(
+        bot.current_timestamp(),
+        "exit reason={:?} px={} taker={} frac={} adds={}",
+        reason,
+        px,
+        taker,
+        frac,
+        state.adds_done
+    );
     let order_id = state.take_order_id();
     // Размер выхода — **своя позиция круга** (F4, В-78), а не плановый
     // размер: вход может исполниться частично (модель очереди по
@@ -2156,6 +3287,9 @@ where
     };
     if partial {
         state.partial_done = true;
+        if reason == ExitReason::Stop {
+            state.stop_half_done = true;
+        }
     }
     // Стоп и дедлайн — по рынку (тейкер, IOC); тейк и горизонт —
     // лимитом (мейкер, GTC). Это не деталь реализации: издержки
@@ -2181,6 +3315,9 @@ where
         _ => {
             bot.submit_sell_order(state.asset_no, order_id, px, exit_qty, tif, ord_type, false)?;
         }
+    }
+    if !taker && reason == ExitReason::Deadline {
+        state.chase_px = px;
     }
     // Заявка выхода только ушла — исполнение зачтёт `observe_exit` на
     // следующем событии (крейт обрабатывает отклик на ближайшем
@@ -2247,9 +3384,27 @@ where
         ask,
         entry_side,
     };
+    // R2 (TK-065): четыре вызова `pyramid_*` на каждом событии удержания при выключенной доливке — только
+    // накладные (PGO: +14 % инструкций d15); при `!pyramid_on()` все четыре — пустые (`adds_done == 0`,
+    // `eat_parts == 0`, `reinst_trigger` ставится только при `reinstall_n/newwall_k > 0`).
+    let pyr = state.pyramid_on();
+    if pyr {
+        state.pyramid_account(bot);
+    }
     match decide_exit(bot, state, entry_ns, now, quotes, true) {
-        Some(decision) => submit_exit(bot, state, entry_ns, exit_side, decision),
-        None => Ok(Action::Idle),
+        Some(decision) => {
+            if pyr {
+                state.pyramid_release(bot)?;
+            }
+            submit_exit(bot, state, entry_ns, exit_side, decision)
+        }
+        None => {
+            if pyr {
+                state.pyramid_step(bot, bid, ask, entry_side)?;
+                state.pyramid_reinstall_step(bot, bid, ask, entry_side)?;
+            }
+            Ok(Action::Idle)
+        }
     }
 }
 
@@ -2268,6 +3423,15 @@ where
 {
     state.observe_exit(bot, order_id);
     if state.position() <= 0.0 {
+        if state.chase_start_ns != 0
+            && state.chase_wait_ns < 0
+            && bot
+                .orders(state.asset_no)
+                .get(&order_id)
+                .is_some_and(|o| o.order_type == OrdType::Limit)
+        {
+            state.chase_wait_ns = now.saturating_sub(state.chase_start_ns);
+        }
         state.phase = Phase::Idle;
         return Ok(Action::Idle);
     }
@@ -2316,7 +3480,11 @@ where
             entry_side,
         };
         if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
-            if decision.taker {
+            // Г-133: погоня переставляет лимитку вслед за ценой (снять, затем `Holding` ставит новую).
+            let reprice = !decision.taker
+                && decision.reason == ExitReason::Deadline
+                && decision.px != state.chase_px;
+            if decision.taker || reprice {
                 bot.cancel(state.asset_no, order_id, false)?;
                 state.phase = Phase::ExitCancelPending {
                     order_id,
@@ -2528,6 +3696,23 @@ where
 /// восстанавливает то же целое, что и было. `qty`, не кратный `lot_qty` (на
 /// входе этой функции не бывает), потерял бы остаток на округлении
 /// `total_steps` — не эта функция это создаёт, а не то, чем её кормят.
+/// Г-87: размер входа `Q0/N` (вниз до лота, не меньше лота); без `fresh` — `qty` как есть.
+fn fresh_entry_qty(plan: TradePlan, qty: f64) -> f64 {
+    match plan {
+        TradePlan::Bounce {
+            pyramid, lot_qty, ..
+        } if R2 && pyramid.fresh && pyramid.eat_parts > 0 => {
+            let raw = qty / f64::from(pyramid.eat_parts);
+            if lot_qty > 0.0 {
+                ((raw / lot_qty).floor() * lot_qty).max(lot_qty)
+            } else {
+                raw
+            }
+        }
+        _ => qty,
+    }
+}
+
 fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; MAX_ENTRY_LEGS] {
     let mut out = [0.0f64; MAX_ENTRY_LEGS];
     if legs == 0 {
@@ -2675,6 +3860,7 @@ where
     // числом ног не ограничен — сверх ёмкости считаем долю как раньше
     // (`qty / legs`), не по массиву.
     let rounded_legs = legs > 1 && usize::from(legs) <= MAX_ENTRY_LEGS;
+    let entry_qty = fresh_entry_qty(state.plan, state.qty);
     let leg_qtys = if rounded_legs {
         let leg_fracs: [f64; MAX_ENTRY_LEGS] = if ladder.n > 0 {
             ladder.frac
@@ -2686,7 +3872,14 @@ where
             }
             f
         };
-        ladder_leg_qtys(state.qty, lot_qty, &leg_fracs, usize::from(legs))
+        if entry_qty < state.qty {
+            // Г-87: первая часть Q0/N — одна нога (первая лестницы), остальные ноги не ставятся.
+            let mut one = [0.0f64; MAX_ENTRY_LEGS];
+            one[0] = entry_qty;
+            one
+        } else {
+            ladder_leg_qtys(entry_qty, lot_qty, &leg_fracs, usize::from(legs))
+        }
     } else {
         [0.0f64; MAX_ENTRY_LEGS]
     };
@@ -2727,11 +3920,11 @@ where
         } else if ladder.n > 0 {
             // Одна нога лестницы формы (`ladder.n == 1`) — как раньше,
             // `qty × frac[0]` (гейт «те же круги»).
-            state.qty * ladder.frac[j]
+            entry_qty * ladder.frac[j]
         } else {
             // Одна нога (`legs == 1`) или легаси `--grid-legs` сверх ёмкости
             // округления — как раньше, `qty / legs`.
-            state.qty / f64::from(legs)
+            entry_qty / f64::from(legs)
         };
         crate::lob::backtest::fast_depth::note_order_dist(
             false,

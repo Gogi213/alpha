@@ -15,7 +15,7 @@
 pub const R1_UNDEF: i64 = i64::MIN;
 
 /// Число колонок состояния монеты.
-pub const FLOW_N: usize = 40;
+pub const FLOW_N: usize = 42;
 
 /// Колонки состояния монеты, порядок = порядок в CSV и в массиве `ArmR1::flow`.
 pub const FLOW_NAMES: [&str; FLOW_N] = [
@@ -59,6 +59,9 @@ pub const FLOW_NAMES: [&str; FLOW_N] = [
     "ofi_60s_lots",
     "best_flips_15s",
     "best_flips_60s",
+    // TK-115 (g82-60s): всплеск окна 60 с — в конце, прежние 40 колонок на своих местах.
+    "tape_burst_press_60s_bp",
+    "tape_burst_with_60s_bp",
 ];
 
 /// Число колонок состояния уровня.

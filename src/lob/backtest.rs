@@ -65,6 +65,7 @@ use crate::lob::costs::{
     fill_rate, format_fill_column, leg_fee_bps, net_fill_bps, net_fill_interval, FillObservation,
     NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
+use crate::lob::levels::WallEvent;
 use crate::lob::strategy::{
     on_event, Action, EntryCancelReason, ExitReason, OrphanCarry, StrategyState, TradePlan,
     MAX_ENTRY_LEGS,
@@ -235,6 +236,12 @@ pub struct Fill {
     /// doc-комментария `build_backtest` — оптимистичный по размеру
     /// (крейт исполняет весь остаток, а не объём лучшей цены).
     pub fill_by_cross: bool,
+    /// TK-115 Г-112: лоты ленты против позиции за `W` с до исполнения входа (`enable_tape`); 0 — кольцо выключено.
+    pub tape_press: f64,
+    /// TK-115 Г-116: отмены нашей стороны между стопом и рынком за `W` с до исполнения входа; 0 — кольцо выключено.
+    pub cxl_press: f64,
+    /// TK-115 Г-133: ожидание исполнения лимиткой погони, нс; −1 — погони не было или вышли рынком.
+    pub chase_wait_ns: i64,
 }
 
 /// Чистый результат круга в bps: направленная доходность минус комиссии
@@ -1687,6 +1694,11 @@ where
         // отдаются стратегии: F7 (Б-75) считает по ним съеденное в стену, а
         // заново буфер не открывается — считаем ровно один раз на шаг.
         if entry_pending == 0 && !skip_step {
+            state.observe_cancels(
+                bot.depth(asset_no),
+                bot.last_trades(asset_no),
+                bot.current_timestamp(),
+            );
             state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
@@ -1729,6 +1741,11 @@ where
     // Буфер сделок очищается и на выходе из круга: сигналы бывают встык
     // (`t0` не двигает часы), и сделки прошлого круга не должны решать вердикт
     // следующего. Сделки последнего шага перед этим отдаются стратегии (F7).
+    state.observe_cancels(
+        bot.depth(asset_no),
+        bot.last_trades(asset_no),
+        bot.current_timestamp(),
+    );
     state.observe_wall_trades(bot.last_trades(asset_no));
     bot.clear_last_trades(Some(asset_no));
     if timed_out {
@@ -1783,6 +1800,21 @@ where
             // Комиссия ноги — по флагу `maker` ордера крейта (В-63): у
             // лестницы вход тейкерский, если тейкером исполнилась хотя бы одна
             // нога (консервативно).
+            entry_taker |= !o.maker;
+        }
+    }
+    // R2-A: добавки доливки — часть позиции; в среднюю равных весов (`entry_px`) не входят.
+    for &id in state.add_order_ids() {
+        let Some(o) = order_of(bot, asset_no, &saved, id) else {
+            continue;
+        };
+        if !matches!(o.status, Status::Rejected | Status::Expired) {
+            ordered += o.qty;
+        }
+        let exec = executed_qty(o);
+        if exec > 0.0 {
+            entry_qty += exec;
+            entry_notional += executed_notional(o);
             entry_taker |= !o.maker;
         }
     }
@@ -1844,6 +1876,9 @@ where
                         legs_filled: u8::try_from(entry_legs).unwrap_or(u8::MAX),
                         legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
                         fill_by_cross,
+                        tape_press: state.tape_at_fill(),
+                        cxl_press: state.cxl_at_fill(),
+                        chase_wait_ns: state.chase_wait_ns(),
                     },
                     exit_ts,
                     reason,
@@ -2042,6 +2077,9 @@ where
             legs_filled: u8::try_from(entry.entry_legs).unwrap_or(u8::MAX),
             legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, saved),
             fill_by_cross,
+            tape_press: 0.0,
+            cxl_press: 0.0,
+            chase_wait_ns: -1,
         },
         exit_ts,
         reason,
@@ -2076,6 +2114,7 @@ fn run_round_group<B, MD>(
     variant_plans: &[TradePlan],
     variant_next_ids: &[u64],
     skip_cap: Option<i64>,
+    walls: Option<&[WallEvent]>,
 ) -> Result<Vec<GroupRoundResult>, B::Error>
 where
     B: Bot<MD>,
@@ -2175,6 +2214,11 @@ where
             }
         }
         if entry_pending == 0 {
+            entry_state.observe_cancels(
+                bot.depth(asset_no),
+                bot.last_trades(asset_no),
+                bot.current_timestamp(),
+            );
             entry_state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
@@ -2211,12 +2255,18 @@ where
         }
     }
     // --- форк: К клонов состояния входа, каждому — свой план (выход) и свой диапазон заявок. ---
+    // Г-65 (e65): время исполнения входа — для выбора живых стен журнала; буфер один на форк.
+    let fill_ms = bot.current_timestamp() / 1_000_000;
+    let mut wall_live: Vec<i64> = Vec::new();
     let mut states: Vec<StrategyState> = variant_plans
         .iter()
         .zip(variant_next_ids)
         .map(|(&plan, &id)| {
             let mut s = entry_state.clone();
-            s.set_plan(plan);
+            match walls {
+                Some(w) => s.set_plan_wall2(plan, w, fill_ms, side == HbtSide::Buy, &mut wall_live),
+                None => s.set_plan(plan),
+            }
             s.set_next_order_id(id);
             s
         })
@@ -2371,6 +2421,11 @@ where
         if entry_pending == 0 {
             for (i, s) in states.iter_mut().enumerate() {
                 if outcome[i].is_none() {
+                    s.observe_cancels(
+                        bot.depth(asset_no),
+                        bot.last_trades(asset_no),
+                        bot.current_timestamp(),
+                    );
                     s.observe_wall_trades(bot.last_trades(asset_no));
                 }
             }
@@ -2413,12 +2468,18 @@ where
                 let fbc = fill_by_cross
                     || (entry_pending != 0
                         && pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs));
-                outcome[i] = Some(match entry_tally(bot, asset_no, entry_id, legs, &saved) {
+                let mut out = match entry_tally(bot, asset_no, entry_id, legs, &saved) {
                     Some(entry) => build_group_outcome(
                         bot, asset_no, entry_id, legs, side, fbc, &entry, &exits[i], &saved,
                     ),
                     None => RoundOutcome::Inconsistent,
-                });
+                };
+                if let RoundOutcome::Filled { fill, .. } = &mut out {
+                    fill.tape_press = states[i].tape_at_fill();
+                    fill.cxl_press = states[i].cxl_at_fill();
+                    fill.chase_wait_ns = states[i].chase_wait_ns();
+                }
+                outcome[i] = Some(out);
             }
         }
     }
@@ -2485,6 +2546,7 @@ fn drive_signal_group<B, MD>(
     next_group_id: &mut u64,
     variant_carries: &mut [OrphanCarry],
     data_end_ns: Option<i64>,
+    walls: Option<&[WallEvent]>,
 ) -> Result<Vec<SignalStep>, B::Error>
 where
     B: Bot<MD>,
@@ -2547,6 +2609,7 @@ where
         variant_plans,
         &variant_ids,
         data_end_ns.filter(|_| cfg.hold_skip),
+        walls,
     )?;
     let mut steps = Vec::with_capacity(n);
     for (i, r) in results.into_iter().enumerate() {
@@ -3202,6 +3265,10 @@ where
                 step
             }
             None => {
+                if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eff().wall2 > 0)
+                {
+                    WALL2_SOLO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 let id_base = next_id;
                 let carry_base = carry;
                 let mut attempt = 0u32;
@@ -3357,7 +3424,11 @@ where
                             ExitReason::Deadline => exits.deadline += 1,
                             ExitReason::Horizon => exits.horizon += 1,
                             ExitReason::Trail => exits.trail += 1,
-                            ExitReason::Early => exits.early += 1,
+                            // Г-119: `Converge`/`Tape`/`Resilience` — отдельной колонки нет (форма в имени клетки); считается как `early`.
+                            ExitReason::Early
+                            | ExitReason::Converge
+                            | ExitReason::Tape
+                            | ExitReason::Resilience => exits.early += 1,
                             ExitReason::Eaten => exits.eaten += 1,
                             ExitReason::EatenByTrades => exits.eaten_by_trades += 1,
                             ExitReason::WallGone => exits.wall_gone += 1,
@@ -3533,6 +3604,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         gone_trail_bps,
         gone_stop,
         wall_eat,
+        pyramid,
         ..
     } = &mut p
     {
@@ -3551,6 +3623,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         *gone_trail_bps = 0.0;
         *gone_stop = crate::lob::strategy::GoneStop::Off;
         *wall_eat = crate::lob::strategy::WallEatExit::OFF;
+        *pyramid = crate::lob::strategy::PyramidCfg::OFF;
     }
     p
 }
@@ -3601,6 +3674,7 @@ fn shared_day<'a, R: EventRows + ?Sized>(
 /// Групповой круг одного сигнала в свежем движке окна (Э-08) — те же попытки горизонта развёртки, что у
 /// `windowed_with` (Р6). `None` — окна или данных после `t0` нет. Вариант с сиротами на выходе
 /// возвращается как `EndOfData` — в память он не попадёт (драйвер посчитает его сам).
+#[allow(clippy::too_many_arguments)]
 fn group_round_in_window<R: EventRows + ?Sized>(
     events: &R,
     windows: &SignalWindows,
@@ -3609,6 +3683,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
     cfg: &DriveConfig,
     exec_latency: ExecLatency,
     buf: &mut Vec<Event>,
+    walls: Option<&[WallEvent]>,
 ) -> Result<Option<Vec<SignalStep>>, BacktestError> {
     let Some(w) = windows.window_at(rep.t0_ns) else {
         return Ok(None);
@@ -3660,7 +3735,19 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                     windows.lot_size,
                     exec_latency,
                     cfg.queue_model,
-                    || drive_signal_group(bt, 0, rep, plans, cfg, &mut gid, &mut carries, data_end),
+                    || {
+                        drive_signal_group(
+                            bt,
+                            0,
+                            rep,
+                            plans,
+                            cfg,
+                            &mut gid,
+                            &mut carries,
+                            data_end,
+                            walls,
+                        )
+                    },
                 )?;
                 let steps = steps
                     .into_iter()
@@ -3710,6 +3797,16 @@ fn diag_add(i: usize, n: u64) {
     }
 }
 
+/// Г-65: в группе есть форма цели за второй стеной (`wall2`) — одиночная группа для неё допустима.
+fn group_has_wall2(g: &[(usize, BounceSignal)]) -> bool {
+    g.iter().any(
+        |(_, s)| matches!(s.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eff().wall2 > 0),
+    )
+}
+
+/// Г-65: круги `wall2*`, посчитанные сольным путём (без журнала стен → молча B1); не ноль — прогон суток отказывает.
+pub static WALL2_SOLO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Э-08 («один проход на вход», план принят Судьёй, reviews/e08-exit-group-plan-2026-09-27.md): круги
 /// группы форм считаются заранее одним движком на сигнал и кладутся в память кругов каждой формы — потом
 /// обычный драйвер (`drive_bounce_windowed_memo`) берёт их оттуда. Группа на сигнале — формы с равными
@@ -3725,6 +3822,7 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
     cfg: &DriveConfig,
     exec_latency: ExecLatency,
     memos: &mut [&mut RoundMemo],
+    walls: Option<&[WallEvent]>,
 ) -> Result<u64, BacktestError> {
     debug_assert_eq!(forms_signals.len(), memos.len());
     if cfg.busy_skip {
@@ -3749,6 +3847,11 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
                 diag_add(1, 1);
                 continue;
             }
+            // Г-65 (e65): форма цели за второй стеной считается только группой (журнал стен — при форке).
+            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on() && pyramid.eff().wall2 == 0)
+            {
+                continue;
+            }
             let key = (sig.sigma, sig.qty, entry_part(sig.plan));
             match parts
                 .iter_mut()
@@ -3759,12 +3862,23 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
             }
         }
         diag_add(2, parts.len() as u64);
-        for part in parts.into_iter().filter(|g| g.len() > 1) {
+        for part in parts
+            .into_iter()
+            .filter(|g| g.len() > 1 || group_has_wall2(g))
+        {
             diag_add(3, 1);
             let rep = part[0].1;
             let plans: Vec<TradePlan> = part.iter().map(|(_, s)| s.plan).collect();
-            let Some(steps) =
-                group_round_in_window(events, windows, &rep, &plans, cfg, exec_latency, &mut buf)?
+            let Some(steps) = group_round_in_window(
+                events,
+                windows,
+                &rep,
+                &plans,
+                cfg,
+                exec_latency,
+                &mut buf,
+                walls,
+            )?
             else {
                 diag_add(4, 1);
                 continue;

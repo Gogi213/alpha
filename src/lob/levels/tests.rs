@@ -2633,3 +2633,76 @@ fn approach_depth_behind50_cuts_at_fifty_levels() {
     assert_eq!(ap[0].depth_behind_lots, 58);
     assert_eq!(ap[0].p08.map(|p| p.depth_behind50_lots), Some(48));
 }
+
+/// TK-115 (журнал стен e65): стена попадает в журнал, когда возраст дошёл до пола и порог держится, и
+/// выходит из него, когда размер съеден; без `enable_wall_log` журнал пуст.
+#[test]
+fn wall_log_records_age_gate_and_loss() {
+    let run = |log: bool| {
+        let mut tr = LevelTracker::new(cfg_approach(20, 1500));
+        if log {
+            tr.enable_wall_log();
+        }
+        let (mut out, mut touches, mut ap) = (Vec::new(), Vec::new(), Vec::new());
+        for (ts, lots) in [(1000, 10), (2000, 10), (3000, 10), (4000, 1)] {
+            let lv = [ob(10020, 3), ob(10000, lots)];
+            frame(&mut tr, ts, Side::Bid, &lv, &mut out, &mut touches, &mut ap);
+        }
+        let mut ev = Vec::new();
+        tr.take_wall_events(&mut ev);
+        ev
+    };
+    assert!(run(false).is_empty());
+    let ev = run(true);
+    let wall = |ts_ms, wall| WallEvent {
+        ts_ms,
+        side: Side::Bid,
+        price_tick: 10000,
+        wall,
+    };
+    // Рождение в 1000: возраст 2000 ≥ 1500 только к кадру 3000 (на 2000 — 1000 < 1500); в 4000 размер съеден.
+    assert_eq!(ev, vec![wall(3000, true), wall(4000, false)]);
+}
+
+/// TK-115 (e65): вторая живая стена за входом на момент исполнения — по журналу, а не по кадру взвода.
+#[test]
+fn second_wall_is_taken_from_walls_alive_at_fill() {
+    let w = |ts_ms, side, price_tick, wall| WallEvent {
+        ts_ms,
+        side,
+        price_tick,
+        wall,
+    };
+    let ev = [
+        w(100, Side::Ask, 10100, true),
+        w(200, Side::Ask, 10200, true),
+        w(300, Side::Ask, 10300, true),
+        w(400, Side::Ask, 10200, false),
+        w(500, Side::Bid, 9900, true),
+        w(600, Side::Bid, 9800, true),
+    ];
+    let mut live = Vec::new();
+    // Лонг, вход 10000: на 350 живы 10100/10200/10300 — вторая 10200; на 450 вторая 10300 (10200 снята).
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 350, 10000, true, &mut live),
+        Some(10200)
+    );
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 450, 10000, true, &mut live),
+        Some(10300)
+    );
+    // Стена ниже входа не считается; до появления второй — None.
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 450, 10150, true, &mut live),
+        None
+    );
+    assert_eq!(
+        second_wall_tick(&ev, Side::Ask, 150, 10000, true, &mut live),
+        None
+    );
+    // Шорт, вход 10000: бид-стены ниже входа, вторая от входа — 9800.
+    assert_eq!(
+        second_wall_tick(&ev, Side::Bid, 650, 10000, false, &mut live),
+        Some(9800)
+    );
+}

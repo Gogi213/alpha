@@ -537,6 +537,24 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
         }
     )
     };
+    anyhow::ensure!(
+        args.tape_log.is_none() || crate::lob::strategy::R2,
+        "--tape-log: журнал ленты только в сборке с feature r2"
+    );
+    let ring_need = forms
+        .iter()
+        .filter_map(|f| match f.exit_form {
+            super::forms::ExitForm::Tape { w, .. } | super::forms::ExitForm::Cxl { w, .. } => {
+                Some(w)
+            }
+            _ => None,
+        })
+        .max();
+    anyhow::ensure!(
+        ring_need.is_none() || args.tape_log.is_some_and(|l| Some(l) >= ring_need),
+        "формы tape<W>q<Q>/cxl<W>q<Q> требуют --tape-log не меньше W (кольцо ленты/отмен): без него мера нулевая"
+    );
+    crate::lob::strategy::set_tape_log_secs(args.tape_log.unwrap_or(0));
     let mut outs: Vec<Outputs> = Vec::with_capacity(sets.len());
     for set in sets.iter() {
         let dir = if set.name.is_empty() {
@@ -552,6 +570,7 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             args.busy_skip == "off",
             args.p08_cols,
             args.r1_cols,
+            args.tape_log.is_some(),
         )?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;

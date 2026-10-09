@@ -83,6 +83,7 @@ fn fixture(dir: &std::path::Path) -> PathBuf {
         levels_out: None,
         minute_flow: None,
         r1_cols: false,
+        wall_log: false,
     })
     .unwrap();
     cache

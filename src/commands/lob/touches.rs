@@ -162,6 +162,11 @@ pub struct TouchesArgs {
     /// состояния, ни колонок: файл подходов — прежние байты. Нужен `--approach-bps`.
     #[arg(long, default_value_t = false)]
     pub r1_cols: bool,
+    /// Журнал стен (TK-115, e65): рядом с касаниями пишется `walls-<SYMBOL>.csv` — переходы предиката «стена по
+    /// критерию подхода B1» (`day_utc,ts_ms,side,price_tick,wall`), по обеим сторонам. Нужен `--approach-bps` (возраст —
+    /// `--approach-min-age-secs`). Без флага файла нет, остальные файлы — прежние байты.
+    #[arg(long, default_value_t = false)]
+    pub wall_log: bool,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -476,7 +481,8 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             &cfgs,
             ReplayKeep::ALL
                 .with_carry_age(args.carry_age)
-                .with_r1(args.r1_cols),
+                .with_r1(args.r1_cols)
+                .with_walls(args.wall_log),
         )?;
         anyhow::ensure!(
             stats.len() == cfgs.len(),
@@ -492,7 +498,8 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             std::slice::from_ref(&cfg),
             ReplayKeep::ALL
                 .with_carry_age(args.carry_age)
-                .with_r1(args.r1_cols),
+                .with_r1(args.r1_cols)
+                .with_walls(args.wall_log),
         )?
     };
     // Кэш одних суток из корня с прошлыми сутками (перенос возраста): остальные сутки —
@@ -604,6 +611,27 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     w.flush()?;
     for writer in wa.iter_mut() {
         writer.flush()?;
+    }
+    if args.wall_log {
+        let mut ww =
+            csv::Writer::from_path(out.with_file_name(format!("walls-{}.csv", args.symbol)))?;
+        ww.write_record(["day_utc", "ts_ms", "side", "price_tick", "wall"])?;
+        for day in &replay.days {
+            for e in &day.walls {
+                ww.write_record([
+                    day.day.clone(),
+                    e.ts_ms.to_string(),
+                    match e.side {
+                        crate::book::Side::Bid => "bid",
+                        _ => "ask",
+                    }
+                    .to_string(),
+                    e.price_tick.to_string(),
+                    u8::from(e.wall).to_string(),
+                ])?;
+            }
+        }
+        ww.flush()?;
     }
     // Минутный ряд середины — рядом с касаниями (S3: режим пула по минутам).
     write_mids1m(&mids1m_path(&out, &args.symbol), &replay.days)?;

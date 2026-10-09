@@ -113,6 +113,8 @@ pub(super) struct Outputs {
     with_p08: bool,
     // TK-025: колонки R1 в `signals.csv` (после П-08) — только с `--r1-cols`.
     with_r1: bool,
+    // TK-115 Г-112: колонка `tape_press_lots` в `rounds.csv` — только с `--tape-log`.
+    with_tape: bool,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -283,6 +285,7 @@ impl Outputs {
         with_signals: bool,
         with_p08: bool,
         with_r1: bool,
+        with_tape: bool,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
@@ -292,7 +295,15 @@ impl Outputs {
         let mut ff = std::fs::File::create(&forms_path)?;
         writeln!(ff, "{header}")?;
         let mut rounds = csv::WriterBuilder::new().has_headers(false).from_writer(rf);
-        rounds.write_record(ROUNDS_HEADER)?;
+        if with_tape {
+            let mut names: Vec<&str> = ROUNDS_HEADER.to_vec();
+            names.push("tape_press_lots");
+            names.push("cxl_lots");
+            names.push("chase_wait_ms");
+            rounds.write_record(names)?;
+        } else {
+            rounds.write_record(ROUNDS_HEADER)?;
+        }
         let mut forms = csv::WriterBuilder::new().has_headers(false).from_writer(ff);
         // R6: без `--carry-root` шапка — прежние 33 колонки (гейт «те же
         // байты»); с флагом — все 35, включая `n_carried`/`carry_unverified`.
@@ -327,6 +338,7 @@ impl Outputs {
             signals,
             with_p08,
             with_r1,
+            with_tape,
         })
     }
 
@@ -368,7 +380,7 @@ impl Outputs {
             let net = roundtrip_net_bps(fill);
             let sig = run.fill_signal[i];
             let t0 = t0s.get(sig).copied().unwrap_or(0);
-            self.rounds.write_record([
+            let mut row = vec![
                 symbol.to_string(),
                 day.to_string(),
                 form.label.to_string(),
@@ -389,7 +401,17 @@ impl Outputs {
                 format!("{:.10}", fill.entry_vwap),
                 fill.legs_filled.to_string(),
                 fill.legs_rejected.to_string(),
-            ])?;
+            ];
+            if self.with_tape {
+                row.push(format!("{:.6}", fill.tape_press));
+                row.push(format!("{:.6}", fill.cxl_press));
+                row.push(if fill.chase_wait_ns < 0 {
+                    String::new()
+                } else {
+                    format!("{:.3}", fill.chase_wait_ns as f64 / 1e6)
+                });
+            }
+            self.rounds.write_record(row)?;
         }
         let mean_fill_frac = if run.fills.is_empty() {
             0.0

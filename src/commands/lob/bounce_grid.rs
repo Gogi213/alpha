@@ -115,7 +115,7 @@ mod verdict;
 use args::SignalArg;
 pub use args::{BounceGridArgs, BounceGridSummary};
 pub(crate) use cache::cached_touches;
-use cache::{cached_approaches, DayTouches};
+use cache::{cached_approaches, cached_walls, DayTouches};
 use carry::{carry_boundary, carry_window_ns, extend_with_carry};
 use drive::{day_events, day_windows, drive_day, DayParams, DayRows, OrderSizing};
 use entry_sigma::EntrySigma;
@@ -791,6 +791,16 @@ impl<'a> GridRun<'a> {
             );
         }
 
+        let wall2_on = self
+            .forms
+            .iter()
+            .any(|f| matches!(f.exit_form, forms::ExitForm::Wall2 { .. }));
+        if wall2_on {
+            anyhow::ensure!(
+                args.exit_group == "on" && args.busy_skip != "on" && matches!(args.driver, args::DriverArg::Setups),
+                "формы wall2*: нужны --exit-group on, --busy-skip off, --driver setups (журнал стен — при форке группы)"
+            );
+        }
         for day in &days {
             // `--day`: гнать только выбранные сутки. Касания при этом считаются
             // по всей записи символа (возраст уровня и прогрев трекера не
@@ -1041,6 +1051,17 @@ impl<'a> GridRun<'a> {
             );
             let e2e_drive = e2e::Mark::now();
             let e2e_ctr = e2e_counters();
+            // Г-65 (e65): журнал стен суток — только если в сетке есть `wall2*`; без него форма считалась бы как B1.
+            let walls_day: Option<Vec<crate::lob::levels::WallEvent>> = if wall2_on {
+                let dir = args.touches_from.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("формы wall2* требуют --touches-from с walls-<SYMBOL>.csv")
+                })?;
+                Some(cached_walls(dir, symbol, &day.day)?)
+            } else {
+                None
+            };
+            let solo_before =
+                crate::lob::backtest::WALL2_SOLO.load(std::sync::atomic::Ordering::Relaxed);
             let mut e2e_write_s = 0f64;
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
@@ -1107,6 +1128,7 @@ impl<'a> GridRun<'a> {
                             grid_e9: (tick_e9, step_e9),
                             step_schedule: step_schedule.as_ref(),
                             rtt_ns: args.median_rtt_ns,
+                            walls: walls_day.as_deref(),
                             queue_model,
                             busy_skip: args.busy_skip == "on",
                             hold_skip: args.hold_step == "skip",
@@ -1116,6 +1138,7 @@ impl<'a> GridRun<'a> {
                             post_only: args.entry_post_only(),
                             frontrun_only: set.frontrun_only,
                             min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
+                            max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
                             min_flow_pct: set.min_flow_pct,
                             side: set.side.map(Side::from),
                             eaten_max_pct: set.eaten_max_pct,
@@ -1145,6 +1168,12 @@ impl<'a> GridRun<'a> {
                     set_forms_list.len()
                 );
             }
+            anyhow::ensure!(
+                crate::lob::backtest::WALL2_SOLO.load(std::sync::atomic::Ordering::Relaxed)
+                    == solo_before,
+                "{symbol} {}: круги wall2* ушли сольным путём (без журнала стен считались бы как B1)",
+                day.day
+            );
             if e2e_drive.is_some() {
                 let after = e2e_counters();
                 let d = |i: usize| after[i].saturating_sub(e2e_ctr[i]);

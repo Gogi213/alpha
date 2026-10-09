@@ -164,6 +164,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         exit_group: "off".to_string(),
         p08_cols: false,
         r1_cols: false,
+        tape_log: None,
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
@@ -633,6 +634,7 @@ fn touches_cache_gives_byte_identical_rounds() {
         levels_out: None,
         minute_flow: None,
         r1_cols: false,
+        wall_log: false,
     })
     .unwrap();
     let mut a = base("grid-cache");
@@ -729,6 +731,7 @@ fn sigma_ladder_reads_entry_sigma_from_the_side_table() {
         levels_out: None,
         minute_flow: None,
         r1_cols: false,
+        wall_log: false,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1);
@@ -851,6 +854,7 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
         levels_out: None,
         minute_flow: None,
         r1_cols: false,
+        wall_log: false,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
@@ -1149,6 +1153,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             name: "a15-s10".to_string(),
             frontrun_only: true,
             min_age_secs: Some(900),
+            max_age_secs: None,
             min_flow_pct: Some(10.0),
             side: None,
             eaten_max_pct: None,
@@ -2557,6 +2562,9 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             legs_filled: 1,
             legs_rejected: 0,
             fill_by_cross: false,
+            tape_press: 0.0,
+            cxl_press: 0.0,
+            chase_wait_ns: -1,
         },
         crate::lob::backtest::Fill {
             dir: 1,
@@ -2570,6 +2578,9 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             legs_filled: 1,
             legs_rejected: 0,
             fill_by_cross: false,
+            tape_press: 0.0,
+            cxl_press: 0.0,
+            chase_wait_ns: -1,
         },
     ];
     run.fill_reason = vec![
@@ -3369,6 +3380,7 @@ fn p08_cols_in_signals_csv() {
         levels_out: None,
         minute_flow: None,
         r1_cols: false,
+        wall_log: false,
     })
     .unwrap();
     let ap_path = summary.approaches_out[0].clone();
@@ -3497,6 +3509,7 @@ fn approach_cache(dir: &std::path::Path) -> std::path::PathBuf {
         levels_out: None,
         minute_flow: None,
         r1_cols: false,
+        wall_log: false,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
@@ -3986,4 +3999,108 @@ fn btc_minutes_merge_and_coverage_check() {
         load_btc_minutes(&[a, b], &[], 3600).is_err(),
         "без --day — отказ"
     );
+}
+
+#[test]
+fn set_agemax_parses_into_the_upper_age_bound() {
+    let set = FilterSet::parse("g87:age=2700,agemax=3600").unwrap();
+    assert_eq!(set.min_age_secs, Some(2700));
+    assert_eq!(set.max_age_secs, Some(3600));
+    assert!(FilterSet::parse("g87:agemax=x").is_err());
+    assert_eq!(FilterSet::parse("g87:age=2700").unwrap().max_age_secs, None);
+}
+
+/// TK-115 (Г-114): доля `f` — суффикс `f1`/`f3`; половина — прежнее имя без суффикса; чужой суффикс — отказ.
+#[cfg(feature = "r2")]
+#[test]
+fn half_forms_take_quarter_fraction_suffix() {
+    assert_eq!(
+        ExitForm::parse("halfstop").unwrap(),
+        ExitForm::HalfStop { q4: 2 }
+    );
+    assert_eq!(
+        ExitForm::parse("halfstopf1").unwrap(),
+        ExitForm::HalfStop { q4: 1 }
+    );
+    assert_eq!(
+        ExitForm::parse("halflevelf3").unwrap(),
+        ExitForm::HalfLevel { q4: 3 }
+    );
+    assert_eq!(ExitForm::HalfLevel { q4: 3 }.label(), "halflevelf3");
+    assert!(ExitForm::parse("halfstopf2").is_err());
+    assert!(ExitForm::parse("halfstopf4").is_err());
+}
+
+/// TK-115 (Г-106): `nostop<X2>` — X2 ∈ {1, 2, 4}; другое — отказ.
+#[cfg(feature = "r2")]
+#[test]
+fn nostop_form_parses_only_the_grid_multipliers() {
+    assert_eq!(
+        ExitForm::parse("nostop2").unwrap(),
+        ExitForm::NoStop { x2: 2 }
+    );
+    assert_eq!(ExitForm::NoStop { x2: 4 }.label(), "nostop4");
+    assert!(ExitForm::parse("nostop3").is_err());
+    assert!(ExitForm::parse("nostop").is_err());
+}
+
+/// TK-115 (e65): `wall2`/`wall2x` — единственные имена формы цели за второй стеной.
+#[test]
+fn wall2_form_parses_both_offsets() {
+    assert_eq!(
+        ExitForm::parse("wall2").unwrap(),
+        ExitForm::Wall2 { behind: false }
+    );
+    assert_eq!(ExitForm::Wall2 { behind: true }.label(), "wall2x");
+    assert!(ExitForm::parse("wall3").is_err());
+}
+
+/// TK-115 (e65): журнал стен суток читается из суточного файла кэша; нет файла — отказ, не пустой журнал.
+#[test]
+fn wall_log_reads_day_file_and_refuses_when_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let day = dir.path().join("2026-01-05");
+    std::fs::create_dir_all(&day).unwrap();
+    std::fs::write(
+        day.join("walls-BTCUSDT.csv"),
+        "day_utc,ts_ms,side,price_tick,wall\n2026-01-05,200,ask,101,0\n2026-01-05,100,ask,101,1\n2026-01-06,50,bid,90,1\n",
+    )
+    .unwrap();
+    let ev = super::cache::cached_walls(dir.path(), "BTCUSDT", "2026-01-05").unwrap();
+    assert_eq!(ev.iter().map(|e| e.ts_ms).collect::<Vec<_>>(), [100, 200]);
+    assert!(ev[0].wall && !ev[1].wall);
+    assert!(super::cache::cached_walls(dir.path(), "ETHUSDT", "2026-01-05").is_err());
+}
+
+/// TK-115 (Г-133): `chase<мс>` — окно в миллисекундах, ноль и мусор — отказ.
+#[cfg(feature = "r2")]
+#[test]
+fn chase_form_parses_window_in_ms() {
+    assert_eq!(
+        ExitForm::parse("chase2500").unwrap(),
+        ExitForm::Chase { ms: 2500 }
+    );
+    assert_eq!(ExitForm::Chase { ms: 2500 }.label(), "chase2500");
+    assert!(ExitForm::parse("chase0").is_err());
+    assert!(ExitForm::parse("chase").is_err());
+}
+
+/// TK-115 (Г-112/116): `tape<Q>`/`cxl<Q>` — порог числом ровно как в имени, ноль и мусор — отказ.
+#[cfg(feature = "r2")]
+#[test]
+fn tape_cxl_forms_parse_threshold() {
+    assert_eq!(
+        ExitForm::parse("tape30q1.5").unwrap(),
+        ExitForm::Tape { w: 30, q: 1.5 }
+    );
+    assert_eq!(
+        ExitForm::parse("cxl60q0.25").unwrap(),
+        ExitForm::Cxl { w: 60, q: 0.25 }
+    );
+    assert_eq!(ExitForm::Tape { w: 15, q: 1.5 }.label(), "tape15q1.5");
+    assert!(ExitForm::parse("tape30q0").is_err());
+    assert!(ExitForm::parse("tape0q1").is_err());
+    assert!(ExitForm::parse("tape1.5").is_err());
+    assert!(ExitForm::parse("cxl").is_err());
+    assert!(ExitForm::parse("tape30q1.50").is_err());
 }

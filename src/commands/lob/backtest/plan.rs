@@ -336,6 +336,97 @@ pub(crate) fn bounce_plan(
                 },
                 _ => crate::lob::strategy::WallEatExit::OFF,
             },
+            pyramid: match shape.exit_form {
+                crate::commands::lob::bounce_grid::ExitForm::PyrEat { parts } => {
+                    crate::lob::strategy::PyramidCfg {
+                        eat_parts: parts,
+                        fresh: false,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrFresh { parts } => {
+                    crate::lob::strategy::PyramidCfg {
+                        eat_parts: parts,
+                        fresh: true,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrReinstall { n, u3 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        reinstall_n: n,
+                        reinstall_u3: u3,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrNewWall { k, u3 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        newwall_k: k,
+                        newwall_u3: u3,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::HalfStop { q4 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        half_stop: true,
+                        half_q4: q4,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::HalfLevel { q4 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        half_level: true,
+                        half_q4: q4,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::TakeSched { g10, t4 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        sched_g10: g10,
+                        sched_t4: t4,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::Converge { tol, a_bps } => {
+                    crate::lob::strategy::PyramidCfg {
+                        converge_tol1: tol + 1,
+                        converge_a_bps: a_bps,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::Chase { ms } => {
+                    crate::lob::strategy::PyramidCfg {
+                        chase_ms: ms,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::Tape { w, q } => {
+                    crate::lob::strategy::PyramidCfg {
+                        tape_w: w,
+                        tape_q: q,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::Cxl { w, q } => {
+                    crate::lob::strategy::PyramidCfg {
+                        cxl_w: w,
+                        cxl_q: q,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::NoStop { x2 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        nostop_x2: x2,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::Wall2 { behind } => {
+                    crate::lob::strategy::PyramidCfg {
+                        wall2: if behind { 2 } else { 1 },
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                _ => crate::lob::strategy::PyramidCfg::OFF,
+            },
             // Трейл после снятия (владелец 23.09): откат в bps от входа.
             gone_trail_bps: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::GoneTrail { trail_pct, .. } => {

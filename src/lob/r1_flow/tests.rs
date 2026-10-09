@@ -67,7 +67,7 @@ fn layout_matches_names() {
             assert_eq!(FLOW_NAMES[I_TAPE + g * 6 + k], want);
         }
     }
-    let groups: [(usize, &[&str]); 11] = [
+    let groups: [(usize, &[&str]); 12] = [
         (I_60M, &["tape_press_60m_lots", "tape_with_60m_lots"]),
         (
             I_BURST,
@@ -87,13 +87,18 @@ fn layout_matches_names() {
         (I_OFI, &["ofi_10s_lots", "ofi_60s_lots"]),
         (I_FLIPS, &["best_flips_15s", "best_flips_60s"]),
         (I_TAPE + 17, &["tape_all_n_60s"]),
+        (
+            I_BURST60,
+            &["tape_burst_press_60s_bp", "tape_burst_with_60s_bp"],
+        ),
     ];
     for (start, names) in groups {
         for (j, name) in names.iter().enumerate() {
             assert_eq!(FLOW_NAMES[start + j], *name);
         }
     }
-    assert_eq!(I_FLIPS + 2, FLOW_N);
+    assert_eq!(I_FLIPS + 2, I_BURST60);
+    assert_eq!(I_BURST60 + 2, FLOW_N);
 }
 
 #[test]
@@ -193,7 +198,7 @@ fn rings_ignore_block_and_nonpositive_and_count_rpi() {
 #[test]
 fn warm_up_boundaries() {
     // (колонка, длина окна прогрева, мс)
-    let table: [(&str, i64); 13] = [
+    let table: [(&str, i64); 14] = [
         ("tape_press_lots_15s", 15_000),
         ("tape_all_n_30s", 30_000),
         ("tape_with_lots_60s", 60_000),
@@ -207,6 +212,7 @@ fn warm_up_boundaries() {
         ("trade_size_p50_15m", 900_000),
         ("tape_press_60m_lots", 3_600_000),
         ("tape_burst_press_15s_bp", 3_600_000),
+        ("tape_burst_press_60s_bp", 3_600_000),
     ];
     // Сделка каждые 500 мс со сменой стороны — окна непустые и в одной, и в другой стороне.
     let build = |t0: i64| {
@@ -283,6 +289,15 @@ fn sixty_minute_lots_and_burst_hand_calc() {
     assert_eq!(col(&o, "tape_burst_press_15s_bp"), UNDEF);
     let o = at(&f, Side::Bid, B + 3_600_000);
     assert_ne!(col(&o, "tape_press_60m_lots"), UNDEF);
+    // g82-60s: burst = lots_60s · 3600 · 10⁴ / (60 · lots_60m) = lots_60s · 600 000 / lots_60m.
+    assert_eq!(
+        col(&bid, "tape_burst_press_60s_bp"),
+        col(&bid, "tape_press_lots_60s") * 600_000 / col(&bid, "tape_press_60m_lots")
+    );
+    assert_eq!(
+        col(&ask, "tape_burst_with_60s_bp"),
+        col(&ask, "tape_with_lots_60s") * 600_000 / col(&ask, "tape_with_60m_lots")
+    );
 }
 
 #[test]

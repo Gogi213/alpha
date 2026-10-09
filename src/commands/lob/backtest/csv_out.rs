@@ -166,6 +166,9 @@ pub(crate) fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'s
         ExitReason::WallGone => "wall_gone",
         ExitReason::WallEatBtc => "wall_eat_btc",
         ExitReason::WallEatLocal => "wall_eat_local",
+        ExitReason::Converge => "converge",
+        ExitReason::Tape => "tape",
+        ExitReason::Resilience => "resilience",
     }
 }
 

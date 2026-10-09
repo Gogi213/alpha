@@ -35,6 +35,48 @@ fn depth_ev(bid: bool) -> u64 {
     }
 }
 
+/// TK-115 Г-112: кольцо ленты считает только сделки против позиции в окне `W`; без включения — 0.
+#[cfg(feature = "r2")]
+#[test]
+fn tape_press_counts_adverse_trades_in_window() {
+    let mut state = StrategyState::new(0, SIGMA_LONG, 1.0, 1);
+    let trades = [
+        trade_at(101 * S, true, 99.0, 30.0), // продажа тейкера против лонга
+        trade_at(102 * S, false, 99.0, 900.0), // покупка — не против
+        trade_at(105 * S, true, 98.0, 20.0),
+    ];
+    state.observe_wall_trades(&trades);
+    assert_eq!(state.tape_press(106 * S), 0.0, "выключено");
+    state.enable_tape(10);
+    state.observe_wall_trades(&trades);
+    assert_eq!(state.tape_press(106 * S), 50.0);
+    // t = 112 с, W = 10: окно [103, 112] — сделка 101 с выпала.
+    assert_eq!(state.tape_press(112 * S), 20.0);
+}
+
+/// TK-115 Г-116: отмены = убыль уровня нашей стороны минус сделки против на той же цене; рост и сделки не считаются.
+#[cfg(feature = "r2")]
+#[test]
+fn cxl_press_counts_unexplained_depth_drop() {
+    use hftbacktest::depth::L2MarketDepth;
+    let mut d = FastMarketDepth::new(1.0, 1.0);
+    d.update_bid_depth(99.0, 50.0, 0);
+    d.update_bid_depth(98.0, 40.0, 0);
+    d.update_ask_depth(101.0, 10.0, 0);
+    let plan = f4_plan(96.0, 103.0, false, 60 * S, 1.0);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
+    state.enable_tape(10);
+    state.observe_cancels(&d, &[], 100 * S); // первый снимок — отмен нет
+    d.update_bid_depth(99.0, 30.0, 0); // -20: 5 съела сделка, 15 отмена
+    d.update_bid_depth(98.0, 60.0, 0); // рост — не отмена
+    state.observe_cancels(&d, &[trade_at(101 * S, true, 99.0, 5.0)], 101 * S);
+    assert!(close(state.cxl_press(101 * S), 15.0));
+    d.update_bid_depth(98.0, 10.0, 0); // -50 без сделок
+    state.observe_cancels(&d, &[], 103 * S);
+    assert!(close(state.cxl_press(103 * S), 65.0));
+    assert!(close(state.cxl_press(120 * S), 0.0), "окно W=10 прошло");
+}
+
 fn trade_ev(sell: bool) -> u64 {
     if sell {
         LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
@@ -282,6 +324,7 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -359,6 +402,7 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -427,6 +471,7 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -493,6 +538,7 @@ fn a_fraction_below_one_lot_exits_whole() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -548,6 +594,7 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -702,6 +749,189 @@ fn a_partial_leg_sets_the_position_and_the_exit_is_sized_on_it() {
     assert_eq!(exit.status, Status::Filled, "выход исполнился целиком");
 }
 
+/// Г-114 `halfstop`: стоп закрывает ровно половину позиции (0.5 → 0.25, шаг лота 0), защёлка взведена,
+/// заявка выхода помечена частичной; без флага тот же фид закрывает всё (см. соседний тест F4).
+#[test]
+#[cfg(feature = "r2")]
+fn halfstop_closes_half_of_the_position_on_the_stop_and_latches() {
+    let feed = [
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        trade_at(2 * S, true, 101.0, 0.5),
+        depth_at(10 * S, true, 98.0, 0.0),
+        depth_at(10 * S, true, 97.0, 5.0),
+        depth_at(10 * S, false, 110.0, 5.0),
+        depth_at(12 * S, false, 110.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut plan = f4_plan(96.0, 104.0, false, 5 * S, 1.0);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut plan
+    {
+        pyramid.half_stop = true;
+        *lot_qty = 0.0;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+    let actions = drive(&mut hbt, &mut state);
+    let (order_id, reason, partial) = actions
+        .iter()
+        .find_map(|a| match a {
+            Action::ExitSubmitted {
+                order_id,
+                reason,
+                partial,
+                ..
+            } => Some((*order_id, *reason, *partial)),
+            _ => None,
+        })
+        .expect("стоп обязан сработать");
+    assert_eq!(reason, ExitReason::Stop, "{actions:?}");
+    assert!(partial, "выход частичный");
+    assert!(state.stop_half_done, "защёлка взведена");
+    let exit = hbt.orders(0).get(&order_id).expect("заявка выхода в учёте");
+    assert!(close(exit.qty, 0.25), "половина от 0.5: {}", exit.qty);
+}
+
+/// Г-114 `halflevel`: первая сделка ленты ниже `level_px` (99) после входа закрывает половину по рынку
+/// (0.5 → 0.25), защёлка взведена; без такой сделки половины нет.
+#[cfg(feature = "r2")]
+fn halflevel_exit(trade_px: Option<f64>) -> Option<(bool, f64, bool)> {
+    let mut feed = vec![
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        trade_at(2 * S, true, 101.0, 0.5),
+    ];
+    if let Some(px) = trade_px {
+        feed.push(trade_at(8 * S, true, px, 0.1));
+    }
+    feed.push(depth_at(12 * S, false, 110.0, 5.0));
+    feed.push(depth_at(14 * S, false, 110.0, 5.0));
+    let mut hbt = prob_backtest(&feed);
+    let mut plan = f4_plan(90.0, 120.0, false, 5 * S, 1.0);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut plan
+    {
+        pyramid.half_level = true;
+        *lot_qty = 0.0;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+    let mut actions = Vec::new();
+    loop {
+        let r = hbt.elapse(100_000_000).unwrap();
+        state.observe_wall_trades(hbt.last_trades(0));
+        hbt.clear_last_trades(Some(0));
+        actions.push(on_event(&mut hbt, &mut state).unwrap());
+        if r == ElapseResult::EndOfData {
+            break;
+        }
+    }
+    let (order_id, reason, partial) = actions.iter().find_map(|a| match a {
+        Action::ExitSubmitted {
+            order_id,
+            reason,
+            partial,
+            ..
+        } => Some((*order_id, *reason, *partial)),
+        _ => None,
+    })?;
+    assert_eq!(reason, ExitReason::Stop);
+    let qty = hbt.orders(0).get(&order_id).expect("заявка выхода").qty;
+    Some((partial, qty, state.stop_half_done))
+}
+
+#[test]
+#[cfg(feature = "r2")]
+fn halflevel_closes_half_on_the_first_trade_below_the_level() {
+    let (partial, qty, latched) = halflevel_exit(Some(98.5)).expect("половина обязана выйти");
+    assert!(partial && latched, "частичный выход и защёлка");
+    assert!(close(qty, 0.25), "половина от 0.5: {qty}");
+    assert!(
+        halflevel_exit(Some(99.0)).is_none(),
+        "сделка на цене уровня — не ниже"
+    );
+    assert!(
+        halflevel_exit(None).is_none(),
+        "нет сделки за уровнем — нет выхода"
+    );
+}
+
+/// Г-117 `tsl`: тейк лонга ползёт от `take_px` к безубытку (вход + круг комиссий), до `T` — степенью `γ`, после `T` — пол;
+/// шорт зеркально; тейк ниже пола — без изменений.
+#[test]
+fn scheduled_take_slides_to_breakeven_and_mirrors_for_shorts() {
+    let mut cfg = PyramidCfg::OFF;
+    cfg.sched_g10 = 10;
+    cfg.sched_t4 = 2;
+    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+    let (entry, take, tick, dl) = (100.0, 101.0, 0.01, 1000 * S);
+    let at = |side, t| scheduled_take(side, entry, take, tick, cfg, t, dl);
+    assert!(close(at(HbtSide::Buy, 0), 101.0), "t = 0 — исходный тейк");
+    let floor = entry * (1.0 + fees);
+    assert!(
+        (at(HbtSide::Buy, 500 * S) - floor).abs() <= tick,
+        "t = T — пол"
+    );
+    assert!(
+        (at(HbtSide::Buy, 900 * S) - floor).abs() <= tick,
+        "после T — пол"
+    );
+    let mid = at(HbtSide::Buy, 250 * S);
+    assert!(
+        mid > floor && mid < 101.0 && mid >= (101.0 + floor) / 2.0 - tick,
+        "середина: {mid}"
+    );
+    let short = scheduled_take(HbtSide::Sell, entry, 99.0, tick, cfg, 500 * S, dl);
+    assert!(
+        (short - entry * (1.0 - fees)).abs() <= tick,
+        "шорт зеркально: {short}"
+    );
+    assert!(
+        close(
+            scheduled_take(HbtSide::Buy, entry, 100.0, tick, cfg, 0, dl),
+            100.0
+        ),
+        "тейк не выше пола"
+    );
+}
+
+#[cfg(feature = "r2")]
+fn converge_exit_reason(a_bps: u32) -> Option<ExitReason> {
+    let feed = [
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        trade_at(2 * S, true, 101.0, 0.5),
+        depth_at(8 * S, true, 100.0, 5.0),
+        depth_at(10 * S, true, 100.0, 0.0),
+        depth_at(10 * S, true, 99.0, 5.0),
+        depth_at(12 * S, false, 110.0, 5.0),
+        depth_at(25 * S, false, 110.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut plan = f4_plan(90.0, 120.0, false, 5 * S, 1.0);
+    if let TradePlan::Bounce { pyramid, .. } = &mut plan {
+        pyramid.converge_tol1 = 1;
+        pyramid.converge_a_bps = a_bps;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+    drive(&mut hbt, &mut state).iter().find_map(|a| match a {
+        Action::ExitSubmitted { reason, .. } => Some(*reason),
+        _ => None,
+    })
+}
+
+#[test]
+#[cfg(feature = "r2")]
+fn converge_exits_after_the_price_left_the_wall_by_a_and_came_back() {
+    assert_eq!(converge_exit_reason(50), Some(ExitReason::Converge));
+    assert_ne!(
+        converge_exit_reason(500),
+        Some(ExitReason::Converge),
+        "Dmax < A — правило не активно"
+    );
+}
+
 /// F4 (В-78): вторая нога исполняется позже, но **до** снятия входа —
 /// позиция набирается целиком (1.0 + 1.0), средняя пересчитывается (101 по
 /// двум ногам 100 и 102), и выход идёт на всю позицию: заявка выхода несёт
@@ -851,6 +1081,7 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1048,6 +1279,7 @@ fn ladder_plan(ttl_ns: i64) -> TradePlan {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1213,6 +1445,7 @@ fn on_idle_submits_a_single_order_when_only_one_leg_gets_a_whole_lot_step() {
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1379,6 +1612,7 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
         lot_qty: 1.0,
         exit_eat_pct: eat_pct,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: gone_pct,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2008,6 +2242,7 @@ fn trail_plan(stop_px: f64, take_px: f64, trail_activate_bps: f64, trail_bps: f6
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2247,6 +2482,7 @@ fn cancel_wait_plan(ttl_ns: i64) -> TradePlan {
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2874,12 +3110,20 @@ fn holding_decision_reads_time_only_at_the_known_thresholds() {
         [
             "now: i64,",
             "if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {",
+            // Г-117 `tsl`: тейк зависит от времени; пропуск шагов при форме выключен (`pyramid_on`).
+            "now.saturating_sub(entry_ns),",
             // TK-014 `weat*`: пропуск шагов при этой форме выключен (`hold_wakeup_ns` → `None`).
             "if let Some(b) = state.wall_bucket(now.div_euclid(1_000_000_000)) {",
             "let (eaten, max_qty) = state.wall_window(entry_ns, now);",
             ".and_then(|b| b.move_bps(now, wall_eat.secs))",
+            // Г-112/116 `tape<Q>`/`cxl<Q>`: кольцо включено — пропуск шагов выключен (`tape_on` в `hold_wakeup_ns`).
+            "&& state.tape_since_entry(entry_ns, now, pyr.tape_w) / state.level_qty_at_entry",
+            "&& state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry",
             "&& now.saturating_sub(entry_ns) >= early_exit_ns",
             "} else if now.saturating_sub(entry_ns) >= deadline_ns {",
+            // Г-133 `chase<мс>`: пропуск шагов при форме выключен (`pyramid_on` включает `chase_ms > 0`).
+            "state.chase_start_ns = now;",
+            "if now.saturating_sub(state.chase_start_ns)",
         ]
     );
     assert_eq!(
@@ -3010,5 +3254,342 @@ fn weat_mode_splits_market_and_local_by_btc_threshold() {
     assert_eq!(
         wall_eat_reason_for(w(Any), -9.9),
         Some(ExitReason::WallEatLocal)
+    );
+}
+
+// -----------------------------------------------------------------------
+// R2-A (TK-065, Г-94): доливка `pyeat<N>` — `pyramid_step` / `pyramid_release` напрямую.
+// -----------------------------------------------------------------------
+
+fn pyr_plan(parts: u8) -> TradePlan {
+    let mut plan = f7_plan(0.0, 0.0, 30.0);
+    if let TradePlan::Bounce { pyramid, .. } = &mut plan {
+        *pyramid = PyramidCfg {
+            eat_parts: parts,
+            ..PyramidCfg::OFF
+        };
+    }
+    plan
+}
+
+/// Состояние в удержании: позиция 9, стена на входе 30, съедено `eaten`; книга готова.
+fn pyr_state(parts: u8, eaten: f64) -> (Backtest<FastMarketDepth>, StrategyState) {
+    let feed = [
+        depth_at(0, true, 99.0, 30.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(S, false, 102.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    hbt.elapse(100_000_000).unwrap();
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 9.0, 1, pyr_plan(parts));
+    state.entry_qty = 9.0;
+    state.entry_notional = 9.0 * 100.0;
+    state.level_qty_at_entry = 30.0;
+    state.eaten_qty = eaten;
+    (hbt, state)
+}
+
+#[test]
+#[cfg(feature = "r2")]
+fn level_shift_follows_the_base_entry_not_the_adds_but_breakeven_follows_all_orders() {
+    // База 9 @ 100, добавка 3 @ 96: общая средняя 99, база 100; тик 0,5.
+    let (_hbt, mut state) = pyr_state(3, 11.0);
+    state.adds_done = 1;
+    state.add_base_qty = 9.0;
+    state.add_base_notional = 900.0;
+    state.entry_qty = 12.0;
+    state.entry_notional = 900.0 + 3.0 * 96.0;
+    let (base, all) = (state.base_entry_vwap(), state.entry_vwap());
+    assert!(
+        close(level_shift(base, 100.0, 0.5), 0.0),
+        "стоп/тейк на месте"
+    );
+    assert!(
+        close(level_shift(all, 100.0, 0.5), -1.0),
+        "общая средняя сдвинулась на 2 тика — безубыток считается от неё"
+    );
+    state.adds_done = 0;
+    assert!(
+        close(level_shift(state.base_entry_vwap(), 100.0, 0.5), -1.0),
+        "без добавок база = общая средняя"
+    );
+}
+
+#[test]
+#[cfg(feature = "r2")]
+fn fresh_entry_is_one_part_floored_to_the_lot_and_adds_are_q0_over_n() {
+    let mut plan = pyr_plan(3);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut plan
+    {
+        pyramid.fresh = true;
+        *lot_qty = 1.0;
+    }
+    assert!(close(fresh_entry_qty(plan, 10.0), 3.0), "10/3 вниз до лота");
+    assert!(close(fresh_entry_qty(plan, 2.0), 1.0), "не меньше лота");
+    let off = pyr_plan(3);
+    assert!(
+        close(fresh_entry_qty(off, 10.0), 10.0),
+        "без fresh — как есть"
+    );
+    let (mut hbt, mut state) = pyr_state(3, 11.0);
+    state.plan = plan;
+    state.entry_qty = 3.0;
+    state.entry_notional = 300.0;
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    let id = state.add_order_ids()[0];
+    let o = hbt.orders(0).get(&id).expect("добавка в рынке");
+    assert!(close(o.qty, 3.0), "Q0/N = 9/3, а не base/N = 1: {}", o.qty);
+}
+
+fn reinst_state(n: u8, u3: u8) -> (Backtest<FastMarketDepth>, StrategyState) {
+    let (hbt, mut state) = pyr_state(0, 0.0);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut state.plan
+    {
+        pyramid.reinstall_n = n;
+        pyramid.reinstall_u3 = u3;
+        *lot_qty = 1.0;
+    }
+    (hbt, state)
+}
+
+fn wall_now(qty: f64) -> WallNow {
+    WallNow {
+        ok: true,
+        qty,
+        eaten_pct: 0.0,
+    }
+}
+
+#[test]
+fn reinstall_counts_returns_only_after_a_removal_and_adds_one_per_return() {
+    let (mut hbt, mut state) = reinst_state(3, 1);
+    state.observe_reinstall(wall_now(50.0), 10.0);
+    assert_eq!(state.reinstalls, 0, "стена не снималась — возврата нет");
+    state.observe_reinstall(wall_now(2.0), 10.0);
+    state.observe_reinstall(wall_now(3.0), 10.0);
+    assert_eq!(state.reinstalls, 0, "снята и не вернулась");
+    state.observe_reinstall(wall_now(40.0), 10.0);
+    assert_eq!(state.reinstalls, 1);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1);
+    let id = state.add_order_ids()[0];
+    let o = hbt.orders(0).get(&id).expect("добавка в рынке");
+    assert!(close(o.qty, 3.0), "u = 1/3 · Q0 = 3: {}", o.qty);
+    // Второй возврат при висящей добавке: слот занят, adds_done не растёт, возврат в счёт N входит.
+    state.observe_reinstall(wall_now(1.0), 10.0);
+    state.observe_reinstall(wall_now(40.0), 10.0);
+    assert_eq!(state.reinstalls, 2);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(
+        state.add_order_ids().len(),
+        1,
+        "висящая добавка занимает слот"
+    );
+}
+
+#[test]
+fn reinstall_moves_the_stop_to_breakeven_only_after_n_returns_and_when_price_is_there() {
+    let (_hbt, mut state) = reinst_state(1, 1);
+    assert!(
+        close(state.reinstall_stop(HbtSide::Buy, 100.0, 105.0, 98.0), 98.0),
+        "до N-го возврата стоп прежний"
+    );
+    state.observe_reinstall(wall_now(1.0), 10.0);
+    state.observe_reinstall(wall_now(40.0), 10.0);
+    let be = 100.0 * (1.0 + crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0);
+    assert!(
+        close(state.reinstall_stop(HbtSide::Buy, 100.0, 99.0, 98.0), 98.0),
+        "цена хуже безубытка — прежний стоп (мягкий режим)"
+    );
+    assert!(
+        close(
+            state.reinstall_stop(HbtSide::Buy, 100.0, be + 0.5, 98.0),
+            be
+        ),
+        "у безубытка — переезд"
+    );
+    assert!(
+        close(state.reinstall_stop(HbtSide::Buy, 100.0, 99.0, 98.0), be),
+        "защёлка: стоп остаётся в безубытке"
+    );
+}
+
+fn newwall_state(feed: &[Event], k: u8, u3: u8) -> (Backtest<FastMarketDepth>, StrategyState) {
+    let mut hbt = seam6_backtest(feed);
+    hbt.elapse(100_000_000).unwrap();
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 9.0, 1, pyr_plan(0));
+    state.entry_qty = 9.0;
+    state.entry_notional = 9.0 * 100.0;
+    state.level_qty_at_entry = 30.0;
+    if let TradePlan::Bounce { pyramid, .. } = &mut state.plan {
+        pyramid.newwall_k = k;
+        pyramid.newwall_u3 = u3;
+    }
+    (hbt, state)
+}
+
+fn observe_nw(hbt: &Backtest<FastMarketDepth>, state: &mut StrategyState, bid: f64) {
+    state.observe_newwall(
+        hbt.depth(0),
+        HbtSide::Buy,
+        90.0,
+        99.0,
+        1.0,
+        10.0,
+        bid,
+        101.0,
+    );
+}
+
+#[test]
+fn newwall_triggers_only_on_a_big_level_born_after_the_first_hold_event_between_stop_and_market() {
+    let feed = [
+        depth_at(0, true, 99.0, 30.0),
+        depth_at(0, true, 94.0, 20.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(2 * S, true, 95.0, 20.0),
+        depth_at(3 * S, true, 85.0, 50.0),
+    ];
+    let (mut hbt, mut state) = newwall_state(&feed, 2, 3);
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "первое событие — только снимок");
+    hbt.elapse(S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "стена на 94 была к снимку");
+    hbt.elapse(2 * S).unwrap();
+    observe_nw(&hbt, &mut state, 100.5);
+    assert!(!state.reinst_trigger, "позиция не в убытке — триггера нет");
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(
+        state.reinst_trigger,
+        "новая стена на 95 в убыточной позиции"
+    );
+    state.reinst_trigger = false;
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "одна стена — один триггер");
+    hbt.elapse(2 * S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "стена за стопом (85) — не триггер");
+}
+
+#[test]
+fn newwall_add_is_u_times_q0_and_capped_by_k() {
+    let feed = [
+        depth_at(0, true, 99.0, 30.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(S, true, 95.0, 20.0),
+        depth_at(2 * S, true, 96.0, 20.0),
+    ];
+    let (mut hbt, mut state) = newwall_state(&feed, 1, 1);
+    observe_nw(&hbt, &mut state, 99.0);
+    hbt.elapse(S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1);
+    let id = state.add_order_ids()[0];
+    let o = hbt.orders(0).get(&id).expect("добавка в рынке");
+    assert!(close(o.qty, 3.0), "u = 1/3 · Q0 = 3: {}", o.qty);
+    hbt.elapse(S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1, "K = 1 исчерпано");
+}
+
+#[test]
+fn pyramid_off_never_adds() {
+    let (mut hbt, mut state) = pyr_state(0, 25.0);
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert!(state.add_order_ids().is_empty());
+}
+
+#[test]
+fn pyramid_adds_one_third_per_third_eaten_and_never_recharges_a_share() {
+    let (mut hbt, mut state) = pyr_state(3, 11.0);
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(
+        state.add_order_ids().len(),
+        1,
+        "съедено 11/30 ≥ 1/3 — первая добавка"
+    );
+    let id = state.add_order_ids()[0];
+    let o = hbt.orders(0).get(&id).expect("добавка в рынке");
+    assert!(close(o.qty, 3.0), "Q0/N = 9/3: {}", o.qty);
+    assert!(
+        close(o.price_tick as f64 * o.tick_size, 99.0),
+        "по лучшей цене нашей стороны"
+    );
+    // Та же доля повторно — добавки нет.
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1, "доля 1/3 не перезаряжается");
+    // Съедено 2/3 — вторая; третьей не бывает (j < N).
+    state.eaten_qty = 25.0;
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 2);
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 2, "добавок не больше N−1");
+}
+
+#[test]
+fn pyramid_one_add_per_call_when_two_thirds_jump_in_one_frame() {
+    let (mut hbt, mut state) = pyr_state(3, 25.0);
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1, "за вызов — одна добавка");
+}
+
+#[test]
+fn pyramid_does_not_add_when_the_wall_is_eaten_whole() {
+    let (mut hbt, mut state) = pyr_state(3, 30.0);
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert!(
+        state.add_order_ids().is_empty(),
+        "стена съедена целиком — это выход, не вход"
+    );
+}
+
+#[test]
+fn pyramid_release_cancels_adds_and_blocks_new_ones() {
+    let (mut hbt, mut state) = pyr_state(3, 11.0);
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    hbt.elapse(10_000_000).unwrap();
+    state.pyramid_release(&mut hbt).unwrap();
+    assert!(state.adds_released);
+    state.eaten_qty = 25.0;
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(
+        state.add_order_ids().len(),
+        1,
+        "после решения выхода добавок нет"
     );
 }
