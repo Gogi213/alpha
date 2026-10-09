@@ -482,6 +482,9 @@ pub struct PyramidCfg {
     /// исполнения входа: `1` — на тик перед стеной, `2` — на тик за ней; `0` — выключено. Цена цели ставится
     /// при форке группы (`set_plan_wall2`), `trail_bps = 0`.
     pub wall2: u8,
+    /// Г-133 (`chase<мс>`): на дедлайне вместо рынка — мейкер-лимитка на лучшей цене стороны выхода, переставляется
+    /// вслед за ценой, окно `W` мс; по истечении — рынок. `0` — выключено.
+    pub chase_ms: u32,
 }
 
 impl PyramidCfg {
@@ -501,6 +504,7 @@ impl PyramidCfg {
         converge_a_bps: 0,
         nostop_x2: 0,
         wall2: 0,
+        chase_ms: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -521,7 +525,8 @@ impl PyramidCfg {
             || self.sched_g10 > 0
             || self.converge_tol1 > 0
             || self.nostop_x2 > 0
-            || self.wall2 > 0)
+            || self.wall2 > 0
+            || self.chase_ms > 0)
     }
 }
 
@@ -673,7 +678,7 @@ struct TapeBucket {
 
 /// TK-115 Г-116: снимок размеров уровней нашей стороны от `stop_px` (индекс 0) к рынку и сделки против позиции
 /// по тем же индексам; убыль снимка минус сделки на цене = отмена. Собственные ордера в книгу бэктеста не входят.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct CxlBook {
     snap: [f64; NW_SCAN_MAX as usize],
     traded: [f64; NW_SCAN_MAX as usize],
@@ -901,6 +906,11 @@ pub struct StrategyState {
     stop_half_done: bool,
     /// Г-106: стоп `nostop` переведён в безубыток (защёлка).
     nostop_armed: bool,
+    /// Г-133: момент начала погони на дедлайне (0 — не начата), цена стоящей лимитки погони и ожидание исполнения
+    /// лимиткой от начала погони, нс (−1 — не исполнена лимиткой: вышли рынком или погони не было).
+    chase_start_ns: i64,
+    chase_px: f64,
+    chase_wait_ns: i64,
     /// Г-114 `halflevel`: после входа прошла сделка ленты за `level_px` (защёлка до конца круга).
     level_broken: bool,
 }
@@ -1053,6 +1063,9 @@ impl StrategyState {
             nw_init: false,
             stop_half_done: false,
             nostop_armed: false,
+            chase_start_ns: 0,
+            chase_px: 0.0,
+            chase_wait_ns: -1,
             level_broken: false,
             orphans: OrphanCarry::NONE,
             orphan_exit_open: 0.0,
@@ -1658,6 +1671,9 @@ impl StrategyState {
         self.reinst_trigger = false;
         self.reinst_be_active = false;
         self.nostop_armed = false;
+        self.chase_start_ns = 0;
+        self.chase_px = 0.0;
+        self.chase_wait_ns = -1;
         self.nw_known_n = 0;
         self.nw_init = false;
         self.stop_half_done = false;
@@ -1678,6 +1694,11 @@ impl StrategyState {
     /// TK-115 Г-112: лента против позиции за `W` с до исполнения входа (кольцо включено `enable_tape`), иначе 0.
     pub fn tape_at_fill(&self) -> f64 {
         self.tape_at_fill
+    }
+
+    /// TK-115 Г-133: ожидание исполнения лимиткой погони от её начала, нс; −1 — не исполнена лимиткой.
+    pub fn chase_wait_ns(&self) -> i64 {
+        self.chase_wait_ns
     }
 
     /// TK-115 Г-116: отмены нашей стороны за `W` с до исполнения входа, иначе 0.
@@ -3087,7 +3108,26 @@ where
                 // рынку.
                 (ExitAt::Market, ExitReason::Early, 1.0)
             } else if now.saturating_sub(entry_ns) >= deadline_ns {
-                (ExitAt::Market, ExitReason::Deadline, 1.0)
+                // Г-133: погоня — пока не истекло окно `W`, мейкер на лучшей цене стороны выхода (не пересекая спред);
+                // стоящую лимитку тейка под погоню снимает рыночное решение (`maker_allowed == false`, погони ещё нет).
+                if pyr.chase_ms > 0 && (maker_allowed || state.chase_start_ns != 0) {
+                    if state.chase_start_ns == 0 {
+                        state.chase_start_ns = now;
+                    }
+                    if now.saturating_sub(state.chase_start_ns)
+                        < i64::from(pyr.chase_ms) * 1_000_000
+                    {
+                        let px = match entry_side {
+                            HbtSide::Buy => ask,
+                            _ => bid,
+                        };
+                        (ExitAt::Maker(px), ExitReason::Deadline, 1.0)
+                    } else {
+                        (ExitAt::Market, ExitReason::Deadline, 1.0)
+                    }
+                } else {
+                    (ExitAt::Market, ExitReason::Deadline, 1.0)
+                }
             } else {
                 return None;
             }
@@ -3212,6 +3252,9 @@ where
             bot.submit_sell_order(state.asset_no, order_id, px, exit_qty, tif, ord_type, false)?;
         }
     }
+    if !taker && reason == ExitReason::Deadline {
+        state.chase_px = px;
+    }
     // Заявка выхода только ушла — исполнение зачтёт `observe_exit` на
     // следующем событии (крейт обрабатывает отклик на ближайшем
     // `elapse`), поэтому позиция закрытой ещё не считается.
@@ -3316,6 +3359,15 @@ where
 {
     state.observe_exit(bot, order_id);
     if state.position() <= 0.0 {
+        if state.chase_start_ns != 0
+            && state.chase_wait_ns < 0
+            && bot
+                .orders(state.asset_no)
+                .get(&order_id)
+                .is_some_and(|o| o.order_type == OrdType::Limit)
+        {
+            state.chase_wait_ns = now.saturating_sub(state.chase_start_ns);
+        }
         state.phase = Phase::Idle;
         return Ok(Action::Idle);
     }
@@ -3364,7 +3416,11 @@ where
             entry_side,
         };
         if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
-            if decision.taker {
+            // Г-133: погоня переставляет лимитку вслед за ценой (снять, затем `Holding` ставит новую).
+            let reprice = !decision.taker
+                && decision.reason == ExitReason::Deadline
+                && decision.px != state.chase_px;
+            if decision.taker || reprice {
                 bot.cancel(state.asset_no, order_id, false)?;
                 state.phase = Phase::ExitCancelPending {
                     order_id,
