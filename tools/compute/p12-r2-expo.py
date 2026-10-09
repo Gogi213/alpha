@@ -15,6 +15,10 @@ import sys
 from collections import defaultdict
 
 O = sys.argv[1]
+# TK-113/В-210: EXPO_DROP=SYM,SYM — не считать срабатывания и m по этим монетам; EXPO_OUT=<файл> — писать только expo.json туда (деревья vn-b не трогать:
+# m по сделке от состава пула не зависит, vn-b после --drop уже верны)
+DROP = set(filter(None, os.environ.get("EXPO_DROP", "").split(",")))
+EXPO_OUT = os.environ.get("EXPO_OUT")
 B1 = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 B3 = "ladder3x0..0.0409sw2-pct2-1to1-14400-ttl1800"
 FAM = {"pyre": "g92", "pynw": "g93", "pyeat": "g94", "pyfresh": "g87", "conv": "e119", "halfstop": "e114", "halflevel": "e114", "tsl": "e117"}
@@ -51,6 +55,8 @@ for rawd, bd, base in (("s-v", "v-b", B1), ("s-vt", "vt-b", B3)):
         head, rows = read(f)
         outrows = []
         for r in rows:
+            if r["symbol"] in DROP:
+                continue
             fam = fam_of(r["form"], base)
             b = braw.get((r["symbol"], r["signal_index"]))
             if fam and b is None:
@@ -76,6 +82,8 @@ for rawd, bd, base in (("s-v", "v-b", B1), ("s-vt", "vt-b", B3)):
                     msum[fam][mo] += m
                     mn[fam][mo] += 1
             outrows.append(r)
+        if EXPO_OUT:
+            continue
         od = f"{O}/{bd[:-2]}n-b/{mo}/{day}/{st}"
         os.makedirs(od, exist_ok=True)
         with open(f"{od}/rounds.csv", "w", encoding="utf-8", newline="") as fh:
@@ -84,5 +92,5 @@ for rawd, bd, base in (("s-v", "v-b", B1), ("s-vt", "vt-b", B3)):
             w.writeheader()
             w.writerows(outrows)
 json.dump({"fired": fired, "m_mean": {f: {mo: msum[f][mo] / mn[f][mo] for mo in mn[f]} for f in mn}, "m_n": mn, "base_missing": miss},
-          open(f"{O}/expo.json", "w"), ensure_ascii=False, indent=1)
+          open(EXPO_OUT or f"{O}/expo.json", "w"), ensure_ascii=False, indent=1)
 print("ok", dict(miss))
