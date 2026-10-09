@@ -7,7 +7,8 @@ st=$(grep -o '"state": "[a-z]*"' "$j" | head -1 | cut -d'"' -f4)
 rc=$(grep -o '"rc": -\{0,1\}[0-9]*' "$j" | head -1 | grep -o -- '-\{0,1\}[0-9]*$')
 case "$st" in
   queued|running) echo "$st"; exit 0 ;;
-  done) [ "${rc:-0}" = 0 ] && { echo done; exit 0; }; echo failed; echo "rc=$rc" ;;
+  done) [ "${rc:-0}" = 0 ] && { echo done; exit 0; }; echo failed; echo "rc=$rc"
+        rs=$(grep -o '"reason": "[^"]*"' "$j" | head -1 | cut -d'"' -f4); [ -n "$rs" ] && echo "reason=$rs" ;;
   *) echo missing; exit 0 ;;
 esac
 tail -n 30 "$d/logs/$id.log" 2>/dev/null

@@ -108,6 +108,12 @@ class Core:
                 rc = be.done(j)
                 if rc is not None:
                     j.update(state="done", rc=rc, t_end=now, cpus=[])
+                    if rc != 0 and hasattr(be, "fail_reason"):      # TK-117 К2.1: падение не тихое — причина в json и в alerts.log
+                        try:
+                            j["reason"] = be.fail_reason(j, rc)
+                        except Exception as e:
+                            j["reason"] = f"rc {rc}, причина не прочитана: {e}"
+                        be.alert(f"ЗАДАНИЕ УПАЛО {j['id']} {j['name']} {ticket_of(j['name'])} rc={rc}: {j['reason']}".replace("  ", " "))
                     if j.get("iso_cpus") and hasattr(be, "iso_end"):
                         be.iso_end()
                         self.iso = set()
@@ -403,6 +409,24 @@ def warn_for(job, free, queued_prod):
 
 
 # ---------- systemd-бэкенд ----------
+def ticket_of(name):
+    """TK-117: номер тикета из имени заявки (tk115-wa-… → TK-115); нет — пусто. Та же логика, что в alsched-jobowners.sh."""
+    m = re.match(r"tk0*(\d+)", name or "")
+    return f"TK-{int(m.group(1)):03d}" if m else ""
+
+
+def classify_fail(rc, journal):
+    """TK-117 К2.1: причина rc≠0 по журналу юнита (юнит с --collect исчезает, Result в systemctl не достать, но journald помнит
+    «Failed with result '…'»). oom-kill / timeout / signal / exit-code; rc 124 — снят демоном по бюджету, -15 — отмена, 125 — не запустился."""
+    m = re.search(r"Failed with result '([a-z-]+)'", journal or "")
+    if m:
+        return {"oom-kill": "oom-kill (память юнита выше MemoryMax)", "timeout": "timeout (RuntimeMaxSec)",
+                "signal": "signal", "exit-code": f"exit-code {rc}"}.get(m.group(1), m.group(1))
+    if "oom-kill" in (journal or ""):
+        return "oom-kill"
+    return {124: "снят демоном по max-runtime", -15: "отменён", 125: "systemd-run не запустил юнит"}.get(rc, f"rc {rc}, причина в журнале не найдена")
+
+
 def sh(*a):
     return subprocess.run(a, capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
@@ -525,6 +549,10 @@ class SystemdBackend:
             open(f"{DIR}/rc/{j['id']}", "w").write("125\n")
         elif iso:       # вложенные юниты волны живут в слайсе замера: ядра и своп — на слайс
             sh("systemctl", "set-property", "--runtime", self.slice(j), f"AllowedCPUs={cpus}", "MemorySwapMax=0")
+
+    def fail_reason(self, j, rc):
+        r = sh("journalctl", "-u", self.unit(j) + ".service", "-n", "30", "--no-pager", "-o", "cat")
+        return classify_fail(rc, r.stdout)
 
     def kill(self, j):
         sh("systemctl", "stop", self.unit(j))
