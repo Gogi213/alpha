@@ -514,23 +514,38 @@ def plan(steps_file, say=print, mark=True):
             new += 1
             cost += est or 0
             say(f"  СЧИТАЕМ {name}" + (f" ({ncells} клеток к счёту)" if ncells else "") + (f", ~{est:.0f} с по прошлым прогонам" if est else ", стоимость неизвестна"))
-    say(f"ИТОГО: готово {have}, считаем {new}, оценка ~{cost:.0f} с")
+    wrapper = len(rows) == 1 and os.path.basename(rows[0][3][0]) in ("bash", "sh") and any(x.endswith(".sh") for x in rows[0][3][1:3])
+    say(f"ИТОГО: готово {have}, считаем {new}, оценка " + (f"~{cost:.0f} с" if cost else f"неизвестна ({new} шагов без прошлых прогонов)"))
+    if wrapper:
+        say("ВНИМАНИЕ: выписка по ОДНОЙ обёртке (bash скрипт.sh) — шаги внутри не защищены; объявить шаги файлом и обернуть их в guard step (В-213, TK-118)")
     if mark:
         d = os.path.join(os.environ.get("REG_DIR", snap.REG), "vypiska")
         os.makedirs(d, exist_ok=True)
         key = hashlib.sha256(open(steps_file, "rb").read()).hexdigest()[:16]
-        json.dump({"steps_file": steps_file, "key": key, "have": have, "new": new, "est_s": cost,
+        json.dump({"steps_file": steps_file, "key": key, "have": have, "new": new, "est_s": cost, "wrapper_only": wrapper,
                    "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, open(os.path.join(d, key + ".json"), "w"), ensure_ascii=False)
     return have, new, cost
 
 
+def vypiska_mark(path=None):
+    """Отметка выписки по файлу: либо сам файл шагов, либо сохранённый текст выписки (`plan > файл`: первая строка «ВЫПИСКА <файл шагов>: шагов N»).
+    -> dict отметки или None. Без файла — None (отметка «любая за 12 ч» глушила предупреждение; подача выписки вместо шагов — TK-118, 09.10 первая боевая подача)."""
+    if not path or not os.path.isfile(path):
+        return None
+    steps = path
+    first = open(path, encoding="utf-8", errors="replace").readline()
+    m = re.match(r"ВЫПИСКА (.+): шагов \d+", first)
+    if m:
+        steps = m.group(1)
+        if not os.path.isfile(steps):
+            return None
+    key = hashlib.sha256(open(steps, "rb").read()).hexdigest()[:16]
+    mp = os.path.join(os.environ.get("REG_DIR", snap.REG), "vypiska", key + ".json")
+    return json.load(open(mp, encoding="utf-8")) if os.path.exists(mp) else None
+
+
 def vypiska_marked(steps_file=None):
-    """Есть ли отметка выписки именно по этому файлу шагов (alsched submit prod > 15 мин). Без файла шагов — нет (отметка «любая за 12 ч» глушила предупреждение)."""
-    d = os.path.join(os.environ.get("REG_DIR", snap.REG), "vypiska")
-    if not steps_file or not os.path.isfile(steps_file):
-        return False
-    key = hashlib.sha256(open(steps_file, "rb").read()).hexdigest()[:16]
-    return os.path.exists(os.path.join(d, key + ".json"))
+    return vypiska_mark(steps_file) is not None
 
 
 def _tree_md5(path):

@@ -1017,13 +1017,15 @@ def parse_dur(s):
     return float(s[:-1]) * m[s[-1]] if s and s[-1] in m else float(s)
 
 
-def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0):
+def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0, vypiska=None):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
     jid = time.strftime("%m%d%H%M%S") + f"{os.getpid() % 1000:03d}"
     j = dict(id=jid, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
              prio=prio, io=io, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
     if iso and cls == "measure":
         j["iso"] = iso
+    if vypiska is not None:
+        j["vypiska"] = vypiska
     jobs = load_all()
     free = NCPU - sum(len(x.get("cpus", [])) for x in jobs if x["state"] == "running")
     w = warn_for(j, free, any(x["state"] == "queued" and x["cls"] == "prod" for x in jobs))
@@ -1161,8 +1163,8 @@ def main():
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
-        vypiska_warn(o, parse_dur(o.max_runtime))
-        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso)
+        vyp = vypiska_warn(o, parse_dur(o.max_runtime))
+        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso, vypiska=vyp)
         print(j["id"])
         return 0
     print(__doc__)
@@ -1191,22 +1193,31 @@ VYPISKA_MIN_S = 15 * 60
 
 
 def vypiska_warn(o, max_runtime_s):
-    """TK-118, В-213: prod > 15 мин без отметки выписки («что есть / что считаем нового / стоимость») — предупреждение в alerts.log и роли (не отказ)."""
+    """TK-118, В-213: prod > 15 мин без отметки выписки («что есть / что считаем нового / стоимость») — предупреждение в alerts.log и роли (не отказ).
+    -> запись для job json: {"file", "steps", "have", "new", "wrapper_only"} | {"file", "missing": true} | None (не требуется)."""
     if o.cls != "prod" or max_runtime_s <= VYPISKA_MIN_S:
-        return False
+        return None
     sys.path.insert(0, os.environ.get("REG_TOOLS", "/data/registry"))
     import guard
-    if guard.vypiska_marked(o.vypiska or None):
-        return False
-    msg = (f"ВНИМАНИЕ (В-213): заявка {o.name} prod > 15 мин подана без выписки из Летописи — снять: "
-           f"python3 /data/registry/guard.py plan --steps <файл шагов> и подать с --vypiska <файл>; считать то же самое нельзя")
-    print(msg, file=sys.stderr)
-    try:
-        with open(f"{DIR}/alerts.log", "a") as f:
-            f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + msg + "\n")
-    except OSError:
-        pass
-    return True
+    mk = guard.vypiska_mark(o.vypiska or None)
+    msgs = []
+    if mk is None:
+        msgs.append(f"ВНИМАНИЕ (В-213): заявка {o.name} prod > 15 мин подана без выписки из Летописи"
+                    + (f" (--vypiska {o.vypiska}: нет отметки по этому файлу — это файл ШАГОВ или сохранённый вывод plan, снятый guard.py plan)" if o.vypiska else "")
+                    + " — снять: python3 /data/registry/guard.py plan --steps <файл шагов> и подать с --vypiska <файл шагов>; считать то же самое нельзя")
+    elif mk.get("wrapper_only"):
+        msgs.append(f"ВНИМАНИЕ (В-213): заявка {o.name}: выписка {o.vypiska} по ОДНОЙ обёртке (bash скрипт.sh) — шаги внутри не защищены, "
+                    "объявить шаги и обернуть их в guard step")
+    for msg in msgs:
+        print(msg, file=sys.stderr)
+        try:
+            with open(f"{DIR}/alerts.log", "a") as f:
+                f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + msg + "\n")
+        except OSError:
+            pass
+    if mk is None:
+        return {"file": o.vypiska or None, "missing": True}
+    return {"file": o.vypiska, "steps": mk.get("steps_file"), "have": mk.get("have"), "new": mk.get("new"), "wrapper_only": bool(mk.get("wrapper_only"))}
 
 
 def shell_quote(s):

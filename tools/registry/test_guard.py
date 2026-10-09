@@ -369,6 +369,20 @@ class GuardTest(unittest.TestCase):
         self.assertFalse(guard.vypiska_marked(other))
         self.assertFalse(guard.vypiska_marked(None))
 
+    def test_vypiska_accepts_saved_plan_output_and_flags_wrapper(self):
+        """TK-118 (первая боевая подача 09.10): --vypiska с сохранённым выводом plan (не файлом шагов) засчитывается; одна обёртка bash X.sh — wrapper_only."""
+        sf, txt = os.path.join(self.d, "steps.tsv"), os.path.join(self.d, "vyp.txt")
+        put(sf, "w\t\t\tbash /x/wave.sh\n")
+        lines = []
+        guard.plan(sf, say=lines.append)
+        put(txt, "\n".join(lines) + "\n")
+        mk = guard.vypiska_mark(txt)
+        self.assertTrue(mk and mk["wrapper_only"])
+        self.assertTrue(any("ОДНОЙ обёртке" in x for x in lines))
+        self.assertIsNone(guard.vypiska_mark(os.path.join(self.d, "none.txt")))
+        put(txt, "ВЫПИСКА /нет/такого: шагов 1\n")
+        self.assertIsNone(guard.vypiska_mark(txt))
+
     def test_step_skips_done_and_recomputes_missing_output(self):
         """TK-118 (1): готовый шаг пропускается, пока выход на месте; нет выхода — считается."""
         out = os.path.join(self.d, "step.out")
