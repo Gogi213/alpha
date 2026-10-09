@@ -40,10 +40,12 @@ for mode in ("free", "B2"):
     for c in list(old) + ["B1", "B3", "B1g"]:
         if c in ("B1", "B3", "B1g"):
             fam = c
-            usd_b = float(res["b", c].sum()); usd_c = float(res["c", c].sum())
+            usd_b = float(res["b", c][keep].sum()); usd_c = float(res["c", c][keep].sum())
             kp = ""
         else:
-            fam = old[c]["family"]; usd_b = float(old[c]["total_usd"]); usd_c = float(new[c]["total_usd"]); kp = new[c]["kpi_share_mean"]
+            fam = old[c]["family"]; kp = new[c]["kpi_share_mean"]
+            usd_b = float(res["b", c][keep].sum()) if ("b", c) in res else float("nan")
+            usd_c = float(res["c", c][keep].sum()) if ("c", c) in res else float("nan")
         if ("c", c) not in res or not res["c", c].any():
             rows.append((mode, c, fam, round(usd_b, 1), round(usd_c, 1), None, None, 8, kp)); continue
         a = res["c", c]
@@ -55,11 +57,11 @@ with open(OUT + ".csv", "w", encoding="utf-8", newline="") as fh:
     w.writerow(["mode", "cell", "family", "usd_v171b", "usd_v171c", "sharpe_day_feb_sep", "months_sr_pos", "months", "kpi_share_mean"])
     w.writerows(rows)
 L = ["# Клетки П-12 R2 по пулу v171c (без TRUMP/TRX/BCH): $ было/стало, Шарп, месяцы с Шарпом > 0", "",
-     "TK-113/В-210, **описание, не вердикт**. Точный пересчёт portfolio-sim --drop на тех же деревьях (без нового бэктеста), равная экспозиция §6(2) (m — прежняя, "
-     "посчитана с тремя монетами), потолок B2 применён заново к оставшимся сделкам. Шарп — суточный ряд фев–сен (без годовой нормировки), мес. с Шарпом > 0 — из 8. "
+     "TK-113/В-210, **описание, не вердикт**. Точный пересчёт portfolio-sim --drop на тех же деревьях (без нового бэктеста), равная экспозиция §6(2) (m — прежняя (v171b), "
+     "посчитана с тремя монетами), потолок B2 применён заново к оставшимся сделкам. ВСЕ числа таблицы — в одном окне фев–сен (П-12 §4; янв/окт не входят). Шарп — суточный ряд фев–сен (без годовой нормировки), мес. с Шарпом > 0 — из 8. "
      "Доля KPI — наблюдение (среднее по месяцам, v171c). Покрыты R2 (40) + базы; R1 (154) и ext (7) — следующим заходом.", ""]
 for mode in ("free", "B2"):
-    L += [f"## {mode}", "", "| клетка | семья | $ v171b | $ v171c | Шарп | мес. SR>0 | доля KPI |", "|---|---|---|---|---|---|---|"]
+    L += [f"## {mode}", "", "| клетка | семья | $ v171b (фев–сен) | $ v171c (фев–сен) | Шарп | мес. SR>0 | доля KPI |", "|---|---|---|---|---|---|---|"]
     for r in sorted([r for r in rows if r[0] == mode], key=lambda r: -(r[5] if r[5] is not None else -9)):
         L.append(f"| {r[1]} | {r[2]} | {r[3]:+.0f} | {r[4]:+.0f} | " + (f"{r[5]:+.3f} | {r[6]}/{r[7]}" if r[5] is not None else "— | —") + f" | {r[8]} |")
     L.append("")
