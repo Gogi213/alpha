@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-115: посуточный скрипт «досчёта П-12» (e114 f=1/4,3/4; e106 nostop; g95-w3; e65) по строке 3 базового jall-скрипта суток.
 tk115-gen.py <jall-скрипт> <сутки> <каталог-выхода> [--tape-log W] [--only a|b]  -> <кат>/r3-<сутки>.sh и .cells
-a — клетки без журналов (e114 f, g95, e106); b — e65 (нужен walls-<SYM>.csv суток от `lob touches --wall-log`).
+a — клетки без журналов (e114 f, g95); c — e106 (нужен кэш D20 с R1-колонками); b — e65 (нужен walls-<SYM>.csv суток от `lob touches --wall-log`).
 e112/e116 (пороги Исследователя) и e133 (W из прохода --tape-log) — отдельным заходом после прохода-журнала."""
 import os, shlex, sys
 
@@ -29,13 +29,14 @@ tail = "pct2-tr1x1-14400-ttl1800"
 cells, entries, exits, sets = [], [BASE_ENTRY], [], [SET_B1]
 if only == "a":
     exits += [f"{h}{f}" for h in ("halfstop", "halflevel") for f in ("f1", "f3")]  # e114, f = 1/4, 3/4
-    exits += [f"nostop{x}" for x in (1, 2, 4)]  # e106-act0,5 / 1 / 2
     entries.append("ladder3x0..0.0409sw3")  # g95-w3
-    cells += [(f"{BASE_ENTRY}-{tail}-{e}", "t-bid-btc4h-q1") for e in exits if not e.startswith("nostop")]
-    cells += [(f"{BASE_ENTRY}-{tail}", "e106-pop")]
-    cells += [(f"{BASE_ENTRY}-{tail}-{e}", "e106-pop") for e in exits if e.startswith("nostop")]
+    cells += [(f"{BASE_ENTRY}-{tail}-{e}", "t-bid-btc4h-q1") for e in exits]
     cells += [(f"ladder3x0..0.0409sw3-{tail}", "t-bid-btc4h-q1")]
-    sets.append(SET_E106)
+elif only == "c":  # e106: ключи r1_* требуют кэш подходов D20 с --r1-cols (в деревьях эпох его нет) — проход вместе с R1
+    exits += [f"nostop{x}" for x in (1, 2, 4)]  # e106-act0,5 / 1 / 2
+    cells += [(f"{BASE_ENTRY}-{tail}", "e106-pop")]
+    cells += [(f"{BASE_ENTRY}-{tail}-{e}", "e106-pop") for e in exits]
+    sets = [SET_E106]
 else:
     exits += ["wall2", "wall2x"]  # e65-t2 (−1 тик), e65-t2x (+1 тик)
     cells += [(f"{BASE_ENTRY}-{tail}-{e}", "t-bid-btc4h-q1") for e in exits]
@@ -52,6 +53,8 @@ for s in sets:
     args += ["--set", s]
 if tape:
     args += ["--tape-log", tape]
+if only == "c":
+    args += ["--r1-cols"]
 args += ["--cells", cf, "--out-dir", f"b5/.cellstmp-r3{only}-{day}"]
 t = f"b5/.cellstmp-r3{only}-{day}"
 sh = ["set -e", f"rm -rf {t}",
