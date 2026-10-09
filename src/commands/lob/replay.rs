@@ -11,7 +11,7 @@ use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
 use crate::lob::levels::{
     ApproachRecord, LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TouchRecord,
-    TradeHit,
+    TradeHit, WallEvent,
 };
 use crate::lob::markout::MidSample;
 use crate::lob::sigma::thin_mids_tail_to_second_boundaries;
@@ -32,6 +32,8 @@ pub(crate) struct ReplayDay {
     pub(crate) records: Vec<LevelRecord>,
     pub(crate) touches: Vec<TouchRecord>,
     pub(crate) approaches: Vec<ApproachRecord>,
+    /// Журнал стен суток (TK-115, `ReplayKeep::walls`); у остальных конфигураций и без флага пуст.
+    pub(crate) walls: Vec<WallEvent>,
     pub(crate) mids: Vec<MidSample>,
 }
 
@@ -83,6 +85,8 @@ pub(crate) struct ReplayKeep {
     /// Включить счёт колонок R1 у каждого трекера (`lob touches --r1-cols`, TK-025): без него
     /// `ApproachRecord::r1 == None` и цена счёта нулевая.
     pub(crate) r1: bool,
+    /// Вести журнал стен (TK-115, `lob touches --wall-log`): у первой конфигурации каждого дня.
+    pub(crate) walls: bool,
 }
 
 /// Что хранить из срезов середины.
@@ -102,12 +106,14 @@ impl ReplayKeep {
         mids: MidsKeep::All,
         carry_age: false,
         r1: false,
+        walls: false,
     };
     pub(crate) const TOUCHES_AND_SECOND_MIDS: Self = Self {
         records: false,
         mids: MidsKeep::PerSecond,
         carry_age: false,
         r1: false,
+        walls: false,
     };
 
     /// То же хранение с переносом возраста через полночь.
@@ -118,6 +124,11 @@ impl ReplayKeep {
     /// То же хранение со счётом колонок R1.
     pub(crate) const fn with_r1(self, r1: bool) -> Self {
         Self { r1, ..self }
+    }
+
+    /// То же хранение с журналом стен.
+    pub(crate) const fn with_walls(self, walls: bool) -> Self {
+        Self { walls, ..self }
     }
 }
 
@@ -369,6 +380,11 @@ pub(crate) fn replay_symbol_over_configs_keep(
                 _ => cfgs.iter().map(|&cfg| LevelTracker::new(cfg)).collect(),
             };
             let mut trackers = trackers;
+            if keep.walls {
+                if let Some(t) = trackers.first_mut() {
+                    t.enable_wall_log();
+                }
+            }
             if keep.r1 {
                 for t in &mut trackers {
                     t.enable_r1();
@@ -469,7 +485,11 @@ pub(crate) fn replay_symbol_over_configs_keep(
     // раскладку (срез середины не зависит от `H3`, дороже перечитать бинлог
     // ради него ещё раз, чем скопировать уже посчитанный вектор).
     let last = work.len().checked_sub(1);
-    for (wi, w) in work.into_iter().enumerate() {
+    for (wi, mut w) in work.into_iter().enumerate() {
+        let mut walls = Vec::new();
+        if let Some(t) = w.trackers.first_mut() {
+            t.take_wall_events(&mut walls);
+        }
         // Живые уровни — только у последних суток: у прежних трекер
         // доигран до конца файла, и то, что там «живо», — обрыв записи.
         if Some(wi) == last {
@@ -489,6 +509,11 @@ pub(crate) fn replay_symbol_over_configs_keep(
                 records,
                 touches,
                 approaches,
+                walls: if i == 0 {
+                    std::mem::take(&mut walls)
+                } else {
+                    Vec::new()
+                },
                 mids: w.mids.clone(),
             });
         }
