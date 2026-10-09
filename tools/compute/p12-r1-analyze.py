@@ -10,9 +10,10 @@ import numpy as np
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 CAP = "0" if MODE == "free" else "3"
-D = "data/tk063r1/"
-MS = ["feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct"]
-MONTHS = [f"2026-{i:02d}" for i in range(2, 11)]
+JAN = os.environ.get("R1_JAN") == "1"   # TK-120/В-211: v171c, окно янв–сен — data/tk120-r1/ (closes drop2/r1), январь со своими порогами
+D = os.environ.get("R1_DIR", "data/tk063r1/")
+MS = (["jan"] if JAN else []) + ["feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"] + ([] if JAN else ["oct"])
+MONTHS = [f"2026-{i:02d}" for i in range(1 if JAN else 2, 10 if JAN else 11)]
 M_FAM = 39
 H5 = 120 * 3600 * 1000
 UTC = dt.timezone.utc
@@ -23,7 +24,7 @@ for mn, m in zip(MS, MONTHS):
         for _p, caps in per.items():
             for _c, lst in caps.items():
                 raw[cell][m] = [(int(a), float(b)) for a, b in lst]
-cal = [(dt.date(2026, 2, 1) + dt.timedelta(i)).isoformat() for i in range((dt.date(2026, 10, 2) - dt.date(2026, 2, 1)).days + 1)]
+cal = [(dt.date(2026, 1 if JAN else 2, 1) + dt.timedelta(i)).isoformat() for i in range((dt.date(2026, 10, 2) - dt.date(2026, 2, 1)).days + 1)]
 di = {d: i for i, d in enumerate(cal)}
 
 

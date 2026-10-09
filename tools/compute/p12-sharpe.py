@@ -11,7 +11,7 @@ import numpy as np
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 M_FAM, B = 42, 20000
 POOL = {f"2026-{i:02d}" for i in range(int(os.environ.get("P12_POOL_FROM", 2)), 10)}   # В-211: окно янв–сен — P12_POOL_FROM=1
-ONLY_R2 = os.environ.get("P12_ONLY") == "r2"   # v171c: R1 и ext на пуле ещё не пересчитаны (TK-113) — только R2
+ONLY_R2 = os.environ.get("P12_ONLY") in ("r2", "r1r2")   # r1r2 — R1 и R2 без ext   # v171c: R1 и ext на пуле ещё не пересчитаны (TK-113) — только R2
 OUT = os.environ.get("P12_OUT", "2026-10-08")
 
 
@@ -135,7 +135,7 @@ def analyse(P, seed):
 
 
 def main():
-    A, fa = ({}, {}) if ONLY_R2 else analyse(pack(load("tools/compute/p12-r1-analyze.py", MODE), True), 63)
+    A, fa = ({}, {}) if os.environ.get("P12_ONLY") == "r2" else analyse(pack(load("tools/compute/p12-r1-analyze.py", MODE), True), 63)
     Bz, fb = analyse(pack(load("tools/compute/p12-r2-analyze.py", MODE), False), 64)
     Ex, fe = ({}, {}) if ONLY_R2 else analyse(pack_ext(MODE), 65)
     res = {**{c: dict(r, pk="R1") for c, r in A.items() if r}, **{c: dict(r, pk="R2") for c, r in Bz.items() if r}, **{c: dict(r, pk="ext") for c, r in Ex.items() if r}}
