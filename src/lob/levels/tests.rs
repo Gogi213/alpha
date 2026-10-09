@@ -2633,3 +2633,33 @@ fn approach_depth_behind50_cuts_at_fifty_levels() {
     assert_eq!(ap[0].depth_behind_lots, 58);
     assert_eq!(ap[0].p08.map(|p| p.depth_behind50_lots), Some(48));
 }
+
+/// TK-115 (журнал стен e65): стена попадает в журнал, когда возраст дошёл до пола и порог держится, и
+/// выходит из него, когда размер съеден; без `enable_wall_log` журнал пуст.
+#[test]
+fn wall_log_records_age_gate_and_loss() {
+    let run = |log: bool| {
+        let mut tr = LevelTracker::new(cfg_approach(20, 1500));
+        if log {
+            tr.enable_wall_log();
+        }
+        let (mut out, mut touches, mut ap) = (Vec::new(), Vec::new(), Vec::new());
+        for (ts, lots) in [(1000, 10), (2000, 10), (3000, 10), (4000, 1)] {
+            let lv = [ob(10020, 3), ob(10000, lots)];
+            frame(&mut tr, ts, Side::Bid, &lv, &mut out, &mut touches, &mut ap);
+        }
+        let mut ev = Vec::new();
+        tr.take_wall_events(&mut ev);
+        ev
+    };
+    assert!(run(false).is_empty());
+    let ev = run(true);
+    let wall = |ts_ms, wall| WallEvent {
+        ts_ms,
+        side: Side::Bid,
+        price_tick: 10000,
+        wall,
+    };
+    // Рождение в 1000: возраст 2000 ≥ 1500 только к кадру 3000 (на 2000 — 1000 < 1500); в 4000 размер съеден.
+    assert_eq!(ev, vec![wall(3000, true), wall(4000, false)]);
+}
