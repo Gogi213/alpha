@@ -236,6 +236,8 @@ pub struct Fill {
     /// doc-комментария `build_backtest` — оптимистичный по размеру
     /// (крейт исполняет весь остаток, а не объём лучшей цены).
     pub fill_by_cross: bool,
+    /// TK-115 Г-112: лоты ленты против позиции за `W` с до исполнения входа (`enable_tape`); 0 — кольцо выключено.
+    pub tape_press: f64,
 }
 
 /// Чистый результат круга в bps: направленная доходность минус комиссии
@@ -1860,6 +1862,7 @@ where
                         legs_filled: u8::try_from(entry_legs).unwrap_or(u8::MAX),
                         legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
                         fill_by_cross,
+                        tape_press: state.tape_at_fill(),
                     },
                     exit_ts,
                     reason,
@@ -2058,6 +2061,7 @@ where
             legs_filled: u8::try_from(entry.entry_legs).unwrap_or(u8::MAX),
             legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, saved),
             fill_by_cross,
+            tape_press: 0.0,
         },
         exit_ts,
         reason,
@@ -2436,12 +2440,16 @@ where
                 let fbc = fill_by_cross
                     || (entry_pending != 0
                         && pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs));
-                outcome[i] = Some(match entry_tally(bot, asset_no, entry_id, legs, &saved) {
+                let mut out = match entry_tally(bot, asset_no, entry_id, legs, &saved) {
                     Some(entry) => build_group_outcome(
                         bot, asset_no, entry_id, legs, side, fbc, &entry, &exits[i], &saved,
                     ),
                     None => RoundOutcome::Inconsistent,
-                });
+                };
+                if let RoundOutcome::Filled { fill, .. } = &mut out {
+                    fill.tape_press = states[i].tape_at_fill();
+                }
+                outcome[i] = Some(out);
             }
         }
     }
