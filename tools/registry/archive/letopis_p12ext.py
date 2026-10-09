@@ -2,7 +2,7 @@
 """Летопись, TK-089: 7 клеток расширения П-12 (В-198) — не Г-NN, а варианты базы B1 (П-10 §4): привязка клетка -> протокол П-12 §расширение,
 месяцы из p12-ext-monthly (по данным), вердикт — p12-ext-verdict (Судья принял, fe940e34)."""
 import csv, collections, os
-F = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "findings")
+F = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "docs", "findings")
 mon = collections.defaultdict(set)
 for r in csv.DictReader(open(os.path.join(F, "p12-ext-monthly-2026-10-08.csv"), encoding="utf-8")):
     r["month"][5:] and mon[r["cell"]].add(r["month"][5:])

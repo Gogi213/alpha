@@ -106,7 +106,13 @@ def main():
     ig.add_argument("file"); ig.add_argument("--hyp"); ig.add_argument("--logic", default="")
     ia = sp.add_parser("import-auto", help="влить строки автозаписи benchrun (jsonl) в канон")
     ia.add_argument("file")
+    pl = sp.add_parser("plan", help="выписка до прохода (В-213): по файлу шагов — что готово в журнале, что считаем, стоимость; ставит отметку для alsched submit")
+    pl.add_argument("steps", help="имя<TAB>выход<TAB>входы через :<TAB>команда, по строке на шаг")
     ns = ap.parse_args()
+    if ns.cmd == "plan":
+        import guard
+        guard.plan(ns.steps)
+        return
     if ns.cmd == "add":
         row = {k: getattr(ns, k, None) for k in FIELDS}
         if not row.get("what"):

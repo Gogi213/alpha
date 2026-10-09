@@ -3,7 +3,7 @@
 Вход: data/tk089/r2-summary-server.csv (ssh cat /data/tk065/r2-summary.csv) и data/tk089/r1-cells-ls.txt
 (ssh: for m in feb..oct; do echo "## $m"; ls /data/tk064/r1/cells/$m; done). Выход: docs/findings/letopis-check-2026-10-08.{md,csv}."""
 import csv, collections, hashlib, os, re
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 F = os.path.join(ROOT, "docs", "findings")
 D = os.path.join(ROOT, "data", "tk089")
 tab = {r["id"]: r for r in csv.DictReader(open(os.path.join(F, "letopis-hypotheses-2026-10-08.csv"), encoding="utf-8"), delimiter=";")}
@@ -48,6 +48,6 @@ with open(os.path.join(F, "letopis-check-2026-10-08.csv"), "w", encoding="utf-8"
 ok = sum(r[4] == "совпало" for r in rows)
 with open(os.path.join(F, "letopis-check-2026-10-08.md"), "w", encoding="utf-8") as f:
     f.write(f"# Летопись: сверка таблицы гипотез с диском сервера (08.10, TK-089)\n\nR2: `r2-summary.csv` сервера и `r2-pool-summary-2026-10-07.csv` репо — {'побайтно равны (sha256)' if same else 'РАЗЛИЧАЮТСЯ'}. "
-            f"Сверено {len(rows)} гипотез, совпало {ok}. Генератор — `python tools/registry/letopis_check.py` (вход — data/tk089).\n\n| id | источник | в таблице | на диске | итог |\n|---|---|---|---|---|\n")
+            f"Сверено {len(rows)} гипотез, совпало {ok}. Генератор — `python tools/registry/archive/letopis_check.py` (вход — data/tk089).\n\n| id | источник | в таблице | на диске | итог |\n|---|---|---|---|---|\n")
     for r in rows: f.write("| " + " | ".join(r) + " |\n")
 print(len(rows), ok, same)
