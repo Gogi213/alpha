@@ -498,6 +498,16 @@ impl LevelRecord {
     }
 }
 
+/// TK-115 (журнал стен e65): уровень стал стеной по критерию подхода B1 (`wall`) или перестал ею быть
+/// (вырос/съеден ниже порога, умирает, ушёл из топ-50 или умер).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WallEvent {
+    pub ts_ms: i64,
+    pub side: Side,
+    pub price_tick: i64,
+    pub wall: bool,
+}
+
 /// Снимок живого (ещё не умершего) уровня — то, что «стоит в стакане
 /// сейчас» на момент последнего кадра (таск 33, дашборд по плотностям).
 /// Только чтение состояния трекера; в горячий путь не входит.
@@ -1021,6 +1031,8 @@ struct Live {
     /// Лучшая цена другой стороны уходила за `2 × D` после последнего снятия
     /// — уровень может взводиться снова. У новорождённого `true`.
     approach_clear: bool,
+    /// TK-115 (журнал стен e65): на последнем кадре уровень был стеной по критерию подхода B1.
+    wall_on: bool,
     /// Кольцо выборок силы: метки и значения (`e2`, `-1` — не определена).
     sh_ts: [i64; STRENGTH_HIST_SLOTS],
     sh_e2: [i64; STRENGTH_HIST_SLOTS],
@@ -1405,6 +1417,9 @@ pub struct LevelTracker {
     touched: Vec<Touched>,
     /// Уровни, взведшие подход в этом кадре (T-28): «завал» на взводе — после свипа.
     armed: Vec<(u8, i64)>,
+    /// TK-115: журнал стен включён (`enable_wall_log`); события копятся в `wall_events`.
+    wall_log: bool,
+    wall_events: Vec<WallEvent>,
     /// Буфер касаний для `observe_frame` без выхода касаний: те же события
     /// считаются, записи отбрасываются, ёмкость переиспользуется.
     touch_scratch: Vec<TouchRecord>,
@@ -1651,6 +1666,18 @@ impl LevelTracker {
         }
     }
 
+    /// TK-115 (e65): включает журнал стен — переходы предиката «стена по критерию подхода B1»
+    /// (не умирает, держит порог В-66 по размеру и силе кадра, возраст ≥ `approach_min_age_ms`).
+    /// Без вызова журнал пуст и лишней работы нет. Звать до первого события.
+    pub fn enable_wall_log(&mut self) {
+        self.wall_log = true;
+    }
+
+    /// Забирает накопленные события журнала стен (в порядке времени), буфер трекера очищается.
+    pub fn take_wall_events(&mut self, out: &mut Vec<WallEvent>) {
+        out.append(&mut self.wall_events);
+    }
+
     /// Создаёт трекер. Порог должен быть положителен, окно — тоже, прогрев
     /// неотрицателен: нулевой порог рождал бы уровень из пустого места.
     pub fn new(cfg: LevelsConfig) -> Self {
@@ -1679,6 +1706,8 @@ impl LevelTracker {
             sweep: Vec::with_capacity(8),
             touched: Vec::with_capacity(8),
             armed: Vec::with_capacity(8),
+            wall_log: false,
+            wall_events: Vec::new(),
             touch_scratch: Vec::with_capacity(8),
             approach_scratch: Vec::with_capacity(8),
             best_tick: [None; 2],
@@ -1832,6 +1861,7 @@ impl LevelTracker {
                 &mut self.touched,
                 &mut self.armed,
                 approaches,
+                &mut self.wall_events,
                 self.r1.as_deref_mut(),
             );
         } else {
@@ -1849,6 +1879,7 @@ impl LevelTracker {
                 &mut self.touched,
                 &mut self.armed,
                 approaches,
+                &mut self.wall_events,
                 self.r1.as_deref_mut(),
             );
         }
@@ -1860,6 +1891,7 @@ impl LevelTracker {
         compute_touch_stacks(&self.live, &mut self.touched, ctx.s, ctx.frame, ctx.mode);
         compute_arm_stacks(&mut self.live, &self.armed, ctx.s, ctx.frame, ctx.mode);
         resolve_deaths(
+            &mut self.wall_events,
             &mut self.live,
             &mut self.sweep,
             &self.newborns,
@@ -1935,6 +1967,7 @@ impl LevelTracker {
             approach_d,
             approach_min_age_ms,
             flow_1h,
+            wall_log: self.wall_log,
         }
     }
 
@@ -2046,6 +2079,7 @@ struct FrameCtx {
     approach_d: Option<i64>,
     approach_min_age_ms: i64,
     flow_1h: i64,
+    wall_log: bool,
 }
 
 /// Сколько рождений уже было на этом ключе строго внутри окна, и запись
@@ -2088,6 +2122,7 @@ fn scan_levels<const R1: bool>(
     touched: &mut Vec<Touched>,
     armed: &mut Vec<(u8, i64)>,
     approaches: &mut Vec<ApproachRecord>,
+    wall_events: &mut Vec<WallEvent>,
     r1: Option<&mut R1State>,
 ) {
     // Константа вместо проверки на уровне: у выключенного R1 цикл без его ветвей и счётчиков.
@@ -2103,6 +2138,7 @@ fn scan_levels<const R1: bool>(
         approach_d,
         approach_min_age_ms,
         flow_1h,
+        wall_log,
     } = *ctx;
 
     // Сумма лотов строго лучше текущего наблюдения по цене — префикс
@@ -2279,6 +2315,26 @@ fn scan_levels<const R1: bool>(
                     }
                     (None, false, _) | (Some(_), _, true) => {}
                 }
+                // TK-115: журнал стен — предикат арма B1 без полосы и «лучшей цены».
+                if wall_log {
+                    let dying = !ob.in_top50 || below_fraction(ob.size_lots, lv.max);
+                    let on = !dying
+                        && (lv.birth_ms >= warm_end || lv.carried)
+                        && ts_ms.saturating_sub(lv.birth_ms) >= approach_min_age_ms
+                        && mode.passes_birth(ob.tick, ob.size_lots)
+                        && mode
+                            .holds_at_size(ob.tick, ob.size_lots, &strength_e2_now())
+                            .unwrap_or(false);
+                    if on != lv.wall_on {
+                        lv.wall_on = on;
+                        wall_events.push(WallEvent {
+                            ts_ms,
+                            side: side_of(key),
+                            price_tick: ob.tick,
+                            wall: on,
+                        });
+                    }
+                }
                 // Сигнал подхода (F1): взвод и снятие по кадру. Умерший в
                 // этом кадре уровень не трогается — снятие смертью
                 // эмитится свипом. При `approach_bps = None` блока нет
@@ -2367,6 +2423,7 @@ fn scan_levels<const R1: bool>(
                             approach: None,
                             approach_index: 0,
                             approach_clear: true,
+                            wall_on: false,
                             sh_ts: [0; STRENGTH_HIST_SLOTS],
                             sh_e2: [-1; STRENGTH_HIST_SLOTS],
                             sh_len: 0,
@@ -2504,6 +2561,7 @@ fn compute_arm_stacks(
 /// построил `sweep`.
 #[allow(clippy::too_many_arguments)]
 fn resolve_deaths(
+    wall_events: &mut Vec<WallEvent>,
     live: &mut SortedVec<(u8, i64), Live>,
     sweep: &mut Vec<(u8, i64)>,
     newborns: &[(u8, i64, i64)],
@@ -2526,6 +2584,14 @@ fn resolve_deaths(
         let Some(lv) = live.remove(&(ks, tick)) else {
             continue;
         };
+        if lv.wall_on {
+            wall_events.push(WallEvent {
+                ts_ms,
+                side: side_of((ks, tick)),
+                price_tick: tick,
+                wall: false,
+            });
+        }
         // Память смертей R1 ведётся и по уровням прогрева: «прошлая смерть» не зависит от эмиссии.
         if let Some(r1) = r1.as_deref_mut() {
             r1.on_death((ks, tick), &lv, ts_ms, newborns);
