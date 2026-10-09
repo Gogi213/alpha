@@ -112,7 +112,8 @@ def kpi_share(lst, m):
 
 
 def defined_of(nt, dtr, form=None):
-    return [m for m in MONTHS if nt[m] >= 10 and len(dtr[m]) >= 10 and (form not in EXPO or EXPO[form].get(m, 0) >= NEEDF)]
+    ex = EXPO.get(form[len(SET):] if form and form.startswith(SET) else form)   # ключи expo.json — без префикса набора (TK-120: иначе §8 не работал)
+    return [m for m in MONTHS if nt[m] >= 10 and len(dtr[m]) >= 10 and (ex is None or ex.get(m, 0) >= NEEDF)]
 
 
 raw["vg"] = raw["v"]
