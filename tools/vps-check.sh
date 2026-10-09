@@ -28,7 +28,7 @@ rm -f "$ARC"
 FEAT="${VPS_FEATURES:+--features $VPS_FEATURES}"
 # fmt + clippy -D warnings + тесты с набором фич $1 (пусто — без фич)
 all_cmd() {
-  echo "cargo fmt --check 2>&1 | tail -10 && cargo clippy --release $1 --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -15 && cargo test --release $1 --target-dir $TGT -j 3 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40"
+  echo "set -o pipefail; cargo fmt --check 2>&1 | tail -10 && cargo clippy --release $1 --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -15 && cargo test --release $1 --target-dir $TGT -j 3 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40"
 }
 case "$WHAT" in
   test)  CMD="cargo test --release $FEAT --target-dir $TGT -j 3 $FILTER 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
