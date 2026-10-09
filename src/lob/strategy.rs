@@ -636,6 +636,31 @@ struct WallBucket {
     max_qty: f64,
 }
 
+/// TK-115 Г-112: окно журнала ленты (`bounce-grid --tape-log`), секунды; 0 — выключено. Задаётся один раз до
+/// счёта, читается при постановке плана (не на пути события).
+static TAPE_LOG_SECS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Включить журнал ленты для всех состояний, созданных дальше (0 — выключить).
+pub fn set_tape_log_secs(secs: u32) {
+    TAPE_LOG_SECS.store(secs, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn tape_log_ring() -> Option<Box<[TapeBucket]>> {
+    match TAPE_LOG_SECS.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        n => Some(
+            vec![
+                TapeBucket {
+                    sec: i64::MIN,
+                    lots: 0.0
+                };
+                n as usize
+            ]
+            .into_boxed_slice(),
+        ),
+    }
+}
+
 /// TK-115 Г-112: секундная корзина ленты — лоты агрессивных сделок против позиции в секунду `sec`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct TapeBucket {
@@ -1014,7 +1039,7 @@ impl StrategyState {
             orphan_exit_open: 0.0,
             orphan_fills: 0,
             orphan_overflow: 0,
-            tape_ring: None,
+            tape_ring: tape_log_ring(),
             tape_at_fill: 0.0,
             wall_ring: match plan {
                 TradePlan::Bounce { wall_eat, .. } if wall_eat.on() => {
