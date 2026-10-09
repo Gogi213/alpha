@@ -2,10 +2,10 @@
 # chain94 (К-10, TK-048, Судья 20:09): ОДИН холодный прогон янв+фев (59 суток, P=20, G=8, alpha-b23pgoflag, abin в шм, sample3 — как chain91 = 634,6 с) с Y12 = 241 + 2650 добавок вразброс на сутки
 # (генератор tk048-k10-gen.py, добавки как в chain81w). Прогноз ДО старта: 634,6·(625,9/211,8) ≈ 1 875 с. Ждёт, пока на сервере нет tk0s-*/tk115-* (чужие тяжёлые) и /dev/shm свободен (< 8 ГБ).
 # job3mx = job3m + JDIR_ROOT/<мес> для скриптов суток + удаление scratch g/<сутки>-* после склейки и хвоста B (шм 32 ГБ не вместит g по 59 суткам; выход b5 тот же).
-# Запуск: systemd-run --unit tk048-chain94 --collect bash /data/tk048/chain94.sh ; выход chain94.txt, маркер chain94.done.
+# Ожидание до 2160×10 с = 6 ч (CEO 20:50: волна TK-115 идёт до ~00:30). Запуск: systemd-run --unit tk048-chain94 --collect bash /data/tk048/chain94.sh ; выход chain94.txt, маркер chain94.done.
 rm -f /data/tk048/chain94.done /data/tk048/chain94.txt
 OUT=/data/tk048/chain94.txt
-for i in $(seq 1 540); do
+for i in $(seq 1 2160); do
   busy=$(systemctl list-units --state=running --no-legend 'tk0s-*' 'tk115-*' 'tk064-*' 'tk065-*' 2>/dev/null | wc -l); shm=$(df --output=used -m /dev/shm | tail -1)
   [ "$busy" -eq 0 ] && [ "$shm" -lt 8000 ] && break; sleep 10
 done
