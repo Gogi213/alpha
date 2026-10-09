@@ -4045,6 +4045,7 @@ fn nostop_form_parses_only_the_grid_multipliers() {
 }
 
 /// TK-115 (e65): `wall2`/`wall2x` — единственные имена формы цели за второй стеной.
+#[cfg(feature = "r2")]
 #[test]
 fn wall2_form_parses_both_offsets() {
     assert_eq!(

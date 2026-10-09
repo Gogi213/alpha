@@ -694,7 +694,7 @@ thread_local! {
 pub fn day_rows<'a>(key: DayKey, fill: impl FnOnce() -> Vec<Event>) -> &'a [Event] {
     DAY_CACHE.with(|c| {
         let mut c = c.borrow_mut();
-        if !c.as_ref().is_some_and(|(k, _)| *k == key) {
+        if c.as_ref().is_none_or(|(k, _)| *k != key) {
             let t0 = std::time::Instant::now();
             *c = Some((key, std::rc::Rc::new(fill())));
             idx_add(6, t0);
