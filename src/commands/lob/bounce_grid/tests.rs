@@ -4018,3 +4018,16 @@ fn half_forms_take_quarter_fraction_suffix() {
     assert!(ExitForm::parse("halfstopf2").is_err());
     assert!(ExitForm::parse("halfstopf4").is_err());
 }
+
+/// TK-115 (Г-106): `nostop<X2>` — X2 ∈ {1, 2, 4}; другое — отказ.
+#[cfg(feature = "r2")]
+#[test]
+fn nostop_form_parses_only_the_grid_multipliers() {
+    assert_eq!(
+        ExitForm::parse("nostop2").unwrap(),
+        ExitForm::NoStop { x2: 2 }
+    );
+    assert_eq!(ExitForm::NoStop { x2: 4 }.label(), "nostop4");
+    assert!(ExitForm::parse("nostop3").is_err());
+    assert!(ExitForm::parse("nostop").is_err());
+}
