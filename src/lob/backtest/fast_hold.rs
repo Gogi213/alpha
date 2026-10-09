@@ -731,14 +731,20 @@ where
     let Some(cur) = local_cursor_at(rows, 0, t) else {
         return FastOutcome::NotApplied;
     };
+    let t_snap = std::time::Instant::now();
     let snap = DepthSnapshot::of(bt.depth(asset_no));
+    idx_add(2, t_snap);
     let state_start = state.clone();
     if skip_on && hold_index_on() {
         if let Some(idx) = idx_for(rows, cur, t, &snap, ctx.tick, ctx.lot) {
             let mut ib = IdxBot::new(&idx, rows, ctx.tick, ctx.lot, t);
+            let t_scan = std::time::Instant::now();
             let r = fast_hold_scan_idx(&mut ib, state, cap, decided_in_hold, stable, sig);
+            idx_add(3, t_scan);
             let t2 = ib.now;
-            if let Some(h) = idx.handoff(rows, cur, t2, ctx.tick, ctx.lot) {
+            let t_hand = std::time::Instant::now();
+            let handoff = idx.handoff(rows, cur, t2, ctx.tick, ctx.lot);
+            if let Some(h) = handoff {
                 if hold_index_check() {
                     check_handoff(rows, cur, &snap, t2, &h, ctx.tick, ctx.lot);
                 }
@@ -751,6 +757,7 @@ where
                     ctx.queue_model,
                 );
                 let _ = bt.elapse(0);
+                idx_add(4, t_hand);
                 FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 IDX_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 return FastOutcome::Swapped(Box::new(r));
@@ -855,6 +862,17 @@ thread_local! {
 
 /// Кругов, прошедших индексным путём (процесс; на итог счёта не влияет).
 pub static IDX_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Диагностика индексного пути (процесс): [построений, мкс на построения, мкс на снимок книги, мкс на скан,
+/// мкс на handoff + пересборку движка]; на итог счёта не влияет.
+pub static IDX_TIMING: [std::sync::atomic::AtomicU64; 5] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 5];
+
+fn idx_add(i: usize, t0: std::time::Instant) {
+    IDX_TIMING[i].fetch_add(
+        u64::try_from(t0.elapsed().as_micros()).unwrap_or(u64::MAX),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
 
 type IdxCache = Option<(usize, usize, usize, i64, std::rc::Rc<HoldIdx>)>;
 
@@ -1163,7 +1181,10 @@ fn idx_for(
     }) {
         return Some(i);
     }
+    let t_build = std::time::Instant::now();
     let idx = std::rc::Rc::new(HoldIdx::build(rows, cur, book, tick, lot)?);
+    IDX_TIMING[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    idx_add(1, t_build);
     IDX_CACHE.with(|c| *c.borrow_mut() = Some((key.0, key.1, cur, t, idx.clone())));
     Some(idx)
 }
