@@ -1101,7 +1101,8 @@ impl StrategyState {
         long: bool,
         live: &mut Vec<i64>,
     ) {
-        use crate::lob::levels::{second_wall_tick, Side};
+        use crate::book::Side;
+        use crate::lob::levels::second_wall_tick;
         if let TradePlan::Bounce {
             entry_px,
             ref mut take_px,
