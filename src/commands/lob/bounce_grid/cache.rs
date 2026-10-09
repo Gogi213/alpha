@@ -157,3 +157,50 @@ pub(crate) fn cached_approaches<'a>(
     }
     Ok(out)
 }
+
+/// Журнал стен суток (TK-115, e65) из кэша `--touches-from`: `<dir>/<сутки>/walls-<SYMBOL>.csv`, иначе общий
+/// `<dir>/walls-<SYMBOL>.csv` (строки этих суток). Файла нет или в нём нет колонок — `Err`: форма `wall2*` без
+/// журнала считалась бы молча как B1. Порядок — по времени (устойчиво).
+pub(crate) fn cached_walls(
+    dir: &Path,
+    symbol: &str,
+    day: &str,
+) -> anyhow::Result<Vec<crate::lob::levels::WallEvent>> {
+    use crate::book::Side;
+    let per_day = dir.join(day).join(format!("walls-{symbol}.csv"));
+    let flat = dir.join(format!("walls-{symbol}.csv"));
+    let path = if per_day.is_file() {
+        per_day
+    } else if flat.is_file() {
+        flat
+    } else {
+        anyhow::bail!(
+            "{symbol} {day}: журнала стен walls-{symbol}.csv нет в {} (форма wall2* требует `lob touches --wall-log`)",
+            dir.display()
+        );
+    };
+    let mut rd = csv::Reader::from_path(&path)?;
+    let mut out = Vec::new();
+    for rec in rd.records() {
+        let rec = rec?;
+        let f = |i: usize| {
+            rec.get(i)
+                .ok_or_else(|| anyhow::anyhow!("{}: мало колонок", path.display()))
+        };
+        if f(0)? != day {
+            continue;
+        }
+        out.push(crate::lob::levels::WallEvent {
+            ts_ms: f(1)?.parse()?,
+            side: match f(2)? {
+                "bid" => Side::Bid,
+                "ask" => Side::Ask,
+                s => anyhow::bail!("{}: сторона {s:?}", path.display()),
+            },
+            price_tick: f(3)?.parse()?,
+            wall: f(4)? == "1",
+        });
+    }
+    out.sort_by_key(|e| e.ts_ms);
+    Ok(out)
+}

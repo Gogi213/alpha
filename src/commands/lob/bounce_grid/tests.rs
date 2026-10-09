@@ -4047,3 +4047,20 @@ fn wall2_form_parses_both_offsets() {
     assert_eq!(ExitForm::Wall2 { behind: true }.label(), "wall2x");
     assert!(ExitForm::parse("wall3").is_err());
 }
+
+/// TK-115 (e65): журнал стен суток читается из суточного файла кэша; нет файла — отказ, не пустой журнал.
+#[test]
+fn wall_log_reads_day_file_and_refuses_when_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let day = dir.path().join("2026-01-05");
+    std::fs::create_dir_all(&day).unwrap();
+    std::fs::write(
+        day.join("walls-BTCUSDT.csv"),
+        "day_utc,ts_ms,side,price_tick,wall\n2026-01-05,200,ask,101,0\n2026-01-05,100,ask,101,1\n2026-01-06,50,bid,90,1\n",
+    )
+    .unwrap();
+    let ev = super::cache::cached_walls(dir.path(), "BTCUSDT", "2026-01-05").unwrap();
+    assert_eq!(ev.iter().map(|e| e.ts_ms).collect::<Vec<_>>(), [100, 200]);
+    assert!(ev[0].wall && !ev[1].wall);
+    assert!(super::cache::cached_walls(dir.path(), "ETHUSDT", "2026-01-05").is_err());
+}

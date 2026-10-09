@@ -233,7 +233,11 @@ fn exit_groups(
         hold_skip: p.hold_skip,
     };
     let mut rounds: u64 = 0;
-    for g in groups.into_iter().filter(|g| g.len() > 1) {
+    for g in groups.into_iter().filter(|g| {
+        g.len() > 1
+            || g.iter()
+                .any(|&i| matches!(forms[i].exit_form, super::forms::ExitForm::Wall2 { .. }))
+    }) {
         let mut sigs: Vec<Vec<BounceSignal>> = Vec::with_capacity(g.len());
         let mut skips: Vec<u64> = Vec::with_capacity(g.len());
         for &i in &g {
@@ -253,10 +257,10 @@ fn exit_groups(
         let sig_refs: Vec<&[BounceSignal]> = sigs.iter().map(Vec::as_slice).collect();
         rounds += match events {
             DayRows::Compact(c) => {
-                precompute_exit_group(c, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs)
+                precompute_exit_group(c, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs, p.walls)
             }
             DayRows::Wide(e) => {
-                precompute_exit_group(e, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs)
+                precompute_exit_group(e, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs, p.walls)
             }
             DayRows::Trimmed(c, k) => precompute_exit_group(
                 &TrimRows::new(c, k),
@@ -265,6 +269,7 @@ fn exit_groups(
                 &cfg,
                 p.rtt_ns,
                 &mut refs,
+                p.walls,
             ),
         }
         .map_err(|e| anyhow::anyhow!("группа выходов: {e}"))?;
@@ -451,6 +456,8 @@ pub(super) struct DayParams<'a> {
     pub(super) grid_e9: (i64, i64),
     pub(super) step_schedule: Option<&'a StepSchedule>,
     pub(super) rtt_ns: ExecLatency,
+    /// Журнал стен суток (TK-115, e65) — для форм `wall2*`; `None`, когда таких форм нет.
+    pub(super) walls: Option<&'a [crate::lob::levels::WallEvent]>,
     /// Модель очереди/исполнения суток (`--queue-model`, F3) — одна на процесс.
     pub(super) queue_model: QueueModelKind,
     /// Пропуск «позиция занята» (`--busy-skip`, T-31): `false` — каждый сигнал свой круг, след в `trace`.
