@@ -4,13 +4,15 @@
 Ворота: п.1 ΔSR>0 (парный блочный бутстреп, блоки общие, max-T WY в семье, Холм m=42, p<=α_k/2); п.2 С3 по месяцам (верх 95% ΔSR_мес>=0);
 п.3 С2 (без 2 суток с наибольшей парной разностью; монета — closes без символа, считается для прошедших отдельно); п.4 >=6 из 8 месяцев.
 Порядок: ярусы по SR (бутстреп лидер−i, Холм, α=0,05), затем k_c, K_c, SR. Выход docs/findings/p12-sharpe-<free|B2>-2026-10-08.csv + печать."""
-import csv, math, sys
+import csv, math, os, sys
 from collections import defaultdict
 import numpy as np
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 M_FAM, B = 42, 20000
-POOL = {f"2026-{i:02d}" for i in range(2, 10)}
+POOL = {f"2026-{i:02d}" for i in range(int(os.environ.get("P12_POOL_FROM", 2)), 10)}   # В-211: окно янв–сен — P12_POOL_FROM=1
+ONLY_R2 = os.environ.get("P12_ONLY") == "r2"   # v171c: R1 и ext на пуле ещё не пересчитаны (TK-113) — только R2
+OUT = os.environ.get("P12_OUT", "2026-10-08")
 
 
 def load(path, mode):
@@ -133,9 +135,9 @@ def analyse(P, seed):
 
 
 def main():
-    A, fa = analyse(pack(load("tools/compute/p12-r1-analyze.py", MODE), True), 63)
+    A, fa = ({}, {}) if ONLY_R2 else analyse(pack(load("tools/compute/p12-r1-analyze.py", MODE), True), 63)
     Bz, fb = analyse(pack(load("tools/compute/p12-r2-analyze.py", MODE), False), 64)
-    Ex, fe = analyse(pack_ext(MODE), 65)
+    Ex, fe = ({}, {}) if ONLY_R2 else analyse(pack_ext(MODE), 65)
     res = {**{c: dict(r, pk="R1") for c, r in A.items() if r}, **{c: dict(r, pk="R2") for c, r in Bz.items() if r}, **{c: dict(r, pk="ext") for c, r in Ex.items() if r}}
     fams = {**fa, **fb, **fe}
     famp = {f: min(res[c]["pwy"] for c in cs) for f, cs in fams.items()}
@@ -177,7 +179,7 @@ def main():
           "; верх<0:", sum(r["hi"] < 0 for r in res.values()))
     ranked = sorted(res.values(), key=lambda r: (-r["k"], r["K"], -r["sr"]))
     print("справочно (k_c, K_c, SR; без ярусов и ворот):", [(r["c"], r["k"], round(r["K"], 3), round(r["sr"], 3)) for r in ranked[:5]])
-    with open(f"docs/findings/p12-sharpe-{MODE}-2026-10-08.csv", "w", encoding="utf-8", newline="") as fh:
+    with open(f"docs/findings/p12-sharpe-{MODE}-{OUT}.csv", "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh, lineterminator="\n")
         w.writerow(["mode", "pack", "cell", "family", "base", "sr_day", "sr_year", "sr_base", "d_sr", "ci_lo", "ci_hi", "T", "p_wy", "p_harm_wy", "k_months_sr_pos",
                     "months_defined", "kpi_share", "d_usd", "gate1", "gate2", "gate3", "gate4", "passed", "refuted", "failed_gates", "months_dsr_hi_neg", "c2_dsr", "c2_lo"])
