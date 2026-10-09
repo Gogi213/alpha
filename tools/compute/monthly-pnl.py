@@ -31,7 +31,7 @@ def load_r2(mode):
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        ns = load_head("tools/compute/p12-r2-analyze.py", "rng = np.random.default_rng(63)", [mode])
+        ns = load_head("tools/compute/p12-r2-analyze.py", [mode])
     if "НЕТ формы" in buf.getvalue():
         sys.exit("R2: " + buf.getvalue())
     return ns

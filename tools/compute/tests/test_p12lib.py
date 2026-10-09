@@ -7,12 +7,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import p12lib
 
 
-def test_load_head_cuts_at_marker_and_restores_argv(tmp_path):
+def test_load_head_imports_module_and_restores_argv(tmp_path):
     f = tmp_path / "head.py"
     f.write_text("import sys\nMODE = sys.argv[1]\nMARK = 1\nTAIL = 2\n", encoding="utf-8")
     argv0 = list(sys.argv)
-    ns = p12lib.load_head(str(f), "MARK = 1", ["B2"])
-    assert ns["MODE"] == "B2" and "MARK" not in ns and "TAIL" not in ns
+    ns = p12lib.load_head(str(f), ["B2"])
+    assert ns["MODE"] == "B2" and ns["TAIL"] == 2
     assert sys.argv == argv0
 
 
@@ -21,15 +21,15 @@ def test_load_head_restores_argv_on_error(tmp_path):
     f.write_text("raise RuntimeError('x')\nMARK = 1\n", encoding="utf-8")
     argv0 = list(sys.argv)
     with pytest.raises(RuntimeError):
-        p12lib.load_head(str(f), "MARK = 1", ["free"])
+        p12lib.load_head(str(f), ["free"])
     assert sys.argv == argv0
 
 
-def test_load_head_missing_marker(tmp_path):
-    f = tmp_path / "h.py"
-    f.write_text("X = 1\n", encoding="utf-8")
-    with pytest.raises(ValueError):
-        p12lib.load_head(str(f), "NOPE", [])
+def test_heads_exist():
+    d = os.path.join(os.path.dirname(p12lib.__file__))
+    for h in p12lib.HEADS.values():
+        assert os.path.exists(os.path.join(d, h))
+        assert "exec(compile" not in open(os.path.join(d, h), encoding="utf-8").read()
 
 
 def test_sr_known_values():

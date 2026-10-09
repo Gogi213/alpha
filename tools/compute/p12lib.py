@@ -10,22 +10,26 @@ ONLY_R2 = os.environ.get("P12_ONLY") in ("r2", "r1r2")   # r1r2 — R1 и R2 б�
 OUT = os.environ.get("P12_OUT", "2026-10-08")
 
 
-def load_head(path, marker, argv):
-    """Единственное место, где «голова» скрипта-источника исполняется до маркера (С-59): argv на время загрузки подменяется и возвращается."""
-    src = open(path, encoding="utf-8").read()
-    cut = src.index(marker)
+HEADS = {"p12-r1-analyze.py": "p12_r1_head.py", "p12-r2-analyze.py": "p12_r2_head.py", "tk083-kpi-analyze.py": "tk083_head.py"}
+
+
+def load_head(path, argv):
+    """Голова скрипта-источника — модуль (<скрипт>-> HEADS), импортируется без exec (С-59); argv на время импорта подменяется и возвращается.
+    path — модуль-голова или скрипт из HEADS (тогда берётся его голова рядом)."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(path)), HEADS.get(os.path.basename(path), os.path.basename(path)))
+    spec = importlib.util.spec_from_file_location(os.path.basename(path)[:-3], path)
+    m = importlib.util.module_from_spec(spec)
     argv0, sys.argv = sys.argv, ["x", *argv]
-    ns = {"__name__": "x"}
     try:
-        exec(compile(src[:cut], path, "exec"), ns)
+        spec.loader.exec_module(m)
     finally:
         sys.argv = argv0
-    return ns
+    return vars(m)
 
 
 def load(path, mode):
-    marker = "S = {c: series(c) for c in raw}" if "p12-r1" in path else "rng = np.random.default_rng(63)"
-    return load_head(path, marker, [mode])
+    return load_head(path, [mode])
 
 
 def pack(ns, r1):
@@ -48,7 +52,7 @@ def pack(ns, r1):
 
 def pack_ext(mode):
     """ext-клетки TK-083 (7 кл., x-stop/x-deadline/x-entry): closes data/tk083/kpi/closes[B2]-<мес>.json; $ без нормировки (t2 ≤ 1,25 × B1, вердикт ext)."""
-    ns = load_head("tools/compute/tk083-kpi-analyze.py", "rng = np.random.default_rng(83)", ["" if mode == "free" else "B2"])
+    ns = load_head("tools/compute/tk083-kpi-analyze.py", ["" if mode == "free" else "B2"])
     out = {}
     for c, a in ns["daily"].items():
         out[c] = dict(arr=a, lst=ns["cl"][c], dfn=set(ns["defined"][c]), fam="B1" if c == "B1" else ns["CELLS"][c][0], base=None if c == "B1" else "B1",

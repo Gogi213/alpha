@@ -12,7 +12,7 @@ OUT = "docs/findings/cells-v171c-2026-10-09"
 
 def head(mode, d):
     os.environ["P12_DIR"] = d
-    return load_head("tools/compute/p12-r2-analyze.py", "rng = np.random.default_rng(63)", [mode])
+    return load_head("tools/compute/p12-r2-analyze.py", [mode])
 
 
 def sr(x):
