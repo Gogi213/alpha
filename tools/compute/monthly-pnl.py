@@ -7,7 +7,7 @@
   ext (7 клеток x-*) — data/tk113/ext/closes-cap{0,3}-2026-MM.json (как tools/compute/tk113-ext.py);
   R1 (155 клеток + B1) — data/tk113/r1-v171c/closes-cap{0,3}-<мес>.json (calc:/data/tk0113/drop2/r1; на v171c только фев–окт, января нет).
 Режим free = потолок не применён (cap0), B2 = потолок 3 (cap3).
-Сверка: B1 (+52,3/2750 free, -0,4/1503 B2); R2-клетки: итог по определённым месяцам - база = d_usd из p12-sharpe-<режим>-2026-10-09-v171c-A.csv;
+Сверка: B1 (+52,3/2750 free, -0,4/1503 B2); R2-клетки: итог по определённым месяцам - база = d_usd из p12-sharpe-<режим>-2026-10-10-v171c-D.csv;
 ext = ext-v171c-2026-10-09.csv; R1 B1 (фев–сен) = B1 из R2 (фев–сен).
 Запуск из корня репозитория: python tools/compute/monthly-pnl.py  → docs/findings/monthly-pnl-v171c-2026-10-09.{csv,md}"""
 import csv, json, os, sys
@@ -113,7 +113,7 @@ def main():
     for mode, cap in MODES:
         r2, dm = collect_r2(mode, cap)
         data[mode] = dict(r2=r2, ext=collect_ext(mode, cap), r1=collect_r1(mode, cap), dm=dm)
-        sharpe[mode] = {r["cell"]: r for r in csv.DictReader(open(f"docs/findings/p12-sharpe-{mode}-2026-10-09-v171c-A.csv", encoding="utf-8"))}
+        sharpe[mode] = {r["cell"]: r for r in csv.DictReader(open(f"docs/findings/p12-sharpe-{mode}-2026-10-10-v171c-D.csv", encoding="utf-8"))}
     # ---- сверка ----
     print("== СВЕРКА")
     ok_n = {"base": 0, "R2": 0, "ext": 0, "R1B1": 0}
@@ -207,7 +207,7 @@ def main():
     L += ["## Сверка с принятыми числами", ""]
     L.append(f"- B1 янв–сен: free {tot(next(r for r in data['free']['r2'] if r['cell']=='B1')):+.1f} ({ntr(next(r for r in data['free']['r2'] if r['cell']=='B1'))} сд.) "
              f"= принято +52,3 (2750); B2 {tot(next(r for r in data['B2']['r2'] if r['cell']=='B1')):+.1f} ({ntr(next(r for r in data['B2']['r2'] if r['cell']=='B1'))} сд.) = принято -0,4 (1503).")
-    L.append(f"- R2: итог (по определённым месяцам) − база = `d_usd` из `p12-sharpe-{{free,B2}}-2026-10-09-v171c-A.csv`: сошлось {ok_n['R2']} из 80 клеток-режимов (допуск {TOL} $).")
+    L.append(f"- R2: итог (по определённым месяцам) − база = `d_usd` из `p12-sharpe-{{free,B2}}-2026-10-10-v171c-D.csv`: сошлось {ok_n['R2']} из 80 клеток-режимов (допуск {TOL} $).")
     L.append(f"- ext: итог и число сделок = `ext-v171c-2026-10-09.csv`: сошлось {ok_n['ext']} из 16 (7 клеток + B1, два режима). B1 из ext = B1 из R2 помесячно (янв–окт).")
     L.append(f"- Расхождений > {TOL} $: " + (str(len(bad)) + " — см. вывод скрипта." if bad else "нет."))
     if info:
