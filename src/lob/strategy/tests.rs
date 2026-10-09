@@ -1011,6 +1011,7 @@ fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not_busy() {
     ];
     let mut hbt = prob_backtest(&feed);
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
@@ -1711,6 +1712,7 @@ fn f7_run(plan: TradePlan, feed: &[Event]) -> crate::lob::backtest::BounceRun {
         QueueModelKind::RiskAdverse,
     );
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -2312,6 +2314,7 @@ fn trail_exits(plan: TradePlan, feed: &[Event], sigma: i8) -> Vec<ExitReason> {
         QueueModelKind::RiskAdverse,
     );
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -2897,6 +2900,7 @@ fn the_driver_counts_the_entry_cancel_ceiling() {
         QueueModelKind::RiskAdverse,
     );
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -2950,6 +2954,7 @@ fn an_orphan_survives_the_round_boundary_in_the_driver() {
     };
     let mut hbt = build_backtest(&feed, 1.0, 1.0, lat, QueueModelKind::RiskAdverse);
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,

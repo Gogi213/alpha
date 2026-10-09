@@ -189,6 +189,7 @@ impl BacktestFillModel {
         }
         let order_qty = self.order_qty_e9 as f64 / 1e9;
         let cfg = DriveConfig {
+            tape_log_secs: 0,
             order_qty,
             first_order_id: 1,
             queue_model: QueueModelKind::RiskAdverse,

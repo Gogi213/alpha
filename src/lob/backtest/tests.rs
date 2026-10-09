@@ -450,6 +450,7 @@ fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> Event {
 /// `QueueModelKind::Prob`.
 fn drive_cfg() -> DriveConfig {
     DriveConfig {
+        tape_log_secs: 0,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -1603,6 +1604,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
             qty: None,
         }],
         &DriveConfig {
+            tape_log_secs: 0,
             order_qty: 2.0,
             first_order_id: 1,
             queue_model: QueueModelKind::RiskAdverse,
@@ -1742,6 +1744,7 @@ fn partial_fill_records_real_qty_and_fill_frac() {
         depth_at(40 * S, false, 105.0, 5.0),
     ];
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 2.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
@@ -1825,6 +1828,7 @@ fn fill_by_cross_is_flagged_when_no_trade_could_fill() {
         depth_at(30 * S, false, 102.0, 5.0),
     ];
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
@@ -1884,6 +1888,7 @@ fn trade_below_our_price_fills_by_priority_and_is_not_a_cross() {
         depth_at(30 * S, false, 105.0, 5.0),
     ];
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty: 3.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },

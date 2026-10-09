@@ -716,6 +716,9 @@ impl std::str::FromStr for QueueModelKind {
 /// Настройки прогона профиля.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DriveConfig {
+    /// TK-115 Г-112 (TK-132 С-03): окно журнала ленты, секунды (`bounce-grid --tape-log`); 0 — выключено. Идёт из
+    /// плана в состояние круга (`StrategyState::enable_tape`), глобального входа нет.
+    pub tape_log_secs: u32,
     /// Размер круга. План: минимальный лот биржи (Decision 22).
     pub order_qty: f64,
     /// Первый идентификатор ордеров; дальше — по порядку, каждый ордер
@@ -971,6 +974,7 @@ where
             next_id,
             TradePlan::SpreadHold,
         );
+        state.enable_tape_from(cfg.tape_log_secs);
         // Запас номеров на круг — `ID_STRIDE`: страховка от коллизии id со
         // следующим кругом, не экономическая величина.
         next_id = next_id.saturating_add(ID_STRIDE);
@@ -2570,6 +2574,7 @@ where
     let entry_id_base = *next_group_id;
     let mut entry_state =
         StrategyState::with_plan(asset_no, sig.sigma, qty, entry_id_base, variant_plans[0]);
+    entry_state.enable_tape_from(cfg.tape_log_secs);
     let (entry_id, side) = match on_event(bot, &mut entry_state)? {
         Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
         _ => {
@@ -2732,6 +2737,7 @@ where
     let qty = sig.qty.unwrap_or(cfg.order_qty);
     debug_assert!(qty > 0.0, "размер круга обязан быть положительным: {qty}");
     let mut state = StrategyState::with_plan(asset_no, sig.sigma, qty, *next_id, sig.plan);
+    state.enable_tape_from(cfg.tape_log_secs);
     *next_id = next_id.saturating_add(ID_STRIDE);
     // F8c: сироты прошлого круга живут дальше в новом состоянии — уборка
     // (повтор снятия, учёт исполнения) идёт с первого события этого круга.

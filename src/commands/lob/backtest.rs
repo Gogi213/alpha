@@ -111,6 +111,7 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
     let table = read_table(args.profiles_csv.as_deref())?;
 
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty,
         first_order_id: 1,
         // `lob backtest` (профили / `--touches`) — прежний движок: модель
@@ -379,6 +380,7 @@ fn run_bounce(
     let order_qty = order_qty_e9 as f64 / 1e9;
 
     let cfg = DriveConfig {
+        tape_log_secs: 0,
         order_qty,
         first_order_id: 1,
         // Одиночный `lob backtest --touches` — прежний движок: модель очереди

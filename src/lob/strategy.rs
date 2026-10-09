@@ -656,34 +656,6 @@ struct WallBucket {
     max_qty: f64,
 }
 
-/// TK-115 Г-112: окно журнала ленты (`bounce-grid --tape-log`), секунды; 0 — выключено. Задаётся один раз до
-/// счёта, читается при постановке плана (не на пути события).
-static TAPE_LOG_SECS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-/// Включить журнал ленты для всех состояний, созданных дальше (0 — выключить).
-pub fn set_tape_log_secs(secs: u32) {
-    TAPE_LOG_SECS.store(secs, std::sync::atomic::Ordering::Relaxed);
-}
-
-fn tape_log_ring() -> Option<Box<[TapeBucket]>> {
-    if !R2 {
-        return None;
-    }
-    match TAPE_LOG_SECS.load(std::sync::atomic::Ordering::Relaxed) {
-        0 => None,
-        n => Some(
-            vec![
-                TapeBucket {
-                    sec: i64::MIN,
-                    lots: 0.0
-                };
-                n as usize
-            ]
-            .into_boxed_slice(),
-        ),
-    }
-}
-
 /// TK-115 Г-112: секундная корзина ленты — лоты агрессивных сделок против позиции в секунду `sec`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct TapeBucket {
@@ -1090,9 +1062,9 @@ impl StrategyState {
             orphan_exit_open: 0.0,
             orphan_fills: 0,
             orphan_overflow: 0,
-            tape_ring: tape_log_ring(),
+            tape_ring: None,
             tape_at_fill: 0.0,
-            cxl_ring: tape_log_ring(),
+            cxl_ring: None,
             cxl_book: None,
             cxl_at_fill: 0.0,
             wall_ring: match plan {
@@ -1108,6 +1080,14 @@ impl StrategyState {
     #[inline(always)]
     fn tape_on(&self) -> bool {
         R2 && self.tape_ring.is_some()
+    }
+
+    /// TK-132 С-03: окно журнала ленты приходит из конфига круга (`DriveConfig::tape_log_secs`); 0 — выключено,
+    /// без feature `r2` — тоже ничего (кольца не создаются).
+    pub fn enable_tape_from(&mut self, secs: u32) {
+        if R2 && secs > 0 {
+            self.enable_tape(secs);
+        }
     }
 
     /// TK-115 Г-112: включить кольцо ленты на `secs` секунд (журнал `[fill−W, fill]`); без вызова ничего не меняется.

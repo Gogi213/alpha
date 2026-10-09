@@ -1132,6 +1132,7 @@ impl<'a> GridRun<'a> {
                             queue_model,
                             busy_skip: args.busy_skip == "on",
                             hold_skip: args.hold_step == "skip",
+                            tape_log_secs: args.tape_log.unwrap_or(0),
                             exit_group: args.exit_group == "on",
                             order_qtys: &order_qtys,
                             threads,

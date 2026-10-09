@@ -554,7 +554,6 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
         ring_need.is_none() || args.tape_log.is_some_and(|l| Some(l) >= ring_need),
         "формы tape<W>q<Q>/cxl<W>q<Q> требуют --tape-log не меньше W (кольцо ленты/отмен): без него мера нулевая"
     );
-    crate::lob::strategy::set_tape_log_secs(args.tape_log.unwrap_or(0));
     let mut outs: Vec<Outputs> = Vec::with_capacity(sets.len());
     for set in sets.iter() {
         let dir = if set.name.is_empty() {
