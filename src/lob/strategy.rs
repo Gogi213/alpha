@@ -485,6 +485,11 @@ pub struct PyramidCfg {
     /// Г-133 (`chase<мс>`): на дедлайне вместо рынка — мейкер-лимитка на лучшей цене стороны выхода, переставляется
     /// вслед за ценой, окно `W` мс; по истечении — рынок. `0` — выключено.
     pub chase_ms: u32,
+    /// Г-112 (`tape<Q>`): выход по рынку (`Tape`), когда лента против позиции за окно кольца (с входа), делённая на
+    /// `level_qty` стены, ≥ `tape_q`, а позиция в минусе. `0` — выключено. Нужно кольцо `--tape-log`.
+    pub tape_q: f64,
+    /// Г-116 (`cxl<Q>`): то же по отменам на нашей стороне (`Resilience`); `0` — выключено.
+    pub cxl_q: f64,
 }
 
 impl PyramidCfg {
@@ -505,6 +510,8 @@ impl PyramidCfg {
         nostop_x2: 0,
         wall2: 0,
         chase_ms: 0,
+        tape_q: 0.0,
+        cxl_q: 0.0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -526,7 +533,9 @@ impl PyramidCfg {
             || self.converge_tol1 > 0
             || self.nostop_x2 > 0
             || self.wall2 > 0
-            || self.chase_ms > 0)
+            || self.chase_ms > 0
+            || self.tape_q > 0.0
+            || self.cxl_q > 0.0)
     }
 }
 
@@ -793,6 +802,10 @@ pub enum ExitReason {
     WallEatLocal,
     /// Г-119: цена уходила от стены на `A` bps и вернулась к ней — выход по рынку.
     Converge,
+    /// Г-112: лента против позиции за окно с входа ≥ порога (нормирована на размер стены), позиция в минусе.
+    Tape,
+    /// Г-116: отмены на нашей стороне за окно с входа ≥ порога (нормированы на размер стены), позиция в минусе.
+    Resilience,
 }
 
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
@@ -1161,10 +1174,10 @@ impl StrategyState {
         if !R2 || self.cxl_ring.is_none() {
             return;
         }
-        if matches!(
-            self.phase,
-            Phase::Holding { .. } | Phase::ExitPending { .. } | Phase::ExitCancelPending { .. }
-        ) {
+        let keep_in_hold = matches!(self.plan, TradePlan::Bounce { pyramid, .. } if pyramid.cxl_q > 0.0);
+        if matches!(self.phase, Phase::ExitPending { .. } | Phase::ExitCancelPending { .. })
+            || (matches!(self.phase, Phase::Holding { .. }) && !keep_in_hold)
+        {
             return;
         }
         let TradePlan::Bounce {
@@ -1262,6 +1275,31 @@ impl StrategyState {
             .filter(|b| b.sec >= lo && b.sec <= t)
             .map(|b| b.lots)
             .sum()
+    }
+
+    /// TK-115 Г-112/116: сумма корзин кольца за последние `W` с до `now`, но только секунды строго после секунды входа
+    /// (корзина секунды входа смешана с до-входом — отбрасываем: занижает меру, выход консервативнее, spec §1b).
+    fn ring_since_entry(ring: Option<&[TapeBucket]>, entry_ns: i64, now: i64) -> f64 {
+        let Some(ring) = ring else {
+            return 0.0;
+        };
+        let t = now.div_euclid(1_000_000_000);
+        #[allow(clippy::cast_possible_wrap)]
+        let lo = (t - ring.len() as i64 + 1).max(entry_ns.div_euclid(1_000_000_000) + 1);
+        ring.iter()
+            .filter(|b| b.sec >= lo && b.sec <= t)
+            .map(|b| b.lots)
+            .sum()
+    }
+
+    /// Г-112: лента против позиции в окне с входа (`entry_ns`), лоты. Без кольца — 0.
+    pub fn tape_since_entry(&self, entry_ns: i64, now: i64) -> f64 {
+        Self::ring_since_entry(self.tape_ring.as_deref(), entry_ns, now)
+    }
+
+    /// Г-116: отмены на нашей стороне в окне с входа, лоты. Без кольца — 0.
+    pub fn cxl_since_entry(&self, entry_ns: i64, now: i64) -> f64 {
+        Self::ring_since_entry(self.cxl_ring.as_deref(), entry_ns, now)
     }
 
     /// Корзина секунды `sec` кольца `weat*` (обнуляется, если в ней лежала другая секунда).
@@ -3051,6 +3089,16 @@ where
             } else {
                 false
             };
+            // Г-112/116: мера в окне с входа, нормированная на размер стены; только в минусе.
+            let in_loss = sigma_sign * (favourable - entry_px) < 0.0;
+            let tape_hit = pyr.tape_q > 0.0
+                && in_loss
+                && state.level_qty_at_entry > 0.0
+                && state.tape_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.tape_q;
+            let cxl_hit = pyr.cxl_q > 0.0
+                && in_loss
+                && state.level_qty_at_entry > 0.0
+                && state.cxl_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.cxl_q;
             let plain_stop = gone.stop_px == stop_px;
             let half_level = pyr.half_level;
             let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
@@ -3090,6 +3138,10 @@ where
                 (ExitAt::Market, r, 1.0)
             } else if converge_hit {
                 (ExitAt::Market, ExitReason::Converge, 1.0)
+            } else if tape_hit {
+                (ExitAt::Market, ExitReason::Tape, 1.0)
+            } else if cxl_hit {
+                (ExitAt::Market, ExitReason::Resilience, 1.0)
             } else if gone.exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if gone.trail_hit {

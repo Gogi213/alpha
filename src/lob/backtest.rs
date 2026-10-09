@@ -3424,8 +3424,11 @@ where
                             ExitReason::Deadline => exits.deadline += 1,
                             ExitReason::Horizon => exits.horizon += 1,
                             ExitReason::Trail => exits.trail += 1,
-                            // Г-119: `Converge` — отдельной колонки нет (форма в имени клетки); считается как `early`.
-                            ExitReason::Early | ExitReason::Converge => exits.early += 1,
+                            // Г-119: `Converge`/`Tape`/`Resilience` — отдельной колонки нет (форма в имени клетки); считается как `early`.
+                            ExitReason::Early
+                            | ExitReason::Converge
+                            | ExitReason::Tape
+                            | ExitReason::Resilience => exits.early += 1,
                             ExitReason::Eaten => exits.eaten += 1,
                             ExitReason::EatenByTrades => exits.eaten_by_trades += 1,
                             ExitReason::WallGone => exits.wall_gone += 1,

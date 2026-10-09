@@ -75,6 +75,10 @@ pub enum ExitForm {
     Wall2 { behind: bool },
     /// `chase<мс>` (TK-115, Г-133): на дедлайне мейкер-погоня вместо рынка, окно `W` мс; по истечении — рынок.
     Chase { ms: u32 },
+    /// `tape<Q>` (TK-115, Г-112): выход по рынку, когда лента против позиции за окно с входа / размер стены ≥ `Q`, позиция в минусе. `Q` — порог (терциль по журналу B1, Исследователь). Нужен `--tape-log`.
+    Tape { q: f64 },
+    /// `cxl<Q>` (TK-115, Г-116): то же по отменам на нашей стороне. Нужен `--tape-log`.
+    Cxl { q: f64 },
 }
 
 impl ExitForm {
@@ -112,6 +116,8 @@ impl ExitForm {
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::NoStop { x2 } => format!("nostop{x2}"),
             ExitForm::Chase { ms } => format!("chase{ms}"),
+            ExitForm::Tape { q } => format!("tape{q}"),
+            ExitForm::Cxl { q } => format!("cxl{q}"),
             ExitForm::Wall2 { behind } => format!("wall2{}", if *behind { "x" } else { "" }),
             ExitForm::WallEat {
                 pct,
@@ -219,6 +225,8 @@ impl ExitForm {
                 | ExitForm::Converge { .. }
                 | ExitForm::NoStop { .. }
                 | ExitForm::Chase { .. }
+                | ExitForm::Tape { .. }
+                | ExitForm::Cxl { .. }
                 | ExitForm::Wall2 { .. }
         )
     }
@@ -264,6 +272,25 @@ impl ExitForm {
             })?;
             anyhow::ensure!(ms > 0, "chase<мс>: окно W > 0");
             return Ok(ExitForm::Chase { ms });
+        }
+        for (pre, tape) in [("tape", true), ("cxl", false)] {
+            if let Some(rest) = spec.strip_prefix(pre) {
+                let q: f64 = rest.parse().map_err(|_| {
+                    anyhow::anyhow!("--exit-form {spec:?}: ожидается {pre}<Q>, Q > 0 (мера / размер стены)")
+                })?;
+                anyhow::ensure!(q.is_finite() && q > 0.0, "{pre}<Q>: Q > 0");
+                let form = if tape {
+                    ExitForm::Tape { q }
+                } else {
+                    ExitForm::Cxl { q }
+                };
+                anyhow::ensure!(
+                    form.label() == spec,
+                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                    form.label()
+                );
+                return Ok(form);
+            }
         }
         if let Some(rest) = spec.strip_prefix("nostop") {
             let x2: u8 = rest.parse().map_err(|_| {
