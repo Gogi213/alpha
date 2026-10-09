@@ -31,7 +31,7 @@ def load_lvl(mo, day):
     try:
         for r in csv.DictReader(open(f"{LV}/m-{MON[int(mo[5:]) - 1]}/lvl/{day}.csv", encoding="utf-8")):
             if r["symbol"] in syms:
-                d[r["symbol"]].append((int(float(r["arm_ms"])), float(r["size_at_arm"] or 0)))
+                d[r["symbol"]].append((int(float(r["arm_ms"])), float(r["size_at_arm"] or 0), int(float(r["price_tick"]))))
     except FileNotFoundError:
         pass
     lvl[day] = d
@@ -40,6 +40,8 @@ def load_lvl(mo, day):
 
 by = {}
 deltas = []
+ratios = defaultdict(list)   # entry_px / price_tick по однозначным сделкам -> шаг цены символа
+pend = []                   # сделки, где в тот же мс взведено несколько уровней: уровень — по цене (верхняя ступень = entry_px)
 for mo in sorted(keys):
     d = by[mo] = {"tape": [], "cxl": [], "w": [], "n_keys": len(keys[mo]), "n_rounds": 0, "no_lvl": 0, "dl": 0, "dl_nowait": 0}
     seen = set()
@@ -53,13 +55,19 @@ for mo in sorted(keys):
                 seen.add(k)
                 d["n_rounds"] += 1
                 c = load_lvl(mo, day).get(r["symbol"], [])
-                hit = min(c, key=lambda x: abs(x[0] - k[1])) if c else None
-                if hit is None or hit[1] <= 0:
+                m0 = min(c, key=lambda x: abs(x[0] - k[1]))[0] if c else None
+                cand = [x for x in c if x[0] == m0] if c else []
+                tp, cx, ep = float(r["tape_press_lots"]), float(r["cxl_lots"]), float(r["entry_px"])
+                if not cand or all(x[1] <= 0 for x in cand):
                     d["no_lvl"] += 1
+                elif len({(x[1], x[2]) for x in cand}) == 1:   # однозначно (один уровень или дубль строки)
+                    deltas.append(abs(m0 - k[1]))
+                    d["tape"].append(tp / cand[0][1])
+                    d["cxl"].append(cx / cand[0][1])
+                    if len(cand) == 1:
+                        ratios[r["symbol"]].append(ep / cand[0][2])
                 else:
-                    deltas.append(abs(hit[0] - k[1]))
-                    d["tape"].append(float(r["tape_press_lots"]) / hit[1])
-                    d["cxl"].append(float(r["cxl_lots"]) / hit[1])
+                    pend.append((mo, r["symbol"], ep, cand, tp, cx, abs(m0 - k[1])))
                 if r["reason"] == "deadline":
                     d["dl"] += 1
                     if r["chase_wait_ms"].strip():
@@ -67,6 +75,28 @@ for mo in sorted(keys):
                     else:
                         d["dl_nowait"] += 1
     d["missing_in_w"] = len(keys[mo] - seen)
+amb = {"n": len(pend), "resolved": 0, "unresolved": 0, "no_tick": 0}
+for mo, sym, ep, cand, tp, cx, dl_ in pend:
+    t = statistics.median(ratios[sym]) if ratios[sym] else None
+    if t is None:
+        amb["no_tick"] += 1
+        by[mo]["no_lvl"] += 1
+        continue
+    ok = [x for x in cand if abs(x[2] * t - ep) < t / 2 and x[1] > 0]
+    if ok and len({x[1] for x in ok}) == 1:
+        deltas.append(dl_)
+        by[mo]["tape"].append(tp / ok[0][1])
+        by[mo]["cxl"].append(cx / ok[0][1])
+        amb["resolved"] += 1
+    else:
+        amb["unresolved"] += 1   # цена не нашлась или двузначна — вне популяции
+        by[mo]["no_lvl"] += 1
+# проверка гипотезы «entry_px = price_tick * шаг» на однозначных сделках (отклонение от медианы шага символа < 1e-6)
+tick_n = tick_ok = 0
+for rs in ratios.values():
+    t = statistics.median(rs)
+    tick_n += len(rs)
+    tick_ok += sum(1 for q in rs if abs(q / t - 1) < 1e-6)
 os.makedirs(OUT, exist_ok=True)
 months = sorted(by)
 summ = []
@@ -95,6 +125,7 @@ per = {m: {k: by[m][k] for k in ("n_keys", "n_rounds", "missing_in_w", "no_lvl",
 dd = sorted(deltas)
 json.dump({"summary": summ, "per_month": per,
            "lvl_match_delta_ms": {"n": len(dd), "p50": dd[len(dd) // 2] if dd else None, "p99": dd[int(len(dd) * .99)] if dd else None,
-                                  "max": dd[-1] if dd else None, "exact": sum(1 for x in dd if x == 0)}},
+                                  "max": dd[-1] if dd else None, "exact": sum(1 for x in dd if x == 0)},
+           "ambiguous_by_price": amb, "tick_check": {"n": tick_n, "ratio_equals_median": tick_ok}},
           open(f"{OUT}/summary.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 open(f"{OUT}/thresholds.done", "w").write("ok")
