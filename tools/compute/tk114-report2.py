@@ -9,14 +9,15 @@ OUT = "v2"
 MO = [f"2026-{m:02d}" for m in range(1, 10)]
 split = json.load(open("docs/findings/p13-split-2026-10-09.json", encoding="utf-8"))
 HALF = {s: h for h in "AB" for s in split[h]}
+def trades(d, f):
+    """Сделки (мс, $, символ) формы f из closessym-файла — общий разбор для load и full (С-60)."""
+    return [(int(a), float(b), s) for per in d.get(f, {}).values() for lst in per.values() for a, b, s in lst]
 def load(root, cap):
     out = {c: [] for c in F}
     for m in MO:
         d = json.load(open(f"{root}/closessym-cap{cap}-{m}.json"))
         for c, f in F.items():
-            for per in d.get(f, {}).values():
-                for lst in per.values():
-                    out[c] += [(int(a), float(b), s) for a, b, s in lst]
+            out[c] += trades(d, f)
     return out
 day = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%Y-%m-%d")
 rows = []; L = []
@@ -65,8 +66,7 @@ def full(root, cap):
         for pre, cs in (("", ["g93-u1-K3"]), ("b1-", ["B1"])):
             d = json.load(open(f"{root}/{pre}closessym-cap{cap}-{m}.json"))
             for c in cs:
-                for per in d.get(F[c], {}).values():
-                    for lst in per.values(): out[c] += [(int(a), float(b), s) for a, b, s in lst]
+                out[c] += trades(d, F[c])
     return out
 def peak(root, cap):
     r = {}
