@@ -41,7 +41,7 @@ case "$WHAT" in
   gate)   CMD="$(all_cmd "") && $(all_cmd "--features r2")" ;;
   # TK-132 (А1 §0): настоящая метрика — clippy cognitive_complexity (порог 15) и too_many_lines; код не меняется,
   # clippy.toml пишется только в одноразовую копию дерева на VPS. Вывод: «функция @ файл:строка», по алфавиту
-  complexity) CMD="printf 'cognitive-complexity-threshold = 15\n' > clippy.toml && cargo clippy --release $FEAT --target-dir $TGT --all-targets -j 3 -- -W clippy::cognitive_complexity -W clippy::too_many_lines 2>&1 | grep -E -A1 \"cognitive complexity of|too many lines\" | grep -E \"cognitive complexity of|too many lines|-->\" | paste - - | sed 's/ *--> */ @ /' | sort | tail -150" ;;
+  complexity) CMD="echo cognitive-complexity-threshold = 15 > clippy.toml && cargo clippy --release $FEAT --target-dir $TGT --all-targets -j 3 -- -W clippy::cognitive_complexity -W clippy::too_many_lines 2>&1 | grep -E -A1 \"cognitive complexity of|too many lines\" | grep -E \"cognitive complexity of|too many lines|-->\" | paste - - | sed -E \"s/ *--> */ @ /\" | sort | tail -150" ;;
   *) echo "неизвестно: $WHAT"; exit 2 ;;
 esac
 # shellcheck disable=SC2029
