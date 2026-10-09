@@ -465,6 +465,8 @@ pub struct PyramidCfg {
     /// Г-114 (`halflevel`): половина закрывается по рынку при первой сделке ленты за `level_px` стены входа
     /// (лонг — ниже, шорт — выше); остаток без стопа `pct2`.
     pub half_level: bool,
+    /// Г-114: доля закрываемого в четвертях (`halfstopf1` → 1, `f3` → 3); `0` — как `2` (половина, умолчание).
+    pub half_q4: u8,
     /// Г-117 (`tsl<G>t<Q>`): тейк сползает к безубытку `take(t) = take − (take − floor)·min(1, (t/T)^γ)`,
     /// `γ = sched_g10 / 10`, `T = sched_t4 / 4 · deadline`; `sched_g10 = 0` — выключено. Нужен `trail_bps = 0`.
     pub sched_g10: u8,
@@ -485,6 +487,7 @@ impl PyramidCfg {
         newwall_u3: 0,
         half_stop: false,
         half_level: false,
+        half_q4: 0,
         sched_g10: 0,
         sched_t4: 0,
         converge_tol1: 0,
@@ -2679,6 +2682,11 @@ where
             let eaten_half_hit =
                 eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
             let half_stop = pyr.half_stop;
+            let half_frac = if pyr.half_q4 == 0 {
+                0.5
+            } else {
+                f64::from(pyr.half_q4) / 4.0
+            };
             let converge_hit = if pyr.converge_tol1 > 0 && level_px > 0.0 && tick_px > 0.0 {
                 let dmax_bps =
                     sigma_sign * (state.best_favourable - level_px) / level_px * 10_000.0;
@@ -2696,7 +2704,7 @@ where
                 && (state.level_broken || (stop_hit && plain_stop));
             let stop_hit = stop_hit && !(half_level && plain_stop);
             if level_half_hit {
-                (ExitAt::Market, ExitReason::Stop, 0.5)
+                (ExitAt::Market, ExitReason::Stop, half_frac)
             } else if stop_hit {
                 // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
                 let reason = if gone.stop_px != stop_px {
@@ -2704,7 +2712,11 @@ where
                 } else {
                     ExitReason::Stop
                 };
-                let frac = if half_stop && plain_stop { 0.5 } else { 1.0 };
+                let frac = if half_stop && plain_stop {
+                    half_frac
+                } else {
+                    1.0
+                };
                 (ExitAt::Taker(gone.stop_px), reason, frac)
             } else if gone.stop_hard_exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
