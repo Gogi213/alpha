@@ -25,10 +25,13 @@ lvl = {}
 def load_lvl(mo, day):
     if day in lvl:
         return lvl[day]
+    lvl.clear()   # память: один день за раз (файл суток до 10 МБ), только символы B1 месяца
+    syms = {k[0] for k in keys[mo]}
     d = defaultdict(list)
     try:
         for r in csv.DictReader(open(f"{LV}/m-{MON[int(mo[5:]) - 1]}/lvl/{day}.csv", encoding="utf-8")):
-            d[r["symbol"]].append((int(float(r["arm_ms"])), float(r["size_at_arm"] or 0)))
+            if r["symbol"] in syms:
+                d[r["symbol"]].append((int(float(r["arm_ms"])), float(r["size_at_arm"] or 0)))
     except FileNotFoundError:
         pass
     lvl[day] = d
