@@ -537,6 +537,10 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
         }
     )
     };
+    anyhow::ensure!(
+        args.tape_log.is_none() || crate::lob::strategy::R2,
+        "--tape-log: журнал ленты только в сборке с feature r2"
+    );
     crate::lob::strategy::set_tape_log_secs(args.tape_log.unwrap_or(0));
     let mut outs: Vec<Outputs> = Vec::with_capacity(sets.len());
     for set in sets.iter() {
