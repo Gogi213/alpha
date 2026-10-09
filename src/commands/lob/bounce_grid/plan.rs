@@ -579,6 +579,7 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             "forms={}",
             forms.iter().map(|f| f.label).collect::<Vec<_>>().join(",")
         )?;
+        write_env_flags(&mut m)?;
     }
     if !args.sets.is_empty() {
         let mut m = std::fs::File::create(args.out_dir.join("manifest.txt"))?;
@@ -593,8 +594,31 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
         for spec in &args.sets {
             writeln!(m, "set={spec}")?;
         }
+        write_env_flags(&mut m)?;
     }
     Ok(outs)
+}
+
+/// С-06 (ревью 10.10): поведение счёта задаётся env `ALPHA_*` — снимок всех в манифест прогона
+/// (`env_count=<n>` и по строке `env:ALPHA_X=значение`, по имени), чтобы выход говорил, чем он посчитан.
+fn write_env_flags(m: &mut impl Write) -> std::io::Result<()> {
+    let lines = env_flag_lines(std::env::vars_os());
+    writeln!(m, "env_count={}", lines.len())?;
+    for l in lines {
+        writeln!(m, "{l}")?;
+    }
+    Ok(())
+}
+
+pub(super) fn env_flag_lines(
+    vars: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> Vec<String> {
+    let mut v: Vec<String> = vars
+        .filter(|(k, _)| k.to_string_lossy().starts_with("ALPHA_"))
+        .map(|(k, val)| format!("env:{}={}", k.to_string_lossy(), val.to_string_lossy()))
+        .collect();
+    v.sort();
+    v
 }
 
 /// Г-07 (TK-012): `" behind_min=<%> stack_min=<n>"` — только заданные ключи; без них пусто.

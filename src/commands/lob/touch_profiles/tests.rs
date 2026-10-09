@@ -523,3 +523,19 @@ fn preregistered_window_excludes_days_outside_it() {
     assert_eq!(runs.len(), ids_with_touches(&table).len());
     assert_eq!(summary.trials, runs.len());
 }
+
+/// K1 (С-26): корень только из несверенных суток и без `--allow-unverified` — касаний нет.
+#[test]
+fn only_unverified_days_without_allow_flag_give_no_touches() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_instruments_csv(root, &[(SYMBOL, 5)]);
+    write_session_dir(&root.join("s1"), "2026-09-01", false, &four_touch_frames());
+    let out = root.join("touch-profiles.csv");
+    let mut args = battle_args(root, out, "2026-09-01", "2026-09-01");
+    args.allow_unverified = false;
+    if let Ok(summary) = run_touch_profiles(&args) {
+        assert_eq!(summary.touches, 0, "несверенные сутки не читаются");
+        assert!(!summary.debug);
+    }
+}

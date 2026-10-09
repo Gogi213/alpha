@@ -34,7 +34,8 @@ pub(super) fn bin_path(csv: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-pub(super) fn stamp(csv: &Path) -> Option<(u64, u64)> {
+/// Штамп файла «размер + mtime в нс» — общий для кэшей `.abin`/`.tbin` и сайдкаров счёта событий.
+pub(crate) fn stamp(csv: &Path) -> Option<(u64, u64)> {
     let m = std::fs::metadata(csv).ok()?;
     let t = m.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some((

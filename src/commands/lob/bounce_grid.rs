@@ -1385,4 +1385,6 @@ fn e2e_counters() -> [u64; 13] {
 }
 
 #[cfg(test)]
+mod carry_tests;
+#[cfg(test)]
 mod tests;

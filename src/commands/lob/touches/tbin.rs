@@ -120,7 +120,7 @@ pub(super) fn encode_file(rows: &[TouchRow], len: u64, mtime: u64) -> Option<Vec
             }
         }
     }
-    let level = std::env::var("ALPHA_APPROACH_BIN_LEVEL")
+    let level = std::env::var("ALPHA_TOUCH_BIN_LEVEL")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_LEVEL);
