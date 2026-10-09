@@ -13,7 +13,7 @@ ENTRIES = ['ladder3x0.00409..0.02045sw2', 'ladder3x0.00409..0.0818sw2', 'ladder3
            'ladder3x0.010225..0.0818sw2', 'ladder3x0.00409..0.0409sw2', 'ladder3x0.010225..0.0409sw2',
            'ladder3x0..0.02045sw2', 'ladder3x0..0.0818sw2']
 B_FORMS = [f'{e}-pct2-tr1x1-14400-ttl1800' for e in ENTRIES]
-NEED = {'2a': (241, 0), '2b': (0, 241), '4': (360, 363)} if UNIFORM else {1: (0, 0), 2: (120, 121), 4: (360, 363)}
+NEED = {'2a': (241, 0), '2b': (0, 241), '4': (360, 363), '12': (None, 1325)} if UNIFORM else {1: (0, 0), 2: (120, 121), 4: (360, 363)}  # K-9: x12 = 2650 добавок, B до 1325, остальное A
 for d in days:
     base = f'{src}/jall-jan-2026-01-{d}'
     cells = [l.rstrip('\n') for l in open(base + '.txt') if l.strip()]
@@ -33,6 +33,9 @@ for d in days:
         random.Random(f'k8u-{d}').shuffle(PB)
     sh = open(base + '.sh').read().split('\n')
     for k, (na, nb) in NEED.items():
+        if na is None:  # x12: всего 2650 добавок
+            nb = min(nb, len(PB))
+            na = 2650 - nb
         add = PA[:na] + PB[:nb]
         assert len(add) == na + nb, (len(PA), len(PB))
         os.makedirs(f'{out}/x{k}', exist_ok=True)
