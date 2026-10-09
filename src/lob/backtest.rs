@@ -3227,6 +3227,10 @@ where
                 step
             }
             None => {
+                if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eff().wall2 > 0)
+                {
+                    WALL2_SOLO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 let id_base = next_id;
                 let carry_base = carry;
                 let mut attempt = 0u32;
@@ -3609,6 +3613,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
     cfg: &DriveConfig,
     exec_latency: ExecLatency,
     buf: &mut Vec<Event>,
+    walls: Option<&[WallEvent]>,
 ) -> Result<Option<Vec<SignalStep>>, BacktestError> {
     let Some(w) = windows.window_at(rep.t0_ns) else {
         return Ok(None);
@@ -3670,7 +3675,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                             &mut gid,
                             &mut carries,
                             data_end,
-                            None,
+                            walls,
                         )
                     },
                 )?;
@@ -3722,6 +3727,16 @@ fn diag_add(i: usize, n: u64) {
     }
 }
 
+/// Г-65: в группе есть форма цели за второй стеной (`wall2`) — одиночная группа для неё допустима.
+fn group_has_wall2(g: &[(usize, BounceSignal)]) -> bool {
+    g.iter().any(
+        |(_, s)| matches!(s.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eff().wall2 > 0),
+    )
+}
+
+/// Г-65: круги `wall2*`, посчитанные сольным путём (без журнала стен → молча B1); не ноль — прогон суток отказывает.
+pub static WALL2_SOLO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Э-08 («один проход на вход», план принят Судьёй, reviews/e08-exit-group-plan-2026-09-27.md): круги
 /// группы форм считаются заранее одним движком на сигнал и кладутся в память кругов каждой формы — потом
 /// обычный драйвер (`drive_bounce_windowed_memo`) берёт их оттуда. Группа на сигнале — формы с равными
@@ -3737,6 +3752,7 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
     cfg: &DriveConfig,
     exec_latency: ExecLatency,
     memos: &mut [&mut RoundMemo],
+    walls: Option<&[WallEvent]>,
 ) -> Result<u64, BacktestError> {
     debug_assert_eq!(forms_signals.len(), memos.len());
     if cfg.busy_skip {
@@ -3761,7 +3777,9 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
                 diag_add(1, 1);
                 continue;
             }
-            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on()) {
+            // Г-65 (e65): форма цели за второй стеной считается только группой (журнал стен — при форке).
+            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on() && pyramid.eff().wall2 == 0)
+            {
                 continue;
             }
             let key = (sig.sigma, sig.qty, entry_part(sig.plan));
@@ -3774,12 +3792,23 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
             }
         }
         diag_add(2, parts.len() as u64);
-        for part in parts.into_iter().filter(|g| g.len() > 1) {
+        for part in parts
+            .into_iter()
+            .filter(|g| g.len() > 1 || group_has_wall2(g))
+        {
             diag_add(3, 1);
             let rep = part[0].1;
             let plans: Vec<TradePlan> = part.iter().map(|(_, s)| s.plan).collect();
-            let Some(steps) =
-                group_round_in_window(events, windows, &rep, &plans, cfg, exec_latency, &mut buf)?
+            let Some(steps) = group_round_in_window(
+                events,
+                windows,
+                &rep,
+                &plans,
+                cfg,
+                exec_latency,
+                &mut buf,
+                walls,
+            )?
             else {
                 diag_add(4, 1);
                 continue;
