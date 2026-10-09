@@ -636,6 +636,13 @@ struct WallBucket {
     max_qty: f64,
 }
 
+/// TK-115 Г-112: секундная корзина ленты — лоты агрессивных сделок против позиции в секунду `sec`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TapeBucket {
+    sec: i64,
+    lots: f64,
+}
+
 impl WallBucket {
     const EMPTY: WallBucket = WallBucket {
         sec: i64::MIN,
@@ -823,6 +830,8 @@ pub struct StrategyState {
     /// TK-014 `weat*`: кольцо секундных корзин ёмкостью `W`; выделяется при постановке плана и
     /// только у формы `weat*` (иначе `None` — прежний путь).
     wall_ring: Option<Box<[WallBucket]>>,
+    /// TK-115 Г-112: кольцо ленты против позиции (журнал `tape_press`); `None` — флаг выключен, прежний путь.
+    tape_ring: Option<Box<[TapeBucket]>>,
     /// R2 (TK-065): крупные массивы добавок и известных стен — в куче и только у плана с `pyramid.on()`:
     /// клон состояния на каждом событии удержания (откат `fast_hold`) не таскает ≈ 200 Б, когда R2 выключен.
     r2: Option<Box<R2Bufs>>,
@@ -1003,6 +1012,7 @@ impl StrategyState {
             orphan_exit_open: 0.0,
             orphan_fills: 0,
             orphan_overflow: 0,
+            tape_ring: None,
             wall_ring: match plan {
                 TradePlan::Bounce { wall_eat, .. } if wall_eat.on() => {
                     Some(vec![WallBucket::EMPTY; wall_eat.secs as usize].into_boxed_slice())
@@ -1010,6 +1020,59 @@ impl StrategyState {
                 _ => None,
             },
         }
+    }
+
+    /// TK-115 Г-112: включить кольцо ленты на `secs` секунд (журнал `[fill−W, fill]`); без вызова ничего не меняется.
+    pub fn enable_tape(&mut self, secs: u32) {
+        self.tape_ring = Some(
+            vec![
+                TapeBucket {
+                    sec: i64::MIN,
+                    lots: 0.0
+                };
+                secs.max(1) as usize
+            ]
+            .into_boxed_slice(),
+        );
+    }
+
+    /// TK-115 Г-112: сделки этого шага, бьющие **против** позиции (лонг — продажи тейкера), в корзины секунд.
+    fn record_tape(&mut self, trades: &[Event]) {
+        let Some(entry_side) = entry_side(self.sigma) else {
+            return;
+        };
+        let want = if entry_side == HbtSide::Buy {
+            EXCH_SELL_TRADE_EVENT
+        } else {
+            EXCH_BUY_TRADE_EVENT
+        };
+        let Some(ring) = self.tape_ring.as_mut() else {
+            return;
+        };
+        for t in trades.iter().filter(|t| t.ev & want == want) {
+            let sec = t.exch_ts.div_euclid(1_000_000_000);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let i = sec.rem_euclid(ring.len() as i64) as usize;
+            let b = &mut ring[i];
+            if b.sec != sec {
+                *b = TapeBucket { sec, lots: 0.0 };
+            }
+            b.lots += t.qty;
+        }
+    }
+
+    /// TK-115 Г-112: лоты против позиции за последние `W` секунд до `now` включительно. Без кольца — 0.
+    pub fn tape_press(&self, now: i64) -> f64 {
+        let Some(ring) = self.tape_ring.as_ref() else {
+            return 0.0;
+        };
+        let t = now.div_euclid(1_000_000_000);
+        #[allow(clippy::cast_possible_wrap)]
+        let lo = t - ring.len() as i64 + 1;
+        ring.iter()
+            .filter(|b| b.sec >= lo && b.sec <= t)
+            .map(|b| b.lots)
+            .sum()
     }
 
     /// Корзина секунды `sec` кольца `weat*` (обнуляется, если в ней лежала другая секунда).
@@ -1445,6 +1508,9 @@ impl StrategyState {
     /// никем — прохода по буферу нет, и числа прежних прогонов не меняются
     /// (на этом стоит гейт «те же круги»).
     pub fn observe_wall_trades(&mut self, trades: &[Event]) {
+        if self.tape_ring.is_some() {
+            self.record_tape(trades);
+        }
         let TradePlan::Bounce {
             level_px,
             tick_px,
@@ -1744,7 +1810,11 @@ impl StrategyState {
             return None;
         };
         // TK-014 `weat*`: окно съедания и ход BTC меняются со временем без событий — шаги не пропускаются.
-        if self.has_orphans() || self.wall_ring.is_some() || self.pyramid_on() {
+        if self.has_orphans()
+            || self.wall_ring.is_some()
+            || self.tape_ring.is_some()
+            || self.pyramid_on()
+        {
             return None;
         }
         let deadline = entry_ns.saturating_add(deadline_ns);
@@ -1773,7 +1843,11 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() || self.pyramid_on() {
+        if self.has_orphans()
+            || self.wall_ring.is_some()
+            || self.tape_ring.is_some()
+            || self.pyramid_on()
+        {
             return None;
         }
         let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
@@ -1812,7 +1886,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_ring.is_some() {
             return None;
         }
         #[allow(clippy::cast_possible_truncation)]
@@ -1849,7 +1923,11 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() || self.pyramid_on() {
+        if self.has_orphans()
+            || self.wall_ring.is_some()
+            || self.tape_ring.is_some()
+            || self.pyramid_on()
+        {
             return None;
         }
         let held = |entry_ns: i64| {

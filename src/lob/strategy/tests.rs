@@ -35,6 +35,24 @@ fn depth_ev(bid: bool) -> u64 {
     }
 }
 
+/// TK-115 Г-112: кольцо ленты считает только сделки против позиции в окне `W`; без включения — 0.
+#[test]
+fn tape_press_counts_adverse_trades_in_window() {
+    let mut state = StrategyState::new(0, SIGMA_LONG, 1.0, 1);
+    let trades = [
+        trade_at(101 * S, true, 99.0, 30.0), // продажа тейкера против лонга
+        trade_at(102 * S, false, 99.0, 900.0), // покупка — не против
+        trade_at(105 * S, true, 98.0, 20.0),
+    ];
+    state.observe_wall_trades(&trades);
+    assert_eq!(state.tape_press(106 * S), 0.0, "выключено");
+    state.enable_tape(10);
+    state.observe_wall_trades(&trades);
+    assert_eq!(state.tape_press(106 * S), 50.0);
+    // t = 112 с, W = 10: окно [103, 112] — сделка 101 с выпала.
+    assert_eq!(state.tape_press(112 * S), 20.0);
+}
+
 fn trade_ev(sell: bool) -> u64 {
     if sell {
         LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
