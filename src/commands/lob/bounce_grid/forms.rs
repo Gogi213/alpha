@@ -73,6 +73,8 @@ pub enum ExitForm {
     /// `wall2` / `wall2x` (TK-115, Г-65 `e65-t2`/`e65-t2x`): цель — вторая живая аск-стена (шорт — бид-стена) на момент исполнения входа
     /// из журнала стен, на тик перед ней / за ней; фиксированный тейк, `trail_bps = 0`; меньше двух стен — сделка = B1.
     Wall2 { behind: bool },
+    /// `chase<мс>` (TK-115, Г-133): на дедлайне мейкер-погоня вместо рынка, окно `W` мс; по истечении — рынок.
+    Chase { ms: u32 },
 }
 
 impl ExitForm {
@@ -109,6 +111,7 @@ impl ExitForm {
             ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::NoStop { x2 } => format!("nostop{x2}"),
+            ExitForm::Chase { ms } => format!("chase{ms}"),
             ExitForm::Wall2 { behind } => format!("wall2{}", if *behind { "x" } else { "" }),
             ExitForm::WallEat {
                 pct,
@@ -215,6 +218,7 @@ impl ExitForm {
                 | ExitForm::TakeSched { .. }
                 | ExitForm::Converge { .. }
                 | ExitForm::NoStop { .. }
+                | ExitForm::Chase { .. }
                 | ExitForm::Wall2 { .. }
         )
     }
@@ -253,6 +257,13 @@ impl ExitForm {
             return Ok(ExitForm::Wall2 {
                 behind: spec == "wall2x",
             });
+        }
+        if let Some(rest) = spec.strip_prefix("chase") {
+            let ms: u32 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается chase<мс>, окно W в миллисекундах")
+            })?;
+            anyhow::ensure!(ms > 0, "chase<мс>: окно W > 0");
+            return Ok(ExitForm::Chase { ms });
         }
         if let Some(rest) = spec.strip_prefix("nostop") {
             let x2: u8 = rest.parse().map_err(|_| {

@@ -240,6 +240,8 @@ pub struct Fill {
     pub tape_press: f64,
     /// TK-115 Г-116: отмены нашей стороны между стопом и рынком за `W` с до исполнения входа; 0 — кольцо выключено.
     pub cxl_press: f64,
+    /// TK-115 Г-133: ожидание исполнения лимиткой погони, нс; −1 — погони не было или вышли рынком.
+    pub chase_wait_ns: i64,
 }
 
 /// Чистый результат круга в bps: направленная доходность минус комиссии
@@ -1876,6 +1878,7 @@ where
                         fill_by_cross,
                         tape_press: state.tape_at_fill(),
                         cxl_press: state.cxl_at_fill(),
+                        chase_wait_ns: state.chase_wait_ns(),
                     },
                     exit_ts,
                     reason,
@@ -2076,6 +2079,7 @@ where
             fill_by_cross,
             tape_press: 0.0,
             cxl_press: 0.0,
+            chase_wait_ns: -1,
         },
         exit_ts,
         reason,
@@ -2473,6 +2477,7 @@ where
                 if let RoundOutcome::Filled { fill, .. } = &mut out {
                     fill.tape_press = states[i].tape_at_fill();
                     fill.cxl_press = states[i].cxl_at_fill();
+                    fill.chase_wait_ns = states[i].chase_wait_ns();
                 }
                 outcome[i] = Some(out);
             }

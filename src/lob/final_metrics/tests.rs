@@ -371,6 +371,7 @@ fn per_trade_net_uses_backtest_roundtrip_without_copying_it() {
         fill_by_cross: false,
         tape_press: 0.0,
         cxl_press: 0.0,
+        chase_wait_ns: -1,
     };
     let fills = [fill(1, 100.0, 101.0), fill(1, 100.0, 99.0)];
     let nets = per_trade_net_bps(&fills).unwrap();

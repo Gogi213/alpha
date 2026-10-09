@@ -895,6 +895,7 @@ fn fill(dir: i8, entry_px: f64, exit_px: f64) -> crate::lob::backtest::Fill {
         fill_by_cross: false,
         tape_press: 0.0,
         cxl_press: 0.0,
+        chase_wait_ns: -1,
     }
 }
 

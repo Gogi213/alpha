@@ -2564,6 +2564,7 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             fill_by_cross: false,
             tape_press: 0.0,
             cxl_press: 0.0,
+            chase_wait_ns: -1,
         },
         crate::lob::backtest::Fill {
             dir: 1,
@@ -2579,6 +2580,7 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             fill_by_cross: false,
             tape_press: 0.0,
             cxl_press: 0.0,
+            chase_wait_ns: -1,
         },
     ];
     run.fill_reason = vec![
@@ -4068,4 +4070,17 @@ fn wall_log_reads_day_file_and_refuses_when_missing() {
     assert_eq!(ev.iter().map(|e| e.ts_ms).collect::<Vec<_>>(), [100, 200]);
     assert!(ev[0].wall && !ev[1].wall);
     assert!(super::cache::cached_walls(dir.path(), "ETHUSDT", "2026-01-05").is_err());
+}
+
+/// TK-115 (Г-133): `chase<мс>` — окно в миллисекундах, ноль и мусор — отказ.
+#[cfg(feature = "r2")]
+#[test]
+fn chase_form_parses_window_in_ms() {
+    assert_eq!(
+        ExitForm::parse("chase2500").unwrap(),
+        ExitForm::Chase { ms: 2500 }
+    );
+    assert_eq!(ExitForm::Chase { ms: 2500 }.label(), "chase2500");
+    assert!(ExitForm::parse("chase0").is_err());
+    assert!(ExitForm::parse("chase").is_err());
 }

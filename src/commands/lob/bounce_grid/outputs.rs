@@ -299,6 +299,7 @@ impl Outputs {
             let mut names: Vec<&str> = ROUNDS_HEADER.to_vec();
             names.push("tape_press_lots");
             names.push("cxl_lots");
+            names.push("chase_wait_ms");
             rounds.write_record(names)?;
         } else {
             rounds.write_record(ROUNDS_HEADER)?;
@@ -404,6 +405,11 @@ impl Outputs {
             if self.with_tape {
                 row.push(format!("{:.6}", fill.tape_press));
                 row.push(format!("{:.6}", fill.cxl_press));
+                row.push(if fill.chase_wait_ns < 0 {
+                    String::new()
+                } else {
+                    format!("{:.3}", fill.chase_wait_ns as f64 / 1e6)
+                });
             }
             self.rounds.write_record(row)?;
         }

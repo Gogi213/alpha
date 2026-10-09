@@ -393,6 +393,12 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
+                crate::commands::lob::bounce_grid::ExitForm::Chase { ms } => {
+                    crate::lob::strategy::PyramidCfg {
+                        chase_ms: ms,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
                 crate::commands::lob::bounce_grid::ExitForm::NoStop { x2 } => {
                     crate::lob::strategy::PyramidCfg {
                         nostop_x2: x2,
