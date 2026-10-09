@@ -238,6 +238,8 @@ pub struct Fill {
     pub fill_by_cross: bool,
     /// TK-115 Г-112: лоты ленты против позиции за `W` с до исполнения входа (`enable_tape`); 0 — кольцо выключено.
     pub tape_press: f64,
+    /// TK-115 Г-116: отмены нашей стороны между стопом и рынком за `W` с до исполнения входа; 0 — кольцо выключено.
+    pub cxl_press: f64,
 }
 
 /// Чистый результат круга в bps: направленная доходность минус комиссии
@@ -1690,6 +1692,11 @@ where
         // отдаются стратегии: F7 (Б-75) считает по ним съеденное в стену, а
         // заново буфер не открывается — считаем ровно один раз на шаг.
         if entry_pending == 0 && !skip_step {
+            state.observe_cancels(
+                bot.depth(asset_no),
+                bot.last_trades(asset_no),
+                bot.current_timestamp(),
+            );
             state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
@@ -1732,6 +1739,11 @@ where
     // Буфер сделок очищается и на выходе из круга: сигналы бывают встык
     // (`t0` не двигает часы), и сделки прошлого круга не должны решать вердикт
     // следующего. Сделки последнего шага перед этим отдаются стратегии (F7).
+    state.observe_cancels(
+        bot.depth(asset_no),
+        bot.last_trades(asset_no),
+        bot.current_timestamp(),
+    );
     state.observe_wall_trades(bot.last_trades(asset_no));
     bot.clear_last_trades(Some(asset_no));
     if timed_out {
@@ -1863,6 +1875,7 @@ where
                         legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
                         fill_by_cross,
                         tape_press: state.tape_at_fill(),
+                        cxl_press: state.cxl_at_fill(),
                     },
                     exit_ts,
                     reason,
@@ -2062,6 +2075,7 @@ where
             legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, saved),
             fill_by_cross,
             tape_press: 0.0,
+            cxl_press: 0.0,
         },
         exit_ts,
         reason,
@@ -2196,6 +2210,11 @@ where
             }
         }
         if entry_pending == 0 {
+            entry_state.observe_cancels(
+                bot.depth(asset_no),
+                bot.last_trades(asset_no),
+                bot.current_timestamp(),
+            );
             entry_state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
@@ -2398,6 +2417,11 @@ where
         if entry_pending == 0 {
             for (i, s) in states.iter_mut().enumerate() {
                 if outcome[i].is_none() {
+                    s.observe_cancels(
+                        bot.depth(asset_no),
+                        bot.last_trades(asset_no),
+                        bot.current_timestamp(),
+                    );
                     s.observe_wall_trades(bot.last_trades(asset_no));
                 }
             }
@@ -2448,6 +2472,7 @@ where
                 };
                 if let RoundOutcome::Filled { fill, .. } = &mut out {
                     fill.tape_press = states[i].tape_at_fill();
+                    fill.cxl_press = states[i].cxl_at_fill();
                 }
                 outcome[i] = Some(out);
             }

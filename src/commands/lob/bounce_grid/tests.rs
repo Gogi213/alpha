@@ -2563,6 +2563,7 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             legs_rejected: 0,
             fill_by_cross: false,
             tape_press: 0.0,
+            cxl_press: 0.0,
         },
         crate::lob::backtest::Fill {
             dir: 1,
@@ -2577,6 +2578,7 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             legs_rejected: 0,
             fill_by_cross: false,
             tape_press: 0.0,
+            cxl_press: 0.0,
         },
     ];
     run.fill_reason = vec![

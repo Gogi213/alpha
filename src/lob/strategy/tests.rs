@@ -54,6 +54,29 @@ fn tape_press_counts_adverse_trades_in_window() {
     assert_eq!(state.tape_press(112 * S), 20.0);
 }
 
+/// TK-115 Г-116: отмены = убыль уровня нашей стороны минус сделки против на той же цене; рост и сделки не считаются.
+#[cfg(feature = "r2")]
+#[test]
+fn cxl_press_counts_unexplained_depth_drop() {
+    use hftbacktest::depth::L2MarketDepth;
+    let mut d = FastMarketDepth::new(1.0, 1.0);
+    d.update_bid_depth(99.0, 50.0, 0);
+    d.update_bid_depth(98.0, 40.0, 0);
+    d.update_ask_depth(101.0, 10.0, 0);
+    let plan = f4_plan(96.0, 103.0, false, 60 * S, 1.0);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
+    state.enable_tape(10);
+    state.observe_cancels(&d, &[], 100 * S); // первый снимок — отмен нет
+    d.update_bid_depth(99.0, 30.0, 0); // -20: 5 съела сделка, 15 отмена
+    d.update_bid_depth(98.0, 60.0, 0); // рост — не отмена
+    state.observe_cancels(&d, &[trade_at(101 * S, true, 99.0, 5.0)], 101 * S);
+    assert!(close(state.cxl_press(101 * S), 15.0));
+    d.update_bid_depth(98.0, 10.0, 0); // -50 без сделок
+    state.observe_cancels(&d, &[], 103 * S);
+    assert!(close(state.cxl_press(103 * S), 65.0));
+    assert!(close(state.cxl_press(120 * S), 0.0), "окно W=10 прошло");
+}
+
 fn trade_ev(sell: bool) -> u64 {
     if sell {
         LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
