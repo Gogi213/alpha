@@ -164,7 +164,6 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         exit_group: "off".to_string(),
         p08_cols: false,
         r1_cols: false,
-        wall_log: false,
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
