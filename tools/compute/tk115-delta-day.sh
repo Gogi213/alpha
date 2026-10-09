@@ -6,6 +6,8 @@ set -uo pipefail
 lab=$1; MON=$2; d=$3
 BIN=${BIN:-/opt/alpha-compute/bin/alpha-b26tk115r2}; TP=${TP:-4}; GT=${GT:-2}
 H=/data/tk046/$MON/home; E=$H/alpha/epochs/e-$MON; O=/data/tk0115/delta/$lab; V=/data/tk044/final3/verdict.csv
+# заявка суток (два задания делят хвост волны без повторного счёта): готовые, идущие и занятые другим заданием — пропуск
+mkdir -p "$O"; if [ -e "$O/done" ] || [ -d "$O/w-$d" ] || ! mkdir "$O/claim" 2>/dev/null; then exit 0; fi
 mkdir -p "$O/log" "$O/signals/$d" "$O/e106/$d" "$O/walls/$d" "$O/wallsref/$d"; : > "$O/fail.txt"
 export HOME=$H BIN O TP
 syms=$(awk -F, -v m="$MON" -v d="$d" 'NR>1 && $1==m && $2==d{print $3}' /data/tk0115/delta/b1-symdays.csv | sort -u)
