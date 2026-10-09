@@ -15,12 +15,16 @@ import os
 import sys
 from collections import defaultdict
 
-O = sys.argv[1]
-WITH_G95 = "--g95" in sys.argv[2:]
+import argparse
+_ap = argparse.ArgumentParser(); _ap.add_argument("root"); _ap.add_argument("--g95", action="store_true")
+_ap.add_argument("--drop", default=os.environ.get("EXPO_DROP", ""), help="= EXPO_DROP"); _ap.add_argument("--out", default=os.environ.get("EXPO_OUT"), help="= EXPO_OUT")
+_a = _ap.parse_args()   # С-61: аргументы, умолчание = прежнее окружение
+O = _a.root
+WITH_G95 = _a.g95
 # TK-113/В-210: EXPO_DROP=SYM,SYM — не считать срабатывания и m по этим монетам; EXPO_OUT=<файл> — писать только expo.json туда (деревья vn-b не трогать:
 # m по сделке от состава пула не зависит, vn-b после --drop уже верны)
-DROP = set(filter(None, os.environ.get("EXPO_DROP", "").split(",")))
-EXPO_OUT = os.environ.get("EXPO_OUT")
+DROP = set(filter(None, _a.drop.split(",")))
+EXPO_OUT = _a.out
 B1 = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 B3 = "ladder3x0..0.0409sw2-pct2-1to1-14400-ttl1800"
 FAM = {"pyre": "g92", "pynw": "g93", "pyeat": "g94", "pyfresh": "g87", "conv": "e119", "halfstop": "e114", "halflevel": "e114", "tsl": "e117"}
