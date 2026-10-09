@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""TK-120 (v2, возврат Судьи 00:38): пороги R2-B из готовых rounds.csv замера W — только сделки B1 R2 (ключи 2750 из p12-r2b-b1keys.py),
+"""TK-120 (v5: уровень сделки — по price_tick из signals.csv): пороги R2-B из готовых rounds.csv замера W — только сделки B1 R2 (ключи 2750 из p12-r2b-b1keys.py),
 лоты e112/e116 делятся на level_qty (= size_at_arm, /data/tk064/pool/m-<мес>/lvl/<сутки>.csv; 0/нет — вне популяции, спека :113).
+Уровень сделки: (symbol, t0_ms) -> price_tick из <lvl-корень>/m-<мес>/signals[-retry]/<сутки>/t-bid-btc4h-q1/signals.csv; строка lvl — по (symbol, arm_ms, price_tick). Нет price_tick / строки / size<=0 — вне популяции.
 Расширяющееся окно: месяц m — сделки B1 всех ПРЕДЫДУЩИХ полных месяцев; январь — по самому январю (PRECEDENTS 61b2aabd).
 Мера e112 = tape_press_lots (30 с до исполнения входа) / level_qty, e116 = cxl_lots / level_qty; q33/q67 — ближайший ранг (как R1, tk064-r1cells).
 W (e133) = медиана chase_wait_ms по сделкам B1 с определённой величиной; < 1000 мс — «не определена» (Г-133). W не нормируется.
@@ -38,10 +39,28 @@ def load_lvl(mo, day):
     return d
 
 
+sigs = {}
+
+
+def load_sig(mo, day):
+    if day in sigs:
+        return sigs[day]
+    sigs.clear()
+    d = {}
+    for sub in ("signals", "signals-retry"):
+        try:
+            with open(f"{LV}/m-{MON[int(mo[5:]) - 1]}/{sub}/{day}/t-bid-btc4h-q1/signals.csv", encoding="utf-8") as ih:
+                for r in csv.DictReader(l for l in ih if not l.startswith("#")):
+                    d[(r["symbol"], int(r["t0_ns"]) // 1000000)] = int(float(r["price_tick"]))
+        except FileNotFoundError:
+            pass
+    sigs[day] = d
+    return d
+
+
 by = {}
 deltas = []
-ratios = defaultdict(list)   # entry_px / price_tick по однозначным сделкам -> шаг цены символа
-pend = []                   # сделки, где в тот же мс взведено несколько уровней: уровень — по цене (верхняя ступень = entry_px)
+amb = {"no_signal_tick": 0, "no_lvl_row": 0, "same_key_diff_size": 0}
 for mo in sorted(keys):
     d = by[mo] = {"tape": [], "cxl": [], "w": [], "n_keys": len(keys[mo]), "n_rounds": 0, "no_lvl": 0, "dl": 0, "dl_nowait": 0}
     seen = set()
@@ -55,19 +74,22 @@ for mo in sorted(keys):
                 seen.add(k)
                 d["n_rounds"] += 1
                 c = load_lvl(mo, day).get(r["symbol"], [])
-                m0 = min(c, key=lambda x: abs(x[0] - k[1]))[0] if c else None
-                cand = [x for x in c if x[0] == m0] if c else []
-                tp, cx, ep = float(r["tape_press_lots"]), float(r["cxl_lots"]), float(r["entry_px"])
-                if not cand or all(x[1] <= 0 for x in cand):
+                pt = load_sig(mo, day).get(k)
+                cand = [x for x in c if pt is not None and x[0] == k[1] and x[2] == pt]
+                tp, cx = float(r["tape_press_lots"]), float(r["cxl_lots"])
+                if pt is None:
+                    amb["no_signal_tick"] += 1
+                elif not cand:
+                    amb["no_lvl_row"] += 1
+                elif len({x[1] for x in cand}) > 1:
+                    amb["same_key_diff_size"] += 1
+                    cand = []
+                if not cand or cand[0][1] <= 0:
                     d["no_lvl"] += 1
-                elif len({(x[1], x[2]) for x in cand}) == 1:   # однозначно (один уровень или дубль строки)
-                    deltas.append(abs(m0 - k[1]))
+                else:
+                    deltas.append(abs(cand[0][0] - k[1]))
                     d["tape"].append(tp / cand[0][1])
                     d["cxl"].append(cx / cand[0][1])
-                    if len(cand) == 1:
-                        ratios[r["symbol"]].append(ep / cand[0][2])
-                else:
-                    pend.append((mo, r["symbol"], ep, cand, tp, cx, abs(m0 - k[1])))
                 if r["reason"] == "deadline":
                     d["dl"] += 1
                     if r["chase_wait_ms"].strip():
@@ -75,33 +97,6 @@ for mo in sorted(keys):
                     else:
                         d["dl_nowait"] += 1
     d["missing_in_w"] = len(keys[mo] - seen)
-amb = {"n": len(pend), "resolved": 0, "unresolved": 0, "no_tick": 0, "tick_changed": 0}
-for mo, sym, ep, cand, tp, cx, dl_ in pend:
-    rs = ratios.get(sym)
-    t = statistics.median(rs) if rs else None
-    if t is None:
-        amb["no_tick"] += 1
-        by[mo]["no_lvl"] += 1
-        continue
-    if max(rs) / min(rs) - 1 > 1e-6:   # шаг цены символа менялся (В-172) — единого шага нет, вне популяции
-        amb["tick_changed"] += 1
-        by[mo]["no_lvl"] += 1
-        continue
-    ok = [x for x in cand if abs(x[2] * t - ep) < t / 2 and x[1] > 0]
-    if ok and len({x[1] for x in ok}) == 1:
-        deltas.append(dl_)
-        by[mo]["tape"].append(tp / ok[0][1])
-        by[mo]["cxl"].append(cx / ok[0][1])
-        amb["resolved"] += 1
-    else:
-        amb["unresolved"] += 1   # цена не нашлась или двузначна — вне популяции
-        by[mo]["no_lvl"] += 1
-# проверка гипотезы «entry_px = price_tick * шаг» на однозначных сделках (отклонение от медианы шага символа < 1e-6)
-tick_n = tick_ok = 0
-for rs in ratios.values():
-    t = statistics.median(rs)
-    tick_n += len(rs)
-    tick_ok += sum(1 for q in rs if abs(q / t - 1) < 1e-6)
 os.makedirs(OUT, exist_ok=True)
 months = sorted(by)
 summ = []
@@ -131,6 +126,6 @@ dd = sorted(deltas)
 json.dump({"summary": summ, "per_month": per,
            "lvl_match_delta_ms": {"n": len(dd), "p50": dd[len(dd) // 2] if dd else None, "p99": dd[int(len(dd) * .99)] if dd else None,
                                   "max": dd[-1] if dd else None, "exact": sum(1 for x in dd if x == 0)},
-           "ambiguous_by_price": amb, "tick_check": {"n": tick_n, "ratio_equals_median": tick_ok}},
+           "unresolved": amb},
           open(f"{OUT}/summary.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 open(f"{OUT}/thresholds.done", "w").write("ok")
