@@ -13,6 +13,12 @@ OUT = os.environ.get("P12_OUT", "2026-10-08")
 HEADS = {"p12-r1-analyze.py": "p12_r1_head.py", "p12-r2-analyze.py": "p12_r2_head.py", "tk083-kpi-analyze.py": "tk083_head.py"}
 
 
+def inputs_line():
+    """Неявные входы прогона (С-61): окружение P12_*, значения как их видит код. Пишется в шапку/рядом с выходом, чтобы число можно было воспроизвести."""
+    keys = ("P12_POOL_FROM", "P12_ONLY", "P12_OUT", "P12_DIR", "P12_TAG", "P12_MODE", "P12_SHARPE_CSV", "P12_NTR", "P12_DROP", "P12_ROWS_A")
+    return "входы: " + " ".join(f"{k}={os.environ[k]}" for k in keys if k in os.environ) + f" · окно пула {min(POOL)}…{max(POOL)}"
+
+
 def load_head(path, argv):
     """Голова скрипта-источника — модуль (<скрипт>-> HEADS), импортируется без exec (С-59); argv на время импорта подменяется и возвращается.
     path — модуль-голова или скрипт из HEADS (тогда берётся его голова рядом)."""

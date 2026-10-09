@@ -13,7 +13,7 @@ ext = ext-v171c-2026-10-09.csv; R1 B1 (фев–сен) = B1 из R2 (фев–�
 import csv, json, os, sys
 from collections import defaultdict
 import datetime as dt
-from p12lib import load_head, trials_effn
+from p12lib import inputs_line, load_head, trials_effn
 
 R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-a/", "data/tk113/ext/", "data/tk113/r1-v171c/"
 OUT = "docs/findings/monthly-pnl-v171c-2026-10-09"
@@ -199,7 +199,7 @@ def main():
     f = lambda v: "—" if v is None else f"{v:+.1f}"
     L = ["# Помесячная прибыль ($) по клеткам П-12, пул v171c, янв–сен 2026", "",
          "Описание, не вердикт и не новый счёт: готовые закрытия сделок, сгруппированные по месяцу закрытия (UTC). "
-         "Скрипт `tools/compute/monthly-pnl.py`, таблица CSV — `docs/findings/monthly-pnl-v171c-2026-10-09.csv`.", "",
+         "Скрипт `tools/compute/monthly-pnl.py`, таблица CSV — `docs/findings/monthly-pnl-v171c-2026-10-09.csv`.", "", f"_{inputs_line()}_", "",
          "- **Окно:** 01.01–30.09.2026 (В-211); октябрь (до 02.10, неполный) — отдельным справочным столбцом, в итог не входит.",
          "- **Пул:** v171c — без TRUMP/TRX/BCH (В-210), потолок B2 применён заново (portfolio-sim `--drop`).",
          "- **Режимы:** free — без потолка (cap0); B2 — потолок 3 одновременных позиции (cap3).",

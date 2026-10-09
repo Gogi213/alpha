@@ -5,7 +5,7 @@
 п.3 С2 (без 2 суток с наибольшей парной разностью; монета — closes без символа, считается для прошедших отдельно); п.4 >=6 из 8 месяцев.
 Порядок: ярусы по SR (бутстреп лидер−i, Холм, α=0,05), затем k_c, K_c, SR. Выход docs/findings/p12-sharpe-<free|B2>-2026-10-08.csv + печать."""
 import csv, math, os, sys
-from p12lib import ONLY_R2, OUT, M_FAM, analyse, load, pack, pack_ext
+from p12lib import ONLY_R2, OUT, M_FAM, analyse, inputs_line, load, pack, pack_ext
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 
@@ -55,6 +55,7 @@ def main():
           "; верх<0:", sum(r["hi"] < 0 for r in res.values()))
     ranked = sorted(res.values(), key=lambda r: (-r["k"], r["K"], -r["sr"]))
     print("справочно (k_c, K_c, SR; без ярусов и ворот):", [(r["c"], r["k"], round(r["K"], 3), round(r["sr"], 3)) for r in ranked[:5]])
+    open(f"docs/findings/p12-sharpe-{MODE}-{OUT}.inputs", "w", encoding="utf-8").write(inputs_line() + chr(10))   # csv не трогаем — читатели ждут прежний формат (С-61)
     with open(f"docs/findings/p12-sharpe-{MODE}-{OUT}.csv", "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh, lineterminator="\n")
         w.writerow(["mode", "pack", "cell", "family", "base", "sr_day", "sr_year", "sr_base", "d_sr", "ci_lo", "ci_hi", "T", "p_wy", "p_harm_wy", "k_months_sr_pos",
