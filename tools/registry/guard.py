@@ -120,9 +120,10 @@ def core_argv(argv):
     return a
 
 
-def dir_fp(path, keep=ANY):
+def dir_fp(path, keep=ANY, rel=False):
     """Отпечаток каталога данных: имена, размеры и mtime на двух уровнях (не больше DIRCAP записей, срез помечается)."""
     h, n = hashlib.sha256(), 0
+    base = path.rstrip("/")
     stack = [(path, 0)]
     while stack and n < DIRCAP:
         d, lvl = stack.pop()
@@ -144,10 +145,11 @@ def dir_fp(path, keep=ANY):
                 except OSError:
                     continue
             isdir = e.is_dir()
+            nm = (d[len(base):] if rel else d) + "/" + e.name   # rel: имена от корня входа (копия/ферма ссылок в другом каталоге — та же версия)
             if isdir and os.name == "nt":   # NTFS обновляет mtime каталога в родителе лениво — отпечаток мигал бы
-                h.update(f"{d}/{e.name}/;".encode())
+                h.update(f"{nm}/;".encode())
             else:
-                h.update(f"{d}/{e.name}|{st.st_size}|{st.st_mtime_ns};".encode())
+                h.update(f"{nm}|{st.st_size}|{st.st_mtime_ns};".encode())
             if isdir and lvl < 1:
                 stack.append((e.path, lvl + 1))
     return h.hexdigest()[:16] + ("+cap" if n >= DIRCAP else "")
@@ -184,7 +186,7 @@ def explicit_inputs(argv):
     """Входы, названные явно: входные флаги (и строк --extra-runs) + env GUARD_INPUTS=каталог:каталог (декларация задания-скрипта)."""
     runs = [argv] + _extra_runs_argvs(argv)
     c = {v.rstrip("/") for r in runs for f in INPUT_FLAGS for v in _flag_values(r, f)}
-    return c | {v.rstrip("/") for v in os.environ.get("GUARD_INPUTS", "").split(":") if v}
+    return c | {v.rstrip("/") for v in os.environ.get("GUARD_INPUTS", "").split(os.pathsep) if v}
 
 
 def input_dirs(texts, argv, out_dir):
@@ -224,6 +226,25 @@ def equiv_map(led, scope=None):
     return m
 
 
+def norm_map():
+    """TK-118: GUARD_NORM=путь=метка;путь=метка — логические имена путей шага (рабочее дерево суток у каждого прогона своё); выход шага (GUARD_OUT) — «<out>»."""
+    m = [tuple(x.split("=", 1)) for x in os.environ.get("GUARD_NORM", "").split(";") if "=" in x]
+    if os.environ.get("GUARD_OUT"):
+        m.append((os.environ["GUARD_OUT"], "<out>"))
+    return sorted(((a.rstrip("/"), b) for a, b in m), key=lambda t: -len(t[0]))
+
+
+def nrm(x, m):
+    if not m or not isinstance(x, str):
+        return x
+    for a, b in m:
+        if x == a or x.startswith(a + "/") or x.startswith(a + "="):
+            return b + x[len(a):]
+        if a in x:
+            x = x.replace(a, b)
+    return x
+
+
 def context(argv, scope=None):
     """Общая часть отпечатка: всё, что влияет на результат, кроме списка клеток и выхода."""
     argv = core_argv(argv)
@@ -245,14 +266,15 @@ def context(argv, scope=None):
     rest = [x for i, x in enumerate(rest) if x != "--out-dir" and not (i and rest[i - 1] == "--out-dir")]
     dir_list = input_dirs(texts, rest, out_dir)
     keep0 = frozenset() if days else ANY   # в режиме «сутки» общая часть — только записи без даты, даты — в отпечатке единицы
-    dirs = {d: dir_fp(d, keep0) for d in dir_list}
+    nm = norm_map()
+    dirs = {nrm(d, nm): dir_fp(d, keep0, rel=bool(nm)) for d in dir_list}
     code = {"bins": dict(sorted(bins.items()))}
     csvs = [p for p in list(files) + list(inputs) if days and p.endswith(".csv") and p != cells and os.path.getsize(p) <= snap.MAXHASH]
-    data = {p: (v.get("sha256") or [v.get("size"), v.get("mtime")]) for p, v in sorted(inputs.items()) if p not in csvs}
-    data["csv"] = {p: csv_fp(p, keep0) for p in sorted(csvs)}
+    data = {nrm(p, nm): (v.get("sha256") or [v.get("size"), v.get("mtime")]) for p, v in sorted(inputs.items()) if p not in csvs}
+    data["csv"] = {nrm(p, nm): csv_fp(p, keep0) for p in sorted(csvs)}
     data["dirs"] = dirs
-    scripts = {p: v["sha256"] for p, v in sorted(files.items()) if p != cells and p not in csvs}
-    return {"fp": _h({"argv": rest, "env": env, "code": code, "data": data, "scripts": scripts}),
+    scripts = {nrm(p, nm): v["sha256"] for p, v in sorted(files.items()) if p != cells and p not in csvs}
+    return {"fp": _h({"argv": [nrm(x, nm) for x in rest], "env": env, "code": code, "data": data, "scripts": scripts}),
             "code": _h(code), "data": _h(data), "cells": cells, "sets": sets, "out_dir": out_dir, "argv": argv, "days": days,
             "day_inputs": (dir_list, sorted(csvs)),
             "nodirs": not any(os.path.isdir(d) for d in explicit_inputs(rest))}
@@ -392,18 +414,22 @@ def done(cls, rc, argv=None, result=None, wall_s=None, pending=None, say=print):
 _STEP_BASE = {}
 
 
-def _step_env(ins, out=None):
+def _step_env(ins, out=None, norm=()):
+    if norm:
+        os.environ["GUARD_NORM"] = ";".join(norm)
+    else:
+        os.environ.pop("GUARD_NORM", None)
     if out:
         os.environ["GUARD_OUT"] = out   # выход шага — не вход: исключается из отпечатка каталогов (как --out-dir)
     else:
         os.environ.pop("GUARD_OUT", None)
     base = _STEP_BASE.setdefault("inputs", os.environ.get("GUARD_INPUTS", ""))   # входы шага не копятся от вызова к вызову
-    os.environ["GUARD_INPUTS"] = ":".join([x for x in [base] + list(ins) if x])
+    os.environ["GUARD_INPUTS"] = os.pathsep.join([x for x in [base] + list(ins) if x])
 
 
-def step_state(name, argv, ins=(), out=None):
+def step_state(name, argv, ins=(), out=None, norm=()):
     """-> (готов?, строка реестра | None, число клеток к счёту | None). Готов = отпечаток шага есть в журнале, rc 0, выход на месте."""
-    _step_env(ins, out)
+    _step_env(ins, out, norm)
     rc, info = check("prod", argv, say=lambda *_: None, scope=name)
     if rc == SKIP:
         r = info[-1] if isinstance(info, list) else info
@@ -415,10 +441,10 @@ def step_state(name, argv, ins=(), out=None):
     return False, None, None
 
 
-def step(name, argv, ins=(), out=None, dry=False, recompute=False, why=""):
+def step(name, argv, ins=(), out=None, dry=False, recompute=False, why="", norm=()):
     """Шаг прохода: готов — пропуск (rc 0), иначе считает команду и пишет в журнал. dry — только сказать, что было бы."""
     ts0 = time.time()
-    _step_env(ins, out)
+    _step_env(ins, out, norm)
     say = lambda m: print(f"[step {name}] {m}", flush=True)
     rc, info = check("prod", argv, recompute, why, say=say, scope=name)
     if rc == REFUSE:
@@ -448,7 +474,7 @@ def parse_steps(path):
         f = ln.rstrip("\n").split("\t")
         if len(f) < 4:
             continue
-        out.append((f[0], f[1] or None, [x for x in f[2].split(":") if x], shlex.split("\t".join(f[3:]))))
+        out.append((f[0], f[1] or None, [x for x in f[2].split(os.pathsep) if x], shlex.split("\t".join(f[3:]))))
     return out
 
 
@@ -518,6 +544,7 @@ def main():
     p.add_argument("--out")
     p.add_argument("--in", dest="ins", default="")
     p.add_argument("--dry", action="store_true")
+    p.add_argument("--norm", action="append", default=[], help="step: путь=метка — логическое имя пути рабочего дерева (не входит в ключ)")
     p.add_argument("--steps")
     p.add_argument("--new")
     p.add_argument("--old")
@@ -533,7 +560,7 @@ def main():
     o = p.parse_args(a[:sep])
     argv = a[sep + 1:]
     if o.cmd == "step":
-        sys.exit(step(o.cls, argv, [x for x in o.ins.split(":") if x], o.out, o.dry or bool(os.environ.get("GUARD_DRY")), o.recompute, o.why))
+        sys.exit(step(o.cls, argv, [x for x in o.ins.split(os.pathsep) if x], o.out, o.dry or bool(os.environ.get("GUARD_DRY")), o.recompute, o.why, o.norm))
     if o.cmd == "plan":
         plan(o.steps or o.cls)
         return

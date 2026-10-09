@@ -366,5 +366,33 @@ class GuardTest(unittest.TestCase):
         self.assertTrue(any("ГОТОВО  a" in x for x in lines) and any("СЧИТАЕМ b" in x for x in lines))
 
 
+    def test_step_key_independent_of_workdir(self):
+        """TK-118 (CEO 19:20): ключ шага не зависит от рабочего дерева суток: другой каталог + --norm, те же файлы -> ГОТОВО."""
+        snap.PATHRE = re.compile(r"(?!x)x")   # входы названы явно (--in); обход путей из текста команды не нужен (и на Windows даёт «путь без диска»)
+        def tree(name):
+            w = os.path.join(self.d, name)
+            os.makedirs(os.path.join(w, "root"))
+            put(os.path.join(w, "root", "day.csv"), "v1")
+            os.utime(os.path.join(w, "root", "day.csv"), ns=(10**18, 10**18))
+            return w
+        w1, w2 = tree("w1"), tree("w2")
+        calls = []
+
+        def cmd(w):
+            return [sys.executable, "-c", "pass", "--root", os.path.join(w, "root"), "--out", os.path.join(w, "t.csv")]
+        for w in (w1, w2):
+            open(os.path.join(w, "t.csv"), "w").close()
+        self.assertEqual(guard.step("touches", cmd(w1), [os.path.join(w1, "root")], os.path.join(w1, "t.csv"), norm=[w1 + "=<W>"]), 0)
+        self.assertFalse(os.path.getsize(os.path.join(w1, "t.csv")) < 0)
+        ok2, _, _ = guard.step_state("touches", cmd(w2), [os.path.join(w2, "root")], os.path.join(w2, "t.csv"), norm=[w2 + "=<W>"])
+        self.assertTrue(ok2)
+        put(os.path.join(w2, "root", "day.csv"), "v2-longer")   # входные данные другие -> не готово
+        ok3, _, _ = guard.step_state("touches", cmd(w2), [os.path.join(w2, "root")], os.path.join(w2, "t.csv"), norm=[w2 + "=<W>"])
+        self.assertFalse(ok3)
+        for k in ("GUARD_INPUTS", "GUARD_NORM", "GUARD_OUT"):
+            os.environ.pop(k, None)
+        del calls
+
+
 if __name__ == "__main__":
     unittest.main()
