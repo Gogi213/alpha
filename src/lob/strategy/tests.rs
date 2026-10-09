@@ -36,6 +36,7 @@ fn depth_ev(bid: bool) -> u64 {
 }
 
 /// TK-115 Г-112: кольцо ленты считает только сделки против позиции в окне `W`; без включения — 0.
+#[cfg(feature = "r2")]
 #[test]
 fn tape_press_counts_adverse_trades_in_window() {
     let mut state = StrategyState::new(0, SIGMA_LONG, 1.0, 1);

@@ -646,6 +646,9 @@ pub fn set_tape_log_secs(secs: u32) {
 }
 
 fn tape_log_ring() -> Option<Box<[TapeBucket]>> {
+    if !R2 {
+        return None;
+    }
     match TAPE_LOG_SECS.load(std::sync::atomic::Ordering::Relaxed) {
         0 => None,
         n => Some(
@@ -1048,6 +1051,12 @@ impl StrategyState {
                 _ => None,
             },
         }
+    }
+
+    /// TK-115 Г-112: журнал ленты включён. Без feature `r2` константно `false` — ветки не доходят до боевого бинарника.
+    #[inline(always)]
+    fn tape_on(&self) -> bool {
+        R2 && self.tape_ring.is_some()
     }
 
     /// TK-115 Г-112: включить кольцо ленты на `secs` секунд (журнал `[fill−W, fill]`); без вызова ничего не меняется.
@@ -1521,7 +1530,7 @@ impl StrategyState {
         self.level_qty_at_entry = level_qty;
         self.level_qty_max = level_qty_max;
         self.phase = Phase::Holding { entry_ns: now };
-        if self.tape_ring.is_some() {
+        if self.tape_on() {
             self.tape_at_fill = self.tape_press(now);
         }
     }
@@ -1544,7 +1553,7 @@ impl StrategyState {
     /// никем — прохода по буферу нет, и числа прежних прогонов не меняются
     /// (на этом стоит гейт «те же круги»).
     pub fn observe_wall_trades(&mut self, trades: &[Event]) {
-        if self.tape_ring.is_some() {
+        if self.tape_on() {
             self.record_tape(trades);
         }
         let TradePlan::Bounce {
@@ -1846,11 +1855,7 @@ impl StrategyState {
             return None;
         };
         // TK-014 `weat*`: окно съедания и ход BTC меняются со временем без событий — шаги не пропускаются.
-        if self.has_orphans()
-            || self.wall_ring.is_some()
-            || self.tape_ring.is_some()
-            || self.pyramid_on()
-        {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() || self.pyramid_on() {
             return None;
         }
         let deadline = entry_ns.saturating_add(deadline_ns);
@@ -1879,11 +1884,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans()
-            || self.wall_ring.is_some()
-            || self.tape_ring.is_some()
-            || self.pyramid_on()
-        {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() || self.pyramid_on() {
             return None;
         }
         let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
@@ -1922,7 +1923,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() || self.tape_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() {
             return None;
         }
         #[allow(clippy::cast_possible_truncation)]
@@ -1959,11 +1960,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans()
-            || self.wall_ring.is_some()
-            || self.tape_ring.is_some()
-            || self.pyramid_on()
-        {
+        if self.has_orphans() || self.wall_ring.is_some() || self.tape_on() || self.pyramid_on() {
             return None;
         }
         let held = |entry_ns: i64| {
