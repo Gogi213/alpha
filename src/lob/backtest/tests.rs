@@ -741,6 +741,7 @@ fn ladder_entry_accumulates_legs_until_the_entry_is_over() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -860,6 +861,7 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -950,6 +952,7 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1024,6 +1027,7 @@ fn windowed_fixture() -> (Vec<Event>, TradePlan) {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1398,6 +1402,7 @@ fn bench_round_cost_in_a_window() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1489,6 +1494,7 @@ fn bench_dense_round_in_a_window() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1578,6 +1584,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1661,6 +1668,7 @@ fn f3_plan(entry_px: f64, take_px: f64, legs: u8, step: f64) -> TradePlan {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2379,6 +2387,7 @@ fn with_stop_and_deadline(plan: TradePlan, stop_px: f64, deadline_ns: i64) -> Tr
             gone_trail_bps,
             gone_stop,
             wall_eat,
+            pyramid,
             ..
         } => TradePlan::Bounce {
             entry_px,
@@ -2408,6 +2417,7 @@ fn with_stop_and_deadline(plan: TradePlan, stop_px: f64, deadline_ns: i64) -> Tr
             gone_trail_bps,
             gone_stop,
             wall_eat,
+            pyramid,
         },
         TradePlan::SpreadHold => plan,
     }

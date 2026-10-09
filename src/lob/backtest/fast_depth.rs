@@ -166,6 +166,7 @@ fn note_band(price_tick: i64, best_tick: i64, moves_best: bool) {
 // Числа и приведения — как в крейте, строка в строку (гейт «байт в байт»).
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 impl L2MarketDepth for FastMarketDepth {
+    #[inline(always)]
     fn update_bid_depth(
         &mut self,
         price: f64,
@@ -215,6 +216,7 @@ impl L2MarketDepth for FastMarketDepth {
         )
     }
 
+    #[inline(always)]
     fn update_ask_depth(
         &mut self,
         price: f64,

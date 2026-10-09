@@ -1149,6 +1149,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             name: "a15-s10".to_string(),
             frontrun_only: true,
             min_age_secs: Some(900),
+            max_age_secs: None,
             min_flow_pct: Some(10.0),
             side: None,
             eaten_max_pct: None,
@@ -3986,4 +3987,13 @@ fn btc_minutes_merge_and_coverage_check() {
         load_btc_minutes(&[a, b], &[], 3600).is_err(),
         "без --day — отказ"
     );
+}
+
+#[test]
+fn set_agemax_parses_into_the_upper_age_bound() {
+    let set = FilterSet::parse("g87:age=2700,agemax=3600").unwrap();
+    assert_eq!(set.min_age_secs, Some(2700));
+    assert_eq!(set.max_age_secs, Some(3600));
+    assert!(FilterSet::parse("g87:agemax=x").is_err());
+    assert_eq!(FilterSet::parse("g87:age=2700").unwrap().max_age_secs, None);
 }

@@ -31,6 +31,8 @@ mimalloc = { version = "0.1", optional = true, default-features = false }
 [features]
 rdtsc-prof = ["hftbacktest/rdtsc-prof"]
 mimalloc = ["dep:mimalloc"]
+# R2 (TK-065): механики Г-87…Г-119; боевой PGO-бинарник без неё, исследовательский с ней.
+r2 = []
 
 [dev-dependencies]
 tempfile = "3"

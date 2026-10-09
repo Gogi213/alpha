@@ -336,6 +336,63 @@ pub(crate) fn bounce_plan(
                 },
                 _ => crate::lob::strategy::WallEatExit::OFF,
             },
+            pyramid: match shape.exit_form {
+                crate::commands::lob::bounce_grid::ExitForm::PyrEat { parts } => {
+                    crate::lob::strategy::PyramidCfg {
+                        eat_parts: parts,
+                        fresh: false,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrFresh { parts } => {
+                    crate::lob::strategy::PyramidCfg {
+                        eat_parts: parts,
+                        fresh: true,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrReinstall { n, u3 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        reinstall_n: n,
+                        reinstall_u3: u3,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrNewWall { k, u3 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        newwall_k: k,
+                        newwall_u3: u3,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::HalfStop => {
+                    crate::lob::strategy::PyramidCfg {
+                        half_stop: true,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::HalfLevel => {
+                    crate::lob::strategy::PyramidCfg {
+                        half_level: true,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::TakeSched { g10, t4 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        sched_g10: g10,
+                        sched_t4: t4,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::Converge { tol, a_bps } => {
+                    crate::lob::strategy::PyramidCfg {
+                        converge_tol1: tol + 1,
+                        converge_a_bps: a_bps,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                _ => crate::lob::strategy::PyramidCfg::OFF,
+            },
             // Трейл после снятия (владелец 23.09): откат в bps от входа.
             gone_trail_bps: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::GoneTrail { trail_pct, .. } => {

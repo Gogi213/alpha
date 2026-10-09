@@ -1786,6 +1786,21 @@ where
             entry_taker |= !o.maker;
         }
     }
+    // R2-A: добавки доливки — часть позиции; в среднюю равных весов (`entry_px`) не входят.
+    for &id in state.add_order_ids() {
+        let Some(o) = order_of(bot, asset_no, &saved, id) else {
+            continue;
+        };
+        if !matches!(o.status, Status::Rejected | Status::Expired) {
+            ordered += o.qty;
+        }
+        let exec = executed_qty(o);
+        if exec > 0.0 {
+            entry_qty += exec;
+            entry_notional += executed_notional(o);
+            entry_taker |= !o.maker;
+        }
+    }
     let entry_px = if entry_legs == 0 {
         None
     } else {
@@ -3357,7 +3372,8 @@ where
                             ExitReason::Deadline => exits.deadline += 1,
                             ExitReason::Horizon => exits.horizon += 1,
                             ExitReason::Trail => exits.trail += 1,
-                            ExitReason::Early => exits.early += 1,
+                            // Г-119: `Converge` — отдельной колонки нет (форма в имени клетки); считается как `early`.
+                            ExitReason::Early | ExitReason::Converge => exits.early += 1,
                             ExitReason::Eaten => exits.eaten += 1,
                             ExitReason::EatenByTrades => exits.eaten_by_trades += 1,
                             ExitReason::WallGone => exits.wall_gone += 1,
@@ -3533,6 +3549,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         gone_trail_bps,
         gone_stop,
         wall_eat,
+        pyramid,
         ..
     } = &mut p
     {
@@ -3551,6 +3568,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         *gone_trail_bps = 0.0;
         *gone_stop = crate::lob::strategy::GoneStop::Off;
         *wall_eat = crate::lob::strategy::WallEatExit::OFF;
+        *pyramid = crate::lob::strategy::PyramidCfg::OFF;
     }
     p
 }
@@ -3719,6 +3737,9 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
         for &(k, sig) in members {
             if memos[k].contains(&sig, OrphanCarry::NONE) {
                 diag_add(1, 1);
+                continue;
+            }
+            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on()) {
                 continue;
             }
             let key = (sig.sigma, sig.qty, entry_part(sig.plan));

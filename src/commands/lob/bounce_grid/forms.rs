@@ -51,6 +51,23 @@ pub enum ExitForm {
         /// Ряд BTC (`--btc-minutes`), подставляется после разбора; в имени не участвует.
         btc: Option<&'static BtcMinutes>,
     },
+    /// `pyeat<N>` (TK-065, Г-94): вход частями — стена делится на `N` долей, добавка `Q0/N` на
+    /// съедании каждой из первых `N − 1` (spec r2-spec §1; `pyeat3` = «трети»).
+    PyrEat { parts: u8 },
+    /// `pyfresh<N>` (TK-065, Г-87): вход `Q0/N`, остальное добавками `Q0/N` на съедании `j/N`.
+    PyrFresh { parts: u8 },
+    /// `pyre<N>u<k>` (TK-065, Г-92): добавка `k/3·Q0` на каждый возврат стены, после `N`-го — безубыток.
+    PyrReinstall { n: u8, u3: u8 },
+    /// `pynw<K>u<k>` (TK-065, Г-93): в убыточной позиции на новую крупную стену — добавка `k/3·Q0`, всего не больше `K`.
+    PyrNewWall { k: u8, u3: u8 },
+    /// `halfstop` (TK-065, Г-114): стоп закрывает половину позиции, остаток без стопа.
+    HalfStop,
+    /// `halflevel` (TK-065, Г-114): половина по рынку при первой сделке за `level_px` стены входа, остаток без стопа.
+    HalfLevel,
+    /// `tsl<G>t<Q>` (TK-065, Г-117): тейк сползает к безубытку; `γ = G/10`, `T = Q/4 · дедлайн`.
+    TakeSched { g10: u8, t4: u8 },
+    /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
+    Converge { tol: u8, a_bps: u32 },
 }
 
 impl ExitForm {
@@ -78,6 +95,14 @@ impl ExitForm {
                 };
                 format!("gone{pct}wall{m}{buffer_bps}")
             }
+            ExitForm::PyrEat { parts } => format!("pyeat{parts}"),
+            ExitForm::PyrFresh { parts } => format!("pyfresh{parts}"),
+            ExitForm::PyrReinstall { n, u3 } => format!("pyre{n}u{u3}"),
+            ExitForm::PyrNewWall { k, u3 } => format!("pynw{k}u{u3}"),
+            ExitForm::HalfStop => "halfstop".to_string(),
+            ExitForm::HalfLevel => "halflevel".to_string(),
+            ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
+            ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -163,8 +188,142 @@ impl ExitForm {
     }
 
     pub fn parse(spec: &str) -> anyhow::Result<Self> {
+        let form = Self::parse_any(spec)?;
+        anyhow::ensure!(
+            crate::lob::strategy::R2 || !form.is_r2(),
+            "--exit-form {spec:?}: форма R2 — только в исследовательском бинарнике (cargo feature r2)"
+        );
+        Ok(form)
+    }
+
+    fn is_r2(&self) -> bool {
+        matches!(
+            self,
+            ExitForm::PyrEat { .. }
+                | ExitForm::PyrFresh { .. }
+                | ExitForm::PyrReinstall { .. }
+                | ExitForm::PyrNewWall { .. }
+                | ExitForm::HalfStop
+                | ExitForm::HalfLevel
+                | ExitForm::TakeSched { .. }
+                | ExitForm::Converge { .. }
+        )
+    }
+
+    fn parse_any(spec: &str) -> anyhow::Result<Self> {
         if spec == "none" {
             return Ok(ExitForm::None);
+        }
+        if let Some(rest) = spec.strip_prefix("pyeat") {
+            let parts: u8 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается pyeat<N>, N ∈ [2, 10]")
+            })?;
+            anyhow::ensure!((2..=10).contains(&parts), "pyeat<N>: N ∈ [2, 10]");
+            let form = ExitForm::PyrEat { parts };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("pyfresh") {
+            let parts: u8 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается pyfresh<N>, N ∈ [2, 10]")
+            })?;
+            anyhow::ensure!((2..=10).contains(&parts), "pyfresh<N>: N ∈ [2, 10]");
+            let form = ExitForm::PyrFresh { parts };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("conv") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается conv<t>a<A>, t ∈ [0, 9], A — bps (D прогона)"
+                )
+            };
+            let (tol, a_bps) = rest.split_once('a').ok_or_else(bad)?;
+            let tol: u8 = tol.parse().map_err(|_| bad())?;
+            let a_bps: u32 = a_bps.parse().map_err(|_| bad())?;
+            anyhow::ensure!(tol <= 9 && a_bps > 0, "conv<t>a<A>: t ∈ [0, 9], A > 0");
+            let form = ExitForm::Converge { tol, a_bps };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if spec == "halfstop" {
+            return Ok(ExitForm::HalfStop);
+        }
+        if let Some(rest) = spec.strip_prefix("tsl") {
+            let bad = || {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается tsl<G>t<Q>, G ∈ [1, 99] (γ = G/10), Q ∈ [1, 4]")
+            };
+            let (g10, t4) = rest.split_once('t').ok_or_else(bad)?;
+            let g10: u8 = g10.parse().map_err(|_| bad())?;
+            let t4: u8 = t4.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=99).contains(&g10) && (1..=4).contains(&t4),
+                "tsl<G>t<Q>: G ∈ [1, 99], Q ∈ [1, 4]"
+            );
+            let form = ExitForm::TakeSched { g10, t4 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if spec == "halflevel" {
+            return Ok(ExitForm::HalfLevel);
+        }
+        if let Some(rest) = spec.strip_prefix("pynw") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается pynw<K>u<k>, K ∈ [1, 9], k ∈ {{1, 2, 3}}"
+                )
+            };
+            let (k, u3) = rest.split_once('u').ok_or_else(bad)?;
+            let k: u8 = k.parse().map_err(|_| bad())?;
+            let u3: u8 = u3.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=9).contains(&k) && (1..=3).contains(&u3),
+                "pynw<K>u<k>: K ∈ [1, 9], k ∈ {{1, 2, 3}}"
+            );
+            let form = ExitForm::PyrNewWall { k, u3 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("pyre") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается pyre<N>u<k>, N ∈ [1, 9], k ∈ {{1, 2, 3}}"
+                )
+            };
+            let (n, u3) = rest.split_once('u').ok_or_else(bad)?;
+            let n: u8 = n.parse().map_err(|_| bad())?;
+            let u3: u8 = u3.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=9).contains(&n) && (1..=3).contains(&u3),
+                "pyre<N>u<k>: N ∈ [1, 9], k ∈ {{1, 2, 3}}"
+            );
+            let form = ExitForm::PyrReinstall { n, u3 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("weat") {
             return Self::parse_wall_eat(spec, rest);
