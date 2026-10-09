@@ -198,7 +198,7 @@ fn rings_ignore_block_and_nonpositive_and_count_rpi() {
 #[test]
 fn warm_up_boundaries() {
     // (колонка, длина окна прогрева, мс)
-    let table: [(&str, i64); 13] = [
+    let table: [(&str, i64); 14] = [
         ("tape_press_lots_15s", 15_000),
         ("tape_all_n_30s", 30_000),
         ("tape_with_lots_60s", 60_000),
