@@ -105,3 +105,33 @@
 | Х12 | `/data/sched/jobs` | потом | 2 196 записей заданий — «безссылочных скриптов 106» (§7.1) сверить с ними не успел: нужен `ls` имён, не обход `/data`; следующий запуск. | — |
 
 Итог В1: блокеров нет. Важное — Х1 (неатомарные сайдкары), `--allow-unverified` в 6 командах, Х6/Х11 (длинные функции). Не сделано: сложность Rust и `pub` без пользователей (VPS), кэши R1 `m-*` и `/data/tk046` (не открывал), `/data/sched/jobs` против скриптов.
+
+## 13. Проход 5: замер сложности и длины Rust (10.10 01:40; VPS `tk126-cc3`, `cargo clippy --lib --bins -W clippy::cognitive_complexity`, порог 10, rc=0; длина — `tmp-tk126/rustlen.py`, скобочный разбор, без тестов)
+
+Охват — весь `src/` (холодные модули — часть; остальное для частей А/Б/Г). Функций выше порога 10: **61**; ≥25: **11**; ≥50: **2**. Функций >100 строк (не тесты): **66**, >200: **19**.
+
+| Когнитивная сложность (топ-12) | | Длина функции, строк (топ-12) | |
+|---|---|---|---|
+| `bounce_grid.rs:468` `run_symbol` | **59** | `bounce_grid.rs:468` `run_symbol` | **868** |
+| `lob/backtest.rs:2069` `run_round_group` | **55** | `commands/lob/backtest.rs:229` `run_bounce` | 406 |
+| `lob/backtest.rs:1527` `run_round` | 34 | `commands/lob/mod.rs:314` `dispatch` | 375 |
+| `bybit/conn.rs:726` `run_with_backoff` | 33 | `lob/backtest.rs:2069` `run_round_group` | 370 |
+| `touches/tbin.rs:138` | 31 | `lob/backtest.rs:1527` `run_round` | 334 |
+| `replay.rs:286` | 27 | `bybit/conn.rs:726` `run_with_backoff` | 331 |
+| `lob/strategy.rs:1893` `decide_exit` | 25 | `lob/backtest.rs:3113` `drive_bounce_with` | 325 |
+| `lob/r1_flow.rs:329` | 25 | `lob/levels.rs:2077` `scan_levels` | 320 |
+| `lob/backtest.rs:3113` | 25 | `commands/record.rs:604` `run_session` | 304 |
+| `touch_profiles.rs:308` | 25 | `fill_capacity.rs:453` | 297 |
+| `backtest/plan.rs:60` `bounce_plan` | 25 | `backtest/plan.rs:60` `bounce_plan` | 289 |
+| `touches/abin.rs:182` | 24 | `bounce_verdict.rs:922` | 256 |
+
+Холодные модули в этом списке: `import_archive.rs:395` `run_import_archive` — сложность **24**, **229** строк (Х6 подтверждена замером); `touches/abin.rs:182` — **24** (кодек, ожидаемо); `touches/tbin.rs:138` — **31**; `touches.rs:452` — 22. Файлы >1 400 строк (не тесты): `lob/backtest.rs` **4 401**, `lob/strategy.rs` 2 852, `lob/levels.rs` 2 640, `binlog/mod.rs` 2 083, `dashboard.rs` 1 946, `shortlist.rs` 1 453, `verify.rs` 1 436.
+
+| # | находка | тяжесть | где | куда |
+|---|---|---|---|---|
+| С1 | `run_symbol` = 868 строк при сложности 59: целиком вердикт-гейт, каталог частей, касания, довесок, формы, вывод — одна функция одного символа. Любая правка K1/довеска (§11 Х4) идёт внутри неё. | **важно** | `bounce_grid.rs:468` | Х/Т: разрез по стадиям (K1 → части → касания → формы) |
+| С2 | `run_round_group` / `run_round` / `drive_bounce_with` — горячая логика круга, сложность 55/34/25, 370/334/325 строк, файл 4 401 строка (единица для трёх рантаймов). | **важно** | `lob/backtest.rs` | Г: граница круг/событие (Д4), разрез до R2-вливания |
+| С3 | 19 функций >200 строк, 61 выше порога 10 — «нормы» длины в проекте нет (подавление `too_many_lines` в `verify_sidecar.rs:773` — единственное явное). | потом | весь `src/` | процесс: порог в CI (`clippy.toml`) |
+| С4 | `lob/mod.rs:314` `dispatch` 375 строк, сложность 20 — таблица подкоманд (40+) в одном `match`; не сложность, а длина. | потом | `commands/lob/mod.rs` | Х |
+
+Не сделано: `pub` без пользователей (нужен `cargo +nightly udeps`/`unreachable_pub` — отдельный прогон VPS); время/обработка `import_archive` по логам.
