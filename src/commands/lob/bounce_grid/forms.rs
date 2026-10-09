@@ -70,6 +70,9 @@ pub enum ExitForm {
     Converge { tol: u8, a_bps: u32 },
     /// `nostop<X2>` (TK-115, Г-106): стопа нет, пока прибыль не дошла до `X2/2 · trail_activate_bps` и цена не ушла за безубыток; затем стоп = безубыток. `X2` ∈ {1, 2, 4} (×0,5; ×1; ×2).
     NoStop { x2: u8 },
+    /// `wall2` / `wall2x` (TK-115, Г-65 `e65-t2`/`e65-t2x`): цель — вторая живая аск-стена (шорт — бид-стена) на момент исполнения входа
+    /// из журнала стен, на тик перед ней / за ней; фиксированный тейк, `trail_bps = 0`; меньше двух стен — сделка = B1.
+    Wall2 { behind: bool },
 }
 
 impl ExitForm {
@@ -106,6 +109,7 @@ impl ExitForm {
             ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::NoStop { x2 } => format!("nostop{x2}"),
+            ExitForm::Wall2 { behind } => format!("wall2{}", if *behind { "x" } else { "" }),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -211,6 +215,7 @@ impl ExitForm {
                 | ExitForm::TakeSched { .. }
                 | ExitForm::Converge { .. }
                 | ExitForm::NoStop { .. }
+                | ExitForm::Wall2 { .. }
         )
     }
 
@@ -243,6 +248,11 @@ impl ExitForm {
                 form.label()
             );
             return Ok(form);
+        }
+        if spec == "wall2" || spec == "wall2x" {
+            return Ok(ExitForm::Wall2 {
+                behind: spec == "wall2x",
+            });
         }
         if let Some(rest) = spec.strip_prefix("nostop") {
             let x2: u8 = rest.parse().map_err(|_| {

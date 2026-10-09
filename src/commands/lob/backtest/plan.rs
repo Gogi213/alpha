@@ -399,6 +399,12 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
+                crate::commands::lob::bounce_grid::ExitForm::Wall2 { behind } => {
+                    crate::lob::strategy::PyramidCfg {
+                        wall2: if behind { 2 } else { 1 },
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
                 _ => crate::lob::strategy::PyramidCfg::OFF,
             },
             // Трейл после снятия (владелец 23.09): откат в bps от входа.

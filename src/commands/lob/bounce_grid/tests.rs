@@ -4036,3 +4036,14 @@ fn nostop_form_parses_only_the_grid_multipliers() {
     assert!(ExitForm::parse("nostop3").is_err());
     assert!(ExitForm::parse("nostop").is_err());
 }
+
+/// TK-115 (e65): `wall2`/`wall2x` — единственные имена формы цели за второй стеной.
+#[test]
+fn wall2_form_parses_both_offsets() {
+    assert_eq!(
+        ExitForm::parse("wall2").unwrap(),
+        ExitForm::Wall2 { behind: false }
+    );
+    assert_eq!(ExitForm::Wall2 { behind: true }.label(), "wall2x");
+    assert!(ExitForm::parse("wall3").is_err());
+}
