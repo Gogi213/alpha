@@ -4,7 +4,7 @@
 Заявка: класс prod (производство: ядра/память/диск по заявке, пакуется на свободные ядра) или measure (замер: эксклюзивное
 окно — всё производство на freeze, замер получает все ядра, по выходу размораживается). Всё запускается через него.
 
-  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] -- команда…
+  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
                                                     #   stand по умолчанию --iso 4 (без заморозки производства); --exclusive — заморозка всего; --iso K — другое K; wave — всегда заморозка
   alsched.py ps | cancel <id> | reprio <id> <prio> | daemon
@@ -1143,10 +1143,12 @@ def main():
         p.add_argument("--recompute", action="store_true", help="пересчитать уже посчитанное (нужен --why)")
         p.add_argument("--why", default="", help="причина пересчёта; пишется в реестр")
         p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
+        p.add_argument("--vypiska", default="", help="TK-118, В-213: файл шагов прохода, по которому снята выписка из Летописи (guard.py plan --steps)")
         o = p.parse_args(a[1:sep])
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
+        vypiska_warn(o, parse_dur(o.max_runtime))
         j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso)
         print(j["id"])
         return 0
@@ -1170,6 +1172,28 @@ def guard_check(o, argv):
         return 0, f"env GUARD_PENDING={pend} " + " ".join(map(shell_quote, info["argv"])) + tail
     finally:
         os.chdir(cwd)
+
+
+VYPISKA_MIN_S = 15 * 60
+
+
+def vypiska_warn(o, max_runtime_s):
+    """TK-118, В-213: prod > 15 мин без отметки выписки («что есть / что считаем нового / стоимость») — предупреждение в alerts.log и роли (не отказ)."""
+    if o.cls != "prod" or max_runtime_s <= VYPISKA_MIN_S:
+        return False
+    sys.path.insert(0, os.environ.get("REG_TOOLS", "/data/registry"))
+    import guard
+    if guard.vypiska_marked(o.vypiska or None):
+        return False
+    msg = (f"ВНИМАНИЕ (В-213): заявка {o.name} prod > 15 мин подана без выписки из Летописи — снять: "
+           f"python3 /data/registry/guard.py plan --steps <файл шагов> и подать с --vypiska <файл>; считать то же самое нельзя")
+    print(msg, file=sys.stderr)
+    try:
+        with open(f"{DIR}/alerts.log", "a") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + msg + "\n")
+    except OSError:
+        pass
+    return True
 
 
 def shell_quote(s):

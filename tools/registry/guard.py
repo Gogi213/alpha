@@ -7,14 +7,17 @@
   guard.py done <класс> <rc> [--result ПУТЬ] -- <команда…>   — после конца: запись в журнал отпечатков
 Журнал — $REG_DIR/ledger.jsonl (дописывается; канон реестра docs/registry подтягивает его import-auto).
 Отпечаток = команда + env + sha скриптов и входных данных + md5 бинарников + git-коммит: «старое» за новое не выдаётся.
-Клетка (--cells <файл>, строка «форма набор») имеет свой отпечаток: общий отпечаток без списка клеток + строка + тело её --set."""
+Клетка (--cells <файл>, строка «форма набор») имеет свой отпечаток: общий отпечаток без списка клеток + строка + тело её --set.
+TK-118 (В-213): проход объявляет ШАГИ — guard.py step <имя> --out ПУТЬ --in КАТ:КАТ -- команда (готовый шаг пропускается, выход на месте);
+  guard.py plan --steps ФАЙЛ — выписка «что есть / что считаем / стоимость» до подачи; guard.py equiv — гейт «байт в байт» нового бинарника
+  против старого записан в журнал: md5 нового считается за старый для шага (или «*»), готовое старого засчитывается."""
 import argparse, hashlib, json, os, re, shlex, shutil, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import snap
 
 SKIP, REFUSE = 3, 2
-VOLATILE_ENV = ("BENCH_FROZEN", "BENCH_IOSTATE")
+VOLATILE_ENV = ("BENCH_FROZEN", "BENCH_IOSTATE", "GUARD_OUT")
 
 
 def ledger_path():
@@ -195,7 +198,7 @@ def input_dirs(texts, argv, out_dir):
             m = m.rstrip("/")
             if any(_under(m, r) or _under(r, m) for r in roots):
                 cand.add(m)
-    outs = {o.rstrip("/") for r in runs for o in _flag_values(r, "--out-dir")} | ({out_dir.rstrip("/")} if out_dir else set())
+    outs = {o.rstrip("/") for r in runs for o in _flag_values(r, "--out-dir")} | ({out_dir.rstrip("/")} if out_dir else set())         | ({os.environ["GUARD_OUT"].rstrip("/")} if os.environ.get("GUARD_OUT") else set())
     return sorted(d for d in cand if os.path.isdir(d) and not any(_under(d, o) or _under(o, d) for o in outs))
 
 
@@ -209,12 +212,32 @@ def _binaries(argv, env):
     return bins
 
 
-def context(argv):
+def equiv_map(led, scope=None):
+    """{md5 нового: md5 старого} по записям equiv (гейт «байт в байт», TK-118) для шага scope и для «*»; цепочки сворачиваются к первому старому."""
+    m = {r["new"]: (r["old"], r.get("old_path")) for r in led
+         if r.get("kind") == "equiv" and r.get("scope") in ("*", scope) and r.get("new") and r.get("old")}
+    for k in list(m):
+        seen = {k}
+        while m[k][0] in m and m[k][0] not in seen:
+            seen.add(m[k][0])
+            m[k] = m[m[k][0]]
+    return m
+
+
+def context(argv, scope=None):
     """Общая часть отпечатка: всё, что влияет на результат, кроме списка клеток и выхода."""
     argv = core_argv(argv)
     env = {k: v for k, v in sorted(os.environ.items()) if snap.ENVRE.match(k) and k not in VOLATILE_ENV}
     files, inputs, bins = snap.collect(argv)
+    go = os.environ.get("GUARD_OUT", "").rstrip("/")
+    if go:   # выход шага возникает в ходе счёта: не вход и не скрипт
+        files, inputs = ({p: v for p, v in x.items() if not _under(p, go)} for x in (files, inputs))
     bins = {**{p: b["md5"] for p, b in bins.items()}, **_binaries(argv, env)}
+    eq = equiv_map(read_ledger(), scope)
+    # TK-118: доказанно равный бинарник — тот же код: md5 и путь в команде берутся от старого (его отпечаток уже в журнале)
+    swap = {p: eq[v][1] for p, v in bins.items() if v in eq and eq[v][1]}
+    bins = {swap.get(p, p): eq[v][0] if v in eq else v for p, v in bins.items()}
+    argv = [swap.get(x, x) for x in argv]
     texts = [" ".join(argv)] + [open(p, encoding="utf-8", errors="replace").read() for p in files if os.path.getsize(p) < 200_000]
     rest, cells, sets = split_cells_args(argv)
     rest, days = split_days(rest)
@@ -273,12 +296,12 @@ def _pending(ctx, cls, calc_cells, out_dir, argv):
     return path
 
 
-def check(cls, argv, recompute=False, why="", repeat=0, say=print):
+def check(cls, argv, recompute=False, why="", repeat=0, say=print, scope=None):
     """-> (rc, info). info: fp, pending (путь записи ожидания для done), argv (команда для запуска: клетки/выход урезаны, если считается часть)."""
     if recompute and not why.strip():
         say("guard: --recompute требует --why «причина» (напр. «изменился код») — отказ")
         return REFUSE, None
-    ctx = context(argv)
+    ctx = context(argv, scope)
     led = read_ledger()
     done_runs = [r for r in led if r.get("kind") == "run" and r.get("fp") == ctx["fp"] and r.get("rc") == 0]
     run_argv = list(argv)
@@ -366,6 +389,121 @@ def done(cls, rc, argv=None, result=None, wall_s=None, pending=None, say=print):
     return True
 
 
+_STEP_BASE = {}
+
+
+def _step_env(ins, out=None):
+    if out:
+        os.environ["GUARD_OUT"] = out   # выход шага — не вход: исключается из отпечатка каталогов (как --out-dir)
+    else:
+        os.environ.pop("GUARD_OUT", None)
+    base = _STEP_BASE.setdefault("inputs", os.environ.get("GUARD_INPUTS", ""))   # входы шага не копятся от вызова к вызову
+    os.environ["GUARD_INPUTS"] = ":".join([x for x in [base] + list(ins) if x])
+
+
+def step_state(name, argv, ins=(), out=None):
+    """-> (готов?, строка реестра | None, число клеток к счёту | None). Готов = отпечаток шага есть в журнале, rc 0, выход на месте."""
+    _step_env(ins, out)
+    rc, info = check("prod", argv, say=lambda *_: None, scope=name)
+    if rc == SKIP:
+        r = info[-1] if isinstance(info, list) else info
+        return (not out or os.path.exists(out)), r, 0
+    if info and info.get("pending"):
+        pj = json.load(open(info["pending"], encoding="utf-8"))
+        os.remove(info["pending"])
+        return False, None, len(pj.get("cells") or {}) or None
+    return False, None, None
+
+
+def step(name, argv, ins=(), out=None, dry=False, recompute=False, why=""):
+    """Шаг прохода: готов — пропуск (rc 0), иначе считает команду и пишет в журнал. dry — только сказать, что было бы."""
+    ts0 = time.time()
+    _step_env(ins, out)
+    say = lambda m: print(f"[step {name}] {m}", flush=True)
+    rc, info = check("prod", argv, recompute, why, say=say, scope=name)
+    if rc == REFUSE:
+        return REFUSE
+    if rc == SKIP and out and not os.path.exists(out):
+        say(f"отпечаток есть, но выхода {out} нет — считаем заново")
+        rc, info = check("prod", argv, True, "выход готового шага отсутствует", say=lambda m: None, scope=name)
+    if rc == SKIP:
+        say("ГОТОВО — берём из реестра, не считаем")
+        return 0
+    if dry:
+        os.remove(info["pending"])
+        say("СЧИТАЕМ (dry)")
+        return 0
+    import subprocess
+    r = subprocess.call(info["argv"])
+    done("prod", r, pending=info["pending"], result=out, wall_s=round(time.time() - ts0, 1))
+    return r
+
+
+def parse_steps(path):
+    """Файл шагов: строка `имя<TAB>выход<TAB>входы через :<TAB>команда`, # — комментарий."""
+    out = []
+    for ln in open(path, encoding="utf-8"):
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        f = ln.rstrip("\n").split("\t")
+        if len(f) < 4:
+            continue
+        out.append((f[0], f[1] or None, [x for x in f[2].split(":") if x], shlex.split("\t".join(f[3:]))))
+    return out
+
+
+def plan(steps_file, say=print, mark=True):
+    """Выписка из Летописи до прохода (В-213): по шагам — готово / считаем; стоимость — по wall_s прошлых прогонов шага."""
+    rows = parse_steps(steps_file)
+    led = read_ledger()
+    have = new = 0
+    cost = 0.0
+    say(f"ВЫПИСКА {steps_file}: шагов {len(rows)}")
+    for name, out, ins, argv in rows:
+        ok, r, ncells = step_state(name, argv, ins, out)
+        runs = [x.get("wall_s") for x in led if x.get("kind") == "run" and x.get("rc") == 0 and x.get("wall_s")
+                and shlex.join(argv)[:60] in (x.get("cmd") or "")]
+        est = (sum(runs) / len(runs)) if runs else None
+        if ok:
+            have += 1
+            say(f"  ГОТОВО  {name}: {(r or {}).get('result_path') or out}")
+        else:
+            new += 1
+            cost += est or 0
+            say(f"  СЧИТАЕМ {name}" + (f" ({ncells} клеток к счёту)" if ncells else "") + (f", ~{est:.0f} с по прошлым прогонам" if est else ", стоимость неизвестна"))
+    say(f"ИТОГО: готово {have}, считаем {new}, оценка ~{cost:.0f} с")
+    if mark:
+        d = os.path.join(os.environ.get("REG_DIR", snap.REG), "vypiska")
+        os.makedirs(d, exist_ok=True)
+        key = hashlib.sha256(open(steps_file, "rb").read()).hexdigest()[:16]
+        json.dump({"steps_file": steps_file, "key": key, "have": have, "new": new, "est_s": cost,
+                   "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, open(os.path.join(d, key + ".json"), "w"), ensure_ascii=False)
+    return have, new, cost
+
+
+def vypiska_marked(steps_file=None):
+    """Есть ли отметка выписки (для alsched submit prod > 15 мин): по файлу шагов или любая за последние 12 ч."""
+    d = os.path.join(os.environ.get("REG_DIR", snap.REG), "vypiska")
+    if not os.path.isdir(d):
+        return False
+    if steps_file and os.path.isfile(steps_file):
+        key = hashlib.sha256(open(steps_file, "rb").read()).hexdigest()[:16]
+        return os.path.exists(os.path.join(d, key + ".json"))
+    return any(time.time() - e.stat().st_mtime < 12 * 3600 for e in os.scandir(d))
+
+
+def equiv(new, old, scope, gate):  # new/old — путь (лучше: путь старого нужен, чтобы команда нового совпала по тексту) или md5
+    """Гейт «байт в байт» нового бинарника против старого (md5 или путь) -> запись в журнал (TK-118)."""
+    def md(x):
+        return snap.sha(x, 5) if os.path.isfile(x) else x
+    if not gate or not os.path.exists(gate):
+        raise SystemExit("guard equiv: нужен --gate <файл с итогом гейта «байт в байт»> (должен существовать)")
+    row = {"kind": "equiv", "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "new": md(new), "old": md(old),
+           "old_path": old if os.path.isfile(old) else None, "scope": scope, "gate": gate}
+    append(row)
+    return row
+
+
 def log_failure(text):
     p = os.path.join(os.environ.get("REG_DIR", snap.REG), "done-errors.log")
     with open(p, "a", encoding="utf-8") as f:
@@ -375,8 +513,16 @@ def log_failure(text):
 def main():
     a = sys.argv[1:]
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["check", "done"])
-    p.add_argument("cls")
+    p.add_argument("cmd", choices=["check", "done", "step", "plan", "equiv"])
+    p.add_argument("cls", nargs="?", default="prod", help="класс; для step — имя шага; для plan/equiv не нужен")
+    p.add_argument("--out")
+    p.add_argument("--in", dest="ins", default="")
+    p.add_argument("--dry", action="store_true")
+    p.add_argument("--steps")
+    p.add_argument("--new")
+    p.add_argument("--old")
+    p.add_argument("--scope", default="*")
+    p.add_argument("--gate")
     p.add_argument("rc", nargs="?", default="0")
     p.add_argument("--recompute", action="store_true")
     p.add_argument("--why", default="")
@@ -386,6 +532,14 @@ def main():
     sep = a.index("--") if "--" in a else len(a)
     o = p.parse_args(a[:sep])
     argv = a[sep + 1:]
+    if o.cmd == "step":
+        sys.exit(step(o.cls, argv, [x for x in o.ins.split(":") if x], o.out, o.dry or bool(os.environ.get("GUARD_DRY")), o.recompute, o.why))
+    if o.cmd == "plan":
+        plan(o.steps or o.cls)
+        return
+    if o.cmd == "equiv":
+        print(json.dumps(equiv(o.new, o.old, o.scope, o.gate), ensure_ascii=False))
+        return
     if o.cmd == "check":
         rc, info = check(o.cls, argv, o.recompute, o.why, o.repeat)
         if info and info.get("pending"):

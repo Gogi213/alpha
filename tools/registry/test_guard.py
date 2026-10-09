@@ -300,6 +300,71 @@ class GuardTest(unittest.TestCase):
         led = [json.loads(x) for x in open(os.path.join(TMP, "ledger.jsonl"), encoding="utf-8")]
         self.assertEqual(sorted(e["cell"] for e in led if e["kind"] == "cell"), ["formA setX", "formB setX"])
 
+    def _bin(self, name, ch):
+        b = os.path.join(self.d, name)
+        with open(b, "wb") as f:
+            f.write(ch * 2_100_000)
+        os.chmod(b, 0o755)
+        return b
+
+    def _step_cmd(self, b):
+        return [b, "touches", "--root", self.root, "--out", os.path.join(self.d, "t.csv")]
+
+    def test_new_binary_is_new_without_equiv(self):
+        """TK-118 (2): новый бинарник без записи гейта — всё «новое» (старое поведение)."""
+        a, b = self._bin("old", b"a"), self._bin("new", b"b")
+        r, info = guard.check("prod", self._step_cmd(a), say=self.out.append, scope="touches")
+        guard.done("prod", 0, pending=info["pending"], result=self.d)
+        r2, _ = guard.check("prod", self._step_cmd(a), say=self.out.append, scope="touches")
+        self.assertEqual(r2, guard.SKIP)
+        r3, _ = guard.check("prod", self._step_cmd(b), say=self.out.append, scope="touches")
+        self.assertEqual(r3, 0)
+
+    def test_equiv_gate_credits_old_results(self):
+        """TK-118 (2): гейт «байт в байт» записан -> готовое старого засчитывается новому на тех же входах; другой шаг — нет."""
+        a, b = self._bin("old", b"a"), self._bin("new", b"b")
+        r, info = guard.check("prod", self._step_cmd(a), say=self.out.append, scope="touches")
+        guard.done("prod", 0, pending=info["pending"], result=self.d)
+        gate = os.path.join(self.d, "gate.txt")
+        put(gate, "diff 0")
+        guard.equiv(b, a, "touches", gate)
+        r2, _ = guard.check("prod", self._step_cmd(b), say=self.out.append, scope="touches")
+        self.assertEqual(r2, guard.SKIP)
+        r3, _ = guard.check("prod", self._step_cmd(b), say=self.out.append, scope="grid")
+        self.assertEqual(r3, 0)
+        with self.assertRaises(SystemExit):
+            guard.equiv(b, a, "touches", os.path.join(self.d, "нет.txt"))
+
+    def test_step_skips_done_and_recomputes_missing_output(self):
+        """TK-118 (1): готовый шаг пропускается, пока выход на месте; нет выхода — считается."""
+        out = os.path.join(self.d, "step.out")
+        cmd = [sys.executable, "-c", "open(r'%s','w').write('x')" % out, "--root", self.root]
+        self.assertEqual(guard.step("s1", cmd, [self.root], out), 0)
+        self.assertTrue(os.path.exists(out))
+        os.remove(out)
+        ok, _, _ = guard.step_state("s1", cmd, [self.root], out)
+        self.assertFalse(ok)
+        guard.step("s1", cmd, [self.root], out)
+        ok, _, _ = guard.step_state("s1", cmd, [self.root], out)
+        self.assertTrue(ok)
+        os.environ.pop("GUARD_INPUTS", None)
+
+    def test_plan_reports_ready_and_new(self):
+        """TK-118 (3): выписка — готовые шаги и новые, отметка для alsched."""
+        out1 = os.path.join(self.d, "o1")
+        c1 = [sys.executable, "-c", "open(r'%s','w').write('x')" % out1, "--root", self.root]
+        guard.step("a", c1, [self.root], out1)
+        sf = os.path.join(self.d, "steps.tsv")
+        import shlex
+        put(sf, "a\t%s\t%s\t%s\nb\t%s\t%s\t%s\n" % (out1, self.root, shlex.join(c1), os.path.join(self.d, "o2"), self.root,
+            shlex.join([sys.executable, "-c", "pass", "--root", self.root])))
+        lines = []
+        have, new, _ = guard.plan(sf, say=lines.append)
+        os.environ.pop("GUARD_INPUTS", None)
+        self.assertEqual((have, new), (1, 1))
+        self.assertTrue(guard.vypiska_marked(sf))
+        self.assertTrue(any("ГОТОВО  a" in x for x in lines) and any("СЧИТАЕМ b" in x for x in lines))
+
 
 if __name__ == "__main__":
     unittest.main()
