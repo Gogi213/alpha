@@ -179,6 +179,23 @@ def lazy_case():
     return len(core.running("prod")), core.fam_cores.get("tk115-poolc"), core.fam_mem.get("tk115-poolc")
 
 
+def synth_case():
+    """gate10 10.10: 8 заявок 12 ядер (факт 6) + 24 по 1 ядру, prio 9 — резерв головы по заявкам не должен держать заполнение по факту: host ≥ 0,8 после 5 мин."""
+    be = SimBE(); be.mem_av = 50.0; core = S.Core(be, ncpu=NCPU, mem=62, pack="fact")
+    for i in range(8):
+        j = job("w%d" % i, "tk071-wide-%d" % (i + 1), "prod", 12, 36, "none", 1500, 0, mr=2400); j["prio"] = 9
+        core.add(j); be.cpu_rate[j["id"]] = 6; be.mem_used[j["id"]] = 14.0
+    for i in range(24):
+        j = job("s%02d" % i, "tk071-synth3-%02d" % (i + 1), "prod", 1, 1, "none", 5400, 0, mr=7200); j["prio"] = 9
+        core.add(j); be.cpu_rate[j["id"]] = 1; be.mem_used[j["id"]] = 0.5
+    rows = []
+    for _ in range(int(5400 / S.TICK)):
+        core.tick(); be.advance(core, S.TICK)
+        if be.t >= 300:
+            rows.append(be.busy_fact())
+    return sum(rows) / len(rows)
+
+
 def cap_case():
     """п.4: изолированное окно при 12 однопоточных prod — незамороженных заявленных ядер ≤ N, новая заявка не стартует, по концу окна всё оттаяло."""
     be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=62, pack="claim")
@@ -365,6 +382,9 @@ def run():
     lz, cp, ho = lazy_case(), cap_case(), hot_case()
     print(f"допуск по факту: заявки 12 ядер/36 ГБ, факт 5,6/14 — идут {lz[0]} (семья: {lz[1]}, {lz[2]}); потолок prod в окне (ядер, заморожено, поздняя заявка): {cp[0]}, конец окна: заморожено {cp[1]}, замер {cp[2]}; защита перегруза: {ho}")
     ok = ok and lz[0] == 2 and cp[0] is not None and cp[0][0] <= S.PROD_CAP_ISO and cp[0][1] == 12 - S.PROD_CAP_ISO and cp[0][2] == "queued" and cp[1] == 0 and cp[2] == "done" and ho
+    sy = synth_case()
+    print(f"заполнение по факту: 8×12 (факт 6) + 24×1, host после 5 мин {sy:.2f} (≥ 0,8)")
+    ok = ok and sy >= 0.8
     hp = hot_psi_case()
     print(f"перегруз по PSI: PSI 2 % — заморожено {hp[0]}; PSI 60 % — {hp[1]} (≤ 150/SETTLE+1)")
     ok = ok and hp[0] == 0 and 1 <= hp[1] <= 150 // S.FACT_SETTLE_S + 1

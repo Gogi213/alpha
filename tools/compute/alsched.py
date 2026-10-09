@@ -202,8 +202,8 @@ class Core:
                 fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
             if fits and self.iso and capped + j["cores"] > PROD_CAP_ISO:
                 fits = False                              # окно открыто: заявленных ядер prod сверх потолка не пускаем
-            if fits and reserve is not None and j["max_runtime"] > reserve["shadow"] \
-                    and (j["cores"] > reserve["cores"] or j["mem"] > reserve["mem"]):
+            if fits and reserve is not None and j["max_runtime"] > reserve["shadow"] and not over \
+                    and (j["cores"] > reserve["cores"] or j["mem"] > reserve["mem"]):   # 10.10: влезшая по ФАКТУ (over) резервом по заявкам не держится (gate10: 25 мин host 0,6 при очереди 28)
                 fits = False                              # заняла бы место первой заявки и не успела бы до её старта
             if not fits:
                 if reserve is None and head is None and not disk_full:
