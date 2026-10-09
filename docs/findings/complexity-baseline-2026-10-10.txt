@@ -1,0 +1,151 @@
+# TK-132: clippy cognitive_complexity (порог 15) и too_many_lines (100) на tk132-p1; vps-check complexity; cognitive 67, too_many_lines 83 (хвост 150 по алфавиту)
+warning: the function has a cognitive complexity of (16/15)	 @ src/lob/touch_axes/tests.rs:111:4
+warning: the function has a cognitive complexity of (17/15)	 @ examples/depth_probe.rs:34:4
+warning: the function has a cognitive complexity of (17/15)	 @ src/bybit/verify/tests.rs:420:4
+warning: the function has a cognitive complexity of (17/15)	 @ src/bybit/verify_sidecar.rs:492:12
+warning: the function has a cognitive complexity of (17/15)	 @ src/commands/lob/archive/tests.rs:402:4
+warning: the function has a cognitive complexity of (17/15)	 @ src/commands/lob/bounce_grid/tests.rs:231:4
+warning: the function has a cognitive complexity of (17/15)	 @ src/commands/lob/fill_capacity/tests.rs:307:4
+warning: the function has a cognitive complexity of (17/15)	 @ src/commands/lob/touches/minute_flow.rs:42:8
+warning: the function has a cognitive complexity of (17/15)	 @ src/lob/backtest.rs:2544:4
+warning: the function has a cognitive complexity of (18/15)	 @ src/commands/lob/dashboard/tests.rs:382:4
+warning: the function has a cognitive complexity of (18/15)	 @ src/commands/lob/dashboard/tests.rs:420:4
+warning: the function has a cognitive complexity of (18/15)	 @ src/commands/lob/session/tests.rs:1505:4
+warning: the function has a cognitive complexity of (18/15)	 @ src/lob/backtest.rs:3824:8
+warning: the function has a cognitive complexity of (18/15)	 @ src/lob/backtest/hold_index.rs:129:12
+warning: the function has a cognitive complexity of (18/15)	 @ src/lob/backtest/shared_engine/tests.rs:62:4
+warning: the function has a cognitive complexity of (18/15)	 @ src/lob/backtest/tests.rs:1181:4
+warning: the function has a cognitive complexity of (18/15)	 @ src/lob/shortlist/tests.rs:630:4
+warning: the function has a cognitive complexity of (18/15)	 @ src/lob/strategy.rs:1159:12
+warning: the function has a cognitive complexity of (19/15)	 @ src/commands/lob/bounce_verdict.rs:702:4
+warning: the function has a cognitive complexity of (19/15)	 @ src/commands/lob/session/tests.rs:1668:4
+warning: the function has a cognitive complexity of (19/15)	 @ src/commands/lob/session/tests.rs:277:4
+warning: the function has a cognitive complexity of (19/15)	 @ src/commands/record.rs:604:10
+warning: the function has a cognitive complexity of (19/15)	 @ src/lob/backtest/trim/tests.rs:71:4
+warning: the function has a cognitive complexity of (19/15)	 @ src/lob/levels/r1_state.rs:544:8
+warning: the function has a cognitive complexity of (20/15)	 @ src/commands/lob/mod.rs:314:8
+warning: the function has a cognitive complexity of (20/15)	 @ src/commands/lob/profiles.rs:293:8
+warning: the function has a cognitive complexity of (20/15)	 @ src/commands/lob/touches/tests.rs:263:4
+warning: the function has a cognitive complexity of (21/15)	 @ src/commands/lob/bounce_verdict/tests.rs:228:4
+warning: the function has a cognitive complexity of (22/15)	 @ src/commands/lob/bounce_grid/tests.rs:1065:4
+warning: the function has a cognitive complexity of (22/15)	 @ src/commands/lob/bounce_grid/tests.rs:2197:4
+warning: the function has a cognitive complexity of (22/15)	 @ src/commands/lob/import_archive/tests.rs:89:4
+warning: the function has a cognitive complexity of (22/15)	 @ src/lob/backtest/tests.rs:2702:4
+warning: the function has a cognitive complexity of (23/15)	 @ src/bybit/latency/tests.rs:353:4
+warning: the function has a cognitive complexity of (23/15)	 @ src/commands/lob/bounce_grid/tests.rs:1858:4
+warning: the function has a cognitive complexity of (23/15)	 @ src/commands/lob/bounce_verdict/tests.rs:559:4
+warning: the function has a cognitive complexity of (23/15)	 @ src/lob/backtest/shared_multi.rs:913:12
+warning: the function has a cognitive complexity of (23/15)	 @ src/lob/watch/tests.rs:180:4
+warning: the function has a cognitive complexity of (24/15)	 @ src/bybit/conn.rs:1064:14
+warning: the function has a cognitive complexity of (24/15)	 @ src/commands/lob/dashboard/tests.rs:137:4
+warning: the function has a cognitive complexity of (24/15)	 @ src/commands/lob/fill_capacity.rs:453:8
+warning: the function has a cognitive complexity of (24/15)	 @ src/commands/lob/import_archive.rs:395:8
+warning: the function has a cognitive complexity of (24/15)	 @ src/commands/lob/touches/abin.rs:182:15
+warning: the function has a cognitive complexity of (24/15)	 @ src/lob/levels.rs:2146:4
+warning: the function has a cognitive complexity of (25/15)	 @ src/commands/lob/bounce_grid/tests.rs:288:4
+warning: the function has a cognitive complexity of (25/15)	 @ src/commands/lob/touch_profiles.rs:308:8
+warning: the function has a cognitive complexity of (26/15)	 @ src/commands/lob/touches.rs:457:8
+warning: the function has a cognitive complexity of (26/15)	 @ src/lob/r1_flow.rs:330:12
+warning: the function has a cognitive complexity of (27/15)	 @ src/commands/lob/backtest/plan.rs:60:15
+warning: the function has a cognitive complexity of (27/15)	 @ src/commands/lob/bounce_grid/tests.rs:823:4
+warning: the function has a cognitive complexity of (28/15)	 @ src/commands/lob/bounce_grid/tests.rs:3577:4
+warning: the function has a cognitive complexity of (28/15)	 @ src/lob/backtest.rs:3182:4
+warning: the function has a cognitive complexity of (31/15)	 @ src/commands/lob/replay.rs:297:15
+warning: the function has a cognitive complexity of (31/15)	 @ src/commands/lob/touches/tbin.rs:138:15
+warning: the function has a cognitive complexity of (32/15)	 @ src/commands/lob/trades/tests.rs:37:4
+warning: the function has a cognitive complexity of (33/15)	 @ src/bybit/conn.rs:726:14
+warning: the function has a cognitive complexity of (38/15)	 @ src/commands/lob/bounce_grid/tests.rs:3696:4
+warning: the function has a cognitive complexity of (38/15)	 @ src/lob/backtest.rs:1538:4
+warning: the function has a cognitive complexity of (39/15)	 @ src/commands/lob/pick/tests.rs:63:4
+warning: the function has a cognitive complexity of (42/15)	 @ src/commands/lob/dashboard/tests.rs:603:4
+warning: the function has a cognitive complexity of (43/15)	 @ src/commands/lob/bounce_grid/forms.rs:234:8
+warning: the function has a cognitive complexity of (43/15)	 @ src/commands/lob/fill_capacity/tests.rs:131:4
+warning: the function has a cognitive complexity of (43/15)	 @ src/commands/lob/touches/tests.rs:64:4
+warning: the function has a cognitive complexity of (45/15)	 @ src/lob/strategy.rs:2855:4
+warning: the function has a cognitive complexity of (55/15)	 @ src/commands/lob/touch_profiles/tests.rs:207:4
+warning: the function has a cognitive complexity of (56/15)	 @ src/lob/backtest.rs:2111:4
+warning: the function has a cognitive complexity of (62/15)	 @ src/commands/lob/bounce_grid.rs:468:8
+warning: the function has a cognitive complexity of (77/15)	 @ src/commands/lob/dashboard/tests.rs:194:4
+warning: this function has too many lines (101/100)	 @ examples/stream_drift.rs:100:1
+warning: this function has too many lines (101/100)	 @ src/commands/lob/bounce_grid/drive.rs:47:1
+warning: this function has too many lines (101/100)	 @ src/commands/lob/bounce_grid/tests.rs:1065:1
+warning: this function has too many lines (102/100)	 @ src/commands/lob/bounce_grid/tests.rs:2197:1
+warning: this function has too many lines (102/100)	 @ src/commands/lob/bounce_grid/tests.rs:3577:1
+warning: this function has too many lines (102/100)	 @ src/commands/lob/dashboard.rs:1273:1
+warning: this function has too many lines (102/100)	 @ src/commands/lob/dashboard.rs:1813:1
+warning: this function has too many lines (102/100)	 @ src/commands/lob/session/summary.rs:240:5
+warning: this function has too many lines (102/100)	 @ src/lob/levels/tests.rs:2031:1
+warning: this function has too many lines (103/100)	 @ src/lob/shortlist/tests.rs:630:1
+warning: this function has too many lines (104/100)	 @ src/commands/lob/touches/minute_flow.rs:42:1
+warning: this function has too many lines (105/100)	 @ src/feed/live/tests.rs:1009:1
+warning: this function has too many lines (105/100)	 @ src/lob/backtest.rs:2544:1
+warning: this function has too many lines (106/100)	 @ src/commands/lob/binlog_stats.rs:502:1
+warning: this function has too many lines (106/100)	 @ src/commands/lob/bounce_grid/tests.rs:702:1
+warning: this function has too many lines (106/100)	 @ src/commands/lob/markout/tests.rs:196:1
+warning: this function has too many lines (106/100)	 @ src/commands/lob/session/tests.rs:2447:1
+warning: this function has too many lines (106/100)	 @ src/commands/lob/touches/abin.rs:182:1
+warning: this function has too many lines (106/100)	 @ src/lob/backtest/tests.rs:693:1
+warning: this function has too many lines (107/100)	 @ src/commands/lob/session/tests.rs:2782:1
+warning: this function has too many lines (108/100)	 @ src/commands/lob/bounce_grid/tests.rs:1576:1
+warning: this function has too many lines (108/100)	 @ src/lob/levels/tests.rs:89:1
+warning: this function has too many lines (109/100)	 @ src/commands/lob/bounce_grid/tests.rs:1858:1
+warning: this function has too many lines (109/100)	 @ src/commands/lob/session/tests.rs:1668:1
+warning: this function has too many lines (110/100)	 @ src/commands/lob/session/tests.rs:1505:1
+warning: this function has too many lines (111/100)	 @ src/bybit/conn.rs:1064:5
+warning: this function has too many lines (111/100)	 @ src/bybit/conn/tests.rs:598:7
+warning: this function has too many lines (111/100)	 @ src/lob/backtest/shared_engine/tests.rs:62:1
+warning: this function has too many lines (112/100)	 @ src/commands/lob/session/tests.rs:277:1
+warning: this function has too many lines (113/100)	 @ src/commands/lob/archive.rs:182:1
+warning: this function has too many lines (113/100)	 @ src/commands/lob/pick/tests.rs:63:1
+warning: this function has too many lines (114/100)	 @ src/commands/lob/latency.rs:436:1
+warning: this function has too many lines (116/100)	 @ src/commands/lob/bounce_grid/tests.rs:3351:1
+warning: this function has too many lines (116/100)	 @ src/commands/lob/pilot.rs:364:1
+warning: this function has too many lines (116/100)	 @ src/lob/r1_flow.rs:330:5
+warning: this function has too many lines (119/100)	 @ src/commands/lob/binlog_stats.rs:297:1
+warning: this function has too many lines (124/100)	 @ src/lob/levels/tests.rs:403:1
+warning: this function has too many lines (125/100)	 @ src/commands/lob/touches/row.rs:46:1
+warning: this function has too many lines (126/100)	 @ src/commands/lob/touches/tbin.rs:138:1
+warning: this function has too many lines (126/100)	 @ src/lob/backtest/shared_multi.rs:913:5
+warning: this function has too many lines (129/100)	 @ src/commands/lob/dashboard/tests.rs:194:1
+warning: this function has too many lines (129/100)	 @ src/commands/lob/pick/mod.rs:147:1
+warning: this function has too many lines (129/100)	 @ src/lob/backtest/hold_index.rs:129:5
+warning: this function has too many lines (131/100)	 @ src/commands/lob/pilot.rs:209:1
+warning: this function has too many lines (132/100)	 @ src/feed/live.rs:917:5
+warning: this function has too many lines (133/100)	 @ src/commands/lob/bounce_grid/drive.rs:658:1
+warning: this function has too many lines (138/100)	 @ examples/depth_probe.rs:34:1
+warning: this function has too many lines (138/100)	 @ src/commands/lob/pilot/chain.rs:41:1
+warning: this function has too many lines (138/100)	 @ src/commands/lob/touches/numbers.rs:127:1
+warning: this function has too many lines (138/100)	 @ src/lob/strategy.rs:3750:1
+warning: this function has too many lines (141/100)	 @ src/commands/lob/profiles.rs:293:1
+warning: this function has too many lines (145/100)	 @ src/commands/lob/dashboard.rs:840:1
+warning: this function has too many lines (147/100)	 @ src/commands/lob/bounce_verdict.rs:702:1
+warning: this function has too many lines (155/100)	 @ src/commands/lob/bounce_grid/sets.rs:285:5
+warning: this function has too many lines (155/100)	 @ src/commands/lob/session/tests.rs:620:1
+warning: this function has too many lines (156/100)	 @ src/commands/lob/touch_profiles.rs:308:1
+warning: this function has too many lines (162/100)	 @ src/commands/lob/pick/table/tests.rs:77:1
+warning: this function has too many lines (163/100)	 @ src/commands/lob/touch_profiles/tests.rs:207:1
+warning: this function has too many lines (170/100)	 @ src/commands/lob/bounce_grid/plan.rs:416:1
+warning: this function has too many lines (172/100)	 @ src/lob/backtest/tests.rs:2102:1
+warning: this function has too many lines (173/100)	 @ src/bybit/conn.rs:726:5
+warning: this function has too many lines (173/100)	 @ src/bybit/verify_sidecar.rs:492:5
+warning: this function has too many lines (175/100)	 @ src/commands/lob/pilot/metrics.rs:166:1
+warning: this function has too many lines (177/100)	 @ src/commands/lob/bounce_grid/tests.rs:823:1
+warning: this function has too many lines (181/100)	 @ src/commands/lob/bounce_grid/outputs.rs:346:5
+warning: this function has too many lines (196/100)	 @ src/commands/lob/bounce_grid/tests.rs:3696:1
+warning: this function has too many lines (200/100)	 @ src/commands/lob/replay.rs:297:1
+warning: this function has too many lines (200/100)	 @ src/commands/lob/touches.rs:457:1
+warning: this function has too many lines (205/100)	 @ src/commands/lob/bounce_verdict.rs:478:1
+warning: this function has too many lines (218/100)	 @ src/commands/lob/bounce_grid/plan.rs:101:1
+warning: this function has too many lines (218/100)	 @ src/commands/lob/import_archive.rs:395:1
+warning: this function has too many lines (237/100)	 @ src/commands/lob/bounce_verdict.rs:922:1
+warning: this function has too many lines (252/100)	 @ src/commands/lob/bounce_grid/forms.rs:234:5
+warning: this function has too many lines (279/100)	 @ src/lob/strategy.rs:2855:1
+warning: this function has too many lines (280/100)	 @ src/lob/backtest.rs:1538:1
+warning: this function has too many lines (280/100)	 @ src/lob/levels.rs:2146:1
+warning: this function has too many lines (285/100)	 @ src/lob/backtest.rs:3182:1
+warning: this function has too many lines (286/100)	 @ src/commands/lob/fill_capacity.rs:453:1
+warning: this function has too many lines (322/100)	 @ src/commands/lob/backtest/plan.rs:60:1
+warning: this function has too many lines (352/100)	 @ src/commands/lob/backtest.rs:230:1
+warning: this function has too many lines (352/100)	 @ src/lob/backtest.rs:2111:1
+warning: this function has too many lines (372/100)	 @ src/commands/lob/mod.rs:314:1
+warning: this function has too many lines (829/100)	 @ src/commands/lob/bounce_grid.rs:468:5
