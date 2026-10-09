@@ -2,9 +2,10 @@
 """К-8 (TK-048): варианты скриптов суток x2/x4 — те же 241 клетка + добавки по осям П-12 (В-198).
 Половина добавок — тот же вход (ladder3x0..0.0409sw2), другой стоп/тейк (A); половина — новые формы входа (B).
 Использование: tk048-k8-gen.py <каталог cells-by-day> <выход> <сутки,...>; пишет <выход>/x{2,4}/jall-jan-<d>.{sh,txt}."""
-import os, re, sys
+import os, random, re, sys
 
 src, out, days = sys.argv[1], sys.argv[2], sys.argv[3].split(',')
+UNIFORM = len(sys.argv) > 4 and sys.argv[4] == 'uniform'  # chain82: добавки по сетам вразброс, половины A/B раздельно
 E0 = 'ladder3x0..0.0409sw2'
 A_FORMS = [f'{E0}-{s}-{t}-14400-ttl1800' for t in ('tr1x1', 'tr1.5x1', 'tr2x1', '1to1')
            for s in ('pct2.5', 'pct4', 'pct3', 'pct1.5')]
@@ -12,7 +13,7 @@ ENTRIES = ['ladder3x0.00409..0.02045sw2', 'ladder3x0.00409..0.0818sw2', 'ladder3
            'ladder3x0.010225..0.0818sw2', 'ladder3x0.00409..0.0409sw2', 'ladder3x0.010225..0.0409sw2',
            'ladder3x0..0.02045sw2', 'ladder3x0..0.0818sw2']
 B_FORMS = [f'{e}-pct2-tr1x1-14400-ttl1800' for e in ENTRIES]
-NEED = {1: (0, 0), 2: (120, 121), 4: (360, 363)}
+NEED = {'2a': (241, 0), '2b': (0, 241)} if UNIFORM else {1: (0, 0), 2: (120, 121), 4: (360, 363)}
 for d in days:
     base = f'{src}/jall-jan-2026-01-{d}'
     cells = [l.rstrip('\n') for l in open(base + '.txt') if l.strip()]
@@ -27,6 +28,9 @@ for d in days:
         return [f'{f} {s}' for s in sets for f in forms if f'{f} {s}' not in have]
 
     PA, PB = pairs(A_FORMS), pairs(B_FORMS)
+    if UNIFORM:
+        random.Random(f'k8u-{d}').shuffle(PA)
+        random.Random(f'k8u-{d}').shuffle(PB)
     sh = open(base + '.sh').read().split('\n')
     for k, (na, nb) in NEED.items():
         add = PA[:na] + PB[:nb]
@@ -44,6 +48,6 @@ for d in days:
             if f'{fl} ' not in line:
                 line = line.replace(' --cells ', f' {fl} --cells ', 1)
         line = line.replace(base + '.txt', txt)
-        rc = 'for f in b5/.cellstmp-2026-01-%s/*/rounds.csv; do echo "$f $(wc -l < $f)"; done >> %s/rounds-count-x%d.txt' % (d, out, k)
+        rc = 'for f in b5/.cellstmp-2026-01-%s/*/rounds.csv; do echo "$f $(wc -l < $f)"; done >> %s/rounds-count-x%s.txt' % (d, out, k)
         open(f'{out}/x{k}/jall-jan-2026-01-{d}.sh', 'w').write('\n'.join(sh[:2] + [line, sh[3], rc] + sh[4:]))
         print(d, k, len(cells), '+', len(add), 'A', na, 'B', nb, 'flags', len(flags))
