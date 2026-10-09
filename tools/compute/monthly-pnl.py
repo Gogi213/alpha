@@ -12,7 +12,8 @@ ext = ext-v171c-2026-10-09.csv; R1 B1 (фев–сен) = B1 из R2 (фев–�
 Запуск из корня репозитория: python tools/compute/monthly-pnl.py  → docs/findings/monthly-pnl-v171c-2026-10-09.{csv,md}"""
 import csv, json, os, sys
 from collections import defaultdict
-from p12lib import load_head
+import datetime as dt
+from p12lib import load_head, trials_effn
 
 R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-a/", "data/tk113/ext/", "data/tk113/r1-v171c/"
 OUT = "docs/findings/monthly-pnl-v171c-2026-10-09"
@@ -40,7 +41,11 @@ def row(pack, family, cell, lst, months_ok):
     """lst: месяц -> [(мс, $)] -> словарь с помесячными суммами/числом сделок."""
     usd = {m: sum(v for _a, v in lst.get(m, [])) for m in months_ok + [OCT]}
     trd = {m: len(lst.get(m, [])) for m in months_ok + [OCT]}
-    return dict(pack=pack, family=family, cell=cell, usd=usd, trd=trd)
+    days = defaultdict(float)
+    for m in months_ok:
+        for ms, v in lst.get(m, []):
+            days[ms // 86400000] += v
+    return dict(pack=pack, family=family, cell=cell, usd=usd, trd=trd, days=days)
 
 
 def collect_r2(mode, cap):
@@ -234,6 +239,18 @@ def main():
         L += ["", f"### R1 ({len(r1) - 1} клеток + B1 как база R1), на v171c только фев–сен — январь «—», итог фев–сен", ""]
         L += table(r1)
         L.append("")
+    d0 = dt.date(2026, 1, 1).toordinal() - dt.date(1970, 1, 1).toordinal()
+    d1 = dt.date(2026, 9, 30).toordinal() - dt.date(1970, 1, 1).toordinal()
+    L += ["## Испытания и эффективное N (С-62)", ""]
+    for mode, _cap in MODES:
+        d = data[mode]
+        e = trials_effn({r["cell"]: r["days"] for r in d["r2"] + d["ext"]}, d0, d1, "B1")
+        neff_b1 = "не определено" if e["n_eff_ref"] is None else format(e["n_eff_ref"], ".1f")
+        L.append(f"- {mode}: испытаний (клеток R2 + базы + ext) {e['trials']}, из них плоских {e['flat']}; суток {e['n_days']}; "
+                 f"эфф. N клеток (Kish по корреляциям суточных рядов) {e['n_eff_cells']:.1f}; эфф. N суточного ряда B1 (автокорреляция) {neff_b1}. "
+                 f"R1 ({len(d['r1']) - 1} клеток, фев–сен) — отдельное семейство испытаний.")
+        print(f"[{mode}] испытаний {e['trials']} (плоских {e['flat']}), эфф. N клеток {e['n_eff_cells']:.1f}, эфф. N B1 {neff_b1}")
+    L.append("")
     open(OUT + ".md", "w", encoding="utf-8", newline="\n").write("\n".join(L))
     # ---- печать топов ----
     for mode, _cap in MODES:

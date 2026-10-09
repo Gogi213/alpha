@@ -42,3 +42,13 @@ def test_sr_known_values():
 def test_block_idx_shape_and_range():
     idx = p12lib.block_idx(np.random.default_rng(1), 30)
     assert idx.shape == (p12lib.B, 30) and idx.min() >= 0 and idx.max() < 30
+
+
+def test_trials_effn_counts_and_correlation():
+    rng = np.random.default_rng(7)
+    base = rng.normal(size=60)
+    days = {"B1": dict(enumerate(base)), "copy": dict(enumerate(base * 2)), "flat": {}, "indep": dict(enumerate(rng.normal(size=60)))}
+    e = p12lib.trials_effn(days, 0, 59, "B1")
+    assert e["trials"] == 4 and e["flat"] == 1 and e["n_days"] == 60
+    assert 1.0 < e["n_eff_cells"] < 3.0          # B1 и copy — один ряд, indep — второй: ≈ 2
+    assert e["n_eff_ref"] is None or 1.0 <= e["n_eff_ref"] <= 60

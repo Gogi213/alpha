@@ -132,3 +132,24 @@ def analyse(P, seed):
                 pv = float(((ts.max(0) >= res[c]["T"]) if sgn < 0 else (ts.min(0) <= res[c]["T"])).mean())
                 prev = max(prev, pv); res[c][key] = prev
     return res, fam
+
+
+def _skill_effn():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".claude", "skills", "alpha-research", "scripts", "effective_n.py")
+    spec = importlib.util.spec_from_file_location("effective_n", path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def trials_effn(days, d0, d1, ref):
+    """Число испытаний и эффективное N (навык alpha-research, С-62). days: {клетка: {сутки(мс//86400000): $}}; окно суток [d0, d1]; ref — клетка-база.
+    -> dict(trials, flat, n_days, n_eff_cells — Kish по корреляциям суточных рядов клеток, n_eff_ref — по автокорреляции ряда ref)."""
+    e = _skill_effn()
+    span = range(d0, d1 + 1)
+    M = {c: np.array([d.get(k, 0.0) for k in span]) for c, d in days.items()}
+    live = [c for c, x in M.items() if x.std() > 0]
+    n_eff_cells = e.kish_effective_n(np.corrcoef(np.vstack([M[c] for c in live]))) if len(live) > 1 else float(len(live))
+    n_eff_ref = e.effective_n_from_autocorr(list(M[ref])) if ref in M else None
+    return dict(trials=len(M), flat=len(M) - len(live), n_days=len(span), n_eff_cells=float(n_eff_cells), n_eff_ref=n_eff_ref)
