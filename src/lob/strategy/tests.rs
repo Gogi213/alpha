@@ -3121,6 +3121,9 @@ fn holding_decision_reads_time_only_at_the_known_thresholds() {
             // Г-133 `chase<мс>`: пропуск шагов при форме выключен (`pyramid_on` включает `chase_ms > 0`).
             "state.chase_start_ns = now;",
             "if now.saturating_sub(state.chase_start_ns)",
+            // Г-112/116 `tape<Q>`/`cxl<Q>`: кольцо включено — пропуск шагов выключен (`tape_on` в `hold_wakeup_ns`).
+            "&& state.tape_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.tape_q;",
+            "&& state.cxl_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.cxl_q;",
         ]
     );
     assert_eq!(
