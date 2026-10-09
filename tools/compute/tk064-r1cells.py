@@ -191,25 +191,28 @@ def main():
     ap.add_argument("mode", choices=["thresholds", "coverage", "apply"])
     ap.add_argument("--pool", default="/data/tk064/pool")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--jan-self", action="store_true",
+                    help="TK-115, решение Судьи 09.10 (PRECEDENTS 61b2aabd): только январь, порог по B1-сигналам самого января (признаки, без исходов)")
     a = ap.parse_args()
+    months = ["jan"] if a.jan_self else MONTHS
     os.makedirs(a.out, exist_ok=True)
-    loaded = {m: load_month(a.pool, m) for m in MONTHS}
+    loaded = {m: load_month(a.pool, m) for m in months}
     data = {m: v[0] for m, v in loaded.items()}
     zc, zinfo = zero_cols(data["jan"])
     cov = {"zero_mass_rule": "П-11 §4: q33 = q67 = 0 по определённым значениям января-калибровки; одно решение на все месяцы",
            "zero_mass_columns": sorted(zc), "zero_mass_by_column": zinfo,
            "defined_share": {c: {m: round(sum(1 for s in data[m] if s["f"][c] is not None) / len(data[m]), 4) if data[m] else None
-                                 for m in MONTHS} for c in FEATS},
+                                 for m in months} for c in FEATS},
            "undefined_lt30pct": {m: sorted(c for c in FEATS if data[m] and sum(1 for s in data[m] if s["f"][c] is not None) / len(data[m]) < 0.30)
-                                 for m in MONTHS},
-           "lvl_duplicate_keys": {m: loaded[m][1] for m in MONTHS},
+                                 for m in months},
+           "lvl_duplicate_keys": {m: loaded[m][1] for m in months},
            "new_instruments_rows": {m: {sym: sum(1 for s in data[m] if s["key"][0] == sym) for sym in ("TRXUSDT", "XAUUSDT", "CLUSDT")}
-                                    for m in MONTHS},
+                                    for m in months},
            "months": {}}
     for i, mon in enumerate(MONTHS):
-        if i == 0:
-            continue  # январь — только калибровка
-        hist = [s for m in MONTHS[:i] for s in data[m]]
+        if a.jan_self != (mon == "jan"):
+            continue  # без --jan-self январь — только калибровка; с ним — только январь
+        hist = data["jan"] if a.jan_self else [s for m in MONTHS[:i] for s in data[m]]
         thr, cnt = thresholds(hist)
         if a.mode == "thresholds":
             with open(os.path.join(a.out, f"e-thresholds-{mon}.csv"), "w", newline="") as f:
