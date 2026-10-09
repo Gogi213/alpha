@@ -196,6 +196,41 @@ def synth_case():
     return sum(rows) / len(rows)
 
 
+def cold_case():
+    """10.10 (Судья п.2): свежая семья 8×12 (факт 6) + 24×1 — без обучения EWMA host ≥ 0,8 уже в окне 2–5 мин."""
+    be = SimBE(); be.mem_av = 50.0; core = S.Core(be, ncpu=NCPU, mem=62, pack="fact")
+    for i in range(8):
+        j = job("w%d" % i, "tk071-fresh-%d" % (i + 1), "prod", 12, 36, "none", 1500, 0, mr=2400); j["prio"] = 9
+        core.add(j); be.cpu_rate[j["id"]] = 6; be.mem_used[j["id"]] = 14.0
+    for i in range(24):
+        j = job("s%02d" % i, "tk071-freshs-%02d" % (i + 1), "prod", 1, 1, "none", 5400, 0, mr=7200); j["prio"] = 9
+        core.add(j); be.cpu_rate[j["id"]] = 1; be.mem_used[j["id"]] = 0.5
+    rows = []
+    for _ in range(int(300 / S.TICK)):
+        core.tick(); be.advance(core, S.TICK)
+        if be.t >= 120:
+            rows.append(be.busy_fact())
+    return sum(rows) / len(rows)
+
+
+def prio_case():
+    """10.10 (Судья п.3, CEO 23:14): боевой prio 5 (12 ядер) при полной синтетике prio 9 — старт ≤ 1 цикла демона после подачи."""
+    be = SimBE(); be.mem_av = 50.0; core = S.Core(be, ncpu=NCPU, mem=62, pack="fact")
+    for i in range(16):
+        j = job("s%02d" % i, "tk071-full-%02d" % (i + 1), "prod", 1, 1, "none", 5400, 0, mr=7200); j["prio"] = 9
+        core.add(j); be.cpu_rate[j["id"]] = 1; be.mem_used[j["id"]] = 0.5
+    for _ in range(int(600 / S.TICK)):
+        core.tick(); be.advance(core, S.TICK)
+    w = job("war", "tk115-war", "prod", 12, 12, "none", 1500, be.t, mr=2400); w["prio"] = 5
+    core.add(w); be.cpu_rate["war"] = 12; be.mem_used["war"] = 4.0
+    t0 = be.t
+    for _ in range(3):
+        core.tick(); be.advance(core, S.TICK)
+        if w["state"] == "running":
+            return be.t - t0 - S.TICK
+    return None
+
+
 def cap_case():
     """п.4: изолированное окно при 12 однопоточных prod — незамороженных заявленных ядер ≤ N, новая заявка не стартует, по концу окна всё оттаяло."""
     be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=62, pack="claim")
@@ -385,6 +420,9 @@ def run():
     sy = synth_case()
     print(f"заполнение по факту: 8×12 (факт 6) + 24×1, host после 5 мин {sy:.2f} (≥ 0,8)")
     ok = ok and sy >= 0.8
+    co, pr = cold_case(), prio_case()
+    print(f"холодный старт семьи: host в окне 2–5 мин {co:.2f} (≥ 0,8); боевой prio 5 при полной синтетике prio 9: старт через {pr} с (≤ {S.TICK})")
+    ok = ok and co >= 0.8 and pr is not None and pr <= S.TICK
     hp = hot_psi_case()
     print(f"перегруз по PSI: PSI 2 % — заморожено {hp[0]}; PSI 60 % — {hp[1]} (≤ 150/SETTLE+1)")
     ok = ok and hp[0] == 0 and 1 <= hp[1] <= 150 // S.FACT_SETTLE_S + 1

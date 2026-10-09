@@ -195,7 +195,7 @@ class Core:
             over = False
             if fact:                                      # п.1: по факту — память: MemAvailable покрывает заявку и недобранное идущими
                 mem_ok = self.mem_fits(j)
-                over = (room < j["cores"] and now - self.fact_t >= FACT_SETTLE_S and mem_ok
+                over = (room < j["cores"] and (now - self.fact_t >= FACT_SETTLE_S or self.need_cores(j) < j["cores"] or j["cores"] == 1) and mem_ok
                         and busy * ncp + self.ramp(now) + self.need_cores(j) <= FACT_BUSY * ncp)
                 fits = (room >= j["cores"] or over) and mem_ok and not disk_full
             else:
@@ -225,8 +225,10 @@ class Core:
             mem += j["mem"]
             capped += len(j["cpus"]) if self.iso else 0
             be.start(j)
-        if head and head["state"] == "queued" and now - head["t_submit"] > PREEMPT_S and head["id"] not in self.preempt                 and mem + head["mem"] <= self.mem:
-            self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now)
+        if head and head["state"] == "queued" and head["id"] not in self.preempt and mem + head["mem"] <= self.mem:
+            worse = any(r.get("prio", 5) > head.get("prio", 5) and not r.get("frozen_for") for r in self.running("prod"))
+            if worse or now - head["t_submit"] > PREEMPT_S:    # 10.10 (Судья): prio строго лучше идущего — вытесняем в тот же цикл, без таймера
+                self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now, bare=now - head["t_submit"] > PREEMPT_S)
         self.alert_waiting(now)
         self.alert_underuse(now)
         self.alert_idle(now)
@@ -248,8 +250,25 @@ class Core:
             if hasattr(self.be, "job_mem"):
                 self.fam_mem[f] = max(self.fam_mem.get(f, 0.0), self.be.job_mem(j))
 
+    def cold_rate(self, f, now):
+        """Семья без EWMA (10.10, Судья gate10): допуск по собственному факту запущенных — средняя занятость ядер с начала, возраст ≥ 2·FACT_SETTLE_S (Судья: 2–3 отсчёта); обновляется раз в FACT_SETTLE_S."""
+        rs = []
+        for r in self.running("prod"):
+            age = now - r["t_start"]
+            if self.family(r) != f or r.get("frozen_for") or self.frozen or age < 2 * FACT_SETTLE_S or not hasattr(self.be, "job_cpu"):
+                continue
+            if now - r.get("cold_t", -1e9) >= FACT_SETTLE_S:
+                r["cold_t"] = now
+                r["cold_r"] = self.be.job_cpu(r) / max(1.0, age)   # CPUUsage юнита накопительный с его старта
+            if r.get("cold_r") is not None:
+                rs.append(r["cold_r"])
+        return sum(rs) / len(rs) if rs else None
+
     def need_cores(self, j):
-        c = self.fam_cores.get(self.family(j))
+        f = self.family(j)
+        c = self.fam_cores.get(f)
+        if c is None:
+            c = self.cold_rate(f, self.be.now())
         return j["cores"] if c is None else min(j["cores"], max(1, math.ceil(c)))
 
     def need_mem(self, j):
@@ -302,7 +321,7 @@ class Core:
     def ramp(self, now):
         """Недобор EWMA по свежим заданиям: EWMA с τ = 60 с видит лишь долю 1 − e^(−a/60) нагрузки задания возраста a;
         недостающее ≤ cores·e^(−a/60) (заявка — нижняя оценка, берём её). Старше 180 с — ноль."""
-        return sum(r["cores"] * math.exp(-(now - r["t_start"]) / 60) for r in self.running("prod")
+        return sum(min(r["cores"], r.get("cold_r") or r["cores"]) * math.exp(-(now - r["t_start"]) / 60) for r in self.running("prod")   # со своим фактом (cold_r) — он, не заявка
                    if not r.get("frozen_for") and now - r["t_start"] < 180)
 
     def mem_fits(self, j):
@@ -313,7 +332,7 @@ class Core:
                   if now - r["t_start"] < MEM_RAMP_S)   # старше MEM_RAMP_S — факт уже в MemAvailable (23:08: по заявке 41 ГБ против факта 17,5 стоял весь счёт)
         return av >= self.need_mem(j) + gap + FACT_MEM_GAP_GB
 
-    def preempt_for(self, head, room, now):
+    def preempt_for(self, head, room, now, bare=True):
         """Вытеснение заморозкой (Slurm PreemptMode=SUSPEND): резерв не стартует за PREEMPT_S — замораживаем идущие заявки
         с большим prio (новейшие первыми), затем голые юниты (по возрастанию ядер) ровно на нужные ядра; оттаивают по концу головной."""
         need = head["cores"] - room
@@ -326,7 +345,7 @@ class Core:
                 break
             vs.append(["job", j["id"], len(j["cpus"])])
             got += len(j["cpus"])
-        if got < need and head.get("prio", 5) < BARE_PRIO:
+        if got < need and bare and head.get("prio", 5) < BARE_PRIO:   # голые юниты — только после PREEMPT_S
             for u, c in sorted(self.be.legacy_units(), key=lambda x: x[1]):
                 if got >= need:
                     break
