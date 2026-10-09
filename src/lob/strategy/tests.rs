@@ -3117,8 +3117,8 @@ fn holding_decision_reads_time_only_at_the_known_thresholds() {
             "let (eaten, max_qty) = state.wall_window(entry_ns, now);",
             ".and_then(|b| b.move_bps(now, wall_eat.secs))",
             // Г-112/116 `tape<Q>`/`cxl<Q>`: кольцо включено — пропуск шагов выключен (`tape_on` в `hold_wakeup_ns`).
-            "&& state.tape_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.tape_q;",
-            "&& state.cxl_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.cxl_q;",
+            "&& state.tape_since_entry(entry_ns, now, pyr.tape_w) / state.level_qty_at_entry",
+            "&& state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry",
             "&& now.saturating_sub(entry_ns) >= early_exit_ns",
             "} else if now.saturating_sub(entry_ns) >= deadline_ns {",
             // Г-133 `chase<мс>`: пропуск шагов при форме выключен (`pyramid_on` включает `chase_ms > 0`).

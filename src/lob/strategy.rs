@@ -488,8 +488,12 @@ pub struct PyramidCfg {
     /// Г-112 (`tape<Q>`): выход по рынку (`Tape`), когда лента против позиции за окно кольца (с входа), делённая на
     /// `level_qty` стены, ≥ `tape_q`, а позиция в минусе. `0` — выключено. Нужно кольцо `--tape-log`.
     pub tape_q: f64,
+    /// Г-112: окно `W`, с (последние `W` с, но не раньше входа); берётся из кольца `--tape-log` ≥ `W`.
+    pub tape_w: u32,
     /// Г-116 (`cxl<Q>`): то же по отменам на нашей стороне (`Resilience`); `0` — выключено.
     pub cxl_q: f64,
+    /// Г-116: окно `W`, с.
+    pub cxl_w: u32,
 }
 
 impl PyramidCfg {
@@ -511,7 +515,9 @@ impl PyramidCfg {
         wall2: 0,
         chase_ms: 0,
         tape_q: 0.0,
+        tape_w: 0,
         cxl_q: 0.0,
+        cxl_w: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -1282,13 +1288,14 @@ impl StrategyState {
 
     /// TK-115 Г-112/116: сумма корзин кольца за последние `W` с до `now`, но только секунды строго после секунды входа
     /// (корзина секунды входа смешана с до-входом — отбрасываем: занижает меру, выход консервативнее, spec §1b).
-    fn ring_since_entry(ring: Option<&[TapeBucket]>, entry_ns: i64, now: i64) -> f64 {
+    fn ring_since_entry(ring: Option<&[TapeBucket]>, entry_ns: i64, now: i64, w: u32) -> f64 {
         let Some(ring) = ring else {
             return 0.0;
         };
         let t = now.div_euclid(1_000_000_000);
         #[allow(clippy::cast_possible_wrap)]
-        let lo = (t - ring.len() as i64 + 1).max(entry_ns.div_euclid(1_000_000_000) + 1);
+        let lo = (t - i64::from(w).min(ring.len() as i64) + 1)
+            .max(entry_ns.div_euclid(1_000_000_000) + 1);
         ring.iter()
             .filter(|b| b.sec >= lo && b.sec <= t)
             .map(|b| b.lots)
@@ -1296,13 +1303,13 @@ impl StrategyState {
     }
 
     /// Г-112: лента против позиции в окне с входа (`entry_ns`), лоты. Без кольца — 0.
-    pub fn tape_since_entry(&self, entry_ns: i64, now: i64) -> f64 {
-        Self::ring_since_entry(self.tape_ring.as_deref(), entry_ns, now)
+    pub fn tape_since_entry(&self, entry_ns: i64, now: i64, w: u32) -> f64 {
+        Self::ring_since_entry(self.tape_ring.as_deref(), entry_ns, now, w)
     }
 
     /// Г-116: отмены на нашей стороне в окне с входа, лоты. Без кольца — 0.
-    pub fn cxl_since_entry(&self, entry_ns: i64, now: i64) -> f64 {
-        Self::ring_since_entry(self.cxl_ring.as_deref(), entry_ns, now)
+    pub fn cxl_since_entry(&self, entry_ns: i64, now: i64, w: u32) -> f64 {
+        Self::ring_since_entry(self.cxl_ring.as_deref(), entry_ns, now, w)
     }
 
     /// Корзина секунды `sec` кольца `weat*` (обнуляется, если в ней лежала другая секунда).
@@ -3097,11 +3104,13 @@ where
             let tape_hit = pyr.tape_q > 0.0
                 && in_loss
                 && state.level_qty_at_entry > 0.0
-                && state.tape_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.tape_q;
+                && state.tape_since_entry(entry_ns, now, pyr.tape_w) / state.level_qty_at_entry
+                    >= pyr.tape_q;
             let cxl_hit = pyr.cxl_q > 0.0
                 && in_loss
                 && state.level_qty_at_entry > 0.0
-                && state.cxl_since_entry(entry_ns, now) / state.level_qty_at_entry >= pyr.cxl_q;
+                && state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry
+                    >= pyr.cxl_q;
             let plain_stop = gone.stop_px == stop_px;
             let half_level = pyr.half_level;
             let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
