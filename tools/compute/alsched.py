@@ -6,6 +6,7 @@
 
   alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
+                                                    #   stand по умолчанию --iso 4 (без заморозки производства); --exclusive — заморозка всего; --iso K — другое K; wave — всегда заморозка
   alsched.py ps | cancel <id> | reprio <id> <prio> | daemon
 Состояние: $SCHED_DIR (/data/sched): jobs/<id>.json (создаёт CLI, дальше пишет только демон), cancel/<id>, logs/<id>.log, rc/<id>.
 """
@@ -937,18 +938,22 @@ def main():
         return 2
     if a[0] in ("wave", "stand"):
         g = argparse.Namespace(recompute=False, why="", repeat=0, cls="measure", cwd=os.getcwd())
-        while a[1:2] and a[1] in ("--recompute", "--why", "--repeat"):     # TK-081: повтор замера — только явно
-            if a[1] == "--recompute":
-                g.recompute = True; a = a[:1] + a[2:]
+        g.exclusive, g.iso = False, 4
+        while a[1:2] and a[1] in ("--recompute", "--why", "--repeat", "--exclusive", "--iso"):     # TK-081: повтор замера — только явно
+            if a[1] in ("--recompute", "--exclusive"):
+                g.__dict__[a[1][2:]] = True; a = a[:1] + a[2:]
             else:
-                g.__dict__[a[1][2:]] = int(a[2]) if a[1] == "--repeat" else a[2]; a = a[:1] + a[3:]
+                g.__dict__[a[1][2:]] = a[2] if a[1] == "--why" else int(a[2]); a = a[:1] + a[3:]
         if len(a) < 4 or a[1] != "--max-runtime":
             print(f"alsched.py {a[0]} --max-runtime <срок: 90s|30m|2h> команда… (срок обязателен: окно замера = аренда с TTL)")
             return 2
         grc, gcmd = guard_check(g, a[3:])
         if grc:
             return grc
-        j = submit("measure", a[0], NCPU, 56, "none", os.getcwd(), gcmd, parse_dur(a[2]), prio=0)
+        if a[0] == "stand" and not g.exclusive and g.iso:     # судья 09.10: stand по умолчанию на K физ. ядрах без заморозки; заморозка всего — волна или явный --exclusive
+            j = submit("measure", a[0], g.iso, 20, "none", os.getcwd(), gcmd, parse_dur(a[2]), prio=0, iso=g.iso)
+        else:
+            j = submit("measure", a[0], NCPU, 56, "none", os.getcwd(), gcmd, parse_dur(a[2]), prio=0)
         log = f"{DIR}/logs/{j['id']}.log"
         pos = 0
         while True:
