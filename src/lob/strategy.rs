@@ -1174,9 +1174,12 @@ impl StrategyState {
         if !R2 || self.cxl_ring.is_none() {
             return;
         }
-        let keep_in_hold = matches!(self.plan, TradePlan::Bounce { pyramid, .. } if pyramid.cxl_q > 0.0);
-        if matches!(self.phase, Phase::ExitPending { .. } | Phase::ExitCancelPending { .. })
-            || (matches!(self.phase, Phase::Holding { .. }) && !keep_in_hold)
+        let keep_in_hold =
+            matches!(self.plan, TradePlan::Bounce { pyramid, .. } if pyramid.cxl_q > 0.0);
+        if matches!(
+            self.phase,
+            Phase::ExitPending { .. } | Phase::ExitCancelPending { .. }
+        ) || (matches!(self.phase, Phase::Holding { .. }) && !keep_in_hold)
         {
             return;
         }

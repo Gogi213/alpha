@@ -276,7 +276,9 @@ impl ExitForm {
         for (pre, tape) in [("tape", true), ("cxl", false)] {
             if let Some(rest) = spec.strip_prefix(pre) {
                 let q: f64 = rest.parse().map_err(|_| {
-                    anyhow::anyhow!("--exit-form {spec:?}: ожидается {pre}<Q>, Q > 0 (мера / размер стены)")
+                    anyhow::anyhow!(
+                        "--exit-form {spec:?}: ожидается {pre}<Q>, Q > 0 (мера / размер стены)"
+                    )
                 })?;
                 anyhow::ensure!(q.is_finite() && q > 0.0, "{pre}<Q>: Q > 0");
                 let form = if tape {
