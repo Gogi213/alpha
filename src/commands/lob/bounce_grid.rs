@@ -1290,6 +1290,21 @@ impl<'a> GridRun<'a> {
                     t[6].load(Relaxed)
                 );
             }
+            if crate::lob::backtest::fast_hold::hold_index_on() {
+                use std::sync::atomic::Ordering::Relaxed;
+                let b = &crate::lob::backtest::hold_index::BUILD_STAGES;
+                eprintln!(
+                    "bounce-grid:   построение индекса: строк ленты {}, локальных {}, нс: применение {}, запись объёма {}, сделки {}, лучшие цены и учёт {}, снимки {}, сортировки {}",
+                    b[0].load(Relaxed),
+                    b[1].load(Relaxed),
+                    b[2].load(Relaxed),
+                    b[3].load(Relaxed),
+                    b[4].load(Relaxed),
+                    b[5].load(Relaxed),
+                    b[6].load(Relaxed),
+                    b[7].load(Relaxed)
+                );
+            }
             if std::env::var_os("ALPHA_TICK_STATS").is_some_and(|v| v == "1") {
                 use crate::lob::backtest::{QUANT_CALLS, QUANT_SLOW};
                 use std::sync::atomic::Ordering::Relaxed;

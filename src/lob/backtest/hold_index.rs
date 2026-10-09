@@ -21,6 +21,52 @@ use hftbacktest::types::{
 /// кандидаты 1 024 / 4 096 / 16 384, TK-048 К-4а §3).
 pub const CKPT_ROWS: usize = 4096;
 
+/// Таймеры построения (нс; на итог счёта не влияют): [0] строк ленты в проходе, [1] локальных строк, [2] применение
+/// к книге, [3] запись объёма тика, [4] сделки, [5] лучшие цены и учёт строк (последние три — выборка каждой
+/// `SAMPLE`-й локальной строки, масштабированная), [6] контрольные снимки книги, [7] сортировки по тику.
+pub static BUILD_STAGES: [std::sync::atomic::AtomicU64; 8] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 8];
+const SAMPLE: usize = 128;
+
+fn stage_add(i: usize, ns: u128, mul: u64) {
+    BUILD_STAGES[i].fetch_add(
+        u64::try_from(ns).unwrap_or(u64::MAX).saturating_mul(mul),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// Устойчивая сортировка по тику подсчётом (CSR): вход уже в порядке строк, поэтому ключ `(tick, row)` сохраняется.
+/// Разброс тиков больше линейного от длины — обычная устойчивая сортировка.
+fn sort_by_tick<T: Copy>(v: &mut Vec<T>, tick: impl Fn(&T) -> i64) {
+    if v.len() < 2 {
+        return;
+    }
+    let (lo, hi) = v.iter().fold((i64::MAX, i64::MIN), |(a, b), x| {
+        (a.min(tick(x)), b.max(tick(x)))
+    });
+    let range = usize::try_from(hi - lo)
+        .unwrap_or(usize::MAX)
+        .saturating_add(2);
+    if range > 4 * v.len() + 65_536 {
+        v.sort_by_key(|x| tick(x));
+        return;
+    }
+    let mut start = vec![0u32; range];
+    for x in v.iter() {
+        start[usize::try_from(tick(x) - lo).unwrap_or(0) + 1] += 1;
+    }
+    for i in 1..range {
+        start[i] += start[i - 1];
+    }
+    let mut out = v.clone();
+    for x in v.iter() {
+        let k = usize::try_from(tick(x) - lo).unwrap_or(0);
+        out[start[k] as usize] = *x;
+        start[k] += 1;
+    }
+    *v = out;
+}
+
 /// Сторона книги / сделки в ключе тика: 0 — bid (покупатели), 1 — ask.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum BookSide {
@@ -96,6 +142,12 @@ impl HoldIdx {
         let (mut local_rows, mut pmax, mut unclean) = (Vec::new(), Vec::new(), Vec::new());
         let mut trade_rows = Vec::new();
         let mut ckpts = vec![base_book.clone()];
+        let n_rows = rows.len().saturating_sub(base_row);
+        local_rows.reserve(n_rows);
+        pmax.reserve(n_rows);
+        for q in &mut qty {
+            q.reserve(n_rows / 3);
+        }
         let mut last = (book.best_bid_tick(), book.best_ask_tick());
         for (i, ev) in rows.iter().enumerate().skip(base_row) {
             if !ev.is(LOCAL_EVENT) {
@@ -111,6 +163,7 @@ impl HoldIdx {
             if !ev.is(EXCH_EVENT) {
                 unclean.push(i);
             }
+            let sample = local_rows.len() % SAMPLE == 0;
             local_rows.push((i, ev.local_ts));
             pmax.push(
                 pmax.last()
@@ -124,23 +177,30 @@ impl HoldIdx {
             }
             #[allow(clippy::cast_possible_truncation)]
             let t = round_half_away(ev.px / tick) as i64;
-            if ev.is(LOCAL_BID_DEPTH_EVENT) || ev.is(LOCAL_BID_DEPTH_SNAPSHOT_EVENT) {
+            let t0 = sample.then(std::time::Instant::now);
+            let side = if ev.is(LOCAL_BID_DEPTH_EVENT) || ev.is(LOCAL_BID_DEPTH_SNAPSHOT_EVENT) {
                 book.update_bid_depth(ev.px, ev.qty, ev.local_ts);
-                qty[0].push(QtyAt {
-                    tick: t,
-                    row: i,
-                    local_ts: ev.local_ts,
-                    qty: book.bid_qty_at_tick(t),
-                });
+                Some(0)
             } else if ev.is(LOCAL_ASK_DEPTH_EVENT) || ev.is(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT) {
                 book.update_ask_depth(ev.px, ev.qty, ev.local_ts);
-                qty[1].push(QtyAt {
+                Some(1)
+            } else {
+                None
+            };
+            let t1 = sample.then(std::time::Instant::now);
+            if let Some(sd) = side {
+                qty[sd].push(QtyAt {
                     tick: t,
                     row: i,
                     local_ts: ev.local_ts,
-                    qty: book.ask_qty_at_tick(t),
+                    qty: if sd == 0 {
+                        book.bid_qty_at_tick(t)
+                    } else {
+                        book.ask_qty_at_tick(t)
+                    },
                 });
             }
+            let t2 = sample.then(std::time::Instant::now);
             if ev.is(LOCAL_TRADE_EVENT) {
                 trade_rows.push((i, ev.local_ts));
                 let tr = TradeAt {
@@ -156,8 +216,11 @@ impl HoldIdx {
                     buys.push(tr);
                 }
             }
+            let t3 = sample.then(std::time::Instant::now);
             if local_rows.len() % CKPT_ROWS == 0 {
+                let tc = std::time::Instant::now();
                 ckpts.push(DepthSnapshot::of(&book));
+                stage_add(6, tc.elapsed().as_nanos(), 1);
             }
             let now = (book.best_bid_tick(), book.best_ask_tick());
             if now != last {
@@ -169,12 +232,23 @@ impl HoldIdx {
                 });
                 last = now;
             }
+            if let (Some(t0), Some(t1), Some(t2), Some(t3)) = (t0, t1, t2, t3) {
+                let m = SAMPLE as u64;
+                stage_add(2, (t1 - t0).as_nanos(), m);
+                stage_add(3, (t2 - t1).as_nanos(), m);
+                stage_add(4, (t3 - t2).as_nanos(), m);
+                stage_add(5, t3.elapsed().as_nanos(), m);
+            }
         }
+        stage_add(0, rows.len().saturating_sub(base_row) as u128, 1);
+        stage_add(1, local_rows.len() as u128, 1);
+        let ts = std::time::Instant::now();
         for v in &mut qty {
-            v.sort_by_key(|q| (q.tick, q.row));
+            sort_by_tick(v, |q| q.tick);
         }
-        sells.sort_by_key(|x| (x.tick, x.row));
-        buys.sort_by_key(|x| (x.tick, x.row));
+        sort_by_tick(&mut sells, |x| x.tick);
+        sort_by_tick(&mut buys, |x| x.tick);
+        stage_add(7, ts.elapsed().as_nanos(), 1);
         Some(Self {
             base,
             best,
