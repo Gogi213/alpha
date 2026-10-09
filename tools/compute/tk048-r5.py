@@ -3,9 +3,11 @@
 # но порядок единиц — строки готовой очереди "сутки k" (HOIST/QTOP сохраняются), а не "группа -> сутки". Единица уходит в stdout,
 # когда в кэше её сайдкары .events и бинлоги суток D; файлы D+1 встают в очередь чтения на AHEAD единиц позже и дочитываются,
 # пока единица считает. Один читатель на диск (по st_dev) в порядке очереди единиц, внутри единицы — по физическому адресу (filefrag).
-# Окно по байтам (лимит_ГБ), DONTNEED файла, когда готовы все единицы, которым он нужен. Печать: стат читателя раз в 5 с в stderr.
+# D_ONLY=1: без D+1 (К-5б); PLAN_ONLY=1: только байты плана. Окно по байтам (лимит_ГБ), DONTNEED файла, когда готовы все единицы, которым он нужен. Печать: стат читателя раз в 5 с в stderr.
 import datetime, os, subprocess, sys, threading, time
 READY_D = True
+D_ONLY = os.environ.get("D_ONLY") == "1"  # К-5б: только файлы суток D, хвост D+1 берёт счёт
+PLAN_ONLY = os.environ.get("PLAN_ONLY") == "1"  # напечатать байты плана и выйти
 AHEAD = int(os.environ.get("AHEAD", "15"))
 S, QF, G = sys.argv[1], sys.argv[2], int(sys.argv[3])
 NR = int(sys.argv[4]) if len(sys.argv) > 4 else 1
@@ -53,7 +55,7 @@ for u, fs in F.items():
 EXTRA = {}
 if READY_D:
     for u in units:
-        full = [p for p in dict.fromkeys(os.path.realpath(f"{S}/root/{s}-{next_day(u[0])}.binlog") for s in
+        full = [] if D_ONLY else [p for p in dict.fromkeys(os.path.realpath(f"{S}/root/{s}-{next_day(u[0])}.binlog") for s in
                 [os.path.basename(x).rsplit('-', 3)[0] for x in F[u]]) if os.path.exists(p)]
         EXTRA[u] = full
         for p in full:
@@ -154,6 +156,10 @@ if READY_D:
     for u in units[-AHEAD:]:
         for p in EXTRA[u]:
             enqueue(p)
+    plan = sum(os.path.getsize(p) for q in qs.values() for p in q)
+    sys.stderr.write(f"r5: план {len(units)} единиц, {sum(len(q) for q in qs.values())} файлов, {plan/1e9:.2f} ГБ\n")
+    if PLAN_ONLY:
+        os._exit(0)
     sq = list(units)
     for _ in range(4):
         threading.Thread(target=warm_side, args=(sq,), daemon=True).start()
