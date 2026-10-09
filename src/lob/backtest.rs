@@ -73,14 +73,10 @@ use crate::lob::strategy::{
 
 mod compact;
 pub mod fast_depth;
-#[allow(dead_code)]
 pub mod fast_hold;
-#[allow(dead_code)]
 pub mod hold_index;
 mod levels;
-#[allow(dead_code)]
 pub mod sched;
-#[allow(dead_code)]
 pub mod shared_depth;
 pub mod shared_driver;
 pub mod shared_engine;
