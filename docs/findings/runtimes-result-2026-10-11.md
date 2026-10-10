@@ -19,3 +19,14 @@
 | волна b14 01–15.01 | 197,4 с | ? | diff 0, стена не хуже | ? после 4a.3 + КТ-11 |
 
 Срезы `docs/findings/kt-code-cuts-2026-10-10.md` поштучно (сделано/нет) — раздел ниже заполняется при финале.
+
+## Срезы kt-code-cuts (на d9b05f76)
+
+| срез | состояние |
+|---|---|
+| А: общий движок, индекс удержания, развёртка, trim (КТ-6a) | файлы удалены, `ALPHA_SHARED_ENGINE/HOLD_INDEX/HORIZON_GROW/TRIM_ROWS` в `src` — 0: сделано |
+| А: touch-profiles, dashboard, fill-capacity+capacity (КТ-6c) | файлы удалены: сделано |
+| А: `BAND_COUNT_OFF` (КТ-6b) | в `src` 0: сделано |
+| Б: `EVENT_STEPS`, `DIRECT_FEED`, `TOUCH_BIN` | в `src` 0: сделано; `APPROACH_BIN` — 4 файла в `src`: нет (КТ-5 довести) |
+| В: `lob backtest` (команда) | `src/commands/lob/backtest.rs` ЕСТЬ: нет (КТ-6a TK-161 ещё waiting) |
+| В: исследовательский слой 11 011 строк | решение CEO, вне КТ |
