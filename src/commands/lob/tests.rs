@@ -449,6 +449,7 @@ fn lob_help_lists_all_subcommands() {
         "bounce-grid",
         "bounce-verdict",
         "clock",
+        "cold",
         "dashboard",
         "event-cache-probe",
         "fee-rate",
