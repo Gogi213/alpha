@@ -45,6 +45,7 @@ use crate::lob::markout::{mid_double_tick, raw_return_bps, sample_asof};
 use super::{H3Args, ReplayKeep, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
 mod abin;
+mod bincache;
 mod minute_flow;
 mod moves;
 mod numbers;
@@ -53,7 +54,8 @@ mod read;
 mod row;
 mod tbin;
 
-pub(crate) use abin::{read_approaches_cached, stamp};
+pub(crate) use abin::read_approaches_cached;
+pub(crate) use bincache::stamp;
 pub(crate) use read::{read_approaches_csv, ApproachRow, TouchRow};
 pub(crate) use row::r1_cells;
 pub(crate) use tbin::read_touches_cached;
