@@ -25,6 +25,6 @@ rm -rf "$SRC" && mkdir -p "$SRC" && tar -xzf "$ARC" -C "$SRC" && cd "$SRC" || ex
 echo "rbuild: слот $K, ядер $JOBS, target $(du -sm "$SLOT_TGT" 2>/dev/null | cut -f1) МБ"
 OUT=$B/out-slot$K.log
 bash "$CMDF" >"$OUT" 2>&1; RC=$?
-if [ $RC -eq 0 ]; then tail -60 "$OUT"; else grep -E '^(error|warning)' "$OUT" | sort -u | head -150; echo "--- хвост"; tail -25 "$OUT"; fi
+if [ $RC -eq 0 ]; then tail -60 "$OUT"; else grep -A2 -e '^error' -e '^warning' -e FAILED -e panicked "$OUT" | head -150; echo "--- хвост"; tail -25 "$OUT"; fi
 rm -f "$ARC" "$CMDF"
 exit $RC
