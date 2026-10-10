@@ -8,6 +8,7 @@ HOST=${CALC_HOST:-root@89.163.242.211}
 SSH=(ssh -n -i "$HOME/.ssh/id_rsa" -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o BatchMode=yes "$HOST")
 SSH_IN=(ssh -i "$HOME/.ssh/id_rsa" -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o BatchMode=yes "$HOST")   # без -n: stdin = файл из git
 MANIFEST="alsched.py:alsched.py
+sched_cfg.py:sched_cfg.py
 benchrun-sched.sh:benchrun-sched.sh
 benchrun-inner.sh:benchrun-inner.sh
 benchrun-legacy.sh:benchrun-legacy.sh
