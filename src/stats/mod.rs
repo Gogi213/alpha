@@ -200,29 +200,6 @@ impl SplitMix64 {
     }
 }
 
-/// Среднее арифметическое среза; `None` на пустом (одно определение для
-/// pilot/profiles/вердиктов — второго в проекте не заводится).
-pub(crate) fn mean(values: &[f64]) -> Option<f64> {
-    if values.is_empty() {
-        return None;
-    }
-    Some(values.iter().sum::<f64>() / count_f64(values.len()))
-}
-
-/// Медиана отсортированного по возрастанию среза (чётная длина — полусумма
-/// средних); `None` на пустом.
-pub(crate) fn median_sorted(sorted: &[f64]) -> Option<f64> {
-    if sorted.is_empty() {
-        return None;
-    }
-    let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 1 {
-        Some(sorted[mid])
-    } else {
-        Some((sorted[mid - 1] + sorted[mid]) / 2.0)
-    }
-}
-
 /// Счётчик коллекции в `f64` / `u64` — единственные аудированные точки таких
 /// преобразований для статистики. Точны, пока счётчик < 2^53 / укладывается
 /// в 64 бита: счётчики здесь — длины срезов и числа испытаний в памяти,
@@ -236,11 +213,6 @@ pub(crate) fn count_f64(n: usize) -> f64 {
 /// (сводки по суткам с насыщающим сложением).
 pub(crate) fn count_f64_u64(n: u64) -> f64 {
     n as f64
-}
-
-/// См. `count_f64`: та же аудированная точка для целочисленных счётчиков.
-pub(crate) fn count_u64(n: usize) -> u64 {
-    n as u64
 }
 
 /// Группирует наблюдения по кластеру (сутки UTC). `BTreeMap`, а не

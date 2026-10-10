@@ -62,25 +62,19 @@ pub mod gaps;
 mod h3;
 pub mod import_archive;
 pub mod latency;
-pub mod levels;
-pub mod markout;
+mod levels;
 mod names;
 mod parts;
 pub mod pick;
-pub mod pilot;
-pub mod power;
 pub mod probe;
-pub mod profiles;
-pub mod react;
 mod record;
 mod replay;
 pub mod session;
-pub mod shortlist;
+mod shared;
 pub mod touches;
 pub mod trades;
 pub mod validate;
 mod verify;
-pub mod watch;
 
 pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use backtest::{run_backtest, BacktestArgs};
@@ -105,7 +99,7 @@ pub(crate) fn require_verified(
     }
     let marker = root.join(format!("verify-{symbol}.status"));
     anyhow::ensure!(
-        profiles::read_verify_marker(&marker),
+        read_verify_marker(&marker),
         "{}: маркер сверки не `ok` — сутки не проверены (fail-closed, В-56; К1 аудита 18.09);          для отладочных данных — --allow-unverified",
         marker.display()
     );
@@ -140,37 +134,33 @@ pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use fee_rate::{run_fee_rate, FeeRateArgs};
 pub use latency::{run_latency, LatencyArgs};
-pub use levels::{run_levels, LevelsArgs};
-pub use markout::{run_markout, MarkoutArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
-pub use pilot::{run_pilot, PilotArgs};
-pub use power::{run_power, PowerArgs};
 pub use probe::{run_probe, ProbeArgs};
-pub use profiles::{run_profiles, ProfilesArgs};
-pub use react::{run_react, ReactArgs};
 pub use session::{run_session, SessionArgs};
-pub use shortlist::{run_shortlist, ShortlistArgs};
 pub use touches::{run_touches, TouchesArgs};
 pub use trades::{run_trades, TradesArgs};
-pub use watch::{run_watch, WatchArgs};
 
 // Общее для нескольких подкоманд разъехалось по файлам (`h3`, `replay`,
 // `parts`, `names`); пути `super::…`/`commands::lob::…` у подкоманд и тестов
 // не менялись — их держат эти ре-экспорты.
+#[cfg(test)]
 pub(crate) use h3::median_trade_lots_for_symbol;
 pub use h3::{
     resolve_h3_mode, resolve_h3_mode_full, resolve_h3_mode_with_k, ExecutionArgs, H3Args,
     H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
 };
 pub(crate) use names::{aggressor_side_name, death_name, outcome_name, side_name, some_or_empty};
-pub(crate) use parts::{
-    file_order_key, group_parts_by_day, session_binlog_for, session_days_in_dir, session_parts_for,
-    SessionPart,
-};
+pub(crate) use parts::{file_order_key, session_binlog_for, session_parts_for};
+#[cfg(test)]
+pub(crate) use parts::{group_parts_by_day, session_days_in_dir, SessionPart};
+#[cfg(test)]
+pub(crate) use replay::replay_symbol_over_configs;
 pub(crate) use replay::{
-    day_tallies, feed_frames, replay_symbol, replay_symbol_over_configs,
-    replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids, trade_hit_from_record,
+    replay_symbol, replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids,
     ReplayDay, ReplayKeep,
+};
+pub(crate) use shared::{
+    read_verify_marker, select_best_mean_net, size_bucket, CPCV_SELECTION_RULE,
 };
 
 // `Record` нужен только тестам: `test_support` ниже и `dashboard/tests.rs`
@@ -219,27 +209,11 @@ pub enum LobCommand {
     FeeRate(FeeRateArgs),
     /// Задержки торгового пути на живом счёте: RTT, лимитка/снятие, тейкер — **реальные ордера**.
     Latency(LatencyArgs),
-    /// Разметка уровней с шестью признаками истории и классом (шаги 1.1, 1.2).
-    Levels(LevelsArgs),
-    /// Markout уровней на четырёх горизонтах (шаг 2.1).
-    Markout(MarkoutArgs),
-    /// Счётчик n/G для C2, `progress.csv` и `ready.flag` (шаг 4.1).
-    Watch(WatchArgs),
-    /// Пилотная цепочка 1.1 -> 1.2 -> 2.1 тем же кодом и вердикт G0 (шаг 3.1).
-    Pilot(PilotArgs),
-    /// Гейт G-POWER-A: `N`, `SR0`, требуемый Шарп до сбора данных (история 43).
-    Power(PowerArgs),
     /// Запись всего пула одновременно, один `Feed` на рекордер и (таск 15)
     /// на стратегию: `--minutes` — сессия отладки 5–15 минут (таск 04,
     /// история 7), `--pilot-minutes` — пилот §11 (таск 22), `--always-on` —
     /// олвейс-он коллектор до Ctrl+C, сутки — часть (таск 25, В-34).
     Session(SessionArgs),
-    /// Замер реакционного пути и гейт G-LAT, dry-run без ордеров (таск 15,
-    /// история 14).
-    React(ReactArgs),
-    /// Таблица профилей `docs/findings/profiles-<дата>.csv` — первый из трёх
-    /// артефактов задачи (таск 10, история 44).
-    Profiles(ProfilesArgs),
     /// Вердикт бэктеста с моделью очереди на произвольное число профилей —
     /// второй из трёх артефактов задачи (таск 11, история 32–34).
     Backtest(BacktestArgs),
@@ -254,10 +228,6 @@ pub enum LobCommand {
     // напрямую, тот же приём, что рекомендует сам клиппи).
     BounceGrid(Box<BounceGridArgs>),
     BounceVerdict(BounceVerdictArgs),
-    /// Шорт-лист на разведочной, заморозка коммитом, подтверждение на
-    /// невиденных данных — третий из трёх артефактов задачи (таск 12,
-    /// история 24–28, 42).
-    Shortlist(ShortlistArgs),
     /// Касания живых уровней с признаками практиков — `touches-<SYMBOL>.csv`
     /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
     /// markout «в сторону отскока», подход, фронтран, круглость, завал.
@@ -325,7 +295,6 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         }
         LobCommand::Latency(args) => print_latency(args),
         LobCommand::Probe(args) => print_probe(args),
-        LobCommand::Levels(args) => print_levels(args),
         LobCommand::Touches(args) => print_touches(args),
         LobCommand::Trades(args) => print_trades(args),
         LobCommand::ImportArchive(args) => print_import_archive(args),
@@ -337,21 +306,10 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::EventCacheProbe(args) => run_event_cache_probe(&args),
         LobCommand::Validate(args) => run_validate(&args),
         LobCommand::Archive(args) => print_archive(args),
-        LobCommand::Markout(args) => print_markout(args),
-        LobCommand::Watch(args) => print_watch(args),
-        LobCommand::Pilot(args) => print_pilot(args),
-        LobCommand::Power(args) => print_power(args),
         LobCommand::Session(args) => print_session(args),
-        LobCommand::React(args) => {
-            let report = run_react(&args)?;
-            println!("{}", react::format_report(&report));
-            Ok(())
-        }
-        LobCommand::Profiles(args) => print_profiles(args),
         LobCommand::Backtest(args) => print_backtest(args),
         LobCommand::BounceGrid(args) => print_bounce_grid(args),
         LobCommand::BounceVerdict(args) => print_bounce_verdict(args),
-        LobCommand::Shortlist(args) => print_shortlist(args),
     }
 }
 
@@ -430,17 +388,6 @@ fn print_probe(args: ProbeArgs) -> anyhow::Result<()> {
         summary.median_ns,
         summary.p95_ns,
         out.display()
-    );
-    Ok(())
-}
-
-fn print_levels(args: LevelsArgs) -> anyhow::Result<()> {
-    let summary = run_levels(&args)?;
-    println!(
-        "levels: days={} levels={} out={}",
-        summary.days,
-        summary.levels,
-        summary.out.display()
     );
     Ok(())
 }
@@ -525,54 +472,6 @@ fn print_archive(args: ArchiveArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_markout(args: MarkoutArgs) -> anyhow::Result<()> {
-    let summary = run_markout(&args)?;
-    println!(
-        "markout: days={} levels={} out={} {}",
-        summary.days,
-        summary.levels,
-        summary.out.display(),
-        summary.horizon_line,
-    );
-    Ok(())
-}
-
-fn print_watch(args: WatchArgs) -> anyhow::Result<()> {
-    let summary = run_watch(&args)?;
-    println!(
-        "watch: days={} n={} g={} flag={} out={}",
-        summary.days,
-        summary.n,
-        summary.g,
-        summary.flag.as_deref().unwrap_or("not-due"),
-        summary.progress.display()
-    );
-    Ok(())
-}
-
-fn print_pilot(args: PilotArgs) -> anyhow::Result<()> {
-    let summary = run_pilot(&args)?;
-    println!(
-        "pilot: symbol={} n_pulled={} mean_m_10s_bps={:.3} mean_net_bps={:.3} {} runs={}",
-        summary.symbol,
-        summary.n_pulled,
-        summary.mean_m_10s_bps,
-        summary.mean_net_bps,
-        summary.verdict,
-        summary.runs_out.display()
-    );
-    Ok(())
-}
-
-fn print_power(args: PowerArgs) -> anyhow::Result<()> {
-    let summary = run_power(&args)?;
-    println!(
-        "power: n={} sr0={:.4} required_sharpe={:.4} dsr_target={:.2} num_obs={}",
-        summary.n, summary.sr0, summary.required_sharpe, summary.dsr_target, summary.num_obs
-    );
-    Ok(())
-}
-
 fn print_session(args: SessionArgs) -> anyhow::Result<()> {
     let summary = run_session(&args)?;
     println!(
@@ -582,17 +481,6 @@ fn print_session(args: SessionArgs) -> anyhow::Result<()> {
         summary.records_total,
         summary.gaps,
         summary.clock_samples,
-        summary.out.display()
-    );
-    Ok(())
-}
-
-fn print_profiles(args: ProfilesArgs) -> anyhow::Result<()> {
-    let summary = run_profiles(&args)?;
-    println!(
-        "profiles: rows={} debug={} out={}",
-        summary.rows,
-        summary.debug,
         summary.out.display()
     );
     Ok(())
@@ -663,19 +551,6 @@ fn print_bounce_verdict(args: BounceVerdictArgs) -> anyhow::Result<()> {
         num(s.pbo),
         num(s.cpcv),
         s.out.display()
-    );
-    Ok(())
-}
-
-fn print_shortlist(args: ShortlistArgs) -> anyhow::Result<()> {
-    let summary = run_shortlist(&args)?;
-    println!(
-        "shortlist: trials={} shortlisted={} debug={} verdict={} out={}",
-        summary.trials,
-        summary.shortlisted,
-        summary.debug,
-        summary.verdict.as_deref().unwrap_or("n/a (debug)"),
-        summary.out.display()
     );
     Ok(())
 }

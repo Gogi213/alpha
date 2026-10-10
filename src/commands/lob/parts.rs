@@ -207,6 +207,7 @@ pub(crate) fn session_parts_for(dir: &Path, symbol: &str) -> anyhow::Result<Vec<
 /// реплея для `profiles`/`watch` (таск 23): трекер уровней общий на части
 /// одних суток (таск 22, «части читаются подряд как один поток») и чистый
 /// на каждые новые сутки — между сутками разрыв записи есть всегда.
+#[cfg(test)]
 pub(crate) fn group_parts_by_day(parts: Vec<SessionPart>) -> Vec<(String, Vec<SessionPart>)> {
     let mut out: Vec<(String, Vec<SessionPart>)> = Vec::new();
     for part in parts {
@@ -224,6 +225,7 @@ pub(crate) fn group_parts_by_day(parts: Vec<SessionPart>) -> Vec<(String, Vec<Se
 /// формата суток не даёт. Это вход окна «сейчас» (`profiles`: перечень
 /// суток для предрегистрации и счёт сессий внутри/снаружи) и календаря
 /// `shortlist` — оба до таска 23 читали одни сутки `started_utc` каталога.
+#[cfg(test)]
 pub(crate) fn session_days_in_dir(dir: &Path) -> std::collections::BTreeSet<String> {
     let mut days = std::collections::BTreeSet::new();
     if !dir.join("session.json").is_file() {
@@ -264,6 +266,7 @@ pub(crate) fn symbol_of_binlog_name(name: &str) -> Option<&str> {
 /// Иначе — `None` (старый недатированный формат, чужой файл). Архив суток
 /// даёт те же сутки, что и оригинал: `session_days_in_dir` не должен видеть
 /// в каталоге «лишние» сутки от того, что часть уже упакована (T46).
+#[cfg(test)]
 pub(crate) fn day_of_binlog_name(name: &str) -> Option<&str> {
     let stem = strip_binlog_suffix(name)?;
     let stem = match stem.rsplit_once("-p") {

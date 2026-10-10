@@ -1,71 +1,9 @@
-//! `lob levels` — CLI-обёртка разметки уровней (шаги 1.1, 1.2). Сам трекер —
-//! `crate::lob::levels`; реплей суточных файлов в него — общий с `markout`,
-//! `watch`, `pilot` код `super::replay_symbol` (мод. `mod.rs`). Режим `H3`
-//! (план D-H3, таск 02) — `H3ModeArg`/`resolve_h3_mode`/`h3_lots_for_symbol`
-//! — переехал в `super` (`mod.rs`, таск 17 — общий код нескольких подкоманд
-//! не может лежать в файле одной из них); эта команда просто зовёт его.
-//!
-//! # `debug` в шапке ниже пяти минут
-//! Прогон короче окна `repeat_count` метит первую строку CSV предупреждением
-//! — критерий приёмки таска 02 (`short_run_marks_csv_header_with_debug_warning`).
+//! Писатель CSV уровней суток реплея — для `lob touches --levels-out` (T-14).
+//! (Команда `lob levels` срезана в TK-168, КТ-11; тег `archive/research-layer-0925`.)
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use clap::Args;
-
-use crate::lob::levels::LevelsConfig;
-
-use super::{
-    death_name, outcome_name, replay_symbol, side_name, H3Args, DEFAULT_REPEAT_WINDOW_MS,
-    DEFAULT_WARMUP_MS,
-};
-
-// ---------------------------------------------------------------------------
-// `lob levels` (шаги 1.1, 1.2).
-// ---------------------------------------------------------------------------
-
-/// Аргументы `lob levels`: читает суточные файлы, пишет уровни с шестью
-/// признаками истории и классом исхода. Режим `H3` — параметр без умолчания:
-/// выдуманного числа здесь быть не должно, значение предрегистрируется.
-#[derive(Debug, Args)]
-pub struct LevelsArgs {
-    /// Корень записи: суточные файлы `<SYMBOL>-*.binlog`.
-    #[arg(long, default_value = "data/bybit")]
-    pub root: PathBuf,
-    /// Символ, например `SOLUSDT`.
-    #[arg(long)]
-    pub symbol: String,
-    /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд).
-    #[command(flatten)]
-    pub h3: H3Args,
-    /// Множитель относительного порога `floor` (таск 18, В-30/D05):
-    /// `h3_lots = floor(k × median_trade_lots)` из `instruments.csv`
-    /// (`lob pick`), а не готовая колонка `h3_lots`. Только `--h3-mode
-    /// floor`; вместе с `percentile` — ошибка (`resolve_h3_mode_with_k`).
-    /// Не поле `H3Args`: та структура флаттенится в `markout`/`watch`/
-    /// `profiles`/`shortlist` (таск 17), а добавление обязательного (по
-    /// смыслу) поля туда потребовало бы правки всех точек `H3Args {...}` в
-    /// тех файлах — вне зоны и границ таска 18 («не трогать»).
-    #[arg(long)]
-    pub h3_k: Option<f64>,
-    /// Прогрев в мс: только режим `percentile`; `floor` не читает.
-    #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
-    pub warmup_ms: i64,
-    /// Скользящее окно `repeat_count` в мс.
-    #[arg(long, default_value_t = DEFAULT_REPEAT_WINDOW_MS)]
-    pub repeat_window_ms: i64,
-    /// Куда писать уровни (по умолчанию `<root>/levels-<symbol>.csv`).
-    #[arg(long)]
-    pub out: Option<PathBuf>,
-}
-
-/// Итог `lob levels` для печати диспетчером.
-#[derive(Debug)]
-pub struct LevelsSummary {
-    pub days: usize,
-    pub levels: usize,
-    pub out: PathBuf,
-}
+use super::{death_name, outcome_name, side_name};
 
 /// Длина суток от первого до последнего среза середины — прокси на длину
 /// прогона, которым мерялось окно `repeat_count`. Без срезов (файл вообще
@@ -75,51 +13,6 @@ fn day_span_ms(day: &super::ReplayDay) -> i64 {
         (Some(a), Some(b)) => b.ts_ms - a.ts_ms,
         _ => 0,
     }
-}
-
-/// Разметка символа реплеем из `replay_symbol` — тем же кодом, что
-/// подтверждающий прогон, — и запись уровней с классом в CSV. Прогон короче
-/// окна `repeat_count` печатает предупреждение `debug` в stderr и в шапку
-/// CSV: `repeat_count` в таких сутках занижен, данными это не является
-/// (критерий приёмки таска 02).
-pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
-    // Порог уровня — любой из режимов В-61 (`notional`/`strength`/`both`) или
-    // прежние `floor`/`percentile` (19.09: жизнь **сильных** плотностей с
-    // постановки — вопрос владельца; тик и шаг лота — из заголовка бинлога).
-    let paths = super::session_binlog_for(&args.root, &args.symbol)?;
-    anyhow::ensure!(
-        !paths.is_empty(),
-        "{}: нет суточных файлов {}",
-        args.root.display(),
-        args.symbol
-    );
-    let (tick_e9, step_e9) = super::backtest::read_tick_step(&paths[0])?;
-    let mode = super::resolve_h3_mode_full(
-        &args.root,
-        &args.symbol,
-        &args.h3,
-        args.h3_k,
-        tick_e9,
-        step_e9,
-    )?;
-    let cfg = LevelsConfig {
-        mode,
-        warmup_ms: args.warmup_ms,
-        repeat_window_ms: args.repeat_window_ms,
-        approach_bps: None,
-        approach_min_age_ms: 0,
-    };
-    let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
-    let out = args
-        .out
-        .clone()
-        .unwrap_or_else(|| args.root.join(format!("levels-{}.csv", args.symbol)));
-    let n = write_levels_csv(&out, &replay.days, args.repeat_window_ms)?;
-    Ok(LevelsSummary {
-        days: replay.days.len(),
-        levels: n,
-        out,
-    })
 }
 
 /// Запись уровней суток реплея в CSV — общий писатель `lob levels` и `lob touches
@@ -199,6 +92,3 @@ pub(crate) fn write_levels_csv(
     w.flush()?;
     Ok(n)
 }
-
-#[cfg(test)]
-mod tests;

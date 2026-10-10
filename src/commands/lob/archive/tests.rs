@@ -320,51 +320,6 @@ fn archive_of_part_one_sorts_before_plain_part_two() {
     );
 }
 
-/// `levels` на архиве даёт **тот же CSV побайтово**, что на оригинале:
-/// критерий приёмки T46 «артефакты совпадают». Каталоги разные и в каждом
-/// ровно один файл символа — так проверяется именно чтение архива, а не
-/// склейка списка.
-#[test]
-fn levels_csv_is_byte_identical_on_archive_and_original() {
-    use crate::commands::lob::{run_levels, H3Args, H3ModeArg, LevelsArgs};
-    let dir = day_dir("SOLUSDT", "2026-09-08");
-    let src = orig_path(dir.path(), "SOLUSDT", "2026-09-08");
-    let packed = run_archive(&args_of(&src)).unwrap().out;
-
-    let root_plain = tempfile::tempdir().unwrap();
-    std::fs::copy(&src, root_plain.path().join(src.file_name().unwrap())).unwrap();
-    let root_archive = tempfile::tempdir().unwrap();
-    std::fs::copy(
-        &packed,
-        root_archive.path().join(packed.file_name().unwrap()),
-    )
-    .unwrap();
-
-    let args = |root: &Path| LevelsArgs {
-        root: root.to_path_buf(),
-        symbol: "SOLUSDT".to_string(),
-        h3: H3Args {
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(5),
-            h3_usd: None,
-            h3_strength_pct: None,
-            h3_strength_window_bps: None,
-        },
-        h3_k: None,
-        warmup_ms: 0,
-        repeat_window_ms: 3_600_000,
-        out: None,
-    };
-    let a = run_levels(&args(root_plain.path())).unwrap();
-    let b = run_levels(&args(root_archive.path())).unwrap();
-    assert_eq!(a.levels, b.levels, "уровней столько же");
-    assert_eq!(
-        std::fs::read(&a.out).unwrap(),
-        std::fs::read(&b.out).unwrap(),
-        "CSV уровней обязан совпасть побайтово"
-    );
-}
-
 /// `verify` на архиве даёт ту же сводку и тот же вердикт, что на оригинале.
 #[test]
 fn verify_summary_and_marker_match_between_archive_and_original() {

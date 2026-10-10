@@ -132,8 +132,8 @@ cargo fmt --check                                     # единственное
 
 ## Грабли — коротко (полностью — `docs/COMMANDS.md`)
 
-- `--h3-mode floor|percentile` обязателен у `levels`/`markout`/`watch`/`profiles`/`shortlist`; `k` для пола H3 — процедура
-  пилота (В-30), не число; `lob probe` ставит реальные ордера.
+- `lob probe` ставит реальные ордера. Исследовательский слой 09.2026 (pilot/profiles/shortlist/react/watch/markout/levels/power,
+  процедура `k` В-30) срезан в TK-168 — тег `archive/research-layer-0925`.
 - Бинлог сессии — один резолвер `commands::lob::session_binlog_for`; сутки и час — `session_parts_for`.
 - Коллектор: кадр на диске не реже 10 с; остановка — `<root>/stop` (на Unix ещё SIGTERM/`systemctl`); пул на ходу —
   файл должен кончаться переводом строки (пиши атомарно через `mv`).

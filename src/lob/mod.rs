@@ -14,7 +14,6 @@ pub mod excursion;
 pub mod final_metrics;
 pub mod levels;
 pub mod markout;
-pub mod markup;
 pub mod minute_flow;
 pub mod moves;
 pub mod r1;

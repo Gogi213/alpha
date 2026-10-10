@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::args::BounceGridArgs;
-use crate::commands::lob::profiles::read_verify_marker;
+use crate::commands::lob::read_verify_marker;
 
 /// Маркер сверки символа в корне записи: `verify-<SYMBOL>.status`.
 pub(super) fn marker_path(root: &Path, symbol: &str) -> PathBuf {
