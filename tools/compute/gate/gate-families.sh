@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TK-164 (КТ-3b): гейт семей клеток на проб-сутках — diff 0 (cmp всех выходов) нового бинарника против опорного семьи.
 # Опись опорных бинарей — docs/findings/gate-families-2026-10-10.md. Запуск на calc ТОЛЬКО через alsched:
-#   python3 /data/sched/alsched.py submit --cls measure --name gate-fam --max-runtime 3600 --cores 4 --mem 8 --why "КТ-3b гейт семей" \
+#   python3 /data/sched/alsched.py submit --cls prod --name gate-fam --max-runtime 3600 --cores 4 --mem 8 --why "КТ-3b гейт семей" \
 #     -- bash /data/tk164/gate-families.sh <новый бинарник, путь> [base,r2,dl,tk115,tk115j,tk115w,tk115e]
 #   проверка самого скрипта без нового бинаря (опорный против себя, все семьи): … -- bash /data/tk164/gate-families.sh --selftest [семьи]
 # Семьи (опорный = тем, кем посчитаны числа, Летопись): base b14flag | r2 b15pyr4pgoflag | dl tk084-dl | tk115 (r3a) b26tk115r2 |
@@ -142,7 +142,9 @@ fam_one() {  # $1 семья
     run_day "$f-ref-$d" "$(mkwrap "$REF" "$REF")" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     run_day "$f-new-$d" "$w" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     AREF=; [ "$f" = r2 ] && AREF=/data/tk065/wa-$d/b5/r2a
-    cmpdirs "$T/w-$f-ref-$d/b5" "$T/w-$f-new-$d/b5" || rc=1
+    if [ "$f" = base ]; then  # jall: выход суток остаётся в b5/.cellstmp-<сутки> (отделка суток не выполняется) — сверяем его
+      cmpdirs "$T/w-$f-ref-$d/b5/.cellstmp-$d" "$T/w-$f-new-$d/b5/.cellstmp-$d" || rc=1
+    else cmpdirs "$T/w-$f-ref-$d/b5" "$T/w-$f-new-$d/b5" || rc=1; fi
     [ "$f" = r2 ] && { refvsprod "$T/w-$f-ref-$d/b5" "/data/tk065/w-$d/b5" || rc=1; }
   done
   echo "family=$f rc=$rc"; return $rc

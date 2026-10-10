@@ -122,7 +122,7 @@ use drive::{day_events, drive_day, DayParams, DayRows, OrderSizing};
 use entry_sigma::EntrySigma;
 pub use forms::{grid_forms, ExitForm, GridForm};
 use outputs::FormDayResult;
-pub(crate) use plan::{ensure_holds_at_touch_checkable, pool_symbols};
+pub(crate) use plan::ensure_holds_at_touch_checkable;
 use plan::{open_outputs, plan_grid, GridPlan};
 use sets::SetPaths;
 pub(crate) use sets::{read_regime_day, touch_contexts, FilterSet, RegimeDay, TouchFilter};

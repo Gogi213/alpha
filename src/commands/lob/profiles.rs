@@ -152,20 +152,15 @@ mod sessions;
 mod table;
 
 pub use accumulate::{FillModel, NoFillModel};
-pub(crate) use axes::{
-    distance_bps_at_birth, distance_bucket, hour_utc_of_ms, lifetime_bucket, size_bucket,
-};
-// Таск 37: `lob touch-profiles` читает тот же каталог сессий тем же кодом
-// (пул, маркер сверки, подкаталоги, сутки для окна, метка режима `H3`) —
-// ре-экспорт с видимостью крейта, сами функции не менялись.
+pub(crate) use axes::size_bucket;
 pub(crate) use coverage::read_pool_symbols;
-pub(crate) use sessions::{distinct_session_days, read_verify_marker, session_dirs};
-pub(crate) use table::{format_window_line, h3_mode_label};
+pub(crate) use sessions::{read_verify_marker, session_dirs};
+pub(crate) use table::format_window_line;
 
 use accumulate::{accumulate_level, DayIndex, ProfileAgg};
 use coverage::read_coverage;
-use sessions::replay_one_session_day;
-use table::{default_out_path, write_row, HEADER};
+use sessions::{distinct_session_days, replay_one_session_day};
+use table::{default_out_path, h3_mode_label, write_row, HEADER};
 
 /// Seed совместного бутстрапа (`net_fill_interval`) — то же число, с которым
 /// уже вызывает его боевой пилот (`commands::lob::pilot::run_pilot_battle`):
