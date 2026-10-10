@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -682,7 +682,14 @@ class SystemdBackend:
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
         fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; grep '^oom_kill ' $cg/memory.events; echo swap_peak $(cat $cg/memory.swap.peak 2>/dev/null || cat $cg/memory.swap.current 2>/dev/null); }} "
                f"> {DIR}/own/{j['id']} 2>/dev/null; ")
-        pre = f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n" if j["cls"] == "measure" else ""
+        run_dir = f"{RUNS_DIR}/{j['id']}"     # КТ-9: единый адрес выхода прогона; задание берёт его из $ALSCHED_RUN_DIR (старые пути остаются как есть)
+        try:
+            os.makedirs(run_dir, exist_ok=True)
+        except OSError as e:
+            print(f"{run_dir} не создан ({e}): задание идёт без каталога выхода", file=sys.stderr)
+        pre = f"export ALSCHED_RUN_DIR={run_dir}\n"
+        if j["cls"] == "measure":
+            pre += f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n"
         inner = f"{pre}{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
         if j["cls"] == "measure":
             self.arm_failsafe(j["max_runtime"] + 2 * TICK)
