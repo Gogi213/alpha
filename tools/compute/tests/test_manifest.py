@@ -62,6 +62,17 @@ class Check(unittest.TestCase):
         self.assertEqual(M.check_submit([self.bin], "", self.alerts.append), 0)
         self.assertEqual(self.alerts, [])
 
+    def test_bootstrap_adds_once_and_keeps_files(self):
+        shutil_dir = os.path.join(self.d, "bins")
+        os.makedirs(shutil_dir)
+        for n in ("alpha-x", "other"):
+            with open(os.path.join(shutil_dir, n), "wb") as f:
+                f.write(n.encode() * (M.MIN_BIN // 2))
+            os.chmod(os.path.join(shutil_dir, n), 0o755)
+        self.assertEqual(M.bootstrap(self.mf, [shutil_dir]), 1)
+        self.assertEqual(M.bootstrap(self.mf, [shutil_dir]), 0)
+        self.assertEqual(sorted(os.listdir(shutil_dir)), ["alpha-x", "other"])
+
     def test_used_by_written_once(self):
         self.row()
         md5 = M.md5_of(self.bin)

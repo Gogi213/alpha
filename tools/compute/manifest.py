@@ -6,7 +6,7 @@
 разрешённую обёртку — нарушение. Режим `SCHED_MANIFEST`: `0` выкл., `warn` (по умолчанию, один цикл) — нарушение
 только в alerts.log, `1` — отказ. Обход — `--adhoc "причина"` (пишется в alerts.log).
 """
-import hashlib, os, sys
+import hashlib, os, sys, time
 
 COLS = ["md5", "commit", "profile", "features", "status", "built", "path", "used_by"]
 MIN_BIN = 1 << 20      # как в guard._binaries: «бинарник» — исполняемый файл крупнее 1 МБ
@@ -114,7 +114,27 @@ def write(path, rows):
     os.replace(tmp, path or manifest_path())
 
 
-if __name__ == "__main__":       # manifest.py show | check <бинарник…>
+def bootstrap(path, dirs):
+    """Первичная опись уже лежащих сборок (alpha-*, > MIN_BIN): строка на md5, commit «?», profile «legacy», status active
+    (статусы frozen/retired назначает решение, не опись); существующие строки не трогает, файлы не удаляет и не двигает."""
+    rows = load(path)
+    n0 = len(rows)
+    for d in dirs:
+        for name in sorted(os.listdir(d)):
+            f = os.path.join(d, name)
+            if name.startswith("alpha-") and os.path.isfile(f) and os.access(f, os.X_OK) and os.path.getsize(f) > MIN_BIN:
+                md5 = md5_of(f)
+                if md5 not in rows:
+                    rows[md5] = dict(md5=md5, commit="?", profile="legacy", features="", status="active",
+                                     built=time.strftime("%FT%T", time.localtime(os.path.getmtime(f))), path=f, used_by="")
+    write(path, rows)
+    return len(rows) - n0
+
+
+if __name__ == "__main__":       # manifest.py show | check <бинарник…> | bootstrap <каталог…>
+    if len(sys.argv) > 1 and sys.argv[1] == "bootstrap":
+        print("добавлено строк:", bootstrap(manifest_path(), sys.argv[2:]))
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "check":
         v = violations(sys.argv[2:])
         print("\n".join(v) or "ок")
