@@ -322,35 +322,7 @@ pub enum LobCommand {
 /// чтения CSV.
 pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
     match cmd {
-        LobCommand::Pick(args) => {
-            let report = run_pick(&args)?;
-            for row in &report.table {
-                println!(
-                    "{}\t{}\t{}\t{}",
-                    row.symbol,
-                    if row.excluded_reason.is_empty() {
-                        "POOL"
-                    } else {
-                        row.excluded_reason.as_str()
-                    },
-                    row.coverage_top50_bps
-                        .map(|c| format!("{c:.3}bps"))
-                        .unwrap_or_default(),
-                    if row.selected_for_pilot {
-                        "SELECTED"
-                    } else {
-                        ""
-                    }
-                );
-            }
-            for m in &report.selected {
-                println!(
-                    "pilot: {} (бид {} / аск {} USD·1e-9)",
-                    m.symbol, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
-                );
-            }
-            Ok(())
-        }
+        LobCommand::Pick(args) => print_pick(args),
         LobCommand::Record(args) => record::print_summary(&args),
         LobCommand::Verify(args) => verify::print_summary(&args),
         LobCommand::Cold(ColdCommand::Ensure(args)) => {
@@ -363,347 +335,421 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        LobCommand::Clock(args) => {
-            let rows = run_clock(&args)?;
-            let violations = check_rows(&rows);
-            println!(
-                "clock: rows={} violations={} out={}",
-                rows.len(),
-                violations.len(),
-                args.root.join("clock.csv").display()
-            );
-            for v in &violations {
-                println!("clock violation: {v:?}");
-            }
-            Ok(())
-        }
+        LobCommand::Clock(args) => print_clock(args),
         LobCommand::FeeRate(args) => {
             for line in run_fee_rate(&args)? {
                 println!("fee-rate: {line}");
             }
             Ok(())
         }
-        LobCommand::Latency(args) => {
-            let rep = run_latency(&args)?;
-            println!(
-                "latency: symbol={} qty={} notional_usdt={} out={}",
-                args.symbol,
-                crate::bybit::latency::format_e9(rep.qty_e9),
-                crate::bybit::latency::format_e9(rep.notional_e9),
-                rep.out.display()
-            );
-            print!("{}", rep.summary);
-            for e in &rep.errors {
-                println!("latency: error: {e}");
-            }
-            if let Some(size) = rep.flattened_e9 {
-                println!(
-                    "latency: в конце закрыт остаток позиции {}",
-                    crate::bybit::latency::format_e9(size)
-                );
-            }
-            Ok(())
-        }
-        LobCommand::Probe(args) => {
-            let (summary, out) = run_probe(&args)?;
-            println!(
-                "probe: n={} median_ns={} p95_ns={} out={}",
-                summary.n,
-                summary.median_ns,
-                summary.p95_ns,
-                out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Levels(args) => {
-            let summary = run_levels(&args)?;
-            println!(
-                "levels: days={} levels={} out={}",
-                summary.days,
-                summary.levels,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Touches(args) => {
-            let summary = run_touches(&args)?;
-            println!(
-                "touches: days={} touches={} approaches={}{} out={}{}",
-                summary.days,
-                summary.touches,
-                summary.approaches,
-                match summary.approaches_out.as_slice() {
-                    [] => String::new(),
-                    [only] => format!(" approaches_out={}", only.display()),
-                    [first, rest @ ..] => format!(
-                        " approaches_out={} (+{} полос)",
-                        first.display(),
-                        rest.len()
-                    ),
-                },
-                summary.out.display(),
-                match &summary.levels_out {
-                    Some((path, n)) => format!(" levels={n} levels_out={}", path.display()),
-                    None => String::new(),
-                }
-            );
-            Ok(())
-        }
-        LobCommand::Trades(args) => {
-            let summary = run_trades(&args)?;
-            println!(
-                "trades: days={} trades={} (buy={} sell={}) out={}",
-                summary.days,
-                summary.trades,
-                summary.buy,
-                summary.sell,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::TouchProfiles(args) => {
-            let summary = run_touch_profiles(&args)?;
-            println!(
-                "touch-profiles: rows={} touches={} trials={} debug={} out={}",
-                summary.rows,
-                summary.touches,
-                summary.trials,
-                summary.debug,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::ImportArchive(args) => {
-            let s = run_import_archive(&args)?;
-            println!(
-                "import-archive: {} — сообщений {}, снимков {}, разрывов u {}, сделок {} (до снимка {}), за концом суток {}, записей {}",
-                s.out.display(),
-                s.messages,
-                s.snapshots,
-                s.u_gaps,
-                s.trades,
-                s.trades_before_snapshot,
-                s.dropped_after_day,
-                s.records
-            );
-            Ok(())
-        }
-        LobCommand::BinlogStats(args) => {
-            let stats = run_binlog_stats(&args)?;
-            for line in binlog_stats::summary_lines(&args.path, &stats) {
-                println!("{line}");
-            }
-            if args.reencode {
-                for line in binlog_stats::run_reencode(&args)? {
-                    println!("{line}");
-                }
-            }
-            if let Some(out) = args.rewrite_out.as_deref() {
-                for line in binlog_stats::rewrite_v2_to_v3(&args.path, out)? {
-                    println!("{line}");
-                }
-            }
-            Ok(())
-        }
+        LobCommand::Latency(args) => print_latency(args),
+        LobCommand::Probe(args) => print_probe(args),
+        LobCommand::Levels(args) => print_levels(args),
+        LobCommand::Touches(args) => print_touches(args),
+        LobCommand::Trades(args) => print_trades(args),
+        LobCommand::TouchProfiles(args) => print_touch_profiles(args),
+        LobCommand::ImportArchive(args) => print_import_archive(args),
+        LobCommand::BinlogStats(args) => print_binlog_stats(args),
         LobCommand::Gaps(args) => {
             run_gaps(&args)?;
             Ok(())
         }
         LobCommand::EventCacheProbe(args) => run_event_cache_probe(&args),
         LobCommand::Validate(args) => run_validate(&args),
-        LobCommand::Archive(args) => {
-            let summary = run_archive(&args)?;
-            for line in archive::summary_lines(&summary) {
-                println!("{line}");
-            }
-            Ok(())
-        }
-        LobCommand::Markout(args) => {
-            let summary = run_markout(&args)?;
-            println!(
-                "markout: days={} levels={} out={} {}",
-                summary.days,
-                summary.levels,
-                summary.out.display(),
-                summary.horizon_line,
-            );
-            Ok(())
-        }
-        LobCommand::Watch(args) => {
-            let summary = run_watch(&args)?;
-            println!(
-                "watch: days={} n={} g={} flag={} out={}",
-                summary.days,
-                summary.n,
-                summary.g,
-                summary.flag.as_deref().unwrap_or("not-due"),
-                summary.progress.display()
-            );
-            Ok(())
-        }
-        LobCommand::Pilot(args) => {
-            let summary = run_pilot(&args)?;
-            println!(
-                "pilot: symbol={} n_pulled={} mean_m_10s_bps={:.3} mean_net_bps={:.3} {} runs={}",
-                summary.symbol,
-                summary.n_pulled,
-                summary.mean_m_10s_bps,
-                summary.mean_net_bps,
-                summary.verdict,
-                summary.runs_out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Power(args) => {
-            let summary = run_power(&args)?;
-            println!(
-                "power: n={} sr0={:.4} required_sharpe={:.4} dsr_target={:.2} num_obs={}",
-                summary.n,
-                summary.sr0,
-                summary.required_sharpe,
-                summary.dsr_target,
-                summary.num_obs
-            );
-            Ok(())
-        }
-        LobCommand::Session(args) => {
-            let summary = run_session(&args)?;
-            println!(
-                "session: instruments={} start_hour_utc={} records={} gaps={} clock_samples={} out={}",
-                summary.instruments.len(),
-                summary.start_hour_utc,
-                summary.records_total,
-                summary.gaps,
-                summary.clock_samples,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Dashboard(args) => {
-            let summary = run_dashboard(&args)?;
-            println!(
-                "dashboard: coins={} alive={} html={} json={}",
-                summary.coins,
-                match summary.alive {
-                    Some(true) => "yes",
-                    Some(false) => "no",
-                    None => "unknown",
-                },
-                summary.html.display(),
-                summary.json.display()
-            );
-            println!("dashboard: {}", summary.alive_reason);
-            Ok(())
-        }
+        LobCommand::Archive(args) => print_archive(args),
+        LobCommand::Markout(args) => print_markout(args),
+        LobCommand::Watch(args) => print_watch(args),
+        LobCommand::Pilot(args) => print_pilot(args),
+        LobCommand::Power(args) => print_power(args),
+        LobCommand::Session(args) => print_session(args),
+        LobCommand::Dashboard(args) => print_dashboard(args),
         LobCommand::React(args) => {
             let report = run_react(&args)?;
             println!("{}", react::format_report(&report));
             Ok(())
         }
-        LobCommand::Profiles(args) => {
-            let summary = run_profiles(&args)?;
-            println!(
-                "profiles: rows={} debug={} out={}",
-                summary.rows,
-                summary.debug,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Backtest(args) => {
-            let summary = run_backtest(&args)?;
-            println!(
-                "backtest: profiles={} pass={} red={} out={} pnl_out={}",
-                summary.profiles,
-                summary.pass,
-                summary.red,
-                summary.out.display(),
-                summary.pnl_out.display()
-            );
-            Ok(())
-        }
-        LobCommand::BounceGrid(args) => {
-            let s = run_bounce_grid(&args)?;
-            println!(
-                "bounce-grid: форм {} · символов {} (без маркера {}, без касаний {}) · символ-суток {} · кругов {} · {} · {}",
-                s.forms,
-                s.symbols_done,
-                s.symbols_skipped_unverified,
-                s.symbols_without_touches,
-                s.symbol_days,
-                s.rounds,
-                s.rounds_path.display(),
-                s.forms_path.display()
-            );
-            // В-131: строка σ на взводе — только с `--sigma-from` (прежний вывод не меняется).
-            if args.sigma_from.is_some() {
-                println!(
-                    "bounce-grid: σ на взводе (В-131): n_no_sigma {} из {} сигналов",
-                    s.n_no_sigma, s.n_sigma_signals
-                );
+        LobCommand::Profiles(args) => print_profiles(args),
+        LobCommand::Backtest(args) => print_backtest(args),
+        LobCommand::BounceGrid(args) => print_bounce_grid(args),
+        LobCommand::FillCapacity(args) => print_fill_capacity(args),
+        LobCommand::BounceVerdict(args) => print_bounce_verdict(args),
+        LobCommand::Shortlist(args) => print_shortlist(args),
+    }
+}
+
+fn print_pick(args: PickArgs) -> anyhow::Result<()> {
+    let report = run_pick(&args)?;
+    for row in &report.table {
+        println!(
+            "{}\t{}\t{}\t{}",
+            row.symbol,
+            if row.excluded_reason.is_empty() {
+                "POOL"
+            } else {
+                row.excluded_reason.as_str()
+            },
+            row.coverage_top50_bps
+                .map(|c| format!("{c:.3}bps"))
+                .unwrap_or_default(),
+            if row.selected_for_pilot {
+                "SELECTED"
+            } else {
+                ""
             }
-            Ok(())
+        );
+    }
+    for m in &report.selected {
+        println!(
+            "pilot: {} (бид {} / аск {} USD·1e-9)",
+            m.symbol, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
+        );
+    }
+    Ok(())
+}
+
+fn print_clock(args: ClockArgs) -> anyhow::Result<()> {
+    let rows = run_clock(&args)?;
+    let violations = check_rows(&rows);
+    println!(
+        "clock: rows={} violations={} out={}",
+        rows.len(),
+        violations.len(),
+        args.root.join("clock.csv").display()
+    );
+    for v in &violations {
+        println!("clock violation: {v:?}");
+    }
+    Ok(())
+}
+
+fn print_latency(args: LatencyArgs) -> anyhow::Result<()> {
+    let rep = run_latency(&args)?;
+    println!(
+        "latency: symbol={} qty={} notional_usdt={} out={}",
+        args.symbol,
+        crate::bybit::latency::format_e9(rep.qty_e9),
+        crate::bybit::latency::format_e9(rep.notional_e9),
+        rep.out.display()
+    );
+    print!("{}", rep.summary);
+    for e in &rep.errors {
+        println!("latency: error: {e}");
+    }
+    if let Some(size) = rep.flattened_e9 {
+        println!(
+            "latency: в конце закрыт остаток позиции {}",
+            crate::bybit::latency::format_e9(size)
+        );
+    }
+    Ok(())
+}
+
+fn print_probe(args: ProbeArgs) -> anyhow::Result<()> {
+    let (summary, out) = run_probe(&args)?;
+    println!(
+        "probe: n={} median_ns={} p95_ns={} out={}",
+        summary.n,
+        summary.median_ns,
+        summary.p95_ns,
+        out.display()
+    );
+    Ok(())
+}
+
+fn print_levels(args: LevelsArgs) -> anyhow::Result<()> {
+    let summary = run_levels(&args)?;
+    println!(
+        "levels: days={} levels={} out={}",
+        summary.days,
+        summary.levels,
+        summary.out.display()
+    );
+    Ok(())
+}
+
+fn print_touches(args: TouchesArgs) -> anyhow::Result<()> {
+    let summary = run_touches(&args)?;
+    println!(
+        "touches: days={} touches={} approaches={}{} out={}{}",
+        summary.days,
+        summary.touches,
+        summary.approaches,
+        match summary.approaches_out.as_slice() {
+            [] => String::new(),
+            [only] => format!(" approaches_out={}", only.display()),
+            [first, rest @ ..] => format!(
+                " approaches_out={} (+{} полос)",
+                first.display(),
+                rest.len()
+            ),
+        },
+        summary.out.display(),
+        match &summary.levels_out {
+            Some((path, n)) => format!(" levels={n} levels_out={}", path.display()),
+            None => String::new(),
         }
-        LobCommand::FillCapacity(args) => {
-            let s = run_fill_capacity(&args)?;
-            println!(
-                "fill-capacity: символов {} (без маркера {}, без кэша {}, без касаний {}) · символ-суток {} · касаний {} · строк {} · {}",
-                s.symbols_done,
-                s.symbols_skipped_unverified,
-                s.symbols_without_cache,
-                s.symbols_without_touches,
-                s.symbol_days,
-                s.touches,
-                s.rows,
-                s.out_dir.display()
-            );
-            Ok(())
-        }
-        LobCommand::BounceVerdict(args) => {
-            let s = run_bounce_verdict(&args)?;
-            let num = |v: Option<f64>| match v {
-                Some(x) => format!("{x:.6}"),
-                None => "—".to_string(),
-            };
-            println!(
-                "bounce-verdict: ИТОГ={} · форм {} · символов {} · суток {} · испытаний {} (журнал {}) · лучшая {} · кругов {} · суток с кругами {} ({}) · net_fill точка={} нижняя={} bps · DSR={} по суткам, отчёт (журнал: {}) · PBO={} · CPCV={} · {}",
-                s.verdict.label(),
-                s.forms,
-                s.symbols,
-                s.days,
-                s.trials,
-                s.journal_trials,
-                s.best_form,
-                s.best_n_fills,
-                s.best_days,
-                s.best_month_fill_days
-                    .iter()
-                    .map(|(m, n)| format!("{m}: {n}"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                num(s.best_point_bps),
-                num(s.best_lower_bps),
-                num(s.dsr),
-                num(s.dsr_at_journal_trials),
-                num(s.pbo),
-                num(s.cpcv),
-                s.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Shortlist(args) => {
-            let summary = run_shortlist(&args)?;
-            println!(
-                "shortlist: trials={} shortlisted={} debug={} verdict={} out={}",
-                summary.trials,
-                summary.shortlisted,
-                summary.debug,
-                summary.verdict.as_deref().unwrap_or("n/a (debug)"),
-                summary.out.display()
-            );
-            Ok(())
+    );
+    Ok(())
+}
+
+fn print_trades(args: TradesArgs) -> anyhow::Result<()> {
+    let summary = run_trades(&args)?;
+    println!(
+        "trades: days={} trades={} (buy={} sell={}) out={}",
+        summary.days,
+        summary.trades,
+        summary.buy,
+        summary.sell,
+        summary.out.display()
+    );
+    Ok(())
+}
+
+fn print_touch_profiles(args: TouchProfilesArgs) -> anyhow::Result<()> {
+    let summary = run_touch_profiles(&args)?;
+    println!(
+        "touch-profiles: rows={} touches={} trials={} debug={} out={}",
+        summary.rows,
+        summary.touches,
+        summary.trials,
+        summary.debug,
+        summary.out.display()
+    );
+    Ok(())
+}
+
+fn print_import_archive(args: ImportArchiveArgs) -> anyhow::Result<()> {
+    let s = run_import_archive(&args)?;
+    println!(
+        "import-archive: {} — сообщений {}, снимков {}, разрывов u {}, сделок {} (до снимка {}), за концом суток {}, записей {}",
+        s.out.display(),
+        s.messages,
+        s.snapshots,
+        s.u_gaps,
+        s.trades,
+        s.trades_before_snapshot,
+        s.dropped_after_day,
+        s.records
+    );
+    Ok(())
+}
+
+fn print_binlog_stats(args: BinlogStatsArgs) -> anyhow::Result<()> {
+    let stats = run_binlog_stats(&args)?;
+    for line in binlog_stats::summary_lines(&args.path, &stats) {
+        println!("{line}");
+    }
+    if args.reencode {
+        for line in binlog_stats::run_reencode(&args)? {
+            println!("{line}");
         }
     }
+    if let Some(out) = args.rewrite_out.as_deref() {
+        for line in binlog_stats::rewrite_v2_to_v3(&args.path, out)? {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+fn print_archive(args: ArchiveArgs) -> anyhow::Result<()> {
+    let summary = run_archive(&args)?;
+    for line in archive::summary_lines(&summary) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+fn print_markout(args: MarkoutArgs) -> anyhow::Result<()> {
+    let summary = run_markout(&args)?;
+    println!(
+        "markout: days={} levels={} out={} {}",
+        summary.days,
+        summary.levels,
+        summary.out.display(),
+        summary.horizon_line,
+    );
+    Ok(())
+}
+
+fn print_watch(args: WatchArgs) -> anyhow::Result<()> {
+    let summary = run_watch(&args)?;
+    println!(
+        "watch: days={} n={} g={} flag={} out={}",
+        summary.days,
+        summary.n,
+        summary.g,
+        summary.flag.as_deref().unwrap_or("not-due"),
+        summary.progress.display()
+    );
+    Ok(())
+}
+
+fn print_pilot(args: PilotArgs) -> anyhow::Result<()> {
+    let summary = run_pilot(&args)?;
+    println!(
+        "pilot: symbol={} n_pulled={} mean_m_10s_bps={:.3} mean_net_bps={:.3} {} runs={}",
+        summary.symbol,
+        summary.n_pulled,
+        summary.mean_m_10s_bps,
+        summary.mean_net_bps,
+        summary.verdict,
+        summary.runs_out.display()
+    );
+    Ok(())
+}
+
+fn print_power(args: PowerArgs) -> anyhow::Result<()> {
+    let summary = run_power(&args)?;
+    println!(
+        "power: n={} sr0={:.4} required_sharpe={:.4} dsr_target={:.2} num_obs={}",
+        summary.n,
+        summary.sr0,
+        summary.required_sharpe,
+        summary.dsr_target,
+        summary.num_obs
+    );
+    Ok(())
+}
+
+fn print_session(args: SessionArgs) -> anyhow::Result<()> {
+    let summary = run_session(&args)?;
+    println!(
+        "session: instruments={} start_hour_utc={} records={} gaps={} clock_samples={} out={}",
+        summary.instruments.len(),
+        summary.start_hour_utc,
+        summary.records_total,
+        summary.gaps,
+        summary.clock_samples,
+        summary.out.display()
+    );
+    Ok(())
+}
+
+fn print_dashboard(args: DashboardArgs) -> anyhow::Result<()> {
+    let summary = run_dashboard(&args)?;
+    println!(
+        "dashboard: coins={} alive={} html={} json={}",
+        summary.coins,
+        match summary.alive {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "unknown",
+        },
+        summary.html.display(),
+        summary.json.display()
+    );
+    println!("dashboard: {}", summary.alive_reason);
+    Ok(())
+}
+
+fn print_profiles(args: ProfilesArgs) -> anyhow::Result<()> {
+    let summary = run_profiles(&args)?;
+    println!(
+        "profiles: rows={} debug={} out={}",
+        summary.rows,
+        summary.debug,
+        summary.out.display()
+    );
+    Ok(())
+}
+
+fn print_backtest(args: BacktestArgs) -> anyhow::Result<()> {
+    let summary = run_backtest(&args)?;
+    println!(
+        "backtest: profiles={} pass={} red={} out={} pnl_out={}",
+        summary.profiles,
+        summary.pass,
+        summary.red,
+        summary.out.display(),
+        summary.pnl_out.display()
+    );
+    Ok(())
+}
+
+fn print_bounce_grid(args: Box<BounceGridArgs>) -> anyhow::Result<()> {
+    let s = run_bounce_grid(&args)?;
+    println!(
+        "bounce-grid: форм {} · символов {} (без маркера {}, без касаний {}) · символ-суток {} · кругов {} · {} · {}",
+        s.forms,
+        s.symbols_done,
+        s.symbols_skipped_unverified,
+        s.symbols_without_touches,
+        s.symbol_days,
+        s.rounds,
+        s.rounds_path.display(),
+        s.forms_path.display()
+    );
+    // В-131: строка σ на взводе — только с `--sigma-from` (прежний вывод не меняется).
+    if args.sigma_from.is_some() {
+        println!(
+            "bounce-grid: σ на взводе (В-131): n_no_sigma {} из {} сигналов",
+            s.n_no_sigma, s.n_sigma_signals
+        );
+    }
+    Ok(())
+}
+
+fn print_fill_capacity(args: FillCapacityArgs) -> anyhow::Result<()> {
+    let s = run_fill_capacity(&args)?;
+    println!(
+        "fill-capacity: символов {} (без маркера {}, без кэша {}, без касаний {}) · символ-суток {} · касаний {} · строк {} · {}",
+        s.symbols_done,
+        s.symbols_skipped_unverified,
+        s.symbols_without_cache,
+        s.symbols_without_touches,
+        s.symbol_days,
+        s.touches,
+        s.rows,
+        s.out_dir.display()
+    );
+    Ok(())
+}
+
+fn print_bounce_verdict(args: BounceVerdictArgs) -> anyhow::Result<()> {
+    let s = run_bounce_verdict(&args)?;
+    let num = |v: Option<f64>| match v {
+        Some(x) => format!("{x:.6}"),
+        None => "—".to_string(),
+    };
+    println!(
+        "bounce-verdict: ИТОГ={} · форм {} · символов {} · суток {} · испытаний {} (журнал {}) · лучшая {} · кругов {} · суток с кругами {} ({}) · net_fill точка={} нижняя={} bps · DSR={} по суткам, отчёт (журнал: {}) · PBO={} · CPCV={} · {}",
+        s.verdict.label(),
+        s.forms,
+        s.symbols,
+        s.days,
+        s.trials,
+        s.journal_trials,
+        s.best_form,
+        s.best_n_fills,
+        s.best_days,
+        s.best_month_fill_days
+            .iter()
+            .map(|(m, n)| format!("{m}: {n}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        num(s.best_point_bps),
+        num(s.best_lower_bps),
+        num(s.dsr),
+        num(s.dsr_at_journal_trials),
+        num(s.pbo),
+        num(s.cpcv),
+        s.out.display()
+    );
+    Ok(())
+}
+
+fn print_shortlist(args: ShortlistArgs) -> anyhow::Result<()> {
+    let summary = run_shortlist(&args)?;
+    println!(
+        "shortlist: trials={} shortlisted={} debug={} verdict={} out={}",
+        summary.trials,
+        summary.shortlisted,
+        summary.debug,
+        summary.verdict.as_deref().unwrap_or("n/a (debug)"),
+        summary.out.display()
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
