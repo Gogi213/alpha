@@ -7,7 +7,7 @@
 # Команда исполняется с SLOT_TGT и JOBS в окружении; при красном — все строки ^error/^warning.
 set -u
 ARC="$1"; CMDF="$2"; JOBS="${3:-4}"
-B=/opt/rbuild; NSLOT="${RBUILD_SLOTS:-3}"
+B=/opt/rbuild; NSLOT="${RBUILD_SLOTS:-4}"
 export RUSTUP_HOME=$B/rustup CARGO_HOME=$B/cargo PATH=$B/cargo/bin:$PATH
 K=""
 while [ -z "$K" ]; do
