@@ -7,6 +7,7 @@
 # Семьи (опорный = тем, кем посчитаны числа, Летопись): base b14flag | r2 b15pyr4pgoflag | dl tk084-dl | tk115 (r3a) b26tk115r2 |
 # tk115j (signals/e106/walls, tk115-delta-day) tk115f | tk115w (chase<W>, tape/cxl, пороги v5 марта, --tape-log 30) tk115f |
 # tk115e (e65: wall2/wall2x, --driver setups, журнал стен touches --wall-log) tk115f.
+# КТ-5 (TK-150): ABIN_SPLIT=1 — у каждого прогона свой пустой кэш $T/abin-<метка> (сверка .abin: cmp -r abin-base-ref-* abin-base-new-*); REF_OVERRIDE=<опорный> — подмена опорного base.
 # Семьи идут параллельно (каждая — своё дерево /data/tk164/*), summary.txt — строка на семью.
 # Итог: /data/tk164/gate/<семья>.txt, summary.txt (строка на семью: rc), маркер gate.done. Зелёный = rc 0 И files>0 в каждой
 # подпапке выхода И rc каждого прогона 0 (RUNFAIL/files=0/пустой выход = красный, не зелёный).
@@ -19,7 +20,7 @@ T=/data/tk164; G=${GATE_DIR:-$T/gate}; BIN=/opt/alpha-compute/bin; mkdir -p "$G"
 # семья: опорный (в $BIN или путь) | месяц | сутки | скрипт суток | клетки (для счёта got/exp, пусто — только files>0)
 fam_conf() {
   case $1 in
-    base)  REF=$BIN/alpha-b14flag;            MON=jan; DAY=2026-01-01,2026-01-15; SCR=jall; CELLS=$T/cells-241.txt
+    base)  REF=${REF_OVERRIDE:-$BIN/alpha-b14flag};            MON=jan; DAY=2026-01-01,2026-01-15; SCR=jall; CELLS=$T/cells-241.txt
            [ $SELF = 1 ] && DAY=2026-01-01;;  # самопроверка: путь jall один раз, не 2×2 прогона по 241 клетке
     r2)    REF=$BIN/alpha-b15pyr4pgoflag;     MON=mar; DAY=2026-03-07; SCR=/data/tk065/days/r2-2026-03-07.sh;  CELLS=/data/tk065/days/r2-2026-03-07.cells;;
     dl)    REF=$BIN/alpha-tk084-dl;           MON=mar; DAY=2026-03-07; SCR=/data/tk084/days/p12-2026-03-07.sh; CELLS=/data/tk084/days/p12-2026-03-07.cells;;
@@ -42,7 +43,7 @@ run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сут�
   else  # готовый скрипт суток: клетки/каталоги внутри него — как в боевом счёте; пишет в b5/ рабочего каталога $S
     cp "$5" "$S/day.sh"; sed -i "s#--cells [^ ]*#--cells $S/cells.txt#; s#> b5/\.cellstmp-\([^ ]*\)\.log#> b5/.cellstmp-\1.log#; s#^cp b5/\.cellstmp[^ ]*\.log /data/[^ ]*#:#" "$S/day.sh"
   fi
-  ( export HOME=$H ALPHA_SKIP_SAME=1 ALPHA_APPROACH_BIN_DIR=${ALPHA_APPROACH_BIN_DIR:-/data/tk048/abin-t46}; cd "$S" && /usr/bin/time -f "%e %U %S %M" -o "$S/t.txt" bash "$S/day.sh" > "$S/run.out" 2> "$S/run.err" ); rc=$?
+  ( export HOME=$H ALPHA_SKIP_SAME=1 ALPHA_APPROACH_BIN_DIR=$([ -n "${ABIN_SPLIT:-}" ] && echo "$T/abin-$1" || echo "${ALPHA_APPROACH_BIN_DIR:-/data/tk048/abin-t46}"); cd "$S" && /usr/bin/time -f "%e %U %S %M" -o "$S/t.txt" bash "$S/day.sh" > "$S/run.out" 2> "$S/run.err" ); rc=$?
   exp=$(awk 'NF{print $1}' "$6" | sort -u | grep -c .); got=$(find "$S/b5" -name 'forms.csv' 2>/dev/null | xargs -r cat | awk -F, -v d="$4" '$2==d{print $3}' | sort -u | grep -c .)
   local nr; nr=$(find "$S/b5" -name 'rounds*.csv' 2>/dev/null | wc -l)
   echo "run $1 rc=$rc cells_got=$got cells_exp=$exp rounds_files=$nr"
