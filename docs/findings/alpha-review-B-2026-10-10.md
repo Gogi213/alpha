@@ -33,7 +33,7 @@
 `tk048-chain*` упоминается в 43 файлах, `tk048-orch-grp*` — в 61 (скрипты, `COMMANDS.md`, тикеты). Архивирование (M5) обязано идти с правкой ссылок — иначе `git grep` старого пути ≠ 0 (правило CLAUDE.md «Доки: правило артефактов»). → **Т**/M5, гейт: `git grep` = 0.
 
 ### Б-6 · СНЯТА (ложная, см. «Четвёртый проход») · CRLF в трёх `.sh`, предназначенных для Linux
-`tools/compute/fast-up.sh`, `tk048-dbg.sh`, `tk048-e44-run.sh` содержат `\r` (`grep -lU $'\r'`). На calc `bash` падает с `$'\r': command not found` / неверным именем файла (повторение граблей из блокнота: «CRLF на Steam Deck»). Остальные ≈ 400 `.sh` — LF (проверено только в репо, на calc `tk048-chain28.sh` — LF). Лечится `.gitattributes *.sh text eol=lf` — тогда Б-6 не повторится. → **Т**.
+`tools/compute/archive/fast-up.sh`, `tk048-dbg.sh`, `tk048-e44-run.sh` содержат `\r` (`grep -lU $'\r'`). На calc `bash` падает с `$'\r': command not found` / неверным именем файла (повторение граблей из блокнота: «CRLF на Steam Deck»). Остальные ≈ 400 `.sh` — LF (проверено только в репо, на calc `tk048-chain28.sh` — LF). Лечится `.gitattributes *.sh text eol=lf` — тогда Б-6 не повторится. → **Т**.
 
 ### Б-7 · ПОТОМ · `titration.py:37` — f-строка с обратной косой чертой, SyntaxError на Python < 3.12
 `print(f"{'сила \\ возраст':14s}" …)`. На calc Python 3.13.5 — работает; локально Python 3.11.9 — нет (`py_compile`). Единственная из 226 `.py`, не компилирующаяся локально. Дефект переносимости, не бой. → потом, при архивации.
@@ -82,10 +82,10 @@
 
 | # | сл. | файл | функция | строки |
 |---|---|---|---|---|
-| 1 | 314 | tools/compute/eaten-threshold.py | main | 223–600 (378) |
-| 2 | 160 | tools/compute/tk025-recompute.py | Sim::snapshot | 969–1145 (177) |
-| 3 | 148 | tools/compute/tk025-recompute.py | Sim::post_frame | 680–831 (152) |
-| 4 | 148 | tools/compute/dash-add-p07-all.py | main | 198–341 |
+| 1 | 314 | tools/compute/archive/eaten-threshold.py | main | 223–600 (378) |
+| 2 | 160 | tools/compute/archive/tk025-recompute.py | Sim::snapshot | 969–1145 (177) |
+| 3 | 148 | tools/compute/archive/tk025-recompute.py | Sim::post_frame | 680–831 (152) |
+| 4 | 148 | tools/compute/archive/dash-add-p07-all.py | main | 198–341 |
 | 5 | 143 | tools/compute/archive/t21-snapshot.py | extract_dashboard | 135–311 |
 | 6 | 141 | tools/compute/alsched.py | Core::tick | 92–235 (144) |
 | 7 | 139 | tools/compute/archive/dashboard-check.py | check_blocks | 49–135 |
@@ -94,13 +94,13 @@
 | 10 | 130 | tools/registry/registry.py | main | 75–218 |
 | 11 | 130 | tools/compute/archive/loss-corr.py | main | 133–230 |
 | 12 | 129 | tools/compute/vol-estimators.py | main | 136–232 |
-| 13 | 128 | tools/compute/history-study.py | main | 73–198 |
+| 13 | 128 | tools/compute/archive/history-study.py | main | 73–198 |
 | 14 | 127 | tools/compute/archive/t32-retries.py | main | 88–310 |
 | 15 | 121 | tools/compute/archive/tk044-gate.py | main | 74–185 |
-| 16 | 115 | tools/compute/touch-signals.py | main | 68–169 |
+| 16 | 115 | tools/compute/archive/touch-signals.py | main | 68–169 |
 | 17 | 107 | tools/compute/archive/p08-cov.py | cmd_decide | 133–200 |
 | 18 | 107 | tools/compute/archive/p07-h9r-h14.py | simulate | 243–343 |
-| 19 | 106 | tools/compute/p05-read.py | main | 95–201 |
+| 19 | 106 | tools/compute/archive/p05-read.py | main | 95–201 |
 | 20 | 102 | tools/compute/family-titrate.py | main | 62–162 |
 
 Самые тяжёлые по ответственностям: `alsched.py` — 1 248 строк, 89 функций, сумма 633: упаковка, вытеснение, заморозка, EWMA, диск, CLI, запись состояния в одном классе `Core`; `Core::tick` (141) делает всё сразу и не тестируется (Б-2). `tk025-recompute.py` — 1 675 строк, 54 функции, сумма 938: имитатор биржи (`Sim`) + CLI + отчёт. `registry.py main` (130) — CLI-ветвление в одной функции; Летопись — основа гейтов, поэтому важнее прочих. Большинство остальных — разовые `main()` исследовательских скриптов (одна гипотеза = один скрипт); для них сложность — цена разового кода, а не дефект боя; дефект — что они лежат рядом с живыми и не помечены. → **Т** (`Core::tick`, `registry.main` — разбить до M2); **Х**/архив для исследовательских.

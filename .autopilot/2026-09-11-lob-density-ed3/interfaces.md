@@ -515,7 +515,7 @@ cargo run --release -- lob <подкоманда>
 - **Формы тейка**: `TakeForm::HalfOneToOne` (`half1to1`), `TakeForm::Eaten { half_pct, all_pct }`
   (`eat<h>x<a>`, границы 0 < h < a ≤ 100); `PlanShape.lot`; `bounce_plan` кладёт `level_qty =
   size_at_touch × lot`. `bounce-grid --order-qty-mult N` (E7 — 2).
-- **Скрипты счётной машины**: `tools/compute/leverage.py` (плечо по монете: `1/L − MMR ≥ 2 × стоп` и
+- **Скрипты счётной машины**: `tools/compute/archive/leverage.py` (плечо по монете: `1/L − MMR ≥ 2 × стоп` и
   ≥ p99 хода против внутри дедлайна; `risk-limit`, `funding/history` публичным REST),
   `floors-balance.py` (сила × возраст → сигналов/день × (ход − комиссии)), `nightly-grid.sh` +
   `tools/systemd/alpha-grid-nightly.*` (шесть сеток по всем суткам, испытания регистрируются один раз
