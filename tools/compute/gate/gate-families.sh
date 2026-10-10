@@ -68,10 +68,10 @@ afile() {  # $1 новый $2 опорный (b5 r2) $3 боевая волна 
 }
 cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0, одинаковый список; красный при files=0; AREF=<каталог волны A> — формы A сверяются с ней
   local n=0 bad=0 f la lb
-  la=$(cd "$1" && find . -type f ! -name '.cellstmp*' ! -name '*.log' | sort); lb=$(cd "$2" && find . -type f ! -name '.cellstmp*' ! -name '*.log' | sort)
+  la=$(cd "$1" && find . -type f ! -path '*/.cellstmp*' ! -name '*.log' | sort); lb=$(cd "$2" && find . -type f ! -path '*/.cellstmp*' ! -name '*.log' | sort)
   [ "$la" = "$lb" ] || { bad=$((bad+1)); echo "LISTDIFF"; }
   for f in $la; do n=$((n+1)); cmpf "$1" "$2" "$f" && continue
-    case $f in *.csv) [ -n "$AREF" ] && afile "$1" "$2" "$f" && { echo "A-ok $f"; continue; };; esac
+    case $f in *.csv) [ -n "$AREF" ] && afile "$2" "$1" "$f" && { echo "A-ok $f"; continue; };; esac
     bad=$((bad+1)); echo "DIFF $f"; done
   echo "files=$n diff=$bad"; [ "$n" -gt 0 ] && [ "$bad" = 0 ]
 }
