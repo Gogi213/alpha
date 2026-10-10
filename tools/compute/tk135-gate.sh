@@ -9,6 +9,14 @@ run() {  # run <дерево> <имя> <команда...> -> <дерево>/_ou
 both() { n=$1; shift; run old $n "$@" & run new $n "$@" & wait; }
 bothx() { n=$1; o=$2; w=$3; run old $n bash -c "$o" & run new $n bash -c "$w" & wait; }   # разные команды (слитые скрипты)
 export PYTHONHASHSEED=0
+# подготовка деревьев: навык (effective_n) нужен monthly-pnl; в old R2DIR=-a без клеток halflevel — как в 49f55a0d ставим -b (правка входа, одинаково в old/new);
+# выходные monthly-pnl в деревьях — симлинки на чужой прогон: убрать, чтобы писать в своё дерево
+for t in old new; do
+  [ -e $t/.claude ] || { mkdir -p $t/.claude; ln -s ${SKILLS:-/data/tk135gate/new/.claude/skills} $t/.claude/skills; }
+  rm -f $t/docs/findings/monthly-pnl-v171c-2026-10-09.csv $t/docs/findings/monthly-pnl-v171c-2026-10-09.md
+done
+sed -i 's|^R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-a/"|R2DIR, EXTDIR, R1DIR = "data/p12r2-v171c-b/"|' old/tools/compute/monthly-pnl.py
+rm -rf old/_out new/_out gate.done; sleep 1; touch old/_start new/_start; sleep 1   # метка: что новее — выход этого прогона
 P=${PY:-python3}   # на calc нет numpy: PY=/data/tk135gate/venv/bin/python3
 both sharpe-free   $P tools/compute/p12-sharpe.py free
 both sharpe-B2-v171c env P12_POOL_FROM=1 P12_DIR=data/p12r2-v171c-a/ P12_OUT=gate $P tools/compute/p12-sharpe.py B2
@@ -22,9 +30,9 @@ both tk114-tier2   $P tools/compute/tk114-tier2-select.py free
 both tk114-report2 $P tools/compute/tk114-report2.py
 bothx merge-r2a "$P tools/compute/p12-r2a-merge.py" "$P tools/compute/p12-merge.py r2a"
 bothx merge-r3a "$P tools/compute/p12-r3a-merge.py" "$P tools/compute/p12-merge.py r3a"
-# отчёт: md5 каждого файла выхода (stdout + docs/findings/_new + data/*), сравнение old/new
-for t in old new; do (cd $t && find _out docs/findings data/p12r2-a data/p12r2-v171c-a data/p12r2-v171c-b -type f ! -name '*.stderr' -printf '%p\n' | sort | xargs md5sum | sed 's/  /\t/') > $t.md5; done
-{ echo -e "файл\tmd5 до\tmd5 после\tравно"
-  join -t$'\t' -1 2 -2 2 -a1 -a2 -e MISSING -o 0,1.1,2.1 <(sort -t$'\t' -k2 old.md5) <(sort -t$'\t' -k2 new.md5) | awk -F'\t' '{print $0 "\t" ($2==$3?"да":"НЕТ")}'
+# отчёт: только выходы — stdout (_out) и файлы, записанные этим прогоном (новее метки _start; входные копии не попадают); сравнение old/new
+for t in old new; do (cd $t && find -L _out docs/findings data -type f -newer _start ! -name '*.stderr' ! -name _start | sort | xargs md5sum | sed 's/  /	/') > $t.md5; done
+{ echo -e "файл	md5 до	md5 после	равно"
+  join -t$'	' -1 2 -2 2 -a1 -a2 -e MISSING -o 0,1.1,2.1 <(sort -t$'	' -k2 old.md5) <(sort -t$'	' -k2 new.md5) | awk -F'	' '{print $0 "	" ($2==$3?"да":"НЕТ")}'
 } > report.tsv
 echo done > gate.done
