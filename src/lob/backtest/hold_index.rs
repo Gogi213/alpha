@@ -87,7 +87,6 @@ pub struct BestChange {
 #[derive(Clone, Copy, Debug)]
 struct QtyAt {
     tick: i64,
-    row: usize,
     local_ts: i64,
     qty: f64,
 }
@@ -191,7 +190,6 @@ impl HoldIdx {
             if let Some(sd) = side {
                 qty[sd].push(QtyAt {
                     tick: t,
-                    row: i,
                     local_ts: ev.local_ts,
                     qty: if sd == 0 {
                         book.bid_qty_at_tick(t)

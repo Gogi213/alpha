@@ -429,17 +429,26 @@ pub fn quantiles(values: &[f64]) -> Option<(f64, f64, f64)> {
     ))
 }
 
-fn quantile_sorted(v: &[f64], q: f64) -> f64 {
-    if v.len() == 1 {
-        return v[0];
-    }
-    let pos = q * (v.len() - 1) as f64;
+/// Квантиль уровня `q` на отсортированном по возрастанию срезе, линейная
+/// интерполяция между соседями (тип 7). Вызывающий гарантирует непустоту и `q`
+/// внутри [0, 1] (проверено `debug_assert`); индексы `lo`/`hi` лежат в
+/// `0..len` по построению `pos`. Касты точные: `len` — длина среза в памяти
+/// (< 2^53 всегда), `pos` — в `[0, len)`, усечение к `usize` отбрасывает только дробь.
+#[allow(
+    clippy::indexing_slicing,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation
+)]
+pub fn quantile_sorted(sorted: &[f64], q: f64) -> f64 {
+    debug_assert!(!sorted.is_empty(), "квантиль пустого распределения");
+    debug_assert!((0.0..=1.0).contains(&q), "уровень квантиля вне [0,1]");
+    let pos = q * (sorted.len() - 1) as f64;
     let lo = pos.floor() as usize;
     let hi = pos.ceil() as usize;
     if lo == hi {
-        v[lo]
+        sorted[lo]
     } else {
-        v[lo] + (v[hi] - v[lo]) * (pos - lo as f64)
+        sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo as f64)
     }
 }
 

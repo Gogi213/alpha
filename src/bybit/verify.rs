@@ -314,14 +314,6 @@ pub fn trade_in_range(book: &Book, price_tick: i64) -> Option<bool> {
     book_span_ticks(book).map(|(lo, hi)| price_tick >= lo && price_tick <= hi)
 }
 
-/// Цена удерживается книгой, если тик держит хотя бы одна сторона.
-/// Ревизия 17б: для нарушения теста 3 этого мало — в L2 между уровнями бывают
-/// пустые тики, и сделка по такому тику в момент, когда уровень уже съеден, —
-/// норма, а не брак. Нарушение — цена, которую книга НИ РАЗУ не держала.
-pub fn price_held(book: &Book, price_tick: i64) -> bool {
-    book.qty_lots_at(Side::Bid, price_tick) != 0 || book.qty_lots_at(Side::Ask, price_tick) != 0
-}
-
 // ---------------------------------------------------------------------------
 // Verifier: книга + счётчики трёх проверок в одном месте
 // ---------------------------------------------------------------------------
@@ -972,14 +964,6 @@ pub struct VerifySummary {
 }
 
 impl VerifySummary {
-    /// Нарушения теста 3 в ppm. `None` — сделок не было.
-    pub fn violation_ppm(&self) -> Option<u64> {
-        if self.trades_total == 0 {
-            return None;
-        }
-        Some(self.trades_violations * 1_000_000 / self.trades_total)
-    }
-
     /// Доля вне диапазона в ppm (порога нет). `None` — сделок не было.
     pub fn out_of_range_ppm(&self) -> Option<u64> {
         if self.trades_total == 0 {

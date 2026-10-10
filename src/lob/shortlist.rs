@@ -909,17 +909,6 @@ pub enum ShortlistVerdict {
     Green,
 }
 
-impl ShortlistVerdict {
-    /// `true` — красный (оба варианта): используется, где различие причины
-    /// не нужно (например, счётчик прохода в CLI).
-    pub fn is_red(self) -> bool {
-        matches!(
-            self,
-            ShortlistVerdict::RedInsufficientPower | ShortlistVerdict::RedNoEdge
-        )
-    }
-}
-
 impl std::fmt::Display for ShortlistVerdict {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
