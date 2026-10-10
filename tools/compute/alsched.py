@@ -90,9 +90,20 @@ class Core:
         return [j for j in self.jobs.values() if j["state"] == "running" and j["cls"] == cls]
 
     def tick(self):
-        be, now = self.be, self.be.now()
+        now = self.be.now()
         dt = 0 if self.last is None else now - self.last
         self.last = now
+        self._budgets(now, dt)
+        self._reap(now)
+        if self._window(now):          # окно замера занято/открыто — упаковка производства в этот цикл не идёт
+            return
+        self._thaw_after_window()
+        legacy = self._pack(now)
+        self._alerts(now)
+        self.log_util(now, legacy)
+
+    def _budgets(self, now, dt):
+        be = self.be
         for hid, vs in self.preempt.items():
             for kind, ident, _ in vs:
                 if kind == "job" and ident in self.jobs:
@@ -108,6 +119,9 @@ class Core:
             if now - j["t_start"] > j["max_runtime"]:
                 j["kill_why"] = "снят демоном: бюджет max-runtime замера (стена) вышел"
                 be.kill(j)
+
+    def _reap(self, now):
+        be = self.be
         for j in self.jobs.values():
             if j["state"] == "queued" and be.cancelled(j):
                 j.update(state="done", rc=-15, t_end=now, reason="снят из очереди: " + (be.cancel_why(j) if hasattr(be, "cancel_why") else "cancel"))
@@ -131,10 +145,13 @@ class Core:
                         j["valid"] = be.win_end(j, self.snaps.pop(j["id"]))
                     elif j["cls"] == "measure" and not j.get("valid"):
                         j["valid"] = dict(ok=False, why=["нет снимка начала окна (демон перезапущен или окно не открыто) — стена недостоверна"])
+
+    def _window(self, now):
+        be = self.be
         ms = self.running("measure")
         if any(not j.get("iso") for j in ms):
             self.log_util(now, 0)                         # окно видно в util.log: measure=1 раз в минуту
-            return
+            return True
         mq = sorted((j for j in self.jobs.values() if j["state"] == "queued" and j["cls"] == "measure"),
                     key=lambda j: j["t_submit"])
         if mq and mq[0].get("iso") and not ms and not self.frozen:
@@ -162,12 +179,19 @@ class Core:
                 be.alert(f"память перед окном {j['id']} {j['name']}: " + "; ".join(risk))
             be.start(j)
             self.log_util(now, 0)
-            return
+            return True
+        return False
+
+    def _thaw_after_window(self):
+        be = self.be
         if self.frozen:
             be.thaw_all()
             self.frozen = False
             for j in self.running("prod"):
                 be.extend(j, j["max_runtime"] - j.get("active_s", 0))
+
+    def _pack(self, now):
+        be = self.be
         self.thaw_victims()
         self.cap_iso()
         used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]} | self.iso
@@ -233,10 +257,12 @@ class Core:
             worse = any(r.get("prio", 5) > head.get("prio", 5) and not r.get("frozen_for") for r in self.running("prod"))
             if worse or now - head["t_submit"] > PREEMPT_S:    # 10.10 (Судья): prio строго лучше идущего — вытесняем в тот же цикл, без таймера
                 self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now, bare=now - head["t_submit"] > PREEMPT_S)
+        return legacy
+
+    def _alerts(self, now):
         self.alert_waiting(now)
         self.alert_underuse(now)
         self.alert_idle(now)
-        self.log_util(now, legacy)
 
     @staticmethod
     def family(j):

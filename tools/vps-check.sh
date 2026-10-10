@@ -18,6 +18,8 @@ ARCR=/opt/alpha-compute/wave2$TAG.tgz
 TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD")"
 ARC="$TMPD/wave2-$$.tgz"
 cd "$TREE"
+# КТ-1 (TK-145): защита от россыпи — новые tools/compute/(tk|p)<цифра>*-* предупреждение, корень выше базы — отказ
+case "$WHAT" in all|gate) python "$(dirname "$0")/check-sprawl.py" . master || exit 1 ;; esac
 # метка задачи в командной строке замка (видна в `ps` на VPS — экран хода работ по ней находит задачу сборки):
 # RPV_TICKET (прежнее ALPHA_TICKET) сессии роли (его ставит диспетчер), иначе имя рабочего дерева; на поведение сборки не влияет
 LABEL="$(printf '%s' "${RPV_TICKET:-${ALPHA_TICKET:-$(basename "$PWD")}}" | tr -c 'A-Za-z0-9._-' '_')"
