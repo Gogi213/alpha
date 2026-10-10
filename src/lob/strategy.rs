@@ -71,6 +71,12 @@ use self::idle::*;
 pub use self::plan::*;
 pub use self::state::*;
 
+/// Цена в целых тиках: единственная точка перевода `f64`-цены стратегии в тик (КТ-4b).
+#[inline(always)]
+fn px_tick(px: f64, tick_px: f64) -> i64 {
+    round_half_away(px / tick_px) as i64
+}
+
 pub fn on_event<MD, B>(bot: &mut B, state: &mut StrategyState) -> Result<Action, B::Error>
 where
     MD: MarketDepth,

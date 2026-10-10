@@ -118,7 +118,7 @@ impl StrategyState {
             return;
         }
         #[allow(clippy::cast_possible_truncation)]
-        let stop_t = round_half_away(stop_px / tick_px) as i64;
+        let stop_t = px_tick(stop_px, tick_px);
         let idx_of = |tick: i64| if buy { tick - stop_t } else { stop_t - tick };
         let want = if buy {
             EXCH_SELL_TRADE_EVENT
@@ -135,7 +135,7 @@ impl StrategyState {
         });
         for t in trades.iter().filter(|t| t.ev & want == want) {
             #[allow(clippy::cast_possible_truncation)]
-            let i = idx_of(round_half_away(t.px / tick_px) as i64);
+            let i = idx_of(px_tick(t.px, tick_px));
             if (0..NW_SCAN_MAX).contains(&i) {
                 #[allow(clippy::cast_sign_loss)]
                 {

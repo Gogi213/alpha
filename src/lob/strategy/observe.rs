@@ -210,7 +210,7 @@ impl StrategyState {
         // У лонга стену едят продажи, у шорта — покупки.
         let want_sell = entry_side == HbtSide::Buy;
         #[allow(clippy::cast_possible_truncation)]
-        let level_tick = round_half_away(level_px / tick_px) as i64;
+        let level_tick = px_tick(level_px, tick_px);
         let mut eaten = 0.0;
         for trade in trades {
             let hit = if want_sell {
@@ -222,7 +222,7 @@ impl StrategyState {
                 continue;
             }
             #[allow(clippy::cast_possible_truncation)]
-            if round_half_away(trade.px / tick_px) as i64 == level_tick {
+            if px_tick(trade.px, tick_px) == level_tick {
                 eaten += trade.qty;
             }
         }
@@ -242,7 +242,7 @@ impl StrategyState {
         };
         let want_sell = entry_side == HbtSide::Buy;
         #[allow(clippy::cast_possible_truncation)]
-        let level_tick = round_half_away(level_px / tick_px) as i64;
+        let level_tick = px_tick(level_px, tick_px);
         // Сторона — все биты маски: `ev & EXCH_SELL_TRADE_EVENT != 0` истинно у любой сделки
         // биржи (общие биты `TRADE_EVENT | EXCH_EVENT`) и считало бы покупки в бид-стену.
         let want = if want_sell {
@@ -253,7 +253,7 @@ impl StrategyState {
         for trade in trades {
             let hit = trade.ev & want == want;
             #[allow(clippy::cast_possible_truncation)]
-            let at_level = round_half_away(trade.px / tick_px) as i64 == level_tick;
+            let at_level = px_tick(trade.px, tick_px) == level_tick;
             if !hit || !at_level || trade.exch_ts < entry_ns {
                 continue;
             }
@@ -302,7 +302,7 @@ impl StrategyState {
             };
         }
         #[allow(clippy::cast_possible_truncation)]
-        let level_tick = round_half_away(level_px / tick_px) as i64;
+        let level_tick = px_tick(level_px, tick_px);
         crate::lob::diag::set_watch_tick(level_tick);
         let qty = match entry_side {
             HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
