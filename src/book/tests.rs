@@ -304,3 +304,30 @@ fn prices_that_break_f64_land_on_one_level() {
     assert_eq!(tick_from_sum, tick_from_literal);
     assert_eq!(b.qty_lots_at(Side::Bid, tick_from_sum), px(1.0) / STEP);
 }
+
+/// С-05 (ревью 10.10): грep-линт запретов 2 и 7 `interfaces.md` — как у `strategy.rs::hot_path_guard`, но для
+/// остального пути события: книга и ленты. Часы — только через трейт `Clock`, книга и очередь событий — не
+/// хеш-/дерево-отображение (аллоцирует на вставку). Строки собраны из частей, чтобы литерал не ловил сам себя;
+/// `tests.rs` в проверку не входят.
+#[test]
+fn event_path_modules_never_call_the_wall_clock_or_use_a_map() {
+    const SOURCES: [(&str, &str); 4] = [
+        ("book/mod.rs", include_str!("mod.rs")),
+        ("feed/mod.rs", include_str!("../feed/mod.rs")),
+        ("feed/live.rs", include_str!("../feed/live.rs")),
+        ("feed/replay.rs", include_str!("../feed/replay.rs")),
+    ];
+    let banned = [
+        concat!("Inst", "ant::now"),
+        concat!("System", "Time::now"),
+        concat!("Hash", "Map<"),
+        concat!("Hash", "Map::"),
+        concat!("BTree", "Map<"),
+        concat!("BTree", "Map::"),
+    ];
+    for (name, src) in SOURCES {
+        for b in banned {
+            assert!(!src.contains(b), "{name} тянет запрещённое: {b}");
+        }
+    }
+}

@@ -1,0 +1,115 @@
+//! Запрет 1 `interfaces.md` (С-04, ревью 10.10): ноль аллокаций на событие после прогрева — по фазам круга.
+//! Idle меряет `tests::on_event_allocates_nothing_per_call_while_the_book_is_not_ready`; здесь — фазы, где
+//! стратегия ждёт с открытым ордером или позицией. Переходы (submit/cancel уходят в учёт ордеров крейта, он не
+//! в этой зоне) не считаются: меряются вызовы, начатые и кончившиеся в одной фазе.
+use super::tests::{depth_at, seam6_backtest, trade_at};
+use super::*;
+use hftbacktest::types::ElapseResult;
+
+/// События в каждой измеряемой фазе — не меньше (запрет 1: 10⁵ на фазу).
+const PER_PHASE: usize = 100_000;
+/// Шаг ленты = шаг `elapse`: на вызов `on_event` приходится одно событие.
+const STEP: i64 = 100_000_000;
+
+fn plan() -> TradePlan {
+    TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: i64::MAX / 4,
+        entry_ttl_ns: i64::MAX / 4,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        ladder: EntryLadder::NONE,
+        early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
+        exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
+        exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
+    }
+}
+
+fn phase_name(p: &Phase) -> &'static str {
+    match p {
+        Phase::Idle => "Idle",
+        Phase::EntryPending { .. } => "EntryPending",
+        Phase::Holding { .. } => "Holding",
+        Phase::ExitPending { .. } => "ExitPending",
+        Phase::ExitCancelPending { .. } => "ExitCancelPending",
+        Phase::CancelPending { .. } => "CancelPending",
+    }
+}
+
+/// Лента: стакан, вход стоит за огромной очередью (не исполняется) `PER_PHASE + 5_000` событий, затем сделка
+/// крупнее очереди исполняет вход, и столько же событий позиция держится в коридоре стопа и тейка.
+#[test]
+fn on_event_allocates_nothing_while_entry_pending_and_while_holding() {
+    let n = PER_PHASE as i64 + 5_000;
+    let mut feed = vec![
+        depth_at(0, true, 100.0, 1e9),
+        depth_at(0, false, 101.0, 5.0),
+    ];
+    // Шум на стороне, не затрагивающей ни вход, ни коридор выхода: меняется размер бида на 99.
+    for k in 1..=n {
+        feed.push(depth_at(k * STEP, true, 99.0, 5.0 + (k % 2) as f64));
+    }
+    let fill_at = (n + 1) * STEP;
+    feed.push(trade_at(fill_at, true, 100.0, 2e9));
+    feed.push(depth_at(fill_at, true, 100.0, 5.0));
+    for k in 1..=n {
+        feed.push(depth_at(fill_at + k * STEP, true, 99.0, 5.0 + (k % 2) as f64));
+    }
+
+    let mut hbt = seam6_backtest(&feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan());
+    let mut calls = [0usize; 2];
+    let mut allocs = [0u64; 2];
+    loop {
+        let r = hbt.elapse(STEP).unwrap();
+        let before = phase_name(&state.phase);
+        let (res, counts) = crate::alloc_count::measure(|| on_event(&mut hbt, &mut state));
+        res.unwrap();
+        let after = phase_name(&state.phase);
+        if before == after {
+            let i = match before {
+                "EntryPending" => Some(0),
+                "Holding" => Some(1),
+                _ => None,
+            };
+            if let Some(i) = i {
+                calls[i] += 1;
+                allocs[i] += counts.allocations;
+            }
+        }
+        if r == ElapseResult::EndOfData {
+            break;
+        }
+    }
+    assert!(
+        calls[0] >= PER_PHASE,
+        "EntryPending измерен на {} вызовах < {PER_PHASE}",
+        calls[0]
+    );
+    assert!(
+        calls[1] >= PER_PHASE,
+        "Holding измерен на {} вызовах < {PER_PHASE}",
+        calls[1]
+    );
+    assert_eq!(allocs[0], 0, "EntryPending аллоцировал — запрет 1 interfaces.md");
+    assert_eq!(allocs[1], 0, "Holding аллоцировал — запрет 1 interfaces.md");
+}

@@ -85,7 +85,7 @@ fn trade_ev(sell: bool) -> u64 {
     }
 }
 
-fn depth_at(exch_ts: i64, bid: bool, px: f64, qty: f64) -> Event {
+pub(super) fn depth_at(exch_ts: i64, bid: bool, px: f64, qty: f64) -> Event {
     Event {
         ev: depth_ev(bid),
         exch_ts,
@@ -98,7 +98,7 @@ fn depth_at(exch_ts: i64, bid: bool, px: f64, qty: f64) -> Event {
     }
 }
 
-fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> Event {
+pub(super) fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> Event {
     Event {
         ev: trade_ev(sell) | EXCH_EVENT | LOCAL_EVENT,
         exch_ts,
@@ -111,7 +111,7 @@ fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> Event {
     }
 }
 
-fn seam6_backtest(feed: &[Event]) -> Backtest<FastMarketDepth> {
+pub(super) fn seam6_backtest(feed: &[Event]) -> Backtest<FastMarketDepth> {
     let (entry, response) = latency_from_rtt(1_000_000);
     Backtest::builder()
         .add_asset(
@@ -130,7 +130,7 @@ fn seam6_backtest(feed: &[Event]) -> Backtest<FastMarketDepth> {
         .unwrap()
 }
 
-const S: i64 = 1_000_000_000;
+pub(super) const S: i64 = 1_000_000_000;
 
 /// Прогоняет `on_event` в цикле `elapse(шаг) -> on_event` до конца
 /// синтетического фида — тот самый "прогон на `Backtest` крейта через

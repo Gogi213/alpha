@@ -1,3 +1,21 @@
+//! # Эталон и «байт в байт» (С-07, ревью 10.10)
+//!
+//! **Эталонный путь «клетка × сутки»** — `bounce-grid --cells` на старом бинарнике (или на этом при умолчаниях):
+//! все флаги ускорения ниже выключены, `--hold-step poll` (опрос 10 мс), `--busy-skip` как в клетке, непрерывный
+//! драйвер `drive_bounce`. Любой флаг обязан давать побайтно тот же выход клетки. Порядок проверки флага: юнит-тест
+//! на синтетике (если есть) → гейт на calc одним `--cells` на сутки, `diff -r` пустой (`tools/compute/*gate*.sh`).
+//!
+//! | флаг / режим | юнит-тест «байт в байт» | гейт на calc |
+//! |---|---|---|
+//! | `--hold-step skip` | `hold_skip_matches_polling_byte_for_byte` | — |
+//! | `ALPHA_FAST_HOLD=1` | `fast_hold_handoff_equals_continuous`, `group_fast_hold_matches_group_without_it` | — |
+//! | `ALPHA_HOLD_INDEX=1` | `hold_index_matches_tracker` | `tk048-e36-run.sh`, `tk048-e40-run.sh` (с `ALPHA_HOLD_INDEX_CHECK=1`) |
+//! | `ALPHA_SHARED_CELLS`, `ALPHA_SHARED_ENGINE` | `shared_cells_match_windowed_on_a_synthetic_day`, `windowed_driver_matches_the_continuous_one_on_a_synthetic_day` | `tk049-shared-gate.sh` |
+//! | `ALPHA_ADMIT_SOA=1` | `bounce_grid::tests` («`admits` по строкам `AdmitRow` …») | — |
+//! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE`, `ALPHA_TRIM_ROWS`, `ALPHA_HORIZON_GROW`, `ALPHA_EVENT_STEPS`, `ALPHA_BAND_COUNT_OFF=0` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
+//!
+//! Новый флаг без строки в этой таблице не принимается.
+
 use super::*;
 use crate::lob::strategy::EntryLadder;
 
