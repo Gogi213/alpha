@@ -2,19 +2,30 @@
 
 use super::*;
 
-/// Лучшие цены стороны как `(bid, ask)`, `None` — книга неполна
+/// Единственная конверсия «целый тик → цена `f64`» на стороне стратегии (С-11):
+/// `тик × шаг`, как собирает цену и сам `MarketDepth`. Остальные места берут
+/// цену отсюда, а не вторым умножением.
+#[allow(clippy::cast_precision_loss)]
+pub(super) fn tick_to_px(tick: i64, tick_px: f64) -> f64 {
+    tick as f64 * tick_px
+}
+
+/// Лучшие цены стороны целыми тиками `(bid, ask)`, `None` — книга неполна
 /// (`best_bid_tick`/`best_ask_tick` ещё на `INVALID_MIN`/`INVALID_MAX`,
-/// до первого снапшота).
-pub(super) fn best_prices<MD: MarketDepth>(depth: &MD) -> Option<(f64, f64)> {
-    if depth.best_bid_tick() == INVALID_MIN || depth.best_ask_tick() == INVALID_MAX {
+/// до первого снапшота) или цена не положительна.
+pub(super) fn best_ticks<MD: MarketDepth>(depth: &MD) -> Option<(i64, i64)> {
+    let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
+    if bid == INVALID_MIN || ask == INVALID_MAX || bid <= 0 || ask <= 0 {
         return None;
     }
-    let (bid, ask) = (depth.best_bid(), depth.best_ask());
-    if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
-        Some((bid, ask))
-    } else {
-        None
-    }
+    Some((bid, ask))
+}
+
+/// Лучшие цены стороны как `(bid, ask)` в `f64` — `best_ticks` через `tick_to_px`.
+pub(super) fn best_prices<MD: MarketDepth>(depth: &MD) -> Option<(f64, f64)> {
+    let (bid, ask) = best_ticks(depth)?;
+    let tick_px = depth.tick_size();
+    Some((tick_to_px(bid, tick_px), tick_to_px(ask, tick_px)))
 }
 
 /// Снимок ног входа по ордерам крейта (F4, В-78): накопленное исполненное

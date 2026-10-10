@@ -233,10 +233,7 @@ where
                 state.take_order_id();
                 continue;
             }
-            #[allow(clippy::cast_precision_loss)]
-            {
-                ladder.ticks[j] as f64 * tick_px
-            }
+            tick_to_px(ladder.ticks[j], tick_px)
         } else {
             #[allow(clippy::cast_precision_loss)]
             match side {
