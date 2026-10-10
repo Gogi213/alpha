@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""КТ-2 (TK-148, план TK-123): единая обёртка прогона пачки клеток вместо tk048-orch-*/tk048-chain*.
+
+  warm-run --cells ФАЙЛ --build-id md5|префикс --step ИМЯ --out ПУТЬ [--in КАТ:КАТ] [--period A..B]
+           [--min-cells N] [--timing-out ФАЙЛ] -- команда…
+
+Проверяет список клеток (строка «форма набор») и сборку по MANIFEST.tsv (active|frozen), печатает предупреждение «в
+пачке < N клеток» (N задаёт решение В-## по замеру КТ-2, по умолчанию нет), гонит команду как шаг `guard.py step`
+(готовый шаг пропускается) и пишет накладную: стена обёртки минус стена команды (JSON в --timing-out и в stderr).
+"""
+import argparse, json, os, subprocess, sys, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+for d in (os.environ.get("WARM_GUARD_DIR"), os.path.join(HERE, "..", "registry"), "/data/registry"):
+    if d and os.path.exists(os.path.join(d, "guard.py")):
+        sys.path.insert(0, d)
+        break
+sys.path.insert(0, HERE)
+import guard, manifest
+
+
+def read_cells(path):
+    with open(path, encoding="utf-8") as f:
+        rows = [ln.split() for ln in f if ln.strip() and not ln.startswith("#")]
+    bad = [r for r in rows if len(r) < 2]
+    if not rows or bad:
+        raise SystemExit(f"warm-run: {path}: " + ("нет клеток" if not rows else f"строка без «форма набор»: {' '.join(bad[0])}"))
+    return len(rows)
+
+
+def check_build(build_id, rows):
+    hit = [r for k, r in rows.items() if k.startswith(build_id)]
+    if len(hit) != 1:
+        raise SystemExit(f"warm-run: --build-id {build_id}: " + ("нет в MANIFEST" if not hit else "неоднозначный префикс"))
+    if hit[0]["status"] not in ("active", "frozen"):
+        raise SystemExit(f"warm-run: сборка {hit[0]['md5']} — статус {hit[0]['status']}, нужна active|frozen")
+    return hit[0]["md5"]
+
+
+def main(argv=None):
+    a = sys.argv[1:] if argv is None else argv
+    sep = a.index("--") if "--" in a else len(a)
+    p = argparse.ArgumentParser()
+    p.add_argument("--cells", required=True)
+    p.add_argument("--build-id", required=True)
+    p.add_argument("--step", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--in", dest="ins", default="")
+    p.add_argument("--period", default="")
+    p.add_argument("--min-cells", type=int, default=0)
+    p.add_argument("--timing-out")
+    o = p.parse_args(a[:sep])
+    cmd = a[sep + 1:]
+    if not cmd:
+        raise SystemExit("warm-run: после -- нужна команда")
+    t0 = time.time()
+    n = read_cells(o.cells)
+    md5 = check_build(o.build_id, manifest.load())
+    if o.min_cells and n < o.min_cells:
+        print(f"warm-run: ПРЕДУПРЕЖДЕНИЕ: в пачке {n} клеток < {o.min_cells} — отдельный проход на малую пачку дорог", file=sys.stderr)
+    child = [0.0]
+    real_call = subprocess.call
+
+    def timed(*args, **kw):
+        c0 = time.time()
+        try:
+            return real_call(*args, **kw)
+        finally:
+            child[0] += time.time() - c0
+
+    subprocess.call = timed
+    try:
+        rc = guard.step(o.step, cmd, [x for x in o.ins.split(os.pathsep) if x], o.out)
+    finally:
+        subprocess.call = real_call
+    wall = time.time() - t0
+    over = wall - child[0]
+    rec = {"step": o.step, "cells": n, "period": o.period, "build": md5, "rc": rc, "skipped": child[0] == 0.0,
+           "wall_s": round(wall, 3), "child_s": round(child[0], 3), "overhead_s": round(over, 3),
+           "overhead_pct": round(100 * over / child[0], 3) if child[0] else None}
+    print("warm-run: " + json.dumps(rec, ensure_ascii=False), file=sys.stderr)
+    if o.timing_out:
+        with open(o.timing_out, "a", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
