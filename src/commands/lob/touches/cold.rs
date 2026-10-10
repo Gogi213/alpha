@@ -81,18 +81,19 @@ pub fn run_ensure(a: &EnsureArgs) -> anyhow::Result<EnsureSummary> {
     for csv in &files {
         let bin = bin_path(csv).expect("каталог кэша задан");
         let before = std::fs::metadata(&bin).and_then(|m| m.modified()).ok();
-        if csv
+        let rows = if csv
             .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n.starts_with("touches-"))
         {
-            tbin::read_touches_cached(csv)?;
+            tbin::read_touches_cached(csv)?.len()
         } else {
-            abin::read_approaches_cached(csv)?;
-        }
+            abin::read_approaches_cached(csv)?.len()
+        };
         let after = std::fs::metadata(&bin).and_then(|m| m.modified()).ok();
+        // Файл без строк (одна шапка) кодеки не кэшируют: читать там нечего.
         anyhow::ensure!(
-            after.is_some(),
+            after.is_some() || rows == 0,
             "cold ensure: кэш не записан для {}",
             csv.display()
         );
