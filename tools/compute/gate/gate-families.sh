@@ -54,11 +54,25 @@ refvsprod() {  # $1 каталог опорного b5 $2 боевой b5: forms
   for f in $(cd "$1" && find . -type f \( -name forms.csv -o -name 'rounds*.csv' \) | sort); do n=$((n+1)); cmp -s "$1/$f" "$2/$f" || { bad=$((bad+1)); echo "PRODDIFF $f"; }; done
   echo "ref_vs_prod files=$n diff=$bad"; [ "$n" -gt 0 ] && [ "$bad" = 0 ]
 }
-cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0, одинаковый список; красный при files=0
+cmpf() {  # $1 A $2 B относительный путь $3: manifest.txt — без снимка ALPHA_* (env_count=, env:*, П2b С-06: строки только добавлены, не регрессия)
+  case $3 in
+    */manifest.txt|manifest.txt) cmp -s <(grep -Ev '^(env_count=|env:)' "$1/$3") <(grep -Ev '^(env_count=|env:)' "$2/$3");;
+    *) cmp -s "$1/$3" "$2/$3";;
+  esac
+}
+afile() {  # $1 новый $2 опорный (b5 r2) $3 боевая волна A (r2m-a): строки форм A (pyre/pynw/pyeat — сдвиг от входа + безубыток Г-92, 6b792282) новые = волне A, остальные = опорному
+  local f=$3; [ -e "$1/$f" ] && [ -e "$2/$f" ] || return 1
+  cmp -s <(grep -Ev -- '-py(re|nw|eat)' "$1/$f") <(grep -Ev -- '-py(re|nw|eat)' "$2/$f") || return 1
+  local a=$AREF/${f#./r2/}  # b5/r2/<сутки>/… ↔ волна A r2a/<сутки>/…
+  [ -e "$a" ] && cmp -s <(grep -E -- '-py(re|nw|eat)' "$1/$f" | sort) <(grep -E -- '-py(re|nw|eat)' "$a" | sort)
+}
+cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0, одинаковый список; красный при files=0; AREF=<каталог волны A> — формы A сверяются с ней
   local n=0 bad=0 f la lb
   la=$(cd "$1" && find . -type f ! -name '.cellstmp*' ! -name '*.log' | sort); lb=$(cd "$2" && find . -type f ! -name '.cellstmp*' ! -name '*.log' | sort)
   [ "$la" = "$lb" ] || { bad=$((bad+1)); echo "LISTDIFF"; }
-  for f in $la; do n=$((n+1)); cmp -s "$1/$f" "$2/$f" || { bad=$((bad+1)); echo "DIFF $f"; }; done
+  for f in $la; do n=$((n+1)); cmpf "$1" "$2" "$f" && continue
+    case $f in *.csv) [ -n "$AREF" ] && afile "$1" "$2" "$f" && { echo "A-ok $f"; continue; };; esac
+    bad=$((bad+1)); echo "DIFF $f"; done
   echo "files=$n diff=$bad"; [ "$n" -gt 0 ] && [ "$bad" = 0 ]
 }
 # пороги v5 марта (docs/findings/p12-r2b-thresholds-2026-10-10.json): e112 tape30q, e116 cxl30q, e133 chase W=12080 мс ×0,5/1/2
@@ -126,6 +140,7 @@ fam_one() {  # $1 семья
   for d in ${DAY//,/ }; do
     run_day "$f-ref-$d" "$(mkwrap "$REF" "$REF")" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     run_day "$f-new-$d" "$w" "$MON" "$d" "$SCR" "$CELLS" || rc=1
+    AREF=; [ "$f" = r2 ] && AREF=/data/tk065/wa-$d/b5/r2a
     cmpdirs "$T/w-$f-ref-$d/b5" "$T/w-$f-new-$d/b5" || rc=1
     [ "$f" = r2 ] && { refvsprod "$T/w-$f-ref-$d/b5" "/data/tk065/w-$d/b5" || rc=1; }
   done
