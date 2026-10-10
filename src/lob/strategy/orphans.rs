@@ -71,7 +71,7 @@ impl StrategyState {
             let w2 = pyramid.eff().wall2;
             if w2 > 0 && tick_px > 0.0 {
                 let shift = level_shift(self.base_entry_vwap(), entry_px, tick_px);
-                let entry_tick = px_tick((entry_px + shift), tick_px);
+                let entry_tick = px_tick(entry_px + shift, tick_px);
                 let wall_side = if long { Side::Ask } else { Side::Bid };
                 if let Some(t) = second_wall_tick(walls, wall_side, fill_ms, entry_tick, long, live)
                 {
