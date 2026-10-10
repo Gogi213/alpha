@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-113/В-210: клетки П-12 R2 (40 + базы) по пулу v171c (без TRUMP/TRX/BCH, portfolio-sim --drop) против v171b: $ было/стало, Шарп (сутки, янв–сен),
 месяцы с Шарпом > 0 (из определённых), доля KPI (наблюдение). Без пересчёта бэктестов; вход — closes из data/p12r2-v171c (+ CSV p12-r2-analyze).
-Запуск: python tools/compute/tk113-cells.py -> docs/findings/cells-v171c-2026-10-09.{csv,md}. Описание, не вердикт (отбор — Судья, В-208)."""
+Запуск: python tools/analyze/tk113-cells.py -> docs/findings/cells-v171c-2026-10-09.{csv,md}. Описание, не вердикт (отбор — Судья, В-208)."""
 import csv, os, subprocess, sys
 import numpy as np
 from p12lib import load_head
@@ -12,7 +12,7 @@ OUT = "docs/findings/cells-v171c-2026-10-09"
 
 def head(mode, d):
     os.environ["P12_DIR"] = d
-    return load_head("tools/compute/p12-r2-analyze.py", [mode])
+    return load_head("tools/analyze/p12-r2-analyze.py", [mode])
 
 
 def sr(x):

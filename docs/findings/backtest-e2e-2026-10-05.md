@@ -1,7 +1,7 @@
 # Сквозной учёт волны (TK-052, В-187): первый водопад — QUICK5 11–15.01, G=8, P=15
 
 Бинарник `alpha-tk052-a1` (учёт `ALPHA_E2E`, гейт байт в байт с учётом/без — ATOM 01-15 `diff_rc 0`; волна — `gate files 3645 diff 0`). Волна `orch-q5e2e2` (оркестровка TK-048, копия с исправленной подменой бинарника), стена 331 с.
-Сырьё: `docs/findings/e2e/q5e2e2-raw.tgz` (e2e-*.jsonl на единицу, t-/tb-/units/merge/finish, samples.tsv раз в секунду), таблица — `docs/findings/e2e/q5e2e2-report.md`; считает `tools/compute/e2e-report.py <каталог> --slots 15 --wall 331 --threads 15`.
+Сырьё: `docs/findings/e2e/q5e2e2-raw.tgz` (e2e-*.jsonl на единицу, t-/tb-/units/merge/finish, samples.tsv раз в секунду), таблица — `docs/findings/e2e/q5e2e2-report.md`; считает `tools/compute/archive/e2e-report.py <каталог> --slots 15 --wall 331 --threads 15`.
 
 ## Водопад: 15 слотов × 329 с = 4 931 слот-с
 
