@@ -81,18 +81,12 @@ fn measure_phases(feed: &[Event], names: [&str; 2]) -> ([usize; 2], [u64; 2]) {
 }
 
 fn assert_phases_clean(names: [&str; 2], calls: [usize; 2], allocs: [u64; 2]) {
-    for i in 0..2 {
+    for ((name, c), a) in names.iter().zip(calls).zip(allocs) {
         assert!(
-            calls[i] >= PER_PHASE,
-            "{} измерен на {} вызовах < {PER_PHASE}",
-            names[i],
-            calls[i]
+            c >= PER_PHASE,
+            "{name} измерен на {c} вызовах < {PER_PHASE}"
         );
-        assert_eq!(
-            allocs[i], 0,
-            "{} аллоцировал — запрет 1 interfaces.md",
-            names[i]
-        );
+        assert_eq!(a, 0, "{name} аллоцировал — запрет 1 interfaces.md");
     }
 }
 
