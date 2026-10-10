@@ -12,7 +12,7 @@ FILTER="${3:-}"
 KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o ConnectTimeout=15 -o ServerAliveInterval=30)
 HOST=root@13.140.29.171
 TAG="${VPS_TAG:-}"   # непустой тег — свой каталог исходников и target: параллельные вызовы не затирают друг друга
-SRC=/opt/alpha-compute/wave2-src$TAG
+SRC=/opt/alpha-compute/wave2-src$TAG-$$   # TK-169: свой каталог на вызов — ожидающий замка не теряет исходники из-за чужого rm -rf
 # TK-169: общий постоянный target (сборки идут по очереди под замком — гонки нет): зависимости из реестра не
 # пересобираются; свои крейты cargo пересобирает по mtime (SRC разных тегов — разные пути). Чистит его sweep.sh run
 # при свободном месте < порога (SWEEP_SHARED_FLOOR_GB), иначе живёт
