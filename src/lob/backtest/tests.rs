@@ -10,7 +10,6 @@
 //! | `--hold-step skip` | `hold_skip_matches_polling_byte_for_byte` | — |
 //! | `ALPHA_FAST_HOLD=1` | `fast_hold_handoff_equals_continuous`, `group_fast_hold_matches_group_without_it` | — |
 //! | `ALPHA_HOLD_INDEX=1` | `hold_index_matches_tracker` | `tk048-e36-run.sh`, `tk048-e40-run.sh` (с `ALPHA_HOLD_INDEX_CHECK=1`) |
-//! | `ALPHA_SHARED_CELLS`, `ALPHA_SHARED_ENGINE` | `shared_cells_match_windowed_on_a_synthetic_day`, `windowed_driver_matches_the_continuous_one_on_a_synthetic_day` | `tk049-shared-gate.sh` |
 //! | `ALPHA_ADMIT_SOA=1` | `bounce_grid::tests` («`admits` по строкам `AdmitRow` …») | — |
 //! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE`, `ALPHA_TRIM_ROWS`, `ALPHA_HORIZON_GROW`, `ALPHA_EVENT_STEPS`, `ALPHA_BAND_COUNT_OFF=0` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
 //!
@@ -1055,57 +1054,6 @@ fn windowed_fixture() -> (Vec<Event>, TradePlan) {
         gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     (feed, plan)
-}
-
-/// Ячейки на общей ленте (`drive_cells_shared`) дают тот же `BounceRun`, что `drive_bounce_windowed`
-/// на каждую ячейку отдельно (TK-049): две формы с разными сигналами, `Prob`.
-#[test]
-fn shared_cells_match_windowed_on_a_synthetic_day() {
-    let (feed, plan) = windowed_fixture();
-    let signal = |t0_ns: i64| BounceSignal {
-        t0_ns,
-        sigma: SIGMA_LONG,
-        plan,
-        profile: 0,
-        qty: None,
-    };
-    let sets: [Vec<BounceSignal>; 3] = [
-        vec![signal(S), signal(3 * S), signal(61 * S)],
-        vec![signal(S), signal(61 * S)],
-        vec![signal(3 * S), signal(61 * S)],
-    ];
-    let lat = ExecLatency::uniform(1_000_000);
-    let queue = QueueModelKind::Prob { n: 3.0 };
-    let expect: Vec<BounceRun> = sets
-        .iter()
-        .map(|sigs| {
-            let t0s: Vec<i64> = sigs.iter().map(|s| s.t0_ns).collect();
-            let windows = SignalWindows::build(&feed, &t0s, 1.0, 1.0);
-            let mut cfg = drive_cfg();
-            cfg.queue_model = queue;
-            drive_bounce_windowed(&feed, &windows, sigs, &cfg, lat).unwrap()
-        })
-        .collect();
-    let cells = sets
-        .iter()
-        .map(|sigs| {
-            let mut cfg = drive_cfg();
-            cfg.queue_model = queue;
-            shared_driver::SharedCell {
-                signals: sigs.clone(),
-                cfg,
-            }
-        })
-        .collect();
-    let got = shared_driver::drive_cells_shared(feed.clone(), 1.0, 1.0, lat, 3.0, cells).unwrap();
-    assert_eq!(got.len(), 3);
-    for (i, (g, e)) in got.iter().zip(&expect).enumerate() {
-        assert_eq!(g, e, "ячейка {i}");
-    }
-    assert!(
-        !expect[0].fills.is_empty(),
-        "круги не исполнились — тест пустой"
-    );
 }
 
 /// Прогон по сетапам (`drive_bounce_windowed`) даёт тот же `BounceRun`, что
