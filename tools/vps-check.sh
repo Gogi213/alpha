@@ -19,8 +19,8 @@ TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD
 ARC="$TMPD/wave2-$$.tgz"
 cd "$TREE"
 # метка задачи в командной строке замка (видна в `ps` на VPS — экран хода работ по ней находит задачу сборки):
-# ALPHA_TICKET сессии роли (его ставит диспетчер), иначе имя рабочего дерева; на поведение сборки не влияет
-LABEL="$(printf '%s' "${ALPHA_TICKET:-$(basename "$PWD")}" | tr -c 'A-Za-z0-9._-' '_')"
+# RPV_TICKET (прежнее ALPHA_TICKET) сессии роли (его ставит диспетчер), иначе имя рабочего дерева; на поведение сборки не влияет
+LABEL="$(printf '%s' "${RPV_TICKET:-${ALPHA_TICKET:-$(basename "$PWD")}}" | tr -c 'A-Za-z0-9._-' '_')"
 git ls-files -z --cached --others --exclude-standard | tar --force-local --null -T - -czf "$ARC"
 scp -q "${KEY[@]}" "$ARC" "$HOST:$ARCR"
 rm -f "$ARC"
@@ -51,5 +51,5 @@ ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -x
 RC=$?
 set -e
 # шина событий (TK-045): сборка готова/упала; недоступность шины результат не меняет
-python "$(dirname "$0")/bus/busclient.py" send "сборка.$([ $RC -eq 0 ] && echo готова || echo упала)"   --payload "{\"tree\":\"$(basename "$PWD")\",\"what\":\"$WHAT\",\"ticket\":\"${ALPHA_TICKET:-}\",\"rc\":$RC}" >/dev/null || true
+python "$(dirname "$0")/bus/busclient.py" send "сборка.$([ $RC -eq 0 ] && echo готова || echo упала)"   --payload "{\"tree\":\"$(basename "$PWD")\",\"what\":\"$WHAT\",\"ticket\":\"${RPV_TICKET:-${ALPHA_TICKET:-}}\",\"rc\":$RC}" >/dev/null || true
 exit $RC
