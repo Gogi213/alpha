@@ -35,6 +35,21 @@ use crate::lob::backtest::{
     ENTRY_TTL_NS, HOLD_NS,
 };
 
+/// G3б (TK-065): трасса решений R2 в stderr при `ALPHA_R2_TRACE=1`; только исследовательская сборка `r2`.
+#[cfg(feature = "r2")]
+macro_rules! r2_trace {
+    ($ts:expr, $($arg:tt)*) => {{
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ON.get_or_init(|| std::env::var_os("ALPHA_R2_TRACE").is_some()) {
+            eprintln!("R2T ts={} {}", $ts, format_args!($($arg)*));
+        }
+    }};
+}
+#[cfg(not(feature = "r2"))]
+macro_rules! r2_trace {
+    ($ts:expr, $($arg:tt)*) => {};
+}
+
 mod cancel;
 mod entry_view;
 mod exit;

@@ -287,21 +287,6 @@ pub enum TradePlan {
 /// R2 (TK-065) собирается только с feature `r2` (исследовательский бинарник); боевой PGO-бинарник — без неё.
 pub const R2: bool = cfg!(feature = "r2");
 
-/// G3б (TK-065): трасса решений R2 в stderr при `ALPHA_R2_TRACE=1`; только исследовательская сборка `r2`.
-#[cfg(feature = "r2")]
-macro_rules! r2_trace {
-    ($ts:expr, $($arg:tt)*) => {{
-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *ON.get_or_init(|| std::env::var_os("ALPHA_R2_TRACE").is_some()) {
-            eprintln!("R2T ts={} {}", $ts, format_args!($($arg)*));
-        }
-    }};
-}
-#[cfg(not(feature = "r2"))]
-macro_rules! r2_trace {
-    ($ts:expr, $($arg:tt)*) => {};
-}
-
 /// Доливка частями (R2-A): стена делится на `eat_parts` равных долей; при съедании `j/N` стены
 /// (`j = 1..N-1`) ставится добавка `Q0/N` (spec r2-spec §1 Г-94, `K = N − 1`). `0` — выключено.
 #[derive(Debug, Clone, Copy, PartialEq)]
