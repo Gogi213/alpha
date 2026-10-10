@@ -11,7 +11,7 @@ use crate::lob::costs::{
 };
 use crate::lob::final_metrics::sharpe_ratio;
 use crate::lob::shortlist::{window_length_days, PreregisteredWindow};
-use crate::stats::{count_f64, count_f64_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
+use crate::stats::{count_f64_u64, mean, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
 
 use super::accumulate::{HorizonAgg, ProfileAgg};
 use super::BOOTSTRAP_SEED;
@@ -62,13 +62,6 @@ fn fmt_opt(v: Option<f64>) -> String {
         Some(x) => format!("{x:.6}"),
         None => "none".to_string(),
     }
-}
-
-fn mean(vals: &[f64]) -> Option<f64> {
-    if vals.is_empty() {
-        return None;
-    }
-    Some(vals.iter().sum::<f64>() / count_f64(vals.len()))
 }
 
 struct HorizonColumns {
