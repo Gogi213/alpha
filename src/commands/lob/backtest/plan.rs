@@ -18,8 +18,8 @@ use crate::lob::touch_axes::{
     age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
 };
 
-use crate::commands::lob::size_bucket;
 use crate::commands::lob::side_name;
+use crate::commands::lob::size_bucket;
 
 use super::forms::{
     bps_to_ticks_ceil, ladder_legs, ladder_legs_distinct, BounceForm, EntryForm, EntryTtl,

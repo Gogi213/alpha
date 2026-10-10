@@ -64,4 +64,3 @@ pub(crate) fn select_best_mean_net(trials: &[Vec<f64>], is_periods: &[usize]) ->
     }
     best.map(|(i, _)| i)
 }
-

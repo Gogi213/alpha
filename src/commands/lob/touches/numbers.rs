@@ -4,8 +4,8 @@
 //! (`touch_axes`, `size_bucket`), квантили — `stats::quantiles`. Вынесено из
 //! `run_touches` в подмодуль (W5в).
 
-use crate::commands::lob::size_bucket;
 use crate::commands::lob::replay::ReplayStats;
+use crate::commands::lob::size_bucket;
 use crate::commands::lob::{outcome_name, side_name};
 use crate::lob::levels::TouchRecord;
 use crate::lob::markout::{distance_bps_at_birth, mid_double_tick, sample_asof, MidSample};
