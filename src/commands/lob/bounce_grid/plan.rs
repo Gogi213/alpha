@@ -188,7 +188,7 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         .any(|e| matches!(e, EntryForm::LadderSigma { .. }));
     anyhow::ensure!(
         !sigma_entries || args.sigma_from.is_some(),
-        "--entry-form ladder…s: σ-лестнице (В-131) нужен --sigma-from <каталог> (sigma-<SYMBOL>.csv, tools/compute/sigma-table.py)"
+        "--entry-form ladder…s: σ-лестнице (В-131) нужен --sigma-from <каталог> (sigma-<SYMBOL>.csv, tools/compute/archive/sigma-table.py)"
     );
     anyhow::ensure!(
         sigma_entries || args.sigma_from.is_none(),

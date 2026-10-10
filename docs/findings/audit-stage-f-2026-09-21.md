@@ -240,7 +240,7 @@
 | В5 (вход) | `a_cancel_the_exchange_never_confirms_is_released_by_the_ceiling`, `an_entry_leg_whose_place_was_in_flight_is_cancelled_by_the_retry` |
 
 Сборка: **953 / 0 / 8 ignored**, clippy `-D warnings` 0, fmt 0. Машинный гейт «те же байты»
-(`tools/compute/f3-queue-gate.sh`, 5 монет × 3 суток) — за прогоном на счётной машине.
+(`tools/compute/archive/f3-queue-gate.sh`, 5 монет × 3 суток) — за прогоном на счётной машине.
 Дыра F10 закрыта тем же вечером: `nightly-grid.sh` знает `SIGNAL`/`ENTRY_FORMS`/`ENTRY_TTL`/
 `BAND_EXIT_BPS`/`TOUCHES_FROM`/`REGIME_FROM` (умолчания — прежний круг).
 

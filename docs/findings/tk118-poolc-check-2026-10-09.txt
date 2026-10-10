@@ -1,4 +1,4 @@
-# TK-118: выписка на копии TK-115 poolc-c.sh (m-feb, 2026-02-01); скрипт tools/compute/tk118-poolc-check.sh, calc 09.10, guard.py plan
+# TK-118: выписка на копии TK-115 poolc-c.sh (m-feb, 2026-02-01); скрипт tools/compute/archive/tk118-poolc-check.sh, calc 09.10, guard.py plan
 принят
 == equiv (ждём ОТКАЗ: +2 колонки 60s)
 guard equiv: ОТКАЗ — выходы не равны побайтно (/data/tk064/pool/m-feb/signals/2026-02-01 ≠ /data/tk0115/pool/m-feb/signals/2026-02-01), например: ['t-bid-btc4h-q1/signals.csv'] — это новая версия смысла шага

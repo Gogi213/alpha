@@ -1,5 +1,5 @@
 //! σ монеты на взводе для σ-лестницы (В-131, Судья 27.09 «Окончательно»): боковая таблица
-//! `<--sigma-from>/sigma-<SYMBOL>.csv` от `tools/compute/sigma-table.py` — σ = √Σr² минутных лог-доходностей
+//! `<--sigma-from>/sigma-<SYMBOL>.csv` от `tools/compute/archive/sigma-table.py` — σ = √Σr² минутных лог-доходностей
 //! закрытий за 240 минут, в bps, окно кончается на последней **закрытой** минуте до сигнала; меньше 200
 //! минут из 240 — строки нет (σ нет, сигнал не торгуется, `n_no_sigma`). Кэш подходов не пересчитывается:
 //! σ зависит только от монеты и минуты взвода, поэтому таблица — по концу окна, а не по подходу.
@@ -24,7 +24,7 @@ impl EntrySigma {
         let path = dir.join(format!("sigma-{symbol}.csv"));
         let mut rd = csv::Reader::from_path(&path).map_err(|e| {
             anyhow::anyhow!(
-                "--sigma-from: {} не читается ({e}) — таблица σ монеты от tools/compute/sigma-table.py",
+                "--sigma-from: {} не читается ({e}) — таблица σ монеты от tools/compute/archive/sigma-table.py",
                 path.display()
             )
         })?;

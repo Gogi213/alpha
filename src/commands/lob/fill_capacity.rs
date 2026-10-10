@@ -18,7 +18,7 @@
 //! очереди `t0` на тике и книга на первом кадре после (`clear_ms`,
 //! `best_after_clear`/`opp_after_clear` — «стена держит» или «насквозь»). `-1` в
 //! `q_*`/`best_*`/`opp_*` — книги на момент не было (постановка раньше
-//! первого кадра суток), не ноль. Читатель — `tools/compute/fill-capacity.py`.
+//! первого кадра суток), не ноль. Читатель — `tools/compute/archive/fill-capacity.py`.
 //! K1: маркер `verify-<SYMBOL>.status == ok`, иначе символ пропущен
 //! (`--allow-unverified` — отладка).
 //!

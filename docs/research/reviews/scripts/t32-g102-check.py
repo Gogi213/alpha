@@ -1,7 +1,7 @@
 """Судья 27.09: Г-102 в t32-exits.py — отбрасываемые сделки по времени после стопа (O(t) → 0 делает уровень = цене стопа,
 то есть бессрочный запрет входа выше цены стопа)."""
 import importlib.util, sys
-spec = importlib.util.spec_from_file_location("x", "tools/compute/t32-exits.py"); x = importlib.util.module_from_spec(spec)
+spec = importlib.util.spec_from_file_location("x", "tools/compute/archive/t32-exits.py"); x = importlib.util.module_from_spec(spec)
 sys.argv = ["x"]; spec.loader.exec_module(x)
 tr = sorted(x.load_trades("data/t32/main-trades.csv"), key=lambda t: t["t0"])
 for o0 in (50, 100, 200):

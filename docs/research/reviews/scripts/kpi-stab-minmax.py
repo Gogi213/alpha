@@ -1,7 +1,7 @@
 """Судья 27.09: устойчивость правила П-07 без одних суток — min и max доли > 5 сут по исключениям (verdict_kpi берёт
 только max; «не проходит» требует min > 0,10)."""
 import importlib.util, sys
-spec = importlib.util.spec_from_file_location("kn", "tools/compute/kpi-newhigh.py")
+spec = importlib.util.spec_from_file_location("kn", "tools/compute/archive/kpi-newhigh.py")
 kn = importlib.util.module_from_spec(spec); spec.loader.exec_module(kn)
 S = kn.load("data/kpi")
 DAY = 86_400_000
