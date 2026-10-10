@@ -259,7 +259,7 @@ pub(super) fn day_diagnostics(
         .saturating_sub(retries_before);
     if retries > 0 {
         eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
-        if flags.attempt_stats {
+        if flags.diag {
             use crate::lob::backtest::{ATTEMPT_ROWS, ATTEMPT_RUNS, ATTEMPT_USED};
             let g = |a: &[std::sync::atomic::AtomicU64]| {
                 a.iter()
@@ -339,7 +339,7 @@ pub(super) fn day_diagnostics(
                     FAST_ROWS.load(Relaxed)
                 );
     }
-    if flags.tick_stats {
+    if flags.diag {
         use crate::lob::backtest::{QUANT_CALLS, QUANT_SLOW};
         use std::sync::atomic::Ordering::Relaxed;
         eprintln!(

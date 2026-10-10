@@ -11,19 +11,16 @@ fn vars(kv: &[(&str, &str)]) -> impl Iterator<Item = (OsString, OsString)> {
 fn empty_env_is_default_all_off() {
     let f = RunFlags::from_vars(vars(&[("PATH", "/bin"), ("HOME", "/h")]));
     assert_eq!(f, RunFlags::default());
-    assert!(!f.fast_hold && !f.attempt_stats && f.sig_cache.is_none());
+    assert!(!f.fast_hold && !f.diag && f.sig_cache.is_none());
     assert_eq!(f.event_steps, EventSteps::Off);
     assert!(f.snapshot_lines().is_empty());
 }
 
 #[test]
 fn one_vs_set_semantics() {
-    let f = RunFlags::from_vars(vars(&[
-        ("ALPHA_FAST_HOLD", "0"),
-        ("ALPHA_ATTEMPT_STATS", ""),
-    ]));
+    let f = RunFlags::from_vars(vars(&[("ALPHA_FAST_HOLD", "0"), ("ALPHA_DIAG", "")]));
     assert!(!f.fast_hold);
-    assert!(f.attempt_stats, "задан любым значением");
+    assert!(f.diag, "задан любым значением");
 }
 
 #[test]

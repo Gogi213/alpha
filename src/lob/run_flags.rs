@@ -19,8 +19,8 @@ pub enum EventSteps {
 pub struct RunFlags {
     /// `ALPHA_SIG_CACHE=<n>`: ёмкость кэша сигналов, `n > 0`.
     pub sig_cache: Option<usize>,
-    /// `ALPHA_ATTEMPT_STATS` задан.
-    pub attempt_stats: bool,
+    /// `ALPHA_DIAG` задан: диагностические счётчики замеров (С-12; бывшие `ALPHA_ATTEMPT_STATS` и `ALPHA_TICK_STATS`).
+    pub diag: bool,
     /// `ALPHA_HOLDS_MEMO=1`.
     pub holds_memo: bool,
     /// `ALPHA_ADMIT_SOA=1`.
@@ -29,8 +29,6 @@ pub struct RunFlags {
     pub admit_cache: bool,
     /// `ALPHA_SKIP_NOSIGNAL` задан.
     pub skip_nosignal: bool,
-    /// `ALPHA_TICK_STATS=1`.
-    pub tick_stats: bool,
     /// `ALPHA_FAST_HOLD=1`.
     pub fast_hold: bool,
     /// `ALPHA_SKIP_SAME=1`.
@@ -84,12 +82,11 @@ impl RunFlags {
             sig_cache: num("ALPHA_SIG_CACHE")
                 .and_then(|n| usize::try_from(n).ok())
                 .filter(|&n| n > 0),
-            attempt_stats: set("ALPHA_ATTEMPT_STATS"),
+            diag: set("ALPHA_DIAG"),
             holds_memo: one("ALPHA_HOLDS_MEMO"),
             admit_soa: one("ALPHA_ADMIT_SOA"),
             admit_cache: one("ALPHA_ADMIT_CACHE"),
             skip_nosignal: set("ALPHA_SKIP_NOSIGNAL"),
-            tick_stats: one("ALPHA_TICK_STATS"),
             fast_hold: one("ALPHA_FAST_HOLD"),
             skip_same: one("ALPHA_SKIP_SAME"),
             event_steps: match get("ALPHA_EVENT_STEPS") {

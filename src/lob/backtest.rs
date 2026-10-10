@@ -2965,7 +2965,7 @@ pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
 /// Строки развёртки, до которых круг дошёл по часам (`local_ts <= now`), по попыткам (0, 1, 2, 3+) — замер TK-048
-/// против `ATTEMPT_ROWS` (зря развёрнутое); считается только под `ALPHA_ATTEMPT_STATS`, на итог не влияет.
+/// против `ATTEMPT_ROWS` (зря развёрнутое); считается только под `ALPHA_DIAG`, на итог не влияет.
 pub static ATTEMPT_USED: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
@@ -2989,11 +2989,11 @@ pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 struct SigMemo {
     sig: Option<[u64; 5]>,
     reps: u8,
-    /// Подпись прошлого шага удержания для счёта `SIG_STATS` (только под `ALPHA_ATTEMPT_STATS`).
+    /// Подпись прошлого шага удержания для счёта `SIG_STATS` (только под `ALPHA_DIAG`).
     stat_sig: Option<[u64; 5]>,
 }
 
-/// Шаги удержания по подписи входов решения (замер TK-048, `ALPHA_ATTEMPT_STATS`, на итог не влияет): для быстрого
+/// Шаги удержания по подписи входов решения (замер TK-048, `ALPHA_DIAG`, на итог не влияет): для быстрого
 /// пути (HoldTracker) и пути движка — [шагов, подпись та же, сменилась, нет подписи (`None`)]; в групповом круге
 /// шаг считается по варианту.
 pub static SIG_STATS: [std::sync::atomic::AtomicU64; 8] =
@@ -3671,7 +3671,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
 /// Групповых кругов Э-08 — счётчик процесса для тестов; на итог не влияет.
 pub static EXIT_GROUP_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Разбор нулевых групповых кругов (TK-048, печатается под `ALPHA_ATTEMPT_STATS`): [сигналов-участников,
+/// Разбор нулевых групповых кругов (TK-048, печатается под `ALPHA_DIAG`): [сигналов-участников,
 /// уже в памяти, частей с равной входной частью, частей из ≥ 2, из них круг не получился (`None`)].
 pub static EXIT_GROUP_DIAG: [std::sync::atomic::AtomicU64; 5] = [
     std::sync::atomic::AtomicU64::new(0),

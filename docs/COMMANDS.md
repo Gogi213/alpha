@@ -541,7 +541,7 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 
 ## Флаги окружения `ALPHA_*` счёта (П2b, С-06/С-27/С-28)
 
-- `lob bounce-grid` пишет снимок всех `ALPHA_*` процесса в `manifest.txt` (`env_count=<n>` и строки `env:ALPHA_X=значение`) — по ним видно, чем посчитан выход. Семантика «включён» у флагов разная (`=="1"`, `=="0"`, просто задан): `ALPHA_ATTEMPT_STATS=0` включает.
+- `lob bounce-grid` пишет снимок всех `ALPHA_*` процесса в `manifest.txt` (`env_count=<n>` и строки `env:ALPHA_X=значение`) — по ним видно, чем посчитан выход. Семантика «включён» у флагов разная (`=="1"`, `=="0"`, просто задан): `ALPHA_DIAG=0` включает.
 - `ALPHA_E2E=<файл.jsonl>` — сквозной учёт времени монето-суток (TK-052, `bounce_grid/e2e.rs`): строка на стадию; без переменной ничего не делается. Боевой режим измерений, не тестовый стенд.
 - Кэш `.abin` подходов и касаний (КТ-5, `touches/bincache.rs`): включён, когда задан `ALPHA_APPROACH_BIN_DIR` (зеркало пути CSV под ним); флагов `ALPHA_APPROACH_BIN`/`ALPHA_TOUCH_BIN` нет. `ALPHA_APPROACH_BIN_LEVEL` — уровень zstd обоих кэшей (`ALPHA_TOUCH_BIN_LEVEL` снят).
 - Сайдкары счёта событий `<бинлог>.events` / `.carry-events` пишутся через tmp+`rename`, штамп файла — размер + mtime в нс (как у `.abin`); строка без перевода строки — промах и пересчёт.

@@ -272,7 +272,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
 fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
     let flags = RunFlags::from_env();
-    if flags.attempt_stats {
+    if flags.diag {
         crate::lob::backtest::fast_depth::BAND_STATS_ON
             .store(true, std::sync::atomic::Ordering::Relaxed);
         hftbacktest::prof::ROW_CLASS_ON.store(true, std::sync::atomic::Ordering::Relaxed);
