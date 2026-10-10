@@ -4,7 +4,7 @@
 Заявка: класс prod (производство: ядра/память/диск по заявке, пакуется на свободные ядра) или measure (замер: эксклюзивное
 окно — всё производство на freeze, замер получает все ядра, по выходу размораживается). Всё запускается через него.
 
-  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] -- команда…
+  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] [--adhoc ПРИЧИНА] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
                                                     #   stand по умолчанию --iso 4 (без заморозки производства); --exclusive — заморозка всего; --iso K — другое K; wave — всегда заморозка
   alsched.py ps | cancel <id> [причина] | reprio <id> <prio> | daemon
@@ -1207,8 +1207,13 @@ def main():
         p.add_argument("--recompute", action="store_true", help="пересчитать уже посчитанное (нужен --why)")
         p.add_argument("--why", default="", help="причина пересчёта; пишется в реестр")
         p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
+        p.add_argument("--adhoc", default="", help="КТ-1: обход проверки манифеста для prod — причина (пишется в alerts.log)")
         p.add_argument("--vypiska", default="", help="TK-118, В-213: файл шагов прохода, по которому снята выписка из Летописи (guard.py plan --steps)")
         o = p.parse_args(a[1:sep])
+        if o.cls == "prod":
+            mrc = manifest_check(a[sep + 1:], o.adhoc)      # КТ-1: бинарник вне манифеста / команда не через обёртку
+            if mrc:
+                return mrc
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
@@ -1218,6 +1223,15 @@ def main():
         return 0
     print(__doc__)
     return 2
+
+
+def manifest_check(argv, adhoc):
+    """КТ-1 (TK-145): проверка заявки prod по манифесту сборок; режим — SCHED_MANIFEST (0|warn|1), см. manifest.py."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("manifest", os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.check_submit(argv, adhoc, alert_line)
 
 
 def guard_check(o, argv):
