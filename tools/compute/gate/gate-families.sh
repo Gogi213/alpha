@@ -141,7 +141,9 @@ fam_one() {  # $1 семья
     run_day "$f-ref-$d" "$(mkwrap "$REF" "$REF")" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     run_day "$f-new-$d" "$w" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     AREF=; [ "$f" = r2 ] && AREF=/data/tk065/wa-$d/b5/r2a
-    cmpdirs "$T/w-$f-ref-$d/b5" "$T/w-$f-new-$d/b5" || rc=1
+    if [ "$f" = base ]; then  # jall: выход суток остаётся в b5/.cellstmp-<сутки> (отделка суток не выполняется) — сверяем его
+      cmpdirs "$T/w-$f-ref-$d/b5/.cellstmp-$d" "$T/w-$f-new-$d/b5/.cellstmp-$d" || rc=1
+    else cmpdirs "$T/w-$f-ref-$d/b5" "$T/w-$f-new-$d/b5" || rc=1; fi
     [ "$f" = r2 ] && { refvsprod "$T/w-$f-ref-$d/b5" "/data/tk065/w-$d/b5" || rc=1; }
   done
   echo "family=$f rc=$rc"; return $rc
