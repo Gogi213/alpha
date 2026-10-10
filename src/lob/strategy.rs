@@ -21,8 +21,8 @@
 //! таск 17): `lob::backtest` больше не держит одноимённый приватный хелпер
 //! (снесён при переработке движка на очередь), так что копировать здесь
 //! нечего — оставлена своя, потому что вызывающему (`on_event`) нужна ровно
-//! эта проверка `INVALID_MIN`/`INVALID_MAX` перед тем же `entry_price`/
-//! `exit_price` из `lob::backtest`.
+//! эта проверка `INVALID_MIN`/`INVALID_MAX` перед `exit_price` из `lob::backtest`;
+//! цену входа `idle` берёт целым тиком (`best_ticks`) и переводит `tick_to_px`.
 
 use hftbacktest::depth::{MarketDepth, INVALID_MAX, INVALID_MIN};
 use hftbacktest::types::{
@@ -31,7 +31,7 @@ use hftbacktest::types::{
 };
 
 use crate::lob::backtest::{
-    entry_price, entry_side, executed_notional, executed_qty, exit_price, round_half_away,
+    entry_side, executed_notional, executed_qty, exit_price, round_half_away,
     ENTRY_TTL_NS, HOLD_NS,
 };
 

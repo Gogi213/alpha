@@ -122,13 +122,17 @@ where
     // и ждёт, пока цена подойдёт.
     let px = match state.plan {
         TradePlan::SpreadHold => {
-            let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
+            let depth = bot.depth(state.asset_no);
+            let Some((bid, ask)) = best_ticks(depth) else {
                 return Ok(Action::Idle);
             };
-            match entry_price(side, bid, ask) {
-                Some(px) => px,
-                None => return Ok(Action::Idle),
-            }
+            // Мейкер у своей стороны спреда: лонг — лучший бид, шорт — лучший аск.
+            let tick = match side {
+                HbtSide::Buy => bid,
+                HbtSide::Sell => ask,
+                HbtSide::None | HbtSide::Unsupported => return Ok(Action::Idle),
+            };
+            tick_to_px(tick, depth.tick_size())
         }
         TradePlan::Bounce { entry_px, .. } => entry_px,
     };
