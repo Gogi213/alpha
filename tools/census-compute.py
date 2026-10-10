@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """КТ-9 (TK-152): опись корня tools/compute — кто на какой скрипт ссылается.
 Класс: ЯДРО (ссылка из src/, tools/ вне compute, COMMANDS/ARCHITECTURE, диспетчера, hooks, CLAUDE.md),
-ЖИВОЕ (ссылка из не-done тикета или из другого скрипта корня, у которого есть живая ссылка), АРХИВ (иначе).
-Выход: TSV `файл<TAB>класс<TAB>кто ссылается` в stdout."""
+ЗАМЫКАНИЕ (ссылка из не-done тикета или из другого ЯДРА/ЗАМЫКАНИЯ корня), АРХИВ (иначе — кандидат на перенос).
+Выход: TSV `файл<TAB>класс<TAB>кто ссылается (ЯДРО — вызывающий; ЗАМЫКАНИЕ — ссылающийся)` в stdout."""
 import re, subprocess, sys, os
 
 def git(*a):
@@ -48,11 +48,16 @@ for r in root:
 cls = {}
 for r in root:
     ks = {kind(f) for f in refs[r]}
-    cls[r] = "ЯДРО" if "core" in ks else "ЖИВОЕ" if "ticket" in ks else None
+    cls[r] = "ЯДРО" if "core" in ks else "ЗАМЫКАНИЕ" if "ticket" in ks else None
 for _ in range(5):  # транзитивно: ссылка из живого скрипта корня
     for r in root:
-        if cls[r] is None and any(f in rootset and cls.get(f) in ("ЯДРО", "ЖИВОЕ") for f in refs[r]):
-            cls[r] = "ЖИВОЕ"
+        if cls[r] is None and any(f in rootset and cls.get(f) in ("ЯДРО", "ЗАМЫКАНИЕ") for f in refs[r]):
+            cls[r] = "ЗАМЫКАНИЕ"
+def who_of(r):
+    c = cls[r] or "АРХИВ"
+    want = (lambda f: kind(f) == "core") if c == "ЯДРО" else (lambda f: kind(f) == "ticket" or (f in rootset and cls.get(f) in ("ЯДРО", "ЗАМЫКАНИЕ")))
+    pick = sorted(f for f in refs[r] if want(f)) or sorted(refs[r])
+    return ",".join(f.replace("tools/compute/", "") for f in pick[:4])
+
 for r in sorted(root):
-    who = ",".join(sorted(os.path.basename(f) for f in refs[r])[:4])
-    print(f"{r}\t{cls[r] or 'АРХИВ'}\t{who}")
+    print(f"{r}	{cls[r] or 'АРХИВ'}	{who_of(r)}")

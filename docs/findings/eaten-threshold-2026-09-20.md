@@ -23,7 +23,7 @@ markout 1 ч падает монотонно (+23,9 → +9,8 → +3,7 → +0,4 �
 
 ## 1. Что и по каким правилам считалось
 
-Скрипт `tools/compute/eaten-threshold.py` (новый, только чтение CSV, ничего не пишет на диск).
+Скрипт `tools/compute/archive/eaten-threshold.py` (новый, только чтение CSV, ничего не пишет на диск).
 Считает по `study/capacity/v72/<набор>/capacity-<SYMBOL>.csv` и `study/touches/<сутки>/touches-<SYMBOL>.csv`
 на счётной машине `13.140.29.171` (`/opt/alpha-compute`), наборы и сутки — те же, что у сетки:
 `a45-bid`, `a15-bid`, `a45-ask`, `a45-bid-b4h-neg` (16–19.09, порог `notional ≥ $10k`).
@@ -238,7 +238,7 @@ markout 1 ч падает монотонно (+23,9 → +9,8 → +3,7 → +0,4 �
 
 ## 6. Артефакты и воспроизведение
 
-Скрипт в репо — `tools/compute/eaten-threshold.py`; копия на счётной машине —
+Скрипт в репо — `tools/compute/archive/eaten-threshold.py`; копия на счётной машине —
 `/opt/alpha-compute/bin/eaten-threshold.py`. Полный вывод прогона (5039 строк до починки дублей
 наборов; итоговая версия — 359 строк) сохранён на счётной машине как
 `study/eaten-threshold-2026-09-20.md`; в репо не кладётся — сырьё, как `grid-coins-*`
@@ -246,7 +246,7 @@ markout 1 ч падает монотонно (+23,9 → +9,8 → +3,7 → +0,4 �
 
 ```bash
 # счётная машина 13.140.29.171, каталог /opt/alpha-compute
-scp tools/compute/eaten-threshold.py root@13.140.29.171:/opt/alpha-compute/bin/eaten-threshold.py
+scp tools/compute/archive/eaten-threshold.py root@13.140.29.171:/opt/alpha-compute/bin/eaten-threshold.py
 ssh root@13.140.29.171
 cd /opt/alpha-compute
 python3 bin/eaten-threshold.py --dir study/capacity/v72 --touches-from study/touches \

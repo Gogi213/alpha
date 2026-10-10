@@ -11,7 +11,7 @@ import p12args; p12args.apply()   # флаги --dir/--drop/--rows-a/--out = P12
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 CAP = "0" if MODE == "free" else "3"
 from p12lib import POOL, block_idx, load, pack, sr
-ns = load("tools/compute/p12-r2-analyze.py", MODE)
+ns = load("tools/analyze/p12-r2-analyze.py", MODE)
 P = pack(ns, False)
 CELLS, day_of, di = ns["CELLS"], ns["day_of"], ns["di"]
 PRE = "t-bid-btc4h-q1@ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"

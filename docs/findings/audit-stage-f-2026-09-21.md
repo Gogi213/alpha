@@ -16,7 +16,7 @@
 | # | что | где | почему блокер |
 |---|---|---|---|
 | Б1 | **Частичный выход зависает до конца записи** под `--queue-model prob:<n>`: лимитка тейка `PartiallyFilled` — фаза `ExitPending` ждёт без стопа/дедлайна/трейла, `run_round` крутит до `EndOfData`, `drive_bounce_with` ставит `incomplete` и **теряет остальные сигналы суток** | `src/lob/strategy.rs:972–996`; `src/lob/backtest.rs:1780` | любая сетка с моделью по объёму (F8/F10) даст неполные сутки молча; тесты не ловят — все prob-тесты выходят тейкером |
-| Б2 | **Числа M16 (`approach-capacity`) для аск-стороны посчитаны с неверным направлением спреда**: `crossed = opp >= 0 and tick >= opp` без `side`, а скрипт глобит все наборы, включая `a45-ask`; §3 дока («полоса ног 0,1–0,2 %») — смесь bid и испорченного ask | `tools/compute/approach-capacity.py:120`; `approach-capacity-2026-09-20.md:54` | рекомендация ног для F6/F10 стоит на этих числах — перегнать с ветвлением по `side`, как в `fill-capacity.py`/`eaten-threshold.py` |
+| Б2 | **Числа M16 (`approach-capacity`) для аск-стороны посчитаны с неверным направлением спреда**: `crossed = opp >= 0 and tick >= opp` без `side`, а скрипт глобит все наборы, включая `a45-ask`; §3 дока («полоса ног 0,1–0,2 %») — смесь bid и испорченного ask | `tools/compute/archive/approach-capacity.py:120`; `approach-capacity-2026-09-20.md:54` | рекомендация ног для F6/F10 стоит на этих числах — перегнать с ветвлением по `side`, как в `fill-capacity.py`/`eaten-threshold.py` |
 | Б3 | **`fill-capacity --targets approaches` с ключом `eaten=` — тихий no-op** вместо отказа, который обещает doc-комментарий (у подхода `size_max_before = size_at_arm` → `eaten_pct = 0`); зеркальная проверка в `bounce_grid.rs:1926` есть, здесь нет | `src/commands/lob/fill_capacity.rs:541` | контракт нарушен; M16 не задет (наборы без `eaten=`), но следующий прогон с ключом даст ложные числа; фикс — один `ensure!` + тест |
 
 Плюс два **важных** без блокировки: ночной H3-шаг не дописывает `approaches-*.csv` в сутки, уже помеченные
@@ -54,7 +54,7 @@
 | `src/commands/lob/bounce_verdict.rs` | 863 | 1003 |
 | `src/commands/lob/fill_capacity.rs` | 567 | 768 |
 | `tools/compute/equity-report.py` | 227 | 649 |
-| `tools/compute/eaten-threshold.py` | — | 604 |
+| `tools/compute/archive/eaten-threshold.py` | — | 604 |
 
 Функции (строк / прокси когнитивной сложности — число ветвлений с штрафом за вложенность; было → стало):
 
@@ -90,7 +90,7 @@
 | В5 | `src/lob/strategy.rs:1051–1063` (`CancelPending`) | нет потолка ожидания подтверждения отмены (для фазы 2 живого бота — вечное «занято»); было и до F, но F5 — про срок жизни входа и это не закрыла | потолок по `Clock`, причина `CancelTimeout` |
 | В6 | `src/lob/backtest.rs:1325` | `exits: Vec<…>` аллоцируется на каждый круг (было до F; F3/F4 при этом убрали `filled_legs.collect()` — плюс) | буфер в состоянии драйвера |
 | В7 | тесты | нет автоматического гейта «прежний режим байт в байт» на уровне драйвера `backtest.rs` при `RiskAdverse` (есть на фикстуре `bounce_grid/tests.rs:1119` и точечные в `strategy`/`levels`); F3/F4 гейт на живых данных — руками | оставить как есть, если фикстурный гейт считается достаточным; иначе — золотой дамп в `tests/` |
-| В8 | `tools/compute/approach-capacity.py` | весь код на уровне модуля, без функций, без ветвления по стороне (Б2) | по образцу `leg-distance.py` |
+| В8 | `tools/compute/archive/approach-capacity.py` | весь код на уровне модуля, без функций, без ветвления по стороне (Б2) | по образцу `leg-distance.py` |
 | В9 | `docs/findings/hftbacktest-partialfill-fix-2026-09-20.md` (шапка) и `vendor/hftbacktest/Cargo.toml` | «других правок нет» — а §3 того же дока называет вторую (`#[allow(dead_code)]`); нет оговорки «апстрим-фикс не проверяем офлайн» | поправить формулировки |
 
 ### Смеллы и сложность

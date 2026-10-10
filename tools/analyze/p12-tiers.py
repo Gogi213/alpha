@@ -9,7 +9,7 @@ MODE = os.environ.get("P12_MODE", "free")   # free | B2
 CSV = os.environ.get("P12_SHARPE_CSV", "docs/findings/p12-sharpe-free-2026-10-08.csv")
 NTR = tuple(int(x) for x in os.environ.get("P12_NTR", "194,42").split(","))
 from p12lib import POOL, block_idx, load, pack, sr   # P12_DIR/P12_POOL_FROM читаются при импорте — как у p12-sharpe.py
-P = pack(load("tools/compute/p12-r2-analyze.py", MODE), False)
+P = pack(load("tools/analyze/p12-r2-analyze.py", MODE), False)
 cal0 = next(iter(P.values()))["cal"]; keep = np.array([d[:7] in POOL for d in cal0]); cal = [d for d, k in zip(cal0, keep) if k]; n = len(cal)
 mon = np.array([d[:7] for d in cal]); months = sorted(POOL)
 for p in P.values():

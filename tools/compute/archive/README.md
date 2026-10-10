@@ -123,6 +123,14 @@
 
 ## КТ-9 (TK-152), 10.10: ещё 239 файлов корня
 
-Критерий переноса — опись `docs/findings/census-compute-2026-10-10.tsv` (класс АРХИВ): нет ссылок из src/, tools/ вне compute, COMMANDS/ARCHITECTURE/CLAUDE.md, диспетчера, hooks, открытых тикетов, живых скриптов, тестов и _lib; не названы в заданиях calc; не правились с 06.10. Обратно — `git mv`.
+Критерий переноса — описи `docs/findings/census-compute-2026-10-10.tsv` (итог) и `census-compute-start-2026-10-10.tsv` (исходные 560) (класс АРХИВ): нет ссылок из src/, tools/ вне compute, COMMANDS/ARCHITECTURE/CLAUDE.md, диспетчера, hooks, открытых тикетов, живых скриптов, тестов и _lib; не названы в заданиях calc; не правились с 06.10. Обратно — `git mv`.
 
 Вторая партия КТ-9 (69 файлов): скрипты `tk<NNN>-*` закрытых (done) тикетов, правленные с 06.10, без ссылок из живого; список — `git log --diff-filter=R --stat` коммита. Тикеты в статусе stopped — на месте.
+
+## Правило старых путей (КТ-9, вердикт Судьи 10.10, п. б)
+
+Старый путь `tools/compute/<имя>` = `tools/compute/archive/<имя>` (тесты архивных скриптов — `archive/tests/`). Живые доки, блокноты и открытые тикеты правятся на новый путь; гейт — `git grep` старых путей вне исключений = 0.
+
+Исключения, где старый путь остаётся (append-only, история): `docs/registry/*.jsonl`, `docs/plan/runs.csv`, `.claude/roles/journal/`, `.claude/roles/log/`, `.memory/`, закрытые тикеты и их `*-log.md`, всё внутри `*/archive/`, описи `docs/findings/census-compute-2026-10-10.tsv` (итог) и `census-compute-start-2026-10-10.tsv` (исходные 560).
+
+Летопись (`/data/registry/ledger.jsonl` на calc) ключуется путями на calc (`/data/tkNNN/...`, `/data/sched/...`), строк с `tools/compute` — 0: перенос в репозитории отпечатки не меняет.
