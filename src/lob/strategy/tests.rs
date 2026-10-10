@@ -3598,3 +3598,28 @@ fn pyramid_release_cancels_adds_and_blocks_new_ones() {
         "после решения выхода добавок нет"
     );
 }
+
+/// С-11 (ревью 10.10): цены на границе `MarketDepth` — `f64`, собранный как `тики × шаг`; `still_at_level` обязан
+/// различать соседние тики и узнавать свой на любых реальных шагах (допуск — полтика, не больше).
+#[test]
+fn still_at_level_tells_adjacent_ticks_apart_for_tick_multiples() {
+    for tick in [1.0, 0.1, 0.01, 0.001, 0.0001, 0.00001, 0.5, 0.05] {
+        for k in [1_i64, 7, 123, 4_567, 99_999, 1_234_567] {
+            let px = |n: i64| n as f64 * tick;
+            let level = px(k);
+            for side in [HbtSide::Buy, HbtSide::Sell] {
+                let at = |n: i64| {
+                    let (bid, ask) = if side == HbtSide::Buy {
+                        (px(n), px(n + 1))
+                    } else {
+                        (px(n - 1), px(n))
+                    };
+                    still_at_level(side, bid, ask, level, tick)
+                };
+                assert!(at(k), "свой тик не узнан: шаг {tick}, k {k}, {side:?}");
+                assert!(!at(k + 1), "тик выше принят: шаг {tick}, k {k}, {side:?}");
+                assert!(!at(k - 1), "тик ниже принят: шаг {tick}, k {k}, {side:?}");
+            }
+        }
+    }
+}
