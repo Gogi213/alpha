@@ -412,4 +412,3 @@ pub(super) fn format_instrument_line(m: &InstrumentMetrics) -> String {
         if m.verify_ok { "ok" } else { "fail" },
     )
 }
-
