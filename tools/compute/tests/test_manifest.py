@@ -69,9 +69,10 @@ class Check(unittest.TestCase):
             with open(os.path.join(shutil_dir, n), "wb") as f:
                 f.write(n.encode() * (M.MIN_BIN // 2))
             os.chmod(os.path.join(shutil_dir, n), 0o755)
-        self.assertEqual(M.bootstrap(self.mf, [shutil_dir]), 1)
+        self.assertEqual(M.bootstrap(self.mf, [shutil_dir]), 2)
         self.assertEqual(M.bootstrap(self.mf, [shutil_dir]), 0)
         self.assertEqual(sorted(os.listdir(shutil_dir)), ["alpha-x", "other"])
+        self.assertEqual(len(M.load(self.mf)), 2)       # описаны обе: критерий — размер и исполняемость, не имя
 
     def test_used_by_written_once(self):
         self.row()
@@ -79,6 +80,24 @@ class Check(unittest.TestCase):
         M.used_by(self.mf, md5, "TK-1")
         M.used_by(self.mf, md5, "TK-1")
         self.assertEqual(M.load(self.mf)[md5]["used_by"], "TK-1")
+
+
+    def test_check_submit_marks_used_by(self):
+        self.row()
+        self.assertEqual(M.check_submit(["warm-run", self.bin], "", self.alerts.append, "job-7"), 0)
+        self.assertEqual(M.load(self.mf)[M.md5_of(self.bin)]["used_by"], "job-7")
+
+
+class Rollback(unittest.TestCase):
+    def test_mode0_works_without_manifest_py(self):
+        d = tempfile.mkdtemp()
+        src = open(os.path.join(HERE, "..", "alsched.py"), encoding="utf-8").read()
+        open(os.path.join(d, "alsched.py"), "w", encoding="utf-8").write(src)     # manifest.py рядом нет
+        a = load("alsched_nomf", os.path.join(d, "alsched.py"))
+        os.environ["SCHED_MANIFEST"] = "0"
+        self.assertEqual(a.manifest_check(["x"], ""), 0)
+        os.environ["SCHED_MANIFEST"] = "1"
+        self.assertEqual(a.manifest_check(["x"], ""), 0)      # файла нет — тревога, не падение
 
 
 def git(d, *a):

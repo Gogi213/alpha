@@ -61,11 +61,18 @@ def wrapped(argv):
     return False
 
 
-def violations(argv, rows=None):
+def violations(argv, rows=None, who=""):
+    """Нарушения заявки; who — имя задания: сборка из манифеста получает отметку used_by."""
     rows = load() if rows is None else rows
     out = []
     for b in binaries(argv):
-        r = rows.get(md5_of(b))
+        md5 = md5_of(b)
+        r = rows.get(md5)
+        if r is not None and who:
+            try:
+                used_by(manifest_path(), md5, who)
+            except OSError as e:        # отметка — не повод ронять заявку
+                print(f"alsched: used_by не записан: {e}", file=sys.stderr)
         if r is None:
             out.append(f"бинарник {b} вне манифеста")
         elif r["status"] != "active":
@@ -75,14 +82,14 @@ def violations(argv, rows=None):
     return out
 
 
-def check_submit(argv, adhoc, alert):
+def check_submit(argv, adhoc, alert, who=""):
     """-> rc (0 — пускать). alert(text) пишет строку в alerts.log."""
     if mode() == "0":
         return 0
     if adhoc:
         alert(f"manifest --adhoc: {adhoc}: {' '.join(argv[:3])}")
         return 0
-    v = violations(argv)
+    v = violations(argv, who=who)
     if not v:
         return 0
     refuse = mode() == "1"
@@ -115,14 +122,14 @@ def write(path, rows):
 
 
 def bootstrap(path, dirs):
-    """Первичная опись уже лежащих сборок (alpha-*, > MIN_BIN): строка на md5, commit «?», profile «legacy», status active
+    """Первичная опись уже лежащих сборок (исполняемые > MIN_BIN, как guard._binaries, любое имя): строка на md5, commit «?», profile «legacy», status active
     (статусы frozen/retired назначает решение, не опись); существующие строки не трогает, файлы не удаляет и не двигает."""
     rows = load(path)
     n0 = len(rows)
     for d in dirs:
         for name in sorted(os.listdir(d)):
             f = os.path.join(d, name)
-            if name.startswith("alpha-") and os.path.isfile(f) and os.access(f, os.X_OK) and os.path.getsize(f) > MIN_BIN:
+            if os.path.isfile(f) and os.access(f, os.X_OK) and os.path.getsize(f) > MIN_BIN:
                 md5 = md5_of(f)
                 if md5 not in rows:
                     rows[md5] = dict(md5=md5, commit="?", profile="legacy", features="", status="active",

@@ -1237,7 +1237,7 @@ def main():
         p.add_argument("--vypiska", default="", help="TK-118, В-213: файл шагов прохода, по которому снята выписка из Летописи (guard.py plan --steps)")
         o = p.parse_args(a[1:sep])
         if o.cls == "prod":
-            mrc = manifest_check(a[sep + 1:], o.adhoc)      # КТ-1: бинарник вне манифеста / команда не через обёртку
+            mrc = manifest_check(a[sep + 1:], o.adhoc, o.name)      # КТ-1: бинарник вне манифеста / команда не через обёртку
             if mrc:
                 return mrc
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
@@ -1251,13 +1251,20 @@ def main():
     return 2
 
 
-def manifest_check(argv, adhoc):
-    """КТ-1 (TK-145): проверка заявки prod по манифесту сборок; режим — SCHED_MANIFEST (0|warn|1), см. manifest.py."""
+def manifest_check(argv, adhoc, who=""):
+    """КТ-1 (TK-145): проверка заявки prod по манифесту сборок; режим — SCHED_MANIFEST (0|warn|1), см. manifest.py.
+    Режим 0 проверяется до загрузки manifest.py (откат флагом работает и без файла); файла нет в режиме warn/1 — тревога, заявка идёт."""
+    if os.environ.get("SCHED_MANIFEST", "warn") == "0":
+        return 0
     import importlib.util
-    spec = importlib.util.spec_from_file_location("manifest", os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.py"))
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.py")
+    if not os.path.isfile(path):
+        alert_line(f"manifest.py не найден ({path}): проверка манифеста пропущена")
+        return 0
+    spec = importlib.util.spec_from_file_location("manifest", path)
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
-    return m.check_submit(argv, adhoc, alert_line)
+    return m.check_submit(argv, adhoc, alert_line, who)
 
 
 def guard_check(o, argv):
