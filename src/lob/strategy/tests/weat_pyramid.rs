@@ -204,9 +204,7 @@ pub(super) fn fresh_entry_is_one_part_floored_to_the_lot_and_adds_are_q0_over_n(
     state.plan = plan;
     state.entry_qty = 3.0;
     state.entry_notional = 300.0;
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     let id = state.add_order_ids()[0];
     let o = hbt.orders(0).get(&id).expect("добавка в рынке");
     assert!(close(o.qty, 3.0), "Q0/N = 9/3, а не base/N = 1: {}", o.qty);
@@ -244,7 +242,7 @@ pub(super) fn reinstall_counts_returns_only_after_a_removal_and_adds_one_per_ret
     state.observe_reinstall(wall_now(40.0), 10.0);
     assert_eq!(state.reinstalls, 1);
     state
-        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .pyramid_reinstall_step(&mut hbt, quotes_99_101())
         .unwrap();
     assert_eq!(state.add_order_ids().len(), 1);
     let id = state.add_order_ids()[0];
@@ -255,7 +253,7 @@ pub(super) fn reinstall_counts_returns_only_after_a_removal_and_adds_one_per_ret
     state.observe_reinstall(wall_now(40.0), 10.0);
     assert_eq!(state.reinstalls, 2);
     state
-        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .pyramid_reinstall_step(&mut hbt, quotes_99_101())
         .unwrap();
     assert_eq!(
         state.add_order_ids().len(),
@@ -309,16 +307,28 @@ pub(super) fn newwall_state(
     (hbt, state)
 }
 
+/// Котировки 99/101 с шагом 1 для лонга — то, что тесты пирамиды раньше передавали числами.
+fn quotes_99_101() -> Quotes {
+    Quotes {
+        bid_tick: 99,
+        ask_tick: 101,
+        step: 1.0,
+        entry_side: HbtSide::Buy,
+    }
+}
+
 pub(super) fn observe_nw(hbt: &Backtest<FastMarketDepth>, state: &mut StrategyState, bid: f64) {
     state.observe_newwall(
         hbt.depth(0),
-        HbtSide::Buy,
         90.0,
         99.0,
         1.0,
         10.0,
-        bid,
-        101.0,
+        Quotes {
+            bid_tick: bid as i64,
+            ask_tick: 101,
+            ..quotes_99_101()
+        },
     );
 }
 
@@ -367,7 +377,7 @@ pub(super) fn newwall_add_is_u_times_q0_and_capped_by_k() {
     hbt.elapse(S).unwrap();
     observe_nw(&hbt, &mut state, 99.0);
     state
-        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .pyramid_reinstall_step(&mut hbt, quotes_99_101())
         .unwrap();
     assert_eq!(state.add_order_ids().len(), 1);
     let id = state.add_order_ids()[0];
@@ -376,7 +386,7 @@ pub(super) fn newwall_add_is_u_times_q0_and_capped_by_k() {
     hbt.elapse(S).unwrap();
     observe_nw(&hbt, &mut state, 99.0);
     state
-        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .pyramid_reinstall_step(&mut hbt, quotes_99_101())
         .unwrap();
     assert_eq!(state.add_order_ids().len(), 1, "K = 1 исчерпано");
 }
@@ -384,18 +394,14 @@ pub(super) fn newwall_add_is_u_times_q0_and_capped_by_k() {
 #[test]
 pub(super) fn pyramid_off_never_adds() {
     let (mut hbt, mut state) = pyr_state(0, 25.0);
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert!(state.add_order_ids().is_empty());
 }
 
 #[test]
 pub(super) fn pyramid_adds_one_third_per_third_eaten_and_never_recharges_a_share() {
     let (mut hbt, mut state) = pyr_state(3, 11.0);
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert_eq!(
         state.add_order_ids().len(),
         1,
@@ -409,37 +415,27 @@ pub(super) fn pyramid_adds_one_third_per_third_eaten_and_never_recharges_a_share
         "по лучшей цене нашей стороны"
     );
     // Та же доля повторно — добавки нет.
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert_eq!(state.add_order_ids().len(), 1, "доля 1/3 не перезаряжается");
     // Съедено 2/3 — вторая; третьей не бывает (j < N).
     state.eaten_qty = 25.0;
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert_eq!(state.add_order_ids().len(), 2);
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert_eq!(state.add_order_ids().len(), 2, "добавок не больше N−1");
 }
 
 #[test]
 pub(super) fn pyramid_one_add_per_call_when_two_thirds_jump_in_one_frame() {
     let (mut hbt, mut state) = pyr_state(3, 25.0);
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert_eq!(state.add_order_ids().len(), 1, "за вызов — одна добавка");
 }
 
 #[test]
 pub(super) fn pyramid_does_not_add_when_the_wall_is_eaten_whole() {
     let (mut hbt, mut state) = pyr_state(3, 30.0);
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert!(
         state.add_order_ids().is_empty(),
         "стена съедена целиком — это выход, не вход"
@@ -449,16 +445,12 @@ pub(super) fn pyramid_does_not_add_when_the_wall_is_eaten_whole() {
 #[test]
 pub(super) fn pyramid_release_cancels_adds_and_blocks_new_ones() {
     let (mut hbt, mut state) = pyr_state(3, 11.0);
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     hbt.elapse(10_000_000).unwrap();
     state.pyramid_release(&mut hbt).unwrap();
     assert!(state.adds_released);
     state.eaten_qty = 25.0;
-    state
-        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
-        .unwrap();
+    state.pyramid_step(&mut hbt, quotes_99_101()).unwrap();
     assert_eq!(
         state.add_order_ids().len(),
         1,

@@ -46,14 +46,13 @@ impl StrategyState {
     pub(super) fn pyramid_step<MD, B>(
         &mut self,
         bot: &mut B,
-        bid: f64,
-        ask: f64,
-        side: HbtSide,
+        quotes: Quotes,
     ) -> Result<(), B::Error>
     where
         MD: MarketDepth,
         B: Bot<MD>,
     {
+        let (bid, ask, side) = (quotes.bid(), quotes.ask(), quotes.entry_side);
         let TradePlan::Bounce {
             pyramid,
             lot_qty,
@@ -149,13 +148,11 @@ impl StrategyState {
     pub(super) fn observe_newwall<MD: MarketDepth>(
         &mut self,
         depth: &MD,
-        side: HbtSide,
         stop_px: f64,
         level_px: f64,
         tick_px: f64,
         floor: f64,
-        bid: f64,
-        ask: f64,
+        quotes: Quotes,
     ) {
         let TradePlan::Bounce { pyramid, .. } = self.plan else {
             return;
@@ -170,16 +167,20 @@ impl StrategyState {
         }
         #[allow(clippy::cast_possible_truncation)]
         let (stop_t, level_t) = (px_tick(stop_px, tick_px), px_tick(level_px, tick_px));
-        let buy = matches!(side, HbtSide::Buy);
+        let buy = matches!(quotes.entry_side, HbtSide::Buy);
         let (from, step) = if buy {
             (depth.best_bid_tick() - 1, -1_i64)
         } else {
             (depth.best_ask_tick() + 1, 1_i64)
         };
         let init = !self.nw_init;
-        let losing = self
-            .entry_vwap()
-            .is_some_and(|v| if buy { bid < v } else { ask > v });
+        let losing = self.entry_vwap().is_some_and(|v| {
+            if buy {
+                quotes.bid() < v
+            } else {
+                quotes.ask() > v
+            }
+        });
         if !init && !losing {
             return;
         }
@@ -256,14 +257,13 @@ impl StrategyState {
     pub(super) fn pyramid_reinstall_step<MD, B>(
         &mut self,
         bot: &mut B,
-        bid: f64,
-        ask: f64,
-        side: HbtSide,
+        quotes: Quotes,
     ) -> Result<(), B::Error>
     where
         MD: MarketDepth,
         B: Bot<MD>,
     {
+        let (bid, ask, side) = (quotes.bid(), quotes.ask(), quotes.entry_side);
         if !self.reinst_trigger {
             return Ok(());
         }

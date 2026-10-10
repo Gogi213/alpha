@@ -142,13 +142,11 @@ where
             if pyr.newwall_k > 0 {
                 state.observe_newwall(
                     bot.depth(state.asset_no),
-                    entry_side,
                     stop_px,
                     level_px,
                     tick_px,
                     level_floor_qty,
-                    bid,
-                    ask,
+                    quotes,
                 );
             }
             // F7 (Б-75): формы выхода «съели» / «сняли». Накопленное
