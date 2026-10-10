@@ -603,11 +603,7 @@ fn print_power(args: PowerArgs) -> anyhow::Result<()> {
     let summary = run_power(&args)?;
     println!(
         "power: n={} sr0={:.4} required_sharpe={:.4} dsr_target={:.2} num_obs={}",
-        summary.n,
-        summary.sr0,
-        summary.required_sharpe,
-        summary.dsr_target,
-        summary.num_obs
+        summary.n, summary.sr0, summary.required_sharpe, summary.dsr_target, summary.num_obs
     );
     Ok(())
 }
