@@ -72,7 +72,7 @@ def show_row(r, full=False):
                 print(f"  {k}: {r[k]}")
 
 
-def main():
+def _parser():
     ap = argparse.ArgumentParser(prog="registry")
     sp = ap.add_subparsers(dest="cmd", required=True)
     a = sp.add_parser("add", help="дописать прогон")
@@ -108,114 +108,156 @@ def main():
     ia.add_argument("file")
     pl = sp.add_parser("plan", help="выписка до прохода (В-213): по файлу шагов — что готово в журнале, что считаем, стоимость; ставит отметку для alsched submit")
     pl.add_argument("steps", help="имя<TAB>выход<TAB>входы через :<TAB>команда, по строке на шаг")
-    ns = ap.parse_args()
-    if ns.cmd == "plan":
-        import guard
-        guard.plan(ns.steps)
-        return
-    if ns.cmd == "add":
-        row = {k: getattr(ns, k, None) for k in FIELDS}
-        if not row.get("what"):
-            sys.exit("registry: нужен --what")
-        row["status"] = row.get("status") or "боевой"
-        print(append(row))
-    elif ns.cmd == "build":
-        _, n = build(); print(f"{n} строк → {DB}")
-    elif ns.cmd == "sql":
-        c = sqlite3.connect(DB) if os.path.exists(DB) else build()[0]
-        for q in [x for x in ns.query.split(";") if x.strip()]:
-            cur = c.execute(q)
-            print("	".join(d[0] for d in cur.description or []))
-            for r in cur:
-                print("	".join("" if v is None else str(v) for v in r))
-    elif ns.cmd == "load-cells":
-        print("клеток +%d, связок +%d" % db.load_cells(ns.file, ns.run, ns.hyp, ns.logic, ns.cmd_file))
-    elif ns.cmd == "load-results":
-        print("результатов +%d, повторов пропущено %d" % db.load_results(ns.dir, ns.run, ns.logic))
-    elif ns.cmd == "bind-hyp":
-        print("привязано гипотез %d, клеток типизировано %d" % db.bind_hyp(ns.run))
-    elif ns.cmd == "load-usd":
-        print("строк с $ и просадкой: %d" % db.load_usd(ns.dir, ns.run))
-    elif ns.cmd == "load-hdr":
-        print("клеток дополнено шапкой: %d" % db.load_hdr(ns.file, ns.run))
-    elif ns.cmd == "enrich":
-        rows = load(); n = sum(1 for r in rows if enrich.enrich_row(r))
-        with open(CANON, "w", encoding="utf-8", newline="\n") as f:
-            for r in rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        print("строк дополнено:", n)
-    elif ns.cmd == "normalize-ts":
-        rows = load(); n = 0
+    return ap
+
+
+def _cmd_plan(ns):
+    import guard
+    guard.plan(ns.steps)
+    return
+
+
+def _cmd_add(ns):
+    row = {k: getattr(ns, k, None) for k in FIELDS}
+    if not row.get("what"):
+        sys.exit("registry: нужен --what")
+    row["status"] = row.get("status") or "боевой"
+    print(append(row))
+
+
+def _cmd_build(ns):
+    _, n = build(); print(f"{n} строк → {DB}")
+
+
+def _cmd_sql(ns):
+    c = sqlite3.connect(DB) if os.path.exists(DB) else build()[0]
+    for q in [x for x in ns.query.split(";") if x.strip()]:
+        cur = c.execute(q)
+        print("	".join(d[0] for d in cur.description or []))
+        for r in cur:
+            print("	".join("" if v is None else str(v) for v in r))
+
+
+def _cmd_load_cells(ns):
+    print("клеток +%d, связок +%d" % db.load_cells(ns.file, ns.run, ns.hyp, ns.logic, ns.cmd_file))
+
+
+def _cmd_load_results(ns):
+    print("результатов +%d, повторов пропущено %d" % db.load_results(ns.dir, ns.run, ns.logic))
+
+
+def _cmd_bind_hyp(ns):
+    print("привязано гипотез %d, клеток типизировано %d" % db.bind_hyp(ns.run))
+
+
+def _cmd_load_usd(ns):
+    print("строк с $ и просадкой: %d" % db.load_usd(ns.dir, ns.run))
+
+
+def _cmd_load_hdr(ns):
+    print("клеток дополнено шапкой: %d" % db.load_hdr(ns.file, ns.run))
+
+
+def _cmd_enrich(ns):
+    rows = load(); n = sum(1 for r in rows if enrich.enrich_row(r))
+    with open(CANON, "w", encoding="utf-8", newline="\n") as f:
         for r in rows:
-            t = db.norm_ts(r["ts"]); n += t != r["ts"]; r["ts"] = t
-        with open(CANON, "w", encoding="utf-8", newline="\n") as f:
-            for r in rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        print(n, "ts пересчитано из", len(rows))
-    elif ns.cmd == "bind-verdicts":
-        print("вердиктов с прогоном %d, без прогона %d, runs.judge заполнено %d" % bind_verdicts.run(CANON))
-    elif ns.cmd == "find":
-        ws = [w.lower() for w in ns.words]
-        for r in load():
-            t = json.dumps(r, ensure_ascii=False).lower()
-            if all(w in t for w in ws) and (not ns.status or r.get("status") == ns.status):
-                show_row(r, ns.full)
-    elif ns.cmd == "show":
-        for r in load():
-            if r["id"] == ns.id:
-                show_row(r, True)
-    elif ns.cmd == "stats":
-        rows = load(); print(len(rows), "прогонов")
-        for key in ("kind", "status", "source"):
-            cnt = {}
-            for r in rows:
-                cnt[r.get(key, "—")] = cnt.get(r.get(key, "—"), 0) + 1
-            print(key, cnt)
-    elif ns.cmd == "import-guard-cells":
-        # TK-089 п.2: клетки из журнала отпечатков сервера (kind=cell) -> cells/run_cells канона; прогон — строка с тем же result_path
-        led = [json.loads(x) for x in open(ns.file, encoding="utf-8") if x.strip()]
-        byrun = {}
-        for e in led:
-            if e.get("kind") == "cell": byrun.setdefault((e["run_fp"], e.get("result_path")), []).append(e["cell"].split(" @")[0])
-        runs, tot = load(), [0, 0]
-        for (fp, rp), lines in byrun.items():
-            hit = [r for r in runs if rp and r.get("result_path") and r["result_path"].rstrip("/") == rp.rstrip("/")]
-            if not hit:
-                print("нет строки прогона для", rp); continue
-            tmp = os.path.join(ROOT, "data", f"cells-{fp}.txt"); os.makedirs(os.path.dirname(tmp), exist_ok=True)
-            open(tmp, "w", encoding="utf-8").write(chr(10).join(sorted(set(lines))) + chr(10))
-            a, b = db.load_cells(tmp, hit[-1]["id"], ns.hyp, ns.logic, None); tot[0] += a; tot[1] += b
-        print("клеток +%d, связок +%d" % tuple(tot))
-    elif ns.cmd == "import-auto":
-        have = {r.get("note") for r in load()}
-        n = 0
-        mdir = os.path.join(os.path.dirname(os.path.abspath(ns.file)), "runs")
-        for ln in open(ns.file, encoding="utf-8"):
-            if not ln.strip():
-                continue
-            a = json.loads(ln)
-            key = f"auto:{a['host']}:{a['start']}:{a['pid']}"
-            if key in have:
-                continue
-            row = {"ts": a["start"], "kind": {"wave": "speed", "prod": "production"}.get(a.get("cls"), "other"), "what": a["cmd"],
-                   "machine": a["host"], "wall_s": a["wall_s"], "status": "проба" if a["rc"] else "боевой",
-                   "status_why": f"rc={a['rc']}" if a["rc"] else "", "source": "benchrun-auto", "note": key,
-                   "config_status": "неполон: манифест не снят"}
-            mp = os.path.join(mdir, a.get("manifest", "-"))
-            if os.path.exists(mp):
-                m = json.load(open(mp, encoding="utf-8"))
-                for k in ("host", "cls", "start", "t0"):
-                    m.pop(k, None)
-                row["config"] = m
-                row["config_status"] = "полный (команда, env, файлы и входы по sha)"
-                row["flags"] = m["cmdline"][:300]
-                if m.get("git"): row["commit"] = m["git"]
-                bm = [b["md5"] for b in m.get("binaries", {}).values()]
-                if bm: row["binary_md5"] = ",".join(bm)
-            enrich.enrich_row(row)
-            append(row)
-            n += 1
-        print(n, "строк добавлено")
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print("строк дополнено:", n)
+
+
+def _cmd_normalize_ts(ns):
+    rows = load(); n = 0
+    for r in rows:
+        t = db.norm_ts(r["ts"]); n += t != r["ts"]; r["ts"] = t
+    with open(CANON, "w", encoding="utf-8", newline="\n") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(n, "ts пересчитано из", len(rows))
+
+
+def _cmd_bind_verdicts(ns):
+    print("вердиктов с прогоном %d, без прогона %d, runs.judge заполнено %d" % bind_verdicts.run(CANON))
+
+
+def _cmd_find(ns):
+    ws = [w.lower() for w in ns.words]
+    for r in load():
+        t = json.dumps(r, ensure_ascii=False).lower()
+        if all(w in t for w in ws) and (not ns.status or r.get("status") == ns.status):
+            show_row(r, ns.full)
+
+
+def _cmd_show(ns):
+    for r in load():
+        if r["id"] == ns.id:
+            show_row(r, True)
+
+
+def _cmd_stats(ns):
+    rows = load(); print(len(rows), "прогонов")
+    for key in ("kind", "status", "source"):
+        cnt = {}
+        for r in rows:
+            cnt[r.get(key, "—")] = cnt.get(r.get(key, "—"), 0) + 1
+        print(key, cnt)
+
+
+def _cmd_import_guard_cells(ns):
+    # TK-089 п.2: клетки из журнала отпечатков сервера (kind=cell) -> cells/run_cells канона; прогон — строка с тем же result_path
+    led = [json.loads(x) for x in open(ns.file, encoding="utf-8") if x.strip()]
+    byrun = {}
+    for e in led:
+        if e.get("kind") == "cell": byrun.setdefault((e["run_fp"], e.get("result_path")), []).append(e["cell"].split(" @")[0])
+    runs, tot = load(), [0, 0]
+    for (fp, rp), lines in byrun.items():
+        hit = [r for r in runs if rp and r.get("result_path") and r["result_path"].rstrip("/") == rp.rstrip("/")]
+        if not hit:
+            print("нет строки прогона для", rp); continue
+        tmp = os.path.join(ROOT, "data", f"cells-{fp}.txt"); os.makedirs(os.path.dirname(tmp), exist_ok=True)
+        open(tmp, "w", encoding="utf-8").write(chr(10).join(sorted(set(lines))) + chr(10))
+        a, b = db.load_cells(tmp, hit[-1]["id"], ns.hyp, ns.logic, None); tot[0] += a; tot[1] += b
+    print("клеток +%d, связок +%d" % tuple(tot))
+
+
+def _cmd_import_auto(ns):
+    have = {r.get("note") for r in load()}
+    n = 0
+    mdir = os.path.join(os.path.dirname(os.path.abspath(ns.file)), "runs")
+    for ln in open(ns.file, encoding="utf-8"):
+        if not ln.strip():
+            continue
+        a = json.loads(ln)
+        key = f"auto:{a['host']}:{a['start']}:{a['pid']}"
+        if key in have:
+            continue
+        row = {"ts": a["start"], "kind": {"wave": "speed", "prod": "production"}.get(a.get("cls"), "other"), "what": a["cmd"],
+               "machine": a["host"], "wall_s": a["wall_s"], "status": "проба" if a["rc"] else "боевой",
+               "status_why": f"rc={a['rc']}" if a["rc"] else "", "source": "benchrun-auto", "note": key,
+               "config_status": "неполон: манифест не снят"}
+        mp = os.path.join(mdir, a.get("manifest", "-"))
+        if os.path.exists(mp):
+            m = json.load(open(mp, encoding="utf-8"))
+            for k in ("host", "cls", "start", "t0"):
+                m.pop(k, None)
+            row["config"] = m
+            row["config_status"] = "полный (команда, env, файлы и входы по sha)"
+            row["flags"] = m["cmdline"][:300]
+            if m.get("git"): row["commit"] = m["git"]
+            bm = [b["md5"] for b in m.get("binaries", {}).values()]
+            if bm: row["binary_md5"] = ",".join(bm)
+        enrich.enrich_row(row)
+        append(row)
+        n += 1
+    print(n, "строк добавлено")
+
+
+CMDS = {"plan": _cmd_plan, "add": _cmd_add, "build": _cmd_build, "sql": _cmd_sql, "load-cells": _cmd_load_cells, "load-results": _cmd_load_results, "bind-hyp": _cmd_bind_hyp, "load-usd": _cmd_load_usd, "load-hdr": _cmd_load_hdr, "enrich": _cmd_enrich, "normalize-ts": _cmd_normalize_ts, "bind-verdicts": _cmd_bind_verdicts, "find": _cmd_find, "show": _cmd_show, "stats": _cmd_stats, "import-guard-cells": _cmd_import_guard_cells, "import-auto": _cmd_import_auto}
+
+
+def main():
+    ns = _parser().parse_args()
+    CMDS[ns.cmd](ns)
 
 
 if __name__ == "__main__":
