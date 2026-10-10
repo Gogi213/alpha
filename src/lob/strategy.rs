@@ -68,13 +68,8 @@ use self::entry_view::*;
 use self::exit::*;
 use self::handlers::*;
 use self::idle::*;
-use self::observe::*;
-use self::orphans::*;
 pub use self::plan::*;
-use self::pyramid::*;
-use self::query::*;
 pub use self::state::*;
-use self::tape::*;
 
 pub fn on_event<MD, B>(bot: &mut B, state: &mut StrategyState) -> Result<Action, B::Error>
 where
