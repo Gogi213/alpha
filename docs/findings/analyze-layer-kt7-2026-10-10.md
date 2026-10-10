@@ -15,5 +15,9 @@
 
 Тесты: `pytest tools/analyze/tests tools/compute/tests/test_portfolio_sim.py` — 28 пройдено.
 
-## Осталось
-`portfolio-sim.py` (≈50 ссылок: `_load`, `tmp-kpi/`, `bin/`, `gate-merge.sh`), `tk114-prep/halfA/halfB/tier1/v2.sh`, `tk113-drop-r1ext.sh`, скрипты `tk115/118/120-*`, `p12-r1-psim`; не прогнаны (нужны данные calc): tk114-report2/testB/tier1/tier2, sharpe B2.
+## Срез 2
+tk114-{report2,testB,tier1-select,tier2-select} прогнаны до (`e9a3a94e`) и после на ПК (`data/tk114`): md5 всех пяти выходов равны (p13-coins-B2/free, p13-tier1A, p13-tier2A, p13-final.md.part). Job-скрипты `tk113-drop-r1ext.sh`, `tk114-{halfA,halfB,tier1,v2}.sh`, `tk114-prep.py` — в `tools/compute/archive/`. `git grep` старых путей вне тикетов = 0 (пути в доках/findings поправлены).
+Тест `test_t21_psim_gate::test_synthetic_gate_all_cases_match` красный и на базе `e9a3a94e` — не от переноса.
+
+## Решение Судье
+`portfolio-sim.py` оставлен в `tools/compute/` (зависит от `_lib/`, ссылки: `_load` в fresh-days/p02, `$T/` на серверах в p12-psim/expo/r1-psim, gate t21): это не разбор, а счётчик, который зовут прогонщики; в `analyze` — подкоманда `portfolio`. Перенос — отдельным КТ при КТ-9 (пути прогонов), если Судья требует. Не прогнан sharpe B2 (тот же код, что free).
