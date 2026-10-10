@@ -413,14 +413,3 @@ pub(super) fn format_instrument_line(m: &InstrumentMetrics) -> String {
     )
 }
 
-pub(super) fn median(sorted: &[f64]) -> Option<f64> {
-    if sorted.is_empty() {
-        return None;
-    }
-    let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 1 {
-        Some(sorted[mid])
-    } else {
-        Some((sorted[mid - 1] + sorted[mid]) / 2.0)
-    }
-}

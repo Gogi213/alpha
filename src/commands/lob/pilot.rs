@@ -74,7 +74,7 @@ use crate::lob::costs::{mean_net_bps, Observation, MAKER_FEE_BPS, TAKER_FEE_BPS}
 use crate::lob::final_metrics::sharpe_ratio;
 use crate::lob::runs::log_pilot_run;
 use crate::lob::shortlist::CONFIRM_MIN_N;
-use crate::stats::{count_f64, count_u64};
+use crate::stats::{count_u64, mean};
 
 use super::session::{run_session, SessionArgs};
 use super::{DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
@@ -341,11 +341,7 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     let summary_out = args.root.join("pilot-debug-summary.csv");
     write_debug_summary_csv(&summary_out, &reports)?;
 
-    let mean_m10s = if all_m10s_means.is_empty() {
-        0.0
-    } else {
-        all_m10s_means.iter().sum::<f64>() / count_f64(all_m10s_means.len())
-    };
+    let mean_m10s = mean(&all_m10s_means).unwrap_or(0.0);
     Ok(PilotSummary {
         symbol: session_summary.instruments.join(","),
         n_pulled: count_u64(total_pulled),
@@ -425,11 +421,7 @@ fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         .map_err(|e| anyhow::anyhow!("runs.csv: {e}"))?;
     }
 
-    let pooled_m10s = if all_m10s_means.is_empty() {
-        None
-    } else {
-        Some(all_m10s_means.iter().sum::<f64>() / count_f64(all_m10s_means.len()))
-    };
+    let pooled_m10s = mean(&all_m10s_means);
     // G0 «edge» сравнивает `net` (издержки Decision 15 и проскальзывание уже
     // вычтены на каждое наблюдение — `process_instrument`/`net_observations`),
     // не сырой `m_10s`: см. doc `g0_verdict` (дозапрос по ревью таска 09(а)).
