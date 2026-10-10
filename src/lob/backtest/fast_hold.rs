@@ -1,4 +1,4 @@
-//! TK-049 (`ALPHA_FAST_HOLD`, заготовка): быстрый путь удержания без живых заявок. Пока у круга нет заявок, движок
+//! TK-049 (с TK-161 — всегда): быстрый путь удержания без живых заявок. Пока у круга нет заявок, движок
 //! нужен только книге: строки применяются к одной плоской локальной книге (`HoldTracker`), а в момент, когда
 //! решению понадобился движок, он строится заново из двух снимков (`FastHandoff`): локальная книга на `t` и
 //! биржевая (локальная + строки, уже дошедшие до биржи, но не до локальной стороны; их биржевые флаги в новом
@@ -622,14 +622,13 @@ pub(super) fn fast_hold_scan_group(
     }
 }
 
-/// `ALPHA_FAST_HOLD=1` — быстрый путь удержания в одиночном драйвере кругов; умолчание — выкл.
+/// Быстрый путь удержания в одиночном драйвере кругов — всегда (TK-161); медленный путь — оракул в тестах
+/// (`FORCE_ON` включает быстрый, по умолчанию в тестах он выкл).
 pub fn fast_hold_on() -> bool {
     #[cfg(test)]
-    if FORCE_ON.with(std::cell::Cell::get) {
-        return true;
-    }
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_FAST_HOLD").is_some_and(|v| v == "1"))
+    return FORCE_ON.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    true
 }
 
 #[cfg(test)]
@@ -659,7 +658,7 @@ thread_local! {
     static FAST_CTX: std::cell::Cell<Option<FastCtx>> = const { std::cell::Cell::new(None) };
 }
 
-/// Выставляет окно круга на время `f` (только при `ALPHA_FAST_HOLD=1`). `rows` — тот самый срез, что читает
+/// Выставляет окно круга на время `f` (в тестах — только под `FORCE_ON`). `rows` — тот самый срез, что читает
 /// движок окна (`Backtest<FastMarketDepth>` из `with_backtest_over_window`).
 #[allow(clippy::too_many_arguments)]
 pub fn with_fast_ctx<R>(

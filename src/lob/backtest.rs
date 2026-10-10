@@ -1539,7 +1539,7 @@ where
     let mut stable = false;
     let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
-    // TK-049 (`ALPHA_FAST_HOLD`): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
+    // TK-049 (быстрый путь): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
     let mut fast_tried = !fast_hold::fast_hold_on();
     let mut post_step = false;
     let mut saved: Vec<(u64, Order)> = Vec::new();
@@ -2239,7 +2239,7 @@ where
     let mut stable: Vec<bool> = vec![false; n];
     let skip_on = skip_same();
     let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
-    // TK-048 (`ALPHA_FAST_HOLD`): один заход группового быстрого пути сразу после форка; ноги входа
+    // TK-048 (быстрый путь): один заход группового быстрого пути сразу после форка; ноги входа
     // сохраняются перед заменой движка (как `saved` сольного `run_round`).
     let mut fast_tried = !fast_hold::fast_hold_on();
     let mut post_step = false;

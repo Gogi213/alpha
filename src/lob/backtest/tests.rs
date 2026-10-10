@@ -8,7 +8,7 @@
 //! | флаг / режим | юнит-тест «байт в байт» | гейт на calc |
 //! |---|---|---|
 //! | `--hold-step skip` | `hold_skip_matches_polling_byte_for_byte` | — |
-//! | `ALPHA_FAST_HOLD=1` | `fast_hold_handoff_equals_continuous`, `group_fast_hold_matches_group_without_it` | — |
+//! | `FORCE_ON` (тест) | `fast_hold_handoff_equals_continuous`, `group_fast_hold_matches_group_without_it` | — |
 //! | `ALPHA_ADMIT_SOA=1` | `bounce_grid::tests` («`admits` по строкам `AdmitRow` …») | — |
 //! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
 //!
@@ -2440,7 +2440,7 @@ fn group_round_matches_three_solo_runs_with_divergent_exits() {
     );
 }
 
-/// TK-048: групповой круг с быстрым путём удержания (`ALPHA_FAST_HOLD`) даёт те же шаги, что без него.
+/// TK-048: групповой круг с быстрым путём удержания (быстрый путь) даёт те же шаги, что без него.
 #[test]
 fn group_fast_hold_matches_group_without_it() {
     let (feed, base_plan) = windowed_fixture();

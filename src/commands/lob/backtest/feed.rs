@@ -1,7 +1,7 @@
 //! Общие помощники движка, используемые и `lob backtest`, и `lob
 //! bounce-grid`: заголовок бинлога и `ReplayFeed` (`read_tick_step`/
 //! `open_replay_feed`), перевод `Feed` в события крейта
-//! (`events_from_feed`/`count_feed_events`/`feed_events_into`/
+//! (`events_from_feed`/`count_feed_events`/
 //! `count_feed_events_until`/`replay_compact_into_until`/`translate_feed_until`/
 //! `push_side`). Вынесено из `backtest` при разрезке B3
 //! (ревью 23.09), поведение не менялось.
@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
 use hftbacktest::types::Event as HbtEvent;
 
 use crate::binlog;
@@ -74,39 +75,20 @@ pub(crate) fn open_replay_feed(path: &Path) -> anyhow::Result<ReplayFeed<std::fs
     ReplayFeed::open(0, file).map_err(|e| anyhow::anyhow!("бинлог {}: {e:?}", path.display()))
 }
 
-/// События крейта по всем частям сессии подряд (таск 22: `session_binlog_for`
-/// отдаёт список, не один файл) — конкатенация, не второй `Feed`: `feed/`
-/// вне зоны этого таска, а `ReplayFeed` не читает несколько файлов сам
-/// (каждый несёт собственный заголовок), поэтому склейка на уровне уже
-/// переведённых событий, здесь, а не в `feed::replay`.
-pub(super) fn events_from_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
-    let mut events = Vec::new();
-    for path in paths {
-        let mut feed = open_replay_feed(path)?;
-        events.extend(events_from_feed(&mut feed));
-    }
-    Ok(events)
-}
-
-// ---------------------------------------------------------------------------
-// `Feed` (снапшоты/дельты стакана, сделки) → события `hftbacktest`. Цена и
-// размер уже в 1e-9 у источника (`book::Update`/`bybit::ws::Trade`) — делить
-// на 1e9 единственный раз, на границе `MarketDepth` (A7).
-// ---------------------------------------------------------------------------
-
 /// Переводит поток `Feed` в события крейта для `L2AssetBuilder`/
 /// `Data::from_data`. `is_snapshot` требует явно обнулить уровни, которых
 /// нет в новом снапшоте (то же правило, что `book::Book::apply` — очистка
 /// перед применением): функция ведёт свой минимальный учёт видимых цен по
 /// стороне только для этого обнуления — это перевод в события, не книга.
+#[cfg(test)]
 pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
     let mut out = Vec::new();
-    feed_events_into(feed, &mut out);
+    translate_feed_until(feed, None, &mut |ev| out.push(ev.expand()));
     out
 }
 
-/// Сколько событий крейта даст `feed` — тот же перевод, что `feed_events_into`,
-/// но в счётчик. Нужен, чтобы выделить `Vec` суток **один раз** точного
+/// Сколько событий крейта даст `feed` — тот же перевод, что
+/// `events_from_feed`, но в счётчик. Нужен, чтобы выделить `Vec` суток **один раз** точного
 /// размера: рост удвоением держал бы старый и новый буфер вместе (до 3×
 /// итога), и на сутках в 20 млн событий это 3 ГБ — сетка на сервере умирала
 /// по OOM (2026-09-18, `alpha-grid-20260917`, лимит 2.6 ГБ). Второй декод
@@ -115,11 +97,6 @@ pub(crate) fn count_feed_events(feed: &mut dyn Feed) -> usize {
     let mut n = 0usize;
     translate_feed_until(feed, None, &mut |_| n += 1);
     n
-}
-
-/// Перевод `feed` → события крейта в готовый `Vec` (без промежуточного).
-pub(crate) fn feed_events_into(feed: &mut dyn Feed, out: &mut Vec<HbtEvent>) {
-    translate_feed_until(feed, None, &mut |ev| out.push(ev.expand()));
 }
 
 /// Как `count_feed_events`, но с потолком времени (`until_ns`, исключая):

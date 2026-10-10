@@ -11,14 +11,14 @@ fn vars(kv: &[(&str, &str)]) -> impl Iterator<Item = (OsString, OsString)> {
 fn empty_env_is_default_all_off() {
     let f = RunFlags::from_vars(vars(&[("PATH", "/bin"), ("HOME", "/h")]));
     assert_eq!(f, RunFlags::default());
-    assert!(!f.fast_hold && !f.diag && f.sig_cache.is_none());
+    assert!(!f.skip_same && !f.diag && f.sig_cache.is_none());
     assert!(f.snapshot_lines().is_empty());
 }
 
 #[test]
 fn one_vs_set_semantics() {
-    let f = RunFlags::from_vars(vars(&[("ALPHA_FAST_HOLD", "0"), ("ALPHA_DIAG", "")]));
-    assert!(!f.fast_hold);
+    let f = RunFlags::from_vars(vars(&[("ALPHA_SKIP_SAME", "0"), ("ALPHA_DIAG", "")]));
+    assert!(!f.skip_same);
     assert!(f.diag, "задан любым значением");
 }
 
@@ -39,11 +39,11 @@ fn snapshot_sorted_by_name_includes_unknown() {
     let f = RunFlags::from_vars(vars(&[
         ("ALPHA_Z_NEW", "v"),
         ("OTHER", "x"),
-        ("ALPHA_FAST_HOLD", "1"),
-        ("ALPHA_FAST_HOLD", "0"),
+        ("ALPHA_SKIP_SAME", "1"),
+        ("ALPHA_SKIP_SAME", "0"),
     ]));
     assert_eq!(
         f.snapshot_lines(),
-        ["env:ALPHA_FAST_HOLD=0", "env:ALPHA_Z_NEW=v"]
+        ["env:ALPHA_SKIP_SAME=0", "env:ALPHA_Z_NEW=v"]
     );
 }

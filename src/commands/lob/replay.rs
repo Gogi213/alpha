@@ -246,6 +246,7 @@ fn feed_frames_multi(
 /// конфигураций разом, как в `verify`: дальше этот файл недоверен,
 /// следующий идёт с чистого листа. Возвращает `ReplayStats` в том же
 /// порядке, что `cfgs`.
+#[cfg(test)]
 pub(crate) fn replay_symbol_over_configs(
     root: &Path,
     symbol: &str,
@@ -486,6 +487,7 @@ pub(crate) fn replay_symbol_over_configs_keep(
 /// Реплей всех суточных файлов символа одной конфигурацией `H3` — частный
 /// случай `replay_symbol_over_configs` с сеткой из одного элемента
 /// (таск 18: код декодирования один, конфигураций может быть несколько).
+#[cfg(test)]
 pub(crate) fn replay_symbol(
     root: &Path,
     symbol: &str,

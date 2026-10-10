@@ -21,8 +21,6 @@ pub struct RunFlags {
     pub admit_cache: bool,
     /// `ALPHA_SKIP_NOSIGNAL` задан.
     pub skip_nosignal: bool,
-    /// `ALPHA_FAST_HOLD=1`.
-    pub fast_hold: bool,
     /// `ALPHA_SKIP_SAME=1`.
     pub skip_same: bool,
     /// `ALPHA_R2_TRACE` задан.
@@ -77,7 +75,6 @@ impl RunFlags {
             admit_soa: one("ALPHA_ADMIT_SOA"),
             admit_cache: one("ALPHA_ADMIT_CACHE"),
             skip_nosignal: set("ALPHA_SKIP_NOSIGNAL"),
-            fast_hold: one("ALPHA_FAST_HOLD"),
             skip_same: one("ALPHA_SKIP_SAME"),
             r2_trace: set("ALPHA_R2_TRACE"),
             approach_bin_dir: get("ALPHA_APPROACH_BIN_DIR").map(OsString::from),

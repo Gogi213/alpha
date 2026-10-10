@@ -329,7 +329,7 @@ pub(super) fn day_diagnostics(
     if skips > 0 {
         eprintln!("bounce-grid:   удержание: пропусков пустых шагов {skips}");
     }
-    if crate::lob::backtest::fast_hold::fast_hold_on() {
+    if flags.diag {
         use crate::lob::backtest::fast_hold::{FAST_FALLBACKS, FAST_ROUNDS, FAST_ROWS};
         use std::sync::atomic::Ordering::Relaxed;
         eprintln!(

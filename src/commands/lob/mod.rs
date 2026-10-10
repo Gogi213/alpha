@@ -77,7 +77,6 @@ pub mod validate;
 mod verify;
 
 pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
-pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
@@ -154,10 +153,9 @@ pub(crate) use parts::{file_order_key, session_binlog_for, session_parts_for};
 #[cfg(test)]
 pub(crate) use parts::{group_parts_by_day, session_days_in_dir, SessionPart};
 #[cfg(test)]
-pub(crate) use replay::replay_symbol_over_configs;
+pub(crate) use replay::{replay_symbol, replay_symbol_over_configs};
 pub(crate) use replay::{
-    replay_symbol, replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids,
-    ReplayDay, ReplayKeep,
+    replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids, ReplayDay, ReplayKeep,
 };
 pub(crate) use shared::{
     read_verify_marker, select_best_mean_net, size_bucket, CPCV_SELECTION_RULE,
@@ -214,9 +212,6 @@ pub enum LobCommand {
     /// история 7), `--pilot-minutes` — пилот §11 (таск 22), `--always-on` —
     /// олвейс-он коллектор до Ctrl+C, сутки — часть (таск 25, В-34).
     Session(SessionArgs),
-    /// Вердикт бэктеста с моделью очереди на произвольное число профилей —
-    /// второй из трёх артефактов задачи (таск 11, история 32–34).
-    Backtest(BacktestArgs),
     /// Прогон-вердикт базовой сетки форм отскока (B5, В-58): покруговые дампы
     /// `--trades-out` → `net_fill`, Шарп и доли причин по форме, `DSR` лучшей
     /// формы по числу испытаний журнала.
@@ -307,7 +302,6 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Validate(args) => run_validate(&args),
         LobCommand::Archive(args) => print_archive(args),
         LobCommand::Session(args) => print_session(args),
-        LobCommand::Backtest(args) => print_backtest(args),
         LobCommand::BounceGrid(args) => print_bounce_grid(args),
         LobCommand::BounceVerdict(args) => print_bounce_verdict(args),
     }
@@ -482,19 +476,6 @@ fn print_session(args: SessionArgs) -> anyhow::Result<()> {
         summary.gaps,
         summary.clock_samples,
         summary.out.display()
-    );
-    Ok(())
-}
-
-fn print_backtest(args: BacktestArgs) -> anyhow::Result<()> {
-    let summary = run_backtest(&args)?;
-    println!(
-        "backtest: profiles={} pass={} red={} out={} pnl_out={}",
-        summary.profiles,
-        summary.pass,
-        summary.red,
-        summary.out.display(),
-        summary.pnl_out.display()
     );
     Ok(())
 }

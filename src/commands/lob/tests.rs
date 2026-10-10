@@ -444,7 +444,6 @@ fn lob_help_lists_all_subcommands() {
     sorted.sort();
     let expected = [
         "archive",
-        "backtest",
         "binlog-stats",
         "bounce-grid",
         "bounce-verdict",
