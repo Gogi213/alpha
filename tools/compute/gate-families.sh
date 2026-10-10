@@ -2,19 +2,20 @@
 # TK-164 (КТ-3b): гейт семей клеток на проб-сутках — diff 0 (cmp всех выходов) нового бинарника против опорного семьи.
 # Опись опорных бинарей — docs/findings/gate-families-2026-10-10.md. Запуск на calc ТОЛЬКО через alsched:
 #   python3 /data/sched/alsched.py submit --cls measure --name gate-fam --max-runtime 3600 --cores 4 --mem 8 --why "КТ-3b гейт семей" \
-#     -- bash /data/tk164/gate-families.sh <новый бинарник, путь> [base,r2,dl,tk115,tk115j,tk115w]
+#     -- bash /data/tk164/gate-families.sh <новый бинарник, путь> [base,r2,dl,tk115,tk115j,tk115w,tk115e]
 #   проверка самого скрипта без нового бинаря (опорный против себя, все семьи): … -- bash /data/tk164/gate-families.sh --selftest [семьи]
 # Семьи (опорный = тем, кем посчитаны числа, Летопись): base b14flag | r2 b15pyr4pgoflag | dl tk084-dl | tk115 (r3a) b26tk115r2 |
-# tk115j (signals/e106/walls, tk115-delta-day) tk115f | tk115w (chase<W>, tape/cxl, пороги v5 марта, --tape-log 30) tk115f.
+# tk115j (signals/e106/walls, tk115-delta-day) tk115f | tk115w (chase<W>, tape/cxl, пороги v5 марта, --tape-log 30) tk115f |
+# tk115e (e65: wall2/wall2x, --driver setups, журнал стен touches --wall-log) tk115f.
 # Семьи идут параллельно (каждая — своё дерево /data/tk164/*), summary.txt — строка на семью.
 # Итог: /data/tk164/gate/<семья>.txt, summary.txt (строка на семью: rc), маркер gate.done. Зелёный = rc 0 И files>0 в каждой
 # подпапке выхода И rc каждого прогона 0 (RUNFAIL/files=0/пустой выход = красный, не зелёный).
 # Каждая семья — отдельно: опорный и новый считают те же сутки в той же сессии. Новый бинарь запускается с тем же env, что опорный
 # (обёртка по образцу опорной: b14flag, b15pyr4pgoflag); у семей с сырым опорным (tk084-dl, tk115f) — без env.
 set -uo pipefail
-ALLF=base,r2,dl,tk115,tk115j,tk115w
+ALLF=base,r2,dl,tk115,tk115j,tk115w,tk115e
 if [ "${1:-}" = --selftest ]; then SELF=1; NEW=""; FAMS=${2:-$ALLF}; else SELF=0; NEW=${1:?новый бинарник (путь)}; FAMS=${2:-$ALLF}; fi
-T=/data/tk164; G=$T/gate; BIN=/opt/alpha-compute/bin; mkdir -p "$G" "$T/wrap"; rm -f "$G/gate.done" "$G/summary.txt"
+T=/data/tk164; G=${GATE_DIR:-$T/gate}; BIN=/opt/alpha-compute/bin; mkdir -p "$G" "$T/wrap"; rm -f "$G/gate.done" "$G/summary.txt"
 # семья: опорный (в $BIN или путь) | месяц | сутки | скрипт суток | клетки (для счёта got/exp, пусто — только files>0)
 fam_conf() {
   case $1 in
@@ -23,7 +24,7 @@ fam_conf() {
     r2)    REF=$BIN/alpha-b15pyr4pgoflag;     MON=mar; DAY=2026-03-07; SCR=/data/tk065/days/r2-2026-03-07.sh;  CELLS=/data/tk065/days/r2-2026-03-07.cells;;
     dl)    REF=$BIN/alpha-tk084-dl;           MON=mar; DAY=2026-03-07; SCR=/data/tk084/days/p12-2026-03-07.sh; CELLS=/data/tk084/days/p12-2026-03-07.cells;;
     tk115) REF=$BIN/alpha-b26tk115r2;         MON=mar; DAY=2026-03-07; SCR=/data/tk065/days/r3a-2026-03-07.sh; CELLS=/data/tk065/days/r3a-2026-03-07.cells;;
-    tk115j|tk115w) REF=/data/tk0115/bin/alpha-tk115f; MON=mar; DAY=2026-03-07;;
+    tk115j|tk115w|tk115e) REF=/data/tk0115/bin/alpha-tk115f; MON=mar; DAY=2026-03-07;;
   esac
 }
 mkwrap() {  # $1 опорный $2 новый → путь, который кладётся в bin/alpha-tk044k1-new (обёртка с env опорной, если опорная — скрипт)
@@ -47,6 +48,11 @@ run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сут�
   echo "run $1 rc=$rc cells_got=$got cells_exp=$exp rounds_files=$nr"
   # base: forms.csv перечисляет только клетки с исходами за сутки (66 из 241), счёт клеток не применим — rc=0 и rounds>0
   [ "$rc" = 0 ] && [ "$nr" -gt 0 ] && { [ "$got" = "$exp" ] || [ "$5" = jall ]; } || { echo "RUNFAIL $1 (rc=$rc rounds=$nr got=$got/$exp)"; return 1; }
+}
+refvsprod() {  # $1 каталог опорного b5 $2 боевой b5: forms.csv и rounds*.csv опорного побайтно = боевым (опорный = тем, кем посчитаны числа)
+  local n=0 bad=0 f
+  for f in $(cd "$1" && find . -type f \( -name forms.csv -o -name 'rounds*.csv' \) | sort); do n=$((n+1)); cmp -s "$1/$f" "$2/$f" || { bad=$((bad+1)); echo "PRODDIFF $f"; }; done
+  echo "ref_vs_prod files=$n diff=$bad"; [ "$n" -gt 0 ] && [ "$bad" = 0 ]
 }
 cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0, одинаковый список; красный при files=0
   local n=0 bad=0 f la lb
@@ -78,12 +84,34 @@ tk115w_run() {  # $1 метка $2 бинарь: сетка B1 суток (ло�
   echo "run tk115w $1 rc=$rc форм_got=$got форм_exp=$(echo $WFORMS | wc -w) rounds_files=$(find "$W/out" -name 'rounds*.csv' | wc -l)"
   [ "$rc" = 0 ] && [ "$(find "$W/out" -name 'rounds*.csv' | wc -l)" -gt 0 ] && [ "$got" = "$(echo $WFORMS | wc -w)" ] || { echo "RUNFAIL tk115w $1 (rc=$rc got=$got)"; return 1; }
 }
+tk115e_run() {  # $1 метка $2 бинарь: e65 (wall2/wall2x) — touches --r1-cols --wall-log по символам B1 суток + сетка --driver setups (отказ без журнала стен)
+  local MON=mar d=2026-03-07 BN=$2 H=/data/tk046/mar/home W=$T/xe-$1 x b rc=0 s got nr
+  local E=$H/alpha/epochs/e-mar V=/data/tk044/final3/verdict.csv
+  rm -rf "$W"; mkdir -p "$W/b5" "$W/bin" "$W/study/approaches" "$W/wt/D20/$d" "$W/log"; ln -s "$BN" "$W/bin/alpha-tk044k1-new"
+  for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in study|b5|b5-ref|b5-solo|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$(readlink -f "$x")" "$W/$b"; done
+  for x in "$E"/study/*; do b=$(basename "$x"); case $b in root-*|approaches) continue;; esac; ln -s "$(readlink -f "$x")" "$W/study/$b"; done
+  ln -s "$(readlink -f "$E/study/root-$d")" "$W/study/root-$d"
+  awk -F, -v m="$MON" -v d="$d" 'NR>1 && $1==m && $2==d{print $3}' /data/tk0115/delta/b1-symdays.csv | sort -u > "$W/syms.txt"
+  awk -F, -v d="$d" 'NR==FNR{s[$1]=1;next} FNR==1||($2==d&&($1 in s))' "$W/syms.txt" "$V" > "$W/verdict-b1.csv"
+  export HOME=$H
+  xargs -P 4 -I{} bash -c 'nice -n 5 "'"$BN"'" lob touches --root "'"$W"'/study/root-'"$d"'" --symbol {} --h3-mode notional --h3-usd 10000 --approach-bps 20 --r1-cols --wall-log --out "'"$W"'/wt/D20/'"$d"'/touches-{}.csv" > "'"$W"'/log/touches-{}.log" 2>&1 || echo "{} TOUCHES_FAIL" >> "'"$W"'/fail.txt"' < "$W/syms.txt"
+  [ ! -s "$W/fail.txt" ] || { echo "RUNFAIL tk115e $1 touches: $(head -3 "$W/fail.txt")"; return 1; }
+  ( cd "$W" && nice -n 5 "$BN" lob bounce-grid --verdict-csv "$W/verdict-b1.csv" --root "study/root-$d" --touches-from wt/D20 --signal approach --queue-model prob:3 --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000     --regime-from study/regime --order-usd 500 --carry-root root --h3-mode notional --h3-usd 10000 --entry-ttl-secs 1800 --band-exit-bps 20     --busy-skip off --threads 2 --hold-step skip --exit-group on --driver setups --events wide --entry-form ladder3x0..0.0409sw2 --sigma-from study/sigma240     --stop-form pct2 --take-form tr1x1 --deadline-secs 14400 --exit-form wall2 --exit-form wall2x     --set t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55 --r1-cols --out-dir "b5/out-$d" > "$W/grid.log" 2>&1 ); rc=$?
+  mkdir -p "$W/out"; cp -r "$W/b5/out-$d"/. "$W/out"/ 2>/dev/null; cp "$W/wt/D20/$d"/walls-*.csv "$W/out"/ 2>/dev/null
+  got=$(find "$W/out" -name 'forms.csv' | xargs -r cat | awk -F, -v d="$d" '$2==d{print $3}' | sort -u | grep -c .)
+  nr=$(find "$W/out" -name 'rounds*.csv' | wc -l); s=$(find "$W/out" -name 'walls-*.csv' | wc -l)
+  echo "run tk115e $1 rc=$rc форм_got=$got (exp 2: wall2,wall2x) rounds_files=$nr walls_files=$s"
+  [ "$rc" = 0 ] && [ "$nr" -gt 0 ] && [ "$s" -gt 0 ] && [ "$got" -ge 2 ] || { echo "RUNFAIL tk115e $1 (rc=$rc got=$got rounds=$nr walls=$s)"; return 1; }
+}
 fam_ext() {  # $1 tk115j|tk115w: ref и new в одной сессии, сверка
   local f=$1 rc=0 nb s; fam_conf "$f"; nb=$NEW; [ $SELF = 1 ] && nb=$REF
   nb=$(readlink -f "$nb")
   if [ "$f" = tk115j ]; then
     tk115j_run ref "$REF" || rc=1; tk115j_run new "$nb" || rc=1
     for s in signals e106 walls; do cmpdirs /data/tk0115/delta/g164-ref/$s /data/tk0115/delta/g164-new/$s || rc=1; done
+  elif [ "$f" = tk115e ]; then
+    tk115e_run ref "$REF" || rc=1; tk115e_run new "$nb" || rc=1
+    cmpdirs "$T/xe-ref/out" "$T/xe-new/out" || rc=1
   else
     tk115w_run ref "$REF" || rc=1; tk115w_run new "$nb" || rc=1
     cmpdirs "$T/xw-ref/out" "$T/xw-new/out" || rc=1
@@ -92,13 +120,14 @@ fam_ext() {  # $1 tk115j|tk115w: ref и new в одной сессии, свер
 }
 fam_one() {  # $1 семья
   local f=$1 d rc=0 nb w
-  case $f in tk115j|tk115w) fam_ext "$f"; return $?;; esac
+  case $f in tk115j|tk115w|tk115e) fam_ext "$f"; return $?;; esac
   fam_conf "$f"; nb=$NEW; [ $SELF = 1 ] && nb=$REF
   w=$(mkwrap "$REF" "$nb")
   for d in ${DAY//,/ }; do
     run_day "$f-ref-$d" "$(mkwrap "$REF" "$REF")" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     run_day "$f-new-$d" "$w" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     cmpdirs "$T/w-$f-ref-$d/b5" "$T/w-$f-new-$d/b5" || rc=1
+    [ "$f" = r2 ] && { refvsprod "$T/w-$f-ref-$d/b5" "/data/tk065/w-$d/b5" || rc=1; }
   done
   echo "family=$f rc=$rc"; return $rc
 }

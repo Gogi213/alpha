@@ -11,8 +11,9 @@
 | tk115 (r3a: halfstopf1/3, halflevelf1/3) | `alpha-b26tk115r2` d5edb7c6 (`readlink` t15a-2026-03-07) | `/data/tk065/days/r3a-2026-03-07.sh` | 5 клеток t-bid | `/data/tk065/t15a-2026-03-07` | 2026-03-07 |
 | tk115j (signals/e106/walls) | `alpha-tk115f` 40b14da2 (`/data/tk0115/bin`) | `/data/tk0115/tk115-delta-day.sh` (метка `g164-ref/new`) | e106 + t-bid, стены | `/data/tk0115/delta/wave/<сутки>` | 2026-03-07 |
 | tk115w (e133 chase<W>, e112 tape, e116 cxl, журналы `--tape-log 30`) | `alpha-tk115f` 40b14da2 | копия логики `tk115-w-day.sh` в скрипте (`/data/tk164/xw-*`; боевой `delta/w` не трогается) | 8 форм: chase86400000, chase6040/12080/24160 (W=12080×0,5/1/2), tape30q 0.014653226867454029 / 0.21387408589803297, cxl30q 1.5778084895559001 / 15.839990627236537 (пороги v5 марта, `p12-r2b-thresholds-2026-10-10.json`) | — | 2026-03-07 |
+| tk115e (e65: wall2 = e65-t2, wall2x = e65-t2x; `--driver setups --exit-group on --busy-skip off`, журнал стен `lob touches --r1-cols --wall-log` по символам B1 суток) | `alpha-tk115f` 40b14da2 | `tk115e_run` в скрипте (`/data/tk164/xe-*`) | 2 формы: wall2, wall2x (без журнала стен форма отказывает) | — | 2026-03-07 |
 
-Формы e65/e114 f/g82-60s/g95 в сетке tk115j/tk115w/r3a не заданы — гейт им нужен, когда клетки появятся в сетке КТ-3a (Судье: отдельным тикетом или формой в `WFORMS`).
+Покрытие форм усл.3 TK-143: e112/e116/e133 — tk115w; e106, g82-60s (журналы r1-cols) — tk115j; e114 f (halfstopf1/3, halflevelf1/3) и g95 (sw3) — r3a (`tk115`); e65 — tk115e. Не заданы: g95 sw4/sw5 (формат `ladder…sw<k>` есть, гейт r3a держит sw3).
 
 Новый бинарь семьям с обёрткой (base, r2) запускается с тем же env: `mkwrap` берёт опорную обёртку и заменяет `exec`; у сырых опорных (dl, tk115*, b26) — без env.
 Не удалять: alpha-tk115f, b26tk115r2, tk084-dl, b14flag, b15pyr4pgoflag (TK-143 п.1, С-56, КТ-9). `/data/bin/MANIFEST.tsv` на calc нет (КТ-1) — опись здесь.
