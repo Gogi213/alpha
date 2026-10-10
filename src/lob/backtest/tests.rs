@@ -9,9 +9,8 @@
 //! |---|---|---|
 //! | `--hold-step skip` | `hold_skip_matches_polling_byte_for_byte` | — |
 //! | `ALPHA_FAST_HOLD=1` | `fast_hold_handoff_equals_continuous`, `group_fast_hold_matches_group_without_it` | — |
-//! | `ALPHA_HOLD_INDEX=1` | `hold_index_matches_tracker` | `tk048-e36-run.sh`, `tk048-e40-run.sh` (с `ALPHA_HOLD_INDEX_CHECK=1`) |
 //! | `ALPHA_ADMIT_SOA=1` | `bounce_grid::tests` («`admits` по строкам `AdmitRow` …») | — |
-//! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE`, `ALPHA_TRIM_ROWS`, `ALPHA_HORIZON_GROW`, `ALPHA_EVENT_STEPS`, `ALPHA_BAND_COUNT_OFF=0` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
+//! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE`, `ALPHA_EVENT_STEPS` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
 //!
 //! Новый флаг без строки в этой таблице не принимается.
 
@@ -2206,32 +2205,6 @@ fn hold_skip_matches_polling_byte_for_byte() {
             let c = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat);
             fast_hold::FORCE_ON.with(|f| f.set(false));
             assert_eq!(a, c.unwrap(), "{name}, busy_skip {busy_skip}: быстрый путь");
-            // TK-048 К-4: то же с индексом удержания.
-            fast_hold::FORCE_ON.with(|f| f.set(true));
-            fast_hold::FORCE_IDX.with(|f| f.set(true));
-            let d = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat);
-            fast_hold::FORCE_IDX.with(|f| f.set(false));
-            fast_hold::FORCE_ON.with(|f| f.set(false));
-            assert_eq!(
-                a,
-                d.unwrap(),
-                "{name}, busy_skip {busy_skip}: индекс удержания"
-            );
-            // Буферный путь (компактная лента): индекс суток развёрнут из вида, результат тот же, что без него.
-            if let Some(cf) = feed.iter().map(try_compact_of).collect::<Option<Vec<_>>>() {
-                let cw = SignalWindows::build(&cf, &[S, 3 * S], 1.0, 1.0);
-                let ca = drive_bounce_windowed(&cf, &cw, &signals, &poll, lat).unwrap();
-                fast_hold::FORCE_ON.with(|f| f.set(true));
-                fast_hold::FORCE_IDX.with(|f| f.set(true));
-                let cd = drive_bounce_windowed(&cf, &cw, &signals, &skip, lat);
-                fast_hold::FORCE_IDX.with(|f| f.set(false));
-                fast_hold::FORCE_ON.with(|f| f.set(false));
-                assert_eq!(
-                    ca,
-                    cd.unwrap(),
-                    "{name}, busy_skip {busy_skip}: индекс суток, буферный путь"
-                );
-            }
             fast_used += fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
                 + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed)
                 - used;
@@ -2244,10 +2217,6 @@ fn hold_skip_matches_polling_byte_for_byte() {
         }
     }
     assert!(fast_used > 0, "быстрый путь обязан хотя бы раз сработать");
-    assert!(
-        fast_hold::IDX_ROUNDS.load(std::sync::atomic::Ordering::Relaxed) > 0,
-        "индексный путь обязан хотя бы раз сработать"
-    );
 }
 
 /// Память кругов (G10) берёт круг только при тех же сиротах на входе (в нумерации от базы прогона): круг
@@ -2661,104 +2630,4 @@ fn fast_hold_handoff_equals_continuous() {
         fast_hold_handoff_case(QueueModelKind::RiskAdverse, step);
         fast_hold_handoff_case(QueueModelKind::Prob { n: 3.0 }, step);
     }
-}
-
-/// TK-048 К-4а: индекс суток отдаёт те же лучшие цены, объём тика и сделки, что `HoldTracker` в каждом узле.
-#[test]
-fn hold_index_matches_tracker() {
-    use super::fast_hold::HoldTracker;
-    use super::hold_index::{BookSide, HoldIdx};
-    use hftbacktest::depth::{L2MarketDepth, MarketDepth};
-    let mut rows = Vec::new();
-    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
-    let mut rnd = |m: u64| {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        x % m
-    };
-    let mut ts = 1_000_000_i64;
-    for _ in 0..9000 {
-        ts += 1 + rnd(30_000_000) as i64;
-        let px = 100.0 + rnd(9) as f64;
-        let qty = if rnd(4) == 0 {
-            0.0
-        } else {
-            1.0 + rnd(20) as f64
-        };
-        match rnd(5) {
-            0 | 1 => rows.push(depth_at(ts, true, px - 4.0, qty)),
-            2 | 3 => rows.push(depth_at(ts, false, px + 1.0, qty)),
-            _ => rows.push(trade_at(ts, rnd(2) == 0, px - 2.0, 1.0 + rnd(5) as f64)),
-        }
-    }
-    let mut base = FastMarketDepth::new(1.0, 1.0);
-    base.update_bid_depth(97.0, 5.0, 0);
-    base.update_ask_depth(102.0, 5.0, 0);
-    let snap = DepthSnapshot::of(&base);
-    let idx = HoldIdx::build(&rows, 0, &snap, 1.0, 1.0).expect("лента без очисток");
-    let mut tr = HoldTracker::new(&rows, 0, base);
-    let mut handoffs = 0;
-    let mut t0 = 0;
-    let mut t = 0;
-    while t < ts + 20_000_000 {
-        t += 10_000_000;
-        tr.advance_to(t);
-        let (b, a) = idx.best_at(t);
-        assert_eq!(
-            (b, a),
-            (tr.book().best_bid_tick(), tr.book().best_ask_tick()),
-            "t={t}"
-        );
-        for tick in 92..=106 {
-            assert_eq!(
-                idx.qty_at(BookSide::Bid, tick, t),
-                tr.book().bid_qty_at_tick(tick),
-                "bid {tick} t={t}"
-            );
-            assert_eq!(
-                idx.qty_at(BookSide::Ask, tick, t),
-                tr.book().ask_qty_at_tick(tick),
-                "ask {tick} t={t}"
-            );
-            for sell in [true, false] {
-                let mut want = 0.0;
-                for e in tr.trades.iter().filter(|e| {
-                    (e.ev
-                        & if sell {
-                            EXCH_SELL_TRADE_EVENT
-                        } else {
-                            EXCH_BUY_TRADE_EVENT
-                        })
-                        != 0
-                        && e.px.round() as i64 == tick
-                }) {
-                    want += e.qty;
-                }
-                let got: f64 = idx.trades_in(sell, tick, t0, t).iter().map(|x| x.qty).sum();
-                assert_eq!(got, want, "trades {tick} sell={sell} t={t}");
-            }
-        }
-        if (t / 10_000_000) % 37 == 0 {
-            let want = tr.handoff(t, 1.0, 1.0);
-            let got = idx.handoff(&rows, &rows, 0, 0, t, 1.0, 1.0);
-            assert_eq!(want.is_some(), got.is_some(), "handoff t={t}");
-            if let (Some(w), Some(g)) = (want, got) {
-                assert_eq!((w.t_ns, w.tail_start), (g.t_ns, g.tail_start), "t={t}");
-                assert_eq!(w.local, g.local, "local t={t}");
-                assert_eq!(w.exch, g.exch, "exch t={t}");
-                assert_eq!(w.middle.len(), g.middle.len(), "middle t={t}");
-                for (x, y) in w.middle.iter().zip(&g.middle) {
-                    assert_eq!(
-                        (x.ev, x.local_ts, x.px, x.qty),
-                        (y.ev, y.local_ts, y.px, y.qty)
-                    );
-                }
-                handoffs += 1;
-            }
-        }
-        tr.take_trades().for_each(drop);
-        t0 = t;
-    }
-    assert!(handoffs > 50, "handoff сравнён {handoffs} раз");
 }

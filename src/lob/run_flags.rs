@@ -24,8 +24,6 @@ pub struct RunFlags {
     pub sig_cache: Option<usize>,
     /// `ALPHA_ATTEMPT_STATS` задан.
     pub attempt_stats: bool,
-    /// `ALPHA_BAND_COUNT_OFF=0`: включить счёт полос без остальной статистики.
-    pub band_count_on: bool,
     /// `ALPHA_HOLDS_MEMO=1`.
     pub holds_memo: bool,
     /// `ALPHA_ADMIT_SOA=1`.
@@ -34,20 +32,12 @@ pub struct RunFlags {
     pub admit_cache: bool,
     /// `ALPHA_SKIP_NOSIGNAL` задан.
     pub skip_nosignal: bool,
-    /// `ALPHA_TRIM_ROWS=<bps>`: полоса урезания ленты суток.
-    pub trim_rows: Option<i64>,
     /// `ALPHA_TICK_STATS=1`.
     pub tick_stats: bool,
     /// `ALPHA_FAST_HOLD=1`.
     pub fast_hold: bool,
-    /// `ALPHA_HOLD_INDEX=1`.
-    pub hold_index: bool,
-    /// `ALPHA_HOLD_INDEX_CHECK=1`.
-    pub hold_index_check: bool,
     /// `ALPHA_SKIP_SAME=1`.
     pub skip_same: bool,
-    /// `ALPHA_HORIZON_GROW=1`.
-    pub horizon_grow: bool,
     /// `ALPHA_EVENT_STEPS=1|entry`.
     pub event_steps: EventSteps,
     /// `ALPHA_R2_TRACE` задан.
@@ -105,18 +95,13 @@ impl RunFlags {
                 .and_then(|n| usize::try_from(n).ok())
                 .filter(|&n| n > 0),
             attempt_stats: set("ALPHA_ATTEMPT_STATS"),
-            band_count_on: get("ALPHA_BAND_COUNT_OFF") == Some("0"),
             holds_memo: one("ALPHA_HOLDS_MEMO"),
             admit_soa: one("ALPHA_ADMIT_SOA"),
             admit_cache: one("ALPHA_ADMIT_CACHE"),
             skip_nosignal: set("ALPHA_SKIP_NOSIGNAL"),
-            trim_rows: num("ALPHA_TRIM_ROWS"),
             tick_stats: one("ALPHA_TICK_STATS"),
             fast_hold: one("ALPHA_FAST_HOLD"),
-            hold_index: one("ALPHA_HOLD_INDEX"),
-            hold_index_check: one("ALPHA_HOLD_INDEX_CHECK"),
             skip_same: one("ALPHA_SKIP_SAME"),
-            horizon_grow: one("ALPHA_HORIZON_GROW"),
             event_steps: match get("ALPHA_EVENT_STEPS") {
                 Some("1") => EventSteps::All,
                 Some("entry") => EventSteps::Entry,

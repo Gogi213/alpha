@@ -79,8 +79,8 @@ impl FastMarketDepth {
 }
 
 pub use crate::lob::diag::{
-    note_band, note_order_dist, set_watch_tick, BAND_COUNT_OFF, BAND_STATS_ON, DEPTH_ROW_BANDS,
-    DEPTH_ROW_CLASS, ORDER_DIST,
+    note_band, note_order_dist, set_watch_tick, BAND_STATS_ON, DEPTH_ROW_BANDS, DEPTH_ROW_CLASS,
+    ORDER_DIST,
 };
 
 // Числа и приведения — как в крейте, строка в строку (гейт «байт в байт»).

@@ -110,6 +110,7 @@ mod forms;
 mod outputs;
 mod plan;
 mod sets;
+mod steps;
 mod verdict;
 
 use args::SignalArg;
@@ -117,7 +118,7 @@ pub use args::{BounceGridArgs, BounceGridSummary};
 pub(crate) use cache::cached_touches;
 use cache::{cached_approaches, cached_walls, DayTouches};
 use carry::{carry_boundary, carry_window_ns, extend_with_carry};
-use drive::{day_events, day_windows, drive_day, DayParams, DayRows, OrderSizing};
+use drive::{day_events, drive_day, DayParams, DayRows, OrderSizing};
 use entry_sigma::EntrySigma;
 pub use forms::{grid_forms, ExitForm, GridForm};
 use outputs::FormDayResult;
@@ -132,11 +133,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::backtest::{read_day_schedule, read_tick_step};
-use super::profiles::read_verify_marker;
-use super::{
-    replay_symbol_touches_and_second_mids, resolve_h3_mode_full, session_parts_for,
-    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
-};
+use super::{resolve_h3_mode_full, session_parts_for, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 use crate::book::Side;
 use crate::lob::backtest::{BounceSignal, CompactEvent, RoundMemo, SignalWindows};
 use crate::lob::levels::LevelsConfig;
@@ -490,15 +487,18 @@ impl<'a> GridRun<'a> {
             None => vec![all_forms.as_slice(); sets.len()],
         };
 
-        let marker = args.root.join(format!("verify-{symbol}.status"));
-        if args.verdict_csv.is_none() && !args.allow_unverified && !read_verify_marker(&marker) {
-            eprintln!(
-                "bounce-grid: {symbol} — маркер {} не `ok`, символ пропущен (fail-closed; --allow-unverified для отладки)",
-                marker.display()
-            );
-            summary.symbols_skipped_unverified += 1;
-            return Ok(());
-        }
+        let day_verdicts = match verdict::gate(args, symbol)? {
+            verdict::K1::Refused(marker) => {
+                eprintln!(
+                    "bounce-grid: {symbol} — маркер {} не `ok`, символ пропущен (fail-closed; --allow-unverified для отладки)",
+                    marker.display()
+                );
+                summary.symbols_skipped_unverified += 1;
+                return Ok(());
+            }
+            verdict::K1::Pass => None,
+            verdict::K1::Days(v) => Some(v),
+        };
         let started = Instant::now();
         let parts = session_parts_for(&args.root, symbol)?;
         anyhow::ensure!(
@@ -539,27 +539,9 @@ impl<'a> GridRun<'a> {
         }
         // K1 по суткам (`--verdict-csv`, В-181): вместо маркера символа — вердикт гейта на каждые сутки;
         // сутки не «пускаем» или без строки вердикта отброшены с причиной (fail-closed).
-        if let Some(vp) = args.verdict_csv.as_deref() {
-            let verdicts = verdict::read_day_verdicts(vp, symbol)?;
-            let before = parts_by_day.len();
-            parts_by_day.retain(|day, _| {
-                let allowed = match verdicts.get(day) {
-                    Some((true, _)) => true,
-                    Some((false, why)) => {
-                        eprintln!("bounce-grid: {symbol} {day} — отказ вердикта: {why}");
-                        false
-                    }
-                    None => {
-                        eprintln!(
-                            "bounce-grid: {symbol} {day} — отказ: суток нет в вердикте {}",
-                            vp.display()
-                        );
-                        false
-                    }
-                };
-                allowed
-            });
-            summary.days_refused_verdict += before - parts_by_day.len();
+        if let (Some(vp), Some(verdicts)) = (args.verdict_csv.as_deref(), &day_verdicts) {
+            summary.days_refused_verdict +=
+                verdict::retain_allowed(&mut parts_by_day, verdicts, symbol, vp);
             if parts_by_day.is_empty() {
                 eprintln!(
                     "bounce-grid: {symbol} — ни одних суток с вердиктом «пускаем», символ пропущен"
@@ -573,55 +555,16 @@ impl<'a> GridRun<'a> {
         // (`session_parts_for`) — понадобятся только на границе D/D+1 (день
         // без своих частей в этом корне — перенос выключен для символа, не
         // отказ всей сетки: корень может знать не про все символы `--root`).
-        let carry_parts_by_day: BTreeMap<String, Vec<PathBuf>> = match &args.carry_root {
-            Some(dir) => match session_parts_for(dir, symbol) {
-                Ok(parts) => {
-                    let mut m: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
-                    for p in parts {
-                        m.entry(p.day_utc.clone()).or_default().push(p.path.clone());
-                    }
-                    m
-                }
-                Err(e) => {
-                    eprintln!(
-                        "bounce-grid: {symbol} — --carry-root {}: {e}, перенос выключен для символа",
-                        dir.display()
-                    );
-                    BTreeMap::new()
-                }
-            },
-            None => BTreeMap::new(),
-        };
+        let carry_parts_by_day = steps::carry_parts_by_day(args, symbol);
         // S1: касания один раз на символ — общие для всех форм; из кэша
         // `--touches-from` (сутки корня) или реплеем книги, тогда вместе с
         // ними срезы середины по границам секунд — для ряда `σ` (В-62).
         // F6 (В-73): `--signal approach` — записи подхода из того же кэша
         // (`approaches-<SYMBOL>.csv`, F1); реплея подходов нет — полосу `D`
         // задаёт прогон `lob touches --approach-bps` (проверено выше).
-        if args.touches_cache_only && args.signal != SignalArg::Approach {
-            if let Some(dir) = args.touches_from.as_deref() {
-                if !dir.join(format!("touches-{symbol}.csv")).is_file() {
-                    let before = parts_by_day.len();
-                    parts_by_day.retain(|day, _| {
-                        dir.join(day)
-                            .join(format!("touches-{symbol}.csv"))
-                            .is_file()
-                    });
-                    if parts_by_day.is_empty() {
-                        eprintln!(
-                            "bounce-grid: {symbol} — в кэше касаний нет ни одних суток корня, символ пропущен (--touches-cache-only)"
-                        );
-                        summary.symbols_without_touches += 1;
-                        return Ok(());
-                    }
-                    if parts_by_day.len() < before {
-                        eprintln!(
-                            "bounce-grid: {symbol} — суток без кэша касаний {} из {before}, пропущены (--touches-cache-only)",
-                            before - parts_by_day.len()
-                        );
-                    }
-                }
-            }
+        if !steps::prune_days_without_cache(args, symbol, &mut parts_by_day) {
+            summary.symbols_without_touches += 1;
+            return Ok(());
         }
         e2e::stage(symbol, "*", "setup", e2e_setup, serde_json::json!({}));
         let e2e_touches = e2e::Mark::now();
@@ -647,47 +590,7 @@ impl<'a> GridRun<'a> {
                 summary.symbols_without_touches += 1;
                 return Ok(());
             };
-            // T-35: `frontrun_min=` на подходах читает `frontrun_lots_at_arm` (T-28); в старом кэше колонки нет
-            // (читается как −1) — отказ, а не молчаливый ноль сигналов.
-            anyhow::ensure!(
-                !sets.iter().any(|s| s.frontrun_min_lots.is_some())
-                    || days.iter().all(|d| d.touches.iter().all(|t| t.frontrun_lots >= 0)),
-                "{symbol}: `frontrun_min=` на подходах — нужен кэш с колонкой frontrun_lots_at_arm (T-28, `{}`)",
-                dir.display()
-            );
-            // Г-07: `stack_min=` на подходах читает `stack_levels_at_arm` (те же колонки T-28, что
-            // `frontrun_lots_at_arm`); старый кэш без них — отказ, а не молчаливый ноль сигналов.
-            anyhow::ensure!(
-                !sets.iter().any(|s| s.stack_min.is_some())
-                    || days.iter().all(|d| d.touches.iter().all(|t| t.frontrun_lots >= 0)),
-                "{symbol}: `stack_min=` на подходах — нужен кэш с колонкой stack_levels_at_arm (T-28, `{}`)",
-                dir.display()
-            );
-            // TK-012: `--p08-cols` читает колонки `ArmP08` кэша подходов; старый кэш без них — отказ,
-            // а не пустые клетки.
-            anyhow::ensure!(
-                !args.p08_cols
-                    || days.iter().all(|d| {
-                        d.approaches
-                            .as_deref()
-                            .is_some_and(|ap| ap.iter().all(|a| a.p08.is_some()))
-                    }),
-                "{symbol}: --p08-cols — нужен кэш подходов с колонками traded_lots_at_arm… (TK-012, `{}`), пересчитайте `lob touches --approach-bps`",
-                dir.display()
-            );
-            // TK-025: колонки R1 — для `--r1-cols` и для ключей `r1_*` наборов; старый кэш без них —
-            // отказ, а не пустые клетки и не молчаливый ноль сигналов (читатель даёт `r1 = Some` ровно
-            // тогда, когда колонки в файле есть).
-            anyhow::ensure!(
-                !(args.r1_cols || sets.iter().any(FilterSet::uses_r1))
-                    || days.iter().all(|d| {
-                        d.approaches
-                            .as_deref()
-                            .is_some_and(|ap| ap.iter().all(|a| a.r1.is_some()))
-                    }),
-                "{symbol}: --r1-cols / ключи r1_* — нужен кэш подходов с колонками R1 (TK-025, `{}`), пересчитайте `lob touches --approach-bps --r1-cols`",
-                dir.display()
-            );
+            steps::ensure_approach_cache(args, sets, symbol, dir, &days)?;
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
@@ -716,40 +619,7 @@ impl<'a> GridRun<'a> {
                     if let Some(Err(why)) = other {
                         eprintln!("bounce-grid: {symbol} — кэш касаний не годится ({why}), реплей");
                     }
-                    let replay = replay_symbol_touches_and_second_mids(
-                        &args.root,
-                        symbol,
-                        cfg_levels,
-                        args.carry_age,
-                    )?;
-                    let mut all =
-                        Vec::with_capacity(replay.days.iter().map(|d| d.mids.len()).sum());
-                    for d in &replay.days {
-                        all.extend(d.mids.iter().copied());
-                    }
-                    let days = replay
-                        .days
-                        .into_iter()
-                        .map(|d| DayTouches {
-                            rets: d
-                                .touches
-                                .iter()
-                                .map(|t| {
-                                    std::array::from_fn(|k| {
-                                        super::touches::pre_touch_return_bps_csv(
-                                            &d.mids,
-                                            t.start_ms,
-                                            super::touches::PRE_TOUCH_MS[k],
-                                        )
-                                    })
-                                })
-                                .collect(),
-                            day: d.day,
-                            touches: d.touches,
-                            approaches: None,
-                        })
-                        .collect();
-                    (days, SigmaSeries::from_mids(&all))
+                    steps::replay_days(args, symbol, cfg_levels)?
                 }
             }
         };
@@ -936,52 +806,16 @@ impl<'a> GridRun<'a> {
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
             // Окна: при `--extra-runs` прогоны символ-суток делят окна. Нет всех своих `t0` в кэше —
             // строим для своих + кэшированных (одно объединение вместо отдельного прохода на прогон).
-            let own_t0s: Vec<i64> = day
-                .touches
-                .iter()
-                .map(|t| t.start_ms.saturating_mul(1_000_000))
-                .collect();
-            let cache_ok = shared.is_some() && !args.windows_check;
-            let cached = if cache_ok {
-                shared.as_ref().and_then(|s| {
-                    s.windows
-                        .get(&carry_key)
-                        .filter(|e| e.1 == tick.to_bits() && e.2 == lot.to_bits())
-                        .cloned()
-                })
-            } else {
-                None
-            };
             let e2e_windows = e2e::Mark::now();
-            let windows: Option<Arc<SignalWindows>> = match cached {
-                Some((t0s, _, _, w)) if own_t0s.iter().all(|t| t0s.binary_search(t).is_ok()) => {
-                    eprintln!(
-                        "bounce-grid:   окна: из кэша символ-суток ({} снимков)",
-                        w.len()
-                    );
-                    Some(w)
-                }
-                other => {
-                    let known: &[i64] = other.as_ref().map_or(&[], |e| e.0.as_slice());
-                    let pre: &[i64] = shared
-                        .as_ref()
-                        .and_then(|s| s.pre_t0.get(&day.day))
-                        .map_or(&[], Vec::as_slice);
-                    let mut all: Vec<i64> =
-                        own_t0s.iter().chain(known).chain(pre).copied().collect();
-                    all.sort_unstable();
-                    all.dedup();
-                    let w = day_windows(rows, &all, args.driver, tick, lot, args.windows_check)?
-                        .map(Arc::new);
-                    if let (true, Some(w), Some(s)) = (cache_ok, w.as_ref(), shared.as_mut()) {
-                        s.windows.insert(
-                            carry_key.clone(),
-                            (all, tick.to_bits(), lot.to_bits(), w.clone()),
-                        );
-                    }
-                    w
-                }
-            };
+            let windows = steps::day_signal_windows(
+                shared.as_deref_mut(),
+                args,
+                day,
+                rows,
+                &carry_key,
+                tick,
+                lot,
+            )?;
             e2e::stage(
                 symbol,
                 &day.day,
@@ -1004,19 +838,13 @@ impl<'a> GridRun<'a> {
             }
             let step_schedule = read_day_schedule(day_parts, tick_e9, step_e9)
                 .map_err(|e| anyhow::anyhow!("{symbol} {}: {e}", day.day))?;
-            let mut order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
-            if let Some(sc) = step_schedule.as_ref() {
-                // В-172: размер ордера кратен лоту, действовавшему в момент касания (вверх — минимум не нарушаем).
-                for (q, t) in order_qtys.iter_mut().zip(&day.touches) {
-                    let lot_e9 = sc.at(t.start_ms.saturating_mul(1_000_000)).1;
-                    if lot_e9 > 0 {
-                        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-                        let q_e9 = (*q * 1e9).round() as i64;
-                        let steps = (q_e9 + lot_e9 - 1) / lot_e9;
-                        *q = (steps.saturating_mul(lot_e9)) as f64 / 1e9;
-                    }
-                }
-            }
+            let order_qtys = steps::day_order_qtys(
+                &sizing,
+                day,
+                step_schedule.as_ref(),
+                tick_e9,
+                args.order_qty_mult,
+            );
             e2e::stage(
                 symbol,
                 &day.day,
@@ -1192,111 +1020,7 @@ impl<'a> GridRun<'a> {
                 rounds,
                 day_started.elapsed().as_secs_f64()
             );
-            // Р6: пересчёты кругов из-за короткого горизонта развёртки — строка только когда были
-            // (прежний stderr не меняется); на итог не влияют, только на время.
-            let retries = crate::lob::backtest::HORIZON_RETRIES
-                .load(std::sync::atomic::Ordering::Relaxed)
-                .saturating_sub(retries_before);
-            if retries > 0 {
-                eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
-                if self.flags.attempt_stats {
-                    use crate::lob::backtest::{ATTEMPT_ROWS, ATTEMPT_RUNS, ATTEMPT_USED};
-                    let g = |a: &[std::sync::atomic::AtomicU64]| {
-                        a.iter()
-                            .map(|x| x.load(std::sync::atomic::Ordering::Relaxed).to_string())
-                            .collect::<Vec<_>>()
-                            .join("/")
-                    };
-                    eprintln!(
-                        "bounce-grid:   попытки (0/1/2/3+, нарастающим итогом процесса): прогонов {} строк {}",
-                        g(&ATTEMPT_RUNS),
-                        g(&ATTEMPT_ROWS)
-                    );
-                    eprintln!(
-                        "bounce-grid:   дошли по часам (local_ts <= now, 0/1/2/3+): {}",
-                        g(&ATTEMPT_USED)
-                    );
-                    eprintln!(
-                        "bounce-grid:   строки движка по состоянию (до входа/живая заявка/позиция без заявок/вне шага, обе стороны): {}",
-                        g(&crate::lob::backtest::ROW_CLASSES)
-                    );
-                    eprintln!(
-                        "bounce-grid:   шаги кругов (без заявок/с заявками/прыжок, нарастающим итогом): {}",
-                        g(&crate::lob::backtest::STEP_KINDS)
-                    );
-                    eprintln!(
-                        "bounce-grid:   шаги удержания по подписи (быстрый путь: всего/та же/сменилась/нет; движок: всего/та же/сменилась/нет): {}",
-                        g(&crate::lob::backtest::SIG_STATS)
-                    );
-                    eprintln!(
-                        "bounce-grid:   пропущено вызовов on_event (входы те же): {}",
-                        crate::lob::backtest::SIG_SKIPS.load(std::sync::atomic::Ordering::Relaxed)
-                    );
-                    eprintln!(
-                        "bounce-grid:   классы обновлений глубины (сдвиг лучшей/на лучшей/на стене/1..3 от лучшей/прочее/±3 от стены): {}",
-                        g(&crate::lob::backtest::fast_depth::DEPTH_ROW_CLASS)
-                    );
-                    for (name, row) in ["вход", "выход-лимит"]
-                        .iter()
-                        .zip(&crate::lob::backtest::fast_depth::ORDER_DIST)
-                    {
-                        eprintln!(
-                            "bounce-grid:   заявки {name} по удалению от лучшей (пересекает/0/1..3/4..10/>10 тиков): {}",
-                            g(row)
-                        );
-                    }
-                    let pr = hftbacktest::prof::snapshot();
-                    if pr.iter().any(|(c, _)| *c > 0) {
-                        eprintln!(
-                            "bounce-grid:   rdtsc (Мцикл/вызовов; книга биржи, exch.process, local.process, копия строк, окно-движок): {}",
-                            pr[..5]
-                                .iter()
-                                .map(|(c, n)| format!("{}/{n}", c / 1_000_000))
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        );
-                    }
-                    eprintln!(
-                        "bounce-grid:   строки глубины по удалению от лучшей (≤3/≤10/≤30/дальше тиков): {}",
-                        g(&crate::lob::backtest::fast_depth::DEPTH_ROW_BANDS)
-                    );
-                }
-            }
-            // Э-04б: строка только при `--hold-step skip` (прежний stderr не меняется).
-            let skips = crate::lob::backtest::HOLD_SKIPS
-                .load(std::sync::atomic::Ordering::Relaxed)
-                .saturating_sub(skips_before);
-            if skips > 0 {
-                eprintln!("bounce-grid:   удержание: пропусков пустых шагов {skips}");
-            }
-            if crate::lob::backtest::fast_hold::fast_hold_on() {
-                use crate::lob::backtest::fast_hold::{FAST_FALLBACKS, FAST_ROUNDS, FAST_ROWS};
-                use std::sync::atomic::Ordering::Relaxed;
-                eprintln!(
-                    "bounce-grid:   быстрый путь удержания (с начала процесса): кругов {}, отказов {}, строк ленты {}",
-                    FAST_ROUNDS.load(Relaxed),
-                    FAST_FALLBACKS.load(Relaxed),
-                    FAST_ROWS.load(Relaxed)
-                );
-            }
-            if self.flags.tick_stats {
-                use crate::lob::backtest::{QUANT_CALLS, QUANT_SLOW};
-                use std::sync::atomic::Ordering::Relaxed;
-                eprintln!(
-                    "bounce-grid:   тик/лот без деления (Э-17; по уже закрытым книгам, нарастающим итогом): вызовов {}, откатов на деление {}",
-                    QUANT_CALLS.load(Relaxed),
-                    QUANT_SLOW.load(Relaxed)
-                );
-            }
-            if !memos.is_empty() {
-                let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {
-                    let (a, b) = x.lock().map(|g| g.stats()).unwrap_or((0, 0));
-                    (h + a, m + b)
-                });
-                eprintln!(
-                    "bounce-grid:   память кругов: из памяти {hits}, посчитано движком {misses}"
-                );
-            }
+            steps::day_diagnostics(&self.flags, retries_before, skips_before, &memos);
         }
         summary.symbols_done += 1;
         eprintln!(
