@@ -456,6 +456,42 @@ impl VerifyState {
         }
     }
 
+    /// Книга на первом состоянии строго выше `seq` (верхняя граница скобки), если оно уже есть.
+    fn book_above(&self, seq: u64) -> Option<Book> {
+        let first_above = self.first_seq_above(seq)?;
+        self.replay_to(first_above).map(|(after, _)| after)
+    }
+
+    /// Ждёт входящий поток в пределах catch-up таймаута, пока `done` не станет истиной.
+    /// `true` — рассинхрон (сброс или грязная реплика): тик пишется как `misaligned`.
+    fn wait_for_stream(
+        &mut self,
+        rx: &std::sync::mpsc::Receiver<VerifyMsg>,
+        done: impl Fn(&Self) -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + VERIFY_CATCHUP_TIMEOUT;
+        while !done(self) {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            match rx.recv_timeout(deadline - now) {
+                Ok(VerifyMsg::Reset { tick_e9, step_e9 }) => {
+                    self.reset(tick_e9, step_e9);
+                    return true;
+                }
+                Ok(VerifyMsg::Update(up)) => {
+                    self.apply_forwarded(up);
+                    if self.dirty {
+                        return true;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        false
+    }
+
     fn write_misaligned(
         &self,
         symbol: &str,
@@ -518,40 +554,9 @@ impl VerifyState {
             Some(replica_seq) => replica_seq < snapshot_seq,
         };
         if needs_catchup {
-            let deadline = Instant::now() + VERIFY_CATCHUP_TIMEOUT;
-            loop {
-                match self.replica_seq() {
-                    Some(cur) if cur >= snapshot_seq => break,
-                    _ => {}
-                }
-                let now = Instant::now();
-                if now >= deadline {
-                    break;
-                }
-                match rx.recv_timeout(deadline - now) {
-                    Ok(VerifyMsg::Reset { tick_e9, step_e9 }) => {
-                        self.reset(tick_e9, step_e9);
-                        return self.write_misaligned(
-                            symbol,
-                            ts_utc,
-                            Some(snapshot_seq),
-                            verify_csv,
-                        );
-                    }
-                    Ok(VerifyMsg::Update(up)) => {
-                        self.apply_forwarded(up);
-                        if self.dirty {
-                            return self.write_misaligned(
-                                symbol,
-                                ts_utc,
-                                Some(snapshot_seq),
-                                verify_csv,
-                            );
-                        }
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
+            let seq = |v: &Self| v.replica_seq().is_some_and(|cur| cur >= snapshot_seq);
+            if self.wait_for_stream(rx, seq) {
+                return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
             }
             let caught_up = match self.replica_seq() {
                 Some(cur) => cur >= snapshot_seq,
@@ -588,52 +593,13 @@ impl VerifyState {
         if self.dirty {
             return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
         }
-        let mut after_book: Option<Book> = None;
-        if let Some(first_above) = self.first_seq_above(snapshot_seq) {
-            if let Some((after, _)) = self.replay_to(first_above) {
-                after_book = Some(after);
-            }
-        }
+        let mut after_book = self.book_above(snapshot_seq);
         if after_book.is_none() {
-            let deadline = Instant::now() + VERIFY_CATCHUP_TIMEOUT;
-            loop {
-                if self.first_seq_above(snapshot_seq).is_some() {
-                    break;
-                }
-                let now = Instant::now();
-                if now >= deadline {
-                    break;
-                }
-                match rx.recv_timeout(deadline - now) {
-                    Ok(VerifyMsg::Reset { tick_e9, step_e9 }) => {
-                        self.reset(tick_e9, step_e9);
-                        return self.write_misaligned(
-                            symbol,
-                            ts_utc,
-                            Some(snapshot_seq),
-                            verify_csv,
-                        );
-                    }
-                    Ok(VerifyMsg::Update(up)) => {
-                        self.apply_forwarded(up);
-                        if self.dirty {
-                            return self.write_misaligned(
-                                symbol,
-                                ts_utc,
-                                Some(snapshot_seq),
-                                verify_csv,
-                            );
-                        }
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
+            let above = |v: &Self| v.first_seq_above(snapshot_seq).is_some();
+            if self.wait_for_stream(rx, above) {
+                return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
             }
-            if let Some(first_above) = self.first_seq_above(snapshot_seq) {
-                if let Some((after, _)) = self.replay_to(first_above) {
-                    after_book = Some(after);
-                }
-            }
+            after_book = self.book_above(snapshot_seq);
         }
         let diff = match after_book {
             Some(ref after) => {
