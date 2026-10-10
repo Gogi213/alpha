@@ -12,7 +12,6 @@ fn empty_env_is_default_all_off() {
     let f = RunFlags::from_vars(vars(&[("PATH", "/bin"), ("HOME", "/h")]));
     assert_eq!(f, RunFlags::default());
     assert!(!f.fast_hold && !f.diag && f.sig_cache.is_none());
-    assert_eq!(f.event_steps, EventSteps::Off);
     assert!(f.snapshot_lines().is_empty());
 }
 
@@ -27,17 +26,12 @@ fn one_vs_set_semantics() {
 fn numbers_event_steps_and_paths() {
     let f = RunFlags::from_vars(vars(&[
         ("ALPHA_SIG_CACHE", "0"),
-        ("ALPHA_EVENT_STEPS", "entry"),
         ("ALPHA_APPROACH_BIN_DIR", "/d"),
     ]));
     assert_eq!(f.sig_cache, None, "0 = выкл.");
-    assert_eq!(f.event_steps, EventSteps::Entry);
     assert_eq!(f.approach_bin_dir, Some(OsString::from("/d")));
-    let g = RunFlags::from_vars(vars(&[
-        ("ALPHA_SIG_CACHE", "64"),
-        ("ALPHA_EVENT_STEPS", "1"),
-    ]));
-    assert_eq!((g.sig_cache, g.event_steps), (Some(64), EventSteps::Off));
+    let g = RunFlags::from_vars(vars(&[("ALPHA_SIG_CACHE", "64")]));
+    assert_eq!(g.sig_cache, Some(64));
 }
 
 #[test]

@@ -10,7 +10,7 @@
 //! | `--hold-step skip` | `hold_skip_matches_polling_byte_for_byte` | — |
 //! | `ALPHA_FAST_HOLD=1` | `fast_hold_handoff_equals_continuous`, `group_fast_hold_matches_group_without_it` | — |
 //! | `ALPHA_ADMIT_SOA=1` | `bounce_grid::tests` («`admits` по строкам `AdmitRow` …») | — |
-//! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE`, `ALPHA_EVENT_STEPS` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
+//! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
 //!
 //! Новый флаг без строки в этой таблице не принимается.
 
