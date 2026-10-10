@@ -120,3 +120,7 @@
 | tk048-strace-d15.sh | tk048 | разовая проба strace (TK-048), опиралась на tk048-orch-job3m |
 | tk064-ship19.sh | tk064 | разовая выкладка chain91 (TK-064); chain91 в архиве |
 | tk084-b14x.sh | tk084 | разовый счёт XAU/CL (TK-084) поверх tk048-orch-jobg; отработал |
+
+## КТ-9 (TK-152), 10.10: ещё 239 файлов корня
+
+Критерий переноса — опись `docs/findings/census-compute-2026-10-10.tsv` (класс АРХИВ): нет ссылок из src/, tools/ вне compute, COMMANDS/ARCHITECTURE/CLAUDE.md, диспетчера, hooks, открытых тикетов, живых скриптов, тестов и _lib; не названы в заданиях calc; не правились с 06.10. Обратно — `git mv`.
