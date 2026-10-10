@@ -695,10 +695,10 @@ pub(super) fn holding_decision_reads_time_only_at_the_known_thresholds() {
             "&& state.tape_since_entry(entry_ns, now, pyr.tape_w) / state.level_qty_at_entry",
             "&& state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry",
             "&& now.saturating_sub(entry_ns) >= early_exit_ns",
-            "} else if now.saturating_sub(entry_ns) >= deadline_ns {",
+            "now.saturating_sub(entry_ns) >= deadline_ns,",
             // Г-133 `chase<мс>`: пропуск шагов при форме выключен (`pyramid_on` включает `chase_ms > 0`).
             "state.chase_start_ns = now;",
-            "if now.saturating_sub(state.chase_start_ns)",
+            "if now.saturating_sub(state.chase_start_ns) < i64::from(pyr.chase_ms) * 1_000_000 {",
         ]
     );
     assert_eq!(
