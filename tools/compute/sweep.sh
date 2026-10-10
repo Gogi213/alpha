@@ -16,7 +16,7 @@ alarm() {
 # Считается свободным местом (область/отказ видят a+SH); чистится только при свободном < SHARED_FLOOR ГБ:
 # пик сборки PEAK=3 + такой же запас под рост кэша и чужие записи — 10 ГБ (кэш растёт до S ГБ, см. коммит)
 SH="$D/shared-target"; FLOOR="${SWEEP_SHARED_FLOOR_GB:-10}"
-shgb() { du -sBG "$SH" 2>/dev/null | tail -1 | tr -dc 0-9; }
+shgb() { local g; g=$(du -sBG "$SH" 2>/dev/null | tail -1 | tr -dc 0-9); echo "${g:-0}"; }
 WD="$PWD"; cd "$D" || exit 0
 clean_old() { find . -maxdepth 1 \( -name 'wave2-src*' -o -name 'src-*' -o -name '*.tgz' \) -cmin +1440 -exec rm -rf {} +; }
 clean_bin() {
