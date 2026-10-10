@@ -45,6 +45,73 @@ pub(super) fn scheduled_take(
     (if long { ticks.ceil() } else { ticks.floor() }) * tick_px
 }
 
+/// Решение одного правила выхода: где, почему, какая доля.
+type ExitHit = (ExitAt, ExitReason, f64);
+
+/// Правила выхода сделки-отскока. Порядок здесь не важен — приоритет задаёт только `EXIT_PRIORITY`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum ExitRule {
+    LevelHalf,
+    Stop,
+    GoneHard,
+    EatenAll,
+    Trail,
+    Take,
+    EatenHalf,
+    EatenByTrades,
+    WallEat,
+    Converge,
+    Tape,
+    Resilience,
+    GoneExit,
+    GoneTrail,
+    Early,
+    Deadline,
+}
+
+/// Таблица приоритетов (С-13, В-44): сработавшее правило выше в списке побеждает. Стоп приоритетнее тейка
+/// (проскочила оба уровня за кадр — честнее считать стопом), съедание всей плотности — раньше трейла, трейл —
+/// раньше тейка, половинное съедание — после тейка, защиты `eat`/`gone` — ниже тейка, прилипание и дедлайн —
+/// последние. Порядок — часть плана; тест `exit_priority` проверяет каждую пару.
+pub(super) const EXIT_PRIORITY: [ExitRule; 16] = [
+    ExitRule::LevelHalf,
+    ExitRule::Stop,
+    ExitRule::GoneHard,
+    ExitRule::EatenAll,
+    ExitRule::Trail,
+    ExitRule::Take,
+    ExitRule::EatenHalf,
+    ExitRule::EatenByTrades,
+    ExitRule::WallEat,
+    ExitRule::Converge,
+    ExitRule::Tape,
+    ExitRule::Resilience,
+    ExitRule::GoneExit,
+    ExitRule::GoneTrail,
+    ExitRule::Early,
+    ExitRule::Deadline,
+];
+
+/// Сработавшие на этом событии правила (по одному слоту на правило, без аллокаций).
+pub(super) struct ExitHits([Option<ExitHit>; EXIT_PRIORITY.len()]);
+
+impl ExitHits {
+    pub(super) const NONE: ExitHits = ExitHits([None; EXIT_PRIORITY.len()]);
+
+    pub(super) fn set(&mut self, rule: ExitRule, hit: bool, what: ExitHit) {
+        if hit {
+            self.0[rule as usize] = Some(what);
+        }
+    }
+}
+
+/// Первое по таблице сработавшее правило.
+pub(super) fn pick_exit(hits: &ExitHits) -> Option<(ExitRule, ExitHit)> {
+    EXIT_PRIORITY
+        .iter()
+        .find_map(|&r| hits.0[r as usize].map(|h| (r, h)))
+}
+
 /// `maker_allowed = false` — лимитка выхода **уже стоит** в рынке
 /// (`ExitPending`, аудит 21.09 Б1): мейкерские причины (тейк 1:1, горизонт
 /// Decision 20) не рассматриваются — вторая лимитка на тот же остаток не
@@ -294,83 +361,122 @@ where
                 && !state.stop_half_done
                 && (state.level_broken || (stop_hit && plain_stop));
             let stop_hit = stop_hit && !(half_level && plain_stop);
-            if level_half_hit {
-                (ExitAt::Market, ExitReason::Stop, half_frac)
-            } else if stop_hit {
+            let stop_reason = if gone.stop_px != stop_px {
                 // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
-                let reason = if gone.stop_px != stop_px {
-                    ExitReason::WallGone
-                } else {
-                    ExitReason::Stop
-                };
-                let frac = if half_stop && plain_stop {
-                    half_frac
-                } else {
-                    1.0
-                };
-                (ExitAt::Taker(gone.stop_px), reason, frac)
-            } else if gone.stop_hard_exit {
-                (ExitAt::Market, ExitReason::WallGone, 1.0)
-            } else if eaten_all_hit {
-                (ExitAt::Market, ExitReason::Eaten, 1.0)
-            } else if trail_hit {
-                (ExitAt::Taker(favourable), ExitReason::Trail, 1.0)
-            } else if maker_allowed && trail_bps <= 0.0 && take_hit && take_active {
-                let frac = if take_partial { take_frac } else { 1.0 };
-                (ExitAt::Maker(take_px), ExitReason::Take, frac)
-            } else if eaten_half_hit {
-                (ExitAt::Market, ExitReason::Eaten, eaten_half_frac)
-            } else if eat_hit {
-                (ExitAt::Market, ExitReason::EatenByTrades, 1.0)
-            } else if let Some(r) = wall_eat_reason {
-                (ExitAt::Market, r, 1.0)
-            } else if converge_hit {
-                (ExitAt::Market, ExitReason::Converge, 1.0)
-            } else if tape_hit {
-                (ExitAt::Market, ExitReason::Tape, 1.0)
-            } else if cxl_hit {
-                (ExitAt::Market, ExitReason::Resilience, 1.0)
-            } else if gone.exit {
-                (ExitAt::Market, ExitReason::WallGone, 1.0)
-            } else if gone.trail_hit {
-                // Выход трейла после снятия — та же причина «сняли»: колонки `forms.csv`
-                // не меняются, а форма (`gone<W>tr<T>`) говорит, как именно вышли.
-                (ExitAt::Taker(favourable), ExitReason::WallGone, 1.0)
-            } else if early_exit_ns > 0
-                && now.saturating_sub(entry_ns) >= early_exit_ns
-                && still_at_level(quotes, level_px, tick_px)
-            {
-                // Досрочный выход (B4, В-58 п. 5): «прилипание» —
-                // касание длится дольше `X` секунд, а уровень так и
-                // остался лучшей ценой. Порядок проверок часть плана:
-                // стоп и трейл (если сработали) честнее, тейк-лимит
-                // тоже — он дал бы мейкерскую цену, а здесь выход по
-                // рынку.
-                (ExitAt::Market, ExitReason::Early, 1.0)
-            } else if now.saturating_sub(entry_ns) >= deadline_ns {
-                // Г-133: погоня — пока не истекло окно `W`, мейкер на лучшей цене стороны выхода (не пересекая спред);
-                // стоящую лимитку тейка под погоню снимает рыночное решение (`maker_allowed == false`, погони ещё нет).
-                if pyr.chase_ms > 0 && (maker_allowed || state.chase_start_ns != 0) {
-                    if state.chase_start_ns == 0 {
-                        state.chase_start_ns = now;
-                    }
-                    if now.saturating_sub(state.chase_start_ns)
-                        < i64::from(pyr.chase_ms) * 1_000_000
-                    {
-                        let px = match entry_side {
-                            HbtSide::Buy => ask,
-                            _ => bid,
-                        };
-                        (ExitAt::Maker(px), ExitReason::Deadline, 1.0)
-                    } else {
-                        (ExitAt::Market, ExitReason::Deadline, 1.0)
-                    }
-                } else {
-                    (ExitAt::Market, ExitReason::Deadline, 1.0)
-                }
+                ExitReason::WallGone
             } else {
-                return None;
+                ExitReason::Stop
+            };
+            let stop_frac = if half_stop && plain_stop {
+                half_frac
+            } else {
+                1.0
+            };
+            let take_frac_now = if take_partial { take_frac } else { 1.0 };
+            let early_hit = early_exit_ns > 0
+                && now.saturating_sub(entry_ns) >= early_exit_ns
+                && still_at_level(quotes, level_px, tick_px);
+            let mut hits = ExitHits::NONE;
+            hits.set(
+                ExitRule::LevelHalf,
+                level_half_hit,
+                (ExitAt::Market, ExitReason::Stop, half_frac),
+            );
+            hits.set(
+                ExitRule::Stop,
+                stop_hit,
+                (ExitAt::Taker(gone.stop_px), stop_reason, stop_frac),
+            );
+            hits.set(
+                ExitRule::GoneHard,
+                gone.stop_hard_exit,
+                (ExitAt::Market, ExitReason::WallGone, 1.0),
+            );
+            hits.set(
+                ExitRule::EatenAll,
+                eaten_all_hit,
+                (ExitAt::Market, ExitReason::Eaten, 1.0),
+            );
+            hits.set(
+                ExitRule::Trail,
+                trail_hit,
+                (ExitAt::Taker(favourable), ExitReason::Trail, 1.0),
+            );
+            hits.set(
+                ExitRule::Take,
+                maker_allowed && trail_bps <= 0.0 && take_hit && take_active,
+                (ExitAt::Maker(take_px), ExitReason::Take, take_frac_now),
+            );
+            hits.set(
+                ExitRule::EatenHalf,
+                eaten_half_hit,
+                (ExitAt::Market, ExitReason::Eaten, eaten_half_frac),
+            );
+            hits.set(
+                ExitRule::EatenByTrades,
+                eat_hit,
+                (ExitAt::Market, ExitReason::EatenByTrades, 1.0),
+            );
+            if let Some(r) = wall_eat_reason {
+                hits.set(ExitRule::WallEat, true, (ExitAt::Market, r, 1.0));
             }
+            hits.set(
+                ExitRule::Converge,
+                converge_hit,
+                (ExitAt::Market, ExitReason::Converge, 1.0),
+            );
+            hits.set(
+                ExitRule::Tape,
+                tape_hit,
+                (ExitAt::Market, ExitReason::Tape, 1.0),
+            );
+            hits.set(
+                ExitRule::Resilience,
+                cxl_hit,
+                (ExitAt::Market, ExitReason::Resilience, 1.0),
+            );
+            hits.set(
+                ExitRule::GoneExit,
+                gone.exit,
+                (ExitAt::Market, ExitReason::WallGone, 1.0),
+            );
+            // Выход трейла после снятия — та же причина «сняли»: колонки `forms.csv`
+            // не меняются, а форма (`gone<W>tr<T>`) говорит, как именно вышли.
+            hits.set(
+                ExitRule::GoneTrail,
+                gone.trail_hit,
+                (ExitAt::Taker(favourable), ExitReason::WallGone, 1.0),
+            );
+            // Досрочный выход (B4, В-58 п. 5): «прилипание».
+            hits.set(
+                ExitRule::Early,
+                early_hit,
+                (ExitAt::Market, ExitReason::Early, 1.0),
+            );
+            hits.set(
+                ExitRule::Deadline,
+                now.saturating_sub(entry_ns) >= deadline_ns,
+                (ExitAt::Market, ExitReason::Deadline, 1.0),
+            );
+            let (rule, mut hit) = pick_exit(&hits)?;
+            // Г-133: погоня — пока не истекло окно `W`, мейкер на лучшей цене стороны выхода (не пересекая спред);
+            // стоящую лимитку тейка под погоню снимает рыночное решение (`maker_allowed == false`, погони ещё нет).
+            if rule == ExitRule::Deadline
+                && pyr.chase_ms > 0
+                && (maker_allowed || state.chase_start_ns != 0)
+            {
+                if state.chase_start_ns == 0 {
+                    state.chase_start_ns = now;
+                }
+                if now.saturating_sub(state.chase_start_ns) < i64::from(pyr.chase_ms) * 1_000_000 {
+                    let px = match entry_side {
+                        HbtSide::Buy => ask,
+                        _ => bid,
+                    };
+                    hit.0 = ExitAt::Maker(px);
+                }
+            }
+            hit
         }
     };
     let (px, taker) = match at {

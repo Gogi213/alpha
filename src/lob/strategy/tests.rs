@@ -559,6 +559,7 @@ pub(super) fn a_fraction_below_one_lot_exits_whole() {
 }
 
 mod cancel_wait;
+mod exit_priority;
 mod f4_partial;
 mod f5_ttl;
 mod f7_wall;
