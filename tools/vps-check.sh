@@ -31,12 +31,12 @@ rm -f "$ARC"
 FEAT="${VPS_FEATURES:+--features $VPS_FEATURES}"
 # fmt + clippy -D warnings + тесты с набором фич $1 (пусто — без фич)
 all_cmd() {
-  echo "set -o pipefail; cargo fmt --check 2>&1 | tail -10 && cargo clippy --release $1 --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -15 && cargo test --release $1 --target-dir $TGT -j 3 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40"
+  echo "set -o pipefail; cargo fmt --check 2>&1 | { L=\$(mktemp); tee \$L | tail -10; grep -A2 -e ^error -e ^warning \$L | head -150; rm -f \$L; true; } && cargo clippy --release $1 --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | { L=\$(mktemp); tee \$L | tail -15; grep -A2 -e ^error -e ^warning \$L | head -150; rm -f \$L; true; } && cargo test --release $1 --target-dir $TGT -j 3 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40"
 }
 case "$WHAT" in
   test)  CMD="cargo test --release $FEAT --target-dir $TGT -j 3 $FILTER 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
-  clippy) CMD="cargo clippy --release $FEAT --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -25" ;;
-  fmt)    CMD="cargo fmt --check 2>&1 | tail -25" ;;
+  clippy) CMD="cargo clippy --release $FEAT --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | { L=\$(mktemp); tee \$L | tail -25; grep -A2 -e ^error -e ^warning \$L | head -150; rm -f \$L; true; }" ;;
+  fmt)    CMD="cargo fmt --check 2>&1 | { L=\$(mktemp); tee \$L | tail -25; grep -A2 -e ^error -e ^warning \$L | head -150; rm -f \$L; true; }" ;;
   build)  CMD="cargo build --release $FEAT --target-dir $TGT -j 3 2>&1 | tail -5" ;;
   all)    CMD="$(all_cmd "$FEAT")" ;;
   # TK-132 С-02: гейт R2 — второй бинарник (feature r2) гоняет 14+4 R2-теста, которые `all` без фич не видит:
