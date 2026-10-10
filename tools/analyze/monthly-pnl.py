@@ -4,12 +4,12 @@
 Источники:
   R2 + базы (B1, B1g, B3) — data/p12r2-v171c-a/closes-{vn,vt}-cap{0,3}-2026-MM.json, загрузка тем же кодом, что p12-sharpe.py
       (exec головы p12-r2-analyze.py: ключи SET+база+суффикс формы, NORM=1 — равная экспозиция §6(2); P12_DIR/P12_POOL_FROM=1 как у v171c-A);
-  ext (7 клеток x-*) — data/tk113/ext/closes-cap{0,3}-2026-MM.json (как tools/compute/tk113-ext.py);
+  ext (7 клеток x-*) — data/tk113/ext/closes-cap{0,3}-2026-MM.json (как tools/analyze/tk113-ext.py);
   R1 (155 клеток + B1) — data/tk113/r1-v171c/closes-cap{0,3}-<мес>.json (calc:/data/tk0113/drop2/r1; на v171c только фев–окт, января нет).
 Режим free = потолок не применён (cap0), B2 = потолок 3 (cap3).
 Сверка: B1 (+52,3/2750 free, -0,4/1503 B2); R2-клетки: итог по определённым месяцам - база = d_usd из p12-sharpe-<режим>-2026-10-10-v171c-D.csv;
 ext = ext-v171c-2026-10-09.csv; R1 B1 (фев–сен) = B1 из R2 (фев–сен).
-Запуск из корня репозитория: python tools/compute/monthly-pnl.py  → docs/findings/monthly-pnl-v171c-2026-10-09.{csv,md}"""
+Запуск из корня репозитория: python tools/analyze/monthly-pnl.py  → docs/findings/monthly-pnl-v171c-2026-10-09.{csv,md}"""
 import csv, json, os, sys
 from collections import defaultdict
 import datetime as dt
@@ -31,7 +31,7 @@ def load_r2(mode):
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        ns = load_head("tools/compute/p12-r2-analyze.py", [mode])
+        ns = load_head("tools/analyze/p12-r2-analyze.py", [mode])
     if "НЕТ формы" in buf.getvalue():
         sys.exit("R2: " + buf.getvalue())
     return ns
@@ -199,7 +199,7 @@ def main():
     f = lambda v: "—" if v is None else f"{v:+.1f}"
     L = ["# Помесячная прибыль ($) по клеткам П-12, пул v171c, янв–сен 2026", "",
          "Описание, не вердикт и не новый счёт: готовые закрытия сделок, сгруппированные по месяцу закрытия (UTC). "
-         "Скрипт `tools/compute/monthly-pnl.py`, таблица CSV — `docs/findings/monthly-pnl-v171c-2026-10-09.csv`.", "", f"_{inputs_line()}_", "",
+         "Скрипт `tools/analyze/monthly-pnl.py`, таблица CSV — `docs/findings/monthly-pnl-v171c-2026-10-09.csv`.", "", f"_{inputs_line()}_", "",
          "- **Окно:** 01.01–30.09.2026 (В-211); октябрь (до 02.10, неполный) — отдельным справочным столбцом, в итог не входит.",
          "- **Пул:** v171c — без TRUMP/TRX/BCH (В-210), потолок B2 применён заново (portfolio-sim `--drop`).",
          "- **Режимы:** free — без потолка (cap0); B2 — потолок 3 одновременных позиции (cap3).",

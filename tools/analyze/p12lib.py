@@ -58,7 +58,7 @@ def pack(ns, r1):
 
 def pack_ext(mode):
     """ext-клетки TK-083 (7 кл., x-stop/x-deadline/x-entry): closes data/tk083/kpi/closes[B2]-<мес>.json; $ без нормировки (t2 ≤ 1,25 × B1, вердикт ext)."""
-    ns = load_head("tools/compute/tk083-kpi-analyze.py", ["" if mode == "free" else "B2"])
+    ns = load_head("tools/analyze/tk083-kpi-analyze.py", ["" if mode == "free" else "B2"])
     out = {}
     for c, a in ns["daily"].items():
         out[c] = dict(arr=a, lst=ns["cl"][c], dfn=set(ns["defined"][c]), fam="B1" if c == "B1" else ns["CELLS"][c][0], base=None if c == "B1" else "B1",

@@ -12,8 +12,8 @@ MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 
 
 def main():
-    A, fa = ({}, {}) if os.environ.get("P12_ONLY") == "r2" else analyse(pack(load("tools/compute/p12-r1-analyze.py", MODE), True), 63)
-    Bz, fb = analyse(pack(load("tools/compute/p12-r2-analyze.py", MODE), False), 64)
+    A, fa = ({}, {}) if os.environ.get("P12_ONLY") == "r2" else analyse(pack(load("tools/analyze/p12-r1-analyze.py", MODE), True), 63)
+    Bz, fb = analyse(pack(load("tools/analyze/p12-r2-analyze.py", MODE), False), 64)
     Ex, fe = ({}, {}) if ONLY_R2 else analyse(pack_ext(MODE), 65)
     res = {**{c: dict(r, pk="R1") for c, r in A.items() if r}, **{c: dict(r, pk="R2") for c, r in Bz.items() if r}, **{c: dict(r, pk="ext") for c, r in Ex.items() if r}}
     fams = {**fa, **fb, **fe}
