@@ -42,7 +42,7 @@ run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сут�
     cp "$5" "$S/day.sh"; sed -i "s#--cells [^ ]*#--cells $S/cells.txt#; s#> b5/\.cellstmp-\([^ ]*\)\.log#> b5/.cellstmp-\1.log#; s#^cp b5/\.cellstmp[^ ]*\.log /data/[^ ]*#:#" "$S/day.sh"
   fi
   ( export HOME=$H ALPHA_SKIP_SAME=1 ALPHA_APPROACH_BIN_DIR=${ALPHA_APPROACH_BIN_DIR:-/data/tk048/abin-t46}; cd "$S" && /usr/bin/time -f "%e %U %S %M" -o "$S/t.txt" bash "$S/day.sh" > "$S/run.out" 2> "$S/run.err" ); rc=$?
-  exp=$(grep -c . "$6"); got=$(find "$S/b5" -name 'forms.csv' 2>/dev/null | xargs -r cat | awk -F, -v d="$4" '$2==d{print $3}' | sort -u | grep -c .)
+  exp=$(awk 'NF{print $1}' "$6" | sort -u | grep -c .); got=$(find "$S/b5" -name 'forms.csv' 2>/dev/null | xargs -r cat | awk -F, -v d="$4" '$2==d{print $3}' | sort -u | grep -c .)
   local nr; nr=$(find "$S/b5" -name 'rounds*.csv' 2>/dev/null | wc -l)
   echo "run $1 rc=$rc cells_got=$got cells_exp=$exp rounds_files=$nr"
   # base: forms.csv перечисляет только клетки с исходами за сутки (66 из 241), счёт клеток не применим — rc=0 и rounds>0
