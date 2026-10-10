@@ -8,7 +8,7 @@ use crate::lob::levels::TouchRecord;
 use super::bincache::{put, put_day, put_delta, put_plain, read_cached, unwrap, wrap, Rd};
 use super::read::{read_touches_csv, TouchRow};
 
-const MAGIC: &[u8; 4] = b"TBN1";
+pub(super) const MAGIC: &[u8; 4] = b"TBN1";
 
 /// `read_touches_csv` через двоичный кэш (`bincache::read_cached`).
 pub(crate) fn read_touches_cached(csv: &Path) -> anyhow::Result<Vec<TouchRow>> {

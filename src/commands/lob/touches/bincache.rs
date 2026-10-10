@@ -10,7 +10,7 @@ pub(super) const HEAD: usize = 4 + 8 + 8 + 4 + 1;
 const DEFAULT_LEVEL: i32 = 3;
 
 /// Путь `.abin` в зеркале пути CSV под `ALPHA_APPROACH_BIN_DIR`; `None` — каталог не задан, кэша нет.
-fn bin_path(csv: &Path) -> Option<PathBuf> {
+pub(super) fn bin_path(csv: &Path) -> Option<PathBuf> {
     let dir = std::env::var_os("ALPHA_APPROACH_BIN_DIR")?;
     let rel: PathBuf = csv
         .components()

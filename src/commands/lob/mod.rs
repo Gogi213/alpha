@@ -200,6 +200,12 @@ use crate::binlog::Record;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Subcommand)]
+pub enum ColdCommand {
+    /// Двоичный кэш подходов/касаний суток в `<cold-root>/<ключ>/`; повтор ничего не пишет.
+    Ensure(touches::EnsureArgs),
+}
+
+#[derive(Debug, Subcommand)]
 pub enum LobCommand {
     /// Отбор инструментов для пилота (шаг 0.4, Decision 25).
     Pick(PickArgs),
@@ -208,6 +214,9 @@ pub enum LobCommand {
     /// Сверка записанных суток: инварианты и сделки в диапазоне книги (шаг 0.6).
     /// Сверка с REST по u — только живой поток (у файла нет u), см. verify.rs.
     Verify(crate::bybit::verify::VerifyArgs),
+    /// Холодный кэш подготовки суток (КТ-5): `cold ensure`.
+    #[command(subcommand)]
+    Cold(ColdCommand),
     /// Замер смещения часов хоста против NTP и `serverTime` (шаг 0.5).
     Clock(ClockArgs),
     /// Распределение RTT полного цикла post-only ордера (шаг 6.2).
@@ -344,6 +353,16 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         }
         LobCommand::Record(args) => record::print_summary(&args),
         LobCommand::Verify(args) => verify::print_summary(&args),
+        LobCommand::Cold(ColdCommand::Ensure(args)) => {
+            let s = touches::run_ensure(&args)?;
+            println!(
+                "cold ensure: {} файлов, записано {}, каталог {}",
+                s.files,
+                s.written,
+                s.dir.display()
+            );
+            Ok(())
+        }
         LobCommand::Clock(args) => {
             let rows = run_clock(&args)?;
             let violations = check_rows(&rows);

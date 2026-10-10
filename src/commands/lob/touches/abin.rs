@@ -8,7 +8,7 @@ use crate::lob::levels::{ApproachEnd, ApproachRecord, ArmP08};
 use super::bincache::{put_day, put_delta, put_plain, read_cached, unwrap, wrap, Rd};
 use super::read::{read_approaches_csv, ApproachRow};
 
-const MAGIC: &[u8; 4] = b"ABN1";
+pub(super) const MAGIC: &[u8; 4] = b"ABN1";
 
 /// `read_approaches_csv` через двоичный кэш (`bincache::read_cached`).
 pub(crate) fn read_approaches_cached(csv: &Path) -> anyhow::Result<Vec<ApproachRow>> {
