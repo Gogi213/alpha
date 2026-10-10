@@ -1,0 +1,9 @@
+# TK-159 гейт головы 9d31630c, свои корни GATE_TAG=tk159h{,b,t}, --refresh-ref; бинари alpha-tk159 c5f15e53 (base,dl), -r2 40c0a793 (r2,tk115*)
+family=dl rc=0 files=5 diff=0 
+family=base rc=0 files=661 diff=0 
+family=tk115w rc=0 files=5 diff=0 
+family=tk115e rc=0 files=34 diff=0 
+family=tk115 rc=0 files=5 diff=0 
+family=r2 rc=0 files=9 diff=0 (1010235003622, tk159h)
+family=tk115j rc=0 files=29 diff=0 (1010235003622, tk159h)
+заявки: base,dl 1011002729490; tk115,w,e 1011002729486; r2,tk115j 1010235003622
