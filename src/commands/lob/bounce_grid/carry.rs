@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use crate::commands::lob::backtest::{
     count_feed_events_until, open_replay_feed, replay_compact_into_until, EntryTtl,
 };
-use crate::commands::lob::profiles::read_verify_marker;
 use crate::commands::lob::touches::stamp;
 use crate::lob::backtest::CompactEvent;
 
@@ -176,9 +175,10 @@ pub(super) fn extend_with_carry(
         window_ns as f64 / 1e9,
         next_parts.len()
     );
-    let marker = carry_root.join(format!("verify-{symbol}.status"));
-    let carry_unverified = !read_verify_marker(&marker);
-    Ok((Some(boundary), carry_unverified))
+    Ok((
+        Some(boundary),
+        !super::verdict::marker_ok(carry_root, symbol),
+    ))
 }
 
 /// То же, что `extend_with_carry`, без чтения довеска: граница полуночи D+1 и флаг сверки зависят
@@ -197,8 +197,10 @@ pub(super) fn carry_boundary(
         return Ok((None, false));
     }
     let boundary = day_start_ns(&next_day)?;
-    let marker = carry_root.join(format!("verify-{symbol}.status"));
-    Ok((Some(boundary), !read_verify_marker(&marker)))
+    Ok((
+        Some(boundary),
+        !super::verdict::marker_ok(carry_root, symbol),
+    ))
 }
 
 /// Сайдкар `<бинлог>.events` — число событий крейта в части: `размер мтайм число`.

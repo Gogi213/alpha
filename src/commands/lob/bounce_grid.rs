@@ -132,7 +132,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::backtest::{read_day_schedule, read_tick_step};
-use super::profiles::read_verify_marker;
 use super::{
     replay_symbol_touches_and_second_mids, resolve_h3_mode_full, session_parts_for,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
@@ -490,15 +489,18 @@ impl<'a> GridRun<'a> {
             None => vec![all_forms.as_slice(); sets.len()],
         };
 
-        let marker = args.root.join(format!("verify-{symbol}.status"));
-        if args.verdict_csv.is_none() && !args.allow_unverified && !read_verify_marker(&marker) {
-            eprintln!(
-                "bounce-grid: {symbol} — маркер {} не `ok`, символ пропущен (fail-closed; --allow-unverified для отладки)",
-                marker.display()
-            );
-            summary.symbols_skipped_unverified += 1;
-            return Ok(());
-        }
+        let day_verdicts = match verdict::gate(args, symbol)? {
+            verdict::K1::Refused(marker) => {
+                eprintln!(
+                    "bounce-grid: {symbol} — маркер {} не `ok`, символ пропущен (fail-closed; --allow-unverified для отладки)",
+                    marker.display()
+                );
+                summary.symbols_skipped_unverified += 1;
+                return Ok(());
+            }
+            verdict::K1::Pass => None,
+            verdict::K1::Days(v) => Some(v),
+        };
         let started = Instant::now();
         let parts = session_parts_for(&args.root, symbol)?;
         anyhow::ensure!(
@@ -539,27 +541,9 @@ impl<'a> GridRun<'a> {
         }
         // K1 по суткам (`--verdict-csv`, В-181): вместо маркера символа — вердикт гейта на каждые сутки;
         // сутки не «пускаем» или без строки вердикта отброшены с причиной (fail-closed).
-        if let Some(vp) = args.verdict_csv.as_deref() {
-            let verdicts = verdict::read_day_verdicts(vp, symbol)?;
-            let before = parts_by_day.len();
-            parts_by_day.retain(|day, _| {
-                let allowed = match verdicts.get(day) {
-                    Some((true, _)) => true,
-                    Some((false, why)) => {
-                        eprintln!("bounce-grid: {symbol} {day} — отказ вердикта: {why}");
-                        false
-                    }
-                    None => {
-                        eprintln!(
-                            "bounce-grid: {symbol} {day} — отказ: суток нет в вердикте {}",
-                            vp.display()
-                        );
-                        false
-                    }
-                };
-                allowed
-            });
-            summary.days_refused_verdict += before - parts_by_day.len();
+        if let (Some(vp), Some(verdicts)) = (args.verdict_csv.as_deref(), &day_verdicts) {
+            summary.days_refused_verdict +=
+                verdict::retain_allowed(&mut parts_by_day, verdicts, symbol, vp);
             if parts_by_day.is_empty() {
                 eprintln!(
                     "bounce-grid: {symbol} — ни одних суток с вердиктом «пускаем», символ пропущен"

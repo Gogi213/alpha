@@ -13,9 +13,7 @@ pub static DEPTH_ROW_CLASS: [std::sync::atomic::AtomicU64; 6] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 6];
 pub static BAND_STATS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// По умолчанию `DEPTH_ROW_BANDS` не считается (атомарный `fetch_add` на каждое обновление — диагностика, ≈2–3 % ЦП);
-/// строка печатается только под `ALPHA_ATTEMPT_STATS`, там счёт включён всегда. `ALPHA_BAND_COUNT_OFF=0` — включить счёт
-/// без остальной статистики (TK-048, 08.10: умолчание перевёрнуто; `=1` прежних обёрток остаётся no-op).
-pub static BAND_COUNT_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// строка печатается только под `ALPHA_ATTEMPT_STATS`, там счёт включён всегда.
 
 thread_local! {
     static WATCH_TICK: std::cell::Cell<i64> = const { std::cell::Cell::new(i64::MIN) };
@@ -61,7 +59,7 @@ pub fn note_order_dist<MD: hftbacktest::depth::MarketDepth>(
 #[inline]
 pub fn note_band(price_tick: i64, best_tick: i64, moves_best: bool) {
     let stats = BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed);
-    if !stats && BAND_COUNT_OFF.load(std::sync::atomic::Ordering::Relaxed) {
+    if !stats {
         return;
     }
     let d = (price_tick - best_tick).unsigned_abs();

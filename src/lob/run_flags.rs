@@ -24,8 +24,6 @@ pub struct RunFlags {
     pub sig_cache: Option<usize>,
     /// `ALPHA_ATTEMPT_STATS` задан.
     pub attempt_stats: bool,
-    /// `ALPHA_BAND_COUNT_OFF=0`: включить счёт полос без остальной статистики.
-    pub band_count_on: bool,
     /// `ALPHA_HOLDS_MEMO=1`.
     pub holds_memo: bool,
     /// `ALPHA_ADMIT_SOA=1`.
@@ -105,7 +103,6 @@ impl RunFlags {
                 .and_then(|n| usize::try_from(n).ok())
                 .filter(|&n| n > 0),
             attempt_stats: set("ALPHA_ATTEMPT_STATS"),
-            band_count_on: get("ALPHA_BAND_COUNT_OFF") == Some("0"),
             holds_memo: one("ALPHA_HOLDS_MEMO"),
             admit_soa: one("ALPHA_ADMIT_SOA"),
             admit_cache: one("ALPHA_ADMIT_CACHE"),
