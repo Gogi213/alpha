@@ -1889,7 +1889,7 @@ impl StrategyState {
         }
         #[allow(clippy::cast_possible_truncation)]
         let level_tick = round_half_away(level_px / tick_px) as i64;
-        crate::lob::backtest::fast_depth::set_watch_tick(level_tick);
+        crate::lob::diag::set_watch_tick(level_tick);
         let qty = match entry_side {
             HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
             _ => depth.ask_qty_at_tick(level_tick),
@@ -2633,7 +2633,7 @@ impl StrategyState {
         if level_floor_qty > 0.0 && tick_px > 0.0 && level_px > 0.0 {
             #[allow(clippy::cast_possible_truncation)]
             let level_tick = round_half_away(level_px / tick_px) as i64;
-            crate::lob::backtest::fast_depth::set_watch_tick(level_tick);
+            crate::lob::diag::set_watch_tick(level_tick);
             let now_qty = match entry_side {
                 HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
                 _ => depth.ask_qty_at_tick(level_tick),
@@ -3281,7 +3281,7 @@ where
         (TimeInForce::GTC, OrdType::Limit)
     };
     if !taker {
-        crate::lob::backtest::fast_depth::note_order_dist(
+        crate::lob::diag::note_order_dist(
             true,
             exit_side == HbtSide::Buy,
             px,
@@ -3906,7 +3906,7 @@ where
             // округления — как раньше, `qty / legs`.
             entry_qty / f64::from(legs)
         };
-        crate::lob::backtest::fast_depth::note_order_dist(
+        crate::lob::diag::note_order_dist(
             false,
             side == HbtSide::Buy,
             px_i,

@@ -10,6 +10,7 @@ pub mod backtest;
 pub mod capacity;
 pub mod cells;
 pub mod costs;
+pub mod diag;
 pub mod excursion;
 pub mod final_metrics;
 pub mod levels;
