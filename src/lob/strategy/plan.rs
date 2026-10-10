@@ -448,7 +448,7 @@ impl BtcMinutes {
     }
 
     /// `close` последней минуты с началом ≤ `ms` — двоичный поиск.
-    fn close_at_or_before(&self, ms: i64) -> Option<f64> {
+    pub(super) fn close_at_or_before(&self, ms: i64) -> Option<f64> {
         let i = self.rows.partition_point(|r| r.0 <= ms);
         (i > 0).then(|| self.rows[i - 1].1)
     }
@@ -531,7 +531,7 @@ pub(super) struct CxlBook {
 }
 
 impl WallBucket {
-    const EMPTY: WallBucket = WallBucket {
+    pub(super) const EMPTY: WallBucket = WallBucket {
         sec: i64::MIN,
         eaten: 0.0,
         max_qty: 0.0,
@@ -574,7 +574,7 @@ pub enum WallStopMode {
 
 impl TradePlan {
     /// Время жизни неисполненного входа у этого плана.
-    fn entry_ttl_ns(&self) -> i64 {
+    pub(super) fn entry_ttl_ns(&self) -> i64 {
         match *self {
             TradePlan::SpreadHold => ENTRY_TTL_NS,
             TradePlan::Bounce { entry_ttl_ns, .. } => entry_ttl_ns,

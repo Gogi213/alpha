@@ -130,7 +130,7 @@ pub(super) struct R2Bufs {
 }
 
 impl R2Bufs {
-    fn boxed() -> Box<Self> {
+    pub(super) fn boxed() -> Box<Self> {
         Box::new(Self {
             add_ids: [0; MAX_ADDS],
             nw_known: [0; NW_KNOWN],

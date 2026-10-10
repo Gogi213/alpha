@@ -664,13 +664,14 @@ pub(super) fn an_entry_orphan_does_not_flatten_what_the_plan_already_holds() {
 /// `on_holding` / `decide_exit` ломает этот тест — тогда порог надо добавить в `hold_wakeup_ns`.
 #[test]
 pub(super) fn holding_decision_reads_time_only_at_the_known_thresholds() {
-    const SRC: &str = include_str!("../strategy.rs");
-    let uses = |name: &str| -> Vec<String> {
-        let start = SRC.find(&format!("\nfn {name}<")).expect("функция есть");
-        let end = SRC[start + 5..]
-            .find("\nfn ")
-            .map_or(SRC.len(), |e| start + 5 + e);
-        SRC[start..end]
+    let uses = |src: &str, name: &str| -> Vec<String> {
+        let start = src
+            .find(&format!("\npub(super) fn {name}<"))
+            .expect("функция есть");
+        let end = src[start + 5..]
+            .find("\npub(super) fn ")
+            .map_or(src.len(), |e| start + 5 + e);
+        src[start..end]
             .lines()
             .filter(|l| {
                 l.split(|c: char| !(c.is_alphanumeric() || c == '_'))
@@ -680,7 +681,7 @@ pub(super) fn holding_decision_reads_time_only_at_the_known_thresholds() {
             .collect()
     };
     assert_eq!(
-        uses("decide_exit"),
+        uses(include_str!("../exit.rs"), "decide_exit"),
         [
             "now: i64,",
             "if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {",
@@ -701,7 +702,7 @@ pub(super) fn holding_decision_reads_time_only_at_the_known_thresholds() {
         ]
     );
     assert_eq!(
-        uses("on_holding"),
+        uses(include_str!("../handlers.rs"), "on_holding"),
         [
             "now: i64,",
             "match decide_exit(bot, state, entry_ns, now, quotes, true) {",

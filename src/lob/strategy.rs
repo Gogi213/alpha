@@ -119,7 +119,21 @@ mod hot_path_guard {
     /// этого крейта, которого здесь нет.
     #[test]
     fn module_never_calls_the_wall_clock_or_uses_a_hashmap_for_the_book() {
-        const SRC: &str = include_str!("strategy.rs");
+        const SRC: &[&str] = &[
+            include_str!("strategy.rs"),
+            include_str!("strategy/entry_view.rs"),
+            include_str!("strategy/plan.rs"),
+            include_str!("strategy/state.rs"),
+            include_str!("strategy/tape.rs"),
+            include_str!("strategy/orphans.rs"),
+            include_str!("strategy/observe.rs"),
+            include_str!("strategy/query.rs"),
+            include_str!("strategy/pyramid.rs"),
+            include_str!("strategy/cancel.rs"),
+            include_str!("strategy/exit.rs"),
+            include_str!("strategy/handlers.rs"),
+            include_str!("strategy/idle.rs"),
+        ];
         let banned = [
             concat!("Inst", "ant::now"),
             concat!("System", "Time::now"),
@@ -127,7 +141,10 @@ mod hot_path_guard {
             concat!("Hash", "Map::"),
         ];
         for b in banned {
-            assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
+            assert!(
+                SRC.iter().all(|f| !f.contains(b)),
+                "исходник тянет запрещённое: {b}"
+            );
         }
     }
 }
