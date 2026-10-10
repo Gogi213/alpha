@@ -74,17 +74,10 @@ use crate::lob::strategy::{
 mod compact;
 pub mod fast_depth;
 pub mod fast_hold;
-pub mod hold_index;
 mod levels;
-pub mod sched;
-pub mod shared_depth;
-pub mod shared_driver;
-pub mod shared_multi;
 use fast_depth::FastMarketDepth;
-mod trim;
 mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
-pub use trim::{kept_rows, TrimRows};
 pub(crate) use window_depth::round_half_away;
 pub use window_depth::WindowDepth;
 pub use window_depth::{QUANT_CALLS, QUANT_SLOW};
@@ -3026,10 +3019,6 @@ pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
 /// Пропуск `on_event` в удержании, когда входы решения не менялись (`ALPHA_SKIP_SAME=1`, TK-050): решение на
 /// тех же входах повторяется; умолчание — зовём на каждом шаге.
 fn skip_same() -> bool {
-    #[cfg(test)]
-    if fast_hold::FORCE_IDX.with(std::cell::Cell::get) {
-        return true;
-    }
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_some_and(|v| v == "1"))
 }
@@ -3138,30 +3127,17 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-/// Горизонт развёртки попытки `attempt` для полного горизонта `span_full` (Р6). Умолчание: нулевая — не дальше
-/// `FIRST_HORIZON_NS`, первая сразу полный, дальше удвоение. `ALPHA_HORIZON_GROW=1` (TK-048): удвоение от
-/// `FIRST_HORIZON_NS` (300, 600, 1200 с…), но не больше умолчательного для той же попытки — круг, кончающийся
-/// за минуты после первой попытки, не разворачивается на часы. Точность от значения не зависит (проверка
-/// конца данных пересчитывает круг), только время.
+/// Горизонт развёртки попытки `attempt` для полного горизонта `span_full` (Р6): нулевая — не дальше
+/// `FIRST_HORIZON_NS`, первая сразу полный, дальше удвоение. Точность от значения не зависит (проверка конца
+/// данных пересчитывает круг), только время.
 fn attempt_span_ns(span_full: i64, attempt: u32) -> i64 {
-    let default = match attempt {
+    match attempt {
         0 => span_full.min(FIRST_HORIZON_NS),
         a => span_full
             .checked_shl(a - 1)
             .filter(|v| *v > 0)
             .unwrap_or(i64::MAX),
-    };
-    if attempt == 0 || !horizon_grow() {
-        return default;
     }
-    1i64.checked_shl(attempt)
-        .and_then(|m| FIRST_HORIZON_NS.checked_mul(m))
-        .map_or(default, |v| v.min(default))
-}
-
-fn horizon_grow() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_HORIZON_GROW").is_some_and(|v| v == "1"))
 }
 
 fn horizon_span_ns(plan: &TradePlan) -> i64 {
@@ -3629,49 +3605,6 @@ fn entry_part(plan: TradePlan) -> TradePlan {
     p
 }
 
-/// Лента суток для общего индекса удержания (`ALPHA_HOLD_INDEX`): события в памяти — они же; иначе вид суток
-/// разворачивается один раз от самого раннего окна (`fast_hold::day_rows`), а срез круга — буфер от `skip_to(w.start)`.
-fn shared_day<'a, R: EventRows + ?Sized>(
-    events: &'a R,
-    windows: &'a SignalWindows,
-    w: &'a SignalWindow,
-) -> Option<fast_hold::SharedDay<'a>> {
-    if !fast_hold::hold_index_on() {
-        return None;
-    }
-    let first = windows.earliest()?;
-    if let Some(all) = events.as_events() {
-        return Some(fast_hold::SharedDay {
-            all,
-            base_row: first.start,
-            base_depth: &first.depth,
-            off: w.start,
-            win_depth: &w.depth,
-        });
-    }
-    let base = events.skip_to(first.start);
-    if base >= events.len() {
-        return None;
-    }
-    let key = (
-        std::ptr::from_ref(events).cast::<()>() as usize,
-        events.len(),
-        base,
-        events.row_local_ts(base),
-        events.row_local_ts(events.len() - 1),
-    );
-    let all = fast_hold::day_rows(key, || {
-        (base..events.len()).map(|i| events.row(i)).collect()
-    });
-    Some(fast_hold::SharedDay {
-        all,
-        base_row: 0,
-        base_depth: &first.depth,
-        off: events.skip_to(w.start) - base,
-        win_depth: &w.depth,
-    })
-}
-
 /// Групповой круг одного сигнала в свежем движке окна (Э-08) — те же попытки горизонта развёртки, что у
 /// `windowed_with` (Р6). `None` — окна или данных после `t0` нет. Вариант с сиротами на выходе
 /// возвращается как `EndOfData` — в память он не попадёт (драйвер посчитает его сам).
@@ -3731,7 +3664,6 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                 let steps = fast_hold::with_fast_ctx(
                     bt_addr,
                     rest,
-                    shared_day(events, windows, w),
                     windows.tick_size,
                     windows.lot_size,
                     exec_latency,
@@ -3971,7 +3903,6 @@ fn windowed_with<R: EventRows + ?Sized>(
                             fast_hold::with_fast_ctx(
                                 std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize,
                                 rest,
-                                shared_day(events, windows, w),
                                 windows.tick_size,
                                 windows.lot_size,
                                 exec_latency,
