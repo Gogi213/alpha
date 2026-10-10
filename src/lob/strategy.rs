@@ -4022,3 +4022,6 @@ mod hot_path_guard {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod alloc_tests;

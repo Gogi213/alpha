@@ -1,7 +1,5 @@
 use super::*;
 use crate::lob::backtest::fast_depth::FastMarketDepth;
-use crate::lob::backtest::shared_engine::tests::{rows, snap_orders};
-use crate::lob::backtest::shared_engine::SharedEngine;
 use hftbacktest::backtest::assettype::LinearAsset;
 use hftbacktest::backtest::models::{
     CommonFees, ConstantLatency, PowerProbQueueFunc3, ProbQueueModel, TradingValueFeeModel,
@@ -9,6 +7,57 @@ use hftbacktest::backtest::models::{
 use hftbacktest::backtest::Backtest;
 use hftbacktest::depth::MarketDepth;
 use hftbacktest::types::Bot as _;
+use hftbacktest::types::{
+    EXCH_BUY_TRADE_EVENT, EXCH_SELL_TRADE_EVENT, LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT,
+};
+
+fn ev(kind: u8, exch_ts: i64, px: f64, qty: f64) -> Event {
+    let bits = match kind {
+        0 => LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT,
+        1 => LOCAL_ASK_DEPTH_EVENT | EXCH_ASK_DEPTH_EVENT,
+        2 => LOCAL_BUY_TRADE_EVENT | EXCH_BUY_TRADE_EVENT | EXCH_EVENT | LOCAL_EVENT,
+        _ => LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT | EXCH_EVENT | LOCAL_EVENT,
+    };
+    Event {
+        ev: bits,
+        exch_ts,
+        local_ts: exch_ts + 700,
+        px,
+        qty,
+        order_id: 0,
+        ival: 0,
+        fval: 0.0,
+    }
+}
+
+/// Детерминированная лента: два снимка и 400 псевдослучайных событий глубины и сделок.
+fn rows() -> Vec<Event> {
+    let mut v = vec![ev(0, 1_000, 100.0, 10.0), ev(1, 1_100, 100.1, 10.0)];
+    let mut x: u64 = 12345;
+    let mut ts = 1_200;
+    for _ in 0..400 {
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let r = (x >> 33) as i64;
+        ts += 300 + r % 900;
+        let step = (r / 7 % 5) as f64 * 0.1;
+        let qty = ((r / 3 % 9) as f64) * 2.0;
+        match r % 4 {
+            0 => v.push(ev(0, ts, 99.8 + step, qty)),
+            1 => v.push(ev(1, ts, 100.0 + step, qty)),
+            2 => v.push(ev(2, ts, 100.0 + step, 1.0 + (r % 3) as f64)),
+            _ => v.push(ev(3, ts, 99.8 + step, 1.0 + (r % 3) as f64)),
+        }
+    }
+    v
+}
+
+fn snap_orders(o: &hftbacktest::types::OrderMap) -> Vec<String> {
+    let mut ids: Vec<_> = o.keys().copied().collect();
+    ids.sort_unstable();
+    ids.iter().map(|i| format!("{:?}", o[i])).collect()
+}
 
 type AT = LinearAsset;
 type LM = ConstantLatency;
@@ -25,37 +74,6 @@ trait Drv {
     fn wnf(&mut self, inc: bool, t: i64) -> ElapseResult;
     fn submit(&mut self, id: u64, side: Side, px: f64, qty: f64, wait: bool) -> ElapseResult;
     fn cancel(&mut self, id: u64) -> bool;
-}
-
-impl Drv for SharedEngine<AT, LM, QM, FM> {
-    fn ts(&self) -> i64 {
-        self.current_timestamp()
-    }
-    fn bbo(&self) -> (f64, f64) {
-        (self.depth().best_bid(), self.depth().best_ask())
-    }
-    fn pos(&self) -> f64 {
-        self.position()
-    }
-    fn sv(&self) -> String {
-        format!("{:?}", self.state_values())
-    }
-    fn ords(&self) -> Vec<String> {
-        snap_orders(self.orders())
-    }
-    fn elapse(&mut self, d: i64) -> ElapseResult {
-        SharedEngine::elapse(self, d).unwrap()
-    }
-    fn wnf(&mut self, inc: bool, t: i64) -> ElapseResult {
-        self.wait_next_feed(inc, t).unwrap()
-    }
-    fn submit(&mut self, id: u64, side: Side, px: f64, qty: f64, wait: bool) -> ElapseResult {
-        self.submit_order(id, side, px, qty, TimeInForce::GTC, OrdType::Limit, wait)
-            .unwrap()
-    }
-    fn cancel(&mut self, id: u64) -> bool {
-        SharedEngine::cancel(self, id, false).is_ok()
-    }
 }
 
 impl Drv for CircleCtx<AT, LM, QM, FM> {
@@ -138,88 +156,11 @@ fn script<D: Drv>(d: &mut D, p: P) -> Vec<String> {
     tr
 }
 
-fn fees() -> FM {
-    TradingValueFeeModel::new(CommonFees::new(-0.0001, 0.0006))
-}
-
-fn qm() -> QM {
-    ProbQueueModel::new(PowerProbQueueFunc3::new(3.0))
-}
-
 fn books() -> (SharedDepth, SharedDepth) {
     (
         SharedDepth::new_leader(FastMarketDepth::new(0.1, 1.0)),
         SharedDepth::new_leader(FastMarketDepth::new(0.1, 1.0)),
     )
-}
-
-#[test]
-fn three_circles_equal_three_solo() {
-    let ps = [
-        P {
-            every: 4,
-            qty: 2.0,
-            timeout: 20_000,
-            inc: true,
-            wait_every: 0,
-        },
-        P {
-            every: 3,
-            qty: 5.0,
-            timeout: 5_000,
-            inc: false,
-            wait_every: 8,
-        },
-        P {
-            every: 5,
-            qty: 1.0,
-            timeout: 60_000,
-            inc: true,
-            wait_every: 10,
-        },
-    ];
-    let data = rows();
-    let lat = ConstantLatency::new(2_000, 2_000);
-    let solo: Vec<Vec<String>> = ps
-        .iter()
-        .map(|&p| {
-            let (lb, eb) = books();
-            let mut e = SharedEngine::new(
-                data.clone(),
-                lb,
-                eb,
-                LinearAsset::new(1.0),
-                fees(),
-                lat.clone(),
-                qm(),
-                64,
-            );
-            script(&mut e, p)
-        })
-        .collect();
-    let (lb, eb) = books();
-    let mut m: MultiEngine<AT, LM, QM, FM, Vec<String>> = MultiEngine::new(data, lb, eb);
-    for &p in &ps {
-        m.add_circle(
-            LinearAsset::new(1.0),
-            fees(),
-            lat.clone(),
-            qm(),
-            64,
-            move |mut c| script(&mut c, p),
-        )
-        .unwrap();
-    }
-    let mut res = m.run().unwrap();
-    res.sort_by_key(|(i, _)| *i);
-    assert_eq!(res.len(), 3);
-    for (i, (_, tr)) in res.iter().enumerate() {
-        assert!(tr.len() > 100, "круг {i}: трасса короткая");
-        assert_eq!(tr.len(), solo[i].len(), "круг {i}: длина");
-        for (k, (a, b)) in tr.iter().zip(&solo[i]).enumerate() {
-            assert_eq!(a, b, "круг {i}, строка {k}");
-        }
-    }
 }
 
 type LM2 = crate::lob::backtest::MeasuredLatency;

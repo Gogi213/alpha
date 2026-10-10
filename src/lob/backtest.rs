@@ -79,7 +79,6 @@ mod levels;
 pub mod sched;
 pub mod shared_depth;
 pub mod shared_driver;
-pub mod shared_engine;
 pub mod shared_multi;
 use fast_depth::FastMarketDepth;
 mod trim;
