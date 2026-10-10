@@ -304,3 +304,22 @@ fn prices_that_break_f64_land_on_one_level() {
     assert_eq!(tick_from_sum, tick_from_literal);
     assert_eq!(b.qty_lots_at(Side::Bid, tick_from_sum), px(1.0) / STEP);
 }
+
+/// С-05 (ревью 10.10): запреты 2 и 7 `interfaces.md` для `book/mod.rs` — часы напрямую и хеш/дерево на пути события.
+/// `f64` здесь разрешён: он нужен только на границе трейта `MarketDepth` крейта (см. `tick_size_f`).
+/// Строки собраны из частей — иначе литерал триггерил бы проверку сам на себя.
+#[test]
+fn book_never_calls_the_wall_clock_or_uses_a_map_for_levels() {
+    const SRC: &str = include_str!("mod.rs");
+    let banned = [
+        concat!("Inst", "ant::now"),
+        concat!("System", "Time::now"),
+        concat!("Hash", "Map<"),
+        concat!("Hash", "Map::"),
+        concat!("BTree", "Map<"),
+        concat!("BTree", "Map::"),
+    ];
+    for b in banned {
+        assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
+    }
+}

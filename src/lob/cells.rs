@@ -31,7 +31,7 @@
 //! (`webb_points_match_stats_bit_for_bit` держит побитовое совпадение с
 //! `stats::webb_weight`).
 
-use crate::stats::{count_f64_u64, SplitMix64};
+use crate::stats::{count_f64_u64, quantile_sorted, SplitMix64};
 
 // ---------------------------------------------------------------------------
 // Константы. Seed заморожен, как всё предрегистрированное (A2): один и тот
@@ -114,30 +114,6 @@ impl DisjointContrast {
             "contrast(A-B): diff={:.4} CI=[{:.4},{:.4}] (99.5%, B={} seed={}) n_a={} n_b={}",
             self.diff, self.ci_low, self.ci_high, self.replications, self.seed, self.n_a, self.n_b
         )
-    }
-}
-
-/// Квантиль уровня `q` на отсортированном по возрастанию срезе, линейная
-/// интерполяция между соседями. Вызывающий гарантирует непустоту и `q`
-/// внутри [0, 1] (проверено `debug_assert`); индексы `lo`/`hi` лежат в
-/// `0..len` по построению `pos`, `get` здесь — мёртвый код ради линта.
-/// Касты точные: `len` — длина среза в памяти (< 2^53 всегда, иначе его негде
-/// держать), `pos` — в `[0, len)`, усечение к `usize` отбрасывает только дробь.
-#[allow(
-    clippy::indexing_slicing,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation
-)]
-fn quantile_sorted(sorted: &[f64], q: f64) -> f64 {
-    debug_assert!(!sorted.is_empty(), "квантиль пустого распределения");
-    debug_assert!((0.0..=1.0).contains(&q), "уровень квантиля вне [0,1]");
-    let pos = q * (sorted.len() - 1) as f64;
-    let lo = pos.floor() as usize;
-    let hi = pos.ceil() as usize;
-    if lo == hi {
-        sorted[lo]
-    } else {
-        sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo as f64)
     }
 }
 

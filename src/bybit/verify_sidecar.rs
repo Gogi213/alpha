@@ -273,10 +273,6 @@ impl VerifyState {
         self.verified_seq
     }
 
-    pub fn ring_len(&self) -> usize {
-        self.ring.len()
-    }
-
     pub fn apply_msg(&mut self, msg: VerifyMsg) {
         match msg {
             VerifyMsg::Update(up) => self.apply_forwarded(up),
