@@ -56,6 +56,46 @@ fn phase_name(p: &Phase) -> &'static str {
     }
 }
 
+/// Гоняет `on_event` по ленте и меряет вызовы, начатые и кончившиеся в одной из фаз `names` (вызовы и аллокации).
+fn measure_phases(feed: &[Event], names: [&str; 2]) -> ([usize; 2], [u64; 2]) {
+    let mut hbt = seam6_backtest(feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan());
+    let mut calls = [0usize; 2];
+    let mut allocs = [0u64; 2];
+    loop {
+        let r = hbt.elapse(STEP).unwrap();
+        let before = phase_name(&state.phase);
+        let (res, counts) = crate::alloc_count::measure(|| on_event(&mut hbt, &mut state));
+        res.unwrap();
+        if before == phase_name(&state.phase) {
+            if let Some(i) = names.iter().position(|n| *n == before) {
+                calls[i] += 1;
+                allocs[i] += counts.allocations;
+            }
+        }
+        if r == ElapseResult::EndOfData {
+            break;
+        }
+    }
+    (calls, allocs)
+}
+
+fn assert_phases_clean(names: [&str; 2], calls: [usize; 2], allocs: [u64; 2]) {
+    for i in 0..2 {
+        assert!(
+            calls[i] >= PER_PHASE,
+            "{} измерен на {} вызовах < {PER_PHASE}",
+            names[i],
+            calls[i]
+        );
+        assert_eq!(
+            allocs[i], 0,
+            "{} аллоцировал — запрет 1 interfaces.md",
+            names[i]
+        );
+    }
+}
+
 /// Лента: стакан, вход стоит за огромной очередью (не исполняется) `PER_PHASE + 5_000` событий, затем сделка
 /// крупнее очереди исполняет вход, и столько же событий позиция держится в коридоре стопа и тейка.
 #[test]
@@ -80,45 +120,7 @@ fn on_event_allocates_nothing_while_entry_pending_and_while_holding() {
             5.0 + (k % 2) as f64,
         ));
     }
-
-    let mut hbt = seam6_backtest(&feed);
-    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan());
-    let mut calls = [0usize; 2];
-    let mut allocs = [0u64; 2];
-    loop {
-        let r = hbt.elapse(STEP).unwrap();
-        let before = phase_name(&state.phase);
-        let (res, counts) = crate::alloc_count::measure(|| on_event(&mut hbt, &mut state));
-        res.unwrap();
-        let after = phase_name(&state.phase);
-        if before == after {
-            let i = match before {
-                "EntryPending" => Some(0),
-                "Holding" => Some(1),
-                _ => None,
-            };
-            if let Some(i) = i {
-                calls[i] += 1;
-                allocs[i] += counts.allocations;
-            }
-        }
-        if r == ElapseResult::EndOfData {
-            break;
-        }
-    }
-    assert!(
-        calls[0] >= PER_PHASE,
-        "EntryPending измерен на {} вызовах < {PER_PHASE}",
-        calls[0]
-    );
-    assert!(
-        calls[1] >= PER_PHASE,
-        "Holding измерен на {} вызовах < {PER_PHASE}",
-        calls[1]
-    );
-    assert_eq!(
-        allocs[0], 0,
-        "EntryPending аллоцировал — запрет 1 interfaces.md"
-    );
-    assert_eq!(allocs[1], 0, "Holding аллоцировал — запрет 1 interfaces.md");
+    let names = ["EntryPending", "Holding"];
+    let (calls, allocs) = measure_phases(&feed, names);
+    assert_phases_clean(names, calls, allocs);
 }
