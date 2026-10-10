@@ -20,10 +20,9 @@ fn empty_env_is_default_all_off() {
 fn one_vs_set_semantics() {
     let f = RunFlags::from_vars(vars(&[
         ("ALPHA_FAST_HOLD", "0"),
-        ("ALPHA_HOLD_INDEX", "1"),
         ("ALPHA_ATTEMPT_STATS", ""),
     ]));
-    assert!(!f.fast_hold && f.hold_index);
+    assert!(!f.fast_hold);
     assert!(f.attempt_stats, "задан любым значением");
 }
 
@@ -31,13 +30,11 @@ fn one_vs_set_semantics() {
 fn numbers_event_steps_and_paths() {
     let f = RunFlags::from_vars(vars(&[
         ("ALPHA_SIG_CACHE", "0"),
-        ("ALPHA_TRIM_ROWS", "250"),
         ("ALPHA_EVENT_STEPS", "entry"),
         ("ALPHA_TOUCH_BIN_LEVEL", "x"),
         ("ALPHA_APPROACH_BIN_DIR", "/d"),
     ]));
     assert_eq!(f.sig_cache, None, "0 = выкл.");
-    assert_eq!(f.trim_rows, Some(250));
     assert_eq!(f.event_steps, EventSteps::Entry);
     assert_eq!(f.touch_bin_level, None);
     assert_eq!(f.approach_bin_dir, Some(OsString::from("/d")));

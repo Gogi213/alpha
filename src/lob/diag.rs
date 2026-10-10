@@ -12,9 +12,6 @@ pub static DEPTH_ROW_BANDS: [std::sync::atomic::AtomicU64; 4] =
 pub static DEPTH_ROW_CLASS: [std::sync::atomic::AtomicU64; 6] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 6];
 pub static BAND_STATS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// По умолчанию `DEPTH_ROW_BANDS` не считается (атомарный `fetch_add` на каждое обновление — диагностика, ≈2–3 % ЦП);
-/// строка печатается только под `ALPHA_ATTEMPT_STATS`, там счёт включён всегда.
-
 thread_local! {
     static WATCH_TICK: std::cell::Cell<i64> = const { std::cell::Cell::new(i64::MIN) };
 }
