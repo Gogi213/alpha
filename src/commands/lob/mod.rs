@@ -154,7 +154,6 @@ pub(crate) use parts::{file_order_key, session_binlog_for, session_parts_for};
 #[cfg(test)]
 pub(crate) use parts::{group_parts_by_day, session_days_in_dir, SessionPart};
 #[cfg(test)]
-#[cfg(test)]
 pub(crate) use replay::replay_symbol_over_configs;
 pub(crate) use replay::{
     replay_symbol, replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids,
