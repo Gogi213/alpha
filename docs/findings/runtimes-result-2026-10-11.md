@@ -30,3 +30,13 @@
 | Б: `EVENT_STEPS`, `DIRECT_FEED`, `TOUCH_BIN` | в `src` 0: сделано; `APPROACH_BIN` — 4 файла в `src`: нет (КТ-5 довести) |
 | В: `lob backtest` (команда) | `src/commands/lob/backtest.rs` ЕСТЬ: нет (КТ-6a TK-161 ещё waiting) |
 | В: исследовательский слой 11 011 строк | решение CEO, вне КТ |
+
+## Сводный гейт d15+d01 на голове ea89c3fb (ствол после 6a/6b/6c, 4b, 4a.3, КТ-5, КТ-11)
+
+Бинари собраны на calc (`vps-check bin`): plain md5 `4a5c2e7f…`, r2 `80b2b549…`; `tools/compute/gate/gate-families.sh` (опорный из кэша TK-172), jobs 1011002157885 / 1011002159900 (prod).
+Семьи: base 661 файл diff 0, dl 5/0, r2 9/0, tk115 5/0, tk115j 29/0, tk115w 5/0, tk115e 34/0 — **7 семей diff 0**. Выход — `/data/tk164/gate` (GATE_TAG через alsched не передаётся — оба задания писали в общий каталог, строки summary не пересеклись).
+
+## Волна b14 01–15.01 (голова против 197,4 с)
+
+Команда: `/data/tk155/chain155.sh` (chain71 QALL, очередь по units-q15b14ac, 20 процессов, G=8), бинарь = plain головы за обёрткой `alpha-155-plain`.
+Оговорка: эталон 197,4 с — PGO-сборка `alpha-b14-pgo` с флагами; голова — без PGO, флаги стали умолчаниями. Результат — `/data/tk155/chain155.txt`.
