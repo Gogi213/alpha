@@ -45,7 +45,8 @@ run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сут�
   exp=$(grep -c . "$6"); got=$(find "$S/b5" -name 'forms.csv' 2>/dev/null | xargs -r cat | awk -F, -v d="$4" '$2==d{print $3}' | sort -u | grep -c .)
   local nr; nr=$(find "$S/b5" -name 'rounds*.csv' 2>/dev/null | wc -l)
   echo "run $1 rc=$rc cells_got=$got cells_exp=$exp rounds_files=$nr"
-  [ "$rc" = 0 ] && [ "$nr" -gt 0 ] && { [ "$got" = "$exp" ] || { [ "$5" = jall ] && [ "$got" = 0 ]; }; } || { echo "RUNFAIL $1 (rc=$rc rounds=$nr got=$got/$exp)"; return 1; }
+  # base: forms.csv перечисляет только клетки с исходами за сутки (66 из 241), счёт клеток не применим — rc=0 и rounds>0
+  [ "$rc" = 0 ] && [ "$nr" -gt 0 ] && { [ "$got" = "$exp" ] || [ "$5" = jall ]; } || { echo "RUNFAIL $1 (rc=$rc rounds=$nr got=$got/$exp)"; return 1; }
 }
 cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0, одинаковый список; красный при files=0
   local n=0 bad=0 f la lb
