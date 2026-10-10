@@ -140,6 +140,7 @@ use super::{
 use crate::book::Side;
 use crate::lob::backtest::{BounceSignal, CompactEvent, RoundMemo, SignalWindows};
 use crate::lob::levels::LevelsConfig;
+use crate::lob::run_flags::RunFlags;
 use crate::lob::sigma::SigmaSeries;
 
 type CarryKey = (String, Option<PathBuf>, Option<i64>);
@@ -253,6 +254,7 @@ struct GridRun<'a> {
     outs: Vec<outputs::Outputs>,
     regime_days: BTreeMap<String, RegimeDay>,
     carry_window: Option<i64>,
+    flags: RunFlags,
     summary: BounceGridSummary,
 }
 
@@ -272,17 +274,14 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 }
 
 fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
-    if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
+    let flags = RunFlags::from_env();
+    if flags.attempt_stats {
         crate::lob::backtest::fast_depth::BAND_STATS_ON
             .store(true, std::sync::atomic::Ordering::Relaxed);
         hftbacktest::prof::ROW_CLASS_ON.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    if std::env::var_os("ALPHA_BAND_COUNT_OFF").is_some_and(|v| v == "0") {
-        crate::lob::backtest::fast_depth::BAND_COUNT_OFF
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-    }
     let Some(path) = args.extra_runs.as_deref() else {
-        let mut run = GridRun::new(args)?;
+        let mut run = GridRun::new(args, &flags)?;
         for symbol in run.symbols.clone() {
             run.run_symbol(&symbol, None)?;
         }
@@ -308,9 +307,9 @@ fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSumm
         );
         extras.push(parsed.args);
     }
-    let mut runs = vec![GridRun::new(args)?];
+    let mut runs = vec![GridRun::new(args, &flags)?];
     for e in &extras {
-        runs.push(GridRun::new(e)?);
+        runs.push(GridRun::new(e, &flags)?);
     }
     let mut order: Vec<String> = runs[0].symbols.clone();
     for r in &runs[1..] {
@@ -405,7 +404,7 @@ impl<'a> GridRun<'a> {
         out
     }
 
-    fn new(args: &'a BounceGridArgs) -> anyhow::Result<Self> {
+    fn new(args: &'a BounceGridArgs, flags: &RunFlags) -> anyhow::Result<Self> {
         let plan = plan_grid(args)?;
         let outs = open_outputs(args, &plan)?;
         // Перенос круга через полночь (`--carry-root`): окно — один раз на прогон,
@@ -461,6 +460,7 @@ impl<'a> GridRun<'a> {
             // Режим суток читается один раз на сутки (общий для символов).
             regime_days: BTreeMap::new(),
             carry_window,
+            flags: flags.clone(),
             summary,
         })
     }
@@ -835,20 +835,18 @@ impl<'a> GridRun<'a> {
                 None
             };
             let ctx = touch_contexts(&day.rets, &day.touches, regime);
-            let holds_day: Option<Vec<bool>> = std::env::var_os("ALPHA_HOLDS_MEMO")
-                .is_some_and(|v| v == "1")
-                .then(|| {
-                    day.touches
-                        .iter()
-                        .map(|t| mode.holds_at_touch(t) == Some(true))
-                        .collect()
-                });
+            let holds_day: Option<Vec<bool>> = self.flags.holds_memo.then(|| {
+                day.touches
+                    .iter()
+                    .map(|t| mode.holds_at_touch(t) == Some(true))
+                    .collect()
+            });
             let rows_day: Option<Vec<sets::AdmitRow>> = (holds_day.is_some()
-                && std::env::var_os("ALPHA_ADMIT_SOA").is_some_and(|v| v == "1"))
-            .then(|| day.touches.iter().map(sets::AdmitRow::of).collect());
+                && self.flags.admit_soa)
+                .then(|| day.touches.iter().map(sets::AdmitRow::of).collect());
             // TK-049 (`ALPHA_SKIP_NOSIGNAL=1`): ни один набор не пропускает ни одного касания суток — сигналов
             // нет у всех форм, круги не идут, лента на выход не влияет: не читаем её и довесок D+1.
-            let no_signal = std::env::var_os("ALPHA_SKIP_NOSIGNAL").is_some()
+            let no_signal = self.flags.skip_nosignal
                 && matches!(args.driver, args::DriverArg::Setups)
                 && sets.iter().all(|set| {
                     let mut f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
@@ -1006,29 +1004,6 @@ impl<'a> GridRun<'a> {
             }
             let step_schedule = read_day_schedule(day_parts, tick_e9, step_e9)
                 .map_err(|e| anyhow::anyhow!("{symbol} {}: {e}", day.day))?;
-            // TK-049: урезанная лента суток — один раз на монето-сутки; без смены шага цены и только по окнам.
-            let trim_band: Option<i64> = std::env::var("ALPHA_TRIM_ROWS")
-                .ok()
-                .and_then(|v| v.parse().ok());
-            let kept: Vec<u32> = match (trim_band, rows, windows.as_ref(), step_schedule.as_ref()) {
-                (Some(b), DayRows::Compact(c), Some(_), None) => {
-                    let started = std::time::Instant::now();
-                    let k = crate::lob::backtest::kept_rows(c, tick, lot, b);
-                    eprintln!(
-                        "bounce-grid:   урезанная лента (полоса {b}): {} из {} строк ({:.1} %) · {:.2}s",
-                        k.len(),
-                        c.len(),
-                        100.0 * k.len() as f64 / c.len().max(1) as f64,
-                        started.elapsed().as_secs_f64()
-                    );
-                    k
-                }
-                _ => Vec::new(),
-            };
-            let rows = match rows {
-                DayRows::Compact(c) if !kept.is_empty() => DayRows::Trimmed(c, &kept),
-                r => r,
-            };
             let mut order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
             if let Some(sc) = step_schedule.as_ref() {
                 // В-172: размер ордера кратен лоту, действовавшему в момент касания (вверх — минимум не нарушаем).
@@ -1110,9 +1085,7 @@ impl<'a> GridRun<'a> {
                         DayParams {
                             holds: holds_day.as_deref(),
                             rows: rows_day.as_deref(),
-                            admitted: if std::env::var_os("ALPHA_ADMIT_CACHE")
-                                .is_some_and(|v| v == "1")
-                            {
+                            admitted: if self.flags.admit_cache {
                                 Some(&admit_cell)
                             } else {
                                 None
@@ -1226,7 +1199,7 @@ impl<'a> GridRun<'a> {
                 .saturating_sub(retries_before);
             if retries > 0 {
                 eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
-                if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
+                if self.flags.attempt_stats {
                     use crate::lob::backtest::{ATTEMPT_ROWS, ATTEMPT_RUNS, ATTEMPT_USED};
                     let g = |a: &[std::sync::atomic::AtomicU64]| {
                         a.iter()
@@ -1306,36 +1279,7 @@ impl<'a> GridRun<'a> {
                     FAST_ROWS.load(Relaxed)
                 );
             }
-            if crate::lob::backtest::fast_hold::hold_index_on() {
-                use std::sync::atomic::Ordering::Relaxed;
-                let t = &crate::lob::backtest::fast_hold::IDX_TIMING;
-                eprintln!(
-                    "bounce-grid:   индекс удержания: построений {}, мкс: построение {}, снимок книги {}, скан {}, handoff+движок {}; кругов без индекса суток {}, развёртка суток мкс {}",
-                    t[0].load(Relaxed),
-                    t[1].load(Relaxed),
-                    t[2].load(Relaxed),
-                    t[3].load(Relaxed),
-                    t[4].load(Relaxed),
-                    t[5].load(Relaxed),
-                    t[6].load(Relaxed)
-                );
-            }
-            if crate::lob::backtest::fast_hold::hold_index_on() {
-                use std::sync::atomic::Ordering::Relaxed;
-                let b = &crate::lob::backtest::hold_index::BUILD_STAGES;
-                eprintln!(
-                    "bounce-grid:   построение индекса: строк ленты {}, локальных {}, нс: применение {}, запись объёма {}, сделки {}, лучшие цены и учёт {}, снимки {}, сортировки {}",
-                    b[0].load(Relaxed),
-                    b[1].load(Relaxed),
-                    b[2].load(Relaxed),
-                    b[3].load(Relaxed),
-                    b[4].load(Relaxed),
-                    b[5].load(Relaxed),
-                    b[6].load(Relaxed),
-                    b[7].load(Relaxed)
-                );
-            }
-            if std::env::var_os("ALPHA_TICK_STATS").is_some_and(|v| v == "1") {
+            if self.flags.tick_stats {
                 use crate::lob::backtest::{QUANT_CALLS, QUANT_SLOW};
                 use std::sync::atomic::Ordering::Relaxed;
                 eprintln!(

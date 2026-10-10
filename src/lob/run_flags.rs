@@ -26,12 +26,6 @@ pub struct RunFlags {
     pub attempt_stats: bool,
     /// `ALPHA_BAND_COUNT_OFF=0`: включить счёт полос без остальной статистики.
     pub band_count_on: bool,
-    /// `ALPHA_SHARED_CELLS=<n>`: клеток в куске общего движка, умолчание 8, не меньше 1.
-    pub shared_cells: usize,
-    /// `ALPHA_SHARED_ENGINE` задан.
-    pub shared_engine: bool,
-    /// `ALPHA_SHARED_STATS` задан.
-    pub shared_stats: bool,
     /// `ALPHA_HOLDS_MEMO=1`.
     pub holds_memo: bool,
     /// `ALPHA_ADMIT_SOA=1`.
@@ -112,12 +106,6 @@ impl RunFlags {
                 .filter(|&n| n > 0),
             attempt_stats: set("ALPHA_ATTEMPT_STATS"),
             band_count_on: get("ALPHA_BAND_COUNT_OFF") == Some("0"),
-            shared_cells: num("ALPHA_SHARED_CELLS")
-                .and_then(|n| usize::try_from(n).ok())
-                .unwrap_or(8)
-                .max(1),
-            shared_engine: set("ALPHA_SHARED_ENGINE"),
-            shared_stats: set("ALPHA_SHARED_STATS"),
             holds_memo: one("ALPHA_HOLDS_MEMO"),
             admit_soa: one("ALPHA_ADMIT_SOA"),
             admit_cache: one("ALPHA_ADMIT_CACHE"),
