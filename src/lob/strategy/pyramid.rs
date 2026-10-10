@@ -169,10 +169,7 @@ impl StrategyState {
             return;
         }
         #[allow(clippy::cast_possible_truncation)]
-        let (stop_t, level_t) = (
-            round_half_away(stop_px / tick_px) as i64,
-            round_half_away(level_px / tick_px) as i64,
-        );
+        let (stop_t, level_t) = (px_tick(stop_px, tick_px), px_tick(level_px, tick_px));
         let buy = matches!(side, HbtSide::Buy);
         let (from, step) = if buy {
             (depth.best_bid_tick() - 1, -1_i64)

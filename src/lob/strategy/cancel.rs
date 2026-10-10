@@ -85,7 +85,7 @@ impl StrategyState {
         // что у входа (у лонга бид-стена, у шорта аск-стена).
         if level_floor_qty > 0.0 && tick_px > 0.0 && level_px > 0.0 {
             #[allow(clippy::cast_possible_truncation)]
-            let level_tick = round_half_away(level_px / tick_px) as i64;
+            let level_tick = px_tick(level_px, tick_px);
             crate::lob::diag::set_watch_tick(level_tick);
             let now_qty = match entry_side {
                 HbtSide::Buy => depth.bid_qty_at_tick(level_tick),

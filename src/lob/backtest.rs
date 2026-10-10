@@ -1451,23 +1451,11 @@ where
 /// счёта не влияет.
 pub static HOLD_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Событийные шаги при живых заявках (`ALPHA_EVENT_STEPS=1`): между событиями рынка/ответами биржи и
-/// таймерами фазы шаг опроса не нужен — решение то же. Умолчание — прежний шаг 10 мс.
-fn event_steps() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "1"))
-}
-
 /// Событийные шаги только в ожидании исполнения входа (`ALPHA_EVENT_STEPS=entry`, TK-050): остальные фазы идут
 /// по-прежнему (быстрый путь удержания остаётся включённым). Умолчание — выкл.
 fn event_steps_entry() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "entry"))
-}
-
-/// Условие быстрого пути (TK-049): пропуск пустых шагов включён, событийные шаги выключены.
-fn skip_on_hold(skip_cap: Option<i64>, ev_steps: bool) -> bool {
-    skip_cap.is_some() && !ev_steps
 }
 
 /// Есть ли у круга заявки, ещё живые в крейте (не исполнены целиком, не сняты, не отвергнуты): пока есть,
@@ -1555,7 +1543,6 @@ where
     let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
     // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
     let mut decided_in_hold = false;
-    let ev_steps = event_steps();
     let ev_entry = event_steps_entry();
     let mut stable = false;
     let skip_on = skip_same();
@@ -1568,7 +1555,7 @@ where
         if !fast_tried
             && entry_pending == 0
             && exits.is_empty()
-            && skip_on_hold(skip_cap, ev_steps)
+            && skip_cap.is_some()
             && state.is_holding()
             && state.hold_wakeup_ns(bot.current_timestamp()).is_some()
             && !has_open_orders(bot, asset_no)
@@ -1606,18 +1593,10 @@ where
         // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
         // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
         let wakeup = match skip_cap {
-            Some(_) if ev_steps && stable && entry_pending == 0 => {
-                state.step_wakeup_ns(bot.current_timestamp())
-            }
             Some(_) if ev_entry && stable && entry_pending == 0 && state.is_entry_pending() => {
                 state.step_wakeup_ns(bot.current_timestamp())
             }
-            Some(_)
-                if !ev_steps
-                    && decided_in_hold
-                    && entry_pending == 0
-                    && !has_open_orders(bot, asset_no) =>
-            {
+            Some(_) if decided_in_hold && entry_pending == 0 && !has_open_orders(bot, asset_no) => {
                 state.hold_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
@@ -2144,14 +2123,10 @@ where
     let mut entry_seen: u64 = 0;
     let mut entry_pending: u64 = 0;
     let mut fill_by_cross = false;
-    let ev_steps = event_steps();
     let ev_entry = event_steps_entry();
     let mut entry_stable = false;
     loop {
         let entry_wake = match skip_cap {
-            Some(_) if ev_steps && entry_stable && entry_pending == 0 => {
-                entry_state.step_wakeup_ns(bot.current_timestamp())
-            }
             Some(_)
                 if ev_entry
                     && entry_stable
@@ -2289,7 +2264,7 @@ where
         }
         if !fast_tried
             && entry_pending == 0
-            && skip_on_hold(skip_cap, ev_steps)
+            && skip_cap.is_some()
             && states
                 .iter()
                 .all(|s| s.is_holding() && s.hold_wakeup_ns(bot.current_timestamp()).is_some())
@@ -2320,25 +2295,7 @@ where
         }
         let skip_step = std::mem::take(&mut post_step);
         let wakeup = match skip_cap {
-            Some(_) if ev_steps && entry_pending == 0 => {
-                let now = bot.current_timestamp();
-                let mut th: Option<i64> = None;
-                let mut all = true;
-                for i in 0..n {
-                    if outcome[i].is_some() {
-                        continue;
-                    }
-                    match (stable[i], states[i].step_wakeup_ns(now)) {
-                        (true, Some(t)) => th = Some(th.map_or(t, |x: i64| x.min(t))),
-                        _ => {
-                            all = false;
-                            break;
-                        }
-                    }
-                }
-                th.filter(|_| all)
-            }
-            Some(_) if !ev_steps && !has_open_orders(bot, asset_no) => {
+            Some(_) if !has_open_orders(bot, asset_no) => {
                 let now = bot.current_timestamp();
                 let mut th: Option<i64> = None;
                 let mut all = true;

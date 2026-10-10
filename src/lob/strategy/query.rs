@@ -67,7 +67,7 @@ impl StrategyState {
         let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
         #[allow(clippy::cast_possible_truncation)]
         let lt = if tick_px > 0.0 && level_px > 0.0 {
-            round_half_away(level_px / tick_px) as i64
+            px_tick(level_px, tick_px)
         } else {
             0
         };
@@ -105,7 +105,7 @@ impl StrategyState {
         }
         #[allow(clippy::cast_possible_truncation)]
         let lt = if tick_px > 0.0 && level_px > 0.0 {
-            round_half_away(level_px / tick_px) as i64
+            px_tick(level_px, tick_px)
         } else {
             0
         };
