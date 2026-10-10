@@ -31,12 +31,10 @@ fn numbers_event_steps_and_paths() {
     let f = RunFlags::from_vars(vars(&[
         ("ALPHA_SIG_CACHE", "0"),
         ("ALPHA_EVENT_STEPS", "entry"),
-        ("ALPHA_TOUCH_BIN_LEVEL", "x"),
         ("ALPHA_APPROACH_BIN_DIR", "/d"),
     ]));
     assert_eq!(f.sig_cache, None, "0 = выкл.");
     assert_eq!(f.event_steps, EventSteps::Entry);
-    assert_eq!(f.touch_bin_level, None);
     assert_eq!(f.approach_bin_dir, Some(OsString::from("/d")));
     let g = RunFlags::from_vars(vars(&[
         ("ALPHA_SIG_CACHE", "64"),
