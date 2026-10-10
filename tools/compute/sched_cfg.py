@@ -4,6 +4,7 @@
 import os
 
 DIR = os.environ.get("SCHED_DIR", "/data/sched")
+RUNS_DIR = os.environ.get("SCHED_RUNS_DIR", "/data/runs")   # КТ-9: выход прогонов — /data/runs/<id-задания>/ (в задании — $ALSCHED_RUN_DIR)
 NCPU, MEM_GB, TICK = 16, 56, int(os.environ.get("SCHED_TICK", "5"))
 DEAD_S = int(os.environ.get("SCHED_DEAD_S", str(max(60, 10 * TICK))))
 PREEMPT_S = int(os.environ.get("SCHED_PREEMPT_S", "600"))   # резерв не стартовал за это время — вытеснение заморозкой
