@@ -3,17 +3,17 @@ tools/compute/abin-shm.sh	ЯДРО	COMMANDS.md,alpha-b16tpgoflag.sh,alpha-b17r1e
 tools/compute/age-axis.py	АРХИВ	alpha-history-2026-09-22.md,alpha-roadmap-2026-09-19.md,fees-audit-2026-09-27.md,log.md
 tools/compute/alert-tg.sh	ЯДРО	COMMANDS.md,alpha-history-2026-09-22.md,alpha-review-B2-infra-2026-10-10.md,log.md
 tools/compute/alpha-b16t-pgo.info	ЯДРО	COMMANDS.md
-tools/compute/alpha-b16tbinpgoflag.sh	АРХИВ	
+tools/compute/alpha-b16tbinpgoflag.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/alpha-b16tpgoflag.sh	ЯДРО	COMMANDS.md,alpha-b16t-pgo.info
-tools/compute/alpha-b17r1eflag	АРХИВ	
-tools/compute/alpha-b18pgoflag.sh	АРХИВ	
-tools/compute/alpha-b19r1flag	АРХИВ	
-tools/compute/alpha-b20pgoflag.sh	АРХИВ	
-tools/compute/alpha-b21pgoflag.sh	АРХИВ	alpha-review-B-2026-10-10.md
-tools/compute/alpha-b23pgoflag.sh	АРХИВ	
+tools/compute/alpha-b17r1eflag	ЖИВОЕ(правка с 06.10)	
+tools/compute/alpha-b18pgoflag.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/alpha-b19r1flag	ЖИВОЕ(правка с 06.10)	
+tools/compute/alpha-b20pgoflag.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/alpha-b21pgoflag.sh	ЖИВОЕ(правка с 06.10)	alpha-review-B-2026-10-10.md
+tools/compute/alpha-b23pgoflag.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/alpha-e17b-pgo.info	ЯДРО	COMMANDS.md,backtest-x4-2026-10-04.md
 tools/compute/alpha-e17p2flag.sh	ЯДРО	COMMANDS.md,alpha-e17b-pgo.info,backtest-x4-2026-10-04.md,judge.md
-tools/compute/alpha-e17pgoflag.sh	АРХИВ	alpha-review-B-2026-10-10.md
+tools/compute/alpha-e17pgoflag.sh	ЖИВОЕ(правка с 06.10)	alpha-review-B-2026-10-10.md
 tools/compute/alsched-jobowners.sh	ЖИВОЕ	alpha-review-B2-infra-2026-10-10.md,alsched.py,sched-deploy.sh
 tools/compute/alsched-jobstate.sh	ЯДРО	COMMANDS.md,alpha-review-B2-infra-2026-10-10.md,sched-deploy.sh
 tools/compute/alsched.py	ЯДРО	CLAUDE.md,COMMANDS.md,TK-064.md,TK-092.md
@@ -27,7 +27,7 @@ tools/compute/archive-import.sh	ЖИВОЕ	archive-to-box.sh,crash-stress.sh,dev
 tools/compute/archive-to-box.sh	ЯДРО	P-07-g85-titration.md,alpha-archive-box.service,strategy-config-2026-09-27.md
 tools/compute/axes-study.py	АРХИВ	axes-v61-2026-09-19.md
 tools/compute/benchrun-inner.sh	ЯДРО	alpha-review-B2-infra-2026-10-10.md,benchrun-sched.sh,guard.py,sched-deploy.sh
-tools/compute/benchrun-legacy.sh	АРХИВ	alpha-review-B2-infra-2026-10-10.md,sched-deploy.sh
+tools/compute/benchrun-legacy.sh	ЖИВОЕ(правка с 06.10)	alpha-review-B2-infra-2026-10-10.md,sched-deploy.sh
 tools/compute/benchrun-sched.sh	ЯДРО	alpha-review-B2-infra-2026-10-10.md,guard.py,sched-deploy.sh,tk133-p3-sched-2026-10-10.md
 tools/compute/benchrun2-legacy.sh	ЖИВОЕ	alpha-review-B2-infra-2026-10-10.md,benchrun-sched.sh,sched-deploy.sh
 tools/compute/breakdown.py	ЖИВОЕ	SETTLED.md,T-32.md,alpha-handoff-2026-09-23.md,audit-fixes-2026-09-22.md
@@ -49,7 +49,7 @@ tools/compute/dash-one-source.py	АРХИВ	TK-006.md,dash-add-p07-all.py,dash-a
 tools/compute/dash-p07-all-dump.py	АРХИВ	dash-add-p07-all.py,dash-add-p08.py,dash-fill-nocalc.py,p07-all-jul-read.py
 tools/compute/dash-p07-base-dump.py	АРХИВ	TK-006.md,dash-add-p07.py,dash-p07-all-dump.py
 tools/compute/dash-taken-dump.py	АРХИВ	TK-006.md,dash-one-source.py
-tools/compute/dashboard-check.py	АРХИВ	TK-003.md,TK-006.md,TK-007.md,alpha-review-B-2026-10-10.md
+tools/compute/dashboard-check.py	ЖИВОЕ(тесты/_lib)	TK-003.md,TK-006.md,TK-007.md,alpha-review-B-2026-10-10.md
 tools/compute/e2e-report.py	АРХИВ	TK-052.md,TK-138.md,backtest-e2e-2026-10-05.md,ceo-2026-10-08-1955.md
 tools/compute/eaten-threshold.py	АРХИВ	P-02-batch-wall-entry.md,alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md,audit-stage-f-2026-09-21.md
 tools/compute/epoch-bootstrap.sh	ЖИВОЕ	crash-stress.sh,epoch-box-prep.sh,epoch-run.sh,review-fixes-2026-09-24.md
@@ -70,13 +70,13 @@ tools/compute/fill-capacity.py	ЯДРО	COMMANDS.md,approach-capacity-2026-09-20
 tools/compute/floors-balance.py	ЯДРО	COMMANDS.md,age-axis.py,alpha-history-2026-09-22.md,alpha-roadmap-2026-09-19.md
 tools/compute/fresh-days.py	ЯДРО	COMMANDS.md,EXPERIMENTS.md,P-01-2026-09-26-pin-deps.md,P-01-main-variant-fresh-days.md
 tools/compute/funding-history.py	АРХИВ	T-38.md,tk024-pool-inventory-2026-10-02.csv
-tools/compute/gate-argv.sh	АРХИВ	U2-U3.md,alpha-review-B-2026-10-10.md,consistency-plan-2026-09-26.md,judge-2026-09-27.md
-tools/compute/gate-carry.sh	АРХИВ	T-15.md,backtest-optimization-2026-09-26.md,gate-argv.sh
-tools/compute/gate-families.sh	АРХИВ	gate-families-2026-10-10.md
+tools/compute/gate-argv.sh	ЖИВОЕ(маска)	U2-U3.md,alpha-review-B-2026-10-10.md,consistency-plan-2026-09-26.md,judge-2026-09-27.md
+tools/compute/gate-carry.sh	ЖИВОЕ(маска)	T-15.md,backtest-optimization-2026-09-26.md,gate-argv.sh
+tools/compute/gate-families.sh	ЖИВОЕ(правка с 06.10)	gate-families-2026-10-10.md
 tools/compute/gate-g10.sh	ЯДРО	COMMANDS.md,P-02-batch-wall-entry.md,P-07-g85-titration.md,T-15.md
-tools/compute/gate-merge.sh	АРХИВ	T-15.md,U2-U3.md,consistency-plan-2026-09-26.md,engineer-2026-09-26.md
+tools/compute/gate-merge.sh	ЖИВОЕ(маска)	T-15.md,U2-U3.md,consistency-plan-2026-09-26.md,engineer-2026-09-26.md
 tools/compute/gate-r1-cols.py	АРХИВ	gate-r1.sh,tk025-gate-2026-10-02.md
-tools/compute/gate-r1.sh	АРХИВ	tk025-gate-2026-10-02.md
+tools/compute/gate-r1.sh	ЖИВОЕ(маска)	tk025-gate-2026-10-02.md
 tools/compute/gate-t14.sh	ЯДРО	COMMANDS.md,T-15.md,TASKS.md,backtest-optimization-2026-09-26.md
 tools/compute/grid-coins.py	АРХИВ	alpha-history-2026-09-22.md,alpha-roadmap-2026-09-19.md,base68-2026-09-19.md,log.md
 tools/compute/grid-slot.sh	АРХИВ	README-2026-09-27.md,README-2026-10-02.md,T-23.md,T-23.md
@@ -107,7 +107,7 @@ tools/compute/loss-features.py	АРХИВ	alpha-review-B-2026-10-10.md,loss-days
 tools/compute/loss-judge.py	АРХИВ	audit-fixes-2026-09-22.md,design-audit-2026-09-22.md,log.md,loss-atoms-2026-09-22.md
 tools/compute/loss-report.py	АРХИВ	dev-plan-2026-09-23.md,log.md,loss-atoms-2026-09-22.md,loss-judge.py
 tools/compute/manifest.py	ЯДРО	alsched.py,build-release.sh,test_manifest.py
-tools/compute/monthly-pnl.py	АРХИВ	alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
+tools/compute/monthly-pnl.py	ЖИВОЕ(правка с 06.10)	alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
 tools/compute/morning-status.py	АРХИВ	audit-fixes-2026-09-22.md
 tools/compute/night-wait.sh	АРХИВ	grid-slot.sh
 tools/compute/nightly-grid.sh	ЯДРО	COMMANDS.md,EXPERIMENTS.md,P-01-2026-09-26-pin-deps.md,P-01-main-variant-fresh-days.md
@@ -157,8 +157,8 @@ tools/compute/p07-h1-quantiles.py	АРХИВ	alpha-review-V-2026-10-10.md,exit-a
 tools/compute/p07-h1-read.py	АРХИВ	P-07-g85-titration.md,TK-015.md,p07-h1-autoread.sh,p07-h1-report.py
 tools/compute/p07-h1-report.py	АРХИВ	TK-015.md
 tools/compute/p07-h14-read.py	АРХИВ	alpha-review-B-2026-10-10.md,exit-automata-inventory-2026-10-10.md,p07-h9r-h14-2026-09-27.md
-tools/compute/p07-h9h10.py	АРХИВ	T-32.md,TK-004.md,TK-010.md,alpha-review-B-2026-10-10.md
-tools/compute/p07-h9r-h14.py	АРХИВ	P-07-g85-titration.md,SETTLED.md,T-32.md,TK-004.md
+tools/compute/p07-h9h10.py	ЖИВОЕ(тесты/_lib)	T-32.md,TK-004.md,TK-010.md,alpha-review-B-2026-10-10.md
+tools/compute/p07-h9r-h14.py	ЖИВОЕ(тесты/_lib)	P-07-g85-titration.md,SETTLED.md,T-32.md,TK-004.md
 tools/compute/p07-jul-cells.py	АРХИВ	TK-010.md,p07-h1-cells.py,p07-jul-read.py,p07-july-2026-09-28.md
 tools/compute/p07-jul-read.py	АРХИВ	P-07-2026-09-28-july.md,P-07-g85-titration.md,TK-010.md,dash-add-jall.py
 tools/compute/p07-k0-sigma.py	АРХИВ	P-07-g85-titration.md
@@ -179,30 +179,30 @@ tools/compute/p08-read.py	АРХИВ	P-08-2026-09-28-augsep.md,TK-013.md,p08-202
 tools/compute/p08-run.py	АРХИВ	P-08-new-code-7.md,TK-013.md,p08-2026-09-28.md,p08-cells.py
 tools/compute/p09-cells.py	АРХИВ	TK-014.md
 tools/compute/p09-gate.py	АРХИВ	P-09-wall-eat-exit.md,TK-014.md,tk014-gate-2026-09-28.md
-tools/compute/p10-cov.py	АРХИВ	P-11-r1-features-batch.md,TK-024.md,p10-run.py,test_p10_feats.py
-tools/compute/p10-exitsim.py	АРХИВ	P-10-code-exists-batch.md,TK-024.md,alpha-review-B-2026-10-10.md,exit-automata-inventory-2026-10-10.md
-tools/compute/p10-feats.py	АРХИВ	P-10-2026-10-02-report.md,P-10-code-exists-batch.md,P-11-r1-features-batch.md,TK-024.md
+tools/compute/p10-cov.py	ЖИВОЕ(тесты/_lib)	P-11-r1-features-batch.md,TK-024.md,p10-run.py,test_p10_feats.py
+tools/compute/p10-exitsim.py	ЖИВОЕ(тесты/_lib)	P-10-code-exists-batch.md,TK-024.md,alpha-review-B-2026-10-10.md,exit-automata-inventory-2026-10-10.md
+tools/compute/p10-feats.py	ЖИВОЕ(тесты/_lib)	P-10-2026-10-02-report.md,P-10-code-exists-batch.md,P-11-r1-features-batch.md,TK-024.md
 tools/compute/p10-read.py	АРХИВ	JOURNAL.md,P-10-2026-10-02-report.md,P-10-code-exists-batch.md,P-11-r1-features-batch.md
 tools/compute/p10-run.py	АРХИВ	alpha-review-B-2026-10-10.md,p10-read.py
-tools/compute/p12-coin-c2.py	АРХИВ	TK-063.md,TK-114.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
+tools/compute/p12-coin-c2.py	ЖИВОЕ(правка с 06.10)	TK-063.md,TK-114.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
 tools/compute/p12-coin-rows.py	ЖИВОЕ(задания)	p12-sharpe-verdict-2026-10-08.md
 tools/compute/p12-e106-loss.py	ЖИВОЕ(задания)	tk120-e106-2026-10-10.md
-tools/compute/p12-expo.sh	АРХИВ	TK-135.md,tk135-dry.sh,tk135-gate-2026-10-10.md
-tools/compute/p12-merge.py	АРХИВ	TK-135.md,p12-sharpe-verdict-2026-10-08.md,tk120-r2-wave-a-2026-10-10.md,tk135-gate.sh
-tools/compute/p12-psim.sh	АРХИВ	TK-135.md,tk135-dry.sh,tk135-gate-2026-10-10.md
-tools/compute/p12-r1-analyze.py	АРХИВ	p12-r1-verdict-2026-10-08.md,p12-sharpe.py,p12lib.py,tk120-r1-2026-10-10.md
+tools/compute/p12-expo.sh	ЖИВОЕ(правка с 06.10)	TK-135.md,tk135-dry.sh,tk135-gate-2026-10-10.md
+tools/compute/p12-merge.py	ЖИВОЕ(правка с 06.10)	TK-135.md,p12-sharpe-verdict-2026-10-08.md,tk120-r2-wave-a-2026-10-10.md,tk135-gate.sh
+tools/compute/p12-psim.sh	ЖИВОЕ(правка с 06.10)	TK-135.md,tk135-dry.sh,tk135-gate-2026-10-10.md
+tools/compute/p12-r1-analyze.py	ЖИВОЕ(правка с 06.10)	p12-r1-verdict-2026-10-08.md,p12-sharpe.py,p12lib.py,tk120-r1-2026-10-10.md
 tools/compute/p12-r1-psim.py	ЖИВОЕ(задания)	alpha-review-V2-2026-10-10.md,p12-r1-analyze.py,p12-r1-verdict-2026-10-08.md,p12_r1_head.py
-tools/compute/p12-r2-analyze.py	АРХИВ	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,monthly-pnl.py,p12-coin-c2.py
+tools/compute/p12-r2-analyze.py	ЖИВОЕ(правка с 06.10)	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,monthly-pnl.py,p12-coin-c2.py
 tools/compute/p12-r2-expo.py	ЖИВОЕ(задания)	TK-135.md,alpha-review-V2-2026-10-10.md,p12-expo.sh,p12-r2-verdict-2026-10-08.md
-tools/compute/p12-r2b-b1keys.py	АРХИВ	p12-r2b-thresholds-2026-10-10.md,p12-r2b-thresholds.py
+tools/compute/p12-r2b-b1keys.py	ЖИВОЕ(правка с 06.10)	p12-r2b-thresholds-2026-10-10.md,p12-r2b-thresholds.py
 tools/compute/p12-r2b-thresholds.py	ЖИВОЕ(задания)	alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,p12-r2b-thresholds-2026-10-10.md,tk120-r2b-thresholds-2026-10-10.md
-tools/compute/p12-sharpe.py	АРХИВ	TK-135.md,alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
-tools/compute/p12-tiers.py	АРХИВ	alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,p12-sharpe-verdict-2026-10-08.md,tk135-gate.sh
+tools/compute/p12-sharpe.py	ЖИВОЕ(правка с 06.10)	TK-135.md,alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
+tools/compute/p12-tiers.py	ЖИВОЕ(правка с 06.10)	alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,p12-sharpe-verdict-2026-10-08.md,tk135-gate.sh
 tools/compute/p12_cells.py	АРХИВ	
-tools/compute/p12_r1_head.py	АРХИВ	p12lib.py
-tools/compute/p12_r2_head.py	АРХИВ	p12lib.py
-tools/compute/p12args.py	АРХИВ	
-tools/compute/p12lib.py	АРХИВ	TK-135.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
+tools/compute/p12_r1_head.py	ЖИВОЕ(правка с 06.10)	p12lib.py
+tools/compute/p12_r2_head.py	ЖИВОЕ(правка с 06.10)	p12lib.py
+tools/compute/p12args.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/p12lib.py	ЖИВОЕ(правка с 06.10)	TK-135.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
 tools/compute/pgo-cycle.sh	ЖИВОЕ	alpha-b16t-pgo.info,tk065-g2-pgo-2026-10-08.md
 tools/compute/placebo.py	ЖИВОЕ	EXPERIMENTS.md,P-02-batch-wall-entry.md,alpha-handoff-2026-09-23.md,audit-fixes-2026-09-22.md
 tools/compute/plan-log-check.py	ЯДРО	COMMANDS.md,audit-fixes-2026-09-22.md
@@ -222,11 +222,11 @@ tools/compute/review-checklist.py	ЯДРО	COMMANDS.md,audit-stage-f-2026-09-21.
 tools/compute/run-grid.sh	ЯДРО	COMMANDS.md,SETTLED.md,T-23.md,U2-U3.md
 tools/compute/sched-bg.sh	АРХИВ	
 tools/compute/sched-bg2.sh	АРХИВ	
-tools/compute/sched-deploy.sh	АРХИВ	
+tools/compute/sched-deploy.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/sched-noise.sh	АРХИВ	
 tools/compute/sched-seek.py	АРХИВ	
 tools/compute/sched-smoke.sh	АРХИВ	alpha-review-B2-infra-2026-10-10.md
-tools/compute/sched_sim.py	АРХИВ	alpha-review-B2-infra-2026-10-10.md,alpha-review-summary-2026-10-10.md,tk133-p3-sched-2026-10-10.md
+tools/compute/sched_sim.py	ЖИВОЕ(правка с 06.10)	alpha-review-B2-infra-2026-10-10.md,alpha-review-summary-2026-10-10.md,tk133-p3-sched-2026-10-10.md
 tools/compute/sets-check.sh	ЖИВОЕ	U2-U3.md,_env.sh,consistency-plan-2026-09-26.md,sets.txt
 tools/compute/sets-nightly.txt	ЖИВОЕ	U2-U3.md,consistency-plan-2026-09-26.md,nightly-grid.sh,review-fixes-2026-09-24.md
 tools/compute/sets.txt	ЖИВОЕ	TK-005.md,U2-U3.md,_env.sh,approach-scan.sh
@@ -237,15 +237,15 @@ tools/compute/smooth-pnl.py	АРХИВ	smooth-pnl-2026-09-27.md
 tools/compute/stagesum.py	ЖИВОЕ(задания)	
 tools/compute/stand-setup.sh	ЖИВОЕ	stand.sh
 tools/compute/stand.sh	ЖИВОЕ	TK-052.md,hold-index-k4-2026-10-09.md,pgo-cycle.sh,scheduler-iso-stand-series-2026-10-09.md
-tools/compute/stand49.sh	АРХИВ	
+tools/compute/stand49.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/stand49ad.sh	АРХИВ	
 tools/compute/stand49fb.sh	АРХИВ	backtest-audit-2026-10-05.md
 tools/compute/strategy-config-json.py	АРХИВ	strategy-config-2026-09-27.md
 tools/compute/t21-psim-gate-deck.sh	АРХИВ	T-32.md,jall-protect.py,t21-scripts-gate-deck.sh
-tools/compute/t21-psim-gate.py	АРХИВ	portfolio.py,test_t21_psim_gate.py
+tools/compute/t21-psim-gate.py	ЖИВОЕ(тесты/_lib)	portfolio.py,test_t21_psim_gate.py
 tools/compute/t21-scripts-gate-deck.sh	АРХИВ	T-32.md,t21-scripts2-gate-deck.sh
 tools/compute/t21-scripts2-gate-deck.sh	АРХИВ	T-32.md
-tools/compute/t21-snapshot.py	АРХИВ	T-21.md,T-32.md,alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md
+tools/compute/t21-snapshot.py	ЖИВОЕ(тесты/_lib)	T-21.md,T-32.md,alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md
 tools/compute/t29-wall-filter.py	АРХИВ	P-05-2026-09-27-protocol.md,P-05-wall-age-size.md,T-01.md
 tools/compute/t32-approach-slices.py	ЖИВОЕ	kpi-dash-data.py,retries-2026-09-27.md
 tools/compute/t32-boot.py	АРХИВ	p07-read.py,t21-snapshot.py
@@ -268,8 +268,8 @@ tools/compute/titration-dashboard-build.py	ЖИВОЕ	SETTLED.md,T-01.md,T-32.md
 tools/compute/titration-dashboard-data.py	ЖИВОЕ	P-02-batch-wall-entry.md,T-01.md,T-23.md,TK-006.md
 tools/compute/titration-dashboard-merge.py	ЯДРО	P-07-g85-titration.md,README.md,SETTLED.md,T-01.md
 tools/compute/titration-dashboard.html	ЯДРО	T-01.md,dashboard.html,t20-audit-check-2026-09-26.md,third-party-backtest-approaches-2026-09-26.md
-tools/compute/titration-points.py	АРХИВ	EXPERIMENTS.md,dev-plan-2026-09-23.md,gate-argv.sh,legacy.py
-tools/compute/titration-read.py	АРХИВ	dev-plan-2026-09-23.md,t20-audit-check-2026-09-26.md,t20-audit-check-2026-09-26.md,t21-scripts2-gate-deck.sh
+tools/compute/titration-points.py	ЖИВОЕ(тесты/_lib)	EXPERIMENTS.md,dev-plan-2026-09-23.md,gate-argv.sh,legacy.py
+tools/compute/titration-read.py	ЖИВОЕ(тесты/_lib)	dev-plan-2026-09-23.md,t20-audit-check-2026-09-26.md,t20-audit-check-2026-09-26.md,t21-scripts2-gate-deck.sh
 tools/compute/titration-sets-e26.txt	АРХИВ	august-exits-windows-2026-09-25.md
 tools/compute/titration-sets-v1.txt	ЖИВОЕ	P-02-batch-wall-entry.md,U2-U3.md,august-oos-2026-09-24.md,consistency-plan-2026-09-26.md
 tools/compute/titration.py	АРХИВ	alpha-review-B-2026-10-10.md,alpha-review-summary-2026-10-10.md,titration-v66-2026-09-19.md
@@ -354,64 +354,64 @@ tools/compute/tk046-mnew.py	АРХИВ	tk046-month.sh,tk084-xprep.sh
 tools/compute/tk046-month.sh	АРХИВ	TK-046.md,backtest-month-test-2026-10-04.md,tk048-d20prep.sh,tk084-xprep.sh
 tools/compute/tk046-two.sh	АРХИВ	TK-046.md,backtest-month-test-2026-10-04.md
 tools/compute/tk046-twodiff.sh	АРХИВ	TK-046.md,backtest-month-test-2026-10-04.md
-tools/compute/tk048-abdec.sh	АРХИВ	
-tools/compute/tk048-abin-split.sh	АРХИВ	
-tools/compute/tk048-annot.sh	АРХИВ	efficiency-register.md
-tools/compute/tk048-blkmap.py	АРХИВ	
-tools/compute/tk048-blkmap2.py	АРХИВ	
-tools/compute/tk048-carry-need.py	АРХИВ	
-tools/compute/tk048-carrycopy.sh	АРХИВ	
-tools/compute/tk048-carryplan.sh	АРХИВ	
-tools/compute/tk048-carrysda.sh	АРХИВ	
+tools/compute/tk048-abdec.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-abin-split.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-annot.sh	ЖИВОЕ(правка с 06.10)	efficiency-register.md
+tools/compute/tk048-blkmap.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-blkmap2.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-carry-need.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-carrycopy.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-carryplan.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-carrysda.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk048-chain94.sh	ЖИВОЕ	TK-048.md,wave-cpu-profile-2026-10-09.md
-tools/compute/tk048-colsplit.py	АРХИВ	
-tools/compute/tk048-d1probe.py	АРХИВ	
+tools/compute/tk048-colsplit.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-d1probe.py	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk048-d20prep.sh	АРХИВ	
-tools/compute/tk048-dbg.sh	АРХИВ	alpha-review-B-2026-10-10.md,backtest-x4-2026-10-04.md
-tools/compute/tk048-e20-run.sh	АРХИВ	
-tools/compute/tk048-e22.sh	АРХИВ	
-tools/compute/tk048-e25.sh	АРХИВ	
-tools/compute/tk048-e26.sh	АРХИВ	backtest-x4-2026-10-04.md
-tools/compute/tk048-e27.sh	АРХИВ	backtest-x4-2026-10-04.md
-tools/compute/tk048-e28-run.sh	АРХИВ	
-tools/compute/tk048-e29-run.sh	АРХИВ	backtest-x4-2026-10-04.md
-tools/compute/tk048-e30-run.sh	АРХИВ	backtest-x4-2026-10-04.md
-tools/compute/tk048-e31-run.sh	АРХИВ	backtest-x4-2026-10-04.md
-tools/compute/tk048-e32-run.sh	АРХИВ	backtest-x4-2026-10-04.md
+tools/compute/tk048-dbg.sh	ЖИВОЕ(правка с 06.10)	alpha-review-B-2026-10-10.md,backtest-x4-2026-10-04.md
+tools/compute/tk048-e20-run.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-e22.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-e25.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-e26.sh	ЖИВОЕ(правка с 06.10)	backtest-x4-2026-10-04.md
+tools/compute/tk048-e27.sh	ЖИВОЕ(правка с 06.10)	backtest-x4-2026-10-04.md
+tools/compute/tk048-e28-run.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-e29-run.sh	ЖИВОЕ(правка с 06.10)	backtest-x4-2026-10-04.md
+tools/compute/tk048-e30-run.sh	ЖИВОЕ(правка с 06.10)	backtest-x4-2026-10-04.md
+tools/compute/tk048-e31-run.sh	ЖИВОЕ(правка с 06.10)	backtest-x4-2026-10-04.md
+tools/compute/tk048-e32-run.sh	ЖИВОЕ(правка с 06.10)	backtest-x4-2026-10-04.md
 tools/compute/tk048-e36-run.sh	ЯДРО	tests.rs
-tools/compute/tk048-e39-run.sh	АРХИВ	
+tools/compute/tk048-e39-run.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk048-e40-run.sh	ЯДРО	tests.rs
-tools/compute/tk048-e41-run.sh	АРХИВ	
-tools/compute/tk048-e42-run.sh	АРХИВ	
-tools/compute/tk048-e43-run.sh	АРХИВ	
-tools/compute/tk048-e44-run.sh	АРХИВ	alpha-review-B-2026-10-10.md
-tools/compute/tk048-ecprobe.sh	АРХИВ	tk048-ship-ecp.sh
-tools/compute/tk048-gate-mar.sh	АРХИВ	
+tools/compute/tk048-e41-run.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-e42-run.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-e43-run.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-e44-run.sh	ЖИВОЕ(правка с 06.10)	alpha-review-B-2026-10-10.md
+tools/compute/tk048-ecprobe.sh	ЖИВОЕ(правка с 06.10)	tk048-ship-ecp.sh
+tools/compute/tk048-gate-mar.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk048-gate.sh	АРХИВ	
 tools/compute/tk048-io.sh	АРХИВ	TK-050.md,TK-051.md
 tools/compute/tk048-k10-gen.py	ЖИВОЕ	TK-048.md,tk048-chain94.sh,wave-cpu-profile-2026-10-09.md
 tools/compute/tk048-k8-gen.py	ЖИВОЕ	tk048-k10-gen.py,wave-cpu-profile-2026-10-09.md
-tools/compute/tk048-marab2-start.sh	АРХИВ	
-tools/compute/tk048-march-ab.sh	АРХИВ	tk048-march-ab2.sh,tk048-march-ab4.sh
-tools/compute/tk048-march-ab2.sh	АРХИВ	tk048-marab2-start.sh
-tools/compute/tk048-march-ab3.sh	АРХИВ	
-tools/compute/tk048-march-ab4.sh	АРХИВ	
+tools/compute/tk048-marab2-start.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-march-ab.sh	ЖИВОЕ(правка с 06.10)	tk048-march-ab2.sh,tk048-march-ab4.sh
+tools/compute/tk048-march-ab2.sh	ЖИВОЕ(правка с 06.10)	tk048-marab2-start.sh
+tools/compute/tk048-march-ab3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-march-ab4.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk048-mirror-plan.py	АРХИВ	
 tools/compute/tk048-prof.sh	АРХИВ	
 tools/compute/tk048-quick5.txt	АРХИВ	
 tools/compute/tk048-r1.py	АРХИВ	tk048-r5.py,wave-read-bytes-2026-10-09.md
-tools/compute/tk048-r5.py	АРХИВ	wave-read-bytes-2026-10-09.md
+tools/compute/tk048-r5.py	ЖИВОЕ(правка с 06.10)	wave-read-bytes-2026-10-09.md
 tools/compute/tk048-rd.sh	АРХИВ	
 tools/compute/tk048-relink.sh	АРХИВ	
-tools/compute/tk048-runB.py	АРХИВ	
+tools/compute/tk048-runB.py	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk048-sample.sh	ЖИВОЕ	287cb6fadaba0a9de8b86f58e233bcee9f81ece6a84063b366ca8f9500da91a4,tk048-chain94.sh
 tools/compute/tk048-sample3.sh	ЖИВОЕ	tk048-chain94.sh
-tools/compute/tk048-sda-balance.py	АРХИВ	
+tools/compute/tk048-sda-balance.py	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk048-sda.sh	АРХИВ	backtest-speed-deepdive-2026-10-04.md
-tools/compute/tk048-ship-b22.sh	АРХИВ	
-tools/compute/tk048-ship-b23.sh	АРХИВ	
-tools/compute/tk048-ship-ecp.sh	АРХИВ	
-tools/compute/tk048-strace-sum.py	АРХИВ	TK-053.md
+tools/compute/tk048-ship-b22.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-ship-b23.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-ship-ecp.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk048-strace-sum.py	ЖИВОЕ(правка с 06.10)	TK-053.md
 tools/compute/tk048-tail.sh	ЖИВОЕ	287cb6fadaba0a9de8b86f58e233bcee9f81ece6a84063b366ca8f9500da91a4,benchrun-legacy.sh,benchrun2-legacy.sh
 tools/compute/tk048-tbin-gate.sh	ЖИВОЕ(задания)	
 tools/compute/tk048-two.sh	АРХИВ	
@@ -426,130 +426,130 @@ tools/compute/tk050-gate.sh	АРХИВ
 tools/compute/tk050-gate2.sh	АРХИВ	
 tools/compute/tk051-build.sh	ЖИВОЕ	TK-075.md,alpha-b16t-pgo.info,alpha-e17b-pgo.info,pgo-cycle.sh
 tools/compute/tk052-gate.sh	АРХИВ	TK-138.md,alpha-review-B-2026-10-10.md
-tools/compute/tk064-chain3.sh	АРХИВ	
-tools/compute/tk064-chain5.sh	АРХИВ	
-tools/compute/tk064-chain6.sh	АРХИВ	
-tools/compute/tk064-chain7.sh	АРХИВ	tk064-ship20.sh
+tools/compute/tk064-chain3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-chain5.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-chain6.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-chain7.sh	ЖИВОЕ(правка с 06.10)	tk064-ship20.sh
 tools/compute/tk064-cost.sh	АРХИВ	
 tools/compute/tk064-gate.sh	АРХИВ	
-tools/compute/tk064-gate3.sh	АРХИВ	
-tools/compute/tk064-gridperf.sh	АРХИВ	tk065-ship.sh
+tools/compute/tk064-gate3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-gridperf.sh	ЖИВОЕ(правка с 06.10)	tk065-ship.sh
 tools/compute/tk064-lvl-chain.sh	ЖИВОЕ(задания)	TK-064.md
-tools/compute/tk064-lvl.sh	АРХИВ	TK-064.md,tk064-lvl-chain.sh
-tools/compute/tk064-pool-chain.sh	АРХИВ	
-tools/compute/tk064-pool-chain2.sh	АРХИВ	
-tools/compute/tk064-pool-chain3.sh	АРХИВ	
-tools/compute/tk064-pool.sh	АРХИВ	TK-068.md,TK-081.md,judge.md,tk064-pool-chain.sh
-tools/compute/tk064-pool2.sh	АРХИВ	tk064-pool-chain3.sh,tk115-poolc.sh,tk115-poolj.sh,tk118-poolc-check.sh
-tools/compute/tk064-prof.sh	АРХИВ	
-tools/compute/tk064-prof2.sh	АРХИВ	
+tools/compute/tk064-lvl.sh	ЖИВОЕ(правка с 06.10)	TK-064.md,tk064-lvl-chain.sh
+tools/compute/tk064-pool-chain.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-pool-chain2.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-pool-chain3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-pool.sh	ЖИВОЕ(правка с 06.10)	TK-068.md,TK-081.md,judge.md,tk064-pool-chain.sh
+tools/compute/tk064-pool2.sh	ЖИВОЕ(правка с 06.10)	tk064-pool-chain3.sh,tk115-poolc.sh,tk115-poolj.sh,tk118-poolc-check.sh
+tools/compute/tk064-prof.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-prof2.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk064-r1cells.py	ЖИВОЕ(задания)	TK-063.md,TK-064.md,alpha-review-summary-2026-10-10.md,p12-r1-psim.py
 tools/compute/tk064-recompute.sh	АРХИВ	
-tools/compute/tk064-retry-chain.sh	АРХИВ	
-tools/compute/tk064-retry.sh	АРХИВ	alpha-review-V-2026-10-10.md,tk064-retry-chain.sh,tk126-review-V1-2026-10-10.md
-tools/compute/tk064-ship20.sh	АРХИВ	
+tools/compute/tk064-retry-chain.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-retry.sh	ЖИВОЕ(правка с 06.10)	alpha-review-V-2026-10-10.md,tk064-retry-chain.sh,tk126-review-V1-2026-10-10.md
+tools/compute/tk064-ship20.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk064-sig.sh	ЖИВОЕ(задания)	tk064-chain6.sh,tk064-sigrun.sh
-tools/compute/tk064-sigrun.sh	АРХИВ	
-tools/compute/tk064-vc-start.sh	АРХИВ	
-tools/compute/tk064-vc.sh	АРХИВ	tk064-vc-start.sh,tk064-vcrun.sh
-tools/compute/tk064-vcrun.sh	АРХИВ	
-tools/compute/tk065-g1-cmp.sh	АРХИВ	
-tools/compute/tk065-g1-day.sh	АРХИВ	tk065-g3a.sh,tk065-ship.sh
-tools/compute/tk065-g1ab.sh	АРХИВ	
-tools/compute/tk065-g1ab2.sh	АРХИВ	
-tools/compute/tk065-g1ab3.sh	АРХИВ	
-tools/compute/tk065-g1bis.sh	АРХИВ	
-tools/compute/tk065-g1bis2.sh	АРХИВ	
-tools/compute/tk065-g1bis3.sh	АРХИВ	
-tools/compute/tk065-g1cmp3.sh	АРХИВ	
-tools/compute/tk065-g1cmp4.sh	АРХИВ	
-tools/compute/tk065-g3.sh	АРХИВ	
-tools/compute/tk065-g3a.sh	АРХИВ	
-tools/compute/tk065-g3b.sh	АРХИВ	tk065-g3b-trace-2026-10-08.md
-tools/compute/tk065-gchain.sh	АРХИВ	tk065-ship.sh
-tools/compute/tk065-r2-gen.py	АРХИВ	
-tools/compute/tk065-r2-genall.sh	АРХИВ	
+tools/compute/tk064-sigrun.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-vc-start.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk064-vc.sh	ЖИВОЕ(правка с 06.10)	tk064-vc-start.sh,tk064-vcrun.sh
+tools/compute/tk064-vcrun.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1-cmp.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1-day.sh	ЖИВОЕ(правка с 06.10)	tk065-g3a.sh,tk065-ship.sh
+tools/compute/tk065-g1ab.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1ab2.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1ab3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1bis.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1bis2.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1bis3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1cmp3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g1cmp4.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g3.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g3a.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-g3b.sh	ЖИВОЕ(правка с 06.10)	tk065-g3b-trace-2026-10-08.md
+tools/compute/tk065-gchain.sh	ЖИВОЕ(правка с 06.10)	tk065-ship.sh
+tools/compute/tk065-r2-gen.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-r2-genall.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk065-r2-sum.py	ЖИВОЕ(задания)	
-tools/compute/tk065-r2a-gen.py	АРХИВ	
-tools/compute/tk065-ship.sh	АРХИВ	
-tools/compute/tk065-sup8.sh	АРХИВ	
-tools/compute/tk065-tape-adds.py	АРХИВ	tk065-r2-gate-2026-10-08.md
+tools/compute/tk065-r2a-gen.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-ship.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-sup8.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-tape-adds.py	ЖИВОЕ(правка с 06.10)	tk065-r2-gate-2026-10-08.md
 tools/compute/tk065-tape.py	ЖИВОЕ(задания)	tk065-tape-adds.py
-tools/compute/tk065-trxchk.sh	АРХИВ	
+tools/compute/tk065-trxchk.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk065-vs040.py	ЖИВОЕ(задания)	
-tools/compute/tk065-wave-day.sh	АРХИВ	
-tools/compute/tk065-wave-resubmit-a.sh	АРХИВ	
-tools/compute/tk065-wave-submit-a.sh	АРХИВ	
-tools/compute/tk065-wave-submit.sh	АРХИВ	TK-081.md
-tools/compute/tk071-gate2.py	АРХИВ	scheduler-gate-a-2026-10-08.md,scheduler-gate-a-live2-2026-10-09.md
-tools/compute/tk071-live-summary.py	АРХИВ	scheduler-iso-live-series-2026-10-09.md,tk071-stand-live.sh
+tools/compute/tk065-wave-day.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-wave-resubmit-a.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-wave-submit-a.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk065-wave-submit.sh	ЖИВОЕ(правка с 06.10)	TK-081.md
+tools/compute/tk071-gate2.py	ЖИВОЕ(правка с 06.10)	scheduler-gate-a-2026-10-08.md,scheduler-gate-a-live2-2026-10-09.md
+tools/compute/tk071-live-summary.py	ЖИВОЕ(правка с 06.10)	scheduler-iso-live-series-2026-10-09.md,tk071-stand-live.sh
 tools/compute/tk071-pair.py	ЖИВОЕ(задания)	tk071-pair.sh,tk071-stand-series.sh
 tools/compute/tk071-pair.sh	ЖИВОЕ(задания)	alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md
-tools/compute/tk071-pairs.py	АРХИВ	
-tools/compute/tk071-pairs2.py	АРХИВ	
-tools/compute/tk071-pairs3.py	АРХИВ	
-tools/compute/tk071-pairs4.py	АРХИВ	
-tools/compute/tk071-pcores.py	АРХИВ	tk071-stand-live.sh
-tools/compute/tk071-series-summary.py	АРХИВ	scheduler-iso-stand-series-2026-10-09.md
-tools/compute/tk071-series-wait.sh	АРХИВ	scheduler-iso-stand-series-2026-10-09.md
-tools/compute/tk071-stand-live.sh	АРХИВ	scheduler-iso-live-series-2026-10-09.md
-tools/compute/tk071-stand-series.sh	АРХИВ	scheduler-iso-stand-series-2026-10-09.md
-tools/compute/tk083-collect.py	АРХИВ	tk083-summary.py
-tools/compute/tk083-kpi-analyze.py	АРХИВ	alpha-review-V-2026-10-10.md,p12-r2-analyze.py,p12_r2_head.py,p12lib.py
-tools/compute/tk083-kpi-prep.py	АРХИВ	tk114-prep.py
-tools/compute/tk083-summary.py	АРХИВ	
-tools/compute/tk083-xaucl.py	АРХИВ	TK-083.md,p12-ext-verdict-2026-10-08.md
-tools/compute/tk083_head.py	АРХИВ	p12lib.py
-tools/compute/tk084-gate.sh	АРХИВ	
-tools/compute/tk084-p12-day.sh	АРХИВ	tk084-p12x-day.sh
-tools/compute/tk084-p12-gen.py	АРХИВ	
-tools/compute/tk084-p12-scan.sh	АРХИВ	
-tools/compute/tk084-p12-submit.sh	АРХИВ	
-tools/compute/tk084-p12x-day.sh	АРХИВ	
-tools/compute/tk084-p12x-submit.sh	АРХИВ	
-tools/compute/tk084-p12x-sum.py	АРХИВ	tk084-p12x-xaucl-2026-10-08.md
-tools/compute/tk084-pool-v171c.sh	АРХИВ	
-tools/compute/tk084-submit-xprep.sh	АРХИВ	
+tools/compute/tk071-pairs.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk071-pairs2.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk071-pairs3.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk071-pairs4.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk071-pcores.py	ЖИВОЕ(правка с 06.10)	tk071-stand-live.sh
+tools/compute/tk071-series-summary.py	ЖИВОЕ(правка с 06.10)	scheduler-iso-stand-series-2026-10-09.md
+tools/compute/tk071-series-wait.sh	ЖИВОЕ(правка с 06.10)	scheduler-iso-stand-series-2026-10-09.md
+tools/compute/tk071-stand-live.sh	ЖИВОЕ(правка с 06.10)	scheduler-iso-live-series-2026-10-09.md
+tools/compute/tk071-stand-series.sh	ЖИВОЕ(правка с 06.10)	scheduler-iso-stand-series-2026-10-09.md
+tools/compute/tk083-collect.py	ЖИВОЕ(правка с 06.10)	tk083-summary.py
+tools/compute/tk083-kpi-analyze.py	ЖИВОЕ(правка с 06.10)	alpha-review-V-2026-10-10.md,p12-r2-analyze.py,p12_r2_head.py,p12lib.py
+tools/compute/tk083-kpi-prep.py	ЖИВОЕ(правка с 06.10)	tk114-prep.py
+tools/compute/tk083-summary.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk083-xaucl.py	ЖИВОЕ(правка с 06.10)	TK-083.md,p12-ext-verdict-2026-10-08.md
+tools/compute/tk083_head.py	ЖИВОЕ(правка с 06.10)	p12lib.py
+tools/compute/tk084-gate.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-p12-day.sh	ЖИВОЕ(правка с 06.10)	tk084-p12x-day.sh
+tools/compute/tk084-p12-gen.py	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-p12-scan.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-p12-submit.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-p12x-day.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-p12x-submit.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-p12x-sum.py	ЖИВОЕ(правка с 06.10)	tk084-p12x-xaucl-2026-10-08.md
+tools/compute/tk084-pool-v171c.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-submit-xprep.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk084-v171c.sh	ЖИВОЕ(задания)	
-tools/compute/tk084-verdict.sh	АРХИВ	
-tools/compute/tk084-xaucl.sh	АРХИВ	
+tools/compute/tk084-verdict.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk084-xaucl.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/tk084-xprep.sh	ЖИВОЕ(задания)	tk084-submit-xprep.sh
-tools/compute/tk113-cells.py	АРХИВ	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,tk135-gate.sh
-tools/compute/tk113-coins.py	АРХИВ	alpha-review-V2-2026-10-10.md
-tools/compute/tk113-drop-r1ext.sh	АРХИВ	P-13-titration.md
-tools/compute/tk113-ext.py	АРХИВ	monthly-pnl.py
-tools/compute/tk114-halfA.sh	АРХИВ	
-tools/compute/tk114-halfB.sh	АРХИВ	TK-114.md
-tools/compute/tk114-prep.py	АРХИВ	alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
-tools/compute/tk114-report2.py	АРХИВ	alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,p13-final-2026-10-09.md,tk135-gate.sh
-tools/compute/tk114-testB.py	АРХИВ	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,tk135-gate.sh
-tools/compute/tk114-tier1-select.py	АРХИВ	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,p13-tier1-2026-10-09.md,tk135-gate.sh
-tools/compute/tk114-tier1.sh	АРХИВ	
-tools/compute/tk114-tier2-select.py	АРХИВ	TK-114.md,alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,tk114-testB.py
-tools/compute/tk114-v2.sh	АРХИВ	TK-114.md
+tools/compute/tk113-cells.py	ЖИВОЕ(правка с 06.10)	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,tk135-gate.sh
+tools/compute/tk113-coins.py	ЖИВОЕ(правка с 06.10)	alpha-review-V2-2026-10-10.md
+tools/compute/tk113-drop-r1ext.sh	ЖИВОЕ(правка с 06.10)	P-13-titration.md
+tools/compute/tk113-ext.py	ЖИВОЕ(правка с 06.10)	monthly-pnl.py
+tools/compute/tk114-halfA.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk114-halfB.sh	ЖИВОЕ(правка с 06.10)	TK-114.md
+tools/compute/tk114-prep.py	ЖИВОЕ(правка с 06.10)	alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md
+tools/compute/tk114-report2.py	ЖИВОЕ(правка с 06.10)	alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,p13-final-2026-10-09.md,tk135-gate.sh
+tools/compute/tk114-testB.py	ЖИВОЕ(правка с 06.10)	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,alpha-review-summary-2026-10-10.md,tk135-gate.sh
+tools/compute/tk114-tier1-select.py	ЖИВОЕ(правка с 06.10)	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,p13-tier1-2026-10-09.md,tk135-gate.sh
+tools/compute/tk114-tier1.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk114-tier2-select.py	ЖИВОЕ(правка с 06.10)	TK-114.md,alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md,tk114-testB.py
+tools/compute/tk114-v2.sh	ЖИВОЕ(правка с 06.10)	TK-114.md
 tools/compute/tk115-delta-day.sh	ЖИВОЕ(задания)	gate-families-2026-10-10.md,gate-families.sh,tk115-delta-tail.sh,tk115-delta-wave.sh
 tools/compute/tk115-delta-prep.py	ЖИВОЕ(задания)	alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md
 tools/compute/tk115-delta-tail.sh	ЖИВОЕ(задания)	alpha-review-B-2026-10-10.md
 tools/compute/tk115-delta-wave.sh	ЖИВОЕ(задания)	tk118-vypiska-wave-2026-10-09.md
 tools/compute/tk115-gen.py	ЖИВОЕ(задания)	tk115-poolc.sh,tk115-poolj.sh
-tools/compute/tk115-poolc.sh	АРХИВ	tk115-poolj.sh
+tools/compute/tk115-poolc.sh	ЖИВОЕ(правка с 06.10)	tk115-poolj.sh
 tools/compute/tk115-poolj.sh	ЖИВОЕ(задания)	alpha-review-B-2026-10-10.md
-tools/compute/tk115-w-day.sh	АРХИВ	tk115-w-wave.sh
+tools/compute/tk115-w-day.sh	ЖИВОЕ(правка с 06.10)	tk115-w-wave.sh
 tools/compute/tk115-w-wave.sh	ЖИВОЕ(задания)	
-tools/compute/tk115f-build.sh	АРХИВ	alpha-review-V2-2026-10-10.md
+tools/compute/tk115f-build.sh	ЖИВОЕ(правка с 06.10)	alpha-review-V2-2026-10-10.md
 tools/compute/tk115f-gate.sh	ЖИВОЕ(задания)	alpha-review-V-2026-10-10.md,alpha-review-V2-2026-10-10.md
-tools/compute/tk118-poolc-check.sh	АРХИВ	tk118-poolc-check-2026-10-09.txt
-tools/compute/tk130-install.sh	АРХИВ	
-tools/compute/tk132-build.sh	АРХИВ	
-tools/compute/tk132-gate.sh	АРХИВ	
-tools/compute/tk135-dry.sh	АРХИВ	TK-135.md,tk135-gate-2026-10-10.md
+tools/compute/tk118-poolc-check.sh	ЖИВОЕ(правка с 06.10)	tk118-poolc-check-2026-10-09.txt
+tools/compute/tk130-install.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk132-build.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk132-gate.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk135-dry.sh	ЖИВОЕ(правка с 06.10)	TK-135.md,tk135-gate-2026-10-10.md
 tools/compute/tk135-expo-g95.sh	ЖИВОЕ(задания)	tk135-gate-2026-10-10.md
 tools/compute/tk135-gate.sh	ЖИВОЕ(задания)	TK-135.md,tk135-gate-2026-10-10.md
-tools/compute/tk137-build.sh	АРХИВ	
-tools/compute/tk137-gate.sh	АРХИВ	TK-137.md
-tools/compute/tk138-build.sh	АРХИВ	
-tools/compute/tk138-gate.sh	АРХИВ	TK-138.md
-tools/compute/tk139-scan.sh	АРХИВ	
+tools/compute/tk137-build.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk137-gate.sh	ЖИВОЕ(правка с 06.10)	TK-137.md
+tools/compute/tk138-build.sh	ЖИВОЕ(правка с 06.10)	
+tools/compute/tk138-gate.sh	ЖИВОЕ(правка с 06.10)	TK-138.md
+tools/compute/tk139-scan.sh	ЖИВОЕ(правка с 06.10)	
 tools/compute/touch-signals.py	АРХИВ	EXPERIMENTS.md,alpha-review-B-2026-10-10.md,alpha-review-V-2026-10-10.md,loss-days-2026-09-25.md
 tools/compute/verdict-read.py	ЯДРО	COMMANDS.md,SETTLED.md,TK-002.md,audit-fixes-2026-09-22.md
 tools/compute/verify-box-archive.py	АРХИВ	
