@@ -157,7 +157,7 @@ pub use watch::{run_watch, WatchArgs};
 // Общее для нескольких подкоманд разъехалось по файлам (`h3`, `replay`,
 // `parts`, `names`); пути `super::…`/`commands::lob::…` у подкоманд и тестов
 // не менялись — их держат эти ре-экспорты.
-pub(crate) use h3::{instruments_symbol_field, median_trade_lots_for_symbol};
+pub(crate) use h3::median_trade_lots_for_symbol;
 pub use h3::{
     resolve_h3_mode, resolve_h3_mode_full, resolve_h3_mode_with_k, ExecutionArgs, H3Args,
     H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
