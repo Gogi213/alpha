@@ -6,26 +6,19 @@
 //! `push_side`). Вынесено из `backtest` при разрезке B3
 //! (ревью 23.09), поведение не менялось.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::path::{Path, PathBuf};
 
 use hftbacktest::types::Event as HbtEvent;
 
 use crate::binlog;
-use crate::book::Side;
 use crate::bybit::ws::{Event as WsEvent, Trade};
 use crate::feed::{
     replay::{RawMarket, ReplayFeed},
     Event as FeedEvent, Feed,
 };
-use crate::lob::backtest::{
-    build_backtest, drive_profile, CompactEvent, DriveConfig, EventKind, ExecLatency,
-    QueueModelKind, Signal, SIGMA_LONG, SIGMA_SHORT,
-};
-use crate::lob::levels::LevelRecord;
-use crate::lob::markout::MidSample;
+use crate::lob::backtest::{CompactEvent, EventKind};
 
 // ---------------------------------------------------------------------------
 // Бинлог: заголовок (тик/лот) и `ReplayFeed`.

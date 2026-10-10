@@ -70,27 +70,6 @@ fn verify_reports_every_part_with_its_day_and_a_crossed_part_fails_the_marker() 
     assert_eq!(marker, "fail");
 }
 
-/// Значение колонки `name` в строке `profile_id == id` таблицы
-/// `profiles-<дата>.csv` (шапка `#` пропускается).
-fn profiles_cell(text: &str, id: &str, name: &str) -> String {
-    let mut r = csv::ReaderBuilder::new()
-        .comment(Some(b'#'))
-        .from_reader(text.as_bytes());
-    let idx = r
-        .headers()
-        .unwrap()
-        .iter()
-        .position(|h| h == name)
-        .unwrap_or_else(|| panic!("колонки {name} нет"));
-    r.records()
-        .map(|row| row.unwrap())
-        .find(|row| row.get(0) == Some(id))
-        .unwrap_or_else(|| panic!("строки {id} нет:\n{text}"))
-        .get(idx)
-        .unwrap()
-        .to_string()
-}
-
 /// В-56: тест 3 — это **доля** сделок, а не счётчик. Порог строгий:
 /// ровно 0.1 % (10 из 10 000) — уже `fail`, 0.09 % — `ok`.
 #[test]

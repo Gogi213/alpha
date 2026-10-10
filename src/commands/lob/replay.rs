@@ -8,14 +8,12 @@ use std::path::Path;
 use crate::binlog::{parse_calendar_day, Reader, Record};
 use crate::book::{Book, Side};
 use crate::bybit::verify::{is_trade_ev, FileReplayer};
-use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
 use crate::lob::levels::{
     ApproachRecord, LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TouchRecord,
     TradeHit, WallEvent,
 };
 use crate::lob::markout::MidSample;
 use crate::lob::sigma::thin_mids_tail_to_second_boundaries;
-use crate::lob::watch::{tally_day, DayTally};
 use hftbacktest::types::LOCAL_BUY_TRADE_EVENT;
 
 use super::parts::{day_of_filename, list_symbol_binlogs};
@@ -173,43 +171,6 @@ pub(crate) fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
         rpi: rec.rpi,
         exch_ms: rec.exch_ts_ns / 1_000_000,
     })
-}
-
-/// Применяет обновление к книге и кормит трекер кадром обеих сторон плюс
-/// срезом середины. Вызывается только после успешного `apply`. Одна
-/// конфигурация — частный случай `feed_frames_multi` (таск 18), но
-/// оставлена отдельной функцией: `profiles.rs::run_profiles_with_fill_model`
-/// (вне зоны таска 18, «не трогать») зовёт её напрямую с одним трекером,
-/// вторая сигнатура (`&mut [LevelTracker]`) поменяла бы её вызов. Касания
-/// (таск 35) здесь не собираются — `observe_frame` их отбрасывает; читатель
-/// касаний — `replay_symbol_over_configs` через `feed_frames_multi`.
-#[cfg(test)]
-pub(crate) fn feed_frames(
-    book: &Book,
-    tracker: &mut LevelTracker,
-    ts_ms: i64,
-    out: &mut Vec<LevelRecord>,
-    mids: &mut Vec<MidSample>,
-) {
-    for side in [Side::Bid, Side::Ask] {
-        let obs: Vec<LevelObs> = book
-            .levels(side)
-            .enumerate()
-            .map(|(i, (tick, lots))| LevelObs {
-                tick,
-                size_lots: lots,
-                in_top50: i < 50,
-            })
-            .collect();
-        tracker.observe_frame(ts_ms, side, &obs, out);
-    }
-    if let (Some(bid), Some(ask)) = (book.best_bid_tick_opt(), book.best_ask_tick_opt()) {
-        mids.push(MidSample {
-            ts_ms,
-            bid_tick: bid,
-            ask_tick: ask,
-        });
-    }
 }
 
 /// Применяет обновление к книге и кормит **все** трекеры кадром обеих
@@ -559,42 +520,3 @@ pub(crate) fn replay_symbol_touches_and_second_mids(
 // ---------------------------------------------------------------------------
 // Счётчики суток для `watch` и подтверждающего `markout`.
 // ---------------------------------------------------------------------------
-
-/// Собирает `DayTally` из реплея тем же `tally_day`, что читает G1.
-/// Качество суток — из `verify.csv` шага 0.8 (расхождения теста 1) в корне
-/// записи. Отсутствующий файл — ноль строк, а не ошибка: сутки без проверок
-/// негодны по правилу `day_eligible` (ноль проверок — не годно), и это
-/// честный красный, а не падение команды.
-///
-/// Знаменатель доли — строки с решённым сравнением (`Ok`/`Mismatch`),
-/// числитель — строки `Mismatch`; `Misaligned`/`RestUnavailable` —
-/// неопределённые, как `trades_indeterminate` в `verify`.
-#[cfg(test)]
-pub(crate) fn day_tallies(
-    root: &Path,
-    symbol: &str,
-    days: &[ReplayDay],
-) -> anyhow::Result<Vec<DayTally>> {
-    let verify_rows =
-        read_verify_rows(&verify_csv_path(root)).map_err(|e| anyhow::anyhow!("verify.csv: {e}"))?;
-    days.iter()
-        .map(|day| {
-            let mut basis = 0u64;
-            let mut violations = 0u64;
-            for row in verify_rows
-                .iter()
-                .filter(|r| r.symbol == symbol && r.ts_utc.starts_with(&day.day))
-            {
-                match row.verdict {
-                    VerifyVerdict::Ok => basis += 1,
-                    VerifyVerdict::Mismatch => {
-                        basis += 1;
-                        violations += 1;
-                    }
-                    VerifyVerdict::Misaligned | VerifyVerdict::RestUnavailable => {}
-                }
-            }
-            Ok(tally_day(symbol, &day.day, violations, basis))
-        })
-        .collect()
-}
