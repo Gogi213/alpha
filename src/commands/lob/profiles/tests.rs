@@ -1016,3 +1016,35 @@ fn resolve_fill_model_requires_all_three_or_none() {
     assert!(resolve_fill_model(Some(1_000_000), None, None).is_err());
     assert!(resolve_fill_model(None, Some(1_000_000), Some(1)).is_err());
 }
+
+/// K1 (С-26): сессия без `verify-<SYMBOL>.status == ok` не засчитывается без `--allow-unverified` —
+/// те же кадры, что в `allow_unverified_marks_debug_and_skips_runs_csv`, но строки SOLUSDT нет.
+#[test]
+fn unverified_session_without_allow_flag_is_not_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_instruments_csv(root, &[("SOLUSDT", 5)]);
+    let candidates_csv = root.join("candidates.csv");
+    write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+    let frames = super::super::test_support::three_level_frames();
+    write_session_dir(
+        root,
+        "2026-09-08T020000Z",
+        "SOLUSDT",
+        "2026-09-08T02:00:00Z",
+        2,
+        false,
+        &frames,
+    );
+    let out = root.join("profiles.csv");
+    let args = base_args(root, candidates_csv, out.clone());
+    assert!(!args.allow_unverified);
+    if let Ok(summary) = run_profiles(&args) {
+        assert!(!summary.debug);
+        let text = std::fs::read_to_string(&out).unwrap();
+        assert!(
+            !text.contains("marginal:instrument=SOLUSDT,4,"),
+            "сессия без маркера не засчитана: {text}"
+        );
+    }
+}

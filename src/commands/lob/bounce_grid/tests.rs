@@ -1119,6 +1119,22 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
         .join("bid")
         .join("manifest.txt")
         .exists());
+    // С-06: снимок `ALPHA_*` — в манифесте и набора, и общего
+    for m in [
+        dir.path().join("grid-sets").join("manifest.txt"),
+        dir.path()
+            .join("grid-sets")
+            .join("bid")
+            .join("manifest.txt"),
+    ] {
+        assert!(
+            std::fs::read_to_string(&m).unwrap().contains(
+                "
+env_count="
+            ),
+            "{m:?}"
+        );
+    }
 
     let mut a = args(dir.path(), false);
     a.out_dir = dir.path().join("grid-bad");

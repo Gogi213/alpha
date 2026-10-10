@@ -920,3 +920,56 @@ fn tbin_roundtrip_matches_records() {
         "ret то есть то нет — не кэшируется"
     );
 }
+
+/// С-25: `--moves` пишет CSV переездов с шапкой из 10 колонок; касания — те же байты, что без флага.
+#[test]
+fn moves_file_has_pairs_header_and_keeps_touch_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let touches = dir.path().join("touches-SOLUSDT.csv");
+    run_touches(&touches_args(dir.path())).unwrap();
+    let before = std::fs::read(&touches).unwrap();
+    let moves = dir.path().join("sub").join("moves.csv");
+    let mut a = touches_args(dir.path());
+    a.moves = Some(moves.clone());
+    a.moves_window_ms = Some(60_000);
+    a.moves_bin_ms = Some(1_000.0);
+    run_touches(&a).unwrap();
+    assert_eq!(std::fs::read(&touches).unwrap(), before);
+    let (header, rows) = read_rows(&moves);
+    assert_eq!(
+        header,
+        [
+            "side",
+            "dt_ms",
+            "dp_ticks",
+            "size_ratio",
+            "zeros_from",
+            "zeros_to",
+            "mid_10s_bps",
+            "mid_60s_bps",
+            "touched",
+            "outcome_to"
+        ]
+    );
+    for r in &rows {
+        assert_eq!(r.len(), header.len());
+        assert!(
+            r[1].parse::<i64>().unwrap() <= 60_000,
+            "пара внутри окна: {r:?}"
+        );
+    }
+}
+
+/// `--moves` без `--moves-window-ms` — отказ до реплея и записи.
+#[test]
+fn moves_without_window_is_refused_before_replay() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let mut a = touches_args(dir.path());
+    a.moves = Some(dir.path().join("moves.csv"));
+    let err = run_touches(&a).unwrap_err().to_string();
+    assert!(err.contains("--moves-window-ms"), "{err}");
+    assert!(!dir.path().join("moves.csv").exists());
+    assert!(!dir.path().join("touches-SOLUSDT.csv").exists());
+}

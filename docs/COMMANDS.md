@@ -559,6 +559,13 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 - **Кандидат скорости b16t-pgo (TK-048, принят Судьёй 07.10):** обёртка `tools/compute/alpha-b16tpgoflag.sh` (бинарник `alpha-b16t-pgo`, источник и PGO — `alpha-b16t-pgo.info`), `.abin` касаний `ALPHA_TOUCH_BIN=1`, `ALPHA_APPROACH_BIN_DIR` обязателен; боевой кэш в шм — `tools/compute/abin-shm.sh up <каталог abin> <тег> <сутки…>` (только чтение; `need_mb` из вывода — в `--mem` задания), `down <тег>` после. Янв+фев 59 сут: 698,3 с против 758. **Годен только для команд на формах master:** собран из master (b19e044e) без `--r1-cols` (R1, ветка tk064-r1) и без форм R2 (`pyre*`, `pyeat*`, `conv*`, `--set agemax`, ветка tk065-r2a) — R1/R2 идут на своих бинарниках, пока механики не слиты в один.
 - **Правила:** сумма `--cores` производства ≤ 15–16, задание на 1 ядро при свободных 15 — предупреждение (калибровка В-178: `tools/compute/calibrate.sh`); `alpha-sched` лежит — `systemctl status alpha-sched`, heartbeat `/data/sched/heartbeat`; при молчании > 60 с волна объявляется недействительной.
 
+## Флаги окружения `ALPHA_*` счёта (П2b, С-06/С-27/С-28)
+
+- `lob bounce-grid` пишет снимок всех `ALPHA_*` процесса в `manifest.txt` (`env_count=<n>` и строки `env:ALPHA_X=значение`) — по ним видно, чем посчитан выход. Семантика «включён» у флагов разная (`=="1"`, `=="0"`, просто задан): `ALPHA_ATTEMPT_STATS=0` включает.
+- `ALPHA_E2E=<файл.jsonl>` — сквозной учёт времени монето-суток (TK-052, `bounce_grid/e2e.rs`): строка на стадию; без переменной ничего не делается. Боевой режим измерений, не тестовый стенд.
+- `ALPHA_APPROACH_BIN_LEVEL` — уровень zstd кэша `.abin` подходов; для кэша касаний `.tbin` — свой `ALPHA_TOUCH_BIN_LEVEL`.
+- Сайдкары счёта событий `<бинлог>.events` / `.carry-events` пишутся через tmp+`rename`, штамп файла — размер + mtime в нс (как у `.abin`); строка без перевода строки — промах и пересчёт.
+
 ## Летопись (реестр прогонов, В-202)
 
 `python tools/registry/registry.py find|show|stats|sql|build` — канон `docs/registry/*.jsonl`, SQLite `data/registry.sqlite`.
