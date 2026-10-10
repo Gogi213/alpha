@@ -66,8 +66,8 @@ where
         }
         None => {
             if pyr {
-                state.pyramid_step(bot, quotes.bid(), quotes.ask(), entry_side)?;
-                state.pyramid_reinstall_step(bot, quotes.bid(), quotes.ask(), entry_side)?;
+                state.pyramid_step(bot, quotes)?;
+                state.pyramid_reinstall_step(bot, quotes)?;
             }
             Ok(Action::Idle)
         }
