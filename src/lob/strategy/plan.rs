@@ -28,7 +28,7 @@ pub const CANCEL_WAIT_NS: i64 = 1_000_000_000;
 
 /// Непрозрачная метка фазы для сравнения «не сменилась» (`StrategyState::phase_mark`).
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PhaseMark(Phase);
+pub struct PhaseMark(pub(super) Phase);
 
 /// Фаза одного круга. Спрятана от вызывающего (`interfaces.md`: модуль
 /// `lob/strategy` «прячет: триггер, состояние») — снаружи виден только
