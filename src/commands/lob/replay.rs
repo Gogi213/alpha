@@ -183,6 +183,7 @@ pub(crate) fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
 /// вторая сигнатура (`&mut [LevelTracker]`) поменяла бы её вызов. Касания
 /// (таск 35) здесь не собираются — `observe_frame` их отбрасывает; читатель
 /// касаний — `replay_symbol_over_configs` через `feed_frames_multi`.
+#[cfg(test)]
 pub(crate) fn feed_frames(
     book: &Book,
     tracker: &mut LevelTracker,
@@ -568,6 +569,7 @@ pub(crate) fn replay_symbol_touches_and_second_mids(
 /// Знаменатель доли — строки с решённым сравнением (`Ok`/`Mismatch`),
 /// числитель — строки `Mismatch`; `Misaligned`/`RestUnavailable` —
 /// неопределённые, как `trades_indeterminate` в `verify`.
+#[cfg(test)]
 pub(crate) fn day_tallies(
     root: &Path,
     symbol: &str,

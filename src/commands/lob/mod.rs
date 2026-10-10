@@ -143,23 +143,26 @@ pub use trades::{run_trades, TradesArgs};
 // Общее для нескольких подкоманд разъехалось по файлам (`h3`, `replay`,
 // `parts`, `names`); пути `super::…`/`commands::lob::…` у подкоманд и тестов
 // не менялись — их держат эти ре-экспорты.
+#[cfg(test)]
 pub(crate) use h3::median_trade_lots_for_symbol;
 pub use h3::{
     resolve_h3_mode, resolve_h3_mode_full, resolve_h3_mode_with_k, ExecutionArgs, H3Args,
     H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
 };
 pub(crate) use names::{aggressor_side_name, death_name, outcome_name, side_name, some_or_empty};
-pub(crate) use parts::{
-    file_order_key, group_parts_by_day, session_binlog_for, session_days_in_dir, session_parts_for,
-    SessionPart,
+pub(crate) use parts::{file_order_key, session_binlog_for, session_parts_for};
+#[cfg(test)]
+pub(crate) use parts::{group_parts_by_day, session_days_in_dir, SessionPart};
+#[cfg(test)]
+pub(crate) use replay::{
+    day_tallies, feed_frames, replay_symbol_over_configs, trade_hit_from_record,
 };
 pub(crate) use replay::{
-    day_tallies, feed_frames, replay_symbol, replay_symbol_over_configs,
-    replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids, trade_hit_from_record,
+    replay_symbol, replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids,
     ReplayDay, ReplayKeep,
 };
 pub(crate) use shared::{
-    read_verify_marker, select_best_mean_net, size_bucket, FillModel, CPCV_SELECTION_RULE,
+    read_verify_marker, select_best_mean_net, size_bucket, CPCV_SELECTION_RULE,
 };
 
 // `Record` нужен только тестам: `test_support` ниже и `dashboard/tests.rs`

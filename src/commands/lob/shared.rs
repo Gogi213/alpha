@@ -1,10 +1,8 @@
 //! Общее, что осталось от исследовательского слоя 09.2026 (TK-168, КТ-11): корзина
-//! размера, маркер сверки, трейт модели исполнения, правило отбора CPCV.
+//! размера, маркер сверки, правило отбора CPCV.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::lob::levels::LevelRecord;
-use crate::lob::markout::MidSample;
 use crate::lob::shortlist::SIZE_LABELS;
 
 /// Кратности порога `H3`: `[1,2)`, `[2,4)`, `[4,∞)` (`shortlist::SIZE_LABELS`).
@@ -22,17 +20,6 @@ pub(crate) fn read_verify_marker(path: &Path) -> bool {
     std::fs::read_to_string(path)
         .map(|s| s.trim() == "ok")
         .unwrap_or(false)
-}
-
-/// Модель исполнения входа за отведённые 2 с (R06): `Some(bool)` — модель
-/// судит, `None` — не имеет мнения. Реализация — `BacktestFillModel`.
-pub trait FillModel {
-    /// `_binlog_paths` — все части сессии в порядке записи; модель с книжным
-    /// потоком прогоняет их подряд. Умолчание — пустая операция.
-    fn prime_session(&self, _symbol: &str, _binlog_paths: &[PathBuf], _records: &[LevelRecord]) {}
-
-    fn filled(&self, symbol: &str, rec: &LevelRecord, mids: &[MidSample]) -> Option<bool>;
-    fn label(&self) -> &'static str;
 }
 
 /// Правило отбора, которое проверяет CPCV, — то же, которым шорт-лист

@@ -4,7 +4,6 @@ use super::*;
 use crate::binlog::StepAt;
 use crate::book::{Side, Update};
 use crate::bybit::ws::Event as WsEvent;
-use crate::commands::lob::FillModel;
 use crate::feed::{Event as FeedEvent, Feed};
 use crate::lob::backtest::{ExecLatency, SIGMA_SHORT};
 use crate::lob::levels::LevelRecord;
@@ -34,128 +33,6 @@ fn book_ev(local_ts_ns: i64, up: Update) -> FeedEvent {
 
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
-}
-
-// -----------------------------------------------------------------------
-// `BacktestFillModel` (таск 16) на синтетическом потоке `hftbacktest`
-// напрямую (`prime_from_events`) — тот же приём фикстур, что
-// `lob::backtest::tests` (сборка `Event` руками, без файла бинлога): это
-// тестовый шов, названный doc `prime_from_events`, не второй разбор
-// формата.
-// -----------------------------------------------------------------------
-
-fn depth_ev(bid: bool) -> u64 {
-    if bid {
-        LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT
-    } else {
-        LOCAL_ASK_DEPTH_EVENT | EXCH_ASK_DEPTH_EVENT
-    }
-}
-
-fn trade_ev(sell: bool) -> u64 {
-    if sell {
-        LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
-    } else {
-        LOCAL_BUY_TRADE_EVENT | EXCH_BUY_TRADE_EVENT
-    }
-}
-
-fn depth_at(exch_ts: i64, bid: bool, px: f64, qty: f64) -> HbtEvent {
-    HbtEvent {
-        ev: depth_ev(bid),
-        exch_ts,
-        local_ts: exch_ts + 500,
-        px,
-        qty,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
-    }
-}
-
-fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> HbtEvent {
-    HbtEvent {
-        ev: trade_ev(sell) | EXCH_EVENT | LOCAL_EVENT,
-        exch_ts,
-        local_ts: exch_ts + 500,
-        px,
-        qty,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
-    }
-}
-
-fn ask_level(price_tick: i64, birth_ms: i64) -> LevelRecord {
-    LevelRecord {
-        side: Side::Ask,
-        price_tick,
-        birth_ms,
-        death_ms: birth_ms + 1,
-        lifetime_ms: 1,
-        size_max: 1,
-        time_to_max_ms: 0,
-        size_monotonic: true,
-        repeat_count: 0,
-        repriced: false,
-        death: crate::lob::levels::DeathKind::BelowFraction,
-        traded_lots: 0,
-        rpi_lots: 0,
-    }
-}
-
-/// Секунда в наносекундах — тот же приём читаемости, что
-/// `lob::backtest::tests::S`.
-const S: i64 = 1_000_000_000;
-
-/// Критерий приёмки таска 16: синтетический поток с известными
-/// исполнениями — вход А исполняется за 2 с (сделки съедают очередь),
-/// вход Б не встречает сделок и снимается по таймауту. Оба сигнала гонит
-/// **один** прогон `prime_from_events` (не по одному на уровень —
-/// BLOCKERS таска 13), `filled` читает готовый кэш.
-#[test]
-fn backtest_fill_model_matches_known_executions_on_a_synthetic_feed() {
-    let feed = [
-        depth_at(0, true, 100.0, 5.0),
-        depth_at(0, false, 101.0, 5.0),
-        // Вход А (born t=S, аск-уровень → long): сделки на бид съедают
-        // очередь мейкера за 2 с (тот же сценарий, что
-        // `lob::backtest::tests::driver_closes_a_maker_round_trip_on_
-        // synthetic_feed`).
-        trade_at(S + S / 2, true, 100.0, 3.0),
-        trade_at(S + 4 * S / 5, true, 100.0, 3.0),
-        depth_at(10 * S + 9 * S / 10, true, 101.0, 5.0),
-        depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
-        // Вход Б (born t=20*S): книга валидна, но между рождением и
-        // t+2с сделок нет — обязан снятся по таймауту.
-        depth_at(30 * S, false, 103.0, 5.0),
-    ];
-    let records = [ask_level(100, 1000), ask_level(200, 20_000)];
-
-    let model = BacktestFillModel::new(
-        ExecLatency::uniform(1_000_000),
-        ExecLatency::uniform(2_000_000),
-        100_000_000,
-    );
-    model.prime_from_events("SOLUSDT", &feed, 1.0, 1.0, &records);
-
-    assert_eq!(
-        model.filled("SOLUSDT", &records[0], &[]),
-        Some(true),
-        "вход А обязан исполниться — очередь съедена за 2 с"
-    );
-    assert_eq!(
-        model.filled("SOLUSDT", &records[1], &[]),
-        Some(false),
-        "вход Б обязан не исполниться — сделок не было"
-    );
-    // Уровень, которого не было в сессии, — не измерен, не ложный ноль.
-    let unseen = ask_level(300, 999_999);
-    assert_eq!(model.filled("SOLUSDT", &unseen, &[]), None);
-    // Тот же уровень другого символа — отдельный ключ, не измерен.
-    assert_eq!(model.filled("ETHUSDT", &records[0], &[]), None);
-    assert_eq!(model.label(), "backtest");
-    assert_eq!(model.p95_rtt_ns(), ExecLatency::uniform(2_000_000));
 }
 
 /// Снапшот, потерявший уровень против предыдущего снапшота, обязан

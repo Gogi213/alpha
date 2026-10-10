@@ -393,28 +393,7 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::Probe(_) => {
             panic!("разобралась не та подкоманда")
         }
-        crate::commands::lob::LobCommand::Levels(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::Markout(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::Watch(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::Pilot(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::Power(_) => {
-            panic!("разобралась не та подкоманда")
-        }
         crate::commands::lob::LobCommand::Session(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::React(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::Profiles(_) => {
             panic!("разобралась не та подкоманда")
         }
         crate::commands::lob::LobCommand::Backtest(_) => {
@@ -424,9 +403,6 @@ fn record_cli_parses_symbol_and_defaults() {
             panic!("разобралась не та подкоманда")
         }
         crate::commands::lob::LobCommand::BounceVerdict(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::Shortlist(_) => {
             panic!("разобралась не та подкоманда")
         }
         crate::commands::lob::LobCommand::Touches(_) => {

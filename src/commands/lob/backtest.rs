@@ -35,7 +35,6 @@ pub use args::{BacktestArgs, BacktestSummary};
 pub(crate) use csv_out::exit_reason_label;
 use csv_out::{write_backtest_csv, write_pnl_csv, write_trades_csv};
 use feed::events_from_paths;
-pub use feed::BacktestFillModel;
 pub(crate) use feed::{
     count_feed_events, count_feed_events_until, open_replay_feed, read_day_schedule,
     read_tick_step, replay_compact_into_until,
