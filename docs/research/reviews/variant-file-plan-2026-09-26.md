@@ -10,7 +10,7 @@
 - Где записан главный вариант В-104 (набор `t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55`, форма
   `ladder3x2..20w2-pct2-tr1x1-14400-ttl1800`, деньги $2500 / $500, без потолка, без TRX):
   `tools/compute/nightly-grid.sh:440-455` (ночная дозапись `b5/titrc-u500r` и `fresh-days.py`),
-  `tools/compute/recompute-carry.sh:23-30` (набор из `study/titration-sets-v1.txt` на Steam Deck),
+  `tools/compute/archive/recompute-carry.sh:23-30` (набор из `study/titration-sets-v1.txt` на Steam Deck),
   `tools/compute/oos-frozen.sh:36-55` (общая часть формы, задержка В-68, очередь), `.dash-notrx.sh` на Steam Deck
   (`portfolio-sim.py` дашборда), `tools/compute/fresh-days.py:66-74, 103` (выбор сделок П-01), `gate-g10.sh:32`,
   П-02 §5.

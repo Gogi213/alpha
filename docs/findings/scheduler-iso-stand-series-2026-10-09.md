@@ -2,7 +2,7 @@
 
 Стенд: `stand.sh alpha-e36-idx d15`, боевые флаги e37, вход `/dev/shm`, gate 729/diff 0 во всех 12 прогонах. Окна: L — `--iso 4` под
 нагрузкой (12 ядер crc32, `tk071-load`), E — окно без `--iso` (производство заморожено). Очередь FIFO: L1a,L1b,E1a,E1b,… Сводка и
-сырьё: `/data/tk071/series/{summary.txt,ids.txt}`, `/data/sched/validity/<id>.json`; скрипты `tools/compute/tk071-stand-series.sh`,
+сырьё: `/data/tk071/series/{summary.txt,ids.txt}`, `/data/sched/validity/<id>.json`; скрипты `tools/compute/archive/tk071-stand-series.sh`,
 `tk071-series-wait.sh`, `tk071-series-summary.py`. Правило свопа (слайс замера) и «нет снимка = ok:false» — c3d7d6fe.
 
 | пара | Δ usage_usec | Δ wall | ok обеих |

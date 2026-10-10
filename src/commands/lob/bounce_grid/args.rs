@@ -293,7 +293,7 @@ pub struct BounceGridArgs {
     #[arg(long)]
     pub cells: Option<PathBuf>,
     /// σ монеты на взводе для σ-лестницы `--entry-form ladder<N>x<a>..<b>s[w<k>]` (В-131): каталог с
-    /// `sigma-<SYMBOL>.csv` (`window_end_ms,sigma_bps`, `tools/compute/sigma-table.py`). Обязателен при
+    /// `sigma-<SYMBOL>.csv` (`window_end_ms,sigma_bps`, `tools/compute/archive/sigma-table.py`). Обязателен при
     /// σ-лестнице и запрещён без неё; сигнал без σ не торгуется и считается в `n_no_sigma` итога.
     #[arg(long)]
     pub sigma_from: Option<PathBuf>,

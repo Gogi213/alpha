@@ -86,20 +86,20 @@
 | 2 | 160 | tools/compute/tk025-recompute.py | Sim::snapshot | 969–1145 (177) |
 | 3 | 148 | tools/compute/tk025-recompute.py | Sim::post_frame | 680–831 (152) |
 | 4 | 148 | tools/compute/dash-add-p07-all.py | main | 198–341 |
-| 5 | 143 | tools/compute/t21-snapshot.py | extract_dashboard | 135–311 |
+| 5 | 143 | tools/compute/archive/t21-snapshot.py | extract_dashboard | 135–311 |
 | 6 | 141 | tools/compute/alsched.py | Core::tick | 92–235 (144) |
-| 7 | 139 | tools/compute/dashboard-check.py | check_blocks | 49–135 |
+| 7 | 139 | tools/compute/archive/dashboard-check.py | check_blocks | 49–135 |
 | 8 | 131 | tools/compute/p02-wall.py | cmd_scan | 146–285 |
-| 9 | 131 | tools/compute/kpi-dash-data.py | main | 124–234 |
+| 9 | 131 | tools/compute/archive/kpi-dash-data.py | main | 124–234 |
 | 10 | 130 | tools/registry/registry.py | main | 75–218 |
-| 11 | 130 | tools/compute/loss-corr.py | main | 133–230 |
+| 11 | 130 | tools/compute/archive/loss-corr.py | main | 133–230 |
 | 12 | 129 | tools/compute/vol-estimators.py | main | 136–232 |
 | 13 | 128 | tools/compute/history-study.py | main | 73–198 |
-| 14 | 127 | tools/compute/t32-retries.py | main | 88–310 |
-| 15 | 121 | tools/compute/tk044-gate.py | main | 74–185 |
+| 14 | 127 | tools/compute/archive/t32-retries.py | main | 88–310 |
+| 15 | 121 | tools/compute/archive/tk044-gate.py | main | 74–185 |
 | 16 | 115 | tools/compute/touch-signals.py | main | 68–169 |
-| 17 | 107 | tools/compute/p08-cov.py | cmd_decide | 133–200 |
-| 18 | 107 | tools/compute/p07-h9r-h14.py | simulate | 243–343 |
+| 17 | 107 | tools/compute/archive/p08-cov.py | cmd_decide | 133–200 |
+| 18 | 107 | tools/compute/archive/p07-h9r-h14.py | simulate | 243–343 |
 | 19 | 106 | tools/compute/p05-read.py | main | 95–201 |
 | 20 | 102 | tools/compute/family-titrate.py | main | 62–162 |
 

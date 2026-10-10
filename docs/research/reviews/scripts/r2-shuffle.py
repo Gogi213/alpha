@@ -1,7 +1,7 @@
 """Судья 27.09: R² накопленной кривой по суткам месяца против перестановок тех же суток (насколько путь ровнее
 случайного порядка тех же дневных результатов)."""
 import importlib.util, random, sys
-spec = importlib.util.spec_from_file_location("kn", "tools/compute/kpi-newhigh.py")
+spec = importlib.util.spec_from_file_location("kn", "tools/compute/archive/kpi-newhigh.py")
 kn = importlib.util.module_from_spec(spec); spec.loader.exec_module(kn)
 S = kn.load("data/kpi"); D = 86_400_000
 def r2(y):
