@@ -69,6 +69,20 @@ class WarmRun(unittest.TestCase):
     def test_min_cells_warns_only(self):
         self.assertEqual(self.run_wr(extra=["--min-cells", "10"]), 0)
 
+    def test_run_json_written_when_run_dir_set(self):
+        rd = os.path.join(self.d, "runs", "J1")
+        os.environ["ALSCHED_RUN_DIR"] = rd
+        try:
+            self.assertEqual(self.run_wr(), 0)
+        finally:
+            del os.environ["ALSCHED_RUN_DIR"]
+        m = json.load(open(os.path.join(rd, "run.json"), encoding="utf-8"))
+        self.assertEqual(m["step"], "s1")
+        self.assertEqual(m["out"], self.out)
+        self.assertEqual(len(m["cells_sha256"]), 64)
+        self.assertEqual(m["build"], MD5)
+        self.assertIn("fp", m)
+
     def test_failing_command_rc_propagates(self):
         self.assertEqual(self.run_wr(cmd=[sys.executable, "-c", "raise SystemExit(7)", self.cells]), 7)
 

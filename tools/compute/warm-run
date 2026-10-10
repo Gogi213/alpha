@@ -8,7 +8,7 @@
 пачке < N клеток» (N задаёт решение В-## по замеру КТ-2, по умолчанию нет), гонит команду как шаг `guard.py step`
 (готовый шаг пропускается) и пишет накладную: стена обёртки минус стена команды (JSON в --timing-out и в stderr).
 """
-import argparse, json, os, subprocess, sys, time
+import argparse, hashlib, json, os, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 for d in (os.environ.get("WARM_GUARD_DIR"), os.path.join(HERE, "..", "registry"), "/data/registry"):
@@ -81,6 +81,18 @@ def main(argv=None):
            "wall_s": round(wall, 3), "child_s": round(child[0], 3), "overhead_s": round(over, 3),
            "overhead_pct": round(100 * over / child[0], 3) if child[0] else None}
     print("warm-run: " + json.dumps(rec, ensure_ascii=False), file=sys.stderr)
+    run_dir = os.environ.get("ALSCHED_RUN_DIR")    # КТ-9: единый адрес выхода прогона — /data/runs/<id>/run.json
+    if run_dir:
+        ins = [x for x in o.ins.split(os.pathsep) if x]
+        try:
+            _, row, _ = guard.step_state(o.step, cmd, ins, o.out)
+        except Exception:
+            row = None
+        os.makedirs(run_dir, exist_ok=True)
+        meta = dict(rec, argv=cmd, build_id=o.build_id, cells_file=o.cells, out=o.out, fp=(row or {}).get("fp"),
+                    cells_sha256=hashlib.sha256(open(o.cells, "rb").read()).hexdigest())
+        with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8", newline="\n") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=1)
     if o.timing_out:
         with open(o.timing_out, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
