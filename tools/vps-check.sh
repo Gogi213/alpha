@@ -39,6 +39,11 @@ case "$WHAT" in all|gate) python "$(dirname "$0")/check-sprawl.py" . master || e
 # метка задачи в командной строке замка (видна в `ps` на VPS — экран хода работ по ней находит задачу сборки):
 # RPV_TICKET (прежнее ALPHA_TICKET) сессии роли (его ставит диспетчер), иначе имя рабочего дерева; на поведение сборки не влияет
 LABEL="$(printf '%s' "${RPV_TICKET:-${ALPHA_TICKET:-$(basename "$PWD")}}" | tr -c 'A-Za-z0-9._-' '_')"
+# TK-170: живая сборка этой метки на calc (queued/running) — отказ с её id (повтор после смерти сессии не плодит дублей); CALC_FORCE=1 — обход
+if [ "$CHECK_HOST" = calc ] && [ -z "${CALC_FORCE:-}" ]; then
+  LIVE=$(ssh "${KEY[@]}" "$HOST" "python3 /data/sched/alsched.py ps" 2>/dev/null | grep -E "^[0-9]+ +(queued|running) .* build-$LABEL +" | head -1 | cut -d' ' -f1)
+  [ -n "$LIVE" ] && { echo "build-$LABEL уже идёт: id $LIVE — ждать: host:calc:/data/sched/rc/$LIVE (лог /data/sched/logs/$LIVE.log); CALC_FORCE=1 — подать ещё"; exit 75; }
+fi
 git ls-files -z --cached --others --exclude-standard | tar --force-local --null -T - -czf "$ARC"
 ssh "${KEY[@]}" "$HOST" "mkdir -p $(dirname "$ARCR")"
 scp -q "${KEY[@]}" "$ARC" "$HOST:$ARCR"
@@ -76,6 +81,7 @@ $CMD
 EOS
 cd /opt/rbuild && SCHED_MANIFEST=0 python3 /data/sched/alsched.py submit --name build-$LABEL --max-runtime ${CALC_MAX:-15m} --cls prod --cores $CORES --mem $MEMG --prio 3 -- bash /opt/rbuild/run.sh $ARCR /opt/rbuild/in/cmd-$$.sh $CORES" | tail -1)
   case "$ID" in ''|*[!0-9]*) echo "alsched submit: id не получен ($ID)"; RC=75 ;; *)
+    echo "alsched id $ID — wait_for: host:calc:/data/sched/rc/$ID (лог /data/sched/logs/$ID.log)"
     ssh "${KEY[@]}" "$HOST" "while [ ! -e /data/sched/rc/$ID ]; do sleep 2; done; cat /data/sched/logs/$ID.log; exit \$(cat /data/sched/rc/$ID)"
     RC=$? ;;
   esac
