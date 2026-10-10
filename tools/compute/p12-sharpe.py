@@ -5,6 +5,7 @@
 п.3 С2 (без 2 суток с наибольшей парной разностью; монета — closes без символа, считается для прошедших отдельно); п.4 >=6 из 8 месяцев.
 Порядок: ярусы по SR (бутстреп лидер−i, Холм, α=0,05), затем k_c, K_c, SR. Выход docs/findings/p12-sharpe-<free|B2>-2026-10-08.csv + печать."""
 import csv, math, os, sys
+import p12args; p12args.apply()   # --pool-from/--only/--out/--dir/... = P12_* (С-61); до import p12lib
 from p12lib import ONLY_R2, OUT, M_FAM, analyse, inputs_line, load, pack, pack_ext
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"

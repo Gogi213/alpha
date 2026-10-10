@@ -13,6 +13,7 @@ use crate::commands::lob::backtest::{
     count_feed_events_until, open_replay_feed, replay_compact_into_until, EntryTtl,
 };
 use crate::commands::lob::profiles::read_verify_marker;
+use crate::commands::lob::touches::stamp;
 use crate::lob::backtest::CompactEvent;
 
 // ---------------------------------------------------------------------------
@@ -211,27 +212,16 @@ fn event_count_sidecar(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn file_stamp(path: &Path) -> Option<(u64, u64)> {
-    let meta = std::fs::metadata(path).ok()?;
-    let mtime = meta
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-    Some((meta.len(), mtime))
-}
-
 pub(super) fn cached_event_count(path: &Path) -> Option<usize> {
-    let (len, mtime) = file_stamp(path)?;
-    let text = std::fs::read_to_string(event_count_sidecar(path)).ok()?;
+    let (len, mtime) = stamp(path)?;
+    let text = read_sidecar_line(&event_count_sidecar(path))?;
     let mut it = text.split_whitespace();
     let (l, m, n) = (
         it.next()?.parse::<u64>().ok()?,
         it.next()?.parse::<u64>().ok()?,
         it.next()?.parse::<usize>().ok()?,
     );
-    (l == len && m == mtime).then_some(n)
+    (l == len && m == mtime && it.next().is_none()).then_some(n)
 }
 
 fn carry_count_sidecar(path: &Path) -> PathBuf {
@@ -243,8 +233,8 @@ fn carry_count_sidecar(path: &Path) -> PathBuf {
 /// Счёт довеска окна `until_ns` по части: сайдкар `размер мтайм until n hit`
 /// (одна строка — последнее окно); чужое окно или иной файл — промах.
 pub(super) fn cached_carry_count(path: &Path, until_ns: i64) -> Option<(usize, bool)> {
-    let (len, mtime) = file_stamp(path)?;
-    let text = std::fs::read_to_string(carry_count_sidecar(path)).ok()?;
+    let (len, mtime) = stamp(path)?;
+    let text = read_sidecar_line(&carry_count_sidecar(path))?;
     let mut it = text.split_whitespace();
     let (l, m, u, n, h) = (
         it.next()?.parse::<u64>().ok()?,
@@ -253,25 +243,39 @@ pub(super) fn cached_carry_count(path: &Path, until_ns: i64) -> Option<(usize, b
         it.next()?.parse::<usize>().ok()?,
         it.next()?.parse::<u8>().ok()?,
     );
-    (l == len && m == mtime && u == until_ns).then_some((n, h == 1))
+    (l == len && m == mtime && u == until_ns && it.next().is_none()).then_some((n, h == 1))
 }
 
 pub(super) fn store_carry_count(path: &Path, until_ns: i64, (n, hit): (usize, bool)) {
-    if let Some((len, mtime)) = file_stamp(path) {
-        let _ = std::fs::write(
-            carry_count_sidecar(path),
-            format!(
-                "{len} {mtime} {until_ns} {n} {}
-",
-                u8::from(hit)
-            ),
+    if let Some((len, mtime)) = stamp(path) {
+        write_sidecar(
+            &carry_count_sidecar(path),
+            &format!("{len} {mtime} {until_ns} {n} {}\n", u8::from(hit)),
         );
     }
 }
 
 /// Не смог записать — не беда: следующий прогон снова посчитает.
 pub(super) fn store_event_count(path: &Path, n: usize) {
-    if let Some((len, mtime)) = file_stamp(path) {
-        let _ = std::fs::write(event_count_sidecar(path), format!("{len} {mtime} {n}\n"));
+    if let Some((len, mtime)) = stamp(path) {
+        write_sidecar(&event_count_sidecar(path), &format!("{len} {mtime} {n}\n"));
+    }
+}
+
+/// Сайдкар — одна строка, законченная переводом строки: усечённая запись («…78» → «…7»)
+/// без `\n` — не годная, чтение даёт промах и пересчёт, а не чужое число.
+fn read_sidecar_line(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.ends_with('\n').then_some(text)
+}
+
+/// Запись через временный файл рядом и `rename` (атомарно на одной ФС): параллельный
+/// читатель видит либо старый сайдкар, либо новый целиком. Ошибка записи не фатальна.
+fn write_sidecar(path: &Path, text: &str) {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".tmp{}", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    if std::fs::write(&tmp, text).is_err() || std::fs::rename(&tmp, path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }

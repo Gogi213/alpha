@@ -6,6 +6,7 @@
 import csv, json, os, sys
 from collections import defaultdict
 import numpy as np
+import p12args; p12args.apply()   # флаги --dir/--drop/--rows-a/--out = P12_* (С-61)
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 CAP = "0" if MODE == "free" else "3"

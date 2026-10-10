@@ -52,3 +52,12 @@ def test_trials_effn_counts_and_correlation():
     assert e["trials"] == 4 and e["flat"] == 1 and e["n_days"] == 60
     assert 1.0 < e["n_eff_cells"] < 3.0          # B1 и copy — один ряд, indep — второй: ≈ 2
     assert e["n_eff_ref"] is None or 1.0 <= e["n_eff_ref"] <= 60
+
+
+def test_p12args_flag_sets_env_default_keeps_env(monkeypatch):
+    import p12args
+    monkeypatch.setenv("P12_OUT", "из-окружения"); monkeypatch.delenv("P12_DIR", raising=False)
+    monkeypatch.setattr(sys, "argv", ["x", "B2", "--dir", "data/x/"])
+    p12args.apply()
+    assert os.environ["P12_DIR"] == "data/x/" and os.environ["P12_OUT"] == "из-окружения"   # флаг ставит, незаданное — прежнее окружение
+    assert sys.argv == ["x", "B2"]                                                           # флаги вырезаны, позиционный режим цел

@@ -273,3 +273,41 @@ fn session_dirs_skip_entries_without_session_json_or_symbol_binlog() {
     assert_eq!(summary.days, 0);
     assert_eq!(summary.n, 0);
 }
+
+/// K1 (С-26): единственная сессия без маркера `ok` — наблюдений нет, сутки негодны.
+#[test]
+fn watch_counts_nothing_from_a_session_without_the_verify_marker() {
+    let dir = tempfile::tempdir().expect("песочница");
+    let root = dir.path();
+    write_session_dir(
+        root,
+        "2026-05-01T020000Z",
+        "SOLUSDT",
+        "2026-05-01T02:00:00Z",
+        2,
+        false,
+        &pulled_bid_frames(),
+    );
+    let args = WatchArgs {
+        root: root.to_path_buf(),
+        symbol: "SOLUSDT".to_string(),
+        profile: "marginal:outcome=pulled".to_string(),
+        h3: H3Args {
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(1),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
+        },
+        warmup_ms: 0,
+        repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,
+        now_utc: Some("2026-06-01T00:00:00Z".to_string()),
+    };
+    let summary = run_watch(&args).expect("прогон watch");
+    assert_eq!(
+        (summary.n, summary.g),
+        (0, 0),
+        "без маркера ни одного наблюдения"
+    );
+    assert!(summary.flag.is_none());
+}

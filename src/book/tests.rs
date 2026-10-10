@@ -305,18 +305,12 @@ fn prices_that_break_f64_land_on_one_level() {
     assert_eq!(b.qty_lots_at(Side::Bid, tick_from_sum), px(1.0) / STEP);
 }
 
-/// С-05 (ревью 10.10): грep-линт запретов 2 и 7 `interfaces.md` — как у `strategy.rs::hot_path_guard`, но для
-/// остального пути события: книга и ленты. Часы — только через трейт `Clock`, книга и очередь событий — не
-/// хеш-/дерево-отображение (аллоцирует на вставку). Строки собраны из частей, чтобы литерал не ловил сам себя;
-/// `tests.rs` в проверку не входят.
+/// С-05 (ревью 10.10): запреты 2 и 7 `interfaces.md` для `book/mod.rs` — часы напрямую и хеш/дерево на пути события.
+/// `f64` здесь разрешён: он нужен только на границе трейта `MarketDepth` крейта (см. `tick_size_f`).
+/// Строки собраны из частей — иначе литерал триггерил бы проверку сам на себя.
 #[test]
-fn event_path_modules_never_call_the_wall_clock_or_use_a_map() {
-    const SOURCES: [(&str, &str); 4] = [
-        ("book/mod.rs", include_str!("mod.rs")),
-        ("feed/mod.rs", include_str!("../feed/mod.rs")),
-        ("feed/live.rs", include_str!("../feed/live.rs")),
-        ("feed/replay.rs", include_str!("../feed/replay.rs")),
-    ];
+fn book_never_calls_the_wall_clock_or_uses_a_map_for_levels() {
+    const SRC: &str = include_str!("mod.rs");
     let banned = [
         concat!("Inst", "ant::now"),
         concat!("System", "Time::now"),
@@ -325,9 +319,7 @@ fn event_path_modules_never_call_the_wall_clock_or_use_a_map() {
         concat!("BTree", "Map<"),
         concat!("BTree", "Map::"),
     ];
-    for (name, src) in SOURCES {
-        for b in banned {
-            assert!(!src.contains(b), "{name} тянет запрещённое: {b}");
-        }
+    for b in banned {
+        assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
     }
 }

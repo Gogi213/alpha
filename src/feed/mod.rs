@@ -272,3 +272,25 @@ pub trait DynamicPool {
     /// снятие не задело никого.
     fn remove(&mut self, symbols: &[u16]) -> Result<Vec<u16>, live::LayoutError>;
 }
+
+/// С-05 (ревью 10.10): запреты 2, 6, 7 `interfaces.md` для `feed/mod.rs` (у `replay.rs`/`live.rs` свои проверки).
+/// Строки собраны из частей — иначе литерал триггерил бы проверку сам на себя.
+#[cfg(test)]
+mod hot_path_guard {
+    #[test]
+    fn module_never_calls_the_wall_clock_or_uses_float_prices_or_maps() {
+        const SRC: &str = include_str!("mod.rs");
+        let banned = [
+            concat!("Inst", "ant::now"),
+            concat!("System", "Time::now"),
+            concat!("f", "64"),
+            concat!("Hash", "Map<"),
+            concat!("Hash", "Map::"),
+            concat!("BTree", "Map<"),
+            concat!("BTree", "Map::"),
+        ];
+        for b in banned {
+            assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
+        }
+    }
+}
