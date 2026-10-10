@@ -4,7 +4,7 @@
   warm-run --cells ФАЙЛ --build-id md5|префикс --step ИМЯ --out ПУТЬ [--in КАТ:КАТ] [--period A..B]
            [--min-cells N] [--timing-out ФАЙЛ] -- команда…
 
-Проверяет список клеток (строка «форма набор») и сборку по MANIFEST.tsv (active|frozen), печатает предупреждение «в
+Проверяет список клеток (строка «форма набор»; путь --cells обязан входить в argv команды, иначе отказ) и сборку по MANIFEST.tsv (active|frozen), печатает предупреждение «в
 пачке < N клеток» (N задаёт решение В-## по замеру КТ-2, по умолчанию нет), гонит команду как шаг `guard.py step`
 (готовый шаг пропускается) и пишет накладную: стена обёртки минус стена команды (JSON в --timing-out и в stderr).
 """
@@ -55,6 +55,8 @@ def main(argv=None):
         raise SystemExit("warm-run: после -- нужна команда")
     t0 = time.time()
     n = read_cells(o.cells)
+    if not any(o.cells in x or os.path.abspath(o.cells) in x for x in cmd):
+        raise SystemExit(f"warm-run: путь --cells {o.cells} не входит в argv команды — проверка клеток не связана с прогоном")
     md5 = check_build(o.build_id, manifest.load())
     if o.min_cells and n < o.min_cells:
         print(f"warm-run: ПРЕДУПРЕЖДЕНИЕ: в пачке {n} клеток < {o.min_cells} — отдельный проход на малую пачку дорог", file=sys.stderr)

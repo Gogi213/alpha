@@ -31,10 +31,15 @@ class WarmRun(unittest.TestCase):
         open(self.man, "w").write("\t".join([MD5, "c0ffee", "pgo", "", st, "t", "/bin/x", ""]) + "\n")
 
     def run_wr(self, cmd=None, **kw):
-        cmd = cmd or [sys.executable, "-c", f"open({self.out!r},'w').write('x')"]
+        cmd = cmd or [sys.executable, "-c", f"open({self.out!r},'w').write('x')", kw.get("cells", self.cells)]
         a = ["--cells", kw.get("cells", self.cells), "--build-id", kw.get("build", MD5[:8]), "--step", "s1",
              "--out", self.out, "--in", self.indir, "--timing-out", self.timing] + kw.get("extra", []) + ["--"] + cmd
         return W.main(a)
+
+    def test_cells_path_must_be_in_command(self):
+        with self.assertRaises(SystemExit):
+            self.run_wr(cmd=[sys.executable, "-c", "pass"])
+        self.assertFalse(os.path.exists(self.timing))
 
     def test_runs_then_skips_ready_step(self):
         self.assertEqual(self.run_wr(), 0)
@@ -65,7 +70,7 @@ class WarmRun(unittest.TestCase):
         self.assertEqual(self.run_wr(extra=["--min-cells", "10"]), 0)
 
     def test_failing_command_rc_propagates(self):
-        self.assertEqual(self.run_wr(cmd=[sys.executable, "-c", "raise SystemExit(7)"]), 7)
+        self.assertEqual(self.run_wr(cmd=[sys.executable, "-c", "raise SystemExit(7)", self.cells]), 7)
 
 
 if __name__ == "__main__":
