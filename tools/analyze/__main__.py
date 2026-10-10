@@ -17,6 +17,9 @@ SUBS = {   # подкоманда -> (скрипт, смысл)
     "tier2":     ("tk114-tier2-select.py", "П-13 ярус 2: отбор"),
     "testB":     ("tk114-testB.py",       "П-13 тест Б: победитель против базы"),
     "report":    ("tk114-report2.py",     "П-13 итог: $ по месяцам и монетам, Шарп"),
+    "b1keys":    ("p12-r2b-b1keys.py",    "TK-120: ключи B1 по closes (cap 0|3)"),
+    "thresholds": ("p12-r2b-thresholds.py", "TK-120: пороги R2-B из готовых rounds"),
+    "e106-loss": ("p12-e106-loss.py",     "TK-120: убытки e106"),
     "portfolio": ("../compute/portfolio-sim.py", "счёт депозита по сделкам (защиты, просадка)"),
 }
 
