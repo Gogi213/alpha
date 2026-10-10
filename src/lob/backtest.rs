@@ -1451,13 +1451,6 @@ where
 /// счёта не влияет.
 pub static HOLD_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Событийные шаги только в ожидании исполнения входа (`ALPHA_EVENT_STEPS=entry`, TK-050): остальные фазы идут
-/// по-прежнему (быстрый путь удержания остаётся включённым). Умолчание — выкл.
-fn event_steps_entry() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "entry"))
-}
-
 /// Есть ли у круга заявки, ещё живые в крейте (не исполнены целиком, не сняты, не отвергнуты): пока есть,
 /// ответы биржи идут по своим часам — пустые шаги опроса не пропускаются (Э-04б).
 fn has_open_orders<B, MD>(bot: &B, asset_no: usize) -> bool
@@ -1543,7 +1536,6 @@ where
     let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
     // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
     let mut decided_in_hold = false;
-    let ev_entry = event_steps_entry();
     let mut stable = false;
     let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
@@ -1593,7 +1585,7 @@ where
         // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
         // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
         let wakeup = match skip_cap {
-            Some(_) if ev_entry && stable && entry_pending == 0 && state.is_entry_pending() => {
+            Some(_) if stable && entry_pending == 0 && state.is_entry_pending() => {
                 state.step_wakeup_ns(bot.current_timestamp())
             }
             Some(_) if decided_in_hold && entry_pending == 0 && !has_open_orders(bot, asset_no) => {
@@ -2123,16 +2115,10 @@ where
     let mut entry_seen: u64 = 0;
     let mut entry_pending: u64 = 0;
     let mut fill_by_cross = false;
-    let ev_entry = event_steps_entry();
     let mut entry_stable = false;
     loop {
         let entry_wake = match skip_cap {
-            Some(_)
-                if ev_entry
-                    && entry_stable
-                    && entry_pending == 0
-                    && entry_state.is_entry_pending() =>
-            {
+            Some(_) if entry_stable && entry_pending == 0 && entry_state.is_entry_pending() => {
                 entry_state.step_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
@@ -2965,7 +2951,7 @@ pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
 /// Строки развёртки, до которых круг дошёл по часам (`local_ts <= now`), по попыткам (0, 1, 2, 3+) — замер TK-048
-/// против `ATTEMPT_ROWS` (зря развёрнутое); считается только под `ALPHA_ATTEMPT_STATS`, на итог не влияет.
+/// против `ATTEMPT_ROWS` (зря развёрнутое); считается только под `ALPHA_DIAG`, на итог не влияет.
 pub static ATTEMPT_USED: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
@@ -2989,11 +2975,11 @@ pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 struct SigMemo {
     sig: Option<[u64; 5]>,
     reps: u8,
-    /// Подпись прошлого шага удержания для счёта `SIG_STATS` (только под `ALPHA_ATTEMPT_STATS`).
+    /// Подпись прошлого шага удержания для счёта `SIG_STATS` (только под `ALPHA_DIAG`).
     stat_sig: Option<[u64; 5]>,
 }
 
-/// Шаги удержания по подписи входов решения (замер TK-048, `ALPHA_ATTEMPT_STATS`, на итог не влияет): для быстрого
+/// Шаги удержания по подписи входов решения (замер TK-048, `ALPHA_DIAG`, на итог не влияет): для быстрого
 /// пути (HoldTracker) и пути движка — [шагов, подпись та же, сменилась, нет подписи (`None`)]; в групповом круге
 /// шаг считается по варианту.
 pub static SIG_STATS: [std::sync::atomic::AtomicU64; 8] =
@@ -3671,7 +3657,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
 /// Групповых кругов Э-08 — счётчик процесса для тестов; на итог не влияет.
 pub static EXIT_GROUP_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Разбор нулевых групповых кругов (TK-048, печатается под `ALPHA_ATTEMPT_STATS`): [сигналов-участников,
+/// Разбор нулевых групповых кругов (TK-048, печатается под `ALPHA_DIAG`): [сигналов-участников,
 /// уже в памяти, частей с равной входной частью, частей из ≥ 2, из них круг не получился (`None`)].
 pub static EXIT_GROUP_DIAG: [std::sync::atomic::AtomicU64; 5] = [
     std::sync::atomic::AtomicU64::new(0),

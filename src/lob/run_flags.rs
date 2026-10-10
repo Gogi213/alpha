@@ -6,21 +6,13 @@
 
 use std::ffi::OsString;
 
-/// Уровень событийных шагов (`ALPHA_EVENT_STEPS`): `entry` — только ожидание входа.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum EventSteps {
-    #[default]
-    Off,
-    Entry,
-}
-
 /// Снимок флагов `ALPHA_*`. Поля `bool` под «`=1`» — включены только значением `1`; под «задан» — любым значением.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunFlags {
     /// `ALPHA_SIG_CACHE=<n>`: ёмкость кэша сигналов, `n > 0`.
     pub sig_cache: Option<usize>,
-    /// `ALPHA_ATTEMPT_STATS` задан.
-    pub attempt_stats: bool,
+    /// `ALPHA_DIAG` задан: диагностические счётчики замеров (С-12; бывшие `ALPHA_ATTEMPT_STATS` и `ALPHA_TICK_STATS`).
+    pub diag: bool,
     /// `ALPHA_HOLDS_MEMO=1`.
     pub holds_memo: bool,
     /// `ALPHA_ADMIT_SOA=1`.
@@ -29,14 +21,10 @@ pub struct RunFlags {
     pub admit_cache: bool,
     /// `ALPHA_SKIP_NOSIGNAL` задан.
     pub skip_nosignal: bool,
-    /// `ALPHA_TICK_STATS=1`.
-    pub tick_stats: bool,
     /// `ALPHA_FAST_HOLD=1`.
     pub fast_hold: bool,
     /// `ALPHA_SKIP_SAME=1`.
     pub skip_same: bool,
-    /// `ALPHA_EVENT_STEPS=entry`.
-    pub event_steps: EventSteps,
     /// `ALPHA_R2_TRACE` задан.
     pub r2_trace: bool,
     /// `ALPHA_APPROACH_BIN_DIR=<путь>`.
@@ -84,18 +72,13 @@ impl RunFlags {
             sig_cache: num("ALPHA_SIG_CACHE")
                 .and_then(|n| usize::try_from(n).ok())
                 .filter(|&n| n > 0),
-            attempt_stats: set("ALPHA_ATTEMPT_STATS"),
+            diag: set("ALPHA_DIAG"),
             holds_memo: one("ALPHA_HOLDS_MEMO"),
             admit_soa: one("ALPHA_ADMIT_SOA"),
             admit_cache: one("ALPHA_ADMIT_CACHE"),
             skip_nosignal: set("ALPHA_SKIP_NOSIGNAL"),
-            tick_stats: one("ALPHA_TICK_STATS"),
             fast_hold: one("ALPHA_FAST_HOLD"),
             skip_same: one("ALPHA_SKIP_SAME"),
-            event_steps: match get("ALPHA_EVENT_STEPS") {
-                Some("entry") => EventSteps::Entry,
-                _ => EventSteps::Off,
-            },
             r2_trace: set("ALPHA_R2_TRACE"),
             approach_bin_dir: get("ALPHA_APPROACH_BIN_DIR").map(OsString::from),
             approach_bin_level: num("ALPHA_APPROACH_BIN_LEVEL").and_then(|n| i32::try_from(n).ok()),

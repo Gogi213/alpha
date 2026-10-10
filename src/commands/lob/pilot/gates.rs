@@ -5,9 +5,9 @@
 
 use crate::commands::lob::G0_MIN_PULLED;
 use crate::lob::costs::ROUNDTRIP_FEES_BPS;
-use crate::stats::count_f64_u64;
+use crate::stats::{count_f64_u64, median_sorted};
 
-use super::metrics::{format_opt_bps, is_positive_finite, median};
+use super::metrics::{format_opt_bps, is_positive_finite};
 
 /// Число сессий, нужное профилю, чтобы набрать `CONFIRM_MIN_N` (100)
 /// наблюдений при измеренной ставке (история 41, `PLAN.md` §2.4): `ceil(n_min
@@ -51,7 +51,7 @@ pub fn g0_verdict(
 ) -> String {
     let mut sorted = levels_per_hour_by_instrument.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let med = median(&sorted);
+    let med = median_sorted(&sorted);
     let rate_pass = med.is_some_and(|m| m >= count_f64_u64(G0_MIN_PULLED));
     let edge_pass = pooled_net_mean_bps.is_some_and(|net| net >= 0.0);
     if !rate_pass {

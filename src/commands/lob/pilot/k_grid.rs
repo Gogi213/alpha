@@ -10,9 +10,9 @@ use crate::commands::lob::{
     median_trade_lots_for_symbol, replay_symbol_over_configs, G0_MIN_PULLED,
 };
 use crate::lob::levels::{H3Mode, LevelsConfig, Outcome};
-use crate::stats::{count_f64, count_f64_u64};
+use crate::stats::{count_f64, count_f64_u64, median_sorted};
 
-use super::metrics::{counted_tail_cutoff_ms, median};
+use super::metrics::counted_tail_cutoff_ms;
 
 // ---------------------------------------------------------------------------
 // Сетка `k` (таск 18, `SETTLED.md` В-30, `manifest.md` D05): владелец на
@@ -169,8 +169,8 @@ pub fn summarize_k_grid(
                 .collect();
             rates.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             eatens.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let median_rate = median(&rates).unwrap_or(0.0);
-            let median_eaten = median(&eatens).unwrap_or(0.0);
+            let median_rate = median_sorted(&rates).unwrap_or(0.0);
+            let median_eaten = median_sorted(&eatens).unwrap_or(0.0);
             KGridSummaryRow {
                 k: K_GRID[i],
                 median_rate_per_hour: median_rate,
