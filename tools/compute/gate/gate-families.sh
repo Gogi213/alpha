@@ -16,11 +16,11 @@
 set -uo pipefail
 ALLF=base,r2,dl,tk115,tk115j,tk115w,tk115e
 if [ "${1:-}" = --selftest ]; then SELF=1; NEW=""; FAMS=${2:-$ALLF}; else SELF=0; NEW=${1:?новый бинарник (путь)}; FAMS=${2:-$ALLF}; fi
-T=/data/tk164; G=${GATE_DIR:-$T/gate}; BIN=/opt/alpha-compute/bin; mkdir -p "$G" "$T/wrap"; rm -f "$G/gate.done" "$G/summary.txt"
+T=${GATE_T:-/data/tk164}; G=${GATE_DIR:-$T/gate}; BIN=/opt/alpha-compute/bin; mkdir -p "$G" "$T/wrap"; rm -f "$G/gate.done" "$G/summary.txt"
 # семья: опорный (в $BIN или путь) | месяц | сутки | скрипт суток | клетки (для счёта got/exp, пусто — только files>0)
 fam_conf() {
   case $1 in
-    base)  REF=${REF_OVERRIDE:-$BIN/alpha-b14flag};            MON=jan; DAY=2026-01-01,2026-01-15; SCR=jall; CELLS=$T/cells-241.txt
+    base)  REF=${REF_OVERRIDE:-$BIN/alpha-b14flag};            MON=jan; DAY=2026-01-01,2026-01-15; SCR=jall; CELLS=/data/tk164/cells-241.txt
            [ $SELF = 1 ] && DAY=2026-01-01;;  # самопроверка: путь jall один раз, не 2×2 прогона по 241 клетке
     r2)    REF=$BIN/alpha-b15pyr4pgoflag;     MON=mar; DAY=2026-03-07; SCR=/data/tk065/days/r2-2026-03-07.sh;  CELLS=/data/tk065/days/r2-2026-03-07.cells;;
     dl)    REF=$BIN/alpha-tk084-dl;           MON=mar; DAY=2026-03-07; SCR=/data/tk084/days/p12-2026-03-07.sh; CELLS=/data/tk084/days/p12-2026-03-07.cells;;
@@ -72,7 +72,7 @@ cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0
   la=$(cd "$1" && find . -type f ! -path '*/.cellstmp*' ! -name '*.log' | sort); lb=$(cd "$2" && find . -type f ! -path '*/.cellstmp*' ! -name '*.log' | sort)
   [ "$la" = "$lb" ] || { bad=$((bad+1)); echo "LISTDIFF"; }
   for f in $la; do n=$((n+1)); cmpf "$1" "$2" "$f" && continue
-    case $f in *.csv) [ -n "$AREF" ] && afile "$2" "$1" "$f" && { echo "A-ok $f"; continue; };; esac
+    case $f in *.csv) [ -n "${AREF:-}" ] && afile "$2" "$1" "$f" && { echo "A-ok $f"; continue; };; esac
     bad=$((bad+1)); echo "DIFF $f"; done
   echo "files=$n diff=$bad"; [ "$n" -gt 0 ] && [ "$bad" = 0 ]
 }
