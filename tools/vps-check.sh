@@ -13,7 +13,10 @@ KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Ге�
 HOST=root@13.140.29.171
 TAG="${VPS_TAG:-}"   # непустой тег — свой каталог исходников и target: параллельные вызовы не затирают друг друга
 SRC=/opt/alpha-compute/wave2-src$TAG
-TGT=/opt/alpha-compute/target-wave2$TAG-$$   # TK-075: target живёт одну сборку, sweep.sh run удаляет его после
+# TK-169: общий постоянный target (сборки идут по очереди под замком — гонки нет): зависимости из реестра не
+# пересобираются; свои крейты cargo пересобирает по mtime (SRC разных тегов — разные пути). Чистит его sweep.sh run
+# при свободном месте < порога (SWEEP_SHARED_FLOOR_GB), иначе живёт
+TGT=/opt/alpha-compute/shared-target
 ARCR=/opt/alpha-compute/wave2$TAG.tgz
 TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD")"
 ARC="$TMPD/wave2-$$.tgz"
