@@ -152,7 +152,7 @@ mod sessions;
 mod table;
 
 pub use accumulate::{FillModel, NoFillModel};
-pub(crate) use axes::{distance_bucket, lifetime_bucket, size_bucket};
+pub(crate) use axes::size_bucket;
 pub(crate) use coverage::read_pool_symbols;
 pub(crate) use sessions::{read_verify_marker, session_dirs};
 pub(crate) use table::format_window_line;
