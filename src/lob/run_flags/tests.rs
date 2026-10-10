@@ -42,7 +42,7 @@ fn numbers_event_steps_and_paths() {
         ("ALPHA_SIG_CACHE", "64"),
         ("ALPHA_EVENT_STEPS", "1"),
     ]));
-    assert_eq!((g.sig_cache, g.event_steps), (Some(64), EventSteps::All));
+    assert_eq!((g.sig_cache, g.event_steps), (Some(64), EventSteps::Off));
 }
 
 #[test]

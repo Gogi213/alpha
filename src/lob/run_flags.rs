@@ -6,20 +6,17 @@
 
 use std::ffi::OsString;
 
-/// Уровень событийных шагов (`ALPHA_EVENT_STEPS`): `1` — при живых заявках, `entry` — только ожидание входа.
+/// Уровень событийных шагов (`ALPHA_EVENT_STEPS`): `entry` — только ожидание входа.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EventSteps {
     #[default]
     Off,
-    All,
     Entry,
 }
 
 /// Снимок флагов `ALPHA_*`. Поля `bool` под «`=1`» — включены только значением `1`; под «задан» — любым значением.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunFlags {
-    /// `ALPHA_DIRECT_FEED=1`.
-    pub direct_feed: bool,
     /// `ALPHA_SIG_CACHE=<n>`: ёмкость кэша сигналов, `n > 0`.
     pub sig_cache: Option<usize>,
     /// `ALPHA_ATTEMPT_STATS` задан.
@@ -38,7 +35,7 @@ pub struct RunFlags {
     pub fast_hold: bool,
     /// `ALPHA_SKIP_SAME=1`.
     pub skip_same: bool,
-    /// `ALPHA_EVENT_STEPS=1|entry`.
+    /// `ALPHA_EVENT_STEPS=entry`.
     pub event_steps: EventSteps,
     /// `ALPHA_R2_TRACE` задан.
     pub r2_trace: bool,
@@ -90,7 +87,6 @@ impl RunFlags {
         let one = |n: &str| get(n) == Some("1");
         let num = |n: &str| get(n).and_then(|v| v.parse::<i64>().ok());
         Self {
-            direct_feed: one("ALPHA_DIRECT_FEED"),
             sig_cache: num("ALPHA_SIG_CACHE")
                 .and_then(|n| usize::try_from(n).ok())
                 .filter(|&n| n > 0),
@@ -103,7 +99,6 @@ impl RunFlags {
             fast_hold: one("ALPHA_FAST_HOLD"),
             skip_same: one("ALPHA_SKIP_SAME"),
             event_steps: match get("ALPHA_EVENT_STEPS") {
-                Some("1") => EventSteps::All,
                 Some("entry") => EventSteps::Entry,
                 _ => EventSteps::Off,
             },

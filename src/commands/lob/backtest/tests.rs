@@ -1837,7 +1837,7 @@ fn read_day_schedule_none_for_v3_some_for_v4_and_fails_closed() {
     assert!(read_day_schedule(&[v4], 2_000_000, 1_000_000).is_err());
 }
 
-/// Прямой путь `ReplayFeed::drive_raw` (`ALPHA_DIRECT_FEED`) даёт те же компактные события в том же
+/// Прямой путь `ReplayFeed::drive_raw` даёт те же компактные события в том же
 /// порядке, что `translate_feed_until` через `next_event`: снапшоты, дельты, сделки, группы через
 /// границу кадра, потолок времени.
 #[test]
@@ -1898,10 +1898,10 @@ fn direct_replay_path_matches_feed_translation() {
     for until in [None, Some(local / 2), Some(1_000_000_600), Some(i64::MAX)] {
         let mut old = Vec::new();
         let mut f = ReplayFeed::open(0, &buf[..]).unwrap();
-        let hit_old = super::feed::replay_compact_via_feed(&mut f, until, &mut old);
+        let hit_old = super::feed::translate_feed_until(&mut f, until, &mut |ev| old.push(ev));
         let mut new = Vec::new();
         let mut f = ReplayFeed::open(0, &buf[..]).unwrap();
-        let hit_new = super::feed::replay_compact_direct(&mut f, until, &mut new);
+        let hit_new = super::feed::replay_compact_into_until(&mut f, until, &mut new);
         assert!(!matches!(until, None | Some(i64::MAX)) || !old.is_empty());
         assert_eq!(hit_old, hit_new, "until {until:?}");
         assert_eq!(old, new, "until {until:?}");

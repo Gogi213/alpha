@@ -326,7 +326,7 @@ pub(crate) fn count_feed_events_until(feed: &mut dyn Feed, until_ns: i64) -> (us
 /// останавливается немедленно (`true`), не декодируя остаток файла: он не
 /// нужен звонящему (`day_events`/`carry_events`) и стоил бы памяти. `None` —
 /// прежнее поведение, весь `feed` до конца (`false`).
-fn translate_feed_until(
+pub(super) fn translate_feed_until(
     feed: &mut dyn Feed,
     until_ns: Option<i64>,
     sink: &mut impl FnMut(CompactEvent),
@@ -414,28 +414,9 @@ fn emit_trade(sink: &mut impl FnMut(CompactEvent), t: &Trade, local_ts_ns: i64) 
 }
 
 /// Сутки из `ReplayFeed` в компактные события напрямую (`ReplayFeed::drive_raw`), без `Event`,
-/// `Update` и очереди: тот же перевод (`emit_book`/`emit_trade`), те же события и порядок.
-/// `ALPHA_DIRECT_FEED=1` включает; без флага — прежний путь `translate_feed_until`.
+/// `Update` и очереди: тот же перевод (`emit_book`/`emit_trade`), те же события и порядок, что у
+/// `translate_feed_until` (оракул — тест `direct_replay_path_matches_feed_translation`).
 pub(crate) fn replay_compact_into_until<R: std::io::Read>(
-    feed: &mut ReplayFeed<R>,
-    until_ns: Option<i64>,
-    out: &mut Vec<CompactEvent>,
-) -> bool {
-    if std::env::var_os("ALPHA_DIRECT_FEED").is_none_or(|v| v != "1") {
-        return replay_compact_via_feed(feed, until_ns, out);
-    }
-    replay_compact_direct(feed, until_ns, out)
-}
-
-pub(super) fn replay_compact_via_feed(
-    feed: &mut dyn Feed,
-    until_ns: Option<i64>,
-    out: &mut Vec<CompactEvent>,
-) -> bool {
-    translate_feed_until(feed, until_ns, &mut |ev| out.push(ev))
-}
-
-pub(super) fn replay_compact_direct<R: std::io::Read>(
     feed: &mut ReplayFeed<R>,
     until_ns: Option<i64>,
     out: &mut Vec<CompactEvent>,
