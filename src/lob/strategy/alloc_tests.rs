@@ -4,6 +4,7 @@
 //! в этой зоне) не считаются: меряются вызовы, начатые и кончившиеся в одной фазе.
 use super::tests::{depth_at, seam6_backtest, trade_at};
 use super::*;
+use crate::lob::backtest::SIGMA_LONG;
 use hftbacktest::types::ElapseResult;
 
 /// События в каждой измеряемой фазе — не меньше (запрет 1: 10⁵ на фазу).
@@ -72,7 +73,12 @@ fn on_event_allocates_nothing_while_entry_pending_and_while_holding() {
     feed.push(trade_at(fill_at, true, 100.0, 2e9));
     feed.push(depth_at(fill_at, true, 100.0, 5.0));
     for k in 1..=n {
-        feed.push(depth_at(fill_at + k * STEP, true, 99.0, 5.0 + (k % 2) as f64));
+        feed.push(depth_at(
+            fill_at + k * STEP,
+            true,
+            99.0,
+            5.0 + (k % 2) as f64,
+        ));
     }
 
     let mut hbt = seam6_backtest(&feed);
@@ -110,6 +116,9 @@ fn on_event_allocates_nothing_while_entry_pending_and_while_holding() {
         "Holding измерен на {} вызовах < {PER_PHASE}",
         calls[1]
     );
-    assert_eq!(allocs[0], 0, "EntryPending аллоцировал — запрет 1 interfaces.md");
+    assert_eq!(
+        allocs[0], 0,
+        "EntryPending аллоцировал — запрет 1 interfaces.md"
+    );
     assert_eq!(allocs[1], 0, "Holding аллоцировал — запрет 1 interfaces.md");
 }
