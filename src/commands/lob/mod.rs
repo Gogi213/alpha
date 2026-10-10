@@ -56,10 +56,8 @@ pub mod binlog_stats;
 pub mod bounce_grid;
 pub mod bounce_verdict;
 pub mod clock;
-pub mod dashboard;
 pub mod event_cache_probe;
 pub mod fee_rate;
-pub mod fill_capacity;
 pub mod gaps;
 mod h3;
 pub mod import_archive;
@@ -78,7 +76,6 @@ mod record;
 mod replay;
 pub mod session;
 pub mod shortlist;
-pub mod touch_profiles;
 pub mod touches;
 pub mod trades;
 pub mod validate;
@@ -90,7 +87,6 @@ pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
-pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
 pub use validate::{run_validate, ValidateArgs};
@@ -142,7 +138,6 @@ pub(crate) fn write_atomic(
 
 pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
-pub use dashboard::{run_dashboard, DashboardArgs};
 pub use fee_rate::{run_fee_rate, FeeRateArgs};
 pub use latency::{run_latency, LatencyArgs};
 pub use levels::{run_levels, LevelsArgs};
@@ -155,7 +150,6 @@ pub use profiles::{run_profiles, ProfilesArgs};
 pub use react::{run_react, ReactArgs};
 pub use session::{run_session, SessionArgs};
 pub use shortlist::{run_shortlist, ShortlistArgs};
-pub use touch_profiles::{run_touch_profiles, TouchProfilesArgs};
 pub use touches::{run_touches, TouchesArgs};
 pub use trades::{run_trades, TradesArgs};
 pub use watch::{run_watch, WatchArgs};
@@ -251,18 +245,10 @@ pub enum LobCommand {
     // напрямую, тот же приём, что рекомендует сам клиппи).
     BounceGrid(Box<BounceGridArgs>),
     BounceVerdict(BounceVerdictArgs),
-    /// Ёмкость исполнения входа у стены без движка (S10 шаг 1): очередь и
-    /// наторговано по тикам полосы перед стеной на касание →
-    /// `<out-dir>/<набор>/capacity-<SYMBOL>.csv`.
-    FillCapacity(FillCapacityArgs),
     /// Шорт-лист на разведочной, заморозка коммитом, подтверждение на
     /// невиденных данных — третий из трёх артефактов задачи (таск 12,
     /// история 24–28, 42).
     Shortlist(ShortlistArgs),
-    /// Страница проекта на localhost: что пишет коллектор, что уже насчитано
-    /// по накопленному и где мы по гейтам (таск 32, R87). Только чтение
-    /// каталога записи; `index.html` и `data.json` — в `--out`.
-    Dashboard(DashboardArgs),
     /// Касания живых уровней с признаками практиков — `touches-<SYMBOL>.csv`
     /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
     /// markout «в сторону отскока», подход, фронтран, круглость, завал.
@@ -273,11 +259,6 @@ pub enum LobCommand {
     /// но без книги и без трекера — сырая строка на сделку (сторона
     /// агрессора, тик и $ цены, лоты, `block`/`rpi`).
     Trades(TradesArgs),
-    /// Таблица профилей касаний `docs/findings/touch-profiles-<дата>.csv`
-    /// (таск 37, В-44): маргиналы девяти осей касания плюс крест исход ×
-    /// возраст, по инструменту и по пулу, `m` «в сторону отскока» с
-    /// интервалом по суткам; число испытаний — в `runs.csv`.
-    TouchProfiles(TouchProfilesArgs),
     /// Что лежит в бинлоге и за что платятся байты (владелец 2026-09-13:
     /// «оптимизировать коллектор сильно — формат файлов, формат записи, тип
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
@@ -442,18 +423,6 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        LobCommand::TouchProfiles(args) => {
-            let summary = run_touch_profiles(&args)?;
-            println!(
-                "touch-profiles: rows={} touches={} trials={} debug={} out={}",
-                summary.rows,
-                summary.touches,
-                summary.trials,
-                summary.debug,
-                summary.out.display()
-            );
-            Ok(())
-        }
         LobCommand::ImportArchive(args) => {
             let s = run_import_archive(&args)?;
             println!(
@@ -560,22 +529,6 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        LobCommand::Dashboard(args) => {
-            let summary = run_dashboard(&args)?;
-            println!(
-                "dashboard: coins={} alive={} html={} json={}",
-                summary.coins,
-                match summary.alive {
-                    Some(true) => "yes",
-                    Some(false) => "no",
-                    None => "unknown",
-                },
-                summary.html.display(),
-                summary.json.display()
-            );
-            println!("dashboard: {}", summary.alive_reason);
-            Ok(())
-        }
         LobCommand::React(args) => {
             let report = run_react(&args)?;
             println!("{}", react::format_report(&report));
@@ -623,21 +576,6 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                     s.n_no_sigma, s.n_sigma_signals
                 );
             }
-            Ok(())
-        }
-        LobCommand::FillCapacity(args) => {
-            let s = run_fill_capacity(&args)?;
-            println!(
-                "fill-capacity: символов {} (без маркера {}, без кэша {}, без касаний {}) · символ-суток {} · касаний {} · строк {} · {}",
-                s.symbols_done,
-                s.symbols_skipped_unverified,
-                s.symbols_without_cache,
-                s.symbols_without_touches,
-                s.symbol_days,
-                s.touches,
-                s.rows,
-                s.out_dir.display()
-            );
             Ok(())
         }
         LobCommand::BounceVerdict(args) => {

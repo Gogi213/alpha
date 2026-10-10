@@ -426,22 +426,13 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::BounceVerdict(_) => {
             panic!("разобралась не та подкоманда")
         }
-        crate::commands::lob::LobCommand::FillCapacity(_) => {
-            panic!("разобралась не та подкоманда")
-        }
         crate::commands::lob::LobCommand::Shortlist(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::Dashboard(_) => {
             panic!("разобралась не та подкоманда")
         }
         crate::commands::lob::LobCommand::Touches(_) => {
             panic!("разобралась не та подкоманда")
         }
         crate::commands::lob::LobCommand::Trades(_) => {
-            panic!("разобралась не та подкоманда")
-        }
-        crate::commands::lob::LobCommand::TouchProfiles(_) => {
             panic!("разобралась не та подкоманда")
         }
         crate::commands::lob::LobCommand::BinlogStats(_) => {

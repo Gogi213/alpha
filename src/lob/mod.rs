@@ -7,7 +7,6 @@
 //! очереди крейта в бэктесте и живой торговле (A7 — одна логика на все режимы).
 
 pub mod backtest;
-pub mod capacity;
 pub mod cells;
 pub mod costs;
 pub mod diag;
