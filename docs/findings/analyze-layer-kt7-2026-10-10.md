@@ -24,4 +24,4 @@ tk114-{report2,testB,tier1-select,tier2-select} прогнаны до (`e9a3a94e
 
 ## Срез 3 (возврат Судьи 14:40)
 Разборщики TK-120 перенесены `git mv` в `tools/analyze/`, подкоманды `b1keys`, `thresholds`, `e106-loss`. Тело файлов побайтно равно `e9a3a94e` (md5: thresholds fcd57557, b1keys 639ff4fe, e106-loss 6e8c7206 — до = после), ни `__file__`, ни `sys.path`, ни соседних импортов — выход определяется только входом, расположение не влияет. Данные (`data/tk063`, `/data/tk064`, `/data/tk0115`) только на calc; сверку выходов на calc делает Судья тем же гейтом (`/data/j146`).
-`tools/compute/tk135-gate.sh` возвращён к тексту `e9a3a94e` и перенесён в `tools/compute/archive/` (закрытый гейт TK-135; его old/-дерево — до КТ-7).
+`tools/compute/archive/tk135-gate.sh` возвращён к тексту `e9a3a94e` и перенесён в `tools/compute/archive/` (закрытый гейт TK-135; его old/-дерево — до КТ-7).
