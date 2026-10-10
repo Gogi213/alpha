@@ -476,12 +476,18 @@ pub(super) fn still_at_level_tells_adjacent_ticks_apart_for_tick_multiples() {
             let level = px(k);
             for side in [HbtSide::Buy, HbtSide::Sell] {
                 let at = |n: i64| {
-                    let (bid, ask) = if side == HbtSide::Buy {
-                        (px(n), px(n + 1))
+                    let (bid_tick, ask_tick) = if side == HbtSide::Buy {
+                        (n, n + 1)
                     } else {
-                        (px(n - 1), px(n))
+                        (n - 1, n)
                     };
-                    still_at_level(side, bid, ask, level, tick)
+                    let q = Quotes {
+                        bid_tick,
+                        ask_tick,
+                        step: tick,
+                        entry_side: side,
+                    };
+                    still_at_level(q, level, tick)
                 };
                 assert!(at(k), "свой тик не узнан: шаг {tick}, k {k}, {side:?}");
                 assert!(!at(k + 1), "тик выше принят: шаг {tick}, k {k}, {side:?}");

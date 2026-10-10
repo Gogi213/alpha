@@ -248,7 +248,18 @@ pub(super) struct GoneGuard {
 /// Лучшие цены и сторона входа — то, от чего решается выход.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Quotes {
-    pub(super) bid: f64,
-    pub(super) ask: f64,
+    pub(super) bid_tick: i64,
+    pub(super) ask_tick: i64,
+    /// Шаг цены стакана: перевод тика в `f64`-цену только через него (`tick_to_px`).
+    pub(super) step: f64,
     pub(super) entry_side: HbtSide,
+}
+
+impl Quotes {
+    pub(super) fn bid(&self) -> f64 {
+        tick_to_px(self.bid_tick, self.step)
+    }
+    pub(super) fn ask(&self) -> f64 {
+        tick_to_px(self.ask_tick, self.step)
+    }
 }

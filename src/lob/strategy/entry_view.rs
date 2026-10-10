@@ -21,13 +21,6 @@ pub(super) fn best_ticks<MD: MarketDepth>(depth: &MD) -> Option<(i64, i64)> {
     Some((bid, ask))
 }
 
-/// Лучшие цены стороны как `(bid, ask)` в `f64` — `best_ticks` через `tick_to_px`.
-pub(super) fn best_prices<MD: MarketDepth>(depth: &MD) -> Option<(f64, f64)> {
-    let (bid, ask) = best_ticks(depth)?;
-    let tick_px = depth.tick_size();
-    Some((tick_to_px(bid, tick_px), tick_to_px(ask, tick_px)))
-}
-
 /// Снимок ног входа по ордерам крейта (F4, В-78): накопленное исполненное
 /// (`qty − leaves_qty`; у крейта `exec_qty` — объём **последнего** исполнения,
 /// а не сумма), стоимость исполненного (`executed_notional` — по всем
@@ -112,24 +105,17 @@ pub(super) fn level_shift(entry_vwap: Option<f64>, entry_px: f64, tick_px: f64) 
 
 /// Стоит ли лучшая цена стороны **на уровне касания** (B4, В-58 п. 5):
 /// «касание не кончилось» — цена не ушла ни в отскок, ни сквозь уровень.
-/// Сравнение с точностью половины тика: цены собираются умножением целых тиков
-/// на шаг, и равенство `f64` здесь было бы проверкой арифметики, а не рынка.
+/// Сравнение целыми тиками (С-11): тик стороны равен тику уровня, допуска нет.
 /// Уровень берётся со стороны входа: у лонга (бид-уровень) это лучший бид, у
 /// шорта — лучший аск. Выключенный или неполный план (`tick_px = 0`) не даёт
 /// «прилипания»: считать его на неизвестном шаге — выдумывать признак.
-pub(super) fn still_at_level(
-    entry_side: HbtSide,
-    bid: f64,
-    ask: f64,
-    level_px: f64,
-    tick_px: f64,
-) -> bool {
+pub(super) fn still_at_level(quotes: Quotes, level_px: f64, tick_px: f64) -> bool {
     if tick_px <= 0.0 || level_px <= 0.0 {
         return false;
     }
-    let side_px = match entry_side {
-        HbtSide::Buy => bid,
-        _ => ask,
+    let side_tick = match quotes.entry_side {
+        HbtSide::Buy => quotes.bid_tick,
+        _ => quotes.ask_tick,
     };
-    (side_px - level_px).abs() < tick_px * 0.5
+    side_tick == px_tick(level_px, tick_px)
 }

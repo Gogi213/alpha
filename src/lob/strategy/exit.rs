@@ -66,11 +66,7 @@ where
     MD: MarketDepth,
     B: Bot<MD>,
 {
-    let Quotes {
-        bid,
-        ask,
-        entry_side,
-    } = quotes;
+    let (bid, ask, entry_side) = (quotes.bid(), quotes.ask(), quotes.entry_side);
     let (at, reason, frac) = match state.plan {
         TradePlan::SpreadHold => {
             if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {
@@ -344,7 +340,7 @@ where
                 (ExitAt::Taker(favourable), ExitReason::WallGone, 1.0)
             } else if early_exit_ns > 0
                 && now.saturating_sub(entry_ns) >= early_exit_ns
-                && still_at_level(entry_side, bid, ask, level_px, tick_px)
+                && still_at_level(quotes, level_px, tick_px)
             {
                 // Досрочный выход (B4, В-58 п. 5): «прилипание» —
                 // касание длится дольше `X` секунд, а уровень так и

@@ -254,7 +254,7 @@ pub(super) fn on_event_allocates_nothing_per_call_while_the_book_is_not_ready() 
     // Фид без единого обновления книги (только сделка — крейт не даёт
     // построить `Backtest` на буквально пустом фиде): `depth()` остаётся
     // `INVALID_MIN`/`INVALID_MAX` на всех вызовах, `on_event` доходит до
-    // `best_prices`, видит неполную книгу и уходит в `Idle`, не трогая
+    // `best_ticks`, видит неполную книгу и уходит в `Idle`, не трогая
     // `submit_*`/`cancel`.
     let mut hbt = seam6_backtest(&[trade_at(0, true, 100.0, 1.0)]);
     let mut state = StrategyState::new(0, SIGMA_LONG, 1.0, 1);

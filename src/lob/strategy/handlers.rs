@@ -30,7 +30,7 @@ where
     MD: MarketDepth,
     B: Bot<MD>,
 {
-    let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
+    let Some((bid_tick, ask_tick)) = best_ticks(bot.depth(state.asset_no)) else {
         // Без книги выйти нельзя — круг остаётся Holding к следующему
         // событию, а не теряется молча.
         return Ok(Action::Idle);
@@ -45,8 +45,9 @@ where
     // Что и в каком порядке решает выход — `decide_exit`; как
     // подаётся заявка — `submit_exit`.
     let quotes = Quotes {
-        bid,
-        ask,
+        bid_tick,
+        ask_tick,
+        step: bot.depth(state.asset_no).tick_size(),
         entry_side,
     };
     // R2 (TK-065): четыре вызова `pyramid_*` на каждом событии удержания при выключенной доливке — только
@@ -65,8 +66,8 @@ where
         }
         None => {
             if pyr {
-                state.pyramid_step(bot, bid, ask, entry_side)?;
-                state.pyramid_reinstall_step(bot, bid, ask, entry_side)?;
+                state.pyramid_step(bot, quotes.bid(), quotes.ask(), entry_side)?;
+                state.pyramid_reinstall_step(bot, quotes.bid(), quotes.ask(), entry_side)?;
             }
             Ok(Action::Idle)
         }
@@ -133,15 +134,16 @@ where
     // отмены остаток закрывается тейкером через `Holding` (условие
     // стопа/дедлайна держится и на следующем событии).
     if resting_maker {
-        let (Some((bid, ask)), Some(entry_side)) = (
-            best_prices(bot.depth(state.asset_no)),
+        let (Some((bid_tick, ask_tick)), Some(entry_side)) = (
+            best_ticks(bot.depth(state.asset_no)),
             entry_side(state.sigma),
         ) else {
             return Ok(Action::Idle);
         };
         let quotes = Quotes {
-            bid,
-            ask,
+            bid_tick,
+            ask_tick,
+            step: bot.depth(state.asset_no).tick_size(),
             entry_side,
         };
         if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
