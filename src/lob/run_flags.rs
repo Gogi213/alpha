@@ -42,16 +42,10 @@ pub struct RunFlags {
     pub event_steps: EventSteps,
     /// `ALPHA_R2_TRACE` задан.
     pub r2_trace: bool,
-    /// `ALPHA_APPROACH_BIN=1`.
-    pub approach_bin: bool,
     /// `ALPHA_APPROACH_BIN_DIR=<путь>`.
     pub approach_bin_dir: Option<OsString>,
     /// `ALPHA_APPROACH_BIN_LEVEL=<n>`: уровень zstd, пусто — умолчание места записи.
     pub approach_bin_level: Option<i32>,
-    /// `ALPHA_TOUCH_BIN=1`.
-    pub touch_bin: bool,
-    /// `ALPHA_TOUCH_BIN_LEVEL=<n>`.
-    pub touch_bin_level: Option<i32>,
     /// `ALPHA_E2E=<путь>`: файл учёта сквозной проверки.
     pub e2e: Option<OsString>,
     /// Все заданные `ALPHA_*` как есть, по имени — для снимка в манифест (в т.ч. не описанные полями).
@@ -108,11 +102,8 @@ impl RunFlags {
                 _ => EventSteps::Off,
             },
             r2_trace: set("ALPHA_R2_TRACE"),
-            approach_bin: one("ALPHA_APPROACH_BIN"),
             approach_bin_dir: get("ALPHA_APPROACH_BIN_DIR").map(OsString::from),
             approach_bin_level: num("ALPHA_APPROACH_BIN_LEVEL").and_then(|n| i32::try_from(n).ok()),
-            touch_bin: one("ALPHA_TOUCH_BIN"),
-            touch_bin_level: num("ALPHA_TOUCH_BIN_LEVEL").and_then(|n| i32::try_from(n).ok()),
             e2e: get("ALPHA_E2E").map(OsString::from),
             raw,
         }
