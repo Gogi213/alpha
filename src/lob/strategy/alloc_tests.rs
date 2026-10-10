@@ -118,3 +118,29 @@ fn on_event_allocates_nothing_while_entry_pending_and_while_holding() {
     let (calls, allocs) = measure_phases(&feed, names);
     assert_phases_clean(names, calls, allocs);
 }
+
+/// Лента: вход исполнен; бид доходит до тейка 110 и отступает раньше прихода заявки на биржу (+1,2 мс от
+/// шага стратегии: время бэктеста сдвинуто на 1 мс) — лимитка тейка встаёт в рынок и не исполняется (сделок
+/// нет): `ExitPending` держится `PER_PHASE + 5_000` событий. Вторая фаза — `Holding` до тейка. Ask = 120: бид
+/// 110 не пересекает книгу (иначе обновление не видно).
+#[test]
+fn on_event_allocates_nothing_while_exit_is_resting() {
+    let n = PER_PHASE as i64 + 5_000;
+    let mut feed = vec![
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 120.0, 5.0),
+        trade_at(5 * STEP, true, 100.0, 2e9),
+    ];
+    for k in 2..=n {
+        feed.push(depth_at(k * STEP, true, 99.0, 5.0 + (k % 2) as f64));
+    }
+    let touch = (n + 1) * STEP;
+    feed.push(depth_at(touch, true, 110.0, 5.0));
+    feed.push(depth_at(touch + 1_200_000, true, 110.0, 0.0));
+    for k in 1..=n {
+        feed.push(depth_at(touch + k * STEP, true, 99.0, 5.0 + (k % 2) as f64));
+    }
+    let names = ["Holding", "ExitPending"];
+    let (calls, allocs) = measure_phases(&feed, names);
+    assert_phases_clean(names, calls, allocs);
+}
