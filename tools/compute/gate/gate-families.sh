@@ -13,10 +13,28 @@
 # подпапке выхода И rc каждого прогона 0 (RUNFAIL/files=0/пустой выход = красный, не зелёный).
 # Каждая семья — отдельно: опорный и новый считают те же сутки в той же сессии. Новый бинарь запускается с тем же env, что опорный
 # (обёртка по образцу опорной: b14flag, b15pyr4pgoflag); у семей с сырым опорным (tk084-dl, tk115f) — без env.
+# TK-172 (В-213): выходы ОПОРНОГО считаются один раз и кладутся в кэш $RC/<ключ> (ключ = md5 опорного бинаря (у скрипта-обёртки ещё
+# и бинаря, на который он exec) + сутки + md5 клеток и скрипта суток + env-флаги); следующие гейты сверяют new с кэшем
+# (прогон опорного пропускается, в выходе «ref кэш: попадание»). Пересчитать опорный заново — флаг --refresh-ref (в любом месте
+# аргументов) или REFRESH_REF=1. ABIN_SPLIT=1 кэш отключает (КТ-5 сверяет .abin опорного). Менялся входной корень данных или код
+# запуска опорного в этом скрипте — --refresh-ref. Изоляция: при GATE_TAG корни по умолчанию свои ($T/w-<тег>, $T/gate-<тег>).
 set -uo pipefail
+REFRESH=${REFRESH_REF:-}; ARGS=(); for a in "$@"; do if [ "$a" = --refresh-ref ]; then REFRESH=1; else ARGS+=("$a"); fi; done
+set -- ${ARGS[@]+"${ARGS[@]}"}
 ALLF=base,r2,dl,tk115,tk115j,tk115w,tk115e
 if [ "${1:-}" = --selftest ]; then SELF=1; NEW=""; FAMS=${2:-$ALLF}; else SELF=0; NEW=${1:?новый бинарник (путь)}; FAMS=${2:-$ALLF}; fi
-T=/data/tk164; GW=${GATE_W:-$T}; TAG=${GATE_TAG:-164}; G=${GATE_DIR:-$T/gate}; BIN=/opt/alpha-compute/bin; mkdir -p "$G" "$T/wrap" "$GW"; rm -f "$G/gate.done" "$G/summary.txt"
+T=/data/tk164; TAG=${GATE_TAG:-164}; if [ -n "${GATE_TAG:-}" ]; then GW=${GATE_W:-$T/w-$TAG}; G=${GATE_DIR:-$T/gate-$TAG}; else GW=${GATE_W:-$T}; G=${GATE_DIR:-$T/gate}; fi
+BIN=/opt/alpha-compute/bin; RC=${REF_CACHE:-$T/refcache}; mkdir -p "$G" "$T/wrap" "$GW" "$RC"; rm -f "$G/gate.done" "$G/summary.txt"
+rc_on() { [ -z "$REFRESH" ] && [ -z "${ABIN_SPLIT:-}" ]; }
+rc_md5() { local f; f=$(readlink -f "$1"); md5sum "$f" | cut -c1-32; if [ "$(head -c2 "$f")" = '#!' ]; then md5sum "$(readlink -f "$(grep -E '^exec ' "$f" | tail -1 | awk '{print $2}')")" 2>/dev/null | cut -c1-32; fi; }
+rc_key() { { for x in "$@"; do if [ -f "$x" ]; then md5sum < "$x"; else echo "$x"; fi; done; echo "${ALPHA_APPROACH_BIN_DIR:-}"; } | md5sum | cut -c1-32; }  # файлы — по содержимому, остальное — как строка
+rc_hit() { rc_on && [ -e "$RC/$1/.ok" ]; }  # $1 ключ
+rc_put() {  # $1 ключ; остальные: пары «каталог-в-кэше|путь» — каталог УХОДИТ в кэш (mv), на его месте ссылка; при гонке остаётся первый
+  local k=$1 t="$RC/.tmp-$1-$$" p; shift; [ -z "${ABIN_SPLIT:-}" ] || return 0; rm -rf "$t"; mkdir -p "$t"
+  for p in "$@"; do mv "${p#*|}" "$t/${p%%|*}"; done
+  if [ -e "$RC/$k/.ok" ]; then rm -rf "$RC/$k"; fi; touch "$t/.ok"; mv "$t" "$RC/$k"
+  for p in "$@"; do ln -s "$RC/$k/${p%%|*}" "${p#*|}"; done
+}
 # семья: опорный (в $BIN или путь) | месяц | сутки | скрипт суток | клетки (для счёта got/exp, пусто — только files>0)
 fam_conf() {
   case $1 in
@@ -122,13 +140,22 @@ fam_ext() {  # $1 tk115j|tk115w: ref и new в одной сессии, свер
   local f=$1 rc=0 nb s; fam_conf "$f"; nb=$NEW; [ $SELF = 1 ] && nb=$REF
   nb=$(readlink -f "$nb")
   if [ "$f" = tk115j ]; then
-    tk115j_run ref "$REF" || rc=1; tk115j_run new "$nb" || rc=1
+    local k O=/data/tk0115/delta/g${TAG}-ref; k=$(rc_key "$(rc_md5 "$REF")" tk115j mar 2026-03-07 /data/tk0115/tk115-delta-day.sh)
+    if rc_hit "$k"; then echo "ref кэш: попадание tk115j ($k)"; rm -rf "$O"; mkdir -p "$O"; for s in signals e106 walls; do ln -s "$RC/$k/$s" "$O/$s"; done
+    else tk115j_run ref "$REF" && rc_put "$k" "signals|$O/signals" "e106|$O/e106" "walls|$O/walls" || rc=1; fi
+    tk115j_run new "$nb" || rc=1
     for s in signals e106 walls; do cmpdirs /data/tk0115/delta/g${TAG}-ref/$s /data/tk0115/delta/g${TAG}-new/$s || rc=1; done
   elif [ "$f" = tk115e ]; then
-    tk115e_run ref "$REF" || rc=1; tk115e_run new "$nb" || rc=1
+    local k; k=$(rc_key "$(rc_md5 "$REF")" tk115e e65 mar 2026-03-07)
+    if rc_hit "$k"; then echo "ref кэш: попадание tk115e ($k)"; rm -rf "$GW/xe-ref"; mkdir -p "$GW/xe-ref"; ln -s "$RC/$k/out" "$GW/xe-ref/out"
+    else tk115e_run ref "$REF" && rc_put "$k" "out|$GW/xe-ref/out" || rc=1; fi
+    tk115e_run new "$nb" || rc=1
     cmpdirs "$GW/xe-ref/out" "$GW/xe-new/out" || rc=1
   else
-    tk115w_run ref "$REF" || rc=1; tk115w_run new "$nb" || rc=1
+    local k; k=$(rc_key "$(rc_md5 "$REF")" tk115w mar 2026-03-07 "$WFORMS")
+    if rc_hit "$k"; then echo "ref кэш: попадание tk115w ($k)"; rm -rf "$GW/xw-ref"; mkdir -p "$GW/xw-ref"; ln -s "$RC/$k/out" "$GW/xw-ref/out"
+    else tk115w_run ref "$REF" && rc_put "$k" "out|$GW/xw-ref/out" || rc=1; fi
+    tk115w_run new "$nb" || rc=1
     cmpdirs "$GW/xw-ref/out" "$GW/xw-new/out" || rc=1
   fi
   echo "family=$f rc=$rc"; return $rc
@@ -139,7 +166,9 @@ fam_one() {  # $1 семья
   fam_conf "$f"; nb=$NEW; [ $SELF = 1 ] && nb=$REF
   w=$(mkwrap "$REF" "$nb")
   for d in ${DAY//,/ }; do
-    run_day "$f-ref-$d" "$(mkwrap "$REF" "$REF")" "$MON" "$d" "$SCR" "$CELLS" || rc=1
+    local k S=$GW/w-$f-ref-$d; k=$(rc_key "$(rc_md5 "$REF")" "$f" "$MON" "$d" "$CELLS" "$SCR" "$([ "$SCR" = jall ] && echo "/data/tk046/$MON/home/alpha/tmp-p07/cells-by-day/jall-jan-$d.sh")")
+    if rc_hit "$k"; then echo "ref кэш: попадание $f $d ($k)"; rm -rf "$S"; mkdir -p "$S"; ln -s "$RC/$k/b5" "$S/b5"
+    else run_day "$f-ref-$d" "$(mkwrap "$REF" "$REF")" "$MON" "$d" "$SCR" "$CELLS" && rc_put "$k" "b5|$S/b5" || rc=1; fi
     run_day "$f-new-$d" "$w" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     AREF=; [ "$f" = r2 ] && AREF=/data/tk065/wa-$d/b5/r2a
     if [ "$f" = base ]; then  # jall: выход суток остаётся в b5/.cellstmp-<сутки> (отделка суток не выполняется) — сверяем его
