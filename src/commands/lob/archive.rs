@@ -280,7 +280,7 @@ pub fn run_archive(args: &ArchiveArgs) -> anyhow::Result<ArchiveSummary> {
     if args.delete_original {
         let dir = src.parent().unwrap_or_else(|| Path::new("."));
         let path = super::verify::marker_path(dir, &symbol);
-        if !super::profiles::read_verify_marker(&path) {
+        if !super::read_verify_marker(&path) {
             anyhow::bail!(
                 "оригинал не удалён: нет маркера `{}` со словом ok (fail-closed, R44) — \
                  сверьте сутки `lob verify --symbol {} --root {}` и повторите; \

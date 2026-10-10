@@ -18,7 +18,7 @@ use crate::lob::touch_axes::{
     age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
 };
 
-use crate::commands::lob::profiles::size_bucket;
+use crate::commands::lob::size_bucket;
 use crate::commands::lob::side_name;
 
 use super::forms::{

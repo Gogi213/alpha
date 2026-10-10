@@ -28,7 +28,7 @@ use crate::lob::backtest::{
 use crate::lob::levels::LevelRecord;
 use crate::lob::markout::MidSample;
 
-use crate::commands::lob::profiles::FillModel;
+use crate::commands::lob::FillModel;
 
 // ---------------------------------------------------------------------------
 // Бинлог: заголовок (тик/лот) и `ReplayFeed`.

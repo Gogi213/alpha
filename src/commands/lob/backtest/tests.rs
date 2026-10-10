@@ -4,7 +4,7 @@ use super::*;
 use crate::binlog::StepAt;
 use crate::book::{Side, Update};
 use crate::bybit::ws::Event as WsEvent;
-use crate::commands::lob::profiles::FillModel;
+use crate::commands::lob::FillModel;
 use crate::feed::{Event as FeedEvent, Feed};
 use crate::lob::backtest::{ExecLatency, SIGMA_SHORT};
 use crate::lob::levels::LevelRecord;

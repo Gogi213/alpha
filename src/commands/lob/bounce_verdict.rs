@@ -48,7 +48,7 @@ use crate::lob::runs::{self, BOUNCE_TRIAL_PREFIX};
 use crate::stats::{BOOTSTRAP_REPLICATIONS, GATE_ALPHA, G_MIN};
 
 use super::backtest::{EntryForm, EntryTtl, StopForm, TakeForm, SINGLE_ENTRY_LABEL};
-use super::shortlist::{select_best_mean_net, CPCV_SELECTION_RULE};
+use super::{select_best_mean_net, CPCV_SELECTION_RULE};
 
 /// Порог данных вердикта: суток с кругами у лучшей формы в **каждом** месяце
 /// сетки (месяц — `YYYY-MM` суток). Аудит Судьи 27.09 п. 11
