@@ -7,7 +7,7 @@
 # Семьи (опорный = тем, кем посчитаны числа, Летопись): base b14flag | r2 b15pyr4pgoflag | dl tk084-dl | tk115 (r3a) b26tk115r2 |
 # tk115j (signals/e106/walls, tk115-delta-day) tk115f | tk115w (chase<W>, tape/cxl, пороги v5 марта, --tape-log 30) tk115f |
 # tk115e (e65: wall2/wall2x, --driver setups, журнал стен touches --wall-log) tk115f.
-# КТ-5 (TK-150): ABIN_SPLIT=1 — у каждого прогона свой пустой кэш $T/abin-<метка> (сверка .abin: cmp -r abin-base-ref-* abin-base-new-*); REF_OVERRIDE=<опорный> — подмена опорного base.
+# КТ-5 (TK-150): ABIN_SPLIT=1 — у каждого прогона свой пустой кэш $GW/abin-<метка> (сверка .abin: cmp -r abin-base-ref-* abin-base-new-*); REF_OVERRIDE=<опорный> — подмена опорного base.
 # Семьи идут параллельно (каждая — своё дерево /data/tk164/*), summary.txt — строка на семью.
 # Итог: /data/tk164/gate/<семья>.txt, summary.txt (строка на семью: rc), маркер gate.done. Зелёный = rc 0 И files>0 в каждой
 # подпапке выхода И rc каждого прогона 0 (RUNFAIL/files=0/пустой выход = красный, не зелёный).
@@ -16,7 +16,7 @@
 set -uo pipefail
 ALLF=base,r2,dl,tk115,tk115j,tk115w,tk115e
 if [ "${1:-}" = --selftest ]; then SELF=1; NEW=""; FAMS=${2:-$ALLF}; else SELF=0; NEW=${1:?новый бинарник (путь)}; FAMS=${2:-$ALLF}; fi
-T=/data/tk164; G=${GATE_DIR:-$T/gate}; BIN=/opt/alpha-compute/bin; mkdir -p "$G" "$T/wrap"; rm -f "$G/gate.done" "$G/summary.txt"
+T=/data/tk164; GW=${GATE_W:-$T}; TAG=${GATE_TAG:-164}; G=${GATE_DIR:-$T/gate}; BIN=/opt/alpha-compute/bin; mkdir -p "$G" "$T/wrap" "$GW"; rm -f "$G/gate.done" "$G/summary.txt"
 # семья: опорный (в $BIN или путь) | месяц | сутки | скрипт суток | клетки (для счёта got/exp, пусто — только files>0)
 fam_conf() {
   case $1 in
@@ -32,8 +32,8 @@ mkwrap() {  # $1 опорный $2 новый → путь, который кл�
   local w=$T/wrap/$(basename "$1")-$(basename "$2")
   if [ "$(head -c2 "$1")" = '#!' ]; then sed "s#^exec .*#exec $(readlink -f "$2") \"\$@\"#" "$1" > "$w"; chmod +x "$w"; echo "$w"; else readlink -f "$2"; fi
 }
-run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сутки $5 скрипт суток $6 клетки → каталог $T/w-<метка>; rc 0 только при rc=0 и got==exp
-  local S=$T/w-$1 H=/data/tk046/$3/home x b rc exp got
+run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сутки $5 скрипт суток $6 клетки → каталог $GW/w-<метка>; rc 0 только при rc=0 и got==exp
+  local S=$GW/w-$1 H=/data/tk046/$3/home x b rc exp got
   local E=$H/alpha/epochs/e-$3
   rm -rf "$S"; mkdir -p "$S/b5" "$S/bin"; ln -s "$2" "$S/bin/alpha-tk044k1-new"
   for x in $E/* $E/.[!.]*; do b=$(basename "$x"); case $b in b5|b5-solo|b5-ref|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$x" "$S/$b"; done
@@ -43,7 +43,7 @@ run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сут�
   else  # готовый скрипт суток: клетки/каталоги внутри него — как в боевом счёте; пишет в b5/ рабочего каталога $S
     cp "$5" "$S/day.sh"; sed -i "s#--cells [^ ]*#--cells $S/cells.txt#; s#> b5/\.cellstmp-\([^ ]*\)\.log#> b5/.cellstmp-\1.log#; s#^cp b5/\.cellstmp[^ ]*\.log /data/[^ ]*#:#" "$S/day.sh"
   fi
-  ( export HOME=$H ALPHA_SKIP_SAME=1 ALPHA_APPROACH_BIN_DIR=$([ -n "${ABIN_SPLIT:-}" ] && echo "$T/abin-$1" || echo "${ALPHA_APPROACH_BIN_DIR:-/data/tk048/abin-t46}"); cd "$S" && /usr/bin/time -f "%e %U %S %M" -o "$S/t.txt" bash "$S/day.sh" > "$S/run.out" 2> "$S/run.err" ); rc=$?
+  ( export HOME=$H ALPHA_SKIP_SAME=1 ALPHA_APPROACH_BIN_DIR=$([ -n "${ABIN_SPLIT:-}" ] && echo "$GW/abin-$1" || echo "${ALPHA_APPROACH_BIN_DIR:-/data/tk048/abin-t46}"); cd "$S" && /usr/bin/time -f "%e %U %S %M" -o "$S/t.txt" bash "$S/day.sh" > "$S/run.out" 2> "$S/run.err" ); rc=$?
   exp=$(awk 'NF{print $1}' "$6" | sort -u | grep -c .); got=$(find "$S/b5" -name 'forms.csv' 2>/dev/null | xargs -r cat | awk -F, -v d="$4" '$2==d{print $3}' | sort -u | grep -c .)
   local nr; nr=$(find "$S/b5" -name 'rounds*.csv' 2>/dev/null | wc -l)
   echo "run $1 rc=$rc cells_got=$got cells_exp=$exp rounds_files=$nr"
@@ -79,14 +79,14 @@ cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0
 # пороги v5 марта (docs/findings/p12-r2b-thresholds-2026-10-10.json): e112 tape30q, e116 cxl30q, e133 chase W=12080 мс ×0,5/1/2
 WFORMS="chase86400000 chase6040 chase12080 chase24160 tape30q0.014653226867454029 tape30q0.21387408589803297 cxl30q1.5778084895559001 cxl30q15.839990627236537"
 tk115j_run() {  # $1 метка ref|new $2 бинарь: tk115-delta-day (signals/e106/walls), красный при fail.txt/нет done/пустых подпапках
-  local O=/data/tk0115/delta/g164-$1 rc=0 s
-  rm -rf "$O"; BIN=$2 TP=4 GT=2 bash /data/tk0115/tk115-delta-day.sh "g164-$1" mar 2026-03-07 > "$T/tk115j-$1.out" 2>&1 || rc=1
+  local O=/data/tk0115/delta/g${TAG}-$1 rc=0 s
+  rm -rf "$O"; BIN=$2 TP=4 GT=2 bash /data/tk0115/tk115-delta-day.sh "g${TAG}-$1" mar 2026-03-07 > "$GW/tk115j-$1.out" 2>&1 || rc=1
   [ -e "$O/done" ] && [ ! -s "$O/fail.txt" ] || { echo "RUNFAIL tk115j $1 (done/fail.txt: $(cat "$O/fail.txt" 2>/dev/null | head -3))"; return 1; }
   for s in signals e106 walls; do [ -n "$(find "$O/$s" -type f 2>/dev/null | head -1)" ] || { echo "RUNFAIL tk115j $1: пусто $s"; rc=1; }; done
   return $rc
 }
 tk115w_run() {  # $1 метка $2 бинарь: сетка B1 суток (логика tk115-w-day.sh, КОПИЕЙ — боевой /data/tk0115/delta/w не трогаем) всеми формами WFORMS
-  local MON=mar d=2026-03-07 BN=$2 H=/data/tk046/mar/home W=$T/xw-$1 x b rc fl=() f got
+  local MON=mar d=2026-03-07 BN=$2 H=/data/tk046/mar/home W=$GW/xw-$1 x b rc fl=() f got
   local E=$H/alpha/epochs/e-mar V=/data/tk044/final3/verdict.csv
   rm -rf "$W"; mkdir -p "$W/b5" "$W/bin"; ln -s "$BN" "$W/bin/alpha-tk044k1-new"
   for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in b5|b5-ref|b5-solo|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$(readlink -f "$x")" "$W/$b"; done
@@ -100,7 +100,7 @@ tk115w_run() {  # $1 метка $2 бинарь: сетка B1 суток (ло�
   [ "$rc" = 0 ] && [ "$(find "$W/out" -name 'rounds*.csv' | wc -l)" -gt 0 ] && [ "$got" = "$(echo $WFORMS | wc -w)" ] || { echo "RUNFAIL tk115w $1 (rc=$rc got=$got)"; return 1; }
 }
 tk115e_run() {  # $1 метка $2 бинарь: e65 (wall2/wall2x) — touches --r1-cols --wall-log по символам B1 суток + сетка --driver setups (отказ без журнала стен)
-  local MON=mar d=2026-03-07 BN=$2 H=/data/tk046/mar/home W=$T/xe-$1 x b rc=0 s got nr
+  local MON=mar d=2026-03-07 BN=$2 H=/data/tk046/mar/home W=$GW/xe-$1 x b rc=0 s got nr
   local E=$H/alpha/epochs/e-mar V=/data/tk044/final3/verdict.csv
   rm -rf "$W"; mkdir -p "$W/b5" "$W/bin" "$W/study/approaches" "$W/wt/D20/$d" "$W/log"; ln -s "$BN" "$W/bin/alpha-tk044k1-new"
   for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in study|b5|b5-ref|b5-solo|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$(readlink -f "$x")" "$W/$b"; done
@@ -123,13 +123,13 @@ fam_ext() {  # $1 tk115j|tk115w: ref и new в одной сессии, свер
   nb=$(readlink -f "$nb")
   if [ "$f" = tk115j ]; then
     tk115j_run ref "$REF" || rc=1; tk115j_run new "$nb" || rc=1
-    for s in signals e106 walls; do cmpdirs /data/tk0115/delta/g164-ref/$s /data/tk0115/delta/g164-new/$s || rc=1; done
+    for s in signals e106 walls; do cmpdirs /data/tk0115/delta/g${TAG}-ref/$s /data/tk0115/delta/g${TAG}-new/$s || rc=1; done
   elif [ "$f" = tk115e ]; then
     tk115e_run ref "$REF" || rc=1; tk115e_run new "$nb" || rc=1
-    cmpdirs "$T/xe-ref/out" "$T/xe-new/out" || rc=1
+    cmpdirs "$GW/xe-ref/out" "$GW/xe-new/out" || rc=1
   else
     tk115w_run ref "$REF" || rc=1; tk115w_run new "$nb" || rc=1
-    cmpdirs "$T/xw-ref/out" "$T/xw-new/out" || rc=1
+    cmpdirs "$GW/xw-ref/out" "$GW/xw-new/out" || rc=1
   fi
   echo "family=$f rc=$rc"; return $rc
 }
@@ -143,9 +143,9 @@ fam_one() {  # $1 семья
     run_day "$f-new-$d" "$w" "$MON" "$d" "$SCR" "$CELLS" || rc=1
     AREF=; [ "$f" = r2 ] && AREF=/data/tk065/wa-$d/b5/r2a
     if [ "$f" = base ]; then  # jall: выход суток остаётся в b5/.cellstmp-<сутки> (отделка суток не выполняется) — сверяем его
-      cmpdirs "$T/w-$f-ref-$d/b5/.cellstmp-$d" "$T/w-$f-new-$d/b5/.cellstmp-$d" || rc=1
-    else cmpdirs "$T/w-$f-ref-$d/b5" "$T/w-$f-new-$d/b5" || rc=1; fi
-    [ "$f" = r2 ] && { refvsprod "$T/w-$f-ref-$d/b5" "/data/tk065/w-$d/b5" || rc=1; }
+      cmpdirs "$GW/w-$f-ref-$d/b5/.cellstmp-$d" "$GW/w-$f-new-$d/b5/.cellstmp-$d" || rc=1
+    else cmpdirs "$GW/w-$f-ref-$d/b5" "$GW/w-$f-new-$d/b5" || rc=1; fi
+    [ "$f" = r2 ] && { refvsprod "$GW/w-$f-ref-$d/b5" "/data/tk065/w-$d/b5" || rc=1; }
   done
   echo "family=$f rc=$rc"; return $rc
 }
