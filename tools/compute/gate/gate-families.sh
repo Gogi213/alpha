@@ -3,6 +3,7 @@
 # Опись опорных бинарей — docs/findings/gate-families-2026-10-10.md. Запуск на calc ТОЛЬКО через alsched:
 #   python3 /data/sched/alsched.py submit --cls prod --name gate-fam --max-runtime 3600 --cores 4 --mem 8 --why "КТ-3b гейт семей" \
 #     -- bash /data/tk164/gate-families.sh <новый бинарник, путь> [base,r2,dl,tk115,tk115j,tk115w,tk115e]
+#   семьи r2, tk115*, tk115j/w/e считают сборкой с feature r2: NEW_R2=<путь> (иначе берётся <новый бинарник>)
 #   проверка самого скрипта без нового бинаря (опорный против себя, все семьи): … -- bash /data/tk164/gate-families.sh --selftest [семьи]
 # Семьи (опорный = тем, кем посчитаны числа, Летопись): base b14flag | r2 b15pyr4pgoflag | dl tk084-dl | tk115 (r3a) b26tk115r2 |
 # tk115j (signals/e106/walls, tk115-delta-day) tk115f | tk115w (chase<W>, tape/cxl, пороги v5 марта, --tape-log 30) tk115f |
@@ -45,7 +46,10 @@ fam_conf() {
     tk115) REF=$BIN/alpha-b26tk115r2;         MON=mar; DAY=2026-03-07; SCR=/data/tk065/days/r3a-2026-03-07.sh; CELLS=/data/tk065/days/r3a-2026-03-07.cells;;
     tk115j|tk115w|tk115e) REF=/data/tk0115/bin/alpha-tk115f; MON=mar; DAY=2026-03-07;;
   esac
+  [ -e "$REF" ] || REF=$BIN/_archive/$(basename "$REF")  # TK-176А: опорные ушли в bin/_archive
 }
+# новый бинарь семьи: r2 и tk115* требуют сборку с feature r2 (NEW_R2), остальные — боевую (NEW)
+fam_new() { case $1 in r2|tk115*) echo "${NEW_R2:-$NEW}";; *) echo "$NEW";; esac; }
 mkwrap() {  # $1 опорный $2 новый → путь, который кладётся в bin/alpha-tk044k1-new (обёртка с env опорной, если опорная — скрипт)
   local w=$T/wrap/$(basename "$1")-$(basename "$2")
   if [ "$(head -c2 "$1")" = '#!' ]; then sed "s#^exec .*#exec $(readlink -f "$2") \"\$@\"#" "$1" > "$w"; chmod +x "$w"; echo "$w"; else readlink -f "$2"; fi
@@ -137,7 +141,7 @@ tk115e_run() {  # $1 метка $2 бинарь: e65 (wall2/wall2x) — touches 
   [ "$rc" = 0 ] && [ "$nr" -gt 0 ] && [ "$s" -gt 0 ] && [ "$got" -ge 2 ] || { echo "RUNFAIL tk115e $1 (rc=$rc got=$got rounds=$nr walls=$s)"; return 1; }
 }
 fam_ext() {  # $1 tk115j|tk115w: ref и new в одной сессии, сверка
-  local f=$1 rc=0 nb s; fam_conf "$f"; nb=$NEW; [ $SELF = 1 ] && nb=$REF
+  local f=$1 rc=0 nb s; fam_conf "$f"; nb=$(fam_new "$f"); [ $SELF = 1 ] && nb=$REF
   nb=$(readlink -f "$nb")
   if [ "$f" = tk115j ]; then
     local k O=/data/tk0115/delta/g${TAG}-ref; k=$(rc_key "$(rc_md5 "$REF")" tk115j mar 2026-03-07 /data/tk0115/tk115-delta-day.sh)
@@ -163,7 +167,7 @@ fam_ext() {  # $1 tk115j|tk115w: ref и new в одной сессии, свер
 fam_one() {  # $1 семья
   local f=$1 d rc=0 nb w
   case $f in tk115j|tk115w|tk115e) fam_ext "$f"; return $?;; esac
-  fam_conf "$f"; nb=$NEW; [ $SELF = 1 ] && nb=$REF
+  fam_conf "$f"; nb=$(fam_new "$f"); [ $SELF = 1 ] && nb=$REF
   w=$(mkwrap "$REF" "$nb")
   for d in ${DAY//,/ }; do
     local k S=$GW/w-$f-ref-$d; k=$(rc_key "$(rc_md5 "$REF")" "$f" "$MON" "$d" "$CELLS" "$SCR" "$([ "$SCR" = jall ] && echo "/data/tk046/$MON/home/alpha/tmp-p07/cells-by-day/jall-jan-$d.sh")")
