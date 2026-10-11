@@ -3727,12 +3727,18 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
             groups += 1;
             EXIT_GROUP_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             for ((k, sig), step) in part.iter().zip(steps) {
+                // Г-65 (TK-190): круг формы `wall2*`, упёршийся в конец данных, без сирот и страховки — окончательный
+                // (развёрнут весь хвост: `enough` в `group_round_in_window`); сольный путь журнала стен не знает и
+                // посчитал бы его как B1, поэтому для `wall2*` он идёт в память, как чистый.
+                let wall2 = matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eff().wall2 > 0);
                 let clean = match &step {
                     SignalStep::EndOfData => false,
                     SignalStep::NotSubmitted { .. } => true,
                     SignalStep::Submitted {
                         outcome, residual, ..
-                    } => residual.is_none() && !matches!(outcome, RoundOutcome::EndOfData),
+                    } => {
+                        residual.is_none() && (wall2 || !matches!(outcome, RoundOutcome::EndOfData))
+                    }
                 };
                 if clean {
                     memos[*k].store(
