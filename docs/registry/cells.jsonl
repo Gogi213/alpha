@@ -405,3 +405,38 @@
 {"id": "ee08208dd739bb15", "logic_version": "bounce-v1", "form": "g83-conj-k50", "set_name": "p12-r1/g83-conj-k50", "params": {"group": "p12-r1", "source": "closes portfolio-sim v171c, drop TRUMP/TRX/BCH"}}
 {"id": "397fcf19011ad60e", "logic_version": "bounce-v1", "form": "g83-conj-k67", "set_name": "p12-r1/g83-conj-k67", "params": {"group": "p12-r1", "source": "closes portfolio-sim v171c, drop TRUMP/TRX/BCH"}}
 {"id": "d27a8f2bad432ca3", "logic_version": "bounce-v1", "form": "g83-conj-k80", "set_name": "p12-r1/g83-conj-k80", "params": {"group": "p12-r1", "source": "closes portfolio-sim v171c, drop TRUMP/TRX/BCH"}}
+{"id": "edb06aa430d0ba01", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halflevelf1", "set_name": "r3a/t-bid-btc4h-q1"}
+{"id": "47a98bc6a8dd5862", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halflevelf3", "set_name": "r3a/t-bid-btc4h-q1"}
+{"id": "e294cd4b436701f8", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halfstopf1", "set_name": "r3a/t-bid-btc4h-q1"}
+{"id": "ab44fc5c74bc6339", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halfstopf3", "set_name": "r3a/t-bid-btc4h-q1"}
+{"id": "dc9f69bdf9a2ff73", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw3-pct2-tr1x1-14400-ttl1800", "set_name": "r3a/t-bid-btc4h-q1"}
+{"id": "d83cf6e1feef0e8c", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800", "set_name": "r3c/e106-pop"}
+{"id": "683a90569f56578b", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop1", "set_name": "r3c/e106-pop"}
+{"id": "a2d97f9f41b0680d", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop2", "set_name": "r3c/e106-pop"}
+{"id": "a4726f9ddce95de1", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop4", "set_name": "r3c/e106-pop"}
+{"id": "bf64e494f62787d6", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh2", "set_name": "r2a/g87-fresh"}
+{"id": "4edad256ff713b0a", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh3", "set_name": "r2a/g87-fresh"}
+{"id": "fb9d791c8bb524be", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh4", "set_name": "r2a/g87-fresh"}
+{"id": "f79e329865706252", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh5", "set_name": "r2a/g87-fresh"}
+{"id": "3ffb599a19c28e9c", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat2", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "90a2b577dd60424f", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat3", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "e04850362199799c", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat4", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "b4832b285752f4ce", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat5", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "f46383135d4ac381", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u1", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "cb1308c94a1f57ea", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u2", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "9fe91367ffca34f0", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u3", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "2db62858ab9f1fb4", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u1", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "2ea2fb77fd161c08", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u2", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "4dc4bcc9057e631f", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u3", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "171e84f9a1706eb2", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u1", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "26e0560191336bd7", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u2", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "49cdca97c5797aa9", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u3", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "444af0a300f198bb", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u1", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "e9ccb01b8299cb93", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u2", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "d3263dfa0a0f2e80", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u3", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "103df566398c89e1", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u1", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "30c5ec9f792b9968", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u2", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "6285b0cd6d204761", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u3", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "846ece37666b1dbe", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u1", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "fd9c4ba5749e0f7d", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u2", "set_name": "r2a/t-bid-btc4h-q1"}
+{"id": "4ea5c6ed5e1ddeda", "logic_version": "bounce-v1", "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u3", "set_name": "r2a/t-bid-btc4h-q1"}
