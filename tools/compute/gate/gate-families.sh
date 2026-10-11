@@ -48,7 +48,7 @@ fam_conf() {
   esac
   [ -e "$REF" ] || REF=$BIN/_archive/$(basename "$REF")  # TK-176А: опорные ушли в bin/_archive
   if [ "$(head -c2 "$REF")" = '#!' ]; then  # опорный — обёртка с env: её exec тоже мог уйти в _archive → копия с исправленным путём
-    local x; x=$(sed -n 's#^exec \([^ ]*\) .*##p' "$REF" | head -1)
+    local x; x=$(sed -n 's#^exec \([^ ]*\) .*#\1#p' "$REF" | head -1)
     if [ -n "$x" ] && [ ! -e "$x" ] && [ -e "$BIN/_archive/$(basename "$x")" ]; then
       mkdir -p "$T/wrap"; sed "s#^exec $x #exec $BIN/_archive/$(basename "$x") #" "$REF" > "$T/wrap/fix-$(basename "$REF")"; chmod +x "$T/wrap/fix-$(basename "$REF")"; REF=$T/wrap/fix-$(basename "$REF")
     fi
