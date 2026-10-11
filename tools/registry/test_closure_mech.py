@@ -9,17 +9,32 @@ D = 86_400_000
 class T(unittest.TestCase):
     def test_scale1_is_identity(self):  # «выкл = прежний»: scale 1 не меняет сделок (вне домена, прямой вызов)
         c = [(i * D // 3, 1.0 if i % 2 else -0.5) for i in range(30)]
-        self.assertEqual(g124.run(c, 90, 3, 1.0), c)
+        self.assertEqual(g124.run(c, None, 90, 3, 1.0), c)
 
     def test_throttle_after_big_day(self):
         c = [(0, 1.0), (D, 0.5), (2 * D, 10.0), (3 * D, 5.0), (4 * D, 5.0)]
-        out = g124.run(c, 90, 1, 0.0)
+        out = g124.run(c, None, 90, 1, 0.0)
         self.assertEqual([u for _, u in out], [1.0, 0.5, 10.0, 0.0, 5.0])
 
     def test_domain_refusal(self):
         with self.assertRaises(SystemExit):
             list(closure_mech.grid_points(g124.PARAMS, "q=91"))
         self.assertEqual(len(list(closure_mech.grid_points(g124.PARAMS))), 4 * 5 * 3)
+
+    def test_ctx_refuses_undeclared_source(self):
+        with self.assertRaises(SystemExit):
+            closure_mech.Ctx("2026-01", ()).signals()
+
+    def test_ctx_reads_declared(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = os.path.join(d, "2026-01", "2026-01-05", "t-bid-btc4h-q1"); os.makedirs(t)
+            open(os.path.join(t, "signals.csv"), "w").write("# c\nsymbol,day_utc,signal_index\nAAA,2026-01-05,0\n")
+            self.assertEqual(closure_mech.Ctx("2026-01", ("signals",), s_v=d).signals()[0]["symbol"], "AAA")
+
+    def test_non_closes_kind_refused_until_chain(self):
+        class P: KIND = "keep"
+        with self.assertRaises(SystemExit):
+            closure_mech.run_all(P, {})
 
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
