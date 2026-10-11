@@ -111,13 +111,12 @@ impl StrategyState {
                     Some(t) => t as f64 * tick_px,
                     None => entry_px + away * grid_step_px * f64::from(grid_legs.max(1) - 1),
                 };
-                #[allow(clippy::cast_precision_loss)]
-                let own = if entry_side == HbtSide::Buy {
+                let own_t = if entry_side == HbtSide::Buy {
                     bid_t
                 } else {
                     ask_t
-                } as f64
-                    * tick_px;
+                };
+                let own = tick_to_px(own_t, tick_px);
                 if outer > 0.0 && (own - outer) * away / outer * 10_000.0 > band_exit_bps {
                     return Some(EntryCancelReason::PriceLeft);
                 }
