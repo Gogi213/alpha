@@ -89,6 +89,10 @@ def build(rows):
         mds = [m for m in str(r.get("binary_md5", "")).split(",") if m]
         for m in mds or ([None] if r.get("commit") or r.get("flags") else []):
             c.execute("insert into run_binaries values (?,?,?,?)", (r["id"], m, r.get("commit"), r.get("flags")))
+    for t, name in (("params", "params.jsonl"), ("stacks", "stacks.jsonl"), ("hyp_axes", "hyp_axes.jsonl"), ("rules", "rules.jsonl"),
+                    ("plan_cells", "plan_cells.jsonl"), ("sieve", "sieve.jsonl")):
+        for d in jl(name):
+            _ins(c, t, d)
     for t, name in (("cells", "cells.jsonl"), ("run_cells", "run_cells.jsonl"), ("results", "results.jsonl"),
                     ("verdicts", "verdicts.jsonl")):
         for d in jl(name):

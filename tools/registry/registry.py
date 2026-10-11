@@ -108,6 +108,16 @@ def _parser():
     ia.add_argument("file")
     pl = sp.add_parser("plan", help="выписка до прохода (В-213): по файлу шагов — что готово в журнале, что считаем, стоимость; ставит отметку для alsched submit")
     pl.add_argument("steps", help="имя<TAB>выход<TAB>входы через :<TAB>команда, по строке на шаг")
+    la = sp.add_parser("load-axes", help="params/stacks/hyp_axes/rules (csv, ';') -> jsonl канона (TK-187)")
+    la.add_argument("dir")
+    pp = sp.add_parser("plan-grid", help="сетка фракции из hyp_axes, дедуп по хешу против results, выписка В-224 (TK-187)")
+    pp.add_argument("--protocol", required=True); pp.add_argument("--fraction", type=int, required=True)
+    pp.add_argument("--hyp", action="append"); pp.add_argument("--out")
+    sv = sp.add_parser("sieve", help="правило сита (rules из БД) к статистике клеток стороны А -> sieve.jsonl")
+    sv.add_argument("--protocol", required=True); sv.add_argument("--fraction", type=int, required=True)
+    sv.add_argument("--stats", required=True, help="csv ';': cell_hash;side;p;trades;days")
+    rd = sp.add_parser("render", help="витрина из БД: matrix | coverage -> docs/findings/hyp-<вид>-<дата>.{md,csv}")
+    rd.add_argument("kind", choices=("matrix", "coverage")); rd.add_argument("--date")
     return ap
 
 
@@ -115,6 +125,26 @@ def _cmd_plan(ns):
     import guard
     guard.plan(ns.steps)
     return
+
+
+def _cmd_load_axes(ns):
+    import master
+    print(master.load_axes(ns.dir))
+
+
+def _cmd_plan_grid(ns):
+    import master
+    master.plan(ns.protocol, ns.fraction, ns.hyp, ns.out)
+
+
+def _cmd_sieve(ns):
+    import master
+    master.sieve(ns.protocol, ns.fraction, ns.stats)
+
+
+def _cmd_render(ns):
+    import master
+    master.render(ns.kind, ns.date)
 
 
 def _cmd_add(ns):
@@ -252,7 +282,7 @@ def _cmd_import_auto(ns):
     print(n, "строк добавлено")
 
 
-CMDS = {"plan": _cmd_plan, "add": _cmd_add, "build": _cmd_build, "sql": _cmd_sql, "load-cells": _cmd_load_cells, "load-results": _cmd_load_results, "bind-hyp": _cmd_bind_hyp, "load-usd": _cmd_load_usd, "load-hdr": _cmd_load_hdr, "enrich": _cmd_enrich, "normalize-ts": _cmd_normalize_ts, "bind-verdicts": _cmd_bind_verdicts, "find": _cmd_find, "show": _cmd_show, "stats": _cmd_stats, "import-guard-cells": _cmd_import_guard_cells, "import-auto": _cmd_import_auto}
+CMDS = {"load-axes": _cmd_load_axes, "plan-grid": _cmd_plan_grid, "sieve": _cmd_sieve, "render": _cmd_render, "plan": _cmd_plan, "add": _cmd_add, "build": _cmd_build, "sql": _cmd_sql, "load-cells": _cmd_load_cells, "load-results": _cmd_load_results, "bind-hyp": _cmd_bind_hyp, "load-usd": _cmd_load_usd, "load-hdr": _cmd_load_hdr, "enrich": _cmd_enrich, "normalize-ts": _cmd_normalize_ts, "bind-verdicts": _cmd_bind_verdicts, "find": _cmd_find, "show": _cmd_show, "stats": _cmd_stats, "import-guard-cells": _cmd_import_guard_cells, "import-auto": _cmd_import_auto}
 
 
 def main():
