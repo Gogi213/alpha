@@ -500,7 +500,7 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
     );
     let fh = same_fields(
         &m.forms_path,
-        include_str!("golden/forms.csv"),
+        include_str!("../golden/forms.csv"),
         &["n_fill_by_cross"],
     );
     let (_, forms) = read_csv(&m.forms_path);
@@ -517,7 +517,7 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
             "вход не пересекал спред — отвергнутых ног нет: {r:?}"
         );
     }
-    same_fields(&m.rounds_path, include_str!("golden/rounds.csv"), &[]);
+    same_fields(&m.rounds_path, include_str!("../golden/rounds.csv"), &[]);
     // Колонки F4 осмысленны на круге фикстуры: вход исполнился целиком одной
     // ногой, поэтому доля — единица, средняя равна цене входа, ног — одна, а
     // не поставленных биржей — ноль (В-78, В-72).

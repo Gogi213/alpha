@@ -358,7 +358,7 @@ fn exit_form_axis_multiplies_forms_with_distinct_labels() {
     assert_eq!(base[0].label, multi[0].label);
     // Имена читаются вердиктом: хвостовое поле выхода разбирается.
     assert_eq!(
-        super::super::bounce_verdict::parse_form_fields("pct2-1to1-3600-eat50")
+        super::super::super::bounce_verdict::parse_form_fields("pct2-1to1-3600-eat50")
             .unwrap()
             .exit,
         Some("eat50".to_string())
