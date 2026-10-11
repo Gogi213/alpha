@@ -697,7 +697,12 @@ impl<'a> GridRun<'a> {
                 if !regime_days.contains_key(&day.day) {
                     regime_days.insert(
                         day.day.clone(),
-                        read_regime_day(dir, &day.day, sets.iter().any(FilterSet::uses_btc_mid))?,
+                        read_regime_day(
+                            dir,
+                            &day.day,
+                            sets.iter().any(FilterSet::uses_btc_mid),
+                            sets.iter().any(FilterSet::uses_btc_long),
+                        )?,
                     );
                 }
                 regime_days.get(&day.day)

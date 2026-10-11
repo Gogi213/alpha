@@ -7,7 +7,7 @@
     python3 tools/compute/regime.py --day 2026-09-17 [--touches study/touches] [--regime-dir study/regime]
 
 Пишет `study/regime/<сутки>.csv`: `minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,
-btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps,eth_ret_2h_bps,eth_ret_3h_bps` (четыре последних — E26) — ход **к началу** минуты (закрытия предыдущих минут, без
+btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps,eth_ret_2h_bps,eth_ret_3h_bps` (четыре последних — E26; затем `btc_ret_6h/8h/12h/24h_bps` — Г-10, TK-189) — ход **к началу** минуты (закрытия предыдущих минут, без
 заглядывания внутрь минуты касания) (пусто — нет данных: у пула первые T минут суток без
 `ret_T` — ряды суточные; у BTC/ETH предыдущие сутки есть) и обновляет `study/regime/days.csv`
 (`day_utc,pool_day_ret_pct,pool_coins,pool_up,btc_day_ret_pct,eth_day_ret_pct` — дневная строка:
@@ -25,6 +25,8 @@ MINUTE_MS = 60_000
 WINDOWS = {"1h": 60, "4h": 240}
 # E26: промежуточные окна битка и эфира — отдельные колонки в конце строки (прежние колонки и их порядок не тронуты).
 REF_MID = {"2h": 120, "3h": 180}
+# Г-10 (TK-189): длинные окна битка — ещё четыре колонки в самом конце (btc_ret_6h/8h/12h/24h_bps).
+BTC_LONG = {"6h": 360, "8h": 480, "12h": 720, "24h": 1440}
 
 
 def load_minutes(path, key="mid2x"):
@@ -78,7 +80,8 @@ def main():
         w = csv.writer(f)
         w.writerow(["minute_ms", "pool_ret_1h_bps", "pool_ret_4h_bps", "n_coins",
                     "btc_ret_1h_bps", "btc_ret_4h_bps", "eth_ret_1h_bps", "eth_ret_4h_bps",
-                    "btc_ret_2h_bps", "btc_ret_3h_bps", "eth_ret_2h_bps", "eth_ret_3h_bps"])
+                    "btc_ret_2h_bps", "btc_ret_3h_bps", "eth_ret_2h_bps", "eth_ret_3h_bps"]
+                   + [f"btc_ret_{k}_bps" for k in BTC_LONG])
         minute = day_start
         while minute <= last:
             row = [minute]
@@ -95,6 +98,8 @@ def main():
             for sym in ("BTCUSDT", "ETHUSDT"):
                 for back in REF_MID.values():
                     row.append(fmt(ret_bps(refs[sym], minute, back)))
+            for back in BTC_LONG.values():
+                row.append(fmt(ret_bps(refs["BTCUSDT"], minute, back)))
             w.writerow(row)
             n_rows += 1
             minute += MINUTE_MS
