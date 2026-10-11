@@ -138,8 +138,8 @@ class MasterTest(unittest.TestCase):
         self.assertEqual(len(m112), 9)
         self.assertRegex(m112["2026-03"], r"-ttl1800-tape30q0\.\d+ t-bid-btc4h-q1$")
         c0 = master.p14_cfg("Г-112", sv, {"W": "5", "q": "5"})
-        self.assertNotIn("2026-01", master.MONTHLY[ch.cell_hash(c0)])
-        self.assertIn("Q_m ≤ 0", master.LINES[ch.cell_hash(c0)][1])
+        self.assertRegex(master.MONTHLY[ch.cell_hash(c0)]["2026-01"], r"-ttl1800-tape5qp t-bid-btc4h-q1$")   # Q_m ≤ 0 -> «мера > 0»
+        self.assertEqual(len(master.MONTHLY[ch.cell_hash(c0)]), 9)
         cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"})
         self.assertIsNone(master.LINES[ch.cell_hash(cfg)][0])
         with self.assertRaises(SystemExit):

@@ -274,14 +274,14 @@ def p14_cfg(hyp, sv, av, fixed=()):
         cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []
-        mm = {r["month"]: f"{form}-tape{w}q{float(r[f'e112_W{w}_q{q}'])!r} {set_name}" for r in thr if w and q and r.get(f"e112_W{w}_q{q}", 0) > 0}
+        mm = {r["month"]: f"{form}-tape{w}q{'p' if r.get(f'e112_W{w}_q{q}', 0) <= 0 else repr(float(r[f'e112_W{w}_q{q}']))} {set_name}" for r in thr if w and q and f"e112_W{w}_q{q}" in r}
         if not (w and q):
             LINES[h] = (None, "Г-112: W ∈ {5,10,15,30,60,120,300} с, q ∈ {5,10,20,33,50,67,80,90,95}")
         elif not thr:
             LINES[h] = (None, f"Г-112: нет {os.path.basename(_TAPE_THR)} — v7 TK-120 (thr7/summary.json)")
         else:
             no = sorted(r["month"] for r in thr if r["month"] not in mm)
-            LINES[h] = (None, "месячная форма tape<W>q<Q_m>: файлы <имя>-<ГГГГ-ММ>.cells" + (f"; Q_m ≤ 0 (правило «P > 0», формы нет) — месяцы {','.join(no)}" if no else ""))
+            LINES[h] = (None, "месячная форма tape<W>q<Q_m>: файлы <имя>-<ГГГГ-ММ>.cells" + (f"; нет порога в v7 — месяцы {','.join(no)}" if no else ""))
             MONTHLY[h] = mm
     elif av and re.sub(r"\D", "", hyp) == "10":   # btc<N>h_max=T_m(N,q): набор B1 с заменой порога, T_m по месяцам из прошлых месяцев (Судья 11.10, f1-axes)
         n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))

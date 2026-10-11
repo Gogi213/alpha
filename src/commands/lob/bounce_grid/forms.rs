@@ -120,8 +120,8 @@ impl ExitForm {
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::NoStop { x2 } => format!("nostop{x2}"),
             ExitForm::Chase { ms } => format!("chase{ms}"),
-            ExitForm::Tape { w, q } => format!("tape{w}q{q}"),
-            ExitForm::Cxl { w, q } => format!("cxl{w}q{q}"),
+            ExitForm::Tape { w, q } => format!("tape{w}q{}", pos_q_label(*q)),
+            ExitForm::Cxl { w, q } => format!("cxl{w}q{}", pos_q_label(*q)),
             ExitForm::Wall2 { k: -1 } => "wall2".to_string(),
             ExitForm::Wall2 { k: 1 } => "wall2x".to_string(),
             ExitForm::Wall2 { k: 0 } => "wall20".to_string(),
@@ -301,12 +301,17 @@ impl ExitForm {
             if let Some(rest) = spec.strip_prefix(pre) {
                 let bad = || {
                     anyhow::anyhow!(
-                        "--exit-form {spec:?}: ожидается {pre}<W>q<Q>: окно W с > 0, Q > 0 (мера / размер стены)"
+                        "--exit-form {spec:?}: ожидается {pre}<W>q<Q>: окно W с > 0, Q > 0 (мера / размер стены) или {pre}<W>qp (мера > 0)"
                     )
                 };
                 let (ws, qs) = rest.split_once('q').ok_or_else(bad)?;
                 let w: u32 = ws.parse().map_err(|_| bad())?;
-                let q: f64 = qs.parse().map_err(|_| bad())?;
+                // `q` вместо числа — «мера строго > 0» (Q_m ≤ 0 в пороге по месяцу, Г-112 F1): наименьшее положительное.
+                let q: f64 = if qs == "p" {
+                    f64::MIN_POSITIVE
+                } else {
+                    qs.parse().map_err(|_| bad())?
+                };
                 anyhow::ensure!(w > 0, "{pre}<W>q<Q>: W > 0 с");
                 anyhow::ensure!(q.is_finite() && q > 0.0, "{pre}<W>q<Q>: Q > 0");
                 let form = if tape {
@@ -555,6 +560,15 @@ pub struct GridForm {
 }
 
 /// Г-114: имя формы `halfstop` / `halfstop` + `f1`|`f3` (доля 1/4 или 3/4; половина — без суффикса).
+/// Часть имени `tape`/`cxl` после `q`: `p` — порог «мера > 0» (наименьшее положительное), иначе число как есть.
+fn pos_q_label(q: f64) -> String {
+    if q == f64::MIN_POSITIVE {
+        "p".to_string()
+    } else {
+        q.to_string()
+    }
+}
+
 fn half_label(base: &str, q4: u8) -> String {
     if q4 == 2 {
         base.to_string()

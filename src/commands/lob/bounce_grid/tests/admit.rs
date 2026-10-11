@@ -918,4 +918,16 @@ fn tape_cxl_forms_parse_threshold() {
     assert!(ExitForm::parse("tape1.5").is_err());
     assert!(ExitForm::parse("cxl").is_err());
     assert!(ExitForm::parse("tape30q1.50").is_err());
+    // Г-112 F1: Q_m ≤ 0 — «мера > 0»: tape<W>qp, имя round-trip.
+    let p = ExitForm::parse("tape30qp").unwrap();
+    assert_eq!(
+        p,
+        ExitForm::Tape {
+            w: 30,
+            q: f64::MIN_POSITIVE
+        }
+    );
+    assert_eq!(p.label(), "tape30qp");
+    assert_eq!(ExitForm::parse("cxl5qp").unwrap().label(), "cxl5qp");
+    assert!(ExitForm::parse("tape30qpp").is_err());
 }
