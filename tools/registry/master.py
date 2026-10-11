@@ -142,6 +142,7 @@ def w_median_ms():
     return {r["month"]: r["W_ms_median"] for r in json.load(open(_THR, encoding="utf-8"))["summary"]}
 
 
+OUTSIDE = {}  # хеш клетки -> где посчитано вне Летописи (не «к счёту», не в --cells): загрузка результатов в Летопись — отдельный шаг
 LINES = {}  # хеш клетки -> (строка --cells «форма набор» | None, причина, что нет кодировки); заполняет build_grid, читает plan
 
 
@@ -264,6 +265,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
         if line_why:
             cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}  # не кодируется формой: хеш по варианту, в --cells не идёт
         LINES[ch.cell_hash(cfg)] = (None if line_why else f"{form} {set_name}", line_why)
+        if re.sub(r"\D", "", hyp) == "117" and re.fullmatch(r"tsl(5|10|20)t[124]", suffix or ""):   # 9 общих точек γ×T: посчитаны проходом r2t (TK-065, 07.10) на B3 — те же формы
+            OUTSIDE[ch.cell_hash(cfg)] = "r2t TK-065: /data/tk065/wt-<сутки>/b5 (275 суток 01.01–02.10, форма без -tsl… = B3)"
     elif "keep_q" in av or "common_q" in av:  # R1: как у клеток Летописи — признак (None, если колонка одна, она в имени клетки не стоит), квантиль «kNN», порог по окну
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
@@ -448,6 +451,8 @@ def plan(protocol, k, hyps=None, out=None, have=None):
             if h in have:
                 n_have += 1
                 hm += len(have[h])
+            elif h in OUTSIDE:   # посчитано вне Летописи (В-213: не пересчитывать) — отдельная графа, в --cells не идёт
+                tot["outside"] += 1
             else:
                 n_new += 1
                 if ch.cell_hash({**cfg, "universe": "v171b"}) in have:   # есть в Летописи на другой вселенной (p07a, v171b) — зачёт решает Исследователь/§6
@@ -470,7 +475,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     txt = (f"Выписка В-224 · {protocol} F{k} · правила {rules.get('_version', '—')}\n"
            f"в сетке {tot['grid']} хешей (× {months} мес. = {tot['grid'] * months} хеш-мес.); в Летописи {tot['have']} хешей "
            f"({tot['have_hm']} хеш-мес. с результатами); к счёту {tot['new']} хешей (× {months} = {tot['new'] * months} хеш-мес.); "
-           f"гипотез закрыто {len(closed)}; из «к счёту» {tot['uni']} совпали бы с Летописью на вселенной v171b (не совпало: вселенная)")
+           f"посчитано вне Летописи (загрузить, не считать) {tot['outside']} хешей; гипотез закрыто {len(closed)}; из «к счёту» {tot['uni']} совпали бы с Летописью на вселенной v171b (не совпало: вселенная)")
     print(txt)
     out = out or os.path.join(ROOT, "data", "plan", f"{protocol}-F{k}-new.jsonl")
     os.makedirs(os.path.dirname(out), exist_ok=True)
