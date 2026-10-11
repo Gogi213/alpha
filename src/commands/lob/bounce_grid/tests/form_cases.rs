@@ -88,7 +88,7 @@ fn entry_ttl_values_come_from_the_measured_grid_and_need_their_numbers() {
         "порядок детерминирован, как у дедлайнов"
     );
     assert!(
-        parse_entry_ttls(&["120".to_string()]).is_err(),
+        parse_entry_ttls(&["45".to_string()]).is_err(),
         "чужое число — отказ, а не расширение сетки"
     );
     assert!(parse_entry_ttls(&["soon".to_string()]).is_err());
@@ -703,8 +703,8 @@ fn early_exit_axis_keeps_default_forms_and_names_enabled_ones() {
 
     assert!(parse_early_exits(&[]).unwrap() == vec![None]);
     assert!(
-        parse_early_exits(&["5".to_string()]).is_err(),
-        "5 с нет в наборе В-58"
+        parse_early_exits(&["4".to_string()]).is_err(),
+        "4 с нет в наборе В-58 + точек F1 П-14"
     );
     assert!(parse_early_exits(&["x".to_string()]).is_err());
 }

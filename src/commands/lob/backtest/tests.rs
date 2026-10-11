@@ -633,7 +633,7 @@ fn deadline_and_early_exit_values_outside_the_preregistered_grid_are_refused() {
     for x in EARLY_EXITS_S {
         assert_eq!(early_exit_ns_from_secs(Some(x)).unwrap(), x * 1_000_000_000);
     }
-    for bad in [0, 4, 60] {
+    for bad in [0, 4, 7] {
         let err = early_exit_ns_from_secs(Some(bad)).unwrap_err().to_string();
         assert!(
             err.contains("не из предрегистрированного набора В-58"),

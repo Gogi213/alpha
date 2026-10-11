@@ -175,6 +175,30 @@ def r2_exit(hyp, av):
     return False
 
 
+EARLY_OK = (1, 2, 3, 5, 8, 13, 20, 30, 60)       # EARLY_EXITS_S в plan.rs (TK-189)
+TTL_OK = (10, 30, 60, 120, 300, 600, 900, 1200, 1800)   # ENTRY_TTL_SECS в forms.rs (TK-189)
+
+
+def rust_axes(hyp, av, sv):
+    """Гипотезы, выражаемые флагами/формами текущего Rust без новых кодов -> (потолок входа с, суффикс --exit-form, early с, причина отказа)
+    или False (гипотеза не этого класса). Г-129 — ttl в имени формы; Г-110 — хвост -early<x>; Г-104 — gone<W>[be] (be=да)."""
+    n = re.sub(r"\D", "", hyp)
+    ttl = sv["entry_ttl_s"]
+    if n == "129":
+        t = _int_in(_frac(av["entry_ttl"]), TTL_OK)
+        return t or ttl, "", None, None if t else f"ttl: ∈ {TTL_OK}"
+    if n == "110":
+        x = _int_in(_frac(av["early_exit_s"]), EARLY_OK)
+        return ttl, "", x, None if x else f"early<x>: целые секунды ∈ {EARLY_OK} (0,5 с — вне целого типа флага)"
+    if n == "104":
+        w = _int_in(_frac(av["exit_share"]), (10, 25, 50, 75, 90))
+        be = str(av["be"]).strip().lower()
+        if be not in ("да", "нет"):
+            return ttl, None, None, f"be: «да»|«нет», получено {av['be']!r}"
+        return ttl, f"gone{w}" + ("be" if be == "да" else ""), None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
+    return False
+
+
 def p14_cfg(hyp, sv, av, fixed=()):
     """Конфиг клетки П-14 без cfg_path: база B1 как в cellhash_reg (форма из стека, набор, исполнение, σ), вселенная — из стека.
     R2-гипотезы с кодировкой в Летописи (r2_exit) — форма с суффиксом выхода и набор, как у клеток Летописи; прочие — вариант
@@ -193,7 +217,12 @@ def p14_cfg(hyp, sv, av, fixed=()):
     if r2:
         e, suffix, set_name, line_why = r2
         entry = e or entry
-    form = f"{entry}-{sv['stop']}-{sv['take']}-{sv['deadline_s']}-ttl{sv['entry_ttl_s']}" + (f"-{suffix}" if suffix else "")
+    ttl, early = sv["entry_ttl_s"], None
+    ra = rust_axes(hyp, av, sv) if av and not r2 else False
+    if ra:
+        ttl, suffix, early, line_why = ra
+        r2 = (None, suffix, set_name, line_why)   # кодируется формой/флагом -> ветка клетки с LINES
+    form = f"{entry}-{sv['stop']}-{sv['take']}-{sv['deadline_s']}-ttl{ttl}" + (f"-{suffix}" if suffix else "") + (f"-early{early}" if early else "")
     st = cr.B1_SET if set_name == "t-bid-btc4h-q1" else cr.set_of(sets[set_name])
     uni = cr.UNIVERSE["v171c"] if "v171c" in sv.get("universe", "") else cr.UNIVERSE["v171b"]
     cfg = {"form": form, "set": st, "exec": dict(cr.STD_EXEC), "sigma": cr.B1_SIGMA, "universe": uni}
@@ -383,8 +412,13 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     with open(cf[:-6] + ".args", "w", encoding="utf-8", newline="\n") as f:   # аргументы bounce-grid к файлу --cells (формы выхода и наборы)
         for e in sorted({fm.split("-pct", 1)[0] for fm in forms}):
             f.write(f"--entry-form {e}\n")
-        for x in sorted({fm.split("-ttl1800-", 1)[1] for fm in forms if "-ttl1800-" in fm}):
+        tails = [re.search(r"-ttl(\d+)(?:-(?!early\d+$)(.+?))?(?:-early(\d+))?$", fm) for fm in forms]
+        for t in sorted({m.group(1) for m in tails if m}, key=int):
+            f.write(f"--entry-ttl-secs {t}\n")
+        for x in sorted({m.group(2) for m in tails if m and m.group(2)}):
             f.write(f"--exit-form {x}\n")
+        for x in sorted({m.group(3) for m in tails if m and m.group(3)}, key=int):
+            f.write(f"--early-exit-secs {x}\n")
         for u in used:
             f.write(f"--set {u}:{sets[u]}\n")
     print(f"--cells (только новые, кодируемые формой): {cf} — {len(uniq)} строк; аргументы: {cf[:-6]}.args")
