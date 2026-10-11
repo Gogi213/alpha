@@ -6,7 +6,7 @@ import csv, json, os, sqlite3, sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import db
-OUT = os.path.join(ROOT, "docs", "findings", "letopis-hypotheses-2026-10-08")
+OUT = os.path.join(ROOT, "docs", "findings", "letopis-hypotheses-2026-10-11")
 MONTHS = [f"2026-{m:02d}" for m in range(1, 11)]
 if not os.path.exists(db.DB):
     import registry; registry.build()
