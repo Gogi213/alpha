@@ -1617,6 +1617,7 @@ fn entry_tally<B, MD>(
     asset_no: usize,
     entry_id: u64,
     legs: u8,
+    adds: &[u64],
     saved: &[(u64, Order)],
 ) -> Option<EntryTally>
 where
@@ -1643,6 +1644,21 @@ where
             entry_px_sum += notional / exec;
             entry_notional += notional;
             entry_legs += 1;
+            entry_taker |= !o.maker;
+        }
+    }
+    // R2-A: добавки доливки — часть позиции; в среднюю равных весов (`entry_px`) не входят.
+    for &id in adds {
+        let Some(o) = order_of(bot, asset_no, saved, id) else {
+            continue;
+        };
+        if !matches!(o.status, Status::Rejected | Status::Expired) {
+            ordered += o.qty;
+        }
+        let exec = executed_qty(o);
+        if exec > 0.0 {
+            entry_qty += exec;
+            entry_notional += executed_notional(o);
             entry_taker |= !o.maker;
         }
     }
@@ -2086,7 +2102,14 @@ where
                 let fbc = fill_by_cross
                     || (entry_pending != 0
                         && pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs));
-                let mut out = match entry_tally(bot, asset_no, entry_id, legs, &saved) {
+                let mut out = match entry_tally(
+                    bot,
+                    asset_no,
+                    entry_id,
+                    legs,
+                    states[i].add_order_ids(),
+                    &saved,
+                ) {
                     Some(entry) => build_group_outcome(
                         bot, asset_no, entry_id, legs, side, fbc, &entry, &exits[i], &saved,
                     ),
