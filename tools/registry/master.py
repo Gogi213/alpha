@@ -132,6 +132,8 @@ def family_of(hyp):
 
 MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: число в имени формы меняется по месяцам (Г-133 chase<a·W_m>); файл --cells на месяц
 _THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
+MSETS = {}  # имя набора -> спецификация --set: наборы с порогом по месяцам (Г-10 btc<N>h_max=T_m); write_set добавляет их к --set
+_BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-11.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
 
 
 def w_median_ms():
@@ -264,6 +266,25 @@ def p14_cfg(hyp, sv, av, fixed=()):
         h = ch.cell_hash(cfg)
         LINES[h] = (None, "месячная форма chase<a·W_m>: строки --cells по месяцам (файлы <имя>-<ГГГГ-ММ>.cells)")
         MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
+    elif av and re.sub(r"\D", "", hyp) == "10":   # btc<N>h_max=T_m(N,q): набор B1 с заменой порога, T_m по месяцам из прошлых месяцев (Судья 11.10, f1-axes)
+        n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        cfg["variant"] = {"family": family_of(hyp), "axes": {"btc_window_h": n_h, "btc_thr_q": q}}
+        h = ch.cell_hash(cfg)
+        thr = json.load(open(_BTC_THR, encoding="utf-8")) if os.path.exists(_BTC_THR) else {}
+        if not (n_h and q):
+            LINES[h] = (None, "Г-10: окно ∈ {1,2,3,4,6,8,12,24} ч, q ∈ {5,10,20,33,50,67,80,90,95}")
+        elif not thr:
+            LINES[h] = (None, f"Г-10: нет {os.path.basename(_BTC_THR)} — btc-thresholds.py по study/regime (regime.py с btc_ret_6h…24h)")
+        else:
+            LINES[h] = (None, "месячный набор g10n<N>q<q>-<ГГГГ-ММ> (btc<N>h_max=T_m): файлы <имя>-<ГГГГ-ММ>.cells")
+            mm = {}
+            for m, per in thr.items():
+                t = per.get(str(n_h), {}).get(str(q))
+                if t is not None:
+                    name = f"g10n{n_h}q{q}-{m}"
+                    MSETS[name] = f"age=2700,side=bid,btc{n_h}h_max={t}"
+                    mm[m] = f"{form} {name}"
+            MONTHLY[h] = mm
     elif av:
         cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}
         LINES[ch.cell_hash(cfg)] = (None, "нет кодировки формы в Летописи/forms.rs — вариант семьи, строки --cells нет")
@@ -437,7 +458,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     print("новые клетки (конфиг + хеш):", out)
     cf = out[:-6] + ".cells" if out.endswith(".jsonl") else out + ".cells"
     import cellhash_reg as cr
-    sets = cr.load_sets()
+    sets = {**cr.load_sets(), **MSETS}
 
     def write_set(stem, uniq):
         """<stem>.cells / .args / .bin по списку строк --cells «форма набор»."""

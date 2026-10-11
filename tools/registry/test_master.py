@@ -114,6 +114,20 @@ class MasterTest(unittest.TestCase):
         self.assertEqual(master.LINES[ch.cell_hash(c1)][0], c1["form"] + " t-bid-btc4h-q1")
         c2 = master.p14_cfg("Г-117", sv, {"gamma": "3/8", "T": "1/16"})
         self.assertTrue(c2["form"].endswith("-1to1-14400-ttl1800-tslx3t1"), c2["form"])
+        # Г-10: btc<N>h_max=T_m(N,q) по месяцам — набор g10n<N>q<q>-<месяц> (пороги из btc-thresholds.py)
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tp = os.path.join(td, "t.json")
+            json.dump({"2026-01": {"6": {"20": -50.5}}, "2026-02": {"6": {"20": -48.25}}}, open(tp, "w"))
+            old_thr, master._BTC_THR = master._BTC_THR, tp
+            try:
+                c10 = master.p14_cfg("Г-10", sv, {"btc_window_h": "6", "btc_thr_q": "20"})
+            finally:
+                master._BTC_THR = old_thr
+        self.assertEqual(c10["variant"], {"family": "g10", "axes": {"btc_window_h": 6, "btc_thr_q": 20}})
+        m10 = master.MONTHLY[ch.cell_hash(c10)]
+        self.assertEqual(m10["2026-02"], c10["form"] + " g10n6q20-2026-02")
+        self.assertEqual(master.MSETS["g10n6q20-2026-01"], "age=2700,side=bid,btc6h_max=-50.5")
         cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"})
         self.assertIsNone(master.LINES[ch.cell_hash(cfg)][0])
         with self.assertRaises(SystemExit):
