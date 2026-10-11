@@ -1,27 +1,30 @@
 //! `RunFlags` (С-06, КТ-6.0): все `ALPHA_*` счёта — один тип, одно место чтения, снимок в манифест прогона.
 //!
-//! Сейчас тип только описывает семантику каждого флага (как её читают места использования) и ничего не заменяет:
-//! чтения `std::env::var*("ALPHA_…")` переедут сюда в КТ-6a/6b/6c. Умолчание (`Default`) = все флаги выключены, как
-//! при пустом окружении. `from_vars` чистая (тесты), `from_env` читает окружение один раз.
+//! Умолчание (`Default`) = боевой набор скорости (TK-174, бывший `b14flag`): `sig_cache`, `holds_memo`, `admit_soa`,
+//! `admit_cache`, `skip_nosignal`, `skip_same` включены при пустом окружении; `ALPHA_X=0` — явное выключение
+//! (сверка со старым путём). `from_vars` чистая (тесты), `from_env` читает окружение один раз.
 
 use std::ffi::OsString;
+
+/// Ёмкость кэша сигналов по умолчанию (сигналов на сутки; бывший `ALPHA_SIG_CACHE=3000000` боевого набора).
+pub const SIG_CACHE_DEFAULT: usize = 3_000_000;
 
 /// Снимок флагов `ALPHA_*`. Поля `bool` под «`=1`» — включены только значением `1`; под «задан» — любым значением.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunFlags {
-    /// `ALPHA_SIG_CACHE=<n>`: ёмкость кэша сигналов, `n > 0`.
+    /// `ALPHA_SIG_CACHE=<n>`: ёмкость кэша сигналов; умолчание 3 000 000, `0` — выкл.
     pub sig_cache: Option<usize>,
     /// `ALPHA_DIAG` задан: диагностические счётчики замеров (С-12; бывшие `ALPHA_ATTEMPT_STATS` и `ALPHA_TICK_STATS`).
     pub diag: bool,
-    /// `ALPHA_HOLDS_MEMO=1`.
+    /// `ALPHA_HOLDS_MEMO`: умолчание вкл, `0` — выкл.
     pub holds_memo: bool,
-    /// `ALPHA_ADMIT_SOA=1`.
+    /// `ALPHA_ADMIT_SOA`: умолчание вкл (нужен `holds_memo`), `0` — выкл.
     pub admit_soa: bool,
-    /// `ALPHA_ADMIT_CACHE=1`.
+    /// `ALPHA_ADMIT_CACHE`: умолчание вкл, `0` — выкл.
     pub admit_cache: bool,
-    /// `ALPHA_SKIP_NOSIGNAL` задан.
+    /// `ALPHA_SKIP_NOSIGNAL`: умолчание вкл, `0` — выкл.
     pub skip_nosignal: bool,
-    /// `ALPHA_SKIP_SAME=1`.
+    /// `ALPHA_SKIP_SAME`: умолчание вкл, `0` — выкл.
     pub skip_same: bool,
     /// `ALPHA_R2_TRACE` задан.
     pub r2_trace: bool,
@@ -64,18 +67,21 @@ impl RunFlags {
         raw.sort();
         let get = |n: &str| raw.iter().find(|(k, _)| k == n).map(|(_, v)| v.as_str());
         let set = |n: &str| get(n).is_some();
-        let one = |n: &str| get(n) == Some("1");
+        let on = |n: &str| get(n) != Some("0");
         let num = |n: &str| get(n).and_then(|v| v.parse::<i64>().ok());
         Self {
-            sig_cache: num("ALPHA_SIG_CACHE")
-                .and_then(|n| usize::try_from(n).ok())
-                .filter(|&n| n > 0),
+            sig_cache: match get("ALPHA_SIG_CACHE") {
+                None => Some(SIG_CACHE_DEFAULT),
+                Some(_) => num("ALPHA_SIG_CACHE")
+                    .and_then(|n| usize::try_from(n).ok())
+                    .filter(|&n| n > 0),
+            },
             diag: set("ALPHA_DIAG"),
-            holds_memo: one("ALPHA_HOLDS_MEMO"),
-            admit_soa: one("ALPHA_ADMIT_SOA"),
-            admit_cache: one("ALPHA_ADMIT_CACHE"),
-            skip_nosignal: set("ALPHA_SKIP_NOSIGNAL"),
-            skip_same: one("ALPHA_SKIP_SAME"),
+            holds_memo: on("ALPHA_HOLDS_MEMO"),
+            admit_soa: on("ALPHA_ADMIT_SOA"),
+            admit_cache: on("ALPHA_ADMIT_CACHE"),
+            skip_nosignal: on("ALPHA_SKIP_NOSIGNAL"),
+            skip_same: on("ALPHA_SKIP_SAME"),
             r2_trace: set("ALPHA_R2_TRACE"),
             approach_bin_dir: get("ALPHA_APPROACH_BIN_DIR").map(OsString::from),
             approach_bin_level: num("ALPHA_APPROACH_BIN_LEVEL").and_then(|n| i32::try_from(n).ok()),

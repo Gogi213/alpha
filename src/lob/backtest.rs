@@ -2959,11 +2959,11 @@ pub static ATTEMPT_USED: [std::sync::atomic::AtomicU64; 4] =
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
 
-/// Пропуск `on_event` в удержании, когда входы решения не менялись (`ALPHA_SKIP_SAME=1`, TK-050): решение на
-/// тех же входах повторяется; умолчание — зовём на каждом шаге.
+/// Пропуск `on_event` в удержании, когда входы решения не менялись (TK-050): решение на тех же входах
+/// повторяется; умолчание вкл (TK-174), `ALPHA_SKIP_SAME=0` — зовём на каждом шаге.
 fn skip_same() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_some_and(|v| v == "1"))
+    *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_none_or(|v| v != "0"))
 }
 
 /// Пропущено вызовов `on_event` (процесс; на итог счёта не влияет).

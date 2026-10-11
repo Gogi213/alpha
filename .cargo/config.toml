@@ -1,0 +1,4 @@
+# TK-174 (В-223): боевая сборка — x86-64-v3 (сервер счёта 89.163.242.211: AVX2/BMI2). Переопределяется RUSTFLAGS
+# (PGO-сборки добавляют свои флаги поверх через tools/compute/pgo-cycle.sh).
+[build]
+rustflags = ["-C", "target-cpu=x86-64-v3"]

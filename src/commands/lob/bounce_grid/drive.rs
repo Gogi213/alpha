@@ -162,7 +162,7 @@ fn signals_for(
 }
 
 /// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, `ALPHA_SIG_CACHE=<потолок
-/// сигналов на сутки>`, умолчание 0 = выкл): `signals_for` второй раз не зовётся. Сверх потолка форма не
+/// сигналов на сутки>`, умолчание 3 000 000, 0 = выкл): `signals_for` второй раз не зовётся. Сверх потолка форма не
 /// кладётся — считается заново, как раньше (результат тот же).
 type SigSlot = Option<(Vec<BounceSignal>, u64)>;
 
@@ -173,10 +173,7 @@ struct SigCache {
 
 impl SigCache {
     fn from_env(forms: usize) -> Option<Self> {
-        let cap = std::env::var("ALPHA_SIG_CACHE")
-            .ok()?
-            .parse::<usize>()
-            .ok()?;
+        let cap = crate::lob::run_flags::RunFlags::from_env().sig_cache?;
         (cap > 0).then(|| Self {
             slots: Mutex::new((0..forms).map(|_| None).collect()),
             left: AtomicUsize::new(cap),

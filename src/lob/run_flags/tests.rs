@@ -8,17 +8,19 @@ fn vars(kv: &[(&str, &str)]) -> impl Iterator<Item = (OsString, OsString)> {
 }
 
 #[test]
-fn empty_env_is_default_all_off() {
+fn empty_env_is_default_speed_set_on() {
     let f = RunFlags::from_vars(vars(&[("PATH", "/bin"), ("HOME", "/h")]));
     assert_eq!(f, RunFlags::default());
-    assert!(!f.skip_same && !f.diag && f.sig_cache.is_none());
+    assert!(f.skip_same && f.skip_nosignal && f.holds_memo && f.admit_soa && f.admit_cache);
+    assert!(!f.diag && f.sig_cache == Some(SIG_CACHE_DEFAULT));
     assert!(f.snapshot_lines().is_empty());
 }
 
 #[test]
-fn one_vs_set_semantics() {
+fn zero_turns_off_set_turns_on() {
     let f = RunFlags::from_vars(vars(&[("ALPHA_SKIP_SAME", "0"), ("ALPHA_DIAG", "")]));
     assert!(!f.skip_same);
+    assert!(RunFlags::from_vars(vars(&[("ALPHA_SKIP_SAME", "1")])).skip_same);
     assert!(f.diag, "задан любым значением");
 }
 
