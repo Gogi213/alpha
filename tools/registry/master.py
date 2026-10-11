@@ -142,8 +142,35 @@ def w_median_ms():
     return {r["month"]: r["W_ms_median"] for r in json.load(open(_THR, encoding="utf-8"))["summary"]}
 
 
+R1COL = {}  # хеш R1-клетки -> колонка (None — одна на семью); R1 фев…окт на 9 точках посчитан r1ext (TK-189 шаг 15), кроме колонок без данных
+R1_NODATA = ("tape_burst_press_60s_bp",)   # coverage-r1.json r1ext: jan_n_defined 0, охват 0 во всех месяцах — файлов нет
+R1EXT = "r1ext TK-189: /data/tk189/r1ext/cells/<мес>/ (271 кл./мес, фев…окт; 5 прежних точек побайтно = /data/tk064/r1)"
+R2B_MONTHS = tuple(f"2026-{m:02d}" for m in range(1, 10))   # TK-115 R2-B (job 1011200729464, calc /data/p12r3a/r2b): 31 форма × B1-сутки янв–сен, B1 = набор t-bid-btc4h-q1
 OUTSIDE = {}  # хеш клетки -> где посчитано вне Летописи (не «к счёту», не в --cells): загрузка результатов в Летопись — отдельный шаг
 LINES = {}  # хеш клетки -> (строка --cells «форма набор» | None, причина, что нет кодировки); заполняет build_grid, читает plan
+
+
+def r2b_lines():
+    """{ГГГГ-ММ: множество строк --cells} 31 формы R2-B TK-115 (tk115-r2b-day.sh) из порогов v7/v6 — те же числа, что у плана (сверено с thr7 e-thresholds-*.csv, янв–сен)."""
+    thr = {r["month"]: r for r in json.load(open(_TAPE_THR, encoding="utf-8"))["summary"]} if os.path.exists(_TAPE_THR) else {}
+    b, out = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800", {}
+    for m, w_m in w_median_ms().items():
+        if m not in R2B_MONTHS or m not in thr:
+            continue
+        ls = {f"{b}-tape{w}q{float(thr[m][f'e112_W{w}_q{q}'])!r} t-bid-btc4h-q1" for w in (15, 30, 60) for q in (33, 50, 67, 80) if f"e112_W{w}_q{q}" in thr[m]}
+        ls |= {f"{b}-chase{int(round(float(w_m) * a))} t-bid-btc4h-q1" for a in (0.5, 1, 2)}
+        ls |= {f"{b}-wall2 t-bid-btc4h-q1", f"{b}-wall2x t-bid-btc4h-q1", "ladder3x0..0.0409sw4-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1", "ladder3x0..0.0409sw5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1"}
+        out[m] = ls
+    return out
+
+
+def r2b_covers(h, r2b):
+    """Клетка целиком на строках R2-B: все её строки янв–сен (месячные — по месяцам, общая — в каждом) входят в 31 форму."""
+    if h in MONTHLY:
+        mm = {m: ln for m, ln in MONTHLY[h].items() if m in r2b}
+        return bool(mm) and all(ln in r2b[m] for m, ln in mm.items())
+    ln = (LINES.get(h) or (None,))[0]
+    return bool(ln) and bool(r2b) and all(ln in v for v in r2b.values())
 
 
 def _frac(v):
@@ -271,6 +298,7 @@ def p14_cfg(hyp, sv, av, fixed=()):
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
         cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
+        R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
     elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
         a = _frac(av["a"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"a": int(a) if float(a).is_integer() else a}}
@@ -439,6 +467,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     have = have_hashes() if have is None else have
     months = int(rules["months"])
     rows, new_cfg, tot, lines, nocode = [], [], collections.Counter(), {}, collections.Counter()
+    r2b = r2b_lines()
     mlines = collections.defaultdict(dict)   # ГГГГ-ММ -> {хеш: строка} для месячных форм
     for hyp, cells in grids.items():
         seen, n_have, n_new, hm = set(), 0, 0, 0
@@ -451,8 +480,11 @@ def plan(protocol, k, hyps=None, out=None, have=None):
             if h in have:
                 n_have += 1
                 hm += len(have[h])
-            elif h in OUTSIDE:   # посчитано вне Летописи (В-213: не пересчитывать) — отдельная графа, в --cells не идёт
+            elif h in R1COL and R1COL[h] in R1_NODATA:   # колонки нет в сигналах пула (охват 0): не считается, не «к счёту»
+                tot["nodata"] += 1
+            elif h in OUTSIDE or h in R1COL or r2b_covers(h, r2b):   # посчитано вне Летописи (В-213: не пересчитывать) — отдельная графа, в --cells не идёт
                 tot["outside"] += 1
+                tot["outside_r1" if h in R1COL else "outside_r2b" if h not in OUTSIDE else "outside_r2t"] += 1
             else:
                 n_new += 1
                 if ch.cell_hash({**cfg, "universe": "v171b"}) in have:   # есть в Летописи на другой вселенной (p07a, v171b) — зачёт решает Исследователь/§6
@@ -475,7 +507,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     txt = (f"Выписка В-224 · {protocol} F{k} · правила {rules.get('_version', '—')}\n"
            f"в сетке {tot['grid']} хешей (× {months} мес. = {tot['grid'] * months} хеш-мес.); в Летописи {tot['have']} хешей "
            f"({tot['have_hm']} хеш-мес. с результатами); к счёту {tot['new']} хешей (× {months} = {tot['new'] * months} хеш-мес.); "
-           f"посчитано вне Летописи (загрузить, не считать) {tot['outside']} хешей; гипотез закрыто {len(closed)}; из «к счёту» {tot['uni']} совпали бы с Летописью на вселенной v171b (не совпало: вселенная)")
+           f"посчитано вне Летописи (загрузить, не считать) {tot['outside']} хешей (R1 r1ext {tot['outside_r1']}, R2-B TK-115 янв–сен {tot['outside_r2b']}, r2t Г-117 {tot['outside_r2t']}); не считается — колонки нет в сигналах пула (Г-82 60s, охват 0) {tot['nodata']} хешей; гипотез закрыто {len(closed)}; из «к счёту» {tot['uni']} совпали бы с Летописью на вселенной v171b (не совпало: вселенная)")
     print(txt)
     out = out or os.path.join(ROOT, "data", "plan", f"{protocol}-F{k}-new.jsonl")
     os.makedirs(os.path.dirname(out), exist_ok=True)
