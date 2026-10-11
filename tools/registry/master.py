@@ -250,6 +250,12 @@ def rust_axes(hyp, av, sv):
         if be not in ("да", "нет"):
             return ttl, None, None, f"be: «да»|«нет», получено {av['be']!r}"
         return ttl, f"gone{w}" + ("be" if be == "да" else ""), None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
+    if n == "141":   # gone<W>wall<B> | wallx | wallk: стоп на цену снятой стены (forms.rs GoneWall); W ∈ (0, 100] %, B — bps ∈ [0, 10000)
+        w, b = _int_in(_frac(av["gone_w"]), (10, 25, 50, 75, 90)), _int_in(_frac(av["wall_buf_bps"]), (0, 1, 2, 4, 8, 16))
+        mode = {"wall": "", "wallx": "x", "wallk": "k"}.get(str(av["wall_mode"]).strip())
+        if w is None or b is None or mode is None:
+            return ttl, None, None, "gone<W>wall<B>: W ∈ {10, 25, 50, 75, 90}, B ∈ {0, 1, 2, 4, 8, 16} bps, режим ∈ {wall, wallx, wallk}"
+        return ttl, f"gone{w}wall{mode}{b}", None, None
     if n == "117":   # tslx<G>t<Q>: γ = G/8, T = Q/16 дедлайна; работает только при trail_bps = 0 (strategy/plan.rs, PyramidCfg.sched_*)
         g8, t16 = _int_in(8 * _frac(av["gamma"]), range(1, 65)), _int_in(16 * _frac(av["T"]), range(1, 17))
         if not (g8 and t16):

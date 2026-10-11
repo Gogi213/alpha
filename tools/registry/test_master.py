@@ -33,6 +33,14 @@ class MasterTest(unittest.TestCase):
     def cfg_hash(self, n):
         return ch.cell_hash({"stop": 200, "variant": {"family": "g87", "axes": {"n": n}}})
 
+    def test_g141_gone_wall_names(self):
+        """В-227 М3: Г-141 -> gone<W>wall[x|k]<B> (forms.rs GoneWall); вне доменов — причина, не имя."""
+        sv = {"entry_ttl_s": 1800}
+        av = {"gone_w": "25", "wall_buf_bps": "4", "wall_mode": "wallk"}
+        self.assertEqual(master.rust_axes("Г-141", av, sv), (1800, "gone25wallk4", None, None))
+        self.assertEqual(master.rust_axes("Г-141", {**av, "wall_mode": "wall"}, sv)[1], "gone25wall4")
+        self.assertIsNone(master.rust_axes("Г-141", {**av, "wall_buf_bps": "3"}, sv)[1])
+
     def test_bind_hyp_has_no_cells(self):
         """В-227 М4/М8: engine bind:<хозяин> — гипотеза закрыта привязкой, клеток не даёт; хозяин не затронут."""
         self.have = {}

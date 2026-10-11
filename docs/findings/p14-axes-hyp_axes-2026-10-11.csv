@@ -58,6 +58,9 @@ hyp;stack;engine;param;role;old_points;f1_points;lo;hi;n_f1;grid;note
 Г-104;B1;rust;exit_share;tit;50|90;10|25|50|75|90;10;90;5;share×be;
 Г-104;B1;rust;be;tit;да;да|нет;;;2;share×be;категориальная
 Г-129;B1;rust;entry_ttl;tit;60|300;10|30|60|120|300|600|900|1200|1800;10;1800;9;;1800 = B1
+Г-141;B1;rust;gone_w;tit;;10|25|50|75|90;10;90;5;W×B×mode;gone<W>: доля снятия, %
+Г-141;B1;rust;wall_buf_bps;tit;;0|1|2|4|8|16;0;16;6;W×B×mode;буфер за стеной, bps
+Г-141;B1;rust;wall_mode;tit;;wall|wallx|wallk;;;3;W×B×mode;категориальная: wall — перенос стопа, wallx — выход сразу, wallk — стоп плана до конца
 Г-09;B1;bind:Г-10;btc_window_h;fixed;4;;;;;;"М4: ядро B1 (BTC 4 ч) = ось Г-10; отдельной нет"
 Г-132;B1;bind:Г-93;K;fixed;;;;;;;"М8: ось K×u пирамидинга = F1 Г-93 (K ∈ {1…8}); отдельной клетки нет (r2-spec)"
 Г-62;B1;python;terc_q;tit;33|67;5|10|20|33|50|67|80|90|95;5;95;9;;признак: ER 60м
