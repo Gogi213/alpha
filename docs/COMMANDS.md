@@ -231,7 +231,7 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 
 > **Потолок ожидания отмены (F8b, В-79):** обе фазы отмены (`CancelPending` входа, `ExitCancelPending` выхода) ждут подтверждения не дольше `CANCEL_WAIT_NS` = 1 с (измеренное В-68 p95 снятия 4.55 мс × ~200), при этом снятие повторяется на каждом шаге для ног, чей запрос постановки летел в момент снятия. Срабатывание видно в `forms.csv`: `n_entry_cancelled_cancel_timeout` и `n_exit_cancel_timeout` (в сетке без срабатываний — нули). **F8c (К1, сироты):** заявка, чьё снятие не подтвердилось за потолок, становится «сиротой» — стратегия повторяет её снятие на каждом событии в любой фазе, пока биржа не подтвердит, а исполнение сироты не теряется: нога входа гасится по рынку (IOC), нога выхода зачитывается в позицию; колонка `n_orphan_fills` (ноль — норма; `f3-queue-gate.sh` требует нуля вместе с потолками). В бэктесте драйвер заканчивает круг на `Idle`, так что сирота **входа** там сметается только пока круг жив; полный механизм — свойство долгоживущей стратегии живого контура (тесты `strategy/tests.rs`: `an_orphan_is_released_once_the_exchange_confirms_the_cancel`, `a_filled_entry_orphan_is_flattened_and_counted`, `a_filled_exit_orphan_is_accounted_as_our_exit`).
 
-`tools/compute/nightly-grid.sh` (копия — `/opt/alpha-compute/bin/nightly-grid.sh`) по таймеру
+`tools/compute/archive/nightly-grid.sh` (копия — `/opt/alpha-compute/bin/nightly-grid.sh`) по таймеру
 `alpha-grid-nightly.timer` (`tools/systemd/`, 02:00 UTC, после переноса суток 00:45) делает две вещи.
 
 **1. Касания и матрица флоров (H3, 19.09) — до сеток**, чтобы утром матрица была даже если сетки не
