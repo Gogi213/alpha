@@ -86,6 +86,8 @@ def config_of(c, var, sets, run_pool):
     g = p.get("group", "")
     nm = c["set_name"].split("/", 1)[-1]
     uni = UNIVERSE[run_pool]
+    if p.get("cfg_json"):  # клетка загружена по готовому конфигу плана (R2-B, load_r2b.py): конфиг хранится с клеткой
+        return json.loads(p["cfg_json"]), "конфиг плана P-14 (params.cfg_json)"
     if "hdr_side" in p:  # пул TK-040: набор по имени из --set прогона; нет в файле — шапка группы
         if g.startswith("p05") and nm in sets:  # p05: имена наборов уникальны и несут признаки; в прочих группах набор t-bid-btc4h-q1 — метка, признаки в шапке группы
             st, src = set_of(sets[nm]), "--set прогона TK-040 (" + nm + ")"

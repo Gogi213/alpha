@@ -31,7 +31,7 @@ class T(unittest.TestCase):
 
     def test_registry_map_self_check_and_distinct(self):
         rows = cr.build()
-        self.assertEqual(len(rows), 442)
+        self.assertEqual(len(rows), 473)  # 442 + 31 клетка R2-B (load_r2b.py, 12.10)
         self.assertEqual(cr.check(rows), [])  # равный хеш => равные trades/sum_net по общим месяцам results
         h = {r[4]: r[1] for r in rows}
         self.assertNotEqual(h["p05-b/p05-f25-u25k"], h["p05-c/p05-f25-a120-u25k"])  # возраст p05-b 2700, не 7200
