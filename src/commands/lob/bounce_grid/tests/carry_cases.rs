@@ -1,6 +1,7 @@
+use super::keys::probe_touch;
 use super::*;
 
-fn day_start_ns_for_test(day: &str) -> i64 {
+pub(super) fn day_start_ns_for_test(day: &str) -> i64 {
     chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
         .unwrap()
         .and_hms_opt(0, 0, 0)

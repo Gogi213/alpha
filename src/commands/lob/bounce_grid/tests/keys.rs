@@ -112,7 +112,7 @@ fn eaten_key_filters_by_wall_state_at_touch() {
     );
 }
 
-fn probe_touch() -> TouchRecord {
+pub(super) fn probe_touch() -> TouchRecord {
     TouchRecord {
         side: Side::Bid,
         price_tick: 1,
