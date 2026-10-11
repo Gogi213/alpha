@@ -41,6 +41,31 @@ class T(unittest.TestCase):
             p = os.path.join(d, "k.csv"); closure_mech.write_keep(p, {("B", "2026-01-05", "f", "2"), ("A", "2026-01-05", "f", "1")})
             self.assertEqual(open(p).read(), "symbol,day_utc,signal_index,form\nA,2026-01-05,1,f\nB,2026-01-05,2,f\n")
 
+    def test_run_keep_identity_and_foreign_keys(self):
+        from closures import keep_all
+        with tempfile.TemporaryDirectory() as d:
+            t = os.path.join(d, "2026-01", "2026-01-05", "t-bid-btc4h-q1"); os.makedirs(t)
+            f = closure_mech.B1_FORM
+            open(os.path.join(t, "signals.csv"), "w").write("symbol,day_utc,form,signal_index\nAAA,2026-01-05," + f + ",0\nAAA,2026-01-05,other,1\n")
+            open(os.path.join(t, "rounds.csv"), "w").write("symbol,day_utc,form,signal_index,net_bps,reason\nAAA,2026-01-05," + f + ",0,5.0,deadline\n")
+            seen = []
+
+            def fake_chain(mon, work, keep=None):
+                os.makedirs(work, exist_ok=True); seen.append(keep)
+                out = {}
+                for c in (0, 3):
+                    out[c] = os.path.join(work, f"c{c}.json"); json.dump({"v": {mon: {str(c): [[1, 2.5]]}}}, open(out[c], "w"))
+                return out
+            orig = closure_mech.Ctx.__init__
+            closure_mech.Ctx.__init__ = lambda self, mon, allowed, s_v=None, study=None: orig(self, mon, allowed, s_v=d)
+            try:
+                rows = closure_mech.run_keep(keep_all, "2026-01", os.path.join(d, "w"), chain_fn=fake_chain)
+            finally:
+                closure_mech.Ctx.__init__ = orig
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(all(r["signals_before"] == r["signals_kept"] == 1 and r["sum_before"] == r["sum_after"] == 2.5 for r in rows))
+            self.assertEqual(open(seen[-1]).read().splitlines()[1], "AAA,2026-01-05,0," + f)
+
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
             p, o = os.path.join(d, "c.json"), os.path.join(d, "o.csv")

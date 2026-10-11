@@ -118,12 +118,56 @@ def gate(mon, work):
             bad.append(f"cap{cap}: {path} != {ref}")
     if bad:
         raise SystemExit("гейт М5 НЕ пройден: " + "; ".join(bad))
-    print(f"гейт М5 {mon}: тождество с closes-b1d cap0/cap3 — байт в байт")
+    print(f"гейт М5 {mon}: тождество с closes-b1 cap0/cap3 — байт в байт")
+
+
+def _stats(path):
+    """(сделок, $) закрытий одного прогона psim: вариант → период → потолок → [[мс, $]]."""
+    n, s = 0, 0.0
+    for per in json.load(open(path, encoding="utf-8")).values():
+        for caps in per.values():
+            for rows in caps.values():
+                n += len(rows); s += sum(float(r[1]) for r in rows)
+    return n, round(s, 4)
+
+
+def keep_data(ctx):
+    """Сигналы B1 месяца с исходом круга (net_bps, reason) по ключу (symbol, day_utc, form, signal_index); круга нет — поля пустые."""
+    out = {(r["symbol"], r["day_utc"], r["form"], r["signal_index"]): r for r in ctx.rounds() if r["form"] == B1_FORM}
+    data = []
+    for s in ctx.signals():
+        if s["form"] != B1_FORM:
+            continue
+        k = (s["symbol"], s["day_utc"], s["form"], s["signal_index"])
+        data.append({**s, "net_bps": out[k]["net_bps"] if k in out else "", "reason": out[k]["reason"] if k in out else ""})
+    return data
+
+
+def run_keep(plugin, mon, work, spec="", chain_fn=None):
+    """KIND='keep': плагин → набор ключей keep → busy-replay → psim; строки «до/после» по потолку (до = цепочка без фильтра)."""
+    chain_fn = chain_fn or chain
+    ctx = Ctx(mon, tuple(plugin.SOURCES) + ("signals", "rounds"))
+    data = keep_data(ctx)
+    base = {c: _stats(p) for c, p in chain_fn(mon, os.path.join(work, "base")).items()}
+    rows = []
+    for i, pt in enumerate(grid_points(plugin.PARAMS, spec)):
+        keys = {(d["symbol"], d["day_utc"], d["form"], d["signal_index"]) for d in data}
+        kept = set(plugin.run(data, ctx, **pt))
+        if not kept <= keys:
+            raise SystemExit(f"{plugin.NAME} {pt}: плагин вернул ключи вне сигналов B1 месяца ({len(kept - keys)})")
+        w = os.path.join(work, f"pt{i}")
+        os.makedirs(w, exist_ok=True); write_keep(os.path.join(w, "keep.csv"), kept)
+        for c, p in chain_fn(mon, w, os.path.join(w, "keep.csv")).items():
+            n, s = _stats(p)
+            rows.append({"mechanic": plugin.NAME, "month": mon, "cap": c, "point": ";".join(f"{k}={pt[k]}" for k in sorted(pt)),
+                         "signals_before": len(keys), "signals_kept": len(kept), "n_before": base[c][0], "sum_before": base[c][1],
+                         "n_after": n, "sum_after": s})
+    return rows
 
 
 def run_all(plugin, closes, spec="", ctx=None):
     if plugin.KIND != "closes":
-        raise SystemExit(f"KIND {plugin.KIND}: цепочка busy-replay → expo → psim и гейт тождества с closes-b1d (calc) ещё не подключены")
+        raise SystemExit(f"KIND {plugin.KIND}: через run_keep (--work), KIND rounds ещё не подключён")
     rows = []
     for variant, per in sorted(closes.items()):
         for period, caps in sorted(per.items()):
@@ -144,14 +188,17 @@ def main(argv=None):
     ap.add_argument("--gate", metavar="РАБ", help="гейт тождества на calc: --month M --gate <рабочий каталог>, остальное не нужно")
     ap.add_argument("--closes"); ap.add_argument("--mechanic")
     ap.add_argument("--grid", default=""); ap.add_argument("--month", default="")  # ctx.month для KIND keep/rounds
-    ap.add_argument("--out")
+    ap.add_argument("--out"); ap.add_argument("--work", help="рабочий каталог цепочки (KIND keep, calc)")
     a = ap.parse_args(argv)
     if a.gate:
         return gate(a.month, a.gate)
-    if not (a.closes and a.mechanic and a.out):
-        ap.error("нужны --closes, --mechanic, --out (или --gate)")
+    if not (a.mechanic and a.out and (a.closes or a.work)):
+        ap.error("нужны --mechanic, --out и --closes (KIND closes) или --month и --work (KIND keep), либо --gate")
     plugin = load_plugin(a.mechanic)
-    rows = run_all(plugin, json.load(open(a.closes, encoding="utf-8")), a.grid, Ctx(a.month, plugin.SOURCES))
+    if plugin.KIND == "keep":
+        rows = run_keep(plugin, a.month, a.work, a.grid)
+    else:
+        rows = run_all(plugin, json.load(open(a.closes, encoding="utf-8")), a.grid, Ctx(a.month, plugin.SOURCES))
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["mechanic"], lineterminator="\n")
         w.writeheader(); w.writerows(rows)
