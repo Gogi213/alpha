@@ -87,5 +87,19 @@ class MasterTest(unittest.TestCase):
         self.assertEqual(cov[0][:7], ["P-14", "F1", 1, 7, 1, 6, 1])
 
 
+    def test_r2_adapter_matches_letopis(self):
+        """Г-87 n=2..5, Г-92 pyre3u1, Г-106 nostop — клетки Летописи находятся по хешу; не кодируемые формой значения — без строки --cells."""
+        import cellhash_reg as cr
+        have = {r[1] for r in cr.build()}
+        sv = {"entry": "ladder3x0..0.0409sw2", "stop": "pct2", "take": "tr1x1", "deadline_s": "14400", "entry_ttl_s": "1800", "set": "t-bid-btc4h-q1",
+              "universe": "pool v171c (В-210)", "sigma": "sigma240", "queue": "prob:3", "busy": "off"}
+        for hyp, av in (("Г-87", {"n": "2"}), ("Г-87", {"n": "5"}), ("Г-92", {"N": "3", "u": "1/3"}), ("Г-92", {"N": "5", "u": "1"}), ("Г-106", {"x": "1"})):
+            cfg = master.p14_cfg(hyp, sv, av)
+            self.assertIn(ch.cell_hash(cfg), have, (hyp, av, cfg["form"]))
+        cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"})
+        self.assertIsNone(master.LINES[ch.cell_hash(cfg)][0])
+        with self.assertRaises(SystemExit):
+            master.p14_cfg("Г-87", {**sv, "sigma": "sigma120"}, {"n": "2"})
+
 if __name__ == "__main__":
     unittest.main()

@@ -130,21 +130,84 @@ def family_of(hyp):
     return _FAMILY.get(n, "g" + n)  # может быть «g73-conj» (семья-признак R1)
 
 
+LINES = {}  # хеш клетки -> (строка --cells «форма набор» | None, причина, что нет кодировки); заполняет build_grid, читает plan
+
+
+def _frac(v):
+    """'1/3' / '0.5' / 2 -> float."""
+    n, _, d = str(v).partition("/")
+    return float(n) / float(d) if d else float(n)
+
+
+def _int_in(x, ok):
+    """x — целое из ok (допуск на дробь 1e-9) -> int, иначе None."""
+    r = round(x)
+    return int(r) if abs(x - r) < 1e-9 and r in ok else None
+
+
+def r2_exit(hyp, av):
+    """R2-гипотеза Rust-класса -> (входная форма или None, суффикс --exit-form, имя набора, причина отказа); имена и наборы — как в клетках Летописи
+    (tk065-r2-gen.py, tk115-delta-day.sh) и в forms.rs; значение оси вне ограничений формы -> суффикс None и причина."""
+    n = re.sub(r"\D", "", hyp)
+    g = lambda k: _frac(av[k])
+    if n == "87":   # pyfresh<N>, N ∈ [2, 10]; набор g87-fresh
+        v = _int_in(g("n"), range(2, 11))
+        return None, (f"pyfresh{v}" if v else None), "g87-fresh", None if v else "pyfresh<N>: N ∈ [2, 10]"
+    if n == "92":   # pyre<N>u<k>, N ∈ [1, 9], k = 3u ∈ {1, 2, 3}
+        nn, k = _int_in(g("N"), range(1, 10)), _int_in(3 * g("u"), (1, 2, 3))
+        return None, (f"pyre{nn}u{k}" if nn and k else None), "t-bid-btc4h-q1", None if nn and k else "pyre<N>u<k>: N ∈ [1, 9], u ∈ {1/3, 2/3, 1}"
+    if n == "93":   # pynw<K>u<k>, K ∈ [1, 9], k = 3u ∈ {1, 2, 3}
+        kk, k = _int_in(g("K"), range(1, 10)), _int_in(3 * g("u"), (1, 2, 3))
+        return None, (f"pynw{kk}u{k}" if kk and k else None), "t-bid-btc4h-q1", None if kk and k else "pynw<K>u<k>: K ∈ [1, 9], u ∈ {1/3, 2/3, 1}"
+    if n == "106":  # nostop<X2>, X2 = 2x ∈ {1, 2, 4}; набор e106-pop
+        x2 = _int_in(2 * g("x"), (1, 2, 4))
+        return None, (f"nostop{x2}" if x2 else None), "e106-pop", None if x2 else "nostop<X2>: x ∈ {1/2, 1, 2}"
+    if n == "119":  # conv<t>a20 (A = D20 прогона подходов), t ∈ [0, 9]
+        t = _int_in(g("tol_ticks"), range(0, 10))
+        return None, (f"conv{t}a20" if t is not None else None), "t-bid-btc4h-q1", None if t is not None else "conv<t>: t ∈ [0, 9]"
+    if n == "114":  # halfstop|halflevel[f1|f3]: f = q4/4, q4 ∈ {1, 2, 3}
+        q4 = _int_in(4 * g("f"), (1, 2, 3))
+        base = av["trigger"]
+        return None, (None if not q4 else base if q4 == 2 else f"{base}f{q4}"), "t-bid-btc4h-q1", None if q4 else "half…: f ∈ {1/4, 1/2, 3/4}"
+    if n == "95":   # другая лестница входа: ladder3x0..0.0409sw<w>, без суффикса выхода
+        w = _int_in(g("w"), range(2, 13))
+        return (f"ladder3x0..0.0409sw{w}" if w else None), "", "t-bid-btc4h-q1", None if w else "sw<w>: целое"
+    return False
+
+
 def p14_cfg(hyp, sv, av, fixed=()):
-    """Конфиг клетки П-14 без cfg_path: база B1 как в cellhash_reg (форма из стека, набор, исполнение, σ), вселенная — из стека,
-    вариант = семья гипотезы + значения осей (имена осей = ключи p12-cells: n, N, u, K, col, keep_q …)."""
+    """Конфиг клетки П-14 без cfg_path: база B1 как в cellhash_reg (форма из стека, набор, исполнение, σ), вселенная — из стека.
+    R2-гипотезы с кодировкой в Летописи (r2_exit) — форма с суффиксом выхода и набор, как у клеток Летописи; прочие — вариант
+    «семья + оси». Стек, не совпадающий с константами cellhash_reg (набор, σ, очередь, busy), — отказ."""
     import cellhash_reg as cr
-    form = f"{sv['entry']}-{sv['stop']}-{sv['take']}-{sv['deadline_s']}-ttl{sv['entry_ttl_s']}"
     sets = cr.load_sets()
-    st = cr.B1_SET if sv.get("set") == "t-bid-btc4h-q1" or sv.get("set") not in sets else cr.set_of(sets[sv["set"]])
+    if sv.get("set") not in sets:
+        sys.exit(f"plan: набор стека «{sv.get('set')}» не найден в --set прогонов (tk040-sets-jan.txt / EXTRA_SETS) — набор не назначаем молча")
+    for k, want in (("sigma", cr.B1_SIGMA.rsplit("/", 1)[-1]), ("queue", cr.STD_EXEC["queue"]), ("busy", cr.STD_EXEC["busy_skip"])):
+        if k in sv and str(sv[k]) != want:
+            sys.exit(f"plan: стек {k}={sv[k]} расходится с константой cellhash_reg ({want}) — исполнение берётся из неё; решение Судьи")
+    entry = sv["entry"]
+    set_name = sv["set"]
+    suffix, line_why = "", None
+    r2 = r2_exit(hyp, av) if av else False
+    if r2:
+        e, suffix, set_name, line_why = r2
+        entry = e or entry
+    form = f"{entry}-{sv['stop']}-{sv['take']}-{sv['deadline_s']}-ttl{sv['entry_ttl_s']}" + (f"-{suffix}" if suffix else "")
+    st = cr.B1_SET if set_name == "t-bid-btc4h-q1" else cr.set_of(sets[set_name])
     uni = cr.UNIVERSE["v171c"] if "v171c" in sv.get("universe", "") else cr.UNIVERSE["v171b"]
     cfg = {"form": form, "set": st, "exec": dict(cr.STD_EXEC), "sigma": cr.B1_SIGMA, "universe": uni}
-    if "keep_q" in av or "common_q" in av:  # R1: как у клеток Летописи — признак (None, если колонка одна, она в имени клетки не стоит), квантиль «kNN», порог по окну
+    if r2:
+        if line_why:
+            cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}  # не кодируется формой: хеш по варианту, в --cells не идёт
+        LINES[ch.cell_hash(cfg)] = (None if line_why else f"{form} {set_name}", line_why)
+    elif "keep_q" in av or "common_q" in av:  # R1: как у клеток Летописи — признак (None, если колонка одна, она в имени клетки не стоит), квантиль «kNN», порог по окну
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
         cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
     elif av:
         cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}
+        LINES[ch.cell_hash(cfg)] = (None, "нет кодировки формы в Летописи/forms.rs — вариант семьи, строки --cells нет")
     return cfg
 
 
@@ -270,7 +333,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     c.close()
     have = have_hashes() if have is None else have
     months = int(rules["months"])
-    rows, new_cfg, tot = [], [], collections.Counter()
+    rows, new_cfg, tot, lines, nocode = [], [], collections.Counter(), {}, collections.Counter()
     for hyp, cells in grids.items():
         seen, n_have, n_new, hm = set(), 0, 0, 0
         for av, cfg in cells:
@@ -284,7 +347,14 @@ def plan(protocol, k, hyps=None, out=None, have=None):
                 hm += len(have[h])
             else:
                 n_new += 1
+                if ch.cell_hash({**cfg, "universe": "v171b"}) in have:   # есть в Летописи на другой вселенной (p07a, v171b) — зачёт решает Исследователь/§6
+                    tot["uni"] += 1
                 new_cfg.append({"hash": h, "hyp": hyp, **ch.normalize(cfg)})
+                line, why = LINES.get(h, (f"{cfg['form']} {cfg['set_name']}" if cfg.get("set_name") else None, "вариант R1 (признак×квантиль) — не форма bounce-grid, строки --cells нет"))
+                if line:
+                    lines[h] = line
+                else:
+                    nocode[(hyp, why)] += 1
         tot.update(grid=len(seen), have=n_have, new=n_new, have_hm=hm)
         print(f"  {hyp}: в сетке {len(seen)}, в Летописи {n_have}, к счёту {n_new}")
     for hyp, why in closed.items():
@@ -294,7 +364,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     txt = (f"Выписка В-224 · {protocol} F{k} · правила {rules.get('_version', '—')}\n"
            f"в сетке {tot['grid']} хешей (× {months} мес. = {tot['grid'] * months} хеш-мес.); в Летописи {tot['have']} хешей "
            f"({tot['have_hm']} хеш-мес. с результатами); к счёту {tot['new']} хешей (× {months} = {tot['new'] * months} хеш-мес.); "
-           f"гипотез закрыто {len(closed)}")
+           f"гипотез закрыто {len(closed)}; из «к счёту» {tot['uni']} совпали бы с Летописью на вселенной v171b (не совпало: вселенная)")
     print(txt)
     out = out or os.path.join(ROOT, "data", "plan", f"{protocol}-F{k}-new.jsonl")
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -302,6 +372,26 @@ def plan(protocol, k, hyps=None, out=None, have=None):
         for d in new_cfg:
             f.write(json.dumps(d, ensure_ascii=False, sort_keys=True) + "\n")
     print("новые клетки (конфиг + хеш):", out)
+    cf = out[:-6] + ".cells" if out.endswith(".jsonl") else out + ".cells"
+    uniq = sorted(set(lines.values()))
+    with open(cf, "w", encoding="utf-8", newline="\n") as f:
+        f.write("".join(l + "\n" for l in uniq))
+    import cellhash_reg as cr
+    sets = cr.load_sets()
+    used = sorted({l.split()[1] for l in uniq})
+    forms = sorted({l.split()[0] for l in uniq})
+    with open(cf[:-6] + ".args", "w", encoding="utf-8", newline="\n") as f:   # аргументы bounce-grid к файлу --cells (формы выхода и наборы)
+        for e in sorted({fm.split("-pct", 1)[0] for fm in forms}):
+            f.write(f"--entry-form {e}\n")
+        for x in sorted({fm.split("-ttl1800-", 1)[1] for fm in forms if "-ttl1800-" in fm}):
+            f.write(f"--exit-form {x}\n")
+        for u in used:
+            f.write(f"--set {u}:{sets[u]}\n")
+    print(f"--cells (только новые, кодируемые формой): {cf} — {len(uniq)} строк; аргументы: {cf[:-6]}.args")
+    if nocode:
+        print("к счёту, но строки --cells нет (причина):")
+        for (hyp, why), n in sorted(nocode.items()):
+            print(f"  {hyp}: {n} — {why}")
     return {"grid": tot["grid"], "have": tot["have"], "new": tot["new"], "closed": closed, "text": txt, "out": out}
 
 
