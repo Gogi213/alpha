@@ -213,7 +213,8 @@ impl StrategyState {
                     }
                     OrphanKind::Entry => {
                         let depth = bot.depth(self.asset_no);
-                        let (bid, ask) = (depth.best_bid(), depth.best_ask());
+                        let ticks = best_ticks(depth);
+                        let tick_size = depth.tick_size();
                         let flat_side = match side {
                             HbtSide::Buy => HbtSide::Sell,
                             HbtSide::Sell => HbtSide::Buy,
@@ -223,7 +224,12 @@ impl StrategyState {
                         // (`exit_price` берёт сторону **позиции**: лонг гасится по
                         // биду). Нет книги или стороны — гасить нечем, повтор на
                         // следующем событии (`accounted` не двигается).
-                        if let Some(px) = exit_price(side, bid, ask) {
+                        let px_of = |t: i64| tick_to_px(t, tick_size);
+                        if let Some(px) = ticks.and_then(|(b, a)| match side {
+                            HbtSide::Buy => Some(px_of(b)),
+                            HbtSide::Sell => Some(px_of(a)),
+                            HbtSide::None | HbtSide::Unsupported => None,
+                        }) {
                             let id = self.take_order_id();
                             match flat_side {
                                 HbtSide::Buy => bot.submit_buy_order(

@@ -21,9 +21,8 @@ use crate::commands::lob::backtest::{
     EntryForm, PlanShape, PoolLot,
 };
 use crate::lob::backtest::{
-    drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, precompute_exit_group,
-    with_backtest_over, BounceRun, BounceSignal, CompactEvent, DriveConfig, ExecLatency,
-    QueueModelKind, RoundMemo, SignalWindows,
+    drive_bounce, drive_bounce_windowed, precompute_exit_group, with_backtest_over, BounceRun,
+    BounceSignal, CompactEvent, DriveConfig, ExecLatency, QueueModelKind, RoundMemo, SignalWindows,
 };
 use crate::lob::levels::TouchRecord;
 use crate::lob::sigma::SigmaSeries;
@@ -627,20 +626,30 @@ pub(super) fn drive_day(
                                     .lock()
                                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                                 match events {
-                                    DayRows::Compact(c) => drive_bounce_windowed_memo(
-                                        c, w, &signals, &cfg, p.rtt_ns, &mut m,
+                                    DayRows::Compact(c) => drive_bounce_windowed(
+                                        c,
+                                        w,
+                                        &signals,
+                                        &cfg,
+                                        p.rtt_ns,
+                                        Some(&mut m),
                                     ),
-                                    DayRows::Wide(e) => drive_bounce_windowed_memo(
-                                        e, w, &signals, &cfg, p.rtt_ns, &mut m,
+                                    DayRows::Wide(e) => drive_bounce_windowed(
+                                        e,
+                                        w,
+                                        &signals,
+                                        &cfg,
+                                        p.rtt_ns,
+                                        Some(&mut m),
                                     ),
                                 }
                             }
                             None => match events {
                                 DayRows::Compact(c) => {
-                                    drive_bounce_windowed(c, w, &signals, &cfg, p.rtt_ns)
+                                    drive_bounce_windowed(c, w, &signals, &cfg, p.rtt_ns, None)
                                 }
                                 DayRows::Wide(e) => {
-                                    drive_bounce_windowed(e, w, &signals, &cfg, p.rtt_ns)
+                                    drive_bounce_windowed(e, w, &signals, &cfg, p.rtt_ns, None)
                                 }
                             },
                         },

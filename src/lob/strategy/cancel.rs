@@ -99,8 +99,7 @@ impl StrategyState {
         // `Idle` ниже), расстояние до неё меряем в bps и берём по модулю
         // направления (`away`): у лонга цена уходит вверх, у шорта — вниз.
         if band_exit_bps > 0.0 && entry_px > 0.0 {
-            let (bid, ask) = (depth.best_bid(), depth.best_ask());
-            if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
+            if let Some((bid_t, ask_t)) = best_ticks(depth) {
                 let away = if entry_side == HbtSide::Buy {
                     1.0
                 } else {
@@ -112,7 +111,12 @@ impl StrategyState {
                     Some(t) => t as f64 * tick_px,
                     None => entry_px + away * grid_step_px * f64::from(grid_legs.max(1) - 1),
                 };
-                let own = if entry_side == HbtSide::Buy { bid } else { ask };
+                let own_t = if entry_side == HbtSide::Buy {
+                    bid_t
+                } else {
+                    ask_t
+                };
+                let own = tick_to_px(own_t, tick_px);
                 if outer > 0.0 && (own - outer) * away / outer * 10_000.0 > band_exit_bps {
                     return Some(EntryCancelReason::PriceLeft);
                 }
