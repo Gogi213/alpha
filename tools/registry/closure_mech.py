@@ -90,7 +90,7 @@ def grid_points(params, spec=""):
 
 B1_FORM = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 CHAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m5_chain.sh")
-GATE_REF = "/data/p12r3a/closes-b1d-cap{cap}-{mon}.json"   # эталон TK-192 (free 2750/+52,3 $; cap3 1503/−0,4 $)
+GATE_REF = "/data/p12r3a/closes-b1-cap{cap}-{mon}.json"   # эталон TK-191 (cap0 2750 сд./+52,32 $); closes-b1d пуст ({}) - vn-b без базы B1
 
 
 def write_keep(path, keys):
@@ -110,7 +110,7 @@ def chain(mon, work, keep_path=None):
 
 
 def gate(mon, work):
-    """Гейт «выкл = прежний»: keep=все (без --keep) -> закрытия байт в байт = closes-b1d. Расхождение — отказ."""
+    """Гейт «выкл = прежний»: keep=все (без --keep) -> закрытия байт в байт = closes-b1. Расхождение — отказ."""
     got, bad = chain(mon, work), []
     for cap, path in got.items():
         ref = GATE_REF.format(cap=cap, mon=mon)
