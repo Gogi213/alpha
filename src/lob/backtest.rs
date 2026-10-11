@@ -1904,7 +1904,9 @@ where
                 Some(w) => s.set_plan_wall2(plan, w, fill_ms, side == HbtSide::Buy, &mut wall_live),
                 None => s.set_plan(plan),
             }
-            s.set_next_order_id(id);
+            // `max`: общий вход мог израсходовать номера после того, как вызывающий назвал `id`
+            // (лестница, перепостановки) — вариант не должен повторять уже занятые (сольный круг = группа из одного).
+            s.set_next_order_id(id.max(entry_state.next_order_id()));
             s
         })
         .collect();
