@@ -1,0 +1,49 @@
+stack;version;param;value;note
+B1;P-14@r2;entry;ladder3x0..0.0409sw2;
+B1;P-14@r2;stop;pct2;
+B1;P-14@r2;take;tr1x1;
+B1;P-14@r2;deadline_s;14400;
+B1;P-14@r2;entry_ttl_s;1800;
+B1;P-14@r2;set;t-bid-btc4h-q1;
+B1;P-14@r2;age_s;2700;
+B1;P-14@r2;btc;btc4h<=-44.55;
+B1;P-14@r2;sigma;sigma240;
+B1;P-14@r2;latency;В-68;
+B1;P-14@r2;queue;prob:3;
+B1;P-14@r2;busy;off;
+B1;P-14@r2;side;long;
+B1;P-14@r2;universe;pool v171c (В-210), брак verdict.csv (В-181);
+B1;P-14@r2;notional_usd;500;
+B1;P-14@r2;window;2026-01-01..2026-09-30 (В-211);
+B1-market;P-14@r2;entry;market;Г-86 (не титруется в П-14)
+B1-market;P-14@r2;stop;pct2;
+B1-market;P-14@r2;take;tr1x1;
+B1-market;P-14@r2;deadline_s;14400;
+B1-market;P-14@r2;entry_ttl_s;1800;
+B1-market;P-14@r2;set;p02-h9e899-market;Г-86 (не титруется в П-14)
+B1-market;P-14@r2;age_s;2700;
+B1-market;P-14@r2;btc;btc4h<=-44.55;
+B1-market;P-14@r2;sigma;sigma240;
+B1-market;P-14@r2;latency;В-68;
+B1-market;P-14@r2;queue;prob:3;
+B1-market;P-14@r2;busy;off;
+B1-market;P-14@r2;side;long;
+B1-market;P-14@r2;universe;pool v171c (В-210), брак verdict.csv (В-181);
+B1-market;P-14@r2;notional_usd;500;
+B1-market;P-14@r2;window;2026-01-01..2026-09-30 (В-211);
+B1-before;P-14@r2;entry;ladder3x2..20w2-before;Г-105 (не титруется в П-14)
+B1-before;P-14@r2;stop;before;Г-105 (не титруется в П-14)
+B1-before;P-14@r2;take;tr1x1;
+B1-before;P-14@r2;deadline_s;14400;
+B1-before;P-14@r2;entry_ttl_s;1800;
+B1-before;P-14@r2;set;p02-h10-before;Г-105 (не титруется в П-14)
+B1-before;P-14@r2;age_s;2700;
+B1-before;P-14@r2;btc;btc4h<=-44.55;
+B1-before;P-14@r2;sigma;sigma240;
+B1-before;P-14@r2;latency;В-68;
+B1-before;P-14@r2;queue;prob:3;
+B1-before;P-14@r2;busy;off;
+B1-before;P-14@r2;side;long;
+B1-before;P-14@r2;universe;pool v171c (В-210), брак verdict.csv (В-181);
+B1-before;P-14@r2;notional_usd;500;
+B1-before;P-14@r2;window;2026-01-01..2026-09-30 (В-211);

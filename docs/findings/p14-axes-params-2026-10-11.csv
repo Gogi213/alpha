@@ -1,0 +1,39 @@
+param;unit;resolution;axis_type;description
+keep_q;pct;1;quantile;R1: квантиль отбора колонки касаний (направление фиксировано П-11)
+common_q;pct;1;quantile;R1: квантиль составного балла (3 гипотезы common_q)
+col;-;;cat;"R1: колонка признака таблицы касаний; каждая колонка — своя ось keep_q"
+terc_q;pct;1;quantile;"П-класс: терцили -> квантильная ось; признак — в note"
+usd_min_q;pct;1;quantile;П-класс: usd_min — квантильная ось (было верхняя/нижняя треть)
+n;count;1;num;R2: Г-87, верх — min-лот
+w;count;1;num;R2: Г-95, верх — min-лот
+N;count;1;num;R2: Г-92
+u;frac;1/12;num;R2: доля, Г-92/93
+K;count;1;num;R2: Г-93
+x;mult;;log;R2: множитель Г-106 (лог-2)
+gamma;mult;;log;R2: Г-117 (лог-2)
+T;frac;1/16;num;R2: Г-117 доля ttl/дедлайна
+tol_ticks;tick;1;num;R2: Г-119
+trigger;-;;cat;R2: Г-114 halfstop|halflevel
+f;frac;1/8;num;R2: Г-114
+W;s;1;num;R2: Г-112 окно, с
+q;pct;1;quantile;R2: Г-112 квантиль
+a;mult;;log;R2: Г-133 (лог-2)
+offset;tick;1;num;R2: Г-65, тики от цены
+entry_form;-;;cat;Д: Г-85 форма входа реестра
+btc_window_h;h;1;num;Д: Г-10 окно BTC, ч
+btc_thr_q;pct;1;quantile;Д: Г-10 порог = квантиль хода BTC по самому месяцу (файл порогов до apply)
+early_exit_s;s;0.5;num;Д: Г-110
+exit_share;pct;1;num;Д: Г-104 доля снятия (gone50->50, gone90->90)
+be;-;;cat;Д: Г-104 безубыток да|нет
+entry_ttl;s;1;num;Д: Г-129 (1800 = B1)
+hist_window_h;h;1;num;П: Г-47 окно истории
+hour_utc;h;1;circ;П: Г-14 час суток, соседи h+-1 mod 24
+weekday;-;;cat;П: Г-14 день недели (без плато)
+funding_min;min;1;num;П: Г-45 минут до фандинга
+turnover_share_pct;pct;0.01;num;П: Г-123 доля оборота, %
+loss_streak;count;1;num;П: Г-120 убытков подряд
+block_h;h;1;num;П: Г-120 блок, ч
+rv_ratio;mult;0.5;num;П: Г-24 порог RV5м/RV4ч
+chandelier_sigma;sigma4h;0.5;num;П: Г-25 люстра, sigma_4ч
+rv_day_q;pct;1;quantile;П: Г-25 порог RV суток (квантиль)
+share_1to1;frac;1/8;num;П: Г-109 доля на 1:1
