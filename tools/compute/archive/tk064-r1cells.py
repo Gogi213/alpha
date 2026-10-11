@@ -193,7 +193,10 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--jan-self", action="store_true",
                     help="TK-115, решение Судьи 09.10 (PRECEDENTS 61b2aabd): только январь, порог по B1-сигналам самого января (признаки, без исходов)")
+    ap.add_argument("--levels", default=",".join(map(str, LEVELS)),
+                    help="TK-189: доли «оставляем», % через запятую (умолчание прежние 80,67,50,33,20; F1 П-14: 95,90,80,67,50,33,20,10,5 — симметрично, нужно для 100−p)")
     a = ap.parse_args()
+    LEVELS[:] = sorted({int(x) for x in a.levels.split(",")}, reverse=True)
     months = ["jan"] if a.jan_self else MONTHS
     os.makedirs(a.out, exist_ok=True)
     loaded = {m: load_month(a.pool, m) for m in months}
