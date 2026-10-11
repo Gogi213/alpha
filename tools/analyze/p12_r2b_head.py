@@ -6,8 +6,9 @@ from collections import defaultdict
 import numpy as np
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
-if MODE != "free":
-    sys.exit("p12_r2b_head: только free (cap0)")
+if MODE not in ("free", "B2"):
+    sys.exit("p12_r2b_head: free (cap0) или B2 (cap3)")
+CAP = 0 if MODE == "free" else 3
 D = os.environ.get("P12_DIR", "data/p12r2b/")
 MONTHS = [f"2026-{m:02d}" for m in range(1, 10)]
 UTC = dt.timezone.utc
@@ -36,7 +37,7 @@ cal = [(dt.date(2026, 1, 1) + dt.timedelta(i)).isoformat() for i in range((dt.da
 di = {d: i for i, d in enumerate(cal)}
 raw = {}   # имя -> месяц -> [(мс, $)]
 for m in MONTHS:
-    j = json.load(open(f"{D}closes-r2bd-cap0-{m}.json"))
+    j = json.load(open(f"{D}closes-r2bd-cap{CAP}-{m}.json"))
     forms = list(j)
     assert len(forms) == len(ORDER), (m, len(forms))
     for (name, _), f in zip(ORDER, forms):
@@ -47,7 +48,7 @@ for m in MONTHS:
         raw.setdefault(name, {})[m] = out
 b1 = defaultdict(list)   # B1 v171c (psim TK-191, вселенная R2-B: минус 3 символо-суток): closes-b1-cap0-<мес>.json, сверка 2749/+50,36 $
 for m in MONTHS:
-    j = json.load(open(f"{D}closes-b1-cap0-{m}.json"))
+    j = json.load(open(f"{D}closes-b1-cap{CAP}-{m}.json"))
     assert len(j) == 1
     for per in next(iter(j.values())).values():
         for l in per.values():
