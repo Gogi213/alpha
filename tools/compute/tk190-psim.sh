@@ -13,7 +13,7 @@ import os, shutil
 O = "/data/p12r3a"; F = "/data/tk0190/fix"; S = "t-bid-btc4h-q1"
 for d, syms in (("2026-08-31", ("ADAUSDT", "GRAMUSDT")), ("2026-09-14", ("STXUSDT",))):
     dst = f"{O}/s-rf/{d[:7]}/{d}"; src = f"{O}/r2b/{d}/out/{d}"
-    os.unlink(dst); shutil.copytree(src, dst, symlinks=False)
+    shutil.rmtree(dst); shutil.copytree(src, dst, symlinks=False)
     for fn in ("rounds.csv", "signals.csv"):
         p = f"{dst}/{S}/{fn}"; hdr = [l for l in open(p, encoding="utf-8") if not l.startswith("#")][0]
         with open(p, "a", encoding="utf-8", newline="") as out:
