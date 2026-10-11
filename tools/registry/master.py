@@ -15,6 +15,9 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 FIND = os.path.join(ROOT, "docs", "findings")
 LAYERS = {"params.csv": ("params.jsonl", ("name",)), "stacks.csv": ("stacks.jsonl", ("stack", "version", "param")),
           "hyp_axes.csv": ("hyp_axes.jsonl", ("hyp", "protocol", "param")), "rules.csv": ("rules.jsonl", ("protocol", "version", "key"))}
+COLS = {"params.csv": ("name", "unit", "resolution", "axis_type", "cfg_path", "note"), "stacks.csv": ("stack", "version", "param", "value"),
+        "hyp_axes.csv": ("hyp", "protocol", "version", "stack", "param", "lo", "hi", "points_f1", "old_points", "note", "role", "engine"),
+        "rules.csv": ("protocol", "version", "key", "value")}
 RULE_DEFAULTS = {"months": 9}
 
 
@@ -40,14 +43,38 @@ def _replace(name, new, keyf):
     _wjl(name, [d for d in db.jl(name) if keyf(d) not in keys] + new)
 
 
-def load_axes(dirp):
-    """CSV TK-187/TK-188 -> jsonl; повторная загрузка заменяет строки по ключу. Возвращает {файл: строк}."""
+AXIS_TYPES = {"num": "numeric", "quantile": "numeric", "cat": "categorical", "circ": "circular"}
+
+
+def _read(p):
+    with open(p, encoding="utf-8-sig") as f:
+        return [{k.strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(f, delimiter=";")]
+
+
+def _adapt(fn, r, protocol, ver):
+    """Формат TK-188 (docs/findings/p14-axes-*.csv) -> строки слоёв; свой формат (name/points_f1/protocol) проходит как есть."""
+    if fn == "params.csv" and "param" in r:
+        r = {"name": r["param"], "unit": r.get("unit", ""), "resolution": r.get("resolution", ""),
+             "axis_type": AXIS_TYPES.get(r["axis_type"], r["axis_type"]), "cfg_path": r.get("cfg_path", ""), "note": r.get("description", "")}
+    if fn == "hyp_axes.csv" and "f1_points" in r:
+        r = {"hyp": r["hyp"], "protocol": protocol, "version": ver, "stack": r["stack"], "param": r["param"], "lo": r.get("lo", ""),
+             "hi": r.get("hi", ""), "points_f1": r["f1_points"], "old_points": r.get("old_points", ""), "note": r.get("note", ""),
+             "role": r.get("role", ""), "engine": r.get("engine", "")}
+    return r
+
+
+def load_axes(dirp, protocol="P-14"):
+    """CSV (формат TK-187 или TK-188; имена файлов params|stacks|hyp_axes|rules[.csv] или p14-axes-<слой>-*.csv) -> jsonl;
+    повторная загрузка заменяет строки по ключу. Возвращает {файл: строк}."""
     out = {}
     for fn, (jn, key) in LAYERS.items():
-        p = os.path.join(dirp, fn)
-        if not os.path.exists(p):
+        stem = fn[:-4]
+        cand = [x for x in sorted(os.listdir(dirp)) if x == fn or re.fullmatch(r"p14-axes-" + stem + r"-.*\.csv", x)]
+        if not cand:
             continue
-        rows = [{k.strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(open(p, encoding="utf-8-sig"), delimiter=";")]
+        rows = _read(os.path.join(dirp, cand[-1]))
+        ver = next((r["version"] for r in _read(os.path.join(dirp, next((x for x in sorted(os.listdir(dirp)) if x == "stacks.csv" or x.startswith("p14-axes-stacks")), cand[-1]))) if r.get("version")), "") if fn == "hyp_axes.csv" else ""
+        rows = [_adapt(fn, r, protocol, ver) for r in rows]
         for r in rows:
             miss = [k for k in key if not r.get(k)]
             if miss:
@@ -56,6 +83,8 @@ def load_axes(dirp):
                 if r.get("axis_type") not in ("numeric", "log", "categorical", "circular"):
                     sys.exit(f"load-axes: params.csv: axis_type у {r['name']} ∈ numeric|log|categorical|circular")
                 r["resolution"] = fval(r.get("resolution")) if r.get("resolution") else None
+        cols = COLS[fn]
+        rows = [{k: v for k, v in r.items() if k in cols} for r in rows]
         _replace(jn, rows, lambda d, key=key: tuple(d[k] for k in key))
         out[fn] = len(rows)
     return out
@@ -85,8 +114,44 @@ def _val(v):
     return json.loads(v) if v[:1] in "{[" else ch.num(v)
 
 
-def make_cfg(paths, sv, av):
-    """Значения стека + значения осей -> конфиг для cellhash (ось перекрывает стек)."""
+_FAMILY = {}
+
+
+def family_of(hyp):
+    """Г-87 -> g87 / e112 …: имя семьи, как в p12-cells (Летопись); нет в таблице -> g<номер> (хеш с Летописью не сверен)."""
+    if not _FAMILY:
+        for fn in ("p12-cells-2026-10-06.csv", "p12-cells-ext-2026-10-07.csv"):
+            if os.path.exists(os.path.join(FIND, fn)):
+                for r in csv.DictReader(open(os.path.join(FIND, fn), encoding="utf-8")):
+                    m = re.fullmatch(r"[a-z]+(\d+)(?:-[a-z]+)?", r["family"])
+                    if m:
+                        _FAMILY.setdefault(m.group(1), r["family"])
+    n = re.sub(r"\D", "", hyp)
+    return _FAMILY.get(n, "g" + n)  # может быть «g73-conj» (семья-признак R1)
+
+
+def p14_cfg(hyp, sv, av, fixed=()):
+    """Конфиг клетки П-14 без cfg_path: база B1 как в cellhash_reg (форма из стека, набор, исполнение, σ), вселенная — из стека,
+    вариант = семья гипотезы + значения осей (имена осей = ключи p12-cells: n, N, u, K, col, keep_q …)."""
+    import cellhash_reg as cr
+    form = f"{sv['entry']}-{sv['stop']}-{sv['take']}-{sv['deadline_s']}-ttl{sv['entry_ttl_s']}"
+    sets = cr.load_sets()
+    st = cr.B1_SET if sv.get("set") == "t-bid-btc4h-q1" or sv.get("set") not in sets else cr.set_of(sets[sv["set"]])
+    uni = cr.UNIVERSE["v171c"] if "v171c" in sv.get("universe", "") else cr.UNIVERSE["v171b"]
+    cfg = {"form": form, "set": st, "exec": dict(cr.STD_EXEC), "sigma": cr.B1_SIGMA, "universe": uni}
+    if "keep_q" in av or "common_q" in av:  # R1: как у клеток Летописи — признак (None, если колонка одна, она в имени клетки не стоит), квантиль «kNN», порог по окну
+        fam, _, feat = family_of(hyp).partition("-")
+        col = None if "col" in fixed else av.get("col", feat or None)
+        cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
+    elif av:
+        cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}
+    return cfg
+
+
+def make_cfg(paths, sv, av, hyp="", fixed=()):
+    """Значения стека + значения осей -> конфиг для cellhash (ось перекрывает стек); без cfg_path — адаптер П-14."""
+    if not paths:
+        return p14_cfg(hyp, sv, av, fixed)
     cfg = {}
     for k, v in {**sv, **av}.items():
         set_path(cfg, paths.get(k, k), _val(v))
@@ -122,7 +187,7 @@ def connect(build=True):
 
 # ---------- plan ----------
 def _axes(c, protocol, hyp):
-    return c.execute("select param, points_f1, hyp_axes.stack, version from hyp_axes where protocol=? and hyp=? order by rowid", (protocol, hyp)).fetchall()
+    return c.execute("select param, points_f1, hyp_axes.stack, version, coalesce(role, '') from hyp_axes where protocol=? and hyp=? order by rowid", (protocol, hyp)).fetchall()
 
 
 def _round(x, res):
@@ -159,9 +224,16 @@ def build_grid(c, protocol, k, hyps=None, rules=None):
     paths = dict(c.execute("select name, cfg_path from params where cfg_path is not null and cfg_path != ''"))
     ptypes = {r[0]: (r[1], r[2]) for r in c.execute("select name, axis_type, resolution from params")}
     grids, closed = {}, {}
+    eng = dict(c.execute("select hyp, engine from hyp_axes where engine is not null and engine != ''"))
     names = hyps or [r[0] for r in c.execute("select distinct hyp from hyp_axes where protocol=?", (protocol,))]
     for hyp in sorted(names):
         axes = _axes(c, protocol, hyp)
+        if eng.get(hyp) == "python":
+            closed[hyp] = "python-класс (§6.2): хешей нет — не в плане Rust"
+            continue
+        if any(a[4] == "pending" for a in axes):
+            closed[hyp] = "ось pending (список точек не назван) — не в сетке"
+            continue
         if not axes:
             closed[hyp] = "нет осей в hyp_axes"
             continue
@@ -182,7 +254,7 @@ def build_grid(c, protocol, k, hyps=None, rules=None):
         cells = []
         for combo in itertools.product(*[pts[a[0]] for a in axes]):
             av = dict(zip([a[0] for a in axes], combo))
-            cells.append((av, make_cfg(paths, sv, av)))
+            cells.append((av, make_cfg(paths, sv, av, hyp, {a[0] for a in axes if a[4] == 'fixed'})))
         lim = rules.get("cap_cells", 100)
         if k > 1 and len(cells) > lim:
             closed[hyp] = f"сетка {len(cells)} > потолка {int(lim)} клеток на гипотезу — сузить (решение Судьи)"
@@ -217,7 +289,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
         print(f"  {hyp}: в сетке {len(seen)}, в Летописи {n_have}, к счёту {n_new}")
     for hyp, why in closed.items():
         print(f"  {hyp}: {why}")
-    keys = {(r["protocol"], r["fraction"], r["hyp"]) for r in rows} | {(protocol, k, h) for h in grids}
+    keys = {(r["protocol"], r["fraction"], r["hyp"]) for r in rows} | {(protocol, k, h) for h in list(grids) + list(closed)}
     _wjl("plan_cells.jsonl", [d for d in db.jl("plan_cells.jsonl") if (d["protocol"], d["fraction"], d["hyp"]) not in keys] + rows)
     txt = (f"Выписка В-224 · {protocol} F{k} · правила {rules.get('_version', '—')}\n"
            f"в сетке {tot['grid']} хешей (× {months} мес. = {tot['grid'] * months} хеш-мес.); в Летописи {tot['have']} хешей "

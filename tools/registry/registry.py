@@ -109,7 +109,7 @@ def _parser():
     pl = sp.add_parser("plan", help="выписка до прохода (В-213): по файлу шагов — что готово в журнале, что считаем, стоимость; ставит отметку для alsched submit")
     pl.add_argument("steps", help="имя<TAB>выход<TAB>входы через :<TAB>команда, по строке на шаг")
     la = sp.add_parser("load-axes", help="params/stacks/hyp_axes/rules (csv, ';') -> jsonl канона (TK-187)")
-    la.add_argument("dir")
+    la.add_argument("dir"); la.add_argument("--protocol", default="P-14")
     pp = sp.add_parser("plan-grid", help="сетка фракции из hyp_axes, дедуп по хешу против results, выписка В-224 (TK-187)")
     pp.add_argument("--protocol", required=True); pp.add_argument("--fraction", type=int, required=True)
     pp.add_argument("--hyp", action="append"); pp.add_argument("--out")
@@ -129,7 +129,7 @@ def _cmd_plan(ns):
 
 def _cmd_load_axes(ns):
     import master
-    print(master.load_axes(ns.dir))
+    print(master.load_axes(ns.dir, ns.protocol))
 
 
 def _cmd_plan_grid(ns):

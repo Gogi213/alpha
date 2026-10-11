@@ -1,0 +1,48 @@
+{"stack": "B1", "version": "P-14@r2", "param": "entry", "value": "ladder3x0..0.0409sw2"}
+{"stack": "B1", "version": "P-14@r2", "param": "stop", "value": "pct2"}
+{"stack": "B1", "version": "P-14@r2", "param": "take", "value": "tr1x1"}
+{"stack": "B1", "version": "P-14@r2", "param": "deadline_s", "value": "14400"}
+{"stack": "B1", "version": "P-14@r2", "param": "entry_ttl_s", "value": "1800"}
+{"stack": "B1", "version": "P-14@r2", "param": "set", "value": "t-bid-btc4h-q1"}
+{"stack": "B1", "version": "P-14@r2", "param": "age_s", "value": "2700"}
+{"stack": "B1", "version": "P-14@r2", "param": "btc", "value": "btc4h<=-44.55"}
+{"stack": "B1", "version": "P-14@r2", "param": "sigma", "value": "sigma240"}
+{"stack": "B1", "version": "P-14@r2", "param": "latency", "value": "В-68"}
+{"stack": "B1", "version": "P-14@r2", "param": "queue", "value": "prob:3"}
+{"stack": "B1", "version": "P-14@r2", "param": "busy", "value": "off"}
+{"stack": "B1", "version": "P-14@r2", "param": "side", "value": "long"}
+{"stack": "B1", "version": "P-14@r2", "param": "universe", "value": "pool v171c (В-210), брак verdict.csv (В-181)"}
+{"stack": "B1", "version": "P-14@r2", "param": "notional_usd", "value": "500"}
+{"stack": "B1", "version": "P-14@r2", "param": "window", "value": "2026-01-01..2026-09-30 (В-211)"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "entry", "value": "market"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "stop", "value": "pct2"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "take", "value": "tr1x1"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "deadline_s", "value": "14400"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "entry_ttl_s", "value": "1800"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "set", "value": "p02-h9e899-market"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "age_s", "value": "2700"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "btc", "value": "btc4h<=-44.55"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "sigma", "value": "sigma240"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "latency", "value": "В-68"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "queue", "value": "prob:3"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "busy", "value": "off"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "side", "value": "long"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "universe", "value": "pool v171c (В-210), брак verdict.csv (В-181)"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "notional_usd", "value": "500"}
+{"stack": "B1-market", "version": "P-14@r2", "param": "window", "value": "2026-01-01..2026-09-30 (В-211)"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "entry", "value": "ladder3x2..20w2-before"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "stop", "value": "before"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "take", "value": "tr1x1"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "deadline_s", "value": "14400"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "entry_ttl_s", "value": "1800"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "set", "value": "p02-h10-before"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "age_s", "value": "2700"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "btc", "value": "btc4h<=-44.55"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "sigma", "value": "sigma240"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "latency", "value": "В-68"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "queue", "value": "prob:3"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "busy", "value": "off"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "side", "value": "long"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "universe", "value": "pool v171c (В-210), брак verdict.csv (В-181)"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "notional_usd", "value": "500"}
+{"stack": "B1-before", "version": "P-14@r2", "param": "window", "value": "2026-01-01..2026-09-30 (В-211)"}

@@ -1,0 +1,38 @@
+{"name": "keep_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R1: квантиль отбора колонки касаний (направление фиксировано П-11)"}
+{"name": "common_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R1: квантиль составного балла (3 гипотезы common_q)"}
+{"name": "col", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "R1: колонка признака таблицы касаний; каждая колонка — своя ось keep_q"}
+{"name": "terc_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-класс: терцили -> квантильная ось; признак — в note"}
+{"name": "usd_min_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-класс: usd_min — квантильная ось (было верхняя/нижняя треть)"}
+{"name": "n", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-87, верх — min-лот"}
+{"name": "w", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-95, верх — min-лот"}
+{"name": "N", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-92"}
+{"name": "u", "unit": "frac", "resolution": 0.08333333333333333, "axis_type": "numeric", "cfg_path": "", "note": "R2: доля, Г-92/93"}
+{"name": "K", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-93"}
+{"name": "x", "unit": "mult", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "R2: множитель Г-106 (лог-2)"}
+{"name": "gamma", "unit": "mult", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "R2: Г-117 (лог-2)"}
+{"name": "T", "unit": "frac", "resolution": 0.0625, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-117 доля ttl/дедлайна"}
+{"name": "tol_ticks", "unit": "tick", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-119"}
+{"name": "trigger", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "R2: Г-114 halfstop|halflevel"}
+{"name": "f", "unit": "frac", "resolution": 0.125, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-114"}
+{"name": "W", "unit": "s", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-112 окно, с"}
+{"name": "q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-112 квантиль"}
+{"name": "a", "unit": "mult", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "R2: Г-133 (лог-2)"}
+{"name": "offset", "unit": "tick", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-65, тики от цены"}
+{"name": "entry_form", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "Д: Г-85 форма входа реестра"}
+{"name": "btc_window_h", "unit": "h", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-10 окно BTC, ч"}
+{"name": "btc_thr_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-10 порог = квантиль хода BTC по самому месяцу (файл порогов до apply)"}
+{"name": "early_exit_s", "unit": "s", "resolution": 0.5, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-110"}
+{"name": "exit_share", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-104 доля снятия (gone50->50, gone90->90)"}
+{"name": "be", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "Д: Г-104 безубыток да|нет"}
+{"name": "entry_ttl", "unit": "s", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-129 (1800 = B1)"}
+{"name": "hist_window_h", "unit": "h", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-47 окно истории"}
+{"name": "hour_utc", "unit": "h", "resolution": 1.0, "axis_type": "circular", "cfg_path": "", "note": "П: Г-14 час суток, соседи h+-1 mod 24"}
+{"name": "weekday", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "П: Г-14 день недели (без плато)"}
+{"name": "funding_min", "unit": "min", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-45 минут до фандинга"}
+{"name": "turnover_share_pct", "unit": "pct", "resolution": 0.01, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-123 доля оборота, %"}
+{"name": "loss_streak", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-120 убытков подряд"}
+{"name": "block_h", "unit": "h", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-120 блок, ч"}
+{"name": "rv_ratio", "unit": "mult", "resolution": 0.5, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-24 порог RV5м/RV4ч"}
+{"name": "chandelier_sigma", "unit": "sigma4h", "resolution": 0.5, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-25 люстра, sigma_4ч"}
+{"name": "rv_day_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-25 порог RV суток (квантиль)"}
+{"name": "share_1to1", "unit": "frac", "resolution": 0.125, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-109 доля на 1:1"}
