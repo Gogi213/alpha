@@ -418,9 +418,9 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::Wall2 { behind } => {
+                crate::commands::lob::bounce_grid::ExitForm::Wall2 { k } => {
                     crate::lob::strategy::PyramidCfg {
-                        wall2: if behind { 2 } else { 1 },
+                        wall2: crate::lob::strategy::wall2_code(k),
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }

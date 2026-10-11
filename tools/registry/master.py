@@ -169,6 +169,10 @@ def r2_exit(hyp, av):
         q4 = _int_in(4 * g("f"), (1, 2, 3))
         base = av["trigger"]
         return None, (None if not q4 else base if q4 == 2 else f"{base}f{q4}"), "t-bid-btc4h-q1", None if q4 else "half…: f ∈ {1/4, 1/2, 3/4}"
+    if n == "65":   # цель = 2-я стена + k тиков, k ∈ −3..3 (Судья 11.10): wall2 ≡ −1, wall2x ≡ +1, wall20, wall2m<n>, wall2p<n> (forms.rs)
+        k = _int_in(g("offset"), range(-3, 4))
+        name = None if k is None else {-1: "wall2", 1: "wall2x", 0: "wall20"}.get(k, f"wall2m{-k}" if k < 0 else f"wall2p{k}")
+        return None, name, "t-bid-btc4h-q1", None if name else "wall2: offset ∈ −3..+3 тиков"
     if n == "95":   # другая лестница входа: ladder3x0..0.0409sw<w>, без суффикса выхода
         w = _int_in(g("w"), range(2, 13))
         return (f"ladder3x0..0.0409sw{w}" if w else None), "", "t-bid-btc4h-q1", None if w else "sw<w>: целое"

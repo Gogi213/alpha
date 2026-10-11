@@ -844,12 +844,30 @@ fn nostop_form_parses_only_the_grid_multipliers() {
 #[cfg(feature = "r2")]
 #[test]
 fn wall2_form_parses_both_offsets() {
-    assert_eq!(
-        ExitForm::parse("wall2").unwrap(),
-        ExitForm::Wall2 { behind: false }
-    );
-    assert_eq!(ExitForm::Wall2 { behind: true }.label(), "wall2x");
+    assert_eq!(ExitForm::parse("wall2").unwrap(), ExitForm::Wall2 { k: -1 });
+    assert_eq!(ExitForm::Wall2 { k: 1 }.label(), "wall2x");
     assert!(ExitForm::parse("wall3").is_err());
+    // TK-189: ось k ∈ −3..+3, имена канонические, коды 1/2 прежние
+    for (name, k, code) in [
+        ("wall2m3", -3, 6),
+        ("wall2m2", -2, 4),
+        ("wall2", -1, 1),
+        ("wall20", 0, 3),
+        ("wall2x", 1, 2),
+        ("wall2p2", 2, 5),
+        ("wall2p3", 3, 7),
+    ] {
+        let f = ExitForm::parse(name).unwrap();
+        assert_eq!(f, ExitForm::Wall2 { k });
+        assert_eq!(f.label(), name);
+        assert_eq!(crate::lob::strategy::wall2_code(k), code);
+        assert_eq!(crate::lob::strategy::WALL2_K[usize::from(code) - 1], k);
+    }
+    for bad in [
+        "wall2m4", "wall2p0", "wall2m0", "wall2p1", "wall2m1", "wall2k1", "wall2p",
+    ] {
+        assert!(ExitForm::parse(bad).is_err(), "{bad}");
+    }
 }
 
 /// TK-115 (e65): журнал стен суток читается из суточного файла кэша; нет файла — отказ, не пустой журнал.

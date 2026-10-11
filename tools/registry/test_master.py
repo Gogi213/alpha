@@ -96,6 +96,11 @@ class MasterTest(unittest.TestCase):
         for hyp, av in (("Г-87", {"n": "2"}), ("Г-87", {"n": "5"}), ("Г-92", {"N": "3", "u": "1/3"}), ("Г-92", {"N": "5", "u": "1"}), ("Г-106", {"x": "1"})):
             cfg = master.p14_cfg(hyp, sv, av)
             self.assertIn(ch.cell_hash(cfg), have, (hyp, av, cfg["form"]))
+        # Г-65: offset k -> wall2 / wall2x (Летопись, хеш найден) и новые wall2m<n>/wall20/wall2p<n>
+        for off, name in (("-1", "wall2"), ("1", "wall2x"), ("0", "wall20"), ("-3", "wall2m3"), ("2", "wall2p2")):
+            cw = master.p14_cfg("Г-65", sv, {"offset": off})
+            self.assertTrue(cw["form"].endswith("-" + name), cw["form"])
+            self.assertEqual(master.LINES[ch.cell_hash(cw)][0], cw["form"] + " t-bid-btc4h-q1")
         # Г-117: тейк 1to1 (стек B3); общие точки — tsl<G>t<Q>, остальные — tslx
         c1 = master.p14_cfg("Г-117", sv, {"gamma": "1", "T": "1/2"})
         self.assertTrue(c1["form"].endswith("-1to1-14400-ttl1800-tsl10t2"), c1["form"])

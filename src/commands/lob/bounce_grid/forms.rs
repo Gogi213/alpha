@@ -72,9 +72,10 @@ pub enum ExitForm {
     Converge { tol: u8, a_bps: u32 },
     /// `nostop<X2>` (TK-115, Г-106): стопа нет, пока прибыль не дошла до `X2/2 · trail_activate_bps` и цена не ушла за безубыток; затем стоп = безубыток. `X2` ∈ {1, 2, 4} (×0,5; ×1; ×2).
     NoStop { x2: u8 },
-    /// `wall2` / `wall2x` (TK-115, Г-65 `e65-t2`/`e65-t2x`): цель — вторая живая аск-стена (шорт — бид-стена) на момент исполнения входа
-    /// из журнала стен, на тик перед ней / за ней; фиксированный тейк, `trail_bps = 0`; меньше двух стен — сделка = B1.
-    Wall2 { behind: bool },
+    /// `wall2` / `wall2x` / `wall20` / `wall2m<n>` / `wall2p<n>` (TK-115, Г-65; TK-189 — ось k): цель — вторая живая аск-стена (шорт — бид-стена)
+    /// на момент исполнения входа из журнала стен, на `k` тиков от её цены (`k` < 0 — перед стеной, > 0 — за ней; `wall2` ≡ k = −1,
+    /// `wall2x` ≡ k = +1; |k| ≤ 3); фиксированный тейк, `trail_bps = 0`; меньше двух стен — сделка = B1.
+    Wall2 { k: i8 },
     /// `chase<мс>` (TK-115, Г-133): на дедлайне мейкер-погоня вместо рынка, окно `W` мс; по истечении — рынок.
     Chase { ms: u32 },
     /// `tape<W>q<Q>` (TK-115, Г-112; окно W с): выход по рынку, когда лента против позиции за окно с входа / размер стены ≥ `Q`, позиция в минусе. `Q` — порог (терциль по журналу B1, Исследователь). Нужен `--tape-log`.
@@ -121,7 +122,11 @@ impl ExitForm {
             ExitForm::Chase { ms } => format!("chase{ms}"),
             ExitForm::Tape { w, q } => format!("tape{w}q{q}"),
             ExitForm::Cxl { w, q } => format!("cxl{w}q{q}"),
-            ExitForm::Wall2 { behind } => format!("wall2{}", if *behind { "x" } else { "" }),
+            ExitForm::Wall2 { k: -1 } => "wall2".to_string(),
+            ExitForm::Wall2 { k: 1 } => "wall2x".to_string(),
+            ExitForm::Wall2 { k: 0 } => "wall20".to_string(),
+            ExitForm::Wall2 { k } if *k < 0 => format!("wall2m{}", -k),
+            ExitForm::Wall2 { k } => format!("wall2p{k}"),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -265,10 +270,25 @@ impl ExitForm {
             );
             return Ok(form);
         }
-        if spec == "wall2" || spec == "wall2x" {
-            return Ok(ExitForm::Wall2 {
-                behind: spec == "wall2x",
-            });
+        if let Some(rest) = spec.strip_prefix("wall2") {
+            let k: Option<i8> = match rest {
+                "" => Some(-1),
+                "x" => Some(1),
+                "0" => Some(0),
+                _ => rest
+                    .strip_prefix('m')
+                    .map(|n| (n, -1))
+                    .or_else(|| rest.strip_prefix('p').map(|n| (n, 1)))
+                    .and_then(|(n, sg)| n.parse::<i8>().ok().map(|v| v * sg)),
+            };
+            if let Some(k) = k {
+                let form = ExitForm::Wall2 { k };
+                anyhow::ensure!(
+                    (-3..=3).contains(&k) && form.label() == spec,
+                    "--exit-form {spec:?}: ожидается wall2 | wall2x | wall20 | wall2m<n> | wall2p<n>, n ∈ 1..=3 (k тиков от цены 2-й стены)"
+                );
+                return Ok(form);
+            }
         }
         if let Some(rest) = spec.strip_prefix("chase") {
             let ms: u32 = rest.parse().map_err(|_| {

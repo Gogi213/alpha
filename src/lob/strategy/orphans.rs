@@ -75,9 +75,9 @@ impl StrategyState {
                 let wall_side = if long { Side::Ask } else { Side::Bid };
                 if let Some(t) = second_wall_tick(walls, wall_side, fill_ms, entry_tick, long, live)
                 {
-                    // «перед стеной» у лонга — ниже, у шорта — выше; «за» — наоборот.
-                    let before = if long { -1 } else { 1 };
-                    let off = if w2 == 1 { before } else { -before };
+                    // k < 0 «перед стеной» у лонга — ниже, у шорта — выше; k > 0 «за» — наоборот.
+                    let k = i64::from(WALL2_K[usize::from(w2) - 1]);
+                    let off = if long { k } else { -k };
                     *take_px = (t + off) as f64 * tick_px - shift;
                     *trail_bps = 0.0;
                 }
