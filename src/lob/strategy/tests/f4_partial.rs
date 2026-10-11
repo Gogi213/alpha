@@ -307,6 +307,27 @@ pub(super) fn halflevel_closes_half_on_the_first_trade_below_the_level() {
     );
 }
 
+/// Г-117 `tslx` (точки F1 П-14): γ = G/8, T = Q/16 — те же цены, что у `tsl` при совпадающих γ и T; прежние поля не тронуты.
+#[test]
+pub(super) fn scheduled_take_x_matches_the_old_encoding_on_shared_points() {
+    let mut old = PyramidCfg::OFF;
+    old.sched_g10 = 10;
+    old.sched_t4 = 2;
+    let mut new = PyramidCfg::OFF;
+    new.sched_g8 = 8;
+    new.sched_t16 = 8;
+    let (entry, take, tick, dl) = (100.0, 101.0, 0.01, 1000 * S);
+    for t in [0, 100 * S, 250 * S, 500 * S, 900 * S] {
+        for side in [HbtSide::Buy, HbtSide::Sell] {
+            assert_eq!(
+                scheduled_take(side, entry, take, tick, old, t, dl),
+                scheduled_take(side, entry, take, tick, new, t, dl),
+                "t = {t}"
+            );
+        }
+    }
+}
+
 /// Г-117 `tsl`: тейк лонга ползёт от `take_px` к безубытку (вход + круг комиссий), до `T` — степенью `γ`, после `T` — пол;
 /// шорт зеркально; тейк ниже пола — без изменений.
 #[test]

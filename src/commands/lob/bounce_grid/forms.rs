@@ -66,6 +66,8 @@ pub enum ExitForm {
     HalfLevel { q4: u8 },
     /// `tsl<G>t<Q>` (TK-065, Г-117): тейк сползает к безубытку; `γ = G/10`, `T = Q/4 · дедлайн`.
     TakeSched { g10: u8, t4: u8 },
+    /// `tslx<G>t<Q>` (TK-189, Г-117, точки F1 П-14): то же, но `γ = G/8`, `T = Q/16 · дедлайн` (γ ∈ 1/8…8, T ∈ 1/16…1).
+    TakeSchedX { g8: u8, t16: u8 },
     /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
     Converge { tol: u8, a_bps: u32 },
     /// `nostop<X2>` (TK-115, Г-106): стопа нет, пока прибыль не дошла до `X2/2 · trail_activate_bps` и цена не ушла за безубыток; затем стоп = безубыток. `X2` ∈ {1, 2, 4} (×0,5; ×1; ×2).
@@ -113,6 +115,7 @@ impl ExitForm {
             ExitForm::HalfStop { q4 } => half_label("halfstop", *q4),
             ExitForm::HalfLevel { q4 } => half_label("halflevel", *q4),
             ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
+            ExitForm::TakeSchedX { g8, t16 } => format!("tslx{g8}t{t16}"),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::NoStop { x2 } => format!("nostop{x2}"),
             ExitForm::Chase { ms } => format!("chase{ms}"),
@@ -222,6 +225,7 @@ impl ExitForm {
                 | ExitForm::HalfStop { .. }
                 | ExitForm::HalfLevel { .. }
                 | ExitForm::TakeSched { .. }
+                | ExitForm::TakeSchedX { .. }
                 | ExitForm::Converge { .. }
                 | ExitForm::NoStop { .. }
                 | ExitForm::Chase { .. }
@@ -325,6 +329,25 @@ impl ExitForm {
         }
         if let Some(q4) = parse_half(spec, "halfstop")? {
             return Ok(ExitForm::HalfStop { q4 });
+        }
+        if let Some(rest) = spec.strip_prefix("tslx") {
+            let bad = || {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается tslx<G>t<Q>, G ∈ [1, 64] (γ = G/8), Q ∈ [1, 16] (T = Q/16 дедлайна)")
+            };
+            let (g8, t16) = rest.split_once('t').ok_or_else(bad)?;
+            let g8: u8 = g8.parse().map_err(|_| bad())?;
+            let t16: u8 = t16.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=64).contains(&g8) && (1..=16).contains(&t16),
+                "tslx<G>t<Q>: G ∈ [1, 64], Q ∈ [1, 16]"
+            );
+            let form = ExitForm::TakeSchedX { g8, t16 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("tsl") {
             let bad = || {

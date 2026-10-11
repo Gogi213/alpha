@@ -29,7 +29,18 @@ pub(super) fn scheduled_take(
     } else {
         entry_px * (1.0 - fees)
     };
-    let horizon = deadline_ns as f64 * f64::from(cfg.sched_t4) / 4.0;
+    let (gamma, t_frac) = if cfg.sched_g8 > 0 {
+        (
+            f64::from(cfg.sched_g8) / 8.0,
+            f64::from(cfg.sched_t16) / 16.0,
+        )
+    } else {
+        (
+            f64::from(cfg.sched_g10) / 10.0,
+            f64::from(cfg.sched_t4) / 4.0,
+        )
+    };
+    let horizon = deadline_ns as f64 * t_frac;
     if entry_px <= 0.0
         || tick_px <= 0.0
         || horizon <= 0.0
@@ -37,9 +48,7 @@ pub(super) fn scheduled_take(
     {
         return take_px;
     }
-    let share = (t_ns.max(0) as f64 / horizon)
-        .powf(f64::from(cfg.sched_g10) / 10.0)
-        .min(1.0);
+    let share = (t_ns.max(0) as f64 / horizon).powf(gamma).min(1.0);
     let px = take_px - (take_px - floor) * share;
     let ticks = px / tick_px;
     (if long { ticks.ceil() } else { ticks.floor() }) * tick_px
@@ -178,7 +187,7 @@ where
                 TradePlan::Bounce { pyramid, .. } => pyramid.eff(),
                 TradePlan::SpreadHold => PyramidCfg::OFF,
             };
-            let take_px = if pyr.sched_g10 > 0 && trail_bps <= 0.0 {
+            let take_px = if (pyr.sched_g10 > 0 || pyr.sched_g8 > 0) && trail_bps <= 0.0 {
                 scheduled_take(
                     entry_side,
                     entry_px,

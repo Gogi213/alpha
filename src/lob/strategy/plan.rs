@@ -313,6 +313,10 @@ pub struct PyramidCfg {
     /// `γ = sched_g10 / 10`, `T = sched_t4 / 4 · deadline`; `sched_g10 = 0` — выключено. Нужен `trail_bps = 0`.
     pub sched_g10: u8,
     pub sched_t4: u8,
+    /// Г-117, точки F1 П-14 (`tslx<G>t<Q>`, TK-189): `γ = sched_g8 / 8`, `T = sched_t16 / 16 · deadline`; `sched_g8 = 0` — выключено
+    /// (тогда действуют `sched_g10`/`sched_t4`, прежние имена `tsl…` не менялись).
+    pub sched_g8: u8,
+    pub sched_t16: u8,
     /// Г-119 (`conv<t>a<A>`): после ухода лучшей цены от `level_px` на `Dmax ≥ A` bps и возврата на
     /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
     pub converge_tol1: u8,
@@ -351,6 +355,8 @@ impl PyramidCfg {
         half_q4: 0,
         sched_g10: 0,
         sched_t4: 0,
+        sched_g8: 0,
+        sched_t16: 0,
         converge_tol1: 0,
         converge_a_bps: 0,
         nostop_x2: 0,
@@ -378,6 +384,7 @@ impl PyramidCfg {
             || self.half_stop
             || self.half_level
             || self.sched_g10 > 0
+            || self.sched_g8 > 0
             || self.converge_tol1 > 0
             || self.nostop_x2 > 0
             || self.wall2 > 0

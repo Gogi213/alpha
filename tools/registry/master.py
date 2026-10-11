@@ -175,6 +175,9 @@ def r2_exit(hyp, av):
     return False
 
 
+R2_EXIT_RE = r"(pyeat|pyfresh|pyre|pynw|halfstop|halflevel|tsl|conv|nostop|chase|tape|cxl|wall2)"   # ExitForm::is_r2
+
+
 EARLY_OK = (1, 2, 3, 5, 8, 13, 20, 30, 60)       # EARLY_EXITS_S в plan.rs (TK-189)
 TTL_OK = (10, 30, 60, 120, 300, 600, 900, 1200, 1800)   # ENTRY_TTL_SECS в forms.rs (TK-189)
 
@@ -196,6 +199,13 @@ def rust_axes(hyp, av, sv):
         if be not in ("да", "нет"):
             return ttl, None, None, f"be: «да»|«нет», получено {av['be']!r}"
         return ttl, f"gone{w}" + ("be" if be == "да" else ""), None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
+    if n == "117":   # tslx<G>t<Q>: γ = G/8, T = Q/16 дедлайна; работает только при trail_bps = 0 (strategy/plan.rs, PyramidCfg.sched_*)
+        g8, t16 = _int_in(8 * _frac(av["gamma"]), range(1, 65)), _int_in(16 * _frac(av["T"]), range(1, 17))
+        if not (g8 and t16):
+            return ttl, None, None, "tslx<G>t<Q>: γ ∈ [1/8, 8], T ∈ [1/16, 1]"
+        if str(sv["take"]).startswith("tr"):
+            return ttl, None, None, f"Г-117: тейк стека {sv['take']} — трейл, а tsl действует только при trail_bps = 0 (клетка не меняла бы сделку); стек для Г-117 — решение Судьи/Исследователя"
+        return ttl, f"tslx{g8}t{t16}", None, None
     return False
 
 
@@ -419,9 +429,16 @@ def plan(protocol, k, hyps=None, out=None, have=None):
             f.write(f"--exit-form {x}\n")
         for x in sorted({m.group(3) for m in tails if m and m.group(3)}, key=int):
             f.write(f"--early-exit-secs {x}\n")
+        parts = [re.match(r"^(.+?)-(.+?)-(.+?)-(\d+)-ttl", fm) for fm in forms]
+        for flag, g in (("--stop-form", 2), ("--take-form", 3), ("--deadline-secs", 4)):
+            for v in sorted({m.group(g) for m in parts if m}):
+                f.write(f"{flag} {v}\n")
         for u in used:
             f.write(f"--set {u}:{sets[u]}\n")
-    print(f"--cells (только новые, кодируемые формой): {cf} — {len(uniq)} строк; аргументы: {cf[:-6]}.args")
+    r2 = any(re.match(R2_EXIT_RE, x) for x in (m.group(2) for m in tails if m and m.group(2)))
+    with open(cf[:-6] + ".bin", "w", encoding="utf-8", newline="\n") as f:   # какой бинарь ставить прогону: формы R2 — только cargo feature r2 (forms.rs, ExitForm::parse)
+        f.write("r2\n" if r2 else "std\n")
+    print(f"--cells (только новые, кодируемые формой): {cf} — {len(uniq)} строк; аргументы: {cf[:-6]}.args; бинарь: {cf[:-6]}.bin")
     if nocode:
         print("к счёту, но строки --cells нет (причина):")
         for (hyp, why), n in sorted(nocode.items()):
