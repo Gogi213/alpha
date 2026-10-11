@@ -2770,6 +2770,7 @@ where
 /// `drive_bounce_windowed`: у сплошного прогона круг зависит от состояния движка.
 #[derive(Default)]
 pub struct RoundMemo {
+    // BTreeMap — на границе круга (раз на сигнал, не на событие стакана): путь события его не трогает (А-запрет горячего пути).
     by_t0: std::collections::BTreeMap<i64, Vec<MemoEntry>>,
     hits: u64,
     misses: u64,
@@ -3667,6 +3668,7 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
     if cfg.busy_skip {
         return Ok(0);
     }
+    // BTreeMap — группировка сигналов по t0 до прогона кругов, вне цикла событий.
     let mut by_t0: std::collections::BTreeMap<i64, Vec<(usize, BounceSignal)>> =
         std::collections::BTreeMap::new();
     for (k, sigs) in forms_signals.iter().enumerate() {
