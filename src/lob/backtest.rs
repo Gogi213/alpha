@@ -2383,7 +2383,9 @@ where
 
     // Э-04б: пропуск пустых шагов — только с флагом и известным концом данных круга.
     let skip_cap = data_end_ns.filter(|_| cfg.hold_skip);
-    let r = run_round_solo(bot, asset_no, &mut state, entry_id, sig.plan, side, skip_cap)?;
+    let r = run_round_solo(
+        bot, asset_no, &mut state, entry_id, sig.plan, side, skip_cap,
+    )?;
     let (outcome, residual_left) = (r.outcome, r.position);
     if matches!(outcome, RoundOutcome::EndOfData) {
         *carry = r.carry_out;
