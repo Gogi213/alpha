@@ -7,6 +7,10 @@
 Квантиль — как в titration-points: `sorted(v)[len(v)·q // 100]`, округление до 2 знаков (как `--set`).
 
     btc-thresholds.py --regime <study/regime> --out <json>
+    btc-thresholds.py --ref <ref-BTCUSDT-1m.csv> [--ref …] --from 2026-01 --out <json>
+
+Режим `--ref`: те же ходы напрямую из минутных свечей BTC (формула `regime.py:ret_bps` — от закрытия минуты m−N·60−1 к закрытию m−1,
+без заглядывания), каждая минута месяца — наблюдение; не требует пересчёта режима (файлы `--ref` склеиваются по минуте).
 Выход: {"ГГГГ-ММ": {"<N>": {"<q>": T}}}; нет колонки/минут — месяц/окно пропущены (в мастере → причина отказа).
 """
 import argparse
@@ -56,7 +60,35 @@ def thresholds(regime_dir):
     for d in days:
         by_month.setdefault(d[:7], []).append(d)
     months = sorted(by_month)
-    vals = {m: month_values(regime_dir, by_month[m]) for m in months}
+    return expanding({m: month_values(regime_dir, by_month[m]) for m in months})
+
+
+def ref_values(ref_files, first_month):
+    """{ГГГГ-ММ: {N: [ход, bps]}} по минутам месяцев ≥ first_month из рядов close (формула regime.ret_bps)."""
+    import datetime
+    close = {}
+    for fn in ref_files:
+        with open(fn, encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                close[int(row["minute_ms"])] = float(row["close"])
+    out = {}
+    for minute in sorted(close):
+        m = datetime.datetime.fromtimestamp(minute / 1000, datetime.timezone.utc).strftime("%Y-%m")
+        if m < first_month:
+            continue
+        now = close.get(minute - 60_000)
+        if now is None:
+            continue
+        slot = out.setdefault(m, {n: [] for n in WINDOWS_H})
+        for n in WINDOWS_H:
+            then = close.get(minute - (n * 60 + 1) * 60_000)
+            if then is not None and then > 0:
+                slot[n].append((now / then - 1.0) * 1e4)
+    return out
+
+
+def expanding(vals):
+    months = sorted(vals)
     res = {}
     for i, m in enumerate(months):
         src = months[:i] or [m]   # январь (первый месяц) — по самому январю; прочие — только прошлые полные месяцы
@@ -70,10 +102,14 @@ def thresholds(regime_dir):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--regime", required=True)
+    p.add_argument("--regime")
+    p.add_argument("--ref", action="append", default=[])
+    p.add_argument("--from", dest="first", default="2026-01")
     p.add_argument("--out", required=True)
     a = p.parse_args()
-    res = thresholds(a.regime)
+    if bool(a.regime) == bool(a.ref):
+        sys.exit("нужен ровно один из --regime / --ref")
+    res = expanding(ref_values(a.ref, a.first)) if a.ref else thresholds(a.regime)
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(res, f, ensure_ascii=False, sort_keys=True, indent=1)
         f.write("\n")
