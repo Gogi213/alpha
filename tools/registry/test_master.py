@@ -96,6 +96,12 @@ class MasterTest(unittest.TestCase):
         for hyp, av in (("Г-87", {"n": "2"}), ("Г-87", {"n": "5"}), ("Г-92", {"N": "3", "u": "1/3"}), ("Г-92", {"N": "5", "u": "1"}), ("Г-106", {"x": "1"})):
             cfg = master.p14_cfg(hyp, sv, av)
             self.assertIn(ch.cell_hash(cfg), have, (hyp, av, cfg["form"]))
+        # Г-117: тейк 1to1 (стек B3); общие точки — tsl<G>t<Q>, остальные — tslx
+        c1 = master.p14_cfg("Г-117", sv, {"gamma": "1", "T": "1/2"})
+        self.assertTrue(c1["form"].endswith("-1to1-14400-ttl1800-tsl10t2"), c1["form"])
+        self.assertEqual(master.LINES[ch.cell_hash(c1)][0], c1["form"] + " t-bid-btc4h-q1")
+        c2 = master.p14_cfg("Г-117", sv, {"gamma": "3/8", "T": "1/16"})
+        self.assertTrue(c2["form"].endswith("-1to1-14400-ttl1800-tslx3t1"), c2["form"])
         cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"})
         self.assertIsNone(master.LINES[ch.cell_hash(cfg)][0])
         with self.assertRaises(SystemExit):

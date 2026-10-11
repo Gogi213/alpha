@@ -203,9 +203,9 @@ def rust_axes(hyp, av, sv):
         g8, t16 = _int_in(8 * _frac(av["gamma"]), range(1, 65)), _int_in(16 * _frac(av["T"]), range(1, 17))
         if not (g8 and t16):
             return ttl, None, None, "tslx<G>t<Q>: γ ∈ [1/8, 8], T ∈ [1/16, 1]"
-        if str(sv["take"]).startswith("tr"):
-            return ttl, None, None, f"Г-117: тейк стека {sv['take']} — трейл, а tsl действует только при trail_bps = 0 (клетка не меняла бы сделку); стек для Г-117 — решение Судьи/Исследователя"
-        return ttl, f"tslx{g8}t{t16}", None, None
+        if g8 in (4, 8, 16) and t16 in (4, 8, 16):   # общие точки с прежней сеткой (γ ½,1,2 × T ¼,½,1) — прежние имена tsl<G>t<Q> (g/10, q/4), переиспользование
+            return ttl, f"tsl{g8 * 10 // 8}t{t16 // 4}", None, None
+        return ttl, f"tslx{g8}t{t16}", None, None   # тейк клетки — 1to1 (стек B3, Судья 11.10: reviews/P-14-2026-10-11-f1-axes.md), см. p14_cfg
     return False
 
 
@@ -232,7 +232,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
     if ra:
         ttl, suffix, early, line_why = ra
         r2 = (None, suffix, set_name, line_why)   # кодируется формой/флагом -> ветка клетки с LINES
-    form = f"{entry}-{sv['stop']}-{sv['take']}-{sv['deadline_s']}-ttl{ttl}" + (f"-{suffix}" if suffix else "") + (f"-early{early}" if early else "")
+    take = "1to1" if re.sub(r"\D", "", hyp) == "117" else sv["take"]   # Г-117: стек B3 = B1 с тейком 1to1 без трейла (tsl не действует при трейле)
+    form = f"{entry}-{sv['stop']}-{take}-{sv['deadline_s']}-ttl{ttl}" + (f"-{suffix}" if suffix else "") + (f"-early{early}" if early else "")
     st = cr.B1_SET if set_name == "t-bid-btc4h-q1" else cr.set_of(sets[set_name])
     uni = cr.UNIVERSE["v171c"] if "v171c" in sv.get("universe", "") else cr.UNIVERSE["v171b"]
     cfg = {"form": form, "set": st, "exec": dict(cr.STD_EXEC), "sigma": cr.B1_SIGMA, "universe": uni}
