@@ -261,6 +261,10 @@ def rust_axes(hyp, av, sv):
         return ttl, f"gone{w}" + ("be" if be == "да" else ""), None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
     if n == "13":    # σ-стоп `s<a>` вместо pct (StopForm::Sigma, backtest/forms.rs): a ∈ SIGMA_STOP_OK; имя стопа даёт sigma_stop()
         return ttl, "", None, None if sigma_stop(av) else f"s<a>: a ∈ {SIGMA_STOP_OK} σ"
+    if n == "147":   # --signal touch: вход на касании вместо подхода — шапка прогона (touches-from без approach), не --cells; хеш по варианту
+        if str(av["signal"]).strip() != "touch":
+            return ttl, "", None, "signal: touch"
+        return ttl, "", None, "--signal touch — режим шапки прогона (кэш касаний, не approach D20): отдельный заход, в --cells не идёт"
     if n == "141":   # gone<W>wall<B> | wallx | wallk: стоп на цену снятой стены (forms.rs GoneWall); W ∈ (0, 100] %, B — bps ∈ [0, 10000)
         w, b = _int_in(_frac(av["gone_w"]), (10, 25, 50, 75, 90)), _int_in(_frac(av["wall_buf_bps"]), (0, 1, 2, 4, 8, 16))
         mode = {"wall": "", "wallx": "x", "wallk": "k"}.get(str(av["wall_mode"]).strip())

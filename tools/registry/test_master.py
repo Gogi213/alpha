@@ -51,6 +51,14 @@ class MasterTest(unittest.TestCase):
         self.assertIsNotNone(master.rust_axes("Г-13", {"sigma_stop": "5"}, sv)[3])
         self.assertIsNone(master.rust_axes("Г-13", {"sigma_stop": "1"}, sv)[3])
 
+    def test_g147_touch_own_hash_no_line(self):
+        """В-227 М3: Г-147 (signal touch) — хеш по варианту, отличается от B1; строки --cells нет (режим шапки)."""
+        sv = {"entry_ttl_s": 1800, "stop": "pct2", "take": "1to1", "deadline_s": 3600, "entry": "single", "set": "t-bid-btc4h-q1", "universe": "v171b"}
+        c = master.p14_cfg("Г-147", sv, {"signal": "touch"})
+        h = ch.cell_hash(c)
+        self.assertIsNone(master.LINES[h][0])
+        self.assertNotEqual(h, ch.cell_hash({k: v for k, v in c.items() if k != "variant"}))
+
     def test_bind_hyp_has_no_cells(self):
         """В-227 М4/М8: engine bind:<хозяин> — гипотеза закрыта привязкой, клеток не даёт; хозяин не затронут."""
         self.have = {}

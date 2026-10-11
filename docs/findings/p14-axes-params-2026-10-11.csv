@@ -26,6 +26,7 @@ early_exit_s;s;0.5;num;Д: Г-110
 exit_share;pct;1;num;Д: Г-104 доля снятия (gone50->50, gone90->90)
 be;-;;cat;Д: Г-104 безубыток да|нет
 sigma_stop;sigma;;log;Д: Г-13 σ-стоп вместо pct2, в σ входа
+signal;-;;cat;Д: Г-147 сигнал входа touch|approach
 gone_w;pct;1;num;Д: Г-141 доля снятия стены, %
 wall_buf_bps;bps;1;num;Д: Г-141 буфер за стеной
 wall_mode;-;;cat;Д: Г-141 режим wall|wallx|wallk
