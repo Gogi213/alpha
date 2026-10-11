@@ -31,7 +31,9 @@ class T(unittest.TestCase):
 
     def test_registry_map_self_check_and_distinct(self):
         rows = cr.build()
-        self.assertEqual(len(rows), 473)  # 442 + 31 клетка R2-B (load_r2b.py, 12.10)
+        self.assertGreaterEqual(len(rows), 487)
+        gold = dict(x.split("\t") for x in open(os.path.join(cr.F, "cellhash-487-before-a0-2026-10-12.tsv"), encoding="utf-8").read().splitlines())
+        self.assertEqual({i: h for i, h, *_ in rows if i in gold}, gold)  # A0 (TK-199): 487 прежних хешей не изменились
         self.assertEqual(cr.check(rows), [])  # равный хеш => равные trades/sum_net по общим месяцам results
         h = {r[4]: r[1] for r in rows}
         self.assertNotEqual(h["p05-b/p05-f25-u25k"], h["p05-c/p05-f25-a120-u25k"])  # возраст p05-b 2700, не 7200
@@ -44,6 +46,30 @@ class T(unittest.TestCase):
                      ("touches_from", "study/touches"), ("verdict_csv", "x/verdict.csv"), ("exit_group", "off")):
             self.assertNotEqual(h0, ch.cell_hash(base(exec={**cr.STD_EXEC, k: v})), k)
         self.assertEqual(h0, ch.cell_hash(base(exec={**cr.STD_EXEC, "verdict_csv": "/data/tk044/final3/verdict.csv"})))  # путь машины не входит
+
+    def test_a0_new_set_keys_change_hash_old_unchanged(self):  # TK-199 (В-227 A0)
+        h0 = ch.cell_hash(base())
+        st = lambda **k: base(set={**cr.B1_SET, **k})
+        self.assertEqual(h0, ch.cell_hash(st(eaten=None, eaten_min=None, stack_min=None)))  # None = нет ключа
+        hs = {h0}
+        for k, v in (("eaten", 60), ("eaten_min", 30), ("frontrun_min", 2), ("behind_min", 10), ("stack_min", 3),
+                     ("r1_flow_x_min", 5), ("r1_flow_x_max", 5), ("r1_flow_y_min", 5)):
+            h = ch.cell_hash(st(**{k: v}))
+            self.assertNotIn(h, hs, k)
+            hs.add(h)
+        self.assertNotEqual(ch.cell_hash(st(eaten=60)), ch.cell_hash(st(eaten=75)))
+        self.assertNotEqual(ch.cell_hash(st(r1_flow_x_min=5)), ch.cell_hash(st(r1_flow_x_min=6)))
+        self.assertEqual(ch.cell_hash(st(r1_a_min=1, r1_b_max=2)), ch.cell_hash(st(r1_b_max=2, r1_a_min=1)))  # порядок ключей не важен
+        n = ch.normalize(st(r1_a_min=1, r1_a_max=3))
+        self.assertEqual(n["set"]["r1"], [["a", 1, 3]])
+        self.assertEqual(ch.normalize(n)["set"]["r1"], [["a", 1, 3]])  # идемпотентно
+        self.assertNotIn("r1", ch.normalize(base())["set"])
+
+    def test_a0_set_of_parses_new_keys(self):
+        a, b = cr.set_of("age=2700,side=bid,eaten=60"), cr.set_of("age=2700,side=bid,eaten=75")
+        self.assertNotEqual(ch.cell_hash({**base(), "set": a}), ch.cell_hash({**base(), "set": b}))
+        c, d = cr.set_of("side=bid,r1_x_min=1"), cr.set_of("side=bid,r1_x_min=2")
+        self.assertNotEqual(ch.cell_hash({**base(), "set": c}), ch.cell_hash({**base(), "set": d}))
 
     def test_p12_r1_b1_has_no_batch(self):
         rows = cr.build()

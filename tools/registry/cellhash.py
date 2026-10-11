@@ -117,6 +117,10 @@ SET_KEYS = ("side", "min_age_s", "max_age_s", "ctx", "min_flow_pct", "usd_min", 
             "frontrun_only", "driver", "lot", "entry_ttl", "post_only", "band_exit_bps")
 EXEC_KEYS = ("place_ns", "cancel_ns", "taker_ns", "p95_place_ns", "p95_cancel_ns", "p95_taker_ns", "queue", "h3", "h3_usd",
              "hold_step", "busy_skip", "exit_group", "approach_bps", "touches_from", "verdict_csv")
+# A0 (TK-199, В-227): ключи FilterSet, которых не было в SET_KEYS. В канон-JSON входят ТОЛЬКО заданные (None пропускается):
+# иначе все 487 прежних хешей сменились бы. `r1_<кол>_min|max` (кроме r1_born_shift_cbps_min — он в SET_KEYS) сводятся в set.r1.
+OPT_SET_KEYS = ("eaten", "eaten_min", "frontrun_min", "behind_min", "stack_min")
+_R1_KEY = re.compile(r"r1_(.+)_(min|max)")
 PATH_EXEC_KEYS = ("touches_from", "verdict_csv")  # путь машины в ключ не входит: последние два компонента
 
 
@@ -129,6 +133,18 @@ def _deep(x):
     return num(x) if isinstance(x, float) else x
 
 
+def _r1_bounds(st):
+    """Границы колонок R1 набора -> отсортированный [[кол, min, max], …] (нет границы = None); пусто -> []."""
+    b = {}
+    for col, mn, mx in (st.get("r1") or []):
+        b[col] = [num(mn), num(mx)]
+    for k, v in st.items():
+        m = _R1_KEY.fullmatch(k)
+        if m and k != "r1_born_shift_cbps_min" and num(v) is not None:
+            b.setdefault(m.group(1), [None, None])[m.group(2) == "max"] = num(v)
+    return [[c, *b[c]] for c in sorted(b)]
+
+
 def normalize(cfg):
     """Любой частичный конфиг -> полный нормализованный (ключи на месте, значения в одном виде)."""
     form = cfg.get("form")
@@ -139,6 +155,13 @@ def normalize(cfg):
         if k in ("deadline_s", "ttl", "early_s"):
             out[k] = num(out[k])
     out["set"] = {k: num((cfg.get("set") or {}).get(k)) for k in SET_KEYS}
+    st = cfg.get("set") or {}
+    for k in OPT_SET_KEYS:
+        if num(st.get(k)) is not None:
+            out["set"][k] = num(st[k])
+    r1 = _r1_bounds(st)
+    if r1:
+        out["set"]["r1"] = r1
     if isinstance(out["set"]["ctx"], str):
         a, _, b = out["set"]["ctx"].partition("=")
         out["set"]["ctx"] = [a, num(b)]
