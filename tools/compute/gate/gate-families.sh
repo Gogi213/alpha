@@ -47,6 +47,12 @@ fam_conf() {
     tk115j|tk115w|tk115e) REF=/data/tk0115/bin/alpha-tk115f; MON=mar; DAY=2026-03-07;;
   esac
   [ -e "$REF" ] || REF=$BIN/_archive/$(basename "$REF")  # TK-176А: опорные ушли в bin/_archive
+  if [ "$(head -c2 "$REF")" = '#!' ]; then  # опорный — обёртка с env: её exec тоже мог уйти в _archive → копия с исправленным путём
+    local x; x=$(sed -n 's#^exec \([^ ]*\) .*##p' "$REF" | head -1)
+    if [ -n "$x" ] && [ ! -e "$x" ] && [ -e "$BIN/_archive/$(basename "$x")" ]; then
+      mkdir -p "$T/wrap"; sed "s#^exec $x #exec $BIN/_archive/$(basename "$x") #" "$REF" > "$T/wrap/fix-$(basename "$REF")"; chmod +x "$T/wrap/fix-$(basename "$REF")"; REF=$T/wrap/fix-$(basename "$REF")
+    fi
+  fi
 }
 # новый бинарь семьи: r2 и tk115* требуют сборку с feature r2 (NEW_R2), остальные — боевую (NEW)
 fam_new() { case $1 in r2|tk115*) echo "${NEW_R2:-$NEW}";; *) echo "$NEW";; esac; }
