@@ -8,9 +8,12 @@
   stop,take  разобранные части имени (pct2 -> bps 200; tr1x1 -> trail 1,1; 1to1 -> ratio 1,1);
   deadline_s, ttl (секунды|wall|touch), early_s (выход по прилипанию), exit (форма выхода: токены имени);
   set        фильтры/параметры набора: side, min_age_s, ctx, min_flow_pct, usd_min, signal, frontrun_only, driver,
-             lot, entry_ttl (цепочка), post_only, band_exit_bps;
+             lot, entry_ttl (цепочка), post_only, band_exit_bps, max_age_s (agemax), r1_born_shift_cbps_min (фильтр e106);
   sigma      каталог σ (последние два компонента пути) | None;
   exec       латентность place/cancel/taker (нс), queue, h3, hold_step, busy_skip;
+  universe   вселенная монет: версия пула + исключения (`v171b`, `v171c-drop:TRUMP,TRX,BCH`) — одна клетка на разных
+             вселенных даёт разные результаты, поэтому в ключе; batch — партия прогона, только если самопроверка
+             (cellhash_reg.check) нашла расхождение результатов при равном конфиге;
   variant    спецификация R1/R2-варианта, если он не кодируется именем формы: {family, axes}.
 Нормализация: числа — один вид (200.0 == 200), `Some(2700)` -> 2700, `None` -> null, `halfstop` == `halfstopf2`.
 """
@@ -24,6 +27,8 @@ def num(x):
     """Число в одном виде: целое, если целое; строки 'Some(2700)'/'None'/'true' — в значения."""
     if x is None or isinstance(x, bool):
         return x
+    if isinstance(x, (list, tuple)):  # уже нормализованное значение (ctx = [признак, порог]) — повторная нормализация идемпотентна
+        return [num(v) for v in x]
     if isinstance(x, (int, float)):
         return int(x) if float(x).is_integer() else float(x)
     s = str(x).strip()
@@ -107,8 +112,8 @@ def sigma_key(path):
     return "/".join(str(path).replace("\\", "/").rstrip("/").split("/")[-2:])
 
 
-SET_KEYS = ("side", "min_age_s", "ctx", "min_flow_pct", "usd_min", "signal", "frontrun_only", "driver", "lot",
-            "entry_ttl", "post_only", "band_exit_bps")
+SET_KEYS = ("side", "min_age_s", "max_age_s", "ctx", "min_flow_pct", "usd_min", "r1_born_shift_cbps_min", "signal",
+            "frontrun_only", "driver", "lot", "entry_ttl", "post_only", "band_exit_bps")
 EXEC_KEYS = ("place_ns", "cancel_ns", "taker_ns", "queue", "h3", "hold_step", "busy_skip")
 
 
@@ -137,6 +142,8 @@ def normalize(cfg):
     out["sigma"] = sigma_key(cfg.get("sigma"))
     out["exec"] = {k: num((cfg.get("exec") or {}).get(k)) for k in EXEC_KEYS}
     v = cfg.get("variant")
+    out["universe"] = cfg.get("universe")
+    out["batch"] = cfg.get("batch")
     out["variant"] = {"family": v["family"], "axes": {k: num(x) for k, x in sorted(v["axes"].items())}} if v else None
     return _deep(out)
 

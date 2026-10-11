@@ -29,17 +29,21 @@ class T(unittest.TestCase):
     def test_provenance_excluded(self):
         self.assertEqual(ch.cell_hash(base()), ch.cell_hash({**base(), "group": "x", "source": "y", "set_name": "z"}))
 
-    def test_registry_map_stable_and_b1_collapse(self):
+    def test_registry_map_self_check_and_distinct(self):
         rows = cr.build()
         self.assertEqual(len(rows), 442)
-        b1 = {r[1] for r in rows if r[4] in ("p12-r1/B1", "p12-ext/" + B1F) or (r[4] == "r3c/e106-pop" and r[3] == B1F)}
-        self.assertEqual(len(b1), 1)
+        self.assertEqual(cr.check(rows), [])  # равный хеш => равные trades/sum_net по общим месяцам results
+        h = {r[4]: r[1] for r in rows}
+        self.assertNotEqual(h["p05-b/p05-f25-u25k"], h["p05-c/p05-f25-a120-u25k"])  # возраст p05-b 2700, не 7200
+        self.assertNotEqual(h["r3c/e106-pop"], h["p12-r1/B1"])  # e106-pop = B1 + фильтр r1_born_shift
+        self.assertNotEqual(h["p12-r1/B1"], h["p12-ext/" + B1F])  # разные партии (авг 398 vs 402 сделок)
 
     def test_plan(self):
         import tempfile
         rows = cr.build()
+        known = json.loads(rows[0][6])
         with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
-            f.write(json.dumps(base()) + "\n" + json.dumps(base()) + "\n" + json.dumps(base(form=B1F.replace("pct2", "pct2.25"))) + "\n")
+            f.write("\n".join(json.dumps(x) for x in (known, known, {**known, "deadline_s": 99999})) + "\n")
         done, todo = cr.cmd_plan(f.name, rows)
         os.unlink(f.name)
         self.assertEqual((len(done), len(todo)), (1, 1))
