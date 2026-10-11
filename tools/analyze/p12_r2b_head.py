@@ -1,7 +1,6 @@
 """TK-120: П-12 R2-B (31 клетка: e112 tape W15/30/60 × q33/50/67/80, e116 cxl, e133 chase, e65 wall2, g95 sw4/sw5) — голова для p12lib.pack(…, False).
 Сделки R2-B: data/p12r2b/closes-r2bd-cap0-<мес>.json (psim v171c, drop TRUMP/TRX/BCH). Имена форм месячные (Q из порогов месяца) -> клетка по порядку cells.txt.
-База B1 (free, cap0): coin-rows.csv (data/j120/), отбор по b1keys-cap0.csv (2750 сделок после busy-replay), без TRUMP/TRX/BCH и без трёх выпавших символо-суток R2-B (r2b-failed-symdays.csv); $ = qty*entry_vwap*net_bps/1e4,
-ряд по суткам закрытия (exit_ms), как p12-r2b-b1keys.py. B2 (cap3): базы B1 нет — режим только free. g95: сырые $ без равной экспозиции §6(2) (следующий шаг)."""
+База B1 (free, cap0): data/p12r2b/closes-b1-cap0-<мес>.json (TK-191, psim v171c на вселенной R2-B), ряд по суткам закрытия. B2 (cap3): базы B1 нет — режим только free. g95: сырые $ без равной экспозиции §6(2) (следующий шаг)."""
 import csv, datetime as dt, json, os, sys
 from collections import defaultdict
 import numpy as np
@@ -46,17 +45,13 @@ for m in MONTHS:
             for l in per.values():
                 out += [(int(a), float(b)) for a, b in l]
         raw.setdefault(name, {})[m] = out
-b1 = defaultdict(list)
-KEYS = {(r["month"], r["symbol"], int(r["t0_ms"]), int(r["exit_ms"])) for r in csv.DictReader(open("data/j120/b1keys-cap0.csv", encoding="utf-8"))}   # 2750 сделок B1 после busy-replay (Летопись)
-for r in csv.DictReader(open("data/j120/coin-rows.csv", encoding="utf-8")):
-    if r["form"] != "B1" or r["symbol"] in DROP or r["month"] not in MONTHS:
-        continue
-    ex = int(r["exit_ms"])
-    if (r["month"], r["symbol"], int(r["t0_ms"]), ex) not in KEYS:
-        continue
-    if (day_of(int(r["t0_ms"])), r["symbol"]) in CUT:
-        continue
-    b1[r["month"]].append((ex, float(r["qty"]) * float(r["entry_vwap"]) * float(r["net_bps"]) / 1e4))
+b1 = defaultdict(list)   # B1 v171c (psim TK-191, вселенная R2-B: минус 3 символо-суток): closes-b1-cap0-<мес>.json, сверка 2749/+50,36 $
+for m in MONTHS:
+    j = json.load(open(f"{D}closes-b1-cap0-{m}.json"))
+    assert len(j) == 1
+    for per in next(iter(j.values())).values():
+        for l in per.values():
+            b1[m] += [(int(a), float(b)) for a, b in l]
 raw["B1"] = b1
 
 

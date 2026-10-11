@@ -12,13 +12,29 @@ MODE = sys.argv[1] if len(sys.argv) > 1 else "free"
 
 
 def main():
-    A, fa = ({}, {}) if os.environ.get("P12_ONLY") == "r2" else analyse(pack(load("tools/analyze/p12-r1-analyze.py", MODE), True), 63)
-    Bz, fb = analyse(pack(load("tools/analyze/p12-r2-analyze.py", MODE), False), 64)
-    Ex, fe = ({}, {}) if ONLY_R2 else analyse(pack_ext(MODE), 65)
+    R2B = os.environ.get("P12_ONLY") == "r2b"   # TK-120: R2-B (31 кл.) отдельным пакетом; ранги прочих семей — по P12_SHARPE_CSV (p_wy клеток, min по семье)
+    A, fa = ({}, {}) if os.environ.get("P12_ONLY") in ("r2", "r2b") else analyse(pack(load("tools/analyze/p12-r1-analyze.py", MODE), True), 63)
+    if R2B:
+        P = pack(load("tools/analyze/p12_r2b_head.py", MODE), False)
+        P = {c: p for c, p in P.items() if c == "B1" or not c.startswith("g95")}   # g95 sw4/sw5: сырые $ без равной экспозиции §6(2) — вне ворот до expo
+        Bz, fb = analyse(P, 66)
+    else:
+        Bz, fb = analyse(pack(load("tools/analyze/p12-r2-analyze.py", MODE), False), 64)
+    Ex, fe = ({}, {}) if (ONLY_R2 or R2B) else analyse(pack_ext(MODE), 65)
     res = {**{c: dict(r, pk="R1") for c, r in A.items() if r}, **{c: dict(r, pk="R2") for c, r in Bz.items() if r}, **{c: dict(r, pk="ext") for c, r in Ex.items() if r}}
     fams = {**fa, **fb, **fe}
     famp = {f: min(res[c]["pwy"] for c in cs) for f, cs in fams.items()}
     famh = {f: min(res[c]["pharm"] for c in cs) for f, cs in fams.items()}
+    if R2B:   # прочие семьи (уже посчитанные) занимают свои места в Холме: берём p из прежней таблицы, не пересчитываем (В-213)
+        oth = {}
+        for r in csv.DictReader(open(os.environ["P12_SHARPE_CSV"], encoding="utf-8")):
+            f = r["family"]
+            if f in fams:
+                continue
+            o = oth.setdefault(f, [1.0, 1.0]); o[0] = min(o[0], float(r["p_wy"])); o[1] = min(o[1], float(r["p_harm_wy"]))
+        for f, (a, b) in oth.items():
+            famp[f] = a; famh[f] = b
+        print(f"прочих семей из {os.environ['P12_SHARPE_CSV']}: {len(oth)}; семей R2-B: {len(fams)}")
     holm = {}
     for store, nm in ((famp, "польза"), (famh, "вред")):
         alive = True
