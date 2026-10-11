@@ -33,6 +33,21 @@ class MasterTest(unittest.TestCase):
     def cfg_hash(self, n):
         return ch.cell_hash({"stop": 200, "variant": {"family": "g87", "axes": {"n": n}}})
 
+    def test_bind_hyp_has_no_cells(self):
+        """В-227 М4/М8: engine bind:<хозяин> — гипотеза закрыта привязкой, клеток не даёт; хозяин не затронут."""
+        self.have = {}
+        axes = ("hyp;protocol;version;stack;param;lo;hi;points_f1;old_points;note;engine\n"
+                "Г-87;P-14;v1;B1;n;2;8;2|3|4|5|6|7|8;3|4;;rust\n"
+                "Г-09;P-14;v1;B1;n;;;;4;;bind:Г-87\n")
+        open(os.path.join(self.ax, "hyp_axes.csv"), "w", encoding="utf-8").write(axes)
+        master.load_axes(self.ax)
+        c = master.connect()
+        grids, closed = master.build_grid(c, "P-14", 1)
+        c.close()
+        self.assertEqual(len(grids["Г-87"]), 7)
+        self.assertNotIn("Г-09", grids)
+        self.assertEqual(closed["Г-09"], "привязка: ось = Г-87 (клетки там, своих нет)")
+
     def test_plan_skips_hashes_in_results(self):
         self.have = {self.cfg_hash(3): {"2026-01", "2026-02"}, self.cfg_hash(4): {"2026-01"}}
         self.assertEqual(master.load_axes(self.ax), {"params.csv": 4, "stacks.csv": 2, "hyp_axes.csv": 1, "rules.csv": 9})

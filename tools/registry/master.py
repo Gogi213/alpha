@@ -427,6 +427,9 @@ def build_grid(c, protocol, k, hyps=None, rules=None):
         if eng.get(hyp) == "python":
             closed[hyp] = "python-класс (§6.2): хешей нет — не в плане Rust"
             continue
+        if str(eng.get(hyp, "")).startswith("bind:"):   # В-227 М4/М8: ось уже у другой гипотезы — привязка, своих клеток нет
+            closed[hyp] = f"привязка: ось = {eng[hyp][5:]} (клетки там, своих нет)"
+            continue
         if any(a[4] == "pending" for a in axes):
             closed[hyp] = "ось pending (список точек не назван) — не в сетке"
             continue
