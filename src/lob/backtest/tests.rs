@@ -1088,6 +1088,7 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         &signals,
         &drive_cfg(),
         ExecLatency::uniform(1_000_000),
+        None,
     )
     .unwrap();
     assert_eq!(win, full, "окна обязаны дать тот же прогон, что сплошной");
@@ -1100,13 +1101,13 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
     // сигнала — у него другая занятость и другая нумерация заявок) берёт круги из неё; итог B
     // обязан совпасть с его же прогоном без памяти, а память — сработать.
     let mut memo = RoundMemo::default();
-    let a = drive_bounce_windowed_memo(
+    let a = drive_bounce_windowed(
         &feed,
         &windows,
         &signals,
         &drive_cfg(),
         ExecLatency::uniform(1_000_000),
-        &mut memo,
+        Some(&mut memo),
     )
     .unwrap();
     assert_eq!(a, win, "с пустой памятью прогон тот же");
@@ -1117,15 +1118,16 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         &subset,
         &drive_cfg(),
         ExecLatency::uniform(1_000_000),
+        None,
     )
     .unwrap();
-    let memo_b = drive_bounce_windowed_memo(
+    let memo_b = drive_bounce_windowed(
         &feed,
         &windows,
         &subset,
         &drive_cfg(),
         ExecLatency::uniform(1_000_000),
-        &mut memo,
+        Some(&mut memo),
     )
     .unwrap();
     assert_eq!(
@@ -1155,14 +1157,14 @@ fn busy_skip_off_runs_every_signal_and_its_trace_replays_the_busy_run() {
     let signals = [signal(S), signal(3 * S), signal(61 * S)];
     let windows = SignalWindows::build(&feed, &[S, 3 * S, 61 * S], 1.0, 1.0);
     let lat = ExecLatency::uniform(1_000_000);
-    let on = drive_bounce_windowed(&feed, &windows, &signals, &drive_cfg(), lat).unwrap();
+    let on = drive_bounce_windowed(&feed, &windows, &signals, &drive_cfg(), lat, None).unwrap();
     assert!(on.trace.is_empty(), "при `on` след не пишется");
     let off_cfg = DriveConfig {
         busy_skip: false,
         hold_skip: false,
         ..drive_cfg()
     };
-    let off = drive_bounce_windowed(&feed, &windows, &signals, &off_cfg, lat).unwrap();
+    let off = drive_bounce_windowed(&feed, &windows, &signals, &off_cfg, lat, None).unwrap();
     assert_eq!(off.misses.busy, 0, "{off:?}");
     assert!(off.busy_signal.is_empty());
     assert_eq!(off.trace.len(), 3, "по шагу на сигнал: {:?}", off.trace);
@@ -1220,7 +1222,8 @@ fn busy_skip_off_runs_every_signal_and_its_trace_replays_the_busy_run() {
         kept_f.contains(&1),
         "без первого сигнала второй принят: {kept_f:?}"
     );
-    let engine = drive_bounce_windowed(&feed, &windows, &signals[1..], &drive_cfg(), lat).unwrap();
+    let engine =
+        drive_bounce_windowed(&feed, &windows, &signals[1..], &drive_cfg(), lat, None).unwrap();
     assert_eq!(
         engine.submitted_signal.len(),
         kept_f.len(),
@@ -1394,6 +1397,7 @@ fn bench_round_cost_in_a_window() {
             &signals,
             &drive_cfg(),
             ExecLatency::uniform(1_000_000),
+            None,
         )
         .unwrap();
         exit_ns = run.fill_exit_ns.first().copied().unwrap_or(0);
@@ -1486,6 +1490,7 @@ fn bench_dense_round_in_a_window() {
             &signals,
             &drive_cfg(),
             ExecLatency::uniform(1_000_000),
+            None,
         )
         .unwrap();
         exit_ns = run.fill_exit_ns.first().copied().unwrap_or(0);
@@ -2035,17 +2040,24 @@ fn compact_rows_drive_the_same_rounds_even_with_a_tiny_horizon() {
     let windows = SignalWindows::build(&feed, &t0s, 1.0, 1.0);
     let windows_c = SignalWindows::build(&compact, &t0s, 1.0, 1.0);
     assert_eq!(windows_c.len(), windows.len());
-    let wide = drive_bounce_windowed(&compact, &windows_c, &signals, &drive_cfg(), lat).unwrap();
+    let wide =
+        drive_bounce_windowed(&compact, &windows_c, &signals, &drive_cfg(), lat, None).unwrap();
     assert_eq!(
         wide, full,
         "компактные строки — тот же прогон, что сплошной"
     );
     let before = HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
     HORIZON_SPAN_OVERRIDE_NS.with(|c| c.set(Some(1)));
-    let tiny = drive_bounce_windowed(&compact, &windows_c, &signals, &drive_cfg(), lat);
+    let tiny = drive_bounce_windowed(&compact, &windows_c, &signals, &drive_cfg(), lat, None);
     let mut memo = RoundMemo::default();
-    let tiny_memo =
-        drive_bounce_windowed_memo(&compact, &windows_c, &signals, &drive_cfg(), lat, &mut memo);
+    let tiny_memo = drive_bounce_windowed(
+        &compact,
+        &windows_c,
+        &signals,
+        &drive_cfg(),
+        lat,
+        Some(&mut memo),
+    );
     HORIZON_SPAN_OVERRIDE_NS.with(|c| c.set(None));
     assert_eq!(tiny.unwrap(), full, "малый горизонт — те же круги");
     assert_eq!(
@@ -2188,9 +2200,9 @@ fn hold_skip_matches_polling_byte_for_byte() {
                 hold_skip: true,
                 ..poll
             };
-            let a = drive_bounce_windowed(&feed, &windows, &signals, &poll, lat).unwrap();
+            let a = drive_bounce_windowed(&feed, &windows, &signals, &poll, lat, None).unwrap();
             let before = HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed);
-            let b = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat).unwrap();
+            let b = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat, None).unwrap();
             // «Стена снята на входе» выходит первым же решением удержания — пропускать нечего.
             assert!(
                 name == "стена снята на входе"
@@ -2202,7 +2214,7 @@ fn hold_skip_matches_polling_byte_for_byte() {
             let used = fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
                 + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed);
             fast_hold::FORCE_ON.with(|f| f.set(true));
-            let c = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat);
+            let c = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat, None);
             fast_hold::FORCE_ON.with(|f| f.set(false));
             assert_eq!(a, c.unwrap(), "{name}, busy_skip {busy_skip}: быстрый путь");
             fast_used += fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)

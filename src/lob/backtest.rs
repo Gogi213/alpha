@@ -2464,7 +2464,7 @@ const GROUP_ID_BASE: u64 = 1 << 40;
 /// безопасна только когда они у всех пусты (иначе общий вход не может ответить, чья это сирота, —
 /// проверка вызывающего, здесь только `debug_assert`). Номера заявок — свой независимый счётчик
 /// (`GROUP_ID_BASE`), а не `variant_next_ids`/`cfg.first_order_id` сольного пути: движок сигнала
-/// свежий (`windowed_with`), поэтому единственное, что должно быть монотонно, — сироты одного и
+/// свежий (`drive_bounce_windowed`), поэтому единственное, что должно быть монотонно, — сироты одного и
 /// того же варианта между сигналами, а не пересечение чисел с сольным путём (см. `GROUP_ID_BASE`).
 #[allow(clippy::too_many_arguments)]
 fn drive_signal_group<B, MD>(
@@ -2773,7 +2773,7 @@ where
 /// формы, уже посчитанный для одного набора, другой набор берёт готовым. Ключ — `t0`, сторона и
 /// план целиком; вместе с шагом хранятся число израсходованных номеров заявок и сироты круга —
 /// нумерация следующих кругов идёт так же, как без памяти (`OrphanCarry::rebased`). Только для
-/// `drive_bounce_windowed_memo`: у сплошного прогона круг зависит от состояния движка.
+/// `drive_bounce_windowed`: у сплошного прогона круг зависит от состояния движка.
 #[derive(Default)]
 pub struct RoundMemo {
     by_t0: std::collections::BTreeMap<i64, Vec<MemoEntry>>,
@@ -3459,30 +3459,11 @@ where
 /// сторона доберёт из среза сама по разу, как и в сплошном прогоне; часы
 /// окна прибиты к `t0` строкой-якорем. Гейт — побайтово те же круги, что у
 /// `drive_bounce` (тест и `--driver full`).
-pub fn drive_bounce_windowed<R: EventRows + ?Sized>(
-    events: &R,
-    windows: &SignalWindows,
-    signals: &[BounceSignal],
-    cfg: &DriveConfig,
-    exec_latency: ExecLatency,
-) -> Result<BounceRun, BacktestError> {
-    windowed_with(events, windows, signals, cfg, exec_latency, None)
-}
-
-/// То же, что `drive_bounce_windowed`, но с памятью кругов (G10): круги, уже посчитанные над теми
-/// же окнами с теми же планами (другим набором той же формы), берутся из `memo`. Итог — побайтово
-/// тот же, что без памяти (гейт «те же байты» в `bounce-grid --round-memo on|off`).
-pub fn drive_bounce_windowed_memo<R: EventRows + ?Sized>(
-    events: &R,
-    windows: &SignalWindows,
-    signals: &[BounceSignal],
-    cfg: &DriveConfig,
-    exec_latency: ExecLatency,
-    memo: &mut RoundMemo,
-) -> Result<BounceRun, BacktestError> {
-    windowed_with(events, windows, signals, cfg, exec_latency, Some(memo))
-}
-
+///
+/// `memo` — память кругов (G10): круги, уже посчитанные над теми же окнами с теми же планами (другим
+/// набором той же формы), берутся из неё; итог побайтово тот же, что без памяти (гейт «те же байты»
+/// в `bounce-grid --round-memo on|off`).
+///
 /// Круги по окнам. Строки `[Event]` крейт занимает как есть (прежний путь). Компактные строки (Р6)
 /// разворачиваются на круг в буфер потока — от `w.start` до горизонта: первая попытка — не дальше
 /// `FIRST_HORIZON_NS`, затем `t0 + (entry_ttl + deadline + запас) × 2^(попытка − 1)`; после круга
@@ -3537,7 +3518,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
 }
 
 /// Групповой круг одного сигнала в свежем движке окна (Э-08) — те же попытки горизонта развёртки, что у
-/// `windowed_with` (Р6). `None` — окна или данных после `t0` нет. Вариант с сиротами на выходе
+/// `drive_bounce_windowed` (Р6). `None` — окна или данных после `t0` нет. Вариант с сиротами на выходе
 /// возвращается как `EndOfData` — в память он не попадёт (драйвер посчитает его сам).
 #[allow(clippy::too_many_arguments)]
 fn group_round_in_window<R: EventRows + ?Sized>(
@@ -3673,7 +3654,7 @@ pub static WALL2_SOLO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 
 /// Э-08 («один проход на вход», план принят Судьёй, reviews/e08-exit-group-plan-2026-09-27.md): круги
 /// группы форм считаются заранее одним движком на сигнал и кладутся в память кругов каждой формы — потом
-/// обычный драйвер (`drive_bounce_windowed_memo`) берёт их оттуда. Группа на сигнале — формы с равными
+/// обычный драйвер (`drive_bounce_windowed`) берёт их оттуда. Группа на сигнале — формы с равными
 /// `sigma`, размером и входной частью плана (`entry_part`); вход общий, выходы — свои (`drive_signal_group`).
 /// В память идёт только чистый круг варианта: без сирот на выходе, без страховки остатка и не упёршийся в
 /// конец данных — остальное драйвер посчитает сам, как раньше. Ключ памяти — с пустыми сиротами на входе:
@@ -3773,7 +3754,7 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
     Ok(groups)
 }
 
-fn windowed_with<R: EventRows + ?Sized>(
+pub fn drive_bounce_windowed<R: EventRows + ?Sized>(
     events: &R,
     windows: &SignalWindows,
     signals: &[BounceSignal],
