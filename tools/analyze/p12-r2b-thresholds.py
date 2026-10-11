@@ -5,10 +5,14 @@
 Расширяющееся окно: месяц m — сделки B1 всех ПРЕДЫДУЩИХ полных месяцев; январь — по самому январю (PRECEDENTS 61b2aabd).
 Мера e112 = tape_press_lots (30 с до исполнения входа) / level_qty, e116 = cxl_lots / level_qty; q33/q67 — ближайший ранг (как R1, tk064-r1cells).
 W (e133) = медиана chase_wait_ms по сделкам B1 с определённой величиной; < 1000 мс — «не определена» (Г-133). W не нормируется.
-Запуск: p12-r2b-thresholds.py <b1keys.csv> <w-каталог> <lvl-корень /data/tk064/pool> <выход-каталог>"""
+v6 (TK-120, 11.10): полный набор Q — e112/e116 × W15/30/60 × q33/50/67/80 (ключи e112_W<W>_q<q>, e116_W<W>_q<q>; для W=30 дублируются e112_q33/q67 прежних версий).
+Лоты W=30 — из <w-каталог>; W=15/60 — из замеров с --tape-log 15/60 (tk120-thr-w-wave.sh) тех же сделок B1, подаются парами "15=/data/p12r3a/w15" "60=/data/p12r3a/w60"; уровень сделки и level_qty — по замеру W=30.
+Запуск: p12-r2b-thresholds.py <b1keys.csv> <w-каталог> <lvl-корень /data/tk064/pool> <выход-каталог> [<W>=<каталог замера> ...]"""
 import csv, glob, json, math, os, statistics, sys
 from collections import defaultdict
 KEYS, W, LV, OUT = sys.argv[1:5]
+EXTRA = {int(a.split("=")[0]): a.split("=", 1)[1] for a in sys.argv[5:]}
+QS = (33, 50, 67, 80)
 MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"]
 
 
@@ -58,11 +62,21 @@ def load_sig(mo, day):
     return d
 
 
+def read_lots(root, mo):   # (symbol, t0_ms) -> (tape_press_lots, cxl_lots) месяца mo
+    out = {}
+    for f in sorted(glob.glob(f"{root}/{mo}-*/t-bid-btc4h-q1/rounds.csv")):
+        with open(f, encoding="utf-8") as ih:
+            for r in csv.DictReader(l for l in ih if not l.startswith("#")):
+                out.setdefault((r["symbol"], int(r["t0_ns"]) // 1000000), (float(r["tape_press_lots"]), float(r["cxl_lots"])))
+    return out
+
+
 by = {}
 deltas = []
 amb = {"no_signal_tick": 0, "no_lvl_row": 0, "same_key_diff_size": 0}
 for mo in sorted(keys):
-    d = by[mo] = {"tape": [], "cxl": [], "w": [], "n_keys": len(keys[mo]), "n_rounds": 0, "no_lvl": 0, "dl": 0, "dl_nowait": 0}
+    ex = {w: read_lots(root, mo) for w, root in EXTRA.items()}
+    d = by[mo] = {"tape": [], "cxl": [], "w": [], "ex_miss": {w: 0 for w in EXTRA}, **{f"{n}{w}": [] for w in EXTRA for n in ("tape", "cxl")}, "n_keys": len(keys[mo]), "n_rounds": 0, "no_lvl": 0, "dl": 0, "dl_nowait": 0}
     seen = set()
     for f in sorted(glob.glob(f"{W}/{mo}-*/t-bid-btc4h-q1/rounds.csv")):
         day = f.split(W)[1].lstrip("/")[:10]
@@ -90,6 +104,12 @@ for mo in sorted(keys):
                     deltas.append(abs(cand[0][0] - k[1]))
                     d["tape"].append(tp / cand[0][1])
                     d["cxl"].append(cx / cand[0][1])
+                    for w in EXTRA:
+                        if k in ex[w]:
+                            d[f"tape{w}"].append(ex[w][k][0] / cand[0][1])
+                            d[f"cxl{w}"].append(ex[w][k][1] / cand[0][1])
+                        else:
+                            d["ex_miss"][w] += 1
                 if r["reason"] == "deadline":
                     d["dl"] += 1
                     if r["chase_wait_ms"].strip():
@@ -104,10 +124,16 @@ for i, m in enumerate(months):
     src = months[:i] if i else months[:1]
     cat = lambda k: [x for s in src for x in by[s][k]]
     row = {"month": m, "source_months": src, "n_b1_trades": sum(by[s]["n_rounds"] for s in src),
-           "n_no_level_qty": sum(by[s]["no_lvl"] for s in src), "n_defined": len(cat("tape"))}
+           "n_no_level_qty": sum(by[s]["no_lvl"] for s in src), "n_defined": len(cat("tape")),
+           "ex_missing": sum(by[s]["ex_miss"][w] for s in src for w in EXTRA)}
     for k, nm in (("tape", "e112"), ("cxl", "e116")):
         a = cat(k)
         row[f"{nm}_q33"], row[f"{nm}_q67"] = rank(a, 1 / 3), rank(a, 2 / 3)
+        for w in sorted({30, *EXTRA}):
+            a = cat(k if w == 30 else f"{k}{w}")
+            row[f"{nm}_W{w}_n"] = len(a)
+            for q in QS:
+                row[f"{nm}_W{w}_q{q}"] = rank(a, q / 100) if a else None
     w = cat("w")
     row["n_deadline"] = sum(by[s]["dl"] for s in src)
     row["n_w_defined"] = len(w)
@@ -121,7 +147,7 @@ for i, m in enumerate(months):
             if k != "source_months":
                 wr.writerow([k, v])
     json.dump(row, open(f"{OUT}/p12-thresholds-{m}.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-per = {m: {k: by[m][k] for k in ("n_keys", "n_rounds", "missing_in_w", "no_lvl", "dl", "dl_nowait")} for m in months}
+per = {m: {k: by[m][k] for k in ("n_keys", "n_rounds", "missing_in_w", "no_lvl", "dl", "dl_nowait", "ex_miss")} for m in months}
 dd = sorted(deltas)
 json.dump({"summary": summ, "per_month": per,
            "lvl_match_delta_ms": {"n": len(dd), "p50": dd[len(dd) // 2] if dd else None, "p99": dd[int(len(dd) * .99)] if dd else None,
