@@ -41,6 +41,16 @@ class MasterTest(unittest.TestCase):
         self.assertEqual(master.rust_axes("Г-141", {**av, "wall_mode": "wall"}, sv)[1], "gone25wall4")
         self.assertIsNone(master.rust_axes("Г-141", {**av, "wall_buf_bps": "3"}, sv)[1])
 
+    def test_g13_sigma_stop_name(self):
+        """В-227 М3: Г-13 -> стоп s<a> (StopForm::Sigma); вне домена — причина."""
+        sv = {"entry_ttl_s": 1800}
+        self.assertEqual(master.sigma_stop({"sigma_stop": "3/4"}), "s0.75")
+        self.assertEqual(master.sigma_stop({"sigma_stop": "2"}), "s2")
+        self.assertIsNone(master.sigma_stop({"sigma_stop": "5"}))
+        self.assertIsNone(master.rust_axes("Г-13", {"sigma_stop": "5"}, sv)[3] and None)
+        self.assertIsNotNone(master.rust_axes("Г-13", {"sigma_stop": "5"}, sv)[3])
+        self.assertIsNone(master.rust_axes("Г-13", {"sigma_stop": "1"}, sv)[3])
+
     def test_bind_hyp_has_no_cells(self):
         """В-227 М4/М8: engine bind:<хозяин> — гипотеза закрыта привязкой, клеток не даёт; хозяин не затронут."""
         self.have = {}

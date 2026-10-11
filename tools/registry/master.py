@@ -231,6 +231,15 @@ EARLY_OK = (0.5, 1, 2, 3, 5, 8, 13, 20, 30, 60)   # EARLY_EXITS_S в plan.rs + E
 TTL_OK = (10, 30, 60, 120, 300, 600, 900, 1200, 1800)   # ENTRY_TTL_SECS в forms.rs (TK-189)
 
 
+SIGMA_STOP_OK = (0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8)
+
+
+def sigma_stop(av):
+    """Г-13: ось sigma_stop (в σ) -> имя стопа `s<a>` или None вне домена."""
+    a = _frac(av["sigma_stop"])
+    return f"s{a:g}" if a in SIGMA_STOP_OK else None
+
+
 def rust_axes(hyp, av, sv):
     """Гипотезы, выражаемые флагами/формами текущего Rust без новых кодов -> (потолок входа с, суффикс --exit-form, early с, причина отказа)
     или False (гипотеза не этого класса). Г-129 — ttl в имени формы; Г-110 — хвост -early<x>; Г-104 — gone<W>[be] (be=да)."""
@@ -250,6 +259,8 @@ def rust_axes(hyp, av, sv):
         if be not in ("да", "нет"):
             return ttl, None, None, f"be: «да»|«нет», получено {av['be']!r}"
         return ttl, f"gone{w}" + ("be" if be == "да" else ""), None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
+    if n == "13":    # σ-стоп `s<a>` вместо pct (StopForm::Sigma, backtest/forms.rs): a ∈ SIGMA_STOP_OK; имя стопа даёт sigma_stop()
+        return ttl, "", None, None if sigma_stop(av) else f"s<a>: a ∈ {SIGMA_STOP_OK} σ"
     if n == "141":   # gone<W>wall<B> | wallx | wallk: стоп на цену снятой стены (forms.rs GoneWall); W ∈ (0, 100] %, B — bps ∈ [0, 10000)
         w, b = _int_in(_frac(av["gone_w"]), (10, 25, 50, 75, 90)), _int_in(_frac(av["wall_buf_bps"]), (0, 1, 2, 4, 8, 16))
         mode = {"wall": "", "wallx": "x", "wallk": "k"}.get(str(av["wall_mode"]).strip())
@@ -290,7 +301,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
         ttl, suffix, early, line_why = ra
         r2 = (None, suffix, set_name, line_why)   # кодируется формой/флагом -> ветка клетки с LINES
     take = "1to1" if re.sub(r"\D", "", hyp) == "117" else sv["take"]   # Г-117: стек B3 = B1 с тейком 1to1 без трейла (tsl не действует при трейле)
-    form = f"{entry}-{sv['stop']}-{take}-{sv['deadline_s']}-ttl{ttl}" + (f"-{suffix}" if suffix else "") + (f"-early{early}" if early else "")
+    stop = sigma_stop(av) or sv["stop"] if re.sub(r"\D", "", hyp) == "13" and av else sv["stop"]   # Г-13: стоп клетки = s<a>
+    form = f"{entry}-{stop}-{take}-{sv['deadline_s']}-ttl{ttl}" + (f"-{suffix}" if suffix else "") + (f"-early{early}" if early else "")
     st = cr.B1_SET if set_name == "t-bid-btc4h-q1" else cr.set_of(sets[set_name])
     uni = cr.UNIVERSE["v171c"] if "v171c" in sv.get("universe", "") else cr.UNIVERSE["v171b"]
     cfg = {"form": form, "set": st, "exec": dict(cr.STD_EXEC), "sigma": cr.B1_SIGMA, "universe": uni}
