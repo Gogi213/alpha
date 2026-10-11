@@ -133,6 +133,7 @@ def family_of(hyp):
 MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: число в имени формы меняется по месяцам (Г-133 chase<a·W_m>); файл --cells на месяц
 _THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
 MSETS = {}  # имя набора -> спецификация --set: наборы с порогом по месяцам (Г-10 btc<N>h_max=T_m); write_set добавляет их к --set
+_TAPE_THR = os.path.join(FIND, "tape-thresholds-v7-2026-10-11.json")   # TK-120 v7 (thr7/summary.json): ключи e112_W<W>_q<q> по месяцам
 _BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-11.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
 
 
@@ -266,6 +267,20 @@ def p14_cfg(hyp, sv, av, fixed=()):
         h = ch.cell_hash(cfg)
         LINES[h] = (None, "месячная форма chase<a·W_m>: строки --cells по месяцам (файлы <имя>-<ГГГГ-ММ>.cells)")
         MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
+    elif av and re.sub(r"\D", "", hyp) == "112":   # tape<W>q<Q_m(W,q)>: Q из v7 по прошлым месяцам (Судья 11.10, f1-axes); хеш — по осям W, q
+        w, q = _int_in(_frac(av["W"]), (5, 10, 15, 30, 60, 120, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
+        h = ch.cell_hash(cfg)
+        thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []
+        mm = {r["month"]: f"{form}-tape{w}q{float(r[f'e112_W{w}_q{q}'])!r} {set_name}" for r in thr if w and q and r.get(f"e112_W{w}_q{q}", 0) > 0}
+        if not (w and q):
+            LINES[h] = (None, "Г-112: W ∈ {5,10,15,30,60,120,300} с, q ∈ {5,10,20,33,50,67,80,90,95}")
+        elif not thr:
+            LINES[h] = (None, f"Г-112: нет {os.path.basename(_TAPE_THR)} — v7 TK-120 (thr7/summary.json)")
+        else:
+            no = sorted(r["month"] for r in thr if r["month"] not in mm)
+            LINES[h] = (None, "месячная форма tape<W>q<Q_m>: файлы <имя>-<ГГГГ-ММ>.cells" + (f"; Q_m ≤ 0 (правило «P > 0», формы нет) — месяцы {','.join(no)}" if no else ""))
+            MONTHLY[h] = mm
     elif av and re.sub(r"\D", "", hyp) == "10":   # btc<N>h_max=T_m(N,q): набор B1 с заменой порога, T_m по месяцам из прошлых месяцев (Судья 11.10, f1-axes)
         n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
         cfg["variant"] = {"family": family_of(hyp), "axes": {"btc_window_h": n_h, "btc_thr_q": q}}

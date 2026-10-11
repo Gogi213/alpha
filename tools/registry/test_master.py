@@ -128,6 +128,15 @@ class MasterTest(unittest.TestCase):
         m10 = master.MONTHLY[ch.cell_hash(c10)]
         self.assertEqual(m10["2026-02"], c10["form"] + " g10n6q20-2026-02")
         self.assertEqual(master.MSETS["g10n6q20-2026-01"], "age=2700,side=bid,btc6h_max=-50.5")
+        # Г-112: tape<W>q<Q_m(W,q)> по месяцам из v7; Q_m ≤ 0 — месяц без строки (правило «P > 0»)
+        c112 = master.p14_cfg("Г-112", sv, {"W": "30", "q": "50"})
+        self.assertEqual(c112["variant"], {"family": "e112", "axes": {"W": 30, "q": 50}})
+        m112 = master.MONTHLY[ch.cell_hash(c112)]
+        self.assertEqual(len(m112), 9)
+        self.assertRegex(m112["2026-03"], r"-ttl1800-tape30q0\.\d+ t-bid-btc4h-q1$")
+        c0 = master.p14_cfg("Г-112", sv, {"W": "5", "q": "5"})
+        self.assertNotIn("2026-01", master.MONTHLY[ch.cell_hash(c0)])
+        self.assertIn("Q_m ≤ 0", master.LINES[ch.cell_hash(c0)][1])
         cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"})
         self.assertIsNone(master.LINES[ch.cell_hash(cfg)][0])
         with self.assertRaises(SystemExit):
