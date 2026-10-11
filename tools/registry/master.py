@@ -453,7 +453,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
                 if ch.cell_hash({**cfg, "universe": "v171b"}) in have:   # есть в Летописи на другой вселенной (p07a, v171b) — зачёт решает Исследователь/§6
                     tot["uni"] += 1
                 new_cfg.append({"hash": h, "hyp": hyp, **ch.normalize(cfg)})
-                line, why = LINES.get(h, (f"{cfg['form']} {cfg['set_name']}" if cfg.get("set_name") else None, "вариант R1 (признак×квантиль) — не форма bounce-grid, строки --cells нет"))
+                line, why = LINES.get(h, (f"{cfg['form']} {cfg['set_name']}" if cfg.get("set_name") else None, "маршрут R1: --set r1_<колонка>_min|max=T_m(q) по месяцам (sets.rs:62; пороги e-thresholds-<мес>.csv TK-064, расширяющееся окно) — строк --cells пока нет, отдельная графа плана"))
                 if h in MONTHLY:
                     for m, ln in MONTHLY[h].items():
                         mlines[m][h] = ln
