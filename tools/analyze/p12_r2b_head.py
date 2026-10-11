@@ -1,6 +1,6 @@
 """TK-120: П-12 R2-B (31 клетка: e112 tape W15/30/60 × q33/50/67/80, e116 cxl, e133 chase, e65 wall2, g95 sw4/sw5) — голова для p12lib.pack(…, False).
 Сделки R2-B: data/p12r2b/closes-r2bd-cap0-<мес>.json (psim v171c, drop TRUMP/TRX/BCH). Имена форм месячные (Q из порогов месяца) -> клетка по порядку cells.txt.
-База B1 (free, cap0): data/p12r2b/closes-b1-cap0-<мес>.json (TK-191, psim v171c на вселенной R2-B), ряд по суткам закрытия. Режимы: free (cap0) и B2 (cap3, TK-193; B1 cap3 — TK-191). g95: сырые $ без равной экспозиции §6(2) (следующий шаг)."""
+База B1 (free, cap0): data/p12r2b/closes-b1-cap0-<мес>.json (TK-191, psim v171c на вселенной R2-B), ряд по суткам закрытия. Режимы: free (cap0) и B2 (cap3, TK-193; B1 cap3 — TK-191). g95: closes-r2bg95-cap<N>-<мес>.json (равная экспозиция §6(2), TK-194), если файл есть; иначе сырые $."""
 import csv, datetime as dt, json, os, sys
 from collections import defaultdict
 import numpy as np
@@ -46,6 +46,10 @@ for m in MONTHS:
             for l in per.values():
                 out += [(int(a), float(b)) for a, b in l]
         raw.setdefault(name, {})[m] = out
+    if os.path.exists(f"{D}closes-r2bg95-cap{CAP}-{m}.json"):   # TK-194: g95-sw4/sw5 с равной экспозицией §6(2) (tk194-g95-expo.sh) вместо сырых $
+        jg = json.load(open(f"{D}closes-r2bg95-cap{CAP}-{m}.json"))
+        for name, f in zip(("g95-sw4", "g95-sw5"), list(jg)):
+            raw[name][m] = [(int(a), float(b)) for per in jg[f].values() for l in per.values() for a, b in l]
 b1 = defaultdict(list)   # B1 v171c (psim TK-191, вселенная R2-B: минус 3 символо-суток): closes-b1-cap0-<мес>.json, сверка 2749/+50,36 $
 for m in MONTHS:
     j = json.load(open(f"{D}closes-b1-cap{CAP}-{m}.json"))

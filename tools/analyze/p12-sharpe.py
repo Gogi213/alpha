@@ -16,7 +16,6 @@ def main():
     A, fa = ({}, {}) if os.environ.get("P12_ONLY") in ("r2", "r2b") else analyse(pack(load("tools/analyze/p12-r1-analyze.py", MODE), True), 63)
     if R2B:
         P = pack(load("tools/analyze/p12_r2b_head.py", MODE), False)
-        P = {c: p for c, p in P.items() if c == "B1" or not c.startswith("g95")}   # g95 sw4/sw5: сырые $ без равной экспозиции §6(2) — вне ворот до expo
         Bz, fb = analyse(P, 66)
     else:
         Bz, fb = analyse(pack(load("tools/analyze/p12-r2-analyze.py", MODE), False), 64)
