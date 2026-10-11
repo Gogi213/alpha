@@ -36,6 +36,11 @@ class T(unittest.TestCase):
         with self.assertRaises(SystemExit):
             closure_mech.run_all(P, {})
 
+    def test_write_keep_format(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "k.csv"); closure_mech.write_keep(p, {("B", "2026-01-05", "f", "2"), ("A", "2026-01-05", "f", "1")})
+            self.assertEqual(open(p).read(), "symbol,day_utc,signal_index,form\nA,2026-01-05,1,f\nB,2026-01-05,2,f\n")
+
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
             p, o = os.path.join(d, "c.json"), os.path.join(d, "o.csv")

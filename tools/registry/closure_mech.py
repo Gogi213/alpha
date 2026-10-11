@@ -7,7 +7,7 @@ ctx — ленивые загрузчики по месяцу (ctx.signals/round
 Ветвления по номеру Г нет: плагин выбирается по --mechanic. Закрытия — JSON portfolio-sim --closes-out: вариант → период → потолок →
 [[мс, $], ...]. Выход — CSV «до/после» на (вариант, период, потолок, точка сетки). Точка вне домена плагина — отказ, не молчание.
   closure_mech.py --closes closes.json --mechanic g124 [--grid 'q=90,95;D=1,2'] --out out.csv   (--grid пуст = вся сетка домена)"""
-import argparse, csv, glob, importlib, itertools, json, os, sys
+import argparse, csv, glob, importlib, itertools, json, os, subprocess, sys
 
 
 KINDS = ("closes", "keep", "rounds")
@@ -88,6 +88,39 @@ def grid_points(params, spec=""):
         yield dict(zip(names, combo))
 
 
+B1_FORM = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
+CHAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m5_chain.sh")
+GATE_REF = "/data/p12r3a/closes-b1d-cap{cap}-{mon}.json"   # эталон TK-192 (free 2750/+52,3 $; cap3 1503/−0,4 $)
+
+
+def write_keep(path, keys):
+    """keys — (symbol, day_utc, form, signal_index): формат --keep busy-replay.py (вид symbol,day_utc,signal_index,form)."""
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, lineterminator="\n"); w.writerow(["symbol", "day_utc", "signal_index", "form"])
+        for sym, day, form, idx in sorted(keys):
+            w.writerow([sym, day, idx, form])
+
+
+def chain(mon, work, keep_path=None):
+    """Цепочка M5 на calc (bash m5_chain.sh); возвращает {cap: путь closes}. Сбой — отказ, не молчание."""
+    r = subprocess.run(["bash", CHAIN, mon, work] + ([keep_path] if keep_path else []))
+    if r.returncode or not os.path.exists(os.path.join(work, "chain.done")):
+        raise SystemExit(f"цепочка М5 {mon}: rc={r.returncode}, см. {work}/fail.txt, busy.txt")
+    return {c: os.path.join(work, f"closes-m5-cap{c}-{mon}.json") for c in (0, 3)}
+
+
+def gate(mon, work):
+    """Гейт «выкл = прежний»: keep=все (без --keep) -> закрытия байт в байт = closes-b1d. Расхождение — отказ."""
+    got, bad = chain(mon, work), []
+    for cap, path in got.items():
+        ref = GATE_REF.format(cap=cap, mon=mon)
+        if open(path, "rb").read() != open(ref, "rb").read():
+            bad.append(f"cap{cap}: {path} != {ref}")
+    if bad:
+        raise SystemExit("гейт М5 НЕ пройден: " + "; ".join(bad))
+    print(f"гейт М5 {mon}: тождество с closes-b1d cap0/cap3 — байт в байт")
+
+
 def run_all(plugin, closes, spec="", ctx=None):
     if plugin.KIND != "closes":
         raise SystemExit(f"KIND {plugin.KIND}: цепочка busy-replay → expo → psim и гейт тождества с closes-b1d (calc) ещё не подключены")
@@ -108,10 +141,15 @@ def run_all(plugin, closes, spec="", ctx=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--closes", required=True); ap.add_argument("--mechanic", required=True)
+    ap.add_argument("--gate", metavar="РАБ", help="гейт тождества на calc: --month M --gate <рабочий каталог>, остальное не нужно")
+    ap.add_argument("--closes"); ap.add_argument("--mechanic")
     ap.add_argument("--grid", default=""); ap.add_argument("--month", default="")  # ctx.month для KIND keep/rounds
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out")
     a = ap.parse_args(argv)
+    if a.gate:
+        return gate(a.month, a.gate)
+    if not (a.closes and a.mechanic and a.out):
+        ap.error("нужны --closes, --mechanic, --out (или --gate)")
     plugin = load_plugin(a.mechanic)
     rows = run_all(plugin, json.load(open(a.closes, encoding="utf-8")), a.grid, Ctx(a.month, plugin.SOURCES))
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
