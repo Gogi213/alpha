@@ -719,7 +719,7 @@ where
     // SAFETY: адрес совпал с адресом движка окна, выставленным `with_fast_ctx` вокруг шага круга, — значит `B` и
     // есть `Backtest<FastMarketDepth>`, а других ссылок на движок на время вызова нет (`bot` — `&mut`).
     let bt = unsafe { &mut *raw.cast::<Backtest<FastMarketDepth>>() };
-    // SAFETY: срез окна живёт дольше этого вызова (его держит `windowed_with` на время шага круга).
+    // SAFETY: срез окна живёт дольше этого вызова (его держит `drive_bounce_windowed` на время шага круга).
     let rows = unsafe { std::slice::from_raw_parts(ctx.ptr, ctx.len) };
     let t = bt.current_timestamp();
     let Some(cur) = local_cursor_at(rows, 0, t) else {
