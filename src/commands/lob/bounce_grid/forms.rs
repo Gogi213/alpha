@@ -548,10 +548,10 @@ pub struct GridForm {
     /// Форма выхода (F7, Б-75): `none` (прежнее поведение), `eat<X>` или `gone<W>`.
     pub exit_form: ExitForm,
     /// Выход по «прилипанию» (B4, В-58 п. 5; ось сетки — аудит дизайна 22.09 §6 п. 2, В-85):
-    /// `None` — выключен (прежнее поведение и имена), `Some(x)` — через `x` с после входа
+    /// `None` — выключен (прежнее поведение и имена), `Some(x)` — через `x` мс после входа
     /// уровень всё ещё лучшая цена → выход по рынку (`ExitReason::Early`). Значения — только из
-    /// предрегистрированного набора В-58 (`EARLY_EXITS_S`).
-    pub early_exit_secs: Option<i64>,
+    /// предрегистрированного набора В-58 (`EARLY_EXITS_S`, плюс 500 мс).
+    pub early_exit_ms: Option<i64>,
 }
 
 /// Г-114: имя формы `halfstop` / `halfstop` + `f1`|`f3` (доля 1/4 или 3/4; половина — без суффикса).
@@ -675,7 +675,7 @@ pub fn grid_forms_with_axes(
                                 entry_ttl,
                                 entry_form,
                                 exit_form,
-                                early_exit_secs: None,
+                                early_exit_ms: None,
                             });
                         }
                     }
@@ -714,8 +714,9 @@ pub fn grid_forms_with_early(
         for f in &base {
             let mut g = *f;
             if let Some(x) = early {
-                g.label = Box::leak(format!("{}-early{x}", f.label).into_boxed_str());
-                g.early_exit_secs = Some(x);
+                let lab = crate::commands::lob::backtest::early_label(x);
+                g.label = Box::leak(format!("{}-early{lab}", f.label).into_boxed_str());
+                g.early_exit_ms = Some(x);
             }
             out.push(g);
         }

@@ -677,7 +677,7 @@ fn early_exit_axis_keeps_default_forms_and_names_enabled_ones() {
     assert_eq!(off, axes, "без оси — формы байт в байт прежние");
 
     let earlies = parse_early_exits(&["off".to_string(), "2".to_string()]).unwrap();
-    assert_eq!(earlies, vec![None, Some(2)]);
+    assert_eq!(earlies, vec![None, Some(2_000)]);
     let both = grid_forms_with_early(
         &stops,
         &takes,
@@ -698,8 +698,8 @@ fn early_exit_axis_keeps_default_forms_and_names_enabled_ones() {
             "pct2-1to1-3600-eat50-early2",
         ]
     );
-    assert_eq!(both[2].early_exit_secs, Some(2));
-    assert_eq!(both[0].early_exit_secs, None);
+    assert_eq!(both[2].early_exit_ms, Some(2_000));
+    assert_eq!(both[0].early_exit_ms, None);
 
     assert!(parse_early_exits(&[]).unwrap() == vec![None]);
     assert!(
@@ -707,6 +707,20 @@ fn early_exit_axis_keeps_default_forms_and_names_enabled_ones() {
         "4 с нет в наборе В-58 + точек F1 П-14"
     );
     assert!(parse_early_exits(&["x".to_string()]).is_err());
+    assert!(parse_early_exits(&["0.6".to_string()]).is_err());
+    let half = parse_early_exits(&["0.5".to_string()]).unwrap();
+    assert_eq!(half, vec![Some(500)]);
+    let hf = grid_forms_with_early(
+        &stops,
+        &takes,
+        None,
+        &[3600],
+        &[EntryTtl::Touch],
+        &[EntryForm::SingleFrontrun],
+        &[ExitForm::None],
+        &half,
+    );
+    assert_eq!(hf[0].label, "pct2-1to1-3600-early0.5");
 }
 
 // -----------------------------------------------------------------------

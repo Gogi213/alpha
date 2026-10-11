@@ -437,14 +437,15 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
     // Ось «прилипания» (В-85) — в шапку только включённой: без флага шапка байт в байт прежняя.
     let mut earlies: Vec<String> = Vec::new();
     for f in forms.iter() {
-        let l = f
-            .early_exit_secs
-            .map_or_else(|| "off".to_string(), |x| x.to_string());
+        let l = f.early_exit_ms.map_or_else(
+            || "off".to_string(),
+            crate::commands::lob::backtest::early_label,
+        );
         if !earlies.contains(&l) {
             earlies.push(l);
         }
     }
-    if forms.iter().any(|f| f.early_exit_secs.is_some()) {
+    if forms.iter().any(|f| f.early_exit_ms.is_some()) {
         exit_forms = format!("{exit_forms} early_exits={}", earlies.join("+"));
     }
     if args.carry_age {

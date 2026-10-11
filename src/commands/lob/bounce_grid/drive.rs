@@ -17,7 +17,7 @@ use hftbacktest::types::Event as HbtEvent;
 use crate::book::Side;
 use crate::commands::lob::backtest::{
     approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, count_feed_events,
-    deadline_ns_from_secs, early_exit_ns_from_secs, open_replay_feed, replay_compact_into_until,
+    deadline_ns_from_secs, early_exit_ns_from_ms, open_replay_feed, replay_compact_into_until,
     EntryForm, PlanShape, PoolLot,
 };
 use crate::lob::backtest::{
@@ -50,7 +50,7 @@ fn signals_for(
     p: &DayParams<'_>,
 ) -> anyhow::Result<(Vec<BounceSignal>, u64)> {
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
-    let early_exit_ns = early_exit_ns_from_secs(form.early_exit_secs)?;
+    let early_exit_ns = early_exit_ns_from_ms(form.early_exit_ms)?;
     let mut skipped: u64 = 0;
     if let Some(ctx) = p.ctx {
         anyhow::ensure!(

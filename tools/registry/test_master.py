@@ -128,6 +128,9 @@ class MasterTest(unittest.TestCase):
         m10 = master.MONTHLY[ch.cell_hash(c10)]
         self.assertEqual(m10["2026-02"], c10["form"] + " g10n6q20-2026-02")
         self.assertEqual(master.MSETS["g10n6q20-2026-01"], "age=2700,side=bid,btc6h_max=-50.5")
+        # Г-110: early<x> — целые секунды как раньше, 0,5 с — early0.5
+        for x, suf in (("0.5", "early0.5"), ("1/2", "early0.5"), ("3", "early3")):
+            self.assertTrue(master.p14_cfg("Г-110", sv, {"early_exit_s": x})["form"].endswith("-" + suf), x)
         # Г-112: tape<W>q<Q_m(W,q)> по месяцам из v7; Q_m ≤ 0 — месяц без строки (правило «P > 0»)
         c112 = master.p14_cfg("Г-112", sv, {"W": "30", "q": "50"})
         self.assertEqual(c112["variant"], {"family": "e112", "axes": {"W": 30, "q": 50}})

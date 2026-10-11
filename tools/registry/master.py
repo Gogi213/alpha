@@ -194,7 +194,7 @@ def r2_exit(hyp, av):
 R2_EXIT_RE = r"(pyeat|pyfresh|pyre|pynw|halfstop|halflevel|tsl|conv|nostop|chase|tape|cxl|wall2)"   # ExitForm::is_r2
 
 
-EARLY_OK = (1, 2, 3, 5, 8, 13, 20, 30, 60)       # EARLY_EXITS_S в plan.rs (TK-189)
+EARLY_OK = (0.5, 1, 2, 3, 5, 8, 13, 20, 30, 60)   # EARLY_EXITS_S в plan.rs + EARLY_EXIT_HALF_MS (TK-189)
 TTL_OK = (10, 30, 60, 120, 300, 600, 900, 1200, 1800)   # ENTRY_TTL_SECS в forms.rs (TK-189)
 
 
@@ -207,8 +207,10 @@ def rust_axes(hyp, av, sv):
         t = _int_in(_frac(av["entry_ttl"]), TTL_OK)
         return t or ttl, "", None, None if t else f"ttl: ∈ {TTL_OK}"
     if n == "110":
-        x = _int_in(_frac(av["early_exit_s"]), EARLY_OK)
-        return ttl, "", x, None if x else f"early<x>: целые секунды ∈ {EARLY_OK} (0,5 с — вне целого типа флага)"
+        x = _frac(av["early_exit_s"])
+        x = x if x in EARLY_OK else None
+        x = int(x) if x is not None and float(x).is_integer() else x
+        return ttl, "", x, None if x is not None else f"early<x>: секунды ∈ {EARLY_OK}"
     if n == "104":
         w = _int_in(_frac(av["exit_share"]), (10, 25, 50, 75, 90))
         be = str(av["be"]).strip().lower()
@@ -484,12 +486,12 @@ def plan(protocol, k, hyps=None, out=None, have=None):
         with open(stem + ".args", "w", encoding="utf-8", newline="\n") as f:   # аргументы bounce-grid к файлу --cells (формы выхода и наборы)
             for e in sorted({fm.split("-pct", 1)[0] for fm in forms}):
                 f.write(f"--entry-form {e}\n")
-            tails = [re.search(r"-ttl(\d+)(?:-(?!early\d+$)(.+?))?(?:-early(\d+))?$", fm) for fm in forms]
+            tails = [re.search(r"-ttl(\d+)(?:-(?!early[\d.]+$)(.+?))?(?:-early([\d.]+))?$", fm) for fm in forms]
             for t in sorted({m.group(1) for m in tails if m}, key=int):
                 f.write(f"--entry-ttl-secs {t}\n")
             for x in sorted({m.group(2) for m in tails if m and m.group(2)}):
                 f.write(f"--exit-form {x}\n")
-            for x in sorted({m.group(3) for m in tails if m and m.group(3)}, key=int):
+            for x in sorted({m.group(3) for m in tails if m and m.group(3)}, key=float):
                 f.write(f"--early-exit-secs {x}\n")
             parts = [re.match(r"^(.+?)-(.+?)-(.+?)-(\d+)-ttl", fm) for fm in forms]
             for flag, g in (("--stop-form", 2), ("--take-form", 3), ("--deadline-secs", 4)):

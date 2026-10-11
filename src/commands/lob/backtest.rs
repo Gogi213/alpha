@@ -18,7 +18,7 @@ pub use forms::{
 };
 pub(crate) use plan::{
     approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, deadline_ns_from_secs,
-    early_exit_ns_from_secs, touch_view_of_approach,
+    early_exit_ns_from_ms, early_label, touch_view_of_approach, EARLY_EXIT_HALF_MS,
 };
 pub(crate) use pool::PoolLot;
 

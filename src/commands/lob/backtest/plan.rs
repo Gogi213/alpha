@@ -3,7 +3,7 @@
 //! плана из касания (`bounce_plan`) или записи подхода (`touch_view_of_
 //! approach`/`approach_plan`, F6) и предрегистрированные сетки дедлайна/раннего
 //! выхода (`DEADLINES_S`/`EARLY_EXITS_S`, `deadline_ns_from_secs`/
-//! `early_exit_ns_from_secs`). Вынесено из `backtest` при разрезке B3 (ревью
+//! `early_exit_ns_from_ms`). Вынесено из `backtest` при разрезке B3 (ревью
 //! 23.09), поведение не менялось.
 
 use super::forms::{
@@ -631,16 +631,29 @@ pub(crate) fn deadline_ns_from_secs(secs: i64) -> anyhow::Result<i64> {
     Ok(ms.saturating_mul(1_000_000))
 }
 
-/// Досрочный выход `--early-exit-secs` → наносекунды (B4): `None` — выключен,
-/// `Some(X)` — `X` из набора В-58 {1, 2, 3}. Другое значение — отказ, тем же
+/// Единственная доля секунды в наборе: 0,5 с (точка F1 П-14 Г-110, решение владельца 11.10).
+pub(crate) const EARLY_EXIT_HALF_MS: i64 = 500;
+
+/// Досрочный выход `--early-exit-secs` → наносекунды (B4), вход в миллисекундах: `None` — выключен,
+/// `Some(x)` — целые секунды из `EARLY_EXITS_S` или 500 мс. Другое значение — отказ, тем же
 /// правилом, что у дедлайна.
-pub(crate) fn early_exit_ns_from_secs(secs: Option<i64>) -> anyhow::Result<i64> {
-    let Some(x) = secs else {
+pub(crate) fn early_exit_ns_from_ms(ms: Option<i64>) -> anyhow::Result<i64> {
+    let Some(x) = ms else {
         return Ok(0);
     };
     anyhow::ensure!(
-        EARLY_EXITS_S.contains(&x),
-        "--early-exit-secs {x} не из предрегистрированного набора В-58 {EARLY_EXITS_S:?}"
+        x == EARLY_EXIT_HALF_MS || (x % 1_000 == 0 && EARLY_EXITS_S.contains(&(x / 1_000))),
+        "--early-exit-secs {} не из предрегистрированного набора В-58 {EARLY_EXITS_S:?} + 0.5",
+        early_label(x)
     );
-    Ok(x.saturating_mul(1_000_000_000))
+    Ok(x.saturating_mul(1_000_000))
+}
+
+/// Имя точки в формах и шапке: целые секунды как раньше (`2`), полсекунды — `0.5`.
+pub(crate) fn early_label(ms: i64) -> String {
+    if ms % 1_000 == 0 {
+        (ms / 1_000).to_string()
+    } else {
+        format!("{}.{}", ms / 1_000, (ms % 1_000) / 100)
+    }
 }

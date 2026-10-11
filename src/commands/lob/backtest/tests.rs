@@ -1,5 +1,5 @@
 use super::feed::events_from_feed;
-use super::plan::{approach_plan_sched, bounce_plan_sched, EARLY_EXITS_S};
+use super::plan::{approach_plan_sched, bounce_plan_sched, EARLY_EXITS_S, EARLY_EXIT_HALF_MS};
 use super::*;
 use crate::binlog::StepAt;
 use crate::book::{Side, Update};
@@ -626,15 +626,22 @@ fn deadline_and_early_exit_values_outside_the_preregistered_grid_are_refused() {
     );
     // Досрочный выход: выключен либо {1, 2, 3} с — четвёртый вариант той же оси.
     assert_eq!(
-        early_exit_ns_from_secs(None).unwrap(),
+        early_exit_ns_from_ms(None).unwrap(),
         0,
         "без флага досрочный выход выключен, а не «ноль секунд»"
     );
     for x in EARLY_EXITS_S {
-        assert_eq!(early_exit_ns_from_secs(Some(x)).unwrap(), x * 1_000_000_000);
+        assert_eq!(
+            early_exit_ns_from_ms(Some(x * 1_000)).unwrap(),
+            x * 1_000_000_000
+        );
     }
-    for bad in [0, 4, 7] {
-        let err = early_exit_ns_from_secs(Some(bad)).unwrap_err().to_string();
+    assert_eq!(
+        early_exit_ns_from_ms(Some(EARLY_EXIT_HALF_MS)).unwrap(),
+        500_000_000
+    );
+    for bad in [0, 4_000, 7_000, 250, 1_500] {
+        let err = early_exit_ns_from_ms(Some(bad)).unwrap_err().to_string();
         assert!(
             err.contains("не из предрегистрированного набора В-58"),
             "{bad}: {err}"
