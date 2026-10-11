@@ -217,7 +217,7 @@ pub(super) fn reinst_state(n: u8, u3: u8) -> (Backtest<FastMarketDepth>, Strateg
     } = &mut state.plan
     {
         pyramid.reinstall_n = n;
-        pyramid.reinstall_u3 = u3;
+        pyramid.reinstall_u12 = u3 * 4;
         *lot_qty = 1.0;
     }
     (hbt, state)
@@ -302,7 +302,7 @@ pub(super) fn newwall_state(
     state.level_qty_at_entry = 30.0;
     if let TradePlan::Bounce { pyramid, .. } = &mut state.plan {
         pyramid.newwall_k = k;
-        pyramid.newwall_u3 = u3;
+        pyramid.newwall_u12 = u3 * 4;
     }
     (hbt, state)
 }

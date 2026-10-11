@@ -141,7 +141,7 @@ class MasterTest(unittest.TestCase):
         self.assertRegex(master.MONTHLY[ch.cell_hash(c0)]["2026-01"], r"-ttl1800-tape5qp t-bid-btc4h-q1$")   # Q_m ≤ 0 -> «мера > 0»
         self.assertEqual(len(master.MONTHLY[ch.cell_hash(c0)]), 9)
         cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"})
-        self.assertIsNone(master.LINES[ch.cell_hash(cfg)][0])
+        self.assertIn("pyre3w3", master.LINES[ch.cell_hash(cfg)][0])   # u = 1/4 -> u12 = 3 (TK-189)
         with self.assertRaises(SystemExit):
             master.p14_cfg("Г-87", {**sv, "sigma": "sigma120"}, {"n": "2"})
 

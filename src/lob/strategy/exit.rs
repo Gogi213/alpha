@@ -288,7 +288,7 @@ where
                 HbtSide::Buy => (bid <= gone.stop_px, bid >= take_px),
                 _ => (ask >= gone.stop_px, ask <= take_px),
             };
-            let stop_hit = if pyr.nostop_x2 > 0 {
+            let stop_hit = if pyr.nostop_x8 > 0 {
                 // Г-106: до активации стопа нет; после — безубыток (вход + круг комиссий).
                 if !state.nostop_armed && entry_px > 0.0 {
                     let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
@@ -297,7 +297,7 @@ where
                         / entry_px
                         * 10_000.0;
                     state.nostop_armed = gain_bps
-                        >= f64::from(pyr.nostop_x2) / 2.0 * trail_activate_bps
+                        >= f64::from(pyr.nostop_x8) / 8.0 * trail_activate_bps
                         && f64::from(state.sigma) * (state.best_favourable - be_px) >= 0.0;
                 }
                 state.nostop_armed && {
@@ -337,10 +337,10 @@ where
             let eaten_half_hit =
                 eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
             let half_stop = pyr.half_stop;
-            let half_frac = if pyr.half_q4 == 0 {
+            let half_frac = if pyr.half_q8 == 0 {
                 0.5
             } else {
-                f64::from(pyr.half_q4) / 4.0
+                f64::from(pyr.half_q8) / 8.0
             };
             let converge_hit = if pyr.converge_tol1 > 0 && level_px > 0.0 && tick_px > 0.0 {
                 let dmax_bps =

@@ -812,17 +812,17 @@ fn set_agemax_parses_into_the_upper_age_bound() {
 fn half_forms_take_quarter_fraction_suffix() {
     assert_eq!(
         ExitForm::parse("halfstop").unwrap(),
-        ExitForm::HalfStop { q4: 2 }
+        ExitForm::HalfStop { q8: 4 }
     );
     assert_eq!(
         ExitForm::parse("halfstopf1").unwrap(),
-        ExitForm::HalfStop { q4: 1 }
+        ExitForm::HalfStop { q8: 2 }
     );
     assert_eq!(
         ExitForm::parse("halflevelf3").unwrap(),
-        ExitForm::HalfLevel { q4: 3 }
+        ExitForm::HalfLevel { q8: 6 }
     );
-    assert_eq!(ExitForm::HalfLevel { q4: 3 }.label(), "halflevelf3");
+    assert_eq!(ExitForm::HalfLevel { q8: 6 }.label(), "halflevelf3");
     assert!(ExitForm::parse("halfstopf2").is_err());
     assert!(ExitForm::parse("halfstopf4").is_err());
 }
@@ -833,9 +833,41 @@ fn half_forms_take_quarter_fraction_suffix() {
 fn nostop_form_parses_only_the_grid_multipliers() {
     assert_eq!(
         ExitForm::parse("nostop2").unwrap(),
-        ExitForm::NoStop { x2: 2 }
+        ExitForm::NoStop { x8: 8 }
     );
-    assert_eq!(ExitForm::NoStop { x2: 4 }.label(), "nostop4");
+    assert_eq!(ExitForm::NoStop { x8: 16 }.label(), "nostop4");
+    // F1 TK-189: новые точки — свои имена, прежние побайтно.
+    assert_eq!(
+        ExitForm::parse("nostopx1").unwrap(),
+        ExitForm::NoStop { x8: 1 }
+    );
+    assert_eq!(ExitForm::parse("nostopx64").unwrap().label(), "nostopx64");
+    assert!(ExitForm::parse("nostopx8").is_err());
+    assert!(ExitForm::parse("nostop3").is_err());
+    assert_eq!(
+        ExitForm::parse("halfstopg3").unwrap(),
+        ExitForm::HalfStop { q8: 3 }
+    );
+    assert_eq!(
+        ExitForm::parse("halflevelg7").unwrap().label(),
+        "halflevelg7"
+    );
+    assert!(ExitForm::parse("halfstopg4").is_err());
+    assert_eq!(
+        ExitForm::parse("pyre10w2").unwrap(),
+        ExitForm::PyrReinstall { n: 10, u12: 2 }
+    );
+    assert_eq!(
+        ExitForm::parse("pyre3u2").unwrap(),
+        ExitForm::PyrReinstall { n: 3, u12: 8 }
+    );
+    assert_eq!(ExitForm::parse("pynw5w10").unwrap().label(), "pynw5w10");
+    assert!(ExitForm::parse("pynw5w8").is_err());
+    assert_eq!(
+        ExitForm::parse("pyfresh12").unwrap(),
+        ExitForm::PyrFresh { parts: 12 }
+    );
+    assert_eq!(ExitForm::parse("conv16a20").unwrap().label(), "conv16a20");
     assert!(ExitForm::parse("nostop3").is_err());
     assert!(ExitForm::parse("nostop").is_err());
 }

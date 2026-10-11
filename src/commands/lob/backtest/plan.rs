@@ -343,31 +343,31 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::PyrReinstall { n, u3 } => {
+                crate::commands::lob::bounce_grid::ExitForm::PyrReinstall { n, u12 } => {
                     crate::lob::strategy::PyramidCfg {
                         reinstall_n: n,
-                        reinstall_u3: u3,
+                        reinstall_u12: u12,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::PyrNewWall { k, u3 } => {
+                crate::commands::lob::bounce_grid::ExitForm::PyrNewWall { k, u12 } => {
                     crate::lob::strategy::PyramidCfg {
                         newwall_k: k,
-                        newwall_u3: u3,
+                        newwall_u12: u12,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::HalfStop { q4 } => {
+                crate::commands::lob::bounce_grid::ExitForm::HalfStop { q8 } => {
                     crate::lob::strategy::PyramidCfg {
                         half_stop: true,
-                        half_q4: q4,
+                        half_q8: q8,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::HalfLevel { q4 } => {
+                crate::commands::lob::bounce_grid::ExitForm::HalfLevel { q8 } => {
                     crate::lob::strategy::PyramidCfg {
                         half_level: true,
-                        half_q4: q4,
+                        half_q8: q8,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
@@ -412,9 +412,9 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
-                crate::commands::lob::bounce_grid::ExitForm::NoStop { x2 } => {
+                crate::commands::lob::bounce_grid::ExitForm::NoStop { x8 } => {
                     crate::lob::strategy::PyramidCfg {
-                        nostop_x2: x2,
+                        nostop_x8: x8,
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }

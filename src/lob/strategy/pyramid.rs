@@ -278,9 +278,9 @@ impl StrategyState {
             return Ok(());
         };
         let (cap, u3) = if pyramid.newwall_k > 0 {
-            (pyramid.newwall_k, pyramid.newwall_u3)
+            (pyramid.newwall_k, pyramid.newwall_u12)
         } else {
-            (REINSTALL_K, pyramid.reinstall_u3)
+            (REINSTALL_K, pyramid.reinstall_u12)
         };
         if (pyramid.reinstall_n == 0 && pyramid.newwall_k == 0)
             || self.adds_released
@@ -308,7 +308,7 @@ impl StrategyState {
             self.add_base_qty = self.entry_qty;
             self.add_base_notional = self.entry_notional;
         }
-        let raw = self.add_base_qty * f64::from(u3) / 3.0;
+        let raw = self.add_base_qty * f64::from(u3) / 12.0;
         let qty = if lot_qty > 0.0 {
             (raw / lot_qty).floor() * lot_qty
         } else {

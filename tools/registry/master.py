@@ -157,30 +157,35 @@ def _int_in(x, ok):
     return int(r) if abs(x - r) < 1e-9 and r in ok else None
 
 
+def _u12(u12):
+    """Часть имени pyre/pynw: u<k> при u12 = 4k (доля k/3, прежние имена), иначе w<u12> (forms.rs u12_label)."""
+    return f"u{u12 // 4}" if u12 in (4, 8, 12) else f"w{u12}"
+
+
 def r2_exit(hyp, av):
     """R2-гипотеза Rust-класса -> (входная форма или None, суффикс --exit-form, имя набора, причина отказа); имена и наборы — как в клетках Летописи
     (tk065-r2-gen.py, tk115-delta-day.sh) и в forms.rs; значение оси вне ограничений формы -> суффикс None и причина."""
     n = re.sub(r"\D", "", hyp)
     g = lambda k: _frac(av[k])
-    if n == "87":   # pyfresh<N>, N ∈ [2, 10]; набор g87-fresh
-        v = _int_in(g("n"), range(2, 11))
-        return None, (f"pyfresh{v}" if v else None), "g87-fresh", None if v else "pyfresh<N>: N ∈ [2, 10]"
-    if n == "92":   # pyre<N>u<k>, N ∈ [1, 9], k = 3u ∈ {1, 2, 3}
-        nn, k = _int_in(g("N"), range(1, 10)), _int_in(3 * g("u"), (1, 2, 3))
-        return None, (f"pyre{nn}u{k}" if nn and k else None), "t-bid-btc4h-q1", None if nn and k else "pyre<N>u<k>: N ∈ [1, 9], u ∈ {1/3, 2/3, 1}"
-    if n == "93":   # pynw<K>u<k>, K ∈ [1, 9], k = 3u ∈ {1, 2, 3}
-        kk, k = _int_in(g("K"), range(1, 10)), _int_in(3 * g("u"), (1, 2, 3))
-        return None, (f"pynw{kk}u{k}" if kk and k else None), "t-bid-btc4h-q1", None if kk and k else "pynw<K>u<k>: K ∈ [1, 9], u ∈ {1/3, 2/3, 1}"
-    if n == "106":  # nostop<X2>, X2 = 2x ∈ {1, 2, 4}; набор e106-pop
-        x2 = _int_in(2 * g("x"), (1, 2, 4))
-        return None, (f"nostop{x2}" if x2 else None), "e106-pop", None if x2 else "nostop<X2>: x ∈ {1/2, 1, 2}"
-    if n == "119":  # conv<t>a20 (A = D20 прогона подходов), t ∈ [0, 9]
-        t = _int_in(g("tol_ticks"), range(0, 10))
-        return None, (f"conv{t}a20" if t is not None else None), "t-bid-btc4h-q1", None if t is not None else "conv<t>: t ∈ [0, 9]"
-    if n == "114":  # halfstop|halflevel[f1|f3]: f = q4/4, q4 ∈ {1, 2, 3}
-        q4 = _int_in(4 * g("f"), (1, 2, 3))
+    if n == "87":   # pyfresh<N>, N ∈ [2, 12]; набор g87-fresh
+        v = _int_in(g("n"), range(2, 13))
+        return None, (f"pyfresh{v}" if v else None), "g87-fresh", None if v else "pyfresh<N>: N ∈ [2, 12]"
+    if n == "92":   # pyre<N>u<k> | pyre<N>w<u12>, N ∈ [1, 10], u12 = 12u ∈ [1, 12] (u<k> при u12 = 4k)
+        nn, u12 = _int_in(g("N"), range(1, 11)), _int_in(12 * g("u"), range(1, 13))
+        return None, (f"pyre{nn}{_u12(u12)}" if nn and u12 else None), "t-bid-btc4h-q1", None if nn and u12 else "pyre<N>: N ∈ [1, 10], u = u12/12, u12 ∈ [1, 12]"
+    if n == "93":   # pynw<K>u<k> | pynw<K>w<u12>, K ∈ [1, 9], u12 = 12u ∈ [1, 12]
+        kk, u12 = _int_in(g("K"), range(1, 10)), _int_in(12 * g("u"), range(1, 13))
+        return None, (f"pynw{kk}{_u12(u12)}" if kk and u12 else None), "t-bid-btc4h-q1", None if kk and u12 else "pynw<K>: K ∈ [1, 9], u = u12/12, u12 ∈ [1, 12]"
+    if n == "106":  # nostop<X2> (x8 = 4·X2 ∈ {4, 8, 16}) | nostopx<X8>, x = X8/8 ∈ [1/8, 8]; набор e106-pop
+        x8 = _int_in(8 * g("x"), range(1, 65))
+        return None, (None if not x8 else f"nostop{x8 // 4}" if x8 in (4, 8, 16) else f"nostopx{x8}"), "e106-pop", None if x8 else "nostop: x = X8/8, X8 ∈ [1, 64]"
+    if n == "119":  # conv<t>a20 (A = D20 прогона подходов), t ∈ [0, 16]
+        t = _int_in(g("tol_ticks"), range(0, 17))
+        return None, (f"conv{t}a20" if t is not None else None), "t-bid-btc4h-q1", None if t is not None else "conv<t>: t ∈ [0, 16]"
+    if n == "114":  # halfstop|halflevel[f1|f3|g<q8>]: f = q8/8, q8 ∈ [1, 7]
+        q8 = _int_in(8 * g("f"), range(1, 8))
         base = av["trigger"]
-        return None, (None if not q4 else base if q4 == 2 else f"{base}f{q4}"), "t-bid-btc4h-q1", None if q4 else "half…: f ∈ {1/4, 1/2, 3/4}"
+        return None, (None if not q8 else base + {4: "", 2: "f1", 6: "f3"}.get(q8, f"g{q8}")), "t-bid-btc4h-q1", None if q8 else "half…: f = q8/8, q8 ∈ [1, 7]"
     if n == "65":   # цель = 2-я стена + k тиков, k ∈ −3..3 (Судья 11.10): wall2 ≡ −1, wall2x ≡ +1, wall20, wall2m<n>, wall2p<n> (forms.rs)
         k = _int_in(g("offset"), range(-3, 4))
         name = None if k is None else {-1: "wall2", 1: "wall2x", 0: "wall20"}.get(k, f"wall2m{-k}" if k < 0 else f"wall2p{k}")

@@ -306,21 +306,21 @@ pub struct PyramidCfg {
     pub eat_parts: u8,
     /// Г-87 (`pyfresh<N>`): вход — только `Q0/N`, остальное добавками `Q0/N` (а не `base/N`).
     pub fresh: bool,
-    /// Г-92 (`pyre<N>u<k>`): добавка `k/3·Q0` на каждый возврат стены на цене, после `N`-го — стоп в
+    /// Г-92 (`pyre<N>u<k>`): добавка `u12/12·Q0` (`u<k>` = 4k, `w<u12>`) на каждый возврат стены на цене, после `N`-го — стоп в
     /// безубыток (мягкий); `0` — выключено.
     pub reinstall_n: u8,
-    pub reinstall_u3: u8,
+    pub reinstall_u12: u8,
     /// Г-93 (`pynw<K>u<k>`): в убыточной позиции на новую крупную стену между стопом и рынком — добавка
-    /// `k/3·Q0`, всего не больше `K`; `0` — выключено.
+    /// `u12/12·Q0`, всего не больше `K`; `0` — выключено.
     pub newwall_k: u8,
-    pub newwall_u3: u8,
+    pub newwall_u12: u8,
     /// Г-114 (`halfstop`): стоп закрывает ровно половину позиции один раз, остаток живёт без стопа.
     pub half_stop: bool,
     /// Г-114 (`halflevel`): половина закрывается по рынку при первой сделке ленты за `level_px` стены входа
     /// (лонг — ниже, шорт — выше); остаток без стопа `pct2`.
     pub half_level: bool,
-    /// Г-114: доля закрываемого в четвертях (`halfstopf1` → 1, `f3` → 3); `0` — как `2` (половина, умолчание).
-    pub half_q4: u8,
+    /// Г-114: доля закрываемого в восьмых (`f1` → 2, `f3` → 6, `g<q8>` → q8); `0` — как `4` (половина, умолчание).
+    pub half_q8: u8,
     /// Г-117 (`tsl<G>t<Q>`): тейк сползает к безубытку `take(t) = take − (take − floor)·min(1, (t/T)^γ)`,
     /// `γ = sched_g10 / 10`, `T = sched_t4 / 4 · deadline`; `sched_g10 = 0` — выключено. Нужен `trail_bps = 0`.
     pub sched_g10: u8,
@@ -333,9 +333,9 @@ pub struct PyramidCfg {
     /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
     pub converge_tol1: u8,
     pub converge_a_bps: u32,
-    /// Г-106 (`nostop<X2>`): без стопа, пока лучшая цена не дала `X2/2 · trail_activate_bps` и не ушла за безубыток;
+    /// Г-106 (`nostop<X2>`): без стопа, пока лучшая цена не дала `X8/8 · trail_activate_bps` и не ушла за безубыток;
     /// затем стоп = безубыток (мягкий). `0` — выключено.
-    pub nostop_x2: u8,
+    pub nostop_x8: u8,
     /// Г-65 (`e65-t2` → 1, `e65-t2x` → 2; TK-189 — `WALL2_K`): цель за второй аск-стеной (шорт — бид-стеной) из журнала стен на момент
     /// исполнения входа: код `c` ↔ сдвиг `WALL2_K[c−1]` тиков (−1 — перед стеной, +1 — за ней); `0` — выключено. Цена цели ставится
     /// при форке группы (`set_plan_wall2`), `trail_bps = 0`.
@@ -359,19 +359,19 @@ impl PyramidCfg {
         eat_parts: 0,
         fresh: false,
         reinstall_n: 0,
-        reinstall_u3: 0,
+        reinstall_u12: 0,
         newwall_k: 0,
-        newwall_u3: 0,
+        newwall_u12: 0,
         half_stop: false,
         half_level: false,
-        half_q4: 0,
+        half_q8: 0,
         sched_g10: 0,
         sched_t4: 0,
         sched_g8: 0,
         sched_t16: 0,
         converge_tol1: 0,
         converge_a_bps: 0,
-        nostop_x2: 0,
+        nostop_x8: 0,
         wall2: 0,
         chase_ms: 0,
         tape_q: 0.0,
@@ -398,7 +398,7 @@ impl PyramidCfg {
             || self.sched_g10 > 0
             || self.sched_g8 > 0
             || self.converge_tol1 > 0
-            || self.nostop_x2 > 0
+            || self.nostop_x8 > 0
             || self.wall2 > 0
             || self.chase_ms > 0
             || self.tape_q > 0.0
