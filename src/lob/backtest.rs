@@ -975,7 +975,16 @@ where
 
         // Остаток позиции здесь не страхуется: круг Decision 20 — одна нога
         // входа и одна нога выхода, и `Bot::position` на этом плане честен.
-        let (outcome, _residual) = run_round(bot, asset_no, &mut state, entry_id, 1, side, None)?;
+        let outcome = run_round_solo(
+            bot,
+            asset_no,
+            &mut state,
+            entry_id,
+            TradePlan::SpreadHold,
+            side,
+            None,
+        )?
+        .outcome;
         match outcome {
             RoundOutcome::EndOfData => {
                 incomplete = true;
@@ -1498,355 +1507,38 @@ where
     }
 }
 
-fn run_round<B, MD>(
+/// Сольный круг — группа из одного варианта (С-15/С-16, TK-175): один тело круга на сольный путь
+/// и на группу форм. Номера выхода продолжают счёт состояния входа, сироты прошлого круга уже
+/// унаследованы им (`inherit_orphans`) — группа из одного отличается от прежнего `run_round` только
+/// тем, что состояние выхода — клон состояния входа (`GroupRoundResult::carry_out` вместо
+/// `state.take_orphans()`).
+fn run_round_solo<B, MD>(
     bot: &mut B,
     asset_no: usize,
     state: &mut StrategyState,
     entry_id: u64,
-    legs: u8,
+    plan: TradePlan,
     side: HbtSide,
     skip_cap: Option<i64>,
-) -> Result<(RoundOutcome, f64), B::Error>
+) -> Result<GroupRoundResult, B::Error>
 where
     B: Bot<MD>,
     MD: MarketDepth,
 {
-    let mut timed_out = false;
-    // Почему вход кончился без позиции (F5, В-74): несётся из `on_event` до
-    // `RoundOutcome::TimedOut`, чтобы по кругам формы посчитались снятия по
-    // стене, полосе и потолку отдельно.
-    let mut cancel_reason = EntryCancelReason::NotPlaced;
-    // Путь исполнения входа (F3): `entry_seen` — ноги, исполнение которых уже
-    // замечено; `entry_pending` — ноги, чей вердикт (сделка или крест) отложен
-    // на шаг (локальная метка сделки отстаёт от биржевой); `fill_by_cross` —
-    // итог по кругу. Битовая маска вместо вектора: ног у плана единицы.
-    let mut entry_seen: u64 = 0;
-    let mut entry_pending: u64 = 0;
-    let mut fill_by_cross = false;
-    // Ноги выхода в порядке отправки: одна у прежних форм, две у дробных (E7),
-    // и больше при доборах остатка моделью очереди по объёму (F4). Третий
-    // элемент — заявка несла **часть** позиции (`Action::partial`), а не весь
-    // остаток: `n_partial` считает именно доли E7, а не число заявок выхода.
-    let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
-    // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
-    let mut decided_in_hold = false;
-    let mut stable = false;
-    let mut solo_sig = SigMemo::default();
-    // TK-049 (быстрый путь): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
-    let mut fast_tried = !fast_hold::fast_hold_on();
-    let mut post_step = false;
-    let mut saved: Vec<(u64, Order)> = Vec::new();
-    loop {
-        if !fast_tried
-            && entry_pending == 0
-            && exits.is_empty()
-            && skip_cap.is_some()
-            && state.is_holding()
-            && state.hold_wakeup_ns(bot.current_timestamp()).is_some()
-            && !has_open_orders(bot, asset_no)
-        {
-            fast_tried = true;
-            let legs_saved: Vec<(u64, Order)> = (0..u64::from(legs.max(1)))
-                .filter_map(|i| {
-                    let id = entry_id.saturating_add(i);
-                    bot.orders(asset_no).get(&id).map(|o| (id, o.clone()))
-                })
-                .collect();
-            if let Some(cap) = skip_cap {
-                if let fast_hold::FastOutcome::Swapped(r) = fast_hold::try_fast_hold(
-                    bot,
-                    asset_no,
-                    state,
-                    cap,
-                    decided_in_hold,
-                    stable,
-                    solo_sig,
-                ) {
-                    *state = r.state.clone();
-                    decided_in_hold = r.decided_in_hold;
-                    stable = r.stable;
-                    solo_sig = r.sig;
-                    post_step = r.post_step;
-                    saved = legs_saved;
-                }
-            }
-        }
-        let skip_step = std::mem::take(&mut post_step);
-        // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
-        // Только если решение удержания на этой точке сетки уже принято (`decided_in_hold`): шаг, на котором
-        // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
-        // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
-        let wakeup = match skip_cap {
-            Some(_) if stable && entry_pending == 0 && state.is_entry_pending() => {
-                state.step_wakeup_ns(bot.current_timestamp())
-            }
-            Some(_) if decided_in_hold && entry_pending == 0 && !has_open_orders(bot, asset_no) => {
-                state.hold_wakeup_ns(bot.current_timestamp())
-            }
-            _ => None,
-        };
-        hftbacktest::prof::set_row_class(if has_open_orders(bot, asset_no) {
-            1
-        } else {
-            usize::from(state.is_holding()) * 2
-        });
-        let stepped = match (wakeup, skip_cap) {
-            _ if skip_step => ElapseResult::Ok,
-            (Some(th), Some(cap)) => {
-                STEP_KINDS[2].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let resp = !state.is_holding() || has_open_orders(bot, asset_no);
-                hold_step(bot, th, cap, resp)?
-            }
-            _ => {
-                let k = usize::from(has_open_orders(bot, asset_no));
-                STEP_KINDS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                bot.elapse(ON_EVENT_POLL_STEP_NS)?
-            }
-        };
-        hftbacktest::prof::set_row_class(3);
-        if stepped == ElapseResult::EndOfData {
-            // Хвост записи: круг неполон, `Fill` не строится — вердикт пути
-            // исполнения не нужен.
-            return Ok((RoundOutcome::EndOfData, state.position()));
-        }
-        // Отложенный вердикт: буфер за это время дорос сделками следующего
-        // шага — если сделка, способная исполнить ногу, появилась, это лента.
-        if entry_pending != 0 {
-            fill_by_cross |= pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs);
-            entry_pending = 0;
-        }
-        for i in 0..u32::from(legs.max(1)) {
-            if i >= u64::BITS {
-                break;
-            }
-            let bit = 1u64 << i;
-            if entry_seen & bit != 0 {
-                continue;
-            }
-            let Some(o) = bot
-                .orders(asset_no)
-                .get(&entry_id.saturating_add(u64::from(i)))
-            else {
-                continue;
-            };
-            // Исполнено — накопленным (`qty − leaves_qty`), а не `exec_qty`:
-            // у крейта `exec_qty` — объём **последнего** исполнения, а не сумма.
-            if executed_qty(o) <= 0.0 {
-                continue;
-            }
-            entry_seen |= bit;
-            let tick = bot.depth(asset_no).tick_size();
-            if !trade_could_fill(bot.last_trades(asset_no), side, o.price_tick, tick) {
-                // Сделки, способной исполнить ногу, в буфере пока нет: вердикт
-                // ждёт шага, чтобы локальная метка сделки догнала биржевое
-                // исполнение. Если сделки не будет и на следующем шаге —
-                // путь (3), обновление лучшей цены.
-                entry_pending |= bit;
-            }
-        }
-        // Буфер нужен только пока есть отложенный вердикт — иначе очищаем
-        // (память не растёт с длиной круга). Перед очисткой сделки этого шага
-        // отдаются стратегии: F7 (Б-75) считает по ним съеденное в стену, а
-        // заново буфер не открывается — считаем ровно один раз на шаг.
-        if entry_pending == 0 && !skip_step {
-            state.observe_cancels(
-                bot.depth(asset_no),
-                bot.last_trades(asset_no),
-                bot.current_timestamp(),
-            );
-            state.observe_wall_trades(bot.last_trades(asset_no));
-            bot.clear_last_trades(Some(asset_no));
-        }
-        // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
-        let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
-        let mark_before = state.phase_mark();
-        solo_sig.stat_step(false, || {
-            state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp())
-        });
-        let skip =
-            solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
-        let action = if skip {
-            Action::Idle
-        } else {
-            on_event(bot, state)?
-        };
-        if !matches!(action, Action::Idle) {
-            solo_sig.reset();
-        }
-        decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
-        stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
-        match action {
-            Action::EntryTimedOut { reason, .. } => {
-                timed_out = true;
-                cancel_reason = reason;
-            }
-            Action::ExitSubmitted {
-                order_id,
-                reason,
-                partial,
-                ..
-            } => exits.push((order_id, reason, partial)),
-            Action::Idle | Action::EntrySubmitted { .. } => {}
-        }
-        if state.is_idle() {
-            break;
-        }
-    }
-    fill_by_cross |= pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs);
-    // Буфер сделок очищается и на выходе из круга: сигналы бывают встык
-    // (`t0` не двигает часы), и сделки прошлого круга не должны решать вердикт
-    // следующего. Сделки последнего шага перед этим отдаются стратегии (F7).
-    state.observe_cancels(
-        bot.depth(asset_no),
-        bot.last_trades(asset_no),
-        bot.current_timestamp(),
-    );
-    state.observe_wall_trades(bot.last_trades(asset_no));
-    bot.clear_last_trades(Some(asset_no));
-    if timed_out {
-        let entry_status = order_of(bot, asset_no, &saved, entry_id).map(|o| o.status);
-        return Ok((
-            RoundOutcome::TimedOut {
-                entry_status,
-                legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
-                reason: cancel_reason,
-            },
-            state.position(),
-        ));
-    }
-    let Some(&(_, reason, _)) = exits.last() else {
-        return Ok((RoundOutcome::Inconsistent, state.position()));
-    };
-    // Исполненные ноги входа. Отбор — **по факту исполнения** (`exec_qty`), а
-    // не по статусу `Filled`: модель очереди по объёму (F3) отдаёт ногу
-    // частично исполненной (`PartiallyFilled`), а снятая после частичного
-    // исполнения нога — `Canceled` с ненулевым `exec_qty`. У прежней модели
-    // (`RiskAdverse`) множество то же: там исполнение всегда целое.
-    //
-    // Цена входа: `entry_px` — средняя с равными весами (как было: у лестницы
-    // ноги равного размера), `entry_vwap` — средневзвешенная по исполненному
-    // размеру; при полном исполнении они совпадают, и `roundtrip_net_bps`
-    // считает по `entry_vwap` (F3).
-    let mut entry_px_sum = 0.0;
-    let mut entry_notional = 0.0;
-    let mut entry_qty = 0.0;
-    let mut entry_legs = 0usize;
-    let mut entry_taker = false;
-    let mut ordered = 0.0;
-    for i in 0..u64::from(legs.max(1)) {
-        let Some(o) = order_of(bot, asset_no, &saved, entry_id.saturating_add(i)) else {
-            continue;
-        };
-        // Заказанное — только принятые биржей ноги: отвергнутая (`Rejected`,
-        // `Expired`) нога — отказ, а не заказ, и `fill_frac` из-за неё падать
-        // не должен (F4 считает её отдельным счётчиком).
-        if !matches!(o.status, Status::Rejected | Status::Expired) {
-            ordered += o.qty;
-        }
-        let exec = executed_qty(o);
-        if exec > 0.0 {
-            entry_qty += exec;
-            // R7: средняя цена ноги — по всем её исполнениям, не цена
-            // последнего уровня свипа.
-            let notional = executed_notional(o);
-            entry_px_sum += notional / exec;
-            entry_notional += notional;
-            entry_legs += 1;
-            // Комиссия ноги — по флагу `maker` ордера крейта (В-63): у
-            // лестницы вход тейкерский, если тейкером исполнилась хотя бы одна
-            // нога (консервативно).
-            entry_taker |= !o.maker;
-        }
-    }
-    // R2-A: добавки доливки — часть позиции; в среднюю равных весов (`entry_px`) не входят.
-    for &id in state.add_order_ids() {
-        let Some(o) = order_of(bot, asset_no, &saved, id) else {
-            continue;
-        };
-        if !matches!(o.status, Status::Rejected | Status::Expired) {
-            ordered += o.qty;
-        }
-        let exec = executed_qty(o);
-        if exec > 0.0 {
-            entry_qty += exec;
-            entry_notional += executed_notional(o);
-            entry_taker |= !o.maker;
-        }
-    }
-    let entry_px = if entry_legs == 0 {
-        None
-    } else {
-        Some(entry_px_sum / crate::stats::count_f64(entry_legs))
-    };
-    let entry_vwap = if entry_qty > 0.0 {
-        entry_notional / entry_qty
-    } else {
-        0.0
-    };
-    let fill_frac = if ordered > 0.0 {
-        entry_qty / ordered
-    } else {
-        0.0
-    };
-    // Цена выхода — **средневзвешенная по размеру** исполненных ног (у
-    // цельного выхода нога одна — это его же цена); время — последней ноги;
-    // комиссия выхода — тейкерская, если тейкером ушла хотя бы одна нога
-    // (консервативно, как у лестницы входа).
-    let mut exit_qty = 0.0;
-    let mut exit_notional = 0.0;
-    let mut exit_ts = i64::MIN;
-    let mut exit_taker = false;
-    for (exit_id, _, _) in &exits {
-        if let Some(o) = order_of(bot, asset_no, &saved, *exit_id).filter(|o| executed_qty(o) > 0.0)
-        {
-            let exec = executed_qty(o);
-            exit_qty += exec;
-            exit_notional += executed_notional(o);
-            exit_ts = exit_ts.max(o.exch_timestamp);
-            exit_taker |= !o.maker;
-        }
-    }
-    // Выход состоялся, если исполненный объём **закрыл вход** — с точностью до
-    // шага лота (округление дробного выхода, E7). Заявка выхода, не отдавшая
-    // ни лота (маркет-выход в пустой книге — `Expired` у модели очереди по
-    // объёму), круг не рассыпает: стратегия шлёт следующую на остаток (F4,
-    // В-78), и в `exits` такие ноги остаются. Под полным исполнением
-    // (`RiskAdverse`) условие совпадает с прежним «все ноги исполнились», так
-    // что числа прежних прогонов не меняются.
-    let exit_ok = exit_qty > 0.0 && exit_qty + lot_half(bot.depth(asset_no)) >= entry_qty;
-    match (entry_px, exit_ok) {
-        (Some(entry_px), true) => {
-            let dir = if side == HbtSide::Buy { 1 } else { -1 };
-            Ok((
-                RoundOutcome::Filled {
-                    fill: Fill {
-                        dir,
-                        entry_px,
-                        exit_px: exit_notional / exit_qty,
-                        qty: entry_qty,
-                        entry_taker,
-                        exit_taker,
-                        entry_vwap,
-                        fill_frac,
-                        legs_filled: u8::try_from(entry_legs).unwrap_or(u8::MAX),
-                        legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
-                        fill_by_cross,
-                        tape_press: state.tape_at_fill(),
-                        cxl_press: state.cxl_at_fill(),
-                        chase_wait_ns: state.chase_wait_ns(),
-                    },
-                    exit_ts,
-                    reason,
-                    // Доля отдана, если хоть одна заявка выхода несла часть
-                    // позиции (E7). Число заявок о доле не говорит: остаток
-                    // добирается новыми заявками (F4).
-                    partial: exits.iter().any(|(_, _, partial)| *partial),
-                },
-                state.position(),
-            ))
-        }
-        _ => Ok((RoundOutcome::Inconsistent, state.position())),
-    }
+    let next_id = state.next_order_id();
+    let mut r = run_round_group(
+        bot,
+        asset_no,
+        state,
+        entry_id,
+        legs_of(plan),
+        side,
+        &[plan],
+        &[next_id],
+        skip_cap,
+        None,
+    )?;
+    Ok(r.remove(0))
 }
 
 /// Ноги входа, которых биржа **не поставила**: пост-онли заявка (GTX),
@@ -2691,25 +2383,18 @@ where
 
     // Э-04б: пропуск пустых шагов — только с флагом и известным концом данных круга.
     let skip_cap = data_end_ns.filter(|_| cfg.hold_skip);
-    let (outcome, residual_left) = run_round(
-        bot,
-        asset_no,
-        &mut state,
-        entry_id,
-        legs_of(sig.plan),
-        side,
-        skip_cap,
-    )?;
+    let r = run_round_solo(bot, asset_no, &mut state, entry_id, sig.plan, side, skip_cap)?;
+    let (outcome, residual_left) = (r.outcome, r.position);
     if matches!(outcome, RoundOutcome::EndOfData) {
-        *carry = state.take_orphans();
+        *carry = r.carry_out;
         return Ok(SignalStep::Submitted {
             crossed,
             spread,
             outcome,
             residual: None,
             idle_ns: bot.current_timestamp(),
-            exit_cancel_timeouts: state.exit_cancel_timeouts(),
-            orphan_fills: state.orphan_fills(),
+            exit_cancel_timeouts: r.exit_cancel_timeouts,
+            orphan_fills: r.orphan_fills,
         });
     }
     // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
@@ -2736,28 +2421,28 @@ where
         }
         residual = Some(ended);
         if ended {
-            *carry = state.take_orphans();
+            *carry = r.carry_out;
             return Ok(SignalStep::Submitted {
                 crossed,
                 spread,
                 outcome,
                 residual,
                 idle_ns: bot.current_timestamp(),
-                exit_cancel_timeouts: state.exit_cancel_timeouts(),
-                orphan_fills: state.orphan_fills(),
+                exit_cancel_timeouts: r.exit_cancel_timeouts,
+                orphan_fills: r.orphan_fills,
             });
         }
     }
     bot.clear_inactive_orders(Some(asset_no));
-    *carry = state.take_orphans();
+    *carry = r.carry_out;
     Ok(SignalStep::Submitted {
         crossed,
         spread,
         outcome,
         residual,
         idle_ns: bot.current_timestamp(),
-        exit_cancel_timeouts: state.exit_cancel_timeouts(),
-        orphan_fills: state.orphan_fills(),
+        exit_cancel_timeouts: r.exit_cancel_timeouts,
+        orphan_fills: r.orphan_fills,
     })
 }
 
