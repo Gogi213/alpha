@@ -1022,13 +1022,13 @@ fn two_sessions_in_a_row_into_one_directory_produce_two_parts_both_readable() {
 /// Слепая приёмка G4: каталог, размеченный так, как `run_session`
 /// раскладывает файлы начиная с этого таска (`<SYMBOL>-<день>.binlog`,
 /// день часть 1 — та же `day_file_path`, что доказал предыдущий тест),
-/// читается `verify`/`levels` без ручного переименования. Фикстура
+/// читается `verify` без ручного переименования. Фикстура
 /// собрана публичной `test_support::write_day` (тот же шов, что
 /// `pilot.rs::process_instrument` уже использует для этой пары команд),
 /// не вызовом `run_session` целиком — та сама открывает `LiveFeed`
 /// (живой сокет), офлайн-тестам сеть недоступна (`CLAUDE.md`).
 #[test]
-fn directory_named_like_a_fresh_session_reads_through_verify_and_levels_untouched() {
+fn directory_named_like_a_fresh_session_reads_through_verify_untouched() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let day = "2026-09-08";
@@ -1054,27 +1054,6 @@ fn directory_named_like_a_fresh_session_reads_through_verify_and_levels_untouche
     })
     .expect("verify обязан найти суточный файл сессии без переименования");
     assert_eq!(vs.files, 1, "ровно один суточный файл сессии");
-
-    let ls = super::super::levels::run_levels(&super::super::levels::LevelsArgs {
-        root: root.to_path_buf(),
-        symbol: "SOLUSDT".to_string(),
-        h3: super::super::H3Args {
-            h3_mode: super::super::H3ModeArg::Floor,
-            h3_lots: None,
-            h3_usd: None,
-            h3_strength_pct: None,
-            h3_strength_window_bps: None,
-        },
-        h3_k: None,
-        warmup_ms: 0,
-        repeat_window_ms: 3_600_000,
-        out: Some(root.join("levels-SOLUSDT.csv")),
-    })
-    .expect("levels обязан найти суточный файл сессии без переименования");
-    assert!(
-        ls.levels > 0,
-        "фикстура three_level_frames обязана дать хотя бы один уровень"
-    );
 }
 // -----------------------------------------------------------------
 // Таск 25: олвейс-он — ядро над сценарным `Feed` (A5: вызывающий не

@@ -1,12 +1,15 @@
 //! План сделки-отскока (таск 38, В-44 → В-62 → В-65 → F6/F7), общий с `lob
 //! bounce-grid`: порог «стена снята» (`notional_floor_qty`, F5), сама сборка
 //! плана из касания (`bounce_plan`) или записи подхода (`touch_view_of_
-//! approach`/`approach_plan`, F6), профили касаний по осям (`BounceRow`/
-//! `bounce_rows`) и предрегистрированные сетки дедлайна/раннего выхода
-//! (`DEADLINES_S`/`EARLY_EXITS_S`, `deadline_ns_from_secs`/
+//! approach`/`approach_plan`, F6) и предрегистрированные сетки дедлайна/раннего
+//! выхода (`DEADLINES_S`/`EARLY_EXITS_S`, `deadline_ns_from_secs`/
 //! `early_exit_ns_from_secs`). Вынесено из `backtest` при разрезке B3 (ревью
 //! 23.09), поведение не менялось.
 
+use super::forms::{
+    bps_to_ticks_ceil, ladder_legs, ladder_legs_distinct, BounceForm, EntryForm, EntryTtl,
+    PlanShape, StopForm, TakeForm, MARKET_CROSS_MARGIN_BPS,
+};
 use crate::book::Side;
 use crate::lob::backtest::{SIGMA_LONG, SIGMA_SHORT};
 use crate::lob::levels::{
@@ -14,17 +17,6 @@ use crate::lob::levels::{
 };
 use crate::lob::step_schedule::StepSchedule;
 use crate::lob::strategy::{EntryLadder, TradePlan};
-use crate::lob::touch_axes::{
-    age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
-};
-
-use crate::commands::lob::profiles::size_bucket;
-use crate::commands::lob::side_name;
-
-use super::forms::{
-    bps_to_ticks_ceil, ladder_legs, ladder_legs_distinct, BounceForm, EntryForm, EntryTtl,
-    PlanShape, StopForm, TakeForm, MARKET_CROSS_MARGIN_BPS,
-};
 
 /// Порог В-66 в единицах размера крейта для условия «стена снята» (F5,
 /// В-74): `--h3-usd / цена уровня`. Размер уровня в книге крейта —
@@ -602,51 +594,6 @@ pub(crate) fn approach_plan_sched(
         sigma_bps,
         shape,
     )
-}
-
-/// Строка отчёта: «профиль» — либо `все`, либо `ось:корзина`. Корзины —
-/// существующие (`touch_axes`, `SIZE_LABELS`), новых границ здесь нет;
-/// касание может попасть сразу в несколько строк, и это правильно: строки —
-/// маргиналы осей, как в T37.
-pub(super) struct BounceRow {
-    pub(super) profile: String,
-    pub(super) touches: Vec<usize>,
-}
-
-pub(super) fn bounce_rows(touches: &[TouchRecord], h3_lots: i64) -> Vec<BounceRow> {
-    let mut rows = vec![BounceRow {
-        profile: "все".to_string(),
-        touches: (0..touches.len()).collect(),
-    }];
-    let push = |rows: &mut Vec<BounceRow>, axis: &str, bucket: &str, i: usize| {
-        let name = format!("{axis}:{bucket}");
-        match rows.iter_mut().find(|r| r.profile == name) {
-            Some(r) => r.touches.push(i),
-            None => rows.push(BounceRow {
-                profile: name,
-                touches: vec![i],
-            }),
-        }
-    };
-    for (i, t) in touches.iter().enumerate() {
-        if let Some(b) = age_bucket(t.start_ms.saturating_sub(t.level_birth_ms)) {
-            push(&mut rows, "возраст", b, i);
-        }
-        if h3_lots > 0 {
-            if let Some(b) = size_bucket(t.size_at_touch as f64 / h3_lots as f64) {
-                push(&mut rows, "размер", b, i);
-            }
-        }
-        if let Some(share) = frontrun_share(t.frontrun_lots, t.size_at_touch) {
-            if let Some(b) = frontrun_bucket(share) {
-                push(&mut rows, "фронтран", b, i);
-            }
-        }
-        push(&mut rows, "круглость", round_bucket(t.round_zeros), i);
-        push(&mut rows, "номер", touch_index_bucket(t.touch_index), i);
-        push(&mut rows, "сторона", side_name(t.side), i);
-    }
-    rows
 }
 
 /// Предрегистрированная сетка дедлайнов, секунды (B3, В-58 п. 4): ответ

@@ -22,7 +22,7 @@ use super::forms::{grid_forms_with_early, ExitForm, GridForm};
 use super::outputs::Outputs;
 use super::sets::FilterSet;
 
-pub(crate) fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
+fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
     let path = root.join("instruments.csv");
     let mut r = crate::commands::lob::pick::instruments_csv_reader(&path)
         .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
@@ -188,7 +188,7 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         .any(|e| matches!(e, EntryForm::LadderSigma { .. }));
     anyhow::ensure!(
         !sigma_entries || args.sigma_from.is_some(),
-        "--entry-form ladder…s: σ-лестнице (В-131) нужен --sigma-from <каталог> (sigma-<SYMBOL>.csv, tools/compute/sigma-table.py)"
+        "--entry-form ladder…s: σ-лестнице (В-131) нужен --sigma-from <каталог> (sigma-<SYMBOL>.csv, tools/compute/archive/sigma-table.py)"
     );
     anyhow::ensure!(
         sigma_entries || args.sigma_from.is_none(),

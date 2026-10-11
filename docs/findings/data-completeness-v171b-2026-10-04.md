@@ -2,7 +2,7 @@
 
 Проверка по спискам файлов сервера `89.163.242.211`, бинлоги не читались, ничего не скачано и не правлено (HEAD-запросы к Bybit по 97 отсутствующим суткам — только коды ответа).
 Требуется: каждые монето-сутки пула v171b (`/data/tk037/pool-v171b.csv`, `in_pool=1`, 24 863) плюс сутки D+1 для carry, если D+1 ≤ 02.10 (244 добавочных) = **25 107 монето-суток**, BTC/ETH включены; 03.10 не требуется.
-Скрипт — `tools/compute/tk041-completeness.py` (один проход по спискам: vroots, vroots-split, v4-days, эпохи `/data/alpha/epochs/e-*/root`, докачка `/data/tk037/roots`; verify — маркеры `verify-<SYM>.status`; validate — `validate-out/*/files.csv`).
+Скрипт — `tools/compute/archive/tk041-completeness.py` (один проход по спискам: vroots, vroots-split, v4-days, эпохи `/data/alpha/epochs/e-*/root`, докачка `/data/tk037/roots`; verify — маркеры `verify-<SYM>.status`; validate — `validate-out/*/files.csv`).
 Построчно (монета, сутки, путь к файлу, verify, validate, причина) — `data-completeness-v171b-2026-10-04.csv`; колонка `step_change_grid` и `path` — точный файл суток со сменой шага.
 
 ## По месяцам

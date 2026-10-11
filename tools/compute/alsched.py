@@ -4,7 +4,7 @@
 Заявка: класс prod (производство: ядра/память/диск по заявке, пакуется на свободные ядра) или measure (замер: эксклюзивное
 окно — всё производство на freeze, замер получает все ядра, по выходу размораживается). Всё запускается через него.
 
-  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] -- команда…
+  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] [--adhoc ПРИЧИНА] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
                                                     #   stand по умолчанию --iso 4 (без заморозки производства); --exclusive — заморозка всего; --iso K — другое K; wave — всегда заморозка
   alsched.py ps | cancel <id> [причина] | reprio <id> <prio> | daemon
@@ -12,28 +12,13 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-DIR = os.environ.get("SCHED_DIR", "/data/sched")
-NCPU, MEM_GB, TICK = 16, 56, int(os.environ.get("SCHED_TICK", "5"))
-DEAD_S = int(os.environ.get("SCHED_DEAD_S", str(max(60, 10 * TICK))))
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
 IDLE_S = 600       # п.8(в): очередь пуста при ждущих тикетах дольше этого
 SAMPLE_S = 120
 BARE_PRIO = 5      # голые юниты (R1) приравнены к prio 5: вытесняются только заявками строже (prio < 5)
-PREEMPT_S = int(os.environ.get("SCHED_PREEMPT_S", "600"))   # резерв не стартовал за это время — вытеснение заморозкой
-DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "16"))   # заданий на диск; 16 = калибровка R1 06.10 (tk071-calib: P=16 на одном HDD, 51 ед/мин, 18 МБ/с, iowait 2 %, ЦП 92 % — упор в ЦП, не в диск); 0 = без лимита
-FREEZE_PAT = (os.environ["SCHED_PAT"].split(",") if os.environ.get("SCHED_PAT")   # SCHED_PAT — только для smoke
-              else ["tk0*", "t4*", "t5*", "run-*", "tk048-*"])   # как benchrun2: всё, кроме alpha-*
-LEGACY_PAT = FREEZE_PAT
-PACK = os.environ.get("SCHED_PACK", "claim")   # claim (как было) | fact: пускать из очереди по факту ЦП/памяти, заявка --cores — нижняя оценка (TK-071 v2, п.1)
-FACT_BUSY = float(os.environ.get("SCHED_FACT_BUSY", "0.90"))      # старт сверх заявленных ядер, пока загрузка ЦП (EWMA 60 с) ниже этого
-FACT_SETTLE_S = int(os.environ.get("SCHED_FACT_SETTLE_S", "30"))  # между стартами по факту: новая задача набирает ЦП не сразу
-PROD_CAP_ISO = int(os.environ.get("SCHED_PROD_CAP_ISO", "8"))      # В-189 п.4 (Судья 09.10): заявленных ядер prod на время изолированного окна не больше N; сверх — заморозка новейших до конца окна
-HOT_BUSY = 0.95                                                    # загрузка ЦП (EWMA 60 с): host 1,0 — цель, не перегруз; перегруз = загрузка высокая И конкуренция за ЦП (PSI)
-PSI_CPU = float(os.environ.get("SCHED_PSI_CPU", "25"))             # PSI cpu some avg10, %: ниже — ядра заняты, но никто не ждёт; ВРЕМЕННО, значение подтвердить Судье по замеру синтетики
-MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
-FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
 
 
 def mem_peak_gb():
@@ -90,9 +75,20 @@ class Core:
         return [j for j in self.jobs.values() if j["state"] == "running" and j["cls"] == cls]
 
     def tick(self):
-        be, now = self.be, self.be.now()
+        now = self.be.now()
         dt = 0 if self.last is None else now - self.last
         self.last = now
+        self._budgets(now, dt)
+        self._reap(now)
+        if self._window(now):          # окно замера занято/открыто — упаковка производства в этот цикл не идёт
+            return
+        self._thaw_after_window()
+        legacy = self._pack(now)
+        self._alerts(now)
+        self.log_util(now, legacy)
+
+    def _budgets(self, now, dt):
+        be = self.be
         for hid, vs in self.preempt.items():
             for kind, ident, _ in vs:
                 if kind == "job" and ident in self.jobs:
@@ -108,6 +104,9 @@ class Core:
             if now - j["t_start"] > j["max_runtime"]:
                 j["kill_why"] = "снят демоном: бюджет max-runtime замера (стена) вышел"
                 be.kill(j)
+
+    def _reap(self, now):
+        be = self.be
         for j in self.jobs.values():
             if j["state"] == "queued" and be.cancelled(j):
                 j.update(state="done", rc=-15, t_end=now, reason="снят из очереди: " + (be.cancel_why(j) if hasattr(be, "cancel_why") else "cancel"))
@@ -131,10 +130,13 @@ class Core:
                         j["valid"] = be.win_end(j, self.snaps.pop(j["id"]))
                     elif j["cls"] == "measure" and not j.get("valid"):
                         j["valid"] = dict(ok=False, why=["нет снимка начала окна (демон перезапущен или окно не открыто) — стена недостоверна"])
+
+    def _window(self, now):
+        be = self.be
         ms = self.running("measure")
         if any(not j.get("iso") for j in ms):
             self.log_util(now, 0)                         # окно видно в util.log: measure=1 раз в минуту
-            return
+            return True
         mq = sorted((j for j in self.jobs.values() if j["state"] == "queued" and j["cls"] == "measure"),
                     key=lambda j: j["t_submit"])
         if mq and mq[0].get("iso") and not ms and not self.frozen:
@@ -162,12 +164,19 @@ class Core:
                 be.alert(f"память перед окном {j['id']} {j['name']}: " + "; ".join(risk))
             be.start(j)
             self.log_util(now, 0)
-            return
+            return True
+        return False
+
+    def _thaw_after_window(self):
+        be = self.be
         if self.frozen:
             be.thaw_all()
             self.frozen = False
             for j in self.running("prod"):
                 be.extend(j, j["max_runtime"] - j.get("active_s", 0))
+
+    def _pack(self, now):
+        be = self.be
         self.thaw_victims()
         self.cap_iso()
         used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]} | self.iso
@@ -233,10 +242,12 @@ class Core:
             worse = any(r.get("prio", 5) > head.get("prio", 5) and not r.get("frozen_for") for r in self.running("prod"))
             if worse or now - head["t_submit"] > PREEMPT_S:    # 10.10 (Судья): prio строго лучше идущего — вытесняем в тот же цикл, без таймера
                 self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now, bare=now - head["t_submit"] > PREEMPT_S)
+        return legacy
+
+    def _alerts(self, now):
         self.alert_waiting(now)
         self.alert_underuse(now)
         self.alert_idle(now)
-        self.log_util(now, legacy)
 
     @staticmethod
     def family(j):
@@ -671,7 +682,14 @@ class SystemdBackend:
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
         fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; grep '^oom_kill ' $cg/memory.events; echo swap_peak $(cat $cg/memory.swap.peak 2>/dev/null || cat $cg/memory.swap.current 2>/dev/null); }} "
                f"> {DIR}/own/{j['id']} 2>/dev/null; ")
-        pre = f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n" if j["cls"] == "measure" else ""
+        run_dir = f"{RUNS_DIR}/{j['id']}"     # КТ-9: единый адрес выхода прогона; задание берёт его из $ALSCHED_RUN_DIR (старые пути остаются как есть)
+        try:
+            os.makedirs(run_dir, exist_ok=True)
+        except OSError as e:
+            print(f"{run_dir} не создан ({e}): задание идёт без каталога выхода", file=sys.stderr)
+        pre = f"export ALSCHED_RUN_DIR={run_dir}\n"
+        if j["cls"] == "measure":
+            pre += f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n"
         inner = f"{pre}{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
         if j["cls"] == "measure":
             self.arm_failsafe(j["max_runtime"] + 2 * TICK)
@@ -1207,8 +1225,13 @@ def main():
         p.add_argument("--recompute", action="store_true", help="пересчитать уже посчитанное (нужен --why)")
         p.add_argument("--why", default="", help="причина пересчёта; пишется в реестр")
         p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
+        p.add_argument("--adhoc", default="", help="КТ-1: обход проверки манифеста для prod — причина (пишется в alerts.log)")
         p.add_argument("--vypiska", default="", help="TK-118, В-213: файл шагов прохода, по которому снята выписка из Летописи (guard.py plan --steps)")
         o = p.parse_args(a[1:sep])
+        if o.cls == "prod":
+            mrc = manifest_check(a[sep + 1:], o.adhoc, o.name)      # КТ-1: бинарник вне манифеста / команда не через обёртку
+            if mrc:
+                return mrc
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
@@ -1218,6 +1241,22 @@ def main():
         return 0
     print(__doc__)
     return 2
+
+
+def manifest_check(argv, adhoc, who=""):
+    """КТ-1 (TK-145): проверка заявки prod по манифесту сборок; режим — SCHED_MANIFEST (0|warn|1), см. manifest.py.
+    Режим 0 проверяется до загрузки manifest.py (откат флагом работает и без файла); файла нет в режиме warn/1 — тревога, заявка идёт."""
+    if os.environ.get("SCHED_MANIFEST", "warn") == "0":
+        return 0
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.py")
+    if not os.path.isfile(path):
+        alert_line(f"manifest.py не найден ({path}): проверка манифеста пропущена")
+        return 0
+    spec = importlib.util.spec_from_file_location("manifest", path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.check_submit(argv, adhoc, alert_line, who)
 
 
 def guard_check(o, argv):

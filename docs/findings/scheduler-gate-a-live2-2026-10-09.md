@@ -1,6 +1,6 @@
 # TK-071: гейт (а) по времени с окнами внутри + серия --iso 4 под живым prod — 09.10
 
-Источники на сервере счёта: `/data/tk071/gate5.txt` (gate4.py = tools/compute/tk071-gate2.py, sha fc62d4b5cc3d), `/data/tk071/live2/{pairs,summary}.txt`.
+Источники на сервере счёта: `/data/tk071/gate5.txt` (gate4.py = tools/compute/archive/tk071-gate2.py, sha fc62d4b5cc3d), `/data/tk071/live2/{pairs,summary}.txt`.
 
 ## Серия --iso 4 под живым prod (tk115-wa), prod_cores в окнах 11–14
 | пара | Δusage | Δwall |

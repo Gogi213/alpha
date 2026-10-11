@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::book::Side;
-use crate::lob::levels::{ApproachRecord, H3Mode, TouchRecord};
+use crate::lob::levels::{ApproachRecord, TouchRecord};
 use crate::lob::r1::{ArmR1, FLOW_N, R1_UNDEF};
 
 use super::args::{BounceGridArgs, SideArg};
@@ -496,7 +496,6 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) tick: f64,
     pub(crate) lot: f64,
     pub(crate) frontrun_only: bool,
-    pub(crate) mode: H3Mode,
     pub(crate) min_age_ms: Option<i64>,
     pub(crate) max_age_ms: Option<i64>,
     pub(crate) min_flow_pct: Option<f64>,
@@ -511,9 +510,9 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) r1: &'a [R1Bound],
     pub(crate) ctx: Option<&'a [TouchContext]>,
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
-    /// `holds_at_touch(t) == Some(true)` по касаниям суток, посчитано один раз на все наборы (`ALPHA_HOLDS_MEMO=1`).
+    /// `holds_at_touch(t) == Some(true)` по касаниям суток, посчитано один раз на все наборы.
     pub(crate) holds: Option<&'a [bool]>,
-    /// Скаляры касаний суток для `admits` без чтения `TouchRecord` (`ALPHA_ADMIT_SOA=1`, нужен `holds`).
+    /// Скаляры касаний суток для `admits` без чтения `TouchRecord` (нужен `holds`).
     pub(crate) rows: Option<&'a [AdmitRow]>,
 }
 
@@ -555,7 +554,6 @@ impl<'a> TouchFilter<'a> {
             tick: p.tick,
             lot: p.lot,
             frontrun_only: p.frontrun_only,
-            mode: p.mode,
             min_age_ms: p.min_age_ms,
             max_age_ms: p.max_age_ms,
             min_flow_pct: p.min_flow_pct,
@@ -578,7 +576,6 @@ impl<'a> TouchFilter<'a> {
     /// контекст подаётся, только если у набора есть ключи контекста.
     pub(crate) fn from_set(
         set: &'a FilterSet,
-        mode: H3Mode,
         tick: f64,
         lot: f64,
         ctx: &'a [TouchContext],
@@ -587,7 +584,6 @@ impl<'a> TouchFilter<'a> {
             tick,
             lot,
             frontrun_only: set.frontrun_only,
-            mode,
             min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
             max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
             min_flow_pct: set.min_flow_pct,
@@ -613,12 +609,21 @@ impl<'a> TouchFilter<'a> {
         self.r1.iter().all(|b| b.holds(r1))
     }
 
-    /// Проходит ли касание `t` с индексом `ti` (индекс — в контекст суток).
+    /// Проходит ли касание `ti` суток (индекс — в контекст, `holds` и `rows` суток заданы вызывающим).
+    pub(crate) fn admits(&self, ti: usize) -> bool {
+        let rows = self.rows.expect("admits: rows суток не заданы");
+        self.admits_row(ti, &rows[ti])
+    }
+
+    /// Оракул `admits` для тестов: те же условия по полной `TouchRecord`, `holds` считается на месте.
+    #[cfg(test)]
     #[allow(clippy::cast_precision_loss)]
-    pub(crate) fn admits(&self, ti: usize, t: &TouchRecord) -> bool {
-        if let Some(rows) = self.rows {
-            return self.admits_row(ti, &rows[ti]);
-        }
+    pub(crate) fn admits_oracle(
+        &self,
+        mode: crate::lob::levels::H3Mode,
+        ti: usize,
+        t: &TouchRecord,
+    ) -> bool {
         if self.frontrun_only && t.frontrun_tick.is_none() {
             return false;
         }
@@ -628,11 +633,7 @@ impl<'a> TouchFilter<'a> {
         // База E1 (В-66): плотность обязана держать порог при подходе цены,
         // а не только при рождении — иначе в сетку идут касания
         // «бывших» плотностей. Окно проверено при старте прогона.
-        let holds = match self.holds {
-            Some(h) => h[ti],
-            None => self.mode.holds_at_touch(t) == Some(true),
-        };
-        if !holds {
+        if mode.holds_at_touch(t) != Some(true) {
             return false;
         }
         if self.min_age_ms.is_some_and(|n| t.age_ms() < n) {

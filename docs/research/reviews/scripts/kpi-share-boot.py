@@ -3,7 +3,7 @@
 август' + сентябрь' склеиваются в один путь, доля считается заново. Печатает долю выборок, где правило выполнено."""
 import importlib.util, math, random, sys
 
-spec = importlib.util.spec_from_file_location("kn", "tools/compute/kpi-newhigh.py")
+spec = importlib.util.spec_from_file_location("kn", "tools/compute/archive/kpi-newhigh.py")
 kn = importlib.util.module_from_spec(spec); spec.loader.exec_module(kn)
 S = kn.load("data/kpi")
 H, DAY = 120.0, 86_400_000

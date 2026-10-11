@@ -47,7 +47,7 @@ python3 bin/leg-clear.py study/capacity-approach/D20/a45-bid study/touches 1800
 сутки 16–19.09, 189 символ-суток на `D`; целей (`t0`) — 5899 (`D = 10`), 5746 (`D = 20`), 3814 (`D = 30`);
 с касанием после (markout есть) — 792 / 858 / 460. Читатели `leg-distance.py`/`fill-capacity.py` без
 правок не годятся: у подхода в колонке `start_ms` момент **взвода**, а ряд `m_*` привязан к касанию —
-склейка сделана отдельным читателем `tools/compute/approach-capacity.py`.
+склейка сделана отдельным читателем `tools/compute/archive/approach-capacity.py`.
 
 ## 3. Исполнение по расстоянию от стены (слот `t0` — постановка на взводе)
 
@@ -113,5 +113,5 @@ python3 bin/leg-clear.py study/capacity-approach/D20/a45-bid study/touches 1800
   исполнения только этой ногой».
 
 План — `dev-plan-2026-09-20.md` §3 F2; реестр — `EXPERIMENTS.md` M16; читатели —
-`tools/compute/approach-capacity.py` (склейка), `tools/compute/leg-clear.py` (держит/насквозь),
-`tools/compute/approach-capacity.sh` (прогон).
+`tools/compute/archive/approach-capacity.py` (склейка), `tools/compute/archive/leg-clear.py` (держит/насквозь),
+`tools/compute/archive/approach-capacity.sh` (прогон).

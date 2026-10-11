@@ -62,7 +62,7 @@ pub(crate) fn round_half_away(x: f64) -> f64 {
 /// ошибка `px·(1/шаг)` против `px/шаг` ≤ 3·2^-53, при `|m| < 2^40` это ≤ 4·10^-4 ≪ 0,25.
 const QUANT_LIM: f64 = 1_099_511_627_776.0;
 
-/// Счёт вызовов `Quant::of` и откатов на деление (суммируется при `Drop` книги; печать — `ALPHA_TICK_STATS=1`).
+/// Счёт вызовов `Quant::of` и откатов на деление (суммируется при `Drop` книги; печать — `ALPHA_DIAG`).
 pub static QUANT_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static QUANT_SLOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 

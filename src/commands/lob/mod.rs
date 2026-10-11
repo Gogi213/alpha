@@ -56,41 +56,30 @@ pub mod binlog_stats;
 pub mod bounce_grid;
 pub mod bounce_verdict;
 pub mod clock;
-pub mod dashboard;
 pub mod event_cache_probe;
 pub mod fee_rate;
-pub mod fill_capacity;
 pub mod gaps;
 mod h3;
 pub mod import_archive;
 pub mod latency;
-pub mod levels;
-pub mod markout;
+mod levels;
 mod names;
 mod parts;
 pub mod pick;
-pub mod pilot;
-pub mod power;
 pub mod probe;
-pub mod profiles;
-pub mod react;
 mod record;
 mod replay;
 pub mod session;
-pub mod shortlist;
-pub mod touch_profiles;
+mod shared;
 pub mod touches;
 pub mod trades;
 pub mod validate;
 mod verify;
-pub mod watch;
 
 pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
-pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
-pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
 pub use validate::{run_validate, ValidateArgs};
@@ -109,7 +98,7 @@ pub(crate) fn require_verified(
     }
     let marker = root.join(format!("verify-{symbol}.status"));
     anyhow::ensure!(
-        profiles::read_verify_marker(&marker),
+        read_verify_marker(&marker),
         "{}: маркер сверки не `ok` — сутки не проверены (fail-closed, В-56; К1 аудита 18.09);          для отладочных данных — --allow-unverified",
         marker.display()
     );
@@ -142,41 +131,34 @@ pub(crate) fn write_atomic(
 
 pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
-pub use dashboard::{run_dashboard, DashboardArgs};
 pub use fee_rate::{run_fee_rate, FeeRateArgs};
 pub use latency::{run_latency, LatencyArgs};
-pub use levels::{run_levels, LevelsArgs};
-pub use markout::{run_markout, MarkoutArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
-pub use pilot::{run_pilot, PilotArgs};
-pub use power::{run_power, PowerArgs};
 pub use probe::{run_probe, ProbeArgs};
-pub use profiles::{run_profiles, ProfilesArgs};
-pub use react::{run_react, ReactArgs};
 pub use session::{run_session, SessionArgs};
-pub use shortlist::{run_shortlist, ShortlistArgs};
-pub use touch_profiles::{run_touch_profiles, TouchProfilesArgs};
 pub use touches::{run_touches, TouchesArgs};
 pub use trades::{run_trades, TradesArgs};
-pub use watch::{run_watch, WatchArgs};
 
 // Общее для нескольких подкоманд разъехалось по файлам (`h3`, `replay`,
 // `parts`, `names`); пути `super::…`/`commands::lob::…` у подкоманд и тестов
 // не менялись — их держат эти ре-экспорты.
-pub(crate) use h3::{instruments_symbol_field, median_trade_lots_for_symbol};
+#[cfg(test)]
+pub(crate) use h3::median_trade_lots_for_symbol;
 pub use h3::{
     resolve_h3_mode, resolve_h3_mode_full, resolve_h3_mode_with_k, ExecutionArgs, H3Args,
     H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
 };
 pub(crate) use names::{aggressor_side_name, death_name, outcome_name, side_name, some_or_empty};
-pub(crate) use parts::{
-    file_order_key, group_parts_by_day, session_binlog_for, session_days_in_dir, session_parts_for,
-    SessionPart,
-};
+pub(crate) use parts::{file_order_key, session_binlog_for, session_parts_for};
+#[cfg(test)]
+pub(crate) use parts::{group_parts_by_day, session_days_in_dir, SessionPart};
+#[cfg(test)]
+pub(crate) use replay::{replay_symbol, replay_symbol_over_configs};
 pub(crate) use replay::{
-    day_tallies, feed_frames, replay_symbol, replay_symbol_over_configs,
-    replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids, trade_hit_from_record,
-    ReplayDay, ReplayKeep,
+    replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids, ReplayDay, ReplayKeep,
+};
+pub(crate) use shared::{
+    read_verify_marker, select_best_mean_net, size_bucket, CPCV_SELECTION_RULE,
 };
 
 // `Record` нужен только тестам: `test_support` ниже и `dashboard/tests.rs`
@@ -200,6 +182,12 @@ use crate::binlog::Record;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Subcommand)]
+pub enum ColdCommand {
+    /// Двоичный кэш подходов/касаний суток в `<cold-root>/<ключ>/`; повтор ничего не пишет.
+    Ensure(touches::EnsureArgs),
+}
+
+#[derive(Debug, Subcommand)]
 pub enum LobCommand {
     /// Отбор инструментов для пилота (шаг 0.4, Decision 25).
     Pick(PickArgs),
@@ -208,6 +196,9 @@ pub enum LobCommand {
     /// Сверка записанных суток: инварианты и сделки в диапазоне книги (шаг 0.6).
     /// Сверка с REST по u — только живой поток (у файла нет u), см. verify.rs.
     Verify(crate::bybit::verify::VerifyArgs),
+    /// Холодный кэш подготовки суток (КТ-5): `cold ensure`.
+    #[command(subcommand)]
+    Cold(ColdCommand),
     /// Замер смещения часов хоста против NTP и `serverTime` (шаг 0.5).
     Clock(ClockArgs),
     /// Распределение RTT полного цикла post-only ордера (шаг 6.2).
@@ -216,30 +207,11 @@ pub enum LobCommand {
     FeeRate(FeeRateArgs),
     /// Задержки торгового пути на живом счёте: RTT, лимитка/снятие, тейкер — **реальные ордера**.
     Latency(LatencyArgs),
-    /// Разметка уровней с шестью признаками истории и классом (шаги 1.1, 1.2).
-    Levels(LevelsArgs),
-    /// Markout уровней на четырёх горизонтах (шаг 2.1).
-    Markout(MarkoutArgs),
-    /// Счётчик n/G для C2, `progress.csv` и `ready.flag` (шаг 4.1).
-    Watch(WatchArgs),
-    /// Пилотная цепочка 1.1 -> 1.2 -> 2.1 тем же кодом и вердикт G0 (шаг 3.1).
-    Pilot(PilotArgs),
-    /// Гейт G-POWER-A: `N`, `SR0`, требуемый Шарп до сбора данных (история 43).
-    Power(PowerArgs),
     /// Запись всего пула одновременно, один `Feed` на рекордер и (таск 15)
     /// на стратегию: `--minutes` — сессия отладки 5–15 минут (таск 04,
     /// история 7), `--pilot-minutes` — пилот §11 (таск 22), `--always-on` —
     /// олвейс-он коллектор до Ctrl+C, сутки — часть (таск 25, В-34).
     Session(SessionArgs),
-    /// Замер реакционного пути и гейт G-LAT, dry-run без ордеров (таск 15,
-    /// история 14).
-    React(ReactArgs),
-    /// Таблица профилей `docs/findings/profiles-<дата>.csv` — первый из трёх
-    /// артефактов задачи (таск 10, история 44).
-    Profiles(ProfilesArgs),
-    /// Вердикт бэктеста с моделью очереди на произвольное число профилей —
-    /// второй из трёх артефактов задачи (таск 11, история 32–34).
-    Backtest(BacktestArgs),
     /// Прогон-вердикт базовой сетки форм отскока (B5, В-58): покруговые дампы
     /// `--trades-out` → `net_fill`, Шарп и доли причин по форме, `DSR` лучшей
     /// формы по числу испытаний журнала.
@@ -251,18 +223,6 @@ pub enum LobCommand {
     // напрямую, тот же приём, что рекомендует сам клиппи).
     BounceGrid(Box<BounceGridArgs>),
     BounceVerdict(BounceVerdictArgs),
-    /// Ёмкость исполнения входа у стены без движка (S10 шаг 1): очередь и
-    /// наторговано по тикам полосы перед стеной на касание →
-    /// `<out-dir>/<набор>/capacity-<SYMBOL>.csv`.
-    FillCapacity(FillCapacityArgs),
-    /// Шорт-лист на разведочной, заморозка коммитом, подтверждение на
-    /// невиденных данных — третий из трёх артефактов задачи (таск 12,
-    /// история 24–28, 42).
-    Shortlist(ShortlistArgs),
-    /// Страница проекта на localhost: что пишет коллектор, что уже насчитано
-    /// по накопленному и где мы по гейтам (таск 32, R87). Только чтение
-    /// каталога записи; `index.html` и `data.json` — в `--out`.
-    Dashboard(DashboardArgs),
     /// Касания живых уровней с признаками практиков — `touches-<SYMBOL>.csv`
     /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
     /// markout «в сторону отскока», подход, фронтран, круглость, завал.
@@ -273,11 +233,6 @@ pub enum LobCommand {
     /// но без книги и без трекера — сырая строка на сделку (сторона
     /// агрессора, тик и $ цены, лоты, `block`/`rpi`).
     Trades(TradesArgs),
-    /// Таблица профилей касаний `docs/findings/touch-profiles-<дата>.csv`
-    /// (таск 37, В-44): маргиналы девяти осей касания плюс крест исход ×
-    /// возраст, по инструменту и по пулу, `m` «в сторону отскока» с
-    /// интервалом по суткам; число испытаний — в `runs.csv`.
-    TouchProfiles(TouchProfilesArgs),
     /// Что лежит в бинлоге и за что платятся байты (владелец 2026-09-13:
     /// «оптимизировать коллектор сильно — формат файлов, формат записи, тип
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
@@ -313,378 +268,272 @@ pub enum LobCommand {
 /// чтения CSV.
 pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
     match cmd {
-        LobCommand::Pick(args) => {
-            let report = run_pick(&args)?;
-            for row in &report.table {
-                println!(
-                    "{}\t{}\t{}\t{}",
-                    row.symbol,
-                    if row.excluded_reason.is_empty() {
-                        "POOL"
-                    } else {
-                        row.excluded_reason.as_str()
-                    },
-                    row.coverage_top50_bps
-                        .map(|c| format!("{c:.3}bps"))
-                        .unwrap_or_default(),
-                    if row.selected_for_pilot {
-                        "SELECTED"
-                    } else {
-                        ""
-                    }
-                );
-            }
-            for m in &report.selected {
-                println!(
-                    "pilot: {} (бид {} / аск {} USD·1e-9)",
-                    m.symbol, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
-                );
-            }
-            Ok(())
-        }
+        LobCommand::Pick(args) => print_pick(args),
         LobCommand::Record(args) => record::print_summary(&args),
         LobCommand::Verify(args) => verify::print_summary(&args),
-        LobCommand::Clock(args) => {
-            let rows = run_clock(&args)?;
-            let violations = check_rows(&rows);
+        LobCommand::Cold(ColdCommand::Ensure(args)) => {
+            let s = touches::run_ensure(&args)?;
             println!(
-                "clock: rows={} violations={} out={}",
-                rows.len(),
-                violations.len(),
-                args.root.join("clock.csv").display()
+                "cold ensure: {} файлов, записано {}, каталог {}",
+                s.files,
+                s.written,
+                s.dir.display()
             );
-            for v in &violations {
-                println!("clock violation: {v:?}");
-            }
             Ok(())
         }
+        LobCommand::Clock(args) => print_clock(args),
         LobCommand::FeeRate(args) => {
             for line in run_fee_rate(&args)? {
                 println!("fee-rate: {line}");
             }
             Ok(())
         }
-        LobCommand::Latency(args) => {
-            let rep = run_latency(&args)?;
-            println!(
-                "latency: symbol={} qty={} notional_usdt={} out={}",
-                args.symbol,
-                crate::bybit::latency::format_e9(rep.qty_e9),
-                crate::bybit::latency::format_e9(rep.notional_e9),
-                rep.out.display()
-            );
-            print!("{}", rep.summary);
-            for e in &rep.errors {
-                println!("latency: error: {e}");
-            }
-            if let Some(size) = rep.flattened_e9 {
-                println!(
-                    "latency: в конце закрыт остаток позиции {}",
-                    crate::bybit::latency::format_e9(size)
-                );
-            }
-            Ok(())
-        }
-        LobCommand::Probe(args) => {
-            let (summary, out) = run_probe(&args)?;
-            println!(
-                "probe: n={} median_ns={} p95_ns={} out={}",
-                summary.n,
-                summary.median_ns,
-                summary.p95_ns,
-                out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Levels(args) => {
-            let summary = run_levels(&args)?;
-            println!(
-                "levels: days={} levels={} out={}",
-                summary.days,
-                summary.levels,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Touches(args) => {
-            let summary = run_touches(&args)?;
-            println!(
-                "touches: days={} touches={} approaches={}{} out={}{}",
-                summary.days,
-                summary.touches,
-                summary.approaches,
-                match summary.approaches_out.as_slice() {
-                    [] => String::new(),
-                    [only] => format!(" approaches_out={}", only.display()),
-                    [first, rest @ ..] => format!(
-                        " approaches_out={} (+{} полос)",
-                        first.display(),
-                        rest.len()
-                    ),
-                },
-                summary.out.display(),
-                match &summary.levels_out {
-                    Some((path, n)) => format!(" levels={n} levels_out={}", path.display()),
-                    None => String::new(),
-                }
-            );
-            Ok(())
-        }
-        LobCommand::Trades(args) => {
-            let summary = run_trades(&args)?;
-            println!(
-                "trades: days={} trades={} (buy={} sell={}) out={}",
-                summary.days,
-                summary.trades,
-                summary.buy,
-                summary.sell,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::TouchProfiles(args) => {
-            let summary = run_touch_profiles(&args)?;
-            println!(
-                "touch-profiles: rows={} touches={} trials={} debug={} out={}",
-                summary.rows,
-                summary.touches,
-                summary.trials,
-                summary.debug,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::ImportArchive(args) => {
-            let s = run_import_archive(&args)?;
-            println!(
-                "import-archive: {} — сообщений {}, снимков {}, разрывов u {}, сделок {} (до снимка {}), за концом суток {}, записей {}",
-                s.out.display(),
-                s.messages,
-                s.snapshots,
-                s.u_gaps,
-                s.trades,
-                s.trades_before_snapshot,
-                s.dropped_after_day,
-                s.records
-            );
-            Ok(())
-        }
-        LobCommand::BinlogStats(args) => {
-            let stats = run_binlog_stats(&args)?;
-            for line in binlog_stats::summary_lines(&args.path, &stats) {
-                println!("{line}");
-            }
-            if args.reencode {
-                for line in binlog_stats::run_reencode(&args)? {
-                    println!("{line}");
-                }
-            }
-            if let Some(out) = args.rewrite_out.as_deref() {
-                for line in binlog_stats::rewrite_v2_to_v3(&args.path, out)? {
-                    println!("{line}");
-                }
-            }
-            Ok(())
-        }
+        LobCommand::Latency(args) => print_latency(args),
+        LobCommand::Probe(args) => print_probe(args),
+        LobCommand::Touches(args) => print_touches(args),
+        LobCommand::Trades(args) => print_trades(args),
+        LobCommand::ImportArchive(args) => print_import_archive(args),
+        LobCommand::BinlogStats(args) => print_binlog_stats(args),
         LobCommand::Gaps(args) => {
             run_gaps(&args)?;
             Ok(())
         }
         LobCommand::EventCacheProbe(args) => run_event_cache_probe(&args),
         LobCommand::Validate(args) => run_validate(&args),
-        LobCommand::Archive(args) => {
-            let summary = run_archive(&args)?;
-            for line in archive::summary_lines(&summary) {
-                println!("{line}");
+        LobCommand::Archive(args) => print_archive(args),
+        LobCommand::Session(args) => print_session(args),
+        LobCommand::BounceGrid(args) => print_bounce_grid(args),
+        LobCommand::BounceVerdict(args) => print_bounce_verdict(args),
+    }
+}
+
+fn print_pick(args: PickArgs) -> anyhow::Result<()> {
+    let report = run_pick(&args)?;
+    for row in &report.table {
+        println!(
+            "{}\t{}\t{}\t{}",
+            row.symbol,
+            if row.excluded_reason.is_empty() {
+                "POOL"
+            } else {
+                row.excluded_reason.as_str()
+            },
+            row.coverage_top50_bps
+                .map(|c| format!("{c:.3}bps"))
+                .unwrap_or_default(),
+            if row.selected_for_pilot {
+                "SELECTED"
+            } else {
+                ""
             }
-            Ok(())
+        );
+    }
+    for m in &report.selected {
+        println!(
+            "pilot: {} (бид {} / аск {} USD·1e-9)",
+            m.symbol, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
+        );
+    }
+    Ok(())
+}
+
+fn print_clock(args: ClockArgs) -> anyhow::Result<()> {
+    let rows = run_clock(&args)?;
+    let violations = check_rows(&rows);
+    println!(
+        "clock: rows={} violations={} out={}",
+        rows.len(),
+        violations.len(),
+        args.root.join("clock.csv").display()
+    );
+    for v in &violations {
+        println!("clock violation: {v:?}");
+    }
+    Ok(())
+}
+
+fn print_latency(args: LatencyArgs) -> anyhow::Result<()> {
+    let rep = run_latency(&args)?;
+    println!(
+        "latency: symbol={} qty={} notional_usdt={} out={}",
+        args.symbol,
+        crate::bybit::latency::format_e9(rep.qty_e9),
+        crate::bybit::latency::format_e9(rep.notional_e9),
+        rep.out.display()
+    );
+    print!("{}", rep.summary);
+    for e in &rep.errors {
+        println!("latency: error: {e}");
+    }
+    if let Some(size) = rep.flattened_e9 {
+        println!(
+            "latency: в конце закрыт остаток позиции {}",
+            crate::bybit::latency::format_e9(size)
+        );
+    }
+    Ok(())
+}
+
+fn print_probe(args: ProbeArgs) -> anyhow::Result<()> {
+    let (summary, out) = run_probe(&args)?;
+    println!(
+        "probe: n={} median_ns={} p95_ns={} out={}",
+        summary.n,
+        summary.median_ns,
+        summary.p95_ns,
+        out.display()
+    );
+    Ok(())
+}
+
+fn print_touches(args: TouchesArgs) -> anyhow::Result<()> {
+    let summary = run_touches(&args)?;
+    println!(
+        "touches: days={} touches={} approaches={}{} out={}{}",
+        summary.days,
+        summary.touches,
+        summary.approaches,
+        match summary.approaches_out.as_slice() {
+            [] => String::new(),
+            [only] => format!(" approaches_out={}", only.display()),
+            [first, rest @ ..] => format!(
+                " approaches_out={} (+{} полос)",
+                first.display(),
+                rest.len()
+            ),
+        },
+        summary.out.display(),
+        match &summary.levels_out {
+            Some((path, n)) => format!(" levels={n} levels_out={}", path.display()),
+            None => String::new(),
         }
-        LobCommand::Markout(args) => {
-            let summary = run_markout(&args)?;
-            println!(
-                "markout: days={} levels={} out={} {}",
-                summary.days,
-                summary.levels,
-                summary.out.display(),
-                summary.horizon_line,
-            );
-            Ok(())
-        }
-        LobCommand::Watch(args) => {
-            let summary = run_watch(&args)?;
-            println!(
-                "watch: days={} n={} g={} flag={} out={}",
-                summary.days,
-                summary.n,
-                summary.g,
-                summary.flag.as_deref().unwrap_or("not-due"),
-                summary.progress.display()
-            );
-            Ok(())
-        }
-        LobCommand::Pilot(args) => {
-            let summary = run_pilot(&args)?;
-            println!(
-                "pilot: symbol={} n_pulled={} mean_m_10s_bps={:.3} mean_net_bps={:.3} {} runs={}",
-                summary.symbol,
-                summary.n_pulled,
-                summary.mean_m_10s_bps,
-                summary.mean_net_bps,
-                summary.verdict,
-                summary.runs_out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Power(args) => {
-            let summary = run_power(&args)?;
-            println!(
-                "power: n={} sr0={:.4} required_sharpe={:.4} dsr_target={:.2} num_obs={}",
-                summary.n,
-                summary.sr0,
-                summary.required_sharpe,
-                summary.dsr_target,
-                summary.num_obs
-            );
-            Ok(())
-        }
-        LobCommand::Session(args) => {
-            let summary = run_session(&args)?;
-            println!(
-                "session: instruments={} start_hour_utc={} records={} gaps={} clock_samples={} out={}",
-                summary.instruments.len(),
-                summary.start_hour_utc,
-                summary.records_total,
-                summary.gaps,
-                summary.clock_samples,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Dashboard(args) => {
-            let summary = run_dashboard(&args)?;
-            println!(
-                "dashboard: coins={} alive={} html={} json={}",
-                summary.coins,
-                match summary.alive {
-                    Some(true) => "yes",
-                    Some(false) => "no",
-                    None => "unknown",
-                },
-                summary.html.display(),
-                summary.json.display()
-            );
-            println!("dashboard: {}", summary.alive_reason);
-            Ok(())
-        }
-        LobCommand::React(args) => {
-            let report = run_react(&args)?;
-            println!("{}", react::format_report(&report));
-            Ok(())
-        }
-        LobCommand::Profiles(args) => {
-            let summary = run_profiles(&args)?;
-            println!(
-                "profiles: rows={} debug={} out={}",
-                summary.rows,
-                summary.debug,
-                summary.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Backtest(args) => {
-            let summary = run_backtest(&args)?;
-            println!(
-                "backtest: profiles={} pass={} red={} out={} pnl_out={}",
-                summary.profiles,
-                summary.pass,
-                summary.red,
-                summary.out.display(),
-                summary.pnl_out.display()
-            );
-            Ok(())
-        }
-        LobCommand::BounceGrid(args) => {
-            let s = run_bounce_grid(&args)?;
-            println!(
-                "bounce-grid: форм {} · символов {} (без маркера {}, без касаний {}) · символ-суток {} · кругов {} · {} · {}",
-                s.forms,
-                s.symbols_done,
-                s.symbols_skipped_unverified,
-                s.symbols_without_touches,
-                s.symbol_days,
-                s.rounds,
-                s.rounds_path.display(),
-                s.forms_path.display()
-            );
-            // В-131: строка σ на взводе — только с `--sigma-from` (прежний вывод не меняется).
-            if args.sigma_from.is_some() {
-                println!(
-                    "bounce-grid: σ на взводе (В-131): n_no_sigma {} из {} сигналов",
-                    s.n_no_sigma, s.n_sigma_signals
-                );
-            }
-            Ok(())
-        }
-        LobCommand::FillCapacity(args) => {
-            let s = run_fill_capacity(&args)?;
-            println!(
-                "fill-capacity: символов {} (без маркера {}, без кэша {}, без касаний {}) · символ-суток {} · касаний {} · строк {} · {}",
-                s.symbols_done,
-                s.symbols_skipped_unverified,
-                s.symbols_without_cache,
-                s.symbols_without_touches,
-                s.symbol_days,
-                s.touches,
-                s.rows,
-                s.out_dir.display()
-            );
-            Ok(())
-        }
-        LobCommand::BounceVerdict(args) => {
-            let s = run_bounce_verdict(&args)?;
-            let num = |v: Option<f64>| match v {
-                Some(x) => format!("{x:.6}"),
-                None => "—".to_string(),
-            };
-            println!(
-                "bounce-verdict: ИТОГ={} · форм {} · символов {} · суток {} · испытаний {} (журнал {}) · лучшая {} · кругов {} · суток с кругами {} ({}) · net_fill точка={} нижняя={} bps · DSR={} по суткам, отчёт (журнал: {}) · PBO={} · CPCV={} · {}",
-                s.verdict.label(),
-                s.forms,
-                s.symbols,
-                s.days,
-                s.trials,
-                s.journal_trials,
-                s.best_form,
-                s.best_n_fills,
-                s.best_days,
-                s.best_month_fill_days
-                    .iter()
-                    .map(|(m, n)| format!("{m}: {n}"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                num(s.best_point_bps),
-                num(s.best_lower_bps),
-                num(s.dsr),
-                num(s.dsr_at_journal_trials),
-                num(s.pbo),
-                num(s.cpcv),
-                s.out.display()
-            );
-            Ok(())
-        }
-        LobCommand::Shortlist(args) => {
-            let summary = run_shortlist(&args)?;
-            println!(
-                "shortlist: trials={} shortlisted={} debug={} verdict={} out={}",
-                summary.trials,
-                summary.shortlisted,
-                summary.debug,
-                summary.verdict.as_deref().unwrap_or("n/a (debug)"),
-                summary.out.display()
-            );
-            Ok(())
+    );
+    Ok(())
+}
+
+fn print_trades(args: TradesArgs) -> anyhow::Result<()> {
+    let summary = run_trades(&args)?;
+    println!(
+        "trades: days={} trades={} (buy={} sell={}) out={}",
+        summary.days,
+        summary.trades,
+        summary.buy,
+        summary.sell,
+        summary.out.display()
+    );
+    Ok(())
+}
+
+fn print_import_archive(args: ImportArchiveArgs) -> anyhow::Result<()> {
+    let s = run_import_archive(&args)?;
+    println!(
+        "import-archive: {} — сообщений {}, снимков {}, разрывов u {}, сделок {} (до снимка {}), за концом суток {}, записей {}",
+        s.out.display(),
+        s.messages,
+        s.snapshots,
+        s.u_gaps,
+        s.trades,
+        s.trades_before_snapshot,
+        s.dropped_after_day,
+        s.records
+    );
+    Ok(())
+}
+
+fn print_binlog_stats(args: BinlogStatsArgs) -> anyhow::Result<()> {
+    let stats = run_binlog_stats(&args)?;
+    for line in binlog_stats::summary_lines(&args.path, &stats) {
+        println!("{line}");
+    }
+    if args.reencode {
+        for line in binlog_stats::run_reencode(&args)? {
+            println!("{line}");
         }
     }
+    if let Some(out) = args.rewrite_out.as_deref() {
+        for line in binlog_stats::rewrite_v2_to_v3(&args.path, out)? {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+fn print_archive(args: ArchiveArgs) -> anyhow::Result<()> {
+    let summary = run_archive(&args)?;
+    for line in archive::summary_lines(&summary) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+fn print_session(args: SessionArgs) -> anyhow::Result<()> {
+    let summary = run_session(&args)?;
+    println!(
+        "session: instruments={} start_hour_utc={} records={} gaps={} clock_samples={} out={}",
+        summary.instruments.len(),
+        summary.start_hour_utc,
+        summary.records_total,
+        summary.gaps,
+        summary.clock_samples,
+        summary.out.display()
+    );
+    Ok(())
+}
+
+fn print_bounce_grid(args: Box<BounceGridArgs>) -> anyhow::Result<()> {
+    let s = run_bounce_grid(&args)?;
+    println!(
+        "bounce-grid: форм {} · символов {} (без маркера {}, без касаний {}) · символ-суток {} · кругов {} · {} · {}",
+        s.forms,
+        s.symbols_done,
+        s.symbols_skipped_unverified,
+        s.symbols_without_touches,
+        s.symbol_days,
+        s.rounds,
+        s.rounds_path.display(),
+        s.forms_path.display()
+    );
+    // В-131: строка σ на взводе — только с `--sigma-from` (прежний вывод не меняется).
+    if args.sigma_from.is_some() {
+        println!(
+            "bounce-grid: σ на взводе (В-131): n_no_sigma {} из {} сигналов",
+            s.n_no_sigma, s.n_sigma_signals
+        );
+    }
+    Ok(())
+}
+
+fn print_bounce_verdict(args: BounceVerdictArgs) -> anyhow::Result<()> {
+    let s = run_bounce_verdict(&args)?;
+    let num = |v: Option<f64>| match v {
+        Some(x) => format!("{x:.6}"),
+        None => "—".to_string(),
+    };
+    println!(
+        "bounce-verdict: ИТОГ={} · форм {} · символов {} · суток {} · испытаний {} (журнал {}) · лучшая {} · кругов {} · суток с кругами {} ({}) · net_fill точка={} нижняя={} bps · DSR={} по суткам, отчёт (журнал: {}) · PBO={} · CPCV={} · {}",
+        s.verdict.label(),
+        s.forms,
+        s.symbols,
+        s.days,
+        s.trials,
+        s.journal_trials,
+        s.best_form,
+        s.best_n_fills,
+        s.best_days,
+        s.best_month_fill_days
+            .iter()
+            .map(|(m, n)| format!("{m}: {n}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        num(s.best_point_bps),
+        num(s.best_lower_bps),
+        num(s.dsr),
+        num(s.dsr_at_journal_trials),
+        num(s.pbo),
+        num(s.cpcv),
+        s.out.display()
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

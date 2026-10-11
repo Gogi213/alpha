@@ -7,11 +7,33 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::commands::lob::backtest::exit_reason_label;
 use crate::lob::backtest::{roundtrip_net_bps, BounceRun, BounceSignal};
 use crate::lob::strategy::TradePlan;
 
 use super::forms::GridForm;
+
+/// Причина выхода словами — тот же словарь, что `lob bounce-verdict` и
+/// `EXIT_REASONS`: одна форма имени на писателя и читателя, чтобы отчёт не
+/// собирался из двух разных написаний одной причины.
+fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'static str {
+    use crate::lob::strategy::ExitReason;
+    match reason {
+        ExitReason::Stop => "stop",
+        ExitReason::Take => "take",
+        ExitReason::Trail => "trail",
+        ExitReason::Deadline => "deadline",
+        ExitReason::Early => "early",
+        ExitReason::Horizon => "horizon",
+        ExitReason::Eaten => "eaten",
+        ExitReason::EatenByTrades => "eaten_by_trades",
+        ExitReason::WallGone => "wall_gone",
+        ExitReason::WallEatBtc => "wall_eat_btc",
+        ExitReason::WallEatLocal => "wall_eat_local",
+        ExitReason::Converge => "converge",
+        ExitReason::Tape => "tape",
+        ExitReason::Resilience => "resilience",
+    }
+}
 
 /// Результат одной формы на одних сутках одного символа.
 pub(super) struct FormDayResult {

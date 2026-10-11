@@ -1,6 +1,6 @@
 # TK-071: стенд A=A --iso 4 под живым prod — 09.10
 
-Сводка: `/data/tk071/live/{pairs,summary}.txt` на сервере счёта; скрипты `tools/compute/tk071-stand-live.sh`, `tk071-live-summary.py`.
+Сводка: `/data/tk071/live/{pairs,summary}.txt` на сервере счёта; скрипты `tools/compute/archive/tk071-stand-live.sh`, `tk071-live-summary.py`.
 Стенд d15 (боевые флаги, вход /dev/shm), одна и та же работа дважды (A=A), `--iso 4`, prod из очереди (tk113-r1ext, tk063-r2a-psim, tk063-r2a-expo; tk071-load не подавался).
 
 | пара | prod на старте | Δ usage | Δ wall | ok×2 |

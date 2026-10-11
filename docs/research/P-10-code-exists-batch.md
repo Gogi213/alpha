@@ -4,7 +4,7 @@
 Основание: В-158 (владелец: «для август – сентябрь надо остальные гипотезы допрогнать»); опись пула —
 `docs/findings/tk024-pool-inventory-2026-10-02.md/.csv` (поправлена по замечаниям Судьи 02.10 п. 1–4); образец — П-08;
 прецеденты — `reviews/PRECEDENTS.md` (п. 11, 15, 16, 17, 19, KPI «по минимуму»).
-Код: Rust нет; Python — `tools/compute/p10-feats.py` (на основе `p08-feats.py`, `exit-sim.py`, `busy-replay.py`, `portfolio-sim.py`).
+Код: Rust нет; Python — `tools/compute/archive/p10-feats.py` (на основе `p08-feats.py`, `exit-sim.py`, `busy-replay.py`, `portfolio-sim.py`).
 
 ## 1. Вопрос и решение
 
@@ -174,7 +174,7 @@ t ≤ 19.09): Δ −0,10 = 74 / 46 часов. У B1 доли 0,274 / 0,256 (П-
 
 ## 11. Что нужно от кода
 
-- `tools/compute/p10-feats.py`: признаки H–S (свечи, D20 по (symbol, t0, price_tick)), блок Г-120, фильтры → `busy-replay.py`;
+- `tools/compute/archive/p10-feats.py`: признаки H–S (свечи, D20 по (symbol, t0, price_tick)), блок Г-120, фильтры → `busy-replay.py`;
   `cov`/`keep` как `p08-cov.py`; `exit-sim` T/U/V + сверка (§9 п. 4). Rust не нужен.
 - `p10-cells.py` — файл клеток Ф (15 строк на сутки), запуск через `alpha-gridq` на VPS.
 - Бинарник и хеш — при постановке (тот же, что у B1 П-08, если ворота 3(а) зелёные; иначе — стоп).

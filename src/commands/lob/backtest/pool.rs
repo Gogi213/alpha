@@ -1,26 +1,9 @@
-//! Размер круга и поля лота пула, общие с `lob bounce-grid`: `order_size_22a`
-//! (`pool_order_qty`, Decision 22а), поля лота символа из `instruments.csv`
+//! Поля лота пула для `lob bounce-grid`: поля лота символа из `instruments.csv`
 //! (`PoolLot`) и номинал в долларах (`PoolLot::qty_usd_e9`, владелец 20.09).
 //! Вынесено из `backtest` при разрезке B3 (ревью 23.09), поведение не
 //! менялось.
 
 use std::path::Path;
-
-/// Размер круга `order_size_22a` (Decision 22а) от полей пула сессии и цены
-/// последнего касания: `max(minOrderQty, ceil(minNotional / (step × price)) ×
-/// step)`. Цена измерена на тех же данных, что и вердикт, — второй проход за
-/// ценой не нужен (тот же приём, что у пилота с последней строкой
-/// `levels-floor`). Нет символа в пуле — отказ: лот обязан быть названным
-/// числом, а не шагом книги.
-pub(crate) fn pool_order_qty(
-    instruments_csv: &Path,
-    symbol: &str,
-    last_price_tick: i64,
-    tick_e9: i64,
-) -> anyhow::Result<i64> {
-    let lot = PoolLot::read(instruments_csv, symbol)?;
-    Ok(lot.qty_22a_e9(last_price_tick.saturating_mul(tick_e9)))
-}
 
 /// Поля лота символа из `instruments.csv` пула в 1e-9 — прочитаны один раз,
 /// лот по цене считается без файла (R2: размер круга — по цене **каждого**

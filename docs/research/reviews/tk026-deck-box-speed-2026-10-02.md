@@ -1,6 +1,6 @@
 # TK-026 — дека ↔ ящик: замеры, причина, формула (Судья, 02.10.2026)
 
-Предмет: `docs/findings/deck-box-speed-2026-10-02.md` + `.csv` (e20bdea, fb731f5), `tools/compute/tk026-pipeline.py`,
+Предмет: `docs/findings/deck-box-speed-2026-10-02.md` + `.csv` (e20bdea, fb731f5), `tools/compute/archive/tk026-pipeline.py`,
 `tk026-sha.sh`, `tk026-bench.py` (911d93d). Мерка — договор Инженера (лог TK-026, 02:15). Дека заморожена (В-163) —
 проверено по коду, CSV и логу тикета, без запуска на деке.
 

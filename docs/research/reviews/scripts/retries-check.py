@@ -1,6 +1,6 @@
 """Судья 27.09: пересчёт §6 retries (a01d7f6) — «только N-й» с «без номера» и без них; возраст стены по номеру."""
 import csv, importlib.util, statistics as st
-spec = importlib.util.spec_from_file_location("kn", "tools/compute/kpi-newhigh.py")
+spec = importlib.util.spec_from_file_location("kn", "tools/compute/archive/kpi-newhigh.py")
 kn = importlib.util.module_from_spec(spec); spec.loader.exec_module(kn)
 T = list(csv.DictReader(open("data/t32/main-trades.csv", encoding="utf-8")))
 L = {(r["sym"], r["t0_ms"]): r for r in csv.DictReader(open("data/t32/retries-link.csv", encoding="utf-8"))}

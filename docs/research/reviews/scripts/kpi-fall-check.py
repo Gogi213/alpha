@@ -3,7 +3,7 @@
 и почасовые меры спада (доля часов под водой глубже D, язва-индекс) для сравнения вариантов."""
 import importlib.util, json, math, sys
 
-spec = importlib.util.spec_from_file_location("kn", "tools/compute/kpi-newhigh.py")
+spec = importlib.util.spec_from_file_location("kn", "tools/compute/archive/kpi-newhigh.py")
 kn = importlib.util.module_from_spec(spec); spec.loader.exec_module(kn)
 S = kn.load("data/kpi")
 names = [n for n in sys.argv[1:]] or ["BTC 4 ч: трейл 1/1", "Г-85 вход от фронтрана"]

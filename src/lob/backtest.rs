@@ -74,17 +74,10 @@ use crate::lob::strategy::{
 mod compact;
 pub mod fast_depth;
 pub mod fast_hold;
-pub mod hold_index;
 mod levels;
-pub mod sched;
-pub mod shared_depth;
-pub mod shared_driver;
-pub mod shared_multi;
 use fast_depth::FastMarketDepth;
-mod trim;
 mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
-pub use trim::{kept_rows, TrimRows};
 pub(crate) use window_depth::round_half_away;
 pub use window_depth::WindowDepth;
 pub use window_depth::{QUANT_CALLS, QUANT_SLOW};
@@ -1458,25 +1451,6 @@ where
 /// счёта не влияет.
 pub static HOLD_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Событийные шаги при живых заявках (`ALPHA_EVENT_STEPS=1`): между событиями рынка/ответами биржи и
-/// таймерами фазы шаг опроса не нужен — решение то же. Умолчание — прежний шаг 10 мс.
-fn event_steps() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "1"))
-}
-
-/// Событийные шаги только в ожидании исполнения входа (`ALPHA_EVENT_STEPS=entry`, TK-050): остальные фазы идут
-/// по-прежнему (быстрый путь удержания остаётся включённым). Умолчание — выкл.
-fn event_steps_entry() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "entry"))
-}
-
-/// Условие быстрого пути (TK-049): пропуск пустых шагов включён, событийные шаги выключены.
-fn skip_on_hold(skip_cap: Option<i64>, ev_steps: bool) -> bool {
-    skip_cap.is_some() && !ev_steps
-}
-
 /// Есть ли у круга заявки, ещё живые в крейте (не исполнены целиком, не сняты, не отвергнуты): пока есть,
 /// ответы биржи идут по своим часам — пустые шаги опроса не пропускаются (Э-04б).
 fn has_open_orders<B, MD>(bot: &B, asset_no: usize) -> bool
@@ -1562,12 +1536,9 @@ where
     let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
     // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
     let mut decided_in_hold = false;
-    let ev_steps = event_steps();
-    let ev_entry = event_steps_entry();
     let mut stable = false;
-    let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
-    // TK-049 (`ALPHA_FAST_HOLD`): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
+    // TK-049 (быстрый путь): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
     let mut fast_tried = !fast_hold::fast_hold_on();
     let mut post_step = false;
     let mut saved: Vec<(u64, Order)> = Vec::new();
@@ -1575,7 +1546,7 @@ where
         if !fast_tried
             && entry_pending == 0
             && exits.is_empty()
-            && skip_on_hold(skip_cap, ev_steps)
+            && skip_cap.is_some()
             && state.is_holding()
             && state.hold_wakeup_ns(bot.current_timestamp()).is_some()
             && !has_open_orders(bot, asset_no)
@@ -1596,7 +1567,6 @@ where
                     decided_in_hold,
                     stable,
                     solo_sig,
-                    skip_on,
                 ) {
                     *state = r.state.clone();
                     decided_in_hold = r.decided_in_hold;
@@ -1613,18 +1583,10 @@ where
         // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
         // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
         let wakeup = match skip_cap {
-            Some(_) if ev_steps && stable && entry_pending == 0 => {
+            Some(_) if stable && entry_pending == 0 && state.is_entry_pending() => {
                 state.step_wakeup_ns(bot.current_timestamp())
             }
-            Some(_) if ev_entry && stable && entry_pending == 0 && state.is_entry_pending() => {
-                state.step_wakeup_ns(bot.current_timestamp())
-            }
-            Some(_)
-                if !ev_steps
-                    && decided_in_hold
-                    && entry_pending == 0
-                    && !has_open_orders(bot, asset_no) =>
-            {
+            Some(_) if decided_in_hold && entry_pending == 0 && !has_open_orders(bot, asset_no) => {
                 state.hold_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
@@ -1707,14 +1669,14 @@ where
         solo_sig.stat_step(false, || {
             state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp())
         });
-        let skip = skip_on
-            && solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+        let skip =
+            solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
         let action = if skip {
             Action::Idle
         } else {
             on_event(bot, state)?
         };
-        if skip_on && !matches!(action, Action::Idle) {
+        if !matches!(action, Action::Idle) {
             solo_sig.reset();
         }
         decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
@@ -2151,20 +2113,10 @@ where
     let mut entry_seen: u64 = 0;
     let mut entry_pending: u64 = 0;
     let mut fill_by_cross = false;
-    let ev_steps = event_steps();
-    let ev_entry = event_steps_entry();
     let mut entry_stable = false;
     loop {
         let entry_wake = match skip_cap {
-            Some(_) if ev_steps && entry_stable && entry_pending == 0 => {
-                entry_state.step_wakeup_ns(bot.current_timestamp())
-            }
-            Some(_)
-                if ev_entry
-                    && entry_stable
-                    && entry_pending == 0
-                    && entry_state.is_entry_pending() =>
-            {
+            Some(_) if entry_stable && entry_pending == 0 && entry_state.is_entry_pending() => {
                 entry_state.step_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
@@ -2283,9 +2235,8 @@ where
     // минимум по вариантам. После форка первое решение ещё не считано (как у сольного круга).
     let mut decided: Vec<bool> = vec![false; n];
     let mut stable: Vec<bool> = vec![false; n];
-    let skip_on = skip_same();
     let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
-    // TK-048 (`ALPHA_FAST_HOLD`): один заход группового быстрого пути сразу после форка; ноги входа
+    // TK-048 (быстрый путь): один заход группового быстрого пути сразу после форка; ноги входа
     // сохраняются перед заменой движка (как `saved` сольного `run_round`).
     let mut fast_tried = !fast_hold::fast_hold_on();
     let mut post_step = false;
@@ -2296,7 +2247,7 @@ where
         }
         if !fast_tried
             && entry_pending == 0
-            && skip_on_hold(skip_cap, ev_steps)
+            && skip_cap.is_some()
             && states
                 .iter()
                 .all(|s| s.is_holding() && s.hold_wakeup_ns(bot.current_timestamp()).is_some())
@@ -2318,7 +2269,6 @@ where
                     &mut decided,
                     &mut stable,
                     &mut sigs,
-                    skip_on,
                 ) {
                     post_step = ps;
                     saved = legs_saved;
@@ -2327,25 +2277,7 @@ where
         }
         let skip_step = std::mem::take(&mut post_step);
         let wakeup = match skip_cap {
-            Some(_) if ev_steps && entry_pending == 0 => {
-                let now = bot.current_timestamp();
-                let mut th: Option<i64> = None;
-                let mut all = true;
-                for i in 0..n {
-                    if outcome[i].is_some() {
-                        continue;
-                    }
-                    match (stable[i], states[i].step_wakeup_ns(now)) {
-                        (true, Some(t)) => th = Some(th.map_or(t, |x: i64| x.min(t))),
-                        _ => {
-                            all = false;
-                            break;
-                        }
-                    }
-                }
-                th.filter(|_| all)
-            }
-            Some(_) if !ev_steps && !has_open_orders(bot, asset_no) => {
+            Some(_) if !has_open_orders(bot, asset_no) => {
                 let now = bot.current_timestamp();
                 let mut th: Option<i64> = None;
                 let mut all = true;
@@ -2439,15 +2371,14 @@ where
             sigs[i].stat_step(false, || {
                 states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp())
             });
-            let skip = skip_on
-                && sigs[i]
-                    .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+            let skip = sigs[i]
+                .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
             let act = if skip {
                 Action::Idle
             } else {
                 on_event(bot, &mut states[i])?
             };
-            if skip_on && !matches!(act, Action::Idle) {
+            if !matches!(act, Action::Idle) {
                 sigs[i].reset();
             }
             stable[i] = states[i].phase_mark() == mark_before && matches!(act, Action::Idle);
@@ -3015,24 +2946,13 @@ pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
 /// Строки развёртки, до которых круг дошёл по часам (`local_ts <= now`), по попыткам (0, 1, 2, 3+) — замер TK-048
-/// против `ATTEMPT_ROWS` (зря развёрнутое); считается только под `ALPHA_ATTEMPT_STATS`, на итог не влияет.
+/// против `ATTEMPT_ROWS` (зря развёрнутое); считается только под `ALPHA_DIAG`, на итог не влияет.
 pub static ATTEMPT_USED: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
 /// Шаги `run_round` по виду (0 — пошаговый без заявок, 1 — пошаговый с открытыми заявками, 2 — прыжок удержания) — замер TK-049.
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
-
-/// Пропуск `on_event` в удержании, когда входы решения не менялись (`ALPHA_SKIP_SAME=1`, TK-050): решение на
-/// тех же входах повторяется; умолчание — зовём на каждом шаге.
-fn skip_same() -> bool {
-    #[cfg(test)]
-    if fast_hold::FORCE_IDX.with(std::cell::Cell::get) {
-        return true;
-    }
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_some_and(|v| v == "1"))
-}
 
 /// Пропущено вызовов `on_event` (процесс; на итог счёта не влияет).
 pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -3043,11 +2963,11 @@ pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 struct SigMemo {
     sig: Option<[u64; 5]>,
     reps: u8,
-    /// Подпись прошлого шага удержания для счёта `SIG_STATS` (только под `ALPHA_ATTEMPT_STATS`).
+    /// Подпись прошлого шага удержания для счёта `SIG_STATS` (только под `ALPHA_DIAG`).
     stat_sig: Option<[u64; 5]>,
 }
 
-/// Шаги удержания по подписи входов решения (замер TK-048, `ALPHA_ATTEMPT_STATS`, на итог не влияет): для быстрого
+/// Шаги удержания по подписи входов решения (замер TK-048, `ALPHA_DIAG`, на итог не влияет): для быстрого
 /// пути (HoldTracker) и пути движка — [шагов, подпись та же, сменилась, нет подписи (`None`)]; в групповом круге
 /// шаг считается по варианту.
 pub static SIG_STATS: [std::sync::atomic::AtomicU64; 8] =
@@ -3138,30 +3058,17 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-/// Горизонт развёртки попытки `attempt` для полного горизонта `span_full` (Р6). Умолчание: нулевая — не дальше
-/// `FIRST_HORIZON_NS`, первая сразу полный, дальше удвоение. `ALPHA_HORIZON_GROW=1` (TK-048): удвоение от
-/// `FIRST_HORIZON_NS` (300, 600, 1200 с…), но не больше умолчательного для той же попытки — круг, кончающийся
-/// за минуты после первой попытки, не разворачивается на часы. Точность от значения не зависит (проверка
-/// конца данных пересчитывает круг), только время.
+/// Горизонт развёртки попытки `attempt` для полного горизонта `span_full` (Р6): нулевая — не дальше
+/// `FIRST_HORIZON_NS`, первая сразу полный, дальше удвоение. Точность от значения не зависит (проверка конца
+/// данных пересчитывает круг), только время.
 fn attempt_span_ns(span_full: i64, attempt: u32) -> i64 {
-    let default = match attempt {
+    match attempt {
         0 => span_full.min(FIRST_HORIZON_NS),
         a => span_full
             .checked_shl(a - 1)
             .filter(|v| *v > 0)
             .unwrap_or(i64::MAX),
-    };
-    if attempt == 0 || !horizon_grow() {
-        return default;
     }
-    1i64.checked_shl(attempt)
-        .and_then(|m| FIRST_HORIZON_NS.checked_mul(m))
-        .map_or(default, |v| v.min(default))
-}
-
-fn horizon_grow() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_HORIZON_GROW").is_some_and(|v| v == "1"))
 }
 
 fn horizon_span_ns(plan: &TradePlan) -> i64 {
@@ -3629,49 +3536,6 @@ fn entry_part(plan: TradePlan) -> TradePlan {
     p
 }
 
-/// Лента суток для общего индекса удержания (`ALPHA_HOLD_INDEX`): события в памяти — они же; иначе вид суток
-/// разворачивается один раз от самого раннего окна (`fast_hold::day_rows`), а срез круга — буфер от `skip_to(w.start)`.
-fn shared_day<'a, R: EventRows + ?Sized>(
-    events: &'a R,
-    windows: &'a SignalWindows,
-    w: &'a SignalWindow,
-) -> Option<fast_hold::SharedDay<'a>> {
-    if !fast_hold::hold_index_on() {
-        return None;
-    }
-    let first = windows.earliest()?;
-    if let Some(all) = events.as_events() {
-        return Some(fast_hold::SharedDay {
-            all,
-            base_row: first.start,
-            base_depth: &first.depth,
-            off: w.start,
-            win_depth: &w.depth,
-        });
-    }
-    let base = events.skip_to(first.start);
-    if base >= events.len() {
-        return None;
-    }
-    let key = (
-        std::ptr::from_ref(events).cast::<()>() as usize,
-        events.len(),
-        base,
-        events.row_local_ts(base),
-        events.row_local_ts(events.len() - 1),
-    );
-    let all = fast_hold::day_rows(key, || {
-        (base..events.len()).map(|i| events.row(i)).collect()
-    });
-    Some(fast_hold::SharedDay {
-        all,
-        base_row: 0,
-        base_depth: &first.depth,
-        off: events.skip_to(w.start) - base,
-        win_depth: &w.depth,
-    })
-}
-
 /// Групповой круг одного сигнала в свежем движке окна (Э-08) — те же попытки горизонта развёртки, что у
 /// `windowed_with` (Р6). `None` — окна или данных после `t0` нет. Вариант с сиротами на выходе
 /// возвращается как `EndOfData` — в память он не попадёт (драйвер посчитает его сам).
@@ -3731,7 +3595,6 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                 let steps = fast_hold::with_fast_ctx(
                     bt_addr,
                     rest,
-                    shared_day(events, windows, w),
                     windows.tick_size,
                     windows.lot_size,
                     exec_latency,
@@ -3782,7 +3645,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
 /// Групповых кругов Э-08 — счётчик процесса для тестов; на итог не влияет.
 pub static EXIT_GROUP_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Разбор нулевых групповых кругов (TK-048, печатается под `ALPHA_ATTEMPT_STATS`): [сигналов-участников,
+/// Разбор нулевых групповых кругов (TK-048, печатается под `ALPHA_DIAG`): [сигналов-участников,
 /// уже в памяти, частей с равной входной частью, частей из ≥ 2, из них круг не получился (`None`)].
 pub static EXIT_GROUP_DIAG: [std::sync::atomic::AtomicU64; 5] = [
     std::sync::atomic::AtomicU64::new(0),
@@ -3971,7 +3834,6 @@ fn windowed_with<R: EventRows + ?Sized>(
                             fast_hold::with_fast_ctx(
                                 std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize,
                                 rest,
-                                shared_day(events, windows, w),
                                 windows.tick_size,
                                 windows.lot_size,
                                 exec_latency,

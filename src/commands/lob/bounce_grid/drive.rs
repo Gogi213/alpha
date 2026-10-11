@@ -20,13 +20,12 @@ use crate::commands::lob::backtest::{
     deadline_ns_from_secs, early_exit_ns_from_secs, open_replay_feed, replay_compact_into_until,
     EntryForm, PlanShape, PoolLot,
 };
-use crate::lob::backtest::shared_driver::{drive_cells_shared, SharedCell};
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, precompute_exit_group,
     with_backtest_over, BounceRun, BounceSignal, CompactEvent, DriveConfig, ExecLatency,
-    QueueModelKind, RoundMemo, SignalWindows, TrimRows,
+    QueueModelKind, RoundMemo, SignalWindows,
 };
-use crate::lob::levels::{H3Mode, TouchRecord};
+use crate::lob::levels::TouchRecord;
 use crate::lob::sigma::SigmaSeries;
 use crate::lob::step_schedule::StepSchedule;
 
@@ -76,7 +75,7 @@ fn signals_for(
             touches
                 .iter()
                 .enumerate()
-                .filter(|&(ti, t)| filter.admits(ti, t))
+                .filter(|&(ti, _)| filter.admits(ti))
                 .map(|(ti, _)| u32::try_from(ti).expect("касаний меньше 2^32"))
                 .collect()
         })
@@ -90,7 +89,7 @@ fn signals_for(
     };
     let mut signals: Vec<BounceSignal> = candidates
         .filter_map(|(ti, t)| {
-            if (admitted.is_none() && !filter.admits(ti, t))
+            if (admitted.is_none() && !filter.admits(ti))
                 || !filter.admits_r1(approaches.map(|ap| &ap[ti]))
             {
                 skipped += 1;
@@ -162,10 +161,12 @@ fn signals_for(
     Ok((signals, skipped))
 }
 
-/// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, `ALPHA_SIG_CACHE=<потолок
-/// сигналов на сутки>`, умолчание 0 = выкл): `signals_for` второй раз не зовётся. Сверх потолка форма не
+/// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, потолок `SIG_CACHE_CAP` сигналов на сутки): `signals_for` второй раз не зовётся. Сверх потолка форма не
 /// кладётся — считается заново, как раньше (результат тот же).
 type SigSlot = Option<(Vec<BounceSignal>, u64)>;
+
+/// Потолок сигналов на сутки (бывший `ALPHA_SIG_CACHE=3000000` боевого набора).
+const SIG_CACHE_CAP: usize = 3_000_000;
 
 struct SigCache {
     slots: Mutex<Vec<SigSlot>>,
@@ -173,15 +174,11 @@ struct SigCache {
 }
 
 impl SigCache {
-    fn from_env(forms: usize) -> Option<Self> {
-        let cap = std::env::var("ALPHA_SIG_CACHE")
-            .ok()?
-            .parse::<usize>()
-            .ok()?;
-        (cap > 0).then(|| Self {
+    fn new(forms: usize) -> Self {
+        Self {
             slots: Mutex::new((0..forms).map(|_| None).collect()),
-            left: AtomicUsize::new(cap),
-        })
+            left: AtomicUsize::new(SIG_CACHE_CAP),
+        }
     }
 
     fn put(&self, i: usize, signals: Vec<BounceSignal>, skipped: u64) {
@@ -263,15 +260,6 @@ fn exit_groups(
             DayRows::Wide(e) => {
                 precompute_exit_group(e, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs, p.walls)
             }
-            DayRows::Trimmed(c, k) => precompute_exit_group(
-                &TrimRows::new(c, k),
-                windows,
-                &sig_refs,
-                &cfg,
-                p.rtt_ns,
-                &mut refs,
-                p.walls,
-            ),
         }
         .map_err(|e| anyhow::anyhow!("группа выходов: {e}"))?;
         drop(refs);
@@ -283,7 +271,7 @@ fn exit_groups(
         }
     }
     eprintln!("bounce-grid:   группы выходов: групповых кругов {rounds}");
-    if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
+    if crate::lob::run_flags::RunFlags::from_env().diag {
         let d: Vec<u64> = crate::lob::backtest::EXIT_GROUP_DIAG
             .iter()
             .map(|a| a.load(std::sync::atomic::Ordering::Relaxed))
@@ -478,8 +466,6 @@ pub(super) struct DayParams<'a> {
     pub(super) post_only: bool,
     /// E3: входить только от фронтрана (`--frontrun-only`).
     pub(super) frontrun_only: bool,
-    /// Порог уровня — проверяется и **в момент касания** (`H3Mode::holds_at_touch`).
-    pub(super) mode: H3Mode,
     /// Номинал порога В-66 в долларах (`--h3-usd`): из него план считает
     /// `level_floor_qty` — порог «стена снята» (F5, В-74). `None` — условия
     /// F5 выключены (режим `touch`), иначе `run_bounce_grid` отказал бы.
@@ -552,97 +538,6 @@ fn deposit(
     }
 }
 
-/// `ALPHA_SHARED_ENGINE=1` (TK-049): формы сутки идут по одной ленте и общим книгам (`drive_cells_shared`),
-/// пачками по `ALPHA_SHARED_CELLS` форм (умолчание 8) на поток; только `prob:<n>`, без памяти кругов.
-fn drive_day_shared(
-    events: DayRows<'_>,
-    touches: &[TouchRecord],
-    approaches: Option<&[crate::lob::levels::ApproachRecord]>,
-    forms: &[GridForm],
-    p: &DayParams<'_>,
-    queue_n: f64,
-    sink: &mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
-) -> anyhow::Result<usize> {
-    let rows: Vec<HbtEvent> = match events {
-        DayRows::Compact(c) => c.iter().map(CompactEvent::expand).collect(),
-        DayRows::Wide(e) => e.to_vec(),
-        DayRows::Trimmed(c, k) => k.iter().map(|&i| c[i as usize].expand()).collect(),
-    };
-    let chunk = std::env::var("ALPHA_SHARED_CELLS")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(8)
-        .max(1);
-    let chunks = forms.len().div_ceil(chunk);
-    let next = AtomicUsize::new(0);
-    let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
-    let order = Mutex::new(FormOrder {
-        pending: BTreeMap::new(),
-        next_form: 0,
-        done: 0,
-        sink,
-    });
-    std::thread::scope(|scope| {
-        for _ in 0..p.threads.max(1) {
-            scope.spawn(|| loop {
-                let c = next.fetch_add(1, Ordering::Relaxed);
-                if c >= chunks || failure.lock().map(|f| f.is_some()).unwrap_or(true) {
-                    break;
-                }
-                let (lo, hi) = (c * chunk, ((c + 1) * chunk).min(forms.len()));
-                let done = (|| -> anyhow::Result<()> {
-                    let mut cells = Vec::with_capacity(hi - lo);
-                    let mut meta = Vec::with_capacity(hi - lo);
-                    for form in &forms[lo..hi] {
-                        let (signals, skipped) =
-                            signals_for(touches, approaches, p.sigma, form, p)?;
-                        let cfg = DriveConfig {
-                            tape_log_secs: p.tape_log_secs,
-                            order_qty: 0.0,
-                            first_order_id: 1,
-                            queue_model: p.queue_model,
-                            busy_skip: p.busy_skip,
-                            hold_skip: p.hold_skip,
-                        };
-                        cells.push(SharedCell {
-                            signals: signals.clone(),
-                            cfg,
-                        });
-                        meta.push((signals, skipped));
-                    }
-                    let runs =
-                        drive_cells_shared(rows.clone(), p.tick, p.lot, p.rtt_ns, queue_n, cells)
-                            .map_err(|e| anyhow::anyhow!("формы #{lo}..{hi}: {e}"))?;
-                    for (k, (run, (signals, skipped))) in runs.into_iter().zip(meta).enumerate() {
-                        deposit(&order, lo + k, run, signals, skipped)?;
-                    }
-                    Ok(())
-                })();
-                if let Err(e) = done {
-                    if let Ok(mut f) = failure.lock() {
-                        if f.is_none() {
-                            *f = Some(e);
-                        }
-                    }
-                    break;
-                }
-            });
-        }
-    });
-    if let Some(e) = failure.into_inner().ok().flatten() {
-        return Err(e);
-    }
-    let o = order
-        .into_inner()
-        .map_err(|_| anyhow::anyhow!("результаты форм: мьютекс"))?;
-    anyhow::ensure!(
-        o.pending.is_empty(),
-        "формы без записи в дамп: {}",
-        o.pending.len()
-    );
-    Ok(o.done)
-}
-
 /// Все формы над одними сутками: потоки берут формы по счётчику. `Setups`
 /// — один проход книги на сутки (`SignalWindows`, общий для форм), дальше у
 /// каждой формы движок только внутри кругов; `Full` — у каждой формы свой
@@ -676,7 +571,7 @@ pub(super) fn drive_day(
     };
     // Э-08: формы с одним входом (`entry_form`, `entry_ttl`) — круги группы заранее, одним движком на
     // сигнал, в память каждой формы; дальше формы идут прежним путём и берут круги из памяти.
-    let sig_cache = SigCache::from_env(forms.len());
+    let sig_cache = Some(SigCache::new(forms.len()));
     if p.exit_group && !p.busy_skip {
         if let (Some(w), Some(ms)) = (windows, p.memos) {
             exit_groups(
@@ -689,11 +584,6 @@ pub(super) fn drive_day(
                 ms,
                 sig_cache.as_ref(),
             )?;
-        }
-    }
-    if windows.is_some() && p.memos.is_none() && std::env::var_os("ALPHA_SHARED_ENGINE").is_some() {
-        if let QueueModelKind::Prob { n } = p.queue_model {
-            return drive_day_shared(events, touches, approaches, forms, &p, n, sink);
         }
     }
     let next = AtomicUsize::new(0);
@@ -743,14 +633,6 @@ pub(super) fn drive_day(
                                     DayRows::Wide(e) => drive_bounce_windowed_memo(
                                         e, w, &signals, &cfg, p.rtt_ns, &mut m,
                                     ),
-                                    DayRows::Trimmed(c, k) => drive_bounce_windowed_memo(
-                                        &TrimRows::new(c, k),
-                                        w,
-                                        &signals,
-                                        &cfg,
-                                        p.rtt_ns,
-                                        &mut m,
-                                    ),
                                 }
                             }
                             None => match events {
@@ -760,13 +642,6 @@ pub(super) fn drive_day(
                                 DayRows::Wide(e) => {
                                     drive_bounce_windowed(e, w, &signals, &cfg, p.rtt_ns)
                                 }
-                                DayRows::Trimmed(c, k) => drive_bounce_windowed(
-                                    &TrimRows::new(c, k),
-                                    w,
-                                    &signals,
-                                    &cfg,
-                                    p.rtt_ns,
-                                ),
                             },
                         },
                         None => {
@@ -812,8 +687,6 @@ pub(super) fn drive_day(
 pub(super) enum DayRows<'a> {
     Compact(&'a [CompactEvent]),
     Wide(&'a [HbtEvent]),
-    /// Компактные строки и индекс оставленных (`ALPHA_TRIM_ROWS`, TK-049): круги читают урезанную ленту.
-    Trimmed(&'a [CompactEvent], &'a [u32]),
 }
 
 /// Окна сетапов суток (`--driver setups`): снимок книги на каждый `t0`
@@ -832,9 +705,7 @@ pub(super) fn day_windows(
         DriverArg::Setups => {
             let started = Instant::now();
             let w = match events {
-                DayRows::Compact(c) | DayRows::Trimmed(c, _) => {
-                    SignalWindows::build(c, t0s, tick, lot)
-                }
+                DayRows::Compact(c) => SignalWindows::build(c, t0s, tick, lot),
                 DayRows::Wide(e) => SignalWindows::build(e, t0s, tick, lot),
             };
             eprintln!(
@@ -847,9 +718,7 @@ pub(super) fn day_windows(
             if check {
                 let started = Instant::now();
                 let reference = match events {
-                    DayRows::Compact(c) | DayRows::Trimmed(c, _) => {
-                        SignalWindows::build_crate(c, t0s, tick, lot)
-                    }
+                    DayRows::Compact(c) => SignalWindows::build_crate(c, t0s, tick, lot),
                     DayRows::Wide(e) => SignalWindows::build_crate(e, t0s, tick, lot),
                 };
                 if let Some((t0, field)) = w.first_mismatch(&reference) {

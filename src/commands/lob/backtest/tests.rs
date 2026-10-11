@@ -4,16 +4,13 @@ use super::*;
 use crate::binlog::StepAt;
 use crate::book::{Side, Update};
 use crate::bybit::ws::Event as WsEvent;
-use crate::commands::lob::profiles::FillModel;
 use crate::feed::{Event as FeedEvent, Feed};
-use crate::lob::backtest::{ExecLatency, SIGMA_SHORT};
-use crate::lob::levels::LevelRecord;
+use crate::lob::backtest::SIGMA_SHORT;
+use crate::lob::levels::TouchRecord;
 use crate::lob::step_schedule::StepSchedule;
-use crate::lob::strategy::{ExitReason, TradePlan};
+use crate::lob::strategy::TradePlan;
 use hftbacktest::types::{
-    EXCH_ASK_DEPTH_EVENT, EXCH_BID_DEPTH_EVENT, EXCH_BUY_TRADE_EVENT, EXCH_EVENT,
-    EXCH_SELL_TRADE_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT, LOCAL_BUY_TRADE_EVENT,
-    LOCAL_EVENT, LOCAL_SELL_TRADE_EVENT,
+    LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT, LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT,
 };
 
 struct VecFeed(std::vec::IntoIter<FeedEvent>);
@@ -34,128 +31,6 @@ fn book_ev(local_ts_ns: i64, up: Update) -> FeedEvent {
 
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
-}
-
-// -----------------------------------------------------------------------
-// `BacktestFillModel` (таск 16) на синтетическом потоке `hftbacktest`
-// напрямую (`prime_from_events`) — тот же приём фикстур, что
-// `lob::backtest::tests` (сборка `Event` руками, без файла бинлога): это
-// тестовый шов, названный doc `prime_from_events`, не второй разбор
-// формата.
-// -----------------------------------------------------------------------
-
-fn depth_ev(bid: bool) -> u64 {
-    if bid {
-        LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT
-    } else {
-        LOCAL_ASK_DEPTH_EVENT | EXCH_ASK_DEPTH_EVENT
-    }
-}
-
-fn trade_ev(sell: bool) -> u64 {
-    if sell {
-        LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
-    } else {
-        LOCAL_BUY_TRADE_EVENT | EXCH_BUY_TRADE_EVENT
-    }
-}
-
-fn depth_at(exch_ts: i64, bid: bool, px: f64, qty: f64) -> HbtEvent {
-    HbtEvent {
-        ev: depth_ev(bid),
-        exch_ts,
-        local_ts: exch_ts + 500,
-        px,
-        qty,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
-    }
-}
-
-fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> HbtEvent {
-    HbtEvent {
-        ev: trade_ev(sell) | EXCH_EVENT | LOCAL_EVENT,
-        exch_ts,
-        local_ts: exch_ts + 500,
-        px,
-        qty,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
-    }
-}
-
-fn ask_level(price_tick: i64, birth_ms: i64) -> LevelRecord {
-    LevelRecord {
-        side: Side::Ask,
-        price_tick,
-        birth_ms,
-        death_ms: birth_ms + 1,
-        lifetime_ms: 1,
-        size_max: 1,
-        time_to_max_ms: 0,
-        size_monotonic: true,
-        repeat_count: 0,
-        repriced: false,
-        death: crate::lob::levels::DeathKind::BelowFraction,
-        traded_lots: 0,
-        rpi_lots: 0,
-    }
-}
-
-/// Секунда в наносекундах — тот же приём читаемости, что
-/// `lob::backtest::tests::S`.
-const S: i64 = 1_000_000_000;
-
-/// Критерий приёмки таска 16: синтетический поток с известными
-/// исполнениями — вход А исполняется за 2 с (сделки съедают очередь),
-/// вход Б не встречает сделок и снимается по таймауту. Оба сигнала гонит
-/// **один** прогон `prime_from_events` (не по одному на уровень —
-/// BLOCKERS таска 13), `filled` читает готовый кэш.
-#[test]
-fn backtest_fill_model_matches_known_executions_on_a_synthetic_feed() {
-    let feed = [
-        depth_at(0, true, 100.0, 5.0),
-        depth_at(0, false, 101.0, 5.0),
-        // Вход А (born t=S, аск-уровень → long): сделки на бид съедают
-        // очередь мейкера за 2 с (тот же сценарий, что
-        // `lob::backtest::tests::driver_closes_a_maker_round_trip_on_
-        // synthetic_feed`).
-        trade_at(S + S / 2, true, 100.0, 3.0),
-        trade_at(S + 4 * S / 5, true, 100.0, 3.0),
-        depth_at(10 * S + 9 * S / 10, true, 101.0, 5.0),
-        depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
-        // Вход Б (born t=20*S): книга валидна, но между рождением и
-        // t+2с сделок нет — обязан снятся по таймауту.
-        depth_at(30 * S, false, 103.0, 5.0),
-    ];
-    let records = [ask_level(100, 1000), ask_level(200, 20_000)];
-
-    let model = BacktestFillModel::new(
-        ExecLatency::uniform(1_000_000),
-        ExecLatency::uniform(2_000_000),
-        100_000_000,
-    );
-    model.prime_from_events("SOLUSDT", &feed, 1.0, 1.0, &records);
-
-    assert_eq!(
-        model.filled("SOLUSDT", &records[0], &[]),
-        Some(true),
-        "вход А обязан исполниться — очередь съедена за 2 с"
-    );
-    assert_eq!(
-        model.filled("SOLUSDT", &records[1], &[]),
-        Some(false),
-        "вход Б обязан не исполниться — сделок не было"
-    );
-    // Уровень, которого не было в сессии, — не измерен, не ложный ноль.
-    let unseen = ask_level(300, 999_999);
-    assert_eq!(model.filled("SOLUSDT", &unseen, &[]), None);
-    // Тот же уровень другого символа — отдельный ключ, не измерен.
-    assert_eq!(model.filled("ETHUSDT", &records[0], &[]), None);
-    assert_eq!(model.label(), "backtest");
-    assert_eq!(model.p95_rtt_ns(), ExecLatency::uniform(2_000_000));
 }
 
 /// Снапшот, потерявший уровень против предыдущего снапшота, обязан
@@ -237,84 +112,6 @@ fn zero_qty_delta_removes_a_level() {
     assert_eq!(out.len(), 2);
     assert_eq!(out[1].qty, 0.0);
     assert!(close(out[1].px, 100.0));
-}
-
-/// Реальная шапка `docs/findings/profiles-<дата>.csv` (таск 10,
-/// `commands::lob::profiles::HEADER`/`write_row`), записанная литералом:
-/// комментарий `#`, 26 колонок, `not_measured` там, где `fill_model=none`
-/// не мерил `fill`/`net_fill`. Не старая схема `shortlist::ProfileRow`,
-/// которую этот читатель больше не понимает (ревью: не соединялась).
-const PROFILES_TASK10_FIXTURE: &str = concat!(
-    "# lob profiles: h3_mode=floor warmup_ms=3600000 repeat_window_ms=3600000",
-    " alpha=0.005 replications=9999 seed=0 fill_model=none debug\n",
-    "profile_id,n,eaten_share,pulled_share,mixed_share,",
-    "m_100ms,m_100ms_lower,raw_100ms,unreachable_100ms,",
-    "m_1000ms,m_1000ms_lower,raw_1000ms,unreachable_1000ms,",
-    "m_10000ms,m_10000ms_lower,raw_10000ms,unreachable_10000ms,",
-    "m_60000ms,m_60000ms_lower,raw_60000ms,unreachable_60000ms,",
-    "net_bps,fill,net_fill,net_fill_lower,session_start_hours_utc\n",
-    "smoke:bid,150,0.3000,0.6000,0.1000,",
-    "1.0000,0.5000,1.0000,not_measured,",
-    "2.0000,1.0000,2.0000,not_measured,",
-    "3.0000,1.0000,3.0000,not_measured,",
-    "4.0000,1.0000,4.0000,not_measured,",
-    "10.0000,not_measured,not_measured,not_measured,2\n",
-    "smoke:ask,120,0.2000,0.7000,0.1000,",
-    "1.0000,0.5000,1.0000,not_measured,",
-    "2.0000,1.0000,2.0000,not_measured,",
-    "3.0000,1.0000,3.0000,not_measured,",
-    "4.0000,1.0000,4.0000,not_measured,",
-    "5.0000,0.4000,3.0000,1.5000,3\n",
-);
-
-/// Таблица профилей читается по пути-параметру на фикстуре формата
-/// таска 10, не на боевом файле. `smoke:bid` — колонка `net_fill`
-/// `not_measured` (`fill_model=none`): читатель обязан пометить это
-/// явно, а не молчать как `None`. `smoke:ask` — обычная измеренная
-/// строка, для контраста. Отсутствующий профиль и путь — пусто, не
-/// паника.
-#[test]
-fn read_table_parses_task10_format_and_flags_not_measured() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("profiles-fixture.csv");
-    std::fs::write(&path, PROFILES_TASK10_FIXTURE).unwrap();
-
-    let table = read_table(Some(&path)).unwrap();
-
-    let bid = table.get("smoke:bid").expect("профиль обязан найтись");
-    assert_eq!(bid.net_bps, Some(10.0));
-    assert_eq!(bid.net_fill_bps, None, "not_measured — не число");
-    assert!(bid.net_fill_not_measured, "литерал обязан распознаться");
-
-    let ask = table.get("smoke:ask").expect("профиль обязан найтись");
-    assert_eq!(ask.net_bps, Some(5.0));
-    assert_eq!(ask.net_fill_bps, Some(3.0));
-    assert!(!ask.net_fill_not_measured, "измеренная строка — не флаг");
-
-    assert!(!table.contains_key("smoke:missing"), "чужого профиля нет");
-    assert!(
-        read_table(None).unwrap().is_empty(),
-        "без пути — пустая таблица, не паника"
-    );
-}
-
-/// Сквозная проверка сравнения на фикстуре таска 10: `net_fill`
-/// `not_measured` обязан упасть сравнением на `net_bps` (координатор), а
-/// не молча дать `None` разности.
-#[test]
-fn compare_with_table_falls_back_to_net_bps_on_the_task10_fixture() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("profiles-fixture.csv");
-    std::fs::write(&path, PROFILES_TASK10_FIXTURE).unwrap();
-    let table = read_table(Some(&path)).unwrap();
-
-    let comparison =
-        crate::lob::backtest::compare_with_table(table.get("smoke:bid").copied(), Some(92.5));
-    assert!(
-        (comparison.diff_net_fill_bps.unwrap() - 82.5).abs() < 1e-9,
-        "{comparison:?}"
-    );
-    assert!(comparison.format_line().contains("not_measured"));
 }
 
 /// Форма сделки «как в T38»: без пост-онли, трейла и лестницы — тесты B2
@@ -872,222 +669,6 @@ fn bounce_plan_carries_the_early_exit_the_level_and_the_tick() {
         "уровень касания P = 10.00, а не цена входа: {level_px}"
     );
     assert!((tick_px - 0.01).abs() < 1e-12, "шаг цены: {tick_px}");
-}
-
-// -----------------------------------------------------------------------
-// B5 (В-58): покруговой дамп `--trades-out` — вход прогона-вердикта.
-// -----------------------------------------------------------------------
-
-fn fill(dir: i8, entry_px: f64, exit_px: f64) -> crate::lob::backtest::Fill {
-    crate::lob::backtest::Fill {
-        dir,
-        entry_px,
-        exit_px,
-        qty: 1.0,
-        entry_taker: false,
-        exit_taker: true,
-        // Полное исполнение (F3): средневзвешенная цена входа равна прежней
-        // `entry_px`, доля исполнения — единица.
-        entry_vwap: entry_px,
-        fill_frac: 1.0,
-        legs_filled: 1,
-        legs_rejected: 0,
-        fill_by_cross: false,
-        tape_press: 0.0,
-        cxl_press: 0.0,
-        chase_wait_ns: -1,
-    }
-}
-
-fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) -> BounceRun {
-    let n = fills.len();
-    BounceRun {
-        profile: 0,
-        signals: n as u64,
-        fills,
-        fill_signal: (0..n).collect(),
-        fill_reason: reasons,
-        fill_exit_ns: Vec::new(),
-        exits: Default::default(),
-        entry_rejected: 0,
-        rejected_postonly: 0,
-        entry_crossed: 0,
-        entry_cancelled_ttl: 0,
-        entry_cancelled_wall_dead: 0,
-        entry_cancelled_price_left: 0,
-        entry_cancelled_cancel_timeout: 0,
-        exit_cancel_timeout: 0,
-        orphan_fills: 0,
-        spread_at_entry: Vec::new(),
-        submitted_signal: (0..n).collect(),
-        busy_signal: Vec::new(),
-        busy_wait_ns_max: 0,
-        round_ns_max: 0,
-        misses: Default::default(),
-        observations: Vec::new(),
-        incomplete: false,
-        residual_flattened: 0,
-        trace: Vec::new(),
-    }
-}
-
-/// Дамп — строка на круг: обе ноги, причина выхода словами и `net_bps` той же
-/// арифметикой `roundtrip_net_bps`, что и кривая PnL (второй расчёт разошёлся
-/// бы с вердиктом). Круг без числа пишется литералом `not_measured`:
-/// потребитель (`lob bounce-verdict`) на нём отказывает, а не выбрасывает
-/// наблюдение молча.
-#[test]
-fn trades_dump_writes_one_row_per_circle_with_its_reason() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("nested").join("ZECUSDT.csv");
-    let run = bounce_run(
-        vec![fill(1, 100.0, 101.0), fill(-1, 0.0, 101.0)],
-        vec![ExitReason::Take, ExitReason::Stop],
-    );
-    write_trades_csv(&path, "# lob backtest: тест", &run).unwrap();
-    let text = std::fs::read_to_string(&path).unwrap();
-    let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines[0], "# lob backtest: тест");
-    assert_eq!(
-        lines[1],
-        "signal_index,dir,entry_px,exit_px,qty,net_bps,reason"
-    );
-    // 1 % хода минус комиссии по ногам (В-63: мейкер 1.26 + тейкер 3.15 = 4.41) = 95.59 bps.
-    assert!(
-        lines[2].ends_with(",95.590000,take"),
-        "первый круг: {}",
-        lines[2]
-    );
-    assert!(
-        lines[3].ends_with(",not_measured,stop"),
-        "круг с нулевым входом: {}",
-        lines[3]
-    );
-}
-
-/// Причин меньше, чем кругов, — отказ: сдвинутые причины приписали бы кругу
-/// чужой выход, а это хуже отсутствующего файла.
-#[test]
-fn trades_dump_refuses_a_run_whose_reasons_do_not_match_its_circles() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ZECUSDT.csv");
-    let run = bounce_run(
-        vec![fill(1, 100.0, 101.0)],
-        vec![ExitReason::Take, ExitReason::Stop],
-    );
-    assert!(write_trades_csv(&path, "# тест", &run).is_err());
-    assert!(!path.exists(), "отказ не оставляет половины файла");
-}
-
-// -----------------------------------------------------------------------
-// Лот круга: явный флаг или `order_size_22a` от пула и цены касания.
-// -----------------------------------------------------------------------
-
-/// Пул сессии + цена последнего касания дают тот же `order_size_22a`, что
-/// `lob pick` (Decision 22а): минимум площадки поднимается до чека $5, а при
-/// нулевом чеке остаётся минимальным лотом.
-#[test]
-fn pool_order_qty_is_order_size_22a_from_the_pool_and_the_touch_price() {
-    let dir = tempfile::tempdir().unwrap();
-    let pool = dir.path().join("instruments.csv");
-    std::fs::write(
-        &pool,
-        "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots\n\
-         SOLUSDT,0.01,0.1,0.1,5,9\n\
-         AAAUSDT,0.01,0.1,0.1,0,9\n",
-    )
-    .unwrap();
-    // Тик 0.01 в 1e-9, цена касания 100 тиков = $1.00. Чек $5 при шаге 0.1
-    // даёт 5.0 лотов = 5e9 e-9.
-    let tick_e9 = 10_000_000;
-    assert_eq!(
-        pool_order_qty(&pool, "SOLUSDT", 100, tick_e9).unwrap(),
-        5_000_000_000
-    );
-    assert_eq!(
-        pool_order_qty(&pool, "AAAUSDT", 100, tick_e9).unwrap(),
-        100_000_000,
-        "нулевой чек — ответ минимальный лот"
-    );
-    let err = pool_order_qty(&pool, "NOPEUSDT", 100, tick_e9)
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("нет в"), "отказ обязан назвать пул: {err}");
-}
-
-/// Профильный путь лот из пула не считает (касаний у него нет) и без явного
-/// флага не запускается: умолчания у размера круга нет.
-#[test]
-fn order_qty_requires_exactly_one_source() {
-    let mut args = minimal_backtest_args();
-    args.order_qty_e9 = Some(7);
-    args.order_qty_from_pool = true;
-    assert!(order_qty_arg(&args).is_err(), "два источника — отказ");
-    args.order_qty_e9 = None;
-    assert!(
-        order_qty_arg(&args).is_err(),
-        "лот из пула — только `--touches`"
-    );
-    args.order_qty_from_pool = false;
-    assert!(
-        order_qty_arg(&args)
-            .unwrap_err()
-            .to_string()
-            .contains("--order-qty-e9"),
-        "без обоих флагов отказ обязан назвать флаг"
-    );
-    args.order_qty_e9 = Some(7);
-    assert_eq!(order_qty_arg(&args).unwrap(), 7);
-    // Ревью 24.09, блок A: нулевой и отрицательный лот — отказ, а не круг без размера.
-    for bad in [0, -5] {
-        args.order_qty_e9 = Some(bad);
-        assert!(
-            order_qty_arg(&args)
-                .unwrap_err()
-                .to_string()
-                .contains("не положителен"),
-            "лот {bad} обязан быть отказом"
-        );
-    }
-}
-
-fn minimal_backtest_args() -> BacktestArgs {
-    BacktestArgs {
-        session_root: std::path::PathBuf::from("data/session"),
-        symbol: "SOLUSDT".to_string(),
-        signals_csv: None,
-        median_rtt_ns: ExecLatency::uniform(20_000_000),
-        p95_rtt_ns: ExecLatency::uniform(20_000_000),
-        order_qty_e9: Some(1),
-        order_qty_from_pool: false,
-        profiles_csv: None,
-        out: None,
-        pnl_out: None,
-        debug: false,
-        touches: true,
-        post_only: false,
-        trail_bps: 0.0,
-        trail_activate_bps: 0.0,
-        grid_legs: 1,
-        grid_step_ticks: 0,
-        stop_form: Some("s1".to_string()),
-        take_form: Some("t1".to_string()),
-        take_floor_fees: Some(1.0),
-        deadline_secs: 60,
-        early_exit_secs: None,
-        trades_out: None,
-        h3: crate::commands::lob::H3Args {
-            h3_mode: crate::commands::lob::H3ModeArg::Floor,
-            h3_lots: None,
-            h3_usd: None,
-            h3_strength_pct: None,
-            h3_strength_window_bps: None,
-        },
-        h3_k: None,
-        warmup_ms: None,
-        repeat_window_ms: None,
-        allow_unverified: true,
-    }
 }
 
 /// E7: формы `half1to1` и `eat<h>x<a>` — имя ↔ форма, границы порогов, и как
@@ -1837,7 +1418,7 @@ fn read_day_schedule_none_for_v3_some_for_v4_and_fails_closed() {
     assert!(read_day_schedule(&[v4], 2_000_000, 1_000_000).is_err());
 }
 
-/// Прямой путь `ReplayFeed::drive_raw` (`ALPHA_DIRECT_FEED`) даёт те же компактные события в том же
+/// Прямой путь `ReplayFeed::drive_raw` даёт те же компактные события в том же
 /// порядке, что `translate_feed_until` через `next_event`: снапшоты, дельты, сделки, группы через
 /// границу кадра, потолок времени.
 #[test]
@@ -1898,10 +1479,10 @@ fn direct_replay_path_matches_feed_translation() {
     for until in [None, Some(local / 2), Some(1_000_000_600), Some(i64::MAX)] {
         let mut old = Vec::new();
         let mut f = ReplayFeed::open(0, &buf[..]).unwrap();
-        let hit_old = super::feed::replay_compact_via_feed(&mut f, until, &mut old);
+        let hit_old = super::feed::translate_feed_until(&mut f, until, &mut |ev| old.push(ev));
         let mut new = Vec::new();
         let mut f = ReplayFeed::open(0, &buf[..]).unwrap();
-        let hit_new = super::feed::replay_compact_direct(&mut f, until, &mut new);
+        let hit_new = super::feed::replay_compact_into_until(&mut f, until, &mut new);
         assert!(!matches!(until, None | Some(i64::MAX)) || !old.is_empty());
         assert_eq!(hit_old, hit_new, "until {until:?}");
         assert_eq!(old, new, "until {until:?}");

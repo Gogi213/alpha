@@ -3224,7 +3224,7 @@ fn exit_groups_and_hold_skip_match_the_plain_run_byte_for_byte() {
     }
 }
 
-/// TK-049 (`ALPHA_ADMIT_SOA`): `admits` по строкам `AdmitRow` даёт те же ответы, что по записям касаний.
+/// TK-049 (admit_soa): `admits` по строкам `AdmitRow` даёт те же ответы, что по записям касаний.
 #[test]
 fn admit_rows_match_records() {
     use super::sets::{AdmitRow, TouchFilter};
@@ -3261,18 +3261,18 @@ fn admit_rows_match_records() {
         "e:flow=2,frontrun_min=3",
     ] {
         let set = FilterSet::parse(spec).unwrap();
-        let mut f = TouchFilter::from_set(&set, mode, 0.01, 1.0, &[]);
+        let mut f = TouchFilter::from_set(&set, 0.01, 1.0, &[]);
         let want: Vec<bool> = touches
             .iter()
             .enumerate()
-            .map(|(i, t)| f.admits(i, t))
+            .map(|(i, t)| f.admits_oracle(mode, i, t))
             .collect();
         f.holds = Some(&holds);
         f.rows = Some(&rows);
         let got: Vec<bool> = touches
             .iter()
             .enumerate()
-            .map(|(i, t)| f.admits(i, t))
+            .map(|(i, _)| f.admits(i))
             .collect();
         assert_eq!(got, want, "{spec}");
     }
@@ -3300,7 +3300,7 @@ fn g07_behind_and_stack_keys() {
 
     let set = FilterSet::parse("g:behind_min=150,stack_min=2").unwrap();
     let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
-    let f = super::sets::TouchFilter::from_set(&set, mode, 0.01, 1.0, &[]);
+    let f = super::sets::TouchFilter::from_set(&set, 0.01, 1.0, &[]);
     let t = |depth: i64, stack: u32| TouchRecord {
         size_at_touch: 10,
         depth_behind_lots: depth,
@@ -3308,14 +3308,17 @@ fn g07_behind_and_stack_keys() {
         ..probe_touch()
     };
     assert!(
-        f.admits(0, &t(15, 2)),
+        f.admits_oracle(mode, 0, &t(15, 2)),
         "15 × 100 == 150 × 10, стопка 2 == 2 — проходит"
     );
-    assert!(!f.admits(0, &t(14, 2)), "позади меньше порога");
-    assert!(!f.admits(0, &t(15, 1)), "стопка меньше порога");
+    assert!(!f.admits_oracle(mode, 0, &t(14, 2)), "позади меньше порога");
+    assert!(!f.admits_oracle(mode, 0, &t(15, 1)), "стопка меньше порога");
     let none = FilterSet::parse("n:").unwrap();
-    let f = super::sets::TouchFilter::from_set(&none, mode, 0.01, 1.0, &[]);
-    assert!(f.admits(0, &t(0, 0)), "без ключей фильтр прежний");
+    let f = super::sets::TouchFilter::from_set(&none, 0.01, 1.0, &[]);
+    assert!(
+        f.admits_oracle(mode, 0, &t(0, 0)),
+        "без ключей фильтр прежний"
+    );
 
     assert_eq!(super::plan::g07_label(&none), "");
     assert_eq!(super::plan::g07_label(&set), " behind_min=150 stack_min=2");
@@ -3652,10 +3655,9 @@ fn r1_keys_parse_bounds_and_refuse() {
     }
 
     // Условие на записи подхода: [500, 900] включительно; поток и уровень — обе группы колонок.
-    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
     let set = FilterSet::parse("g:r1_obi1_bp_min=500,r1_obi1_bp_max=900,r1_cancel_60m_lots_min=7")
         .unwrap();
-    let f = TouchFilter::from_set(&set, mode, 0.01, 1.0, &[]);
+    let f = TouchFilter::from_set(&set, 0.01, 1.0, &[]);
     let rec = |obi: i64, cancel: i64| {
         let mut r1 = ArmR1::undefined();
         r1.flow[at("obi1_bp")] = obi;
@@ -3682,11 +3684,11 @@ fn r1_keys_parse_bounds_and_refuse() {
     assert!(!f.admits_r1(None));
     // Минимум ниже любого значения не пускает R1_UNDEF и в этом случае.
     let low = FilterSet::parse("l:r1_obi1_bp_min=-1000000000000").unwrap();
-    let f = TouchFilter::from_set(&low, mode, 0.01, 1.0, &[]);
+    let f = TouchFilter::from_set(&low, 0.01, 1.0, &[]);
     assert!(f.admits_r1(Some(&rec(0, 0))));
     assert!(!f.admits_r1(Some(&rec(R1_UNDEF, 0))));
     let none = FilterSet::parse("n:").unwrap();
-    let f = TouchFilter::from_set(&none, mode, 0.01, 1.0, &[]);
+    let f = TouchFilter::from_set(&none, 0.01, 1.0, &[]);
     assert!(f.admits_r1(None), "без ключей фильтр прежний");
     assert!(f.admits_r1(Some(&approach_probe())));
 

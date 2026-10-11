@@ -105,10 +105,6 @@ impl VerifyStatus {
             Self::Fail => "fail",
         }
     }
-
-    pub(crate) fn is_ok(self) -> bool {
-        matches!(self, Self::Ok)
-    }
 }
 
 /// Сводка сверки одной части записи символа.
