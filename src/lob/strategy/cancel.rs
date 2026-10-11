@@ -99,7 +99,7 @@ impl StrategyState {
         // `Idle` ниже), расстояние до неё меряем в bps и берём по модулю
         // направления (`away`): у лонга цена уходит вверх, у шорта — вниз.
         if band_exit_bps > 0.0 && entry_px > 0.0 {
-            if let Some((bid_t, ask_t)) = best_ticks(depth).filter(|&(b, a)| b > 0 && a > 0) {
+            if let Some((bid_t, ask_t)) = best_ticks(depth) {
                 let away = if entry_side == HbtSide::Buy {
                     1.0
                 } else {

@@ -224,8 +224,7 @@ impl StrategyState {
                         // (`exit_price` берёт сторону **позиции**: лонг гасится по
                         // биду). Нет книги или стороны — гасить нечем, повтор на
                         // следующем событии (`accounted` не двигается).
-                        #[allow(clippy::cast_precision_loss)]
-                        let px_of = |t: i64| t as f64 * tick_size;
+                        let px_of = |t: i64| tick_to_px(t, tick_size);
                         if let Some(px) = ticks.and_then(|(b, a)| match side {
                             HbtSide::Buy => Some(px_of(b)),
                             HbtSide::Sell => Some(px_of(a)),

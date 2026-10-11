@@ -70,13 +70,6 @@ use self::idle::*;
 pub use self::plan::*;
 pub use self::state::*;
 
-/// Лучшие бид и аск в тиках; `None` — одна из сторон пуста (знак «нет цены» — крайние тики книги).
-#[inline]
-fn best_ticks<MD: MarketDepth>(depth: &MD) -> Option<(i64, i64)> {
-    let (b, a) = (depth.best_bid_tick(), depth.best_ask_tick());
-    (b != INVALID_MIN && a != INVALID_MAX).then_some((b, a))
-}
-
 /// Цена в целых тиках: единственная точка перевода `f64`-цены стратегии в тик (КТ-4b).
 #[inline(always)]
 fn px_tick(px: f64, tick_px: f64) -> i64 {
