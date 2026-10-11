@@ -478,7 +478,6 @@ pub(super) fn fast_hold_scan(
     mut decided_in_hold: bool,
     mut stable: bool,
     mut sig: SigMemo,
-    skip_on: bool,
 ) -> FastResume {
     use hftbacktest::types::Bot;
     loop {
@@ -510,7 +509,7 @@ pub(super) fn fast_hold_scan(
         let mark_before = state.phase_mark();
         let sig_before = sig;
         sig.stat_step(true, || state.hold_input_sig(bot.depth(0), now));
-        let skip = skip_on && sig.skip(state.hold_input_sig(bot.depth(0), now));
+        let skip = sig.skip(state.hold_input_sig(bot.depth(0), now));
         let mut before = None;
         let action = if skip {
             Action::Idle
@@ -530,7 +529,7 @@ pub(super) fn fast_hold_scan(
                 post_step: true,
             };
         }
-        if skip_on && !matches!(action, Action::Idle) {
+        if !matches!(action, Action::Idle) {
             sig.reset();
         }
         decided_in_hold = held_before && state.hold_wakeup_ns(now).is_some();
@@ -558,7 +557,6 @@ pub(super) fn fast_hold_scan_group(
     decided: &mut [bool],
     stable: &mut [bool],
     sigs: &mut [SigMemo],
-    skip_on: bool,
 ) -> bool {
     use hftbacktest::types::Bot;
     loop {
@@ -590,7 +588,7 @@ pub(super) fn fast_hold_scan_group(
             let held_before = states[i].hold_wakeup_ns(now).is_some();
             let mark_before = states[i].phase_mark();
             sigs[i].stat_step(true, || states[i].hold_input_sig(bot.depth(0), now));
-            let skip = skip_on && sigs[i].skip(states[i].hold_input_sig(bot.depth(0), now));
+            let skip = sigs[i].skip(states[i].hold_input_sig(bot.depth(0), now));
             let action = if skip {
                 before.push(None);
                 Action::Idle
@@ -706,7 +704,6 @@ pub(super) fn try_fast_hold<B, MD>(
     decided_in_hold: bool,
     stable: bool,
     sig: SigMemo,
-    skip_on: bool,
 ) -> FastOutcome
 where
     B: Bot<MD>,
@@ -732,7 +729,7 @@ where
     let state_start = state.clone();
     let book = snap.build(ctx.tick, ctx.lot);
     let mut fb = FastBot::new(HoldTracker::new(rows, cur, book), t);
-    let r = fast_hold_scan(&mut fb, state, cap, decided_in_hold, stable, sig, skip_on);
+    let r = fast_hold_scan(&mut fb, state, cap, decided_in_hold, stable, sig);
     let t2 = fb.current_timestamp();
     let Some(h) = fb.tracker.handoff(t2, ctx.tick, ctx.lot) else {
         *state = state_start;
@@ -758,7 +755,6 @@ pub(super) fn try_fast_hold_group<B, MD>(
     decided: &mut [bool],
     stable: &mut [bool],
     sigs: &mut [SigMemo],
-    skip_on: bool,
 ) -> Option<bool>
 where
     B: Bot<MD>,
@@ -780,7 +776,7 @@ where
     let (decided_start, stable_start, sigs_start) =
         (decided.to_vec(), stable.to_vec(), sigs.to_vec());
     let mut fb = FastBot::new(HoldTracker::new(rows, cur, book), t);
-    let post_step = fast_hold_scan_group(&mut fb, states, cap, decided, stable, sigs, skip_on);
+    let post_step = fast_hold_scan_group(&mut fb, states, cap, decided, stable, sigs);
     let t2 = fb.current_timestamp();
     let Some(h) = fb.tracker.handoff(t2, ctx.tick, ctx.lot) else {
         states.clone_from_slice(&states_start);

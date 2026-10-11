@@ -705,27 +705,22 @@ impl<'a> GridRun<'a> {
                 None
             };
             let ctx = touch_contexts(&day.rets, &day.touches, regime);
-            let holds_day: Option<Vec<bool>> = self.flags.holds_memo.then(|| {
-                day.touches
-                    .iter()
-                    .map(|t| mode.holds_at_touch(t) == Some(true))
-                    .collect()
-            });
-            let rows_day: Option<Vec<sets::AdmitRow>> = (holds_day.is_some()
-                && self.flags.admit_soa)
-                .then(|| day.touches.iter().map(sets::AdmitRow::of).collect());
-            // TK-049 (`ALPHA_SKIP_NOSIGNAL=1`): ни один набор не пропускает ни одного касания суток — сигналов
+            // TK-174: память порогов и строки скаляров касаний суток — всегда (бывшие `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_SOA`).
+            let holds_day: Vec<bool> = day
+                .touches
+                .iter()
+                .map(|t| mode.holds_at_touch(t) == Some(true))
+                .collect();
+            let rows_day: Vec<sets::AdmitRow> =
+                day.touches.iter().map(sets::AdmitRow::of).collect();
+            // TK-049 (всегда с TK-174): ни один набор не пропускает ни одного касания суток — сигналов
             // нет у всех форм, круги не идут, лента на выход не влияет: не читаем её и довесок D+1.
-            let no_signal = self.flags.skip_nosignal
-                && matches!(args.driver, args::DriverArg::Setups)
+            let no_signal = matches!(args.driver, args::DriverArg::Setups)
                 && sets.iter().all(|set| {
-                    let mut f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
-                    f.holds = holds_day.as_deref();
-                    f.rows = rows_day.as_deref();
-                    !day.touches
-                        .iter()
-                        .enumerate()
-                        .any(|(ti, t)| f.admits(ti, t))
+                    let mut f = TouchFilter::from_set(set, tick, lot, &ctx);
+                    f.holds = Some(&holds_day);
+                    f.rows = Some(&rows_day);
+                    !day.touches.iter().enumerate().any(|(ti, _)| f.admits(ti))
                 });
             // S4: события одних суток, не всей сессии. TK-029: при `--extra-runs` сутки символа
             // читаются один раз на все прогоны с тем же переносом (`SharedEvents`).
@@ -911,13 +906,9 @@ impl<'a> GridRun<'a> {
                         day.approaches.as_deref(),
                         &set_forms_list,
                         DayParams {
-                            holds: holds_day.as_deref(),
-                            rows: rows_day.as_deref(),
-                            admitted: if self.flags.admit_cache {
-                                Some(&admit_cell)
-                            } else {
-                                None
-                            },
+                            holds: Some(&holds_day),
+                            rows: Some(&rows_day),
+                            admitted: Some(&admit_cell),
                             memos: if memos.is_empty() {
                                 None
                             } else {
@@ -952,7 +943,6 @@ impl<'a> GridRun<'a> {
                             r1: &set.r1,
                             ctx: if set.uses_ctx() { Some(&ctx) } else { None },
                             ctx_ranges: set.ctx,
-                            mode,
                             h3_usd: args.h3.h3_usd,
                             band_exit_bps,
                             sigma: &sigma_series,

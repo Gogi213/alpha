@@ -25,7 +25,7 @@ use crate::lob::backtest::{
     with_backtest_over, BounceRun, BounceSignal, CompactEvent, DriveConfig, ExecLatency,
     QueueModelKind, RoundMemo, SignalWindows,
 };
-use crate::lob::levels::{H3Mode, TouchRecord};
+use crate::lob::levels::TouchRecord;
 use crate::lob::sigma::SigmaSeries;
 use crate::lob::step_schedule::StepSchedule;
 
@@ -75,7 +75,7 @@ fn signals_for(
             touches
                 .iter()
                 .enumerate()
-                .filter(|&(ti, t)| filter.admits(ti, t))
+                .filter(|&(ti, _)| filter.admits(ti))
                 .map(|(ti, _)| u32::try_from(ti).expect("касаний меньше 2^32"))
                 .collect()
         })
@@ -89,7 +89,7 @@ fn signals_for(
     };
     let mut signals: Vec<BounceSignal> = candidates
         .filter_map(|(ti, t)| {
-            if (admitted.is_none() && !filter.admits(ti, t))
+            if (admitted.is_none() && !filter.admits(ti))
                 || !filter.admits_r1(approaches.map(|ap| &ap[ti]))
             {
                 skipped += 1;
@@ -161,10 +161,12 @@ fn signals_for(
     Ok((signals, skipped))
 }
 
-/// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, `ALPHA_SIG_CACHE=<потолок
-/// сигналов на сутки>`, умолчание 3 000 000, 0 = выкл): `signals_for` второй раз не зовётся. Сверх потолка форма не
+/// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, потолок `SIG_CACHE_CAP` сигналов на сутки): `signals_for` второй раз не зовётся. Сверх потолка форма не
 /// кладётся — считается заново, как раньше (результат тот же).
 type SigSlot = Option<(Vec<BounceSignal>, u64)>;
+
+/// Потолок сигналов на сутки (бывший `ALPHA_SIG_CACHE=3000000` боевого набора).
+const SIG_CACHE_CAP: usize = 3_000_000;
 
 struct SigCache {
     slots: Mutex<Vec<SigSlot>>,
@@ -172,12 +174,11 @@ struct SigCache {
 }
 
 impl SigCache {
-    fn from_env(forms: usize) -> Option<Self> {
-        let cap = crate::lob::run_flags::RunFlags::from_env().sig_cache?;
-        (cap > 0).then(|| Self {
+    fn new(forms: usize) -> Self {
+        Self {
             slots: Mutex::new((0..forms).map(|_| None).collect()),
-            left: AtomicUsize::new(cap),
-        })
+            left: AtomicUsize::new(SIG_CACHE_CAP),
+        }
     }
 
     fn put(&self, i: usize, signals: Vec<BounceSignal>, skipped: u64) {
@@ -465,8 +466,6 @@ pub(super) struct DayParams<'a> {
     pub(super) post_only: bool,
     /// E3: входить только от фронтрана (`--frontrun-only`).
     pub(super) frontrun_only: bool,
-    /// Порог уровня — проверяется и **в момент касания** (`H3Mode::holds_at_touch`).
-    pub(super) mode: H3Mode,
     /// Номинал порога В-66 в долларах (`--h3-usd`): из него план считает
     /// `level_floor_qty` — порог «стена снята» (F5, В-74). `None` — условия
     /// F5 выключены (режим `touch`), иначе `run_bounce_grid` отказал бы.
@@ -572,7 +571,7 @@ pub(super) fn drive_day(
     };
     // Э-08: формы с одним входом (`entry_form`, `entry_ttl`) — круги группы заранее, одним движком на
     // сигнал, в память каждой формы; дальше формы идут прежним путём и берут круги из памяти.
-    let sig_cache = SigCache::from_env(forms.len());
+    let sig_cache = Some(SigCache::new(forms.len()));
     if p.exit_group && !p.busy_skip {
         if let (Some(w), Some(ms)) = (windows, p.memos) {
             exit_groups(

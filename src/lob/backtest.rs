@@ -1537,7 +1537,6 @@ where
     // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
     let mut decided_in_hold = false;
     let mut stable = false;
-    let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
     // TK-049 (быстрый путь): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
     let mut fast_tried = !fast_hold::fast_hold_on();
@@ -1568,7 +1567,6 @@ where
                     decided_in_hold,
                     stable,
                     solo_sig,
-                    skip_on,
                 ) {
                     *state = r.state.clone();
                     decided_in_hold = r.decided_in_hold;
@@ -1671,14 +1669,14 @@ where
         solo_sig.stat_step(false, || {
             state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp())
         });
-        let skip = skip_on
-            && solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+        let skip =
+            solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
         let action = if skip {
             Action::Idle
         } else {
             on_event(bot, state)?
         };
-        if skip_on && !matches!(action, Action::Idle) {
+        if !matches!(action, Action::Idle) {
             solo_sig.reset();
         }
         decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
@@ -2237,7 +2235,6 @@ where
     // минимум по вариантам. После форка первое решение ещё не считано (как у сольного круга).
     let mut decided: Vec<bool> = vec![false; n];
     let mut stable: Vec<bool> = vec![false; n];
-    let skip_on = skip_same();
     let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
     // TK-048 (быстрый путь): один заход группового быстрого пути сразу после форка; ноги входа
     // сохраняются перед заменой движка (как `saved` сольного `run_round`).
@@ -2272,7 +2269,6 @@ where
                     &mut decided,
                     &mut stable,
                     &mut sigs,
-                    skip_on,
                 ) {
                     post_step = ps;
                     saved = legs_saved;
@@ -2375,15 +2371,14 @@ where
             sigs[i].stat_step(false, || {
                 states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp())
             });
-            let skip = skip_on
-                && sigs[i]
-                    .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+            let skip = sigs[i]
+                .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
             let act = if skip {
                 Action::Idle
             } else {
                 on_event(bot, &mut states[i])?
             };
-            if skip_on && !matches!(act, Action::Idle) {
+            if !matches!(act, Action::Idle) {
                 sigs[i].reset();
             }
             stable[i] = states[i].phase_mark() == mark_before && matches!(act, Action::Idle);
@@ -2958,13 +2953,6 @@ pub static ATTEMPT_USED: [std::sync::atomic::AtomicU64; 4] =
 /// Шаги `run_round` по виду (0 — пошаговый без заявок, 1 — пошаговый с открытыми заявками, 2 — прыжок удержания) — замер TK-049.
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
-
-/// Пропуск `on_event` в удержании, когда входы решения не менялись (TK-050): решение на тех же входах
-/// повторяется; умолчание вкл (TK-174), `ALPHA_SKIP_SAME=0` — зовём на каждом шаге.
-fn skip_same() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_none_or(|v| v != "0"))
-}
 
 /// Пропущено вызовов `on_event` (процесс; на итог счёта не влияет).
 pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

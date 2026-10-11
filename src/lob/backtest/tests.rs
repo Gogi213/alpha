@@ -1,7 +1,7 @@
 //! # Эталон и «байт в байт» (С-07, ревью 10.10)
 //!
 //! **Эталонный путь «клетка × сутки»** — `bounce-grid --cells` на старом бинарнике (или на этом при умолчаниях):
-//! все флаги ускорения ниже выключены (`ALPHA_X=0`; с TK-174 умолчание — включены), `--hold-step poll` (опрос 10 мс), `--busy-skip` как в клетке, непрерывный
+//! все пути ускорения ниже выключены (с TK-174 флаги b14flag — код, не env; выключенный путь живёт только в тестах), `--hold-step poll` (опрос 10 мс), `--busy-skip` как в клетке, непрерывный
 //! драйвер `drive_bounce`. Любой флаг обязан давать побайтно тот же выход клетки. Порядок проверки флага: юнит-тест
 //! на синтетике (если есть) → гейт на calc одним `--cells` на сутки, `diff -r` пустой (`tools/compute/*gate*.sh`).
 //!
@@ -10,7 +10,7 @@
 //! | `--hold-step skip` | `hold_skip_matches_polling_byte_for_byte` | — |
 //! | `FORCE_ON` (тест) | `fast_hold_handoff_equals_continuous`, `group_fast_hold_matches_group_without_it` | — |
 //! | `ALPHA_ADMIT_SOA=1` | `bounce_grid::tests` («`admits` по строкам `AdmitRow` …») | — |
-//! | `ALPHA_SKIP_SAME`, `ALPHA_SKIP_NOSIGNAL`, `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_CACHE`, `ALPHA_SIG_CACHE` | **нет юнит-теста — дыра**, закрывается гейтом | `alpha-*pgoflag.sh`, `alpha-e17p2flag.sh` |
+//! | skip_same, skip_nosignal, holds_memo, admit_cache, sig_cache (всегда вкл, TK-174) | **нет юнит-теста — дыра**, закрывается гейтом | гейт d15+d01 головы без env против эталона b14flag |
 //!
 //! Новый флаг без строки в этой таблице не принимается.
 
