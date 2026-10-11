@@ -101,6 +101,13 @@ class MasterTest(unittest.TestCase):
             cw = master.p14_cfg("Г-65", sv, {"offset": off})
             self.assertTrue(cw["form"].endswith("-" + name), cw["form"])
             self.assertEqual(master.LINES[ch.cell_hash(cw)][0], cw["form"] + " t-bid-btc4h-q1")
+        # Г-133: хеш по оси a (числом, как e133-w* Летописи), строки --cells на месяц: chase<round(a·W_m)>
+        c3 = master.p14_cfg("Г-133", sv, {"a": "1/2"})
+        self.assertEqual(c3["variant"], {"family": "e133", "axes": {"a": 0.5}})
+        m3 = master.MONTHLY[ch.cell_hash(c3)]
+        self.assertTrue(m3["2026-05"].endswith("-ttl1800-chase9468 t-bid-btc4h-q1"), m3["2026-05"])   # 18935/2 -> 9468 (v6)
+        self.assertEqual(len(m3), 9)
+        self.assertEqual(master.p14_cfg("Г-133", sv, {"a": "1/8"})["variant"]["axes"], {"a": 0.125})
         # Г-117: тейк 1to1 (стек B3); общие точки — tsl<G>t<Q>, остальные — tslx
         c1 = master.p14_cfg("Г-117", sv, {"gamma": "1", "T": "1/2"})
         self.assertTrue(c1["form"].endswith("-1to1-14400-ttl1800-tsl10t2"), c1["form"])

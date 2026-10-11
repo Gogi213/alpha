@@ -130,6 +130,15 @@ def family_of(hyp):
     return _FAMILY.get(n, "g" + n)  # может быть «g73-conj» (семья-признак R1)
 
 
+MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: число в имени формы меняется по месяцам (Г-133 chase<a·W_m>); файл --cells на месяц
+_THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
+
+
+def w_median_ms():
+    """{ГГГГ-ММ: W_ms_median} — медиана ожидания исполнения мейкер-лимитки по B1 прошлых месяцев (v6, TK-120; январь — по январю)."""
+    return {r["month"]: r["W_ms_median"] for r in json.load(open(_THR, encoding="utf-8"))["summary"]}
+
+
 LINES = {}  # хеш клетки -> (строка --cells «форма набор» | None, причина, что нет кодировки); заполняет build_grid, читает plan
 
 
@@ -249,6 +258,12 @@ def p14_cfg(hyp, sv, av, fixed=()):
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
         cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
+    elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
+        a = _frac(av["a"])
+        cfg["variant"] = {"family": family_of(hyp), "axes": {"a": int(a) if float(a).is_integer() else a}}
+        h = ch.cell_hash(cfg)
+        LINES[h] = (None, "месячная форма chase<a·W_m>: строки --cells по месяцам (файлы <имя>-<ГГГГ-ММ>.cells)")
+        MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
     elif av:
         cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}
         LINES[ch.cell_hash(cfg)] = (None, "нет кодировки формы в Летописи/forms.rs — вариант семьи, строки --cells нет")
@@ -378,6 +393,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     have = have_hashes() if have is None else have
     months = int(rules["months"])
     rows, new_cfg, tot, lines, nocode = [], [], collections.Counter(), {}, collections.Counter()
+    mlines = collections.defaultdict(dict)   # ГГГГ-ММ -> {хеш: строка} для месячных форм
     for hyp, cells in grids.items():
         seen, n_have, n_new, hm = set(), 0, 0, 0
         for av, cfg in cells:
@@ -395,7 +411,10 @@ def plan(protocol, k, hyps=None, out=None, have=None):
                     tot["uni"] += 1
                 new_cfg.append({"hash": h, "hyp": hyp, **ch.normalize(cfg)})
                 line, why = LINES.get(h, (f"{cfg['form']} {cfg['set_name']}" if cfg.get("set_name") else None, "вариант R1 (признак×квантиль) — не форма bounce-grid, строки --cells нет"))
-                if line:
+                if h in MONTHLY:
+                    for m, ln in MONTHLY[h].items():
+                        mlines[m][h] = ln
+                elif line:
                     lines[h] = line
                 else:
                     nocode[(hyp, why)] += 1
@@ -417,33 +436,41 @@ def plan(protocol, k, hyps=None, out=None, have=None):
             f.write(json.dumps(d, ensure_ascii=False, sort_keys=True) + "\n")
     print("новые клетки (конфиг + хеш):", out)
     cf = out[:-6] + ".cells" if out.endswith(".jsonl") else out + ".cells"
-    uniq = sorted(set(lines.values()))
-    with open(cf, "w", encoding="utf-8", newline="\n") as f:
-        f.write("".join(l + "\n" for l in uniq))
     import cellhash_reg as cr
     sets = cr.load_sets()
-    used = sorted({l.split()[1] for l in uniq})
-    forms = sorted({l.split()[0] for l in uniq})
-    with open(cf[:-6] + ".args", "w", encoding="utf-8", newline="\n") as f:   # аргументы bounce-grid к файлу --cells (формы выхода и наборы)
-        for e in sorted({fm.split("-pct", 1)[0] for fm in forms}):
-            f.write(f"--entry-form {e}\n")
-        tails = [re.search(r"-ttl(\d+)(?:-(?!early\d+$)(.+?))?(?:-early(\d+))?$", fm) for fm in forms]
-        for t in sorted({m.group(1) for m in tails if m}, key=int):
-            f.write(f"--entry-ttl-secs {t}\n")
-        for x in sorted({m.group(2) for m in tails if m and m.group(2)}):
-            f.write(f"--exit-form {x}\n")
-        for x in sorted({m.group(3) for m in tails if m and m.group(3)}, key=int):
-            f.write(f"--early-exit-secs {x}\n")
-        parts = [re.match(r"^(.+?)-(.+?)-(.+?)-(\d+)-ttl", fm) for fm in forms]
-        for flag, g in (("--stop-form", 2), ("--take-form", 3), ("--deadline-secs", 4)):
-            for v in sorted({m.group(g) for m in parts if m}):
-                f.write(f"{flag} {v}\n")
-        for u in used:
-            f.write(f"--set {u}:{sets[u]}\n")
-    r2 = any(re.match(R2_EXIT_RE, x) for x in (m.group(2) for m in tails if m and m.group(2)))
-    with open(cf[:-6] + ".bin", "w", encoding="utf-8", newline="\n") as f:   # какой бинарь ставить прогону: формы R2 — только cargo feature r2 (forms.rs, ExitForm::parse)
-        f.write("r2\n" if r2 else "std\n")
+
+    def write_set(stem, uniq):
+        """<stem>.cells / .args / .bin по списку строк --cells «форма набор»."""
+        with open(stem + ".cells", "w", encoding="utf-8", newline="\n") as f:
+            f.write("".join(l + "\n" for l in uniq))
+        used = sorted({l.split()[1] for l in uniq})
+        forms = sorted({l.split()[0] for l in uniq})
+        with open(stem + ".args", "w", encoding="utf-8", newline="\n") as f:   # аргументы bounce-grid к файлу --cells (формы выхода и наборы)
+            for e in sorted({fm.split("-pct", 1)[0] for fm in forms}):
+                f.write(f"--entry-form {e}\n")
+            tails = [re.search(r"-ttl(\d+)(?:-(?!early\d+$)(.+?))?(?:-early(\d+))?$", fm) for fm in forms]
+            for t in sorted({m.group(1) for m in tails if m}, key=int):
+                f.write(f"--entry-ttl-secs {t}\n")
+            for x in sorted({m.group(2) for m in tails if m and m.group(2)}):
+                f.write(f"--exit-form {x}\n")
+            for x in sorted({m.group(3) for m in tails if m and m.group(3)}, key=int):
+                f.write(f"--early-exit-secs {x}\n")
+            parts = [re.match(r"^(.+?)-(.+?)-(.+?)-(\d+)-ttl", fm) for fm in forms]
+            for flag, g in (("--stop-form", 2), ("--take-form", 3), ("--deadline-secs", 4)):
+                for v in sorted({m.group(g) for m in parts if m}):
+                    f.write(f"{flag} {v}\n")
+            for u in used:
+                f.write(f"--set {u}:{sets[u]}\n")
+        r2 = any(re.match(R2_EXIT_RE, x) for x in (m.group(2) for m in tails if m and m.group(2)))
+        with open(stem + ".bin", "w", encoding="utf-8", newline="\n") as f:   # какой бинарь ставить прогону: формы R2 — только cargo feature r2 (forms.rs, ExitForm::parse)
+            f.write("r2\n" if r2 else "std\n")
+
+    uniq = sorted(set(lines.values()))
+    write_set(cf[:-6], uniq)
     print(f"--cells (только новые, кодируемые формой): {cf} — {len(uniq)} строк; аргументы: {cf[:-6]}.args; бинарь: {cf[:-6]}.bin")
+    for m in sorted(mlines):   # месячные формы (Г-133): свой набор файлов на месяц — число в имени формы зависит от месяца
+        write_set(f"{cf[:-6]}-{m}", sorted(set(mlines[m].values())))
+        print(f"--cells месяца {m}: {cf[:-6]}-{m}.cells — {len(set(mlines[m].values()))} строк (+ .args, .bin)")
     if nocode:
         print("к счёту, но строки --cells нет (причина):")
         for (hyp, why), n in sorted(nocode.items()):
