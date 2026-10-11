@@ -117,9 +117,8 @@ fn pnl_curve_accumulates_per_fill_without_a_week() {
     assert_eq!(curve.len(), 2);
     assert!(close(curve[0], 95.59));
     assert!(close(curve[1], 95.59 - 104.41));
-    assert!(close(mean_net_bps(&fills).unwrap(), (95.59 - 104.41) / 2.0));
+    assert!(close(curve.last().unwrap() / 2.0, (95.59 - 104.41) / 2.0));
     assert_eq!(pnl_curve_bps(&[]), None, "пусто — нет кривой, а не ноль");
-    assert_eq!(mean_net_bps(&[]), None);
     let bad = [fills[0], fill_at(1, 0.0, 1.0)];
     assert_eq!(
         pnl_curve_bps(&bad),

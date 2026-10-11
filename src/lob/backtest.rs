@@ -256,7 +256,7 @@ pub fn roundtrip_net_bps(fill: &Fill) -> Option<f64> {
 /// PnL-кривая: накопленный чистый результат по кругам в порядке исполнения.
 /// Чистая функция от входов — тестируется без недели. `None`, если кругов
 /// нет или хотя бы один не посчитался: молча выкидывать его значило бы
-/// пересчитывать выборку задним числом (то же правило, что `mean_net_bps`).
+/// пересчитывать выборку задним числом (то же правило, что `Report::mean_net_bps`).
 pub fn pnl_curve_bps(fills: &[Fill]) -> Option<Vec<f64>> {
     if fills.is_empty() {
         return None;
@@ -268,15 +268,6 @@ pub fn pnl_curve_bps(fills: &[Fill]) -> Option<Vec<f64>> {
         curve.push(running);
     }
     Some(curve)
-}
-
-/// Средний чистый результат круга в bps. `None` — кругов нет или хотя бы
-/// один не посчитался (см. `pnl_curve_bps`).
-pub fn mean_net_bps(fills: &[Fill]) -> Option<f64> {
-    let curve = pnl_curve_bps(fills)?;
-    curve
-        .last()
-        .map(|last| last / crate::stats::count_f64(fills.len()))
 }
 
 // ---------------------------------------------------------------------------
@@ -798,7 +789,10 @@ impl ProfileRun {
 
     /// Средний чистый результат круга в bps (не взвешен на `fill`).
     pub fn mean_net_bps(&self) -> Option<f64> {
-        mean_net_bps(&self.fills)
+        let curve = pnl_curve_bps(&self.fills)?;
+        curve
+            .last()
+            .map(|last| last / crate::stats::count_f64(self.fills.len()))
     }
 
     /// Доля исполнившихся входов (R06) — `costs::fill_rate`.
