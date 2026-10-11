@@ -38,6 +38,24 @@ class T(unittest.TestCase):
         self.assertNotEqual(h["r3c/e106-pop"], h["p12-r1/B1"])  # e106-pop = B1 + фильтр r1_born_shift
         self.assertNotEqual(h["p12-r1/B1"], h["p12-ext/" + B1F])  # разные партии (авг 398 vs 402 сделок)
 
+    def test_each_exec_flag_changes_hash(self):
+        h0 = ch.cell_hash(base())
+        for k, v in (("p95_place_ns", 1), ("p95_cancel_ns", 1), ("p95_taker_ns", 1), ("h3_usd", 5000), ("approach_bps", 30),
+                     ("touches_from", "study/touches"), ("verdict_csv", "x/verdict.csv"), ("exit_group", "off")):
+            self.assertNotEqual(h0, ch.cell_hash(base(exec={**cr.STD_EXEC, k: v})), k)
+        self.assertEqual(h0, ch.cell_hash(base(exec={**cr.STD_EXEC, "verdict_csv": "/data/tk044/final3/verdict.csv"})))  # путь машины не входит
+
+    def test_p12_r1_b1_has_no_batch(self):
+        rows = cr.build()
+        b1 = next(r for r in rows if r[4] == "p12-r1/B1")
+        self.assertIsNone(json.loads(b1[6])["batch"])
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
+            f.write(b1[6] + "\n")
+        done, todo = cr.cmd_plan(f.name, rows)
+        os.unlink(f.name)
+        self.assertEqual((len(done), len(todo)), (1, 0))  # «уже в Летописи»
+
     def test_plan(self):
         import tempfile
         rows = cr.build()

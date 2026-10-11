@@ -1,443 +1,443 @@
 старый_id;канонический_хеш;источник_конфига;форма;набор;прогон
-a821744c3b9cf13f;24a01201e93834ac;шапка группы p02-h10-before;ladder3x2..20w2-before-tr1x1-14400-ttl1800;p02-h10-before/t-bid-btc4h-q1;R-20261006-s001
-76a716e34d215373;a8a29b81298dfde7;шапка группы p02-h9e899-market;market-pct2-tr1x1-14400-ttl1800;p02-h9e899-market/t-bid-btc4h-q1;R-20261006-s001
-907d4039dd58f52f;eda05b5817edf8ad;--set прогона TK-040 (p05-a120-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a120-u10k;R-20261006-s001
-f4fc63386d85f47e;7667c78fc6355977;--set прогона TK-040 (p05-a15-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a15-u10k;R-20261006-s001
-6b119deb2202f02d;d2846df34c087850;--set прогона TK-040 (p05-a30-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a30-u10k;R-20261006-s001
-92795c37e1df75bd;20fd9f0078aa7f61;--set прогона TK-040 (p05-a45-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u100k;R-20261006-s001
-4bc84fd2178032fd;ff99e3a1075cf329;--set прогона TK-040 (p05-a45-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u10k;R-20261006-s001
-e58dc31ed71efa04;e181818be38ee1df;--set прогона TK-040 (p05-a45-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u250k;R-20261006-s001
-66a77214c5a5f8d3;24b3fbff1ff27428;--set прогона TK-040 (p05-a45-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u25k;R-20261006-s001
-601cc821703a1656;ff2aadf1ff8404f4;--set прогона TK-040 (p05-a45-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u50k;R-20261006-s001
-8aabbeea7c59b5bb;fdcadb7d3d1c10ec;--set прогона TK-040 (p05-a60-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a60-u10k;R-20261006-s001
-e27258da444240d0;c4192dddbe84946b;--set прогона TK-040 (p05-a90-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a90-u10k;R-20261006-s001
-01111e2beb2eb05b;32b501defab58d03;--set прогона TK-040 (p05-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u100k;R-20261006-s001
-4ece2ccb1fba9f5c;d7aa7ed9ba52684e;--set прогона TK-040 (p05-a120-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u250k;R-20261006-s001
-8d644f383a92cf4f;778b819c7f226db5;--set прогона TK-040 (p05-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u25k;R-20261006-s001
-0a17f0521f7ef6f4;8fad86ed57b1469f;--set прогона TK-040 (p05-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u50k;R-20261006-s001
-d903e621bb2a0023;66375ccc71b0a4e3;--set прогона TK-040 (p05-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u100k;R-20261006-s001
-82d6999e3cce0915;0e8b9b6db87c4828;--set прогона TK-040 (p05-a15-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u250k;R-20261006-s001
-4a9430ad85019080;1ceaba29909a6e71;--set прогона TK-040 (p05-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u25k;R-20261006-s001
-424bece8969cde89;416f85bd491ac292;--set прогона TK-040 (p05-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u50k;R-20261006-s001
-963deb5cabe49282;e7530135533503a9;--set прогона TK-040 (p05-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u100k;R-20261006-s001
-fbcf31018272b9da;4a45fbe685eec12a;--set прогона TK-040 (p05-a30-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u250k;R-20261006-s001
-e60b5eb4e892e38d;51f53eefb9010467;--set прогона TK-040 (p05-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u25k;R-20261006-s001
-245bb85edd18fd85;5ff00cf40fe00ce6;--set прогона TK-040 (p05-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u50k;R-20261006-s001
-d38b7707d031f94c;7e32a7d3593cf5ce;--set прогона TK-040 (p05-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u100k;R-20261006-s001
-e3b26eb564bf18c8;939e9c9758bc1274;--set прогона TK-040 (p05-a60-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u250k;R-20261006-s001
-974dc12b9bf29893;d70397f724e5bbae;--set прогона TK-040 (p05-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u25k;R-20261006-s001
-f9ff433e731871bf;c27c8df5af800b21;--set прогона TK-040 (p05-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u50k;R-20261006-s001
-916cd35350218d8e;d20669519765d10f;--set прогона TK-040 (p05-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u100k;R-20261006-s001
-3d3af72efa9ef036;e580ebfef1f29667;--set прогона TK-040 (p05-a90-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u250k;R-20261006-s001
-950d2db1f0f930f8;6893e388b02b4cc3;--set прогона TK-040 (p05-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u25k;R-20261006-s001
-7f0dd72df7b13a4c;0477ef1e44de4a01;--set прогона TK-040 (p05-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u50k;R-20261006-s001
-eef61f9a455447a1;9d94faa2f5b52e80;--set прогона TK-040 (p05-f100-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a120;R-20261006-s001
-b25008185e0dc39d;8998c4da8913f1b1;--set прогона TK-040 (p05-f100-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a15;R-20261006-s001
-a8cb0064dac2eca5;81f542a2be4d838c;--set прогона TK-040 (p05-f100-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a30;R-20261006-s001
-d0c103164f17e9d3;4ded9f08aa46fc3a;--set прогона TK-040 (p05-f100-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a60;R-20261006-s001
-bf0cafc313fa1341;fb50ffedd65ef615;--set прогона TK-040 (p05-f100-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a90;R-20261006-s001
-dded786a76c37dc7;186650e2ec179435;--set прогона TK-040 (p05-f100-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u100k;R-20261006-s001
-0dbf253144be6a6e;fa08cb89c8a7f8f6;--set прогона TK-040 (p05-f100-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u10k;R-20261006-s001
-7348e323f437e6c5;5c1eb4eba41d3e20;--set прогона TK-040 (p05-f100-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u25k;R-20261006-s001
-f1011205221d1098;b8973002c896756e;--set прогона TK-040 (p05-f100-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u50k;R-20261006-s001
-35e61c5b1176ea62;4c29842bcf4dd76a;--set прогона TK-040 (p05-f15_9-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a120;R-20261006-s001
-2ca566a9c2396665;78d3f9576404371d;--set прогона TK-040 (p05-f15_9-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a15;R-20261006-s001
-fe8f559ca887cf38;02e022539ca46adf;--set прогона TK-040 (p05-f15_9-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a30;R-20261006-s001
-b296e940fbc8c0e7;e63eccd3fac172d5;--set прогона TK-040 (p05-f15_9-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a60;R-20261006-s001
-e1bc8eb44dd15ece;aa9a6663b9de5483;--set прогона TK-040 (p05-f15_9-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a90;R-20261006-s001
-d2a76196e4ced3d2;4bd30090bff09ab6;--set прогона TK-040 (p05-f15_9-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u100k;R-20261006-s001
-d99ada95762465d6;d3a98853a32a1da5;--set прогона TK-040 (p05-f15_9-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u10k;R-20261006-s001
-0e80665e9a534aaa;eba52a4a60992b20;--set прогона TK-040 (p05-f15_9-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u25k;R-20261006-s001
-56e257f92723f80b;167d97bfa59ee2bb;--set прогона TK-040 (p05-f15_9-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u50k;R-20261006-s001
-a8f21cd1f065c8da;32e2eeae738e8c01;--set прогона TK-040 (p05-f25-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a120;R-20261006-s001
-6fc64058862587d5;a7aa60cf094fe8ee;--set прогона TK-040 (p05-f25-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a15;R-20261006-s001
-455e9bf6352144df;119cc122d2eb9c6f;--set прогона TK-040 (p05-f25-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a30;R-20261006-s001
-f43d816d366f0810;d1de31f66c5d8c39;--set прогона TK-040 (p05-f25-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a60;R-20261006-s001
-8b3b821fc9c5557b;2cb998d4ef8c49e7;--set прогона TK-040 (p05-f25-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a90;R-20261006-s001
-3e525d3bc6d95136;ef768089513db5b9;--set прогона TK-040 (p05-f25-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u100k;R-20261006-s001
-c243e2a588ccaab8;0b9ae6b78c37dbfc;--set прогона TK-040 (p05-f25-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u10k;R-20261006-s001
-0800e405157f57db;d0c05e8bd1fc40df;--set прогона TK-040 (p05-f25-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u25k;R-20261006-s001
-1db6ce078f4dbdec;05f46f6c72f5dacd;--set прогона TK-040 (p05-f25-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u50k;R-20261006-s001
-50b65276e9b534e1;7c002f30436c01cd;--set прогона TK-040 (p05-f30_7-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a120;R-20261006-s001
-cbb4cebb3f69be7a;7781869dd9218216;--set прогона TK-040 (p05-f30_7-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a15;R-20261006-s001
-8d10bc8652e82bae;5671faf7d2b6d204;--set прогона TK-040 (p05-f30_7-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a30;R-20261006-s001
-7a797ff457410119;80b6cbc19537801c;--set прогона TK-040 (p05-f30_7-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a60;R-20261006-s001
-eda313fb57f0d2bc;0c2efbda23421231;--set прогона TK-040 (p05-f30_7-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a90;R-20261006-s001
-2d6b59bd41222160;404f663948bf48a6;--set прогона TK-040 (p05-f30_7-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u100k;R-20261006-s001
-ef9c2eec76bf0438;96b9ba402da6d2ba;--set прогона TK-040 (p05-f30_7-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u10k;R-20261006-s001
-2375a8b3b9fff88d;01dbcf659fa207e7;--set прогона TK-040 (p05-f30_7-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u25k;R-20261006-s001
-6645112cc1665d6e;03dc0151b6b819fa;--set прогона TK-040 (p05-f30_7-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u50k;R-20261006-s001
-b4235117d13375da;dd98e5329a9db352;--set прогона TK-040 (p05-f50-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a120;R-20261006-s001
-0ff3003a6a76ef53;145e58c9da445305;--set прогона TK-040 (p05-f50-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a15;R-20261006-s001
-08ec79bfab28bcbd;b95ae94e96e53f01;--set прогона TK-040 (p05-f50-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a30;R-20261006-s001
-8427a52506d106f1;ce08c54d8dc95a48;--set прогона TK-040 (p05-f50-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a60;R-20261006-s001
-c73f8ea5862b3d92;1b77e4450ecf4262;--set прогона TK-040 (p05-f50-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a90;R-20261006-s001
-bce0f37533802f4a;c7641b1d4f14af0e;--set прогона TK-040 (p05-f50-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u100k;R-20261006-s001
-fc9ea68e6d1a2b38;030f38f68749eaa6;--set прогона TK-040 (p05-f50-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u10k;R-20261006-s001
-888b5dd392e44696;cca167441174da59;--set прогона TK-040 (p05-f50-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u25k;R-20261006-s001
-bf5361fc95670b6a;34e0f70082757ed2;--set прогона TK-040 (p05-f50-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u50k;R-20261006-s001
-a4c50908608a4791;6ff7f35ac7026867;--set прогона TK-040 (p05-f75-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a120;R-20261006-s001
-7d1584f673b4938a;a59cd0b187ddfa7c;--set прогона TK-040 (p05-f75-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a15;R-20261006-s001
-a457d25a2e0b7930;918d827041d899fa;--set прогона TK-040 (p05-f75-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a30;R-20261006-s001
-5fc360872319c8cd;0fce0422eee71e03;--set прогона TK-040 (p05-f75-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a60;R-20261006-s001
-594e3d29cb1f3f41;e78fb914c105494e;--set прогона TK-040 (p05-f75-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a90;R-20261006-s001
-3e6843b788c4e59f;1154a288d2fb7daf;--set прогона TK-040 (p05-f75-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u100k;R-20261006-s001
-690765383344073a;1317f27cdd5f250b;--set прогона TK-040 (p05-f75-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u10k;R-20261006-s001
-59fbb209d748d07e;dec27bb84ccf3082;--set прогона TK-040 (p05-f75-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u25k;R-20261006-s001
-e06596b9fd259c64;bbf4422fcde9412f;--set прогона TK-040 (p05-f75-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u50k;R-20261006-s001
-ba0f868f1463720d;75776092db23599c;--set прогона TK-040 (p05-f8_1-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a120;R-20261006-s001
-27a178f3d26248c9;533804295ca23946;--set прогона TK-040 (p05-f8_1-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a15;R-20261006-s001
-0b37d644ad2112fe;1154603481b3552c;--set прогона TK-040 (p05-f8_1-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a30;R-20261006-s001
-e94aa76dea8b20ee;80954d2de5538538;--set прогона TK-040 (p05-f8_1-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a60;R-20261006-s001
-6e7f7251fa5e9c85;1a20ee1d42526514;--set прогона TK-040 (p05-f8_1-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a90;R-20261006-s001
-6a185f301c47f82a;19c47a2c9e74d6d3;--set прогона TK-040 (p05-f8_1-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u100k;R-20261006-s001
-11aeb993225f3cc1;f616aa369af7f014;--set прогона TK-040 (p05-f8_1-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u10k;R-20261006-s001
-bbf5d75fd80370d9;4b44e2216c7ff860;--set прогона TK-040 (p05-f8_1-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u25k;R-20261006-s001
-0a0fee26e3f8f62f;30f33566c82da3af;--set прогона TK-040 (p05-f8_1-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u50k;R-20261006-s001
-6b7926b994cd1134;4866a4c118745c60;--set прогона TK-040 (p05-f100-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a120-u100k;R-20261006-s001
-6f74cfe84d8c413f;3120185997c764f1;--set прогона TK-040 (p05-f100-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a120-u25k;R-20261006-s001
-9c3747427f422e13;c6a30546f7bed8b8;--set прогона TK-040 (p05-f100-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a120-u50k;R-20261006-s001
-35ff1cc3f3175623;406b0634afb1c3c3;--set прогона TK-040 (p05-f100-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a15-u100k;R-20261006-s001
-a727d030fb402f97;2abc3957492c8e14;--set прогона TK-040 (p05-f100-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a15-u25k;R-20261006-s001
-d5789e689d663354;2ce861dc61b85643;--set прогона TK-040 (p05-f100-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a15-u50k;R-20261006-s001
-7279f39401629b24;477507bc81db4dab;--set прогона TK-040 (p05-f100-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a30-u100k;R-20261006-s001
-2e1936c90ee1ff53;44e190a4e5eefa39;--set прогона TK-040 (p05-f100-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a30-u25k;R-20261006-s001
-11993ce9e0ce0edd;2ffd69ee7cff4fa5;--set прогона TK-040 (p05-f100-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a30-u50k;R-20261006-s001
-85eb5dec9ff376a4;150cb3d442cd6bfa;--set прогона TK-040 (p05-f100-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a60-u100k;R-20261006-s001
-dd7fc2f3bff2fdd3;b262754b1656dac2;--set прогона TK-040 (p05-f100-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a60-u25k;R-20261006-s001
-d3776b781a5a3d2a;f7eedd65f91a0eab;--set прогона TK-040 (p05-f100-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a60-u50k;R-20261006-s001
-2984cd98b5db9d35;e808880d39685436;--set прогона TK-040 (p05-f100-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a90-u100k;R-20261006-s001
-cba497579d8c558a;52689401d961173b;--set прогона TK-040 (p05-f100-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a90-u25k;R-20261006-s001
-01d6517bcc8c59df;6687b9b46a269bda;--set прогона TK-040 (p05-f100-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a90-u50k;R-20261006-s001
-68e2ddc1fe31091f;e6417a34ccaa9b05;--set прогона TK-040 (p05-f25-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a120-u100k;R-20261006-s001
-fd50ae2fc850e26c;5cad7e11f72e8adb;--set прогона TK-040 (p05-f25-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a120-u25k;R-20261006-s001
-b7a347896857f726;a433eeb5e61fdbe4;--set прогона TK-040 (p05-f25-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a120-u50k;R-20261006-s001
-901a6bfff0cf13a7;41b981f979350ba9;--set прогона TK-040 (p05-f25-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a15-u100k;R-20261006-s001
-b47d0b16bf988436;5bc1cb63d428d323;--set прогона TK-040 (p05-f25-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a15-u25k;R-20261006-s001
-236a53b147988055;7d3cf9a7ebcffb1a;--set прогона TK-040 (p05-f25-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a15-u50k;R-20261006-s001
-60936c9cd40c0cb8;417d3afa5d2ddfd4;--set прогона TK-040 (p05-f25-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a30-u100k;R-20261006-s001
-e2f7e160558672f3;03cdde3cf92fdeca;--set прогона TK-040 (p05-f25-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a30-u25k;R-20261006-s001
-6324e200618f7fb5;f78678157f201205;--set прогона TK-040 (p05-f25-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a30-u50k;R-20261006-s001
-4ebec9b32a0f13ae;5770bfc7b80751cb;--set прогона TK-040 (p05-f25-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a60-u100k;R-20261006-s001
-73a5cff92d2bb502;2a266915e4333c81;--set прогона TK-040 (p05-f25-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a60-u25k;R-20261006-s001
-d62da3cc47aad0e5;f6d9241d5d49fe43;--set прогона TK-040 (p05-f25-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a60-u50k;R-20261006-s001
-31921422b8f0d1b1;4ec65b55c0b6e0b6;--set прогона TK-040 (p05-f25-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a90-u100k;R-20261006-s001
-ee8782888f2f28fc;146cef8f5a73ba3f;--set прогона TK-040 (p05-f25-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a90-u25k;R-20261006-s001
-23fc63f4322e2d11;86d7e9bb37a4c5e5;--set прогона TK-040 (p05-f25-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a90-u50k;R-20261006-s001
-f297f71d1f9d6600;643dd522e7882fbb;--set прогона TK-040 (p05-f50-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a120-u100k;R-20261006-s001
-b5402d0ee531ab5b;3b75c2ba5001d702;--set прогона TK-040 (p05-f50-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a120-u25k;R-20261006-s001
-82b4247ce6f12b2b;0cd49a6c183adccc;--set прогона TK-040 (p05-f50-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a120-u50k;R-20261006-s001
-a0e0d6a335feefa6;332c1575e3a08eb9;--set прогона TK-040 (p05-f50-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a15-u100k;R-20261006-s001
-8c284beba9e622e5;7ae0eef6b9a599aa;--set прогона TK-040 (p05-f50-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a15-u25k;R-20261006-s001
-b7afe441b12677ba;cf4e4c433b1f48de;--set прогона TK-040 (p05-f50-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a15-u50k;R-20261006-s001
-de3435822cddece1;28df91a7810d1e51;--set прогона TK-040 (p05-f50-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a30-u100k;R-20261006-s001
-8c6da241c945a377;f740c02c216ee038;--set прогона TK-040 (p05-f50-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a30-u25k;R-20261006-s001
-fe3d73f733137bc0;7ad8e4f00cef6bf5;--set прогона TK-040 (p05-f50-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a30-u50k;R-20261006-s001
-0ac59c555c695bae;1aeb18632e6ab030;--set прогона TK-040 (p05-f50-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a60-u100k;R-20261006-s001
-0604bbde0b842e4e;bd2591c29da62773;--set прогона TK-040 (p05-f50-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a60-u25k;R-20261006-s001
-a622a19c6a94c262;d628161f9a864510;--set прогона TK-040 (p05-f50-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a60-u50k;R-20261006-s001
-05cb9e345bede1d8;b714db39592e2c85;--set прогона TK-040 (p05-f50-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a90-u100k;R-20261006-s001
-bf83260706b10bd1;0dc1e894f304af13;--set прогона TK-040 (p05-f50-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a90-u25k;R-20261006-s001
-cb92ebefa3345885;3fe43963a700f967;--set прогона TK-040 (p05-f50-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a90-u50k;R-20261006-s001
-6cfbf7d09ed0707a;511eb7b10be364ab;--set прогона TK-040 (p05-f75-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a120-u100k;R-20261006-s001
-6bec1d5e9fff8d49;5781571989de5024;--set прогона TK-040 (p05-f75-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a120-u25k;R-20261006-s001
-4a0a94174cb48be9;1edb917399b0b061;--set прогона TK-040 (p05-f75-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a120-u50k;R-20261006-s001
-5085abf78fa17ad4;55c8d8ce0ff92786;--set прогона TK-040 (p05-f75-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a15-u100k;R-20261006-s001
-e100adc826c63af5;05d73f3f0986767b;--set прогона TK-040 (p05-f75-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a15-u25k;R-20261006-s001
-d491076b58fd5a6c;7a8cf938094af878;--set прогона TK-040 (p05-f75-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a15-u50k;R-20261006-s001
-8197dbb4186062d8;c6eacd67b90abd18;--set прогона TK-040 (p05-f75-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a30-u100k;R-20261006-s001
-b22a21c5f98b94e0;49c3081909950425;--set прогона TK-040 (p05-f75-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a30-u25k;R-20261006-s001
-cccbfebeb2323b43;db5f6344bca85a59;--set прогона TK-040 (p05-f75-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a30-u50k;R-20261006-s001
-7fb1a0fbfe0a611c;f0b1bb132e0d3133;--set прогона TK-040 (p05-f75-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a60-u100k;R-20261006-s001
-7142748887520a51;22d37f8bd1582cb2;--set прогона TK-040 (p05-f75-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a60-u25k;R-20261006-s001
-f5ef1c1afe671e44;ddfcd678ecdc05d8;--set прогона TK-040 (p05-f75-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a60-u50k;R-20261006-s001
-e3ae06087901cc28;02cfb91cb9f5a802;--set прогона TK-040 (p05-f75-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a90-u100k;R-20261006-s001
-861e6c3312d05bfb;79fbba7dd25ca73a;--set прогона TK-040 (p05-f75-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a90-u25k;R-20261006-s001
-063f2c6270317b68;ed74b1b46c3fc0e7;--set прогона TK-040 (p05-f75-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a90-u50k;R-20261006-s001
-3a04a5cc33d20725;d6242136d6f739c2;шапка группы p07a-base;pct2-tr1x1-14400-ttl1800;p07a-base/t-bid-btc4h-q1;R-20261006-s001
-742fd61515fde6ce;ffcec76a9243dd56;шапка группы p07a-h13-gone30wall0;pct2-tr1x1-14400-ttl1800-gone30wall0;p07a-h13-gone30wall0/t-bid-btc4h-q1;R-20261006-s001
-cd05c90d944bd724;d650a8b011707cdf;шапка группы p07a-h13-gone30wallk0;pct2-tr1x1-14400-ttl1800-gone30wallk0;p07a-h13-gone30wallk0/t-bid-btc4h-q1;R-20261006-s001
-8b50ee16bf338c9e;9586797e065b8800;шапка группы p07a-h13-gone30wallx0;pct2-tr1x1-14400-ttl1800-gone30wallx0;p07a-h13-gone30wallx0/t-bid-btc4h-q1;R-20261006-s001
-49a9e7c704d49fe8;6a4ad52f125ff898;шапка группы p07a-h13-gone50wall0;pct2-tr1x1-14400-ttl1800-gone50wall0;p07a-h13-gone50wall0/t-bid-btc4h-q1;R-20261006-s001
-fcec5c9287c72233;addefe3781087fd3;шапка группы p07a-h13-gone50wall10;pct2-tr1x1-14400-ttl1800-gone50wall10;p07a-h13-gone50wall10/t-bid-btc4h-q1;R-20261006-s001
-0c1fa709036eeaa7;407c45ad75d49321;шапка группы p07a-h13-gone50wallk0;pct2-tr1x1-14400-ttl1800-gone50wallk0;p07a-h13-gone50wallk0/t-bid-btc4h-q1;R-20261006-s001
-723c5aa788eee8ce;020b4ed31633ef8b;шапка группы p07a-h13-gone50wallk10;pct2-tr1x1-14400-ttl1800-gone50wallk10;p07a-h13-gone50wallk10/t-bid-btc4h-q1;R-20261006-s001
-50cb0c5c367b46c6;6670f40d64c0d44d;шапка группы p07a-h13-gone50wallx0;pct2-tr1x1-14400-ttl1800-gone50wallx0;p07a-h13-gone50wallx0/t-bid-btc4h-q1;R-20261006-s001
-edd97101895f7ca4;e5d1b8aafc694612;шапка группы p07a-h13-gone50wallx10;pct2-tr1x1-14400-ttl1800-gone50wallx10;p07a-h13-gone50wallx10/t-bid-btc4h-q1;R-20261006-s001
-bad508b3e8de623d;fd5746a20468a0e6;шапка группы p07a-h13-gone90wall0;pct2-tr1x1-14400-ttl1800-gone90wall0;p07a-h13-gone90wall0/t-bid-btc4h-q1;R-20261006-s001
-f2cd3d8bbb266b4e;7b61a55aaaec634a;шапка группы p07a-h13-gone90wallk0;pct2-tr1x1-14400-ttl1800-gone90wallk0;p07a-h13-gone90wallk0/t-bid-btc4h-q1;R-20261006-s001
-7f4a954f83ef2eb7;1c57cae79edab2cd;шапка группы p07a-h13-gone90wallx0;pct2-tr1x1-14400-ttl1800-gone90wallx0;p07a-h13-gone90wallx0/t-bid-btc4h-q1;R-20261006-s001
-dd97426734f9a15a;9b10a08d9e188924;шапка группы p07a-h2-fr1;single@fr+1-pct2-tr1x1-14400-ttl1800;p07a-h2-fr1/t-bid-btc4h-q1;R-20261006-s001
-b551aa51a308d987;b55f03f1be456268;шапка группы p07a-h2-fr2;single@fr+2-pct2-tr1x1-14400-ttl1800;p07a-h2-fr2/t-bid-btc4h-q1;R-20261006-s001
-416bbe1ec6c4ffa5;753013ebb128f146;шапка группы p07a-h2-fr3;single@fr+3-pct2-tr1x1-14400-ttl1800;p07a-h2-fr3/t-bid-btc4h-q1;R-20261006-s001
-31a7519c2df6cd54;30b6e0ee3f38b536;шапка группы p07a-h3-100000;pct2-tr1x1-14400-ttl1800;p07a-h3-100000/t-bid-btc4h-q1;R-20261006-s001
-4365e3f7a9c037f0;595923266b4ef574;шапка группы p07a-h3-25000;pct2-tr1x1-14400-ttl1800;p07a-h3-25000/t-bid-btc4h-q1;R-20261006-s001
-1e8f5449bce99d69;8826733ffe7872d0;шапка группы p07a-h3-50000;pct2-tr1x1-14400-ttl1800;p07a-h3-50000/t-bid-btc4h-q1;R-20261006-s001
-1bcc51f762096160;d5215fa32b09b12d;шапка группы p07a-h4-1800;pct2-tr1x1-14400-ttl1800;p07a-h4-1800/t-bid-btc4h-q1;R-20261006-s001
-085737f0e0e1d243;9ce664abfe41af61;шапка группы p07a-h4-3600;pct2-tr1x1-14400-ttl1800;p07a-h4-3600/t-bid-btc4h-q1;R-20261006-s001
-5f55b0f7dda4e9bd;7fa03e7fb5a322aa;шапка группы p07a-h4-5400;pct2-tr1x1-14400-ttl1800;p07a-h4-5400/t-bid-btc4h-q1;R-20261006-s001
-d15d74fba0ffb66e;8c4255e3d7018ea1;шапка группы p07a-h4-900;pct2-tr1x1-14400-ttl1800;p07a-h4-900/t-bid-btc4h-q1;R-20261006-s001
-d0534c666c2c8ff5;ecb5d6dc8c4e6173;шапка группы p07a-h5-btc1h;pct2-tr1x1-14400-ttl1800;p07a-h5-btc1h/t-bid-btc1h-q1;R-20261006-s001
-ca5e423df91fc206;2d6d6045e6951340;шапка группы p07a-h5-btc2h;pct2-tr1x1-14400-ttl1800;p07a-h5-btc2h/t-bid-btc2h-q1;R-20261006-s001
-a40aac1ed702d8a5;f6368e9cd3b1f2fd;шапка группы p07a-h5-btc3h;pct2-tr1x1-14400-ttl1800;p07a-h5-btc3h/t-bid-btc3h-q1;R-20261006-s001
-ee6306a83ea2b101;56e6e0164de33cf1;шапка группы p07a-h6-at;at-tr1x1-14400-ttl1800;p07a-h6-at/t-bid-btc4h-q1;R-20261006-s001
-0318e0f8aca60c13;ce59e07f4e38f923;шапка группы p07a-h6-before;before-tr1x1-14400-ttl1800;p07a-h6-before/t-bid-btc4h-q1;R-20261006-s001
-02f000f962dabec4;ee3a9f5b8b6f3165;шапка группы p07a-h6-behind;behind-tr1x1-14400-ttl1800;p07a-h6-behind/t-bid-btc4h-q1;R-20261006-s001
-c0f945a47d894ba6;d24309cc02cfd1a1;шапка группы p07a-h6-pct1.5;pct1.5-tr1x1-14400-ttl1800;p07a-h6-pct1.5/t-bid-btc4h-q1;R-20261006-s001
-69555e04e7b30a17;5876682ca39445cb;шапка группы p07a-h6-pct3;pct3-tr1x1-14400-ttl1800;p07a-h6-pct3/t-bid-btc4h-q1;R-20261006-s001
-7d7371dfc267c22d;60210383cd5bc567;шапка группы p07a-h7-1to1;pct2-1to1-14400-ttl1800;p07a-h7-1to1/t-bid-btc4h-q1;R-20261006-s001
-3af1545d19e80578;ec6d30d0beeb9553;шапка группы p07a-h7-tr1.5x1;pct2-tr1.5x1-14400-ttl1800;p07a-h7-tr1.5x1/t-bid-btc4h-q1;R-20261006-s001
-2df6dcee951135b0;be114ed179b35fc8;шапка группы p07a-h7-tr1x1.5;pct2-tr1x1.5-14400-ttl1800;p07a-h7-tr1x1.5/t-bid-btc4h-q1;R-20261006-s001
-24f4f6e2401c96e4;e972598d25631efe;шапка группы p07a-h7-tr2x1;pct2-tr2x1-14400-ttl1800;p07a-h7-tr2x1/t-bid-btc4h-q1;R-20261006-s001
-17064b8646221cc3;09114e88b5cc241e;шапка группы p07a-h8-3600;pct2-tr1x1-3600-ttl1800;p07a-h8-3600/t-bid-btc4h-q1;R-20261006-s001
-fbc8073ee45b96eb;9f6a3b79d9716acd;шапка группы p07a-h8-7200;pct2-tr1x1-7200-ttl1800;p07a-h8-7200/t-bid-btc4h-q1;R-20261006-s001
-d4cf6cbbfc806795;e8cfbab78599ac76;шапка группы p07b-base;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-base/t-bid-btc4h-q1;R-20261006-s001
-bc7b20c4b2220723;b10cb308f9136ab1;шапка группы p07b-h13-gone30wall0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone30wall0;p07b-h13-gone30wall0/t-bid-btc4h-q1;R-20261006-s001
-73bb7adeb9bc48ba;6324c8bcfc97beb4;шапка группы p07b-h13-gone30wallk0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone30wallk0;p07b-h13-gone30wallk0/t-bid-btc4h-q1;R-20261006-s001
-c4a7c16b952c802b;a1c213d3b9186c07;шапка группы p07b-h13-gone30wallx0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone30wallx0;p07b-h13-gone30wallx0/t-bid-btc4h-q1;R-20261006-s001
-3b20f8d10f7f686f;7b61e5fe189b4f0e;шапка группы p07b-h13-gone50wall0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wall0;p07b-h13-gone50wall0/t-bid-btc4h-q1;R-20261006-s001
-2810f7c843472240;1a03c48592ecff6b;шапка группы p07b-h13-gone50wall10;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wall10;p07b-h13-gone50wall10/t-bid-btc4h-q1;R-20261006-s001
-5c433648c85ac05c;486b78cacf20d85d;шапка группы p07b-h13-gone50wallk0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallk0;p07b-h13-gone50wallk0/t-bid-btc4h-q1;R-20261006-s001
-a7d6457d8b83e5a3;cf68141e7945a084;шапка группы p07b-h13-gone50wallk10;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallk10;p07b-h13-gone50wallk10/t-bid-btc4h-q1;R-20261006-s001
-e7611debf8674c1d;8d34de0c85062709;шапка группы p07b-h13-gone50wallx0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallx0;p07b-h13-gone50wallx0/t-bid-btc4h-q1;R-20261006-s001
-83edd5a62f0677d1;e9cc2b2ccbaf0173;шапка группы p07b-h13-gone50wallx10;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallx10;p07b-h13-gone50wallx10/t-bid-btc4h-q1;R-20261006-s001
-250ca975acaa061c;f1b09b4b7f326ed2;шапка группы p07b-h13-gone90wall0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wall0;p07b-h13-gone90wall0/t-bid-btc4h-q1;R-20261006-s001
-ef1881eabf7969e9;76bfc9401eb84459;шапка группы p07b-h13-gone90wallk0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wallk0;p07b-h13-gone90wallk0/t-bid-btc4h-q1;R-20261006-s001
-6feb727d562a1419;079607b6fd8a4dc1;шапка группы p07b-h13-gone90wallx0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wallx0;p07b-h13-gone90wallx0/t-bid-btc4h-q1;R-20261006-s001
-fe8b2e7953e7193d;8fd57f1e57782c62;шапка группы p07b-h2-0.0136;ladder3x0..0.0136sw2-pct2-tr1x1-14400-ttl1800;p07b-h2-0.0136/t-bid-btc4h-q1;R-20261006-s001
-2f32c7f94443c43d;a5f5e298a4069452;шапка группы p07b-h2-0.0273;ladder3x0..0.0273sw2-pct2-tr1x1-14400-ttl1800;p07b-h2-0.0273/t-bid-btc4h-q1;R-20261006-s001
-f399f0d1505a6336;6d8cc354f3394758;шапка группы p07b-h2-0.0682;ladder3x0..0.0682sw2-pct2-tr1x1-14400-ttl1800;p07b-h2-0.0682/t-bid-btc4h-q1;R-20261006-s001
-370e74ef29e15142;d89ecd5facdf7b1d;шапка группы p07b-h3-100000;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h3-100000/t-bid-btc4h-q1;R-20261006-s001
-51872f5ab5ca83eb;c2d6078c4071260c;шапка группы p07b-h3-25000;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h3-25000/t-bid-btc4h-q1;R-20261006-s001
-015aaf823067211a;3a0c7e78740a58ed;шапка группы p07b-h3-50000;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h3-50000/t-bid-btc4h-q1;R-20261006-s001
-cb5180b27b80d87f;f8c9382be7a21595;шапка группы p07b-h4-1800;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-1800/t-bid-btc4h-q1;R-20261006-s001
-8e723e213cd8acf4;41b4877e2bd0d42a;шапка группы p07b-h4-3600;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-3600/t-bid-btc4h-q1;R-20261006-s001
-8415944ae6c34475;ecba94a2a60b0e61;шапка группы p07b-h4-5400;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-5400/t-bid-btc4h-q1;R-20261006-s001
-9d948f6aed82cec5;5bbbccc9ee929b6e;шапка группы p07b-h4-900;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-900/t-bid-btc4h-q1;R-20261006-s001
-6619496ef779e370;506b64c30a51f010;шапка группы p07b-h5-btc1h;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h5-btc1h/t-bid-btc1h-q1;R-20261006-s001
-ca496b179b19a36e;822131454563640e;шапка группы p07b-h5-btc2h;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h5-btc2h/t-bid-btc2h-q1;R-20261006-s001
-b9f8c93bd2799980;5aca1cc89dd09601;шапка группы p07b-h5-btc3h;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h5-btc3h/t-bid-btc3h-q1;R-20261006-s001
-71a3bdd74fe6895a;f342a742d1709257;шапка группы p07b-h6-at;ladder3x0..0.0409sw2-at-tr1x1-14400-ttl1800;p07b-h6-at/t-bid-btc4h-q1;R-20261006-s001
-6130a60f908b4855;22320114b1052fd2;шапка группы p07b-h6-behind;ladder3x0..0.0409sw2-behind-tr1x1-14400-ttl1800;p07b-h6-behind/t-bid-btc4h-q1;R-20261006-s001
-f904e8bb825f118a;dafe44f9db2272ab;шапка группы p07b-h6-pct1.5;ladder3x0..0.0409sw2-pct1.5-tr1x1-14400-ttl1800;p07b-h6-pct1.5/t-bid-btc4h-q1;R-20261006-s001
-83d4a5053a995ada;9ffb1ffa08cffe56;шапка группы p07b-h6-pct3;ladder3x0..0.0409sw2-pct3-tr1x1-14400-ttl1800;p07b-h6-pct3/t-bid-btc4h-q1;R-20261006-s001
-fa15676218f3e1ec;112477b407515fd4;шапка группы p07b-h7-1to1;ladder3x0..0.0409sw2-pct2-1to1-14400-ttl1800;p07b-h7-1to1/t-bid-btc4h-q1;R-20261006-s001
-d534244e4725ed2a;9e7748234ad41635;шапка группы p07b-h7-tr1.5x1;ladder3x0..0.0409sw2-pct2-tr1.5x1-14400-ttl1800;p07b-h7-tr1.5x1/t-bid-btc4h-q1;R-20261006-s001
-bd46ea2efe991ec4;b40f479b8a2d96ef;шапка группы p07b-h7-tr1x1.5;ladder3x0..0.0409sw2-pct2-tr1x1.5-14400-ttl1800;p07b-h7-tr1x1.5/t-bid-btc4h-q1;R-20261006-s001
-d26b246510a57567;85f08a3fb9fe6587;шапка группы p07b-h7-tr2x1;ladder3x0..0.0409sw2-pct2-tr2x1-14400-ttl1800;p07b-h7-tr2x1/t-bid-btc4h-q1;R-20261006-s001
-25fed6f92266433b;af22c973bbc19bf7;шапка группы p07b-h8-3600;ladder3x0..0.0409sw2-pct2-tr1x1-3600-ttl1800;p07b-h8-3600/t-bid-btc4h-q1;R-20261006-s001
-eb7d2dd5b16078d1;b268bd61eed41e42;шапка группы p07b-h8-7200;ladder3x0..0.0409sw2-pct2-tr1x1-7200-ttl1800;p07b-h8-7200/t-bid-btc4h-q1;R-20261006-s001
-3edb23e55bbc1bf4;ff862c9d2ba86418;шапка группы p07b-t9-early1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-early1;p07b-t9-early1/t-bid-btc4h-q1;R-20261006-s001
-d2db088d7ce5afd6;a4ac82bb51e7bb12;шапка группы p07b-t9-early2;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-early2;p07b-t9-early2/t-bid-btc4h-q1;R-20261006-s001
-3a8947c0a2000605;92e3ae297c5ad198;шапка группы p07b-t9-early3;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-early3;p07b-t9-early3/t-bid-btc4h-q1;R-20261006-s001
-8a60182e949172fa;f55849bd127946d8;шапка группы p07b-t9-gone50be;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50be;p07b-t9-gone50be/t-bid-btc4h-q1;R-20261006-s001
-9ed4bb66b0921d7b;9703b2e978f4d0d7;шапка группы p07b-t9-gone50tr1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50tr1;p07b-t9-gone50tr1/t-bid-btc4h-q1;R-20261006-s001
-f7b58d7205586d46;e8c52a58d761cc9a;шапка группы p07b-t9-gone90be;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90be;p07b-t9-gone90be/t-bid-btc4h-q1;R-20261006-s001
-c954ec64d1c895e0;417fc2cb967b0fea;шапка группы p07b-t9-gone90tr1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90tr1;p07b-t9-gone90tr1/t-bid-btc4h-q1;R-20261006-s001
-7f5343004ad11ce9;4ffef1143e0fd5e7;шапка группы p07b-t9-market;market-pct2-tr1x1-14400-ttl1800;p07b-t9-market/t-bid-btc4h-q1;R-20261006-s001
-9aabd4d13de36320;d2eaba40da42e869;шапка группы p07b-t9-touch;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-t9-touch/t-bid-btc4h-q1;R-20261006-s001
-d445cdc442a9b721;30c14ddeeb22fec7;шапка группы p07b-t9-ttl300;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl300;p07b-t9-ttl300/t-bid-btc4h-q1;R-20261006-s001
-f75f9fed7bab6df6;7cbf500456fc3f81;шапка группы p07b-t9-ttl60;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl60;p07b-t9-ttl60/t-bid-btc4h-q1;R-20261006-s001
-61e360e2b6b3625d;ce06250c2cd81d22;шапка группы p07m-btc1h;ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p07m-btc1h/t-bid-btc1h-q1;R-20261006-s001
-fc50b4b34697970a;ff99e3a1075cf329;шапка группы p07m-main;ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p07m-main/t-bid-btc4h-q1;R-20261006-s001
-458bf956f95a0f41;9d6d09e6c18b837e;шапка группы p07m-nofilter;ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p07m-nofilter/t-bid-age-45;R-20261006-s001
-1ce15c5228cbefe5;54a887e44bbb879c;шапка группы p07m-take;ladder3x2..20w2-pct2-tk1.75-14400-ttl1800;p07m-take/t-bid-btc4h-q1;R-20261006-s001
-25343491f0f97d29;2069cef56485befb;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
-27c44e10488e6332;3b27d0b0e3dd6cf6;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2-tr1x1-21600-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2-tr1x1-21600-ttl1800;R-20261011-001
-56ff6610c251d062;59362c734a070e13;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2-tr1x1-28800-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2-tr1x1-28800-ttl1800;R-20261011-001
-410929daf85a3051;d92de2d0b6b712ce;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2.5-tr1x1-14400-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2.5-tr1x1-14400-ttl1800;R-20261011-001
-c68dc0b535859934;567e8157ac74430b;p12-ext: полное имя формы + набор B1;ladder3x0.00409..0.02045sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.00409..0.02045sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
-7cd6700bb286912d;9fd346962781d172;p12-ext: полное имя формы + набор B1;ladder3x0.00409..0.0818sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.00409..0.0818sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
-eadde306db37f93b;af1a8948eab56e32;p12-ext: полное имя формы + набор B1;ladder3x0.010225..0.02045sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.010225..0.02045sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
-042df83b5ada85ec;1c968ceecdaef19b;p12-ext: полное имя формы + набор B1;ladder3x0.010225..0.0818sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.010225..0.0818sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
-cd71f6d4e7427b94;f77ded00b72eae7c;B1 (набор B1, P-10 §4);B1;p12-r1/B1;R-20261011-001
-f15bc92ac996ac14;4871edc65357eb44;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k20;p12-r1/g04-k20;R-20261011-001
-46d1777740424d5e;fda111fb52719222;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k33;p12-r1/g04-k33;R-20261011-001
-0768a12c0d226d0e;c74c85dfcf78e4ad;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k50;p12-r1/g04-k50;R-20261011-001
-fdc0897bf6fb5aac;f4bb280f1106d643;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k67;p12-r1/g04-k67;R-20261011-001
-19c33bc108720556;984ed8ab3e761891;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k80;p12-r1/g04-k80;R-20261011-001
-9e25008219fc43a4;e36b679cccd9223b;p12-cells: B1 + вариант g05;g05-c1;p12-r1/g05-c1;R-20261011-001
-74cfe6102cb78628;36b778cd73c7ab94;p12-cells: B1 + вариант g05;g05-c3;p12-r1/g05-c3;R-20261011-001
-6ebb6f1ccc870450;5a9dafc4345d4a0f;p12-cells: B1 + вариант g06;g06-slow;p12-r1/g06-slow;R-20261011-001
-5e060e185ea78c5e;bf3170b0931ae2ed;p12-cells: B1 + вариант g100;g100-micro0;p12-r1/g100-micro0;R-20261011-001
-eb2f9c65a367f655;5a74c8a7d3f112b4;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k20;p12-r1/g139-k20;R-20261011-001
-e0495a1747c18a6d;5c2259fd811506de;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k33;p12-r1/g139-k33;R-20261011-001
-c911e15a2d5eb65a;679a5460bed8321c;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k50;p12-r1/g139-k50;R-20261011-001
-4e3a33a764aba666;32f169aa2d185f54;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k67;p12-r1/g139-k67;R-20261011-001
-dc3f692968343a2c;62c959662188f0dd;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k80;p12-r1/g139-k80;R-20261011-001
-444017dc1b0908eb;bf2d8c484303e143;p12-cells: B1 + вариант g34;g34-notmoved;p12-r1/g34-notmoved;R-20261011-001
-745bc76e0e99cbd0;b41b117177413474;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k20;p12-r1/g35-k20;R-20261011-001
-18f682fea110be5e;3ab803df8b0edfdd;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k33;p12-r1/g35-k33;R-20261011-001
-1939c2b0baca4d14;86de4a1f40dc92b8;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k50;p12-r1/g35-k50;R-20261011-001
-54faf8af47902b5e;015c33bdd7745be0;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k67;p12-r1/g35-k67;R-20261011-001
-b0e6e8b3c31fb569;76b1b4e52ef167ed;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k80;p12-r1/g35-k80;R-20261011-001
-27452085910f7ce2;ac712665f0a00009;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k20;p12-r1/g39-k20;R-20261011-001
-2f8a5da781e97050;af80d8ae7578b0c8;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k33;p12-r1/g39-k33;R-20261011-001
-1819374cf0f131a6;824c1def3dd75350;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k50;p12-r1/g39-k50;R-20261011-001
-9b14a0dbe7197428;bca5f8023c8065f7;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k67;p12-r1/g39-k67;R-20261011-001
-658dc30df0b97675;86d367eefe7f4c41;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k80;p12-r1/g39-k80;R-20261011-001
-a76d8e87022e911b;0efcedc9bc01eec4;p12-cells: B1 + вариант g40;g40-retest;p12-r1/g40-retest;R-20261011-001
-008afcf18911c0e3;03d5426398206d07;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k20;p12-r1/g42-k20;R-20261011-001
-eb4ae54ea1b969b3;a0e14c6fca645038;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k33;p12-r1/g42-k33;R-20261011-001
-f646bab83428292c;92f908703f5589b1;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k50;p12-r1/g42-k50;R-20261011-001
-c96a31591c247324;6c1b65af2a02ca4e;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k67;p12-r1/g42-k67;R-20261011-001
-16b1b7dbad21e352;f2dae3b551dd16c1;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k80;p12-r1/g42-k80;R-20261011-001
-ed76497aa4ded4be;8a4fcec5c986bd7a;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k20;p12-r1/g43-best_move_10s_cbps-k20;R-20261011-001
-efa524516c5d81b2;b779b35a4159f83c;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k33;p12-r1/g43-best_move_10s_cbps-k33;R-20261011-001
-ff78e49ec1137404;eb906bcc9e8953ac;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k50;p12-r1/g43-best_move_10s_cbps-k50;R-20261011-001
-820aaef8635c229a;fe6d197a3baf561f;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k67;p12-r1/g43-best_move_10s_cbps-k67;R-20261011-001
-a877a29a91147cd9;316bc9177b365b3f;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k80;p12-r1/g43-best_move_10s_cbps-k80;R-20261011-001
-94af4502bb4b701c;332dc58a11943572;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k20;p12-r1/g43-best_move_1s_cbps-k20;R-20261011-001
-553cd23674505959;0bb102a3cb20ed9e;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k33;p12-r1/g43-best_move_1s_cbps-k33;R-20261011-001
-b915a216eeb56d22;a854c6637c3d45be;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k50;p12-r1/g43-best_move_1s_cbps-k50;R-20261011-001
-6df66bdd7df1594a;39353ca1c9b8c56e;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k67;p12-r1/g43-best_move_1s_cbps-k67;R-20261011-001
-968b32f41491ccf2;9fd38915ec28b752;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k80;p12-r1/g43-best_move_1s_cbps-k80;R-20261011-001
-d30c92229579c24b;d84e8543a6153d10;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-nz;p12-r1/g43-best_move_1s_cbps-nz;R-20261011-001
-308f3f945897262a;516a2bef5aff2c55;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k20;p12-r1/g44-k20;R-20261011-001
-3d665ec4c2c7784d;8a4c9321340dbf94;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k33;p12-r1/g44-k33;R-20261011-001
-fbb180dd421bb8b8;12a2f3c5f8cabca4;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k50;p12-r1/g44-k50;R-20261011-001
-bd0faab21996b285;e5ac48df8066da1a;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k67;p12-r1/g44-k67;R-20261011-001
-f896b8f7469c3451;356bf37f25a4c47d;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k80;p12-r1/g44-k80;R-20261011-001
-47b05bf21b5ff514;cf8169b3ec37bf27;p12-cells: B1 + вариант g58;g58-cancel0;p12-r1/g58-cancel0;R-20261011-001
-044be430aa60a925;2a091c8777a1f456;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k20;p12-r1/g59-tape_press_lots_15s-k20;R-20261011-001
-c056af5d5ad69443;1a2dd6572fa576c2;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k33;p12-r1/g59-tape_press_lots_15s-k33;R-20261011-001
-f318a6a6ac247319;1cb78bbef124472e;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k50;p12-r1/g59-tape_press_lots_15s-k50;R-20261011-001
-0549544b3f65b772;2d23efdc14c1f46d;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k67;p12-r1/g59-tape_press_lots_15s-k67;R-20261011-001
-4ab7fde57b3fa684;4da4bb2398904f54;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k80;p12-r1/g59-tape_press_lots_15s-k80;R-20261011-001
-f833685fbe83ef4a;d27166c10b9f3c0d;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k20;p12-r1/g59-tape_press_lots_30s-k20;R-20261011-001
-c22e9545291bfd29;8f69b03949292c81;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k33;p12-r1/g59-tape_press_lots_30s-k33;R-20261011-001
-5a6f3670542cab60;852feea591aa22e1;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k50;p12-r1/g59-tape_press_lots_30s-k50;R-20261011-001
-f801df8c915d9167;9d1ab9b200c65b42;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k67;p12-r1/g59-tape_press_lots_30s-k67;R-20261011-001
-81b94b8d511fc0d8;2fb06d6cf40f6ace;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k80;p12-r1/g59-tape_press_lots_30s-k80;R-20261011-001
-77b08f126e4ae8f6;764d3fe166411f03;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k20;p12-r1/g59-tape_press_lots_60s-k20;R-20261011-001
-abcccb45da226f3a;f91e513a38644de8;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k33;p12-r1/g59-tape_press_lots_60s-k33;R-20261011-001
-601e274c86b53428;58982b3168421e3f;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k50;p12-r1/g59-tape_press_lots_60s-k50;R-20261011-001
-a391eea7b8ce8e0c;c921e094b2dfc37c;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k67;p12-r1/g59-tape_press_lots_60s-k67;R-20261011-001
-56d24f5fe80e2b6f;633fa614b294d9fb;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k80;p12-r1/g59-tape_press_lots_60s-k80;R-20261011-001
-c4246fe2db1544c2;4074e7a068c8fa2d;p12-cells: B1 + вариант g61;g61-5to20;p12-r1/g61-5to20;R-20261011-001
-dceb1da6fb35ac5f;a0442ad5778f8cfd;p12-cells: B1 + вариант g61;g61-le60;p12-r1/g61-le60;R-20261011-001
-7fd329203831be89;9f52bf9c971ff2e9;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k20;p12-r1/g63-k20;R-20261011-001
-beb37cd17c093990;c13ba799b74d7ac5;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k33;p12-r1/g63-k33;R-20261011-001
-8afb29306ff457e7;4dbcd97cad559f4a;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k50;p12-r1/g63-k50;R-20261011-001
-4f81c79d608ddcf7;52ee8013ffd3c6c2;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k67;p12-r1/g63-k67;R-20261011-001
-d65ccd90e77e5e8d;02847bd959ceb2a3;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k80;p12-r1/g63-k80;R-20261011-001
-740fea771a8fe684;ca2fb7fb0cff4de5;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k20;p12-r1/g64-drift-k20;R-20261011-001
-9f05f3e514e4159b;7a12460424703871;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k33;p12-r1/g64-drift-k33;R-20261011-001
-0e8fde0c61201222;2e6cff3e48f2e543;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k50;p12-r1/g64-drift-k50;R-20261011-001
-94852abd49390318;b63f816836b9e883;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k67;p12-r1/g64-drift-k67;R-20261011-001
-f511c704f86ff525;328ab463e5d59910;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k80;p12-r1/g64-drift-k80;R-20261011-001
-d1c8b9fedeef4922;270f19ad495f6570;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k20;p12-r1/g67-best_flips_15s-k20;R-20261011-001
-8e6962d4c9bd9ea3;98551182cdd586fb;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k33;p12-r1/g67-best_flips_15s-k33;R-20261011-001
-9e32d628ca215f98;8d1c898f736c1ea4;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k50;p12-r1/g67-best_flips_15s-k50;R-20261011-001
-94f3991d75b112e4;22de6341d849d415;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k67;p12-r1/g67-best_flips_15s-k67;R-20261011-001
-3386eac05aa0f297;320142adb498a58f;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k80;p12-r1/g67-best_flips_15s-k80;R-20261011-001
-dbc68a7bed29728d;3a5d83c7326ccfaa;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k20;p12-r1/g67-best_flips_60s-k20;R-20261011-001
-b90b2eac98cc5ec8;b8f342d41c7f938a;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k33;p12-r1/g67-best_flips_60s-k33;R-20261011-001
-0f7c8d0c32f9f402;d310f9ad8f69e487;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k50;p12-r1/g67-best_flips_60s-k50;R-20261011-001
-e3c361df02ec5f9e;7a5eb4879f4b8f71;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k67;p12-r1/g67-best_flips_60s-k67;R-20261011-001
-f0191f470361e118;df94b8ab6da39405;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k80;p12-r1/g67-best_flips_60s-k80;R-20261011-001
-f1dbecf02ef377c5;f82191988ede73a6;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k20;p12-r1/g68-obi10_bp-k20;R-20261011-001
-910536f36b3c93ed;0618ae952a41e7da;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k33;p12-r1/g68-obi10_bp-k33;R-20261011-001
-2577f32b110dccb9;c21f33b86ef0926d;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k50;p12-r1/g68-obi10_bp-k50;R-20261011-001
-5db8eed101e04d96;16ab7502c6d111b0;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k67;p12-r1/g68-obi10_bp-k67;R-20261011-001
-01cbd1b2e60447be;8b30ea3d8a392710;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k80;p12-r1/g68-obi10_bp-k80;R-20261011-001
-04058c8ecce74aa8;7ebd819a90ee2ae7;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k20;p12-r1/g68-obi1_bp-k20;R-20261011-001
-08d47960d6bec0e0;fec5938a5e222fb4;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k33;p12-r1/g68-obi1_bp-k33;R-20261011-001
-f12c40a6f8a7191e;17944213db96842b;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k50;p12-r1/g68-obi1_bp-k50;R-20261011-001
-224e1c71f4d17291;1e76870add1554cf;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k67;p12-r1/g68-obi1_bp-k67;R-20261011-001
-b280068a2580ec38;d2b875d304c0077e;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k80;p12-r1/g68-obi1_bp-k80;R-20261011-001
-b7adf5fb334496a9;e9f79c5ecc5ea4b7;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k20;p12-r1/g68-obi50_bp-k20;R-20261011-001
-ce36fada4510f4da;64e3ddb2daa6d693;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k33;p12-r1/g68-obi50_bp-k33;R-20261011-001
-abc943d4da2556e8;68e081da55656b79;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k50;p12-r1/g68-obi50_bp-k50;R-20261011-001
-15af93ab18e9871b;ab879fd934e3a7ae;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k67;p12-r1/g68-obi50_bp-k67;R-20261011-001
-ae98e563671c34b3;108f1c6f97c40845;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k80;p12-r1/g68-obi50_bp-k80;R-20261011-001
-c125d3d200d6c865;c5d9efb6ca0ffd97;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k20;p12-r1/g68-obi5_bp-k20;R-20261011-001
-6a641bc7c81c659a;beb12af7e69e089e;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k33;p12-r1/g68-obi5_bp-k33;R-20261011-001
-0f0528c157156707;e4e4820258eacd68;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k50;p12-r1/g68-obi5_bp-k50;R-20261011-001
-0dc4b9d108971ed5;116d70acc7b2f147;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k67;p12-r1/g68-obi5_bp-k67;R-20261011-001
-b6143ee9e289db11;70bc5df8b3266fe2;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k80;p12-r1/g68-obi5_bp-k80;R-20261011-001
-007e7836ae39eeeb;ea331240c08553e9;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k20;p12-r1/g69-ofi_10s_lots-k20;R-20261011-001
-4fa6aedcbf44a2e3;6a3e92a9722913a8;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k33;p12-r1/g69-ofi_10s_lots-k33;R-20261011-001
-d7d85b82d10ab4d1;5da8c5e7960b6be9;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k50;p12-r1/g69-ofi_10s_lots-k50;R-20261011-001
-78a666a1d4616e7f;08e296956a544723;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k67;p12-r1/g69-ofi_10s_lots-k67;R-20261011-001
-c6dede67ec4087b1;796c089cf51a6bdb;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k80;p12-r1/g69-ofi_10s_lots-k80;R-20261011-001
-dbea9f1e84173a83;d0fef2ca8c33a27a;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k20;p12-r1/g69-ofi_60s_lots-k20;R-20261011-001
-900c3cc527983383;73dec3b273424088;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k33;p12-r1/g69-ofi_60s_lots-k33;R-20261011-001
-ced13390b928a05a;ff4c54393dd13742;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k50;p12-r1/g69-ofi_60s_lots-k50;R-20261011-001
-0c9b60565ecc40e1;7fbbc01555528b1b;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k67;p12-r1/g69-ofi_60s_lots-k67;R-20261011-001
-ef55e34333df39b0;7dc37910385e7688;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k80;p12-r1/g69-ofi_60s_lots-k80;R-20261011-001
-5b3e100ed4a32087;f2e8292b9bedb336;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k20;p12-r1/g70-k20;R-20261011-001
-39b73ad89b967ef7;e652574a525b8c89;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k33;p12-r1/g70-k33;R-20261011-001
-58aef6d5edb5b867;e8bad6d1570c81b2;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k50;p12-r1/g70-k50;R-20261011-001
-1f4451366c861ab0;3ecd352b7c7c24fd;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k67;p12-r1/g70-k67;R-20261011-001
-79efe7dc376ccdde;0a1104dfdedc5cab;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k80;p12-r1/g70-k80;R-20261011-001
-5b29e3c7f8082466;c3cd770987fc065b;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k20;p12-r1/g71-sign_ac_15s_bp-k20;R-20261011-001
-322568ddd079875b;99648f49e45c1358;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k33;p12-r1/g71-sign_ac_15s_bp-k33;R-20261011-001
-914a7f3c75f53c6d;c2c4e09e869e3cdb;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k50;p12-r1/g71-sign_ac_15s_bp-k50;R-20261011-001
-5fb06084b9c10411;7e3b4071b95fed56;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k67;p12-r1/g71-sign_ac_15s_bp-k67;R-20261011-001
-e73ab398c7d17b9a;e80cb23500b78a7b;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k80;p12-r1/g71-sign_ac_15s_bp-k80;R-20261011-001
-4031d86b9fb4ed44;8613a110c6f2c0cf;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k20;p12-r1/g71-sign_ac_60s_bp-k20;R-20261011-001
-815ac87404c84d1f;01c2c4d674ceaf33;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k33;p12-r1/g71-sign_ac_60s_bp-k33;R-20261011-001
-95f8c963857843ec;4f1907448d8bf4c8;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k50;p12-r1/g71-sign_ac_60s_bp-k50;R-20261011-001
-c0d623a513dff3dd;836d211e9bbe6b51;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k67;p12-r1/g71-sign_ac_60s_bp-k67;R-20261011-001
-41cbefa30c426186;01c08b61520474ab;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k80;p12-r1/g71-sign_ac_60s_bp-k80;R-20261011-001
-d2f4ecf211c97762;d394417f3c93d3a8;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k20;p12-r1/g73-conj-k20;R-20261011-001
-92e12366ff5308ee;eee18ee52db1b7c2;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k33;p12-r1/g73-conj-k33;R-20261011-001
-20f89ea3eb9041a6;34c6016f4d07e90e;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k50;p12-r1/g73-conj-k50;R-20261011-001
-fa7d0d2add835bee;80b970e9d580c20a;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k67;p12-r1/g73-conj-k67;R-20261011-001
-52100bc4cefc4e7d;e4e2816ab4237db2;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k80;p12-r1/g73-conj-k80;R-20261011-001
-05d6c179e528db5a;fbba9f4df285a118;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k20;p12-r1/g75-k20;R-20261011-001
-36b77b26e3f68548;851fd3afec0c7acc;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k33;p12-r1/g75-k33;R-20261011-001
-4b27297d7e377291;2117f2090ce2a518;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k50;p12-r1/g75-k50;R-20261011-001
-6d2056948f68d826;998afc5bd40a2395;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k67;p12-r1/g75-k67;R-20261011-001
-9172c754c73a3502;8f9b54c5cb4f9bc1;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k80;p12-r1/g75-k80;R-20261011-001
-54dde4f653f7843d;bf08a0ddfb51de59;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k20;p12-r1/g82-tape_burst_press_15s_bp-k20;R-20261011-001
-cc90d9e9cea8ace3;556a747e57c6441c;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k33;p12-r1/g82-tape_burst_press_15s_bp-k33;R-20261011-001
-37ce759bf7982cf7;5c678c421177f909;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k50;p12-r1/g82-tape_burst_press_15s_bp-k50;R-20261011-001
-8488e9b98a223156;0b63ebfb3d1f0e9e;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k67;p12-r1/g82-tape_burst_press_15s_bp-k67;R-20261011-001
-3e4c0778a0bc050e;7c6c0acb89ceff16;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k80;p12-r1/g82-tape_burst_press_15s_bp-k80;R-20261011-001
-e5556fac7c7a7744;7c0ad1a66c1db454;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k20;p12-r1/g82-tape_burst_press_30s_bp-k20;R-20261011-001
-dce40c5bf84dd8ab;556e75bffe82db14;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k33;p12-r1/g82-tape_burst_press_30s_bp-k33;R-20261011-001
-a8c63ca078286b7f;c44b3a6aad77092e;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k50;p12-r1/g82-tape_burst_press_30s_bp-k50;R-20261011-001
-8258d56bf2a74f39;8445860d528aa5a5;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k67;p12-r1/g82-tape_burst_press_30s_bp-k67;R-20261011-001
-48018fb97ec00355;de0f0917e42d5a17;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k80;p12-r1/g82-tape_burst_press_30s_bp-k80;R-20261011-001
-8b3653f16a2ff04d;d63b445a5bf088ea;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k20;p12-r1/g83-conj-k20;R-20261011-001
-2d02ca47ade7961e;3f81bed69f271cfe;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k33;p12-r1/g83-conj-k33;R-20261011-001
-ee08208dd739bb15;9e7e46276c476d77;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k50;p12-r1/g83-conj-k50;R-20261011-001
-397fcf19011ad60e;5e77ed4c587b22a2;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k67;p12-r1/g83-conj-k67;R-20261011-001
-d27a8f2bad432ca3;a8966d47b7cd9d0c;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k80;p12-r1/g83-conj-k80;R-20261011-001
-edb06aa430d0ba01;8fdd7be26ffc76e4;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halflevelf1;r3a/t-bid-btc4h-q1;R-20261011-002
-47a98bc6a8dd5862;8f5dc6baa73e8cdf;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halflevelf3;r3a/t-bid-btc4h-q1;R-20261011-002
-e294cd4b436701f8;fccf771e888d3847;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halfstopf1;r3a/t-bid-btc4h-q1;R-20261011-002
-ab44fc5c74bc6339;adf158a0ff0f753d;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halfstopf3;r3a/t-bid-btc4h-q1;R-20261011-002
-dc9f69bdf9a2ff73;9799b397a41be350;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw3-pct2-tr1x1-14400-ttl1800;r3a/t-bid-btc4h-q1;R-20261011-002
-d83cf6e1feef0e8c;4bbda96974bfa6dd;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;r3c/e106-pop;R-20261011-002
-683a90569f56578b;536356f18694a270;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop1;r3c/e106-pop;R-20261011-002
-a2d97f9f41b0680d;66741a7b68e1f159;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop2;r3c/e106-pop;R-20261011-002
-a4726f9ddce95de1;a6300c8f5c26a42e;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop4;r3c/e106-pop;R-20261011-002
-bf64e494f62787d6;6fbb352dc0930007;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh2;r2a/g87-fresh;R-20261011-002
-4edad256ff713b0a;33e509c1225303eb;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh3;r2a/g87-fresh;R-20261011-002
-fb9d791c8bb524be;6bac4cafda2e12a1;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh4;r2a/g87-fresh;R-20261011-002
-f79e329865706252;31758c5f147b1a40;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh5;r2a/g87-fresh;R-20261011-002
-3ffb599a19c28e9c;1e293407b2335211;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat2;r2a/t-bid-btc4h-q1;R-20261011-002
-90a2b577dd60424f;16bf7f95557e6727;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat3;r2a/t-bid-btc4h-q1;R-20261011-002
-e04850362199799c;5d371aa7fcef5112;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat4;r2a/t-bid-btc4h-q1;R-20261011-002
-b4832b285752f4ce;711dafc0177c478f;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat5;r2a/t-bid-btc4h-q1;R-20261011-002
-f46383135d4ac381;e19dafd4f50df33e;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u1;r2a/t-bid-btc4h-q1;R-20261011-002
-cb1308c94a1f57ea;3a96990d7c1f304d;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u2;r2a/t-bid-btc4h-q1;R-20261011-002
-9fe91367ffca34f0;d5d8451609be59bd;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u3;r2a/t-bid-btc4h-q1;R-20261011-002
-2db62858ab9f1fb4;b7bd28dd4b064f9e;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u1;r2a/t-bid-btc4h-q1;R-20261011-002
-2ea2fb77fd161c08;b73444f339aca22f;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u2;r2a/t-bid-btc4h-q1;R-20261011-002
-4dc4bcc9057e631f;e241be2f9cf9a723;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u3;r2a/t-bid-btc4h-q1;R-20261011-002
-171e84f9a1706eb2;c3c1e7e9caa137f1;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u1;r2a/t-bid-btc4h-q1;R-20261011-002
-26e0560191336bd7;60a84027590989b2;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u2;r2a/t-bid-btc4h-q1;R-20261011-002
-49cdca97c5797aa9;4ec81ce05a1be419;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u3;r2a/t-bid-btc4h-q1;R-20261011-002
-444af0a300f198bb;69a914203c2a2169;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u1;r2a/t-bid-btc4h-q1;R-20261011-002
-e9ccb01b8299cb93;9febddaaa2b69380;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u2;r2a/t-bid-btc4h-q1;R-20261011-002
-d3263dfa0a0f2e80;2df1763f125e9d37;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u3;r2a/t-bid-btc4h-q1;R-20261011-002
-103df566398c89e1;331b780b2b507b69;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u1;r2a/t-bid-btc4h-q1;R-20261011-002
-30c5ec9f792b9968;882f30cec5fbecc8;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u2;r2a/t-bid-btc4h-q1;R-20261011-002
-6285b0cd6d204761;938add1455a593e3;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u3;r2a/t-bid-btc4h-q1;R-20261011-002
-846ece37666b1dbe;b14120a67bd0954b;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u1;r2a/t-bid-btc4h-q1;R-20261011-002
-fd9c4ba5749e0f7d;e2c19b7e95d19965;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u2;r2a/t-bid-btc4h-q1;R-20261011-002
-4ea5c6ed5e1ddeda;f68ece3ef3e1f544;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u3;r2a/t-bid-btc4h-q1;R-20261011-002
+a821744c3b9cf13f;5bc3461e383f3216;шапка группы p02-h10-before;ladder3x2..20w2-before-tr1x1-14400-ttl1800;p02-h10-before/t-bid-btc4h-q1;R-20261006-s001
+76a716e34d215373;28c8e39011e1aacb;шапка группы p02-h9e899-market;market-pct2-tr1x1-14400-ttl1800;p02-h9e899-market/t-bid-btc4h-q1;R-20261006-s001
+907d4039dd58f52f;b46e782bd96d7ead;--set прогона TK-040 (p05-a120-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a120-u10k;R-20261006-s001
+f4fc63386d85f47e;adc61958a9ff3d6e;--set прогона TK-040 (p05-a15-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a15-u10k;R-20261006-s001
+6b119deb2202f02d;7e822c8163839d31;--set прогона TK-040 (p05-a30-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a30-u10k;R-20261006-s001
+92795c37e1df75bd;f4e6b70a0b652c7d;--set прогона TK-040 (p05-a45-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u100k;R-20261006-s001
+4bc84fd2178032fd;1a4d534658491461;--set прогона TK-040 (p05-a45-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u10k;R-20261006-s001
+e58dc31ed71efa04;889b139f46402f2c;--set прогона TK-040 (p05-a45-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u250k;R-20261006-s001
+66a77214c5a5f8d3;ed1bd7f5af4b7b8a;--set прогона TK-040 (p05-a45-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u25k;R-20261006-s001
+601cc821703a1656;c84c2ebff319128a;--set прогона TK-040 (p05-a45-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a45-u50k;R-20261006-s001
+8aabbeea7c59b5bb;f998f9ef18a7fccb;--set прогона TK-040 (p05-a60-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a60-u10k;R-20261006-s001
+e27258da444240d0;423591f2bd6a28c3;--set прогона TK-040 (p05-a90-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a1/p05-a90-u10k;R-20261006-s001
+01111e2beb2eb05b;d61cf8753df1f0e7;--set прогона TK-040 (p05-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u100k;R-20261006-s001
+4ece2ccb1fba9f5c;645c6035d2a1efbc;--set прогона TK-040 (p05-a120-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u250k;R-20261006-s001
+8d644f383a92cf4f;bef97e36189a1bc0;--set прогона TK-040 (p05-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u25k;R-20261006-s001
+0a17f0521f7ef6f4;19a734219b0c81ce;--set прогона TK-040 (p05-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a120-u50k;R-20261006-s001
+d903e621bb2a0023;fe273bcdd0588114;--set прогона TK-040 (p05-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u100k;R-20261006-s001
+82d6999e3cce0915;02e19c1e1a6b1ed9;--set прогона TK-040 (p05-a15-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u250k;R-20261006-s001
+4a9430ad85019080;5caed135b5e300f3;--set прогона TK-040 (p05-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u25k;R-20261006-s001
+424bece8969cde89;5c2a3830c30d9923;--set прогона TK-040 (p05-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a15-u50k;R-20261006-s001
+963deb5cabe49282;927063df5db7310d;--set прогона TK-040 (p05-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u100k;R-20261006-s001
+fbcf31018272b9da;f1db801f1211a2ca;--set прогона TK-040 (p05-a30-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u250k;R-20261006-s001
+e60b5eb4e892e38d;25cefb85f7efe641;--set прогона TK-040 (p05-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u25k;R-20261006-s001
+245bb85edd18fd85;f756f8aead4976c8;--set прогона TK-040 (p05-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a30-u50k;R-20261006-s001
+d38b7707d031f94c;1a0aa64babfa9b7c;--set прогона TK-040 (p05-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u100k;R-20261006-s001
+e3b26eb564bf18c8;70f841c549ff5896;--set прогона TK-040 (p05-a60-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u250k;R-20261006-s001
+974dc12b9bf29893;9effaf98294c8e30;--set прогона TK-040 (p05-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u25k;R-20261006-s001
+f9ff433e731871bf;a1cb1eff616c61ba;--set прогона TK-040 (p05-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a60-u50k;R-20261006-s001
+916cd35350218d8e;1492b7c891f09eba;--set прогона TK-040 (p05-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u100k;R-20261006-s001
+3d3af72efa9ef036;a47735ac5e7bad6b;--set прогона TK-040 (p05-a90-u250k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u250k;R-20261006-s001
+950d2db1f0f930f8;95095563f52e6f0c;--set прогона TK-040 (p05-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u25k;R-20261006-s001
+7f0dd72df7b13a4c;6d94a3f9b633c937;--set прогона TK-040 (p05-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-a2/p05-a90-u50k;R-20261006-s001
+eef61f9a455447a1;dc70fd84d5bb02f8;--set прогона TK-040 (p05-f100-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a120;R-20261006-s001
+b25008185e0dc39d;d3f2b3def6caa6d5;--set прогона TK-040 (p05-f100-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a15;R-20261006-s001
+a8cb0064dac2eca5;f8d2eccbb60c9e33;--set прогона TK-040 (p05-f100-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a30;R-20261006-s001
+d0c103164f17e9d3;568b1fa59b8e81fa;--set прогона TK-040 (p05-f100-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a60;R-20261006-s001
+bf0cafc313fa1341;8efe0e7c274434ab;--set прогона TK-040 (p05-f100-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-a90;R-20261006-s001
+dded786a76c37dc7;875d7e9605aa25a0;--set прогона TK-040 (p05-f100-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u100k;R-20261006-s001
+0dbf253144be6a6e;d28114dcae8d8315;--set прогона TK-040 (p05-f100-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u10k;R-20261006-s001
+7348e323f437e6c5;c8289447d4243d9f;--set прогона TK-040 (p05-f100-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u25k;R-20261006-s001
+f1011205221d1098;7b3a6642441f3dba;--set прогона TK-040 (p05-f100-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f100-u50k;R-20261006-s001
+35e61c5b1176ea62;ccd437802694d50f;--set прогона TK-040 (p05-f15_9-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a120;R-20261006-s001
+2ca566a9c2396665;e8c678a05a8eafd9;--set прогона TK-040 (p05-f15_9-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a15;R-20261006-s001
+fe8f559ca887cf38;a515457152111bf4;--set прогона TK-040 (p05-f15_9-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a30;R-20261006-s001
+b296e940fbc8c0e7;54464dd0546cba06;--set прогона TK-040 (p05-f15_9-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a60;R-20261006-s001
+e1bc8eb44dd15ece;a1fac3e30df9a2b2;--set прогона TK-040 (p05-f15_9-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-a90;R-20261006-s001
+d2a76196e4ced3d2;3707c1c3c7f7e9b2;--set прогона TK-040 (p05-f15_9-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u100k;R-20261006-s001
+d99ada95762465d6;d26448dd62992922;--set прогона TK-040 (p05-f15_9-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u10k;R-20261006-s001
+0e80665e9a534aaa;b71ab37691540ef5;--set прогона TK-040 (p05-f15_9-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u25k;R-20261006-s001
+56e257f92723f80b;f1380198bbc87fbc;--set прогона TK-040 (p05-f15_9-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f15_9-u50k;R-20261006-s001
+a8f21cd1f065c8da;ec3125deb5b88a31;--set прогона TK-040 (p05-f25-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a120;R-20261006-s001
+6fc64058862587d5;191a22f67e4c414f;--set прогона TK-040 (p05-f25-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a15;R-20261006-s001
+455e9bf6352144df;bacc858da6268bde;--set прогона TK-040 (p05-f25-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a30;R-20261006-s001
+f43d816d366f0810;fc7300e3723fa57b;--set прогона TK-040 (p05-f25-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a60;R-20261006-s001
+8b3b821fc9c5557b;b65afde4ef297cd7;--set прогона TK-040 (p05-f25-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-a90;R-20261006-s001
+3e525d3bc6d95136;20540e5b465ae972;--set прогона TK-040 (p05-f25-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u100k;R-20261006-s001
+c243e2a588ccaab8;4bc8dad1be6b83b4;--set прогона TK-040 (p05-f25-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u10k;R-20261006-s001
+0800e405157f57db;a7082864294c440e;--set прогона TK-040 (p05-f25-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u25k;R-20261006-s001
+1db6ce078f4dbdec;dcd58b2011ae7750;--set прогона TK-040 (p05-f25-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f25-u50k;R-20261006-s001
+50b65276e9b534e1;ff1f0b6880c8f82c;--set прогона TK-040 (p05-f30_7-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a120;R-20261006-s001
+cbb4cebb3f69be7a;bd63ac88606cd7c9;--set прогона TK-040 (p05-f30_7-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a15;R-20261006-s001
+8d10bc8652e82bae;d1ceeb98a2895a18;--set прогона TK-040 (p05-f30_7-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a30;R-20261006-s001
+7a797ff457410119;c70f7c5dd7e9f004;--set прогона TK-040 (p05-f30_7-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a60;R-20261006-s001
+eda313fb57f0d2bc;42d0ddf83001e156;--set прогона TK-040 (p05-f30_7-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-a90;R-20261006-s001
+2d6b59bd41222160;1425e3cf6ea06fd4;--set прогона TK-040 (p05-f30_7-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u100k;R-20261006-s001
+ef9c2eec76bf0438;ae161edc43579273;--set прогона TK-040 (p05-f30_7-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u10k;R-20261006-s001
+2375a8b3b9fff88d;e4ceee75f85b664a;--set прогона TK-040 (p05-f30_7-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u25k;R-20261006-s001
+6645112cc1665d6e;c78094affe809579;--set прогона TK-040 (p05-f30_7-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f30_7-u50k;R-20261006-s001
+b4235117d13375da;42be9a11ab3a8da5;--set прогона TK-040 (p05-f50-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a120;R-20261006-s001
+0ff3003a6a76ef53;9ebded44cbd72c6d;--set прогона TK-040 (p05-f50-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a15;R-20261006-s001
+08ec79bfab28bcbd;8edccd9844975021;--set прогона TK-040 (p05-f50-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a30;R-20261006-s001
+8427a52506d106f1;de397d2f8b18eb36;--set прогона TK-040 (p05-f50-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a60;R-20261006-s001
+c73f8ea5862b3d92;71b2d217c31733d4;--set прогона TK-040 (p05-f50-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-a90;R-20261006-s001
+bce0f37533802f4a;b3eb0b68d37c4c93;--set прогона TK-040 (p05-f50-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u100k;R-20261006-s001
+fc9ea68e6d1a2b38;178803cf8d92aff4;--set прогона TK-040 (p05-f50-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u10k;R-20261006-s001
+888b5dd392e44696;09c811706013113b;--set прогона TK-040 (p05-f50-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u25k;R-20261006-s001
+bf5361fc95670b6a;2fba2ffff96150c5;--set прогона TK-040 (p05-f50-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f50-u50k;R-20261006-s001
+a4c50908608a4791;c5058e2d49133b60;--set прогона TK-040 (p05-f75-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a120;R-20261006-s001
+7d1584f673b4938a;15a9a5958c1e65c7;--set прогона TK-040 (p05-f75-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a15;R-20261006-s001
+a457d25a2e0b7930;0f8b94f3ac11647d;--set прогона TK-040 (p05-f75-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a30;R-20261006-s001
+5fc360872319c8cd;9105f81058492694;--set прогона TK-040 (p05-f75-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a60;R-20261006-s001
+594e3d29cb1f3f41;afcf072603aaca25;--set прогона TK-040 (p05-f75-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-a90;R-20261006-s001
+3e6843b788c4e59f;607580db6ff368cc;--set прогона TK-040 (p05-f75-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u100k;R-20261006-s001
+690765383344073a;1f0df2809c713ca9;--set прогона TK-040 (p05-f75-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u10k;R-20261006-s001
+59fbb209d748d07e;01e15e6bd1b4b7b8;--set прогона TK-040 (p05-f75-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u25k;R-20261006-s001
+e06596b9fd259c64;37b692d5c80fd191;--set прогона TK-040 (p05-f75-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f75-u50k;R-20261006-s001
+ba0f868f1463720d;6eb7d1c509c375ff;--set прогона TK-040 (p05-f8_1-a120);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a120;R-20261006-s001
+27a178f3d26248c9;9c962dd47a714da2;--set прогона TK-040 (p05-f8_1-a15);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a15;R-20261006-s001
+0b37d644ad2112fe;f6dbb9724d8f11b0;--set прогона TK-040 (p05-f8_1-a30);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a30;R-20261006-s001
+e94aa76dea8b20ee;467ca4a5ed98c24f;--set прогона TK-040 (p05-f8_1-a60);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a60;R-20261006-s001
+6e7f7251fa5e9c85;2e38d22d9e09cf9f;--set прогона TK-040 (p05-f8_1-a90);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-a90;R-20261006-s001
+6a185f301c47f82a;9f82588a7a1513a5;--set прогона TK-040 (p05-f8_1-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u100k;R-20261006-s001
+11aeb993225f3cc1;233720b0aa15a521;--set прогона TK-040 (p05-f8_1-u10k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u10k;R-20261006-s001
+bbf5d75fd80370d9;0544e824216d1e01;--set прогона TK-040 (p05-f8_1-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u25k;R-20261006-s001
+0a0fee26e3f8f62f;932e4039a0772931;--set прогона TK-040 (p05-f8_1-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-b/p05-f8_1-u50k;R-20261006-s001
+6b7926b994cd1134;74f126fca8104900;--set прогона TK-040 (p05-f100-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a120-u100k;R-20261006-s001
+6f74cfe84d8c413f;2ca4ca726b98f665;--set прогона TK-040 (p05-f100-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a120-u25k;R-20261006-s001
+9c3747427f422e13;802b0513155d0371;--set прогона TK-040 (p05-f100-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a120-u50k;R-20261006-s001
+35ff1cc3f3175623;7840664974f3ca9f;--set прогона TK-040 (p05-f100-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a15-u100k;R-20261006-s001
+a727d030fb402f97;e826bff5cd3bd4f5;--set прогона TK-040 (p05-f100-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a15-u25k;R-20261006-s001
+d5789e689d663354;ec4d041bd4997cf2;--set прогона TK-040 (p05-f100-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a15-u50k;R-20261006-s001
+7279f39401629b24;b078df77290ebd2e;--set прогона TK-040 (p05-f100-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a30-u100k;R-20261006-s001
+2e1936c90ee1ff53;2f4c3fccf57038bb;--set прогона TK-040 (p05-f100-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a30-u25k;R-20261006-s001
+11993ce9e0ce0edd;98c94e38a6e3e629;--set прогона TK-040 (p05-f100-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a30-u50k;R-20261006-s001
+85eb5dec9ff376a4;5f7fdc0b28370d63;--set прогона TK-040 (p05-f100-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a60-u100k;R-20261006-s001
+dd7fc2f3bff2fdd3;8fca86dc75b4fd9e;--set прогона TK-040 (p05-f100-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a60-u25k;R-20261006-s001
+d3776b781a5a3d2a;c73e7f0840ec3d6d;--set прогона TK-040 (p05-f100-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a60-u50k;R-20261006-s001
+2984cd98b5db9d35;7fdea7e61346350b;--set прогона TK-040 (p05-f100-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a90-u100k;R-20261006-s001
+cba497579d8c558a;459f745e5c1e92fb;--set прогона TK-040 (p05-f100-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a90-u25k;R-20261006-s001
+01d6517bcc8c59df;b13a019c9b8cd954;--set прогона TK-040 (p05-f100-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f100-a90-u50k;R-20261006-s001
+68e2ddc1fe31091f;4beb2e5e2201dbdc;--set прогона TK-040 (p05-f25-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a120-u100k;R-20261006-s001
+fd50ae2fc850e26c;431b9ca3f87af9b6;--set прогона TK-040 (p05-f25-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a120-u25k;R-20261006-s001
+b7a347896857f726;e61cf8f509b5b274;--set прогона TK-040 (p05-f25-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a120-u50k;R-20261006-s001
+901a6bfff0cf13a7;88dc25087674077e;--set прогона TK-040 (p05-f25-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a15-u100k;R-20261006-s001
+b47d0b16bf988436;1f26fe9af2805a53;--set прогона TK-040 (p05-f25-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a15-u25k;R-20261006-s001
+236a53b147988055;4ece777035a72119;--set прогона TK-040 (p05-f25-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a15-u50k;R-20261006-s001
+60936c9cd40c0cb8;cffaa9f9f8d351d1;--set прогона TK-040 (p05-f25-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a30-u100k;R-20261006-s001
+e2f7e160558672f3;542aa5202181f89e;--set прогона TK-040 (p05-f25-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a30-u25k;R-20261006-s001
+6324e200618f7fb5;c48c6a54752d48ef;--set прогона TK-040 (p05-f25-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a30-u50k;R-20261006-s001
+4ebec9b32a0f13ae;8167c0c3dadf69ca;--set прогона TK-040 (p05-f25-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a60-u100k;R-20261006-s001
+73a5cff92d2bb502;3dd64e960fe9fc96;--set прогона TK-040 (p05-f25-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a60-u25k;R-20261006-s001
+d62da3cc47aad0e5;7681d8d7a856514e;--set прогона TK-040 (p05-f25-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a60-u50k;R-20261006-s001
+31921422b8f0d1b1;c9248af0fd063e67;--set прогона TK-040 (p05-f25-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a90-u100k;R-20261006-s001
+ee8782888f2f28fc;eedab81815c7555a;--set прогона TK-040 (p05-f25-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a90-u25k;R-20261006-s001
+23fc63f4322e2d11;93475ca39af22a2c;--set прогона TK-040 (p05-f25-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f25-a90-u50k;R-20261006-s001
+f297f71d1f9d6600;34f0318934b92689;--set прогона TK-040 (p05-f50-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a120-u100k;R-20261006-s001
+b5402d0ee531ab5b;c671cb9879571114;--set прогона TK-040 (p05-f50-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a120-u25k;R-20261006-s001
+82b4247ce6f12b2b;205f6d7c5e0a96bc;--set прогона TK-040 (p05-f50-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a120-u50k;R-20261006-s001
+a0e0d6a335feefa6;38b46019dcd96d91;--set прогона TK-040 (p05-f50-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a15-u100k;R-20261006-s001
+8c284beba9e622e5;707ae3ebf42666c7;--set прогона TK-040 (p05-f50-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a15-u25k;R-20261006-s001
+b7afe441b12677ba;d655b37cdc57972d;--set прогона TK-040 (p05-f50-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a15-u50k;R-20261006-s001
+de3435822cddece1;2bc3962e8d9070d7;--set прогона TK-040 (p05-f50-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a30-u100k;R-20261006-s001
+8c6da241c945a377;b6e31dc57156e542;--set прогона TK-040 (p05-f50-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a30-u25k;R-20261006-s001
+fe3d73f733137bc0;c382e6742e23b3ea;--set прогона TK-040 (p05-f50-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a30-u50k;R-20261006-s001
+0ac59c555c695bae;c397a5fa4a9ae91f;--set прогона TK-040 (p05-f50-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a60-u100k;R-20261006-s001
+0604bbde0b842e4e;cb56b15c9e4fec50;--set прогона TK-040 (p05-f50-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a60-u25k;R-20261006-s001
+a622a19c6a94c262;11390a0c67885a9a;--set прогона TK-040 (p05-f50-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a60-u50k;R-20261006-s001
+05cb9e345bede1d8;be9f4335b33ba10a;--set прогона TK-040 (p05-f50-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a90-u100k;R-20261006-s001
+bf83260706b10bd1;7c005bf799a87dc7;--set прогона TK-040 (p05-f50-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a90-u25k;R-20261006-s001
+cb92ebefa3345885;5c860739b9d116ea;--set прогона TK-040 (p05-f50-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f50-a90-u50k;R-20261006-s001
+6cfbf7d09ed0707a;2643b21300d00a1b;--set прогона TK-040 (p05-f75-a120-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a120-u100k;R-20261006-s001
+6bec1d5e9fff8d49;5ca091955e3c8248;--set прогона TK-040 (p05-f75-a120-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a120-u25k;R-20261006-s001
+4a0a94174cb48be9;e0a38916368ff207;--set прогона TK-040 (p05-f75-a120-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a120-u50k;R-20261006-s001
+5085abf78fa17ad4;562d913834a7e64c;--set прогона TK-040 (p05-f75-a15-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a15-u100k;R-20261006-s001
+e100adc826c63af5;a017a8bb8b8b39e0;--set прогона TK-040 (p05-f75-a15-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a15-u25k;R-20261006-s001
+d491076b58fd5a6c;2f44813d7afc7748;--set прогона TK-040 (p05-f75-a15-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a15-u50k;R-20261006-s001
+8197dbb4186062d8;d96f8ad712ee21e7;--set прогона TK-040 (p05-f75-a30-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a30-u100k;R-20261006-s001
+b22a21c5f98b94e0;6943f0a0f54a834e;--set прогона TK-040 (p05-f75-a30-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a30-u25k;R-20261006-s001
+cccbfebeb2323b43;411b088cbaaa64d4;--set прогона TK-040 (p05-f75-a30-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a30-u50k;R-20261006-s001
+7fb1a0fbfe0a611c;53381818723aaf0c;--set прогона TK-040 (p05-f75-a60-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a60-u100k;R-20261006-s001
+7142748887520a51;2b1854700af8a0f0;--set прогона TK-040 (p05-f75-a60-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a60-u25k;R-20261006-s001
+f5ef1c1afe671e44;eaa0adef83aeb9bc;--set прогона TK-040 (p05-f75-a60-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a60-u50k;R-20261006-s001
+e3ae06087901cc28;2ed945b0aaeee7ca;--set прогона TK-040 (p05-f75-a90-u100k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a90-u100k;R-20261006-s001
+861e6c3312d05bfb;16af662b931e9ca8;--set прогона TK-040 (p05-f75-a90-u25k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a90-u25k;R-20261006-s001
+063f2c6270317b68;3cab20cbea7785d8;--set прогона TK-040 (p05-f75-a90-u50k);ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p05-c/p05-f75-a90-u50k;R-20261006-s001
+3a04a5cc33d20725;cd0ca1a2eb55798c;шапка группы p07a-base;pct2-tr1x1-14400-ttl1800;p07a-base/t-bid-btc4h-q1;R-20261006-s001
+742fd61515fde6ce;0b9b203cc163ffca;шапка группы p07a-h13-gone30wall0;pct2-tr1x1-14400-ttl1800-gone30wall0;p07a-h13-gone30wall0/t-bid-btc4h-q1;R-20261006-s001
+cd05c90d944bd724;1f0f5440a4527e0d;шапка группы p07a-h13-gone30wallk0;pct2-tr1x1-14400-ttl1800-gone30wallk0;p07a-h13-gone30wallk0/t-bid-btc4h-q1;R-20261006-s001
+8b50ee16bf338c9e;65b00dcad32c0ba4;шапка группы p07a-h13-gone30wallx0;pct2-tr1x1-14400-ttl1800-gone30wallx0;p07a-h13-gone30wallx0/t-bid-btc4h-q1;R-20261006-s001
+49a9e7c704d49fe8;f79737b069d3e66a;шапка группы p07a-h13-gone50wall0;pct2-tr1x1-14400-ttl1800-gone50wall0;p07a-h13-gone50wall0/t-bid-btc4h-q1;R-20261006-s001
+fcec5c9287c72233;22630f45f7dec5f2;шапка группы p07a-h13-gone50wall10;pct2-tr1x1-14400-ttl1800-gone50wall10;p07a-h13-gone50wall10/t-bid-btc4h-q1;R-20261006-s001
+0c1fa709036eeaa7;c4d3c89e20d12f5d;шапка группы p07a-h13-gone50wallk0;pct2-tr1x1-14400-ttl1800-gone50wallk0;p07a-h13-gone50wallk0/t-bid-btc4h-q1;R-20261006-s001
+723c5aa788eee8ce;427d810d4608c4a2;шапка группы p07a-h13-gone50wallk10;pct2-tr1x1-14400-ttl1800-gone50wallk10;p07a-h13-gone50wallk10/t-bid-btc4h-q1;R-20261006-s001
+50cb0c5c367b46c6;93d992227d392309;шапка группы p07a-h13-gone50wallx0;pct2-tr1x1-14400-ttl1800-gone50wallx0;p07a-h13-gone50wallx0/t-bid-btc4h-q1;R-20261006-s001
+edd97101895f7ca4;787e6ebbe6ec1acd;шапка группы p07a-h13-gone50wallx10;pct2-tr1x1-14400-ttl1800-gone50wallx10;p07a-h13-gone50wallx10/t-bid-btc4h-q1;R-20261006-s001
+bad508b3e8de623d;df06ddad81dba2da;шапка группы p07a-h13-gone90wall0;pct2-tr1x1-14400-ttl1800-gone90wall0;p07a-h13-gone90wall0/t-bid-btc4h-q1;R-20261006-s001
+f2cd3d8bbb266b4e;edd96afc2bffd768;шапка группы p07a-h13-gone90wallk0;pct2-tr1x1-14400-ttl1800-gone90wallk0;p07a-h13-gone90wallk0/t-bid-btc4h-q1;R-20261006-s001
+7f4a954f83ef2eb7;ed84de2b22462e27;шапка группы p07a-h13-gone90wallx0;pct2-tr1x1-14400-ttl1800-gone90wallx0;p07a-h13-gone90wallx0/t-bid-btc4h-q1;R-20261006-s001
+dd97426734f9a15a;f062a283380b4552;шапка группы p07a-h2-fr1;single@fr+1-pct2-tr1x1-14400-ttl1800;p07a-h2-fr1/t-bid-btc4h-q1;R-20261006-s001
+b551aa51a308d987;ef6698c8d25dfefe;шапка группы p07a-h2-fr2;single@fr+2-pct2-tr1x1-14400-ttl1800;p07a-h2-fr2/t-bid-btc4h-q1;R-20261006-s001
+416bbe1ec6c4ffa5;04a154104d4ad5eb;шапка группы p07a-h2-fr3;single@fr+3-pct2-tr1x1-14400-ttl1800;p07a-h2-fr3/t-bid-btc4h-q1;R-20261006-s001
+31a7519c2df6cd54;2b7696cbcdd1089d;шапка группы p07a-h3-100000;pct2-tr1x1-14400-ttl1800;p07a-h3-100000/t-bid-btc4h-q1;R-20261006-s001
+4365e3f7a9c037f0;2af3520ade27c1c0;шапка группы p07a-h3-25000;pct2-tr1x1-14400-ttl1800;p07a-h3-25000/t-bid-btc4h-q1;R-20261006-s001
+1e8f5449bce99d69;5a6fcd106e61efae;шапка группы p07a-h3-50000;pct2-tr1x1-14400-ttl1800;p07a-h3-50000/t-bid-btc4h-q1;R-20261006-s001
+1bcc51f762096160;1000d6a87bfeacc7;шапка группы p07a-h4-1800;pct2-tr1x1-14400-ttl1800;p07a-h4-1800/t-bid-btc4h-q1;R-20261006-s001
+085737f0e0e1d243;25e7965c75987a5f;шапка группы p07a-h4-3600;pct2-tr1x1-14400-ttl1800;p07a-h4-3600/t-bid-btc4h-q1;R-20261006-s001
+5f55b0f7dda4e9bd;3684f067c18bf4e6;шапка группы p07a-h4-5400;pct2-tr1x1-14400-ttl1800;p07a-h4-5400/t-bid-btc4h-q1;R-20261006-s001
+d15d74fba0ffb66e;4b96006f70ec01ca;шапка группы p07a-h4-900;pct2-tr1x1-14400-ttl1800;p07a-h4-900/t-bid-btc4h-q1;R-20261006-s001
+d0534c666c2c8ff5;8147d4c0fcdec76f;шапка группы p07a-h5-btc1h;pct2-tr1x1-14400-ttl1800;p07a-h5-btc1h/t-bid-btc1h-q1;R-20261006-s001
+ca5e423df91fc206;903f5b9f4ddcbaa8;шапка группы p07a-h5-btc2h;pct2-tr1x1-14400-ttl1800;p07a-h5-btc2h/t-bid-btc2h-q1;R-20261006-s001
+a40aac1ed702d8a5;4c3b5d5ed8a3317e;шапка группы p07a-h5-btc3h;pct2-tr1x1-14400-ttl1800;p07a-h5-btc3h/t-bid-btc3h-q1;R-20261006-s001
+ee6306a83ea2b101;cab172183c1ca551;шапка группы p07a-h6-at;at-tr1x1-14400-ttl1800;p07a-h6-at/t-bid-btc4h-q1;R-20261006-s001
+0318e0f8aca60c13;e48bb18b349bc90c;шапка группы p07a-h6-before;before-tr1x1-14400-ttl1800;p07a-h6-before/t-bid-btc4h-q1;R-20261006-s001
+02f000f962dabec4;252d1c8aab87ede1;шапка группы p07a-h6-behind;behind-tr1x1-14400-ttl1800;p07a-h6-behind/t-bid-btc4h-q1;R-20261006-s001
+c0f945a47d894ba6;c8a843d23bb7776f;шапка группы p07a-h6-pct1.5;pct1.5-tr1x1-14400-ttl1800;p07a-h6-pct1.5/t-bid-btc4h-q1;R-20261006-s001
+69555e04e7b30a17;6905cdabf0f8f167;шапка группы p07a-h6-pct3;pct3-tr1x1-14400-ttl1800;p07a-h6-pct3/t-bid-btc4h-q1;R-20261006-s001
+7d7371dfc267c22d;6f933543651e381e;шапка группы p07a-h7-1to1;pct2-1to1-14400-ttl1800;p07a-h7-1to1/t-bid-btc4h-q1;R-20261006-s001
+3af1545d19e80578;f82108a49e136dbb;шапка группы p07a-h7-tr1.5x1;pct2-tr1.5x1-14400-ttl1800;p07a-h7-tr1.5x1/t-bid-btc4h-q1;R-20261006-s001
+2df6dcee951135b0;bd2f2ebe8c8808c2;шапка группы p07a-h7-tr1x1.5;pct2-tr1x1.5-14400-ttl1800;p07a-h7-tr1x1.5/t-bid-btc4h-q1;R-20261006-s001
+24f4f6e2401c96e4;686d1b847d600416;шапка группы p07a-h7-tr2x1;pct2-tr2x1-14400-ttl1800;p07a-h7-tr2x1/t-bid-btc4h-q1;R-20261006-s001
+17064b8646221cc3;e487188eb0f6c811;шапка группы p07a-h8-3600;pct2-tr1x1-3600-ttl1800;p07a-h8-3600/t-bid-btc4h-q1;R-20261006-s001
+fbc8073ee45b96eb;25bea6064294ada7;шапка группы p07a-h8-7200;pct2-tr1x1-7200-ttl1800;p07a-h8-7200/t-bid-btc4h-q1;R-20261006-s001
+d4cf6cbbfc806795;30229bf7071fb028;шапка группы p07b-base;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-base/t-bid-btc4h-q1;R-20261006-s001
+bc7b20c4b2220723;38eee37b14b1e673;шапка группы p07b-h13-gone30wall0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone30wall0;p07b-h13-gone30wall0/t-bid-btc4h-q1;R-20261006-s001
+73bb7adeb9bc48ba;b467348b1a68957b;шапка группы p07b-h13-gone30wallk0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone30wallk0;p07b-h13-gone30wallk0/t-bid-btc4h-q1;R-20261006-s001
+c4a7c16b952c802b;412d0a16461e1b3e;шапка группы p07b-h13-gone30wallx0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone30wallx0;p07b-h13-gone30wallx0/t-bid-btc4h-q1;R-20261006-s001
+3b20f8d10f7f686f;8572e51b800918ed;шапка группы p07b-h13-gone50wall0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wall0;p07b-h13-gone50wall0/t-bid-btc4h-q1;R-20261006-s001
+2810f7c843472240;9ce5cdb34d5087a4;шапка группы p07b-h13-gone50wall10;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wall10;p07b-h13-gone50wall10/t-bid-btc4h-q1;R-20261006-s001
+5c433648c85ac05c;f0c7a4042ba54d7e;шапка группы p07b-h13-gone50wallk0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallk0;p07b-h13-gone50wallk0/t-bid-btc4h-q1;R-20261006-s001
+a7d6457d8b83e5a3;b852ba25f00cee0b;шапка группы p07b-h13-gone50wallk10;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallk10;p07b-h13-gone50wallk10/t-bid-btc4h-q1;R-20261006-s001
+e7611debf8674c1d;8543f9eadac5f0ae;шапка группы p07b-h13-gone50wallx0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallx0;p07b-h13-gone50wallx0/t-bid-btc4h-q1;R-20261006-s001
+83edd5a62f0677d1;7a7aefba5dadbf1b;шапка группы p07b-h13-gone50wallx10;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallx10;p07b-h13-gone50wallx10/t-bid-btc4h-q1;R-20261006-s001
+250ca975acaa061c;aaef20218489e234;шапка группы p07b-h13-gone90wall0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wall0;p07b-h13-gone90wall0/t-bid-btc4h-q1;R-20261006-s001
+ef1881eabf7969e9;5d1b59fde18fc38d;шапка группы p07b-h13-gone90wallk0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wallk0;p07b-h13-gone90wallk0/t-bid-btc4h-q1;R-20261006-s001
+6feb727d562a1419;17993411063dce0e;шапка группы p07b-h13-gone90wallx0;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wallx0;p07b-h13-gone90wallx0/t-bid-btc4h-q1;R-20261006-s001
+fe8b2e7953e7193d;0af5d457fc017bf6;шапка группы p07b-h2-0.0136;ladder3x0..0.0136sw2-pct2-tr1x1-14400-ttl1800;p07b-h2-0.0136/t-bid-btc4h-q1;R-20261006-s001
+2f32c7f94443c43d;bf4bf519f5495939;шапка группы p07b-h2-0.0273;ladder3x0..0.0273sw2-pct2-tr1x1-14400-ttl1800;p07b-h2-0.0273/t-bid-btc4h-q1;R-20261006-s001
+f399f0d1505a6336;983130203b9c6fcc;шапка группы p07b-h2-0.0682;ladder3x0..0.0682sw2-pct2-tr1x1-14400-ttl1800;p07b-h2-0.0682/t-bid-btc4h-q1;R-20261006-s001
+370e74ef29e15142;8c6b2176ac06f9b6;шапка группы p07b-h3-100000;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h3-100000/t-bid-btc4h-q1;R-20261006-s001
+51872f5ab5ca83eb;b2f8165f3bad549e;шапка группы p07b-h3-25000;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h3-25000/t-bid-btc4h-q1;R-20261006-s001
+015aaf823067211a;d0aa7a51e976d604;шапка группы p07b-h3-50000;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h3-50000/t-bid-btc4h-q1;R-20261006-s001
+cb5180b27b80d87f;dafe22c2b3dabeec;шапка группы p07b-h4-1800;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-1800/t-bid-btc4h-q1;R-20261006-s001
+8e723e213cd8acf4;b2bca4d205406f44;шапка группы p07b-h4-3600;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-3600/t-bid-btc4h-q1;R-20261006-s001
+8415944ae6c34475;c2f27d6960a97ae6;шапка группы p07b-h4-5400;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-5400/t-bid-btc4h-q1;R-20261006-s001
+9d948f6aed82cec5;8387e53e53638a73;шапка группы p07b-h4-900;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h4-900/t-bid-btc4h-q1;R-20261006-s001
+6619496ef779e370;4a2d14cd7c0ff536;шапка группы p07b-h5-btc1h;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h5-btc1h/t-bid-btc1h-q1;R-20261006-s001
+ca496b179b19a36e;e3cf6e207aa019a5;шапка группы p07b-h5-btc2h;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h5-btc2h/t-bid-btc2h-q1;R-20261006-s001
+b9f8c93bd2799980;6a8066ef08a81f60;шапка группы p07b-h5-btc3h;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-h5-btc3h/t-bid-btc3h-q1;R-20261006-s001
+71a3bdd74fe6895a;b440f15d002c032b;шапка группы p07b-h6-at;ladder3x0..0.0409sw2-at-tr1x1-14400-ttl1800;p07b-h6-at/t-bid-btc4h-q1;R-20261006-s001
+6130a60f908b4855;3584ca636982fdb3;шапка группы p07b-h6-behind;ladder3x0..0.0409sw2-behind-tr1x1-14400-ttl1800;p07b-h6-behind/t-bid-btc4h-q1;R-20261006-s001
+f904e8bb825f118a;3861b406e5c1fc57;шапка группы p07b-h6-pct1.5;ladder3x0..0.0409sw2-pct1.5-tr1x1-14400-ttl1800;p07b-h6-pct1.5/t-bid-btc4h-q1;R-20261006-s001
+83d4a5053a995ada;c302f0c098a0863c;шапка группы p07b-h6-pct3;ladder3x0..0.0409sw2-pct3-tr1x1-14400-ttl1800;p07b-h6-pct3/t-bid-btc4h-q1;R-20261006-s001
+fa15676218f3e1ec;6ab0181f257629fb;шапка группы p07b-h7-1to1;ladder3x0..0.0409sw2-pct2-1to1-14400-ttl1800;p07b-h7-1to1/t-bid-btc4h-q1;R-20261006-s001
+d534244e4725ed2a;b0bb8c43ac5f4387;шапка группы p07b-h7-tr1.5x1;ladder3x0..0.0409sw2-pct2-tr1.5x1-14400-ttl1800;p07b-h7-tr1.5x1/t-bid-btc4h-q1;R-20261006-s001
+bd46ea2efe991ec4;163c32f2a396d927;шапка группы p07b-h7-tr1x1.5;ladder3x0..0.0409sw2-pct2-tr1x1.5-14400-ttl1800;p07b-h7-tr1x1.5/t-bid-btc4h-q1;R-20261006-s001
+d26b246510a57567;e95f767f77f6d95b;шапка группы p07b-h7-tr2x1;ladder3x0..0.0409sw2-pct2-tr2x1-14400-ttl1800;p07b-h7-tr2x1/t-bid-btc4h-q1;R-20261006-s001
+25fed6f92266433b;71cb57e2c3bd65c0;шапка группы p07b-h8-3600;ladder3x0..0.0409sw2-pct2-tr1x1-3600-ttl1800;p07b-h8-3600/t-bid-btc4h-q1;R-20261006-s001
+eb7d2dd5b16078d1;3ff424e0977742f0;шапка группы p07b-h8-7200;ladder3x0..0.0409sw2-pct2-tr1x1-7200-ttl1800;p07b-h8-7200/t-bid-btc4h-q1;R-20261006-s001
+3edb23e55bbc1bf4;21b155e7699dd56d;шапка группы p07b-t9-early1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-early1;p07b-t9-early1/t-bid-btc4h-q1;R-20261006-s001
+d2db088d7ce5afd6;0cf0832d6dca3212;шапка группы p07b-t9-early2;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-early2;p07b-t9-early2/t-bid-btc4h-q1;R-20261006-s001
+3a8947c0a2000605;2b80493305f96135;шапка группы p07b-t9-early3;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-early3;p07b-t9-early3/t-bid-btc4h-q1;R-20261006-s001
+8a60182e949172fa;8c30a4c2093e77ef;шапка группы p07b-t9-gone50be;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50be;p07b-t9-gone50be/t-bid-btc4h-q1;R-20261006-s001
+9ed4bb66b0921d7b;821acf7685ce368d;шапка группы p07b-t9-gone50tr1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50tr1;p07b-t9-gone50tr1/t-bid-btc4h-q1;R-20261006-s001
+f7b58d7205586d46;dee93ca5754b68f6;шапка группы p07b-t9-gone90be;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90be;p07b-t9-gone90be/t-bid-btc4h-q1;R-20261006-s001
+c954ec64d1c895e0;3100ce35deb6dd85;шапка группы p07b-t9-gone90tr1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90tr1;p07b-t9-gone90tr1/t-bid-btc4h-q1;R-20261006-s001
+7f5343004ad11ce9;66567135d261e49a;шапка группы p07b-t9-market;market-pct2-tr1x1-14400-ttl1800;p07b-t9-market/t-bid-btc4h-q1;R-20261006-s001
+9aabd4d13de36320;e7ee4ea78fc8232c;шапка группы p07b-t9-touch;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p07b-t9-touch/t-bid-btc4h-q1;R-20261006-s001
+d445cdc442a9b721;170480e365ca27ac;шапка группы p07b-t9-ttl300;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl300;p07b-t9-ttl300/t-bid-btc4h-q1;R-20261006-s001
+f75f9fed7bab6df6;59f9305985a5323d;шапка группы p07b-t9-ttl60;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl60;p07b-t9-ttl60/t-bid-btc4h-q1;R-20261006-s001
+61e360e2b6b3625d;3c5adf78d8b58f2a;шапка группы p07m-btc1h;ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p07m-btc1h/t-bid-btc1h-q1;R-20261006-s001
+fc50b4b34697970a;1a4d534658491461;шапка группы p07m-main;ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p07m-main/t-bid-btc4h-q1;R-20261006-s001
+458bf956f95a0f41;3da8333dec748e90;шапка группы p07m-nofilter;ladder3x2..20w2-pct2-tr1x1-14400-ttl1800;p07m-nofilter/t-bid-age-45;R-20261006-s001
+1ce15c5228cbefe5;046372ab62299662;шапка группы p07m-take;ladder3x2..20w2-pct2-tk1.75-14400-ttl1800;p07m-take/t-bid-btc4h-q1;R-20261006-s001
+25343491f0f97d29;caf6428dc2df0c4e;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
+27c44e10488e6332;116728fdbf6a4261;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2-tr1x1-21600-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2-tr1x1-21600-ttl1800;R-20261011-001
+56ff6610c251d062;a9bb97fa62cae7eb;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2-tr1x1-28800-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2-tr1x1-28800-ttl1800;R-20261011-001
+410929daf85a3051;5e7f31a874c52e10;p12-ext: полное имя формы + набор B1;ladder3x0..0.0409sw2-pct2.5-tr1x1-14400-ttl1800;p12-ext/ladder3x0..0.0409sw2-pct2.5-tr1x1-14400-ttl1800;R-20261011-001
+c68dc0b535859934;fcdc5d4afdfb0b2e;p12-ext: полное имя формы + набор B1;ladder3x0.00409..0.02045sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.00409..0.02045sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
+7cd6700bb286912d;a19818b42860a5fd;p12-ext: полное имя формы + набор B1;ladder3x0.00409..0.0818sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.00409..0.0818sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
+eadde306db37f93b;5e536050fd62d2cd;p12-ext: полное имя формы + набор B1;ladder3x0.010225..0.02045sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.010225..0.02045sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
+042df83b5ada85ec;ca20afbff2bb8101;p12-ext: полное имя формы + набор B1;ladder3x0.010225..0.0818sw2-pct2-tr1x1-14400-ttl1800;p12-ext/ladder3x0.010225..0.0818sw2-pct2-tr1x1-14400-ttl1800;R-20261011-001
+cd71f6d4e7427b94;4173fe49b15b6b5f;B1 (набор B1, P-10 §4);B1;p12-r1/B1;R-20261011-001
+f15bc92ac996ac14;01a9afc93e795902;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k20;p12-r1/g04-k20;R-20261011-001
+46d1777740424d5e;e07ed6bc518a5a6d;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k33;p12-r1/g04-k33;R-20261011-001
+0768a12c0d226d0e;dc2c165d7d698540;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k50;p12-r1/g04-k50;R-20261011-001
+fdc0897bf6fb5aac;30a7fd6b84ef2785;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k67;p12-r1/g04-k67;R-20261011-001
+19c33bc108720556;d8e8c312a02f0a14;имя клетки R1 (признак, квантиль): B1 + порог признака;g04-k80;p12-r1/g04-k80;R-20261011-001
+9e25008219fc43a4;86518492d28a0e24;p12-cells: B1 + вариант g05;g05-c1;p12-r1/g05-c1;R-20261011-001
+74cfe6102cb78628;57379ae8b33b1c07;p12-cells: B1 + вариант g05;g05-c3;p12-r1/g05-c3;R-20261011-001
+6ebb6f1ccc870450;b00f2100d401aee8;p12-cells: B1 + вариант g06;g06-slow;p12-r1/g06-slow;R-20261011-001
+5e060e185ea78c5e;895ef0eda9bae680;p12-cells: B1 + вариант g100;g100-micro0;p12-r1/g100-micro0;R-20261011-001
+eb2f9c65a367f655;13770d52fc8843f0;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k20;p12-r1/g139-k20;R-20261011-001
+e0495a1747c18a6d;c93b3065d0be2600;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k33;p12-r1/g139-k33;R-20261011-001
+c911e15a2d5eb65a;4ec104e055929af4;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k50;p12-r1/g139-k50;R-20261011-001
+4e3a33a764aba666;5b27a1884f4745ec;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k67;p12-r1/g139-k67;R-20261011-001
+dc3f692968343a2c;5ea5c01c3f637e65;имя клетки R1 (признак, квантиль): B1 + порог признака;g139-k80;p12-r1/g139-k80;R-20261011-001
+444017dc1b0908eb;4d8f652b9307a3e6;p12-cells: B1 + вариант g34;g34-notmoved;p12-r1/g34-notmoved;R-20261011-001
+745bc76e0e99cbd0;336f0fc675e264a0;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k20;p12-r1/g35-k20;R-20261011-001
+18f682fea110be5e;81e544be8c3a4490;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k33;p12-r1/g35-k33;R-20261011-001
+1939c2b0baca4d14;4e3b442be53a85b0;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k50;p12-r1/g35-k50;R-20261011-001
+54faf8af47902b5e;a3a41ed204ace1fb;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k67;p12-r1/g35-k67;R-20261011-001
+b0e6e8b3c31fb569;ed79681687fce6f3;имя клетки R1 (признак, квантиль): B1 + порог признака;g35-k80;p12-r1/g35-k80;R-20261011-001
+27452085910f7ce2;130f960171cf730e;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k20;p12-r1/g39-k20;R-20261011-001
+2f8a5da781e97050;2812028cfa454910;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k33;p12-r1/g39-k33;R-20261011-001
+1819374cf0f131a6;0b160dbd2d3be840;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k50;p12-r1/g39-k50;R-20261011-001
+9b14a0dbe7197428;3acf8323bda3272d;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k67;p12-r1/g39-k67;R-20261011-001
+658dc30df0b97675;950a0e4213a7c3ea;имя клетки R1 (признак, квантиль): B1 + порог признака;g39-k80;p12-r1/g39-k80;R-20261011-001
+a76d8e87022e911b;520fcbb644030627;p12-cells: B1 + вариант g40;g40-retest;p12-r1/g40-retest;R-20261011-001
+008afcf18911c0e3;234ec615c33928cf;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k20;p12-r1/g42-k20;R-20261011-001
+eb4ae54ea1b969b3;40eaf40399cddcf5;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k33;p12-r1/g42-k33;R-20261011-001
+f646bab83428292c;a050a10d01dbb7a2;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k50;p12-r1/g42-k50;R-20261011-001
+c96a31591c247324;b81e98912f0c7d05;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k67;p12-r1/g42-k67;R-20261011-001
+16b1b7dbad21e352;0b2068a47b0be48c;имя клетки R1 (признак, квантиль): B1 + порог признака;g42-k80;p12-r1/g42-k80;R-20261011-001
+ed76497aa4ded4be;4379473d0b3ece0a;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k20;p12-r1/g43-best_move_10s_cbps-k20;R-20261011-001
+efa524516c5d81b2;b7fa9c7557814d61;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k33;p12-r1/g43-best_move_10s_cbps-k33;R-20261011-001
+ff78e49ec1137404;350da9da8d8bb192;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k50;p12-r1/g43-best_move_10s_cbps-k50;R-20261011-001
+820aaef8635c229a;99c24c479a629509;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k67;p12-r1/g43-best_move_10s_cbps-k67;R-20261011-001
+a877a29a91147cd9;c8d7a5b4dea392cb;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_10s_cbps-k80;p12-r1/g43-best_move_10s_cbps-k80;R-20261011-001
+94af4502bb4b701c;20196944853d041c;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k20;p12-r1/g43-best_move_1s_cbps-k20;R-20261011-001
+553cd23674505959;48a51265aca33f4d;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k33;p12-r1/g43-best_move_1s_cbps-k33;R-20261011-001
+b915a216eeb56d22;08b991f6c068ab29;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k50;p12-r1/g43-best_move_1s_cbps-k50;R-20261011-001
+6df66bdd7df1594a;c549c358a2c78828;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k67;p12-r1/g43-best_move_1s_cbps-k67;R-20261011-001
+968b32f41491ccf2;79ed065615c1c451;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-k80;p12-r1/g43-best_move_1s_cbps-k80;R-20261011-001
+d30c92229579c24b;93108d2a3bb92300;имя клетки R1 (признак, квантиль): B1 + порог признака;g43-best_move_1s_cbps-nz;p12-r1/g43-best_move_1s_cbps-nz;R-20261011-001
+308f3f945897262a;ed99a1edbf2e6c96;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k20;p12-r1/g44-k20;R-20261011-001
+3d665ec4c2c7784d;a50b4bdeabde249b;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k33;p12-r1/g44-k33;R-20261011-001
+fbb180dd421bb8b8;28a8006394437572;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k50;p12-r1/g44-k50;R-20261011-001
+bd0faab21996b285;863df16b2d7c5760;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k67;p12-r1/g44-k67;R-20261011-001
+f896b8f7469c3451;983cdcebad80b212;имя клетки R1 (признак, квантиль): B1 + порог признака;g44-k80;p12-r1/g44-k80;R-20261011-001
+47b05bf21b5ff514;6ea0d53797b03d35;p12-cells: B1 + вариант g58;g58-cancel0;p12-r1/g58-cancel0;R-20261011-001
+044be430aa60a925;b0a814861059d633;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k20;p12-r1/g59-tape_press_lots_15s-k20;R-20261011-001
+c056af5d5ad69443;129c8b0795d9fc4d;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k33;p12-r1/g59-tape_press_lots_15s-k33;R-20261011-001
+f318a6a6ac247319;91f3a489f66cd585;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k50;p12-r1/g59-tape_press_lots_15s-k50;R-20261011-001
+0549544b3f65b772;5fc39bafd237aea9;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k67;p12-r1/g59-tape_press_lots_15s-k67;R-20261011-001
+4ab7fde57b3fa684;b8c061432a57bc44;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_15s-k80;p12-r1/g59-tape_press_lots_15s-k80;R-20261011-001
+f833685fbe83ef4a;59897d96fee2242f;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k20;p12-r1/g59-tape_press_lots_30s-k20;R-20261011-001
+c22e9545291bfd29;a5105f3d6cb3f40f;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k33;p12-r1/g59-tape_press_lots_30s-k33;R-20261011-001
+5a6f3670542cab60;ef2325814b2da7de;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k50;p12-r1/g59-tape_press_lots_30s-k50;R-20261011-001
+f801df8c915d9167;ba3288e47ff0c2f5;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k67;p12-r1/g59-tape_press_lots_30s-k67;R-20261011-001
+81b94b8d511fc0d8;7a1b8fd55a71c125;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_30s-k80;p12-r1/g59-tape_press_lots_30s-k80;R-20261011-001
+77b08f126e4ae8f6;ae9f077b02d099ec;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k20;p12-r1/g59-tape_press_lots_60s-k20;R-20261011-001
+abcccb45da226f3a;16c19d9b0b6e3ee1;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k33;p12-r1/g59-tape_press_lots_60s-k33;R-20261011-001
+601e274c86b53428;45ff807fbdb7a4ef;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k50;p12-r1/g59-tape_press_lots_60s-k50;R-20261011-001
+a391eea7b8ce8e0c;62120b96c5de2f5d;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k67;p12-r1/g59-tape_press_lots_60s-k67;R-20261011-001
+56d24f5fe80e2b6f;ede5ceb1841ad114;имя клетки R1 (признак, квантиль): B1 + порог признака;g59-tape_press_lots_60s-k80;p12-r1/g59-tape_press_lots_60s-k80;R-20261011-001
+c4246fe2db1544c2;ef115c6b69758bad;p12-cells: B1 + вариант g61;g61-5to20;p12-r1/g61-5to20;R-20261011-001
+dceb1da6fb35ac5f;442edefa5f0a968b;p12-cells: B1 + вариант g61;g61-le60;p12-r1/g61-le60;R-20261011-001
+7fd329203831be89;6f705941fa3da221;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k20;p12-r1/g63-k20;R-20261011-001
+beb37cd17c093990;108c6a4cd6cd5ac2;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k33;p12-r1/g63-k33;R-20261011-001
+8afb29306ff457e7;d92b4cad125956cb;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k50;p12-r1/g63-k50;R-20261011-001
+4f81c79d608ddcf7;dca9b3847c5a8c1e;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k67;p12-r1/g63-k67;R-20261011-001
+d65ccd90e77e5e8d;a54b60a2bcbea008;имя клетки R1 (признак, квантиль): B1 + порог признака;g63-k80;p12-r1/g63-k80;R-20261011-001
+740fea771a8fe684;8039bac6cdea9f3c;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k20;p12-r1/g64-drift-k20;R-20261011-001
+9f05f3e514e4159b;d2ade0f9ee9534e6;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k33;p12-r1/g64-drift-k33;R-20261011-001
+0e8fde0c61201222;bbfeac266e64d6b7;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k50;p12-r1/g64-drift-k50;R-20261011-001
+94852abd49390318;13b5612a84fcd4ef;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k67;p12-r1/g64-drift-k67;R-20261011-001
+f511c704f86ff525;b2851b8463b1ecf2;имя клетки R1 (признак, квантиль): B1 + порог признака;g64-drift-k80;p12-r1/g64-drift-k80;R-20261011-001
+d1c8b9fedeef4922;2de9fc71d2d14e21;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k20;p12-r1/g67-best_flips_15s-k20;R-20261011-001
+8e6962d4c9bd9ea3;a57dbc6852d5a745;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k33;p12-r1/g67-best_flips_15s-k33;R-20261011-001
+9e32d628ca215f98;f65a4667afaf1ca5;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k50;p12-r1/g67-best_flips_15s-k50;R-20261011-001
+94f3991d75b112e4;5f884a69aa0852a7;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k67;p12-r1/g67-best_flips_15s-k67;R-20261011-001
+3386eac05aa0f297;2a008bb674d381ea;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_15s-k80;p12-r1/g67-best_flips_15s-k80;R-20261011-001
+dbc68a7bed29728d;42d36f3e9b6e1049;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k20;p12-r1/g67-best_flips_60s-k20;R-20261011-001
+b90b2eac98cc5ec8;be29c1c19fc448aa;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k33;p12-r1/g67-best_flips_60s-k33;R-20261011-001
+0f7c8d0c32f9f402;d5a349ed62b769b1;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k50;p12-r1/g67-best_flips_60s-k50;R-20261011-001
+e3c361df02ec5f9e;3b4d5be09fc3df60;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k67;p12-r1/g67-best_flips_60s-k67;R-20261011-001
+f0191f470361e118;8b13a253989b32aa;имя клетки R1 (признак, квантиль): B1 + порог признака;g67-best_flips_60s-k80;p12-r1/g67-best_flips_60s-k80;R-20261011-001
+f1dbecf02ef377c5;14a777c3769174ef;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k20;p12-r1/g68-obi10_bp-k20;R-20261011-001
+910536f36b3c93ed;0ec9c60e629881de;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k33;p12-r1/g68-obi10_bp-k33;R-20261011-001
+2577f32b110dccb9;f117a62370a585e0;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k50;p12-r1/g68-obi10_bp-k50;R-20261011-001
+5db8eed101e04d96;947ef11c97ef7282;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k67;p12-r1/g68-obi10_bp-k67;R-20261011-001
+01cbd1b2e60447be;c21b5659240b3d2d;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi10_bp-k80;p12-r1/g68-obi10_bp-k80;R-20261011-001
+04058c8ecce74aa8;3b1336e24b508493;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k20;p12-r1/g68-obi1_bp-k20;R-20261011-001
+08d47960d6bec0e0;032e9fab4ccfc064;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k33;p12-r1/g68-obi1_bp-k33;R-20261011-001
+f12c40a6f8a7191e;ef2507276d716a71;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k50;p12-r1/g68-obi1_bp-k50;R-20261011-001
+224e1c71f4d17291;c5159892e1287d6d;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k67;p12-r1/g68-obi1_bp-k67;R-20261011-001
+b280068a2580ec38;9b66e37a20b1690a;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi1_bp-k80;p12-r1/g68-obi1_bp-k80;R-20261011-001
+b7adf5fb334496a9;74d4851a4f3892b6;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k20;p12-r1/g68-obi50_bp-k20;R-20261011-001
+ce36fada4510f4da;2b530cd367e46af0;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k33;p12-r1/g68-obi50_bp-k33;R-20261011-001
+abc943d4da2556e8;dd55d67a7bf7bf8e;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k50;p12-r1/g68-obi50_bp-k50;R-20261011-001
+15af93ab18e9871b;925831410127c06d;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k67;p12-r1/g68-obi50_bp-k67;R-20261011-001
+ae98e563671c34b3;15f53840b211bed2;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi50_bp-k80;p12-r1/g68-obi50_bp-k80;R-20261011-001
+c125d3d200d6c865;437a5b1302f6ef10;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k20;p12-r1/g68-obi5_bp-k20;R-20261011-001
+6a641bc7c81c659a;8747cab781fcbf3e;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k33;p12-r1/g68-obi5_bp-k33;R-20261011-001
+0f0528c157156707;20ce4de37d8a0217;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k50;p12-r1/g68-obi5_bp-k50;R-20261011-001
+0dc4b9d108971ed5;bb3161062cc47e1f;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k67;p12-r1/g68-obi5_bp-k67;R-20261011-001
+b6143ee9e289db11;fed64d3e3de3f1a8;имя клетки R1 (признак, квантиль): B1 + порог признака;g68-obi5_bp-k80;p12-r1/g68-obi5_bp-k80;R-20261011-001
+007e7836ae39eeeb;5777e1d3cb447e57;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k20;p12-r1/g69-ofi_10s_lots-k20;R-20261011-001
+4fa6aedcbf44a2e3;9c96c0e55781fab2;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k33;p12-r1/g69-ofi_10s_lots-k33;R-20261011-001
+d7d85b82d10ab4d1;986a6945035e4746;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k50;p12-r1/g69-ofi_10s_lots-k50;R-20261011-001
+78a666a1d4616e7f;e6c39a5087f7fb76;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k67;p12-r1/g69-ofi_10s_lots-k67;R-20261011-001
+c6dede67ec4087b1;6d013c502a1c07be;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_10s_lots-k80;p12-r1/g69-ofi_10s_lots-k80;R-20261011-001
+dbea9f1e84173a83;1e720280a545bcd7;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k20;p12-r1/g69-ofi_60s_lots-k20;R-20261011-001
+900c3cc527983383;971a8546e6c21e66;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k33;p12-r1/g69-ofi_60s_lots-k33;R-20261011-001
+ced13390b928a05a;6cd969675aa36082;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k50;p12-r1/g69-ofi_60s_lots-k50;R-20261011-001
+0c9b60565ecc40e1;f9493a92d3526aa1;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k67;p12-r1/g69-ofi_60s_lots-k67;R-20261011-001
+ef55e34333df39b0;dd900f85c1e70382;имя клетки R1 (признак, квантиль): B1 + порог признака;g69-ofi_60s_lots-k80;p12-r1/g69-ofi_60s_lots-k80;R-20261011-001
+5b3e100ed4a32087;480d66c3289274d9;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k20;p12-r1/g70-k20;R-20261011-001
+39b73ad89b967ef7;2899eaa7db694c0e;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k33;p12-r1/g70-k33;R-20261011-001
+58aef6d5edb5b867;48bdab44b30c231a;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k50;p12-r1/g70-k50;R-20261011-001
+1f4451366c861ab0;873d0890d6f8c53c;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k67;p12-r1/g70-k67;R-20261011-001
+79efe7dc376ccdde;2652e74d178e1918;имя клетки R1 (признак, квантиль): B1 + порог признака;g70-k80;p12-r1/g70-k80;R-20261011-001
+5b29e3c7f8082466;6fe0e2e837cf6723;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k20;p12-r1/g71-sign_ac_15s_bp-k20;R-20261011-001
+322568ddd079875b;825f27c824782674;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k33;p12-r1/g71-sign_ac_15s_bp-k33;R-20261011-001
+914a7f3c75f53c6d;a8c41177cc7229a7;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k50;p12-r1/g71-sign_ac_15s_bp-k50;R-20261011-001
+5fb06084b9c10411;c095d04cd4d27df1;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k67;p12-r1/g71-sign_ac_15s_bp-k67;R-20261011-001
+e73ab398c7d17b9a;fcee243d863ffe7e;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_15s_bp-k80;p12-r1/g71-sign_ac_15s_bp-k80;R-20261011-001
+4031d86b9fb4ed44;dd03644838905e79;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k20;p12-r1/g71-sign_ac_60s_bp-k20;R-20261011-001
+815ac87404c84d1f;e3b52fa25aaafdc2;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k33;p12-r1/g71-sign_ac_60s_bp-k33;R-20261011-001
+95f8c963857843ec;57118248d7d99617;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k50;p12-r1/g71-sign_ac_60s_bp-k50;R-20261011-001
+c0d623a513dff3dd;cb79e67b36c69a28;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k67;p12-r1/g71-sign_ac_60s_bp-k67;R-20261011-001
+41cbefa30c426186;5a5a0c664f4088c5;имя клетки R1 (признак, квантиль): B1 + порог признака;g71-sign_ac_60s_bp-k80;p12-r1/g71-sign_ac_60s_bp-k80;R-20261011-001
+d2f4ecf211c97762;ce99b086bc846f7e;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k20;p12-r1/g73-conj-k20;R-20261011-001
+92e12366ff5308ee;9f613d99b49d6122;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k33;p12-r1/g73-conj-k33;R-20261011-001
+20f89ea3eb9041a6;1401980f3360f771;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k50;p12-r1/g73-conj-k50;R-20261011-001
+fa7d0d2add835bee;93e1ae48d8c4bd25;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k67;p12-r1/g73-conj-k67;R-20261011-001
+52100bc4cefc4e7d;ca7af09d3b2842a2;имя клетки R1 (признак, квантиль): B1 + порог признака;g73-conj-k80;p12-r1/g73-conj-k80;R-20261011-001
+05d6c179e528db5a;ca1acf4a9050e772;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k20;p12-r1/g75-k20;R-20261011-001
+36b77b26e3f68548;852eb72afbea6c26;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k33;p12-r1/g75-k33;R-20261011-001
+4b27297d7e377291;dc485682b4e3721e;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k50;p12-r1/g75-k50;R-20261011-001
+6d2056948f68d826;5bd26e83188bf4a9;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k67;p12-r1/g75-k67;R-20261011-001
+9172c754c73a3502;b5c8fd5ac2b955e5;имя клетки R1 (признак, квантиль): B1 + порог признака;g75-k80;p12-r1/g75-k80;R-20261011-001
+54dde4f653f7843d;fa1646d0e0d93fda;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k20;p12-r1/g82-tape_burst_press_15s_bp-k20;R-20261011-001
+cc90d9e9cea8ace3;540925e7136b0153;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k33;p12-r1/g82-tape_burst_press_15s_bp-k33;R-20261011-001
+37ce759bf7982cf7;486aeefb95183e23;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k50;p12-r1/g82-tape_burst_press_15s_bp-k50;R-20261011-001
+8488e9b98a223156;b15c1a660a649cef;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k67;p12-r1/g82-tape_burst_press_15s_bp-k67;R-20261011-001
+3e4c0778a0bc050e;7caabaacfaf0dd43;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_15s_bp-k80;p12-r1/g82-tape_burst_press_15s_bp-k80;R-20261011-001
+e5556fac7c7a7744;e469497a9d0e850b;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k20;p12-r1/g82-tape_burst_press_30s_bp-k20;R-20261011-001
+dce40c5bf84dd8ab;bd0272c5795946e4;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k33;p12-r1/g82-tape_burst_press_30s_bp-k33;R-20261011-001
+a8c63ca078286b7f;5746f1fb606a767c;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k50;p12-r1/g82-tape_burst_press_30s_bp-k50;R-20261011-001
+8258d56bf2a74f39;da55c71b8557cb57;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k67;p12-r1/g82-tape_burst_press_30s_bp-k67;R-20261011-001
+48018fb97ec00355;2d1840792bd5bae9;имя клетки R1 (признак, квантиль): B1 + порог признака;g82-tape_burst_press_30s_bp-k80;p12-r1/g82-tape_burst_press_30s_bp-k80;R-20261011-001
+8b3653f16a2ff04d;069980bb66c2b7d6;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k20;p12-r1/g83-conj-k20;R-20261011-001
+2d02ca47ade7961e;41474fafa8d7c732;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k33;p12-r1/g83-conj-k33;R-20261011-001
+ee08208dd739bb15;c43eaf589385025e;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k50;p12-r1/g83-conj-k50;R-20261011-001
+397fcf19011ad60e;dcce9ac9f11a64f6;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k67;p12-r1/g83-conj-k67;R-20261011-001
+d27a8f2bad432ca3;181493f49ad22b17;имя клетки R1 (признак, квантиль): B1 + порог признака;g83-conj-k80;p12-r1/g83-conj-k80;R-20261011-001
+edb06aa430d0ba01;e991dd4ddaebbc41;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halflevelf1;r3a/t-bid-btc4h-q1;R-20261011-002
+47a98bc6a8dd5862;7da9d9f03965f433;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halflevelf3;r3a/t-bid-btc4h-q1;R-20261011-002
+e294cd4b436701f8;a8c45ddb10e23010;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halfstopf1;r3a/t-bid-btc4h-q1;R-20261011-002
+ab44fc5c74bc6339;18f2fc10d7e9aac2;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-halfstopf3;r3a/t-bid-btc4h-q1;R-20261011-002
+dc9f69bdf9a2ff73;884b18a53bef100a;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw3-pct2-tr1x1-14400-ttl1800;r3a/t-bid-btc4h-q1;R-20261011-002
+d83cf6e1feef0e8c;003e7736a0d8ab55;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800;r3c/e106-pop;R-20261011-002
+683a90569f56578b;58997fa89992673f;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop1;r3c/e106-pop;R-20261011-002
+a2d97f9f41b0680d;28f7bfa435c9b4a5;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop2;r3c/e106-pop;R-20261011-002
+a4726f9ddce95de1;c009e700650834a6;--set e106-pop (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-nostop4;r3c/e106-pop;R-20261011-002
+bf64e494f62787d6;83e7fd6e5967ce8d;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh2;r2a/g87-fresh;R-20261011-002
+4edad256ff713b0a;f848988a3a869d97;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh3;r2a/g87-fresh;R-20261011-002
+fb9d791c8bb524be;ee9800a7e608b8e0;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh4;r2a/g87-fresh;R-20261011-002
+f79e329865706252;383b611416ba4dcf;--set g87-fresh (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh5;r2a/g87-fresh;R-20261011-002
+3ffb599a19c28e9c;b83ea18fb3f89b73;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat2;r2a/t-bid-btc4h-q1;R-20261011-002
+90a2b577dd60424f;0649fc9730444e2a;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat3;r2a/t-bid-btc4h-q1;R-20261011-002
+e04850362199799c;2ac7ad1ce94c1da0;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat4;r2a/t-bid-btc4h-q1;R-20261011-002
+b4832b285752f4ce;77aaa8e1d79029bb;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyeat5;r2a/t-bid-btc4h-q1;R-20261011-002
+f46383135d4ac381;dae01eae20a1bb09;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u1;r2a/t-bid-btc4h-q1;R-20261011-002
+cb1308c94a1f57ea;962e41816298f2ab;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u2;r2a/t-bid-btc4h-q1;R-20261011-002
+9fe91367ffca34f0;816ba290b968654b;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw1u3;r2a/t-bid-btc4h-q1;R-20261011-002
+2db62858ab9f1fb4;db70a15e61892308;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u1;r2a/t-bid-btc4h-q1;R-20261011-002
+2ea2fb77fd161c08;b41f0e27d5261f91;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u2;r2a/t-bid-btc4h-q1;R-20261011-002
+4dc4bcc9057e631f;42612a6f4bc45be6;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw2u3;r2a/t-bid-btc4h-q1;R-20261011-002
+171e84f9a1706eb2;a1205aaa3f31b086;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u1;r2a/t-bid-btc4h-q1;R-20261011-002
+26e0560191336bd7;4c67e2cbaa6532d1;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u2;r2a/t-bid-btc4h-q1;R-20261011-002
+49cdca97c5797aa9;ad0cd9258b06182a;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pynw3u3;r2a/t-bid-btc4h-q1;R-20261011-002
+444af0a300f198bb;e337dc00ae44c951;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u1;r2a/t-bid-btc4h-q1;R-20261011-002
+e9ccb01b8299cb93;b89d54bab31c72b4;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u2;r2a/t-bid-btc4h-q1;R-20261011-002
+d3263dfa0a0f2e80;a5b52afb36773f4d;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre3u3;r2a/t-bid-btc4h-q1;R-20261011-002
+103df566398c89e1;c091467ec68cdb75;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u1;r2a/t-bid-btc4h-q1;R-20261011-002
+30c5ec9f792b9968;ae08ddde6a1ea4cf;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u2;r2a/t-bid-btc4h-q1;R-20261011-002
+6285b0cd6d204761;c66c19dd4a24152e;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre4u3;r2a/t-bid-btc4h-q1;R-20261011-002
+846ece37666b1dbe;10f3b6f7641f26e6;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u1;r2a/t-bid-btc4h-q1;R-20261011-002
+fd9c4ba5749e0f7d;285310d41a291b18;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u2;r2a/t-bid-btc4h-q1;R-20261011-002
+4ea5c6ed5e1ddeda;e8b62c270351e833;--set t-bid-btc4h-q1 (calc);ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyre5u3;r2a/t-bid-btc4h-q1;R-20261011-002

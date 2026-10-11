@@ -16,8 +16,10 @@ F = os.path.join(ROOT, "docs", "findings")
 B1_SET = {"side": "bid", "min_age_s": 2700, "max_age_s": None, "ctx": "btc4h_max=-44.55", "min_flow_pct": None, "usd_min": None,
           "r1_born_shift_cbps_min": None, "signal": "approach", "frontrun_only": False, "driver": "setups", "lot": "usd:500x1",
           "entry_ttl": "60+300+1800", "post_only": True, "band_exit_bps": 20}
+# флаги прогонов на calc (jall-jan-*.sh, poolc-c.sh, tk115-delta-day.sh) — одни и те же во всех клетках Летописи
 STD_EXEC = {"place_ns": 4200000, "cancel_ns": 3980000, "taker_ns": 5650000, "queue": "prob:3", "h3": "Notional", "hold_step": "skip",
-            "busy_skip": "off"}
+            "busy_skip": "off", "p95_place_ns": 4790000, "p95_cancel_ns": 4550000, "p95_taker_ns": 6420000, "h3_usd": 10000,
+            "exit_group": "on", "approach_bps": 20, "touches_from": "study/approaches/D20", "verdict_csv": "tk044/final3/verdict.csv"}
 B1_SIGMA = "study/sigma240"
 B1_FORM = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 SETS_FILE = os.path.join(REG, "files", "tk040-sets-jan.txt")  # `--set` из /data/tk046/jan/home/alpha/tmp-p07/cells-by-day/jall-jan-2026-01-02.sh
@@ -94,12 +96,12 @@ def config_of(c, var, sets, run_pool):
                   "driver": h("driver"), "lot": h("lot"), "entry_ttl": h("entry_ttl"), "post_only": h("entry_post_only"),
                   "band_exit_bps": h("band_exit_bps")}
             src = "шапка группы " + g
-        ex = {**rtt(p["rtt_ns"]), "queue": c.get("queue"), "h3": c.get("h3_mode"), "hold_step": "skip", "busy_skip": "off"}
+        ex = {**STD_EXEC, **rtt(p["rtt_ns"]), "queue": c.get("queue"), "h3": c.get("h3_mode")}
         return {"form": c["form"], "set": st, "exec": ex, "sigma": p.get("hdr_sigma_from"), "universe": uni}, src
     cfg = {"form": c["form"], "set": B1_SET, "exec": dict(STD_EXEC), "sigma": B1_SIGMA, "universe": uni}
     if g.startswith("p12-"):  # клетка R1/R2 П-12: форма = имя клетки, вариант в спецификации
-        cfg["batch"] = g  # p12-r1 и p12-ext — разные партии: B1 в них разошёлся (авг 398 vs 402 сделки), см. отчёт
-        if g == "p12-ext":  # форма записана полностью, вариант не нужен
+        if g == "p12-ext":  # форма записана полностью, вариант не нужен; партия отдельная: B1 разошёлся с p12-r1 (авг 398 vs 402 сделки)
+            cfg["batch"] = g
             return cfg, "p12-ext: полное имя формы + набор B1"
         cfg["form"] = B1_FORM
         if c["form"] == "B1":
