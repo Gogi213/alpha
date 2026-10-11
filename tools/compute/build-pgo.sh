@@ -12,6 +12,8 @@ W=/data/$TAG; BIN=/opt/alpha-compute/bin; RAW=$W/pgo-raw; PD=$W/merged.profdata
 TRAIN_MODES="atom d01 d07"; ABIN="${ABIN_TRAIN:-/data/tk051/abin-train}"
 PROFDATA_TOOL="${PROFDATA_TOOL:-/data/tk155/llvm-profdata}"; LLVMLIB="${LLVMLIB:-/data/tk155/llvmlib}"
 export RUSTUP_HOME=/opt/rbuild/rustup CARGO_HOME=/opt/rbuild/cargo PATH=/opt/rbuild/cargo/bin:$PATH
+# TK-179: боевой профиль — fat LTO, один codegen-unit, panic=abort (волна −4,7 % стены против v3+PGO, diff 0); только для сборок этого скрипта, тесты не затронуты
+export CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_PANIC=abort
 mkdir -p "$W"
 V3='-C target-cpu=x86-64-v3'
 build() {  # <rustflags> <target-dir> <бинарь>
