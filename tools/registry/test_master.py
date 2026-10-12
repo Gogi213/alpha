@@ -60,11 +60,13 @@ class MasterTest(unittest.TestCase):
         self.assertNotEqual(h, ch.cell_hash({k: v for k, v in c.items() if k != "variant"}))
 
     def test_m1_new_family_column_outside_r1ext_goes_to_count(self):
-        """В-227 М1: колонка вне r1ext (nz_levels15) не «посчитана»; колонка из r1ext (ofi_10s_lots) под новой Г — посчитана."""
+        """В-227 М1: колонка вне r1ext (nz_levels15) не «посчитана»; колонка из r1ext с тем же знаком (best_move_1s hi) — посчитана, с другим (ofi lo, Судья 12.10) — к счёту."""
         sv = {"entry_ttl_s": 1800, "stop": "pct2", "take": "1to1", "deadline_s": 3600, "entry": "single", "set": "t-bid-btc4h-q1", "universe": "v171b"}
         new = ch.cell_hash(master.p14_cfg("Г-28", sv, {"col": "nz_levels15", "keep_q": "50"}))
-        old = ch.cell_hash(master.p14_cfg("Г-46", sv, {"col": "ofi_10s_lots", "keep_q": "50"}))
+        old = ch.cell_hash(master.p14_cfg("Г-46", sv, {"col": "best_move_1s_cbps", "keep_q": "50"}))
+        flip = ch.cell_hash(master.p14_cfg("Г-46", sv, {"col": "ofi_10s_lots", "keep_q": "50"}))
         self.assertNotIn(new, master.R1COL)
+        self.assertNotIn(flip, master.R1COL)
         self.assertIn(old, master.R1COL)
 
     def test_bind_hyp_has_no_cells(self):
