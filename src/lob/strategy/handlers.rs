@@ -148,6 +148,7 @@ where
         };
         if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
             // Г-133: погоня переставляет лимитку вслед за ценой (снять, затем `Holding` ставит новую).
+            #[allow(clippy::float_cmp)] // цена цели переставлена или нет: копия, не вычисление
             let reprice = !decision.taker
                 && decision.reason == ExitReason::Deadline
                 && decision.px != state.chase_px;

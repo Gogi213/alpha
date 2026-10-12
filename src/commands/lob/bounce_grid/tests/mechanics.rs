@@ -79,7 +79,10 @@ fn catalog_flags_round_trip_through_run_flags() {
             match m.id {
                 "EntryTtl" => {
                     let secs = name.strip_prefix("ttl").unwrap();
-                    assert!(matches!(EntryTtl::parse(secs), Ok(EntryTtl::Secs(_))), "{name}");
+                    assert!(
+                        matches!(EntryTtl::parse(secs), Ok(EntryTtl::Secs(_))),
+                        "{name}"
+                    );
                     nt += 1;
                 }
                 "EarlyExit" => {
