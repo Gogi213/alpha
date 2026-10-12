@@ -85,7 +85,7 @@ export PATH=/opt/rbuild/cargo/bin:\$PATH RUSTUP_HOME=/opt/rbuild/rustup CARGO_HO
 set -o pipefail
 $CMD
 EOS
-cd /opt/rbuild && SCHED_MANIFEST=0 python3 /data/sched/alsched.py submit --name build-$LABEL --max-runtime ${CALC_MAX:-15m} --cls prod --cores $CORES --mem $MEMG --prio 3 -- bash /opt/rbuild/run.sh $ARCR /opt/rbuild/in/cmd-$$.sh $CORES" | tail -1)
+cd /opt/rbuild && SCHED_MANIFEST=0 python3 /data/sched/alsched.py submit --name build-$LABEL --max-runtime ${CALC_MAX:-15m} --cls prod --kind build --cores $CORES --mem $MEMG --prio 3 -- bash /opt/rbuild/run.sh $ARCR /opt/rbuild/in/cmd-$$.sh $CORES" | tail -1)
   case "$ID" in ''|*[!0-9]*) echo "alsched submit: id не получен ($ID)"; RC=75 ;; *)
     echo "alsched id $ID — wait_for: host:calc:/data/sched/rc/$ID (лог /data/sched/logs/$ID.log)"
     ssh "${KEY[@]}" "$HOST" "while [ ! -e /data/sched/rc/$ID ]; do sleep 2; done; cat /data/sched/logs/$ID.log; exit \$(cat /data/sched/rc/$ID)"
