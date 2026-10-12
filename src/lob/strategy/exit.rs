@@ -273,6 +273,7 @@ where
                 let before = gone.stop_px;
                 gone.stop_px =
                     state.reinstall_stop(entry_side, be_entry_px, favourable, gone.stop_px);
+                #[allow(clippy::float_cmp)] // цена стопа переставлена или нет: копия, не вычисление
                 if gone.stop_px != before {
                     r2_trace!(
                         bot.current_timestamp(),
@@ -363,6 +364,7 @@ where
                 && state.level_qty_at_entry > 0.0
                 && state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry
                     >= pyr.cxl_q;
+            #[allow(clippy::float_cmp)] // цена стопа переставлена или нет: копия, не вычисление
             let plain_stop = gone.stop_px == stop_px;
             let half_level = pyr.half_level;
             let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
@@ -370,6 +372,7 @@ where
                 && !state.stop_half_done
                 && (state.level_broken || (stop_hit && plain_stop));
             let stop_hit = stop_hit && !(half_level && plain_stop);
+            #[allow(clippy::float_cmp)] // цена стопа переставлена или нет: копия, не вычисление
             let stop_reason = if gone.stop_px != stop_px {
                 // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
                 ExitReason::WallGone

@@ -4,7 +4,8 @@
 retries-2026-09-27). Какая Г какой клетке соответствует — по спеке (Г-142 = k1); соответствие остальных — Судье при составлении сетки."""
 NAME = "p07_h14"
 KIND, SOURCES = "keep", ("approaches",)
-PARAMS = {"rule": ("k1", "k2", "k3", "n2", "n3", "n4")}
+# e<k> (Г-138, спека: k {1,2,3,4,5,6,8,10}, 10 = «10+»): ровно k-й подход (e10 — десятый и дальше)
+PARAMS = {"rule": ("k1", "k2", "k3", "n2", "n3", "n4", "e1", "e2", "e3", "e4", "e5", "e6", "e8", "e10")}
 
 
 def run(data, ctx, rule):
@@ -16,6 +17,7 @@ def run(data, ctx, rule):
             cache[key] = ctx.approaches(*key)
         wall = cache[key].get((int(d["t0_ns"]) // 1_000_000, d["price_tick"]))
         no = None if wall is None else int(wall["approach_index"]) + 1
-        if no is None or (no <= k if rule[0] == "k" else no >= k):
+        ok = None if no is None else (no <= k if rule[0] == "k" else no >= k if rule[0] == "n" else (no >= k if k == 10 else no == k))
+        if no is None or ok:
             keep.append((d["symbol"], d["day_utc"], d["form"], d["signal_index"]))
     return keep

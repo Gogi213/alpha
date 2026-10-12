@@ -92,6 +92,16 @@ class T(unittest.TestCase):
         ids = lambda r: [k[3] for k in g.run(data, C(), rule=r)]
         self.assertEqual(ids("k1"), ["0", "2"]); self.assertEqual(ids("k3"), ["0", "1", "2"])
         self.assertEqual(ids("n2"), ["1", "2"]); self.assertEqual(ids("n4"), ["2"])
+        self.assertEqual(ids("e1"), ["0", "2"]); self.assertEqual(ids("e3"), ["1", "2"]); self.assertEqual(ids("e10"), ["2"])   # без связи со стеной не режется
+
+    def test_h9_pause_blocks_after_close_and_respects_busy(self):
+        from closures import p07_h9_pause as g
+        m = 60 * 1_000_000_000
+        mk = lambda i, t, ex, idle: {"symbol": "A", "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(t * m), "step": "x",
+                                     "idle_ns": str(idle * m), "residual": "", "round_exit_ns": str(ex * m) if ex else ""}
+        data = [mk(0, 0, 10, 10), mk(1, 12, 20, 20), mk(2, 40, 0, 40)]   # круг 0 закрыт на 10-й мин
+        ids = lambda p: [k[3] for k in g.run(data, None, pause=p)]
+        self.assertEqual(ids(1), ["0", "1", "2"]); self.assertEqual(ids(5), ["0", "2"])   # пауза 5: 12 < 10+5, сигнал 1 снят; сигнал 2 вне паузы
 
     def test_g26_buckets_causal(self):
         from closures import g26_vol_family as g

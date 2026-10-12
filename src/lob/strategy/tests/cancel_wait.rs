@@ -307,6 +307,9 @@ pub(super) fn an_entry_leg_whose_place_was_in_flight_is_cancelled_by_the_retry()
 /// естественного круга (`Holding` → частичный тейк → рыночная причина)
 /// проверяет Б1-тест, а здесь проверяется сам предохранитель.
 pub(super) fn racing_exit_state(hbt: &mut Backtest<FastMarketDepth>) -> StrategyState {
+    // До первого события время крейта — i64::MAX: заявка с задержкой переполняла бы сложение
+    // (release молча заворачивал, debug паникует). Первый `elapse` ставит время на первое событие.
+    hbt.elapse(0).unwrap();
     hbt.submit_sell_order(
         0,
         EXIT_ID,
