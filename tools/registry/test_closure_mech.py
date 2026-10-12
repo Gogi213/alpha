@@ -113,6 +113,25 @@ class T(unittest.TestCase):
         st = g.stats(fills)
         self.assertEqual(st["max_dd_usd"], -60.0); self.assertEqual(st["worst_day_usd"], -30.0)
 
+    def test_g118_macd_trail_causal_and_early_only(self):
+        from closures import g118_macd_trail as g
+        day = 86_400_000
+        # сутки -1: пила (даёт порог), сутки 0: рост 200 минут, затем обвал
+        px = [100.0 + (i % 10) for i in range(1440)] + [100.0 + i * 0.5 for i in range(200)] + [200.0 - i * 2 for i in range(100)]
+        kl = [(i * 60_000 + 0 * day, p, p, p, p) for i, p in enumerate(px)]
+
+        class C:
+            def klines(self, sym):
+                return kl
+        rd = {"symbol": "X", "day_utc": "d", "form": "f", "signal_index": "1", "t0_ns": str((1440 + 30) * 60_000 * 1_000_000),
+              "exit_ns": str((1440 + 295) * 60_000 * 1_000_000)}
+        out = g.run([rd], C(), q=50)
+        k = ("X", "d", "f", "1")
+        self.assertIn(k, out); ns, px_, taker, why = out[k]
+        self.assertTrue(taker and why == "macd_trail" and (1440 + 200) * 60_000_000_000 < ns < int(rd["exit_ns"]))
+        rd["exit_ns"] = str((1440 + 150) * 60_000 * 1_000_000)      # исходный выход раньше обвала — не трогаем
+        self.assertEqual(g.run([rd], C(), q=50), {})
+
     def test_rounds_net_formula_and_tree(self):
         f = closure_mech.B1_FORM
         self.assertAlmostEqual(closure_mech.net_bps(1, 100.0, 101.0, True), 100.0 - 1.26 - 3.15)
