@@ -173,6 +173,37 @@ class T(unittest.TestCase):
         rb = (btc[2100][1] / btc[2000][1] - 1) * 1e4
         self.assertAlmostEqual(out["mean_bps_after"], 10.0 - rb - 2 * g.TAKER_BPS * out["beta_mean"], places=1)
 
+    def test_g19_markout_by_rank(self):
+        from closures import g19_markout_rank as g
+        m = 60_000
+        kl = [(i * m, 0, 0, 0, 100.0 + i) for i in range(50)]
+
+        class C:
+            def klines(s, sym): return kl if sym == "X" else []
+        rd = lambda sym, lf: {"symbol": sym, "t0_ns": str(10 * m * 1_000_000), "dir": "1", "entry_vwap": "110.0", "legs_filled": lf}
+        out = g.run([rd("X", "2"), rd("X", "3"), rd("Y", "1")], C(), h=5)
+        by = {o["rank"]: o for o in out}
+        self.assertEqual((by["2"]["n"], by["all"]["n"], by["all"]["no_klines_rounds"]), (1, 2, 1))
+        self.assertAlmostEqual(by["2"]["mean_bps"], (114.0 / 110.0 - 1) * 1e4, places=2)       # минута 14 закрыта к t0+5
+
+    def test_g80_depth_excursion_bins(self):
+        from closures import g80_depth_excursion as g
+        m = 60_000
+        kl = [(i * m, 0, 0, 99.0 if i == 5 else 100.0, 100.0) for i in range(30)]
+        sig = [{"symbol": "X", "day_utc": "d", "form": "f", "signal_index": str(i), "price_tick": "7"} for i in range(4)]
+
+        class C:
+            def klines(s, sym): return kl
+            def signals(s): return sig
+            def approaches(s, sym, day): return {(10 * m, "7"): {"depth_behind_lots": "50"}}
+        rd = lambda i: {"symbol": "X", "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(10 * m * 1_000_000),
+                        "exit_ns": str(20 * m * 1_000_000), "entry_vwap": "100.0", "reason": "stop"}
+        c = C()
+        out = g.run([rd(0), rd(1)], c, q=3)                       # t0 минуты 10, низ 99 в минуте 5 - вне окна [10;20]: выброс 0
+        self.assertEqual(sum(o["n"] for o in out), 2); self.assertEqual(out[0]["excursion_mean_bps"], 0.0)
+        kl[12] = (12 * m, 0, 0, 98.0, 100.0)
+        self.assertAlmostEqual(g.run([rd(0)], c, q=3)[-1]["excursion_mean_bps"], 200.0)
+
     def test_g111_target_from_prior_impulse(self):
         from closures import g111_impulse_target as g
         m = 60_000
