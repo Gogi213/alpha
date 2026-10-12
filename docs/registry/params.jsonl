@@ -2,7 +2,9 @@
 {"name": "common_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R1: квантиль составного балла (3 гипотезы common_q)"}
 {"name": "col", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "R1: колонка признака таблицы касаний; каждая колонка — своя ось keep_q"}
 {"name": "terc_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-класс: терцили -> квантильная ось; признак — в note"}
-{"name": "usd_min_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-класс: usd_min — квантильная ось (было верхняя/нижняя треть)"}
+{"name": "usd_min_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "usd_min — квантильная ось (было верхняя/нижняя треть); порог $ = T_m(q) по сигналам B1 прошлых месяцев (В-227, Судья 12.10)"}
+{"name": "behind_min_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "behind_min — квантильная ось (Г-07); порог T_m(q) по сигналам B1 прошлых месяцев (В-227)"}
+{"name": "ctx_q", "unit": "stratum", "resolution": 1.0, "axis_type": "categorical", "cfg_path": "", "note": "В-227 М3: квинтильная страта оси контекста (q1…q5) по сигналам B1 месяца; ось — в note гипотезы"}
 {"name": "n", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-87, верх — min-лот"}
 {"name": "w", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-95, верх — min-лот"}
 {"name": "N", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-92"}

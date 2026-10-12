@@ -69,6 +69,13 @@ class MasterTest(unittest.TestCase):
         self.assertNotIn(flip, master.R1COL)
         self.assertIn(old, master.R1COL)
 
+    def test_m3_ctx_strata_are_distinct_cells_to_count(self):
+        """В-227 М3 (Г-78): ось ctx_q даёт 5 разных хешей на keep_q, ни один не «посчитан r1ext»."""
+        sv = {"entry_ttl_s": 1800, "stop": "pct2", "take": "1to1", "deadline_s": 3600, "entry": "single", "set": "t-bid-btc4h-q1", "universe": "v171b"}
+        hs = {ch.cell_hash(master.p14_cfg("Г-78", sv, {"keep_q": "50", "ctx_q": f"q{i}"}, fixed=("col",))) for i in range(1, 6)}
+        self.assertEqual(len(hs), 5)
+        self.assertFalse(hs & set(master.R1COL))
+
     def test_bind_hyp_has_no_cells(self):
         """В-227 М4/М8: engine bind:<хозяин> — гипотеза закрыта привязкой, клеток не даёт; хозяин не затронут."""
         self.have = {}

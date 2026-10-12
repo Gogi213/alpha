@@ -23,7 +23,9 @@ PARAMS = [
     ("common_q", "pct", "1", "quantile", "R1: квантиль составного балла (3 гипотезы common_q)"),
     ("col", "-", "", "cat", "R1: колонка признака таблицы касаний; каждая колонка — своя ось keep_q"),
     ("terc_q", "pct", "1", "quantile", "П-класс: терцили -> квантильная ось; признак — в note"),
-    ("usd_min_q", "pct", "1", "quantile", "П-класс: usd_min — квантильная ось (было верхняя/нижняя треть)"),
+    ("usd_min_q", "pct", "1", "quantile", "usd_min — квантильная ось (было верхняя/нижняя треть); порог $ = T_m(q) по сигналам B1 прошлых месяцев (В-227, Судья 12.10)"),
+    ("behind_min_q", "pct", "1", "quantile", "behind_min — квантильная ось (Г-07); порог T_m(q) по сигналам B1 прошлых месяцев (В-227)"),
+    ("ctx_q", "stratum", "1", "cat", "В-227 М3: квинтильная страта оси контекста (q1…q5) по сигналам B1 месяца; ось — в note гипотезы"),
     ("n", "count", "1", "num", "R2: Г-87, верх — min-лот"),
     ("w", "count", "1", "num", "R2: Г-95, верх — min-лот"),
     ("N", "count", "1", "num", "R2: Г-92"),
@@ -176,8 +178,20 @@ TERC = {"Г-62": "ER 60м", "Г-74": "разгон: max high 5 баров", "Г-
         "Г-48": "доля стопов монеты 14 сут", "Г-49": "доля стопов монеты 14 сут", "Г-31": "положение в диапазоне 60м"}
 for h, f in TERC.items():
     ax(h, "terc_q", "33|67", Q9, engine="python", note="признак: " + f)
-ax("Г-89", "usd_min_q", "верхняя треть", Q9, engine="python", note="прежнее = верхняя треть")
-ax("Г-107", "usd_min_q", "нижняя треть", Q9, engine="python", note="прежнее = нижняя треть")
+ax("Г-89", "usd_min_q", "верхняя треть", Q9, note="прежнее = верхняя треть; допуск Rust usd_min=T_m(q), один набор 9 с Г-107/Г-27")
+ax("Г-107", "usd_min_q", "нижняя треть", Q9, note="прежнее = нижняя треть; та же ось min, что у Г-89")
+ax("Г-27", "usd_min_q", "", Q9, note="абсолютный минимум стены в $; та же ось min, что у Г-89/107")
+ax("Г-07", "behind_min_q", "", Q9, note="behind_min = depth_behind_lots·100/size_at_touch, T_m(q) по сигналам B1")
+# В-227 М3 (Судья 12.10 04:14): колонка R1 × квинтильная страта оси контекста (CTX_AXES) — 9×5 клеток на колонку
+CTXQ = "q1|q2|q3|q4|q5"
+for h, cols, cx in (("Г-78", ["best_move_1s_cbps"], "pool1h"), ("Г-55", ["tape_press_lots_30s"], "btc1h"),
+                    ("Г-140", ["best_flips_15s", "ofi_10s_lots"], "pool1h")):
+    c = "|".join(cols)
+    ax(h, "col", c, c, role="fixed" if len(cols) == 1 else "tit", note=f"категориальная; ось контекста {cx}; знак колонки — R1_SIGN master.py")
+    ax(h, "keep_q", Q5, Q9, grid="col×keep_q×ctx_q", note="плато вдоль keep_q")
+    ax(h, "ctx_q", CTXQ, CTXQ, grid="col×keep_q×ctx_q", note=f"страты {cx}: q1…q5 по сигналам B1 месяца; крайние односторонние")
+ax("Г-32", "usd_min_q", "", Q9, grid="usd_min_q×ctx_q", note="usd_min × страта btc4h внутри базы btc4h≤−44,55 (квантили по базе)")
+ax("Г-32", "ctx_q", CTXQ, CTXQ, grid="usd_min_q×ctx_q", note="страты btc4h внутри базы B1")
 ax("Г-47", "hist_window_h", "24", "1|2|4|6|12|24|48|72|168", engine="python", note="Г-47 бинарна — без терцилей")
 ax("Г-14", "hour_utc", "блоки 00|16-17|02-06+21-23", "|".join(str(i) for i in range(24)), grid="hour|weekday",
    engine="python", note="круговая; вместо 4 наборов — час целиком")

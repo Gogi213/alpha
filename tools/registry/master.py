@@ -341,7 +341,7 @@ def p14_cfg(hyp, sv, av, fixed=()):
         col = None if "col" in fixed else av.get("col", feat or None)
         cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
         sign = R1_SIGN.get(hyp, {}).get(col)
-        if col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign)):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
+        if "ctx_q" not in av and (col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign))):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
             R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
     elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
         a = _frac(av["a"])
@@ -351,6 +351,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
         MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
     elif av and re.sub(r"\D", "", hyp) == "112":   # tape<W>q<Q_m(W,q)>: Q из v7 по прошлым месяцам (Судья 11.10, f1-axes); хеш — по осям W, q
         w, q = _int_in(_frac(av["W"]), (5, 10, 15, 30, 60, 120, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        if "ctx_q" in av:   # В-227 М3 (Г-78/55/140): страта оси контекста — отдельная клетка, не r1ext
+            cfg["variant"]["axes"]["ctx"] = str(av["ctx_q"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []
