@@ -260,7 +260,7 @@ SIGMA_STOP_OK = (0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8)
 def sigma_stop(av):
     """Г-13: ось sigma_stop (в σ) -> имя стопа `s<a>` или None вне домена."""
     a = _frac(av["sigma_stop"])
-    return f"s{a:g}" if a in SIGMA_STOP_OK else None
+    return mech.build("StopSigma", a=a)[0] if a in SIGMA_STOP_OK else None
 
 
 def rust_axes(hyp, av, sv):
@@ -281,7 +281,8 @@ def rust_axes(hyp, av, sv):
         be = str(av["be"]).strip().lower()
         if be not in ("да", "нет"):
             return ttl, None, None, f"be: «да»|«нет», получено {av['be']!r}"
-        return ttl, f"gone{w}" + ("be" if be == "да" else ""), None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
+        name = mech.build("GoneBe", template="gone{pct}be", pct=w)[0] if w and be == "да" else mech.build("Gone", pct=w)[0] if w else None
+        return ttl, name, None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
     if n == "13":    # σ-стоп `s<a>` вместо pct (StopForm::Sigma, backtest/forms.rs): a ∈ SIGMA_STOP_OK; имя стопа даёт sigma_stop()
         return ttl, "", None, None if sigma_stop(av) else f"s<a>: a ∈ {SIGMA_STOP_OK} σ"
     if n == "147":   # --signal touch: вход на касании вместо подхода — шапка прогона (touches-from без approach), не --cells; хеш по варианту
@@ -293,7 +294,7 @@ def rust_axes(hyp, av, sv):
         mode = {"wall": "", "wallx": "x", "wallk": "k"}.get(str(av["wall_mode"]).strip())
         if w is None or b is None or mode is None:
             return ttl, None, None, "gone<W>wall<B>: W ∈ {10, 25, 50, 75, 90}, B ∈ {0, 1, 2, 4, 8, 16} bps, режим ∈ {wall, wallx, wallk}"
-        return ttl, f"gone{w}wall{mode}{b}", None, None
+        return ttl, mech.build("GoneWall", template=f"gone{{pct}}wall{mode}{{buffer_bps}}", pct=w, buffer_bps=b)[0], None, None
     if n == "117":   # tslx<G>t<Q>: γ = G/8, T = Q/16 дедлайна; работает только при trail_bps = 0 (strategy/plan.rs, PyramidCfg.sched_*)
         g8, t16 = _int_in(8 * _frac(av["gamma"]), range(1, 65)), _int_in(16 * _frac(av["T"]), range(1, 17))
         if not (g8 and t16):

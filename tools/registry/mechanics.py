@@ -40,10 +40,11 @@ def _with_derived(vals):
     return out
 
 
-def build(mech_id, **vals):
+def build(mech_id, template=None, **vals):
     """Каноническое имя формы `mech_id` по значениям параметров -> (имя | None, причина).
-    Берётся запись каталога, чьи параметры все заданы в vals и лежат в домене; несколько подходящих — ошибка каталога."""
-    rows = [r for r in ROWS if r["id"] == mech_id]
+    Берётся запись каталога, чьи параметры все заданы в vals и лежат в домене; несколько подходящих — ошибка каталога.
+    template — точный шаблон имени, когда у механики несколько записей-вариантов (gone{pct}wall… / …wallx… / …wallk…)."""
+    rows = [r for r in ROWS if r["id"] == mech_id and template in (None, r["name_template"])]
     if not rows:
         raise KeyError(f"нет механики {mech_id!r} в каталоге")
     vals = _with_derived(vals)
