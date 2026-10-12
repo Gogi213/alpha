@@ -43,7 +43,7 @@ def parse_filter(spec):
         if k in f:
             raise ValueError(f"ключ {k} повторяется")
         base = k.rsplit("_", 1)[0] if k.endswith(("_min", "_max")) else k
-        if k in PLAN_KEYS or base in PLAN_KEYS:
+        if k in PLAN_KEYS or (base in PLAN_KEYS and k not in PLAIN):
             raise ValueError(f"{k}: меняет план — своя форма, свой пул (вердикт Судьи TK-214), раннер отказывает")
         if k in NOT_AT_APPROACH:
             raise ValueError(f"{k}: у подхода не определён (bounce-grid --signal approach отказывает так же)")
