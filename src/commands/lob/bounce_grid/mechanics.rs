@@ -3,8 +3,8 @@
 //! (`cellhash.py`/`master.py` берут шаблоны и домены отсюда, а не копируют). Горячий путь
 //! (`match ExitForm` в стратегии) не знает про каталог.
 //!
-//! Сейчас в каталоге формы выхода (`ExitForm`), стоп (`StopForm`) и тейк (`TakeForm`, кроме
-//! `eat<h>x<a>`); вход/фильтры переносятся следующими шагами пакета A. Строка = одна каноническая запись имени (`name_template`); у формы с
+//! Сейчас в каталоге формы выхода (`ExitForm`), стоп (`StopForm`) тейк (`TakeForm`, кроме
+//! `eat<h>x<a>`) и вход (`EntryForm`, кроме лестниц); фильтры переносятся следующими шагами пакета A. Строка = одна каноническая запись имени (`name_template`); у формы с
 //! несколькими записями (`pyre…u…` / `pyre…w…`, `wall2`/`wall2x`/`wall2m<n>`) строк несколько,
 //! `id` общий (`ExitForm::variant_id`).
 
@@ -35,7 +35,7 @@ pub struct ParamSpec {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MechSpec {
-    /// Класс механики: `exit` (`ExitForm`), `stop` (`StopForm`), `take` (`TakeForm`).
+    /// Класс механики: `exit` (`ExitForm`), `stop` (`StopForm`), `take` (`TakeForm`), `entry` (`EntryForm`).
     pub kind: &'static str,
     /// Вариант формы (общий у записей одной формы); у стопа/тейка — с префиксом `Stop`/`Take`.
     pub id: &'static str,
@@ -116,6 +116,19 @@ const fn take(
     }
 }
 
+/// Запись формы входа (`EntryForm`, `--entry-form`).
+const fn entry(
+    id: &'static str,
+    prefix: &'static str,
+    name_template: &'static str,
+    params: &'static [ParamSpec],
+) -> MechSpec {
+    MechSpec {
+        kind: "entry",
+        ..row(id, prefix, name_template, params, false)
+    }
+}
+
 const PCT: ParamSpec = real("pct", 0.0, Some(100.0), true, false);
 const SECS: ParamSpec = int("secs", 1, Some(3600), &[]);
 const BTC: ParamSpec = real("btc_bps", 0.0, None, false, false);
@@ -171,6 +184,21 @@ pub static MECHANICS: &[MechSpec] = &[
             real("t", 0.0, None, true, false),
         ],
     ),
+    entry("EntrySingle", "single@fr", "single@fr", &[]),
+    entry("EntryMarket", "market", "market", &[]),
+    entry(
+        "EntryOffsetPlus",
+        "single@fr+",
+        "single@fr+{n}",
+        &[int("n", 1, None, &[])],
+    ),
+    entry(
+        "EntryOffsetMinus",
+        "single@fr_",
+        "single@fr_{n}",
+        &[int("n", 1, None, &[])],
+    ),
+    // `ladder…` (EntryForm::Ladder/LadderSigma): связь from < to и вес w — в каталог позже.
     // `eat<h>x<a>` (TakeForm::Eaten): связь 0 < h < a ≤ 100 между параметрами — в каталог позже.
     row("None", "none", "none", &[], false),
     row("Eat", "eat", "eat{pct}", &[PCT], false),

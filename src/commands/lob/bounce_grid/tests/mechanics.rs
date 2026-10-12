@@ -39,10 +39,10 @@ fn python_snapshot_matches_catalog() {
     );
 }
 
-/// Стоп и тейк: имя из шаблона по точкам домена разбирается `StopForm`/`TakeForm` и даёт то же имя.
+/// Стоп, тейк и вход: имя из шаблона по точкам домена разбирается `StopForm`/`TakeForm`/`EntryForm` и даёт то же имя.
 #[test]
 fn catalog_names_round_trip_through_stop_and_take() {
-    let (mut ns, mut nt) = (0, 0);
+    let (mut ns, mut nt, mut ne) = (0, 0, 0);
     for m in MECHANICS {
         for name in m.sample_names() {
             match m.kind {
@@ -56,9 +56,15 @@ fn catalog_names_round_trip_through_stop_and_take() {
                     assert_eq!(f.label(), name, "круг имени {}", m.id);
                     nt += 1;
                 }
+                "entry" => {
+                    let f = EntryForm::parse(&name).unwrap_or_else(|e| panic!("{name}: {e}"));
+                    assert_eq!(f.label(), name, "круг имени {}", m.id);
+                    ne += 1;
+                }
                 _ => {}
             }
         }
     }
     assert!(ns >= 10 && nt >= 10, "точек мало: стоп {ns}, тейк {nt}");
+    assert!(ne >= 10, "точек мало: вход {ne}");
 }
