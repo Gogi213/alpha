@@ -24,6 +24,11 @@
 {"name": "early_exit_s", "unit": "s", "resolution": 0.5, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-110"}
 {"name": "exit_share", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-104 доля снятия (gone50->50, gone90->90)"}
 {"name": "be", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "Д: Г-104 безубыток да|нет"}
+{"name": "sigma_stop", "unit": "sigma", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "Д: Г-13 σ-стоп вместо pct2, в σ входа"}
+{"name": "signal", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "Д: Г-147 сигнал входа touch|approach"}
+{"name": "gone_w", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-141 доля снятия стены, %"}
+{"name": "wall_buf_bps", "unit": "bps", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-141 буфер за стеной"}
+{"name": "wall_mode", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "Д: Г-141 режим wall|wallx|wallk"}
 {"name": "entry_ttl", "unit": "s", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "Д: Г-129 (1800 = B1)"}
 {"name": "hist_window_h", "unit": "h", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-47 окно истории"}
 {"name": "hour_utc", "unit": "h", "resolution": 1.0, "axis_type": "circular", "cfg_path": "", "note": "П: Г-14 час суток, соседи h+-1 mod 24"}
