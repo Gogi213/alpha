@@ -18,7 +18,9 @@ frontrun_min, r1_<колонка>_min|max, оси pool*/btc*. Всё, что м�
 """
 import argparse
 import csv
+import hashlib
 import os
+import re
 import subprocess
 import sys
 
@@ -75,6 +77,15 @@ def covers(base, cell):
         if not ok:
             return f"{k}={cv} слабее базы пула {k}={bv} — пул её не покрывает"
     return None
+
+
+def pool_cfg(path):
+    """Конфиг пула = первая строка `# lob bounce-grid: …` signals.csv (RTT, очередь, order-usd, σ, формы, фильтр) без root/days."""
+    with open(path, encoding="utf-8") as fh:
+        head = fh.readline()
+    if not head.startswith("#"):
+        sys.exit(f"{path}: нет строки конфига `# lob bounce-grid` — конфиг-хеш пула не вычислить")
+    return re.sub(r"(root|days)=\S+", "", head).strip()
 
 
 def rd(path):
@@ -180,6 +191,7 @@ def main():
     ap.add_argument("--pool-base", default="", help="фильтр, с которым считан пул (age/side как у базы)")
     ap.add_argument("--approaches", required=True)
     ap.add_argument("--regime-from")
+    ap.add_argument("--pool-cfg-hash", help="ожидаемый конфиг-хеш пула (см. pool-cfg.txt); не сошёлся — отказ")
     ap.add_argument("--tick-lot", help="csv symbol,tick,lot — только для usd_min")
     ap.add_argument("--cells", required=True, help="TSV: имя<TAB>форма<TAB>фильтр (форма — из пула)")
     ap.add_argument("--out", required=True)
@@ -200,6 +212,16 @@ def main():
     for d in days:
         pool[d] = rd(os.path.join(a.pool_tree, d, a.pool_set, "signals.csv"))
     forms = {r["form"] for rows in pool.values() for r in rows}
+    cfgs = {d: pool_cfg(os.path.join(a.pool_tree, d, a.pool_set, "signals.csv")) for d in days}
+    if len(set(cfgs.values())) != 1:
+        sys.exit("ОТКАЗ: сутки пула считаны с разными конфигами: " + ", ".join(sorted(f"{d}={hashlib.sha256(c.encode()).hexdigest()[:8]}" for d, c in cfgs.items())))
+    cfg_hash = hashlib.sha256(next(iter(cfgs.values())).encode()).hexdigest()[:16]
+    if a.pool_cfg_hash and a.pool_cfg_hash != cfg_hash:
+        sys.exit(f"ОТКАЗ: конфиг-хеш пула {cfg_hash} ≠ ожидаемого {a.pool_cfg_hash}")
+    os.makedirs(a.out, exist_ok=True)
+    with open(os.path.join(a.out, "pool-cfg.txt"), "w", encoding="utf-8") as fh:
+        fh.write(f"{cfg_hash}\n{next(iter(cfgs.values()))}\n")
+    print(f"конфиг-хеш пула {cfg_hash}", flush=True)
 
     cells = []
     for line in open(a.cells, encoding="utf-8"):
@@ -260,6 +282,10 @@ def main():
         n_pool, n_keep, n_miss = stat[name]
         if n_miss:
             sys.exit(f"клетка {name}: {n_miss} строк пула без подхода в кэше (symbol,t0,price_tick) — ключ не сходится")
+        if n_keep == 0:  # пустая клетка: прямой счёт тоже пуст (0 сигналов) — closes нет
+            summary.append((name, form, n_pool, 0, ""))
+            print(f"{name}\t{form}\tпул {n_pool}\tостаётся 0\t(пусто)", flush=True)
+            continue
         out_mo = os.path.join(odir, mo)
         subprocess.run([sys.executable, os.path.join(a.tools, "busy-replay.py"), a.pool_tree, out_mo, "--keep", keep,
                         "--sets", a.pool_set], check=True, capture_output=True, text=True)
