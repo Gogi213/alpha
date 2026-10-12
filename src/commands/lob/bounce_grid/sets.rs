@@ -196,6 +196,7 @@ pub(crate) const LEVEL_AXES: usize = 1;
 pub(crate) const REGIME_AXES: usize = CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES;
 
 /// Имена осей в порядке реестра.
+#[allow(clippy::indexing_slicing)] // i < CTX_SPECS.len() — условие цикла
 pub const CTX_AXES: [&str; CTX_SPECS.len()] = {
     let mut names = [""; CTX_SPECS.len()];
     let mut i = 0;
@@ -243,6 +244,7 @@ pub(crate) type RegimeDay = BTreeMap<i64, [Option<f64>; REGIME_AXES]>;
 /// Колонки `btc_ret_2h_bps`/`btc_ret_3h_bps` пишет только `regime.py` после E26: в
 /// прежних файлах их нет, и значения — `None`. Если оси нужны наборам (`need_mid`),
 /// нет колонки — отказ (иначе все касания молча выбыли бы из набора).
+#[allow(clippy::indexing_slicing)] // slot < REGIME_AXES (число осей режима в реестре), k — индекс по cols
 pub(crate) fn read_regime_day(
     dir: &Path,
     day: &str,
@@ -303,6 +305,7 @@ pub(crate) fn read_regime_day(
 }
 
 /// Тики от цены уровня до ближайшего кратного `ROUND_TICKS`.
+#[allow(clippy::cast_precision_loss)] // значение < ROUND_TICKS
 pub(crate) fn round_dist(price_tick: i64) -> f64 {
     let r = price_tick.rem_euclid(ROUND_TICKS);
     r.min(ROUND_TICKS - r) as f64
@@ -333,9 +336,10 @@ impl KlineSeries {
             if self.months.contains(&m) {
                 continue;
             }
-            let path = dir
-                .join(MONTH_ABBR[m - 1])
-                .join(format!("ref-{symbol}-1m.csv"));
+            let Some(abbr) = MONTH_ABBR.get(m - 1) else {
+                continue;
+            };
+            let path = dir.join(abbr).join(format!("ref-{symbol}-1m.csv"));
             if !path.is_file() {
                 anyhow::ensure!(!must, "--klines-from: нет {}", path.display());
                 continue;
@@ -359,7 +363,8 @@ impl KlineSeries {
         for rec in r.records() {
             let rec = rec?;
             let f = |c: usize| rec.get(c).unwrap_or("").parse::<f64>();
-            self.bars.insert(rec[cm].parse()?, (f(ch)?, f(cl)?, f(cc)?));
+            self.bars
+                .insert(rec.get(cm).unwrap_or("").parse()?, (f(ch)?, f(cl)?, f(cc)?));
         }
         Ok(())
     }
@@ -367,6 +372,7 @@ impl KlineSeries {
     /// Значение оси на минуту касания `minute` (начало минуты, мс); `price_tick` — цена уровня
     /// в тиках, `tick` — шаг цены монеты.
     /// Нет полного окна (60 минут) или минут суток до касания — `None`.
+    #[allow(clippy::cast_precision_loss)] // цена уровня в тиках < 2^53
     pub(crate) fn axis(
         &self,
         axis: KlineAxis,
@@ -402,6 +408,7 @@ impl KlineSeries {
 /// Контекст касаний суток: ход монеты — из кэша (`TouchRow::ret_bps`) или из
 /// реплея (`pre_touch_return_bps_csv` — те же шесть знаков), режим — по
 /// минуте `start_ms` из `RegimeDay` (нет режима — `None`).
+#[allow(clippy::indexing_slicing)] // slot < COIN_AXES (реестр), срез COIN_AXES..+REGIME_AXES лежит в CTX_SPECS.len()
 pub(crate) fn touch_contexts(
     rets: &[[Option<f64>; 3]],
     touches: &[TouchRecord],
