@@ -8,6 +8,7 @@
 //! несколькими записями (`pyre…u…` / `pyre…w…`, `wall2`/`wall2x`/`wall2m<n>`) строк несколько,
 //! `id` общий (`ExitForm::variant_id`).
 
+use super::super::backtest::{EARLY_EXITS_S, EARLY_EXIT_HALF_MS, ENTRY_TTL_SECS};
 use serde_json::{json, Value};
 
 /// Домен параметра имени. `None` у верхней границы — без верхнего предела.
@@ -25,6 +26,8 @@ pub enum Dom {
         lo_open: bool,
         hi_open: bool,
     },
+    /// Предрегистрированный набор значений (флаги прогона): берётся из констант Rust, не копируется.
+    Set(fn() -> Vec<f64>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -90,6 +93,23 @@ const fn row(
     }
 }
 
+/// Запись флага прогона (`--entry-ttl-secs`, `--early-exit-secs`).
+const fn flag(
+    id: &'static str,
+    prefix: &'static str,
+    name_template: &'static str,
+    params: &'static [ParamSpec],
+) -> MechSpec {
+    MechSpec {
+        kind: "flag",
+        id,
+        prefix,
+        name_template,
+        params,
+        is_r2: false,
+    }
+}
+
 /// Запись стопа (`StopForm`, `--stop`).
 const fn stop(
     id: &'static str,
@@ -138,6 +158,27 @@ const U3: ParamSpec = int("u3", 1, Some(3), &[]);
 const Q8_G: ParamSpec = int("q8", 1, Some(7), &[2, 4, 6]);
 const WALL2_N: ParamSpec = int("n", 2, Some(3), &[]);
 const TAPE_W: ParamSpec = int("w", 1, None, &[]);
+
+/// `--entry-ttl-secs`: сетка `ENTRY_TTL_SECS` (forms.rs).
+fn entry_ttl_secs() -> Vec<f64> {
+    ENTRY_TTL_SECS.iter().map(|&s| s as f64).collect()
+}
+
+/// `--early-exit-secs`: 0,5 с + `EARLY_EXITS_S` (plan.rs).
+fn early_exit_secs() -> Vec<f64> {
+    std::iter::once(EARLY_EXIT_HALF_MS as f64 / 1_000.0)
+        .chain(EARLY_EXITS_S.iter().map(|&s| s as f64))
+        .collect()
+}
+
+const TTL_SECS: ParamSpec = ParamSpec {
+    name: "secs",
+    dom: Dom::Set(entry_ttl_secs),
+};
+const EARLY_SECS: ParamSpec = ParamSpec {
+    name: "x",
+    dom: Dom::Set(early_exit_secs),
+};
 const TAPE_Q: ParamSpec = real("q", 0.0, None, true, false);
 const PYRE_N: ParamSpec = int("n", 1, Some(10), &[]);
 const PYNW_K: ParamSpec = int("k", 1, Some(9), &[]);
@@ -350,6 +391,9 @@ pub static MECHANICS: &[MechSpec] = &[
     row("Tape", "tape", "tape{w}qp", &[TAPE_W], true),
     row("Cxl", "cxl", "cxl{w}q{q}", &[TAPE_W, TAPE_Q], true),
     row("Cxl", "cxl", "cxl{w}qp", &[TAPE_W], true),
+    // Флаги прогона (хвост имени формы клетки): потолок жизни входа и досрочный выход; домены — константы Rust.
+    flag("EntryTtl", "ttl", "ttl{secs}", &[TTL_SECS]),
+    flag("EarlyExit", "early", "early{x}", &[EARLY_SECS]),
 ];
 
 impl Dom {
@@ -364,6 +408,7 @@ impl Dom {
                 v.dedup();
                 v.iter().map(i64::to_string).collect()
             }
+            Dom::Set(f) => f().iter().map(f64::to_string).collect(),
             Dom::Real {
                 lo,
                 hi,
@@ -388,6 +433,7 @@ impl Dom {
             Dom::Int { lo, hi, excl } => {
                 json!({"type": "int", "lo": lo, "hi": hi, "excl": excl})
             }
+            Dom::Set(f) => json!({"type": "set", "values": f()}),
             Dom::Real {
                 lo,
                 hi,

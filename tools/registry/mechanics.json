@@ -1626,6 +1626,82 @@
         "cxl5qp",
         "cxl6qp"
       ]
+    },
+    {
+      "id": "EntryTtl",
+      "kind": "flag",
+      "prefix": "ttl",
+      "name_template": "ttl{secs}",
+      "is_r2": false,
+      "params": [
+        {
+          "dom": {
+            "type": "set",
+            "values": [
+              10.0,
+              30.0,
+              60.0,
+              120.0,
+              300.0,
+              600.0,
+              900.0,
+              1200.0,
+              1800.0
+            ]
+          },
+          "name": "secs"
+        }
+      ],
+      "samples": [
+        "ttl10",
+        "ttl30",
+        "ttl60",
+        "ttl120",
+        "ttl300",
+        "ttl600",
+        "ttl900",
+        "ttl1200",
+        "ttl1800"
+      ]
+    },
+    {
+      "id": "EarlyExit",
+      "kind": "flag",
+      "prefix": "early",
+      "name_template": "early{x}",
+      "is_r2": false,
+      "params": [
+        {
+          "dom": {
+            "type": "set",
+            "values": [
+              0.5,
+              1.0,
+              2.0,
+              3.0,
+              5.0,
+              8.0,
+              13.0,
+              20.0,
+              30.0,
+              60.0
+            ]
+          },
+          "name": "x"
+        }
+      ],
+      "samples": [
+        "early0.5",
+        "early1",
+        "early2",
+        "early3",
+        "early5",
+        "early8",
+        "early13",
+        "early20",
+        "early30",
+        "early60"
+      ]
     }
   ],
   "schema": 1

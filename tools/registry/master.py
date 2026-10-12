@@ -285,8 +285,13 @@ def r2_exit(hyp, av, mm=None, stack_set=None):
 R2_EXIT_RE = "(" + "|".join(mech.r2_prefixes()) + ")"   # ExitForm::is_r2 — из каталога механик
 
 
-EARLY_OK = (0.5, 1, 2, 3, 5, 8, 13, 20, 30, 60)   # EARLY_EXITS_S в plan.rs + EARLY_EXIT_HALF_MS (TK-189)
-TTL_OK = (10, 30, 60, 120, 300, 600, 900, 1200, 1800)   # ENTRY_TTL_SECS в forms.rs (TK-189)
+def _flag_dom(mid):
+    """Домен значений флага прогона — запись каталога (EntryTtl: ENTRY_TTL_SECS, EarlyExit: EARLY_EXITS_S + 0,5 с)."""
+    return tuple(int(v) if float(v).is_integer() else v for v in next(r for r in mech.ROWS if r["id"] == mid)["params"][0]["dom"]["values"])
+
+
+EARLY_OK = _flag_dom("EarlyExit")
+TTL_OK = _flag_dom("EntryTtl")
 
 
 def rust_axes(hyp, av, sv):

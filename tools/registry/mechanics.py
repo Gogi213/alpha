@@ -21,6 +21,8 @@ def admits(dom, v):
         if abs(v - r) > 1e-9 or r < dom["lo"] or (dom["hi"] is not None and r > dom["hi"]) or r in dom["excl"]:
             return False
         return True
+    if dom["type"] == "set":
+        return any(abs(v - x) < 1e-9 for x in dom["values"])
     lo, hi = dom["lo"], dom["hi"]
     if v < lo or (dom["lo_open"] and v == lo):
         return False
@@ -124,7 +126,8 @@ def sample_names(row):
     """Имена по точкам доменов — тем же алгоритмом, что `MechSpec::sample_names` в Rust (тест-мост)."""
     acc = [[]]
     for p in row["params"]:
-        pts = sample_ints(p["dom"]) if p["dom"]["type"] == "int" else sample_reals(p["dom"])
+        d = p["dom"]
+        pts = sample_ints(d) if d["type"] == "int" else [_fmt(x) for x in d["values"]] if d["type"] == "set" else sample_reals(d)
         acc = [a + [x] for a in acc for x in pts]
     out = []
     for vals in acc:

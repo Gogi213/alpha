@@ -68,3 +68,30 @@ fn catalog_names_round_trip_through_stop_and_take() {
     assert!(ns >= 10 && nt >= 10, "точек мало: стоп {ns}, тейк {nt}");
     assert!(ne >= 10, "точек мало: вход {ne}");
 }
+
+/// Флаги прогона: каждое значение домена принимает разбор флага, а имя записи совпадает с хвостом формы клетки.
+#[test]
+fn catalog_flags_round_trip_through_run_flags() {
+    use crate::commands::lob::backtest::{early_exit_ns_from_ms, early_label, EntryTtl};
+    let (mut nt, mut ne) = (0, 0);
+    for m in MECHANICS.iter().filter(|m| m.kind == "flag") {
+        for name in m.sample_names() {
+            match m.id {
+                "EntryTtl" => {
+                    let secs = name.strip_prefix("ttl").unwrap();
+                    assert!(matches!(EntryTtl::parse(secs), Ok(EntryTtl::Secs(_))), "{name}");
+                    nt += 1;
+                }
+                "EarlyExit" => {
+                    let x = name.strip_prefix("early").unwrap();
+                    let ms = (x.parse::<f64>().unwrap() * 1_000.0).round() as i64;
+                    assert!(early_exit_ns_from_ms(Some(ms)).is_ok(), "{name}");
+                    assert_eq!(early_label(ms), x, "круг имени {name}");
+                    ne += 1;
+                }
+                id => panic!("флаг {id} без проверки"),
+            }
+        }
+    }
+    assert_eq!((nt, ne), (9, 10));
+}
