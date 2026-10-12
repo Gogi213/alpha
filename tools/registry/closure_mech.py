@@ -106,7 +106,9 @@ def grid_points(params, spec=""):
 
 B1_FORM = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 CHAIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m5_chain.sh")
-GATE_REF = "/data/p12r3a/closes-b1-cap{cap}-{mon}.json"   # эталон TK-191 (cap0 2750 сд./+52,32 $); closes-b1d пуст ({}) - vn-b без базы B1
+GATE_REF = "/data/p12r3a/closes-b1-cap{cap}-{mon}.json"   # эталон TK-191 на вселенной R2-B (дерево /data/p12r3a/s-b: минус ADAUSDT/GRAMUSDT 31.08, STXUSDT 14.09); closes-b1d пуст ({})
+# гейт идёт по тому же дереву, что эталон (Судья 04:55): на полной s-v в августе +1 сделка (1,96 $) - разница вселенных, не дефект раннера
+GATE_SV = "/data/p12r3a/s-b"
 
 
 def write_keep(path, keys):
@@ -125,9 +127,9 @@ def chain(mon, work, keep_path=None, sv=None):
     return {c: os.path.join(work, f"closes-m5-cap{c}-{mon}.json") for c in (0, 3)}
 
 
-def gate(mon, work):
-    """Гейт «выкл = прежний»: keep=все (без --keep) -> закрытия байт в байт = closes-b1. Расхождение — отказ."""
-    got, bad = chain(mon, work), []
+def gate(mon, work, sv=GATE_SV):
+    """Гейт «выкл = прежний»: keep=все (без --keep) на дереве R2-B -> закрытия байт в байт = closes-b1. Расхождение — отказ."""
+    got, bad = chain(mon, work, sv=sv), []
     for cap, path in got.items():
         ref = GATE_REF.format(cap=cap, mon=mon)
         if open(path, "rb").read() != open(ref, "rb").read():
