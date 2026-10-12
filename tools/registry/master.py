@@ -173,7 +173,7 @@ LINES = {}  # хеш клетки -> (строка --cells «форма набо
 
 
 def r2b_lines():
-    """{ГГГГ-ММ: множество строк --cells} 31 формы R2-B TK-115 (tk115-r2b-day.sh) из порогов v7/v6 — те же числа, что у плана (сверено с thr7 e-thresholds-*.csv, янв–сен)."""
+    """{ГГГГ-ММ: множество строк --cells} 31 формы R2-B TK-115 (archive/tk115-r2b-day.sh) из порогов v7/v6 — те же числа, что у плана (сверено с thr7 e-thresholds-*.csv, янв–сен)."""
     thr = {r["month"]: r for r in json.load(open(_TAPE_THR, encoding="utf-8"))["summary"]} if os.path.exists(_TAPE_THR) else {}
     b, out = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800", {}
     for m, w_m in w_median_ms().items():
