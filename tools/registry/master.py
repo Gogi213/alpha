@@ -224,6 +224,7 @@ MECH_RUN = {
     "Gone": (None, {}),
     "Wall2": ("t-bid-btc4h-q1", {}),
     "Half": ("t-bid-btc4h-q1", {}),
+    "StopSigma": (None, {}),   # запись kind=stop: имя идёт в стоп клетки, не в суффикс выхода
 }
 
 
@@ -290,15 +291,6 @@ EARLY_OK = (0.5, 1, 2, 3, 5, 8, 13, 20, 30, 60)   # EARLY_EXITS_S в plan.rs + E
 TTL_OK = (10, 30, 60, 120, 300, 600, 900, 1200, 1800)   # ENTRY_TTL_SECS в forms.rs (TK-189)
 
 
-SIGMA_STOP_OK = (0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8)
-
-
-def sigma_stop(av):
-    """Г-13: ось sigma_stop (в σ) -> имя стопа `s<a>` или None вне домена."""
-    a = _frac(av["sigma_stop"])
-    return mech.build("StopSigma", a=a)[0] if a in SIGMA_STOP_OK else None
-
-
 def rust_axes(hyp, av, sv):
     """Гипотезы, выражаемые флагами/формами текущего Rust без новых кодов -> (потолок входа с, суффикс --exit-form, early с, причина отказа)
     или False (гипотеза не этого класса). Г-129 — ttl в имени формы; Г-110 — хвост -early<x>; Г-104 — gone<W>[be] (be=да)."""
@@ -312,8 +304,6 @@ def rust_axes(hyp, av, sv):
         x = x if x in EARLY_OK else None
         x = int(x) if x is not None and float(x).is_integer() else x
         return ttl, "", x, None if x is not None else f"early<x>: секунды ∈ {EARLY_OK}"
-    if n == "13":    # σ-стоп `s<a>` вместо pct (StopForm::Sigma, backtest/forms.rs): a ∈ SIGMA_STOP_OK; имя стопа даёт sigma_stop()
-        return ttl, "", None, None if sigma_stop(av) else f"s<a>: a ∈ {SIGMA_STOP_OK} σ"
     if n == "147":   # --signal touch: вход на касании вместо подхода — шапка прогона (touches-from без approach), не --cells; хеш по варианту
         if str(av["signal"]).strip() != "touch":
             return ttl, "", None, "signal: touch"
@@ -341,18 +331,20 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
             sys.exit(f"plan: стек {k}={sv[k]} расходится с константой cellhash_reg ({want}) — исполнение берётся из неё; решение Судьи")
     entry = sv["entry"]
     set_name = sv["set"]
-    suffix, line_why = "", None
+    suffix, line_why, stop = "", None, sv["stop"]
     r2 = r2_exit(hyp, av, mm, set_name) if av else False
     if r2:
         e, suffix, set_name, line_why = r2
         entry = e or entry
+        row = mech.match(suffix) if suffix else None
+        if row and row["kind"] == "stop":   # запись каталога — стоп (s<a>): имя в стоп клетки, суффикса выхода нет
+            stop, suffix = suffix, ""
     ttl, early = sv["entry_ttl_s"], None
     ra = rust_axes(hyp, av, sv) if av and not r2 else False
     if ra:
         ttl, suffix, early, line_why = ra
         r2 = (None, suffix, set_name, line_why)   # кодируется формой/флагом -> ветка клетки с LINES
     take = "1to1" if re.sub(r"\D", "", hyp) == "117" else sv["take"]   # Г-117: стек B3 = B1 с тейком 1to1 без трейла (tsl не действует при трейле)
-    stop = sigma_stop(av) or sv["stop"] if re.sub(r"\D", "", hyp) == "13" and av else sv["stop"]   # Г-13: стоп клетки = s<a>
     form = f"{entry}-{stop}-{take}-{sv['deadline_s']}-ttl{ttl}" + (f"-{suffix}" if suffix else "") + (f"-early{early}" if early else "")
     st = cr.B1_SET if set_name == "t-bid-btc4h-q1" else cr.set_of(sets[set_name])
     uni = cr.UNIVERSE["v171c"] if "v171c" in sv.get("universe", "") else cr.UNIVERSE["v171b"]

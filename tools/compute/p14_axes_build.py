@@ -165,7 +165,7 @@ ax("Г-141", "wall_buf_bps", "", "0|1|2|4|8|16", grid="W×B×mode", note="буф
 ax("Г-141", "wall_mode", "", "wall|wallx|wallk", grid="W×B×mode", note="категориальная: wall — перенос стопа, wallx — выход сразу, wallk — стоп плана до конца", mechanic="GoneWall:~")
 
 # В-227 (TK-202) М3: Г-13 — σ-стоп `s<a>` (StopForm::Sigma), код есть: 9 клеток
-ax("Г-13", "sigma_stop", "", "1/2|3/4|1|3/2|2|3|4|6|8", note="стоп s<a> вместо pct2, a в σ")
+ax("Г-13", "sigma_stop", "", "1/2|3/4|1|3/2|2|3|4|6|8", note="стоп s<a> вместо pct2, a в σ", mechanic="StopSigma:a")
 
 # В-227 (TK-202) М3: Г-147 — `--signal touch`, код есть: 1 клетка (проба: 0 сигналов -> «не определена»)
 ax("Г-147", "signal", "approach", "touch", note="вход на касании вместо подхода; шапка прогона")

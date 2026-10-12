@@ -62,14 +62,14 @@ class MasterTest(unittest.TestCase):
         self.assertIsNone(master.r2_exit("Г-114", {"trigger": "halfstop", "f": "3/8"}, mm, "S")[1])
 
     def test_g13_sigma_stop_name(self):
-        """В-227 М3: Г-13 -> стоп s<a> (StopForm::Sigma); вне домена — причина."""
-        sv = {"entry_ttl_s": 1800}
-        self.assertEqual(master.sigma_stop({"sigma_stop": "3/4"}), "s0.75")
-        self.assertEqual(master.sigma_stop({"sigma_stop": "2"}), "s2")
-        self.assertIsNone(master.sigma_stop({"sigma_stop": "5"}))
-        self.assertIsNone(master.rust_axes("Г-13", {"sigma_stop": "5"}, sv)[3] and None)
-        self.assertIsNotNone(master.rust_axes("Г-13", {"sigma_stop": "5"}, sv)[3])
-        self.assertIsNone(master.rust_axes("Г-13", {"sigma_stop": "1"}, sv)[3])
+        """В-227 М3: Г-13 -> стоп s<a> (запись каталога StopSigma, kind=stop) идёт в стоп клетки, суффикса выхода нет; a вне домена — причина."""
+        mm = {"sigma_stop": "StopSigma:a"}
+        self.assertEqual(master.r2_exit("Г-13", {"sigma_stop": "3/4"}, mm, "S")[:3], (None, "s0.75", "S"))
+        self.assertEqual(master.r2_exit("Г-13", {"sigma_stop": "2"}, mm, "S")[1], "s2")
+        self.assertIsNone(master.r2_exit("Г-13", {"sigma_stop": "-1"}, mm, "S")[1])
+        sv = {"entry_ttl_s": 1800, "stop": "pct2", "take": "1to1", "deadline_s": 3600, "entry": "single", "set": "t-bid-btc4h-q1", "universe": "v171b"}
+        c = master.p14_cfg("Г-13", sv, {"sigma_stop": "3/4"}, mm=mm)
+        self.assertEqual(c["form"], "single-s0.75-1to1-3600-ttl1800")
 
     def test_g147_touch_own_hash_no_line(self):
         """В-227 М3: Г-147 (signal touch) — хеш по варианту, отличается от B1; строки --cells нет (режим шапки)."""
