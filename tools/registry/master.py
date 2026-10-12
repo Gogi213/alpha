@@ -143,6 +143,10 @@ def w_median_ms():
 
 
 R1COL = {}  # хеш R1-клетки -> колонка (None — одна на семью); R1 фев…окт на 9 точках посчитан r1ext (TK-189 шаг 15), кроме колонок без данных
+R1EXT_COLS = frozenset("""front_add_max_lots cancel_life_lots size_share15_bp opp_wall_ratio_bp wall_add_max_lots frontrun_delta_10s_lots vpin_bp
+    tape_all_lots_15s obi50_bp best_move_1s_cbps best_move_10s_cbps obi1_bp obi5_bp obi10_bp tape_press_lots_15s tape_press_lots_30s
+    tape_press_lots_60s best_flips_15s best_flips_60s ofi_10s_lots ofi_60s_lots sign_ac_15s_bp sign_ac_60s_bp tape_burst_press_15s_bp
+    tape_burst_press_30s_bp tape_burst_press_60s_bp""".split())   # колонки, посчитанные r1ext (30 осей); прочие — к счёту (В-227 М1)
 R1_NODATA = ("tape_burst_press_60s_bp",)   # coverage-r1.json r1ext: jan_n_defined 0, охват 0 во всех месяцах — файлов нет
 R1EXT = "r1ext TK-189: /data/tk189/r1ext/cells/<мес>/ (271 кл./мес, фев…окт; 5 прежних точек побайтно = /data/tk064/r1)"
 R2B_MONTHS = tuple(f"2026-{m:02d}" for m in range(1, 10))   # TK-115 R2-B (job 1011200729464, calc /data/p12r3a/r2b): 31 форма × B1-сутки янв–сен, B1 = набор t-bid-btc4h-q1
@@ -320,7 +324,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
         cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
-        R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
+        if col is None or col in R1EXT_COLS or "common_q" in av:   # колонка вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
+            R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
     elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
         a = _frac(av["a"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"a": int(a) if float(a).is_integer() else a}}

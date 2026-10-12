@@ -102,7 +102,7 @@ def ax(h, p, old, f1, grid="", role="tit", note="", engine="rust", stack="B1"):
                len(pts) or "", grid, note))
 
 
-# R1: 9 одноколоночных, 7 многоколоночных (18 колонок), 3 common_q = 30 осей keep_q
+# R1: 16 семей (30 осей keep_q: r1ext) + 5 семей В-227 М1 (15 осей) + 3 common_q
 R1 = {"Г-35": ["front_add_max_lots"], "Г-39": ["cancel_life_lots"], "Г-42": ["size_share15_bp"],
       "Г-44": ["opp_wall_ratio_bp"], "Г-04": ["wall_add_max_lots"], "Г-63": ["frontrun_delta_10s_lots"],
       "Г-70": ["vpin_bp"], "Г-75": ["tape_all_lots_15s"], "Г-139": ["obi50_bp"],
@@ -110,7 +110,13 @@ R1 = {"Г-35": ["front_add_max_lots"], "Г-39": ["cancel_life_lots"], "Г-42": [
       "Г-59": ["tape_press_lots_15s", "tape_press_lots_30s", "tape_press_lots_60s"],
       "Г-67": ["best_flips_15s", "best_flips_60s"], "Г-69": ["ofi_10s_lots", "ofi_60s_lots"],
       "Г-71": ["sign_ac_15s_bp", "sign_ac_60s_bp"],
-      "Г-82": ["tape_burst_press_15s_bp", "tape_burst_press_30s_bp", "tape_burst_press_60s_bp"]}
+      "Г-82": ["tape_burst_press_15s_bp", "tape_burst_press_30s_bp", "tape_burst_press_60s_bp"],
+      # В-227 (TK-202) М1: колонки есть в r1.rs и в сигналах пула; семьи вне r1ext — к счёту (tk064-r1cells.py, FAM)
+      "Г-28": ["nz_levels15", "size_share15_bp", "frontrun_levels", "front_add_max_lots"],
+      "Г-33": ["cancel_1s_lots", "cancel_3s_lots", "cancel_60m_lots"],
+      "Г-36": ["cancel_life_lots", "wall_add_max_lots"],   # прокси (скрытого размера нет); состав — Судье (design-v227 §1)
+      "Г-46": ["ofi_10s_lots", "ofi_60s_lots", "best_move_1s_cbps", "best_move_10s_cbps"],
+      "Г-60": ["trade_size_p50_15m", "trade_size_p90_15m"]}
 for h, cols in R1.items():
     c = "|".join(cols)
     ax(h, "col", c, c, role="fixed" if len(cols) == 1 else "tit",
@@ -224,7 +230,7 @@ bad = [(h, cells(h), e) for h, e in exp.items() if cells(h) != e]
 print("R2/Д cells", sum(cells(h) for h in exp), "expected 389 (Г-85 pending, до 9, не включён); mismatch:", bad)
 ncol = {r[0]: r[9] for r in HY if r[3] == "col"}
 r1 = [r for r in HY if r[3] in ("keep_q", "common_q")]
-print("R1 осей keep_q/common_q", sum(ncol.get(r[0], 1) for r in r1), "клеток", sum(ncol.get(r[0], 1) * r[9] for r in r1), "(ждём 30 / 270)")
+print("R1 осей keep_q/common_q", sum(ncol.get(r[0], 1) for r in r1), "клеток", sum(ncol.get(r[0], 1) * r[9] for r in r1), "(ждём 45 / 405)")
 # прежние числовые точки входят в F1
 miss = []
 for r in HY:

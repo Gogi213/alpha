@@ -31,6 +31,16 @@ hyp;stack;engine;param;role;old_points;f1_points;lo;hi;n_f1;grid;note
 Г-71;B1;rust;keep_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;плато вдоль keep_q внутри колонки
 Г-82;B1;rust;col;tit;tape_burst_press_15s_bp|tape_burst_press_30s_bp|tape_burst_press_60s_bp;tape_burst_press_15s_bp|tape_burst_press_30s_bp|tape_burst_press_60s_bp;;;3;;"категориальная; ось keep_q — внутри каждой колонки (вложенные квантили: печатать долю общих сделок соседей)"
 Г-82;B1;rust;keep_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;плато вдоль keep_q внутри колонки
+Г-28;B1;rust;col;tit;nz_levels15|size_share15_bp|frontrun_levels|front_add_max_lots;nz_levels15|size_share15_bp|frontrun_levels|front_add_max_lots;;;4;;"категориальная; ось keep_q — внутри каждой колонки (вложенные квантили: печатать долю общих сделок соседей)"
+Г-28;B1;rust;keep_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;плато вдоль keep_q внутри колонки
+Г-33;B1;rust;col;tit;cancel_1s_lots|cancel_3s_lots|cancel_60m_lots;cancel_1s_lots|cancel_3s_lots|cancel_60m_lots;;;3;;"категориальная; ось keep_q — внутри каждой колонки (вложенные квантили: печатать долю общих сделок соседей)"
+Г-33;B1;rust;keep_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;плато вдоль keep_q внутри колонки
+Г-36;B1;rust;col;tit;cancel_life_lots|wall_add_max_lots;cancel_life_lots|wall_add_max_lots;;;2;;"категориальная; ось keep_q — внутри каждой колонки (вложенные квантили: печатать долю общих сделок соседей)"
+Г-36;B1;rust;keep_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;плато вдоль keep_q внутри колонки
+Г-46;B1;rust;col;tit;ofi_10s_lots|ofi_60s_lots|best_move_1s_cbps|best_move_10s_cbps;ofi_10s_lots|ofi_60s_lots|best_move_1s_cbps|best_move_10s_cbps;;;4;;"категориальная; ось keep_q — внутри каждой колонки (вложенные квантили: печатать долю общих сделок соседей)"
+Г-46;B1;rust;keep_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;плато вдоль keep_q внутри колонки
+Г-60;B1;rust;col;tit;trade_size_p50_15m|trade_size_p90_15m;trade_size_p50_15m|trade_size_p90_15m;;;2;;"категориальная; ось keep_q — внутри каждой колонки (вложенные квантили: печатать долю общих сделок соседей)"
+Г-60;B1;rust;keep_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;плато вдоль keep_q внутри колонки
 Г-64;B1;rust;common_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;;
 Г-73;B1;rust;common_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;;
 Г-83;B1;rust;common_q;tit;20|33|50|67|80;5|10|20|33|50|67|80|90|95;5;95;9;;
