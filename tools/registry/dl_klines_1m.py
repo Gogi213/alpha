@@ -11,7 +11,10 @@ while end >= lo:
     for attempt in range(5):
         try:
             res = json.load(urllib.request.urlopen(url, timeout=20))
-            break
+            if "list" in res.get("result", {}):
+                break
+            print(res.get("retCode"), res.get("retMsg"), file=sys.stderr)
+            time.sleep(2 ** attempt)
         except Exception:
             time.sleep(2 ** attempt)
     else:
