@@ -140,9 +140,11 @@ ax("Г-117", "gamma", "0.5|1|2", LOG8, grid="gamma×T")
 ax("Г-117", "T", "1/4|1/2|1", "1/16|1/8|1/4|3/8|1/2|5/8|3/4|1", grid="gamma×T",
    note="верх — ttl/дедлайн (проверяет Инженер)")
 ax("Г-119", "tol_ticks", "0|1|2", "0|1|2|3|4|6|8|12|16", mechanic="Converge:tol")
+# Г-114: имя формы = f(trigger, f): q8 = 8f; 2 -> f1, 4 -> без суффикса, 6 -> f3, прочие g<q8> (записи каталога HalfStop/HalfLevel)
+H114 = "Half:~trigger,f>" + ";".join(f"{t},{Fraction(q, 8)}:{t}" + {2: "f1", 4: "", 6: "f3"}.get(q, f"g{q}") for t in ("halfstop", "halflevel") for q in range(1, 8))
 ax("Г-114", "trigger", "halfstop|halflevel", "halfstop|halflevel", grid="trigger×f",
-   note="категориальная; плато только вдоль f внутри категории")
-ax("Г-114", "f", "1/4|1/2|3/4", SEV, grid="trigger×f")
+   note="категориальная; плато только вдоль f внутри категории", mechanic=H114)
+ax("Г-114", "f", "1/4|1/2|3/4", SEV, grid="trigger×f", mechanic="Half:-")
 ax("Г-112", "W", "15|30|60", "5|10|15|30|60|120|300", grid="W×q")
 ax("Г-112", "q", "33|50|67|80", Q9, grid="W×q")
 ax("Г-133", "a", "0.5|1|2", LOG8)

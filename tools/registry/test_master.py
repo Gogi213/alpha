@@ -52,6 +52,15 @@ class MasterTest(unittest.TestCase):
         self.assertIsNone(master.r2_exit("Г-104", {**av, "be": "maybe"}, mm, "S")[1])
         self.assertIsNone(master.r2_exit("Г-104", {**av, "exit_share": "0"}, mm, "S")[1])
 
+    def test_g114_half_by_two_axis_map(self):
+        """Г-114: карта по ключу из двух осей `~trigger,f>ключ:имя` -> halfstop|halflevel × f/8 (f1, f3, g<q8>); остальные ключи — отказ."""
+        key = "Half:~trigger,f>" + ";".join(f"{t},{q}:{t}{x}" for t in ("halfstop", "halflevel") for q, x in (("1/4", "f1"), ("1/2", ""), ("3/4", "f3"), ("1/8", "g1"), ("5/8", "g5")))
+        mm = {"trigger": key, "f": "Half:-"}
+        self.assertEqual(master.r2_exit("Г-114", {"trigger": "halflevel", "f": "1/4"}, mm, "S")[:2], (None, "halflevelf1"))
+        self.assertEqual(master.r2_exit("Г-114", {"trigger": "halfstop", "f": "1/2"}, mm, "S")[1], "halfstop")
+        self.assertEqual(master.r2_exit("Г-114", {"trigger": "halfstop", "f": "5/8"}, mm, "S")[1], "halfstopg5")
+        self.assertIsNone(master.r2_exit("Г-114", {"trigger": "halfstop", "f": "3/8"}, mm, "S")[1])
+
     def test_g13_sigma_stop_name(self):
         """В-227 М3: Г-13 -> стоп s<a> (StopForm::Sigma); вне домена — причина."""
         sv = {"entry_ttl_s": 1800}

@@ -223,6 +223,7 @@ MECH_RUN = {
     "GoneWall": (None, {}),   # набор клетки — из стека
     "Gone": (None, {}),
     "Wall2": ("t-bid-btc4h-q1", {}),
+    "Half": ("t-bid-btc4h-q1", {}),
 }
 
 
@@ -231,7 +232,9 @@ def parse_mechanic(spec):
     каталога (имя шаблона содержит `<значение>{`), параметра нет."""
     mid, _, rest = spec.partition(":")
     par, _, mul = rest.partition("*")
-    if par.startswith("~"):   # `~` или `~значение:шаблон;значение:шаблон`
+    if par == "-":   # ось входит в ключ карты другой оси той же механики (`~ось,ось>ключ:имя;…`)
+        return (mid, "-", 1.0) if mid in MECH_RUN else sys.exit(f"hyp_axes.mechanic: «{spec}» — MechId ∈ {sorted(MECH_RUN)}")
+    if par.startswith("~"):   # `~` или `~[ось,ось>]ключ:шаблон|имя;ключ:шаблон|имя`
         return (mid, "~", 1.0) if mid in MECH_RUN else sys.exit(f"hyp_axes.mechanic: «{spec}» — MechId ∈ {sorted(MECH_RUN)}")
     if mid not in MECH_RUN or not par:
         sys.exit(f"hyp_axes.mechanic: «{spec}» — ожидается <MechId>:<параметр>[*множитель], MechId ∈ {sorted(MECH_RUN)}")
@@ -249,7 +252,13 @@ def r2_exit(hyp, av, mm=None, stack_set=None):
             sys.exit(f"hyp_axes.mechanic: у {hyp} разные механики {sorted({v[0] for v in specs.values()})}")
         mid = next(iter(specs.values()))[0]
         set_name, fixed = MECH_RUN[mid]
-        sel = [(str(av[k]).strip(), mp) for k, (_, par, _) in specs.items() if par == "~" for mp in [mm[k].partition("~")[2]]]
+        sel = []
+        for k, (_, par, _) in specs.items():
+            if par == "~":
+                axs, gt, mp = mm[k].partition("~")[2].partition(">")
+                if not gt:
+                    axs, mp = k, axs
+                sel.append((",".join(str(av[a]).strip() for a in axs.split(",")), mp))
         tmpl = None
         if sel:   # категориальная ось выбирает запись-вариант (подстрока `<значение>{` или явная карта `~значение:шаблон;…`); вне каталога -> отказ клетки
             v, mp = sel[0]
@@ -265,15 +274,9 @@ def r2_exit(hyp, av, mm=None, stack_set=None):
             mid = row["id"]
             if tmpl != row["name_template"] or not row["params"]:   # готовое имя, не шаблон
                 return None, tmpl, set_name or stack_set, None
-        vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items() if par != "~"}}
+        vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items() if par not in ("~", "-")}}
         name, why = mech.build(mid, template=tmpl, **vals)
         return None, name, set_name or stack_set, None if name else f"{mid}: {why}"
-    if n == "114":  # halfstop|halflevel[f1|f3|g<q8>]: f = q8/8, q8 ∈ [1, 7]
-        q8 = _int_in(8 * g("f"), range(1, 8))
-        base = av["trigger"]
-        mid = {"halfstop": "HalfStop", "halflevel": "HalfLevel"}[base]
-        name = None if not q8 else mech.fixed(mid, base + {4: "", 2: "f1", 6: "f3"}[q8]) if q8 in (2, 4, 6) else mech.build(mid, q8=q8)[0]
-        return None, name, "t-bid-btc4h-q1", None if q8 else "half…: f = q8/8, q8 ∈ [1, 7]"
     if n == "95":   # другая лестница входа: ladder3x0..0.0409sw<w>, без суффикса выхода
         w = _int_in(g("w"), range(2, 13))
         return (f"ladder3x0..0.0409sw{w}" if w else None), "", "t-bid-btc4h-q1", None if w else "sw<w>: целое"
