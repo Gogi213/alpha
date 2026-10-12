@@ -362,6 +362,13 @@ pub static MECHANICS: &[MechSpec] = &[
         true,
     ),
     row(
+        "LevelBack",
+        "lvlback",
+        "lvlback{gap_bps}w{secs}",
+        &[int("gap_bps", 0, None, &[]), int("secs", 1, None, &[])],
+        true,
+    ),
+    row(
         "NoStop",
         "nostop",
         "nostop{x2}",

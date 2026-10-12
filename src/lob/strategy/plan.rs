@@ -333,6 +333,9 @@ pub struct PyramidCfg {
     /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
     pub converge_tol1: u8,
     pub converge_a_bps: u32,
+    /// Г-108 (`lvlback<G>w<W>`): в первые `W` с после входа цена ушла под уровень стены на `G` bps против стороны — выход по рынку (`LevelBack`). `levelback_secs = 0` — выключено.
+    pub levelback_gap_bps: u32,
+    pub levelback_secs: u32,
     /// Г-106 (`nostop<X2>`): без стопа, пока лучшая цена не дала `X8/8 · trail_activate_bps` и не ушла за безубыток;
     /// затем стоп = безубыток (мягкий). `0` — выключено.
     pub nostop_x8: u8,
@@ -371,6 +374,8 @@ impl PyramidCfg {
         sched_t16: 0,
         converge_tol1: 0,
         converge_a_bps: 0,
+        levelback_gap_bps: 0,
+        levelback_secs: 0,
         nostop_x8: 0,
         wall2: 0,
         chase_ms: 0,
@@ -398,6 +403,7 @@ impl PyramidCfg {
             || self.sched_g10 > 0
             || self.sched_g8 > 0
             || self.converge_tol1 > 0
+            || self.levelback_secs > 0
             || self.nostop_x8 > 0
             || self.wall2 > 0
             || self.chase_ms > 0
@@ -641,6 +647,8 @@ pub enum ExitReason {
     WallEatLocal,
     /// Г-119: цена уходила от стены на `A` bps и вернулась к ней — выход по рынку.
     Converge,
+    /// Г-108: в первые `W` с после входа цена ушла под уровень стены на `G` bps — выход по рынку.
+    LevelBack,
     /// Г-112: лента против позиции за окно с входа ≥ порога (нормирована на размер стены), позиция в минусе.
     Tape,
     /// Г-116: отмены на нашей стороне за окно с входа ≥ порога (нормированы на размер стены), позиция в минусе.

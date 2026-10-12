@@ -30,6 +30,7 @@ fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'static str {
         ExitReason::WallEatBtc => "wall_eat_btc",
         ExitReason::WallEatLocal => "wall_eat_local",
         ExitReason::Converge => "converge",
+        ExitReason::LevelBack => "levelback",
         ExitReason::Tape => "tape",
         ExitReason::Resilience => "resilience",
     }

@@ -3330,6 +3330,7 @@ where
                             // Г-119: `Converge`/`Tape`/`Resilience` — отдельной колонки нет (форма в имени клетки); считается как `early`.
                             ExitReason::Early
                             | ExitReason::Converge
+                            | ExitReason::LevelBack
                             | ExitReason::Tape
                             | ExitReason::Resilience => exits.early += 1,
                             ExitReason::Eaten => exits.eaten += 1,

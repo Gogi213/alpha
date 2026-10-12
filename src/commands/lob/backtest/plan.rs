@@ -392,6 +392,13 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
+                crate::commands::lob::bounce_grid::ExitForm::LevelBack { gap_bps, secs } => {
+                    crate::lob::strategy::PyramidCfg {
+                        levelback_gap_bps: gap_bps,
+                        levelback_secs: secs,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
                 crate::commands::lob::bounce_grid::ExitForm::Chase { ms } => {
                     crate::lob::strategy::PyramidCfg {
                         chase_ms: ms,
