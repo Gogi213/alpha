@@ -212,8 +212,10 @@ class Core:
             over = False
             if fact:                                      # п.1: по факту — память: MemAvailable покрывает заявку и недобранное идущими
                 mem_ok = self.mem_fits(j)
+                is_gate = j.get("kind") in ("gate", "build")
+                cap = ncp if is_gate else FACT_BUSY * max(0, ncp - gate_resv)   # TK-220: work по факту резерв не трогает, gate/build — до всех ядер
                 over = (room < j["cores"] and (now - self.fact_t >= FACT_SETTLE_S or self.need_cores(j) < j["cores"] or j["cores"] == 1) and mem_ok
-                        and busy * ncp + self.ramp(now) + self.need_cores(j) <= FACT_BUSY * ncp)
+                        and busy * ncp + self.ramp(now) + self.need_cores(j) <= cap)
                 fits = (room >= j["cores"] or over) and mem_ok and not disk_full
             else:
                 fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
@@ -1103,6 +1105,8 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
     free = NCPU - sum(len(x.get("cpus", [])) for x in jobs if x["state"] == "running")
     w = warn_for(j, free, any(x["state"] == "queued" and x["cls"] == "prod" for x in jobs))
     write_job(j)
+    if kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES:
+        print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер больше резерва {RESERVE_CORES} — вне резерва ждёт общей очереди (TK-220).", file=sys.stderr)
     if w:
         print(w, file=sys.stderr)
     return j
