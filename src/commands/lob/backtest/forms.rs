@@ -330,6 +330,9 @@ pub enum EntryForm {
     /// формы здесь роли не играет: рыночный вход не может быть мейкером,
     /// `GTX` отклонил бы пересёкшую спред заявку как `Expired`, В-72).
     Market,
+    /// `reclaim<D>p<S>` (В-227 D, Г-88): вход после «закола» — сделки за уровень на `D` bps и возврата на уровень в окне
+    /// взвода; вход через `S` с после возврата (цена входа — как у `single@fr`). Нет закола/возврата — нет входа.
+    Reclaim { depth_bps: u32, pause_s: u32 },
 }
 
 /// Запас пересечения спреда для рыночного входа (`EntryForm::Market`,
@@ -353,6 +356,21 @@ impl EntryForm {
         }
         if spec == "market" {
             return Ok(Self::Market);
+        }
+        if let Some(rest) = spec.strip_prefix("reclaim") {
+            let form = rest
+                .split_once('p')
+                .and_then(|(d, p)| Some((d.parse::<u32>().ok()?, p.parse::<u32>().ok()?)))
+                .map(|(depth_bps, pause_s)| Self::Reclaim { depth_bps, pause_s })
+                .ok_or_else(|| {
+                    anyhow::anyhow!("{spec}: ожидается reclaim<D>p<S>, D — bps (≥ 1), S — секунды")
+                })?;
+            anyhow::ensure!(
+                matches!(form, Self::Reclaim { depth_bps, .. } if depth_bps > 0)
+                    && form.label() == spec,
+                "{spec}: имя формы входа не каноническое или D = 0"
+            );
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix(SINGLE_ENTRY_LABEL) {
             let (sign, n_s) = match rest.chars().next() {
@@ -465,6 +483,7 @@ impl EntryForm {
                 format!("{SINGLE_ENTRY_LABEL}_{}", ticks.unsigned_abs())
             }
             Self::Market => "market".to_string(),
+            Self::Reclaim { depth_bps, pause_s } => format!("reclaim{depth_bps}p{pause_s}"),
             Self::Ladder {
                 legs,
                 from_bps,
