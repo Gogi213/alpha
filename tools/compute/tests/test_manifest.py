@@ -74,6 +74,13 @@ class Check(unittest.TestCase):
             self.pgo_row(prof)
             self.assertEqual(M.check_fast([self.bin], 3600, "", self.alerts.append), 0)
 
+    def test_fast_path_legacy_row_by_name(self):
+        md5 = M.md5_of(self.bin)
+        pgo = os.path.join(self.d, "alpha-x-pgo")
+        for path, want in ((pgo, 0), (self.bin, 3)):
+            M.write(self.mf, {md5: dict(md5=md5, commit="?", profile="legacy", features="", status="active", built="t", path=path, used_by="")})
+            self.assertEqual(M.check_fast([self.bin], 3600, "", self.alerts.append), want)
+
     def test_estimate_rule(self):
         self.assertEqual(M.check_estimate(3600, 2400, self.alerts.append), 0)             # 1,5 x 2400 = 3600
         self.assertEqual(M.check_estimate(3599, 2400, self.alerts.append), 3)

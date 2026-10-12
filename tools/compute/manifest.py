@@ -6,7 +6,7 @@
 разрешённую обёртку — нарушение. Режим `SCHED_MANIFEST`: `0` выкл., `warn` (по умолчанию, один цикл) — нарушение
 только в alerts.log, `1` — отказ. Обход — `--adhoc "причина"` (пишется в alerts.log).
 """
-import hashlib, os, sys, time
+import hashlib, os, re, sys, time
 
 COLS = ["md5", "commit", "profile", "features", "status", "built", "path", "used_by"]
 MIN_BIN = 1 << 20      # как в guard._binaries: «бинарник» — исполняемый файл крупнее 1 МБ
@@ -114,6 +114,8 @@ def fast_violations(argv, max_runtime_s, rows=None):
     for b in binaries(argv):
         r = rows.get(md5_of(b))
         prof = r["profile"] if r else "вне манифеста"
+        if r and prof in ("", "legacy") and re.search(r"-pgo", os.path.basename(r["path"] or b)):
+            prof = "pgo"                # опись до 12.10 (профиль пуст/legacy): сборка build-pgo.sh узнаётся по имени alpha-<тег>-pgo
         if prof != "pgo" and not prof.endswith("-pgo"):
             out.append(f"бинарник {b}: профиль {prof}, проход > 15 мин только на pgo/r2-pgo (build-pgo.sh); иначе --reason")
     return out

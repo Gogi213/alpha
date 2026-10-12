@@ -1,7 +1,7 @@
 #!/bin/bash
 # TK-133 С-46/С-47/С-50: единственная выкладка планировщика и замка замеров на calc: файлы из git (HEAD) → /data/sched/, md5 после копии,
 # /data/benchrun.sh -> /data/sched/benchrun-sched.sh, бэкапы — в /data/sched/archive/, /data/sched/VERSION (коммит + md5 каждого файла).
-# Запуск с ПК из корня репо: bash tools/compute/sched-deploy.sh [--restart]   (--restart: перезапуск демона, только при пустой очереди)
+# Запуск с ПК из корня репо: bash tools/compute/sched-deploy.sh [--restart]   (--restart: перезапуск демона, только при пустой очереди; --files-only: только файлы, без проверки окна — CLI подхватывает сразу, демон — при перезапуске)
 # Отказ: файл манифеста изменён и не закоммичен. Окно: очередь пуста и нет идущей волны (alsched.py ps).
 set -eu -o pipefail
 HOST=${CALC_HOST:-root@89.163.242.211}
@@ -9,6 +9,7 @@ SSH=(ssh -n -i "$HOME/.ssh/id_rsa" -o "UserKnownHostsFile=$HOME/.ssh/known_hosts
 SSH_IN=(ssh -i "$HOME/.ssh/id_rsa" -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o BatchMode=yes "$HOST")   # без -n: stdin = файл из git
 MANIFEST="alsched.py:alsched.py
 sched_cfg.py:sched_cfg.py
+manifest.py:manifest.py
 benchrun-sched.sh:benchrun-sched.sh
 benchrun-inner.sh:benchrun-inner.sh
 benchrun-legacy.sh:benchrun-legacy.sh
@@ -21,7 +22,7 @@ ver="commit $sha $(date +%FT%T%z)"
 while IFS=: read -r src dst; do
   if ! git diff --quiet HEAD -- "tools/compute/$src"; then echo "sched-deploy: tools/compute/$src не закоммичен" >&2; exit 2; fi
 done <<<"$MANIFEST"
-"${SSH[@]}" 'busy=$(python3 /data/sched/alsched.py ps | grep -Ec "running|занято [1-9]|в очереди [1-9]" || true); [ "$busy" = 0 ] || { echo "sched-deploy: очередь/волна не пусты — окно не то" >&2; exit 3; }; mkdir -p /data/sched/archive'
+[ "${1:-}" = --files-only ] || "${SSH[@]}" 'busy=$(python3 /data/sched/alsched.py ps | grep -Ec "running|занято [1-9]|в очереди [1-9]" || true); [ "$busy" = 0 ] || { echo "sched-deploy: очередь/волна не пусты — окно не то" >&2; exit 3; }; mkdir -p /data/sched/archive'
 while IFS=: read -r src dst; do
   want=$(git show "HEAD:tools/compute/$src" | md5sum | cut -d' ' -f1)
   have=$("${SSH[@]}" "md5sum /data/sched/$dst 2>/dev/null | cut -d' ' -f1" || true)
