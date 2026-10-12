@@ -53,6 +53,8 @@ def run(data, ctx, q):
     for r in data:
         sym, t0, ex = r["symbol"], int(r["t0_ns"]) // 1_000_000, int(r["exit_ns"]) // 1_000_000
         ts, cl, h = _series(ctx, sym)
+        if not ts:
+            continue
         day0 = t0 - t0 % DAY_MS
         tk = (sym, day0, q)
         if tk not in thr:

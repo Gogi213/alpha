@@ -66,7 +66,10 @@ class Ctx:
 
     def klines(self, sym):
         self._need("klines")
-        with open(os.path.join(self.study, "klines", f"ref-{sym}-1m.csv"), encoding="utf-8") as f:
+        path = os.path.join(self.study, "klines", f"ref-{sym}-1m.csv")
+        if not os.path.exists(path):
+            return []                       # свечей монеты нет (в пуле свечей ~70 монет) - плагин такие круги не трогает
+        with open(path, encoding="utf-8") as f:
             return [(int(r["minute_ms"]), float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])) for r in csv.DictReader(f)]
 
     def approaches(self, sym, day):

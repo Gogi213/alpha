@@ -207,6 +207,78 @@
       ]
     },
     {
+      "id": "EntrySingle",
+      "kind": "entry",
+      "prefix": "single@fr",
+      "name_template": "single@fr",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "single@fr"
+      ]
+    },
+    {
+      "id": "EntryMarket",
+      "kind": "entry",
+      "prefix": "market",
+      "name_template": "market",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "market"
+      ]
+    },
+    {
+      "id": "EntryOffsetPlus",
+      "kind": "entry",
+      "prefix": "single@fr+",
+      "name_template": "single@fr+{n}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "n",
+          "dom": {
+            "type": "int",
+            "lo": 1,
+            "hi": null,
+            "excl": []
+          }
+        }
+      ],
+      "samples": [
+        "single@fr+1",
+        "single@fr+2",
+        "single@fr+3",
+        "single@fr+5",
+        "single@fr+6"
+      ]
+    },
+    {
+      "id": "EntryOffsetMinus",
+      "kind": "entry",
+      "prefix": "single@fr_",
+      "name_template": "single@fr_{n}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "n",
+          "dom": {
+            "type": "int",
+            "lo": 1,
+            "hi": null,
+            "excl": []
+          }
+        }
+      ],
+      "samples": [
+        "single@fr_1",
+        "single@fr_2",
+        "single@fr_3",
+        "single@fr_5",
+        "single@fr_6"
+      ]
+    },
+    {
       "id": "None",
       "is_r2": false,
       "kind": "exit",
