@@ -57,6 +57,31 @@ class Reserve(unittest.TestCase):
         self.assertEqual((r["work"], r["gate"]), (SS.NCPU - 3, 3))
 
 
+class ReserveFact(unittest.TestCase):
+    """TK-220: допуск по факту — work резерв не трогает, build на 4 ядра при занятой work машине стартует за ≤ 1 тик."""
+    def run_case(self, reserve):
+        S.RESERVE_CORES = reserve
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            for i in range(12):
+                j = SS.job("f%02d" % i, "f%d" % i, "prod", 4, 2, "none", 7200, 0)
+                core.add(j); be.cpu_rate[j["id"]] = 1
+            for _ in range(180):
+                core.tick(); be.advance(core, S.TICK)
+            work = len(core.running("prod"))
+            b = SS.job("b", "build", "prod", 4, 2, "none", 3600, be.t); b["kind"] = "build"; b["prio"] = 5
+            core.add(b); be.cpu_rate["b"] = 1
+            core.tick()
+            return work, core.jobs["b"]["state"]
+        finally:
+            S.RESERVE_CORES = 0
+
+    def test_build_starts_next_tick_work_capped(self):
+        work, st = self.run_case(3)
+        self.assertEqual(st, "running")
+        self.assertLess(work, 11)             # без резерва по факту идут 11 (fact_case)
+
+
 class Preemption(unittest.TestCase):
     def test_head_preempts_narrow_and_retry_not_r1(self):
         ts, frozen, thaw, state, frozen_for = SS.preempt_case()
