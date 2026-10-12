@@ -618,7 +618,9 @@ fn kline_axes_use_only_past_minutes() {
     let d = k.axis(KlineAxis::DayLowDist, t, 10_000, 0.01).unwrap();
     assert!((d - 700.0).abs() < 1e-6, "{d}"); // (100 − 93) / 0.01 тиков
     assert_eq!(k.axis(KlineAxis::DayLowDist, day0, 10_000, 0.01), None);
-    assert!(k.ensure_day(&dir, "NOPEUSDT", "2026-01-01").is_err());
+    assert!(KlineSeries::default()
+        .ensure_day(&dir, "NOPEUSDT", "2026-01-01")
+        .is_err());
     std::fs::remove_dir_all(&dir).ok();
 }
 
