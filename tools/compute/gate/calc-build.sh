@@ -5,7 +5,7 @@
 # бинарник не берётся (старый удаляется до сборки); (3) ALPHA_COMMIT=<хеш> вшит в бинарник, `alpha --version` сверяется с HEAD;
 # CALC_EXPECT=<хеш> — ожидаемая голова от вызывающего: не равна W/HEAD → отказ. Выход: $W/alpha-new[-r2], $W/BUILT-<хеш>.
 set -uo pipefail
-W=${1:?каталог}; F=${2:-}; SRC=$W/src; SFX=; FEAT=; [ "$F" = r2 ] && { SFX=-r2; FEAT="--features r2"; }
+W=${1:?каталог}; F=${2:-}; SRC=$W/src; SFX=; FEAT=; [ "$F" = r2 ] && { SFX=-r2; FEAT="--features r2"; export RUSTFLAGS="-C target-cpu=x86-64-v3"; }
 HEAD_SHA=$(cat "$W/HEAD") || exit 70
 [ -n "${CALC_EXPECT:-}" ] && [ "$CALC_EXPECT" != "$HEAD_SHA" ] && { echo "ОТКАЗ: ждали голову $CALC_EXPECT, снимок $HEAD_SHA"; exit 71; }
 rm -rf "$SRC" "$W/alpha-new$SFX"; mkdir -p "$SRC"
