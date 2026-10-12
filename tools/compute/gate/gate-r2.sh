@@ -5,8 +5,8 @@
 # Выход: /opt/alpha-compute/bin/alpha-<тег>-r2, /data/<тег>/gate2.out, маркер /data/<тег>/r2.done. Запуск — только через alsched.
 set -uo pipefail
 TAG=${1:?тег}; SW=${2:?W со снимком}; PGO=${3:?бинарь}; FAMS=${4:?семьи}; W=/data/$TAG
-rm -f "$W/r2.done"
+rm -f "$W/r2.done" "/opt/alpha-compute/bin/alpha-$TAG-r2"   # TK-219 п.11: прежний бинарь тега удалён до сборки
 bash "$(dirname "$0")/calc-build.sh" "$SW" r2 || exit 1
-install -D "$SW/alpha-new-r2" "/opt/alpha-compute/bin/alpha-$TAG-r2"
+install -D "$SW/alpha-new-r2" "/opt/alpha-compute/bin/alpha-$TAG-r2" || exit 1
 GATE_TAG=${TAG}2 NEW_R2="/opt/alpha-compute/bin/alpha-$TAG-r2" bash "$(dirname "$0")/gate-families.sh" "$PGO" "$FAMS" > "$W/gate2.out" 2>&1
 touch "$W/r2.done"

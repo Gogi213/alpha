@@ -6,6 +6,7 @@ import alsched as S
 import sched_sim as SS
 
 H = 3600
+S.RESERVE_CORES = 0     # TK-219: модель упаковки считает все 16 ядер; резерв гейтов проверяет класс Reserve ниже
 
 
 class Packing(unittest.TestCase):
@@ -29,6 +30,31 @@ class Packing(unittest.TestCase):
 
     def test_honest_jobs_not_overcommitted(self):
         self.assertEqual(SS.honest_case(), ("queued", False))
+
+
+class Reserve(unittest.TestCase):
+    """TK-219, В-229 п.10: prod --kind work не занимает 3 резервных ядра; gate/build берут их."""
+    def run_case(self, kinds):
+        S.RESERVE_CORES = 3
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+            for i, k in enumerate(kinds):
+                j = SS.job("r%02d" % i, "r%d" % i, "prod", 1, 1, "none", 3600, 0)
+                if k != "work":
+                    j["kind"] = k
+                core.add(j)
+            for _ in range(6):
+                core.tick(); be.advance(core, S.TICK)
+            return {k: sum(1 for r in core.running("prod") if r.get("kind", "work") == k) for k in ("work", "gate")}
+        finally:
+            S.RESERVE_CORES = 0
+
+    def test_work_leaves_three_cores(self):
+        self.assertEqual(self.run_case(["work"] * 20)["work"], SS.NCPU - 3)
+
+    def test_gate_takes_reserved_cores(self):
+        r = self.run_case(["work"] * 20 + ["gate"] * 3)
+        self.assertEqual((r["work"], r["gate"]), (SS.NCPU - 3, 3))
 
 
 class Preemption(unittest.TestCase):

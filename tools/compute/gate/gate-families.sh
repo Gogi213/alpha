@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TK-164 (КТ-3b): гейт семей клеток на проб-сутках — diff 0 (cmp всех выходов) нового бинарника против опорного семьи.
 # Опись опорных бинарей — docs/findings/gate-families-2026-10-10.md. Запуск на calc ТОЛЬКО через alsched:
-#   python3 /data/sched/alsched.py submit --cls prod --name gate-fam --max-runtime 3600 --cores 4 --mem 8 --why "КТ-3b гейт семей" \
+#   python3 /data/sched/alsched.py submit --cls prod --kind gate --name gate-fam --max-runtime 3600 --cores 4 --mem 8 --why "КТ-3b гейт семей" \
 #     -- bash /data/tk164/gate-families.sh <новый бинарник, путь> [base,r2,dl,tk115,tk115j,tk115w,tk115e]
 #   семьи r2, tk115*, tk115j/w/e считают сборкой с feature r2: NEW_R2=<путь> (иначе берётся <новый бинарник>)
 #   проверка самого скрипта без нового бинаря (опорный против себя, все семьи): … -- bash /data/tk164/gate-families.sh --selftest [семьи]

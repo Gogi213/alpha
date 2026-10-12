@@ -20,3 +20,4 @@ HOT_BUSY = 0.95                                                    # загру�
 PSI_CPU = float(os.environ.get("SCHED_PSI_CPU", "25"))             # PSI cpu some avg10, %: ниже — ядра заняты, но никто не ждёт; ВРЕМЕННО, значение подтвердить Судье по замеру синтетики
 MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
 FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
+RESERVE_CORES = int(os.environ.get("SCHED_RESERVE_CORES", "3"))   # В-229 п.10 (TK-219): ядра под гейты/сборки (--kind gate|build); обычное prod их не занимает, пока гейт/сборка не взяли их сами; 0 = выкл.

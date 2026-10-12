@@ -4,7 +4,7 @@
 Заявка: класс prod (производство: ядра/память/диск по заявке, пакуется на свободные ядра) или measure (замер: эксклюзивное
 окно — всё производство на freeze, замер получает все ядра, по выходу размораживается). Всё запускается через него.
 
-  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] [--adhoc ПРИЧИНА] -- команда…
+  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] [--adhoc ПРИЧИНА] [--kind work|gate|build] [--reason ПРИЧИНА] [--est ОЦЕНКА] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
                                                     #   stand по умолчанию --iso 4 (без заморозки производства); --exclusive — заморозка всего; --iso K — другое K; wave — всегда заморозка
   alsched.py ps | cancel <id> [причина] | reprio <id> <prio> | daemon
@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -195,11 +195,13 @@ class Core:
         self.learn(now)
         self.guard_load(now, busy, fact)
         capped = sum(len(r["cpus"]) for r in self.running("prod") if not r.get("frozen_for")) if self.iso else 0
+        gate_used = sum(len(r["cpus"]) for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))
+        gate_resv = max(0, RESERVE_CORES - gate_used)     # В-229 п.10: гарантированные ядра гейтам/сборкам
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
             free = [c for c in range(self.ncpu) if c not in used]
-            room = len(free) - legacy
+            room = len(free) - legacy - (0 if j.get("kind") in ("gate", "build") else gate_resv)
             disk_full = bool(self.slots and j["disk"] != "none"
                              and sum(1 for r in self.running("prod") if r["disk"] == j["disk"]) >= self.slots)
             if j.get("io") == "seq" and j["disk"] != "none" and any(
@@ -1084,11 +1086,13 @@ def parse_dur(s):
     return float(s[:-1]) * m[s[-1]] if s and s[-1] in m else float(s)
 
 
-def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0, vypiska=None):
+def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0, vypiska=None, kind="work"):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
     jid = time.strftime("%m%d%H%M%S") + f"{os.getpid() % 1000:03d}"
     j = dict(id=jid, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
              prio=prio, io=io, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
+    if kind != "work":
+        j["kind"] = kind
     if iso and cls == "measure":
         j["iso"] = iso
     if vypiska is not None:
@@ -1227,16 +1231,22 @@ def main():
         p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
         p.add_argument("--adhoc", default="", help="КТ-1: обход проверки манифеста для prod — причина (пишется в alerts.log)")
         p.add_argument("--vypiska", default="", help="TK-118, В-213: файл шагов прохода, по которому снята выписка из Летописи (guard.py plan --steps)")
+        p.add_argument("--kind", default="work", choices=["work", "gate", "build"], help="В-229 п.10: gate|build — берут резерв ядер (SCHED_RESERVE_CORES), обычное prod его не занимает")
+        p.add_argument("--reason", default="", help="В-229 п.8: обход быстрого пути (prod > 15 мин не на pgo-бинаре) — причина, пишется в alerts.log")
+        p.add_argument("--est", default="", help="В-229 п.9: оценка прохода по пробе «1 сутки x 3 месяца» (90s|30m|2h); max-runtime >= 1,5 x оценки")
         o = p.parse_args(a[1:sep])
         if o.cls == "prod":
             mrc = manifest_check(a[sep + 1:], o.adhoc, o.name)      # КТ-1: бинарник вне манифеста / команда не через обёртку
+            if mrc:
+                return mrc
+            mrc = fastpath_check(a[sep + 1:], parse_dur(o.max_runtime), o.reason, o.est)
             if mrc:
                 return mrc
         rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
         vyp = vypiska_warn(o, parse_dur(o.max_runtime))
-        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso, vypiska=vyp)
+        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso, vypiska=vyp, kind=o.kind)
         print(j["id"])
         return 0
     print(__doc__)
@@ -1257,6 +1267,21 @@ def manifest_check(argv, adhoc, who=""):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m.check_submit(argv, adhoc, alert_line, who)
+
+
+def fastpath_check(argv, max_runtime_s, reason, est):
+    """В-229 п.8/п.9 (TK-219): быстрый путь (pgo-бинарь) и оценка по пробе для prod > 15 мин; SCHED_FASTPATH=0 — выкл."""
+    if os.environ.get("SCHED_FASTPATH", "1") == "0":
+        return 0
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.py")
+    if not os.path.isfile(path):
+        alert_line(f"manifest.py не найден ({path}): проверка быстрого пути пропущена")
+        return 0
+    spec = importlib.util.spec_from_file_location("manifest", path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.check_fast(argv, max_runtime_s, reason, alert_line) or m.check_estimate(max_runtime_s, parse_dur(est) if est else None, alert_line)
 
 
 def guard_check(o, argv):
