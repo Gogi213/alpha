@@ -134,6 +134,7 @@ MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: ч
 _THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
 MSETS = {}  # имя набора -> спецификация --set: наборы с порогом по месяцам (Г-10 btc<N>h_max=T_m); write_set добавляет их к --set
 _TAPE_THR = os.path.join(FIND, "tape-thresholds-v7-2026-10-11.json")   # TK-120 v7 (thr7/summary.json): ключи e112_W<W>_q<q> по месяцам
+_TK202_THR = os.path.join(FIND, "tk202-thresholds-2026-10-12.json")   # tools/analyze/tk202-thresholds.py: usd {месяц: {q: T}}, ctx {ось: {месяц: {q20..q80}}}
 _BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-11.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
 
 
@@ -394,6 +395,32 @@ def p14_cfg(hyp, sv, av, fixed=()):
                     name = f"g10n{n_h}q{q}-{m}"
                     MSETS[name] = f"age=2700,side=bid,btc{n_h}h_max={t}"
                     mm[m] = f"{form} {name}"
+            MONTHLY[h] = mm
+    elif av and "usd_min_q" in av and "keep_q" not in av:   # В-227 М3 (Г-89/107/27, Г-32): usd_min=T_m(q) по месяцам; Г-32 — ещё страта btc4h внутри базы B1 (Судья 12.10 04:14)
+        q = _int_in(_frac(av["usd_min_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        k = int(str(av["ctx_q"])[1:]) if "ctx_q" in av and re.fullmatch(r"q[1-5]", str(av["ctx_q"])) else None
+        axes = {"usd_min_q": q} if k is None else {"usd_min_q": q, "ctx": f"btc4h-q{k}"}
+        cfg["variant"] = {"family": "g32" if "ctx_q" in av else "usd_min", "axes": axes}   # Г-89/107/27 — одна ось, один хеш
+        h = ch.cell_hash(cfg)
+        thr = json.load(open(_TK202_THR, encoding="utf-8")) if os.path.exists(_TK202_THR) else {}
+        if not q or ("ctx_q" in av and k is None):
+            LINES[h] = (None, "usd_min_q ∈ {5,10,20,33,50,67,80,90,95}, ctx_q ∈ q1…q5")
+        elif not thr:
+            LINES[h] = (None, f"нет {os.path.basename(_TK202_THR)} — tools/analyze/tk202-thresholds.py")
+        else:
+            LINES[h] = (None, "месячный набор u<q>[c<k>]-<ГГГГ-ММ> (usd_min=T_m): файлы <имя>-<ГГГГ-ММ>.cells")
+            mm = {}
+            for m, per in thr["usd"].items():
+                cx = ""
+                if k is not None:
+                    c = thr["ctx"]["btc4h"].get(m)
+                    if c is None:
+                        continue
+                    lo, hi = {1: (None, c["q20"]), 2: (c["q20"], c["q40"]), 3: (c["q40"], c["q60"]), 4: (c["q60"], c["q80"]), 5: (c["q80"], None)}[k]
+                    cx = (f",btc4h_min={lo}" if lo is not None else "") + (f",btc4h_max={hi}" if hi is not None else ",btc4h_max=-44.55")
+                name = f"u{q}{'c' + str(k) if k else ''}-{m}"
+                MSETS[name] = f"age=2700,side=bid,usd_min={per[str(q)]}" + (cx if cx else ",btc4h_max=-44.55")
+                mm[m] = f"{form} {name}"
             MONTHLY[h] = mm
     elif av:
         cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}

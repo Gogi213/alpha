@@ -186,6 +186,22 @@ class MasterTest(unittest.TestCase):
         m10 = master.MONTHLY[ch.cell_hash(c10)]
         self.assertEqual(m10["2026-02"], c10["form"] + " g10n6q20-2026-02")
         self.assertEqual(master.MSETS["g10n6q20-2026-01"], "age=2700,side=bid,btc6h_max=-50.5")
+        # В-227 М3: usd_min=T_m(q) по месяцам (Г-89/107/27 — один хеш), Г-32 — ещё страта btc4h внутри базы
+        with tempfile.TemporaryDirectory() as td:
+            tp = os.path.join(td, "t.json")
+            json.dump({"usd": {"2026-01": {"50": 35948}}, "ctx": {"btc4h": {"2026-01": {"q20": -104.65, "q40": -75.6, "q60": -60.8, "q80": -51.2}}}}, open(tp, "w"))
+            old_thr, master._TK202_THR = master._TK202_THR, tp
+            try:
+                cu = master.p14_cfg("Г-89", sv, {"usd_min_q": "50"})
+                cu2 = master.p14_cfg("Г-107", sv, {"usd_min_q": "50"})
+                c32 = master.p14_cfg("Г-32", sv, {"usd_min_q": "50", "ctx_q": "q3"})
+            finally:
+                master._TK202_THR = old_thr
+        self.assertEqual(ch.cell_hash(cu), ch.cell_hash(cu2))
+        self.assertEqual(master.MONTHLY[ch.cell_hash(cu)]["2026-01"], cu["form"] + " u50-2026-01")
+        self.assertEqual(master.MSETS["u50-2026-01"], "age=2700,side=bid,usd_min=35948,btc4h_max=-44.55")
+        self.assertEqual(master.MSETS["u50c3-2026-01"], "age=2700,side=bid,usd_min=35948,btc4h_min=-75.6,btc4h_max=-60.8")
+        self.assertNotEqual(ch.cell_hash(c32), ch.cell_hash(cu))
         # Г-110: early<x> — целые секунды как раньше, 0,5 с — early0.5
         for x, suf in (("0.5", "early0.5"), ("1/2", "early0.5"), ("3", "early3")):
             self.assertTrue(master.p14_cfg("Г-110", sv, {"early_exit_s": x})["form"].endswith("-" + suf), x)
