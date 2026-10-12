@@ -9,12 +9,12 @@ sig = {}
 for sub in ("signals", "signals-retry"):
     try:
         for r in csv.DictReader(l for l in open(f"{pool}/m-{mon}/{sub}/{day}/t-bid-btc4h-q1/signals.csv", encoding="utf-8") if not l.startswith("#")):
-            sig[(r["symbol"], int(r["t0_ns"]) // 1000000)] = int(float(r["price_tick"]))
+            sig[(r["symbol"], int(r["t0_ns"]) // 1000000, int(float(r["price_tick"])))] = 1
     except FileNotFoundError:
         pass
 lv = {(r["symbol"], int(float(r["arm_ms"])), int(float(r["price_tick"]))): float(r["size_at_arm"] or 0) for r in csv.DictReader(open(f"{pool}/m-{mon}/lvl/{day}.csv", encoding="utf-8"))}
 ap = {}
-for s in {s for s, _ in sig}:
+for s in {k[0] for k in sig}:
     try:
         for r in csv.DictReader(open(f"{t46}/{mon}/home/alpha/epochs/e-{mon}/study/approaches/D20/{day}/approaches-{s}.csv", encoding="utf-8")):
             if r["side"] == "bid":
@@ -24,7 +24,7 @@ for s in {s for s, _ in sig}:
 n = [0, 0, 0]
 with open(out, "w", newline="") as f:
     w = csv.writer(f); w.writerow(["symbol", "t0_ms", "price_tick", "size", "usd", "behind_pct", "usd_ok", "behind_ok"])
-    for (s, t), pt in sorted(sig.items()):
+    for (s, t, pt) in sorted(sig):
         sz = lv.get((s, t, pt), 0)
         usd = pt * inst[s][0] * sz * inst[s][1] if s in inst else 0
         bh = ap.get((s, t, pt))
