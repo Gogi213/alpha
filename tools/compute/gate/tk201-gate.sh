@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TK-201 (В-227, пакет A): гейт «байт в байт» — сборка головы (боевая и с feature r2) на calc и семьи gate-families.sh
 # (diff 0 против опорных семьи на проб-сутках). Запуск ТОЛЬКО через alsched:
-#   python3 /data/sched/alsched.py submit --cls prod --name tk201-gate --max-runtime 3h --cores 8 --mem 16 -- bash /data/tk201/tk201-gate.sh
+#   python3 /data/sched/alsched.py submit --cls prod --kind gate --name tk201-gate --max-runtime 3h --cores 8 --mem 16 -- bash /data/tk201/tk201-gate.sh
 # Исходники: push-head.sh /data/tk201 (снимок головы), calc-build.sh и gate-families.sh рядом (в $W/ или gate/).
 # Итог: /data/tk201/gate/summary.txt, маркер gate.done.
 set -uo pipefail
