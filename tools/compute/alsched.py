@@ -201,7 +201,9 @@ class Core:
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
             free = [c for c in range(self.ncpu) if c not in used]
-            room = len(free) - legacy - (0 if j.get("kind") in ("gate", "build") else gate_resv)
+            is_gate = j.get("kind") in ("gate", "build")
+            resv = set(free[max(0, len(free) - gate_resv):]) if gate_resv else set()   # резерв — старшие свободные ядра; work их не пинит и не учитывает сверх заявки
+            room = len(free) - legacy - (0 if is_gate else len(resv))
             disk_full = bool(self.slots and j["disk"] != "none"
                              and sum(1 for r in self.running("prod") if r["disk"] == j["disk"]) >= self.slots)
             if j.get("io") == "seq" and j["disk"] != "none" and any(
@@ -217,7 +219,7 @@ class Core:
                 fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
             if fits and self.iso and capped + j["cores"] > PROD_CAP_ISO:
                 fits = False                              # окно открыто: заявленных ядер prod сверх потолка не пускаем
-            if fits and reserve is not None and j["max_runtime"] > reserve["shadow"] and not over \
+            if fits and reserve is not None and j["max_runtime"] > reserve["shadow"] and not over and not is_gate \
                     and (j["cores"] > reserve["cores"] or j["mem"] > reserve["mem"]):   # 10.10: влезшая по ФАКТУ (over) резервом по заявкам не держится (gate10: 25 мин host 0,6 при очереди 28)
                 fits = False                              # заняла бы место первой заявки и не успела бы до её старта
             if not fits:
@@ -225,16 +227,16 @@ class Core:
                     head = j
                     reserve = self.reservation(j, room, mem, now)
                 continue
-            if reserve is not None and j["max_runtime"] > reserve["shadow"]:
+            if reserve is not None and j["max_runtime"] > reserve["shadow"] and not is_gate:    # гейт берёт резервные ядра, не место головной заявки
                 reserve["cores"] -= j["cores"]
                 reserve["mem"] -= j["mem"]
             if over and room < j["cores"]:               # сверх заявленных: не пинить (ядро пина не переносится, факт-загрузка ядер неизвестна)
                 self.fact_t = now
                 load = {c: sum(1 for r in self.running("prod") if c in r["cpus"]) for c in range(self.ncpu)}
-                cpus = sorted(sorted(range(self.ncpu), key=lambda c: (load[c], c))[: j["cores"]])   # только учёт
+                cpus = sorted(sorted((c for c in range(self.ncpu) if c not in resv), key=lambda c: (load[c], c))[: j["cores"]])   # только учёт; резервные ядра гейтов не трогаем
                 j["unpinned"] = True
             else:
-                cpus = free[: j["cores"]]
+                cpus = sorted(free[-j["cores"]:]) if is_gate else free[: j["cores"]]   # гейт — с верха (резерв), work — с низа
             j.update(state="running", t_start=now, cpus=cpus)
             used |= set(j["cpus"])
             mem += j["mem"]
@@ -1281,7 +1283,7 @@ def fastpath_check(argv, max_runtime_s, reason, est):
     spec = importlib.util.spec_from_file_location("manifest", path)
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
-    return m.check_fast(argv, max_runtime_s, reason, alert_line) or m.check_estimate(max_runtime_s, parse_dur(est) if est else None, alert_line)
+    return m.check_fast(argv, max_runtime_s, reason, alert_line) or m.check_estimate(max_runtime_s, parse_dur(est) if est else None, alert_line, reason)
 
 
 def guard_check(o, argv):

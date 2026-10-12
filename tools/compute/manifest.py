@@ -6,7 +6,7 @@
 разрешённую обёртку — нарушение. Режим `SCHED_MANIFEST`: `0` выкл., `warn` (по умолчанию, один цикл) — нарушение
 только в alerts.log, `1` — отказ. Обход — `--adhoc "причина"` (пишется в alerts.log).
 """
-import hashlib, os, re, sys, time
+import hashlib, os, re, shlex, sys, time
 
 COLS = ["md5", "commit", "profile", "features", "status", "built", "path", "used_by"]
 MIN_BIN = 1 << 20      # как в guard._binaries: «бинарник» — исполняемый файл крупнее 1 МБ
@@ -105,13 +105,22 @@ def check_submit(argv, adhoc, alert, who=""):
 FAST_MIN_S = 15 * 60       # В-229 п.8: prod дольше этого — только быстрым путём (v3+PGO, tools/compute/build-pgo.sh)
 
 
+def fast_binaries(argv):
+    """Бинари команды для быстрого пути: слова argv, значения ИМЯ=путь (BIN=… перед раннером/в env) и слова внутри строки bash -c."""
+    words = []
+    for a in argv:
+        for w in (shlex.split(a, posix=os.name != "nt") if " " in a else [a]):
+            words.append(w.split("=", 1)[1] if re.match(r"[A-Za-z_][A-Za-z0-9_]*=", w) else w)
+    return list(dict.fromkeys(binaries(words)))
+
+
 def fast_violations(argv, max_runtime_s, rows=None):
     """В-229 п.8 (TK-219): проход prod > 15 мин — бинарь из манифеста с профилем pgo (вкл. r2-pgo). -> список нарушений."""
     if max_runtime_s <= FAST_MIN_S:
         return []
     rows = load() if rows is None else rows
     out = []
-    for b in binaries(argv):
+    for b in fast_binaries(argv):
         r = rows.get(md5_of(b))
         prof = r["profile"] if r else "вне манифеста"
         if r and prof in ("", "legacy") and re.search(r"-pgo", os.path.basename(r["path"] or b)):
@@ -142,14 +151,16 @@ def check_fast(argv, max_runtime_s, reason, alert):
 EST_K = 1.5                # В-229 п.9: max-runtime >= 1,5 x оценки по пробе «1 сутки x 3 месяца»
 
 
-def check_estimate(max_runtime_s, est_s, alert):
-    """-> rc. est_s — оценка прохода по пробе (--est), None — не указана (prod > 15 мин: предупреждение)."""
+def check_estimate(max_runtime_s, est_s, alert, reason=""):
+    """-> rc. est_s — оценка прохода по пробе (--est); None — не указана: prod > 15 мин без неё — отказ (обход — --reason)."""
     if max_runtime_s <= FAST_MIN_S:
         return 0
     if est_s is None:
-        alert("оценка: проход > 15 мин без --est (проба 1 сутки x 3 месяца, docs/COMMANDS.md)")
-        print("alsched: проход > 15 мин без --est <оценка по пробе 1 сутки x 3 месяца>", file=sys.stderr)
-        return 0
+        if reason:
+            return 0
+        alert("оценка ОТКАЗ: проход > 15 мин без --est (проба 1 сутки x 3 месяца, docs/COMMANDS.md)")
+        print('alsched: проход > 15 мин без --est <оценка по пробе 1 сутки x 3 месяца>; обход — --reason "причина"', file=sys.stderr)
+        return 3
     if max_runtime_s < EST_K * est_s:
         alert(f"оценка ОТКАЗ: max-runtime {max_runtime_s:.0f}s < {EST_K} x оценки {est_s:.0f}s")
         print(f"alsched: max-runtime {max_runtime_s:.0f}s < {EST_K} x --est {est_s:.0f}s — заявка отклонена", file=sys.stderr)
@@ -197,6 +208,10 @@ if __name__ == "__main__":       # manifest.py show | check <бинарник…
     if len(sys.argv) > 1 and sys.argv[1] == "bootstrap":
         print("добавлено строк:", bootstrap(manifest_path(), sys.argv[2:]))
         sys.exit(0)
+    if len(sys.argv) > 2 and sys.argv[1] == "fastbin":      # fastbin <бинарь>: раннер проверяет свой BIN (В-229 п.8); REASON в env — обход
+        v = [] if os.environ.get("REASON") else fast_violations([sys.argv[2]], FAST_MIN_S + 1)
+        print("\n".join(v) or "ок")
+        sys.exit(3 if v else 0)
     if len(sys.argv) > 1 and sys.argv[1] == "check":
         v = violations(sys.argv[2:])
         print("\n".join(v) or "ок")

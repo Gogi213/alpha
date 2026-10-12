@@ -7,8 +7,9 @@
 set -uo pipefail
 PLAN=${PLAN:-f1}
 lab=$1; MON=$2; d=$3
-BIN=${BIN:-/data/tk0190/alpha-tk190b-r2}; TP=${TP:-4}; GT=${GT:-2}; P=${P:-/data/tk0196/plan}; OUT=${O:-/data/tk0196/out}; RG=${RG:-/data/tk0196/regime}
+BIN=${BIN:?BIN обязателен: pgo/r2-pgo бинарь из MANIFEST (build-pgo.sh)}; TP=${TP:-4}; GT=${GT:-2}; P=${P:-/data/tk0196/plan}; OUT=${O:-/data/tk0196/out}; RG=${RG:-/data/tk0196/regime}
 H=/data/tk046/$MON/home; E=$H/alpha/epochs/e-$MON; O=$OUT/$lab; V=/data/tk044/final3/verdict.csv; B1=${B1:-/data/tk0115/delta/b1-symdays.csv}
+python3 "$(dirname "$0")/manifest.py" fastbin "$BIN" >&2 || { echo "day-cells: $BIN не на быстром пути (pgo/r2-pgo); обход — REASON=причина" >&2; exit 3; }   # В-229 п.8
 mkdir -p "$O"; if [ -e "$O/done" ] || ! mkdir "$O/claim" 2>/dev/null; then exit 0; fi
 mkdir -p "$O/log" "$O/out"; : > "$O/fail.txt"
 export HOME=$H BIN O TP

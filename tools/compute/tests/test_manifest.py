@@ -81,11 +81,31 @@ class Check(unittest.TestCase):
             M.write(self.mf, {md5: dict(md5=md5, commit="?", profile="legacy", features="", status="active", built="t", path=path, used_by="")})
             self.assertEqual(M.check_fast([self.bin], 3600, "", self.alerts.append), want)
 
+    def test_fast_path_sees_binary_behind_runner(self):
+        self.pgo_row("release")
+        for argv in (["bash", "day-cells.sh", "f1", "jan", "01"] , ):
+            self.assertEqual(M.fast_violations(argv, 3600), [])                         # путь бинаря не в команде — видит только раннер (fastbin)
+        for argv in (["env", "BIN=" + self.bin, "bash", "day-cells.sh"], ["bash", "-c", "BIN=%s xargs -P2 bash day-cells.sh" % self.bin]):
+            self.assertEqual(len(M.fast_violations(argv, 3600)), 1, argv)
+        self.pgo_row("pgo")
+        self.assertEqual(M.fast_violations(["env", "BIN=" + self.bin, "bash", "day-cells.sh"], 3600), [])
+
+    def test_runner_fastbin_cli(self):
+        self.pgo_row("release")
+        env = dict(os.environ, SCHED_MANIFEST_FILE=self.mf)
+        env.pop("REASON", None)
+        py = os.path.join(HERE, "..", "manifest.py")
+        self.assertEqual(subprocess.run(["python3" if os.name != "nt" else "python", py, "fastbin", self.bin], env=env, capture_output=True).returncode, 3)
+        self.assertEqual(subprocess.run(["python3" if os.name != "nt" else "python", py, "fastbin", self.bin], env=dict(env, REASON="нет pgo"), capture_output=True).returncode, 0)
+        self.pgo_row("pgo")
+        self.assertEqual(subprocess.run(["python3" if os.name != "nt" else "python", py, "fastbin", self.bin], env=env, capture_output=True).returncode, 0)
+
     def test_estimate_rule(self):
         self.assertEqual(M.check_estimate(3600, 2400, self.alerts.append), 0)             # 1,5 x 2400 = 3600
         self.assertEqual(M.check_estimate(3599, 2400, self.alerts.append), 3)
-        self.assertEqual(M.check_estimate(3600, None, self.alerts.append), 0)             # без --est — предупреждение
+        self.assertEqual(M.check_estimate(3600, None, self.alerts.append), 3)             # без --est — отказ
         self.assertTrue(any("без --est" in a for a in self.alerts))
+        self.assertEqual(M.check_estimate(3600, None, self.alerts.append, "оценки нет"), 0)   # обход --reason
         self.assertEqual(M.check_estimate(600, 9999, self.alerts.append), 0)              # <= 15 мин не проверяется
 
     def test_off_mode(self):

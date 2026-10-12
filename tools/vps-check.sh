@@ -64,7 +64,7 @@ case "$WHAT" in
   # TK-160: бинарники для гейта прямо на машине сборки, без копирования: без фич и r2 → $BIN_OUT-plain / $BIN_OUT-r2 + md5
   bin)    : "${BIN_OUT:?BIN_OUT — путь на машине сборки, например /data/tk0160/alpha-tk160}"
           B1="cargo build --release --target-dir $TGT -j $J"
-          CMD="set -o pipefail; $B1 2>&1 | tail -3 && install -D $TGT/release/alpha $BIN_OUT-plain && $B1 --features r2 2>&1 | tail -3 && install -D $TGT/release/alpha $BIN_OUT-r2 && md5sum $BIN_OUT-plain $BIN_OUT-r2" ;;
+          CMD="set -o pipefail; rm -f $BIN_OUT-plain $BIN_OUT-r2 && $B1 2>&1 | tail -3 && install -D $TGT/release/alpha $BIN_OUT-plain && $B1 --features r2 2>&1 | tail -3 && install -D $TGT/release/alpha $BIN_OUT-r2 && md5sum $BIN_OUT-plain $BIN_OUT-r2" ;;
   all)    CMD="$(all_cmd "$FEAT")" ;;
   # TK-132 С-02: гейт R2 — второй бинарник (feature r2) гоняет 14+4 R2-теста, которые `all` без фич не видит:
   # `gate` = `all` без фич, затем то же с `--features r2`

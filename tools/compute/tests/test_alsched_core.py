@@ -33,28 +33,51 @@ class Packing(unittest.TestCase):
 
 
 class Reserve(unittest.TestCase):
-    """TK-219, В-229 п.10: prod --kind work не занимает 3 резервных ядра; gate/build берут их."""
-    def run_case(self, kinds):
+    """TK-219, В-229 п.10: prod --kind work не занимает 3 резервных ядра; gate/build берут их — и в claim, и в fact, и поданные позже очереди work."""
+    def run_case(self, nwork, ngate, pack="claim", late=False, wcores=1, rate=None):
         S.RESERVE_CORES = 3
         try:
-            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
-            for i, k in enumerate(kinds):
-                j = SS.job("r%02d" % i, "r%d" % i, "prod", 1, 1, "none", 3600, 0)
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack=pack)
+            def add(i, k, c):
+                j = SS.job("r%02d" % i, "r%d" % i, "prod", c, 1, "none", 3600, 0)
                 if k != "work":
                     j["kind"] = k
+                if rate is not None:
+                    be.cpu_rate[j["id"]] = rate
                 core.add(j)
-            for _ in range(6):
+            for i in range(nwork):
+                add(i, "work", wcores)
+            if not late:
+                for i in range(ngate):
+                    add(100 + i, "gate", 1)
+            for t in range(60):
+                if late and t == 6:
+                    for i in range(ngate):
+                        add(100 + i, "gate", 1)
                 core.tick(); be.advance(core, S.TICK)
             return {k: sum(1 for r in core.running("prod") if r.get("kind", "work") == k) for k in ("work", "gate")}
         finally:
             S.RESERVE_CORES = 0
 
     def test_work_leaves_three_cores(self):
-        self.assertEqual(self.run_case(["work"] * 20)["work"], SS.NCPU - 3)
+        self.assertEqual(self.run_case(20, 0)["work"], SS.NCPU - 3)
 
     def test_gate_takes_reserved_cores(self):
-        r = self.run_case(["work"] * 20 + ["gate"] * 3)
+        r = self.run_case(20, 3)
         self.assertEqual((r["work"], r["gate"]), (SS.NCPU - 3, 3))
+
+    def test_gate_submitted_after_work_queue_claim(self):
+        r = self.run_case(20, 3, late=True)
+        self.assertEqual((r["work"], r["gate"]), (SS.NCPU - 3, 3))
+
+    def test_fact_work_does_not_eat_reserve(self):
+        r = self.run_case(20, 3, pack="fact", late=True, rate=0.1)
+        self.assertEqual(r["gate"], 3)
+        self.assertGreater(r["work"], SS.NCPU - 3)        # fact-перезаказ работает и без гейтов на резерве…
+
+    def test_wide_work_head_does_not_block_gate(self):
+        r = self.run_case(4, 3, late=True, wcores=4)
+        self.assertEqual(r["gate"], 3)
 
 
 class Preemption(unittest.TestCase):
