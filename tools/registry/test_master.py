@@ -155,8 +155,9 @@ class MasterTest(unittest.TestCase):
         have = {r[1] for r in cr.build()}
         sv = {"entry": "ladder3x0..0.0409sw2", "stop": "pct2", "take": "tr1x1", "deadline_s": "14400", "entry_ttl_s": "1800", "set": "t-bid-btc4h-q1",
               "universe": "pool v171c (В-210)", "sigma": "sigma240", "queue": "prob:3", "busy": "off"}
+        mms = {"Г-87": {"n": "PyrFresh:parts"}, "Г-92": {"N": "PyrReinstall:n", "u": "PyrReinstall:u12*12"}, "Г-106": {"x": "NoStop:x8*8"}}   # колонка hyp_axes.mechanic
         for hyp, av in (("Г-87", {"n": "2"}), ("Г-87", {"n": "5"}), ("Г-92", {"N": "3", "u": "1/3"}), ("Г-92", {"N": "5", "u": "1"}), ("Г-106", {"x": "1"})):
-            cfg = master.p14_cfg(hyp, sv, av)
+            cfg = master.p14_cfg(hyp, sv, av, mm=mms[hyp])
             self.assertIn(ch.cell_hash(cfg), have, (hyp, av, cfg["form"]))
         # Г-65: offset k -> wall2 / wall2x (Летопись, хеш найден) и новые wall2m<n>/wall20/wall2p<n>
         for off, name in (("-1", "wall2"), ("1", "wall2x"), ("0", "wall20"), ("-3", "wall2m3"), ("2", "wall2p2")):
@@ -222,7 +223,7 @@ class MasterTest(unittest.TestCase):
         c0 = master.p14_cfg("Г-112", sv, {"W": "5", "q": "5"})
         self.assertRegex(master.MONTHLY[ch.cell_hash(c0)]["2026-01"], r"-ttl1800-tape5qp t-bid-btc4h-q1$")   # Q_m ≤ 0 -> «мера > 0»
         self.assertEqual(len(master.MONTHLY[ch.cell_hash(c0)]), 9)
-        cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"})
+        cfg = master.p14_cfg("Г-92", sv, {"N": "3", "u": "1/4"}, mm=mms["Г-92"])
         self.assertIn("pyre3w3", master.LINES[ch.cell_hash(cfg)][0])   # u = 1/4 -> u12 = 3 (TK-189)
         with self.assertRaises(SystemExit):
             master.p14_cfg("Г-87", {**sv, "sigma": "sigma120"}, {"n": "2"})

@@ -16,7 +16,7 @@ FIND = os.path.join(ROOT, "docs", "findings")
 LAYERS = {"params.csv": ("params.jsonl", ("name",)), "stacks.csv": ("stacks.jsonl", ("stack", "version", "param")),
           "hyp_axes.csv": ("hyp_axes.jsonl", ("hyp", "protocol", "param")), "rules.csv": ("rules.jsonl", ("protocol", "version", "key"))}
 COLS = {"params.csv": ("name", "unit", "resolution", "axis_type", "cfg_path", "note"), "stacks.csv": ("stack", "version", "param", "value"),
-        "hyp_axes.csv": ("hyp", "protocol", "version", "stack", "param", "lo", "hi", "points_f1", "old_points", "note", "role", "engine"),
+        "hyp_axes.csv": ("hyp", "protocol", "version", "stack", "param", "lo", "hi", "points_f1", "old_points", "note", "role", "engine", "mechanic"),
         "rules.csv": ("protocol", "version", "key", "value")}
 RULE_DEFAULTS = {"months": 9}
 
@@ -59,7 +59,7 @@ def _adapt(fn, r, protocol, ver):
     if fn == "hyp_axes.csv" and "f1_points" in r:
         r = {"hyp": r["hyp"], "protocol": protocol, "version": ver, "stack": r["stack"], "param": r["param"], "lo": r.get("lo", ""),
              "hi": r.get("hi", ""), "points_f1": r["f1_points"], "old_points": r.get("old_points", ""), "note": r.get("note", ""),
-             "role": r.get("role", ""), "engine": r.get("engine", "")}
+             "role": r.get("role", ""), "engine": r.get("engine", ""), "mechanic": r.get("mechanic", "")}
     return r
 
 
@@ -212,25 +212,38 @@ def _u12(u12):
     return f"u{u12 // 4}" if u12 in (4, 8, 12) else f"w{u12}"
 
 
-# Г-номер -> (механика каталога, набор клеток, {ось: (параметр каталога, множитель)}, фиксированные параметры); имена, домены и
-# производные грубые параметры (u3 = u12/4, x2 = x8/4) — mechanics.json / mechanics.DERIVED; ветвей по номерам Г в r2_exit нет
-R2_MECH = {
-    "87": ("PyrFresh", "g87-fresh", {"n": ("parts", 1)}, {}),
-    "92": ("PyrReinstall", "t-bid-btc4h-q1", {"N": ("n", 1), "u": ("u12", 12)}, {}),
-    "93": ("PyrNewWall", "t-bid-btc4h-q1", {"K": ("k", 1), "u": ("u12", 12)}, {}),
-    "106": ("NoStop", "e106-pop", {"x": ("x8", 8)}, {}),
-    "119": ("Converge", "t-bid-btc4h-q1", {"tol_ticks": ("tol", 1)}, {"a_bps": 20}),   # A = D20 прогона подходов
+# механика каталога -> (набор клеток, фиксированные параметры); привязка оси к параметру — колонка hyp_axes.mechanic
+# `<MechId>:<параметр>[*множитель]`; имена и домены — mechanics.json / mechanics.DERIVED
+MECH_RUN = {
+    "PyrFresh": ("g87-fresh", {}),
+    "PyrReinstall": ("t-bid-btc4h-q1", {}),
+    "PyrNewWall": ("t-bid-btc4h-q1", {}),
+    "NoStop": ("e106-pop", {}),
+    "Converge": ("t-bid-btc4h-q1", {"a_bps": 20}),   # A = D20 прогона подходов
 }
 
 
-def r2_exit(hyp, av):
+def parse_mechanic(spec):
+    """`PyrReinstall:u12*12` -> (механика, параметр, множитель)."""
+    mid, _, rest = spec.partition(":")
+    par, _, mul = rest.partition("*")
+    if mid not in MECH_RUN or not par:
+        sys.exit(f"hyp_axes.mechanic: «{spec}» — ожидается <MechId>:<параметр>[*множитель], MechId ∈ {sorted(MECH_RUN)}")
+    return mid, par, float(mul) if mul else 1.0
+
+
+def r2_exit(hyp, av, mm=None):
     """R2-гипотеза Rust-класса -> (входная форма или None, суффикс --exit-form, имя набора, причина отказа); имена и наборы — как в клетках Летописи
     (tk065-r2-gen.py, tk115-delta-day.sh) и в forms.rs; значение оси вне ограничений формы -> суффикс None и причина."""
     n = re.sub(r"\D", "", hyp)
     g = lambda k: _frac(av[k])
-    if n in R2_MECH:   # формы из каталога механик (mechanics.json): имя и домен — оттуда, не из веток по Г
-        mid, set_name, axes, fixed = R2_MECH[n]
-        vals = {**fixed, **{p: g(k) * mul for k, (p, mul) in axes.items()}}
+    if mm:   # оси с колонкой mechanic: имя формы строит каталог
+        specs = {k: parse_mechanic(v) for k, v in mm.items()}
+        if len({v[0] for v in specs.values()}) != 1:
+            sys.exit(f"hyp_axes.mechanic: у {hyp} разные механики {sorted({v[0] for v in specs.values()})}")
+        mid = next(iter(specs.values()))[0]
+        set_name, fixed = MECH_RUN[mid]
+        vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items()}}
         name, why = mech.build(mid, **vals)
         return None, name, set_name, None if name else f"{mid}: {why}"
     if n == "114":  # halfstop|halflevel[f1|f3|g<q8>]: f = q8/8, q8 ∈ [1, 7]
@@ -307,7 +320,7 @@ def rust_axes(hyp, av, sv):
     return False
 
 
-def p14_cfg(hyp, sv, av, fixed=()):
+def p14_cfg(hyp, sv, av, fixed=(), mm=None):
     """Конфиг клетки П-14 без cfg_path: база B1 как в cellhash_reg (форма из стека, набор, исполнение, σ), вселенная — из стека.
     R2-гипотезы с кодировкой в Летописи (r2_exit) — форма с суффиксом выхода и набор, как у клеток Летописи; прочие — вариант
     «семья + оси». Стек, не совпадающий с константами cellhash_reg (набор, σ, очередь, busy), — отказ."""
@@ -321,7 +334,7 @@ def p14_cfg(hyp, sv, av, fixed=()):
     entry = sv["entry"]
     set_name = sv["set"]
     suffix, line_why = "", None
-    r2 = r2_exit(hyp, av) if av else False
+    r2 = r2_exit(hyp, av, mm) if av else False
     if r2:
         e, suffix, set_name, line_why = r2
         entry = e or entry
@@ -425,10 +438,10 @@ def p14_cfg(hyp, sv, av, fixed=()):
     return cfg
 
 
-def make_cfg(paths, sv, av, hyp="", fixed=()):
+def make_cfg(paths, sv, av, hyp="", fixed=(), mm=None):
     """Значения стека + значения осей -> конфиг для cellhash (ось перекрывает стек); без cfg_path — адаптер П-14."""
     if not paths:
-        return p14_cfg(hyp, sv, av, fixed)
+        return p14_cfg(hyp, sv, av, fixed, mm)
     cfg = {}
     for k, v in {**sv, **av}.items():
         set_path(cfg, paths.get(k, k), _val(v))
@@ -464,7 +477,7 @@ def connect(build=True):
 
 # ---------- plan ----------
 def _axes(c, protocol, hyp):
-    return c.execute("select param, points_f1, hyp_axes.stack, version, coalesce(role, '') from hyp_axes where protocol=? and hyp=? order by rowid", (protocol, hyp)).fetchall()
+    return c.execute("select param, points_f1, hyp_axes.stack, version, coalesce(role, ''), coalesce(mechanic, '') from hyp_axes where protocol=? and hyp=? order by rowid", (protocol, hyp)).fetchall()
 
 
 def _round(x, res):
@@ -532,9 +545,10 @@ def build_grid(c, protocol, k, hyps=None, rules=None):
                 t, res = ptypes.get(a[0], ("numeric", None))
                 pts[a[0]] = refine(sorted({str(p[a[0]]) for p in plat}), sorted({str(p[a[0]]) for p in prev.values()}, key=lambda v: (fval(v) is None, fval(v) or 0, v)), t, res, int(rules.get("step_div", 4)), cap)
         cells = []
+        mm = {a[0]: a[5] for a in axes if a[5]}
         for combo in itertools.product(*[pts[a[0]] for a in axes]):
             av = dict(zip([a[0] for a in axes], combo))
-            cells.append((av, make_cfg(paths, sv, av, hyp, {a[0] for a in axes if a[4] == 'fixed'})))
+            cells.append((av, make_cfg(paths, sv, av, hyp, {a[0] for a in axes if a[4] == 'fixed'}, mm)))
         lim = rules.get("cap_cells", 100)
         if k > 1 and len(cells) > lim:
             closed[hyp] = f"сетка {len(cells)} > потолка {int(lim)} клеток на гипотезу — сузить (решение Судьи)"

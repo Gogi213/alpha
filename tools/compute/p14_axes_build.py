@@ -91,7 +91,7 @@ STACKS = (stack("B1", {}, "")
 HY = []
 
 
-def ax(h, p, old, f1, grid="", role="tit", note="", engine="rust", stack="B1"):
+def ax(h, p, old, f1, grid="", role="tit", note="", engine="rust", stack="B1", mechanic=""):
     pts = f1.split("|") if f1 else []
     nums = []
     for t in pts:
@@ -101,7 +101,7 @@ def ax(h, p, old, f1, grid="", role="tit", note="", engine="rust", stack="B1"):
             pass
     ok = pts and len(nums) == len(pts)
     HY.append((h, stack, engine, p, role, old, f1, min(nums) if ok else "", max(nums) if ok else "",
-               len(pts) or "", grid, note))
+               len(pts) or "", grid, note, mechanic))
 
 
 # R1: 16 семей (30 осей keep_q: r1ext) + 5 семей В-227 М1 (15 осей) + 3 common_q
@@ -128,18 +128,18 @@ for h in ("Г-64", "Г-73", "Г-83"):
     ax(h, "common_q", Q5, Q9)
 
 # R2 / Д — таблица §3.2
-ax("Г-87", "n", "2|3|4|5", "2|3|4|5|6|7|8|10|12", note="верх — min-лот (проверяет Инженер)")
+ax("Г-87", "n", "2|3|4|5", "2|3|4|5|6|7|8|10|12", note="верх — min-лот (проверяет Инженер)", mechanic="PyrFresh:parts")
 ax("Г-95", "w", "3|4|5", "2|3|4|5|6|7|8|10|12", note="верх — min-лот (проверяет Инженер)")
-ax("Г-92", "N", "3|4|5", "2|3|4|5|6|8|10", grid="N×u")
-ax("Г-92", "u", "1/3|2/3|1", U7, grid="N×u")
+ax("Г-92", "N", "3|4|5", "2|3|4|5|6|8|10", grid="N×u", mechanic="PyrReinstall:n")
+ax("Г-92", "u", "1/3|2/3|1", U7, grid="N×u", mechanic="PyrReinstall:u12*12")
 ax("Г-92", "K", "5", "5", role="fixed")
-ax("Г-93", "u", "1/3|2/3|1", U7, grid="u×K")
-ax("Г-93", "K", "1|2|3", "1|2|3|4|5|6|8", grid="u×K")
-ax("Г-106", "x", "0.5|1|2", LOG8)
+ax("Г-93", "u", "1/3|2/3|1", U7, grid="u×K", mechanic="PyrNewWall:u12*12")
+ax("Г-93", "K", "1|2|3", "1|2|3|4|5|6|8", grid="u×K", mechanic="PyrNewWall:k")
+ax("Г-106", "x", "0.5|1|2", LOG8, mechanic="NoStop:x8*8")
 ax("Г-117", "gamma", "0.5|1|2", LOG8, grid="gamma×T")
 ax("Г-117", "T", "1/4|1/2|1", "1/16|1/8|1/4|3/8|1/2|5/8|3/4|1", grid="gamma×T",
    note="верх — ttl/дедлайн (проверяет Инженер)")
-ax("Г-119", "tol_ticks", "0|1|2", "0|1|2|3|4|6|8|12|16")
+ax("Г-119", "tol_ticks", "0|1|2", "0|1|2|3|4|6|8|12|16", mechanic="Converge:tol")
 ax("Г-114", "trigger", "halfstop|halflevel", "halfstop|halflevel", grid="trigger×f",
    note="категориальная; плато только вдоль f внутри категории")
 ax("Г-114", "f", "1/4|1/2|3/4", SEV, grid="trigger×f")
@@ -220,7 +220,7 @@ def w(name, head, rows):
 
 w("params", ["param", "unit", "resolution", "axis_type", "description"], PARAMS)
 w("stacks", ["stack", "version", "param", "value", "note"], STACKS)
-w("hyp_axes", ["hyp", "stack", "engine", "param", "role", "old_points", "f1_points", "lo", "hi", "n_f1", "grid", "note"],
+w("hyp_axes", ["hyp", "stack", "engine", "param", "role", "old_points", "f1_points", "lo", "hi", "n_f1", "grid", "note", "mechanic"],
   [tuple(str(x) for x in r) for r in HY])
 
 
