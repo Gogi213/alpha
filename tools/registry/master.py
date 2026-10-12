@@ -164,6 +164,7 @@ R1_SIGN = {
     "Г-60": {"trade_size_p50_15m": "lo", "trade_size_p90_15m": "lo"},
     "Г-78": {"best_move_1s_cbps": "lo"}, "Г-55": {"tape_press_lots_30s": "lo"}, "Г-140": {"best_flips_15s": "lo", "ofi_10s_lots": "hi"},
 }
+R1X = set()   # хеши R1-клеток, посчитанных tk202-r1x.py (TK-202 B11): /data/tk202/r1x/cells/<мес>/<хеш>.csv, янв–сен (окт 90 кл. на 31 сигнале); в --cells не идут
 R1_NODATA = ("tape_burst_press_60s_bp",)   # coverage-r1.json r1ext: jan_n_defined 0, охват 0 во всех месяцах — файлов нет
 R1EXT = "r1ext TK-189: /data/tk189/r1ext/cells/<мес>/ (271 кл./мес, фев…окт; 5 прежних точек побайтно = /data/tk064/r1)"
 R2B_MONTHS = tuple(f"2026-{m:02d}" for m in range(1, 10))   # TK-115 R2-B (job 1011200729464, calc /data/p12r3a/r2b): 31 форма × B1-сутки янв–сен, B1 = набор t-bid-btc4h-q1
@@ -357,6 +358,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
         sign = R1_SIGN.get(hyp, {}).get(col)
         if "ctx_q" not in av and (col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign))):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
             R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
+        elif ("ctx_q" in av or col is not None) and "common_q" not in av:   # В-227 М1/М3: колонка/знак вне r1ext и ctx×keep_q — посчитано tk202-r1x.py (calc /data/tk202/r1x, янв–сен)
+            R1X.add(ch.cell_hash(cfg))
     elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
         a = _frac(av["a"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"a": int(a) if float(a).is_integer() else a}}
@@ -570,9 +573,9 @@ def plan(protocol, k, hyps=None, out=None, have=None):
                 hm += len(have[h])
             elif h in R1COL and R1COL[h] in R1_NODATA:   # колонки нет в сигналах пула (охват 0): не считается, не «к счёту»
                 tot["nodata"] += 1
-            elif h in OUTSIDE or h in R1COL or r2b_covers(h, r2b):   # посчитано вне Летописи (В-213: не пересчитывать) — отдельная графа, в --cells не идёт
+            elif h in OUTSIDE or h in R1COL or h in R1X or r2b_covers(h, r2b):   # посчитано вне Летописи (В-213: не пересчитывать) — отдельная графа, в --cells не идёт
                 tot["outside"] += 1
-                tot["outside_r1" if h in R1COL else "outside_r2b" if h not in OUTSIDE else "outside_r2t"] += 1
+                tot["outside_r1" if h in R1COL else "outside_r1x" if h in R1X else "outside_r2b" if h not in OUTSIDE else "outside_r2t"] += 1
             else:
                 n_new += 1
                 if ch.cell_hash({**cfg, "universe": "v171b"}) in have:   # есть в Летописи на другой вселенной (p07a, v171b) — зачёт решает Исследователь/§6
@@ -595,7 +598,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
     txt = (f"Выписка В-224 · {protocol} F{k} · правила {rules.get('_version', '—')}\n"
            f"в сетке {tot['grid']} хешей (× {months} мес. = {tot['grid'] * months} хеш-мес.); в Летописи {tot['have']} хешей "
            f"({tot['have_hm']} хеш-мес. с результатами); к счёту {tot['new']} хешей (× {months} = {tot['new'] * months} хеш-мес.); "
-           f"посчитано вне Летописи (загрузить, не считать) {tot['outside']} хешей (R1 r1ext {tot['outside_r1']}, R2-B TK-115 янв–сен {tot['outside_r2b']}, r2t Г-117 {tot['outside_r2t']}); не считается — колонки нет в сигналах пула (Г-82 60s, охват 0) {tot['nodata']} хешей; гипотез закрыто {len(closed)}; из «к счёту» {tot['uni']} совпали бы с Летописью на вселенной v171b (не совпало: вселенная)")
+           f"посчитано вне Летописи (загрузить, не считать) {tot['outside']} хешей (R1 r1ext {tot['outside_r1']}, R1 r1x TK-202 {tot['outside_r1x']}, R2-B TK-115 янв–сен {tot['outside_r2b']}, r2t Г-117 {tot['outside_r2t']}); не считается — колонки нет в сигналах пула (Г-82 60s, охват 0) {tot['nodata']} хешей; гипотез закрыто {len(closed)}; из «к счёту» {tot['uni']} совпали бы с Летописью на вселенной v171b (не совпало: вселенная)")
     print(txt)
     out = out or os.path.join(ROOT, "data", "plan", f"{protocol}-F{k}-new.jsonl")
     os.makedirs(os.path.dirname(out), exist_ok=True)
