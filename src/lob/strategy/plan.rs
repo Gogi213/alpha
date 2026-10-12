@@ -355,6 +355,10 @@ pub struct PyramidCfg {
     pub cxl_q: f64,
     /// Г-116: окно `W`, с.
     pub cxl_w: u32,
+    /// Г-88 (`reclaim<D>p<S>`, вход): ждать «закола» — сделки за уровень на `D` bps и возврата на уровень (`ReclaimWatch`);
+    /// вход — через `S` мс после возврата, в окне `[arm, arm + entry_ttl]`. `reclaim_depth_bps = 0` — выключено.
+    pub reclaim_depth_bps: u32,
+    pub reclaim_pause_ms: u32,
 }
 
 impl PyramidCfg {
@@ -383,6 +387,8 @@ impl PyramidCfg {
         tape_w: 0,
         cxl_q: 0.0,
         cxl_w: 0,
+        reclaim_depth_bps: 0,
+        reclaim_pause_ms: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -408,7 +414,8 @@ impl PyramidCfg {
             || self.wall2 > 0
             || self.chase_ms > 0
             || self.tape_q > 0.0
-            || self.cxl_q > 0.0)
+            || self.cxl_q > 0.0
+            || self.reclaim_depth_bps > 0)
     }
 }
 
