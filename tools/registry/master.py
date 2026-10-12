@@ -236,10 +236,12 @@ def r2_exit(hyp, av):
     if n == "114":  # halfstop|halflevel[f1|f3|g<q8>]: f = q8/8, q8 ∈ [1, 7]
         q8 = _int_in(8 * g("f"), range(1, 8))
         base = av["trigger"]
-        return None, (None if not q8 else base + {4: "", 2: "f1", 6: "f3"}.get(q8, f"g{q8}")), "t-bid-btc4h-q1", None if q8 else "half…: f = q8/8, q8 ∈ [1, 7]"
+        mid = {"halfstop": "HalfStop", "halflevel": "HalfLevel"}[base]
+        name = None if not q8 else mech.fixed(mid, base + {4: "", 2: "f1", 6: "f3"}[q8]) if q8 in (2, 4, 6) else mech.build(mid, q8=q8)[0]
+        return None, name, "t-bid-btc4h-q1", None if q8 else "half…: f = q8/8, q8 ∈ [1, 7]"
     if n == "65":   # цель = 2-я стена + k тиков, k ∈ −3..3 (Судья 11.10): wall2 ≡ −1, wall2x ≡ +1, wall20, wall2m<n>, wall2p<n> (forms.rs)
         k = _int_in(g("offset"), range(-3, 4))
-        name = None if k is None else {-1: "wall2", 1: "wall2x", 0: "wall20"}.get(k, f"wall2m{-k}" if k < 0 else f"wall2p{k}")
+        name = None if k is None else mech.fixed("Wall2", {-1: "wall2", 1: "wall2x", 0: "wall20"}[k]) if k in (-1, 0, 1) else mech.build("Wall2", template="wall2m{n}" if k < 0 else "wall2p{n}", n=abs(k))[0]
         return None, name, "t-bid-btc4h-q1", None if name else "wall2: offset ∈ −3..+3 тиков"
     if n == "95":   # другая лестница входа: ladder3x0..0.0409sw<w>, без суффикса выхода
         w = _int_in(g("w"), range(2, 13))

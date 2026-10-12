@@ -70,6 +70,13 @@ def _dom_text(d):
     return f"∈ {'(' if d['lo_open'] else '['}{_fmt(d['lo'])}, {_fmt(d['hi']) if d['hi'] is not None else '∞'}{')' if d['hi_open'] else ']'}"
 
 
+def fixed(mech_id, name):
+    """Имя без параметров — запись каталога механики `mech_id` (halfstopf1, wall2x, …); иначе KeyError."""
+    if not any(r["id"] == mech_id and not r["params"] and r["name_template"] == name for r in ROWS):
+        raise KeyError(f"{name!r} — нет в каталоге механики {mech_id!r}")
+    return name
+
+
 def r2_prefixes():
     """Начала имён форм, доступных только R2-бинарнику (ExitForm::is_r2)."""
     return sorted({r["prefix"] for r in ROWS if r["is_r2"]})
