@@ -13,7 +13,10 @@ printf '%s pool\n%s-pyfresh10 pool\n' $F $F > planA/f1.cells
 printf '%s %s\n%s-pyfresh10 %s\n' $F $SET $F $SET > planB/f1.cells
 : > planA/f1-$MO.args; : > planA/f1-$MO.cells; : > planB/f1-$MO.args; : > planB/f1-$MO.cells
 days=$(awk -F, 'NR>1 && $1=="jan"{print $2}' /data/tk0115/delta/b1-symdays.csv | sort -u)
+# повторный запуск (юнит убит по сроку): оборванные сутки — снять метку claim переименованием, готовые пропускаются day.sh
+for X in A B; do for d in $days; do [ -d out$X/$d/claim ] && [ ! -e out$X/$d/done ] && mv out$X/$d/claim out$X/$d/claim.old.$(date +%s); done; done
 for X in A B; do
+  [ -e wall$X.txt ] && [ "$X" = A ] && continue
   s=$(date +%s)
   echo "$days" | P=$M/plan$X O=$M/out$X xargs -P "$D" -I{} bash /data/tk0196/day.sh {} jan {}
   echo "wall_s=$(( $(date +%s)-s ))" > wall$X.txt
