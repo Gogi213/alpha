@@ -212,24 +212,14 @@ def _u12(u12):
     return f"u{u12 // 4}" if u12 in (4, 8, 12) else f"w{u12}"
 
 
-def _u12_vals(g, nkey, nname, ukey="u"):
-    """Значения для pyre/pynw: число и доля u12 = 12u; u3 = k (u12 = 4k) для записи `u<k>` каталога."""
-    u12 = _int_in(12 * g(ukey), range(1, 13))
-    return {nname: g(nkey), "u12": u12, "u3": u12 // 4 if u12 and u12 % 4 == 0 else None}
-
-
-def _nostop_vals(g):
-    x8 = _int_in(8 * g("x"), range(1, 65))
-    return {"x8": x8, "x2": x8 / 4 if x8 and x8 % 4 == 0 else None}
-
-
-# Г-номер -> (механика каталога, набор клеток, значения параметров из осей); имена и домены — mechanics.json
+# Г-номер -> (механика каталога, набор клеток, {ось: (параметр каталога, множитель)}, фиксированные параметры); имена, домены и
+# производные грубые параметры (u3 = u12/4, x2 = x8/4) — mechanics.json / mechanics.DERIVED; ветвей по номерам Г в r2_exit нет
 R2_MECH = {
-    "87": ("PyrFresh", "g87-fresh", lambda g: {"parts": g("n")}),
-    "92": ("PyrReinstall", "t-bid-btc4h-q1", lambda g: _u12_vals(g, "N", "n")),
-    "93": ("PyrNewWall", "t-bid-btc4h-q1", lambda g: _u12_vals(g, "K", "k")),
-    "106": ("NoStop", "e106-pop", _nostop_vals),
-    "119": ("Converge", "t-bid-btc4h-q1", lambda g: {"tol": g("tol_ticks"), "a_bps": 20}),   # A = D20 прогона подходов
+    "87": ("PyrFresh", "g87-fresh", {"n": ("parts", 1)}, {}),
+    "92": ("PyrReinstall", "t-bid-btc4h-q1", {"N": ("n", 1), "u": ("u12", 12)}, {}),
+    "93": ("PyrNewWall", "t-bid-btc4h-q1", {"K": ("k", 1), "u": ("u12", 12)}, {}),
+    "106": ("NoStop", "e106-pop", {"x": ("x8", 8)}, {}),
+    "119": ("Converge", "t-bid-btc4h-q1", {"tol_ticks": ("tol", 1)}, {"a_bps": 20}),   # A = D20 прогона подходов
 }
 
 
@@ -239,8 +229,8 @@ def r2_exit(hyp, av):
     n = re.sub(r"\D", "", hyp)
     g = lambda k: _frac(av[k])
     if n in R2_MECH:   # формы из каталога механик (mechanics.json): имя и домен — оттуда, не из веток по Г
-        mid, set_name, pick = R2_MECH[n]
-        vals = pick(g)
+        mid, set_name, axes, fixed = R2_MECH[n]
+        vals = {**fixed, **{p: g(k) * mul for k, (p, mul) in axes.items()}}
         name, why = mech.build(mid, **vals)
         return None, name, set_name, None if name else f"{mid}: {why}"
     if n == "114":  # halfstop|halflevel[f1|f3|g<q8>]: f = q8/8, q8 ∈ [1, 7]

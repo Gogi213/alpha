@@ -27,12 +27,26 @@ def admits(dom, v):
     return hi is None or v < hi or (v == hi and not dom["hi_open"])
 
 
+# грубый параметр = тонкий / делитель, если делится нацело (pyre{n}u{u3} ≡ pyre{n}w{4·u3}; nostop{x2} ≡ nostopx{4·x2})
+DERIVED = {"u3": ("u12", 4), "x2": ("x8", 4)}
+
+
+def _with_derived(vals):
+    out = dict(vals)
+    for name, (src, div) in DERIVED.items():
+        v = vals.get(src)
+        if name not in out and v is not None and abs(v - round(v)) < 1e-9 and round(v) % div == 0:
+            out[name] = round(v) // div
+    return out
+
+
 def build(mech_id, **vals):
     """Каноническое имя формы `mech_id` по значениям параметров -> (имя | None, причина).
     Берётся запись каталога, чьи параметры все заданы в vals и лежат в домене; несколько подходящих — ошибка каталога."""
     rows = [r for r in ROWS if r["id"] == mech_id]
     if not rows:
         raise KeyError(f"нет механики {mech_id!r} в каталоге")
+    vals = _with_derived(vals)
     hits = []
     for r in rows:
         ps = r["params"]
