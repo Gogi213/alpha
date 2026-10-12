@@ -151,6 +151,16 @@ class T(unittest.TestCase):
         ids = lambda r: [int(k[3]) for k in g.run(data, C(), rule=r)]
         self.assertEqual(ids("k4"), [0, 1, 2, 3]); self.assertEqual(ids("n5"), list(range(4, 12))); self.assertEqual(ids("n11"), [10, 11])
 
+    def test_approaches_found_in_epoch_or_month_study(self):   # 12.10: старые монеты - кэш эпохи, новые - study месяца
+        with tempfile.TemporaryDirectory() as d:
+            for root, sym in (("ep", "OLD"), ("st", "NEW")):
+                os.makedirs(os.path.join(d, root, "approaches", "D20", "2026-03-01"))
+                with open(os.path.join(d, root, "approaches", "D20", "2026-03-01", f"approaches-{sym}.csv"), "w") as f:
+                    f.write("side,arm_ms,price_tick,birth_ms,approach_index,disarm_reason,disarm_ms\nbid,5,7,1,0,level_death,9\nask,6,7,1,0,,\n")
+            c = closure_mech.Ctx("2026-03", ("approaches",), study=os.path.join(d, "st"), epoch_study=os.path.join(d, "ep"))
+            self.assertEqual(list(c.approaches("OLD", "2026-03-01")), [(5, "7")]); self.assertEqual(list(c.approaches("NEW", "2026-03-01")), [(5, "7")])
+            self.assertEqual(c.approaches("X", "2026-03-01"), {}); self.assertEqual(c.wall_deaths("NEW"), {("7", "1"): 9})
+
     def test_g26_buckets_causal(self):
         from closures import g26_vol_family as g
         day0 = g._day_start_ms("2026-03-02")
