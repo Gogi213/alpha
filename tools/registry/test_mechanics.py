@@ -21,6 +21,18 @@ class T(unittest.TestCase):
         self.assertIsNone(name)
         self.assertIn("parts", why)
 
+    def test_derived_template_fixed(self):
+        """DERIVED: u3/x2 выводятся из u12/x8 только при делимости; template= выбирает вариант; fixed — бесхозные имена каталога."""
+        self.assertEqual(mech.build("PyrNewWall", k=2, u12=8), ("pynw2u2", None))
+        self.assertEqual(mech.build("PyrNewWall", k=2, u12=7), ("pynw2w7", None))
+        self.assertEqual(mech.build("GoneWall", template="gone{pct}wallx{buffer_bps}", pct=25, buffer_bps=4), ("gone25wallx4", None))
+        self.assertEqual(mech.build("Wall2", template="wall2p{n}", n=3), ("wall2p3", None))
+        self.assertEqual(mech.fixed("HalfStop", "halfstopf1"), "halfstopf1")
+        with self.assertRaises(KeyError):
+            mech.fixed("HalfStop", "halfstopf2")
+        with self.assertRaises(ValueError):
+            mech.build("GoneWall", pct=25, buffer_bps=4)   # три варианта без template= — ошибка, не выбор наугад
+
     def test_r2_prefixes(self):
         self.assertTrue(mech.is_r2_exit("tslx8t4"))
         self.assertTrue(mech.is_r2_exit("wall2m2"))
