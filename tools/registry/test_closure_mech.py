@@ -132,6 +132,24 @@ class T(unittest.TestCase):
         rd["exit_ns"] = str((1440 + 150) * 60_000 * 1_000_000)      # исходный выход раньше обвала — не трогаем
         self.assertEqual(g.run([rd], C(), q=50), {})
 
+    def test_g111_target_from_prior_impulse(self):
+        from closures import g111_impulse_target as g
+        m = 60_000
+        kl = [(i * m, 10.0, 12.0 if i < 10 else 10.5, 10.0 if i < 10 else 9.9, 10.0) for i in range(40)]     # импульс 10..12 до минуты 10
+        kl[20] = (20 * m, 10.0, 11.1, 10.0, 10.0)
+
+        class C:
+            def klines(self, sym):
+                return kl
+        rd = {"symbol": "X", "day_utc": "d", "form": "f", "signal_index": "1", "dir": "1", "entry_vwap": "10.0",
+              "t0_ns": str(10 * m * 1_000_000), "exit_ns": str(30 * m * 1_000_000)}
+        out = g.run([rd], C(), w=15, f=0.5)                  # цель 10+0.5*2=11 -> касание в минуте 20
+        v = out[("X", "d", "f", "1")]
+        self.assertAlmostEqual(v[1], 11.0); self.assertEqual((v[2], v[3]), (False, "impulse_target")); self.assertEqual(v[0], 20 * m * 1_000_000)
+        self.assertEqual(g.run([rd], C(), w=15, f=0.75), {})   # цель 11,5 не достигнута
+        rd["exit_ns"] = str(15 * m * 1_000_000)               # исходный выход раньше касания
+        self.assertEqual(g.run([rd], C(), w=15, f=0.5), {})
+
     def test_rounds_net_formula_and_tree(self):
         f = closure_mech.B1_FORM
         self.assertAlmostEqual(closure_mech.net_bps(1, 100.0, 101.0, True), 100.0 - 1.26 - 3.15)
