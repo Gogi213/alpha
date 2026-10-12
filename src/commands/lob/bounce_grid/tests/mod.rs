@@ -166,6 +166,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         r1_cols: false,
         tape_log: None,
         regime_from: None,
+        klines_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,

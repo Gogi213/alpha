@@ -114,6 +114,17 @@ pub(crate) enum CtxSrc {
         col: &'static str,
         group: RegimeGroup,
     },
+    /// Минутные свечи **монеты** (`--klines-from`, Г-57/Г-08): ось считает `KlineAxis`.
+    Klines(KlineAxis),
+}
+
+/// Ось по свечам монеты. Окно — только закрытые минуты до минуты касания (без взгляда вперёд).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KlineAxis {
+    /// Диапазон часа (`max high − min low` по 60 минутам до касания) к закрытию последней, bps.
+    Rng1h,
+    /// Расстояние от цены уровня до минимума суток (UTC) на момент касания, bps.
+    DayLowDist,
 }
 
 /// Ось контекста касания: имя в ключах `--set` (`<имя>_min|_max`) и источник значения.
@@ -137,11 +148,18 @@ const fn regime(name: &'static str, col: &'static str, group: RegimeGroup) -> Ct
     }
 }
 
+const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
+    CtxAxisSpec {
+        name,
+        src: CtxSrc::Klines(axis),
+    }
+}
+
 /// Реестр осей контекста — единственное место: порядок общий для `FilterSet::ctx`,
 /// `TouchContext` и `RegimeDay`. Оси хода монеты — первые `COIN_AXES`, оси режима —
 /// следом; новая ось дописывается **в конец**: индексы прежних осей не сдвигаются.
 /// `btc2h`/`btc3h` (E26) и `btc6h`…`btc24h` (Г-10, TK-189) добавлены так же.
-pub(crate) const CTX_SPECS: [CtxAxisSpec; 13] = [
+pub(crate) const CTX_SPECS: [CtxAxisSpec; 15] = [
     coin("ret10m", 0),
     coin("ret1h", 1),
     coin("ret4h", 2),
@@ -155,11 +173,15 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 13] = [
     regime("btc8h", "btc_ret_8h_bps", RegimeGroup::Long),
     regime("btc12h", "btc_ret_12h_bps", RegimeGroup::Long),
     regime("btc24h", "btc_ret_24h_bps", RegimeGroup::Long),
+    klines("rng1h", KlineAxis::Rng1h),
+    klines("dlow", KlineAxis::DayLowDist),
 ];
 
-/// Осей хода монеты (всегда в начале реестра) и осей режима.
+/// Осей хода монеты (всегда в начале реестра), осей по свечам монеты (всегда в конце) и осей
+/// режима (между ними).
 pub(crate) const COIN_AXES: usize = 3;
-pub(crate) const REGIME_AXES: usize = CTX_SPECS.len() - COIN_AXES;
+pub(crate) const KLINE_AXES: usize = 2;
+pub(crate) const REGIME_AXES: usize = CTX_SPECS.len() - COIN_AXES - KLINE_AXES;
 
 /// Имена осей в порядке реестра.
 pub const CTX_AXES: [&str; CTX_SPECS.len()] = {
@@ -226,7 +248,7 @@ pub(crate) fn read_regime_day(
     let mut cols = [None; REGIME_AXES];
     let regime_specs = CTX_SPECS.iter().filter_map(|a| match a.src {
         CtxSrc::Regime { col, group } => Some((col, group)),
-        CtxSrc::Coin(_) => None,
+        CtxSrc::Coin(_) | CtxSrc::Klines(_) => None,
     });
     for (slot, (name, group)) in regime_specs.enumerate() {
         let need = match group {
@@ -268,6 +290,90 @@ pub(crate) fn read_regime_day(
     Ok(out)
 }
 
+/// Минутные свечи монеты (`ref-<СИМВОЛ>-1m.csv` по месяцам): `minute_ms → (high, low, close)`.
+#[derive(Debug, Default)]
+pub(crate) struct KlineSeries {
+    bars: BTreeMap<i64, (f64, f64, f64)>,
+    months: std::collections::BTreeSet<usize>,
+}
+
+const MONTH_ABBR: [&str; 12] = [
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+];
+
+impl KlineSeries {
+    /// Подгружает месяц суток `day` (`ГГГГ-ММ-ДД`) и предыдущий (окно часа в начале месяца);
+    /// файл месяца `<dir>/<абр>/ref-<символ>-1m.csv`. Нет файла текущего месяца — отказ,
+    /// предыдущего — окно у границы просто неполное (`None`).
+    pub(crate) fn ensure_day(&mut self, dir: &Path, symbol: &str, day: &str) -> anyhow::Result<()> {
+        let month: usize = day
+            .get(5..7)
+            .and_then(|m| m.parse().ok())
+            .filter(|m| (1..=12).contains(m))
+            .ok_or_else(|| anyhow::anyhow!("--klines-from: сутки {day} не ГГГГ-ММ-ДД"))?;
+        for (m, must) in [(month, true), ((month + 10) % 12 + 1, false)] {
+            if self.months.contains(&m) {
+                continue;
+            }
+            let path = dir
+                .join(MONTH_ABBR[m - 1])
+                .join(format!("ref-{symbol}-1m.csv"));
+            if !path.is_file() {
+                anyhow::ensure!(!must, "--klines-from: нет {}", path.display());
+                continue;
+            }
+            self.read_file(&path)?;
+            self.months.insert(m);
+        }
+        Ok(())
+    }
+
+    fn read_file(&mut self, path: &Path) -> anyhow::Result<()> {
+        let mut r = csv::ReaderBuilder::new().from_path(path)?;
+        let header = r.headers()?.clone();
+        let col = |name: &str| {
+            header
+                .iter()
+                .position(|h| h == name)
+                .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", path.display()))
+        };
+        let (cm, ch, cl, cc) = (col("minute_ms")?, col("high")?, col("low")?, col("close")?);
+        for rec in r.records() {
+            let rec = rec?;
+            let f = |c: usize| rec.get(c).unwrap_or("").parse::<f64>();
+            self.bars.insert(rec[cm].parse()?, (f(ch)?, f(cl)?, f(cc)?));
+        }
+        Ok(())
+    }
+
+    /// Значение оси на минуту касания `minute` (начало минуты, мс); `price` — цена уровня.
+    /// Нет полного окна (60 минут) или минут суток до касания — `None`.
+    pub(crate) fn axis(&self, axis: KlineAxis, minute: i64, price: f64) -> Option<f64> {
+        const MIN: i64 = 60_000;
+        match axis {
+            KlineAxis::Rng1h => {
+                let (mut hi, mut lo, mut n, mut close) = (f64::MIN, f64::MAX, 0, 0.0);
+                for (_, &(h, l, c)) in self.bars.range(minute - 60 * MIN..minute) {
+                    hi = hi.max(h);
+                    lo = lo.min(l);
+                    close = c;
+                    n += 1;
+                }
+                (n == 60 && close > 0.0).then(|| (hi - lo) / close * 1e4)
+            }
+            KlineAxis::DayLowDist => {
+                let day_start = minute - minute.rem_euclid(86_400_000);
+                let low = self
+                    .bars
+                    .range(day_start..minute)
+                    .map(|(_, &(_, l, _))| l)
+                    .reduce(f64::min)?;
+                (price > 0.0).then(|| (price - low) / price * 1e4)
+            }
+        }
+    }
+}
+
 /// Контекст касаний суток: ход монеты — из кэша (`TouchRow::ret_bps`) или из
 /// реплея (`pre_touch_return_bps_csv` — те же шесть знаков), режим — по
 /// минуте `start_ms` из `RegimeDay` (нет режима — `None`).
@@ -275,6 +381,7 @@ pub(crate) fn touch_contexts(
     rets: &[[Option<f64>; 3]],
     touches: &[TouchRecord],
     regime: Option<&RegimeDay>,
+    klines: Option<(&KlineSeries, f64)>,
 ) -> Vec<TouchContext> {
     debug_assert_eq!(rets.len(), touches.len());
     touches
@@ -291,9 +398,11 @@ pub(crate) fn touch_contexts(
                 *a = match spec.src {
                     CtxSrc::Coin(slot) => r[slot],
                     CtxSrc::Regime { .. } => None,
+                    CtxSrc::Klines(axis) => klines
+                        .and_then(|(k, tick)| k.axis(axis, minute, t.price_tick as f64 * tick)),
                 };
             }
-            axes[COIN_AXES..].copy_from_slice(&m);
+            axes[COIN_AXES..COIN_AXES + REGIME_AXES].copy_from_slice(&m);
             TouchContext { axes }
         })
         .collect()
@@ -332,6 +441,14 @@ impl FilterSet {
     /// Хоть один ключ длинных осей битка (`btc6h`…`btc24h`, Г-10) задан — нужны их колонки.
     pub(crate) fn uses_btc_long(&self) -> bool {
         self.uses_group(Some(RegimeGroup::Long))
+    }
+
+    /// Хоть один ключ по свечам монеты (`rng1h`/`dlow`) задан — нужен `--klines-from`.
+    pub(crate) fn uses_klines(&self) -> bool {
+        CTX_SPECS
+            .iter()
+            .zip(&self.ctx)
+            .any(|(a, r)| r.is_set() && matches!(a.src, CtxSrc::Klines(_)))
     }
 
     /// Хоть один ключ хода **монеты** до сигнала (`ret10m`/`ret1h`/`ret4h`)

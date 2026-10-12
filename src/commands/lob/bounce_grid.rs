@@ -480,6 +480,7 @@ impl<'a> GridRun<'a> {
         let sets = &self.sets;
         let outs = &mut self.outs;
         let regime_days = &mut self.regime_days;
+        let mut klines = sets::KlineSeries::default();
         let summary = &mut self.summary;
         // `--cells` (T-38): у каждого набора — свои формы (номера в `forms`); без флага — все формы.
         let all_forms: Vec<usize> = (0..forms.len()).collect();
@@ -710,7 +711,14 @@ impl<'a> GridRun<'a> {
             } else {
                 None
             };
-            let ctx = touch_contexts(&day.rets, &day.touches, regime);
+            let kline_ctx = match args.klines_from.as_deref() {
+                Some(dir) if sets.iter().any(FilterSet::uses_klines) => {
+                    klines.ensure_day(dir, symbol, &day.day)?;
+                    Some((&klines, tick))
+                }
+                _ => None,
+            };
+            let ctx = touch_contexts(&day.rets, &day.touches, regime, kline_ctx);
             // TK-174: память порогов и строки скаляров касаний суток — всегда (бывшие `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_SOA`).
             let holds_day: Vec<bool> = day
                 .touches

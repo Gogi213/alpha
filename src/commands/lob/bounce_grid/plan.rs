@@ -308,6 +308,13 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         args.regime_from.is_some() || !sets.iter().any(FilterSet::uses_regime),
         "ключи pool*/btc* у наборов требуют --regime-from <study/regime>"
     );
+    anyhow::ensure!(
+        args.klines_from.is_some() || !sets.iter().any(FilterSet::uses_klines),
+        "ключи rng1h/dlow у наборов требуют --klines-from <каталог свечей по месяцам>"
+    );
+    if let Some(dir) = &args.klines_from {
+        anyhow::ensure!(dir.is_dir(), "--klines-from {}: не каталог", dir.display());
+    }
     if let Some(dir) = &args.regime_from {
         anyhow::ensure!(dir.is_dir(), "--regime-from {}: не каталог", dir.display());
     }

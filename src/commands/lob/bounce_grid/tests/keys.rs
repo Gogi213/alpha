@@ -559,10 +559,10 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
 /// первые, имена уникальны, слот режима = индекс оси − `COIN_AXES`.
 #[test]
 fn ctx_registry_keeps_old_indices() {
-    use super::super::sets::{CtxSrc, COIN_AXES, CTX_SPECS, REGIME_AXES};
+    use super::super::sets::{CtxSrc, COIN_AXES, CTX_SPECS, KLINE_AXES, REGIME_AXES};
     let old = [
         "ret10m", "ret1h", "ret4h", "pool1h", "pool4h", "btc1h", "btc4h", "btc2h", "btc3h",
-        "btc6h", "btc8h", "btc12h", "btc24h",
+        "btc6h", "btc8h", "btc12h", "btc24h", "rng1h", "dlow",
     ];
     assert_eq!(&CTX_AXES[..old.len()], &old);
     for (i, a) in CTX_SPECS.iter().enumerate() {
@@ -577,5 +577,37 @@ fn ctx_registry_keeps_old_indices() {
         }
         assert_eq!(CTX_AXES.iter().filter(|n| **n == a.name).count(), 1);
     }
-    assert_eq!(REGIME_AXES, CTX_SPECS.len() - COIN_AXES);
+    assert_eq!(REGIME_AXES, CTX_SPECS.len() - COIN_AXES - KLINE_AXES);
+    assert!(CTX_SPECS[CTX_SPECS.len() - KLINE_AXES..]
+        .iter()
+        .all(|a| matches!(a.src, CtxSrc::Klines(_))));
+}
+
+/// Оси по свечам монеты (Г-57/Г-08): окно — только минуты до касания; неполный час и пустые
+/// сутки — `None`; расстояние — от цены уровня до минимума суток к моменту касания.
+#[test]
+fn kline_axes_use_only_past_minutes() {
+    use super::super::sets::{KlineAxis, KlineSeries};
+    let dir = std::env::temp_dir().join(format!("tk204-klines-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("jan")).unwrap();
+    let day0 = 1_767_225_600_000_i64; // 2026-01-01 00:00 UTC
+    let mut csv = String::from("minute_ms,open,high,low,close,volume,turnover\n");
+    for i in 0..120_i64 {
+        let (hi, lo) = (100.0 + (i % 10) as f64, 99.0 - (i % 7) as f64);
+        csv += &format!("{},0,{hi},{lo},100,0,0\n", day0 + i * 60_000);
+    }
+    std::fs::write(dir.join("jan").join("ref-XUSDT-1m.csv"), csv).unwrap();
+    let mut k = KlineSeries::default();
+    k.ensure_day(&dir, "XUSDT", "2026-01-01").unwrap();
+    let t = day0 + 90 * 60_000;
+    // минуты 30..90: high до 109, low до 93 → (109 − 93) / 100 · 1e4
+    let rng = k.axis(KlineAxis::Rng1h, t, 100.0).unwrap();
+    assert!((rng - 160.0).abs() < 1e-9, "{rng}");
+    assert_eq!(k.axis(KlineAxis::Rng1h, day0 + 30 * 60_000, 100.0), None);
+    // минимум суток до t — 93 (минута 6 по циклу low = 99 − 6)
+    let d = k.axis(KlineAxis::DayLowDist, t, 100.0).unwrap();
+    assert!((d - 700.0).abs() < 1e-9, "{d}");
+    assert_eq!(k.axis(KlineAxis::DayLowDist, day0, 100.0), None);
+    assert!(k.ensure_day(&dir, "NOPEUSDT", "2026-01-01").is_err());
+    std::fs::remove_dir_all(&dir).ok();
 }
