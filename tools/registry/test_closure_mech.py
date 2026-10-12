@@ -105,6 +105,14 @@ class T(unittest.TestCase):
         self.assertEqual(ids(nq=3, bucket=2), ["0"]); self.assertEqual(ids(nq=3, bucket=0), ["1"])
         self.assertEqual(ids(nq=3, bucket=1), []); self.assertEqual(ids(nq=3, bucket=4), [])
 
+    def test_g148_leverage_and_drawdown(self):
+        from closures import g148_leverage as g
+        data = [(0, 10.0), (1000, -30.0), (2000, 5.0)]
+        fills = g.run(data, None, L=2)
+        self.assertEqual([u for _, u in fills], [20.0, -60.0, 10.0])
+        st = g.stats(fills)
+        self.assertEqual(st["max_dd_usd"], -60.0); self.assertEqual(st["worst_day_usd"], -30.0)
+
     def test_ctx_study_paths_by_month(self):
         c = closure_mech.Ctx("2026-03", ("sigma",))
         self.assertTrue(c.study.endswith("/tk046/mar/study") and c.epoch_study.endswith("/mar/home/alpha/epochs/e-mar/study"))

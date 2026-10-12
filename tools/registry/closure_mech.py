@@ -197,7 +197,8 @@ def run_all(plugin, closes, spec="", ctx=None):
                     rows.append({"mechanic": plugin.NAME, "variant": variant, "period": period, "cap": cap,
                                  "point": ";".join(f"{k}={pt[k]}" for k in sorted(pt)), "n_before": n0,
                                  "sum_before": round(s0, 4), "n_after": len(fills),
-                                 "sum_after": round(sum(u for _, u in fills), 4)})
+                                 "sum_after": round(sum(u for _, u in fills), 4),
+                                 **(plugin.stats(fills) if hasattr(plugin, "stats") else {})})
     return rows
 
 
