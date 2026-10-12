@@ -311,8 +311,10 @@ def rust_axes(hyp, av, sv):
         if not (g8 and t16):
             return ttl, None, None, "tslx<G>t<Q>: γ ∈ [1/8, 8], T ∈ [1/16, 1]"
         if g8 in (4, 8, 16) and t16 in (4, 8, 16):   # общие точки с прежней сеткой (γ ½,1,2 × T ¼,½,1) — прежние имена tsl<G>t<Q> (g/10, q/4), переиспользование
-            return ttl, f"tsl{g8 * 10 // 8}t{t16 // 4}", None, None
-        return ttl, f"tslx{g8}t{t16}", None, None   # тейк клетки — 1to1 (стек B3, Судья 11.10: reviews/P-14-2026-10-11-f1-axes.md), см. p14_cfg
+            name, why = mech.build("TakeSched", g10=g8 * 10 // 8, t4=t16 // 4)
+        else:
+            name, why = mech.build("TakeSchedX", g8=g8, t16=t16)   # имя и домен — запись каталога
+        return ttl, name, None, why   # тейк клетки — 1to1 (стек B3, Судья 11.10: reviews/P-14-2026-10-11-f1-axes.md), см. p14_cfg
     return False
 
 
