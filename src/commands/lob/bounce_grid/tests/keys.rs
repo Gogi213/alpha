@@ -554,3 +554,28 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
         );
     }
 }
+
+/// Реестр осей контекста (пакет C, В-227): прежние индексы не сдвинуты, оси хода монеты
+/// первые, имена уникальны, слот режима = индекс оси − `COIN_AXES`.
+#[test]
+fn ctx_registry_keeps_old_indices() {
+    use super::super::sets::{CtxSrc, COIN_AXES, CTX_SPECS, REGIME_AXES};
+    let old = [
+        "ret10m", "ret1h", "ret4h", "pool1h", "pool4h", "btc1h", "btc4h", "btc2h", "btc3h",
+        "btc6h", "btc8h", "btc12h", "btc24h",
+    ];
+    assert_eq!(&CTX_AXES[..old.len()], &old);
+    for (i, a) in CTX_SPECS.iter().enumerate() {
+        assert_eq!(
+            matches!(a.src, CtxSrc::Coin(_)),
+            i < COIN_AXES,
+            "{}",
+            a.name
+        );
+        if let CtxSrc::Coin(slot) = a.src {
+            assert_eq!(slot, i);
+        }
+        assert_eq!(CTX_AXES.iter().filter(|n| **n == a.name).count(), 1);
+    }
+    assert_eq!(REGIME_AXES, CTX_SPECS.len() - COIN_AXES);
+}

@@ -319,7 +319,7 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         None => (forms, None),
     };
     let need_regime = args.regime_from.is_some() && sets.iter().any(FilterSet::uses_regime);
-    let need_ret = sets.iter().any(|s| s.ctx[..3].iter().any(|r| r.is_set()));
+    let need_ret = sets.iter().any(FilterSet::uses_ret);
     let symbols = if args.symbols.is_empty() {
         pool_symbols(&args.root)?
     } else {
