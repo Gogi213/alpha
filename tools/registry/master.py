@@ -226,7 +226,16 @@ MECH_RUN = {
     "Half": ("t-bid-btc4h-q1", {}),
     "EntryLadderSigma3": ("t-bid-btc4h-q1", {}),   # запись kind=entry: имя идёт во вход клетки без суффикса выхода
     "StopSigma": (None, {}),   # запись kind=stop: имя идёт в стоп клетки, не в суффикс выхода
+    "TakeSchedX": (None, {}),   # набор клетки — из стека; тейк клетки по MECH_TAKE
 }
+# тейк клетки, когда ось привязана к механике: стек B3 = B1 с тейком 1to1 без трейла (tsl не действует при трейле; Судья 11.10)
+MECH_TAKE = {"TakeSchedX": "1to1"}
+# 9 общих точек γ×T Г-117 посчитаны проходом r2t (TK-065, 07.10) на B3 — те же формы: имя выхода -> источник
+MECH_OUTSIDE = {"TakeSchedX": (r"tsl(5|10|20)t[124]", "r2t TK-065: /data/tk065/wt-<сутки>/b5 (275 суток 01.01–02.10, форма без -tsl… = B3)")}
+# флаги прогона (kind=flag каталога): значение идёт не в имя выхода, а в ttl входа / ранний выход; сообщение отказа вне домена
+MECH_FLAG = {"EntryTtl": ("ttl", "ttl: ∈ {dom}"), "EarlyExit": ("early", "early<x>: секунды ∈ {dom}")}
+# режим шапки прогона (touches-from без approach): не --cells, хеш по варианту; значение оси, которое включает режим, и причина
+MECH_HEADER = {"SignalTouch": ("touch", "--signal touch — режим шапки прогона (кэш касаний, не approach D20): отдельный заход, в --cells не идёт")}
 
 
 def parse_mechanic(spec):
@@ -290,37 +299,28 @@ def _flag_dom(mid):
     return tuple(int(v) if float(v).is_integer() else v for v in next(r for r in mech.ROWS if r["id"] == mid)["params"][0]["dom"]["values"])
 
 
-EARLY_OK = _flag_dom("EarlyExit")
-TTL_OK = _flag_dom("EntryTtl")
-
-
-def rust_axes(hyp, av, sv):
-    """Гипотезы, выражаемые флагами/формами текущего Rust без новых кодов -> (потолок входа с, суффикс --exit-form, early с, причина отказа)
-    или False (гипотеза не этого класса). Г-129 — ttl в имени формы; Г-110 — хвост -early<x>; Г-104 — gone<W>[be] (be=да)."""
-    n = re.sub(r"\D", "", hyp)
-    ttl = sv["entry_ttl_s"]
-    if n == "129":
-        t = _int_in(_frac(av["entry_ttl"]), TTL_OK)
-        return t or ttl, "", None, None if t else f"ttl: ∈ {TTL_OK}"
-    if n == "110":
-        x = _frac(av["early_exit_s"])
-        x = x if x in EARLY_OK else None
-        x = int(x) if x is not None and float(x).is_integer() else x
-        return ttl, "", x, None if x is not None else f"early<x>: секунды ∈ {EARLY_OK}"
-    if n == "147":   # --signal touch: вход на касании вместо подхода — шапка прогона (touches-from без approach), не --cells; хеш по варианту
-        if str(av["signal"]).strip() != "touch":
-            return ttl, "", None, "signal: touch"
-        return ttl, "", None, "--signal touch — режим шапки прогона (кэш касаний, не approach D20): отдельный заход, в --cells не идёт"
-    if n == "117":   # tslx<G>t<Q>: γ = G/8, T = Q/16 дедлайна; работает только при trail_bps = 0 (strategy/plan.rs, PyramidCfg.sched_*)
-        g8, t16 = _int_in(8 * _frac(av["gamma"]), range(1, 65)), _int_in(16 * _frac(av["T"]), range(1, 17))
-        if not (g8 and t16):
-            return ttl, None, None, "tslx<G>t<Q>: γ ∈ [1/8, 8], T ∈ [1/16, 1]"
-        if g8 in (4, 8, 16) and t16 in (4, 8, 16):   # общие точки с прежней сеткой (γ ½,1,2 × T ¼,½,1) — прежние имена tsl<G>t<Q> (g/10, q/4), переиспользование
-            name, why = mech.build("TakeSched", g10=g8 * 10 // 8, t4=t16 // 4)
-        else:
-            name, why = mech.build("TakeSchedX", g8=g8, t16=t16)   # имя и домен — запись каталога
-        return ttl, name, None, why   # тейк клетки — 1to1 (стек B3, Судья 11.10: reviews/P-14-2026-10-11-f1-axes.md), см. p14_cfg
-    return False
+def run_flags(av, mm, sv):
+    """Оси с механикой kind=flag / режимом шапки (hyp_axes.mechanic) -> (потолок входа с, early с, причина отказа) или None (таких осей нет).
+    Значение вне домена записи каталога — отказ клетки с причиной; домен — запись Rust (mechanics.json), не копия."""
+    ttl, early, why, hit = sv["entry_ttl_s"], None, None, False
+    for axis, spec in (mm or {}).items():
+        mid = spec.partition(":")[0]
+        if mid in MECH_HEADER:
+            hit = True
+            want, reason = MECH_HEADER[mid]
+            why = why or (f"{axis}: {want}" if str(av[axis]).strip() != want else reason)
+        elif mid in MECH_FLAG:
+            hit = True
+            dom = _flag_dom(mid)
+            x = _frac(av[axis])
+            x = x if x in dom else None
+            x = int(x) if x is not None and float(x).is_integer() else x
+            why = why or (None if x is not None else MECH_FLAG[mid][1].format(dom=dom))
+            if mid == "EntryTtl":
+                ttl = x or ttl
+            else:
+                early = x
+    return (ttl, early, why) if hit else None
 
 
 def p14_cfg(hyp, sv, av, fixed=(), mm=None):
@@ -337,7 +337,8 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
     entry = sv["entry"]
     set_name = sv["set"]
     suffix, line_why, stop = "", None, sv["stop"]
-    r2 = r2_exit(hyp, av, mm, set_name) if av else False
+    rf = run_flags(av, mm, sv) if av else None   # флаги прогона / режим шапки — оси с такой механикой
+    r2 = r2_exit(hyp, av, mm, set_name) if av and not rf else False
     if r2:
         e, suffix, set_name, line_why = r2
         entry = e or entry
@@ -347,11 +348,11 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
         elif row and row["kind"] == "entry":   # запись каталога — вход (лестница): имя во вход клетки, суффикса выхода нет
             entry, suffix = suffix, ""
     ttl, early = sv["entry_ttl_s"], None
-    ra = rust_axes(hyp, av, sv) if av and not r2 else False
-    if ra:
-        ttl, suffix, early, line_why = ra
-        r2 = (None, suffix, set_name, line_why)   # кодируется формой/флагом -> ветка клетки с LINES
-    take = "1to1" if re.sub(r"\D", "", hyp) == "117" else sv["take"]   # Г-117: стек B3 = B1 с тейком 1to1 без трейла (tsl не действует при трейле)
+    if rf:
+        ttl, early, line_why = rf
+        r2 = (None, suffix, set_name, line_why)   # кодируется флагом -> ветка клетки с LINES
+    mids = {v.partition(":")[0] for v in (mm or {}).values()}
+    take = next((MECH_TAKE[m] for m in sorted(mids) if m in MECH_TAKE), sv["take"])
     form = f"{entry}-{stop}-{take}-{sv['deadline_s']}-ttl{ttl}" + (f"-{suffix}" if suffix else "") + (f"-early{early}" if early else "")
     st = cr.B1_SET if set_name == "t-bid-btc4h-q1" else cr.set_of(sets[set_name])
     uni = cr.UNIVERSE["v171c"] if "v171c" in sv.get("universe", "") else cr.UNIVERSE["v171b"]
@@ -360,8 +361,9 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
         if line_why:
             cfg["variant"] = {"family": family_of(hyp), "axes": {k: ch.num(v) for k, v in av.items()}}  # не кодируется формой: хеш по варианту, в --cells не идёт
         LINES[ch.cell_hash(cfg)] = (None if line_why else f"{form} {set_name}", line_why)
-        if re.sub(r"\D", "", hyp) == "117" and re.fullmatch(r"tsl(5|10|20)t[124]", suffix or ""):   # 9 общих точек γ×T: посчитаны проходом r2t (TK-065, 07.10) на B3 — те же формы
-            OUTSIDE[ch.cell_hash(cfg)] = "r2t TK-065: /data/tk065/wt-<сутки>/b5 (275 суток 01.01–02.10, форма без -tsl… = B3)"
+        for m in sorted(mids & MECH_OUTSIDE.keys()):
+            if re.fullmatch(MECH_OUTSIDE[m][0], suffix or ""):
+                OUTSIDE[ch.cell_hash(cfg)] = MECH_OUTSIDE[m][1]
     elif "keep_q" in av or "common_q" in av:  # R1: как у клеток Летописи — признак (None, если колонка одна, она в имени клетки не стоит), квантиль «kNN», порог по окну
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)

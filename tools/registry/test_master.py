@@ -82,7 +82,7 @@ class MasterTest(unittest.TestCase):
     def test_g147_touch_own_hash_no_line(self):
         """В-227 М3: Г-147 (signal touch) — хеш по варианту, отличается от B1; строки --cells нет (режим шапки)."""
         sv = {"entry_ttl_s": 1800, "stop": "pct2", "take": "1to1", "deadline_s": 3600, "entry": "single", "set": "t-bid-btc4h-q1", "universe": "v171b"}
-        c = master.p14_cfg("Г-147", sv, {"signal": "touch"})
+        c = master.p14_cfg("Г-147", sv, {"signal": "touch"}, mm={"signal": "SignalTouch:signal"})
         h = ch.cell_hash(c)
         self.assertIsNone(master.LINES[h][0])
         self.assertNotEqual(h, ch.cell_hash({k: v for k, v in c.items() if k != "variant"}))
@@ -199,11 +199,12 @@ class MasterTest(unittest.TestCase):
         self.assertTrue(m3["2026-05"].endswith("-ttl1800-chase9468 t-bid-btc4h-q1"), m3["2026-05"])   # 18935/2 -> 9468 (v6)
         self.assertEqual(len(m3), 9)
         self.assertEqual(master.p14_cfg("Г-133", sv, {"a": "1/8"})["variant"]["axes"], {"a": 0.125})
+        M117 = {"gamma": "TakeSchedX:g8*8", "T": "TakeSchedX:t16*16"}
         # Г-117: тейк 1to1 (стек B3); общие точки — tsl<G>t<Q>, остальные — tslx
-        c1 = master.p14_cfg("Г-117", sv, {"gamma": "1", "T": "1/2"})
+        c1 = master.p14_cfg("Г-117", sv, {"gamma": "1", "T": "1/2"}, mm=M117)
         self.assertTrue(c1["form"].endswith("-1to1-14400-ttl1800-tsl10t2"), c1["form"])
         self.assertEqual(master.LINES[ch.cell_hash(c1)][0], c1["form"] + " t-bid-btc4h-q1")
-        c2 = master.p14_cfg("Г-117", sv, {"gamma": "3/8", "T": "1/16"})
+        c2 = master.p14_cfg("Г-117", sv, {"gamma": "3/8", "T": "1/16"}, mm=M117)
         self.assertTrue(c2["form"].endswith("-1to1-14400-ttl1800-tslx3t1"), c2["form"])
         # Г-10: btc<N>h_max=T_m(N,q) по месяцам — набор g10n<N>q<q>-<месяц> (пороги из btc-thresholds.py)
         import tempfile
@@ -241,7 +242,7 @@ class MasterTest(unittest.TestCase):
         self.assertEqual(master.MSETS["b50-2026-01"], "age=2700,side=bid,behind_min=5695,btc4h_max=-44.55")
         # Г-110: early<x> — целые секунды как раньше, 0,5 с — early0.5
         for x, suf in (("0.5", "early0.5"), ("1/2", "early0.5"), ("3", "early3")):
-            self.assertTrue(master.p14_cfg("Г-110", sv, {"early_exit_s": x})["form"].endswith("-" + suf), x)
+            self.assertTrue(master.p14_cfg("Г-110", sv, {"early_exit_s": x}, mm={"early_exit_s": "EarlyExit:x"})["form"].endswith("-" + suf), x)
         # Г-112: tape<W>q<Q_m(W,q)> по месяцам из v7; Q_m ≤ 0 — месяц без строки (правило «P > 0»)
         c112 = master.p14_cfg("Г-112", sv, {"W": "30", "q": "50"})
         self.assertEqual(c112["variant"], {"family": "e112", "axes": {"W": 30, "q": 50}})

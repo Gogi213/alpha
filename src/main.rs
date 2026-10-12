@@ -4,7 +4,7 @@ use clap::Parser;
 /// Измерительный конвейер плотностей стакана (docs/plan/PLAN.md).
 /// Все числа отчёта получаются отсюда: `cargo run -- <подкоманда>`.
 #[derive(Debug, Parser)]
-#[command(name = "alpha")]
+#[command(name = "alpha", version = option_env!("ALPHA_COMMIT").unwrap_or("unknown"))]
 struct Cli {
     #[command(subcommand)]
     cmd: TopCommand,

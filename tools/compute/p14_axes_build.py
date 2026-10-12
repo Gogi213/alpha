@@ -136,9 +136,9 @@ ax("Г-92", "K", "5", "5", role="fixed")
 ax("Г-93", "u", "1/3|2/3|1", U7, grid="u×K", mechanic="PyrNewWall:u12*12")
 ax("Г-93", "K", "1|2|3", "1|2|3|4|5|6|8", grid="u×K", mechanic="PyrNewWall:k")
 ax("Г-106", "x", "0.5|1|2", LOG8, mechanic="NoStop:x8*8")
-ax("Г-117", "gamma", "0.5|1|2", LOG8, grid="gamma×T")
+ax("Г-117", "gamma", "0.5|1|2", LOG8, grid="gamma×T", mechanic="TakeSchedX:g8*8")
 ax("Г-117", "T", "1/4|1/2|1", "1/16|1/8|1/4|3/8|1/2|5/8|3/4|1", grid="gamma×T",
-   note="верх — ttl/дедлайн (проверяет Инженер)")
+   note="верх — ttl/дедлайн (проверяет Инженер)", mechanic="TakeSchedX:t16*16")
 ax("Г-119", "tol_ticks", "0|1|2", "0|1|2|3|4|6|8|12|16", mechanic="Converge:tol")
 # Г-114: имя формы = f(trigger, f): q8 = 8f; 2 -> f1, 4 -> без суффикса, 6 -> f3, прочие g<q8> (записи каталога HalfStop/HalfLevel)
 H114 = "Half:~trigger,f>" + ";".join(f"{t},{Fraction(q, 8)}:{t}" + {2: "f1", 4: "", 6: "f3"}.get(q, f"g{q}") for t in ("halfstop", "halflevel") for q in range(1, 8))
@@ -154,10 +154,10 @@ ax("Г-85", "entry_form", "+2|+3|single@fr+1", "", role="pending",
 ax("Г-10", "btc_window_h", "1|2|3", "1|2|3|4|6|8|12|24", grid="win×thr")
 ax("Г-10", "btc_thr_q", "-21.17|-30.56|-38.75", Q9, grid="win×thr",
    note="прежние точки — абсолютные bps; F1 — квантиль по самому месяцу; совпадение хеша проверяет Инженер")
-ax("Г-110", "early_exit_s", "1|2|3", "0.5|1|2|3|5|8|13|20|30|60")
+ax("Г-110", "early_exit_s", "1|2|3", "0.5|1|2|3|5|8|13|20|30|60", mechanic="EarlyExit:x")
 ax("Г-104", "exit_share", "50|90", "10|25|50|75|90", grid="share×be", mechanic="Gone:pct")
 ax("Г-104", "be", "да", "да|нет", grid="share×be", note="категориальная", mechanic="Gone:~да:gone{pct}be;нет:gone{pct}")
-ax("Г-129", "entry_ttl", "60|300", "10|30|60|120|300|600|900|1200|1800", note="1800 = B1")
+ax("Г-129", "entry_ttl", "60|300", "10|30|60|120|300|600|900|1200|1800", note="1800 = B1", mechanic="EntryTtl:secs")
 
 # В-227 (TK-202) М3: Г-141 — стоп на цену снятой стены, код есть (forms.rs GoneWall): W × B × режим = 90 клеток
 ax("Г-141", "gone_w", "", "10|25|50|75|90", grid="W×B×mode", note="gone<W>: доля снятия, %", mechanic="GoneWall:pct")
@@ -168,7 +168,7 @@ ax("Г-141", "wall_mode", "", "wall|wallx|wallk", grid="W×B×mode", note="ка�
 ax("Г-13", "sigma_stop", "", "1/2|3/4|1|3/2|2|3|4|6|8", note="стоп s<a> вместо pct2, a в σ", mechanic="StopSigma:a")
 
 # В-227 (TK-202) М3: Г-147 — `--signal touch`, код есть: 1 клетка (проба: 0 сигналов -> «не определена»)
-ax("Г-147", "signal", "approach", "touch", note="вход на касании вместо подхода; шапка прогона")
+ax("Г-147", "signal", "approach", "touch", note="вход на касании вместо подхода; шапка прогона", mechanic="SignalTouch:signal")
 
 # В-227 (TK-202): привязки — ось уже у другой гипотезы, своих клеток нет (engine = bind:<гипотеза-хозяин>)
 ax("Г-09", "btc_window_h", "4", "", role="fixed", engine="bind:Г-10", note="М4: ядро B1 (BTC 4 ч) = ось Г-10; отдельной нет")
