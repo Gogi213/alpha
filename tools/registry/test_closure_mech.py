@@ -132,6 +132,30 @@ class T(unittest.TestCase):
         rd["exit_ns"] = str((1440 + 150) * 60_000 * 1_000_000)      # исходный выход раньше обвала — не трогаем
         self.assertEqual(g.run([rd], C(), q=50), {})
 
+    def test_g130_stop_round_branches(self):
+        from closures import g130_stop_round as g
+        m = 60_000
+        base = [(i * m, 100.0, 100.0, 100.0, 100.0) for i in range(300)]
+        sig = {"symbol": "X", "day_utc": "d", "form": "f", "signal_index": "1", "entry_px": "100.0", "price_tick": "100000"}   # тик 1e-3
+        rd = {"symbol": "X", "day_utc": "d", "form": "f", "signal_index": "1", "dir": "1", "entry_vwap": "100.0", "reason": "stop",
+              "t0_ns": "0", "exit_ns": str(10 * m * 1_000_000)}
+
+        class C:
+            def __init__(s, kl): s.kl = kl
+            def klines(s, sym): return s.kl
+            def signals(s): return [sig]
+        # S0 = 98.0; j=2,d=0: круглое 100 тиков (0,1) -> 98.0 ; d=100 тиков не в домене, проверяем d=21: 98.0 - 0.021 = 97.979
+        kl = list(base); kl[20] = (20 * m, 100.0, 100.0, 97.9, 98.0)
+        c1 = C(kl); v = g.run([rd], c1, d=21, j=2)[("X", "d", "f", "1")]
+        self.assertAlmostEqual(v[1], 97.979, places=6); self.assertEqual((v[2], v[3]), (True, "stop_round"))
+        self.assertEqual(g.run([rd], c1, d=0, j=2)[("X", "d", "f", "1")][1], 98.0)          # S'=S0 при d=0, круглом S0
+        kl2 = list(base); kl2[15] = (15 * m, 100.0, 101.2, 100.0, 101.0)                         # активация трейла раньше
+        c2 = C(kl2); self.assertEqual(g.run([rd], c2, d=3, j=2)[("X", "d", "f", "1")][3], "trail_floor")
+        c3 = C(base); v3 = g.run([rd], c3, d=3, j=2)[("X", "d", "f", "1")]                                # ничего - close дедлайна (минута 239)
+        self.assertEqual(v3[3], "deadline_round"); self.assertEqual(v3[0], 240 * m * 1_000_000)
+        self.assertEqual(g.run([{**rd, "reason": "deadline"}], c1, d=3, j=2), {})            # не стоп - не трогаем
+        self.assertEqual(g.snap_tick(1.0006e-4), 1e-4); self.assertEqual(g.snap_tick(0.0051), 0.005)
+
     def test_g111_target_from_prior_impulse(self):
         from closures import g111_impulse_target as g
         m = 60_000
