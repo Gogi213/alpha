@@ -86,23 +86,37 @@ def maybe_int(s):
     return None if s in ("", None) else int(s)
 
 
-class Cache:
-    """Кэш подходов: (symbol, arm_ms, price_tick) -> строка; режим суток по минутам."""
+APPROACH_COLS = ("arm_ms", "price_tick", "age_ms", "size_at_arm", "side", "depth_behind_lots", "stack_levels_at_arm",
+                 "flow_1h_lots", "frontrun_lots_at_arm")
 
-    def __init__(self, root, regime_root, tick_lot):
-        self.root, self.regime_root, self.tick_lot = root, regime_root, tick_lot
-        self.apr, self.reg = {}, {}
+
+class Cache:
+    """Кэш подходов: (symbol, arm_ms, price_tick) -> нужные колонки строки; режим суток по минутам.
+    Память — O(строк пула суток): файл подходов читается потоком, остаются только ключи пула этих суток (`need`),
+    `drop_day` выгружает сутки."""
+
+    def __init__(self, root, regime_root, tick_lot, cols):
+        self.root, self.regime_root, self.tick_lot, self.cols = root, regime_root, tick_lot, cols
+        self.apr, self.reg, self.need = {}, {}, {}
 
     def approach(self, sym, day, arm_ms, tick):
         if (sym, day) not in self.apr:
             d = {}
+            want = self.need.get((sym, day), ())
             p = os.path.join(self.root.replace("{day}", day), day, f"approaches-{sym}.csv")
             if not os.path.exists(p):
                 sys.exit(f"нет кэша подходов {p}")
-            for r in rd(p):
-                d[(int(r["arm_ms"]), int(r["price_tick"]))] = r
+            with open(p, encoding="utf-8", newline="") as fh:
+                for r in csv.DictReader(l for l in fh if not l.startswith("#")):
+                    k = (int(r["arm_ms"]), int(r["price_tick"]))
+                    if k in want:
+                        d[k] = {c: r[c] for c in self.cols if c in r}
             self.apr[sym, day] = d
         return self.apr[sym, day].get((arm_ms, tick))
+
+    def drop_day(self):
+        self.apr.clear()
+        self.reg.clear()
 
     def regime(self, day, minute, col):
         if day not in self.reg:
@@ -180,7 +194,6 @@ def main():
     tick_lot = {}
     if a.tick_lot:
         tick_lot = {r["symbol"]: (float(r["tick"]), float(r["lot"])) for r in rd(a.tick_lot)}
-    cache = Cache(a.approaches, a.regime_from, tick_lot)
 
     days = sorted(d for d in os.listdir(a.pool_tree) if os.path.isdir(os.path.join(a.pool_tree, d, a.pool_set)))
     pool = {}  # день -> строки signals.csv пула
@@ -207,29 +220,44 @@ def main():
             sys.exit(f"клетка {name}: ОТКАЗ — {e}")
         cells.append((name, form, f))
 
+    r1cols = {k[3:].rsplit("_", 1)[0] for _, _, f in cells for k in f if k.startswith("r1_")}
+    cache = Cache(a.approaches, a.regime_from, tick_lot, APPROACH_COLS + tuple(sorted(r1cols)))
+    for d in days:  # ключи пула суток: подход читается потоком, держим только их
+        for r in pool[d]:
+            cache.need.setdefault((r["symbol"], r.get("day_utc") or d), set()).add((int(r["t0_ns"]) // 1_000_000, int(r["price_tick"])))
+
     mo = os.path.basename(os.path.normpath(a.pool_tree))
+    odirs, fhs, stat = {}, {}, {}
+    for name, form, f in cells:
+        odirs[name] = os.path.join(a.out, name)
+        os.makedirs(odirs[name], exist_ok=True)
+        fhs[name] = open(os.path.join(odirs[name], "keep.csv"), "w", newline="")
+        csv.writer(fhs[name]).writerow(["symbol", "t0_ns", "price_tick", "form"])
+        stat[name] = [0, 0, 0]  # пул, остаётся, без подхода
+    for d in days:  # сутки снаружи, клетки внутри: кэш одних суток в памяти
+        for name, form, f in cells:
+            w = csv.writer(fhs[name])
+            st = stat[name]
+            for r in pool[d]:
+                if r["form"] not in form.split(","):
+                    continue
+                st[0] += 1
+                arm_ms, tick = int(r["t0_ns"]) // 1_000_000, int(r["price_tick"])
+                ap_row = cache.approach(r["symbol"], r.get("day_utc") or d, arm_ms, tick)
+                if ap_row is None:
+                    st[2] += 1
+                    continue
+                if admits(f, ap_row, r.get("day_utc") or d, arm_ms, cache, r["symbol"]):
+                    st[1] += 1
+                    w.writerow([r["symbol"], r["t0_ns"], r["price_tick"], r["form"]])
+        cache.drop_day()
+    for fh in fhs.values():
+        fh.close()
     summary = []
     for name, form, f in cells:
-        odir = os.path.join(a.out, name)
-        os.makedirs(odir, exist_ok=True)
+        odir = odirs[name]
         keep = os.path.join(odir, "keep.csv")
-        n_pool = n_keep = n_miss = 0
-        with open(keep, "w", newline="") as fh:
-            w = csv.writer(fh)
-            w.writerow(["symbol", "t0_ns", "price_tick", "form"])
-            for d in days:
-                for r in pool[d]:
-                    if r["form"] not in form.split(","):
-                        continue
-                    n_pool += 1
-                    arm_ms, tick = int(r["t0_ns"]) // 1_000_000, int(r["price_tick"])
-                    ap_row = cache.approach(r["symbol"], r.get("day_utc") or d, arm_ms, tick)
-                    if ap_row is None:
-                        n_miss += 1
-                        continue
-                    if admits(f, ap_row, r.get("day_utc") or d, arm_ms, cache, r["symbol"]):
-                        n_keep += 1
-                        w.writerow([r["symbol"], r["t0_ns"], r["price_tick"], r["form"]])
+        n_pool, n_keep, n_miss = stat[name]
         if n_miss:
             sys.exit(f"клетка {name}: {n_miss} строк пула без подхода в кэше (symbol,t0,price_tick) — ключ не сходится")
         out_mo = os.path.join(odir, mo)
