@@ -66,6 +66,7 @@ use crate::lob::costs::{
     NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
 use crate::lob::levels::WallEvent;
+use crate::lob::retreat::{RetreatCfg, RetreatMemory};
 use crate::lob::strategy::{
     on_event, Action, EntryCancelReason, ExitReason, OrphanCarry, StrategyState, TradePlan,
     MAX_ENTRY_LEGS,
@@ -3076,6 +3077,41 @@ fn horizon_span_ns(plan: &TradePlan) -> i64 {
         .max(1)
 }
 
+/// Г-102: сигнал со входом, отодвинутым от стены на добавку памяти отступа (`RetreatMemory::offset_ticks` на `t0`),
+/// в сторону рынка; `None` — форма выключена или добавка ноль (сигнал идёт как есть). Память создаётся по первому сигналу.
+fn retreat_shift(
+    memory: &mut Option<RetreatMemory>,
+    sig: &BounceSignal,
+    side: HbtSide,
+) -> Option<BounceSignal> {
+    let TradePlan::Bounce {
+        pyramid, tick_px, ..
+    } = sig.plan
+    else {
+        return None;
+    };
+    let p = pyramid.eff();
+    if p.retreat_k == 0 {
+        return None;
+    }
+    let mem = memory.get_or_insert_with(|| {
+        RetreatMemory::new(RetreatCfg {
+            k_ticks: u32::from(p.retreat_k),
+            half_life_ns: i64::from(p.retreat_half_min) * 60_000_000_000,
+        })
+    });
+    let ticks = mem.offset_ticks(sig.t0_ns);
+    if ticks == 0 {
+        return None;
+    }
+    let mut out = *sig;
+    if let TradePlan::Bounce { entry_px, .. } = &mut out.plan {
+        let d = f64::from(ticks) * tick_px;
+        *entry_px += if matches!(side, HbtSide::Buy) { d } else { -d };
+    }
+    Some(out)
+}
+
 fn drive_bounce_with<B, MD, S>(
     asset_no: usize,
     signals: &[BounceSignal],
@@ -3143,10 +3179,13 @@ where
     };
 
     let mut trace: Vec<SignalTrace> = Vec::new();
+    // Г-102: память отступа после стопа — одна на этот драйвер (вариант × инструмент × сутки), создаётся по первому сигналу.
+    let mut retreat: Option<RetreatMemory> = None;
+    let mut shifted: BounceSignal;
     for (sig_idx, sig) in order.iter().enumerate() {
-        if entry_side(sig.sigma).is_none() {
+        let Some(side) = entry_side(sig.sigma) else {
             continue;
-        }
+        };
         if cfg.busy_skip && sig.t0_ns < idle_ns {
             busy_signal.push(sig_idx);
             busy_wait_ns_max = busy_wait_ns_max.max(idle_ns.saturating_sub(sig.t0_ns));
@@ -3154,6 +3193,14 @@ where
             observations.push(miss_observation(sig.t0_ns));
             continue;
         }
+        // Г-102: вход отходит от стены на добавку памяти отступа (в сторону рынка); ноль — сигнал как есть.
+        let sig = match retreat_shift(&mut retreat, sig, side) {
+            Some(s) => {
+                shifted = s;
+                &shifted
+            }
+            None => sig,
+        };
         // Память кругов (G10): круг, уже посчитанный над тем же окном с тем же планом, берётся
         // готовым; номера заявок и сироты продолжаются так, как если бы его считали здесь.
         let recalled = memo
@@ -3323,7 +3370,12 @@ where
                     } => {
                         match reason {
                             ExitReason::Take => exits.take += 1,
-                            ExitReason::Stop => exits.stop += 1,
+                            ExitReason::Stop => {
+                                exits.stop += 1;
+                                if let Some(m) = retreat.as_mut() {
+                                    m.on_stop(exit_ts);
+                                }
+                            }
                             ExitReason::Deadline => exits.deadline += 1,
                             ExitReason::Horizon => exits.horizon += 1,
                             ExitReason::Trail => exits.trail += 1,

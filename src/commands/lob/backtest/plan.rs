@@ -160,7 +160,8 @@ pub(crate) fn bounce_plan(
         // спред (симулятор идёт по стакану до фактической цены фила —
         // дальше этой цели, не по ней).
         // Г-88: цена входа — как у `single@fr`; ожидание закола/возврата — в стратегии (`pyramid.reclaim_*`).
-        EntryForm::Reclaim { .. } => (
+        // Г-102: цена входа — как у `single@fr`; сдвиг на память отступа делает драйвер (`pyramid.retreat_*`).
+        EntryForm::Reclaim { .. } | EntryForm::Retreat { .. } => (
             EntryLadder::NONE,
             touch
                 .frontrun_tick
@@ -454,14 +455,21 @@ pub(crate) fn bounce_plan(
     ))
 }
 
-/// Г-88: форма входа `reclaim<D>p<S>` кладёт глубину закола и паузу в конфиг стратегии (остальные формы — без изменений).
+/// Г-88/Г-102: формы входа `reclaim<D>p<S>` и `retreat<k>t<T>` кладут свои числа в конфиг стратегии (остальные формы — без изменений).
 fn with_reclaim(
     entry_form: EntryForm,
     mut pyramid: crate::lob::strategy::PyramidCfg,
 ) -> crate::lob::strategy::PyramidCfg {
-    if let EntryForm::Reclaim { depth_bps, pause_s } = entry_form {
-        pyramid.reclaim_depth_bps = depth_bps;
-        pyramid.reclaim_pause_ms = pause_s.saturating_mul(1000);
+    match entry_form {
+        EntryForm::Reclaim { depth_bps, pause_s } => {
+            pyramid.reclaim_depth_bps = depth_bps;
+            pyramid.reclaim_pause_ms = pause_s.saturating_mul(1000);
+        }
+        EntryForm::Retreat { k_ticks, half_min } => {
+            pyramid.retreat_k = k_ticks;
+            pyramid.retreat_half_min = half_min;
+        }
+        _ => {}
     }
     pyramid
 }

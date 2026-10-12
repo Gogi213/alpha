@@ -362,6 +362,10 @@ pub struct PyramidCfg {
     /// вход — через `S` мс после возврата, в окне `[arm, arm + entry_ttl]`. `reclaim_depth_bps = 0` — выключено.
     pub reclaim_depth_bps: u32,
     pub reclaim_pause_ms: u32,
+    /// Г-102 (`retreat<k>t<T>`, вход): после стопа отступ входа от стены растёт на `k` тиков и затухает как `k·2^(−Δt/T)`
+    /// (`lob::retreat`); состояние ведёт драйвер на (вариант, инструмент). `retreat_k = 0` — выключено.
+    pub retreat_k: u8,
+    pub retreat_half_min: u32,
 }
 
 impl PyramidCfg {
@@ -392,6 +396,8 @@ impl PyramidCfg {
         cxl_w: 0,
         reclaim_depth_bps: 0,
         reclaim_pause_ms: 0,
+        retreat_k: 0,
+        retreat_half_min: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -418,7 +424,8 @@ impl PyramidCfg {
             || self.chase_ms > 0
             || self.tape_q > 0.0
             || self.cxl_q > 0.0
-            || self.reclaim_depth_bps > 0)
+            || self.reclaim_depth_bps > 0
+            || self.retreat_k > 0)
     }
 }
 

@@ -333,6 +333,9 @@ pub enum EntryForm {
     /// `reclaim<D>p<S>` (В-227 D, Г-88): вход после «закола» — сделки за уровень на `D` bps и возврата на уровень в окне
     /// взвода; вход через `S` с после возврата (цена входа — как у `single@fr`). Нет закола/возврата — нет входа.
     Reclaim { depth_bps: u32, pause_s: u32 },
+    /// `retreat<k>t<T>` (В-227 D, Г-102): память отступа — после стопа вход отходит от стены на `k` тиков (1…8), добавка
+    /// затухает с полураспадом `T` минут; цена входа — как у `single@fr`, состояние ведёт драйвер (`lob::retreat`).
+    Retreat { k_ticks: u8, half_min: u32 },
 }
 
 /// Запас пересечения спреда для рыночного входа (`EntryForm::Market`,
@@ -356,6 +359,23 @@ impl EntryForm {
         }
         if spec == "market" {
             return Ok(Self::Market);
+        }
+        if let Some(rest) = spec.strip_prefix("retreat") {
+            let form = rest
+                .split_once('t')
+                .and_then(|(k, t)| Some((k.parse::<u8>().ok()?, t.parse::<u32>().ok()?)))
+                .map(|(k_ticks, half_min)| Self::Retreat { k_ticks, half_min })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{spec}: ожидается retreat<k>t<T>, k — тики (1…8), T — минуты (≥ 1)"
+                    )
+                })?;
+            anyhow::ensure!(
+                matches!(form, Self::Retreat { k_ticks, half_min } if (1..=8).contains(&k_ticks) && half_min > 0)
+                    && form.label() == spec,
+                "{spec}: имя формы входа не каноническое, k вне 1…8 или T = 0"
+            );
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("reclaim") {
             let form = rest
@@ -484,6 +504,7 @@ impl EntryForm {
             }
             Self::Market => "market".to_string(),
             Self::Reclaim { depth_bps, pause_s } => format!("reclaim{depth_bps}p{pause_s}"),
+            Self::Retreat { k_ticks, half_min } => format!("retreat{k_ticks}t{half_min}"),
             Self::Ladder {
                 legs,
                 from_bps,
