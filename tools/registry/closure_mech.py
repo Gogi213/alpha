@@ -114,9 +114,9 @@ def write_keep(path, keys):
             w.writerow([sym, day, idx, form])
 
 
-def chain(mon, work, keep_path=None):
-    """Цепочка M5 на calc (bash m5_chain.sh); возвращает {cap: путь closes}. Сбой — отказ, не молчание."""
-    r = subprocess.run(["bash", CHAIN, mon, work] + ([keep_path] if keep_path else []))
+def chain(mon, work, keep_path=None, sv=None):
+    """Цепочка M5 на calc (bash m5_chain.sh); возвращает {cap: путь closes}. sv — подставное дерево s-v (KIND rounds). Сбой — отказ, не молчание."""
+    r = subprocess.run(["bash", CHAIN, mon, work] + ([keep_path] if keep_path else []), env={**os.environ, **({"M5_SV": sv} if sv else {})})
     if r.returncode or not os.path.exists(os.path.join(work, "chain.done")):
         raise SystemExit(f"цепочка М5 {mon}: rc={r.returncode}, см. {work}/fail.txt, busy.txt")
     return {c: os.path.join(work, f"closes-m5-cap{c}-{mon}.json") for c in (0, 3)}
@@ -183,9 +183,92 @@ def run_keep(plugin, mon, work, spec="", chain_fn=None):
     return rows
 
 
+MAKER_FEE_BPS, TAKER_FEE_BPS, FEE_REBATE_SHARE = 1.4, 3.5, 0.10   # src/lob/costs.rs
+B1_BASE = "t-bid-btc4h-q1"
+
+
+def leg_fee_bps(taker):
+    return (TAKER_FEE_BPS if taker else MAKER_FEE_BPS) * (1.0 - FEE_REBATE_SHARE)
+
+
+def net_bps(dir_, entry_vwap, exit_px, exit_taker):
+    """Та же формула, что backtest::roundtrip_net_bps: вход пассивный (entry_post_only), нога выхода — тейкер или мейкер по решению плагина."""
+    return dir_ * (exit_px - entry_vwap) / entry_vwap * 10_000.0 - leg_fee_bps(False) - leg_fee_bps(exit_taker)
+
+
+def _rewrite(path, dst, repl, ts_col=None):
+    """Копия CSV с комментарными строками '#'; repl(row) -> row (изменённая строка B1) или None (без правки)."""
+    with open(path, encoding="utf-8", newline="") as f:
+        lines = f.read().splitlines()
+    head = [l for l in lines if l.startswith("#")]
+    rd = csv.DictReader(l for l in lines if not l.startswith("#"))
+    with open(dst, "w", encoding="utf-8", newline="") as f:
+        for h in head:
+            f.write(h + "\n")
+        w = csv.DictWriter(f, fieldnames=rd.fieldnames, lineterminator="\n"); w.writeheader()
+        for r in rd:
+            w.writerow(repl(r) or r)
+
+
+def build_tree(ctx, mon, root, replaced):
+    """Подставное s-v: <root>/<мес>/<сутки>/t-bid-btc4h-q1/ — rounds.csv/signals.csv с заменой выхода по replaced {ключ: (exit_ns, exit_px, taker[, reason])},
+    остальные файлы - ссылки. Ключ - (symbol, day_utc, form, signal_index)."""
+    base = os.path.join(ctx.s_v, mon)
+    for day in sorted(os.listdir(base)):
+        src = os.path.join(base, day, B1_BASE)
+        if not os.path.isdir(src):
+            continue
+        dst = os.path.join(root, mon, day, B1_BASE); os.makedirs(dst, exist_ok=True)
+        for name in os.listdir(src):
+            if name not in ("rounds.csv", "signals.csv"):
+                os.symlink(os.path.join(src, name), os.path.join(dst, name))
+
+        def key(r):
+            return (r["symbol"], r["day_utc"], r["form"], r["signal_index"])
+
+        def fix_round(r):
+            v = replaced.get(key(r))
+            if v is None:
+                return None
+            ns, px, taker = int(v[0]), float(v[1]), bool(v[2])
+            r = dict(r); r["exit_ns"], r["exit_px"] = str(ns), f"{px:.10f}"
+            r["net_bps"] = f"{net_bps(int(r['dir']), float(r['entry_vwap']), px, taker):.6f}"
+            if len(v) > 3:
+                r["reason"] = v[3]
+            return r
+
+        def fix_signal(r):
+            v = replaced.get(key(r))
+            return None if v is None else {**r, "exit_ns": str(int(v[0]))}
+
+        _rewrite(os.path.join(src, "rounds.csv"), os.path.join(dst, "rounds.csv"), fix_round)
+        _rewrite(os.path.join(src, "signals.csv"), os.path.join(dst, "signals.csv"), fix_signal)
+
+
+def run_rounds(plugin, mon, work, spec="", chain_fn=None):
+    """KIND='rounds': плагин -> {ключ: выход} (строки rounds B1 месяца на входе) -> подставное дерево -> busy-replay -> psim; строки «до/после» по потолку."""
+    chain_fn = chain_fn or chain
+    ctx = Ctx(mon, tuple(plugin.SOURCES) + ("signals", "rounds"))
+    data = [r for r in ctx.rounds() if r["form"] == B1_FORM]
+    keys = {(r["symbol"], r["day_utc"], r["form"], r["signal_index"]) for r in data}
+    base = {c: _stats(p) for c, p in chain_fn(mon, os.path.join(work, "base")).items()}
+    rows = []
+    for i, pt in enumerate(grid_points(plugin.PARAMS, spec)):
+        rep = plugin.run(data, ctx, **pt)
+        if not set(rep) <= keys:
+            raise SystemExit(f"{plugin.NAME} {pt}: плагин вернул ключи вне кругов B1 месяца ({len(set(rep) - keys)})")
+        w = os.path.join(work, f"pt{i}"); sv = os.path.join(w, "sv")
+        build_tree(ctx, mon, sv, rep)
+        for c, p in chain_fn(mon, w, None, sv=sv).items():
+            n, s = _stats(p)
+            rows.append({"mechanic": plugin.NAME, "month": mon, "cap": c, "point": ";".join(f"{k}={pt[k]}" for k in sorted(pt)),
+                         "rounds_replaced": len(rep), "n_before": base[c][0], "sum_before": base[c][1], "n_after": n, "sum_after": s})
+    return rows
+
+
 def run_all(plugin, closes, spec="", ctx=None):
     if plugin.KIND != "closes":
-        raise SystemExit(f"KIND {plugin.KIND}: через run_keep (--work), KIND rounds ещё не подключён")
+        raise SystemExit(f"KIND {plugin.KIND}: через run_keep/run_rounds (--work)")
     rows = []
     for variant, per in sorted(closes.items()):
         for period, caps in sorted(per.items()):
@@ -216,6 +299,8 @@ def main(argv=None):
     plugin = load_plugin(a.mechanic)
     if plugin.KIND == "keep":
         rows = run_keep(plugin, a.month, a.work, a.grid)
+    elif plugin.KIND == "rounds":
+        rows = run_rounds(plugin, a.month, a.work, a.grid)
     else:
         rows = run_all(plugin, json.load(open(a.closes, encoding="utf-8")), a.grid, Ctx(a.month, plugin.SOURCES))
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:

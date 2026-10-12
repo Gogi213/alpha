@@ -113,6 +113,25 @@ class T(unittest.TestCase):
         st = g.stats(fills)
         self.assertEqual(st["max_dd_usd"], -60.0); self.assertEqual(st["worst_day_usd"], -30.0)
 
+    def test_rounds_net_formula_and_tree(self):
+        f = closure_mech.B1_FORM
+        self.assertAlmostEqual(closure_mech.net_bps(1, 100.0, 101.0, True), 100.0 - 1.26 - 3.15)
+        self.assertAlmostEqual(closure_mech.net_bps(1, 100.0, 100.0, False), -2.52)
+        with tempfile.TemporaryDirectory() as d:
+            t = os.path.join(d, "2026-01", "2026-01-05", "t-bid-btc4h-q1"); os.makedirs(t)
+            open(os.path.join(t, "extra.txt"), "w").write("x")
+            hdr = "symbol,day_utc,form,signal_index"
+            open(os.path.join(t, "signals.csv"), "w").write(f"# c\n{hdr},exit_ns\nA,2026-01-05,{f},0,5\nA,2026-01-05,{f},1,6\n")
+            open(os.path.join(t, "rounds.csv"), "w").write(f"# c\n{hdr},dir,entry_vwap,exit_px,net_bps,reason,exit_ns\nA,2026-01-05,{f},0,1,100.0,99.0,-1.0,stop,5\n")
+            ctx = closure_mech.Ctx("2026-01", ("signals", "rounds"), s_v=d)
+            rep = {("A", "2026-01-05", f, "0"): (9, 101.0, True, "take")}
+            closure_mech.build_tree(ctx, "2026-01", os.path.join(d, "sv"), rep)
+            o = os.path.join(d, "sv", "2026-01", "2026-01-05", "t-bid-btc4h-q1")
+            r = open(os.path.join(o, "rounds.csv")).read().splitlines()
+            self.assertEqual(r[0], "# c"); self.assertTrue(r[2].endswith(",101.0000000000,%.6f,take,9" % (100.0 - 1.26 - 3.15)), r[2])
+            self.assertEqual(open(os.path.join(o, "signals.csv")).read().splitlines()[2:], [f"A,2026-01-05,{f},0,9", f"A,2026-01-05,{f},1,6"])
+            self.assertTrue(os.path.islink(os.path.join(o, "extra.txt")))
+
     def test_ctx_study_paths_by_month(self):
         c = closure_mech.Ctx("2026-03", ("sigma",))
         self.assertTrue(c.study.endswith("/tk046/mar/study") and c.epoch_study.endswith("/mar/home/alpha/epochs/e-mar/study"))
