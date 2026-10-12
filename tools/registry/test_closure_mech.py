@@ -150,6 +150,14 @@ class T(unittest.TestCase):
         rd["exit_ns"] = str(15 * m * 1_000_000)               # исходный выход раньше касания
         self.assertEqual(g.run([rd], C(), w=15, f=0.5), {})
 
+    def test_g18_report_rows(self):
+        from closures import g18_fee_share as g
+        rd = [{"dir": "1", "entry_vwap": "100", "exit_px": "101", "net_bps": "97.48", "qty": "5", "reason": "trail"},
+              {"dir": "1", "entry_vwap": "100", "exit_px": "99", "net_bps": "-102.52", "qty": "5", "reason": "stop"}]
+        rows = {r["reason"]: r for r in g.run(rd, None, off=0)}
+        self.assertEqual(rows["all"]["n"], 2); self.assertAlmostEqual(rows["trail"]["cost_bps_sum"], 2.52, places=3)
+        self.assertAlmostEqual(rows["all"]["cost_usd"], 0.25, places=2)
+
     def test_rounds_net_formula_and_tree(self):
         f = closure_mech.B1_FORM
         self.assertAlmostEqual(closure_mech.net_bps(1, 100.0, 101.0, True), 100.0 - 1.26 - 3.15)

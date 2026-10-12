@@ -10,7 +10,7 @@ ctx — ленивые загрузчики по месяцу (ctx.signals/round
 import argparse, csv, glob, importlib, itertools, json, os, subprocess, sys
 
 
-KINDS = ("closes", "keep", "rounds")
+KINDS = ("closes", "keep", "rounds", "report")
 SOURCES = ("signals", "rounds", "sigma", "klines", "regime", "approaches")
 S_V = "/data/p12r2/s-v"                     # off-дерево B1: <мес>/<сутки>/t-bid-btc4h-q1/{signals,rounds}.csv
 ABBR = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")   # каталоги /data/tk046/<abbr>
@@ -269,9 +269,17 @@ def run_rounds(plugin, mon, work, spec="", chain_fn=None):
     return rows
 
 
+def run_report(plugin, mon, spec=""):
+    """KIND='report': описание без Холма на кругах B1 месяца (data = rounds.csv), цепочки нет; плагин возвращает список строк-словарей."""
+    ctx = Ctx(mon, tuple(plugin.SOURCES) + ("rounds",))
+    data = [r for r in ctx.rounds() if r["form"] == B1_FORM]
+    return [{"mechanic": plugin.NAME, "month": mon, "point": ";".join(f"{k}={pt[k]}" for k in sorted(pt)), **row}
+            for pt in grid_points(plugin.PARAMS, spec) for row in plugin.run(data, ctx, **pt)]
+
+
 def run_all(plugin, closes, spec="", ctx=None):
     if plugin.KIND != "closes":
-        raise SystemExit(f"KIND {plugin.KIND}: через run_keep/run_rounds (--work)")
+        raise SystemExit(f"KIND {plugin.KIND}: через run_keep/run_rounds (--work) или run_report")
     rows = []
     for variant, per in sorted(closes.items()):
         for period, caps in sorted(per.items()):
@@ -297,13 +305,15 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.gate:
         return gate(a.month, a.gate)
-    if not (a.mechanic and a.out and (a.closes or a.work)):
-        ap.error("нужны --mechanic, --out и --closes (KIND closes) или --month и --work (KIND keep), либо --gate")
+    if not (a.mechanic and a.out and (a.closes or a.work or a.month)):
+        ap.error("нужны --mechanic, --out и --closes (KIND closes) или --month и --work (KIND keep/rounds), или --month (KIND report), либо --gate")
     plugin = load_plugin(a.mechanic)
     if plugin.KIND == "keep":
         rows = run_keep(plugin, a.month, a.work, a.grid)
     elif plugin.KIND == "rounds":
         rows = run_rounds(plugin, a.month, a.work, a.grid)
+    elif plugin.KIND == "report":
+        rows = run_report(plugin, a.month, a.grid)
     else:
         rows = run_all(plugin, json.load(open(a.closes, encoding="utf-8")), a.grid, Ctx(a.month, plugin.SOURCES))
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
