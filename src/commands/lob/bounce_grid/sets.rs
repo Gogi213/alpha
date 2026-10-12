@@ -116,6 +116,9 @@ pub(crate) enum CtxSrc {
     },
     /// Минутные свечи **монеты** (`--klines-from`, Г-57/Г-08): ось считает `KlineAxis`.
     Klines(KlineAxis),
+    /// Ход BTC за последние `lag` секунд до касания (`--btc-seconds`, Г-72), bps: close последней
+    /// **закрытой** секунды против close на `lag` секунд раньше.
+    BtcSeconds(u32),
     /// Расстояние цены уровня до ближайшего круглого числа — кратного `ROUND_TICKS` тиков
     /// (`round_zeros >= 2`, прецедент P-02 H4), тики: 0…`ROUND_TICKS`/2. Свечи не нужны.
     RoundDist,
@@ -154,6 +157,13 @@ const fn regime(name: &'static str, col: &'static str, group: RegimeGroup) -> Ct
     }
 }
 
+const fn btc_lag(name: &'static str, lag_s: u32) -> CtxAxisSpec {
+    CtxAxisSpec {
+        name,
+        src: CtxSrc::BtcSeconds(lag_s),
+    }
+}
+
 const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
     CtxAxisSpec {
         name,
@@ -166,7 +176,7 @@ const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
 /// следом, затем оси по свечам монеты и по цене уровня; новая ось дописывается **в конец реестра**
 /// (режимные идут перед свечами в раскладке `TouchContext`): индексы прежних осей не сдвигаются.
 /// `btc2h`/`btc3h` (E26) и `btc6h`…`btc24h` (Г-10, TK-189) добавлены так же.
-pub(crate) const CTX_SPECS: [CtxAxisSpec; 16] = [
+pub(crate) const CTX_SPECS: [CtxAxisSpec; 24] = [
     coin("ret10m", 0),
     coin("ret1h", 1),
     coin("ret4h", 2),
@@ -186,15 +196,26 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 16] = [
         name: "drnd",
         src: CtxSrc::RoundDist,
     },
+    btc_lag("btc_lag_1s", 1),
+    btc_lag("btc_lag_2s", 2),
+    btc_lag("btc_lag_4s", 4),
+    btc_lag("btc_lag_8s", 8),
+    btc_lag("btc_lag_16s", 16),
+    btc_lag("btc_lag_32s", 32),
+    btc_lag("btc_lag_64s", 64),
+    btc_lag("btc_lag_118s", 118),
 ];
 
 /// Осей хода монеты (всегда в начале реестра), осей по свечам монеты (всегда в конце) и осей
 /// режима (между ними).
 pub(crate) const COIN_AXES: usize = 3;
 pub(crate) const KLINE_AXES: usize = 2;
-/// Осей по цене уровня (`RoundDist`) — последние в реестре, после осей по свечам.
+/// Осей по цене уровня (`RoundDist`) — в реестре после осей по свечам.
 pub(crate) const LEVEL_AXES: usize = 1;
-pub(crate) const REGIME_AXES: usize = CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES;
+/// Осей по секундному ряду BTC (`BtcSeconds`, Г-72) — последние в реестре.
+pub(crate) const SEC_AXES: usize = 8;
+pub(crate) const REGIME_AXES: usize =
+    CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES - SEC_AXES;
 
 /// Имена осей в порядке реестра.
 #[allow(clippy::indexing_slicing)] // i < CTX_SPECS.len() — условие цикла
@@ -263,7 +284,7 @@ pub(crate) fn read_regime_day(
     let mut cols = [None; REGIME_AXES];
     let regime_specs = CTX_SPECS.iter().filter_map(|a| match a.src {
         CtxSrc::Regime { col, group } => Some((col, group)),
-        CtxSrc::Coin(_) | CtxSrc::Klines(_) | CtxSrc::RoundDist => None,
+        CtxSrc::Coin(_) | CtxSrc::Klines(_) | CtxSrc::RoundDist | CtxSrc::BtcSeconds(_) => None,
     });
     for (slot, (name, group)) in regime_specs.enumerate() {
         let need = match group {
@@ -407,6 +428,87 @@ impl KlineSeries {
     }
 }
 
+/// Секундный ряд BTC (`--btc-seconds <каталог>`, файлы `<сутки>.csv`: `second_ms,close_ticks`,
+/// 86 400 строк): `начало суток (мс) → close секунды в тиках`. Окно у границы суток берёт и
+/// предыдущие сутки; нет их — окно неполное (`None`).
+#[derive(Debug, Default)]
+pub(crate) struct BtcSeconds {
+    days: BTreeMap<i64, Vec<i64>>,
+}
+
+const DAY_MS: i64 = 86_400_000;
+
+impl BtcSeconds {
+    /// Подгружает сутки `day` (обязательно) и предыдущие (если файл есть).
+    pub(crate) fn ensure_day(&mut self, dir: &Path, day: &str) -> anyhow::Result<()> {
+        let start = super::carry::day_start_ns(day)?.div_euclid(1_000_000);
+        self.days.retain(|&k, _| k >= start - DAY_MS);
+        for (ms, must) in [(start, true), (start - DAY_MS, false)] {
+            if self.days.contains_key(&ms) {
+                continue;
+            }
+            let name = day_name(ms)?;
+            let path = dir.join(format!("{name}.csv"));
+            if !path.is_file() {
+                anyhow::ensure!(!must, "--btc-seconds: нет {}", path.display());
+                continue;
+            }
+            let v = Self::read_file(&path, ms)?;
+            self.days.insert(ms, v);
+        }
+        Ok(())
+    }
+
+    fn read_file(path: &Path, day_ms: i64) -> anyhow::Result<Vec<i64>> {
+        let text = std::fs::read_to_string(path)?;
+        let mut v = Vec::with_capacity(86_400);
+        for (n, line) in text.lines().enumerate().skip(1) {
+            let (ms, c) = line.split_once(',').ok_or_else(|| {
+                anyhow::anyhow!("{}: строка {}: нет запятой", path.display(), n + 1)
+            })?;
+            let ms: i64 = ms.trim().parse()?;
+            anyhow::ensure!(
+                ms == day_ms + 1000 * i64::try_from(v.len())?,
+                "{}: строка {}: секунда {ms} не по порядку",
+                path.display(),
+                n + 1
+            );
+            v.push(c.trim().parse()?);
+        }
+        anyhow::ensure!(
+            v.len() == 86_400,
+            "{}: {} строк, нужно 86400",
+            path.display(),
+            v.len()
+        );
+        Ok(v)
+    }
+
+    fn close_at(&self, sec_ms: i64) -> Option<i64> {
+        let day = sec_ms - sec_ms.rem_euclid(DAY_MS);
+        let i = usize::try_from((sec_ms - day) / 1000).ok()?;
+        self.days.get(&day)?.get(i).copied().filter(|&c| c > 0)
+    }
+
+    /// Ход BTC за `lag_s` секунд до последней закрытой секунды перед касанием `start_ms`, bps.
+    #[allow(clippy::cast_precision_loss)] // тики BTC < 2^53
+    pub(crate) fn lag_bps(&self, lag_s: u32, start_ms: i64) -> Option<f64> {
+        let end = start_ms - start_ms.rem_euclid(1000) - 1000;
+        let (c1, c0) = (
+            self.close_at(end)?,
+            self.close_at(end - 1000 * i64::from(lag_s))?,
+        );
+        Some((c1 - c0) as f64 / c0 as f64 * 1e4)
+    }
+}
+
+/// `ГГГГ-ММ-ДД` по началу суток UTC в мс.
+fn day_name(day_ms: i64) -> anyhow::Result<String> {
+    let dt = chrono::DateTime::from_timestamp_millis(day_ms)
+        .ok_or_else(|| anyhow::anyhow!("сутки {day_ms} мс вне диапазона"))?;
+    Ok(dt.format("%Y-%m-%d").to_string())
+}
+
 /// Контекст касаний суток: ход монеты — из кэша (`TouchRow::ret_bps`) или из
 /// реплея (`pre_touch_return_bps_csv` — те же шесть знаков), режим — по
 /// минуте `start_ms` из `RegimeDay` (нет режима — `None`).
@@ -416,6 +518,7 @@ pub(crate) fn touch_contexts(
     touches: &[TouchRecord],
     regime: Option<&RegimeDay>,
     klines: Option<(&KlineSeries, f64)>,
+    btc_sec: Option<&BtcSeconds>,
 ) -> Vec<TouchContext> {
     debug_assert_eq!(rets.len(), touches.len());
     touches
@@ -436,6 +539,7 @@ pub(crate) fn touch_contexts(
                         klines.and_then(|(k, tick)| k.axis(axis, minute, t.price_tick, tick))
                     }
                     CtxSrc::RoundDist => Some(round_dist(t.price_tick)),
+                    CtxSrc::BtcSeconds(lag) => btc_sec.and_then(|b| b.lag_bps(lag, t.start_ms)),
                 };
             }
             axes[COIN_AXES..COIN_AXES + REGIME_AXES].copy_from_slice(&m);
@@ -485,6 +589,14 @@ impl FilterSet {
             .iter()
             .zip(&self.ctx)
             .any(|(a, r)| r.is_set() && matches!(a.src, CtxSrc::Klines(_)))
+    }
+
+    /// Хоть один ключ секундного ряда BTC (`btc_lag_<s>s`, Г-72) задан — нужен `--btc-seconds`.
+    pub(crate) fn uses_btc_seconds(&self) -> bool {
+        CTX_SPECS
+            .iter()
+            .zip(&self.ctx)
+            .any(|(a, r)| r.is_set() && matches!(a.src, CtxSrc::BtcSeconds(_)))
     }
 
     /// Хоть один ключ хода **монеты** до сигнала (`ret10m`/`ret1h`/`ret4h`)

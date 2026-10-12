@@ -312,6 +312,13 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         args.klines_from.is_some() || !sets.iter().any(FilterSet::uses_klines),
         "ключи rng1h/dlow у наборов требуют --klines-from <каталог свечей по месяцам>"
     );
+    anyhow::ensure!(
+        args.btc_seconds.is_some() || !sets.iter().any(FilterSet::uses_btc_seconds),
+        "ключи btc_lag_<s>s у наборов требуют --btc-seconds <каталог секундного ряда BTC>"
+    );
+    if let Some(dir) = &args.btc_seconds {
+        anyhow::ensure!(dir.is_dir(), "--btc-seconds {}: не каталог", dir.display());
+    }
     if let Some(dir) = &args.klines_from {
         anyhow::ensure!(dir.is_dir(), "--klines-from {}: не каталог", dir.display());
     }

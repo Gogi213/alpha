@@ -480,6 +480,7 @@ impl<'a> GridRun<'a> {
         let outs = &mut self.outs;
         let regime_days = &mut self.regime_days;
         let mut klines = sets::KlineSeries::default();
+        let mut btc_sec = sets::BtcSeconds::default();
         let summary = &mut self.summary;
         // `--cells` (T-38): у каждого набора — свои формы (номера в `forms`); без флага — все формы.
         let all_forms: Vec<usize> = (0..forms.len()).collect();
@@ -717,7 +718,26 @@ impl<'a> GridRun<'a> {
                 }
                 _ => None,
             };
-            let ctx = touch_contexts(&day.rets, &day.touches, regime, kline_ctx);
+            let btc_sec_ctx = match args.btc_seconds.as_deref() {
+                Some(dir) if sets.iter().any(FilterSet::uses_btc_seconds) => {
+                    btc_sec.ensure_day(dir, &day.day)?;
+                    Some(&btc_sec)
+                }
+                _ => None,
+            };
+            let ctx = touch_contexts(&day.rets, &day.touches, regime, kline_ctx, btc_sec_ctx);
+            if btc_sec_ctx.is_some() {
+                // Г-72, договор Судьи п.7: касание вне ряда — без значения оси (не 0), счётчик в отчёт
+                let none = ctx
+                    .iter()
+                    .filter(|c| c.axes.last().is_some_and(Option::is_none))
+                    .count();
+                eprintln!(
+                    "bounce-grid: {symbol} {}: btc_lag_118s без значения у {none} из {} касаний",
+                    day.day,
+                    ctx.len()
+                );
+            }
             // TK-174: память порогов и строки скаляров касаний суток — всегда (бывшие `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_SOA`).
             let holds_day: Vec<bool> = day
                 .touches

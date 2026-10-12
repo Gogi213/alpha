@@ -559,10 +559,34 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
 /// первые, имена уникальны, слот режима = индекс оси − `COIN_AXES`.
 #[test]
 fn ctx_registry_keeps_old_indices() {
-    use super::super::sets::{CtxSrc, COIN_AXES, CTX_SPECS, KLINE_AXES, LEVEL_AXES, REGIME_AXES};
+    use super::super::sets::{
+        CtxSrc, COIN_AXES, CTX_SPECS, KLINE_AXES, LEVEL_AXES, REGIME_AXES, SEC_AXES,
+    };
     let old = [
-        "ret10m", "ret1h", "ret4h", "pool1h", "pool4h", "btc1h", "btc4h", "btc2h", "btc3h",
-        "btc6h", "btc8h", "btc12h", "btc24h", "rng1h", "dlow", "drnd",
+        "ret10m",
+        "ret1h",
+        "ret4h",
+        "pool1h",
+        "pool4h",
+        "btc1h",
+        "btc4h",
+        "btc2h",
+        "btc3h",
+        "btc6h",
+        "btc8h",
+        "btc12h",
+        "btc24h",
+        "rng1h",
+        "dlow",
+        "drnd",
+        "btc_lag_1s",
+        "btc_lag_2s",
+        "btc_lag_4s",
+        "btc_lag_8s",
+        "btc_lag_16s",
+        "btc_lag_32s",
+        "btc_lag_64s",
+        "btc_lag_118s",
     ];
     assert_eq!(&CTX_AXES[..old.len()], &old);
     for (i, a) in CTX_SPECS.iter().enumerate() {
@@ -579,13 +603,17 @@ fn ctx_registry_keeps_old_indices() {
     }
     assert_eq!(
         REGIME_AXES,
-        CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES
+        CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES - SEC_AXES
     );
-    let tail = CTX_SPECS.len() - LEVEL_AXES;
+    let sec = CTX_SPECS.len() - SEC_AXES;
+    assert!(CTX_SPECS[sec..]
+        .iter()
+        .all(|a| matches!(a.src, CtxSrc::BtcSeconds(_))));
+    let tail = sec - LEVEL_AXES;
     assert!(CTX_SPECS[tail - KLINE_AXES..tail]
         .iter()
         .all(|a| matches!(a.src, CtxSrc::Klines(_))));
-    assert!(CTX_SPECS[tail..]
+    assert!(CTX_SPECS[tail..sec]
         .iter()
         .all(|a| matches!(a.src, CtxSrc::RoundDist)));
 }
@@ -651,4 +679,45 @@ fn round_dist_axis_is_ticks_to_nearest_hundred() {
     ] {
         assert_eq!(round_dist(p), want, "{p}");
     }
+}
+
+/// Оси секундного ряда BTC (Г-72): окно — только закрытые секунды до секунды касания; нет
+/// секунд у границы ряда — `None` (не 0); ход в bps по тикам.
+#[test]
+fn btc_lag_axes_use_only_closed_seconds() {
+    use super::super::sets::BtcSeconds;
+    let dir = std::env::temp_dir().join(format!("tk204-btcsec-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let day0 = 1_767_225_600_000_i64; // 2026-01-01 00:00 UTC
+    let mut csv = String::from(
+        "second_ms,close_ticks
+",
+    );
+    for i in 0..86_400_i64 {
+        // close секунды i = 1_000_000 + i тиков
+        csv.push_str(&format!(
+            "{},{}
+",
+            day0 + i * 1000,
+            1_000_000 + i
+        ));
+    }
+    std::fs::write(dir.join("2026-01-01.csv"), csv).unwrap();
+    let mut b = BtcSeconds::default();
+    b.ensure_day(&dir, "2026-01-01").unwrap();
+    // касание в секунде 100.5: последняя закрытая секунда 99 (close 1_000_099), лаг 4 → секунда 95
+    let start = day0 + 100_500;
+    let want = (1_000_099 - 1_000_095) as f64 / 1_000_095_f64 * 1e4;
+    assert_eq!(b.lag_bps(4, start), Some(want));
+    // секунда касания не входит: касание в 100.0 даёт то же окно (последняя закрытая — 99)
+    assert_eq!(b.lag_bps(4, day0 + 100_000), Some(want));
+    // окно уходит за начало ряда (сутки до — нет файла) → None
+    assert_eq!(b.lag_bps(118, day0 + 100_000), None);
+    assert!(b.lag_bps(1, day0 + 500).is_none());
+    assert!(b.lag_bps(1, day0 + 2_500).is_some());
+    // нет файла суток — отказ
+    assert!(BtcSeconds::default()
+        .ensure_day(&dir, "2026-01-02")
+        .is_err());
+    std::fs::remove_dir_all(&dir).ok();
 }
