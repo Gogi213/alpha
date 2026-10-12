@@ -23,7 +23,67 @@ pub fn depth_ticks(level_tick: i64, depth_bps: u32) -> i64 {
     t.max(1)
 }
 
-/// Момент входа `t0` (нс) или `None`. `long` — сторона сделки (стена-бид, закол вниз). `trades` — по времени.
+/// Потоковый автомат Г-88: сделки подаются по одной (тот же код в бэктесте и live, без аллокаций). Состояние — один
+/// флаг «закол был». `feed` отдаёт `Some(t0)` ровно на сделке возврата; окно `[t_arm, t_arm + ttl]` проверяется здесь.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReclaimWatch {
+    long: bool,
+    level_tick: i64,
+    depth: i64,
+    pause_ns: i64,
+    window: (i64, i64),
+    poked: bool,
+}
+
+impl ReclaimWatch {
+    /// `long` — сторона сделки (стена-бид, закол вниз). `window` — `[t_arm, t_arm + entry_ttl]`, нс.
+    pub fn new(
+        long: bool,
+        level_tick: i64,
+        depth_bps: u32,
+        pause_ns: i64,
+        window: (i64, i64),
+    ) -> Self {
+        Self {
+            long,
+            level_tick,
+            depth: depth_ticks(level_tick, depth_bps),
+            pause_ns,
+            window,
+            poked: false,
+        }
+    }
+
+    /// Окно кончилось к моменту `now_ns`: сигнала уже не будет (вход не ставится).
+    pub fn expired(&self, now_ns: i64) -> bool {
+        now_ns > self.window.1
+    }
+
+    /// Сделка ленты; `Some(t0)` — вход в `t0` (возврат + пауза). Сделки вне окна игнорируются.
+    pub fn feed(&mut self, t: TradeTick) -> Option<i64> {
+        if t.ts_ns < self.window.0 || t.ts_ns > self.window.1 {
+            return None;
+        }
+        let (beyond, back) = if self.long {
+            (
+                t.tick <= self.level_tick - self.depth,
+                t.tick >= self.level_tick,
+            )
+        } else {
+            (
+                t.tick >= self.level_tick + self.depth,
+                t.tick <= self.level_tick,
+            )
+        };
+        if self.poked && back {
+            return Some(t.ts_ns.saturating_add(self.pause_ns));
+        }
+        self.poked |= beyond;
+        None
+    }
+}
+
+/// Момент входа `t0` (нс) по готовой ленте или `None` — свёртка `ReclaimWatch` (для разборов и тестов).
 pub fn reclaim_t0(
     trades: &[TradeTick],
     long: bool,
@@ -32,26 +92,8 @@ pub fn reclaim_t0(
     pause_ns: i64,
     window: (i64, i64),
 ) -> Option<i64> {
-    let d = depth_ticks(level_tick, depth_bps);
-    let mut poked = false;
-    for t in trades {
-        if t.ts_ns < window.0 {
-            continue;
-        }
-        if t.ts_ns > window.1 {
-            break;
-        }
-        let (beyond, back) = if long {
-            (t.tick <= level_tick - d, t.tick >= level_tick)
-        } else {
-            (t.tick >= level_tick + d, t.tick <= level_tick)
-        };
-        if poked && back {
-            return Some(t.ts_ns.saturating_add(pause_ns));
-        }
-        poked |= beyond;
-    }
-    None
+    let mut w = ReclaimWatch::new(long, level_tick, depth_bps, pause_ns, window);
+    trades.iter().find_map(|&t| w.feed(t))
 }
 
 #[cfg(test)]

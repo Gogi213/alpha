@@ -58,3 +58,13 @@ fn the_wall_vanishing_does_not_matter_the_detector_reads_trades_only() {
         Some(9 * S)
     );
 }
+
+#[test]
+fn streaming_watch_fires_once_on_the_return_trade_and_knows_its_window() {
+    let mut w = ReclaimWatch::new(true, 10_000, 5, S, (0, 60 * S));
+    assert_eq!(w.feed(tr(1, 10_000)), None);
+    assert_eq!(w.feed(tr(2, 9_994)), None);
+    assert_eq!(w.feed(tr(3, 10_000)), Some(4 * S));
+    assert!(!w.expired(60 * S));
+    assert!(w.expired(60 * S + 1));
+}
