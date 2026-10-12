@@ -11,9 +11,11 @@ import argparse, csv, glob, importlib, itertools, json, os, subprocess, sys
 
 
 KINDS = ("closes", "keep", "rounds")
-SOURCES = ("signals", "rounds", "sigma", "klines", "regime")
+SOURCES = ("signals", "rounds", "sigma", "klines", "regime", "approaches")
 S_V = "/data/p12r2/s-v"                     # off-дерево B1: <мес>/<сутки>/t-bid-btc4h-q1/{signals,rounds}.csv
-STUDY = "/data/tk046/{mon}/study"           # свечи ref-<SYM>-1m.csv, sigma240/, regime/<сутки>.csv, approaches/D20/
+ABBR = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")   # каталоги /data/tk046/<abbr>
+STUDY = "/data/tk046/{abbr}/study"                                   # klines/ref-<SYM>-1m.csv, approaches/D20/<сутки>/approaches-<SYM>.csv
+EPOCH_STUDY = "/data/tk046/{abbr}/home/alpha/epochs/e-{abbr}/study"  # sigma240/sigma-<SYM>.csv, regime/<сутки>.csv (путь sigma_from из шапки rounds)
 
 
 def load_plugin(name):
@@ -28,9 +30,11 @@ def load_plugin(name):
 class Ctx:
     """Ленивые загрузчики входов месяца; плагин берёт только объявленное в SOURCES (иначе отказ)."""
 
-    def __init__(self, mon, allowed, s_v=S_V, study=None):
+    def __init__(self, mon, allowed, s_v=S_V, study=None, epoch_study=None):
         self.mon, self.allowed, self.s_v = mon, set(allowed), s_v
-        self.study = (study or STUDY).format(mon=mon)
+        abbr = ABBR[int(mon[5:7]) - 1] if mon else ""
+        self.study = (study or STUDY).format(abbr=abbr)
+        self.epoch_study = (epoch_study or EPOCH_STUDY).format(abbr=abbr)
 
     def _need(self, src):
         if src not in self.allowed:
@@ -57,7 +61,7 @@ class Ctx:
 
     def sigma(self, sym):
         self._need("sigma")
-        with open(os.path.join(self.study, "sigma240", f"sigma-{sym}.csv"), encoding="utf-8") as f:
+        with open(os.path.join(self.epoch_study, "sigma240", f"sigma-{sym}.csv"), encoding="utf-8") as f:
             return [(int(r["window_end_ms"]), float(r["sigma_bps"])) for r in csv.DictReader(f)]
 
     def klines(self, sym):
@@ -65,9 +69,18 @@ class Ctx:
         with open(os.path.join(self.study, "klines", f"ref-{sym}-1m.csv"), encoding="utf-8") as f:
             return [(int(r["minute_ms"]), float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])) for r in csv.DictReader(f)]
 
+    def approaches(self, sym, day):
+        """Подходы D20 монеты за сутки: {(arm_ms, price_tick): строка} только side=bid (связь с сигналом B1 — p07-h9r-h14.py)."""
+        self._need("approaches")
+        path = os.path.join(self.study, "approaches", "D20", day, f"approaches-{sym}.csv")
+        if not os.path.exists(path):
+            return {}
+        with open(path, encoding="utf-8") as f:
+            return {(int(r["arm_ms"]), r["price_tick"]): r for r in csv.DictReader(f) if r["side"] == "bid"}
+
     def regime(self, day):
         self._need("regime")
-        with open(os.path.join(self.study, "regime", f"{day}.csv"), encoding="utf-8") as f:
+        with open(os.path.join(self.epoch_study, "regime", f"{day}.csv"), encoding="utf-8") as f:
             return list(csv.DictReader(f))
 
 

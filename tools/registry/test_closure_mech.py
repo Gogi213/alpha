@@ -82,6 +82,21 @@ class T(unittest.TestCase):
         out = {k[3] for k in g.run(data, None, N=3, window=10)}
         self.assertEqual(out, {"0", "1", "3"})   # C — третья монета в окне: пропуск; A в 500 один
 
+    def test_h14_rules_and_unlinked_signal_kept(self):
+        from closures import p07_h14_approach_no as g
+        class C:
+            def approaches(self, sym, day):
+                return {(1000, "7"): {"approach_index": "0"}, (2000, "7"): {"approach_index": "2"}}
+        mk = lambda i, t, pt: {"symbol": "A", "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(t * 1_000_000), "price_tick": pt}
+        data = [mk(0, 1000, "7"), mk(1, 2000, "7"), mk(2, 3000, "7")]   # номера 1, 3, без связи
+        ids = lambda r: [k[3] for k in g.run(data, C(), rule=r)]
+        self.assertEqual(ids("k1"), ["0", "2"]); self.assertEqual(ids("k3"), ["0", "1", "2"])
+        self.assertEqual(ids("n2"), ["1", "2"]); self.assertEqual(ids("n4"), ["2"])
+
+    def test_ctx_study_paths_by_month(self):
+        c = closure_mech.Ctx("2026-03", ("sigma",))
+        self.assertTrue(c.study.endswith("/tk046/mar/study") and c.epoch_study.endswith("/mar/home/alpha/epochs/e-mar/study"))
+
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
             p, o = os.path.join(d, "c.json"), os.path.join(d, "o.csv")
