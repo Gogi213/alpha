@@ -66,6 +66,22 @@ class T(unittest.TestCase):
             self.assertTrue(all(r["signals_before"] == r["signals_kept"] == 1 and r["sum_before"] == r["sum_after"] == 2.5 for r in rows))
             self.assertEqual(open(seen[-1]).read().splitlines()[1], "AAA,2026-01-05,0," + f)
 
+    def test_g50_excludes_after_boundary(self):
+        from closures import g50_tf_boundary as g
+        S = 1_000_000_000
+        data = [{"symbol": "A", "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(t * S)} for i, t in enumerate((60, 63, 90, 125))]
+        out = g.run(data, None, tf=60, window=5)
+        self.assertEqual([k[3] for k in out], ["2"])  # 60 и 63 (0 и 3 с), 125 (5 с) исключены; 90 (30 с) остаётся
+        self.assertEqual(g.run(data, None, tf=60, window=300), [])
+
+    def test_g126_counts_distinct_coins_causally(self):
+        from closures import g126_approach_brake as g
+        S = 1_000_000_000
+        mk = lambda i, sym, t: {"symbol": sym, "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(t * S)}
+        data = [mk(0, "A", 100), mk(1, "B", 105), mk(2, "C", 108), mk(3, "A", 500)]
+        out = {k[3] for k in g.run(data, None, N=3, window=10)}
+        self.assertEqual(out, {"0", "1", "3"})   # C — третья монета в окне: пропуск; A в 500 один
+
     def test_cli(self):
         with tempfile.TemporaryDirectory() as d:
             p, o = os.path.join(d, "c.json"), os.path.join(d, "o.csv")

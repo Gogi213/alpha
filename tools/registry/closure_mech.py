@@ -155,6 +155,11 @@ def run_keep(plugin, mon, work, spec="", chain_fn=None):
         kept = set(plugin.run(data, ctx, **pt))
         if not kept <= keys:
             raise SystemExit(f"{plugin.NAME} {pt}: плагин вернул ключи вне сигналов B1 месяца ({len(kept - keys)})")
+        if not kept:   # пустой keep busy-replay не принимает; результат известен без цепочки
+            rows += [{"mechanic": plugin.NAME, "month": mon, "cap": c, "point": ";".join(f"{k}={pt[k]}" for k in sorted(pt)),
+                      "signals_before": len(keys), "signals_kept": 0, "n_before": base[c][0], "sum_before": base[c][1],
+                      "n_after": 0, "sum_after": 0.0} for c in sorted(base)]
+            continue
         w = os.path.join(work, f"pt{i}")
         os.makedirs(w, exist_ok=True); write_keep(os.path.join(w, "keep.csv"), kept)
         for c, p in chain_fn(mon, w, os.path.join(w, "keep.csv")).items():
