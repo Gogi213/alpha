@@ -602,7 +602,7 @@ fn kline_axes_use_only_past_minutes() {
     let t = day0 + 90 * 60_000;
     // минуты 30..90: high до 109, low до 93 → (109 − 93) / 100 · 1e4
     let rng = k.axis(KlineAxis::Rng1h, t, 100.0).unwrap();
-    assert!((rng - 160.0).abs() < 1e-9, "{rng}");
+    assert!((rng - 1600.0).abs() < 1e-9, "{rng}");
     assert_eq!(k.axis(KlineAxis::Rng1h, day0 + 30 * 60_000, 100.0), None);
     // минимум суток до t — 93 (минута 6 по циклу low = 99 − 6)
     let d = k.axis(KlineAxis::DayLowDist, t, 100.0).unwrap();
