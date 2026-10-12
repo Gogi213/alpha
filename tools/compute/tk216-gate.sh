@@ -11,7 +11,7 @@ printf '%s\n' \
  "t-bid-btc4h-q1	$FF	age=2700,side=bid,btc4h_max=-44.55" \
  "g87-fresh	$FF	age=2700,agemax=3600,side=bid,btc4h_max=-44.55" \
  "g10n12q90-2026-01	$FF	age=2700,side=bid,btc12h_max=138.35" \
- "g10n4q50-2026-01	$FF	age=2700,side=bid,btc4h_max=-1.57" \
+ "g10n4q50-2026-01	$FF	age=2700,side=bid,btc4h_max=-1.57" > $G/cells.tsv
 
 # режим: по суткам в разных каталогах -> одна папка со ссылками
 mkdir -p regime; for d in 2026-01-02 2026-01-03; do ln -sf /data/tk0196/regime/jan/$d.csv regime/$d.csv; done

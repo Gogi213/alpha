@@ -102,6 +102,59 @@ def check_submit(argv, adhoc, alert, who=""):
     return 0
 
 
+FAST_MIN_S = 15 * 60       # В-229 п.8: prod дольше этого — только быстрым путём (v3+PGO, tools/compute/build-pgo.sh)
+
+
+def fast_violations(argv, max_runtime_s, rows=None):
+    """В-229 п.8 (TK-219): проход prod > 15 мин — бинарь из манифеста с профилем pgo (вкл. r2-pgo). -> список нарушений."""
+    if max_runtime_s <= FAST_MIN_S:
+        return []
+    rows = load() if rows is None else rows
+    out = []
+    for b in binaries(argv):
+        r = rows.get(md5_of(b))
+        prof = r["profile"] if r else "вне манифеста"
+        if prof != "pgo" and not prof.endswith("-pgo"):
+            out.append(f"бинарник {b}: профиль {prof}, проход > 15 мин только на pgo/r2-pgo (build-pgo.sh); иначе --reason")
+    return out
+
+
+def check_fast(argv, max_runtime_s, reason, alert):
+    """-> rc (0 — пускать). SCHED_FASTPATH: 1 (по умолчанию, отказ) | warn | 0."""
+    mode = os.environ.get("SCHED_FASTPATH", "1")
+    if mode == "0":
+        return 0
+    if reason:
+        alert(f"fastpath --reason: {reason}: {' '.join(argv[:3])}")
+        return 0
+    v = fast_violations(argv, max_runtime_s)
+    for x in v:
+        alert(f"fastpath {'ОТКАЗ' if mode == '1' else 'предупреждение'}: {x}")
+        print(f"alsched: {x}", file=sys.stderr)
+    if v and mode == "1":
+        print('alsched: заявка отклонена; обход — --reason "причина"', file=sys.stderr)
+        return 3
+    return 0
+
+
+EST_K = 1.5                # В-229 п.9: max-runtime >= 1,5 x оценки по пробе «1 сутки x 3 месяца»
+
+
+def check_estimate(max_runtime_s, est_s, alert):
+    """-> rc. est_s — оценка прохода по пробе (--est), None — не указана (prod > 15 мин: предупреждение)."""
+    if max_runtime_s <= FAST_MIN_S:
+        return 0
+    if est_s is None:
+        alert("оценка: проход > 15 мин без --est (проба 1 сутки x 3 месяца, docs/COMMANDS.md)")
+        print("alsched: проход > 15 мин без --est <оценка по пробе 1 сутки x 3 месяца>", file=sys.stderr)
+        return 0
+    if max_runtime_s < EST_K * est_s:
+        alert(f"оценка ОТКАЗ: max-runtime {max_runtime_s:.0f}s < {EST_K} x оценки {est_s:.0f}s")
+        print(f"alsched: max-runtime {max_runtime_s:.0f}s < {EST_K} x --est {est_s:.0f}s — заявка отклонена", file=sys.stderr)
+        return 3
+    return 0
+
+
 def used_by(path, md5, who):
     """Отметить в манифесте, кто взял сборку (колонка used_by, без дублей); манифест пишет только это и build-release."""
     rows = load(path)

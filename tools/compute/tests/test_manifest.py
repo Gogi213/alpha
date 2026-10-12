@@ -57,6 +57,30 @@ class Check(unittest.TestCase):
         self.assertEqual(M.check_submit([self.bin], "", self.alerts.append), 0)
         self.assertTrue(any("предупреждение" in a for a in self.alerts))
 
+    def pgo_row(self, profile):
+        md5 = M.md5_of(self.bin)
+        M.write(self.mf, {md5: dict(md5=md5, commit="c", profile=profile, features="", status="active", built="t",
+                                    path=self.bin, used_by="")})
+
+    def test_fast_path_long_job_needs_pgo(self):
+        self.pgo_row("release")
+        self.assertEqual(M.check_fast([self.bin], 3600, "", self.alerts.append), 3)
+        self.assertEqual(M.check_fast([self.bin], 900, "", self.alerts.append), 0)       # <= 15 мин — без требования
+        self.assertEqual(M.check_fast([self.bin], 3600, "нет pgo-сборки", self.alerts.append), 0)
+        self.assertIn("нет pgo-сборки", self.alerts[-1])
+
+    def test_fast_path_accepts_pgo_and_r2_pgo(self):
+        for prof in ("pgo", "r2-pgo"):
+            self.pgo_row(prof)
+            self.assertEqual(M.check_fast([self.bin], 3600, "", self.alerts.append), 0)
+
+    def test_estimate_rule(self):
+        self.assertEqual(M.check_estimate(3600, 2400, self.alerts.append), 0)             # 1,5 x 2400 = 3600
+        self.assertEqual(M.check_estimate(3599, 2400, self.alerts.append), 3)
+        self.assertEqual(M.check_estimate(3600, None, self.alerts.append), 0)             # без --est — предупреждение
+        self.assertTrue(any("без --est" in a for a in self.alerts))
+        self.assertEqual(M.check_estimate(600, 9999, self.alerts.append), 0)              # <= 15 мин не проверяется
+
     def test_off_mode(self):
         os.environ["SCHED_MANIFEST"] = "0"
         self.assertEqual(M.check_submit([self.bin], "", self.alerts.append), 0)
