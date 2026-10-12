@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, RUNTIME_BACKSTOP_K)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -70,6 +70,15 @@ class Core:
 
     def add(self, j):
         self.jobs.setdefault(j["id"], j)
+
+    def reconcile(self, frozen_units):
+        """TK-222: после рестарта демона frozen_for (в памяти) потерян — замороженный юнит без метки получает «hot» (оттает по спаду загрузки), метка «hot» без заморозки снимается."""
+        for j in self.running("prod"):
+            fz = self.be.unit(j) in frozen_units
+            if fz and not j.get("frozen_for"):
+                j["frozen_for"] = "hot"
+            elif not fz and j.get("frozen_for") == "hot":
+                j.pop("frozen_for")
 
     def running(self, cls):
         return [j for j in self.jobs.values() if j["state"] == "running" and j["cls"] == cls]
@@ -172,8 +181,6 @@ class Core:
         if self.frozen:
             be.thaw_all()
             self.frozen = False
-            for j in self.running("prod"):
-                be.extend(j, j["max_runtime"] - j.get("active_s", 0))
 
     def _pack(self, now):
         be = self.be
@@ -316,7 +323,6 @@ class Core:
             if v and busy * (self.ncpu - len(self.iso)) + self.need_cores(v) <= FACT_BUSY * (self.ncpu - len(self.iso)):   # оттаивать, только если влезет без нового перегруза (иначе заморозка-оттайка по кругу)
                 v.pop("frozen_for")
                 self.be.thaw_unit(self.be.unit(v))
-                self.be.extend(v, v["max_runtime"] - v.get("active_s", 0))
 
     def cap_iso(self):
         """Потолок prod в изолированном окне: заявленных ядер незамороженных ≤ PROD_CAP_ISO, лишнее — заморозка новейших; оттаивают по концу окна."""
@@ -326,7 +332,6 @@ class Core:
                 if j.get("frozen_for") == "cap":
                     j.pop("frozen_for")
                     be.thaw_unit(be.unit(j))
-                    be.extend(j, j["max_runtime"] - j.get("active_s", 0))
             return
         live = sorted((j for j in self.running("prod") if not j.get("frozen_for")), key=lambda j: j["t_start"])
         tot = sum(len(j["cpus"]) for j in live)
@@ -393,7 +398,6 @@ class Core:
                     j = self.jobs[ident]
                     j.pop("frozen_for", None)
                     self.be.thaw_unit(self.be.unit(j))
-                    self.be.extend(j, j["max_runtime"] - j.get("active_s", 0))
                 else:
                     self.be.thaw_unit(ident)
             del self.preempt[hid]
@@ -592,6 +596,9 @@ class SystemdBackend:
         json.dump(d, open(f"{DIR}/preempt.json.tmp", "w"))
         os.replace(f"{DIR}/preempt.json.tmp", f"{DIR}/preempt.json")
 
+    def is_frozen(self, u):
+        return sh("systemctl", "show", "-p", "FreezerState", "--value", u).stdout.strip() == "frozen"
+
     def freeze_unit(self, u):
         sh("systemctl", "freeze", u)
 
@@ -700,7 +707,7 @@ class SystemdBackend:
         mem_p = ["-p", f"MemoryMin={j['mem']}G"] if iso else []        # П4: замеряемого защищаем, соседей не душим
         sl = ["-p", f"Slice={self.slice(j)}"] if j["cls"] == "measure" else []
         r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", *sl, f"--working-directory={j['cwd']}",
-               "-p", f"RuntimeMaxSec={int(j['max_runtime'])}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
+               "-p", f"RuntimeMaxSec={int(j['max_runtime'] * RUNTIME_BACKSTOP_K)}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
                "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", "MemorySwapMax=0", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') else len(j['cpus']) * 100}%",
                "-p", f"CPUWeight={10 if j.get('prio', 5) > BARE_PRIO else 100}",      # 09.10: prio ниже боевого (синтетика, prio>5) — вес ЦП ≤1/10, боевой не страдает при конкуренции
                "-p", f"StandardOutput=append:{DIR}/logs/{j['id']}.log", "-p", "StandardError=inherit",
@@ -718,11 +725,6 @@ class SystemdBackend:
         sh("systemctl", "thaw", self.unit(j))      # замороженный юнит не останавливается («Cannot stop frozen unit», SIGKILL через 18 с)
         sh("systemctl", "stop", self.unit(j))
         open(f"{DIR}/rc/{j['id']}", "w").write("124\n")
-
-    def extend(self, j, remaining):
-        """после разморозки: RuntimeMaxSec считается от старта юнита по стене, заморозка его съела — пересчитать."""
-        el = self.now() - j["t_start"]
-        sh("systemctl", "set-property", "--runtime", self.unit(j), f"RuntimeMaxSec={int(el + max(remaining, 1))}")
 
     def arm_failsafe(self, secs):
         """аренда с TTL: если демон умрёт при замороженном производстве — таймер сам разморозит."""
@@ -1136,6 +1138,10 @@ def daemon():
             core.add(j)
     else:
         be.thaw_all()
+    for j in load_all():                                  # TK-222: заморозка hot переживает рестарт демона
+        if j["state"] == "running" and j["cls"] == "prod":
+            core.add(j)
+    core.reconcile({u for u in (be.unit(j) for j in core.running("prod")) if be.is_frozen(u)})
     while True:
         open(f"{DIR}/heartbeat", "w").write(str(time.time()))
         for j in load_all(core.jobs):                     # читаем только новые заявки: на волне кэш файлов вытеснен, каждый json — поиск HDD
@@ -1143,8 +1149,8 @@ def daemon():
         core.mem = prod_mem_budget_gb()
         core.tick()
         for j in core.jobs.values():
-            if seen.get(j["id"]) != (j["state"], j.get("rc")):
-                seen[j["id"]] = (j["state"], j.get("rc"))
+            if seen.get(j["id"]) != (j["state"], j.get("rc"), j.get("frozen_for")):
+                seen[j["id"]] = (j["state"], j.get("rc"), j.get("frozen_for"))
                 write_job(j)
         time.sleep(TICK * 3 if core.running("measure") else TICK)   # в окне замера демон тише: чужие чтения демона — помеха волне
 
