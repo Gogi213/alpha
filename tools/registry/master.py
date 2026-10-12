@@ -220,11 +220,13 @@ MECH_RUN = {
     "PyrNewWall": ("t-bid-btc4h-q1", {}),
     "NoStop": ("e106-pop", {}),
     "Converge": ("t-bid-btc4h-q1", {"a_bps": 20}),   # A = D20 прогона подходов
+    "GoneWall": (None, {}),   # набор клетки — из стека
 }
 
 
 def parse_mechanic(spec):
-    """`PyrReinstall:u12*12` -> (механика, параметр, множитель)."""
+    """`PyrReinstall:u12*12` -> (механика, параметр, множитель); `GoneWall:~` — категориальная ось: её значение выбирает запись
+    каталога (имя шаблона содержит `<значение>{`), параметра нет."""
     mid, _, rest = spec.partition(":")
     par, _, mul = rest.partition("*")
     if mid not in MECH_RUN or not par:
@@ -232,7 +234,7 @@ def parse_mechanic(spec):
     return mid, par, float(mul) if mul else 1.0
 
 
-def r2_exit(hyp, av, mm=None):
+def r2_exit(hyp, av, mm=None, stack_set=None):
     """R2-гипотеза Rust-класса -> (входная форма или None, суффикс --exit-form, имя набора, причина отказа); имена и наборы — как в клетках Летописи
     (tk065-r2-gen.py, tk115-delta-day.sh) и в forms.rs; значение оси вне ограничений формы -> суффикс None и причина."""
     n = re.sub(r"\D", "", hyp)
@@ -243,9 +245,16 @@ def r2_exit(hyp, av, mm=None):
             sys.exit(f"hyp_axes.mechanic: у {hyp} разные механики {sorted({v[0] for v in specs.values()})}")
         mid = next(iter(specs.values()))[0]
         set_name, fixed = MECH_RUN[mid]
-        vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items()}}
-        name, why = mech.build(mid, **vals)
-        return None, name, set_name, None if name else f"{mid}: {why}"
+        sel = [str(av[k]).strip() for k, (_, par, _) in specs.items() if par == "~"]
+        tmpl = None
+        if sel:   # категориальная ось выбирает запись-вариант; значения вне каталога -> отказ клетки
+            hit = [r["name_template"] for r in mech.ROWS if r["id"] == mid and f"{sel[0]}{{" in r["name_template"]]
+            if len(hit) != 1:
+                return None, None, set_name or stack_set, f"{mid}: значение «{sel[0]}» не выбирает одну запись каталога ({hit})"
+            tmpl = hit[0]
+        vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items() if par != "~"}}
+        name, why = mech.build(mid, template=tmpl, **vals)
+        return None, name, set_name or stack_set, None if name else f"{mid}: {why}"
     if n == "114":  # halfstop|halflevel[f1|f3|g<q8>]: f = q8/8, q8 ∈ [1, 7]
         q8 = _int_in(8 * g("f"), range(1, 8))
         base = av["trigger"]
@@ -304,12 +313,6 @@ def rust_axes(hyp, av, sv):
         if str(av["signal"]).strip() != "touch":
             return ttl, "", None, "signal: touch"
         return ttl, "", None, "--signal touch — режим шапки прогона (кэш касаний, не approach D20): отдельный заход, в --cells не идёт"
-    if n == "141":   # gone<W>wall<B> | wallx | wallk: стоп на цену снятой стены (forms.rs GoneWall); W ∈ (0, 100] %, B — bps ∈ [0, 10000)
-        w, b = _int_in(_frac(av["gone_w"]), (10, 25, 50, 75, 90)), _int_in(_frac(av["wall_buf_bps"]), (0, 1, 2, 4, 8, 16))
-        mode = {"wall": "", "wallx": "x", "wallk": "k"}.get(str(av["wall_mode"]).strip())
-        if w is None or b is None or mode is None:
-            return ttl, None, None, "gone<W>wall<B>: W ∈ {10, 25, 50, 75, 90}, B ∈ {0, 1, 2, 4, 8, 16} bps, режим ∈ {wall, wallx, wallk}"
-        return ttl, mech.build("GoneWall", template=f"gone{{pct}}wall{mode}{{buffer_bps}}", pct=w, buffer_bps=b)[0], None, None
     if n == "117":   # tslx<G>t<Q>: γ = G/8, T = Q/16 дедлайна; работает только при trail_bps = 0 (strategy/plan.rs, PyramidCfg.sched_*)
         g8, t16 = _int_in(8 * _frac(av["gamma"]), range(1, 65)), _int_in(16 * _frac(av["T"]), range(1, 17))
         if not (g8 and t16):
@@ -334,7 +337,7 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
     entry = sv["entry"]
     set_name = sv["set"]
     suffix, line_why = "", None
-    r2 = r2_exit(hyp, av, mm) if av else False
+    r2 = r2_exit(hyp, av, mm, set_name) if av else False
     if r2:
         e, suffix, set_name, line_why = r2
         entry = e or entry

@@ -158,9 +158,9 @@ ax("Г-104", "be", "да", "да|нет", grid="share×be", note="категор
 ax("Г-129", "entry_ttl", "60|300", "10|30|60|120|300|600|900|1200|1800", note="1800 = B1")
 
 # В-227 (TK-202) М3: Г-141 — стоп на цену снятой стены, код есть (forms.rs GoneWall): W × B × режим = 90 клеток
-ax("Г-141", "gone_w", "", "10|25|50|75|90", grid="W×B×mode", note="gone<W>: доля снятия, %")
-ax("Г-141", "wall_buf_bps", "", "0|1|2|4|8|16", grid="W×B×mode", note="буфер за стеной, bps")
-ax("Г-141", "wall_mode", "", "wall|wallx|wallk", grid="W×B×mode", note="категориальная: wall — перенос стопа, wallx — выход сразу, wallk — стоп плана до конца")
+ax("Г-141", "gone_w", "", "10|25|50|75|90", grid="W×B×mode", note="gone<W>: доля снятия, %", mechanic="GoneWall:pct")
+ax("Г-141", "wall_buf_bps", "", "0|1|2|4|8|16", grid="W×B×mode", note="буфер за стеной, bps", mechanic="GoneWall:buffer_bps")
+ax("Г-141", "wall_mode", "", "wall|wallx|wallk", grid="W×B×mode", note="категориальная: wall — перенос стопа, wallx — выход сразу, wallk — стоп плана до конца", mechanic="GoneWall:~")
 
 # В-227 (TK-202) М3: Г-13 — σ-стоп `s<a>` (StopForm::Sigma), код есть: 9 клеток
 ax("Г-13", "sigma_stop", "", "1/2|3/4|1|3/2|2|3|4|6|8", note="стоп s<a> вместо pct2, a в σ")

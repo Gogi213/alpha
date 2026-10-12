@@ -35,11 +35,13 @@ class MasterTest(unittest.TestCase):
 
     def test_g141_gone_wall_names(self):
         """В-227 М3: Г-141 -> gone<W>wall[x|k]<B> (forms.rs GoneWall); вне доменов — причина, не имя."""
-        sv = {"entry_ttl_s": 1800}
+        mm = {"gone_w": "GoneWall:pct", "wall_buf_bps": "GoneWall:buffer_bps", "wall_mode": "GoneWall:~"}
         av = {"gone_w": "25", "wall_buf_bps": "4", "wall_mode": "wallk"}
-        self.assertEqual(master.rust_axes("Г-141", av, sv), (1800, "gone25wallk4", None, None))
-        self.assertEqual(master.rust_axes("Г-141", {**av, "wall_mode": "wall"}, sv)[1], "gone25wall4")
-        self.assertIsNone(master.rust_axes("Г-141", {**av, "wall_buf_bps": "3"}, sv)[1])
+        self.assertEqual(master.r2_exit("Г-141", av, mm, "S"), (None, "gone25wallk4", "S", None))
+        self.assertEqual(master.r2_exit("Г-141", {**av, "wall_mode": "wall"}, mm, "S")[1], "gone25wall4")
+        self.assertEqual(master.r2_exit("Г-141", {**av, "wall_mode": "wallx"}, mm, "S")[1], "gone25wallx4")
+        self.assertIsNone(master.r2_exit("Г-141", {**av, "wall_buf_bps": "-3"}, mm, "S")[1])
+        self.assertIsNone(master.r2_exit("Г-141", {**av, "wall_mode": "nope"}, mm, "S")[1])
 
     def test_g13_sigma_stop_name(self):
         """В-227 М3: Г-13 -> стоп s<a> (StopForm::Sigma); вне домена — причина."""
