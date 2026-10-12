@@ -33,7 +33,7 @@ class T(unittest.TestCase):
         rows = cr.build()
         self.assertGreaterEqual(len(rows), 486)
         gold = dict(x.split("\t") for x in open(os.path.join(cr.F, "cellhash-487-before-a0-2026-10-12.tsv"), encoding="utf-8").read().splitlines())
-        self.assertEqual({i: h for i, h, *_ in rows if i in gold}, gold)  # A0 (TK-199): 487 прежних хешей не изменились
+        self.assertLessEqual(set(gold.values()), {h for _, h, *_ in rows})  # A0 (TK-199): 487 прежних хешей не изменились (id клеток = канон, TK-208)
         self.assertEqual(cr.check(rows), [])  # равный хеш => равные trades/sum_net по общим месяцам results
         h = {r[4]: r[1] for r in rows}
         self.assertNotEqual(h["p05-b/p05-f25-u25k"], h["p05-c/p05-f25-a120-u25k"])  # возраст p05-b 2700, не 7200
