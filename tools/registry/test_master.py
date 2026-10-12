@@ -43,6 +43,15 @@ class MasterTest(unittest.TestCase):
         self.assertIsNone(master.r2_exit("Г-141", {**av, "wall_buf_bps": "-3"}, mm, "S")[1])
         self.assertIsNone(master.r2_exit("Г-141", {**av, "wall_mode": "nope"}, mm, "S")[1])
 
+    def test_g104_gone_be_by_map(self):
+        """Г-104: pct из оси, да|нет выбирает запись каталога картой `~значение:шаблон`; значение вне карты — отказ."""
+        mm = {"exit_share": "Gone:pct", "be": "Gone:~да:gone{pct}be;нет:gone{pct}"}
+        av = {"exit_share": "50", "be": "да"}
+        self.assertEqual(master.r2_exit("Г-104", av, mm, "S"), (None, "gone50be", "S", None))
+        self.assertEqual(master.r2_exit("Г-104", {**av, "be": "нет"}, mm, "S")[1], "gone50")
+        self.assertIsNone(master.r2_exit("Г-104", {**av, "be": "maybe"}, mm, "S")[1])
+        self.assertIsNone(master.r2_exit("Г-104", {**av, "exit_share": "0"}, mm, "S")[1])
+
     def test_g13_sigma_stop_name(self):
         """В-227 М3: Г-13 -> стоп s<a> (StopForm::Sigma); вне домена — причина."""
         sv = {"entry_ttl_s": 1800}

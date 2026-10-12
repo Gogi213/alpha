@@ -65,8 +65,8 @@ hyp;stack;engine;param;role;old_points;f1_points;lo;hi;n_f1;grid;note;mechanic
 Г-10;B1;rust;btc_window_h;tit;1|2|3;1|2|3|4|6|8|12|24;1;24;8;win×thr;;
 Г-10;B1;rust;btc_thr_q;tit;-21.17|-30.56|-38.75;5|10|20|33|50|67|80|90|95;5;95;9;win×thr;"прежние точки — абсолютные bps; F1 — квантиль по самому месяцу; совпадение хеша проверяет Инженер";
 Г-110;B1;rust;early_exit_s;tit;1|2|3;0.5|1|2|3|5|8|13|20|30|60;1/2;60;10;;;
-Г-104;B1;rust;exit_share;tit;50|90;10|25|50|75|90;10;90;5;share×be;;
-Г-104;B1;rust;be;tit;да;да|нет;;;2;share×be;категориальная;
+Г-104;B1;rust;exit_share;tit;50|90;10|25|50|75|90;10;90;5;share×be;;Gone:pct
+Г-104;B1;rust;be;tit;да;да|нет;;;2;share×be;категориальная;"Gone:~да:gone{pct}be;нет:gone{pct}"
 Г-129;B1;rust;entry_ttl;tit;60|300;10|30|60|120|300|600|900|1200|1800;10;1800;9;;1800 = B1;
 Г-141;B1;rust;gone_w;tit;;10|25|50|75|90;10;90;5;W×B×mode;gone<W>: доля снятия, %;GoneWall:pct
 Г-141;B1;rust;wall_buf_bps;tit;;0|1|2|4|8|16;0;16;6;W×B×mode;буфер за стеной, bps;GoneWall:buffer_bps

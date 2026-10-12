@@ -221,6 +221,7 @@ MECH_RUN = {
     "NoStop": ("e106-pop", {}),
     "Converge": ("t-bid-btc4h-q1", {"a_bps": 20}),   # A = D20 прогона подходов
     "GoneWall": (None, {}),   # набор клетки — из стека
+    "Gone": (None, {}),
 }
 
 
@@ -229,6 +230,8 @@ def parse_mechanic(spec):
     каталога (имя шаблона содержит `<значение>{`), параметра нет."""
     mid, _, rest = spec.partition(":")
     par, _, mul = rest.partition("*")
+    if par.startswith("~"):   # `~` или `~значение:шаблон;значение:шаблон`
+        return (mid, "~", 1.0) if mid in MECH_RUN else sys.exit(f"hyp_axes.mechanic: «{spec}» — MechId ∈ {sorted(MECH_RUN)}")
     if mid not in MECH_RUN or not par:
         sys.exit(f"hyp_axes.mechanic: «{spec}» — ожидается <MechId>:<параметр>[*множитель], MechId ∈ {sorted(MECH_RUN)}")
     return mid, par, float(mul) if mul else 1.0
@@ -245,13 +248,19 @@ def r2_exit(hyp, av, mm=None, stack_set=None):
             sys.exit(f"hyp_axes.mechanic: у {hyp} разные механики {sorted({v[0] for v in specs.values()})}")
         mid = next(iter(specs.values()))[0]
         set_name, fixed = MECH_RUN[mid]
-        sel = [str(av[k]).strip() for k, (_, par, _) in specs.items() if par == "~"]
+        sel = [(str(av[k]).strip(), mp) for k, (_, par, _) in specs.items() if par == "~" for mp in [mm[k].partition("~")[2]]]
         tmpl = None
-        if sel:   # категориальная ось выбирает запись-вариант; значения вне каталога -> отказ клетки
-            hit = [r["name_template"] for r in mech.ROWS if r["id"] == mid and f"{sel[0]}{{" in r["name_template"]]
+        if sel:   # категориальная ось выбирает запись-вариант (подстрока `<значение>{` или явная карта `~значение:шаблон;…`); вне каталога -> отказ клетки
+            v, mp = sel[0]
+            if mp:
+                hit = [t for x, _, t in (e.partition(":") for e in mp.split(";")) if x == v]
+                hit = [t for t in hit if any(r["name_template"] == t for r in mech.ROWS)]
+            else:
+                hit = [r["name_template"] for r in mech.ROWS if r["id"] == mid and f"{v}{{" in r["name_template"]]
             if len(hit) != 1:
-                return None, None, set_name or stack_set, f"{mid}: значение «{sel[0]}» не выбирает одну запись каталога ({hit})"
+                return None, None, set_name or stack_set, f"{mid}: значение «{v}» не выбирает одну запись каталога ({hit})"
             tmpl = hit[0]
+            mid = next(r["id"] for r in mech.ROWS if r["name_template"] == tmpl)
         vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items() if par != "~"}}
         name, why = mech.build(mid, template=tmpl, **vals)
         return None, name, set_name or stack_set, None if name else f"{mid}: {why}"
@@ -300,13 +309,6 @@ def rust_axes(hyp, av, sv):
         x = x if x in EARLY_OK else None
         x = int(x) if x is not None and float(x).is_integer() else x
         return ttl, "", x, None if x is not None else f"early<x>: секунды ∈ {EARLY_OK}"
-    if n == "104":
-        w = _int_in(_frac(av["exit_share"]), (10, 25, 50, 75, 90))
-        be = str(av["be"]).strip().lower()
-        if be not in ("да", "нет"):
-            return ttl, None, None, f"be: «да»|«нет», получено {av['be']!r}"
-        name = mech.build("GoneBe", template="gone{pct}be", pct=w)[0] if w and be == "да" else mech.build("Gone", pct=w)[0] if w else None
-        return ttl, name, None, None if w else "gone<W>: W ∈ {10, 25, 50, 75, 90}"
     if n == "13":    # σ-стоп `s<a>` вместо pct (StopForm::Sigma, backtest/forms.rs): a ∈ SIGMA_STOP_OK; имя стопа даёт sigma_stop()
         return ttl, "", None, None if sigma_stop(av) else f"s<a>: a ∈ {SIGMA_STOP_OK} σ"
     if n == "147":   # --signal touch: вход на касании вместо подхода — шапка прогона (touches-from без approach), не --cells; хеш по варианту
