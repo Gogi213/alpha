@@ -29,7 +29,7 @@ class CanonIdsTest(unittest.TestCase):
         """render status: одна строка статуса на гипотезу, сумма = числу гипотез в БД (148)."""
         c = master.connect()
         n = c.execute("select count(*) from hypotheses").fetchone()[0]
-        st = master.hyp_status(c)
+        st = master.hyp_status(c, {})
         c.close()
         self.assertEqual((len(st), n), (148, 148))
 
