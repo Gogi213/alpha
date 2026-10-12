@@ -23,6 +23,7 @@ for X in A B; do
 done
 ok=""; for d in $days; do [ -e outA/$d/done ] && [ -e outB/$d/done ] && [ ! -s outA/$d/fail.txt ] && [ ! -s outB/$d/fail.txt ] && ok="$ok $d"; done
 echo "сутки в сверке: $(echo $ok | wc -w) из $(echo $days | wc -w)" > report.txt
+[ -e outR ] && mv outR outR.old.$(date +%s); [ -e replayB ] && mv replayB replayB.old.$(date +%s)
 rm -rf tree regime; mkdir -p tree/$MO regime treeB/$MO
 for d in $ok; do
   mkdir -p tree/$MO/$d/pool treeB/$MO/$d/$SET
