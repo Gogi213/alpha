@@ -116,14 +116,20 @@ pub(crate) enum CtxSrc {
     },
     /// Минутные свечи **монеты** (`--klines-from`, Г-57/Г-08): ось считает `KlineAxis`.
     Klines(KlineAxis),
+    /// Расстояние цены уровня до ближайшего круглого числа — кратного `ROUND_TICKS` тиков
+    /// (`round_zeros >= 2`, прецедент P-02 H4), тики: 0…`ROUND_TICKS`/2. Свечи не нужны.
+    RoundDist,
 }
+
+/// Круглое число — кратное 10² тиков цены (`lob::levels::round_zeros`, j = 2).
+const ROUND_TICKS: i64 = 100;
 
 /// Ось по свечам монеты. Окно — только закрытые минуты до минуты касания (без взгляда вперёд).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum KlineAxis {
     /// Диапазон часа (`max high − min low` по 60 минутам до касания) к закрытию последней, bps.
     Rng1h,
-    /// Расстояние от цены уровня до минимума суток (UTC) на момент касания, bps.
+    /// Расстояние от цены уровня до минимума суток (UTC) на момент касания, тики (В-131).
     DayLowDist,
 }
 
@@ -159,7 +165,7 @@ const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
 /// `TouchContext` и `RegimeDay`. Оси хода монеты — первые `COIN_AXES`, оси режима —
 /// следом; новая ось дописывается **в конец**: индексы прежних осей не сдвигаются.
 /// `btc2h`/`btc3h` (E26) и `btc6h`…`btc24h` (Г-10, TK-189) добавлены так же.
-pub(crate) const CTX_SPECS: [CtxAxisSpec; 15] = [
+pub(crate) const CTX_SPECS: [CtxAxisSpec; 16] = [
     coin("ret10m", 0),
     coin("ret1h", 1),
     coin("ret4h", 2),
@@ -175,13 +181,19 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 15] = [
     regime("btc24h", "btc_ret_24h_bps", RegimeGroup::Long),
     klines("rng1h", KlineAxis::Rng1h),
     klines("dlow", KlineAxis::DayLowDist),
+    CtxAxisSpec {
+        name: "drnd",
+        src: CtxSrc::RoundDist,
+    },
 ];
 
 /// Осей хода монеты (всегда в начале реестра), осей по свечам монеты (всегда в конце) и осей
 /// режима (между ними).
 pub(crate) const COIN_AXES: usize = 3;
 pub(crate) const KLINE_AXES: usize = 2;
-pub(crate) const REGIME_AXES: usize = CTX_SPECS.len() - COIN_AXES - KLINE_AXES;
+/// Осей по цене уровня (`RoundDist`) — последние в реестре, после осей по свечам.
+pub(crate) const LEVEL_AXES: usize = 1;
+pub(crate) const REGIME_AXES: usize = CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES;
 
 /// Имена осей в порядке реестра.
 pub const CTX_AXES: [&str; CTX_SPECS.len()] = {
@@ -248,7 +260,7 @@ pub(crate) fn read_regime_day(
     let mut cols = [None; REGIME_AXES];
     let regime_specs = CTX_SPECS.iter().filter_map(|a| match a.src {
         CtxSrc::Regime { col, group } => Some((col, group)),
-        CtxSrc::Coin(_) | CtxSrc::Klines(_) => None,
+        CtxSrc::Coin(_) | CtxSrc::Klines(_) | CtxSrc::RoundDist => None,
     });
     for (slot, (name, group)) in regime_specs.enumerate() {
         let need = match group {
@@ -288,6 +300,12 @@ pub(crate) fn read_regime_day(
         out.insert(minute, vals);
     }
     Ok(out)
+}
+
+/// Тики от цены уровня до ближайшего кратного `ROUND_TICKS`.
+pub(crate) fn round_dist(price_tick: i64) -> f64 {
+    let r = price_tick.rem_euclid(ROUND_TICKS);
+    r.min(ROUND_TICKS - r) as f64
 }
 
 /// Минутные свечи монеты (`ref-<СИМВОЛ>-1m.csv` по месяцам): `minute_ms → (high, low, close)`.
@@ -346,9 +364,16 @@ impl KlineSeries {
         Ok(())
     }
 
-    /// Значение оси на минуту касания `minute` (начало минуты, мс); `price` — цена уровня.
+    /// Значение оси на минуту касания `minute` (начало минуты, мс); `price_tick` — цена уровня
+    /// в тиках, `tick` — шаг цены монеты.
     /// Нет полного окна (60 минут) или минут суток до касания — `None`.
-    pub(crate) fn axis(&self, axis: KlineAxis, minute: i64, price: f64) -> Option<f64> {
+    pub(crate) fn axis(
+        &self,
+        axis: KlineAxis,
+        minute: i64,
+        price_tick: i64,
+        tick: f64,
+    ) -> Option<f64> {
         const MIN: i64 = 60_000;
         match axis {
             KlineAxis::Rng1h => {
@@ -368,7 +393,7 @@ impl KlineSeries {
                     .range(day_start..minute)
                     .map(|(_, &(_, l, _))| l)
                     .reduce(f64::min)?;
-                (price > 0.0).then(|| (price - low) / price * 1e4)
+                (tick > 0.0).then(|| price_tick as f64 - low / tick)
             }
         }
     }
@@ -398,8 +423,10 @@ pub(crate) fn touch_contexts(
                 *a = match spec.src {
                     CtxSrc::Coin(slot) => r[slot],
                     CtxSrc::Regime { .. } => None,
-                    CtxSrc::Klines(axis) => klines
-                        .and_then(|(k, tick)| k.axis(axis, minute, t.price_tick as f64 * tick)),
+                    CtxSrc::Klines(axis) => {
+                        klines.and_then(|(k, tick)| k.axis(axis, minute, t.price_tick, tick))
+                    }
+                    CtxSrc::RoundDist => Some(round_dist(t.price_tick)),
                 };
             }
             axes[COIN_AXES..COIN_AXES + REGIME_AXES].copy_from_slice(&m);

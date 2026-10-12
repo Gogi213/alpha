@@ -559,10 +559,10 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
 /// первые, имена уникальны, слот режима = индекс оси − `COIN_AXES`.
 #[test]
 fn ctx_registry_keeps_old_indices() {
-    use super::super::sets::{CtxSrc, COIN_AXES, CTX_SPECS, KLINE_AXES, REGIME_AXES};
+    use super::super::sets::{CtxSrc, COIN_AXES, CTX_SPECS, KLINE_AXES, LEVEL_AXES, REGIME_AXES};
     let old = [
         "ret10m", "ret1h", "ret4h", "pool1h", "pool4h", "btc1h", "btc4h", "btc2h", "btc3h",
-        "btc6h", "btc8h", "btc12h", "btc24h", "rng1h", "dlow",
+        "btc6h", "btc8h", "btc12h", "btc24h", "rng1h", "dlow", "drnd",
     ];
     assert_eq!(&CTX_AXES[..old.len()], &old);
     for (i, a) in CTX_SPECS.iter().enumerate() {
@@ -577,10 +577,17 @@ fn ctx_registry_keeps_old_indices() {
         }
         assert_eq!(CTX_AXES.iter().filter(|n| **n == a.name).count(), 1);
     }
-    assert_eq!(REGIME_AXES, CTX_SPECS.len() - COIN_AXES - KLINE_AXES);
-    assert!(CTX_SPECS[CTX_SPECS.len() - KLINE_AXES..]
+    assert_eq!(
+        REGIME_AXES,
+        CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES
+    );
+    let tail = CTX_SPECS.len() - LEVEL_AXES;
+    assert!(CTX_SPECS[tail - KLINE_AXES..tail]
         .iter()
         .all(|a| matches!(a.src, CtxSrc::Klines(_))));
+    assert!(CTX_SPECS[tail..]
+        .iter()
+        .all(|a| matches!(a.src, CtxSrc::RoundDist)));
 }
 
 /// Оси по свечам монеты (Г-57/Г-08): окно — только минуты до касания; неполный час и пустые
@@ -601,13 +608,37 @@ fn kline_axes_use_only_past_minutes() {
     k.ensure_day(&dir, "XUSDT", "2026-01-01").unwrap();
     let t = day0 + 90 * 60_000;
     // минуты 30..90: high до 109, low до 93 → (109 − 93) / 100 · 1e4
-    let rng = k.axis(KlineAxis::Rng1h, t, 100.0).unwrap();
+    let rng = k.axis(KlineAxis::Rng1h, t, 10_000, 0.01).unwrap();
     assert!((rng - 1600.0).abs() < 1e-9, "{rng}");
-    assert_eq!(k.axis(KlineAxis::Rng1h, day0 + 30 * 60_000, 100.0), None);
+    assert_eq!(
+        k.axis(KlineAxis::Rng1h, day0 + 30 * 60_000, 10_000, 0.01),
+        None
+    );
     // минимум суток до t — 93 (минута 6 по циклу low = 99 − 6)
-    let d = k.axis(KlineAxis::DayLowDist, t, 100.0).unwrap();
-    assert!((d - 700.0).abs() < 1e-9, "{d}");
-    assert_eq!(k.axis(KlineAxis::DayLowDist, day0, 100.0), None);
+    let d = k.axis(KlineAxis::DayLowDist, t, 10_000, 0.01).unwrap();
+    assert!((d - 700.0).abs() < 1e-6, "{d}"); // (100 − 93) / 0.01 тиков
+    assert_eq!(k.axis(KlineAxis::DayLowDist, day0, 10_000, 0.01), None);
     assert!(k.ensure_day(&dir, "NOPEUSDT", "2026-01-01").is_err());
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `drnd`: расстояние цены уровня до ближайшего кратного 100 тиков, тики.
+#[test]
+fn round_dist_axis_is_ticks_to_nearest_hundred() {
+    use super::super::sets::{round_dist, CtxSrc, CTX_SPECS};
+    let i = CTX_SPECS
+        .iter()
+        .position(|a| matches!(a.src, CtxSrc::RoundDist))
+        .unwrap();
+    assert_eq!(CTX_AXES[i], "drnd");
+    for (p, want) in [
+        (0, 0.0),
+        (7, 7.0),
+        (93, 7.0),
+        (150, 50.0),
+        (10_200, 0.0),
+        (-3, 3.0),
+    ] {
+        assert_eq!(round_dist(p), want, "{p}");
+    }
 }
