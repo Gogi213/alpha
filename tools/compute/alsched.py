@@ -174,8 +174,6 @@ class Core:
         if self.frozen:
             be.thaw_all()
             self.frozen = False
-            for j in self.running("prod"):
-                be.extend(j, j["max_runtime"] - j.get("active_s", 0))
 
     def _pack(self, now):
         be = self.be
@@ -327,7 +325,6 @@ class Core:
                 v.pop("frozen_for")
                 v.pop("frozen_t", None)
                 self.be.thaw_unit(self.be.unit(v))
-                self.be.extend(v, v["max_runtime"] - v.get("active_s", 0))
 
     def own_need(self, j, now):
         """Занятые ядра самого задания до заморозки (TK-223 п.1): выборки ЦП, иначе накопительный ЦП юнита / возраст; от 1 до заявки."""
@@ -357,7 +354,6 @@ class Core:
                 if j.get("frozen_for") == "cap":
                     j.pop("frozen_for")
                     be.thaw_unit(be.unit(j))
-                    be.extend(j, j["max_runtime"] - j.get("active_s", 0))
             return
         live = sorted((j for j in self.running("prod") if not j.get("frozen_for")), key=lambda j: j["t_start"])
         tot = sum(len(j["cpus"]) for j in live)
@@ -424,7 +420,6 @@ class Core:
                     j = self.jobs[ident]
                     j.pop("frozen_for", None)
                     self.be.thaw_unit(self.be.unit(j))
-                    self.be.extend(j, j["max_runtime"] - j.get("active_s", 0))
                 else:
                     self.be.thaw_unit(ident)
             del self.preempt[hid]
