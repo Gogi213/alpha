@@ -8,6 +8,7 @@ use super::forms::{grid_forms_with_axes, grid_forms_with_early, grid_forms_with_
 use super::outputs::{forms_row, sum_net_bps, FORMS_HEADER, FORMS_HEADER_CARRY_LEN};
 use super::sets::{Range, CTX_AXES};
 use super::*;
+use crate::book::Side;
 use crate::commands::lob::backtest::{EntryForm, EntryTtl, PoolLot, StopForm, TakeForm};
 use crate::commands::lob::bounce_verdict::{parse_form, DEADLINE_SECS};
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};

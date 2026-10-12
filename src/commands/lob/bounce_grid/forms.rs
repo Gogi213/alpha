@@ -551,6 +551,7 @@ pub struct GridForm {
 
 /// Г-114: имя формы `halfstop` / `halfstop` + `f1`|`f3` (доля 1/4 или 3/4; половина — без суффикса).
 /// Часть имени `tape`/`cxl` после `q`: `p` — порог «мера > 0» (наименьшее положительное), иначе число как есть.
+#[allow(clippy::float_cmp)] // сентинел f64::MIN_POSITIVE копируется, не вычисляется
 fn pos_q_label(q: f64) -> String {
     if q == f64::MIN_POSITIVE {
         "p".to_string()

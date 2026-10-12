@@ -52,8 +52,8 @@ hyp;stack;engine;param;role;old_points;f1_points;lo;hi;n_f1;grid;note;mechanic
 Г-93;B1;rust;u;tit;1/3|2/3|1;1/6|1/4|1/3|1/2|2/3|5/6|1;1/6;1;7;u×K;;PyrNewWall:u12*12
 Г-93;B1;rust;K;tit;1|2|3;1|2|3|4|5|6|8;1;8;7;u×K;;PyrNewWall:k
 Г-106;B1;rust;x;tit;0.5|1|2;1/8|1/4|1/2|1|2|4|8;1/8;8;7;;;NoStop:x8*8
-Г-117;B1;rust;gamma;tit;0.5|1|2;1/8|1/4|1/2|1|2|4|8;1/8;8;7;gamma×T;;
-Г-117;B1;rust;T;tit;1/4|1/2|1;1/16|1/8|1/4|3/8|1/2|5/8|3/4|1;1/16;1;8;gamma×T;верх — ttl/дедлайн (проверяет Инженер);
+Г-117;B1;rust;gamma;tit;0.5|1|2;1/8|1/4|1/2|1|2|4|8;1/8;8;7;gamma×T;;TakeSchedX:g8*8
+Г-117;B1;rust;T;tit;1/4|1/2|1;1/16|1/8|1/4|3/8|1/2|5/8|3/4|1;1/16;1;8;gamma×T;верх — ttl/дедлайн (проверяет Инженер);TakeSchedX:t16*16
 Г-119;B1;rust;tol_ticks;tit;0|1|2;0|1|2|3|4|6|8|12|16;0;16;9;;;Converge:tol
 Г-114;B1;rust;trigger;tit;halfstop|halflevel;halfstop|halflevel;;;2;trigger×f;"категориальная; плато только вдоль f внутри категории";"Half:~trigger,f>halfstop,1/8:halfstopg1;halfstop,1/4:halfstopf1;halfstop,3/8:halfstopg3;halfstop,1/2:halfstop;halfstop,5/8:halfstopg5;halfstop,3/4:halfstopf3;halfstop,7/8:halfstopg7;halflevel,1/8:halflevelg1;halflevel,1/4:halflevelf1;halflevel,3/8:halflevelg3;halflevel,1/2:halflevel;halflevel,5/8:halflevelg5;halflevel,3/4:halflevelf3;halflevel,7/8:halflevelg7"
 Г-114;B1;rust;f;tit;1/4|1/2|3/4;1/8|1/4|3/8|1/2|5/8|3/4|7/8;1/8;7/8;7;trigger×f;;Half:-
@@ -64,15 +64,15 @@ hyp;stack;engine;param;role;old_points;f1_points;lo;hi;n_f1;grid;note;mechanic
 Г-85;B1;rust;entry_form;pending;+2|+3|single@fr+1;;;;;;"все формы входа реестра (до 9); список назначает Инженер до F1; прежние 3 внутри";
 Г-10;B1;rust;btc_window_h;tit;1|2|3;1|2|3|4|6|8|12|24;1;24;8;win×thr;;
 Г-10;B1;rust;btc_thr_q;tit;-21.17|-30.56|-38.75;5|10|20|33|50|67|80|90|95;5;95;9;win×thr;"прежние точки — абсолютные bps; F1 — квантиль по самому месяцу; совпадение хеша проверяет Инженер";
-Г-110;B1;rust;early_exit_s;tit;1|2|3;0.5|1|2|3|5|8|13|20|30|60;1/2;60;10;;;
+Г-110;B1;rust;early_exit_s;tit;1|2|3;0.5|1|2|3|5|8|13|20|30|60;1/2;60;10;;;EarlyExit:x
 Г-104;B1;rust;exit_share;tit;50|90;10|25|50|75|90;10;90;5;share×be;;Gone:pct
 Г-104;B1;rust;be;tit;да;да|нет;;;2;share×be;категориальная;"Gone:~да:gone{pct}be;нет:gone{pct}"
-Г-129;B1;rust;entry_ttl;tit;60|300;10|30|60|120|300|600|900|1200|1800;10;1800;9;;1800 = B1;
+Г-129;B1;rust;entry_ttl;tit;60|300;10|30|60|120|300|600|900|1200|1800;10;1800;9;;1800 = B1;EntryTtl:secs
 Г-141;B1;rust;gone_w;tit;;10|25|50|75|90;10;90;5;W×B×mode;gone<W>: доля снятия, %;GoneWall:pct
 Г-141;B1;rust;wall_buf_bps;tit;;0|1|2|4|8|16;0;16;6;W×B×mode;буфер за стеной, bps;GoneWall:buffer_bps
 Г-141;B1;rust;wall_mode;tit;;wall|wallx|wallk;;;3;W×B×mode;категориальная: wall — перенос стопа, wallx — выход сразу, wallk — стоп плана до конца;GoneWall:~
 Г-13;B1;rust;sigma_stop;tit;;1/2|3/4|1|3/2|2|3|4|6|8;1/2;8;9;;стоп s<a> вместо pct2, a в σ;StopSigma:a
-Г-147;B1;rust;signal;tit;approach;touch;;;1;;"вход на касании вместо подхода; шапка прогона";
+Г-147;B1;rust;signal;tit;approach;touch;;;1;;"вход на касании вместо подхода; шапка прогона";SignalTouch:signal
 Г-09;B1;bind:Г-10;btc_window_h;fixed;4;;;;;;"М4: ядро B1 (BTC 4 ч) = ось Г-10; отдельной нет";
 Г-132;B1;bind:Г-93;K;fixed;;;;;;;"М8: ось K×u пирамидинга = F1 Г-93 (K ∈ {1…8}); отдельной клетки нет (r2-spec)";
 Г-62;B1;python;terc_q;tit;33|67;5|10|20|33|50|67|80|90|95;5;95;9;;признак: ER 60м;

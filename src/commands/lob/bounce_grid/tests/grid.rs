@@ -254,9 +254,16 @@ fn verdict_csv_gates_days_instead_of_marker() {
 /// та же сетка во второй части — не отказ.
 #[test]
 fn mixed_grid_parts_are_refused() {
+    const DAY_NS: i64 = 86_400_000_000_000;
     let dir = tempfile::tempdir().unwrap();
     fixture_root(dir.path(), true);
-    write_day(dir.path(), "SOLUSDT", "2026-09-09", &touch_frames());
+    // Метки вторых суток — после первых (реплей отдаёт среднюю цену по времени; `from_mids` в debug это проверяет).
+    let mut next_day = touch_frames();
+    for r in next_day.iter_mut().flatten() {
+        r.exch_ts_ns += DAY_NS;
+        r.local_ts_ns += DAY_NS;
+    }
+    write_day(dir.path(), "SOLUSDT", "2026-09-09", &next_day);
     run_bounce_grid(&args(dir.path(), false)).expect("одна сетка — счёт идёт");
 
     let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-09", 1);
@@ -267,7 +274,7 @@ fn mixed_grid_parts_are_refused() {
         max_records_per_frame: 4096,
     };
     let mut w = crate::binlog::Writer::create(Vec::new(), header, 1).unwrap();
-    for f in &touch_frames() {
+    for f in &next_day {
         w.write_frame(f).unwrap();
     }
     w.flush().unwrap();

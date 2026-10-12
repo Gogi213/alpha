@@ -42,10 +42,18 @@ def _with_derived(vals):
     return out
 
 
+# тонкая запись → прежняя грубая, когда значения лежат на её сетке: те же клетки, старые имена (tslx<g8>t<t16> ≡ tsl<g10>t<t4> при
+# g8 ∈ {4,8,16}, t16 ∈ {4,8,16}: g10 = g8·10/8, t4 = t16/4)
+REUSE = {"TakeSchedX": {"to": "TakeSched", "when": {"g8": (4, 8, 16), "t16": (4, 8, 16)}, "map": {"g10": ("g8", 10, 8), "t4": ("t16", 1, 4)}}}
+
+
 def build(mech_id, template=None, **vals):
     """Каноническое имя формы `mech_id` по значениям параметров -> (имя | None, причина).
     Берётся запись каталога, чьи параметры все заданы в vals и лежат в домене; несколько подходящих — ошибка каталога.
     template — точный шаблон имени, когда у механики несколько записей-вариантов (gone{pct}wall… / …wallx… / …wallk…)."""
+    ru = REUSE.get(mech_id)
+    if ru and template is None and all(vals.get(k) in ok for k, ok in ru["when"].items()):
+        return build(ru["to"], **{t: vals[src] * mul // div for t, (src, mul, div) in ru["map"].items()})
     rows = [r for r in ROWS if r["id"] == mech_id and template in (None, r["name_template"])]
     if not rows:
         raise KeyError(f"нет механики {mech_id!r} в каталоге")

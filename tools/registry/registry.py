@@ -117,7 +117,7 @@ def _parser():
     sv.add_argument("--protocol", required=True); sv.add_argument("--fraction", type=int, required=True)
     sv.add_argument("--stats", required=True, help="csv ';': cell_hash;side;p;trades;days")
     rd = sp.add_parser("render", help="витрина из БД: matrix | coverage -> docs/findings/hyp-<вид>-<дата>.{md,csv}")
-    rd.add_argument("kind", choices=("matrix", "coverage")); rd.add_argument("--date")
+    rd.add_argument("kind", choices=("matrix", "coverage", "status")); rd.add_argument("--date")
     return ap
 
 
