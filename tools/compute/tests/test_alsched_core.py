@@ -214,3 +214,78 @@ class StateFailures(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Tk223(unittest.TestCase):
+    """TK-223: оттайка по замеру задания, потолок и сигнал заморозки, rc отмены, предупреждение о kind."""
+    def frozen_case(self, **kw):
+        be = SS.SimBE(); be.psi = 2.0
+        core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+        j = SS.job("g", "tk216-gate2", "prod", 8, 2, "none", 7200, 0)
+        j.update(state="running", t_start=0.0, cpus=list(range(8)), frozen_for="hot", **kw)
+        core.add(j); be.jobs["g"] = dict(left=7200); be.fz.add("g")
+        return be, core, j
+
+    def test_thaw_by_own_measure_not_claim(self):
+        be, core, j = self.frozen_case(frozen_need=1, frozen_t=0.0)
+        core.guard_load(100.0, 0.8, True)          # 0,8·16 + 1 ≤ 0,9·16, а по заявке (8) не влезло бы
+        self.assertNotIn("frozen_for", j)
+        self.assertNotIn("g", be.fz)
+
+    def test_claim_need_stays_frozen(self):
+        be, core, j = self.frozen_case(frozen_t=0.0)
+        core.guard_load(100.0, 0.8, True)
+        self.assertEqual(j["frozen_for"], "hot")
+
+    def test_freeze_ceiling_thaws_anyway(self):
+        be, core, j = self.frozen_case(frozen_t=0.0)
+        core.guard_load(S.FREEZE_CEIL_S + 1, 0.8, True)
+        self.assertNotIn("frozen_for", j)
+
+    def test_freeze_records_own_need(self):
+        be = SS.SimBE(); be.psi = 60.0
+        core = S.Core(be, ncpu=SS.NCPU, mem=62, pack="fact"); be.mem_av = 60.0
+        for i in range(14):
+            j = SS.job("p%02d" % i, "p%d" % i, "prod", 4, 2, "none", 7200, 0)
+            core.add(j); be.cpu_rate[j["id"]] = 1.5
+        for k in range(130):
+            if k == 100:
+                for i in be.cpu_rate:
+                    be.cpu_rate[i] = 4
+            core.tick(); be.advance(core, S.TICK)
+        fz = [j for j in core.jobs.values() if j.get("frozen_for") == "hot"]
+        self.assertTrue(fz and all(1 <= j["frozen_need"] <= j["cores"] and "frozen_t" in j for j in fz))
+
+    def test_frozen_over_15_min_alerts_once(self):
+        be, core, j = self.frozen_case(frozen_t=0.0)
+        core.alert_frozen(S.FREEZE_ALERT_S + 1); core.alert_frozen(S.FREEZE_ALERT_S + 60)
+        self.assertEqual(len([a for a in be.alerts if "ЗАМОРОЖЕНО" in a and "g" in a and "TK-216" in a]), 1)
+
+    def test_queued_cancel_writes_rc(self):
+        class Be(SS.SimBE):
+            rcs = []
+            def cancelled(self, j): return True
+            def write_rc(self, j, rc): self.rcs.append((j["id"], rc))
+        be = Be(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        core.add(SS.job("q", "tk065-wa", "prod", 2, 2, "none", 100, 0))
+        core.tick()
+        self.assertEqual(Be.rcs, [("q", -15)])
+
+    def test_systemd_write_rc(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = S.DIR; S.DIR = d
+            try:
+                S.SystemdBackend.write_rc(None, {"id": "x"}, -15)
+                self.assertEqual(open(d + "/rc/x").read(), "-15\n")
+            finally:
+                S.DIR = old
+
+    def test_gate_named_work_warns(self):
+        S.RESERVE_CORES = 3
+        try:
+            for n in ("tk216-gate2", "tk204-gate3", "rpv-fastcheck", "tk1-build"):
+                self.assertTrue(S.kind_warn(n, "work"), n)
+            self.assertIsNone(S.kind_warn("tk216-gate2", "gate"))
+            self.assertIsNone(S.kind_warn("tk212-f1b", "work"))
+        finally:
+            S.RESERVE_CORES = 0
