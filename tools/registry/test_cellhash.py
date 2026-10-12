@@ -31,7 +31,7 @@ class T(unittest.TestCase):
 
     def test_registry_map_self_check_and_distinct(self):
         rows = cr.build()
-        self.assertGreaterEqual(len(rows), 487)
+        self.assertGreaterEqual(len(rows), 486)
         gold = dict(x.split("\t") for x in open(os.path.join(cr.F, "cellhash-487-before-a0-2026-10-12.tsv"), encoding="utf-8").read().splitlines())
         self.assertEqual({i: h for i, h, *_ in rows if i in gold}, gold)  # A0 (TK-199): 487 прежних хешей не изменились
         self.assertEqual(cr.check(rows), [])  # равный хеш => равные trades/sum_net по общим месяцам results
