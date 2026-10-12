@@ -168,7 +168,8 @@ def keep_data(ctx):
         if s["form"] != B1_FORM:
             continue
         k = (s["symbol"], s["day_utc"], s["form"], s["signal_index"])
-        data.append({**s, "net_bps": out[k]["net_bps"] if k in out else "", "reason": out[k]["reason"] if k in out else ""})
+        data.append({**s, "net_bps": out[k]["net_bps"] if k in out else "", "reason": out[k]["reason"] if k in out else "",
+                     "round_exit_ns": out[k].get("exit_ns", "") if k in out else ""})
     return data
 
 
