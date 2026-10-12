@@ -396,21 +396,22 @@ def p14_cfg(hyp, sv, av, fixed=()):
                     MSETS[name] = f"age=2700,side=bid,btc{n_h}h_max={t}"
                     mm[m] = f"{form} {name}"
             MONTHLY[h] = mm
-    elif av and "usd_min_q" in av and "keep_q" not in av:   # В-227 М3 (Г-89/107/27, Г-32): usd_min=T_m(q) по месяцам; Г-32 — ещё страта btc4h внутри базы B1 (Судья 12.10 04:14)
-        q = _int_in(_frac(av["usd_min_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+    elif av and ("usd_min_q" in av or "behind_min_q" in av) and "keep_q" not in av:   # В-227 М3 (Г-89/107/27, Г-32): usd_min=T_m(q) по месяцам; Г-07 — behind_min=T_m(q), % (D20); Г-32 — ещё страта btc4h внутри базы B1 (Судья 12.10 04:14)
+        ax, pre, key = ("behind_min_q", "b", "behind") if "behind_min_q" in av else ("usd_min_q", "u", "usd")   # ось, префикс набора, раздел порогов
+        q = _int_in(_frac(av[ax]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
         k = int(str(av["ctx_q"])[1:]) if "ctx_q" in av and re.fullmatch(r"q[1-5]", str(av["ctx_q"])) else None
-        axes = {"usd_min_q": q} if k is None else {"usd_min_q": q, "ctx": f"btc4h-q{k}"}
-        cfg["variant"] = {"family": "g32" if "ctx_q" in av else "usd_min", "axes": axes}   # Г-89/107/27 — одна ось, один хеш
+        axes = {ax: q} if k is None else {ax: q, "ctx": f"btc4h-q{k}"}
+        cfg["variant"] = {"family": "g32" if "ctx_q" in av else ("behind_min" if key == "behind" else "usd_min"), "axes": axes}   # Г-89/107/27 — одна ось, один хеш
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TK202_THR, encoding="utf-8")) if os.path.exists(_TK202_THR) else {}
         if not q or ("ctx_q" in av and k is None):
-            LINES[h] = (None, "usd_min_q ∈ {5,10,20,33,50,67,80,90,95}, ctx_q ∈ q1…q5")
+            LINES[h] = (None, f"{ax} ∈ {{5,10,20,33,50,67,80,90,95}}, ctx_q ∈ q1…q5")
         elif not thr:
             LINES[h] = (None, f"нет {os.path.basename(_TK202_THR)} — tools/analyze/tk202-thresholds.py")
         else:
-            LINES[h] = (None, "месячный набор u<q>[c<k>]-<ГГГГ-ММ> (usd_min=T_m): файлы <имя>-<ГГГГ-ММ>.cells")
+            LINES[h] = (None, f"месячный набор {pre}<q>[c<k>]-<ГГГГ-ММ> ({key}_min=T_m): файлы <имя>-<ГГГГ-ММ>.cells")
             mm = {}
-            for m, per in thr["usd"].items():
+            for m, per in thr.get(key, {}).items():
                 cx = ""
                 if k is not None:
                     c = thr["ctx"]["btc4h"].get(m)
@@ -418,8 +419,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
                         continue
                     lo, hi = {1: (None, c["q20"]), 2: (c["q20"], c["q40"]), 3: (c["q40"], c["q60"]), 4: (c["q60"], c["q80"]), 5: (c["q80"], None)}[k]
                     cx = (f",btc4h_min={lo}" if lo is not None else "") + (f",btc4h_max={hi}" if hi is not None else ",btc4h_max=-44.55")
-                name = f"u{q}{'c' + str(k) if k else ''}-{m}"
-                MSETS[name] = f"age=2700,side=bid,usd_min={per[str(q)]}" + (cx if cx else ",btc4h_max=-44.55")
+                name = f"{pre}{q}{'c' + str(k) if k else ''}-{m}"
+                MSETS[name] = f"age=2700,side=bid,{key}_min={per[str(q)]}" + (cx if cx else ",btc4h_max=-44.55")
                 mm[m] = f"{form} {name}"
             MONTHLY[h] = mm
     elif av:
