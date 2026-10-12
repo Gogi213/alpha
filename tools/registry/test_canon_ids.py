@@ -25,6 +25,14 @@ class CanonIdsTest(unittest.TestCase):
         have = set(master.have_hashes())
         self.assertEqual(len(plan & res), len(plan & have))
 
+    def test_status_sums_to_all_hypotheses(self):
+        """render status: одна строка статуса на гипотезу, сумма = числу гипотез в БД (148)."""
+        c = master.connect()
+        n = c.execute("select count(*) from hypotheses").fetchone()[0]
+        st = master.hyp_status(c)
+        c.close()
+        self.assertEqual((len(st), n), (148, 148))
+
 
 if __name__ == "__main__":
     unittest.main()

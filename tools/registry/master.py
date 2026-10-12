@@ -747,6 +747,33 @@ def _table(header, rows):
     return "\n".join(["| " + " | ".join(header) + " |", "|" + "---|" * len(header)] + ["| " + " | ".join(esc(x) for x in r) + " |" for r in rows])
 
 
+def hyp_status(c):
+    """{гипотеза: (статус, причина)} по ВСЕМ гипотезам БД (TK-208): ровно одна строка на гипотезу, сумма = числу гипотез."""
+    plan = {r[0] for r in c.execute("select distinct hyp from plan_cells")}
+    eng = {}
+    for h, e, role in c.execute("select hyp, engine, role from hyp_axes order by rowid"):
+        eng.setdefault(h, (e or "", role or ""))
+    out = {}
+    for h, ext in c.execute("select id, ext from hypotheses order by id"):
+        st = str((json.loads(ext or "{}")).get("status_pool_0925", ""))
+        e, role = eng.get(h, (None, ""))
+        if h in plan:
+            out[h] = ("1 в плане F1 (Rust, хеши)", "plan_cells")
+        elif e == "python":
+            out[h] = ("2 Python-раннер (без хешей)", "hyp_axes.engine=python")
+        elif e and e.startswith("bind:"):
+            out[h] = ("3 привязка к другой гипотезе (своих клеток нет)", e)
+        elif e is not None:
+            out[h] = ("4 ось есть, в плане F1 нет", f"hyp_axes: role={role or '-'}; закрыта/нет кодировки — см. выписку plan")
+        elif "опровергн" in st:
+            out[h] = ("5 нет в hyp_axes: опровергнута в пуле 09.2026", st[:80])
+        elif "не проверял" in st:
+            out[h] = ("6 нет в hyp_axes: не проверялась (ждёт кода пакетов C–F / постановки осей)", "status_pool_0925")
+        else:
+            out[h] = ("7 нет в hyp_axes: описание/«не ясно»/поиск — нужна формализация или решение владельца", st[:80] or "статуса нет")
+    return out
+
+
 def render(kind, date=None, outdir=FIND):
     date = date or datetime.date.today().isoformat()
     c = connect()
@@ -774,8 +801,15 @@ def render(kind, date=None, outdir=FIND):
                 done = [h for _, h in hs if h in have]
                 rows.append([prot, f"F{k}", len({y for y, _ in hs}), len(hs), len(done), len(hs) - len(done), sum(len(have[h]) for h in done), (len(hs) - len(done)) * months])
         title, name = "Покрытие плана (В-224): хеши клеток × месяц", "hyp-coverage"
+    elif kind == "status":
+        st = hyp_status(c)
+        cnt = collections.Counter(v[0] for v in st.values())
+        hdr = ["статус", "гипотез", "какие"]
+        rows = [[k, n, ", ".join(h for h, v in st.items() if v[0] == k)] for k, n in sorted(cnt.items())]
+        rows.append(["ИТОГО", sum(cnt.values()), ""])
+        title, name = f"Все гипотезы Летописи по статусу ({sum(cnt.values())}), из БД", "hyp-status"
     else:
-        sys.exit("render: matrix | coverage")
+        sys.exit("render: matrix | coverage | status")
     os.makedirs(outdir, exist_ok=True)
     base = os.path.join(outdir, f"{name}-{date}")
     with open(base + ".csv", "w", encoding="utf-8", newline="") as f:
