@@ -11,10 +11,11 @@ import argparse, csv, glob, importlib, itertools, json, os, subprocess, sys
 
 
 KINDS = ("closes", "keep", "rounds", "report")
-SOURCES = ("signals", "rounds", "sigma", "klines", "regime", "approaches")
+SOURCES = ("signals", "rounds", "sigma", "klines", "regime", "approaches", "btc")
 S_V = "/data/p12r2/s-v"                     # off-дерево B1: <мес>/<сутки>/t-bid-btc4h-q1/{signals,rounds}.csv
 ABBR = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")   # каталоги /data/tk046/<abbr>
 STUDY = "/data/tk046/{abbr}/study"                                   # klines/ref-<SYM>-1m.csv, approaches/D20/<сутки>/approaches-<SYM>.csv
+BTC_1M = "/data/tk200/btc-1m.csv"                                    # публичные 1м свечи Bybit BTCUSDT янв-сен (dl_klines_1m.py; в пуле BTC свечей нет)
 EPOCH_STUDY = "/data/tk046/{abbr}/home/alpha/epochs/e-{abbr}/study"  # sigma240/sigma-<SYM>.csv, regime/<сутки>.csv (путь sigma_from из шапки rounds)
 
 
@@ -71,6 +72,12 @@ class Ctx:
             return []                       # свечей монеты нет (в пуле свечей ~70 монет) - плагин такие круги не трогает
         with open(path, encoding="utf-8") as f:
             return [(int(r["minute_ms"]), float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])) for r in csv.DictReader(f)]
+
+    def btc(self):
+        """BTCUSDT 1м (minute_ms, close) за весь файл BTC_1M (бета берётся по прошлым суткам, в том числе прошлого месяца)."""
+        self._need("btc")
+        with open(BTC_1M, encoding="utf-8") as f:
+            return [(int(r["minute_ms"]), float(r["close"])) for r in csv.DictReader(f)]
 
     def approaches(self, sym, day):
         """Подходы D20 монеты за сутки: {(arm_ms, price_tick): строка} только side=bid (связь с сигналом B1 — p07-h9r-h14.py)."""

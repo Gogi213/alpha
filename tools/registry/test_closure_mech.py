@@ -156,6 +156,23 @@ class T(unittest.TestCase):
         self.assertEqual(g.run([{**rd, "reason": "deadline"}], c1, d=3, j=2), {})            # не стоп - не трогаем
         self.assertEqual(g.snap_tick(1.0006e-4), 1e-4); self.assertEqual(g.snap_tick(0.0051), 0.005)
 
+    def test_g144_beta_hedge_report(self):
+        from closures import g144_beta_hedge as g
+        m = 60_000
+        import math
+        btc = [(i * m, 100.0 * math.exp(0.001 * math.sin(i / 7.0) * (i % 5))) for i in range(3000)]
+        coin = [(i * m, 0, 0, 0, 50.0 * btc[i][1] / 100.0) for i in range(3000)]          # бета = 1 к BTC
+
+        class C:
+            def klines(s, sym): return coin if sym == "X" else []
+            def btc(s): return btc
+        rd = lambda sym: {"symbol": sym, "t0_ns": str(2000 * m * 1_000_000), "exit_ns": str(2100 * m * 1_000_000), "dir": "1", "net_bps": "10.0"}
+        c = C()
+        out = g.run([rd("X"), rd("Y")], c, bd=1)[0]
+        self.assertEqual((out["n"], out["no_coin_klines"]), (1, 1)); self.assertAlmostEqual(out["beta_mean"], 1.0, places=2)
+        rb = (btc[2100][1] / btc[2000][1] - 1) * 1e4
+        self.assertAlmostEqual(out["mean_bps_after"], 10.0 - rb - 2 * g.TAKER_BPS * out["beta_mean"], places=1)
+
     def test_g111_target_from_prior_impulse(self):
         from closures import g111_impulse_target as g
         m = 60_000
