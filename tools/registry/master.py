@@ -222,6 +222,7 @@ MECH_RUN = {
     "Converge": ("t-bid-btc4h-q1", {"a_bps": 20}),   # A = D20 прогона подходов
     "GoneWall": (None, {}),   # набор клетки — из стека
     "Gone": (None, {}),
+    "Wall2": ("t-bid-btc4h-q1", {}),
 }
 
 
@@ -252,15 +253,18 @@ def r2_exit(hyp, av, mm=None, stack_set=None):
         tmpl = None
         if sel:   # категориальная ось выбирает запись-вариант (подстрока `<значение>{` или явная карта `~значение:шаблон;…`); вне каталога -> отказ клетки
             v, mp = sel[0]
-            if mp:
+            if mp:   # правая часть карты — шаблон или готовое имя записи каталога
                 hit = [t for x, _, t in (e.partition(":") for e in mp.split(";")) if x == v]
-                hit = [t for t in hit if any(r["name_template"] == t for r in mech.ROWS)]
+                hit = [t for t in hit if mech.match(t)]
             else:
                 hit = [r["name_template"] for r in mech.ROWS if r["id"] == mid and f"{v}{{" in r["name_template"]]
             if len(hit) != 1:
                 return None, None, set_name or stack_set, f"{mid}: значение «{v}» не выбирает одну запись каталога ({hit})"
             tmpl = hit[0]
-            mid = next(r["id"] for r in mech.ROWS if r["name_template"] == tmpl)
+            row = mech.match(tmpl)
+            mid = row["id"]
+            if tmpl != row["name_template"] or not row["params"]:   # готовое имя, не шаблон
+                return None, tmpl, set_name or stack_set, None
         vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items() if par != "~"}}
         name, why = mech.build(mid, template=tmpl, **vals)
         return None, name, set_name or stack_set, None if name else f"{mid}: {why}"
@@ -270,10 +274,6 @@ def r2_exit(hyp, av, mm=None, stack_set=None):
         mid = {"halfstop": "HalfStop", "halflevel": "HalfLevel"}[base]
         name = None if not q8 else mech.fixed(mid, base + {4: "", 2: "f1", 6: "f3"}[q8]) if q8 in (2, 4, 6) else mech.build(mid, q8=q8)[0]
         return None, name, "t-bid-btc4h-q1", None if q8 else "half…: f = q8/8, q8 ∈ [1, 7]"
-    if n == "65":   # цель = 2-я стена + k тиков, k ∈ −3..3 (Судья 11.10): wall2 ≡ −1, wall2x ≡ +1, wall20, wall2m<n>, wall2p<n> (forms.rs)
-        k = _int_in(g("offset"), range(-3, 4))
-        name = None if k is None else mech.fixed("Wall2", {-1: "wall2", 1: "wall2x", 0: "wall20"}[k]) if k in (-1, 0, 1) else mech.build("Wall2", template="wall2m{n}" if k < 0 else "wall2p{n}", n=abs(k))[0]
-        return None, name, "t-bid-btc4h-q1", None if name else "wall2: offset ∈ −3..+3 тиков"
     if n == "95":   # другая лестница входа: ladder3x0..0.0409sw<w>, без суффикса выхода
         w = _int_in(g("w"), range(2, 13))
         return (f"ladder3x0..0.0409sw{w}" if w else None), "", "t-bid-btc4h-q1", None if w else "sw<w>: целое"

@@ -77,6 +77,22 @@ def fixed(mech_id, name):
     return name
 
 
+def match(name):
+    """Шаблон или каноническое имя формы -> запись каталога, чей шаблон и домены его допускают (иначе None)."""
+    import re
+    for r in ROWS:
+        if r["name_template"] == name:
+            return r
+    for r in ROWS:
+        rx = re.escape(r["name_template"])
+        for p in r["params"]:
+            rx = rx.replace(re.escape("{%s}" % p["name"]), "(?P<%s>-?[0-9.]+)" % p["name"])
+        m = re.fullmatch(rx, name)
+        if m and all(admits(p["dom"], float(m.group(p["name"]))) for p in r["params"]):
+            return r
+    return None
+
+
 def r2_prefixes():
     """Начала имён форм, доступных только R2-бинарнику (ExitForm::is_r2)."""
     return sorted({r["prefix"] for r in ROWS if r["is_r2"]})

@@ -172,7 +172,7 @@ class MasterTest(unittest.TestCase):
             self.assertIn(ch.cell_hash(cfg), have, (hyp, av, cfg["form"]))
         # Г-65: offset k -> wall2 / wall2x (Летопись, хеш найден) и новые wall2m<n>/wall20/wall2p<n>
         for off, name in (("-1", "wall2"), ("1", "wall2x"), ("0", "wall20"), ("-3", "wall2m3"), ("2", "wall2p2")):
-            cw = master.p14_cfg("Г-65", sv, {"offset": off})
+            cw = master.p14_cfg("Г-65", sv, {"offset": off}, mm={"offset": "Wall2:~-3:wall2m3;-2:wall2m2;-1:wall2;0:wall20;1:wall2x;2:wall2p2;3:wall2p3"})
             self.assertTrue(cw["form"].endswith("-" + name), cw["form"])
             self.assertEqual(master.LINES[ch.cell_hash(cw)][0], cw["form"] + " t-bid-btc4h-q1")
         # Г-133: хеш по оси a (числом, как e133-w* Летописи), строки --cells на месяц: chase<round(a·W_m)>
