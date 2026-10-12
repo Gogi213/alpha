@@ -16,6 +16,7 @@ S_V = "/data/p12r2/s-v"                     # off-дерево B1: <мес>/<с�
 ABBR = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")   # каталоги /data/tk046/<abbr>
 STUDY = "/data/tk046/{abbr}/study"                                   # klines/ref-<SYM>-1m.csv, approaches/D20/<сутки>/approaches-<SYM>.csv
 BTC_1M = "/data/tk200/btc-1m.csv"                                    # публичные 1м свечи Bybit BTCUSDT янв-сен (dl_klines_1m.py; в пуле BTC свечей нет)
+EXTRA_KLINES = "/data/tk200/klines/{abbr}"                           # докачка dl_klines_pool.py: монеты пула без свечей в study (ref-<SYM>-1m.csv)
 EPOCH_STUDY = "/data/tk046/{abbr}/home/alpha/epochs/e-{abbr}/study"  # sigma240/sigma-<SYM>.csv, regime/<сутки>.csv (путь sigma_from из шапки rounds)
 
 
@@ -36,6 +37,7 @@ class Ctx:
         abbr = ABBR[int(mon[5:7]) - 1] if mon else ""
         self.study = (study or STUDY).format(abbr=abbr)
         self.epoch_study = (epoch_study or EPOCH_STUDY).format(abbr=abbr)
+        self.extra_klines = EXTRA_KLINES.format(abbr=abbr)
 
     def _need(self, src):
         if src not in self.allowed:
@@ -69,7 +71,9 @@ class Ctx:
         self._need("klines")
         path = os.path.join(self.study, "klines", f"ref-{sym}-1m.csv")
         if not os.path.exists(path):
-            return []                       # свечей монеты нет (в пуле свечей ~70 монет) - плагин такие круги не трогает
+            path = os.path.join(self.extra_klines, f"ref-{sym}-1m.csv")
+        if not os.path.exists(path):
+            return []                       # свечей монеты нет - плагин такие круги не трогает
         with open(path, encoding="utf-8") as f:
             return [(int(r["minute_ms"]), float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])) for r in csv.DictReader(f)]
 
