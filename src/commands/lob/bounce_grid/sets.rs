@@ -513,6 +513,18 @@ impl FilterSet {
 pub(crate) struct TouchFilter<'a> {
     pub(crate) tick: f64,
     pub(crate) lot: f64,
+    pub(crate) spec: FilterSpec<'a>,
+    /// `holds_at_touch(t) == Some(true)` по касаниям суток, посчитано один раз на все наборы.
+    pub(crate) holds: Option<&'a [bool]>,
+    /// Скаляры касаний суток для `admits` без чтения `TouchRecord` (нужен `holds`).
+    pub(crate) rows: Option<&'a [AdmitRow]>,
+}
+
+/// Условия набора `FilterSet` в виде, который читает горячий путь: единицы приведены (секунды → мс,
+/// `SideArg` → `Side`), границы R1 и контекст заимствованы. Одна структура на `DayParams` и `TouchFilter`
+/// (раньше поля копировались в каждую из трёх).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FilterSpec<'a> {
     pub(crate) frontrun_only: bool,
     pub(crate) min_age_ms: Option<i64>,
     pub(crate) max_age_ms: Option<i64>,
@@ -528,10 +540,28 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) r1: &'a [R1Bound],
     pub(crate) ctx: Option<&'a [TouchContext]>,
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
-    /// `holds_at_touch(t) == Some(true)` по касаниям суток, посчитано один раз на все наборы.
-    pub(crate) holds: Option<&'a [bool]>,
-    /// Скаляры касаний суток для `admits` без чтения `TouchRecord` (нужен `holds`).
-    pub(crate) rows: Option<&'a [AdmitRow]>,
+}
+
+impl<'a> FilterSpec<'a> {
+    /// Контекст подаётся, только если у набора есть ключи контекста.
+    pub(crate) fn of_set(set: &'a FilterSet, ctx: &'a [TouchContext]) -> Self {
+        Self {
+            frontrun_only: set.frontrun_only,
+            min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
+            max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
+            min_flow_pct: set.min_flow_pct,
+            side: set.side.map(Side::from),
+            eaten_max_pct: set.eaten_max_pct,
+            eaten_min_pct: set.eaten_min_pct,
+            frontrun_min_lots: set.frontrun_min_lots,
+            usd_min: set.usd_min,
+            behind_min_pct: set.behind_min_pct,
+            stack_min: set.stack_min,
+            r1: &set.r1,
+            ctx: if set.uses_ctx() { Some(ctx) } else { None },
+            ctx_ranges: set.ctx,
+        }
+    }
 }
 
 /// Поля `TouchRecord`, нужные `TouchFilter::admits`, плотной строкой (~72 Б против ≈300 Б записи).
@@ -571,27 +601,13 @@ impl<'a> TouchFilter<'a> {
         Self {
             tick: p.tick,
             lot: p.lot,
-            frontrun_only: p.frontrun_only,
-            min_age_ms: p.min_age_ms,
-            max_age_ms: p.max_age_ms,
-            min_flow_pct: p.min_flow_pct,
-            side: p.side,
-            eaten_max_pct: p.eaten_max_pct,
-            eaten_min_pct: p.eaten_min_pct,
-            frontrun_min_lots: p.frontrun_min_lots,
-            usd_min: p.usd_min,
-            behind_min_pct: p.behind_min_pct,
-            stack_min: p.stack_min,
-            r1: p.r1,
-            ctx: p.ctx,
-            ctx_ranges: p.ctx_ranges,
+            spec: p.filter,
             holds: p.holds,
             rows: p.rows,
         }
     }
 
-    /// Фильтр набора над касаниями суток с готовым контекстом (`touch_contexts`):
-    /// контекст подаётся, только если у набора есть ключи контекста.
+    /// Фильтр набора над касаниями суток с готовым контекстом (`touch_contexts`).
     pub(crate) fn from_set(
         set: &'a FilterSet,
         tick: f64,
@@ -601,20 +617,7 @@ impl<'a> TouchFilter<'a> {
         Self {
             tick,
             lot,
-            frontrun_only: set.frontrun_only,
-            min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
-            max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
-            min_flow_pct: set.min_flow_pct,
-            side: set.side.map(Side::from),
-            eaten_max_pct: set.eaten_max_pct,
-            eaten_min_pct: set.eaten_min_pct,
-            frontrun_min_lots: set.frontrun_min_lots,
-            usd_min: set.usd_min,
-            behind_min_pct: set.behind_min_pct,
-            stack_min: set.stack_min,
-            r1: &set.r1,
-            ctx: if set.uses_ctx() { Some(ctx) } else { None },
-            ctx_ranges: set.ctx,
+            spec: FilterSpec::of_set(set, ctx),
             holds: None,
             rows: None,
         }
@@ -624,7 +627,7 @@ impl<'a> TouchFilter<'a> {
     /// `--signal approach`). Без ключей — всегда да; нет записи или R1 — нет.
     pub(crate) fn admits_r1(&self, a: Option<&ApproachRecord>) -> bool {
         let r1 = a.and_then(|a| a.r1.as_deref());
-        self.r1.iter().all(|b| b.holds(r1))
+        self.spec.r1.iter().all(|b| b.holds(r1))
     }
 
     /// Проходит ли касание `ti` суток (индекс — в контекст, `holds` и `rows` суток заданы вызывающим).
@@ -642,10 +645,14 @@ impl<'a> TouchFilter<'a> {
         ti: usize,
         t: &TouchRecord,
     ) -> bool {
-        if self.frontrun_only && t.frontrun_tick.is_none() {
+        if self.spec.frontrun_only && t.frontrun_tick.is_none() {
             return false;
         }
-        if self.frontrun_min_lots.is_some_and(|n| t.frontrun_lots < n) {
+        if self
+            .spec
+            .frontrun_min_lots
+            .is_some_and(|n| t.frontrun_lots < n)
+        {
             return false;
         }
         // База E1 (В-66): плотность обязана держать порог при подходе цены,
@@ -654,13 +661,13 @@ impl<'a> TouchFilter<'a> {
         if mode.holds_at_touch(t) != Some(true) {
             return false;
         }
-        if self.min_age_ms.is_some_and(|n| t.age_ms() < n) {
+        if self.spec.min_age_ms.is_some_and(|n| t.age_ms() < n) {
             return false;
         }
-        if self.max_age_ms.is_some_and(|n| t.age_ms() >= n) {
+        if self.spec.max_age_ms.is_some_and(|n| t.age_ms() >= n) {
             return false;
         }
-        if let Some(s_min) = self.min_flow_pct {
+        if let Some(s_min) = self.spec.min_flow_pct {
             let flow_ok = t.flow_1h_lots > 0
                 && t.size_at_touch as f64 / t.flow_1h_lots as f64 * 100.0 >= s_min;
             if !flow_ok {
@@ -668,38 +675,39 @@ impl<'a> TouchFilter<'a> {
             }
         }
         // Ось стороны: другая сторона выбывает до форм (как возраст и сила).
-        if self.side.is_some_and(|s| t.side != s) {
+        if self.spec.side.is_some_and(|s| t.side != s) {
             return false;
         }
         // Состояние стены: съедена к касанию сильнее порога — не вход.
-        if self.eaten_max_pct.is_some_and(|m| eaten_pct(t) > m) {
+        if self.spec.eaten_max_pct.is_some_and(|m| eaten_pct(t) > m) {
             return false;
         }
         // T4 (П-02, Г-86): зеркало предыдущей проверки — съедено МЕНЬШЕ
         // порога не вход (нужен именно сильно проеденный завал).
-        if self.eaten_min_pct.is_some_and(|m| eaten_pct(t) < m) {
+        if self.spec.eaten_min_pct.is_some_and(|m| eaten_pct(t) < m) {
             return false;
         }
         // Размер стены: номинал при касании ниже порога набора — не вход.
-        if self.usd_min.is_some_and(|m| {
+        if self.spec.usd_min.is_some_and(|m| {
             t.price_tick as f64 * self.tick * t.size_at_touch as f64 * self.lot < m
         }) {
             return false;
         }
         // Г-07 (TK-012): позади стены меньше `pct` % её размера — не вход (целые лоты, без f64).
-        if self.behind_min_pct.is_some_and(|pct| {
+        if self.spec.behind_min_pct.is_some_and(|pct| {
             i128::from(t.depth_behind_lots) * 100 < i128::from(pct) * i128::from(t.size_at_touch)
         }) {
             return false;
         }
-        if self.stack_min.is_some_and(|n| t.stack_levels < n) {
+        if self.spec.stack_min.is_some_and(|n| t.stack_levels < n) {
             return false;
         }
         // Контекст (S4): ход до касания и режим — вне границ набора или
         // без значения при заданной границе — не вход.
-        if let Some(ctx) = self.ctx {
+        if let Some(ctx) = self.spec.ctx {
             let c = &ctx[ti];
             if !self
+                .spec
                 .ctx_ranges
                 .iter()
                 .zip(&c.axes)
@@ -714,53 +722,58 @@ impl<'a> TouchFilter<'a> {
     /// То же, что `admits` при `holds`, по строке `AdmitRow` (порядок и арифметика те же, результат тот же).
     #[allow(clippy::cast_precision_loss)]
     fn admits_row(&self, ti: usize, r: &AdmitRow) -> bool {
-        if self.frontrun_only && !r.frontrun_some {
+        if self.spec.frontrun_only && !r.frontrun_some {
             return false;
         }
-        if self.frontrun_min_lots.is_some_and(|n| r.frontrun_lots < n) {
+        if self
+            .spec
+            .frontrun_min_lots
+            .is_some_and(|n| r.frontrun_lots < n)
+        {
             return false;
         }
         if !self.holds.is_some_and(|h| h[ti]) {
             return false;
         }
-        if self.min_age_ms.is_some_and(|n| r.age_ms < n) {
+        if self.spec.min_age_ms.is_some_and(|n| r.age_ms < n) {
             return false;
         }
-        if self.max_age_ms.is_some_and(|n| r.age_ms >= n) {
+        if self.spec.max_age_ms.is_some_and(|n| r.age_ms >= n) {
             return false;
         }
-        if let Some(s_min) = self.min_flow_pct {
+        if let Some(s_min) = self.spec.min_flow_pct {
             let flow_ok = r.flow_1h_lots > 0
                 && r.size_at_touch as f64 / r.flow_1h_lots as f64 * 100.0 >= s_min;
             if !flow_ok {
                 return false;
             }
         }
-        if self.side.is_some_and(|s| r.side != s) {
+        if self.spec.side.is_some_and(|s| r.side != s) {
             return false;
         }
-        if self.eaten_max_pct.is_some_and(|m| r.eaten_pct > m) {
+        if self.spec.eaten_max_pct.is_some_and(|m| r.eaten_pct > m) {
             return false;
         }
-        if self.eaten_min_pct.is_some_and(|m| r.eaten_pct < m) {
+        if self.spec.eaten_min_pct.is_some_and(|m| r.eaten_pct < m) {
             return false;
         }
-        if self.usd_min.is_some_and(|m| {
+        if self.spec.usd_min.is_some_and(|m| {
             r.price_tick as f64 * self.tick * r.size_at_touch as f64 * self.lot < m
         }) {
             return false;
         }
-        if self.behind_min_pct.is_some_and(|pct| {
+        if self.spec.behind_min_pct.is_some_and(|pct| {
             i128::from(r.depth_behind_lots) * 100 < i128::from(pct) * i128::from(r.size_at_touch)
         }) {
             return false;
         }
-        if self.stack_min.is_some_and(|n| r.stack_levels < n) {
+        if self.spec.stack_min.is_some_and(|n| r.stack_levels < n) {
             return false;
         }
-        if let Some(ctx) = self.ctx {
+        if let Some(ctx) = self.spec.ctx {
             let c = &ctx[ti];
             if !self
+                .spec
                 .ctx_ranges
                 .iter()
                 .zip(&c.axes)

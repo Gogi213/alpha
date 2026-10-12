@@ -135,7 +135,6 @@ use std::time::Instant;
 
 use super::backtest::{read_day_schedule, read_tick_step};
 use super::{resolve_h3_mode_full, session_parts_for, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
-use crate::book::Side;
 use crate::lob::backtest::{BounceSignal, CompactEvent, RoundMemo, SignalWindows};
 use crate::lob::levels::LevelsConfig;
 use crate::lob::run_flags::RunFlags;
@@ -935,20 +934,7 @@ impl<'a> GridRun<'a> {
                             order_qtys: &order_qtys,
                             threads,
                             post_only: args.entry_post_only(),
-                            frontrun_only: set.frontrun_only,
-                            min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
-                            max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
-                            min_flow_pct: set.min_flow_pct,
-                            side: set.side.map(Side::from),
-                            eaten_max_pct: set.eaten_max_pct,
-                            eaten_min_pct: set.eaten_min_pct,
-                            frontrun_min_lots: set.frontrun_min_lots,
-                            usd_min: set.usd_min,
-                            behind_min_pct: set.behind_min_pct,
-                            stack_min: set.stack_min,
-                            r1: &set.r1,
-                            ctx: if set.uses_ctx() { Some(&ctx) } else { None },
-                            ctx_ranges: set.ctx,
+                            filter: sets::FilterSpec::of_set(set, &ctx),
                             h3_usd: args.h3.h3_usd,
                             band_exit_bps,
                             sigma: &sigma_series,

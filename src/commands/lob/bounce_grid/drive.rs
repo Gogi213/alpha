@@ -14,7 +14,6 @@ use std::time::Instant;
 
 use hftbacktest::types::Event as HbtEvent;
 
-use crate::book::Side;
 use crate::commands::lob::backtest::{
     approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, count_feed_events,
     deadline_ns_from_secs, early_exit_ns_from_ms, open_replay_feed, replay_compact_into_until,
@@ -33,7 +32,7 @@ use super::carry::{cached_event_count, store_event_count};
 use super::entry_sigma::EntrySigma;
 use super::forms::GridForm;
 use super::outputs::FormDayResult;
-use super::sets::{R1Bound, Range, TouchContext, TouchFilter, CTX_AXES};
+use super::sets::{FilterSpec, TouchFilter};
 
 /// Сигналы формы: план базы на каждое касание (`σ_H` за окно дедлайна — только
 /// σ-формам); касания, для которых форму не построить, пропускаются и
@@ -52,7 +51,7 @@ fn signals_for(
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
     let early_exit_ns = early_exit_ns_from_ms(form.early_exit_ms)?;
     let mut skipped: u64 = 0;
-    if let Some(ctx) = p.ctx {
+    if let Some(ctx) = p.filter.ctx {
         anyhow::ensure!(
             ctx.len() == touches.len(),
             "контекст касаний ({}) не совпадает с касаниями ({})",
@@ -463,8 +462,6 @@ pub(super) struct DayParams<'a> {
     /// Вход пост-онли (В-72): у плана `post_only`, у сетки умолчание —
     /// включён (`BounceGridArgs::entry_post_only`).
     pub(super) post_only: bool,
-    /// E3: входить только от фронтрана (`--frontrun-only`).
-    pub(super) frontrun_only: bool,
     /// Номинал порога В-66 в долларах (`--h3-usd`): из него план считает
     /// `level_floor_qty` — порог «стена снята» (F5, В-74). `None` — условия
     /// F5 выключены (режим `touch`), иначе `run_bounce_grid` отказал бы.
@@ -474,31 +471,8 @@ pub(super) struct DayParams<'a> {
     pub(super) band_exit_bps: f64,
     /// σ монеты на взводе для σ-лестницы (В-131, `--sigma-from`); `None` — флага нет.
     pub(super) entry_sigma: Option<&'a EntrySigma>,
-    /// Фильтры базы в момент касания: возраст плотности и сила «×поток».
-    pub(super) min_age_ms: Option<i64>,
-    pub(super) max_age_ms: Option<i64>,
-    pub(super) min_flow_pct: Option<f64>,
-    /// Ось стороны (`--side`): `None` — обе стороны.
-    pub(super) side: Option<Side>,
-    /// Доля съедания стены к касанию не больше этого процента (`eaten=`).
-    pub(super) eaten_max_pct: Option<f64>,
-    /// T4 (П-02, Г-86): доля съедания стены к касанию не меньше этого
-    /// процента (`eaten_min=`) — зеркало `eaten_max_pct`.
-    pub(super) eaten_min_pct: Option<f64>,
-    /// T-35: порог фронтрана в лотах (`frontrun_min=`).
-    pub(super) frontrun_min_lots: Option<i64>,
-    /// Номинал стены при касании ≥ (`usd_min=`), доллары.
-    pub(super) usd_min: Option<f64>,
-    /// Г-07: глубина позади ≥ % размера (`behind_min=`).
-    pub(super) behind_min_pct: Option<i64>,
-    /// Г-07: уровней в стопке ≥ (`stack_min=`).
-    pub(super) stack_min: Option<u32>,
-    /// TK-025: границы колонок R1 (`r1_<колонка>_min|_max=`), проверяются на записи подхода.
-    pub(super) r1: &'a [R1Bound],
-    /// Контекст касаний суток (тот же порядок, что `touches`) — только когда
-    /// у набора есть ключи контекста; границы — `ctx_ranges`.
-    pub(super) ctx: Option<&'a [TouchContext]>,
-    pub(super) ctx_ranges: [Range; CTX_AXES.len()],
+    /// Фильтры набора в момент касания (возраст, сила «×поток», сторона, съедание, номинал, R1, контекст).
+    pub(super) filter: FilterSpec<'a>,
     /// Ряд `σ` символа (все сутки записи подряд).
     pub(super) sigma: &'a SigmaSeries,
 }
