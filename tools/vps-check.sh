@@ -50,9 +50,9 @@ scp -q "${KEY[@]}" "$ARC" "$HOST:$ARCR"
 rm -f "$ARC"
 # cargo-фичи (TK-065: R2 — `VPS_FEATURES=r2`); пусто = боевой набор без фич
 FEAT="${VPS_FEATURES:+--features $VPS_FEATURES}"
-# fmt + clippy -D warnings + тесты с набором фич $1 (пусто — без фич)
+# fmt + clippy -D warnings + как CI (TK-211): строгие линты и бюджет (lint-gate.sh), тесты с debug_assert и overflow-checks (release-профиль, свой target) с набором фич $1 (пусто — без фич)
 all_cmd() {
-  echo "set -o pipefail; cargo fmt --check 2>&1 $TL10 && cargo clippy --release $1 --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL15 && cargo test --release $1 --target-dir $TGT -j $J 2>&1 $GREP_T"
+  echo "set -o pipefail; cargo fmt --check 2>&1 $TL10 && cargo clippy --release $1 --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL15 && bash tools/lint-gate.sh $TGT-lint 2>&1 $TL15 && CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true cargo test --release $1 --target-dir $TGT-dbg -j $J 2>&1 $GREP_T"
 }
 case "$WHAT" in
   test)  CMD="cargo test --release $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
