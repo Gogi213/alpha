@@ -223,27 +223,39 @@ impl ExitForm {
         Ok(form)
     }
 
-    fn is_r2(&self) -> bool {
-        matches!(
-            self,
-            ExitForm::PyrEat { .. }
-                | ExitForm::PyrFresh { .. }
-                | ExitForm::PyrReinstall { .. }
-                | ExitForm::PyrNewWall { .. }
-                | ExitForm::HalfStop { .. }
-                | ExitForm::HalfLevel { .. }
-                | ExitForm::TakeSched { .. }
-                | ExitForm::TakeSchedX { .. }
-                | ExitForm::Converge { .. }
-                | ExitForm::NoStop { .. }
-                | ExitForm::Chase { .. }
-                | ExitForm::Tape { .. }
-                | ExitForm::Cxl { .. }
-                | ExitForm::Wall2 { .. }
-        )
+    /// Имя варианта (`id` строки каталога `mechanics::MECHANICS`).
+    pub(super) fn variant_id(&self) -> &'static str {
+        match self {
+            ExitForm::None => "None",
+            ExitForm::Eat { .. } => "Eat",
+            ExitForm::Gone { .. } => "Gone",
+            ExitForm::GoneTrail { .. } => "GoneTrail",
+            ExitForm::GoneBe { .. } => "GoneBe",
+            ExitForm::GoneWall { .. } => "GoneWall",
+            ExitForm::WallEat { .. } => "WallEat",
+            ExitForm::PyrEat { .. } => "PyrEat",
+            ExitForm::PyrFresh { .. } => "PyrFresh",
+            ExitForm::PyrReinstall { .. } => "PyrReinstall",
+            ExitForm::PyrNewWall { .. } => "PyrNewWall",
+            ExitForm::HalfStop { .. } => "HalfStop",
+            ExitForm::HalfLevel { .. } => "HalfLevel",
+            ExitForm::TakeSched { .. } => "TakeSched",
+            ExitForm::TakeSchedX { .. } => "TakeSchedX",
+            ExitForm::Converge { .. } => "Converge",
+            ExitForm::NoStop { .. } => "NoStop",
+            ExitForm::Wall2 { .. } => "Wall2",
+            ExitForm::Chase { .. } => "Chase",
+            ExitForm::Tape { .. } => "Tape",
+            ExitForm::Cxl { .. } => "Cxl",
+        }
     }
 
-    fn parse_any(spec: &str) -> anyhow::Result<Self> {
+    /// Форма R2 — признак из каталога механик (одно место).
+    pub(super) fn is_r2(&self) -> bool {
+        super::mechanics::is_r2_variant(self.variant_id())
+    }
+
+    pub(super) fn parse_any(spec: &str) -> anyhow::Result<Self> {
         if spec == "none" {
             return Ok(ExitForm::None);
         }

@@ -107,6 +107,7 @@ mod drive;
 mod e2e;
 mod entry_sigma;
 mod forms;
+pub mod mechanics;
 mod outputs;
 mod plan;
 mod sets;

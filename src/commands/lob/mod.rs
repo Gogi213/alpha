@@ -223,6 +223,8 @@ pub enum LobCommand {
     // напрямую, тот же приём, что рекомендует сам клиппи).
     BounceGrid(Box<BounceGridArgs>),
     BounceVerdict(BounceVerdictArgs),
+    /// Каталог механик (формы выхода: шаблон имени, параметры, домены) — для Python (В-227).
+    Mechanics(bounce_grid::mechanics::MechanicsArgs),
     /// Касания живых уровней с признаками практиков — `touches-<SYMBOL>.csv`
     /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
     /// markout «в сторону отскока», подход, фронтран, круглость, завал.
@@ -304,6 +306,7 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Session(args) => print_session(args),
         LobCommand::BounceGrid(args) => print_bounce_grid(args),
         LobCommand::BounceVerdict(args) => print_bounce_verdict(args),
+        LobCommand::Mechanics(args) => bounce_grid::mechanics::run_mechanics(&args),
     }
 }
 

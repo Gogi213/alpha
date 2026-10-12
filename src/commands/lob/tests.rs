@@ -454,6 +454,7 @@ fn lob_help_lists_all_subcommands() {
         "gaps",
         "import-archive",
         "latency",
+        "mechanics",
         "pick",
         "probe",
         "record",
