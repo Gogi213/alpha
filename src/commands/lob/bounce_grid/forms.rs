@@ -206,11 +206,7 @@ impl ExitForm {
             btc_bps,
             btc: None,
         };
-        anyhow::ensure!(
-            form.label() == spec,
-            "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-            form.label()
-        );
+        form.ensure_canonical(spec)?;
         Ok(form)
     }
 
@@ -255,6 +251,16 @@ impl ExitForm {
         super::mechanics::is_r2_variant(self.variant_id())
     }
 
+    /// Имя формы обязано совпасть с каноническим `label()` (одно место вместо копий в разборе).
+    fn ensure_canonical(&self, spec: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.label() == spec,
+            "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+            self.label()
+        );
+        Ok(())
+    }
+
     pub(super) fn parse_any(spec: &str) -> anyhow::Result<Self> {
         if spec == "none" {
             return Ok(ExitForm::None);
@@ -265,11 +271,7 @@ impl ExitForm {
             })?;
             anyhow::ensure!((2..=10).contains(&parts), "pyeat<N>: N ∈ [2, 10]");
             let form = ExitForm::PyrEat { parts };
-            anyhow::ensure!(
-                form.label() == spec,
-                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                form.label()
-            );
+            form.ensure_canonical(spec)?;
             return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("pyfresh") {
@@ -278,11 +280,7 @@ impl ExitForm {
             })?;
             anyhow::ensure!((2..=12).contains(&parts), "pyfresh<N>: N ∈ [2, 12]");
             let form = ExitForm::PyrFresh { parts };
-            anyhow::ensure!(
-                form.label() == spec,
-                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                form.label()
-            );
+            form.ensure_canonical(spec)?;
             return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("wall2") {
@@ -334,11 +332,7 @@ impl ExitForm {
                 } else {
                     ExitForm::Cxl { w, q }
                 };
-                anyhow::ensure!(
-                    form.label() == spec,
-                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                    form.label()
-                );
+                form.ensure_canonical(spec)?;
                 return Ok(form);
             }
         }
@@ -373,11 +367,7 @@ impl ExitForm {
             let a_bps: u32 = a_bps.parse().map_err(|_| bad())?;
             anyhow::ensure!(tol <= 16 && a_bps > 0, "conv<t>a<A>: t ∈ [0, 16], A > 0");
             let form = ExitForm::Converge { tol, a_bps };
-            anyhow::ensure!(
-                form.label() == spec,
-                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                form.label()
-            );
+            form.ensure_canonical(spec)?;
             return Ok(form);
         }
         if let Some(q8) = parse_half(spec, "halfstop")? {
@@ -395,11 +385,7 @@ impl ExitForm {
                 "tslx<G>t<Q>: G ∈ [1, 64], Q ∈ [1, 16]"
             );
             let form = ExitForm::TakeSchedX { g8, t16 };
-            anyhow::ensure!(
-                form.label() == spec,
-                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                form.label()
-            );
+            form.ensure_canonical(spec)?;
             return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("tsl") {
@@ -414,11 +400,7 @@ impl ExitForm {
                 "tsl<G>t<Q>: G ∈ [1, 99], Q ∈ [1, 4]"
             );
             let form = ExitForm::TakeSched { g10, t4 };
-            anyhow::ensure!(
-                form.label() == spec,
-                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                form.label()
-            );
+            form.ensure_canonical(spec)?;
             return Ok(form);
         }
         if let Some(q8) = parse_half(spec, "halflevel")? {
@@ -438,11 +420,7 @@ impl ExitForm {
                 "pynw<K>u<k>|w<u12>: K ∈ [1, 9], k ∈ {{1, 2, 3}}, u12 ∈ [1, 12]"
             );
             let form = ExitForm::PyrNewWall { k, u12 };
-            anyhow::ensure!(
-                form.label() == spec,
-                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                form.label()
-            );
+            form.ensure_canonical(spec)?;
             return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("pyre") {
@@ -459,11 +437,7 @@ impl ExitForm {
                 "pyre<N>u<k>|w<u12>: N ∈ [1, 10], k ∈ {{1, 2, 3}}, u12 ∈ [1, 12]"
             );
             let form = ExitForm::PyrReinstall { n, u12 };
-            anyhow::ensure!(
-                form.label() == spec,
-                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                form.label()
-            );
+            form.ensure_canonical(spec)?;
             return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("weat") {
@@ -505,11 +479,7 @@ impl ExitForm {
                     mode,
                     buffer_bps,
                 };
-                anyhow::ensure!(
-                    form.label() == spec,
-                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                    form.label()
-                );
+                form.ensure_canonical(spec)?;
                 return Ok(form);
             }
             if let Some((w, mode)) = rest.split_once("be") {
@@ -524,11 +494,7 @@ impl ExitForm {
                     _ => anyhow::bail!("--exit-form {spec:?}: ожидается gone<W>be или gone<W>bex"),
                 };
                 let form = ExitForm::GoneBe { pct, hard };
-                anyhow::ensure!(
-                    form.label() == spec,
-                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                    form.label()
-                );
+                form.ensure_canonical(spec)?;
                 return Ok(form);
             }
             if let Some((w, t)) = rest.split_once("tr") {
@@ -543,11 +509,7 @@ impl ExitForm {
                     "gone<W>tr<T>: откат T — % от входа в (0, 100)"
                 );
                 let form = ExitForm::GoneTrail { pct, trail_pct };
-                anyhow::ensure!(
-                    form.label() == spec,
-                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
-                    form.label()
-                );
+                form.ensure_canonical(spec)?;
                 return Ok(form);
             }
             let pct: f64 = rest.parse()?;
