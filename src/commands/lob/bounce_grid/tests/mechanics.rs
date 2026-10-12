@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn catalog_names_round_trip_through_exit_form() {
     let mut n = 0;
-    for m in MECHANICS {
+    for m in MECHANICS.iter().filter(|m| m.kind == "exit") {
         for name in m.sample_names() {
             let f = ExitForm::parse_any(&name).unwrap_or_else(|e| panic!("{name} ({}): {e}", m.id));
             assert_eq!(f.label(), name, "круг имени {}", m.id);
@@ -37,4 +37,28 @@ fn python_snapshot_matches_catalog() {
         catalog_json(),
         "tools/registry/mechanics.json устарел"
     );
+}
+
+/// Стоп и тейк: имя из шаблона по точкам домена разбирается `StopForm`/`TakeForm` и даёт то же имя.
+#[test]
+fn catalog_names_round_trip_through_stop_and_take() {
+    let (mut ns, mut nt) = (0, 0);
+    for m in MECHANICS {
+        for name in m.sample_names() {
+            match m.kind {
+                "stop" => {
+                    let f = StopForm::parse(&name).unwrap_or_else(|e| panic!("{name}: {e}"));
+                    assert_eq!(f.label(), name, "круг имени {}", m.id);
+                    ns += 1;
+                }
+                "take" => {
+                    let f = TakeForm::parse(&name).unwrap_or_else(|e| panic!("{name}: {e}"));
+                    assert_eq!(f.label(), name, "круг имени {}", m.id);
+                    nt += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(ns >= 10 && nt >= 10, "точек мало: стоп {ns}, тейк {nt}");
 }

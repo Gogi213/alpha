@@ -3,8 +3,8 @@
 //! (`cellhash.py`/`master.py` берут шаблоны и домены отсюда, а не копируют). Горячий путь
 //! (`match ExitForm` в стратегии) не знает про каталог.
 //!
-//! Сейчас в каталоге формы выхода (`ExitForm`); вход/стоп/тейк/фильтры переносятся следующими
-//! шагами пакета A. Строка = одна каноническая запись имени (`name_template`); у формы с
+//! Сейчас в каталоге формы выхода (`ExitForm`), стоп (`StopForm`) и тейк (`TakeForm`, кроме
+//! `eat<h>x<a>`); вход/фильтры переносятся следующими шагами пакета A. Строка = одна каноническая запись имени (`name_template`); у формы с
 //! несколькими записями (`pyre…u…` / `pyre…w…`, `wall2`/`wall2x`/`wall2m<n>`) строк несколько,
 //! `id` общий (`ExitForm::variant_id`).
 
@@ -35,7 +35,9 @@ pub struct ParamSpec {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MechSpec {
-    /// Вариант `ExitForm` (общий у записей одной формы).
+    /// Класс механики: `exit` (`ExitForm`), `stop` (`StopForm`), `take` (`TakeForm`).
+    pub kind: &'static str,
+    /// Вариант формы (общий у записей одной формы); у стопа/тейка — с префиксом `Stop`/`Take`.
     pub id: &'static str,
     /// Начало имени до первого параметра.
     pub prefix: &'static str,
@@ -79,11 +81,38 @@ const fn row(
     is_r2: bool,
 ) -> MechSpec {
     MechSpec {
+        kind: "exit",
         id,
         prefix,
         name_template,
         params,
         is_r2,
+    }
+}
+
+/// Запись стопа (`StopForm`, `--stop`).
+const fn stop(
+    id: &'static str,
+    prefix: &'static str,
+    name_template: &'static str,
+    params: &'static [ParamSpec],
+) -> MechSpec {
+    MechSpec {
+        kind: "stop",
+        ..row(id, prefix, name_template, params, false)
+    }
+}
+
+/// Запись тейка (`TakeForm`, `--take`).
+const fn take(
+    id: &'static str,
+    prefix: &'static str,
+    name_template: &'static str,
+    params: &'static [ParamSpec],
+) -> MechSpec {
+    MechSpec {
+        kind: "take",
+        ..row(id, prefix, name_template, params, false)
     }
 }
 
@@ -102,6 +131,47 @@ const PYNW_K: ParamSpec = int("k", 1, Some(9), &[]);
 
 /// Все формы выхода. Порядок на разбор не влияет (`ExitForm::parse_any` прежний).
 pub static MECHANICS: &[MechSpec] = &[
+    stop("StopBefore", "before", "before", &[]),
+    stop("StopAt", "at", "at", &[]),
+    stop("StopBehind", "behind", "behind", &[]),
+    stop("StopMidFrontrun", "midfr", "midfr", &[]),
+    stop("StopBehindStack", "stack2", "stack2", &[]),
+    stop(
+        "StopPct",
+        "pct",
+        "pct{x}",
+        &[real("x", 0.0, Some(100.0), true, true)],
+    ),
+    stop(
+        "StopSigma",
+        "s",
+        "s{a}",
+        &[real("a", 0.0, None, false, false)],
+    ),
+    take("Take1to1", "1to1", "1to1", &[]),
+    take("TakeHalf1to1", "half1to1", "half1to1", &[]),
+    take(
+        "TakePct",
+        "tk",
+        "tk{x}",
+        &[real("x", 0.0, Some(100.0), true, true)],
+    ),
+    take(
+        "TakeSigma",
+        "t",
+        "t{b}",
+        &[real("b", 0.0, None, false, false)],
+    ),
+    take(
+        "TakeTrail",
+        "tr",
+        "tr{a}x{t}",
+        &[
+            real("a", 0.0, None, true, false),
+            real("t", 0.0, None, true, false),
+        ],
+    ),
+    // `eat<h>x<a>` (TakeForm::Eaten): связь 0 < h < a ≤ 100 между параметрами — в каталог позже.
     row("None", "none", "none", &[], false),
     row("Eat", "eat", "eat{pct}", &[PCT], false),
     row("Gone", "gone", "gone{pct}", &[PCT], false),
@@ -329,7 +399,9 @@ impl MechSpec {
 
 /// Форма выхода только для R2-бинарника (по каталогу).
 pub fn is_r2_variant(id: &str) -> bool {
-    MECHANICS.iter().any(|m| m.id == id && m.is_r2)
+    MECHANICS
+        .iter()
+        .any(|m| m.kind == "exit" && m.id == id && m.is_r2)
 }
 
 /// `lob mechanics --json`: каталог целиком для `cellhash.py`/`master.py`.
@@ -339,7 +411,7 @@ pub fn catalog_json() -> Value {
         .map(|m| {
             json!({
                 "id": m.id,
-                "kind": "exit",
+                "kind": m.kind,
                 "prefix": m.prefix,
                 "name_template": m.name_template,
                 "is_r2": m.is_r2,

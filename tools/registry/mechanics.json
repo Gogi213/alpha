@@ -1,6 +1,212 @@
 {
   "mechanics": [
     {
+      "id": "StopBefore",
+      "kind": "stop",
+      "prefix": "before",
+      "name_template": "before",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "before"
+      ]
+    },
+    {
+      "id": "StopAt",
+      "kind": "stop",
+      "prefix": "at",
+      "name_template": "at",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "at"
+      ]
+    },
+    {
+      "id": "StopBehind",
+      "kind": "stop",
+      "prefix": "behind",
+      "name_template": "behind",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "behind"
+      ]
+    },
+    {
+      "id": "StopMidFrontrun",
+      "kind": "stop",
+      "prefix": "midfr",
+      "name_template": "midfr",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "midfr"
+      ]
+    },
+    {
+      "id": "StopBehindStack",
+      "kind": "stop",
+      "prefix": "stack2",
+      "name_template": "stack2",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "stack2"
+      ]
+    },
+    {
+      "id": "StopPct",
+      "kind": "stop",
+      "prefix": "pct",
+      "name_template": "pct{x}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "x",
+          "dom": {
+            "type": "real",
+            "lo": 0.0,
+            "hi": 100.0,
+            "lo_open": true,
+            "hi_open": true
+          }
+        }
+      ],
+      "samples": [
+        "pct50",
+        "pct25"
+      ]
+    },
+    {
+      "id": "StopSigma",
+      "kind": "stop",
+      "prefix": "s",
+      "name_template": "s{a}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "a",
+          "dom": {
+            "type": "real",
+            "lo": 0.0,
+            "hi": null,
+            "lo_open": false,
+            "hi_open": false
+          }
+        }
+      ],
+      "samples": [
+        "s5",
+        "s2.5",
+        "s0"
+      ]
+    },
+    {
+      "id": "Take1to1",
+      "kind": "take",
+      "prefix": "1to1",
+      "name_template": "1to1",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "1to1"
+      ]
+    },
+    {
+      "id": "TakeHalf1to1",
+      "kind": "take",
+      "prefix": "half1to1",
+      "name_template": "half1to1",
+      "is_r2": false,
+      "params": [],
+      "samples": [
+        "half1to1"
+      ]
+    },
+    {
+      "id": "TakePct",
+      "kind": "take",
+      "prefix": "tk",
+      "name_template": "tk{x}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "x",
+          "dom": {
+            "type": "real",
+            "lo": 0.0,
+            "hi": 100.0,
+            "lo_open": true,
+            "hi_open": true
+          }
+        }
+      ],
+      "samples": [
+        "tk50",
+        "tk25"
+      ]
+    },
+    {
+      "id": "TakeSigma",
+      "kind": "take",
+      "prefix": "t",
+      "name_template": "t{b}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "b",
+          "dom": {
+            "type": "real",
+            "lo": 0.0,
+            "hi": null,
+            "lo_open": false,
+            "hi_open": false
+          }
+        }
+      ],
+      "samples": [
+        "t5",
+        "t2.5",
+        "t0"
+      ]
+    },
+    {
+      "id": "TakeTrail",
+      "kind": "take",
+      "prefix": "tr",
+      "name_template": "tr{a}x{t}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "a",
+          "dom": {
+            "type": "real",
+            "lo": 0.0,
+            "hi": null,
+            "lo_open": true,
+            "hi_open": false
+          }
+        },
+        {
+          "name": "t",
+          "dom": {
+            "type": "real",
+            "lo": 0.0,
+            "hi": null,
+            "lo_open": true,
+            "hi_open": false
+          }
+        }
+      ],
+      "samples": [
+        "tr5x5",
+        "tr5x2.5",
+        "tr2.5x5",
+        "tr2.5x2.5"
+      ]
+    },
+    {
       "id": "None",
       "is_r2": false,
       "kind": "exit",
