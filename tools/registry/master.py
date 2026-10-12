@@ -738,17 +738,22 @@ def _table(header, rows):
     return "\n".join(["| " + " | ".join(header) + " |", "|" + "---|" * len(header)] + ["| " + " | ".join(esc(x) for x in r) + " |" for r in rows])
 
 
-def hyp_status(c):
+def hyp_status(c, have=None):
     """{гипотеза: (статус, причина)} по ВСЕМ гипотезам БД (TK-208): ровно одна строка на гипотезу, сумма = числу гипотез."""
     plan = {r[0] for r in c.execute("select distinct hyp from plan_cells")}
     eng = {}
     for h, e, role in c.execute("select hyp, engine, role from hyp_axes order by rowid"):
         eng.setdefault(h, (e or "", role or ""))
+    nh = {h: [r[0] for r in c.execute("select distinct cell_hash from plan_cells where hyp=?", (h,))] for h in plan}
+    have = have if have is not None else have_hashes()
     out = {}
     for h, ext in c.execute("select id, ext from hypotheses order by id"):
-        st = str((json.loads(ext or "{}")).get("status_pool_0925", ""))
+        ex = json.loads(ext or "{}")
+        st, pkg = str(ex.get("status_pool_0925", "")), str(ex.get("package", ""))
         e, role = eng.get(h, (None, ""))
-        if h in plan:
+        if h in plan and len(nh[h]) == 1:
+            out[h] = ("1б в плане F1: одна клетка без титрования, " + ("посчитана" if nh[h][0] in have else "не посчитана"), "plan_cells: 1 хеш")
+        elif h in plan:
             out[h] = ("1 в плане F1 (Rust, хеши)", "plan_cells")
         elif e == "python":
             out[h] = ("2 Python-раннер (без хешей)", "hyp_axes.engine=python")
@@ -756,12 +761,14 @@ def hyp_status(c):
             out[h] = ("3 привязка к другой гипотезе (своих клеток нет)", e)
         elif e is not None:
             out[h] = ("4 ось есть, в плане F1 нет", f"hyp_axes: role={role or '-'}; закрыта/нет кодировки — см. выписку plan")
+        elif pkg:
+            out[h] = (f"5а нет осей: ждёт кода пакета {pkg[0]}", pkg)
         elif "опровергн" in st:
             out[h] = ("5 нет в hyp_axes: опровергнута в пуле 09.2026", st[:80])
         elif "не проверял" in st:
-            out[h] = ("6 нет в hyp_axes: не проверялась (ждёт кода пакетов C–F / постановки осей)", "status_pool_0925")
+            out[h] = ("6 нет в hyp_axes, нет пакета: не проверялась (нужна постановка осей)", "status_pool_0925")
         else:
-            out[h] = ("7 нет в hyp_axes: описание/«не ясно»/поиск — нужна формализация или решение владельца", st[:80] or "статуса нет")
+            out[h] = ("7 нет в hyp_axes, нет пакета: описание/«не ясно»/поиск — нужна формализация или решение владельца", st[:80] or "статуса нет")
     return out
 
 
@@ -793,7 +800,7 @@ def render(kind, date=None, outdir=FIND):
                 rows.append([prot, f"F{k}", len({y for y, _ in hs}), len(hs), len(done), len(hs) - len(done), sum(len(have[h]) for h in done), (len(hs) - len(done)) * months])
         title, name = "Покрытие плана (В-224): хеши клеток × месяц", "hyp-coverage"
     elif kind == "status":
-        st = hyp_status(c)
+        st = hyp_status(c, have)
         cnt = collections.Counter(v[0] for v in st.values())
         hdr = ["статус", "гипотез", "какие"]
         rows = [[k, n, ", ".join(h for h, v in st.items() if v[0] == k)] for k, n in sorted(cnt.items())]
