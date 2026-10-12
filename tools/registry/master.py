@@ -9,7 +9,7 @@ import collections, csv, datetime, itertools, json, math, os, re, sqlite3, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import cellhash as ch, db  # noqa: E402
+import cellhash as ch, db, mechanics as mech  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 FIND = os.path.join(ROOT, "docs", "findings")
@@ -210,26 +210,37 @@ def _u12(u12):
     return f"u{u12 // 4}" if u12 in (4, 8, 12) else f"w{u12}"
 
 
+def _u12_vals(g, nkey, nname, ukey="u"):
+    """Значения для pyre/pynw: число и доля u12 = 12u; u3 = k (u12 = 4k) для записи `u<k>` каталога."""
+    u12 = _int_in(12 * g(ukey), range(1, 13))
+    return {nname: g(nkey), "u12": u12, "u3": u12 // 4 if u12 and u12 % 4 == 0 else None}
+
+
+def _nostop_vals(g):
+    x8 = _int_in(8 * g("x"), range(1, 65))
+    return {"x8": x8, "x2": x8 / 4 if x8 and x8 % 4 == 0 else None}
+
+
+# Г-номер -> (механика каталога, набор клеток, значения параметров из осей); имена и домены — mechanics.json
+R2_MECH = {
+    "87": ("PyrFresh", "g87-fresh", lambda g: {"parts": g("n")}),
+    "92": ("PyrReinstall", "t-bid-btc4h-q1", lambda g: _u12_vals(g, "N", "n")),
+    "93": ("PyrNewWall", "t-bid-btc4h-q1", lambda g: _u12_vals(g, "K", "k")),
+    "106": ("NoStop", "e106-pop", _nostop_vals),
+    "119": ("Converge", "t-bid-btc4h-q1", lambda g: {"tol": g("tol_ticks"), "a_bps": 20}),   # A = D20 прогона подходов
+}
+
+
 def r2_exit(hyp, av):
     """R2-гипотеза Rust-класса -> (входная форма или None, суффикс --exit-form, имя набора, причина отказа); имена и наборы — как в клетках Летописи
     (tk065-r2-gen.py, tk115-delta-day.sh) и в forms.rs; значение оси вне ограничений формы -> суффикс None и причина."""
     n = re.sub(r"\D", "", hyp)
     g = lambda k: _frac(av[k])
-    if n == "87":   # pyfresh<N>, N ∈ [2, 12]; набор g87-fresh
-        v = _int_in(g("n"), range(2, 13))
-        return None, (f"pyfresh{v}" if v else None), "g87-fresh", None if v else "pyfresh<N>: N ∈ [2, 12]"
-    if n == "92":   # pyre<N>u<k> | pyre<N>w<u12>, N ∈ [1, 10], u12 = 12u ∈ [1, 12] (u<k> при u12 = 4k)
-        nn, u12 = _int_in(g("N"), range(1, 11)), _int_in(12 * g("u"), range(1, 13))
-        return None, (f"pyre{nn}{_u12(u12)}" if nn and u12 else None), "t-bid-btc4h-q1", None if nn and u12 else "pyre<N>: N ∈ [1, 10], u = u12/12, u12 ∈ [1, 12]"
-    if n == "93":   # pynw<K>u<k> | pynw<K>w<u12>, K ∈ [1, 9], u12 = 12u ∈ [1, 12]
-        kk, u12 = _int_in(g("K"), range(1, 10)), _int_in(12 * g("u"), range(1, 13))
-        return None, (f"pynw{kk}{_u12(u12)}" if kk and u12 else None), "t-bid-btc4h-q1", None if kk and u12 else "pynw<K>: K ∈ [1, 9], u = u12/12, u12 ∈ [1, 12]"
-    if n == "106":  # nostop<X2> (x8 = 4·X2 ∈ {4, 8, 16}) | nostopx<X8>, x = X8/8 ∈ [1/8, 8]; набор e106-pop
-        x8 = _int_in(8 * g("x"), range(1, 65))
-        return None, (None if not x8 else f"nostop{x8 // 4}" if x8 in (4, 8, 16) else f"nostopx{x8}"), "e106-pop", None if x8 else "nostop: x = X8/8, X8 ∈ [1, 64]"
-    if n == "119":  # conv<t>a20 (A = D20 прогона подходов), t ∈ [0, 16]
-        t = _int_in(g("tol_ticks"), range(0, 17))
-        return None, (f"conv{t}a20" if t is not None else None), "t-bid-btc4h-q1", None if t is not None else "conv<t>: t ∈ [0, 16]"
+    if n in R2_MECH:   # формы из каталога механик (mechanics.json): имя и домен — оттуда, не из веток по Г
+        mid, set_name, pick = R2_MECH[n]
+        vals = pick(g)
+        name, why = mech.build(mid, **vals)
+        return None, name, set_name, None if name else f"{mid}: {why}"
     if n == "114":  # halfstop|halflevel[f1|f3|g<q8>]: f = q8/8, q8 ∈ [1, 7]
         q8 = _int_in(8 * g("f"), range(1, 8))
         base = av["trigger"]
@@ -244,7 +255,7 @@ def r2_exit(hyp, av):
     return False
 
 
-R2_EXIT_RE = r"(pyeat|pyfresh|pyre|pynw|halfstop|halflevel|tsl|conv|nostop|chase|tape|cxl|wall2)"   # ExitForm::is_r2
+R2_EXIT_RE = "(" + "|".join(mech.r2_prefixes()) + ")"   # ExitForm::is_r2 — из каталога механик
 
 
 EARLY_OK = (0.5, 1, 2, 3, 5, 8, 13, 20, 30, 60)   # EARLY_EXITS_S в plan.rs + EARLY_EXIT_HALF_MS (TK-189)
@@ -340,6 +351,8 @@ def p14_cfg(hyp, sv, av, fixed=()):
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
         cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
+        if "ctx_q" in av:   # В-227 М3 (Г-78/55/140): страта оси контекста — отдельная клетка, не r1ext
+            cfg["variant"]["axes"]["ctx"] = str(av["ctx_q"])
         sign = R1_SIGN.get(hyp, {}).get(col)
         if "ctx_q" not in av and (col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign))):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
             R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
@@ -351,8 +364,6 @@ def p14_cfg(hyp, sv, av, fixed=()):
         MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
     elif av and re.sub(r"\D", "", hyp) == "112":   # tape<W>q<Q_m(W,q)>: Q из v7 по прошлым месяцам (Судья 11.10, f1-axes); хеш — по осям W, q
         w, q = _int_in(_frac(av["W"]), (5, 10, 15, 30, 60, 120, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
-        if "ctx_q" in av:   # В-227 М3 (Г-78/55/140): страта оси контекста — отдельная клетка, не r1ext
-            cfg["variant"]["axes"]["ctx"] = str(av["ctx_q"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []

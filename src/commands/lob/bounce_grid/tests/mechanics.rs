@@ -25,3 +25,16 @@ fn catalog_json_has_all_rows() {
     assert_eq!(v["schema"], 1);
     assert_eq!(v["mechanics"].as_array().unwrap().len(), MECHANICS.len());
 }
+
+/// Снимок каталога для Python (`tools/registry/mechanics.json`) не отстаёт от Rust:
+/// обновить — `lob mechanics --json > tools/registry/mechanics.json`.
+#[test]
+fn python_snapshot_matches_catalog() {
+    let snap: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../tools/registry/mechanics.json")).unwrap();
+    assert_eq!(
+        snap,
+        catalog_json(),
+        "tools/registry/mechanics.json устарел"
+    );
+}

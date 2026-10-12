@@ -1,0 +1,1329 @@
+{
+  "mechanics": [
+    {
+      "id": "None",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "none",
+      "params": [],
+      "prefix": "none",
+      "samples": [
+        "none"
+      ]
+    },
+    {
+      "id": "Eat",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "eat{pct}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        }
+      ],
+      "prefix": "eat",
+      "samples": [
+        "eat50",
+        "eat25",
+        "eat100"
+      ]
+    },
+    {
+      "id": "Gone",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "gone{pct}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        }
+      ],
+      "prefix": "gone",
+      "samples": [
+        "gone50",
+        "gone25",
+        "gone100"
+      ]
+    },
+    {
+      "id": "GoneTrail",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "gone{pct}tr{trail_pct}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        },
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": true,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "trail_pct"
+        }
+      ],
+      "prefix": "gone",
+      "samples": [
+        "gone50tr50",
+        "gone50tr25",
+        "gone25tr50",
+        "gone25tr25",
+        "gone100tr50",
+        "gone100tr25"
+      ]
+    },
+    {
+      "id": "GoneBe",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "gone{pct}be",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        }
+      ],
+      "prefix": "gone",
+      "samples": [
+        "gone50be",
+        "gone25be",
+        "gone100be"
+      ]
+    },
+    {
+      "id": "GoneBe",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "gone{pct}bex",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        }
+      ],
+      "prefix": "gone",
+      "samples": [
+        "gone50bex",
+        "gone25bex",
+        "gone100bex"
+      ]
+    },
+    {
+      "id": "GoneWall",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "gone{pct}wall{buffer_bps}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        },
+        {
+          "dom": {
+            "hi": 10000.0,
+            "hi_open": true,
+            "lo": 0.0,
+            "lo_open": false,
+            "type": "real"
+          },
+          "name": "buffer_bps"
+        }
+      ],
+      "prefix": "gone",
+      "samples": [
+        "gone50wall5000",
+        "gone50wall2500",
+        "gone50wall0",
+        "gone25wall5000",
+        "gone25wall2500",
+        "gone25wall0",
+        "gone100wall5000",
+        "gone100wall2500",
+        "gone100wall0"
+      ]
+    },
+    {
+      "id": "GoneWall",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "gone{pct}wallx{buffer_bps}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        },
+        {
+          "dom": {
+            "hi": 10000.0,
+            "hi_open": true,
+            "lo": 0.0,
+            "lo_open": false,
+            "type": "real"
+          },
+          "name": "buffer_bps"
+        }
+      ],
+      "prefix": "gone",
+      "samples": [
+        "gone50wallx5000",
+        "gone50wallx2500",
+        "gone50wallx0",
+        "gone25wallx5000",
+        "gone25wallx2500",
+        "gone25wallx0",
+        "gone100wallx5000",
+        "gone100wallx2500",
+        "gone100wallx0"
+      ]
+    },
+    {
+      "id": "GoneWall",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "gone{pct}wallk{buffer_bps}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        },
+        {
+          "dom": {
+            "hi": 10000.0,
+            "hi_open": true,
+            "lo": 0.0,
+            "lo_open": false,
+            "type": "real"
+          },
+          "name": "buffer_bps"
+        }
+      ],
+      "prefix": "gone",
+      "samples": [
+        "gone50wallk5000",
+        "gone50wallk2500",
+        "gone50wallk0",
+        "gone25wallk5000",
+        "gone25wallk2500",
+        "gone25wallk0",
+        "gone100wallk5000",
+        "gone100wallk2500",
+        "gone100wallk0"
+      ]
+    },
+    {
+      "id": "WallEat",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "weat{pct}s{secs}m{btc_bps}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": 3600,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "secs"
+        },
+        {
+          "dom": {
+            "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": false,
+            "type": "real"
+          },
+          "name": "btc_bps"
+        }
+      ],
+      "prefix": "weat",
+      "samples": [
+        "weat50s1m5",
+        "weat50s1m2.5",
+        "weat50s1m0",
+        "weat50s2m5",
+        "weat50s2m2.5",
+        "weat50s2m0",
+        "weat50s1800m5",
+        "weat50s1800m2.5",
+        "weat50s1800m0",
+        "weat50s3599m5",
+        "weat50s3599m2.5",
+        "weat50s3599m0",
+        "weat50s3600m5",
+        "weat50s3600m2.5",
+        "weat50s3600m0",
+        "weat25s1m5",
+        "weat25s1m2.5",
+        "weat25s1m0",
+        "weat25s2m5",
+        "weat25s2m2.5",
+        "weat25s2m0",
+        "weat25s1800m5",
+        "weat25s1800m2.5",
+        "weat25s1800m0",
+        "weat25s3599m5",
+        "weat25s3599m2.5",
+        "weat25s3599m0",
+        "weat25s3600m5",
+        "weat25s3600m2.5",
+        "weat25s3600m0",
+        "weat100s1m5",
+        "weat100s1m2.5",
+        "weat100s1m0",
+        "weat100s2m5",
+        "weat100s2m2.5",
+        "weat100s2m0",
+        "weat100s1800m5",
+        "weat100s1800m2.5",
+        "weat100s1800m0",
+        "weat100s3599m5",
+        "weat100s3599m2.5",
+        "weat100s3599m0",
+        "weat100s3600m5",
+        "weat100s3600m2.5",
+        "weat100s3600m0"
+      ]
+    },
+    {
+      "id": "WallEat",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "weat{pct}s{secs}l{btc_bps}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": 3600,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "secs"
+        },
+        {
+          "dom": {
+            "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": false,
+            "type": "real"
+          },
+          "name": "btc_bps"
+        }
+      ],
+      "prefix": "weat",
+      "samples": [
+        "weat50s1l5",
+        "weat50s1l2.5",
+        "weat50s1l0",
+        "weat50s2l5",
+        "weat50s2l2.5",
+        "weat50s2l0",
+        "weat50s1800l5",
+        "weat50s1800l2.5",
+        "weat50s1800l0",
+        "weat50s3599l5",
+        "weat50s3599l2.5",
+        "weat50s3599l0",
+        "weat50s3600l5",
+        "weat50s3600l2.5",
+        "weat50s3600l0",
+        "weat25s1l5",
+        "weat25s1l2.5",
+        "weat25s1l0",
+        "weat25s2l5",
+        "weat25s2l2.5",
+        "weat25s2l0",
+        "weat25s1800l5",
+        "weat25s1800l2.5",
+        "weat25s1800l0",
+        "weat25s3599l5",
+        "weat25s3599l2.5",
+        "weat25s3599l0",
+        "weat25s3600l5",
+        "weat25s3600l2.5",
+        "weat25s3600l0",
+        "weat100s1l5",
+        "weat100s1l2.5",
+        "weat100s1l0",
+        "weat100s2l5",
+        "weat100s2l2.5",
+        "weat100s2l0",
+        "weat100s1800l5",
+        "weat100s1800l2.5",
+        "weat100s1800l0",
+        "weat100s3599l5",
+        "weat100s3599l2.5",
+        "weat100s3599l0",
+        "weat100s3600l5",
+        "weat100s3600l2.5",
+        "weat100s3600l0"
+      ]
+    },
+    {
+      "id": "WallEat",
+      "is_r2": false,
+      "kind": "exit",
+      "name_template": "weat{pct}s{secs}a{btc_bps}",
+      "params": [
+        {
+          "dom": {
+            "hi": 100.0,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "pct"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": 3600,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "secs"
+        },
+        {
+          "dom": {
+            "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": false,
+            "type": "real"
+          },
+          "name": "btc_bps"
+        }
+      ],
+      "prefix": "weat",
+      "samples": [
+        "weat50s1a5",
+        "weat50s1a2.5",
+        "weat50s1a0",
+        "weat50s2a5",
+        "weat50s2a2.5",
+        "weat50s2a0",
+        "weat50s1800a5",
+        "weat50s1800a2.5",
+        "weat50s1800a0",
+        "weat50s3599a5",
+        "weat50s3599a2.5",
+        "weat50s3599a0",
+        "weat50s3600a5",
+        "weat50s3600a2.5",
+        "weat50s3600a0",
+        "weat25s1a5",
+        "weat25s1a2.5",
+        "weat25s1a0",
+        "weat25s2a5",
+        "weat25s2a2.5",
+        "weat25s2a0",
+        "weat25s1800a5",
+        "weat25s1800a2.5",
+        "weat25s1800a0",
+        "weat25s3599a5",
+        "weat25s3599a2.5",
+        "weat25s3599a0",
+        "weat25s3600a5",
+        "weat25s3600a2.5",
+        "weat25s3600a0",
+        "weat100s1a5",
+        "weat100s1a2.5",
+        "weat100s1a0",
+        "weat100s2a5",
+        "weat100s2a2.5",
+        "weat100s2a0",
+        "weat100s1800a5",
+        "weat100s1800a2.5",
+        "weat100s1800a0",
+        "weat100s3599a5",
+        "weat100s3599a2.5",
+        "weat100s3599a0",
+        "weat100s3600a5",
+        "weat100s3600a2.5",
+        "weat100s3600a0"
+      ]
+    },
+    {
+      "id": "PyrEat",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "pyeat{parts}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 10,
+            "lo": 2,
+            "type": "int"
+          },
+          "name": "parts"
+        }
+      ],
+      "prefix": "pyeat",
+      "samples": [
+        "pyeat2",
+        "pyeat3",
+        "pyeat6",
+        "pyeat9",
+        "pyeat10"
+      ]
+    },
+    {
+      "id": "PyrFresh",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "pyfresh{parts}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 12,
+            "lo": 2,
+            "type": "int"
+          },
+          "name": "parts"
+        }
+      ],
+      "prefix": "pyfresh",
+      "samples": [
+        "pyfresh2",
+        "pyfresh3",
+        "pyfresh7",
+        "pyfresh11",
+        "pyfresh12"
+      ]
+    },
+    {
+      "id": "PyrReinstall",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "pyre{n}u{u3}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 10,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "n"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": 3,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "u3"
+        }
+      ],
+      "prefix": "pyre",
+      "samples": [
+        "pyre1u1",
+        "pyre1u2",
+        "pyre1u3",
+        "pyre2u1",
+        "pyre2u2",
+        "pyre2u3",
+        "pyre5u1",
+        "pyre5u2",
+        "pyre5u3",
+        "pyre9u1",
+        "pyre9u2",
+        "pyre9u3",
+        "pyre10u1",
+        "pyre10u2",
+        "pyre10u3"
+      ]
+    },
+    {
+      "id": "PyrReinstall",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "pyre{n}w{u12}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 10,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "n"
+        },
+        {
+          "dom": {
+            "excl": [
+              4,
+              8,
+              12
+            ],
+            "hi": 12,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "u12"
+        }
+      ],
+      "prefix": "pyre",
+      "samples": [
+        "pyre1w1",
+        "pyre1w2",
+        "pyre1w6",
+        "pyre1w11",
+        "pyre2w1",
+        "pyre2w2",
+        "pyre2w6",
+        "pyre2w11",
+        "pyre5w1",
+        "pyre5w2",
+        "pyre5w6",
+        "pyre5w11",
+        "pyre9w1",
+        "pyre9w2",
+        "pyre9w6",
+        "pyre9w11",
+        "pyre10w1",
+        "pyre10w2",
+        "pyre10w6",
+        "pyre10w11"
+      ]
+    },
+    {
+      "id": "PyrNewWall",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "pynw{k}u{u3}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 9,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "k"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": 3,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "u3"
+        }
+      ],
+      "prefix": "pynw",
+      "samples": [
+        "pynw1u1",
+        "pynw1u2",
+        "pynw1u3",
+        "pynw2u1",
+        "pynw2u2",
+        "pynw2u3",
+        "pynw5u1",
+        "pynw5u2",
+        "pynw5u3",
+        "pynw8u1",
+        "pynw8u2",
+        "pynw8u3",
+        "pynw9u1",
+        "pynw9u2",
+        "pynw9u3"
+      ]
+    },
+    {
+      "id": "PyrNewWall",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "pynw{k}w{u12}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 9,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "k"
+        },
+        {
+          "dom": {
+            "excl": [
+              4,
+              8,
+              12
+            ],
+            "hi": 12,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "u12"
+        }
+      ],
+      "prefix": "pynw",
+      "samples": [
+        "pynw1w1",
+        "pynw1w2",
+        "pynw1w6",
+        "pynw1w11",
+        "pynw2w1",
+        "pynw2w2",
+        "pynw2w6",
+        "pynw2w11",
+        "pynw5w1",
+        "pynw5w2",
+        "pynw5w6",
+        "pynw5w11",
+        "pynw8w1",
+        "pynw8w2",
+        "pynw8w6",
+        "pynw8w11",
+        "pynw9w1",
+        "pynw9w2",
+        "pynw9w6",
+        "pynw9w11"
+      ]
+    },
+    {
+      "id": "HalfStop",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halfstop",
+      "params": [],
+      "prefix": "halfstop",
+      "samples": [
+        "halfstop"
+      ]
+    },
+    {
+      "id": "HalfStop",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halfstopf1",
+      "params": [],
+      "prefix": "halfstop",
+      "samples": [
+        "halfstopf1"
+      ]
+    },
+    {
+      "id": "HalfStop",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halfstopf3",
+      "params": [],
+      "prefix": "halfstop",
+      "samples": [
+        "halfstopf3"
+      ]
+    },
+    {
+      "id": "HalfStop",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halfstopg{q8}",
+      "params": [
+        {
+          "dom": {
+            "excl": [
+              2,
+              4,
+              6
+            ],
+            "hi": 7,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "q8"
+        }
+      ],
+      "prefix": "halfstop",
+      "samples": [
+        "halfstopg1",
+        "halfstopg7"
+      ]
+    },
+    {
+      "id": "HalfLevel",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halflevel",
+      "params": [],
+      "prefix": "halflevel",
+      "samples": [
+        "halflevel"
+      ]
+    },
+    {
+      "id": "HalfLevel",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halflevelf1",
+      "params": [],
+      "prefix": "halflevel",
+      "samples": [
+        "halflevelf1"
+      ]
+    },
+    {
+      "id": "HalfLevel",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halflevelf3",
+      "params": [],
+      "prefix": "halflevel",
+      "samples": [
+        "halflevelf3"
+      ]
+    },
+    {
+      "id": "HalfLevel",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "halflevelg{q8}",
+      "params": [
+        {
+          "dom": {
+            "excl": [
+              2,
+              4,
+              6
+            ],
+            "hi": 7,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "q8"
+        }
+      ],
+      "prefix": "halflevel",
+      "samples": [
+        "halflevelg1",
+        "halflevelg7"
+      ]
+    },
+    {
+      "id": "TakeSched",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "tsl{g10}t{t4}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 99,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "g10"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": 4,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "t4"
+        }
+      ],
+      "prefix": "tsl",
+      "samples": [
+        "tsl1t1",
+        "tsl1t2",
+        "tsl1t3",
+        "tsl1t4",
+        "tsl2t1",
+        "tsl2t2",
+        "tsl2t3",
+        "tsl2t4",
+        "tsl50t1",
+        "tsl50t2",
+        "tsl50t3",
+        "tsl50t4",
+        "tsl98t1",
+        "tsl98t2",
+        "tsl98t3",
+        "tsl98t4",
+        "tsl99t1",
+        "tsl99t2",
+        "tsl99t3",
+        "tsl99t4"
+      ]
+    },
+    {
+      "id": "TakeSchedX",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "tslx{g8}t{t16}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 64,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "g8"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": 16,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "t16"
+        }
+      ],
+      "prefix": "tslx",
+      "samples": [
+        "tslx1t1",
+        "tslx1t2",
+        "tslx1t8",
+        "tslx1t15",
+        "tslx1t16",
+        "tslx2t1",
+        "tslx2t2",
+        "tslx2t8",
+        "tslx2t15",
+        "tslx2t16",
+        "tslx32t1",
+        "tslx32t2",
+        "tslx32t8",
+        "tslx32t15",
+        "tslx32t16",
+        "tslx63t1",
+        "tslx63t2",
+        "tslx63t8",
+        "tslx63t15",
+        "tslx63t16",
+        "tslx64t1",
+        "tslx64t2",
+        "tslx64t8",
+        "tslx64t15",
+        "tslx64t16"
+      ]
+    },
+    {
+      "id": "Converge",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "conv{tol}a{a_bps}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 16,
+            "lo": 0,
+            "type": "int"
+          },
+          "name": "tol"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "a_bps"
+        }
+      ],
+      "prefix": "conv",
+      "samples": [
+        "conv0a1",
+        "conv0a2",
+        "conv0a3",
+        "conv0a5",
+        "conv0a6",
+        "conv1a1",
+        "conv1a2",
+        "conv1a3",
+        "conv1a5",
+        "conv1a6",
+        "conv8a1",
+        "conv8a2",
+        "conv8a3",
+        "conv8a5",
+        "conv8a6",
+        "conv15a1",
+        "conv15a2",
+        "conv15a3",
+        "conv15a5",
+        "conv15a6",
+        "conv16a1",
+        "conv16a2",
+        "conv16a3",
+        "conv16a5",
+        "conv16a6"
+      ]
+    },
+    {
+      "id": "NoStop",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "nostop{x2}",
+      "params": [
+        {
+          "dom": {
+            "excl": [
+              3
+            ],
+            "hi": 4,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "x2"
+        }
+      ],
+      "prefix": "nostop",
+      "samples": [
+        "nostop1",
+        "nostop2",
+        "nostop4"
+      ]
+    },
+    {
+      "id": "NoStop",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "nostopx{x8}",
+      "params": [
+        {
+          "dom": {
+            "excl": [
+              4,
+              8,
+              16
+            ],
+            "hi": 64,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "x8"
+        }
+      ],
+      "prefix": "nostop",
+      "samples": [
+        "nostopx1",
+        "nostopx2",
+        "nostopx32",
+        "nostopx63",
+        "nostopx64"
+      ]
+    },
+    {
+      "id": "Wall2",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "wall2",
+      "params": [],
+      "prefix": "wall2",
+      "samples": [
+        "wall2"
+      ]
+    },
+    {
+      "id": "Wall2",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "wall2x",
+      "params": [],
+      "prefix": "wall2",
+      "samples": [
+        "wall2x"
+      ]
+    },
+    {
+      "id": "Wall2",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "wall20",
+      "params": [],
+      "prefix": "wall2",
+      "samples": [
+        "wall20"
+      ]
+    },
+    {
+      "id": "Wall2",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "wall2m{n}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 3,
+            "lo": 2,
+            "type": "int"
+          },
+          "name": "n"
+        }
+      ],
+      "prefix": "wall2",
+      "samples": [
+        "wall2m2",
+        "wall2m3"
+      ]
+    },
+    {
+      "id": "Wall2",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "wall2p{n}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 3,
+            "lo": 2,
+            "type": "int"
+          },
+          "name": "n"
+        }
+      ],
+      "prefix": "wall2",
+      "samples": [
+        "wall2p2",
+        "wall2p3"
+      ]
+    },
+    {
+      "id": "Chase",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "chase{ms}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "ms"
+        }
+      ],
+      "prefix": "chase",
+      "samples": [
+        "chase1",
+        "chase2",
+        "chase3",
+        "chase5",
+        "chase6"
+      ]
+    },
+    {
+      "id": "Tape",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "tape{w}q{q}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "w"
+        },
+        {
+          "dom": {
+            "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "q"
+        }
+      ],
+      "prefix": "tape",
+      "samples": [
+        "tape1q5",
+        "tape1q2.5",
+        "tape2q5",
+        "tape2q2.5",
+        "tape3q5",
+        "tape3q2.5",
+        "tape5q5",
+        "tape5q2.5",
+        "tape6q5",
+        "tape6q2.5"
+      ]
+    },
+    {
+      "id": "Tape",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "tape{w}qp",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "w"
+        }
+      ],
+      "prefix": "tape",
+      "samples": [
+        "tape1qp",
+        "tape2qp",
+        "tape3qp",
+        "tape5qp",
+        "tape6qp"
+      ]
+    },
+    {
+      "id": "Cxl",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "cxl{w}q{q}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "w"
+        },
+        {
+          "dom": {
+            "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
+            "lo_open": true,
+            "type": "real"
+          },
+          "name": "q"
+        }
+      ],
+      "prefix": "cxl",
+      "samples": [
+        "cxl1q5",
+        "cxl1q2.5",
+        "cxl2q5",
+        "cxl2q2.5",
+        "cxl3q5",
+        "cxl3q2.5",
+        "cxl5q5",
+        "cxl5q2.5",
+        "cxl6q5",
+        "cxl6q2.5"
+      ]
+    },
+    {
+      "id": "Cxl",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "cxl{w}qp",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "w"
+        }
+      ],
+      "prefix": "cxl",
+      "samples": [
+        "cxl1qp",
+        "cxl2qp",
+        "cxl3qp",
+        "cxl5qp",
+        "cxl6qp"
+      ]
+    }
+  ],
+  "schema": 1
+}

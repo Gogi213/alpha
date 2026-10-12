@@ -343,6 +343,7 @@ pub fn catalog_json() -> Value {
                 "prefix": m.prefix,
                 "name_template": m.name_template,
                 "is_r2": m.is_r2,
+                "samples": m.sample_names(),
                 "params": m.params.iter().map(|p| json!({"name": p.name, "dom": p.dom.to_json()})).collect::<Vec<_>>(),
             })
         })
