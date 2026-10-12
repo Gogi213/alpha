@@ -7,7 +7,7 @@ ctx — ленивые загрузчики по месяцу (ctx.signals/round
 Ветвления по номеру Г нет: плагин выбирается по --mechanic. Закрытия — JSON portfolio-sim --closes-out: вариант → период → потолок →
 [[мс, $], ...]. Выход — CSV «до/после» на (вариант, период, потолок, точка сетки). Точка вне домена плагина — отказ, не молчание.
   closure_mech.py --closes closes.json --mechanic g124 [--grid 'q=90,95;D=1,2'] --out out.csv   (--grid пуст = вся сетка домена)"""
-import argparse, csv, glob, importlib, itertools, json, os, subprocess, sys
+import argparse, csv, glob, importlib, itertools, json, os, subprocess, sys, time
 
 
 KINDS = ("closes", "keep", "rounds", "report")
@@ -92,6 +92,30 @@ class Ctx:
         with open(path, encoding="utf-8") as f:
             return {(int(r["arm_ms"]), r["price_tick"]): r for r in csv.DictReader(f) if r["side"] == "bid"}
 
+    def wall_deaths(self, sym):
+        """Снятия стен монеты по всей истории дома: {(price_tick, birth_ms): disarm_ms} для side=bid, disarm_reason=level_death (S1 Г-38)."""
+        self._need("approaches")
+        out = {}
+        for path in sorted(glob.glob(os.path.join(self.study, "approaches", "D20", "20*", f"approaches-{sym}.csv"))):
+            with open(path, encoding="utf-8") as f:
+                for r in csv.DictReader(f):
+                    if r["side"] == "bid" and r["disarm_reason"] == "level_death":
+                        out[(r["price_tick"], r["birth_ms"])] = int(r["disarm_ms"])
+        return out
+
+    def regime_minutes(self):
+        """btc_ret_4h_bps по минутам месяца: {minute_ms: float|None}; хвост прошлых суток в файле дня отбрасывается (как _load_regime_dir t32-epcap)."""
+        self._need("regime")
+        out = {}
+        for path in sorted(glob.glob(os.path.join(self.epoch_study, "regime", "20*.csv"))):
+            day = os.path.basename(path)[:-4]
+            with open(path, encoding="utf-8") as f:
+                for r in csv.DictReader(f):
+                    ms = int(r["minute_ms"])
+                    if time.strftime("%Y-%m-%d", time.gmtime(ms // 1000)) == day:
+                        out[ms] = float(r["btc_ret_4h_bps"]) if r["btc_ret_4h_bps"] not in ("", None) else None
+        return out
+
     def regime(self, day):
         self._need("regime")
         with open(os.path.join(self.epoch_study, "regime", f"{day}.csv"), encoding="utf-8") as f:
@@ -169,7 +193,8 @@ def keep_data(ctx):
             continue
         k = (s["symbol"], s["day_utc"], s["form"], s["signal_index"])
         data.append({**s, "net_bps": out[k]["net_bps"] if k in out else "", "reason": out[k]["reason"] if k in out else "",
-                     "round_exit_ns": out[k].get("exit_ns", "") if k in out else ""})
+                     "round_exit_ns": out[k].get("exit_ns", "") if k in out else "",
+                     "entry_vwap": out[k].get("entry_vwap", "") if k in out else "", "exit_px": out[k].get("exit_px", "") if k in out else ""})
     return data
 
 

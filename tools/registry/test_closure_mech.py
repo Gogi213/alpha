@@ -103,6 +103,54 @@ class T(unittest.TestCase):
         ids = lambda p: [k[3] for k in g.run(data, None, pause=p)]
         self.assertEqual(ids(1), ["0", "1", "2"]); self.assertEqual(ids(5), ["0", "2"])   # пауза 5: 12 < 10+5, сигнал 1 снят; сигнал 2 вне паузы
 
+    def test_h9r_s1_kfail_bans_wall_until_death_and_ignores_breakeven(self):
+        from closures import p07_h9r_fail as g
+        m = 60 * 1_000_000_000
+        class C:
+            def approaches(self, sym, day):
+                return {(t * 60_000, "7"): {"birth_ms": "5"} for t in (0, 20, 40, 60, 80)}
+            def wall_deaths(self, sym): return {("7", "5"): 70 * 60_000}   # стена снята на 70-й мин
+        mk = lambda i, t, ex, reason, px: {"symbol": "A", "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(t * m), "step": "x",
+                                           "idle_ns": str(ex * m), "residual": "", "round_exit_ns": str(ex * m), "reason": reason, "entry_vwap": "100", "exit_px": px, "price_tick": "7"}
+        data = [mk(0, 0, 10, "stop", "99"), mk(1, 20, 30, "stop", "100"), mk(2, 40, 50, "stop", "99"), mk(3, 60, 65, "take", "101"), mk(4, 80, 90, "take", "101")]
+        ids = lambda c: [k[3] for k in g.run(data, C(), cell=c)]
+        self.assertEqual(ids("s1k1"), ["0", "4"])        # после неудачи 0 (выход 10) режутся 1, 2, 3 до снятия на 70-й мин; 4 — после снятия
+        self.assertEqual(ids("s1k2"), ["0", "1", "2", "4"])   # 1 — безубыток (не неудача); неудач 2 нет до сигнала 3, сигнал 3 режется (2 неудачи: 0 и 2)
+
+    def test_h9r_s3_episode_window_and_ban(self):
+        from closures import p07_h9r_fail as g
+        mn = 60_000
+        reg = {t * mn: (-50.0 if 10 <= t <= 20 or 150 <= t <= 160 else 0.0) for t in range(0, 400)}
+        self.assertEqual(g.episodes(reg, 60 * mn), [(10 * mn, 20 * mn), (150 * mn, 160 * mn)])
+        self.assertEqual(g.episodes(reg, 150 * mn), [(10 * mn, 160 * mn)])   # разрыв 130 мин склеен окном 150
+        m = 60 * 1_000_000_000
+        class C:
+            def regime_minutes(self): return reg
+        mk = lambda i, t, ex, reason, px: {"symbol": "A", "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(t * m), "step": "x",
+                                           "idle_ns": str(ex * m), "residual": "", "round_exit_ns": str(ex * m), "reason": reason, "entry_vwap": "100", "exit_px": px, "price_tick": "7"}
+        data = [mk(0, 15, 18, "stop", "99"), mk(1, 30, 35, "take", "101"), mk(2, 90, 95, "take", "101"), mk(3, 200, 205, "take", "101")]
+        ids = lambda h: [k[3] for k in g.run(data, C(), cell=f"s3h{h}")]
+        self.assertEqual(ids(1), ["0", "2", "3"])       # запрет с 18 до конца эпизода (20) + 1 ч = 80-й мин: режется только 1
+        self.assertEqual(ids(2), ["0", "3"])            # до 20+120 = 140-й мин: режутся 1 и 2
+
+    def test_h10_cap_counts_open_positions_across_pool(self):
+        from closures import p07_h10_cap as g
+        m = 60 * 1_000_000_000
+        mk = lambda s, i, t, ex: {"symbol": s, "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(t * m), "step": "x",
+                                  "idle_ns": str(ex * m), "residual": "", "round_exit_ns": str(ex * m)}
+        data = [mk("A", 0, 0, 10), mk("B", 1, 1, 10), mk("C", 2, 2, 10), mk("C", 3, 10, 12), mk("A", 4, 5, 6)]
+        ids = lambda c: [k[3] for k in g.run(data, None, cap=c)]
+        self.assertEqual(ids(2), ["0", "1", "3"])        # C в 2 — третья одновременная; в 10 выходы освободили (<= t0); A в 5 занята монета (idle 10)
+        self.assertEqual(ids(20), ["0", "1", "2", "3"])  # 4 — A занята до 10-й мин
+
+    def test_h14_delta_rules(self):
+        from closures import p07_h14_approach_no as g
+        class C:
+            def approaches(self, sym, day): return {(1000 * (i + 1), "7"): {"approach_index": str(i)} for i in range(12)}
+        data = [{"symbol": "A", "day_utc": "d", "form": "f", "signal_index": str(i), "t0_ns": str(1000 * (i + 1) * 1_000_000), "price_tick": "7"} for i in range(12)]
+        ids = lambda r: [int(k[3]) for k in g.run(data, C(), rule=r)]
+        self.assertEqual(ids("k4"), [0, 1, 2, 3]); self.assertEqual(ids("n5"), list(range(4, 12))); self.assertEqual(ids("n11"), [10, 11])
+
     def test_g26_buckets_causal(self):
         from closures import g26_vol_family as g
         day0 = g._day_start_ms("2026-03-02")

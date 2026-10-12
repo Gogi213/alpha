@@ -5,7 +5,9 @@ retries-2026-09-27). Какая Г какой клетке соответств�
 NAME = "p07_h14"
 KIND, SOURCES = "keep", ("approaches",)
 # e<k> (Г-138, спека: k {1,2,3,4,5,6,8,10}, 10 = «10+»): ровно k-й подход (e10 — десятый и дальше)
-PARAMS = {"rule": ("k1", "k2", "k3", "n2", "n3", "n4", "e1", "e2", "e3", "e4", "e5", "e6", "e8", "e10")}
+# k<K> (Г-142, K {1..6,8,10}; судья 12.10: approach_index+1 <= K); n<k_prior+1> (Г-143, k_prior {0..6,8,10}: approach_index >= k_prior; k_prior=0 = keep, контроль)
+PARAMS = {"rule": ("k1", "k2", "k3", "k4", "k5", "k6", "k8", "k10", "n2", "n3", "n4", "n5", "n6", "n7", "n9", "n11",
+                   "e1", "e2", "e3", "e4", "e5", "e6", "e8", "e10")}
 
 
 def run(data, ctx, rule):
