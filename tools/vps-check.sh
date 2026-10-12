@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Сборка и проверки рабочего дерева на VPS (13.140.29.171) — вторая дорожка работ, пока на этой машине идёт
 # своя сборка (владелец 24.09: «одна сборка здесь, вторая на VPS»; две сборки на одной машине — нельзя).
-#   tools/vps-check.sh <рабочее дерево> [test|clippy|fmt|build|all|gate|complexity] [фильтр тестов]
+#   tools/vps-check.sh <рабочее дерево> [test|testdbg|clippy|fmt|build|all|gate|complexity] [фильтр тестов]
 # Переносит отслеживаемые и новые файлы дерева (без target*/data/) архивом с сохранением времени изменения —
 # неизменённые файлы cargo не пересобирает; сборка — в отдельном target-wave2, не в каталоге сборок для дека.
 # Сборки на VPS идут по очереди: замок /opt/alpha-compute/.build.lock (его же берёт сборка бинарника для дека).
@@ -50,12 +50,14 @@ scp -q "${KEY[@]}" "$ARC" "$HOST:$ARCR"
 rm -f "$ARC"
 # cargo-фичи (TK-065: R2 — `VPS_FEATURES=r2`); пусто = боевой набор без фич
 FEAT="${VPS_FEATURES:+--features $VPS_FEATURES}"
-# fmt + clippy -D warnings + тесты с набором фич $1 (пусто — без фич)
+# fmt + clippy -D warnings + как CI (TK-211): строгие линты и бюджет (lint-gate.sh), тесты с debug_assert и overflow-checks (release-профиль, свой target) с набором фич $1 (пусто — без фич)
 all_cmd() {
-  echo "set -o pipefail; cargo fmt --check 2>&1 $TL10 && cargo clippy --release $1 --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL15 && cargo test --release $1 --target-dir $TGT -j $J 2>&1 $GREP_T"
+  echo "set -o pipefail; cargo fmt --check 2>&1 $TL10 && cargo clippy --release $1 --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL15 && bash tools/lint-gate.sh $TGT-lint 2>&1 $TL15 && CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true cargo test --release $1 --target-dir $TGT-dbg -j $J 2>&1 $GREP_T"
 }
 case "$WHAT" in
   test)  CMD="cargo test --release $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
+  # TK-211: как CI (GC/Quality) — debug: overflow-checks и debug_assert включены; release их прячет
+  testdbg) CMD="cargo test $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
   clippy) CMD="cargo clippy --release $FEAT --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL25" ;;
   fmt)    CMD="cargo fmt --check 2>&1 $TL25" ;;
   build)  CMD="cargo build --release $FEAT --target-dir $TGT -j $J 2>&1 $TL5" ;;
