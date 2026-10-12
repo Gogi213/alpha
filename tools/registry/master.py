@@ -747,8 +747,11 @@ def _table(header, rows):
     return "\n".join(["| " + " | ".join(header) + " |", "|" + "---|" * len(header)] + ["| " + " | ".join(esc(x) for x in r) + " |" for r in rows])
 
 
+HYP_ONLY = "coalesce(json_extract(ext, '$.class'), 'hyp') <> 'method'"  # В-228: методы (Г-01/02/03, М-04) — не гипотезы
+
+
 def hyp_status(c, have=None):
-    """{гипотеза: (статус, причина)} по ВСЕМ гипотезам БД (TK-208): ровно одна строка на гипотезу, сумма = числу гипотез."""
+    """{гипотеза: (статус, причина)} по ВСЕМ гипотезам БД (TK-208, без методов В-228): одна строка на гипотезу, сумма = числу гипотез."""
     plan = {r[0] for r in c.execute("select distinct hyp from plan_cells")}
     eng = {}
     for h, e, role in c.execute("select hyp, engine, role from hyp_axes order by rowid"):
@@ -756,7 +759,7 @@ def hyp_status(c, have=None):
     nh = {h: [r[0] for r in c.execute("select distinct cell_hash from plan_cells where hyp=?", (h,))] for h in plan}
     have = have if have is not None else have_hashes()
     out = {}
-    for h, ext in c.execute("select id, ext from hypotheses order by id"):
+    for h, ext in c.execute(f"select id, ext from hypotheses where {HYP_ONLY} order by id"):
         ex = json.loads(ext or "{}")
         st, pkg = str(ex.get("status_pool_0925", "")), str(ex.get("package", ""))
         e, role = eng.get(h, (None, ""))
@@ -790,7 +793,10 @@ def render(kind, date=None, outdir=FIND):
         params = [r[0] for r in c.execute("select name from params order by rowid")]
         hdr = ["гипотеза", "стек"] + params + ["хешей в сетке", "посчитано", "осталось"]
         rows = []
+        meth = {r[0] for r in c.execute(f"select id from hypotheses where not ({HYP_ONLY})")}
         for hyp, stack, ver, prot in c.execute("select distinct hyp, stack, version, protocol from hyp_axes order by hyp"):
+            if hyp in meth:
+                continue
             sv, _ = stack_values(c, stack, ver or None)
             ax = {a[0]: a[1] for a in _axes(c, prot, hyp)}
             hs = [r[0] for r in c.execute("select distinct cell_hash from plan_cells where protocol=? and hyp=?", (prot, hyp))]
@@ -804,9 +810,14 @@ def render(kind, date=None, outdir=FIND):
         for prot in protos:
             months = int(rules_of(c, prot)["months"])
             for k in sorted(r[0] for r in c.execute("select distinct fraction from plan_cells where protocol=?", (prot,))):
-                hs = c.execute("select hyp, cell_hash from plan_cells where protocol=? and fraction=?", (prot, k)).fetchall()
+                hs = c.execute(f"select hyp, cell_hash from plan_cells where protocol=? and fraction=? and hyp not in (select id from hypotheses where not ({HYP_ONLY}))", (prot, k)).fetchall()
                 done = [h for _, h in hs if h in have]
                 rows.append([prot, f"F{k}", len({y for y, _ in hs}), len(hs), len(done), len(hs) - len(done), sum(len(have[h]) for h in done), (len(hs) - len(done)) * months])
+        mhs = c.execute(f"select hyp, cell_hash from plan_cells where hyp in (select id from hypotheses where not ({HYP_ONLY}))").fetchall()
+        mdone = [h for _, h in mhs if h in have]
+        nm = c.execute(f"select count(*) from hypotheses where not ({HYP_ONLY})").fetchone()[0]
+        rows.append(["методы (В-228)", "-", f"{nm} методов", len(mhs), len(mdone), len(mhs) - len(mdone),
+                     sum(len(have[h]) for h in mdone), "-"])  # Г-01/02/03 — 0 хешей (строка с нулями, не пропуск)
         title, name = "Покрытие плана (В-224): хеши клеток × месяц", "hyp-coverage"
     elif kind == "status":
         st = hyp_status(c, have)
@@ -814,6 +825,8 @@ def render(kind, date=None, outdir=FIND):
         hdr = ["статус", "гипотез", "какие"]
         rows = [[k, n, ", ".join(h for h, v in st.items() if v[0] == k)] for k, n in sorted(cnt.items())]
         rows.append(["ИТОГО", sum(cnt.values()), ""])
+        meths = [r[0] for r in c.execute(f"select id from hypotheses where not ({HYP_ONLY}) order by id")]
+        rows.append([f"Методы ({len(meths)})", len(meths), ", ".join(meths)])
         title, name = f"Все гипотезы Летописи по статусу ({sum(cnt.values())}), из БД", "hyp-status"
     else:
         sys.exit("render: matrix | coverage | status")
