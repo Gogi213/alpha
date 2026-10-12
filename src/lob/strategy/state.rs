@@ -55,6 +55,10 @@ pub struct StrategyState {
     /// дожидаясь биржи. Счётчик назван в артефактах (`n_exit_cancel_timeout`):
     /// предохранитель, который никто не видит, — это молчаливая потеря.
     pub(super) exit_cancel_timeouts: u64,
+    /// Г-88: автомат закола/возврата, его `t0` и флаг «вход разрешён» (после ожидания on_idle ставит вход как обычно).
+    pub(super) reclaim: Option<crate::lob::reclaim::ReclaimWatch>,
+    pub(super) reclaim_t0: Option<i64>,
+    pub(super) reclaim_ready: bool,
     /// F8c (К1): «сироты» — заявки, чьё снятие не подтвердилось за потолок
     /// `CANCEL_WAIT_NS`. Круг они не держат (потолок его освободил), но из
     /// рынка их никто не убрал: пока сирота стоит, снятие повторяется на
@@ -254,6 +258,9 @@ impl StrategyState {
             exit_qty: 0.0,
             exit_accounted: 0.0,
             exit_cancel_timeouts: 0,
+            reclaim: None,
+            reclaim_t0: None,
+            reclaim_ready: false,
             r2: match plan {
                 TradePlan::Bounce { pyramid, .. } if pyramid.on() => Some(R2Bufs::boxed()),
                 _ => None,

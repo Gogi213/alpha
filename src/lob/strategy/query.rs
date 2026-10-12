@@ -150,7 +150,7 @@ impl StrategyState {
             }
         };
         match self.phase {
-            Phase::Idle => None,
+            Phase::Idle | Phase::ReclaimWait => None,
             Phase::Holding { entry_ns } | Phase::ExitPending { entry_ns, .. } => {
                 Some(held(entry_ns))
             }
