@@ -93,6 +93,18 @@ class T(unittest.TestCase):
         self.assertEqual(ids("k1"), ["0", "2"]); self.assertEqual(ids("k3"), ["0", "1", "2"])
         self.assertEqual(ids("n2"), ["1", "2"]); self.assertEqual(ids("n4"), ["2"])
 
+    def test_g26_buckets_causal(self):
+        from closures import g26_vol_family as g
+        day0 = g._day_start_ms("2026-03-02")
+        sig = [(day0 - (300 - i) * 60000, float(i)) for i in range(300)] + [(day0 + 60000, 1000.0), (day0 + 120000, 0.5)]
+        class C:
+            def sigma(self, sym): return sig
+        mk = lambda i, ms: {"symbol": "A", "day_utc": "2026-03-02", "form": "f", "signal_index": str(i), "t0_ns": str((day0 + ms) * 1_000_000)}
+        data = [mk(0, 61000), mk(1, 121000)]   # σ 1000 (верхняя), 0.5 (нижняя); будущее в границы не входит
+        ids = lambda **p: [k[3] for k in g.run(data, C(), **p)]
+        self.assertEqual(ids(nq=3, bucket=2), ["0"]); self.assertEqual(ids(nq=3, bucket=0), ["1"])
+        self.assertEqual(ids(nq=3, bucket=1), []); self.assertEqual(ids(nq=3, bucket=4), [])
+
     def test_ctx_study_paths_by_month(self):
         c = closure_mech.Ctx("2026-03", ("sigma",))
         self.assertTrue(c.study.endswith("/tk046/mar/study") and c.epoch_study.endswith("/mar/home/alpha/epochs/e-mar/study"))
