@@ -6,10 +6,11 @@ usd_min: usd = price_tick · tick_size · size_at_arm · qty_step — те же 
 ctx_q: значения осей pool1h / btc1h / btc4h (bps) на минуте t0 (floor до минуты, как `touch_contexts`) из <eNN>/study/regime/<сутки>.csv; пороги страт q20/40/60/80 (квинтили).
 Окно — расширяющееся (как p12-r2b-thresholds.py): месяц m — сигналы B1 всех ПРЕДЫДУЩИХ полных месяцев; январь — по самому январю. Квантиль — ближайший ранг.
 Нет size / price_tick / значения оси — сигнал вне популяции порога (счётчик в выходе).
-behind_min: depth_behind_lots в lvl/ и signals нет (подходы D20 удалены) — здесь НЕ считается (нужен реплей, tk064-lvl.sh с depth_behind_lots).
+behind_min (Судья 04:30): behind = depth_behind_lots·100/size_at_arm (поля Rust-допуска) из уцелевших подходов D20
+<tk046>/<мес>/home/alpha/epochs/e-<мес>/study/approaches/D20/<сутки>/approaches-<SYM>.csv, ключ (side=bid, arm_ms=t0, price_tick из signals); читать только юнитом alsched.
 
 Запуск: tk202-thresholds.py <b1keys.csv> <pool /data/tk064/pool> <корень tk046 /data/tk046> <instruments.csv> <выход.json> [--sample-day <сутки>]
-Выход: {"usd": {"ГГГГ-ММ": {"q": T, ...}}, "ctx": {"<ось>": {"ГГГГ-ММ": {"q20": T, ...}}}, "n": {...}}"""
+Выход: {"usd": {"ГГГГ-ММ": {"q": T, ...}}, "behind": {то же, целые %}, "ctx": {"<ось>": {"ГГГГ-ММ": {"q20": T, ...}}}, "n": {...}}"""
 import csv, json, math, sys
 from collections import defaultdict
 
@@ -35,13 +36,13 @@ def main():
     for r in csv.DictReader(open(keys_f, encoding="utf-8")):
         keys[r["month"]].add((r["symbol"], int(r["t0_ms"])))
     inst = {r["symbol"]: (float(r["tick_size"]), float(r["qty_step"])) for r in csv.DictReader(open(inst_f, encoding="utf-8"))}
-    usd, ctx, n = {}, {a: {} for a in AXES}, {}
+    usd, behind, ctx, n = {}, {}, {a: {} for a in AXES}, {}
     for mo in sorted(keys):
         mon = MON[int(mo[5:]) - 1]
         bydays = defaultdict(set)
         for s, t in keys[mo]:
             bydays[day_of(t)].add((s, t))
-        u, c, miss = [], {a: [] for a in AXES}, defaultdict(int)
+        u, bh, c, miss = [], [], {a: [] for a in AXES}, defaultdict(int)
         for day, ks in sorted(bydays.items()):
             sig = {}
             for sub in ("signals", "signals-retry"):
@@ -63,8 +64,21 @@ def main():
                     rg[int(r["minute_ms"])] = r
             except FileNotFoundError:
                 pass
+            apr = {}
+            for s in {s for s, _ in ks}:
+                try:
+                    for r in csv.DictReader(open(f"{t46}/{mon}/home/alpha/epochs/e-{mon}/study/approaches/D20/{day}/approaches-{s}.csv", encoding="utf-8")):
+                        if r["side"] == "bid":
+                            apr[(s, int(r["arm_ms"]), int(r["price_tick"]))] = (float(r["size_at_arm"] or 0), float(r["depth_behind_lots"] or 0))
+                except FileNotFoundError:
+                    pass
             for s, t in ks:
                 pt = sig.get((s, t))
+                ap = apr.get((s, t, pt)) if pt is not None else None
+                if ap and ap[0] > 0:
+                    bh.append(ap[1] * 100 / ap[0])
+                else:
+                    miss["behind"] += 1
                 sz = lv.get((s, t, pt)) if pt is not None else None
                 if sz and sz > 0 and s in inst:
                     u.append(pt * inst[s][0] * sz * inst[s][1])
@@ -78,21 +92,25 @@ def main():
                     else:
                         miss[a] += 1
         usd[mo] = {"vals": u}
+        behind[mo] = {"vals": bh}
         for a in AXES:
             ctx[a][mo] = {"vals": c[a]}
-        n[mo] = {"signals": len(keys[mo]), "usd": len(u), **{a: len(c[a]) for a in AXES}, "miss": dict(miss)}
+        n[mo] = {"signals": len(keys[mo]), "usd": len(u), "behind": len(bh), **{a: len(c[a]) for a in AXES}, "miss": dict(miss)}
     months = sorted(keys)
-    res_usd, res_ctx = {}, {a: {} for a in AXES}
+    res_usd, res_beh, res_ctx = {}, {}, {a: {} for a in AXES}
     for i, mo in enumerate(months):
         win = months[:i] if i else months[:1]   # январь — по самому январю
         uv = [v for m in win for v in usd[m]["vals"]]
         if uv:
             res_usd[mo] = {str(q): round(rank(uv, q)) for q in QS}
+        bv = [v for m in win for v in behind[m]["vals"]]
+        if bv:
+            res_beh[mo] = {str(q): round(rank(bv, q)) for q in QS}
         for a in AXES:
             av = [v for m in win for v in ctx[a][m]["vals"]]
             if av:
                 res_ctx[a][mo] = {f"q{q}": round(rank(av, q), 2) for q in QUINT}
-    json.dump({"usd": res_usd, "ctx": res_ctx, "n": n}, open(out_f, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump({"usd": res_usd, "behind": res_beh, "ctx": res_ctx, "n": n}, open(out_f, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(json.dumps(n, ensure_ascii=False))
 
 
