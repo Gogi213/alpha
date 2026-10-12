@@ -83,11 +83,20 @@ class Ctx:
         with open(BTC_1M, encoding="utf-8") as f:
             return [(int(r["minute_ms"]), float(r["close"])) for r in csv.DictReader(f)]
 
+    def _approach_paths(self, sym, day="20*"):
+        """Файлы подходов D20 монеты: кэш эпохи (старые монеты; новые там символьные ссылки) и study месяца (новые монеты, TK-046) - одна монета
+        лежит в одном из двух; без эпохи 2/3 монет пула не находят стен (найдено 12.10 на H9р, п. 'fails linked 10 of 204')."""
+        out = {}
+        for root in (self.epoch_study, self.study):
+            for path in sorted(glob.glob(os.path.join(root, "approaches", "D20", day, f"approaches-{sym}.csv"))):
+                out.setdefault(os.path.basename(os.path.dirname(path)), path)
+        return out
+
     def approaches(self, sym, day):
         """Подходы D20 монеты за сутки: {(arm_ms, price_tick): строка} только side=bid (связь с сигналом B1 — p07-h9r-h14.py)."""
         self._need("approaches")
-        path = os.path.join(self.study, "approaches", "D20", day, f"approaches-{sym}.csv")
-        if not os.path.exists(path):
+        path = self._approach_paths(sym, day).get(day)
+        if path is None:
             return {}
         with open(path, encoding="utf-8") as f:
             return {(int(r["arm_ms"]), r["price_tick"]): r for r in csv.DictReader(f) if r["side"] == "bid"}
@@ -96,7 +105,7 @@ class Ctx:
         """Снятия стен монеты по всей истории дома: {(price_tick, birth_ms): disarm_ms} для side=bid, disarm_reason=level_death (S1 Г-38)."""
         self._need("approaches")
         out = {}
-        for path in sorted(glob.glob(os.path.join(self.study, "approaches", "D20", "20*", f"approaches-{sym}.csv"))):
+        for path in self._approach_paths(sym).values():
             with open(path, encoding="utf-8") as f:
                 for r in csv.DictReader(f):
                     if r["side"] == "bid" and r["disarm_reason"] == "level_death":
