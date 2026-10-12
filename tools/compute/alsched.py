@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, RUNTIME_BACKSTOP_K)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, RUNTIME_BACKSTOP_K, FREEZE_ALERT_S, FREEZE_CEIL_S)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -119,6 +119,8 @@ class Core:
         for j in self.jobs.values():
             if j["state"] == "queued" and be.cancelled(j):
                 j.update(state="done", rc=-15, t_end=now, reason="снят из очереди: " + (be.cancel_why(j) if hasattr(be, "cancel_why") else "cancel"))
+                if hasattr(be, "write_rc"):                      # TK-223 п.4: ожидания rc/<id> срабатывают и на отмене из очереди
+                    be.write_rc(j, -15)
             elif j["state"] == "running":
                 rc = be.done(j)
                 if rc is not None:
@@ -257,6 +259,7 @@ class Core:
 
     def _alerts(self, now):
         self.alert_waiting(now)
+        self.alert_frozen(now)
         self.alert_underuse(now)
         self.alert_idle(now)
 
@@ -313,16 +316,42 @@ class Core:
                 vs = [j for j in self.running("prod") if j.get("unpinned") and not j.get("frozen_for")]
                 if vs:
                     v = max(vs, key=lambda j: j["t_start"])
-                    v["frozen_for"] = "hot"
+                    v["frozen_for"], v["frozen_t"] = "hot", now
+                    v["frozen_need"] = self.own_need(v, now)     # TK-223 п.1: оттайка по замеру самого задания до заморозки
                     self.be.freeze_unit(self.be.unit(v))
                     self.hot_t = now
                     self.be.alert(f"перегруз {busy:.2f}, PSI cpu {psi:.0f} %: заморожено новейшее сверх заявок {v['id']} {v['name']}")
         else:
             self.hot_t = None
             v = min(hot, key=lambda j: j["t_start"]) if hot else None
-            if v and busy * (self.ncpu - len(self.iso)) + self.need_cores(v) <= FACT_BUSY * (self.ncpu - len(self.iso)):   # оттаивать, только если влезет без нового перегруза (иначе заморозка-оттайка по кругу)
+            ncp = self.ncpu - len(self.iso)
+            if v:
+                v.setdefault("frozen_t", now)                 # после рестарта демона метки времени нет — отсчёт потолка с первого такта
+            need = (v.get("frozen_need") or self.need_cores(v)) if v else 0
+            if v and (busy * ncp + need <= FACT_BUSY * ncp or now - v["frozen_t"] > FREEZE_CEIL_S):   # потолок заморозки FREEZE_CEIL_S: не «навсегда»   # оттаивать, только если влезет без нового перегруза (иначе заморозка-оттайка по кругу)
                 v.pop("frozen_for")
+                v.pop("frozen_t", None)
                 self.be.thaw_unit(self.be.unit(v))
+
+    def own_need(self, j, now):
+        """Занятые ядра самого задания до заморозки (TK-223 п.1): выборки ЦП, иначе накопительный ЦП юнита / возраст; от 1 до заявки."""
+        sm = j.get("cpu_samples") or []
+        if len(sm) >= 2 and sm[-1][0] > sm[0][0]:
+            r = (sm[-1][1] - sm[0][1]) / (sm[-1][0] - sm[0][0])
+        elif hasattr(self.be, "job_cpu"):
+            r = self.be.job_cpu(j) / max(1.0, now - j["t_start"])
+        else:
+            return None
+        return min(j["cores"], max(1, math.ceil(r)))
+
+    def alert_frozen(self, now):
+        """TK-223 п.6: заморозка дольше FREEZE_ALERT_S — строка в alerts.log с id и тикетом (адаптер jobstate будит владельца), один раз."""
+        for j in self.running("prod"):
+            if j.get("frozen_for"):
+                j.setdefault("frozen_t", now)
+                if not j.get("frozen_alerted") and now - j["frozen_t"] > FREEZE_ALERT_S:
+                    j["frozen_alerted"] = True
+                    self.be.alert(f"ЗАМОРОЖЕНО > {FREEZE_ALERT_S // 60} мин {j['id']} {j['name']} {ticket_of(j['name'])} ({j['frozen_for']})".replace("  ", " "))
 
     def cap_iso(self):
         """Потолок prod в изолированном окне: заявленных ядер незамороженных ≤ PROD_CAP_ISO, лишнее — заморозка новейших; оттаивают по концу окна."""
@@ -338,7 +367,7 @@ class Core:
         while live and tot > PROD_CAP_ISO:
             v = live.pop()
             tot -= len(v["cpus"])
-            v["frozen_for"] = "cap"
+            v["frozen_for"], v["frozen_t"] = "cap", self.be.now()
             be.freeze_unit(be.unit(v))
             be.alert(f"потолок prod в окне ({PROD_CAP_ISO} ядер): заморожено {v['id']} {v['name']}")
 
@@ -678,6 +707,11 @@ class SystemdBackend:
             return open(f"{DIR}/cancel/{j['id']}", encoding="utf-8").read().strip() or "cancel без причины"
         except OSError as e:
             return f"cancel (причина не прочитана: {e})"
+
+    def write_rc(self, j, rc):
+        os.makedirs(f"{DIR}/rc", exist_ok=True)
+        with open(f"{DIR}/rc/{j['id']}", "w") as f:
+            f.write(f"{rc}\n")
 
     def unit(self, j):
         return ("alpha-sm-" if j["cls"] == "measure" else "tk0s-") + f"{j['name']}-{j['id']}"
@@ -1105,11 +1139,22 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
     free = NCPU - sum(len(x.get("cpus", [])) for x in jobs if x["state"] == "running")
     w = warn_for(j, free, any(x["state"] == "queued" and x["cls"] == "prod" for x in jobs))
     write_job(j)
+    kw = kind_warn(name, kind)
+    if kw:
+        print(kw, file=sys.stderr)
+        alert_line(kw)
     if kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES:
         print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер больше резерва {RESERVE_CORES} — вне резерва ждёт общей очереди (TK-220).", file=sys.stderr)
     if w:
         print(w, file=sys.stderr)
     return j
+
+
+def kind_warn(name, kind):
+    """TK-223 п.5: гейт/сборка/проверка, поданные как work, резерва ядер не получают — предупреждение при submit и строка в alerts.log."""
+    if kind == "work" and RESERVE_CORES and re.search(r"(^|[-_])(gate|build|check|fastcheck)\d*($|[-_])", name or ""):
+        return f"ПРЕДУПРЕЖДЕНИЕ: заявка {name} похожа на гейт/сборку/проверку, но подана без --kind — резерв ядер ({RESERVE_CORES}) ей не положен; добавь --kind gate|build."
+    return None
 
 
 def ps():
