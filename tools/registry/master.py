@@ -224,6 +224,7 @@ MECH_RUN = {
     "Gone": (None, {}),
     "Wall2": ("t-bid-btc4h-q1", {}),
     "Half": ("t-bid-btc4h-q1", {}),
+    "EntryLadderSigma3": ("t-bid-btc4h-q1", {}),   # запись kind=entry: имя идёт во вход клетки без суффикса выхода
     "StopSigma": (None, {}),   # запись kind=stop: имя идёт в стоп клетки, не в суффикс выхода
 }
 
@@ -278,9 +279,6 @@ def r2_exit(hyp, av, mm=None, stack_set=None):
         vals = {**fixed, **{par: g(k) * mul for k, (_, par, mul) in specs.items() if par not in ("~", "-")}}
         name, why = mech.build(mid, template=tmpl, **vals)
         return None, name, set_name or stack_set, None if name else f"{mid}: {why}"
-    if n == "95":   # другая лестница входа: ladder3x0..0.0409sw<w>, без суффикса выхода
-        w = _int_in(g("w"), range(2, 13))
-        return (f"ladder3x0..0.0409sw{w}" if w else None), "", "t-bid-btc4h-q1", None if w else "sw<w>: целое"
     return False
 
 
@@ -339,6 +337,8 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
         row = mech.match(suffix) if suffix else None
         if row and row["kind"] == "stop":   # запись каталога — стоп (s<a>): имя в стоп клетки, суффикса выхода нет
             stop, suffix = suffix, ""
+        elif row and row["kind"] == "entry":   # запись каталога — вход (лестница): имя во вход клетки, суффикса выхода нет
+            entry, suffix = suffix, ""
     ttl, early = sv["entry_ttl_s"], None
     ra = rust_axes(hyp, av, sv) if av and not r2 else False
     if ra:

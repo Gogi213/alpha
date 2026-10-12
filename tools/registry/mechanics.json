@@ -279,6 +279,31 @@
       ]
     },
     {
+      "id": "EntryLadderSigma3",
+      "kind": "entry",
+      "prefix": "ladder",
+      "name_template": "ladder3x0..0.0409sw{w}",
+      "is_r2": false,
+      "params": [
+        {
+          "name": "w",
+          "dom": {
+            "type": "int",
+            "lo": 2,
+            "hi": null,
+            "excl": []
+          }
+        }
+      ],
+      "samples": [
+        "ladder3x0..0.0409sw2",
+        "ladder3x0..0.0409sw3",
+        "ladder3x0..0.0409sw4",
+        "ladder3x0..0.0409sw6",
+        "ladder3x0..0.0409sw7"
+      ]
+    },
+    {
       "id": "None",
       "is_r2": false,
       "kind": "exit",

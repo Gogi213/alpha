@@ -71,6 +71,14 @@ class MasterTest(unittest.TestCase):
         c = master.p14_cfg("Г-13", sv, {"sigma_stop": "3/4"}, mm=mm)
         self.assertEqual(c["form"], "single-s0.75-1to1-3600-ttl1800")
 
+    def test_g95_ladder_entry_from_catalog(self):
+        """Г-95: запись EntryLadderSigma3 (kind=entry) -> лестница во вход клетки, суффикса выхода нет; w < 2 — причина."""
+        mm = {"w": "EntryLadderSigma3:w"}
+        self.assertEqual(master.r2_exit("Г-95", {"w": "5"}, mm, "S")[:3], (None, "ladder3x0..0.0409sw5", "t-bid-btc4h-q1"))
+        self.assertIsNone(master.r2_exit("Г-95", {"w": "1"}, mm, "S")[1])
+        sv = {"entry_ttl_s": 1800, "stop": "pct2", "take": "1to1", "deadline_s": 3600, "entry": "single", "set": "t-bid-btc4h-q1", "universe": "v171b"}
+        self.assertEqual(master.p14_cfg("Г-95", sv, {"w": "5"}, mm=mm)["form"], "ladder3x0..0.0409sw5-pct2-1to1-3600-ttl1800")
+
     def test_g147_touch_own_hash_no_line(self):
         """В-227 М3: Г-147 (signal touch) — хеш по варианту, отличается от B1; строки --cells нет (режим шапки)."""
         sv = {"entry_ttl_s": 1800, "stop": "pct2", "take": "1to1", "deadline_s": 3600, "entry": "single", "set": "t-bid-btc4h-q1", "universe": "v171b"}

@@ -4,7 +4,7 @@
 //! (`match ExitForm` в стратегии) не знает про каталог.
 //!
 //! Сейчас в каталоге формы выхода (`ExitForm`), стоп (`StopForm`) тейк (`TakeForm`, кроме
-//! `eat<h>x<a>`) и вход (`EntryForm`, кроме лестниц); фильтры переносятся следующими шагами пакета A. Строка = одна каноническая запись имени (`name_template`); у формы с
+//! `eat<h>x<a>`) и вход (`EntryForm`, из лестниц — только σ-лестница Г-95); фильтры переносятся следующими шагами пакета A. Строка = одна каноническая запись имени (`name_template`); у формы с
 //! несколькими записями (`pyre…u…` / `pyre…w…`, `wall2`/`wall2x`/`wall2m<n>`) строк несколько,
 //! `id` общий (`ExitForm::variant_id`).
 
@@ -198,7 +198,14 @@ pub static MECHANICS: &[MechSpec] = &[
         "single@fr_{n}",
         &[int("n", 1, None, &[])],
     ),
-    // `ladder…` (EntryForm::Ladder/LadderSigma): связь from < to и вес w — в каталог позже.
+    // σ-лестница Г-95 (EntryForm::LadderSigma, 3 ноги 0..0.0409σ), вес к стене w ≥ 2 (w = 1 — без суффикса, другое имя).
+    // Прочие `ladder…`: связь from < to — в каталог позже.
+    entry(
+        "EntryLadderSigma3",
+        "ladder",
+        "ladder3x0..0.0409sw{w}",
+        &[int("w", 2, None, &[])],
+    ),
     // `eat<h>x<a>` (TakeForm::Eaten): связь 0 < h < a ≤ 100 между параметрами — в каталог позже.
     row("None", "none", "none", &[], false),
     row("Eat", "eat", "eat{pct}", &[PCT], false),
