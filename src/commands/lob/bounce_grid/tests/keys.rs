@@ -616,7 +616,15 @@ fn kline_axes_use_only_past_minutes() {
     );
     // минимум суток до t — 93 (минута 6 по циклу low = 99 − 6)
     let d = k.axis(KlineAxis::DayLowDist, t, 10_000, 0.01).unwrap();
-    assert!((d - 700.0).abs() < 1e-6, "{d}"); // (100 − 93) / 0.01 тиков
+    assert_eq!(d, 700.0); // (100 − 93) / 0.01 тиков — точно, целые тики
+                          // граница dlow_max = k: касание ровно на k тиков выше минимума суток (93) даёт ровно k
+    for tick in [1e-6, 0.0001, 0.01, 0.1, 0.5] {
+        let low_ticks = (93.0_f64 / tick).round() as i64;
+        for dist in [0_i64, 1, 4, 16] {
+            let d = k.axis(KlineAxis::DayLowDist, t, low_ticks + dist, tick);
+            assert_eq!(d, Some(dist as f64), "tick {tick} dist {dist}");
+        }
+    }
     assert_eq!(k.axis(KlineAxis::DayLowDist, day0, 10_000, 0.01), None);
     assert!(KlineSeries::default()
         .ensure_day(&dir, "NOPEUSDT", "2026-01-01")

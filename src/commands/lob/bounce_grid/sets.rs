@@ -163,7 +163,8 @@ const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
 
 /// Реестр осей контекста — единственное место: порядок общий для `FilterSet::ctx`,
 /// `TouchContext` и `RegimeDay`. Оси хода монеты — первые `COIN_AXES`, оси режима —
-/// следом; новая ось дописывается **в конец**: индексы прежних осей не сдвигаются.
+/// следом, затем оси по свечам монеты и по цене уровня; новая ось дописывается **в конец реестра**
+/// (режимные идут перед свечами в раскладке `TouchContext`): индексы прежних осей не сдвигаются.
 /// `btc2h`/`btc3h` (E26) и `btc6h`…`btc24h` (Г-10, TK-189) добавлены так же.
 pub(crate) const CTX_SPECS: [CtxAxisSpec; 16] = [
     coin("ret10m", 0),
@@ -207,7 +208,7 @@ pub const CTX_AXES: [&str; CTX_SPECS.len()] = {
     names
 };
 
-/// Границы одной оси контекста, bps; `None` — не задана.
+/// Границы одной оси контекста (bps; `dlow`/`drnd` — тики); `None` — не задана.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Range {
     pub min: Option<f64>,
@@ -372,7 +373,7 @@ impl KlineSeries {
     /// Значение оси на минуту касания `minute` (начало минуты, мс); `price_tick` — цена уровня
     /// в тиках, `tick` — шаг цены монеты.
     /// Нет полного окна (60 минут) или минут суток до касания — `None`.
-    #[allow(clippy::cast_precision_loss)] // цена уровня в тиках < 2^53
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // тики < 2^53
     pub(crate) fn axis(
         &self,
         axis: KlineAxis,
@@ -399,7 +400,8 @@ impl KlineSeries {
                     .range(day_start..minute)
                     .map(|(_, &(_, l, _))| l)
                     .reduce(f64::min)?;
-                (tick > 0.0).then(|| price_tick as f64 - low / tick)
+                // цена на бирже кратна шагу (В-172): минимум — в целых тиках, без дроби f64
+                (tick > 0.0).then(|| (price_tick - (low / tick).round() as i64) as f64)
             }
         }
     }
