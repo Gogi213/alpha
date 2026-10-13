@@ -1,6 +1,6 @@
 import os, sys, subprocess
 from pathlib import Path
-code = Path(r"C:\Users\Георгий\.claude\plugins\cache\role-play-vibing\role-play-vibing\1.8.21")
+code = Path(r"C:\Users\Георгий\.claude\plugins\cache\role-play-vibing\role-play-vibing\1.8.24")
 sys.path.insert(0, str(code / ".claude" / "dispatcher"))
 os.environ["RPV_CI_REPO"] = "Gogi213/role-play-vibing"
 os.environ.pop("RPV_CEO_TRIAGE", None)

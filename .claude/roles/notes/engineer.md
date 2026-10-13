@@ -81,3 +81,6 @@
 ## TK-095 (08.10)
 - Быстрый прогон плагина: `python tools/fastcheck.py --calc root@89.163.242.211 --ssh-key ~/.ssh/id_rsa --known-hosts ~/.ssh/known_hosts` (ПК||сервер, ≈160 с; endurance по часам — пол). alsched submit только ставит заявку: конец — `state=done` в /data/sched/jobs/<id>.json (rc там же), лог — /data/sched/logs/<id>.log. На сервере только `python3` (шим `python` в fastcheck).
 - Гонка под xdist: форк до exec показывает cmdline родителя → is_ours() ошибается; в тестах ждать маркер в cmdline. Ожидания в тестах — пределы (выход по готовности), не паузы.
+
+## TK-221 (12.10)
+- Bash-heredoc с `"\n"` в питоновских строках превращает `\n` в реальный перевод строки — правки со строковыми `\n` делать Edit'ом. Плагин: PR к main требует версию выше main (release.py bump X.Y.Z --push, запись в CHANGELOG вручную до bump). Живая шина calc — alpha-bus :8788 (/opt/alpha-compute/bus, сторож — alpha-bus-watcher, код ещё старый: выкладка в /opt/alpha-compute/bus не делалась). Стенд: systemd-run юнит-драйвер tk221s-*, лог /tmp/tk221s/stand.log.

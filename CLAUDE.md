@@ -51,7 +51,7 @@ Rust-проект: коллектор пишет стакан Bybit по пул�
   Задания на сервере — с CPUQuota, сумма ≤ 1500 % (90–95 %).
 - **Storage Box** — забыт (В-174). **Steam Deck** — не трогать.
 - **Команда:** диспетчер и сторож запущены через WMI (вне job, переживают закрытие Claude; после перезагрузки ПК —
-  поднять заново, диспетчер с `RPV_DISPATCH_ROLE_PARALLEL=engineer:6,researcher:4,judge:2` (08.10), `…MAX_PARALLEL=8`, `…MAX_RUNS_PER_TICKET_HOUR=20`, `…MAX_SAME_STATUS_RUNS=60`; WMI — `New-CimInstance -CimClass (Get-CimClass Win32_ProcessStartup)` с CreateFlags 512, см. блокнот CEO); лимитов денег нет (В-173);
+  поднять заново, диспетчер с `RPV_DISPATCH_ROLE_PARALLEL=engineer:6,researcher:4,judge:4`, `…MAX_PARALLEL=8`, `…MAX_RUNS_PER_TICKET_HOUR=40` (13.10, владелец ×2) , `…ROTATE_TOKENS=1` (бабочки: каждое пробуждение роли — новая сессия, 13.10), `RPV_CACHE_WARM=0`, `…MAX_SAME_STATUS_RUNS=60`; WMI — `New-CimInstance -CimClass (Get-CimClass Win32_ProcessStartup)` с CreateFlags 512, см. блокнот CEO); лимитов денег нет (В-173);
   `tickets.py stop` — остановить роль. Плагин команды — https://github.com/Gogi213/role-play-vibing (1.7.0: своя Диспетчерская; В-191 — CEO не снимает Судью).
 - **Правила:** В-170 оптимальный алгоритм (не первый, замер); В-172 как было на бирже, без упрощений ради кода.
 - **CEO в новом чате:** блокнот `.claude/roles/notes/ceo.md` (будильники, текущие тикеты).
