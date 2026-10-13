@@ -1600,6 +1600,7 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
             // T-28: на кадре взвода в окне стека одна плотность — сама стена;
             // впереди неё (строго лучше) 10 020 с 3 лотами за секунду до взвода.
             stack_levels_at_arm: 1,
+            stack_span_bps_at_arm: 0,
             frontrun_lots_at_arm: 3,
             p08: Some(ArmP08 {
                 traded_lots: 0,
@@ -1619,6 +1620,60 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
     assert_eq!(ap[0].duration_ms(), 1000);
     assert!(touches.is_empty(), "касание идёт — записи ещё нет");
     assert!(out.is_empty());
+}
+
+/// Г-98: расстояние завала на взводе — bps между первой и последней плотностью окна стека:
+/// стена 10 000 и плотность 9 980 (7 лотов, внутри окна 25 тиков) — две плотности, 20 тиков
+/// при цене 10 000 = 20 bps; без второй плотности — 0.
+#[test]
+fn approach_stack_span_bps_measures_first_to_last_density() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 500));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    let bid = [ob(10020, 3), ob(10000, 10), ob(9980, 7)];
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &bid,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &bid,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        4000,
+        Side::Bid,
+        &[ob(10000, 10), ob(9980, 7)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    let wall = ap
+        .iter()
+        .find(|a| a.price_tick == 10000)
+        .expect("подход стены");
+    assert_eq!(wall.stack_levels_at_arm, 2);
+    assert_eq!(wall.stack_span_bps_at_arm, 20);
 }
 
 /// T2 (Г-07): направленная глубина на подходе — та же стена 10 000, но за

@@ -1351,6 +1351,7 @@ fn approach_plan_sched_is_the_sched_plan_of_the_touch_view() {
         strength_e2: [-1, -1, -1],
         depth_behind_lots: 0,
         stack_levels_at_arm: 0,
+        stack_span_bps_at_arm: 0,
         frontrun_lots_at_arm: 0,
         p08: Some(Default::default()),
         r1: None,

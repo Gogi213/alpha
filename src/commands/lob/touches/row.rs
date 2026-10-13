@@ -253,6 +253,7 @@ fn approach_row_pairs(day: &str, a: &ApproachRecord) -> [(&'static str, String);
             "depth_behind50_lots_at_arm",
             p08_cell(a, |p| p.depth_behind50_lots.to_string()),
         ),
+        ("stack_span_bps_at_arm", a.stack_span_bps_at_arm.to_string()),
     ]
 }
 

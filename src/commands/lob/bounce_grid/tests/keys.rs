@@ -44,6 +44,59 @@ fn frontrun_min_key_filters_by_frontrun_lots_at_touch() {
     }
 }
 
+/// М-04 (TK-206): ключ `lot_first=<k>` — множитель размера на первом подходе; k = 1 — байт в байт как без ключа,
+/// ключ идёт в шапку набора только заданным, не число > 0 — отказ.
+#[test]
+fn lot_first_key_one_equals_base_and_marks_header() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-lotfirst");
+    a.sets = vec![
+        "base:frontrun".to_string(),
+        "lf1:frontrun,lot_first=1".to_string(),
+        "lf2:frontrun,lot_first=2".to_string(),
+    ];
+    let multi = run_bounce_grid(&a).unwrap();
+    let by_name = |n: &str| multi.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        body(&by_name("lf1").rounds_path),
+        body(&by_name("base").rounds_path)
+    );
+    let head = std::fs::read_to_string(&by_name("lf2").forms_path).unwrap();
+    assert!(head.contains(" lot_first=2"), "{head}");
+    let head = std::fs::read_to_string(&by_name("base").forms_path).unwrap();
+    assert!(!head.contains("lot_first"), "без ключа шапка прежняя");
+    for bad in [
+        "x:lot_first=0",
+        "x:lot_first=-1",
+        "x:lot_first=a",
+        "x:lot_first=inf",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+}
+
+/// М-04: k столь малый, что размер первого подхода ниже min-лота, — отказ прогона (fail-closed), не округление.
+#[test]
+fn lot_first_below_min_lot_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-lotfirst-tiny");
+    a.sets = vec!["tiny:frontrun,lot_first=0.000001".to_string()];
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(err.contains("ниже min-лота"), "{err}");
+}
+
 /// Ключ `eaten=<%>` (S1 плана по сторонам): `eaten=100` ничего не выбивает —
 /// байты те же, что без ключа; `eaten=-1` выбивает все касания в
 /// `n_skipped`; фикстура: у первого касания стена целая (`eaten` 0), у

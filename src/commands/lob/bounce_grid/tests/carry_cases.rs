@@ -390,6 +390,101 @@ fn order_usd_sizes_each_touch_at_its_own_price() {
     );
 }
 
+/// М-04 (TK-206, вердикт Судьи): k применяется к номиналу до округления вниз до шага лота — размер всегда кратен
+/// шагу; ниже min-лота — `None` (клетка не определена), не округление вверх. Шаг 0.001, min 0.001, $5 мин-чек.
+#[test]
+fn lot_first_scales_nominal_floor_to_step_and_refuses_below_min() {
+    let lot = PoolLot {
+        min_order_qty_e9: 1_000_000,
+        qty_step_e9: 1_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let tick_e9 = 10_000_000; // 0.01
+    let mut t = probe_touch();
+    t.price_tick = 1_000; // 10.00 → $100 = 10 монет
+    let usd = OrderSizing::Usd(lot, 100.0);
+    let q = |k: f64| usd.qty_first_e9(t.price_tick, tick_e9, 1, k, 1_000_000);
+    assert_eq!(q(1.5), Some(15_000_000_000));
+    assert_eq!(q(0.375), Some(3_750_000_000));
+    // $1 → 0.1 монеты × 0.375 = 0.0375 → 37 шагов (0.037) < 22а (0.5)
+    let small = OrderSizing::Usd(lot, 1.0);
+    assert_eq!(
+        small.qty_first_e9(t.price_tick, tick_e9, 1, 0.375, 1_000_000),
+        None,
+        "$0.375 ниже min-чека 22а ($5) — не определена, не поднимается до min"
+    );
+    let big = OrderSizing::Usd(lot, 5.1); // 0.51 монеты, k = 0.375 → 0.19125 → 0.191 < 22а (0.5)
+    assert_eq!(
+        big.qty_first_e9(t.price_tick, tick_e9, 1, 0.375, 1_000_000),
+        None
+    );
+    // Pool22a: 0.5 × 1.5 = 0.75; × 0.5 = 0.25 < 0.5 → не определена
+    let pool = OrderSizing::Pool22a(lot);
+    assert_eq!(
+        pool.qty_first_e9(t.price_tick, tick_e9, 1, 1.5, 1_000_000),
+        Some(750_000_000)
+    );
+    assert_eq!(
+        pool.qty_first_e9(t.price_tick, tick_e9, 1, 0.5, 1_000_000),
+        None
+    );
+    // Fixed 0.3, шаг записи 0.1: × 1.5 = 0.45 → 0.4 (вниз, кратно шагу)
+    assert_eq!(
+        OrderSizing::Fixed(300_000_000).qty_first_e9(t.price_tick, tick_e9, 1, 1.5, 100_000_000),
+        Some(400_000_000)
+    );
+}
+
+/// М-04 (TK-206, вердикт Судьи 09:20): `lot_first=k` меняет размер только у `touch_index == 0`; остальные касания —
+/// байт в байт как без ключа (`first_k = None`); k = 1 — сутки как без ключа.
+#[test]
+fn lot_first_scales_only_first_touch_of_the_level() {
+    use super::super::steps::day_order_qtys;
+    let lot = PoolLot {
+        min_order_qty_e9: 1_000_000,
+        qty_step_e9: 1_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let tick_e9 = 10_000_000; // 0.01
+    let mut touches = Vec::new();
+    for (i, idx) in [0_u32, 1, 2, 0, 3].into_iter().enumerate() {
+        let mut t = probe_touch();
+        t.price_tick = 1_000 + 100 * i64::try_from(i).unwrap();
+        t.touch_index = idx;
+        touches.push(t);
+    }
+    let day = super::super::cache::DayTouches {
+        day: "2026-01-01".to_string(),
+        touches,
+        approaches: None,
+        rets: Vec::new(),
+    };
+    let sizing = OrderSizing::Usd(lot, 100.0);
+    let grid = (tick_e9, 1_000_000);
+    let base = day_order_qtys(&sizing, &day, None, grid, 1, None).unwrap();
+    let one = day_order_qtys(&sizing, &day, None, grid, 1, Some(1.0)).unwrap();
+    assert_eq!(base, one, "k = 1 — как без ключа");
+    let k2 = day_order_qtys(&sizing, &day, None, grid, 1, Some(2.0)).unwrap();
+    let k3 = day_order_qtys(&sizing, &day, None, grid, 1, Some(0.375)).unwrap();
+    for (i, t) in day.touches.iter().enumerate() {
+        if t.touch_index == 0 {
+            assert!(
+                (k2[i] - 2.0 * base[i]).abs() < 1e-9,
+                "{i}: {} vs {}",
+                k2[i],
+                base[i]
+            );
+            // кратно шагу 0.001, вниз от 0.375 номинала
+            let steps = k3[i] / 0.001;
+            assert!((steps - steps.round()).abs() < 1e-6, "{i}: {}", k3[i]);
+            assert!(k3[i] <= 0.375 * base[i] + 1e-12 && k3[i] > 0.375 * base[i] - 0.001);
+        } else {
+            assert_eq!(k2[i].to_bits(), base[i].to_bits(), "{i}: touch_index≠0");
+            assert_eq!(k3[i].to_bits(), base[i].to_bits(), "{i}: touch_index≠0");
+        }
+    }
+}
+
 /// R3 (ревью 23.09, замечание проверки): явный лот `--order-qty-e9`, не
 /// кратный шагу записи, — отказ, а не молчаливое округление ног лестницы
 /// (0.0015 при шаге 0.001 дал бы 2 шага — +33 % к размеру круга).
