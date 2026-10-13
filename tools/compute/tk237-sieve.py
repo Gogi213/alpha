@@ -15,10 +15,13 @@ M_NOT_1 = {"Г-87", "Г-92", "Г-93", "Г-95"}
 isA = lambda s: int(hashlib.sha256(s.encode()).hexdigest(), 16) % 2 == 0
 d0 = datetime.date(2026, 1, 1); ND = (datetime.date(2026, 9, 30) - d0).days + 1
 keymap = json.load(open(kmap, encoding="utf-8"))
-new = [r for r in csv.DictReader(open(cov, encoding="utf-8")) if r["f1_new"] == "1"]
+allc = list(csv.DictReader(open(cov, encoding="utf-8")))   # новые F1 + старые клетки, у которых есть sym-closes (scope=old)
 closes = {}
 for m in range(1, 10):
     mo = f"2026-{m:02d}"; closes[mo] = json.load(open(f"{cdir}/closes-sym-f1-cap0-{mo}.json"))
+    import os
+    if os.path.exists(f"{cdir}/closes-sym-r2b-cap0-{mo}.json"):   # 31 клетка R2-B (старые, сито «плато»): tk237-r2b-symclose.sh
+        for k, v in json.load(open(f"{cdir}/closes-sym-r2b-cap0-{mo}.json", encoding="utf-8")).items(): closes[mo].setdefault(k, v)
     closes[mo][B1] = json.load(open(f"{cdir}/closes-sym-b1-cap0-{mo}.json")).get(B1, {})   # B1 отдельным прогоном (TK-191, деревья b1-b)
 UTC = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).date()
 EQ = "ladder3x0..0.0409sw10-pct2-tr1x1-14400-ttl1800"; EXCL = set()
@@ -27,6 +30,8 @@ for mo in closes:
     cd = lambda c: {(sym, UTC(ms)) for ms, u, sym in c}
     EXCL |= cd(closes[mo][eq].get(mo, {}).get("0", [])) - cd(closes[mo][B1].get(mo, {}).get("0", []))
 print("вырезано монето-суток (есть в клетке-эквиваленте B1, нет в B1):", sorted((s_, str(d)) for s_, d in EXCL))
+have = lambda h: h in keymap and keymap[h]["keys"] and all(k in closes[mo] for mo, k in keymap[h]["keys"].items())
+new = [r for r in allc if r["f1_new"] == "1" or have(r["hash"])]
 def series(key_by_month):
     """-> (сутки[ND] $, сделок, суток со сделками, по месяцам: [(сделок, $)]) только половина А"""
     day = np.zeros(ND); has = np.zeros(ND, bool); n = 0; bm = {}
