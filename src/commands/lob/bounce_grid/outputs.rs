@@ -303,6 +303,7 @@ pub(super) fn sum_net_bps(run: &BounceRun) -> f64 {
 }
 
 impl Outputs {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn create(
         out_dir: &Path,
         header: &str,
