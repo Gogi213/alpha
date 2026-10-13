@@ -912,7 +912,7 @@ impl<'a> GridRun<'a> {
                 let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
                 // М-04: размер первого подхода — свой вектор лотов набора (k = 1 и без ключа — общий, байт в байт).
                 let set_qtys: std::borrow::Cow<'_, [f64]> =
-                    match set.lot_first.filter(|&k| k != 1.0) {
+                    match set.lot_first.filter(|k| k.to_bits() != 1.0_f64.to_bits()) {
                         None => std::borrow::Cow::Borrowed(order_qtys.as_slice()),
                         Some(k) => std::borrow::Cow::Owned(
                             steps::day_order_qtys(
