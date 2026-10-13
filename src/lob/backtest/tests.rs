@@ -2671,14 +2671,28 @@ fn retreat_shift_moves_entry_toward_market_and_decays() {
         "стопа не было"
     );
     mem.as_mut().unwrap().on_stop(10 * min);
-    let at = |m: i64, side| retreat_shift(&mut mem, &sig(m * min), side).map(|s| entry(&s));
-    assert_eq!(at(10, HbtSide::Buy), Some(105.0), "сразу после стопа +k");
-    assert_eq!(at(10, HbtSide::Sell), Some(97.0), "продажа — вниз");
-    assert_eq!(at(25, HbtSide::Buy), Some(103.0), "через T — k/2");
-    assert_eq!(at(70, HbtSide::Buy), None, "через 4T floor(4/16)=0");
+    let at = |mem: &mut Option<RetreatMemory>, m: i64, side| {
+        retreat_shift(mem, &sig(m * min), side).map(|s| entry(&s))
+    };
+    assert_eq!(
+        at(&mut mem, 10, HbtSide::Buy),
+        Some(105.0),
+        "сразу после стопа +k"
+    );
+    assert_eq!(
+        at(&mut mem, 10, HbtSide::Sell),
+        Some(97.0),
+        "продажа — вниз"
+    );
+    assert_eq!(at(&mut mem, 25, HbtSide::Buy), Some(103.0), "через T — k/2");
+    assert_eq!(
+        at(&mut mem, 70, HbtSide::Buy),
+        None,
+        "через 4T floor(4/16)=0"
+    );
     mem.as_mut().unwrap().on_stop(70 * min);
     assert_eq!(
-        at(70, HbtSide::Buy),
+        at(&mut mem, 70, HbtSide::Buy),
         Some(105.0),
         "повторный стоп — снова k, не сумма"
     );
