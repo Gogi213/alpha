@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-237: плато (П-14 §4 п. 4) по таблице сита клеток (половина А) + покрытие сетки.
 Соседи — по упорядоченным значениям оси в полной сетке F1 (coverage). Сосед без результата сита
-(старые 47 клеток / не посчитана / m≠1) = «нет данных» и годным не считается.
+(старые 47 клеток / не посчитана / «не определена») = «нет данных»; если с ними плато достижимо — «не определено», иначе «плато нет».
   python tk237-plateau.py <sieve.csv> <coverage.csv> <out.csv>"""
 import csv, json, sys, collections
 from fractions import Fraction
@@ -42,10 +42,10 @@ for hyp, lst in byh.items():
         exist = [x for x in nb if x]; good = [x for x in exist if st.get(x) == "годна"]
         need = (len(exist) // 2 + 1) if len(numax) > 1 else len(exist)
         edge = len(exist) < (8 if len(numax) > 1 else 2)
-        nodata = [x for x in exist if x not in st]
+        nodata = [x for x in exist if x not in st or st[x].startswith("не определена")]
         plateau = len(exist) > 0 and len(good) >= need and not (len(numax) == 1 and len(exist) == 1 and False)
         res.append([hyp, h, json.dumps(a, ensure_ascii=False), "годна",
-                    f"{len(good)}/{len(exist)}", f"нет данных у {len(nodata)}" if nodata else "", ("плато" + (" (у границы)" if edge else "")) if plateau else "плато нет"])
+                    f"{len(good)}/{len(exist)}", f"нет данных у {len(nodata)}" if nodata else "", ("плато" + (" (у границы)" if edge else "")) if plateau else ("не определено (сосед без данных)" if len(good) + len(nodata) >= need else "плато нет")])
 with open(out, "w", encoding="utf-8", newline="") as f:
     w = csv.writer(f); w.writerow(["hyp", "hash", "axes", "status", "neighbours_good", "note", "plateau"]); w.writerows(res)
 for r in res:
