@@ -65,8 +65,7 @@ fn lot_first_key_one_equals_base_and_marks_header() {
             .lines()
             .filter(|l| !l.starts_with('#'))
             .collect::<Vec<_>>()
-            .join("
-")
+            .join("\n")
     };
     assert_eq!(
         body(&by_name("lf1").rounds_path),
