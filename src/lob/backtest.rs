@@ -3644,6 +3644,12 @@ fn group_has_wall2(g: &[(usize, BounceSignal)]) -> bool {
     )
 }
 
+/// TK-229: `ALPHA_PYR_SOLO=1` — прежний путь (формы с пирамидой вне групп); читается раз за процесс, до цикла событий.
+fn pyr_solo() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_PYR_SOLO").is_some_and(|v| v == "1"))
+}
+
 /// Г-65: круги `wall2*`, посчитанные сольным путём (без журнала стен → молча B1); не ноль — прогон суток отказывает.
 pub static WALL2_SOLO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -3688,8 +3694,10 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
                 diag_add(1, 1);
                 continue;
             }
-            // Г-65 (e65): форма цели за второй стеной считается только группой (журнал стен — при форке).
-            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on() && pyramid.eff().wall2 == 0)
+            // TK-229: формы с пирамидой без wall2 идут в группу наравне с остальными (было: сольно);
+            // допустимость — гейт «байт в байт» против сольного счёта (`ALPHA_PYR_SOLO=1` возвращает сольный путь).
+            if pyr_solo()
+                && matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on() && pyramid.eff().wall2 == 0)
             {
                 continue;
             }
