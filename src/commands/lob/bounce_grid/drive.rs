@@ -151,7 +151,10 @@ fn signals_for(
                 sigma: dir,
                 plan,
                 profile: 0,
-                qty: Some(p.order_qtys[ti]),
+                qty: Some(match p.lot_first {
+                    Some(k) if t.touch_index == 0 => p.order_qtys[ti] * k,
+                    _ => p.order_qtys[ti],
+                }),
             })
         })
         .collect();
@@ -482,6 +485,8 @@ pub(super) struct DayParams<'a> {
     pub(super) entry_sigma: Option<&'a EntrySigma>,
     /// Фильтры набора в момент касания (возраст, сила «×поток», сторона, съедание, номинал, R1, контекст).
     pub(super) filter: FilterSpec<'a>,
+    /// М-04: множитель размера на первом подходе (`lot_first=`); `None` — размер прежний.
+    pub(super) lot_first: Option<f64>,
     /// Ряд `σ` символа (все сутки записи подряд).
     pub(super) sigma: &'a SigmaSeries,
 }

@@ -942,6 +942,7 @@ impl<'a> GridRun<'a> {
                             holds: Some(&holds_day),
                             rows: Some(&rows_day),
                             admitted: Some(&admit_cell),
+                            lot_first: set.lot_first,
                             memos: if memos.is_empty() {
                                 None
                             } else {

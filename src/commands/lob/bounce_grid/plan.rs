@@ -639,7 +639,7 @@ pub(super) fn env_flag_lines(
     v
 }
 
-/// Г-07 (TK-012): `" behind_min=<%> stack_min=<n>"` — только заданные ключи; без них пусто.
+/// Г-07 (TK-012): `" behind_min=<%> stack_min=<n> lot_first=<k>"` — только заданные ключи; без них пусто.
 pub(super) fn g07_label(set: &FilterSet) -> String {
     let mut out = String::new();
     if let Some(p) = set.behind_min_pct {
@@ -647,6 +647,10 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     }
     if let Some(n) = set.stack_min {
         out.push_str(&format!(" stack_min={n}"));
+    }
+    // М-04 (TK-206): множитель размера первого подхода — тоже идентичность набора
+    if let Some(k) = set.lot_first {
+        out.push_str(&format!(" lot_first={k}"));
     }
     out
 }
