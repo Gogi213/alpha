@@ -2667,8 +2667,19 @@ where
     // (повтор снятия, учёт исполнения) идёт с первого события этого круга.
     state.inherit_orphans(*carry);
 
+    // Г-88: `reclaim` не ставит вход сразу — круг идёт в `ReclaimWait` (заявка уйдёт позже, с тем же номером).
+    let mut reclaim_wait = false;
     let (entry_id, side) = match on_event(bot, &mut state)? {
         Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
+        Action::Idle
+            if state.reclaim_wait_entry_id().is_some() && entry_side(sig.sigma).is_some() =>
+        {
+            reclaim_wait = true;
+            (
+                state.reclaim_wait_entry_id().unwrap_or_default(),
+                entry_side(sig.sigma).unwrap_or(HbtSide::Buy),
+            )
+        }
         _ => {
             *carry = state.take_orphans();
             return Ok(SignalStep::NotSubmitted {
@@ -2681,7 +2692,7 @@ where
     // отвергает, обычный лимит — исполняет как тейкер.
     let mut crossed = false;
     let mut spread = None;
-    if let Some(entry_px) = entry_market_px(sig.plan) {
+    if let (false, Some(entry_px)) = (reclaim_wait, entry_market_px(sig.plan)) {
         let d = bot.depth(asset_no);
         let (bid, ask) = (d.best_bid(), d.best_ask());
         if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {

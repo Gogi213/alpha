@@ -3,6 +3,11 @@
 use super::*;
 
 impl StrategyState {
+    /// Г-88: круг ждёт закола и возврата — номер заявки входа (ставится позже, с тем же `next_order_id`).
+    pub(crate) fn reclaim_wait_entry_id(&self) -> Option<u64> {
+        matches!(self.phase, Phase::ReclaimWait).then_some(self.next_order_id)
+    }
+
     pub fn is_idle(&self) -> bool {
         matches!(self.phase, Phase::Idle)
     }

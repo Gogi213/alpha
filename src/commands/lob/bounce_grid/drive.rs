@@ -204,7 +204,9 @@ pub(super) fn entry_groups(forms: &[GridForm]) -> Vec<Vec<usize>> {
     for (i, f) in forms.iter().enumerate() {
         match groups.iter_mut().find(|g| {
             let h = &forms[g[0]];
-            h.entry_form == f.entry_form && h.entry_ttl == f.entry_ttl
+            h.entry_form == f.entry_form
+                && h.entry_ttl == f.entry_ttl
+                && !matches!(f.entry_form, EntryForm::Reclaim { .. })
         }) {
             Some(g) => g.push(i),
             None => groups.push(vec![i]),
