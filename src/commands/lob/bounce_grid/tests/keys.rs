@@ -76,7 +76,12 @@ fn lot_first_key_one_equals_base_and_marks_header() {
     assert!(head.contains(" lot_first=2"), "{head}");
     let head = std::fs::read_to_string(&by_name("base").forms_path).unwrap();
     assert!(!head.contains("lot_first"), "без ключа шапка прежняя");
-    for bad in ["x:lot_first=0", "x:lot_first=-1", "x:lot_first=a", "x:lot_first=inf"] {
+    for bad in [
+        "x:lot_first=0",
+        "x:lot_first=-1",
+        "x:lot_first=a",
+        "x:lot_first=inf",
+    ] {
         assert!(FilterSet::parse(bad).is_err(), "{bad}");
     }
 }
