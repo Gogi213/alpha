@@ -2642,3 +2642,44 @@ fn fast_hold_handoff_equals_continuous() {
         fast_hold_handoff_case(QueueModelKind::Prob { n: 3.0 }, step);
     }
 }
+
+/// Г-102: после стопа вход сигнала сдвигается к рынку на `floor(k·2^(−Δt/T))` тиков; до стопа и после затухания
+/// до нуля сигнал идёт как есть (`None`). Покупка двигает вход вверх, продажа — вниз. Только с `r2` (иначе `eff()` — OFF).
+#[cfg(feature = "r2")]
+#[test]
+fn retreat_shift_moves_entry_toward_market_and_decays() {
+    let (_, mut plan) = windowed_fixture();
+    if let TradePlan::Bounce { pyramid, .. } = &mut plan {
+        pyramid.retreat_k = 4;
+        pyramid.retreat_half_min = 15;
+    }
+    let sig = |t0_ns: i64| BounceSignal {
+        t0_ns,
+        sigma: SIGMA_LONG,
+        plan,
+        profile: 0,
+        qty: None,
+    };
+    let entry = |s: &BounceSignal| match s.plan {
+        TradePlan::Bounce { entry_px, .. } => entry_px,
+        _ => unreachable!(),
+    };
+    let min = 60 * S;
+    let mut mem = None;
+    assert!(
+        retreat_shift(&mut mem, &sig(S), HbtSide::Buy).is_none(),
+        "стопа не было"
+    );
+    mem.as_mut().unwrap().on_stop(10 * min);
+    let at = |m: i64, side| retreat_shift(&mut mem, &sig(m * min), side).map(|s| entry(&s));
+    assert_eq!(at(10, HbtSide::Buy), Some(105.0), "сразу после стопа +k");
+    assert_eq!(at(10, HbtSide::Sell), Some(97.0), "продажа — вниз");
+    assert_eq!(at(25, HbtSide::Buy), Some(103.0), "через T — k/2");
+    assert_eq!(at(70, HbtSide::Buy), None, "через 4T floor(4/16)=0");
+    mem.as_mut().unwrap().on_stop(70 * min);
+    assert_eq!(
+        at(70, HbtSide::Buy),
+        Some(105.0),
+        "повторный стоп — снова k, не сумма"
+    );
+}
