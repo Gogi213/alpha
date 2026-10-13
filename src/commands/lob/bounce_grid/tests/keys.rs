@@ -85,6 +85,18 @@ fn lot_first_key_one_equals_base_and_marks_header() {
     }
 }
 
+/// М-04: k столь малый, что размер первого подхода ниже min-лота, — отказ прогона (fail-closed), не округление.
+#[test]
+fn lot_first_below_min_lot_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-lotfirst-tiny");
+    a.sets = vec!["tiny:frontrun,lot_first=0.000001".to_string()];
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(err.contains("ниже min-лота"), "{err}");
+}
+
 /// Ключ `eaten=<%>` (S1 плана по сторонам): `eaten=100` ничего не выбивает —
 /// байты те же, что без ключа; `eaten=-1` выбивает все касания в
 /// `n_skipped`; фикстура: у первого касания стена целая (`eaten` 0), у

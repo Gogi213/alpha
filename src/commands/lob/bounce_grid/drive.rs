@@ -151,10 +151,7 @@ fn signals_for(
                 sigma: dir,
                 plan,
                 profile: 0,
-                qty: Some(match p.lot_first {
-                    Some(k) if t.touch_index == 0 => p.order_qtys[ti] * k,
-                    _ => p.order_qtys[ti],
-                }),
+                qty: Some(p.order_qtys[ti]),
             })
         })
         .collect();
@@ -416,6 +413,42 @@ impl OrderSizing {
         }
     }
 
+    /// М-04 (TK-206): размер первого подхода — номинал × `k` до округления вниз до шага лота (как у
+    /// `qty_usd_e9`), не округление вверх. `None` — ниже min-лота (22а) или нуль шагов: клетка не определена
+    /// (spec-m04 §3), вызывающий отказывает, молча не поднимает.
+    pub(super) fn qty_first_e9(
+        &self,
+        price_tick: i64,
+        tick_e9: i64,
+        mult: u32,
+        k: f64,
+        step_e9: i64,
+    ) -> Option<i64> {
+        let price_e9 = price_tick.saturating_mul(tick_e9);
+        let m = f64::from(mult.max(1)) * k;
+        #[allow(clippy::cast_precision_loss)]
+        let (raw, step, min) = match *self {
+            Self::Fixed(v) => (v as f64 * m, step_e9, step_e9),
+            Self::Pool22a(lot) => (
+                lot.qty_22a_e9(price_e9) as f64 * m,
+                lot.qty_step_e9,
+                lot.qty_22a_e9(price_e9),
+            ),
+            Self::Usd(lot, usd) if price_e9 > 0 => (
+                usd * 1e18 / price_e9 as f64 * f64::from(mult.max(1)) * k,
+                lot.qty_step_e9,
+                lot.qty_22a_e9(price_e9),
+            ),
+            Self::Usd(lot, _) => (0.0, lot.qty_step_e9, lot.qty_22a_e9(price_e9)),
+        };
+        if step <= 0 || !raw.is_finite() {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let q = ((raw / step as f64 + 1e-9).floor() as i64).saturating_mul(step);
+        (q > 0 && q >= min.saturating_mul(i64::from(mult.max(1)))).then_some(q)
+    }
+
     /// Размер круга на каждое касание суток — по цене этого касания, с
     /// множителем `--order-qty-mult` (E7).
     pub(super) fn touch_qtys(&self, touches: &[TouchRecord], tick_e9: i64, mult: u32) -> Vec<f64> {
@@ -485,8 +518,6 @@ pub(super) struct DayParams<'a> {
     pub(super) entry_sigma: Option<&'a EntrySigma>,
     /// Фильтры набора в момент касания (возраст, сила «×поток», сторона, съедание, номинал, R1, контекст).
     pub(super) filter: FilterSpec<'a>,
-    /// М-04: множитель размера на первом подходе (`lot_first=`); `None` — размер прежний.
-    pub(super) lot_first: Option<f64>,
     /// Ряд `σ` символа (все сутки записи подряд).
     pub(super) sigma: &'a SigmaSeries,
 }

@@ -870,9 +870,10 @@ impl<'a> GridRun<'a> {
                 &sizing,
                 day,
                 step_schedule.as_ref(),
-                tick_e9,
+                (tick_e9, step_e9),
                 args.order_qty_mult,
-            );
+                None,
+            )?;
             e2e::stage(
                 symbol,
                 &day.day,
@@ -909,6 +910,22 @@ impl<'a> GridRun<'a> {
             };
             for ((set, out), &ids) in sets.iter().zip(outs.iter_mut()).zip(&set_form_ids) {
                 let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
+                // М-04: размер первого подхода — свой вектор лотов набора (k = 1 и без ключа — общий, байт в байт).
+                let set_qtys: std::borrow::Cow<'_, [f64]> =
+                    match set.lot_first.filter(|&k| k != 1.0) {
+                        None => std::borrow::Cow::Borrowed(order_qtys.as_slice()),
+                        Some(k) => std::borrow::Cow::Owned(
+                            steps::day_order_qtys(
+                                &sizing,
+                                day,
+                                step_schedule.as_ref(),
+                                (tick_e9, step_e9),
+                                args.order_qty_mult,
+                                Some(k),
+                            )
+                            .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
+                        ),
+                    };
                 let forms_done = {
                     let forms_ref = &set_forms_list;
                     let mut sink =
@@ -942,7 +959,6 @@ impl<'a> GridRun<'a> {
                             holds: Some(&holds_day),
                             rows: Some(&rows_day),
                             admitted: Some(&admit_cell),
-                            lot_first: set.lot_first,
                             memos: if memos.is_empty() {
                                 None
                             } else {
@@ -960,7 +976,7 @@ impl<'a> GridRun<'a> {
                             hold_skip: args.hold_step == "skip",
                             tape_log_secs: args.tape_log.unwrap_or(0),
                             exit_group: args.exit_group == "on",
-                            order_qtys: &order_qtys,
+                            order_qtys: &set_qtys,
                             threads,
                             post_only: args.entry_post_only(),
                             filter: sets::FilterSpec::of_set(set, &ctx),
