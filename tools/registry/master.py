@@ -5,6 +5,7 @@
   sieve --protocol P-14 --fraction k --stats f.csv   правило §4 (числа — rules) -> sieve.jsonl
   render matrix|coverage         docs/findings/hyp-{matrix,coverage}-<дата>.{md,csv} из БД, руками не править
 Хеш клетки — cellhash.cell_hash (одна функция для генератора и загрузчика, TK-186)."""
+from decimal import Decimal
 import collections, csv, datetime, itertools, json, math, os, re, sqlite3, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -165,6 +166,10 @@ R1_SIGN = {
     "Г-78": {"best_move_1s_cbps": "lo"}, "Г-55": {"tape_press_lots_30s": "lo"}, "Г-140": {"best_flips_15s": "lo", "ofi_10s_lots": "hi"},
 }
 R1X = set()   # хеши R1-клеток, посчитанных tk202-r1x.py (TK-202 B11): /data/tk202/r1x/cells/<мес>/<хеш>.csv, янв–сен (окт 90 кл. на 31 сигнале); в --cells не идут
+def _dec(x):
+    return format(Decimal(repr(float(x))), 'f')   # каноническое имя --exit-form: без экспоненты (Rust: 0.0000227…)
+
+
 R1_NODATA = ("tape_burst_press_60s_bp",)   # coverage-r1.json r1ext: jan_n_defined 0, охват 0 во всех месяцах — файлов нет
 R1EXT = "r1ext TK-189: /data/tk189/r1ext/cells/<мес>/ (271 кл./мес, фев…окт; 5 прежних точек побайтно = /data/tk064/r1)"
 R2B_MONTHS = tuple(f"2026-{m:02d}" for m in range(1, 10))   # TK-115 R2-B (job 1011200729464, calc /data/p12r3a/r2b): 31 форма × B1-сутки янв–сен, B1 = набор t-bid-btc4h-q1
@@ -179,7 +184,7 @@ def r2b_lines():
     for m, w_m in w_median_ms().items():
         if m not in R2B_MONTHS or m not in thr:
             continue
-        ls = {f"{b}-tape{w}q{float(thr[m][f'e112_W{w}_q{q}'])!r} t-bid-btc4h-q1" for w in (15, 30, 60) for q in (33, 50, 67, 80) if f"e112_W{w}_q{q}" in thr[m]}
+        ls = {f"{b}-tape{w}q{_dec(thr[m][f'e112_W{w}_q{q}'])} t-bid-btc4h-q1" for w in (15, 30, 60) for q in (33, 50, 67, 80) if f"e112_W{w}_q{q}" in thr[m]}
         ls |= {f"{b}-chase{int(round(float(w_m) * a))} t-bid-btc4h-q1" for a in (0.5, 1, 2)}
         ls |= {f"{b}-wall2 t-bid-btc4h-q1", f"{b}-wall2x t-bid-btc4h-q1", "ladder3x0..0.0409sw4-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1", "ladder3x0..0.0409sw5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1"}
         out[m] = ls
@@ -386,7 +391,7 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
         cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []
-        mm = {r["month"]: f"{form}-tape{w}q{'p' if r.get(f'e112_W{w}_q{q}', 0) <= 0 else repr(float(r[f'e112_W{w}_q{q}']))} {set_name}" for r in thr if w and q and f"e112_W{w}_q{q}" in r}
+        mm = {r["month"]: f"{form}-tape{w}q{'p' if r.get(f'e112_W{w}_q{q}', 0) <= 0 else _dec(r[f'e112_W{w}_q{q}'])} {set_name}" for r in thr if w and q and f"e112_W{w}_q{q}" in r}
         if not (w and q):
             LINES[h] = (None, "Г-112: W ∈ {5,10,15,30,60,120,300} с, q ∈ {5,10,20,33,50,67,80,90,95}")
         elif not thr:
@@ -633,7 +638,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
         used = sorted({l.split()[1] for l in uniq})
         forms = sorted({l.split()[0] for l in uniq})
         with open(stem + ".args", "w", encoding="utf-8", newline="\n") as f:   # аргументы bounce-grid к файлу --cells (формы выхода и наборы)
-            for e in sorted({fm.split("-pct", 1)[0] for fm in forms}):
+            for e in sorted({fm.split("-", 1)[0] for fm in forms}):
                 f.write(f"--entry-form {e}\n")
             tails = [re.search(r"-ttl(\d+)(?:-(?!early[\d.]+$)(.+?))?(?:-early([\d.]+))?$", fm) for fm in forms]
             for t in sorted({m.group(1) for m in tails if m}, key=int):
