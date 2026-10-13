@@ -739,6 +739,10 @@ pub struct ApproachRecord {
     /// дальше `DISTANCE_MAX_BPS`, включая сам уровень, после свипа кадра), но на
     /// кадре взвода, а не старта касания.
     pub stack_levels_at_arm: u32,
+    /// Расстояние завала на кадре взвода, bps (Г-98): от первой до последней плотности того же
+    /// окна и правила, что `stack_levels_at_arm`, по цене уровня; одна плотность (или ни одной) — 0.
+    /// Кэш подходов до TK-206 читается нулём.
+    pub stack_span_bps_at_arm: i64,
     /// Лоты впереди уровня к взводу (T-28): то же правило, что
     /// `TouchRecord::frontrun_lots` (В-45, кадр не позже секунды до), от метки
     /// взвода. На взводе цена ещё в полосе от стены — это всё, что стоит между
@@ -998,6 +1002,8 @@ struct Approach {
     frontrun_lots: i64,
     /// «Завал» на кадре взвода — ставится после свипа кадра (`compute_arm_stacks`).
     stack_levels: u32,
+    /// Расстояние завала на кадре взвода, bps (`ApproachRecord::stack_span_bps_at_arm`).
+    stack_span_bps: i64,
     /// Признаки П-08 на кадре взвода (`ApproachRecord::p08`).
     p08: ArmP08,
 }
@@ -1553,6 +1559,7 @@ fn approach_record(
         strength_e2: a.strength_e2,
         depth_behind_lots: a.depth_behind_lots,
         stack_levels_at_arm: a.stack_levels,
+        stack_span_bps_at_arm: a.stack_span_bps,
         frontrun_lots_at_arm: a.frontrun_lots,
         p08: Some(a.p08),
         r1: None,
@@ -1659,6 +1666,7 @@ fn observe_approach(
         depth_behind_lots: f.depth_behind_lots,
         frontrun_lots: f.frontrun_lots,
         stack_levels: 0,
+        stack_span_bps: 0,
         p08,
     });
     true
@@ -2533,8 +2541,8 @@ fn compute_touch_stacks(
         if t.start_frame != frame {
             continue;
         }
-        (tk.stack, tk.stack_next_tick) =
-            stack_around(live, s, tk.key.1, t.window_ticks, frame, mode);
+        let (n, next, _) = stack_around(live, s, tk.key.1, t.window_ticks, frame, mode);
+        (tk.stack, tk.stack_next_tick) = (n, next);
     }
 }
 
@@ -2549,17 +2557,20 @@ fn stack_around(
     window_ticks: i64,
     frame: u64,
     mode: H3Mode,
-) -> (u32, Option<i64>) {
+) -> (u32, Option<i64>, i64) {
     let lo = tick.saturating_sub(window_ticks);
     let hi = tick.saturating_add(window_ticks);
     let mut n: u32 = 0;
     // Обход по возрастанию тика: для бида берётся последняя ниже цены, для аска — первая выше.
     let mut next_behind: Option<i64> = None;
+    // Первая и последняя плотность окна (по возрастанию тика) — расстояние завала (Г-98).
+    let mut span: Option<(i64, i64)> = None;
     for ((_, lv_tick), lv) in live.range((s, lo), (s, hi)) {
         let dying =
             lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max);
         if !dying && lv.seen_strong && mode.passes_stack(*lv_tick, lv.seen_size) {
             n = n.saturating_add(1);
+            span = Some(span.map_or((*lv_tick, *lv_tick), |(first, _)| (first, *lv_tick)));
             let behind = if s == side_key(Side::Bid) {
                 *lv_tick < tick
             } else {
@@ -2570,7 +2581,8 @@ fn stack_around(
             }
         }
     }
-    (n, next_behind)
+    let span_ticks = span.map_or(0, |(first, last)| last - first);
+    (n, next_behind, span_ticks)
 }
 
 /// «Завал» на кадре взвода подходов этого кадра (T-28, Г-28 на подходе): то же правило и окно,
@@ -2583,9 +2595,10 @@ fn compute_arm_stacks(
     mode: H3Mode,
 ) {
     for &key in armed {
-        let (n, _) = stack_around(live, s, key.1, stack_window_ticks(key.1), frame, mode);
+        let (n, _, span) = stack_around(live, s, key.1, stack_window_ticks(key.1), frame, mode);
         if let Some(a) = live.get_mut(&key).and_then(|lv| lv.approach.as_mut()) {
             a.stack_levels = n;
+            a.stack_span_bps = gap_bps(span, key.1);
         }
     }
 }
