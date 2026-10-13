@@ -138,6 +138,8 @@ pub(super) struct Outputs {
     with_r1: bool,
     // TK-115 Г-112: колонка `tape_press_lots` в `rounds.csv` — только с `--tape-log`.
     with_tape: bool,
+    // Г-102: колонка `n_retreat_window_entries` в `forms.csv` — только если в сетке есть форма `retreat<k>t<T>`.
+    with_retreat: bool,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -309,6 +311,7 @@ impl Outputs {
         with_p08: bool,
         with_r1: bool,
         with_tape: bool,
+        with_retreat: bool,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
@@ -335,7 +338,13 @@ impl Outputs {
         } else {
             &FORMS_HEADER[..FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN]
         };
-        forms.write_record(forms_header)?;
+        if with_retreat {
+            let mut names = forms_header.to_vec();
+            names.push("n_retreat_window_entries");
+            forms.write_record(names)?;
+        } else {
+            forms.write_record(forms_header)?;
+        }
         let signals = if with_signals {
             let mut sf = std::fs::File::create(out_dir.join("signals.csv"))?;
             writeln!(sf, "{header}")?;
@@ -362,6 +371,7 @@ impl Outputs {
             with_p08,
             with_r1,
             with_tape,
+            with_retreat,
         })
     }
 
@@ -441,7 +451,7 @@ impl Outputs {
         } else {
             run.fills.iter().map(|f| f.fill_frac).sum::<f64>() / run.fills.len() as f64
         };
-        self.forms.write_record(forms_row(
+        let mut row = forms_row(
             symbol,
             day,
             form.label,
@@ -452,7 +462,11 @@ impl Outputs {
             carry_boundary_ns,
             carry_unverified,
             self.with_carry,
-        ))?;
+        );
+        if self.with_retreat {
+            row.push(run.retreat_window_entries.to_string());
+        }
+        self.forms.write_record(row)?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
         debug_assert!({
             let mut fills_by_hour = [0u64; 24];

@@ -1241,6 +1241,9 @@ pub struct BounceRun {
     /// считается честная доля исполнения `круги / отправленные`, а не
     /// `круги / все касания` — последнее смешивает отказ с пропуском.
     pub submitted_signal: Vec<usize>,
+    /// Г-102: входы суток (отправленные заявки) в окне `[00:00, 00:00 + carry_window_ns)` на этом (вариант, инструмент) —
+    /// верхняя граница входов, затронутых суточным сбросом памяти отступа; колонка `n_retreat_window_entries`.
+    pub retreat_window_entries: u64,
     /// Индексы сигналов, пропущенных как «позиция занята»: по ним вызывающий
     /// считает промахи по строкам осей, а не только итогом.
     pub busy_signal: Vec<usize>,
@@ -2902,6 +2905,7 @@ impl BounceRun {
             orphan_fills: 0,
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
+            retreat_window_entries: 0,
             busy_signal: Vec::new(),
             busy_wait_ns_max: 0,
             round_ns_max: 0,
@@ -3078,7 +3082,7 @@ fn horizon_span_ns(plan: &TradePlan) -> i64 {
 }
 
 /// Г-102: сигнал со входом, отодвинутым от стены на добавку памяти отступа (`RetreatMemory::offset_ticks` на `t0`),
-/// в сторону рынка; `None` — форма выключена или добавка ноль (сигнал идёт как есть). Память создаётся по первому сигналу.
+/// ОТ рынка (штраф после стопа, X-09: вход труднее — покупка ниже, продажа выше); `None` — форма выключена или добавка ноль (сигнал идёт как есть). Память создаётся по первому сигналу.
 fn retreat_shift(
     memory: &mut Option<RetreatMemory>,
     sig: &BounceSignal,
@@ -3107,7 +3111,7 @@ fn retreat_shift(
     let mut out = *sig;
     if let TradePlan::Bounce { entry_px, .. } = &mut out.plan {
         let d = f64::from(ticks) * tick_px;
-        *entry_px += if matches!(side, HbtSide::Buy) { d } else { -d };
+        *entry_px += if matches!(side, HbtSide::Buy) { -d } else { d };
     }
     Some(out)
 }
@@ -3154,6 +3158,7 @@ where
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
     let mut submitted_signal: Vec<usize> = Vec::new();
+    let mut retreat_window_entries: u64 = 0;
     let mut busy_wait_ns_max: i64 = 0;
     let mut round_ns_max: i64 = 0;
     let mut fill_signal: Vec<usize> = Vec::new();
@@ -3193,7 +3198,7 @@ where
             observations.push(miss_observation(sig.t0_ns));
             continue;
         }
-        // Г-102: вход отходит от стены на добавку памяти отступа (в сторону рынка); ноль — сигнал как есть.
+        // Г-102: вход отходит от стены на добавку памяти отступа (от рынка); ноль — сигнал как есть.
         let sig = match retreat_shift(&mut retreat, sig, side) {
             Some(s) => {
                 shifted = s;
@@ -3303,6 +3308,11 @@ where
                 exit_cancel_timeout = exit_cancel_timeout.saturating_add(exit_cancel_timeouts);
                 orphan_fills = orphan_fills.saturating_add(orphans);
                 submitted_signal.push(sig_idx);
+                if let Some(m) = retreat.as_ref() {
+                    if sig.t0_ns.rem_euclid(NANOS_PER_DAY) < m.carry_window_ns() {
+                        retreat_window_entries = retreat_window_entries.saturating_add(1);
+                    }
+                }
                 if crossed {
                     entry_crossed = entry_crossed.saturating_add(1);
                 }
@@ -3452,6 +3462,7 @@ where
         orphan_fills,
         spread_at_entry,
         submitted_signal,
+        retreat_window_entries,
         busy_signal,
         busy_wait_ns_max,
         round_ns_max,

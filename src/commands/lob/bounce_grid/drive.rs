@@ -197,6 +197,22 @@ impl SigCache {
     }
 }
 
+/// Группы форм с общим входом (Э-08): равные `entry_form` и `entry_ttl`. У `retreat<k>t<T>` `k`/`T` — часть
+/// `entry_form`, поэтому варианты с разной памятью отступа в одну группу не попадают (вход группы — из её первой формы).
+pub(super) fn entry_groups(forms: &[GridForm]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (i, f) in forms.iter().enumerate() {
+        match groups.iter_mut().find(|g| {
+            let h = &forms[g[0]];
+            h.entry_form == f.entry_form && h.entry_ttl == f.entry_ttl
+        }) {
+            Some(g) => g.push(i),
+            None => groups.push(vec![i]),
+        }
+    }
+    groups
+}
+
 /// Предсчёт групп выходов (Э-08) для форм суток: группы — по `entry_form` и `entry_ttl`, из двух и больше
 /// форм; сигналы — те же, что у формы (`signals_for`). Печатает число групповых кругов.
 #[allow(clippy::too_many_arguments)]
@@ -210,16 +226,7 @@ fn exit_groups(
     memos: &[Mutex<RoundMemo>],
     cache: Option<&SigCache>,
 ) -> anyhow::Result<()> {
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for (i, f) in forms.iter().enumerate() {
-        match groups.iter_mut().find(|g| {
-            let h = &forms[g[0]];
-            h.entry_form == f.entry_form && h.entry_ttl == f.entry_ttl
-        }) {
-            Some(g) => g.push(i),
-            None => groups.push(vec![i]),
-        }
-    }
+    let groups = entry_groups(forms);
     let cfg = DriveConfig {
         tape_log_secs: p.tape_log_secs,
         order_qty: 0.0,

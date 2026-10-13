@@ -563,6 +563,7 @@ mod exit_priority;
 mod f4_partial;
 mod f5_ttl;
 mod f7_wall;
+mod reclaim_wall;
 mod trail;
 mod weat_pyramid;
 

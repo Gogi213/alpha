@@ -34,6 +34,11 @@ impl RetreatMemory {
         self.last_stop_ns = Some(now_ns);
     }
 
+    /// Окно суток этой памяти — `carry_window_ns(cfg)`.
+    pub fn carry_window_ns(&self) -> i64 {
+        carry_window_ns(self.cfg)
+    }
+
     /// Добавка к отступу входа в `now_ns`, целых тиков: `floor(k · 2^(−Δt/T))`.
     #[allow(
         clippy::cast_precision_loss,

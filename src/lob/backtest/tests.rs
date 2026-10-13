@@ -2643,11 +2643,11 @@ fn fast_hold_handoff_equals_continuous() {
     }
 }
 
-/// Г-102: после стопа вход сигнала сдвигается к рынку на `floor(k·2^(−Δt/T))` тиков; до стопа и после затухания
-/// до нуля сигнал идёт как есть (`None`). Покупка двигает вход вверх, продажа — вниз. Только с `r2` (иначе `eff()` — OFF).
+/// Г-102: после стопа вход сигнала сдвигается от рынка на `floor(k·2^(−Δt/T))` тиков; до стопа и после затухания
+/// до нуля сигнал идёт как есть (`None`). Покупка двигает вход вниз, продажа — вверх. Только с `r2` (иначе `eff()` — OFF).
 #[cfg(feature = "r2")]
 #[test]
-fn retreat_shift_moves_entry_toward_market_and_decays() {
+fn retreat_shift_moves_entry_away_from_market_and_decays() {
     let (_, mut plan) = windowed_fixture();
     if let TradePlan::Bounce { pyramid, .. } = &mut plan {
         pyramid.retreat_k = 4;
@@ -2676,15 +2676,15 @@ fn retreat_shift_moves_entry_toward_market_and_decays() {
     };
     assert_eq!(
         at(&mut mem, 10, HbtSide::Buy),
-        Some(105.0),
-        "сразу после стопа +k"
+        Some(97.0),
+        "сразу после стопа −k"
     );
     assert_eq!(
         at(&mut mem, 10, HbtSide::Sell),
-        Some(97.0),
-        "продажа — вниз"
+        Some(105.0),
+        "продажа — вверх"
     );
-    assert_eq!(at(&mut mem, 25, HbtSide::Buy), Some(103.0), "через T — k/2");
+    assert_eq!(at(&mut mem, 25, HbtSide::Buy), Some(99.0), "через T — k/2");
     assert_eq!(
         at(&mut mem, 70, HbtSide::Buy),
         None,
@@ -2693,7 +2693,7 @@ fn retreat_shift_moves_entry_toward_market_and_decays() {
     mem.as_mut().unwrap().on_stop(70 * min);
     assert_eq!(
         at(&mut mem, 70, HbtSide::Buy),
-        Some(105.0),
+        Some(97.0),
         "повторный стоп — снова k, не сумма"
     );
 }
