@@ -585,12 +585,9 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             args.p08_cols,
             args.r1_cols,
             args.tape_log.is_some(),
-            forms.iter().any(|f| {
-                matches!(
-                    f.entry_form,
-                    crate::commands::lob::backtest::forms::EntryForm::Retreat { .. }
-                )
-            }),
+            forms
+                .iter()
+                .any(|f| matches!(f.entry_form, EntryForm::Retreat { .. })),
         )?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;
