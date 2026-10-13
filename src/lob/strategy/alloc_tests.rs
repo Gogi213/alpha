@@ -48,6 +48,7 @@ fn plan() -> TradePlan {
 fn phase_name(p: &Phase) -> &'static str {
     match p {
         Phase::Idle => "Idle",
+        Phase::ReclaimWait => "ReclaimWait",
         Phase::EntryPending { .. } => "EntryPending",
         Phase::Holding { .. } => "Holding",
         Phase::ExitPending { .. } => "ExitPending",

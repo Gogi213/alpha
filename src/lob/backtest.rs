@@ -66,6 +66,7 @@ use crate::lob::costs::{
     NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
 use crate::lob::levels::WallEvent;
+use crate::lob::retreat::{RetreatCfg, RetreatMemory};
 use crate::lob::strategy::{
     on_event, Action, EntryCancelReason, ExitReason, OrphanCarry, StrategyState, TradePlan,
     MAX_ENTRY_LEGS,
@@ -1240,6 +1241,9 @@ pub struct BounceRun {
     /// считается честная доля исполнения `круги / отправленные`, а не
     /// `круги / все касания` — последнее смешивает отказ с пропуском.
     pub submitted_signal: Vec<usize>,
+    /// Г-102: входы суток (отправленные заявки) в окне `[00:00, 00:00 + carry_window_ns)` на этом (вариант, инструмент) —
+    /// верхняя граница входов, затронутых суточным сбросом памяти отступа; колонка `n_retreat_window_entries`.
+    pub retreat_window_entries: u64,
     /// Индексы сигналов, пропущенных как «позиция занята»: по ним вызывающий
     /// считает промахи по строкам осей, а не только итогом.
     pub busy_signal: Vec<usize>,
@@ -2663,8 +2667,19 @@ where
     // (повтор снятия, учёт исполнения) идёт с первого события этого круга.
     state.inherit_orphans(*carry);
 
+    // Г-88: `reclaim` не ставит вход сразу — круг идёт в `ReclaimWait` (заявка уйдёт позже, с тем же номером).
+    let mut reclaim_wait = false;
     let (entry_id, side) = match on_event(bot, &mut state)? {
         Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
+        Action::Idle
+            if state.reclaim_wait_entry_id().is_some() && entry_side(sig.sigma).is_some() =>
+        {
+            reclaim_wait = true;
+            (
+                state.reclaim_wait_entry_id().unwrap_or_default(),
+                entry_side(sig.sigma).unwrap_or(HbtSide::Buy),
+            )
+        }
         _ => {
             *carry = state.take_orphans();
             return Ok(SignalStep::NotSubmitted {
@@ -2677,7 +2692,7 @@ where
     // отвергает, обычный лимит — исполняет как тейкер.
     let mut crossed = false;
     let mut spread = None;
-    if let Some(entry_px) = entry_market_px(sig.plan) {
+    if let (false, Some(entry_px)) = (reclaim_wait, entry_market_px(sig.plan)) {
         let d = bot.depth(asset_no);
         let (bid, ask) = (d.best_bid(), d.best_ask());
         if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
@@ -2901,6 +2916,7 @@ impl BounceRun {
             orphan_fills: 0,
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
+            retreat_window_entries: 0,
             busy_signal: Vec::new(),
             busy_wait_ns_max: 0,
             round_ns_max: 0,
@@ -3076,6 +3092,41 @@ fn horizon_span_ns(plan: &TradePlan) -> i64 {
         .max(1)
 }
 
+/// Г-102: сигнал со входом, отодвинутым от стены на добавку памяти отступа (`RetreatMemory::offset_ticks` на `t0`),
+/// ОТ рынка (штраф после стопа, X-09: вход труднее — покупка ниже, продажа выше); `None` — форма выключена или добавка ноль (сигнал идёт как есть). Память создаётся по первому сигналу.
+fn retreat_shift(
+    memory: &mut Option<RetreatMemory>,
+    sig: &BounceSignal,
+    side: HbtSide,
+) -> Option<BounceSignal> {
+    let TradePlan::Bounce {
+        pyramid, tick_px, ..
+    } = sig.plan
+    else {
+        return None;
+    };
+    let p = pyramid.eff();
+    if p.retreat_k == 0 {
+        return None;
+    }
+    let mem = memory.get_or_insert_with(|| {
+        RetreatMemory::new(RetreatCfg {
+            k_ticks: u32::from(p.retreat_k),
+            half_life_ns: i64::from(p.retreat_half_min) * 60_000_000_000,
+        })
+    });
+    let ticks = mem.offset_ticks(sig.t0_ns);
+    if ticks == 0 {
+        return None;
+    }
+    let mut out = *sig;
+    if let TradePlan::Bounce { entry_px, .. } = &mut out.plan {
+        let d = f64::from(ticks) * tick_px;
+        *entry_px += if matches!(side, HbtSide::Buy) { -d } else { d };
+    }
+    Some(out)
+}
+
 fn drive_bounce_with<B, MD, S>(
     asset_no: usize,
     signals: &[BounceSignal],
@@ -3118,6 +3169,7 @@ where
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
     let mut submitted_signal: Vec<usize> = Vec::new();
+    let mut retreat_window_entries: u64 = 0;
     let mut busy_wait_ns_max: i64 = 0;
     let mut round_ns_max: i64 = 0;
     let mut fill_signal: Vec<usize> = Vec::new();
@@ -3143,10 +3195,13 @@ where
     };
 
     let mut trace: Vec<SignalTrace> = Vec::new();
+    // Г-102: память отступа после стопа — одна на этот драйвер (вариант × инструмент × сутки), создаётся по первому сигналу.
+    let mut retreat: Option<RetreatMemory> = None;
+    let mut shifted: BounceSignal;
     for (sig_idx, sig) in order.iter().enumerate() {
-        if entry_side(sig.sigma).is_none() {
+        let Some(side) = entry_side(sig.sigma) else {
             continue;
-        }
+        };
         if cfg.busy_skip && sig.t0_ns < idle_ns {
             busy_signal.push(sig_idx);
             busy_wait_ns_max = busy_wait_ns_max.max(idle_ns.saturating_sub(sig.t0_ns));
@@ -3154,6 +3209,14 @@ where
             observations.push(miss_observation(sig.t0_ns));
             continue;
         }
+        // Г-102: вход отходит от стены на добавку памяти отступа (от рынка); ноль — сигнал как есть.
+        let sig = match retreat_shift(&mut retreat, sig, side) {
+            Some(s) => {
+                shifted = s;
+                &shifted
+            }
+            None => sig,
+        };
         // Память кругов (G10): круг, уже посчитанный над тем же окном с тем же планом, берётся
         // готовым; номера заявок и сироты продолжаются так, как если бы его считали здесь.
         let recalled = memo
@@ -3256,6 +3319,11 @@ where
                 exit_cancel_timeout = exit_cancel_timeout.saturating_add(exit_cancel_timeouts);
                 orphan_fills = orphan_fills.saturating_add(orphans);
                 submitted_signal.push(sig_idx);
+                if let Some(m) = retreat.as_ref() {
+                    if sig.t0_ns.rem_euclid(NANOS_PER_DAY) < m.carry_window_ns() {
+                        retreat_window_entries = retreat_window_entries.saturating_add(1);
+                    }
+                }
                 if crossed {
                     entry_crossed = entry_crossed.saturating_add(1);
                 }
@@ -3323,13 +3391,19 @@ where
                     } => {
                         match reason {
                             ExitReason::Take => exits.take += 1,
-                            ExitReason::Stop => exits.stop += 1,
+                            ExitReason::Stop => {
+                                exits.stop += 1;
+                                if let Some(m) = retreat.as_mut() {
+                                    m.on_stop(exit_ts);
+                                }
+                            }
                             ExitReason::Deadline => exits.deadline += 1,
                             ExitReason::Horizon => exits.horizon += 1,
                             ExitReason::Trail => exits.trail += 1,
                             // Г-119: `Converge`/`Tape`/`Resilience` — отдельной колонки нет (форма в имени клетки); считается как `early`.
                             ExitReason::Early
                             | ExitReason::Converge
+                            | ExitReason::LevelBack
                             | ExitReason::Tape
                             | ExitReason::Resilience => exits.early += 1,
                             ExitReason::Eaten => exits.eaten += 1,
@@ -3399,6 +3473,7 @@ where
         orphan_fills,
         spread_at_entry,
         submitted_signal,
+        retreat_window_entries,
         busy_signal,
         busy_wait_ns_max,
         round_ns_max,

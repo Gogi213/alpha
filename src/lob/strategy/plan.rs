@@ -52,6 +52,9 @@ pub(super) enum Phase {
     /// сборка кадра на живом пути — забота `commands::lob::react`, не эта
     /// функция — здесь только решение `Bot<MD>`).
     Idle,
+    /// Г-88 (`reclaim<D>p<S>`): вход не ставим, пока `ReclaimWatch` не увидит закол и возврат (`state.reclaim_t0`) или не
+    /// кончится окно `[arm, arm + entry_ttl]` — тогда круг без входа (`NotPlaced`). Не `Idle`: цикл круга не выходит.
+    ReclaimWait,
     /// Вход отправлен, ждём исполнения или истечения `entry_ttl_ns`. Лестница
     /// ставит несколько ордеров подряд: `order_id` — первый, всего `legs`.
     /// С F4 (В-78) первая исполнившаяся нога **не снимает остальные**:
@@ -333,6 +336,9 @@ pub struct PyramidCfg {
     /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
     pub converge_tol1: u8,
     pub converge_a_bps: u32,
+    /// Г-108 (`lvlback<G>w<W>`): в первые `W` с после входа цена ушла под уровень стены на `G` bps против стороны — выход по рынку (`LevelBack`). `levelback_secs = 0` — выключено.
+    pub levelback_gap_bps: u32,
+    pub levelback_secs: u32,
     /// Г-106 (`nostop<X2>`): без стопа, пока лучшая цена не дала `X8/8 · trail_activate_bps` и не ушла за безубыток;
     /// затем стоп = безубыток (мягкий). `0` — выключено.
     pub nostop_x8: u8,
@@ -352,6 +358,14 @@ pub struct PyramidCfg {
     pub cxl_q: f64,
     /// Г-116: окно `W`, с.
     pub cxl_w: u32,
+    /// Г-88 (`reclaim<D>p<S>`, вход): ждать «закола» — сделки за уровень на `D` bps и возврата на уровень (`ReclaimWatch`);
+    /// вход — через `S` мс после возврата, в окне `[arm, arm + entry_ttl]`. `reclaim_depth_bps = 0` — выключено.
+    pub reclaim_depth_bps: u32,
+    pub reclaim_pause_ms: u32,
+    /// Г-102 (`retreat<k>t<T>`, вход): после стопа отступ входа от стены растёт на `k` тиков и затухает как `k·2^(−Δt/T)`
+    /// (`lob::retreat`); состояние ведёт драйвер на (вариант, инструмент). `retreat_k = 0` — выключено.
+    pub retreat_k: u8,
+    pub retreat_half_min: u32,
 }
 
 impl PyramidCfg {
@@ -371,6 +385,8 @@ impl PyramidCfg {
         sched_t16: 0,
         converge_tol1: 0,
         converge_a_bps: 0,
+        levelback_gap_bps: 0,
+        levelback_secs: 0,
         nostop_x8: 0,
         wall2: 0,
         chase_ms: 0,
@@ -378,6 +394,10 @@ impl PyramidCfg {
         tape_w: 0,
         cxl_q: 0.0,
         cxl_w: 0,
+        reclaim_depth_bps: 0,
+        reclaim_pause_ms: 0,
+        retreat_k: 0,
+        retreat_half_min: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -398,11 +418,14 @@ impl PyramidCfg {
             || self.sched_g10 > 0
             || self.sched_g8 > 0
             || self.converge_tol1 > 0
+            || self.levelback_secs > 0
             || self.nostop_x8 > 0
             || self.wall2 > 0
             || self.chase_ms > 0
             || self.tape_q > 0.0
-            || self.cxl_q > 0.0)
+            || self.cxl_q > 0.0
+            || self.reclaim_depth_bps > 0
+            || self.retreat_k > 0)
     }
 }
 
@@ -641,6 +664,8 @@ pub enum ExitReason {
     WallEatLocal,
     /// Г-119: цена уходила от стены на `A` bps и вернулась к ней — выход по рынку.
     Converge,
+    /// Г-108: в первые `W` с после входа цена ушла под уровень стены на `G` bps — выход по рынку.
+    LevelBack,
     /// Г-112: лента против позиции за окно с входа ≥ порога (нормирована на размер стены), позиция в минусе.
     Tape,
     /// Г-116: отмены на нашей стороне за окно с входа ≥ порога (нормированы на размер стены), позиция в минусе.

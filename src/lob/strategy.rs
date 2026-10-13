@@ -106,6 +106,7 @@ where
             cancel_sent_ns,
         } => on_cancel_pending(bot, state, now, order_id, legs, reason, cancel_sent_ns),
         Phase::Idle => on_idle(bot, state, now),
+        Phase::ReclaimWait => on_reclaim_wait(bot, state, now),
     }
 }
 

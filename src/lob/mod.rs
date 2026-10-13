@@ -18,6 +18,8 @@ pub mod minute_flow;
 pub mod moves;
 pub mod r1;
 pub mod r1_flow;
+pub mod reclaim;
+pub mod retreat;
 pub mod run_flags;
 pub mod runs;
 pub mod shortlist;

@@ -70,6 +70,7 @@ pub(super) enum ExitRule {
     EatenByTrades,
     WallEat,
     Converge,
+    LevelBack,
     Tape,
     Resilience,
     GoneExit,
@@ -82,7 +83,7 @@ pub(super) enum ExitRule {
 /// (проскочила оба уровня за кадр — честнее считать стопом), съедание всей плотности — раньше трейла, трейл —
 /// раньше тейка, половинное съедание — после тейка, защиты `eat`/`gone` — ниже тейка, прилипание и дедлайн —
 /// последние. Порядок — часть плана; тест `exit_priority` проверяет каждую пару.
-pub(super) const EXIT_PRIORITY: [ExitRule; 16] = [
+pub(super) const EXIT_PRIORITY: [ExitRule; 17] = [
     ExitRule::LevelHalf,
     ExitRule::Stop,
     ExitRule::GoneHard,
@@ -93,6 +94,7 @@ pub(super) const EXIT_PRIORITY: [ExitRule; 16] = [
     ExitRule::EatenByTrades,
     ExitRule::WallEat,
     ExitRule::Converge,
+    ExitRule::LevelBack,
     ExitRule::Tape,
     ExitRule::Resilience,
     ExitRule::GoneExit,
@@ -352,6 +354,12 @@ where
             } else {
                 false
             };
+            // Г-108: возврат под уровень стены на `G` bps в окне `W` с после входа.
+            let levelback_hit = pyr.levelback_secs > 0
+                && level_px > 0.0
+                && now.saturating_sub(entry_ns) <= i64::from(pyr.levelback_secs) * 1_000_000_000
+                && sigma_sign * (level_px - favourable) / level_px * 10_000.0
+                    >= f64::from(pyr.levelback_gap_bps);
             // Г-112/116: мера в окне с входа, нормированная на размер стены; только в минусе.
             let in_loss = sigma_sign * (favourable - entry_px) < 0.0;
             let tape_hit = pyr.tape_q > 0.0
@@ -436,6 +444,11 @@ where
                 ExitRule::Converge,
                 converge_hit,
                 (ExitAt::Market, ExitReason::Converge, 1.0),
+            );
+            hits.set(
+                ExitRule::LevelBack,
+                levelback_hit,
+                (ExitAt::Market, ExitReason::LevelBack, 1.0),
             );
             hits.set(
                 ExitRule::Tape,

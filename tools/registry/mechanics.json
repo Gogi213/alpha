@@ -304,6 +304,114 @@
       ]
     },
     {
+      "id": "EntryReclaim",
+      "kind": "entry",
+      "prefix": "reclaim",
+      "name_template": "reclaim{d_bps}p{pause_s}",
+      "is_r2": true,
+      "samples": [
+        "reclaim1p0",
+        "reclaim1p1",
+        "reclaim1p2",
+        "reclaim1p4",
+        "reclaim1p5",
+        "reclaim2p0",
+        "reclaim2p1",
+        "reclaim2p2",
+        "reclaim2p4",
+        "reclaim2p5",
+        "reclaim3p0",
+        "reclaim3p1",
+        "reclaim3p2",
+        "reclaim3p4",
+        "reclaim3p5",
+        "reclaim5p0",
+        "reclaim5p1",
+        "reclaim5p2",
+        "reclaim5p4",
+        "reclaim5p5",
+        "reclaim6p0",
+        "reclaim6p1",
+        "reclaim6p2",
+        "reclaim6p4",
+        "reclaim6p5"
+      ],
+      "params": [
+        {
+          "name": "d_bps",
+          "dom": {
+            "type": "int",
+            "lo": 1,
+            "hi": null,
+            "excl": []
+          }
+        },
+        {
+          "name": "pause_s",
+          "dom": {
+            "type": "int",
+            "lo": 0,
+            "hi": null,
+            "excl": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "EntryRetreat",
+      "kind": "entry",
+      "prefix": "retreat",
+      "name_template": "retreat{k}t{half_min}",
+      "is_r2": true,
+      "samples": [
+        "retreat1t1",
+        "retreat1t2",
+        "retreat1t3",
+        "retreat1t5",
+        "retreat1t6",
+        "retreat2t1",
+        "retreat2t2",
+        "retreat2t3",
+        "retreat2t5",
+        "retreat2t6",
+        "retreat4t1",
+        "retreat4t2",
+        "retreat4t3",
+        "retreat4t5",
+        "retreat4t6",
+        "retreat7t1",
+        "retreat7t2",
+        "retreat7t3",
+        "retreat7t5",
+        "retreat7t6",
+        "retreat8t1",
+        "retreat8t2",
+        "retreat8t3",
+        "retreat8t5",
+        "retreat8t6"
+      ],
+      "params": [
+        {
+          "name": "k",
+          "dom": {
+            "type": "int",
+            "lo": 1,
+            "hi": 8,
+            "excl": []
+          }
+        },
+        {
+          "name": "half_min",
+          "dom": {
+            "type": "int",
+            "lo": 1,
+            "hi": null,
+            "excl": []
+          }
+        }
+      ]
+    },
+    {
       "id": "None",
       "is_r2": false,
       "kind": "exit",
@@ -1339,6 +1447,60 @@
         "conv16a3",
         "conv16a5",
         "conv16a6"
+      ]
+    },
+    {
+      "id": "LevelBack",
+      "kind": "exit",
+      "prefix": "lvlback",
+      "name_template": "lvlback{gap_bps}w{secs}",
+      "is_r2": true,
+      "samples": [
+        "lvlback0w1",
+        "lvlback0w2",
+        "lvlback0w3",
+        "lvlback0w5",
+        "lvlback0w6",
+        "lvlback1w1",
+        "lvlback1w2",
+        "lvlback1w3",
+        "lvlback1w5",
+        "lvlback1w6",
+        "lvlback2w1",
+        "lvlback2w2",
+        "lvlback2w3",
+        "lvlback2w5",
+        "lvlback2w6",
+        "lvlback4w1",
+        "lvlback4w2",
+        "lvlback4w3",
+        "lvlback4w5",
+        "lvlback4w6",
+        "lvlback5w1",
+        "lvlback5w2",
+        "lvlback5w3",
+        "lvlback5w5",
+        "lvlback5w6"
+      ],
+      "params": [
+        {
+          "name": "gap_bps",
+          "dom": {
+            "type": "int",
+            "lo": 0,
+            "hi": null,
+            "excl": []
+          }
+        },
+        {
+          "name": "secs",
+          "dom": {
+            "type": "int",
+            "lo": 1,
+            "hi": null,
+            "excl": []
+          }
+        }
       ]
     },
     {

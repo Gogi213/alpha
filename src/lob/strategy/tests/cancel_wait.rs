@@ -694,6 +694,8 @@ pub(super) fn holding_decision_reads_time_only_at_the_known_thresholds() {
             "if let Some(b) = state.wall_bucket(now.div_euclid(1_000_000_000)) {",
             "let (eaten, max_qty) = state.wall_window(entry_ns, now);",
             ".and_then(|b| b.move_bps(now, wall_eat.secs))",
+            // Г-108 `lvlback<G>w<W>`: пропуск шагов при форме выключен (`pyramid_on` включает `levelback_secs > 0`).
+            "&& now.saturating_sub(entry_ns) <= i64::from(pyr.levelback_secs) * 1_000_000_000",
             // Г-112/116 `tape<Q>`/`cxl<Q>`: кольцо включено — пропуск шагов выключен (`tape_on` в `hold_wakeup_ns`).
             "&& state.tape_since_entry(entry_ns, now, pyr.tape_w) / state.level_qty_at_entry",
             "&& state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry",

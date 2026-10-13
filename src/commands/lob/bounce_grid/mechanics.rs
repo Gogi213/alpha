@@ -149,6 +149,19 @@ const fn entry(
     }
 }
 
+/// Форма входа только для R2-бинарника (состояние стратегии в `PyramidCfg`, при выключенном R2 стёрто в `OFF`).
+const fn entry_r2(
+    id: &'static str,
+    prefix: &'static str,
+    name_template: &'static str,
+    params: &'static [ParamSpec],
+) -> MechSpec {
+    MechSpec {
+        is_r2: true,
+        ..entry(id, prefix, name_template, params)
+    }
+}
+
 const PCT: ParamSpec = real("pct", 0.0, Some(100.0), true, false);
 const SECS: ParamSpec = int("secs", 1, Some(3600), &[]);
 const BTC: ParamSpec = real("btc_bps", 0.0, None, false, false);
@@ -246,6 +259,19 @@ pub static MECHANICS: &[MechSpec] = &[
         "ladder",
         "ladder3x0..0.0409sw{w}",
         &[int("w", 2, None, &[])],
+    ),
+    // Г-88 / Г-102 (В-227 D): вход после закола; память отступа после стопа.
+    entry_r2(
+        "EntryReclaim",
+        "reclaim",
+        "reclaim{d_bps}p{pause_s}",
+        &[int("d_bps", 1, None, &[]), int("pause_s", 0, None, &[])],
+    ),
+    entry_r2(
+        "EntryRetreat",
+        "retreat",
+        "retreat{k}t{half_min}",
+        &[int("k", 1, Some(8), &[]), int("half_min", 1, None, &[])],
     ),
     // `eat<h>x<a>` (TakeForm::Eaten): связь 0 < h < a ≤ 100 между параметрами — в каталог позже.
     row("None", "none", "none", &[], false),
@@ -359,6 +385,13 @@ pub static MECHANICS: &[MechSpec] = &[
         "conv",
         "conv{tol}a{a_bps}",
         &[int("tol", 0, Some(16), &[]), int("a_bps", 1, None, &[])],
+        true,
+    ),
+    row(
+        "LevelBack",
+        "lvlback",
+        "lvlback{gap_bps}w{secs}",
+        &[int("gap_bps", 0, None, &[]), int("secs", 1, None, &[])],
         true,
     ),
     row(
