@@ -5,7 +5,7 @@
   python tools/launch/launch.py status
 Дедуп — только по правилу Летописи (master.have_hashes: хеш есть = есть строки results по месяцу); свой хеш не изобретается
 (tools/registry/cellhash.py). После постановки ничего не уходит нейросетям (В-6): ни тикетам, ни claude, ни Telegram."""
-import argparse, collections, json, math, os, posixpath, re, shlex, subprocess, sys, time
+import argparse, collections, datetime, json, math, os, posixpath, re, shlex, subprocess, sys, time
 
 REQ_RE = re.compile(r"^L-\d{8}-\d{6}\.json$")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -65,7 +65,7 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
                     used.add(ln.split()[1])
             else:
                 routes[h] = "r1route"
-    doc = {"protocol": protocol, "fraction": fraction, "generated": time.strftime("%Y-%m-%dT%H:%M:%S+04:00"), "routes": routes, "r2_re": master.R2_EXIT_RE,
+    doc = {"protocol": protocol, "fraction": fraction, "generated": now_iso(), "routes": routes, "r2_re": master.R2_EXIT_RE,
            "lines": lines, "monthly": monthly, "sets": {u: sets[u] for u in sorted(used)}}
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, ensure_ascii=False, sort_keys=True)
@@ -379,6 +379,11 @@ def on_calc(cfg):
     return os.path.exists(cfg["alsched"])
 
 
+def now_iso():
+    """Метка времени GMT+4 (на calc часовой пояс другой — метка не должна врать)."""
+    return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=4))).strftime("%Y-%m-%dT%H:%M:%S+04:00")
+
+
 EST_K = 1.5   # правило alsched (manifest.check_estimate): max-runtime не меньше 1,5 x --est, иначе заявка отклонена
 
 
@@ -469,7 +474,7 @@ def process_requests(cfg=None, run_cmd=subprocess.run, log=print):
         except Exception as e:
             lines.append(f"запрос отклонён: {e}")
             res = {"ok": False, "why": "invalid"}
-        res.update(log=lines, ts=time.strftime("%Y-%m-%dT%H:%M:%S+04:00"))
+        res.update(log=lines, ts=now_iso())
         with open(os.path.join(run_dir, "result.json"), "w", encoding="utf-8", newline="\n") as f:
             json.dump(res, f, ensure_ascii=False)
         _unlink(path)
@@ -526,7 +531,7 @@ def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, 
     if r.returncode != 0:
         log(f"alsched submit rc={r.returncode}: {(r.stderr or r.stdout)[-300:]}")
         return {"ok": False, "why": "alsched-failed", "plan": p}
-    row = {"id": run_id, "ts": time.strftime("%Y-%m-%dT%H:%M:%S+04:00"), "kind": "launch", "hyps": sorted(hyps), "months": list(months),
+    row = {"id": run_id, "ts": now_iso(), "kind": "launch", "hyps": sorted(hyps), "months": list(months),
            "axes": axes or {}, "bin": b, "cmd": shlex.join(cmd), "hm_new": p["hm_new"], "new_hm": {c["hash"]: c["new_months"] for c in p["cells"] if c["new_months"]},
            "source": "tools/launch/launch.py"}
     with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8", newline="\n") as f:
