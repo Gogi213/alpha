@@ -13,4 +13,5 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/data/launch /data/sched
+# /data/registry: guard.check (alsched submit) снимает копии файлов команды в files/ и пишет отметку pending
+ReadWritePaths=/data/launch /data/sched /data/registry
