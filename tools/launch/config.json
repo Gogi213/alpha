@@ -1,0 +1,11 @@
+{
+  "_note": "Параметры очереди назначены владельцем/CEO (как у прохода F1, TK-231.md:74), не измерены. Меняет только CEO.",
+  "ssh_host": "calc",
+  "alsched": "/data/sched/alsched.py",
+  "queue": {"cls": "prod", "cores": 12, "mem": 24, "max_runtime": 60000, "est": 45000},
+  "busy_warn_jobs": 1,
+  "protocol": "P-14",
+  "fraction": 1,
+  "months": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"],
+  "runner": "bash /data/tk0231/run-all.sh"
+}
