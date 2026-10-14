@@ -6,7 +6,7 @@
 |---|---|---|
 | уставы | слить, отдельным тикетом Инженеру (не мелкая правка) | `diff` шаблонов `templates/roles/*.md` плагина 2.0.3 с `.claude/roles/*.md` |
 | реестр решений | одна сквозная нумерация: В-1 → В-231, SETTLED заморожен | `registry.py` 2.0.3 `ref_exists`/`cmd_decide` (номер = max+1 по decisions.md); `tickets.py` проверяет `--ref`, `--decisions`, `allow --ref` только по decisions.md; последний номер SETTLED-index — В-230 |
-| цель G-001 | завести ссылкой на BUSINESS-TASK.md | `overseer.py goal_context` берёт цель только по G-NNN из описания тикета |
+| цель владельца | завести ссылкой на BUSINESS-TASK.md | `overseer.py goal_context` берёт цель только по G-NNN из описания тикета |
 | реестр ошибок | первыми — две записи с проверкой из git | «Грабли» `docs/COMMANDS.md`, `tools/compute/tests/` |
 
 ## Уставы ролей — что добавить / что оставить
