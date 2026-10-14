@@ -79,13 +79,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, open(os.path.join(HERE, "page.html"), "rb").read(), "text/html; charset=utf-8")
             if path == "/api/meta":
                 return self._send(200, cached("meta", launch.meta))
+            if path == "/api/cov":
+                return self._send(200, {"months": launch.load_config()["months"], "cov": launch.coverage()})
             if path == "/api/letopis":
                 return self._send(200, launch.letopis(q.get("hyp"), q.get("month"), q.get("status")))
             if path == "/api/status":
                 try:
-                    return self._send(200, launch.status())
+                    st = launch.status()
                 except Exception as e:
-                    return self._send(200, {"text": f"calc недоступен: {e}", "busy": 0, "warn": False})
+                    st = {"text": f"calc недоступен: {e}", "busy": 0, "warn": False}
+                return self._send(200, st | {"runs": launch.recent_runs()})
             return self._send(404, {"error": "not found"})
         except Exception as e:
             return self._send(500, {"error": str(e)})
@@ -97,22 +100,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = r[0]
         try:
             b = self._body()
-            hyps, months, axes = b.get("hyps") or [], b.get("months") or [], b.get("axes") or {}
-            launch.validate(hyps, months, axes)
+            hyps, months, axes, groups = b.get("hyps") or [], b.get("months") or [], b.get("axes") or {}, b.get("groups") or []
+            launch.validate_groups(groups) if groups else launch.validate(hyps, months, axes)
         except (ValueError, TypeError) as e:
             return self._send(400, {"error": str(e)})
         try:
             if path == "/api/plan":
-                p = launch.plan(hyps, months, axes)
+                p = launch.plan_groups(groups) if groups else launch.plan(hyps, months, axes)
                 return self._send(200, {k: v for k, v in p.items() if k != "cells"} | {"summary": launch.summary(p)})
             if not _submit_lock.acquire(blocking=False):
                 return self._send(409, {"ok": False, "why": "busy", "message": "постановка уже идёт — подождите"})
             try:
                 lines = []
                 if b.get("dry_run"):
-                    res = launch.submit(hyps, months, axes, True, bool(b.get("confirm_bin")), log=lines.append)
+                    res = launch.submit(hyps, months, axes, True, bool(b.get("confirm_bin")), log=lines.append, groups=groups)
                 else:   # юнит без прав на очередь: пишет запрос, в alsched его ставит root-юнит alpha-launch-submit
-                    res = launch.request_submit(hyps, months, axes, bool(b.get("confirm_bin")), log=lines.append)
+                    res = launch.request_submit(hyps, months, axes, bool(b.get("confirm_bin")), log=lines.append, groups=groups)
             finally:
                 _submit_lock.release()
             return self._send(200, {"ok": res["ok"], "why": res.get("why"), "run_id": res.get("run_id"), "log": lines,

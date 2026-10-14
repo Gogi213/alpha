@@ -218,6 +218,14 @@ def validate(hyps, months, axes=None, cfg=None, rows=None):
             raise ValueError(f"ось {k!r}: значения вне сетки")
 
 
+def validate_groups(groups, cfg=None, rows=None):
+    """validate() для каждой группы выбора страницы; не больше 200 групп."""
+    if not isinstance(groups, list) or len(groups) > 200 or not all(isinstance(g, dict) for g in groups):
+        raise ValueError("groups: ожидался список объектов (≤ 200)")
+    for g in groups:
+        validate(g.get("hyps") or [], g.get("months") or [], g.get("axes") or {}, cfg, rows)
+
+
 def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, queued=None):
     """Сухой прогон в единицах хеш×месяц (В-224). axes: {param: [значения]} — фильтр сетки (нет = все значения).
     К счёту — только клетки, которые кодирует --cells (routes: хеш -> маршрут; нет клетки в routes = кодируется); остальное — hm_off
@@ -255,6 +263,12 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, q
         todo = [m for m in months if m not in got and m not in qd]
         cells.append({"queued_months": qd, "hyp": r["hyp"], "hash": r["hash"], "axes": r["axes"], "route": route, "have_months": hm,
                       "new_months": todo if route in COUNTABLE else [], "off_months": [] if route in COUNTABLE else todo})
+    out = _totals(cells, months)
+    out["axis_cov"] = {k: dict(v) for k, v in cov.items()}
+    return out
+
+
+def _totals(cells, months):
     hm_have = sum(len(c["have_months"]) for c in cells)
     hm_new = sum(len(c["new_months"]) for c in cells)
     off_by = collections.Counter()
@@ -264,8 +278,103 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, q
             "grid": len(cells), "have": sum(1 for c in cells if not c["new_months"] and not c["off_months"]),
             "new": sum(1 for c in cells if c["new_months"]), "off": sum(1 for c in cells if c["off_months"]),
             "hm_grid": len(cells) * len(months), "hm_have": hm_have, "hm_new": hm_new, "hm_off": sum(off_by.values()),
-            "off_by": {k: v for k, v in off_by.items() if v}, "months": months, "cells": cells,
-            "axis_cov": {k: dict(v) for k, v in cov.items()}}
+            "off_by": {k: v for k, v in off_by.items() if v}, "months": months, "cells": cells}
+
+
+def _groups_of(hyps, months, axes, groups):
+    """Выбор формы: список групп {hyps, months, axes}; нет groups — одна группа из прямоугольника hyps×months×axes (CLI и старый вызов)."""
+    return groups if groups else [{"hyps": hyps, "months": months, "axes": axes or {}}]
+
+
+def plan_groups(groups, rows=None, have=None, cfg=None, routes=None, queued=None):
+    """Выбор страницы «гипотеза × месяцы × значения осей» (у каждой гипотезы свой набор месяцев): plan() по каждой группе, затем слияние по хешу
+    (объединение месяцев). Итог той же формы, что у plan() (axis_cov пуст) — submit/prepare_plan работают без правок."""
+    cfg = cfg or load_config()
+    if routes is None:
+        routes = load_routes() if rows is None else {}
+    if rows is None:
+        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+    if have is None:
+        import master
+        have = master.have_hashes()
+        for h, ms in overlay_have(cfg).items():
+            have[h] = have.get(h, set()) | ms
+    queued = queued_months(cfg) if queued is None else queued
+    merged = {}
+    for g in groups:
+        for c in plan(g["hyps"], g["months"], g.get("axes"), rows, have, cfg, routes, queued)["cells"]:
+            m = merged.get(c["hash"])
+            if m is None:
+                merged[c["hash"]] = {**c, **{k: list(c[k]) for k in _MKEYS}}
+            else:
+                for k in _MKEYS:
+                    m[k] = list(dict.fromkeys(m[k] + c[k]))
+    order = {m: i for i, m in enumerate(cfg["months"])}
+    for c in merged.values():
+        for k in _MKEYS:
+            c[k].sort(key=order.__getitem__)
+    months = sorted({m for g in groups for m in g["months"]}, key=order.__getitem__)
+    out = _totals(list(merged.values()), months)
+    out["hm_grid"] = sum(len(c[k]) for c in merged.values() for k in _MKEYS)   # у каждой гипотезы свои месяцы: не клетки × объединение
+    return {**out, "axis_cov": {}}
+
+
+_MKEYS = ("queued_months", "have_months", "new_months", "off_months")
+
+
+def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
+    """Покрытие страницы по хешам Летописи: {гипотеза: {axes:{ось:[значения]}, cells:[[индекс значения по каждой оси (−1 нет)…, маска «посчитано»,
+    маска «в очереди», 1 если вне формы]]}}; бит i маски — cfg.months[i]. Один хеш — одна клетка (как в plan)."""
+    cfg = cfg or load_config()
+    if rows is None:
+        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        routes = load_routes() if routes is None else routes
+    routes = routes or {}
+    if have is None:
+        import master
+        have = master.have_hashes()
+        for h, ms in overlay_have(cfg).items():
+            have[h] = have.get(h, set()) | ms
+    queued = queued_months(cfg) if queued is None else queued
+    bit = {m: 1 << i for i, m in enumerate(cfg["months"])}
+    ga = grid_axes(rows)
+    out, seen = {}, set()
+    for r in rows:
+        if r["hash"] in seen:
+            continue
+        seen.add(r["hash"])
+        axn = list(ga[r["hyp"]])
+        o = out.setdefault(r["hyp"], {"axes": ga[r["hyp"]], "cells": []})
+        idx = [ga[r["hyp"]][k].index(str(r["axes"][k])) if k in r["axes"] else -1 for k in axn]
+        o["cells"].append(idx + [sum(bit[m] for m in have.get(r["hash"], ()) if m in bit),
+                                 sum(bit[m] for m in queued.get(r["hash"], ()) if m in bit),
+                                 0 if routes.get(r["hash"], "cells") in COUNTABLE else 1])
+    return out
+
+
+def recent_runs(cfg=None, n=5):
+    """Последние запуски формы для чека: [{id, hyps, hm_new, ok}] из <run_dir>/L-*/run.json (+result.json: отказ root-юнита)."""
+    cfg = cfg or load_config()
+    try:
+        names = sorted((x for x in os.listdir(cfg["run_dir"]) if REQ_RE.match(x + ".json")), reverse=True)
+    except OSError:
+        return []
+    out = []
+    for nm in names[:n]:
+        d = {"id": nm, "hyps": [], "hm_new": 0, "ok": None}
+        try:
+            r = json.load(open(os.path.join(cfg["run_dir"], nm, "run.json"), encoding="utf-8"))
+            d.update(hyps=r.get("hyps", []), hm_new=r.get("hm_new", 0), months=r.get("months", []), ok=True)
+        except (OSError, ValueError):
+            pass
+        try:
+            res = json.load(open(os.path.join(cfg["run_dir"], nm, "result.json"), encoding="utf-8"))
+            d["ok"] = bool(res.get("ok"))
+            d["why"] = res.get("why")
+        except (OSError, ValueError):
+            pass
+        out.append(d)
+    return out
 
 
 def hyp_list():
@@ -320,7 +429,16 @@ def meta(cfg=None):
     return {"months": cfg["months"], "partial_month": "2026-10", "hyps": hy, "axes": grid_axes(rows),
             "presets": {"v227": {"ids": v227, "n": len(v227), "note": f"в таблице spec-v227 {v227_rows} строк «Г-», {len(v227)} различных, не 56"},
                         "months": cfg["months"]},
-            "stack": b1_stack(), "bin": bin_info(cfg), "queue": cfg["queue"]}
+            "stack": b1_stack(), "bin": bin_info(cfg), "queue": cfg["queue"], "registry_ts": registry_ts()}
+
+
+def registry_ts():
+    """Время снимка Летописи (results.jsonl) в GMT+4."""
+    try:
+        t = os.stat(os.path.join(REG, "results.jsonl")).st_mtime
+    except OSError:
+        return None
+    return datetime.datetime.fromtimestamp(t, datetime.timezone(datetime.timedelta(hours=4))).strftime("%Y-%m-%d %H:%M")
 
 
 def letopis(hyp=None, month=None, status=None, cfg=None):
@@ -332,13 +450,13 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
     for line in open(os.path.join(REG, "results.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
-            pnl[d["cell_id"]][d["month"]] = d.get("pnl_usd")
+            pnl[d["cell_id"]][d["month"]] = (d.get("pnl_usd"), d.get("trades"), d.get("max_dd"))
     byhash = collections.defaultdict(dict)
     for row in cellhash_reg.build():
         for m, v in pnl.get(row[0], {}).items():
             byhash[row[1]][m] = v
     for r in overlay_rows(cfg):
-        byhash[r["cell_id"]][r["month"]] = r.get("pnl_usd")
+        byhash[r["cell_id"]][r["month"]] = (r.get("pnl_usd"), r.get("trades"), r.get("max_dd"))
     sieve = {}
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
@@ -349,7 +467,8 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         if hyp and r["hyp"] != hyp:
             continue
         got = byhash.get(r["hash"], {})
-        sq = ["+" if got.get(m) is not None and got[m] > 0 else "-" if m in got else "" for m in months]
+        sq = ["+" if got.get(m, (None,))[0] is not None and got[m][0] > 0 else "-" if m in got else "" for m in months]
+        pn = [None if m not in got or got[m][0] is None else round(got[m][0], 2) for m in months]
         full = all(sq)
         sv = sieve.get(r["hash"], [])
         verdict = next((k for k in ("eligible", "plateau", "edge") if any(x.get(k) for x in sv)), "")
@@ -358,7 +477,9 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         st = "full" if full else "part" if any(sq) else "none"
         if status and status != st and status != verdict:
             continue
-        out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict})
+        out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict, "pnl": pn,
+                    "sum": round(sum(x for x in pn if x is not None), 2), "trades": sum(v[1] or 0 for v in got.values()),
+                    "max_dd": max([v[2] for v in got.values() if v[2] is not None], default=None)})
     return {"months": months, "rows": out}
 
 
@@ -421,11 +542,11 @@ def pending_requests(cfg):
         return []
 
 
-def request_submit(hyps, months, axes, confirm_bin, cfg=None, p=None, log=print):
+def request_submit(hyps, months, axes, confirm_bin, cfg=None, p=None, log=print, groups=None):
     """Постановка из формы (юнит alpha-launch без прав на очередь): те же отказы, что у submit, затем запрос атомарно в
     <request_dir>/<run_id>.json; в alsched его ставит root-юнит alpha-launch-submit (process_requests), проверив запрос заново. Один запрос за раз."""
     cfg = cfg or load_config()
-    p = p or plan(hyps, months, axes, cfg=cfg)
+    p = p or (plan_groups(groups, cfg=cfg) if groups else plan(hyps, months, axes, cfg=cfg))
     why = precheck(p, False, confirm_bin, cfg, log)
     if why:
         return {"ok": False, "why": why, "plan": p}
@@ -435,7 +556,7 @@ def request_submit(hyps, months, axes, confirm_bin, cfg=None, p=None, log=print)
     run_id = "L-" + time.strftime("%Y%m%d-%H%M%S")
     path = os.path.join(cfg["request_dir"], run_id + ".json")
     with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as f:
-        json.dump({"hyps": list(hyps), "months": list(months), "axes": axes or {}, "confirm_bin": True}, f, ensure_ascii=False)
+        json.dump({"hyps": list(hyps), "months": list(months), "axes": axes or {}, "groups": groups or [], "confirm_bin": True}, f, ensure_ascii=False)
     os.replace(path + ".tmp", path)
     log(f"запрос {run_id} записан; в очередь calc его ставит служба alpha-launch-submit")
     return {"ok": True, "why": None, "run_id": run_id, "plan": p}
@@ -467,9 +588,9 @@ def process_requests(cfg=None, run_cmd=subprocess.run, log=print):
             _unlink(path)
             continue
         try:
-            hyps, months, axes = req.get("hyps") or [], req.get("months") or [], req.get("axes") or {}
-            validate(hyps, months, axes, cfg)
-            res = submit(hyps, months, axes, False, bool(req.get("confirm_bin")), cfg, run_cmd=run_cmd, log=lines.append, run_id=rid)
+            hyps, months, axes, groups = req.get("hyps") or [], req.get("months") or [], req.get("axes") or {}, req.get("groups") or []
+            validate(hyps, months, axes, cfg) if not groups else validate_groups(groups, cfg)
+            res = submit(hyps, months, axes, False, bool(req.get("confirm_bin")), cfg, run_cmd=run_cmd, log=lines.append, run_id=rid, groups=groups)
             res = {"ok": res["ok"], "why": res.get("why")}
         except Exception as e:
             lines.append(f"запрос отклонён: {e}")
@@ -507,11 +628,13 @@ def request_errors(cfg):
     return []
 
 
-def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, p=None, run_cmd=subprocess.run, log=print, doc=None, run_id=None):
+def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, p=None, run_cmd=subprocess.run, log=print, doc=None, run_id=None, groups=None):
     """plan -> К счёту=0 отказ -> потолок -> план-каталог (prepare_plan) -> alsched submit на calc; строка запуска пишется в свой
     каталог сервера <run_dir>/run.json, НЕ в канон Летописи (В-7: канон переносит CEO load-results)."""
     cfg = cfg or load_config()
-    p = p or plan(hyps, months, axes, cfg=cfg)
+    p = p or (plan_groups(groups, cfg=cfg) if groups else plan(hyps, months, axes, cfg=cfg))
+    if groups:
+        hyps, months, axes = sorted({h for g in groups for h in g["hyps"]}), p["months"], {}
     why = precheck(p, dry_run, confirm_bin, cfg, log)
     if why:
         return {"ok": False, "why": why, "plan": p}
@@ -532,7 +655,7 @@ def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, 
         log(f"alsched submit rc={r.returncode}: {(r.stderr or r.stdout)[-300:]}")
         return {"ok": False, "why": "alsched-failed", "plan": p}
     row = {"id": run_id, "ts": now_iso(), "kind": "launch", "hyps": sorted(hyps), "months": list(months),
-           "axes": axes or {}, "bin": b, "cmd": shlex.join(cmd), "hm_new": p["hm_new"], "new_hm": {c["hash"]: c["new_months"] for c in p["cells"] if c["new_months"]},
+           "axes": axes or {}, "groups": groups or [], "bin": b, "cmd": shlex.join(cmd), "hm_new": p["hm_new"], "new_hm": {c["hash"]: c["new_months"] for c in p["cells"] if c["new_months"]},
            "source": "tools/launch/launch.py"}
     with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(row, f, ensure_ascii=False, sort_keys=True)

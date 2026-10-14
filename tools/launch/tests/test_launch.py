@@ -239,3 +239,27 @@ def test_process_requests_queues_valid_request_with_same_run_id(tmp_path, monkey
     run = tmp_path / "out" / "L-20261014-210000"
     assert json.loads((run / "result.json").read_text(encoding="utf-8"))["ok"] is True and (run / "run.json").exists()
     assert not list((tmp_path / "requests").iterdir())
+
+
+def test_plan_groups_merges_by_hash_with_own_months_per_hyp():
+    g = [{"hyps": ["Г-01"], "months": M3[:2], "axes": {"q": ["5", "10"]}}, {"hyps": ["Г-01"], "months": M3[1:], "axes": {"q": ["10"]}},
+         {"hyps": ["Г-02"], "months": M3[:1]}]
+    pg = launch.plan_groups(g, rows=ROWS, have=HAVE, cfg=CFG)
+    by = {c["hash"]: c for c in pg["cells"]}
+    assert by["bbbb"]["new_months"] == ["2026-02", "2026-03"] and by["bbbb"]["have_months"] == ["2026-01"]   # объединение месяцев двух групп
+    assert by["aaaa"]["have_months"] == M3[:2] and by["dddd"]["new_months"] == M3[:1]
+    assert pg["hm_new"] == 3 and pg["hm_have"] == 3 and pg["hm_grid"] == 6 and pg["months"] == M3
+    one = launch.plan_groups([{"hyps": ["Г-01"], "months": M3}], rows=ROWS, have=HAVE, cfg=CFG)
+    assert {k: v for k, v in one.items() if k not in ("axis_cov", "cells")} == {k: v for k, v in p().items() if k not in ("axis_cov", "cells")}
+
+
+def test_coverage_masks_and_validate_groups():
+    cv = launch.coverage(CFG, rows=ROWS, have=HAVE, routes={"cccc": "outside"}, queued={"bbbb": {"2026-02"}})
+    assert cv["Г-01"]["axes"] == {"q": ["5", "10", "20"]}
+    assert cv["Г-01"]["cells"] == [[0, 7, 0, 0], [1, 1, 2, 0], [2, 0, 0, 1]]   # индекс значения, маска посчитано, маска в очереди, вне формы
+    import pytest
+    launch.validate_groups([{"hyps": [], "months": M3}], CFG, ROWS)
+    with pytest.raises(ValueError):
+        launch.validate_groups([{"hyps": ["Г-01"], "months": ["1999-01"]}], CFG, ROWS)
+    with pytest.raises(ValueError):
+        launch.validate_groups({"hyps": []}, CFG, ROWS)
