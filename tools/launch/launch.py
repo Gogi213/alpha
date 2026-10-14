@@ -5,7 +5,7 @@
   python tools/launch/launch.py status
 Дедуп — только по правилу Летописи (master.have_hashes: хеш есть = есть строки results по месяцу); свой хеш не изобретается
 (tools/registry/cellhash.py). После постановки ничего не уходит нейросетям (В-6): ни тикетам, ни claude, ни Telegram."""
-import argparse, collections, json, os, posixpath, re, shlex, subprocess, sys, time
+import argparse, collections, json, math, os, posixpath, re, shlex, subprocess, sys, time
 
 REQ_RE = re.compile(r"^L-\d{8}-\d{6}\.json$")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -379,10 +379,14 @@ def on_calc(cfg):
     return os.path.exists(cfg["alsched"])
 
 
+EST_K = 1.5   # правило alsched (manifest.check_estimate): max-runtime не меньше 1,5 x --est, иначе заявка отклонена
+
+
 def queue_cmd(cfg, run_id, run_dir):
     q, b = cfg["queue"], bin_info(cfg)
+    max_runtime = max(q["max_runtime"], math.ceil(EST_K * q["est"]))
     return ["python3", cfg["alsched"], "submit", "--cls", q["cls"], "--name", run_id, "--cores", str(q["cores"]),
-            "--mem", str(q["mem"]), "--max-runtime", str(q["max_runtime"]), "--est", str(q["est"]), "--", "env", f"BIN={b['path']}",
+            "--mem", str(q["mem"]), "--max-runtime", str(max_runtime), "--est", str(q["est"]), "--", "env", f"BIN={b['path']}",
             f"SCRIPTS={cfg['scripts_dir']}", f"NX={q['cores']}", "bash", os.path.join(HERE, "run-launch.sh"), run_dir]
 
 

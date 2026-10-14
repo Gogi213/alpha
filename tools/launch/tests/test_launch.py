@@ -66,6 +66,11 @@ def test_queue_params_only_from_config():
     assert CFG["queue"] == {"cls": "prod", "cores": 12, "mem": 24, "max_runtime": 60000, "est": 45000}
 
 
+def test_queue_cmd_max_runtime_meets_alsched_rule():
+    cmd = launch.queue_cmd(CFG, "L-x", "/r")
+    assert int(cmd[cmd.index("--max-runtime") + 1]) >= 1.5 * int(cmd[cmd.index("--est") + 1])
+
+
 def test_no_neural_calls_in_code():
     bad = re.compile(r"tickets\.py|claude\s|notify|telegram|api\.telegram|anthropic", re.I)
     for fn in os.listdir(LAUNCH):
