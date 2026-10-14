@@ -31,6 +31,8 @@ def plan_rows(protocol="P-14", fraction=1):
 
 ROUTES_FILE = os.path.join(HERE, "routes.json")
 COUNTABLE = ("cells", "monthly")   # маршруты, которые кодирует --cells (прочее форма не ставит: посчитано вне Летописи / нет данных / нет кодировки / R1)
+OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata": "нет данных", "noline": "нет кодировки", "r1route": "маршрут R1"}   # причина «вне формы» словами для страницы
+OFF_ROUTES = list(OFF_LABELS)   # код в coverage(): 0 — форма считает, i+1 — OFF_ROUTES[i]
 
 
 def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
@@ -322,9 +324,13 @@ def plan_groups(groups, rows=None, have=None, cfg=None, routes=None, queued=None
 _MKEYS = ("queued_months", "have_months", "new_months", "off_months")
 
 
+def _off_code(route):
+    return 0 if route in COUNTABLE else OFF_ROUTES.index(route) + 1 if route in OFF_ROUTES else 1
+
+
 def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
     """Покрытие страницы по хешам Летописи: {гипотеза: {axes:{ось:[значения]}, cells:[[индекс значения по каждой оси (−1 нет)…, маска «посчитано»,
-    маска «в очереди», 1 если вне формы]]}}; бит i маски — cfg.months[i]. Один хеш — одна клетка (как в plan)."""
+    маска «в очереди», 0 или код причины «вне формы» (1+индекс в OFF_ROUTES)]]}}; бит i маски — cfg.months[i]. Один хеш — одна клетка (как в plan)."""
     cfg = cfg or load_config()
     if rows is None:
         rows = plan_rows(cfg["protocol"], cfg["fraction"])
@@ -348,7 +354,7 @@ def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
         idx = [ga[r["hyp"]][k].index(str(r["axes"][k])) if k in r["axes"] else -1 for k in axn]
         o["cells"].append(idx + [sum(bit[m] for m in have.get(r["hash"], ()) if m in bit),
                                  sum(bit[m] for m in queued.get(r["hash"], ()) if m in bit),
-                                 0 if routes.get(r["hash"], "cells") in COUNTABLE else 1])
+                                 _off_code(routes.get(r["hash"], "cells"))])
     return out
 
 

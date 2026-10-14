@@ -80,7 +80,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/meta":
                 return self._send(200, cached("meta", launch.meta))
             if path == "/api/cov":
-                return self._send(200, {"months": launch.load_config()["months"], "cov": launch.coverage()})
+                return self._send(200, {"months": launch.load_config()["months"], "cov": launch.coverage(), "off": launch.OFF_LABELS})
             if path == "/api/letopis":
                 return self._send(200, launch.letopis(q.get("hyp"), q.get("month"), q.get("status")))
             if path == "/api/status":

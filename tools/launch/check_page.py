@@ -75,6 +75,23 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     check(f"[{tag}] поиск сужает список", len(pg.query_selector_all(".hrow")) < n_hyp)
     pg.fill("#q", "")
     pg.keyboard.press("Escape")
+    # гипотеза целиком вне формы (Г-28: посчитано вне Летописи): отдельное состояние с причиной, а не «не считали» и не «Всё уже посчитано»
+    for pid in pg.eval_on_selector_all(".hrow.pin", "e=>e.map(x=>x.dataset.h)"):
+        pg.click(f"[data-pin='{pid}']")
+    pg.click(".hrow[data-h='Г-28']")
+    row = pg.query_selector("#mx [data-row='Г-28']")
+    cls = [c.get_attribute("class") for c in pg.query_selector_all("#mx tr:has([data-row='Г-28']) .cell")]
+    check(f"[{tag}] Г-28 вне формы: в списке «вне», в матрице все клетки «вне»", pg.inner_text(".hrow[data-h='Г-28'] .hn") == "вне" and row and cls and all(" o" in " " + c for c in cls) and "0/" not in pg.inner_text("#mx tr:has([data-row='Г-28'])"), f"{len(cls)} клеток")
+    check(f"[{tag}] Г-28: причина словами в легенде, карточке и подсказке", "вне формы" in pg.inner_text(".legend") and "посчитано вне Летописи" in pg.inner_text("#axes") and "посчитано вне Летописи" in pg.get_attribute("#mx tr:has([data-row='Г-28']) .cell", "title"))
+    pg.click("#mx tr:has([data-row='Г-28']) .cell >> nth=0")
+    check(f"[{tag}] Г-28: клик по клетке — причина, не выбор", "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-28']) .cell.sel") is None, pg.inner_text("#toast"))
+    pg.click("#allmiss")
+    go = pg.inner_text("#go")
+    check(f"[{tag}] Г-28: кнопка называет причину, а не «Всё уже посчитано»", pg.inner_text("#bigN") == "0" and "Всё уже посчитано" not in go and "посчитано вне Летописи" in go and pg.is_disabled("#go"), go)
+    if shot_dir:
+        pg.screenshot(path=os.path.join(shot_dir, f"{tag}-vne-formy.png"))
+    pg.click("#noneSel")
+    pg.click("[data-pin='Г-28']")
     # вкладка «Летопись»
     pg.click("#t-let")
     pg.wait_for_selector("#lt tr .mc")
