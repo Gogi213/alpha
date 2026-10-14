@@ -162,6 +162,43 @@ def queued_months(cfg):
     return out
 
 
+def overlay_rows(cfg):
+    """Результаты, посчитанные формой на этом сервере (<run_dir>/*/overlay.jsonl, postload.py); канон Летописи они не трогают (В-7)."""
+    out = []
+    try:
+        names = sorted(os.listdir(cfg["run_dir"]))
+    except OSError:
+        return out
+    for n in names:
+        try:
+            out += [json.loads(l) for l in open(os.path.join(cfg["run_dir"], n, "overlay.jsonl"), encoding="utf-8") if l.strip()]
+        except OSError:
+            pass
+    return out
+
+
+def overlay_have(cfg):
+    out = collections.defaultdict(set)
+    for r in overlay_rows(cfg):
+        out[r["cell_id"]].add(r["month"])
+    return out
+
+
+def postload_errors(cfg):
+    """Строки <run_dir>/*/postload.log (ошибка psim/загрузки оверлея) — одна красная строка на вкладке «Запуск»."""
+    out = []
+    try:
+        names = sorted(os.listdir(cfg["run_dir"]))
+    except OSError:
+        return out
+    for n in names:
+        try:
+            out += [l.strip() for l in open(os.path.join(cfg["run_dir"], n, "postload.log"), encoding="utf-8") if l.strip()]
+        except OSError:
+            pass
+    return out
+
+
 def validate(hyps, months, axes=None, cfg=None, rows=None):
     """Белые списки (В-7): id гипотез из hypotheses.jsonl, месяцы config.json, значения осей из сетки выбранных гипотез. ValueError — вне списка."""
     cfg = cfg or load_config()
@@ -193,6 +230,8 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, q
     if have is None:
         import master
         have = master.have_hashes()
+        for h, ms in overlay_have(cfg).items():   # посчитано = канон-снимок ∪ оверлей сервера (В-7)
+            have[h] = have.get(h, set()) | ms
     axes = {k: {str(x) for x in v} for k, v in (axes or {}).items() if v}
     months = list(months)
     queued = queued_months(cfg) if queued is None else queued
@@ -297,6 +336,8 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
     for row in cellhash_reg.build():
         for m, v in pnl.get(row[0], {}).items():
             byhash[row[1]][m] = v
+    for r in overlay_rows(cfg):
+        byhash[r["cell_id"]][r["month"]] = r.get("pnl_usd")
     sieve = {}
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
@@ -392,7 +433,7 @@ def status(cfg=None, run_cmd=subprocess.run):
     r = run_cmd(cmd if on_calc(cfg) else ["ssh", cfg["ssh_host"], *cmd], capture_output=True, text=True)
     out = (r.stdout or r.stderr).strip()
     busy = sum(1 for l in out.splitlines() if "running" in l.lower())
-    return {"text": out, "busy": busy, "warn": busy >= cfg.get("busy_warn_jobs", 1)}
+    return {"text": out, "busy": busy, "warn": busy >= cfg.get("busy_warn_jobs", 1), "errors": postload_errors(cfg)}
 
 
 def main(argv=None):

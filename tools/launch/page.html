@@ -32,7 +32,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:3px 6px;border-bottom:1p
 <section><span class="cnt">В сетке<b id="cnt-grid">0</b></span><span class="cnt">Уже в Летописи<b id="cnt-have">0</b></span><span class="cnt">К счёту<b id="cnt-new">0</b></span><span class="cnt" id="off-box" title="посчитано вне Летописи / нет данных / форма не кодируется --cells">Вне формы<b id="cnt-off">0</b></span>
  <small>в единицах хеш×месяц; вне формы: <span id="off-by">—</span></small><br><br>
  <label id="binok" style="display:none"><input type="checkbox" id="confirm-bin"> бинарь в config.json не задан / не совпадает с бинарём Летописи — подтверждаю</label><br>
- <button id="btn-submit">Поставить в очередь</button><span id="msg"></span><div id="queue" class="stack" style="margin-top:10px"></div></section>
+ <button id="btn-submit">Поставить в очередь</button><span id="msg"></span><div id="queue" class="stack" style="margin-top:10px"></div><div id="perr" class="err"></div></section>
 </div>
 <div id="tab-log" style="display:none"><section><h2>Летопись</h2>
  Гипотеза <select id="f-hyp"><option value="">все</option></select> Месяц <select id="f-month"><option value="">все</option></select>
@@ -78,7 +78,7 @@ async function submit(){const m=$('#msg');m.className='';m.textContent='…';
  const r=await api('api/submit',{...body(),confirm_bin:$('#confirm-bin').checked});
  if(r.message){m.textContent=r.message}else if(r.why=='bin-not-confirmed'){m.className='warn';m.textContent='подтвердите бинарь'}
  else if(!r.ok){m.className='err';m.textContent='не поставлено: '+(r.why||'')+' '+(r.log||[]).join(' ')}else{m.textContent='поставлено: '+r.run_id;queue()}}
-async function queue(){const s=await api('api/status');$('#queue').textContent=(s.warn?'calc занят: ':'очередь calc: ')+(s.text||'пусто');$('#queue').classList.toggle('warn',!!s.warn)}
+async function queue(){const s=await api('api/status');$('#queue').textContent=(s.warn?'calc занят: ':'очередь calc: ')+(s.text||'пусто');$('#queue').classList.toggle('warn',!!s.warn);$('#perr').textContent=(s.errors||[]).join(' · ')}
 async function drawLog(){const q=new URLSearchParams({hyp:$('#f-hyp').value,month:$('#f-month').value,status:$('#f-status').value});
  for(const k of [...q.keys()])if(!q.get(k))q.delete(k);const d=await api('api/letopis?'+q);const tb=$('#log tbody');tb.textContent='';
  for(const r of d.rows.slice(0,500)){const tr=el('tr',r.status=='full'?'full':'');const sq=el('td');

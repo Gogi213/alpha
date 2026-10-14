@@ -14,3 +14,9 @@ if [ ! -s "$D" ]; then
 fi
 mkdir -p "$O"
 xargs -P "$NX" -L1 bash -c 'bash "$0/day-cells.sh" "run-$1-$2" "$1" "$2"' "$S" < "$D"
+RC=$?
+# после счёта (В-7): psim -> оверлей сервера; без нейросетей (В-6); ошибка — <RUN>/postload.log (красная строка на вкладке «Запуск»)
+H=$(cd "$(dirname "$0")" && pwd)
+bash "$H/psim-launch.sh" "$RUN" >> "$RUN/postload.out" 2>&1 && python3 "$H/postload.py" "$RUN" >> "$RUN/postload.out" 2>&1 \
+  || { [ -s "$RUN/postload.log" ] || echo "$(basename "$RUN"): psim/postload rc≠0, см. postload.out" > "$RUN/postload.log"; }
+exit $RC

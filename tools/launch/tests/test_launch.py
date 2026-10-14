@@ -136,3 +136,37 @@ def test_validate_whitelists():
                 dict(hyps=[ok], months=["2026-01"], axes={"нет_оси": ["1"]}), dict(hyps=[1], months=["2026-01"])):
         with pytest.raises(ValueError):
             launch.validate(bad["hyps"], bad["months"], bad.get("axes"))
+
+
+def _fake_run(tmp_path, with_psim=True):
+    import json
+    run = tmp_path / "L-1"
+    (run / "psim").mkdir(parents=True)
+    (run / "run.json").write_text(json.dumps({"id": "L-1", "new_hm": {"bbbb": ["2026-02"], "cccc": ["2026-02"]}}), encoding="utf-8")
+    if with_psim:
+        (run / "psim" / "psim-p14f1.done").write_text("")
+        for cap in (0, 3):   # variant -> {месяц: {cap: [[ts, $], …]}}; bbbb и cccc — одна строка --cells, один вариант
+            (run / "psim" / f"closes-p14f1-cap{cap}-2026-02.json").write_text(
+                json.dumps({"t-bid-btc4h-q1@chase-pct2-tr1x1-14400-ttl1800": {"2026-02": {str(cap): [[1, 2.5], [2, -1.0]]}}}), encoding="utf-8")
+    return run
+
+
+def test_postload_writes_overlay_and_overlay_counts_as_have(tmp_path):
+    import json, postload
+    run = _fake_run(tmp_path)
+    assert postload.main([str(run)], DOC) == 0
+    rows = [json.loads(l) for l in open(run / "overlay.jsonl", encoding="utf-8")]
+    assert len(rows) == 2 and {r["cell_id"] for r in rows} == {"bbbb", "cccc"}
+    assert rows[0]["trades"] == 2 and rows[0]["pnl_usd"] == 1.5 and rows[0]["ext"]["cell_line"] == LINE
+    assert (run / "closes-sum.csv").read_text(encoding="utf-8").startswith("variant,month,cap,n,sum_usd")
+    cfg = {"run_dir": str(tmp_path)}
+    assert launch.overlay_have(cfg) == {"bbbb": {"2026-02"}, "cccc": {"2026-02"}}
+    assert launch.postload_errors(cfg) == []
+
+
+def test_postload_error_goes_to_log_not_overlay(tmp_path, monkeypatch):
+    import postload
+    run = _fake_run(tmp_path, with_psim=False)
+    assert postload.main([str(run)], DOC) == 1
+    assert not (run / "overlay.jsonl").exists()
+    assert "psim" in launch.postload_errors({"run_dir": str(tmp_path)})[0]
