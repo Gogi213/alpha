@@ -20,5 +20,5 @@ one() { mo=$1
   done; }
 export -f one; export O R TB T DROP
 ls s-r | sort | xargs -P "$P" -I{} bash -c 'one {}'
-[ -e p14f1-psim-fail.txt ] && exit 5
+[ -s p14f1-psim-fail.txt ] && exit 5
 touch psim-p14f1.done
