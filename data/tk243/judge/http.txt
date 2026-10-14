@@ -1,0 +1,7 @@
+200 /<tok>/
+404 /
+404 /wrong/
+200 /<tok>/api/cov
+404 POST /api/submit
+0
+3
