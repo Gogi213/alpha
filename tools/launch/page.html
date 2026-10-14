@@ -29,8 +29,8 @@ table{border-collapse:collapse;width:100%}td,th{padding:3px 6px;border-bottom:1p
  <span class="chip" id="clear-hyps">сбросить</span></div><div id="hyps"></div></section>
 <section><h2>Титруемые оси</h2><div id="axes">выберите гипотезу</div><small>Зелёный — посчитано по всем выбранным месяцам; синий — выбрано; серый — не выбрано; «N/9» — по части месяцев. Нет выбранных значений оси = все.</small></section>
 <section><h2>Фиксированный стек (только чтение)</h2><div class="stack" id="stack"></div></section>
-<section><span class="cnt">В сетке<b id="cnt-grid">0</b></span><span class="cnt">Уже в Летописи<b id="cnt-have">0</b></span><span class="cnt">К счёту<b id="cnt-new">0</b></span>
- <small>в единицах хеш×месяц</small><br><br>
+<section><span class="cnt">В сетке<b id="cnt-grid">0</b></span><span class="cnt">Уже в Летописи<b id="cnt-have">0</b></span><span class="cnt">К счёту<b id="cnt-new">0</b></span><span class="cnt" id="off-box" title="посчитано вне Летописи / нет данных / форма не кодируется --cells">Вне формы<b id="cnt-off">0</b></span>
+ <small>в единицах хеш×месяц; вне формы: <span id="off-by">—</span></small><br><br>
  <label id="binok" style="display:none"><input type="checkbox" id="confirm-bin"> бинарь в config.json не задан / не совпадает с бинарём Летописи — подтверждаю</label><br>
  <button id="btn-submit">Поставить в очередь</button><span id="msg"></span><div id="queue" class="stack" style="margin-top:10px"></div></section>
 </div>
@@ -63,9 +63,9 @@ function drawHyps(){const f=$('#family').value,box=$('#hyps');box.textContent=''
 async function refresh(){
  document.querySelectorAll('#months .chip').forEach(c=>c.classList.toggle('sel',S.months.has(c.dataset.month)));
  const b=body();
- if(!b.hyps.length||!b.months.length){['grid','have','new'].forEach(k=>$('#cnt-'+k).textContent=0);$('#axes').textContent='выберите гипотезу и месяцы';return}
+ if(!b.hyps.length||!b.months.length){['grid','have','new','off'].forEach(k=>$('#cnt-'+k).textContent=0);$('#axes').textContent='выберите гипотезу и месяцы';return}
  const [p,all]=await Promise.all([api('/api/plan',b),api('/api/plan',{...b,axes:{}})]);
- $('#cnt-grid').textContent=p.hm_grid;$('#cnt-have').textContent=p.hm_have;$('#cnt-new').textContent=p.hm_new;drawAxes(all.axis_cov,b.months.length)}
+ $('#cnt-grid').textContent=p.hm_grid;$('#cnt-have').textContent=p.hm_have;$('#cnt-new').textContent=p.hm_new;$('#cnt-off').textContent=p.hm_off;$('#off-by').textContent=Object.entries(p.off_by||{}).map(([k,v])=>k+' '+v).join(', ')||'—';drawAxes(all.axis_cov,b.months.length)}
 function drawAxes(cov,nm){const box=$('#axes');box.textContent='';
  const vals={};for(const h of S.hyps)for(const [k,v] of Object.entries(META.axes[h]||{}))vals[k]=[...new Set([...(vals[k]||[]),...v])];
  for(const [k,vs] of Object.entries(vals)){const row=el('div');row.append(el('b',null,k+': '));

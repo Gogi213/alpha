@@ -46,16 +46,16 @@ def main():
         pg.wait_for_function(f"document.querySelector('#cnt-grid').textContent!='{g1}'")
         g2, h2, n2 = num("#cnt-grid"), num("#cnt-have"), num("#cnt-new")
         check("клик по месяцу меняет счётчики", g2 == 2 * g1 and (h2, n2) != (h1, n1), f"{g2}/{h2}/{n2}")
-        # добавим не посчитанную Г-04: К счёту > 0
-        pg.check("input[data-hyp='Г-04']")
+        # добавим не посчитанную Г-141: К счёту > 0
+        pg.check("input[data-hyp='Г-141']")
         pg.wait_for_function("document.querySelector('#cnt-new').textContent!='0'")
         g2 = num("#cnt-grid")
-        check("не посчитанная Г-04 даёт К счёту > 0", num("#cnt-new") > 0, f"{g2}/{num('#cnt-have')}/{num('#cnt-new')}")
+        check("не посчитанная Г-141 даёт К счёту > 0", num("#cnt-new") > 0, f"{g2}/{num('#cnt-have')}/{num('#cnt-new')}")
         # ось: зелёные чипы не выбираются, клик по не зелёному меняет счётчики
         chips = pg.query_selector_all("#axes .chip")
         free = [c for c in chips if "done" not in (c.get_attribute("class") or "")]
         check("есть оси и чипы", len(chips) > 0 and len(free) > 0, f"{len(chips)} чипов, {len(free)} не зелёных")
-        pg.click("#axes .chip[data-axis=keep_q]:not(.done)")
+        pg.click("#axes .chip[data-axis=wall_buf_bps]:not(.done)")
         pg.wait_for_function(f"document.querySelector('#cnt-grid').textContent!='{g2}'")
         check("клик по оси меняет счётчики", num("#cnt-grid") < g2, f"{num('#cnt-grid')}")
         if o.shot:
@@ -65,7 +65,7 @@ def main():
         pg.wait_for_selector("#log tbody tr")
         check("вкладка «Летопись» показывает строки", len(pg.query_selector_all("#log tbody tr")) > 0)
         pg.select_option("#f-status", "full")
-        pg.wait_for_timeout(500)
+        pg.wait_for_function("(()=>{const r=[...document.querySelectorAll('#log tbody tr')];return r.length>0&&r.every(x=>x.className.includes('full'))})()")
         rows = pg.query_selector_all("#log tbody tr")
         check("фильтр «посчитана полностью»", rows and all("full" in (r.get_attribute("class") or "") for r in rows), f"{len(rows)} строк")
         b.close()
