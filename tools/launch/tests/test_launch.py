@@ -113,3 +113,26 @@ def test_submit_over_cap_and_r2_and_not_on_calc():
     assert launch.submit(["Г-01"], M3, cfg=nor2, p=p(), dry_run=True, log=lambda *a: None, doc=r2doc)["why"] == "r2-bin-needed"
     off = dict(CFG, alsched="/нет/такого/alsched.py")
     assert launch.submit(["Г-01"], M3, cfg=off, p=p(), confirm_bin=True, log=lambda *a: None, doc=DOC)["why"] == "not-on-calc"
+
+
+def test_queued_months_block_resubmit_of_same_set(tmp_path):
+    """В-7: поставленное в очередь (run.json:new_hm) не считается второй раз до загрузки в Летопись."""
+    import json
+    run = tmp_path / "L-1"
+    run.mkdir()
+    (run / "run.json").write_text(json.dumps({"new_hm": {"bbbb": ["2026-02", "2026-03"], "cccc": M3}}), encoding="utf-8")
+    q = launch.queued_months({"run_dir": str(tmp_path)})
+    assert q["bbbb"] == {"2026-02", "2026-03"} and q["cccc"] == set(M3)
+    r = launch.plan(["Г-01"], M3, None, rows=ROWS, have=HAVE, cfg=CFG, queued=q)
+    assert r["hm_new"] == 0 and r["hm_queued"] == 5 and "в очереди 5" in launch.summary(r)
+    assert launch.queued_months({"run_dir": str(tmp_path / "нет")}) == {}
+
+
+def test_validate_whitelists():
+    import pytest
+    ok = launch.hyp_list()[0]["id"]
+    launch.validate([ok], ["2026-01"], {})
+    for bad in (dict(hyps=["Г-9999"], months=["2026-01"]), dict(hyps=[ok], months=["2026-10"]), dict(hyps=[ok], months=["2026-01; rm -rf /"]),
+                dict(hyps=[ok], months=["2026-01"], axes={"нет_оси": ["1"]}), dict(hyps=[1], months=["2026-01"])):
+        with pytest.raises(ValueError):
+            launch.validate(bad["hyps"], bad["months"], bad.get("axes"))

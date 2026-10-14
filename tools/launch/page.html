@@ -45,7 +45,7 @@ const api=(p,b)=>fetch(p,b?{method:'POST',body:JSON.stringify(b)}:{}).then(r=>r.
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 function body(){return {hyps:[...S.hyps],months:[...S.months].sort(),axes:Object.fromEntries(Object.entries(S.axes).map(([k,v])=>[k,[...v]]))}}
 async function init(){
- META=await api('/api/meta');
+ META=await api('api/meta');
  for(const m of META.months){const c=el('span','chip',m);c.id='m-'+m;c.dataset.month=m;c.onclick=()=>{S.months.has(m)?S.months.delete(m):S.months.add(m);refresh()};$('#months').append(c)}
  const fams=[...new Set(META.hyps.map(h=>h.family))].sort();for(const f of fams)$('#family').append(new Option(f,f));
  $('#family').onchange=drawHyps;$('#preset-all').onclick=()=>{META.months.forEach(m=>S.months.add(m));refresh()};
@@ -64,7 +64,7 @@ async function refresh(){
  document.querySelectorAll('#months .chip').forEach(c=>c.classList.toggle('sel',S.months.has(c.dataset.month)));
  const b=body();
  if(!b.hyps.length||!b.months.length){['grid','have','new','off'].forEach(k=>$('#cnt-'+k).textContent=0);$('#axes').textContent='выберите гипотезу и месяцы';return}
- const [p,all]=await Promise.all([api('/api/plan',b),api('/api/plan',{...b,axes:{}})]);
+ const [p,all]=await Promise.all([api('api/plan',b),api('api/plan',{...b,axes:{}})]);
  $('#cnt-grid').textContent=p.hm_grid;$('#cnt-have').textContent=p.hm_have;$('#cnt-new').textContent=p.hm_new;$('#cnt-off').textContent=p.hm_off;$('#off-by').textContent=Object.entries(p.off_by||{}).map(([k,v])=>k+' '+v).join(', ')||'—';drawAxes(all.axis_cov,b.months.length)}
 function drawAxes(cov,nm){const box=$('#axes');box.textContent='';
  const vals={};for(const h of S.hyps)for(const [k,v] of Object.entries(META.axes[h]||{}))vals[k]=[...new Set([...(vals[k]||[]),...v])];
@@ -75,12 +75,12 @@ function drawAxes(cov,nm){const box=$('#axes');box.textContent='';
     chip.onclick=()=>{const s=S.axes[k]||(S.axes[k]=new Set());s.has(v)?s.delete(v):s.add(v);refresh()}}
    row.append(chip)}box.append(row)}}
 async function submit(){const m=$('#msg');m.className='';m.textContent='…';
- const r=await api('/api/submit',{...body(),confirm_bin:$('#confirm-bin').checked});
+ const r=await api('api/submit',{...body(),confirm_bin:$('#confirm-bin').checked});
  if(r.message){m.textContent=r.message}else if(r.why=='bin-not-confirmed'){m.className='warn';m.textContent='подтвердите бинарь'}
  else if(!r.ok){m.className='err';m.textContent='не поставлено: '+(r.why||'')+' '+(r.log||[]).join(' ')}else{m.textContent='поставлено: '+r.run_id;queue()}}
-async function queue(){const s=await api('/api/status');$('#queue').textContent=(s.warn?'calc занят: ':'очередь calc: ')+(s.text||'пусто');$('#queue').classList.toggle('warn',!!s.warn)}
+async function queue(){const s=await api('api/status');$('#queue').textContent=(s.warn?'calc занят: ':'очередь calc: ')+(s.text||'пусто');$('#queue').classList.toggle('warn',!!s.warn)}
 async function drawLog(){const q=new URLSearchParams({hyp:$('#f-hyp').value,month:$('#f-month').value,status:$('#f-status').value});
- for(const k of [...q.keys()])if(!q.get(k))q.delete(k);const d=await api('/api/letopis?'+q);const tb=$('#log tbody');tb.textContent='';
+ for(const k of [...q.keys()])if(!q.get(k))q.delete(k);const d=await api('api/letopis?'+q);const tb=$('#log tbody');tb.textContent='';
  for(const r of d.rows.slice(0,500)){const tr=el('tr',r.status=='full'?'full':'');const sq=el('td');
   r.squares.forEach((x,i)=>{const s=el('span','sq'+(x=='+'?' p':x=='-'?' m':''),x=='+'?'+':x=='-'?'−':'');s.title=d.months[i];sq.append(s)});
   tr.append(el('td',null,r.hash),el('td',null,r.hyp),el('td',null,JSON.stringify(r.axes)),sq,el('td',null,r.verdict));tb.append(tr)}}

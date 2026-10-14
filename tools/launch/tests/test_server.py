@@ -47,3 +47,64 @@ def test_no_neural_calls_in_code():
             if "(В-6)" in line or "нейросет" in line:
                 continue
             assert not bad.search(line), f"{f}:{i}: {line.strip()}"
+
+
+TOKEN = "t" * 32
+
+
+def _tok_srv():
+    s = server.make_server(0, "127.0.0.1", TOKEN)
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    return s
+
+
+def _code(url, data=None):
+    import urllib.error
+    try:
+        return urllib.request.urlopen(urllib.request.Request(url, data, {"Content-Type": "application/json"})).status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def test_token_prefix_only_everything_else_404():
+    s = _tok_srv()
+    base = f"http://127.0.0.1:{s.server_address[1]}"
+    try:
+        assert _code(f"{base}/{TOKEN}/") == 200
+        assert _code(f"{base}/{TOKEN}/api/status") == 200
+        for u in ("/", "/api/meta", "/wrong/", "/" + TOKEN[:-1] + "/", "/api/plan"):
+            assert _code(base + u) == 404, u
+        assert _code(f"{base}/api/submit", b"{}") == 404
+        assert _code(f"{base}/{TOKEN}/api/other", b"{}") == 404
+    finally:
+        s.shutdown()
+
+
+def test_post_whitelist_400_and_one_submit_at_a_time():
+    s = _tok_srv()
+    base = f"http://127.0.0.1:{s.server_address[1]}/{TOKEN}"
+    try:
+        assert _code(f"{base}/api/plan", json.dumps({"hyps": ["Г-9999"], "months": ["2026-01"]}).encode()) == 400
+        assert _code(f"{base}/api/submit", json.dumps({"hyps": ["Г-10"], "months": ["2026-13"]}).encode()) == 400
+        assert _code(f"{base}/api/plan", b"[1]") == 400
+        server._submit_lock.acquire()
+        try:
+            assert _code(f"{base}/api/submit", json.dumps({"hyps": ["Г-10"], "months": ["2026-01"]}).encode()) == 409
+        finally:
+            server._submit_lock.release()
+    finally:
+        s.shutdown()
+
+
+def test_public_bind_requires_token(monkeypatch):
+    import pytest
+    monkeypatch.setenv("LAUNCH_HOST", "0.0.0.0")
+    monkeypatch.delenv("LAUNCH_TOKEN_FILE", raising=False)
+    with pytest.raises(SystemExit):
+        server.main(["--port", "0"])
+
+
+def test_page_uses_relative_api_paths_and_token_not_logged():
+    src = open(os.path.join(LAUNCH, "page.html"), encoding="utf-8").read()
+    assert "'/api/" not in src and '"/api/' not in src
+    assert "def log_message(self, *a):\n        pass" in open(os.path.join(LAUNCH, "server.py"), encoding="utf-8").read()

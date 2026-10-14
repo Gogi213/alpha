@@ -145,7 +145,42 @@ def load_routes(path=None):
     return json.load(open(path, encoding="utf-8"))["routes"]
 
 
-def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None):
+def queued_months(cfg):
+    """{хеш: {месяцы}} из run.json запусков формы (<run_dir>/*/run.json, поле new_hm): поставлено в очередь, но ещё не в Летописи —
+    повторный submit того же набора = «нечего считать» (В-7)."""
+    out = collections.defaultdict(set)
+    try:
+        names = os.listdir(cfg["run_dir"])
+    except OSError:
+        return {}
+    for n in names:
+        try:
+            for h, ms in json.load(open(os.path.join(cfg["run_dir"], n, "run.json"), encoding="utf-8")).get("new_hm", {}).items():
+                out[h] |= set(ms)
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def validate(hyps, months, axes=None, cfg=None, rows=None):
+    """Белые списки (В-7): id гипотез из hypotheses.jsonl, месяцы config.json, значения осей из сетки выбранных гипотез. ValueError — вне списка."""
+    cfg = cfg or load_config()
+    if not all(isinstance(x, str) for x in [*hyps, *months]) or not isinstance(axes or {}, dict):
+        raise ValueError("ожидались списки строк и объект осей")
+    bad = [h for h in hyps if h not in {x["id"] for x in hyp_list()}]
+    if bad:
+        raise ValueError(f"гипотезы вне списка: {bad[:3]}")
+    bad = [m for m in months if m not in cfg["months"]]
+    if bad:
+        raise ValueError(f"месяцы вне списка: {bad[:3]}")
+    ga = grid_axes(rows)
+    for k, vs in (axes or {}).items():
+        ok = {str(v) for h in hyps for v in ga.get(h, {}).get(k, [])}
+        if not isinstance(vs, list) or any(str(v) not in ok for v in vs):
+            raise ValueError(f"ось {k!r}: значения вне сетки")
+
+
+def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, queued=None):
     """Сухой прогон в единицах хеш×месяц (В-224). axes: {param: [значения]} — фильтр сетки (нет = все значения).
     К счёту — только клетки, которые кодирует --cells (routes: хеш -> маршрут; нет клетки в routes = кодируется); остальное — hm_off
     (off_by по маршрутам: outside — посчитано вне Летописи, nodata — колонки нет в сигналах, noline — нет кодировки, r1route — маршрут R1).
@@ -160,6 +195,7 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None):
         have = master.have_hashes()
     axes = {k: {str(x) for x in v} for k, v in (axes or {}).items() if v}
     months = list(months)
+    queued = queued_months(cfg) if queued is None else queued
     cells, seen = [], set()
     cov = collections.defaultdict(lambda: collections.defaultdict(lambda: [0, 0]))
     for r in rows:
@@ -175,15 +211,17 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None):
             continue
         seen.add(r["hash"])
         route = routes.get(r["hash"], "cells")
-        todo = [m for m in months if m not in got]
-        cells.append({"hyp": r["hyp"], "hash": r["hash"], "axes": r["axes"], "route": route, "have_months": hm,
+        qd = [m for m in months if m not in got and m in queued.get(r["hash"], ())]
+        todo = [m for m in months if m not in got and m not in qd]
+        cells.append({"queued_months": qd, "hyp": r["hyp"], "hash": r["hash"], "axes": r["axes"], "route": route, "have_months": hm,
                       "new_months": todo if route in COUNTABLE else [], "off_months": [] if route in COUNTABLE else todo})
     hm_have = sum(len(c["have_months"]) for c in cells)
     hm_new = sum(len(c["new_months"]) for c in cells)
     off_by = collections.Counter()
     for c in cells:
         off_by[c["route"]] += len(c["off_months"])
-    return {"grid": len(cells), "have": sum(1 for c in cells if not c["new_months"] and not c["off_months"]),
+    return {"hm_queued": sum(len(c["queued_months"]) for c in cells),
+            "grid": len(cells), "have": sum(1 for c in cells if not c["new_months"] and not c["off_months"]),
             "new": sum(1 for c in cells if c["new_months"]), "off": sum(1 for c in cells if c["off_months"]),
             "hm_grid": len(cells) * len(months), "hm_have": hm_have, "hm_new": hm_new, "hm_off": sum(off_by.values()),
             "off_by": {k: v for k, v in off_by.items() if v}, "months": months, "cells": cells,
@@ -284,7 +322,8 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
 
 def summary(p):
     off = f"; вне формы {p['hm_off']} ({', '.join(f'{k} {v}' for k, v in sorted(p['off_by'].items()))})" if p["hm_off"] else ""
-    return (f"в сетке {p['grid']} хешей × {len(p['months'])} мес. = {p['hm_grid']} хеш-мес.; в Летописи {p['hm_have']}; "
+    que = f"; в очереди {p['hm_queued']}" if p.get("hm_queued") else ""
+    return (f"в сетке {p['grid']} хешей × {len(p['months'])} мес. = {p['hm_grid']} хеш-мес.; в Летописи {p['hm_have']}{que}; "
             f"к счёту {p['hm_new']} хеш-мес. ({p['new']} хешей){off}")
 
 
@@ -340,7 +379,7 @@ def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, 
         log(f"alsched submit rc={r.returncode}: {(r.stderr or r.stdout)[-300:]}")
         return {"ok": False, "why": "alsched-failed", "plan": p}
     row = {"id": run_id, "ts": time.strftime("%Y-%m-%dT%H:%M:%S+04:00"), "kind": "launch", "hyps": sorted(hyps), "months": list(months),
-           "axes": axes or {}, "bin": b, "cmd": shlex.join(cmd), "hm_new": p["hm_new"], "new_hashes": sorted(c["hash"] for c in p["cells"] if c["new_months"]),
+           "axes": axes or {}, "bin": b, "cmd": shlex.join(cmd), "hm_new": p["hm_new"], "new_hm": {c["hash"]: c["new_months"] for c in p["cells"] if c["new_months"]},
            "source": "tools/launch/launch.py"}
     with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(row, f, ensure_ascii=False, sort_keys=True)
@@ -381,6 +420,7 @@ def main(argv=None):
         return 1 if s["warn"] else 0
     axes = {a.split("=", 1)[0]: a.split("=", 1)[1].split(",") for a in o.axis}
     hyps, months = [x for x in o.hyps.split(",") if x], [x for x in o.months.split(",") if x]
+    validate(hyps, months, axes)
     if o.cmd == "plan":
         p = plan(hyps, months, axes)
         print(json.dumps({k: v for k, v in p.items() if k != "cells"}, ensure_ascii=False) if o.json else summary(p))

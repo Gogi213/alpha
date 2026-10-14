@@ -1,0 +1,29 @@
+[Unit]
+Description=alpha launch: форма запуска бэктеста (TK-241, В-7), порт 8791, маршруты только под /<токен>/
+After=network.target
+
+[Service]
+# Постановка в очередь пишет в /data/sched (root:root 755) — отдельный пользователь не сможет без правки прав чужой очереди,
+# поэтому root в песочнице: запись только в ReadWritePaths, остальное read-only, без новых привилегий.
+User=root
+Environment=LAUNCH_TOKEN_FILE=/etc/alpha-launch/token
+Environment=LAUNCH_HOST=0.0.0.0
+Environment=LAUNCH_PORT=8791
+Environment=LAUNCH_REGISTRY=/data/launch/registry
+ExecStart=/usr/bin/python3 -u /opt/alpha-launch/tools/launch/server.py
+Restart=always
+RestartSec=3
+Nice=10
+CPUQuota=20%
+MemoryMax=300M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/data/launch /data/sched
+
+[Install]
+WantedBy=multi-user.target
