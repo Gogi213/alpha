@@ -4,7 +4,7 @@
 |---|---|---|
 | ядро launch.py plan/submit/status, дедуп по правилу Летописи | да | 28 pytest зелёные локально (5,6 с); проба: Г-27 × 2026-01 → `new_hm {cce82364cc2b16e8: [2026-01]}`, после — «в Летописи 1, к счёту 0» (лог инженера) |
 | submit → alsched, параметры очереди из config.json (как F1: prod/12/24) | да | `/data/launch/out/L-20261014-184950/run.json` cmd `alsched.py submit --cls prod --cores 12 --mem 24 …`; rc задания 1014184951830 = 0 |
-| после счёта — psim → postload → оверлей, ошибка в лог | да | overlay.jsonl 1 строка (cell cce82364…, 2026-01, trades 170, pnl_usd −36,74), postload.log пуст |
+| после счёта — psim → postload → оверлей, ошибка в лог | да | overlay.jsonl 1 строка (клетка Г-27, январь; сделки и pnl есть), postload.log пуст |
 | нейросетям ничего не уходит (В-6) | да | grep `tickets.py|claude |notify|telegram|TG_TOKEN` по tools/launch/*.py,*.sh,*.service,*.path — 0 |
 | на сервере (В-7) не под root, решение tk241-unit-user | да | `alpha-launch` active, User=alpha-launch; `alpha-launch-submit.path` active |
 | снаружи: с токеном 200, без — 404 | да | с calc по токену из файла (не печатался) — 200; снаружи `/` и `/abcdef/` — 404 |
