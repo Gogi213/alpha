@@ -1,0 +1,16 @@
+[Unit]
+Description=alpha launch: поставить запросы формы в очередь calc (TK-241, В-7); запускает alpha-launch-submit.path
+
+[Service]
+# root: пишет в чужую очередь /data/sched (root:755). Запрос от непривилегированного alpha-launch проверяется заново белыми списками
+# и потолком (launch.process_requests); ничего не уходит нейросетям (В-6). Код (/opt/alpha-launch) принадлежит root, веб его не меняет.
+Type=oneshot
+ExecStart=/usr/bin/python3 -u /opt/alpha-launch/tools/launch/launch.py process-requests
+Environment=LAUNCH_REGISTRY=/data/launch/registry
+Nice=10
+MemoryMax=1G
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/data/launch /data/sched

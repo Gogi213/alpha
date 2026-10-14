@@ -109,7 +109,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(409, {"ok": False, "why": "busy", "message": "постановка уже идёт — подождите"})
             try:
                 lines = []
-                res = launch.submit(hyps, months, axes, bool(b.get("dry_run")), bool(b.get("confirm_bin")), log=lines.append)
+                if b.get("dry_run"):
+                    res = launch.submit(hyps, months, axes, True, bool(b.get("confirm_bin")), log=lines.append)
+                else:   # юнит без прав на очередь: пишет запрос, в alsched его ставит root-юнит alpha-launch-submit
+                    res = launch.request_submit(hyps, months, axes, bool(b.get("confirm_bin")), log=lines.append)
             finally:
                 _submit_lock.release()
             return self._send(200, {"ok": res["ok"], "why": res.get("why"), "run_id": res.get("run_id"), "log": lines,

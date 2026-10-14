@@ -170,3 +170,67 @@ def test_postload_error_goes_to_log_not_overlay(tmp_path, monkeypatch):
     assert postload.main([str(run)], DOC) == 1
     assert not (run / "overlay.jsonl").exists()
     assert "psim" in launch.postload_errors({"run_dir": str(tmp_path)})[0]
+
+
+def _rcfg(tmp_path, **kw):
+    (tmp_path / "requests").mkdir()
+    (tmp_path / "out").mkdir()
+    return dict(CFG, request_dir=str(tmp_path / "requests"), run_dir=str(tmp_path / "out"), alsched=__file__, **kw)
+
+
+def test_request_submit_writes_request_one_at_a_time(tmp_path):
+    """В-7 (Судья): веб-юнит не ставит в очередь, а пишет запрос; второй до обработки первого — busy."""
+    import json
+    cfg = _rcfg(tmp_path)
+    r = launch.request_submit(["Г-01"], M3, None, True, cfg=cfg, p=p(), log=lambda *a: None)
+    assert r["ok"] and r["run_id"].startswith("L-")
+    req = json.loads((tmp_path / "requests" / (r["run_id"] + ".json")).read_text(encoding="utf-8"))
+    assert req["hyps"] == ["Г-01"] and req["months"] == M3
+    assert launch.pending_requests(cfg) == [r["run_id"] + ".json"] and not list((tmp_path / "out").iterdir())
+    assert launch.request_submit(["Г-01"], M3, None, True, cfg=cfg, p=p(), log=lambda *a: None)["why"] == "busy"
+    assert launch.request_submit(["Г-01"], M3, None, False, cfg=cfg, p=p(), log=lambda *a: None)["why"] == "bin-not-confirmed"
+
+
+def test_process_requests_revalidates_and_always_removes(tmp_path):
+    """root-юнит: подделанный запрос (гипотеза вне списка, чужое имя, ссылка) не ставится; запрос удаляется всегда; итог — result.json."""
+    import json
+    cfg = _rcfg(tmp_path)
+    rq = tmp_path / "requests"
+    (rq / "L-20261014-200000.json").write_text(json.dumps({"hyps": ["Г-9999"], "months": M3, "axes": {}, "confirm_bin": True}), encoding="utf-8")
+    (rq / "evil.json").write_text("{}", encoding="utf-8")
+    (rq / "L-20261014-200001.json").write_text("не json", encoding="utf-8")
+    (rq / "L-20261014-200002.json").write_text(json.dumps({"hyps": ["Г-10"], "months": ["2026-01"], "axes": {}, "confirm_bin": True}), encoding="utf-8")
+    calls = []
+    launch.process_requests(cfg, run_cmd=lambda *a, **k: calls.append(a), log=lambda *a: None)
+    assert not list(rq.iterdir()) and not calls
+    bad = json.loads((tmp_path / "out" / "L-20261014-200000" / "result.json").read_text(encoding="utf-8"))
+    assert bad["ok"] is False and bad["why"] == "invalid"
+    nothing = json.loads((tmp_path / "out" / "L-20261014-200002" / "result.json").read_text(encoding="utf-8"))
+    assert nothing["why"] == "nothing-to-count"
+    assert sorted(x.name for x in (tmp_path / "out").iterdir()) == ["L-20261014-200000", "L-20261014-200002"]   # evil.json и не-JSON каталога не получили
+    assert launch.request_errors(cfg) == []   # новейший — «нечего считать» не красная строка
+    (tmp_path / "out" / "L-20261014-200003").mkdir()
+    (tmp_path / "out" / "L-20261014-200003" / "result.json").write_text(json.dumps({"ok": False, "why": "alsched-failed", "log": ["rc=1"]}), encoding="utf-8")
+    assert launch.request_errors(cfg) == ["L-20261014-200003: alsched-failed: rc=1"]
+
+
+def test_process_requests_queues_valid_request_with_same_run_id(tmp_path, monkeypatch):
+    import json
+    cfg = _rcfg(tmp_path)
+    got = {}
+    fixed = p()
+    monkeypatch.setattr(launch, "plan", lambda *a, **k: fixed)
+    monkeypatch.setattr(launch, "validate", lambda *a, **k: None)
+    monkeypatch.setattr(launch, "prepare_plan", lambda *a, **k: ({"2026-02": 1}, False))
+
+    class R:
+        returncode, stdout, stderr = 0, "", ""
+    def run(cmd, **k):
+        got["cmd"] = cmd
+        return R()
+    (tmp_path / "requests" / "L-20261014-210000.json").write_text(json.dumps({"hyps": ["Г-01"], "months": M3, "axes": {}, "confirm_bin": True}), encoding="utf-8")
+    launch.process_requests(cfg, run_cmd=run, log=lambda *a: None)
+    assert got["cmd"][got["cmd"].index("--name") + 1] == "L-20261014-210000"
+    run = tmp_path / "out" / "L-20261014-210000"
+    assert json.loads((run / "result.json").read_text(encoding="utf-8"))["ok"] is True and (run / "run.json").exists()
+    assert not list((tmp_path / "requests").iterdir())

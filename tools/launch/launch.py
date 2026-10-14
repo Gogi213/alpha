@@ -5,8 +5,9 @@
   python tools/launch/launch.py status
 Дедуп — только по правилу Летописи (master.have_hashes: хеш есть = есть строки results по месяцу); свой хеш не изобретается
 (tools/registry/cellhash.py). После постановки ничего не уходит нейросетям (В-6): ни тикетам, ни claude, ни Telegram."""
-import argparse, collections, json, os, posixpath, shlex, subprocess, sys, time
+import argparse, collections, json, os, posixpath, re, shlex, subprocess, sys, time
 
+REQ_RE = re.compile(r"^L-\d{8}-\d{6}\.json$")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 REG = os.environ.get("LAUNCH_REGISTRY") or os.path.join(ROOT, "docs", "registry")   # на calc — снимок /data/launch/registry (только чтение)
@@ -385,26 +386,128 @@ def queue_cmd(cfg, run_id, run_dir):
             f"SCRIPTS={cfg['scripts_dir']}", f"NX={q['cores']}", "bash", os.path.join(HERE, "run-launch.sh"), run_dir]
 
 
-def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, p=None, run_cmd=subprocess.run, log=print, doc=None):
+def precheck(p, dry_run, confirm_bin, cfg, log):
+    """Общие отказы постановки (форма и CLI): -> причина или None."""
+    if p["hm_new"] == 0:
+        log("нечего считать: все выбранные хеш×месяц уже в Летописи или вне формы")
+        return "nothing-to-count"
+    cap = cfg.get("max_cells_per_run")
+    if cap and p["new"] > cap:
+        log(f"к счёту {p['new']} хешей > потолка {cap} за запуск (config.json max_cells_per_run) — сузить выбор")
+        return "over-cap"
+    if not dry_run and not confirm_bin:
+        log(f"бинарь {bin_info(cfg)}: подтвердить явно (--confirm-bin), если он отличается от того, на котором посчитана Летопись (guard.equiv)")
+        return "bin-not-confirmed"
+    if not dry_run and not on_calc(cfg):
+        log(f"нет {cfg['alsched']}: постановка — только на calc (запускать launch.py там); здесь работает --dry-run")
+        return "not-on-calc"
+    return None
+
+
+def pending_requests(cfg):
+    """Запросы формы, ещё не взятые root-юнитом alpha-launch-submit (<request_dir>/L-*.json)."""
+    try:
+        return sorted(n for n in os.listdir(cfg["request_dir"]) if REQ_RE.match(n))
+    except (OSError, KeyError):
+        return []
+
+
+def request_submit(hyps, months, axes, confirm_bin, cfg=None, p=None, log=print):
+    """Постановка из формы (юнит alpha-launch без прав на очередь): те же отказы, что у submit, затем запрос атомарно в
+    <request_dir>/<run_id>.json; в alsched его ставит root-юнит alpha-launch-submit (process_requests), проверив запрос заново. Один запрос за раз."""
+    cfg = cfg or load_config()
+    p = p or plan(hyps, months, axes, cfg=cfg)
+    why = precheck(p, False, confirm_bin, cfg, log)
+    if why:
+        return {"ok": False, "why": why, "plan": p}
+    if pending_requests(cfg):
+        log("предыдущий запрос ещё не взят в очередь — подождите")
+        return {"ok": False, "why": "busy", "plan": p}
+    run_id = "L-" + time.strftime("%Y%m%d-%H%M%S")
+    path = os.path.join(cfg["request_dir"], run_id + ".json")
+    with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as f:
+        json.dump({"hyps": list(hyps), "months": list(months), "axes": axes or {}, "confirm_bin": True}, f, ensure_ascii=False)
+    os.replace(path + ".tmp", path)
+    log(f"запрос {run_id} записан; в очередь calc его ставит служба alpha-launch-submit")
+    return {"ok": True, "why": None, "run_id": run_id, "plan": p}
+
+
+def process_requests(cfg=None, run_cmd=subprocess.run, log=print):
+    """root-юнит alpha-launch-submit (по .path на <request_dir>): каждый запрос проверяется заново белыми списками и потолком
+    тем же кодом, ставится submit() под тем же run_id; итог — <run_dir>/<run_id>/result.json (его показывает форма). Запрос удаляется всегда
+    (иначе .path зациклится). Имя — строго L-ГГГГММДД-ЧЧММСС.json, не ссылка, ≤ 64 КБ; каталог запуска создаёт root и он должен быть новым."""
+    cfg = cfg or load_config()
+    n = 0
+    for name in sorted(os.listdir(cfg["request_dir"])):
+        path = os.path.join(cfg["request_dir"], name)
+        try:
+            ok = REQ_RE.match(name) and not os.path.islink(path) and os.path.isfile(path) and os.path.getsize(path) <= 65536
+            req = json.load(open(path, encoding="utf-8")) if ok else None
+        except (OSError, ValueError):
+            req = None
+        if not isinstance(req, dict):
+            log(f"{name}: не запрос — удалён")
+            _unlink(path)
+            continue
+        rid, lines = name[:-5], []
+        run_dir = os.path.join(cfg["run_dir"], rid)
+        try:
+            os.makedirs(run_dir)
+        except OSError:
+            log(f"{rid}: каталог запуска уже есть — запрос отклонён")
+            _unlink(path)
+            continue
+        try:
+            hyps, months, axes = req.get("hyps") or [], req.get("months") or [], req.get("axes") or {}
+            validate(hyps, months, axes, cfg)
+            res = submit(hyps, months, axes, False, bool(req.get("confirm_bin")), cfg, run_cmd=run_cmd, log=lines.append, run_id=rid)
+            res = {"ok": res["ok"], "why": res.get("why")}
+        except Exception as e:
+            lines.append(f"запрос отклонён: {e}")
+            res = {"ok": False, "why": "invalid"}
+        res.update(log=lines, ts=time.strftime("%Y-%m-%dT%H:%M:%S+04:00"))
+        with open(os.path.join(run_dir, "result.json"), "w", encoding="utf-8", newline="\n") as f:
+            json.dump(res, f, ensure_ascii=False)
+        _unlink(path)
+        log(f"{rid}: {'в очереди' if res['ok'] else res['why']}")
+        n += 1
+    return n
+
+
+def _unlink(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def request_errors(cfg):
+    """Новейший запуск формы: отказ root-юнита (кроме «нечего считать») — красная строка на вкладке «Запуск»."""
+    try:
+        names = sorted(n for n in os.listdir(cfg["run_dir"]) if REQ_RE.match(n + ".json"))
+    except OSError:
+        return []
+    for n in reversed(names):
+        try:
+            r = json.load(open(os.path.join(cfg["run_dir"], n, "result.json"), encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if r.get("ok") or r.get("why") == "nothing-to-count":
+            return []
+        return [f"{n}: {r.get('why')}: {(r.get('log') or [''])[-1]}"]
+    return []
+
+
+def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, p=None, run_cmd=subprocess.run, log=print, doc=None, run_id=None):
     """plan -> К счёту=0 отказ -> потолок -> план-каталог (prepare_plan) -> alsched submit на calc; строка запуска пишется в свой
     каталог сервера <run_dir>/run.json, НЕ в канон Летописи (В-7: канон переносит CEO load-results)."""
     cfg = cfg or load_config()
     p = p or plan(hyps, months, axes, cfg=cfg)
-    if p["hm_new"] == 0:
-        log("нечего считать: все выбранные хеш×месяц уже в Летописи или вне формы")
-        return {"ok": False, "why": "nothing-to-count", "plan": p}
-    cap = cfg.get("max_cells_per_run")
-    if cap and p["new"] > cap:
-        log(f"к счёту {p['new']} хешей > потолка {cap} за запуск (config.json max_cells_per_run) — сузить выбор")
-        return {"ok": False, "why": "over-cap", "plan": p}
+    why = precheck(p, dry_run, confirm_bin, cfg, log)
+    if why:
+        return {"ok": False, "why": why, "plan": p}
     b = bin_info(cfg)
-    if not dry_run and not confirm_bin:
-        log(f"бинарь {b}: подтвердить явно (--confirm-bin), если он отличается от того, на котором посчитана Летопись (guard.equiv)")
-        return {"ok": False, "why": "bin-not-confirmed", "plan": p}
-    if not dry_run and not on_calc(cfg):
-        log(f"нет {cfg['alsched']}: постановка — только на calc (запускать launch.py там); здесь работает --dry-run")
-        return {"ok": False, "why": "not-on-calc", "plan": p}
-    run_id = "L-" + time.strftime("%Y%m%d-%H%M%S")
+    run_id = run_id or "L-" + time.strftime("%Y%m%d-%H%M%S")
     run_dir = posixpath.join(cfg["run_dir"], run_id)
     cmd = queue_cmd(cfg, run_id, run_dir)
     per_month, needs_r2 = prepare_plan(p, None if dry_run else os.path.join(run_dir, "plan"), doc)
@@ -433,7 +536,8 @@ def status(cfg=None, run_cmd=subprocess.run):
     r = run_cmd(cmd if on_calc(cfg) else ["ssh", cfg["ssh_host"], *cmd], capture_output=True, text=True)
     out = (r.stdout or r.stderr).strip()
     busy = sum(1 for l in out.splitlines() if "running" in l.lower())
-    return {"text": out, "busy": busy, "warn": busy >= cfg.get("busy_warn_jobs", 1), "errors": postload_errors(cfg)}
+    return {"text": out, "busy": busy, "warn": busy >= cfg.get("busy_warn_jobs", 1), "errors": postload_errors(cfg) + request_errors(cfg),
+            "pending": len(pending_requests(cfg))}
 
 
 def main(argv=None):
@@ -449,12 +553,16 @@ def main(argv=None):
             s.add_argument("--dry-run", action="store_true")
             s.add_argument("--confirm-bin", action="store_true")
     sp.add_parser("status")
+    sp.add_parser("process-requests", help="root-юнит alpha-launch-submit: поставить в очередь запросы формы (проверка заново)")
     sp.add_parser("routes", help="пересчитать routes.json (маршруты клеток; нужна data/registry.sqlite)")
     o = ap.parse_args(argv)
     if o.cmd == "routes":
         d = build_routes()
         print(json.dumps(dict(collections.Counter(d["routes"].values())), ensure_ascii=False), "->", ROUTES_FILE)
         return 0
+    if o.cmd == "process-requests":
+        process_requests()
+        return 0   # всегда 0: сбой запроса записан в result.json, юнит не должен упасть и упереться в start-limit
     if o.cmd == "status":
         s = status()
         print(s["text"])

@@ -24,6 +24,7 @@
     "2026-09"
   ],
   "run_dir": "/data/launch/out",
+  "request_dir": "/data/launch/requests",
   "scripts_dir": "/data/tk0231",
   "max_cells_per_run": 501,
   "bin": {

@@ -3,9 +3,10 @@ Description=alpha launch: форма запуска бэктеста (TK-241, В
 After=network.target
 
 [Service]
-# Постановка в очередь пишет в /data/sched (root:root 755) — отдельный пользователь не сможет без правки прав чужой очереди,
-# поэтому root в песочнице: запись только в ReadWritePaths, остальное read-only, без новых привилегий.
-User=root
+# Веб-процесс непривилегированный (В-7 п.1): пишет только запросы в /data/launch/requests; в очередь calc их ставит root-юнит
+# alpha-launch-submit (проверяет запрос заново). /data/sched и /data/launch/out веб читает, но не пишет. Решение Судьи: reviews/tk241-unit-user-2026-10-14.md.
+User=alpha-launch
+Group=alpha-launch
 Environment=LAUNCH_TOKEN_FILE=/etc/alpha-launch/token
 Environment=LAUNCH_HOST=0.0.0.0
 Environment=LAUNCH_PORT=8791
@@ -23,7 +24,7 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-ReadWritePaths=/data/launch /data/sched
+ReadWritePaths=/data/launch/requests
 
 [Install]
 WantedBy=multi-user.target

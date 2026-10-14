@@ -1,0 +1,9 @@
+[Unit]
+Description=alpha launch: запрос формы появился в /data/launch/requests (TK-241)
+
+[Path]
+DirectoryNotEmpty=/data/launch/requests
+Unit=alpha-launch-submit.service
+
+[Install]
+WantedBy=multi-user.target
