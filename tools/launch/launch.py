@@ -61,6 +61,98 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None):
             "axis_cov": {k: dict(v) for k, v in cov.items()}}
 
 
+def hyp_list():
+    """[{id, family, title}] из docs/registry/hypotheses.jsonl."""
+    out = []
+    for line in open(os.path.join(REG, "hypotheses.jsonl"), encoding="utf-8"):
+        if line.strip():
+            d = json.loads(line)
+            out.append({"id": d["id"], "family": d.get("family", ""), "title": d.get("title", "")})
+    return out
+
+
+def v227_preset():
+    """Гипотезы таблицы «| Г-…» в spec-v227 (в таблице 54 строки, не 56: недостающие не выдумываются)."""
+    import re
+    ids, rows = [], 0
+    for line in open(os.path.join(ROOT, "docs", "research", "spec-v227-2026-10-12.md"), encoding="utf-8"):
+        m = re.match(r"^\|\s*(Г-\d+(?:\s*,\s*Г-\d+)*)\s*\|", line)
+        if m:
+            rows += 1
+            ids += [x for x in re.findall(r"Г-\d+", m.group(1)) if x not in ids]
+    return ids, rows
+
+
+def b1_stack():
+    """Фиксированный стек B1: строка из tools/compute/hyp_stack.py (не копия) + cfg первой клетки сетки."""
+    import re
+    src = open(os.path.join(ROOT, "tools", "compute", "hyp_stack.py"), encoding="utf-8").read()
+    m = re.search(r"^B1='(.*)'$", src, re.M)
+    rows = open(os.path.join(REG, "plan_cells.jsonl"), encoding="utf-8")
+    cfg = json.loads(json.loads(next(l for l in rows if l.strip()))["cfg"])
+    return {"line": m.group(1) if m else None, "source": "tools/compute/hyp_stack.py", "cfg": cfg}
+
+
+def grid_axes(rows=None):
+    """{гипотеза: {ось: [значения в порядке сетки]}} из клеток сетки."""
+    rows = rows if rows is not None else plan_rows()
+    out = collections.defaultdict(lambda: collections.defaultdict(list))
+    for r in rows:
+        for k, v in r["axes"].items():
+            if str(v) not in out[r["hyp"]][k]:
+                out[r["hyp"]][k].append(str(v))
+    return {h: dict(a) for h, a in out.items()}
+
+
+def meta(cfg=None):
+    cfg = cfg or load_config()
+    rows = plan_rows(cfg["protocol"], cfg["fraction"])
+    ncell = collections.Counter(r["hyp"] for r in rows)
+    hy = [dict(h, ncells=ncell.get(h["id"], 0)) for h in hyp_list()]
+    v227, v227_rows = v227_preset()
+    return {"months": cfg["months"], "partial_month": "2026-10", "hyps": hy, "axes": grid_axes(rows),
+            "presets": {"v227": {"ids": v227, "n": len(v227), "note": f"в таблице spec-v227 {v227_rows} строк «Г-», {len(v227)} различных, не 56"},
+                        "months": cfg["months"]},
+            "stack": b1_stack(), "bin": bin_info(cfg), "queue": cfg["queue"]}
+
+
+def letopis(hyp=None, month=None, status=None, cfg=None):
+    """Строки вкладки «Летопись»: хеш, гипотеза, оси, знак по месяцам (+/−/пусто), вердикт сита."""
+    import cellhash_reg
+    cfg = cfg or load_config()
+    months = cfg["months"]
+    pnl = collections.defaultdict(dict)
+    for line in open(os.path.join(REG, "results.jsonl"), encoding="utf-8"):
+        if line.strip():
+            d = json.loads(line)
+            pnl[d["cell_id"]][d["month"]] = d.get("pnl_usd")
+    byhash = collections.defaultdict(dict)
+    for row in cellhash_reg.build():
+        for m, v in pnl.get(row[0], {}).items():
+            byhash[row[1]][m] = v
+    sieve = {}
+    for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
+        if line.strip():
+            d = json.loads(line)
+            sieve.setdefault(d["cell_hash"], []).append(d)
+    out = []
+    for r in plan_rows(cfg["protocol"], cfg["fraction"]):
+        if hyp and r["hyp"] != hyp:
+            continue
+        got = byhash.get(r["hash"], {})
+        sq = ["+" if got.get(m) is not None and got[m] > 0 else "-" if m in got else "" for m in months]
+        full = all(sq)
+        sv = sieve.get(r["hash"], [])
+        verdict = next((k for k in ("eligible", "plateau", "edge") if any(x.get(k) for x in sv)), "")
+        if month and not sq[months.index(month)]:
+            continue
+        st = "full" if full else "part" if any(sq) else "none"
+        if status and status != st and status != verdict:
+            continue
+        out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict})
+    return {"months": months, "rows": out}
+
+
 def summary(p):
     return (f"в сетке {p['grid']} хешей × {len(p['months'])} мес. = {p['hm_grid']} хеш-мес.; в Летописи {p['hm_have']}; "
             f"к счёту {p['hm_new']} хеш-мес. ({p['new']} хешей)")

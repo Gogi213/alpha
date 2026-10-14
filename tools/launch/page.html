@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Запуск бэктеста</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:0;background:#f6f7f9;color:#1d2330}
+header{background:#1d2330;color:#fff;padding:10px 20px;display:flex;gap:16px;align-items:center}
+header h1{font-size:16px;margin:0 20px 0 0}
+.tab{padding:6px 14px;border-radius:6px;cursor:pointer;color:#cbd2e0}.tab.on{background:#3d5afe;color:#fff}
+main{padding:16px 20px;max-width:1100px}section{background:#fff;border-radius:8px;padding:12px 16px;margin-bottom:12px;box-shadow:0 1px 2px #0001}
+h2{font-size:13px;text-transform:uppercase;color:#6a7385;margin:0 0 8px}
+.chip{display:inline-block;padding:3px 10px;margin:2px;border-radius:12px;border:1px solid #c5cad6;background:#eceef3;cursor:pointer;user-select:none}
+.chip.sel{background:#3d5afe;border-color:#3d5afe;color:#fff}.chip.done{background:#2e9e5b;border-color:#2e9e5b;color:#fff;cursor:not-allowed}
+.chip.part{border-color:#2e9e5b}.chip.off{opacity:.45;cursor:default}
+#hyps{max-height:180px;overflow:auto;border:1px solid #e1e4ec;padding:4px}
+#hyps label{display:block;padding:1px 4px}.stack{background:#eceef3;color:#555;padding:8px;border-radius:6px;font:12px monospace;white-space:pre-wrap}
+.cnt{display:inline-block;margin-right:28px}.cnt b{font-size:22px;display:block}
+button{padding:8px 18px;border:0;border-radius:6px;background:#3d5afe;color:#fff;font-size:14px;cursor:pointer}
+#msg{margin-left:12px}.warn{color:#b26a00}.err{color:#c62828}
+table{border-collapse:collapse;width:100%}td,th{padding:3px 6px;border-bottom:1px solid #eee;text-align:left}
+.sq{display:inline-block;width:16px;height:16px;margin-right:2px;border-radius:3px;background:#e3e6ee;text-align:center;font-size:12px;line-height:16px;color:#fff}
+.sq.p{background:#2e9e5b}.sq.m{background:#d64545}tr.full{background:#e6f5ec}
+</style></head><body>
+<header><h1>Запуск бэктеста</h1><span class="tab on" data-tab="run">Запуск</span><span class="tab" data-tab="log">Летопись</span></header>
+<main>
+<div id="tab-run">
+<section><h2>Месяцы</h2><div id="months"></div><span class="chip" id="preset-all">янв–сен</span><span class="chip off" title="2026-10 идёт, считается частично">2026-10 — частично</span></section>
+<section><h2>Гипотезы</h2>
+ <div>Семейство: <select id="family"><option value="">все</option></select>
+ <span class="chip" id="preset-v227">пресет «56 В-227»</span><span id="preset-note" class="warn"></span>
+ <span class="chip" id="clear-hyps">сбросить</span></div><div id="hyps"></div></section>
+<section><h2>Титруемые оси</h2><div id="axes">выберите гипотезу</div><small>Зелёный — посчитано по всем выбранным месяцам; синий — выбрано; серый — не выбрано; «N/9» — по части месяцев. Нет выбранных значений оси = все.</small></section>
+<section><h2>Фиксированный стек (только чтение)</h2><div class="stack" id="stack"></div></section>
+<section><span class="cnt">В сетке<b id="cnt-grid">0</b></span><span class="cnt">Уже в Летописи<b id="cnt-have">0</b></span><span class="cnt">К счёту<b id="cnt-new">0</b></span>
+ <small>в единицах хеш×месяц</small><br><br>
+ <label id="binok" style="display:none"><input type="checkbox" id="confirm-bin"> бинарь в config.json не задан / не совпадает с бинарём Летописи — подтверждаю</label><br>
+ <button id="btn-submit">Поставить в очередь</button><span id="msg"></span><div id="queue" class="stack" style="margin-top:10px"></div></section>
+</div>
+<div id="tab-log" style="display:none"><section><h2>Летопись</h2>
+ Гипотеза <select id="f-hyp"><option value="">все</option></select> Месяц <select id="f-month"><option value="">все</option></select>
+ Статус <select id="f-status"><option value="">все</option><option value="full">посчитана полностью</option><option value="part">частично</option><option value="none">не считали</option><option value="eligible">eligible</option><option value="plateau">plateau</option><option value="edge">edge</option></select>
+ <table id="log"><thead><tr><th>хеш</th><th>гипотеза</th><th>оси</th><th>месяцы</th><th>вердикт сита</th></tr></thead><tbody></tbody></table></section></div>
+</main>
+<script>
+const $=s=>document.querySelector(s), S={months:new Set(),hyps:new Set(),axes:{}};let META=null;
+const api=(p,b)=>fetch(p,b?{method:'POST',body:JSON.stringify(b)}:{}).then(r=>r.json());
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+function body(){return {hyps:[...S.hyps],months:[...S.months].sort(),axes:Object.fromEntries(Object.entries(S.axes).map(([k,v])=>[k,[...v]]))}}
+async function init(){
+ META=await api('/api/meta');
+ for(const m of META.months){const c=el('span','chip',m);c.id='m-'+m;c.dataset.month=m;c.onclick=()=>{S.months.has(m)?S.months.delete(m):S.months.add(m);refresh()};$('#months').append(c)}
+ const fams=[...new Set(META.hyps.map(h=>h.family))].sort();for(const f of fams)$('#family').append(new Option(f,f));
+ $('#family').onchange=drawHyps;$('#preset-all').onclick=()=>{META.months.forEach(m=>S.months.add(m));refresh()};
+ $('#preset-v227').onclick=()=>{S.hyps=new Set(META.presets.v227.ids);S.axes={};drawHyps();refresh()};
+ $('#preset-note').textContent=META.presets.v227.note;$('#clear-hyps').onclick=()=>{S.hyps.clear();S.axes={};drawHyps();refresh()};
+ $('#stack').textContent=META.stack.line+'\nисточник: '+META.stack.source+'\nбинарь: '+JSON.stringify(META.bin)+'\nочередь: '+JSON.stringify(META.queue)+' (назначено владельцем/CEO, не измерено)';
+ if(!META.bin.md5)$('#binok').style.display='';
+ for(const h of META.hyps)$('#f-hyp').append(new Option(h.id,h.id));for(const m of META.months)$('#f-month').append(new Option(m,m));
+ ['#f-hyp','#f-month','#f-status'].forEach(s=>$(s).onchange=drawLog);
+ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));$('#tab-run').style.display=t.dataset.tab=='run'?'':'none';$('#tab-log').style.display=t.dataset.tab=='log'?'':'none';if(t.dataset.tab=='log')drawLog()});
+ $('#btn-submit').onclick=submit;drawHyps();refresh();queue()}
+function drawHyps(){const f=$('#family').value,box=$('#hyps');box.textContent='';
+ for(const h of META.hyps.filter(h=>!f||h.family==f)){const l=el('label');const c=el('input');c.type='checkbox';c.checked=S.hyps.has(h.id);c.dataset.hyp=h.id;
+  c.onchange=()=>{c.checked?S.hyps.add(h.id):S.hyps.delete(h.id);S.axes={};refresh()};l.append(c,' '+h.id+' · '+h.title.slice(0,90)+(h.ncells?' ['+h.ncells+' кл.]':' [нет в сетке П-14]'));box.append(l)}}
+async function refresh(){
+ document.querySelectorAll('#months .chip').forEach(c=>c.classList.toggle('sel',S.months.has(c.dataset.month)));
+ const b=body();
+ if(!b.hyps.length||!b.months.length){['grid','have','new'].forEach(k=>$('#cnt-'+k).textContent=0);$('#axes').textContent='выберите гипотезу и месяцы';return}
+ const [p,all]=await Promise.all([api('/api/plan',b),api('/api/plan',{...b,axes:{}})]);
+ $('#cnt-grid').textContent=p.hm_grid;$('#cnt-have').textContent=p.hm_have;$('#cnt-new').textContent=p.hm_new;drawAxes(all.axis_cov,b.months.length)}
+function drawAxes(cov,nm){const box=$('#axes');box.textContent='';
+ const vals={};for(const h of S.hyps)for(const [k,v] of Object.entries(META.axes[h]||{}))vals[k]=[...new Set([...(vals[k]||[]),...v])];
+ for(const [k,vs] of Object.entries(vals)){const row=el('div');row.append(el('b',null,k+': '));
+  for(const v of vs){const c=((cov[k]||{})[v])||[0,nm],part=c[0]&&c[0]<c[1]?' '+Math.round(c[0]*nm/c[1])+'/'+nm:'',chip=el('span','chip',v+part);
+   chip.dataset.axis=k;chip.dataset.val=v;const full=c[1]>0&&c[0]==c[1],sel=(S.axes[k]||new Set()).has(v);
+   if(full)chip.classList.add('done');else{if(c[0])chip.classList.add('part');if(sel)chip.classList.add('sel');
+    chip.onclick=()=>{const s=S.axes[k]||(S.axes[k]=new Set());s.has(v)?s.delete(v):s.add(v);refresh()}}
+   row.append(chip)}box.append(row)}}
+async function submit(){const m=$('#msg');m.className='';m.textContent='…';
+ const r=await api('/api/submit',{...body(),confirm_bin:$('#confirm-bin').checked});
+ if(r.message){m.textContent=r.message}else if(r.why=='bin-not-confirmed'){m.className='warn';m.textContent='подтвердите бинарь'}
+ else if(!r.ok){m.className='err';m.textContent='не поставлено: '+(r.why||'')+' '+(r.log||[]).join(' ')}else{m.textContent='поставлено: '+r.run_id;queue()}}
+async function queue(){const s=await api('/api/status');$('#queue').textContent=(s.warn?'calc занят: ':'очередь calc: ')+(s.text||'пусто');$('#queue').classList.toggle('warn',!!s.warn)}
+async function drawLog(){const q=new URLSearchParams({hyp:$('#f-hyp').value,month:$('#f-month').value,status:$('#f-status').value});
+ for(const k of [...q.keys()])if(!q.get(k))q.delete(k);const d=await api('/api/letopis?'+q);const tb=$('#log tbody');tb.textContent='';
+ for(const r of d.rows.slice(0,500)){const tr=el('tr',r.status=='full'?'full':'');const sq=el('td');
+  r.squares.forEach((x,i)=>{const s=el('span','sq'+(x=='+'?' p':x=='-'?' m':''),x=='+'?'+':x=='-'?'−':'');s.title=d.months[i];sq.append(s)});
+  tr.append(el('td',null,r.hash),el('td',null,r.hyp),el('td',null,JSON.stringify(r.axes)),sq,el('td',null,r.verdict));tb.append(tr)}}
+init();
+</script></body></html>
