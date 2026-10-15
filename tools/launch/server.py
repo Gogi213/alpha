@@ -157,7 +157,7 @@ def watch(period=1.0):
         try:
             if w is not None:
                 if w.wait(30.0):
-                    time.sleep(0.2)   # пачка событий (запись done-маркеров) — один пересчёт
+                    time.sleep(0.05)   # пачка событий (запись done-маркеров) — один пересчёт
                     while w.wait(0):
                         pass
             else:
