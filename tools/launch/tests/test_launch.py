@@ -72,7 +72,7 @@ def test_queue_cmd_max_runtime_meets_alsched_rule():
 
 
 def test_no_neural_calls_in_code():
-    bad = re.compile(r"tickets\.py|claude\s|notify|telegram|api\.telegram|anthropic", re.I)
+    bad = re.compile(r"tickets\.py|claude\s|\bnotify\b|telegram|api\.telegram|anthropic", re.I)
     for fn in os.listdir(LAUNCH):
         if fn.endswith(".py"):
             code = open(os.path.join(LAUNCH, fn), encoding="utf-8").read()

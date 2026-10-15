@@ -41,7 +41,7 @@ def test_api_plan_and_nothing_to_count():
 
 def test_no_neural_calls_in_code():
     """В-6: ни тикетов, ни claude, ни Telegram из кода запуска."""
-    bad = re.compile(r"tickets\.py|\bclaude\b|telegram|notify|RPV_TG", re.I)
+    bad = re.compile(r"tickets\.py|\bclaude\b|telegram|\bnotify\b|RPV_TG", re.I)
     for f in ("launch.py", "server.py", "page.html"):
         for i, line in enumerate(open(os.path.join(LAUNCH, f), encoding="utf-8"), 1):
             if "(В-6)" in line or "нейросет" in line:
@@ -159,3 +159,66 @@ def test_cache_event_refresh_never_blocks_request(monkeypatch):
     assert server.refresh() == 1 and len(calls) == 2   # фоновый пересчёт по событию
     second = server.cached("k", fn)
     assert json.loads(second[0]) == {"n": 2} and second[2] != first[2] and server.refresh() == 0
+
+
+def test_light_and_heavy_keys_have_separate_stamps(monkeypatch):
+    """Статус/«Прогоны» пересчитываются по своему штампу (задания alsched, каталоги прогонов), тяжёлые ключи (cov/Летопись) — по своему."""
+    st = {"h": 1, "l": 1}
+    calls = []
+    monkeypatch.setattr(server, "_stamp", lambda: st["h"])
+    monkeypatch.setattr(server, "_stamp_light", lambda: st["l"])
+    monkeypatch.setattr(server, "_watching", True)
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_fns", {})
+    server.cached("cov", lambda: calls.append("cov") or {"a": len(calls)})
+    server.cached("runs", lambda: calls.append("runs") or {"a": len(calls)})
+    st["l"] = 2   # сменился только штамп заданий: тяжёлый ключ не считается заново
+    assert server.refresh() == 1 and calls == ["cov", "runs", "runs"]
+    st["h"] = 2
+    assert server.refresh() == 1 and calls[-1] == "cov"
+
+
+def test_events_stream_pushes_changed_key(monkeypatch):
+    """/api/events: подмена кэша с новым ответом → строка data с именем ключа; одинаковый ответ события не даёт."""
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_stamp_light", lambda: 1)
+    s = _srv()
+    port = s.server_address[1]
+    try:
+        r = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/events", timeout=5)
+        assert r.headers["Content-Type"].startswith("text/event-stream")
+        assert r.readline().startswith(b"retry:") and r.readline() == b"\n"
+        server._build("runs", lambda: {"n": 1})
+        data = None
+        while data is None:
+            ln = r.readline()
+            data = json.loads(ln[6:]) if ln.startswith(b"data: ") else None
+        assert data["keys"] == ["runs"] and data["v"] >= 1
+        server._build("runs", lambda: {"n": 1})   # тот же ответ — события нет
+        server._build("status", lambda: {"n": 2})
+        while True:
+            ln = r.readline()
+            if ln.startswith(b"data: "):
+                break
+        assert json.loads(ln[6:])["keys"] == ["status"]
+        r.close()
+    finally:
+        s.shutdown()
+
+
+def test_inotify_watcher_sees_new_file_and_new_subdir(tmp_path):
+    import pytest
+    try:
+        import watcher
+        w = watcher.Watcher([(str(tmp_path), 2)])
+    except OSError:
+        pytest.skip("нет inotify (не Linux)")
+    assert w.wait(0) is False
+    (tmp_path / "a.json").write_text("1")
+    assert w.wait(2) is True
+    (tmp_path / "run").mkdir()
+    assert w.wait(2) is True
+    while w.wait(0):
+        pass
+    (tmp_path / "run" / "done").write_text("")   # подкаталог, появившийся после старта, уже под наблюдением
+    assert w.wait(2) is True

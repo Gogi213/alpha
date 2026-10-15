@@ -418,7 +418,7 @@ function rPrn(){if(!PV)return;var R=PV.runs;
  el('pforeign').innerHTML=PV.foreign.length?'<div style="font-weight:600;color:var(--text)">Другие задания на calc (не из формы)</div>'+PV.foreign.map(function(f){return '<div><b>'+esc(f.name)+'</b><span>'+f.cores+' ядер · '+(f.state==='running'?'идёт '+Math.round(f.age_min)+' мин':'в очереди')+'</span></div>'}).join(''):'<div>Других заданий на calc нет</div>';
  el('pnote').textContent='Метрики строки — лучший вариант прогона по Шарпу (суточный, не годовой); считаются по сделкам cap 0 (без потолка позиций), $ с нуля без депозита, за месяцы этого прогона; «Перехай, дн» — худший месяц: самый долгий период до нового максимума счёта или незакрытый хвост, цель ≤ 5 (зелёный). Прочерк — нет сделок или прогон ещё не посчитан. Общий % — взвешенно по этапам: счёт '+Math.round(PV.weights.days*100)+' % / psim '+Math.round(PV.weights.psim*100)+' % ('+PV.weights.src+'); время до первых готовых суток — оценка заявки (назначено, не измерено), дальше — по темпу готовых суток.'}
 function loadPrn(){return api('api/runs').then(function(d){PV=d;rPrn()}).catch(function(){})}
-function prnTimer(on){clearInterval(pTimer);pTimer=setInterval(loadPrn,on?20000:60000)}
+function prnTimer(){}   // опроса нет: «Прогоны» и статус приходят пушем (SSE /api/events, TK-244)
 function toast(s){var t=el('toast');t.textContent=s;t.hidden=false;clearTimeout(toast.k);toast.k=setTimeout(function(){t.hidden=true},4000)}
 function bump(id){sv[id]=(sv[id]||0)+1}
 var G=null;
@@ -467,6 +467,13 @@ el('q').addEventListener('input',function(e){q=e.target.value;rList()});
 el('lq').addEventListener('input',rLet);
 function loadStatus(){return api('api/status').then(function(s){STAT=s;rTop()}).catch(function(){})}
 function refresh(reload){return Promise.all([api('api/meta'),api('api/cov'),api('api/status')]).then(function(r){META=r[0];COV=r[1];STAT=r[2];build();all();rTop();if(reload)lrLoaded=false})}
-refresh().then(function(){setInterval(loadStatus,60000);prnTimer(false);loadPrn()}).catch(function(e){el('hlist').innerHTML='<div class="empty">Не загрузилось: '+esc(e)+'</div>'});
+function live(){if(!window.EventSource){setInterval(loadStatus,60000);setInterval(loadPrn,60000);return}
+ var es=new EventSource('api/events'),first=true;
+ es.onopen=function(){if(first){first=false;return}loadStatus();loadPrn()};
+ es.onmessage=function(m){var k=[];try{k=JSON.parse(m.data).keys||[]}catch(e){}
+  if(k.indexOf('status')>=0)loadStatus();if(k.indexOf('runs')>=0)loadPrn();
+  if(k.indexOf('meta')>=0||k.indexOf('cov')>=0)refresh(true);
+  else if(k.indexOf('letopis')>=0){lrLoaded=false;if(!el('v-let').hidden)loadLet()}}}
+refresh().then(function(){loadPrn();live()}).catch(function(e){el('hlist').innerHTML='<div class="empty">Не загрузилось: '+esc(e)+'</div>'});
 })();
 </script>

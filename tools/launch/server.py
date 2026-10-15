@@ -19,6 +19,11 @@ _fns = {}
 _watching = False
 _cache_lock = threading.Lock()
 _submit_lock = threading.Lock()
+_cond = threading.Lock()   # события для /api/events (SSE): версия растёт при каждой подмене кэша
+_subs = set()   # по Event на каждое открытое соединение SSE
+_ver = 0
+_log = []   # [(версия, имя ключа)] — последние подмены
+LIGHT = ("status", "runs")   # статус calc и «Прогоны»: свой штамп (задания alsched, каталоги прогонов), тяжёлые ключи его не ждут
 
 
 def _stamp():
@@ -47,19 +52,57 @@ def _stamp():
     return tuple(st)
 
 
+def _stamp_light():
+    """Штамп статуса/«Прогонов»: каталог заданий alsched, запросы, каталоги out/psim каждого прогона (stat десятков путей, без обходов /data)."""
+    cfg = launch.load_config()
+    st = []
+    paths = [os.path.join(os.path.dirname(cfg["alsched"]), "jobs"), cfg["request_dir"], cfg["run_dir"]]
+    try:
+        paths += [os.path.join(cfg["run_dir"], n, sub) for n in sorted(os.listdir(cfg["run_dir"])) for sub in ("", "out", "psim")]
+    except OSError:
+        pass
+    for p in paths:
+        try:
+            st.append(os.stat(p).st_mtime_ns)
+        except OSError:
+            st.append(0)
+    return tuple(st)
+
+
+def _group(key):
+    return key if isinstance(key, str) else key[0]
+
+
+def _stamp_for(key):
+    return _stamp_light() if _group(key) in LIGHT else _stamp()
+
+
+def _bump(key):
+    global _ver
+    with _cond:
+        _ver += 1
+        _log.append((_ver, _group(key)))
+        del _log[:-200]
+        for ev in _subs:
+            ev.set()
+
+
 def _build(key, fn):
-    stamp = _stamp()
+    stamp = _stamp_for(key)
     data = json.dumps(fn(), ensure_ascii=False).encode("utf-8")
     ent = (data, gzip.compress(data, 5), '"' + hashlib.md5(data).hexdigest() + '"')
     with _cache_lock:
+        old = _cache.get(key)
         _cache[key] = (stamp, ent)
+    if old is None or old[1][2] != ent[2]:   # событие — только если ответ изменился (ETag)
+        _bump(key)
     return ent
 
 
 def cached(key, fn):
     """Готовые байты ответа (JSON + gzip + ETag). Холодный ключ считается один раз; дальше при работающем watch() запрос всегда отдаёт
     готовую версию (пересчёт — фоном по смене штампа входов), без watch() — сверяет штамп сам (тесты)."""
-    stamp = None if _watching else _stamp()
+    stamp = None if _watching else _stamp_for(key)
     with _cache_lock:
         _fns[key] = fn
         hit = _cache.get(key)
@@ -70,34 +113,68 @@ def cached(key, fn):
 
 def refresh():
     """Пересчитать устаревшие ключи (по смене штампа); старая версия отдаётся, пока считается новая, подмена атомарна."""
-    stamp = _stamp()
+    stamps = {"heavy": _stamp(), "light": _stamp_light()}
     with _cache_lock:
-        todo = [(k, f) for k, f in _fns.items() if _cache.get(k, (None,))[0] != stamp]
+        todo = [(k, f) for k, f in _fns.items() if _cache.get(k, (None,))[0] != stamps["light" if _group(k) in LIGHT else "heavy"]]
     for k, f in todo:
         _build(k, f)
     return len(todo)
 
 
+def _watch_dirs():
+    cfg = launch.load_config()
+    return [(launch.REG, 1), (cfg["request_dir"], 0), (cfg["run_dir"], 3), (os.path.join(os.path.dirname(cfg["alsched"]), "jobs"), 0)]
+
+
 def watch(period=1.0):
-    """Фон: раз в period с — stat файлов формы (не обход /data); смена штампа → refresh(). Прогрев — холодные ключи считает первый запрос
-    или prewarm()."""
+    """Фон: пересчёт кэша ПО СОБЫТИЮ файловой системы (inotify на каталоги формы, watcher.py), страховка — тот же refresh() раз в 30 с;
+    нет inotify (Windows) — stat-опрос штампов раз в period с. Смена штампа → refresh(): старая версия отдаётся, пока считается новая."""
     global _watching
     _watching = True
+    try:
+        import watcher
+        w = watcher.Watcher(_watch_dirs())
+        print(f"watch: inotify, {len(w.wd)} каталогов", file=sys.stderr, flush=True)
+    except Exception as e:
+        w = None
+        print(f"watch: inotify нет ({e}) — stat-опрос раз в {period} с", file=sys.stderr, flush=True)
     while True:
-        time.sleep(period)
         try:
+            if w is not None:
+                if w.wait(30.0):
+                    time.sleep(0.2)   # пачка событий (запись done-маркеров) — один пересчёт
+                    while w.wait(0):
+                        pass
+            else:
+                time.sleep(period)
             refresh()
         except Exception as e:
             print(f"watch: {e}", file=sys.stderr, flush=True)
+            time.sleep(period)
 
 
 def prewarm():
     """Прогрев при старте: meta, cov и Летопись целиком — первый запрос страницы отдаёт готовые байты."""
-    for key, fn in (("meta", launch.meta), ("cov", _cov), (("letopis", None, None, None), lambda: launch.letopis())):
+    for key, fn in (("meta", launch.meta), ("cov", _cov), (("letopis", None, None, None), lambda: launch.letopis()),
+                    ("status", _status), ("runs", _runs)):
         try:
             cached(key, fn)
         except Exception as e:
             print(f"prewarm {key}: {e}", file=sys.stderr, flush=True)
+
+
+def _status():
+    try:
+        st = launch.status()
+    except Exception as e:
+        st = {"text": f"calc недоступен: {e}", "busy": 0, "warn": False}
+    return st | {"runs": launch.recent_runs()}
+
+
+def _runs():   # одна `alsched ps` на оба ключа: текст берётся из кэша статуса
+    st = json.loads(cached("status", _status)[0])
+    err = st["text"] if st["text"].startswith("calc недоступен") else None
+    return launch.runs_view(ps_text="" if err else st["text"]) | {"ps_error": err}
 
 
 def _cov():
@@ -179,23 +256,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, cached(("letopis", q.get("hyp"), q.get("month"), q.get("status")),
                                               lambda: launch.letopis(q.get("hyp"), q.get("month"), q.get("status"))))
             if path == "/api/status":
-                try:
-                    st = launch.status()
-                except Exception as e:
-                    st = {"text": f"calc недоступен: {e}", "busy": 0, "warn": False}
-                return self._send(200, st | {"runs": launch.recent_runs()})
-            if path == "/api/runs":   # «Прогоны»: файлы конкретных прогонов + alsched ps; без обходов /data
-                try:
-                    txt = launch.status()["text"]
-                except Exception as e:
-                    txt = ""
-                    note = f"calc недоступен: {e}"
-                else:
-                    note = None
-                return self._send(200, launch.runs_view(ps_text=txt) | {"ps_error": note})
+                return self._send(200, cached("status", _status))
+            if path == "/api/runs":   # «Прогоны»: готовые байты, пересчёт по событиям каталогов прогонов и заданий alsched
+                return self._send(200, cached("runs", _runs))
+            if path == "/api/events":
+                return self._events()
             return self._send(404, {"error": "not found"})
         except Exception as e:
             return self._send(500, {"error": str(e)})
+
+    def _events(self):
+        """SSE: `data: {"v": версия, "keys": [изменившиеся ключи]}` при каждой подмене кэша; `: ka` раз в 25 с держит соединение."""
+        self.send_response(200)
+        for k, v in (("Content-Type", "text/event-stream; charset=utf-8"), ("Cache-Control", "no-cache"), ("Connection", "close"),
+                     ("X-Accel-Buffering", "no"), ("Referrer-Policy", "no-referrer")):
+            self.send_header(k, v)
+        self.end_headers()
+        self.close_connection = True
+        ev = threading.Event()
+        with _cond:
+            seen = _ver
+            _subs.add(ev)
+        try:
+            self.wfile.write(b"retry: 3000\n\n")
+            self.wfile.flush()
+            while True:
+                ev.wait(25)
+                ev.clear()
+                with _cond:
+                    cur, keys = _ver, sorted({k for v, k in _log if v > seen})
+                self.wfile.write((f"data: {json.dumps({'v': cur, 'keys': keys})}\n\n" if cur > seen else ": ka\n\n").encode("utf-8"))
+                self.wfile.flush()
+                seen = cur
+        except OSError:
+            return
+        finally:
+            with _cond:
+                _subs.discard(ev)
 
     def do_POST(self):
         r = self._route()
