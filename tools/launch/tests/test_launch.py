@@ -263,3 +263,19 @@ def test_coverage_masks_and_validate_groups():
         launch.validate_groups([{"hyps": ["Г-01"], "months": ["1999-01"]}], CFG, ROWS)
     with pytest.raises(ValueError):
         launch.validate_groups({"hyps": []}, CFG, ROWS)
+
+
+def test_letopis_audit_fields():
+    """Аудит Летописи 15.10: none без нулей («—»), «н/д» вместо нулевого $, не просеянное не получает вердикт, причина none — из route."""
+    d = launch.letopis()
+    rows = d["rows"]
+    assert d["nhash"] <= len(rows) and rows
+    for x in rows:
+        if x["status"] == "none":
+            assert x["trades"] is None and x["sum"] is None
+        assert len(x["nd"]) == len(x["pnl"]) == len(d["months"])
+        assert not any(v is not None and n for v, n in zip(x["pnl"], x["nd"]))   # н/д и число не бывают вместе
+        if not x["sieved"]:
+            assert x["verdict"] == ""
+        if x["off"]:
+            assert x["status"] == "none" and x["off"] in launch.OFF_LABELS.values()

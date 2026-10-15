@@ -1,11 +1,8 @@
 <title>Запуск бэктеста</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 /* Слева рейка семейств + список; в центре матрица гипотеза × месяц; справа чек запуска с кнопкой внизу. Нативных чекбоксов нет.
    Клетка = гипотеза × месяц: зелёный посчитано, жёлтый частично, пусто не считали, синий контур к счёту. */
-:root{--bg:#0e1116;--surface:#151a21;--surface2:#1b212a;--line:#28303b;--text:#e7eaf0;--muted:#8d98a8;--accent:#5b9cff;--accent-bg:rgba(91,156,255,.16);--ok:#2fa874;--ok-bg:rgba(47,168,116,.2);--warn:#d6a13a;--warn-bg:rgba(214,161,58,.2);--bad:#e5534b;--bad-bg:rgba(229,83,75,.2);--font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;color-scheme:dark}
+:root{--bg:#0e1116;--surface:#151a21;--surface2:#1b212a;--line:#28303b;--text:#e7eaf0;--muted:#8d98a8;--accent:#5b9cff;--accent-bg:rgba(91,156,255,.16);--ok:#2fa874;--ok-bg:rgba(47,168,116,.2);--warn:#d6a13a;--warn-bg:rgba(214,161,58,.2);--bad:#e5534b;--bad-bg:rgba(229,83,75,.2);--font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',monospace;color-scheme:dark}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f3f5f8;--surface:#ffffff;--surface2:#eef1f5;--line:#d9dee6;--text:#1a2029;--muted:#5d6877;--accent:#2468d8;--accent-bg:rgba(36,104,216,.12);--ok:#1c8a5a;--ok-bg:rgba(28,138,90,.15);--warn:#a87412;--warn-bg:rgba(168,116,18,.16);--bad:#c23a33;--bad-bg:rgba(194,58,51,.14);color-scheme:light}}
 :root[data-theme="light"]{--bg:#f3f5f8;--surface:#ffffff;--surface2:#eef1f5;--line:#d9dee6;--text:#1a2029;--muted:#5d6877;--accent:#2468d8;--accent-bg:rgba(36,104,216,.12);--ok:#1c8a5a;--ok-bg:rgba(28,138,90,.15);--warn:#a87412;--warn-bg:rgba(168,116,18,.16);--bad:#c23a33;--bad-bg:rgba(194,58,51,.14);color-scheme:light}
 html,body{height:100%}
@@ -133,7 +130,7 @@ summary{cursor:pointer;padding:4px 0}
 .vseg button.on{background:var(--accent-bg);color:var(--accent)}
 .fbar .cnt{margin-left:auto;font-size:12.5px;color:var(--muted)}
 .tw{flex:1;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
-table.lt{border-collapse:collapse;width:100%;min-width:1100px}
+table.lt{border-collapse:collapse;width:100%;min-width:1280px}
 .lt th{position:sticky;top:0;background:var(--surface2);text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 .lt td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
 .lt tr:hover td{background:var(--surface2)}
@@ -142,6 +139,50 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 .vd{padding:2px 9px;border-radius:99px;font-size:12px}
 .vd.g{background:var(--ok-bg);color:var(--ok)}.vd.b{background:var(--warn-bg);color:var(--warn)}.vd.x{background:var(--bad-bg);color:var(--bad)}.vd.z{background:var(--surface2);color:var(--muted)}
 .link{background:none;border:0;color:var(--accent);padding:0}
+.tbadge{margin-left:7px;padding:0 6px;border-radius:99px;background:var(--accent);color:#fff;font:500 11px var(--mono)}
+.tbadge:empty{display:none}
+.pv{height:100%;overflow:auto;padding:14px 16px;max-width:1240px;margin:0 auto}
+.psum{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;color:var(--muted)}
+.psum b{font:500 15px var(--mono);color:var(--text);margin-left:6px}
+.ptab{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
+.pr-h,.pr{display:grid;grid-template-columns:minmax(220px,1.5fr) minmax(150px,1fr) 132px repeat(4,76px) 22px;gap:10px;align-items:center;padding:9px 14px}
+.pr-h{font-size:12px;font-weight:600;color:var(--muted);background:var(--surface2);border-bottom:1px solid var(--line)}
+.pr-h .r{text-align:right}
+.pr{border-bottom:1px solid var(--line);cursor:pointer}.pr:hover{background:var(--surface2)}
+.pr.open{background:var(--surface2)}
+.pr .l1{display:flex;align-items:center;gap:8px;min-width:0}
+.pr .id{font:500 13px var(--mono);white-space:nowrap}
+.pr .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.pr .pg{display:flex;align-items:center;gap:8px}
+.pr .pg .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.pr .pg .bar i{display:block;height:100%;background:var(--accent)}
+.pr.done .pg .bar i,.pr.wait .pg .bar i{background:var(--ok)}
+.pr .pg b{font:500 13px var(--mono);min-width:40px;text-align:right}
+.pr .tm{font:12.5px var(--mono)}
+.pr .pm{display:contents}
+.pr .mv{font:13px var(--mono);text-align:right}
+.mv.ok{color:var(--ok)}.mv.bad{color:var(--bad)}.mv.warn{color:var(--warn)}.mv.na{color:var(--muted)}
+.pr .chev{color:var(--muted);transition:transform .15s}.pr.open .chev{transform:rotate(90deg)}
+.chip{padding:1px 9px;border-radius:99px;font-size:11.5px;font-weight:500;white-space:nowrap}
+.chip.run{background:var(--accent-bg);color:var(--accent)}.chip.queue{background:var(--surface2);color:var(--muted)}.chip.wait{background:var(--warn-bg);color:var(--warn)}.chip.done{background:var(--ok-bg);color:var(--ok)}.chip.fail{background:var(--bad-bg);color:var(--bad)}
+.pdd{padding:10px 14px 14px;border-bottom:1px solid var(--line);background:var(--bg)}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stp{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--muted);min-width:0}
+.stp.on{border-color:var(--accent);background:var(--accent-bg)}.stp.ok{border-color:var(--ok-bg)}.stp.warn{border-color:var(--warn)}.stp.bad{border-color:var(--bad)}
+.stp-n{font-weight:600;color:var(--text);display:flex;justify-content:space-between;gap:6px}
+.stp-n em{font-style:normal;font-weight:500;font-size:11.5px;color:var(--muted)}
+.stp-v{font:12px var(--mono);margin-top:3px;color:var(--text)}
+.stp-b{height:3px;border-radius:2px;background:var(--line);margin-top:5px;overflow:hidden}.stp-b i{display:block;height:100%;background:var(--accent)}.stp.ok .stp-b i{background:var(--ok)}
+.pinfo{margin-top:8px;font-size:12.5px;color:var(--muted)}
+.pinfo b{font-family:var(--mono);font-weight:500;color:var(--text)}
+.pwhy{margin-top:8px;color:var(--bad);font-size:13px}
+.pht{border-collapse:collapse;margin-top:10px;font-size:12.5px;width:100%;max-width:720px}
+.pht th{text-align:left;font-weight:600;color:var(--muted);font-size:11.5px;padding:3px 10px 3px 0}.pht th.r,.pht td.r{text-align:right}
+.pht td{padding:3px 10px 3px 0;font-family:var(--mono)}
+.pact{margin-top:10px}
+.pforeign{margin-top:14px;padding:10px 14px;border:1px dashed var(--line);border-radius:10px;font-size:13px;color:var(--muted)}
+.pforeign div{display:flex;gap:14px;padding:2px 0}.pforeign b{font:500 12.5px var(--mono);color:var(--text)}
+.pnote{margin:14px 0 4px;font-size:12px;color:var(--muted);line-height:1.5}
+@media (max-width:980px){.pr-h{display:none}.pr{grid-template-columns:1fr auto;row-gap:6px}.pr .pg,.pr .tm{grid-column:1/-1}.pr .pm{display:grid;grid-column:1/-1;grid-template-columns:repeat(4,1fr);gap:6px}.pr .mv{text-align:left}.pr .mv::before{content:attr(data-l);display:block;font:11px var(--font);color:var(--muted)}.steps{grid-template-columns:1fr 1fr}}
 @media (max-width:980px){body{overflow:auto}.grid{display:block;height:auto}.nav{border-right:0;border-bottom:1px solid var(--line);height:420px}.panel{overflow:visible}.cart{border-left:0}.cbody{overflow:visible}.top{flex-wrap:wrap;height:auto;padding-block:8px}.pills{margin-left:0}.view{overflow:auto}}
 </style>
 <div class="app">
@@ -150,10 +191,11 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" id="t-run" aria-selected="true">Запуск</button>
       <button class="tab" role="tab" id="t-let" aria-selected="false">Летопись</button>
+      <button class="tab" role="tab" id="t-prn" aria-selected="false">Прогоны<span class="tbadge" id="tbadge"></span></button>
     </div>
     <div class="pills">
       <span class="mock">макет</span>
-      <span>calc <b>0/16</b> · очередь <b>0</b></span>
+      <span>calc <b>16/16</b> · очередь <b>1</b></span>
       <span>бинарь <b>fa70…bd3</b></span>
       <span>Летопись <b>20:56</b></span>
     </div>
@@ -189,7 +231,7 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
           <div class="big"><span id="bigN">0</span><small>к счёту</small></div>
           <div class="stack" id="stack"></div>
           <div class="sleg"><span>к счёту <b id="legA">0</b></span><span>уже есть <b id="legS">0</b></span></div>
-          <div class="kv"><span>calc</span><b class="ok">свободен</b><span>бинарь</span><b class="ok">как в Летописи</b><span>оценка</span><b id="est">—</b></div>
+          <div class="kv"><span>calc</span><b style="color:var(--warn)">занят · очередь 1</b><span>бинарь</span><b class="ok">как в Летописи</b><span>оценка</span><b id="est">—</b></div>
           <div id="split"></div>
           <details><summary>Стек B1</summary><div class="mono">лестница 3×0…0,0409 sw2<br>стоп 2% · тейк 1×1<br>дедлайн 4 ч · ttl 1800<br>t-bid-btc4h-q1 · σ240<br>В-68 · prob:3 · пул v171c</div></details>
           <div class="runs"><div><span><b>L-0141</b> Г-27 · янв</span><span class="ok">готово</span></div><div><span><b>L-0140</b> F1 П-14</span><span class="ok">готово</span></div></div>
@@ -210,6 +252,17 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
         <span class="cnt" id="lcnt"></span>
       </div>
       <div class="tw"><table class="lt" id="lt"></table></div>
+    </div>
+  </main>
+  <main class="view" id="v-prn" hidden>
+    <div class="pv">
+      <div class="psum" id="psum"></div>
+      <div class="fbar">
+        <div class="vseg" id="pseg"></div>
+        <span class="cnt" id="pcnt"></span>
+      </div>
+      <div id="pcards"></div>
+      <div class="pnote">Макет: прогоны и метрики придуманы. Метрики строки — лучший вариант прогона по Шарпу; «Перехай, дн» — самый долгий период до нового максимума счёта по месяцам (В-120: цель ≤ 5, зелёный ≤ 5); определения Шарпа и винрейта Инженер берёт из протокола П-14 и считает по closes при загрузке. Этапы и проценты в рабочей странице берутся с calc: сутки — по маркерам done и days.txt прогона (как «251 из 251» у прохода F1), месяцы psim — по файлам closes-*.json, очередь и ядра — alsched ps.</div>
     </div>
   </main>
 </div>
@@ -277,20 +330,63 @@ function rCart(){var t=totals(),tot=t.a+t.s;
  el('split').innerHTML=rows.map(function(x){return '<div class="sp"><span class="hid">'+x[0]+'</span><span class="bar"><i style="width:'+Math.round(100*x[1]/mx)+'%"></i></span><b>'+x[1]+'</b></div>'}).join('')||'<div class="none">Ничего не выбрано</div>';
  var b=el('go');b.disabled=!t.a;b.textContent=t.a?'Поставить · '+t.a:'Всё уже посчитано';el('conf').hidden=true;b.hidden=false}
 function all(){rRail();rList();rAxes();rMx();rCart()}
-var LR=[];(function(){var r=rng(77),vds=['годна','граничное','плато','нет'];['Г-141','Г-104','Г-133','Г-13','Г-25','Г-26','Г-121'].forEach(function(id){var h=byId[id],ks=Object.keys(h.ax);for(var n=0;n<3;n++){var inc=r()<.4,par=ks.slice(0,3).map(function(k){var o=h.ax[k][Math.floor(r()*h.ax[k].length)];return k+' '+o.v}).join(' · ');var pn=[];for(var m=0;m<9;m++){pn.push(inc&&m>=5+Math.floor(r()*2)?null:Math.round((r()-.42)*900))}var sum=pn.filter(function(x){return x!==null}).reduce(function(a,b){return a+b},0);LR.push({h:id,par:par,pn:pn,sum:sum,sh:(r()*2.4-.1).toFixed(2),tr:200+Math.floor(r()*1500),vd:inc?'не считали':vds[Math.floor(r()*4)],inc:inc})}})})();
+var LR=[];(function(){var r=rng(77),vds=['годна','граничное','плато','нет'];['Г-141','Г-104','Г-133','Г-13','Г-25','Г-26','Г-121'].forEach(function(id){var h=byId[id],ks=Object.keys(h.ax);for(var n=0;n<3;n++){var inc=r()<.4,par=ks.slice(0,3).map(function(k){var o=h.ax[k][Math.floor(r()*h.ax[k].length)];return k+' '+o.v}).join(' · ');var pn=[];for(var m=0;m<9;m++){pn.push(inc&&m>=5+Math.floor(r()*2)?null:Math.round((r()-.42)*900))}var sum=pn.filter(function(x){return x!==null}).reduce(function(a,b){return a+b},0);LR.push({h:id,par:par,pn:pn,sum:sum,sh:(r()*2.4-.1).toFixed(2),wr:Math.round(44+r()*18),hp:+(1+r()*9).toFixed(1),tr:200+Math.floor(r()*1500),vd:inc?'не считали':vds[Math.floor(r()*4)],inc:inc})}})})();
 function rLet(){var qq=el('lq').value.toLowerCase();
  el('vseg').innerHTML=['','годна','граничное','плато','нет','не считали'].map(function(v){return '<button data-vd="'+v+'"'+(lvd===v?' class="on"':'')+'>'+(v||'Все')+'</button>'}).join('');
  el('linc').classList.toggle('on',linc);
  var rows=LR.filter(function(x){return(!qq||(x.h+' '+x.par).toLowerCase().indexOf(qq)>-1)&&(!lvd||x.vd===lvd)&&(!linc||x.inc)});
  el('lcnt').textContent=rows.length+' из '+LR.length;
- el('lt').innerHTML='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Шарп</th><th>Сделок</th><th>Вердикт</th><th></th></tr>'+rows.map(function(x){
+ el('lt').innerHTML='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Шарп</th><th>Винрейт</th><th>Перехай, дн</th><th>Сделок</th><th>Вердикт</th><th></th></tr>'+rows.map(function(x){
   var cs=x.pn.map(function(v){if(v===null)return '<span class="mc none"></span>';var a=Math.min(.55,.12+Math.abs(v)/900);return '<span class="mc" style="background:'+(v>=0?'rgba(47,168,116,'+a+')':'rgba(229,83,75,'+a+')')+'">'+v+'</span>'}).join('');
   var cls=x.vd==='годна'?'g':x.vd==='граничное'||x.vd==='плато'?'b':x.vd==='нет'?'x':'z';
-  return '<tr><td class="hid">'+x.h+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+x.par+'</td><td colspan="9" style="padding:4px 10px">'+cs+'</td><td style="font-family:var(--mono)">'+x.sum+'</td><td style="font-family:var(--mono)">'+x.sh+'</td><td style="font-family:var(--mono)">'+x.tr+'</td><td><span class="vd '+cls+'">'+x.vd+'</span></td><td>'+(x.inc?'<button class="link" data-fix="'+LR.indexOf(x)+'">Досчитать →</button>':'')+'</td></tr>'}).join('')}
-function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');if(t==='let')rLet()}
+  return '<tr><td class="hid">'+x.h+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+x.par+'</td><td colspan="9" style="padding:4px 10px">'+cs+'</td><td style="font-family:var(--mono)">'+x.sum+'</td><td style="font-family:var(--mono)">'+x.sh+'</td><td style="font-family:var(--mono)">'+(x.inc?'—':x.wr+' %')+'</td><td style="font-family:var(--mono);color:'+(x.inc?'var(--muted)':x.hp<=5?'var(--ok)':'var(--warn)')+'">'+(x.inc?'—':x.hp)+'</td><td style="font-family:var(--mono)">'+x.tr+'</td><td><span class="vd '+cls+'">'+x.vd+'</span></td><td>'+(x.inc?'<button class="link" data-fix="'+LR.indexOf(x)+'">Досчитать →</button>':'')+'</td></tr>'}).join('')}
+var PRN=[
+ {id:'L-20261015-014502',s:'run',t0:'01:45',el:'4 ч 12 мин',what:[['Г-106',24],['Г-141',9],['Г-104',6]],hm:39,cores:12,days:[137,251],psim:[0,9],left:'≈ 4 ч 50 мин',end:'≈ 06:55',src:'по темпу последних 40 суток'},
+ {id:'L-20261015-022210',s:'queue',t0:'02:22',el:'—',what:[['Г-25',18]],hm:18,cores:12,days:[0,251],psim:[0,9],left:'≈ 12 ч 30 мин',end:'после 014502',src:'оценка заявки (назначено, не измерено)',note:'ждёт свободные ядра: нужно 12, свободно 0'},
+ {id:'L-20261014-205900',s:'wait',t0:'20:59',el:'6 ч 40 мин',what:[['Г-27',12,412,1.31,54,3.2,'keep_q 50']],hm:12,cores:12,days:[251,251],psim:[9,9],left:'0',end:'считано 03:39',note:'посчитано, ещё не в Летописи — перенос делает CEO'},
+ {id:'L-20261014-120000',s:'done',t0:'12:00',el:'5 ч 05 мин',what:[['Г-133',16,188,.84,51,6.1,'a 2'],['Г-112',12,-96,-.22,47,9.4,'x 1']],hm:28,cores:12,days:[251,251],psim:[9,9],left:'0',end:'в Летописи с 18:20'},
+ {id:'L-20261014-184100',s:'fail',t0:'18:41',el:'—',what:[['Г-141',640]],hm:640,cores:0,days:[0,251],psim:[0,9],why:'Отказ root-юнита: потолок 501 хеша, в плане 640. Ничего не посчитано.'}];
+var PST={run:'идёт',queue:'в очереди',wait:'ждёт Летопись',done:'в Летописи',fail:'отказ'};
+var pflt='',popen={'L-20261015-014502':1};
+function pctOf(r){return r.s==='fail'?0:r.s==='done'||r.s==='wait'?100:Math.round(100*(.93*r.days[0]/r.days[1]+.07*r.psim[0]/r.psim[1]))}
+function best(r){var m=null;r.what.forEach(function(w){if(w.length>3&&(!m||w[3]>m[3]))m=w});return m}
+function fmt(v,k){if(v===undefined||v===null)return '—';return k==='pnl'?(v>0?'+':'')+v:k==='sh'?v.toFixed(2):k==='wr'?v+' %':v.toFixed(1)}
+function mcell(w,k,l){var i={pnl:2,sh:3,wr:4,hp:5}[k],v=w?w[i]:null,c='na';if(v!==null&&v!==undefined){c=k==='hp'?(v<=5?'ok':'warn'):k==='wr'?'':(v>0?'ok':'bad')}return '<span class="mv '+c+'" data-l="'+l+'">'+fmt(v,k)+'</span>'}
+function stp(n,ex,v,cls,bar){return '<div class="stp '+cls+'"><div class="stp-n"><span>'+n+'</span><em>'+ex+'</em></div><div class="stp-v">'+v+'</div>'+(bar===null?'':'<div class="stp-b"><i style="width:'+bar+'%"></i></div>')+'</div>'}
+function rPrn(){
+ var act=PRN.filter(function(r){return r.s==='run'||r.s==='queue'}).length;el('tbadge').textContent=act||'';
+ var nr=PRN.filter(function(r){return r.s==='run'}).length,nq=PRN.filter(function(r){return r.s==='queue'}).length;
+ el('psum').innerHTML='<span>идёт<b>'+nr+'</b></span><span>в очереди<b>'+nq+'</b></span><span>ядра calc<b>16/16</b></span><span>бинарь<b>fa07…3dd</b></span>';
+ el('pseg').innerHTML=[['','Все'],['act','Идут и ждут'],['done','Готово'],['fail','Отказ']].map(function(x){return '<button data-pf="'+x[0]+'"'+(pflt===x[0]?' class="on"':'')+'>'+x[1]+'</button>'}).join('');
+ var rows=PRN.filter(function(r){return!pflt||(pflt==='act'&&(r.s==='run'||r.s==='queue'||r.s==='wait'))||(pflt==='done'&&(r.s==='done'||r.s==='wait'))||(pflt==='fail'&&r.s==='fail')});
+ el('pcnt').textContent=rows.length+' из '+PRN.length;
+ var head='<div class="pr-h"><span>Прогон</span><span>Выполнение</span><span>Время</span><span class="r">PnL $</span><span class="r">Шарп</span><span class="r">Винрейт</span><span class="r">Перехай, дн</span><span></span></div>';
+ var body=rows.map(function(r){var p=pctOf(r),D=r.days,S=r.psim,b=best(r),open=popen[r.id];
+  var stage=r.s==='fail'?'—':r.s==='queue'?'ждёт ядра':r.s==='done'||r.s==='wait'?'готово':D[0]<D[1]?'счёт суток '+D[0]+'/'+D[1]:'сделки '+S[0]+'/'+S[1]+' мес';
+  var tm=r.s==='run'||r.s==='queue'?'ещё '+r.left.replace('≈ ','≈')+'<div class="sub">'+r.end+'</div>':r.s==='fail'?'<span style="color:var(--bad)">отказ</span>':'<div>'+r.el+'</div><div class="sub">'+r.end+'</div>';
+  var hy=r.what.map(function(w){return w[0]}).join(' · ');
+  var line='<div class="pr '+r.s+(open?' open':'')+'" data-po="'+r.id+'"><div><div class="l1"><span class="chip '+r.s+'">'+PST[r.s]+'</span><span class="id">'+r.id+'</span></div><div class="sub">'+hy+' · '+r.hm+' хеш-мес</div></div>'+
+   (r.s==='fail'?'<div class="sub">'+r.why.split('.')[0]+'</div>':'<div class="pg"><span class="bar"><i style="width:'+p+'%"></i></span><b>'+p+' %</b><span class="sub" style="margin:0;min-width:92px">'+stage+'</span></div>')+
+   '<div class="tm">'+tm+'</div><div class="pm">'+mcell(b,'pnl','PnL $')+mcell(b,'sh','Шарп')+mcell(b,'wr','Винрейт')+mcell(b,'hp','Перехай, дн')+'</div><span class="chev">›</span></div>';
+  if(!open)return line;
+  var s1=r.s==='fail'?stp('Постановка','','отказ','bad',null):r.s==='queue'?stp('Очередь','','ждёт ядра','on',null):stp('Очередь','✓','поставлено '+r.t0,'ok',null);
+  var dpct=Math.round(100*D[0]/D[1]),spct=Math.round(100*S[0]/S[1]);
+  var s2=r.s==='fail'?stp('Счёт суток','','—','',null):stp('Счёт суток',dpct+' %',D[0]+' из '+D[1],r.s==='run'&&D[0]<D[1]?'on':D[0]===D[1]?'ok':'',dpct);
+  var s3=stp('Сделки в портфеле',spct+' %',S[0]+' из '+S[1]+' мес',r.s==='run'&&D[0]===D[1]?'on':S[0]===S[1]?'ok':'',spct);
+  var s4=r.s==='done'?stp('Летопись','✓','перенесено','ok',null):r.s==='wait'?stp('Летопись','','ждёт переноса','warn',null):stp('Летопись','','после счёта','',null);
+  var info=r.s==='run'||r.s==='queue'?'<div class="pinfo">Оценка: '+(r.src||'')+' · ядер <b>'+r.cores+'</b>'+(r.note?' · '+r.note:'')+'</div>':r.note?'<div class="pinfo">'+r.note+'</div>':'';
+  var hasM=r.what.some(function(w){return w.length>3});
+  var tbl='<table class="pht"><tr><th>Гипотеза</th><th class="r">хеш-мес</th>'+(hasM?'<th>лучший вариант</th><th class="r">PnL $</th><th class="r">Шарп</th><th class="r">Винрейт</th><th class="r">Перехай, дн</th>':'')+'</tr>'+r.what.map(function(w){return '<tr><td>'+w[0]+'</td><td class="r">'+w[1]+'</td>'+(hasM?(w.length>3?'<td>'+w[6]+'</td><td class="r">'+fmt(w[2],'pnl')+'</td><td class="r">'+fmt(w[3],'sh')+'</td><td class="r">'+fmt(w[4],'wr')+'</td><td class="r">'+fmt(w[5],'hp')+'</td>':'<td colspan="5"></td>'):'')+'</tr>'}).join('')+'</table>';
+  return line+'<div class="pdd">'+(r.s==='fail'?'<div class="pwhy">'+r.why+'</div>':'<div class="steps">'+s1+s2+s3+s4+'</div>'+info)+tbl+(r.s==='done'?'<div class="pact"><button class="btn" data-open="'+r.id+'">Открыть в Летописи →</button></div>':'')+'</div>'}).join('');
+ el('pcards').innerHTML=rows.length?'<div class="ptab">'+head+body+'</div>':'<div class="empty">Прогонов нет</div>';
+ if(!el('pcards').dataset.f){el('pcards').dataset.f=1;el('pcards').insertAdjacentHTML('afterend','<div class="pforeign"><div style="font-weight:600;color:var(--text)">Другие задания на calc (не из формы)</div><div><b>tk231 psim</b><span>4 ядра · идёт 38 мин</span></div></div>')}}
+function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-prn').setAttribute('aria-selected',t==='prn');if(t==='let')rLet();if(t==='prn')rPrn()}
 function toast(s){var t=el('toast');t.textContent=s;t.hidden=false;clearTimeout(toast.k);toast.k=setTimeout(function(){t.hidden=true},3000)}
 document.addEventListener('click',function(e){var t=e.target,c;
- if(t.id==='t-run')return tab('run');if(t.id==='t-let')return tab('let');
+ if(t.id==='t-run')return tab('run');if(t.id==='t-let')return tab('let');if(t.closest('#t-prn'))return tab('prn');
+ if((c=t.closest('[data-pf]'))){pflt=c.dataset.pf;return rPrn()}
+ if((c=t.closest('[data-po]'))){var po=c.dataset.po;popen[po]=popen[po]?0:1;return rPrn()}
+ if(t.dataset.open){lvd='';el('lq').value='';tab('let');return toast('В рабочей странице: Летопись, отфильтрованная по этому прогону')}
  if((c=t.closest('[data-fam]'))){fam=c.dataset.fam;return all()}
  if((c=t.closest('[data-flt]'))){flt=c.dataset.flt;return rList()}
  if((c=t.closest('[data-gall]'))){var l=H.filter(function(h){return h.fam===c.dataset.gall}),on=l.every(function(h){return checked[h.id]});l.forEach(function(h){checked[h.id]=on?0:1});return all()}
@@ -304,7 +400,7 @@ document.addEventListener('click',function(e){var t=e.target,c;
  if(t.id==='noneSel'){H.forEach(function(h){run[h.id]=new Set()});return all()}
  if(t.id==='go'){var tt=totals();el('confTxt').textContent='Поставить '+tt.a+'? Пропустим '+tt.s+'.';el('conf').hidden=false;el('go').hidden=true;return}
  if(t.id==='no'){el('conf').hidden=true;el('go').hidden=false;return}
- if(t.id==='yes'){var t3=totals();el('conf').hidden=true;el('go').hidden=false;toast('Поставлено · L-0142 · '+t3.a);return}
+ if(t.id==='yes'){var t3=totals();el('conf').hidden=true;el('go').hidden=false;PRN.unshift({id:'L-20261015-023000',s:'queue',t0:'02:30',el:'—',what:t3.sp.filter(function(x){return x[1]>0}),hm:t3.a,cores:12,days:[0,251],psim:[0,9],left:'≈ 12 ч 30 мин',end:'после L-20261015-014502',src:'оценка заявки (назначено, не измерено)',note:'ждёт свободные ядра: 12 нужно, свободно 0'});tab('prn');toast('Поставлено · '+t3.a+' хеш-мес · вкладка «Прогоны»');return}
  if((c=t.closest('[data-vd]'))){lvd=c.dataset.vd;return rLet()}
  if(t.id==='linc'){linc=!linc;return rLet()}
  if(t.dataset.fix){var x=LR[+t.dataset.fix];focus=x.h;checked[x.h]=1;run[x.h]=new Set();for(var m3=0;m3<9;m3++)if(x.pn[m3]===null)run[x.h].add(m3);tab('run');all();toast('Выбрано: недостающие месяцы')}

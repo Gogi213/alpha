@@ -6,7 +6,7 @@
 значения только из белых списков (launch.validate), команда собирается кодом (launch.queue_cmd), пользовательской строки в shell нет,
 одна постановка за раз (замок), потолок хешей за запуск (config.json). Токен в логи не пишется. Вся логика — launch.py (тот же код у CLI/CEO).
 Нейросетям ничего не уходит (В-6)."""
-import argparse, gzip, hashlib, hmac, http.server, json, os, sys, threading, urllib.parse
+import argparse, gzip, hashlib, hmac, http.server, json, os, sys, threading, time, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -15,6 +15,8 @@ import launch
 HOST = "127.0.0.1"
 MAX_BODY = 1 << 20
 _cache = {}
+_fns = {}
+_watching = False
 _cache_lock = threading.Lock()
 _submit_lock = threading.Lock()
 
@@ -45,18 +47,61 @@ def _stamp():
     return tuple(st)
 
 
-def cached(key, fn):
-    """Готовые байты ответа (JSON + gzip + ETag) по штампу входов: повторный запрос — без пересчёта."""
+def _build(key, fn):
     stamp = _stamp()
-    with _cache_lock:
-        hit = _cache.get(key)
-        if hit and hit[0] == stamp:
-            return hit[1]
     data = json.dumps(fn(), ensure_ascii=False).encode("utf-8")
     ent = (data, gzip.compress(data, 5), '"' + hashlib.md5(data).hexdigest() + '"')
     with _cache_lock:
         _cache[key] = (stamp, ent)
     return ent
+
+
+def cached(key, fn):
+    """Готовые байты ответа (JSON + gzip + ETag). Холодный ключ считается один раз; дальше при работающем watch() запрос всегда отдаёт
+    готовую версию (пересчёт — фоном по смене штампа входов), без watch() — сверяет штамп сам (тесты)."""
+    stamp = None if _watching else _stamp()
+    with _cache_lock:
+        _fns[key] = fn
+        hit = _cache.get(key)
+        if hit and (_watching or hit[0] == stamp):
+            return hit[1]
+    return _build(key, fn)
+
+
+def refresh():
+    """Пересчитать устаревшие ключи (по смене штампа); старая версия отдаётся, пока считается новая, подмена атомарна."""
+    stamp = _stamp()
+    with _cache_lock:
+        todo = [(k, f) for k, f in _fns.items() if _cache.get(k, (None,))[0] != stamp]
+    for k, f in todo:
+        _build(k, f)
+    return len(todo)
+
+
+def watch(period=1.0):
+    """Фон: раз в period с — stat файлов формы (не обход /data); смена штампа → refresh(). Прогрев — холодные ключи считает первый запрос
+    или prewarm()."""
+    global _watching
+    _watching = True
+    while True:
+        time.sleep(period)
+        try:
+            refresh()
+        except Exception as e:
+            print(f"watch: {e}", file=sys.stderr, flush=True)
+
+
+def prewarm():
+    """Прогрев при старте: meta, cov и Летопись целиком — первый запрос страницы отдаёт готовые байты."""
+    for key, fn in (("meta", launch.meta), ("cov", _cov), (("letopis", None, None, None), lambda: launch.letopis())):
+        try:
+            cached(key, fn)
+        except Exception as e:
+            print(f"prewarm {key}: {e}", file=sys.stderr, flush=True)
+
+
+def _cov():
+    return {"months": launch.load_config()["months"], "cov": launch.coverage(), "off": launch.OFF_LABELS}
 
 
 def read_token(path):
@@ -129,7 +174,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/meta":
                 return self._send(200, cached("meta", launch.meta))
             if path == "/api/cov":
-                return self._send(200, cached("cov", lambda: {"months": launch.load_config()["months"], "cov": launch.coverage(), "off": launch.OFF_LABELS}))
+                return self._send(200, cached("cov", _cov))
             if path == "/api/letopis":
                 return self._send(200, cached(("letopis", q.get("hyp"), q.get("month"), q.get("status")),
                                               lambda: launch.letopis(q.get("hyp"), q.get("month"), q.get("status"))))
@@ -201,6 +246,7 @@ def main(argv=None):
     if host != HOST and token is None:
         raise SystemExit("не на 127.0.0.1 — только с LAUNCH_TOKEN_FILE")
     srv = make_server(o.port, host, token)
+    threading.Thread(target=lambda: (prewarm(), watch()), daemon=True).start()   # прогрев и фоновый пересчёт по смене файлов
     print(f"форма запуска: {host}:{srv.server_address[1]} ({'под токеном' if token else 'только локально'})", flush=True)
     srv.serve_forever()
 

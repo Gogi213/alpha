@@ -456,19 +456,20 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
     for line in open(os.path.join(REG, "results.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
-            pnl[d["cell_id"]][d["month"]] = (d.get("pnl_usd"), d.get("trades"), d.get("max_dd"))
+            pnl[d["cell_id"]][d["month"]] = (d.get("pnl_usd"), d.get("trades"), d.get("max_dd"), d.get("sum_net_bps"))
     byhash = collections.defaultdict(dict)
     for row in cellhash_reg.build():
         for m, v in pnl.get(row[0], {}).items():
             byhash[row[1]][m] = v
     for r in overlay_rows(cfg):
-        byhash[r["cell_id"]][r["month"]] = (r.get("pnl_usd"), r.get("trades"), r.get("max_dd"))
+        byhash[r["cell_id"]][r["month"]] = (r.get("pnl_usd"), r.get("trades"), r.get("max_dd"), r.get("sum_net_bps"))
     mets = hash_metrics_file()
     sieve = {}
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
             sieve.setdefault(d["cell_hash"], []).append(d)
+    routes = load_routes()
     out = []
     for r in plan_rows(cfg["protocol"], cfg["fraction"]):
         if hyp and r["hyp"] != hyp:
@@ -476,8 +477,11 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         got = byhash.get(r["hash"], {})
         sq = ["+" if got.get(m, (None,))[0] is not None and got[m][0] > 0 else "-" if m in got else "" for m in months]
         pn = [None if m not in got or got[m][0] is None else round(got[m][0], 2) for m in months]
+        nd = [m in got and got[m][0] is None for m in months]   # строка есть, $ не записан (27 хешей R-20261011-002): «н/д», не 0
+        bps = [got[m][3] if m in got else None for m in months]
         full = all(sq)
         sv = sieve.get(r["hash"], [])
+        sieved = any((x.get("trades") or 0) > 0 or (x.get("days") or 0) > 0 for x in sv)   # в sieve без сделок и суток = не просеяно
         verdict = next((k for k in ("eligible", "plateau", "edge") if any(x.get(k) for x in sv)), "")
         if month and not sq[months.index(month)]:
             continue
@@ -485,11 +489,17 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         if status and status != st and status != verdict:
             continue
         mt = checked_metrics(mets.get(r["hash"]), got)
-        out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict, "pnl": pn,
-                    "sum": round(sum(x for x in pn if x is not None), 2), "trades": sum(v[1] or 0 for v in got.values()),
+        rt = routes.get(r["hash"], "cells")
+        known = [v for v in pn if v is not None]
+        out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict, "sieved": sieved,
+                    "plateau": any(x.get("plateau") for x in sv), "edge": any(x.get("edge") for x in sv),
+                    "off": OFF_LABELS.get(rt) if st == "none" and rt not in COUNTABLE else None,
+                    "pnl": pn, "nd": nd, "bps": bps, "sum": round(sum(known), 2) if known else None,
+                    "trades": sum(got[m][1] or 0 for m in months if m in got) if got else None,
                     "sharpe": mt and mt["sharpe"], "winrate": mt and mt["winrate"], "overhigh_d": mt and mt["overhigh_d"],
                     "tail_d": mt and mt["tail_d"], "worst_d": mt and mt["worst_d"]})
-    return {"months": months, "rows": out, "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None)}
+    return {"months": months, "rows": out, "nhash": len({x["hash"] for x in out}),
+            "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None)}
 
 
 def hash_metrics_file():

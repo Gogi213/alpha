@@ -137,3 +137,25 @@ def test_cached_responses_gzip_etag_304_and_keepalive():
         assert r3.getheader("Content-Encoding") is None and r3.getheader("ETag") == etag and json.loads(r3.read())["cov"]
     finally:
         s.shutdown()
+
+
+def test_cache_event_refresh_never_blocks_request(monkeypatch):
+    """Событие (смена штампа файлов) → refresh() пересчитывает в фоне; пока не пересчитано, запрос отдаёт прежние байты, а не ждёт."""
+    stamp = {"v": 1}
+    calls = []
+    monkeypatch.setattr(server, "_stamp", lambda: stamp["v"])
+    monkeypatch.setattr(server, "_watching", True)
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_fns", {})
+
+    def fn():
+        calls.append(1)
+        return {"n": len(calls)}
+
+    first = server.cached("k", fn)
+    assert json.loads(first[0]) == {"n": 1} and server.cached("k", fn) is first and len(calls) == 1
+    stamp["v"] = 2   # файл изменился: запрос всё ещё отдаёт готовое, без пересчёта
+    assert server.cached("k", fn) is first and len(calls) == 1
+    assert server.refresh() == 1 and len(calls) == 2   # фоновый пересчёт по событию
+    second = server.cached("k", fn)
+    assert json.loads(second[0]) == {"n": 2} and second[2] != first[2] and server.refresh() == 0
