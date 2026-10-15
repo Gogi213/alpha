@@ -30,32 +30,39 @@ def plan_rows(protocol="P-14", fraction=1):
 
 
 ROUTES_FILE = os.path.join(HERE, "routes.json")
-COUNTABLE = ("cells", "monthly")   # маршруты, которые кодирует --cells (прочее форма не ставит: посчитано вне Летописи / нет данных / нет кодировки / R1)
+R1_ROUTES = ("r1", "r1x")   # TK-251: R1 не идёт строкой --cells — отбор r1cell.py + psim (r1: отбор по .r1spec; r1x: клетки готовы, только psim)
+COUNTABLE = ("cells", "monthly") + R1_ROUTES   # маршруты, которые форма умеет посчитать (прочее: посчитано вне Летописи / нет данных / нет кодировки / композит R1)
 OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata": "нет данных", "noline": "нет кодировки", "r1route": "маршрут R1",
-              "r1x": "клетки R1 есть, $ нет — нужен psim", "r1col": "не считали — данных нет"}   # причина «вне формы» словами для страницы (TK-247: «посчитано» — только где считали)
+              "r1comp": "композит R1 (Г-64/73/83) — отбора в форме нет"}   # причина «вне формы» словами для страницы (TK-247: «посчитано» — только где считали)
 OFF_ROUTES = list(OFF_LABELS)   # код в coverage(): 0 — форма считает, i+1 — OFF_ROUTES[i]
 
 
 def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
     """Маршрут каждой клетки сетки по тем же master.LINES/OUTSIDE/R1COL/R1X/MONTHLY, что и master.plan (строки 592-612); пишет routes.json
     (нужна data/registry.sqlite этой машины — серверу достаточно готового файла). {routes:{хеш: маршрут}, lines:{хеш: «форма набор»},
-    monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}}; маршрут: cells | monthly | outside | r1col | r1x | nodata | noline | r1route."""
+    monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}, r1spec:{хеш: [гипотеза, колонка, знак, keep_q, ось ctx, ctx_q]}};
+    маршрут: cells | monthly | r1 | r1x | outside | r1comp | nodata | noline | r1route (TK-251: r1col → r1 для колонок со знаком, r1comp — композиты common_q)."""
     import master, cellhash as ch, cellhash_reg
+    sys.path.insert(0, os.path.join(ROOT, "tools", "compute"))
+    import r1cell
     c = master.connect()
     grids, _ = master.build_grid(c, protocol, fraction, None, master.rules_of(c, protocol))
     c.close()
     r2b = master.r2b_lines()
     sets = {**cellhash_reg.load_sets(), **master.MSETS}
-    routes, lines, monthly, used = {}, {}, {}, set()
-    for cells in grids.values():
-        for _, cfg in cells:
+    routes, lines, monthly, used, r1spec = {}, {}, {}, set(), {}
+    for hyp, cells in grids.items():
+        for av, cfg in cells:
             h = ch.cell_hash(cfg)
             if h in routes:
                 continue
             if h in master.R1COL and master.R1COL[h] in master.R1_NODATA:
                 routes[h] = "nodata"
             elif h in master.R1COL:
-                routes[h] = "r1col"
+                sign = r1cell.sign_of(master, hyp, av["col"]) if "col" in av else None
+                routes[h] = "r1" if sign else "r1comp"
+                if sign:
+                    r1spec[h] = [hyp, av["col"], sign, str(av["keep_q"]), r1cell.CTX_AXIS.get(hyp, "") if "ctx_q" in av else "", str(av.get("ctx_q", ""))]
             elif h in master.R1X:
                 routes[h] = "r1x"
             elif h in master.OUTSIDE or master.r2b_covers(h, r2b):
@@ -73,7 +80,7 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
             else:
                 routes[h] = "r1route"
     doc = {"protocol": protocol, "fraction": fraction, "generated": now_iso(), "routes": routes, "r2_re": master.R2_EXIT_RE,
-           "lines": lines, "monthly": monthly, "sets": {u: sets[u] for u in sorted(used)}}
+           "lines": lines, "monthly": monthly, "sets": {u: sets[u] for u in sorted(used)}, "r1spec": r1spec}
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, ensure_ascii=False, sort_keys=True)
     return doc
@@ -125,15 +132,25 @@ def write_set(stem, lines, sets):
 
 def prepare_plan(p, plan_dir=None, doc=None):
     """План-каталог счёта для раннера (day-cells.sh: $P/$PLAN-<ГГГГ-ММ>.cells/.args; общие L.cells/L.args пусты — клетки заданы по месяцам,
-    потому что хеш может быть посчитан не во всех выбранных месяцах). plan_dir=None — только подсчёт. -> ({месяц: число строк --cells}, нужен ли r2-бинарь)"""
+    потому что хеш может быть посчитан не во всех выбранных месяцах). plan_dir=None — только подсчёт. -> ({месяц: число строк --cells}, нужен ли r2-бинарь)
+    TK-251: R1 (маршруты r1/r1x) в --cells не идёт: <план>/L-<мес>.r1spec (hash,hyp,col,sign,keep_q,ctx_axis,ctx_q — для r1cell.py apply), L-<мес>.r1x (хеши с готовыми
+    клетками — только psim), r1months.txt (месяцы с R1); без R1 этих файлов нет — план прежний байт в байт."""
     doc = doc or json.load(open(ROUTES_FILE, encoding="utf-8"))
-    out, needs_r2 = {}, False
+    out, needs_r2, r1months = {}, False, []
     if plan_dir:
         os.makedirs(plan_dir, exist_ok=True)
         for ext in ("cells", "args"):
             open(os.path.join(plan_dir, f"L.{ext}"), "w").close()
     for m in p["months"]:
         todo = [c["hash"] for c in p["cells"] if m in c["new_months"]]
+        rt = doc.get("routes", {})
+        r1 = [h for h in todo if rt.get(h) == "r1"]
+        r1x = [h for h in todo if rt.get(h) == "r1x"]
+        todo = [h for h in todo if rt.get(h) not in R1_ROUTES]
+        if plan_dir and (r1 or r1x):
+            r1months.append(m)
+            _wlines(os.path.join(plan_dir, f"L-{m}.r1spec"), ["hash,hyp,col,sign,keep_q,ctx_axis,ctx_q"] + [",".join([h] + doc["r1spec"][h]) for h in sorted(r1)])
+            _wlines(os.path.join(plan_dir, f"L-{m}.r1x"), sorted(r1x))
         lines = [doc["lines"][h] if h in doc["lines"] else doc["monthly"][h][m] for h in todo]
         out[m] = len(set(lines))
         r2 = any(line_is_r2(ln, doc["r2_re"]) for ln in lines)
@@ -143,6 +160,8 @@ def prepare_plan(p, plan_dir=None, doc=None):
             _wlines(os.path.join(plan_dir, f"L-{m}.bin"), ["r2" if r2 else "std"])
     if plan_dir:
         _wlines(os.path.join(plan_dir, "months.txt"), [m for m in p["months"] if out[m]])
+        if r1months:
+            _wlines(os.path.join(plan_dir, "r1months.txt"), r1months)
     return out, needs_r2
 
 
@@ -694,6 +713,9 @@ def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, 
         return {"ok": False, "why": "r2-bin-needed", "plan": p}
     log("команда: " + shlex.join(cmd))
     log("строк --cells по месяцам: " + ", ".join(f"{m} {n}" for m, n in per_month.items()))
+    r1n = {r: sum(len(c["new_months"]) for c in p["cells"] if c["route"] == r) for r in R1_ROUTES}
+    if any(r1n.values()):
+        log("R1 (хеш×месяц): " + ", ".join(f"{r} {n}" for r, n in r1n.items()))
     if dry_run:
         return {"ok": True, "dry_run": True, "run_id": run_id, "cmd": cmd, "per_month": per_month, "plan": p}
     r = run_cmd(cmd, capture_output=True, text=True)

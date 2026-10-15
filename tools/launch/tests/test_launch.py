@@ -98,7 +98,7 @@ def test_submit_refuses_when_only_off_cells_left():
 def test_routes_file_covers_grid_and_known_routes():
     routes = launch.load_routes()
     assert {r["hash"] for r in launch.plan_rows()} <= set(routes)
-    assert set(routes.values()) <= {"cells", "monthly", "outside", "r1col", "r1x", "nodata", "noline", "r1route"}
+    assert set(routes.values()) <= {"cells", "monthly", "outside", "r1", "r1x", "r1comp", "nodata", "noline", "r1route"}
 
 
 def test_prepare_plan_writes_per_month_cells_args_bin(tmp_path):
@@ -279,3 +279,81 @@ def test_letopis_audit_fields():
             assert x["verdict"] == ""
         if x["off"]:
             assert x["status"] == "none" and x["off"] in launch.OFF_LABELS.values()
+
+
+# --- TK-251 П4: маршруты r1/r1x (R1 в форме) ---
+R1DOC = {**DOC, "routes": {"aaaa": "cells", "bbbb": "cells", "cccc": "r1", "dddd": "r1x"},
+         "r1spec": {"cccc": ["Г-01", "wall_add_max_lots", "hi", "5", "", ""]}}
+
+
+def test_r1_routes_are_countable_and_r1comp_is_off():
+    assert set(launch.R1_ROUTES) == {"r1", "r1x"} <= set(launch.COUNTABLE) and "r1comp" in launch.OFF_LABELS
+    r = launch.plan(["Г-01", "Г-02"], M3, rows=ROWS, have=HAVE, cfg=CFG, routes=R1DOC["routes"])
+    by = {c["hash"]: c for c in r["cells"]}
+    assert by["cccc"]["new_months"] == M3 and by["dddd"]["new_months"] == M3 and r["hm_off"] == 0
+    r = launch.plan(["Г-01"], M3, rows=ROWS, have=HAVE, cfg=CFG, routes={"cccc": "r1comp"})
+    assert r["off_by"] == {"r1comp": 3}
+
+
+def test_prepare_plan_writes_r1spec_and_r1x_apart_from_cells(tmp_path):
+    p2 = launch.plan(["Г-01", "Г-02"], M3, rows=ROWS, have=HAVE, cfg=CFG, routes=R1DOC["routes"])
+    per, _ = launch.prepare_plan(p2, str(tmp_path), R1DOC)
+    assert per == {"2026-01": 0, "2026-02": 1, "2026-03": 1}   # только bbbb (cells); r1/r1x в --cells не попадают
+    assert (tmp_path / "L-2026-01.r1spec").read_text(encoding="utf-8").splitlines() == [
+        "hash,hyp,col,sign,keep_q,ctx_axis,ctx_q", "cccc,Г-01,wall_add_max_lots,hi,5,,"]
+    assert (tmp_path / "L-2026-01.r1x").read_text(encoding="utf-8") == "dddd\n"
+    assert (tmp_path / "r1months.txt").read_text(encoding="utf-8").split() == M3
+    assert (tmp_path / "months.txt").read_text(encoding="utf-8").split() == ["2026-02", "2026-03"]
+    assert "cccc" not in "".join(f.read_text(encoding="utf-8") for f in tmp_path.glob("*.cells"))
+
+
+def test_prepare_plan_without_r1_is_as_before(tmp_path):
+    """Гейт «выкл = прежний»: нет r1/r1x в плане — ни .r1spec, ни .r1x, ни r1months.txt; .cells/.args те же."""
+    per, _ = launch.prepare_plan(p(), str(tmp_path), DOC)
+    assert not list(tmp_path.glob("*.r1*")) and not (tmp_path / "r1months.txt").exists()
+    assert per == {"2026-01": 1, "2026-02": 1, "2026-03": 1}
+    assert (tmp_path / "L-2026-02.cells").read_text(encoding="utf-8") == LINE + "\n"
+
+
+def test_postload_r1_and_engine_in_one_run(tmp_path):
+    import json, postload
+    run = tmp_path / "L-1"
+    (run / "psim").mkdir(parents=True)
+    (run / "r1" / "ps").mkdir(parents=True)
+    (run / "run.json").write_text(json.dumps({"id": "L-1", "new_hm": {"bbbb": ["2026-02"], "cccc": ["2026-02"], "dddd": ["2026-02"]}}), encoding="utf-8")
+    (run / "psim" / "psim-p14f1.done").write_text("")
+    (run / "r1" / "psim-r1.done").write_text("")
+    for cap in (0, 3):
+        (run / "psim" / f"closes-p14f1-cap{cap}-2026-02.json").write_text(
+            json.dumps({"t-bid-btc4h-q1@chase-pct2-tr1x1-14400-ttl1800": {"2026-02": {str(cap): [[1, 2.5]]}}}), encoding="utf-8")
+        (run / "r1" / "ps" / f"closes-cap{cap}-feb.json").write_text(   # psim R1: ключ = хеш клетки, B1 — база, пропускается; у dddd сделок нет
+            json.dumps({"B1": {"2026-02": {str(cap): [[1, 9.0]]}}, "cccc": {"2026-02": {str(cap): [[1, 4.0], [2, -1.5]]}}}), encoding="utf-8")
+    doc = {**R1DOC, "lines": {"bbbb": LINE}, "routes": {"bbbb": "cells", "cccc": "r1", "dddd": "r1x"}}
+    assert postload.main([str(run)], doc) == 0
+    rows = {r["cell_id"]: r for r in map(json.loads, open(run / "overlay.jsonl", encoding="utf-8"))}
+    assert set(rows) == {"bbbb", "cccc", "dddd"} and rows["bbbb"]["pnl_usd"] == 2.5 and rows["bbbb"]["ext"]["cell_line"] == LINE
+    assert rows["cccc"]["trades"] == 2 and rows["cccc"]["pnl_usd"] == 2.5 and rows["cccc"]["ext"]["route"] == "r1"
+    assert rows["dddd"]["trades"] == 0 and rows["dddd"]["ext"]["empty"] and rows["dddd"]["ext"]["route"] == "r1x"
+    assert launch.overlay_have({"run_dir": str(tmp_path)})["cccc"] == {"2026-02"}
+
+
+def test_postload_r1_not_done_is_error(tmp_path):
+    import json, postload
+    run = tmp_path / "L-1"
+    (run / "r1").mkdir(parents=True)
+    (run / "run.json").write_text(json.dumps({"id": "L-1", "new_hm": {"cccc": ["2026-02"]}}), encoding="utf-8")
+    (run / "r1" / "r1-fail.txt").write_text("psim feb\n", encoding="utf-8")
+    assert postload.main([str(run)], R1DOC) == 1 and "psim feb" in (run / "postload.log").read_text(encoding="utf-8")
+
+
+def test_routes_file_r1spec_matches_plan_and_counts():
+    """Охрана TK-249: хеш в r1spec = хеш клетки плана с теми же колонкой и keep_q; r1 — все со знаком, r1x — 270 готовых клеток tk202."""
+    import collections
+    doc = launch.json.load(open(launch.ROUTES_FILE, encoding="utf-8"))
+    rows = {r["hash"]: r for r in launch.plan_rows()}
+    assert set(doc["r1spec"]) == {h for h, r in doc["routes"].items() if r == "r1"}
+    for h, (hyp, col, sign, kq, ctx_axis, ctx_q) in doc["r1spec"].items():
+        a = rows[h]
+        assert (a["hyp"], a["axes"]["col"], str(a["axes"]["keep_q"])) == (hyp, col, kq) and sign in ("hi", "lo") and not ctx_axis and not ctx_q
+    cnt = collections.Counter(doc["routes"].values())
+    assert cnt["r1x"] == 270 and cnt["r1"] == 279 and cnt["r1comp"] == 27 and "r1col" not in cnt

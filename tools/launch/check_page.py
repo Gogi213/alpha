@@ -78,25 +78,25 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     check(f"[{tag}] поиск сужает список", len(pg.query_selector_all(".hrow")) < n_hyp)
     pg.fill("#q", "")
     pg.keyboard.press("Escape")
-    # гипотеза целиком вне формы (Г-28: клетки R1 есть, $ нет): отдельное состояние с причиной, а не «не считали» и не «Всё уже посчитано»
+    # гипотеза целиком вне формы (Г-147: нет кодировки клетки; TK-251: Г-147 (R1X) теперь «к счёту»): отдельное состояние с причиной, а не «не считали» и не «Всё уже посчитано»
     for pid in pg.eval_on_selector_all(".hrow.pin", "e=>e.map(x=>x.dataset.h)"):
         pg.click(f"[data-pin='{pid}']")
-    pg.click(".hrow[data-h='Г-28']")
-    row = pg.query_selector("#mx [data-row='Г-28']")
-    cls = [c.get_attribute("class") for c in pg.query_selector_all("#mx tr:has([data-row='Г-28']) .cell")]
-    check(f"[{tag}] Г-28 вне формы: в списке «вне», в матрице все клетки «вне»", pg.inner_text(".hrow[data-h='Г-28'] .hn") == "вне" and row and cls and all(" o" in " " + c for c in cls) and "0/" not in pg.inner_text("#mx tr:has([data-row='Г-28'])"), f"{len(cls)} клеток")
-    check(f"[{tag}] Г-28: причина словами в легенде, карточке и подсказке", "вне формы" in pg.inner_text(".legend") and "клетки R1 есть, $ нет" in pg.inner_text("#axes") and "клетки R1 есть, $ нет" in pg.get_attribute("#mx tr:has([data-row='Г-28']) .cell", "title"))
-    pg.click("#mx tr:has([data-row='Г-28']) .cell >> nth=0")
-    check(f"[{tag}] Г-28: клик по клетке — причина, не выбор", "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-28']) .cell.sel") is None, pg.inner_text("#toast"))
+    pg.click(".hrow[data-h='Г-147']")
+    row = pg.query_selector("#mx [data-row='Г-147']")
+    cls = [c.get_attribute("class") for c in pg.query_selector_all("#mx tr:has([data-row='Г-147']) .cell")]
+    check(f"[{tag}] Г-147 вне формы: в списке «вне», в матрице все клетки «вне»", pg.inner_text(".hrow[data-h='Г-147'] .hn") == "вне" and row and cls and all(" o" in " " + c for c in cls) and "0/" not in pg.inner_text("#mx tr:has([data-row='Г-147'])"), f"{len(cls)} клеток")
+    check(f"[{tag}] Г-147: причина словами в легенде, карточке и подсказке", "вне формы" in pg.inner_text(".legend") and "нет кодировки" in pg.inner_text("#axes") and "нет кодировки" in pg.get_attribute("#mx tr:has([data-row='Г-147']) .cell", "title"))
+    pg.click("#mx tr:has([data-row='Г-147']) .cell >> nth=0")
+    check(f"[{tag}] Г-147: клик по клетке — причина, не выбор", "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-147']) .cell.sel") is None, pg.inner_text("#toast"))
     pg.click("#allmiss")
     go = pg.inner_text("#go")
-    check(f"[{tag}] Г-28: кнопка называет причину, а не «Всё уже посчитано»", pg.inner_text("#bigN") == "0" and "Всё уже посчитано" not in go and "клетки R1 есть, $ нет" in go and pg.is_disabled("#go"), go)
+    check(f"[{tag}] Г-147: кнопка называет причину, а не «Всё уже посчитано»", pg.inner_text("#bigN") == "0" and "Всё уже посчитано" not in go and "нет кодировки" in go and pg.is_disabled("#go"), go)
     if shot_dir:
         pg.screenshot(path=os.path.join(shot_dir, f"{tag}-vne-formy.png"))
     pg.click("#noneSel")
-    pg.click("[data-pin='Г-28']")
-    # TK-247: клетка частично «вне формы» — зелёная «✓ +N вне», жёлтая только пока форма-считаемое не досчитано
-    for pid in ("Г-39", "Г-35", "Г-117"):
+    pg.click("[data-pin='Г-147']")
+    # TK-247: клетка частично «вне формы» (Г-117: R2-B и OUTSIDE) — зелёная «✓ +N вне»; TK-251: Г-39/Г-35 крайние q 5/10/90/95 теперь «к счёту» (маршрут r1), а не «вне формы»
+    for pid in ("Г-117",):
         pg.click(f".hrow[data-h='{pid}']")
         cells = pg.query_selector_all(f"#mx tr:has([data-row='{pid}']) .cell")
         cl = [c.get_attribute("class") for c in cells]
@@ -104,15 +104,18 @@ def scenario(b, url, tag, size, scheme, shot_dir):
         check(f"[{tag}] {pid}: все клетки зелёные «✓ +N вне», жёлтых нет", cells and all(" f" in " " + c for c in cl) and all(t.startswith("✓") and "вне" in t for t in tx), f"{len(cells)} клеток, {tx[:1]}")
         check(f"[{tag}] {pid}: в списке «9/9» зелёным, подсказка — «вне формы»", pg.inner_text(f".hrow[data-h='{pid}'] .hn") == "9/9" and "hn f" in pg.get_attribute(f".hrow[data-h='{pid}'] .hn", "class") and "вне формы" in cells[0].get_attribute("title"), pg.get_attribute(f".hrow[data-h='{pid}'] .hn", "class"))
     for pid in ("Г-39", "Г-35"):
-        ttl = pg.get_attribute(f"#mx tr:has([data-row='{pid}']) .cell >> nth=0", "title")
-        check(f"[{tag}] {pid}: подпись «вне формы» — «не считали — данных нет», не «посчитано»", "не считали — данных нет" in ttl and "посчитано вне Летописи" not in ttl, ttl)
-    pg.click("#mx tr:has([data-row='Г-39']) .cell >> nth=0")
-    check(f"[{tag}] Г-39: клик по зелёной клетке — «всё посчитано · +N вне формы», не выбор", "всё посчитано" in pg.inner_text("#toast") and "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-39']) .cell.sel") is None, pg.inner_text("#toast"))
+        pg.click(f".hrow[data-h='{pid}']")
+        tx = [c.inner_text().strip() for c in pg.query_selector_all(f"#mx tr:has([data-row='{pid}']) .cell")]
+        check(f"[{tag}] {pid}: крайние q 5/10/90/95 — «к счёту» (в каждом месяце посчитано 5 из 9 хешей), не «вне формы»", tx == ["5/9"] * 9, str(tx))
+    pg.click("#mx tr:has([data-row='Г-117']) .cell >> nth=0")
+    check(f"[{tag}] Г-117: клик по зелёной клетке — «всё посчитано · +N вне формы», не выбор", "всё посчитано" in pg.inner_text("#toast") and "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-117']) .cell.sel") is None, pg.inner_text("#toast"))
     pg.click("#allmiss")
     go = pg.inner_text("#go")
-    check(f"[{tag}] Г-39/Г-35/Г-117: считать нечего — «Всё уже посчитано», не «Вне формы»", pg.inner_text("#bigN") == "0" and "Всё уже посчитано" in go and pg.is_disabled("#go"), go)
+    want = launch.plan(["Г-39", "Г-35"], launch.load_config()["months"])["hm_new"]
+    check(f"[{tag}] Г-39/Г-35/Г-117: к счёту 4 крайних q × 9 мес. у двух гипотез = 72 (форма умеет считать R1), кнопка активна", want == 72 and pg.inner_text("#bigN") == "72" and "Всё уже посчитано" not in go and not pg.is_disabled("#go"), f"{pg.inner_text('#bigN')} · {go}")
     if shot_dir:
         pg.screenshot(path=os.path.join(shot_dir, f"{tag}-chast-vne-formy.png"))
+    pg.click("#noneSel")
     # инвариант по всем гипотезам: жёлтая клетка — только если форма-считаемое осталось; «вне» — только если посчитанного нет
     while pg.query_selector("[data-gall]:text-is('добавить все')"):   # список перерисовывается после клика — кнопку берём заново
         pg.click("[data-gall]:text-is('добавить все') >> nth=0")
