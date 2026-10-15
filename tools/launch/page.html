@@ -1,12 +1,9 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Запуск бэктеста</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 /* Данные — API формы (launch.py); раскладка и вид — макет v4 (В-8). Слева рейка семейств + список; в центре матрица гипотеза × месяц; справа чек запуска с кнопкой внизу. Нативных чекбоксов нет.
    Клетка = гипотеза × месяц: зелёный посчитано, жёлтый частично, пусто не считали, синий контур к счёту. */
-:root{--bg:#0e1116;--surface:#151a21;--surface2:#1b212a;--line:#28303b;--text:#e7eaf0;--muted:#8d98a8;--accent:#5b9cff;--accent-bg:rgba(91,156,255,.16);--ok:#2fa874;--ok-bg:rgba(47,168,116,.2);--warn:#d6a13a;--warn-bg:rgba(214,161,58,.2);--bad:#e5534b;--bad-bg:rgba(229,83,75,.2);--font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;color-scheme:dark}
+:root{--bg:#0e1116;--surface:#151a21;--surface2:#1b212a;--line:#28303b;--text:#e7eaf0;--muted:#8d98a8;--accent:#5b9cff;--accent-bg:rgba(91,156,255,.16);--ok:#2fa874;--ok-bg:rgba(47,168,116,.2);--warn:#d6a13a;--warn-bg:rgba(214,161,58,.2);--bad:#e5534b;--bad-bg:rgba(229,83,75,.2);--font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',monospace;color-scheme:dark}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f3f5f8;--surface:#ffffff;--surface2:#eef1f5;--line:#d9dee6;--text:#1a2029;--muted:#5d6877;--accent:#2468d8;--accent-bg:rgba(36,104,216,.12);--ok:#1c8a5a;--ok-bg:rgba(28,138,90,.15);--warn:#a87412;--warn-bg:rgba(168,116,18,.16);--bad:#c23a33;--bad-bg:rgba(194,58,51,.14);color-scheme:light}}
 :root[data-theme="light"]{--bg:#f3f5f8;--surface:#ffffff;--surface2:#eef1f5;--line:#d9dee6;--text:#1a2029;--muted:#5d6877;--accent:#2468d8;--accent-bg:rgba(36,104,216,.12);--ok:#1c8a5a;--ok-bg:rgba(28,138,90,.15);--warn:#a87412;--warn-bg:rgba(168,116,18,.16);--bad:#c23a33;--bad-bg:rgba(194,58,51,.14);color-scheme:light}
 html,body{height:100%}
@@ -376,8 +373,8 @@ function rLet(){var qq=el('lq').value.toLowerCase();
  el('linc').classList.toggle('on',linc);
  var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')};
  var rows=LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdOf(x)===lvd)&&(!linc||inc(x))});
- el('lcnt').textContent=rows.length+' из '+LR.length+(rows.length>300?' · показаны первые 300':'')+' · Шарп, винрейт, перехай — cap 0 по поштучным closes, есть у '+LMN+' из '+LR.length+', «—» = closes нет или не сошлись с Σ $';
- el('lt').innerHTML='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Шарп</th><th>Винрейт</th><th>Перехай, дн</th><th>Сделок</th><th>Вердикт</th><th></th></tr>'+rows.slice(0,300).map(function(x){
+ el('lcnt').textContent=rows.length+' из '+LR.length+' · Шарп, винрейт, перехай — cap 0 по поштучным closes, есть у '+LMN+' из '+LR.length+', «—» = closes нет или не сошлись с Σ $';
+ el('lt').innerHTML='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Шарп</th><th>Винрейт</th><th>Перехай, дн</th><th>Сделок</th><th>Вердикт</th><th></th></tr>'+rows.map(function(x){
   var vd=vdOf(x),cls=vd==='годна'?'g':vd==='граничное'||vd==='плато'?'b':vd==='нет'?'x':'z',mo='font-family:var(--mono)';
   return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td><td colspan="'+MON.length+'" style="padding:4px 10px">'+x.pnl.map(pnlCell).join('')+'</td><td style="'+mo+'">'+Math.round(x.sum)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+x.trades+'</td><td><span class="vd '+cls+'">'+vd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+LR.indexOf(x)+'">Досчитать →</button>':'')+'</td></tr>'}).join('')}
 function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-prn').setAttribute('aria-selected',t==='prn');prnTimer(t==='prn');if(t==='let')loadLet();if(t==='prn')loadPrn()}

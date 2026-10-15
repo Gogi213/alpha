@@ -108,3 +108,32 @@ def test_page_uses_relative_api_paths_and_token_not_logged():
     src = open(os.path.join(LAUNCH, "page.html"), encoding="utf-8").read()
     assert "'/api/" not in src and '"/api/' not in src
     assert "def log_message(self, *a):\n        pass" in open(os.path.join(LAUNCH, "server.py"), encoding="utf-8").read()
+
+
+def test_page_has_no_external_resources():
+    """Приказ владельца 15.10: ни шрифтов Google, ни CDN — только свой origin."""
+    html = open(os.path.join(LAUNCH, "page.html"), encoding="utf-8").read()
+    assert not re.search(r"https?://|@import|<link[^>]+href=|<script[^>]+src=", html), "внешний ресурс в page.html"
+
+
+def test_cached_responses_gzip_etag_304_and_keepalive():
+    """cov/letopis/meta отдаются готовыми байтами: gzip по Accept-Encoding, ETag → 304 без тела, повтор — из кэша."""
+    import http.client, gzip
+    s = _srv()
+    port = s.server_address[1]
+    try:
+        c = http.client.HTTPConnection("127.0.0.1", port)
+        c.request("GET", "/api/cov", headers={"Accept-Encoding": "gzip"})
+        r = c.getresponse()
+        raw = r.read()
+        assert r.status == 200 and r.getheader("Content-Encoding") == "gzip" and r.getheader("Cache-Control") == "no-cache"
+        etag = r.getheader("ETag")
+        assert etag and json.loads(gzip.decompress(raw))["cov"]
+        c.request("GET", "/api/cov", headers={"Accept-Encoding": "gzip", "If-None-Match": etag})   # то же соединение (keep-alive)
+        r2 = c.getresponse()
+        assert r2.status == 304 and r2.read() == b""
+        c.request("GET", "/api/cov")   # без gzip — тот же JSON
+        r3 = c.getresponse()
+        assert r3.getheader("Content-Encoding") is None and r3.getheader("ETag") == etag and json.loads(r3.read())["cov"]
+    finally:
+        s.shutdown()

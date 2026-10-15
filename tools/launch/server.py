@@ -6,7 +6,7 @@
 значения только из белых списков (launch.validate), команда собирается кодом (launch.queue_cmd), пользовательской строки в shell нет,
 одна постановка за раз (замок), потолок хешей за запуск (config.json). Токен в логи не пишется. Вся логика — launch.py (тот же код у CLI/CEO).
 Нейросетям ничего не уходит (В-6)."""
-import argparse, hmac, http.server, json, os, sys, threading, urllib.parse
+import argparse, gzip, hashlib, hmac, http.server, json, os, sys, threading, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -15,18 +15,48 @@ import launch
 HOST = "127.0.0.1"
 MAX_BODY = 1 << 20
 _cache = {}
+_cache_lock = threading.Lock()
 _submit_lock = threading.Lock()
 
 
+def _stamp():
+    """Штамп входов тяжёлых ответов: mtime снимка Летописи, оверлея прогонов (run.json/overlay.jsonl каждого прогона), запросов формы.
+    Только stat файлов формы (десятки), без обходов /data."""
+    cfg = launch.load_config()
+    st = []
+    for p in (os.path.join(launch.REG, n) for n in ("results.jsonl", "sieve.jsonl", "metrics.jsonl")):
+        try:
+            st.append(os.stat(p).st_mtime_ns)
+        except OSError:
+            st.append(0)
+    for d in (cfg["run_dir"], cfg["request_dir"]):
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        st.append(hash(tuple(names)))
+        if d == cfg["run_dir"]:
+            for n in names:
+                for f in ("overlay.jsonl", "run.json"):
+                    try:
+                        st.append(os.stat(os.path.join(d, n, f)).st_mtime_ns)
+                    except OSError:
+                        pass
+    return tuple(st)
+
+
 def cached(key, fn):
-    """meta тяжёлая; сбрасывается при смене results.jsonl (rsync снимка Летописи)."""
-    try:
-        stamp = os.stat(os.path.join(launch.REG, "results.jsonl")).st_mtime_ns
-    except OSError:
-        stamp = 0
-    if _cache.get(key, (None,))[0] != stamp:
-        _cache[key] = (stamp, fn())
-    return _cache[key][1]
+    """Готовые байты ответа (JSON + gzip + ETag) по штампу входов: повторный запрос — без пересчёта."""
+    stamp = _stamp()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and hit[0] == stamp:
+            return hit[1]
+    data = json.dumps(fn(), ensure_ascii=False).encode("utf-8")
+    ent = (data, gzip.compress(data, 5), '"' + hashlib.md5(data).hexdigest() + '"')
+    with _cache_lock:
+        _cache[key] = (stamp, ent)
+    return ent
 
 
 def read_token(path):
@@ -37,6 +67,7 @@ def read_token(path):
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"   # keep-alive: страница берёт meta/cov/letopis/runs по одному соединению
     token = None   # None — режим разработки (корень без префикса)
 
     def _route(self):
@@ -51,11 +82,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return path, {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
-        data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        ent = body if isinstance(body, tuple) else None   # (байты, gzip, etag) из cached()
+        data = ent[0] if ent else body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        etag = ent[2] if ent else None
+        if etag and self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        gz = None
+        if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            gz = ent[1] if ent else gzip.compress(data, 5) if len(data) > 10_000 else None
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if gz is not None:
+            data = gz
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "no-cache" if etag else "no-store")
+        if etag:
+            self.send_header("ETag", etag)
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(data)
@@ -80,9 +129,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/meta":
                 return self._send(200, cached("meta", launch.meta))
             if path == "/api/cov":
-                return self._send(200, {"months": launch.load_config()["months"], "cov": launch.coverage(), "off": launch.OFF_LABELS})
+                return self._send(200, cached("cov", lambda: {"months": launch.load_config()["months"], "cov": launch.coverage(), "off": launch.OFF_LABELS}))
             if path == "/api/letopis":
-                return self._send(200, launch.letopis(q.get("hyp"), q.get("month"), q.get("status")))
+                return self._send(200, cached(("letopis", q.get("hyp"), q.get("month"), q.get("status")),
+                                              lambda: launch.letopis(q.get("hyp"), q.get("month"), q.get("status"))))
             if path == "/api/status":
                 try:
                     st = launch.status()
