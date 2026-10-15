@@ -31,9 +31,11 @@ months = [f"2026-{m:02d}" for m in range(1, 10)]
 cells_have = {d["id"] for d in db.jl("cells.jsonl")}
 rc_have = {(d["run_id"], d["cell_id"]) for d in db.jl("run_cells.jsonl")}
 r_have = {(d["run_id"], d["cell_id"], d["month"]) for d in db.jl("results.jsonl")}
-cells_new, rc_new, res_new, nomonth, nozero = [], [], [], [], []
+cells_new, rc_new, res_new, nomonth, nozero, nocode = [], [], [], [], [], []
 for h, (hyp, cfg) in sorted(cfgs.items(), key=lambda x: (x[1][0], x[0])):
     assert ch.cell_hash(cfg) == h
+    if h not in master.MONTHLY and master.LINES[h][0] is None:   # строки --cells нет (Г-147 touch — отдельный заход): не считалась, не пишем
+        nocode.append(h); continue
     for m in months:
         if h in master.MONTHLY:
             ln = master.MONTHLY[h].get(m)
@@ -61,7 +63,7 @@ for h, (hyp, cfg) in sorted(cfgs.items(), key=lambda x: (x[1][0], x[0])):
                           "params": {"group": "f1", "source": "closes portfolio-sim v171c, drop TRUMP/TRX/BCH", "cfg_json": json.dumps(cfg, sort_keys=True, ensure_ascii=False)}})
     if (ns.run, h) not in rc_have:
         rc_new.append({"run_id": ns.run, "cell_id": h, "hyp_id": hyp})
-print("клеток", len(cells_new), "run_cells", len(rc_new), "результатов", len(res_new), "без месячной строки", len(nomonth), "пустых (0 сделок)", len(nozero), "хешей, пустых во всех месяцах", len({h for h, _ in nozero if all((h, mm) in set(nozero) for mm in months if (h not in master.MONTHLY or mm in master.MONTHLY[h]))}))
+print("без строки --cells (не записаны)", len(nocode), nocode, "|", "клеток", len(cells_new), "run_cells", len(rc_new), "результатов", len(res_new), "без месячной строки", len(nomonth), "пустых (0 сделок)", len(nozero), "хешей, пустых во всех месяцах", len({h for h, _ in nozero if all((h, mm) in set(nozero) for mm in months if (h not in master.MONTHLY or mm in master.MONTHLY[h]))}))
 if not ns.dry:
     for fn, rows in (("cells.jsonl", cells_new), ("run_cells.jsonl", rc_new), ("results.jsonl", res_new)):
         with open(os.path.join(db.REGD, fn), "a", encoding="utf-8", newline="\n") as f:
