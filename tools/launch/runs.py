@@ -79,10 +79,33 @@ def days_progress(run):
     return done, total, first
 
 
+MON3 = "jan feb mar apr may jun jul aug sep".split()
+
+
+def _plan_months(run, name):
+    """Месяцы из <run>/plan/<name> (months.txt — сутки движка, r1months.txt — R1, TK-251); None — файла нет (запуск до TK-251)."""
+    try:
+        with open(os.path.join(run, "plan", name), encoding="utf-8") as f:
+            return {ln.strip() for ln in f if ln.strip()}
+    except OSError:
+        return None
+
+
+def _engine_needed(run):
+    """Нужны ли psim движка (<run>/psim): нет, если запуск только из R1 (r1months.txt есть, months.txt пуст) — R1 считает r1-launch.sh в <run>/r1."""
+    return not (_plan_months(run, "r1months.txt") and _plan_months(run, "months.txt") == set())
+
+
 def psim_progress(run, months):
-    """(месяцев psim готово, всего): месяц готов, когда есть closes и cap 0, и cap 3."""
-    done = sum(1 for m in months if all(os.path.exists(os.path.join(run, "psim", f"closes-p14f1-cap{c}-{m}.json")) for c in (0, 3)))
-    return done, len(months)
+    """(месяцев psim готово, всего): месяц готов, когда есть closes и cap 0, и cap 3 — движка (psim/), а для месяцев R1 — ещё и R1 (r1/ps/)."""
+    r1m, em = _plan_months(run, "r1months.txt") or set(), _plan_months(run, "months.txt")
+
+    def ok(m):
+        need_eng, need_r1 = not (m in r1m and em is not None and m not in em), m in r1m
+        have_eng = all(os.path.exists(os.path.join(run, "psim", f"closes-p14f1-cap{c}-{m}.json")) for c in (0, 3))
+        have_r1 = all(os.path.exists(os.path.join(run, "r1", "ps", f"closes-cap{c}-{MON3[int(m[5:7]) - 1]}.json")) for c in (0, 3))
+        return (have_eng or not need_eng) and (have_r1 or not need_r1)
+    return sum(1 for m in months if ok(m)), len(months)
 
 
 def percent(days, psim, finished):
@@ -120,10 +143,15 @@ def _ts(s):
 def finish_info(run, meta, now):
     """Для посчитанных: (t0 'ЧЧ:ММ' постановки, длительность мин, 'считано [дд.мм ]ЧЧ:ММ'). Конец — mtime psim-p14f1.done, начало — ts заявки (run.json)."""
     t0 = _ts(meta.get("ts"))
-    try:
-        fin = os.stat(os.path.join(run, "psim", "psim-p14f1.done")).st_mtime
-    except OSError:
+    marks = []
+    for mk in (("psim", "psim-p14f1.done"), ("r1", "psim-r1.done")):   # конец = последний из маркеров движка и R1
+        try:
+            marks.append(os.stat(os.path.join(run, *mk)).st_mtime)
+        except OSError:
+            pass
+    if not marks:
         return (hhmm(t0) if t0 else None), None, None
+    fin = max(marks)
     day = datetime.datetime.fromtimestamp(fin, TZ)
     when = ("" if day.date() == datetime.datetime.fromtimestamp(now, TZ).date() else day.strftime("%d.%m ")) + day.strftime("%H:%M")
     return (hhmm(t0) if t0 else None), (max(0, round((fin - t0) / 60)) if t0 else None), "считано " + when
@@ -143,7 +171,8 @@ def run_record(run, run_id, now, ps_job=None, request=None, in_canon=None, est_s
            "t0": hhmm(_ts(meta.get("ts"))) if _ts(meta.get("ts")) else None, "dur_min": None, "left_min": None, "end": None, "src": None}
     if res is not None and not res.get("ok"):
         return rec | {"s": "fail", "why": res.get("why") or "отказ root-юнита", "pct": 0}
-    overlay = os.path.exists(os.path.join(run, "overlay.jsonl")) and os.path.exists(os.path.join(run, "psim", "psim-p14f1.done"))
+    overlay = (os.path.exists(os.path.join(run, "overlay.jsonl")) and (not _engine_needed(run) or os.path.exists(os.path.join(run, "psim", "psim-p14f1.done")))
+               and (not _plan_months(run, "r1months.txt") or os.path.exists(os.path.join(run, "r1", "psim-r1.done"))))
     if overlay:
         t0, dur, fin = finish_info(run, meta, now)
         return rec | {"s": "done" if in_canon else "wait", "pct": 100, "left_min": 0, "t0": t0, "dur_min": dur, "end": fin}
@@ -175,7 +204,15 @@ def run_metrics(run):
         return {}
     closes, per = {}, {}
     for r in rows:
-        ln = (r.get("ext") or {}).get("cell_line")
+        ext = r.get("ext") or {}
+        if ext.get("route") in ("r1", "r1x"):   # TK-251: R1 — closes r1/ps/closes-cap0-<jan…sep>.json, ключ варианта = хеш клетки
+            m = r["month"]
+            key = ("r1", m)
+            if key not in closes:
+                closes[key] = _json(os.path.join(run, "r1", "ps", f"closes-cap0-{MON3[int(m[5:7]) - 1]}.json")) or {}
+            per.setdefault(r["cell_id"], {})[m] = closes[key].get(r["cell_id"], {}).get(m, {}).get("0", [])
+            continue
+        ln = ext.get("cell_line")
         if not ln:
             continue
         form, _, st = ln.partition(" ")   # как postload.build: вариант closes = «состояние@форма»

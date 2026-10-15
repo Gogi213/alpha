@@ -19,8 +19,7 @@ assert a in s
 s = s.replace(a, a + "        if cell not in os.environ['R1KEEP'].split(','):\n            continue\n")
 open(sys.argv[2] + "/ps.py", "w", encoding="utf-8").write(s)
 PY
-mons=(jan feb mar apr may jun jul aug sep)
-one() { ym=$1; mon=${mons[10#${ym:5:2}-1]}; mkdir -p "$O/cells/$mon"
+one() { ym=$1; mons=(jan feb mar apr may jun jul aug sep); mon=${mons[10#${ym:5:2}-1]}; mkdir -p "$O/cells/$mon"
   if [ "$(wc -l < "$P/L-$ym.r1spec" 2>/dev/null || echo 0)" -gt 1 ]; then
     python3 "$R1CELL" apply --spec "$P/L-$ym.r1spec" --pool "$POOL" --out "$O/apply-$mon" --months "$mon" > "$O/apply-$mon.log" 2>&1 \
       && cp "$O"/apply-$mon/cells/$mon/*.csv "$O/cells/$mon/" || { echo "apply $mon" >> "$O/r1-fail.txt"; return; }
@@ -30,7 +29,7 @@ one() { ym=$1; mon=${mons[10#${ym:5:2}-1]}; mkdir -p "$O/cells/$mon"
   done < "$P/L-$ym.r1x"
   R1KEEP=$(ls "$O/cells/$mon" | sed 's/\.csv$//' | paste -sd,) python3 "$O/ps.py" "$mon" > "$O/ps/run-$mon.log" 2>&1 || echo "psim $mon" >> "$O/r1-fail.txt"
   [ -e "$O/ps/psim-$mon.done" ] && [ ! -e "$O/ps/fail-$mon.txt" ] || echo "psim $mon не дошёл" >> "$O/r1-fail.txt"; }
-export -f one; export O P R1CELL POOL X mons
+export -f one; export O P R1CELL POOL X   # массив mons не экспортируется в xargs-ребёнка — задан внутри one()
 xargs -P "$PM" -I{} bash -c 'one {}' < "$P/r1months.txt"
 [ -s r1-fail.txt ] && exit 5
 touch psim-r1.done
