@@ -33,6 +33,7 @@ pass() {
   bin=${BIN:-/opt/alpha-compute/bin/alpha-tk231-pgo}
   case $lab in B*) [ -n "${BIN_B:-}" ] && bin=$BIN_B;; esac
   export BIN=$bin SCRIPTS=$S NX=${NX:-12}
+  [ "${E2E:-0}" = 1 ] && { mkdir -p "$R/e2e"; export ALPHA_E2E=$R/e2e/all.jsonl; }  # E2E=1: учёт стадий монето-суток (TK-052), отчёт — tools/compute/archive/e2e-report.py $R/e2e
   [ "${DROP:-1}" = 1 ] && { sync; echo 3 > /proc/sys/vm/drop_caches; }
   ( while :; do echo "$(date +%s) $(pgrep -fc 'lob bounce-grid') $(head -1 /proc/stat)" >> "$R/samples.txt"; sleep 5; done ) & SP=$!
   snap "$R/s0.txt"; t0=$(date +%s.%N)
