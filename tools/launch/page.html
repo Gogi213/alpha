@@ -387,7 +387,8 @@ function rLet(){var qq=el('lq').value.toLowerCase();
  el('lt').innerHTML='<thead>'+th+'</thead><tbody id="ltb">'+rows.slice(0,N0).map(row).join('')+'</tbody>';
  requestAnimationFrame(function(){setTimeout(function(){if(gen!==lgen||rows.length<=N0)return;el('ltb').insertAdjacentHTML('beforeend',rows.slice(N0).map(row).join(''))},0)})}   // остальные строки — одной порцией после отрисовки первых (вставка порциями заново верстает таблицу каждый раз: 830 мс против 150)
 function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-prn').setAttribute('aria-selected',t==='prn');prnTimer(t==='prn');if(t==='let')loadLet();if(t==='prn')loadPrn()}
-function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';api('api/letopis').then(function(d){LR=d.rows;LR.forEach(function(r,i){r._i=i});LMN=d.metrics_n||0;LNH=d.nhash||0;lrLoaded=true;
+var LPRE=null;function preLet(){if(!LPRE)LPRE=api('api/letopis')}   // данные Летописи подгружаются в простое после старта: клик строит DOM без сети (RTT ≈ 70 мс + 61 КБ)
+function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';var pr=LPRE||api('api/letopis');LPRE=null;pr.then(function(d){LR=d.rows;LR.forEach(function(r,i){r._i=i});LMN=d.metrics_n||0;LNH=d.nhash||0;lrLoaded=true;
  var a=[];LR.forEach(function(r){r.pnl.forEach(function(v){if(v!==null)a.push(Math.abs(v))})});a.sort(function(x,y){return x-y});SC=a.length?(a[Math.floor(a.length*.9)]||1):1;rLet()})}
 var PV=null,pflt='',popen={},pTimer=null,PST={run:'идёт',queue:'в очереди',wait:'ждёт Летопись',done:'в Летописи',fail:'отказ'};
 function pFmt(v,k){if(v===null||v===undefined)return '—';return k==='pnl'?(v>0?'+':'')+Math.round(v):k==='sh'?v.toFixed(2):k==='wr'?Math.round(v*100)+' %':v.toFixed(1)}
@@ -481,7 +482,7 @@ function live(){if(!window.EventSource){setInterval(loadStatus,60000);setInterva
  es.onmessage=function(m){var k=[];try{k=JSON.parse(m.data).keys||[]}catch(e){}
   if(k.indexOf('status')>=0)loadStatus();if(k.indexOf('runs')>=0)loadPrn();
   if(k.indexOf('meta')>=0||k.indexOf('cov')>=0)refresh(true);
-  else if(k.indexOf('letopis')>=0){lrLoaded=false;if(!el('v-let').hidden)loadLet()}}}
-refresh().then(function(){loadPrn();live()}).catch(function(e){el('hlist').innerHTML='<div class="empty">Не загрузилось: '+esc(e)+'</div>'});
+  else if(k.indexOf('letopis')>=0){lrLoaded=false;LPRE=null;if(!el('v-let').hidden)loadLet();else preLet()}}}
+refresh().then(function(){loadPrn();live();setTimeout(preLet,300)}).catch(function(e){el('hlist').innerHTML='<div class="empty">Не загрузилось: '+esc(e)+'</div>'});
 })();
 </script>
