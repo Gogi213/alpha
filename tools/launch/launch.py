@@ -463,6 +463,7 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
             byhash[row[1]][m] = v
     for r in overlay_rows(cfg):
         byhash[r["cell_id"]][r["month"]] = (r.get("pnl_usd"), r.get("trades"), r.get("max_dd"))
+    mets = hash_metrics_file()
     sieve = {}
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
@@ -483,10 +484,34 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         st = "full" if full else "part" if any(sq) else "none"
         if status and status != st and status != verdict:
             continue
+        mt = checked_metrics(mets.get(r["hash"]), got)
         out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict, "pnl": pn,
                     "sum": round(sum(x for x in pn if x is not None), 2), "trades": sum(v[1] or 0 for v in got.values()),
-                    "max_dd": max([v[2] for v in got.values() if v[2] is not None], default=None)})
-    return {"months": months, "rows": out}
+                    "sharpe": mt and mt["sharpe"], "winrate": mt and mt["winrate"], "overhigh_d": mt and mt["overhigh_d"],
+                    "tail_d": mt and mt["tail_d"], "worst_d": mt and mt["worst_d"]})
+    return {"months": months, "rows": out, "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None)}
+
+
+def hash_metrics_file():
+    """metrics.jsonl снимка Летописи (build_metrics.py на calc): {хеш: метрики}; файла нет — {} (на странице прочерки)."""
+    try:
+        with open(os.path.join(REG, "metrics.jsonl"), encoding="utf-8") as f:
+            return {d["hash"]: d for d in map(json.loads, filter(str.strip, f))}
+    except OSError:
+        return {}
+
+
+def checked_metrics(mt, got):
+    """Метрики хеша — только если closes покрывают ровно месяцы с $ в Летописи и Σ$ closes сходится с pnl_usd канона (±0,02 $ за месяц):
+    иначе None (прочерк) — не показываем числа по неполным или расходящимся данным."""
+    if not mt or not mt.get("n"):
+        return None
+    canon = {m: v for m, v in got.items() if v[0] is not None}
+    if set(mt["by_month"]) != set(canon):
+        return None
+    if any(abs(mt["by_month"][m]["pnl"] - v[0]) > 0.02 for m, v in canon.items()):
+        return None
+    return mt
 
 
 def summary(p):

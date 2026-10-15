@@ -279,7 +279,7 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 <script>
 (function(){
 var MNN=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
-var META,COV,OFFL=[],MON=[],MN=[],H=[],byId={},FAMS=[],STAT={},LR=[],SC=1,lrLoaded=false;
+var META,COV,OFFL=[],MON=[],MN=[],H=[],byId={},FAMS=[],STAT={},LR=[],LMN=0,SC=1,lrLoaded=false;
 var sel={},run={},checked={},sv={},focus='',fam='все',q='',flt='all',lvd='',linc=false,vis=[];
 function el(id){return document.getElementById(id)}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -376,12 +376,12 @@ function rLet(){var qq=el('lq').value.toLowerCase();
  el('linc').classList.toggle('on',linc);
  var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')};
  var rows=LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdOf(x)===lvd)&&(!linc||inc(x))});
- el('lcnt').textContent=rows.length+' из '+LR.length+(rows.length>300?' · показаны первые 300':'');
- el('lt').innerHTML='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Просадка</th><th>Сделок</th><th>Вердикт</th><th></th></tr>'+rows.slice(0,300).map(function(x){
+ el('lcnt').textContent=rows.length+' из '+LR.length+(rows.length>300?' · показаны первые 300':'')+' · Шарп, винрейт, перехай — cap 0 по поштучным closes, есть у '+LMN+' из '+LR.length+', «—» = closes нет или не сошлись с Σ $';
+ el('lt').innerHTML='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Шарп</th><th>Винрейт</th><th>Перехай, дн</th><th>Сделок</th><th>Вердикт</th><th></th></tr>'+rows.slice(0,300).map(function(x){
   var vd=vdOf(x),cls=vd==='годна'?'g':vd==='граничное'||vd==='плато'?'b':vd==='нет'?'x':'z',mo='font-family:var(--mono)';
-  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td><td colspan="'+MON.length+'" style="padding:4px 10px">'+x.pnl.map(pnlCell).join('')+'</td><td style="'+mo+'">'+Math.round(x.sum)+'</td><td style="'+mo+'">'+(x.max_dd===null?'—':Math.round(x.max_dd))+'</td><td style="'+mo+'">'+x.trades+'</td><td><span class="vd '+cls+'">'+vd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+LR.indexOf(x)+'">Досчитать →</button>':'')+'</td></tr>'}).join('')}
+  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td><td colspan="'+MON.length+'" style="padding:4px 10px">'+x.pnl.map(pnlCell).join('')+'</td><td style="'+mo+'">'+Math.round(x.sum)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+x.trades+'</td><td><span class="vd '+cls+'">'+vd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+LR.indexOf(x)+'">Досчитать →</button>':'')+'</td></tr>'}).join('')}
 function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-prn').setAttribute('aria-selected',t==='prn');prnTimer(t==='prn');if(t==='let')loadLet();if(t==='prn')loadPrn()}
-function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';api('api/letopis').then(function(d){LR=d.rows;lrLoaded=true;
+function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';api('api/letopis').then(function(d){LR=d.rows;LMN=d.metrics_n||0;lrLoaded=true;
  var a=[];LR.forEach(function(r){r.pnl.forEach(function(v){if(v!==null)a.push(Math.abs(v))})});a.sort(function(x,y){return x-y});SC=a.length?(a[Math.floor(a.length*.9)]||1):1;rLet()})}
 var PV=null,pflt='',popen={},pTimer=null,PST={run:'идёт',queue:'в очереди',wait:'ждёт Летопись',done:'в Летописи',fail:'отказ'};
 function pFmt(v,k){if(v===null||v===undefined)return '—';return k==='pnl'?(v>0?'+':'')+Math.round(v):k==='sh'?v.toFixed(2):k==='wr'?Math.round(v*100)+' %':v.toFixed(1)}
