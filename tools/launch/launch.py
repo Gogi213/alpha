@@ -678,26 +678,6 @@ def status(cfg=None, run_cmd=subprocess.run):
             "pending": len(pending_requests(cfg))}
 
 
-_canon_runs = {}
-
-
-def canon_run_ids():
-    """run_id строк results Летописи (канон; кэш по mtime снимка): прогон формы «в Летописи», когда CEO перенёс его оверлей (load-results)."""
-    path = os.path.join(REG, "results.jsonl")
-    try:
-        stamp = os.stat(path).st_mtime_ns
-    except OSError:
-        return set()
-    if _canon_runs.get("stamp") != stamp:
-        ids = set()
-        for line in open(path, encoding="utf-8"):
-            i = line.find('"run_id": "')
-            if i >= 0:
-                ids.add(line[i + 11:line.index('"', i + 11)])
-        _canon_runs.update(stamp=stamp, ids=ids)
-    return _canon_runs["ids"]
-
-
 def runs_view(cfg=None, ps_text="", now=None):
     """Вкладка «Прогоны»: запросы (ещё не взяты юнитом) + каталоги <run_dir>/L-*; свежие сверху. ps_text — вывод `alsched ps` (status()["text"])."""
     import metrics, runs
@@ -717,12 +697,21 @@ def runs_view(cfg=None, ps_text="", now=None):
             ids.setdefault(fn[:-5], json.load(open(os.path.join(cfg["request_dir"], fn), encoding="utf-8")))
         except (OSError, ValueError):
             ids.setdefault(fn[:-5], {})
-    canon = canon_run_ids()
+    have = None
     hyp_of = {r["hash"]: r for r in plan_rows(cfg["protocol"], cfg["fraction"])} if ids else {}
     out = []
     for rid in sorted(ids, reverse=True):
         d = posixpath.join(cfg["run_dir"], rid)
-        rec = runs.run_record(d, rid, now, by_name.get(rid), ids[rid], rid in canon, cfg["queue"]["est"])
+        in_canon = None
+        try:   # «в Летописи» = все хеш×месяц оверлея есть в каноне (master.have_hashes); run_id канона задаёт CEO при переносе — по нему не судим
+            pairs = [(r["cell_id"], r["month"]) for r in (json.loads(l) for l in open(os.path.join(d, "overlay.jsonl"), encoding="utf-8") if l.strip())]
+            if have is None:
+                import master
+                have = master.have_hashes()
+            in_canon = bool(pairs) and all(m in have.get(h, ()) for h, m in pairs)
+        except OSError:
+            pass
+        rec = runs.run_record(d, rid, now, by_name.get(rid), ids[rid], in_canon, cfg["queue"]["est"])
         met = runs.run_metrics(d) if rec["s"] in ("wait", "done") else {}
         meta = runs._json(os.path.join(d, "run.json")) or {}
         per_hyp = {}
