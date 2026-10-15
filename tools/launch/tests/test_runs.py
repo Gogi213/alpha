@@ -88,3 +88,39 @@ def test_run_metrics_and_view(tmp_path):
     r = next(x for x in v["runs"] if x["id"] == "L-20261015-000001")
     assert r["s"] == "wait" and r["pct"] == 100 and r["what"][0]["hm"] == 1 and v["cores"] == {"busy": 15, "total": 16}
     assert [f["name"] for f in v["foreign"]] == ["L-20261015-014502", "L-20261015-022210", "tk231-psim"]   # прогонов этих в run_dir нет — для страницы они «чужие»
+
+
+def test_finish_info_and_view_order(tmp_path, monkeypatch):
+    import launch, datetime
+    tz = datetime.timezone(datetime.timedelta(hours=4))
+    d = mk(tmp_path, "L-20261015-000002", psim=("2026-01",), overlay__jsonl=json.dumps({"cell_id": "h1", "month": "2026-01", "ext": {}}) + "\n")
+    t0 = NOW - 400 * 60
+    meta = json.loads((tmp_path / "L-20261015-000002" / "run.json").read_text(encoding="utf-8")) | {"ts": datetime.datetime.fromtimestamp(t0, tz).isoformat()}
+    (tmp_path / "L-20261015-000002" / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+    done = tmp_path / "L-20261015-000002" / "psim" / "psim-p14f1.done"
+    done.write_text("")
+    os.utime(done, (NOW, NOW))
+    r = runs.run_record(d, "L-20261015-000002", NOW, in_canon=False)
+    assert r["dur_min"] == 400 and r["t0"] == runs.hhmm(t0) and r["end"] == "считано " + runs.hhmm(NOW)
+    assert runs.run_record(d, "L-20261015-000002", NOW + 86400 * 2, in_canon=False)["end"].startswith("считано ")
+    assert runs.run_record(d, "L-20261015-000002", NOW + 86400 * 2, in_canon=False)["end"] != "считано " + runs.hhmm(NOW)   # другой день — с датой
+    req = tmp_path / "req"
+    req.mkdir()
+    (req / "L-20261015-022210.json").write_text(json.dumps({"hyps": ["Г-25"], "months": ["2026-02", "2026-03"], "axes": {}}), encoding="utf-8")
+    monkeypatch.setattr(launch, "plan", lambda *a, **k: {"hm_new": 2, "cells": [{"hyp": "Г-25", "hash": "hh", "new_months": ["2026-02", "2026-03"]}]})
+    cfg = launch.load_config() | {"run_dir": str(tmp_path), "request_dir": str(req)}
+    v = launch.runs_view(cfg, PS, NOW)
+    ids = [x["id"] for x in v["runs"]]
+    q = next(x for x in v["runs"] if x["id"] == "L-20261015-022210")
+    assert q["s"] == "queue" and q["hm"] == 2 and q["what"] == [{"hyp": "Г-25", "hm": 2, "best": None}]   # запрос ещё не взят: хеш-мес из плана
+    assert ids == sorted(ids, key=lambda i: runs.ORDER[next(x["s"] for x in v["runs"] if x["id"] == i)])    # идёт > очередь > ждёт > в Летописи > отказ
+
+
+def test_shared_hash_labelled_by_requested_hyp(tmp_path, monkeypatch):
+    import launch
+    h = "cce82364cc2b16e8"
+    mk(tmp_path, "L-20261014-184950", hyps=("Г-27",), new_hm={h: ["2026-01"]})
+    monkeypatch.setattr(launch, "plan_rows", lambda *a, **k: [{"hash": h, "hyp": x, "axes": {"usd_min_q": "50"}} for x in ("Г-107", "Г-27", "Г-89")])   # одна клетка у трёх гипотез
+    cfg = launch.load_config() | {"run_dir": str(tmp_path), "request_dir": str(tmp_path / "req")}
+    r = launch.runs_view(cfg, "", NOW)["runs"][0]
+    assert [w["hyp"] for w in r["what"]] == ["Г-27"] and r["hm"] == 12

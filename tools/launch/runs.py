@@ -17,6 +17,7 @@ W_DAYS = CALC_MIN / (CALC_MIN + PSIM_MIN)
 W_PSIM = 1 - W_DAYS
 TZ = datetime.timezone(datetime.timedelta(hours=4))   # GMT+4
 STATUS = {"run": "идёт", "queue": "в очереди", "wait": "ждёт Летопись", "done": "в Летописи", "fail": "отказ"}
+ORDER = {"run": 0, "queue": 1, "wait": 2, "done": 3, "fail": 4}   # порядок строк как в макете v6
 
 _PS = re.compile(r"^(?P<id>\S+)\s+(?P<state>\S+)\s+(?P<cls>\S+)\s+ядер=\s*(?P<cores>\d+)\s+(?P<name>\S+)\s+(?P<age>[\d.]+) мин rc=(?P<rc>\S*)\s*(?P<cmd>.*)$")
 _PS_HEAD = re.compile(r"ядра: занято (\d+)/(\d+)")
@@ -109,6 +110,25 @@ def hhmm(ts):
     return datetime.datetime.fromtimestamp(ts, TZ).strftime("%H:%M")
 
 
+def _ts(s):
+    try:
+        return datetime.datetime.fromisoformat(s).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def finish_info(run, meta, now):
+    """Для посчитанных: (t0 'ЧЧ:ММ' постановки, длительность мин, 'считано [дд.мм ]ЧЧ:ММ'). Конец — mtime psim-p14f1.done, начало — ts заявки (run.json)."""
+    t0 = _ts(meta.get("ts"))
+    try:
+        fin = os.stat(os.path.join(run, "psim", "psim-p14f1.done")).st_mtime
+    except OSError:
+        return (hhmm(t0) if t0 else None), None, None
+    day = datetime.datetime.fromtimestamp(fin, TZ)
+    when = ("" if day.date() == datetime.datetime.fromtimestamp(now, TZ).date() else day.strftime("%d.%m ")) + day.strftime("%H:%M")
+    return (hhmm(t0) if t0 else None), (max(0, round((fin - t0) / 60)) if t0 else None), "считано " + when
+
+
 def run_record(run, run_id, now, ps_job=None, request=None, in_canon=None, est_s=None):
     """Одна строка вкладки. run — каталог прогона (может не существовать: запрос в очереди). ps_job — строка alsched ps с name == run_id.
     request — содержимое запроса из request_dir (ещё не взят). in_canon — все хеши оверлея уже в Летописи (None — оверлея нет).
@@ -120,12 +140,13 @@ def run_record(run, run_id, now, ps_job=None, request=None, in_canon=None, est_s
     psim = psim_progress(run, months)
     rec = {"id": run_id, "hyps": meta.get("hyps") or (request or {}).get("hyps") or [], "hm": meta.get("hm_new"), "months": months,
            "days": [days[0], days[1]], "psim": list(psim), "cores": ps_job["cores"] if ps_job else None, "why": None,
-           "t0": None, "left_min": None, "end": None, "src": None}
+           "t0": hhmm(_ts(meta.get("ts"))) if _ts(meta.get("ts")) else None, "dur_min": None, "left_min": None, "end": None, "src": None}
     if res is not None and not res.get("ok"):
         return rec | {"s": "fail", "why": res.get("why") or "отказ root-юнита", "pct": 0}
     overlay = os.path.exists(os.path.join(run, "overlay.jsonl")) and os.path.exists(os.path.join(run, "psim", "psim-p14f1.done"))
     if overlay:
-        return rec | {"s": "done" if in_canon else "wait", "pct": 100, "left_min": 0}
+        t0, dur, fin = finish_info(run, meta, now)
+        return rec | {"s": "done" if in_canon else "wait", "pct": 100, "left_min": 0, "t0": t0, "dur_min": dur, "end": fin}
     try:
         with open(os.path.join(run, "postload.log"), encoding="utf-8") as f:
             return rec | {"s": "fail", "why": f.read().strip()[:200], "pct": percent(days[:2], psim, False)}

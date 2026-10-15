@@ -138,6 +138,12 @@ def scenario_runs(b, url, tag, size, scheme, shot_dir):
     check(f"[{tag}] значок на ярлыке = идущие и ждущие", pg.inner_text("#tbadge") == "2", pg.inner_text("#tbadge"))
     na = len(pg.query_selector_all("#pcards .mv.na"))
     check(f"[{tag}] метрики: у посчитанных прогонов числа, у идущих/в очереди/отказа прочерк", na == 12, f"прочерков {na} из 20")
+    order = [c.inner_text() for c in pg.query_selector_all("#pcards .chip")]
+    check(f"[{tag}] порядок как в макете: идёт, очередь, ждёт Летопись, в Летописи, отказ", order == ["идёт", "в очереди", "ждёт Летопись", "в Летописи", "отказ"], ", ".join(order))
+    sub = pg.query_selector("#pcards .pr.queue .sub").inner_text()
+    check(f"[{tag}] строка «в очереди» с «N хеш-мес»", "хеш-мес" in sub, sub)
+    tms = [t.inner_text() for t in pg.query_selector_all("#pcards .pr.wait .tm, #pcards .pr.done .tm")]
+    check(f"[{tag}] у готовых в «Время» длительность и час «считано ЧЧ:ММ»", all("мин" in t and "считано" in t for t in tms) and len(tms) == 2, " | ".join(t.replace(chr(10), " ") for t in tms))
     pg.click("#pcards .pr >> nth=0")
     pg.wait_for_selector("#pcards .pdd")
     check(f"[{tag}] клик раскрывает этапы и таблицу по гипотезам", pg.query_selector("#pcards .steps") is not None and pg.query_selector("#pcards .pht") is not None)
@@ -155,9 +161,48 @@ def scenario_runs(b, url, tag, size, scheme, shot_dir):
     ctx.close()
 
 
+def scenario_real(b, url, tag, size, scheme, shot_dir, run_ids):
+    """TK-244: вкладка «Прогоны» на копии НАСТОЯЩЕГО каталога прогона (run_dir скопирован с calc): строка, этапы, метрики равны run_metrics напрямую."""
+    import metrics, runs
+    ctx = b.new_context(viewport=size, color_scheme=scheme)
+    pg = ctx.new_page()
+    errs = []
+    pg.on("console", lambda m: errs.append(m.text) if m.type == "error" and "ERR_" not in m.text else None)
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    pg.goto(url)
+    pg.wait_for_selector(".hrow")
+    pg.click("#t-prn")
+    pg.wait_for_selector("#pcards .pr")
+    d = launch.load_config()["run_dir"]
+    for rid in run_ids:
+        row = pg.query_selector(f'#pcards .pr[data-po="{rid}"]')
+        check(f"[{tag}] настоящий {rid}: строка есть", row is not None)
+        if row is None:
+            continue
+        txt = row.inner_text()
+        want = (runs._json(os.path.join(d, rid, "run.json")) or {}).get("hyps") or ["?"]
+        check(f"[{tag}] {rid}: подпись гипотезы = заявленная ({want[0]}), не соседняя с тем же хешем", any(want[0] + " ·" in ln or ln.startswith(want[0]) for ln in txt.splitlines()), txt.replace(chr(10), " | ")[:120])
+        rec = runs.run_record(os.path.join(d, rid), rid, __import__("time").time(), in_canon=None)
+        met = runs.run_metrics(os.path.join(d, rid))
+        best = metrics.best_by_sharpe(met)[1]
+        check(f"[{tag}] {rid}: статус и % как у run_record ({rec['s']}, {rec['pct']} %)", launch.runs_view.__module__ and f"{rec['pct']} %" in txt, txt.replace(chr(10), " | ")[:160])
+        if best:
+            check(f"[{tag}] {rid}: PnL/Шарп/Винрейт строки = пересчёт run_metrics", f"{round(best['pnl'])}" in txt and f"{best['sharpe']:.2f}" in txt and f"{round(best['winrate'] * 100)} %" in txt,
+                  f"pnl {best['pnl']:.1f} sh {best['sharpe']:.2f} wr {best['winrate']:.2f}: {txt.replace(chr(10), ' | ')[:200]}")
+        row.click()
+        pg.wait_for_selector("#pcards .pdd")
+        pdd = pg.inner_text("#pcards .pdd")
+        check(f"[{tag}] {rid}: раскрытие — этапы, дни {rec['days'][0]} из {rec['days'][1]}, таблица по гипотезам", f"{rec['days'][0]} из {rec['days'][1]}" in pdd and "Гипотеза" in pdd, pdd.replace(chr(10), " | ")[:200])
+    if shot_dir:
+        pg.screenshot(path=os.path.join(shot_dir, f"{tag}-real.png"))
+    check(f"[{tag}] настоящий прогон: консоль без ошибок", not errs, "; ".join(errs[:3]))
+    ctx.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--shot-dir")
+    ap.add_argument("--real", help="каталог-копия run_dir с настоящими L-… (с calc): только сценарий «Прогоны» на них")
     o = ap.parse_args()
     if o.shot_dir:
         os.makedirs(o.shot_dir, exist_ok=True)
@@ -165,6 +210,17 @@ def main():
     srv = server.make_server(0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}/"
+    if o.real:
+        ids = sorted(n for n in os.listdir(o.real) if n.startswith("L-"))
+        cfg0 = launch.load_config()
+        launch.load_config = lambda path=None: cfg0 | {"run_dir": o.real, "request_dir": os.path.join(o.real, "_req")}
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            for tag, size, scheme in (("real-desktop-dark", {"width": 1440, "height": 900}, "dark"), ("real-narrow-light", {"width": 900, "height": 1200}, "light")):
+                scenario_real(b, url, tag, size, scheme, o.shot_dir, ids)
+            b.close()
+        srv.shutdown()
+        return 0 if all(ok_all) else 1
     with sync_playwright() as p:
         b = p.chromium.launch()
         for tag, size, scheme in (("desktop-dark", {"width": 1440, "height": 900}, "dark"), ("desktop-light", {"width": 1440, "height": 900}, "light"),

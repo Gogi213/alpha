@@ -733,9 +733,15 @@ def runs_view(cfg=None, ps_text="", now=None):
         except (OSError, ValueError):
             ids.setdefault(fn[:-5], {})
     have = None
-    hyp_of = {r["hash"]: r for r in plan_rows(cfg["protocol"], cfg["fraction"])} if ids else {}
+    rows_of = {}   # хеш -> строки плана: один хеш (клетка) бывает у нескольких гипотез — подпись берём из заявленных прогоном
+    for r in (plan_rows(cfg["protocol"], cfg["fraction"]) if ids else ()):
+        rows_of.setdefault(r["hash"], []).append(r)
+
+    def hyp_of(h, want):
+        c = rows_of.get(h, [])
+        return next((r for w in want for r in c if r["hyp"] == w), c[0] if c else {})
     out = []
-    for rid in sorted(ids, reverse=True):
+    for rid in ids:
         d = posixpath.join(cfg["run_dir"], rid)
         in_canon = None
         try:   # «в Летописи» = все хеш×месяц оверлея есть в каноне (master.have_hashes); run_id канона задаёт CEO при переносе — по нему не судим
@@ -751,16 +757,28 @@ def runs_view(cfg=None, ps_text="", now=None):
         meta = runs._json(os.path.join(d, "run.json")) or {}
         per_hyp = {}
         for h, ms in (meta.get("new_hm") or {}).items():
-            per_hyp.setdefault(hyp_of.get(h, {}).get("hyp", "?"), []).append((h, len(ms)))
+            per_hyp.setdefault(hyp_of(h, meta.get("hyps") or []).get("hyp", "?"), []).append((h, len(ms)))
+        if not meta and ids[rid]:   # запрос ещё не взят юнитом: хеш-мес — по плану того же выбора (как увидела форма)
+            try:
+                q = ids[rid]
+                p = plan_groups(q["groups"], cfg=cfg) if q.get("groups") else plan(q.get("hyps") or [], q.get("months") or [], q.get("axes"), cfg=cfg)
+                for c in p["cells"]:
+                    if c["new_months"]:
+                        per_hyp.setdefault(c["hyp"], []).append((c["hash"], len(c["new_months"])))
+                rec["hm"] = p["hm_new"]
+            except Exception:   # план не собрался — «—» в строке, вкладка не падает
+                pass
         rec["what"] = []
         for hyp, hs in sorted(per_hyp.items()):
             best_h, best = metrics.best_by_sharpe({h: met.get(h) for h, _ in hs})
             rec["what"].append({"hyp": hyp, "hm": sum(n for _, n in hs), "best": None if not best else {
-                "axes": hyp_of.get(best_h, {}).get("axes"), "hash": best_h, **{k: best[k] for k in ("pnl", "sharpe", "winrate", "overhigh_d", "tail_d", "worst_d", "n", "months")}}})
+                "axes": hyp_of(best_h, meta.get("hyps") or []).get("axes"), "hash": best_h, **{k: best[k] for k in ("pnl", "sharpe", "winrate", "overhigh_d", "tail_d", "worst_d", "n", "months")}}})
         if not rec["what"]:   # запрос ещё не взят юнитом: хеш-мес неизвестны до плана юнита
             rec["what"] = [{"hyp": h, "hm": None, "best": None} for h in rec["hyps"]]
         rec["best"] = max((w["best"] for w in rec["what"] if w["best"]), key=lambda b: b["sharpe"], default=None)
         out.append(rec)
+    out.sort(key=lambda r: r["id"], reverse=True)
+    out.sort(key=lambda r: runs.ORDER.get(r["s"], 9))   # как в макете: идёт, очередь, ждёт Летопись, в Летописи, отказ; внутри — свежие сверху
     foreign = [{"name": j["name"], "cores": j["cores"], "state": j["state"], "age_min": j["age_min"]} for j in runs.foreign_jobs(ps, set(ids))]
     return {"runs": out, "foreign": foreign, "cores": {"busy": ps["busy"], "total": ps["total"]}, "bin": bin_info(cfg).get("md5"),
             "weights": {"days": round(runs.W_DAYS, 3), "psim": round(runs.W_PSIM, 3), "src": "проход F1 П-14, TK-231: счёт ≈ 11,5 ч, psim ≈ 50 мин"},
