@@ -6,8 +6,10 @@
 set -uo pipefail
 RUN=$1; S=${SCRIPTS:-/data/tk0231}; NX=${NX:-12}; B=${B1:-/data/tk0115/delta/b1-symdays.csv}
 export PLAN=L P=$RUN/plan O=$RUN/out BIN GT=${GT:-1} TP=1
-[ -s "$P/months.txt" ] || { echo "нет $P/months.txt" >&2; exit 2; }
+[ -s "$P/months.txt" ] || [ -s "$P/r1months.txt" ] || { echo "нет $P/months.txt" >&2; exit 2; }   # TK-251: запуск только из R1 (r1/r1x) — без суток движка
 D=$RUN/days.txt
+RC=0
+if [ -s "$P/months.txt" ]; then
 if [ ! -s "$D" ]; then
   mons=(jan feb mar apr may jun jul aug sep)
   while read -r ym; do m=${mons[10#${ym:5:2}-1]}; for d in $(bash "$S/day-order.sh" "$B" "$m"); do echo "$m $d"; done; done < "$P/months.txt" > "$D.tmp" && mv "$D.tmp" "$D"
@@ -15,8 +17,13 @@ fi
 mkdir -p "$O"
 xargs -P "$NX" -L1 bash -c 'bash "$0/day-cells.sh" "run-$1-$2" "$1" "$2"' "$S" < "$D"
 RC=$?
+fi
 # после счёта (В-7): psim -> оверлей сервера; без нейросетей (В-6); ошибка — <RUN>/postload.log (красная строка на вкладке «Запуск»)
 H=$(cd "$(dirname "$0")" && pwd)
-bash "$H/psim-launch.sh" "$RUN" >> "$RUN/postload.out" 2>&1 && python3 "$H/postload.py" "$RUN" >> "$RUN/postload.out" 2>&1 \
+# шаг 2 (TK-251): R1 — r1-launch.sh (отбор r1cell.py + psim по готовым клеткам); нет R1 / нет суток движка — шаг пропускается, запуск прежний
+OK=1
+[ -s "$P/months.txt" ] && { bash "$H/psim-launch.sh" "$RUN" >> "$RUN/postload.out" 2>&1 || OK=0; }
+[ -s "$P/r1months.txt" ] && { bash "$H/r1-launch.sh" "$RUN" >> "$RUN/postload.out" 2>&1 || OK=0; }
+{ [ $OK = 1 ] && python3 "$H/postload.py" "$RUN" >> "$RUN/postload.out" 2>&1; } \
   || { [ -s "$RUN/postload.log" ] || echo "$(basename "$RUN"): psim/postload rc≠0, см. postload.out" > "$RUN/postload.log"; }
 exit $RC
