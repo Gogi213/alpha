@@ -18,6 +18,7 @@ _cache = {}
 _fns = {}
 _watching = False
 _cache_lock = threading.Lock()
+_build_locks = {}   # по замку на ключ: холодный запрос и прогрев не считают одно и то же дважды
 _submit_lock = threading.Lock()
 _cond = threading.Lock()   # события для /api/events (SSE): версия растёт при каждой подмене кэша
 _subs = set()   # по Event на каждое открытое соединение SSE
@@ -26,30 +27,34 @@ _log = []   # [(версия, имя ключа)] — последние под�
 LIGHT = ("status", "runs")   # статус calc и «Прогоны»: свой штамп (задания alsched, каталоги прогонов), тяжёлые ключи его не ждут
 
 
+def _mt(p):
+    try:
+        return os.stat(p).st_mtime_ns
+    except OSError:
+        return 0
+
+
 def _stamp():
-    """Штамп входов тяжёлых ответов: mtime снимка Летописи, оверлея прогонов (run.json/overlay.jsonl каждого прогона), запросов формы.
-    Только stat файлов формы (десятки), без обходов /data."""
+    """Штамп входов Летописи и meta: mtime снимка (results/sieve/metrics) и overlay.jsonl каждого прогона. run.json и запросы формы сюда
+    НЕ входят (их читают только «Прогоны», статус и cov): новая заявка не пересчитывает Летопись. Только stat файлов формы, без обходов /data."""
     cfg = launch.load_config()
-    st = []
-    for p in (os.path.join(launch.REG, n) for n in ("results.jsonl", "sieve.jsonl", "metrics.jsonl")):
-        try:
-            st.append(os.stat(p).st_mtime_ns)
-        except OSError:
-            st.append(0)
-    for d in (cfg["run_dir"], cfg["request_dir"]):
-        try:
-            names = sorted(os.listdir(d))
-        except OSError:
-            continue
-        st.append(hash(tuple(names)))
-        if d == cfg["run_dir"]:
-            for n in names:
-                for f in ("overlay.jsonl", "run.json"):
-                    try:
-                        st.append(os.stat(os.path.join(d, n, f)).st_mtime_ns)
-                    except OSError:
-                        pass
+    st = [_mt(os.path.join(launch.REG, n)) for n in ("results.jsonl", "sieve.jsonl", "metrics.jsonl")]
+    try:
+        names = sorted(os.listdir(cfg["run_dir"]))
+    except OSError:
+        names = []
+    st += [_mt(os.path.join(cfg["run_dir"], n, "overlay.jsonl")) for n in names]
     return tuple(st)
+
+
+def _stamp_cov():
+    """Штамп cov: входы Летописи + run.json каждого прогона (поле new_hm — «в очереди») и состав каталога прогонов."""
+    cfg = launch.load_config()
+    try:
+        names = sorted(os.listdir(cfg["run_dir"]))
+    except OSError:
+        names = []
+    return (_stamp(), hash(tuple(names))) + tuple(_mt(os.path.join(cfg["run_dir"], n, "run.json")) for n in names)
 
 
 def _stamp_light():
@@ -62,10 +67,7 @@ def _stamp_light():
     except OSError:
         pass
     for p in paths:
-        try:
-            st.append(os.stat(p).st_mtime_ns)
-        except OSError:
-            st.append(0)
+        st.append(_mt(p))
     return tuple(st)
 
 
@@ -74,7 +76,8 @@ def _group(key):
 
 
 def _stamp_for(key):
-    return _stamp_light() if _group(key) in LIGHT else _stamp()
+    g = _group(key)
+    return _stamp_light() if g in LIGHT else _stamp_cov() if g == "cov" else _stamp()
 
 
 def _bump(key):
@@ -108,14 +111,26 @@ def cached(key, fn):
         hit = _cache.get(key)
         if hit and (_watching or hit[0] == stamp):
             return hit[1]
-    return _build(key, fn)
+        lock = _build_locks.setdefault(key, threading.Lock())
+    with lock:   # другой поток уже считает этот ключ — ждём его результат, а не считаем второй раз
+        with _cache_lock:
+            hit = _cache.get(key)
+            if hit and (_watching or hit[0] == stamp):
+                return hit[1]
+        return _build(key, fn)
+
+
+PRIO = {"status": 0, "runs": 1, "meta": 2, "cov": 3}   # порядок пересчёта: лёгкие и видимые первыми, Летопись (остальное) последней
 
 
 def refresh():
-    """Пересчитать устаревшие ключи (по смене штампа); старая версия отдаётся, пока считается новая, подмена атомарна."""
-    stamps = {"heavy": _stamp(), "light": _stamp_light()}
+    """Пересчитать устаревшие ключи (по смене штампа своей группы входов); лёгкие (status, runs) — первыми, событие уходит сразу после каждого.
+    Старая версия отдаётся, пока считается новая, подмена атомарна."""
+    stamps = {"light": _stamp_light(), "cov": _stamp_cov(), "reg": _stamp()}
+    grp = lambda k: "light" if _group(k) in LIGHT else "cov" if _group(k) == "cov" else "reg"
     with _cache_lock:
-        todo = [(k, f) for k, f in _fns.items() if _cache.get(k, (None,))[0] != stamps["light" if _group(k) in LIGHT else "heavy"]]
+        todo = [(k, f) for k, f in _fns.items() if _cache.get(k, (None,))[0] != stamps[grp(k)]]
+    todo.sort(key=lambda kf: PRIO.get(_group(kf[0]), 9))
     for k, f in todo:
         _build(k, f)
     return len(todo)
@@ -155,12 +170,37 @@ def watch(period=1.0):
 
 def prewarm():
     """Прогрев при старте: meta, cov и Летопись целиком — первый запрос страницы отдаёт готовые байты."""
-    for key, fn in (("meta", launch.meta), ("cov", _cov), (("letopis", None, None, None), lambda: launch.letopis()),
-                    ("status", _status), ("runs", _runs)):
+    for key, fn in (("status", _status), ("runs", _runs), ("meta", launch.meta), ("cov", _cov),
+                    (("letopis", None, None, None), lambda: launch.letopis())):
         try:
             cached(key, fn)
         except Exception as e:
             print(f"prewarm {key}: {e}", file=sys.stderr, flush=True)
+
+
+_page = {}   # {(штамп page.html, etag частей): готовые байты страницы с вшитым первым экраном}
+BOOT_MARK = b"/*BOOT*/null"
+
+
+def page_ent():
+    """Страница с вшитым первым экраном (meta, cov, status, runs готовыми байтами из кэша): один запрос вместо пяти (TK-246 п.4).
+    ETag — от частей и самой страницы; в page.html нет метки BOOT_MARK — отдаётся как есть."""
+    path = os.path.join(HERE, "page.html")
+    tpl = open(path, "rb").read()
+    if BOOT_MARK not in tpl:
+        data = tpl
+        return (data, gzip.compress(data, 5), '"' + hashlib.md5(data).hexdigest() + '"')
+    parts = [("api/meta", cached("meta", launch.meta)), ("api/cov", cached("cov", _cov)),
+             ("api/status", cached("status", _status)), ("api/runs", cached("runs", _runs))]
+    key = (hashlib.md5(tpl).hexdigest(), tuple(e[2] for _, e in parts))
+    hit = _page.get("ent")
+    if hit and hit[0] == key:
+        return hit[1]
+    boot = b"{" + b",".join(b'"' + k.encode() + b'":' + e[0] for k, e in parts) + b"}"
+    data = tpl.replace(BOOT_MARK, boot.replace(b"</", rb"<\/"), 1)
+    ent = (data, gzip.compress(data, 5), '"' + hashlib.md5(data).hexdigest() + '"')
+    _page["ent"] = (key, ent)
+    return ent
 
 
 def _status():
@@ -247,7 +287,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path, q = r
         try:
             if path in ("/", "/index.html"):
-                return self._send(200, open(os.path.join(HERE, "page.html"), "rb").read(), "text/html; charset=utf-8")
+                return self._send(200, page_ent(), "text/html; charset=utf-8")
             if path == "/api/meta":
                 return self._send(200, cached("meta", launch.meta))
             if path == "/api/cov":
