@@ -321,6 +321,41 @@ fn append_carry_events_grows_day_buffer_exactly() {
     );
 }
 
+/// TK-261 Ш2.3: `POSIX_FADV_RANDOM` + крупные куски чтения не меняют ни событий, ни порядка довеска.
+#[test]
+fn append_carry_events_same_with_fadv_random() {
+    let next_day = "2026-09-09";
+    let start_ms = day_start_ns_for_test(next_day) / 1_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    write_day(
+        dir.path(),
+        "SOLUSDT",
+        next_day,
+        &[
+            snap_frame(start_ms, &[(99, 10), (98, 5)], &[(105, 10)]),
+            delta_frame(start_ms + 1_000, &[(99, 9)], &[]),
+            delta_frame(start_ms + 2_000, &[], &[(105, 7)]),
+            delta_frame(start_ms + 3_600_000_000, &[(99, 1)], &[]),
+        ],
+    );
+    let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", next_day, 1);
+    let until_ns = day_start_ns_for_test(next_day) + 60_000_000_000;
+    let mut plain = Vec::new();
+    let n_plain = super::carry::append_carry_events_with(
+        std::slice::from_ref(&path),
+        until_ns,
+        &mut plain,
+        false,
+    )
+    .unwrap();
+    let mut random = Vec::new();
+    let n_random =
+        super::carry::append_carry_events_with(&[path], until_ns, &mut random, true).unwrap();
+    assert!(n_plain > 0, "довесок в окне обязан быть прочитан");
+    assert_eq!(n_random, n_plain);
+    assert_eq!(random, plain, "те же события в том же порядке");
+}
+
 /// Счёт довеска кэшируется сайдкаром по окну: второй вызов даёт те же события, чужое окно — промах.
 #[test]
 fn append_carry_events_count_sidecar_roundtrip() {

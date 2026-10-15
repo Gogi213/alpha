@@ -10,9 +10,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::commands::lob::backtest::{
-    count_feed_events_until, open_replay_feed, replay_compact_into_until, EntryTtl,
+    count_feed_events_until, replay_compact_into_until, EntryTtl,
 };
 use crate::commands::lob::touches::stamp;
+use crate::feed::replay::ReplayFeed;
 use crate::lob::backtest::CompactEvent;
 
 // ---------------------------------------------------------------------------
@@ -95,6 +96,43 @@ pub(super) fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<V
     Ok(events)
 }
 
+/// TK-261 Ш2.3: `ALPHA_CARRY_FADV_RANDOM=1` — части довеска D+1 открываются с `POSIX_FADV_RANDOM`
+/// (без упреждающего чтения ядра: окно переноса — единицы МБ из файла в десятки ГБ, а `read_ahead_kb`
+/// диска 64 МБ раздувает чтение) и читаются кусками `CARRY_READ_BUF`. По умолчанию выкл. — прежний путь.
+fn carry_fadv_random() -> bool {
+    std::env::var_os("ALPHA_CARRY_FADV_RANDOM").is_some_and(|v| v == "1")
+}
+
+const CARRY_READ_BUF: usize = 1 << 20;
+
+#[cfg(target_os = "linux")]
+fn advise_random(file: &std::fs::File) {
+    use std::os::fd::AsRawFd;
+    extern "C" {
+        fn posix_fadvise(fd: i32, offset: i64, len: i64, advice: i32) -> i32;
+    }
+    const POSIX_FADV_RANDOM: i32 = 1;
+    // SAFETY: fd — открытый файл на время вызова; offset = len = 0 — весь файл; вызов только ставит
+    // подсказку ядру, ошибку (ненулевой код) игнорируем: подсказка необязательна.
+    let _ = unsafe { posix_fadvise(file.as_raw_fd(), 0, 0, POSIX_FADV_RANDOM) };
+}
+#[cfg(not(target_os = "linux"))]
+fn advise_random(_file: &std::fs::File) {}
+
+type CarryFeed = ReplayFeed<Box<dyn std::io::Read + Send>>;
+
+fn open_carry_feed(path: &Path, random: bool) -> anyhow::Result<CarryFeed> {
+    let file = std::fs::File::open(path)
+        .map_err(|e| anyhow::anyhow!("бинлог {} не открывается: {e}", path.display()))?;
+    let inner: Box<dyn std::io::Read + Send> = if random {
+        advise_random(&file);
+        Box::new(std::io::BufReader::with_capacity(CARRY_READ_BUF, file))
+    } else {
+        Box::new(file)
+    };
+    ReplayFeed::open(0, inner).map_err(|e| anyhow::anyhow!("бинлог {}: {e:?}", path.display()))
+}
+
 /// Довесок в окне — прямо в конец `events` (Р10, T-22, 26.09): сперва счёт событий
 /// довеска, затем `reserve_exact` и декод на месте. Раньше довесок собирался
 /// отдельным `Vec` и дописывался `extend`: буфер суток выделен ровно по размеру
@@ -107,13 +145,22 @@ pub(super) fn append_carry_events(
     until_ns: i64,
     events: &mut Vec<CompactEvent>,
 ) -> anyhow::Result<usize> {
+    append_carry_events_with(parts, until_ns, events, carry_fadv_random())
+}
+
+pub(super) fn append_carry_events_with(
+    parts: &[PathBuf],
+    until_ns: i64,
+    events: &mut Vec<CompactEvent>,
+    random: bool,
+) -> anyhow::Result<usize> {
     let mut total = 0usize;
     let mut counted = Vec::new();
     for path in parts {
         let (n, hit_bound) = match cached_carry_count(path, until_ns) {
             Some(c) => c,
             None => {
-                let mut feed = open_replay_feed(path)?;
+                let mut feed = open_carry_feed(path, random)?;
                 let c = count_feed_events_until(&mut feed, until_ns);
                 store_carry_count(path, until_ns, c);
                 c
@@ -128,7 +175,7 @@ pub(super) fn append_carry_events(
     events.reserve_exact(total);
     let before = events.len();
     for path in parts {
-        let mut feed = open_replay_feed(path)?;
+        let mut feed = open_carry_feed(path, random)?;
         if replay_compact_into_until(&mut feed, Some(until_ns), events) {
             break;
         }
@@ -136,7 +183,7 @@ pub(super) fn append_carry_events(
     let added = events.len() - before;
     if added != total {
         for path in counted {
-            let mut feed = open_replay_feed(path)?;
+            let mut feed = open_carry_feed(path, random)?;
             store_carry_count(path, until_ns, count_feed_events_until(&mut feed, until_ns));
         }
     }
