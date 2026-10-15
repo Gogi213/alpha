@@ -84,3 +84,15 @@
 
 ## TK-221 (12.10)
 - Bash-heredoc с `"\n"` в питоновских строках превращает `\n` в реальный перевод строки — правки со строковыми `\n` делать Edit'ом. Плагин: PR к main требует версию выше main (release.py bump X.Y.Z --push, запись в CHANGELOG вручную до bump). Живая шина calc — alpha-bus :8788 (/opt/alpha-compute/bus, сторож — alpha-bus-watcher, код ещё старый: выкладка в /opt/alpha-compute/bus не делалась). Стенд: systemd-run юнит-драйвер tk221s-*, лог /tmp/tk221s/stand.log.
+
+## TK-231 (14.10)
+- Летопись живёт на цепочке веток tk196→tk237 (в master её нет): грузить из worktree от головы tk237 (`git worktree add -b <ветка> .claude/worktrees/<имя> tk237`), не из основной папки. План хешей: `registry.py plan-grid --protocol P-14 --fraction 1 --out data/plan/..jsonl` (перезаписывает plan_cells.jsonl — `git checkout` после), загрузка `load_f1.py <сводка> --run ID --plan <jsonl>` (сводка — `sum_closes_f1.py <psim> <out.csv> <префикс>`, run — `registry.py add`; в Git Bash путь `/data/..` в аргументе мангается в `C:/Program Files/Git/...` — править руками).
+- Проход, поданный до загрузки предыдущего, считает уже загруженное (501 = 320 + 181): перед подачей заново plan-grid. Дубли — сверка с Летописью (13.10: 2876/2880 хеш-мес. побайтно, 4 апрельских +0,1…0,2 USD при равном n).
+
+## TK-241 (14.10)
+- Форма запуска: tools/launch/{launch.py,server.py,page.html,check_page.py}; ядро plan/submit(--dry-run)/status, meta/letopis для страницы; клик-тест `python tools/launch/check_page.py --shot f.png` (Playwright есть). Пресет В-227 = 54 строки таблицы spec-v227, одна строка «Г-29, Г-90» → 55 гипотез.
+- plan_cells.jsonl содержит и клетки, которые --cells не кодирует (R1-маршрут, OUTSIDE/R1X/r2b, nodata — см. master.plan 592-612): «К счёту» формы пока их включает — разделить по master.LINES/OUTSIDE/R1COL/R1X до реального submit.
+- /data/tk0231/run-all.sh жёстко export PLAN/P/O/BIN — для формы свой раннер поверх day-cells.sh (env PLAN,P,O,BIN,GT,TP; нужны %s.cells/.args/.bin на месяц, days.txt, b1-symdays.csv, JRN, regime).
+- ssh calc не резолвится в Git Bash — только PowerShell/Python subprocess; в heredoc Bash с длинным HTML/кириллицей и pkill-подобными командами сессия падала — файлы писать Write-ом.
+- TK-241 шаг 3 (b5d98bca): launch.py routes → tools/launch/routes.json (маршрут клетки по master.LINES/OUTSIDE/R1COL/R1X; 1127 хешей: outside 604, cells 323, monthly 190, nodata 9, noline 1; r2-формы кодируются тем же бинарём — tk231-pgo = r2-pgo, md5 fa07bb3f…). К счёту = только cells/monthly; submit = prepare_plan (план-каталог L-<ГГГГ-ММ>.cells/.args/.bin, L.cells пуст) + alsched submit локально на calc → tools/launch/run-launch.sh (xargs по суткам, day-cells.sh из /data/tk0231). run.json — в <run_dir>, не в канон. Dev-машина: только --dry-run. Не сделано: обёртка server на calc (токен-префикс, белые списки, 0.0.0.0, юнит alpha-launch), пост-загрузка (psim.sh → sum_closes_f1 → load_f1 → sieve в overlay /data/launch/out), установка на calc. Правки файлов с `
+` в строках — Edit, не heredoc (tool превращает в реальный перевод).

@@ -1,0 +1,30 @@
+[Unit]
+Description=alpha launch: форма запуска бэктеста (TK-241, В-7), порт 8791, маршруты только под /<токен>/
+After=network.target
+
+[Service]
+# Веб-процесс непривилегированный (В-7 п.1): пишет только запросы в /data/launch/requests; в очередь calc их ставит root-юнит
+# alpha-launch-submit (проверяет запрос заново). /data/sched и /data/launch/out веб читает, но не пишет. Решение Судьи: reviews/tk241-unit-user-2026-10-14.md.
+User=alpha-launch
+Group=alpha-launch
+Environment=LAUNCH_TOKEN_FILE=/etc/alpha-launch/token
+Environment=LAUNCH_HOST=0.0.0.0
+Environment=LAUNCH_PORT=8791
+Environment=LAUNCH_REGISTRY=/data/launch/registry
+ExecStart=/usr/bin/python3 -u /opt/alpha-launch/tools/launch/server.py
+Restart=always
+RestartSec=3
+Nice=10
+CPUQuota=100%
+MemoryMax=300M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/data/launch/requests
+
+[Install]
+WantedBy=multi-user.target
