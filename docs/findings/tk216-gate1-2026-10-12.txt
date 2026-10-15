@@ -1,0 +1,4 @@
+GATE t-bid-btc4h-q1 10cf78db93edd0dd 10cf78db93edd0dd РАВНЫ
+GATE g87-fresh 64c50c30ce3729d8 64c50c30ce3729d8 РАВНЫ
+GATE g10n12q90-2026-01 757694ba3ee51515 757694ba3ee51515 РАВНЫ
+GATE g10n4q50-2026-01 f38a6fbbcbe6503e f38a6fbbcbe6503e РАВНЫ

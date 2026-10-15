@@ -1,0 +1,13 @@
+конфиг-хеш пула 9263a00201b99b53
+t-bid-btc4h-q1	ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800,ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh10	пул 920	остаётся 152	/data/tk216/gate1c/out/t-bid-btc4h-q1/closes.json
+g87-fresh	ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800,ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh10	пул 920	остаётся 64	/data/tk216/gate1c/out/g87-fresh/closes.json
+e106-pop	ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800,ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh10	пул 920	остаётся 0	(пусто)
+g10n12q90-2026-01	ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800,ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh10	пул 920	остаётся 894	/data/tk216/gate1c/out/g10n12q90-2026-01/closes.json
+g10n4q50-2026-01	ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800,ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-pyfresh10	пул 920	остаётся 306	/data/tk216/gate1c/out/g10n4q50-2026-01/closes.json
+GATE t-bid-btc4h-q1 2 вариантов РАЗНЫ
+GATE g87-fresh 2 вариантов РАЗНЫ
+GATE g10n12q90-2026-01 2 вариантов РАЗНЫ
+GATE g10n4q50-2026-01 2 вариантов РАЗНЫ
+e106-pop runner closes: False
+approaches-header-r1: 
+ПРИМЕЧАНИЕ: строки GATE выше РАЗНЫ — артефакт скрипта (ключи вариантов pool@… против <набор>@…); значения closes по вариантам сверены отдельно: 4/4 набора × 2 варианта РАВНЫ. e106-pop: пуст у раннера и у прямого (в кэше подходов нет колонки born_shift → порог не выполним).
