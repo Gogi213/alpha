@@ -342,7 +342,7 @@ function groupsOut(){var g=[];shown().forEach(function(h){if(!V(h)||!run[h.id].s
  g.push({hyps:[h.id],months:[...run[h.id]].sort(function(a,b){return a-b}).map(function(m){return MON[m]}),axes:ax})});return g}
 function idle(){var sh=shown(),X=0,Q=0,O=0;sh.forEach(function(h){for(var m=0;m<MON.length;m++){var k=cnt(h,m);X+=k.x;Q+=k.q;if(st(h,m)==='o')O+=k.o}});
  if(!sh.length)return'Выберите гипотезы';if(X)return'Выберите клетки';
- if(O){var w=Object.keys(offWhy(sh));return'Вне формы: '+(w.length===1?w[0]:O+' хеш-мес.')+(Q?' · в очереди '+Q:'')}
+ if(O){var w=Object.keys(offWhy(sh));return'Вне формы: '+(w.length===1?w[0]:w.join(' · ')+' ('+O+' хеш-мес.)')+(Q?' · в очереди '+Q:'')}
  return Q?'Всё в очереди':'Всё уже посчитано'}
 function rCart(){var t=totals(),tot=t.a+t.s;
  el('bigN').textContent=t.a;el('legA').textContent=t.a;el('legS').textContent=t.s;

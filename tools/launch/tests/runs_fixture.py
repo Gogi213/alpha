@@ -46,8 +46,11 @@ def build(base):
     have = master.have_hashes()
     canon = next((r for r in rows if have.get(r["hash"])), rows[0])
     canon_m = sorted(have.get(canon["hash"], {"2026-02"}))[:1]
-    fresh = [r for r in rows if not have.get(r["hash"])][:2]
-    fresh3 = next(r for r in rows if not have.get(r["hash"]) and r["hyp"] not in {x["hyp"] for x in fresh})   # гипотеза без посчитанного — запрос в очереди даёт «N хеш-мес»
+    routes = launch.load_routes()
+    todo = [r for r in rows if "2026-02" not in have.get(r["hash"], ()) and routes.get(r["hash"], "cells") in launch.COUNTABLE]   # форма-считаемые без февраля: у «вне формы» плана к счёту ноль
+    fresh = todo[:2]
+    rest = [r for r in todo[2:]]
+    fresh3 = next((r for r in rest if r["hyp"] not in {x["hyp"] for x in fresh}), rest[0])   # другая гипотеза, если есть — запрос в очереди даёт «N хеш-мес»
     run_dir, req_dir = os.path.join(base, "out"), os.path.join(base, "req")
     os.makedirs(run_dir)
     os.makedirs(req_dir)

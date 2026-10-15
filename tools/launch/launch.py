@@ -31,14 +31,15 @@ def plan_rows(protocol="P-14", fraction=1):
 
 ROUTES_FILE = os.path.join(HERE, "routes.json")
 COUNTABLE = ("cells", "monthly")   # маршруты, которые кодирует --cells (прочее форма не ставит: посчитано вне Летописи / нет данных / нет кодировки / R1)
-OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata": "нет данных", "noline": "нет кодировки", "r1route": "маршрут R1"}   # причина «вне формы» словами для страницы
+OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata": "нет данных", "noline": "нет кодировки", "r1route": "маршрут R1",
+              "r1x": "клетки R1 есть, $ нет — нужен psim", "r1col": "не считали — данных нет"}   # причина «вне формы» словами для страницы (TK-247: «посчитано» — только где считали)
 OFF_ROUTES = list(OFF_LABELS)   # код в coverage(): 0 — форма считает, i+1 — OFF_ROUTES[i]
 
 
 def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
     """Маршрут каждой клетки сетки по тем же master.LINES/OUTSIDE/R1COL/R1X/MONTHLY, что и master.plan (строки 592-612); пишет routes.json
     (нужна data/registry.sqlite этой машины — серверу достаточно готового файла). {routes:{хеш: маршрут}, lines:{хеш: «форма набор»},
-    monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}}; маршрут: cells | monthly | outside | nodata | noline | r1route."""
+    monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}}; маршрут: cells | monthly | outside | r1col | r1x | nodata | noline | r1route."""
     import master, cellhash as ch, cellhash_reg
     c = master.connect()
     grids, _ = master.build_grid(c, protocol, fraction, None, master.rules_of(c, protocol))
@@ -53,7 +54,11 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
                 continue
             if h in master.R1COL and master.R1COL[h] in master.R1_NODATA:
                 routes[h] = "nodata"
-            elif h in master.OUTSIDE or h in master.R1COL or h in master.R1X or master.r2b_covers(h, r2b):
+            elif h in master.R1COL:
+                routes[h] = "r1col"
+            elif h in master.R1X:
+                routes[h] = "r1x"
+            elif h in master.OUTSIDE or master.r2b_covers(h, r2b):
                 routes[h] = "outside"
             elif h in master.MONTHLY:
                 routes[h] = "monthly"
@@ -231,7 +236,7 @@ def validate_groups(groups, cfg=None, rows=None):
 def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, queued=None):
     """Сухой прогон в единицах хеш×месяц (В-224). axes: {param: [значения]} — фильтр сетки (нет = все значения).
     К счёту — только клетки, которые кодирует --cells (routes: хеш -> маршрут; нет клетки в routes = кодируется); остальное — hm_off
-    (off_by по маршрутам: outside — посчитано вне Летописи, nodata — колонки нет в сигналах, noline — нет кодировки, r1route — маршрут R1).
+    (off_by по маршрутам: outside — посчитано вне Летописи, r1col — R1 не считали (данных нет), r1x — клетки R1 есть, $ нет, nodata — колонки нет в сигналах, noline — нет кодировки, r1route — маршрут R1).
     -> {grid, have, new, off, hm_*, cells:[{hyp,hash,axes,route,have_months,new_months}], axis_cov:{param:{value:[посчитано, всего]}}}"""
     cfg = cfg or load_config()
     if routes is None:

@@ -98,7 +98,7 @@ def test_submit_refuses_when_only_off_cells_left():
 def test_routes_file_covers_grid_and_known_routes():
     routes = launch.load_routes()
     assert {r["hash"] for r in launch.plan_rows()} <= set(routes)
-    assert set(routes.values()) <= {"cells", "monthly", "outside", "nodata", "noline", "r1route"}
+    assert set(routes.values()) <= {"cells", "monthly", "outside", "r1col", "r1x", "nodata", "noline", "r1route"}
 
 
 def test_prepare_plan_writes_per_month_cells_args_bin(tmp_path):
