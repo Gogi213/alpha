@@ -1,0 +1,12 @@
+hash,hyp,col,sign,keep_q,ctx_axis,ctx_q
+130f960171cf730e,Г-39,cancel_life_lots,lo,20,,
+2812028cfa454910,Г-39,cancel_life_lots,lo,33,,
+0b160dbd2d3be840,Г-39,cancel_life_lots,lo,50,,
+3acf8323bda3272d,Г-39,cancel_life_lots,lo,67,,
+950a0e4213a7c3ea,Г-39,cancel_life_lots,lo,80,,
+dc2c165d7d698540,Г-04,wall_add_max_lots,hi,50,,
+225754167680ff84,Г-78,best_move_1s_cbps,lo,50,pool1h,q3
+47f9688c9be78ae3,Г-55,tape_press_lots_30s,lo,67,btc1h,q2
+e47e91abff870cc6,Г-28,nz_levels15,hi,50,,
+cd0f634701b1a3fe,Г-60,trade_size_p50_15m,lo,50,,
+5b1aa4d113b495f6,Г-28,front_add_max_lots,hi,50,,
