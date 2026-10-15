@@ -10,6 +10,8 @@ import json
 import os
 import re
 
+import metrics
+
 CALC_MIN, PSIM_MIN = 690.0, 50.0   # TK-231: счёт 11–12 ч (середина), psim ≈ 50 мин — весь проход F1, 9 месяцев
 W_DAYS = CALC_MIN / (CALC_MIN + PSIM_MIN)
 W_PSIM = 1 - W_DAYS
@@ -140,3 +142,24 @@ def run_record(run, run_id, now, ps_job=None, request=None, in_canon=None, est_s
         return rec | {"s": "fail", "why": "задание не в очереди calc, итога нет (оборвано)", "pct": pct}
     left, src = eta(now, days[:2], psim, None, est_s)
     return rec | {"s": "queue", "pct": 0, "left_min": left, "src": src}
+
+
+def run_metrics(run):
+    """{хеш: hash_metrics} за месяцы ЭТОГО прогона: overlay.jsonl (хеш, месяц, ext.cell_line) × psim/closes-p14f1-cap0-<мес>.json (cap 0, как
+    pnl_usd Летописи). Читает только файлы прогона. Нет оверлея — {} (на странице прочерк)."""
+    try:
+        with open(os.path.join(run, "overlay.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(ln) for ln in f if ln.strip()]
+    except OSError:
+        return {}
+    closes, per = {}, {}
+    for r in rows:
+        ln = (r.get("ext") or {}).get("cell_line")
+        if not ln:
+            continue
+        form, _, st = ln.partition(" ")   # как postload.build: вариант closes = «состояние@форма»
+        m = r["month"]
+        if m not in closes:
+            closes[m] = _json(os.path.join(run, "psim", f"closes-p14f1-cap0-{m}.json")) or {}
+        per.setdefault(r["cell_id"], {})[m] = closes[m].get(f"{st}@{form}", {}).get(m, {}).get("0", [])
+    return {h: metrics.hash_metrics(t) for h, t in per.items()}

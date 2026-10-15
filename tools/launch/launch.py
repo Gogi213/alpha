@@ -678,6 +678,69 @@ def status(cfg=None, run_cmd=subprocess.run):
             "pending": len(pending_requests(cfg))}
 
 
+_canon_runs = {}
+
+
+def canon_run_ids():
+    """run_id строк results Летописи (канон; кэш по mtime снимка): прогон формы «в Летописи», когда CEO перенёс его оверлей (load-results)."""
+    path = os.path.join(REG, "results.jsonl")
+    try:
+        stamp = os.stat(path).st_mtime_ns
+    except OSError:
+        return set()
+    if _canon_runs.get("stamp") != stamp:
+        ids = set()
+        for line in open(path, encoding="utf-8"):
+            i = line.find('"run_id": "')
+            if i >= 0:
+                ids.add(line[i + 11:line.index('"', i + 11)])
+        _canon_runs.update(stamp=stamp, ids=ids)
+    return _canon_runs["ids"]
+
+
+def runs_view(cfg=None, ps_text="", now=None):
+    """Вкладка «Прогоны»: запросы (ещё не взяты юнитом) + каталоги <run_dir>/L-*; свежие сверху. ps_text — вывод `alsched ps` (status()["text"])."""
+    import metrics, runs
+    cfg = cfg or load_config()
+    now = time.time() if now is None else now
+    ps = runs.parse_ps(ps_text)
+    by_name = {j["name"]: j for j in ps["jobs"]}
+    ids = {}
+    try:
+        for nm in os.listdir(cfg["run_dir"]):
+            if REQ_RE.match(nm + ".json"):
+                ids[nm] = None
+    except OSError:
+        pass
+    for fn in pending_requests(cfg):
+        try:
+            ids.setdefault(fn[:-5], json.load(open(os.path.join(cfg["request_dir"], fn), encoding="utf-8")))
+        except (OSError, ValueError):
+            ids.setdefault(fn[:-5], {})
+    canon = canon_run_ids()
+    hyp_of = {r["hash"]: r for r in plan_rows(cfg["protocol"], cfg["fraction"])} if ids else {}
+    out = []
+    for rid in sorted(ids, reverse=True):
+        d = posixpath.join(cfg["run_dir"], rid)
+        rec = runs.run_record(d, rid, now, by_name.get(rid), ids[rid], rid in canon, cfg["queue"]["est"])
+        met = runs.run_metrics(d) if rec["s"] in ("wait", "done") else {}
+        meta = runs._json(os.path.join(d, "run.json")) or {}
+        per_hyp = {}
+        for h, ms in (meta.get("new_hm") or {}).items():
+            per_hyp.setdefault(hyp_of.get(h, {}).get("hyp", "?"), []).append((h, len(ms)))
+        rec["what"] = []
+        for hyp, hs in sorted(per_hyp.items()):
+            best_h, best = metrics.best_by_sharpe({h: met.get(h) for h, _ in hs})
+            rec["what"].append({"hyp": hyp, "hm": sum(n for _, n in hs), "best": None if not best else {
+                "axes": hyp_of.get(best_h, {}).get("axes"), "hash": best_h, **{k: best[k] for k in ("pnl", "sharpe", "winrate", "overhigh_d", "tail_d", "worst_d", "n", "months")}}})
+        rec["best"] = max((w["best"] for w in rec["what"] if w["best"]), key=lambda b: b["sharpe"], default=None)
+        out.append(rec)
+    foreign = [{"name": j["name"], "cores": j["cores"], "state": j["state"], "age_min": j["age_min"]} for j in runs.foreign_jobs(ps, set(ids))]
+    return {"runs": out, "foreign": foreign, "cores": {"busy": ps["busy"], "total": ps["total"]}, "bin": bin_info(cfg).get("md5"),
+            "weights": {"days": round(runs.W_DAYS, 3), "psim": round(runs.W_PSIM, 3), "src": "проход F1 П-14, TK-231: счёт ≈ 11,5 ч, psim ≈ 50 мин"},
+            "metrics_note": "метрики — cap 0 (без потолка позиций), $ с нуля без депозита, по месяцам этого прогона"}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sp = ap.add_subparsers(dest="cmd", required=True)

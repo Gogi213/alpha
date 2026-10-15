@@ -89,6 +89,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception as e:
                     st = {"text": f"calc недоступен: {e}", "busy": 0, "warn": False}
                 return self._send(200, st | {"runs": launch.recent_runs()})
+            if path == "/api/runs":   # «Прогоны»: файлы конкретных прогонов + alsched ps; без обходов /data
+                try:
+                    txt = launch.status()["text"]
+                except Exception as e:
+                    txt = ""
+                    note = f"calc недоступен: {e}"
+                else:
+                    note = None
+                return self._send(200, launch.runs_view(ps_text=txt) | {"ps_error": note})
             return self._send(404, {"error": "not found"})
         except Exception as e:
             return self._send(500, {"error": str(e)})

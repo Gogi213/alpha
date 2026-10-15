@@ -69,3 +69,22 @@ def test_five_statuses(tmp_path):
 def test_eta_before_first_day_uses_request_estimate():
     left, src = runs.eta(NOW, (0, 251), (0, 9), None, 45000, 30.0)
     assert (left, src) == (720, "оценка заявки (назначено, не измерено)")
+
+
+def test_run_metrics_and_view(tmp_path):
+    import launch
+    a = 1769904000000   # 2026-02-01 UTC
+    h = "0123456789abcdef"
+    d = mk(tmp_path, "L-20261015-000001", new_hm={h: ["2026-02"]},
+           overlay__jsonl=json.dumps({"cell_id": h, "month": "2026-02", "ext": {"cell_line": "t-form state-x"}}) + "\n")
+    (tmp_path / "L-20261015-000001" / "psim").mkdir()
+    (tmp_path / "L-20261015-000001" / "psim" / "psim-p14f1.done").write_text("")
+    tr = [[a + 3600000, 10.0, "BTC"], [a + 86400000 + 3600000, -4.0, "ETH"]]
+    (tmp_path / "L-20261015-000001" / "psim" / "closes-p14f1-cap0-2026-02.json").write_text(json.dumps({"state-x@t-form": {"2026-02": {"0": tr}}}))
+    m = runs.run_metrics(d)[h]
+    assert (m["n"], m["pnl"], m["winrate"]) == (2, 6.0, 0.5)
+    cfg = launch.load_config() | {"run_dir": str(tmp_path), "request_dir": str(tmp_path / "req")}
+    v = launch.runs_view(cfg, PS, NOW)
+    r = next(x for x in v["runs"] if x["id"] == "L-20261015-000001")
+    assert r["s"] == "wait" and r["pct"] == 100 and r["what"][0]["hm"] == 1 and v["cores"] == {"busy": 15, "total": 16}
+    assert [f["name"] for f in v["foreign"]] == ["L-20261015-014502", "L-20261015-022210", "tk231-psim"]   # прогонов этих в run_dir нет — для страницы они «чужие»
