@@ -15,6 +15,7 @@ def main():
     ap.add_argument("--page")
     ap.add_argument("--url")
     ap.add_argument("--n", type=int, default=5)
+    ap.add_argument("--wait", type=int, default=300, help="пауза между показом списка и кликом, мс (человек кликает позже 1 с)")
     o = ap.parse_args()
     url = o.url
     if not url:
@@ -26,7 +27,7 @@ def main():
         s = server.make_server(0)
         threading.Thread(target=s.serve_forever, daemon=True).start()
         url = f"http://127.0.0.1:{s.server_address[1]}/"
-    first, full, boot = [], [], []
+    first, full, boot, again = [], [], [], []
     with sync_playwright() as p:
         b = p.chromium.launch()
         for _ in range(o.n):
@@ -35,7 +36,12 @@ def main():
             pg.goto(url)
             pg.wait_for_selector(".hrow")
             boot.append((time.perf_counter() - t0) * 1000)
-            pg.wait_for_timeout(300)
+            pg.wait_for_timeout(o.wait)
+            t1 = time.perf_counter()   # повторно: перезагрузка в том же контексте (ETag → 304)
+            pg.reload()
+            pg.wait_for_selector(".hrow")
+            again.append((time.perf_counter() - t1) * 1000)
+            pg.wait_for_timeout(o.wait)
             r = pg.evaluate("""() => new Promise(res => {
               const t0 = performance.now(), lt = document.getElementById('lt'); let first = null;
               document.getElementById('t-let').click();
@@ -53,6 +59,7 @@ def main():
         b.close()
     f = lambda a: f"медиана {statistics.median(a):.0f} мс (min {min(a):.0f}, max {max(a):.0f})"
     print(f"страница → список гипотез: {f(boot)}\nклик «Летопись» → первые строки: {f(first)}\nклик → все строки ({rows}): {f(full)}")
+    print(f"повторно (reload, 304): {f(again)}")
 
 
 if __name__ == "__main__":
