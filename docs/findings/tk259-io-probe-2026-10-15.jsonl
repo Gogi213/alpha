@@ -1,0 +1,93 @@
+{"exp": "meta", "cell": "unit", "rep": 0, "D": "2026-01-15", "k": 0, "G": 8, "syms": 12, "MB": {"csv": 23.3, "abin": 4.2, "ev": 442.6, "csv_ab": 23.3}, "reps": 5, "ra_kb": {"sda": 65536, "sdb": 65536}, "mem_avail_MB": 48546}
+{"exp": 1, "cell": "cold_hdd", "rep": 0, "wall_s": 4.398, "MB": 465.9, "MBps": 105.9, "cpu_s": 0.48, "sda_MB": 466.1, "sda_busy_pct": 92.2, "sdb_MB": 0.2, "sdb_busy_pct": 4.4}
+{"exp": 1, "cell": "warm_cache", "rep": 0, "wall_s": 0.142, "MB": 465.9, "MBps": 3270.7, "cpu_s": 0.142, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 1, "cell": "cold_hdd", "rep": 1, "wall_s": 3.942, "MB": 465.9, "MBps": 118.2, "cpu_s": 0.529, "sda_MB": 465.8, "sda_busy_pct": 94.0, "sdb_MB": 0.2, "sdb_busy_pct": 2.5}
+{"exp": 1, "cell": "warm_cache", "rep": 1, "wall_s": 0.111, "MB": 465.9, "MBps": 4200.3, "cpu_s": 0.111, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 1, "cell": "cold_hdd", "rep": 2, "wall_s": 4.259, "MB": 465.9, "MBps": 109.4, "cpu_s": 0.408, "sda_MB": 465.8, "sda_busy_pct": 91.0, "sdb_MB": 0.2, "sdb_busy_pct": 4.8}
+{"exp": 1, "cell": "warm_cache", "rep": 2, "wall_s": 0.144, "MB": 465.9, "MBps": 3243.8, "cpu_s": 0.144, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 1, "cell": "cold_hdd", "rep": 3, "wall_s": 3.968, "MB": 465.9, "MBps": 117.4, "cpu_s": 0.526, "sda_MB": 465.8, "sda_busy_pct": 95.2, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 1, "cell": "warm_cache", "rep": 3, "wall_s": 0.108, "MB": 465.9, "MBps": 4307.3, "cpu_s": 0.108, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 1, "cell": "cold_hdd", "rep": 4, "wall_s": 3.986, "MB": 465.9, "MBps": 116.9, "cpu_s": 0.533, "sda_MB": 465.8, "sda_busy_pct": 94.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.0}
+{"exp": 1, "cell": "warm_cache", "rep": 4, "wall_s": 0.108, "MB": 465.9, "MBps": 4321.3, "cpu_s": 0.108, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 2, "cell": "copy_to_shm_cold", "rep": 0, "wall_s": 3.914, "MB": 465.9}
+{"exp": 2, "cell": "tmpfs", "rep": 0, "wall_s": 0.14, "MB": 465.9, "MBps": 3333.7, "cpu_s": 0.14, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 2, "cell": "tmpfs", "rep": 1, "wall_s": 0.105, "MB": 465.9, "MBps": 4445.8, "cpu_s": 0.105, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 2, "cell": "tmpfs", "rep": 2, "wall_s": 0.106, "MB": 465.9, "MBps": 4395.7, "cpu_s": 0.106, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 2, "cell": "tmpfs", "rep": 3, "wall_s": 0.105, "MB": 465.9, "MBps": 4445.3, "cpu_s": 0.105, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 2, "cell": "tmpfs", "rep": 4, "wall_s": 0.104, "MB": 465.9, "MBps": 4495.5, "cpu_s": 0.104, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 3, "cell": "random_P1_ra65536", "rep": 0, "wall_s": 4.688, "MB": 465.9, "MBps": 99.4, "cpu_s": 0.498, "sda_MB": 465.8, "sda_busy_pct": 94.4, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 3, "cell": "random_P1_ra65536", "rep": 1, "wall_s": 4.384, "MB": 465.9, "MBps": 106.3, "cpu_s": 0.418, "sda_MB": 465.8, "sda_busy_pct": 95.6, "sdb_MB": 0.2, "sdb_busy_pct": 0.0}
+{"exp": 3, "cell": "random_P1_ra65536", "rep": 2, "wall_s": 4.116, "MB": 465.9, "MBps": 113.2, "cpu_s": 0.489, "sda_MB": 465.8, "sda_busy_pct": 94.6, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 3, "cell": "random_P1_ra65536", "rep": 3, "wall_s": 4.237, "MB": 465.9, "MBps": 110.0, "cpu_s": 0.529, "sda_MB": 465.8, "sda_busy_pct": 94.1, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 3, "cell": "random_P1_ra65536", "rep": 4, "wall_s": 4.237, "MB": 465.9, "MBps": 109.9, "cpu_s": 0.51, "sda_MB": 465.8, "sda_busy_pct": 94.9, "sdb_MB": 0.2, "sdb_busy_pct": 1.0}
+{"exp": 3, "cell": "random_P8_ra65536", "rep": 0, "wall_s": 4.519, "MB": 465.9, "MBps": 103.1, "cpu_s": 0.441, "sda_MB": 465.8, "sda_busy_pct": 94.2, "sdb_MB": 0.2, "sdb_busy_pct": 1.7}
+{"exp": 3, "cell": "random_P8_ra65536", "rep": 1, "wall_s": 4.504, "MB": 465.9, "MBps": 103.4, "cpu_s": 0.458, "sda_MB": 465.8, "sda_busy_pct": 95.7, "sdb_MB": 0.2, "sdb_busy_pct": 1.5}
+{"exp": 3, "cell": "random_P8_ra65536", "rep": 2, "wall_s": 4.368, "MB": 465.9, "MBps": 106.7, "cpu_s": 0.44, "sda_MB": 465.8, "sda_busy_pct": 96.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 3, "cell": "random_P8_ra65536", "rep": 3, "wall_s": 4.845, "MB": 465.9, "MBps": 96.2, "cpu_s": 0.468, "sda_MB": 465.8, "sda_busy_pct": 95.4, "sdb_MB": 0.2, "sdb_busy_pct": 1.0}
+{"exp": 3, "cell": "random_P8_ra65536", "rep": 4, "wall_s": 4.639, "MB": 465.9, "MBps": 100.4, "cpu_s": 0.464, "sda_MB": 465.8, "sda_busy_pct": 95.2, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 3, "cell": "physical_P1_ra65536", "rep": 0, "wall_s": 3.885, "MB": 465.9, "MBps": 119.9, "cpu_s": 0.477, "sda_MB": 465.8, "sda_busy_pct": 94.1, "sdb_MB": 0.2, "sdb_busy_pct": 0.0}
+{"exp": 3, "cell": "physical_P1_ra65536", "rep": 1, "wall_s": 4.004, "MB": 465.9, "MBps": 116.4, "cpu_s": 0.491, "sda_MB": 465.8, "sda_busy_pct": 93.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.4}
+{"exp": 3, "cell": "physical_P1_ra65536", "rep": 2, "wall_s": 3.938, "MB": 465.9, "MBps": 118.3, "cpu_s": 0.53, "sda_MB": 465.8, "sda_busy_pct": 94.7, "sdb_MB": 0.2, "sdb_busy_pct": 1.3}
+{"exp": 3, "cell": "physical_P1_ra65536", "rep": 3, "wall_s": 3.929, "MB": 465.9, "MBps": 118.6, "cpu_s": 0.526, "sda_MB": 465.8, "sda_busy_pct": 93.4, "sdb_MB": 0.2, "sdb_busy_pct": 1.4}
+{"exp": 3, "cell": "physical_P1_ra65536", "rep": 4, "wall_s": 4.008, "MB": 465.9, "MBps": 116.2, "cpu_s": 0.538, "sda_MB": 465.8, "sda_busy_pct": 94.4, "sdb_MB": 0.2, "sdb_busy_pct": 1.3}
+{"exp": 3, "cell": "physical_P8_ra65536", "rep": 0, "wall_s": 4.47, "MB": 465.9, "MBps": 104.2, "cpu_s": 0.486, "sda_MB": 465.8, "sda_busy_pct": 95.2, "sdb_MB": 0.2, "sdb_busy_pct": 0.0}
+{"exp": 3, "cell": "physical_P8_ra65536", "rep": 1, "wall_s": 4.41, "MB": 465.9, "MBps": 105.6, "cpu_s": 0.463, "sda_MB": 465.8, "sda_busy_pct": 96.0, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 3, "cell": "physical_P8_ra65536", "rep": 2, "wall_s": 4.543, "MB": 465.9, "MBps": 102.6, "cpu_s": 0.467, "sda_MB": 465.8, "sda_busy_pct": 95.6, "sdb_MB": 0.2, "sdb_busy_pct": 1.0}
+{"exp": 3, "cell": "physical_P8_ra65536", "rep": 3, "wall_s": 4.122, "MB": 465.9, "MBps": 113.0, "cpu_s": 0.414, "sda_MB": 465.8, "sda_busy_pct": 94.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.3}
+{"exp": 3, "cell": "physical_P8_ra65536", "rep": 4, "wall_s": 4.662, "MB": 465.9, "MBps": 99.9, "cpu_s": 0.468, "sda_MB": 465.8, "sda_busy_pct": 95.9, "sdb_MB": 0.2, "sdb_busy_pct": 5.2}
+{"exp": 3, "cell": "random_P1_ra128", "rep": 0, "wall_s": 4.062, "MB": 465.9, "MBps": 114.7, "cpu_s": 0.557, "sda_MB": 465.8, "sda_busy_pct": 87.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 3, "cell": "random_P1_ra128", "rep": 1, "wall_s": 3.807, "MB": 465.9, "MBps": 122.4, "cpu_s": 0.567, "sda_MB": 465.8, "sda_busy_pct": 86.5, "sdb_MB": 0.2, "sdb_busy_pct": 1.3}
+{"exp": 3, "cell": "random_P1_ra128", "rep": 2, "wall_s": 3.806, "MB": 465.9, "MBps": 122.4, "cpu_s": 0.557, "sda_MB": 465.8, "sda_busy_pct": 87.4, "sdb_MB": 0.2, "sdb_busy_pct": 0.1}
+{"exp": 3, "cell": "random_P1_ra128", "rep": 3, "wall_s": 3.818, "MB": 465.9, "MBps": 122.0, "cpu_s": 0.556, "sda_MB": 465.8, "sda_busy_pct": 86.4, "sdb_MB": 0.2, "sdb_busy_pct": 1.0}
+{"exp": 3, "cell": "random_P1_ra128", "rep": 4, "wall_s": 3.82, "MB": 465.9, "MBps": 122.0, "cpu_s": 0.555, "sda_MB": 465.8, "sda_busy_pct": 86.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 3, "cell": "random_P8_ra128", "rep": 0, "wall_s": 5.201, "MB": 465.9, "MBps": 89.6, "cpu_s": 0.505, "sda_MB": 465.8, "sda_busy_pct": 90.7, "sdb_MB": 0.2, "sdb_busy_pct": 2.5}
+{"exp": 3, "cell": "random_P8_ra128", "rep": 1, "wall_s": 4.665, "MB": 465.9, "MBps": 99.9, "cpu_s": 0.506, "sda_MB": 465.8, "sda_busy_pct": 89.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 3, "cell": "random_P8_ra128", "rep": 2, "wall_s": 5.254, "MB": 465.9, "MBps": 88.7, "cpu_s": 0.51, "sda_MB": 465.8, "sda_busy_pct": 90.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 3, "cell": "random_P8_ra128", "rep": 3, "wall_s": 4.833, "MB": 465.9, "MBps": 96.4, "cpu_s": 0.529, "sda_MB": 465.8, "sda_busy_pct": 90.1, "sdb_MB": 0.2, "sdb_busy_pct": 0.9}
+{"exp": 3, "cell": "random_P8_ra128", "rep": 4, "wall_s": 4.903, "MB": 465.9, "MBps": 95.0, "cpu_s": 0.516, "sda_MB": 465.8, "sda_busy_pct": 89.3, "sdb_MB": 0.2, "sdb_busy_pct": 1.0}
+{"exp": 3, "cell": "physical_P1_ra128", "rep": 0, "wall_s": 4.148, "MB": 465.9, "MBps": 112.3, "cpu_s": 0.55, "sda_MB": 465.8, "sda_busy_pct": 88.1, "sdb_MB": 0.2, "sdb_busy_pct": 1.2}
+{"exp": 3, "cell": "physical_P1_ra128", "rep": 1, "wall_s": 4.056, "MB": 465.9, "MBps": 114.9, "cpu_s": 0.506, "sda_MB": 465.8, "sda_busy_pct": 88.5, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 3, "cell": "physical_P1_ra128", "rep": 2, "wall_s": 3.674, "MB": 465.9, "MBps": 126.8, "cpu_s": 0.561, "sda_MB": 465.8, "sda_busy_pct": 85.4, "sdb_MB": 0.2, "sdb_busy_pct": 0.0}
+{"exp": 3, "cell": "physical_P1_ra128", "rep": 3, "wall_s": 3.936, "MB": 465.9, "MBps": 118.4, "cpu_s": 0.504, "sda_MB": 465.8, "sda_busy_pct": 85.5, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 3, "cell": "physical_P1_ra128", "rep": 4, "wall_s": 3.908, "MB": 465.9, "MBps": 119.2, "cpu_s": 0.548, "sda_MB": 465.8, "sda_busy_pct": 85.9, "sdb_MB": 0.2, "sdb_busy_pct": 1.9}
+{"exp": 3, "cell": "physical_P8_ra128", "rep": 0, "wall_s": 5.478, "MB": 465.9, "MBps": 85.1, "cpu_s": 0.522, "sda_MB": 465.8, "sda_busy_pct": 90.5, "sdb_MB": 0.2, "sdb_busy_pct": 3.4}
+{"exp": 3, "cell": "physical_P8_ra128", "rep": 1, "wall_s": 4.9, "MB": 465.9, "MBps": 95.1, "cpu_s": 0.518, "sda_MB": 465.8, "sda_busy_pct": 89.0, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 3, "cell": "physical_P8_ra128", "rep": 2, "wall_s": 5.217, "MB": 465.9, "MBps": 89.3, "cpu_s": 0.493, "sda_MB": 465.8, "sda_busy_pct": 90.2, "sdb_MB": 0.2, "sdb_busy_pct": 2.6}
+{"exp": 3, "cell": "physical_P8_ra128", "rep": 3, "wall_s": 5.918, "MB": 465.9, "MBps": 78.7, "cpu_s": 0.52, "sda_MB": 465.8, "sda_busy_pct": 91.0, "sdb_MB": 0.2, "sdb_busy_pct": 1.0}
+{"exp": 3, "cell": "physical_P8_ra128", "rep": 4, "wall_s": 5.612, "MB": 465.9, "MBps": 83.0, "cpu_s": 0.52, "sda_MB": 465.8, "sda_busy_pct": 91.7, "sdb_MB": 0.2, "sdb_busy_pct": 1.1}
+{"exp": 4, "cell": "shared_cache_x8", "rep": 0, "wall_s": 4.727, "cpu_s": 1.205, "sda_MB": 465.8, "sdb_MB": 0.2, "first_s": 4.059, "next_avg_s": 0.095}
+{"exp": 4, "cell": "shared_cache_x8", "rep": 1, "wall_s": 4.683, "cpu_s": 1.206, "sda_MB": 465.8, "sdb_MB": 0.2, "first_s": 4.011, "next_avg_s": 0.096}
+{"exp": 4, "cell": "shared_cache_x8", "rep": 2, "wall_s": 4.571, "cpu_s": 1.213, "sda_MB": 465.8, "sdb_MB": 0.2, "first_s": 3.899, "next_avg_s": 0.096}
+{"exp": 4, "cell": "shared_cache_x8", "rep": 3, "wall_s": 4.401, "cpu_s": 1.219, "sda_MB": 465.8, "sdb_MB": 0.2, "first_s": 3.73, "next_avg_s": 0.096}
+{"exp": 4, "cell": "shared_cache_x8", "rep": 4, "wall_s": 4.406, "cpu_s": 1.211, "sda_MB": 465.8, "sdb_MB": 0.2, "first_s": 3.731, "next_avg_s": 0.096}
+{"exp": 4, "cell": "no_cache_x8", "rep": 0, "wall_s": 31.739, "cpu_s": 4.134, "sda_MB": 3726.4, "sdb_MB": 1.6}
+{"exp": 4, "cell": "no_cache_x8", "rep": 1, "wall_s": 32.266, "cpu_s": 4.0, "sda_MB": 3726.4, "sdb_MB": 1.6}
+{"exp": 4, "cell": "no_cache_x8", "rep": 2, "wall_s": 32.681, "cpu_s": 4.151, "sda_MB": 3726.4, "sdb_MB": 1.6}
+{"exp": 4, "cell": "no_cache_x8", "rep": 3, "wall_s": 32.582, "cpu_s": 4.334, "sda_MB": 3726.4, "sdb_MB": 1.6}
+{"exp": 4, "cell": "no_cache_x8", "rep": 4, "wall_s": 31.799, "cpu_s": 4.363, "sda_MB": 3726.4, "sdb_MB": 1.6}
+{"exp": 4, "cell": "tmpfs_x8", "rep": 0, "wall_s": 0.731, "cpu_s": 0.731}
+{"exp": 4, "cell": "tmpfs_x8", "rep": 1, "wall_s": 0.71, "cpu_s": 0.71}
+{"exp": 4, "cell": "tmpfs_x8", "rep": 2, "wall_s": 0.719, "cpu_s": 0.719}
+{"exp": 4, "cell": "tmpfs_x8", "rep": 3, "wall_s": 0.708, "cpu_s": 0.708}
+{"exp": 4, "cell": "tmpfs_x8", "rep": 4, "wall_s": 0.708, "cpu_s": 0.708}
+{"exp": 5, "cell": "csv_cold_hdd", "rep": 0, "wall_s": 0.411, "MB": 23.3, "MBps": 56.9, "cpu_s": 0.027, "sda_MB": 23.2, "sda_busy_pct": 94.5, "sdb_MB": 0.1, "sdb_busy_pct": 1.0}
+{"exp": 5, "cell": "csv_cold_hdd", "rep": 1, "wall_s": 0.385, "MB": 23.3, "MBps": 60.6, "cpu_s": 0.035, "sda_MB": 23.2, "sda_busy_pct": 93.4, "sdb_MB": 0.1, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_cold_hdd", "rep": 2, "wall_s": 0.396, "MB": 23.3, "MBps": 58.9, "cpu_s": 0.033, "sda_MB": 23.2, "sda_busy_pct": 90.8, "sdb_MB": 0.1, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_cold_hdd", "rep": 3, "wall_s": 0.375, "MB": 23.3, "MBps": 62.3, "cpu_s": 0.035, "sda_MB": 23.2, "sda_busy_pct": 92.8, "sdb_MB": 0.1, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_cold_hdd", "rep": 4, "wall_s": 0.317, "MB": 23.3, "MBps": 73.7, "cpu_s": 0.034, "sda_MB": 23.2, "sda_busy_pct": 89.7, "sdb_MB": 0.1, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_tmpfs", "rep": 0, "wall_s": 0.011, "MB": 23.3, "MBps": 2099.7, "cpu_s": 0.011, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_tmpfs", "rep": 1, "wall_s": 0.011, "MB": 23.3, "MBps": 2079.2, "cpu_s": 0.011, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_tmpfs", "rep": 2, "wall_s": 0.011, "MB": 23.3, "MBps": 2192.8, "cpu_s": 0.011, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_tmpfs", "rep": 3, "wall_s": 0.009, "MB": 23.3, "MBps": 2463.2, "cpu_s": 0.009, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "csv_tmpfs", "rep": 4, "wall_s": 0.009, "MB": 23.3, "MBps": 2548.5, "cpu_s": 0.009, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "abin_cold_hdd", "rep": 0, "wall_s": 0.217, "MB": 4.2, "MBps": 19.4, "cpu_s": 0.008, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 4.2, "sdb_busy_pct": 94.1}
+{"exp": 5, "cell": "abin_cold_hdd", "rep": 1, "wall_s": 0.042, "MB": 4.2, "MBps": 100.8, "cpu_s": 0.006, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 4.2, "sdb_busy_pct": 86.5}
+{"exp": 5, "cell": "abin_cold_hdd", "rep": 2, "wall_s": 0.188, "MB": 4.2, "MBps": 22.4, "cpu_s": 0.007, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 4.2, "sdb_busy_pct": 98.1}
+{"exp": 5, "cell": "abin_cold_hdd", "rep": 3, "wall_s": 0.014, "MB": 4.2, "MBps": 289.7, "cpu_s": 0.005, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 4.2, "sdb_busy_pct": 82.8}
+{"exp": 5, "cell": "abin_cold_hdd", "rep": 4, "wall_s": 0.014, "MB": 4.2, "MBps": 310.4, "cpu_s": 0.004, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 4.2, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "abin_tmpfs", "rep": 0, "wall_s": 0.001, "MB": 4.2, "MBps": 2888.0, "cpu_s": 0.001, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "abin_tmpfs", "rep": 1, "wall_s": 0.001, "MB": 4.2, "MBps": 3232.4, "cpu_s": 0.001, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "abin_tmpfs", "rep": 2, "wall_s": 0.001, "MB": 4.2, "MBps": 3289.3, "cpu_s": 0.001, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "abin_tmpfs", "rep": 3, "wall_s": 0.001, "MB": 4.2, "MBps": 3296.3, "cpu_s": 0.001, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": 5, "cell": "abin_tmpfs", "rep": 4, "wall_s": 0.001, "MB": 4.2, "MBps": 3326.6, "cpu_s": 0.001, "sda_MB": 0.0, "sda_busy_pct": 0.0, "sdb_MB": 0.0, "sdb_busy_pct": 0.0}
+{"exp": "meta", "cell": "cleanup", "rep": 0, "shm_left": false, "ra_kb": {"sda": 65536, "sdb": 65536}}
