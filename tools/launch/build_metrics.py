@@ -4,12 +4,16 @@
   build_metrics.py --out metrics.jsonl [--routes routes.json] [--months 2026-01,…] ИСТОЧНИК…
 ИСТОЧНИК = <каталог>/<шаблон с {m}> (месяц ГГГГ-ММ), по порядку приоритета; вариант хеша = «состояние@форма» из routes.json
 (lines / monthly, как postload.build). Хеш попадает в файл, только если вариант найден в источнике хотя бы за один месяц; на странице
-метрики показываются, когда найденные месяцы = месяцы с $ в Летописи и Σ$ closes сходится с pnl_usd канона (letopis(), launch.py)."""
+метрики показываются, когда найденные месяцы = месяцы с $ в Летописи и Σ$ closes сходится с pnl_usd канона (letopis(), launch.py).
+TK-258: --direct <шаблон с {mon}> (jan…sep, повторять) — closes R1 (psim p12-r1-psim.py): ключ файла = хеш клетки, B1 пропускается, месяц файла без
+хеша = 0 сделок (psim пишет только варианты со сделками; load_r1.py пишет такой месяц нулём) — по всем 9 месяцам; хеш уже взят из ИСТОЧНИКОВ — не трогается."""
 import argparse
 import glob
 import json
 import os
 import sys
+
+MON = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -21,9 +25,32 @@ def variant_key(line):
     return f"{st}@{form}"
 
 
+def direct_closes(patterns, months):
+    """--direct: [(шаблон с {mon})] -> ({хеш: {месяц: [[мс,$,…]…]}}, {хеш: {каталоги}}); хеш = ключ файла, cap 0, месяц без хеша в найденном файле = []."""
+    got, src_of = {}, {}
+    for pat in patterns:
+        d, _, name = pat.rpartition("/")
+        seen = {}   # хеш -> {месяц: сделки}
+        found = []
+        for m in months:
+            files = sorted(glob.glob(os.path.join(d, name.replace("{mon}", MON[int(m[5:]) - 1]))))
+            if not files:
+                continue
+            found.append(m)
+            for h, per in json.load(open(files[0], encoding="utf-8")).items():
+                if h != "B1":
+                    seen.setdefault(h, {})[m] = per.get(m, {}).get("0", [])
+        for h, mm in seen.items():
+            if h not in got:
+                got[h] = {m: mm.get(m, []) for m in found}
+                src_of.setdefault(h, set()).add(d)
+    return got, src_of
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("sources", nargs="+")
+    ap.add_argument("sources", nargs="*")
+    ap.add_argument("--direct", action="append", default=[])
     ap.add_argument("--out", required=True)
     ap.add_argument("--routes", default=os.path.join(HERE, "routes.json"))
     ap.add_argument("--months", default=None)
@@ -50,6 +77,11 @@ def main(argv=None):
                     got.setdefault(h, {})[m] = closes[k].get(m, {}).get("0", [])
                     src_of.setdefault(h, set()).add(d)
             del closes
+    dgot, dsrc = direct_closes(a.direct, months)
+    for h, mm in dgot.items():
+        if h not in got:
+            got[h] = mm
+            src_of[h] = dsrc[h]
     n = 0
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         for h in sorted(got):

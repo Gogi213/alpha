@@ -78,7 +78,7 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     check(f"[{tag}] поиск сужает список", len(pg.query_selector_all(".hrow")) < n_hyp)
     pg.fill("#q", "")
     pg.keyboard.press("Escape")
-    # гипотеза целиком вне формы (Г-147: нет кодировки клетки; TK-251: Г-147 (R1X) теперь «к счёту»): отдельное состояние с причиной, а не «не считали» и не «Всё уже посчитано»
+    # гипотеза целиком вне формы (Г-147: нет кодировки клетки; TK-251/257: остальные R1X загружены, у Г-147 остался один хеш без кодировки): отдельное состояние с причиной, а не «не считали» и не «Всё уже посчитано»
     for pid in pg.eval_on_selector_all(".hrow.pin", "e=>e.map(x=>x.dataset.h)"):
         pg.click(f"[data-pin='{pid}']")
     pg.click(".hrow[data-h='Г-147']")
@@ -95,26 +95,26 @@ def scenario(b, url, tag, size, scheme, shot_dir):
         pg.screenshot(path=os.path.join(shot_dir, f"{tag}-vne-formy.png"))
     pg.click("#noneSel")
     pg.click("[data-pin='Г-147']")
-    # TK-247: клетка частично «вне формы» (Г-117: R2-B и OUTSIDE) — зелёная «✓ +N вне»; TK-251: Г-39/Г-35 крайние q 5/10/90/95 теперь «к счёту» (маршрут r1), а не «вне формы»
-    for pid in ("Г-117",):
-        pg.click(f".hrow[data-h='{pid}']")
-        cells = pg.query_selector_all(f"#mx tr:has([data-row='{pid}']) .cell")
-        cl = [c.get_attribute("class") for c in cells]
-        tx = [c.inner_text() for c in cells]
-        check(f"[{tag}] {pid}: все клетки зелёные «✓ +N вне», жёлтых нет", cells and all(" f" in " " + c for c in cl) and all(t.startswith("✓") and "вне" in t for t in tx), f"{len(cells)} клеток, {tx[:1]}")
-        check(f"[{tag}] {pid}: в списке «9/9» зелёным, подсказка — «вне формы»", pg.inner_text(f".hrow[data-h='{pid}'] .hn") == "9/9" and "hn f" in pg.get_attribute(f".hrow[data-h='{pid}'] .hn", "class") and "вне формы" in cells[0].get_attribute("title"), pg.get_attribute(f".hrow[data-h='{pid}'] .hn", "class"))
+    # TK-247: клетка частично «вне формы» (Г-117: R2-B и OUTSIDE) — зелёная «✓ +N вне»; TK-252/257: R1 (Г-39/Г-35 крайние q 5/10/90/95) загружен в Летопись — клетки «посчитано», к счёту 0
+    pg.click(".hrow[data-h='Г-117']")
+    cells = pg.query_selector_all("#mx tr:has([data-row='Г-117']) .cell")
+    cl = [c.get_attribute("class") for c in cells]
+    tx = [c.inner_text() for c in cells]
+    check(f"[{tag}] Г-117: все клетки зелёные «✓ +N вне», жёлтых нет", cells and all(" f" in " " + c for c in cl) and all(t.startswith("✓") and "вне" in t for t in tx), f"{len(cells)} клеток, {tx[:1]}")
+    check(f"[{tag}] Г-117: в списке «9/9» зелёным, подсказка — «вне формы»", pg.inner_text(".hrow[data-h='Г-117'] .hn") == "9/9" and "hn f" in pg.get_attribute(".hrow[data-h='Г-117'] .hn", "class") and "вне формы" in cells[0].get_attribute("title"), pg.get_attribute(".hrow[data-h='Г-117'] .hn", "class"))
     for pid in ("Г-39", "Г-35"):
         pg.click(f".hrow[data-h='{pid}']")
-        tx = [c.inner_text().strip() for c in pg.query_selector_all(f"#mx tr:has([data-row='{pid}']) .cell")]
-        check(f"[{tag}] {pid}: крайние q 5/10/90/95 — «к счёту» (в каждом месяце посчитано 5 из 9 хешей), не «вне формы»", tx == ["5/9"] * 9, str(tx))
+        cs = pg.query_selector_all(f"#mx tr:has([data-row='{pid}']) .cell")
+        cl, tx = [c.get_attribute("class") for c in cs], [c.inner_text().strip() for c in cs]
+        check(f"[{tag}] {pid}: R1 загружен — все 9 клеток зелёные «✓», ни жёлтых «N/M», ни «вне»", len(cs) == 9 and all(" f" in " " + c for c in cl) and all(t.startswith("✓") and "/" not in t and "вне" not in t for t in tx), str(tx))
     pg.click("#mx tr:has([data-row='Г-117']) .cell >> nth=0")
     check(f"[{tag}] Г-117: клик по зелёной клетке — «всё посчитано · +N вне формы», не выбор", "всё посчитано" in pg.inner_text("#toast") and "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-117']) .cell.sel") is None, pg.inner_text("#toast"))
     pg.click("#allmiss")
     go = pg.inner_text("#go")
     want = launch.plan(["Г-39", "Г-35"], launch.load_config()["months"])["hm_new"]
-    check(f"[{tag}] Г-39/Г-35/Г-117: к счёту 4 крайних q × 9 мес. у двух гипотез = 72 (форма умеет считать R1), кнопка активна", want == 72 and pg.inner_text("#bigN") == "72" and "Всё уже посчитано" not in go and not pg.is_disabled("#go"), f"{pg.inner_text('#bigN')} · {go}")
+    check(f"[{tag}] Г-39/Г-35/Г-117: к счёту 0 (R1 в Летописи), кнопка «Всё уже посчитано» неактивна", want == 0 and pg.inner_text("#bigN") == "0" and "Всё уже посчитано" in go and pg.is_disabled("#go"), f"plan {want}; {pg.inner_text('#bigN')} · {go}")
     if shot_dir:
-        pg.screenshot(path=os.path.join(shot_dir, f"{tag}-chast-vne-formy.png"))
+        pg.screenshot(path=os.path.join(shot_dir, f"{tag}-r1-poschitan.png"))
     pg.click("#noneSel")
     # инвариант по всем гипотезам: жёлтая клетка — только если форма-считаемое осталось; «вне» — только если посчитанного нет
     while pg.query_selector("[data-gall]:text-is('добавить все')"):   # список перерисовывается после клика — кнопку берём заново
@@ -136,6 +136,8 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     pg.wait_for_selector("#lt tr .mc")
     rows = len(pg.query_selector_all("#lt tr")) - 1
     check(f"[{tag}] «Летопись»: таблица вариантов × месяцы", rows > 0, f"{rows} строк, {pg.inner_text('#lcnt')}")
+    sh = len(pg.query_selector_all("#lt tbody tr td:nth-last-child(6) .mv:not(.na)"))
+    check(f"[{tag}] «Летопись»: Шарп у ≥ 911 из 1146 строк (TK-258: +431 R1; у остальных — «—»)", sh >= 911 and pg.query_selector("#lt tbody tr td:nth-last-child(6) .mv.na") is not None, f"{sh} из {rows}")
     pg.click("#linc")
     inc_n, links = len(pg.query_selector_all("#lt tr")) - 1, len(pg.query_selector_all("#lt .link"))
     check(f"[{tag}] «Только неполные» оставляет строки, у части — «Досчитать →»", inc_n > 0 and 0 < links <= inc_n, f"{inc_n} строк, {links} ссылок")
