@@ -1,8 +1,8 @@
 #!/bin/bash
 # TK-261: одна волна января 01–15 (конфиг p177/TK-178: grp16q, PREFETCH=5, G=8, P=20) внутри окна alsched wave.
 # Подача (на calc): systemd-run --unit tk261-<метка> --collect python3 /data/sched/alsched.py wave --max-runtime 30m bash /data/tk0261/tk261-wave.sh <метка> [пре] [пост]
-# <пре>/<пост> — скрипты настройки ОС и её возврата; <пост> идёт всегда (trap). Снимки до/после → /data/tk0261/<метка>/; метрики волны → /data/tk048/orch-<метка>.out/metrics.txt
-lab=$1; pre=${2:-}; post=${3:-}; O=/data/tk0261/$lab; mkdir -p $O; exec > $O/run.log 2>&1
+# <4-й> — значение PREFETCH (умолч. 5). <пре>/<пост> — скрипты настройки ОС и её возврата; <пост> идёт всегда (trap). Снимки до/после → /data/tk0261/<метка>/; метрики волны → /data/tk048/orch-<метка>.out/metrics.txt
+lab=$1; pre=${2:-}; post=${3:-}; PFV=${4:-5}; O=/data/tk0261/$lab; mkdir -p $O; exec > $O/run.log 2>&1
 snap() { { echo "ts $(date +%s.%N)"; grep '^cpu ' /proc/stat; grep -E '^(thp_fault_alloc|thp_fault_fallback|compact_stall|compact_fail|pswpin|pswpout|pgmajfault|allocstall_movable) ' /proc/vmstat; grep -E '^(MemAvailable|Cached|Shmem|SwapFree):' /proc/meminfo; awk '$3=="sda"||$3=="sdb"{print $3,"rd_sect",$6,"io_ms",$13}' /proc/diskstats; } > $O/$1.txt; }
 trap '[ -z "$post" ] || bash $post; kill $FQ 2>/dev/null; date -Is > $O/done' EXIT
 [ -z "$pre" ] || bash $pre
@@ -11,7 +11,7 @@ snap before
 D=$(seq -s, -f "2026-01-%02g" 1 15)
 t0=$(date +%s)
 systemd-run --wait --collect --unit tk261w-$lab -p CPUQuota=1500% \
- --setenv=ALPHA_APPROACH_BIN_DIR=/data/tk048/abin-t46 --setenv=WARM_BG=1 --setenv=PREFETCH=5 --setenv=WARM_ABIN=1 --setenv=WARM_NOCSV=1 --setenv=PREWARM_SMALL=1 --setenv=EVENTS_WIDE=1 \
+ --setenv=ALPHA_APPROACH_BIN_DIR=/data/tk048/abin-t46 --setenv=WARM_BG=1 --setenv=PREFETCH=$PFV --setenv=WARM_ABIN=1 --setenv=WARM_NOCSV=1 --setenv=PREWARM_SMALL=1 --setenv=EVENTS_WIDE=1 \
  bash /data/tk048/tk048-orch-grp16q.sh t261$lab alpha-tk174b-pgo "$D" 8 20 > $O/orch.out 2>&1
 echo "wall_s $(( $(date +%s)-t0 ))" > $O/summary.txt
 snap after
