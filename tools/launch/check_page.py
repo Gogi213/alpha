@@ -68,6 +68,9 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     pg.click("#yes")
     pg.wait_for_function("document.querySelector('#toast').textContent.includes('Поставлено')")
     check(f"[{tag}] пробная постановка (dry_run)", "L-" in pg.inner_text("#toast"), pg.inner_text("#toast"))
+    pg.wait_for_selector("#v-prn:not([hidden])")
+    check(f"[{tag}] после «Да» страница открывает «Прогоны»", pg.get_attribute("#t-prn", "aria-selected") == "true")
+    pg.click("#t-run")
     # поиск и клавиатура
     pg.keyboard.press("/")
     check(f"[{tag}] «/» ставит фокус в поиск", pg.evaluate("document.activeElement.id") == "q")
@@ -119,6 +122,39 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     ctx.close()
 
 
+def scenario_runs(b, url, tag, size, scheme, shot_dir):
+    """TK-244: вкладка «Прогоны» на фикстурах всех пяти статусов (tests/runs_fixture.py)."""
+    ctx = b.new_context(viewport=size, color_scheme=scheme)
+    pg = ctx.new_page()
+    errs = []
+    pg.on("console", lambda m: errs.append(m.text) if m.type == "error" and "fonts.g" not in m.text and "ERR_" not in m.text else None)
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    pg.goto(url)
+    pg.wait_for_selector(".hrow")
+    pg.click("#t-prn")
+    pg.wait_for_selector("#pcards .pr")
+    chips = sorted(c.inner_text() for c in pg.query_selector_all("#pcards .chip"))
+    check(f"[{tag}] «Прогоны»: пять статусов", chips == sorted(["идёт", "в очереди", "ждёт Летопись", "в Летописи", "отказ"]), ", ".join(chips))
+    check(f"[{tag}] значок на ярлыке = идущие и ждущие", pg.inner_text("#tbadge") == "2", pg.inner_text("#tbadge"))
+    na = len(pg.query_selector_all("#pcards .mv.na"))
+    check(f"[{tag}] метрики: у посчитанных прогонов числа, у идущих/в очереди/отказа прочерк", na == 12, f"прочерков {na} из 20")
+    pg.click("#pcards .pr >> nth=0")
+    pg.wait_for_selector("#pcards .pdd")
+    check(f"[{tag}] клик раскрывает этапы и таблицу по гипотезам", pg.query_selector("#pcards .steps") is not None and pg.query_selector("#pcards .pht") is not None)
+    pg.click("#pseg [data-pf='fail']")
+    check(f"[{tag}] фильтр «Отказ»", len(pg.query_selector_all("#pcards .pr")) == 1 and "потолок 501" in pg.inner_text("#pcards"), pg.inner_text("#pcnt"))
+    pg.click("#pseg [data-pf='']")
+    check(f"[{tag}] «Другие задания на calc (не из формы)»", "tk231-psim" in pg.inner_text("#pforeign"))
+    if shot_dir:
+        pg.screenshot(path=os.path.join(shot_dir, f"{tag}-progony.png"), full_page=size["width"] <= 980)
+    if size["width"] > 980:
+        check(f"[{tag}] «Прогоны»: без горизонтального скролла", pg.evaluate("document.documentElement.scrollWidth<=innerWidth+1"))
+    else:
+        check(f"[{tag}] «Прогоны»: узкий экран — шапка таблицы скрыта", pg.evaluate("getComputedStyle(document.querySelector('.pr-h')).display") == "none")
+    check(f"[{tag}] «Прогоны»: консоль без ошибок", not errs, "; ".join(errs[:3]))
+    ctx.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--shot-dir")
@@ -134,6 +170,19 @@ def main():
         for tag, size, scheme in (("desktop-dark", {"width": 1440, "height": 900}, "dark"), ("desktop-light", {"width": 1440, "height": 900}, "light"),
                                   ("narrow-dark", {"width": 900, "height": 1200}, "dark"), ("narrow-light", {"width": 900, "height": 1200}, "light")):
             scenario(b, url, tag, size, scheme, o.shot_dir)
+        import tempfile
+        sys.path.insert(0, os.path.join(HERE, "tests"))
+        import runs_fixture
+        cfg0, st0 = launch.load_config, launch.status
+        cfg_fx, ps_fx = runs_fixture.build(os.path.join(tempfile.mkdtemp(), "fx"))
+        launch.load_config = lambda path=None: cfg_fx
+        launch.status = lambda cfg=None, run_cmd=None: {"text": ps_fx, "busy": 1, "warn": False, "errors": [], "pending": 1}
+        try:
+            for tag, size, scheme in (("desktop-dark", {"width": 1440, "height": 900}, "dark"), ("desktop-light", {"width": 1440, "height": 900}, "light"),
+                                      ("narrow-dark", {"width": 900, "height": 1200}, "dark"), ("narrow-light", {"width": 900, "height": 1200}, "light")):
+                scenario_runs(b, url, tag, size, scheme, o.shot_dir)
+        finally:
+            launch.load_config, launch.status = cfg0, st0
         b.close()
     srv.shutdown()
     return 0 if all(ok_all) else 1

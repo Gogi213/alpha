@@ -722,6 +722,8 @@ def runs_view(cfg=None, ps_text="", now=None):
             best_h, best = metrics.best_by_sharpe({h: met.get(h) for h, _ in hs})
             rec["what"].append({"hyp": hyp, "hm": sum(n for _, n in hs), "best": None if not best else {
                 "axes": hyp_of.get(best_h, {}).get("axes"), "hash": best_h, **{k: best[k] for k in ("pnl", "sharpe", "winrate", "overhigh_d", "tail_d", "worst_d", "n", "months")}}})
+        if not rec["what"]:   # запрос ещё не взят юнитом: хеш-мес неизвестны до плана юнита
+            rec["what"] = [{"hyp": h, "hm": None, "best": None} for h in rec["hyps"]]
         rec["best"] = max((w["best"] for w in rec["what"] if w["best"]), key=lambda b: b["sharpe"], default=None)
         out.append(rec)
     foreign = [{"name": j["name"], "cores": j["cores"], "state": j["state"], "age_min": j["age_min"]} for j in runs.foreign_jobs(ps, set(ids))]
