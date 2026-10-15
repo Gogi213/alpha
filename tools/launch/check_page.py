@@ -31,8 +31,8 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     check(f"[{tag}] список гипотез из реестра", n_hyp > 10, f"{n_hyp} строк")
     check(f"[{tag}] кольца семейств", len(pg.query_selector_all(".rb")) > 2)
     # выбрать гипотезу: строка → оси с отметками по месяцам
-    pg.click(".hrow[data-h='Г-141']")
-    check(f"[{tag}] оси выбранной гипотезы", "Г-141" in pg.inner_text("#axh") and len(pg.query_selector_all(".axis")) > 0 and len(pg.query_selector_all(".val .ticks i")) > 0)
+    pg.click(".hrow[data-h='Г-106']")
+    check(f"[{tag}] оси выбранной гипотезы", "Г-106" in pg.inner_text("#axh") and len(pg.query_selector_all(".axis")) > 0 and len(pg.query_selector_all(".val .ticks i")) > 0)
     v0 = pg.inner_text("#axh b")
     pg.click(".val:not(.on), .val.on >> nth=0")
     check(f"[{tag}] клик по значению оси меняет число вариантов", pg.inner_text("#axh b") != v0, f"{v0} → {pg.inner_text('#axh b')}")
@@ -74,7 +74,7 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     # поиск и клавиатура
     pg.keyboard.press("/")
     check(f"[{tag}] «/» ставит фокус в поиск", pg.evaluate("document.activeElement.id") == "q")
-    pg.fill("#q", "Г-141")
+    pg.fill("#q", "Г-106")
     check(f"[{tag}] поиск сужает список", len(pg.query_selector_all(".hrow")) < n_hyp)
     pg.fill("#q", "")
     pg.keyboard.press("Escape")
@@ -95,6 +95,36 @@ def scenario(b, url, tag, size, scheme, shot_dir):
         pg.screenshot(path=os.path.join(shot_dir, f"{tag}-vne-formy.png"))
     pg.click("#noneSel")
     pg.click("[data-pin='Г-28']")
+    # TK-247: клетка частично «вне формы» — зелёная «✓ +N вне», жёлтая только пока форма-считаемое не досчитано
+    for pid in ("Г-39", "Г-35", "Г-117"):
+        pg.click(f".hrow[data-h='{pid}']")
+        cells = pg.query_selector_all(f"#mx tr:has([data-row='{pid}']) .cell")
+        cl = [c.get_attribute("class") for c in cells]
+        tx = [c.inner_text() for c in cells]
+        check(f"[{tag}] {pid}: все клетки зелёные «✓ +N вне», жёлтых нет", cells and all(" f" in " " + c for c in cl) and all(t.startswith("✓") and "вне" in t for t in tx), f"{len(cells)} клеток, {tx[:1]}")
+        check(f"[{tag}] {pid}: в списке «9/9» зелёным, подсказка — «вне формы»", pg.inner_text(f".hrow[data-h='{pid}'] .hn") == "9/9" and "hn f" in pg.get_attribute(f".hrow[data-h='{pid}'] .hn", "class") and "вне формы" in cells[0].get_attribute("title"), pg.get_attribute(f".hrow[data-h='{pid}'] .hn", "class"))
+    pg.click("#mx tr:has([data-row='Г-39']) .cell >> nth=0")
+    check(f"[{tag}] Г-39: клик по зелёной клетке — «всё посчитано · +N вне формы», не выбор", "всё посчитано" in pg.inner_text("#toast") and "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-39']) .cell.sel") is None, pg.inner_text("#toast"))
+    pg.click("#allmiss")
+    go = pg.inner_text("#go")
+    check(f"[{tag}] Г-39/Г-35/Г-117: считать нечего — «Всё уже посчитано», не «Вне формы»", pg.inner_text("#bigN") == "0" and "Всё уже посчитано" in go and pg.is_disabled("#go"), go)
+    if shot_dir:
+        pg.screenshot(path=os.path.join(shot_dir, f"{tag}-chast-vne-formy.png"))
+    # инвариант по всем гипотезам: жёлтая клетка — только если форма-считаемое осталось; «вне» — только если посчитанного нет
+    while pg.query_selector("[data-gall]:text-is('добавить все')"):   # список перерисовывается после клика — кнопку берём заново
+        pg.click("[data-gall]:text-is('добавить все') >> nth=0")
+    pt = pg.eval_on_selector_all("#mx .cell.p", "e=>e.map(x=>x.innerText.trim())")
+    bad = [t for t in pt if not re.fullmatch(r"\d+/\d+", t) or int(t.split("/")[0]) >= int(t.split("/")[1])]
+    check(f"[{tag}] ни одной жёлтой клетки без остатка к счёту (все гипотезы в матрице)", len(pg.query_selector_all("#mx tr")) > 40 and not bad, f"жёлтых {len(pt)}, плохих {len(bad)} {bad[:3]}")
+    check(f"[{tag}] серая «вне» — только «вне», зелёная — без «N/M»", all(t == "вне" for t in pg.eval_on_selector_all("#mx .cell.o", "e=>e.map(x=>x.innerText.trim())")) and all("/" not in t for t in pg.eval_on_selector_all("#mx .cell.f", "e=>e.map(x=>x.innerText)")))
+    while pg.query_selector(".hrow.pin"):
+        pg.click(".hrow.pin [data-pin] >> nth=0")
+    # смешанный случай: Г-106 — часть посчитана, часть к счёту (жёлтая «N/M», N < M)
+    pg.click(".hrow[data-h='Г-106']")
+    pt = pg.eval_on_selector_all("#mx tr:has([data-row='Г-106']) .cell.p", "e=>e.map(x=>x.innerText.trim())")
+    check(f"[{tag}] Г-106: жёлтая клетка «посчитано/можно посчитать» остаётся, пока есть что считать", pt and all(re.fullmatch(r"\d+/\d+", t) and int(t.split("/")[0]) < int(t.split("/")[1]) for t in pt), str(pt[:2]))
+    pg.click("[data-pin='Г-106']")
+    pg.click("#noneSel")
     # вкладка «Летопись»
     pg.click("#t-let")
     pg.wait_for_selector("#lt tr .mc")

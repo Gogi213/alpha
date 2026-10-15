@@ -91,6 +91,7 @@ button:focus-visible,input:focus-visible,.cell:focus-visible,#hlist:focus-visibl
 .cell.o{font-size:12px;cursor:default}
 .cell.sel{border-color:var(--accent);color:var(--text)}
 .cell small{display:block;font-size:11px;color:var(--accent)}
+.cell small.of{color:var(--muted)}
 .sum{font-family:var(--mono);text-align:right;padding-right:4px;color:var(--muted)}
 .sum.on{color:var(--accent)}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
@@ -298,7 +299,7 @@ function M(h){var k=sv[h.id]||0;if(h._k===k)return h._m;var n=h.names.length,ss=
  h._m=h.cells.filter(function(c){for(var j=0;j<n;j++){if(c[j]>=0&&!ss[j].has(c[j]))return false}return true});h._k=k;return h._m}
 function V(h){return M(h).length}
 function cnt(h,m){var n=h.names.length,r={d:0,x:0,q:0,o:0};M(h).forEach(function(c){if(c[n]>>m&1)r.d++;else if(c[n+2])r.o++;else if(c[n+1]>>m&1)r.q++;else r.x++});return r}
-function st(h,m){var v=V(h),k=cnt(h,m);return v===0?'n':k.d===v?'f':k.d===0?(k.o===v?'o':'n'):'p'}
+function st(h,m){var v=V(h),k=cnt(h,m);return v===0?'n':k.x+k.q===0?(k.d?'f':k.o?'o':'n'):k.d?'p':'n'}
 function nf(h){var n=0;for(var m=0;m<MON.length;m++)if(st(h,m)==='f')n++;return n}
 function no(h){var n=0;for(var m=0;m<MON.length;m++)if(st(h,m)==='o')n++;return n}
 function offWhy(l){var r={};l.forEach(function(h){var n=h.names.length;M(h).forEach(function(c){var o=c[n+2];if(!o)return;for(var m=0;m<MON.length;m++)if(!(c[n]>>m&1)){var t=OFFL[o-1]||'вне формы';r[t]=(r[t]||0)+1}})});return r}
@@ -331,15 +332,15 @@ function rAxes(){
  el('axes').innerHTML=h.names.map(function(k){return '<div class="axis"><div class="aname">'+esc(k)+'</div><div class="avals">'+h.ax[k].map(function(o,i){var t='';for(var m=0;m<MON.length;m++)t+='<i class="'+(o.m>>m&1?'d':'')+'" title="'+MN[m]+'"></i>';return '<div class="val'+(sel[h.id][k].has(i)?' on':'')+'" data-ax="'+esc(k)+'" data-i="'+i+'"><span>'+esc(o.v)+'</span><div class="ticks">'+t+'</div></div>'}).join('')+'</div></div>'}).join('')+(on?'<div class="note">Форма это не считает: '+esc(on)+'</div>':'')}
 function rMx(){
  var rows=shown(),head='<tr><th class="l"></th>'+MN.map(function(n,m){return '<th data-col="'+m+'" title="'+MON[m]+'">'+n+'</th>'}).join('')+'<th></th></tr>';
- el('mx').innerHTML=head+(rows.map(function(h){var v=V(h),tr=0;var c=MN.map(function(n,m){var s=st(h,m),k=cnt(h,m),on=run[h.id].has(m);if(on)tr+=k.x;var txt=s==='f'?'✓':s==='o'?'вне':k.d+'/'+v;if(on&&k.x)txt+='<small>+'+k.x+'</small>';
-  var tt=h.id+' · '+MON[m]+': '+k.d+' из '+v+(k.o?' · вне формы '+k.o+' ('+esc(offTxt([h]))+')':'')+(k.q?' · в очереди '+k.q:'');
+ el('mx').innerHTML=head+(rows.map(function(h){var v=V(h),tr=0;var c=MN.map(function(n,m){var s=st(h,m),k=cnt(h,m),on=run[h.id].has(m);if(on)tr+=k.x;var dn=s==='o'?v:v-k.o,txt=s==='f'?'✓'+(k.o?'<small class="of">+'+k.o+' вне</small>':''):s==='o'?'вне':k.d+'/'+dn;if(on&&k.x)txt+='<small>+'+k.x+'</small>';
+  var tt=h.id+' · '+MON[m]+': '+k.d+' из '+dn+(k.o?(s==='o'?' · вне формы ':' · +')+k.o+(s==='o'?'':' вне формы')+' ('+esc(offTxt([h]))+')':'')+(k.q?' · в очереди '+k.q:'');
   return '<td class="cell '+s+(on?' sel':'')+'" tabindex="0" data-cell="'+h.id+'|'+m+'" title="'+tt+'">'+txt+'</td>'}).join('');
   return '<tr><td><div class="rl" data-row="'+h.id+'" title="'+esc(h.t)+'"><span class="hid">'+h.id+'</span><small>'+esc(h.fam)+'</small></div></td>'+c+'<td class="sum'+(tr?' on':'')+'">'+(tr||'')+'</td></tr>'}).join('')||'<tr><td colspan="'+(MON.length+2)+'" class="none" style="padding:14px 4px">Добавьте гипотезы в матрицу кнопкой «+» слева</td></tr>')}
 function totals(){var a=0,s=0,sp=[];shown().forEach(function(h){var t=0;run[h.id].forEach(function(m){var k=cnt(h,m);t+=k.x;s+=k.d});a+=t;sp.push([h.id,t])});return{a:a,s:s,sp:sp}}
 function groupsOut(){var g=[];shown().forEach(function(h){if(!V(h)||!run[h.id].size)return;
  var ax={};h.names.forEach(function(k){if(sel[h.id][k].size<h.ax[k].length)ax[k]=[...sel[h.id][k]].sort(function(a,b){return a-b}).map(function(i){return h.ax[k][i].v})});
  g.push({hyps:[h.id],months:[...run[h.id]].sort(function(a,b){return a-b}).map(function(m){return MON[m]}),axes:ax})});return g}
-function idle(){var sh=shown(),X=0,Q=0,O=0;sh.forEach(function(h){for(var m=0;m<MON.length;m++){var k=cnt(h,m);X+=k.x;Q+=k.q;O+=k.o}});
+function idle(){var sh=shown(),X=0,Q=0,O=0;sh.forEach(function(h){for(var m=0;m<MON.length;m++){var k=cnt(h,m);X+=k.x;Q+=k.q;if(st(h,m)==='o')O+=k.o}});
  if(!sh.length)return'Выберите гипотезы';if(X)return'Выберите клетки';
  if(O){var w=Object.keys(offWhy(sh));return'Вне формы: '+(w.length===1?w[0]:O+' хеш-мес.')+(Q?' · в очереди '+Q:'')}
  return Q?'Всё в очереди':'Всё уже посчитано'}
@@ -442,7 +443,7 @@ document.addEventListener('click',function(e){var t=e.target,c;
  if((c=t.closest('[data-pin]'))){var id=c.dataset.pin;checked[id]=checked[id]?0:1;if(!checked[id])run[id]=new Set();return all()}
  if((c=t.closest('[data-h]'))){focus=c.dataset.h;checked[focus]=1;el('hlist').focus();return all()}
  if((c=t.closest('[data-ax]'))){var s=sel[focus][c.dataset.ax],i=+c.dataset.i;s.has(i)?s.delete(i):s.add(i);bump(focus);return all()}
- if((c=t.closest('[data-cell]'))){var p=c.dataset.cell.split('|'),S=run[p[0]],m0=+p[1];if(!S.has(m0)&&!cnt(byId[p[0]],m0).x){var h0=byId[p[0]],k0=cnt(h0,m0);return toast('Здесь нечего считать: '+(k0.o?'вне формы ('+offTxt([h0])+')':k0.q?'в очереди':'всё посчитано'))}S.has(m0)?S.delete(m0):S.add(m0);return all()}
+ if((c=t.closest('[data-cell]'))){var p=c.dataset.cell.split('|'),S=run[p[0]],m0=+p[1];if(!S.has(m0)&&!cnt(byId[p[0]],m0).x){var h0=byId[p[0]],k0=cnt(h0,m0);return toast('Здесь нечего считать: '+(st(h0,m0)==='o'?'вне формы ('+offTxt([h0])+')':k0.q?'в очереди':'всё посчитано'+(k0.o?' · +'+k0.o+' вне формы ('+offTxt([h0])+')':'')))}S.has(m0)?S.delete(m0):S.add(m0);return all()}
  if((c=t.closest('[data-row]'))){var h=byId[c.dataset.row],miss=missMonths(h);var allOn=miss.length&&miss.every(function(m){return run[h.id].has(m)});miss.forEach(function(m){allOn?run[h.id].delete(m):run[h.id].add(m)});return all()}
  if((c=t.closest('[data-col]'))){var m2=+c.dataset.col,any=shown().filter(function(h){return cnt(h,m2).x>0}),on2=any.length&&any.every(function(h){return run[h.id].has(m2)});any.forEach(function(h){on2?run[h.id].delete(m2):run[h.id].add(m2)});return all()}
  if(t.id==='allmiss'){missAll(shown());return all()}
