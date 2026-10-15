@@ -183,15 +183,15 @@ BOOT_MARK = b"/*BOOT*/null"
 
 
 def page_ent():
-    """Страница с вшитым первым экраном (meta, cov, status, runs готовыми байтами из кэша): один запрос вместо пяти (TK-246 п.4).
+    """Страница с вшитым первым экраном (meta, cov, status, runs — готовые байты из кэша, что уже посчитано): один запрос вместо пяти (TK-246 п.4).
     ETag — от частей и самой страницы; в page.html нет метки BOOT_MARK — отдаётся как есть."""
     path = os.path.join(HERE, "page.html")
     tpl = open(path, "rb").read()
     if BOOT_MARK not in tpl:
         data = tpl
         return (data, gzip.compress(data, 5), '"' + hashlib.md5(data).hexdigest() + '"')
-    parts = [("api/meta", cached("meta", launch.meta)), ("api/cov", cached("cov", _cov)),
-             ("api/status", cached("status", _status)), ("api/runs", cached("runs", _runs))]
+    with _cache_lock:   # вшивается только готовое: холодная страница не ждёт расчёта (под CPUQuota — секунды), недостающее страница берёт по сети
+        parts = [(f"api/{k}", _cache[k][1]) for k in ("meta", "cov", "status", "runs") if k in _cache]
     key = (hashlib.md5(tpl).hexdigest(), tuple(e[2] for _, e in parts))
     hit = _page.get("ent")
     if hit and hit[0] == key:

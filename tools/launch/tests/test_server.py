@@ -285,3 +285,18 @@ def test_page_embeds_first_screen_and_escapes_script_end(monkeypatch):
     assert server.BOOT_MARK.decode() not in html and '"api/runs":{"r": 1}' in html and r'"api/meta":{"x": "<\/script>"}' in html
     assert server.page_ent() is ent   # части не менялись — те же байты и ETag
     assert gzip.decompress(ent[1]) == ent[0]
+
+
+def test_cold_page_does_not_wait_for_calculation(monkeypatch):
+    """TK-246 п.3: холодная страница не считает ключи (под CPUQuota — секунды): вшито только уже посчитанное, остальное страница берёт по сети."""
+    monkeypatch.setattr(server, "_page", {})
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_watching", True)
+    called = []
+    monkeypatch.setattr(server.launch, "meta", lambda: called.append("meta") or {})
+    monkeypatch.setattr(server, "_cov", lambda: called.append("cov") or {})
+    cold = server.page_ent()
+    assert not called and b'"api/' not in cold[0]
+    server.cached("status", lambda: {"s": 1})
+    warm = server.page_ent()
+    assert not called and b'"api/status":{"s": 1}' in warm[0] and b'"api/cov"' not in warm[0] and warm[2] != cold[2]
