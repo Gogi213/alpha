@@ -417,6 +417,7 @@ fn touches_cache_gives_byte_identical_rounds() {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     })
     .unwrap();
     let mut a = base("grid-cache");
@@ -514,6 +515,7 @@ fn sigma_ladder_reads_entry_sigma_from_the_side_table() {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     })
     .unwrap();
     assert_eq!(summary.approaches, 1);
@@ -637,6 +639,7 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");

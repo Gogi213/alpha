@@ -42,7 +42,7 @@ use clap::Args;
 
 use crate::lob::markout::{mid_double_tick, raw_return_bps, sample_asof};
 
-use super::{H3Args, ReplayKeep, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
+use super::{H3Args, ReplayKeep, TwinSeeds, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
 mod abin;
 mod bincache;
@@ -173,6 +173,12 @@ pub struct TouchesArgs {
     /// `--approach-min-age-secs`). Без флага файла нет, остальные файлы — прежние байты.
     #[arg(long, default_value_t = false)]
     pub wall_log: bool,
+    /// Двойники стен Г-03 (TK-274, П-15 §5 вариант Б): рядом с касаниями пишется `twins-<SYMBOL>.csv` — на каждом
+    /// взводе подхода двойник для каждого семени (`day_utc,side,price_tick,arm_ms,seed,twin_tick,candidates`;
+    /// `twin_tick` пуст — «не найдено»). Семена через запятую (≤ 8), один проход реплея на все. Нужен
+    /// `--approach-bps`. Без флага файла нет, остальные файлы — прежние байты.
+    #[arg(long, value_delimiter = ',')]
+    pub twin_seeds: Vec<u64>,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -472,6 +478,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         h3_lots,
     } = plan::resolve(args)?;
 
+    let twin_seeds = TwinSeeds::new(&args.twin_seeds)?;
     // Несколько полос — один реплей и по трекеру на полосу (`ReplayStats` на
     // конфигурацию); касания одинаковы у всех (сигнал подхода их не меняет),
     // поэтому берём раскладку первой полосы, а записи подхода — у каждой своей.
@@ -490,7 +497,8 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             ReplayKeep::ALL
                 .with_carry_age(args.carry_age)
                 .with_r1(args.r1_cols)
-                .with_walls(args.wall_log),
+                .with_walls(args.wall_log)
+                .with_twins(twin_seeds),
         )?;
         anyhow::ensure!(
             stats.len() == cfgs.len(),
@@ -507,7 +515,8 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             ReplayKeep::ALL
                 .with_carry_age(args.carry_age)
                 .with_r1(args.r1_cols)
-                .with_walls(args.wall_log),
+                .with_walls(args.wall_log)
+                .with_twins(twin_seeds),
         )?
     };
     // Кэш одних суток из корня с прошлыми сутками (перенос возраста): остальные сутки —
@@ -640,6 +649,37 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             }
         }
         ww.flush()?;
+    }
+    if !args.twin_seeds.is_empty() {
+        let mut wt =
+            csv::Writer::from_path(out.with_file_name(format!("twins-{}.csv", args.symbol)))?;
+        wt.write_record([
+            "day_utc",
+            "side",
+            "price_tick",
+            "arm_ms",
+            "seed",
+            "twin_tick",
+            "candidates",
+        ])?;
+        for day in &replay.days {
+            for r in &day.twins {
+                wt.write_record([
+                    day.day.clone(),
+                    match r.side {
+                        crate::book::Side::Bid => "bid",
+                        _ => "ask",
+                    }
+                    .to_string(),
+                    r.price_tick.to_string(),
+                    r.arm_ms.to_string(),
+                    r.seed.to_string(),
+                    r.twin.map_or(String::new(), |t| t.tick.to_string()),
+                    r.twin.map_or(String::new(), |t| t.candidates.to_string()),
+                ])?;
+            }
+        }
+        wt.flush()?;
     }
     // Минутный ряд середины — рядом с касаниями (S3: режим пула по минутам).
     write_mids1m(&mids1m_path(&out, &args.symbol), &replay.days)?;
