@@ -1,12 +1,12 @@
-hyp;stack;engine;param;role;old_points;f1_points;lo;hi;n_f1;grid;note;mechanic
-Г-81;B1;rust;W_s;tit;;5|10|15|20|30|45|60|90;5;90;8;W×Q;"мера = отмены нашей стороны за W от взвода ÷ size_at_touch; ворота снимают неисполненные ступени";
-Г-81;B1;rust;cxl_q;tit;;5|10|20|33|50|67|80|90|95;5;95;9;W×Q;"порог — квантиль меры по касаниям B1 своего месяца (проход пробы qprobe)";
-Г-98;B1;rust;R_usd;tit;;2|3|5|8|12|20|30|50|80;2;80;9;R;"span_bps < 1 → лот 500 $ (= B1)";
-Г-101;B1;rust;part;fixed;;ladder|stop;;;2;part×T×f;"одна семья из двух подвариантов; в финал идёт один";
-Г-101;B1;rust;T_q;tit;;5|10|20|33|50|67|80|90|95;5;95;9;part×T×f;;
-Г-101;B1;rust;f_bp;tit;;2500|5000|7500|15000|20000|40000;2500;40000;6;part×T×f;"f = бп/10⁴; f = 1 — это B1, не клетка";
-Г-135;B1;rust;swept_q;tit;;5|10|20|33|50|67|80|90|95;5;95;9;q×entry;"фильтр swept_min; порог по месяцу";
-Г-135;B1;rust;entry;fixed;;b1|postsweep2|postsweep5|postsweep10|postsweep20|postsweep40;;;6;q×entry;"postsweep<R>: вход по рынку после отхода на R bps (≤ 30 с)";
-Г-136;B1;rust;A_min;tit;;2|5|10|15|20|30|45;2;45;7;A×k;"agemax = A·60 с";
-Г-136;B1;rust;k;tit;;0|1|2|3|4|6|8;0;8;7;A×k;"k = 0 — контроль (те же A без repeat_min)";
-Г-137;B1;rust;k;tit;;1|2|3|4|5|6|8|10|12;1;12;9;k;"B1 как есть + repeat_count ≥ k";
+hyp;protocol;version;stack;param;lo;hi;points_f1;old_points;note;role;engine;mechanic
+Г-81;P-17;P-14@r2;B1;W_s;5;90;5|10|15|20|30|45|60|90;;"мера = отмены нашей стороны за W от взвода ÷ size_at_touch; ворота снимают неисполненные ступени";tit;rust;
+Г-81;P-17;P-14@r2;B1;cxl_q;5;95;5|10|20|33|50|67|80|90|95;;"порог — квантиль меры по касаниям B1 своего месяца (проход пробы qprobe)";tit;rust;
+Г-98;P-17;P-14@r2;B1;R_usd;2;80;2|3|5|8|12|20|30|50|80;;"span_bps < 1 → лот 500 $ (= B1)";tit;rust;
+Г-101;P-17;P-14@r2;B1;part;;;ladder|stop;;"одна семья из двух подвариантов; в финал идёт один";fixed;rust;
+Г-101;P-17;P-14@r2;B1;T_q;5;95;5|10|20|33|50|67|80|90|95;;;tit;rust;
+Г-101;P-17;P-14@r2;B1;f_bp;2500;40000;2500|5000|7500|15000|20000|40000;;"f = бп/10⁴; f = 1 — это B1, не клетка";tit;rust;
+Г-135;P-17;P-14@r2;B1;swept_q;5;95;5|10|20|33|50|67|80|90|95;;"фильтр swept_min; порог по месяцу";tit;rust;
+Г-135;P-17;P-14@r2;B1;entry;;;b1|postsweep2|postsweep5|postsweep10|postsweep20|postsweep40;;"postsweep<R>: вход по рынку после отхода на R bps (≤ 30 с)";fixed;rust;
+Г-136;P-17;P-14@r2;B1;A_min;2;45;2|5|10|15|20|30|45;;"agemax = A·60 с";tit;rust;
+Г-136;P-17;P-14@r2;B1;k;0;8;0|1|2|3|4|6|8;;"k = 0 — контроль (те же A без repeat_min)";tit;rust;
+Г-137;P-17;P-14@r2;B1;k;1;12;1|2|3|4|5|6|8|10|12;;"B1 как есть + repeat_count ≥ k";tit;rust;
