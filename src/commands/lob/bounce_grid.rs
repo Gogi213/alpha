@@ -103,6 +103,7 @@
 mod args;
 mod cache;
 mod carry;
+mod control;
 mod drive;
 mod e2e;
 mod entry_sigma;
@@ -578,7 +579,7 @@ impl<'a> GridRun<'a> {
             // Суток в кэше нет — символ пропускается, а не роняет весь прогон
             // (как у `lob fill-capacity --targets approaches`, F2): реплея
             // подходов у сетки нет, полосу `D` знает только прогон F1.
-            let Ok(days) = load_cached_days(
+            let Ok(mut days) = load_cached_days(
                 shared.as_deref_mut(),
                 dir,
                 symbol,
@@ -593,6 +594,20 @@ impl<'a> GridRun<'a> {
                 return Ok(());
             };
             steps::ensure_approach_cache(args, sets, symbol, dir, &days)?;
+            if let Some(c) = args.level_control {
+                // Г-03 (TK-274): подходы суток → двойники/парные стены; отчёт — рядом с `forms.csv`.
+                let mut stats = control::ControlStats::default();
+                for d in &mut days {
+                    control::apply(c, dir, symbol, d, &mut stats)?;
+                }
+                std::fs::create_dir_all(&args.out_dir)?;
+                let mut w = csv::Writer::from_path(
+                    args.out_dir.join(format!("level-control-{symbol}.csv")),
+                )?;
+                w.write_record(control::CONTROL_COLUMNS)?;
+                w.write_record(stats.csv_row(symbol, c))?;
+                w.flush()?;
+            }
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
