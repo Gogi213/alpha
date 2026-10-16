@@ -1528,7 +1528,7 @@ fn touch_record(
 /// Расстояние в bps по цене уровня: `gap × 10⁴ / tick` — тот же расчёт, что
 /// `dist_bps` ёмкости (`fill_capacity`); цена неположительна — ноль,
 /// арифметика тотальна.
-fn gap_bps(gap: i64, tick: i64) -> i64 {
+pub(crate) fn gap_bps(gap: i64, tick: i64) -> i64 {
     if tick <= 0 {
         return 0;
     }
