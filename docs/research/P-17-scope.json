@@ -276,10 +276,12 @@
  "pending": {
   "thresholds": [
    "Г-81",
-   "Г-101",
    "Г-135"
   ],
-  "why": "порог — квантиль по касаниям B1 своего месяца: Г-81 — мера отмен за W от взвода (нужен проход меры), Г-101 — btc4h, Г-135 — swept_lots/size_at_touch"
+  "done": {
+   "Г-101": "docs/research/P-17-thresholds.csv (tools/analyze/p17-btc4h-thresholds.py, btc4h по касаниям B1 своего месяца, 9 мес., 2751 касание)"
+  },
+  "why": "Г-81 — мера отмен за W от взвода, Г-135 — swept_lots/size_at_touch: нужен проход меры в Rust (диагностический вывод по касаниям B1)"
  },
  "cells_total": 301,
  "families": {

@@ -92,7 +92,7 @@ def build():
             "split": {"rule": "sha256(symbol) hex как целое, чётное -> A, нечётное -> B (П-13 §6 п. 1)", "pool": "v171c", "n_A": len(a), "n_B": len(b), "A": a, "B": b},
             "base": {"form": BASE, "set": SET_B1, "hash": ch.cell_hash(cfg_of())},
             "hash_rule": "Г-98/Г-136/Г-137 — хеш набора (size_risk/agemax/repeat_min в каноне); Г-81/Г-101/Г-135 — хеш варианта (семья + оси), порог по месяцам из P-17-thresholds.csv",
-            "pending": {"thresholds": ["Г-81", "Г-101", "Г-135"], "why": "порог — квантиль по касаниям B1 своего месяца: Г-81 — мера отмен за W от взвода (нужен проход меры), Г-101 — btc4h, Г-135 — swept_lots/size_at_touch"},
+            "pending": {"thresholds": ["Г-81", "Г-135"], "done": {"Г-101": "docs/research/P-17-thresholds.csv (tools/analyze/p17-btc4h-thresholds.py, btc4h по касаниям B1 своего месяца, 9 мес., 2751 касание)"}, "why": "Г-81 — мера отмен за W от взвода, Г-135 — swept_lots/size_at_touch: нужен проход меры в Rust (диагностический вывод по касаниям B1)"},
             "cells_total": len(allh), "families": fam}
 
 
