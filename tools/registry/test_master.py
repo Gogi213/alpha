@@ -148,16 +148,43 @@ class MasterTest(unittest.TestCase):
         plat = {r["cell_hash"] for r in out if r["plateau"]}
         self.assertEqual(plat, {self.cfg_hash(4)})            # 3 и 5 имеют негодного соседа; 4 — оба соседа годны
         self.assertTrue(all(r["side"] == "A" for r in out))
-        r2 = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"))
+        r2 = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"), f1=self.f1_csv({n: ("годна", 0.05, 0.1, 15) if n in good else ("не годна", 1.0, -0.1, 15) for n in range(2, 9)}))
         ns = {json.loads(x)["variant"]["axes"]["n"] for x in open(r2["out"], encoding="utf-8")}
-        self.assertEqual(ns, {3, 4, 5})   # плато {4} + по соседу; шаг 0,25 < разрешимости n (1) — ось не дробится
+        self.assertEqual(ns, {2, 3, 4, 5, 6})   # зона F1 {3,4,5} + по соседу с каждой стороны (§11.2 п. 3); шаг 0,25 < разрешимости n (1) — ось не дробится
 
-    def test_f2_closed_without_plateau(self):
+    def f1_csv(self, st):
+        """Сито F1 Г-87 по оси n: {n: (статус, p, dSR, суток)} -> {гипотеза: клетки} как master.f1_stats."""
+        f = os.path.join(self.t, "f1.csv")
+        with open(f, "w", encoding="utf-8", newline="") as o:
+            w = csv.writer(o); w.writerow(["hyp", "hash", "axes", "trades_A", "days_A", "dSR", "p", "se", "status"])
+            for n, (s, p, d, dy) in st.items():
+                w.writerow(["Г-87", "h%d" % n, json.dumps({"n": str(n)}), 30, dy, d, p, 0.05, s])
+        return master.f1_stats(f)
+
+    def test_f2_closed_when_undefined(self):
+        """§11.1: нет определённых клеток F1 — гипотеза не в F2 и не отбракована."""
         self.have = {}
         master.load_axes(self.ax)
         master.plan("P-14", 1, out=os.path.join(self.t, "new.jsonl"))
-        r = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"))
+        r = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"), f1=self.f1_csv({n: ("не определена: m не применён", 1.0, 0.0, 0) for n in range(2, 9)}))
         self.assertEqual((r["grid"], list(r["closed"])), (0, ["Г-87"]))
+
+    def test_f2_zones_rule(self):
+        """§11.2 п. 1–2, 5: связные годные = зона (до 3, лучшая первой); годных нет — одна клетка p↑, dSR↓, суток↓; ось целиком — лучшая клетка."""
+        def cell(ax, st, p=1.0, d=0.0, dy=10):
+            return {"ax": ax, "good": st == "годна", "defd": st in ("годна", "не годна"), "key": (p, -d, -dy) if st in ("годна", "не годна") else None}
+        pt = {"x": ("numeric", None), "y": ("numeric", None), "c": ("categorical", None)}
+        g = lambda x, y, p, c="a": cell({"x": str(x), "y": str(y), "c": c}, "годна", p)
+        b = lambda x, y, c="a": cell({"x": str(x), "y": str(y), "c": c}, "не годна")
+        rs = [g(1, 1, .1), g(2, 2, .05), b(3, 3), g(4, 4, .2), g(5, 1, .15), g(6, 6, .3), g(1, 1, .01, "b")]
+        z = master.f2_zones(rs, pt)
+        self.assertEqual([sorted((r["ax"]["x"], r["ax"]["c"]) for r in zn) for zn in z], [[("1", "b")], [("1", "a"), ("2", "a")], [("5", "a")]])   # 5 зон -> 3 лучших по p; категории раздельно
+        self.assertEqual(master.f2_zones([cell({"x": "1", "y": "1", "c": "a"}, "не определена")], pt), [])
+        nb = [cell({"x": "1", "y": "1", "c": "a"}, "не годна", 1.0, -0.2, 50), cell({"x": "2", "y": "1", "c": "a"}, "не годна", 1.0, -0.1, 10), cell({"x": "3", "y": "1", "c": "a"}, "не годна", 1.0, -0.1, 90)]
+        self.assertEqual([[r["ax"]["x"] for r in zn] for zn in master.f2_zones(nb, pt)], [["3"]])   # ничья по p и dSR: больше суток
+        one = {"x": ("numeric", None)}
+        line = [cell({"x": str(x)}, "годна", p) for x, p in ((1, .1), (2, .02), (3, .5))]
+        self.assertEqual([[r["ax"]["x"] for r in zn] for zn in master.f2_zones(line, one)], [["2"]])   # п. 5: зона от границы до границы -> лучшая клетка
 
     def test_render_equals_db(self):
         self.have = {self.cfg_hash(3): {"2026-01"}}
