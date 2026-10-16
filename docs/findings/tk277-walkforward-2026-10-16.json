@@ -1,0 +1,919 @@
+{
+ "reach": {
+  "n_days": 183,
+  "se_sr_b1_boot": 0.0836,
+  "mde_alpha05": 0.1375,
+  "mde_holm9": 0.2122,
+  "power80_holm9": 0.2826,
+  "ref_effect_g93_u1K3": 0.0343,
+  "note": "se по ряду B1 (бутстреп) — верхняя оценка; парный se выбранной клетки обычно меньше"
+ },
+ "families": {
+  "Г-10": {
+   "dsr_oos": -0.0741,
+   "sr_sel": 0.0433,
+   "sr_b1": 0.1174,
+   "p_b1": 1.0,
+   "p_lot": 0.0358,
+   "delta_c": 0.0953,
+   "p_fam": 1.0,
+   "months": {
+    "4": {
+     "hash": "787a5b5778646d3d",
+     "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"5\"}",
+     "p_train": 0.0003,
+     "dsr_train": 0.3513,
+     "n_cand": 70,
+     "trades": 13,
+     "d_usd_vs_b1": -163.94,
+     "d_usd_vs_median": 14.31,
+     "dsr_test": -0.1627,
+     "spearman": 0.085
+    },
+    "5": {
+     "hash": "787a5b5778646d3d",
+     "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"5\"}",
+     "p_train": 0.0058,
+     "dsr_train": 0.2476,
+     "n_cand": 70,
+     "trades": 4,
+     "d_usd_vs_b1": -34.03,
+     "d_usd_vs_median": 87.77,
+     "dsr_test": 0.1041,
+     "spearman": 0.777
+    },
+    "6": {
+     "hash": "787a5b5778646d3d",
+     "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"5\"}",
+     "p_train": 0.008,
+     "dsr_train": 0.2126,
+     "n_cand": 70,
+     "trades": 32,
+     "d_usd_vs_b1": 11.0,
+     "d_usd_vs_median": 196.36,
+     "dsr_test": -0.0317,
+     "spearman": 0.874
+    },
+    "7": {
+     "hash": "787a5b5778646d3d",
+     "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"5\"}",
+     "p_train": 0.0502,
+     "dsr_train": 0.1452,
+     "n_cand": 70,
+     "trades": 20,
+     "d_usd_vs_b1": 115.37,
+     "d_usd_vs_median": 228.37,
+     "dsr_test": 0.3553,
+     "spearman": 0.856
+    },
+    "8": {
+     "hash": "787a5b5778646d3d",
+     "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"5\"}",
+     "p_train": 0.0169,
+     "dsr_train": 0.1729,
+     "n_cand": 70,
+     "trades": 7,
+     "d_usd_vs_b1": -241.83,
+     "d_usd_vs_median": -92.67,
+     "dsr_test": -0.0942,
+     "spearman": -0.35
+    },
+    "9": {
+     "hash": "787a5b5778646d3d",
+     "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"5\"}",
+     "p_train": 0.072,
+     "dsr_train": 0.1205,
+     "n_cand": 70,
+     "trades": 11,
+     "d_usd_vs_b1": -153.38,
+     "d_usd_vs_median": -33.45,
+     "dsr_test": -0.3505,
+     "spearman": -0.049
+    }
+   },
+   "folds_pos": 2,
+   "switches": 0,
+   "usd_sel": 44.24,
+   "usd_b1": 511.07,
+   "c2_hold": false,
+   "c2_notheld": true,
+   "coin_best": "1000BONKUSDT",
+   "coin_worst": "ONDOUSDT",
+   "holm": {
+    "rejected": false,
+    "thr": 0.00833
+   },
+   "verdict": "не различимо"
+  },
+  "Г-65": {
+   "dsr_oos": -0.2207,
+   "sr_sel": -0.1033,
+   "sr_b1": 0.1174,
+   "p_b1": 1.0,
+   "p_lot": 0.0076,
+   "delta_c": 0.0828,
+   "p_fam": 1.0,
+   "months": {
+    "4": {
+     "hash": "055b0d5635dad1c2",
+     "axes": "{\"offset\": \"3\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1259,
+     "n_cand": 7,
+     "trades": 392,
+     "d_usd_vs_b1": -194.7,
+     "d_usd_vs_median": 29.18,
+     "dsr_test": -0.3292,
+     "spearman": 0.857
+    },
+    "5": {
+     "hash": "055b0d5635dad1c2",
+     "axes": "{\"offset\": \"3\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1673,
+     "n_cand": 7,
+     "trades": 250,
+     "d_usd_vs_b1": -110.95,
+     "d_usd_vs_median": 10.61,
+     "dsr_test": -0.3082,
+     "spearman": 0.143
+    },
+    "6": {
+     "hash": "055b0d5635dad1c2",
+     "axes": "{\"offset\": \"3\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1822,
+     "n_cand": 7,
+     "trades": 362,
+     "d_usd_vs_b1": -174.03,
+     "d_usd_vs_median": -23.03,
+     "dsr_test": -0.3462,
+     "spearman": -0.857
+    },
+    "7": {
+     "hash": "055b0d5635dad1c2",
+     "axes": "{\"offset\": \"3\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.213,
+     "n_cand": 7,
+     "trades": 543,
+     "d_usd_vs_b1": -19.85,
+     "d_usd_vs_median": 35.04,
+     "dsr_test": -0.0585,
+     "spearman": 0.857
+    },
+    "8": {
+     "hash": "055b0d5635dad1c2",
+     "axes": "{\"offset\": \"3\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1855,
+     "n_cand": 7,
+     "trades": 509,
+     "d_usd_vs_b1": -178.77,
+     "d_usd_vs_median": 42.38,
+     "dsr_test": -0.0713,
+     "spearman": 0.964
+    },
+    "9": {
+     "hash": "055b0d5635dad1c2",
+     "axes": "{\"offset\": \"3\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.187,
+     "n_cand": 7,
+     "trades": 226,
+     "d_usd_vs_b1": -96.28,
+     "d_usd_vs_median": 35.09,
+     "dsr_test": -0.0661,
+     "spearman": 1.0
+    }
+   },
+   "folds_pos": 0,
+   "switches": 0,
+   "usd_sel": -263.51,
+   "usd_b1": 511.07,
+   "c2_hold": false,
+   "c2_notheld": true,
+   "coin_best": "XLMUSDT",
+   "coin_worst": "UNIUSDT",
+   "holm": {
+    "rejected": false,
+    "thr": 0.01
+   },
+   "verdict": "не различимо"
+  },
+  "Г-104": {
+   "dsr_oos": -0.1301,
+   "sr_sel": -0.0127,
+   "sr_b1": 0.1174,
+   "p_b1": 1.0,
+   "p_lot": 0.0011,
+   "delta_c": 0.1438,
+   "p_fam": 1.0,
+   "months": {
+    "4": {
+     "hash": "bf04d20352d33bcf",
+     "axes": "{\"exit_share\": \"90\", \"be\": \"да\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.0798,
+     "n_cand": 10,
+     "trades": 391,
+     "d_usd_vs_b1": -192.28,
+     "d_usd_vs_median": 39.38,
+     "dsr_test": -0.3119,
+     "spearman": 0.927
+    },
+    "5": {
+     "hash": "bf04d20352d33bcf",
+     "axes": "{\"exit_share\": \"90\", \"be\": \"да\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1271,
+     "n_cand": 10,
+     "trades": 238,
+     "d_usd_vs_b1": -48.11,
+     "d_usd_vs_median": 26.17,
+     "dsr_test": -0.1205,
+     "spearman": 0.709
+    },
+    "6": {
+     "hash": "bf04d20352d33bcf",
+     "axes": "{\"exit_share\": \"90\", \"be\": \"да\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1226,
+     "n_cand": 10,
+     "trades": 355,
+     "d_usd_vs_b1": -70.64,
+     "d_usd_vs_median": 9.19,
+     "dsr_test": -0.1432,
+     "spearman": 0.648
+    },
+    "7": {
+     "hash": "bf04d20352d33bcf",
+     "axes": "{\"exit_share\": \"90\", \"be\": \"да\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1266,
+     "n_cand": 10,
+     "trades": 542,
+     "d_usd_vs_b1": 20.79,
+     "d_usd_vs_median": 21.8,
+     "dsr_test": 0.0187,
+     "spearman": 0.624
+    },
+    "8": {
+     "hash": "bf04d20352d33bcf",
+     "axes": "{\"exit_share\": \"90\", \"be\": \"да\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1011,
+     "n_cand": 10,
+     "trades": 532,
+     "d_usd_vs_b1": -132.99,
+     "d_usd_vs_median": 124.09,
+     "dsr_test": -0.0363,
+     "spearman": 0.964
+    },
+    "9": {
+     "hash": "bf04d20352d33bcf",
+     "axes": "{\"exit_share\": \"90\", \"be\": \"да\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1024,
+     "n_cand": 10,
+     "trades": 241,
+     "d_usd_vs_b1": -124.87,
+     "d_usd_vs_median": 41.28,
+     "dsr_test": -0.2204,
+     "spearman": 0.927
+    }
+   },
+   "folds_pos": 1,
+   "switches": 0,
+   "usd_sel": -37.03,
+   "usd_b1": 511.07,
+   "c2_hold": false,
+   "c2_notheld": true,
+   "coin_best": "LTCUSDT",
+   "coin_worst": "1000PEPEUSDT",
+   "holm": {
+    "rejected": false,
+    "thr": 0.0125
+   },
+   "verdict": "не различимо"
+  },
+  "Г-110": {
+   "dsr_oos": -0.4077,
+   "sr_sel": -0.2902,
+   "sr_b1": 0.1174,
+   "p_b1": 1.0,
+   "p_lot": 0.0,
+   "delta_c": 0.1024,
+   "p_fam": 1.0,
+   "months": {
+    "4": {
+     "hash": "0f2dde8b883a05cc",
+     "axes": "{\"early_exit_s\": \"60\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.3239,
+     "n_cand": 10,
+     "trades": 451,
+     "d_usd_vs_b1": -246.07,
+     "d_usd_vs_median": 16.54,
+     "dsr_test": -0.4902,
+     "spearman": 0.115
+    },
+    "5": {
+     "hash": "0f2dde8b883a05cc",
+     "axes": "{\"early_exit_s\": \"60\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.3464,
+     "n_cand": 10,
+     "trades": 262,
+     "d_usd_vs_b1": -139.48,
+     "d_usd_vs_median": -15.26,
+     "dsr_test": -0.3914,
+     "spearman": -0.03
+    },
+    "6": {
+     "hash": "0f2dde8b883a05cc",
+     "axes": "{\"early_exit_s\": \"60\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.3436,
+     "n_cand": 10,
+     "trades": 437,
+     "d_usd_vs_b1": -105.55,
+     "d_usd_vs_median": -24.34,
+     "dsr_test": -0.2737,
+     "spearman": -0.806
+    },
+    "7": {
+     "hash": "0f2dde8b883a05cc",
+     "axes": "{\"early_exit_s\": \"60\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.3281,
+     "n_cand": 10,
+     "trades": 689,
+     "d_usd_vs_b1": -141.0,
+     "d_usd_vs_median": -13.55,
+     "dsr_test": -0.3797,
+     "spearman": -0.612
+    },
+    "8": {
+     "hash": "0f2dde8b883a05cc",
+     "axes": "{\"early_exit_s\": \"60\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.337,
+     "n_cand": 10,
+     "trades": 685,
+     "d_usd_vs_b1": -302.26,
+     "d_usd_vs_median": 37.63,
+     "dsr_test": -0.4345,
+     "spearman": 0.903
+    },
+    "9": {
+     "hash": "0f2dde8b883a05cc",
+     "axes": "{\"early_exit_s\": \"60\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.3621,
+     "n_cand": 10,
+     "trades": 329,
+     "d_usd_vs_b1": -192.5,
+     "d_usd_vs_median": 55.69,
+     "dsr_test": -0.4822,
+     "spearman": 0.964
+    }
+   },
+   "folds_pos": 0,
+   "switches": 0,
+   "usd_sel": -615.79,
+   "usd_b1": 511.07,
+   "c2_hold": false,
+   "c2_notheld": true,
+   "coin_best": "VIRTUALUSDT",
+   "coin_worst": "ADAUSDT",
+   "holm": {
+    "rejected": false,
+    "thr": 0.01667
+   },
+   "verdict": "не различимо"
+  },
+  "Г-112": {
+   "dsr_oos": 0.0089,
+   "sr_sel": 0.1264,
+   "sr_b1": 0.1174,
+   "p_b1": 0.4053,
+   "p_lot": 0.0003,
+   "delta_c": 0.3428,
+   "p_fam": 0.4053,
+   "months": {
+    "4": {
+     "hash": "4bb32cf7ff74e621",
+     "axes": "{\"W\": \"60\", \"q\": \"90\"}",
+     "p_train": 0.4763,
+     "dsr_train": 0.0084,
+     "n_cand": 63,
+     "trades": 396,
+     "d_usd_vs_b1": -73.02,
+     "d_usd_vs_median": 169.77,
+     "dsr_test": -0.0932,
+     "spearman": 0.753
+    },
+    "5": {
+     "hash": "4bb32cf7ff74e621",
+     "axes": "{\"W\": \"60\", \"q\": \"90\"}",
+     "p_train": 0.4021,
+     "dsr_train": 0.0128,
+     "n_cand": 63,
+     "trades": 242,
+     "d_usd_vs_b1": 5.4,
+     "d_usd_vs_median": 70.96,
+     "dsr_test": 0.0854,
+     "spearman": 0.871
+    },
+    "6": {
+     "hash": "4bb32cf7ff74e621",
+     "axes": "{\"W\": \"60\", \"q\": \"90\"}",
+     "p_train": 0.3593,
+     "dsr_train": 0.0185,
+     "n_cand": 63,
+     "trades": 380,
+     "d_usd_vs_b1": -54.2,
+     "d_usd_vs_median": 34.93,
+     "dsr_test": -0.1772,
+     "spearman": 0.806
+    },
+    "7": {
+     "hash": "cd8d145690e975da",
+     "axes": "{\"W\": \"30\", \"q\": \"95\"}",
+     "p_train": 0.2975,
+     "dsr_train": 0.0212,
+     "n_cand": 63,
+     "trades": 441,
+     "d_usd_vs_b1": 87.85,
+     "d_usd_vs_median": 195.09,
+     "dsr_test": 0.1181,
+     "spearman": 0.956
+    },
+    "8": {
+     "hash": "cd8d145690e975da",
+     "axes": "{\"W\": \"30\", \"q\": \"95\"}",
+     "p_train": 0.1394,
+     "dsr_train": 0.0356,
+     "n_cand": 63,
+     "trades": 407,
+     "d_usd_vs_b1": -13.87,
+     "d_usd_vs_median": 345.77,
+     "dsr_test": 0.0096,
+     "spearman": 0.976
+    },
+    "9": {
+     "hash": "9ec805999e82d7be",
+     "axes": "{\"W\": \"5\", \"q\": \"95\"}",
+     "p_train": 0.0674,
+     "dsr_train": 0.042,
+     "n_cand": 63,
+     "trades": 205,
+     "d_usd_vs_b1": -16.7,
+     "d_usd_vs_median": 207.81,
+     "dsr_test": -0.0346,
+     "spearman": 0.97
+    }
+   },
+   "folds_pos": 2,
+   "switches": 2,
+   "usd_sel": 446.54,
+   "usd_b1": 511.07,
+   "c2_hold": false,
+   "c2_notheld": false,
+   "coin_best": "ADAUSDT",
+   "coin_worst": "CRVUSDT",
+   "holm": {
+    "rejected": false,
+    "thr": 0.00714
+   },
+   "verdict": "не различимо"
+  },
+  "Г-114": {
+   "dsr_oos": 0.0551,
+   "sr_sel": 0.1725,
+   "sr_b1": 0.1174,
+   "p_b1": 0.0012,
+   "p_lot": 0.2248,
+   "delta_c": 0.019,
+   "p_fam": 0.2248,
+   "months": {
+    "4": {
+     "hash": "bf6a7ad99a0c9855",
+     "axes": "{\"trigger\": \"halfstop\", \"f\": \"7/8\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.0154,
+     "n_cand": 10,
+     "trades": 326,
+     "d_usd_vs_b1": -2.01,
+     "d_usd_vs_median": 6.39,
+     "dsr_test": 0.0031,
+     "spearman": 0.758
+    },
+    "5": {
+     "hash": "bf6a7ad99a0c9855",
+     "axes": "{\"trigger\": \"halfstop\", \"f\": \"7/8\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.012,
+     "n_cand": 10,
+     "trades": 197,
+     "d_usd_vs_b1": 5.13,
+     "d_usd_vs_median": -3.41,
+     "dsr_test": 0.012,
+     "spearman": 0.588
+    },
+    "6": {
+     "hash": "bf6a7ad99a0c9855",
+     "axes": "{\"trigger\": \"halfstop\", \"f\": \"7/8\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.0088,
+     "n_cand": 10,
+     "trades": 291,
+     "d_usd_vs_b1": 36.58,
+     "d_usd_vs_median": -19.0,
+     "dsr_test": 0.0445,
+     "spearman": 0.37
+    },
+    "7": {
+     "hash": "a2b3ef9e1144c02b",
+     "axes": "{\"trigger\": \"halfstop\", \"f\": \"1/8\"}",
+     "p_train": 0.4063,
+     "dsr_train": 0.0052,
+     "n_cand": 10,
+     "trades": 406,
+     "d_usd_vs_b1": 83.7,
+     "d_usd_vs_median": 23.52,
+     "dsr_test": 0.1093,
+     "spearman": 0.261
+    },
+    "8": {
+     "hash": "a2b3ef9e1144c02b",
+     "axes": "{\"trigger\": \"halfstop\", \"f\": \"1/8\"}",
+     "p_train": 0.1693,
+     "dsr_train": 0.019,
+     "n_cand": 10,
+     "trades": 389,
+     "d_usd_vs_b1": 66.4,
+     "d_usd_vs_median": 44.26,
+     "dsr_test": 0.1013,
+     "spearman": 0.988
+    },
+    "9": {
+     "hash": "a2b3ef9e1144c02b",
+     "axes": "{\"trigger\": \"halfstop\", \"f\": \"1/8\"}",
+     "p_train": 0.0894,
+     "dsr_train": 0.0256,
+     "n_cand": 10,
+     "trades": 186,
+     "d_usd_vs_b1": -3.79,
+     "d_usd_vs_median": 10.97,
+     "dsr_test": -0.0183,
+     "spearman": 0.588
+    }
+   },
+   "folds_pos": 4,
+   "switches": 1,
+   "usd_sel": 697.08,
+   "usd_b1": 511.07,
+   "c2_hold": true,
+   "c2_notheld": false,
+   "coin_best": "ICPUSDT",
+   "coin_worst": "XLMUSDT",
+   "holm": {
+    "rejected": "False",
+    "thr": 0.00625
+   },
+   "verdict": "не различимо"
+  },
+  "Г-119": {
+   "dsr_oos": -0.2089,
+   "sr_sel": -0.0914,
+   "sr_b1": 0.1174,
+   "p_b1": 1.0,
+   "p_lot": 0.0455,
+   "delta_c": 0.0429,
+   "p_fam": 1.0,
+   "months": {
+    "4": {
+     "hash": "8ac84b2452ba4759",
+     "axes": "{\"tol_ticks\": \"1\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1012,
+     "n_cand": 9,
+     "trades": 396,
+     "d_usd_vs_b1": -121.76,
+     "d_usd_vs_median": 67.8,
+     "dsr_test": -0.1718,
+     "spearman": 0.133
+    },
+    "5": {
+     "hash": "8ac84b2452ba4759",
+     "axes": "{\"tol_ticks\": \"1\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1041,
+     "n_cand": 9,
+     "trades": 237,
+     "d_usd_vs_b1": -79.85,
+     "d_usd_vs_median": 0.0,
+     "dsr_test": -0.2144,
+     "spearman": 0.5
+    },
+    "6": {
+     "hash": "8ac84b2452ba4759",
+     "axes": "{\"tol_ticks\": \"1\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1141,
+     "n_cand": 9,
+     "trades": 376,
+     "d_usd_vs_b1": -113.89,
+     "d_usd_vs_median": -9.2,
+     "dsr_test": -0.2362,
+     "spearman": -0.45
+    },
+    "7": {
+     "hash": "8ac84b2452ba4759",
+     "axes": "{\"tol_ticks\": \"1\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.134,
+     "n_cand": 9,
+     "trades": 544,
+     "d_usd_vs_b1": -101.17,
+     "d_usd_vs_median": 7.17,
+     "dsr_test": -0.1802,
+     "spearman": 0.65
+    },
+    "8": {
+     "hash": "8ac84b2452ba4759",
+     "axes": "{\"tol_ticks\": \"1\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1418,
+     "n_cand": 9,
+     "trades": 545,
+     "d_usd_vs_b1": -215.88,
+     "d_usd_vs_median": 0.0,
+     "dsr_test": -0.194,
+     "spearman": 0.783
+    },
+    "9": {
+     "hash": "8ac84b2452ba4759",
+     "axes": "{\"tol_ticks\": \"1\"}",
+     "p_train": 1.0,
+     "dsr_train": -0.1548,
+     "n_cand": 9,
+     "trades": 276,
+     "d_usd_vs_b1": -157.78,
+     "d_usd_vs_median": 0.0,
+     "dsr_test": -0.3373,
+     "spearman": -0.45
+    }
+   },
+   "folds_pos": 0,
+   "switches": 0,
+   "usd_sel": -279.25,
+   "usd_b1": 511.07,
+   "c2_hold": false,
+   "c2_notheld": true,
+   "coin_best": "MNTUSDT",
+   "coin_worst": "ADAUSDT",
+   "holm": {
+    "rejected": false,
+    "thr": 0.025
+   },
+   "verdict": "не различимо"
+  },
+  "Г-129": {
+   "dsr_oos": -0.008,
+   "sr_sel": 0.1094,
+   "sr_b1": 0.1174,
+   "p_b1": 1.0,
+   "p_lot": 0.6034,
+   "delta_c": -0.0054,
+   "p_fam": 1.0,
+   "months": {
+    "4": {
+     "hash": "bc0e4a45b7031968",
+     "axes": "{\"entry_ttl\": \"10\"}",
+     "p_train": 0.2227,
+     "dsr_train": 0.0626,
+     "n_cand": 9,
+     "trades": 132,
+     "d_usd_vs_b1": -136.29,
+     "d_usd_vs_median": -107.18,
+     "dsr_test": -0.1501,
+     "spearman": 0.3
+    },
+    "5": {
+     "hash": "bc0e4a45b7031968",
+     "axes": "{\"entry_ttl\": \"10\"}",
+     "p_train": 0.3658,
+     "dsr_train": 0.0246,
+     "n_cand": 9,
+     "trades": 73,
+     "d_usd_vs_b1": -23.61,
+     "d_usd_vs_median": -17.89,
+     "dsr_test": -0.0078,
+     "spearman": 0.283
+    },
+    "6": {
+     "hash": "bc0e4a45b7031968",
+     "axes": "{\"entry_ttl\": \"10\"}",
+     "p_train": 0.3871,
+     "dsr_train": 0.0195,
+     "n_cand": 9,
+     "trades": 140,
+     "d_usd_vs_b1": 78.02,
+     "d_usd_vs_median": 40.35,
+     "dsr_test": 0.1608,
+     "spearman": -0.233
+    },
+    "7": {
+     "hash": "bc0e4a45b7031968",
+     "axes": "{\"entry_ttl\": \"10\"}",
+     "p_train": 0.2225,
+     "dsr_train": 0.0437,
+     "n_cand": 9,
+     "trades": 207,
+     "d_usd_vs_b1": 36.73,
+     "d_usd_vs_median": 24.99,
+     "dsr_test": 0.0079,
+     "spearman": -0.633
+    },
+    "8": {
+     "hash": "bc0e4a45b7031968",
+     "axes": "{\"entry_ttl\": \"10\"}",
+     "p_train": 0.2278,
+     "dsr_train": 0.0384,
+     "n_cand": 9,
+     "trades": 210,
+     "d_usd_vs_b1": -222.45,
+     "d_usd_vs_median": -186.16,
+     "dsr_test": -0.1782,
+     "spearman": -0.05
+    },
+    "9": {
+     "hash": "51df5d0e3e08989e",
+     "axes": "{\"entry_ttl\": \"600\"}",
+     "p_train": 0.4642,
+     "dsr_train": 0.0007,
+     "n_cand": 9,
+     "trades": 189,
+     "d_usd_vs_b1": -7.92,
+     "d_usd_vs_median": 5.48,
+     "dsr_test": -0.0124,
+     "spearman": 0.167
+    }
+   },
+   "folds_pos": 2,
+   "switches": 1,
+   "usd_sel": 235.56,
+   "usd_b1": 511.07,
+   "c2_hold": false,
+   "c2_notheld": false,
+   "coin_best": "BNBUSDT",
+   "coin_worst": "ONDOUSDT",
+   "holm": {
+    "rejected": false,
+    "thr": 0.05
+   },
+   "verdict": "не различимо"
+  },
+  "Г-133": {
+   "dsr_oos": 0.0172,
+   "sr_sel": 0.1347,
+   "sr_b1": 0.1174,
+   "p_b1": 0.0,
+   "p_lot": 0.0,
+   "delta_c": 0.0089,
+   "p_fam": 0.0,
+   "months": {
+    "4": {
+     "hash": "e76e37de63fd6098",
+     "axes": "{\"a\": \"8\"}",
+     "p_train": 0.0,
+     "dsr_train": 0.0116,
+     "n_cand": 7,
+     "trades": 330,
+     "d_usd_vs_b1": 14.54,
+     "d_usd_vs_median": 5.53,
+     "dsr_test": 0.0217,
+     "spearman": 1.0
+    },
+    "5": {
+     "hash": "e76e37de63fd6098",
+     "axes": "{\"a\": \"8\"}",
+     "p_train": 0.0,
+     "dsr_train": 0.0137,
+     "n_cand": 7,
+     "trades": 199,
+     "d_usd_vs_b1": 9.84,
+     "d_usd_vs_median": 6.41,
+     "dsr_test": 0.0229,
+     "spearman": 1.0
+    },
+    "6": {
+     "hash": "e76e37de63fd6098",
+     "axes": "{\"a\": \"8\"}",
+     "p_train": 0.0,
+     "dsr_train": 0.0144,
+     "n_cand": 7,
+     "trades": 299,
+     "d_usd_vs_b1": 14.33,
+     "d_usd_vs_median": 6.97,
+     "dsr_test": 0.0176,
+     "spearman": 1.0
+    },
+    "7": {
+     "hash": "e76e37de63fd6098",
+     "axes": "{\"a\": \"8\"}",
+     "p_train": 0.0,
+     "dsr_train": 0.015,
+     "n_cand": 7,
+     "trades": 420,
+     "d_usd_vs_b1": 14.41,
+     "d_usd_vs_median": 8.57,
+     "dsr_test": 0.0178,
+     "spearman": 1.0
+    },
+    "8": {
+     "hash": "e76e37de63fd6098",
+     "axes": "{\"a\": \"8\"}",
+     "p_train": 0.0,
+     "dsr_train": 0.0155,
+     "n_cand": 7,
+     "trades": 397,
+     "d_usd_vs_b1": 14.25,
+     "d_usd_vs_median": 10.17,
+     "dsr_test": 0.0138,
+     "spearman": 0.714
+    },
+    "9": {
+     "hash": "e76e37de63fd6098",
+     "axes": "{\"a\": \"8\"}",
+     "p_train": 0.0,
+     "dsr_train": 0.0152,
+     "n_cand": 7,
+     "trades": 189,
+     "d_usd_vs_b1": 7.68,
+     "d_usd_vs_median": 4.45,
+     "dsr_test": 0.0147,
+     "spearman": 0.893
+    }
+   },
+   "folds_pos": 6,
+   "switches": 0,
+   "usd_sel": 586.11,
+   "usd_b1": 511.07,
+   "c2_hold": true,
+   "c2_notheld": false,
+   "coin_best": "1000PEPEUSDT",
+   "coin_worst": "RENDERUSDT",
+   "holm": {
+    "rejected": "True",
+    "thr": 0.00556
+   },
+   "verdict": "ДЕРЖИТСЯ вперёд"
+  }
+ },
+ "holm": {
+  "Г-133": [
+   "True",
+   0.005555555555555556
+  ],
+  "Г-114": [
+   "False",
+   0.00625
+  ],
+  "Г-112": [
+   false,
+   0.0071428571428571435
+  ],
+  "Г-10": [
+   false,
+   0.008333333333333333
+  ],
+  "Г-65": [
+   false,
+   0.01
+  ],
+  "Г-104": [
+   false,
+   0.0125
+  ],
+  "Г-110": [
+   false,
+   0.016666666666666666
+  ],
+  "Г-119": [
+   false,
+   0.025
+  ],
+  "Г-129": [
+   false,
+   0.05
+  ]
+ },
+ "gates": {
+  "sum_checked": 1593,
+  "sum_bad": 0
+ }
+}
