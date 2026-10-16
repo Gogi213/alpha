@@ -70,11 +70,12 @@ def load_axes(dirp, protocol="P-14"):
     out = {}
     for fn, (jn, key) in LAYERS.items():
         stem = fn[:-4]
-        cand = [x for x in sorted(os.listdir(dirp)) if x == fn or re.fullmatch(r"p14-axes-" + stem + r"-.*\.csv", x)]
+        pre = "p" + (re.sub(r"\D", "", protocol) or "14") + "-axes-"   # файлы слоя — своего протокола: p14-axes-*, p15-axes-* (TK-274)
+        cand = [x for x in sorted(os.listdir(dirp)) if x == fn or re.fullmatch(pre + stem + r"-.*\.csv", x)]
         if not cand:
             continue
         rows = _read(os.path.join(dirp, cand[-1]))
-        ver = next((r["version"] for r in _read(os.path.join(dirp, next((x for x in sorted(os.listdir(dirp)) if x == "stacks.csv" or x.startswith("p14-axes-stacks")), cand[-1]))) if r.get("version")), "") if fn == "hyp_axes.csv" else ""
+        ver = next((r["version"] for r in _read(os.path.join(dirp, next((x for x in sorted(os.listdir(dirp)) if x == "stacks.csv" or x.startswith(pre + "stacks")), cand[-1]))) if r.get("version")), "") if fn == "hyp_axes.csv" else ""
         rows = [_adapt(fn, r, protocol, ver) for r in rows]
         for r in rows:
             miss = [k for k in key if not r.get(k)]
@@ -131,11 +132,23 @@ def family_of(hyp):
     return _FAMILY.get(n, "g" + n)  # может быть «g73-conj» (семья-признак R1)
 
 
+_P15 = {}
+
+
+def p15_thresholds():
+    """P-15-thresholds.csv -> {(семья g72|g146, ось btc_lag_<s>s|btc24h): {q: {месяц: (порог, set_arg)}}}."""
+    if not _P15 and os.path.exists(_P15_THR):
+        for r in csv.DictReader(open(_P15_THR, encoding="utf-8"), delimiter=";"):
+            _P15.setdefault(("g" + re.sub(r"\D", "", r["hyp"]), r["axis"]), {}).setdefault(int(r["q"]), {})[r["month"]] = (r["threshold_bps"], r["set_arg"])
+    return _P15
+
+
 MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: число в имени формы меняется по месяцам (Г-133 chase<a·W_m>); файл --cells на месяц
 _THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
 MSETS = {}  # имя набора -> спецификация --set: наборы с порогом по месяцам (Г-10 btc<N>h_max=T_m); write_set добавляет их к --set
 _TAPE_THR = os.path.join(FIND, "tape-thresholds-v7-2026-10-11.json")   # TK-120 v7 (thr7/summary.json): ключи e112_W<W>_q<q> по месяцам
 _TK202_THR = os.path.join(FIND, "tk202-thresholds-2026-10-12.json")   # tools/analyze/tk202-thresholds.py: usd {месяц: {q: T}}, ctx {ось: {месяц: {q20..q80}}}
+_P15_THR = os.path.join(ROOT, "docs", "research", "P-15-thresholds.csv")   # TK-274: Г-72 (btc_lag_<s>s_min) и Г-146 (btc24h_min) по месяцам: hyp;axis;q;month;threshold_bps;set_arg
 _BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-11.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
 
 
@@ -232,6 +245,8 @@ MECH_RUN = {
     "EntryLadderSigma3": ("t-bid-btc4h-q1", {}),   # запись kind=entry: имя идёт во вход клетки без суффикса выхода
     "StopSigma": (None, {}),   # запись kind=stop: имя идёт в стоп клетки, не в суффикс выхода
     "TakeSchedX": (None, {}),   # набор клетки — из стека; тейк клетки по MECH_TAKE
+    "LevelBack": ("t-bid-btc4h-q1", {}),   # Г-108 (П-15): lvlback<G>w<W> — суффикс выхода на базе B1
+    "EntryRetreat": ("t-bid-btc4h-q1", {}),   # Г-102 (П-15): retreat<k>t<T> — запись kind=entry, имя идёт во вход клетки (нужен r2-бинарь)
 }
 # тейк клетки, когда ось привязана к механике: стек B3 = B1 с тейком 1to1 без трейла (tsl не действует при трейле; Судья 11.10)
 MECH_TAKE = {"TakeSchedX": "1to1"}
@@ -418,6 +433,26 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
                     name = f"g10n{n_h}q{q}-{m}"
                     MSETS[name] = f"age=2700,side=bid,btc{n_h}h_max={t}"
                     mm[m] = f"{form} {name}"
+            MONTHLY[h] = mm
+    elif av and re.sub(r"\D", "", hyp) in ("72", "146") and "btc_thr_q" in av:   # П-15: Г-72 btc_lag_<s>s_min=T_m, Г-146 B1 + btc24h_min=T_m; пороги по месяцам — P-15-thresholds.csv; хеш — семья g72/g146 + оси (как Г-10)
+        fam, q = "g" + re.sub(r"\D", "", hyp), _int_in(_frac(av["btc_thr_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        lag = _int_in(_frac(av["btc_lag_s"]), (1, 2, 4, 8, 16, 32, 64, 118)) if fam == "g72" else None
+        cfg["variant"] = {"family": fam, "axes": ({"btc_lag_s": lag, "btc_thr_q": q} if fam == "g72" else {"btc_thr_q": q})}
+        h = ch.cell_hash(cfg)
+        thr = p15_thresholds().get((fam, f"btc_lag_{lag}s" if fam == "g72" else "btc24h"), {})
+        if not q or (fam == "g72" and not lag):
+            LINES[h] = (None, f"{hyp}: q ∈ {{5,10,20,33,50,67,80,90,95}}" + (", лаг ∈ {1,2,4,8,16,32,64,118} с" if fam == "g72" else ""))
+        elif not thr:
+            LINES[h] = (None, f"{hyp}: нет {os.path.basename(_P15_THR)} (tools/registry/p15_scope.py --write-research)")
+        else:
+            LINES[h] = (None, f"месячный набор {fam}{'l' + str(lag) if lag else ''}q<q>-<ГГГГ-ММ>: файлы <имя>-<ГГГГ-ММ>.cells")
+            row = thr[q]   # {месяц: (порог, set_arg)}
+            q0 = min(x for x in thr if [thr[x][m][0] for m in sorted(thr[x])] == [row[m][0] for m in sorted(row)])   # q с теми же 9 границами — одна клетка (лаг 1 с: q50, q67 = q33)
+            mm = {}
+            for m, (_, spec) in row.items():
+                name = f"{fam}{'l' + str(lag) if lag else ''}q{q0}-{m}"
+                MSETS[name] = spec
+                mm[m] = f"{form} {name}"
             MONTHLY[h] = mm
     elif av and ("usd_min_q" in av or "behind_min_q" in av) and "keep_q" not in av:   # В-227 М3 (Г-89/107/27, Г-32): usd_min=T_m(q) по месяцам; Г-07 — behind_min=T_m(q), % (D20); Г-32 — ещё страта btc4h внутри базы B1 (Судья 12.10 04:14)
         ax, pre, key = ("behind_min_q", "b", "behind") if "behind_min_q" in av else ("usd_min_q", "u", "usd")   # ось, префикс набора, раздел порогов
