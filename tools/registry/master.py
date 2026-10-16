@@ -137,7 +137,7 @@ def p17_cell(hyp, av, cfg, form):
         return
     if n == "81":
         w = int(axes["W_s"])
-        thr, axis, pre = p17_thr("Г-81", f"cxl_w{w}_over_size"), f"cxl_w{w}_over_size", f"g81w{w}q{q}"
+        thr, axis, pre = p17_thr("Г-81", f"cxl_w{w}_over_size"), f"cxl_w{w}_over_size", f"g81cxlw{w}q{q}"   # «cxl» в имени: строка уходит в пачку с --tape-log (day-cells.sh: grep tape|cxl)
     elif n == "101":
         thr, axis, pre = p17_thr("Г-101", "btc4h"), "btc4h", f"g101{axes['part']}t{q}f{axes['f_bp']}"
     else:
@@ -732,6 +732,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
             for u in used:
                 f.write(f"--set {u}:{sets[u]}\n")
         r2 = any(re.match(R2_EXIT_RE, x) for x in (m.group(2) for m in tails if m and m.group(2)))
+        r2 = r2 or any(re.match(R2_EXIT_RE, f.split("-", 1)[0]) for f in forms) or any("entry_gate=" in sets[u] for u in used)   # П-17: вход postsweep<R> и ворота entry_gate — тоже только r2
         with open(stem + ".bin", "w", encoding="utf-8", newline="\n") as f:   # какой бинарь ставить прогону: формы R2 — только cargo feature r2 (forms.rs, ExitForm::parse)
             f.write("r2\n" if r2 else "std\n")
 
