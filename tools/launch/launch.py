@@ -37,7 +37,7 @@ OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata":
 OFF_ROUTES = list(OFF_LABELS)   # код в coverage(): 0 — форма считает, i+1 — OFF_ROUTES[i]
 
 
-def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
+def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE, merge=False):
     """Маршрут каждой клетки сетки по тем же master.LINES/OUTSIDE/R1COL/R1X/MONTHLY, что и master.plan (строки 592-612); пишет routes.json
     (нужна data/registry.sqlite этой машины — серверу достаточно готового файла). {routes:{хеш: маршрут}, lines:{хеш: «форма набор»},
     monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}, r1spec:{хеш: [гипотеза, колонка, знак, keep_q, ось ctx, ctx_q]}};
@@ -81,6 +81,13 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
                 routes[h] = "r1route"
     doc = {"protocol": protocol, "fraction": fraction, "generated": now_iso(), "routes": routes, "r2_re": master.R2_EXIT_RE,
            "lines": lines, "monthly": monthly, "sets": {u: sets[u] for u in sorted(used)}, "r1spec": r1spec}
+    if merge and os.path.exists(out):   # TK-274: маршруты другого протокола (П-15 F1) добавляются к готовому файлу, новый хеш перекрывает старый
+        old = json.load(open(out, encoding="utf-8"))
+        for k in ("routes", "lines", "monthly", "sets", "r1spec"):
+            old.setdefault(k, {}).update(doc[k])
+        old["merged"] = sorted(set(old.get("merged", [])) | {f"{protocol} F{fraction}"})
+        old["generated"] = doc["generated"]
+        doc = old
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, ensure_ascii=False, sort_keys=True)
     return doc
@@ -826,10 +833,12 @@ def main(argv=None):
             s.add_argument("--confirm-bin", action="store_true")
     sp.add_parser("status")
     sp.add_parser("process-requests", help="root-юнит alpha-launch-submit: поставить в очередь запросы формы (проверка заново)")
-    sp.add_parser("routes", help="пересчитать routes.json (маршруты клеток; нужна data/registry.sqlite)")
+    rp = sp.add_parser("routes", help="пересчитать routes.json (маршруты клеток; нужна data/registry.sqlite)")
+    rp.add_argument("--protocol", default="P-14"); rp.add_argument("--fraction", type=int, default=1)
+    rp.add_argument("--merge", action="store_true", help="добавить маршруты к готовому routes.json (другой протокол), не заменять")
     o = ap.parse_args(argv)
     if o.cmd == "routes":
-        d = build_routes()
+        d = build_routes(o.protocol, o.fraction, merge=o.merge)
         print(json.dumps(dict(collections.Counter(d["routes"].values())), ensure_ascii=False), "->", ROUTES_FILE)
         return 0
     if o.cmd == "process-requests":
