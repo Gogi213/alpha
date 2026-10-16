@@ -36,13 +36,13 @@ class SimBE:
     def save_preempt(self, d): pass
     def freeze_unit(self, u): self.fz.add(u)
     def thaw_unit(self, u): self.fz.discard(u)
+    def is_frozen(self, u): return u in self.fz
     def legacy_units(self): return [(u, c) for u, c in self.legacy_u.items() if u not in self.fz]
     def start(self, j): self.jobs[j["id"]] = dict(left=j["dur"])
     def freeze_all(self): self.frozen = True
     def thaw_all(self): self.frozen = False
 
     def kill(self, j): self.jobs[j["id"]]["left"] = 0; self.killed.append(j["id"])
-    def extend(self, j, remaining): pass
     mem_av, mem_swap = 36.0, 0.0
     def mem_state(self): return self.mem_av, self.mem_swap
     def job_mem(self, j): return self.mem_used.get(j["id"], 0.0)

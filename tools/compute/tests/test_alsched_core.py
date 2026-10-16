@@ -214,3 +214,25 @@ class StateFailures(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Restart(unittest.TestCase):
+    """TK-222: рестарт демона теряет frozen_for — reconcile возвращает метку по FreezerState, оттайка идёт штатно."""
+    def test_frozen_without_mark_gets_hot_and_thaws(self):
+        be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        core.add(SS.job("a", "a", "prod", 8, 2, "none", 10 * H, 0, mr=5 * H))
+        for _ in range(3):
+            core.tick(); be.advance(core, S.TICK)
+        be.freeze_unit("a")                               # демон «перезапущен»: заморозка есть, метки нет
+        core2 = S.Core(be, ncpu=SS.NCPU, mem=56)
+        core2.add(core.jobs["a"]); core2.jobs["a"].pop("frozen_for", None)
+        core2.reconcile({u for u in ("a",) if be.is_frozen(u)})
+        self.assertEqual(core2.jobs["a"].get("frozen_for"), "hot")
+
+    def test_stale_hot_mark_dropped(self):
+        be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        core.add(SS.job("a", "a", "prod", 8, 2, "none", 10 * H, 0, mr=5 * H))
+        core.tick()
+        core.jobs["a"]["frozen_for"] = "hot"
+        core.reconcile(set())
+        self.assertNotIn("frozen_for", core.jobs["a"])
