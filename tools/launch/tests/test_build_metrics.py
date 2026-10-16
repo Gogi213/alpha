@@ -44,3 +44,20 @@ def test_direct_r1_closes(tmp_path):
     assert rows["hX"]["n"] == 2 and rows["hX"]["pnl"] == 3.0 and rows["hX"]["by_month"] == {"2026-02": {"n": 2, "pnl": 3.0}, "2026-03": {"n": 0, "pnl": 0.0}}
     assert rows["hY"]["by_month"]["2026-02"] == {"n": 0, "pnl": 0.0} and rows["hY"]["n"] == 1
     assert launch.checked_metrics(rows["hX"], {"2026-02": (3.0, 2, None), "2026-03": (0.0, 0, None)}) is rows["hX"]
+
+
+def test_direct_alias_cells(tmp_path):
+    """TK-268: --alias-cells — ключ файла = имя клетки (R1 TK-182), хеш = id по cells.jsonl (set_name p12-…, имя однозначно)."""
+    json.dump({"lines": {}, "monthly": {}}, open(tmp_path / "routes.json", "w"))
+    cells = [{"id": "0123456789abcdef", "form": "g04-k20", "set_name": "p12-r1/g04-k20"},
+             {"id": "aaaaaaaaaaaa0001", "form": "dup", "set_name": "p12-r1/dup"}, {"id": "bbbbbbbbbbbb0002", "form": "dup", "set_name": "p12-r1/dup"},
+             {"id": "cccccccccccc0003", "form": "other", "set_name": "f1/other"}]
+    with open(tmp_path / "cells.jsonl", "w") as f:
+        f.write("".join(json.dumps(c) + "\n" for c in cells))
+    assert build_metrics.cell_alias(str(tmp_path / "cells.jsonl")) == {"g04-k20": "0123456789abcdef"}
+    json.dump({"B1": {"2026-02": {"0": [[A, 9.0]]}}, "g04-k20": {"2026-02": {"0": [[A + H, 5.0]]}}, "dup": {"2026-02": {"0": [[A, 1.0]]}}},
+              open(tmp_path / "c-2026-02.json", "w"))
+    out = tmp_path / "m.jsonl"
+    build_metrics.main(["--out", str(out), "--routes", str(tmp_path / "routes.json"), "--months", "2026-02", "--alias-cells", str(tmp_path / "cells.jsonl"),
+                        "--direct", str(tmp_path / "c-{m}.json")])
+    assert sorted(json.loads(x)["hash"] for x in open(out)) == ["0123456789abcdef", "dup"]   # неоднозначное имя остаётся как есть
