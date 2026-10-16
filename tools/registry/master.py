@@ -586,6 +586,28 @@ def f2_points(zone, rs, f1_pts, ptypes, rules):
     return pts
 
 
+def zone_nearest(combos, pts, names, zone, lim):
+    """Потолок на зону (решение Судьи, tk278 §11.2 п. 4): lim клеток, ближайших к центру зоны — L∞ в шагах точек F2, затем L1, затем по рангам осей. Центр по оси = среднее значений зоны; ось нечисловая или вне сита — расстояние 0."""
+    rank, cen = {}, {}
+    for n in names:
+        g = sorted(pts[n], key=lambda v: (fval(v) is None, fval(v) or 0, str(v)))
+        rank[n] = {v: i for i, v in enumerate(g)}
+        zv = [fval(str(r["ax"][n])) for r in zone if n in r["ax"]]
+        fg = [fval(v) for v in g]
+        if not zv or None in zv or None in fg:
+            cen[n] = None
+            continue
+        c = sum(zv) / len(zv)
+        i = max([j for j in range(len(fg)) if fg[j] <= c] or [0])
+        cen[n] = i + ((c - fg[i]) / (fg[i + 1] - fg[i]) if i + 1 < len(fg) and c > fg[i] else 0)
+
+    def key(combo):
+        ix = tuple(rank[n][v] for n, v in zip(names, combo))
+        d = [abs(i - cen[n]) if cen[n] is not None else 0 for i, n in zip(ix, names)]
+        return (max(d), sum(d), ix)
+    return sorted(combos, key=key)[:int(lim)]
+
+
 def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
     """{hyp: [(axes_dict, cfg)]} для фракции k; закрытые гипотезы -> список пуст (причина в closed)."""
     rules = rules or rules_of(c, protocol)
@@ -612,14 +634,14 @@ def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
         sv, _ = stack_values(c, axes[0][2], axes[0][3] or None)
         f1_pts = {a[0]: [x for x in a[1].split("|") if x] for a in axes}
         if k == 1:
-            psets = [f1_pts]
+            psets = [(f1_pts, None)]
         elif k == 2:
             rs = f1.get(hyp, [])
             zones = f2_zones(rs, ptypes)
             if not zones:
                 closed[hyp] = "не определена (П-14 §11.1): нет определённых клеток F1 — не в F2 и не отбракована"
                 continue
-            psets = [f2_points(z, rs, f1_pts, ptypes, rules) for z in zones]
+            psets = [(f2_points(z, rs, f1_pts, ptypes, rules), z) for z in zones]
         else:
             prev = {r[0]: json.loads(r[1]) for r in c.execute("select cell_hash, axes from plan_cells where protocol=? and fraction=? and hyp=?", (protocol, k - 1, hyp))}
             plat = [prev[r[0]] for r in c.execute("select cell_hash from sieve where protocol=? and fraction=? and hyp=? and side='A' and plateau=1", (protocol, k - 1, hyp)) if r[0] in prev]
@@ -630,16 +652,15 @@ def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
             for a in axes:
                 t, res = ptypes.get(a[0], ("numeric", None))
                 pts[a[0]] = refine(sorted({str(p[a[0]]) for p in plat}), sorted({str(p[a[0]]) for p in prev.values()}, key=lambda v: (fval(v) is None, fval(v) or 0, v)), t, res, int(rules.get("step_div", 4)), rules.get("cap_f3", 8))
-            psets = [pts]
+            psets = [(pts, None)]
         lim = rules.get("cap_cells", 100)
-        big = [n for n in (math.prod(len(pts[a[0]]) for a in axes) for pts in psets) if k > 1 and n > lim]
-        if big:   # потолок — на зону (решение Судьи, tk269 §11.2 п. 4), не на гипотезу
-            closed[hyp] = f"зона {max(big)} > потолка {int(lim)} клеток — сузить (решение Судьи)"
-            continue
         cells, seen = [], set()
         mm = {a[0]: a[5] for a in axes if a[5]}
-        for pts in psets:
-            for combo in itertools.product(*[pts[a[0]] for a in axes]):
+        for pts, zone in psets:
+            combos = list(itertools.product(*[pts[a[0]] for a in axes]))
+            if k > 1 and zone and len(combos) > lim:   # потолок — на зону (решение Судьи, tk269/tk278 §11.2 п. 4): lim ближайших к центру
+                combos = zone_nearest(combos, pts, [a[0] for a in axes], zone, lim)
+            for combo in combos:
                 key = tuple(fval(v) if fval(v) is not None else str(v) for v in combo)
                 if k > 1 and key in seen:   # зоны F2 пересекаются в общих точках
                     continue

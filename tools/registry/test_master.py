@@ -1,4 +1,5 @@
 """Тесты Летописи-мастера (TK-187): load-axes → plan (дедуп по хешу) → sieve → render на временной БД."""
+import itertools
 import csv, json, os, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -170,16 +171,28 @@ class MasterTest(unittest.TestCase):
         self.assertEqual((r["grid"], list(r["closed"])), (0, ["Г-87"]))
 
     def test_f2_ceiling_per_zone(self):
-        """Решение Судьи (tk269 §11.2 п. 4): потолок cap_cells — на зону, не на гипотезу."""
+        """Решение Судьи (tk269/tk278 §11.2 п. 4): потолок cap_cells — на зону; зона больше — lim клеток, ближайших к центру зоны."""
         self.have = {}
         master.load_axes(self.ax)
         master.plan("P-14", 1, out=os.path.join(self.t, "new.jsonl"))
         f1 = self.f1_csv({n: ("годна", 0.05, 0.1, 15) if n in {3, 4, 5} else ("не годна", 1.0, -0.1, 15) for n in range(2, 9)})
         c = master.connect()
-        for lim, ok in ((4, False), (5, True)):
+        got = {}
+        for lim in (3, 5, 9):
             grids, closed = master.build_grid(c, "P-14", 2, ["Г-87"], {**master.rules_of(c, "P-14"), "cap_cells": lim}, f1)
-            self.assertEqual(("Г-87" in grids, "Г-87" in closed), (ok, not ok))
+            self.assertEqual(closed, {})
+            got[lim] = sorted(int(a["n"]) for a, _ in grids["Г-87"])
         c.close()
+        self.assertEqual((len(got[3]), len(got[5])), (3, 5))
+        self.assertEqual(got[3], [3, 4, 5])   # центр зоны {3,4,5} = 4: ближайшие 3 точки
+        self.assertEqual(got[5], [2, 3, 4, 5, 6])   # зона не шире потолка — целиком
+    def test_zone_nearest_order(self):
+        """Порядок отбора: L∞ в шагах F2, затем L1, затем ранги осей; без выбора руками."""
+        pts = {"x": ["1", "2", "3", "4", "5"], "y": ["10", "20", "30"]}
+        zone = [{"ax": {"x": "3", "y": "20"}}]
+        combos = list(itertools.product(pts["x"], pts["y"]))
+        out = master.zone_nearest(combos, pts, ["x", "y"], zone, 5)
+        self.assertEqual(out, [("3", "20"), ("2", "20"), ("3", "10"), ("3", "30"), ("4", "20")])   # L∞ 0, затем 1 при L1=1: по рангам осей (x, y)
 
     def test_f2_zones_rule(self):
         """§11.2 п. 1–2, 5: связные годные = зона (до 3, лучшая первой); годных нет — одна клетка p↑, dSR↓, суток↓; ось целиком — лучшая клетка."""
