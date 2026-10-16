@@ -21,3 +21,4 @@ PSI_CPU = float(os.environ.get("SCHED_PSI_CPU", "25"))             # PSI cpu som
 MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
 FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
 RESERVE_CORES = int(os.environ.get("SCHED_RESERVE_CORES", "3"))   # В-229 п.10 (TK-219): ядра под гейты/сборки (--kind gate|build); обычное prod их не занимает, пока гейт/сборка не взяли их сами; 0 = выкл.
+RUNTIME_BACKSTOP_K = float(os.environ.get("SCHED_RUNTIME_BACKSTOP_K", "2"))   # TK-222: RuntimeMaxSec юнита = max_runtime × K — страховка при смерти демона; бюджет по active_s (без заморозки) снимает демон (set-property RuntimeMaxSec на calc не работает)
