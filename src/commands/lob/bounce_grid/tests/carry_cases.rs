@@ -485,6 +485,47 @@ fn lot_first_scales_only_first_touch_of_the_level() {
     }
 }
 
+/// Г-98 (П-17): лот под риск — `min(база, R·10⁴ ÷ span_bps)` вниз до шага; span < 1 и нежмущий риск — база как есть
+/// (= B1 байт в байт); ниже min-лота — `None` (пропуск), вверх не поднимаем; без подходов — отказ суток.
+#[test]
+fn size_risk_lot_follows_span_and_floors_at_min_lot() {
+    use super::super::steps::day_risk_qtys;
+    let lot = PoolLot {
+        min_order_qty_e9: 1_000_000,
+        qty_step_e9: 1_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let sizing = OrderSizing::Usd(lot, 100.0);
+    let price_e9 = 10_000_000_000; // $10 → база 10 монет
+    let base = 10_000_000_000;
+    let q = |r: f64, span: i64| sizing.qty_risk_e9(price_e9, 1, base, r, span, 1_000_000);
+    assert_eq!(
+        q(5.0, 1000),
+        Some(5_000_000_000),
+        "R·10⁴/1000 = $50 → 5 монет"
+    );
+    assert_eq!(q(5.0, 500), Some(base), "риск не жмёт ($100 = база) — база");
+    assert_eq!(q(5.0, 100), Some(base), "риск шире базы — не поднимаем");
+    assert_eq!(q(0.001, 0), Some(base), "span < 1 — база");
+    assert_eq!(q(0.4, 1000), None, "$4 < min-лота 22а ($5) — пропуск");
+    let day = super::super::cache::DayTouches {
+        day: "2026-01-01".to_string(),
+        touches: vec![probe_touch()],
+        approaches: None,
+        rets: Vec::new(),
+    };
+    assert!(day_risk_qtys(
+        &sizing,
+        &day,
+        &[10.0],
+        None,
+        (10_000_000, 1_000_000),
+        1,
+        5.0
+    )
+    .is_err());
+}
+
 /// R3 (ревью 23.09, замечание проверки): явный лот `--order-qty-e9`, не
 /// кратный шагу записи, — отказ, а не молчаливое округление ног лестницы
 /// (0.0015 при шаге 0.001 дал бы 2 шага — +33 % к размеру круга).

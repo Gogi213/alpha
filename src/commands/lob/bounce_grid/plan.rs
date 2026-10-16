@@ -663,6 +663,10 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
         out.push_str(&format!(" sreg={}:{}", r.t_bps, r.f_bp));
     }
     // М-04 (TK-206): множитель размера первого подхода — тоже идентичность набора
+    // Г-98 (П-17): лот под риск — идентичность набора
+    if let Some(r) = set.size_risk {
+        out.push_str(&format!(" size_risk={r}"));
+    }
     if let Some(k) = set.lot_first {
         out.push_str(&format!(" lot_first={k}"));
     }

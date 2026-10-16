@@ -958,6 +958,7 @@ env_count="
             eaten_min_pct: None,
             frontrun_min_lots: None,
             lot_first: None,
+            size_risk: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,

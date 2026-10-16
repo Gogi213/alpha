@@ -52,6 +52,9 @@ pub struct FilterSet {
     /// М-04 (В-228, TK-206): множитель размера позиции на первом подходе к уровню (`touch_index == 0`) — `lot_first=<k>`,
     /// k конечное > 0; на остальных подходах 1. Без ключа размер прежний (в шапку не попадает). Только ключ набора.
     pub lot_first: Option<f64>,
+    /// Г-98 (П-17): лот под риск — `size_risk=<R$>`, R конечное > 0; лот = min(лот, R·10⁴ ÷ `stack_span_bps_at_arm`), нужны
+    /// подходы. Без ключа размер прежний. Только ключ набора.
+    pub size_risk: Option<f64>,
     /// Номинал стены при касании не меньше стольких долларов (`usd_min=`):
     /// ось «размер стены» поверх пола `--h3-usd` (стены ≥ пола — надмножество,
     /// так что ключ — подмножество тех же касаний).
@@ -681,6 +684,7 @@ impl FilterSet {
             eaten_min_pct: None,
             frontrun_min_lots: None,
             lot_first: None,
+            size_risk: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
@@ -719,6 +723,7 @@ impl FilterSet {
             eaten_min_pct: None,
             frontrun_min_lots: None,
             lot_first: None,
+            size_risk: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
@@ -874,6 +879,16 @@ impl FilterSet {
                     );
                     set.lot_first = Some(k);
                 }
+                "size_risk" => {
+                    let r: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: size_risk={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        r.is_finite() && r > 0.0,
+                        "--set {spec:?}: size_risk={v:?} — риск на сделку, $: конечное число > 0"
+                    );
+                    set.size_risk = Some(r);
+                }
                 "frontrun" => {
                     anyhow::ensure!(
                         v.is_empty() || v == "1" || v == "true",
@@ -886,7 +901,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|size_risk|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!(
                             "--set {spec:?}: неизвестная ось {axis:?} ({})",

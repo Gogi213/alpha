@@ -136,6 +136,12 @@ fn p17_repeat_and_swept_keys() {
     );
     assert_eq!(super::plan::g07_label(&ctl), " repeat_min=0");
     assert_eq!(super::plan::g07_label(&s), " repeat_min=3 swept_min=250");
+    let r = FilterSet::parse("r:size_risk=5").unwrap();
+    assert_eq!(r.size_risk, Some(5.0));
+    assert_eq!(super::plan::g07_label(&r), " size_risk=5");
+    for bad in ["x:size_risk=0", "x:size_risk=-1", "x:size_risk=a"] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
     let none = FilterSet::parse("n:").unwrap();
     assert_eq!(super::plan::g07_label(&none), "");
 }

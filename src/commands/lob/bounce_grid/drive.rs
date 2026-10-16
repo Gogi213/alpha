@@ -151,6 +151,11 @@ fn signals_for(
                     _ => None,
                 },
             };
+            // Г-98: лот ниже min-лота (`size_risk`) — NaN из `day_risk_qtys`: сделка пропущена и посчитана.
+            if p.order_qtys.get(ti).is_some_and(|q| q.is_nan()) {
+                skipped += 1;
+                return None;
+            }
             let built = match (p.step_schedule, approaches) {
                 (Some(sc), Some(ap)) => approach_plan_sched(
                     &ap[ti],
@@ -509,6 +514,40 @@ impl OrderSizing {
         }
         #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
         let q = ((raw / step as f64 + 1e-9).floor() as i64).saturating_mul(step);
+        (q > 0 && q >= min.saturating_mul(i64::from(mult.max(1)))).then_some(q)
+    }
+
+    /// Г-98 (П-17, `size_risk=<R$>`): лот под риск — `min(base, R·10⁴ ÷ span_bps)` (в монете по цене уровня), вниз до шага
+    /// `step_e9`; `span_bps < 1` или риск не жмёт — `base` как есть (= B1 байт в байт). `None` — ниже min-лота (22а):
+    /// сделка пропускается и считается, вверх не поднимаем.
+    pub(super) fn qty_risk_e9(
+        &self,
+        price_e9: i64,
+        mult: u32,
+        base_e9: i64,
+        risk_usd: f64,
+        span_bps: i64,
+        step_e9: i64,
+    ) -> Option<i64> {
+        if span_bps < 1 {
+            return Some(base_e9);
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let risk_raw = risk_usd * 1e4 / span_bps as f64 * 1e18 / price_e9.max(1) as f64;
+        #[allow(clippy::cast_precision_loss)]
+        if !risk_raw.is_finite() || risk_raw >= base_e9 as f64 {
+            return Some(base_e9);
+        }
+        let (step, min) = match *self {
+            Self::Fixed(_) => (step_e9, step_e9),
+            Self::Pool22a(lot) | Self::Usd(lot, _) => (lot.qty_step_e9, lot.qty_22a_e9(price_e9)),
+        };
+        let step = if step_e9 > 0 { step_e9 } else { step };
+        if step <= 0 {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let q = ((risk_raw / step as f64 + 1e-9).floor() as i64).saturating_mul(step);
         (q > 0 && q >= min.saturating_mul(i64::from(mult.max(1)))).then_some(q)
     }
 
