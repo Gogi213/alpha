@@ -553,6 +553,10 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
     )
     };
     anyhow::ensure!(
+        crate::lob::strategy::R2 || sets.iter().all(|s| s.entry_gate.is_none()),
+        "entry_gate=cxl<W>q<Q> (Г-81): только в сборке с feature r2"
+    );
+    anyhow::ensure!(
         args.tape_log.is_none() || crate::lob::strategy::R2,
         "--tape-log: журнал ленты только в сборке с feature r2"
     );
@@ -564,10 +568,11 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             }
             _ => None,
         })
+        .chain(sets.iter().filter_map(|s| s.entry_gate.map(|(w, _)| w)))
         .max();
     anyhow::ensure!(
         ring_need.is_none() || args.tape_log.is_some_and(|l| Some(l) >= ring_need),
-        "формы tape<W>q<Q>/cxl<W>q<Q> требуют --tape-log не меньше W (кольцо ленты/отмен): без него мера нулевая"
+        "формы tape<W>q<Q>/cxl<W>q<Q> и ключ entry_gate=cxl<W>q<Q> требуют --tape-log не меньше W (кольцо ленты/отмен): без него мера нулевая"
     );
     let mut outs: Vec<Outputs> = Vec::with_capacity(sets.len());
     for set in sets.iter() {
@@ -588,6 +593,7 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             forms
                 .iter()
                 .any(|f| matches!(f.entry_form, EntryForm::Retreat { .. })),
+            set.entry_gate.is_some(),
         )?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;
@@ -666,6 +672,10 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     // Г-98 (П-17): лот под риск — идентичность набора
     if let Some(r) = set.size_risk {
         out.push_str(&format!(" size_risk={r}"));
+    }
+    // Г-81 (П-17): ворота входа по отменам — идентичность набора
+    if let Some((w, q)) = set.entry_gate {
+        out.push_str(&format!(" entry_gate=cxl{w}q{q}"));
     }
     if let Some(k) = set.lot_first {
         out.push_str(&format!(" lot_first={k}"));

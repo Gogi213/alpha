@@ -55,6 +55,10 @@ pub struct FilterSet {
     /// Г-98 (П-17): лот под риск — `size_risk=<R$>`, R конечное > 0; лот = min(лот, R·10⁴ ÷ `stack_span_bps_at_arm`), нужны
     /// подходы. Без ключа размер прежний. Только ключ набора.
     pub size_risk: Option<f64>,
+    /// Г-81 (П-17): ворота входа — `entry_gate=cxl<W>q<Q>` (W с > 0, Q > 0): на `sent + W` неисполненные ноги лестницы
+    /// снимаются, если отмены у стены за `W` ÷ размер стены ≥ Q (мера `cxl<W>q<Q>` Г-116, нужен `--tape-log` ≥ W, сборка r2).
+    /// Без ключа вход прежний. Только ключ набора.
+    pub entry_gate: Option<(u32, f64)>,
     /// Номинал стены при касании не меньше стольких долларов (`usd_min=`):
     /// ось «размер стены» поверх пола `--h3-usd` (стены ≥ пола — надмножество,
     /// так что ключ — подмножество тех же касаний).
@@ -685,6 +689,7 @@ impl FilterSet {
             frontrun_min_lots: None,
             lot_first: None,
             size_risk: None,
+            entry_gate: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
@@ -724,6 +729,7 @@ impl FilterSet {
             frontrun_min_lots: None,
             lot_first: None,
             size_risk: None,
+            entry_gate: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
@@ -889,6 +895,21 @@ impl FilterSet {
                     );
                     set.size_risk = Some(r);
                 }
+                "entry_gate" => {
+                    let bad = || {
+                        anyhow::anyhow!(
+                            "--set {spec:?}: entry_gate={v:?} — ожидается cxl<W>q<Q>: окно W > 0 с, порог Q > 0"
+                        )
+                    };
+                    let (ws, qs) = v
+                        .strip_prefix("cxl")
+                        .and_then(|r| r.split_once('q'))
+                        .ok_or_else(bad)?;
+                    let w: u32 = ws.parse().map_err(|_| bad())?;
+                    let q: f64 = qs.parse().map_err(|_| bad())?;
+                    anyhow::ensure!(w > 0 && q.is_finite() && q > 0.0, "{}", bad());
+                    set.entry_gate = Some((w, q));
+                }
                 "frontrun" => {
                     anyhow::ensure!(
                         v.is_empty() || v == "1" || v == "true",
@@ -901,7 +922,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|size_risk|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|size_risk|entry_gate|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!(
                             "--set {spec:?}: неизвестная ось {axis:?} ({})",
@@ -1030,6 +1051,8 @@ pub(crate) struct FilterSpec<'a> {
     pub(crate) swept_min_bp: Option<i64>,
     pub(crate) ladder_regime: Option<Regime>,
     pub(crate) stop_regime: Option<Regime>,
+    /// Г-81: ворота входа `(W, Q)` — в план сигнала (`PyramidCfg`), не фильтр касаний.
+    pub(crate) entry_gate: Option<(u32, f64)>,
     /// TK-025: границы колонок R1 набора; проверяются `admits_r1` на записи подхода.
     pub(crate) r1: &'a [R1Bound],
     pub(crate) ctx: Option<&'a [TouchContext]>,
@@ -1062,6 +1085,7 @@ impl<'a> FilterSpec<'a> {
             swept_min_bp: set.swept_min_bp,
             ladder_regime: set.ladder_regime,
             stop_regime: set.stop_regime,
+            entry_gate: set.entry_gate,
             r1: &set.r1,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,

@@ -959,6 +959,7 @@ env_count="
             frontrun_min_lots: None,
             lot_first: None,
             size_risk: None,
+            entry_gate: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,

@@ -172,10 +172,17 @@ fn signals_for(
                 (None, Some(ap)) => approach_plan(&ap[ti], p.tick, bform, sigma_bps, shape),
                 (None, None) => bounce_plan(t, p.tick, bform, sigma_bps, shape),
             };
-            let Some((dir, plan)) = built else {
+            let Some((dir, mut plan)) = built else {
                 skipped += 1;
                 return None;
             };
+            // Г-81 (П-17): ворота входа `entry_gate=cxl<W>q<Q>` — в `PyramidCfg` плана; без ключа план как есть.
+            if let (Some((w, q)), crate::lob::strategy::TradePlan::Bounce { pyramid, .. }) =
+                (p.filter.entry_gate, &mut plan)
+            {
+                pyramid.gate_cxl_w = w;
+                pyramid.gate_cxl_q = q;
+            }
             Some(BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),
                 sigma: dir,

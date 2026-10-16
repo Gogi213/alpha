@@ -142,6 +142,18 @@ fn p17_repeat_and_swept_keys() {
     for bad in ["x:size_risk=0", "x:size_risk=-1", "x:size_risk=a"] {
         assert!(FilterSet::parse(bad).is_err(), "{bad}");
     }
+    let g = FilterSet::parse("g:entry_gate=cxl30q0.5").unwrap();
+    assert_eq!(g.entry_gate, Some((30, 0.5)));
+    assert_eq!(super::plan::g07_label(&g), " entry_gate=cxl30q0.5");
+    for bad in [
+        "x:entry_gate=cxl0q1",
+        "x:entry_gate=cxl30q0",
+        "x:entry_gate=cxl30",
+        "x:entry_gate=tape30q1",
+        "x:entry_gate=cxl30qp",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
     let none = FilterSet::parse("n:").unwrap();
     assert_eq!(super::plan::g07_label(&none), "");
 }

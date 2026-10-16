@@ -140,6 +140,8 @@ pub(super) struct Outputs {
     with_tape: bool,
     // Г-102: колонка `n_retreat_window_entries` в `forms.csv` — только если в сетке есть форма `retreat<k>t<T>`.
     with_retreat: bool,
+    // Г-81: колонка `n_entry_cancelled_cxl_gate` в `forms.csv` — только у набора с `entry_gate=` (после retreat).
+    with_gate: bool,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -313,6 +315,7 @@ impl Outputs {
         with_r1: bool,
         with_tape: bool,
         with_retreat: bool,
+        with_gate: bool,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
@@ -339,13 +342,14 @@ impl Outputs {
         } else {
             &FORMS_HEADER[..FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN]
         };
+        let mut names = forms_header.to_vec();
         if with_retreat {
-            let mut names = forms_header.to_vec();
             names.push("n_retreat_window_entries");
-            forms.write_record(names)?;
-        } else {
-            forms.write_record(forms_header)?;
         }
+        if with_gate {
+            names.push("n_entry_cancelled_cxl_gate");
+        }
+        forms.write_record(names)?;
         let signals = if with_signals {
             let mut sf = std::fs::File::create(out_dir.join("signals.csv"))?;
             writeln!(sf, "{header}")?;
@@ -373,6 +377,7 @@ impl Outputs {
             with_r1,
             with_tape,
             with_retreat,
+            with_gate,
         })
     }
 
@@ -466,6 +471,9 @@ impl Outputs {
         );
         if self.with_retreat {
             row.push(run.retreat_window_entries.to_string());
+        }
+        if self.with_gate {
+            row.push(run.entry_cancelled_cxl_gate.to_string());
         }
         self.forms.write_record(row)?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.

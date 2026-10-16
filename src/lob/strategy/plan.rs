@@ -366,6 +366,11 @@ pub struct PyramidCfg {
     /// (`lob::retreat`); состояние ведёт драйвер на (вариант, инструмент). `retreat_k = 0` — выключено.
     pub retreat_k: u8,
     pub retreat_half_min: u32,
+    /// Г-81 (П-17, ворота входа `cxl<W>q<Q>`): на `sent + W` с неисполненные ноги лестницы снимаются, если отмены на нашей
+    /// стороне за `W` (кольцо `--tape-log`, мера Г-116), делённые на `level_qty` плана, ≥ `gate_cxl_q`. Исполненные ноги ведёт
+    /// план. `gate_cxl_q = 0` — выключено.
+    pub gate_cxl_q: f64,
+    pub gate_cxl_w: u32,
 }
 
 impl PyramidCfg {
@@ -398,6 +403,8 @@ impl PyramidCfg {
         reclaim_pause_ms: 0,
         retreat_k: 0,
         retreat_half_min: 0,
+        gate_cxl_q: 0.0,
+        gate_cxl_w: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -425,7 +432,8 @@ impl PyramidCfg {
             || self.tape_q > 0.0
             || self.cxl_q > 0.0
             || self.reclaim_depth_bps > 0
-            || self.retreat_k > 0)
+            || self.retreat_k > 0
+            || self.gate_cxl_q > 0.0)
     }
 }
 

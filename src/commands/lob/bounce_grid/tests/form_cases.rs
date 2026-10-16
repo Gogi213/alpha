@@ -473,6 +473,7 @@ fn run_with_exit_counters(
         entry_cancelled_ttl: 0,
         entry_cancelled_wall_dead: 0,
         entry_cancelled_price_left: 0,
+        entry_cancelled_cxl_gate: 0,
         entry_cancelled_cancel_timeout: entry_cancel_timeout,
         exit_cancel_timeout,
         orphan_fills: 0,

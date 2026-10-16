@@ -1221,6 +1221,9 @@ pub struct BounceRun {
     /// Снятия по «цена ушла из полосы лестницы» (F5, В-74) — колонка
     /// `n_entry_cancelled_price_left`.
     pub entry_cancelled_price_left: u64,
+    /// Г-81 (П-17): сигналы без входа, снятые воротами `entry_gate=cxl<W>q<Q>` (ни одна нога не исполнилась) — колонка
+    /// `n_entry_cancelled_cxl_gate` (только у набора с ключом). Снятия при частичном исполнении здесь не считаются.
+    pub entry_cancelled_cxl_gate: u64,
     /// F8b (В5/Р2): сколько раз за сутки круг пережил потолок ожидания
     /// подтверждения отмены (`CANCEL_WAIT_NS`) — отдельно по входу
     /// (`EntryCancelReason::CancelTimeout`) и по лимитке выхода. Ноль —
@@ -2911,6 +2914,7 @@ impl BounceRun {
             entry_cancelled_ttl: 0,
             entry_cancelled_wall_dead: 0,
             entry_cancelled_price_left: 0,
+            entry_cancelled_cxl_gate: 0,
             entry_cancelled_cancel_timeout: 0,
             exit_cancel_timeout: 0,
             orphan_fills: 0,
@@ -3161,6 +3165,7 @@ where
     let mut entry_cancelled_ttl: u64 = 0;
     let mut entry_cancelled_wall_dead: u64 = 0;
     let mut entry_cancelled_price_left: u64 = 0;
+    let mut entry_cancelled_cxl_gate: u64 = 0;
     // F8b (В5/Р2): вход, снятый потолком ожидания подтверждения отмены, идёт
     // той же строкой, что и прочие снятия, — причиной `CancelTimeout`.
     let mut entry_cancelled_cancel_timeout: u64 = 0;
@@ -3366,6 +3371,10 @@ where
                                 entry_cancelled_price_left =
                                     entry_cancelled_price_left.saturating_add(1);
                             }
+                            EntryCancelReason::CxlGate => {
+                                entry_cancelled_cxl_gate =
+                                    entry_cancelled_cxl_gate.saturating_add(1);
+                            }
                             EntryCancelReason::NotPlaced => {}
                             EntryCancelReason::CancelTimeout => {
                                 entry_cancelled_cancel_timeout =
@@ -3468,6 +3477,7 @@ where
         entry_cancelled_ttl,
         entry_cancelled_wall_dead,
         entry_cancelled_price_left,
+        entry_cancelled_cxl_gate,
         entry_cancelled_cancel_timeout,
         exit_cancel_timeout,
         orphan_fills,

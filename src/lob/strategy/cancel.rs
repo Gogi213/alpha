@@ -45,6 +45,28 @@ impl StrategyState {
         Ok(())
     }
 
+    /// Г-81 (П-17): ворота входа — на первом событии с `now ≥ sent + W` (одна проверка) отмены на нашей стороне за `W` с
+    /// после постановки (кольцо Г-116, тот же код, что у выхода `cxl<W>q<Q>`), делённые на размер стены плана, ≥ `Q` →
+    /// неисполненные ноги снимаются. Нет размера стены или кольца — ворота открыты.
+    pub(super) fn cxl_gate_closed(&mut self, now: i64, sent_ns: i64) -> bool {
+        let TradePlan::Bounce {
+            pyramid, level_qty, ..
+        } = self.plan
+        else {
+            return false;
+        };
+        let pyr = pyramid.eff();
+        if pyr.gate_cxl_q <= 0.0
+            || self.gate_done
+            || now < sent_ns.saturating_add(i64::from(pyr.gate_cxl_w) * 1_000_000_000)
+        {
+            return false;
+        }
+        self.gate_done = true;
+        level_qty > 0.0
+            && self.cxl_since_entry(sent_ns, now, pyr.gate_cxl_w) / level_qty >= pyr.gate_cxl_q
+    }
+
     /// Условия снятия неисполненного входа **до потолка** (F5, В-74):
     ///
     /// * «стена умерла» — размер на цене уровня (`level_px`) в текущем кадре
@@ -140,6 +162,8 @@ pub enum EntryCancelReason {
     /// Цена ушла из полосы: лучшая цена нашей стороны дальше дальней ноги
     /// лестницы больше чем на `band_exit_bps`.
     PriceLeft,
+    /// Г-81 (П-17): ворота входа `cxl<W>q<Q>` закрылись на `sent + W` — отмены у стены ≥ `Q` её размера.
+    CxlGate,
     /// Ни одной ноги биржа не поставила (пост-онли заявка пересекла спред,
     /// В-72) — «сигнал без входа», а не снятие: в счётчики снятий не входит.
     NotPlaced,

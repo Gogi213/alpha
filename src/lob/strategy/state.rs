@@ -59,6 +59,8 @@ pub struct StrategyState {
     pub(super) reclaim: Option<crate::lob::reclaim::ReclaimWatch>,
     pub(super) reclaim_t0: Option<i64>,
     pub(super) reclaim_ready: bool,
+    /// Г-81: ворота входа `cxl<W>q<Q>` уже проверены на `sent + W` (проверка одна, не скользящая).
+    pub(super) gate_done: bool,
     /// F8c (К1): «сироты» — заявки, чьё снятие не подтвердилось за потолок
     /// `CANCEL_WAIT_NS`. Круг они не держат (потолок его освободил), но из
     /// рынка их никто не убрал: пока сирота стоит, снятие повторяется на
@@ -261,6 +263,7 @@ impl StrategyState {
             reclaim: None,
             reclaim_t0: None,
             reclaim_ready: false,
+            gate_done: false,
             r2: match plan {
                 TradePlan::Bounce { pyramid, .. } if pyramid.on() => Some(R2Bufs::boxed()),
                 _ => None,
