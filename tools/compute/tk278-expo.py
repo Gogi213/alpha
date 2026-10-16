@@ -12,6 +12,7 @@ raw, busy, out, spec = sys.argv[1:5]
 B1 = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 BASE_ST = os.environ.get("EXPO_BASE_ST")      # по умолчанию база — строка B1 той же стратегии (как p12-r2-expo.py)
 DROP = set(filter(None, os.environ.get("EXPO_DROP", "TRUMPUSDT,TRXUSDT,BCHUSDT").split(",")))
+KEEP_NOBASE = os.environ.get("EXPO_KEEP_NOBASE") == "1"      # 1 — как p12-r2-expo.py (волны A); умолчание — как tk194 (сделка без базы вне счёта)
 want = defaultdict(set)
 for ln in open(spec, encoding="utf-8"):
     if ln.strip():
@@ -43,6 +44,8 @@ for f in sorted(glob.glob(f"{busy}/20*/20*/*/rounds.csv")):
         b = base.get((r["symbol"], r["signal_index"]))
         if b is None:
             miss[f"{st}@{r['form']}"] += 1
+            if KEEP_NOBASE:      # p12-r2-expo.py (A): сделка без базы остаётся с m=1
+                res.append(r)
             continue
         npk = float(r["qty"]) * float(r["entry_vwap"])
         if mode(r["form"]) == "ratio":

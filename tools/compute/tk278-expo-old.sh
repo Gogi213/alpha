@@ -11,14 +11,14 @@ mkdir -p $W; cd $W || exit 2; rm -f old.done old-fail.txt
 one() { mo=2026-$1
   for g in A B3 B45; do
     case $g in
-      A) tree=/data/p12r2a/a-b; RAW=/data/p12r2/s-v; re='-(pyfresh|pynw|pyre)';;
-      B3) tree=/data/p12r3a/a-b; RAW=/data/p12r3a/s-b; re='sw3-pct2-tr1x1-14400-ttl1800$';;
-      B45) tree=/data/p12r3a/r-b; [ $1 -ge 08 ] && tree=/data/p12r3a/r-bf; RAW=/data/p12r3a/s-b; re='sw[45]-pct2-tr1x1-14400-ttl1800$';;
+      A) tree=/data/p12r2a/a-b; RAW=/data/p12r2/s-v; KN=1; re='-(pyfresh|pynw|pyre)';;
+      B3) tree=/data/p12r3a/a-b; RAW=/data/p12r3a/s-b; KN=0; re='sw3-pct2-tr1x1-14400-ttl1800$';;
+      B45) tree=/data/p12r3a/r-b; [ $1 -ge 08 ] && tree=/data/p12r3a/r-bf; RAW=/data/p12r3a/s-b; KN=0; re='sw[45]-pct2-tr1x1-14400-ttl1800$';;
     esac
     grep -E -e "$re" $E/expo-old-$mo.tsv > spec-$g-$mo.txt
     [ -s spec-$g-$mo.txt ] || continue
     rm -rf busy-$g-$mo xt-$g-$mo; mkdir busy-$g-$mo; ln -s $tree/$mo busy-$g-$mo/$mo
-    python3 $H/tk278-expo.py $RAW busy-$g-$mo xt-$g-$mo spec-$g-$mo.txt > expo-$g-$mo.log 2>&1 || { echo "FAIL expo $g $mo" >> old-fail.txt; continue; }
+    EXPO_KEEP_NOBASE=$KN python3 $H/tk278-expo.py $RAW busy-$g-$mo xt-$g-$mo spec-$g-$mo.txt > expo-$g-$mo.log 2>&1 || { echo "FAIL expo $g $mo" >> old-fail.txt; continue; }
     mv xt-$g-$mo/expo.json expo-$g-$mo.json
     args=(); while IFS=$'\t' read -r s f; do args+=(--variant "$s@$f=$s/$f"); done < spec-$g-$mo.txt
     python3 $T/portfolio-sim.py --epoch "$mo=$W/xt-$g-$mo:$mo" "${args[@]}" --drop $DROP --deposit-usd 2500 --position-usd 500 --max-pos 0 \
