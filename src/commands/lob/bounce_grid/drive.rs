@@ -62,6 +62,12 @@ fn signals_for(
         "{}: sreg_* (Г-101) требует стоп pct<x> или s<a>",
         form.label
     );
+    // Г-135 (П-17): `swept_lots` — кадр перед касанием; на взводе (лестница B1) это заглядывание вперёд.
+    anyhow::ensure!(
+        p.filter.swept_min_bp.is_none() || matches!(form.entry_form, EntryForm::Postsweep { .. }),
+        "{}: swept_min (Г-135) допустим только с входом postsweep<R> — на взводе величина неизвестна",
+        form.label
+    );
     if let Some(ctx) = p.filter.ctx {
         anyhow::ensure!(
             ctx.len() == touches.len(),

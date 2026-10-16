@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use crate::book::Side;
 use crate::lob::levels::TouchRecord;
 
 /// Доля съедания стены к касанию, %: `100 × (1 − size_at_touch /
@@ -142,12 +143,14 @@ pub(crate) fn cached_approaches<'a>(
         let approaches: Vec<crate::lob::levels::ApproachRecord> =
             rows.into_iter().map(|r| r.approach).collect();
         let n = approaches.len();
+        let mut views: Vec<TouchRecord> = approaches
+            .iter()
+            .map(crate::commands::lob::backtest::touch_view_of_approach)
+            .collect();
+        join_swept_lots(dir, symbol, day, &approaches, &mut views);
         out.push(DayTouches {
             day: day.clone(),
-            touches: approaches
-                .iter()
-                .map(crate::commands::lob::backtest::touch_view_of_approach)
-                .collect(),
+            touches: views,
             approaches: Some(approaches),
             // Кэш подходов хода до взвода не несёт (как у F2): контекстные
             // ключи наборов с `--signal approach` отвергает `run_bounce_grid`,
@@ -156,6 +159,34 @@ pub(crate) fn cached_approaches<'a>(
         });
     }
     Ok(out)
+}
+
+/// `swept_lots` касания — в вид подхода, по ключу (сторона, цена, `touch_start_ms` = `start_ms` касания) (Г-135, П-17).
+/// Читает только `swept_min=` и только вместе с `postsweep<R>` (вход после касания; на лестнице B1 — отказ
+/// `signals_for`): на взводе величина неизвестна. Подход без касания или без файла касаний — 0.
+fn join_swept_lots(
+    dir: &Path,
+    symbol: &str,
+    day: &String,
+    approaches: &[crate::lob::levels::ApproachRecord],
+    views: &mut [TouchRecord],
+) {
+    if !approaches.iter().any(|a| a.touch_start_ms.is_some()) {
+        return;
+    }
+    let Ok(days) = cached_touches(dir, symbol, std::iter::once(day), false) else {
+        return;
+    };
+    let swept: std::collections::HashMap<(bool, i64, i64), i64> = days
+        .iter()
+        .flat_map(|d| d.touches.iter())
+        .map(|t| ((t.side == Side::Bid, t.price_tick, t.start_ms), t.swept_lots))
+        .collect();
+    for (a, v) in approaches.iter().zip(views.iter_mut()) {
+        if let Some(ts) = a.touch_start_ms {
+            v.swept_lots = swept.get(&(a.side == Side::Bid, a.price_tick, ts)).copied().unwrap_or(0);
+        }
+    }
 }
 
 /// Журнал стен суток (TK-115, e65) из кэша `--touches-from`: `<dir>/<сутки>/walls-<SYMBOL>.csv`, иначе общий
