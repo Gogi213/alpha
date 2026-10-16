@@ -61,6 +61,9 @@ def parse_entry(s):
     if m:
         return {"kind": "ladder", "n": num(m.group(1)), "lo": num(m.group(2)), "hi": num(m.group(3)),
                 "unit": "sigma" if m.group(4) else "bps", "w": num(m.group(5))}
+    m = re.fullmatch(r"postsweep(\d+)", s)  # Г-135 (П-17): вход по рынку после свипа, отход на R bps; без ветки ушёл бы в стоп/тейк
+    if m:
+        return {"kind": "postsweep", "r": num(m.group(1))}
     return {"kind": "raw", "label": s}
 
 

@@ -26,6 +26,19 @@ class T(unittest.TestCase):
                   base(variant={"family": "g83", "axes": {"q": "k50"}}), base(set={**cr.B1_SET, "min_age_s": 3600})):
             self.assertNotEqual(h0, ch.cell_hash(v))
 
+    def test_postsweep_entry_and_p17_scope(self):  # Г-135 (TK-279): postsweep<R> — вход, не стоп; разные R и ключи П-17 — разные хеши; scope П-17 = 301 разный хеш
+        f = lambda e: base(form=e + "-pct2-tr1x1-14400-ttl1800")
+        n = ch.normalize(f("postsweep5"))
+        self.assertEqual((n["entry"], n["stop"]["kind"]), ({"kind": "postsweep", "r": 5}, "pct_bps"))
+        self.assertEqual(len({ch.cell_hash(f(e)) for e in ("postsweep2", "postsweep5", "single@fr")}), 3)
+        import p17_scope as ps
+        sc = ps.build()
+        self.assertEqual((sc["cells_total"], sc["m"], len({c["hash"] for cs in sc["families"].values() for c in cs})), (301, 6, 301))
+        h = lambda spec: ch.cell_hash(ps.cfg_of(spec=spec))
+        self.assertNotEqual(h(ps.SET_B1 + ",repeat_min=0"), h(ps.SET_B1))  # k = 0 — контроль со своим хешем
+        self.assertNotEqual(h(ps.SET_B1 + ",size_risk=5"), h(ps.SET_B1 + ",size_risk=8"))
+        self.assertNotEqual(h(ps.SET_B1 + ",entry_gate=cxl30q0.5"), h(ps.SET_B1 + ",entry_gate=cxl30q0.6"))
+
     def test_provenance_excluded(self):
         self.assertEqual(ch.cell_hash(base()), ch.cell_hash({**base(), "group": "x", "source": "y", "set_name": "z"}))
 
