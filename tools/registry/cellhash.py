@@ -61,6 +61,9 @@ def parse_entry(s):
     if m:
         return {"kind": "ladder", "n": num(m.group(1)), "lo": num(m.group(2)), "hi": num(m.group(3)),
                 "unit": "sigma" if m.group(4) else "bps", "w": num(m.group(5))}
+    m = re.fullmatch(r"retreat(\d+)t(\d+)", s)  # Г-102: цена входа как у single@fr, k тиков, полураспад T мин
+    if m:
+        return {"kind": "retreat", "k": num(m.group(1)), "t": num(m.group(2))}
     return {"kind": "raw", "label": s}
 
 
