@@ -477,6 +477,7 @@ fn run_with_exit_counters(
         entry_cancelled_cancel_timeout: entry_cancel_timeout,
         exit_cancel_timeout,
         orphan_fills: 0,
+        gate_measures: Vec::new(),
         spread_at_entry: Vec::new(),
         submitted_signal: Vec::new(),
         retreat_window_entries: 0,

@@ -145,6 +145,10 @@ fn p17_repeat_and_swept_keys() {
     let g = FilterSet::parse("g:entry_gate=cxl30q0.5").unwrap();
     assert_eq!(g.entry_gate, Some((30, 0.5)));
     assert_eq!(super::plan::g07_label(&g), " entry_gate=cxl30q0.5");
+    // Проба порогов: недостижимый порог, своя идентичность.
+    let p = FilterSet::parse("p:entry_gate=cxl45qprobe").unwrap();
+    assert_eq!(p.entry_gate, Some((45, f64::INFINITY)));
+    assert_eq!(super::plan::g07_label(&p), " entry_gate=cxl45qprobe");
     for bad in [
         "x:entry_gate=cxl0q1",
         "x:entry_gate=cxl30q0",

@@ -142,6 +142,9 @@ pub(super) struct Outputs {
     with_retreat: bool,
     // Г-81: колонка `n_entry_cancelled_cxl_gate` в `forms.csv` — только у набора с `entry_gate=` (после retreat).
     with_gate: bool,
+    // Г-81: проба порогов `entry_gate=cxl<W>qprobe` — `gate-probe.csv` в `out_dir`, создаётся с первой мерой (иначе файла нет).
+    out_dir: PathBuf,
+    gate_probe: Option<csv::Writer<std::fs::File>>,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -378,6 +381,8 @@ impl Outputs {
             with_tape,
             with_retreat,
             with_gate,
+            out_dir: out_dir.to_path_buf(),
+            gate_probe: None,
         })
     }
 
@@ -595,6 +600,35 @@ impl Outputs {
                 w.write_record(&row)?;
             }
             w.flush()?;
+        }
+        if !run.gate_measures.is_empty() {
+            let w = signals
+                .iter()
+                .find_map(|s| match s.plan {
+                    TradePlan::Bounce { pyramid, .. } => Some(pyramid.eff().gate_cxl_w),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            if self.gate_probe.is_none() {
+                let mut g = csv::WriterBuilder::new()
+                    .has_headers(false)
+                    .from_path(self.out_dir.join("gate-probe.csv"))?;
+                g.write_record(["symbol", "day_utc", "form", "w", "t0_ns", "measure"])?;
+                self.gate_probe = Some(g);
+            }
+            if let Some(g) = self.gate_probe.as_mut() {
+                for &(t0, m) in &run.gate_measures {
+                    g.write_record([
+                        symbol,
+                        day,
+                        form.label,
+                        &w.to_string(),
+                        &t0.to_string(),
+                        &format!("{m:.6}"),
+                    ])?;
+                }
+                g.flush()?;
+            }
         }
         self.rounds.flush()?;
         self.forms.flush()?;

@@ -906,8 +906,16 @@ impl FilterSet {
                         .and_then(|r| r.split_once('q'))
                         .ok_or_else(bad)?;
                     let w: u32 = ws.parse().map_err(|_| bad())?;
-                    let q: f64 = qs.parse().map_err(|_| bad())?;
-                    anyhow::ensure!(w > 0 && q.is_finite() && q > 0.0, "{}", bad());
+                    // `qprobe` — проба порогов: порог недостижим (ворота не закрываются, ход B1 прежний), мера пишется
+                    // в `gate-probe.csv`; в идентичности набора — `qprobe`.
+                    let q: f64 = if qs == "probe" {
+                        f64::INFINITY
+                    } else {
+                        let q: f64 = qs.parse().map_err(|_| bad())?;
+                        anyhow::ensure!(q.is_finite() && q > 0.0, "{}", bad());
+                        q
+                    };
+                    anyhow::ensure!(w > 0, "{}", bad());
                     set.entry_gate = Some((w, q));
                 }
                 "frontrun" => {

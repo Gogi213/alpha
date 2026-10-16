@@ -63,8 +63,12 @@ impl StrategyState {
             return false;
         }
         self.gate_done = true;
-        level_qty > 0.0
-            && self.cxl_since_entry(sent_ns, now, pyr.gate_cxl_w) / level_qty >= pyr.gate_cxl_q
+        if level_qty <= 0.0 {
+            return false;
+        }
+        let m = self.cxl_since_entry(sent_ns, now, pyr.gate_cxl_w) / level_qty;
+        self.gate_measure = Some(m);
+        m >= pyr.gate_cxl_q
     }
 
     /// Условия снятия неисполненного входа **до потолка** (F5, В-74):

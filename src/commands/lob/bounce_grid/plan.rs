@@ -675,7 +675,11 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     }
     // Г-81 (П-17): ворота входа по отменам — идентичность набора
     if let Some((w, q)) = set.entry_gate {
-        out.push_str(&format!(" entry_gate=cxl{w}q{q}"));
+        if q.is_infinite() {
+            out.push_str(&format!(" entry_gate=cxl{w}qprobe"));
+        } else {
+            out.push_str(&format!(" entry_gate=cxl{w}q{q}"));
+        }
     }
     if let Some(k) = set.lot_first {
         out.push_str(&format!(" lot_first={k}"));

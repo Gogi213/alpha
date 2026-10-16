@@ -61,6 +61,9 @@ pub struct StrategyState {
     pub(super) reclaim_ready: bool,
     /// Г-81: ворота входа `cxl<W>q<Q>` уже проверены на `sent + W` (проверка одна, не скользящая).
     pub(super) gate_done: bool,
+    /// Г-81: мера ворот на проверке `sent + W` (отмены за `W` ÷ размер стены плана); `None` — проверки не было или размера нет.
+    /// Читает проба порогов (`entry_gate=cxl<W>qprobe`); на ход стратегии не влияет.
+    pub(super) gate_measure: Option<f64>,
     /// F8c (К1): «сироты» — заявки, чьё снятие не подтвердилось за потолок
     /// `CANCEL_WAIT_NS`. Круг они не держат (потолок его освободил), но из
     /// рынка их никто не убрал: пока сирота стоит, снятие повторяется на
@@ -264,6 +267,7 @@ impl StrategyState {
             reclaim_t0: None,
             reclaim_ready: false,
             gate_done: false,
+            gate_measure: None,
             r2: match plan {
                 TradePlan::Bounce { pyramid, .. } if pyramid.on() => Some(R2Bufs::boxed()),
                 _ => None,
