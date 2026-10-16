@@ -167,7 +167,9 @@ pub(crate) fn bounce_plan(
                 .frontrun_tick
                 .unwrap_or_else(|| p_tick.saturating_add(away)),
         ),
-        EntryForm::Market => (
+        // Г-135: как `market` — заявка за `MARKET_CROSS_MARGIN_BPS` пересекает спред; когда ставить — решает
+        // стратегия (`pyramid.postsweep_bps`, `ReclaimWait`).
+        EntryForm::Market | EntryForm::Postsweep { .. } => (
             EntryLadder::NONE,
             p_tick + away * bps_to_ticks_ceil(MARKET_CROSS_MARGIN_BPS, p_tick),
         ),
@@ -175,7 +177,7 @@ pub(crate) fn bounce_plan(
     // T4 (Г-86): рыночный вход не может быть мейкером — GTX отклонил бы
     // заявку, пересёкшую спред, как Expired (В-72); GTC независимо от
     // `--post-only`/набора.
-    let post_only = if matches!(entry_form, EntryForm::Market) {
+    let post_only = if matches!(entry_form, EntryForm::Market | EntryForm::Postsweep { .. }) {
         false
     } else {
         post_only
@@ -465,6 +467,7 @@ fn with_reclaim(
             pyramid.reclaim_depth_bps = depth_bps;
             pyramid.reclaim_pause_ms = pause_s.saturating_mul(1000);
         }
+        EntryForm::Postsweep { rise_bps } => pyramid.postsweep_bps = rise_bps,
         EntryForm::Retreat { k_ticks, half_min } => {
             pyramid.retreat_k = k_ticks;
             pyramid.retreat_half_min = half_min;

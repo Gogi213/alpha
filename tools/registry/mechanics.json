@@ -358,6 +358,31 @@
       ]
     },
     {
+      "id": "EntryPostsweep",
+      "kind": "entry",
+      "prefix": "postsweep",
+      "name_template": "postsweep{r_bps}",
+      "is_r2": true,
+      "samples": [
+        "postsweep1",
+        "postsweep2",
+        "postsweep3",
+        "postsweep5",
+        "postsweep6"
+      ],
+      "params": [
+        {
+          "name": "r_bps",
+          "dom": {
+            "type": "int",
+            "lo": 1,
+            "hi": null,
+            "excl": []
+          }
+        }
+      ]
+    },
+    {
       "id": "EntryRetreat",
       "kind": "entry",
       "prefix": "retreat",

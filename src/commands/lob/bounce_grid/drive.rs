@@ -281,7 +281,10 @@ pub(super) fn entry_groups(forms: &[GridForm]) -> Vec<Vec<usize>> {
             let h = &forms[g[0]];
             h.entry_form == f.entry_form
                 && h.entry_ttl == f.entry_ttl
-                && !matches!(f.entry_form, EntryForm::Reclaim { .. })
+                && !matches!(
+                    f.entry_form,
+                    EntryForm::Reclaim { .. } | EntryForm::Postsweep { .. }
+                )
         }) {
             Some(g) => g.push(i),
             None => groups.push(vec![i]),
