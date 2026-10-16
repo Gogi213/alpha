@@ -12,6 +12,7 @@
   "busy_warn_jobs": 1,
   "protocol": "P-14",
   "fraction": 1,
+  "protocols": [["P-14", 1], ["P-17", 1]],
   "months": [
     "2026-01",
     "2026-02",

@@ -357,3 +357,16 @@ def test_routes_file_r1spec_matches_plan_and_counts():
         assert (a["hyp"], a["axes"]["col"], str(a["axes"]["keep_q"])) == (hyp, col, kq) and sign in ("hi", "lo") and not ctx_axis and not ctx_q
     cnt = collections.Counter(doc["routes"].values())
     assert cnt["r1x"] == 270 and cnt["r1"] == 279 and cnt["r1comp"] == 27 and "r1col" not in cnt
+
+
+def test_p17_routes_and_bin_guard():
+    """TK-279: П-17 рядом с П-14 — все 301 хеш в маршрутах, форма видит клетки обоих протоколов; бинарь без P-17 в bin.protocols отказывает."""
+    cfg = launch.load_config()
+    assert launch.protocols_of(cfg) == [("P-14", 1), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
+    p17 = launch.plan_rows("P-17", 1)
+    routes = launch.load_routes()
+    assert len(p17) == 301 and {r["hash"] for r in p17} <= set(routes) and {r["hash"] for r in launch.plan_rows_cfg(cfg)} >= {r["hash"] for r in p17}
+    p = {"cells": [{"hash": p17[0]["hash"], "new_months": ["2026-03"]}]}
+    assert launch.bin_protocols_missing(cfg, p) == ["P-17"]
+    assert launch.bin_protocols_missing({**cfg, "bin": {**cfg["bin"], "protocols": ["P-14", "P-17"]}}, p) == []
+    assert launch.bin_protocols_missing({"protocol": "P-14", "fraction": 1}, p) == []
