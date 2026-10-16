@@ -413,6 +413,7 @@ fn minimal_approach() -> ApproachRecord {
         depth_behind_lots: 0,
         stack_levels_at_arm: 0,
         stack_span_bps_at_arm: 0,
+        repeat_count_at_arm: 0,
         frontrun_lots_at_arm: 0,
         p08: Some(Default::default()),
         r1: None,

@@ -518,7 +518,7 @@ pub(crate) fn touch_view_of_approach(a: &ApproachRecord) -> TouchRecord {
         flow_1h_lots: a.flow_1h_lots,
         strength_e2: a.strength_e2,
         strength_held_e2: [-1; STRENGTH_HELD_WINDOWS_S.len()],
-        repeat_count: 0,
+        repeat_count: a.repeat_count_at_arm,
         depth_behind_lots: a.depth_behind_lots,
     }
 }
