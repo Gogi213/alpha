@@ -6,7 +6,7 @@
 # `InvalidOrderStatus` ронял весь прогон. Исправление: `>` → `>=` в двух местах
 # (`check_if_buy_filled`, `check_if_sell_filled`).
 # Разбор, воспроизведение и замер — `docs/findings/hftbacktest-partialfill-fix-2026-09-20.md`.
-# Подключение — `[patch.crates-io]` в корневом `Cargo.toml`; других правок, кроме `#[allow(dead_code)]` в `src/backtest/data/npy/parser.rs`, нет.
+# Подключение — `[patch.crates-io]` в корневом `Cargo.toml`; других правок, кроме `#[allow(dead_code)]` в `src/backtest/data/npy/parser.rs` и удаления чтения/записи `.npz` (зависимость `zip` отозвана, TK-267, В-22), нет.
 [package]
 edition = "2024"
 rust-version = "1.91.1"
@@ -43,7 +43,6 @@ resolver = "2"
 [features]
 rdtsc-prof = []
 backtest = [
-    "zip",
     "uuid",
     "nom",
     "hftbacktest-derive",
@@ -137,10 +136,6 @@ version = "0.1.43"
 [dependencies.uuid]
 version = "1.19.0"
 features = ["v4"]
-optional = true
-
-[dependencies.zip]
-version = "6.0.0"
 optional = true
 
 [target.'cfg(target_arch = "arm")'.dependencies.aws-lc-rs]

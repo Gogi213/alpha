@@ -18,7 +18,7 @@ use crate::{
         data::{
             Data,
             POD,
-            npy::{NpyDTyped, read_npy_file, read_npz_file},
+            npy::{NpyDTyped, read_npy_file},
         },
     },
     types::Event,
@@ -395,30 +395,6 @@ where
                 let _ = thread::spawn(move || {
                     let load_data = |filepath: &str| {
                         let mut data = read_npy_file::<D>(filepath)?;
-                        if let Some(preprocessor) = &preprocessor {
-                            preprocessor.preprocess(&mut data)?;
-                        }
-                        Ok(data)
-                    };
-                    // SendError occurs only if Reader is already destroyed. Since no data is needed
-                    // once the Reader is destroyed, SendError is safely suppressed.
-                    match load_data(&filepath) {
-                        Ok(data) => {
-                            let _ = tx.send(LoadDataResult::ok(filepath, data));
-                        }
-                        Err(err) => {
-                            let _ = tx.send(LoadDataResult::err(filepath, err));
-                        }
-                    }
-                });
-            } else if key.ends_with(".npz") {
-                let tx = self.tx.clone();
-                let filepath = key.to_string();
-                let preprocessor = self.preprocessor.clone();
-
-                let _ = thread::spawn(move || {
-                    let load_data = |filepath: &str| {
-                        let mut data = read_npz_file::<D>(filepath, "data")?;
                         if let Some(preprocessor) = &preprocessor {
                             preprocessor.preprocess(&mut data)?;
                         }

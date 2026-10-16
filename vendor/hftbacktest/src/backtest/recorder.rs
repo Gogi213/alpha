@@ -5,10 +5,9 @@ use std::{
 };
 
 use hftbacktest_derive::NpyDTyped;
-use zip::{ZipWriter, write::SimpleFileOptions};
 
 use crate::{
-    backtest::data::{POD, write_npy},
+    backtest::data::POD,
     depth::MarketDepth,
     types::{Bot, Recorder},
 };
@@ -115,27 +114,6 @@ impl BacktestRecorder {
                 )?;
             }
         }
-        Ok(())
-    }
-
-    pub fn to_npz<P>(&self, path: P) -> Result<(), Error>
-    where
-        P: AsRef<Path>,
-    {
-        let file = File::create(path)?;
-
-        let mut zip = ZipWriter::new(file);
-
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::DEFLATE)
-            .compression_level(Some(9));
-
-        for (asset_no, values) in self.values.iter().enumerate() {
-            zip.start_file(format!("{asset_no}.npy"), options)?;
-            write_npy(&mut zip, values)?;
-        }
-
-        zip.finish()?;
         Ok(())
     }
 }
