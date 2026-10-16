@@ -21,3 +21,5 @@ PSI_CPU = float(os.environ.get("SCHED_PSI_CPU", "25"))             # PSI cpu som
 MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
 FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
 RESERVE_CORES = int(os.environ.get("SCHED_RESERVE_CORES", "3"))   # В-229 п.10 (TK-219): ядра под гейты/сборки (--kind gate|build); обычное prod их не занимает, пока гейт/сборка не взяли их сами; 0 = выкл.
+FREEZE_ALERT_S = int(os.environ.get("SCHED_FREEZE_ALERT_S", "900"))   # TK-223 п.6: заморозка дольше — строка в alerts.log (адаптер jobstate будит владельца тикета)
+FREEZE_CEIL_S = int(os.environ.get("SCHED_FREEZE_CEIL_S", "1800"))   # TK-223 п.1: потолок заморозки hot — оттайка и без «влезает по замеру», если нет перегруза
