@@ -169,6 +169,18 @@ class MasterTest(unittest.TestCase):
         r = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"), f1=self.f1_csv({n: ("не определена: m не применён", 1.0, 0.0, 0) for n in range(2, 9)}))
         self.assertEqual((r["grid"], list(r["closed"])), (0, ["Г-87"]))
 
+    def test_f2_ceiling_per_zone(self):
+        """Решение Судьи (tk269 §11.2 п. 4): потолок cap_cells — на зону, не на гипотезу."""
+        self.have = {}
+        master.load_axes(self.ax)
+        master.plan("P-14", 1, out=os.path.join(self.t, "new.jsonl"))
+        f1 = self.f1_csv({n: ("годна", 0.05, 0.1, 15) if n in {3, 4, 5} else ("не годна", 1.0, -0.1, 15) for n in range(2, 9)})
+        c = master.connect()
+        for lim, ok in ((4, False), (5, True)):
+            grids, closed = master.build_grid(c, "P-14", 2, ["Г-87"], {**master.rules_of(c, "P-14"), "cap_cells": lim}, f1)
+            self.assertEqual(("Г-87" in grids, "Г-87" in closed), (ok, not ok))
+        c.close()
+
     def test_f2_zones_rule(self):
         """§11.2 п. 1–2, 5: связные годные = зона (до 3, лучшая первой); годных нет — одна клетка p↑, dSR↓, суток↓; ось целиком — лучшая клетка."""
         def cell(ax, st, p=1.0, d=0.0, dy=10):

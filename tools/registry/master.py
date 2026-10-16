@@ -631,6 +631,11 @@ def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
                 t, res = ptypes.get(a[0], ("numeric", None))
                 pts[a[0]] = refine(sorted({str(p[a[0]]) for p in plat}), sorted({str(p[a[0]]) for p in prev.values()}, key=lambda v: (fval(v) is None, fval(v) or 0, v)), t, res, int(rules.get("step_div", 4)), rules.get("cap_f3", 8))
             psets = [pts]
+        lim = rules.get("cap_cells", 100)
+        big = [n for n in (math.prod(len(pts[a[0]]) for a in axes) for pts in psets) if k > 1 and n > lim]
+        if big:   # потолок — на зону (решение Судьи, tk269 §11.2 п. 4), не на гипотезу
+            closed[hyp] = f"зона {max(big)} > потолка {int(lim)} клеток — сузить (решение Судьи)"
+            continue
         cells, seen = [], set()
         mm = {a[0]: a[5] for a in axes if a[5]}
         for pts in psets:
@@ -641,10 +646,6 @@ def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
                 seen.add(key)
                 av = dict(zip([a[0] for a in axes], combo))
                 cells.append((av, make_cfg(paths, sv, av, hyp, {a[0] for a in axes if a[4] == 'fixed'}, mm)))
-        lim = rules.get("cap_cells", 100)
-        if k > 1 and len(cells) > lim:
-            closed[hyp] = f"сетка {len(cells)} > потолка {int(lim)} клеток на гипотезу — сузить (решение Судьи)"
-            continue
         grids[hyp] = cells
     return grids, closed
 
