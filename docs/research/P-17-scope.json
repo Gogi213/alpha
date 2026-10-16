@@ -283,7 +283,7 @@
   },
   "why": "Г-81 — мера отмен за W от взвода, нужен проход меры в Rust (диагностический вывод по касаниям B1)"
  },
- "cells_total": 301,
+ "cells_total": 292,
  "families": {
   "Г-81": [
    {
@@ -1906,15 +1906,6 @@
    {
     "axes": {
      "swept_q": 5,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "ff2c471292843469",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 5,
      "entry": "postsweep2"
     },
     "form": "postsweep2-pct2-tr1x1-14400-ttl1800",
@@ -1955,15 +1946,6 @@
     },
     "form": "postsweep40-pct2-tr1x1-14400-ttl1800",
     "hash": "d25260c2fd23d1e7",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 10,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "e4546d28dcdbd7f4",
     "threshold": "month"
    },
    {
@@ -2014,15 +1996,6 @@
    {
     "axes": {
      "swept_q": 20,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "780edfda8cf4063a",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 20,
      "entry": "postsweep2"
     },
     "form": "postsweep2-pct2-tr1x1-14400-ttl1800",
@@ -2063,15 +2036,6 @@
     },
     "form": "postsweep40-pct2-tr1x1-14400-ttl1800",
     "hash": "c160cec7874df437",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 33,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "e535fd3d9fae9880",
     "threshold": "month"
    },
    {
@@ -2122,15 +2086,6 @@
    {
     "axes": {
      "swept_q": 50,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "3c4cb4bd53bcb6b2",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 50,
      "entry": "postsweep2"
     },
     "form": "postsweep2-pct2-tr1x1-14400-ttl1800",
@@ -2171,15 +2126,6 @@
     },
     "form": "postsweep40-pct2-tr1x1-14400-ttl1800",
     "hash": "42206cf2fdc092f0",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 67,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "ef42836a0e954b96",
     "threshold": "month"
    },
    {
@@ -2230,15 +2176,6 @@
    {
     "axes": {
      "swept_q": 80,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "62b8230018d36ccf",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 80,
      "entry": "postsweep2"
     },
     "form": "postsweep2-pct2-tr1x1-14400-ttl1800",
@@ -2284,15 +2221,6 @@
    {
     "axes": {
      "swept_q": 90,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "4b2851a416e2a7a6",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 90,
      "entry": "postsweep2"
     },
     "form": "postsweep2-pct2-tr1x1-14400-ttl1800",
@@ -2333,15 +2261,6 @@
     },
     "form": "postsweep40-pct2-tr1x1-14400-ttl1800",
     "hash": "3e93785e9c06ed9f",
-    "threshold": "month"
-   },
-   {
-    "axes": {
-     "swept_q": 95,
-     "entry": "b1"
-    },
-    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
-    "hash": "9da04568a16d3e52",
     "threshold": "month"
    },
    {

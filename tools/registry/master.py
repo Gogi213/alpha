@@ -142,8 +142,7 @@ def p17_cell(hyp, av, cfg, form):
         thr, axis, pre = p17_thr("Г-101", "btc4h"), "btc4h", f"g101{axes['part']}t{q}f{axes['f_bp']}"
     else:
         thr, axis, pre = p17_thr("Г-135", "swept_pct_of_size_bp"), "swept_pct_of_size_bp", f"g135q{q}"
-        if str(axes["entry"]) != "b1":
-            form = form.replace(cr.B1_FORM.split("-", 1)[0], str(axes["entry"]))   # ladder… -> postsweep<R> (форма входа Г-135)
+        form = form.replace(cr.B1_FORM.split("-", 1)[0], str(axes["entry"]))   # ladder… -> postsweep<R> (форма входа Г-135; B1-лестницы у Г-135 нет)
     if not thr:
         LINES[h] = (None, f"Г-{n}: нет порогов {axis} в {os.path.basename(_P17_THR)}" + (" — проход меры (tk279-g81-probe.sh, p17-g81-thresholds.py)" if n == "81" else ""))
         return

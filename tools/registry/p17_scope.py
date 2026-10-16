@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TK-279 (П-17 §0 п. 3, §3): P-17-scope.json — 6 гипотез, оси F1 (301 клетка), m = 6, разбиение А/Б, канонические хеши.
+"""TK-279 (П-17 §0 п. 3, §3): P-17-scope.json — 6 гипотез, оси F1 (292 клетки), m = 6, разбиение А/Б, канонические хеши.
 Г-98/Г-136/Г-137 — хеш набора (ключи size_risk/agemax/repeat_min входят в канон); Г-81/Г-101/Г-135 — порог по месяцам, хеш варианта
 (семья g81/g101/g135 + оси), как Г-10 и П-15. Пороги (P-17-thresholds.csv) этих трёх — по касаниям B1 своего месяца, считает проход
 меры (pending, см. scope.pending); хеши от них не зависят.
@@ -55,9 +55,9 @@ def cells():
                 ax = {"part": kind, "T_q": t, "f_bp": f}
                 out["Г-101"].append({"axes": ax, "hash": variant_hash("g101", ax), "threshold": "month"})
     for q in Q9:
-        for ent in ("b1",) + R135:
-            ax = {"swept_q": q, "entry": ent if ent == "b1" else f"postsweep{ent}"}
-            form = BASE if ent == "b1" else BASE.replace("ladder3x0..0.0409sw2", f"postsweep{ent}")
+        for ent in R135:   # «q × B1-лестница» снято Судьёй (tk279-smoke-fork п.3): swept_lots — кадр перед касанием = заглядывание для ордеров с взвода
+            ax = {"swept_q": q, "entry": f"postsweep{ent}"}
+            form = BASE.replace("ladder3x0..0.0409sw2", f"postsweep{ent}")
             c = {"axes": ax, "form": form, "hash": variant_hash("g135", ax), "threshold": "month"}
             out["Г-135"].append(c)
     for a in A136:

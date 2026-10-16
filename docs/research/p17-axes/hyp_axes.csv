@@ -6,7 +6,7 @@ hyp;protocol;version;stack;param;lo;hi;points_f1;old_points;note;role;engine;mec
 Г-101;P-17;P-14@r2;B1;T_q;5;95;5|10|20|33|50|67|80|90|95;;;tit;rust;
 Г-101;P-17;P-14@r2;B1;f_bp;2500;40000;2500|5000|7500|15000|20000|40000;;"f = бп/10⁴; f = 1 — это B1, не клетка";tit;rust;
 Г-135;P-17;P-14@r2;B1;swept_q;5;95;5|10|20|33|50|67|80|90|95;;"фильтр swept_min; порог по месяцу";tit;rust;
-Г-135;P-17;P-14@r2;B1;entry;;;b1|postsweep2|postsweep5|postsweep10|postsweep20|postsweep40;;"postsweep<R>: вход по рынку после отхода на R bps (≤ 30 с)";fixed;rust;
+Г-135;P-17;P-14@r2;B1;entry;;;postsweep2|postsweep5|postsweep10|postsweep20|postsweep40;;"postsweep<R>: вход по рынку после отхода на R bps (≤ 30 с)";fixed;rust;
 Г-136;P-17;P-14@r2;B1;A_min;2;45;2|5|10|15|20|30|45;;"agemax = A·60 с";tit;rust;
 Г-136;P-17;P-14@r2;B1;k;0;8;0|1|2|3|4|6|8;;"k = 0 — контроль (те же A без repeat_min)";tit;rust;
 Г-137;P-17;P-14@r2;B1;k;1;12;1|2|3|4|5|6|8|10|12;;"B1 как есть + repeat_count ≥ k";tit;rust;
