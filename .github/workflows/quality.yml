@@ -35,7 +35,7 @@ jobs:
     name: Строгие линты (боевой код)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       # Без этого джоб зелён, ничего не проверив: с тёплым кэшем clippy не
       # переиспускает диагностику. Чистится только наш крейт — зависимости
@@ -58,7 +58,7 @@ jobs:
     name: Бюджет линтов
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       - name: Счёт и сверка с бюджетом
         env:
@@ -107,7 +107,7 @@ jobs:
     name: Заявленный минимум Rust (1.91.1)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Снять пин тулчейна для этого джоба
         run: rm -f rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@stable
@@ -123,7 +123,7 @@ jobs:
     name: Зависимости
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny,cargo-machete
@@ -148,7 +148,7 @@ jobs:
     name: Копипаста
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: jscpd
         run: |
           npx --yes jscpd src \
@@ -164,7 +164,7 @@ jobs:
     name: Покрытие тестами
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov

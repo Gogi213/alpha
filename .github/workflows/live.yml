@@ -73,7 +73,7 @@ jobs:
     runs-on: [self-hosted, bybit]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
 
       - name: Сборка
@@ -174,7 +174,7 @@ jobs:
     runs-on: [self-hosted, bybit]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
 
       - name: Сверка книги с живым REST
