@@ -7,7 +7,7 @@ lab=$1; MON=$2; shift 2
 BIN=${BIN:-/data/tk0267/alpha-new-r2}; TP=${TP:-3}; D=${D:-1}; GT=${GT:-2}
 H=/data/tk046/$MON/home; E=$H/alpha/epochs/e-$MON; O=/data/tk0268/g82/$lab
 V=/data/tk044/final3/verdict.csv
-mkdir -p "$O/signals" "$O/log"; : > "$O/fail.txt"
+mkdir -p "$O/signals" "$O/log"; touch "$O/fail.txt"
 export HOME=$H BIN E O TP GT V MON ALPHA_SKIP_SAME=1
 unit_touches() {  # $1 рабочее дерево суток, $2 сутки, $3 монета
   local W=$1 d=$2 s=$3
