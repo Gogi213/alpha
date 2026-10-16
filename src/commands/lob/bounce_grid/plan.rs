@@ -648,6 +648,13 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     if let Some(n) = set.stack_min {
         out.push_str(&format!(" stack_min={n}"));
     }
+    // П-17 (Г-136/137, Г-135): `repeat_min=0` — контроль, тоже идентичность набора
+    if let Some(k) = set.repeat_min {
+        out.push_str(&format!(" repeat_min={k}"));
+    }
+    if let Some(q) = set.swept_min_bp {
+        out.push_str(&format!(" swept_min={q}"));
+    }
     // М-04 (TK-206): множитель размера первого подхода — тоже идентичность набора
     if let Some(k) = set.lot_first {
         out.push_str(&format!(" lot_first={k}"));

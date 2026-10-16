@@ -62,6 +62,12 @@ pub struct FilterSet {
     /// Г-07 (TK-012): уровней той же стороны в стопке не меньше `n` (`stack_min=<n>`, n ≥ 1; `stack_levels`,
     /// у подхода — `stack_levels_at_arm`). Только ключ набора.
     pub stack_min: Option<u32>,
+    /// Г-136/Г-137 (П-17): прежних рождений на уровне в окне `repeat_window_ms` не меньше `k` (`repeat_min=<k>`, k ≥ 0;
+    /// `TouchRecord::repeat_count`). `repeat_min=0` — контроль Г-136 (пропускает всё, но идентичность набора своя).
+    pub repeat_min: Option<u32>,
+    /// Г-135 (П-17): прочтение А «закола» — снесённый до касания объём не меньше `q` бп размера стены
+    /// (`swept_min=<бп>`, целое ≥ 0): `swept_lots × 10⁴ ≥ q × size_at_touch`. Только ключ набора.
+    pub swept_min_bp: Option<i64>,
     /// TK-025 (R1): границы колонок пакета R1 на подходе (`r1_<колонка>_min|_max=<целое>`), по
     /// порядку колонок `ArmR1::names()` — порядок в записи `--set` на набор не влияет. Только
     /// ключи набора и только `--signal approach`.
@@ -641,6 +647,8 @@ impl FilterSet {
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            repeat_min: None,
+            swept_min_bp: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }
@@ -675,6 +683,8 @@ impl FilterSet {
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            repeat_min: None,
+            swept_min_bp: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         };
@@ -741,6 +751,19 @@ impl FilterSet {
                     );
                     set.stack_min = Some(n);
                 }
+                "repeat_min" => {
+                    set.repeat_min =
+                        Some(v.parse().map_err(|e| {
+                            anyhow::anyhow!("--set {spec:?}: repeat_min={v:?}: {e}")
+                        })?);
+                }
+                "swept_min" => {
+                    let q: i64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: swept_min={v:?}: {e}"))?;
+                    anyhow::ensure!(q >= 0, "--set {spec:?}: swept_min={v:?} — целые бп ≥ 0");
+                    set.swept_min_bp = Some(q);
+                }
                 "eaten" => {
                     let pct: f64 = v
                         .parse()
@@ -793,7 +816,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!(
                             "--set {spec:?}: неизвестная ось {axis:?} ({})",
@@ -898,6 +921,8 @@ pub(crate) struct FilterSpec<'a> {
     pub(crate) usd_min: Option<f64>,
     pub(crate) behind_min_pct: Option<i64>,
     pub(crate) stack_min: Option<u32>,
+    pub(crate) repeat_min: Option<u32>,
+    pub(crate) swept_min_bp: Option<i64>,
     /// TK-025: границы колонок R1 набора; проверяются `admits_r1` на записи подхода.
     pub(crate) r1: &'a [R1Bound],
     pub(crate) ctx: Option<&'a [TouchContext]>,
@@ -919,6 +944,8 @@ impl<'a> FilterSpec<'a> {
             usd_min: set.usd_min,
             behind_min_pct: set.behind_min_pct,
             stack_min: set.stack_min,
+            repeat_min: set.repeat_min,
+            swept_min_bp: set.swept_min_bp,
             r1: &set.r1,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
@@ -938,6 +965,8 @@ pub(crate) struct AdmitRow {
     price_tick: i64,
     depth_behind_lots: i64,
     stack_levels: u32,
+    repeat_count: u32,
+    swept_lots: i64,
     eaten_pct: f64,
 }
 
@@ -953,6 +982,8 @@ impl AdmitRow {
             price_tick: t.price_tick,
             depth_behind_lots: t.depth_behind_lots,
             stack_levels: t.stack_levels,
+            repeat_count: t.repeat_count,
+            swept_lots: t.swept_lots,
             eaten_pct: eaten_pct(t),
         }
     }
@@ -1064,6 +1095,14 @@ impl<'a> TouchFilter<'a> {
         if self.spec.stack_min.is_some_and(|n| t.stack_levels < n) {
             return false;
         }
+        if self.spec.repeat_min.is_some_and(|k| t.repeat_count < k) {
+            return false;
+        }
+        if self.spec.swept_min_bp.is_some_and(|q| {
+            i128::from(t.swept_lots) * 10_000 < i128::from(q) * i128::from(t.size_at_touch)
+        }) {
+            return false;
+        }
         // Контекст (S4): ход до касания и режим — вне границ набора или
         // без значения при заданной границе — не вход.
         if let Some(ctx) = self.spec.ctx {
@@ -1130,6 +1169,14 @@ impl<'a> TouchFilter<'a> {
             return false;
         }
         if self.spec.stack_min.is_some_and(|n| r.stack_levels < n) {
+            return false;
+        }
+        if self.spec.repeat_min.is_some_and(|k| r.repeat_count < k) {
+            return false;
+        }
+        if self.spec.swept_min_bp.is_some_and(|q| {
+            i128::from(r.swept_lots) * 10_000 < i128::from(q) * i128::from(r.size_at_touch)
+        }) {
             return false;
         }
         if let Some(ctx) = self.spec.ctx {

@@ -102,6 +102,44 @@ fn g07_behind_and_stack_keys() {
     assert_eq!(super::plan::g07_label(&set), " behind_min=150 stack_min=2");
 }
 
+/// П-17 (TK-279): `repeat_min` (Г-136/137) и `swept_min` (Г-135) — разбор, отказы, целочисленный допуск, шапка;
+/// `repeat_min=0` пропускает всё, но ключ в идентичности набора (контроль Г-136).
+#[test]
+fn p17_repeat_and_swept_keys() {
+    let s = FilterSet::parse("g:repeat_min=3,swept_min=250").unwrap();
+    assert_eq!((s.repeat_min, s.swept_min_bp), (Some(3), Some(250)));
+    for bad in [
+        "x:repeat_min=-1",
+        "x:repeat_min=1.5",
+        "x:swept_min=-1",
+        "x:swept_min=a",
+        "x:repeat_min=1,repeat_min=2",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
+    let f = super::sets::TouchFilter::from_set(&s, 0.01, 1.0, &[]);
+    let t = |rep: u32, swept: i64| TouchRecord {
+        size_at_touch: 40,
+        repeat_count: rep,
+        swept_lots: swept,
+        ..probe_touch()
+    };
+    assert!(f.admits_oracle(mode, 0, &t(3, 1)), "3 ≥ 3; 1×10⁴ == 250×40");
+    assert!(!f.admits_oracle(mode, 0, &t(2, 1)), "repeat меньше");
+    assert!(!f.admits_oracle(mode, 0, &t(3, 0)), "swept меньше");
+    let ctl = FilterSet::parse("c:repeat_min=0").unwrap();
+    let f = super::sets::TouchFilter::from_set(&ctl, 0.01, 1.0, &[]);
+    assert!(
+        f.admits_oracle(mode, 0, &t(0, 0)),
+        "контроль k=0 пропускает всё"
+    );
+    assert_eq!(super::plan::g07_label(&ctl), " repeat_min=0");
+    assert_eq!(super::plan::g07_label(&s), " repeat_min=3 swept_min=250");
+    let none = FilterSet::parse("n:").unwrap();
+    assert_eq!(super::plan::g07_label(&none), "");
+}
+
 /// Г-07 сквозь сетку: `behind_min=0` не выбивает ничего (байты те же, шапка с ключом), огромный
 /// `stack_min` выбивает всё; набор без ключей — шапка без `behind_min`/`stack_min`.
 #[test]

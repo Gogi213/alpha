@@ -961,6 +961,8 @@ env_count="
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            repeat_min: None,
+            swept_min_bp: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }

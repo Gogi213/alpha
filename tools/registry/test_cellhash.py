@@ -52,7 +52,7 @@ class T(unittest.TestCase):
         st = lambda **k: base(set={**cr.B1_SET, **k})
         self.assertEqual(h0, ch.cell_hash(st(eaten=None, eaten_min=None, stack_min=None)))  # None = нет ключа
         hs = {h0}
-        for k, v in (("eaten", 60), ("eaten_min", 30), ("frontrun_min", 2), ("behind_min", 10), ("stack_min", 3),
+        for k, v in (("eaten", 60), ("eaten_min", 30), ("frontrun_min", 2), ("behind_min", 10), ("stack_min", 3), ("repeat_min", 0), ("swept_min", 100),
                      ("r1_flow_x_min", 5), ("r1_flow_x_max", 5), ("r1_flow_y_min", 5)):
             h = ch.cell_hash(st(**{k: v}))
             self.assertNotIn(h, hs, k)
