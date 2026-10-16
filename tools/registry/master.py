@@ -176,6 +176,7 @@ R1_SIGN = {
     "Г-36": {"cancel_life_lots": "lo", "wall_add_max_lots": "hi"},
     "Г-46": {"ofi_10s_lots": "lo", "ofi_60s_lots": "lo", "best_move_1s_cbps": "hi", "best_move_10s_cbps": "hi"},
     "Г-60": {"trade_size_p50_15m": "lo", "trade_size_p90_15m": "lo"},
+    "Г-134": {"frontrun_levels": "lo", "frontrun_delta_10s_lots": "lo"},   # П-15: `_max` — не входим при большом завале (оставить нижние q %)
     "Г-78": {"best_move_1s_cbps": "lo"}, "Г-55": {"tape_press_lots_30s": "lo"}, "Г-140": {"best_flips_15s": "lo", "ofi_10s_lots": "hi"},
 }
 R1X = set()   # хеши R1-клеток, посчитанных tk202-r1x.py (TK-202 B11): /data/tk202/r1x/cells/<мес>/<хеш>.csv, янв–сен (окт 90 кл. на 31 сигнале); в --cells не идут
@@ -387,11 +388,13 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
     elif "keep_q" in av or "common_q" in av:  # R1: как у клеток Летописи — признак (None, если колонка одна, она в имени клетки не стоит), квантиль «kNN», порог по окну
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
-        cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
+        cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "own-month" if hyp == "Г-134" else "expanding-window"}}   # Г-134: порог по B1 своего месяца (П-15 §0)
         if "ctx_q" in av:   # В-227 М3 (Г-78/55/140): страта оси контекста — отдельная клетка, не r1ext
             cfg["variant"]["axes"]["ctx"] = str(av["ctx_q"])
         sign = R1_SIGN.get(hyp, {}).get(col)
-        if "ctx_q" not in av and (col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign))):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
+        if hyp == "Г-134":   # П-15: не r1ext/r1x — «к счёту» маршрутом R1: r1cell.py apply --hist own (пороги своего месяца)
+            pass
+        elif "ctx_q" not in av and (col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign))):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
             R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
         elif ("ctx_q" in av or col is not None) and "common_q" not in av:   # В-227 М1/М3: колонка/знак вне r1ext и ctx×keep_q — посчитано tk202-r1x.py (calc /data/tk202/r1x, янв–сен)
             R1X.add(ch.cell_hash(cfg))

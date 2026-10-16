@@ -283,6 +283,26 @@ class MasterTest(unittest.TestCase):
         self.assertEqual(sv_q(67), sv_q(33))
         self.assertNotEqual(c1[50]["hash"], c1[33]["hash"])
 
+    def test_p15_g134_r1_cells(self):
+        """TK-274: Г-134 — 18 R1-клеток (2 колонки × 9 q), порог «своего месяца» (thr own-month), знак lo; не r1ext/r1x (к счёту маршрутом R1), хеш не равен Г-28/Г-63."""
+        sv = {"entry": "ladder3x0..0.0409sw2", "stop": "pct2", "take": "tr1x1", "deadline_s": "14400", "entry_ttl_s": "1800", "set": "t-bid-btc4h-q1",
+              "universe": "pool v171c (В-210)", "sigma": "sigma240", "queue": "prob:3", "busy": "off"}
+        hs = {}
+        for col in ("frontrun_levels", "frontrun_delta_10s_lots"):
+            for q in (5, 10, 20, 33, 50, 67, 80, 90, 95):
+                cfg = master.p14_cfg("Г-134", sv, {"col": col, "keep_q": str(q)})
+                h = ch.cell_hash(cfg)
+                hs[(col, q)] = h
+                self.assertEqual(cfg["variant"]["axes"]["thr"], "own-month")
+                self.assertEqual(cfg["variant"]["axes"]["feature"], col)
+                self.assertNotIn(h, master.R1X)
+                self.assertNotIn(h, master.R1COL)
+        self.assertEqual(len(set(hs.values())), 18)
+        for hyp in ("Г-28", "Г-63"):
+            h28 = ch.cell_hash(master.p14_cfg(hyp, sv, {"col": "frontrun_levels", "keep_q": "50"}))
+            self.assertNotEqual(h28, hs[("frontrun_levels", 50)])
+        self.assertEqual(master.R1_SIGN["Г-134"], {"frontrun_levels": "lo", "frontrun_delta_10s_lots": "lo"})
+
 
 if __name__ == "__main__":
     unittest.main()
