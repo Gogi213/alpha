@@ -180,11 +180,19 @@ fn join_swept_lots(
     let swept: std::collections::HashMap<(bool, i64, i64), i64> = days
         .iter()
         .flat_map(|d| d.touches.iter())
-        .map(|t| ((t.side == Side::Bid, t.price_tick, t.start_ms), t.swept_lots))
+        .map(|t| {
+            (
+                (t.side == Side::Bid, t.price_tick, t.start_ms),
+                t.swept_lots,
+            )
+        })
         .collect();
     for (a, v) in approaches.iter().zip(views.iter_mut()) {
         if let Some(ts) = a.touch_start_ms {
-            v.swept_lots = swept.get(&(a.side == Side::Bid, a.price_tick, ts)).copied().unwrap_or(0);
+            v.swept_lots = swept
+                .get(&(a.side == Side::Bid, a.price_tick, ts))
+                .copied()
+                .unwrap_or(0);
         }
     }
 }
