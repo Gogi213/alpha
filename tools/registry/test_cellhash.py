@@ -22,6 +22,13 @@ class T(unittest.TestCase):
         hs = {ch.cell_hash(f(e)) for e in ("retreat2t5", "retreat3t5", "retreat2t15", "single@fr")}
         self.assertEqual(len(hs), 4)
 
+    def test_level_control_key(self):  # Г-03 (TK-274): контроль — отдельный ключ; без контроля хеш прежний
+        h = lambda **k: ch.cell_hash(base(**k))
+        self.assertNotIn("level_control", ch.normalize(base()))
+        self.assertEqual(h(level_control=None), h())
+        hs = {h(), h(level_control="random:1"), h(level_control="random:2"), h(level_control="paired:1")}
+        self.assertEqual(len(hs), 4)
+
     def test_half_default_is_f2(self):
         h = lambda e: ch.normalize(base(form=B1F + "-" + e))["exit"]
         self.assertEqual(h("halfstop"), ["halfstop", "f", 2])
