@@ -39,6 +39,18 @@ def test_api_plan_and_nothing_to_count():
         s.shutdown()
 
 
+def test_api_hyp_served_under_token_and_cached():
+    s = _tok_srv()
+    base = f"http://127.0.0.1:{s.server_address[1]}"
+    try:
+        d = json.load(urllib.request.urlopen(f"{base}/{TOKEN}/api/hyp"))
+        assert len(d["rows"]) >= 100 and d["rows"][0]["cls"] == "Методы" and d["rows"][0]["status"]
+        assert _code(f"{base}/api/hyp") == 404
+        assert 'id="t-hyp"' in urllib.request.urlopen(f"{base}/{TOKEN}/").read().decode("utf-8")
+    finally:
+        s.shutdown()
+
+
 def test_no_neural_calls_in_code():
     """В-6: ни тикетов, ни claude, ни Telegram из кода запуска."""
     bad = re.compile(r"tickets\.py|\bclaude\b|telegram|\bnotify\b|RPV_TG", re.I)

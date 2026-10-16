@@ -15,11 +15,18 @@ mkdir -p "$O/log" "$O/out"; : > "$O/fail.txt"
 export HOME=$H BIN O TP
 ym=2026-$(case $MON in jan) echo 01;; feb) echo 02;; mar) echo 03;; apr) echo 04;; may) echo 05;; jun) echo 06;; jul) echo 07;; aug) echo 08;; sep) echo 09;; esac)
 syms=$(awk -F, -v m="$MON" -v d="$d" 'NR>1 && $1==m && $2==d{print $3}' "$B1" | sort -u)
-W=$O/w-$d; rm -rf "$W"; mkdir -p "$W/study/approaches" "$W/b5" "$W/bin"; JRN=${JRN:-/data/p12r3a/jrn}; [ -e "$JRN/$d/done" ] || { echo "$d НЕТ ТАЧЕЙ ЖУРНАЛА $JRN/$d" >> "$O/fail.txt"; exit 4; }; ln -s "$JRN/$d/wt" "$W/wt"
+# copy-fresh:begin (TK-264) копия суток на sda годится, только если исходник на sdb с тех пор не менялся; иначе — исходник + сигнал
+stale() { local m; m="$(date +%FT%T) КОПИЯ $d УСТАРЕЛА ($1): читаю исходник на sdb, копию обновить или убрать из ${ALT_ROOT-/srv/alpha-sda/root}"; echo "$m" >&2; echo "$m" >> "$O/stale-copy.txt"; { echo "$m" >> "${ALERTS-/data/sched/alerts.log}"; } 2>/dev/null; return 0; }
+sig() { (cd "$1" && stat -L -c '%n %s %Y' * .[!.]* 2>/dev/null | LC_ALL=C sort); }
+jrn_fresh() { [ ! "$1/$d/done" -nt "$2/$d/done" ] && [ "$(stat -c %y "$1/$d/wt")" = "$(stat -c %y "$2/$d/wt")" ]; }
+root_fresh() { [ ! -d "$1" ] || [ "$(sig "$1")" = "$(sig "$2")" ]; }
+# copy-fresh:end
+W=$O/w-$d; rm -rf "$W"; mkdir -p "$W/study/approaches" "$W/b5" "$W/bin"; JRN=${JRN:-/data/p12r3a/jrn}; AJ=${ALT_JRN-/srv/alpha-sda/jrn}; if [ -e "$AJ/$d/done" ]; then if [ ! -e "$JRN/$d/done" ] || jrn_fresh "$JRN" "$AJ"; then JRN=$AJ; else stale "журнал тачей: done/wt на sdb новее копии"; fi; fi; [ -e "$JRN/$d/done" ] || { echo "$d НЕТ ТАЧЕЙ ЖУРНАЛА $JRN/$d" >> "$O/fail.txt"; exit 4; }; ln -s "$JRN/$d/wt" "$W/wt"
 ln -s "$BIN" "$W/bin/alpha-tk044k1-new"
 for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in study|b5|b5-ref|b5-solo|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$(readlink -f "$x")" "$W/$b"; done
 for x in "$E"/study/*; do b=$(basename "$x"); case $b in root-*|approaches|regime) continue;; esac; ln -s "$(readlink -f "$x")" "$W/study/$b"; done
-ln -s "$(readlink -f "$E/study/root-$d")" "$W/study/root-$d"
+RS=$(readlink -f "$E/study/root-$d"); AR=${ALT_ROOT-/srv/alpha-sda/root}/root-$d; if [ -d "$AR" ] && ! root_fresh "$RS" "$AR"; then stale "root-$d: размеры/время файлов не совпали с sdb"; AR=; fi
+ln -s "$( [ -d "$AR" ] && echo "$AR" || echo "$RS")" "$W/study/root-$d"
 [ -e "$RG/$MON/$d.csv" ] || { echo "$d НЕТ РЕЖИМА $RG/$MON" >> "$O/fail.txt"; exit 4; }; ln -s "$RG/$MON" "$W/study/regime"
 awk -F, -v d="$d" 'NR==FNR{s[$1]=1;next} FNR==1||($2==d&&($1 in s))' <(echo "$syms") "$V" > "$O/verdict-b1.csv"
 cat "$P/$PLAN.cells" "$P/$PLAN-$ym.cells" > "$O/cells.txt"
