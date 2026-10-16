@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """TK-278 п.2: сверка closes старых клеток М (без монеты, m применён) с готовыми: те же сделки (время) и разница $ (A — m меняет $, B — tk194 m тот же → ждём 0).
-  tk278-expo-old-cmp.py   читает /data/tk0278/expo-old/chk-<A|B>-<мес>.json; A — /data/p12r2a/closes-va-cap0-<мес>.json, B — /data/tk0194/closes-r2bg95-cap0-<мес>.json"""
+  tk278-expo-old-cmp.py   читает /data/tk0278/expo-old/chk-<A|B>-<мес>.json; A — /data/p12r2a/closes-vand-cap0-<мес>.json (с --drop), B3/B45 — /data/tk0194/closes-r2bg95-cap0-<мес>.json"""
 import json, os
 W = "/data/tk0278/expo-old"
-REF = {"A": "/data/p12r2a/closes-va-cap0-2026-%s.json", "B": "/data/tk0194/closes-r2bg95-cap0-2026-%s.json"}
+REF = {"A": "/data/p12r2a/closes-vand-cap0-2026-%s.json", "B3": "/data/tk0194/closes-r2bg95-cap0-2026-%s.json", "B45": "/data/tk0194/closes-r2bg95-cap0-2026-%s.json"}
 bad = 0; tot = 0
-for g in "AB":
+for g in ("A", "B3", "B45"):
     n = same_ts = 0; dmax = 0.0; miss = 0
     for mo in "01 02 03 04 05 06 07 08 09".split():
-        p = f"{W}/chk-{g}-{mo}.json"
+        p = f"{W}/chk-{g}-2026-{mo}.json"
         if not os.path.exists(p):
             continue
         new = json.load(open(p)); ref = json.load(open(REF[g] % mo))

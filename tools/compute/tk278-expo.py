@@ -4,13 +4,13 @@
   <busy> — деревья с клетками (та же раскладка). Пишет <out>/<мес>/<сутки>/<стр>/rounds.csv (только формы spec, qty*m) и <out>/expo.json.
 m по семье (P-12 §6(2)): -pyre/-pynw (g92/g93) m = N_B1/N_peak; остальные (g87/g95) m = min(1, N_ref/N_peak);
 N_peak = qty*entry_vwap сделки клетки, N_B1 = qty*entry_vwap строки B1 того же (symbol, signal_index), N_ref = qty/fill_frac*entry_vwap B1.
-Нет базы B1 того же сигнала -> сделка вне счёта (как в tk194), счётчик base_missing."""
+База B1 — той же стратегии (EXPO_BASE_ST — другая). Нет базы B1 того же сигнала -> сделка вне счёта (как в tk194), счётчик base_missing."""
 import csv, glob, json, os, sys
 from collections import defaultdict
 
 raw, busy, out, spec = sys.argv[1:5]
 B1 = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
-BASE_ST = os.environ.get("EXPO_BASE_ST", "t-bid-btc4h-q1")
+BASE_ST = os.environ.get("EXPO_BASE_ST")      # по умолчанию база — строка B1 той же стратегии (как p12-r2-expo.py)
 DROP = set(filter(None, os.environ.get("EXPO_DROP", "TRUMPUSDT,TRXUSDT,BCHUSDT").split(",")))
 want = defaultdict(set)
 for ln in open(spec, encoding="utf-8"):
@@ -32,7 +32,7 @@ for f in sorted(glob.glob(f"{busy}/20*/20*/*/rounds.csv")):
     mo, day, st = f.split("/")[-4:-1]
     if st not in want:
         continue
-    bp = f"{raw}/{mo}/{day}/{BASE_ST}/rounds.csv"
+    bp = f"{raw}/{mo}/{day}/{BASE_ST or st}/rounds.csv"
     base = {(r["symbol"], r["signal_index"]): r for r in read(bp)[1] if r["form"] == B1} if os.path.exists(bp) else {}
     head, rows = read(f)
     res = []
