@@ -324,39 +324,6 @@ pub fn read_npy_file<D: NpyDTyped + Clone>(filepath: &str) -> std::io::Result<Da
     }
 }
 
-/// Reads a structured array `numpy` zip archived file. Currently, it doesn't check if the data
-/// structure is the same as what the file contains. Users should be cautious about this.
-///
-/// # S3 Support
-/// Supports S3 paths in format: `s3://bucket-name/path/to/file.npz` when the "s3" feature is enabled.
-/// Enable the feature in Cargo.toml: `features = ["s3"]`
-pub fn read_npz_file<D: NpyDTyped + Clone>(filepath: &str, name: &str) -> std::io::Result<Data<D>> {
-    if filepath.starts_with("s3://") {
-        #[cfg(feature = "s3")]
-        {
-            let data = s3_support::read_s3_object(filepath)?;
-            let cursor = Cursor::new(data);
-            let mut archive = zip::ZipArchive::new(cursor)?;
-            let mut file = archive.by_name(&format!("{name}.npy"))?;
-            let size = file.size() as usize;
-            read_npy(&mut file, size)
-        }
-
-        #[cfg(not(feature = "s3"))]
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "S3 support is not enabled. Enable the 's3' feature in Cargo.toml to use S3 paths: features = [\"s3\"]",
-            ));
-        }
-    } else {
-        let mut archive = zip::ZipArchive::new(File::open(filepath)?)?;
-        let mut file = archive.by_name(&format!("{name}.npy"))?;
-        let size = file.size() as usize;
-        read_npy(&mut file, size)
-    }
-}
-
 pub fn write_npy<W: Write, T: NpyDTyped>(write: &mut W, data: &[T]) -> std::io::Result<()> {
     let descr = T::descr();
     let header = NpyHeader {
