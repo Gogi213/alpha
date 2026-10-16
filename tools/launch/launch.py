@@ -526,6 +526,22 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
             "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None)}
 
 
+def hyp_view(cfg=None, cov=None):
+    """Вкладка «Гипотезы» (TK-271): статусы из реестра автоматически (hyps.view), тексты простым языком — hyp_texts.json."""
+    import hyps
+    cfg = cfg or load_config()
+    cov = coverage(cfg) if cov is None else cov
+    hy_of = {r["hash"]: r["hyp"] for r in plan_rows(cfg["protocol"], cfg["fraction"])}
+    ok = collections.defaultdict(set)
+    for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
+        if line.strip():
+            d = json.loads(line)
+            if d.get("eligible") and d["cell_hash"] in hy_of:
+                ok[hy_of[d["cell_hash"]]].add(d["cell_hash"])
+    rows = [json.loads(l) for l in open(os.path.join(REG, "hypotheses.jsonl"), encoding="utf-8") if l.strip()]
+    return hyps.view(rows, cov, cfg["months"], [(r, OFF_LABELS[r]) for r in OFF_ROUTES], hyps.load_texts(), {h: len(v) for h, v in ok.items()})
+
+
 def hash_metrics_file():
     """metrics.jsonl снимка Летописи (build_metrics.py на calc): {хеш: метрики}; файла нет — {} (на странице прочерки)."""
     try:
