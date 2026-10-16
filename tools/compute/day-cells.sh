@@ -15,11 +15,11 @@ mkdir -p "$O/log" "$O/out"; : > "$O/fail.txt"
 export HOME=$H BIN O TP
 ym=2026-$(case $MON in jan) echo 01;; feb) echo 02;; mar) echo 03;; apr) echo 04;; may) echo 05;; jun) echo 06;; jul) echo 07;; aug) echo 08;; sep) echo 09;; esac)
 syms=$(awk -F, -v m="$MON" -v d="$d" 'NR>1 && $1==m && $2==d{print $3}' "$B1" | sort -u)
-W=$O/w-$d; rm -rf "$W"; mkdir -p "$W/study/approaches" "$W/b5" "$W/bin"; JRN=${JRN:-/data/p12r3a/jrn}; [ -e "$JRN/$d/done" ] || { echo "$d НЕТ ТАЧЕЙ ЖУРНАЛА $JRN/$d" >> "$O/fail.txt"; exit 4; }; ln -s "$JRN/$d/wt" "$W/wt"
+W=$O/w-$d; rm -rf "$W"; mkdir -p "$W/study/approaches" "$W/b5" "$W/bin"; JRN=${JRN:-/data/p12r3a/jrn}; [ -e "${ALT_JRN-/srv/alpha-sda/jrn}/$d/done" ] && JRN=${ALT_JRN-/srv/alpha-sda/jrn}; [ -e "$JRN/$d/done" ] || { echo "$d НЕТ ТАЧЕЙ ЖУРНАЛА $JRN/$d" >> "$O/fail.txt"; exit 4; }; ln -s "$JRN/$d/wt" "$W/wt"
 ln -s "$BIN" "$W/bin/alpha-tk044k1-new"
 for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in study|b5|b5-ref|b5-solo|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$(readlink -f "$x")" "$W/$b"; done
 for x in "$E"/study/*; do b=$(basename "$x"); case $b in root-*|approaches|regime) continue;; esac; ln -s "$(readlink -f "$x")" "$W/study/$b"; done
-ln -s "$(readlink -f "$E/study/root-$d")" "$W/study/root-$d"
+ln -s "$( [ -d "${ALT_ROOT-/srv/alpha-sda/root}/root-$d" ] && echo "${ALT_ROOT-/srv/alpha-sda/root}/root-$d" || readlink -f "$E/study/root-$d")" "$W/study/root-$d"
 [ -e "$RG/$MON/$d.csv" ] || { echo "$d НЕТ РЕЖИМА $RG/$MON" >> "$O/fail.txt"; exit 4; }; ln -s "$RG/$MON" "$W/study/regime"
 awk -F, -v d="$d" 'NR==FNR{s[$1]=1;next} FNR==1||($2==d&&($1 in s))' <(echo "$syms") "$V" > "$O/verdict-b1.csv"
 cat "$P/$PLAN.cells" "$P/$PLAN-$ym.cells" > "$O/cells.txt"
