@@ -17,7 +17,7 @@ use hftbacktest::types::Event as HbtEvent;
 use crate::commands::lob::backtest::{
     approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, count_feed_events,
     deadline_ns_from_secs, early_exit_ns_from_ms, open_replay_feed, replay_compact_into_until,
-    EntryForm, PlanShape, PoolLot,
+    BounceForm, EntryForm, PlanShape, PoolLot, StopForm,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, precompute_exit_group, with_backtest_over, BounceRun,
@@ -51,6 +51,17 @@ fn signals_for(
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
     let early_exit_ns = early_exit_ns_from_ms(form.early_exit_ms)?;
     let mut skipped: u64 = 0;
+    // Г-101 (П-17): режим бывает только у лестницы входа / стопа `pct`|`s`; иначе множитель молча не сработал бы.
+    anyhow::ensure!(
+        p.filter.ladder_regime.is_none() || scale_ladder(form.entry_form, 1.0).is_some(),
+        "{}: lreg_* (Г-101) требует форму входа ladder…",
+        form.label
+    );
+    anyhow::ensure!(
+        p.filter.stop_regime.is_none() || scale_stop(form.form.stop, 1.0).is_some(),
+        "{}: sreg_* (Г-101) требует стоп pct<x> или s<a>",
+        form.label
+    );
     if let Some(ctx) = p.filter.ctx {
         anyhow::ensure!(
             ctx.len() == touches.len(),
@@ -93,7 +104,21 @@ fn signals_for(
                 skipped += 1;
                 return None;
             }
-            let sigma_bps = if form.form.needs_sigma() {
+            // Г-101: «сильная» половина (btc4h ≤ T) — шаг лестницы и/или стоп ×f; режим не задан — прежняя форма.
+            let entry_form = p
+                .filter
+                .regime_factor(p.filter.ladder_regime, ti)
+                .and_then(|f| scale_ladder(form.entry_form, f))
+                .unwrap_or(form.entry_form);
+            let bform = match p
+                .filter
+                .regime_factor(p.filter.stop_regime, ti)
+                .and_then(|f| scale_stop(form.form.stop, f))
+            {
+                Some(stop) => BounceForm { stop, ..form.form },
+                None => form.form,
+            };
+            let sigma_bps = if bform.needs_sigma() {
                 sigma.sigma_bps(t.start_ms, form.deadline_secs)
             } else {
                 None
@@ -109,7 +134,7 @@ fn signals_for(
                 // F6 (В-73): форма входа — ось сетки (`--entry-form`):
                 // `single@fr` — прежняя нога, лестница — ноги от `from` до `to`
                 // bps над стеной.
-                entry_form: form.entry_form,
+                entry_form,
                 deadline_ns,
                 early_exit_ns,
                 // F5 (В-74): режим срока жизни входа — из формы сетки
@@ -121,7 +146,7 @@ fn signals_for(
                 // F7 (Б-75): форма выхода — ось сетки (`--exit-form`).
                 exit_form: form.exit_form,
                 // В-131: σ на взводе — только σ-лестнице (`t.start_ms` у подхода — `arm_ms`).
-                entry_sigma_bps: match form.entry_form {
+                entry_sigma_bps: match entry_form {
                     EntryForm::LadderSigma { .. } => p.entry_sigma.and_then(|s| s.at(t.start_ms)),
                     _ => None,
                 },
@@ -132,15 +157,15 @@ fn signals_for(
                     p.grid_e9.0,
                     p.grid_e9.1,
                     sc,
-                    form.form,
+                    bform,
                     sigma_bps,
                     shape,
                 ),
                 (Some(sc), None) => {
-                    bounce_plan_sched(t, p.grid_e9.0, p.grid_e9.1, sc, form.form, sigma_bps, shape)
+                    bounce_plan_sched(t, p.grid_e9.0, p.grid_e9.1, sc, bform, sigma_bps, shape)
                 }
-                (None, Some(ap)) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
-                (None, None) => bounce_plan(t, p.tick, form.form, sigma_bps, shape),
+                (None, Some(ap)) => approach_plan(&ap[ti], p.tick, bform, sigma_bps, shape),
+                (None, None) => bounce_plan(t, p.tick, bform, sigma_bps, shape),
             };
             let Some((dir, plan)) = built else {
                 skipped += 1;
@@ -157,6 +182,44 @@ fn signals_for(
         .collect();
     signals.sort_by_key(|s| s.t0_ns);
     Ok((signals, skipped))
+}
+
+/// Г-101: шаг лестницы входа ×`f` — дальняя нога уходит на `from + f·(to − from)`; не лестница — `None`.
+fn scale_ladder(e: EntryForm, f: f64) -> Option<EntryForm> {
+    match e {
+        EntryForm::Ladder {
+            legs,
+            from_bps,
+            to_bps,
+            wall_weight,
+        } => Some(EntryForm::Ladder {
+            legs,
+            from_bps,
+            to_bps: from_bps + f * (to_bps - from_bps),
+            wall_weight,
+        }),
+        EntryForm::LadderSigma {
+            legs,
+            from_sigma,
+            to_sigma,
+            wall_weight,
+        } => Some(EntryForm::LadderSigma {
+            legs,
+            from_sigma,
+            to_sigma: from_sigma + f * (to_sigma - from_sigma),
+            wall_weight,
+        }),
+        _ => None,
+    }
+}
+
+/// Г-101: ширина стопа ×`f` (`pct<x>` → `pct<x·f>`, `s<a>` → `s<a·f>`); прочие формы стопа — `None`.
+fn scale_stop(s: StopForm, f: f64) -> Option<StopForm> {
+    match s {
+        StopForm::Pct(x) => Some(StopForm::Pct(x * f)),
+        StopForm::Sigma(a) => Some(StopForm::Sigma(a * f)),
+        _ => None,
+    }
 }
 
 /// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, потолок `SIG_CACHE_CAP` сигналов на сутки): `signals_for` второй раз не зовётся. Сверх потолка форма не

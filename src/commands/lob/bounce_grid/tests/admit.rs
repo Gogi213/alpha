@@ -1002,3 +1002,56 @@ fn tape_cxl_forms_parse_threshold() {
     assert_eq!(ExitForm::parse("cxl5qp").unwrap().label(), "cxl5qp");
     assert!(ExitForm::parse("tape30qpp").is_err());
 }
+
+/// П-17 (TK-279, Г-101): ключи режима `lreg_t/lreg_f`, `sreg_t/sreg_f` — парой, внутри допуска B1 (`btc4h` задан);
+/// шапка набора несёт порог и множитель, два разных множителя — две идентичности; «сильная» половина — `btc4h ≤ T`.
+#[test]
+fn p17_regime_keys_pair_and_gate() {
+    let s =
+        FilterSet::parse("g:btc4h_max=-44.55,lreg_t=-120.5,lreg_f=2500,sreg_t=-90,sreg_f=20000")
+            .unwrap();
+    assert_eq!(
+        s.ladder_regime.map(|r| (r.t_bps, r.f_bp)),
+        Some((-120.5, 2500))
+    );
+    assert_eq!(
+        s.stop_regime.map(|r| (r.t_bps, r.f_bp)),
+        Some((-90.0, 20000))
+    );
+    assert_eq!(
+        super::plan::g07_label(&s),
+        " lreg=-120.5:2500 sreg=-90:20000"
+    );
+    let s2 = FilterSet::parse("g:btc4h_max=-44.55,lreg_t=-120.5,lreg_f=5000").unwrap();
+    assert_ne!(super::plan::g07_label(&s), super::plan::g07_label(&s2));
+    for bad in [
+        "x:btc4h_max=-44.55,lreg_t=-120",
+        "x:btc4h_max=-44.55,sreg_f=5000",
+        "x:lreg_t=-120,lreg_f=5000",
+        "x:btc4h_max=-44.55,lreg_t=-120,lreg_f=0",
+        "x:btc4h_max=-44.55,lreg_t=a,lreg_f=5000",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let r = s.ladder_regime;
+    let mut axes = [None; crate::commands::lob::bounce_grid::sets::CTX_AXES.len()];
+    axes[super::sets::BTC4H_AXIS] = Some(-130.0);
+    let ctx = [
+        super::sets::TouchContext { axes },
+        super::sets::TouchContext {
+            axes: [None; crate::commands::lob::bounce_grid::sets::CTX_AXES.len()],
+        },
+    ];
+    let spec = super::sets::FilterSpec::of_set(&s, &ctx);
+    assert_eq!(
+        spec.regime_factor(r, 0),
+        Some(0.25),
+        "-130 ≤ -120.5: сильная половина"
+    );
+    assert_eq!(
+        spec.regime_factor(r, 1),
+        None,
+        "нет btc4h — режим не включается"
+    );
+    assert_eq!(spec.regime_factor(None, 0), None);
+}

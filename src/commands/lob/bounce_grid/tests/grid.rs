@@ -963,6 +963,8 @@ env_count="
             stack_min: None,
             repeat_min: None,
             swept_min_bp: None,
+            ladder_regime: None,
+            stop_regime: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }

@@ -655,6 +655,13 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     if let Some(q) = set.swept_min_bp {
         out.push_str(&format!(" swept_min={q}"));
     }
+    // Г-101 (П-17): режим шага лестницы / стопа — порог bps и множитель в бп
+    if let Some(r) = set.ladder_regime {
+        out.push_str(&format!(" lreg={}:{}", r.t_bps, r.f_bp));
+    }
+    if let Some(r) = set.stop_regime {
+        out.push_str(&format!(" sreg={}:{}", r.t_bps, r.f_bp));
+    }
     // М-04 (TK-206): множитель размера первого подхода — тоже идентичность набора
     if let Some(k) = set.lot_first {
         out.push_str(&format!(" lot_first={k}"));

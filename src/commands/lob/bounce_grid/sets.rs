@@ -68,6 +68,11 @@ pub struct FilterSet {
     /// Г-135 (П-17): прочтение А «закола» — снесённый до касания объём не меньше `q` бп размера стены
     /// (`swept_min=<бп>`, целое ≥ 0): `swept_lots × 10⁴ ≥ q × size_at_touch`. Только ключ набора.
     pub swept_min_bp: Option<i64>,
+    /// Г-101 (П-17): шаг лестницы входа ×f на касаниях «сильной» половины внутри допуска B1 (`btc4h ≤ T`):
+    /// ключи пары `lreg_t=<bps>` + `lreg_f=<бп>` (f = бп/10⁴ от шага: ¼ = 2500). Без пары — прежний шаг.
+    pub ladder_regime: Option<Regime>,
+    /// Г-101 (П-17): то же для ширины стопа (`sreg_t`, `sreg_f`; стоп `pct<x>`/`s<a>` умножается на f).
+    pub stop_regime: Option<Regime>,
     /// TK-025 (R1): границы колонок пакета R1 на подходе (`r1_<колонка>_min|_max=<целое>`), по
     /// порядку колонок `ArmR1::names()` — порядок в записи `--set` на набор не влияет. Только
     /// ключи набора и только `--signal approach`.
@@ -79,6 +84,19 @@ pub struct FilterSet {
     /// `<ось>_min=` / `<ось>_max=`. Касание без
     /// значения оси при заданной границе выбывает.
     pub ctx: [Range; CTX_AXES.len()],
+}
+
+/// Режим Г-101: на касании с `btc4h ≤ t_bps` параметр формы умножается на `f_bp / 10⁴`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Regime {
+    pub t_bps: f64,
+    pub f_bp: u32,
+}
+
+impl Regime {
+    pub(crate) fn factor(self) -> f64 {
+        f64::from(self.f_bp) / 10_000.0
+    }
 }
 
 /// Границы одной колонки R1 (`r1_<колонка>_min|_max`); `col` — номер в `ArmR1::names()`.
@@ -214,6 +232,25 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 24] = [
     btc_lag("btc_lag_64s", 64),
     btc_lag("btc_lag_118s", 118),
 ];
+
+/// Индекс оси `btc4h` в реестре (Г-101: «сильная» половина режима).
+pub(crate) const BTC4H_AXIS: usize = {
+    let mut i = 0;
+    while i < CTX_SPECS.len() {
+        let n = CTX_SPECS[i].name.as_bytes();
+        if n.len() == 5
+            && n[0] == b'b'
+            && n[1] == b't'
+            && n[2] == b'c'
+            && n[3] == b'4'
+            && n[4] == b'h'
+        {
+            break;
+        }
+        i += 1;
+    }
+    i
+};
 
 /// Осей хода монеты (всегда в начале реестра), осей по свечам монеты (всегда в конце) и осей
 /// режима (между ними).
@@ -649,6 +686,8 @@ impl FilterSet {
             stack_min: None,
             repeat_min: None,
             swept_min_bp: None,
+            ladder_regime: None,
+            stop_regime: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }
@@ -685,10 +724,13 @@ impl FilterSet {
             stack_min: None,
             repeat_min: None,
             swept_min_bp: None,
+            ladder_regime: None,
+            stop_regime: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         };
         let mut seen = std::collections::BTreeSet::new();
+        let (mut reg_t, mut reg_f) = ([None::<f64>; 2], [None::<u32>; 2]);
         for kv in rest.split(',').filter(|s| !s.is_empty()) {
             let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
             anyhow::ensure!(
@@ -764,6 +806,34 @@ impl FilterSet {
                     anyhow::ensure!(q >= 0, "--set {spec:?}: swept_min={v:?} — целые бп ≥ 0");
                     set.swept_min_bp = Some(q);
                 }
+                "lreg_t" | "sreg_t" => {
+                    let t: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: {k}={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        t.is_finite(),
+                        "--set {spec:?}: {k}={v:?} — порог bps обязан быть числом"
+                    );
+                    if k == "lreg_t" {
+                        reg_t[0] = Some(t)
+                    } else {
+                        reg_t[1] = Some(t)
+                    }
+                }
+                "lreg_f" | "sreg_f" => {
+                    let f: u32 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: {k}={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        f >= 1,
+                        "--set {spec:?}: {k}={v:?} — множитель в бп ≥ 1 (10000 = ×1, это B1)"
+                    );
+                    if k == "lreg_f" {
+                        reg_f[0] = Some(f)
+                    } else {
+                        reg_f[1] = Some(f)
+                    }
+                }
                 "eaten" => {
                     let pct: f64 = v
                         .parse()
@@ -816,7 +886,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!(
                             "--set {spec:?}: неизвестная ось {axis:?} ({})",
@@ -841,6 +911,26 @@ impl FilterSet {
             }
         }
         set.r1.sort_unstable_by_key(|b| b.col);
+        // Г-101: порог и множитель — парой; режим живёт внутри допуска B1 (ось btc4h в наборе обязана быть задана,
+        // иначе контекст не грузится и «сильная половина» не определена).
+        for (slot, name) in ["lreg", "sreg"].into_iter().enumerate() {
+            let one = match (reg_t[slot], reg_f[slot]) {
+                (None, None) => None,
+                (Some(t_bps), Some(f_bp)) => Some(Regime { t_bps, f_bp }),
+                _ => anyhow::bail!("--set {spec:?}: {name}_t и {name}_f — только парой"),
+            };
+            if one.is_some() {
+                anyhow::ensure!(
+                    set.ctx.get(BTC4H_AXIS).is_some_and(|r| r.is_set()),
+                    "--set {spec:?}: {name}_t/{name}_f работают внутри допуска B1 — задай btc4h_min/btc4h_max"
+                );
+            }
+            if slot == 0 {
+                set.ladder_regime = one
+            } else {
+                set.stop_regime = one
+            }
+        }
         Ok(set)
     }
 
@@ -923,6 +1013,8 @@ pub(crate) struct FilterSpec<'a> {
     pub(crate) stack_min: Option<u32>,
     pub(crate) repeat_min: Option<u32>,
     pub(crate) swept_min_bp: Option<i64>,
+    pub(crate) ladder_regime: Option<Regime>,
+    pub(crate) stop_regime: Option<Regime>,
     /// TK-025: границы колонок R1 набора; проверяются `admits_r1` на записи подхода.
     pub(crate) r1: &'a [R1Bound],
     pub(crate) ctx: Option<&'a [TouchContext]>,
@@ -930,6 +1022,13 @@ pub(crate) struct FilterSpec<'a> {
 }
 
 impl<'a> FilterSpec<'a> {
+    /// Г-101: множитель режима `r` на касании `ti`, если его `btc4h ≤ T` («сильная» половина); иначе `None`.
+    pub(crate) fn regime_factor(&self, r: Option<Regime>, ti: usize) -> Option<f64> {
+        let r = r?;
+        let v = self.ctx?.get(ti)?.axes.get(BTC4H_AXIS).copied().flatten()?;
+        (v <= r.t_bps).then(|| r.factor())
+    }
+
     /// Контекст подаётся, только если у набора есть ключи контекста.
     pub(crate) fn of_set(set: &'a FilterSet, ctx: &'a [TouchContext]) -> Self {
         Self {
@@ -946,6 +1045,8 @@ impl<'a> FilterSpec<'a> {
             stack_min: set.stack_min,
             repeat_min: set.repeat_min,
             swept_min_bp: set.swept_min_bp,
+            ladder_regime: set.ladder_regime,
+            stop_regime: set.stop_regime,
             r1: &set.r1,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
