@@ -9,7 +9,7 @@ NEW = ("tape_burst_press_60s_bp", "tape_burst_with_60s_bp")
 
 def load(p):
     with open(p, newline="", encoding="utf-8") as f:
-        r = csv.reader(f)
+        r = csv.reader(x for x in f if not x.startswith("#"))   # первая строка — «# lob bounce-grid: …»
         return next(r), list(r)
 
 
