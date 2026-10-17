@@ -265,6 +265,14 @@ def test_coverage_masks_and_validate_groups():
         launch.validate_groups({"hyps": []}, CFG, ROWS)
 
 
+def test_coverage_shared_hash_visible_per_hyp_and_queue_minus_have():
+    """TK-278 (проверка Судьи 17.10): общий хеш (Г-27/Г-89/Г-107) виден у каждой гипотезы; очередь не включает уже посчитанное."""
+    rows = ROWS + [{"hyp": "Г-02", "hash": "aaaa", "axes": {"q": "7"}}]
+    cv = launch.coverage(CFG, rows=rows, have=HAVE, routes={}, queued={"aaaa": set(M3), "bbbb": {"2026-01", "2026-02"}})
+    assert cv["Г-02"]["cells"] == [[0, 0, 0, 0], [1, 7, 0, 0]]   # dddd не считали; aaaa (общий) посчитан полностью
+    assert [c[-2] for c in cv["Г-01"]["cells"]] == [0, 2, 0]   # aaaa посчитан полностью — не «в очереди»; bbbb: 01 есть, в очереди только 02
+
+
 def test_letopis_audit_fields():
     """Аудит Летописи 15.10: none без нулей («—»), «н/д» вместо нулевого $, не просеянное не получает вердикт, причина none — из route."""
     d = launch.letopis()
@@ -350,12 +358,12 @@ def test_routes_file_r1spec_matches_plan_and_counts():
     """Охрана TK-249: хеш в r1spec = хеш клетки плана с теми же колонкой и keep_q; r1 — все со знаком, r1x — 270 готовых клеток tk202."""
     import collections
     doc = launch.json.load(open(launch.ROUTES_FILE, encoding="utf-8"))
-    rows = {r["hash"]: r for r in launch.plan_rows()}
+    rows = {r["hash"]: r for r in launch.plan_rows_cfg(launch.load_config())}   # TK-278: доли F1+F2 (config.fraction [1, 2]) и П-17
     assert set(doc["r1spec"]) == {h for h, r in doc["routes"].items() if r == "r1"}
     for h, (hyp, col, sign, kq, ctx_axis, ctx_q) in doc["r1spec"].items():
         a = rows[h]
         assert (a["hyp"], a["axes"]["col"], str(a["axes"]["keep_q"])) == (hyp, col, kq) and sign in ("hi", "lo") and not ctx_axis and not ctx_q
-    cnt = collections.Counter(doc["routes"].values())
+    cnt = collections.Counter(doc["routes"][r["hash"]] for r in launch.plan_rows("P-14", 1))   # счёт по доле F1: F2 добавляет свои хеши
     assert cnt["r1x"] == 270 and cnt["r1"] == 288 and cnt["r1comp"] == 27 and "r1col" not in cnt
 
 
@@ -384,7 +392,7 @@ def test_metrics_why_names_the_reason():
 def test_p17_routes_and_bin_guard():
     """TK-279: П-17 рядом с П-14 — все 292 хеша в маршрутах, форма видит клетки обоих протоколов; бинарь без P-17 в bin.protocols отказывает."""
     cfg = launch.load_config()
-    assert launch.protocols_of(cfg) == [("P-14", 1), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
+    assert launch.protocols_of(cfg) == [("P-14", [1, 2]), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
     p17 = launch.plan_rows("P-17", 1)
     routes = launch.load_routes()
     assert len(p17) == 292 and {r["hash"] for r in p17} <= set(routes) and {r["hash"] for r in launch.plan_rows_cfg(cfg)} >= {r["hash"] for r in p17}

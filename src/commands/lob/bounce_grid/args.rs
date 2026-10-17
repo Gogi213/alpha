@@ -10,7 +10,7 @@ use clap::Args;
 
 use crate::book::Side;
 use crate::commands::lob::backtest::{
-    early_exit_ns_from_ms, EntryForm, EntryTtl, EARLY_EXIT_HALF_MS,
+    early_exit_ns_from_ms, early_ms_from_label, EntryForm, EntryTtl,
 };
 use crate::commands::lob::H3Args;
 use crate::lob::backtest::{ExecLatency, QueueModelKind};
@@ -31,18 +31,11 @@ pub(crate) fn parse_early_exits(specs: &[String]) -> anyhow::Result<Vec<Option<i
         let v = if spec == "off" {
             None
         } else {
-            let x: i64 = if spec == "0.5" {
-                EARLY_EXIT_HALF_MS
-            } else {
-                spec.parse::<i64>()
-                    .ok()
-                    .and_then(|s| s.checked_mul(1_000))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "--early-exit-secs {spec:?}: ожидается off, 0.5 или целые секунды"
-                        )
-                    })?
-            };
+            let x = early_ms_from_label(spec).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--early-exit-secs {spec:?}: ожидается off, целые секунды или <целые>.5"
+                )
+            })?;
             early_exit_ns_from_ms(Some(x))?;
             Some(x)
         };
