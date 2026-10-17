@@ -492,8 +492,24 @@ fn touch_col_appends_column_and_keeps_old_columns() {
     let dir = tempfile::tempdir().unwrap();
     fixture_root(dir.path(), true);
     let mut a = args(dir.path(), false);
+    // настройки гейта `risk_adverse_queue_model_keeps_the_old_bytes` — на них фикстура даёт круги
+    a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.no_post_only = true;
+    a.entry_ttl_secs = vec!["touch".to_string()];
+    a.entry_form = vec!["single@fr".to_string()];
     a.out_dir = dir.path().join("grid-base");
-    run_bounce_grid(&a).unwrap();
+    assert!(run_bounce_grid(&a).unwrap().rounds > 0);
     a.touch_col = true;
     a.out_dir = dir.path().join("grid-touch");
     run_bounce_grid(&a).unwrap();
