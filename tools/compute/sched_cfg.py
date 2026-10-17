@@ -21,3 +21,5 @@ PSI_CPU = float(os.environ.get("SCHED_PSI_CPU", "25"))             # PSI cpu som
 MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
 FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
 RESERVE_CORES = int(os.environ.get("SCHED_RESERVE_CORES", "3"))   # В-229 п.10 (TK-219): ядра под гейты/сборки (--kind gate|build); обычное prod их не занимает, пока гейт/сборка не взяли их сами; 0 = выкл.
+ELASTIC_MAX = int(os.environ.get("SCHED_ELASTIC_MAX", "15"))   # TK-283 (G-005): --elastic prod при старте добирает ядра до этого числа, если в работе и в очереди нет gate/build; 0 = выкл.
+SMALL_CORES = int(os.environ.get("SCHED_SMALL_CORES", "4"))   # TK-283: elastic-добор оставляет место мелким заявкам в очереди (prod ≤ этого числа ядер, не elastic)

@@ -105,6 +105,58 @@ class ReserveFact(unittest.TestCase):
         self.assertLess(work, 11)             # без резерва по факту идут 11 (fact_case)
 
 
+class Elastic(unittest.TestCase):
+    """TK-283 (G-005): --elastic без gate/build в работе и очереди добирает до ELASTIC_MAX ядер, NX = выданные; с gate/build — заявка; идущее не сжимается."""
+    def run_case(self, gate=False, small=False, pre_running=0, ticks=4):
+        S.RESERVE_CORES, S.ELASTIC_MAX = 3, 15
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+            for i in range(pre_running):
+                core.add(SS.job("p%d" % i, "p%d" % i, "prod", 1, 1, "none", 7200, 0))
+            core.tick(); be.advance(core, S.TICK)
+            if gate:
+                g = SS.job("g", "g", "prod", 1, 1, "none", 7200, be.t); g["kind"] = "gate"; core.add(g)
+            if small:
+                core.add(SS.job("sm", "sm", "prod", 4, 1, "none", 7200, be.t))
+            e = SS.job("e", "e", "prod", 12, 8, "none", 7200, be.t); e["elastic"] = True
+            e["cmd"] = "env BIN=/b NX=12 bash run-launch.sh /r"
+            core.add(e)
+            for _ in range(ticks):
+                core.tick(); be.advance(core, S.TICK)
+            return core.jobs["e"]
+        finally:
+            S.RESERVE_CORES, S.ELASTIC_MAX = 0, 15
+
+    def test_only_count_takes_fifteen(self):
+        e = self.run_case()
+        self.assertEqual((e["state"], len(e["cpus"]), e["cores"], e.get("cores_req")), ("running", 15, 15, 12))
+
+    def test_gate_in_queue_keeps_claim(self):
+        e = self.run_case(gate=True)
+        self.assertEqual((len(e["cpus"]), e["cores"]), (12, 12))
+
+    def test_queued_small_job_keeps_room(self):
+        e = self.run_case(small=True)
+        self.assertEqual(len(e["cpus"]), 12)              # 16 - 4 (мелкая в очереди), не 15
+
+    def test_running_not_shrunk_by_late_gate(self):
+        be = SS.SimBE(); S.RESERVE_CORES = 3
+        try:
+            core = S.Core(be, ncpu=SS.NCPU, mem=56)
+            e = SS.job("e", "e", "prod", 12, 8, "none", 7200, 0); e["elastic"] = True; core.add(e)
+            core.tick(); be.advance(core, S.TICK)
+            g = SS.job("g", "g", "prod", 1, 1, "none", 7200, be.t); g["kind"] = "gate"; core.add(g)
+            for _ in range(4):
+                core.tick(); be.advance(core, S.TICK)
+            self.assertEqual((len(core.jobs["e"]["cpus"]), core.jobs["e"]["state"]), (15, "running"))
+        finally:
+            S.RESERVE_CORES = 0
+
+    def test_start_sets_nx_to_granted(self):
+        self.assertEqual(S.elastic_cmd("env BIN=/b NX=12 bash run-launch.sh /r", 15), "env BIN=/b NX=15 bash run-launch.sh /r")
+        self.assertEqual(S.elastic_cmd("env XNX=1 bash a.sh", 15), "env XNX=1 bash a.sh")
+
+
 class Preemption(unittest.TestCase):
     def test_head_preempts_narrow_and_retry_not_r1(self):
         ts, frozen, thaw, state, frozen_for = SS.preempt_case()
