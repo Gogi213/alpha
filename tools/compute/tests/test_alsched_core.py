@@ -302,6 +302,27 @@ class Preemption(unittest.TestCase):
         self.assertEqual(e, "queued")
 
 
+    def test_thaw_after_window_keeps_declared_sum(self):
+        """TK-296 (хвост TK-295): окно --iso заморозило 12 + gate 3 потолком; замороженные не в сумме заявок — стартовал другой gate на 1 ядро,
+        по концу окна оттаяло 12+3+1 = 16 > 15 (В-34). Сумма заявленных ядер идущего prod, замороженного тоже, ≤ 15 на всём прогоне."""
+        be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+        big = SS.job("big", "big", "prod", 12, 2, "none", 36000, 0); core.add(big)
+        core.tick(); be.advance(core, S.TICK)
+        g1 = SS.job("g1", "gate-1", "prod", 3, 2, "none", 36000, be.t); g1["kind"] = "gate"; core.add(g1)
+        core.tick(); be.advance(core, S.TICK)
+        w = SS.job("w", "stand", "measure", SS.NCPU, 1, "none", 600, be.t, mr=900); w["iso"] = 4; core.add(w)
+        g2 = SS.job("g2", "gate-2", "prod", 1, 2, "none", 36000, be.t); g2["kind"] = "gate"; core.add(g2)
+        peak, capped = 0, False
+        for _ in range(int(1800 / S.TICK)):
+            core.tick(); be.advance(core, S.TICK)
+            capped = capped or any(j.get("frozen_for") == "cap" for j in core.running("prod"))
+            peak = max(peak, sum(j["cores"] for j in core.running("prod")))
+        self.assertTrue(capped)                           # окно действительно морозило потолком
+        self.assertEqual(core.jobs["w"]["state"], "done")
+        self.assertLessEqual(peak, S.OVERBOOK_MAX)
+        self.assertEqual(core.jobs["g2"]["state"], "queued")   # 12 + 3 + 1 = 16 — шестнадцатое ядро ждёт, пока кто-то не уйдёт
+
+
 class Freeze(unittest.TestCase):
     def test_hot_psi_calm_does_not_freeze(self):
         self.assertEqual(SS.hot_psi_case()[0], 0)
