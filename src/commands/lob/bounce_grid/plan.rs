@@ -658,6 +658,9 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     if let Some(k) = set.repeat_min {
         out.push_str(&format!(" repeat_min={k}"));
     }
+    if let Some(s) = set.strength_min_e2 {
+        out.push_str(&format!(" strength_min={}", s as f64 / 100.0));
+    }
     if let Some(q) = set.swept_min_bp {
         out.push_str(&format!(" swept_min={q}"));
     }

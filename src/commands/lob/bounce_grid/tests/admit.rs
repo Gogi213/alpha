@@ -1078,3 +1078,33 @@ fn p17_regime_keys_pair_and_gate() {
     );
     assert_eq!(spec.regime_factor(None, 0), None);
 }
+
+/// П-18 (TK-289, ось 6б): `strength_min=<%>` — разбор, отказы, окно ±20 bps (индекс 1), сила не определена (−1) не
+/// входит даже при 0, шапка.
+#[test]
+fn p18_strength_min_key() {
+    let s = FilterSet::parse("s:strength_min=317.5").unwrap();
+    assert_eq!(s.strength_min_e2, Some(31_750));
+    for bad in [
+        "x:strength_min=-1",
+        "x:strength_min=a",
+        "x:strength_min=inf",
+        "x:strength_min=1,strength_min=2",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
+    let f = super::sets::TouchFilter::from_set(&s, 0.01, 1.0, &[]);
+    let t = |w20: i64| TouchRecord {
+        size_at_touch: 40,
+        strength_e2: [99_999, w20, 99_999],
+        ..probe_touch()
+    };
+    assert!(f.admits_oracle(mode, 0, &t(31_750)), "ровно порог — вход");
+    assert!(!f.admits_oracle(mode, 0, &t(31_749)), "ниже порога");
+    let z = FilterSet::parse("z:strength_min=0").unwrap();
+    let f = super::sets::TouchFilter::from_set(&z, 0.01, 1.0, &[]);
+    assert!(f.admits_oracle(mode, 0, &t(0)));
+    assert!(!f.admits_oracle(mode, 0, &t(-1)), "без соседей — не вход");
+    assert_eq!(super::plan::g07_label(&s), " strength_min=317.5");
+}
