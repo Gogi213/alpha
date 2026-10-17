@@ -200,6 +200,9 @@ class Core:
         capped = sum(len(r["cpus"]) for r in self.running("prod") if not r.get("frozen_for")) if self.iso else 0
         gate_used = sum(len(r["cpus"]) for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))
         gate_resv = max(0, RESERVE_CORES - gate_used)     # В-229 п.10: гарантированные ядра гейтам/сборкам
+        wide_gates = [r for r in self.jobs.values() if r.get("kind") in ("gate", "build") and r["state"] == "queued"]
+        if wide_gates and all(r["cores"] > gate_resv for r in wide_gates):   # TK-297 (В-34): в очереди только гейты/сборки шире резерва — в него не встанут (ждут общей очереди, TK-220), держать ядра пустыми незачем
+            gate_resv = 0
         gate_active = any(r.get("kind") in ("gate", "build") and r["state"] in ("queued", "running") for r in self.jobs.values())   # TK-283: нет gate/build ни в работе, ни в очереди — резерв свободен
         declared = sum(r["cores"] for r in self.running("prod") if not r.get("frozen_for"))   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
@@ -208,7 +211,7 @@ class Core:
             head_pre = j["id"] in self.preempt            # головная вытеснения берёт ядра вытесненных, остальные — нет
             free = [c for c in range(self.ncpu) if c not in used and (head_pre or c not in held)]
             is_gate = j.get("kind") in ("gate", "build")
-            g_resv = 0 if not gate_active and j.get("elastic") else gate_resv   # TK-283: elastic без gate/build в работе и очереди резерв не держит (прочее prod — как было, TK-219)
+            g_resv = gate_resv if gate_active else 0   # TK-283/TK-297 (В-34): без gate/build в работе и очереди резерв не держит никто — боевой счёт занимает 15
             resv = set(free[max(0, len(free) - g_resv):]) if g_resv else set()   # резерв — старшие свободные ядра; work их не пинит и не учитывает сверх заявки
             room = len(free) - legacy - (0 if head_pre else held_units) - (0 if is_gate else len(resv))
             held_n = 0 if head_pre else len(held) + held_units
@@ -247,7 +250,7 @@ class Core:
             if not fits:
                 if reserve is None and head is None and not disk_full:
                     head = j
-                    reserve = self.reservation(j, room, mem, now)
+                    reserve = self.reservation(j, min(room, decl_cap - declared - held_n) if OVERBOOK_MAX else room, mem, now)   # TK-297: место головной — не выше потолка суммы заявок (иначе «стартует сейчас» при 12+4 > 15 и шадоу=0 не пускает мелкое work)
                 continue
             if reserve is not None and mrt > reserve["shadow"] and not is_gate:    # гейт берёт резервные ядра, не место головной заявки
                 reserve["cores"] -= ncor
