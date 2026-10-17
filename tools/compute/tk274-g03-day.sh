@@ -32,6 +32,7 @@ if [ -n "${FROM:-}" ]; then   # без реплея: кэш подходов TK-
   [ -f "$FROM/$lab/twins/$d.tgz" ] || { echo "$d нет $FROM/$lab/twins/$d.tgz" >> "$O/fail.txt"; exit 5; }
   tar xzf "$FROM/$lab/twins/$d.tgz" -C "$D20"
   for s in $syms; do ln -s "$JR/$d/wt/sub/D20/$d/approaches-$s.csv" "$D20/approaches-$s.csv" || echo "$d $s НЕТ КЭША" >> "$O/fail.txt"; done
+  t1=$(date +%s)
 else
 for s in $syms; do echo "$s"; done | xargs -P "$TP" -I{} bash -c 'nice -n 5 "$BIN" lob touches --root '"$W"'/study/root-'"$d"' --symbol {} --h3-mode notional --h3-usd 10000 --approach-bps 20 --r1-cols --wall-log --twin-seeds 1,2,3,4,5 --out '"$W"'/wt/sub/D20/'"$d"'/touches-{}.csv > '"$O"'/log/'"$d"'-{}.touches.log 2>&1 || echo "'"$d"' {} TOUCHES_FAIL" >> '"$O"'/fail.txt'
 t1=$(date +%s)
