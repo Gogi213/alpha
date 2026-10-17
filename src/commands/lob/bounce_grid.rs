@@ -704,6 +704,7 @@ impl<'a> GridRun<'a> {
                             &day.day,
                             sets.iter().any(FilterSet::uses_btc_mid),
                             sets.iter().any(FilterSet::uses_btc_long),
+                            sets.iter().any(FilterSet::uses_btc_long9),
                         )?,
                     );
                 }

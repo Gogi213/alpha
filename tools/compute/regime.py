@@ -27,6 +27,8 @@ WINDOWS = {"1h": 60, "4h": 240}
 REF_MID = {"2h": 120, "3h": 180}
 # Г-10 (TK-189): длинные окна битка — ещё четыре колонки в самом конце (btc_ret_6h/8h/12h/24h_bps).
 BTC_LONG = {"6h": 360, "8h": 480, "12h": 720, "24h": 1440}
+# Г-10 (TK-272): окно 9 ч — отдельная колонка после btc_ret_24h_bps (файлы 6…24h дописывает tk272-regime-9h.py).
+BTC_9H = {"9h": 540}
 
 
 def load_minutes(path, key="mid2x"):
@@ -81,7 +83,7 @@ def main():
         w.writerow(["minute_ms", "pool_ret_1h_bps", "pool_ret_4h_bps", "n_coins",
                     "btc_ret_1h_bps", "btc_ret_4h_bps", "eth_ret_1h_bps", "eth_ret_4h_bps",
                     "btc_ret_2h_bps", "btc_ret_3h_bps", "eth_ret_2h_bps", "eth_ret_3h_bps"]
-                   + [f"btc_ret_{k}_bps" for k in BTC_LONG])
+                   + [f"btc_ret_{k}_bps" for k in BTC_LONG] + [f"btc_ret_{k}_bps" for k in BTC_9H])
         minute = day_start
         while minute <= last:
             row = [minute]
@@ -98,7 +100,7 @@ def main():
             for sym in ("BTCUSDT", "ETHUSDT"):
                 for back in REF_MID.values():
                     row.append(fmt(ret_bps(refs[sym], minute, back)))
-            for back in BTC_LONG.values():
+            for back in (*BTC_LONG.values(), *BTC_9H.values()):
                 row.append(fmt(ret_bps(refs["BTCUSDT"], minute, back)))
             w.writerow(row)
             n_rows += 1
