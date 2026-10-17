@@ -3,7 +3,7 @@ import sys, json, collections
 sys.path.insert(0, "/opt/alpha-launch/tools/launch"); sys.path.insert(0, "/opt/alpha-launch/tools/registry")
 import launch, cellhash_reg
 rd = lambda p: {d["hash"]: d for d in map(json.loads, filter(str.strip, open(p, encoding="utf-8")))}
-old, A, B, C, D, E = launch.hash_metrics_file(), rd("/data/tk0268/metrics-A.jsonl"), rd("/data/tk0268/metrics-B.jsonl"), rd("/data/tk0268/metrics-C.jsonl"), rd("/data/tk0268/metrics-D.jsonl"), rd("/data/tk0268/metrics-E.jsonl")
+old, A, B, C, D, E, F = launch.hash_metrics_file(), rd("/data/tk0268/metrics-A.jsonl"), rd("/data/tk0268/metrics-B.jsonl"), rd("/data/tk0268/metrics-C.jsonl"), rd("/data/tk0268/metrics-D.jsonl"), rd("/data/tk0268/metrics-E.jsonl"), rd("/data/tk0268/metrics-F.jsonl")
 cfg = launch.load_config()
 pnl = collections.defaultdict(dict)
 for l in open(launch.REG + "/results.jsonl", encoding="utf-8"):
@@ -14,10 +14,10 @@ for row in cellhash_reg.build():
     for m, v in pnl.get(row[0], {}).items(): byh[row[1]][m] = v
 for r in launch.overlay_rows(cfg): byh[r["cell_id"]][r["month"]] = (r.get("pnl_usd"), r.get("trades"), r.get("max_dd"), r.get("sum_net_bps"))
 final = dict(old); how = collections.Counter()
-for r in launch.plan_rows(cfg["protocol"], cfg["fraction"]):
-    h = r["hash"]; got = byh.get(h, {})
+for h in sorted({r["hash"] for r in launch.letopis()["rows"]}):   # все хеши Летописи, не только план текущего протокола (P-15 раньше выпадал)
+    got = byh.get(h, {})
     if not got or launch.checked_metrics(old.get(h), got): continue
-    for nm, src in (("A", A), ("B", B), ("C", C), ("D", D), ("E", E)):
+    for nm, src in (("A", A), ("B", B), ("C", C), ("D", D), ("E", E), ("F", F)):
         if launch.checked_metrics(src.get(h), got):
             final[h] = src[h]; how[nm] += 1; break
     else:

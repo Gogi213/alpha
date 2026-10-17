@@ -10,4 +10,8 @@ M9=2026-01,2026-02,2026-03,2026-04,2026-05,2026-06,2026-07,2026-08,2026-09
 for v in "D $M9" "E $M9,2026-10"; do set -- $v
   python3 build_metrics.py --out /data/tk0268/metrics-$1.jsonl --zero-fill --routes /opt/alpha-launch/tools/launch/routes.json --months $2 $DIR --alias-cells /data/launch/registry/cells.jsonl $SRC
 done
+# F: порядок источников S3 первым (хеш из R2-B берётся из closes-r2bd, как в каноне TK-115), янв–сен
+P=/data/p12r3a
+SRCF="$P/closes-r2bd-cap0-{m}.json /data/tk0231/psim/closes-p14f1-cap0-{m}.json /data/tk0196/psim/closes-f1-cap0-{m}.json $P/closes-r3-cap0-{m}.json $P/closes-r3d-cap0-{m}.json $P/closes-r3n-cap0-{m}.json $P/closes-r3nd-cap0-{m}.json /data/tk0113/cs-cap0-{m}.json /data/launch/out/L-P15F1/psim/closes-p14f1-cap0-{m}.json"
+python3 build_metrics.py --out /data/tk0268/metrics-F.jsonl --zero-fill --routes /opt/alpha-launch/tools/launch/routes.json --months $M9 $DIR --alias-cells /data/launch/registry/cells.jsonl $SRCF
 python3 -I /data/tk0268/cover3.py | tee /data/tk0268/cover3.txt
