@@ -241,6 +241,7 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 24] = [
 ];
 
 /// Индекс оси `btc4h` в реестре (Г-101: «сильная» половина режима).
+#[allow(clippy::indexing_slicing)] // const: i < len — условие цикла, n[..5] — после n.len() == 5; ошибка была бы на сборке
 pub(crate) const BTC4H_AXIS: usize = {
     let mut i = 0;
     while i < CTX_SPECS.len() {
@@ -958,6 +959,7 @@ impl FilterSet {
         // Г-101: порог и множитель — парой; режим живёт внутри допуска B1 (ось btc4h в наборе обязана быть задана,
         // иначе контекст не грузится и «сильная половина» не определена).
         for (slot, name) in ["lreg", "sreg"].into_iter().enumerate() {
+            #[allow(clippy::indexing_slicing)] // slot ∈ {0, 1}, reg_t/reg_f — массивы по 2
             let one = match (reg_t[slot], reg_f[slot]) {
                 (None, None) => None,
                 (Some(t_bps), Some(f_bp)) => Some(Regime { t_bps, f_bp }),

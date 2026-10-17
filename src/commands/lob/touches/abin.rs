@@ -111,6 +111,7 @@ pub(super) fn decode_file(b: &[u8], len: u64, mtime: u64) -> Option<Vec<Approach
         return None;
     }
     let mut out = Vec::with_capacity(n);
+    #[allow(clippy::indexing_slicing)] // каждый столбец `Rd::new(.., n)` длины n, i < n
     for i in 0..n {
         out.push(ApproachRow {
             day: day.clone(),
