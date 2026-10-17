@@ -155,6 +155,7 @@ class Elastic(unittest.TestCase):
     def test_start_sets_nx_to_granted(self):
         self.assertEqual(S.elastic_cmd("env BIN=/b NX=12 bash run-launch.sh /r", 15), "env BIN=/b NX=15 bash run-launch.sh /r")
         self.assertEqual(S.elastic_cmd("env XNX=1 bash a.sh", 15), "env XNX=1 bash a.sh")
+        self.assertEqual(S.elastic_env(15), "export ALSCHED_CORES=15 NX=15\n")
 
 
 class Preemption(unittest.TestCase):

@@ -708,7 +708,7 @@ class SystemdBackend:
         cmd = j["cmd"]
         if j.get("elastic"):                  # TK-283: проход формы читает NX из окружения — выданные ядра, а не заявка (env NX=<заявка> в команде заменяется)
             cmd = elastic_cmd(cmd, j["cores"])
-            pre += f"export ALSCHED_CORES={j['cores']}\n"
+            pre += elastic_env(j["cores"])
         if j["cls"] == "measure":
             pre += f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n"
         inner = f"{pre}{cmd}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
@@ -1108,6 +1108,11 @@ def parse_dur(s):
 def elastic_cmd(cmd, n):
     """TK-283: `env NX=<заявка>` в команде elastic-задания -> NX=<выданные ядра> (run-launch.sh/day-cells.sh читают NX из окружения)."""
     return re.sub(r"\bNX=\d+", f"NX={n}", cmd)
+
+
+def elastic_env(n):
+    """TK-283: окружение elastic-задания — выданные ядра; скрипты вида NX=${NX:-12} (p17a.sh) читают NX отсюда."""
+    return f"export ALSCHED_CORES={n} NX={n}\n"
 
 
 def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0, vypiska=None, kind="work", elastic=False):
