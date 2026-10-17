@@ -57,4 +57,4 @@ def test_real_registry_every_hypothesis_has_status():
     assert sorted(r["id"] for r in v["rows"]) == sorted(ids)
     known = {s[0] for s in v["status"]}
     assert all(r["status"] in known and r["why"] for r in v["rows"])
-    assert {r["id"] for r in v["rows"] if r["cls"] == "Методы"} == {"Г-01", "Г-02", "Г-03", "М-04"}
+    assert {r["id"] for r in v["rows"] if r["cls"] == "Методы"} == {"Г-01", "Г-02", "Г-03", "М-04", "М-05"}
