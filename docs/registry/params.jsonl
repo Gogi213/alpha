@@ -11,7 +11,7 @@
 {"name": "u", "unit": "frac", "resolution": 0.08333333333333333, "axis_type": "numeric", "cfg_path": "", "note": "R2: доля, Г-92/93"}
 {"name": "K", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-93"}
 {"name": "x", "unit": "mult", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "R2: множитель Г-106 (лог-2)"}
-{"name": "gamma", "unit": "mult", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "R2: Г-117 (лог-2)"}
+{"name": "gamma", "unit": "mult", "resolution": 0.125, "axis_type": "log", "cfg_path": "", "note": "R2: Г-117 (лог-2); разрешимость 1/8 = целое g8 движка (tslx<g8>t<t16>), TK-278, Судья 17.10"}
 {"name": "T", "unit": "frac", "resolution": 0.0625, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-117 доля ttl/дедлайна"}
 {"name": "tol_ticks", "unit": "tick", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-119"}
 {"name": "trigger", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "R2: Г-114 halfstop|halflevel"}
