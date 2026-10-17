@@ -592,7 +592,7 @@ EST_K = 1.5   # правило alsched (manifest.check_estimate): max-runtime н
 def queue_cmd(cfg, run_id, run_dir):
     q, b = cfg["queue"], bin_info(cfg)
     max_runtime = max(q["max_runtime"], math.ceil(EST_K * q["est"]))
-    return ["python3", cfg["alsched"], "submit", "--cls", q["cls"], "--name", run_id, "--cores", str(q["cores"]),
+    return ["python3", cfg["alsched"], "submit", "--cls", q["cls"], "--name", run_id, "--cores", str(q["cores"]), "--elastic",
             "--mem", str(q["mem"]), "--max-runtime", str(max_runtime), "--est", str(q["est"]), "--", "env", f"BIN={b['path']}",
             f"SCRIPTS={cfg['scripts_dir']}", f"NX={q['cores']}", "bash", os.path.join(HERE, "run-launch.sh"), run_dir]
 
