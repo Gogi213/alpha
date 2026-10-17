@@ -20,19 +20,19 @@ class Packing(unittest.TestCase):
         self.assertGreaterEqual(len(alerts), 1)
 
     def test_claim_vs_fact_packing(self):
-        self.assertEqual(SS.fact_case("claim"), 4)
+        self.assertEqual(SS.fact_case("claim"), 3)             # TK-295: потолок 15 — 3 по 4 ядра, не 4
         S.OVERBOOK_MAX = 0                    # TK-283: упаковка по факту без потолка суммы заявок — как до TK-283
         try:
             self.assertEqual(SS.fact_case("fact"), 11)
         finally:
-            S.OVERBOOK_MAX = 16
-        self.assertEqual(SS.fact_case("fact"), 4)   # с потолком OVERBOOK_MAX=16 сумма заявок не выше 16
+            S.OVERBOOK_MAX = 15
+        self.assertEqual(SS.fact_case("fact"), 3)   # с потолком OVERBOOK_MAX=15 сумма заявок не выше 15 (3 по 4 ядра)
 
     def test_seq_disk_one_per_disk(self):
         self.assertEqual(SS.seq_case(), ["s0", "s2", "s3"])
 
     def test_memory_gate_keeps_all_cores(self):
-        self.assertEqual(SS.mem_case(), 16)
+        self.assertEqual(SS.mem_case(), 15)
 
     def test_honest_jobs_not_overcommitted(self):
         self.assertEqual(SS.honest_case(), ("queued", False))
@@ -66,24 +66,24 @@ class Reserve(unittest.TestCase):
             S.RESERVE_CORES = 0
 
     def test_work_leaves_three_cores(self):
-        self.assertEqual(self.run_case(20, 0)["work"], SS.NCPU - 3)
+        self.assertEqual(self.run_case(20, 0)["work"], S.OVERBOOK_MAX - 3)
 
     def test_gate_takes_reserved_cores(self):
         r = self.run_case(20, 3)
-        self.assertEqual((r["work"], r["gate"]), (SS.NCPU - 3, 3))
+        self.assertEqual((r["work"], r["gate"]), (S.OVERBOOK_MAX - 3, 3))
 
     def test_gate_submitted_after_work_queue_claim(self):
         r = self.run_case(20, 3, late=True)
-        self.assertEqual((r["work"], r["gate"]), (SS.NCPU - 3, 3))
+        self.assertEqual((r["work"], r["gate"]), (S.OVERBOOK_MAX - 3, 3))
 
     def test_fact_work_does_not_eat_reserve(self):
         S.OVERBOOK_MAX = 0                                # TK-283: перезаказ по факту — без потолка суммы заявок
         try:
             r = self.run_case(20, 3, pack="fact", late=True, rate=0.1)
         finally:
-            S.OVERBOOK_MAX = 16
+            S.OVERBOOK_MAX = 15
         self.assertEqual(r["gate"], 3)
-        self.assertGreater(r["work"], SS.NCPU - 3)        # fact-перезаказ работает и без гейтов на резерве…
+        self.assertGreater(r["work"], S.OVERBOOK_MAX - 3)        # fact-перезаказ работает и без гейтов на резерве…
 
     def test_wide_work_head_does_not_block_gate(self):
         r = self.run_case(4, 3, late=True, wcores=4)
@@ -102,7 +102,7 @@ class ReserveFact(unittest.TestCase):
             for _ in range(180):
                 core.tick(); be.advance(core, S.TICK)
             work = len(core.running("prod"))
-            b = SS.job("b", "build", "prod", 4, 2, "none", 3600, be.t); b["kind"] = "build"; b["prio"] = 5
+            b = SS.job("b", "build", "prod", 3, 2, "none", 3600, be.t); b["kind"] = "build"; b["prio"] = 5   # TK-295: 12 work + 3 = 15
             core.add(b); be.cpu_rate["b"] = 1
             core.tick()
             return work, core.jobs["b"]["state"]
@@ -128,14 +128,28 @@ class Overbook(unittest.TestCase):
         return core.jobs["g82"]["state"], sum(j["cores"] for j in core.running("prod"))
 
     def test_restart_with_zero_busy_does_not_start_over_sixteen(self):
-        self.assertEqual(self.restarted(), ("queued", 28))      # сумма уже >16: новая не стартует
+        self.assertEqual(self.restarted(), ("queued", 28))      # сумма уже >15: новая не стартует
 
     def test_without_ceiling_restart_overbooks(self):
         S.OVERBOOK_MAX = 0
         try:
             self.assertEqual(self.restarted(), ("running", 40))  # прежнее поведение (тест падал бы на этом случае без потолка)
         finally:
-            S.OVERBOOK_MAX = 16
+            S.OVERBOOK_MAX = 15
+
+    def test_declared_sum_never_above_fifteen(self):
+        """TK-295 (В-34): «не раздавать ядра сверх количества» — сумма заявленных ядер идущего prod ≤ 15 при непустой очереди, хоть задания и едят по 0,1 ядра."""
+        self.assertEqual(S.OVERBOOK_MAX, 15)
+        be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+        for i in range(10):
+            j = SS.job("w%02d" % i, "w%d" % i, "prod", 4, 2, "none", 7200, 0); core.add(j); be.cpu_rate[j["id"]] = 0.1
+        peak = 0
+        for _ in range(120):
+            core.tick(); be.advance(core, S.TICK)
+            peak = max(peak, sum(j["cores"] for j in core.running("prod")))
+        self.assertTrue(core.queued("prod") if hasattr(core, "queued") else any(j["state"] == "queued" for j in core.jobs.values()))
+        self.assertLessEqual(peak, 15)
+        self.assertGreaterEqual(peak, 12)                        # потолок не душит: 3 по 4 ядра идут
 
     def test_busy_fact_first_sample_is_busy(self):
         be = S.SystemdBackend.__new__(S.SystemdBackend)
@@ -155,7 +169,7 @@ class Elastic(unittest.TestCase):
             if gate:
                 g = SS.job("g", "g", "prod", 1, 1, "none", 7200, be.t); g["kind"] = "gate"; core.add(g)
             if small:
-                core.add(SS.job("sm", "sm", "prod", 4, 1, "none", 7200, be.t))
+                core.add(SS.job("sm", "sm", "prod", 3, 1, "none", 7200, be.t))
             e = SS.job("e", "e", "prod", 12, 8, "none", 7200, be.t); e["elastic"] = True
             e["cmd"] = "env BIN=/b NX=12 bash run-launch.sh /r"
             core.add(e)
@@ -175,7 +189,7 @@ class Elastic(unittest.TestCase):
 
     def test_queued_small_job_keeps_room(self):
         e = self.run_case(small=True)
-        self.assertEqual(len(e["cpus"]), 12)              # 16 - 4 (мелкая в очереди), не 15
+        self.assertEqual(len(e["cpus"]), 12)              # потолок 15 - 3 (мелкая в очереди), не 15
 
     def test_running_not_shrunk_by_late_gate(self):
         be = SS.SimBE(); S.RESERVE_CORES = 3
@@ -190,7 +204,7 @@ class Elastic(unittest.TestCase):
         finally:
             S.RESERVE_CORES = 0
 
-    def shrink_case(self, big=12, elastic=True, gate=False, small=False, emin=4, mrt=1200):
+    def shrink_case(self, big=11, elastic=True, gate=False, small=False, emin=4, mrt=1200):
         """CEO 17.10: идёт big ядер, в очереди заявка на 12 — встаёт ли она на оставшиеся."""
         S.RESERVE_CORES, S.ELASTIC_MAX, S.ELASTIC_MIN = 3, 15, emin
         try:
@@ -200,7 +214,7 @@ class Elastic(unittest.TestCase):
             if gate:
                 g = SS.job("g", "g", "prod", 1, 1, "none", 7200, be.t); g["kind"] = "gate"; core.add(g)
             if small:
-                core.add(SS.job("sm", "sm", "prod", 4, 1, "none", 7200, be.t))
+                core.add(SS.job("sm", "sm", "prod", 3, 1, "none", 7200, be.t))
             e = SS.job("e", "e", "prod", 12, 8, "none", 9000, be.t); e["max_runtime"] = mrt
             if elastic:
                 e["elastic"] = True
@@ -213,7 +227,7 @@ class Elastic(unittest.TestCase):
             S.RESERVE_CORES, S.ELASTIC_MAX, S.ELASTIC_MIN = 0, 15, 4
 
     def test_free_four_go_to_queued_elastic(self):
-        e = self.shrink_case()                           # идёт 12, свободно 4
+        e = self.shrink_case()                           # идёт 11, до потолка 15 — 4
         self.assertEqual((e["state"], len(e["cpus"]), e["cores"], e.get("cores_req")), ("running", 4, 4, 12))
         self.assertEqual(e["max_runtime"], 1200 * 3)     # 12 -> 4 ядер: бюджет времени x3, иначе убьют по max_runtime
 
@@ -224,7 +238,7 @@ class Elastic(unittest.TestCase):
         self.assertEqual(self.shrink_case(mrt=1801)["state"], "queued")
 
     def test_below_min_waits(self):
-        self.assertEqual(self.shrink_case(big=13)["state"], "queued")   # свободно 3 < 4
+        self.assertEqual(self.shrink_case(big=13)["state"], "queued")   # до потолка 15 — 2 < 4
 
     def test_not_elastic_waits(self):
         self.assertEqual(self.shrink_case(elastic=False)["state"], "queued")
@@ -279,13 +293,13 @@ class Preemption(unittest.TestCase):
     def test_preempted_cores_not_given_to_queue(self):
         peak, b, e = self.preempt_overbook(12)
         self.assertEqual(b, "done")
-        self.assertLessEqual(peak, SS.NCPU)               # было 27: ядра вытесненного отдавались очереди и возвращались по концу головной
+        self.assertLessEqual(peak, S.OVERBOOK_MAX)        # было 27: ядра вытесненного отдавались очереди и возвращались по концу головной
         self.assertEqual(e, "queued")                     # 12 заявленных не влезают рядом с вернувшимся проходом (15)
 
-    def test_small_job_fits_beside_preempted(self):
+    def test_small_job_waits_at_ceiling_beside_preempted(self):
         peak, b, e = self.preempt_overbook(1)
-        self.assertLessEqual(peak, SS.NCPU)               # 15 + 1: ядро, которое вытесненный не займёт, не простаивает
-        self.assertEqual(e, "running")
+        self.assertLessEqual(peak, S.OVERBOOK_MAX)        # TK-295 (В-34): 15 + 1 = 16 > 15 — шестнадцатое ядро не раздаётся, как бы оно ни простаивало
+        self.assertEqual(e, "queued")
 
 
 class Freeze(unittest.TestCase):
@@ -297,7 +311,7 @@ class Freeze(unittest.TestCase):
         try:
             n = SS.hot_psi_case()[1]
         finally:
-            S.OVERBOOK_MAX = 16
+            S.OVERBOOK_MAX = 15
         self.assertTrue(1 <= n <= 150 // S.FACT_SETTLE_S + 1)
 
     def test_iso_end_retries_then_alerts(self):
