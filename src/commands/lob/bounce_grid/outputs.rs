@@ -138,6 +138,8 @@ pub(super) struct Outputs {
     with_r1: bool,
     // TK-115 Г-112: колонка `tape_press_lots` в `rounds.csv` — только с `--tape-log`.
     with_tape: bool,
+    // TK-272: колонки `tape_press_lots_w<W>` в `rounds.csv` (после колонок П-08/ленты) — только с `--tape-log-ws`.
+    tape_ws: Vec<u32>,
     // Г-102: колонка `n_retreat_window_entries` в `forms.csv` — только если в сетке есть форма `retreat<k>t<T>`.
     with_retreat: bool,
     // Г-81: колонка `n_entry_cancelled_cxl_gate` в `forms.csv` — только у набора с `entry_gate=` (после retreat).
@@ -317,6 +319,7 @@ impl Outputs {
         with_p08: bool,
         with_r1: bool,
         with_tape: bool,
+        tape_ws: &[u32],
         with_retreat: bool,
         with_gate: bool,
     ) -> anyhow::Result<Self> {
@@ -333,6 +336,10 @@ impl Outputs {
             names.push("tape_press_lots");
             names.push("cxl_lots");
             names.push("chase_wait_ms");
+            rounds.write_record(names)?;
+        } else if !tape_ws.is_empty() {
+            let mut names: Vec<String> = ROUNDS_HEADER.iter().map(|s| (*s).to_string()).collect();
+            names.extend(tape_ws.iter().map(|w| format!("tape_press_lots_w{w}")));
             rounds.write_record(names)?;
         } else {
             rounds.write_record(ROUNDS_HEADER)?;
@@ -379,6 +386,7 @@ impl Outputs {
             with_p08,
             with_r1,
             with_tape,
+            tape_ws: tape_ws.to_vec(),
             with_retreat,
             with_gate,
             out_dir: out_dir.to_path_buf(),
@@ -454,6 +462,9 @@ impl Outputs {
                 } else {
                     format!("{:.3}", fill.chase_wait_ns as f64 / 1e6)
                 });
+            }
+            for i in 0..self.tape_ws.len() {
+                row.push(format!("{:.6}", fill.tape_press_ws[i]));
             }
             self.rounds.write_record(row)?;
         }

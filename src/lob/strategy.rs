@@ -32,6 +32,7 @@ use hftbacktest::types::{
 
 use crate::lob::backtest::{
     entry_side, executed_notional, executed_qty, exit_price, round_half_away, ENTRY_TTL_NS, HOLD_NS,
+    NO_TAPE_WS, TAPE_WS_MAX,
 };
 
 /// G3б (TK-065): трасса решений R2 в stderr при `ALPHA_R2_TRACE=1`; только исследовательская сборка `r2`.
