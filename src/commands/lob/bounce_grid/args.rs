@@ -381,7 +381,11 @@ pub struct BounceGridArgs {
     /// TK-272: журнал ленты по нескольким окнам за один проход — в `rounds.csv` колонки `tape_press_lots_w<W>` (лоты за
     /// `W` с до исполнения входа) для каждого `W` списка (до 16, через запятую). Вместо `--tape-log` (не вместе); формы
     /// `tape<W>q<Q>`/`cxl` и `entry_gate` не обслуживает. Только сборка с feature r2. Без флага файлы прежние.
-    #[arg(long = "tape-log-ws", value_name = "SECS,SECS,...", value_delimiter = ',')]
+    #[arg(
+        long = "tape-log-ws",
+        value_name = "SECS,SECS,...",
+        value_delimiter = ','
+    )]
     pub tape_log_ws: Vec<u32>,
     /// Сверка окон (К3, условие Судьи b86eed6): кроме своей книги окон (`WindowDepth`) строит
     /// окна прежним путём на книге крейта и сравнивает каждый снимок по всем полям; расхождение —

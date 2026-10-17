@@ -654,7 +654,8 @@ fn btc_mid_axes_parse_and_regime_columns() {
         )
         .replace(
             "-90
-", "-90,-75,-76,-77
+",
+            "-90,-75,-76,-77
 ",
         );
     std::fs::write(dir.path().join("2026-09-11.csv"), with9).unwrap();
