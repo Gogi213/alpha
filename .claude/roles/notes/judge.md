@@ -392,3 +392,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 17.10 (TK-292 PR #54 вернуть): тест до/после — копия alsched.py из master поверх worktree, запуск из tests/ как скрипт (python test_alsched_core.py); выкладку сверять md5 /data/sched/alsched.py vs голова; ~5 мин.
 - 17.10 (TK-268 развилка R2A): канон без $ и n×2,6 — сверка по n точно, иначе прочерк с причиной (засчитан в 100 %); ~3 мин.
 - 17.10 (TK-268 приёмка): [вживую] формы — /api/letopis (metrics_n/metrics_dash/mwhy) + /api/cov через cnt() page.html:301 (done/queue/off/x); --numbers только на локальный файл:строка (срез API сохранить в reviews/*.txt), --decisions обязателен; ~12 мин.
+- 17.10 (TK-278 закрытие после слияния): gh pr view → MERGED на принятой голове; accept требует --repo Gogi213/alpha + --decisions + --numbers + --live заново; ~2 мин.
