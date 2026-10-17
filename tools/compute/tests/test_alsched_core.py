@@ -189,7 +189,7 @@ class Elastic(unittest.TestCase):
         finally:
             S.RESERVE_CORES = 0
 
-    def shrink_case(self, big=12, elastic=True, gate=False, small=False, emin=4):
+    def shrink_case(self, big=12, elastic=True, gate=False, small=False, emin=4, mrt=1200):
         """CEO 17.10: идёт big ядер, в очереди заявка на 12 — встаёт ли она на оставшиеся."""
         S.RESERVE_CORES, S.ELASTIC_MAX, S.ELASTIC_MIN = 3, 15, emin
         try:
@@ -200,7 +200,7 @@ class Elastic(unittest.TestCase):
                 g = SS.job("g", "g", "prod", 1, 1, "none", 7200, be.t); g["kind"] = "gate"; core.add(g)
             if small:
                 core.add(SS.job("sm", "sm", "prod", 4, 1, "none", 7200, be.t))
-            e = SS.job("e", "e", "prod", 12, 8, "none", 9000, be.t); e["max_runtime"] = 18000
+            e = SS.job("e", "e", "prod", 12, 8, "none", 9000, be.t); e["max_runtime"] = mrt
             if elastic:
                 e["elastic"] = True
             e["cmd"] = "env BIN=/b NX=12 bash run-launch.sh /r"
@@ -214,7 +214,13 @@ class Elastic(unittest.TestCase):
     def test_free_four_go_to_queued_elastic(self):
         e = self.shrink_case()                           # идёт 12, свободно 4
         self.assertEqual((e["state"], len(e["cpus"]), e["cores"], e.get("cores_req")), ("running", 4, 4, 12))
-        self.assertEqual(e["max_runtime"], 18000 * 3)    # 12 -> 4 ядер: бюджет времени x3, иначе убьют по max_runtime
+        self.assertEqual(e["max_runtime"], 1200 * 3)     # 12 -> 4 ядер: бюджет времени x3, иначе убьют по max_runtime
+
+    def test_long_job_waits_not_shrunk(self):
+        # CEO 17.10 08:54: g117 (~9 ч на 12, max_runtime 13,5 ч) встал на 4 ядра и сидел бы так до конца — многочасовой ждёт заявленных ядер
+        self.assertEqual(self.shrink_case(mrt=18000)["state"], "queued")
+        self.assertEqual(self.shrink_case(mrt=1800)["state"], "running")    # 1800 x 3 = 5400 с — граница включена
+        self.assertEqual(self.shrink_case(mrt=1801)["state"], "queued")
 
     def test_below_min_waits(self):
         self.assertEqual(self.shrink_case(big=13)["state"], "queued")   # свободно 3 < 4

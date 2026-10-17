@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, ELASTIC_MAX, ELASTIC_MIN, SMALL_CORES, OVERBOOK_MAX)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -212,7 +212,8 @@ class Core:
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j
                        and not x.get("elastic") and x["cores"] <= SMALL_CORES)   # TK-283: мелкие заявки в очереди (не elastic) — им место
             shrink = room - hold if (j.get("elastic") and ELASTIC_MIN and not gate_active and not self.iso
-                                     and ELASTIC_MIN <= room - hold < j["cores"]) else 0   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
+                                     and ELASTIC_MIN <= room - hold < j["cores"]
+                                     and j["max_runtime"] * j["cores"] / (room - hold) <= ELASTIC_SHRINK_S) else 0   # CEO 17.10 08:54: многочасовой проход на 4 ядрах застрял бы навсегда (NX не растёт) — сжимаем только короткие   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
             ncor = shrink or j["cores"]               # ядра, с которыми заявка реально встанет
             mrt = j["max_runtime"] * j["cores"] / ncor   # на меньшем числе ядер тот же счёт идёт дольше — бюджет растёт пропорционально
             disk_full = bool(self.slots and j["disk"] != "none"
