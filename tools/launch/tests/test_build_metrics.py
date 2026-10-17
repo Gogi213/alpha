@@ -61,3 +61,18 @@ def test_direct_alias_cells(tmp_path):
     build_metrics.main(["--out", str(out), "--routes", str(tmp_path / "routes.json"), "--months", "2026-02", "--alias-cells", str(tmp_path / "cells.jsonl"),
                         "--direct", str(tmp_path / "c-{m}.json")])
     assert sorted(json.loads(x)["hash"] for x in open(out)) == ["0123456789abcdef", "dup"]   # неоднозначное имя остаётся как есть
+
+
+def test_zero_fill(tmp_path):
+    """TK-268: --zero-fill — месяц с файлом источника, но без варианта = 0 сделок; месяц без файла не заполняется; без флага месяца нет."""
+    routes = {"lines": {"h1": "f1 s1"}, "monthly": {}}
+    json.dump(routes, open(tmp_path / "routes.json", "w"))
+    json.dump({"s1@f1": {"2026-02": {"0": [[A + H, 3.0, "BTC"]]}}}, open(tmp_path / "c-2026-02.json", "w"))
+    json.dump({"other": {}}, open(tmp_path / "c-2026-03.json", "w"))   # файл марта есть, варианта нет
+    base = ["--routes", str(tmp_path / "routes.json"), "--months", "2026-02,2026-03,2026-04", str(tmp_path / "c-{m}.json")]
+    out = tmp_path / "m.jsonl"
+    build_metrics.main(["--out", str(out)] + base)
+    assert list(json.loads(open(out).readline())["by_month"]) == ["2026-02"]
+    build_metrics.main(["--out", str(out), "--zero-fill"] + base)
+    bm = json.loads(open(out).readline())["by_month"]
+    assert bm == {"2026-02": {"n": 1, "pnl": 3.0}, "2026-03": {"n": 0, "pnl": 0.0}}   # апреля без файла нет

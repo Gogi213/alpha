@@ -8,7 +8,8 @@
 TK-258: --direct <шаблон с {mon}> (jan…sep, повторять) — closes R1 (psim p12-r1-psim.py): ключ файла = хеш клетки, B1 пропускается, месяц файла без
 хеша = 0 сделок (psim пишет только варианты со сделками; load_r1.py пишет такой месяц нулём) — по всем 9 месяцам; хеш уже взят из ИСТОЧНИКОВ — не трогается.
 TK-268: --alias-cells <cells.jsonl> — ключ файла = имя клетки (R1 TK-182: g04-k20), а не хеш: имя -> id по cells.jsonl (set_name p12-…, форма
-однозначна); без флага поведение прежнее. В --direct шаблоне допустим и {m} (ГГГГ-ММ)."""
+однозначна); без флага поведение прежнее. В --direct шаблоне допустим и {m} (ГГГГ-ММ).
+TK-268: --zero-fill — месяц, файл которого источника хеша есть, а варианта в нём нет, = 0 сделок (как в --direct: psim пишет только варианты со сделками); без флага — месяца нет."""
 import argparse
 import glob
 import json
@@ -65,6 +66,7 @@ def main(argv=None):
     ap.add_argument("sources", nargs="*")
     ap.add_argument("--direct", action="append", default=[])
     ap.add_argument("--alias-cells", default=None)
+    ap.add_argument("--zero-fill", action="store_true")
     ap.add_argument("--out", required=True)
     ap.add_argument("--routes", default=os.path.join(HERE, "routes.json"))
     ap.add_argument("--months", default=None)
@@ -78,6 +80,7 @@ def main(argv=None):
     for h, mm in doc["monthly"].items():
         keys[h] = {m: variant_key(ln) for m, ln in mm.items() if ln}
     got, src_of = {}, {}   # хеш -> {месяц: [[мс,$,монета]…]}
+    src_months = {}   # каталог источника -> месяцы, чей файл есть
     for m in months:
         for si, src in enumerate(a.sources):
             d, _, pat = src.rpartition("/")
@@ -85,12 +88,18 @@ def main(argv=None):
             if not files:
                 continue
             closes = json.load(open(files[0], encoding="utf-8"))
+            src_months.setdefault(d, set()).add(m)
             for h, ks in keys.items():
                 k = ks.get(m)
                 if k in closes and m not in got.get(h, {}):
                     got.setdefault(h, {})[m] = closes[k].get(m, {}).get("0", [])
                     src_of.setdefault(h, set()).add(d)
             del closes
+    if a.zero_fill:
+        for h, dirs in src_of.items():
+            for m in {m for d in dirs for m in src_months[d]}:
+                if keys[h].get(m) and m not in got[h]:
+                    got[h][m] = []
     dgot, dsrc = direct_closes(a.direct, months, cell_alias(a.alias_cells) if a.alias_cells else None)
     for h, mm in dgot.items():
         if h not in got:
