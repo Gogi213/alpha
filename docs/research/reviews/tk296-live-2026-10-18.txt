@@ -1,0 +1,6 @@
+[вживую] ssh calc 18.10 00:06 GMT+4 (22:06 CEST), ~3 с:
+md5 /data/sched/alsched.py = dd5dcb213bf8b095e77ab976ec87e8a6 = git show 6a759298:tools/compute/alsched.py
+md5 /data/sched/sched_cfg.py = 68f7183cf92f4d55fe8ec2d682139b3c = git show 6a759298
+alpha-sched active с 22:04:01 CEST; loadavg 12.77
+alsched ps: занято 12/16 по заявкам; идущее 1017145955614 tk279-p17-g81b 12 яд. 188 мин (тот же id, что до выкладки) — не потеряно; build-TK-272 (4) queued (12+4 > 15).
+Окно --iso вживую не открывалось (счёт идёт) — путь покрыт тестом, падающим до правки.
