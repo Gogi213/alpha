@@ -211,9 +211,9 @@ def family_of(hyp):
 MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: число в имени формы меняется по месяцам (Г-133 chase<a·W_m>); файл --cells на месяц
 _THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
 MSETS = {}  # имя набора -> спецификация --set: наборы с порогом по месяцам (Г-10 btc<N>h_max=T_m); write_set добавляет их к --set
-_TAPE_THR = os.path.join(FIND, "tape-thresholds-v8-2026-10-17.json")   # TK-272 v8 (thr8/summary.json; v7 побитно внутри + W=6, q91): ключи e112_W<W>_q<q> по месяцам
+_TAPE_THR = os.path.join(FIND, "tape-thresholds-v9-2026-10-17.json")   # TK-272 v9 (thr9/summary.json; v8 побитно внутри + W=8, q92): ключи e112_W<W>_q<q> по месяцам
 _TK202_THR = os.path.join(FIND, "tk202-thresholds-2026-10-12.json")   # tools/analyze/tk202-thresholds.py: usd {месяц: {q: T}}, ctx {ось: {месяц: {q20..q80}}}
-_BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-16.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
+_BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-17.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
 
 
 def w_median_ms():
@@ -466,13 +466,13 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
         LINES[h] = (None, "месячная форма chase<a·W_m>: строки --cells по месяцам (файлы <имя>-<ГГГГ-ММ>.cells)")
         MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
     elif av and re.sub(r"\D", "", hyp) == "112":   # tape<W>q<Q_m(W,q)>: Q из v7 по прошлым месяцам (Судья 11.10, f1-axes); хеш — по осям W, q
-        w, q = _int_in(_frac(av["W"]), (5, 6, 10, 15, 30, 60, 120, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 91, 95))
+        w, q = _int_in(_frac(av["W"]), (5, 6, 8, 10, 15, 30, 60, 120, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 91, 92, 95))
         cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []
         mm = {r["month"]: f"{form}-tape{w}q{'p' if r.get(f'e112_W{w}_q{q}', 0) <= 0 else _dec(r[f'e112_W{w}_q{q}'])} {set_name}" for r in thr if w and q and f"e112_W{w}_q{q}" in r}
         if not (w and q):
-            LINES[h] = (None, "Г-112: W ∈ {5,6,10,15,30,60,120,300} с, q ∈ {5,10,20,33,50,67,80,90,91,95}")
+            LINES[h] = (None, "Г-112: W ∈ {5,6,8,10,15,30,60,120,300} с, q ∈ {5,10,20,33,50,67,80,90,91,92,95}")
         elif not thr:
             LINES[h] = (None, f"Г-112: нет {os.path.basename(_TAPE_THR)} — v8 TK-272 (thr8/summary.json)")
         else:
@@ -480,12 +480,12 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
             LINES[h] = (None, "месячная форма tape<W>q<Q_m>: файлы <имя>-<ГГГГ-ММ>.cells" + (f"; нет порога в v7 — месяцы {','.join(no)}" if no else ""))
             MONTHLY[h] = mm
     elif av and re.sub(r"\D", "", hyp) == "10":   # btc<N>h_max=T_m(N,q): набор B1 с заменой порога, T_m по месяцам из прошлых месяцев (Судья 11.10, f1-axes)
-        n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 6, 8, 10, 20, 33, 50, 67, 80, 90, 95))
+        n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 9, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 6, 8, 9, 10, 20, 33, 50, 67, 80, 90, 95))
         cfg["variant"] = {"family": family_of(hyp), "axes": {"btc_window_h": n_h, "btc_thr_q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_BTC_THR, encoding="utf-8")) if os.path.exists(_BTC_THR) else {}
         if not (n_h and q):
-            LINES[h] = (None, "Г-10: окно ∈ {1,2,3,4,6,8,12,24} ч, q ∈ {5,6,8,10,20,33,50,67,80,90,95}")
+            LINES[h] = (None, "Г-10: окно ∈ {1,2,3,4,6,8,9,12,24} ч, q ∈ {5,6,8,9,10,20,33,50,67,80,90,95}")
         elif not thr:
             LINES[h] = (None, f"Г-10: нет {os.path.basename(_BTC_THR)} — btc-thresholds.py по study/regime (regime.py с btc_ret_6h…24h)")
         else:
