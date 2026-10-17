@@ -376,3 +376,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 17.10 (TK-285 дубль TK-283 принято): --numbers сверяет по рабочему дереву (ветка tk244 ≠ master) — источником ставить свой файл вживую, где числа процитированы; accept: --decisions В-34 + --live + --tail -; ~8 мин.
 - 17.10 (TK-279 PR #48 @1b1a356 принято): пороги Г-81 — свой квантиль по /data/tk0279/p9/out/run-*/**/cxlprobe5/gate-probe.csv на calc; routes сверка по разделам json (lines/monthly/routes/sets) bff→голова; --numbers сверщик режет «В-224»/«Г-81» в --why на «-224» — без них; accept в PR требует --repo Gogi213/alpha; ~12 мин.
 - 17.10 (TK-286 очередь на 15 вернуть): elastic проверять полем elastic в /data/sched/jobs/<id>.json (ps его не показывает); ssh calc с циклом по jobs >120 с — короче; ~6 мин.
+- 17.10 (TK-286 повтор принято): elastic у queued — json+метка /data/sched/elastic/<id>; ps у queued всегда заявка; --numbers — таблица «| число | файл:строка |» на строки своего ревью; ~6 мин.
