@@ -5,6 +5,9 @@ tk291-load.py <psim/f2 каталог с closes-p19-<мес>.json> <sieve F1∪F
 results: trades = число закрытий, pnl_usd = Σ$ cap 0 (сырой, не нормированный); ext: m, usd_norm (сито), dSR, p, se, статус сита, фракция F1/F2.
 metrics: tools/launch/metrics.hash_metrics по closes вектора. Только дельта (дописью), B1 не пишется (30229bf7071fb028 уже в Летописи)."""
 import csv, hashlib, json, os, re, sys
+sys.path.insert(0, os.environ.get("REGTOOLS", "/opt/alpha-launch/tools/registry"))
+import cellhash as ch
+import cellhash_reg as cr
 
 closes_dir, sieve, sieve_f1, mdir, out, run, runs_tpl = sys.argv[1:8]
 sys.path.insert(0, mdir)
@@ -37,7 +40,9 @@ for name, r in rows.items():
     if name == "B1":
         continue
     k = vec_k(name) or f2lab[name]
-    params = {"group": "p19-psim", "lot_by_n": k, "base": BASE, "source": SRC}
+    cfg = {"form": cr.B1_FORM, "set": cr.B1_SET, "exec": dict(cr.STD_EXEC), "sigma": cr.B1_SIGMA, "universe": cr.UNIVERSE["v171c"],
+           "variant": {"family": "p19", "axes": {f"k{i}": x for i, x in enumerate(k)}}}   # конфиг B1 + размер по номеру касания (панель берёт params.cfg_json)
+    params = {"group": "p19-psim", "lot_by_n": k, "base": BASE, "source": SRC, "cfg_json": ch.canonical_json(cfg)}
     if 0 in k:
         params["approx"] = "k=0: освобождение лимита позиции не моделируется"
     cell = {"logic_version": "bounce-v1", "form": "B1", "set_name": "p19/" + name, "params": params}
