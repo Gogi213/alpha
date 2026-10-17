@@ -6,6 +6,8 @@ export REASON="TK-279 П-17 счёт Г-135/136/137, новые подходы, 
 export NEWJ=/data/tk0279/jrn-b JRN=/data/tk0279/jrn-b ALT_JRN= PLAN=L TP=1
 R=/data/tk0279/p17b; mkdir -p "$R/out"; rm -rf "$R/plan"; cp -r /data/tk0279/p17plan-b "$R/plan"; cp /data/tk0279/days9.txt "$R/days.txt"
 export P=$R/plan O=$R/out
+# дельта (rc143 OOM 17.10): сутки без done убиты — claim остался бы и day-cells.sh молча пропустил (exit 0); готовые сутки не трогаем
+for d in "$R"/out/run-*; do [ -d "$d" ] && [ ! -e "$d/done" ] && rm -rf "$d"; done
 xargs -P "$NX" -L1 bash -c 'bash /data/tk0279/p17b-day.sh "run-$1-$2" "$1" "$2"' _ < "$R/days.txt"
 rc=$?
 n=$(cat "$R"/out/*/fail.txt "$NEWJ"/*/new/fail.txt 2>/dev/null | wc -l)
