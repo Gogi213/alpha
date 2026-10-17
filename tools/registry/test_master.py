@@ -292,6 +292,24 @@ class MasterTest(unittest.TestCase):
         self.assertNotEqual(ch.cell_hash(cb), ch.cell_hash(cu))
         self.assertEqual(master.MONTHLY[ch.cell_hash(cb)]["2026-01"], cb["form"] + " b50-2026-01")
         self.assertEqual(master.MSETS["b50-2026-01"], "age=2700,side=bid,behind_min=5695,btc4h_max=-44.55")
+        # TK-278: F2 даёт целые процентили вне Q9 (разрешимость 1, П-14 §3.3) — не None-хеш; q = 0 / 100 — вне диапазона
+        with tempfile.TemporaryDirectory() as td:
+            tp = os.path.join(td, "t.json")
+            json.dump({"usd": {"2026-01": {"23": 20111}}, "behind": {"2026-01": {"82": 7777}}, "ctx": {"btc4h": {"2026-01": {"q20": -104.65, "q40": -75.6, "q60": -60.8, "q80": -51.2}}}}, open(tp, "w"))
+            old_thr, master._TK202_THR = master._TK202_THR, tp
+            try:
+                cq = master.p14_cfg("Г-89", sv, {"usd_min_q": 23})
+                cbq = master.p14_cfg("Г-07", sv, {"behind_min_q": 82})
+                c0q = master.p14_cfg("Г-89", sv, {"usd_min_q": 100})
+            finally:
+                master._TK202_THR = old_thr
+        self.assertEqual(cq["variant"]["axes"], {"usd_min_q": 23})
+        self.assertEqual(cbq["variant"]["axes"], {"behind_min_q": 82})
+        self.assertEqual(master.MSETS["u23-2026-01"], "age=2700,side=bid,usd_min=20111,btc4h_max=-44.55")
+        self.assertEqual(master.MSETS["b82-2026-01"], "age=2700,side=bid,behind_min=7777,btc4h_max=-44.55")
+        self.assertEqual(c0q["variant"]["axes"], {"usd_min_q": None})
+        self.assertNotIn(ch.cell_hash(c0q), master.MONTHLY)
+        self.assertNotEqual(ch.cell_hash(cq), ch.cell_hash(cu))
         # Г-110: early<x> — целые секунды как раньше, 0,5 с — early0.5
         for x, suf in (("0.5", "early0.5"), ("1/2", "early0.5"), ("3", "early3")):
             self.assertTrue(master.p14_cfg("Г-110", sv, {"early_exit_s": x}, mm={"early_exit_s": "EarlyExit:x"})["form"].endswith("-" + suf), x)

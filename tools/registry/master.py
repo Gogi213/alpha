@@ -423,14 +423,14 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
             MONTHLY[h] = mm
     elif av and ("usd_min_q" in av or "behind_min_q" in av) and "keep_q" not in av:   # В-227 М3 (Г-89/107/27, Г-32): usd_min=T_m(q) по месяцам; Г-07 — behind_min=T_m(q), % (D20); Г-32 — ещё страта btc4h внутри базы B1 (Судья 12.10 04:14)
         ax, pre, key = ("behind_min_q", "b", "behind") if "behind_min_q" in av else ("usd_min_q", "u", "usd")   # ось, префикс набора, раздел порогов
-        q = _int_in(_frac(av[ax]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        q = _int_in(_frac(av[ax]), range(1, 100))   # Q9 F1 + целые F2 (П-14 §3.3: разрешимость процентиля 1); T_m(q) — tk202-thresholds.py --q
         k = int(str(av["ctx_q"])[1:]) if "ctx_q" in av and re.fullmatch(r"q[1-5]", str(av["ctx_q"])) else None
         axes = {ax: q} if k is None else {ax: q, "ctx": f"btc4h-q{k}"}
         cfg["variant"] = {"family": "g32" if "ctx_q" in av else ("behind_min" if key == "behind" else "usd_min"), "axes": axes}   # Г-89/107/27 — одна ось, один хеш
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TK202_THR, encoding="utf-8")) if os.path.exists(_TK202_THR) else {}
         if not q or ("ctx_q" in av and k is None):
-            LINES[h] = (None, f"{ax} ∈ {{5,10,20,33,50,67,80,90,95}}, ctx_q ∈ q1…q5")
+            LINES[h] = (None, f"{ax} — целое 1…99, ctx_q ∈ q1…q5")
         elif not thr:
             LINES[h] = (None, f"нет {os.path.basename(_TK202_THR)} — tools/analyze/tk202-thresholds.py")
         else:
