@@ -29,6 +29,16 @@ def plan_rows(protocol="P-14", fraction=1):
     return out
 
 
+def protocols_of(cfg):
+    """[(протокол, фракция)] формы: config.protocols (пары) или один (protocol, fraction) — прежнее поведение (TK-279: П-17 рядом с П-14)."""
+    return [tuple(x) for x in cfg.get("protocols") or [(cfg["protocol"], cfg["fraction"])]]
+
+
+def plan_rows_cfg(cfg):
+    """Клетки сеток всех протоколов формы подряд (plan_rows по каждой паре)."""
+    return [r for proto, fr in protocols_of(cfg) for r in plan_rows(proto, fr)]
+
+
 ROUTES_FILE = os.path.join(HERE, "routes.json")
 R1_ROUTES = ("r1", "r1x")   # TK-251: R1 не идёт строкой --cells — отбор r1cell.py + psim (r1: отбор по .r1spec; r1x: клетки готовы, только psim)
 COUNTABLE = ("cells", "monthly") + R1_ROUTES   # маршруты, которые форма умеет посчитать (прочее: посчитано вне Летописи / нет данных / нет кодировки / композит R1)
@@ -268,7 +278,7 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, q
     if routes is None:
         routes = load_routes() if rows is None else {}
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
     if have is None:
         import master
         have = master.have_hashes()
@@ -326,7 +336,7 @@ def plan_groups(groups, rows=None, have=None, cfg=None, routes=None, queued=None
     if routes is None:
         routes = load_routes() if rows is None else {}
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
     if have is None:
         import master
         have = master.have_hashes()
@@ -364,7 +374,7 @@ def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
     маска «в очереди», 0 или код причины «вне формы» (1+индекс в OFF_ROUTES)]]}}; бит i маски — cfg.months[i]. Один хеш — одна клетка (как в plan)."""
     cfg = cfg or load_config()
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
         routes = load_routes() if routes is None else routes
     routes = routes or {}
     if have is None:
@@ -459,7 +469,7 @@ def grid_axes(rows=None):
 
 def meta(cfg=None):
     cfg = cfg or load_config()
-    rows = plan_rows(cfg["protocol"], cfg["fraction"])
+    rows = plan_rows_cfg(cfg)
     ncell = collections.Counter(r["hyp"] for r in rows)
     hy = [dict(h, ncells=ncell.get(h["id"], 0)) for h in hyp_list()]
     v227, v227_rows = v227_preset()
@@ -502,7 +512,7 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
             sieve.setdefault(d["cell_hash"], []).append(d)
     routes = load_routes()
     out = []
-    for r in plan_rows(cfg["protocol"], cfg["fraction"]):
+    for r in plan_rows_cfg(cfg):
         if hyp and r["hyp"] != hyp:
             continue
         got = byhash.get(r["hash"], {})
@@ -768,7 +778,7 @@ def runs_view(cfg=None, ps_text="", now=None):
             ids.setdefault(fn[:-5], {})
     have = None
     rows_of = {}   # хеш -> строки плана: один хеш (клетка) бывает у нескольких гипотез — подпись берём из заявленных прогоном
-    for r in (plan_rows(cfg["protocol"], cfg["fraction"]) if ids else ()):
+    for r in (plan_rows_cfg(cfg) if ids else ()):
         rows_of.setdefault(r["hash"], []).append(r)
 
     def hyp_of(h, want):
