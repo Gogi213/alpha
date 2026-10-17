@@ -375,7 +375,8 @@ def _off_code(route):
 
 def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
     """Покрытие страницы по хешам Летописи: {гипотеза: {axes:{ось:[значения]}, cells:[[индекс значения по каждой оси (−1 нет)…, маска «посчитано»,
-    маска «в очереди», 0 или код причины «вне формы» (1+индекс в OFF_ROUTES)]]}}; бит i маски — cfg.months[i]. Один хеш — одна клетка (как в plan)."""
+    маска «в очереди» (только не посчитанное: как qd в plan), 0 или код причины «вне формы» (1+индекс в OFF_ROUTES)]]}}; бит i маски — cfg.months[i].
+    Один хеш — одна клетка гипотезы; хеш, общий у гипотез (Г-27/Г-89/Г-107: одна клетка), виден у каждой (TK-278, проверка Судьи 17.10)."""
     cfg = cfg or load_config()
     if rows is None:
         rows = plan_rows_cfg(cfg)
@@ -391,14 +392,15 @@ def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
     ga = grid_axes(rows)
     out, seen = {}, set()
     for r in rows:
-        if r["hash"] in seen:
+        if (r["hyp"], r["hash"]) in seen:
             continue
-        seen.add(r["hash"])
+        seen.add((r["hyp"], r["hash"]))
         axn = list(ga[r["hyp"]])
         o = out.setdefault(r["hyp"], {"axes": ga[r["hyp"]], "cells": []})
         idx = [ga[r["hyp"]][k].index(str(r["axes"][k])) if k in r["axes"] else -1 for k in axn]
-        o["cells"].append(idx + [sum(bit[m] for m in have.get(r["hash"], ()) if m in bit),
-                                 sum(bit[m] for m in queued.get(r["hash"], ()) if m in bit),
+        got = have.get(r["hash"], ())
+        o["cells"].append(idx + [sum(bit[m] for m in got if m in bit),
+                                 sum(bit[m] for m in queued.get(r["hash"], ()) if m in bit and m not in got),
                                  _off_code(routes.get(r["hash"], "cells"))])
     return out
 
@@ -552,13 +554,16 @@ def hyp_view(cfg=None, cov=None):
     import hyps
     cfg = cfg or load_config()
     cov = coverage(cfg) if cov is None else cov
-    hy_of = {r["hash"]: r["hyp"] for r in plan_rows_cfg(cfg)}
+    hy_of = collections.defaultdict(set)   # хеш -> все гипотезы с этим хешем (Г-27/Г-89/Г-107 — одна клетка)
+    for r in plan_rows_cfg(cfg):
+        hy_of[r["hash"]].add(r["hyp"])
     ok = collections.defaultdict(set)
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
-            if d.get("eligible") and d["cell_hash"] in hy_of:
-                ok[hy_of[d["cell_hash"]]].add(d["cell_hash"])
+            if d.get("eligible"):
+                for hy in hy_of.get(d["cell_hash"], ()):
+                    ok[hy].add(d["cell_hash"])
     rows = [json.loads(l) for l in open(os.path.join(REG, "hypotheses.jsonl"), encoding="utf-8") if l.strip()]
     return hyps.view(rows, cov, cfg["months"], [(r, OFF_LABELS[r]) for r in OFF_ROUTES], hyps.load_texts(), {h: len(v) for h, v in ok.items()})
 

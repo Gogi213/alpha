@@ -265,6 +265,14 @@ def test_coverage_masks_and_validate_groups():
         launch.validate_groups({"hyps": []}, CFG, ROWS)
 
 
+def test_coverage_shared_hash_visible_per_hyp_and_queue_minus_have():
+    """TK-278 (проверка Судьи 17.10): общий хеш (Г-27/Г-89/Г-107) виден у каждой гипотезы; очередь не включает уже посчитанное."""
+    rows = ROWS + [{"hyp": "Г-02", "hash": "aaaa", "axes": {"q": "7"}}]
+    cv = launch.coverage(CFG, rows=rows, have=HAVE, routes={}, queued={"aaaa": set(M3), "bbbb": {"2026-01", "2026-02"}})
+    assert cv["Г-02"]["cells"] == [[0, 0, 0, 0], [1, 7, 0, 0]]   # dddd не считали; aaaa (общий) посчитан полностью
+    assert [c[-2] for c in cv["Г-01"]["cells"]] == [0, 2, 0]   # aaaa посчитан полностью — не «в очереди»; bbbb: 01 есть, в очереди только 02
+
+
 def test_letopis_audit_fields():
     """Аудит Летописи 15.10: none без нулей («—»), «н/д» вместо нулевого $, не просеянное не получает вердикт, причина none — из route."""
     d = launch.letopis()
