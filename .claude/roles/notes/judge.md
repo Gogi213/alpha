@@ -378,3 +378,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 17.10 (TK-286 очередь на 15 вернуть): elastic проверять полем elastic в /data/sched/jobs/<id>.json (ps его не показывает); ssh calc с циклом по jobs >120 с — короче; ~6 мин.
 - 17.10 (TK-286 повтор принято): elastic у queued — json+метка /data/sched/elastic/<id>; ps у queued всегда заявка; --numbers — таблица «| число | файл:строка |» на строки своего ревью; ~6 мин.
 - 17.10 (TK-287 Летопись PR #52 @e122320 принято): [вживую] свой playwright (seed-выбор 5 строк, title на span.mc внутри td.m, python -I игнорирует PYTHONIOENCODING — sys.stdout.reconfigure); --numbers отдельным файлом-таблицей, --decisions В-10; ~12 мин.
+- 17.10 (TK-288 протокол П-18 вернуть): проверять «9 точек вокруг текущего» по каждой оси против сеток кода (ENTRY_TTL_SECS forms.rs, DEADLINES_S plan.rs) и ключей набора bounce_grid/sets.rs; набор B1 t-bid-btc4h-q1 = age/side/btc4h_max; ~8 мин.
