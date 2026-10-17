@@ -5,13 +5,17 @@
 usd сделки = net_bps · entry_px · qty / 1e4. Парный блочный бутстреп по суткам (циклический, блок ⌈n^{1/3}⌉), p односторонний
 по центрированному Δ*. Окна: янв–сен, каждый месяц; C2 — без двух суток с наибольшей парной разностью и без монеты с наибольшим вкладом.
 Сопоставимость: сделок двойников / сделок стен в [0,5; 2] (янв–сен и по месяцу; иначе контроль не читается).
-  python tk274-g03-delta.py <g03-out> <out.csv> [--boot 4000]
+  python tk274-g03-delta.py <g03-out> <out.csv> [--boot 4000] [--twin-root <out2> --twin-mode nowall]
+Двойники из другого прохода: стены (paired) — из <g03-out>, двойники — режим --twin-mode из --twin-root (Судья 17.10, nowall:
+двойник без отмены по гибели стены); ключ "random" в расчёте = режим двойников. Печатает долю суток, где seed различаются.
 """
 import csv, glob, math, os, sys, datetime, collections
 import numpy as np
 
 root, out = sys.argv[1:3]
 B = int(sys.argv[sys.argv.index("--boot") + 1]) if "--boot" in sys.argv else 4000
+arg = lambda k, d: sys.argv[sys.argv.index(k) + 1] if k in sys.argv else d
+TROOT, TMODE = arg("--twin-root", root), arg("--twin-mode", "random")
 SEEDS = (1, 2, 3, 4, 5)
 d0 = datetime.date(2026, 1, 1); ND = (datetime.date(2026, 9, 30) - d0).days + 1
 day_i = lambda s: (datetime.date.fromisoformat(s) - d0).days
@@ -22,18 +26,23 @@ day = {m: {s: np.zeros(ND) for s in SEEDS} for m in ("paired", "random")}
 coin = {m: {s: collections.defaultdict(lambda: np.zeros(ND)) for s in SEEDS} for m in day}
 ntr = {m: {s: np.zeros(10, int) for s in SEEDS} for m in day}
 nfiles = 0
-for f in glob.glob(f"{root}/run-*/out/*/*/t-*/rounds.csv"):
+for src, name, key in ((root, "paired", "paired"), (TROOT, TMODE, "random")):
+  for f in glob.glob(f"{src}/run-*/out/*/*/t-*/rounds.csv"):
     parts = f.replace("\\", "/").split("/"); mode_seed = parts[-3]
     mode, seed = mode_seed[:-1], int(mode_seed[-1])
-    if mode not in day: continue
+    if mode != name: continue
     nfiles += 1
     with open(f, encoding="utf-8") as fh:
         for r in csv.DictReader(l for l in fh if not l.startswith("#")):
             i = day_i(r["day_utc"])
             if not 0 <= i < ND: continue
             usd = float(r["net_bps"]) * float(r["entry_px"]) * float(r["qty"]) / 1e4
-            day[mode][seed][i] += usd; coin[mode][seed][r["symbol"]][i] += usd; ntr[mode][seed][mon_of[i]] += 1
+            day[key][seed][i] += usd; coin[key][seed][r["symbol"]][i] += usd; ntr[key][seed][mon_of[i]] += 1
 print(f"файлов rounds.csv: {nfiles} (ждём {251 * 10})")
+act = np.zeros(ND, bool); dif = np.zeros(ND, bool)
+for k in ("paired", "random"):
+    M = np.array([day[k][s] for s in SEEDS]); act |= (M != 0).any(axis=0); dif |= (M != M[0]).any(axis=0)
+print(f"суток со сделками {int(act.sum())}, из них seed различаются {int(dif.sum())} ({dif.sum() / max(act.sum(), 1):.1%}); режим двойников {TMODE}")
 wl = np.mean([day["paired"][s] for s in SEEDS], axis=0); tw = np.mean([day["random"][s] for s in SEEDS], axis=0)
 sr = lambda x: x.mean(axis=-1) / np.maximum(x.std(axis=-1, ddof=1), 1e-12)
 rng = np.random.default_rng(15)
