@@ -26,6 +26,19 @@ class T(unittest.TestCase):
                   base(variant={"family": "g83", "axes": {"q": "k50"}}), base(set={**cr.B1_SET, "min_age_s": 3600})):
             self.assertNotEqual(h0, ch.cell_hash(v))
 
+    def test_postsweep_entry_and_p17_scope(self):  # Г-135 (TK-279): postsweep<R> — вход, не стоп; разные R и ключи П-17 — разные хеши; scope П-17 = 292 разных хеша
+        f = lambda e: base(form=e + "-pct2-tr1x1-14400-ttl1800")
+        n = ch.normalize(f("postsweep5"))
+        self.assertEqual((n["entry"], n["stop"]["kind"]), ({"kind": "postsweep", "r": 5}, "pct_bps"))
+        self.assertEqual(len({ch.cell_hash(f(e)) for e in ("postsweep2", "postsweep5", "single@fr")}), 3)
+        import p17_scope as ps
+        sc = ps.build()
+        self.assertEqual((sc["cells_total"], sc["m"], len({c["hash"] for cs in sc["families"].values() for c in cs})), (292, 6, 292))
+        h = lambda spec: ch.cell_hash(ps.cfg_of(spec=spec))
+        self.assertNotEqual(h(ps.SET_B1 + ",repeat_min=0"), h(ps.SET_B1))  # k = 0 — контроль со своим хешем
+        self.assertNotEqual(h(ps.SET_B1 + ",size_risk=5"), h(ps.SET_B1 + ",size_risk=8"))
+        self.assertNotEqual(h(ps.SET_B1 + ",entry_gate=cxl30q0.5"), h(ps.SET_B1 + ",entry_gate=cxl30q0.6"))
+
     def test_provenance_excluded(self):
         self.assertEqual(ch.cell_hash(base()), ch.cell_hash({**base(), "group": "x", "source": "y", "set_name": "z"}))
 
@@ -52,7 +65,7 @@ class T(unittest.TestCase):
         st = lambda **k: base(set={**cr.B1_SET, **k})
         self.assertEqual(h0, ch.cell_hash(st(eaten=None, eaten_min=None, stack_min=None)))  # None = нет ключа
         hs = {h0}
-        for k, v in (("eaten", 60), ("eaten_min", 30), ("frontrun_min", 2), ("behind_min", 10), ("stack_min", 3),
+        for k, v in (("eaten", 60), ("eaten_min", 30), ("frontrun_min", 2), ("behind_min", 10), ("stack_min", 3), ("repeat_min", 0), ("swept_min", 100),
                      ("r1_flow_x_min", 5), ("r1_flow_x_max", 5), ("r1_flow_y_min", 5)):
             h = ch.cell_hash(st(**{k: v}))
             self.assertNotIn(h, hs, k)

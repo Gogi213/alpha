@@ -266,6 +266,61 @@ pub(super) fn day_order_qtys(
     Ok(order_qtys)
 }
 
+/// Г-98 (`size_risk=<R$>`): лот каждого подхода под риск по `stack_span_bps_at_arm`; ниже min-лота — `NaN`
+/// (сигнал пропускается и считается в `skipped`). Нужны записи подходов суток; без них клетка не определена.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+pub(super) fn day_risk_qtys(
+    sizing: &OrderSizing,
+    day: &DayTouches,
+    base: &[f64],
+    step_schedule: Option<&StepSchedule>,
+    grid_e9: (i64, i64),
+    qty_mult: u32,
+    risk_usd: f64,
+) -> anyhow::Result<Vec<f64>> {
+    let Some(ap) = day.approaches.as_deref() else {
+        anyhow::bail!(
+            "{}: size_risk=<R$> читает stack_span_bps_at_arm — нужны записи подходов (кэш подходов с колонкой, TK-206)",
+            day.day
+        );
+    };
+    anyhow::ensure!(
+        ap.len() == base.len(),
+        "{}: подходов {} ≠ касаний {}",
+        day.day,
+        ap.len(),
+        base.len()
+    );
+    let (tick_e9, step_e9) = grid_e9;
+    Ok(base
+        .iter()
+        .zip(&day.touches)
+        .zip(ap)
+        .map(|((&q, t), a)| {
+            #[allow(clippy::cast_possible_truncation)]
+            let base_e9 = (q * 1e9).round() as i64;
+            let step = step_schedule.map_or(step_e9, |sc| {
+                let lot = sc.at(t.start_ms.saturating_mul(1_000_000)).1;
+                if lot > 0 {
+                    lot
+                } else {
+                    step_e9
+                }
+            });
+            sizing
+                .qty_risk_e9(
+                    t.price_tick.saturating_mul(tick_e9),
+                    qty_mult,
+                    base_e9,
+                    risk_usd,
+                    a.stack_span_bps_at_arm,
+                    step,
+                )
+                .map_or(f64::NAN, |e9| e9 as f64 / 1e9)
+        })
+        .collect())
+}
+
 /// Строки stderr по итогам суток: пересчёты горизонта, пропуски удержания, счётчики быстрых путей, память кругов.
 pub(super) fn day_diagnostics(
     flags: &RunFlags,

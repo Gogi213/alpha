@@ -258,7 +258,12 @@ where
     // события рынка, а не таймер. Проверяются **раньше** потолка:
     // если условие и потолок совпали на одном кадре, честнее назвать
     // событие, которое и было поводом снять вход.
-    if let Some(reason) = state.entry_cancel_reason(bot) {
+    let reason = state.entry_cancel_reason(bot).or_else(|| {
+        state
+            .cxl_gate_closed(now, sent_ns)
+            .then_some(EntryCancelReason::CxlGate)
+    });
+    if let Some(reason) = reason {
         state.cancel_resting(bot, order_id, legs)?;
         state.phase = Phase::CancelPending {
             order_id,
