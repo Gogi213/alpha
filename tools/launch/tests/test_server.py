@@ -32,7 +32,7 @@ def test_api_plan_and_nothing_to_count():
         meta = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/meta"))
         assert len(meta["hyps"]) >= 100 and meta["presets"]["v227"]["ids"] and "не 56" in meta["presets"]["v227"]["note"]
         p = _post(port, "/api/plan", {"hyps": ["Г-10"], "months": ["2026-01"], "axes": {}})
-        assert p["hm_new"] == 0 and p["hm_have"] == p["hm_grid"] > 0
+        assert p["hm_new"] == 0 and 0 < p["hm_have"] <= p["hm_grid"]   # F2 Г-10 без кодировки (T_m) — в сетке, но не к счёту
         r = _post(port, "/api/submit", {"hyps": ["Г-10"], "months": ["2026-01"], "axes": {}, "confirm_bin": True})
         assert r["ok"] is False and r["message"] == "нечего считать"
     finally:

@@ -19,13 +19,16 @@ def load_config(path=None):
 
 
 def plan_rows(protocol="P-14", fraction=1):
-    """Клетки сетки (docs/registry/plan_cells.jsonl): hyp, hash, axes{}."""
-    out = []
+    """Клетки сетки (docs/registry/plan_cells.jsonl): hyp, hash, axes{}. fraction — число или список долей (TK-272: [1, 2] — F1 и F2);
+    одна пара (гипотеза, хеш) в нескольких долях — одна строка (первая доля)."""
+    fr = {fraction} if isinstance(fraction, int) else set(fraction)
+    out, seen = [], set()
     for line in open(os.path.join(REG, "plan_cells.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
-            if d["protocol"] == protocol and d["fraction"] == fraction:
-                out.append({"hyp": d["hyp"], "hash": d["cell_hash"], "axes": json.loads(d["axes"])})
+            if d["protocol"] == protocol and d["fraction"] in fr and (d["hyp"], d["cell_hash"]) not in seen:
+                seen.add((d["hyp"], d["cell_hash"]))
+                out.append({"hyp": d["hyp"], "hash": d["cell_hash"], "axes": json.loads(d["axes"]), "fraction": d["fraction"]})
     return out
 
 
@@ -46,7 +49,10 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
     sys.path.insert(0, os.path.join(ROOT, "tools", "compute"))
     import r1cell
     c = master.connect()
-    grids, _ = master.build_grid(c, protocol, fraction, None, master.rules_of(c, protocol))
+    grids = {}
+    for fr in ([fraction] if isinstance(fraction, int) else fraction):   # TK-272: доли F1+F2 одним файлом
+        for hyp, cells in master.build_grid(c, protocol, fr, None, master.rules_of(c, protocol))[0].items():
+            grids.setdefault(hyp, []).extend(cells)
     c.close()
     r2b = master.r2b_lines()
     sets = {**cellhash_reg.load_sets(), **master.MSETS}
@@ -829,7 +835,7 @@ def main(argv=None):
     sp.add_parser("routes", help="пересчитать routes.json (маршруты клеток; нужна data/registry.sqlite)")
     o = ap.parse_args(argv)
     if o.cmd == "routes":
-        d = build_routes()
+        d = build_routes(fraction=load_config()["fraction"])
         print(json.dumps(dict(collections.Counter(d["routes"].values())), ensure_ascii=False), "->", ROUTES_FILE)
         return 0
     if o.cmd == "process-requests":
