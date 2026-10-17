@@ -1321,6 +1321,10 @@ fn entry_market_px(plan: TradePlan) -> Option<f64> {
 }
 
 /// Итог одного круга в терминах драйвера.
+///
+/// `large_enum_variant`: `Filled` несёт `Fill` (TK-272: +128 Б на окна `--tape-log-ws`), остальные варианты малы.
+/// Значение живёт на стеке драйвера один круг и не копится; `Box` внёс бы аллокацию на круг ради десятков байт.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 enum RoundOutcome {
     /// Круг закрыт: обе ноги исполнены, причина выхода известна.
@@ -2628,6 +2632,10 @@ where
 /// прогона (`drive_bounce`) и прогона по сетапам (`drive_bounce_windowed`):
 /// различие только в том, откуда берётся движок, — иначе это была бы вторая
 /// стратегия.
+///
+/// `large_enum_variant`: `Submitted` несёт `RoundOutcome` с `Fill` (TK-272), `EndOfData`/`NotSubmitted` малы;
+/// значение на стеке драйвера, один шаг на сигнал.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 enum SignalStep {
     /// Часы не дошли до `t0`: запись кончилась.
