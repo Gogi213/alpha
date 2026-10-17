@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """TK-291 (П-19 §6): линейный пересчёт портфеля по вектору k = (k0,k1,k2,k3) на деревьях B1 со столбцом touch_index.
-tk291-recalc.py <r-b дом> <мес> <выход.json> [--vec метка=k0,k1,k2,k3 …] [--cap N]
+tk291-recalc.py <r-b дом> <мес> <выход.json> [--vec метка=k0,k1,k2,k3 …] [--vecfile файл (строки метка=k0,k1,k2,k3)] [--merge <готовый json>] [--cap N]
+  --merge: к векторам готового json добавляются новые (F2: объединение F1 ∪ F2 в один файл для сита)
 Без --vec — B1 (1,1,1,1) и сетка П-19 §3: ось a∈{0..3} × k∈{0, 1/4, 3/8, 1/2, 3/4, 3/2, 2, 3, 4, 6, 8} = 44 клетки.
 Выход: {метка: [[мс закрытия, $, монета, нотионал $], …]} — сделки, которые счёт взял (cap 0 — без потолка позиций; TRUMP/TRX/BCH — вне пула, В-210).
 Нормировка m и сито — tk291-sieve.py. Деревья r-b/<мес>/<сутки>/t-bid-btc4h-q1/rounds.csv — после busy-replay (tk291-recalc.sh)."""
@@ -44,10 +45,22 @@ def main():
         lab, ks = a[i + 1].split("=")
         vec[lab] = tuple(float(x) for x in ks.split(","))
         del a[i:i + 2]
+    if "--vecfile" in a:
+        i = a.index("--vecfile")
+        for ln in open(a[i + 1], encoding="utf-8"):
+            if ln.strip():
+                lab, ks = ln.strip().split("=")
+                vec[lab] = tuple(float(x) for x in ks.split(","))
+        del a[i:i + 2]
+    merge = None
+    if "--merge" in a:
+        i = a.index("--merge")
+        merge = a[i + 1]
+        del a[i:i + 2]
     vec = vec or grid()
     btc = P.load_btc1h(home)
     klines = P.Klines([])
-    res = {}
+    res = json.load(open(merge, encoding="utf-8")) if merge else {}
     for lab, k in vec.items():
         P.LOT_BY_N = k
         rows = [r for r in P.load_rounds(home, mo, SET, FORM) if r["sym"] not in DROP]
