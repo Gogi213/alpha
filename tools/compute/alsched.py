@@ -198,10 +198,11 @@ class Core:
         self.learn(now)
         self.guard_load(now, busy, fact)
         capped = sum(len(r["cpus"]) for r in self.running("prod") if not r.get("frozen_for")) if self.iso else 0
-        gate_used = sum(len(r["cpus"]) for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))
+        back = lambda r: r.get("frozen_for") in (None, "cap", "hot")   # TK-296: заморожённое потолком окна/перегрузом оттает само — его ядра в счёте заявок (вытесненные — через held)
+        gate_used = sum(len(r["cpus"]) for r in self.running("prod") if r.get("kind") in ("gate", "build") and back(r))
         gate_resv = max(0, RESERVE_CORES - gate_used)     # В-229 п.10: гарантированные ядра гейтам/сборкам
         gate_active = any(r.get("kind") in ("gate", "build") and r["state"] in ("queued", "running") for r in self.jobs.values())   # TK-283: нет gate/build ни в работе, ни в очереди — резерв свободен
-        declared = sum(r["cores"] for r in self.running("prod") if not r.get("frozen_for"))   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
+        declared = sum(r["cores"] for r in self.running("prod") if back(r))   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
