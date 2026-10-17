@@ -170,7 +170,7 @@ def _dec(x):
     return format(Decimal(repr(float(x))), 'f')   # каноническое имя --exit-form: без экспоненты (Rust: 0.0000227…)
 
 
-R1_NODATA = ("tape_burst_press_60s_bp",)   # coverage-r1.json r1ext: jan_n_defined 0, охват 0 во всех месяцах — файлов нет
+R1_NODATA = ()   # TK-268: колонка *_60s_bp в пуле сигналов есть (272 из 273 суток, /data/tk0268/pool60) — «нет данных» не осталось
 R1EXT = "r1ext TK-189: /data/tk189/r1ext/cells/<мес>/ (271 кл./мес, фев…окт; 5 прежних точек побайтно = /data/tk064/r1)"
 R2B_MONTHS = tuple(f"2026-{m:02d}" for m in range(1, 10))   # TK-115 R2-B (job 1011200729464, calc /data/p12r3a/r2b): 31 форма × B1-сутки янв–сен, B1 = набор t-bid-btc4h-q1
 OUTSIDE = {}  # хеш клетки -> где посчитано вне Летописи (не «к счёту», не в --cells): загрузка результатов в Летопись — отдельный шаг
