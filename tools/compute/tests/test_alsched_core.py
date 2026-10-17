@@ -89,20 +89,20 @@ class Reserve(unittest.TestCase):
         w, b, total = self.wide_gate_case(3)
         self.assertEqual((w, b, total), ("queued", "running", 15))    # gate на 3 влезает в резерв — он занят им, work не лезет
 
-    def test_reserve_kept_without_gate_in_queue(self):
+    def test_no_reserve_without_gate_in_queue(self):
         w, _, total = self.wide_gate_case(0)
-        self.assertEqual((w, total), ("queued", 12))                  # гейтов нет в очереди — резерв остаётся гарантией будущим (В-229 п.10, как было)
+        self.assertEqual((w, total), ("running", 15))                 # TK-297 (В-34): ни сборок, ни гейтов в работе и очереди — резерв не держим, work на 3 ядра встаёт: 15/15
 
-    def test_work_leaves_three_cores(self):
-        self.assertEqual(self.run_case(20, 0)["work"], S.OVERBOOK_MAX - 3)
+    def test_work_takes_all_without_gate(self):
+        self.assertEqual(self.run_case(20, 0)["work"], S.OVERBOOK_MAX)   # TK-297 (В-34): без gate/build боевой счёт занимает 15, включая резерв
 
     def test_gate_takes_reserved_cores(self):
         r = self.run_case(20, 3)
         self.assertEqual((r["work"], r["gate"]), (S.OVERBOOK_MAX - 3, 3))
 
-    def test_gate_submitted_after_work_queue_claim(self):
+    def test_gate_submitted_after_work_took_reserve_waits(self):
         r = self.run_case(20, 3, late=True)
-        self.assertEqual((r["work"], r["gate"]), (S.OVERBOOK_MAX - 3, 3))
+        self.assertEqual((r["work"], r["gate"]), (S.OVERBOOK_MAX, 0))    # TK-297 (В-34): резерв держится, пока есть gate/build; гейт, поданный в уже занятые 15, ждёт ядер идущей work (не вытесняет)
 
     def test_fact_work_does_not_eat_reserve(self):
         S.OVERBOOK_MAX = 0                                # TK-283: перезаказ по факту — без потолка суммы заявок

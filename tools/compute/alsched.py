@@ -211,7 +211,7 @@ class Core:
             head_pre = j["id"] in self.preempt            # головная вытеснения берёт ядра вытесненных, остальные — нет
             free = [c for c in range(self.ncpu) if c not in used and (head_pre or c not in held)]
             is_gate = j.get("kind") in ("gate", "build")
-            g_resv = 0 if not gate_active and j.get("elastic") else gate_resv   # TK-283: elastic без gate/build в работе и очереди резерв не держит (прочее prod — как было, TK-219)
+            g_resv = gate_resv if gate_active else 0   # TK-283/TK-297 (В-34): без gate/build в работе и очереди резерв не держит никто — боевой счёт занимает 15
             resv = set(free[max(0, len(free) - g_resv):]) if g_resv else set()   # резерв — старшие свободные ядра; work их не пинит и не учитывает сверх заявки
             room = len(free) - legacy - (0 if head_pre else held_units) - (0 if is_gate else len(resv))
             held_n = 0 if head_pre else len(held) + held_units
