@@ -362,10 +362,18 @@ pub struct PyramidCfg {
     /// вход — через `S` мс после возврата, в окне `[arm, arm + entry_ttl]`. `reclaim_depth_bps = 0` — выключено.
     pub reclaim_depth_bps: u32,
     pub reclaim_pause_ms: u32,
+    /// Г-135 (`postsweep<R>`, вход рынком): ждать отхода цены на `R` bps от экстремума сделок после взвода, окно
+    /// `min(entry_ttl, reclaim::POSTSWEEP_WINDOW_NS)` (`ReclaimWatch::postsweep`); тот же `ReclaimWait`. `0` — выключено.
+    pub postsweep_bps: u32,
     /// Г-102 (`retreat<k>t<T>`, вход): после стопа отступ входа от стены растёт на `k` тиков и затухает как `k·2^(−Δt/T)`
     /// (`lob::retreat`); состояние ведёт драйвер на (вариант, инструмент). `retreat_k = 0` — выключено.
     pub retreat_k: u8,
     pub retreat_half_min: u32,
+    /// Г-81 (П-17, ворота входа `cxl<W>q<Q>`): на `sent + W` с неисполненные ноги лестницы снимаются, если отмены на нашей
+    /// стороне за `W` (кольцо `--tape-log`, мера Г-116), делённые на `level_qty` плана, ≥ `gate_cxl_q`. Исполненные ноги ведёт
+    /// план. `gate_cxl_q = 0` — выключено.
+    pub gate_cxl_q: f64,
+    pub gate_cxl_w: u32,
 }
 
 impl PyramidCfg {
@@ -396,8 +404,11 @@ impl PyramidCfg {
         cxl_w: 0,
         reclaim_depth_bps: 0,
         reclaim_pause_ms: 0,
+        postsweep_bps: 0,
         retreat_k: 0,
         retreat_half_min: 0,
+        gate_cxl_q: 0.0,
+        gate_cxl_w: 0,
     };
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
@@ -425,7 +436,9 @@ impl PyramidCfg {
             || self.tape_q > 0.0
             || self.cxl_q > 0.0
             || self.reclaim_depth_bps > 0
-            || self.retreat_k > 0)
+            || self.postsweep_bps > 0
+            || self.retreat_k > 0
+            || self.gate_cxl_q > 0.0)
     }
 }
 

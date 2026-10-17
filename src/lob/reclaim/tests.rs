@@ -68,3 +68,39 @@ fn streaming_watch_fires_once_on_the_return_trade_and_knows_its_window() {
     assert!(!w.expired(60 * S));
     assert!(w.expired(60 * S + 1));
 }
+
+/// Г-135: лонг входит на первой сделке, ушедшей на `R` bps выше минимума окна; шорт — зеркально.
+#[test]
+fn postsweep_enters_on_the_rise_off_the_window_extreme() {
+    let w = (0, 30 * S);
+    let long = [
+        tr(1, 10_000),
+        tr(2, 9_990),
+        tr(3, 9_985),
+        tr(4, 9_988),
+        tr(5, 9_990),
+    ];
+    // R = 5 bps при уровне 10 000 → 5 тиков; минимум 9 985, отход на 9 990.
+    assert_eq!(postsweep_t0(&long, true, 10_000, 5, w), Some(5 * S));
+    let short = [
+        tr(1, 10_000),
+        tr(2, 10_010),
+        tr(3, 10_015),
+        tr(4, 10_012),
+        tr(5, 10_010),
+    ];
+    assert_eq!(postsweep_t0(&short, false, 10_000, 5, w), Some(5 * S));
+}
+
+/// Г-135: без отхода на `R` или вне окна 30 с сигнала нет; каждый новый минимум сдвигает точку отсчёта.
+#[test]
+fn postsweep_without_rise_or_outside_the_window_gives_no_signal() {
+    let w = (0, 30 * S);
+    let drifting = [tr(1, 9_995), tr(2, 9_990), tr(3, 9_985), tr(4, 9_980)];
+    assert_eq!(postsweep_t0(&drifting, true, 10_000, 5, w), None);
+    let late = [tr(1, 9_990), tr(31, 9_996)];
+    assert_eq!(postsweep_t0(&late, true, 10_000, 5, w), None);
+    // сделка до окна не задаёт минимум
+    let early = [tr(-1, 9_900), tr(1, 9_990), tr(2, 9_992)];
+    assert_eq!(postsweep_t0(&early, true, 10_000, 5, w), None);
+}

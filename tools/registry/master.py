@@ -93,6 +93,81 @@ def load_axes(dirp, protocol="P-14"):
     return out
 
 
+# ---------- П-17 (TK-279): Г-81, Г-98, Г-101, Г-135, Г-136, Г-137 ----------
+P17_HYPS = ("81", "98", "101", "135", "136", "137")
+P17_SET_B1 = "age=2700,side=bid,btc4h_max=-44.55"
+_P17_THR = os.path.join(ROOT, "docs", "research", "P-17-thresholds.csv")   # hyp,month,axis,q,threshold,n (p17-*-thresholds.py): порог по касаниям B1 своего месяца
+
+
+def p17_thr(hyp, axis):
+    """{ГГГГ-ММ: {q: порог (строкой, как в файле)}} из P-17-thresholds.csv; нет файла или строк — {}."""
+    out = {}
+    if os.path.exists(_P17_THR):
+        with open(_P17_THR, encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                if r["hyp"] == hyp and r["axis"] == axis:
+                    out.setdefault(r["month"], {})[int(r["q"])] = r["threshold"]
+    return out
+
+
+def p17_cell(hyp, av, cfg, form):
+    """Клетка П-17 (хеши = docs/research/P-17-scope.json, p17_scope.py): Г-98/136/137 — хеш набора, строка `<форма> <набор>`;
+    Г-81/101/135 — хеш варианта (семья + оси), строки по месяцам из порога месяца (нет порога — строки нет, причина в LINES)."""
+    import cellhash_reg as cr
+    n = re.sub(r"\D", "", hyp)
+    Q9 = (5, 10, 20, 33, 50, 67, 80, 90, 95)
+    if n in ("98", "136", "137"):
+        if n == "98":
+            r = _int_in(_frac(av["R_usd"]), (2, 3, 5, 8, 12, 20, 30, 50, 80))
+            spec, name = f"{P17_SET_B1},size_risk={r}", f"g98r{r}"
+        elif n == "136":
+            a, k = _frac(av["A_min"]), _frac(av["k"])
+            spec, name = f"side=bid,btc4h_max=-44.55,agemax={int(a) * 60},repeat_min={int(k)}", f"g136a{int(a)}k{int(k)}"
+        else:
+            spec, name = f"{P17_SET_B1},repeat_min={int(_frac(av['k']))}", f"g137k{int(_frac(av['k']))}"
+        cfg["set"] = cr.set_of(spec)
+        MSETS[name] = spec
+        LINES[ch.cell_hash(cfg)] = (f"{form} {name}", None)
+        return
+    fam = f"g{n}"
+    axes = {k: ch.num(_frac(v)) if fval(v) is not None else v for k, v in av.items()}
+    cfg["variant"] = {"family": fam, "axes": axes}
+    h = ch.cell_hash(cfg)
+    q = int(axes.get("cxl_q", axes.get("T_q", axes.get("swept_q", 0))))
+    if q not in Q9:
+        LINES[h] = (None, f"Г-{n}: q ∈ {{5,10,20,33,50,67,80,90,95}}")
+        return
+    if n == "81":
+        w = int(axes["W_s"])
+        thr, axis, pre = p17_thr("Г-81", f"cxl_w{w}_over_size"), f"cxl_w{w}_over_size", f"g81cxlw{w}q{q}"   # «cxl» в имени: строка уходит в пачку с --tape-log (day-cells.sh: grep tape|cxl)
+    elif n == "101":
+        thr, axis, pre = p17_thr("Г-101", "btc4h"), "btc4h", f"g101{axes['part']}t{q}f{axes['f_bp']}"
+    else:
+        thr, axis, pre = p17_thr("Г-135", "swept_pct_of_size_bp"), "swept_pct_of_size_bp", f"g135q{q}"
+        form = form.replace(cr.B1_FORM.split("-", 1)[0], str(axes["entry"]))   # ladder… -> postsweep<R> (форма входа Г-135; B1-лестницы у Г-135 нет)
+    if not thr:
+        LINES[h] = (None, f"Г-{n}: нет порогов {axis} в {os.path.basename(_P17_THR)}" + (" — проход меры (tk279-g81-probe.sh, p17-g81-thresholds.py)" if n == "81" else ""))
+        return
+    LINES[h] = (None, f"месячный набор {pre}-<ГГГГ-ММ> ({axis} ≤/≥ T_m): файлы <имя>-<ГГГГ-ММ>.cells")
+    mm = {}
+    for m, per in thr.items():
+        t = per.get(q)
+        if t is None:
+            continue
+        if n == "81":
+            if float(t) <= 0:
+                continue   # Q > 0 (sets.rs): нулевой порог — ворота не определены в этом месяце
+            spec = f"{P17_SET_B1},entry_gate=cxl{w}q{t}"
+        elif n == "101":
+            key = "lreg" if axes["part"] == "ladder" else "sreg"
+            spec = f"{P17_SET_B1},{key}_t={t},{key}_f={int(axes['f_bp'])}"
+        else:
+            spec = f"{P17_SET_B1},swept_min={int(float(t))}"
+        MSETS[f"{pre}-{m}"] = spec
+        mm[m] = f"{form} {pre}-{m}"
+    MONTHLY[h] = mm
+
+
 # ---------- сборка конфига клетки из стека и осей ----------
 def set_path(cfg, path, val):
     cur = cfg
@@ -382,6 +457,8 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
             R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
         elif ("ctx_q" in av or col is not None) and "common_q" not in av:   # В-227 М1/М3: колонка/знак вне r1ext и ctx×keep_q — посчитано tk202-r1x.py (calc /data/tk202/r1x, янв–сен)
             R1X.add(ch.cell_hash(cfg))
+    elif av and re.sub(r"\D", "", hyp) in P17_HYPS:   # П-17 (TK-279): ключи набора B1 (size_risk/repeat_min/agemax — хеш набора; entry_gate/lreg/sreg/swept_min — вариант семьи + порог по месяцам)
+        p17_cell(hyp, av, cfg, form)
     elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
         a = _frac(av["a"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"a": int(a) if float(a).is_integer() else a}}
@@ -754,6 +831,7 @@ def plan(protocol, k, hyps=None, out=None, have=None, f1=None):
             for u in used:
                 f.write(f"--set {u}:{sets[u]}\n")
         r2 = any(re.match(R2_EXIT_RE, x) for x in (m.group(2) for m in tails if m and m.group(2)))
+        r2 = r2 or any(re.match(R2_EXIT_RE, f.split("-", 1)[0]) for f in forms) or any("entry_gate=" in sets[u] for u in used)   # П-17: вход postsweep<R> и ворота entry_gate — тоже только r2
         with open(stem + ".bin", "w", encoding="utf-8", newline="\n") as f:   # какой бинарь ставить прогону: формы R2 — только cargo feature r2 (forms.rs, ExitForm::parse)
             f.write("r2\n" if r2 else "std\n")
 

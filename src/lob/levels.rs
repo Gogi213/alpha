@@ -743,6 +743,10 @@ pub struct ApproachRecord {
     /// окна и правила, что `stack_levels_at_arm`, по цене уровня; одна плотность (или ни одной) — 0.
     /// Кэш подходов до TK-206 читается нулём.
     pub stack_span_bps_at_arm: i64,
+    /// Прошлых рождений уровня на этой цене и стороне в окне `repeat_window_ms` (Г-136/137 П-17):
+    /// считается при рождении уровня (`TouchRecord::repeat_count`), к взводу известен — без заглядывания.
+    /// Кэш подходов до TK-279 читается нулём.
+    pub repeat_count_at_arm: u32,
     /// Лоты впереди уровня к взводу (T-28): то же правило, что
     /// `TouchRecord::frontrun_lots` (В-45, кадр не позже секунды до), от метки
     /// взвода. На взводе цена ещё в полосе от стены — это всё, что стоит между
@@ -1560,6 +1564,7 @@ fn approach_record(
         depth_behind_lots: a.depth_behind_lots,
         stack_levels_at_arm: a.stack_levels,
         stack_span_bps_at_arm: a.stack_span_bps,
+        repeat_count_at_arm: lv.repeat,
         frontrun_lots_at_arm: a.frontrun_lots,
         p08: Some(a.p08),
         r1: None,

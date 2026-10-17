@@ -139,7 +139,14 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 .lt th{position:sticky;top:0;background:var(--surface2);text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 .lt td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
 .lt tr:hover td{background:var(--surface2)}
-.mc{width:46px;height:28px;border-radius:5px;text-align:center;font-family:var(--mono);font-size:11px;line-height:28px;display:inline-block;margin-right:2px}
+.lt td.m{width:52px;min-width:52px;padding:7px 2px;text-align:center}
+.lt th.m{width:52px;min-width:52px;padding:9px 2px;text-align:center}
+.lt th[data-sort]{cursor:pointer;user-select:none}
+.lt th[data-sort]:hover{color:var(--text)}
+.lt th[aria-sort]{color:var(--text)}
+.lt th[aria-sort=ascending]::after{content:' ▲';font-size:9px}
+.lt th[aria-sort=descending]::after{content:' ▼';font-size:9px}
+.mc{width:46px;height:28px;border-radius:5px;text-align:center;font-family:var(--mono);font-size:11px;line-height:28px;display:block;margin:0 auto}
 .mc.none{background:repeating-linear-gradient(135deg,var(--surface2) 0 5px,var(--line) 5px 6px)}
 .vd{padding:2px 9px;border-radius:99px;font-size:12px}
 .vd.g{background:var(--ok-bg);color:var(--ok)}.vd.b{background:var(--warn-bg);color:var(--warn)}.vd.x{background:var(--bad-bg);color:var(--bad)}.vd.z{background:var(--surface2);color:var(--muted)}
@@ -189,6 +196,29 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 .pforeign div{display:flex;gap:14px;padding:2px 0}.pforeign b{font:500 12.5px var(--mono);color:var(--text)}
 .pnote{margin:14px 0 4px;font-size:12px;color:var(--muted);line-height:1.5}
 @media (max-width:980px){.pr-h{display:none}.pr{grid-template-columns:1fr auto;row-gap:6px}.pr .pg,.pr .tm{grid-column:1/-1}.pr .pm{display:grid;grid-column:1/-1;grid-template-columns:repeat(4,1fr);gap:6px}.pr .mv{text-align:left}.pr .mv::before{content:attr(data-l);display:block;font:11px var(--font);color:var(--muted)}.steps{grid-template-columns:1fr 1fr}}
+.hyv{height:100%;overflow:auto;padding:14px 16px;display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px;max-width:1240px;margin:0 auto;align-items:start}
+.hy-rail{display:flex;flex-direction:column;gap:2px;position:sticky;top:0}
+.hy-rail button{text-align:left;border:0;background:none;padding:6px 10px;border-radius:8px;color:var(--muted);display:flex;justify-content:space-between}
+.hy-rail button.on{background:var(--accent-bg);color:var(--accent)}.hy-rail i{font:normal 12px var(--mono)}
+.hy-rail button.m{border-left:3px solid var(--accent);border-radius:0 8px 8px 0;margin-bottom:6px}
+.hy-funnel{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.hy-funnel button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 14px;text-align:left;min-width:112px}
+.hy-funnel button.on{border-color:var(--accent);background:var(--accent-bg)}
+.hy-funnel b{display:block;font-size:20px;font-weight:600}.hy-funnel span{font-size:12.5px;color:var(--muted)}
+.hy-tbl{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.hy-r{display:grid;grid-template-columns:62px minmax(0,1fr) 150px 108px 150px;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid var(--line);cursor:pointer}
+.hy-r:hover{background:var(--surface2)}.hy-r.h{cursor:default;color:var(--muted);font-size:12px;background:var(--surface2);border-top:0}
+.hy-r .id{font:12px var(--mono);color:var(--muted)}.hy-r .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.hy-r .tt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hy-r.open .tt{white-space:normal}
+.hy-more{grid-column:1/-1;padding:2px 0 4px 74px;color:var(--muted);font-size:13.5px;display:none}
+.hy-r.open .hy-more{display:block}.hy-more b{color:var(--text);font-weight:500}.hy-more p{margin:3px 0}
+.hy-s{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:500;white-space:nowrap}
+.hy-s.ok{background:var(--ok-bg);color:var(--ok)}.hy-s.part{background:var(--warn-bg);color:var(--warn)}.hy-s.run{background:var(--accent-bg);color:var(--accent)}
+.hy-s.wait{background:var(--warn-bg);color:var(--warn)}.hy-s.nodata,.hy-s.nocode{background:var(--surface2);color:var(--muted);border:1px solid var(--line)}.hy-s.bad{background:var(--bad-bg);color:var(--bad)}
+.hy-f{display:inline-flex;gap:3px}.hy-f i{font:normal 11px var(--mono);padding:0 5px;border-radius:4px;border:1px solid var(--line);color:var(--muted)}
+.hy-f i.on{background:var(--ok-bg);border-color:transparent;color:var(--ok)}.hy-f i.part{background:var(--warn-bg);border-color:transparent;color:var(--warn)}
+.hy-l{color:var(--accent);font-size:12.5px;background:none;border:0;padding:0;text-align:left}.hy-l:hover{text-decoration:underline}
+@media (max-width:900px){.hyv{grid-template-columns:1fr}.hy-rail{flex-direction:row;flex-wrap:wrap;position:static}.hy-r{grid-template-columns:54px 1fr auto}.hy-r .hy-f,.hy-r .hy-lc,.hy-r.h{display:none}.hy-more{padding-left:0}}
 </style>
 <div class="app">
   <header class="top">
@@ -196,6 +226,7 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" id="t-run" aria-selected="true">Запуск</button>
       <button class="tab" role="tab" id="t-let" aria-selected="false">Летопись</button>
+      <button class="tab" role="tab" id="t-hyp" aria-selected="false">Гипотезы</button>
       <button class="tab" role="tab" id="t-prn" aria-selected="false">Прогоны<span class="tbadge" id="tbadge"></span></button>
     </div>
     <div class="pills">
@@ -260,6 +291,17 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
       <div class="tw"><table class="lt" id="lt"></table></div>
     </div>
   </main>
+  <main class="view" id="v-hyp" hidden>
+    <div class="hyv">
+      <nav class="hy-rail" id="hrail" aria-label="Классы"></nav>
+      <div class="hy-main">
+        <div class="hy-funnel" id="hfun"></div>
+        <div class="fbar"><div class="search"><input type="search" id="hq" placeholder="Номер, слово из описания" aria-label="Поиск по гипотезам"></div><span class="cnt" id="hcnt"></span></div>
+        <div class="hy-tbl" id="htbl"></div>
+        <div class="pnote" id="hnote"></div>
+      </div>
+    </div>
+  </main>
   <main class="view" id="v-prn" hidden>
     <div class="pv">
       <div class="psum" id="psum"></div>
@@ -278,7 +320,7 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 (function(){
 var MNN=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 var META,COV,OFFL=[],MON=[],MN=[],H=[],byId={},FAMS=[],STAT={},LR=[],LMN=0,LNH=0,SC=1,lrLoaded=false;
-var sel={},run={},checked={},sv={},focus='',fam='все',q='',flt='all',lvd='',linc=false,vis=[];
+var sel={},run={},checked={},sv={},focus='',fam='все',q='',flt='all',lvd='',linc=false,lsort={k:'',d:1},LMON=[],vis=[];
 function el(id){return document.getElementById(id)}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 var BOOT=/*BOOT*/null;   // первый экран вшит сервером (meta, cov, status, runs): первый api() берёт его без сети
@@ -374,22 +416,44 @@ function fixMonths(r){var h=byId[r.hyp];if(!h)return[];var n=h.names.length,ix=h
  var c=h._cm[ix.join()];if(!c||c[n+2])return[];
  return r.pnl.map(function(v,m){return v===null&&!(c[n+1]>>m&1)?m:-1}).filter(function(m){return m>=0})}
 var lgen=0;
+function lkey(x,k){if(k==='hyp')return x.hyp;if(k==='var')return Object.keys(x.axes).map(function(a){return a+' '+x.axes[a]}).join(' · ');
+ if(k.charAt(0)==='m'){var i=+k.slice(1);return x.nd[i]||x.pnl[i]===undefined?null:x.pnl[i]}
+ if(k==='vd')return vdOf(x);return {sum:x.sum,sh:x.sharpe,wr:x.winrate,hp:x.worst_d,tr:x.trades}[k]}
+function lcmp(a,b){return typeof a==='string'?a.localeCompare(b,'ru',{numeric:true}):a-b}
+function lsorted(rows){var k=lsort.k;if(!k)return rows;var d=lsort.d,a=[],n=[];   // пустые — в конец при любом порядке
+ rows.forEach(function(x){var v=lkey(x,k);(v===null||v===undefined?n:a).push([v,x])});
+ a.sort(function(p,q){return d*lcmp(p[0],q[0])});return a.map(function(p){return p[1]}).concat(n.map(function(p){return p[1]}))}
 function rLet(){var qq=el('lq').value.toLowerCase();
  el('vseg').innerHTML=['','годна','не годна','не просеяно','частично','не считали'].map(function(v){return '<button data-vd="'+v+'"'+(lvd===v?' class="on"':'')+'>'+(v||'Все')+'</button>'}).join('');
  el('linc').classList.toggle('on',linc);
- var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')};
- var rows=LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdMatch(x,lvd))&&(!linc||inc(x))});
+ var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')},LM=LMON.length?LMON:MON;
+ var rows=lsorted(LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdMatch(x,lvd))&&(!linc||inc(x))}));
  el('lcnt').textContent=rows.length+' из '+LR.length+' строк / '+LNH+' хешей · Σ $ — cap 0, вердикт сита — по половине монет А · Шарп, винрейт, перехай — cap 0 по поштучным closes, есть у '+LMN+' из '+LR.length+', «—» = closes нет или не сошлись с Σ $';
- var th='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Шарп</th><th>Винрейт</th><th>Перехай, дн</th><th>Сделок</th><th>Вердикт</th><th></th></tr>';
+ var sh=function(k,t,c,ti){return '<th'+(c?' class="'+c+'"':'')+(ti?' title="'+ti+'"':'')+' data-sort="'+k+'"'+(lsort.k===k?' aria-sort="'+(lsort.d>0?'ascending':'descending')+'"':'')+'>'+t+'</th>'};
+ var th='<tr>'+sh('hyp','Гипотеза')+sh('var','Вариант')+LM.map(function(m,i){return sh('m'+i,MNN[+m.slice(5)-1],'m',m)}).join('')+sh('sum','Σ $')+sh('sh','Шарп')+sh('wr','Винрейт')+sh('hp','Перехай, дн')+sh('tr','Сделок')+sh('vd','Вердикт')+'<th></th></tr>';
  var gen=++lgen,N0=60;
  var row=function(x){
   var vd=vdOf(x),cls=vd==='годна'?'g':vd==='не годна'?'x':'z',bd=(x.sieved&&x.plateau?' · плато':'')+(x.sieved&&x.edge?' · край':''),mo='font-family:var(--mono)';
-  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td><td colspan="'+MON.length+'" style="padding:4px 10px">'+x.pnl.map(function(v,i){return x.nd[i]?'<span class="mc none" title="$ не записан; sum_net_bps '+x.bps[i]+'">н/д</span>':pnlCell(v)}).join('')+'</td><td style="'+mo+'">'+rubl(x.sum,x)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+(x.trades?x.trades:'—')+'</td><td><span class="vd '+cls+'">'+vd+bd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+x._i+'">Досчитать →</button>':'')+'</td></tr>'};
+  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td>'+LM.map(function(m,i){var v=x.pnl[i];return '<td class="m">'+(x.nd[i]?'<span class="mc none" title="$ не записан; sum_net_bps '+x.bps[i]+'">н/д</span>':pnlCell(v===undefined?null:v))+'</td>'}).join('')+'<td style="'+mo+'">'+rubl(x.sum,x)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+(x.trades?x.trades:'—')+'</td><td><span class="vd '+cls+'">'+vd+bd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+x._i+'">Досчитать →</button>':'')+'</td></tr>'};
  el('lt').innerHTML='<thead>'+th+'</thead><tbody id="ltb">'+rows.slice(0,N0).map(row).join('')+'</tbody>';
  requestAnimationFrame(function(){setTimeout(function(){if(gen!==lgen||rows.length<=N0)return;el('ltb').insertAdjacentHTML('beforeend',rows.slice(N0).map(row).join(''))},0)})}   // остальные строки — одной порцией после отрисовки первых (вставка порциями заново верстает таблицу каждый раз: 830 мс против 150)
-function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-prn').setAttribute('aria-selected',t==='prn');prnTimer(t==='prn');if(t==='let')loadLet();if(t==='prn')loadPrn()}
+function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-hyp').hidden=t!=='hyp';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-hyp').setAttribute('aria-selected',t==='hyp');el('t-prn').setAttribute('aria-selected',t==='prn');prnTimer(t==='prn');if(t==='let')loadLet();if(t==='hyp')loadHyp();if(t==='prn')loadPrn()}
+var HV=null,HPRE=null,hcls='Все',hflt='all',hopen={};function preHyp(){if(!HPRE)HPRE=api('api/hyp')}   // как Летопись: данные подгружаются в простое, клик строит DOM без сети
+function loadHyp(){if(HV)return rHyp();el('hcnt').textContent='загрузка…';var pr=HPRE||api('api/hyp');HPRE=null;pr.then(function(d){HV=d;rHyp()}).catch(function(){el('hcnt').textContent='не загрузилось'})}
+function hyF(r){var f=r.f1,a=f.n&&f.full===f.n?'on':f.any?'part':'';return '<span class="hy-f"><i class="'+a+'" title="F1: посчитано '+f.full+' из '+f.n+' хешей сетки">F1</i><i title="F2: не считалась (ждёт слова владельца)">F2</i><i title="F3: не считалась">F3</i></span>'}
+function rHyp(){if(!HV)return;var S={};HV.status.forEach(function(s){S[s[0]]=s[1]});var qq=el('hq').value.toLowerCase(),R=HV.rows;
+ var CL=['Методы','Стена','Режим','Подход','Реакция','Вход','Выход','Портфель','Издержки','Направление'],cc={};R.forEach(function(r){cc[r.cls]=(cc[r.cls]||0)+1});
+ el('hrail').innerHTML=['Все'].concat(CL.filter(function(c){return cc[c]})).map(function(c){return '<button data-hc="'+c+'"'+(c==='Методы'?' class="m'+(hcls===c?' on':'')+'"':hcls===c?' class="on"':'')+'>'+c+'<i>'+(c==='Все'?R.length:cc[c])+'</i></button>'}).join('');
+ var inc=R.filter(function(r){return hcls==='Все'||r.cls===hcls}),n={all:inc.length};inc.forEach(function(r){n[r.status]=(n[r.status]||0)+1});
+ el('hfun').innerHTML=[['all','Все']].concat(HV.status).map(function(t){return '<button data-hf="'+t[0]+'"'+(hflt===t[0]?' class="on"':'')+'><b>'+(n[t[0]]||0)+'</b><span>'+t[1]+'</span></button>'}).join('');
+ var vis=inc.filter(function(r){return(hflt==='all'||r.status===hflt)&&(!qq||(r.id+' '+r.what+' '+r.title+' '+r.mech).toLowerCase().indexOf(qq)>=0)});
+ el('hcnt').textContent=vis.length+' из '+R.length;
+ el('htbl').innerHTML='<div class="hy-r h"><span>№</span><span>Что проверяем</span><span>Статус</span><span>Фракции</span><span>Где смотреть</span></div>'+vis.map(function(r){var o=hopen[r.id],have=r.what;
+  var more='<div class="hy-more">'+(have?'<p><b>Простыми словами:</b> '+esc(r.what)+'</p>':'<p><b>Пояснение простыми словами ещё не внесено.</b> В пуле: '+esc(r.title)+'</p>')+'<p><b>Почему такой статус:</b> '+esc(r.why_text||r.why)+'</p>'+(have&&r.why_text?'<p><b>В реестре:</b> '+esc(r.why)+'</p>':'')+(r.mech?'<p><b>Механизм (пул):</b> '+esc(r.mech)+'</p>':'')+(r.elig?'<p><b>Прошли сито:</b> '+r.elig+' хеш. сетки F1 (кандидаты на F2; F2 ещё не считалась)</p>':'')+'</div>';
+  return '<div class="hy-r'+(o?' open':'')+'" tabindex="0" data-hr="'+r.id+'"><span class="id">'+esc(r.id)+'</span><span class="tt"><span>'+esc(have?r.what.split('. ')[0].replace(/\.$/,''):r.title)+'</span><div class="sub">'+esc(r.cls)+'</div></span><span><span class="hy-s '+r.status+'" title="'+esc(r.why)+'">'+S[r.status]+'</span></span>'+hyF(r)+'<span class="hy-lc">'+(r.f1.n?'<button class="hy-l" data-hl="'+r.id+'">'+r.f1.n+' хеш. в Летописи →</button>':'<span class="id">в Летописи нет</span>')+'</span>'+more+'</div>'}).join('')||'<div class="empty">Ничего нет</div>';
+ el('hnote').textContent='Статусы и счётчики берутся из Летописи, очереди и статуса пула автоматически; тексты — '+HV.texts_n+' из '+R.length+' внесены. F2 и F3 пока не считались.'}
 var LPRE=null;function preLet(){if(!LPRE)LPRE=api('api/letopis')}   // данные Летописи подгружаются в простое после старта: клик строит DOM без сети (RTT ≈ 70 мс + 61 КБ)
-function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';var pr=LPRE||api('api/letopis');LPRE=null;pr.then(function(d){LR=d.rows;LR.forEach(function(r,i){r._i=i});LMN=d.metrics_n||0;LNH=d.nhash||0;lrLoaded=true;
+function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';var pr=LPRE||api('api/letopis');LPRE=null;pr.then(function(d){LR=d.rows;LMON=d.months||[];LR.forEach(function(r,i){r._i=i});LMN=d.metrics_n||0;LNH=d.nhash||0;lrLoaded=true;
  var a=[];LR.forEach(function(r){r.pnl.forEach(function(v){if(v!==null)a.push(Math.abs(v))})});a.sort(function(x,y){return x-y});SC=a.length?(a[Math.floor(a.length*.9)]||1):1;rLet()})}
 var PV=null,pflt='',popen={},pTimer=null,PST={run:'идёт',queue:'в очереди',wait:'ждёт Летопись',done:'в Летописи',fail:'отказ'};
 function pFmt(v,k){if(v===null||v===undefined)return '—';return k==='pnl'?(v>0?'+':'')+Math.round(v):k==='sh'?v.toFixed(2):k==='wr'?Math.round(v*100)+' %':v.toFixed(1)}
@@ -433,7 +497,12 @@ function toast(s){var t=el('toast');t.textContent=s;t.hidden=false;clearTimeout(
 function bump(id){sv[id]=(sv[id]||0)+1}
 var G=null;
 document.addEventListener('click',function(e){var t=e.target,c;
- if(t.id==='t-run')return tab('run');if(t.id==='t-let')return tab('let');if(t.closest('#t-prn'))return tab('prn');
+ if((c=t.closest('#lt th[data-sort]'))){var sk=c.dataset.sort;lsort=lsort.k!==sk?{k:sk,d:1}:lsort.d>0?{k:sk,d:-1}:{k:'',d:1};return rLet()}
+ if(t.id==='t-run')return tab('run');if(t.id==='t-let')return tab('let');if(t.id==='t-hyp')return tab('hyp');if(t.closest('#t-prn'))return tab('prn');
+ if((c=t.closest('[data-hl]'))){lvd='';el('lq').value=c.dataset.hl;return tab('let')}
+ if((c=t.closest('[data-hc]'))){hcls=c.dataset.hc;return rHyp()}
+ if((c=t.closest('[data-hf]'))){hflt=c.dataset.hf;return rHyp()}
+ if((c=t.closest('[data-hr]'))){hopen[c.dataset.hr]=!hopen[c.dataset.hr];return rHyp()}
  if((c=t.closest('[data-pf]'))){pflt=c.dataset.pf;return rPrn()}
  if((c=t.closest('[data-po]'))){var po=c.dataset.po;popen[po]=!popen[po];return rPrn()}
  if(t.dataset.open){lvd='';el('lq').value='';tab('let');return toast('Летопись: прогон '+t.dataset.open)}
@@ -475,6 +544,8 @@ document.addEventListener('keydown',function(e){
  }});
 el('q').addEventListener('input',function(e){q=e.target.value;rList()});
 el('lq').addEventListener('input',rLet);
+el('hq').addEventListener('input',rHyp);
+el('htbl').addEventListener('keydown',function(e){var r=e.target.closest&&e.target.closest('[data-hr]');if(r&&e.target===r&&(e.key==='Enter'||e.key===' ')){e.preventDefault();var id=r.dataset.hr;hopen[id]=!hopen[id];rHyp();var n=el('htbl').querySelector('[data-hr="'+id+'"]');if(n)n.focus()}});
 function loadStatus(){return api('api/status').then(function(s){STAT=s;rTop()}).catch(function(){})}
 function refresh(reload){return Promise.all([api('api/meta'),api('api/cov'),api('api/status')]).then(function(r){META=r[0];COV=r[1];STAT=r[2];build();all();rTop();if(reload)lrLoaded=false})}
 function live(){if(!window.EventSource){setInterval(loadStatus,60000);setInterval(loadPrn,60000);return}
@@ -482,8 +553,9 @@ function live(){if(!window.EventSource){setInterval(loadStatus,60000);setInterva
  es.onopen=function(){if(first){first=false;return}loadStatus();loadPrn()};
  es.onmessage=function(m){var k=[];try{k=JSON.parse(m.data).keys||[]}catch(e){}
   if(k.indexOf('status')>=0)loadStatus();if(k.indexOf('runs')>=0)loadPrn();
+  if(k.indexOf('cov')>=0){HV=null;HPRE=null;if(!el('v-hyp').hidden)loadHyp();else preHyp()}
   if(k.indexOf('meta')>=0||k.indexOf('cov')>=0)refresh(true);
   else if(k.indexOf('letopis')>=0){lrLoaded=false;LPRE=null;if(!el('v-let').hidden)loadLet();else preLet()}}}
-refresh().then(function(){loadPrn();live();setTimeout(preLet,300)}).catch(function(e){el('hlist').innerHTML='<div class="empty">Не загрузилось: '+esc(e)+'</div>'});
+refresh().then(function(){loadPrn();live();setTimeout(preLet,300);setTimeout(preHyp,600)}).catch(function(e){el('hlist').innerHTML='<div class="empty">Не загрузилось: '+esc(e)+'</div>'});
 })();
 </script>

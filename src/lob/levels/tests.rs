@@ -1601,6 +1601,7 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
             // впереди неё (строго лучше) 10 020 с 3 лотами за секунду до взвода.
             stack_levels_at_arm: 1,
             stack_span_bps_at_arm: 0,
+            repeat_count_at_arm: 0,
             frontrun_lots_at_arm: 3,
             p08: Some(ArmP08 {
                 traded_lots: 0,

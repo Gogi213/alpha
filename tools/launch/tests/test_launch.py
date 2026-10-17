@@ -350,10 +350,23 @@ def test_routes_file_r1spec_matches_plan_and_counts():
     """Охрана TK-249: хеш в r1spec = хеш клетки плана с теми же колонкой и keep_q; r1 — все со знаком, r1x — 270 готовых клеток tk202."""
     import collections
     doc = launch.json.load(open(launch.ROUTES_FILE, encoding="utf-8"))
-    rows = {r["hash"]: r for r in launch.plan_rows()}
+    rows = {r["hash"]: r for r in launch.plan_rows_cfg(launch.load_config())}   # TK-278: доли F1+F2 (config.fraction [1, 2]) и П-17
     assert set(doc["r1spec"]) == {h for h, r in doc["routes"].items() if r == "r1"}
     for h, (hyp, col, sign, kq, ctx_axis, ctx_q) in doc["r1spec"].items():
         a = rows[h]
         assert (a["hyp"], a["axes"]["col"], str(a["axes"]["keep_q"])) == (hyp, col, kq) and sign in ("hi", "lo") and not ctx_axis and not ctx_q
-    cnt = collections.Counter(doc["routes"].values())
+    cnt = collections.Counter(doc["routes"][r["hash"]] for r in launch.plan_rows("P-14", 1))   # счёт по доле F1: F2 добавляет свои хеши
     assert cnt["r1x"] == 270 and cnt["r1"] == 279 and cnt["r1comp"] == 27 and "r1col" not in cnt
+
+
+def test_p17_routes_and_bin_guard():
+    """TK-279: П-17 рядом с П-14 — все 292 хеша в маршрутах, форма видит клетки обоих протоколов; бинарь без P-17 в bin.protocols отказывает."""
+    cfg = launch.load_config()
+    assert launch.protocols_of(cfg) == [("P-14", [1, 2]), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
+    p17 = launch.plan_rows("P-17", 1)
+    routes = launch.load_routes()
+    assert len(p17) == 292 and {r["hash"] for r in p17} <= set(routes) and {r["hash"] for r in launch.plan_rows_cfg(cfg)} >= {r["hash"] for r in p17}
+    p = {"cells": [{"hash": p17[0]["hash"], "new_months": ["2026-03"]}]}
+    assert launch.bin_protocols_missing(cfg, p) == ["P-17"]
+    assert launch.bin_protocols_missing({**cfg, "bin": {**cfg["bin"], "protocols": ["P-14", "P-17"]}}, p) == []
+    assert launch.bin_protocols_missing({"protocol": "P-14", "fraction": 1}, p) == []

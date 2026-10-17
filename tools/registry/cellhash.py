@@ -61,6 +61,9 @@ def parse_entry(s):
     if m:
         return {"kind": "ladder", "n": num(m.group(1)), "lo": num(m.group(2)), "hi": num(m.group(3)),
                 "unit": "sigma" if m.group(4) else "bps", "w": num(m.group(5))}
+    m = re.fullmatch(r"postsweep(\d+)", s)  # Г-135 (П-17): вход по рынку после свипа, отход на R bps; без ветки ушёл бы в стоп/тейк
+    if m:
+        return {"kind": "postsweep", "r": num(m.group(1))}
     return {"kind": "raw", "label": s}
 
 
@@ -119,7 +122,8 @@ EXEC_KEYS = ("place_ns", "cancel_ns", "taker_ns", "p95_place_ns", "p95_cancel_ns
              "hold_step", "busy_skip", "exit_group", "approach_bps", "touches_from", "verdict_csv")
 # A0 (TK-199, В-227): ключи FilterSet, которых не было в SET_KEYS. В канон-JSON входят ТОЛЬКО заданные (None пропускается):
 # иначе все 487 прежних хешей сменились бы. `r1_<кол>_min|max` (кроме r1_born_shift_cbps_min — он в SET_KEYS) сводятся в set.r1.
-OPT_SET_KEYS = ("eaten", "eaten_min", "frontrun_min", "behind_min", "stack_min", "lot_first")
+OPT_SET_KEYS = ("eaten", "eaten_min", "frontrun_min", "behind_min", "stack_min", "lot_first",
+                "repeat_min", "swept_min", "lreg_t", "lreg_f", "sreg_t", "sreg_f", "size_risk", "entry_gate")  # П-17 (TK-279): repeat_min=0 — контроль Г-136, тоже ключ
 _R1_KEY = re.compile(r"r1_(.+)_(min|max)")
 PATH_EXEC_KEYS = ("touches_from", "verdict_csv")  # путь машины в ключ не входит: последние два компонента
 
