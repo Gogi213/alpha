@@ -2,10 +2,10 @@
 
 | число | файл:строка |
 |---|---|
-| 1555 | calc /data/tk0268/j268-letopis.json (rows) |
-| 1477 | calc /data/tk0268/j268-letopis.json (metrics_n) |
-| 78 | calc /data/tk0268/j268-letopis.json (metrics_dash) |
-| 13833 | calc /data/tk0268/j268-cov.json (done по cnt()) |
-| 243 | calc /data/tk0268/j268-cov.json (cov.Г-82) |
-| 408 | calc /data/tk0268/j268-letopis.json (hash c85c2318c4bd76ae trades) |
-| 10,51 | calc /data/tk0268/j268-letopis.json (hash c85c2318c4bd76ae sum) |
+| 1555 | docs/research/reviews/tk268-accept-slice-2026-10-17.txt:2 |
+| 1477 | docs/research/reviews/tk268-accept-slice-2026-10-17.txt:3 |
+| 78 | docs/research/reviews/tk268-accept-slice-2026-10-17.txt:4 |
+| 243 | docs/research/reviews/tk268-accept-slice-2026-10-17.txt:5 |
+| 13833 | docs/research/reviews/tk268-accept-slice-2026-10-17.txt:6 |
+| 408 | docs/research/reviews/tk268-accept-slice-2026-10-17.txt:8 |
+| 10,51 | docs/research/reviews/tk268-accept-slice-2026-10-17.txt:9 |
