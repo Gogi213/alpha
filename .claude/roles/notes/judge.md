@@ -412,3 +412,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 17.10 (TK-295 PR #57 принято [вживую]): md5 calc = git show <голова>, тот же id идущего + ActiveEnterTimestamp = без потерь; ps без done; accept → wait merged; ~4 мин.
 - 18.10 (TK-295 закрытие после слияния): md5 /data/sched по ssh calc = git show origin/master; хвост из сдачи «не чинил» → tickets.py new --ref В-34 до accept --tail TK-296; ~4 мин.
 - 18.10 (TK-296 PR #58 принято [вживую]): до/после — worktree головы + alsched.py из origin/master → новый тест красный; md5 calc = git show голова; --repo = owner/name (не «.»); ~5 мин.
+- 18.10 (TK-272 надзиратель $21 дорого): rc всех заданий из лога по ssh calc (rc/<id>, jobs/<id>.json name/state); не сделанное решение без машины (сито) = return «сейчас», сборки одной головой; ~5 мин.
