@@ -29,6 +29,16 @@ def plan_rows(protocol="P-14", fraction=1):
     return out
 
 
+def protocols_of(cfg):
+    """[(протокол, фракция)] формы: config.protocols (пары) или один (protocol, fraction) — прежнее поведение (TK-279: П-17 рядом с П-14)."""
+    return [tuple(x) for x in cfg.get("protocols") or [(cfg["protocol"], cfg["fraction"])]]
+
+
+def plan_rows_cfg(cfg):
+    """Клетки сеток всех протоколов формы подряд (plan_rows по каждой паре)."""
+    return [r for proto, fr in protocols_of(cfg) for r in plan_rows(proto, fr)]
+
+
 ROUTES_FILE = os.path.join(HERE, "routes.json")
 R1_ROUTES = ("r1", "r1x")   # TK-251: R1 не идёт строкой --cells — отбор r1cell.py + psim (r1: отбор по .r1spec; r1x: клетки готовы, только psim)
 COUNTABLE = ("cells", "monthly") + R1_ROUTES   # маршруты, которые форма умеет посчитать (прочее: посчитано вне Летописи / нет данных / нет кодировки / композит R1)
@@ -37,7 +47,7 @@ OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata":
 OFF_ROUTES = list(OFF_LABELS)   # код в coverage(): 0 — форма считает, i+1 — OFF_ROUTES[i]
 
 
-def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
+def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE, extra=()):
     """Маршрут каждой клетки сетки по тем же master.LINES/OUTSIDE/R1COL/R1X/MONTHLY, что и master.plan (строки 592-612); пишет routes.json
     (нужна data/registry.sqlite этой машины — серверу достаточно готового файла). {routes:{хеш: маршрут}, lines:{хеш: «форма набор»},
     monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}, r1spec:{хеш: [гипотеза, колонка, знак, keep_q, ось ctx, ctx_q]}};
@@ -47,11 +57,14 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
     import r1cell
     c = master.connect()
     grids, _ = master.build_grid(c, protocol, fraction, None, master.rules_of(c, protocol))
+    items = list(grids.items())
+    for pr, fr in extra:   # TK-279: дополнительные протоколы (П-17) — их сетки после основной; гипотеза может быть в обеих (хеши разные)
+        items += list(master.build_grid(c, pr, fr, None, master.rules_of(c, pr))[0].items())
     c.close()
     r2b = master.r2b_lines()
     sets = {**cellhash_reg.load_sets(), **master.MSETS}
     routes, lines, monthly, used, r1spec = {}, {}, {}, set(), {}
-    for hyp, cells in grids.items():
+    for hyp, cells in items:
         for av, cfg in cells:
             h = ch.cell_hash(cfg)
             if h in routes:
@@ -81,6 +94,8 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
                 routes[h] = "r1route"
     doc = {"protocol": protocol, "fraction": fraction, "generated": now_iso(), "routes": routes, "r2_re": master.R2_EXIT_RE,
            "lines": lines, "monthly": monthly, "sets": {u: sets[u] for u in sorted(used)}, "r1spec": r1spec}
+    if extra:
+        doc["protocols"] = [[protocol, fraction]] + [list(x) for x in extra]
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, ensure_ascii=False, sort_keys=True)
     return doc
@@ -261,7 +276,7 @@ def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, q
     if routes is None:
         routes = load_routes() if rows is None else {}
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
     if have is None:
         import master
         have = master.have_hashes()
@@ -319,7 +334,7 @@ def plan_groups(groups, rows=None, have=None, cfg=None, routes=None, queued=None
     if routes is None:
         routes = load_routes() if rows is None else {}
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
     if have is None:
         import master
         have = master.have_hashes()
@@ -357,7 +372,7 @@ def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
     маска «в очереди», 0 или код причины «вне формы» (1+индекс в OFF_ROUTES)]]}}; бит i маски — cfg.months[i]. Один хеш — одна клетка (как в plan)."""
     cfg = cfg or load_config()
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
         routes = load_routes() if routes is None else routes
     routes = routes or {}
     if have is None:
@@ -452,7 +467,7 @@ def grid_axes(rows=None):
 
 def meta(cfg=None):
     cfg = cfg or load_config()
-    rows = plan_rows(cfg["protocol"], cfg["fraction"])
+    rows = plan_rows_cfg(cfg)
     ncell = collections.Counter(r["hyp"] for r in rows)
     hy = [dict(h, ncells=ncell.get(h["id"], 0)) for h in hyp_list()]
     v227, v227_rows = v227_preset()
@@ -495,7 +510,7 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
             sieve.setdefault(d["cell_hash"], []).append(d)
     routes = load_routes()
     out = []
-    for r in plan_rows(cfg["protocol"], cfg["fraction"]):
+    for r in plan_rows_cfg(cfg):
         if hyp and r["hyp"] != hyp:
             continue
         got = byhash.get(r["hash"], {})
@@ -531,7 +546,7 @@ def hyp_view(cfg=None, cov=None):
     import hyps
     cfg = cfg or load_config()
     cov = coverage(cfg) if cov is None else cov
-    hy_of = {r["hash"]: r["hyp"] for r in plan_rows(cfg["protocol"], cfg["fraction"])}
+    hy_of = {r["hash"]: r["hyp"] for r in plan_rows_cfg(cfg)}
     ok = collections.defaultdict(set)
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
@@ -595,6 +610,13 @@ def queue_cmd(cfg, run_id, run_dir):
     return ["python3", cfg["alsched"], "submit", "--cls", q["cls"], "--name", run_id, "--cores", str(q["cores"]), "--elastic",
             "--mem", str(q["mem"]), "--max-runtime", str(max_runtime), "--est", str(q["est"]), "--", "env", f"BIN={b['path']}",
             f"SCRIPTS={cfg['scripts_dir']}", f"NX={q['cores']}", "bash", os.path.join(HERE, "run-launch.sh"), run_dir]
+
+
+def bin_protocols_missing(cfg, p):
+    """Протоколы формы с клетками к счёту, которых нет в bin.protocols бинаря (умолч. — основной protocol): ключи П-17 старый бинарь не знает (TK-279)."""
+    ok = set(bin_info(cfg).get("protocols") or [cfg["protocol"]])
+    todo = {c["hash"] for c in p["cells"] if c["new_months"]}
+    return sorted({pr for pr, fr in protocols_of(cfg) if pr not in ok and todo & {r["hash"] for r in plan_rows(pr, fr)}})
 
 
 def precheck(p, dry_run, confirm_bin, cfg, log):
@@ -727,6 +749,10 @@ def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, 
     if needs_r2 and "r2" not in (b.get("features") or ""):
         log(f"в плане есть формы r2 (ExitForm::is_r2), бинарь {b.get('path')} собран без cargo feature r2")
         return {"ok": False, "why": "r2-bin-needed", "plan": p}
+    miss = bin_protocols_missing(cfg, p)
+    if miss:
+        log(f"в плане клетки протоколов {', '.join(miss)}, бинарь {b.get('path')} собран без их ключей (config bin.protocols)")
+        return {"ok": False, "why": "bin-protocol-needed", "plan": p}
     log("команда: " + shlex.join(cmd))
     log("строк --cells по месяцам: " + ", ".join(f"{m} {n}" for m, n in per_month.items()))
     r1n = {r: sum(len(c["new_months"]) for c in p["cells"] if c["route"] == r) for r in R1_ROUTES}
@@ -777,7 +803,7 @@ def runs_view(cfg=None, ps_text="", now=None):
             ids.setdefault(fn[:-5], {})
     have = None
     rows_of = {}   # хеш -> строки плана: один хеш (клетка) бывает у нескольких гипотез — подпись берём из заявленных прогоном
-    for r in (plan_rows(cfg["protocol"], cfg["fraction"]) if ids else ()):
+    for r in (plan_rows_cfg(cfg) if ids else ()):
         rows_of.setdefault(r["hash"], []).append(r)
 
     def hyp_of(h, want):
@@ -845,7 +871,8 @@ def main(argv=None):
     sp.add_parser("routes", help="пересчитать routes.json (маршруты клеток; нужна data/registry.sqlite)")
     o = ap.parse_args(argv)
     if o.cmd == "routes":
-        d = build_routes()
+        pf = protocols_of(load_config())
+        d = build_routes(*pf[0], extra=pf[1:])
         print(json.dumps(dict(collections.Counter(d["routes"].values())), ensure_ascii=False), "->", ROUTES_FILE)
         return 0
     if o.cmd == "process-requests":

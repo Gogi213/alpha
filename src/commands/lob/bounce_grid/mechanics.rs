@@ -267,6 +267,13 @@ pub static MECHANICS: &[MechSpec] = &[
         "reclaim{d_bps}p{pause_s}",
         &[int("d_bps", 1, None, &[]), int("pause_s", 0, None, &[])],
     ),
+    // Г-135 (П-17): вход рынком после отхода цены на R bps от экстремума сделок после взвода, окно 30 с.
+    entry_r2(
+        "EntryPostsweep",
+        "postsweep",
+        "postsweep{r_bps}",
+        &[int("r_bps", 1, None, &[])],
+    ),
     entry_r2(
         "EntryRetreat",
         "retreat",

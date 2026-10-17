@@ -333,6 +333,10 @@ pub enum EntryForm {
     /// `reclaim<D>p<S>` (В-227 D, Г-88): вход после «закола» — сделки за уровень на `D` bps и возврата на уровень в окне
     /// взвода; вход через `S` с после возврата (цена входа — как у `single@fr`). Нет закола/возврата — нет входа.
     Reclaim { depth_bps: u32, pause_s: u32 },
+    /// `postsweep<R>` (П-17, Г-135): вход рынком (taker, как `market`) после отхода цены на `R` bps от минимума
+    /// (для шорта — максимума) сделок после взвода, в окне 30 с (`lob::reclaim::POSTSWEEP_WINDOW_NS`) и не дольше
+    /// TTL входа. Нет отхода в окне — нет входа.
+    Postsweep { rise_bps: u32 },
     /// `retreat<k>t<T>` (В-227 D, Г-102): память отступа — после стопа вход отходит от стены на `k` тиков (1…8), добавка
     /// затухает с полураспадом `T` минут; цена входа — как у `single@fr`, состояние ведёт драйвер (`lob::retreat`).
     Retreat { k_ticks: u8, half_min: u32 },
@@ -374,6 +378,18 @@ impl EntryForm {
                 matches!(form, Self::Retreat { k_ticks, half_min } if (1..=8).contains(&k_ticks) && half_min > 0)
                     && form.label() == spec,
                 "{spec}: имя формы входа не каноническое, k вне 1…8 или T = 0"
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("postsweep") {
+            let form = rest
+                .parse::<u32>()
+                .map(|rise_bps| Self::Postsweep { rise_bps })
+                .map_err(|_| anyhow::anyhow!("{spec}: ожидается postsweep<R>, R — bps (≥ 1)"))?;
+            anyhow::ensure!(
+                matches!(form, Self::Postsweep { rise_bps } if rise_bps > 0)
+                    && form.label() == spec,
+                "{spec}: имя формы входа не каноническое или R = 0"
             );
             return Ok(form);
         }
@@ -504,6 +520,7 @@ impl EntryForm {
             }
             Self::Market => "market".to_string(),
             Self::Reclaim { depth_bps, pause_s } => format!("reclaim{depth_bps}p{pause_s}"),
+            Self::Postsweep { rise_bps } => format!("postsweep{rise_bps}"),
             Self::Retreat { k_ticks, half_min } => format!("retreat{k_ticks}t{half_min}"),
             Self::Ladder {
                 legs,
