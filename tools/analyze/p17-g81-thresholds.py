@@ -18,7 +18,7 @@ for p in glob.glob(f"{out_dir}/run-*/out/*/cxlprobe*/gate-probe.csv") + glob.glo
 for p in glob.glob(f"{out_dir}/run-*/out/*/cxlprobe*/forms.csv") + glob.glob(f"{out_dir}/run-*/w-*/b5/out-*-tape/cxlprobe*/forms.csv"):
     w = int(os.path.basename(os.path.dirname(p))[len("cxlprobe"):])
     with open(p, encoding="utf-8", newline="") as fh:
-        for r in csv.DictReader(fh):
+        for r in csv.DictReader(l for l in fh if not l.startswith("#")):   # forms.csv начинается строкой «# lob bounce-grid: …»
             sig[(r["day_utc"][:7], w)] += int(r["n_signals"])
 rows = []
 for (m, w), v in sorted(meas.items()):
