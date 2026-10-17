@@ -485,6 +485,32 @@ fn lot_first_scales_only_first_touch_of_the_level() {
     }
 }
 
+/// П-19 (TK-291): `--touch-col` дописывает в конец `rounds.csv` столбец `touch_index`; прежние столбцы и строки — байт в
+/// байт как без флага (гейт Судьи); без флага шапка прежняя, столбца нет.
+#[test]
+fn touch_col_appends_column_and_keeps_old_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-base");
+    run_bounce_grid(&a).unwrap();
+    a.touch_col = true;
+    a.out_dir = dir.path().join("grid-touch");
+    run_bounce_grid(&a).unwrap();
+    let base = std::fs::read_to_string(dir.path().join("grid-base/rounds.csv")).unwrap();
+    let with = std::fs::read_to_string(dir.path().join("grid-touch/rounds.csv")).unwrap();
+    let (bl, wl): (Vec<&str>, Vec<&str>) = (base.lines().collect(), with.lines().collect());
+    assert_eq!(bl.len(), wl.len());
+    assert!(bl.len() > 2, "в фикстуре должны быть круги");
+    assert!(!bl[1].contains("touch_index"));
+    assert!(wl[1].ends_with(",touch_index"), "{}", wl[1]);
+    for (b, w) in bl.iter().zip(&wl).skip(2) {
+        let cut = w.rfind(',').unwrap();
+        assert_eq!(*b, &w[..cut], "старые столбцы не тронуты");
+        assert!(w[cut + 1..].parse::<u32>().is_ok(), "{w}");
+    }
+}
+
 /// R3 (ревью 23.09, замечание проверки): явный лот `--order-qty-e9`, не
 /// кратный шагу записи, — отказ, а не молчаливое округление ног лестницы
 /// (0.0015 при шаге 0.001 дал бы 2 шага — +33 % к размеру круга).

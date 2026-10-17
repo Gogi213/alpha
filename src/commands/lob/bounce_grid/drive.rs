@@ -151,6 +151,7 @@ fn signals_for(
                 sigma: dir,
                 plan,
                 profile: 0,
+                touch_index: t.touch_index,
                 qty: Some(p.order_qtys[ti]),
             })
         })
