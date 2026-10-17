@@ -274,14 +274,12 @@
  },
  "hash_rule": "Г-98/Г-136/Г-137 — хеш набора (size_risk/agemax/repeat_min в каноне); Г-81/Г-101/Г-135 — хеш варианта (семья + оси), порог по месяцам из P-17-thresholds.csv",
  "pending": {
-  "thresholds": [
-   "Г-81"
-  ],
+  "thresholds": [],
   "done": {
+   "Г-81": "docs/research/P-17-thresholds.csv (tools/analyze/p17-g81-thresholds.py, cxl_w<W>_over_size по касаниям B1 своего месяца, проба tk279-g81-probe.sh 251 сутки; охват — docs/research/P-17-g81-coverage.csv)",
    "Г-101": "docs/research/P-17-thresholds.csv (tools/analyze/p17-btc4h-thresholds.py, btc4h по касаниям B1 своего месяца, 9 мес., 2751 касание)",
    "Г-135": "там же, swept_pct_of_size_bp (swept_lots·1e4/size_at_touch, потолок квантиля; касаний 2495 из 2751, без строки touches 255)"
-  },
-  "why": "Г-81 — мера отмен за W от взвода, нужен проход меры в Rust (диагностический вывод по касаниям B1)"
+  }
  },
  "cells_total": 292,
  "families": {
