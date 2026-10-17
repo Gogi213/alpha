@@ -54,7 +54,7 @@ def _stamp_cov():
         names = sorted(os.listdir(cfg["run_dir"]))
     except OSError:
         names = []
-    return (_stamp(), hash(tuple(names))) + tuple(_mt(os.path.join(cfg["run_dir"], n, "run.json")) for n in names)
+    return (_stamp(), hash(tuple(names)), _mt(os.path.join(HERE, "hyp_texts.json"))) + tuple(_mt(os.path.join(cfg["run_dir"], n, "run.json")) for n in names)
 
 
 def _stamp_light():
@@ -171,7 +171,7 @@ def watch(period=1.0):
 def prewarm():
     """Прогрев при старте: meta, cov и Летопись целиком — первый запрос страницы отдаёт готовые байты."""
     for key, fn in (("status", _status), ("runs", _runs), ("meta", launch.meta), ("cov", _cov),
-                    (("letopis", None, None, None), lambda: launch.letopis())):
+                    (("cov", "hyp"), launch.hyp_view), (("letopis", None, None, None), lambda: launch.letopis())):
         try:
             cached(key, fn)
         except Exception as e:
@@ -295,6 +295,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/letopis":
                 return self._send(200, cached(("letopis", q.get("hyp"), q.get("month"), q.get("status")),
                                               lambda: launch.letopis(q.get("hyp"), q.get("month"), q.get("status"))))
+            if path == "/api/hyp":   # «Гипотезы»: статусы из реестра + тексты hyp_texts.json
+                return self._send(200, cached(("cov", "hyp"), launch.hyp_view))
             if path == "/api/status":
                 return self._send(200, cached("status", _status))
             if path == "/api/runs":   # «Прогоны»: готовые байты, пересчёт по событиям каталогов прогонов и заданий alsched

@@ -60,6 +60,7 @@ case "$WHAT" in
   testdbg) CMD="cargo test $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
   clippy) CMD="cargo clippy --release $FEAT --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL25" ;;
   fmt)    CMD="cargo fmt --check 2>&1 $TL25" ;;
+  lint)   CMD="bash tools/lint-gate.sh $TGT-lint 2>&1 $TL15" ;;   # TK-279: только бюджет линтов (строгие линты + счёт срабатываний), без тестов   # TK-279: только бюджет линтов (строгие линты + счёт срабатываний), без тестов
   build)  CMD="cargo build --release $FEAT --target-dir $TGT -j $J 2>&1 $TL5" ;;
   # TK-160: бинарники для гейта прямо на машине сборки, без копирования: без фич и r2 → $BIN_OUT-plain / $BIN_OUT-r2 + md5
   bin)    : "${BIN_OUT:?BIN_OUT — путь на машине сборки, например /data/tk0160/alpha-tk160}"

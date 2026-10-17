@@ -20,7 +20,7 @@ COLS = {"params.csv": ("name", "unit", "resolution", "axis_type", "cfg_path", "n
         "hyp_axes.csv": ("hyp", "protocol", "version", "stack", "param", "lo", "hi", "points_f1", "old_points", "note", "role", "engine", "mechanic"),
         "rules.csv": ("protocol", "version", "key", "value")}
 RULE_DEFAULTS = {"months": 9}
-F1_STATS = os.path.join("docs", "findings", "tk237-sieve-f1-cell-A-2026-10-13.csv")   # сито F1, сторона А (hyp, axes, days_A, dSR, p, status) — вход зоны F2
+F1_STATS = os.path.join("docs", "findings", "tk278-sieve-f1-all-A-2026-10-16.csv")   # сито F1 по всем 50 гипотезам (TK-278 п.4; было tk237-…-cell-A, 12 гипотез), сторона А (hyp, axes, days_A, dSR, p, status) — вход зоны F2
 MAX_ZONES = 3   # П-14 §11.2 п. 2
 
 
@@ -91,6 +91,81 @@ def load_axes(dirp, protocol="P-14"):
         _replace(jn, rows, lambda d, key=key: tuple(d[k] for k in key))
         out[fn] = len(rows)
     return out
+
+
+# ---------- П-17 (TK-279): Г-81, Г-98, Г-101, Г-135, Г-136, Г-137 ----------
+P17_HYPS = ("81", "98", "101", "135", "136", "137")
+P17_SET_B1 = "age=2700,side=bid,btc4h_max=-44.55"
+_P17_THR = os.path.join(ROOT, "docs", "research", "P-17-thresholds.csv")   # hyp,month,axis,q,threshold,n (p17-*-thresholds.py): порог по касаниям B1 своего месяца
+
+
+def p17_thr(hyp, axis):
+    """{ГГГГ-ММ: {q: порог (строкой, как в файле)}} из P-17-thresholds.csv; нет файла или строк — {}."""
+    out = {}
+    if os.path.exists(_P17_THR):
+        with open(_P17_THR, encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                if r["hyp"] == hyp and r["axis"] == axis:
+                    out.setdefault(r["month"], {})[int(r["q"])] = r["threshold"]
+    return out
+
+
+def p17_cell(hyp, av, cfg, form):
+    """Клетка П-17 (хеши = docs/research/P-17-scope.json, p17_scope.py): Г-98/136/137 — хеш набора, строка `<форма> <набор>`;
+    Г-81/101/135 — хеш варианта (семья + оси), строки по месяцам из порога месяца (нет порога — строки нет, причина в LINES)."""
+    import cellhash_reg as cr
+    n = re.sub(r"\D", "", hyp)
+    Q9 = (5, 10, 20, 33, 50, 67, 80, 90, 95)
+    if n in ("98", "136", "137"):
+        if n == "98":
+            r = _int_in(_frac(av["R_usd"]), (2, 3, 5, 8, 12, 20, 30, 50, 80))
+            spec, name = f"{P17_SET_B1},size_risk={r}", f"g98r{r}"
+        elif n == "136":
+            a, k = _frac(av["A_min"]), _frac(av["k"])
+            spec, name = f"side=bid,btc4h_max=-44.55,agemax={int(a) * 60},repeat_min={int(k)}", f"g136a{int(a)}k{int(k)}"
+        else:
+            spec, name = f"{P17_SET_B1},repeat_min={int(_frac(av['k']))}", f"g137k{int(_frac(av['k']))}"
+        cfg["set"] = cr.set_of(spec)
+        MSETS[name] = spec
+        LINES[ch.cell_hash(cfg)] = (f"{form} {name}", None)
+        return
+    fam = f"g{n}"
+    axes = {k: ch.num(_frac(v)) if fval(v) is not None else v for k, v in av.items()}
+    cfg["variant"] = {"family": fam, "axes": axes}
+    h = ch.cell_hash(cfg)
+    q = int(axes.get("cxl_q", axes.get("T_q", axes.get("swept_q", 0))))
+    if q not in Q9:
+        LINES[h] = (None, f"Г-{n}: q ∈ {{5,10,20,33,50,67,80,90,95}}")
+        return
+    if n == "81":
+        w = int(axes["W_s"])
+        thr, axis, pre = p17_thr("Г-81", f"cxl_w{w}_over_size"), f"cxl_w{w}_over_size", f"g81cxlw{w}q{q}"   # «cxl» в имени: строка уходит в пачку с --tape-log (day-cells.sh: grep tape|cxl)
+    elif n == "101":
+        thr, axis, pre = p17_thr("Г-101", "btc4h"), "btc4h", f"g101{axes['part']}t{q}f{axes['f_bp']}"
+    else:
+        thr, axis, pre = p17_thr("Г-135", "swept_pct_of_size_bp"), "swept_pct_of_size_bp", f"g135q{q}"
+        form = form.replace(cr.B1_FORM.split("-", 1)[0], str(axes["entry"]))   # ladder… -> postsweep<R> (форма входа Г-135; B1-лестницы у Г-135 нет)
+    if not thr:
+        LINES[h] = (None, f"Г-{n}: нет порогов {axis} в {os.path.basename(_P17_THR)}" + (" — проход меры (tk279-g81-probe.sh, p17-g81-thresholds.py)" if n == "81" else ""))
+        return
+    LINES[h] = (None, f"месячный набор {pre}-<ГГГГ-ММ> ({axis} ≤/≥ T_m): файлы <имя>-<ГГГГ-ММ>.cells")
+    mm = {}
+    for m, per in thr.items():
+        t = per.get(q)
+        if t is None:
+            continue
+        if n == "81":
+            if float(t) <= 0:
+                continue   # Q > 0 (sets.rs): нулевой порог — ворота не определены в этом месяце
+            spec = f"{P17_SET_B1},entry_gate=cxl{w}q{t}"
+        elif n == "101":
+            key = "lreg" if axes["part"] == "ladder" else "sreg"
+            spec = f"{P17_SET_B1},{key}_t={t},{key}_f={int(axes['f_bp'])}"
+        else:
+            spec = f"{P17_SET_B1},swept_min={int(float(t))}"
+        MSETS[f"{pre}-{m}"] = spec
+        mm[m] = f"{form} {pre}-{m}"
+    MONTHLY[h] = mm
 
 
 # ---------- сборка конфига клетки из стека и осей ----------
@@ -172,7 +247,7 @@ def _dec(x):
     return format(Decimal(repr(float(x))), 'f')   # каноническое имя --exit-form: без экспоненты (Rust: 0.0000227…)
 
 
-R1_NODATA = ("tape_burst_press_60s_bp",)   # coverage-r1.json r1ext: jan_n_defined 0, охват 0 во всех месяцах — файлов нет
+R1_NODATA = ()   # TK-268: колонка *_60s_bp в пуле сигналов есть (272 из 273 суток, /data/tk0268/pool60) — «нет данных» не осталось
 R1EXT = "r1ext TK-189: /data/tk189/r1ext/cells/<мес>/ (271 кл./мес, фев…окт; 5 прежних точек побайтно = /data/tk064/r1)"
 R2B_MONTHS = tuple(f"2026-{m:02d}" for m in range(1, 10))   # TK-115 R2-B (job 1011200729464, calc /data/p12r3a/r2b): 31 форма × B1-сутки янв–сен, B1 = набор t-bid-btc4h-q1
 OUTSIDE = {}  # хеш клетки -> где посчитано вне Летописи (не «к счёту», не в --cells): загрузка результатов в Летопись — отдельный шаг
@@ -382,6 +457,8 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
             R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
         elif ("ctx_q" in av or col is not None) and "common_q" not in av:   # В-227 М1/М3: колонка/знак вне r1ext и ctx×keep_q — посчитано tk202-r1x.py (calc /data/tk202/r1x, янв–сен)
             R1X.add(ch.cell_hash(cfg))
+    elif av and re.sub(r"\D", "", hyp) in P17_HYPS:   # П-17 (TK-279): ключи набора B1 (size_risk/repeat_min/agemax — хеш набора; entry_gate/lreg/sreg/swept_min — вариант семьи + порог по месяцам)
+        p17_cell(hyp, av, cfg, form)
     elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
         a = _frac(av["a"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"a": int(a) if float(a).is_integer() else a}}
@@ -423,14 +500,14 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
             MONTHLY[h] = mm
     elif av and ("usd_min_q" in av or "behind_min_q" in av) and "keep_q" not in av:   # В-227 М3 (Г-89/107/27, Г-32): usd_min=T_m(q) по месяцам; Г-07 — behind_min=T_m(q), % (D20); Г-32 — ещё страта btc4h внутри базы B1 (Судья 12.10 04:14)
         ax, pre, key = ("behind_min_q", "b", "behind") if "behind_min_q" in av else ("usd_min_q", "u", "usd")   # ось, префикс набора, раздел порогов
-        q = _int_in(_frac(av[ax]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        q = _int_in(_frac(av[ax]), range(1, 100))   # Q9 F1 + целые F2 (П-14 §3.3: разрешимость процентиля 1); T_m(q) — tk202-thresholds.py --q
         k = int(str(av["ctx_q"])[1:]) if "ctx_q" in av and re.fullmatch(r"q[1-5]", str(av["ctx_q"])) else None
         axes = {ax: q} if k is None else {ax: q, "ctx": f"btc4h-q{k}"}
         cfg["variant"] = {"family": "g32" if "ctx_q" in av else ("behind_min" if key == "behind" else "usd_min"), "axes": axes}   # Г-89/107/27 — одна ось, один хеш
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TK202_THR, encoding="utf-8")) if os.path.exists(_TK202_THR) else {}
         if not q or ("ctx_q" in av and k is None):
-            LINES[h] = (None, f"{ax} ∈ {{5,10,20,33,50,67,80,90,95}}, ctx_q ∈ q1…q5")
+            LINES[h] = (None, f"{ax} — целое 1…99, ctx_q ∈ q1…q5")
         elif not thr:
             LINES[h] = (None, f"нет {os.path.basename(_TK202_THR)} — tools/analyze/tk202-thresholds.py")
         else:
@@ -586,6 +663,28 @@ def f2_points(zone, rs, f1_pts, ptypes, rules):
     return pts
 
 
+def zone_nearest(combos, pts, names, zone, lim):
+    """Потолок на зону (решение Судьи, tk278 §11.2 п. 4): lim клеток, ближайших к центру зоны — L∞ в шагах точек F2, затем L1, затем по рангам осей. Центр по оси = среднее значений зоны; ось нечисловая или вне сита — расстояние 0."""
+    rank, cen = {}, {}
+    for n in names:
+        g = sorted(pts[n], key=lambda v: (fval(v) is None, fval(v) or 0, str(v)))
+        rank[n] = {v: i for i, v in enumerate(g)}
+        zv = [fval(str(r["ax"][n])) for r in zone if n in r["ax"]]
+        fg = [fval(v) for v in g]
+        if not zv or None in zv or None in fg:
+            cen[n] = None
+            continue
+        c = sum(zv) / len(zv)
+        i = max([j for j in range(len(fg)) if fg[j] <= c] or [0])
+        cen[n] = i + ((c - fg[i]) / (fg[i + 1] - fg[i]) if i + 1 < len(fg) and c > fg[i] else 0)
+
+    def key(combo):
+        ix = tuple(rank[n][v] for n, v in zip(names, combo))
+        d = [abs(i - cen[n]) if cen[n] is not None else 0 for i, n in zip(ix, names)]
+        return (max(d), sum(d), ix)
+    return sorted(combos, key=key)[:int(lim)]
+
+
 def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
     """{hyp: [(axes_dict, cfg)]} для фракции k; закрытые гипотезы -> список пуст (причина в closed)."""
     rules = rules or rules_of(c, protocol)
@@ -612,14 +711,14 @@ def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
         sv, _ = stack_values(c, axes[0][2], axes[0][3] or None)
         f1_pts = {a[0]: [x for x in a[1].split("|") if x] for a in axes}
         if k == 1:
-            psets = [f1_pts]
+            psets = [(f1_pts, None)]
         elif k == 2:
             rs = f1.get(hyp, [])
             zones = f2_zones(rs, ptypes)
             if not zones:
                 closed[hyp] = "не определена (П-14 §11.1): нет определённых клеток F1 — не в F2 и не отбракована"
                 continue
-            psets = [f2_points(z, rs, f1_pts, ptypes, rules) for z in zones]
+            psets = [(f2_points(z, rs, f1_pts, ptypes, rules), z) for z in zones]
         else:
             prev = {r[0]: json.loads(r[1]) for r in c.execute("select cell_hash, axes from plan_cells where protocol=? and fraction=? and hyp=?", (protocol, k - 1, hyp))}
             plat = [prev[r[0]] for r in c.execute("select cell_hash from sieve where protocol=? and fraction=? and hyp=? and side='A' and plateau=1", (protocol, k - 1, hyp)) if r[0] in prev]
@@ -630,16 +729,15 @@ def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
             for a in axes:
                 t, res = ptypes.get(a[0], ("numeric", None))
                 pts[a[0]] = refine(sorted({str(p[a[0]]) for p in plat}), sorted({str(p[a[0]]) for p in prev.values()}, key=lambda v: (fval(v) is None, fval(v) or 0, v)), t, res, int(rules.get("step_div", 4)), rules.get("cap_f3", 8))
-            psets = [pts]
+            psets = [(pts, None)]
         lim = rules.get("cap_cells", 100)
-        big = [n for n in (math.prod(len(pts[a[0]]) for a in axes) for pts in psets) if k > 1 and n > lim]
-        if big:   # потолок — на зону (решение Судьи, tk269 §11.2 п. 4), не на гипотезу
-            closed[hyp] = f"зона {max(big)} > потолка {int(lim)} клеток — сузить (решение Судьи)"
-            continue
         cells, seen = [], set()
         mm = {a[0]: a[5] for a in axes if a[5]}
-        for pts in psets:
-            for combo in itertools.product(*[pts[a[0]] for a in axes]):
+        for pts, zone in psets:
+            combos = list(itertools.product(*[pts[a[0]] for a in axes]))
+            if k > 1 and zone and len(combos) > lim:   # потолок — на зону (решение Судьи, tk269/tk278 §11.2 п. 4): lim ближайших к центру
+                combos = zone_nearest(combos, pts, [a[0] for a in axes], zone, lim)
+            for combo in combos:
                 key = tuple(fval(v) if fval(v) is not None else str(v) for v in combo)
                 if k > 1 and key in seen:   # зоны F2 пересекаются в общих точках
                     continue
@@ -733,6 +831,7 @@ def plan(protocol, k, hyps=None, out=None, have=None, f1=None):
             for u in used:
                 f.write(f"--set {u}:{sets[u]}\n")
         r2 = any(re.match(R2_EXIT_RE, x) for x in (m.group(2) for m in tails if m and m.group(2)))
+        r2 = r2 or any(re.match(R2_EXIT_RE, f.split("-", 1)[0]) for f in forms) or any("entry_gate=" in sets[u] for u in used)   # П-17: вход postsweep<R> и ворота entry_gate — тоже только r2
         with open(stem + ".bin", "w", encoding="utf-8", newline="\n") as f:   # какой бинарь ставить прогону: формы R2 — только cargo feature r2 (forms.rs, ExitForm::parse)
             f.write("r2\n" if r2 else "std\n")
 
