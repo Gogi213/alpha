@@ -356,4 +356,25 @@ def test_routes_file_r1spec_matches_plan_and_counts():
         a = rows[h]
         assert (a["hyp"], a["axes"]["col"], str(a["axes"]["keep_q"])) == (hyp, col, kq) and sign in ("hi", "lo") and not ctx_axis and not ctx_q
     cnt = collections.Counter(doc["routes"].values())
-    assert cnt["r1x"] == 270 and cnt["r1"] == 279 and cnt["r1comp"] == 27 and "r1col" not in cnt
+    assert cnt["r1x"] == 270 and cnt["r1"] == 288 and cnt["r1comp"] == 27 and "r1col" not in cnt
+
+
+def test_checked_metrics_nd_months_by_n():
+    """TK-268: канон без $ (R2A, н/д) сверяется по числу сделок — n closes == n канона точно; $-месяцы — по Σ$ ±0,02."""
+    mt = {"n": 30, "by_month": {"2026-01": {"n": 10, "pnl": 5.0}, "2026-02": {"n": 20, "pnl": -1.0}}}
+    assert launch.checked_metrics(mt, {"2026-01": (5.01, 10, None, None), "2026-02": (-1.0, 20, None, None)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (None, 10, None, 1.0), "2026-02": (None, 20, None, 2.0)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (5.0, 10, None, None), "2026-02": (None, 20, None, 2.0)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (None, 26, None, 1.0), "2026-02": (None, 52, None, 2.0)}) is None
+    assert launch.checked_metrics(mt, {"2026-01": (None, 10, None, 1.0)}) is None   # месяцы closes != месяцы канона
+    assert launch.checked_metrics(mt, {"2026-01": (5.0, 10, None, None), "2026-02": (-1.5, 20, None, None)}) is None
+    assert launch.checked_metrics(mt, {"2026-01": (None, None, None, None), "2026-02": (None, 20, None, 2.0)}) is None
+
+
+def test_metrics_why_names_the_reason():
+    mt = {"n": 30, "by_month": {"2026-01": {"n": 10, "pnl": 5.0}}}
+    assert launch.metrics_why(mt, {"2026-01": (None, 26, None, 1.0)}) == "R2A: канон без $, n канона ≠ n closes (×2,6)"
+    assert "расходятся" in launch.metrics_why(mt, {"2026-01": (9.0, 10, None, None)})
+    assert "closes нет" in launch.metrics_why(None, {"2026-01": (9.0, 10, None, None)})
+    assert launch.metrics_why(None, {}, "нет кодировки") == "нет $ в Летописи (нет кодировки)"
+

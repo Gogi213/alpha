@@ -488,6 +488,7 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
     for r in overlay_rows(cfg):
         byhash[r["cell_id"]][r["month"]] = (r.get("pnl_usd"), r.get("trades"), r.get("max_dd"), r.get("sum_net_bps"))
     mets = hash_metrics_file()
+    whys = hash_why_file()
     sieve = {}
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
@@ -514,16 +515,19 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
             continue
         mt = checked_metrics(mets.get(r["hash"]), got)
         rt = routes.get(r["hash"], "cells")
+        off = OFF_LABELS.get(rt) if st == "none" and rt not in COUNTABLE else None
         known = [v for v in pn if v is not None]
         out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict, "sieved": sieved,
                     "plateau": any(x.get("plateau") for x in sv), "edge": any(x.get("edge") for x in sv),
-                    "off": OFF_LABELS.get(rt) if st == "none" and rt not in COUNTABLE else None,
+                    "off": off,
                     "pnl": pn, "nd": nd, "bps": bps, "sum": round(sum(known), 2) if known else None,
                     "trades": sum(got[m][1] or 0 for m in months if m in got) if got else None,
                     "sharpe": mt and mt["sharpe"], "winrate": mt and mt["winrate"], "overhigh_d": mt and mt["overhigh_d"],
-                    "tail_d": mt and mt["tail_d"], "worst_d": mt and mt["worst_d"]})
+                    "tail_d": mt and mt["tail_d"], "worst_d": mt and mt["worst_d"],
+                    "mwhy": None if mt else whys.get(r["hash"]) or metrics_why(mets.get(r["hash"]), got, off)})
     return {"months": months, "rows": out, "nhash": len({x["hash"] for x in out}),
-            "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None)}
+            "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None),
+            "metrics_dash": sum(1 for x in out if x["mwhy"])}
 
 
 def hash_metrics_file():
@@ -537,15 +541,40 @@ def hash_metrics_file():
 
 def checked_metrics(mt, got):
     """Метрики хеша — только если closes покрывают ровно месяцы с $ в Летописи и Σ$ closes сходится с pnl_usd канона (±0,02 $ за месяц):
-    иначе None (прочерк) — не показываем числа по неполным или расходящимся данным."""
+    иначе None (прочерк) — не показываем числа по неполным или расходящимся данным. Канон без $ (R2A, н/д) сверяется по числу сделок:
+    месяцы closes = месяцы канона, $-месяцы по Σ$, остальные — n closes == n канона точно (TK-268, решение Судьи 17.10)."""
     if not mt or not mt.get("n"):
         return None
+    bm = mt["by_month"]
     canon = {m: v for m, v in got.items() if v[0] is not None}
-    if set(mt["by_month"]) != set(canon):
+    if set(bm) == set(canon):
+        return mt if all(abs(bm[m]["pnl"] - v[0]) <= 0.02 for m, v in canon.items()) else None
+    if len(canon) == len(got) or set(bm) != set(got):
         return None
-    if any(abs(mt["by_month"][m]["pnl"] - v[0]) > 0.02 for m, v in canon.items()):
-        return None
-    return mt
+    ok = all(abs(bm[m]["pnl"] - v[0]) <= 0.02 if v[0] is not None else bm[m]["n"] == v[1] for m, v in got.items())
+    return mt if ok else None
+
+
+def metrics_why(mt, got, off=None):
+    """Причина прочерка в метриках строки (для подсказки на странице); None — метрики есть."""
+    if not got:
+        return "нет $ в Летописи" + (f" ({off})" if off else "")
+    if not mt or not mt.get("n"):
+        return "готовых closes нет ни в одном источнике"
+    nod = [m for m, v in got.items() if v[0] is None]
+    if nod:
+        sc, sk = sum(mt["by_month"].get(m, {}).get("n", 0) for m in nod), sum(got[m][1] or 0 for m in nod)
+        return "R2A: канон без $, n канона ≠ n closes" + (f" (×{sk / sc:.1f})".replace(".", ",") if sc and sk else "")
+    return "closes расходятся с каноном (месяцы или Σ$ ≠ pnl_usd)"
+
+
+def hash_why_file():
+    """metrics_why.jsonl снимка Летописи (tk268-cover5.py): {хеш: причина прочерка} там, где closes есть, но сверку с каноном не прошли; файла нет — {}."""
+    try:
+        with open(os.path.join(REG, "metrics_why.jsonl"), encoding="utf-8") as f:
+            return {d["hash"]: d["why"] for d in map(json.loads, filter(str.strip, f))}
+    except OSError:
+        return {}
 
 
 def summary(p):
