@@ -17,34 +17,54 @@ use crate::book::Side;
 pub enum LevelControl {
     /// Цена входа/стопа/тейка — от двойника.
     Random(u64),
+    /// То же, но правила, читающие стену на цене входа, у двойника выключены (П-15 §5; Судья 17.10, TK-274):
+    /// отмена входа по гибели стены (порог В-66, `level_floor_qty`) — у двойника стены нет по построению.
+    /// Всё остальное (вход/стоп/тейк/дедлайн/ttl, полоса ухода цены, В-68, `prob:3`) — как у `Random`.
+    RandomNoWall(u64),
     /// Настоящие стены на подходах, получивших двойника.
     Paired(u64),
 }
 
 impl LevelControl {
     pub fn parse(s: &str) -> Result<Self, String> {
-        let (kind, seed) = s
+        let (kind, rest) = s
             .split_once(':')
-            .ok_or_else(|| format!("{s:?}: нужно random:<seed> или paired:<seed>"))?;
+            .ok_or_else(|| format!("{s:?}: нужно random:<seed>[:nowall] или paired:<seed>"))?;
+        let (seed, suffix) = match rest.split_once(':') {
+            Some((seed, suffix)) => (seed, Some(suffix)),
+            None => (rest, None),
+        };
         let seed: u64 = seed
             .parse()
             .map_err(|_| format!("{s:?}: seed — целое неотрицательное"))?;
-        match kind {
-            "random" => Ok(Self::Random(seed)),
-            "paired" => Ok(Self::Paired(seed)),
+        match (kind, suffix) {
+            ("random", None) => Ok(Self::Random(seed)),
+            ("random", Some("nowall")) => Ok(Self::RandomNoWall(seed)),
+            ("paired", None) => Ok(Self::Paired(seed)),
+            ("random" | "paired", Some(_)) => Err(format!("{s:?}: суффикс только :nowall у random")),
             _ => Err(format!("{s:?}: режим random или paired")),
         }
     }
 
     pub(crate) fn seed(self) -> u64 {
         match self {
-            Self::Random(s) | Self::Paired(s) => s,
+            Self::Random(s) | Self::RandomNoWall(s) | Self::Paired(s) => s,
+        }
+    }
+
+    /// Порог «стена снята» (В-66, `--h3-usd`) для плана: у двойника без правил стены его нет — `None`
+    /// (`level_floor_qty = 0`, отмена `WallDead` не срабатывает); иначе порог как задан.
+    pub(crate) fn wall_floor_usd(control: Option<Self>, h3_usd: Option<f64>) -> Option<f64> {
+        match control {
+            Some(Self::RandomNoWall(_)) => None,
+            _ => h3_usd,
         }
     }
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Random(_) => "random",
+            Self::RandomNoWall(_) => "random-nowall",
             Self::Paired(_) => "paired",
         }
     }
@@ -193,7 +213,7 @@ pub(crate) fn apply(
         if (is_bid && tick > a.price_tick) || (!is_bid && tick < a.price_tick) {
             stats.ahead += 1;
         }
-        if matches!(control, LevelControl::Random(_)) {
+        if matches!(control, LevelControl::Random(_) | LevelControl::RandomNoWall(_)) {
             a.price_tick = tick;
         }
         kept.push(a);

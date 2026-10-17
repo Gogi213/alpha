@@ -15,7 +15,7 @@
   universe   вселенная монет: версия пула + исключения (`v171b`, `v171c-drop:TRUMP,TRX,BCH`) — одна клетка на разных
              вселенных даёт разные результаты, поэтому в ключе; batch — партия прогона (только p12-ext: самопроверка
              cellhash_reg.check нашла расхождение результатов с p12-r1 при равном конфиге);
-  level_control  контроль Г-03 (`--level-control`): `random:<seed>` | `paired:<seed>`; ключа нет без контроля;
+  level_control  контроль Г-03 (`--level-control`): `random:<seed>` | `random:<seed>:nowall` | `paired:<seed>`; ключа нет без контроля;
   variant    спецификация R1/R2-варианта, если он не кодируется именем формы: {family, axes}.
 Нормализация: числа — один вид (200.0 == 200), `Some(2700)` -> 2700, `None` -> null, `halfstop` == `halfstopf2`.
 """

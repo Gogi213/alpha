@@ -995,7 +995,7 @@ impl<'a> GridRun<'a> {
                             threads,
                             post_only: args.entry_post_only(),
                             filter: sets::FilterSpec::of_set(set, &ctx),
-                            h3_usd: args.h3.h3_usd,
+                            h3_usd: control::LevelControl::wall_floor_usd(args.level_control, args.h3.h3_usd),
                             band_exit_bps,
                             sigma: &sigma_series,
                             entry_sigma: entry_sigma.as_ref(),

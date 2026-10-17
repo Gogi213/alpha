@@ -26,8 +26,8 @@ class T(unittest.TestCase):
         h = lambda **k: ch.cell_hash(base(**k))
         self.assertNotIn("level_control", ch.normalize(base()))
         self.assertEqual(h(level_control=None), h())
-        hs = {h(), h(level_control="random:1"), h(level_control="random:2"), h(level_control="paired:1")}
-        self.assertEqual(len(hs), 4)
+        hs = {h(), h(level_control="random:1"), h(level_control="random:2"), h(level_control="random:1:nowall"), h(level_control="paired:1")}
+        self.assertEqual(len(hs), 5)
 
     def test_half_default_is_f2(self):
         h = lambda e: ch.normalize(base(form=B1F + "-" + e))["exit"]

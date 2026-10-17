@@ -62,6 +62,7 @@ fn level_control_random_and_paired_share_the_same_approaches() {
     .unwrap();
     for (c, price) in [
         (LevelControl::Random(7), 1003),
+        (LevelControl::RandomNoWall(7), 1003),
         (LevelControl::Paired(7), 1000),
     ] {
         let mut day = day_of(&[0, 5]);
@@ -88,4 +89,23 @@ fn level_control_random_and_paired_share_the_same_approaches() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("нет записи двойника"), "{err}");
+}
+
+/// TK-274 (Г-03, Судья 17.10): `random:<seed>:nowall` — двойник без правил стены. Отмена по гибели стены держится на
+/// пороге В-66 (`--h3-usd` → `level_floor_qty`): у `nowall` порога нет, у остальных режимов и без контроля — как задан.
+#[test]
+fn level_control_nowall_drops_only_the_wall_floor() {
+    assert_eq!(
+        LevelControl::parse("random:3:nowall"),
+        Ok(LevelControl::RandomNoWall(3))
+    );
+    assert!(LevelControl::parse("paired:3:nowall").is_err());
+    assert!(LevelControl::parse("random:3:other").is_err());
+    assert!(LevelControl::parse("random:3:nowall:x").is_err());
+    let floor = |c| LevelControl::wall_floor_usd(c, Some(10_000.0));
+    assert_eq!(floor(None), Some(10_000.0));
+    assert_eq!(floor(Some(LevelControl::Random(3))), Some(10_000.0));
+    assert_eq!(floor(Some(LevelControl::Paired(3))), Some(10_000.0));
+    assert_eq!(floor(Some(LevelControl::RandomNoWall(3))), None);
+    assert_eq!(LevelControl::RandomNoWall(3).name(), "random-nowall");
 }
