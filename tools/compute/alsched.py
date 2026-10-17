@@ -182,6 +182,7 @@ class Core:
         used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]} | self.iso
         mem = sum(j["mem"] for j in self.running("prod"))
         legacy = math.ceil(be.legacy_busy())
+        held, held_units = self.preempt_held()            # TK-292: ядра вытесненных вернутся по концу головной — очереди не раздаются
         for j in self.jobs.values():                      # приоритет можно менять на ходу: prio/<id> (alsched.py reprio)
             pj = f"{DIR}/prio/{j['id']}"
             if j["state"] == "queued" and os.path.exists(pj):
@@ -204,11 +205,12 @@ class Core:
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
-            free = [c for c in range(self.ncpu) if c not in used]
+            head_pre = j["id"] in self.preempt            # головная вытеснения берёт ядра вытесненных, остальные — нет
+            free = [c for c in range(self.ncpu) if c not in used and (head_pre or c not in held)]
             is_gate = j.get("kind") in ("gate", "build")
             g_resv = 0 if not gate_active and j.get("elastic") else gate_resv   # TK-283: elastic без gate/build в работе и очереди резерв не держит (прочее prod — как было, TK-219)
             resv = set(free[max(0, len(free) - g_resv):]) if g_resv else set()   # резерв — старшие свободные ядра; work их не пинит и не учитывает сверх заявки
-            room = len(free) - legacy - (0 if is_gate else len(resv))
+            room = len(free) - legacy - (0 if head_pre else held_units) - (0 if is_gate else len(resv))
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j
                        and not x.get("elastic") and x["cores"] <= SMALL_CORES)   # TK-283: мелкие заявки в очереди (не elastic) — им место
             shrink = room - hold if (j.get("elastic") and ELASTIC_MIN and not gate_active and not self.iso
@@ -228,7 +230,7 @@ class Core:
                 cap = ncp if is_gate else FACT_BUSY * max(0, ncp - g_resv)   # TK-220: work по факту резерв не трогает, gate/build — до всех ядер
                 over = (not shrink and room < j["cores"] and (now - self.fact_t >= FACT_SETTLE_S or self.need_cores(j) < j["cores"] or j["cores"] == 1) and mem_ok
                         and busy * ncp + self.ramp(now) + self.need_cores(j) <= cap
-                        and (not OVERBOOK_MAX or declared + j["cores"] <= OVERBOOK_MAX - (0 if is_gate else g_resv)))   # TK-283: по факту — не выше суммы заявок OVERBOOK_MAX, work без резерва гейтов (рестарт демона обнулял busy и пускал 43/16)
+                        and (not OVERBOOK_MAX or declared + (0 if head_pre else len(held) + held_units) + j["cores"] <= OVERBOOK_MAX - (0 if is_gate else g_resv)))   # TK-283: по факту — не выше суммы заявок OVERBOOK_MAX, work без резерва гейтов (рестарт демона обнулял busy и пускал 43/16)
                 fits = (room >= ncor or over) and mem_ok and not disk_full
             else:
                 fits = room >= ncor and mem + j["mem"] <= self.mem and not disk_full
@@ -405,6 +407,18 @@ class Core:
         self.be.save_preempt(self.preempt)
         self.be.alert(f"вытеснение: {head['id']} {head['name']} ждала {int((now - head['t_submit']) / 60)} мин — заморожено "
                       + ", ".join(f"{k}:{i}({c})" for k, i, c in vs))
+
+    def preempt_held(self):
+        """TK-292: что вытесненные заберут обратно по концу головной — ядра заданий (пины) и ядра голых юнитов. Пока головная идёт, эти ядра свободны на вид,
+        но отдать их очереди нельзя: вытесненный вернётся поверх (17.10 15:08 — build на 4 ядра заморозил 15-ядерный проход, 12 ядер ушли в g03, по концу сборки 27/16)."""
+        cpus, units = set(), 0
+        for vs in self.preempt.values():
+            for kind, ident, n in vs:
+                if kind == "job" and ident in self.jobs:
+                    cpus |= set(self.jobs[ident]["cpus"])
+                elif kind != "job":
+                    units += n
+        return cpus, units
 
     def thaw_victims(self):
         for hid, vs in list(self.preempt.items()):
