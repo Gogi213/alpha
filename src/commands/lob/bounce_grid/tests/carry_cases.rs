@@ -583,6 +583,8 @@ fn btc_mid_axes_parse_and_regime_columns() {
             None,
             None,
             None,
+            None,
+            None,
             None
         ]
     );
@@ -604,6 +606,8 @@ fn btc_mid_axes_parse_and_regime_columns() {
             Some(-40.0),
             Some(-20.0),
             Some(-30.0),
+            None,
+            None,
             None,
             None,
             None,
@@ -632,7 +636,7 @@ fn btc_mid_axes_parse_and_regime_columns() {
         [Some(-60.0), Some(-70.0), Some(-80.0), Some(-90.0)]
     );
 
-    // Г-10 (TK-272): `btc9h` — своя группа: прежние файлы (без btc_ret_9h_bps) читаются, пока оси нет.
+    // Г-10 (TK-272): `btc9h`/`btc10h`/`btc11h` — своя группа: прежние файлы (без btc_ret_{9,10,11}h_bps) читаются, пока осей нет.
     let set = FilterSet::parse("w:btc9h_max=-35").unwrap();
     assert!(set.uses_regime() && set.uses_btc_long9() && !set.uses_btc_long());
     assert_eq!(set.ctx_label(), "btc9h_max=-35");
@@ -645,17 +649,17 @@ fn btc_mid_axes_parse_and_regime_columns() {
         .replace(
             "btc_ret_24h_bps
 ",
-            "btc_ret_24h_bps,btc_ret_9h_bps
+            "btc_ret_24h_bps,btc_ret_9h_bps,btc_ret_10h_bps,btc_ret_11h_bps
 ",
         )
         .replace(
             "-90
-", "-90,-75
+", "-90,-75,-76,-77
 ",
         );
     std::fs::write(dir.path().join("2026-09-11.csv"), with9).unwrap();
     let day = read_regime_day(dir.path(), "2026-09-11", true, true, true).unwrap();
-    assert_eq!(day[&60_000][10], Some(-75.0));
+    assert_eq!(day[&60_000][10..], [Some(-75.0), Some(-76.0), Some(-77.0)]);
 }
 
 /// Э-08 (T-38): группы выходов (`--exit-group on`) и пропуск шагов удержания (`--hold-step skip`) дают те же

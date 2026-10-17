@@ -31,7 +31,8 @@ PLAIN = {"age", "agemax", "flow", "side", "usd_min", "behind_min", "stack_min", 
 REGIME = {"pool1h": "pool_ret_1h_bps", "pool4h": "pool_ret_4h_bps", "btc1h": "btc_ret_1h_bps",
           "btc2h": "btc_ret_2h_bps", "btc3h": "btc_ret_3h_bps", "btc4h": "btc_ret_4h_bps",
           "btc6h": "btc_ret_6h_bps", "btc8h": "btc_ret_8h_bps", "btc12h": "btc_ret_12h_bps",
-          "btc24h": "btc_ret_24h_bps", "btc9h": "btc_ret_9h_bps"}
+          "btc24h": "btc_ret_24h_bps", "btc9h": "btc_ret_9h_bps",
+          "btc10h": "btc_ret_10h_bps", "btc11h": "btc_ret_11h_bps"}
 RET_AXES = {"ret10m", "ret1h", "ret4h"}
 
 

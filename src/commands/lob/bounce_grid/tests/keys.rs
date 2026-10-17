@@ -630,6 +630,8 @@ fn ctx_registry_keeps_old_indices() {
         "btc12h",
         "btc24h",
         "btc9h",
+        "btc10h",
+        "btc11h",
         "rng1h",
         "dlow",
         "drnd",
