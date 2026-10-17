@@ -2,6 +2,7 @@
 import os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(1, os.path.join(os.path.dirname(__file__), "..", "archive"))   # TK-284: sched_sim лежит в archive/
 import alsched as S
 import sched_sim as SS
 
