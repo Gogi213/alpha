@@ -211,11 +211,14 @@ class Core:
             g_resv = 0 if not gate_active and j.get("elastic") else gate_resv   # TK-283: elastic без gate/build в работе и очереди резерв не держит (прочее prod — как было, TK-219)
             resv = set(free[max(0, len(free) - g_resv):]) if g_resv else set()   # резерв — старшие свободные ядра; work их не пинит и не учитывает сверх заявки
             room = len(free) - legacy - (0 if head_pre else held_units) - (0 if is_gate else len(resv))
+            held_n = 0 if head_pre else len(held) + held_units
+            decl_cap = OVERBOOK_MAX - (0 if is_gate else g_resv)   # TK-295 (В-34): потолок суммы заявленных ядер действует и на старт по заявке, не только по факту (4 по 4 = 16 > 15)
+            room_s = min(room, decl_cap - declared - held_n) if OVERBOOK_MAX else room   # место для сжатия elastic — не выше потолка суммы заявок
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j
                        and not x.get("elastic") and x["cores"] <= SMALL_CORES)   # TK-283: мелкие заявки в очереди (не elastic) — им место
-            shrink = room - hold if (j.get("elastic") and ELASTIC_MIN and not gate_active and not self.iso
-                                     and ELASTIC_MIN <= room - hold < j["cores"]
-                                     and j["max_runtime"] * j["cores"] / (room - hold) <= ELASTIC_SHRINK_S) else 0   # CEO 17.10 08:54: многочасовой проход на 4 ядрах застрял бы навсегда (NX не растёт) — сжимаем только короткие   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
+            shrink = room_s - hold if (j.get("elastic") and ELASTIC_MIN and not gate_active and not self.iso
+                                     and ELASTIC_MIN <= room_s - hold < j["cores"]
+                                     and j["max_runtime"] * j["cores"] / (room_s - hold) <= ELASTIC_SHRINK_S) else 0   # CEO 17.10 08:54: многочасовой проход на 4 ядрах застрял бы навсегда (NX не растёт) — сжимаем только короткие   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
             ncor = shrink or j["cores"]               # ядра, с которыми заявка реально встанет
             mrt = j["max_runtime"] * j["cores"] / ncor   # на меньшем числе ядер тот же счёт идёт дольше — бюджет растёт пропорционально
             disk_full = bool(self.slots and j["disk"] != "none"
@@ -234,6 +237,8 @@ class Core:
                 fits = (room >= ncor or over) and mem_ok and not disk_full
             else:
                 fits = room >= ncor and mem + j["mem"] <= self.mem and not disk_full
+            if fits and OVERBOOK_MAX and declared + held_n + ncor > decl_cap and not (declared + held_n == 0 and ncor <= OVERBOOK_MAX):   # заявка шире потолка при пустой машине не застревает навсегда
+                fits = False
             if fits and self.iso and capped + j["cores"] > PROD_CAP_ISO:
                 fits = False                              # окно открыто: заявленных ядер prod сверх потолка не пускаем
             if fits and reserve is not None and mrt > reserve["shadow"] and not over and not is_gate \
@@ -255,7 +260,7 @@ class Core:
             else:
                 grant = ncor
                 if j.get("elastic") and ELASTIC_MAX and not gate_active and not self.iso:   # TK-283: только счёт — добираем свободное до ELASTIC_MAX, мелким заявкам в очереди оставляем место
-                    grant = max(grant, min(ELASTIC_MAX, len(free) - legacy - hold))
+                    grant = max(grant, min(ELASTIC_MAX, len(free) - legacy - hold, (decl_cap - declared - held_n) if OVERBOOK_MAX else ELASTIC_MAX))   # TK-295: добор не поднимает сумму заявленных выше OVERBOOK_MAX
                 if grant != j["cores"]:
                     j["cores_req"], j["cores"] = j["cores"], grant
                     if grant < j["cores_req"]:
