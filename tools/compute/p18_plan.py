@@ -52,10 +52,13 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--axes", default="1,2,3,4,5,6a,7")
     ap.add_argument("--strength-json")
+    ap.add_argument("--label", default="P-18-F1", help="метка файлов плана (боевой путь day-cells.sh: L)")
+    ap.add_argument("--skip", default="", help="клетки, которые не пишем (уже в Летописи): имена через запятую, напр. p18a5v300")
     ap.add_argument("--smoke", action="store_true", help="10 клеток: первое значение каждой оси + верх осей 2, 4, 5; только март (малый срез [вживую])")
     a = ap.parse_args()
     axes = a.axes.split(",")
     strength = json.load(open(a.strength_json)) if a.strength_json else {}
+    skip = set(filter(None, a.skip.split(",")))
     if "6b" in axes and not strength:
         sys.exit("ось 6б: нужен --strength-json (квантили силы по сигналам B1 в месяц)")
     os.makedirs(a.out, exist_ok=True)
@@ -70,6 +73,8 @@ def main():
                 vals = [vals[0]] + ([vals[-1]] if ax in ("2", "4", "5") else [])
             for val in vals:
                 tup, nm, sset = cell(ax, val, ym, strength)
+                if nm.rsplit("-", 2)[0] in skip:
+                    continue
                 e, s, t, d, tl = tup.split("-")
                 tl = tl[3:]
                 cells.append(f"{tup} {nm}")
@@ -79,11 +84,11 @@ def main():
         args = ([f"--entry-form {x}" for x in sorted(flags["entry"])] + [f"--entry-ttl-secs {x}" for x in sorted(flags["ttl"], key=int)]
                 + [f"--stop-form {x}" for x in sorted(flags["stop"])] + [f"--take-form {x}" for x in sorted(flags["take"])]
                 + [f"--deadline-secs {x}" for x in sorted(flags["dl"], key=int)] + sorted(sets))
-        with open(f"{a.out}/P-18-F1-{ym}.cells", "w", newline="\n") as f:
+        with open(f"{a.out}/{a.label}-{ym}.cells", "w", newline="\n") as f:
             f.write("\n".join(cells) + "\n")
-        with open(f"{a.out}/P-18-F1-{ym}.args", "w", newline="\n") as f:
+        with open(f"{a.out}/{a.label}-{ym}.args", "w", newline="\n") as f:
             f.write("\n".join(args) + "\n")
-        with open(f"{a.out}/P-18-F1-{ym}.bin", "w", newline="\n") as f:
+        with open(f"{a.out}/{a.label}-{ym}.bin", "w", newline="\n") as f:
             f.write("r2\n")
     print("клеток по осям:", count, "итого", sum(count.values()), "хеш-мес.", sum(count.values()) * len(months))
 
