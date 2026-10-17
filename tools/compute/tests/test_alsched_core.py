@@ -189,6 +189,48 @@ class Elastic(unittest.TestCase):
         finally:
             S.RESERVE_CORES = 0
 
+    def shrink_case(self, big=12, elastic=True, gate=False, small=False, emin=4):
+        """CEO 17.10: идёт big ядер, в очереди заявка на 12 — встаёт ли она на оставшиеся."""
+        S.RESERVE_CORES, S.ELASTIC_MAX, S.ELASTIC_MIN = 3, 15, emin
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+            core.add(SS.job("big", "big", "prod", big, 8, "none", 7200 * 5, 0))
+            core.tick(); be.advance(core, S.TICK)
+            if gate:
+                g = SS.job("g", "g", "prod", 1, 1, "none", 7200, be.t); g["kind"] = "gate"; core.add(g)
+            if small:
+                core.add(SS.job("sm", "sm", "prod", 4, 1, "none", 7200, be.t))
+            e = SS.job("e", "e", "prod", 12, 8, "none", 9000, be.t); e["max_runtime"] = 18000
+            if elastic:
+                e["elastic"] = True
+            e["cmd"] = "env BIN=/b NX=12 bash run-launch.sh /r"
+            core.add(e)
+            for _ in range(4):
+                core.tick(); be.advance(core, S.TICK)
+            return core.jobs["e"]
+        finally:
+            S.RESERVE_CORES, S.ELASTIC_MAX, S.ELASTIC_MIN = 0, 15, 4
+
+    def test_free_four_go_to_queued_elastic(self):
+        e = self.shrink_case()                           # идёт 12, свободно 4
+        self.assertEqual((e["state"], len(e["cpus"]), e["cores"], e.get("cores_req")), ("running", 4, 4, 12))
+        self.assertEqual(e["max_runtime"], 18000 * 3)    # 12 -> 4 ядер: бюджет времени x3, иначе убьют по max_runtime
+
+    def test_below_min_waits(self):
+        self.assertEqual(self.shrink_case(big=13)["state"], "queued")   # свободно 3 < 4
+
+    def test_not_elastic_waits(self):
+        self.assertEqual(self.shrink_case(elastic=False)["state"], "queued")
+
+    def test_gate_in_queue_blocks_shrink(self):
+        self.assertEqual(self.shrink_case(gate=True)["state"], "queued")
+
+    def test_min_zero_off(self):
+        self.assertEqual(self.shrink_case(emin=0)["state"], "queued")
+
+    def test_small_queued_job_keeps_room(self):
+        self.assertEqual(self.shrink_case(small=True)["state"], "queued")   # свободные 4 нужны мелкой заявке в очереди
+
     def test_start_sets_nx_to_granted(self):
         self.assertEqual(S.elastic_cmd("env BIN=/b NX=12 bash run-launch.sh /r", 15), "env BIN=/b NX=15 bash run-launch.sh /r")
         self.assertEqual(S.elastic_cmd("env XNX=1 bash a.sh", 15), "env XNX=1 bash a.sh")
