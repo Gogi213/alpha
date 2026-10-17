@@ -2,6 +2,7 @@
 import os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "archive"))   # sched_sim (TK-176А убрал из корня)
 import alsched as S
 import sched_sim as SS
 
@@ -256,6 +257,35 @@ class Preemption(unittest.TestCase):
     def test_equal_prio_does_not_freeze_bare_units(self):
         _, frozen, _, _, _ = SS.preempt_case(5)
         self.assertFalse(frozen - {"n0"})
+
+    def preempt_overbook(self, extra_cores):
+        """TK-292 (17.10 15:08): build 4 ядра вытеснил 15-ядерный проход целиком, освободившиеся 11 ядер раздались очереди;
+        по концу сборки вытесненный вернулся — 27/16. Максимум заявленных ядер идущего незамороженного prod за весь прогон."""
+        S.RESERVE_CORES = 3
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+            big = SS.job("big", "big", "prod", 15, 8, "none", 36000, 0); big["elastic"] = True; core.add(big)   # elastic: без gate/build берёт 15
+            core.tick(); be.advance(core, S.TICK)
+            b = SS.job("b", "build", "prod", 4, 2, "none", 600, be.t); b["kind"] = "build"; b["prio"] = 3; core.add(b)
+            e = SS.job("e", "e", "prod", extra_cores, 8, "none", 36000, be.t); e["elastic"] = True; core.add(e)
+            peak = 0
+            for _ in range(int(1800 / S.TICK)):
+                core.tick(); be.advance(core, S.TICK)
+                peak = max(peak, sum(j["cores"] for j in core.running("prod") if not j.get("frozen_for")))
+            return peak, core.jobs["b"]["state"], core.jobs["e"]["state"]
+        finally:
+            S.RESERVE_CORES = 0
+
+    def test_preempted_cores_not_given_to_queue(self):
+        peak, b, e = self.preempt_overbook(12)
+        self.assertEqual(b, "done")
+        self.assertLessEqual(peak, SS.NCPU)               # было 27: ядра вытесненного отдавались очереди и возвращались по концу головной
+        self.assertEqual(e, "queued")                     # 12 заявленных не влезают рядом с вернувшимся проходом (15)
+
+    def test_small_job_fits_beside_preempted(self):
+        peak, b, e = self.preempt_overbook(1)
+        self.assertLessEqual(peak, SS.NCPU)               # 15 + 1: ядро, которое вытесненный не займёт, не простаивает
+        self.assertEqual(e, "running")
 
 
 class Freeze(unittest.TestCase):
