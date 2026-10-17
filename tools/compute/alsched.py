@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, ELASTIC_MAX, SMALL_CORES)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, ELASTIC_MAX, SMALL_CORES, OVERBOOK_MAX)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -200,6 +200,7 @@ class Core:
         gate_used = sum(len(r["cpus"]) for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))
         gate_resv = max(0, RESERVE_CORES - gate_used)     # В-229 п.10: гарантированные ядра гейтам/сборкам
         gate_active = any(r.get("kind") in ("gate", "build") and r["state"] in ("queued", "running") for r in self.jobs.values())   # TK-283: нет gate/build ни в работе, ни в очереди — резерв свободен
+        declared = sum(r["cores"] for r in self.running("prod") if not r.get("frozen_for"))   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
@@ -219,7 +220,8 @@ class Core:
                 is_gate = j.get("kind") in ("gate", "build")
                 cap = ncp if is_gate else FACT_BUSY * max(0, ncp - g_resv)   # TK-220: work по факту резерв не трогает, gate/build — до всех ядер
                 over = (room < j["cores"] and (now - self.fact_t >= FACT_SETTLE_S or self.need_cores(j) < j["cores"] or j["cores"] == 1) and mem_ok
-                        and busy * ncp + self.ramp(now) + self.need_cores(j) <= cap)
+                        and busy * ncp + self.ramp(now) + self.need_cores(j) <= cap
+                        and (not OVERBOOK_MAX or declared + j["cores"] <= OVERBOOK_MAX - (0 if is_gate else g_resv)))   # TK-283: по факту — не выше суммы заявок OVERBOOK_MAX, work без резерва гейтов (рестарт демона обнулял busy и пускал 43/16)
                 fits = (room >= j["cores"] or over) and mem_ok and not disk_full
             else:
                 fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
@@ -252,6 +254,7 @@ class Core:
                 cpus = sorted(free[-j["cores"]:]) if is_gate else free[: j["cores"]]   # гейт — с верха (резерв), work — с низа
             j.update(state="running", t_start=now, cpus=cpus)
             used |= set(j["cpus"])
+            declared += j["cores"]
             mem += j["mem"]
             capped += len(j["cpus"]) if self.iso else 0
             be.start(j)
@@ -644,7 +647,7 @@ class SystemdBackend:
         v = self.stat_cpus(skip)
         tot, idle, t = sum(v), v[3] + v[4], time.time()
         st = getattr(self, "_fb", None)
-        self._fb = (tot, idle, t, st[3] if st else 0.0)
+        self._fb = (tot, idle, t, st[3] if st else 1.0)   # TK-283: первый замер после старта демона — «занято» (было 0.0: рестарт пускал всё по факту, util.log host=0.000)
         if st is None or tot <= st[0]:
             return self._fb[3]
         inst = 1 - (idle - st[1]) / (tot - st[0])

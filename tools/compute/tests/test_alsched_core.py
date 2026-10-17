@@ -20,7 +20,12 @@ class Packing(unittest.TestCase):
 
     def test_claim_vs_fact_packing(self):
         self.assertEqual(SS.fact_case("claim"), 4)
-        self.assertEqual(SS.fact_case("fact"), 11)
+        S.OVERBOOK_MAX = 0                    # TK-283: упаковка по факту без потолка суммы заявок — как до TK-283
+        try:
+            self.assertEqual(SS.fact_case("fact"), 11)
+        finally:
+            S.OVERBOOK_MAX = 16
+        self.assertEqual(SS.fact_case("fact"), 4)   # с потолком OVERBOOK_MAX=16 сумма заявок не выше 16
 
     def test_seq_disk_one_per_disk(self):
         self.assertEqual(SS.seq_case(), ["s0", "s2", "s3"])
@@ -71,7 +76,11 @@ class Reserve(unittest.TestCase):
         self.assertEqual((r["work"], r["gate"]), (SS.NCPU - 3, 3))
 
     def test_fact_work_does_not_eat_reserve(self):
-        r = self.run_case(20, 3, pack="fact", late=True, rate=0.1)
+        S.OVERBOOK_MAX = 0                                # TK-283: перезаказ по факту — без потолка суммы заявок
+        try:
+            r = self.run_case(20, 3, pack="fact", late=True, rate=0.1)
+        finally:
+            S.OVERBOOK_MAX = 16
         self.assertEqual(r["gate"], 3)
         self.assertGreater(r["work"], SS.NCPU - 3)        # fact-перезаказ работает и без гейтов на резерве…
 
@@ -103,6 +112,34 @@ class ReserveFact(unittest.TestCase):
         work, st = self.run_case(3)
         self.assertEqual(st, "running")
         self.assertLess(work, 11)             # без резерва по факту идут 11 (fact_case)
+
+
+class Overbook(unittest.TestCase):
+    """TK-283 (CEO 17.10): после рестарта демона busy=0 пускал по факту 43/16 заявленных ядер; потолок суммы заявок OVERBOOK_MAX и busy_fact «занято» на первом замере."""
+    def restarted(self, queued_cores=12):
+        be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+        for n, c, cpus in (("L-P15F1", 12, range(0, 12)), ("tk272-thr8", 4, [0, 1, 2, 12]), ("tk278-f2b", 12, range(3, 15))):
+            j = SS.job(n, n, "prod", c, 2, "none", 7200, 0); j.update(state="running", t_start=-900.0, cpus=list(cpus))
+            be.start(j); core.add(j); be.cpu_rate[n] = 0     # busy_fact = 0.0, как в первый такт после рестарта
+        q = SS.job("g82", "tk268-g82", "prod", queued_cores, 2, "none", 7200, 0); core.add(q)
+        for _ in range(3):
+            core.tick(); be.advance(core, S.TICK)
+        return core.jobs["g82"]["state"], sum(j["cores"] for j in core.running("prod"))
+
+    def test_restart_with_zero_busy_does_not_start_over_sixteen(self):
+        self.assertEqual(self.restarted(), ("queued", 28))      # сумма уже >16: новая не стартует
+
+    def test_without_ceiling_restart_overbooks(self):
+        S.OVERBOOK_MAX = 0
+        try:
+            self.assertEqual(self.restarted(), ("running", 40))  # прежнее поведение (тест падал бы на этом случае без потолка)
+        finally:
+            S.OVERBOOK_MAX = 16
+
+    def test_busy_fact_first_sample_is_busy(self):
+        be = S.SystemdBackend.__new__(S.SystemdBackend)
+        be.stat_cpus = lambda skip=(): [100, 0, 100, 800, 0, 0, 0, 0]
+        self.assertEqual(be.busy_fact(), 1.0)                    # первый замер после старта демона: неизвестно = занято, не 0.0
 
 
 class Elastic(unittest.TestCase):
@@ -178,7 +215,11 @@ class Freeze(unittest.TestCase):
         self.assertEqual(SS.hot_psi_case()[0], 0)
 
     def test_hot_psi_overload_freezes_bounded(self):
-        n = SS.hot_psi_case()[1]
+        S.OVERBOOK_MAX = 0                    # TK-283: перегруз возможен только при пуске сверх заявок (по факту без потолка)
+        try:
+            n = SS.hot_psi_case()[1]
+        finally:
+            S.OVERBOOK_MAX = 16
         self.assertTrue(1 <= n <= 150 // S.FACT_SETTLE_S + 1)
 
     def test_iso_end_retries_then_alerts(self):
