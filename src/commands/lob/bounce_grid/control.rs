@@ -41,7 +41,9 @@ impl LevelControl {
             ("random", None) => Ok(Self::Random(seed)),
             ("random", Some("nowall")) => Ok(Self::RandomNoWall(seed)),
             ("paired", None) => Ok(Self::Paired(seed)),
-            ("random" | "paired", Some(_)) => Err(format!("{s:?}: суффикс только :nowall у random")),
+            ("random" | "paired", Some(_)) => {
+                Err(format!("{s:?}: суффикс только :nowall у random"))
+            }
             _ => Err(format!("{s:?}: режим random или paired")),
         }
     }
@@ -213,7 +215,10 @@ pub(crate) fn apply(
         if (is_bid && tick > a.price_tick) || (!is_bid && tick < a.price_tick) {
             stats.ahead += 1;
         }
-        if matches!(control, LevelControl::Random(_) | LevelControl::RandomNoWall(_)) {
+        if matches!(
+            control,
+            LevelControl::Random(_) | LevelControl::RandomNoWall(_)
+        ) {
             a.price_tick = tick;
         }
         kept.push(a);
