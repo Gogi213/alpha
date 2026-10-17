@@ -20,7 +20,7 @@ COLS = {"params.csv": ("name", "unit", "resolution", "axis_type", "cfg_path", "n
         "hyp_axes.csv": ("hyp", "protocol", "version", "stack", "param", "lo", "hi", "points_f1", "old_points", "note", "role", "engine", "mechanic"),
         "rules.csv": ("protocol", "version", "key", "value")}
 RULE_DEFAULTS = {"months": 9}
-F1_STATS = os.path.join("docs", "findings", "tk237-sieve-f1-cell-A-2026-10-13.csv")   # сито F1, сторона А (hyp, axes, days_A, dSR, p, status) — вход зоны F2
+F1_STATS = os.path.join("docs", "findings", "tk278-sieve-f1-all-A-2026-10-16.csv")   # сито F1 по всем 50 гипотезам (TK-278 п.4; было tk237-…-cell-A, 12 гипотез), сторона А (hyp, axes, days_A, dSR, p, status) — вход зоны F2
 MAX_ZONES = 3   # П-14 §11.2 п. 2
 
 
