@@ -28,7 +28,12 @@ for s in $syms; do echo "$s"; done | xargs -P "$TP" -I{} bash -c 'nice -n 5 "$BI
 t1=$(date +%s)
 for s in $syms; do
   a=$W/wt/sub/D20/$d/approaches-$s.csv; b=$JR/$d/wt/sub/D20/$d/approaches-$s.csv
-  if [ -f "$b" ]; then cmp -s "$a" "$b" && echo "$s same" >> "$O/cmp.txt" || echo "$s DIFF" >> "$O/cmp.txt"; else echo "$s nocache" >> "$O/cmp.txt"; fi
+  if [ -f "$b" ]; then
+    # кэш TK-115 старше колонки stack_span_bps_at_arm (TK-279): новый файл сверяем без неё, остальное — побайтно
+    ci=$(head -n1 "$a" | tr ',' '
+' | grep -nx stack_span_bps_at_arm | cut -d: -f1)
+    if [ -n "$ci" ]; then cut -d, --complement -f"$ci" "$a" | cmp -s - "$b"; else cmp -s "$a" "$b"; fi       && echo "$s same" >> "$O/cmp.txt" || echo "$s DIFF" >> "$O/cmp.txt"
+  else echo "$s nocache" >> "$O/cmp.txt"; fi
 done
 common=(--signal approach --queue-model prob:3 --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000 --regime-from study/regime --order-usd 500 --carry-root root --h3-mode notional --h3-usd 10000 --band-exit-bps 20 --busy-skip off --threads "$GT" --hold-step skip --exit-group on --events wide --sigma-from study/sigma240)
 args=(); while read -r f v; do [ -n "$f" ] && args+=("$f" "$v"); done < <(sort -u "$P/g03.args")
