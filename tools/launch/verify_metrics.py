@@ -60,21 +60,26 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("sources", nargs="*")
     ap.add_argument("--direct", action="append", default=[])
+    ap.add_argument("--alias-cells", default=None)
     ap.add_argument("--metrics", required=True)
     ap.add_argument("--routes", default=os.path.join(HERE, "routes.json"))
     ap.add_argument("--n", type=int, default=12)
     a = ap.parse_args(argv)
     mets = [d for d in map(json.loads, filter(str.strip, open(a.metrics, encoding="utf-8"))) if d.get("n")]
+    alias = {}
+    if a.alias_cells:
+        from build_metrics import cell_alias   # TK-268: имя клетки -> хеш (только таблица имён, разбор closes свой)
+        alias = cell_alias(a.alias_cells)
     dcl = {}   # --direct: {хеш: {месяц: сделки}} — отдельный разбор файлов, без build_metrics
     for pat in a.direct:
         dd, _, name = pat.rpartition("/")
         for i, ab in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")):
-            fs = sorted(glob.glob(os.path.join(dd, name.replace("{mon}", ab))))
+            fs = sorted(glob.glob(os.path.join(dd, name.replace("{mon}", ab).replace("{m}", f"2026-{i + 1:02d}"))))
             if fs:
                 mo = f"2026-{i + 1:02d}"
                 for h, per in json.load(open(fs[0], encoding="utf-8")).items():
                     if h != "B1":
-                        dcl.setdefault(h, {})[mo] = per.get(mo, {}).get("0", [])
+                        dcl.setdefault(alias.get(h, h), {})[mo] = per.get(mo, {}).get("0", [])
                 for h in dcl:
                     dcl[h].setdefault(mo, [])
     if dcl:

@@ -319,7 +319,7 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 <script>
 (function(){
 var MNN=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
-var META,COV,OFFL=[],MON=[],MN=[],H=[],byId={},FAMS=[],STAT={},LR=[],LMN=0,LNH=0,SC=1,lrLoaded=false;
+var META,COV,OFFL=[],MON=[],MN=[],H=[],byId={},FAMS=[],STAT={},LR=[],LMN=0,LMD=0,LNH=0,SC=1,lrLoaded=false;
 var sel={},run={},checked={},sv={},focus='',fam='все',q='',flt='all',lvd='',linc=false,lsort={k:'',d:1},LMON=[],vis=[];
 function el(id){return document.getElementById(id)}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -428,7 +428,7 @@ function rLet(){var qq=el('lq').value.toLowerCase();
  el('linc').classList.toggle('on',linc);
  var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')},LM=LMON.length?LMON:MON;
  var rows=lsorted(LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdMatch(x,lvd))&&(!linc||inc(x))}));
- el('lcnt').textContent=rows.length+' из '+LR.length+' строк / '+LNH+' хешей · Σ $ — cap 0, вердикт сита — по половине монет А · Шарп, винрейт, перехай — cap 0 по поштучным closes, есть у '+LMN+' из '+LR.length+', «—» = closes нет или не сошлись с Σ $';
+ el('lcnt').textContent=rows.length+' из '+LR.length+' строк / '+LNH+' хешей · Σ $ — cap 0, вердикт сита — по половине монет А · Шарп, винрейт, перехай — cap 0 по поштучным closes, есть у '+LMN+' из '+LR.length+', ещё '+LMD+' — «—» с причиной в подсказке (closes нет или не сошлись с каноном)';
  var sh=function(k,t,c,ti){return '<th'+(c?' class="'+c+'"':'')+(ti?' title="'+ti+'"':'')+' data-sort="'+k+'"'+(lsort.k===k?' aria-sort="'+(lsort.d>0?'ascending':'descending')+'"':'')+'>'+t+'</th>'};
  var th='<tr>'+sh('hyp','Гипотеза')+sh('var','Вариант')+LM.map(function(m,i){return sh('m'+i,MNN[+m.slice(5)-1],'m',m)}).join('')+sh('sum','Σ $')+sh('sh','Шарп')+sh('wr','Винрейт')+sh('hp','Перехай, дн')+sh('tr','Сделок')+sh('vd','Вердикт')+'<th></th></tr>';
  var gen=++lgen,N0=60;
@@ -453,11 +453,11 @@ function rHyp(){if(!HV)return;var S={};HV.status.forEach(function(s){S[s[0]]=s[1
   return '<div class="hy-r'+(o?' open':'')+'" tabindex="0" data-hr="'+r.id+'"><span class="id">'+esc(r.id)+'</span><span class="tt"><span>'+esc(have?r.what.split('. ')[0].replace(/\.$/,''):r.title)+'</span><div class="sub">'+esc(r.cls)+'</div></span><span><span class="hy-s '+r.status+'" title="'+esc(r.why)+'">'+S[r.status]+'</span></span>'+hyF(r)+'<span class="hy-lc">'+(r.f1.n?'<button class="hy-l" data-hl="'+r.id+'">'+r.f1.n+' хеш. в Летописи →</button>':'<span class="id">в Летописи нет</span>')+'</span>'+more+'</div>'}).join('')||'<div class="empty">Ничего нет</div>';
  el('hnote').textContent='Статусы и счётчики берутся из Летописи, очереди и статуса пула автоматически; тексты — '+HV.texts_n+' из '+R.length+' внесены. F2 и F3 пока не считались.'}
 var LPRE=null;function preLet(){if(!LPRE)LPRE=api('api/letopis')}   // данные Летописи подгружаются в простое после старта: клик строит DOM без сети (RTT ≈ 70 мс + 61 КБ)
-function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';var pr=LPRE||api('api/letopis');LPRE=null;pr.then(function(d){LR=d.rows;LMON=d.months||[];LR.forEach(function(r,i){r._i=i});LMN=d.metrics_n||0;LNH=d.nhash||0;lrLoaded=true;
+function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';var pr=LPRE||api('api/letopis');LPRE=null;pr.then(function(d){LR=d.rows;LMON=d.months||[];LR.forEach(function(r,i){r._i=i});LMN=d.metrics_n||0;LMD=d.metrics_dash||0;LNH=d.nhash||0;lrLoaded=true;
  var a=[];LR.forEach(function(r){r.pnl.forEach(function(v){if(v!==null)a.push(Math.abs(v))})});a.sort(function(x,y){return x-y});SC=a.length?(a[Math.floor(a.length*.9)]||1):1;rLet()})}
 var PV=null,pflt='',popen={},pTimer=null,PST={run:'идёт',queue:'в очереди',wait:'ждёт Летопись',done:'в Летописи',fail:'отказ'};
 function pFmt(v,k){if(v===null||v===undefined)return '—';return k==='pnl'?(v>0?'+':'')+Math.round(v):k==='sh'?v.toFixed(2):k==='wr'?Math.round(v*100)+' %':v.toFixed(1)}
-function pMv(b,k,l){var c='na',v=null,t='';if(b){v={pnl:b.pnl,sh:b.sharpe,wr:b.winrate,hp:b.worst_d}[k];if(v!==null&&v!==undefined)c=k==='hp'?(v<=5?'ok':'warn'):k==='wr'?'':(v>0?'ok':'bad');if(k==='hp')t=' title="период '+b.overhigh_d+' дн · хвост '+b.tail_d+' дн"'}
+function pMv(b,k,l){var c='na',v=null,t='';if(b){v={pnl:b.pnl,sh:b.sharpe,wr:b.winrate,hp:b.worst_d}[k];if(v!==null&&v!==undefined)c=k==='hp'?(v<=5?'ok':'warn'):k==='wr'?'':(v>0?'ok':'bad');if(v===null||v===undefined){if(b.mwhy)t=' title="'+esc(b.mwhy)+'"'}else if(k==='hp')t=' title="период '+b.overhigh_d+' дн · хвост '+b.tail_d+' дн"'}
  return '<span class="mv '+c+'" data-l="'+l+'"'+t+'>'+pFmt(v,k)+'</span>'}
 function pDur(m){return m>=60?Math.floor(m/60)+' ч '+(m%60)+' мин':m+' мин'}
 function pLeft(m){if(m===null||m===undefined)return '—';return '≈ '+(m>=60?Math.floor(m/60)+' ч '+(m%60)+' мин':m+' мин')}
