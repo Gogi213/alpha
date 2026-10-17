@@ -7,3 +7,5 @@ alpha-sched active, ActiveEnterTimestamp 21:41:38 CEST; /proc/loadavg 12.26 12.3
 1017145955614 running prod ядер=12 tk279-p17-g81b 165.5 мин — то же задание, что до перезапуска (не потеряно)
 queued: 1017145957809 12 · 1017150324841 15 · 1017195532789 6 · 1017214023317 12 — любая добавка к 12 > 15, не стартуют
 Вывод: сумма заявленных идущего prod 12 ≤ 15 при непустой очереди; load ≈ 12.3 ≤ 15.
+
+Закрытие (Судья, 18.10 00:00 GMT+4): PR #57 MERGED e6b7b43f (голова 61ae44a). calc /data/sched: md5 alsched.py 567a7227, sched_cfg.py 68f7183c = git show origin/master; alpha-sched active; loadavg 13.88 14.29 13.89. Хвост — разморозка gate после окна замера даёт 16 → TK-296.
