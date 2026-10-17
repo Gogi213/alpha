@@ -33,6 +33,7 @@ class FailReason(unittest.TestCase):
 class TickAlert(unittest.TestCase):
     def _run(self, rc):
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        sys.path.insert(1, os.path.join(os.path.dirname(__file__), "..", "archive"))   # TK-284: sched_sim лежит в archive/
         import sched_sim as SS
         class Be(SS.SimBE):
             def done(self, j): return rc if self.jobs[j["id"]]["left"] <= 0 else None
