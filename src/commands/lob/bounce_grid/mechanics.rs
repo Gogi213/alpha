@@ -8,7 +8,9 @@
 //! несколькими записями (`pyre…u…` / `pyre…w…`, `wall2`/`wall2x`/`wall2m<n>`) строк несколько,
 //! `id` общий (`ExitForm::variant_id`).
 
-use super::super::backtest::{EARLY_EXITS_S, EARLY_EXIT_HALF_MS, ENTRY_TTL_SECS};
+use super::super::backtest::{
+    EARLY_EXITS_HALF_S, EARLY_EXITS_S, EARLY_EXIT_HALF_MS, ENTRY_TTL_SECS,
+};
 use serde_json::{json, Value};
 
 /// Домен параметра имени. `None` у верхней границы — без верхнего предела.
@@ -177,11 +179,14 @@ fn entry_ttl_secs() -> Vec<f64> {
     ENTRY_TTL_SECS.iter().map(|&s| s as f64).collect()
 }
 
-/// `--early-exit-secs`: 0,5 с + `EARLY_EXITS_S` (plan.rs).
+/// `--early-exit-secs`: 0,5 с + `EARLY_EXITS_S` + `EARLY_EXITS_HALF_S`.5 (plan.rs).
 fn early_exit_secs() -> Vec<f64> {
-    std::iter::once(EARLY_EXIT_HALF_MS as f64 / 1_000.0)
+    let mut v: Vec<f64> = std::iter::once(EARLY_EXIT_HALF_MS as f64 / 1_000.0)
         .chain(EARLY_EXITS_S.iter().map(|&s| s as f64))
-        .collect()
+        .chain(EARLY_EXITS_HALF_S.iter().map(|&s| s as f64 + 0.5))
+        .collect();
+    v.sort_by(f64::total_cmp);
+    v
 }
 
 const TTL_SECS: ParamSpec = ParamSpec {
