@@ -395,3 +395,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 17.10 (TK-278 закрытие после слияния): gh pr view → MERGED на принятой голове; accept требует --repo Gogi213/alpha + --decisions + --numbers + --live заново; ~2 мин.
 - 17.10 (TK-293 PR #55 слияние ветки принято до merge): реестр — строки master ⊆ голова + дубли по составным ключам (results run_id,cell_id,month; plan_cells дубли сверять с master); calc md5 через git archive головы vs /opt/alpha-launch; accept: --repo + --decisions - + --numbers (срез API в reviews/*.txt) + --tail; ~15 мин.
 - 17.10 (TK-294 PR #56 принято): тест до/после — два detached worktree (origin/master и голова) + pytest tools/registry; accept: --repo --tail - --decisions - --numbers -; ~4 мин.
+- 17.10 (TK-293 закрытие после слияния): gh pr view 55 → MERGED на принятой голове; accept --pr --sha --repo --decisions - --numbers <файл> --tail TK-294 (live не потребовал); ~2 мин.
