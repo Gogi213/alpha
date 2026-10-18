@@ -15,6 +15,7 @@ use crate::commands::lob::backtest::{
 use crate::commands::lob::H3Args;
 use crate::lob::backtest::{ExecLatency, QueueModelKind};
 
+use super::control;
 use super::forms::ExitForm;
 use super::sets::SetPaths;
 
@@ -392,6 +393,15 @@ pub struct BounceGridArgs {
     /// Каталог артефактов (`rounds.csv`, `forms.csv`, `manifest.txt`).
     #[arg(long)]
     pub out_dir: PathBuf,
+    /// Контроль «случайный уровень» Г-03 (TK-274, П-15 §5): `random:<seed>` — вход/стоп/тейк от двойника стены
+    /// (тот же момент, сторона, целый bps до чужой цены, без плотности; фильтры наборов читают настоящую стену),
+    /// `paired:<seed>` — настоящие стены на тех же подходах, что получили двойника. Нужны `--signal approach` и
+    /// `twins-<SYMBOL>.csv` в кэше (`lob touches --twin-seeds`); подход без двойника выпадает, счётчики и расстояние
+    /// двойник↔стена — `level-control-<SYMBOL>.csv`. `random:<seed>:nowall` — то же, но у двойника нет отмены входа
+    /// по гибели стены (порог В-66 не передаётся плану: правила, читающие стену на цене входа, к двойнику неприменимы,
+    /// П-15 §5). Без флага — прежний счёт.
+    #[arg(long = "level-control", value_parser = control::LevelControl::parse)]
+    pub level_control: Option<control::LevelControl>,
     /// Снять требование маркера сверки (отладочные данные; в `runs.csv` не идёт).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,

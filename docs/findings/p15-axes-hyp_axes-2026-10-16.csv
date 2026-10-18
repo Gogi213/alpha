@@ -1,0 +1,10 @@
+hyp;stack;engine;param;role;old_points;f1_points;lo;hi;n_f1;grid;note;mechanic
+Г-108;B1;rust;gap_bps;tit;;0|1|2|4|8|16|32;0;32;7;gap×win;зазор под уровнем, bps (П-15 §3);LevelBack:gap_bps
+Г-108;B1;rust;secs;tit;;5|15|30|60|300|900|1800;5;1800;7;gap×win;окно возврата, с;LevelBack:secs
+Г-102;B1;rust;k;tit;;1|2|3|4|6|8;1;8;6;k×T;шаг отступа, тики (верх — лимит каталога);EntryRetreat:k
+Г-102;B1;rust;half_min;tit;;5|15|30|60|120|240|480;5;480;7;k×T;полураспад, мин;EntryRetreat:half_min
+Г-72;B1;rust;btc_lag_s;tit;;1|2|4|8|16|32|64|118;1;118;8;lag×thr;лаг хода BTC, с (--btc-seconds);
+Г-72;B1;rust;btc_thr_q;tit;;5|10|20|33|50|67|80|90|95;5;95;9;lag×thr;порог — расширяющееся окно по прошлым месяцам (P-15-thresholds.csv);
+Г-146;B1;rust;btc_thr_q;tit;;5|10|20|33|50|67|80|90|95;5;95;9;;B1 + btc24h_min=T_m (отдельная семья, §3а);
+Г-134;B1;rust;col;tit;frontrun_levels|frontrun_delta_10s_lots;frontrun_levels|frontrun_delta_10s_lots;;;2;;категориальная, ось keep_q — внутри колонки (`_max`: оставить нижние q %, порог по B1 своего месяца, frontrun_delta_10s_lots ÷ level_qty — r1cell.py);
+Г-134;B1;rust;keep_q;tit;;5|10|20|33|50|67|80|90|95;5;95;9;col×keep_q;квантиль `_max` порога (П-15 §3, 2×9 = 18);

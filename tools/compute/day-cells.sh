@@ -37,7 +37,8 @@ for pk in std tape; do
   [ -s "$O/cells-$pk.txt" ] || continue
   args=(); while read -r f v; do [ -n "$f" ] || continue; if [ "$f" = --set ]; then n=${v%%:*}; awk -v n="$n" '$2==n{f=1} END{exit !f}' "$O/cells-$pk.txt" || continue; fi; args+=("$f" "$v"); done < <(sort -u "$P/$PLAN.args" "$P/$PLAN-$ym.args")
   tl=(); [ $pk = tape ] && tl=(--tape-log 300)
-  (cd "$W" && nice -n 5 "$BIN" lob bounce-grid --verdict-csv "$O/verdict-b1.csv" --root "study/root-$d" --touches-from wt/sub/D20 "${common[@]}" --r1-cols --exit-form none --early-exit-secs off "${args[@]}"     "${tl[@]}" --cells "$O/cells-$pk.txt" --out-dir "b5/out-$d-$pk" > "$O/log/$d.grid-$pk.log" 2>&1) || echo "$d GRID_FAIL $pk" >> "$O/fail.txt"
+  bs=(); case " ${args[*]} " in *btc_lag_*) bs=(--btc-seconds "${BTCSEC:-/data/tk204/btc-seconds}");; esac   # TK-274 Г-72: наборы btc_lag_<s>s_min требуют секундный ряд BTC; без них аргументов нет (прежние байты)
+  (cd "$W" && nice -n 5 "$BIN" lob bounce-grid --verdict-csv "$O/verdict-b1.csv" --root "study/root-$d" --touches-from wt/sub/D20 "${common[@]}" --r1-cols --exit-form none --early-exit-secs off "${args[@]}"     "${tl[@]}" "${bs[@]}" --cells "$O/cells-$pk.txt" --out-dir "b5/out-$d-$pk" > "$O/log/$d.grid-$pk.log" 2>&1) || echo "$d GRID_FAIL $pk" >> "$O/fail.txt"
 done
 t2=$(date +%s)
 mkdir -p "$O/out/$d"; python3 "$(dirname "$0")/merge-packs.py" "$W/b5/out-$d-std" "$W/b5/out-$d-tape" "$O/out/$d" || echo "$d MERGE_FAIL" >> "$O/fail.txt"

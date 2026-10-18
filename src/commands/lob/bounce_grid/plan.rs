@@ -244,6 +244,10 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
             "--signal approach: нужен кэш подходов --touches-from <dir> (approaches-<SYMBOL>.csv, F1) — реплей подходов сетка не считает"
         );
     }
+    anyhow::ensure!(
+        args.level_control.is_none() || args.signal == SignalArg::Approach,
+        "--level-control: двойники стен — это подходы, нужен --signal approach"
+    );
     if let Some(dir) = &args.touches_from {
         anyhow::ensure!(dir.is_dir(), "--touches-from {}: не каталог", dir.display());
         anyhow::ensure!(
