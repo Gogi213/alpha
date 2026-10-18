@@ -229,7 +229,9 @@ pub enum LobCommand {
     /// Касания живых уровней с признаками практиков — `touches-<SYMBOL>.csv`
     /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
     /// markout «в сторону отскока», подход, фронтран, круглость, завал.
-    Touches(TouchesArgs),
+    // `Box`: `--touch-col`/`--lot-by-n` (TK-291) подняли `TouchesArgs` выше порога
+    // `clippy::large_enum_variant`; сама структура не тронута, коробка только здесь.
+    Touches(Box<TouchesArgs>),
     /// Лента сделок — `trades-<SYMBOL>.csv` (T1, П-02: открывает Г-46 — знак
     /// CVD, и точную Г-36 — айсберг): та же проверка `Record.ev`
     /// (`is_trade_ev`), что уже отделяет сделки от книжных дельт в реплее,
@@ -293,7 +295,7 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         }
         LobCommand::Latency(args) => print_latency(args),
         LobCommand::Probe(args) => print_probe(args),
-        LobCommand::Touches(args) => print_touches(args),
+        LobCommand::Touches(args) => print_touches(*args),
         LobCommand::Trades(args) => print_trades(args),
         LobCommand::ImportArchive(args) => print_import_archive(args),
         LobCommand::BinlogStats(args) => print_binlog_stats(args),
