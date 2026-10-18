@@ -8,6 +8,7 @@ import sched_sim as SS
 
 H = 3600
 S.RESERVE_CORES = 0     # TK-219: модель упаковки считает все 16 ядер; резерв гейтов проверяет класс Reserve ниже
+S.GATE_FIT = False      # TK-300: прежние тесты — без «гейт на 16-м ядре»; её проверяет класс GateFit
 
 
 class Packing(unittest.TestCase):
@@ -116,6 +117,46 @@ class Reserve(unittest.TestCase):
     def test_wide_work_head_does_not_block_gate(self):
         r = self.run_case(4, 3, late=True, wcores=4)
         self.assertEqual(r["gate"], 3)
+
+
+class GateFit(unittest.TestCase):
+    """TK-300 (В-40): prod до 15 ядер, gate/build — на 16-м ядре сверх, сжимаются до резерва, prod не вытесняют и не замораживают."""
+    def run_case(self, gates, wcores=3, nwork=8, prio=3, ticks=40):
+        S.RESERVE_CORES, S.GATE_FIT = 1, True
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+            be.freezes, fu = [], be.freeze_unit
+            be.freeze_unit = lambda u: (be.freezes.append(u), fu(u))[1]
+            for i in range(nwork):
+                core.add(SS.job("w%02d" % i, "w%d" % i, "prod", wcores, 2, "none", 36000, 0))
+            for _ in range(10):
+                core.tick(); be.advance(core, S.TICK)
+            for i, c in enumerate(gates):
+                g = SS.job("g%d" % i, "build", "prod", c, 2, "none", 900, be.t); g["kind"] = "build"; g["prio"] = prio; core.add(g)
+            for _ in range(ticks):
+                core.tick(); be.advance(core, S.TICK)
+            return core, be
+        finally:
+            S.RESERVE_CORES, S.GATE_FIT = 0, False
+
+    def test_gate_on_16th_core_prod_not_frozen(self):
+        core, be = self.run_case([4])
+        g = core.jobs["g0"]
+        self.assertEqual((g["state"], g["cores"], g["cores_req"]), ("running", 1, 4))                          # сжат до 1 ядра…
+        self.assertEqual(g["max_runtime"], 4 * SS.job("x", "x", "prod", 1, 2, "none", 900, 0)["max_runtime"])   # …бюджет ×4
+        self.assertEqual(sum(j["cores"] for j in core.running("prod") if j.get("kind") != "build"), 15)       # prod 15 из 15
+        self.assertFalse([j for j in core.jobs.values() if j.get("frozen_for")])
+        self.assertEqual(be.freezes, [])                                                                       # ни одной заморозки
+
+    def test_second_gate_waits_without_preempt(self):
+        core, be = self.run_case([1, 1])
+        self.assertEqual(sorted(core.jobs[i]["state"] for i in ("g0", "g1")), ["queued", "running"])
+        self.assertEqual(be.freezes, [])
+        self.assertEqual(sum(j["cores"] for j in core.running("prod") if j.get("kind") != "build"), 15)
+
+    def test_gate_does_not_hold_back_work(self):
+        core, _ = self.run_case([1, 1], wcores=1, nwork=20)                                                    # ждущий второй гейт не держит место work
+        self.assertEqual(sum(1 for j in core.running("prod") if j.get("kind") != "build"), 15)
 
 
 class ReserveFact(unittest.TestCase):
