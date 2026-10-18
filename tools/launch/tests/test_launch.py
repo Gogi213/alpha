@@ -289,6 +289,19 @@ def test_letopis_audit_fields():
             assert x["status"] == "none" and x["off"] in launch.OFF_LABELS.values()
 
 
+def test_sieve_note_undefined_and_reasons():
+    """TK-299: «не определена» (сделок/суток меньше порога rules), причины годна / p > порога / ΔSR ≤ 0; пороги — из rules."""
+    R = {"V@r": {"p_max": 0.2, "min_trades": 20.0, "min_days": 10.0}}
+    row = lambda **k: [{"rule_version": "V@r", "trades": 700, "days": 200, "p": 0.1, "eligible": 0, "plateau": 0, **k}]
+    assert launch.sieve_note(row(trades=6, days=6), R)[0] is True
+    assert launch.sieve_note(row(days=9), R)[0] is True
+    u, w = launch.sieve_note(row(eligible=1, plateau=1), R)
+    assert (u, w.startswith("годна"), "плато" in w) == (False, True, True)
+    assert launch.sieve_note(row(p=1.0), R) == (False, "не годна: p 1.0 > 0.2 (700 сделок, 200 суток)")
+    assert "ΔSR" in launch.sieve_note(row(p=0.1), R)[1]
+    assert launch.sieve_note(row(trades=1), {})[0] is False   # правил версии нет — «не определена» не выдумываем
+
+
 # --- TK-251 П4: маршруты r1/r1x (R1 в форме) ---
 R1DOC = {**DOC, "routes": {"aaaa": "cells", "bbbb": "cells", "cccc": "r1", "dddd": "r1x"},
          "r1spec": {"cccc": ["Г-01", "wall_add_max_lots", "hi", "5", "", ""]}}
