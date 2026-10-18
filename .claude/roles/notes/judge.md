@@ -421,3 +421,5 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 18.10 (TK-298 сито вернуть): счётчики CSV = .md пересчётом; «не определена» по устранимой причине (psim без монеты) + метки «Инженеру» = return; ~3 мин.
 - 18.10 (TK-291 П-19 «отложено» по слову владельца): статус уровня гипотезы = строка verdicts (calc /data/launch/registry/verdicts.jsonl + канон), клетки не трогать; журнал+пул «Отложено»; accept требует --decisions/--numbers/--live даже без счёта; ~12 мин.
 - 18.10 (TK-297 слияние вернуть): check-sprawl в worktree origin/master vs голова PR → гейт «не выше master»; новые tk*-скрипты → tools/compute/archive; «ОСТАЛОСЬ» в сдаче = return; ~5 мин.
+- 18.10 (TK-298 повтор вернуть): CSV пересчётом = .md (16/8/167/7); метки «Инженеру» без подтикета = return с готовой командой new + wait ticket; ~3 мин.
+- 18.10 (TK-297 повтор вернуть): байт-в-байт md5-{m,h} на calc равны, sprawl = master; но CI PR (gh pr view --json statusCheckRollup) windows clippy large_enum_variant красный при зелёном master → return; ~4 мин.
