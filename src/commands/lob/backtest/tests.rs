@@ -1,5 +1,7 @@
 use super::feed::events_from_feed;
-use super::plan::{approach_plan_sched, bounce_plan_sched, EARLY_EXITS_S, EARLY_EXIT_HALF_MS};
+use super::plan::{
+    approach_plan_sched, bounce_plan_sched, EARLY_EXITS_HALF_S, EARLY_EXITS_S, EARLY_EXIT_HALF_MS,
+};
 use super::*;
 use crate::binlog::StepAt;
 use crate::book::{Side, Update};
@@ -408,6 +410,45 @@ fn entry_form_market_round_trips_through_its_label() {
     assert_eq!(EntryForm::Market.label(), "market");
 }
 
+/// Г-135 (П-17): `postsweep<R>` — каноническое имя туда и обратно, `R = 0`, ведущие нули и мусор — отказ; цена входа и
+/// `post_only` — как у `market`, а `R` уходит в конфиг стратегии.
+#[test]
+fn entry_form_postsweep_round_trips_and_enters_like_market() {
+    let f = EntryForm::parse("postsweep5").unwrap();
+    assert_eq!(f, EntryForm::Postsweep { rise_bps: 5 });
+    assert_eq!(f.label(), "postsweep5");
+    for bad in [
+        "postsweep",
+        "postsweep0",
+        "postsweep05",
+        "postsweep-5",
+        "postsweep5x",
+    ] {
+        assert!(EntryForm::parse(bad).is_err(), "{bad}");
+    }
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, Some(1_005));
+    let mut shape = plain_shape();
+    shape.entry_form = f;
+    shape.post_only = true;
+    let (_, plan) = bounce_plan(&touch, tick, base("behind", "1to1"), None, shape).unwrap();
+    let (entry, _, _) = plan_prices(&plan);
+    let expected_tick = 1_000 + super::forms::bps_to_ticks_ceil(MARKET_CROSS_MARGIN_BPS, 1_000);
+    assert!(
+        (entry - expected_tick as f64 * tick).abs() < 1e-9,
+        "{entry}"
+    );
+    match plan {
+        TradePlan::Bounce {
+            post_only, pyramid, ..
+        } => {
+            assert!(!post_only);
+            assert_eq!(pyramid.postsweep_bps, 5);
+        }
+        TradePlan::SpreadHold => panic!("отскок обязан быть Bounce"),
+    }
+}
+
 /// T-35 (Г-85): `single@fr+N` / `single@fr_N` — отступ от фронтрана к рынку / к стене; имя туда и обратно,
 /// нулевой, ведущие нули и `-` (разделитель полей имени формы) — отказ.
 #[test]
@@ -640,7 +681,13 @@ fn deadline_and_early_exit_values_outside_the_preregistered_grid_are_refused() {
         early_exit_ns_from_ms(Some(EARLY_EXIT_HALF_MS)).unwrap(),
         500_000_000
     );
-    for bad in [0, 4_000, 7_000, 250, 1_500] {
+    for x in EARLY_EXITS_HALF_S {
+        assert_eq!(
+            early_exit_ns_from_ms(Some(x * 1_000 + 500)).unwrap(),
+            (x * 1_000 + 500) * 1_000_000
+        );
+    }
+    for bad in [0, 4_000, 7_000, 250, 1_500, 38_500] {
         let err = early_exit_ns_from_ms(Some(bad)).unwrap_err().to_string();
         assert!(
             err.contains("не из предрегистрированного набора В-58"),
@@ -1352,6 +1399,7 @@ fn approach_plan_sched_is_the_sched_plan_of_the_touch_view() {
         depth_behind_lots: 0,
         stack_levels_at_arm: 0,
         stack_span_bps_at_arm: 0,
+        repeat_count_at_arm: 0,
         frontrun_lots_at_arm: 0,
         p08: Some(Default::default()),
         r1: None,

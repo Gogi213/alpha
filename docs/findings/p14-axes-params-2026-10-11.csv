@@ -12,7 +12,7 @@ N;count;1;num;R2: Г-92
 u;frac;1/12;num;R2: доля, Г-92/93
 K;count;1;num;R2: Г-93
 x;mult;;log;R2: множитель Г-106 (лог-2)
-gamma;mult;;log;R2: Г-117 (лог-2)
+gamma;mult;0.125;log;R2: Г-117 (лог-2)
 T;frac;1/16;num;R2: Г-117 доля ttl/дедлайна
 tol_ticks;tick;1;num;R2: Г-119
 trigger;-;;cat;R2: Г-114 halfstop|halflevel

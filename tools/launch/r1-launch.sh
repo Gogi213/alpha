@@ -2,10 +2,10 @@
 # TK-251 П4 (В-12/G-002): шаг 2 запуска формы — R1 (маршруты r1 и r1x): клетки месяца -> psim -> <RUN>/r1/ps/closes-cap{0,3}-<jan…sep>.json + psim-r1.done.
 #   r1: r1cell.py apply по <RUN>/plan/L-<ГГГГ-ММ>.r1spec (отбор по B1-пулу, исходы из rounds.csv); r1x: готовые клетки $R1X_CELLS/<мес>/<хеш>.csv копируются как есть (В-213, не пересчитываются).
 #   psim — канонический p12-r1-psim.py с подменой O/CELLS и фильтром R1KEEP (так считали TK-250/TK-251; эквивалентность r1ext и r1x принята). Ошибка -> <RUN>/r1/r1-fail.txt.
-#   r1-launch.sh <RUN>; env R1CELL POOL R1X_CELLS PSIM_SRC STUDY PM (параллельных месяцев, 3). Нейросетей не зовёт (В-6).
+#   r1-launch.sh <RUN>; env R1CELL POOL R1X_CELLS PSIM_SRC STUDY PM (параллельных месяцев, 3). Нейросетей не зовёт (В-6). POOL по умолчанию — pool60 (TK-268: пул TK-064 + колонки *_60s_bp; старые клетки побайтно равны, гейт 1017124334170).
 set -u
 RUN=$1; P=$RUN/plan; O=$RUN/r1; H=$(cd "$(dirname "$0")" && pwd)
-R1CELL=${R1CELL:-$H/../compute/r1cell.py}; POOL=${POOL:-/data/tk064/pool}; X=${R1X_CELLS:-/data/tk202/r1x/cells}
+R1CELL=${R1CELL:-$H/../compute/r1cell.py}; POOL=${POOL:-/data/tk0268/pool60}; X=${R1X_CELLS:-/data/tk202/r1x/cells}
 SRC=${PSIM_SRC:-/data/tk063r1/p12-r1-psim.py}; STUDY=${STUDY:-/data/p12r2/v-b/study}; PM=${PM:-3}
 mkdir -p "$O/cells" "$O/ps/b"; cd "$O" || exit 2; rm -f psim-r1.done r1-fail.txt
 [ -s "$P/r1months.txt" ] || { echo "нет $P/r1months.txt" >> r1-fail.txt; exit 3; }

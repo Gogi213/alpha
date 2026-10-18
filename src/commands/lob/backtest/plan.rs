@@ -167,7 +167,9 @@ pub(crate) fn bounce_plan(
                 .frontrun_tick
                 .unwrap_or_else(|| p_tick.saturating_add(away)),
         ),
-        EntryForm::Market => (
+        // Г-135: как `market` — заявка за `MARKET_CROSS_MARGIN_BPS` пересекает спред; когда ставить — решает
+        // стратегия (`pyramid.postsweep_bps`, `ReclaimWait`).
+        EntryForm::Market | EntryForm::Postsweep { .. } => (
             EntryLadder::NONE,
             p_tick + away * bps_to_ticks_ceil(MARKET_CROSS_MARGIN_BPS, p_tick),
         ),
@@ -175,7 +177,7 @@ pub(crate) fn bounce_plan(
     // T4 (Г-86): рыночный вход не может быть мейкером — GTX отклонил бы
     // заявку, пересёкшую спред, как Expired (В-72); GTC независимо от
     // `--post-only`/набора.
-    let post_only = if matches!(entry_form, EntryForm::Market) {
+    let post_only = if matches!(entry_form, EntryForm::Market | EntryForm::Postsweep { .. }) {
         false
     } else {
         post_only
@@ -465,6 +467,7 @@ fn with_reclaim(
             pyramid.reclaim_depth_bps = depth_bps;
             pyramid.reclaim_pause_ms = pause_s.saturating_mul(1000);
         }
+        EntryForm::Postsweep { rise_bps } => pyramid.postsweep_bps = rise_bps,
         EntryForm::Retreat { k_ticks, half_min } => {
             pyramid.retreat_k = k_ticks;
             pyramid.retreat_half_min = half_min;
@@ -515,7 +518,7 @@ pub(crate) fn touch_view_of_approach(a: &ApproachRecord) -> TouchRecord {
         flow_1h_lots: a.flow_1h_lots,
         strength_e2: a.strength_e2,
         strength_held_e2: [-1; STRENGTH_HELD_WINDOWS_S.len()],
-        repeat_count: 0,
+        repeat_count: a.repeat_count_at_arm,
         depth_behind_lots: a.depth_behind_lots,
     }
 }
@@ -649,8 +652,11 @@ const DEADLINES_S: [i64; 8] = [60, 600, 1_800, 3_600, 7_200, 14_400, 21_600, 28_
 /// Предрегистрированный набор досрочных выходов, секунды (B4, В-58 п. 5):
 /// «прилипание» касания дольше `X`. Отсутствие флага — четвёртый вариант той
 /// же оси («выключен»), поэтому `None` здесь не ошибка, а значение сетки.
-/// {5…60} добавлены точками F1 П-14 Г-110 (TK-189, решение владельца 11.10).
-pub(crate) const EARLY_EXITS_S: [i64; 9] = [1, 2, 3, 5, 8, 13, 20, 30, 60];
+/// {5…60} добавлены точками F1 П-14 Г-110 (TK-189, решение владельца 11.10); 45 — точка F2 (TK-272, П-14 §11.2).
+pub(crate) const EARLY_EXITS_S: [i64; 10] = [1, 2, 3, 5, 8, 13, 20, 30, 45, 60];
+
+/// Половинные секунды F2 Г-110 (TK-272): 37,5 и 52,5 с — целая часть.
+pub(crate) const EARLY_EXITS_HALF_S: [i64; 2] = [37, 52];
 
 /// Дедлайн `--deadline-secs` → наносекунды: значение обязано быть из сетки
 /// В-58 (она зафиксирована **до** данных, и «попробовать ещё одно» — отдельное
@@ -672,18 +678,28 @@ pub(crate) fn deadline_ns_from_secs(secs: i64) -> anyhow::Result<i64> {
 pub(crate) const EARLY_EXIT_HALF_MS: i64 = 500;
 
 /// Досрочный выход `--early-exit-secs` → наносекунды (B4), вход в миллисекундах: `None` — выключен,
-/// `Some(x)` — целые секунды из `EARLY_EXITS_S` или 500 мс. Другое значение — отказ, тем же
+/// `Some(x)` — целые секунды из `EARLY_EXITS_S`, `EARLY_EXITS_HALF_S` + 0,5 с или 500 мс. Другое значение — отказ, тем же
 /// правилом, что у дедлайна.
 pub(crate) fn early_exit_ns_from_ms(ms: Option<i64>) -> anyhow::Result<i64> {
     let Some(x) = ms else {
         return Ok(0);
     };
     anyhow::ensure!(
-        x == EARLY_EXIT_HALF_MS || (x % 1_000 == 0 && EARLY_EXITS_S.contains(&(x / 1_000))),
-        "--early-exit-secs {} не из предрегистрированного набора В-58 {EARLY_EXITS_S:?} + 0.5",
+        x == EARLY_EXIT_HALF_MS
+            || (x % 1_000 == 0 && EARLY_EXITS_S.contains(&(x / 1_000)))
+            || (x % 1_000 == 500 && EARLY_EXITS_HALF_S.contains(&(x / 1_000))),
+        "--early-exit-secs {} не из предрегистрированного набора В-58 {EARLY_EXITS_S:?} + 0.5 + {EARLY_EXITS_HALF_S:?}.5",
         early_label(x)
     );
     Ok(x.saturating_mul(1_000_000))
+}
+
+/// Метка точки (`2`, `0.5`, `37.5`) → миллисекунды: целые секунды или `<целые>.5`; другое — `None`.
+pub(crate) fn early_ms_from_label(v: &str) -> Option<i64> {
+    match v.strip_suffix(".5") {
+        Some(w) => w.parse::<i64>().ok()?.checked_mul(1_000)?.checked_add(500),
+        None => v.parse::<i64>().ok()?.checked_mul(1_000),
+    }
 }
 
 /// Имя точки в формах и шапке: целые секунды как раньше (`2`), полсекунды — `0.5`.

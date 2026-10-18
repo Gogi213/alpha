@@ -126,14 +126,28 @@ where
     } = state.plan
     {
         let pyr = pyramid.eff();
-        if pyr.reclaim_depth_bps > 0 && !state.reclaim_ready {
-            state.reclaim = Some(crate::lob::reclaim::ReclaimWatch::new(
-                side == HbtSide::Buy,
-                px_tick(level_px, tick_px),
-                pyr.reclaim_depth_bps,
-                i64::from(pyr.reclaim_pause_ms) * 1_000_000,
-                (now, now.saturating_add(entry_ttl_ns)),
-            ));
+        if (pyr.reclaim_depth_bps > 0 || pyr.postsweep_bps > 0) && !state.reclaim_ready {
+            let long = side == HbtSide::Buy;
+            let level_tick = px_tick(level_px, tick_px);
+            state.reclaim = Some(if pyr.postsweep_bps > 0 {
+                // Г-135: окно «назначено П-17» — 30 с от взвода, не длиннее TTL входа.
+                let end =
+                    now.saturating_add(entry_ttl_ns.min(crate::lob::reclaim::POSTSWEEP_WINDOW_NS));
+                crate::lob::reclaim::ReclaimWatch::postsweep(
+                    long,
+                    level_tick,
+                    pyr.postsweep_bps,
+                    (now, end),
+                )
+            } else {
+                crate::lob::reclaim::ReclaimWatch::new(
+                    long,
+                    level_tick,
+                    pyr.reclaim_depth_bps,
+                    i64::from(pyr.reclaim_pause_ms) * 1_000_000,
+                    (now, now.saturating_add(entry_ttl_ns)),
+                )
+            });
             state.reclaim_t0 = None;
             state.phase = Phase::ReclaimWait;
             return Ok(Action::Idle);

@@ -15,6 +15,11 @@ impl StrategyState {
         self.orphan_fills
     }
 
+    /// Г-81: мера ворот на `sent + W` (см. `StrategyState::gate_measure`) — для пробы порогов.
+    pub fn gate_measure(&self) -> Option<f64> {
+        self.gate_measure
+    }
+
     /// F8c (К1): сколько раз новая партия сирот вытеснила живую прежнюю.
     pub fn orphan_overflow(&self) -> u64 {
         self.orphan_overflow

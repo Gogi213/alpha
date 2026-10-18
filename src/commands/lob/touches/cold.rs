@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn key_has_no_build_id_and_depends_on_params_and_day() {
         let k = cold_key("h3=10000", "2026-01-01");
-        assert!(k.starts_with("abn2-tbn1-a1-") && k.ends_with("-2026-01-01"));
+        assert!(k.starts_with("abn3-tbn1-a1-") && k.ends_with("-2026-01-01"));
         assert_eq!(k, cold_key("h3=10000", "2026-01-01"));
         assert_ne!(k, cold_key("h3=20000", "2026-01-01"));
         assert_ne!(k, cold_key("h3=10000", "2026-01-02"));

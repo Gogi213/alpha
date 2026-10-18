@@ -156,6 +156,7 @@ pub(crate) use parts::{group_parts_by_day, session_days_in_dir, SessionPart};
 pub(crate) use replay::{replay_symbol, replay_symbol_over_configs};
 pub(crate) use replay::{
     replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids, ReplayDay, ReplayKeep,
+    TwinSeeds,
 };
 pub(crate) use shared::{
     read_verify_marker, select_best_mean_net, size_bucket, CPCV_SELECTION_RULE,

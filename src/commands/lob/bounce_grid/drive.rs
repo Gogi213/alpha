@@ -17,7 +17,7 @@ use hftbacktest::types::Event as HbtEvent;
 use crate::commands::lob::backtest::{
     approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, count_feed_events,
     deadline_ns_from_secs, early_exit_ns_from_ms, open_replay_feed, replay_compact_into_until,
-    EntryForm, PlanShape, PoolLot,
+    BounceForm, EntryForm, PlanShape, PoolLot, StopForm,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, precompute_exit_group, with_backtest_over, BounceRun,
@@ -51,6 +51,23 @@ fn signals_for(
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
     let early_exit_ns = early_exit_ns_from_ms(form.early_exit_ms)?;
     let mut skipped: u64 = 0;
+    // Г-101 (П-17): режим бывает только у лестницы входа / стопа `pct`|`s`; иначе множитель молча не сработал бы.
+    anyhow::ensure!(
+        p.filter.ladder_regime.is_none() || scale_ladder(form.entry_form, 1.0).is_some(),
+        "{}: lreg_* (Г-101) требует форму входа ladder…",
+        form.label
+    );
+    anyhow::ensure!(
+        p.filter.stop_regime.is_none() || scale_stop(form.form.stop, 1.0).is_some(),
+        "{}: sreg_* (Г-101) требует стоп pct<x> или s<a>",
+        form.label
+    );
+    // Г-135 (П-17): `swept_lots` — кадр перед касанием; на взводе (лестница B1) это заглядывание вперёд.
+    anyhow::ensure!(
+        p.filter.swept_min_bp.is_none() || matches!(form.entry_form, EntryForm::Postsweep { .. }),
+        "{}: swept_min (Г-135) допустим только с входом postsweep<R> — на взводе величина неизвестна",
+        form.label
+    );
     if let Some(ctx) = p.filter.ctx {
         anyhow::ensure!(
             ctx.len() == touches.len(),
@@ -93,7 +110,21 @@ fn signals_for(
                 skipped += 1;
                 return None;
             }
-            let sigma_bps = if form.form.needs_sigma() {
+            // Г-101: «сильная» половина (btc4h ≤ T) — шаг лестницы и/или стоп ×f; режим не задан — прежняя форма.
+            let entry_form = p
+                .filter
+                .regime_factor(p.filter.ladder_regime, ti)
+                .and_then(|f| scale_ladder(form.entry_form, f))
+                .unwrap_or(form.entry_form);
+            let bform = match p
+                .filter
+                .regime_factor(p.filter.stop_regime, ti)
+                .and_then(|f| scale_stop(form.form.stop, f))
+            {
+                Some(stop) => BounceForm { stop, ..form.form },
+                None => form.form,
+            };
+            let sigma_bps = if bform.needs_sigma() {
                 sigma.sigma_bps(t.start_ms, form.deadline_secs)
             } else {
                 None
@@ -109,7 +140,7 @@ fn signals_for(
                 // F6 (В-73): форма входа — ось сетки (`--entry-form`):
                 // `single@fr` — прежняя нога, лестница — ноги от `from` до `to`
                 // bps над стеной.
-                entry_form: form.entry_form,
+                entry_form,
                 deadline_ns,
                 early_exit_ns,
                 // F5 (В-74): режим срока жизни входа — из формы сетки
@@ -121,31 +152,43 @@ fn signals_for(
                 // F7 (Б-75): форма выхода — ось сетки (`--exit-form`).
                 exit_form: form.exit_form,
                 // В-131: σ на взводе — только σ-лестнице (`t.start_ms` у подхода — `arm_ms`).
-                entry_sigma_bps: match form.entry_form {
+                entry_sigma_bps: match entry_form {
                     EntryForm::LadderSigma { .. } => p.entry_sigma.and_then(|s| s.at(t.start_ms)),
                     _ => None,
                 },
             };
+            // Г-98: лот ниже min-лота (`size_risk`) — NaN из `day_risk_qtys`: сделка пропущена и посчитана.
+            if p.order_qtys.get(ti).is_some_and(|q| q.is_nan()) {
+                skipped += 1;
+                return None;
+            }
             let built = match (p.step_schedule, approaches) {
                 (Some(sc), Some(ap)) => approach_plan_sched(
                     &ap[ti],
                     p.grid_e9.0,
                     p.grid_e9.1,
                     sc,
-                    form.form,
+                    bform,
                     sigma_bps,
                     shape,
                 ),
                 (Some(sc), None) => {
-                    bounce_plan_sched(t, p.grid_e9.0, p.grid_e9.1, sc, form.form, sigma_bps, shape)
+                    bounce_plan_sched(t, p.grid_e9.0, p.grid_e9.1, sc, bform, sigma_bps, shape)
                 }
-                (None, Some(ap)) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
-                (None, None) => bounce_plan(t, p.tick, form.form, sigma_bps, shape),
+                (None, Some(ap)) => approach_plan(&ap[ti], p.tick, bform, sigma_bps, shape),
+                (None, None) => bounce_plan(t, p.tick, bform, sigma_bps, shape),
             };
-            let Some((dir, plan)) = built else {
+            let Some((dir, mut plan)) = built else {
                 skipped += 1;
                 return None;
             };
+            // Г-81 (П-17): ворота входа `entry_gate=cxl<W>q<Q>` — в `PyramidCfg` плана; без ключа план как есть.
+            if let (Some((w, q)), crate::lob::strategy::TradePlan::Bounce { pyramid, .. }) =
+                (p.filter.entry_gate, &mut plan)
+            {
+                pyramid.gate_cxl_w = w;
+                pyramid.gate_cxl_q = q;
+            }
             Some(BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),
                 sigma: dir,
@@ -158,6 +201,44 @@ fn signals_for(
         .collect();
     signals.sort_by_key(|s| s.t0_ns);
     Ok((signals, skipped))
+}
+
+/// Г-101: шаг лестницы входа ×`f` — дальняя нога уходит на `from + f·(to − from)`; не лестница — `None`.
+fn scale_ladder(e: EntryForm, f: f64) -> Option<EntryForm> {
+    match e {
+        EntryForm::Ladder {
+            legs,
+            from_bps,
+            to_bps,
+            wall_weight,
+        } => Some(EntryForm::Ladder {
+            legs,
+            from_bps,
+            to_bps: from_bps + f * (to_bps - from_bps),
+            wall_weight,
+        }),
+        EntryForm::LadderSigma {
+            legs,
+            from_sigma,
+            to_sigma,
+            wall_weight,
+        } => Some(EntryForm::LadderSigma {
+            legs,
+            from_sigma,
+            to_sigma: from_sigma + f * (to_sigma - from_sigma),
+            wall_weight,
+        }),
+        _ => None,
+    }
+}
+
+/// Г-101: ширина стопа ×`f` (`pct<x>` → `pct<x·f>`, `s<a>` → `s<a·f>`); прочие формы стопа — `None`.
+fn scale_stop(s: StopForm, f: f64) -> Option<StopForm> {
+    match s {
+        StopForm::Pct(x) => Some(StopForm::Pct(x * f)),
+        StopForm::Sigma(a) => Some(StopForm::Sigma(a * f)),
+        _ => None,
+    }
 }
 
 /// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, потолок `SIG_CACHE_CAP` сигналов на сутки): `signals_for` второй раз не зовётся. Сверх потолка форма не
@@ -207,7 +288,10 @@ pub(super) fn entry_groups(forms: &[GridForm]) -> Vec<Vec<usize>> {
             let h = &forms[g[0]];
             h.entry_form == f.entry_form
                 && h.entry_ttl == f.entry_ttl
-                && !matches!(f.entry_form, EntryForm::Reclaim { .. })
+                && !matches!(
+                    f.entry_form,
+                    EntryForm::Reclaim { .. } | EntryForm::Postsweep { .. }
+                )
         }) {
             Some(g) => g.push(i),
             None => groups.push(vec![i]),
@@ -447,6 +531,40 @@ impl OrderSizing {
         }
         #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
         let q = ((raw / step as f64 + 1e-9).floor() as i64).saturating_mul(step);
+        (q > 0 && q >= min.saturating_mul(i64::from(mult.max(1)))).then_some(q)
+    }
+
+    /// Г-98 (П-17, `size_risk=<R$>`): лот под риск — `min(base, R·10⁴ ÷ span_bps)` (в монете по цене уровня), вниз до шага
+    /// `step_e9`; `span_bps < 1` или риск не жмёт — `base` как есть (= B1 байт в байт). `None` — ниже min-лота (22а):
+    /// сделка пропускается и считается, вверх не поднимаем.
+    pub(super) fn qty_risk_e9(
+        &self,
+        price_e9: i64,
+        mult: u32,
+        base_e9: i64,
+        risk_usd: f64,
+        span_bps: i64,
+        step_e9: i64,
+    ) -> Option<i64> {
+        if span_bps < 1 {
+            return Some(base_e9);
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let risk_raw = risk_usd * 1e4 / span_bps as f64 * 1e18 / price_e9.max(1) as f64;
+        #[allow(clippy::cast_precision_loss)]
+        if !risk_raw.is_finite() || risk_raw >= base_e9 as f64 {
+            return Some(base_e9);
+        }
+        let (step, min) = match *self {
+            Self::Fixed(_) => (step_e9, step_e9),
+            Self::Pool22a(lot) | Self::Usd(lot, _) => (lot.qty_step_e9, lot.qty_22a_e9(price_e9)),
+        };
+        let step = if step_e9 > 0 { step_e9 } else { step };
+        if step <= 0 {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let q = ((risk_raw / step as f64 + 1e-9).floor() as i64).saturating_mul(step);
         (q > 0 && q >= min.saturating_mul(i64::from(mult.max(1)))).then_some(q)
     }
 
