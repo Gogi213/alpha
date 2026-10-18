@@ -443,3 +443,33 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 18.10 (TK-298 принято [вживую]): после слияния TK-299 — md5 calc = origin/master + повтор data/tk299j/live.py (sed пути) → те же числа; numbers-файл копией TK-299; ~3 мин.
 - 18.10 (TK-302 план F2 П-15 вернуть-утверждён): зона/шаг F1/4 сверены с CSV сита; за край F1 = владелец (П-15 §8, Г-133 прецедент); потолок 100 → зоны по min p; ~6 мин.
 - 18.10 (TK-302 повтор после утверждения): сдача = утверждённый состав; подача — код Инженера → тикет TK-303 (--ref В-28), за край F1 → ask-owner --why-owner направление; ~4 мин.
+- 18.10 (TK-302 после слова CEO на Г-102 B): CEO по В-39 решает «за край» вместо владельца → дополнение в review + comment в тикет подачи + wait ticket:<подача>; ~2 мин.
+- 18.10 (TK-304 blocked инженера, блок снят CEO): grep rpv.json — корень есть → return с review-файлом, без перепроверки oldtick; ~1 мин.
+- 18.10 (TK-304 сторож «холостой ход» после wait инженера): systemctl is-active юнита + df → result wait --form --by (срок обязателен); ~2 мин.
+- 18.10 (TK-300 разбужен комментарием из TK-303 после done): psim поданы --kind gate, держат слот 16-го ядра → развилка решена (psim=prod), хвост TK-306 до приёмки, accept с --tail TK-306 и прежними файлами; ~3 мин.
+- 18.10 (TK-303 сторож после wait инженера): alsched ps — задание queued, rc нет → тот же wait --form --by; ~1 мин.
+- 18.10 (TK-306 PR #64 принято к слиянию): тесты локально на git archive головы + функция из головы PR на calc по реальным именам из ps = [вживую] до выкладки; --numbers: число должно буквально стоять в файле:строке (review-файл); --decisions сразу; ~7 мин.
+- 18.10 (TK-304 приёмка «done»): вживую df/ENOSPC/load ок, тесты ок, но код выложен на calc из ветки без PR (md5 calc ≠ origin/master) → return: PR в master; сверять md5 calc с origin/master, а не с веткой; ~5 мин.
+- 18.10 (TK-279 сторож 2-й раз, psim долго): задание running, но systemd RuntimeMaxSec юнита (systemctl show) снимет раньше конца → не перезапускать вживую, comment с планом переподачи (готовые r-b переиспользуются) + wait на rc; ~5 мин.
+- 18.10 (TK-300 PR #66 вернуть): модель SimBE на состоянии из calc ps (master vs голова) = быстрый [вживую] до выкладки; проверять режим PACK calc (fact!) — по факту work добирает до 15 поверх гейтов → 18/16; ~8 мин.
+- 18.10 (TK-300 PR #66@ea73b58 повтор): over.py/live.py на git archive головы (fact и claim) → 13/16 ок; CI pending → wait at: +30 мин, не return; ~3 мин.
+- 18.10 (TK-304 PR #65 принято): gh pr view checks + md5 calc = git show голова PR + df/uptime; --decisions обязателен при accept; ~3 мин.
+- 18.10 (TK-304 PR #65 принято): gh pr checks + md5 calc = git show голова PR + df/uptime; accept требует --decisions (только из реестра), --numbers отдельным файлом (парсит все таблицы), --repo Gogi213/alpha; ~6 мин.
+- 18.10 (TK-289 сторож 3-й раз, psim gate): alsched ps — psim queued за build в слоте gate/build (16-е ядро) → не перезапускать, wait --by по оценке build+psim; ~2 мин.
+- 18.10 (TK-304 закрытие после слияния): gh pr view MERGED + родитель = голова; md5 /data/sched/* на calc = git show origin/master; ветка без тега → --tail ceo; ~3 мин.
+- 18.10 (TK-300 PR #66@a0a0065 после CEO 18/16): причина сверена alsched ps (stand measure стартовали вместе с g98); тесты головы + новые на master красные + over.py; CI pending → wait at +35 мин; ~5 мин.
+- 18.10 (TK-300 PR #66@a0a0065 приёмка): gh pr view CI 18/18 + голова та же → accept; --numbers обязателен (файл:строка), --live = review-файл с моделью на состоянии calc; ~3 мин.
+- 18.10 (TK-272 сторож 2-й раз, f2d): alsched ps running 258 мин (старт ждал очередь) + out/*/done 90/251 + RuntimeMaxUSec 14h → темп до предела ок, wait --by 03:00; ~4 мин.
+- 18.10 (TK-279 сторож «задание упало»): alsched ps — снятое переподано (metrics2 rc0), цель wait rc0 → comment + wait --allow-met (цель готова → инженер); ~3 мин.
+- 18.10 (TK-279 приёмка загрузки П-17 292/292): сводка csv = results.jsonl + verify.out + /api/cov маска 511 + qty R2/R3 в rounds.csv (вырождение Г-98 R≥3 → замечание §47); --numbers: CSV-источник не годится (lookbehind [\d.,] режет «,число») — брать jsonl реестра; ~12 мин.
+- 18.10 (TK-307 приёмка чистки дисков): ls /data против строк таблицы + du-data-new.txt инженера + delete.log; «полная таблица по корням» = каждый корень строкой; «тот же размер» ≠ cmp → return; ~6 мин.
+- 18.10 (TK-289 надзиратель $11 дорого): лог + alsched ps по заданию → идёт к цели, задание queued за чужими ядрами → comment + wait тем же --form; ~3 мин.
+- 18.10 (TK-300 закрытие после слияния #66): gh pr view MERGED + родитель = голова; md5 alsched/sched_cfg calc = origin/master; [вживую] jobs/<id>.json t_start−t_submit у build-пробы + alsched ps сумма + journalctl frozen; ~4 мин.
+- 18.10 (TK-308 сито П-17 вернуть): Counter по колонке итог CSV = таблица findings; [вживую] метки панели не загружены (только «Инженеру») → return с review-файлом; ~4 мин.
+- 19.10 (TK-309 сторож холостой ход): причина OAuth (CEO снял) + worktree чист → return --sha голова инженеру; ~2 мин.
+- 19.10 (TK-307 ход Судьи после холостых OAuth): ls /root/tk0307 на calc → tbl2.rc 0 + tsv готовы → return инженеру продолжить (review дописан); ~3 мин.
+- 19.10 (TK-289 сторож после OAuth-простоя): cat /data/sched/rc/<id> на calc = 0 → цель уже выполнена; result wait --allow-met --by (срок обязателен) → инженер; ~2 мин.
+- 19.10 (TK-308 холостой ход OAuth): подтикет TK-309 в работе у инженера → result wait --form ticket:TK-309 --by +3ч; ~1 мин.
+- 19.10 (TK-303 сторож срок прошёл, F2 queued): alsched ps — queued за tk272-f2d (out/*/done 204/251, max_runtime 14ч из jobs/<id>.json) → wait тем же --form --by с запасом; ~4 мин.
+- 19.10 (TK-305 приёмка закачки спота): ssh calc check.summary + check.csv (без заголовка) + done.csv missing по монетам + df sda; --decisions и --numbers отдельным файлом (таблица вердикта с «В-172»/«2026» ломает парсер); ~6 мин.
+- 19.10 (TK-309 PR #67 метки П-17): хвост 292 sieve.jsonl головы ↔ rows-json по хешу; [вживую] curl /api/hyp elig + /api/letopis sieved/plateau/undef по Г на calc; CI pending → wait --form ci:Gogi213/alpha#67 --by; ~8 мин.
