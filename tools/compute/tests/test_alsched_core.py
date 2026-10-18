@@ -185,6 +185,37 @@ class GateFit(unittest.TestCase):
         finally:
             S.RESERVE_CORES, S.GATE_FIT = 0, False
 
+    def test_window_frozen_still_counted(self):
+        S.RESERVE_CORES, S.GATE_FIT = 1, True                                                                  # CEO 18.10 17:30 (stand-окно): идущие заморожены потолком окна ("cap") — очередь поверх них не стартует, иначе по оттайке 18/16
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            def add(i, c, kind=None, prio=5):
+                j = SS.job(i, i, "prod", c, 1, "none", 36000, 0)
+                j["prio"] = prio
+                if kind:
+                    j["kind"] = kind
+                core.add(j)
+            add("f2d", 12); add("spot", 1); add("pgo", 1, "build", 3)
+            for _ in range(3):
+                core.tick(); be.advance(core, S.TICK)
+            win = SS.job("win", "win", "measure", 8, 1, "none", 36000, 0)                                       # окно измерения на 8 ядрах: потолок prod 8 — все идущие замораживаются ("cap")
+            win["iso"] = 4
+            core.add(win)
+            for _ in range(2):
+                core.tick(); be.advance(core, S.TICK)
+            self.assertTrue(all(j.get("frozen_for") == "cap" for j in core.running("prod")))
+            add("psim", 1, "gate"); add("g98", 3)
+            for _ in range(5):
+                core.tick(); be.advance(core, S.TICK)
+            be.jobs["win"]["left"] = 0                                                                         # конец окна — оттаивают
+            for _ in range(5):
+                core.tick(); be.advance(core, S.TICK)
+            r = core.running("prod")
+            self.assertNotIn("g98", [j["id"] for j in r])                                                      # work 3 поверх замороженных 13 → 16 > 15 — ждёт
+            self.assertLessEqual(sum(j["cores"] for j in r), SS.NCPU)                                          # по оттайке сумма заявленных ≤ 16
+        finally:
+            S.RESERVE_CORES, S.GATE_FIT = 0, False
+
     def test_gate_does_not_hold_back_work(self):
         core, _ = self.run_case([1, 1], wcores=1, nwork=20)                                                    # ждущий второй гейт не держит место work
         self.assertEqual(sum(1 for j in core.running("prod") if j.get("kind") != "build"), 15)
