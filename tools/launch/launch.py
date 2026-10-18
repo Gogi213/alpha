@@ -561,7 +561,7 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         bps = [got[m][3] if m in got else None for m in months]
         full = all(sq)
         sv = sieve.get(r["hash"], [])
-        sieved = any((x.get("trades") or 0) > 0 or (x.get("days") or 0) > 0 for x in sv)   # в sieve без сделок и суток = не просеяно
+        sieved = any((x.get("trades") or 0) > 0 or (x.get("days") or 0) > 0 or x.get("note") for x in sv)   # в sieve без сделок и суток = не просеяно, кроме строки с причиной (note)
         verdict = next((k for k in ("eligible", "plateau", "edge") if any(x.get(k) for x in sv)), "")
         undef, svwhy = sieve_note(sv, srules) if sieved else (False, "")
         if month and not sq[months.index(month)]:
