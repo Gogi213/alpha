@@ -224,7 +224,7 @@ class Core:
             decl_cap = OVERBOOK_MAX - (0 if is_gate else g_resv)
             declared_j = declared
             if GATE_FIT:                              # TK-300 (В-40): work — до OVERBOOK_MAX (15), gate/build — отдельно до RESERVE_CORES (16-е ядро); друг друга не вытесняют
-                decl_cap, declared_j = (RESERVE_CORES, gdecl) if is_gate else (OVERBOOK_MAX, declared)
+                decl_cap, declared_j = (OVERBOOK_MAX + RESERVE_CORES, gdecl + declared) if is_gate else (OVERBOOK_MAX, declared)   # TK-300 (В-40, CEO 18.10): слот 16-го ядра занят (psim/гейт) — второй gate/build встаёт на свободное ядро, пока вся заявленная сумма ≤ 16; work по-прежнему ≤ 15
             # TK-295 (В-34): потолок суммы заявленных ядер действует и на старт по заявке, не только по факту (4 по 4 = 16 > 15)
             room_s = min(room, decl_cap - declared_j - held_n) if OVERBOOK_MAX else room   # место для сжатия elastic — не выше потолка суммы заявок
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j

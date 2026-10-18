@@ -154,6 +154,12 @@ class GateFit(unittest.TestCase):
         self.assertEqual(be.freezes, [])
         self.assertEqual(sum(j["cores"] for j in core.running("prod") if j.get("kind") != "build"), 15)
 
+    def test_busy_slot_does_not_starve_second_gate(self):
+        core, be = self.run_case([1, 1], wcores=3, nwork=4)                                                    # 12 work + гейт в слоте 16-го ядра: второй встаёт сразу, сумма 14 ≤ 16
+        self.assertEqual([core.jobs[i]["state"] for i in ("g0", "g1")], ["running", "running"])
+        self.assertEqual(be.freezes, [])
+        self.assertLessEqual(sum(j["cores"] for j in core.running("prod")), S.OVERBOOK_MAX + 1)
+
     def test_gate_does_not_hold_back_work(self):
         core, _ = self.run_case([1, 1], wcores=1, nwork=20)                                                    # ждущий второй гейт не держит место work
         self.assertEqual(sum(1 for j in core.running("prod") if j.get("kind") != "build"), 15)
