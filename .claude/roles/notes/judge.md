@@ -473,3 +473,14 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-303 сторож срок прошёл, F2 queued): alsched ps — queued за tk272-f2d (out/*/done 204/251, max_runtime 14ч из jobs/<id>.json) → wait тем же --form --by с запасом; ~4 мин.
 - 19.10 (TK-305 приёмка закачки спота): ssh calc check.summary + check.csv (без заголовка) + done.csv missing по монетам + df sda; --decisions и --numbers отдельным файлом (таблица вердикта с «В-172»/«2026» ломает парсер); ~6 мин.
 - 19.10 (TK-309 PR #67 метки П-17): хвост 292 sieve.jsonl головы ↔ rows-json по хешу; [вживую] curl /api/hyp elig + /api/letopis sieved/plateau/undef по Г на calc; CI pending → wait --form ci:Gogi213/alpha#67 --by; ~8 мин.
+- 19.10 (TK-307 приёмка после return): ls /data на calc vs «Полная таблица» (python set: оставлен живы, удалён нет) + df + delete.log байты; accept требует --decisions и --numbers файлом; ~6 мин.
+- 19.10 (TK-310 приёмка хвостов sda): del.rc/del.out на calc + выборка tsv (каждая 40-я: sda нет, пара есть, размер =) + find binlog без пары 0/676; accept просит --decisions и --numbers; хук-отказ → --tail ceo; ~8 мин.
+- 19.10 (TK-311 PR #68 вернуть): diff — только дефолты, защиты в alsched (запрос CEO) нет → выбор автоподъём prod work >15мин до 15 + NX/ALSCHED_CORES в env; ~4 мин.
+- 19.10 (TK-309 приёмка после зелёного CI): gh pr view checks 18/18 + голова = проверенной → accept; нужны --repo Gogi213/alpha, --decisions, --numbers файлом, --live — локальный review (live-файл инженера только в ветке PR); ~4 мин.
+- 19.10 (TK-311 PR #68 повтор): защита alsched есть (prod_cores+nx_env), но git grep по голове нашёл NX=12 в tk263/264 fix-скриптах и tk279-p17-count → return --sha; CI GC pending; ~4 мин.
+- 19.10 (TK-311 PR #68 повтор 3): git grep 12 по голове — только тесты; md5 calc=голова; [вживую] alsched ps tk303-f2 queued ядер=15 + jobs json nx_env; CI GC pending → wait ci:#68 --by; ~4 мин.
+- 19.10 (TK-272 сторож f2d 2-й раз): alsched ps 800 мин + systemctl RuntimeMaxUSec 14h vs ls out/*/done 229/251, темп за час 16 → не успеет к 03:58 → return: claim без done убрать, хвост NX=15; ~5 мин.
+- 19.10 (TK-313 протокол П-21 спот вернуть): grep --h3-mode в day-cells common (глобальный, не клетка) + sets.rs min_flow_pct (клетка) → проходы vs --cells; развилки Q решил в review; ~6 мин.
+- 19.10 (TK-289 сила В-67 × usd_min по слову владельца): решение файлом reviews/P-18-strength-v67 (полная 8×10, 6б оставить, m=17, правило шире/гуще до счёта) → return --path инженеру; ~5 мин.
+- 19.10 (TK-313 П-21 правка 2 утверждена): ключи flow=/usd_min= в sets.rs → один --cells; G 4×4 ок (нет плато 2D, в отличие от П-18); тикет до таблицы → return с «утверждён, дальше §10»; ~5 мин.
+- 19.10 (TK-311 приёмка PR #68): gh checks 18/18 + ssh calc md5+alsched ps ядер=15; --numbers только файл:строка в проекте (не «ssh …»), --decisions В-34; ~5 мин.
