@@ -5,7 +5,7 @@
 Порог q: nearest_rank(отсортированная сила, q/100) (как r1cell.threshold «lo»); сила не определена (< 0 или пусто) в выборку не входит.
 --s67: вместо силы ±20 bps — сила владельца В-67 S = size_at_arm / flow_1h_lots × 100 (ключ набора flow=; flow_1h_lots = 0 — не определена),
 квантили QS67 = 10/25/50/75/90/95 (распределение для решения Судьи «шире/гуще» 6в, P-18-strength-v67).
-Запуск: tk289-thr6b.py <каталог f1/out> <выход .json> <выход .csv> [--days N] [--s67] -> {"2026-01": {"10": x, ...}} + P-18-thresholds.csv (месяц,q,порог,n,склеено,не склеено)."""
+Запуск: tk289-thr6b.py <каталог f1/out> <выход .json> <выход .csv> [--days N] [--s67] [--month ГГГГ-ММ] -> {"2026-01": {"10": x, ...}} + P-18-thresholds.csv (месяц,q,порог,n,склеено,не склеено)."""
 import csv, glob, json, math, os, sys
 
 QS = (10, 20, 33, 50, 67, 80, 90, 95)
@@ -37,6 +37,9 @@ def main():
     qs = QS67 if s67 else QS
     by_month, stat = {}, {}
     dirs = sorted(glob.glob(f"{src}/run-*"))
+    if "--month" in sys.argv:   # один месяц (параллельный счёт по месяцам; склейка — в tk289-s67.sh)
+        ym = sys.argv[sys.argv.index("--month") + 1]
+        dirs = [d for d in dirs if f"-{ym}-" in os.path.basename(d)]
     if lim:
         dirs = dirs[:lim]
     for d in dirs:
