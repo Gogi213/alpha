@@ -1176,7 +1176,7 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
     w = warn_for(j, free, any(x["state"] == "queued" and x["cls"] == "prod" for x in jobs))
     write_job(j)
     if kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES and GATE_FIT:
-        print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер сжата до резерва {RESERVE_CORES} (16-е ядро, TK-300): max-runtime ×{cores / RESERVE_CORES:g}, команде -j{RESERVE_CORES}.", file=sys.stderr)
+        print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер сжата до резерва {RESERVE_CORES} (16-е ядро, TK-300): max-runtime ×{cores / RESERVE_CORES:g}; -j в команде не меняется — задавай {RESERVE_CORES}.", file=sys.stderr)
     elif kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES:
         print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер больше резерва {RESERVE_CORES} — вне резерва ждёт общей очереди (TK-220).", file=sys.stderr)
     if w:
