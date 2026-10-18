@@ -40,7 +40,7 @@
 Ствол — `master` (перемотан на рабочую ветку 10.10, fast-forward). Правило: **ветка = одна тема; слияние в `master` — по гейту** (тесты на VPS + «байт в байт» где нужно), без «wip»-коммитов в вливаемой ветке. Завершённая ветка: тег `archive/<имя>` и удаление (локально и на origin).
 **Сборка головы для гейта (TK-207, единая):** `tools/compute/gate/push-head.sh <W на calc>` (git archive HEAD с vendor/ + files.lst + хеш; грязное дерево — отказ) → на calc под alsched `bash tools/compute/gate/calc-build.sh <W> [r2]`: список файлов снимка == головы, сбой сборки = rc≠0 без прежнего бинарника, `ALPHA_COMMIT` вшит (`alpha --version`) и сверяется с головой, `CALC_EXPECT=<хеш>` — отказ при другой голове. Проба: `calc-build-probe.sh <W>`. Свои копии сборки в скриптах гейтов не держать.
 
-**Сборки и тесты (TK-170, В-223):** `tools/vps-check.sh` по умолчанию идёт на calc (`CHECK_HOST=calc`; `CHECK_HOST=vps` — запасной): `alsched submit --cls prod`, 4 слота `/opt/rbuild` с тёплым target, ядра `CALC_CORES` (4), срок `CALC_MAX` (15m). Гейты «байт в байт» (diff 0) подавать `--cls prod`; `--cls measure` — эксклюзивное окно (замораживает всё prod, в том числе сборки) только для замеров стены/ЦП (`stand`, волна).
+**Сборки и тесты (TK-170, В-223):** `tools/vps-check.sh` по умолчанию идёт на calc (`CHECK_HOST=calc`; `CHECK_HOST=vps` — запасной): `alsched submit --cls prod`, 4 слота `/opt/rbuild` с тёплым target, ядра `CALC_CORES` (1 — 16-е ядро резерва, `cargo -j1`, TK-300), срок `CALC_MAX` (15m). Гейты «байт в байт» (diff 0) подавать `--cls prod`; `--cls measure` — эксклюзивное окно (замораживает всё prod, в том числе сборки) только для замеров стены/ЦП (`stand`, волна).
 
 ## Грабли
 

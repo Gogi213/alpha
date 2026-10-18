@@ -78,8 +78,8 @@ esac
 # shellcheck disable=SC2029
 set +e
 if [ "$CHECK_HOST" = calc ]; then
-  # TK-170: ядра слота (CALC_CORES, по умолчанию 4) и память — заявка планировщику; submit возвращает id, дальше ждём rc/<id>
-  CORES="${CALC_CORES:-4}"; MEMG="${CALC_MEM:-12}"
+  # TK-170: ядра слота (CALC_CORES, по умолчанию 1 = 16-е ядро резерва, TK-300/В-40: -j совпадает с выданным ядром) и память — заявка планировщику; submit возвращает id, дальше ждём rc/<id>
+  CORES="${CALC_CORES:-1}"; MEMG="${CALC_MEM:-12}"
   ssh "${KEY[@]}" "$HOST" "mkdir -p /opt/rbuild/in && cat > /opt/rbuild/run.sh.$$ && mv /opt/rbuild/run.sh.$$ /opt/rbuild/run.sh" < "$(dirname "$0")/calc-build-run.sh"   # раннер выкладывается с деревом: версий не расходится
   ID=$(ssh "${KEY[@]}" "$HOST" "mkdir -p /opt/rbuild/in && cat > /opt/rbuild/in/cmd-$$.sh <<'EOS'
 export PATH=/opt/rbuild/cargo/bin:\$PATH RUSTUP_HOME=/opt/rbuild/rustup CARGO_HOME=/opt/rbuild/cargo
