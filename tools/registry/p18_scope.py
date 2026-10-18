@@ -25,36 +25,39 @@ def cfg(form=cr.B1_FORM, spec=p17.SET_B1, sigma=cr.B1_SIGMA):
     return {"form": form, "set": cr.set_of(spec), "exec": dict(cr.STD_EXEC), "sigma": sigma, "universe": cr.UNIVERSE["v171c"]}
 
 
+def cfg_of(ax, v):
+    """Конфиг клетки оси ax со значением v (ось 8 — окно σ, мин.); 6б — вариант p18b6 (порог по месяцу — отдельно)."""
+    if ax == "8":
+        return cfg(sigma=f"study/sigma{v}")
+    key, _ = pl.AX[ax]
+    p = dict(pl.B1)
+    spec = "age=2700,side=bid"
+    if key in p:
+        p[key] = v
+    if p["btc"] != "none":
+        spec += f",btc4h_max={p['btc']}"
+    if key == "usd_min":
+        spec += f",usd_min={v}"
+    form = f"{pl.entry(p['to'])}-{p['stop']}-{p['take']}-{p['deadline']}-ttl{p['ttl']}"
+    c = cfg(form, spec)
+    if key == "strength_min":
+        c["variant"] = {"family": "p18b6", "axes": {"strength_q": ch.num(int(v))}}
+    return c
+
+
 def cells():
     out = {}
-    base = cfg()
-    out["center"] = [{"axes": {}, "hash": ch.cell_hash(base)}]
+    out["center"] = [{"axes": {}, "hash": ch.cell_hash(cfg())}]
     for ax, (key, vals) in pl.AX.items():
         rows = []
         for v in vals:
-            p = dict(pl.B1)
-            spec = "age=2700,side=bid"
             row = {"axes": {key: v}}
-            if key in p:
-                p[key] = v
-            if p["btc"] != "none":
-                spec += f",btc4h_max={p['btc']}"
-            if key == "usd_min":
-                spec += f",usd_min={v}"
-            form = f"{pl.entry(p['to'])}-{p['stop']}-{p['take']}-{p['deadline']}-ttl{p['ttl']}"
             if key == "strength_min":
-                c = cfg(form, spec)
-                c["variant"] = {"family": "p18b6", "axes": {"strength_q": ch.num(int(v))}}
                 row["threshold"] = "month"
-            else:
-                c = cfg(form, spec)
-            row["hash"] = ch.cell_hash(c)
+            row["hash"] = ch.cell_hash(cfg_of(ax, v))
             rows.append(row)
         out[ax] = rows
-    rows = []
-    for w in SIGMA8:
-        rows.append({"axes": {"sigma_min": w}, "hash": ch.cell_hash(cfg(sigma=f"study/sigma{w}"))})
-    out["8"] = rows
+    out["8"] = [{"axes": {"sigma_min": w}, "hash": ch.cell_hash(cfg_of("8", w))} for w in SIGMA8]
     return out
 
 
