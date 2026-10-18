@@ -160,6 +160,31 @@ class GateFit(unittest.TestCase):
         self.assertEqual(be.freezes, [])
         self.assertLessEqual(sum(j["cores"] for j in core.running("prod")), S.OVERBOOK_MAX + 1)
 
+    def test_gates_over_slot_count_against_work_cap(self):
+        S.RESERVE_CORES, S.GATE_FIT = 1, True                                                                  # Судья PR #66 (over.py, fact): work 10 + 3 гейта (сумма 13) — потом work 5 не должен довести сумму до 18 из 16
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            def add(i, c, kind=None, rt=36000):
+                j = SS.job(i, i, "prod", c, 1, "none", rt, 0)
+                if kind:
+                    j["kind"] = kind
+                core.add(j)
+            add("w10", 10); add("tmp3", 3, rt=30)
+            for _ in range(2):
+                core.tick(); be.advance(core, S.TICK)
+            for i in ("g1", "g2", "g3"):
+                add(i, 1, "gate")
+            for _ in range(2):
+                core.tick(); be.advance(core, S.TICK)
+            add("w5", 5)
+            for _ in range(30):
+                core.tick(); be.advance(core, S.TICK)
+            r = core.running("prod")
+            self.assertLessEqual(sum(j["cores"] for j in r), SS.NCPU)                                          # сумма заявленных ≤ 16
+            self.assertLessEqual(sum(j["cores"] for j in r if j.get("kind") != "gate"), S.OVERBOOK_MAX)        # work ≤ 15
+        finally:
+            S.RESERVE_CORES, S.GATE_FIT = 0, False
+
     def test_gate_does_not_hold_back_work(self):
         core, _ = self.run_case([1, 1], wcores=1, nwork=20)                                                    # ждущий второй гейт не держит место work
         self.assertEqual(sum(1 for j in core.running("prod") if j.get("kind") != "build"), 15)
