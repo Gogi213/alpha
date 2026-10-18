@@ -431,3 +431,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 18.10 (TK-297 PR #61 принято к слиянию): CI 18/18 + diff после байт-в-байт (только Box) → accept; accept требует --decisions, --numbers, --repo (gh repo view) — сразу все; ~4 мин.
 - 18.10 (TK-300 PR #63 принято): load 16,2–16,4 при 16/16 — сверить с фоном (g81b-один 12 → loadavg 12,1): +0,1…0,4 = фон, не переподписка → замечание; --numbers/--live — файлы в проекте (не /tmp); ~6 мин.
 - 18.10 (TK-297 закрытие после слияния): gh pr view 60/61 MERGED + ls-remote теги archive/*; удаление веток на origin — только CEO → --tail ceo:"…"; --numbers отдельным файлом; ~4 мин.
+- 18.10 (TK-300 закрытие после слияния): gh pr view MERGED на принятой голове; md5 calc /data/sched = origin/master; journalctl frozen с приёмки = 0; accept с прежними --numbers/--live; ~3 мин.
