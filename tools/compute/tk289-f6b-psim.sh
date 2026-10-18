@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# TK-289: psim F1 П-18 ось 6б (8 клеток x 251 сутки, f6b rc0) -> /data/tk0289/f6b/psim/closes-p14f1-cap{0,3}-<мес>.json, сводка f6b-sum.csv (sum_closes_f1.py). PM=1. Как f1-psim.sh.
+export PM=1
+bash /opt/alpha-launch/tools/launch/psim-launch.sh /data/tk0289/f6b || exit $?
+python3 /data/tk0231/sum_closes_f1.py /data/tk0289/f6b/psim /data/tk0289/f6b-sum.csv closes-p14f1
