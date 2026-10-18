@@ -1184,6 +1184,19 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
     return j
 
 
+KIND_OK = {"build": {"build", "cargo", "rbuild", "pgo"}, "gate": {"gate", "cargo", "fastcheck", "vps", "equiv"}}
+
+
+def kind_demote(name, argv, kind):
+    """TK-306 (В-40): слот 16-го ядра — только сборки/гейты cargo. gate|build, поданный не под сборку/гейт (имя или команда без их слов), идёт обычным work с предупреждением: psim и метрики — счёт."""
+    if kind == "work":
+        return kind, None
+    toks = set(re.split(r"[^a-z0-9]+", (name + " " + " ".join(argv)).lower()))
+    if toks & KIND_OK[kind]:
+        return kind, None
+    return "work", f"ПРЕДУПРЕЖДЕНИЕ: заявка {name} с --kind {kind} не похожа на сборку/гейт cargo (в имени и команде нет {'|'.join(sorted(KIND_OK[kind]))}) — слот 16-го ядра ей не положен, подана как work (TK-306, В-40)."
+
+
 def ps():
     now = time.time()
     rows = load_all()
@@ -1314,7 +1327,7 @@ def main():
         p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
         p.add_argument("--adhoc", default="", help="КТ-1: обход проверки манифеста для prod — причина (пишется в alerts.log)")
         p.add_argument("--vypiska", default="", help="TK-118, В-213: файл шагов прохода, по которому снята выписка из Летописи (guard.py plan --steps)")
-        p.add_argument("--kind", default="work", choices=["work", "gate", "build"], help="В-229 п.10: gate|build — берут резерв ядер (SCHED_RESERVE_CORES), обычное prod его не занимает")
+        p.add_argument("--kind", default="work", choices=["work", "gate", "build"], help="В-229 п.10: gate|build — берут резерв ядер (SCHED_RESERVE_CORES), обычное prod его не занимает; TK-306: только сборки/гейты cargo, прочее переводится в work")
         p.add_argument("--elastic", action="store_true", help="TK-283 (G-005): при старте добрать свободные ядра до SCHED_ELASTIC_MAX (15), если в работе и в очереди нет gate/build; NX в команде = выданные ядра")
         p.add_argument("--reason", default="", help="В-229 п.8: обход быстрого пути (prod > 15 мин не на pgo-бинаре) — причина, пишется в alerts.log")
         p.add_argument("--est", default="", help="В-229 п.9: оценка прохода по пробе «1 сутки x 3 месяца» (90s|30m|2h); max-runtime >= 1,5 x оценки")
@@ -1330,7 +1343,10 @@ def main():
         if rc:
             return rc
         vyp = vypiska_warn(o, parse_dur(o.max_runtime))
-        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso, vypiska=vyp, kind=o.kind, elastic=o.elastic)
+        kind, kw = kind_demote(o.name, a[sep + 1:], o.kind)
+        if kw:
+            print(kw, file=sys.stderr)
+        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio, o.io, o.iso, vypiska=vyp, kind=kind, elastic=o.elastic)
         print(j["id"])
         return 0
     print(__doc__)

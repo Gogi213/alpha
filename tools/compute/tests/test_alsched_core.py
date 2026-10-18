@@ -467,5 +467,29 @@ class StateFailures(unittest.TestCase):
             self.fail(f"alsched.py:{line}: except … pass без записи")
 
 
+class KindDemote(unittest.TestCase):
+    """TK-306 (В-40): слот 16-го ядра — только сборки/гейты cargo; psim/метрики с --kind gate идут как work."""
+
+    def test_psim_gate_demoted(self):
+        k, w = S.kind_demote("tk279-p17b-psim", ["bash", "/data/tk0279/p17b-psim.sh"], "gate")
+        self.assertEqual(k, "work")
+        self.assertIn("TK-306", w)
+
+    def test_metrics_gate_demoted(self):
+        self.assertEqual(S.kind_demote("tk268-metrics3", ["bash", "/data/tk0268/tk268-metrics3.sh"], "gate")[0], "work")
+
+    def test_gate_kept(self):
+        self.assertEqual(S.kind_demote("tk303-gate-pgo", ["bash", "/data/tk0303/tk303-gate-pgo.sh"], "gate"), ("gate", None))
+
+    def test_build_kept(self):
+        self.assertEqual(S.kind_demote("build-TK-303", ["bash", "/opt/rbuild/run.sh", "x.tar"], "build"), ("build", None))
+
+    def test_work_untouched(self):
+        self.assertEqual(S.kind_demote("tk289-f1-psim", ["bash", "p.sh"], "work"), ("work", None))
+
+    def test_build_kind_needs_build_words(self):
+        self.assertEqual(S.kind_demote("tk289-f1-psim", ["bash", "p.sh"], "build")[0], "work")
+
+
 if __name__ == "__main__":
     unittest.main()
