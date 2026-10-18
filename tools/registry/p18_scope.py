@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TK-289 (П-18 §6, §9 п. 1): P-18-scope.json — 9 осей OFAT F1 (центр B1 + 73 клетки), m = 16, разбиение А/Б, канонические хеши.
+"""TK-289 (П-18 §6, §9 п. 1): P-18-scope.json — 9 осей OFAT F1 (центр B1 + 73 клетки), m = 17, разбиение А/Б, канонические хеши.
 Оси 1–5, 6а, 7, 8 — хеш клетки (форма/набор/σ); ось 6б (strength_min) — хеш варианта (семья p18b6 + квантиль), порог по месяцу
 (P-18-thresholds.csv, считает проход меры — pending). Значения осей — из tools/compute/p18_plan.py (один источник с планом клеток).
     python tools/registry/p18_scope.py [--write-research] [--hashes <файл>]   # печатает проверку; --hashes пишет по строке «хеш<TAB>ось<TAB>значение»"""
@@ -38,6 +38,9 @@ def cfg_of(ax, v):
         spec += f",btc4h_max={p['btc']}"
     if key == "usd_min":
         spec += f",usd_min={v}"
+    if key == "flow+usd_min":
+        sv, uv = v.split("|")
+        spec += f",flow={sv}" + ("" if uv == "none" else f",usd_min={uv}")
     form = f"{pl.entry(p['to'])}-{p['stop']}-{p['take']}-{p['deadline']}-ttl{p['ttl']}"
     c = cfg(form, spec)
     if key == "strength_min":
@@ -66,7 +69,7 @@ def build():
     allh = [c["hash"] for cs in fam.values() for c in cs]
     assert len(allh) == len(set(allh)), "совпали хеши клеток"
     a, b = p17.split_ab()
-    return {"protocol": "П-18 r3", "m": 16, "m_note": "9 осей + 6 пар (%s) + 1 стопка; фиксировано до первого исхода" % ", ".join(PAIRS), "seed": 18,
+    return {"protocol": "П-18 r3", "m": 17, "m_note": "9 осей + 6в (сила В-67 × usd_min, решение Судьи 19.10) + 6 пар (%s) + 1 стопка; фиксировано до первого исхода" % ", ".join(PAIRS), "seed": 18,
             "test_months": [4, 5, 6, 7, 8, 9], "boot": 20000, "window": "2026-01-01..2026-09-30 (В-211); октябрь — пометкой",
             "split": {"rule": "sha256(symbol) hex как целое, чётное -> A, нечётное -> B (П-13 §6 п. 1)", "pool": "v171c", "n_A": len(a), "n_B": len(b), "A": a, "B": b},
             "base": {"form": cr.B1_FORM, "set": p17.SET_B1, "sigma": cr.B1_SIGMA, "hash": ch.cell_hash(cfg())},
