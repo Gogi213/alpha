@@ -569,7 +569,7 @@ fn btc_mid_axes_parse_and_regime_columns() {
     let old = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps\n\
                60000,1,2,5,-10,-40,,\n";
     std::fs::write(dir.path().join("2026-09-08.csv"), old).unwrap();
-    let day = read_regime_day(dir.path(), "2026-09-08", false, false).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-08", false, false, false).unwrap();
     assert_eq!(
         day[&60_000],
         [
@@ -582,10 +582,13 @@ fn btc_mid_axes_parse_and_regime_columns() {
             None,
             None,
             None,
+            None,
+            None,
+            None,
             None
         ]
     );
-    let err = read_regime_day(dir.path(), "2026-09-08", true, false)
+    let err = read_regime_day(dir.path(), "2026-09-08", true, false, false)
         .unwrap_err()
         .to_string();
     assert!(err.contains("btc_ret_2h_bps"), "{err}");
@@ -593,7 +596,7 @@ fn btc_mid_axes_parse_and_regime_columns() {
     let new = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps\n\
                60000,1,2,5,-10,-40,,,-20,-30\n";
     std::fs::write(dir.path().join("2026-09-09.csv"), new).unwrap();
-    let day = read_regime_day(dir.path(), "2026-09-09", true, false).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-09", true, false, false).unwrap();
     assert_eq!(
         day[&60_000],
         [
@@ -603,6 +606,9 @@ fn btc_mid_axes_parse_and_regime_columns() {
             Some(-40.0),
             Some(-20.0),
             Some(-30.0),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -617,18 +623,44 @@ fn btc_mid_axes_parse_and_regime_columns() {
     assert_eq!(set.ctx[9].max, Some(-50.0));
     assert_eq!(set.ctx[12].min, Some(-90.0));
     assert_eq!(set.ctx_label(), "btc6h_max=-50,btc24h_min=-90");
-    let err = read_regime_day(dir.path(), "2026-09-09", true, true)
+    let err = read_regime_day(dir.path(), "2026-09-09", true, true, false)
         .unwrap_err()
         .to_string();
     assert!(err.contains("btc_ret_6h_bps"), "{err}");
     let long = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps,eth_ret_2h_bps,eth_ret_3h_bps,btc_ret_6h_bps,btc_ret_8h_bps,btc_ret_12h_bps,btc_ret_24h_bps\n\
                 60000,1,2,5,-10,-40,,,-20,-30,,,-60,-70,-80,-90\n";
     std::fs::write(dir.path().join("2026-09-10.csv"), long).unwrap();
-    let day = read_regime_day(dir.path(), "2026-09-10", true, true).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-10", true, true, false).unwrap();
     assert_eq!(
-        day[&60_000][6..],
+        day[&60_000][6..10],
         [Some(-60.0), Some(-70.0), Some(-80.0), Some(-90.0)]
     );
+
+    // Г-10 (TK-272): `btc9h`/`btc10h`/`btc11h` — своя группа: прежние файлы (без btc_ret_{9,10,11}h_bps) читаются, пока осей нет.
+    let set = FilterSet::parse("w:btc9h_max=-35").unwrap();
+    assert!(set.uses_regime() && set.uses_btc_long9() && !set.uses_btc_long());
+    assert_eq!(set.ctx_label(), "btc9h_max=-35");
+    assert!(!FilterSet::parse("v:btc6h_max=0").unwrap().uses_btc_long9());
+    let err = read_regime_day(dir.path(), "2026-09-10", true, true, true)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("btc_ret_9h_bps"), "{err}");
+    let with9 = long
+        .replace(
+            "btc_ret_24h_bps
+",
+            "btc_ret_24h_bps,btc_ret_9h_bps,btc_ret_10h_bps,btc_ret_11h_bps
+",
+        )
+        .replace(
+            "-90
+",
+            "-90,-75,-76,-77
+",
+        );
+    std::fs::write(dir.path().join("2026-09-11.csv"), with9).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-11", true, true, true).unwrap();
+    assert_eq!(day[&60_000][10..], [Some(-75.0), Some(-76.0), Some(-77.0)]);
 }
 
 /// Э-08 (T-38): группы выходов (`--exit-group on`) и пропуск шагов удержания (`--hold-step skip`) дают те же

@@ -172,6 +172,11 @@ impl MissLedger {
 // Заполнение и PnL-кривая как чистые функции от входов.
 // ---------------------------------------------------------------------------
 
+/// TK-272: сколько окон `W` журнала ленты за один проход (`bounce-grid --tape-log-ws`); 0 в массиве — окно не задано.
+pub const TAPE_WS_MAX: usize = 16;
+/// Журнал ленты по окнам выключен (умолчание `DriveConfig::tape_log_ws`).
+pub const NO_TAPE_WS: [u32; TAPE_WS_MAX] = [0; TAPE_WS_MAX];
+
 /// Один закрытый круг: направление и обе ноги исполнения.
 ///
 /// Размер и цена входа — **по факту исполнения**, а не по плану (F3 плана
@@ -227,6 +232,8 @@ pub struct Fill {
     pub fill_by_cross: bool,
     /// TK-115 Г-112: лоты ленты против позиции за `W` с до исполнения входа (`enable_tape`); 0 — кольцо выключено.
     pub tape_press: f64,
+    /// TK-272: лоты ленты против позиции за каждое `W` из `tape_log_ws` до исполнения входа (тот же порядок); 0 — не задано.
+    pub tape_press_ws: [f64; TAPE_WS_MAX],
     /// TK-115 Г-116: отмены нашей стороны между стопом и рынком за `W` с до исполнения входа; 0 — кольцо выключено.
     pub cxl_press: f64,
     /// TK-115 Г-133: ожидание исполнения лимиткой погони, нс; −1 — погони не было или вышли рынком.
@@ -699,6 +706,8 @@ pub struct DriveConfig {
     /// TK-115 Г-112 (TK-132 С-03): окно журнала ленты, секунды (`bounce-grid --tape-log`); 0 — выключено. Идёт из
     /// плана в состояние круга (`StrategyState::enable_tape`), глобального входа нет.
     pub tape_log_secs: u32,
+    /// TK-272: окна `W` (секунды) журнала ленты за один проход (`bounce-grid --tape-log-ws`); 0 — слот не занят.
+    pub tape_log_ws: [u32; TAPE_WS_MAX],
     /// Размер круга. План: минимальный лот биржи (Decision 22).
     pub order_qty: f64,
     /// Первый идентификатор ордеров; дальше — по порядку, каждый ордер
@@ -958,6 +967,7 @@ where
             TradePlan::SpreadHold,
         );
         state.enable_tape_from(cfg.tape_log_secs);
+        state.enable_tape_ws(&cfg.tape_log_ws);
         // Запас номеров на круг — `ID_STRIDE`: страховка от коллизии id со
         // следующим кругом, не экономическая величина.
         next_id = next_id.saturating_add(ID_STRIDE);
@@ -1311,6 +1321,10 @@ fn entry_market_px(plan: TradePlan) -> Option<f64> {
 }
 
 /// Итог одного круга в терминах драйвера.
+///
+/// `large_enum_variant`: `Filled` несёт `Fill` (TK-272: +128 Б на окна `--tape-log-ws`), остальные варианты малы.
+/// Значение живёт на стеке драйвера один круг и не копится; `Box` внёс бы аллокацию на круг ради десятков байт.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 enum RoundOutcome {
     /// Круг закрыт: обе ноги исполнены, причина выхода известна.
@@ -1842,6 +1856,7 @@ where
                         legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
                         fill_by_cross,
                         tape_press: state.tape_at_fill(),
+                        tape_press_ws: state.tape_at_fill_ws(),
                         cxl_press: state.cxl_at_fill(),
                         chase_wait_ns: state.chase_wait_ns(),
                     },
@@ -2043,6 +2058,7 @@ where
             legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, saved),
             fill_by_cross,
             tape_press: 0.0,
+            tape_press_ws: [0.0; TAPE_WS_MAX],
             cxl_press: 0.0,
             chase_wait_ns: -1,
         },
@@ -2412,6 +2428,7 @@ where
                 };
                 if let RoundOutcome::Filled { fill, .. } = &mut out {
                     fill.tape_press = states[i].tape_at_fill();
+                    fill.tape_press_ws = states[i].tape_at_fill_ws();
                     fill.cxl_press = states[i].cxl_at_fill();
                     fill.chase_wait_ns = states[i].chase_wait_ns();
                 }
@@ -2509,6 +2526,7 @@ where
     let mut entry_state =
         StrategyState::with_plan(asset_no, sig.sigma, qty, entry_id_base, variant_plans[0]);
     entry_state.enable_tape_from(cfg.tape_log_secs);
+    entry_state.enable_tape_ws(&cfg.tape_log_ws);
     let (entry_id, side) = match on_event(bot, &mut entry_state)? {
         Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
         _ => {
@@ -2614,6 +2632,10 @@ where
 /// прогона (`drive_bounce`) и прогона по сетапам (`drive_bounce_windowed`):
 /// различие только в том, откуда берётся движок, — иначе это была бы вторая
 /// стратегия.
+///
+/// `large_enum_variant`: `Submitted` несёт `RoundOutcome` с `Fill` (TK-272), `EndOfData`/`NotSubmitted` малы;
+/// значение на стеке драйвера, один шаг на сигнал.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 enum SignalStep {
     /// Часы не дошли до `t0`: запись кончилась.
@@ -2676,6 +2698,7 @@ where
     debug_assert!(qty > 0.0, "размер круга обязан быть положительным: {qty}");
     let mut state = StrategyState::with_plan(asset_no, sig.sigma, qty, *next_id, sig.plan);
     state.enable_tape_from(cfg.tape_log_secs);
+    state.enable_tape_ws(&cfg.tape_log_ws);
     *next_id = next_id.saturating_add(ID_STRIDE);
     // F8c: сироты прошлого круга живут дальше в новом состоянии — уборка
     // (повтор снятия, учёт исполнения) идёт с первого события этого круга.
