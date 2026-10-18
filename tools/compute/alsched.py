@@ -1182,7 +1182,7 @@ def elastic_cmd(cmd, n):
 
 
 def elastic_env(n):
-    """TK-283: окружение elastic-задания — выданные ядра; скрипты вида NX=${NX:-12} (p17a.sh) читают NX отсюда."""
+    """TK-283: окружение elastic-задания — выданные ядра; скрипты вида NX=${NX:-15} (p17a.sh) читают NX отсюда."""
     return f"export ALSCHED_CORES={n} NX={n}\n"
 
 

@@ -24,7 +24,7 @@ mkdir -p "$N/root/root-$d" "$N/jrn/$d/wt"; touch "$N/jrn/$d/done"
 for f in "$Z/root/root-$d"/*; do ln -sf "$f" "$N/root/root-$d/$(basename "$f")"; done
 b=$(ls "$Z/root/root-$d" | head -1); rm -f "$N/root/root-$d/$b"; : > "$N/root/root-$d/$b"
 echo "негатив $d root:$(root_fresh "$RS" "$N/root/root-$d" && echo ОШИБКА-свежая || echo УСТАРЕЛА-ок) jrn:$(jrn_fresh /data/p12r3a/jrn "$N/jrn" && echo ОШИБКА-свежий || echo УСТАРЕЛ-ок)" >> "$D/fresh-check.txt"
-SCRIPTS=$S NX=12 bash "$BS" pass "$D" G12 > "$D.G12.out" 2>&1
+SCRIPTS=$S NX=${NX:-15} bash "$BS" pass "$D" G12 > "$D.G12.out" 2>&1
 n=$(awk '$1=="diff_vs_ref_lines"{print $2}' "$D/pass-G12/metrics.txt" 2>/dev/null)
 st=$(find "$D" -name stale-copy.txt | wc -l); echo "stale-copy.txt: $st" >> "$D/fresh-check.txt"
 if [ "${n:-x}" != 0 ] || [ "$st" != 0 ] || [ "$(grep -v негатив "$D/fresh-check.txt" | grep -c УСТАРЕЛ)" != 0 ]; then cp -a "$PREV/day-cells.sh" "$S/day-cells.sh"; echo "ГЕЙТ КРАСНЫЙ (diff=${n:-нет} stale=$st) — day-cells.sh откачен" > "$D.rollback"; fi
