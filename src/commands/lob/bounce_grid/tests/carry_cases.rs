@@ -485,6 +485,48 @@ fn lot_first_scales_only_first_touch_of_the_level() {
     }
 }
 
+/// П-19 (TK-291): `--touch-col` дописывает в конец `rounds.csv` столбец `touch_index`; прежние столбцы и строки — байт в
+/// байт как без флага (гейт Судьи); без флага шапка прежняя, столбца нет.
+#[test]
+fn touch_col_appends_column_and_keeps_old_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    // настройки гейта `risk_adverse_queue_model_keeps_the_old_bytes` — на них фикстура даёт круги
+    a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.no_post_only = true;
+    a.entry_ttl_secs = vec!["touch".to_string()];
+    a.entry_form = vec!["single@fr".to_string()];
+    a.out_dir = dir.path().join("grid-base");
+    assert!(run_bounce_grid(&a).unwrap().rounds > 0);
+    a.touch_col = true;
+    a.out_dir = dir.path().join("grid-touch");
+    run_bounce_grid(&a).unwrap();
+    let base = std::fs::read_to_string(dir.path().join("grid-base/rounds.csv")).unwrap();
+    let with = std::fs::read_to_string(dir.path().join("grid-touch/rounds.csv")).unwrap();
+    let (bl, wl): (Vec<&str>, Vec<&str>) = (base.lines().collect(), with.lines().collect());
+    assert_eq!(bl.len(), wl.len());
+    assert!(bl.len() > 2, "в фикстуре должны быть круги");
+    assert!(!bl[1].contains("touch_index"));
+    assert!(wl[1].ends_with(",touch_index"), "{}", wl[1]);
+    for (b, w) in bl.iter().zip(&wl).skip(2) {
+        let cut = w.rfind(',').unwrap();
+        assert_eq!(*b, &w[..cut], "старые столбцы не тронуты");
+        assert!(w[cut + 1..].parse::<u32>().is_ok(), "{w}");
+    }
+}
+
 /// Г-98 (П-17): лот под риск — `min(база, R·10⁴ ÷ span_bps)` вниз до шага; span < 1 и нежмущий риск — база как есть
 /// (= B1 байт в байт); ниже min-лота — `None` (пропуск), вверх не поднимаем; без подходов — отказ суток.
 #[test]

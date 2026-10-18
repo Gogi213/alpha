@@ -769,6 +769,7 @@ fn ladder_entry_accumulates_legs_until_the_entry_is_over() {
         &mut hbt,
         0,
         &[BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan,
@@ -889,6 +890,7 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         &mut hbt,
         0,
         &[BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan,
@@ -980,6 +982,7 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         &mut hbt,
         0,
         &[BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan,
@@ -1064,6 +1067,7 @@ fn windowed_fixture() -> (Vec<Event>, TradePlan) {
 fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
     let (feed, plan) = windowed_fixture();
     let signal = |t0_ns: i64| BounceSignal {
+        touch_index: 0,
         t0_ns,
         sigma: SIGMA_LONG,
         plan,
@@ -1147,6 +1151,7 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
 fn busy_skip_off_runs_every_signal_and_its_trace_replays_the_busy_run() {
     let (feed, plan) = windowed_fixture();
     let signal = |t0_ns: i64| BounceSignal {
+        touch_index: 0,
         t0_ns,
         sigma: SIGMA_LONG,
         plan,
@@ -1379,6 +1384,7 @@ fn bench_round_cost_in_a_window() {
         gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let signals = [BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan,
@@ -1472,6 +1478,7 @@ fn bench_dense_round_in_a_window() {
         gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let signals = [BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan,
@@ -1566,6 +1573,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         &mut hbt,
         0,
         &[BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan,
@@ -1731,6 +1739,7 @@ fn partial_fill_records_real_qty_and_fill_frac() {
         &mut hbt,
         0,
         &[BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan: f3_plan(99.0, 100.0, 2, 1.0),
@@ -1815,6 +1824,7 @@ fn fill_by_cross_is_flagged_when_no_trade_could_fill() {
         &mut hbt,
         0,
         &[BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan: f3_plan(102.0, 100.0, 1, 0.0),
@@ -1875,6 +1885,7 @@ fn trade_below_our_price_fills_by_priority_and_is_not_a_cross() {
         &mut hbt,
         0,
         &[BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan: f3_plan(102.0, 100.0, 1, 0.0),
@@ -2025,6 +2036,7 @@ fn compact_rows_drive_the_same_rounds_even_with_a_tiny_horizon() {
     let (feed, plan) = windowed_fixture();
     let compact: Vec<CompactEvent> = feed.iter().map(compact_of).collect();
     let signal = |t0_ns: i64| BounceSignal {
+        touch_index: 0,
         t0_ns,
         sigma: SIGMA_LONG,
         plan,
@@ -2182,6 +2194,7 @@ fn hold_skip_matches_polling_byte_for_byte() {
     let mut fast_used = 0u64;
     for (name, feed, plan) in cases {
         let signal = |t0_ns: i64| BounceSignal {
+            touch_index: 0,
             t0_ns,
             sigma: SIGMA_LONG,
             plan,
@@ -2237,6 +2250,7 @@ fn hold_skip_matches_polling_byte_for_byte() {
 fn round_memo_keys_on_inherited_orphans() {
     let (_, plan) = windowed_fixture();
     let sig = BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan,
@@ -2409,6 +2423,7 @@ fn group_round_matches_three_solo_runs_with_divergent_exits() {
     let stop_variant = with_stop_and_deadline(base_plan, 102.0, 60 * S);
     let variants = [take_variant, deadline_variant, stop_variant];
     let sig0 = |plan: TradePlan| BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan,
@@ -2461,6 +2476,7 @@ fn group_fast_hold_matches_group_without_it() {
         with_stop_and_deadline(base_plan, 102.0, 60 * S),
     ];
     let sig = BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan: base_plan,
@@ -2510,6 +2526,7 @@ fn group_ignores_hold_skip_flag() {
     let (feed, base_plan) = windowed_fixture();
     let variants = [base_plan, with_stop_and_deadline(base_plan, 99.0, 55 * S)];
     let sig0 = |plan: TradePlan| BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan,
@@ -2654,6 +2671,7 @@ fn retreat_shift_moves_entry_away_from_market_and_decays() {
         pyramid.retreat_half_min = 15;
     }
     let sig = |t0_ns: i64| BounceSignal {
+        touch_index: 0,
         t0_ns,
         sigma: SIGMA_LONG,
         plan,

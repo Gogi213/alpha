@@ -38,6 +38,7 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     }
 }
 
@@ -438,6 +439,7 @@ fn touch_row_pair_names_match_the_written_header() {
         touches: Vec::new(),
         approaches: Vec::new(),
         walls: Vec::new(),
+        twins: Vec::new(),
         mids: Vec::new(),
     };
     let sigma = SigmaSeries::from_mids(&[]);

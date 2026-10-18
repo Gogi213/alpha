@@ -531,6 +531,7 @@ pub(super) fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not
         hold_skip: false,
     };
     let signal = |t0_ns: i64| BounceSignal {
+        touch_index: 0,
         t0_ns,
         sigma: SIGMA_LONG,
         plan: f4_plan(98.0, 102.0, true, 20 * S, 1.0),

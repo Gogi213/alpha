@@ -60,6 +60,10 @@ MAKER_EXIT_REASONS = {"take", "horizon"}
 # (`qty × entry_vwap`) × SIZE_MULT, линейно, **без пересчёта очереди** (исполнение и цена — как у прогона). 1.0 — как было.
 SIZE_MULT = 1.0
 
+# П-19 §6 (TK-291): размер по номеру касания — $ сделки × k[min(touch_index, 3)] (столбец `touch_index` в rounds.csv, флаг
+# `--touch-col`); k = 0 — сделка номера исключена (отсечка, «приближение»: освобождение лимита не моделируется). None — как было.
+LOT_BY_N = None
+
 
 def taken_stats(taken):
     """Сделки, которые счёт реально взял (после «одна позиция на монету», потолка, стопа дня, выключателя):
@@ -124,9 +128,16 @@ def load_run(home, run, set_name, form):
             entry = float(r.get("entry_vwap") or 0) or float(r["entry_px"])
             gross = (float(r["exit_px"]) / entry - 1) * 1e4 * int(r["dir"])
             net = float(r["net_bps"])
+            k = 1.0
+            if LOT_BY_N is not None:
+                if not r.get("touch_index"):
+                    raise SystemExit(f"{f}: --lot-by-n без столбца touch_index (прогон без --touch-col)")
+                k = LOT_BY_N[min(int(r["touch_index"]), 3)]
+                if k == 0:
+                    continue
             rows.append({"t0": int(r["t0_ns"]), "t1": int(r["exit_ns"]), "sym": r["symbol"], "net": net,
                          "reason": r["reason"], "entry": entry, "fee": gross - net, "dir": int(r["dir"]),
-                         "usd": float(r["qty"]) * entry * SIZE_MULT, "fill": float(r.get("fill_frac") or 1.0)})
+                         "usd": float(r["qty"]) * entry * SIZE_MULT * k, "fill": float(r.get("fill_frac") or 1.0)})
     return rows
 
 

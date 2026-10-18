@@ -125,6 +125,7 @@ pub(super) fn trail_exits(plan: TradePlan, feed: &[Event], sigma: i8) -> Vec<Exi
         hold_skip: false,
     };
     let signal = BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma,
         plan,
