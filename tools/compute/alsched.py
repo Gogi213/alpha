@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, MIN_FREE_GB, FREE_PATHS)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -61,6 +61,7 @@ class Core:
         self.fact_t = -1e9
         self.fam_cores, self.fam_mem = {}, {}             # допуск по факту: ядра (EWMA) и пик памяти заданий семьи (имя без последнего «-…»)
         self.hot_t = None
+        self.disk_alert_t = None                          # TK-304: время последней тревоги «диск полон»; None — эпизода нет
         self.jobs = {}
         self.iso = set()                                  # ядра изолированного замера: производству недоступны
         self.frozen = False
@@ -210,7 +211,8 @@ class Core:
         declared = sum(r["cores"] for r in self.running("prod") if not r.get("frozen_for") and not (GATE_FIT and r.get("kind") in ("gate", "build")))   # TK-300: gate/build сверх потолка 15 — в сумму work не входят   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
         gdecl = sum(r["cores"] for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))   # TK-300: заявленные ядра идущих gate/build — потолок RESERVE_CORES
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
-        for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
+        low = self.disk_low(now)                          # TK-304: диск полон — очередь не стартует (идущие работают дальше)
+        for j in sorted(() if low else (j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
             head_pre = j["id"] in self.preempt            # головная вытеснения берёт ядра вытесненных, остальные — нет
             free = [c for c in range(self.ncpu) if c not in used and (head_pre or c not in held)]
@@ -291,6 +293,18 @@ class Core:
             if worse or now - head["t_submit"] > PREEMPT_S:    # 10.10 (Судья): prio строго лучше идущего — вытесняем в тот же цикл, без таймера
                 self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now, bare=now - head["t_submit"] > PREEMPT_S)
         return legacy
+
+    def disk_low(self, now):
+        """TK-304 (В-44): свободно на FREE_PATHS меньше MIN_FREE_GB — список (путь, ГБ), иначе []. Тревога один раз на эпизод и раз в час, снятие — строка."""
+        fn = getattr(self.be, "free_gb", None)
+        low = [(p, g) for p in FREE_PATHS for g in [fn(p) if fn and MIN_FREE_GB else None] if g is not None and g < MIN_FREE_GB]
+        if low and (self.disk_alert_t is None or now - self.disk_alert_t >= 3600):
+            self.disk_alert_t = now
+            self.be.alert("диск: " + ", ".join(f"{p} свободно {g:.0f} ГБ" for p, g in low) + f" < {MIN_FREE_GB:g} ГБ — новые prod-заявки не стартуют, идущие не тронуты")
+        elif not low and self.disk_alert_t is not None:
+            self.disk_alert_t = None
+            self.be.alert("диск: свободного места хватает — очередь prod снова пускается")
+        return low
 
     def _alerts(self, now):
         self.alert_waiting(now)
@@ -808,6 +822,14 @@ class SystemdBackend:
     def cpu_host(self):
         f = open("/proc/stat").readline().split()[1:]
         return (sum(map(int, f)) - int(f[3]) - int(f[4])) / os.sysconf("SC_CLK_TCK")
+
+    def free_gb(self, path):
+        try:
+            st = os.statvfs(path)
+        except OSError as e:
+            warn_once(f"free-{path}", f"statvfs {path}: {e} — страж диска этот путь не видит")
+            return None
+        return st.f_bavail * st.f_frsize / 2**30
 
     def disk_host(self):
         tot = n = 0
