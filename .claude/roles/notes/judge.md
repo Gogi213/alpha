@@ -423,3 +423,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 18.10 (TK-297 слияние вернуть): check-sprawl в worktree origin/master vs голова PR → гейт «не выше master»; новые tk*-скрипты → tools/compute/archive; «ОСТАЛОСЬ» в сдаче = return; ~5 мин.
 - 18.10 (TK-298 повтор вернуть): CSV пересчётом = .md (16/8/167/7); метки «Инженеру» без подтикета = return с готовой командой new + wait ticket; ~3 мин.
 - 18.10 (TK-297 повтор вернуть): байт-в-байт md5-{m,h} на calc равны, sprawl = master; но CI PR (gh pr view --json statusCheckRollup) windows clippy large_enum_variant красный при зелёном master → return; ~4 мин.
+- 18.10 (TK-299 PR #62 принято [вживую]): Playwright по Летописи 3 ширины, счёт span.vd по гипотезам rows-json; --numbers — отдельный файл (таблица вердикта в live-файле ломает разбор: «да» = источник); ~10 мин.
