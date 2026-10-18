@@ -120,7 +120,7 @@ def sign_of(master, hyp, col):
     return master.R1_SIGN.get(hyp, {}).get(col) or (master.R1EXT_SIGN.get(col) if hyp not in master.R1_SIGN else None)
 
 
-def make_spec(plan, out, which="x", hyps=None, qs=None, hashes=None):
+def make_spec(plan, out, which="x", hyps=None, qs=None, hashes=None, protocol="P-14"):
     """plan_cells.jsonl → .r1spec. which=x: как tk202 (колонка/знак вне r1ext и ctx×keep_q); all: любая R1-клетка плана (эквивалентность, крайние q)."""
     sys.path.insert(0, os.path.join(HERE, "..", "registry"))
     import cellhash as ch, master
@@ -130,7 +130,7 @@ def make_spec(plan, out, which="x", hyps=None, qs=None, hashes=None):
         w.writerow(["hash", "hyp", "col", "sign", "keep_q", "ctx_axis", "ctx_q"])
         for line in open(plan, encoding="utf-8"):
             d = json.loads(line)
-            if d["protocol"] != "P-14" or d["fraction"] != 1:
+            if d["protocol"] != protocol or d["fraction"] != 1:
                 continue
             av = json.loads(d["axes"])
             if "col" not in av or "keep_q" not in av or (hyps and d["hyp"] not in hyps) or (qs and str(av["keep_q"]) not in qs):
@@ -200,7 +200,7 @@ def apply(a):
     for i, mon in enumerate(MONTHS):
         if mon not in want or mon not in data:
             continue
-        hist = jan if mon == "jan" else [s for m in MONTHS[:i] if m in data for s in data[m]]
+        hist = data[mon] if a.hist == "own" else jan if mon == "jan" else [s for m in MONTHS[:i] if m in data for s in data[m]]   # own — П-15 Г-134: порог по B1 своего месяца
         mo = f"2026-{i + 1:02d}"
         rounds = {}
         for _, _, rp in day_files(a.pool, mon):
@@ -251,11 +251,13 @@ def main():
     ap.add_argument("--hyp", help="spec: гипотезы через запятую (Г-39,Г-04)")
     ap.add_argument("--q", help="spec: доли keep_q через запятую")
     ap.add_argument("--hash", help="spec: хеши через запятую")
+    ap.add_argument("--protocol", default="P-14", help="spec: протокол клеток плана (П-15 — P-15)")
+    ap.add_argument("--hist", choices=["prior", "own"], default="prior", help="apply: история порога — все более ранние месяцы (умолч., январь по себе) | свой месяц (П-15 Г-134)")
     ap.add_argument("--months", help="apply: только эти месяцы (история — все более ранние), через запятую")
     a = ap.parse_args()
     if a.mode == "spec":
         split = lambda s: set(s.split(",")) if s else None
-        make_spec(a.plan, a.out, a.which, split(a.hyp), split(a.q), split(a.hash))
+        make_spec(a.plan, a.out, a.which, split(a.hyp), split(a.q), split(a.hash), a.protocol)
     else:
         os.makedirs(a.out, exist_ok=True)
         apply(a)

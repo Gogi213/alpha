@@ -1,0 +1,61 @@
+{
+  "protocol": "P-19 v3 (В-37)",
+  "base": "B1",
+  "base_hash": "30229bf7071fb028",
+  "base_cell": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800@t-bid-btc4h-q1",
+  "method": "линейный пересчёт по touch_index (portfolio-sim --lot-by-n); ворота 0 зелёные (docs/findings/tk291-gate0-lot-first-2026-10-17.txt)",
+  "halves": "A: sha256(symbol) чётный; Б: нечётный",
+  "months": [
+    "2026-01",
+    "2026-02",
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07",
+    "2026-08",
+    "2026-09"
+  ],
+  "grid_k": [
+    "1/4",
+    "3/8",
+    "1/2",
+    "3/4",
+    "3/2",
+    "2",
+    "3",
+    "4",
+    "6",
+    "8"
+  ],
+  "cutoff_k": 0,
+  "axes": {
+    "A": {
+      "vec_slot": 0,
+      "bucket": "n=0"
+    },
+    "B": {
+      "vec_slot": 1,
+      "bucket": "n=1"
+    },
+    "C": {
+      "vec_slot": 2,
+      "bucket": "n=2"
+    },
+    "D": {
+      "vec_slot": 3,
+      "bucket": "n>=3"
+    }
+  },
+  "cells_f1": 44,
+  "stack_cells_max": 2,
+  "families": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "stack"
+  ],
+  "m_holm": 5,
+  "buckets_populated": "docs/findings/tk291-buckets-2026-10-17.txt: все 4 корзины заселены на половине А (>=10 сделок в >=6 из 9 мес.), слияния нет"
+}
