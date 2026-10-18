@@ -941,6 +941,22 @@ impl<'a> GridRun<'a> {
                             .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
                         ),
                     };
+                // Г-98: лот под риск по размаху завала подхода (ключ набора `size_risk=<R$>`); без ключа — как есть.
+                let set_qtys: std::borrow::Cow<'_, [f64]> = match set.size_risk {
+                    None => set_qtys,
+                    Some(r) => std::borrow::Cow::Owned(
+                        steps::day_risk_qtys(
+                            &sizing,
+                            day,
+                            &set_qtys,
+                            step_schedule.as_ref(),
+                            (tick_e9, step_e9),
+                            args.order_qty_mult,
+                            r,
+                        )
+                        .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
+                    ),
+                };
                 let forms_done = {
                     let forms_ref = &set_forms_list;
                     let mut sink =

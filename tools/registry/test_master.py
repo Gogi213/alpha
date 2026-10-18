@@ -1,4 +1,5 @@
 """Тесты Летописи-мастера (TK-187): load-axes → plan (дедуп по хешу) → sieve → render на временной БД."""
+import itertools
 import csv, json, os, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -148,16 +149,67 @@ class MasterTest(unittest.TestCase):
         plat = {r["cell_hash"] for r in out if r["plateau"]}
         self.assertEqual(plat, {self.cfg_hash(4)})            # 3 и 5 имеют негодного соседа; 4 — оба соседа годны
         self.assertTrue(all(r["side"] == "A" for r in out))
-        r2 = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"))
+        r2 = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"), f1=self.f1_csv({n: ("годна", 0.05, 0.1, 15) if n in good else ("не годна", 1.0, -0.1, 15) for n in range(2, 9)}))
         ns = {json.loads(x)["variant"]["axes"]["n"] for x in open(r2["out"], encoding="utf-8")}
-        self.assertEqual(ns, {3, 4, 5})   # плато {4} + по соседу; шаг 0,25 < разрешимости n (1) — ось не дробится
+        self.assertEqual(ns, {2, 3, 4, 5, 6})   # зона F1 {3,4,5} + по соседу с каждой стороны (§11.2 п. 3); шаг 0,25 < разрешимости n (1) — ось не дробится
 
-    def test_f2_closed_without_plateau(self):
+    def f1_csv(self, st):
+        """Сито F1 Г-87 по оси n: {n: (статус, p, dSR, суток)} -> {гипотеза: клетки} как master.f1_stats."""
+        f = os.path.join(self.t, "f1.csv")
+        with open(f, "w", encoding="utf-8", newline="") as o:
+            w = csv.writer(o); w.writerow(["hyp", "hash", "axes", "trades_A", "days_A", "dSR", "p", "se", "status"])
+            for n, (s, p, d, dy) in st.items():
+                w.writerow(["Г-87", "h%d" % n, json.dumps({"n": str(n)}), 30, dy, d, p, 0.05, s])
+        return master.f1_stats(f)
+
+    def test_f2_closed_when_undefined(self):
+        """§11.1: нет определённых клеток F1 — гипотеза не в F2 и не отбракована."""
         self.have = {}
         master.load_axes(self.ax)
         master.plan("P-14", 1, out=os.path.join(self.t, "new.jsonl"))
-        r = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"))
+        r = master.plan("P-14", 2, out=os.path.join(self.t, "f2.jsonl"), f1=self.f1_csv({n: ("не определена: m не применён", 1.0, 0.0, 0) for n in range(2, 9)}))
         self.assertEqual((r["grid"], list(r["closed"])), (0, ["Г-87"]))
+
+    def test_f2_ceiling_per_zone(self):
+        """Решение Судьи (tk269/tk278 §11.2 п. 4): потолок cap_cells — на зону; зона больше — lim клеток, ближайших к центру зоны."""
+        self.have = {}
+        master.load_axes(self.ax)
+        master.plan("P-14", 1, out=os.path.join(self.t, "new.jsonl"))
+        f1 = self.f1_csv({n: ("годна", 0.05, 0.1, 15) if n in {3, 4, 5} else ("не годна", 1.0, -0.1, 15) for n in range(2, 9)})
+        c = master.connect()
+        got = {}
+        for lim in (3, 5, 9):
+            grids, closed = master.build_grid(c, "P-14", 2, ["Г-87"], {**master.rules_of(c, "P-14"), "cap_cells": lim}, f1)
+            self.assertEqual(closed, {})
+            got[lim] = sorted(int(a["n"]) for a, _ in grids["Г-87"])
+        c.close()
+        self.assertEqual((len(got[3]), len(got[5])), (3, 5))
+        self.assertEqual(got[3], [3, 4, 5])   # центр зоны {3,4,5} = 4: ближайшие 3 точки
+        self.assertEqual(got[5], [2, 3, 4, 5, 6])   # зона не шире потолка — целиком
+    def test_zone_nearest_order(self):
+        """Порядок отбора: L∞ в шагах F2, затем L1, затем ранги осей; без выбора руками."""
+        pts = {"x": ["1", "2", "3", "4", "5"], "y": ["10", "20", "30"]}
+        zone = [{"ax": {"x": "3", "y": "20"}}]
+        combos = list(itertools.product(pts["x"], pts["y"]))
+        out = master.zone_nearest(combos, pts, ["x", "y"], zone, 5)
+        self.assertEqual(out, [("3", "20"), ("2", "20"), ("3", "10"), ("3", "30"), ("4", "20")])   # L∞ 0, затем 1 при L1=1: по рангам осей (x, y)
+
+    def test_f2_zones_rule(self):
+        """§11.2 п. 1–2, 5: связные годные = зона (до 3, лучшая первой); годных нет — одна клетка p↑, dSR↓, суток↓; ось целиком — лучшая клетка."""
+        def cell(ax, st, p=1.0, d=0.0, dy=10):
+            return {"ax": ax, "good": st == "годна", "defd": st in ("годна", "не годна"), "key": (p, -d, -dy) if st in ("годна", "не годна") else None}
+        pt = {"x": ("numeric", None), "y": ("numeric", None), "c": ("categorical", None)}
+        g = lambda x, y, p, c="a": cell({"x": str(x), "y": str(y), "c": c}, "годна", p)
+        b = lambda x, y, c="a": cell({"x": str(x), "y": str(y), "c": c}, "не годна")
+        rs = [g(1, 1, .1), g(2, 2, .05), b(3, 3), g(4, 4, .2), g(5, 1, .15), g(6, 6, .3), g(1, 1, .01, "b")]
+        z = master.f2_zones(rs, pt)
+        self.assertEqual([sorted((r["ax"]["x"], r["ax"]["c"]) for r in zn) for zn in z], [[("1", "b")], [("1", "a"), ("2", "a")], [("5", "a")]])   # 5 зон -> 3 лучших по p; категории раздельно
+        self.assertEqual(master.f2_zones([cell({"x": "1", "y": "1", "c": "a"}, "не определена")], pt), [])
+        nb = [cell({"x": "1", "y": "1", "c": "a"}, "не годна", 1.0, -0.2, 50), cell({"x": "2", "y": "1", "c": "a"}, "не годна", 1.0, -0.1, 10), cell({"x": "3", "y": "1", "c": "a"}, "не годна", 1.0, -0.1, 90)]
+        self.assertEqual([[r["ax"]["x"] for r in zn] for zn in master.f2_zones(nb, pt)], [["3"]])   # ничья по p и dSR: больше суток
+        one = {"x": ("numeric", None)}
+        line = [cell({"x": str(x)}, "годна", p) for x, p in ((1, .1), (2, .02), (3, .5))]
+        self.assertEqual([[r["ax"]["x"] for r in zn] for zn in master.f2_zones(line, one)], [["2"]])   # п. 5: зона от границы до границы -> лучшая клетка
 
     def test_render_equals_db(self):
         self.have = {self.cfg_hash(3): {"2026-01"}}
@@ -240,6 +292,24 @@ class MasterTest(unittest.TestCase):
         self.assertNotEqual(ch.cell_hash(cb), ch.cell_hash(cu))
         self.assertEqual(master.MONTHLY[ch.cell_hash(cb)]["2026-01"], cb["form"] + " b50-2026-01")
         self.assertEqual(master.MSETS["b50-2026-01"], "age=2700,side=bid,behind_min=5695,btc4h_max=-44.55")
+        # TK-278: F2 даёт целые процентили вне Q9 (разрешимость 1, П-14 §3.3) — не None-хеш; q = 0 / 100 — вне диапазона
+        with tempfile.TemporaryDirectory() as td:
+            tp = os.path.join(td, "t.json")
+            json.dump({"usd": {"2026-01": {"23": 20111}}, "behind": {"2026-01": {"82": 7777}}, "ctx": {"btc4h": {"2026-01": {"q20": -104.65, "q40": -75.6, "q60": -60.8, "q80": -51.2}}}}, open(tp, "w"))
+            old_thr, master._TK202_THR = master._TK202_THR, tp
+            try:
+                cq = master.p14_cfg("Г-89", sv, {"usd_min_q": 23})
+                cbq = master.p14_cfg("Г-07", sv, {"behind_min_q": 82})
+                c0q = master.p14_cfg("Г-89", sv, {"usd_min_q": 100})
+            finally:
+                master._TK202_THR = old_thr
+        self.assertEqual(cq["variant"]["axes"], {"usd_min_q": 23})
+        self.assertEqual(cbq["variant"]["axes"], {"behind_min_q": 82})
+        self.assertEqual(master.MSETS["u23-2026-01"], "age=2700,side=bid,usd_min=20111,btc4h_max=-44.55")
+        self.assertEqual(master.MSETS["b82-2026-01"], "age=2700,side=bid,behind_min=7777,btc4h_max=-44.55")
+        self.assertEqual(c0q["variant"]["axes"], {"usd_min_q": None})
+        self.assertNotIn(ch.cell_hash(c0q), master.MONTHLY)
+        self.assertNotEqual(ch.cell_hash(cq), ch.cell_hash(cu))
         # Г-110: early<x> — целые секунды как раньше, 0,5 с — early0.5
         for x, suf in (("0.5", "early0.5"), ("1/2", "early0.5"), ("3", "early3")):
             self.assertTrue(master.p14_cfg("Г-110", sv, {"early_exit_s": x}, mm={"early_exit_s": "EarlyExit:x"})["form"].endswith("-" + suf), x)
@@ -302,6 +372,45 @@ class MasterTest(unittest.TestCase):
             h28 = ch.cell_hash(master.p14_cfg(hyp, sv, {"col": "frontrun_levels", "keep_q": "50"}))
             self.assertNotEqual(h28, hs[("frontrun_levels", 50)])
         self.assertEqual(master.R1_SIGN["Г-134"], {"frontrun_levels": "lo", "frontrun_delta_10s_lots": "lo"})
+    def test_p17_cells_hash_as_scope_and_lines(self):
+        """TK-279: клетки П-17 из осей = хеши P-17-scope.json (Г-98/136/137 — набор, строка в LINES; Г-101/135 — вариант, строки по месяцам; Г-81 без порогов — причина)."""
+        import p17_scope
+        sc = json.load(open(os.path.join(p17_scope.RES, "P-17-scope.json"), encoding="utf-8"))["families"]
+        thr = os.path.join(self.t, "thr.csv")
+        open(thr, "w", encoding="utf-8").write("hyp,month,axis,q,threshold,n\nГ-101,2026-01,btc4h,20,-96.52,281\nГ-135,2026-01,swept_pct_of_size_bp,95,94574,261\n")
+        keep = master._P17_THR, dict(master.LINES), dict(master.MONTHLY), dict(master.MSETS)
+        master._P17_THR = thr
+        try:
+            def cell(hyp, av):
+                cfg = p17_scope.cfg_of()
+                master.p17_cell(hyp, av, cfg, cfg["form"])
+                return cfg, ch.cell_hash(cfg)
+            want = lambda hyp, **ax: next(c["hash"] for c in sc[hyp] if c["axes"] == ax)  # noqa: E731
+            cfg, h = cell("Г-98", {"R_usd": "5"})
+            self.assertEqual(h, want("Г-98", R_usd=5))
+            self.assertEqual(master.LINES[h], (f"{cfg['form']} g98r5", None))
+            self.assertIn("size_risk=5", master.MSETS["g98r5"])
+            _, h = cell("Г-136", {"A_min": "10", "k": "0"})
+            self.assertEqual(h, want("Г-136", A_min=10, k=0))
+            self.assertEqual(master.MSETS["g136a10k0"], "side=bid,btc4h_max=-44.55,agemax=600,repeat_min=0")
+            _, h = cell("Г-137", {"k": "3"})
+            self.assertEqual(h, want("Г-137", k=3))
+            cfg, h = cell("Г-101", {"part": "stop", "T_q": "20", "f_bp": "5000"})
+            self.assertEqual(h, want("Г-101", part="stop", T_q=20, f_bp=5000))
+            self.assertEqual(master.MSETS["g101stopt20f5000-2026-01"], f"{p17_scope.SET_B1},sreg_t=-96.52,sreg_f=5000")
+            self.assertEqual(list(master.MONTHLY[h]), ["2026-01"])
+            cfg, h = cell("Г-135", {"swept_q": "95", "entry": "postsweep10"})
+            self.assertEqual(h, want("Г-135", swept_q=95, entry="postsweep10"))
+            self.assertEqual(master.MONTHLY[h]["2026-01"], "postsweep10-pct2-tr1x1-14400-ttl1800 g135q95-2026-01")
+            self.assertEqual(master.MSETS["g135q95-2026-01"], f"{p17_scope.SET_B1},swept_min=94574")
+            _, h = cell("Г-81", {"W_s": "5", "cxl_q": "5"})
+            self.assertEqual(h, want("Г-81", W_s=5, cxl_q=5))
+            self.assertIsNone(master.LINES[h][0])
+            self.assertIn("нет порогов", master.LINES[h][1])
+        finally:
+            master._P17_THR = keep[0]
+            for d, k in ((master.LINES, keep[1]), (master.MONTHLY, keep[2]), (master.MSETS, keep[3])):
+                d.clear(); d.update(k)
 
 
 if __name__ == "__main__":

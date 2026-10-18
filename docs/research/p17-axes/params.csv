@@ -1,0 +1,11 @@
+param;unit;resolution;axis_type;description
+W_s;s;1;numeric;П-17 Г-81: окно меры отмен от взвода, с
+cxl_q;pct;1;quantile;П-17 Г-81: квантиль меры отмен за W (порог по месяцу, P-17-thresholds.csv)
+R_usd;usd;1;numeric;П-17 Г-98: риск на сделку, $ (лот = min(500, R·1e4/stack_span_bps))
+part;;;categorical;П-17 Г-101: что раздвигаем в сильной половине тренда BTC — шаг лестницы (ladder) или стоп (stop)
+T_q;pct;1;quantile;П-17 Г-101: квантиль btc4h среди касаний B1 месяца (сильная = btc4h ≤ T)
+f_bp;bp;1;numeric;П-17 Г-101: множитель шага/стопа в сильной половине, бп (10000 = 1, т.е. B1)
+swept_q;pct;1;quantile;П-17 Г-135: квантиль swept_lots·1e4/size_at_touch (порог по месяцу)
+entry;;;categorical;П-17 Г-135: вход — B1-лестница или postsweep<R> (R bps)
+A_min;min;1;numeric;П-17 Г-136: возраст стены не больше A (agemax = A·60 с)
+k;;1;numeric;П-17 Г-136/137: repeat_count ≥ k (Г-136: k=0 — контроль)

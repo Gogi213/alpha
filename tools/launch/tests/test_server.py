@@ -32,9 +32,21 @@ def test_api_plan_and_nothing_to_count():
         meta = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/meta"))
         assert len(meta["hyps"]) >= 100 and meta["presets"]["v227"]["ids"] and "не 56" in meta["presets"]["v227"]["note"]
         p = _post(port, "/api/plan", {"hyps": ["Г-10"], "months": ["2026-01"], "axes": {}})
-        assert p["hm_new"] == 0 and p["hm_have"] == p["hm_grid"] > 0
+        assert p["hm_new"] == 0 and 0 < p["hm_have"] <= p["hm_grid"]   # F2 Г-10 без кодировки (T_m) — в сетке, но не к счёту
         r = _post(port, "/api/submit", {"hyps": ["Г-10"], "months": ["2026-01"], "axes": {}, "confirm_bin": True})
         assert r["ok"] is False and r["message"] == "нечего считать"
+    finally:
+        s.shutdown()
+
+
+def test_api_hyp_served_under_token_and_cached():
+    s = _tok_srv()
+    base = f"http://127.0.0.1:{s.server_address[1]}"
+    try:
+        d = json.load(urllib.request.urlopen(f"{base}/{TOKEN}/api/hyp"))
+        assert len(d["rows"]) >= 100 and d["rows"][0]["cls"] == "Методы" and d["rows"][0]["status"]
+        assert _code(f"{base}/api/hyp") == 404
+        assert 'id="t-hyp"' in urllib.request.urlopen(f"{base}/{TOKEN}/").read().decode("utf-8")
     finally:
         s.shutdown()
 

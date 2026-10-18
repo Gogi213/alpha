@@ -140,6 +140,11 @@ pub(super) struct Outputs {
     with_tape: bool,
     // Г-102: колонка `n_retreat_window_entries` в `forms.csv` — только если в сетке есть форма `retreat<k>t<T>`.
     with_retreat: bool,
+    // Г-81: колонка `n_entry_cancelled_cxl_gate` в `forms.csv` — только у набора с `entry_gate=` (после retreat).
+    with_gate: bool,
+    // Г-81: проба порогов `entry_gate=cxl<W>qprobe` — `gate-probe.csv` в `out_dir`, создаётся с первой мерой (иначе файла нет).
+    out_dir: PathBuf,
+    gate_probe: Option<csv::Writer<std::fs::File>>,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -313,6 +318,7 @@ impl Outputs {
         with_r1: bool,
         with_tape: bool,
         with_retreat: bool,
+        with_gate: bool,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
@@ -339,13 +345,14 @@ impl Outputs {
         } else {
             &FORMS_HEADER[..FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN]
         };
+        let mut names = forms_header.to_vec();
         if with_retreat {
-            let mut names = forms_header.to_vec();
             names.push("n_retreat_window_entries");
-            forms.write_record(names)?;
-        } else {
-            forms.write_record(forms_header)?;
         }
+        if with_gate {
+            names.push("n_entry_cancelled_cxl_gate");
+        }
+        forms.write_record(names)?;
         let signals = if with_signals {
             let mut sf = std::fs::File::create(out_dir.join("signals.csv"))?;
             writeln!(sf, "{header}")?;
@@ -373,6 +380,9 @@ impl Outputs {
             with_r1,
             with_tape,
             with_retreat,
+            with_gate,
+            out_dir: out_dir.to_path_buf(),
+            gate_probe: None,
         })
     }
 
@@ -466,6 +476,9 @@ impl Outputs {
         );
         if self.with_retreat {
             row.push(run.retreat_window_entries.to_string());
+        }
+        if self.with_gate {
+            row.push(run.entry_cancelled_cxl_gate.to_string());
         }
         self.forms.write_record(row)?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
@@ -587,6 +600,35 @@ impl Outputs {
                 w.write_record(&row)?;
             }
             w.flush()?;
+        }
+        if !run.gate_measures.is_empty() {
+            let w = signals
+                .iter()
+                .find_map(|s| match s.plan {
+                    TradePlan::Bounce { pyramid, .. } => Some(pyramid.eff().gate_cxl_w),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            if self.gate_probe.is_none() {
+                let mut g = csv::WriterBuilder::new()
+                    .has_headers(false)
+                    .from_path(self.out_dir.join("gate-probe.csv"))?;
+                g.write_record(["symbol", "day_utc", "form", "w", "t0_ns", "measure"])?;
+                self.gate_probe = Some(g);
+            }
+            if let Some(g) = self.gate_probe.as_mut() {
+                for &(t0, m) in &run.gate_measures {
+                    g.write_record([
+                        symbol,
+                        day,
+                        form.label,
+                        &w.to_string(),
+                        &t0.to_string(),
+                        &format!("{m:.6}"),
+                    ])?;
+                }
+                g.flush()?;
+            }
         }
         self.rounds.flush()?;
         self.forms.flush()?;

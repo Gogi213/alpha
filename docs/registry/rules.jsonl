@@ -7,3 +7,10 @@
 {"protocol": "P-14", "version": "P-14@r2", "key": "cap_f2", "value": "12"}
 {"protocol": "P-14", "version": "P-14@r2", "key": "cap_f3", "value": "8"}
 {"protocol": "P-14", "version": "P-14@r2", "key": "cap_cells", "value": "100"}
+{"protocol": "P-17", "version": "P-17@r2", "key": "p_max", "value": "0.2"}
+{"protocol": "P-17", "version": "P-17@r2", "key": "min_trades", "value": "20"}
+{"protocol": "P-17", "version": "P-17@r2", "key": "min_days", "value": "10"}
+{"protocol": "P-17", "version": "P-17@r2", "key": "plateau_min_nb", "value": "5"}
+{"protocol": "P-17", "version": "P-17@r2", "key": "months", "value": "9"}
+{"protocol": "P-17", "version": "P-17@r2", "key": "step_div", "value": "4"}
+{"protocol": "P-17", "version": "P-17@r2", "key": "cap_cells", "value": "100"}
