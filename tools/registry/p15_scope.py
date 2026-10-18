@@ -43,6 +43,8 @@ def cells():
 
 Q9 = (5, 10, 20, 33, 50, 67, 80, 90, 95)
 LAGS = (1, 2, 4, 8, 16, 32, 64, 118)  # с
+LAGS_F2 = LAGS + (78, 91, 104)  # П-15 F2 (TK-303): окрестность зоны 118 с
+Q_ALL = tuple(range(1, 100))  # F2: разрешимость 1 (П-14 §56); строки порогов — для всех целых q, клетки families — по Q9 (F1)
 MONTHS = [f"2026-{m:02d}" for m in range(1, 10)]  # окно янв–сен (В-211); октябрь — вне
 FIND = os.path.join(HERE, "..", "..", "docs", "findings")
 RES = os.path.join(HERE, "..", "..", "docs", "research")
@@ -67,11 +69,17 @@ def threshold_cells(lag_thr, btc_thr):
             else:
                 seen[tuple(ts)] = q
             fam72.append(c)
-            rows += [("Г-72", f"btc_lag_{s}s", q, m, t, f"age=2700,side=bid,btc_lag_{s}s_min={t},btc4h_max=-44.55") for m, t in zip(MONTHS, ts)]
-    for q in Q9:
-        ts = [btc_thr[m]["24"][str(q)] for m in MONTHS]
-        fam146.append({"axes": {"btc_thr_q": q}, "hash": variant_hash("g146", {"btc_thr_q": q}), "thr": ts})
-        rows += [("Г-146", "btc24h", q, m, t, f"age=2700,side=bid,btc4h_max=-44.55,btc24h_min={t}") for m, t in zip(MONTHS, ts)]
+    for s in LAGS_F2:   # строки порогов Г-72: все лаги × все целые q, если они есть в файле порогов (--all-q); иначе только то, что есть
+        for q in Q_ALL:
+            if all(str(q) in lag_thr[m].get(str(s), {}) for m in MONTHS):
+                ts = [lag_thr[m][str(s)][str(q)] for m in MONTHS]
+                rows += [("Г-72", f"btc_lag_{s}s", q, m, t, f"age=2700,side=bid,btc_lag_{s}s_min={t},btc4h_max=-44.55") for m, t in zip(MONTHS, ts)]
+    for q in Q_ALL:
+        if all(str(q) in btc_thr[m]["24"] for m in MONTHS):
+            ts = [btc_thr[m]["24"][str(q)] for m in MONTHS]
+            if q in Q9:
+                fam146.append({"axes": {"btc_thr_q": q}, "hash": variant_hash("g146", {"btc_thr_q": q}), "thr": ts})
+            rows += [("Г-146", "btc24h", q, m, t, f"age=2700,side=bid,btc4h_max=-44.55,btc24h_min={t}") for m, t in zip(MONTHS, ts)]
     return {"Г-72": fam72, "Г-146": fam146}, rows
 
 
@@ -89,6 +97,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(FIND, "tk274-p15-cells-2026-10-16.json"))
     ap.add_argument("--lag-thr", help="btc-lag-thresholds.json (Г-72); без него Г-72/Г-146 pending")
+    ap.add_argument("--btc-thr", default=os.path.join(FIND, "btc-thresholds-2026-10-11.json"), help="btc-thresholds.json (Г-146, окно 24 ч); F2 — файл с --all-q")
     ap.add_argument("--write-research", action="store_true", help="записать docs/research/P-15-scope.json и P-15-thresholds.csv")
     a = ap.parse_args()
     cs = cells()
@@ -98,7 +107,7 @@ def main():
     rows = []
     if a.lag_thr:
         tc, rows = threshold_cells(json.load(open(a.lag_thr, encoding="utf-8")),
-                                   json.load(open(os.path.join(FIND, "btc-thresholds-2026-10-11.json"), encoding="utf-8")))
+                                   json.load(open(a.btc_thr, encoding="utf-8")))
         res["families"].update(tc)
     else:
         res["pending"] = ["Г-72", "Г-146", "Г-134"]

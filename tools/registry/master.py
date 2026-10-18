@@ -517,15 +517,17 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
                     mm[m] = f"{form} {name}"
             MONTHLY[h] = mm
     elif av and re.sub(r"\D", "", hyp) in ("72", "146") and "btc_thr_q" in av:   # П-15: Г-72 btc_lag_<s>s_min=T_m, Г-146 B1 + btc24h_min=T_m; пороги по месяцам — P-15-thresholds.csv; хеш — семья g72/g146 + оси (как Г-10)
-        fam, q = "g" + re.sub(r"\D", "", hyp), _int_in(_frac(av["btc_thr_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
-        lag = _int_in(_frac(av["btc_lag_s"]), (1, 2, 4, 8, 16, 32, 64, 118)) if fam == "g72" else None
+        fam, q = "g" + re.sub(r"\D", "", hyp), _int_in(_frac(av["btc_thr_q"]), range(1, 100))   # F2 (TK-303): любые целые q (разрешимость 1); пороги — P-15-thresholds.csv (--all-q)
+        lag = _int_in(_frac(av["btc_lag_s"]), (1, 2, 4, 8, 16, 32, 64, 78, 91, 104, 118)) if fam == "g72" else None
         cfg["variant"] = {"family": fam, "axes": ({"btc_lag_s": lag, "btc_thr_q": q} if fam == "g72" else {"btc_thr_q": q})}
         h = ch.cell_hash(cfg)
         thr = p15_thresholds().get((fam, f"btc_lag_{lag}s" if fam == "g72" else "btc24h"), {})
         if not q or (fam == "g72" and not lag):
-            LINES[h] = (None, f"{hyp}: q ∈ {{5,10,20,33,50,67,80,90,95}}" + (", лаг ∈ {1,2,4,8,16,32,64,118} с" if fam == "g72" else ""))
+            LINES[h] = (None, f"{hyp}: q — целое 1..99" + (", лаг ∈ {1,2,4,8,16,32,64,78,91,104,118} с" if fam == "g72" else ""))
         elif not thr:
             LINES[h] = (None, f"{hyp}: нет {os.path.basename(_P15_THR)} (tools/registry/p15_scope.py --write-research)")
+        elif q not in thr:
+            LINES[h] = (None, f"{hyp}: нет порогов q={q} в {os.path.basename(_P15_THR)} (btc-lag-thresholds.py/btc-thresholds.py --all-q, p15_scope.py --write-research)")
         else:
             LINES[h] = (None, f"месячный набор {fam}{'l' + str(lag) if lag else ''}q<q>-<ГГГГ-ММ>: файлы <имя>-<ГГГГ-ММ>.cells")
             row = thr[q]   # {месяц: (порог, set_arg)}
