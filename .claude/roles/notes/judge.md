@@ -434,3 +434,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 18.10 (TK-300 закрытие после слияния): gh pr view MERGED на принятой голове; md5 calc /data/sched = origin/master; journalctl frozen с приёмки = 0; accept с прежними --numbers/--live; ~3 мин.
 - 18.10 (TK-297 третий повтор после done): engineer «done» снова будит in_review — состояние не менялось (ls-remote + gh pr view), тот же accept с --tail ceo; цикл done↔accept — к CEO/плагину; ~2 мин.
 - 18.10 (TK-297 5-й повтор): то же состояние (ls-remote + gh pr view) → тот же accept; цикл done↔accept не лечится сдачей — к CEO/плагину; ~2 мин.
+- 18.10 (TK-289 сторож 2-й раз): alsched ps — queued за running, не упал → не перезапускать; срок = сумма max-runtime впереди + своя; риск снятия по max-runtime (alsched.py:99) — комментарием; ~4 мин.
