@@ -300,6 +300,7 @@ def test_sieve_note_undefined_and_reasons():
     assert launch.sieve_note(row(p=1.0), R) == (False, "не годна: p 1.0 > 0.2 (700 сделок, 200 суток)")
     assert "ΔSR" in launch.sieve_note(row(p=0.1), R)[1]
     assert launch.sieve_note(row(trades=1), {})[0] is False   # правил версии нет — «не определена» не выдумываем
+    assert launch.sieve_note(row(note="не определена: контроль"), R) == (True, "не определена: контроль")   # TK-309: причина из строки сита
 
 
 # --- TK-251 П4: маршруты r1/r1x (R1 в форме) ---
