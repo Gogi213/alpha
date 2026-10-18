@@ -399,6 +399,55 @@ class Budget(unittest.TestCase):
         self.assertIn("max-runtime", core.jobs["w"]["kill_why"])
 
 
+class DiskGuard(unittest.TestCase):
+    """TK-304 (В-44): мало места на /data — очередь prod не стартует, идущее живёт, тревога раз в эпизод, снятие — строка."""
+    def case(self):
+        class Be(SS.SimBE):
+            free = 500.0
+            def free_gb(self, path): return self.free
+        be = Be(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        return be, core
+
+    def test_low_disk_blocks_start_keeps_running(self):
+        be, core = self.case()
+        core.add(SS.job("a", "tk1-a", "prod", 2, 2, "none", 10 * H, 0))
+        core.tick()
+        self.assertEqual(core.jobs["a"]["state"], "running")
+        be.free = 5.0
+        core.add(SS.job("b", "tk1-b", "prod", 2, 2, "none", 10 * H, 0))
+        for _ in range(3):
+            be.advance(core, S.TICK); core.tick()
+        self.assertEqual((core.jobs["a"]["state"], core.jobs["b"]["state"]), ("running", "queued"))
+        self.assertEqual(sum("диск:" in a and "< 20" in a for a in be.alerts), 1)
+        be.free = 300.0
+        be.advance(core, S.TICK); core.tick()
+        self.assertEqual(core.jobs["b"]["state"], "running")
+        self.assertTrue(any("снова пускается" in a for a in be.alerts))
+
+    def test_alert_repeats_hourly(self):
+        be, core = self.case()
+        be.free = 1.0
+        core.add(SS.job("b", "tk1-b", "prod", 2, 2, "none", 10 * H, 0))
+        for _ in range(int(2.5 * H / S.TICK)):
+            be.advance(core, S.TICK); core.tick()
+        self.assertEqual(sum("диск:" in a for a in be.alerts), 3)
+
+    def test_off_by_zero_and_no_free_gb(self):
+        be, core = self.case()
+        be.free = 0.0
+        S.MIN_FREE_GB = 0
+        try:
+            core.add(SS.job("a", "tk1-a", "prod", 2, 2, "none", 10 * H, 0))
+            core.tick()
+            self.assertEqual(core.jobs["a"]["state"], "running")
+        finally:
+            S.MIN_FREE_GB = 20
+        be2 = SS.SimBE(); core2 = S.Core(be2, ncpu=SS.NCPU, mem=56)
+        core2.add(SS.job("a", "tk1-a", "prod", 2, 2, "none", 10 * H, 0))
+        core2.tick()
+        self.assertEqual(core2.jobs["a"]["state"], "running")
+
+
 class Reasons(unittest.TestCase):
     def test_queued_cancel_stores_reason(self):
         class Be(SS.SimBE):
