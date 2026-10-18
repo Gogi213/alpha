@@ -208,8 +208,8 @@ class Core:
         if wide_gates and all(r["cores"] > gate_resv for r in wide_gates):   # TK-297 (В-34): в очереди только гейты/сборки шире резерва — в него не встанут (ждут общей очереди, TK-220), держать ядра пустыми незачем
             gate_resv = 0
         gate_active = any(r.get("kind") in ("gate", "build") and r["state"] in ("queued", "running") for r in self.jobs.values())   # TK-283: нет gate/build ни в работе, ни в очереди — резерв свободен
-        declared = sum(r["cores"] for r in self.running("prod") if not r.get("frozen_for") and not (GATE_FIT and r.get("kind") in ("gate", "build")))   # TK-300: gate/build сверх потолка 15 — в сумму work не входят   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
-        gdecl = sum(r["cores"] for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))   # TK-300: заявленные ядра идущих gate/build — потолок RESERVE_CORES
+        declared = sum(r["cores"] for r in self.running("prod") if self.decl_live(r) and not (GATE_FIT and r.get("kind") in ("gate", "build")))   # TK-300: gate/build сверх потолка 15 — в сумму work не входят   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
+        gdecl = sum(r["cores"] for r in self.running("prod") if r.get("kind") in ("gate", "build") and self.decl_live(r))   # TK-300: заявленные ядра идущих gate/build — потолок RESERVE_CORES
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         low = self.disk_low(now)                          # TK-304: диск полон — очередь не стартует (идущие работают дальше)
         for j in sorted(() if low else (j for j in self.jobs.values() if j["state"] == "queued"),
@@ -224,7 +224,7 @@ class Core:
             decl_cap = OVERBOOK_MAX - (0 if is_gate else g_resv)
             declared_j = declared
             if GATE_FIT:                              # TK-300 (В-40): work — до OVERBOOK_MAX (15), gate/build — отдельно до RESERVE_CORES (16-е ядро); друг друга не вытесняют
-                decl_cap, declared_j = (RESERVE_CORES, gdecl) if is_gate else (OVERBOOK_MAX, declared)
+                decl_cap, declared_j = (OVERBOOK_MAX + RESERVE_CORES, gdecl + declared) if is_gate else (OVERBOOK_MAX, declared + max(0, gdecl - RESERVE_CORES))   # TK-300 (В-40, CEO 18.10): слот 16-го ядра занят (psim/гейт) — второй gate/build встаёт на свободное ядро, пока вся заявленная сумма ≤ 16; гейты сверх слота (Судья PR #66) вычитаются из потолка work — work ≤ 15 и сумма ≤ 16
             # TK-295 (В-34): потолок суммы заявленных ядер действует и на старт по заявке, не только по факту (4 по 4 = 16 > 15)
             room_s = min(room, decl_cap - declared_j - held_n) if OVERBOOK_MAX else room   # место для сжатия elastic — не выше потолка суммы заявок
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j
@@ -440,6 +440,11 @@ class Core:
         self.be.save_preempt(self.preempt)
         self.be.alert(f"вытеснение: {head['id']} {head['name']} ждала {int((now - head['t_submit']) / 60)} мин — заморожено "
                       + ", ".join(f"{k}:{i}({c})" for k, i, c in vs))
+
+    @staticmethod
+    def decl_live(r):
+        """TK-300 (CEO 18.10 17:30): в заявленную сумму входят идущие и замороженные потолком окна/перегревом ("cap"/"hot") — они оттают на те же ядра; вытесненные (frozen_for = id головной) считает preempt_held. Без этого окно stand морозило всех, очередь стартовала поверх, по концу окна 18/16."""
+        return not r.get("frozen_for") or r["frozen_for"] in ("cap", "hot")
 
     def preempt_held(self):
         """TK-292: что вытесненные заберут обратно по концу головной — ядра заданий (пины) и ядра голых юнитов. Пока головная идёт, эти ядра свободны на вид,
