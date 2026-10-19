@@ -848,7 +848,7 @@ fn qty_shift_imports_sizes_beyond_i64_e9() {
     args.steps_from_day = true;
     args.spot = true;
     let e = run_import_archive(&args).unwrap_err().to_string();
-    assert!(e.contains("BadNumber"), "{e}");
+    assert!(e.contains("не разбирается"), "{e}"); // сделки читаются раньше стакана
     args.qty_shift = 3;
     let sum = run_import_archive(&args).unwrap();
     assert_eq!((sum.trades, sum.off_grid, sum.trade_off_grid), (1, 0, 0));
