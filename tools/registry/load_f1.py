@@ -12,10 +12,15 @@ ap = argparse.ArgumentParser(); ap.add_argument("csv"); ap.add_argument("--run",
 ap.add_argument("--plan", default=os.path.join(ROOT, "data", "tk196-plan-f1.csv"))
 ap.add_argument("--fraction", type=int, default=1, help="доля плана (TK-272: 2 = F2)")
 ap.add_argument("--protocol", default="P-14", help="протокол (TK-274: P-15)")
+ap.add_argument("--f1-py", help="TK-303: файл .py с f1() — сито F1 для сетки F2 (tools/compute/tk303-f2-plan.py)")
 ns = ap.parse_args()
 c = master.connect()
 rules = master.rules_of(c, ns.protocol)
-grids, _ = master.build_grid(c, ns.protocol, ns.fraction, None, rules)   # заполняет master.LINES / MONTHLY
+f1 = None
+if ns.f1_py:
+    import importlib.util as iu
+    sp = iu.spec_from_file_location("f1src", ns.f1_py); f1m = iu.module_from_spec(sp); sp.loader.exec_module(f1m); f1 = f1m.f1()
+grids, _ = master.build_grid(c, ns.protocol, ns.fraction, None, rules, f1)   # заполняет master.LINES / MONTHLY
 c.close()
 plan = {json.loads(l)["hash"] for l in open(ns.plan, encoding="utf-8") if l.strip()}
 cfgs = {}
@@ -36,7 +41,7 @@ r_have = {(d["run_id"], d["cell_id"], d["month"]) for d in db.jl("results.jsonl"
 cells_new, rc_new, res_new, nomonth, nozero, nocode = [], [], [], [], [], []
 for h, (hyp, cfg) in sorted(cfgs.items(), key=lambda x: (x[1][0], x[0])):
     assert ch.cell_hash(cfg) == h
-    if h not in master.MONTHLY and master.LINES[h][0] is None:   # строки --cells нет (Г-147 touch — отдельный заход): не считалась, не пишем
+    if h not in master.MONTHLY and master.LINES.get(h, (None,))[0] is None:   # строки --cells нет (Г-147 touch — отдельный заход): не считалась, не пишем
         nocode.append(h); continue
     for m in months:
         if h in master.MONTHLY:
