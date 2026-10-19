@@ -11,10 +11,10 @@ import cellhash as ch, db, p18_scope as sc
 ap = argparse.ArgumentParser(); ap.add_argument("--prefix", default="П18-"); ap.add_argument("--dry", action="store_true")
 ns = ap.parse_args()
 TITLE = {"1": "вход: глубина лестницы (to), σ", "2": "стоп, % от входа", "3": "тейк, % от входа", "4": "дедлайн сделки, с", "5": "ttl входного ордера, с",
-         "6a": "пол номинала стены usd_min, $", "6b": "порог силы стены strength_min, квантиль месяца", "7": "фильтр BTC за 4 ч, btc4h_max, %", "8": "окно σ, мин"}
+         "6a": "пол номинала стены usd_min, $", "6b": "порог силы стены strength_min, квантиль месяца", "6v": "сила стены В-67 (размер / оборот за час, %) × пол номинала usd_min, $", "7": "фильтр BTC за 4 ч, btc4h_max, %", "8": "окно σ, мин"}
 fam = sc.cells()
 hyps, plan = [], []
-for ax in ("1", "2", "3", "4", "5", "6a", "6b", "7", "8"):
+for ax in ("1", "2", "3", "4", "5", "6a", "6b", "6v", "7", "8"):
     hid = ns.prefix + ax
     hyps.append({"id": hid, "family": "титровка B1", "protocol": "П-18",
                  "title": f"Титровка базы B1 (OFAT): ось {ax} — {TITLE[ax]}",
