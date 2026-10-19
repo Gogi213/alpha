@@ -58,3 +58,16 @@ def test_real_registry_every_hypothesis_has_status():
     known = {s[0] for s in v["status"]}
     assert all(r["status"] in known and r["why"] for r in v["rows"])
     assert {r["id"] for r in v["rows"] if r["cls"] == "Методы"} == {"Г-01", "Г-02", "Г-03", "М-04", "М-05"}
+
+
+def test_view_passes_f2_sieve_summary():
+    rows = hyps.view([h("Г-1"), h("Г-2")], {}, MON, OFF, None, None, {"Г-1": {"n": 36, "ok": 20, "plat": 18, "edge": 6}})["rows"]
+    by = {r["id"]: r for r in rows}
+    assert by["Г-1"]["f2"] == {"n": 36, "ok": 20, "plat": 18, "edge": 6}
+    assert by["Г-2"]["f2"] is None
+
+
+def test_real_registry_f2_sieve_reaches_panel():
+    rows = {r["id"]: r for r in launch.hyp_view()["rows"]}
+    f2 = rows["Г-102"]["f2"]
+    assert f2 and f2["n"] == 36 and f2["ok"] == 20

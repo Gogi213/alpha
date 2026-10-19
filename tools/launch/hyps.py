@@ -76,11 +76,12 @@ def classify(h, cells, nmon, off_labels):
     return "wait", "В сетку F1 не вошла" + (f"; в пуле: {pool}" if pool else ""), f1
 
 
-def view(hyps, cov, months, off_labels, texts=None, sieve_ok=None):
+def view(hyps, cov, months, off_labels, texts=None, sieve_ok=None, f2=None):
     """Строки вкладки: id, класс, заголовок (техн.), простыми словами, статус и причина, F1, число хешей Летописи.
     off_labels — [(маршрут, подпись)] в порядке OFF_ROUTES; sieve_ok — {гипотеза: число хешей, прошедших сито}."""
     texts = texts or {}
     sieve_ok = sieve_ok or {}
+    f2 = f2 or {}   # {гипотеза: {n, ok, plat}} — сито F2 по sieve.jsonl (fraction=2)
     out = []
     for h in hyps:
         ext = h.get("ext", {})
@@ -90,6 +91,6 @@ def view(hyps, cov, months, off_labels, texts=None, sieve_ok=None):
         method = ext.get("class") == "method"
         out.append({"id": h["id"], "cls": "Методы" if method else h.get("family", "").capitalize(), "title": h.get("title", ""),
                     "what": t.get("what") or "", "why_text": t.get("why") or "", "mech": ext.get("mechanism", ""),
-                    "status": st, "why": why, "f1": f1, "elig": sieve_ok.get(h["id"], 0), "pool": clean(ext.get("status_pool_0925"), 400)})
+                    "status": st, "why": why, "f1": f1, "elig": sieve_ok.get(h["id"], 0), "f2": f2.get(h["id"]), "pool": clean(ext.get("status_pool_0925"), 400)})
     out.sort(key=lambda r: (CLASSES.index(r["cls"]) if r["cls"] in CLASSES else len(CLASSES), int((re.search(r"\d+", r["id"]) or [0])[0])))
     return {"status": [list(s) for s in STATUS], "rows": out, "texts_n": sum(1 for r in out if r["what"])}
