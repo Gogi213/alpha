@@ -503,3 +503,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-312 PR #71@6b17013 повтор): ssh calc цикл по e-*/verify-*.status → /tmp, ok/fail счёт + diff fail-набора с far-ppm csv (SAME) → данные ок; CI 8 pending → wait ci:Gogi213/alpha#71; ~7 мин.
 - 19.10 (TK-316 разбор спота): сверил 4 места qty_e9 по origin/master → выбран C + условие f64 через i128 (байт в байт), 22 пары — оставить; return инженеру делать C; ~5 мин.
 - 19.10 (TK-312 PR #71 приёмка): gh checks — «Зависимости» fail только в run push (RUSTSEC rustls), pass в pull_request; --numbers: источник должен быть в дереве проекта (не ../worktree) и число без пробела-разделителя (1 062 → «1»); ~8 мин.
+- 19.10 (TK-312 повтор после done инженера): gh MERGED df5c78d + голова = принятой → accept повтором (--repo, те же --numbers/--live/--tail); ~1 мин.
