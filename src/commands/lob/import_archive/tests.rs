@@ -80,6 +80,7 @@ fn fixture(dir: &Path) -> ImportArchiveArgs {
         steps_from_snapshot: false,
         steps_from_day: false,
         spot: false,
+        qty_shift: 0,
     }
 }
 
@@ -148,11 +149,14 @@ fn trade_time_keeps_milliseconds_and_drops_the_rest() {
 /// Выгрузка сделок пишет величины и в экспоненте (`1.1283e+06` — AKE 01.09): разбор точный, без `f64`.
 #[test]
 fn trade_numbers_in_exponent_form_parse_exactly() {
-    assert_eq!(parse_decimal_e9("1.1283e+06"), Some(1_128_300_000_000_000));
-    assert_eq!(parse_decimal_e9("1900"), Some(1_900_000_000_000));
-    assert_eq!(parse_decimal_e9("5e-05"), Some(50_000));
-    assert_eq!(parse_decimal_e9("0.0082300"), Some(8_230_000));
-    assert_eq!(parse_decimal_e9("1e-10"), None, "точнее 1e-9 — отказ");
+    assert_eq!(
+        parse_decimal_e9("1.1283e+06", 0),
+        Some(1_128_300_000_000_000)
+    );
+    assert_eq!(parse_decimal_e9("1900", 0), Some(1_900_000_000_000));
+    assert_eq!(parse_decimal_e9("5e-05", 0), Some(50_000));
+    assert_eq!(parse_decimal_e9("0.0082300", 0), Some(8_230_000));
+    assert_eq!(parse_decimal_e9("1e-10", 0), None, "точнее 1e-9 — отказ");
 }
 
 fn write_day(dir: &Path, ob: &[String]) -> ImportArchiveArgs {
@@ -776,4 +780,84 @@ fn spot_requires_steps_from_day() {
     args.spot = true;
     let e = run_import_archive(&args).unwrap_err().to_string();
     assert!(e.contains("--steps-from-day"), "{e}");
+}
+
+#[test]
+fn shift_decimal_is_exact_or_refuses() {
+    assert_eq!(
+        shift_decimal("17511955639", 3).as_deref(),
+        Some("17511955.639")
+    );
+    assert_eq!(shift_decimal("5", 3).as_deref(), Some("0.005"));
+    assert_eq!(shift_decimal("2.5", 3).as_deref(), Some("0.0025"));
+    assert_eq!(
+        shift_decimal("1.123456789", 3).as_deref(),
+        None,
+        "хвост за 1e-9 ненулевой"
+    );
+    assert_eq!(
+        shift_decimal("1.123456000", 3).as_deref(),
+        Some("0.001123456")
+    );
+    assert_eq!(shift_decimal("1e5", 3), None);
+    assert_eq!(
+        parse_decimal_e9("17511955639", 3),
+        Some(17_511_955_639_000_000)
+    );
+    assert_eq!(
+        parse_decimal_e9("1.1283e+10", 3),
+        Some(11_283_000_000_000_000)
+    );
+}
+
+/// Спот с размером выше 9,2e9 монет (BONK): без `--qty-shift` отказ разбора, с ним — лоты те же, что
+/// у обычного импорта, шаг заголовка в обычных единицах.
+#[test]
+fn qty_shift_imports_sizes_beyond_i64_e9() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.00","17511955639"],["0.99","2500"]"#,
+            r#"["1.01","3000"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1480,
+            2,
+            r#"["1.00","3"]"#,
+            "",
+        ),
+    ];
+    let mut args = write_day(dir.path(), &ob);
+    std::fs::write(
+        &args.trades,
+        format!(
+            "id,timestamp,price,volume,side,rpi
+1,{},1.01,17511955639,buy,0
+",
+            START + 1000
+        ),
+    )
+    .unwrap();
+    args.instruments = None;
+    args.steps_from_day = true;
+    args.spot = true;
+    let e = run_import_archive(&args).unwrap_err().to_string();
+    assert!(e.contains("BadNumber"), "{e}");
+    args.qty_shift = 3;
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!((sum.trades, sum.off_grid, sum.trade_off_grid), (1, 0, 0));
+    let data = std::fs::read(&sum.out).unwrap();
+    let r = Reader::open(&data[..]).unwrap();
+    assert_eq!(
+        (r.header().tick_e9, r.header().step_e9),
+        (10_000_000, 1_000_000_000)
+    );
+    let lots: Vec<i64> = all_records(&sum.out).iter().map(|x| x.qty_lots).collect();
+    assert_eq!(lots, [17_511_955_639, 2500, 3000, 17_511_955_639, 3]);
 }

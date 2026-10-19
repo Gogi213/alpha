@@ -3,6 +3,7 @@
 #   spot-import.sh import <список "SYM DAY"…>   импорт монето-суток (lob import-archive --spot --steps-from-day)
 #   spot-import.sh verify <месяц YYYY-MM…>      lob verify по каждой монете месяца → verify-<SYM>.status (K1)
 # env: SRC (откуда, умолчание /srv/alpha-sda/tk305/spot), OUT (куда, /srv/alpha-sda/binlog-spot), BIN, JOBS (умолч. 15),
+#      QTY_SHIFT (--qty-shift: размер >9,2e9 монет — PEPE/BONK/SHIB/MOG, умолч. нет),
 #      TMP (временный стакан, умолч. /dev/shm/spot-import), LOG (tsv: итог каждой единицы).
 # Разбор формата — docs/findings/spot-binlog-import-2026-10-19.md. Уже готовое пропускается.
 set -uo pipefail
@@ -22,7 +23,7 @@ one_import() { # $1=SYM $2=DAY ; строка в $LOG: sym day rc сек бай�
   t0=$(date +%s)
   # steps-from-day читает стакан дважды — файлом (в /dev/shm), не потоком
   unzip -p "$ob" > "$tb" && gunzip -c "$tr" > "$tt" &&
-    msg=$(nice -n 10 "$BIN" lob import-archive --spot --steps-from-day --symbol "$sym" --day "$day" \
+    msg=$(nice -n 10 "$BIN" lob import-archive --spot --steps-from-day ${QTY_SHIFT:+--qty-shift $QTY_SHIFT} --symbol "$sym" --day "$day" \
             --ob "$tb" --trades "$tt" --root "$root" 2>&1)
   rc=$?
   [ $rc -ne 0 ] && rm -f "$root/$sym-$day.binlog" "$root/$sym-$day.binlog.part"
@@ -37,7 +38,7 @@ one_verify() { # $1=месяц $2=SYM
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$?" "$(cat "$root/verify-$2.status" 2>/dev/null || echo none)" >> "${LOG%.tsv}-verify.tsv"
 }
 export -f one_import one_verify
-export SRC OUT BIN TMP LOG
+export SRC OUT BIN TMP LOG QTY_SHIFT
 
 case "$MODE" in
   import)

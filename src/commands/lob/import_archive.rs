@@ -75,6 +75,13 @@ pub struct ImportArchiveArgs {
     /// `--steps-from-day`, `--instruments` не читается. Без флага — фьючерс, как раньше.
     #[arg(long)]
     pub spot: bool,
+    /// Размеры (уровни стакана и сделки) разбираются в единицах 10^-N монеты (десятичная точка
+    /// сдвигается влево точно, без усечения; значение мельче 1e-9 после сдвига — отказ): нужно там,
+    /// где размер больше 9,2e9 монет и не влезает в `i64` e9 (спот PEPE/BONK/SHIB/MOG, TK-312).
+    /// Шаг размера заголовка и расписания пишется в обычных единицах (×10^N), лоты те же. 0 — как
+    /// раньше (байт в байт).
+    #[arg(long, default_value_t = 0)]
+    pub qty_shift: u32,
 }
 
 /// Итог импорта суток.
@@ -156,6 +163,7 @@ fn steps_from_snapshot(
     lines: &mut Lines,
     pool_tick_e9: i64,
     pool_step_e9: i64,
+    qty_shift: u32,
 ) -> anyhow::Result<(i64, i64, Vec<String>)> {
     let mut seen = Vec::new();
     for line in lines.by_ref() {
@@ -163,8 +171,7 @@ fn steps_from_snapshot(
         let events = if line.trim().is_empty() {
             Vec::new()
         } else {
-            parse_message(&zero_negative_seq(&line))
-                .map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?
+            parse_ob_line(&line, qty_shift)?
         };
         seen.push(line);
         for ev in events {
@@ -247,6 +254,7 @@ fn steps_from_day(
     day_end: i64,
     pool_tick_e9: i64,
     pool_step_e9: i64,
+    qty_shift: u32,
 ) -> anyhow::Result<DaySteps> {
     let rdr = BufReader::with_capacity(1 << 20, std::fs::File::open(path)?);
     let (mut gp, mut gq, mut sp, mut sq) = (0, 0, 0, 0);
@@ -263,8 +271,7 @@ fn steps_from_day(
         if ts >= day_end {
             continue;
         }
-        let events = parse_message(&zero_negative_seq(&line))
-            .map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?;
+        let events = parse_ob_line(&line, qty_shift)?;
         for ev in events {
             let Event::Book(u) = ev else { continue };
             has_snapshot |= u.is_snapshot;
@@ -306,12 +313,21 @@ fn trade_ms(s: &str) -> Option<i64> {
 /// Десятичное число выгрузки сделок → 1e-9 без `f64`. Выгрузка пишет крупные и мелкие величины в
 /// экспоненциальной записи (`1.1283e+06`, замер 22.09 на AKE/DOGE/PUMPFUN 01.09), поэтому мантисса
 /// разбирается `parse_e9`, а порядок применяется целочисленно; значение точнее 1e-9 — отказ.
-fn parse_decimal_e9(s: &str) -> Option<i64> {
+fn parse_decimal_e9(s: &str, shift: u32) -> Option<i64> {
     let s = s.trim();
     let Some((mant, exp)) = s.split_once(['e', 'E']) else {
-        return parse_e9(s);
+        return if shift == 0 {
+            parse_e9(s)
+        } else {
+            parse_e9(&shift_decimal(s, shift)?)
+        };
     };
-    let mut v = i128::from(parse_e9(mant)?);
+    let mant = if shift == 0 {
+        std::borrow::Cow::Borrowed(mant)
+    } else {
+        std::borrow::Cow::Owned(shift_decimal(mant, shift)?)
+    };
+    let mut v = i128::from(parse_e9(&mant)?);
     let exp: i32 = exp.trim_start_matches('+').parse().ok()?;
     if exp >= 0 {
         for _ in 0..exp {
@@ -328,7 +344,50 @@ fn parse_decimal_e9(s: &str) -> Option<i64> {
     i64::try_from(v).ok()
 }
 
-fn read_trades(path: &Path, spot: bool) -> anyhow::Result<Vec<Trade>> {
+/// Десятичная запись размера, сдвинутая на `n` знаков влево (`17511955639` при n=3 →
+/// `17511955.639`): точно, строкой. Знаков после точки больше девяти — хвост обязан быть нулями.
+fn shift_decimal(s: &str, n: u32) -> Option<String> {
+    let s = s.trim();
+    let (int, frac) = s.split_once('.').unwrap_or((s, ""));
+    if !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n = n as usize;
+    let cut = int.len().saturating_sub(n);
+    let head = if cut == 0 { "0" } else { &int[..cut] };
+    let moved = format!("{:0>n$}{frac}", &int[cut..]);
+    let (keep, tail) = moved.split_at(moved.len().min(9));
+    tail.bytes()
+        .all(|b| b == b'0')
+        .then(|| format!("{head}.{keep}"))
+}
+
+/// Сообщение стакана → события; `qty_shift` > 0 сдвигает размеры уровней (`shift_decimal`) до
+/// разбора, остальное — как у `parse_message`. Сдвиг только в импорте, живой разбор не затронут.
+fn parse_ob_line(line: &str, qty_shift: u32) -> anyhow::Result<Vec<Event>> {
+    let line = zero_negative_seq(line);
+    if qty_shift == 0 {
+        return parse_message(&line).map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"));
+    }
+    let bad = || anyhow::anyhow!("сообщение стакана: размер не сдвигается на {qty_shift} знаков");
+    let mut v: serde_json::Value = serde_json::from_str(&line).map_err(|_| bad())?;
+    if let Some(data) = v.get_mut("data") {
+        for side in ["b", "a"] {
+            let Some(levels) = data.get_mut(side).and_then(|l| l.as_array_mut()) else {
+                continue;
+            };
+            for level in levels {
+                let q = level.get_mut(1).ok_or_else(bad)?;
+                let shifted =
+                    shift_decimal(q.as_str().ok_or_else(bad)?, qty_shift).ok_or_else(bad)?;
+                *q = serde_json::Value::String(shifted);
+            }
+        }
+    }
+    parse_message(&v.to_string()).map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))
+}
+
+fn read_trades(path: &Path, spot: bool, qty_shift: u32) -> anyhow::Result<Vec<Trade>> {
     let mut rdr = csv::Reader::from_path(path)?;
     let head = rdr.headers()?.clone();
     let col = |name: &str| head.iter().position(|h| h == name);
@@ -359,8 +418,9 @@ fn read_trades(path: &Path, spot: bool) -> anyhow::Result<Vec<Trade>> {
             } else {
                 trade_ms(ts).ok_or_else(bad)?
             },
-            price_e9: parse_decimal_e9(row.get(i_price).ok_or_else(bad)?).ok_or_else(bad)?,
-            qty_e9: parse_decimal_e9(row.get(i_size).ok_or_else(bad)?).ok_or_else(bad)?,
+            price_e9: parse_decimal_e9(row.get(i_price).ok_or_else(bad)?, 0).ok_or_else(bad)?,
+            qty_e9: parse_decimal_e9(row.get(i_size).ok_or_else(bad)?, qty_shift)
+                .ok_or_else(bad)?,
             buy: match row.get(i_side) {
                 Some(v) if v == buy => true,
                 Some(v) if v == sell => false,
@@ -445,7 +505,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         "{}: файл уже есть — импорт не перезаписывает записанные сутки",
         out_path.display()
     );
-    let trades = read_trades(&args.trades, args.spot)?;
+    let trades = read_trades(&args.trades, args.spot, args.qty_shift)?;
     let reader: Box<dyn BufRead> = if args.ob.as_os_str() == "-" {
         Box::new(BufReader::new(std::io::stdin().lock()))
     } else {
@@ -461,7 +521,13 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             args.ob.as_os_str() != "-",
             "--steps-from-day: --ob должен быть файлом (нужен второй проход)"
         );
-        let day_steps = steps_from_day(&args.ob, day_end, pool_tick_e9, pool_step_e9)?;
+        let day_steps = steps_from_day(
+            &args.ob,
+            day_end,
+            pool_tick_e9,
+            pool_step_e9,
+            args.qty_shift,
+        )?;
         let (t, st) = day_steps.grid;
         anyhow::ensure!(
             t > 0 && st > 0,
@@ -484,7 +550,8 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         );
         (t, st)
     } else if args.steps_from_snapshot {
-        let (t, st, seen) = steps_from_snapshot(&mut lines, pool_tick_e9, pool_step_e9)?;
+        let (t, st, seen) =
+            steps_from_snapshot(&mut lines, pool_tick_e9, pool_step_e9, args.qty_shift)?;
         lines = Box::new(seen.into_iter().map(Ok).chain(lines));
         eprintln!(
             "import-archive: {} {} — шаг цены {t} e9 (пул {pool_tick_e9}), шаг размера {st} e9 (пул {pool_step_e9})",
@@ -494,9 +561,21 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
     } else {
         (pool_tick_e9, pool_step_e9)
     };
+    // Шаг размера файла — в обычных единицах; лоты (qty/step) от сдвига не зависят.
+    let unshift = 10i64
+        .checked_pow(args.qty_shift)
+        .ok_or_else(|| anyhow::anyhow!("--qty-shift {}: слишком велик", args.qty_shift))?;
+    let hdr_step = |s: i64| {
+        s.checked_mul(unshift).ok_or_else(|| {
+            anyhow::anyhow!("шаг размера {s} e9 ×10^{} не влезает в i64", args.qty_shift)
+        })
+    };
+    for a in &mut schedule {
+        a.step_e9 = hdr_step(a.step_e9)?;
+    }
     let header = Header {
         tick_e9,
-        step_e9,
+        step_e9: hdr_step(step_e9)?,
         max_records_per_frame: MAX_RECORDS_PER_FRAME,
     };
     let tmp_path = out_path.with_extension("binlog.part");
@@ -571,9 +650,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
                 sum.trades_before_snapshot += 1;
             }
         }
-        let line = zero_negative_seq(&line);
-        let events =
-            parse_message(&line).map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?;
+        let events = parse_ob_line(&line, args.qty_shift)?;
         if ts < day_start {
             // Снимок начала суток архив иногда публикует на миллисекунды раньше полуночи
             // (TK-021: UNI, ATOM, BCH — 13 монето-суток), за ним идут дельты суток с тем же
