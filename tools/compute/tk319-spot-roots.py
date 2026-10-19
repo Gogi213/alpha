@@ -55,18 +55,28 @@ def verdict():
     print(f"verdict.csv: {len(rows)} символо-суток, пускаем {len(sd)}, символов {len(syms)}")
 
 
+def inst_for(path, files):
+    """instruments.csv корня = только пары с бинлогом в этом корне (bounce-grid без --symbol берёт весь пул instruments.csv)."""
+    have = {os.path.basename(p)[:-18] for p in files}
+    rows = list(csv.reader(open(f"{D}/instruments.csv", encoding="utf-8")))
+    if os.path.lexists(path):
+        os.remove(path)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(rows[0])
+        w.writerows(r for r in rows[1:] if r[0] in have)
+
+
 def epoch(mon, only=None):
     mm = MON[mon]
     e, src = f"{D}/e-{mon}", f"{SRC}/e-2026-{mm}"
     os.makedirs(f"{e}/root", exist_ok=True); os.makedirs(f"{e}/study", exist_ok=True)
-    inst_p = f"{D}/instruments.csv"
     files = sorted(glob.glob(f"{src}/*-2026-{mm}-??.binlog"))
     for p in files:
         q = f"{e}/root/{os.path.basename(p)}"
         if not os.path.lexists(q):
             os.symlink(p, q)
-    if not os.path.lexists(f"{e}/root/instruments.csv"):
-        os.symlink(inst_p, f"{e}/root/instruments.csv")
+    inst_for(f"{e}/root/instruments.csv", files)
     ver = sorted(glob.glob(f"{src}/verify-*.status"))  # К1 (В-56): без маркера ok `lob touches` отказывает
     for p in ver:
         q = f"{e}/root/{os.path.basename(p)}"
@@ -87,9 +97,10 @@ def epoch(mon, only=None):
         for p in files:
             if os.path.basename(p).endswith(f"-{d}.binlog") and not os.path.lexists(f"{r}/{os.path.basename(p)}"):
                 os.symlink(p, f"{r}/{os.path.basename(p)}")
-        for p in ver + [inst_p]:
+        for p in ver:
             if not os.path.lexists(f"{r}/{os.path.basename(p)}"):
                 os.symlink(p, f"{r}/{os.path.basename(p)}")
+        inst_for(f"{r}/instruments.csv", [p for p in files if p.endswith(f"-{d}.binlog")])
         if not os.path.lexists(f"{r}/session.json"):
             open(f"{r}/session.json", "w").write(sj)
     print(f"{e}: суток {len(days)}, бинлогов {len(files)}")

@@ -9,6 +9,7 @@ SYM=${SYM:-ETHUSDT}; MON=sep; DAY=2026-09-05
 mkdir -p "$G"; R=$G/RESULT.txt; : > "$R"
 say() { echo "$*" | tee -a "$R"; }
 # ---- A: фьючерс байт в байт
+if [ -z "${SKIP_A:-}" ]; then   # SKIP_A=1: A уже зелёный (gate4, day-cells.sh не менялся) — перегнать только B
 FP=$G/fplan; mkdir -p "$FP"
 echo 'ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1' > "$FP/b1.cells"
 printf '%s\n' '--deadline-secs 14400' '--entry-form ladder3x0..0.0409sw2' '--entry-ttl-secs 1800' '--stop-form pct2' '--take-form tr1x1' \
@@ -23,6 +24,7 @@ done
 ( cd "$G/fut-old/x/out" && find . -type f | sort | xargs md5sum ) > "$G/fut-old.md5"
 ( cd "$G/fut-new/x/out" && find . -type f | sort | xargs md5sum ) > "$G/fut-new.md5"
 if [ -s "$G/fut-old.md5" ] && cmp -s "$G/fut-old.md5" "$G/fut-new.md5"; then say "A фьючерс: байт в байт, файлов $(wc -l < "$G/fut-new.md5")"; else say "A фьючерс: РАСХОЖДЕНИЕ или пусто (old $(wc -l < "$G/fut-old.md5"), new $(wc -l < "$G/fut-new.md5"))"; fi
+fi
 # ---- B: спот
 python3 "$B/ref-klines.py" --category spot --out-dir "$K/klines" --symbols "$SYM,BTCUSDT,ETHUSDT" --since 2026-08-31 --until 2026-09-06 2>&1 | tail -3
 python3 "$B/sigma-table.py" --klines "$K/klines" --out-dir "$K/sigma240" --symbols "$SYM" 2>&1 | tail -2
