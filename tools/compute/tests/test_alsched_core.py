@@ -467,6 +467,49 @@ class Preemption(unittest.TestCase):
         self.assertLessEqual(peak, S.OVERBOOK_MAX)        # TK-295 (В-34): 15 + 1 = 16 > 15 — шестнадцатое ядро не раздаётся, как бы оно ни простаивало
         self.assertEqual(e, "queued")
 
+    def two_fifteens(self, prio2):
+        """TK-300 (CEO 19.10): две заявки по 15 — идущего незамороженного prod не больше 15 в каждый тик; prio лучше — вытесняет (заморозка), не стартует поверх."""
+        be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        a = SS.job("a", "a", "prod", 15, 8, "none", 36000, 0); core.add(a)
+        core.tick(); be.advance(core, S.TICK)
+        b = SS.job("b", "b", "prod", 15, 8, "none", 36000, be.t); b["prio"] = prio2; core.add(b)
+        peak = 0
+        for _ in range(int(1800 / S.TICK)):
+            core.tick(); be.advance(core, S.TICK)
+            peak = max(peak, sum(j["cores"] for j in core.running("prod") if not j.get("frozen_for")))
+        return peak, core.jobs["a"], core.jobs["b"]
+
+    def test_second_fifteen_waits(self):
+        peak, a, b = self.two_fifteens(5)
+        self.assertLessEqual(peak, S.OVERBOOK_MAX)
+        self.assertEqual(b["state"], "queued")
+
+    def test_better_prio_fifteen_freezes_not_overlaps(self):
+        peak, a, b = self.two_fifteens(3)
+        self.assertLessEqual(peak, S.OVERBOOK_MAX)
+        self.assertEqual((a.get("frozen_for"), b["state"]), ("b", "running"))
+
+
+class PsFrozen(unittest.TestCase):
+    def test_ps_counts_only_unfrozen(self):
+        """TK-300 (CEO 19.10): вытесненный 15-ядерный проход заморожен (frozen_for только в памяти демона) — ps не считает его занятым: 15/16, не 30/16."""
+        import contextlib, io, json
+        d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "jobs"))
+        for i, n in (("1", "old"), ("2", "new")):
+            j = SS.job(i, n, "prod", 15, 8, "none", 100, 0); j.update(state="running", cpus=list(range(15)), t_start=0)
+            json.dump(j, open(os.path.join(d, "jobs", i + ".json"), "w"))
+        old, S.DIR = S.DIR, d
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                S.ps(frozen=lambda j: j["id"] == "1")
+        finally:
+            S.DIR = old
+        lines = out.getvalue().splitlines()
+        self.assertIn(f"занято 15/{S.NCPU}", lines[0])
+        self.assertIn("заморожено 1 (15 ядер)", lines[0])
+        self.assertTrue(any(l.startswith("1 frozen") for l in lines) and any(l.startswith("2 running") for l in lines))
+
 
 class Freeze(unittest.TestCase):
     def test_hot_psi_calm_does_not_freeze(self):
