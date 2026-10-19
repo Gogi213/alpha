@@ -510,3 +510,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-316 PR #72@67543dc повтор): diff c371f53..голова — только скрипты/доки → гейт в силе; calc new-bonk.log «символов 1, кругов 1255» + tsv 30/30; MOG fail по цене e10 — ответ; CI 8 идут → wait ci; ~6 мин.
 - 19.10 (TK-303 сторож F2): alsched ps running + ls out/*/done 179/251 + fail.txt>0 =0 → wait тот же rc --by по темпу; result wait тоже требует --by; ~3 мин.
 - 19.10 (TK-313 сторож u-measure 2-й): alsched ps — tk313-u queued за running tk303-f2 (prio 4 по CEO) → wait тот же --by 20:30, без перезапуска; ~2 мин.
+- 19.10 (TK-316 PR #72 accept): gh checks 18 SUCCESS + голова = проверенной → accept; нужны --decisions (В-N из .claude/decisions.md, не SETTLED) и --numbers (источник — файл в дереве, напр. review); хвост TK-318 --backlog до приёмки; ~6 мин.
