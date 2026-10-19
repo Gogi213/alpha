@@ -2,6 +2,7 @@
 # TK-312 (В-45): спот Bybit из TK-305 (sda) → суточные бинлоги v3/v4, корни по месяцам, как у фьючерса (e-YYYY-MM).
 #   spot-import.sh import <список "SYM DAY"…>   импорт монето-суток (lob import-archive --spot --steps-from-day)
 #   spot-import.sh verify <месяц YYYY-MM…>      lob verify по каждой монете месяца → verify-<SYM>.status (K1)
+#   spot-import.sh verify-pairs <список "месяц SYM">   то же только по перечисленным парам (хвост после переимпорта)
 # env: SRC (откуда, умолчание /srv/alpha-sda/tk305/spot), OUT (куда, /srv/alpha-sda/binlog-spot), BIN, JOBS (умолч. 15),
 #      QTY_SHIFT (--qty-shift: размер >9,2e9 монет — PEPE/BONK/SHIB/MOG, умолч. нет),
 #      TMP (временный стакан, умолч. /dev/shm/spot-import), LOG (tsv: итог каждой единицы).
@@ -49,6 +50,8 @@ case "$MODE" in
       ls "$OUT/e-$m" | grep -a '\.binlog$' | sed 's/-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\(-p[0-9]*\)\?\.binlog$//' | sort -u |
         while read -r s; do echo "$m $s"; done
     done | xargs -r -P "$JOBS" -n 2 bash -c 'one_verify "$@"' _ ;;
-  *) echo "import|verify"; exit 2 ;;
+  verify-pairs)
+    xargs -a "${1:?список \"месяц SYM\"}" -r -P "$JOBS" -n 2 bash -c 'one_verify "$@"' _ ;;
+  *) echo "import|verify|verify-pairs"; exit 2 ;;
 esac
 rmdir "$TMP" 2>/dev/null || true
