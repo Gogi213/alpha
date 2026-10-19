@@ -910,6 +910,7 @@ pub fn records_to_updates(
         cur_ts_ns: 0,
         has_open: false,
         next_u: *next_u,
+        unit_e9: 1,
     };
     let mut updates = Vec::new();
     let mut trades = Vec::new();
