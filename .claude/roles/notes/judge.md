@@ -499,3 +499,5 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-289 f6v таймаут 2-й): jobs/<id>.json active_s vs стена + alerts.log «вытеснение» → E-003 повтор; ls out/*/done 169/251 → return перезапуск дельтой; ~6 мин.
 - 19.10 (TK-272 tail2 rc6): alsched ps + grep glob f2d-tail.sh на calc → исправлено инженером, tail3 queued → wait тот же; ~3 мин.
 - 19.10 (TK-312 PR #71 развилка 4 монет): ssh calc awk import.tsv/import-verify.tsv (rc, status) сверил; (а) + убрать --qty-shift (файлы без читателя), 22 fail — проверка по сырому ob; CI deps = внешний RUSTSEC → return; ~8 мин.
+- 19.10 (TK-312 надзиратель «не исключать»): довод по делу (e9>i64 у любого читателя) комментом + wait тот же rc --by; wait без --by — отказ; ~4 мин.
+- 19.10 (TK-312 PR #71@6b17013 повтор): ssh calc цикл по e-*/verify-*.status → /tmp, ok/fail счёт + diff fail-набора с far-ppm csv (SAME) → данные ок; CI 8 pending → wait ci:Gogi213/alpha#71; ~7 мин.
