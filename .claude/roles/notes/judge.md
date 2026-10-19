@@ -508,3 +508,5 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-316 f64 в CompactEvent): grep потребителей CompactEvent (только память → expand hftbacktest, на диск нет) + diff compact.rs → утверждено по A1, return инженеру шаги 2,3,5,6+гейт; ~5 мин.
 - 19.10 (TK-316 PR #72 приёмка): cmp old/new-sol сам + new-bonk.log → BONK пропущен fail-closed (verify fail, rc=0, 0 кругов) при «BONK ок» в PR; нет verify 4×9 мес → return; ~6 мин. Урок: rc=0 bounce-grid ≠ символ посчитан — смотреть «символов N».
 - 19.10 (TK-316 PR #72@67543dc повтор): diff c371f53..голова — только скрипты/доки → гейт в силе; calc new-bonk.log «символов 1, кругов 1255» + tsv 30/30; MOG fail по цене e10 — ответ; CI 8 идут → wait ci; ~6 мин.
+- 19.10 (TK-303 сторож F2): alsched ps running + ls out/*/done 179/251 + fail.txt>0 =0 → wait тот же rc --by по темпу; result wait тоже требует --by; ~3 мин.
+- 19.10 (TK-313 сторож u-measure 2-й): alsched ps — tk313-u queued за running tk303-f2 (prio 4 по CEO) → wait тот же --by 20:30, без перезапуска; ~2 мин.
