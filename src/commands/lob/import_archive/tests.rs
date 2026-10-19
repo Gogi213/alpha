@@ -204,9 +204,8 @@ fn qty_beyond_i64_in_e9_imports_exactly_in_lots() {
     std::fs::write(
         &args.trades,
         format!(
-            "timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional,RPI
-             {}.0000,TESTUSDT,Buy,17500000000.3,1.01,PlusTick,a,0,1,1,0
-",
+            "timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional,RPI\n\
+             {}.0000,TESTUSDT,Buy,17500000000.3,1.01,PlusTick,a,0,1,1,0\n",
             (START + 1000) / 1000
         ),
     )
