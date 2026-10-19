@@ -18,6 +18,7 @@ grid() {  # $1 бинарь $2 корень $3 символ $4 сутки $5 л�
 }
 root_of() {  # $1 каталог частей $2 символ $3 сутки $4 корень
   rm -rf "$4"; mkdir -p "$4"; ln -s "$1/$2-$3.binlog" "$4/"; ln -s "$1/verify-$2.status" "$4/"
+  echo '{"start_hour_utc":0,"closed":true,"binlog_files":[]}' > "$4/session.json"; [ -f "$1/instruments.csv" ] && ln -s "$1/instruments.csv" "$4/"
 }
 # 0) старый на споте (проверяет и сами аргументы до долгой сборки)
 root_of "$SP" SOLUSDT 2026-01-05 "$S/rt-sol"; rm -rf "$S/old-sol"
