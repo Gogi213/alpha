@@ -485,6 +485,89 @@ fn lot_first_scales_only_first_touch_of_the_level() {
     }
 }
 
+/// П-19 (TK-291): `--touch-col` дописывает в конец `rounds.csv` столбец `touch_index`; прежние столбцы и строки — байт в
+/// байт как без флага (гейт Судьи); без флага шапка прежняя, столбца нет.
+#[test]
+fn touch_col_appends_column_and_keeps_old_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    // настройки гейта `risk_adverse_queue_model_keeps_the_old_bytes` — на них фикстура даёт круги
+    a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.no_post_only = true;
+    a.entry_ttl_secs = vec!["touch".to_string()];
+    a.entry_form = vec!["single@fr".to_string()];
+    a.out_dir = dir.path().join("grid-base");
+    assert!(run_bounce_grid(&a).unwrap().rounds > 0);
+    a.touch_col = true;
+    a.out_dir = dir.path().join("grid-touch");
+    run_bounce_grid(&a).unwrap();
+    let base = std::fs::read_to_string(dir.path().join("grid-base/rounds.csv")).unwrap();
+    let with = std::fs::read_to_string(dir.path().join("grid-touch/rounds.csv")).unwrap();
+    let (bl, wl): (Vec<&str>, Vec<&str>) = (base.lines().collect(), with.lines().collect());
+    assert_eq!(bl.len(), wl.len());
+    assert!(bl.len() > 2, "в фикстуре должны быть круги");
+    assert!(!bl[1].contains("touch_index"));
+    assert!(wl[1].ends_with(",touch_index"), "{}", wl[1]);
+    for (b, w) in bl.iter().zip(&wl).skip(2) {
+        let cut = w.rfind(',').unwrap();
+        assert_eq!(*b, &w[..cut], "старые столбцы не тронуты");
+        assert!(w[cut + 1..].parse::<u32>().is_ok(), "{w}");
+    }
+}
+
+/// Г-98 (П-17): лот под риск — `min(база, R·10⁴ ÷ span_bps)` вниз до шага; span < 1 и нежмущий риск — база как есть
+/// (= B1 байт в байт); ниже min-лота — `None` (пропуск), вверх не поднимаем; без подходов — отказ суток.
+#[test]
+fn size_risk_lot_follows_span_and_floors_at_min_lot() {
+    use super::super::steps::day_risk_qtys;
+    let lot = PoolLot {
+        min_order_qty_e9: 1_000_000,
+        qty_step_e9: 1_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let sizing = OrderSizing::Usd(lot, 100.0);
+    let price_e9 = 10_000_000_000; // $10 → база 10 монет
+    let base = 10_000_000_000;
+    let q = |r: f64, span: i64| sizing.qty_risk_e9(price_e9, 1, base, r, span, 1_000_000);
+    assert_eq!(
+        q(5.0, 1000),
+        Some(5_000_000_000),
+        "R·10⁴/1000 = $50 → 5 монет"
+    );
+    assert_eq!(q(5.0, 500), Some(base), "риск не жмёт ($100 = база) — база");
+    assert_eq!(q(5.0, 100), Some(base), "риск шире базы — не поднимаем");
+    assert_eq!(q(0.001, 0), Some(base), "span < 1 — база");
+    assert_eq!(q(0.4, 1000), None, "$4 < min-лота 22а ($5) — пропуск");
+    let day = super::super::cache::DayTouches {
+        day: "2026-01-01".to_string(),
+        touches: vec![probe_touch()],
+        approaches: None,
+        rets: Vec::new(),
+    };
+    assert!(day_risk_qtys(
+        &sizing,
+        &day,
+        &[10.0],
+        None,
+        (10_000_000, 1_000_000),
+        1,
+        5.0
+    )
+    .is_err());
+}
+
 /// R3 (ревью 23.09, замечание проверки): явный лот `--order-qty-e9`, не
 /// кратный шагу записи, — отказ, а не молчаливое округление ног лестницы
 /// (0.0015 при шаге 0.001 дал бы 2 шага — +33 % к размеру круга).

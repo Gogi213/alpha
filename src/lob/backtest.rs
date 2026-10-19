@@ -1147,6 +1147,9 @@ pub struct BounceSignal {
     pub sigma: i8,
     pub plan: TradePlan,
     pub profile: u16,
+    /// П-19 (TK-291): номер касания уровня (`touch_index`) подхода сигнала — только для столбца `rounds.csv`
+    /// (`--touch-col`); на исполнение не влияет.
+    pub touch_index: u32,
     /// Размер круга этого сигнала (R2, ревью 23.09): лот по цене **сигнала** —
     /// номинал `--order-usd` при цене касания, а не одной ценой на символ
     /// (цена последнего касания записи — заглядывание вперёд: сигнал 1-го
@@ -1221,6 +1224,9 @@ pub struct BounceRun {
     /// Снятия по «цена ушла из полосы лестницы» (F5, В-74) — колонка
     /// `n_entry_cancelled_price_left`.
     pub entry_cancelled_price_left: u64,
+    /// Г-81 (П-17): сигналы без входа, снятые воротами `entry_gate=cxl<W>q<Q>` (ни одна нога не исполнилась) — колонка
+    /// `n_entry_cancelled_cxl_gate` (только у набора с ключом). Снятия при частичном исполнении здесь не считаются.
+    pub entry_cancelled_cxl_gate: u64,
     /// F8b (В5/Р2): сколько раз за сутки круг пережил потолок ожидания
     /// подтверждения отмены (`CANCEL_WAIT_NS`) — отдельно по входу
     /// (`EntryCancelReason::CancelTimeout`) и по лимитке выхода. Ноль —
@@ -1233,6 +1239,9 @@ pub struct BounceRun {
     /// за потолок) — колонка `n_orphan_fills`. Ноль — норма; иначе позиция
     /// на бирже расходилась бы с учётом стратегии, и это должно быть видно.
     pub orphan_fills: u64,
+    /// Г-81: мера ворот `(t0_ns сигнала, отмены за W ÷ размер стены)` — только у набора `entry_gate=cxl<W>qprobe`, колонка
+    /// не пишется иначе; пусто, если у набора нет ключа.
+    pub gate_measures: Vec<(i64, f64)>,
     /// Спред книги в момент отправки входа, в единицах цены — по одному
     /// значению на отправленный вход. Перевод в тики делает вызывающий (тик
     /// знает он, а не движок).
@@ -2092,12 +2101,14 @@ where
             entry_state.exit_cancel_timeouts(),
             entry_state.orphan_fills(),
             entry_state.take_orphans(),
+            entry_state.gate_measure(),
         );
         std::iter::repeat_with(move || GroupRoundResult {
             outcome: outcome.clone(),
             position: tail.0,
             exit_cancel_timeouts: tail.1,
             orphan_fills: tail.2,
+            gate_measure: tail.4,
             idle_ns,
             carry_out: tail.3,
         })
@@ -2420,6 +2431,7 @@ where
             position: s.position(),
             exit_cancel_timeouts: s.exit_cancel_timeouts(),
             orphan_fills: s.orphan_fills(),
+            gate_measure: s.gate_measure(),
             carry_out: s.take_orphans(),
             idle_ns: t,
         })
@@ -2435,6 +2447,7 @@ struct GroupRoundResult {
     position: f64,
     exit_cancel_timeouts: u64,
     orphan_fills: u64,
+    gate_measure: Option<f64>,
     carry_out: OrphanCarry,
     /// Часы стороны в момент, когда **этот** вариант вернулся в `Idle` (`SignalStep::idle_ns` у
     /// сольного круга) — своя метка на клон, взятая **в момент форка/исполнения именно его**, а
@@ -2552,6 +2565,7 @@ where
                 idle_ns: r.idle_ns,
                 exit_cancel_timeouts: r.exit_cancel_timeouts,
                 orphan_fills: r.orphan_fills,
+                gate_measure: r.gate_measure,
             });
             continue;
         }
@@ -2591,6 +2605,7 @@ where
             idle_ns,
             exit_cancel_timeouts: r.exit_cancel_timeouts,
             orphan_fills: r.orphan_fills,
+            gate_measure: r.gate_measure,
         });
     }
     bot.clear_inactive_orders(Some(asset_no));
@@ -2624,6 +2639,8 @@ enum SignalStep {
         exit_cancel_timeouts: u64,
         /// F8c (К1): исполнения заявок-сирот (после потолка) за круг.
         orphan_fills: u64,
+        /// Г-81: мера ворот на `sent + W` круга (проба порогов `entry_gate=cxl<W>qprobe`); `None` — проверки не было.
+        gate_measure: Option<f64>,
     },
 }
 
@@ -2725,6 +2742,7 @@ where
             idle_ns: bot.current_timestamp(),
             exit_cancel_timeouts: state.exit_cancel_timeouts(),
             orphan_fills: state.orphan_fills(),
+            gate_measure: state.gate_measure(),
         });
     }
     // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
@@ -2760,6 +2778,7 @@ where
                 idle_ns: bot.current_timestamp(),
                 exit_cancel_timeouts: state.exit_cancel_timeouts(),
                 orphan_fills: state.orphan_fills(),
+                gate_measure: state.gate_measure(),
             });
         }
     }
@@ -2773,6 +2792,7 @@ where
         idle_ns: bot.current_timestamp(),
         exit_cancel_timeouts: state.exit_cancel_timeouts(),
         orphan_fills: state.orphan_fills(),
+        gate_measure: state.gate_measure(),
     })
 }
 
@@ -2911,9 +2931,11 @@ impl BounceRun {
             entry_cancelled_ttl: 0,
             entry_cancelled_wall_dead: 0,
             entry_cancelled_price_left: 0,
+            entry_cancelled_cxl_gate: 0,
             entry_cancelled_cancel_timeout: 0,
             exit_cancel_timeout: 0,
             orphan_fills: 0,
+            gate_measures: Vec::new(),
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
             retreat_window_entries: 0,
@@ -3161,11 +3183,13 @@ where
     let mut entry_cancelled_ttl: u64 = 0;
     let mut entry_cancelled_wall_dead: u64 = 0;
     let mut entry_cancelled_price_left: u64 = 0;
+    let mut entry_cancelled_cxl_gate: u64 = 0;
     // F8b (В5/Р2): вход, снятый потолком ожидания подтверждения отмены, идёт
     // той же строкой, что и прочие снятия, — причиной `CancelTimeout`.
     let mut entry_cancelled_cancel_timeout: u64 = 0;
     let mut exit_cancel_timeout: u64 = 0;
     let mut orphan_fills: u64 = 0;
+    let mut gate_measures: Vec<(i64, f64)> = Vec::new();
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
     let mut submitted_signal: Vec<usize> = Vec::new();
@@ -3314,7 +3338,11 @@ where
                 idle_ns: idle,
                 exit_cancel_timeouts,
                 orphan_fills: orphans,
+                gate_measure,
             } => {
+                if let Some(m) = gate_measure {
+                    gate_measures.push((sig.t0_ns, m));
+                }
                 idle_ns = idle;
                 exit_cancel_timeout = exit_cancel_timeout.saturating_add(exit_cancel_timeouts);
                 orphan_fills = orphan_fills.saturating_add(orphans);
@@ -3365,6 +3393,10 @@ where
                             EntryCancelReason::PriceLeft => {
                                 entry_cancelled_price_left =
                                     entry_cancelled_price_left.saturating_add(1);
+                            }
+                            EntryCancelReason::CxlGate => {
+                                entry_cancelled_cxl_gate =
+                                    entry_cancelled_cxl_gate.saturating_add(1);
                             }
                             EntryCancelReason::NotPlaced => {}
                             EntryCancelReason::CancelTimeout => {
@@ -3468,9 +3500,11 @@ where
         entry_cancelled_ttl,
         entry_cancelled_wall_dead,
         entry_cancelled_price_left,
+        entry_cancelled_cxl_gate,
         entry_cancelled_cancel_timeout,
         exit_cancel_timeout,
         orphan_fills,
+        gate_measures,
         spread_at_entry,
         submitted_signal,
         retreat_window_entries,

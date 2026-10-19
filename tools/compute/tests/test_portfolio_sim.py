@@ -362,3 +362,28 @@ def test_size_mult_scales_usd_linearly(tmp_path):
         assert ps.load_run(str(tmp_path), "run", "s", "f")[0]["usd"] == 1500.0
     finally:
         ps.SIZE_MULT = 1.0
+
+
+def test_lot_by_n_scales_by_touch_index_and_zero_drops(tmp_path):
+    """П-19 §6: `_portfolio.LOT_BY_N` умножает $ на k[min(touch_index, 3)]; k = 0 исключает сделку; нет столбца — отказ."""
+    ps = load()
+    d = tmp_path / "run" / "2026-08-01" / "s"
+    cols = ["symbol", "day_utc", "form", "signal_index", "t0_ns", "dir", "entry_px", "exit_px", "qty", "net_bps",
+            "reason", "exit_ns", "fill_frac", "entry_vwap", "legs_filled", "legs_rejected"]
+    row = lambda i, ti: ["AUSDT", "2026-08-01", "f", i, (i + 1) * 60_000_000_000, 1, 2.0, 2.02, 250, 90.0, "take",
+                         (i + 1) * 60_000_000_000 + 1, 1.0, 2.0, 3, 0, ti]
+    write_csv(d / "rounds.csv", cols + ["touch_index"], [row(0, 0), row(1, 1), row(2, 5), row(3, 2)])
+    try:
+        ps._portfolio.LOT_BY_N = (2.0, 0.5, 0.0, 4.0)
+        got = [t["usd"] for t in ps.load_run(str(tmp_path), "run", "s", "f")]
+    finally:
+        ps._portfolio.LOT_BY_N = None
+    assert got == [1000.0, 250.0, 2000.0]  # n=0 ×2, n=1 ×0.5, n=5→k3 ×4, n=2 (k=0) исключена
+    assert [t["usd"] for t in ps.load_run(str(tmp_path), "run", "s", "f")] == [500.0] * 4
+    write_csv(d / "rounds.csv", cols, [row(0, 0)[:-1]])
+    try:
+        ps._portfolio.LOT_BY_N = (1.0, 1.0, 1.0, 1.0)
+        with pytest.raises(SystemExit):
+            ps.load_run(str(tmp_path), "run", "s", "f")
+    finally:
+        ps._portfolio.LOT_BY_N = None

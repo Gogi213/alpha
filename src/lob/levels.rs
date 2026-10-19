@@ -743,6 +743,10 @@ pub struct ApproachRecord {
     /// окна и правила, что `stack_levels_at_arm`, по цене уровня; одна плотность (или ни одной) — 0.
     /// Кэш подходов до TK-206 читается нулём.
     pub stack_span_bps_at_arm: i64,
+    /// Прошлых рождений уровня на этой цене и стороне в окне `repeat_window_ms` (Г-136/137 П-17):
+    /// считается при рождении уровня (`TouchRecord::repeat_count`), к взводу известен — без заглядывания.
+    /// Кэш подходов до TK-279 читается нулём.
+    pub repeat_count_at_arm: u32,
     /// Лоты впереди уровня к взводу (T-28): то же правило, что
     /// `TouchRecord::frontrun_lots` (В-45, кадр не позже секунды до), от метки
     /// взвода. На взводе цена ещё в полосе от стены — это всё, что стоит между
@@ -760,6 +764,17 @@ pub struct ApproachRecord {
     pub disarm_ms: i64,
     /// Чем подход кончился.
     pub disarm_reason: ApproachEnd,
+}
+
+/// Двойник стены Г-03 (TK-274, П-15 §5) для одного взвода и одного seed: ключ — `(side, price_tick, arm_ms)` записи
+/// подхода; `twin` — `None`, если корзина пуста («не найдено»). Пишется только с `enable_twins`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TwinRec {
+    pub side: Side,
+    pub price_tick: i64,
+    pub arm_ms: i64,
+    pub seed: u64,
+    pub twin: Option<crate::lob::twin::Twin>,
 }
 
 /// Признаки П-08 §12 п. 4–8 (TK-012) на кадре взвода подхода — лоты целые,
@@ -1461,6 +1476,11 @@ pub struct LevelTracker {
     /// TK-115: журнал стен включён (`enable_wall_log`); события копятся в `wall_events`.
     wall_log: bool,
     wall_events: Vec<WallEvent>,
+    /// TK-274 (Г-03): seed двойников (пусто — режим выключен, лишней работы нет), имя инструмента для ключа
+    /// выбора и накопленные записи двойников.
+    twin_seeds: Vec<u64>,
+    twin_symbol: String,
+    twins: Vec<TwinRec>,
     /// Буфер касаний для `observe_frame` без выхода касаний: те же события
     /// считаются, записи отбрасываются, ёмкость переиспользуется.
     touch_scratch: Vec<TouchRecord>,
@@ -1528,7 +1548,7 @@ fn touch_record(
 /// Расстояние в bps по цене уровня: `gap × 10⁴ / tick` — тот же расчёт, что
 /// `dist_bps` ёмкости (`fill_capacity`); цена неположительна — ноль,
 /// арифметика тотальна.
-fn gap_bps(gap: i64, tick: i64) -> i64 {
+pub(crate) fn gap_bps(gap: i64, tick: i64) -> i64 {
     if tick <= 0 {
         return 0;
     }
@@ -1560,6 +1580,7 @@ fn approach_record(
         depth_behind_lots: a.depth_behind_lots,
         stack_levels_at_arm: a.stack_levels,
         stack_span_bps_at_arm: a.stack_span_bps,
+        repeat_count_at_arm: lv.repeat,
         frontrun_lots_at_arm: a.frontrun_lots,
         p08: Some(a.p08),
         r1: None,
@@ -1721,6 +1742,18 @@ impl LevelTracker {
         out.append(&mut self.wall_events);
     }
 
+    /// TK-274 (Г-03, П-15 §5): на каждом эмитируемом взводе строит двойника стены для каждого seed
+    /// (`lob::twin::pick_twin`). Без вызова записей двойников нет и лишней работы нет. Звать до первого события.
+    pub fn enable_twins(&mut self, symbol: &str, seeds: &[u64]) {
+        self.twin_symbol = symbol.to_owned();
+        self.twin_seeds = seeds.to_vec();
+    }
+
+    /// Забирает накопленные записи двойников (в порядке взводов), буфер трекера очищается.
+    pub fn take_twins(&mut self, out: &mut Vec<TwinRec>) {
+        out.append(&mut self.twins);
+    }
+
     /// Создаёт трекер. Порог должен быть положителен, окно — тоже, прогрев
     /// неотрицателен: нулевой порог рождал бы уровень из пустого места.
     pub fn new(cfg: LevelsConfig) -> Self {
@@ -1751,6 +1784,9 @@ impl LevelTracker {
             armed: Vec::with_capacity(8),
             wall_log: false,
             wall_events: Vec::new(),
+            twin_seeds: Vec::new(),
+            twin_symbol: String::new(),
+            twins: Vec::new(),
             touch_scratch: Vec::with_capacity(8),
             approach_scratch: Vec::with_capacity(8),
             best_tick: [None; 2],
@@ -1905,6 +1941,7 @@ impl LevelTracker {
                 &mut self.armed,
                 approaches,
                 &mut self.wall_events,
+                (&self.twin_seeds, &self.twin_symbol, &mut self.twins),
                 self.r1.as_deref_mut(),
             );
         } else {
@@ -1923,6 +1960,7 @@ impl LevelTracker {
                 &mut self.armed,
                 approaches,
                 &mut self.wall_events,
+                (&self.twin_seeds, &self.twin_symbol, &mut self.twins),
                 self.r1.as_deref_mut(),
             );
         }
@@ -2166,8 +2204,10 @@ fn scan_levels<const R1: bool>(
     armed: &mut Vec<(u8, i64)>,
     approaches: &mut Vec<ApproachRecord>,
     wall_events: &mut Vec<WallEvent>,
+    twin: (&[u64], &str, &mut Vec<TwinRec>),
     r1: Option<&mut R1State>,
 ) {
+    let (twin_seeds, twin_symbol, twins) = twin;
     // Константа вместо проверки на уровне: у выключенного R1 цикл без его ветвей и счётчиков.
     let mut r1 = if R1 { r1 } else { None };
     let FrameCtx {
@@ -2416,6 +2456,38 @@ fn scan_levels<const R1: bool>(
                             );
                             if armed_now {
                                 armed.push(key);
+                                if !twin_seeds.is_empty() && (lv.birth_ms >= warm_end || lv.carried)
+                                {
+                                    // Г-03: плотность на тике двойника — то же правило рождения, что у пула.
+                                    let dense = |p: i64| {
+                                        levels.iter().enumerate().any(|(j, o)| {
+                                            o.tick == p
+                                                && o.in_top50
+                                                && strength_ok.get(j).copied().unwrap_or(true)
+                                                && mode.passes_birth(p, o.size_lots)
+                                        })
+                                    };
+                                    for &seed in twin_seeds {
+                                        twins.push(TwinRec {
+                                            side: side_of(key),
+                                            price_tick: ob.tick,
+                                            arm_ms: ts_ms,
+                                            seed,
+                                            twin: crate::lob::twin::pick_twin(
+                                                side_of(key),
+                                                ob.tick,
+                                                best_own.unwrap_or(ob.tick),
+                                                best_opp_tick,
+                                                crate::lob::twin::twin_key(
+                                                    twin_symbol,
+                                                    ts_ms,
+                                                    seed,
+                                                ),
+                                                dense,
+                                            ),
+                                        });
+                                    }
+                                }
                                 if let Some(r1) = r1.as_deref_mut() {
                                     r1.push_arm(PendingArm {
                                         ts_ms,

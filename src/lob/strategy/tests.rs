@@ -77,6 +77,56 @@ pub(super) fn cxl_press_counts_unexplained_depth_drop() {
     assert!(close(state.cxl_press(120 * S), 0.0), "окно W=10 прошло");
 }
 
+/// Г-81 (П-17): ворота входа смотрят отмены за `W` с после постановки ровно один раз — на первом событии `≥ sent + W`.
+#[cfg(feature = "r2")]
+#[test]
+pub(super) fn cxl_gate_checks_once_at_sent_plus_w() {
+    use hftbacktest::depth::L2MarketDepth;
+    // Отмены: 20 лотов на 103 с и ещё 20 на 105 с (окно после постановки 100 с), стена плана — 30 лотов.
+    let run = |q: f64, check_ns: i64| {
+        let mut plan = f4_plan(96.0, 103.0, false, 60 * S, 1.0);
+        if let TradePlan::Bounce {
+            level_qty, pyramid, ..
+        } = &mut plan
+        {
+            *level_qty = 30.0;
+            pyramid.gate_cxl_q = q;
+            pyramid.gate_cxl_w = 10;
+        }
+        let mut d = FastMarketDepth::new(1.0, 1.0);
+        d.update_bid_depth(99.0, 50.0, 0);
+        d.update_ask_depth(101.0, 10.0, 0);
+        let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
+        state.enable_tape(10);
+        state.observe_cancels(&d, &[], 100 * S);
+        d.update_bid_depth(99.0, 30.0, 0);
+        state.observe_cancels(&d, &[], 103 * S);
+        d.update_bid_depth(99.0, 10.0, 0);
+        state.observe_cancels(&d, &[], 105 * S);
+        let early = state.cxl_gate_closed(109 * S, 100 * S);
+        (
+            early,
+            state.cxl_gate_closed(check_ns, 100 * S),
+            state.cxl_gate_closed(111 * S, 100 * S),
+        )
+    };
+    assert_eq!(
+        run(0.5, 110 * S),
+        (false, true, false),
+        "40 ≥ 15: закрыто на sent+W, один раз"
+    );
+    assert_eq!(
+        run(2.0, 110 * S),
+        (false, false, false),
+        "40 < 60: ворота открыты"
+    );
+    assert_eq!(
+        run(0.0, 110 * S),
+        (false, false, false),
+        "q = 0 — выключено"
+    );
+}
+
 pub(super) fn trade_ev(sell: bool) -> u64 {
     if sell {
         LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
