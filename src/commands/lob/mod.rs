@@ -443,6 +443,10 @@ fn print_import_archive(args: ImportArchiveArgs) -> anyhow::Result<()> {
         s.dropped_after_day,
         s.records
     );
+    if args.spot {
+        // Спот (TK-312): сделки мельче сетки стакана усекаются — число в отчёт импорта.
+        println!("import-archive: сделок вне сетки {}", s.trade_off_grid);
+    }
     Ok(())
 }
 
