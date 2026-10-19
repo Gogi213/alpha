@@ -40,8 +40,8 @@ use crate::bybit::rest::OrderbookSnapshot;
 pub struct LevelMismatch {
     pub side: Side,
     pub tick: i64,
-    pub snapshot_qty_e9: Option<i64>,
-    pub book_qty_e9: Option<i64>,
+    pub snapshot_qty_e9: Option<i128>,
+    pub book_qty_e9: Option<i128>,
 }
 
 /// Итог сверки. Сравнение объединением тиков (книга ∪ снапшот): один лишний
@@ -93,11 +93,12 @@ pub fn compare_with_snapshot(
     out
 }
 
-/// Лучшие 50 бидов книги как (тик, цена 1e-9, размер 1e-9), от лучшей цены.
-fn top_bids_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i64)> {
-    let mut v: Vec<(i64, i64, i64)> = book
+/// Лучшие 50 бидов книги как (тик, цена 1e-9, размер 1e-9), от лучшей цены. Размер — `i128`: лоты × шаг
+/// у BONK на споте больше `i64` (TK-316).
+fn top_bids_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i128)> {
+    let mut v: Vec<(i64, i64, i128)> = book
         .levels(Side::Bid)
-        .map(|(t, q)| (t, t * tick_e9, q * step_e9))
+        .map(|(t, q)| (t, t * tick_e9, i128::from(q) * i128::from(step_e9)))
         .collect();
     v.sort_by(|a, b| b.0.cmp(&a.0));
     v.truncate(50);
@@ -105,10 +106,10 @@ fn top_bids_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i64)> 
 }
 
 /// Лучшие 50 асков книги, от лучшей цены.
-fn top_asks_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i64)> {
-    let mut v: Vec<(i64, i64, i64)> = book
+fn top_asks_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i128)> {
+    let mut v: Vec<(i64, i64, i128)> = book
         .levels(Side::Ask)
-        .map(|(t, q)| (t, t * tick_e9, q * step_e9))
+        .map(|(t, q)| (t, t * tick_e9, i128::from(q) * i128::from(step_e9)))
         .collect();
     v.sort_by(|a, b| a.0.cmp(&b.0));
     v.truncate(50);
@@ -128,7 +129,7 @@ fn top_asks_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i64)> 
 /// `BTreeMap`/`BTreeSet`.
 fn compare_side(
     side: Side,
-    book: &[(i64, i64, i64)],
+    book: &[(i64, i64, i128)],
     snap: &[(i64, i64)],
     tick_e9: i64,
     mismatches: &mut Vec<LevelMismatch>,
@@ -177,8 +178,8 @@ pub fn compare_with_bracket(
 
 fn compare_side_bracket(
     side: Side,
-    before: &[(i64, i64, i64)],
-    after: Option<&[(i64, i64, i64)]>,
+    before: &[(i64, i64, i128)],
+    after: Option<&[(i64, i64, i128)]>,
     snap: &[(i64, i64)],
     tick_e9: i64,
     mismatches: &mut Vec<LevelMismatch>,
@@ -188,19 +189,19 @@ fn compare_side_bracket(
     };
     debug_assert!(tick_e9 > 0);
     use std::collections::{BTreeMap, BTreeSet};
-    let mut before_map: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut before_map: BTreeMap<i64, i128> = BTreeMap::new();
     for &(tick, _, qty_e9) in before {
         before_map.insert(tick, qty_e9);
     }
-    let mut after_map: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut after_map: BTreeMap<i64, i128> = BTreeMap::new();
     for &(tick, _, qty_e9) in after_slice {
         after_map.insert(tick, qty_e9);
     }
-    let mut snap_map: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut snap_map: BTreeMap<i64, i128> = BTreeMap::new();
     let mut off_tick: BTreeSet<i64> = BTreeSet::new();
     for &(s_px, s_qty) in snap {
         let tick = s_px.div_euclid(tick_e9);
-        snap_map.insert(tick, s_qty);
+        snap_map.insert(tick, i128::from(s_qty));
         if s_px.rem_euclid(tick_e9) != 0 {
             off_tick.insert(tick);
         }
@@ -737,6 +738,9 @@ pub struct FileReplayer {
     cur_ts_ns: i64,
     has_open: bool,
     next_u: u64,
+    /// Единица размера пар группы: `step_e9` файла — пары несут лоты, `лоты × шаг` в e9 считает читатель
+    /// в `i128` (BONK не помещается в `i64`, TK-316).
+    unit_e9: i64,
 }
 
 impl FileReplayer {
@@ -748,6 +752,7 @@ impl FileReplayer {
             cur_ts_ns: 0,
             has_open: false,
             next_u: 2,
+            unit_e9: 1,
         }
     }
 
@@ -770,7 +775,7 @@ impl FileReplayer {
             u,
             seq: u,
             cts_ms: self.cur_ts_ns / 1_000_000,
-            qty_unit_e9: 1,
+            qty_unit_e9: self.unit_e9,
             bids: std::mem::replace(&mut self.bids, Vec::with_capacity(nb)),
             asks: std::mem::replace(&mut self.asks, Vec::with_capacity(na)),
         });
@@ -829,11 +834,11 @@ impl FileReplayer {
             self.cur_ts_ns = r.exch_ts_ns;
             self.has_open = true;
         }
-        let qty_e9 = r.qty_lots * step_e9;
+        self.unit_e9 = step_e9;
         let px_e9 = r.price_ticks * tick_e9;
         match side {
-            Side::Bid => self.bids.push((px_e9, qty_e9)),
-            Side::Ask => self.asks.push((px_e9, qty_e9)),
+            Side::Bid => self.bids.push((px_e9, r.qty_lots)),
+            Side::Ask => self.asks.push((px_e9, r.qty_lots)),
         }
     }
 

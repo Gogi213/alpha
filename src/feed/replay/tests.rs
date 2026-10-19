@@ -58,7 +58,9 @@ fn replay_feed_yields_snapshot_then_trade_in_order() {
         } => {
             assert_eq!(symbol, 7);
             assert!(up.is_snapshot);
-            assert_eq!(up.bids, vec![(100_000_000_000, 5_000_000_000)]);
+            // TK-316: пары файла — лоты с единицей `step_e9` (1e9 в тесте)
+            assert_eq!(up.qty_unit_e9, 1_000_000_000);
+            assert_eq!(up.bids, vec![(100_000_000_000, 5)]);
         }
         other => panic!("ожидали Book-снапшот, получили {other:?}"),
     }
@@ -72,7 +74,7 @@ fn replay_feed_yields_snapshot_then_trade_in_order() {
         } => {
             assert_eq!(symbol, 7);
             assert_eq!(t.price_e9, 101_000_000_000);
-            assert_eq!(t.qty_e9, 3_000_000_000);
+            assert_eq!((t.qty, t.qty_unit_e9), (3, 1_000_000_000));
             assert!(t.aggressor_is_buy);
         }
         other => panic!("ожидали Trade, получили {other:?}"),

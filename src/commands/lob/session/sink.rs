@@ -470,7 +470,7 @@ pub(super) fn write_market_event(
                 exch_ts_ns: trade.exch_ms.saturating_mul(1_000_000),
                 local_ts_ns,
                 price_ticks: trade.price_e9 / tick_e9,
-                qty_lots: trade.qty_e9 / step_e9,
+                qty_lots: trade.qty / step_e9, // живой поток: `qty_unit_e9 = 1`
                 block: trade.block,
                 rpi: trade.rpi,
             });

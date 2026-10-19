@@ -151,6 +151,7 @@ pub(super) fn translate_feed_until(
                 up.is_snapshot,
                 up.cts_ms,
                 local_ts_ns,
+                up.qty_unit_e9,
                 &up.bids,
                 &up.asks,
             ),
@@ -169,6 +170,7 @@ fn emit_book(
     is_snapshot: bool,
     exch_ms: i64,
     local_ts_ns: i64,
+    unit_e9: i64,
     bids: &[(i64, i64)],
     asks: &[(i64, i64)],
 ) {
@@ -179,6 +181,7 @@ fn emit_book(
         is_snapshot,
         exch_ms,
         local_ts_ns,
+        unit_e9,
         true,
     );
     push_side(
@@ -188,6 +191,7 @@ fn emit_book(
         is_snapshot,
         exch_ms,
         local_ts_ns,
+        unit_e9,
         false,
     );
 }
@@ -198,12 +202,13 @@ fn emit_trade(sink: &mut impl FnMut(CompactEvent), t: &Trade, local_ts_ns: i64) 
     } else {
         EventKind::SellTrade
     };
-    sink(CompactEvent::new(
+    sink(CompactEvent::new_unit(
         kind,
         t.exch_ms,
         local_ts_ns,
         t.price_e9,
-        t.qty_e9,
+        t.qty,
+        t.qty_unit_e9,
     ));
 }
 
@@ -226,6 +231,7 @@ pub(crate) fn replay_compact_into_until<R: std::io::Read>(
             RawMarket::Book {
                 is_snapshot,
                 cts_ms,
+                qty_unit_e9,
                 bids,
                 asks,
             } => emit_book(
@@ -235,6 +241,7 @@ pub(crate) fn replay_compact_into_until<R: std::io::Read>(
                 is_snapshot,
                 cts_ms,
                 local_ts_ns,
+                qty_unit_e9,
                 bids,
                 asks,
             ),
@@ -274,6 +281,7 @@ fn push_side(
     is_snapshot: bool,
     exch_ms: i64,
     local_ts: i64,
+    unit_e9: i64,
     bid: bool,
 ) {
     let kind = if bid {
@@ -282,7 +290,9 @@ fn push_side(
         EventKind::AskDepth
     };
     let mut push = |px: i64, qty: i64| {
-        sink(CompactEvent::new(kind, exch_ms, local_ts, px, qty));
+        sink(CompactEvent::new_unit(
+            kind, exch_ms, local_ts, px, qty, unit_e9,
+        ));
     };
     if is_snapshot {
         let fresh: PriceSet = rows.iter().map(|&(px, _)| px).collect();

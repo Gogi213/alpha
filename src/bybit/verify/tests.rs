@@ -78,8 +78,11 @@ fn perturbed_level_is_exactly_one_mismatch() {
     assert!(!diff.is_clean());
     assert_eq!(diff.total(), 1);
     assert_eq!(diff.ask_mismatches[0].tick, 101);
-    assert_eq!(diff.ask_mismatches[0].snapshot_qty_e9, Some(qty(999)));
-    assert_eq!(diff.ask_mismatches[0].book_qty_e9, Some(qty(4)));
+    assert_eq!(
+        diff.ask_mismatches[0].snapshot_qty_e9,
+        Some(i128::from(qty(999)))
+    );
+    assert_eq!(diff.ask_mismatches[0].book_qty_e9, Some(i128::from(qty(4))));
 }
 
 #[test]
@@ -127,7 +130,7 @@ fn extra_level_deep_gives_exactly_one_mismatch_not_cascade() {
     assert_eq!(diff.bid_mismatches.len(), 1);
     assert_eq!(diff.bid_mismatches[0].tick, 99);
     assert_eq!(diff.bid_mismatches[0].snapshot_qty_e9, None);
-    assert_eq!(diff.bid_mismatches[0].book_qty_e9, Some(qty(7)));
+    assert_eq!(diff.bid_mismatches[0].book_qty_e9, Some(i128::from(qty(7))));
     assert!(diff.ask_mismatches.is_empty());
 }
 
@@ -450,8 +453,10 @@ fn file_replay_groups_snapshot_delta_and_trades() {
     assert_eq!(updates.len(), 2, "снапшот и дельта — разные обновления");
     assert!(updates[0].is_snapshot && updates[0].u == 1);
     assert!(!updates[1].is_snapshot && updates[1].u == 2);
-    assert_eq!(updates[0].bids, vec![(px(100), qty(5))]);
-    assert_eq!(updates[1].bids, vec![(px(100), qty(6))]);
+    // TK-316: пары файла — лоты, единица — шаг файла
+    assert_eq!(updates[0].qty_unit_e9, STEP_E9);
+    assert_eq!(updates[0].bids, vec![(px(100), 5)]);
+    assert_eq!(updates[1].bids, vec![(px(100), 6)]);
     assert_eq!(trades.len(), 2);
     assert!(!trades[0].block && trades[1].block);
 
@@ -558,10 +563,10 @@ fn message_split_across_frames_stays_atomic() {
     assert!(!tail[0].is_snapshot);
     assert_eq!(
         tail[0].bids,
-        vec![(px(100), qty(6))],
+        vec![(px(100), 6)],
         "бид-половина дождалась аск-половины"
     );
-    assert_eq!(tail[0].asks, vec![(px(103), qty(4))]);
+    assert_eq!(tail[0].asks, vec![(px(103), 4)]);
     for up in &tail {
         assert!(v.apply_update(up).unwrap().is_empty());
     }

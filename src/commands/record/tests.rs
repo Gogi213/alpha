@@ -466,7 +466,7 @@ fn staging_before_the_first_snapshot_is_a_loud_error() {
     let trade = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_020,
         price_e9: 150_000_000_000,
-        qty_e9: 1_000_000_000,
+        qty: 1_000_000_000,
         qty_unit_e9: 1,
         aggressor_is_buy: true,
         block: false,
@@ -540,7 +540,7 @@ fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
     let buy = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_100,
         price_e9: 150_000_000_000,
-        qty_e9: 2_000_000_000,
+        qty: 2_000_000_000,
         qty_unit_e9: 1,
         aggressor_is_buy: true,
         block: false,
@@ -549,7 +549,7 @@ fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
     let block_sell = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_101,
         price_e9: 149_990_000_000,
-        qty_e9: 5_000_000_000,
+        qty: 5_000_000_000,
         qty_unit_e9: 1,
         aggressor_is_buy: false,
         block: true,
@@ -606,7 +606,7 @@ fn steady_events_allocate_nothing() {
     let trade = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_020,
         price_e9: 150_000_000_000,
-        qty_e9: 1_000_000_000,
+        qty: 1_000_000_000,
         qty_unit_e9: 1,
         aggressor_is_buy: true,
         block: false,

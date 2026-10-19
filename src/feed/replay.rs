@@ -29,6 +29,8 @@ pub enum RawMarket<'a> {
     Book {
         is_snapshot: bool,
         cts_ms: i64,
+        /// Единица размера пар (`step_e9` файла): пары несут лоты.
+        qty_unit_e9: i64,
         bids: &'a [(i64, i64)],
         asks: &'a [(i64, i64)],
     },
@@ -105,7 +107,8 @@ impl<R: Read> ReplayFeed<R> {
                 payload: WsEvent::Trade(Trade {
                     exch_ms: rec.exch_ts_ns / 1_000_000,
                     price_e9: rec.price_ticks * self.tick_e9,
-                    qty_e9: rec.qty_lots * self.step_e9,
+                    qty: rec.qty_lots,
+                    qty_unit_e9: self.step_e9,
                     aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
                     block: rec.block,
                     rpi: rec.rpi,
@@ -141,6 +144,7 @@ impl<R: Read> ReplayFeed<R> {
                                         RawMarket::Book {
                                             is_snapshot,
                                             cts_ms,
+                                            qty_unit_e9: step_e9,
                                             bids,
                                             asks,
                                         },
@@ -159,7 +163,8 @@ impl<R: Read> ReplayFeed<R> {
                                 RawMarket::Trade(Trade {
                                     exch_ms: rec.exch_ts_ns / 1_000_000,
                                     price_e9: rec.price_ticks * tick_e9,
-                                    qty_e9: rec.qty_lots * step_e9,
+                                    qty: rec.qty_lots,
+                                    qty_unit_e9: step_e9,
                                     aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
                                     block: rec.block,
                                     rpi: rec.rpi,
@@ -183,6 +188,7 @@ impl<R: Read> ReplayFeed<R> {
                                 RawMarket::Book {
                                     is_snapshot,
                                     cts_ms,
+                                    qty_unit_e9: step_e9,
                                     bids,
                                     asks,
                                 },

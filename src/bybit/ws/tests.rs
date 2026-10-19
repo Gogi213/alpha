@@ -80,7 +80,7 @@ fn public_trade_carries_aggressor_side_and_block_flag() {
         Event::Trade(t) => {
             assert_eq!(t.exch_ms, 1700000000123);
             assert_eq!(t.price_e9, 150_000_000_000);
-            assert_eq!(t.qty_e9, 1_500_000_000);
+            assert_eq!(t.qty, 1_500_000_000);
             assert!(!t.aggressor_is_buy);
             assert!(!t.block);
         }
