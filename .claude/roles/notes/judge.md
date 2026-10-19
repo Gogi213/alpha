@@ -505,3 +505,4 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-312 PR #71 приёмка): gh checks — «Зависимости» fail только в run push (RUSTSEC rustls), pass в pull_request; --numbers: источник должен быть в дереве проекта (не ../worktree) и число без пробела-разделителя (1 062 → «1»); ~8 мин.
 - 19.10 (TK-312 повтор после done инженера): gh MERGED df5c78d + голова = принятой → accept повтором (--repo, те же --numbers/--live/--tail); ~1 мин.
 - 19.10 (TK-317 rustls без правки): git show origin/master:Cargo.lock + gh run view (headSha, jobs) → accept; --numbers: «0.23.46» парсер не берёт — только целые; ~4 мин.
+- 19.10 (TK-316 f64 в CompactEvent): grep потребителей CompactEvent (только память → expand hftbacktest, на диск нет) + diff compact.rs → утверждено по A1, return инженеру шаги 2,3,5,6+гейт; ~5 мин.
