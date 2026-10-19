@@ -16,7 +16,7 @@ if [ ! -e "$Z/moved.done" ]; then
   ls "$Z/root" | wc -l > "$Z/moved.done"
 fi
 cp "$NEW" "$S/day-cells.sh.new" && mv "$S/day-cells.sh.new" "$S/day-cells.sh"
-SCRIPTS=$S NX=12 bash "$BS" pass "$D" G12 > "$D.G12.out" 2>&1
+SCRIPTS=$S NX=${NX:-15} bash "$BS" pass "$D" G12 > "$D.G12.out" 2>&1
 n=$(awk '$1=="diff_vs_ref_lines"{print $2}' "$D/pass-G12/metrics.txt" 2>/dev/null)
 if [ "${n:-x}" != 0 ]; then cp -a "$PREV/day-cells.sh" "$S/day-cells.sh"; echo "ГЕЙТ КРАСНЫЙ (diff=${n:-нет}) — day-cells.sh откачен" > "$D.rollback"; fi
 touch "$D.done"

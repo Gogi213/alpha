@@ -4,7 +4,7 @@
   "alsched": "/data/sched/alsched.py",
   "queue": {
     "cls": "prod",
-    "cores": 12,
+    "cores": 15,
     "mem": 24,
     "max_runtime": 60000,
     "est": 45000

@@ -389,6 +389,41 @@ class Elastic(unittest.TestCase):
         self.assertEqual(S.elastic_env(15), "export ALSCHED_CORES=15 NX=15\n")
 
 
+class ProdCoresRaise(unittest.TestCase):
+    """TK-311 (В-34, Судья В-206): prod work > 15 мин на < 15 ядер поднимается до 15, NX/ALSCHED_CORES в задании = выданные."""
+    def sub(self, cls="prod", kind="work", cores=12, mrt=3600, cmd="env NX=12 bash run-launch.sh /r"):
+        old = S.DIR
+        S.DIR = tempfile.mkdtemp()
+        try:
+            return S.submit(cls, "t", cores, 8, "none", "/tmp", cmd, mrt, kind=kind)
+        finally:
+            S.DIR = old
+
+    def test_long_prod_work_raised_to_15(self):
+        j = self.sub(cores=12)
+        self.assertEqual((j["cores"], j["nx_env"]), (15, True))
+
+    def test_gate_build_short_and_wide_unchanged(self):
+        self.assertEqual(self.sub(kind="gate", cores=3)["cores"], 3)
+        self.assertEqual(self.sub(kind="build", cores=3)["cores"], 3)
+        self.assertEqual(self.sub(cores=12, mrt=900)["cores"], 12)      # 15 мин — не длиннее порога
+        self.assertEqual(self.sub(cores=15)["cores"], 15)
+        self.assertEqual(self.sub(cls="measure", cores=12)["cores"], S.NCPU)
+        self.assertNotIn("nx_env", self.sub(kind="gate", cores=3))
+
+    def test_overbook_zero_off(self):
+        S.OVERBOOK_MAX = 0
+        try:
+            self.assertEqual(self.sub(cores=12)["cores"], 12)
+        finally:
+            S.OVERBOOK_MAX = 15
+
+    def test_cmd_nx_rewritten_for_long_only(self):
+        self.assertIn("поднят до 15", S.prod_cores("prod", "work", 12, 3600)[1])
+        self.assertIsNone(S.prod_cores("prod", "work", 15, 3600)[1])
+        self.assertEqual(S.elastic_cmd(self.sub(cores=12)["cmd"], 15), "env NX=15 bash run-launch.sh /r")
+
+
 class Preemption(unittest.TestCase):
     def test_head_preempts_narrow_and_retry_not_r1(self):
         ts, frozen, thaw, state, frozen_for = SS.preempt_case()
