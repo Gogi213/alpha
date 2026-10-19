@@ -72,6 +72,10 @@ def epoch(mon, only=None):
         q = f"{e}/root/{os.path.basename(p)}"
         if not os.path.lexists(q):
             os.symlink(p, q)
+    sj = '{"start_hour_utc":0,"closed":true,"binlog_files":[]}\n'  # как у фьючерсных корней: lob bounce-grid читает session.json корня
+    for dd in (f"{e}/root",):
+        if not os.path.lexists(f"{dd}/session.json"):
+            open(f"{dd}/session.json", "w").write(sj)
     if not os.path.lexists(f"{e}/study/sigma240"):
         os.symlink(f"{D}/sigma240", f"{e}/study/sigma240")
     days = sorted({os.path.basename(p)[-17:-7] for p in files})
@@ -86,6 +90,8 @@ def epoch(mon, only=None):
         for p in ver + [inst_p]:
             if not os.path.lexists(f"{r}/{os.path.basename(p)}"):
                 os.symlink(p, f"{r}/{os.path.basename(p)}")
+        if not os.path.lexists(f"{r}/session.json"):
+            open(f"{r}/session.json", "w").write(sj)
     print(f"{e}: суток {len(days)}, бинлогов {len(files)}")
 
 
