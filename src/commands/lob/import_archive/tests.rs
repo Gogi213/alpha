@@ -169,7 +169,7 @@ fn qty_beyond_i64_in_e9_imports_exactly_in_lots() {
         "+3",
         ".5",
         "5.",
-        "12345678901.5",
+        "1234567890.5",
     ] {
         assert_eq!(parse_e9_wide(s), parse_e9(s).map(i128::from), "{s}");
     }
