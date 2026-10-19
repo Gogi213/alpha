@@ -114,3 +114,5 @@ verify, по сырому не сверялись.
 | 9 | гейт | `bounce-grid --cells` (один набор) старый/новый бинарь: 1 сутки фьючерса + 1 сутки спота без 4 монет — md5 равны; затем переимпорт 891 суток и verify 4 монет × 9 мес |
 
 Порядок: 1→3 (типы, поведение прежнее, `vps-check all`), 4→5 (компакт + гейт «байт в байт»), 6 (импорт), 8–9. PR — после слияния #71.
+
+**Аудит потребителей `Update` с файлового пути (19.10):** `FileReplayer::push_frame` → `book.apply` / `verifier.apply_update` в `verify.rs:1336+`, `lob/replay.rs:369`, `touches/minute_flow.rs:68`, `lob/validate.rs:603` (`on_updates`) — все через `Book::apply`, значит единица в `Update` (шаг 1) закрывает их без правок читателей; пары как e9 читает только `translate_feed_until` → `push_side` (`backtest/feed.rs:131`) и `drive_raw` (шаг 5). `compare_with_snapshot` (`verify.rs:97–230`) — i128 (шаг 2).
