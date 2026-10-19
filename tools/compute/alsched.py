@@ -220,7 +220,10 @@ class Core:
             g_resv = gate_resv if gate_active else 0   # TK-283/TK-297 (В-34): без gate/build в работе и очереди резерв не держит никто — боевой счёт занимает 15
             resv = set(free[max(0, len(free) - g_resv):]) if g_resv else set()   # резерв — старшие свободные ядра; work их не пинит и не учитывает сверх заявки
             room = len(free) - legacy - (0 if head_pre else held_units) - (0 if is_gate else len(resv))
-            held_n = 0 if head_pre else len(held) + held_units
+            # TK-312 (CEO 19.10): ядра идущей головной уже в declared, вытесненные вернутся на них, а не сверх — без вычета 15+15=30 > 16 держало build на 16-м ядре 65 мин
+            head_decl = sum(h["cores"] for hid in self.preempt for h in [self.jobs.get(hid)]
+                            if h and h["state"] == "running" and self.decl_live(h) and (is_gate or not (GATE_FIT and h.get("kind") in ("gate", "build"))))
+            held_n = 0 if head_pre else max(0, len(held) + held_units - head_decl)
             decl_cap = OVERBOOK_MAX - (0 if is_gate else g_resv)
             declared_j = declared
             if GATE_FIT:                              # TK-300 (В-40): work — до OVERBOOK_MAX (15), gate/build — отдельно до RESERVE_CORES (16-е ядро); друг друга не вытесняют
@@ -246,7 +249,7 @@ class Core:
                 cap = ncp if is_gate else FACT_BUSY * max(0, ncp - g_resv)   # TK-220: work по факту резерв не трогает, gate/build — до всех ядер
                 over = (not shrink and not (GATE_FIT and is_gate) and room < j["cores"] and (now - self.fact_t >= FACT_SETTLE_S or self.need_cores(j) < j["cores"] or j["cores"] == 1) and mem_ok
                         and busy * ncp + self.ramp(now) + self.need_cores(j) <= cap
-                        and (not OVERBOOK_MAX or declared_j + (0 if head_pre else len(held) + held_units) + j["cores"] <= decl_cap))   # TK-283: по факту — не выше суммы заявок OVERBOOK_MAX, work без резерва гейтов (рестарт демона обнулял busy и пускал 43/16)
+                        and (not OVERBOOK_MAX or declared_j + held_n + j["cores"] <= decl_cap))   # TK-283: по факту — не выше суммы заявок OVERBOOK_MAX, work без резерва гейтов (рестарт демона обнулял busy и пускал 43/16)
                 fits = (room >= ncor or over) and mem_ok and not disk_full
             else:
                 fits = room >= ncor and mem + j["mem"] <= self.mem and not disk_full
