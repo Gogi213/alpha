@@ -1226,17 +1226,26 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
     return j
 
 
-def ps():
+def unit_frozen(j):
+    """TK-300 (CEO 19.10): frozen_for демона живёт в памяти, в json заявки его нет — реальная заморозка читается у юнита (cgroup freezer)."""
+    try:
+        return sh("systemctl", "show", "-p", "FreezerState", "--value", SystemdBackend.unit(None, j)).stdout.strip() == "frozen"
+    except OSError:
+        return False
+
+
+def ps(frozen=unit_frozen):
     now = time.time()
     rows = load_all()
     run = [j for j in rows if j["state"] == "running"]
-    busy = sum(len(j["cpus"]) for j in run)
-    print(f"ядра: занято {busy}/{NCPU} по заявкам; в очереди {sum(j['state'] == 'queued' for j in rows)}")
+    cold = {j["id"] for j in run if j["cls"] == "prod" and frozen(j)}   # заморожённые вытеснением/потолком ядер не занимают: «занято» — только идущие
+    busy = sum(len(j["cpus"]) for j in run if j["id"] not in cold)
+    print(f"ядра: занято {busy}/{NCPU} по заявкам; заморожено {len(cold)} ({sum(len(j['cpus']) for j in run if j['id'] in cold)} ядер); в очереди {sum(j['state'] == 'queued' for j in rows)}")
     for j in rows:
         if j["state"] == "done" and now - j.get("t_end", now) > 3600:
             continue
         age = now - (j.get("t_start") if j["state"] == "running" else j["t_submit"])
-        print(f"{j['id']} {j['state']:7} {j['cls']:7} ядер={len(j['cpus']) or j['cores']:2} {j['name']:20} {age / 60:6.1f} мин "
+        print(f"{j['id']} {'frozen' if j['id'] in cold else j['state']:7} {j['cls']:7} ядер={len(j['cpus']) or j['cores']:2} {j['name']:20} {age / 60:6.1f} мин "
               f"rc={j.get('rc', '')} {j['cmd'][:60]}")
 
 
