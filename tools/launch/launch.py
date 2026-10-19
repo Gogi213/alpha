@@ -510,6 +510,8 @@ def sieve_rules():
 def sieve_note(sv, rules):
     """Итог сита хеша (сторона А): (не определена, причина текстом) — по строке с годной клеткой, иначе по последней."""
     x = next((x for x in sv if x.get("eligible")), sv[-1])
+    if x.get("note"):   # причина записана в строке сита (Г-98 §47, контроль k=0): сделок и суток хватает, а клетка не кандидат
+        return True, x["note"]
     r = rules.get(x.get("rule_version"), {})
     nt, nd, p = x.get("trades") or 0, x.get("days") or 0, x.get("p")
     undef = bool(r) and (nt < r.get("min_trades", 0) or nd < r.get("min_days", 0))
@@ -559,7 +561,7 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         bps = [got[m][3] if m in got else None for m in months]
         full = all(sq)
         sv = sieve.get(r["hash"], [])
-        sieved = any((x.get("trades") or 0) > 0 or (x.get("days") or 0) > 0 for x in sv)   # в sieve без сделок и суток = не просеяно
+        sieved = any((x.get("trades") or 0) > 0 or (x.get("days") or 0) > 0 or x.get("note") for x in sv)   # в sieve без сделок и суток = не просеяно, кроме строки с причиной (note)
         verdict = next((k for k in ("eligible", "plateau", "edge") if any(x.get(k) for x in sv)), "")
         undef, svwhy = sieve_note(sv, srules) if sieved else (False, "")
         if month and not sq[months.index(month)]:
