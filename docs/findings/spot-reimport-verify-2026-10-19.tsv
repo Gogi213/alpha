@@ -1,0 +1,32 @@
+месяц	монета	суток	verify_rc	status	причина
+2026-01	BONKUSDT	31	0	ok	
+2026-01	MOGUSDT	15	0	fail	verify: part=MOGUSDT-2026-01-23.binlog day=2026-01-23 part_no=1 files=1 updates=4 gaps=0 invariants=1 trades=0 out_of_range=0 violations=0 (block=0 rpi=0 in_spread=0 adj1=0 far=0 no_side=0 stale20=0 stale100=0) indeterminate=0 verify: files=15 updates=233 gaps=0 invariants=15 trades=0 out_of_range=0
+2026-01	PEPEUSDT	31	0	ok	
+2026-01	SHIBUSDT	31	0	ok	
+2026-02	BONKUSDT	23	0	ok	
+2026-02	PEPEUSDT	28	0	ok	
+2026-02	SHIBUSDT	28	0	ok	
+2026-03	BONKUSDT	28	0	ok	
+2026-03	PEPEUSDT	31	0	ok	
+2026-03	SHIBUSDT	31	0	ok	
+2026-04	BONKUSDT	30	0	ok	
+2026-04	PEPEUSDT	30	0	ok	
+2026-04	SHIBUSDT	30	0	ok	
+2026-05	BONKUSDT	31	0	ok	
+2026-05	PEPEUSDT	31	0	ok	
+2026-05	SHIBUSDT	31	0	ok	
+2026-06	BONKUSDT	30	0	ok	
+2026-06	PEPEUSDT	30	0	ok	
+2026-06	SHIBUSDT	30	0	ok	
+2026-07	BONKUSDT	31	0	ok	
+2026-07	PEPEUSDT	31	0	ok	
+2026-07	SHIBUSDT	31	0	ok	
+2026-08	BONKUSDT	31	0	ok	
+2026-08	PEPEUSDT	31	0	ok	
+2026-08	SHIBUSDT	31	0	ok	
+2026-09	BONKUSDT	30	0	ok	
+2026-09	PEPEUSDT	30	0	ok	
+2026-09	SHIBUSDT	30	0	ok	
+2026-10	BONKUSDT	1	0	ok	
+2026-10	PEPEUSDT	1	0	ok	
+2026-10	SHIBUSDT	1	0	ok	
