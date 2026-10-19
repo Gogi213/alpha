@@ -497,3 +497,5 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-300 3-й повтор): gh MERGED + голова = принятой → accept повтором; петля accept→waiting merged→engineer done→in_review — в --tail ceo; ~1 мин.
 - 19.10 (TK-312 сторож сборки): alsched ps — build queued (cores_req=4, своб. 1) за tk312-spot-import (verify 08/10, срез 4ч ~08:00) → wait тот же rc --by 09:30; ssh ls по sda висит — только ps; ~6 мин.
 - 19.10 (TK-289 f6v таймаут 2-й): jobs/<id>.json active_s vs стена + alerts.log «вытеснение» → E-003 повтор; ls out/*/done 169/251 → return перезапуск дельтой; ~6 мин.
+- 19.10 (TK-272 tail2 rc6): alsched ps + grep glob f2d-tail.sh на calc → исправлено инженером, tail3 queued → wait тот же; ~3 мин.
+- 19.10 (TK-312 PR #71 развилка 4 монет): ssh calc awk import.tsv/import-verify.tsv (rc, status) сверил; (а) + убрать --qty-shift (файлы без читателя), 22 fail — проверка по сырому ob; CI deps = внешний RUSTSEC → return; ~8 мин.
