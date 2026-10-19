@@ -7,15 +7,21 @@
 import csv, glob, math, os, sys
 from collections import defaultdict
 
-QS = (5, 10, 20, 33, 50, 67, 80, 90, 95)
-out_dir, thr_path, cov_path = sys.argv[1:4]
+QS = tuple(int(x) for x in os.environ["P17_QS"].split(",")) if os.environ.get("P17_QS") else (5, 10, 20, 33, 50, 67, 80, 90, 95)   # TK-315 F2: свой список q через env
+out_dirs, thr_path, cov_path = sys.argv[1:4]   # out_dirs — каталоги проходов через запятую (F2: проба F1 + проба новых W)
+
+
+def files(name):
+    return [p for d in out_dirs.split(",") for p in glob.glob(f"{d}/run-*/out/*/cxlprobe*/{name}") + glob.glob(f"{d}/run-*/w-*/b5/out-*-tape/cxlprobe*/{name}")]
+
+
 meas = defaultdict(list)        # (месяц, W) -> [мера]
 sig = defaultdict(int)          # (месяц, W) -> n_signals
-for p in glob.glob(f"{out_dir}/run-*/out/*/cxlprobe*/gate-probe.csv") + glob.glob(f"{out_dir}/run-*/w-*/b5/out-*-tape/cxlprobe*/gate-probe.csv"):
+for p in files("gate-probe.csv"):
     with open(p, encoding="utf-8", newline="") as fh:
         for r in csv.DictReader(fh):
             meas[(r["day_utc"][:7], int(r["w"]))].append(float(r["measure"]))
-for p in glob.glob(f"{out_dir}/run-*/out/*/cxlprobe*/forms.csv") + glob.glob(f"{out_dir}/run-*/w-*/b5/out-*-tape/cxlprobe*/forms.csv"):
+for p in files("forms.csv"):
     w = int(os.path.basename(os.path.dirname(p))[len("cxlprobe"):])
     with open(p, encoding="utf-8", newline="") as fh:
         for r in csv.DictReader(l for l in fh if not l.startswith("#")):   # forms.csv начинается строкой «# lob bounce-grid: …»

@@ -10,11 +10,11 @@ btc_ret_4h_bps файла режима `<t46>/<мес>/home/alpha/epochs/e-<ме
 
 Запуск: p17-btc4h-thresholds.py <b1keys.csv> <корень tk046 /data/tk046> <выход.csv> [<выход.json> [<pool /data/tk064/pool>]]
 Выход CSV: hyp,month,axis,q,threshold,n — Г-101 (axis=btc4h), Г-135 (axis=swept_pct_of_size_bp, если задан pool); Г-81 — проход меры в Rust."""
-import csv, datetime, json, math, sys
+import csv, datetime, json, math, os, sys
 from collections import defaultdict
 
 MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct"]
-QS = (5, 10, 20, 33, 50, 67, 80, 90, 95)
+QS = tuple(int(x) for x in os.environ["P17_QS"].split(",")) if os.environ.get("P17_QS") else (5, 10, 20, 33, 50, 67, 80, 90, 95)   # TK-315 F2: свой список q (целые) через env; умолчание — F1
 
 
 def rank(a, p):
