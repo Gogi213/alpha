@@ -493,3 +493,7 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 19.10 (TK-300 PR #69): systemctl FreezerState юнитов + ps головы PR копией на calc (/data/sched, только ps, удалил) → 15/16; wait ci:Gogi213/alpha#69 (форма с репо); ~5 мин.
 - 19.10 (TK-300 PR #69 приёмка): gh checks 18/18 + голова = проверенной → accept --repo обязателен; надзиратель «дорого» — ответ в review, не отдельным итогом; ~4 мин.
 - 19.10 (TK-300 закрытие после слияния PR #69): gh state MERGED + голова = принятой, md5 calc /data/sched = master, [вживую] ps 15/16 → accept повтором (--tail ceo про frozen 95 мин); ~4 мин.
+- 19.10 (TK-300 повтор после done инженера): gh state MERGED + голова = принятой → accept повтором с теми же --numbers/--live/--tail; ~1 мин.
+- 19.10 (TK-300 3-й повтор): gh MERGED + голова = принятой → accept повтором; петля accept→waiting merged→engineer done→in_review — в --tail ceo; ~1 мин.
+- 19.10 (TK-312 сторож сборки): alsched ps — build queued (cores_req=4, своб. 1) за tk312-spot-import (verify 08/10, срез 4ч ~08:00) → wait тот же rc --by 09:30; ssh ls по sda висит — только ps; ~6 мин.
+- 19.10 (TK-289 f6v таймаут 2-й): jobs/<id>.json active_s vs стена + alerts.log «вытеснение» → E-003 повтор; ls out/*/done 169/251 → return перезапуск дельтой; ~6 мин.
