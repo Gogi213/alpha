@@ -378,6 +378,7 @@ mod tests {
             u: 1,
             seq: 1,
             cts_ms: 0,
+            qty_unit_e9: 1,
             bids: vec![(100, 5), (99, 3), (98, 1)],
             asks: vec![(101, 2), (102, 4)],
         })

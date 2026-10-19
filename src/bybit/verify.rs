@@ -770,6 +770,7 @@ impl FileReplayer {
             u,
             seq: u,
             cts_ms: self.cur_ts_ns / 1_000_000,
+            qty_unit_e9: 1,
             bids: std::mem::replace(&mut self.bids, Vec::with_capacity(nb)),
             asks: std::mem::replace(&mut self.asks, Vec::with_capacity(na)),
         });

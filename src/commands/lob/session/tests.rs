@@ -229,6 +229,7 @@ fn write_market_event_batches_many_messages_into_few_frames_and_round_trips() {
             u: i as u64 + 1,
             seq: i as u64 + 1,
             cts_ms: i,
+            qty_unit_e9: 1,
             bids: vec![(TEST_TICK_E9 * (100 + i), TEST_STEP_E9)],
             asks: vec![],
         };
@@ -1093,6 +1094,7 @@ fn book_event(symbol: u16, local_ts_ns: i64, cts_ms: i64, is_snapshot: bool, u: 
             u,
             seq: u,
             cts_ms,
+            qty_unit_e9: 1,
             bids: vec![(100 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
             asks: vec![(110 * TEST_TICK_E9, 7 * TEST_STEP_E9)],
         }),
@@ -1146,6 +1148,7 @@ fn deep_snapshot_payload(cts_ms: i64, u: u64) -> crate::bybit::ws::Event {
         u,
         seq: u,
         cts_ms,
+        qty_unit_e9: 1,
         bids,
         asks,
     })
@@ -1160,6 +1163,7 @@ fn deep_single_level_delta_payload(cts_ms: i64, u: u64) -> crate::bybit::ws::Eve
         u,
         seq: u,
         cts_ms,
+        qty_unit_e9: 1,
         bids: vec![(101 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
         asks: vec![],
     })
@@ -2594,6 +2598,7 @@ fn events_of_an_added_symbol_allocate_nothing_after_warmup() {
             u,
             seq: u,
             cts_ms: NOON_NS / 1_000_000,
+            qty_unit_e9: 1,
             bids: vec![(100 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
             asks: vec![],
         })
@@ -2605,6 +2610,7 @@ fn events_of_an_added_symbol_allocate_nothing_after_warmup() {
         u: 1,
         seq: 1,
         cts_ms: NOON_NS / 1_000_000,
+        qty_unit_e9: 1,
         bids: vec![(100 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
         asks: vec![(110 * TEST_TICK_E9, 7 * TEST_STEP_E9)],
     });
@@ -3121,6 +3127,7 @@ fn a_removal_without_additions_writes_the_frame_and_the_summary_right_away() {
         u: 1,
         seq: 1,
         cts_ms,
+        qty_unit_e9: 1,
         bids: vec![(100 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
         asks: vec![(110 * TEST_TICK_E9, 7 * TEST_STEP_E9)],
     });
@@ -3130,6 +3137,7 @@ fn a_removal_without_additions_writes_the_frame_and_the_summary_right_away() {
         u: 2,
         seq: 2,
         cts_ms: cts_ms + 1,
+        qty_unit_e9: 1,
         bids: vec![(101 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
         asks: vec![],
     });

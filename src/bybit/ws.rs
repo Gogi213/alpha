@@ -418,6 +418,7 @@ fn orderbook_update(msg: RawOrderbookMsg, depth: u32) -> Result<Update, ParseErr
         u,
         seq,
         cts_ms,
+        qty_unit_e9: 1,
         bids: data.b.pairs,
         asks: data.a.pairs,
     })

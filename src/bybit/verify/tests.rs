@@ -18,6 +18,7 @@ fn snapshot_update(u: u64) -> Update {
         u,
         seq: u,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(101), qty(4)), (px(102), qty(6))],
     }
@@ -52,6 +53,7 @@ fn snapshot_update_with_seq(u: u64, seq: u64) -> Update {
         u,
         seq,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(101), qty(4)), (px(102), qty(6))],
     }
@@ -102,6 +104,7 @@ fn extra_level_deep_gives_exactly_one_mismatch_not_cascade() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![
             (px(100), qty(5)),
             (px(99), qty(7)),
@@ -210,6 +213,7 @@ fn delta_before_snapshot_is_sequence_gap() {
         u: 7,
         seq: 7,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(1))],
         asks: vec![],
     };
@@ -227,6 +231,7 @@ fn crossed_snapshot_fails_at_apply_and_counts() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(105), qty(1))],
         asks: vec![(px(101), qty(1))],
     };
@@ -280,6 +285,7 @@ fn trade_inside_range_on_never_held_price_is_violation() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
@@ -306,6 +312,7 @@ fn violation_breakdown_separates_block_rpi_and_inside_spread() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(98), qty(7))],
         asks: vec![(px(103), qty(4)), (px(105), qty(6))],
     };
@@ -362,6 +369,7 @@ fn trade_on_emptied_tick_is_clean_under_17b() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
@@ -372,6 +380,7 @@ fn trade_on_emptied_tick_is_clean_under_17b() {
         u: 2,
         seq: 2,
         cts_ms: 2_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(0))],
         asks: vec![],
     };
@@ -393,6 +402,7 @@ fn trade_inside_range_on_held_price_is_clean() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
@@ -647,6 +657,7 @@ fn steady_updates_allocate_nothing() {
         u: 2,
         seq: 2,
         cts_ms: 2_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(8))],
         asks: vec![],
     };
@@ -659,6 +670,7 @@ fn steady_updates_allocate_nothing() {
                 u: k,
                 seq: k,
                 cts_ms: 2_000 + k as i64,
+                qty_unit_e9: 1,
                 bids: vec![(px(100), qty(8))],
                 asks: vec![],
             };
@@ -779,6 +791,7 @@ fn incremental_verifier_matches_full_pass_reference() {
             u: up_u,
             seq: step,
             cts_ms: step as i64,
+            qty_unit_e9: 1,
             bids,
             asks,
         };
@@ -840,6 +853,7 @@ fn live_snapshot_compare_via_rest() {
         u: snap.u,
         seq: snap.seq,
         cts_ms: snap.ts_ms,
+        qty_unit_e9: 1,
         bids: snap.bids.clone(),
         asks: snap.asks.clone(),
     };
@@ -858,6 +872,7 @@ fn gap_snapshot() -> Update {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(98), qty(7))],
         asks: vec![(px(101), qty(4)), (px(103), qty(6))],
     }
