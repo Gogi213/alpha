@@ -72,6 +72,7 @@ impl CompactEvent {
     }
 
     /// То же, но размер — `qty` единиц по `unit_e9` (1e-9 актива): лоты и шаг файла бинлога.
+    #[allow(clippy::cast_precision_loss)] // одно округление в f64 на границе — как прежний `qty_e9 as f64`
     pub fn new_unit(
         kind: EventKind,
         exch_ms: i64,
@@ -110,6 +111,7 @@ impl CompactEvent {
     }
 
     /// Размер в лотах шага `step_e9`; `None` — не кратен шагу (потеря точности не молчит).
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // проверка кругом: лоты × шаг → f64 побитно равен
     pub(crate) fn qty_lots(&self, step_e9: i64) -> Option<i64> {
         let lots = (self.qty() * 1e9 / step_e9 as f64).round();
         let lots = i64::try_from(lots as i128).ok()?;
