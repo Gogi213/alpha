@@ -37,6 +37,8 @@ say "spot-sol new rc=$rc1 cmp_bad=$bad rounds=$(wc -l < "$S/new-sol/rounds.csv")
 root_of "$EX" BONKUSDT 2026-01-01 "$S/rt-bonk"; rm -rf "$S/new-bonk"
 grid "$NEW" "$S/rt-bonk" BONKUSDT 2026-01-01 1000000000000000 1000 "$S/new-bonk"; rc2=$?
 say "spot-bonk new rc=$rc2 forms=$(wc -l < "$S/new-bonk/forms.csv" 2>/dev/null || echo 0) rounds=$(wc -l < "$S/new-bonk/rounds.csv" 2>/dev/null || echo 0)"
+# BONK зелёный только при кругах > 0: fail-closed пропуск («символов 0», rounds = шапка+manifest) даёт rc=0
+br=$(wc -l < "$S/new-bonk/rounds.csv" 2>/dev/null || echo 0); { [ "$br" -gt 2 ] && ! grep -aq 'символов 0' "$S/new-bonk.log"; } || { say "spot-bonk КРАСНЫЙ: кругов нет"; rc2=1; }
 # 4) фьючерс: gate-families base (опорный b14flag)
 GATE_TAG=316 bash /data/tk164/gate-families.sh "$NEW" base > "$W/gate-fam.log" 2>&1; rc3=$?
 say "futures gate-families base rc=$rc3: $(cat /data/tk164/gate-316/summary.txt 2>/dev/null | tr '\n' ' ')"
