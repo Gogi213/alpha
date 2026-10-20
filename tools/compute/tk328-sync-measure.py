@@ -73,7 +73,11 @@ def main():
         for r in ok:
             mm, _, sym, d = r["t"]
             w.writerow([mm, sym, d] + [r["kv"].get(k, "") for k in keys])
-    summary = {"tasks": len(tasks), "ok": len(ok), "errors": len(errs), "err_sample": errs[:5], "by_month": {}}
+    # сутки с error,… (base_sec_mismatch) — без метрик; в свод не входят
+    bad = [r for r in ok if any(k.startswith("error,") for k in r["kv"])]
+    ok = [r for r in ok if r not in bad]
+    summary = {"tasks": len(tasks), "ok": len(ok), "errors": len(errs), "err_sample": errs[:5],
+               "dropped_days": [[r["t"][0], r["t"][2], r["t"][3]] for r in bad], "by_month": {}}
     for mm, _ in MONTHS:
         rows = [r for r in ok if r["t"][0] == mm]
         if not rows:
