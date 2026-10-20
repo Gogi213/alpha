@@ -271,7 +271,7 @@ pub(crate) const KLINE_AXES: usize = 2;
 /// Осей по цене уровня (`RoundDist`) — в реестре после осей по свечам.
 pub(crate) const LEVEL_AXES: usize = 1;
 /// Осей по секундному ряду BTC (`BtcSeconds`, Г-72) — последние в реестре.
-pub(crate) const SEC_AXES: usize = 8;
+pub(crate) const SEC_AXES: usize = 11;
 pub(crate) const REGIME_AXES: usize =
     CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES - SEC_AXES;
 
