@@ -27,8 +27,8 @@ MINUTE_MS = 60_000
 WINDOW = 1000  # минут в одном запросе (лимит биржи)
 
 
-def fetch(symbol, start_ms, end_ms, attempts=3):
-    q = urllib.parse.urlencode({"category": "linear", "symbol": symbol, "interval": "1",
+def fetch(symbol, start_ms, end_ms, attempts=3, category="linear"):
+    q = urllib.parse.urlencode({"category": category, "symbol": symbol, "interval": "1",
                                 "start": start_ms, "end": end_ms, "limit": WINDOW})
     last = None
     for _ in range(attempts):
@@ -62,6 +62,7 @@ def main():
     p.add_argument("--symbols", default="BTCUSDT,ETHUSDT")
     p.add_argument("--since", default="2026-09-16", help="первый день (UTC), если файла ещё нет")
     p.add_argument("--until", help="последний день (UTC), по умолчанию — сейчас")
+    p.add_argument("--category", default="linear", help="linear (умолчание, фьючерс) | spot (TK-319, П-21)")
     a = p.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
     now_ms = int(time.time() * 1000) // MINUTE_MS * MINUTE_MS
@@ -91,7 +92,7 @@ def main():
             prev = last
             while cur <= end_ms:
                 chunk_end = min(cur + (WINDOW - 1) * MINUTE_MS, end_ms)
-                rows = fetch(symbol, cur, chunk_end)
+                rows = fetch(symbol, cur, chunk_end, category=a.category)
                 for r in rows:
                     if r[0] < cur or r[0] > chunk_end:
                         continue

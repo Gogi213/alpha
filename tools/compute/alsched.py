@@ -12,7 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, MIN_FREE_GB, FREE_PATHS)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -61,6 +61,7 @@ class Core:
         self.fact_t = -1e9
         self.fam_cores, self.fam_mem = {}, {}             # допуск по факту: ядра (EWMA) и пик памяти заданий семьи (имя без последнего «-…»)
         self.hot_t = None
+        self.disk_alert_t = None                          # TK-304: время последней тревоги «диск полон»; None — эпизода нет
         self.jobs = {}
         self.iso = set()                                  # ядра изолированного замера: производству недоступны
         self.frozen = False
@@ -207,10 +208,11 @@ class Core:
         if wide_gates and all(r["cores"] > gate_resv for r in wide_gates):   # TK-297 (В-34): в очереди только гейты/сборки шире резерва — в него не встанут (ждут общей очереди, TK-220), держать ядра пустыми незачем
             gate_resv = 0
         gate_active = any(r.get("kind") in ("gate", "build") and r["state"] in ("queued", "running") for r in self.jobs.values())   # TK-283: нет gate/build ни в работе, ни в очереди — резерв свободен
-        declared = sum(r["cores"] for r in self.running("prod") if not r.get("frozen_for") and not (GATE_FIT and r.get("kind") in ("gate", "build")))   # TK-300: gate/build сверх потолка 15 — в сумму work не входят   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
-        gdecl = sum(r["cores"] for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))   # TK-300: заявленные ядра идущих gate/build — потолок RESERVE_CORES
+        declared = sum(r["cores"] for r in self.running("prod") if self.decl_live(r) and not (GATE_FIT and r.get("kind") in ("gate", "build")))   # TK-300: gate/build сверх потолка 15 — в сумму work не входят   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
+        gdecl = sum(r["cores"] for r in self.running("prod") if r.get("kind") in ("gate", "build") and self.decl_live(r))   # TK-300: заявленные ядра идущих gate/build — потолок RESERVE_CORES
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
-        for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
+        low = self.disk_low(now)                          # TK-304: диск полон — очередь не стартует (идущие работают дальше)
+        for j in sorted(() if low else (j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
             head_pre = j["id"] in self.preempt            # головная вытеснения берёт ядра вытесненных, остальные — нет
             free = [c for c in range(self.ncpu) if c not in used and (head_pre or c not in held)]
@@ -222,7 +224,7 @@ class Core:
             decl_cap = OVERBOOK_MAX - (0 if is_gate else g_resv)
             declared_j = declared
             if GATE_FIT:                              # TK-300 (В-40): work — до OVERBOOK_MAX (15), gate/build — отдельно до RESERVE_CORES (16-е ядро); друг друга не вытесняют
-                decl_cap, declared_j = (RESERVE_CORES, gdecl) if is_gate else (OVERBOOK_MAX, declared)
+                decl_cap, declared_j = (OVERBOOK_MAX + RESERVE_CORES, gdecl + declared) if is_gate else (OVERBOOK_MAX, declared + max(0, gdecl - RESERVE_CORES))   # TK-300 (В-40, CEO 18.10): слот 16-го ядра занят (psim/гейт) — второй gate/build встаёт на свободное ядро, пока вся заявленная сумма ≤ 16; гейты сверх слота (Судья PR #66) вычитаются из потолка work — work ≤ 15 и сумма ≤ 16
             # TK-295 (В-34): потолок суммы заявленных ядер действует и на старт по заявке, не только по факту (4 по 4 = 16 > 15)
             room_s = min(room, decl_cap - declared_j - held_n) if OVERBOOK_MAX else room   # место для сжатия elastic — не выше потолка суммы заявок
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j
@@ -291,6 +293,18 @@ class Core:
             if worse or now - head["t_submit"] > PREEMPT_S:    # 10.10 (Судья): prio строго лучше идущего — вытесняем в тот же цикл, без таймера
                 self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now, bare=now - head["t_submit"] > PREEMPT_S)
         return legacy
+
+    def disk_low(self, now):
+        """TK-304 (В-44): свободно на FREE_PATHS меньше MIN_FREE_GB — список (путь, ГБ), иначе []. Тревога один раз на эпизод и раз в час, снятие — строка."""
+        fn = getattr(self.be, "free_gb", None)
+        low = [(p, g) for p in FREE_PATHS for g in [fn(p) if fn and MIN_FREE_GB else None] if g is not None and g < MIN_FREE_GB]
+        if low and (self.disk_alert_t is None or now - self.disk_alert_t >= 3600):
+            self.disk_alert_t = now
+            self.be.alert("диск: " + ", ".join(f"{p} свободно {g:.0f} ГБ" for p, g in low) + f" < {MIN_FREE_GB:g} ГБ — новые prod-заявки не стартуют, идущие не тронуты")
+        elif not low and self.disk_alert_t is not None:
+            self.disk_alert_t = None
+            self.be.alert("диск: свободного места хватает — очередь prod снова пускается")
+        return low
 
     def _alerts(self, now):
         self.alert_waiting(now)
@@ -426,6 +440,11 @@ class Core:
         self.be.save_preempt(self.preempt)
         self.be.alert(f"вытеснение: {head['id']} {head['name']} ждала {int((now - head['t_submit']) / 60)} мин — заморожено "
                       + ", ".join(f"{k}:{i}({c})" for k, i, c in vs))
+
+    @staticmethod
+    def decl_live(r):
+        """TK-300 (CEO 18.10 17:30): в заявленную сумму входят идущие и замороженные потолком окна/перегревом ("cap"/"hot") — они оттают на те же ядра; вытесненные (frozen_for = id головной) считает preempt_held. Без этого окно stand морозило всех, очередь стартовала поверх, по концу окна 18/16."""
+        return not r.get("frozen_for") or r["frozen_for"] in ("cap", "hot")
 
     def preempt_held(self):
         """TK-292: что вытесненные заберут обратно по концу головной — ядра заданий (пины) и ядра голых юнитов. Пока головная идёт, эти ядра свободны на вид,
@@ -749,8 +768,9 @@ class SystemdBackend:
             print(f"{run_dir} не создан ({e}): задание идёт без каталога выхода", file=sys.stderr)
         pre = f"export ALSCHED_RUN_DIR={run_dir}\n"
         cmd = j["cmd"]
-        if j.get("elastic"):                  # TK-283: проход формы читает NX из окружения — выданные ядра, а не заявка (env NX=<заявка> в команде заменяется)
-            cmd = elastic_cmd(cmd, j["cores"])
+        if j.get("elastic") or j.get("nx_env"):   # TK-283: проход формы читает NX из окружения — выданные ядра, а не заявка; TK-311: то же каждому prod work (длинному — ещё и env NX=<число> в команде заменяется)
+            if j.get("elastic") or j["max_runtime"] > VYPISKA_MIN_S:
+                cmd = elastic_cmd(cmd, j["cores"])
             pre += elastic_env(j["cores"])
         if j["cls"] == "measure":
             pre += f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n"
@@ -808,6 +828,14 @@ class SystemdBackend:
     def cpu_host(self):
         f = open("/proc/stat").readline().split()[1:]
         return (sum(map(int, f)) - int(f[3]) - int(f[4])) / os.sysconf("SC_CLK_TCK")
+
+    def free_gb(self, path):
+        try:
+            st = os.statvfs(path)
+        except OSError as e:
+            warn_once(f"free-{path}", f"statvfs {path}: {e} — страж диска этот путь не видит")
+            return None
+        return st.f_bavail * st.f_frsize / 2**30
 
     def disk_host(self):
         tot = n = 0
@@ -1154,12 +1182,21 @@ def elastic_cmd(cmd, n):
 
 
 def elastic_env(n):
-    """TK-283: окружение elastic-задания — выданные ядра; скрипты вида NX=${NX:-12} (p17a.sh) читают NX отсюда."""
+    """TK-283: окружение elastic-задания — выданные ядра; скрипты вида NX=${NX:-15} (p17a.sh) читают NX отсюда."""
     return f"export ALSCHED_CORES={n} NX={n}\n"
+
+
+def prod_cores(cls, kind, cores, max_runtime):
+    """TK-311 (В-34, Судья В-206): prod work > 15 мин на меньше чем OVERBOOK_MAX ядер — автоподъём до потолка (отказ остановил бы подачу).
+    -> (ядра, предупреждение | None). gate/build, measure, короткие, OVERBOOK_MAX=0 — без изменений."""
+    if cls != "prod" or kind != "work" or not OVERBOOK_MAX or max_runtime <= VYPISKA_MIN_S or cores >= OVERBOOK_MAX:
+        return cores, None
+    return OVERBOOK_MAX, f"ПРЕДУПРЕЖДЕНИЕ: prod work > 15 мин на {cores} ядер поднят до {OVERBOOK_MAX} (В-34: счёт на 15; было {cores} → {OVERBOOK_MAX}); NX/ALSCHED_CORES в задании = {OVERBOOK_MAX}."
 
 
 def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0, vypiska=None, kind="work", elastic=False):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
+    cores, raised = prod_cores(cls, kind, cores, max_runtime)
     jid = time.strftime("%m%d%H%M%S") + f"{os.getpid() % 1000:03d}"
     j = dict(id=jid, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
              prio=prio, io=io, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
@@ -1167,6 +1204,8 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
         j["kind"] = kind
     if elastic and cls == "prod" and kind == "work":
         j["elastic"] = True
+    if cls == "prod" and kind == "work":
+        j["nx_env"] = True                # TK-311: NX/ALSCHED_CORES в окружение задания (start)
     if iso and cls == "measure":
         j["iso"] = iso
     if vypiska is not None:
@@ -1179,22 +1218,34 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
         print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер сжата до резерва {RESERVE_CORES} (16-е ядро, TK-300): max-runtime ×{cores / RESERVE_CORES:g}; -j в команде не меняется — задавай {RESERVE_CORES}.", file=sys.stderr)
     elif kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES:
         print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер больше резерва {RESERVE_CORES} — вне резерва ждёт общей очереди (TK-220).", file=sys.stderr)
+    if raised:
+        print(raised, file=sys.stderr)
+        alert_line(f"{name}: {raised}")
     if w:
         print(w, file=sys.stderr)
     return j
 
 
-def ps():
+def unit_frozen(j):
+    """TK-300 (CEO 19.10): frozen_for демона живёт в памяти, в json заявки его нет — реальная заморозка читается у юнита (cgroup freezer)."""
+    try:
+        return sh("systemctl", "show", "-p", "FreezerState", "--value", SystemdBackend.unit(None, j)).stdout.strip() == "frozen"
+    except OSError:
+        return False
+
+
+def ps(frozen=unit_frozen):
     now = time.time()
     rows = load_all()
     run = [j for j in rows if j["state"] == "running"]
-    busy = sum(len(j["cpus"]) for j in run)
-    print(f"ядра: занято {busy}/{NCPU} по заявкам; в очереди {sum(j['state'] == 'queued' for j in rows)}")
+    cold = {j["id"] for j in run if j["cls"] == "prod" and frozen(j)}   # заморожённые вытеснением/потолком ядер не занимают: «занято» — только идущие
+    busy = sum(len(j["cpus"]) for j in run if j["id"] not in cold)
+    print(f"ядра: занято {busy}/{NCPU} по заявкам; заморожено {len(cold)} ({sum(len(j['cpus']) for j in run if j['id'] in cold)} ядер); в очереди {sum(j['state'] == 'queued' for j in rows)}")
     for j in rows:
         if j["state"] == "done" and now - j.get("t_end", now) > 3600:
             continue
         age = now - (j.get("t_start") if j["state"] == "running" else j["t_submit"])
-        print(f"{j['id']} {j['state']:7} {j['cls']:7} ядер={len(j['cpus']) or j['cores']:2} {j['name']:20} {age / 60:6.1f} мин "
+        print(f"{j['id']} {'frozen' if j['id'] in cold else j['state']:7} {j['cls']:7} ядер={len(j['cpus']) or j['cores']:2} {j['name']:20} {age / 60:6.1f} мин "
               f"rc={j.get('rc', '')} {j['cmd'][:60]}")
 
 
@@ -1302,7 +1353,7 @@ def main():
         p.add_argument("--name", required=True)
         p.add_argument("--max-runtime", required=True, help="срок активной работы: 90s|30m|2h (без времени под заморозкой)")
         p.add_argument("--cls", default="prod", choices=["prod", "measure"])
-        p.add_argument("--cores", type=int, default=1)
+        p.add_argument("--cores", type=int, default=1, help="ядра заявки; prod work > 15 мин с меньшим числом поднимается до SCHED_OVERBOOK_MAX (15) — TK-311, В-34")
         p.add_argument("--mem", type=int, default=8)
         p.add_argument("--disk", default="none")
         p.add_argument("--io", default="", choices=["", "seq"], help="seq: HDD-тяжёлое последовательное чтение — не больше одного такого на диск")

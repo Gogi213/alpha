@@ -154,6 +154,68 @@ class GateFit(unittest.TestCase):
         self.assertEqual(be.freezes, [])
         self.assertEqual(sum(j["cores"] for j in core.running("prod") if j.get("kind") != "build"), 15)
 
+    def test_busy_slot_does_not_starve_second_gate(self):
+        core, be = self.run_case([1, 1], wcores=3, nwork=4)                                                    # 12 work + гейт в слоте 16-го ядра: второй встаёт сразу, сумма 14 ≤ 16
+        self.assertEqual([core.jobs[i]["state"] for i in ("g0", "g1")], ["running", "running"])
+        self.assertEqual(be.freezes, [])
+        self.assertLessEqual(sum(j["cores"] for j in core.running("prod")), S.OVERBOOK_MAX + 1)
+
+    def test_gates_over_slot_count_against_work_cap(self):
+        S.RESERVE_CORES, S.GATE_FIT = 1, True                                                                  # Судья PR #66 (over.py, fact): work 10 + 3 гейта (сумма 13) — потом work 5 не должен довести сумму до 18 из 16
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            def add(i, c, kind=None, rt=36000):
+                j = SS.job(i, i, "prod", c, 1, "none", rt, 0)
+                if kind:
+                    j["kind"] = kind
+                core.add(j)
+            add("w10", 10); add("tmp3", 3, rt=30)
+            for _ in range(2):
+                core.tick(); be.advance(core, S.TICK)
+            for i in ("g1", "g2", "g3"):
+                add(i, 1, "gate")
+            for _ in range(2):
+                core.tick(); be.advance(core, S.TICK)
+            add("w5", 5)
+            for _ in range(30):
+                core.tick(); be.advance(core, S.TICK)
+            r = core.running("prod")
+            self.assertLessEqual(sum(j["cores"] for j in r), SS.NCPU)                                          # сумма заявленных ≤ 16
+            self.assertLessEqual(sum(j["cores"] for j in r if j.get("kind") != "gate"), S.OVERBOOK_MAX)        # work ≤ 15
+        finally:
+            S.RESERVE_CORES, S.GATE_FIT = 0, False
+
+    def test_window_frozen_still_counted(self):
+        S.RESERVE_CORES, S.GATE_FIT = 1, True                                                                  # CEO 18.10 17:30 (stand-окно): идущие заморожены потолком окна ("cap") — очередь поверх них не стартует, иначе по оттайке 18/16
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            def add(i, c, kind=None, prio=5):
+                j = SS.job(i, i, "prod", c, 1, "none", 36000, 0)
+                j["prio"] = prio
+                if kind:
+                    j["kind"] = kind
+                core.add(j)
+            add("f2d", 12); add("spot", 1); add("pgo", 1, "build", 3)
+            for _ in range(3):
+                core.tick(); be.advance(core, S.TICK)
+            win = SS.job("win", "win", "measure", 8, 1, "none", 36000, 0)                                       # окно измерения на 8 ядрах: потолок prod 8 — все идущие замораживаются ("cap")
+            win["iso"] = 4
+            core.add(win)
+            for _ in range(2):
+                core.tick(); be.advance(core, S.TICK)
+            self.assertTrue(all(j.get("frozen_for") == "cap" for j in core.running("prod")))
+            add("psim", 1, "gate"); add("g98", 3)
+            for _ in range(5):
+                core.tick(); be.advance(core, S.TICK)
+            be.jobs["win"]["left"] = 0                                                                         # конец окна — оттаивают
+            for _ in range(5):
+                core.tick(); be.advance(core, S.TICK)
+            r = core.running("prod")
+            self.assertNotIn("g98", [j["id"] for j in r])                                                      # work 3 поверх замороженных 13 → 16 > 15 — ждёт
+            self.assertLessEqual(sum(j["cores"] for j in r), SS.NCPU)                                          # по оттайке сумма заявленных ≤ 16
+        finally:
+            S.RESERVE_CORES, S.GATE_FIT = 0, False
+
     def test_gate_does_not_hold_back_work(self):
         core, _ = self.run_case([1, 1], wcores=1, nwork=20)                                                    # ждущий второй гейт не держит место work
         self.assertEqual(sum(1 for j in core.running("prod") if j.get("kind") != "build"), 15)
@@ -327,6 +389,41 @@ class Elastic(unittest.TestCase):
         self.assertEqual(S.elastic_env(15), "export ALSCHED_CORES=15 NX=15\n")
 
 
+class ProdCoresRaise(unittest.TestCase):
+    """TK-311 (В-34, Судья В-206): prod work > 15 мин на < 15 ядер поднимается до 15, NX/ALSCHED_CORES в задании = выданные."""
+    def sub(self, cls="prod", kind="work", cores=12, mrt=3600, cmd="env NX=12 bash run-launch.sh /r"):
+        old = S.DIR
+        S.DIR = tempfile.mkdtemp()
+        try:
+            return S.submit(cls, "t", cores, 8, "none", "/tmp", cmd, mrt, kind=kind)
+        finally:
+            S.DIR = old
+
+    def test_long_prod_work_raised_to_15(self):
+        j = self.sub(cores=12)
+        self.assertEqual((j["cores"], j["nx_env"]), (15, True))
+
+    def test_gate_build_short_and_wide_unchanged(self):
+        self.assertEqual(self.sub(kind="gate", cores=3)["cores"], 3)
+        self.assertEqual(self.sub(kind="build", cores=3)["cores"], 3)
+        self.assertEqual(self.sub(cores=12, mrt=900)["cores"], 12)      # 15 мин — не длиннее порога
+        self.assertEqual(self.sub(cores=15)["cores"], 15)
+        self.assertEqual(self.sub(cls="measure", cores=12)["cores"], S.NCPU)
+        self.assertNotIn("nx_env", self.sub(kind="gate", cores=3))
+
+    def test_overbook_zero_off(self):
+        S.OVERBOOK_MAX = 0
+        try:
+            self.assertEqual(self.sub(cores=12)["cores"], 12)
+        finally:
+            S.OVERBOOK_MAX = 15
+
+    def test_cmd_nx_rewritten_for_long_only(self):
+        self.assertIn("поднят до 15", S.prod_cores("prod", "work", 12, 3600)[1])
+        self.assertIsNone(S.prod_cores("prod", "work", 15, 3600)[1])
+        self.assertEqual(S.elastic_cmd(self.sub(cores=12)["cmd"], 15), "env NX=15 bash run-launch.sh /r")
+
+
 class Preemption(unittest.TestCase):
     def test_head_preempts_narrow_and_retry_not_r1(self):
         ts, frozen, thaw, state, frozen_for = SS.preempt_case()
@@ -370,6 +467,49 @@ class Preemption(unittest.TestCase):
         self.assertLessEqual(peak, S.OVERBOOK_MAX)        # TK-295 (В-34): 15 + 1 = 16 > 15 — шестнадцатое ядро не раздаётся, как бы оно ни простаивало
         self.assertEqual(e, "queued")
 
+    def two_fifteens(self, prio2):
+        """TK-300 (CEO 19.10): две заявки по 15 — идущего незамороженного prod не больше 15 в каждый тик; prio лучше — вытесняет (заморозка), не стартует поверх."""
+        be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        a = SS.job("a", "a", "prod", 15, 8, "none", 36000, 0); core.add(a)
+        core.tick(); be.advance(core, S.TICK)
+        b = SS.job("b", "b", "prod", 15, 8, "none", 36000, be.t); b["prio"] = prio2; core.add(b)
+        peak = 0
+        for _ in range(int(1800 / S.TICK)):
+            core.tick(); be.advance(core, S.TICK)
+            peak = max(peak, sum(j["cores"] for j in core.running("prod") if not j.get("frozen_for")))
+        return peak, core.jobs["a"], core.jobs["b"]
+
+    def test_second_fifteen_waits(self):
+        peak, a, b = self.two_fifteens(5)
+        self.assertLessEqual(peak, S.OVERBOOK_MAX)
+        self.assertEqual(b["state"], "queued")
+
+    def test_better_prio_fifteen_freezes_not_overlaps(self):
+        peak, a, b = self.two_fifteens(3)
+        self.assertLessEqual(peak, S.OVERBOOK_MAX)
+        self.assertEqual((a.get("frozen_for"), b["state"]), ("b", "running"))
+
+
+class PsFrozen(unittest.TestCase):
+    def test_ps_counts_only_unfrozen(self):
+        """TK-300 (CEO 19.10): вытесненный 15-ядерный проход заморожен (frozen_for только в памяти демона) — ps не считает его занятым: 15/16, не 30/16."""
+        import contextlib, io, json
+        d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "jobs"))
+        for i, n in (("1", "old"), ("2", "new")):
+            j = SS.job(i, n, "prod", 15, 8, "none", 100, 0); j.update(state="running", cpus=list(range(15)), t_start=0)
+            json.dump(j, open(os.path.join(d, "jobs", i + ".json"), "w"))
+        old, S.DIR = S.DIR, d
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                S.ps(frozen=lambda j: j["id"] == "1")
+        finally:
+            S.DIR = old
+        lines = out.getvalue().splitlines()
+        self.assertIn(f"занято 15/{S.NCPU}", lines[0])
+        self.assertIn("заморожено 1 (15 ядер)", lines[0])
+        self.assertTrue(any(l.startswith("1 frozen") for l in lines) and any(l.startswith("2 running") for l in lines))
+
 
 class Freeze(unittest.TestCase):
     def test_hot_psi_calm_does_not_freeze(self):
@@ -397,6 +537,55 @@ class Budget(unittest.TestCase):
         self.assertEqual(set(be.killed), {"long", "w"})
         self.assertIn("max-runtime", core.jobs["long"]["kill_why"])
         self.assertIn("max-runtime", core.jobs["w"]["kill_why"])
+
+
+class DiskGuard(unittest.TestCase):
+    """TK-304 (В-44): мало места на /data — очередь prod не стартует, идущее живёт, тревога раз в эпизод, снятие — строка."""
+    def case(self):
+        class Be(SS.SimBE):
+            free = 500.0
+            def free_gb(self, path): return self.free
+        be = Be(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        return be, core
+
+    def test_low_disk_blocks_start_keeps_running(self):
+        be, core = self.case()
+        core.add(SS.job("a", "tk1-a", "prod", 2, 2, "none", 10 * H, 0))
+        core.tick()
+        self.assertEqual(core.jobs["a"]["state"], "running")
+        be.free = 5.0
+        core.add(SS.job("b", "tk1-b", "prod", 2, 2, "none", 10 * H, 0))
+        for _ in range(3):
+            be.advance(core, S.TICK); core.tick()
+        self.assertEqual((core.jobs["a"]["state"], core.jobs["b"]["state"]), ("running", "queued"))
+        self.assertEqual(sum("диск:" in a and "< 20" in a for a in be.alerts), 1)
+        be.free = 300.0
+        be.advance(core, S.TICK); core.tick()
+        self.assertEqual(core.jobs["b"]["state"], "running")
+        self.assertTrue(any("снова пускается" in a for a in be.alerts))
+
+    def test_alert_repeats_hourly(self):
+        be, core = self.case()
+        be.free = 1.0
+        core.add(SS.job("b", "tk1-b", "prod", 2, 2, "none", 10 * H, 0))
+        for _ in range(int(2.5 * H / S.TICK)):
+            be.advance(core, S.TICK); core.tick()
+        self.assertEqual(sum("диск:" in a for a in be.alerts), 3)
+
+    def test_off_by_zero_and_no_free_gb(self):
+        be, core = self.case()
+        be.free = 0.0
+        S.MIN_FREE_GB = 0
+        try:
+            core.add(SS.job("a", "tk1-a", "prod", 2, 2, "none", 10 * H, 0))
+            core.tick()
+            self.assertEqual(core.jobs["a"]["state"], "running")
+        finally:
+            S.MIN_FREE_GB = 20
+        be2 = SS.SimBE(); core2 = S.Core(be2, ncpu=SS.NCPU, mem=56)
+        core2.add(SS.job("a", "tk1-a", "prod", 2, 2, "none", 10 * H, 0))
+        core2.tick()
+        self.assertEqual(core2.jobs["a"]["state"], "running")
 
 
 class Reasons(unittest.TestCase):

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # TK-219 (В-229 п.8–9): ЕДИНЫЙ раннер «сутки × клетки» (шаблон; tk1xx-*-day.sh — копии, в archive). Из tk212-f1-day2.sh.
 #   day-cells.sh <метка> <мес> <сутки>   env: BIN (pgo/r2-pgo из MANIFEST, иначе alsched откажет проход > 15 мин) GT P O RG B1 JRN
+#   Спот (TK-319): EPOCH (дерево эпохи: root/, study/{sigma240,root-<сутки>}), VERDICT (вердикт-csv) — без них корни фьючерса.
 # Две пачки на сутки: std без --tape-log и tape с --tape-log 300 только клеткам tape*/cxl* (флаги журнала — по плану клеток $P/<PLAN>.cells).
 # Порядок суток «тяжёлые первыми» — day-order.sh <b1-symdays.csv> <мес> (по числу символов, убывание): подавать в xargs/цикл в этом порядке.
 # План: $P/$PLAN.cells + $P/$PLAN-<ГГГГ-ММ>.cells, аргументы форм — объединение $P/$PLAN.args и $P/$PLAN-<ГГГГ-ММ>.args (PLAN по умолчанию f1).
@@ -8,7 +9,7 @@ set -uo pipefail
 PLAN=${PLAN:-f1}
 lab=$1; MON=$2; d=$3
 BIN=${BIN:?BIN обязателен: pgo/r2-pgo бинарь из MANIFEST (build-pgo.sh)}; TP=${TP:-4}; GT=${GT:-2}; P=${P:-/data/tk0196/plan}; OUT=${O:-/data/tk0196/out}; RG=${RG:-/data/tk0196/regime}
-H=/data/tk046/$MON/home; E=$H/alpha/epochs/e-$MON; O=$OUT/$lab; V=/data/tk044/final3/verdict.csv; B1=${B1:-/data/tk0115/delta/b1-symdays.csv}
+H=/data/tk046/$MON/home; E=${EPOCH:-$H/alpha/epochs/e-$MON}; O=$OUT/$lab; V=${VERDICT:-/data/tk044/final3/verdict.csv}; B1=${B1:-/data/tk0115/delta/b1-symdays.csv}
 MF=$(dirname "$0")/manifest.py; [ -f "$MF" ] || MF=/data/sched/manifest.py; python3 "$MF" fastbin "$BIN" >&2 || { echo "day-cells: $BIN не на быстром пути (pgo/r2-pgo); обход — REASON=причина" >&2; exit 3; }   # В-229 п.8
 mkdir -p "$O"; if [ -e "$O/done" ] || ! mkdir "$O/claim" 2>/dev/null; then exit 0; fi
 mkdir -p "$O/log" "$O/out"; : > "$O/fail.txt"

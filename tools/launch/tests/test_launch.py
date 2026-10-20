@@ -49,7 +49,7 @@ def test_submit_dry_run_prints_command_and_sets_nothing():
     calls, out = [], []
     res = launch.submit(["Г-01"], M3, cfg=CFG, p=p(), dry_run=True, run_cmd=lambda *a, **k: calls.append(a), log=out.append, doc=DOC)
     assert res["ok"] and res["dry_run"] and not calls
-    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "12" in res["cmd"]
+    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "15" in res["cmd"]
     assert "ssh" not in res["cmd"] and res["cmd"][-2].endswith("run-launch.sh")
     assert any("alsched.py submit" in s for s in out)
 
@@ -63,7 +63,7 @@ def test_submit_needs_bin_confirmation():
 def test_queue_params_only_from_config():
     src = open(os.path.join(LAUNCH, "launch.py"), encoding="utf-8").read()
     assert not re.search(r'"--(cores|mem|est|max-runtime)",\s*"?\d', src)
-    assert CFG["queue"] == {"cls": "prod", "cores": 12, "mem": 24, "max_runtime": 60000, "est": 45000}
+    assert CFG["queue"] == {"cls": "prod", "cores": 15, "mem": 24, "max_runtime": 60000, "est": 45000}
 
 
 def test_queue_cmd_max_runtime_meets_alsched_rule():
@@ -300,6 +300,7 @@ def test_sieve_note_undefined_and_reasons():
     assert launch.sieve_note(row(p=1.0), R) == (False, "не годна: p 1.0 > 0.2 (700 сделок, 200 суток)")
     assert "ΔSR" in launch.sieve_note(row(p=0.1), R)[1]
     assert launch.sieve_note(row(trades=1), {})[0] is False   # правил версии нет — «не определена» не выдумываем
+    assert launch.sieve_note(row(note="не определена: контроль"), R) == (True, "не определена: контроль")   # TK-309: причина из строки сита
 
 
 # --- TK-251 П4: маршруты r1/r1x (R1 в форме) ---
