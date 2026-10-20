@@ -5,7 +5,7 @@
 # == строкам эталона B1 фьюча (дерево Летописи b1-b: /data/p12r3a/b1-b/<мес>/<сутки>/t-bid-btc4h-q1/rounds.csv, TK-191/TK-326) по
 # первым 16 колонкам (в эталоне колонок на две меньше — R1-хвост появился позже).
 # Запуск на calc под alsched (--kind gate): gate-b1.sh <бинарник> <OUT> <SYM> <YYYY-MM-DD> <мес jan|feb|…>
-# Остальное — как tools/compute/day-cells.sh (те же флаги, план F1).
+# Остальное — как tools/compute/day-cells.sh (те же флаги, план F1), кроме списков --exit-form: клетка B1 формы выхода не называет (--exit-form none), а chase*/tape* только в r2-бинарнике.
 set -euo pipefail
 BIN=$1 OUT=$2 SYM=$3 D=$4 MON=$5
 P=/data/tk0196/plan RG=/data/tk0196/regime JRN=/data/p12r3a/jrn REF=/data/p12r3a/b1-b/2026-${D:5:2}/$D/t-bid-btc4h-q1/rounds.csv
@@ -22,7 +22,7 @@ PARTS=(); for f in "$W/study/root-$D/$SYM-$D.binlog" "$W/study/root-$D/$SYM-$D.b
 SRC=$JRN/$D/wt/sub/D20/$D/approaches-$SYM.csv; DST=$W/wt/sub/D20/$D/approaches-$SYM.csv
 "$BIN" lob touches-project --in "$SRC" --out "$DST" --spot "${PARTS[@]}" --fut "${PARTS[@]}" | tee "$OUT/project-report.txt"
 cmp "$SRC" "$DST" && echo "GATE1 approaches-csv: байт в байт"
-args=(); while read -r f v; do [ -n "$f" ] || continue; if [ "$f" = --set ]; then n=${v%%:*}; [ "$n" = "$SET" ] || continue; fi; args+=("$f" "$v"); done < <(sort -u "$P/f1.args" "$P/f1-$ym.args")
+args=(); while read -r f v; do [ -n "$f" ] || continue; [ "$f" = --exit-form ] && continue; if [ "$f" = --set ]; then n=${v%%:*}; [ "$n" = "$SET" ] || continue; fi; args+=("$f" "$v"); done < <(sort -u "$P/f1.args" "$P/f1-$ym.args")
 common=(--signal approach --queue-model prob:3 --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000 --regime-from study/regime --order-usd 500 --carry-root root --h3-mode notional --h3-usd 10000 --band-exit-bps 20 --busy-skip off --threads 3 --hold-step skip --exit-group on --events wide --sigma-from study/sigma240)
 (cd "$W" && "$BIN" lob bounce-grid --verdict-csv "$OUT/verdict.csv" --root "study/root-$D" --touches-from wt/sub/D20 "${common[@]}" --r1-cols --exit-form none --early-exit-secs off "${args[@]}" --cells "$OUT/cells.txt" --out-dir "$OUT/grid") > "$OUT/log/grid.log" 2>&1
 NEW=$(find "$OUT/grid" -name rounds.csv | head -1)

@@ -8,7 +8,8 @@
 //! а лоты спота и фьючерса (ADA: 0,01 и 1) различаются. Остальные поля (силы в %, время, ходы) — как в строке, байт в
 //! байт. Исполнение — обычный `bounce-grid --touches-from <out>` на бинлоге фьючерса.
 //!
-//! Mid — на конец последней полной секунды до `start_ms` (`Market::mid_before`, без заглядывания вперёд). Строка,
+//! Mid — на конец последней полной секунды до `start_ms` (`Market::mid_before_or_open`, без заглядывания вперёд;
+//! строки первой секунды суток — стены первого снимка — берут mid конца этой секунды). Строка,
 //! у которой нет mid одного из рынков или проекция не легла в `i64`, отбрасывается и считается в отчёте (не
 //! подменяется). Гейт «байт в байт»: спот и фьючерс — один и тот же набор бинлога ⇒ множитель ровно 1,0, шаги
 //! лота равны ⇒ выходной CSV равен входному (`project_tick` не округляет при равных mid и шаге, лоты не трогаются).
@@ -168,8 +169,8 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
         };
         let start: i64 = rec[c_start].parse()?;
         let (Some(s_mid), Some(f_mid)) = (
-            spot.mid_before(&s_fill, start),
-            fut.mid_before(&f_fill, start),
+            spot.mid_before_or_open(&s_fill, start),
+            fut.mid_before_or_open(&f_fill, start),
         ) else {
             continue;
         };

@@ -111,6 +111,17 @@ impl Market {
             .filter(|v| v.is_finite())
     }
 
+    /// Как `mid_before`, но строкам первой секунды суток (до неё нет полной секунды — `since_far` и стены первого
+    /// снимка, `arm_ms` ≈ 0,3 с) даёт mid конца этой секунды: иначе они выпадали бы из проекции (TK-328, гейт к B1).
+    pub(crate) fn mid_before_or_open(&self, fill: &[f64], ms: i64) -> Option<f64> {
+        let base = self.base_sec?;
+        match ms.div_euclid(1_000).cmp(&base) {
+            std::cmp::Ordering::Greater => self.mid_before(fill, ms),
+            std::cmp::Ordering::Equal => fill.first().copied().filter(|v| v.is_finite()),
+            std::cmp::Ordering::Less => None,
+        }
+    }
+
     /// Квантиль гистограммы часов, мс (по неотрицательным).
     fn clock_quantile(&self, q: f64) -> f64 {
         let n: u64 = self.hist.iter().sum();

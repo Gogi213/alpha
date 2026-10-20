@@ -87,3 +87,16 @@ fn mid_grid_takes_last_in_second() {
     assert_eq!(m.base_sec, Some(86_400));
     assert_eq!(m.mid[1], 11.0);
 }
+
+#[test]
+fn mid_before_or_open_covers_first_second_only() {
+    let mut m = Market::new();
+    m.note_mid(86_400_000 + 300, 10.0); // первый снимок суток
+    m.note_mid(86_400_000 + 1_500, 11.0);
+    let fill = forward_fill(&m.mid);
+    assert_eq!(m.mid_before(&fill, 86_400_000 + 371), None);
+    assert_eq!(m.mid_before_or_open(&fill, 86_400_000 + 371), Some(10.0));
+    assert_eq!(m.mid_before_or_open(&fill, 86_400_000 + 1_800), Some(10.0));
+    assert_eq!(m.mid_before_or_open(&fill, 86_400_000 + 2_800), Some(11.0));
+    assert_eq!(m.mid_before_or_open(&fill, 86_400_000 - 1), None);
+}
