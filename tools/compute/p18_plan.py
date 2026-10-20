@@ -2,7 +2,7 @@
 """TK-289 П-18 F1: план клеток OFAT по осям B1 (docs/research/P-18-b1-titration.md §3) в формате plan/<метка>-<ГГГГ-ММ>.cells|.args|.bin.
 Запуск: python tools/compute/p18_plan.py <каталог плана> [--axes 1,2,3,4,5,6a,7,6v] [--strength-json <файл>] -> файлы + печать числа клеток по осям.
 Ось 6б (strength_min) берёт пороги по месяцам из --strength-json {"2026-01": {"10": x, ...}, ...} (квантили силы по сигналам B1 — отдельный шаг);
-ось 6в (6v) — решётка S × usd_min «нет·10k…300k» (90 клеток, строка S = нет — ось 6а F1); ось 8 (σ-окно) сюда не входит: нужен свой `--sigma-from study/sigma<мин>` и таблицы окон 60…960 (day-cells.sh знает только sigma240).
+ось 6в (6v) — решётка S × usd_min «нет·10k…300k» (90 клеток, строка S = нет — ось 6а F1); ось 8 (σ-окно) — `--axes 8 --only <мин>`, по плану на окно; проход с SIG=sigma<мин> SIGROOT=… (tk289-f8.sh).
 Центр (B1) в план не пишется — он в Летописи; клетка-дубль осей (одно значение у двух осей) схлопывается по кортежу+набору."""
 import argparse
 import json
@@ -26,6 +26,7 @@ AX = {
     "6a": ("usd_min", "10000 20000 30000 50000 75000 100000 150000 200000 300000".split()),
     "6b": ("strength_min", "10 20 33 50 67 80 90 95".split()),
     "6v": ("flow+usd_min", [f"{s}|{u}" for s in S67 for u in ["none"] + USD6]),   # 6в (Судья 19.10): сила В-67 (flow=, % часового оборота) × пол номинала usd_min, оба «И»; «S = нет» — это 6а
+    "8": ("sigma", "60 90 120 180 360 480 720 960".split()),   # ось 8: окно σ-таблицы, мин; клетка = B1, окно задаёт --sigma-from прохода (day-cells.sh SIG/SIGROOT) — в плане по одному окну (--only)
     "7": ("btc", ["none", "-11.1", "-15.7", "-22.3", "-31.5", "-63", "-89", "-126"]),
 }
 
@@ -61,6 +62,7 @@ def main():
     ap.add_argument("--strength-json")
     ap.add_argument("--label", default="P-18-F1", help="метка файлов плана (боевой путь day-cells.sh: L)")
     ap.add_argument("--skip", default="", help="клетки, которые не пишем (уже в Летописи): имена через запятую, напр. p18a5v300")
+    ap.add_argument("--only", default="", help="одно значение оси (ось 8: окно σ, мин; на проход одно окно)")
     ap.add_argument("--smoke", action="store_true", help="10 клеток: первое значение каждой оси + верх осей 2, 4, 5; только март (малый срез [вживую])")
     a = ap.parse_args()
     axes = a.axes.split(",")
@@ -76,6 +78,8 @@ def main():
         sets = []
         for ax in axes:
             vals = AX[ax][1]
+            if a.only:
+                vals = [v for v in vals if v == a.only]
             if a.smoke:
                 vals = [vals[0]] + ([vals[-1]] if ax in ("2", "4", "5") else [])
             for val in vals:
