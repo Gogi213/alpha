@@ -212,5 +212,55 @@ class StateFailures(unittest.TestCase):
             self.fail(f"alsched.py:{line}: except … pass без записи")
 
 
+
+class LiveExtend(unittest.TestCase):
+    """TK-334 (В-52): за LIVE_LEAD_S до конца max_runtime — проверка живости; живое продлевается, зависшее снимается."""
+    class Be(SS.SimBE):
+        def __init__(self, io_rate=0.0, mt_rate=False):
+            super().__init__()
+            self.ext, self.io_rate, self.mt_rate, self.io = [], io_rate, mt_rate, 0.0
+        def extend(self, j, remaining): self.ext.append((self.t, remaining))
+        def live_probe(self, j):
+            self.io += self.io_rate * S.TICK
+            return dict(cpu=self.cpu.get(j["id"], 0.0), io=self.io, mt=self.t if self.mt_rate else None)
+
+    def run_case(self, rate, **kw):
+        be = self.Be(**kw); be.cpu_rate["a"] = rate
+        core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        core.add(SS.job("a", "tk334-live", "prod", 4, 2, "none", 10 * H, 0, mr=3600))
+        for _ in range(int(2 * 3600 / S.TICK)):
+            core.tick(); be.advance(core, S.TICK)
+        return be, core.jobs["a"]
+
+    def test_busy_job_extended_not_killed(self):
+        be, j = self.run_case(4.0)
+        self.assertEqual(be.killed, [])
+        self.assertGreaterEqual(j["live_ext"], 1)
+        self.assertEqual(j["max_runtime"], 3600 + j["live_ext"] * S.LIVE_EXTEND_S)
+        self.assertTrue(any("ЛИМИТ ПРОДЛЁН" in a and "ЦП 100 %" in a for a in be.alerts), be.alerts)
+        self.assertTrue(be.ext and all(r > 0 for _, r in be.ext))     # RuntimeMaxSec юнита продлён следом
+
+    def test_hung_job_killed_at_limit(self):
+        be, j = self.run_case(0.0)
+        self.assertEqual(be.killed, ["a"])
+        self.assertNotIn("live_ext", j)
+        self.assertTrue(any("ЛИМИТ НЕ ПРОДЛЁН" in a for a in be.alerts), be.alerts)
+        self.assertIn("max-runtime", j["kill_why"])
+
+    def test_low_cpu_needs_progress(self):
+        be, _ = self.run_case(0.4)                        # 10 % заявки, ни диска, ни файлов — не доказано
+        self.assertEqual(be.killed, ["a"])
+        be, j = self.run_case(0.4, io_rate=1e6)           # те же 10 %, но диск идёт — живо
+        self.assertEqual(be.killed, [])
+        be, j = self.run_case(0.4, mt_rate=True)          # или свежие файлы
+        self.assertEqual(be.killed, [])
+
+    def test_off_switch(self):
+        S.LIVE_EXTEND_S, old = 0, S.LIVE_EXTEND_S
+        try:
+            self.assertEqual(self.run_case(4.0)[0].killed, ["a"])
+        finally:
+            S.LIVE_EXTEND_S = old
+
 if __name__ == "__main__":
     unittest.main()
