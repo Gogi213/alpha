@@ -573,6 +573,17 @@ impl<'a> GridRun<'a> {
             summary.symbols_without_touches += 1;
             return Ok(());
         }
+        // Контроль C (TK-333): `--ctx-shift-secs` обязан совпасть с колонкой `ctx_ms` файла кэша (жёсткий отказ).
+        let ctx_shift_ms = args.ctx_shift_secs.checked_mul(1_000).ok_or_else(|| {
+            anyhow::anyhow!("--ctx-shift-secs {} вне диапазона", args.ctx_shift_secs)
+        })?;
+        cache::verify_ctx_shift(
+            args.touches_from.as_deref(),
+            args.signal == SignalArg::Approach,
+            symbol,
+            parts_by_day.keys(),
+            ctx_shift_ms,
+        )?;
         e2e::stage(symbol, "*", "setup", e2e_setup, serde_json::json!({}));
         let e2e_touches = e2e::Mark::now();
         let (days, sigma_series) = if args.signal == SignalArg::Approach {
@@ -663,9 +674,6 @@ impl<'a> GridRun<'a> {
             return Ok(());
         }
         let sizing = OrderSizing::from_args(args, symbol)?;
-        let ctx_shift_ms = args.ctx_shift_secs.checked_mul(1_000).ok_or_else(|| {
-            anyhow::anyhow!("--ctx-shift-secs {} вне диапазона", args.ctx_shift_secs)
-        })?;
         // В-131: таблица σ на взводе — одна на символ (все сутки записи).
         let entry_sigma = match args.sigma_from.as_deref() {
             Some(dir) => Some(EntrySigma::read(dir, symbol)?),

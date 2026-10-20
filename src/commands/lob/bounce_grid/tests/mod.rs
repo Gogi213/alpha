@@ -235,6 +235,7 @@ fn col<'a>(header: &[String], row: &'a [String], name: &str) -> &'a str {
 mod admit;
 mod carry_cases;
 mod control;
+mod ctx_shift;
 mod form_cases;
 mod grid;
 mod keys;
