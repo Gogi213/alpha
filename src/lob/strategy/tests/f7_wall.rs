@@ -138,6 +138,7 @@ pub(super) fn f7_run(plan: TradePlan, feed: &[Event]) -> crate::lob::backtest::B
     );
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,

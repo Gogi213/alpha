@@ -13,7 +13,7 @@ import csv, glob, json, math, os, statistics, sys
 from collections import defaultdict
 KEYS, W, LV, OUT = sys.argv[1:5]
 EXTRA = {int(a.split("=")[0]): a.split("=", 1)[1] for a in sys.argv[5:]}
-QS = (5, 10, 20, 33, 50, 67, 80, 90, 95)
+QS = (5, 10, 20, 33, 50, 67, 80, 90, 91, 95)   # v8 (TK-272 F2): + q91 (Г-112, зона 90…95)
 MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"]
 
 

@@ -128,13 +128,16 @@ impl R1Bound {
     }
 }
 
-/// Группа колонок файла режима: `Base` обязательна всегда, `Mid`/`Long` — только если
+/// Группа колонок файла режима: `Base` обязательна всегда, `Mid`/`Long`/`Long9` — только если
 /// наборам нужны оси группы (в прежних файлах `regime.py` колонок нет).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegimeGroup {
     Base,
     Mid,
     Long,
+    /// `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272): колонки дописаны к файлам режима позже `Long` — отдельная группа
+    /// (все три вместе), чтобы счёт по прежним файлам (оси `btc6h`…`btc24h`) не требовал их.
+    Long9,
 }
 
 /// Откуда берётся значение оси контекста.
@@ -209,9 +212,9 @@ const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
 /// `TouchContext` и `RegimeDay`. Оси хода монеты — первые `COIN_AXES`, оси режима —
 /// следом, затем оси по свечам монеты и по цене уровня; новая ось дописывается **в конец реестра**
 /// (режимные идут перед свечами в раскладке `TouchContext`): индексы прежних осей не сдвигаются.
-/// `btc2h`/`btc3h` (E26) и `btc6h`…`btc24h` (Г-10, TK-189) добавлены так же; `btc_lag_78s|91s|104s` — F2 П-15 Г-72 (TK-303:
-/// промежутки лага 64…118 с по шагу F1/4, целые секунды).
-pub(crate) const CTX_SPECS: [CtxAxisSpec; 27] = [
+/// `btc2h`/`btc3h` (E26), `btc6h`…`btc24h` (Г-10, TK-189) и `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272) добавлены так же;
+/// `btc_lag_78s|91s|104s` — F2 П-15 Г-72 (TK-303: промежутки лага 64…118 с по шагу F1/4, целые секунды).
+pub(crate) const CTX_SPECS: [CtxAxisSpec; 30] = [
     coin("ret10m", 0),
     coin("ret1h", 1),
     coin("ret4h", 2),
@@ -225,6 +228,9 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 27] = [
     regime("btc8h", "btc_ret_8h_bps", RegimeGroup::Long),
     regime("btc12h", "btc_ret_12h_bps", RegimeGroup::Long),
     regime("btc24h", "btc_ret_24h_bps", RegimeGroup::Long),
+    regime("btc9h", "btc_ret_9h_bps", RegimeGroup::Long9),
+    regime("btc10h", "btc_ret_10h_bps", RegimeGroup::Long9),
+    regime("btc11h", "btc_ret_11h_bps", RegimeGroup::Long9),
     klines("rng1h", KlineAxis::Rng1h),
     klines("dlow", KlineAxis::DayLowDist),
     CtxAxisSpec {
@@ -330,6 +336,7 @@ pub(crate) fn read_regime_day(
     day: &str,
     need_mid: bool,
     need_long: bool,
+    need_long9: bool,
 ) -> anyhow::Result<RegimeDay> {
     let path = dir.join(format!("{day}.csv"));
     let mut r = csv::ReaderBuilder::new()
@@ -349,6 +356,7 @@ pub(crate) fn read_regime_day(
             RegimeGroup::Base => true,
             RegimeGroup::Mid => need_mid,
             RegimeGroup::Long => need_long,
+            RegimeGroup::Long9 => need_long9,
         };
         cols[slot] = match col(name) {
             Some(i) => Some(i),
@@ -356,7 +364,7 @@ pub(crate) fn read_regime_day(
                 anyhow::bail!("{}: нет колонки {name}", path.display())
             }
             None if need => anyhow::bail!(
-                "{}: нет колонки {name} — оси btc2h…btc24h требуют режим, пересчитанный regime.py",
+                "{}: нет колонки {name} — оси btc2h…btc24h, btc9h…btc11h требуют режим, пересчитанный regime.py",
                 path.display()
             ),
             None => None,
@@ -639,6 +647,11 @@ impl FilterSet {
     /// Хоть один ключ длинных осей битка (`btc6h`…`btc24h`, Г-10) задан — нужны их колонки.
     pub(crate) fn uses_btc_long(&self) -> bool {
         self.uses_group(Some(RegimeGroup::Long))
+    }
+
+    /// Ключ `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272) задан — нужны колонки `btc_ret_{9,10,11}h_bps`.
+    pub(crate) fn uses_btc_long9(&self) -> bool {
+        self.uses_group(Some(RegimeGroup::Long9))
     }
 
     /// Хоть один ключ по свечам монеты (`rng1h`/`dlow`) задан — нужен `--klines-from`.

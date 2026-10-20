@@ -524,6 +524,7 @@ pub(super) fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not
     let mut hbt = prob_backtest(&feed);
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },

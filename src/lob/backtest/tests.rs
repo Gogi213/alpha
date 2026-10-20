@@ -74,6 +74,7 @@ fn fill_at(dir: i8, entry_px: f64, exit_px: f64) -> Fill {
         legs_rejected: 0,
         fill_by_cross: false,
         tape_press: 0.0,
+        tape_press_ws: [0.0; crate::lob::backtest::TAPE_WS_MAX],
         cxl_press: 0.0,
         chase_wait_ns: -1,
     }
@@ -466,6 +467,7 @@ fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> Event {
 fn drive_cfg() -> DriveConfig {
     DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -1582,6 +1584,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         }],
         &DriveConfig {
             tape_log_secs: 0,
+            tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
             order_qty: 2.0,
             first_order_id: 1,
             queue_model: QueueModelKind::RiskAdverse,
@@ -1722,6 +1725,7 @@ fn partial_fill_records_real_qty_and_fill_frac() {
     ];
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 2.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
@@ -1807,6 +1811,7 @@ fn fill_by_cross_is_flagged_when_no_trade_could_fill() {
     ];
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
@@ -1868,6 +1873,7 @@ fn trade_below_our_price_fills_by_priority_and_is_not_a_cross() {
     ];
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 3.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },

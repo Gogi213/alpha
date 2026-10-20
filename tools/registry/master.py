@@ -223,10 +223,10 @@ def p15_thresholds():
 MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: число в имени формы меняется по месяцам (Г-133 chase<a·W_m>); файл --cells на месяц
 _THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
 MSETS = {}  # имя набора -> спецификация --set: наборы с порогом по месяцам (Г-10 btc<N>h_max=T_m); write_set добавляет их к --set
-_TAPE_THR = os.path.join(FIND, "tape-thresholds-v7-2026-10-11.json")   # TK-120 v7 (thr7/summary.json): ключи e112_W<W>_q<q> по месяцам
+_TAPE_THR = os.path.join(FIND, "tape-thresholds-v11-2026-10-18.json")   # TK-272 v11 (thr11/summary.json; v9 побитно внутри + q94 + 16 окон W из multi-W ленты wm16): ключи e112_W<W>_q<q> по месяцам
 _TK202_THR = os.path.join(FIND, "tk202-thresholds-2026-10-12.json")   # tools/analyze/tk202-thresholds.py: usd {месяц: {q: T}}, ctx {ось: {месяц: {q20..q80}}}
 _P15_THR = os.path.join(ROOT, "docs", "research", "P-15-thresholds.csv")   # TK-274: Г-72 (btc_lag_<s>s_min) и Г-146 (btc24h_min) по месяцам: hyp;axis;q;month;threshold_bps;set_arg
-_BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-11.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
+_BTC_THR = os.path.join(FIND, "btc-thresholds-v4-2026-10-18.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}; v4 (TK-272): v3 побитно внутри + окна 10, 11 ч
 
 
 def w_median_ms():
@@ -484,26 +484,26 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
         LINES[h] = (None, "месячная форма chase<a·W_m>: строки --cells по месяцам (файлы <имя>-<ГГГГ-ММ>.cells)")
         MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
     elif av and re.sub(r"\D", "", hyp) == "112":   # tape<W>q<Q_m(W,q)>: Q из v7 по прошлым месяцам (Судья 11.10, f1-axes); хеш — по осям W, q
-        w, q = _int_in(_frac(av["W"]), (5, 10, 15, 30, 60, 120, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        w, q = _int_in(_frac(av["W"]), (5, 6, 8, 9, 10, 11, 12, 14, 15, 19, 22, 26, 30, 38, 45, 52, 60, 75, 90, 105, 120, 165, 210, 255, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 91, 92, 94, 95))
         cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []
         mm = {r["month"]: f"{form}-tape{w}q{'p' if r.get(f'e112_W{w}_q{q}', 0) <= 0 else _dec(r[f'e112_W{w}_q{q}'])} {set_name}" for r in thr if w and q and f"e112_W{w}_q{q}" in r}
         if not (w and q):
-            LINES[h] = (None, "Г-112: W ∈ {5,10,15,30,60,120,300} с, q ∈ {5,10,20,33,50,67,80,90,95}")
+            LINES[h] = (None, "Г-112: W ∈ {5,6,8,9,10,11,12,14,15,19,22,26,30,38,45,52,60,75,90,105,120,165,210,255,300} с, q ∈ {5,10,20,33,50,67,80,90,91,92,94,95}")
         elif not thr:
-            LINES[h] = (None, f"Г-112: нет {os.path.basename(_TAPE_THR)} — v7 TK-120 (thr7/summary.json)")
+            LINES[h] = (None, f"Г-112: нет {os.path.basename(_TAPE_THR)} — v11 TK-272 (thr11/summary.json)")
         else:
             no = sorted(r["month"] for r in thr if r["month"] not in mm)
             LINES[h] = (None, "месячная форма tape<W>q<Q_m>: файлы <имя>-<ГГГГ-ММ>.cells" + (f"; нет порога в v7 — месяцы {','.join(no)}" if no else ""))
             MONTHLY[h] = mm
     elif av and re.sub(r"\D", "", hyp) == "10":   # btc<N>h_max=T_m(N,q): набор B1 с заменой порога, T_m по месяцам из прошлых месяцев (Судья 11.10, f1-axes)
-        n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 9, 10, 11, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 6, 8, 9, 10, 20, 33, 50, 67, 80, 90, 95))
         cfg["variant"] = {"family": family_of(hyp), "axes": {"btc_window_h": n_h, "btc_thr_q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_BTC_THR, encoding="utf-8")) if os.path.exists(_BTC_THR) else {}
         if not (n_h and q):
-            LINES[h] = (None, "Г-10: окно ∈ {1,2,3,4,6,8,12,24} ч, q ∈ {5,10,20,33,50,67,80,90,95}")
+            LINES[h] = (None, "Г-10: окно ∈ {1,2,3,4,6,8,9,10,11,12,24} ч, q ∈ {5,6,8,9,10,20,33,50,67,80,90,95}")
         elif not thr:
             LINES[h] = (None, f"Г-10: нет {os.path.basename(_BTC_THR)} — btc-thresholds.py по study/regime (regime.py с btc_ret_6h…24h)")
         else:

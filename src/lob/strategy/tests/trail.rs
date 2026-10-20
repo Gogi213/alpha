@@ -118,6 +118,7 @@ pub(super) fn trail_exits(plan: TradePlan, feed: &[Event], sigma: i8) -> Vec<Exi
     );
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,

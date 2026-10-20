@@ -54,6 +54,33 @@ pub(super) fn tape_press_counts_adverse_trades_in_window() {
     assert_eq!(state.tape_press(112 * S), 20.0);
 }
 
+/// TK-272: одно кольцо на `max W` даёт по каждому окну то же, что отдельное кольцо на это `W` (`tape_press`).
+#[cfg(feature = "r2")]
+#[test]
+pub(super) fn tape_press_ws_equals_single_window_rings() {
+    let trades = [
+        trade_at(101 * S, true, 99.0, 30.0),
+        trade_at(104 * S, true, 99.0, 7.0),
+        trade_at(105 * S, true, 98.0, 20.0),
+        trade_at(108 * S, false, 98.0, 900.0), // не против
+    ];
+    let mut ws = crate::lob::backtest::NO_TAPE_WS;
+    ws[..3].copy_from_slice(&[3, 5, 10]);
+    let mut multi = StrategyState::new(0, SIGMA_LONG, 1.0, 1);
+    multi.enable_tape_ws(&ws);
+    multi.observe_wall_trades(&trades);
+    for now in [105, 107, 109, 112, 130] {
+        let got = multi.tape_press_ws(now * S);
+        for (i, w) in [3, 5, 10].into_iter().enumerate() {
+            let mut one = StrategyState::new(0, SIGMA_LONG, 1.0, 1);
+            one.enable_tape(w);
+            one.observe_wall_trades(&trades);
+            assert_eq!(got[i], one.tape_press(now * S), "now={now} W={w}");
+        }
+        assert_eq!(got[3], 0.0, "пустой слот");
+    }
+}
+
 /// TK-115 Г-116: отмены = убыль уровня нашей стороны минус сделки против на той же цене; рост и сделки не считаются.
 #[cfg(feature = "r2")]
 #[test]
