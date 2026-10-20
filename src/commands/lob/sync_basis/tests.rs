@@ -35,7 +35,7 @@ fn lead_lag_finds_fut_leading_by_two_seconds() {
         p *= 1.0 + ((x >> 40) as f64 / (1u64 << 24) as f64 - 0.5) * 1e-3;
         fut.push(p);
     }
-    let spot: Vec<f64> = (0..600).map(|i| fut[i.saturating_sub(2)]).collect();
+    let spot: Vec<f64> = (0..600usize).map(|i| fut[i.saturating_sub(2)]).collect();
     let best = lead_lag(&spot, &fut)
         .into_iter()
         .filter_map(|(k, c)| c.map(|c| (k, c)))
