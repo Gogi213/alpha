@@ -71,7 +71,9 @@ mod record;
 mod replay;
 pub mod session;
 mod shared;
+pub mod sync_basis;
 pub mod touches;
+pub mod touches_project;
 pub mod trades;
 pub mod validate;
 mod verify;
@@ -82,6 +84,8 @@ pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
+pub use sync_basis::{run_sync_basis, SyncBasisArgs};
+pub use touches_project::{run_touches_project, TouchesProjectArgs};
 pub use validate::{run_validate, ValidateArgs};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
@@ -243,6 +247,13 @@ pub enum LobCommand {
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
     /// Только чтение, ни одного порога.
     BinlogStats(BinlogStatsArgs),
+    /// Замер П-22 §4 (TK-328): часы, опережение (lead-lag ±5 с) и базис спот/фьючерс одной монеты за сутки по двум наборам
+    /// бинлога; строки `ключ,значение`. Только чтение.
+    SyncBasis(SyncBasisArgs),
+    /// Проекция касаний спота на фьючерс (П-22 §3.2, TK-328): `touches-<SYM>.csv` суток спота → тот же файл с ценами
+    /// стены в тиках фьючерса (`P_f = F_mid·P_wall/S_mid`, пассивное округление); дальше `bounce-grid --touches-from`
+    /// на бинлоге фьючерса.
+    TouchesProject(TouchesProjectArgs),
     /// Дыры по времени в суточных бинлогах (TK-033): CSV на файл — покрытие суток, самая длинная
     /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
     /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
@@ -299,6 +310,16 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Trades(args) => print_trades(args),
         LobCommand::ImportArchive(args) => print_import_archive(args),
         LobCommand::BinlogStats(args) => print_binlog_stats(args),
+        LobCommand::SyncBasis(args) => {
+            for line in run_sync_basis(&args)? {
+                println!("{line}");
+            }
+            Ok(())
+        }
+        LobCommand::TouchesProject(args) => {
+            println!("{}", run_touches_project(&args)?);
+            Ok(())
+        }
         LobCommand::Gaps(args) => {
             run_gaps(&args)?;
             Ok(())

@@ -16,6 +16,7 @@ pub mod levels;
 pub mod markout;
 pub mod minute_flow;
 pub mod moves;
+pub mod project;
 pub mod r1;
 pub mod r1_flow;
 pub mod reclaim;
