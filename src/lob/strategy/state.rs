@@ -59,6 +59,11 @@ pub struct StrategyState {
     pub(super) reclaim: Option<crate::lob::reclaim::ReclaimWatch>,
     pub(super) reclaim_t0: Option<i64>,
     pub(super) reclaim_ready: bool,
+    /// Г-81: ворота входа `cxl<W>q<Q>` уже проверены на `sent + W` (проверка одна, не скользящая).
+    pub(super) gate_done: bool,
+    /// Г-81: мера ворот на проверке `sent + W` (отмены за `W` ÷ размер стены плана); `None` — проверки не было или размера нет.
+    /// Читает проба порогов (`entry_gate=cxl<W>qprobe`); на ход стратегии не влияет.
+    pub(super) gate_measure: Option<f64>,
     /// F8c (К1): «сироты» — заявки, чьё снятие не подтвердилось за потолок
     /// `CANCEL_WAIT_NS`. Круг они не держат (потолок его освободил), но из
     /// рынка их никто не убрал: пока сирота стоит, снятие повторяется на
@@ -88,6 +93,10 @@ pub struct StrategyState {
     pub(super) tape_ring: Option<Box<[TapeBucket]>>,
     /// TK-115 Г-112: значение `tape_press` на момент исполнения входа (0 при выключенном кольце).
     pub(super) tape_at_fill: f64,
+    /// TK-272: окна `W` журнала ленты по одному проходу (`enable_tape_ws`); 0 — слот не занят.
+    pub(super) tape_ws: [u32; TAPE_WS_MAX],
+    /// TK-272: `tape_press` по каждому окну из `tape_ws` на момент исполнения входа.
+    pub(super) tape_at_fill_ws: [f64; TAPE_WS_MAX],
     /// TK-115 Г-116: кольцо отмен нашей стороны между `stop_px` и лучшей ценой (журнал `cxl_lots`); включается вместе с лентой.
     pub(super) cxl_ring: Option<Box<[TapeBucket]>>,
     /// TK-115 Г-116: снимок уровней нашей стороны и сделки против, пока исполнение входа не наступило.
@@ -261,6 +270,8 @@ impl StrategyState {
             reclaim: None,
             reclaim_t0: None,
             reclaim_ready: false,
+            gate_done: false,
+            gate_measure: None,
             r2: match plan {
                 TradePlan::Bounce { pyramid, .. } if pyramid.on() => Some(R2Bufs::boxed()),
                 _ => None,
@@ -287,6 +298,8 @@ impl StrategyState {
             orphan_overflow: 0,
             tape_ring: None,
             tape_at_fill: 0.0,
+            tape_ws: NO_TAPE_WS,
+            tape_at_fill_ws: [0.0; TAPE_WS_MAX],
             cxl_ring: None,
             cxl_book: None,
             cxl_at_fill: 0.0,

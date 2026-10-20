@@ -20,7 +20,15 @@ HOT_BUSY = 0.95                                                    # загру�
 PSI_CPU = float(os.environ.get("SCHED_PSI_CPU", "25"))             # PSI cpu some avg10, %: ниже — ядра заняты, но никто не ждёт; ВРЕМЕННО, значение подтвердить Судье по замеру синтетики
 MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
 FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
-RESERVE_CORES = int(os.environ.get("SCHED_RESERVE_CORES", "3"))   # В-229 п.10 (TK-219): ядра под гейты/сборки (--kind gate|build); обычное prod их не занимает, пока гейт/сборка не взяли их сами; 0 = выкл.
+RESERVE_CORES = int(os.environ.get("SCHED_RESERVE_CORES", "1"))   # В-229 п.10 (TK-219): ядра под гейты/сборки (--kind gate|build); обычное prod их не занимает, пока гейт/сборка не взяли их сами; 0 = выкл.
+ELASTIC_MAX = int(os.environ.get("SCHED_ELASTIC_MAX", "15"))   # TK-283 (G-005): --elastic prod при старте добирает ядра до этого числа, если в работе и в очереди нет gate/build; 0 = выкл.
+SMALL_CORES = int(os.environ.get("SCHED_SMALL_CORES", "4"))   # TK-283: elastic-добор оставляет место мелким заявкам в очереди (prod ≤ этого числа ядер, не elastic)
+ELASTIC_MIN = int(os.environ.get("SCHED_ELASTIC_MIN", "4"))   # TK-283 (CEO 17.10): --elastic prod при нехватке заявленных ядер стартует на свободных, если их не меньше этого (NX=выданные, max_runtime растёт пропорционально); 0 = выкл.
+ELASTIC_SHRINK_S = int(os.environ.get("SCHED_ELASTIC_SHRINK_S", "5400"))   # TK-283 (CEO 17.10 08:54): elastic сжимается до свободных ядер, только если бюджет max_runtime на них не больше этого (5400 с = оценка ≤ 1 ч: max_runtime >= 1,5 x оценки); многочасовые ждут заявленных ядер, иначе сидят на 4 до конца
+OVERBOOK_MAX = int(os.environ.get("SCHED_OVERBOOK_MAX", "15"))   # TK-295 (В-34, CEO 17.10: «нагружать можно <= 15 ядер», 16 → 15); TK-283 (CEO 17.10): сумма заявленных ядер идущего prod + новая заявка не больше этого при старте по факту (over); 0 = без потолка (упаковка по факту как до TK-283)
+GATE_FIT = os.environ.get("SCHED_GATE_FIT", "1") != "0"   # TK-300 (В-40): gate/build — на RESERVE_CORES (16-е ядро) СВЕРХ 15 ядер prod, сжимаются до резерва (max_runtime растёт), prod не вытесняют и не замораживают; 0 = как до TK-300 (задать и SCHED_RESERVE_CORES=3)
+MIN_FREE_GB = float(os.environ.get("SCHED_MIN_FREE_GB", "20"))   # TK-304 (В-44): свободно на FREE_PATHS меньше — prod из очереди не стартует (идущие не трогаем), строка в alerts.log; 20 = порог vps-check sweep; 0 = выкл.
+FREE_PATHS = [p for p in os.environ.get("SCHED_FREE_PATHS", "/data").split(":") if p]   # TK-304: куда пишут прогоны calc (диск sdb); ENOSPC 18.10 13:55 — 0 МБ свободно, 15 ядер упёрлись в запись
 LIVE_EXTEND_S = int(os.environ.get("SCHED_LIVE_EXTEND_S", "3600"))   # TK-334 (В-52): живое задание перед концом max_runtime продлевается на это окно; 0 = выкл. (снимать по лимиту как раньше)
 LIVE_LEAD_S = int(os.environ.get("SCHED_LIVE_LEAD_S", "900"))       # проверка живости — за столько секунд до конца бюджета
 LIVE_CHECK_S = int(os.environ.get("SCHED_LIVE_CHECK_S", "300"))     # окно замера живости: снимок в начале, вердикт через столько секунд

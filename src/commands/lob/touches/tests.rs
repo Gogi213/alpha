@@ -38,6 +38,7 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     }
 }
 
@@ -413,6 +414,7 @@ fn minimal_approach() -> ApproachRecord {
         depth_behind_lots: 0,
         stack_levels_at_arm: 0,
         stack_span_bps_at_arm: 0,
+        repeat_count_at_arm: 0,
         frontrun_lots_at_arm: 0,
         p08: Some(Default::default()),
         r1: None,
@@ -437,6 +439,7 @@ fn touch_row_pair_names_match_the_written_header() {
         touches: Vec::new(),
         approaches: Vec::new(),
         walls: Vec::new(),
+        twins: Vec::new(),
         mids: Vec::new(),
     };
     let sigma = SigmaSeries::from_mids(&[]);

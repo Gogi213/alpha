@@ -1,0 +1,10 @@
+hyp,hash,axes,source,trades_A,days_A,dSR,p,se,status
+Г-134,2d137095eade630b,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 6}",r1x,159,104,0.0282,0.3257,0.0625,не годна
+Г-134,e85b68e134592ba2,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 8}",r1x,204,118,0.0132,0.4116,0.0615,не годна
+Г-134,e7fec52f55390573,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 9}",r1x,221,125,0.0391,0.2502,0.0594,не годна
+Г-134,588639b8fcde781c,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 12}",r1x,279,140,0.0822,0.085,0.0597,годна
+Г-134,6323b83ee567119d,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 15}",r1x,331,149,0.0551,0.1112,0.0465,годна
+Г-134,63234f62d941831c,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 18}",r1x,361,157,0.0482,0.1282,0.0423,годна
+Г-134,f90dc8aa4c2b29e3,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 23}",r1x,431,170,0.0538,0.1037,0.0428,годна
+Г-134,c059ea248b86e01f,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 26}",r1x,462,175,0.0413,0.1657,0.043,годна
+Г-134,326dc951fdf393f0,"{""col"": ""frontrun_delta_10s_lots"", ""keep_q"": 30}",r1x,521,186,0.0247,0.2664,0.0406,не годна

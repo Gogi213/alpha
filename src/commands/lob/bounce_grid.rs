@@ -103,6 +103,7 @@
 mod args;
 mod cache;
 mod carry;
+mod control;
 mod drive;
 mod e2e;
 mod entry_sigma;
@@ -471,6 +472,10 @@ impl<'a> GridRun<'a> {
         let args = self.args;
         let queue_model = self.queue_model;
         let threads = self.threads;
+        let mut tape_ws = crate::lob::backtest::NO_TAPE_WS;
+        for (d, &w) in tape_ws.iter_mut().zip(args.tape_log_ws.iter()) {
+            *d = w;
+        }
         let band_exit_bps = self.band_exit_bps;
         let need_regime = self.need_regime;
         let need_ret = self.need_ret;
@@ -578,7 +583,7 @@ impl<'a> GridRun<'a> {
             // Суток в кэше нет — символ пропускается, а не роняет весь прогон
             // (как у `lob fill-capacity --targets approaches`, F2): реплея
             // подходов у сетки нет, полосу `D` знает только прогон F1.
-            let Ok(days) = load_cached_days(
+            let Ok(mut days) = load_cached_days(
                 shared.as_deref_mut(),
                 dir,
                 symbol,
@@ -593,6 +598,20 @@ impl<'a> GridRun<'a> {
                 return Ok(());
             };
             steps::ensure_approach_cache(args, sets, symbol, dir, &days)?;
+            if let Some(c) = args.level_control {
+                // Г-03 (TK-274): подходы суток → двойники/парные стены; отчёт — рядом с `forms.csv`.
+                let mut stats = control::ControlStats::default();
+                for d in &mut days {
+                    control::apply(c, dir, symbol, d, &mut stats)?;
+                }
+                std::fs::create_dir_all(&args.out_dir)?;
+                let mut w = csv::Writer::from_path(
+                    args.out_dir.join(format!("level-control-{symbol}.csv")),
+                )?;
+                w.write_record(control::CONTROL_COLUMNS)?;
+                w.write_record(stats.csv_row(symbol, c))?;
+                w.flush()?;
+            }
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
@@ -704,6 +723,7 @@ impl<'a> GridRun<'a> {
                             &day.day,
                             sets.iter().any(FilterSet::uses_btc_mid),
                             sets.iter().any(FilterSet::uses_btc_long),
+                            sets.iter().any(FilterSet::uses_btc_long9),
                         )?,
                     );
                 }
@@ -728,9 +748,13 @@ impl<'a> GridRun<'a> {
             let ctx = touch_contexts(&day.rets, &day.touches, regime, kline_ctx, btc_sec_ctx);
             if btc_sec_ctx.is_some() {
                 // Г-72, договор Судьи п.7: касание вне ряда — без значения оси (не 0), счётчик в отчёт
+                let lag = sets::CTX_AXES
+                    .iter()
+                    .position(|n| *n == "btc_lag_118s")
+                    .unwrap_or(usize::MAX);
                 let none = ctx
                     .iter()
-                    .filter(|c| c.axes.last().is_some_and(Option::is_none))
+                    .filter(|c| c.axes.get(lag).is_some_and(Option::is_none))
                     .count();
                 eprintln!(
                     "bounce-grid: {symbol} {}: btc_lag_118s без значения у {none} из {} касаний",
@@ -926,6 +950,22 @@ impl<'a> GridRun<'a> {
                             .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
                         ),
                     };
+                // Г-98: лот под риск по размаху завала подхода (ключ набора `size_risk=<R$>`); без ключа — как есть.
+                let set_qtys: std::borrow::Cow<'_, [f64]> = match set.size_risk {
+                    None => set_qtys,
+                    Some(r) => std::borrow::Cow::Owned(
+                        steps::day_risk_qtys(
+                            &sizing,
+                            day,
+                            &set_qtys,
+                            step_schedule.as_ref(),
+                            (tick_e9, step_e9),
+                            args.order_qty_mult,
+                            r,
+                        )
+                        .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
+                    ),
+                };
                 let forms_done = {
                     let forms_ref = &set_forms_list;
                     let mut sink =
@@ -975,12 +1015,16 @@ impl<'a> GridRun<'a> {
                             busy_skip: args.busy_skip == "on",
                             hold_skip: args.hold_step == "skip",
                             tape_log_secs: args.tape_log.unwrap_or(0),
+                            tape_log_ws: tape_ws,
                             exit_group: args.exit_group == "on",
                             order_qtys: &set_qtys,
                             threads,
                             post_only: args.entry_post_only(),
                             filter: sets::FilterSpec::of_set(set, &ctx),
-                            h3_usd: args.h3.h3_usd,
+                            h3_usd: control::LevelControl::wall_floor_usd(
+                                args.level_control,
+                                args.h3.h3_usd,
+                            ),
                             band_exit_bps,
                             sigma: &sigma_series,
                             entry_sigma: entry_sigma.as_ref(),

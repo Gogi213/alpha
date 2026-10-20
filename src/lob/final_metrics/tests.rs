@@ -370,6 +370,7 @@ fn per_trade_net_uses_backtest_roundtrip_without_copying_it() {
         legs_rejected: 0,
         fill_by_cross: false,
         tape_press: 0.0,
+        tape_press_ws: [0.0; crate::lob::backtest::TAPE_WS_MAX],
         cxl_press: 0.0,
         chase_wait_ns: -1,
     };

@@ -10,7 +10,7 @@ use crate::book::{Book, Side};
 use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::lob::levels::{
     ApproachRecord, LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TouchRecord,
-    TradeHit, WallEvent,
+    TradeHit, TwinRec, WallEvent,
 };
 use crate::lob::markout::MidSample;
 use crate::lob::sigma::thin_mids_tail_to_second_boundaries;
@@ -32,6 +32,8 @@ pub(crate) struct ReplayDay {
     pub(crate) approaches: Vec<ApproachRecord>,
     /// Журнал стен суток (TK-115, `ReplayKeep::walls`); у остальных конфигураций и без флага пуст.
     pub(crate) walls: Vec<WallEvent>,
+    /// Двойники стен Г-03 (TK-274, `ReplayKeep::twins`); у остальных конфигураций и без флага пуст.
+    pub(crate) twins: Vec<TwinRec>,
     pub(crate) mids: Vec<MidSample>,
 }
 
@@ -85,6 +87,41 @@ pub(crate) struct ReplayKeep {
     pub(crate) r1: bool,
     /// Вести журнал стен (TK-115, `lob touches --wall-log`): у первой конфигурации каждого дня.
     pub(crate) walls: bool,
+    /// Двойники стен Г-03 (TK-274, `lob touches --twin-seeds`): у первой конфигурации каждого дня; пусто — выкл.
+    pub(crate) twins: TwinSeeds,
+}
+
+/// Семена двойников Г-03 — `Copy`, чтобы `ReplayKeep` оставался константным (`TWIN_SEEDS_MAX` штук).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TwinSeeds {
+    n: u8,
+    v: [u64; TWIN_SEEDS_MAX],
+}
+
+/// Предел числа семян за один проход (П-15: пять).
+pub(crate) const TWIN_SEEDS_MAX: usize = 8;
+
+impl TwinSeeds {
+    pub(crate) const NONE: Self = Self {
+        n: 0,
+        v: [0; TWIN_SEEDS_MAX],
+    };
+
+    pub(crate) fn new(seeds: &[u64]) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            seeds.len() <= TWIN_SEEDS_MAX,
+            "--twin-seeds: не больше {TWIN_SEEDS_MAX} семян за проход, дано {}",
+            seeds.len()
+        );
+        let mut out = Self::NONE;
+        out.v[..seeds.len()].copy_from_slice(seeds);
+        out.n = seeds.len() as u8;
+        Ok(out)
+    }
+
+    pub(crate) fn as_slice(&self) -> &[u64] {
+        &self.v[..usize::from(self.n)]
+    }
 }
 
 /// Что хранить из срезов середины.
@@ -105,6 +142,7 @@ impl ReplayKeep {
         carry_age: false,
         r1: false,
         walls: false,
+        twins: TwinSeeds::NONE,
     };
     pub(crate) const TOUCHES_AND_SECOND_MIDS: Self = Self {
         records: false,
@@ -112,6 +150,7 @@ impl ReplayKeep {
         carry_age: false,
         r1: false,
         walls: false,
+        twins: TwinSeeds::NONE,
     };
 
     /// То же хранение с переносом возраста через полночь.
@@ -127,6 +166,11 @@ impl ReplayKeep {
     /// То же хранение с журналом стен.
     pub(crate) const fn with_walls(self, walls: bool) -> Self {
         Self { walls, ..self }
+    }
+
+    /// То же хранение с двойниками стен Г-03.
+    pub(crate) const fn with_twins(self, twins: TwinSeeds) -> Self {
+        Self { twins, ..self }
     }
 }
 
@@ -348,6 +392,11 @@ pub(crate) fn replay_symbol_over_configs_keep(
                     t.enable_wall_log();
                 }
             }
+            if !keep.twins.as_slice().is_empty() {
+                if let Some(t) = trackers.first_mut() {
+                    t.enable_twins(symbol, keep.twins.as_slice());
+                }
+            }
             if keep.r1 {
                 for t in &mut trackers {
                     t.enable_r1();
@@ -453,6 +502,10 @@ pub(crate) fn replay_symbol_over_configs_keep(
         if let Some(t) = w.trackers.first_mut() {
             t.take_wall_events(&mut walls);
         }
+        let mut twins = Vec::new();
+        if let Some(t) = w.trackers.first_mut() {
+            t.take_twins(&mut twins);
+        }
         // Живые уровни — только у последних суток: у прежних трекер
         // доигран до конца файла, и то, что там «живо», — обрыв записи.
         if Some(wi) == last {
@@ -474,6 +527,11 @@ pub(crate) fn replay_symbol_over_configs_keep(
                 approaches,
                 walls: if i == 0 {
                     std::mem::take(&mut walls)
+                } else {
+                    Vec::new()
+                },
+                twins: if i == 0 {
+                    std::mem::take(&mut twins)
                 } else {
                     Vec::new()
                 },

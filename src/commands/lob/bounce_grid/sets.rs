@@ -52,6 +52,13 @@ pub struct FilterSet {
     /// М-04 (В-228, TK-206): множитель размера позиции на первом подходе к уровню (`touch_index == 0`) — `lot_first=<k>`,
     /// k конечное > 0; на остальных подходах 1. Без ключа размер прежний (в шапку не попадает). Только ключ набора.
     pub lot_first: Option<f64>,
+    /// Г-98 (П-17): лот под риск — `size_risk=<R$>`, R конечное > 0; лот = min(лот, R·10⁴ ÷ `stack_span_bps_at_arm`), нужны
+    /// подходы. Без ключа размер прежний. Только ключ набора.
+    pub size_risk: Option<f64>,
+    /// Г-81 (П-17): ворота входа — `entry_gate=cxl<W>q<Q>` (W с > 0, Q > 0): на `sent + W` неисполненные ноги лестницы
+    /// снимаются, если отмены у стены за `W` ÷ размер стены ≥ Q (мера `cxl<W>q<Q>` Г-116, нужен `--tape-log` ≥ W, сборка r2).
+    /// Без ключа вход прежний. Только ключ набора.
+    pub entry_gate: Option<(u32, f64)>,
     /// Номинал стены при касании не меньше стольких долларов (`usd_min=`):
     /// ось «размер стены» поверх пола `--h3-usd` (стены ≥ пола — надмножество,
     /// так что ключ — подмножество тех же касаний).
@@ -62,6 +69,17 @@ pub struct FilterSet {
     /// Г-07 (TK-012): уровней той же стороны в стопке не меньше `n` (`stack_min=<n>`, n ≥ 1; `stack_levels`,
     /// у подхода — `stack_levels_at_arm`). Только ключ набора.
     pub stack_min: Option<u32>,
+    /// Г-136/Г-137 (П-17): прежних рождений на уровне в окне `repeat_window_ms` не меньше `k` (`repeat_min=<k>`, k ≥ 0;
+    /// `TouchRecord::repeat_count`). `repeat_min=0` — контроль Г-136 (пропускает всё, но идентичность набора своя).
+    pub repeat_min: Option<u32>,
+    /// Г-135 (П-17): прочтение А «закола» — снесённый до касания объём не меньше `q` бп размера стены
+    /// (`swept_min=<бп>`, целое ≥ 0): `swept_lots × 10⁴ ≥ q × size_at_touch`. Только ключ набора.
+    pub swept_min_bp: Option<i64>,
+    /// Г-101 (П-17): шаг лестницы входа ×f на касаниях «сильной» половины внутри допуска B1 (`btc4h ≤ T`):
+    /// ключи пары `lreg_t=<bps>` + `lreg_f=<бп>` (f = бп/10⁴ от шага: ¼ = 2500). Без пары — прежний шаг.
+    pub ladder_regime: Option<Regime>,
+    /// Г-101 (П-17): то же для ширины стопа (`sreg_t`, `sreg_f`; стоп `pct<x>`/`s<a>` умножается на f).
+    pub stop_regime: Option<Regime>,
     /// TK-025 (R1): границы колонок пакета R1 на подходе (`r1_<колонка>_min|_max=<целое>`), по
     /// порядку колонок `ArmR1::names()` — порядок в записи `--set` на набор не влияет. Только
     /// ключи набора и только `--signal approach`.
@@ -73,6 +91,19 @@ pub struct FilterSet {
     /// `<ось>_min=` / `<ось>_max=`. Касание без
     /// значения оси при заданной границе выбывает.
     pub ctx: [Range; CTX_AXES.len()],
+}
+
+/// Режим Г-101: на касании с `btc4h ≤ t_bps` параметр формы умножается на `f_bp / 10⁴`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Regime {
+    pub t_bps: f64,
+    pub f_bp: u32,
+}
+
+impl Regime {
+    pub(crate) fn factor(self) -> f64 {
+        f64::from(self.f_bp) / 10_000.0
+    }
 }
 
 /// Границы одной колонки R1 (`r1_<колонка>_min|_max`); `col` — номер в `ArmR1::names()`.
@@ -97,13 +128,16 @@ impl R1Bound {
     }
 }
 
-/// Группа колонок файла режима: `Base` обязательна всегда, `Mid`/`Long` — только если
+/// Группа колонок файла режима: `Base` обязательна всегда, `Mid`/`Long`/`Long9` — только если
 /// наборам нужны оси группы (в прежних файлах `regime.py` колонок нет).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegimeGroup {
     Base,
     Mid,
     Long,
+    /// `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272): колонки дописаны к файлам режима позже `Long` — отдельная группа
+    /// (все три вместе), чтобы счёт по прежним файлам (оси `btc6h`…`btc24h`) не требовал их.
+    Long9,
 }
 
 /// Откуда берётся значение оси контекста.
@@ -178,8 +212,9 @@ const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
 /// `TouchContext` и `RegimeDay`. Оси хода монеты — первые `COIN_AXES`, оси режима —
 /// следом, затем оси по свечам монеты и по цене уровня; новая ось дописывается **в конец реестра**
 /// (режимные идут перед свечами в раскладке `TouchContext`): индексы прежних осей не сдвигаются.
-/// `btc2h`/`btc3h` (E26) и `btc6h`…`btc24h` (Г-10, TK-189) добавлены так же.
-pub(crate) const CTX_SPECS: [CtxAxisSpec; 24] = [
+/// `btc2h`/`btc3h` (E26), `btc6h`…`btc24h` (Г-10, TK-189) и `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272) добавлены так же;
+/// `btc_lag_78s|91s|104s` — F2 П-15 Г-72 (TK-303: промежутки лага 64…118 с по шагу F1/4, целые секунды).
+pub(crate) const CTX_SPECS: [CtxAxisSpec; 30] = [
     coin("ret10m", 0),
     coin("ret1h", 1),
     coin("ret4h", 2),
@@ -193,6 +228,9 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 24] = [
     regime("btc8h", "btc_ret_8h_bps", RegimeGroup::Long),
     regime("btc12h", "btc_ret_12h_bps", RegimeGroup::Long),
     regime("btc24h", "btc_ret_24h_bps", RegimeGroup::Long),
+    regime("btc9h", "btc_ret_9h_bps", RegimeGroup::Long9),
+    regime("btc10h", "btc_ret_10h_bps", RegimeGroup::Long9),
+    regime("btc11h", "btc_ret_11h_bps", RegimeGroup::Long9),
     klines("rng1h", KlineAxis::Rng1h),
     klines("dlow", KlineAxis::DayLowDist),
     CtxAxisSpec {
@@ -207,7 +245,30 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 24] = [
     btc_lag("btc_lag_32s", 32),
     btc_lag("btc_lag_64s", 64),
     btc_lag("btc_lag_118s", 118),
+    btc_lag("btc_lag_78s", 78),
+    btc_lag("btc_lag_91s", 91),
+    btc_lag("btc_lag_104s", 104),
 ];
+
+/// Индекс оси `btc4h` в реестре (Г-101: «сильная» половина режима).
+#[allow(clippy::indexing_slicing)] // const: i < len — условие цикла, n[..5] — после n.len() == 5; ошибка была бы на сборке
+pub(crate) const BTC4H_AXIS: usize = {
+    let mut i = 0;
+    while i < CTX_SPECS.len() {
+        let n = CTX_SPECS[i].name.as_bytes();
+        if n.len() == 5
+            && n[0] == b'b'
+            && n[1] == b't'
+            && n[2] == b'c'
+            && n[3] == b'4'
+            && n[4] == b'h'
+        {
+            break;
+        }
+        i += 1;
+    }
+    i
+};
 
 /// Осей хода монеты (всегда в начале реестра), осей по свечам монеты (всегда в конце) и осей
 /// режима (между ними).
@@ -216,7 +277,7 @@ pub(crate) const KLINE_AXES: usize = 2;
 /// Осей по цене уровня (`RoundDist`) — в реестре после осей по свечам.
 pub(crate) const LEVEL_AXES: usize = 1;
 /// Осей по секундному ряду BTC (`BtcSeconds`, Г-72) — последние в реестре.
-pub(crate) const SEC_AXES: usize = 8;
+pub(crate) const SEC_AXES: usize = 11;
 pub(crate) const REGIME_AXES: usize =
     CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES - SEC_AXES;
 
@@ -275,6 +336,7 @@ pub(crate) fn read_regime_day(
     day: &str,
     need_mid: bool,
     need_long: bool,
+    need_long9: bool,
 ) -> anyhow::Result<RegimeDay> {
     let path = dir.join(format!("{day}.csv"));
     let mut r = csv::ReaderBuilder::new()
@@ -294,6 +356,7 @@ pub(crate) fn read_regime_day(
             RegimeGroup::Base => true,
             RegimeGroup::Mid => need_mid,
             RegimeGroup::Long => need_long,
+            RegimeGroup::Long9 => need_long9,
         };
         cols[slot] = match col(name) {
             Some(i) => Some(i),
@@ -301,7 +364,7 @@ pub(crate) fn read_regime_day(
                 anyhow::bail!("{}: нет колонки {name}", path.display())
             }
             None if need => anyhow::bail!(
-                "{}: нет колонки {name} — оси btc2h…btc24h требуют режим, пересчитанный regime.py",
+                "{}: нет колонки {name} — оси btc2h…btc24h, btc9h…btc11h требуют режим, пересчитанный regime.py",
                 path.display()
             ),
             None => None,
@@ -586,6 +649,11 @@ impl FilterSet {
         self.uses_group(Some(RegimeGroup::Long))
     }
 
+    /// Ключ `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272) задан — нужны колонки `btc_ret_{9,10,11}h_bps`.
+    pub(crate) fn uses_btc_long9(&self) -> bool {
+        self.uses_group(Some(RegimeGroup::Long9))
+    }
+
     /// Хоть один ключ по свечам монеты (`rng1h`/`dlow`) задан — нужен `--klines-from`.
     pub(crate) fn uses_klines(&self) -> bool {
         CTX_SPECS
@@ -638,9 +706,15 @@ impl FilterSet {
             eaten_min_pct: None,
             frontrun_min_lots: None,
             lot_first: None,
+            size_risk: None,
+            entry_gate: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            repeat_min: None,
+            swept_min_bp: None,
+            ladder_regime: None,
+            stop_regime: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }
@@ -672,13 +746,20 @@ impl FilterSet {
             eaten_min_pct: None,
             frontrun_min_lots: None,
             lot_first: None,
+            size_risk: None,
+            entry_gate: None,
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            repeat_min: None,
+            swept_min_bp: None,
+            ladder_regime: None,
+            stop_regime: None,
             r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         };
         let mut seen = std::collections::BTreeSet::new();
+        let (mut reg_t, mut reg_f) = ([None::<f64>; 2], [None::<u32>; 2]);
         for kv in rest.split(',').filter(|s| !s.is_empty()) {
             let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
             anyhow::ensure!(
@@ -741,6 +822,47 @@ impl FilterSet {
                     );
                     set.stack_min = Some(n);
                 }
+                "repeat_min" => {
+                    set.repeat_min =
+                        Some(v.parse().map_err(|e| {
+                            anyhow::anyhow!("--set {spec:?}: repeat_min={v:?}: {e}")
+                        })?);
+                }
+                "swept_min" => {
+                    let q: i64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: swept_min={v:?}: {e}"))?;
+                    anyhow::ensure!(q >= 0, "--set {spec:?}: swept_min={v:?} — целые бп ≥ 0");
+                    set.swept_min_bp = Some(q);
+                }
+                "lreg_t" | "sreg_t" => {
+                    let t: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: {k}={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        t.is_finite(),
+                        "--set {spec:?}: {k}={v:?} — порог bps обязан быть числом"
+                    );
+                    if k == "lreg_t" {
+                        reg_t[0] = Some(t)
+                    } else {
+                        reg_t[1] = Some(t)
+                    }
+                }
+                "lreg_f" | "sreg_f" => {
+                    let f: u32 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: {k}={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        f >= 1,
+                        "--set {spec:?}: {k}={v:?} — множитель в бп ≥ 1 (10000 = ×1, это B1)"
+                    );
+                    if k == "lreg_f" {
+                        reg_f[0] = Some(f)
+                    } else {
+                        reg_f[1] = Some(f)
+                    }
+                }
                 "eaten" => {
                     let pct: f64 = v
                         .parse()
@@ -781,6 +903,39 @@ impl FilterSet {
                     );
                     set.lot_first = Some(k);
                 }
+                "size_risk" => {
+                    let r: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: size_risk={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        r.is_finite() && r > 0.0,
+                        "--set {spec:?}: size_risk={v:?} — риск на сделку, $: конечное число > 0"
+                    );
+                    set.size_risk = Some(r);
+                }
+                "entry_gate" => {
+                    let bad = || {
+                        anyhow::anyhow!(
+                            "--set {spec:?}: entry_gate={v:?} — ожидается cxl<W>q<Q>: окно W > 0 с, порог Q > 0"
+                        )
+                    };
+                    let (ws, qs) = v
+                        .strip_prefix("cxl")
+                        .and_then(|r| r.split_once('q'))
+                        .ok_or_else(bad)?;
+                    let w: u32 = ws.parse().map_err(|_| bad())?;
+                    // `qprobe` — проба порогов: порог недостижим (ворота не закрываются, ход B1 прежний), мера пишется
+                    // в `gate-probe.csv`; в идентичности набора — `qprobe`.
+                    let q: f64 = if qs == "probe" {
+                        f64::INFINITY
+                    } else {
+                        let q: f64 = qs.parse().map_err(|_| bad())?;
+                        anyhow::ensure!(q.is_finite() && q > 0.0, "{}", bad());
+                        q
+                    };
+                    anyhow::ensure!(w > 0, "{}", bad());
+                    set.entry_gate = Some((w, q));
+                }
                 "frontrun" => {
                     anyhow::ensure!(
                         v.is_empty() || v == "1" || v == "true",
@@ -793,7 +948,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|size_risk|entry_gate|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!(
                             "--set {spec:?}: неизвестная ось {axis:?} ({})",
@@ -818,6 +973,27 @@ impl FilterSet {
             }
         }
         set.r1.sort_unstable_by_key(|b| b.col);
+        // Г-101: порог и множитель — парой; режим живёт внутри допуска B1 (ось btc4h в наборе обязана быть задана,
+        // иначе контекст не грузится и «сильная половина» не определена).
+        for (slot, name) in ["lreg", "sreg"].into_iter().enumerate() {
+            #[allow(clippy::indexing_slicing)] // slot ∈ {0, 1}, reg_t/reg_f — массивы по 2
+            let one = match (reg_t[slot], reg_f[slot]) {
+                (None, None) => None,
+                (Some(t_bps), Some(f_bp)) => Some(Regime { t_bps, f_bp }),
+                _ => anyhow::bail!("--set {spec:?}: {name}_t и {name}_f — только парой"),
+            };
+            if one.is_some() {
+                anyhow::ensure!(
+                    set.ctx.get(BTC4H_AXIS).is_some_and(|r| r.is_set()),
+                    "--set {spec:?}: {name}_t/{name}_f работают внутри допуска B1 — задай btc4h_min/btc4h_max"
+                );
+            }
+            if slot == 0 {
+                set.ladder_regime = one
+            } else {
+                set.stop_regime = one
+            }
+        }
         Ok(set)
     }
 
@@ -898,6 +1074,12 @@ pub(crate) struct FilterSpec<'a> {
     pub(crate) usd_min: Option<f64>,
     pub(crate) behind_min_pct: Option<i64>,
     pub(crate) stack_min: Option<u32>,
+    pub(crate) repeat_min: Option<u32>,
+    pub(crate) swept_min_bp: Option<i64>,
+    pub(crate) ladder_regime: Option<Regime>,
+    pub(crate) stop_regime: Option<Regime>,
+    /// Г-81: ворота входа `(W, Q)` — в план сигнала (`PyramidCfg`), не фильтр касаний.
+    pub(crate) entry_gate: Option<(u32, f64)>,
     /// TK-025: границы колонок R1 набора; проверяются `admits_r1` на записи подхода.
     pub(crate) r1: &'a [R1Bound],
     pub(crate) ctx: Option<&'a [TouchContext]>,
@@ -905,6 +1087,13 @@ pub(crate) struct FilterSpec<'a> {
 }
 
 impl<'a> FilterSpec<'a> {
+    /// Г-101: множитель режима `r` на касании `ti`, если его `btc4h ≤ T` («сильная» половина); иначе `None`.
+    pub(crate) fn regime_factor(&self, r: Option<Regime>, ti: usize) -> Option<f64> {
+        let r = r?;
+        let v = self.ctx?.get(ti)?.axes.get(BTC4H_AXIS).copied().flatten()?;
+        (v <= r.t_bps).then(|| r.factor())
+    }
+
     /// Контекст подаётся, только если у набора есть ключи контекста.
     pub(crate) fn of_set(set: &'a FilterSet, ctx: &'a [TouchContext]) -> Self {
         Self {
@@ -919,6 +1108,11 @@ impl<'a> FilterSpec<'a> {
             usd_min: set.usd_min,
             behind_min_pct: set.behind_min_pct,
             stack_min: set.stack_min,
+            repeat_min: set.repeat_min,
+            swept_min_bp: set.swept_min_bp,
+            ladder_regime: set.ladder_regime,
+            stop_regime: set.stop_regime,
+            entry_gate: set.entry_gate,
             r1: &set.r1,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
@@ -938,6 +1132,8 @@ pub(crate) struct AdmitRow {
     price_tick: i64,
     depth_behind_lots: i64,
     stack_levels: u32,
+    repeat_count: u32,
+    swept_lots: i64,
     eaten_pct: f64,
 }
 
@@ -953,6 +1149,8 @@ impl AdmitRow {
             price_tick: t.price_tick,
             depth_behind_lots: t.depth_behind_lots,
             stack_levels: t.stack_levels,
+            repeat_count: t.repeat_count,
+            swept_lots: t.swept_lots,
             eaten_pct: eaten_pct(t),
         }
     }
@@ -1064,6 +1262,14 @@ impl<'a> TouchFilter<'a> {
         if self.spec.stack_min.is_some_and(|n| t.stack_levels < n) {
             return false;
         }
+        if self.spec.repeat_min.is_some_and(|k| t.repeat_count < k) {
+            return false;
+        }
+        if self.spec.swept_min_bp.is_some_and(|q| {
+            i128::from(t.swept_lots) * 10_000 < i128::from(q) * i128::from(t.size_at_touch)
+        }) {
+            return false;
+        }
         // Контекст (S4): ход до касания и режим — вне границ набора или
         // без значения при заданной границе — не вход.
         if let Some(ctx) = self.spec.ctx {
@@ -1130,6 +1336,14 @@ impl<'a> TouchFilter<'a> {
             return false;
         }
         if self.spec.stack_min.is_some_and(|n| r.stack_levels < n) {
+            return false;
+        }
+        if self.spec.repeat_min.is_some_and(|k| r.repeat_count < k) {
+            return false;
+        }
+        if self.spec.swept_min_bp.is_some_and(|q| {
+            i128::from(r.swept_lots) * 10_000 < i128::from(q) * i128::from(r.size_at_touch)
+        }) {
             return false;
         }
         if let Some(ctx) = self.spec.ctx {

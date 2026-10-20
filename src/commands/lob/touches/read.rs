@@ -331,6 +331,7 @@ pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<
         stack_levels_at_arm: optional_column_index(&header, "stack_levels_at_arm"),
         frontrun_lots_at_arm: optional_column_index(&header, "frontrun_lots_at_arm"),
         stack_span_bps_at_arm: optional_column_index(&header, "stack_span_bps_at_arm"),
+        repeat_count_at_arm: optional_column_index(&header, "repeat_count_at_arm"),
         p08: {
             let cols = [
                 optional_column_index(&header, "traded_lots_at_arm"),
@@ -383,6 +384,8 @@ struct ApproachCols {
     frontrun_lots_at_arm: Option<usize>,
     /// `None` — кэш до TK-206 (Г-98); читается нулём.
     stack_span_bps_at_arm: Option<usize>,
+    /// `None` — кэш до TK-279 (Г-136/137); читается нулём.
+    repeat_count_at_arm: Option<usize>,
     /// Колонки `ArmP08` (TK-012) по порядку `APPROACHES_COLUMNS`; `None` — кэш до
     /// TK-012 (нет хоть одной), тогда `ApproachRecord::p08 = None`.
     p08: Option<[usize; 6]>,
@@ -434,6 +437,10 @@ impl ApproachCols {
             },
             stack_span_bps_at_arm: match self.stack_span_bps_at_arm {
                 Some(c) => csv_int(rec, c)?,
+                None => 0,
+            },
+            repeat_count_at_arm: match self.repeat_count_at_arm {
+                Some(c) => u32::try_from(csv_int(rec, c)?)?,
                 None => 0,
             },
             p08: match self.p08 {
