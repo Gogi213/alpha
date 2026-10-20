@@ -432,6 +432,9 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::SyncBasis(_) => {
             panic!("разобралась не та подкоманда")
         }
+        crate::commands::lob::LobCommand::TouchesProject(_) => {
+            panic!("разобралась не та подкоманда")
+        }
     }
 }
 
