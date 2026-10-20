@@ -53,3 +53,7 @@
 {"name": "entry", "unit": "", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "П-17 Г-135: вход — B1-лестница или postsweep<R> (R bps)"}
 {"name": "A_min", "unit": "min", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-136: возраст стены не больше A (agemax = A·60 с)"}
 {"name": "k", "unit": "", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-136/137: repeat_count ≥ k (Г-136: k=0 — контроль)"}
+{"name": "gap_bps", "unit": "bps", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-108: зазор под уровнем, целые bps (forms.rs: u32)"}
+{"name": "secs", "unit": "с", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-108: окно возврата, целые секунды ≥ 1 (forms.rs: u32; П-14 §3.3: 1 с)"}
+{"name": "half_min", "unit": "мин", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-102: полураспад, целые минуты (имя retreat<k>t<T>)"}
+{"name": "btc_lag_s", "unit": "с", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-72: лаг хода BTC, целые секунды (--btc-seconds)"}

@@ -212,8 +212,9 @@ const fn klines(name: &'static str, axis: KlineAxis) -> CtxAxisSpec {
 /// `TouchContext` и `RegimeDay`. Оси хода монеты — первые `COIN_AXES`, оси режима —
 /// следом, затем оси по свечам монеты и по цене уровня; новая ось дописывается **в конец реестра**
 /// (режимные идут перед свечами в раскладке `TouchContext`): индексы прежних осей не сдвигаются.
-/// `btc2h`/`btc3h` (E26), `btc6h`…`btc24h` (Г-10, TK-189) и `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272) добавлены так же.
-pub(crate) const CTX_SPECS: [CtxAxisSpec; 27] = [
+/// `btc2h`/`btc3h` (E26), `btc6h`…`btc24h` (Г-10, TK-189) и `btc9h`/`btc10h`/`btc11h` (Г-10, TK-272) добавлены так же;
+/// `btc_lag_78s|91s|104s` — F2 П-15 Г-72 (TK-303: промежутки лага 64…118 с по шагу F1/4, целые секунды).
+pub(crate) const CTX_SPECS: [CtxAxisSpec; 30] = [
     coin("ret10m", 0),
     coin("ret1h", 1),
     coin("ret4h", 2),
@@ -244,6 +245,9 @@ pub(crate) const CTX_SPECS: [CtxAxisSpec; 27] = [
     btc_lag("btc_lag_32s", 32),
     btc_lag("btc_lag_64s", 64),
     btc_lag("btc_lag_118s", 118),
+    btc_lag("btc_lag_78s", 78),
+    btc_lag("btc_lag_91s", 91),
+    btc_lag("btc_lag_104s", 104),
 ];
 
 /// Индекс оси `btc4h` в реестре (Г-101: «сильная» половина режима).
@@ -273,7 +277,7 @@ pub(crate) const KLINE_AXES: usize = 2;
 /// Осей по цене уровня (`RoundDist`) — в реестре после осей по свечам.
 pub(crate) const LEVEL_AXES: usize = 1;
 /// Осей по секундному ряду BTC (`BtcSeconds`, Г-72) — последние в реестре.
-pub(crate) const SEC_AXES: usize = 8;
+pub(crate) const SEC_AXES: usize = 11;
 pub(crate) const REGIME_AXES: usize =
     CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES - SEC_AXES;
 

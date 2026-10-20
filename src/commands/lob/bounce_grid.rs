@@ -748,9 +748,13 @@ impl<'a> GridRun<'a> {
             let ctx = touch_contexts(&day.rets, &day.touches, regime, kline_ctx, btc_sec_ctx);
             if btc_sec_ctx.is_some() {
                 // Г-72, договор Судьи п.7: касание вне ряда — без значения оси (не 0), счётчик в отчёт
+                let lag = sets::CTX_AXES
+                    .iter()
+                    .position(|n| *n == "btc_lag_118s")
+                    .unwrap_or(usize::MAX);
                 let none = ctx
                     .iter()
-                    .filter(|c| c.axes.last().is_some_and(Option::is_none))
+                    .filter(|c| c.axes.get(lag).is_some_and(Option::is_none))
                     .count();
                 eprintln!(
                     "bounce-grid: {symbol} {}: btc_lag_118s без значения у {none} из {} касаний",

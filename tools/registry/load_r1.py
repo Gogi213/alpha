@@ -11,10 +11,16 @@ import cellhash as ch, db, master
 ap = argparse.ArgumentParser(); ap.add_argument("csv"); ap.add_argument("--run", required=True); ap.add_argument("--dry", action="store_true")
 ap.add_argument("--which", required=True, choices=("r1x", "r1col", "g134"))
 ap.add_argument("--protocol", default="P-14", help="протокол (TK-274: P-15, Г-134)")
+ap.add_argument("--fraction", type=int, default=1, help="доля плана (TK-303: 2 = F2 Г-134)")
+ap.add_argument("--f1-py", help="TK-303: файл .py с f1() — сито F1 для сетки F2 (tools/compute/tk303-f2-plan.py)")
 ns = ap.parse_args()
 c = master.connect()
 rules = master.rules_of(c, ns.protocol)
-grids, _ = master.build_grid(c, ns.protocol, 1, None, rules)   # заполняет master.R1X / R1COL
+f1 = None
+if ns.f1_py:
+    import importlib.util as iu
+    sp = iu.spec_from_file_location("f1src", ns.f1_py); f1m = iu.module_from_spec(sp); sp.loader.exec_module(f1m); f1 = f1m.f1()
+grids, _ = master.build_grid(c, ns.protocol, ns.fraction, None, rules, f1)   # заполняет master.R1X / R1COL
 c.close()
 want = ({ch.cell_hash(cfg) for av, cfg in grids.get("Г-134", [])} if ns.which == "g134"   # TK-274: Г-134 (П-15) ни в R1X, ни в R1COL — отбор r1cell --hist own
         else set(master.R1X if ns.which == "r1x" else master.R1COL))

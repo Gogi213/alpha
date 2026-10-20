@@ -19,7 +19,7 @@ import re
 import sys
 from collections import Counter
 
-LAGS = (1, 2, 4, 8, 16, 32, 64, 118)
+LAGS = (1, 2, 4, 8, 16, 32, 64, 118, 78, 91, 104)   # 78/91/104 — окрестность зоны 118 с (П-15 F2, TK-303)
 QUANTILES = (5, 10, 20, 33, 50, 67, 80, 90, 95)
 DAY_S = 86_400
 
@@ -97,7 +97,11 @@ def main():
     p.add_argument("--from", dest="first", default="2026-01")
     p.add_argument("--to", dest="last", default="2026-09")
     p.add_argument("--out", required=True)
+    p.add_argument("--all-q", action="store_true", help="все целые q 1..99 (П-15 F2: разрешимость 1); без флага — прежние 9")
     a = p.parse_args()
+    if a.all_q:
+        global QUANTILES
+        QUANTILES = tuple(range(1, 100))
     res = expanding(month_counts(a.btc_seconds, a.first, a.last))
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(res, f, ensure_ascii=False, sort_keys=True, indent=1)
