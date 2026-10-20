@@ -12,6 +12,7 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
+from sched_cfg import (LIVE_EXTEND_S, LIVE_LEAD_S, LIVE_CHECK_S, LIVE_CPU_MIN, LIVE_CPU_BUSY)   # noqa: F401 — TK-334
 from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, MIN_FREE_GB, FREE_PATHS)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
@@ -97,6 +98,7 @@ class Core:
         for j in self.running("prod"):                    # бюджет max_runtime — время БЕЗ заморозки
             if not self.frozen and not j.get("frozen_for"):
                 j["active_s"] = j.get("active_s", 0) + dt
+            self._extend_live(j, now)
             if j["active_s"] > j["max_runtime"]:
                 j["kill_why"] = "снят демоном: бюджет max-runtime (активное время) вышел"
                 be.kill(j)
@@ -105,6 +107,43 @@ class Core:
             if now - j["t_start"] > j["max_runtime"]:
                 j["kill_why"] = "снят демоном: бюджет max-runtime замера (стена) вышел"
                 be.kill(j)
+
+    def _extend_live(self, j, now):
+        """TK-334 (В-52): за LIVE_LEAD_S до конца бюджета — окно LIVE_CHECK_S замера живости; живо (ЦП ≥ LIVE_CPU_MIN заявки и либо ≥ LIVE_CPU_BUSY,
+        либо растёт диск юнита / свежие файлы) → max_runtime += LIVE_EXTEND_S и RuntimeMaxSec юнита следом; не живо → снимется по лимиту как раньше."""
+        be = self.be
+        if not LIVE_EXTEND_S or not hasattr(be, "live_probe"):
+            return
+        if self.frozen or j.get("frozen_for") or j["max_runtime"] - j.get("active_s", 0) > LIVE_LEAD_S:
+            j.pop("live_snap", None)                      # заморозка искажает окно ЦП — отсчёт заново
+            return
+        snap = j.get("live_snap")
+        if snap and now - snap[0] < LIVE_CHECK_S:
+            return
+        p = be.live_probe(j)
+        if not snap:
+            j["live_snap"] = [now, p["cpu"], p["io"]]
+            return
+        win = now - snap[0]
+        cpu = (p["cpu"] - snap[1]) / (win * max(j["cores"], 1))
+        io, fresh = p["io"] - snap[2], p["mt"] is not None and now - p["mt"] <= win
+        facts = f"ЦП {cpu * 100:.0f} % заявки за {win / 60:.0f} мин, диск +{io / 1e6:.0f} МБ, свежие файлы {'да' if fresh else 'нет'}"
+        if cpu >= LIVE_CPU_MIN and (cpu >= LIVE_CPU_BUSY or io > 0 or fresh):
+            n = j.get("live_ext", 0) + 1
+            j["max_runtime"] += LIVE_EXTEND_S
+            if be.extend_live(j, j["max_runtime"] - j.get("active_s", 0)) is False:     # юнит срок не принял — не врать «продлён»
+                j["max_runtime"] -= LIVE_EXTEND_S
+                j["live_snap"] = [now, p["cpu"], p["io"]]
+                be.alert(f"ЛИМИТ НЕ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: живо ({facts}), но systemd не принял новый срок; снимется по max_runtime")
+                return
+            j["live_ext"] = n
+            j.pop("live_snap"); j.pop("live_no", None)
+            be.alert(f"ЛИМИТ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: живо ({facts}); max_runtime +{LIVE_EXTEND_S} с → {int(j['max_runtime'])} с, продление {n}")
+        else:
+            if not j.get("live_no"):
+                j["live_no"] = True
+                be.alert(f"ЛИМИТ НЕ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: не живо ({facts}); снимется по max_runtime")
+            j["live_snap"] = [now, p["cpu"], p["io"]]
 
     def _reap(self, now):
         be = self.be
@@ -804,6 +843,15 @@ class SystemdBackend:
         el = self.now() - j["t_start"]
         sh("systemctl", "set-property", "--runtime", self.unit(j), f"RuntimeMaxSec={int(el + max(remaining, 1))}")
 
+    def extend_live(self, j, remaining):
+        """TK-334: systemd 257 на calc не меняет RuntimeMaxSec идущего юнита через set-property («unknown property», проба 21.10) —
+        drop-in в /run/systemd/transient/<юнит>.service.d + daemon-reload пересчитывает срок (от старта юнита по стене, как в extend)."""
+        d = f"/run/systemd/transient/{self.unit(j)}.service.d"
+        os.makedirs(d, exist_ok=True)
+        with open(f"{d}/50-live.conf", "w") as f:
+            f.write("[Service]\nRuntimeMaxSec=%d\n" % int(self.now() - j['t_start'] + max(remaining, 1)))
+        return sh("systemctl", "daemon-reload").returncode == 0
+
     def arm_failsafe(self, secs):
         """аренда с TTL: если демон умрёт при замороженном производстве — таймер сам разморозит."""
         sh("systemctl", "stop", "alpha-sm-failsafe.timer")
@@ -884,6 +932,25 @@ class SystemdBackend:
 
     def job_cpu(self, j):
         return self.unit_cpu_io(j)[0]
+
+    def live_probe(self, j):
+        """TK-334: срез живости — ЦП-секунды и прочитанные байты юнита, самая свежая mtime логов/каталога выхода/рабочего каталога (верхний уровень, ≤ 500 записей)."""
+        c, rb, _ = self.unit_cpu_io(j)
+        mt = None
+        for d in (f"{DIR}/logs/{j['id']}.log", f"{RUNS_DIR}/{j['id']}", j.get("cwd")):
+            if not d or d == "/":
+                continue
+            try:
+                mt = max(mt or 0, os.stat(d).st_mtime)
+                if os.path.isdir(d):
+                    with os.scandir(d) as it:
+                        for k, e in enumerate(it):
+                            if k >= 500:
+                                break
+                            mt = max(mt, e.stat().st_mtime)
+            except OSError as e:
+                warn_once("live-probe-stat", f"live_probe: {d} не прочитан ({e}) — свежесть файлов по остальным путям")
+        return dict(cpu=c, io=rb, mt=mt)
 
     def waiting_tickets(self):
         """Тикеты, ждущие вычислений: строки файла DIR/waiting_tickets (пишет CEO/диспетчер); файла нет — никто."""

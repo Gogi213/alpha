@@ -29,3 +29,8 @@ OVERBOOK_MAX = int(os.environ.get("SCHED_OVERBOOK_MAX", "15"))   # TK-295 (В-34
 GATE_FIT = os.environ.get("SCHED_GATE_FIT", "1") != "0"   # TK-300 (В-40): gate/build — на RESERVE_CORES (16-е ядро) СВЕРХ 15 ядер prod, сжимаются до резерва (max_runtime растёт), prod не вытесняют и не замораживают; 0 = как до TK-300 (задать и SCHED_RESERVE_CORES=3)
 MIN_FREE_GB = float(os.environ.get("SCHED_MIN_FREE_GB", "20"))   # TK-304 (В-44): свободно на FREE_PATHS меньше — prod из очереди не стартует (идущие не трогаем), строка в alerts.log; 20 = порог vps-check sweep; 0 = выкл.
 FREE_PATHS = [p for p in os.environ.get("SCHED_FREE_PATHS", "/data").split(":") if p]   # TK-304: куда пишут прогоны calc (диск sdb); ENOSPC 18.10 13:55 — 0 МБ свободно, 15 ядер упёрлись в запись
+LIVE_EXTEND_S = int(os.environ.get("SCHED_LIVE_EXTEND_S", "3600"))   # TK-334 (В-52): живое задание перед концом max_runtime продлевается на это окно; 0 = выкл. (снимать по лимиту как раньше)
+LIVE_LEAD_S = int(os.environ.get("SCHED_LIVE_LEAD_S", "900"))       # проверка живости — за столько секунд до конца бюджета
+LIVE_CHECK_S = int(os.environ.get("SCHED_LIVE_CHECK_S", "300"))     # окно замера живости: снимок в начале, вердикт через столько секунд
+LIVE_CPU_MIN = float(os.environ.get("SCHED_LIVE_CPU_MIN", "0.02"))   # доля заявленных ядер в окне, ниже которой задание «не живо» (история calc: честные длинные 0,03–0,04, зависшее 0,00)
+LIVE_CPU_BUSY = float(os.environ.get("SCHED_LIVE_CPU_BUSY", "0.5"))  # от этой доли ЦП живость доказана без файлов/диска (медиана честных заданий 0,38; доказательство — считает всерьёз)
