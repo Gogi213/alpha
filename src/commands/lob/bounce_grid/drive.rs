@@ -316,6 +316,7 @@ fn exit_groups(
     let groups = entry_groups(forms);
     let cfg = DriveConfig {
         tape_log_secs: p.tape_log_secs,
+        tape_log_ws: p.tape_log_ws,
         order_qty: 0.0,
         first_order_id: 1,
         queue_model: p.queue_model,
@@ -617,6 +618,8 @@ pub(super) struct DayParams<'a> {
     pub(super) hold_skip: bool,
     /// Окно журнала ленты (`--tape-log W`, TK-115 Г-112), секунды; 0 — выключено. Идёт в `DriveConfig`.
     pub(super) tape_log_secs: u32,
+    /// Окна журнала ленты за один проход (`--tape-log-ws`, TK-272); 0 — слот не занят. Идёт в `DriveConfig`.
+    pub(super) tape_log_ws: [u32; crate::lob::backtest::TAPE_WS_MAX],
     /// Группы выходов (`--exit-group on`, Э-08): предсчёт кругов группы в память форм.
     pub(super) exit_group: bool,
     /// Размер круга на каждое касание суток (тот же порядок, что `touches`):
@@ -743,6 +746,7 @@ pub(super) fn drive_day(
                 }
                 let cfg = DriveConfig {
                     tape_log_secs: p.tape_log_secs,
+                    tape_log_ws: p.tape_log_ws,
                     // R2: размер несёт каждый сигнал (`BounceSignal::qty`,
                     // `signals_for`); размер прогона сетке не нужен.
                     order_qty: 0.0,

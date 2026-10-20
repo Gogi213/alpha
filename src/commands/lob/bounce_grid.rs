@@ -472,6 +472,10 @@ impl<'a> GridRun<'a> {
         let args = self.args;
         let queue_model = self.queue_model;
         let threads = self.threads;
+        let mut tape_ws = crate::lob::backtest::NO_TAPE_WS;
+        for (d, &w) in tape_ws.iter_mut().zip(args.tape_log_ws.iter()) {
+            *d = w;
+        }
         let band_exit_bps = self.band_exit_bps;
         let need_regime = self.need_regime;
         let need_ret = self.need_ret;
@@ -719,6 +723,7 @@ impl<'a> GridRun<'a> {
                             &day.day,
                             sets.iter().any(FilterSet::uses_btc_mid),
                             sets.iter().any(FilterSet::uses_btc_long),
+                            sets.iter().any(FilterSet::uses_btc_long9),
                         )?,
                     );
                 }
@@ -1006,6 +1011,7 @@ impl<'a> GridRun<'a> {
                             busy_skip: args.busy_skip == "on",
                             hold_skip: args.hold_step == "skip",
                             tape_log_secs: args.tape_log.unwrap_or(0),
+                            tape_log_ws: tape_ws,
                             exit_group: args.exit_group == "on",
                             order_qtys: &set_qtys,
                             threads,

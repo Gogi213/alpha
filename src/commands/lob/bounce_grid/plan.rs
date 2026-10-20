@@ -564,6 +564,20 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
         args.tape_log.is_none() || crate::lob::strategy::R2,
         "--tape-log: журнал ленты только в сборке с feature r2"
     );
+    anyhow::ensure!(
+        args.tape_log_ws.is_empty() || crate::lob::strategy::R2,
+        "--tape-log-ws: журнал ленты только в сборке с feature r2"
+    );
+    anyhow::ensure!(
+        args.tape_log_ws.is_empty() || args.tape_log.is_none(),
+        "--tape-log-ws вместо --tape-log, не вместе"
+    );
+    anyhow::ensure!(
+        args.tape_log_ws.len() <= crate::lob::backtest::TAPE_WS_MAX
+            && args.tape_log_ws.iter().all(|&w| w > 0),
+        "--tape-log-ws: до {} окон W > 0 секунд",
+        crate::lob::backtest::TAPE_WS_MAX
+    );
     let ring_need = forms
         .iter()
         .filter_map(|f| match f.exit_form {
@@ -594,6 +608,7 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             args.p08_cols,
             args.r1_cols,
             args.tape_log.is_some(),
+            &args.tape_log_ws,
             args.touch_col,
             forms
                 .iter()

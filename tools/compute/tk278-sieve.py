@@ -62,6 +62,8 @@ for m in range(1, 10):
     b1d = load(f"/data/p12r3a/closes-sym-b1-cap0-{mo}.json")
     f1 = load(f"/data/tk0196/psim/closes-sym-f1-cap0-{mo}.json")
     for k, v in load(f"/data/p12r3a/closes-sym-r2b-cap0-{mo}.json").items(): f1.setdefault(k, v)
+    for tpl in filter(None, os.environ.get("EXTRA_SYM", "").split(":")):   # TK-272: closes с монетой F2 (run2), {mo} = месяц
+        for k, v in load(tpl.format(mo=mo)).items(): f1.setdefault(k, v)
     for s in ("e", "k"):
         for k, v in load(f"{P}/psim/closes-sym-{s}-cap0-{mm}.json").items(): f1.setdefault(k, v)
     mm_d = {}

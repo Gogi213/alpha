@@ -379,6 +379,15 @@ pub struct BounceGridArgs {
     /// `tape_press_lots` (лоты за `W` с до исполнения входа). Без флага кольцо выключено, файлы и числа прежние.
     #[arg(long = "tape-log", value_name = "SECS")]
     pub tape_log: Option<u32>,
+    /// TK-272: журнал ленты по нескольким окнам за один проход — в `rounds.csv` колонки `tape_press_lots_w<W>` (лоты за
+    /// `W` с до исполнения входа) для каждого `W` списка (до 16, через запятую). Вместо `--tape-log` (не вместе); формы
+    /// `tape<W>q<Q>`/`cxl` и `entry_gate` не обслуживает. Только сборка с feature r2. Без флага файлы прежние.
+    #[arg(
+        long = "tape-log-ws",
+        value_name = "SECS,SECS,...",
+        value_delimiter = ','
+    )]
+    pub tape_log_ws: Vec<u32>,
     /// П-19 (TK-291): дописать в конец `rounds.csv` столбец `touch_index` (номер касания уровня подхода сигнала круга —
     /// `ApproachRecord.approach_index`). Только запись: исполнение и прежние столбцы те же. Без флага файлы байт в байт прежние.
     #[arg(long = "touch-col", default_value_t = false)]
