@@ -594,17 +594,19 @@ def hyp_view(cfg=None, cov=None):
         hy_of[r["hash"]].add(r["hyp"])
     ok = collections.defaultdict(set)
     f2 = collections.defaultdict(lambda: {"n": 0, "ok": 0, "plat": 0, "edge": 0})
+    f3n = 0
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
             if d.get("fraction") == 2 and (d.get("trades") or d.get("days")):   # сито F2: итог по посчитанным хешам (годна / плато)
                 s = f2[d["hyp"]]
                 s["n"] += 1; s["ok"] += d.get("eligible", 0); s["plat"] += d.get("plateau", 0); s["edge"] += d.get("edge", 0) and d.get("plateau", 0)
+            f3n += (d.get("fraction") or 0) >= 3
             if d.get("eligible"):
                 for hy in hy_of.get(d["cell_hash"], ()):
                     ok[hy].add(d["cell_hash"])
     rows = [json.loads(l) for l in open(os.path.join(REG, "hypotheses.jsonl"), encoding="utf-8") if l.strip()]
-    return hyps.view(rows, cov, cfg["months"], [(r, OFF_LABELS[r]) for r in OFF_ROUTES], hyps.load_texts(), {h: len(v) for h, v in ok.items()}, dict(f2))
+    return hyps.view(rows, cov, cfg["months"], [(r, OFF_LABELS[r]) for r in OFF_ROUTES], hyps.load_texts(), {h: len(v) for h, v in ok.items()}, dict(f2), f3n)
 
 
 def hash_metrics_file():

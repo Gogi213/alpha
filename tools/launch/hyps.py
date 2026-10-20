@@ -76,21 +76,25 @@ def classify(h, cells, nmon, off_labels):
     return "wait", "В сетку F1 не вошла" + (f"; в пуле: {pool}" if pool else ""), f1
 
 
-def view(hyps, cov, months, off_labels, texts=None, sieve_ok=None, f2=None):
+def view(hyps, cov, months, off_labels, texts=None, sieve_ok=None, f2=None, f3n=0):
     """Строки вкладки: id, класс, заголовок (техн.), простыми словами, статус и причина, F1, число хешей Летописи.
     off_labels — [(маршрут, подпись)] в порядке OFF_ROUTES; sieve_ok — {гипотеза: число хешей, прошедших сито}."""
     texts = texts or {}
     sieve_ok = sieve_ok or {}
-    f2 = f2 or {}   # {гипотеза: {n, ok, plat}} — сито F2 по sieve.jsonl (fraction=2)
+    f2 = f2 or {}   # {гипотеза: {n, ok, plat}} — сито F2 по sieve.jsonl (fraction=2); f3n — строк сита F3
     out = []
     for h in hyps:
         ext = h.get("ext", {})
         cells = cov.get(h["id"], {}).get("cells", [])
         st, why, f1 = classify(h, cells, len(months), off_labels)
+        s2 = f2.get(h["id"])
+        if s2:
+            why += f"; в Летописи также F2: {s2['n']} хеш."   # счётчик «В реестре» видит и F2 (TK-303, Судья 20.10)
         t = texts.get(h["id"]) or {}
         method = ext.get("class") == "method"
         out.append({"id": h["id"], "cls": "Методы" if method else h.get("family", "").capitalize(), "title": h.get("title", ""),
                     "what": t.get("what") or "", "why_text": t.get("why") or "", "mech": ext.get("mechanism", ""),
-                    "status": st, "why": why, "f1": f1, "elig": sieve_ok.get(h["id"], 0), "f2": f2.get(h["id"]), "pool": clean(ext.get("status_pool_0925"), 400)})
+                    "status": st, "why": why, "f1": f1, "elig": sieve_ok.get(h["id"], 0), "f2": s2, "pool": clean(ext.get("status_pool_0925"), 400)})
     out.sort(key=lambda r: (CLASSES.index(r["cls"]) if r["cls"] in CLASSES else len(CLASSES), int((re.search(r"\d+", r["id"]) or [0])[0])))
-    return {"status": [list(s) for s in STATUS], "rows": out, "texts_n": sum(1 for r in out if r["what"])}
+    return {"status": [list(s) for s in STATUS], "rows": out, "texts_n": sum(1 for r in out if r["what"]),
+            "fr": {"f2_hyps": len(f2), "f2_n": sum(x["n"] for x in f2.values()), "f3_n": f3n}}
