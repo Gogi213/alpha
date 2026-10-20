@@ -2,7 +2,7 @@
 """TK-328, П-22 §4: замер синхронизации и базиса спот/фьюч. Запуск на calc. Прогоняет `lob sync-basis` по
 (месяц × монета × сутки) и сводит в <OUT>/sync-basis.json + sync-basis-raw.csv + sync-basis.done.
 Выбор монет как в tk313-u-measure: пересечение спота и фьючерса, равномерно по отсортированному списку.
-Использование: tk328-sync-measure.py <OUT> [<бинарник>] [<потоков>]."""
+Использование: sync-measure.py <OUT> [<бинарник>] [<потоков>]."""
 import csv, glob, json, math, os, statistics, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 

@@ -1,4 +1,4 @@
-"""TK-328 §4.4: доля сделок B1 фьюча (t0->exit), пересекающих funding 00/08/16 UTC. Запуск на calc: python3 tk328-funding.py"""
+"""TK-328 §4.4: доля сделок B1 фьюча (t0->exit), пересекающих funding 00/08/16 UTC. Запуск на calc: python3 funding.py"""
 import csv, glob
 B1F = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 H8 = 8 * 3600 * 10**9
