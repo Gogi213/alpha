@@ -21,5 +21,8 @@ for V in orig proj; do
     --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000 \
     --order-usd 100 --stop-form behind --take-form 1to1 --deadline-secs 600 --threads 3 --out-dir "$OUT/grid-$V"
 done
-for f in rounds.csv forms.csv; do cmp "$OUT/grid-orig/$f" "$OUT/grid-proj/$f" && echo "GATE2 $f: байт в байт ($(wc -l < "$OUT/grid-orig/$f") строк)"; done
+# строка «# lob bounce-grid: …» несёт путь входа (orig/proj) — сравнивается тело без комментариев
+for f in rounds.csv forms.csv; do
+  cmp <(grep -v '^#' "$OUT/grid-orig/$f") <(grep -v '^#' "$OUT/grid-proj/$f") && echo "GATE2 $f: байт в байт ($(grep -vc '^#' "$OUT/grid-orig/$f") строк)"
+done
 echo "touches строк: $(wc -l < "$OUT/orig/$DAY/touches-$SYM.csv")"
