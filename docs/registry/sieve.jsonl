@@ -1504,3 +1504,12 @@
 {"protocol": "P-15", "fraction": 2, "hyp": "Г-102", "cell_hash": "f13e6b4026d8f060", "side": "A", "p": 0.1545, "trades": 709, "days": 209, "eligible": 1, "plateau": 1, "edge": 1, "rule_version": "P-15@r2"}
 {"protocol": "P-15", "fraction": 2, "hyp": "Г-102", "cell_hash": "099a7fdd725aa7d9", "side": "A", "p": 0.123, "trades": 707, "days": 209, "eligible": 1, "plateau": 1, "edge": 1, "rule_version": "P-15@r2"}
 {"protocol": "P-15", "fraction": 2, "hyp": "Г-102", "cell_hash": "cf8d0e6710b516ef", "side": "A", "p": 0.123, "trades": 707, "days": 209, "eligible": 1, "plateau": 1, "edge": 1, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "2d137095eade630b", "side": "A", "p": 1.0, "trades": 159, "days": 104, "eligible": 0, "plateau": 0, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "e85b68e134592ba2", "side": "A", "p": 1.0, "trades": 204, "days": 118, "eligible": 0, "plateau": 0, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "e7fec52f55390573", "side": "A", "p": 1.0, "trades": 221, "days": 125, "eligible": 0, "plateau": 0, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "588639b8fcde781c", "side": "A", "p": 0.085, "trades": 279, "days": 140, "eligible": 1, "plateau": 1, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "6323b83ee567119d", "side": "A", "p": 0.1112, "trades": 331, "days": 149, "eligible": 1, "plateau": 1, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "63234f62d941831c", "side": "A", "p": 0.1282, "trades": 361, "days": 157, "eligible": 1, "plateau": 1, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "f90dc8aa4c2b29e3", "side": "A", "p": 0.1037, "trades": 431, "days": 170, "eligible": 1, "plateau": 1, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "c059ea248b86e01f", "side": "A", "p": 0.1657, "trades": 462, "days": 175, "eligible": 1, "plateau": 0, "edge": 0, "rule_version": "P-15@r2"}
+{"protocol": "P-15", "fraction": 2, "hyp": "Г-134", "cell_hash": "326dc951fdf393f0", "side": "A", "p": 1.0, "trades": 521, "days": 186, "eligible": 0, "plateau": 0, "edge": 0, "rule_version": "P-15@r2"}
