@@ -19,7 +19,9 @@ LIMIT = int(sys.argv[sys.argv.index("--limit-days") + 1]) if "--limit-days" in s
 BIN = "/opt/alpha-compute/bin/alpha-tk312-pgo"
 B1F = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 MONS = {"01": "jan", "02": "feb", "03": "mar", "04": "apr", "05": "may", "06": "jun", "07": "jul", "08": "aug", "09": "sep"}
-isA = lambda s: int(hashlib.sha256(s.encode()).hexdigest(), 16) % 2 == 0
+HALF_B = os.environ.get("TK327_HALF") == "B"   # П-23 (TK-331): проверка на половине B; порог не пересчитывается
+NOTAPE = os.environ.get("TK327_NOTAPE") == "1"  # без ленты: нужны только σ240/net (П-23)
+isA = lambda s: (int(hashlib.sha256(s.encode()).hexdigest(), 16) % 2 == 0) != HALF_B
 DELTAS = (1, 5, 30)
 
 
