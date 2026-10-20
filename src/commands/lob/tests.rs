@@ -461,6 +461,7 @@ fn lob_help_lists_all_subcommands() {
         "session",
         "sync-basis",
         "touches",
+        "touches-project",
         "trades",
         "validate",
         "verify",
