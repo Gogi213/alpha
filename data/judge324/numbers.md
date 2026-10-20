@@ -1,5 +1,6 @@
-# TK-324 числа, сверенные Судьёй (20.10)
-- results.jsonl R-20261020-002: 153 строки = 17 клеток × 9 мес., cell_id ⊂ cells.jsonl.
-- S0 (в) Σ$ по registry −1516,4 = finding −1516; мес.>0 3/9 = finding.
-- Лучшая g-s100-u3 (71ec6b24) Σ −4,6 = finding; max мес.>0 по всем клеткам 4/9 = finding «не выше 4/9».
-- ctl-nn = s0 (−1516,4) = finding.
+| число | файл:строка |
+|---|---|
+| S0 (в) Σ$ −1516, 3/9 мес. (registry Σ −1516,4) | docs/findings/tk313-spot-tariff-v47-2026-10-20.md:16 |
+| лучшая g-s100-u3 (в) Σ$ −4,6 | docs/findings/tk313-spot-tariff-v47-2026-10-20.md:20 |
+| results (в) 153 = 17×9, первая строка run | docs/registry/results.jsonl:7779 |
+| run R-20261020-002 в Летописи | docs/registry/runs.jsonl:575 |
