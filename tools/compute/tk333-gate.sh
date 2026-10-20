@@ -43,12 +43,12 @@ grid "$OLD" old0 "$O/old0.csv"
 grid "$NEW" new0 "$O/new0.csv"
 diff -r "$O/grid-old0/$SET" "$O/grid-new0/$SET" && echo "G2 bounce-grid без флага: новый == старый на проекции ($(wc -l < "$O/grid-new0/$SET/rounds.csv") строк rounds)"
 grid "$NEW" s3600 "$O/s3600.csv" --ctx-shift-secs 3600
-grid "$NEW" s3600nc "$O/s3600.csv"
-echo "L2 rounds: shift0=$(wc -l < "$O/grid-new0/$SET/rounds.csv") s3600(ctx)=$(wc -l < "$O/grid-s3600/$SET/rounds.csv") s3600(без ctx)=$(wc -l < "$O/grid-s3600nc/$SET/rounds.csv")"
-cmp -s "$O/grid-s3600/$SET/rounds.csv" "$O/grid-s3600nc/$SET/rounds.csv" && echo "L2 ctx-shift НЕ меняет rounds (проверить!)" || echo "L2 ctx-shift меняет rounds (σ/режим из t)"
-for N in 3600 -3600 7200 -7200; do
-  grid "$NEW" c$N "$O/new0.csv" --ctx-shift-secs "$N"
-  echo "L3 ctx-shift $N на сигналах без сдвига: кругов $(grep -vc '^#\|^symbol' "$O/grid-c$N/$SET/rounds.csv") (без флага $(grep -vc '^#\|^symbol' "$O/grid-new0/$SET/rounds.csv")); строки: $(grep -v '^#\|^symbol' "$O/grid-c$N/$SET/rounds.csv" | cut -d, -f4-10 | head -3 | tr '
-' '|')"
-done
+echo "L2 rounds: shift0=$(wc -l < "$O/grid-new0/$SET/rounds.csv") s3600(ctx)=$(wc -l < "$O/grid-s3600/$SET/rounds.csv")"
+# Защита ctx_ms (Судья 20.10): расхождение флага и файла — жёсткий отказ bounce-grid, а не молчаливый σ из t′
+refuse() { # refuse <тег> <фрагмент текста отказа>
+  if grep -q -- "$2" "$O/log/grid-$1.log" && [ ! -e "$O/grid-$1/$SET/rounds.csv" ]; then echo "L4 $1: отказ как задумано ($2)"; else echo "L4 $1: НЕТ отказа (проверить!)"; tail -3 "$O/log/grid-$1.log"; fi
+}
+grid "$NEW" s3600nc "$O/s3600.csv"; refuse s3600nc "без --ctx-shift-secs"
+grid "$NEW" s3600bad "$O/s3600.csv" --ctx-shift-secs 7200; refuse s3600bad "а --ctx-shift-secs = 7200"
+grid "$NEW" c3600 "$O/new0.csv" --ctx-shift-secs 3600; refuse c3600 "без колонки ctx_ms"
 echo DONE
