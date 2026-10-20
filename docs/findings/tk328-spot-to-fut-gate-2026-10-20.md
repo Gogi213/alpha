@@ -29,6 +29,16 @@
   поэтому «B1 через новый вход» требует проекции и `approaches-*.csv` (колонки: `price_tick`, `best_own_tick`, `best_opp_tick`,
   лоты `size_at_arm`, `flow_1h_lots`, `frontrun_lots_at_arm`, `traded_lots_at_arm`, `eat_60s_lots`, `size_max_60s_lots`,
   `depth_behind*_lots`). Без этого гейт к строке registry неприменим; self-проекция касаний (выше) остаётся честным гейтом самой проекции.
+## Гейт к B1 Летописи (п.2 возврата) — ADAUSDT 2026-01-05, calc, alsched 1020182928146 (бинарник ed4fb1ab, rc=0)
+`tools/compute/tk328/gate-b1.sh`: `touches-project` (spot==fut) переписывает `approaches-ADAUSDT.csv` Летописи
+(`/data/p12r3a/jrn/<сутки>/…`, подходы: лоты спота→фьюча, `best_own/opp_tick`) → `bounce-grid --signal approach` с аргументами F1
+(`f1.args`, клетка B1 `ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800 × t-bid-btc4h-q1`, `--busy-skip off`) → `busy-replay.py` без `--keep`
+(так хранит Летопись) → сверка с `/data/p12r3a/b1-b/2026-01/2026-01-05/t-bid-btc4h-q1/rounds.csv` по 16 колонкам.
+- GATE1: спроецированный `approaches-*.csv` совпал побайтно (31436 строк, 0 отброшено).
+- GATE2: строка круга B1 (1 круг, `trail`, нетто 94.742003 bps) **побайтно равна** эталону Летописи. До `busy-replay` кругов 2 (второй —
+  занятая позиция, `busy_replay=keep:all кругов 213 из 725` в шапке эталона) — это не расхождение, а недостающий шаг гейта.
+- Падение предыдущей попытки: 13 строк подходов в 1-ю секунду суток без mid (`mid_before_or_open`, ed4fb1ab) — исправлено.
+- Скрипт теперь падает (`exit 1`) при расхождении GATE1/GATE2 (раньше `cmp && echo` давал rc=0 при красном).
 ## Открытое для Судьи
 `size_at_touch`/`frontrun_lots` остаются в лотах спота; `usd_min` и силы считаются в $, лот фьюча может ≠ лоту спота
 (не проверено, на ADA не сверял) — Исследователь проверяет по монетам перед заявкой A/B/C.
