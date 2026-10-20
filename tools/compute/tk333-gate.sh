@@ -46,7 +46,7 @@ grid "$NEW" s3600 "$O/s3600.csv" --ctx-shift-secs 3600
 echo "L2 rounds: shift0=$(wc -l < "$O/grid-new0/$SET/rounds.csv") s3600(ctx)=$(wc -l < "$O/grid-s3600/$SET/rounds.csv")"
 # Защита ctx_ms (Судья 20.10): расхождение флага и файла — жёсткий отказ bounce-grid, а не молчаливый σ из t′
 refuse() { # refuse <тег> <фрагмент текста отказа>
-  if grep -q -- "$2" "$O/log/grid-$1.log" && [ ! -e "$O/grid-$1/$SET/rounds.csv" ]; then echo "L4 $1: отказ как задумано ($2)"; else echo "L4 $1: НЕТ отказа (проверить!)"; tail -3 "$O/log/grid-$1.log"; fi
+  if grep -q -- "$2" "$O/log/grid-$1.log" && [ "$(grep -vc '^#\|^symbol' "$O/grid-$1/$SET/rounds.csv" 2>/dev/null || true)" = 0 ]; then echo "L4 $1: отказ как задумано ($2)"; else echo "L4 $1: НЕТ отказа (проверить!)"; tail -3 "$O/log/grid-$1.log"; fi
 }
 grid "$NEW" s3600nc "$O/s3600.csv"; refuse s3600nc "без --ctx-shift-secs"
 grid "$NEW" s3600bad "$O/s3600.csv" --ctx-shift-secs 7200; refuse s3600bad "а --ctx-shift-secs = 7200"
