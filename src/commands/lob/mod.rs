@@ -71,6 +71,7 @@ mod record;
 mod replay;
 pub mod session;
 mod shared;
+pub mod sync_basis;
 pub mod touches;
 pub mod trades;
 pub mod validate;
@@ -82,6 +83,7 @@ pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
+pub use sync_basis::{run_sync_basis, SyncBasisArgs};
 pub use validate::{run_validate, ValidateArgs};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
@@ -240,6 +242,9 @@ pub enum LobCommand {
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
     /// Только чтение, ни одного порога.
     BinlogStats(BinlogStatsArgs),
+    /// Замер П-22 §4 (TK-328): часы, опережение (lead-lag ±5 с) и базис спот/фьючерс одной монеты за сутки по двум наборам
+    /// бинлога; строки `ключ,значение`. Только чтение.
+    SyncBasis(SyncBasisArgs),
     /// Дыры по времени в суточных бинлогах (TK-033): CSV на файл — покрытие суток, самая длинная
     /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
     /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
@@ -296,6 +301,12 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Trades(args) => print_trades(args),
         LobCommand::ImportArchive(args) => print_import_archive(args),
         LobCommand::BinlogStats(args) => print_binlog_stats(args),
+        LobCommand::SyncBasis(args) => {
+            for line in run_sync_basis(&args)? {
+                println!("{line}");
+            }
+            Ok(())
+        }
         LobCommand::Gaps(args) => {
             run_gaps(&args)?;
             Ok(())
