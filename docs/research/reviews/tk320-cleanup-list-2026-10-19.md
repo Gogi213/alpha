@@ -64,3 +64,15 @@ tk050 (17.3), tk049 (2.6), tk279 (1.2), tk0251 (0.6), tk0263 (0.2), tk0268 (0.1)
 
 Инженеру: удалить одобренное одним юнитом (best-effort IO, RuntimeMax ≥4 ч, журнал по путям, сверх списка — ничего),
 df до/после — в findings; затем сдача Судье. Летопись: мёртвые `result_path` на tk048 — метрики остаются, пометку не требую.
+
+## Приёмка del3 (Судья 20.10 ~09:40 GMT+4) — принято
+
+| пункт договора | да/нет | на чём проверено |
+|---|---|---|
+| удалено только одобренное (подкаталоги) | да | calc `delete3.log`: 724 уникальных пути, все попадают в маску решения 02:40 (tk048/<подкаталог>, tk052 abin-jf/b10/keep/perf-b10/ATOMUSDT-gate-*/st-d*/strace-*/orch-strace/gate4/stand, pool m-feb…m-sep/probe-j, delta g*-new/-ref/cand-mar*); вне маски — 0; `abin-t46`, `bin` — строки «оставлено» |
+| оставленное цело | да | `ls`: tk048/abin-t46, tk048/bin (alpha-tk048uv), файлы корня tk048; tk052/abin, io-acct.py, benchrun2.sh; pool/m-jan; delta/b1-symdays.csv, w, wave, gate-f; `/data/alpha` на месте |
+| del3.rc, ошибки | да | `del3.rc`=done; error/cannot/denied в логе — 0 |
+| df до/после в findings | да | лог: 193 350 072 → (findings 345 421 664) КБ своб.; `df -h` сейчас 330G своб., 82 % |
+| findings-таблица | да | `docs/findings/calc-run-outputs-cleanup-2026-10-19.md` (7c064d08) |
+
+Хвост (не из заказа на сейчас): tk0279 ≈187 ГБ — решено «после закрытия F2 П-17» → CEO.
