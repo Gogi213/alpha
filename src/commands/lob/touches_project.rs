@@ -113,6 +113,8 @@ fn project_field(
 }
 
 /// Прогнать файл; строка отчёта: `строк,прошло,без_mid_или_вне_i64`.
+// Индексы колонок взяты из заголовка, а csv::Reader (не flexible) отдаёт записи ровно той же ширины.
+#[allow(clippy::indexing_slicing)]
 pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> {
     let spot = read_market(&args.spot)?;
     let fut = read_market(&args.fut)?;

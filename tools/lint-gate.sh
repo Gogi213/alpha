@@ -11,7 +11,9 @@ CARGO_TERM_COLOR=never cargo clippy --lib --bins --target-dir "$TGT" --message-f
   -W clippy::unwrap_used -W clippy::expect_used -W clippy::indexing_slicing \
   -W clippy::cast_possible_truncation -W clippy::cast_precision_loss >"$L" 2>&1
 if grep -qE ": error" "$L"; then grep -E ": error" "$L" | head -50; rm -f "$L"; echo "lint-gate: строгие линты красные"; exit 1; fi
-got=$(grep -cE ": warning: " "$L"); rm -f "$L"
+got=$(grep -cE ": warning: " "$L")
+[ -z "${LINT_SHOW:-}" ] || grep -E ": warning: " "$L" | grep -E "$LINT_SHOW"   # TK-328: показать срабатывания по regexp пути (ЛИНТ-отладка, на счёт не влияет)
+rm -f "$L"
 budget=$(tr -d '[:space:]' < .github/lint-budget.txt)
 echo "lint-gate: срабатываний $got, бюджет $budget"
 [ "$got" -le "$budget" ] || { echo "lint-gate: долг вырос ($got > $budget)"; exit 1; }

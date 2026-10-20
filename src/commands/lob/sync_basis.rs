@@ -87,7 +87,9 @@ impl Market {
             self.negative += 1;
         } else {
             let b = usize::try_from(d_ns / 1_000_000).unwrap_or(usize::MAX);
-            self.hist[b.min(CLOCK_BUCKETS - 1)] += 1;
+            if let Some(c) = self.hist.get_mut(b.min(CLOCK_BUCKETS - 1)) {
+                *c += 1;
+            }
         }
     }
 
@@ -95,8 +97,8 @@ impl Market {
         let sec = exch_ms.div_euclid(1_000);
         let base = *self.base_sec.get_or_insert(sec.div_euclid(86_400) * 86_400);
         if let Ok(i) = usize::try_from(sec - base) {
-            if i < GRID_SECS {
-                self.mid[i] = mid;
+            if let Some(m) = self.mid.get_mut(i) {
+                *m = mid;
             }
         }
     }
@@ -123,6 +125,7 @@ impl Market {
     }
 
     /// Квантиль гистограммы часов, мс (по неотрицательным).
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     fn clock_quantile(&self, q: f64) -> f64 {
         let n: u64 = self.hist.iter().sum();
         if n == 0 {
@@ -171,6 +174,7 @@ pub(crate) fn read_market(parts: &[PathBuf]) -> anyhow::Result<Market> {
                 continue;
             }
             if let (Some(b), Some(a)) = (book.best_bid_tick_opt(), book.best_ask_tick_opt()) {
+                #[allow(clippy::cast_precision_loss)]
                 let mid = (b + a) as f64 * 0.5 * header_tick.tick_e9 as f64 * 1e-9;
                 m.note_mid(up.cts_ms, mid);
             }
@@ -200,6 +204,7 @@ pub(crate) fn pearson(a: &[f64], b: &[f64]) -> Option<f64> {
         .filter(|(x, y)| x.is_finite() && y.is_finite())
         .map(|(&x, &y)| (x, y))
         .collect();
+    #[allow(clippy::cast_precision_loss)]
     let n = pairs.len() as f64;
     if pairs.len() < 3 {
         return None;
@@ -221,6 +226,11 @@ pub(crate) fn pearson(a: &[f64], b: &[f64]) -> Option<f64> {
 }
 
 /// Квантиль отсортированного среза (ближайший ранг снизу).
+#[allow(
+    clippy::indexing_slicing,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation
+)]
 pub(crate) fn quantile(sorted: &[f64], q: f64) -> f64 {
     if sorted.is_empty() {
         return f64::NAN;
@@ -234,6 +244,7 @@ fn sorted_finite(v: impl Iterator<Item = f64>) -> Vec<f64> {
     out
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn std_of(v: &[f64]) -> f64 {
     if v.len() < 2 {
         return f64::NAN;
@@ -245,9 +256,11 @@ fn std_of(v: &[f64]) -> f64 {
 /// Секундные лог-доходности (`NaN` там, где mid нет или не менялся стартовый).
 fn log_returns(mid: &[f64]) -> Vec<f64> {
     let mut r = vec![f64::NAN; mid.len()];
-    for i in 1..mid.len() {
-        if mid[i].is_finite() && mid[i - 1].is_finite() && mid[i] > 0.0 && mid[i - 1] > 0.0 {
-            r[i] = (mid[i] / mid[i - 1]).ln();
+    for (out, w) in r.iter_mut().skip(1).zip(mid.windows(2)) {
+        if let [a, b] = *w {
+            if a.is_finite() && b.is_finite() && a > 0.0 && b > 0.0 {
+                *out = (b / a).ln();
+            }
         }
     }
     r
@@ -259,14 +272,13 @@ pub(crate) fn lead_lag(spot: &[f64], fut: &[f64]) -> Vec<(i64, Option<f64>)> {
     (-MAX_LAG..=MAX_LAG)
         .map(|k| {
             // r_F сдвинут на k: пара (rs[t], rf[t+k]).
-            let (a, b): (&[f64], &[f64]) = if k >= 0 {
-                let k = k as usize;
-                (&rs[..rs.len() - k], &rf[k..])
+            let s = usize::try_from(k.unsigned_abs()).unwrap_or(usize::MAX);
+            let (a, b) = if k >= 0 {
+                (rs.get(..rs.len().saturating_sub(s)), rf.get(s..))
             } else {
-                let k = (-k) as usize;
-                (&rs[k..], &rf[..rf.len() - k])
+                (rs.get(s..), rf.get(..rf.len().saturating_sub(s)))
             };
-            (k, pearson(a, b))
+            (k, a.zip(b).and_then(|(a, b)| pearson(a, b)))
         })
         .collect()
 }
@@ -287,17 +299,17 @@ pub(crate) fn basis_bps(spot: &[f64], fut: &[f64]) -> Vec<f64> {
 
 /// Изменение базиса за `w` секунд по всем парам `(t, t+w)`, где базис есть в обеих точках.
 pub(crate) fn basis_drift(basis: &[f64], w: usize) -> Vec<f64> {
-    if basis.len() <= w {
-        return Vec::new();
-    }
-    (0..basis.len() - w)
-        .filter_map(|t| {
-            let d = basis[t + w] - basis[t];
+    basis
+        .iter()
+        .zip(basis.iter().skip(w))
+        .filter_map(|(&a, &b)| {
+            let d = b - a;
             d.is_finite().then_some(d)
         })
         .collect()
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn clock_lines(tag: &str, m: &Market) -> Vec<String> {
     vec![
         format!("clock,{tag},n,{}", m.total),
