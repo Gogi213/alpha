@@ -8,7 +8,7 @@ fn write(dir: &std::path::Path, name: &str, body: &str) {
 }
 
 fn check(dir: Option<&std::path::Path>, approach: bool, shift_ms: i64) -> anyhow::Result<()> {
-    let days = vec!["2026-01-02".to_string()];
+    let days = ["2026-01-02".to_string()];
     verify_ctx_shift(dir, approach, "ADAUSDT", days.iter(), shift_ms)
 }
 
@@ -92,7 +92,7 @@ fn общий_файл_с_ctx_ms_проверяется_один_раз() {
         "start_ms,side,ctx_ms\n7000,bid,3000\n",
     )
     .unwrap();
-    let days = vec!["2026-01-02".to_string(), "2026-01-03".to_string()];
+    let days = ["2026-01-02".to_string(), "2026-01-03".to_string()];
     verify_ctx_shift(Some(dir.path()), false, "ADAUSDT", days.iter(), 4_000).unwrap();
     assert!(verify_ctx_shift(Some(dir.path()), false, "ADAUSDT", days.iter(), 0).is_err());
 }
