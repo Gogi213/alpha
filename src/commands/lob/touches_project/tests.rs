@@ -106,3 +106,41 @@ fn approach_lot_columns_take_r1_lots() {
         assert_eq!(approach_lot_column(n), lots, "{n}");
     }
 }
+
+#[test]
+fn shift_time_columns_exist_in_both_headers() {
+    use crate::commands::lob::touches::{APPROACHES_COLUMNS, TOUCHES_COLUMNS};
+    for n in time_columns(false) {
+        assert!(TOUCHES_COLUMNS.contains(n), "{n}");
+    }
+    for n in time_columns(true) {
+        assert!(APPROACHES_COLUMNS.contains(n), "{n}");
+    }
+    // Длительности и возраст при сдвиге не трогаются.
+    for n in ["duration_ms", "age_ms"] {
+        assert!(!time_columns(false).contains(&n) && !time_columns(true).contains(&n));
+    }
+}
+
+#[test]
+fn shift_time_adds_and_keeps_empty() {
+    assert_eq!(shift_time("1000", 3_600_000).unwrap(), "3601000");
+    assert_eq!(shift_time("1000", -7_200_000).unwrap(), "-7199000");
+    assert_eq!(shift_time("", 5).unwrap(), "");
+    assert!(shift_time("x", 5).is_err());
+    assert!(shift_time("9223372036854775807", 1).is_err());
+}
+
+#[test]
+fn day_start_is_utc_midnight() {
+    assert_eq!(day_start_ms("2026-01-05").unwrap(), 1_767_571_200_000);
+    assert!(day_start_ms("05.01.2026").is_err());
+}
+
+#[test]
+fn shifted_price_uses_spot_mid_at_t_and_fut_mid_at_t_prime() {
+    // d = (S(t) − P)/S(t); фьюч-цена = F(t′)·(1−d) = P·F(t′)/S(t): S(t′) сокращается.
+    // S(t) = 100, стена 99 (d = 1 %), F(t′) = 105 → 103,95 → 10 395 тиков (шаги равны), bid вниз.
+    let r = project_field("9900", Side::Bid, (100.0, 105.0), SAME).unwrap();
+    assert_eq!(r.as_deref(), Some("10395"));
+}

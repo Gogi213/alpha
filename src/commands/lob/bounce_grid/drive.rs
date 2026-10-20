@@ -125,7 +125,7 @@ fn signals_for(
                 None => form.form,
             };
             let sigma_bps = if bform.needs_sigma() {
-                sigma.sigma_bps(t.start_ms, form.deadline_secs)
+                sigma.sigma_bps(t.start_ms - p.ctx_shift_ms, form.deadline_secs)
             } else {
                 None
             };
@@ -153,7 +153,9 @@ fn signals_for(
                 exit_form: form.exit_form,
                 // В-131: σ на взводе — только σ-лестнице (`t.start_ms` у подхода — `arm_ms`).
                 entry_sigma_bps: match entry_form {
-                    EntryForm::LadderSigma { .. } => p.entry_sigma.and_then(|s| s.at(t.start_ms)),
+                    EntryForm::LadderSigma { .. } => p
+                        .entry_sigma
+                        .and_then(|s| s.at(t.start_ms - p.ctx_shift_ms)),
                     _ => None,
                 },
             };
@@ -638,6 +640,8 @@ pub(super) struct DayParams<'a> {
     pub(super) band_exit_bps: f64,
     /// σ монеты на взводе для σ-лестницы (В-131, `--sigma-from`); `None` — флага нет.
     pub(super) entry_sigma: Option<&'a EntrySigma>,
+    /// Контроль C (TK-333, `--ctx-shift-secs`): сдвиг входа, мс; σ берётся из момента `start_ms − ctx_shift_ms`.
+    pub(super) ctx_shift_ms: i64,
     /// Фильтры набора в момент касания (возраст, сила «×поток», сторона, съедание, номинал, R1, контекст).
     pub(super) filter: FilterSpec<'a>,
     /// Ряд `σ` символа (все сутки записи подряд).

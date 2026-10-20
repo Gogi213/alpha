@@ -13,6 +13,16 @@
 //! у которой нет mid одного из рынков или проекция не легла в `i64`, отбрасывается и считается в отчёте (не
 //! подменяется). Гейт «байт в байт»: спот и фьючерс — один и тот же набор бинлога ⇒ множитель ровно 1,0, шаги
 //! лота равны ⇒ выходной CSV равен входному (`project_tick` не округляет при равных mid и шаге, лоты не трогаются).
+//!
+//! **Контроль C (П-22 §5, TK-333): `--shift-secs ±N`.** Момент входа сдвигается `t′ = t + N`; цена — то же расстояние в
+//! bps от спот-mid, что в исходный момент: `S_mid(t′)·(1 − d)`, `d = (S_mid(t) − P_wall)/S_mid(t)`, затем проекция на
+//! фьюч-mid `t′` (§3.2). Алгебра: `F_mid(t′)·(S_mid(t′)(1−d))/S_mid(t′) = F_mid(t′)·P_wall/S_mid(t)` — `S_mid(t′)`
+//! сокращается, поэтому проекция идёт теми же `project_tick` с парой mid `(S_mid(t), F_mid(t′))`; при `N = 0`
+//! это прежний код (байт в байт). Все абсолютные времена строки (`start_ms`/`end_ms`/`birth_ms`; у подходов
+//! `arm_ms`/`birth_ms`/`touch_start_ms`/`disarm_ms`) сдвигаются на `N`, длительности — нет; **добавляется колонка
+//! `ctx_ms`** = исходный `start_ms`/`arm_ms` — момент, из которого берутся σ, режим (btc4h) и прочий контекст
+//! (вариант (i) Судьи: состав C = состав B). Строка, у которой `t′` вне суток (`day_utc`), или нет mid спота/фьючерса в
+//! `t′`, отбрасывается и считается в отчёте. Без `--shift-secs` (0) колонка `ctx_ms` не пишется.
 
 use std::path::PathBuf;
 
@@ -40,6 +50,38 @@ pub struct TouchesProjectArgs {
     /// Части суток фьючерса, по порядку.
     #[arg(long, num_args = 1.., required = true)]
     pub fut: Vec<PathBuf>,
+    /// Контроль C (П-22 §5): сдвиг момента входа, секунды (±3600, ±7200); 0 — без сдвига, выход как прежде.
+    #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+    pub shift_secs: i64,
+}
+
+/// Абсолютные времена строки (мс от эпохи), сдвигаемые контролем C; длительности (`duration_ms`, `age_ms`) — нет.
+fn time_columns(approaches: bool) -> &'static [&'static str] {
+    if approaches {
+        &["arm_ms", "birth_ms", "touch_start_ms", "disarm_ms"]
+    } else {
+        &["start_ms", "end_ms", "birth_ms"]
+    }
+}
+
+/// Начало суток `YYYY-MM-DD` (UTC), мс от эпохи.
+fn day_start_ms(day: &str) -> anyhow::Result<i64> {
+    let d = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+        .map_err(|e| anyhow::anyhow!("day_utc {day:?}: {e}"))?;
+    d.and_hms_opt(0, 0, 0)
+        .map(|dt| dt.and_utc().timestamp_millis())
+        .ok_or_else(|| anyhow::anyhow!("day_utc {day:?}: полночь не строится"))
+}
+
+/// Время строки + сдвиг; пусто остаётся пустым.
+fn shift_time(raw: &str, shift_ms: i64) -> anyhow::Result<String> {
+    if raw.is_empty() {
+        return Ok(String::new());
+    }
+    let t: i64 = raw.parse().map_err(|e| anyhow::anyhow!("{raw:?}: {e}"))?;
+    t.checked_add(shift_ms)
+        .map(|v| v.to_string())
+        .ok_or_else(|| anyhow::anyhow!("время {t} + сдвиг {shift_ms} не легло в i64"))
 }
 
 /// Индекс колонки по имени.
@@ -127,6 +169,19 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
     let c_side = col(&header, "side")?;
     let approaches = header.iter().any(|h| h == "arm_ms");
     let c_start = col(&header, if approaches { "arm_ms" } else { "start_ms" })?;
+    let c_day = col(&header, "day_utc")?;
+    let shift_ms = args
+        .shift_secs
+        .checked_mul(1_000)
+        .ok_or_else(|| anyhow::anyhow!("--shift-secs {} вне диапазона", args.shift_secs))?;
+    let c_times: Vec<usize> = if shift_ms == 0 {
+        Vec::new()
+    } else {
+        time_columns(approaches)
+            .iter()
+            .map(|n| col(&header, n))
+            .collect::<anyhow::Result<_>>()?
+    };
     let c_price = col(&header, "price_tick")?;
     let c_zeros = if approaches {
         None
@@ -159,7 +214,11 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
         std::fs::create_dir_all(dir)?;
     }
     let mut w = csv::Writer::from_path(&args.out)?;
-    w.write_record(&header)?;
+    if shift_ms == 0 {
+        w.write_record(&header)?;
+    } else {
+        w.write_record(header.iter().chain(std::iter::once("ctx_ms")))?;
+    }
     let (mut rows, mut kept) = (0u64, 0u64);
     for rec in rd.records() {
         let rec = rec?;
@@ -170,9 +229,20 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
             other => anyhow::bail!("side {other:?}"),
         };
         let start: i64 = rec[c_start].parse()?;
-        let (Some(s_mid), Some(f_mid)) = (
+        let entry = start
+            .checked_add(shift_ms)
+            .ok_or_else(|| anyhow::anyhow!("время {start} + сдвиг {shift_ms} не легло в i64"))?;
+        if shift_ms != 0 {
+            let day0 = day_start_ms(&rec[c_day])?;
+            if !(day0..day0 + 86_400_000).contains(&entry) {
+                continue;
+            }
+        }
+        // Цена — от S_mid(t) и F_mid(t′): S_mid(t′) в проекции сокращается (см. шапку); он лишь обязан существовать.
+        let (Some(s_mid), Some(f_mid), Some(_)) = (
             spot.mid_before_or_open(&s_fill, start),
-            fut.mid_before_or_open(&f_fill, start),
+            fut.mid_before_or_open(&f_fill, entry),
+            spot.mid_before_or_open(&s_fill, entry),
         ) else {
             continue;
         };
@@ -193,7 +263,11 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
             .iter()
             .map(|&i| convert_lots(&rec[i], steps))
             .collect::<anyhow::Result<_>>()?;
-        let out: Vec<&str> = rec
+        let times: Vec<String> = c_times
+            .iter()
+            .map(|&i| shift_time(&rec[i], shift_ms))
+            .collect::<anyhow::Result<_>>()?;
+        let mut out: Vec<&str> = rec
             .iter()
             .enumerate()
             .map(|(i, v)| match i {
@@ -201,12 +275,22 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
                 _ if i == c_front => front.as_str(),
                 _ if i == c_next => next.as_str(),
                 _ if Some(i) == c_zeros => zeros.as_str(),
-                _ => c_lots
+                _ => c_times
                     .iter()
                     .position(|&c| c == i)
-                    .map_or(v, |k| lots[k].as_str()),
+                    .map(|k| times[k].as_str())
+                    .or_else(|| {
+                        c_lots
+                            .iter()
+                            .position(|&c| c == i)
+                            .map(|k| lots[k].as_str())
+                    })
+                    .unwrap_or(v),
             })
             .collect();
+        if shift_ms != 0 {
+            out.push(&rec[c_start]);
+        }
         w.write_record(&out)?;
         kept += 1;
     }

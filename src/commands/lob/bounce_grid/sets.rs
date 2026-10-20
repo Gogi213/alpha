@@ -577,7 +577,7 @@ fn day_name(day_ms: i64) -> anyhow::Result<String> {
 
 /// Контекст касаний суток: ход монеты — из кэша (`TouchRow::ret_bps`) или из
 /// реплея (`pre_touch_return_bps_csv` — те же шесть знаков), режим — по
-/// минуте `start_ms` из `RegimeDay` (нет режима — `None`).
+/// минуте `start_ms − ctx_shift_ms` из `RegimeDay` (нет режима — `None`).
 #[allow(clippy::indexing_slicing)] // slot < COIN_AXES (реестр), срез COIN_AXES..+REGIME_AXES лежит в CTX_SPECS.len()
 pub(crate) fn touch_contexts(
     rets: &[[Option<f64>; 3]],
@@ -585,13 +585,16 @@ pub(crate) fn touch_contexts(
     regime: Option<&RegimeDay>,
     klines: Option<(&KlineSeries, f64)>,
     btc_sec: Option<&BtcSeconds>,
+    ctx_shift_ms: i64,
 ) -> Vec<TouchContext> {
     debug_assert_eq!(rets.len(), touches.len());
     touches
         .iter()
         .zip(rets)
         .map(|(t, r)| {
-            let minute = t.start_ms - t.start_ms.rem_euclid(60_000);
+            // Контроль C (TK-333): контекст — из исходного момента, вход сдвинут на `ctx_shift_ms`.
+            let ctx_ms = t.start_ms - ctx_shift_ms;
+            let minute = ctx_ms - ctx_ms.rem_euclid(60_000);
             let m = regime
                 .and_then(|g| g.get(&minute))
                 .copied()
@@ -605,7 +608,7 @@ pub(crate) fn touch_contexts(
                         klines.and_then(|(k, tick)| k.axis(axis, minute, t.price_tick, tick))
                     }
                     CtxSrc::RoundDist => Some(round_dist(t.price_tick)),
-                    CtxSrc::BtcSeconds(lag) => btc_sec.and_then(|b| b.lag_bps(lag, t.start_ms)),
+                    CtxSrc::BtcSeconds(lag) => btc_sec.and_then(|b| b.lag_bps(lag, ctx_ms)),
                 };
             }
             axes[COIN_AXES..COIN_AXES + REGIME_AXES].copy_from_slice(&m);

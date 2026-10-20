@@ -31,6 +31,89 @@ pub(crate) struct DayTouches {
     pub(crate) rets: Vec<[Option<f64>; 3]>,
 }
 
+/// Контроль C (TK-333): `touches-project --shift-secs N` дописывает в файл колонку `ctx_ms` — исходный момент строки
+/// (`start_ms`/`arm_ms` = `ctx_ms + N`). σ/режим/btc-lag `bounce-grid` берёт из `start_ms − --ctx-shift-secs`, поэтому
+/// флаг обязан совпасть с файлом: файл с `ctx_ms` без флага (или с другим) молча дал бы контекст из сдвинутого `t′`,
+/// флаг без такого файла — сдвиг контекста относительно несдвинутого входа. Отказ жёсткий (вне отката кэша на реплей):
+/// без `--touches-from` флаг не нулевой — отказ; файл без `ctx_ms` и флаг 0 — прежний путь без чтения строк.
+pub(super) fn verify_ctx_shift<'a>(
+    touches_from: Option<&Path>,
+    approach: bool,
+    symbol: &str,
+    days: impl Iterator<Item = &'a String>,
+    ctx_shift_ms: i64,
+) -> anyhow::Result<()> {
+    let Some(dir) = touches_from else {
+        anyhow::ensure!(
+            ctx_shift_ms == 0,
+            "--ctx-shift-secs {} без --touches-from: сдвинутый вход берётся только из файла touches-project с колонкой ctx_ms",
+            ctx_shift_ms / 1_000
+        );
+        return Ok(());
+    };
+    let stem = if approach { "approaches" } else { "touches" };
+    let start_col = if approach { "arm_ms" } else { "start_ms" };
+    let flat = dir.join(format!("{stem}-{symbol}.csv"));
+    let mut flat_done = false;
+    for day in days {
+        let per_day = dir.join(day).join(format!("{stem}-{symbol}.csv"));
+        let file = if per_day.is_file() {
+            per_day
+        } else if flat.is_file() && !flat_done {
+            flat_done = true;
+            flat.clone()
+        } else {
+            continue; // файла нет — скажет загрузчик кэша
+        };
+        check_ctx_file(&file, start_col, ctx_shift_ms)?;
+    }
+    Ok(())
+}
+
+fn check_ctx_file(file: &Path, start_col: &str, ctx_shift_ms: i64) -> anyhow::Result<()> {
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(file)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+    let header = r.headers()?.clone();
+    let Some(c_ctx) = header.iter().position(|h| h == "ctx_ms") else {
+        anyhow::ensure!(
+            ctx_shift_ms == 0,
+            "{}: --ctx-shift-secs {} при файле без колонки ctx_ms (не из `touches-project --shift-secs`)",
+            file.display(),
+            ctx_shift_ms / 1_000
+        );
+        return Ok(());
+    };
+    anyhow::ensure!(
+        ctx_shift_ms != 0,
+        "{}: колонка ctx_ms (сдвинутый вход) без --ctx-shift-secs — σ/btc4h взялись бы из сдвинутого момента",
+        file.display()
+    );
+    let c_start = header
+        .iter()
+        .position(|h| h == start_col)
+        .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {start_col}", file.display()))?;
+    for (i, rec) in r.records().enumerate() {
+        let rec = rec?;
+        let num = |c: usize, name: &str| -> anyhow::Result<i64> {
+            rec.get(c).and_then(|v| v.parse().ok()).ok_or_else(|| {
+                anyhow::anyhow!("{}: строка {}: {name} не число", file.display(), i + 2)
+            })
+        };
+        let (start, ctx) = (num(c_start, start_col)?, num(c_ctx, "ctx_ms")?);
+        anyhow::ensure!(
+            start.checked_sub(ctx) == Some(ctx_shift_ms),
+            "{}: строка {}: {start_col} − ctx_ms = {} мс, а --ctx-shift-secs = {} с",
+            file.display(),
+            i + 2,
+            start.saturating_sub(ctx),
+            ctx_shift_ms / 1_000
+        );
+    }
+    Ok(())
+}
+
 /// Касания символа из кэша `--touches-from` для суток `days` (сутки корня с
 /// частями): на сутки — `<dir>/<сутки>/touches-<SYMBOL>.csv`, иначе общий
 /// `<dir>/touches-<SYMBOL>.csv`, из которого берутся строки этих суток.
