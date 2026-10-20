@@ -6,7 +6,7 @@ set -euo pipefail
 BIN=$1 OUT=$2 SRC=$3 SYM=$4 DAY=$5
 R=$OUT/root
 rm -rf "$OUT"; mkdir -p "$R" "$OUT/orig/$DAY" "$OUT/proj/$DAY"
-for f in "$SRC/$SYM-$DAY.binlog" "$SRC/$SYM-$DAY.binlog.zst" "$SRC/verify-$SYM.status" "$SRC/instruments.csv"; do
+for f in "$SRC/$SYM-$DAY.binlog" "$SRC/$SYM-$DAY.binlog.zst" "$SRC/verify-$SYM.status" "$SRC/instruments.csv" "$SRC/session.json"; do
   [ -e "$f" ] && ln -s "$f" "$R/"
 done
 PARTS=("$R/$SYM-$DAY.binlog"*)
