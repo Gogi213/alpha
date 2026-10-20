@@ -5,7 +5,7 @@
 # последовательный цикл: regime.py пишет days.csv месяца); (4) проверки → $K/fixklines/RESULT.txt: охват свечей, режим по
 # месяцам (минут с btc4h ≤ -44,55), сентябрь до/после, спот против фьючерсного режима, подходы против касаний,
 # S0 на 5 монетах дня с самым глубоким провалом BTC каждого месяца (events > 0).
-# Запуск: alsched submit --kind work --cores 9 … -- bash /data/tk0319/bin/tk319-fixklines.sh
+# Запуск: alsched submit --kind work --cores 1 … (NP — месяцев режима параллельно, умолчание 1) -- bash /data/tk0319/bin/tk319-fixklines.sh
 set -uo pipefail
 K=/data/tk0319; B=$K/bin; BIN=${BIN:-/opt/alpha-compute/bin/alpha-tk312-pgo}; F=$K/fixklines
 mkdir -p "$F" "$K/klines-old" "$K/regime-before-fix"; R=$F/RESULT.txt; : > "$R"
@@ -20,8 +20,10 @@ printf '%s\n' BTCUSDT ETHUSDT SOLUSDT | xargs -P3 -I{} bash -c 'python3 "$0/ref-
 for s in BTCUSDT ETHUSDT SOLUSDT; do f=$K/klines/ref-$s-1m.csv; say "свечи $s: строк $(($(wc -l < "$f") - 1)) (ждём 393120), с $(sed -n 2p "$f" | cut -d, -f1), по $(tail -1 "$f" | cut -d, -f1); $(tail -1 "$F/klines-$s.log")"; done
 python3 "$B/sigma-table.py" --klines "$K/klines" --out-dir "$K/sigma240" --symbols SOLUSDT 2>&1 | tail -1 | tee -a "$R"
 say "σ240 SOLUSDT: с $(sed -n 2p "$K/sigma240/sigma-SOLUSDT.csv" | cut -d, -f1)"
-# ---- режим: месяцы параллельно, сутки внутри месяца — подряд
+# ---- режим: до NP месяцев параллельно, сутки внутри месяца — подряд (~5 с/сутки)
+NP=${NP:-1}
 for m in jan feb mar apr may jun jul aug sep; do
+  while [ "$(jobs -r | wc -l)" -ge "$NP" ]; do wait -n; done
   ( awk -F, -v m="$m" 'NR>1 && $1==m{print $2}' "$K/b1-symdays.csv" | sort -u | while read -r d; do
       python3 "$B/regime.py" --day "$d" --touches "$K/jrn-view" --regime-dir "$K/regime/$m" > /dev/null 2>> "$F/regime-$m.err"
     done; touch "$F/regime-$m.done" ) &
