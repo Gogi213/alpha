@@ -21,5 +21,5 @@ one() { mo=$1; T1=$(date +%s)
 export -f one; export W C
 echo $MONS | tr ' ' '\n' | xargs -P "$P" -I{} bash -c 'one {}'
 bad=0; for m in $MONS; do [ -e ps/psim-$m.done ] && [ ! -e ps/fail-$m.txt ] || { echo "красный $m" >> timing.txt; bad=1; }; done
-python3 /data/tk0251/p3/in/sum_closes_r1.py $W/ps $W/closes-g134f2-sum.csv > $W/sum-tot.txt 2>&1 || bad=1
+python3 $W/sum_closes_r1.py $W/ps $W/closes-g134f2-sum.csv > $W/sum-tot.txt 2>&1 || bad=1
 echo "bad=$bad" > rc.txt; exit $bad
