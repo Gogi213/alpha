@@ -129,10 +129,15 @@ class Core:
         io, fresh = p["io"] - snap[2], p["mt"] is not None and now - p["mt"] <= win
         facts = f"ЦП {cpu * 100:.0f} % заявки за {win / 60:.0f} мин, диск +{io / 1e6:.0f} МБ, свежие файлы {'да' if fresh else 'нет'}"
         if cpu >= LIVE_CPU_MIN and (cpu >= LIVE_CPU_BUSY or io > 0 or fresh):
-            n = j["live_ext"] = j.get("live_ext", 0) + 1
+            n = j.get("live_ext", 0) + 1
             j["max_runtime"] += LIVE_EXTEND_S
+            if be.extend_live(j, j["max_runtime"] - j.get("active_s", 0)) is False:     # юнит срок не принял — не врать «продлён»
+                j["max_runtime"] -= LIVE_EXTEND_S
+                j["live_snap"] = [now, p["cpu"], p["io"]]
+                be.alert(f"ЛИМИТ НЕ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: живо ({facts}), но systemd не принял новый срок; снимется по max_runtime")
+                return
+            j["live_ext"] = n
             j.pop("live_snap"); j.pop("live_no", None)
-            be.extend(j, j["max_runtime"] - j.get("active_s", 0))
             be.alert(f"ЛИМИТ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: живо ({facts}); max_runtime +{LIVE_EXTEND_S} с → {int(j['max_runtime'])} с, продление {n}")
         else:
             if not j.get("live_no"):
@@ -837,6 +842,15 @@ class SystemdBackend:
         """после разморозки: RuntimeMaxSec считается от старта юнита по стене, заморозка его съела — пересчитать."""
         el = self.now() - j["t_start"]
         sh("systemctl", "set-property", "--runtime", self.unit(j), f"RuntimeMaxSec={int(el + max(remaining, 1))}")
+
+    def extend_live(self, j, remaining):
+        """TK-334: systemd 257 на calc не меняет RuntimeMaxSec идущего юнита через set-property («unknown property», проба 21.10) —
+        drop-in в /run/systemd/transient/<юнит>.service.d + daemon-reload пересчитывает срок (от старта юнита по стене, как в extend)."""
+        d = f"/run/systemd/transient/{self.unit(j)}.service.d"
+        os.makedirs(d, exist_ok=True)
+        with open(f"{d}/50-live.conf", "w") as f:
+            f.write("[Service]\nRuntimeMaxSec=%d\n" % int(self.now() - j['t_start'] + max(remaining, 1)))
+        return sh("systemctl", "daemon-reload").returncode == 0
 
     def arm_failsafe(self, secs):
         """аренда с TTL: если демон умрёт при замороженном производстве — таймер сам разморозит."""

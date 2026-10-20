@@ -663,7 +663,7 @@ class LiveExtend(unittest.TestCase):
         def __init__(self, io_rate=0.0, mt_rate=False):
             super().__init__()
             self.ext, self.io_rate, self.mt_rate, self.io = [], io_rate, mt_rate, 0.0
-        def extend(self, j, remaining): self.ext.append((self.t, remaining))
+        def extend_live(self, j, remaining): self.ext.append((self.t, remaining)); return True
         def live_probe(self, j):
             self.io += self.io_rate * S.TICK
             return dict(cpu=self.cpu.get(j["id"], 0.0), io=self.io, mt=self.t if self.mt_rate else None)
@@ -698,6 +698,19 @@ class LiveExtend(unittest.TestCase):
         self.assertEqual(be.killed, [])
         be, j = self.run_case(0.4, mt_rate=True)          # или свежие файлы
         self.assertEqual(be.killed, [])
+
+    def test_systemd_refusal_not_reported_as_extended(self):
+        class Refuse(self.Be):
+            def extend_live(self, j, remaining): return False
+        be = Refuse(); be.cpu_rate["a"] = 4.0
+        core = S.Core(be, ncpu=SS.NCPU, mem=56)
+        core.add(SS.job("a", "tk334-live", "prod", 4, 2, "none", 10 * H, 0, mr=3600))
+        for _ in range(int(2 * 3600 / S.TICK)):
+            core.tick(); be.advance(core, S.TICK)
+        self.assertEqual(be.killed, ["a"])
+        self.assertNotIn("live_ext", core.jobs["a"])
+        self.assertFalse(any("ЛИМИТ ПРОДЛЁН" in a for a in be.alerts), be.alerts)
+        self.assertTrue(any("systemd не принял" in a for a in be.alerts), be.alerts)
 
     def test_off_switch(self):
         S.LIVE_EXTEND_S, old = 0, S.LIVE_EXTEND_S
