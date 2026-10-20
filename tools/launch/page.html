@@ -407,7 +407,7 @@ function rTop(){
  el('perr').innerHTML=(s.errors||[]).map(function(x){return '<div class="warn">'+esc(x)+'</div>'}).join('')}
 function all(){rRail();rList();rAxes();rMx();rCart()}
 function pnlCell(v){if(v===null)return '<span class="mc none"></span>';var a=Math.min(.55,.12+.43*Math.abs(v)/SC);return '<span class="mc" title="'+v+'" style="background:'+(v>=0?'rgba(47,168,116,'+a+')':'rgba(229,83,75,'+a+')')+'">'+Math.round(v)+'</span>'}
-function vdOf(r){return r.status==='none'?(r.off||'не считали'):r.status==='part'&&!r.sieved?'частично':!r.sieved?'не просеяно':r.verdict==='eligible'?'годна':'не годна'}
+function vdOf(r){return r.status==='none'?(r.off||'не считали'):r.status==='part'&&!r.sieved?'частично':!r.sieved?'не просеяно':r.verdict==='eligible'?'годна':r.undef?'не опр.':'не годна'}
 function vdMatch(r,v){return v==='не считали'?r.status==='none':vdOf(r)===v}
 function rubl(v,r){return r.status==='none'||v===null?'—':Math.round(v)}
 function inc(r){return r.status!=='full'}
@@ -424,7 +424,7 @@ function lsorted(rows){var k=lsort.k;if(!k)return rows;var d=lsort.d,a=[],n=[]; 
  rows.forEach(function(x){var v=lkey(x,k);(v===null||v===undefined?n:a).push([v,x])});
  a.sort(function(p,q){return d*lcmp(p[0],q[0])});return a.map(function(p){return p[1]}).concat(n.map(function(p){return p[1]}))}
 function rLet(){var qq=el('lq').value.toLowerCase();
- el('vseg').innerHTML=['','годна','не годна','не просеяно','частично','не считали'].map(function(v){return '<button data-vd="'+v+'"'+(lvd===v?' class="on"':'')+'>'+(v||'Все')+'</button>'}).join('');
+ el('vseg').innerHTML=['','годна','не годна','не опр.','не просеяно','частично','не считали'].map(function(v){return '<button data-vd="'+v+'"'+(lvd===v?' class="on"':'')+'>'+(v||'Все')+'</button>'}).join('');
  el('linc').classList.toggle('on',linc);
  var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')},LM=LMON.length?LMON:MON;
  var rows=lsorted(LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdMatch(x,lvd))&&(!linc||inc(x))}));
@@ -434,7 +434,7 @@ function rLet(){var qq=el('lq').value.toLowerCase();
  var gen=++lgen,N0=60;
  var row=function(x){
   var vd=vdOf(x),cls=vd==='годна'?'g':vd==='не годна'?'x':'z',bd=(x.sieved&&x.plateau?' · плато':'')+(x.sieved&&x.edge?' · край':''),mo='font-family:var(--mono)';
-  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td>'+LM.map(function(m,i){var v=x.pnl[i];return '<td class="m">'+(x.nd[i]?'<span class="mc none" title="$ не записан; sum_net_bps '+x.bps[i]+'">н/д</span>':pnlCell(v===undefined?null:v))+'</td>'}).join('')+'<td style="'+mo+'">'+rubl(x.sum,x)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+(x.trades?x.trades:'—')+'</td><td><span class="vd '+cls+'">'+vd+bd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+x._i+'">Досчитать →</button>':'')+'</td></tr>'};
+  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td>'+LM.map(function(m,i){var v=x.pnl[i];return '<td class="m">'+(x.nd[i]?'<span class="mc none" title="$ не записан; sum_net_bps '+x.bps[i]+'">н/д</span>':pnlCell(v===undefined?null:v))+'</td>'}).join('')+'<td style="'+mo+'">'+rubl(x.sum,x)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+(x.trades?x.trades:'—')+'</td><td><span class="vd '+cls+'"'+(x.svwhy?' title="'+esc(x.svwhy)+'"':'')+'>'+vd+bd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+x._i+'">Досчитать →</button>':'')+'</td></tr>'};
  el('lt').innerHTML='<thead>'+th+'</thead><tbody id="ltb">'+rows.slice(0,N0).map(row).join('')+'</tbody>';
  requestAnimationFrame(function(){setTimeout(function(){if(gen!==lgen||rows.length<=N0)return;el('ltb').insertAdjacentHTML('beforeend',rows.slice(N0).map(row).join(''))},0)})}   // остальные строки — одной порцией после отрисовки первых (вставка порциями заново верстает таблицу каждый раз: 830 мс против 150)
 function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-hyp').hidden=t!=='hyp';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-hyp').setAttribute('aria-selected',t==='hyp');el('t-prn').setAttribute('aria-selected',t==='prn');prnTimer(t==='prn');if(t==='let')loadLet();if(t==='hyp')loadHyp();if(t==='prn')loadPrn()}

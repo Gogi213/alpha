@@ -49,7 +49,7 @@ def test_submit_dry_run_prints_command_and_sets_nothing():
     calls, out = [], []
     res = launch.submit(["Г-01"], M3, cfg=CFG, p=p(), dry_run=True, run_cmd=lambda *a, **k: calls.append(a), log=out.append, doc=DOC)
     assert res["ok"] and res["dry_run"] and not calls
-    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "12" in res["cmd"]
+    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "15" in res["cmd"]
     assert "ssh" not in res["cmd"] and res["cmd"][-2].endswith("run-launch.sh")
     assert any("alsched.py submit" in s for s in out)
 
@@ -63,7 +63,7 @@ def test_submit_needs_bin_confirmation():
 def test_queue_params_only_from_config():
     src = open(os.path.join(LAUNCH, "launch.py"), encoding="utf-8").read()
     assert not re.search(r'"--(cores|mem|est|max-runtime)",\s*"?\d', src)
-    assert CFG["queue"] == {"cls": "prod", "cores": 12, "mem": 24, "max_runtime": 60000, "est": 45000}
+    assert CFG["queue"] == {"cls": "prod", "cores": 15, "mem": 24, "max_runtime": 60000, "est": 45000}
 
 
 def test_queue_cmd_max_runtime_meets_alsched_rule():
@@ -289,6 +289,20 @@ def test_letopis_audit_fields():
             assert x["status"] == "none" and x["off"] in launch.OFF_LABELS.values()
 
 
+def test_sieve_note_undefined_and_reasons():
+    """TK-299: «не определена» (сделок/суток меньше порога rules), причины годна / p > порога / ΔSR ≤ 0; пороги — из rules."""
+    R = {"V@r": {"p_max": 0.2, "min_trades": 20.0, "min_days": 10.0}}
+    row = lambda **k: [{"rule_version": "V@r", "trades": 700, "days": 200, "p": 0.1, "eligible": 0, "plateau": 0, **k}]
+    assert launch.sieve_note(row(trades=6, days=6), R)[0] is True
+    assert launch.sieve_note(row(days=9), R)[0] is True
+    u, w = launch.sieve_note(row(eligible=1, plateau=1), R)
+    assert (u, w.startswith("годна"), "плато" in w) == (False, True, True)
+    assert launch.sieve_note(row(p=1.0), R) == (False, "не годна: p 1.0 > 0.2 (700 сделок, 200 суток)")
+    assert "ΔSR" in launch.sieve_note(row(p=0.1), R)[1]
+    assert launch.sieve_note(row(trades=1), {})[0] is False   # правил версии нет — «не определена» не выдумываем
+    assert launch.sieve_note(row(note="не определена: контроль"), R) == (True, "не определена: контроль")   # TK-309: причина из строки сита
+
+
 # --- TK-251 П4: маршруты r1/r1x (R1 в форме) ---
 R1DOC = {**DOC, "routes": {"aaaa": "cells", "bbbb": "cells", "cccc": "r1", "dddd": "r1x"},
          "r1spec": {"cccc": ["Г-01", "wall_add_max_lots", "hi", "5", "", ""]}}
@@ -392,7 +406,7 @@ def test_metrics_why_names_the_reason():
 def test_p17_routes_and_bin_guard():
     """TK-279: П-17 рядом с П-14 — все 292 хеша в маршрутах, форма видит клетки обоих протоколов; бинарь без P-17 в bin.protocols отказывает."""
     cfg = launch.load_config()
-    assert launch.protocols_of(cfg) == [("P-14", [1, 2]), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
+    assert launch.protocols_of(cfg) == [("P-14", [1, 2]), ("P-15", 1), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
     p17 = launch.plan_rows("P-17", 1)
     routes = launch.load_routes()
     assert len(p17) == 292 and {r["hash"] for r in p17} <= set(routes) and {r["hash"] for r in launch.plan_rows_cfg(cfg)} >= {r["hash"] for r in p17}

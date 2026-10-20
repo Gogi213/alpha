@@ -10,11 +10,12 @@ import cellhash as ch, db, master
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 ap = argparse.ArgumentParser(); ap.add_argument("csv"); ap.add_argument("--run", required=True); ap.add_argument("--dry", action="store_true")
 ap.add_argument("--plan", default=os.path.join(ROOT, "data", "tk196-plan-f1.csv"))
-ap.add_argument("--fraction", type=int, default=1, help="доля плана P-14 (TK-272: 2 = F2)")
+ap.add_argument("--fraction", type=int, default=1, help="доля плана (TK-272: 2 = F2)")
+ap.add_argument("--protocol", default="P-14", help="протокол (TK-274: P-15)")
 ns = ap.parse_args()
 c = master.connect()
-rules = master.rules_of(c, "P-14")
-grids, _ = master.build_grid(c, "P-14", ns.fraction, None, rules)   # заполняет master.LINES / MONTHLY
+rules = master.rules_of(c, ns.protocol)
+grids, _ = master.build_grid(c, ns.protocol, ns.fraction, None, rules)   # заполняет master.LINES / MONTHLY
 c.close()
 plan = {json.loads(l)["hash"] for l in open(ns.plan, encoding="utf-8") if l.strip()}
 cfgs = {}

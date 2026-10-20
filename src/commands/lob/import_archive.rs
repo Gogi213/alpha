@@ -52,8 +52,9 @@ pub struct ImportArchiveArgs {
     #[arg(long)]
     pub trades: PathBuf,
     /// Пул с шагами цены и количества (`instruments.csv`: `symbol,tick_size,…,qty_step,…`).
+    /// Нужен всегда, кроме `--spot` (там шаги — только по суткам).
     #[arg(long)]
-    pub instruments: PathBuf,
+    pub instruments: Option<PathBuf>,
     /// Корень эпохи: файл `<root>/<SYMBOL>-<день>.binlog`.
     #[arg(long)]
     pub root: PathBuf,
@@ -68,6 +69,12 @@ pub struct ImportArchiveArgs {
     /// шагов (момент смены — первое сообщение вне старой сетки); без смены — v3, как раньше.
     #[arg(long)]
     pub steps_from_day: bool,
+    /// Спот (TK-312): сделки — CSV `public.bybit.com/spot` (`id,timestamp,price,volume,side,rpi`:
+    /// время целым числом мс, сторона `buy`/`sell`, RPI `0`/`1`); стакан `orderbook.200` разбирается
+    /// тем же кодом. Шагов пула у спота нет (В-172: как было на бирже) — обязателен
+    /// `--steps-from-day`, `--instruments` не читается. Без флага — фьючерс, как раньше.
+    #[arg(long)]
+    pub spot: bool,
 }
 
 /// Итог импорта суток.
@@ -321,26 +328,42 @@ fn parse_decimal_e9(s: &str) -> Option<i64> {
     i64::try_from(v).ok()
 }
 
-fn read_trades(path: &Path) -> anyhow::Result<Vec<Trade>> {
+fn read_trades(path: &Path, spot: bool) -> anyhow::Result<Vec<Trade>> {
     let mut rdr = csv::Reader::from_path(path)?;
     let head = rdr.headers()?.clone();
     let col = |name: &str| head.iter().position(|h| h == name);
+    // Спот: `timestamp` уже в мс, размер — `volume`, сторона строчными, RPI — `rpi`.
+    let (c_size, c_rpi) = if spot {
+        ("volume", "rpi")
+    } else {
+        ("size", "RPI")
+    };
     let i_ts = col("timestamp").ok_or_else(|| anyhow::anyhow!("сделки: нет timestamp"))?;
     let i_side = col("side").ok_or_else(|| anyhow::anyhow!("сделки: нет side"))?;
-    let i_size = col("size").ok_or_else(|| anyhow::anyhow!("сделки: нет size"))?;
+    let i_size = col(c_size).ok_or_else(|| anyhow::anyhow!("сделки: нет {c_size}"))?;
     let i_price = col("price").ok_or_else(|| anyhow::anyhow!("сделки: нет price"))?;
-    let i_rpi = col("RPI");
+    let i_rpi = col(c_rpi);
+    let (buy, sell) = if spot {
+        ("buy", "sell")
+    } else {
+        ("Buy", "Sell")
+    };
     let mut out = Vec::new();
     for (n, row) in rdr.records().enumerate() {
         let row = row?;
         let bad = || anyhow::anyhow!("{}: строка {} не разбирается", path.display(), n + 2);
+        let ts = row.get(i_ts).ok_or_else(bad)?;
         out.push(Trade {
-            ms: trade_ms(row.get(i_ts).ok_or_else(bad)?).ok_or_else(bad)?,
+            ms: if spot {
+                ts.parse().map_err(|_| bad())?
+            } else {
+                trade_ms(ts).ok_or_else(bad)?
+            },
             price_e9: parse_decimal_e9(row.get(i_price).ok_or_else(bad)?).ok_or_else(bad)?,
             qty_e9: parse_decimal_e9(row.get(i_size).ok_or_else(bad)?).ok_or_else(bad)?,
             buy: match row.get(i_side) {
-                Some("Buy") => true,
-                Some("Sell") => false,
+                Some(v) if v == buy => true,
+                Some(v) if v == sell => false,
                 _ => return Err(bad()),
             },
             rpi: i_rpi
@@ -393,7 +416,20 @@ impl<W: std::io::Write> Out<W> {
 /// Импорт одних суток. Читает поток стакана построчно и сливает с ним сделки по времени
 /// (стакан — по `ts`, сделка — по `T`), так что порядок записей в файле — порядок поступления.
 pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSummary> {
-    let (pool_tick_e9, pool_step_e9) = steps(&args.instruments, &args.symbol)?;
+    let (pool_tick_e9, pool_step_e9) = if args.spot {
+        // Нет пула — НОД с нулём равен самому НОД суток.
+        anyhow::ensure!(
+            args.steps_from_day,
+            "--spot: нужен --steps-from-day (шагов пула у спота нет)"
+        );
+        (0, 0)
+    } else {
+        let instruments = args
+            .instruments
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("нужен --instruments (или --spot)"))?;
+        steps(instruments, &args.symbol)?
+    };
     let day = parse_calendar_day(&args.day)
         .ok_or_else(|| anyhow::anyhow!("--day {}: ожидается YYYY-MM-DD", args.day))?;
     let day_start = day
@@ -409,7 +445,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         "{}: файл уже есть — импорт не перезаписывает записанные сутки",
         out_path.display()
     );
-    let trades = read_trades(&args.trades)?;
+    let trades = read_trades(&args.trades, args.spot)?;
     let reader: Box<dyn BufRead> = if args.ob.as_os_str() == "-" {
         Box::new(BufReader::new(std::io::stdin().lock()))
     } else {
@@ -427,6 +463,12 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         );
         let day_steps = steps_from_day(&args.ob, day_end, pool_tick_e9, pool_step_e9)?;
         let (t, st) = day_steps.grid;
+        anyhow::ensure!(
+            t > 0 && st > 0,
+            "{} {}: в стакане суток нет уровней — шаг не определён",
+            args.symbol,
+            args.day
+        );
         let (snap_t, snap_st) = day_steps.snapshot;
         schedule = day_steps.schedule;
         eprintln!(

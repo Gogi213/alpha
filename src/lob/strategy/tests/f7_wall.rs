@@ -146,6 +146,7 @@ pub(super) fn f7_run(plan: TradePlan, feed: &[Event]) -> crate::lob::backtest::B
         hold_skip: false,
     };
     let signal = BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan,

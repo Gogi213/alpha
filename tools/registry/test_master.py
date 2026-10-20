@@ -327,6 +327,51 @@ class MasterTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             master.p14_cfg("Г-87", {**sv, "sigma": "sigma120"}, {"n": "2"})
 
+    def test_p15_cells_match_scope(self):
+        """TK-274: хеши клеток F1 П-15 из master.p14_cfg (оси p15-axes-hyp_axes) = хеши P-15-scope.json; пороги Г-72/Г-146 по месяцам; дубль лага 1 с — одна клетка."""
+        scope = json.load(open(os.path.join(HERE, "..", "..", "docs", "research", "P-15-scope.json"), encoding="utf-8"))
+        master.ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+        master._P15_THR = os.path.join(master.ROOT, "docs", "research", "P-15-thresholds.csv")
+        sv = {"entry": "ladder3x0..0.0409sw2", "stop": "pct2", "take": "tr1x1", "deadline_s": "14400", "entry_ttl_s": "1800", "set": "t-bid-btc4h-q1",
+              "universe": "pool v171c (В-210)", "sigma": "sigma240", "queue": "prob:3", "busy": "off"}
+        mm = {"Г-108": {"gap_bps": "LevelBack:gap_bps", "secs": "LevelBack:secs"}, "Г-102": {"k": "EntryRetreat:k", "half_min": "EntryRetreat:half_min"}}
+        n = 0
+        for fam, hyp in (("Г-108", "Г-108"), ("Г-102", "Г-102"), ("Г-72", "Г-72"), ("Г-146", "Г-146")):
+            for c in scope["families"][fam]:
+                cfg = master.p14_cfg(hyp, sv, {k: str(v) for k, v in c["axes"].items()}, mm=mm.get(hyp))
+                h = ch.cell_hash(cfg)
+                self.assertEqual(h, c["hash"], (fam, c["axes"]))
+                if "line" in c:
+                    self.assertEqual(master.LINES[h][0], c["line"])
+                else:
+                    self.assertEqual(sorted(master.MONTHLY[h]), [f"2026-{m:02d}" for m in range(1, 10)])
+                n += 1
+        self.assertEqual(n, 172)
+        c1 = {c["axes"]["btc_thr_q"]: c for c in scope["families"]["Г-72"] if c["axes"]["btc_lag_s"] == 1}
+        sv_q = lambda q: master.MONTHLY[c1[q]["hash"]]["2026-01"]   # noqa: E731
+        self.assertEqual(sv_q(50), sv_q(33))   # границы q50, q67 = q33 во всех месяцах -> тот же набор (одна клетка в --cells)
+        self.assertEqual(sv_q(67), sv_q(33))
+        self.assertNotEqual(c1[50]["hash"], c1[33]["hash"])
+
+    def test_p15_g134_r1_cells(self):
+        """TK-274: Г-134 — 18 R1-клеток (2 колонки × 9 q), порог «своего месяца» (thr own-month), знак lo; не r1ext/r1x (к счёту маршрутом R1), хеш не равен Г-28/Г-63."""
+        sv = {"entry": "ladder3x0..0.0409sw2", "stop": "pct2", "take": "tr1x1", "deadline_s": "14400", "entry_ttl_s": "1800", "set": "t-bid-btc4h-q1",
+              "universe": "pool v171c (В-210)", "sigma": "sigma240", "queue": "prob:3", "busy": "off"}
+        hs = {}
+        for col in ("frontrun_levels", "frontrun_delta_10s_lots"):
+            for q in (5, 10, 20, 33, 50, 67, 80, 90, 95):
+                cfg = master.p14_cfg("Г-134", sv, {"col": col, "keep_q": str(q)})
+                h = ch.cell_hash(cfg)
+                hs[(col, q)] = h
+                self.assertEqual(cfg["variant"]["axes"]["thr"], "own-month")
+                self.assertEqual(cfg["variant"]["axes"]["feature"], col)
+                self.assertNotIn(h, master.R1X)
+                self.assertNotIn(h, master.R1COL)
+        self.assertEqual(len(set(hs.values())), 18)
+        for hyp in ("Г-28", "Г-63"):
+            h28 = ch.cell_hash(master.p14_cfg(hyp, sv, {"col": "frontrun_levels", "keep_q": "50"}))
+            self.assertNotEqual(h28, hs[("frontrun_levels", 50)])
+        self.assertEqual(master.R1_SIGN["Г-134"], {"frontrun_levels": "lo", "frontrun_delta_10s_lots": "lo"})
     def test_p17_cells_hash_as_scope_and_lines(self):
         """TK-279: клетки П-17 из осей = хеши P-17-scope.json (Г-98/136/137 — набор, строка в LINES; Г-101/135 — вариант, строки по месяцам; Г-81 без порогов — причина)."""
         import p17_scope
