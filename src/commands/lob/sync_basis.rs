@@ -51,8 +51,10 @@ pub(crate) struct Market {
     zero: u64,
     total: u64,
     /// Последний mid секунды (цена, не bps), `NaN` — не было обновления.
-    mid: Vec<f64>,
+    pub(crate) mid: Vec<f64>,
     base_sec: Option<i64>,
+    /// Шаг цены бинлога (`tick_e9` заголовка), 1e-9 валюты котировки.
+    pub(crate) tick_e9: i64,
     /// Обновления, отвергнутые книгой (разрыв `u`, пересечение): их mid не учтён.
     pub rejected: u64,
 }
@@ -66,6 +68,7 @@ impl Market {
             total: 0,
             mid: vec![f64::NAN; GRID_SECS],
             base_sec: None,
+            tick_e9: 0,
             rejected: 0,
         }
     }
@@ -93,6 +96,16 @@ impl Market {
                 self.mid[i] = mid;
             }
         }
+    }
+
+    /// Mid на конец последней **полной** секунды до `ms` (без заглядывания вперёд), с переносом вперёд;
+    /// `fill` — `forward_fill(&self.mid)`. `None` — до `ms` обновлений не было.
+    pub(crate) fn mid_before(&self, fill: &[f64], ms: i64) -> Option<f64> {
+        let base = self.base_sec?;
+        let i = usize::try_from(ms.div_euclid(1_000) - 1 - base).ok()?;
+        fill.get(i.min(GRID_SECS - 1))
+            .copied()
+            .filter(|v| v.is_finite())
     }
 
     /// Квантиль гистограммы часов, мс (по неотрицательным).
@@ -126,6 +139,7 @@ pub(crate) fn read_market(parts: &[PathBuf]) -> anyhow::Result<Market> {
                 .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?
                 .header()
         };
+        m.tick_e9 = header_tick.tick_e9;
         let mut book = Book::new(header_tick.tick_e9, header_tick.step_e9);
         while let Some(ev) = feed.next_event() {
             let Event::Market {
@@ -151,7 +165,7 @@ pub(crate) fn read_market(parts: &[PathBuf]) -> anyhow::Result<Market> {
 }
 
 /// Mid по секундам с переносом вперёд; до первого значения — `NaN`.
-fn forward_fill(raw: &[f64]) -> Vec<f64> {
+pub(crate) fn forward_fill(raw: &[f64]) -> Vec<f64> {
     let mut last = f64::NAN;
     raw.iter()
         .map(|&v| {
