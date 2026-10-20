@@ -40,3 +40,28 @@ fn unprojectable_is_none_and_garbage_is_error() {
     );
     assert!(project_field("abc", Side::Bid, (1.0, 1.0), SAME).is_err());
 }
+
+#[test]
+fn lots_equal_steps_keep_raw_string() {
+    assert_eq!(convert_lots("00123", (10, 10)).unwrap(), "00123");
+    assert_eq!(convert_lots("", (10, 1000)).unwrap(), "");
+}
+
+#[test]
+fn lots_spot_to_fut_by_quantity() {
+    // ADA: лот спота 0,01, лот фьючерса 1 → 370 лотов спота = 3,7 монеты = 4 лота фьючерса (до ближайшего).
+    let (s, f) = (10_000_000, 1_000_000_000);
+    assert_eq!(convert_lots("370", (s, f)).unwrap(), "4");
+    assert_eq!(convert_lots("349", (s, f)).unwrap(), "3");
+    assert_eq!(convert_lots("350", (s, f)).unwrap(), "4");
+    assert_eq!(convert_lots("0", (s, f)).unwrap(), "0");
+    // Лот фьючерса мельче — количество растёт кратно.
+    assert_eq!(convert_lots("7", (f, s)).unwrap(), "700");
+}
+
+#[test]
+fn lots_overflow_and_bad_steps_are_errors() {
+    assert!(convert_lots("9223372036854775807", (1_000_000_000, 1)).is_err());
+    assert!(convert_lots("5", (0, 1)).is_err());
+    assert!(convert_lots("x", (1, 2)).is_err());
+}

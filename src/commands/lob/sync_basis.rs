@@ -55,6 +55,8 @@ pub(crate) struct Market {
     base_sec: Option<i64>,
     /// Шаг цены бинлога (`tick_e9` заголовка), 1e-9 валюты котировки.
     pub(crate) tick_e9: i64,
+    /// Шаг размера бинлога (`step_e9` заголовка, лот), 1e-9 базовой монеты.
+    pub(crate) step_e9: i64,
     /// Обновления, отвергнутые книгой (разрыв `u`, пересечение): их mid не учтён.
     pub rejected: u64,
 }
@@ -69,6 +71,7 @@ impl Market {
             mid: vec![f64::NAN; GRID_SECS],
             base_sec: None,
             tick_e9: 0,
+            step_e9: 0,
             rejected: 0,
         }
     }
@@ -140,6 +143,7 @@ pub(crate) fn read_market(parts: &[PathBuf]) -> anyhow::Result<Market> {
                 .header()
         };
         m.tick_e9 = header_tick.tick_e9;
+        m.step_e9 = header_tick.step_e9;
         let mut book = Book::new(header_tick.tick_e9, header_tick.step_e9);
         while let Some(ev) = feed.next_event() {
             let Event::Market {
