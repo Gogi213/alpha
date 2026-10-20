@@ -1,8 +1,9 @@
-//! `lob touches-project` — вход §6 П-22 (TK-328): касания стен **спота** → цены в тиках **фьючерса**.
-//! Берёт `touches-<SYM>.csv` суток спота и два набора бинлога (mid спота и фьючерса на `start_ms`), переписывает
-//! в каждой строке `price_tick`, `frontrun_tick`, `stack_next_tick` через `lob::project::project_tick` (§3.2:
-//! расстояние в bps сохраняется, округление в пассивную сторону — bid вниз, ask вверх) и пересчитывает
-//! `round_zeros`. Колонки в **лотах** (`LOT_COLUMNS`) пересчитываются из лота спота в лот фьючерса через количество
+//! `lob touches-project` — вход §6 П-22 (TK-328): касания и подходы стен **спота** → цены в тиках **фьючерса**.
+//! Берёт `touches-<SYM>.csv` или `approaches-<SYM>.csv` суток спота (вид — по заголовку: `start_ms` / `arm_ms`) и два
+//! набора бинлога (mid спота и фьючерса на момент строки), переписывает тиковые поля через
+//! `lob::project::project_tick` (§3.2: расстояние в bps сохраняется, округление в пассивную сторону — bid вниз, ask
+//! вверх): у касаний `price_tick`, `frontrun_tick`, `stack_next_tick` (и пересчитывает `round_zeros`), у подходов
+//! `price_tick`, `best_own_tick`, `best_opp_tick`. Колонки в **лотах** (`LOT_COLUMNS` / `approach_lot_column`) пересчитываются из лота спота в лот фьючерса через количество
 //! (`lots·step_спот/step_фьюч`, до ближайшего лота): `usd_min`/`holds_at_size` считают номинал как `тик·лот` фьючерса,
 //! а лоты спота и фьючерса (ADA: 0,01 и 1) различаются. Остальные поля (силы в %, время, ходы) — как в строке, байт в
 //! байт. Исполнение — обычный `bounce-grid --touches-from <out>` на бинлоге фьючерса.
@@ -25,10 +26,11 @@ use super::sync_basis::{forward_fill, read_market};
 /// Аргументы `lob touches-project`.
 #[derive(Debug, Args)]
 pub struct TouchesProjectArgs {
-    /// `touches-<SYM>.csv` суток спота (вход).
+    /// `touches-<SYM>.csv` или `approaches-<SYM>.csv` суток спота (вход).
     #[arg(long = "in")]
     pub input: PathBuf,
-    /// Куда писать CSV касаний в тиках фьючерса (`<каталог>/<сутки>/touches-<SYM>.csv` — раскладка `--touches-from`).
+    /// Куда писать CSV в тиках фьючерса (`<каталог>/<сутки>/touches-<SYM>.csv` или `approaches-<SYM>.csv` — раскладка
+    /// `--touches-from`).
     #[arg(long)]
     pub out: PathBuf,
     /// Части суток спота (`*.binlog` / `*.binlog.zst`), по порядку.
@@ -61,6 +63,16 @@ const LOT_COLUMNS: [&str; 9] = [
 ];
 /// Колонка лотов, которой может не быть в старом кэше (T2): конвертируется, если есть.
 const OPTIONAL_LOT_COLUMN: &str = "depth_behind_lots";
+
+/// Колонка `approaches-<SYM>.csv` в лотах: P-08/R1 называют лоты `…lots…`; без слова в имени — размер уровня
+/// (`size_at_arm`, `size_max_at_arm`) и размеры сделок R1 (`trade_size_p50/p90_15m`).
+fn approach_lot_column(name: &str) -> bool {
+    name.contains("lots")
+        || matches!(
+            name,
+            "size_at_arm" | "size_max_at_arm" | "trade_size_p50_15m" | "trade_size_p90_15m"
+        )
+}
 
 /// Лоты спота → лоты фьючерса по одному и тому же количеству базовой монеты: `lots·step_s/step_f`, до ближайшего
 /// целого (половина вверх). Равные шаги — строка без изменений (байт в байт). Пусто остаётся пустым.
@@ -110,16 +122,36 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
     let mut rd = csv::Reader::from_path(&args.input)?;
     let header = rd.headers()?.clone();
     let c_side = col(&header, "side")?;
-    let c_start = col(&header, "start_ms")?;
+    let approaches = header.iter().any(|h| h == "arm_ms");
+    let c_start = col(&header, if approaches { "arm_ms" } else { "start_ms" })?;
     let c_price = col(&header, "price_tick")?;
-    let c_zeros = col(&header, "round_zeros")?;
-    let c_front = col(&header, "frontrun_tick")?;
-    let c_next = col(&header, "stack_next_tick")?;
-    let mut c_lots: Vec<usize> = Vec::with_capacity(LOT_COLUMNS.len() + 1);
-    for name in LOT_COLUMNS {
-        c_lots.push(col(&header, name)?);
-    }
-    c_lots.extend(header.iter().position(|h| h == OPTIONAL_LOT_COLUMN));
+    let c_zeros = if approaches {
+        None
+    } else {
+        Some(col(&header, "round_zeros")?)
+    };
+    let (n_front, n_next) = if approaches {
+        ("best_own_tick", "best_opp_tick")
+    } else {
+        ("frontrun_tick", "stack_next_tick")
+    };
+    let c_front = col(&header, n_front)?;
+    let c_next = col(&header, n_next)?;
+    let c_lots: Vec<usize> = if approaches {
+        for name in ["size_at_arm", "flow_1h_lots"] {
+            col(&header, name)?;
+        }
+        (0..header.len())
+            .filter(|&i| approach_lot_column(&header[i]))
+            .collect()
+    } else {
+        let mut v = Vec::with_capacity(LOT_COLUMNS.len() + 1);
+        for name in LOT_COLUMNS {
+            v.push(col(&header, name)?);
+        }
+        v.extend(header.iter().position(|h| h == OPTIONAL_LOT_COLUMN));
+        v
+    };
     if let Some(dir) = args.out.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -149,10 +181,10 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
         ) else {
             continue;
         };
-        let zeros = if price == rec[c_price] {
-            rec[c_zeros].to_owned()
-        } else {
-            round_zeros(price.parse()?).to_string()
+        let zeros = match c_zeros {
+            Some(c) if price != rec[c_price] => round_zeros(price.parse()?).to_string(),
+            Some(c) => rec[c].to_owned(),
+            None => String::new(),
         };
         let lots: Vec<String> = c_lots
             .iter()
@@ -165,7 +197,7 @@ pub fn run_touches_project(args: &TouchesProjectArgs) -> anyhow::Result<String> 
                 _ if i == c_price => price.as_str(),
                 _ if i == c_front => front.as_str(),
                 _ if i == c_next => next.as_str(),
-                _ if i == c_zeros => zeros.as_str(),
+                _ if Some(i) == c_zeros => zeros.as_str(),
                 _ => c_lots
                     .iter()
                     .position(|&c| c == i)

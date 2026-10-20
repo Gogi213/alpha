@@ -65,3 +65,44 @@ fn lots_overflow_and_bad_steps_are_errors() {
     assert!(convert_lots("5", (0, 1)).is_err());
     assert!(convert_lots("x", (1, 2)).is_err());
 }
+
+#[test]
+fn approach_lot_columns_cover_lots_not_ticks_or_times() {
+    use crate::commands::lob::touches::APPROACHES_COLUMNS;
+    let lots: Vec<&str> = APPROACHES_COLUMNS
+        .iter()
+        .copied()
+        .filter(|n| approach_lot_column(n))
+        .collect();
+    assert_eq!(
+        lots,
+        [
+            "size_at_arm",
+            "flow_1h_lots",
+            "depth_behind_lots",
+            "frontrun_lots_at_arm",
+            "traded_lots_at_arm",
+            "size_max_at_arm",
+            "eat_60s_lots",
+            "size_max_60s_lots",
+            "depth_behind50_lots_at_arm",
+        ]
+    );
+    for n in [
+        "price_tick",
+        "best_own_tick",
+        "best_opp_tick",
+        "arm_ms",
+        "arm_dist_bps",
+    ] {
+        assert!(!approach_lot_column(n), "{n}");
+    }
+}
+
+#[test]
+fn approach_lot_columns_take_r1_lots() {
+    for n in crate::lob::r1::ArmR1::names() {
+        let lots = n.contains("lots") || n.starts_with("trade_size_");
+        assert_eq!(approach_lot_column(n), lots, "{n}");
+    }
+}
