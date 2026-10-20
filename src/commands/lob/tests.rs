@@ -459,6 +459,7 @@ fn lob_help_lists_all_subcommands() {
         "probe",
         "record",
         "session",
+        "sync-basis",
         "touches",
         "trades",
         "validate",
