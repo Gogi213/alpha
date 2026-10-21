@@ -100,7 +100,14 @@ def main():
         newU += ["%d" % (round(v / 500) * 500) for v in interp(float(U[i]), float(U[i + 1]), "6v")]
     Sw = [S[i] for i in range(s_lo, s_hi + 1)] + newS; Uw = [U[i] for i in range(u_lo, u_hi + 1)] + newU
     grid = [(s, u) for s in Sw for u in Uw if (s, u) not in cell]
-    summ["6v"] = {"зона": zone, "S_нов": newS, "U_нов": newU, "клеток_нов": len(grid), "потолок_100": len(grid) > 100}
+    # потолок 100 (§11.2 п. 4; Судья 21.10, reviews/tk289-f2-cap): режем по правилу «ближе к центру зоны» — столбец U, самый дальний
+    # от геом. центра U зоны по лог-расстоянию (S дальше 4,8/13,4 ближе любой крайней U), пока не <= 100
+    uc = math.exp(sum(math.log(float(u)) for u in {u for _, u in zone}) / len({u for _, u in zone}))
+    n_full, dropped = len(grid), []
+    while len(grid) > 100:
+        far = max({u for _, u in grid if u in newU}, key=lambda u: abs(math.log(float(u) / uc)))   # только новые точки U (F1-соседи — края окрестности)
+        dropped.append(far); grid = [(s, u) for s, u in grid if u != far]
+    summ["6v"] = {"зона": zone, "S_нов": newS, "U_нов": [u for u in newU if u not in dropped], "клеток_нов": len(grid), "до_потолка": n_full, "срезано_U": dropped, "потолок_100": len(grid) > 100}
     for s, u in grid:
         out.append({"hyp": "П18-6v", "axes": json.dumps({"ax": "6v", "flow+usd_min": f"{s}|{u}"}, ensure_ascii=False)})
     print(json.dumps(summ, ensure_ascii=False, indent=1))
