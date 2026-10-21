@@ -5,7 +5,7 @@
 #   F2: вход single@fr, стоп pct2, тейк 1to1 × дедлайн {1800, 14400} × выход {none, eat50, gone50} × early {2, off}      (12 форм)
 #   F3: вход market, стоп pct0.5, тейк {1to1, tr1x1}, дедлайн 14400 × выход {eat50, gone50} × early {2, off}              (8 форм)
 # Наборы age10/age60 вместо age1800/7200: в кэше касаний возраст стены ≤ ~13 мин (калибровка 01.02: age1800 → 0 сигналов).
-#   tk345-validity-pass.sh <сутки> <шард 0..SH-1> <выход-каталог>        env: BIN GT SH GRP (символов в задаче, 3) FAMS ("F1 F2 F3") PROBE_SYMS (список символов вместо шарда)
+#   tk345-validity-pass.sh <сутки> <шард 0..SH-1> <выход-каталог>        env: BIN GT SH GRP (символов в задаче, 3) FAMS ("F1 F2 F3") PROBE_SYMS (список символов вместо шарда) TAG (имя задачи вместо s<шард>-g<n>)
 set -uo pipefail
 d=$1; sh=$2; O=$3
 BIN=${BIN:-/opt/alpha-compute/bin/alpha-tk0289c-pgo}; GT=${GT:-1}
@@ -34,7 +34,7 @@ n=0; rcall=0
 for ((i = 0; i < ${#SYMS[@]}; i += GRP)); do
   sargs=(); for s in "${SYMS[@]:i:GRP}"; do sargs+=(--symbol "$s"); done
   for fam in ${FAMS:-F1 F2 F3}; do
-    u="$O/$d-s$sh-g$n-$fam"
+    u="$O/$d-${TAG:-s$sh-g$n}-$fam"
     [ -f "$u/done" ] && continue
     rm -rf "$u"; mkdir -p "$u"
     case $fam in F1) fa=("${F1[@]}");; F2) fa=("${F2[@]}");; F3) fa=("${F3[@]}");; esac
