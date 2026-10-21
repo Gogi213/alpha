@@ -63,11 +63,20 @@ def main():
     ap.add_argument("--label", default="P-18-F1", help="метка файлов плана (боевой путь day-cells.sh: L)")
     ap.add_argument("--skip", default="", help="клетки, которые не пишем (уже в Летописи): имена через запятую, напр. p18a5v300")
     ap.add_argument("--only", default="", help="одно значение оси (ось 8: окно σ, мин; на проход одно окно)")
+    ap.add_argument("--f2", help="сетка F2 (tk289-f2-grid.py --out): значения осей берутся из неё вместо F1 (центры/окна — те же правила клетки)")
     ap.add_argument("--smoke", action="store_true", help="10 клеток: первое значение каждой оси + верх осей 2, 4, 5; только март (малый срез [вживую])")
     a = ap.parse_args()
     axes = a.axes.split(",")
     strength = json.load(open(a.strength_json)) if a.strength_json else {}
     skip = set(filter(None, a.skip.split(",")))
+    if a.f2:
+        import csv
+        f2 = {}
+        for r in csv.DictReader(open(a.f2, encoding="utf-8")):
+            d = json.loads(r["axes"]); ax = d.pop("ax")
+            f2.setdefault(ax, []).extend(d.values())
+        for ax in axes:
+            AX[ax] = (AX[ax][0], f2.get(ax, []))
     if "6b" in axes and not strength:
         sys.exit("ось 6б: нужен --strength-json (квантили силы по сигналам B1 в месяц)")
     os.makedirs(a.out, exist_ok=True)
