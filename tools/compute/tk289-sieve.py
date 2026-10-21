@@ -16,6 +16,7 @@ B = int(sys.argv[sys.argv.index("--boot") + 1]) if "--boot" in sys.argv else 400
 OLD = {r["hash"]: r for r in csv.DictReader(open(sys.argv[sys.argv.index("--old") + 1], encoding="utf-8"))} if "--old" in sys.argv else {}
 P_MAX, MIN_TR, MIN_D, NB = 0.20, 20, 10, 5
 F2 = "--f2" in sys.argv
+F2B = "--f2b" in sys.argv      # + F2 осей 6б и 8 (12 кл., f2b/<b6|окно σ>, tk289-symclose3.sh)
 RULE = "P-18@F2" if F2 else "P-18@F1"
 TAIL = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 B1 = "t-bid-btc4h-q1@" + TAIL
@@ -23,8 +24,8 @@ isA = lambda s: int(hashlib.sha256(s.encode()).hexdigest(), 16) % 2 == 0
 d0 = datetime.date(2026, 1, 1); ND = (datetime.date(2026, 10, 1) - d0).days
 UTC = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).date()
 MONTHS = [f"2026-{m:02d}" for m in range(1, 10)]
-RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)] + (["f2", "f245"] if F2 else [])
-NOF2 = {"6b", "8"}      # оси, чей F2 считается отдельными заказами
+RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)] + (["f2", "f245"] if F2 else []) + (["f2b/b6"] + [f"f2b/{w}" for w in (266, 294, 325, 387, 416, 447)] if F2B else [])
+NOF2 = set() if F2B else {"6b", "8"}      # оси, чей F2 считается отдельными заказами (без --f2b — пропускаются)
 CENTER = {"1": 0.0409, "2": 2.0, "3": 1.0, "4": 14400.0, "5": 1800.0, "6a": 0.0, "6b": 0.0, "7": -44.55, "8": 240.0}   # центр B1 на числовой оси
 KEY = {"1": "to", "2": "stop", "3": "take", "4": "deadline", "5": "ttl", "6a": "usd_min", "6b": "strength_min", "6v": "flow+usd_min", "7": "btc", "8": "sigma_min"}
 
