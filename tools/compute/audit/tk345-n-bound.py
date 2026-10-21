@@ -18,7 +18,7 @@ def appr(sym):
 def num(h, key):
     m = re.search(key + r"=(?:Some\()?(-?[0-9.]+)", h)
     return float(m.group(1)) if m else None
-cells = bad = 0
+cells = bad = nocache_t = 0
 for c in sorted(os.listdir(odir)):
     f = os.path.join(odir, c, "forms.csv")
     if not os.path.isfile(f) or (pat and not pat.search(c)):
@@ -27,11 +27,11 @@ for c in sorted(os.listdir(odir)):
     head = lines[0]
     age, usd, behind = num(head, "min_age_secs"), num(head, "usd_min"), num(head, "behind_min")
     rows = list(csv.DictReader(l for l in lines if not l.startswith("#")))
-    cells += 1; viol = 0; ns = ub_t = 0
+    cells += 1; viol = nocache = 0; ns = ub_t = 0
     for r in rows:
         a = appr(r["symbol"])
         if a is None:
-            viol += 1; continue
+            nocache += 1; continue
         tick, step = ins[r["symbol"]]
         ub = 0
         for x in a:
@@ -49,6 +49,6 @@ for c in sorted(os.listdir(odir)):
         if s + k != len(a) or s > ub:
             viol += 1
             print(f"DIFF {c} {r['symbol']}: signals={s} skipped={k} подходов={len(a)} граница={ub}")
-    bad += viol
-    print(f"{c}: age={age} usd={usd} behind={behind} символов={len(rows)} нарушений={viol} Σn={ns} Σграница={ub_t}")
-print(f"ИТОГО клеток {cells}, с нарушениями суммарно {bad}")
+    bad += viol; nocache_t += nocache
+    print(f"{c}: age={age} usd={usd} behind={behind} символов={len(rows)} без_кэша={nocache} нарушений={viol} Σn={ns} Σграница={ub_t}")
+print(f"ИТОГО клеток {cells}, нарушений суммарно {bad}, строк без кэша подходов {nocache_t}")
