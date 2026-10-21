@@ -98,16 +98,18 @@ def load_axes(dirp, protocol="P-14"):
 P17_HYPS = ("81", "98", "101", "135", "136", "137")
 P17_SET_B1 = "age=2700,side=bid,btc4h_max=-44.55"
 _P17_THR = os.path.join(ROOT, "docs", "research", "P-17-thresholds.csv")   # hyp,month,axis,q,threshold,n (p17-*-thresholds.py): порог по касаниям B1 своего месяца
+_P17_THR_F2 = os.path.join(ROOT, "docs", "research", "P-17-thresholds-f2.csv")   # TK-315: то же для q и W новых значений осей F2 (дописью к F1; нет файла — только F1)
 
 
 def p17_thr(hyp, axis):
     """{ГГГГ-ММ: {q: порог (строкой, как в файле)}} из P-17-thresholds.csv; нет файла или строк — {}."""
     out = {}
-    if os.path.exists(_P17_THR):
-        with open(_P17_THR, encoding="utf-8-sig", newline="") as f:
-            for r in csv.DictReader(f):
-                if r["hyp"] == hyp and r["axis"] == axis:
-                    out.setdefault(r["month"], {})[int(r["q"])] = r["threshold"]
+    for path in (_P17_THR, _P17_THR_F2):
+        if os.path.exists(path):
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f):
+                    if r["hyp"] == hyp and r["axis"] == axis:
+                        out.setdefault(r["month"], {})[int(r["q"])] = r["threshold"]
     return out
 
 
@@ -116,7 +118,6 @@ def p17_cell(hyp, av, cfg, form):
     Г-81/101/135 — хеш варианта (семья + оси), строки по месяцам из порога месяца (нет порога — строки нет, причина в LINES)."""
     import cellhash_reg as cr
     n = re.sub(r"\D", "", hyp)
-    Q9 = (5, 10, 20, 33, 50, 67, 80, 90, 95)
     if n in ("98", "136", "137"):
         if n == "98":
             r = _int_in(_frac(av["R_usd"]), (2, 3, 5, 8, 12, 20, 30, 50, 80))
@@ -135,8 +136,8 @@ def p17_cell(hyp, av, cfg, form):
     cfg["variant"] = {"family": fam, "axes": axes}
     h = ch.cell_hash(cfg)
     q = int(axes.get("cxl_q", axes.get("T_q", axes.get("swept_q", 0))))
-    if q not in Q9:
-        LINES[h] = (None, f"Г-{n}: q ∈ {{5,10,20,33,50,67,80,90,95}}")
+    if not 0 < q < 100:
+        LINES[h] = (None, f"Г-{n}: q ∈ (0, 100)")
         return
     if n == "81":
         w = int(axes["W_s"])
@@ -166,7 +167,10 @@ def p17_cell(hyp, av, cfg, form):
             spec = f"{P17_SET_B1},swept_min={int(float(t))}"
         MSETS[f"{pre}-{m}"] = spec
         mm[m] = f"{form} {pre}-{m}"
-    MONTHLY[h] = mm
+    if mm:
+        MONTHLY[h] = mm
+    else:
+        LINES[h] = (None, f"Г-{n}: нет порога q={q} ({axis}) ни в одном месяце — {os.path.basename(_P17_THR)} / {os.path.basename(_P17_THR_F2)}")
 
 
 # ---------- сборка конфига клетки из стека и осей ----------
