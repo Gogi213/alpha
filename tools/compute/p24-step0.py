@@ -51,15 +51,19 @@ def work(item):
     wl = sorted(walls.values())   # по времени первого касания
     wt = [x[0] for x in wl]; ww = [x[1] for x in wl]
     c = []
+    win = []   # отсортированные размеры стен окна [st-WIN, st): два указателя вместо sorted() на каждое касание
+    lo = hi = 0
     for st, tk, bi, ti, sz, ap, d in rows:
         if ti != 0 or st < first + WIN:
             continue
-        lo = bisect.bisect_left(wt, st - WIN); hi = bisect.bisect_left(wt, st)
-        pr = sorted(ww[lo:hi])
-        if len(pr) < 10:
+        while hi < len(wt) and wt[hi] < st:
+            bisect.insort(win, ww[hi]); hi += 1
+        while lo < hi and wt[lo] < st - WIN:
+            del win[bisect.bisect_left(win, ww[lo])]; lo += 1
+        if len(win) < 10:
             continue
         wall = sz * tk
-        q = lambda p: pr[min(len(pr) - 1, int(p * len(pr)))]
+        q = lambda p: win[min(len(win) - 1, int(p * len(win)))]
         c.append((d, st, tk, wall, ap, wall >= q(0.90), wall >= q(0.95)))
     return s, c, {"days": len(files), "touches_bid": len(rows), "walls": len(wl), "cand_q90": sum(1 for x in c if x[5])}
 
@@ -74,6 +78,7 @@ if __name__ == "__main__":
         for s, c, m in pool.imap_unordered(work, items):
             if c is not None:
                 cands[s] = c; meta[s] = m
+            print(f"done {s} {len(meta)}/{len(items)}", file=sys.stderr, flush=True)
 
     q90 = [(s, x) for s, c in cands.items() for x in c if x[5]]
     ap90 = [x[4] for s, x in q90 if x[4] is not None]
