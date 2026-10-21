@@ -161,6 +161,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         sets: Vec::new(),
         cells: None,
         sigma_from: None,
+        ctx_shift_secs: 0,
         hold_step: "poll".to_string(),
         level_control: None,
         exit_group: "off".to_string(),
@@ -234,6 +235,7 @@ fn col<'a>(header: &[String], row: &'a [String], name: &str) -> &'a str {
 mod admit;
 mod carry_cases;
 mod control;
+mod ctx_shift;
 mod form_cases;
 mod grid;
 mod keys;

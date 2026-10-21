@@ -573,6 +573,17 @@ impl<'a> GridRun<'a> {
             summary.symbols_without_touches += 1;
             return Ok(());
         }
+        // Контроль C (TK-333): `--ctx-shift-secs` обязан совпасть с колонкой `ctx_ms` файла кэша (жёсткий отказ).
+        let ctx_shift_ms = args.ctx_shift_secs.checked_mul(1_000).ok_or_else(|| {
+            anyhow::anyhow!("--ctx-shift-secs {} вне диапазона", args.ctx_shift_secs)
+        })?;
+        cache::verify_ctx_shift(
+            args.touches_from.as_deref(),
+            args.signal == SignalArg::Approach,
+            symbol,
+            parts_by_day.keys(),
+            ctx_shift_ms,
+        )?;
         e2e::stage(symbol, "*", "setup", e2e_setup, serde_json::json!({}));
         let e2e_touches = e2e::Mark::now();
         let (days, sigma_series) = if args.signal == SignalArg::Approach {
@@ -745,7 +756,14 @@ impl<'a> GridRun<'a> {
                 }
                 _ => None,
             };
-            let ctx = touch_contexts(&day.rets, &day.touches, regime, kline_ctx, btc_sec_ctx);
+            let ctx = touch_contexts(
+                &day.rets,
+                &day.touches,
+                regime,
+                kline_ctx,
+                btc_sec_ctx,
+                ctx_shift_ms,
+            );
             if btc_sec_ctx.is_some() {
                 // Г-72, договор Судьи п.7: касание вне ряда — без значения оси (не 0), счётчик в отчёт
                 let lag = sets::CTX_AXES
@@ -882,7 +900,7 @@ impl<'a> GridRun<'a> {
                 let no = day
                     .touches
                     .iter()
-                    .filter(|t| es.at(t.start_ms).is_none())
+                    .filter(|t| es.at(t.start_ms - ctx_shift_ms).is_none())
                     .count() as u64;
                 summary.n_sigma_signals += n;
                 summary.n_no_sigma += no;
@@ -1028,6 +1046,7 @@ impl<'a> GridRun<'a> {
                             band_exit_bps,
                             sigma: &sigma_series,
                             entry_sigma: entry_sigma.as_ref(),
+                            ctx_shift_ms,
                         },
                         &mut sink,
                     )?

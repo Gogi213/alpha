@@ -302,6 +302,11 @@ pub struct BounceGridArgs {
     /// σ-лестнице и запрещён без неё; сигнал без σ не торгуется и считается в `n_no_sigma` итога.
     #[arg(long)]
     pub sigma_from: Option<PathBuf>,
+    /// Контроль C (П-22 §5, TK-333): сдвиг входа, секунды — тот же `N`, что `touches-project --shift-secs`.
+    /// σ, режим (`btc4h`/`pool*`), клайн-оси и btc-lag берутся из исходного момента `start_ms − N`, окна и `t0` — по
+    /// сдвинутому `start_ms`; 0 — как прежде.
+    #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+    pub ctx_shift_secs: i64,
     /// Режим по минутам для ключей `pool*`/`btc*` наборов (S3/S4 плана по
     /// сторонам): каталог `study/regime` с `<сутки>.csv` от `regime.py`.
     /// Без него эти ключи — отказ; сутки без файла — отказ.
