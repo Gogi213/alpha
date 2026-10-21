@@ -3,7 +3,9 @@
 Метод — tk308-sieve (ΔSR к B1 по суткам UTC, парный циклический блочный бутстреп, B=4000, seed 14; годна p ≤ 0,20, сделок ≥ 20, суток ≥ 10).
 Плато (П-14 §4 п. 4): 1D — клетка и оба соседа годны, на краю — единственный сосед годен + edge; центр B1 — точка оси без ΔSR (не годна);
 2D (ось 6в, S × usd_min) — ≥ 5 из 8 соседей годны, на краю — большинство существующих. Клетки 6а/6б вложены — печатается доля общих сделок соседей не здесь.
-  python tk289-sieve.py <plan_cells.jsonl> <tk0289-dir> <out-prefix> [--boot 4000] [--old <tk237-sieve-f1-cell-A.csv>]
+  python tk289-sieve.py <plan_cells.jsonl> <tk0289-dir> <out-prefix> [--boot 4000] [--old <tk237-sieve-f1-cell-A.csv>] [--f2]
+--f2 (П-14 §11.3): к F1 добавляются клетки F2 (closes f2 + f245, tk289-symclose2.sh), плато — на объединении F1 ∪ F2 (соседство по рангу значений оси);
+клетки F2 осей 6б и 8 (отдельные заказы, closes нет) пропускаются — плато этих осей остаётся по F1; в csv добавлены fraction и plateau_F1 (плато только по F1).
 Клетки оси 5 с ttl 300…1200 — это Г-129 F1 (TK-237, тот же метод и окно): в closes П-18 их нет, строка берётся из --old по хешу.
   -> <out>.csv (клетки), <out>-rows.json (строки для sieve.jsonl), печать: B1 А, итог по осям."""
 import collections, csv, hashlib, itertools, json, math, os, sys, datetime
@@ -13,14 +15,16 @@ plan_f, root, outp = sys.argv[1:4]
 B = int(sys.argv[sys.argv.index("--boot") + 1]) if "--boot" in sys.argv else 4000
 OLD = {r["hash"]: r for r in csv.DictReader(open(sys.argv[sys.argv.index("--old") + 1], encoding="utf-8"))} if "--old" in sys.argv else {}
 P_MAX, MIN_TR, MIN_D, NB = 0.20, 20, 10, 5
-RULE = "P-18@F1"
+F2 = "--f2" in sys.argv
+RULE = "P-18@F2" if F2 else "P-18@F1"
 TAIL = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 B1 = "t-bid-btc4h-q1@" + TAIL
 isA = lambda s: int(hashlib.sha256(s.encode()).hexdigest(), 16) % 2 == 0
 d0 = datetime.date(2026, 1, 1); ND = (datetime.date(2026, 10, 1) - d0).days
 UTC = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).date()
 MONTHS = [f"2026-{m:02d}" for m in range(1, 10)]
-RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)]
+RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)] + (["f2", "f245"] if F2 else [])
+NOF2 = {"6b", "8"}      # оси, чей F2 считается отдельными заказами
 CENTER = {"1": 0.0409, "2": 2.0, "3": 1.0, "4": 14400.0, "5": 1800.0, "6a": 0.0, "6b": 0.0, "7": -44.55, "8": 240.0}   # центр B1 на числовой оси
 KEY = {"1": "to", "2": "stop", "3": "take", "4": "deadline", "5": "ttl", "6a": "usd_min", "6b": "strength_min", "6v": "flow+usd_min", "7": "btc", "8": "sigma_min"}
 
@@ -39,7 +43,9 @@ def vname(ax, v):    # как p18_plan.cell: имя варианта без ме
 
 
 plan = [json.loads(l) for l in open(plan_f, encoding="utf-8")]
-plan = [r for r in plan if r["protocol"] == "P-18" and r["fraction"] == 1]
+plan = [r for r in plan if r["protocol"] == "P-18" and r["fraction"] in ((1, 2) if F2 else (1,))]
+skipped = [r for r in plan if r["fraction"] == 2 and json.loads(r["axes"])["ax"] in NOF2]
+plan = [r for r in plan if r not in skipped]
 b1c = {mo: json.load(open(f"/data/p12r3a/closes-sym-b1-cap0-{mo}.json")).get(B1, {}).get(mo, {}).get("0", []) for mo in MONTHS}
 rows = {}    # (имя варианта, мес) -> [[мс, $, монета]]
 for run in RUNS:
@@ -78,7 +84,7 @@ for r in plan:
     bym = {}
     if r["cell_hash"] in OLD and (f"{nm}-{MONTHS[0]}", MONTHS[0]) not in rows:
         o = OLD[r["cell_hash"]]; n, nd, dsr, p = int(o["trades_A"]), int(o["days_A"]), float(o["dSR"]), float(o["p"]); ok = n >= MIN_TR and nd >= MIN_D
-        res.append({"hyp": r["hyp"], "h": r["cell_hash"], "ax": ax, "val": val, "a": a, "n": n, "nd": nd, "dsr": dsr, "p": p if ok else 1.0, "ok": int(ok and p <= P_MAX),
+        res.append({"fr": r["fraction"], "hyp": r["hyp"], "h": r["cell_hash"], "ax": ax, "val": val, "a": a, "n": n, "nd": nd, "dsr": dsr, "p": p if ok else 1.0, "ok": int(ok and p <= P_MAX),
                     "st": "не определена: сделок<20 или суток<10" if not ok else "годна" if p <= P_MAX else "не годна", "mon": {mo: ("", "") for mo in MONTHS}})
         continue
     for mo in MONTHS:
@@ -90,14 +96,15 @@ for r in plan:
         bym[mo] = next(iter(forms.values()))
     x, n, nd = series(bym); dsr, p = test(x)
     ok = n >= MIN_TR and nd >= MIN_D
-    res.append({"hyp": r["hyp"], "h": r["cell_hash"], "ax": ax, "val": val, "a": a, "n": n, "nd": nd, "dsr": dsr, "p": p if ok else 1.0, "ok": int(ok and p <= P_MAX),
+    res.append({"fr": r["fraction"], "hyp": r["hyp"], "h": r["cell_hash"], "ax": ax, "val": val, "a": a, "n": n, "nd": nd, "dsr": dsr, "p": p if ok else 1.0, "ok": int(ok and p <= P_MAX),
                 "st": "не определена: сделок<20 или суток<10" if not ok else "годна" if p <= P_MAX else "не годна",
                 "mon": {mo: (sum(1 for ms, u, s in bym[mo] if isA(s)), round(sum(u for ms, u, s in bym[mo] if isA(s)), 2)) for mo in MONTHS}})
 
-# плато
-by = collections.defaultdict(list)
-for c in res: by[c["ax"]].append(c)
-for ax, cells in by.items():
+# плато (на объединении клеток cs: F1 или F1 ∪ F2 — соседство по рангу значений оси, как registry/master.sieve)
+def mark(cs):
+  by = collections.defaultdict(list)
+  for c in cs: by[c["ax"]].append(c)
+  for ax, cells in by.items():
     for c in cells: c["plateau"] = c["edge"] = 0
     if ax == "6v":
         S = sorted({num(ax, c["val"].split("|")[0]) for c in cells}); U = sorted({0.0 if c["val"].split("|")[1] == "none" else num(ax, c["val"].split("|")[1]) for c in cells})
@@ -116,16 +123,25 @@ for ax, cells in by.items():
         if c.get("center") or not c["ok"]: continue
         nbs = [pts[j][1] for j in (i - 1, i + 1) if 0 <= j < len(pts)]
         c["edge"] = int(len(nbs) == 1); c["plateau"] = int(all(x["ok"] for x in nbs) and len(nbs) >= 1)
+mark([c for c in res if c["fr"] == 1])
+for c in res: c["pl1"], c["edge1"] = c.get("plateau", 0), c.get("edge", 0)
+if F2: mark(res)
 res.sort(key=lambda c: (c["hyp"], c["h"]))
 with open(outp + ".csv", "w", encoding="utf-8", newline="") as f:
-    w = csv.writer(f); w.writerow(["hyp", "hash", "axes", "window", "trades_A", "days_A", "dSR_B1", "p", "eligible", "plateau", "edge", "итог"] + [f"{mo}_n" for mo in MONTHS] + [f"{mo}_usd" for mo in MONTHS])
+    w = csv.writer(f); w.writerow(["fraction", "hyp", "hash", "axes", "window", "trades_A", "days_A", "dSR_B1", "p", "eligible", "plateau", "edge", "plateau_F1", "итог"] + [f"{mo}_n" for mo in MONTHS] + [f"{mo}_usd" for mo in MONTHS])
     for c in res:
-        w.writerow([c["hyp"], c["h"], json.dumps(c["a"], ensure_ascii=False), "янв–сен", c["n"], c["nd"], round(c["dsr"], 4), round(c["p"], 4), c["ok"], c["plateau"], c["edge"], c["st"]]
+        w.writerow([c["fr"], c["hyp"], c["h"], json.dumps(c["a"], ensure_ascii=False), "янв–сен", c["n"], c["nd"], round(c["dsr"], 4), round(c["p"], 4), c["ok"], c["plateau"], c["edge"], c["pl1"], c["st"]]
                    + [c["mon"][mo][0] for mo in MONTHS] + [c["mon"][mo][1] for mo in MONTHS])
-json.dump([{"protocol": "P-18", "fraction": 1, "hyp": c["hyp"], "cell_hash": c["h"], "side": "A", "p": round(c["p"], 4), "trades": c["n"], "days": c["nd"], "eligible": c["ok"],
+json.dump([{"protocol": "P-18", "fraction": c["fr"], "hyp": c["hyp"], "cell_hash": c["h"], "side": "A", "p": round(c["p"], 4), "trades": c["n"], "days": c["nd"], "eligible": c["ok"],
             "plateau": c["plateau"], "edge": c["edge"], "rule_version": RULE} for c in res], open(outp + "-rows.json", "w", encoding="utf-8"), ensure_ascii=False)
 print(f"B1 А, янв–сен: сделок {b1n}, суток {b1d}, SR {sr(b1x):.4f}")
 tab = collections.defaultdict(collections.Counter)
 for c in res: tab[c["hyp"]][c["st"].split(":")[0] + (" плато" if c["plateau"] else "")] += 1
 for h, cn in sorted(tab.items()): print(h, dict(cn))
 print("годных", sum(c["ok"] for c in res), "плато", sum(c["plateau"] for c in res), "клеток", len(res))
+if F2:
+    print("F2: клеток", sum(c["fr"] == 2 for c in res), "определённых", sum(c["fr"] == 2 and not c["st"].startswith("не определена") for c in res), "годных", sum(c["fr"] == 2 and c["ok"] for c in res),
+          "| пропущено (оси 6б/8, F2 отдельным заказом)", len(skipped), "| ожидание годных при нуле эффекта ≈ 0,2 × определённых (П-14 §11.5)")
+    for ax in sorted({c["ax"] for c in res}):
+        cs = [c for c in res if c["ax"] == ax]
+        print(f"ось {ax}: F1 годных {sum(c['ok'] for c in cs if c['fr'] == 1)}/{sum(c['fr'] == 1 for c in cs)}, плато F1 {sum(c['pl1'] for c in cs)}; F2 годных {sum(c['ok'] for c in cs if c['fr'] == 2)}/{sum(c['fr'] == 2 for c in cs)}, плато F1∪F2 {sum(c['plateau'] for c in cs)}")
