@@ -1,24 +1,54 @@
 #!/usr/bin/env python3
-"""TK-345: B1 (signal=approach): независимая верхняя граница n по кэшу подходов D20/<сутки>/approaches-*.csv.
+"""TK-345: B1/П-17/П-18 (signal=approach): независимая верхняя граница n по кэшу подходов D20/<сутки>/approaches-*.csv.
 
-tk345-n-bound.py <approaches-dir> <forms.csv> <форма> <age_s> <behind_pct>
-Проверки по символам: (а) n_signals + n_skipped == все подходы кэша (обе стороны); (б) n_signals <= число bid-подходов с
-age_ms >= age_s*1000 и depth_behind_lots*100 >= behind_pct*size_at_arm (без h3-порога и без btc4h — они только режут дальше)."""
-import csv, os, sys
-adir, forms, form, age_s, behind = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
-bad = tot_s = tot_b = 0
-rows = [r for r in csv.DictReader(l for l in open(forms) if not l.startswith("#")) if r["form"] == form]
-for r in rows:
-    p = os.path.join(adir, f"approaches-{r['symbol']}.csv")
-    if not os.path.exists(p):
-        print(f"НЕТ кэша {r['symbol']}"); bad += 1; continue
-    allr = ub = 0
-    for a in csv.DictReader(open(p)):
-        allr += 1
-        if a["side"] == "bid" and int(a["age_ms"]) >= age_s * 1000 and int(a["depth_behind_lots"]) * 100 >= behind * int(a["size_at_arm"]):
+tk345-n-bound.py <approaches-dir> <instruments.csv> <каталог-вывода-суток (out/<сутки>)> [<регулярка-имён-клеток>]
+Фильтры клетки (min_age_secs, usd_min, behind_min, side=bid) берутся из шапки её forms.csv. По символам: (а) n_signals +
+n_skipped == все подходы кэша (обе стороны); (б) n_signals <= число подходов, прошедших age/usd/behind/side (без h3 по касанию
+и btc4h — они только режут дальше). Печатает нарушения и итог по клеткам."""
+import csv, os, re, sys
+adir, inst, odir = sys.argv[1:4]
+pat = re.compile(sys.argv[4]) if len(sys.argv) > 4 else None
+ins = {r["symbol"]: (float(r["tick_size"]), float(r["qty_step"])) for r in csv.DictReader(open(inst))}
+cache = {}
+def appr(sym):
+    if sym not in cache:
+        p = os.path.join(adir, f"approaches-{sym}.csv")
+        cache[sym] = list(csv.DictReader(open(p))) if os.path.exists(p) else None
+    return cache[sym]
+def num(h, key):
+    m = re.search(key + r"=(?:Some\()?(-?[0-9.]+)", h)
+    return float(m.group(1)) if m else None
+cells = bad = 0
+for c in sorted(os.listdir(odir)):
+    f = os.path.join(odir, c, "forms.csv")
+    if not os.path.isfile(f) or (pat and not pat.search(c)):
+        continue
+    lines = open(f).read().splitlines()
+    head = lines[0]
+    age, usd, behind = num(head, "min_age_secs"), num(head, "usd_min"), num(head, "behind_min")
+    rows = list(csv.DictReader(l for l in lines if not l.startswith("#")))
+    cells += 1; viol = 0; ns = ub_t = 0
+    for r in rows:
+        a = appr(r["symbol"])
+        if a is None:
+            viol += 1; continue
+        tick, step = ins[r["symbol"]]
+        ub = 0
+        for x in a:
+            if x["side"] != "bid":
+                continue
+            if age is not None and int(x["age_ms"]) < age * 1000:
+                continue
+            if behind is not None and int(x["depth_behind_lots"]) * 100 < behind * int(x["size_at_arm"]):
+                continue
+            if usd is not None and int(x["price_tick"]) * tick * int(x["size_at_arm"]) * step < usd:
+                continue
             ub += 1
-    s, k = int(r["n_signals"]), int(r["n_skipped"])
-    tot_s += s; tot_b += ub
-    if s + k != allr or s > ub:
-        bad += 1; print(f"DIFF {r['symbol']}: signals={s} skipped={k} подходов={allr} верхняя_граница={ub}")
-print(f"форма {form}: символов {len(rows)}, нарушений {bad}, sum n_signals={tot_s}, sum верхней границы={tot_b}")
+        s, k = int(r["n_signals"]), int(r["n_skipped"])
+        ns += s; ub_t += ub
+        if s + k != len(a) or s > ub:
+            viol += 1
+            print(f"DIFF {c} {r['symbol']}: signals={s} skipped={k} подходов={len(a)} граница={ub}")
+    bad += viol
+    print(f"{c}: age={age} usd={usd} behind={behind} символов={len(rows)} нарушений={viol} Σn={ns} Σграница={ub_t}")
+print(f"ИТОГО клеток {cells}, с нарушениями суммарно {bad}")
