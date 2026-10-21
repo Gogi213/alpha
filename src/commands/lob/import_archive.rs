@@ -29,7 +29,7 @@ use hftbacktest::types::{
 
 use crate::binlog::{parse_calendar_day, Header, Record, StepAt, Writer};
 use crate::book::Side;
-use crate::bybit::ws::{parse_e9, parse_message, Event};
+use crate::bybit::ws::{parse_e9, parse_message, Event, ParseError};
 use crate::commands::record::{
     day_file_path, FRAME_TARGET_RECORDS, MAX_RECORDS_PER_FRAME, ZSTD_LEVEL,
 };
@@ -100,7 +100,7 @@ pub struct ImportSummary {
 struct Trade {
     ms: i64,
     price_e9: i64,
-    qty_e9: i64,
+    qty_e9: i128,
     buy: bool,
     rpi: bool,
 }
@@ -147,6 +147,21 @@ fn gcd(a: i64, b: i64) -> i64 {
     a
 }
 
+/// НОД размеров в i128: размер BONK в e9 (1,75e19) в i64 не помещается (TK-316).
+fn gcd_q(a: i128, b: i128) -> i128 {
+    let (mut a, mut b) = (a.abs(), b.abs());
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+/// Шаг размера, пришедший из i128-НОД: шаг не больше шага пула и потому в i64 влезает; иначе — отказ.
+fn step_i64(step_e9: i128) -> anyhow::Result<i64> {
+    i64::try_from(step_e9)
+        .map_err(|_| anyhow::anyhow!("шаг размера {step_e9} e9 не помещается в i64"))
+}
+
 type Lines = Box<dyn Iterator<Item = std::io::Result<String>>>;
 
 /// Шаги суток по первому снимку: НОД шага пула и НОД цен/размеров снимка — не крупнее пула, поэтому
@@ -160,24 +175,23 @@ fn steps_from_snapshot(
     let mut seen = Vec::new();
     for line in lines.by_ref() {
         let line = line?;
-        let events = if line.trim().is_empty() {
+        let books = if line.trim().is_empty() {
             Vec::new()
         } else {
-            parse_message(&zero_negative_seq(&line))
-                .map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?
+            parse_books(&zero_negative_seq(&line))?
         };
         seen.push(line);
-        for ev in events {
-            let Event::Book(u) = ev else { continue };
+        for u in books {
             if !u.is_snapshot {
                 continue;
             }
             let (mut gp, mut gq) = (0, 0);
             for &(p, q) in u.bids.iter().chain(u.asks.iter()) {
                 gp = gcd(gp, p);
-                gq = gcd(gq, q);
+                gq = gcd_q(gq, q);
             }
-            return Ok((gcd(pool_tick_e9, gp), gcd(pool_step_e9, gq), seen));
+            let step = step_i64(gcd_q(i128::from(pool_step_e9), gq))?;
+            return Ok((gcd(pool_tick_e9, gp), step, seen));
         }
     }
     Ok((pool_tick_e9, pool_step_e9, seen))
@@ -191,7 +205,7 @@ fn steps_from_snapshot(
 #[derive(Default)]
 struct StepTracker {
     tick_e9: i64,
-    step_e9: i64,
+    step_e9: i128,
     start_ns: Option<i64>,
     schedule: Vec<StepAt>,
 }
@@ -199,23 +213,23 @@ struct StepTracker {
 impl StepTracker {
     /// Одно сообщение стакана после первого снимка: `exch_ts_ns` — время записей бинлога
     /// (`cts` биржи), `gp`/`gq` — НОД цен и размеров его уровней (0 — уровней нет).
-    fn observe(&mut self, exch_ts_ns: i64, gp: i64, gq: i64) {
+    fn observe(&mut self, exch_ts_ns: i64, gp: i64, gq: i128) -> anyhow::Result<()> {
         let start = *self.start_ns.get_or_insert(exch_ts_ns);
         if self.tick_e9 == 0 || self.step_e9 == 0 {
             // Начальный шаг ещё не известен целиком (день листинга: снимок пуст) — берётся из
             // первых уровней; запись «начало» несёт время первого снимка.
             self.tick_e9 = gcd(self.tick_e9, gp);
-            self.step_e9 = gcd(self.step_e9, gq);
+            self.step_e9 = gcd_q(self.step_e9, gq);
             if self.tick_e9 != 0 && self.step_e9 != 0 {
                 self.schedule.push(StepAt {
                     ts_ns: start,
                     tick_e9: self.tick_e9,
-                    step_e9: self.step_e9,
+                    step_e9: step_i64(self.step_e9)?,
                 });
             }
-            return;
+            return Ok(());
         }
-        let (t, s) = (gcd(self.tick_e9, gp), gcd(self.step_e9, gq));
+        let (t, s) = (gcd(self.tick_e9, gp), gcd_q(self.step_e9, gq));
         if (t, s) != (self.tick_e9, self.step_e9) {
             // Метка строго после предыдущей записи (требование писателя): `cts` двух сообщений
             // может совпасть или чуть отстать.
@@ -223,10 +237,11 @@ impl StepTracker {
             self.schedule.push(StepAt {
                 ts_ns: exch_ts_ns.max(prev.saturating_add(1)),
                 tick_e9: t,
-                step_e9: s,
+                step_e9: step_i64(s)?,
             });
             (self.tick_e9, self.step_e9) = (t, s);
         }
+        Ok(())
     }
 }
 
@@ -263,10 +278,7 @@ fn steps_from_day(
         if ts >= day_end {
             continue;
         }
-        let events = parse_message(&zero_negative_seq(&line))
-            .map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?;
-        for ev in events {
-            let Event::Book(u) = ev else { continue };
+        for u in parse_books(&zero_negative_seq(&line))? {
             has_snapshot |= u.is_snapshot;
             if !has_snapshot {
                 continue;
@@ -274,20 +286,26 @@ fn steps_from_day(
             let (mut mp, mut mq) = (0, 0);
             for &(p, q) in u.bids.iter().chain(u.asks.iter()) {
                 mp = gcd(mp, p);
-                mq = gcd(mq, q);
+                mq = gcd_q(mq, q);
             }
             gp = gcd(gp, mp);
-            gq = gcd(gq, mq);
+            gq = gcd_q(gq, mq);
             if u.is_snapshot {
                 sp = gcd(sp, mp);
-                sq = gcd(sq, mq);
+                sq = gcd_q(sq, mq);
             }
-            tracker.observe(u.cts_ms.saturating_mul(1_000_000), mp, mq);
+            tracker.observe(u.cts_ms.saturating_mul(1_000_000), mp, mq)?;
         }
     }
     Ok(DaySteps {
-        grid: (gcd(pool_tick_e9, gp), gcd(pool_step_e9, gq)),
-        snapshot: (gcd(pool_tick_e9, sp), gcd(pool_step_e9, sq)),
+        grid: (
+            gcd(pool_tick_e9, gp),
+            step_i64(gcd_q(i128::from(pool_step_e9), gq))?,
+        ),
+        snapshot: (
+            gcd(pool_tick_e9, sp),
+            step_i64(gcd_q(i128::from(pool_step_e9), sq))?,
+        ),
         schedule: tracker.schedule,
     })
 }
@@ -306,12 +324,12 @@ fn trade_ms(s: &str) -> Option<i64> {
 /// Десятичное число выгрузки сделок → 1e-9 без `f64`. Выгрузка пишет крупные и мелкие величины в
 /// экспоненциальной записи (`1.1283e+06`, замер 22.09 на AKE/DOGE/PUMPFUN 01.09), поэтому мантисса
 /// разбирается `parse_e9`, а порядок применяется целочисленно; значение точнее 1e-9 — отказ.
-fn parse_decimal_e9(s: &str) -> Option<i64> {
+fn parse_decimal_e9(s: &str) -> Option<i128> {
     let s = s.trim();
     let Some((mant, exp)) = s.split_once(['e', 'E']) else {
-        return parse_e9(s);
+        return parse_e9_wide(s);
     };
-    let mut v = i128::from(parse_e9(mant)?);
+    let mut v = parse_e9_wide(mant)?;
     let exp: i32 = exp.trim_start_matches('+').parse().ok()?;
     if exp >= 0 {
         for _ in 0..exp {
@@ -325,7 +343,41 @@ fn parse_decimal_e9(s: &str) -> Option<i64> {
             v /= 10;
         }
     }
-    i64::try_from(v).ok()
+    Some(v)
+}
+
+/// Цена выгрузки сделок → 1e-9 в i64 (цена в i64 помещается у всех монет пула).
+fn parse_price_e9(s: &str) -> Option<i64> {
+    i64::try_from(parse_decimal_e9(s)?).ok()
+}
+
+/// `parse_e9` в i128 — те же правила (девять знаков после точки, лишние отбрасываются): размер
+/// сверхмелких монет в e9 (BONK 1,75e19) в i64 не помещается (TK-316).
+fn parse_e9_wide(s: &str) -> Option<i128> {
+    let s = s.trim();
+    let (neg, body) = match s.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, s.strip_prefix('+').unwrap_or(s)),
+    };
+    let (int_part, frac_part) = body.split_once('.').unwrap_or((body, ""));
+    if (int_part.is_empty() && frac_part.is_empty())
+        || !int_part.bytes().all(|b| b.is_ascii_digit())
+        || !frac_part.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    let mut v: i128 = 0;
+    for b in int_part.bytes() {
+        v = v.checked_mul(10)?.checked_add(i128::from(b - b'0'))?;
+    }
+    let frac = &frac_part.as_bytes()[..frac_part.len().min(9)];
+    for &b in frac {
+        v = v.checked_mul(10)?.checked_add(i128::from(b - b'0'))?;
+    }
+    for _ in frac.len()..9 {
+        v = v.checked_mul(10)?;
+    }
+    Some(if neg { -v } else { v })
 }
 
 fn read_trades(path: &Path, spot: bool) -> anyhow::Result<Vec<Trade>> {
@@ -359,7 +411,7 @@ fn read_trades(path: &Path, spot: bool) -> anyhow::Result<Vec<Trade>> {
             } else {
                 trade_ms(ts).ok_or_else(bad)?
             },
-            price_e9: parse_decimal_e9(row.get(i_price).ok_or_else(bad)?).ok_or_else(bad)?,
+            price_e9: parse_price_e9(row.get(i_price).ok_or_else(bad)?).ok_or_else(bad)?,
             qty_e9: parse_decimal_e9(row.get(i_size).ok_or_else(bad)?).ok_or_else(bad)?,
             buy: match row.get(i_side) {
                 Some(v) if v == buy => true,
@@ -389,6 +441,97 @@ fn zero_negative_seq(line: &str) -> std::borrow::Cow<'_, str> {
         .find(|c: char| !c.is_ascii_digit())
         .map_or(line.len(), |n| digits + n);
     std::borrow::Cow::Owned(format!("{}\"seq\":0{}", &line[..at], &line[end..]))
+}
+
+/// Сообщение стакана с размерами в i128 (TK-316): у BONK размер в e9 доходит до 1,75e19 > i64.
+struct Book {
+    is_snapshot: bool,
+    u: u64,
+    cts_ms: i64,
+    bids: Vec<(i64, i128)>,
+    asks: Vec<(i64, i128)>,
+}
+
+/// Живой разбор `parse_message` не меняется: сообщение, прошедшее его, переходит в `Book` без потерь;
+/// только отказ «размер не влез в i64» идёт на широкий разбор той же строки.
+fn parse_books(line: &str) -> anyhow::Result<Vec<Book>> {
+    let events = match parse_message(line) {
+        Ok(events) => events,
+        Err(ParseError::BadNumber("level size")) => return Ok(vec![parse_book_wide(line)?]),
+        Err(e) => anyhow::bail!("сообщение стакана: {e:?}"),
+    };
+    let widen = |v: Vec<(i64, i64)>| v.into_iter().map(|(p, q)| (p, i128::from(q))).collect();
+    Ok(events
+        .into_iter()
+        .filter_map(|ev| match ev {
+            Event::Book(u) => Some(Book {
+                is_snapshot: u.is_snapshot,
+                u: u.u,
+                cts_ms: u.cts_ms,
+                bids: widen(u.bids),
+                asks: widen(u.asks),
+            }),
+            _ => None,
+        })
+        .collect())
+}
+
+#[derive(serde::Deserialize)]
+struct WideMsg<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Option<&'a str>,
+    ts: Option<i64>,
+    cts: Option<i64>,
+    data: Option<WideData<'a>>,
+}
+
+#[derive(serde::Deserialize)]
+struct WideData<'a> {
+    u: Option<u64>,
+    cts: Option<i64>,
+    #[serde(default, borrow)]
+    b: Vec<(&'a str, &'a str)>,
+    #[serde(default, borrow)]
+    a: Vec<(&'a str, &'a str)>,
+}
+
+fn wide_levels(raw: &[(&str, &str)]) -> anyhow::Result<Vec<(i64, i128)>> {
+    raw.iter()
+        .map(|&(p, q)| {
+            let price = parse_e9(p)
+                .ok_or_else(|| anyhow::anyhow!("сообщение стакана: BadNumber(\"level price\")"))?;
+            let qty = parse_e9_wide(q)
+                .ok_or_else(|| anyhow::anyhow!("сообщение стакана: BadNumber(\"level size\")"))?;
+            Ok((price, qty))
+        })
+        .collect()
+}
+
+fn parse_book_wide(line: &str) -> anyhow::Result<Book> {
+    let msg: WideMsg = serde_json::from_str(line)
+        .map_err(|e| anyhow::anyhow!("сообщение стакана (широкий разбор): {e}"))?;
+    let data = msg
+        .data
+        .ok_or_else(|| anyhow::anyhow!("сообщение стакана: нет data"))?;
+    Ok(Book {
+        is_snapshot: msg.kind == Some("snapshot"),
+        u: data
+            .u
+            .ok_or_else(|| anyhow::anyhow!("сообщение стакана: нет u"))?,
+        cts_ms: data
+            .cts
+            .or(msg.cts)
+            .or(msg.ts)
+            .ok_or_else(|| anyhow::anyhow!("сообщение стакана: нет cts"))?,
+        bids: wide_levels(&data.b)?,
+        asks: wide_levels(&data.a)?,
+    })
+}
+
+/// Размер в лотах шага; больше i64 лотов — отказ (не усечение).
+fn to_lots(qty_e9: i128, step_e9: i64) -> anyhow::Result<i64> {
+    i64::try_from(qty_e9 / i128::from(step_e9))
+        .map_err(|_| anyhow::anyhow!("размер {qty_e9} e9 при шаге {step_e9} e9: лотов больше i64"))
 }
 
 #[derive(serde::Deserialize)]
@@ -527,7 +670,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
     let mut has_snapshot = false;
     let mut last_u: Option<u64> = None;
     let mut ti = 0usize;
-    let push_trade = |t: &Trade, out: &mut Out<_>| {
+    let push_trade = |t: &Trade, out: &mut Out<_>| -> anyhow::Result<()> {
         let ts = t.ms.saturating_mul(1_000_000);
         out.batch.push(Record {
             ev: if t.buy {
@@ -538,10 +681,11 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             exch_ts_ns: ts,
             local_ts_ns: ts,
             price_ticks: t.price_e9 / tick_e9,
-            qty_lots: t.qty_e9 / step_e9,
+            qty_lots: to_lots(t.qty_e9, step_e9)?,
             block: false,
             rpi: t.rpi,
         });
+        Ok(())
     };
     for line in lines {
         let line = line?;
@@ -563,33 +707,29 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
                 continue;
             }
             if has_snapshot {
-                push_trade(t, &mut out);
+                push_trade(t, &mut out)?;
                 sum.trade_off_grid +=
-                    u64::from(t.price_e9 % tick_e9 != 0 || t.qty_e9 % step_e9 != 0);
+                    u64::from(t.price_e9 % tick_e9 != 0 || t.qty_e9 % i128::from(step_e9) != 0);
                 sum.trades += 1;
             } else {
                 sum.trades_before_snapshot += 1;
             }
         }
         let line = zero_negative_seq(&line);
-        let events =
-            parse_message(&line).map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?;
+        let books = parse_books(&line)?;
         if ts < day_start {
             // Снимок начала суток архив иногда публикует на миллисекунды раньше полуночи
             // (TK-021: UNI, ATOM, BCH — 13 монето-суток), за ним идут дельты суток с тем же
             // потоком `u`: такой снимок — начало суток, а не «чужие» сообщения. Всё остальное до
             // полуночи пропускается, как прежде.
-            let starts_day = events
-                .iter()
-                .any(|e| matches!(e, Event::Book(u) if u.is_snapshot));
+            let starts_day = books.iter().any(|b| b.is_snapshot);
             if !has_snapshot && !starts_day {
                 continue;
             }
         }
         // Время получения записи не раньше начала суток: файл суток не выходит за них.
         let ts = ts.max(day_start);
-        for ev in events {
-            let Event::Book(update) = ev else { continue };
+        for update in books {
             sum.messages += 1;
             if update.is_snapshot {
                 sum.snapshots += 1;
@@ -609,13 +749,14 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             let local_ts_ns = ts.saturating_mul(1_000_000);
             for (side, levels) in [(Side::Bid, &update.bids), (Side::Ask, &update.asks)] {
                 for &(price_e9, qty_e9) in levels {
-                    sum.off_grid += u64::from(price_e9 % tick_e9 != 0 || qty_e9 % step_e9 != 0);
+                    sum.off_grid +=
+                        u64::from(price_e9 % tick_e9 != 0 || qty_e9 % i128::from(step_e9) != 0);
                     out.batch.push(Record {
                         ev: depth_flags(side, update.is_snapshot),
                         exch_ts_ns,
                         local_ts_ns,
                         price_ticks: price_e9 / tick_e9,
-                        qty_lots: qty_e9 / step_e9,
+                        qty_lots: to_lots(qty_e9, step_e9)?,
                         block: false,
                         rpi: false,
                     });
@@ -634,8 +775,9 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             continue;
         }
         if has_snapshot {
-            push_trade(t, &mut out);
-            sum.trade_off_grid += u64::from(t.price_e9 % tick_e9 != 0 || t.qty_e9 % step_e9 != 0);
+            push_trade(t, &mut out)?;
+            sum.trade_off_grid +=
+                u64::from(t.price_e9 % tick_e9 != 0 || t.qty_e9 % i128::from(step_e9) != 0);
             sum.trades += 1;
         } else {
             sum.trades_before_snapshot += 1;

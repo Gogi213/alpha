@@ -423,7 +423,7 @@ impl Recorder {
         if !self.has_snapshot {
             return Err(RecordError::NoSnapshot);
         }
-        check_level_step(trade.price_e9, trade.qty_e9, self.tick_e9, self.step_e9)
+        check_level_step(trade.price_e9, trade.qty, self.tick_e9, self.step_e9)
             .map_err(RecordError::from)?;
         let ev = if trade.aggressor_is_buy {
             hftbacktest::types::LOCAL_BUY_TRADE_EVENT
@@ -434,12 +434,13 @@ impl Recorder {
         // значения далеки от переполнения, но метка приходит из сети, а паника
         // в горячем пути гасит недели записи ради одного кривого сообщения.
         let exch_ts_ns = trade.exch_ms.saturating_mul(1_000_000);
+        debug_assert_eq!(trade.qty_unit_e9, 1, "живой поток несёт e9");
         self.push_record(Record {
             ev,
             exch_ts_ns,
             local_ts_ns,
             price_ticks: trade.price_e9 / self.tick_e9,
-            qty_lots: trade.qty_e9 / self.step_e9,
+            qty_lots: trade.qty / self.step_e9,
             block: trade.block,
             rpi: trade.rpi,
         })?;

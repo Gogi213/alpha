@@ -155,8 +155,10 @@ fn book_top(verifier: &Verifier, side: crate::book::Side, n: usize) -> Vec<(i64,
 }
 
 /// Число тиков объединения верха книги и снимка с разным размером.
-fn diff_top(mut top: Vec<(i64, i64)>, snap: &[(i64, i64)], tick: i64, step: i64) -> u32 {
-    let mut sn: Vec<(i64, i64)> = snap.iter().map(|&(p, q)| (p / tick, q / step)).collect();
+/// `unit` — единица размера пар `snap` (`Update::qty_unit_e9`): лоты файла или e9 живого потока; в лоты — через `i128`.
+fn diff_top(mut top: Vec<(i64, i64)>, snap: &[(i64, i64)], tick: i64, step: i64, unit: i64) -> u32 {
+    let lots = |q: i64| (i128::from(q) * i128::from(unit) / i128::from(step)) as i64;
+    let mut sn: Vec<(i64, i64)> = snap.iter().map(|&(p, q)| (p / tick, lots(q))).collect();
     sn.sort_unstable();
     top.sort_unstable();
     let (mut i, mut j, mut n) = (0, 0, 0u32);
@@ -191,7 +193,13 @@ fn drift_levels(verifier: &Verifier, up: &crate::book::Update, tick: i64, step: 
     let mut n = 0;
     for (side, snap) in [(Side::Bid, &up.bids), (Side::Ask, &up.asks)] {
         if !snap.is_empty() {
-            n += diff_top(book_top(verifier, side, snap.len()), snap, tick, step);
+            n += diff_top(
+                book_top(verifier, side, snap.len()),
+                snap,
+                tick,
+                step,
+                up.qty_unit_e9,
+            );
         }
     }
     n
@@ -258,7 +266,13 @@ impl BookAcc {
                         for (top, snap) in [(&c.bids, &up.bids), (&c.asks, &up.asks)] {
                             if !snap.is_empty() {
                                 let k = snap.len().min(top.len());
-                                n += diff_top(top[..k].to_vec(), snap, self.tick, self.step);
+                                n += diff_top(
+                                    top[..k].to_vec(),
+                                    snap,
+                                    self.tick,
+                                    self.step,
+                                    up.qty_unit_e9,
+                                );
                             }
                         }
                         Some(n)

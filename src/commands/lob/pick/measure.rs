@@ -122,7 +122,7 @@ fn trade_lots_for_median(trade: &crate::bybit::ws::Trade, step_e9: i64) -> Optio
     if trade.block {
         None
     } else {
-        Some(trade.qty_e9 / step_e9)
+        Some(trade.qty / step_e9) // живой поток: `qty_unit_e9 = 1`
     }
 }
 
@@ -308,7 +308,8 @@ mod tests {
         crate::bybit::ws::Trade {
             exch_ms: 0,
             price_e9: 100_000_000_000,
-            qty_e9,
+            qty: qty_e9,
+            qty_unit_e9: 1,
             aggressor_is_buy: true,
             block,
             rpi: false,
@@ -378,6 +379,7 @@ mod tests {
             u: 1,
             seq: 1,
             cts_ms: 0,
+            qty_unit_e9: 1,
             bids: vec![(100, 5), (99, 3), (98, 1)],
             asks: vec![(101, 2), (102, 4)],
         })

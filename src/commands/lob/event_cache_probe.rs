@@ -73,14 +73,14 @@ fn kind_of(b: u8) -> anyhow::Result<EventKind> {
     })
 }
 
-/// Формат A: четыре i64 little-endian на событие (`local_ts`, `exch_ms << 2 | kind`, `px_e9`, `qty_e9`).
+/// Формат A: четыре слова little-endian на событие (`local_ts`, `exch_ms << 2 | kind`, `px_e9`, биты `f64` размера).
 fn encode_a(events: &[CompactEvent]) -> Vec<u8> {
     let mut out = Vec::with_capacity(events.len() * 32);
     for e in events {
         out.extend_from_slice(&e.local_ts().to_le_bytes());
         out.extend_from_slice(&((e.exch_ms() << 2) | e.kind() as i64).to_le_bytes());
         out.extend_from_slice(&e.px_e9().to_le_bytes());
-        out.extend_from_slice(&e.qty_e9().to_le_bytes());
+        out.extend_from_slice(&e.qty().to_bits().to_le_bytes());
     }
     out
 }
@@ -100,18 +100,18 @@ fn encode_b(events: &[CompactEvent], tick_e9: i64, step_e9: i64) -> anyhow::Resu
                 e.px_e9()
             );
         }
-        if e.qty_e9() < 0 || e.qty_e9() % step_e9 != 0 {
+        let Some(lots) = e.qty_lots(step_e9) else {
             bail!(
-                "событие {i}: qty_e9={} не кратна step_e9={step_e9} или отрицательна",
-                e.qty_e9()
+                "событие {i}: qty={} не кратна step_e9={step_e9} или отрицательна",
+                e.qty()
             );
-        }
+        };
         let px_ticks = e.px_e9() / tick_e9;
         put_varint(&mut out, zigzag(e.local_ts().wrapping_sub(ts)));
         put_varint(&mut out, zigzag(e.exch_ms().wrapping_sub(ms)));
         out.push(e.kind() as u8);
         put_varint(&mut out, zigzag(px_ticks.wrapping_sub(px)));
-        put_varint(&mut out, (e.qty_e9() / step_e9) as u64);
+        put_varint(&mut out, lots as u64);
         (ts, ms, px) = (e.local_ts(), e.exch_ms(), px_ticks);
     }
     Ok(out)
@@ -130,12 +130,13 @@ fn parse_b(b: &[u8], n: usize, tick_e9: i64, step_e9: i64) -> anyhow::Result<Vec
         pos += 1;
         px = px.wrapping_add(unzigzag(get_varint(b, &mut pos)?));
         let qty = get_varint(b, &mut pos)? as i64;
-        out.push(CompactEvent::new(
+        out.push(CompactEvent::new_unit(
             kind,
             ms,
             ts,
             px.wrapping_mul(tick_e9),
-            qty.wrapping_mul(step_e9),
+            qty,
+            step_e9,
         ));
     }
     if pos != b.len() {

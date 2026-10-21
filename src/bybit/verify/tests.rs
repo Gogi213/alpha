@@ -18,6 +18,7 @@ fn snapshot_update(u: u64) -> Update {
         u,
         seq: u,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(101), qty(4)), (px(102), qty(6))],
     }
@@ -52,6 +53,7 @@ fn snapshot_update_with_seq(u: u64, seq: u64) -> Update {
         u,
         seq,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(101), qty(4)), (px(102), qty(6))],
     }
@@ -76,8 +78,11 @@ fn perturbed_level_is_exactly_one_mismatch() {
     assert!(!diff.is_clean());
     assert_eq!(diff.total(), 1);
     assert_eq!(diff.ask_mismatches[0].tick, 101);
-    assert_eq!(diff.ask_mismatches[0].snapshot_qty_e9, Some(qty(999)));
-    assert_eq!(diff.ask_mismatches[0].book_qty_e9, Some(qty(4)));
+    assert_eq!(
+        diff.ask_mismatches[0].snapshot_qty_e9,
+        Some(i128::from(qty(999)))
+    );
+    assert_eq!(diff.ask_mismatches[0].book_qty_e9, Some(i128::from(qty(4))));
 }
 
 #[test]
@@ -102,6 +107,7 @@ fn extra_level_deep_gives_exactly_one_mismatch_not_cascade() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![
             (px(100), qty(5)),
             (px(99), qty(7)),
@@ -124,7 +130,7 @@ fn extra_level_deep_gives_exactly_one_mismatch_not_cascade() {
     assert_eq!(diff.bid_mismatches.len(), 1);
     assert_eq!(diff.bid_mismatches[0].tick, 99);
     assert_eq!(diff.bid_mismatches[0].snapshot_qty_e9, None);
-    assert_eq!(diff.bid_mismatches[0].book_qty_e9, Some(qty(7)));
+    assert_eq!(diff.bid_mismatches[0].book_qty_e9, Some(i128::from(qty(7))));
     assert!(diff.ask_mismatches.is_empty());
 }
 
@@ -210,6 +216,7 @@ fn delta_before_snapshot_is_sequence_gap() {
         u: 7,
         seq: 7,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(1))],
         asks: vec![],
     };
@@ -227,6 +234,7 @@ fn crossed_snapshot_fails_at_apply_and_counts() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(105), qty(1))],
         asks: vec![(px(101), qty(1))],
     };
@@ -280,6 +288,7 @@ fn trade_inside_range_on_never_held_price_is_violation() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
@@ -306,6 +315,7 @@ fn violation_breakdown_separates_block_rpi_and_inside_spread() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(98), qty(7))],
         asks: vec![(px(103), qty(4)), (px(105), qty(6))],
     };
@@ -362,6 +372,7 @@ fn trade_on_emptied_tick_is_clean_under_17b() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
@@ -372,6 +383,7 @@ fn trade_on_emptied_tick_is_clean_under_17b() {
         u: 2,
         seq: 2,
         cts_ms: 2_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(0))],
         asks: vec![],
     };
@@ -393,6 +405,7 @@ fn trade_inside_range_on_held_price_is_clean() {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(99), qty(7))],
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
@@ -440,8 +453,10 @@ fn file_replay_groups_snapshot_delta_and_trades() {
     assert_eq!(updates.len(), 2, "снапшот и дельта — разные обновления");
     assert!(updates[0].is_snapshot && updates[0].u == 1);
     assert!(!updates[1].is_snapshot && updates[1].u == 2);
-    assert_eq!(updates[0].bids, vec![(px(100), qty(5))]);
-    assert_eq!(updates[1].bids, vec![(px(100), qty(6))]);
+    // TK-316: пары файла — лоты, единица — шаг файла
+    assert_eq!(updates[0].qty_unit_e9, STEP_E9);
+    assert_eq!(updates[0].bids, vec![(px(100), 5)]);
+    assert_eq!(updates[1].bids, vec![(px(100), 6)]);
     assert_eq!(trades.len(), 2);
     assert!(!trades[0].block && trades[1].block);
 
@@ -548,10 +563,10 @@ fn message_split_across_frames_stays_atomic() {
     assert!(!tail[0].is_snapshot);
     assert_eq!(
         tail[0].bids,
-        vec![(px(100), qty(6))],
+        vec![(px(100), 6)],
         "бид-половина дождалась аск-половины"
     );
-    assert_eq!(tail[0].asks, vec![(px(103), qty(4))]);
+    assert_eq!(tail[0].asks, vec![(px(103), 4)]);
     for up in &tail {
         assert!(v.apply_update(up).unwrap().is_empty());
     }
@@ -647,6 +662,7 @@ fn steady_updates_allocate_nothing() {
         u: 2,
         seq: 2,
         cts_ms: 2_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(8))],
         asks: vec![],
     };
@@ -659,6 +675,7 @@ fn steady_updates_allocate_nothing() {
                 u: k,
                 seq: k,
                 cts_ms: 2_000 + k as i64,
+                qty_unit_e9: 1,
                 bids: vec![(px(100), qty(8))],
                 asks: vec![],
             };
@@ -779,6 +796,7 @@ fn incremental_verifier_matches_full_pass_reference() {
             u: up_u,
             seq: step,
             cts_ms: step as i64,
+            qty_unit_e9: 1,
             bids,
             asks,
         };
@@ -840,6 +858,7 @@ fn live_snapshot_compare_via_rest() {
         u: snap.u,
         seq: snap.seq,
         cts_ms: snap.ts_ms,
+        qty_unit_e9: 1,
         bids: snap.bids.clone(),
         asks: snap.asks.clone(),
     };
@@ -858,6 +877,7 @@ fn gap_snapshot() -> Update {
         u: 1,
         seq: 1,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: vec![(px(100), qty(5)), (px(98), qty(7))],
         asks: vec![(px(101), qty(4)), (px(103), qty(6))],
     }

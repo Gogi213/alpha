@@ -148,7 +148,11 @@ pub struct Update {
     /// В контроле потока не участвует, только для выравнивания сверки.
     pub seq: u64,
     pub cts_ms: i64,
-    /// Пары (цена в 1e-9, количество в 1e-9).
+    /// Единица количества в 1e-9: `количество в 1e-9 = qty × qty_unit_e9`. Живой поток и e9-пары — 1;
+    /// чтение бинлога несёт лоты с единицей `step_e9` файла, чтобы `лоты × шаг` не переполнял `i64`
+    /// (BONK 1,75e19 > 9,22e18); перевод в e9 — только в `i128`.
+    pub qty_unit_e9: i64,
+    /// Пары (цена в 1e-9, количество в единицах `qty_unit_e9`).
     pub bids: Vec<(i64, i64)>,
     pub asks: Vec<(i64, i64)>,
 }
@@ -193,14 +197,25 @@ impl Book {
         Ok(price_e9 / self.tick_e9)
     }
 
-    fn to_lots(&self, qty_e9: i64) -> Result<i64, ApplyError> {
-        if qty_e9 % self.step_e9 != 0 {
-            return Err(ApplyError::QtyNotOnStep {
-                qty_e9,
-                step_e9: self.step_e9,
-            });
+    fn to_lots(&self, qty: i64, unit_e9: i64) -> Result<i64, ApplyError> {
+        if unit_e9 == 1 {
+            if qty % self.step_e9 != 0 {
+                return Err(ApplyError::QtyNotOnStep {
+                    qty_e9: qty,
+                    step_e9: self.step_e9,
+                });
+            }
+            return Ok(qty / self.step_e9);
         }
-        Ok(qty_e9 / self.step_e9)
+        let e9 = i128::from(qty) * i128::from(unit_e9);
+        let step = i128::from(self.step_e9);
+        match i64::try_from(e9 / step) {
+            Ok(lots) if e9 % step == 0 => Ok(lots),
+            _ => Err(ApplyError::QtyNotOnStep {
+                qty_e9: i64::try_from(e9).unwrap_or(i64::MAX),
+                step_e9: self.step_e9,
+            }),
+        }
     }
 
     /// Применяет обновление.
@@ -246,12 +261,12 @@ impl Book {
 
         for &(px, qty) in &up.bids {
             let tick = self.to_tick(px)?;
-            let lots = self.to_lots(qty)?;
+            let lots = self.to_lots(qty, up.qty_unit_e9)?;
             self.bids.set(tick, lots);
         }
         for &(px, qty) in &up.asks {
             let tick = self.to_tick(px)?;
-            let lots = self.to_lots(qty)?;
+            let lots = self.to_lots(qty, up.qty_unit_e9)?;
             self.asks.set(tick, lots);
         }
 

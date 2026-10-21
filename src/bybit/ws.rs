@@ -114,7 +114,10 @@ pub struct Trade {
     /// Время исполнения на матчинге, миллисекунды. Сравнимо с `orderbook.cts`.
     pub exch_ms: i64,
     pub price_e9: i64,
-    pub qty_e9: i64,
+    /// Размер в единицах `qty_unit_e9`: живой поток — e9 (`qty_unit_e9 = 1`); чтение бинлога — лоты с
+    /// единицей `step_e9` файла (TK-316: `лоты × шаг` у BONK не помещается в `i64`).
+    pub qty: i64,
+    pub qty_unit_e9: i64,
     pub aggressor_is_buy: bool,
     /// Блочная сделка. Такие не потребляют видимую ликвидность стакана, и
     /// засчитанные в объём они превращают снятие уровня в исполнение.
@@ -418,6 +421,7 @@ fn orderbook_update(msg: RawOrderbookMsg, depth: u32) -> Result<Update, ParseErr
         u,
         seq,
         cts_ms,
+        qty_unit_e9: 1,
         bids: data.b.pairs,
         asks: data.a.pairs,
     })
@@ -447,12 +451,13 @@ fn trade_from_raw(t: &RawTradeItem) -> Result<Trade, ParseError> {
         .price
         .and_then(parse_e9)
         .ok_or(ParseError::BadNumber("p"))?;
-    let qty_e9 = t.qty.and_then(parse_e9).ok_or(ParseError::BadNumber("v"))?;
+    let qty = t.qty.and_then(parse_e9).ok_or(ParseError::BadNumber("v"))?;
     let side = t.side.ok_or(ParseError::MissingField("S"))?;
     Ok(Trade {
         exch_ms,
         price_e9,
-        qty_e9,
+        qty,
+        qty_unit_e9: 1,
         aggressor_is_buy: side.eq_ignore_ascii_case("buy"),
         block: t.block,
         rpi: t.rpi,

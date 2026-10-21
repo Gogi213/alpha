@@ -155,6 +155,71 @@ fn trade_numbers_in_exponent_form_parse_exactly() {
     assert_eq!(parse_decimal_e9("1e-10"), None, "точнее 1e-9 — отказ");
 }
 
+/// TK-316: размер BONK в e9 (1,75e19) больше i64 — импорт держит его в i128 и пишет лотами, без усечения;
+/// широкий разбор совпадает с `parse_e9` там, где тот отвечает.
+#[test]
+fn qty_beyond_i64_in_e9_imports_exactly_in_lots() {
+    for s in [
+        "0",
+        "1",
+        "0.1",
+        "1.123456789",
+        "1.1234567891",
+        "-5.5",
+        "+3",
+        ".5",
+        "5.",
+        "1234567890.5",
+    ] {
+        assert_eq!(parse_e9_wide(s), parse_e9(s).map(i128::from), "{s}");
+    }
+    for s in ["", ".", "x", "1.x", "--1"] {
+        assert_eq!(parse_e9_wide(s), None, "{s}");
+    }
+    assert_eq!(
+        parse_e9_wide("17500000000.5"),
+        Some(17_500_000_000_500_000_000)
+    );
+    assert_eq!(parse_e9("17500000000.5"), None, "в i64 не помещается");
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.00","17500000000.5"],["0.99","2.5"]"#,
+            r#"["1.01","3"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1490,
+            2,
+            r#"["1.00","17500000000.4"]"#,
+            "",
+        ),
+    ];
+    let args = write_day(dir.path(), &ob);
+    std::fs::write(
+        &args.trades,
+        format!(
+            "timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional,RPI\n\
+             {}.0000,TESTUSDT,Buy,17500000000.3,1.01,PlusTick,a,0,1,1,0\n",
+            (START + 1000) / 1000
+        ),
+    )
+    .unwrap();
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!(sum.off_grid, 0);
+    assert_eq!(sum.trades, 1);
+    let recs = all_records(&sum.out);
+    let lots: Vec<(i64, i64)> = recs.iter().map(|r| (r.price_ticks, r.qty_lots)).collect();
+    assert!(lots.contains(&(100, 175_000_000_005)), "{lots:?}");
+    assert!(lots.contains(&(100, 175_000_000_004)), "{lots:?}");
+    assert!(lots.contains(&(101, 175_000_000_003)), "{lots:?}");
+}
+
 fn write_day(dir: &Path, ob: &[String]) -> ImportArchiveArgs {
     let args = fixture(dir);
     std::fs::write(&args.ob, ob.join("\n")).unwrap();

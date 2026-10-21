@@ -47,6 +47,7 @@ fn snapshot_clears_stale_levels_and_deltas_upsert() {
         u: 1,
         seq: 1,
         cts_ms: 1000,
+        qty_unit_e9: 1,
         bids: vec![
             (100_000_000_000, 5_000_000_000),
             (99_000_000_000, 2_000_000_000),
@@ -59,6 +60,7 @@ fn snapshot_clears_stale_levels_and_deltas_upsert() {
         u: 2,
         seq: 2,
         cts_ms: 2000,
+        qty_unit_e9: 1,
         bids: vec![(100_000_000_000, 4_000_000_000)],
         asks: vec![(101_000_000_000, 3_000_000_000)],
     };
@@ -96,6 +98,7 @@ fn zero_qty_delta_removes_a_level() {
         u: 1,
         seq: 1,
         cts_ms: 1000,
+        qty_unit_e9: 1,
         bids: vec![(100_000_000_000, 5_000_000_000)],
         asks: vec![],
     };
@@ -105,6 +108,7 @@ fn zero_qty_delta_removes_a_level() {
         u: 2,
         seq: 2,
         cts_ms: 1500,
+        qty_unit_e9: 1,
         bids: vec![(100_000_000_000, 0)],
         asks: vec![],
     };

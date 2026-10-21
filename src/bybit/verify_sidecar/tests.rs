@@ -45,6 +45,7 @@ fn book_with_seq(seq: u64) -> Book {
         u: 1_000_000 + seq,
         seq,
         cts_ms: 1_757_800_000_000,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 2_500_000_000)],
         asks: vec![(150_010_000_000, 3_000_000_000)],
     })
@@ -59,6 +60,7 @@ fn empty_delta(seq: u64) -> Update {
         u: 1_000_000 + seq,
         seq,
         cts_ms: 1_757_800_000_001,
+        qty_unit_e9: 1,
         bids: vec![],
         asks: vec![],
     }
@@ -71,6 +73,7 @@ fn snapshot_update(seq: u64) -> Update {
         u: 1_000_000 + seq,
         seq,
         cts_ms: 1_757_800_000_000,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 2_500_000_000)],
         asks: vec![(150_010_000_000, 3_000_000_000)],
     }
@@ -83,6 +86,7 @@ fn sparse_snapshot(seq: u64, u: u64) -> Update {
         u,
         seq,
         cts_ms: 1_757_800_000_000,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 2_500_000_000)],
         asks: vec![(150_010_000_000, 3_000_000_000)],
     }
@@ -95,6 +99,7 @@ fn sparse_delta(seq: u64, u: u64) -> Update {
         u,
         seq,
         cts_ms: 1_757_800_000_001,
+        qty_unit_e9: 1,
         bids: vec![],
         asks: vec![],
     }
@@ -107,6 +112,7 @@ fn sparse_snapshot_with_bid(seq: u64, u: u64, bid_qty_e9: i64) -> Update {
         u,
         seq,
         cts_ms: 1_757_800_000_000,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, bid_qty_e9)],
         asks: vec![(150_010_000_000, 3_000_000_000)],
     }
@@ -119,6 +125,7 @@ fn sparse_delta_with_bid(seq: u64, u: u64, bid_qty_e9: i64) -> Update {
         u,
         seq,
         cts_ms: 1_757_800_000_001,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, bid_qty_e9)],
         asks: vec![],
     }
@@ -602,6 +609,7 @@ fn bracket_waits_for_after_via_stream_to_ok() {
             u: 1_000_000 + 9,
             seq: 9,
             cts_ms: 1_757_800_000_001,
+            qty_unit_e9: 1,
             bids: vec![(150_000_000_000, 3_500_000_000)],
             asks: vec![],
         }))

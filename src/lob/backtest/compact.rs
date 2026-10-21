@@ -60,18 +60,33 @@ pub struct CompactEvent {
     /// `exch_ms << 2 | kind` (арифметический сдвиг обратно восстанавливает и отрицательные `exch_ms`).
     exch_kind: i64,
     px_e9: i64,
-    qty_e9: i64,
+    /// Размер в единицах актива как биты `f64`: `(qty × unit_e9) as f64 / 1e9`, произведение — в `i128`
+    /// (лоты × шаг у BONK не помещаются в `i64`); одно округление, как раньше `qty_e9 as f64 / 1e9`.
+    qty_bits: u64,
 }
 
 impl CompactEvent {
     /// Событие из исходных целых перевода: метка биржи в мс, локальная метка в нс, цена и объём в e9.
     pub fn new(kind: EventKind, exch_ms: i64, local_ts: i64, px_e9: i64, qty_e9: i64) -> Self {
+        Self::new_unit(kind, exch_ms, local_ts, px_e9, qty_e9, 1)
+    }
+
+    /// То же, но размер — `qty` единиц по `unit_e9` (1e-9 актива): лоты и шаг файла бинлога.
+    #[allow(clippy::cast_precision_loss)] // одно округление в f64 на границе — как прежний `qty_e9 as f64`
+    pub fn new_unit(
+        kind: EventKind,
+        exch_ms: i64,
+        local_ts: i64,
+        px_e9: i64,
+        qty: i64,
+        unit_e9: i64,
+    ) -> Self {
         let exch_ms = exch_ms.clamp(-EXCH_MS_LIMIT, EXCH_MS_LIMIT);
         Self {
             local_ts,
             exch_kind: (exch_ms << 2) | kind as i64,
             px_e9,
-            qty_e9,
+            qty_bits: ((i128::from(qty) * i128::from(unit_e9)) as f64 / 1e9).to_bits(),
         }
     }
 
@@ -95,8 +110,13 @@ impl CompactEvent {
         self.px_e9
     }
 
-    pub(crate) fn qty_e9(&self) -> i64 {
-        self.qty_e9
+    /// Размер в лотах шага `step_e9`; `None` — не кратен шагу (потеря точности не молчит).
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // проверка кругом: лоты × шаг → f64 побитно равен
+    pub(crate) fn qty_lots(&self, step_e9: i64) -> Option<i64> {
+        let lots = (self.qty() * 1e9 / step_e9 as f64).round();
+        let lots = i64::try_from(lots as i128).ok()?;
+        let back = (i128::from(lots) * i128::from(step_e9)) as f64 / 1e9;
+        (lots >= 0 && back.to_bits() == self.qty_bits).then_some(lots)
     }
 
     pub fn px(&self) -> f64 {
@@ -104,7 +124,7 @@ impl CompactEvent {
     }
 
     pub fn qty(&self) -> f64 {
-        self.qty_e9 as f64 / 1e9
+        f64::from_bits(self.qty_bits)
     }
 
     /// `Event` крейта — те же операции, что у перевода потока до Р6 (`exch_ms.saturating_mul(10⁶)`,

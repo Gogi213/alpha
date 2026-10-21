@@ -14,6 +14,7 @@ fn snapshot(u: u64, bids: &[(f64, f64)], asks: &[(f64, f64)]) -> Update {
         u,
         seq: u,
         cts_ms: 1_000,
+        qty_unit_e9: 1,
         bids: bids.iter().map(|&(p, q)| (px(p), px(q))).collect(),
         asks: asks.iter().map(|&(p, q)| (px(p), px(q))).collect(),
     }
@@ -26,6 +27,7 @@ fn delta(u: u64, bids: &[(f64, f64)], asks: &[(f64, f64)]) -> Update {
         u,
         seq: u,
         cts_ms: 1_000 + u as i64,
+        qty_unit_e9: 1,
         bids: bids.iter().map(|&(p, q)| (px(p), px(q))).collect(),
         asks: asks.iter().map(|&(p, q)| (px(p), px(q))).collect(),
     }
@@ -204,6 +206,7 @@ fn price_off_tick_is_rejected() {
         u: 10,
         seq: 10,
         cts_ms: 1,
+        qty_unit_e9: 1,
         bids: vec![(px(1.00005), px(1.0))],
         asks: vec![],
     };
@@ -220,6 +223,7 @@ fn qty_off_step_is_rejected() {
         u: 10,
         seq: 10,
         cts_ms: 1,
+        qty_unit_e9: 1,
         bids: vec![(px(1.0000), px(0.0005))],
         asks: vec![],
     };
@@ -322,4 +326,56 @@ fn book_never_calls_the_wall_clock_or_uses_a_map_for_levels() {
     for b in banned {
         assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
     }
+}
+
+/// TK-316: лоты с единицей `step_e9` дают те же лоты в книге, что e9-пары, и не переполняют `i64`
+/// там, где `лоты × шаг` его превышает (BONK на споте: 1,75e10 лотов по 1 монете = 1,75e19 e9).
+#[test]
+fn lots_with_unit_apply_like_e9_pairs_and_survive_i64_overflow() {
+    let (tick, step) = (TICK, 1_000_000_000_i64);
+    let mut by_unit = Book::new(tick, step);
+    let mut by_e9 = Book::new(tick, step);
+    let mk = |qty: i64, unit: i64| Update {
+        is_snapshot: true,
+        depth: 50,
+        u: 1,
+        seq: 1,
+        cts_ms: 1,
+        qty_unit_e9: unit,
+        bids: vec![(10 * tick, qty)],
+        asks: vec![(11 * tick, qty)],
+    };
+    by_unit.apply(&mk(7, step)).unwrap();
+    by_e9.apply(&mk(7 * step, 1)).unwrap();
+    assert_eq!(by_unit.qty_lots_at(Side::Bid, 10), 7);
+    assert_eq!(
+        by_unit.qty_lots_at(Side::Bid, 10),
+        by_e9.qty_lots_at(Side::Bid, 10)
+    );
+
+    let bonk_lots = 17_500_000_000_i64;
+    assert!(i128::from(bonk_lots) * i128::from(step) > i128::from(i64::MAX));
+    by_unit.apply(&mk(bonk_lots, step)).unwrap();
+    assert_eq!(by_unit.qty_lots_at(Side::Bid, 10), bonk_lots);
+    assert_eq!(by_unit.qty_lots_at(Side::Ask, 11), bonk_lots);
+}
+
+/// TK-316: единица не кратна шагу книги → отказ, не усечение (В-172).
+#[test]
+fn lots_with_unit_off_step_are_rejected() {
+    let mut book = Book::new(TICK, 1_000_000_000);
+    let up = Update {
+        is_snapshot: true,
+        depth: 50,
+        u: 1,
+        seq: 1,
+        cts_ms: 1,
+        qty_unit_e9: 500_000_000,
+        bids: vec![(10 * TICK, 3)],
+        asks: Vec::new(),
+    };
+    assert!(matches!(
+        book.apply(&up),
+        Err(ApplyError::QtyNotOnStep { .. })
+    ));
 }

@@ -65,3 +65,27 @@ fn expand_is_bit_exact_with_legacy_translation() {
     }
     assert_eq!(std::mem::size_of::<CompactEvent>(), 32);
 }
+
+/// TK-316: лоты × шаг считаются в `i128` — у BONK 1,75e10 лотов × шаг 1e9 = 1,75e19 > `i64::MAX`; ниже границы —
+/// побитно прежний `qty_e9 as f64 / 1e9`; `qty_lots` возвращает лоты, не кратное шагу — `None`.
+#[test]
+fn new_unit_multiplies_in_i128_and_matches_e9_below_i64() {
+    let k = EventKind::BidDepth;
+    let big = CompactEvent::new_unit(k, 1, 2, 3, 17_500_000_000, 1_000_000_000);
+    assert_eq!(big.qty().to_bits(), (17_500_000_000f64).to_bits());
+    assert_eq!(big.qty_lots(1_000_000_000), Some(17_500_000_000));
+    assert_eq!(big.qty_lots(3_000_000_000), None);
+    for (lots, step) in [
+        (0i64, 1_000i64),
+        (7, 1_000_000),
+        (123_456_789, 10_000),
+        (9_000_000_000, 1_000_000_000),
+    ] {
+        let (a, b) = (
+            CompactEvent::new_unit(k, 1, 2, 3, lots, step),
+            CompactEvent::new(k, 1, 2, 3, lots * step),
+        );
+        assert_eq!(a, b, "lots={lots} step={step}");
+        assert!(same_bits(&a.expand(), &legacy(k, 1, 2, 3, lots * step)));
+    }
+}

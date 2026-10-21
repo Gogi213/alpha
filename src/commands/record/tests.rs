@@ -15,6 +15,7 @@ fn snapshot_update() -> crate::book::Update {
         u: 1,
         seq: 1,
         cts_ms: 1_757_800_000_000,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 2_500_000_000)],
         asks: vec![(150_010_000_000, 3_000_000_000)],
     }
@@ -48,6 +49,7 @@ fn off_tick_price_rotates_and_leaves_a_gap_row_instead_of_continuing_silently() 
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
+        qty_unit_e9: 1,
         bids: vec![(150_005_000_000, 1_000_000_000)],
         asks: vec![],
     };
@@ -95,6 +97,7 @@ fn on_tick_delta_is_staged_without_rotation_and_without_gap_rows() {
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 3_000_000_000)],
         asks: vec![],
     };
@@ -284,6 +287,7 @@ fn daily_file_header_carries_tick_size_and_qty_step() {
         u: 1,
         seq: 1,
         cts_ms: 0,
+        qty_unit_e9: 1,
         bids: vec![(1_000, 50)],
         asks: vec![(1_100, 60)],
     })
@@ -451,6 +455,7 @@ fn staging_before_the_first_snapshot_is_a_loud_error() {
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 1_000_000_000)],
         asks: vec![],
     };
@@ -467,7 +472,8 @@ fn staging_before_the_first_snapshot_is_a_loud_error() {
     let trade = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_020,
         price_e9: 150_000_000_000,
-        qty_e9: 1_000_000_000,
+        qty: 1_000_000_000,
+        qty_unit_e9: 1,
         aggressor_is_buy: true,
         block: false,
         rpi: false,
@@ -497,6 +503,7 @@ fn sequence_gap_is_reported_loudly_and_stages_nothing() {
         u: 4, // ждали 2
         seq: 4,
         cts_ms: 1_757_800_000_040,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 9_000_000_000)],
         asks: vec![],
     };
@@ -539,7 +546,8 @@ fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
     let buy = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_100,
         price_e9: 150_000_000_000,
-        qty_e9: 2_000_000_000,
+        qty: 2_000_000_000,
+        qty_unit_e9: 1,
         aggressor_is_buy: true,
         block: false,
         rpi: false,
@@ -547,7 +555,8 @@ fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
     let block_sell = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_101,
         price_e9: 149_990_000_000,
-        qty_e9: 5_000_000_000,
+        qty: 5_000_000_000,
+        qty_unit_e9: 1,
         aggressor_is_buy: false,
         block: true,
         rpi: false,
@@ -596,13 +605,15 @@ fn steady_events_allocate_nothing() {
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
+        qty_unit_e9: 1,
         bids: vec![(150_000_000_000, 3_000_000_000)],
         asks: vec![(150_010_000_000, 4_000_000_000)],
     };
     let trade = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_020,
         price_e9: 150_000_000_000,
-        qty_e9: 1_000_000_000,
+        qty: 1_000_000_000,
+        qty_unit_e9: 1,
         aggressor_is_buy: true,
         block: false,
         rpi: false,
