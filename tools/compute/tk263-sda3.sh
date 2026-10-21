@@ -7,7 +7,7 @@ D=${D:-/data/tk0263/w4}; W1=${W1:-/data/tk0263/w1}; BS=${BS:-/data/tk0263/bs-lau
 E=/data/tk046/mar/home/alpha/epochs/e-mar/study; JS=/data/p12r3a/jrn
 mkdir -p "$D" "$A/root2"
 [ -s "$D/days.txt" ] || { cp -r "$W1/plan" "$D/plan"; cp "$W1/days.txt" "$W1/ref.md5" "$D/"; }
-run() { SCRIPTS=$A/scripts ALT_ROOT=$A/root2 JRN=$A/jrn NX=12 bash "$BS" pass "$D" "$1" > "$D.$1.out" 2>&1; }
+run() { SCRIPTS=$A/scripts ALT_ROOT=$A/root2 JRN=$A/jrn NX=${NX:-15} bash "$BS" pass "$D" "$1" > "$D.$1.out" 2>&1; }
 run C12b
 if [ ! -e "$A/copy3.done" ]; then
   t0=$(date +%s); : > "$A/extra-days.txt"

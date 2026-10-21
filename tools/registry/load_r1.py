@@ -3,19 +3,27 @@
 Без пересчёта (В-213). Хеши — те, что есть в сводке closes И в master.R1X (--which r1x) / master.R1COL (--which r1col); конфиг клетки берётся из
 сетки P-14 (как load_f1.py). Числа — сводка `sum_closes_r1.py`: trades = n cap 0, pnl_usd = Σ$ cap 0, ext.n_cap3 / pnl_usd_cap3 = B2.
 Клетка без closes в месяце — 0 сделок (psim пишет только варианты со сделками), ext.empty. Сверка: --check печатает Σ по (месяц, cap) из записанного.
-  python tools/registry/load_r1.py <closes-sum.csv> --run ID --which r1x|r1col [--dry]"""
+  python tools/registry/load_r1.py <closes-sum.csv> --run ID --which r1x|r1col|g134 [--protocol P-15] [--dry]"""
 import argparse, collections, csv, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cellhash as ch, db, master
 
 ap = argparse.ArgumentParser(); ap.add_argument("csv"); ap.add_argument("--run", required=True); ap.add_argument("--dry", action="store_true")
-ap.add_argument("--which", required=True, choices=("r1x", "r1col"))
+ap.add_argument("--which", required=True, choices=("r1x", "r1col", "g134"))
+ap.add_argument("--protocol", default="P-14", help="протокол (TK-274: P-15, Г-134)")
+ap.add_argument("--fraction", type=int, default=1, help="доля плана (TK-303: 2 = F2 Г-134)")
+ap.add_argument("--f1-py", help="TK-303: файл .py с f1() — сито F1 для сетки F2 (tools/compute/tk303-f2-plan.py)")
 ns = ap.parse_args()
 c = master.connect()
-rules = master.rules_of(c, "P-14")
-grids, _ = master.build_grid(c, "P-14", 1, None, rules)   # заполняет master.R1X / R1COL
+rules = master.rules_of(c, ns.protocol)
+f1 = None
+if ns.f1_py:
+    import importlib.util as iu
+    sp = iu.spec_from_file_location("f1src", ns.f1_py); f1m = iu.module_from_spec(sp); sp.loader.exec_module(f1m); f1 = f1m.f1()
+grids, _ = master.build_grid(c, ns.protocol, ns.fraction, None, rules, f1)   # заполняет master.R1X / R1COL
 c.close()
-want = set(master.R1X if ns.which == "r1x" else master.R1COL)
+want = ({ch.cell_hash(cfg) for av, cfg in grids.get("Г-134", [])} if ns.which == "g134"   # TK-274: Г-134 (П-15) ни в R1X, ни в R1COL — отбор r1cell --hist own
+        else set(master.R1X if ns.which == "r1x" else master.R1COL))
 cfgs = {}
 for hyp, cells in sorted(grids.items()):
     for av, cfg in cells:
@@ -27,7 +35,7 @@ for r in csv.DictReader(open(ns.csv, encoding="utf-8")):
     agg[r["variant"]].setdefault(r["month"], {})[r["cap"]] = (int(r["n"]), float(r["sum_usd"]))
 extra = sorted(set(agg) - set(cfgs))
 if extra:
-    sys.exit(f"хешей в сводке, которых нет в {ns.which} сетки P-14: {len(extra)} {extra[:5]}")
+    sys.exit(f"хешей в сводке, которых нет в {ns.which} сетки {ns.protocol}: {len(extra)} {extra[:5]}")
 months = [f"2026-{m:02d}" for m in range(1, 10)]
 # хеш без единой записи за все месяцы в сводке — не считали (для R1COL это 145 r1ext и «данных нет»), не пишем
 todo = {h: v for h, v in cfgs.items() if h in agg}

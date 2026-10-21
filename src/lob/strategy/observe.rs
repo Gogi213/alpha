@@ -129,6 +129,7 @@ impl StrategyState {
         self.phase = Phase::Holding { entry_ns: now };
         if self.tape_on() {
             self.tape_at_fill = self.tape_press(now);
+            self.tape_at_fill_ws = self.tape_press_ws(now);
             self.cxl_at_fill = self.cxl_press(now);
         }
     }
@@ -141,6 +142,11 @@ impl StrategyState {
     /// TK-115 Г-133: ожидание исполнения лимиткой погони от её начала, нс; −1 — не исполнена лимиткой.
     pub fn chase_wait_ns(&self) -> i64 {
         self.chase_wait_ns
+    }
+
+    /// TK-272: лента против позиции за каждое окно `tape_log_ws` до исполнения входа; пустые слоты и выключенное кольцо — 0.
+    pub fn tape_at_fill_ws(&self) -> [f64; TAPE_WS_MAX] {
+        self.tape_at_fill_ws
     }
 
     /// TK-115 Г-116: отмены нашей стороны за `W` с до исполнения входа, иначе 0.

@@ -4,7 +4,7 @@
 #   env: BIN (бинарь из config.json), SCRIPTS (каталог с day-cells.sh, day-order.sh, merge-packs.py; config.json scripts_dir), NX (исполнители), GT
 # Параметры day-cells.sh — как у прохода TK-231 (run-all.sh): PLAN, P, O, BIN, GT, TP; суточный claim: второй запуск берёт только неразобранное.
 set -uo pipefail
-RUN=$1; S=${SCRIPTS:-/data/tk0231}; NX=${NX:-12}; B=${B1:-/data/tk0115/delta/b1-symdays.csv}
+RUN=$1; S=${SCRIPTS:-/data/tk0231}; NX=${NX:-15}; B=${B1:-/data/tk0115/delta/b1-symdays.csv}
 export PLAN=L P=$RUN/plan O=$RUN/out BIN GT=${GT:-1} TP=1
 [ -s "$P/months.txt" ] || [ -s "$P/r1months.txt" ] || { echo "нет $P/months.txt" >&2; exit 2; }   # TK-251: запуск только из R1 (r1/r1x) — без суток движка
 D=$RUN/days.txt

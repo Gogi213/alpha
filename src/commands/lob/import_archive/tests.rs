@@ -75,10 +75,11 @@ fn fixture(dir: &Path) -> ImportArchiveArgs {
         day: DAY.to_string(),
         ob: dir.join("ob.data"),
         trades: dir.join("trades.csv"),
-        instruments: dir.join("instruments.csv"),
+        instruments: Some(dir.join("instruments.csv")),
         root: dir.join("root"),
         steps_from_snapshot: false,
         steps_from_day: false,
+        spot: false,
     }
 }
 
@@ -725,4 +726,54 @@ fn steps_from_snapshot_tolerates_sub_tick_trade_price() {
     let sum = run_import_archive(&args).unwrap();
     assert_eq!(sum.off_grid, 0);
     assert_eq!(sum.trade_off_grid, 1);
+}
+
+/// Спот (TK-312): те же сутки, сделки в формате `public.bybit.com/spot` (мс целым, `buy`/`sell`, `rpi`),
+/// без пула — файл равен фьючерсному импорту тех же суток с `--steps-from-day` (шаги НОД суток).
+#[test]
+fn spot_day_without_pool_equals_linear_import_of_same_day() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let mut a = fixture(dir_a.path());
+    a.steps_from_day = true;
+    let a = run_import_archive(&a).unwrap();
+
+    let dir_b = tempfile::tempdir().unwrap();
+    let mut b = fixture(dir_b.path());
+    std::fs::remove_file(dir_b.path().join("instruments.csv")).unwrap();
+    std::fs::write(
+        &b.trades,
+        format!(
+            "id,timestamp,price,volume,side,rpi
+             1,{},1.01,1,buy,0
+             2,{},1.00,0.8,sell,0
+             3,{},1.01,0.3,buy,1
+             4,{},1.00,1,sell,0
+",
+            START + 100,
+            START + 1000,
+            START + 2000,
+            START + 86_400_100
+        ),
+    )
+    .unwrap();
+    b.instruments = None;
+    b.steps_from_day = true;
+    b.spot = true;
+    let b = run_import_archive(&b).unwrap();
+    assert_eq!((b.trades, b.trades_before_snapshot), (2, 1));
+    assert_eq!(
+        std::fs::read(&a.out).unwrap(),
+        std::fs::read(&b.out).unwrap()
+    );
+}
+
+/// Спот без `--steps-from-day` — отказ: шагов пула у спота нет.
+#[test]
+fn spot_requires_steps_from_day() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut args = fixture(dir.path());
+    args.instruments = None;
+    args.spot = true;
+    let e = run_import_archive(&args).unwrap_err().to_string();
+    assert!(e.contains("--steps-from-day"), "{e}");
 }

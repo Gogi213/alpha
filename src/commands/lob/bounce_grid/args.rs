@@ -10,11 +10,12 @@ use clap::Args;
 
 use crate::book::Side;
 use crate::commands::lob::backtest::{
-    early_exit_ns_from_ms, EntryForm, EntryTtl, EARLY_EXIT_HALF_MS,
+    early_exit_ns_from_ms, early_ms_from_label, EntryForm, EntryTtl,
 };
 use crate::commands::lob::H3Args;
 use crate::lob::backtest::{ExecLatency, QueueModelKind};
 
+use super::control;
 use super::forms::ExitForm;
 use super::sets::SetPaths;
 
@@ -31,18 +32,11 @@ pub(crate) fn parse_early_exits(specs: &[String]) -> anyhow::Result<Vec<Option<i
         let v = if spec == "off" {
             None
         } else {
-            let x: i64 = if spec == "0.5" {
-                EARLY_EXIT_HALF_MS
-            } else {
-                spec.parse::<i64>()
-                    .ok()
-                    .and_then(|s| s.checked_mul(1_000))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "--early-exit-secs {spec:?}: ожидается off, 0.5 или целые секунды"
-                        )
-                    })?
-            };
+            let x = early_ms_from_label(spec).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--early-exit-secs {spec:?}: ожидается off, целые секунды или <целые>.5"
+                )
+            })?;
             early_exit_ns_from_ms(Some(x))?;
             Some(x)
         };
@@ -308,6 +302,11 @@ pub struct BounceGridArgs {
     /// σ-лестнице и запрещён без неё; сигнал без σ не торгуется и считается в `n_no_sigma` итога.
     #[arg(long)]
     pub sigma_from: Option<PathBuf>,
+    /// Контроль C (П-22 §5, TK-333): сдвиг входа, секунды — тот же `N`, что `touches-project --shift-secs`.
+    /// σ, режим (`btc4h`/`pool*`), клайн-оси и btc-lag берутся из исходного момента `start_ms − N`, окна и `t0` — по
+    /// сдвинутому `start_ms`; 0 — как прежде.
+    #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+    pub ctx_shift_secs: i64,
     /// Режим по минутам для ключей `pool*`/`btc*` наборов (S3/S4 плана по
     /// сторонам): каталог `study/regime` с `<сутки>.csv` от `regime.py`.
     /// Без него эти ключи — отказ; сутки без файла — отказ.
@@ -385,6 +384,19 @@ pub struct BounceGridArgs {
     /// `tape_press_lots` (лоты за `W` с до исполнения входа). Без флага кольцо выключено, файлы и числа прежние.
     #[arg(long = "tape-log", value_name = "SECS")]
     pub tape_log: Option<u32>,
+    /// TK-272: журнал ленты по нескольким окнам за один проход — в `rounds.csv` колонки `tape_press_lots_w<W>` (лоты за
+    /// `W` с до исполнения входа) для каждого `W` списка (до 16, через запятую). Вместо `--tape-log` (не вместе); формы
+    /// `tape<W>q<Q>`/`cxl` и `entry_gate` не обслуживает. Только сборка с feature r2. Без флага файлы прежние.
+    #[arg(
+        long = "tape-log-ws",
+        value_name = "SECS,SECS,...",
+        value_delimiter = ','
+    )]
+    pub tape_log_ws: Vec<u32>,
+    /// П-19 (TK-291): дописать в конец `rounds.csv` столбец `touch_index` (номер касания уровня подхода сигнала круга —
+    /// `ApproachRecord.approach_index`). Только запись: исполнение и прежние столбцы те же. Без флага файлы байт в байт прежние.
+    #[arg(long = "touch-col", default_value_t = false)]
+    pub touch_col: bool,
     /// Сверка окон (К3, условие Судьи b86eed6): кроме своей книги окон (`WindowDepth`) строит
     /// окна прежним путём на книге крейта и сравнивает каждый снимок по всем полям; расхождение —
     /// отказ с `t0` и полем. Итог счёта не меняет. Только `--driver setups`.
@@ -399,6 +411,15 @@ pub struct BounceGridArgs {
     /// Каталог артефактов (`rounds.csv`, `forms.csv`, `manifest.txt`).
     #[arg(long)]
     pub out_dir: PathBuf,
+    /// Контроль «случайный уровень» Г-03 (TK-274, П-15 §5): `random:<seed>` — вход/стоп/тейк от двойника стены
+    /// (тот же момент, сторона, целый bps до чужой цены, без плотности; фильтры наборов читают настоящую стену),
+    /// `paired:<seed>` — настоящие стены на тех же подходах, что получили двойника. Нужны `--signal approach` и
+    /// `twins-<SYMBOL>.csv` в кэше (`lob touches --twin-seeds`); подход без двойника выпадает, счётчики и расстояние
+    /// двойник↔стена — `level-control-<SYMBOL>.csv`. `random:<seed>:nowall` — то же, но у двойника нет отмены входа
+    /// по гибели стены (порог В-66 не передаётся плану: правила, читающие стену на цене входа, к двойнику неприменимы,
+    /// П-15 §5). Без флага — прежний счёт.
+    #[arg(long = "level-control", value_parser = control::LevelControl::parse)]
+    pub level_control: Option<control::LevelControl>,
     /// Снять требование маркера сверки (отладочные данные; в `runs.csv` не идёт).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,

@@ -17,6 +17,47 @@ impl StrategyState {
         }
     }
 
+    /// TK-272: журнал ленты по нескольким окнам за один проход (`bounce-grid --tape-log-ws`): одно кольцо на `max W`,
+    /// на исполнении входа — сумма корзин `[t−w+1, t]` для каждого `w`. Отмены не ведёт; без окон ничего не меняет.
+    pub fn enable_tape_ws(&mut self, ws: &[u32; TAPE_WS_MAX]) {
+        let max = ws.iter().copied().max().unwrap_or(0);
+        if !R2 || max == 0 {
+            return;
+        }
+        self.tape_ws = *ws;
+        self.tape_ring = Some(
+            vec![
+                TapeBucket {
+                    sec: i64::MIN,
+                    lots: 0.0
+                };
+                max as usize
+            ]
+            .into_boxed_slice(),
+        );
+    }
+
+    /// TK-272: лоты против позиции за каждое окно `tape_ws` до `now` включительно; пустые слоты и кольцо без окон — 0.
+    pub fn tape_press_ws(&self, now: i64) -> [f64; TAPE_WS_MAX] {
+        let mut out = [0.0; TAPE_WS_MAX];
+        let Some(ring) = self.tape_ring.as_ref() else {
+            return out;
+        };
+        let t = now.div_euclid(1_000_000_000);
+        for (o, &w) in out.iter_mut().zip(self.tape_ws.iter()) {
+            if w == 0 {
+                continue;
+            }
+            let lo = t - i64::from(w) + 1;
+            *o = ring
+                .iter()
+                .filter(|b| b.sec >= lo && b.sec <= t)
+                .map(|b| b.lots)
+                .sum();
+        }
+        out
+    }
+
     /// TK-115 Г-112: включить кольцо ленты на `secs` секунд (журнал `[fill−W, fill]`); без вызова ничего не меняется.
     pub fn enable_tape(&mut self, secs: u32) {
         self.cxl_ring = Some(

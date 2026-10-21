@@ -127,6 +127,7 @@ def main():
     ap.add_argument("--funding", default=None,
                     help="CSV symbol,funding_time_ms,funding_rate — издержка фандинга по факт. отметкам в (вход, "
                          "выход] (В-135 п.3); по умолчанию выключено, старые прогоны воспроизводимы")
+    ap.add_argument("--lot-by-n", help="П-19: k0,k1,k2,k3 — множитель $ по номеру касания (touch_index, ≥3 → k3); k=0 — исключить")
     ap.add_argument("--json")
     ap.add_argument("--closes-out", help="JSON: вариант → период → потолок → [[мс закрытия, $], …] — только строки без "
                                          "дневного стопа, выключателя, исключений и серии (KPI «до перехая», В-120)")
@@ -135,6 +136,11 @@ def main():
     global SIZE_MULT
     SIZE_MULT = a.size_mult
     _portfolio.SIZE_MULT = a.size_mult  # load_rounds → _portfolio.load_run напрямую, минуя обёртку выше
+    if a.lot_by_n:
+        lot = [float(x) for x in a.lot_by_n.split(",")]
+        if len(lot) != 4 or any(x < 0 for x in lot):
+            raise SystemExit("--lot-by-n: ровно четыре числа ≥ 0")
+        _portfolio.LOT_BY_N = tuple(lot)
     funding = Funding(a.funding) if a.funding else None
     klines = Klines(a.klines)
     drop = set(x for x in a.drop.split(",") if x)

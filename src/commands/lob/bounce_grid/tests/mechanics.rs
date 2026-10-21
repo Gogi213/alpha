@@ -96,5 +96,5 @@ fn catalog_flags_round_trip_through_run_flags() {
             }
         }
     }
-    assert_eq!((nt, ne), (33, 10));
+    assert_eq!((nt, ne), (39, 13));
 }

@@ -12,7 +12,8 @@
 """
 import argparse, json, math, os, re, subprocess, sys, time
 
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (LIVE_EXTEND_S, LIVE_LEAD_S, LIVE_CHECK_S, LIVE_CPU_MIN, LIVE_CPU_BUSY)   # noqa: F401 — TK-334
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, MIN_FREE_GB, FREE_PATHS)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -61,6 +62,7 @@ class Core:
         self.fact_t = -1e9
         self.fam_cores, self.fam_mem = {}, {}             # допуск по факту: ядра (EWMA) и пик памяти заданий семьи (имя без последнего «-…»)
         self.hot_t = None
+        self.disk_alert_t = None                          # TK-304: время последней тревоги «диск полон»; None — эпизода нет
         self.jobs = {}
         self.iso = set()                                  # ядра изолированного замера: производству недоступны
         self.frozen = False
@@ -96,6 +98,7 @@ class Core:
         for j in self.running("prod"):                    # бюджет max_runtime — время БЕЗ заморозки
             if not self.frozen and not j.get("frozen_for"):
                 j["active_s"] = j.get("active_s", 0) + dt
+            self._extend_live(j, now)
             if j["active_s"] > j["max_runtime"]:
                 j["kill_why"] = "снят демоном: бюджет max-runtime (активное время) вышел"
                 be.kill(j)
@@ -104,6 +107,43 @@ class Core:
             if now - j["t_start"] > j["max_runtime"]:
                 j["kill_why"] = "снят демоном: бюджет max-runtime замера (стена) вышел"
                 be.kill(j)
+
+    def _extend_live(self, j, now):
+        """TK-334 (В-52): за LIVE_LEAD_S до конца бюджета — окно LIVE_CHECK_S замера живости; живо (ЦП ≥ LIVE_CPU_MIN заявки и либо ≥ LIVE_CPU_BUSY,
+        либо растёт диск юнита / свежие файлы) → max_runtime += LIVE_EXTEND_S и RuntimeMaxSec юнита следом; не живо → снимется по лимиту как раньше."""
+        be = self.be
+        if not LIVE_EXTEND_S or not hasattr(be, "live_probe"):
+            return
+        if self.frozen or j.get("frozen_for") or j["max_runtime"] - j.get("active_s", 0) > LIVE_LEAD_S:
+            j.pop("live_snap", None)                      # заморозка искажает окно ЦП — отсчёт заново
+            return
+        snap = j.get("live_snap")
+        if snap and now - snap[0] < LIVE_CHECK_S:
+            return
+        p = be.live_probe(j)
+        if not snap:
+            j["live_snap"] = [now, p["cpu"], p["io"]]
+            return
+        win = now - snap[0]
+        cpu = (p["cpu"] - snap[1]) / (win * max(j["cores"], 1))
+        io, fresh = p["io"] - snap[2], p["mt"] is not None and now - p["mt"] <= win
+        facts = f"ЦП {cpu * 100:.0f} % заявки за {win / 60:.0f} мин, диск +{io / 1e6:.0f} МБ, свежие файлы {'да' if fresh else 'нет'}"
+        if cpu >= LIVE_CPU_MIN and (cpu >= LIVE_CPU_BUSY or io > 0 or fresh):
+            n = j.get("live_ext", 0) + 1
+            j["max_runtime"] += LIVE_EXTEND_S
+            if be.extend_live(j, j["max_runtime"] - j.get("active_s", 0)) is False:     # юнит срок не принял — не врать «продлён»
+                j["max_runtime"] -= LIVE_EXTEND_S
+                j["live_snap"] = [now, p["cpu"], p["io"]]
+                be.alert(f"ЛИМИТ НЕ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: живо ({facts}), но systemd не принял новый срок; снимется по max_runtime")
+                return
+            j["live_ext"] = n
+            j.pop("live_snap"); j.pop("live_no", None)
+            be.alert(f"ЛИМИТ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: живо ({facts}); max_runtime +{LIVE_EXTEND_S} с → {int(j['max_runtime'])} с, продление {n}")
+        else:
+            if not j.get("live_no"):
+                j["live_no"] = True
+                be.alert(f"ЛИМИТ НЕ ПРОДЛЁН {j['id']} {j['name']} {ticket_of(j['name'])}: не живо ({facts}); снимется по max_runtime")
+            j["live_snap"] = [now, p["cpu"], p["io"]]
 
     def _reap(self, now):
         be = self.be
@@ -182,6 +222,7 @@ class Core:
         used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]} | self.iso
         mem = sum(j["mem"] for j in self.running("prod"))
         legacy = math.ceil(be.legacy_busy())
+        held, held_units = self.preempt_held()            # TK-292: ядра вытесненных вернутся по концу головной — очереди не раздаются
         for j in self.jobs.values():                      # приоритет можно менять на ходу: prio/<id> (alsched.py reprio)
             pj = f"{DIR}/prio/{j['id']}"
             if j["state"] == "queued" and os.path.exists(pj):
@@ -191,6 +232,9 @@ class Core:
                     warn_once(f"prio-{j['id']}", f"prio/{j['id']}: не число ({e}) — приоритет не изменён")
             if j["state"] == "queued" and not j.get("elastic") and os.path.exists(f"{DIR}/elastic/{j['id']}"):
                 j["elastic"] = True                       # TK-283: alsched.py elastic <id> — пометка уже поданной заявки (NX в команде заменится на выданные ядра)
+            if GATE_FIT and RESERVE_CORES and j["state"] == "queued" and j.get("kind") in ("gate", "build") and j["cores"] > RESERVE_CORES:
+                j["max_runtime"] = j["max_runtime"] * j["cores"] / RESERVE_CORES   # TK-300 (В-40): гейт/сборка идут на резерве (16-е ядро), а не вытесняют prod — тот же счёт дольше пропорционально
+                j["cores_req"], j["cores"] = j["cores"], RESERVE_CORES
         fact = self.pack == "fact"
         ncp = self.ncpu - len(self.iso)                   # П1: загрузка и ёмкость — по ядрам, доступным производству
         busy = (be.busy_fact(self.iso) if self.iso else be.busy_fact()) if fact and hasattr(be, "busy_fact") else 1.0
@@ -199,21 +243,34 @@ class Core:
         capped = sum(len(r["cpus"]) for r in self.running("prod") if not r.get("frozen_for")) if self.iso else 0
         gate_used = sum(len(r["cpus"]) for r in self.running("prod") if r.get("kind") in ("gate", "build") and not r.get("frozen_for"))
         gate_resv = max(0, RESERVE_CORES - gate_used)     # В-229 п.10: гарантированные ядра гейтам/сборкам
+        wide_gates = [r for r in self.jobs.values() if r.get("kind") in ("gate", "build") and r["state"] == "queued"]
+        if wide_gates and all(r["cores"] > gate_resv for r in wide_gates):   # TK-297 (В-34): в очереди только гейты/сборки шире резерва — в него не встанут (ждут общей очереди, TK-220), держать ядра пустыми незачем
+            gate_resv = 0
         gate_active = any(r.get("kind") in ("gate", "build") and r["state"] in ("queued", "running") for r in self.jobs.values())   # TK-283: нет gate/build ни в работе, ни в очереди — резерв свободен
-        declared = sum(r["cores"] for r in self.running("prod") if not r.get("frozen_for"))   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
+        declared = sum(r["cores"] for r in self.running("prod") if self.decl_live(r) and not (GATE_FIT and r.get("kind") in ("gate", "build")))   # TK-300: gate/build сверх потолка 15 — в сумму work не входят   # TK-283: заявленные ядра идущего prod (потолок OVERBOOK_MAX для старта по факту)
+        gdecl = sum(r["cores"] for r in self.running("prod") if r.get("kind") in ("gate", "build") and self.decl_live(r))   # TK-300: заявленные ядра идущих gate/build — потолок RESERVE_CORES
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
-        for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
+        low = self.disk_low(now)                          # TK-304: диск полон — очередь не стартует (идущие работают дальше)
+        for j in sorted(() if low else (j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
-            free = [c for c in range(self.ncpu) if c not in used]
+            head_pre = j["id"] in self.preempt            # головная вытеснения берёт ядра вытесненных, остальные — нет
+            free = [c for c in range(self.ncpu) if c not in used and (head_pre or c not in held)]
             is_gate = j.get("kind") in ("gate", "build")
-            g_resv = 0 if not gate_active and j.get("elastic") else gate_resv   # TK-283: elastic без gate/build в работе и очереди резерв не держит (прочее prod — как было, TK-219)
+            g_resv = gate_resv if gate_active else 0   # TK-283/TK-297 (В-34): без gate/build в работе и очереди резерв не держит никто — боевой счёт занимает 15
             resv = set(free[max(0, len(free) - g_resv):]) if g_resv else set()   # резерв — старшие свободные ядра; work их не пинит и не учитывает сверх заявки
-            room = len(free) - legacy - (0 if is_gate else len(resv))
+            room = len(free) - legacy - (0 if head_pre else held_units) - (0 if is_gate else len(resv))
+            held_n = 0 if head_pre else len(held) + held_units
+            decl_cap = OVERBOOK_MAX - (0 if is_gate else g_resv)
+            declared_j = declared
+            if GATE_FIT:                              # TK-300 (В-40): work — до OVERBOOK_MAX (15), gate/build — отдельно до RESERVE_CORES (16-е ядро); друг друга не вытесняют
+                decl_cap, declared_j = (OVERBOOK_MAX + RESERVE_CORES, gdecl + declared) if is_gate else (OVERBOOK_MAX, declared + max(0, gdecl - RESERVE_CORES))   # TK-300 (В-40, CEO 18.10): слот 16-го ядра занят (psim/гейт) — второй gate/build встаёт на свободное ядро, пока вся заявленная сумма ≤ 16; гейты сверх слота (Судья PR #66) вычитаются из потолка work — work ≤ 15 и сумма ≤ 16
+            # TK-295 (В-34): потолок суммы заявленных ядер действует и на старт по заявке, не только по факту (4 по 4 = 16 > 15)
+            room_s = min(room, decl_cap - declared_j - held_n) if OVERBOOK_MAX else room   # место для сжатия elastic — не выше потолка суммы заявок
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j
                        and not x.get("elastic") and x["cores"] <= SMALL_CORES)   # TK-283: мелкие заявки в очереди (не elastic) — им место
-            shrink = room - hold if (j.get("elastic") and ELASTIC_MIN and not gate_active and not self.iso
-                                     and ELASTIC_MIN <= room - hold < j["cores"]
-                                     and j["max_runtime"] * j["cores"] / (room - hold) <= ELASTIC_SHRINK_S) else 0   # CEO 17.10 08:54: многочасовой проход на 4 ядрах застрял бы навсегда (NX не растёт) — сжимаем только короткие   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
+            shrink = room_s - hold if (j.get("elastic") and ELASTIC_MIN and not gate_active and not self.iso
+                                     and ELASTIC_MIN <= room_s - hold < j["cores"]
+                                     and j["max_runtime"] * j["cores"] / (room_s - hold) <= ELASTIC_SHRINK_S) else 0   # CEO 17.10 08:54: многочасовой проход на 4 ядрах застрял бы навсегда (NX не растёт) — сжимаем только короткие   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
             ncor = shrink or j["cores"]               # ядра, с которыми заявка реально встанет
             mrt = j["max_runtime"] * j["cores"] / ncor   # на меньшем числе ядер тот же счёт идёт дольше — бюджет растёт пропорционально
             disk_full = bool(self.slots and j["disk"] != "none"
@@ -226,21 +283,23 @@ class Core:
                 mem_ok = self.mem_fits(j)
                 is_gate = j.get("kind") in ("gate", "build")
                 cap = ncp if is_gate else FACT_BUSY * max(0, ncp - g_resv)   # TK-220: work по факту резерв не трогает, gate/build — до всех ядер
-                over = (not shrink and room < j["cores"] and (now - self.fact_t >= FACT_SETTLE_S or self.need_cores(j) < j["cores"] or j["cores"] == 1) and mem_ok
+                over = (not shrink and not (GATE_FIT and is_gate) and room < j["cores"] and (now - self.fact_t >= FACT_SETTLE_S or self.need_cores(j) < j["cores"] or j["cores"] == 1) and mem_ok
                         and busy * ncp + self.ramp(now) + self.need_cores(j) <= cap
-                        and (not OVERBOOK_MAX or declared + j["cores"] <= OVERBOOK_MAX - (0 if is_gate else g_resv)))   # TK-283: по факту — не выше суммы заявок OVERBOOK_MAX, work без резерва гейтов (рестарт демона обнулял busy и пускал 43/16)
+                        and (not OVERBOOK_MAX or declared_j + (0 if head_pre else len(held) + held_units) + j["cores"] <= decl_cap))   # TK-283: по факту — не выше суммы заявок OVERBOOK_MAX, work без резерва гейтов (рестарт демона обнулял busy и пускал 43/16)
                 fits = (room >= ncor or over) and mem_ok and not disk_full
             else:
                 fits = room >= ncor and mem + j["mem"] <= self.mem and not disk_full
+            if fits and OVERBOOK_MAX and declared_j + held_n + ncor > decl_cap and not (declared_j + held_n == 0 and ncor <= (decl_cap if GATE_FIT else OVERBOOK_MAX)):   # заявка шире потолка при пустой машине не застревает навсегда
+                fits = False
             if fits and self.iso and capped + j["cores"] > PROD_CAP_ISO:
                 fits = False                              # окно открыто: заявленных ядер prod сверх потолка не пускаем
             if fits and reserve is not None and mrt > reserve["shadow"] and not over and not is_gate \
                     and (ncor > reserve["cores"] or j["mem"] > reserve["mem"]):   # 10.10: влезшая по ФАКТУ (over) резервом по заявкам не держится (gate10: 25 мин host 0,6 при очереди 28)
                 fits = False                              # заняла бы место первой заявки и не успела бы до её старта
             if not fits:
-                if reserve is None and head is None and not disk_full:
+                if reserve is None and head is None and not disk_full and not (GATE_FIT and is_gate):   # TK-300: ждущий гейт не держит место work и не вытесняет prod — ждёт 16-е ядро
                     head = j
-                    reserve = self.reservation(j, room, mem, now)
+                    reserve = self.reservation(j, min(room, decl_cap - declared_j - held_n) if OVERBOOK_MAX else room, mem, now)   # TK-297: место головной — не выше потолка суммы заявок (иначе «стартует сейчас» при 12+4 > 15 и шадоу=0 не пускает мелкое work)
                 continue
             if reserve is not None and mrt > reserve["shadow"] and not is_gate:    # гейт берёт резервные ядра, не место головной заявки
                 reserve["cores"] -= ncor
@@ -253,7 +312,7 @@ class Core:
             else:
                 grant = ncor
                 if j.get("elastic") and ELASTIC_MAX and not gate_active and not self.iso:   # TK-283: только счёт — добираем свободное до ELASTIC_MAX, мелким заявкам в очереди оставляем место
-                    grant = max(grant, min(ELASTIC_MAX, len(free) - legacy - hold))
+                    grant = max(grant, min(ELASTIC_MAX, len(free) - legacy - hold, (decl_cap - declared_j - held_n) if OVERBOOK_MAX else ELASTIC_MAX))   # TK-295: добор не поднимает сумму заявленных выше OVERBOOK_MAX
                 if grant != j["cores"]:
                     j["cores_req"], j["cores"] = j["cores"], grant
                     if grant < j["cores_req"]:
@@ -261,7 +320,10 @@ class Core:
                 cpus = sorted(free[-j["cores"]:]) if is_gate else free[: j["cores"]]   # гейт — с верха (резерв), work — с низа
             j.update(state="running", t_start=now, cpus=cpus)
             used |= set(j["cpus"])
-            declared += j["cores"]
+            if GATE_FIT and is_gate:
+                gdecl += j["cores"]
+            else:
+                declared += j["cores"]
             mem += j["mem"]
             capped += len(j["cpus"]) if self.iso else 0
             be.start(j)
@@ -270,6 +332,18 @@ class Core:
             if worse or now - head["t_submit"] > PREEMPT_S:    # 10.10 (Судья): prio строго лучше идущего — вытесняем в тот же цикл, без таймера
                 self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now, bare=now - head["t_submit"] > PREEMPT_S)
         return legacy
+
+    def disk_low(self, now):
+        """TK-304 (В-44): свободно на FREE_PATHS меньше MIN_FREE_GB — список (путь, ГБ), иначе []. Тревога один раз на эпизод и раз в час, снятие — строка."""
+        fn = getattr(self.be, "free_gb", None)
+        low = [(p, g) for p in FREE_PATHS for g in [fn(p) if fn and MIN_FREE_GB else None] if g is not None and g < MIN_FREE_GB]
+        if low and (self.disk_alert_t is None or now - self.disk_alert_t >= 3600):
+            self.disk_alert_t = now
+            self.be.alert("диск: " + ", ".join(f"{p} свободно {g:.0f} ГБ" for p, g in low) + f" < {MIN_FREE_GB:g} ГБ — новые prod-заявки не стартуют, идущие не тронуты")
+        elif not low and self.disk_alert_t is not None:
+            self.disk_alert_t = None
+            self.be.alert("диск: свободного места хватает — очередь prod снова пускается")
+        return low
 
     def _alerts(self, now):
         self.alert_waiting(now)
@@ -405,6 +479,23 @@ class Core:
         self.be.save_preempt(self.preempt)
         self.be.alert(f"вытеснение: {head['id']} {head['name']} ждала {int((now - head['t_submit']) / 60)} мин — заморожено "
                       + ", ".join(f"{k}:{i}({c})" for k, i, c in vs))
+
+    @staticmethod
+    def decl_live(r):
+        """TK-300 (CEO 18.10 17:30): в заявленную сумму входят идущие и замороженные потолком окна/перегревом ("cap"/"hot") — они оттают на те же ядра; вытесненные (frozen_for = id головной) считает preempt_held. Без этого окно stand морозило всех, очередь стартовала поверх, по концу окна 18/16."""
+        return not r.get("frozen_for") or r["frozen_for"] in ("cap", "hot")
+
+    def preempt_held(self):
+        """TK-292: что вытесненные заберут обратно по концу головной — ядра заданий (пины) и ядра голых юнитов. Пока головная идёт, эти ядра свободны на вид,
+        но отдать их очереди нельзя: вытесненный вернётся поверх (17.10 15:08 — build на 4 ядра заморозил 15-ядерный проход, 12 ядер ушли в g03, по концу сборки 27/16)."""
+        cpus, units = set(), 0
+        for vs in self.preempt.values():
+            for kind, ident, n in vs:
+                if kind == "job" and ident in self.jobs:
+                    cpus |= set(self.jobs[ident]["cpus"])
+                elif kind != "job":
+                    units += n
+        return cpus, units
 
     def thaw_victims(self):
         for hid, vs in list(self.preempt.items()):
@@ -704,7 +795,7 @@ class SystemdBackend:
     def start(self, j):
         os.makedirs(f"{DIR}/logs", exist_ok=True)
         os.makedirs(f"{DIR}/rc", exist_ok=True)
-        cpus = ",".join(map(str, range(NCPU) if j.get("unpinned") else j["cpus"]))
+        cpus = ",".join(map(str, range(NCPU - (RESERVE_CORES if GATE_FIT else 0)) if j.get("unpinned") else j["cpus"]))   # TK-300: сверх заявок prod не заходит на резервное (16-е) ядро гейтов
         iso = bool(j.get("iso_cpus"))
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
         fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; grep '^oom_kill ' $cg/memory.events; echo swap_peak $(cat $cg/memory.swap.peak 2>/dev/null || cat $cg/memory.swap.current 2>/dev/null); }} "
@@ -716,8 +807,9 @@ class SystemdBackend:
             print(f"{run_dir} не создан ({e}): задание идёт без каталога выхода", file=sys.stderr)
         pre = f"export ALSCHED_RUN_DIR={run_dir}\n"
         cmd = j["cmd"]
-        if j.get("elastic"):                  # TK-283: проход формы читает NX из окружения — выданные ядра, а не заявка (env NX=<заявка> в команде заменяется)
-            cmd = elastic_cmd(cmd, j["cores"])
+        if j.get("elastic") or j.get("nx_env"):   # TK-283: проход формы читает NX из окружения — выданные ядра, а не заявка; TK-311: то же каждому prod work (длинному — ещё и env NX=<число> в команде заменяется)
+            if j.get("elastic") or j["max_runtime"] > VYPISKA_MIN_S:
+                cmd = elastic_cmd(cmd, j["cores"])
             pre += elastic_env(j["cores"])
         if j["cls"] == "measure":
             pre += f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n"
@@ -751,6 +843,15 @@ class SystemdBackend:
         el = self.now() - j["t_start"]
         sh("systemctl", "set-property", "--runtime", self.unit(j), f"RuntimeMaxSec={int(el + max(remaining, 1))}")
 
+    def extend_live(self, j, remaining):
+        """TK-334: systemd 257 на calc не меняет RuntimeMaxSec идущего юнита через set-property («unknown property», проба 21.10) —
+        drop-in в /run/systemd/transient/<юнит>.service.d + daemon-reload пересчитывает срок (от старта юнита по стене, как в extend)."""
+        d = f"/run/systemd/transient/{self.unit(j)}.service.d"
+        os.makedirs(d, exist_ok=True)
+        with open(f"{d}/50-live.conf", "w") as f:
+            f.write("[Service]\nRuntimeMaxSec=%d\n" % int(self.now() - j['t_start'] + max(remaining, 1)))
+        return sh("systemctl", "daemon-reload").returncode == 0
+
     def arm_failsafe(self, secs):
         """аренда с TTL: если демон умрёт при замороженном производстве — таймер сам разморозит."""
         sh("systemctl", "stop", "alpha-sm-failsafe.timer")
@@ -775,6 +876,14 @@ class SystemdBackend:
     def cpu_host(self):
         f = open("/proc/stat").readline().split()[1:]
         return (sum(map(int, f)) - int(f[3]) - int(f[4])) / os.sysconf("SC_CLK_TCK")
+
+    def free_gb(self, path):
+        try:
+            st = os.statvfs(path)
+        except OSError as e:
+            warn_once(f"free-{path}", f"statvfs {path}: {e} — страж диска этот путь не видит")
+            return None
+        return st.f_bavail * st.f_frsize / 2**30
 
     def disk_host(self):
         tot = n = 0
@@ -823,6 +932,25 @@ class SystemdBackend:
 
     def job_cpu(self, j):
         return self.unit_cpu_io(j)[0]
+
+    def live_probe(self, j):
+        """TK-334: срез живости — ЦП-секунды и прочитанные байты юнита, самая свежая mtime логов/каталога выхода/рабочего каталога (верхний уровень, ≤ 500 записей)."""
+        c, rb, _ = self.unit_cpu_io(j)
+        mt = None
+        for d in (f"{DIR}/logs/{j['id']}.log", f"{RUNS_DIR}/{j['id']}", j.get("cwd")):
+            if not d or d == "/":
+                continue
+            try:
+                mt = max(mt or 0, os.stat(d).st_mtime)
+                if os.path.isdir(d):
+                    with os.scandir(d) as it:
+                        for k, e in enumerate(it):
+                            if k >= 500:
+                                break
+                            mt = max(mt, e.stat().st_mtime)
+            except OSError as e:
+                warn_once("live-probe-stat", f"live_probe: {d} не прочитан ({e}) — свежесть файлов по остальным путям")
+        return dict(cpu=c, io=rb, mt=mt)
 
     def waiting_tickets(self):
         """Тикеты, ждущие вычислений: строки файла DIR/waiting_tickets (пишет CEO/диспетчер); файла нет — никто."""
@@ -1121,12 +1249,21 @@ def elastic_cmd(cmd, n):
 
 
 def elastic_env(n):
-    """TK-283: окружение elastic-задания — выданные ядра; скрипты вида NX=${NX:-12} (p17a.sh) читают NX отсюда."""
+    """TK-283: окружение elastic-задания — выданные ядра; скрипты вида NX=${NX:-15} (p17a.sh) читают NX отсюда."""
     return f"export ALSCHED_CORES={n} NX={n}\n"
+
+
+def prod_cores(cls, kind, cores, max_runtime):
+    """TK-311 (В-34, Судья В-206): prod work > 15 мин на меньше чем OVERBOOK_MAX ядер — автоподъём до потолка (отказ остановил бы подачу).
+    -> (ядра, предупреждение | None). gate/build, measure, короткие, OVERBOOK_MAX=0 — без изменений."""
+    if cls != "prod" or kind != "work" or not OVERBOOK_MAX or max_runtime <= VYPISKA_MIN_S or cores >= OVERBOOK_MAX:
+        return cores, None
+    return OVERBOOK_MAX, f"ПРЕДУПРЕЖДЕНИЕ: prod work > 15 мин на {cores} ядер поднят до {OVERBOOK_MAX} (В-34: счёт на 15; было {cores} → {OVERBOOK_MAX}); NX/ALSCHED_CORES в задании = {OVERBOOK_MAX}."
 
 
 def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0, vypiska=None, kind="work", elastic=False):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
+    cores, raised = prod_cores(cls, kind, cores, max_runtime)
     jid = time.strftime("%m%d%H%M%S") + f"{os.getpid() % 1000:03d}"
     j = dict(id=jid, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
              prio=prio, io=io, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
@@ -1134,6 +1271,8 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
         j["kind"] = kind
     if elastic and cls == "prod" and kind == "work":
         j["elastic"] = True
+    if cls == "prod" and kind == "work":
+        j["nx_env"] = True                # TK-311: NX/ALSCHED_CORES в окружение задания (start)
     if iso and cls == "measure":
         j["iso"] = iso
     if vypiska is not None:
@@ -1142,24 +1281,38 @@ def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", is
     free = NCPU - sum(len(x.get("cpus", [])) for x in jobs if x["state"] == "running")
     w = warn_for(j, free, any(x["state"] == "queued" and x["cls"] == "prod" for x in jobs))
     write_job(j)
-    if kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES:
+    if kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES and GATE_FIT:
+        print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер сжата до резерва {RESERVE_CORES} (16-е ядро, TK-300): max-runtime ×{cores / RESERVE_CORES:g}; -j в команде не меняется — задавай {RESERVE_CORES}.", file=sys.stderr)
+    elif kind in ("gate", "build") and RESERVE_CORES and cores > RESERVE_CORES:
         print(f"ПРЕДУПРЕЖДЕНИЕ: заявка {kind} на {cores} ядер больше резерва {RESERVE_CORES} — вне резерва ждёт общей очереди (TK-220).", file=sys.stderr)
+    if raised:
+        print(raised, file=sys.stderr)
+        alert_line(f"{name}: {raised}")
     if w:
         print(w, file=sys.stderr)
     return j
 
 
-def ps():
+def unit_frozen(j):
+    """TK-300 (CEO 19.10): frozen_for демона живёт в памяти, в json заявки его нет — реальная заморозка читается у юнита (cgroup freezer)."""
+    try:
+        return sh("systemctl", "show", "-p", "FreezerState", "--value", SystemdBackend.unit(None, j)).stdout.strip() == "frozen"
+    except OSError:
+        return False
+
+
+def ps(frozen=unit_frozen):
     now = time.time()
     rows = load_all()
     run = [j for j in rows if j["state"] == "running"]
-    busy = sum(len(j["cpus"]) for j in run)
-    print(f"ядра: занято {busy}/{NCPU} по заявкам; в очереди {sum(j['state'] == 'queued' for j in rows)}")
+    cold = {j["id"] for j in run if j["cls"] == "prod" and frozen(j)}   # заморожённые вытеснением/потолком ядер не занимают: «занято» — только идущие
+    busy = sum(len(j["cpus"]) for j in run if j["id"] not in cold)
+    print(f"ядра: занято {busy}/{NCPU} по заявкам; заморожено {len(cold)} ({sum(len(j['cpus']) for j in run if j['id'] in cold)} ядер); в очереди {sum(j['state'] == 'queued' for j in rows)}")
     for j in rows:
         if j["state"] == "done" and now - j.get("t_end", now) > 3600:
             continue
         age = now - (j.get("t_start") if j["state"] == "running" else j["t_submit"])
-        print(f"{j['id']} {j['state']:7} {j['cls']:7} ядер={len(j['cpus']) or j['cores']:2} {j['name']:20} {age / 60:6.1f} мин "
+        print(f"{j['id']} {'frozen' if j['id'] in cold else j['state']:7} {j['cls']:7} ядер={len(j['cpus']) or j['cores']:2} {j['name']:20} {age / 60:6.1f} мин "
               f"rc={j.get('rc', '')} {j['cmd'][:60]}")
 
 
@@ -1267,7 +1420,7 @@ def main():
         p.add_argument("--name", required=True)
         p.add_argument("--max-runtime", required=True, help="срок активной работы: 90s|30m|2h (без времени под заморозкой)")
         p.add_argument("--cls", default="prod", choices=["prod", "measure"])
-        p.add_argument("--cores", type=int, default=1)
+        p.add_argument("--cores", type=int, default=1, help="ядра заявки; prod work > 15 мин с меньшим числом поднимается до SCHED_OVERBOOK_MAX (15) — TK-311, В-34")
         p.add_argument("--mem", type=int, default=8)
         p.add_argument("--disk", default="none")
         p.add_argument("--io", default="", choices=["", "seq"], help="seq: HDD-тяжёлое последовательное чтение — не больше одного такого на диск")

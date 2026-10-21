@@ -49,7 +49,7 @@ def test_submit_dry_run_prints_command_and_sets_nothing():
     calls, out = [], []
     res = launch.submit(["Г-01"], M3, cfg=CFG, p=p(), dry_run=True, run_cmd=lambda *a, **k: calls.append(a), log=out.append, doc=DOC)
     assert res["ok"] and res["dry_run"] and not calls
-    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "12" in res["cmd"]
+    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "15" in res["cmd"]
     assert "ssh" not in res["cmd"] and res["cmd"][-2].endswith("run-launch.sh")
     assert any("alsched.py submit" in s for s in out)
 
@@ -63,7 +63,7 @@ def test_submit_needs_bin_confirmation():
 def test_queue_params_only_from_config():
     src = open(os.path.join(LAUNCH, "launch.py"), encoding="utf-8").read()
     assert not re.search(r'"--(cores|mem|est|max-runtime)",\s*"?\d', src)
-    assert CFG["queue"] == {"cls": "prod", "cores": 12, "mem": 24, "max_runtime": 60000, "est": 45000}
+    assert CFG["queue"] == {"cls": "prod", "cores": 15, "mem": 24, "max_runtime": 60000, "est": 45000}
 
 
 def test_queue_cmd_max_runtime_meets_alsched_rule():
@@ -265,6 +265,14 @@ def test_coverage_masks_and_validate_groups():
         launch.validate_groups({"hyps": []}, CFG, ROWS)
 
 
+def test_coverage_shared_hash_visible_per_hyp_and_queue_minus_have():
+    """TK-278 (проверка Судьи 17.10): общий хеш (Г-27/Г-89/Г-107) виден у каждой гипотезы; очередь не включает уже посчитанное."""
+    rows = ROWS + [{"hyp": "Г-02", "hash": "aaaa", "axes": {"q": "7"}}]
+    cv = launch.coverage(CFG, rows=rows, have=HAVE, routes={}, queued={"aaaa": set(M3), "bbbb": {"2026-01", "2026-02"}})
+    assert cv["Г-02"]["cells"] == [[0, 0, 0, 0], [1, 7, 0, 0]]   # dddd не считали; aaaa (общий) посчитан полностью
+    assert [c[-2] for c in cv["Г-01"]["cells"]] == [0, 2, 0]   # aaaa посчитан полностью — не «в очереди»; bbbb: 01 есть, в очереди только 02
+
+
 def test_letopis_audit_fields():
     """Аудит Летописи 15.10: none без нулей («—»), «н/д» вместо нулевого $, не просеянное не получает вердикт, причина none — из route."""
     d = launch.letopis()
@@ -279,6 +287,20 @@ def test_letopis_audit_fields():
             assert x["verdict"] == ""
         if x["off"]:
             assert x["status"] == "none" and x["off"] in launch.OFF_LABELS.values()
+
+
+def test_sieve_note_undefined_and_reasons():
+    """TK-299: «не определена» (сделок/суток меньше порога rules), причины годна / p > порога / ΔSR ≤ 0; пороги — из rules."""
+    R = {"V@r": {"p_max": 0.2, "min_trades": 20.0, "min_days": 10.0}}
+    row = lambda **k: [{"rule_version": "V@r", "trades": 700, "days": 200, "p": 0.1, "eligible": 0, "plateau": 0, **k}]
+    assert launch.sieve_note(row(trades=6, days=6), R)[0] is True
+    assert launch.sieve_note(row(days=9), R)[0] is True
+    u, w = launch.sieve_note(row(eligible=1, plateau=1), R)
+    assert (u, w.startswith("годна"), "плато" in w) == (False, True, True)
+    assert launch.sieve_note(row(p=1.0), R) == (False, "не годна: p 1.0 > 0.2 (700 сделок, 200 суток)")
+    assert "ΔSR" in launch.sieve_note(row(p=0.1), R)[1]
+    assert launch.sieve_note(row(trades=1), {})[0] is False   # правил версии нет — «не определена» не выдумываем
+    assert launch.sieve_note(row(note="не определена: контроль"), R) == (True, "не определена: контроль")   # TK-309: причина из строки сита
 
 
 # --- TK-251 П4: маршруты r1/r1x (R1 в форме) ---
@@ -350,19 +372,41 @@ def test_routes_file_r1spec_matches_plan_and_counts():
     """Охрана TK-249: хеш в r1spec = хеш клетки плана с теми же колонкой и keep_q; r1 — все со знаком, r1x — 270 готовых клеток tk202."""
     import collections
     doc = launch.json.load(open(launch.ROUTES_FILE, encoding="utf-8"))
-    rows = {r["hash"]: r for r in launch.plan_rows()}
+    rows = {r["hash"]: r for r in launch.plan_rows_cfg(launch.load_config())}   # TK-278: доли F1+F2 (config.fraction [1, 2]) и П-17
     assert set(doc["r1spec"]) == {h for h, r in doc["routes"].items() if r == "r1"}
     for h, (hyp, col, sign, kq, ctx_axis, ctx_q) in doc["r1spec"].items():
         a = rows[h]
         assert (a["hyp"], a["axes"]["col"], str(a["axes"]["keep_q"])) == (hyp, col, kq) and sign in ("hi", "lo") and not ctx_axis and not ctx_q
-    cnt = collections.Counter(doc["routes"].values())
-    assert cnt["r1x"] == 270 and cnt["r1"] == 279 and cnt["r1comp"] == 27 and "r1col" not in cnt
+    cnt = collections.Counter(doc["routes"][r["hash"]] for r in launch.plan_rows("P-14", 1))   # счёт по доле F1: F2 добавляет свои хеши
+    assert cnt["r1x"] == 270 and cnt["r1"] == 288 and cnt["r1comp"] == 27 and "r1col" not in cnt
+
+
+def test_checked_metrics_nd_months_by_n():
+    """TK-268: канон без $ (R2A, н/д) сверяется по числу сделок — n closes == n канона точно; $-месяцы — по Σ$ ±0,02."""
+    mt = {"n": 30, "by_month": {"2026-01": {"n": 10, "pnl": 5.0}, "2026-02": {"n": 20, "pnl": -1.0}}}
+    assert launch.checked_metrics(mt, {"2026-01": (5.01, 10, None, None), "2026-02": (-1.0, 20, None, None)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (None, 10, None, 1.0), "2026-02": (None, 20, None, 2.0)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (5.0, 10, None, None), "2026-02": (None, 20, None, 2.0)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (None, 26, None, 1.0), "2026-02": (None, 52, None, 2.0)}) is None
+    assert launch.checked_metrics(mt, {"2026-01": (None, 10, None, 1.0)}) is None   # месяцы closes != месяцы канона
+    assert launch.checked_metrics(mt, {"2026-01": (5.0, 10, None, None), "2026-02": (-1.5, 20, None, None)}) is None
+    assert launch.checked_metrics(mt, {"2026-01": (None, None, None, None), "2026-02": (None, 20, None, 2.0)}) is None
+
+
+def test_metrics_why_names_the_reason():
+    mt = {"n": 30, "by_month": {"2026-01": {"n": 10, "pnl": 5.0}}}
+    assert launch.metrics_why(mt, {"2026-01": (None, 26, None, 1.0)}) == "R2A: канон без $, n канона ≠ n closes (×2,6)"
+    assert "расходятся" in launch.metrics_why(mt, {"2026-01": (9.0, 10, None, None)})
+    assert "closes нет" in launch.metrics_why(None, {"2026-01": (9.0, 10, None, None)})
+    assert launch.metrics_why(None, {}, "нет кодировки") == "нет $ в Летописи (нет кодировки)"
+
+
 
 
 def test_p17_routes_and_bin_guard():
     """TK-279: П-17 рядом с П-14 — все 292 хеша в маршрутах, форма видит клетки обоих протоколов; бинарь без P-17 в bin.protocols отказывает."""
     cfg = launch.load_config()
-    assert launch.protocols_of(cfg) == [("P-14", 1), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
+    assert launch.protocols_of(cfg) == [("P-14", [1, 2]), ("P-15", 1), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
     p17 = launch.plan_rows("P-17", 1)
     routes = launch.load_routes()
     assert len(p17) == 292 and {r["hash"] for r in p17} <= set(routes) and {r["hash"] for r in launch.plan_rows_cfg(cfg)} >= {r["hash"] for r in p17}

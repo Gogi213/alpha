@@ -14,6 +14,21 @@ class T(unittest.TestCase):
              "exec": {**cr.STD_EXEC, "place_ns": 4200000.0, "busy_skip": "off"}, "sigma": "/data/x/e-jan/study/sigma240"}
         self.assertEqual(ch.cell_hash(a), ch.cell_hash(b))
 
+    def test_retreat_forms_distinct(self):  # Г-102 (TK-274): retreat<k>t<T> разбирается как вход, не со сдвигом в стоп/тейк
+        f = lambda e: base(form=e + "-pct2-tr1x1-14400-ttl1800")
+        n = ch.normalize(f("retreat2t5"))
+        self.assertEqual((n["entry"], n["stop"]["kind"], n["take"]["kind"], n["deadline_s"]),
+                         ({"kind": "retreat", "k": 2, "t": 5}, "pct_bps", "trail", 14400))
+        hs = {ch.cell_hash(f(e)) for e in ("retreat2t5", "retreat3t5", "retreat2t15", "single@fr")}
+        self.assertEqual(len(hs), 4)
+
+    def test_level_control_key(self):  # Г-03 (TK-274): контроль — отдельный ключ; без контроля хеш прежний
+        h = lambda **k: ch.cell_hash(base(**k))
+        self.assertNotIn("level_control", ch.normalize(base()))
+        self.assertEqual(h(level_control=None), h())
+        hs = {h(), h(level_control="random:1"), h(level_control="random:2"), h(level_control="random:1:nowall"), h(level_control="paired:1")}
+        self.assertEqual(len(hs), 5)
+
     def test_half_default_is_f2(self):
         h = lambda e: ch.normalize(base(form=B1F + "-" + e))["exit"]
         self.assertEqual(h("halfstop"), ["halfstop", "f", 2])

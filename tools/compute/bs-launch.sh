@@ -32,7 +32,7 @@ pass() {
   mkdir -p "$R"; cp -r "$D/plan" "$R/plan"; cp "$D/days.txt" "$R/days.txt"; echo "$YM" > "$R/plan/months.txt"
   bin=${BIN:-/opt/alpha-compute/bin/alpha-tk231-pgo}
   case $lab in B*) [ -n "${BIN_B:-}" ] && bin=$BIN_B;; esac
-  export BIN=$bin SCRIPTS=$S NX=${NX:-12}
+  export BIN=$bin SCRIPTS=$S NX=${NX:-15}
   [ "${E2E:-0}" = 1 ] && { mkdir -p "$R/e2e"; export ALPHA_E2E=$R/e2e/all.jsonl; }  # E2E=1: учёт стадий монето-суток (TK-052), отчёт — tools/compute/archive/e2e-report.py $R/e2e
   [ "${DROP:-1}" = 1 ] && { sync; echo 3 > /proc/sys/vm/drop_caches; }
   ( while :; do echo "$(date +%s) $(pgrep -fc 'lob bounce-grid') $(head -1 /proc/stat)" >> "$R/samples.txt"; sleep 5; done ) & SP=$!
@@ -65,8 +65,8 @@ for l in open(R + "/out/units.txt") if os.path.exists(R + "/out/units.txt") else
 print(f"pass {lab} bin {binp} rc {rc}")
 print(f"wall_total_s {t1 - t0:.1f}  wall_grid_s {grid:.1f}  tail_last_alone_s {tail:.1f}  days_done {len(dones)}")
 print(f"cpu_pct user {100 * (d[0] + d[1]) / tot:.1f} sys {100 * d[2] / tot:.1f} iowait {100 * d[4] / tot:.1f} idle {100 * d[3] / tot:.1f}")
-print(f"slots_active mean {sum(act) / max(len(act), 1):.1f} max {max(act) if act else 0} (из NX={os.environ.get('NX', '12')})")
-print(f"sum_grid_s {sum(units.values())}  slot_occupancy_pct {100 * sum(units.values()) / max(grid * int(os.environ.get('NX', '12')), 1):.1f}")
+print(f"slots_active mean {sum(act) / max(len(act), 1):.1f} max {max(act) if act else 0} (из NX={os.environ.get('NX', '15')})")
+print(f"sum_grid_s {sum(units.values())}  slot_occupancy_pct {100 * sum(units.values()) / max(grid * int(os.environ.get('NX', '15')), 1):.1f}")
 for k, v in sorted(disk.items()):
     if len(v) == 2: print(f"disk_{k} read_gb {(v[1][0] - v[0][0]) * 512 / 1e9:.1f} write_gb {(v[1][1] - v[0][1]) * 512 / 1e9:.2f}")
 print(f"diff_vs_ref_lines {df}")

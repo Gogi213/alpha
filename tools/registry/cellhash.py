@@ -15,6 +15,7 @@
   universe   вселенная монет: версия пула + исключения (`v171b`, `v171c-drop:TRUMP,TRX,BCH`) — одна клетка на разных
              вселенных даёт разные результаты, поэтому в ключе; batch — партия прогона (только p12-ext: самопроверка
              cellhash_reg.check нашла расхождение результатов с p12-r1 при равном конфиге);
+  level_control  контроль Г-03 (`--level-control`): `random:<seed>` | `random:<seed>:nowall` | `paired:<seed>`; ключа нет без контроля;
   variant    спецификация R1/R2-варианта, если он не кодируется именем формы: {family, axes}.
 Нормализация: числа — один вид (200.0 == 200), `Some(2700)` -> 2700, `None` -> null, `halfstop` == `halfstopf2`.
 """
@@ -61,6 +62,9 @@ def parse_entry(s):
     if m:
         return {"kind": "ladder", "n": num(m.group(1)), "lo": num(m.group(2)), "hi": num(m.group(3)),
                 "unit": "sigma" if m.group(4) else "bps", "w": num(m.group(5))}
+    m = re.fullmatch(r"retreat(\d+)t(\d+)", s)  # Г-102: цена входа как у single@fr, k тиков, полураспад T мин
+    if m:
+        return {"kind": "retreat", "k": num(m.group(1)), "t": num(m.group(2))}
     m = re.fullmatch(r"postsweep(\d+)", s)  # Г-135 (П-17): вход по рынку после свипа, отход на R bps; без ветки ушёл бы в стоп/тейк
     if m:
         return {"kind": "postsweep", "r": num(m.group(1))}
@@ -175,6 +179,9 @@ def normalize(cfg):
     v = cfg.get("variant")
     out["universe"] = cfg.get("universe")
     out["batch"] = cfg.get("batch")
+    lc = cfg.get("level_control")  # Г-03 (TK-274): `random:<seed>|paired:<seed>`; в канон-JSON только заданный (прежние хеши целы)
+    if lc:
+        out["level_control"] = str(lc)
     out["variant"] = {"family": v["family"], "axes": {k: num(x) for k, x in sorted(v["axes"].items())}} if v else None
     return _deep(out)
 

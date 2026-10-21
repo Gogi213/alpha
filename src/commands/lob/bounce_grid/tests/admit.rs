@@ -238,6 +238,7 @@ fn p08_cols_in_signals_csv() {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     })
     .unwrap();
     let ap_path = summary.approaches_out[0].clone();
@@ -367,6 +368,7 @@ fn approach_cache(dir: &std::path::Path) -> std::path::PathBuf {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");

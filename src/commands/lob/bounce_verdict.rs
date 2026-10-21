@@ -364,16 +364,9 @@ pub fn parse_form_fields(label: &str) -> anyhow::Result<FormFields> {
                 early.is_none() && !v.is_empty(),
                 "{label}: поле выхода по прилипанию — одно (`-early<секунды | 0.5>`)"
             );
-            let x: i64 = if v == "0.5" {
-                crate::commands::lob::backtest::EARLY_EXIT_HALF_MS
-            } else {
-                v.parse::<i64>()
-                    .ok()
-                    .and_then(|s| s.checked_mul(1_000))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("{label}: -early{v}: не секунды (целые или 0.5)")
-                    })?
-            };
+            let x = crate::commands::lob::backtest::early_ms_from_label(v).ok_or_else(|| {
+                anyhow::anyhow!("{label}: -early{v}: не секунды (целые или <целые>.5)")
+            })?;
             crate::commands::lob::backtest::early_exit_ns_from_ms(Some(x))
                 .map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
             early = Some(v.to_string());
