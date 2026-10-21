@@ -3,10 +3,11 @@
 Метод — tk308-sieve (ΔSR к B1 по суткам UTC, парный циклический блочный бутстреп, B=4000, seed 14; годна p ≤ 0,20, сделок ≥ 20, суток ≥ 10).
 Плато (П-14 §4 п. 4): 1D — клетка и оба соседа годны, на краю — единственный сосед годен + edge; центр B1 — точка оси без ΔSR (не годна);
 2D (ось 6в, S × usd_min) — ≥ 5 из 8 соседей годны, на краю — большинство существующих. Клетки 6а/6б вложены — печатается доля общих сделок соседей не здесь.
-  python tk289-sieve.py <plan_cells.jsonl> <tk0289-dir> <out-prefix> [--boot 4000] [--old <tk237-sieve-f1-cell-A.csv>] [--f2]
+  python tk289-sieve.py <plan_cells.jsonl> <tk0289-dir> <out-prefix> [--boot 4000] [--old <tk237-sieve-f1-cell-A.csv>] [--f2] [--f2b] [--f3 <plan-f3.jsonl>]
 --f2 (П-14 §11.3): к F1 добавляются клетки F2 (closes f2 + f245, tk289-symclose2.sh), плато — на объединении F1 ∪ F2 (соседство по рангу значений оси);
 клетки F2 осей 6б и 8 (отдельные заказы, closes нет) пропускаются — плато этих осей остаётся по F1; в csv добавлены fraction и plateau_F1 (плато только по F1).
 Клетки оси 5 с ttl 300…1200 — это Г-129 F1 (TK-237, тот же метод и окно): в closes П-18 их нет, строка берётся из --old по хешу.
+  --f3 (П-18 §4 п. 4, шаг 4): + 82 клетки F3 (6а 8, 6в 72, стопка 2; closes f3, tk289-f3-psim.sh); плато 6а/6в — на F1 ∪ F2 ∪ F3; стопка (ось stack) — только ΔSR/p, без плато.
   -> <out>.csv (клетки), <out>-rows.json (строки для sieve.jsonl), печать: B1 А, итог по осям."""
 import collections, csv, hashlib, itertools, json, math, os, sys, datetime
 import numpy as np
@@ -16,18 +17,20 @@ B = int(sys.argv[sys.argv.index("--boot") + 1]) if "--boot" in sys.argv else 400
 OLD = {r["hash"]: r for r in csv.DictReader(open(sys.argv[sys.argv.index("--old") + 1], encoding="utf-8"))} if "--old" in sys.argv else {}
 P_MAX, MIN_TR, MIN_D, NB = 0.20, 20, 10, 5
 F2 = "--f2" in sys.argv
+F3F = sys.argv[sys.argv.index("--f3") + 1] if "--f3" in sys.argv else None
+F3 = F3F is not None
 F2B = "--f2b" in sys.argv      # + F2 осей 6б и 8 (12 кл., f2b/<b6|окно σ>, tk289-symclose3.sh)
-RULE = "P-18@F2" if F2 else "P-18@F1"
+RULE = "P-18@F3" if F3 else "P-18@F2" if F2 else "P-18@F1"
 TAIL = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"
 B1 = "t-bid-btc4h-q1@" + TAIL
 isA = lambda s: int(hashlib.sha256(s.encode()).hexdigest(), 16) % 2 == 0
 d0 = datetime.date(2026, 1, 1); ND = (datetime.date(2026, 10, 1) - d0).days
 UTC = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).date()
 MONTHS = [f"2026-{m:02d}" for m in range(1, 10)]
-RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)] + (["f2", "f245"] if F2 else []) + (["f2b/b6"] + [f"f2b/{w}" for w in (266, 294, 325, 387, 416, 447)] if F2B else [])
+RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)] + (["f2", "f245"] if F2 else []) + (["f2b/b6"] + [f"f2b/{w}" for w in (266, 294, 325, 387, 416, 447)] if F2B else []) + (["f3"] if F3 else [])
 NOF2 = set() if F2B else {"6b", "8"}      # оси, чей F2 считается отдельными заказами (без --f2b — пропускаются)
 CENTER = {"1": 0.0409, "2": 2.0, "3": 1.0, "4": 14400.0, "5": 1800.0, "6a": 0.0, "6b": 0.0, "7": -44.55, "8": 240.0}   # центр B1 на числовой оси
-KEY = {"1": "to", "2": "stop", "3": "take", "4": "deadline", "5": "ttl", "6a": "usd_min", "6b": "strength_min", "6v": "flow+usd_min", "7": "btc", "8": "sigma_min"}
+KEY = {"1": "to", "2": "stop", "3": "take", "4": "deadline", "5": "ttl", "6a": "usd_min", "6b": "strength_min", "6v": "flow+usd_min", "7": "btc", "8": "sigma_min", "stack": "stack"}
 
 
 def num(ax, v):
@@ -45,6 +48,7 @@ def vname(ax, v):    # как p18_plan.cell: имя варианта без ме
 
 plan = [json.loads(l) for l in open(plan_f, encoding="utf-8")]
 plan = [r for r in plan if r["protocol"] == "P-18" and r["fraction"] in ((1, 2) if F2 else (1,))]
+if F3: plan += [json.loads(l) for l in open(F3F, encoding="utf-8")]
 skipped = [r for r in plan if r["fraction"] == 2 and json.loads(r["axes"])["ax"] in NOF2]
 plan = [r for r in plan if r not in skipped]
 b1c = {mo: json.load(open(f"/data/p12r3a/closes-sym-b1-cap0-{mo}.json")).get(B1, {}).get(mo, {}).get("0", []) for mo in MONTHS}
@@ -107,6 +111,7 @@ def mark(cs):
   for c in cs: by[c["ax"]].append(c)
   for ax, cells in by.items():
     for c in cells: c["plateau"] = c["edge"] = 0
+    if ax == "stack": continue      # стопка — две клетки, плато не определено
     if ax == "6v":
         S = sorted({num(ax, c["val"].split("|")[0]) for c in cells}); U = sorted({0.0 if c["val"].split("|")[1] == "none" else num(ax, c["val"].split("|")[1]) for c in cells})
         pos = lambda c: (S.index(num(ax, c["val"].split("|")[0])), U.index(0.0 if c["val"].split("|")[1] == "none" else num(ax, c["val"].split("|")[1])))
@@ -126,7 +131,9 @@ def mark(cs):
         c["edge"] = int(len(nbs) == 1); c["plateau"] = int(all(x["ok"] for x in nbs) and len(nbs) >= 1)
 mark([c for c in res if c["fr"] == 1])
 for c in res: c["pl1"], c["edge1"] = c.get("plateau", 0), c.get("edge", 0)
-if F2: mark(res)
+if F2: mark([c for c in res if c["fr"] <= 2])
+for c in res: c["plateau_f2"] = c.get("plateau", 0)
+if F3: mark(res)
 res.sort(key=lambda c: (c["hyp"], c["h"]))
 with open(outp + ".csv", "w", encoding="utf-8", newline="") as f:
     w = csv.writer(f); w.writerow(["fraction", "hyp", "hash", "axes", "window", "trades_A", "days_A", "dSR_B1", "p", "eligible", "plateau", "edge", "plateau_F1", "итог"] + [f"{mo}_n" for mo in MONTHS] + [f"{mo}_usd" for mo in MONTHS])
@@ -146,3 +153,9 @@ if F2:
     for ax in sorted({c["ax"] for c in res}):
         cs = [c for c in res if c["ax"] == ax]
         print(f"ось {ax}: F1 годных {sum(c['ok'] for c in cs if c['fr'] == 1)}/{sum(c['fr'] == 1 for c in cs)}, плато F1 {sum(c['pl1'] for c in cs)}; F2 годных {sum(c['ok'] for c in cs if c['fr'] == 2)}/{sum(c['fr'] == 2 for c in cs)}, плато F1∪F2 {sum(c['plateau'] for c in cs)}")
+if F3:
+    for ax in ("6a", "6v", "stack"):
+        cs = [c for c in res if c["ax"] == ax]
+        print(f"ось {ax}: F3 клеток {sum(c['fr'] == 3 for c in cs)}, определённых {sum(c['fr'] == 3 and not c['st'].startswith('не определена') for c in cs)}, годных {sum(c['ok'] for c in cs if c['fr'] == 3)}; плато F1∪F2 {sum(c['plateau_f2'] for c in cs)} -> F1∪F2∪F3 {sum(c['plateau'] for c in cs)}")
+    for c in res:
+        if c["ax"] == "stack": print("стопка", c["val"], f"сделок {c['n']} суток {c['nd']} dSR {c['dsr']:.4f} p {c['p']:.4f}", c["st"])
