@@ -7,7 +7,7 @@
 --f2 (П-14 §11.3): к F1 добавляются клетки F2 (closes f2 + f245, tk289-symclose2.sh), плато — на объединении F1 ∪ F2 (соседство по рангу значений оси);
 клетки F2 осей 6б и 8 (отдельные заказы, closes нет) пропускаются — плато этих осей остаётся по F1; в csv добавлены fraction и plateau_F1 (плато только по F1).
 Клетки оси 5 с ttl 300…1200 — это Г-129 F1 (TK-237, тот же метод и окно): в closes П-18 их нет, строка берётся из --old по хешу.
-  --f3 (П-18 §4 п. 4, шаг 4): + 82 клетки F3 (6а 8, 6в 72, стопка 2; closes f3, tk289-f3-psim.sh); плато 6а/6в — на F1 ∪ F2 ∪ F3; стопка (ось stack) — только ΔSR/p, без плато.
+  --f3 (П-18 §4 п. 4, шаг 4): + 82 клетки F3 (6а 8, 6в 72, стопка 2; closes f3, tk289-f3-psim.sh) + 8 клеток оси 5 ttl (closes f3ttl, tk289-f3ttl-psim.sh — папка берётся, если есть; строки в plan-f3.jsonl); плато 6а/6в — на F1 ∪ F2 ∪ F3; стопка (ось stack) — только ΔSR/p, без плато.
   -> <out>.csv (клетки), <out>-rows.json (строки для sieve.jsonl), печать: B1 А, итог по осям."""
 import collections, csv, hashlib, itertools, json, math, os, sys, datetime
 import numpy as np
@@ -27,7 +27,7 @@ isA = lambda s: int(hashlib.sha256(s.encode()).hexdigest(), 16) % 2 == 0
 d0 = datetime.date(2026, 1, 1); ND = (datetime.date(2026, 10, 1) - d0).days
 UTC = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).date()
 MONTHS = [f"2026-{m:02d}" for m in range(1, 10)]
-RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)] + (["f2", "f245"] if F2 else []) + (["f2b/b6"] + [f"f2b/{w}" for w in (266, 294, 325, 387, 416, 447)] if F2B else []) + (["f3"] if F3 else [])
+RUNS = ["f1", "f6b", "f6v"] + [f"f8/{w}" for w in (60, 90, 120, 180, 360, 480, 720, 960)] + (["f2", "f245"] if F2 else []) + (["f2b/b6"] + [f"f2b/{w}" for w in (266, 294, 325, 387, 416, 447)] if F2B else []) + (["f3"] if F3 else []) + (["f3ttl"] if F3 and os.path.isdir(f"{root}/f3ttl/psim") else [])
 NOF2 = set() if F2B else {"6b", "8"}      # оси, чей F2 считается отдельными заказами (без --f2b — пропускаются)
 CENTER = {"1": 0.0409, "2": 2.0, "3": 1.0, "4": 14400.0, "5": 1800.0, "6a": 0.0, "6b": 0.0, "7": -44.55, "8": 240.0}   # центр B1 на числовой оси
 KEY = {"1": "to", "2": "stop", "3": "take", "4": "deadline", "5": "ttl", "6a": "usd_min", "6b": "strength_min", "6v": "flow+usd_min", "7": "btc", "8": "sigma_min", "stack": "stack"}

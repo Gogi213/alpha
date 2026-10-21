@@ -80,3 +80,11 @@
 {"protocol": "P-18", "fraction": 3, "hyp": "П18-6v", "cell_hash": "de7da0611ae07892", "axes": "{\"ax\": \"6v\", \"flow+usd_min\": \"9.6|26400\"}"}
 {"protocol": "P-18", "fraction": 3, "hyp": "П18-stack", "cell_hash": "1e3ffe8a33f0b304", "axes": "{\"ax\": \"stack\", \"stack\": \"2546|8.1|24500\"}"}
 {"protocol": "P-18", "fraction": 3, "hyp": "П18-stack", "cell_hash": "a32940dea0039b98", "axes": "{\"ax\": \"stack\", \"stack\": \"3926|5.7|27000\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "cbc48b15d6ed6708", "axes": "{\"ax\": \"5\", \"ttl\": \"2286\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "b780efc462bc2493", "axes": "{\"ax\": \"5\", \"ttl\": \"2388\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "660c9d6d144fad36", "axes": "{\"ax\": \"5\", \"ttl\": \"2440\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "0d7a115e17aa2f27", "axes": "{\"ax\": \"5\", \"ttl\": \"2493\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "97fe68a3cc1c62cd", "axes": "{\"ax\": \"5\", \"ttl\": \"2604\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "f8119302fe33bbf3", "axes": "{\"ax\": \"5\", \"ttl\": \"2661\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "175b47907d975207", "axes": "{\"ax\": \"5\", \"ttl\": \"2718\"}"}
+{"protocol": "P-18", "fraction": 3, "hyp": "П18-5", "cell_hash": "570b36063c54c71d", "axes": "{\"ax\": \"5\", \"ttl\": \"2839\"}"}
