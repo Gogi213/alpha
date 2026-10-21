@@ -17,7 +17,6 @@ import p17_scope as p17  # noqa: E402
 import p18_plan as pl  # noqa: E402
 
 RES = os.path.join(HERE, "..", "..", "docs", "research")
-SIGMA8 = "60 90 120 180 360 480 720 960".split()
 PAIRS = ["вход×σ", "стоп×тейк", "стоп×дедлайн", "тейк×дедлайн", "BTC×набор", "ttl×вход"]
 
 
@@ -60,7 +59,7 @@ def cells():
             row["hash"] = ch.cell_hash(cfg_of(ax, v))
             rows.append(row)
         out[ax] = rows
-    out["8"] = [{"axes": {"sigma_min": w}, "hash": ch.cell_hash(cfg_of("8", w))} for w in SIGMA8]
+    out["8"] = [{"axes": {"sigma_min": w}, "hash": ch.cell_hash(cfg_of("8", w))} for w in pl.AX["8"][1]]
     return out
 
 

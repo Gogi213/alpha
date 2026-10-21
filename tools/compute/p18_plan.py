@@ -31,6 +31,21 @@ AX = {
 }
 
 
+def load_f2(path):
+    """Сетка F2 (tk289-f2-grid.py --out) вместо F1: значения осей из CSV. Env P18_F2=<csv> применяет её при импорте — scope/routes/load/plan видят F2."""
+    import csv
+    f2 = {}
+    for r in csv.DictReader(open(path, encoding="utf-8")):
+        d = json.loads(r["axes"]); ax = d.pop("ax")
+        f2.setdefault(ax, []).extend(d.values())
+    for ax in AX:
+        AX[ax] = (AX[ax][0], f2.get(ax, []))
+
+
+if os.environ.get("P18_F2"):
+    load_f2(os.environ["P18_F2"])
+
+
 def entry(to):
     return f"ladder3x0..{to}sw2"
 
@@ -70,13 +85,7 @@ def main():
     strength = json.load(open(a.strength_json)) if a.strength_json else {}
     skip = set(filter(None, a.skip.split(",")))
     if a.f2:
-        import csv
-        f2 = {}
-        for r in csv.DictReader(open(a.f2, encoding="utf-8")):
-            d = json.loads(r["axes"]); ax = d.pop("ax")
-            f2.setdefault(ax, []).extend(d.values())
-        for ax in axes:
-            AX[ax] = (AX[ax][0], f2.get(ax, []))
+        load_f2(a.f2)
     if "6b" in axes and not strength:
         sys.exit("ось 6б: нужен --strength-json (квантили силы по сигналам B1 в месяц)")
     os.makedirs(a.out, exist_ok=True)
