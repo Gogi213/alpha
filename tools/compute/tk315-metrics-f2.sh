@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TK-315: метрики П-17 F2 (383 хеша) из closes psim; сверка verify_metrics независимым разбором. Как tk279-metrics-p17b.sh.
+# TK-315: метрики П-17 F2 (383 хеша) из closes psim; сверка verify_metrics независимым разбором. Как docs/archive/tk279-scripts/tk279-metrics-p17b.sh.
 D=/data/tk0315/metrics-f2; cd /opt/alpha-launch/tools/launch || exit 9
 S=/data/tk0315/p17f2/psim/closes-p14f1-cap0-{m}.json
 rm -f $D/done
