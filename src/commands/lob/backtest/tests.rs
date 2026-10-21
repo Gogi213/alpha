@@ -660,6 +660,10 @@ fn deadline_and_early_exit_values_outside_the_preregistered_grid_are_refused() {
         deadline_ns_from_secs(28_800).unwrap(),
         28_800 * 1_000_000_000
     );
+    // F2 П-18 оси 4 (TK-289): точки между прежними допустимы, прежние значения не тронуты.
+    for secs in [4_281, 5_091, 6_054, 8_562, 10_182, 12_109] {
+        assert_eq!(deadline_ns_from_secs(secs).unwrap(), secs * 1_000_000_000);
+    }
     let err = deadline_ns_from_secs(120).unwrap_err().to_string();
     assert!(
         err.contains("не из предрегистрированной сетки В-58") && err.contains("120"),

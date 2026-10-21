@@ -9,12 +9,16 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::book::Side;
-use crate::lob::levels::{ApproachRecord, TouchRecord};
+use crate::lob::levels::{ApproachRecord, TouchRecord, STRENGTH_WINDOWS_BPS};
 use crate::lob::r1::{ArmR1, FLOW_N, R1_UNDEF};
 
 use super::args::{BounceGridArgs, SideArg};
 use super::cache::eaten_pct;
 use super::drive::DayParams;
+
+/// Окно силы для ключа `strength_min=` — ±20 bps, окно истории силы уровня (`levels.rs`, `STRENGTH_HIST_SLOTS`).
+const STRENGTH_GATE_IX: usize = 1;
+const _: () = assert!(STRENGTH_WINDOWS_BPS[STRENGTH_GATE_IX] == 20);
 
 /// Артефакты одного набора фильтров.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -72,6 +76,10 @@ pub struct FilterSet {
     /// Г-136/Г-137 (П-17): прежних рождений на уровне в окне `repeat_window_ms` не меньше `k` (`repeat_min=<k>`, k ≥ 0;
     /// `TouchRecord::repeat_count`). `repeat_min=0` — контроль Г-136 (пропускает всё, но идентичность набора своя).
     pub repeat_min: Option<u32>,
+    /// П-18 (TK-289, ось 6б): сила стены «×соседи» (`levels.rs`, `Strength`) в окне ±20 bps (`STRENGTH_GATE_IX`) не меньше
+    /// `s` процентов (`strength_min=<%>`, ≥ 0; хранится в сотых процента, как `strength_e2`). Сила кадра касания /
+    /// взвода подхода; без соседей сила не определена (`-1`) — стена не входит, и при `strength_min=0`. Только ключ набора.
+    pub strength_min_e2: Option<i64>,
     /// Г-135 (П-17): прочтение А «закола» — снесённый до касания объём не меньше `q` бп размера стены
     /// (`swept_min=<бп>`, целое ≥ 0): `swept_lots × 10⁴ ≥ q × size_at_touch`. Только ключ набора.
     pub swept_min_bp: Option<i64>,
@@ -715,6 +723,7 @@ impl FilterSet {
             behind_min_pct: None,
             stack_min: None,
             repeat_min: None,
+            strength_min_e2: None,
             swept_min_bp: None,
             ladder_regime: None,
             stop_regime: None,
@@ -755,6 +764,7 @@ impl FilterSet {
             behind_min_pct: None,
             stack_min: None,
             repeat_min: None,
+            strength_min_e2: None,
             swept_min_bp: None,
             ladder_regime: None,
             stop_regime: None,
@@ -824,6 +834,16 @@ impl FilterSet {
                         "--set {spec:?}: stack_min={v:?} — целое число уровней ≥ 1"
                     );
                     set.stack_min = Some(n);
+                }
+                "strength_min" => {
+                    let s: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: strength_min={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        s.is_finite() && (0.0..=1.0e9).contains(&s),
+                        "--set {spec:?}: strength_min={v:?} — проценты ×соседи, число ≥ 0"
+                    );
+                    set.strength_min_e2 = Some((s * 100.0).round() as i64);
                 }
                 "repeat_min" => {
                     set.repeat_min =
@@ -951,7 +971,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|size_risk|entry_gate|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|repeat_min|swept_min|lreg_t|lreg_f|sreg_t|sreg_f|size_risk|entry_gate|lot_first|eaten|eaten_min|usd_min|behind_min|stack_min|strength_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!(
                             "--set {spec:?}: неизвестная ось {axis:?} ({})",
@@ -1078,6 +1098,7 @@ pub(crate) struct FilterSpec<'a> {
     pub(crate) behind_min_pct: Option<i64>,
     pub(crate) stack_min: Option<u32>,
     pub(crate) repeat_min: Option<u32>,
+    pub(crate) strength_min_e2: Option<i64>,
     pub(crate) swept_min_bp: Option<i64>,
     pub(crate) ladder_regime: Option<Regime>,
     pub(crate) stop_regime: Option<Regime>,
@@ -1112,6 +1133,7 @@ impl<'a> FilterSpec<'a> {
             behind_min_pct: set.behind_min_pct,
             stack_min: set.stack_min,
             repeat_min: set.repeat_min,
+            strength_min_e2: set.strength_min_e2,
             swept_min_bp: set.swept_min_bp,
             ladder_regime: set.ladder_regime,
             stop_regime: set.stop_regime,
@@ -1137,6 +1159,7 @@ pub(crate) struct AdmitRow {
     stack_levels: u32,
     repeat_count: u32,
     swept_lots: i64,
+    strength_e2: i64,
     eaten_pct: f64,
 }
 
@@ -1154,6 +1177,7 @@ impl AdmitRow {
             stack_levels: t.stack_levels,
             repeat_count: t.repeat_count,
             swept_lots: t.swept_lots,
+            strength_e2: t.strength_e2[STRENGTH_GATE_IX],
             eaten_pct: eaten_pct(t),
         }
     }
@@ -1268,6 +1292,13 @@ impl<'a> TouchFilter<'a> {
         if self.spec.repeat_min.is_some_and(|k| t.repeat_count < k) {
             return false;
         }
+        if self
+            .spec
+            .strength_min_e2
+            .is_some_and(|m| t.strength_e2[STRENGTH_GATE_IX] < m)
+        {
+            return false;
+        }
         if self.spec.swept_min_bp.is_some_and(|q| {
             i128::from(t.swept_lots) * 10_000 < i128::from(q) * i128::from(t.size_at_touch)
         }) {
@@ -1342,6 +1373,9 @@ impl<'a> TouchFilter<'a> {
             return false;
         }
         if self.spec.repeat_min.is_some_and(|k| r.repeat_count < k) {
+            return false;
+        }
+        if self.spec.strength_min_e2.is_some_and(|m| r.strength_e2 < m) {
             return false;
         }
         if self.spec.swept_min_bp.is_some_and(|q| {

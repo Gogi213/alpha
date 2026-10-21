@@ -5,6 +5,7 @@
 # Две пачки на сутки: std без --tape-log и tape с --tape-log 300 только клеткам tape*/cxl* (флаги журнала — по плану клеток $P/<PLAN>.cells).
 # Порядок суток «тяжёлые первыми» — day-order.sh <b1-symdays.csv> <мес> (по числу символов, убывание): подавать в xargs/цикл в этом порядке.
 # План: $P/$PLAN.cells + $P/$PLAN-<ГГГГ-ММ>.cells, аргументы форм — объединение $P/$PLAN.args и $P/$PLAN-<ГГГГ-ММ>.args (PLAN по умолчанию f1).
+# σ-окно (TK-289 ось 8): env SIG=sigma<мин> SIGROOT=<корень таблиц окна: <мес>/sigma-<SYM>.csv> — без них study/sigma240 эпохи.
 set -uo pipefail
 PLAN=${PLAN:-f1}
 lab=$1; MON=$2; d=$3
@@ -28,6 +29,7 @@ for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in study|b5|b5-ref|b
 for x in "$E"/study/*; do b=$(basename "$x"); case $b in root-*|approaches|regime) continue;; esac; ln -s "$(readlink -f "$x")" "$W/study/$b"; done
 RS=$(readlink -f "$E/study/root-$d"); AR=${ALT_ROOT-/srv/alpha-sda/root}/root-$d; if [ -d "$AR" ] && ! root_fresh "$RS" "$AR"; then stale "root-$d: размеры/время файлов не совпали с sdb"; AR=; fi
 ln -s "$( [ -d "$AR" ] && echo "$AR" || echo "$RS")" "$W/study/root-$d"
+[ -z "${SIGROOT:-}" ] || { rm -f "$W/study/${SIG:-sigma240}"; ln -s "$SIGROOT/$MON" "$W/study/${SIG:-sigma240}"; }   # TK-289 ось 8: окно σ; без env — study/sigma240 эпохи как прежде
 # TK-332 (П-22 B/C): SPOT_EPOCH = дерево эпохи спота (study/root-<сутки>), JRN = журнал касаний СПОТА (при нём env ALT_JRN= пустой): подходы спота
 # проецируются `lob touches-project` (как gate-b1.sh) в тик фьючерса, бэктест — на корне фьючерса. Монеты без входа проекции — в fail.txt.
 if [ -n "${SPOT_EPOCH:-}" ]; then
@@ -47,7 +49,7 @@ awk -F, -v d="$d" 'NR==FNR{s[$1]=1;next} FNR==1||($2==d&&($1 in s))' <(echo "$sy
 cat "$P/$PLAN.cells" "$P/$PLAN-$ym.cells" > "$O/cells.txt"
 grep -E 'tape|cxl' "$O/cells.txt" > "$O/cells-tape.txt"; grep -vE 'tape|cxl' "$O/cells.txt" > "$O/cells-std.txt"
 t1=$(date +%s)
-common=(--signal approach --queue-model prob:3 --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000 --regime-from study/regime --order-usd 500 --carry-root root --h3-mode notional --h3-usd 10000 --band-exit-bps 20 --busy-skip off --threads "$GT" --hold-step skip --exit-group on --events wide --sigma-from study/sigma240)
+common=(--signal approach --queue-model prob:3 --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000 --regime-from study/regime --order-usd 500 --carry-root root --h3-mode notional --h3-usd 10000 --band-exit-bps 20 --busy-skip off --threads "$GT" --hold-step skip --exit-group on --events wide --sigma-from "study/${SIG:-sigma240}")
 for pk in std tape; do
   [ -s "$O/cells-$pk.txt" ] || continue
   args=(); while read -r f v; do [ -n "$f" ] || continue; if [ "$f" = --set ]; then n=${v%%:*}; awk -v n="$n" '$2==n{f=1} END{exit !f}' "$O/cells-$pk.txt" || continue; fi; args+=("$f" "$v"); done < <(sort -u "$P/$PLAN.args" "$P/$PLAN-$ym.args")

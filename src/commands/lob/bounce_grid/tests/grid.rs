@@ -967,6 +967,7 @@ env_count="
             behind_min_pct: None,
             stack_min: None,
             repeat_min: None,
+            strength_min_e2: None,
             swept_min_bp: None,
             ladder_regime: None,
             stop_regime: None,
