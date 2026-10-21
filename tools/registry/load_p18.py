@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TK-289 / В-224: готовые closes F1 П-18 (титровка B1, оси 1–5, 6а, 6б, 6в (6v), 7; psim v171c, янв–сен) -> cells / run_cells / results по каноническому хешу.
+"""TK-289 / В-224: готовые closes F1 П-18 (титровка B1, оси 1–5, 6а, 6б, 6в (6v), 7, 8; psim v171c, янв–сен) -> cells / run_cells / results по каноническому хешу.
 Как load_p17.py (без пересчёта, В-213), но клетки не из master.build_grid, а из p18_scope (хеш + конфиг оси) и p18_plan (имя/форма строки --cells).
 Строка сводки closes — variant `<имя>-<мес>@<форма>` (имя p18a<ось>v<значение>), числа: trades = n cap 0, pnl_usd = Σ$ cap 0, ext.n_cap3 / pnl_usd_cap3 = B2.
 Ось -> hyp_id: `<префикс><ось>` (--hyp-prefix, умолч. «П18-»); оси 5 ttl 300–1200 лежат в Летописи (Г-129) и в сводке их нет — берутся только оси со строками в сводке.
@@ -21,7 +21,7 @@ cells_have = {d["id"] for d in db.jl("cells.jsonl")}
 rc_have = {(d["run_id"], d["cell_id"]) for d in db.jl("run_cells.jsonl")}
 r_have = {(d["run_id"], d["cell_id"], d["month"]) for d in db.jl("results.jsonl")}
 cells_new, rc_new, res_new, absent, nozero, seen = [], [], [], [], [], set()
-for ax in ("1", "2", "3", "4", "5", "6a", "6b", "6v", "7"):
+for ax in ("1", "2", "3", "4", "5", "6a", "6b", "6v", "7", "8"):
     key, vals = pl.AX[ax]
     for v in vals:
         cfg = ch.normalize(sc.cfg_of(ax, v)); h = ch.cell_hash(cfg); hyp = ns.hyp_prefix + ax
