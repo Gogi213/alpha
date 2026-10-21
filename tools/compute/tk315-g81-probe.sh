@@ -2,10 +2,10 @@
 # TK-315 П-17 F2 Г-81: проба меры ворот для НОВЫХ окон W (F2: 16,17,18,19,22,24,26,28,34 с), та же процедура, что tk279-g81-probe.sh
 # (8 W F1, 251 сутки, 6,7 ч на 3 ядрах): клетки cxlprobe<W> на множестве B1, entry_gate=cxl<W>qprobe (порог недостижим — ход B1 прежний),
 # gate-probe.csv на сутки; PGO r2, --tape-log 300 (пачка cxl). Дальше: p17-g81-thresholds.py (QS расширен под F2) → пороги Q_m(q,W).
-#   tk315-g81-probe.sh   env: NX (=ядра, умолч. 15), GT (1), WS (окна), R (выход, /data/tk0315/p9), DAYS (/data/tk0279/days9.txt)
-[ -f /data/tk0279/pgo.ok ] || { echo "PGO не готов (нет /data/tk0279/pgo.ok) - пропуск, подать заново"; exit 75; }
+#   tk315-g81-probe.sh   env: NX (=ядра, умолч. 15), GT (1), WS (окна), R (выход, /data/tk0315/p9), DAYS (/data/tk0341/keep/days9.txt)
+[ -f /data/tk0341/keep/pgo.ok ] || { echo "PGO не готов (нет /data/tk0341/keep/pgo.ok) - пропуск, подать заново"; exit 75; }
 export REASON="TK-315 П-17 F2 проба меры Г-81 (9 новых W), pgo" BIN=/opt/alpha-compute/bin/alpha-tk279-pgo SCRIPTS=/data/tk0231 NX=${NX:-15} GT=${GT:-1}
-R=${R:-/data/tk0315/p9}; DAYS=${DAYS:-/data/tk0279/days9.txt}; WS=${WS:-"16 17 18 19 22 24 26 28 34"}; S=$SCRIPTS; SRC=/data/tk0231/plan
+R=${R:-/data/tk0315/p9}; DAYS=${DAYS:-/data/tk0341/keep/days9.txt}; WS=${WS:-"16 17 18 19 22 24 26 28 34"}; S=$SCRIPTS; SRC=/data/tk0231/plan
 mkdir -p "$R/plan" "$R/out"; cp "$DAYS" "$R/days.txt"
 # дельта: сутки без done убиты (OOM) — claim остался бы и day-cells.sh молча пропустил (exit 0); готовые не трогаем
 for d in "$R"/out/run-*; do [ -d "$d" ] && [ ! -e "$d/done" ] && rm -rf "$d"; done
