@@ -110,6 +110,10 @@ pub(super) fn resolve(args: &TouchesArgs) -> anyhow::Result<ResolvedPlan> {
             !args.wall_log,
             "--wall-log задан без --approach-bps: критерий стены (порог и возраст) берётся из режима подхода"
         );
+        anyhow::ensure!(
+            args.twin_seeds.is_empty(),
+            "--twin-seeds задан без --approach-bps: двойник строится на взводе подхода, записей подхода нет"
+        );
     }
     // Порог в лотах — только для чисел практиков `--numbers` (оси «×H3»): у
     // режимов В-61 единого порога нет, и `--numbers` с ними — отказ.

@@ -57,4 +57,24 @@ def test_real_registry_every_hypothesis_has_status():
     assert sorted(r["id"] for r in v["rows"]) == sorted(ids)
     known = {s[0] for s in v["status"]}
     assert all(r["status"] in known and r["why"] for r in v["rows"])
-    assert {r["id"] for r in v["rows"] if r["cls"] == "Методы"} == {"Г-01", "Г-02", "Г-03", "М-04"}
+    assert {r["id"] for r in v["rows"] if r["cls"] == "Методы"} == {"Г-01", "Г-02", "Г-03", "М-04", "М-05"}
+
+
+def test_view_passes_f2_sieve_summary():
+    rows = hyps.view([h("Г-1"), h("Г-2")], {}, MON, OFF, None, None, {"Г-1": {"n": 36, "ok": 20, "plat": 18, "edge": 6}})["rows"]
+    by = {r["id"]: r for r in rows}
+    assert by["Г-1"]["f2"] == {"n": 36, "ok": 20, "plat": 18, "edge": 6}
+    assert by["Г-2"]["f2"] is None
+
+
+def test_real_registry_f2_sieve_reaches_panel():
+    rows = {r["id"]: r for r in launch.hyp_view()["rows"]}
+    f2 = rows["Г-102"]["f2"]
+    assert f2 and f2["n"] == 68 and f2["ok"] == 48 and f2["plat"] == 44   # F2 A (36) + B (32), плато на F1∪F2∪B∪R1 (TK-303)
+
+
+def test_view_counts_f2_in_registry_line_and_footer():
+    v = hyps.view([h("Г-1"), h("Г-2")], {}, MON, OFF, None, None, {"Г-1": {"n": 36, "ok": 20, "plat": 18, "edge": 6}}, 0)
+    by = {r["id"]: r for r in v["rows"]}
+    assert "в Летописи также F2: 36 хеш." in by["Г-1"]["why"] and "F2" not in by["Г-2"]["why"]
+    assert v["fr"] == {"f2_hyps": 1, "f2_n": 36, "f3_n": 0}

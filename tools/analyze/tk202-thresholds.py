@@ -9,7 +9,8 @@ ctx_q: значения осей pool1h / btc1h / btc4h (bps) на минуте 
 behind_min (Судья 04:30): behind = depth_behind_lots·100/size_at_arm (поля Rust-допуска) из уцелевших подходов D20
 <tk046>/<мес>/home/alpha/epochs/e-<мес>/study/approaches/D20/<сутки>/approaches-<SYM>.csv, ключ (side=bid, arm_ms=t0, price_tick из signals); читать только юнитом alsched.
 
-Запуск: tk202-thresholds.py <b1keys.csv> <pool /data/tk064/pool> <корень tk046 /data/tk046> <instruments.csv> <выход.json> [--sample-day <сутки>]
+Запуск: tk202-thresholds.py <b1keys.csv> <pool /data/tk064/pool> <корень tk046 /data/tk046> <instruments.csv> <выход.json> [--sample-day <сутки>] [--q 23,54,82]
+--q — доп. процентили (целые 1…99, F2 П-14 §3.3: разрешимость 1) к QS; без --q выход прежний.
 Выход: {"usd": {"ГГГГ-ММ": {"q": T, ...}}, "behind": {то же, целые %}, "ctx": {"<ось>": {"ГГГГ-ММ": {"q20": T, ...}}}, "n": {...}}"""
 import csv, json, math, sys
 from collections import defaultdict
@@ -31,7 +32,10 @@ def day_of(ms):
 
 
 def main():
+    global QS
     keys_f, pool, t46, inst_f, out_f = sys.argv[1:6]
+    if "--q" in sys.argv:
+        QS = tuple(sorted(set(QS) | {int(x) for x in sys.argv[sys.argv.index("--q") + 1].split(",") if 1 <= int(x) <= 99}))
     keys = defaultdict(set)
     for r in csv.DictReader(open(keys_f, encoding="utf-8")):
         keys[r["month"]].add((r["symbol"], int(r["t0_ms"])))

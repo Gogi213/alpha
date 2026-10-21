@@ -20,8 +20,8 @@ import os
 import re
 import sys
 
-WINDOWS_H = (1, 2, 3, 4, 6, 8, 12, 24)
-QUANTILES = (5, 10, 20, 33, 50, 67, 80, 90, 95)
+WINDOWS_H = (1, 2, 3, 4, 6, 8, 9, 12, 24)   # v2 (TK-272 F2): + 9 ч
+QUANTILES = (5, 6, 8, 9, 10, 20, 33, 50, 67, 80, 90, 95)   # v3 (TK-272 F2): + q6, q8, q9 (точки зоны F2 Г-10)
 DAY_MS = 86_400_000
 
 
@@ -49,8 +49,8 @@ def _day_ms(day):
     return int(datetime.datetime(y, m, d, tzinfo=datetime.timezone.utc).timestamp() * 1000)
 
 
-def quantile(values, q):
-    v = sorted(values)
+def quantile(values, q, presorted=False):
+    v = values if presorted else sorted(values)
     return round(v[(len(v) * q) // 100], 2)
 
 
@@ -96,7 +96,8 @@ def expanding(vals):
         for n in WINDOWS_H:
             pool = [x for s in src for x in vals[s][n]]
             if pool:
-                res[m][str(n)] = {str(q): quantile(pool, q) for q in QUANTILES}
+                pool.sort()   # одна сортировка на пул; результат тот же, что sorted() на каждый q
+                res[m][str(n)] = {str(q): quantile(pool, q, True) for q in QUANTILES}
     return res
 
 
@@ -106,7 +107,11 @@ def main():
     p.add_argument("--ref", action="append", default=[])
     p.add_argument("--from", dest="first", default="2026-01")
     p.add_argument("--out", required=True)
+    p.add_argument("--all-q", action="store_true", help="все целые q 1..99 (П-15 F2: разрешимость 1); без флага — прежние 9")
     a = p.parse_args()
+    if a.all_q:
+        global QUANTILES
+        QUANTILES = tuple(range(1, 100))
     if bool(a.regime) == bool(a.ref):
         sys.exit("нужен ровно один из --regime / --ref")
     res = expanding(ref_values(a.ref, a.first)) if a.ref else thresholds(a.regime)

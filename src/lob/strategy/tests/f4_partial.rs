@@ -524,6 +524,7 @@ pub(super) fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not
     let mut hbt = prob_backtest(&feed);
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
@@ -531,6 +532,7 @@ pub(super) fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not
         hold_skip: false,
     };
     let signal = |t0_ns: i64| BounceSignal {
+        touch_index: 0,
         t0_ns,
         sigma: SIGMA_LONG,
         plan: f4_plan(98.0, 102.0, true, 20 * S, 1.0),

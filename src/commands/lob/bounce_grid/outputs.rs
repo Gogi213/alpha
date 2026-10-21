@@ -138,6 +138,10 @@ pub(super) struct Outputs {
     with_r1: bool,
     // TK-115 Г-112: колонка `tape_press_lots` в `rounds.csv` — только с `--tape-log`.
     with_tape: bool,
+    // TK-272: колонки `tape_press_lots_w<W>` в `rounds.csv` (после колонок П-08/ленты) — только с `--tape-log-ws`.
+    tape_ws: Vec<u32>,
+    // П-19 (TK-291): столбец `touch_index` в конце `rounds.csv` — только с `--touch-col`.
+    with_touch: bool,
     // Г-102: колонка `n_retreat_window_entries` в `forms.csv` — только если в сетке есть форма `retreat<k>t<T>`.
     with_retreat: bool,
     // Г-81: колонка `n_entry_cancelled_cxl_gate` в `forms.csv` — только у набора с `entry_gate=` (после retreat).
@@ -317,6 +321,8 @@ impl Outputs {
         with_p08: bool,
         with_r1: bool,
         with_tape: bool,
+        tape_ws: &[u32],
+        with_touch: bool,
         with_retreat: bool,
         with_gate: bool,
     ) -> anyhow::Result<Self> {
@@ -328,15 +334,17 @@ impl Outputs {
         let mut ff = std::fs::File::create(&forms_path)?;
         writeln!(ff, "{header}")?;
         let mut rounds = csv::WriterBuilder::new().has_headers(false).from_writer(rf);
+        let mut names: Vec<String> = ROUNDS_HEADER.iter().map(|s| (*s).to_string()).collect();
         if with_tape {
-            let mut names: Vec<&str> = ROUNDS_HEADER.to_vec();
-            names.push("tape_press_lots");
-            names.push("cxl_lots");
-            names.push("chase_wait_ms");
-            rounds.write_record(names)?;
-        } else {
-            rounds.write_record(ROUNDS_HEADER)?;
+            names.push("tape_press_lots".to_string());
+            names.push("cxl_lots".to_string());
+            names.push("chase_wait_ms".to_string());
         }
+        names.extend(tape_ws.iter().map(|w| format!("tape_press_lots_w{w}")));
+        if with_touch {
+            names.push("touch_index".to_string());
+        }
+        rounds.write_record(names)?;
         let mut forms = csv::WriterBuilder::new().has_headers(false).from_writer(ff);
         // R6: без `--carry-root` шапка — прежние 33 колонки (гейт «те же
         // байты»); с флагом — все 35, включая `n_carried`/`carry_unverified`.
@@ -379,6 +387,8 @@ impl Outputs {
             with_p08,
             with_r1,
             with_tape,
+            tape_ws: tape_ws.to_vec(),
+            with_touch,
             with_retreat,
             with_gate,
             out_dir: out_dir.to_path_buf(),
@@ -420,6 +430,14 @@ impl Outputs {
         // больше сигналов). Сортировка устойчивая, равные t0 взаимозаменяемы.
         let mut t0s: Vec<i64> = signals.iter().map(|s| s.t0_ns).collect();
         t0s.sort_unstable();
+        // П-19 (TK-291): `touch_index` по тому же порядку (устойчивая сортировка по t0, как у драйвера).
+        let touch_by_sig: Vec<u32> = if self.with_touch {
+            let mut v: Vec<(i64, u32)> = signals.iter().map(|s| (s.t0_ns, s.touch_index)).collect();
+            v.sort_by_key(|&(t, _)| t);
+            v.into_iter().map(|(_, k)| k).collect()
+        } else {
+            Vec::new()
+        };
         for (i, fill) in run.fills.iter().enumerate() {
             let net = roundtrip_net_bps(fill);
             let sig = run.fill_signal[i];
@@ -454,6 +472,12 @@ impl Outputs {
                 } else {
                     format!("{:.3}", fill.chase_wait_ns as f64 / 1e6)
                 });
+            }
+            for i in 0..self.tape_ws.len() {
+                row.push(format!("{:.6}", fill.tape_press_ws[i]));
+            }
+            if self.with_touch {
+                row.push(touch_by_sig.get(sig).copied().unwrap_or(0).to_string());
             }
             self.rounds.write_record(row)?;
         }

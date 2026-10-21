@@ -473,6 +473,7 @@ pub(super) fn the_driver_counts_the_entry_cancel_ceiling() {
     );
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -480,6 +481,7 @@ pub(super) fn the_driver_counts_the_entry_cancel_ceiling() {
         hold_skip: false,
     };
     let signal = BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan: cancel_wait_plan(S / 10),
@@ -527,6 +529,7 @@ pub(super) fn an_orphan_survives_the_round_boundary_in_the_driver() {
     let mut hbt = build_backtest(&feed, 1.0, 1.0, lat, QueueModelKind::RiskAdverse);
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -536,6 +539,7 @@ pub(super) fn an_orphan_survives_the_round_boundary_in_the_driver() {
     // Срок жизни входа 0.1 с: снятие на 1.2 с, потолок на 2.2 с — круг закрыт.
     let signals = [
         BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan: cancel_wait_plan(S / 10),
@@ -543,6 +547,7 @@ pub(super) fn an_orphan_survives_the_round_boundary_in_the_driver() {
             qty: None,
         },
         BounceSignal {
+            touch_index: 0,
             t0_ns: 2_400_000_000,
             sigma: SIGMA_LONG,
             plan: cancel_wait_plan(30 * S),

@@ -1,0 +1,2312 @@
+{
+ "protocol": "П-15 r2",
+ "note": "Г-134 ждёт пороги конвейера R1 (pending)",
+ "base_hash": "4173fe49b15b6b5f",
+ "families": {
+  "Г-108": [
+   {
+    "axes": {
+     "gap_bps": 0,
+     "secs": 5
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w5",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w5 t-bid-btc4h-q1",
+    "hash": "29a7acfdf4a9ddfd"
+   },
+   {
+    "axes": {
+     "gap_bps": 0,
+     "secs": 15
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w15",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w15 t-bid-btc4h-q1",
+    "hash": "7f8db6185667772c"
+   },
+   {
+    "axes": {
+     "gap_bps": 0,
+     "secs": 30
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w30",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w30 t-bid-btc4h-q1",
+    "hash": "632a64dd4ac496ca"
+   },
+   {
+    "axes": {
+     "gap_bps": 0,
+     "secs": 60
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w60",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w60 t-bid-btc4h-q1",
+    "hash": "1a666796fbbc9643"
+   },
+   {
+    "axes": {
+     "gap_bps": 0,
+     "secs": 300
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w300",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w300 t-bid-btc4h-q1",
+    "hash": "c7995f8f302da748"
+   },
+   {
+    "axes": {
+     "gap_bps": 0,
+     "secs": 900
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w900",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w900 t-bid-btc4h-q1",
+    "hash": "6056c2ed14e95db8"
+   },
+   {
+    "axes": {
+     "gap_bps": 0,
+     "secs": 1800
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w1800",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback0w1800 t-bid-btc4h-q1",
+    "hash": "7072219a54864f57"
+   },
+   {
+    "axes": {
+     "gap_bps": 1,
+     "secs": 5
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w5",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w5 t-bid-btc4h-q1",
+    "hash": "a7001bd3925be4d2"
+   },
+   {
+    "axes": {
+     "gap_bps": 1,
+     "secs": 15
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w15",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w15 t-bid-btc4h-q1",
+    "hash": "d61f2fa8e72e481c"
+   },
+   {
+    "axes": {
+     "gap_bps": 1,
+     "secs": 30
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w30",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w30 t-bid-btc4h-q1",
+    "hash": "1d294da5ed86125c"
+   },
+   {
+    "axes": {
+     "gap_bps": 1,
+     "secs": 60
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w60",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w60 t-bid-btc4h-q1",
+    "hash": "fec9dcbdb887a754"
+   },
+   {
+    "axes": {
+     "gap_bps": 1,
+     "secs": 300
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w300",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w300 t-bid-btc4h-q1",
+    "hash": "8f01fe4bb62ecd49"
+   },
+   {
+    "axes": {
+     "gap_bps": 1,
+     "secs": 900
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w900",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w900 t-bid-btc4h-q1",
+    "hash": "b5bb04b256967bdc"
+   },
+   {
+    "axes": {
+     "gap_bps": 1,
+     "secs": 1800
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w1800",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback1w1800 t-bid-btc4h-q1",
+    "hash": "931fba73bf497d52"
+   },
+   {
+    "axes": {
+     "gap_bps": 2,
+     "secs": 5
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w5",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w5 t-bid-btc4h-q1",
+    "hash": "e6a1ca2595264d2e"
+   },
+   {
+    "axes": {
+     "gap_bps": 2,
+     "secs": 15
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w15",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w15 t-bid-btc4h-q1",
+    "hash": "68b21a660ed8b331"
+   },
+   {
+    "axes": {
+     "gap_bps": 2,
+     "secs": 30
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w30",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w30 t-bid-btc4h-q1",
+    "hash": "d45e62e1352aefa9"
+   },
+   {
+    "axes": {
+     "gap_bps": 2,
+     "secs": 60
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w60",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w60 t-bid-btc4h-q1",
+    "hash": "8a4d08354671cec1"
+   },
+   {
+    "axes": {
+     "gap_bps": 2,
+     "secs": 300
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w300",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w300 t-bid-btc4h-q1",
+    "hash": "43ce81b75cbb220b"
+   },
+   {
+    "axes": {
+     "gap_bps": 2,
+     "secs": 900
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w900",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w900 t-bid-btc4h-q1",
+    "hash": "ec1ae9ec3dc8668c"
+   },
+   {
+    "axes": {
+     "gap_bps": 2,
+     "secs": 1800
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w1800",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback2w1800 t-bid-btc4h-q1",
+    "hash": "3e4812ca8bae48f5"
+   },
+   {
+    "axes": {
+     "gap_bps": 4,
+     "secs": 5
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w5",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w5 t-bid-btc4h-q1",
+    "hash": "6f8a96a91c7bc91d"
+   },
+   {
+    "axes": {
+     "gap_bps": 4,
+     "secs": 15
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w15",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w15 t-bid-btc4h-q1",
+    "hash": "01772652a6ba2035"
+   },
+   {
+    "axes": {
+     "gap_bps": 4,
+     "secs": 30
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w30",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w30 t-bid-btc4h-q1",
+    "hash": "b985fe6237004cc3"
+   },
+   {
+    "axes": {
+     "gap_bps": 4,
+     "secs": 60
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w60",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w60 t-bid-btc4h-q1",
+    "hash": "e2972f3497e75037"
+   },
+   {
+    "axes": {
+     "gap_bps": 4,
+     "secs": 300
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w300",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w300 t-bid-btc4h-q1",
+    "hash": "8c9680b99dd4b4fc"
+   },
+   {
+    "axes": {
+     "gap_bps": 4,
+     "secs": 900
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w900",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w900 t-bid-btc4h-q1",
+    "hash": "12ed66b558db2dbf"
+   },
+   {
+    "axes": {
+     "gap_bps": 4,
+     "secs": 1800
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w1800",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback4w1800 t-bid-btc4h-q1",
+    "hash": "41c13d746ecda1d0"
+   },
+   {
+    "axes": {
+     "gap_bps": 8,
+     "secs": 5
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w5",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w5 t-bid-btc4h-q1",
+    "hash": "25d85028ac21366e"
+   },
+   {
+    "axes": {
+     "gap_bps": 8,
+     "secs": 15
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w15",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w15 t-bid-btc4h-q1",
+    "hash": "c750da260f293b5a"
+   },
+   {
+    "axes": {
+     "gap_bps": 8,
+     "secs": 30
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w30",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w30 t-bid-btc4h-q1",
+    "hash": "ba4835e6af7efaaf"
+   },
+   {
+    "axes": {
+     "gap_bps": 8,
+     "secs": 60
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w60",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w60 t-bid-btc4h-q1",
+    "hash": "e314086ed24f2dd7"
+   },
+   {
+    "axes": {
+     "gap_bps": 8,
+     "secs": 300
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w300",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w300 t-bid-btc4h-q1",
+    "hash": "9e0459252f23d4be"
+   },
+   {
+    "axes": {
+     "gap_bps": 8,
+     "secs": 900
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w900",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w900 t-bid-btc4h-q1",
+    "hash": "c9623c886f0150f0"
+   },
+   {
+    "axes": {
+     "gap_bps": 8,
+     "secs": 1800
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w1800",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback8w1800 t-bid-btc4h-q1",
+    "hash": "deffbb7957887be2"
+   },
+   {
+    "axes": {
+     "gap_bps": 16,
+     "secs": 5
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w5",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w5 t-bid-btc4h-q1",
+    "hash": "6c0c628f375f3853"
+   },
+   {
+    "axes": {
+     "gap_bps": 16,
+     "secs": 15
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w15",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w15 t-bid-btc4h-q1",
+    "hash": "f833d02ed595038e"
+   },
+   {
+    "axes": {
+     "gap_bps": 16,
+     "secs": 30
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w30",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w30 t-bid-btc4h-q1",
+    "hash": "c2ee545309431f8f"
+   },
+   {
+    "axes": {
+     "gap_bps": 16,
+     "secs": 60
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w60",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w60 t-bid-btc4h-q1",
+    "hash": "38f34424ffc86532"
+   },
+   {
+    "axes": {
+     "gap_bps": 16,
+     "secs": 300
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w300",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w300 t-bid-btc4h-q1",
+    "hash": "11b66073bba8c4ca"
+   },
+   {
+    "axes": {
+     "gap_bps": 16,
+     "secs": 900
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w900",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w900 t-bid-btc4h-q1",
+    "hash": "21070c74414162f6"
+   },
+   {
+    "axes": {
+     "gap_bps": 16,
+     "secs": 1800
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w1800",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback16w1800 t-bid-btc4h-q1",
+    "hash": "1751b2c5622e839f"
+   },
+   {
+    "axes": {
+     "gap_bps": 32,
+     "secs": 5
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w5",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w5 t-bid-btc4h-q1",
+    "hash": "231ed9870384b3b9"
+   },
+   {
+    "axes": {
+     "gap_bps": 32,
+     "secs": 15
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w15",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w15 t-bid-btc4h-q1",
+    "hash": "cfab33aed16e3d3a"
+   },
+   {
+    "axes": {
+     "gap_bps": 32,
+     "secs": 30
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w30",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w30 t-bid-btc4h-q1",
+    "hash": "c60a08d8b3033ba5"
+   },
+   {
+    "axes": {
+     "gap_bps": 32,
+     "secs": 60
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w60",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w60 t-bid-btc4h-q1",
+    "hash": "3b52297fc0a9cc85"
+   },
+   {
+    "axes": {
+     "gap_bps": 32,
+     "secs": 300
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w300",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w300 t-bid-btc4h-q1",
+    "hash": "1eaa41348bd849eb"
+   },
+   {
+    "axes": {
+     "gap_bps": 32,
+     "secs": 900
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w900",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w900 t-bid-btc4h-q1",
+    "hash": "47bb584c06bb0100"
+   },
+   {
+    "axes": {
+     "gap_bps": 32,
+     "secs": 1800
+    },
+    "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w1800",
+    "line": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-lvlback32w1800 t-bid-btc4h-q1",
+    "hash": "0f17c98c04c6ef0c"
+   }
+  ],
+  "Г-102": [
+   {
+    "axes": {
+     "k": 1,
+     "half_min": 5
+    },
+    "form": "retreat1t5-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat1t5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "27da70dd0c25de16"
+   },
+   {
+    "axes": {
+     "k": 1,
+     "half_min": 15
+    },
+    "form": "retreat1t15-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat1t15-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "5b779cb67edaed3d"
+   },
+   {
+    "axes": {
+     "k": 1,
+     "half_min": 30
+    },
+    "form": "retreat1t30-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat1t30-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "428c2357b84fabae"
+   },
+   {
+    "axes": {
+     "k": 1,
+     "half_min": 60
+    },
+    "form": "retreat1t60-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat1t60-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "c1a0c2df51335a57"
+   },
+   {
+    "axes": {
+     "k": 1,
+     "half_min": 120
+    },
+    "form": "retreat1t120-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat1t120-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "aa203b7f3cdc71e6"
+   },
+   {
+    "axes": {
+     "k": 1,
+     "half_min": 240
+    },
+    "form": "retreat1t240-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat1t240-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "f4f8275f31a41dea"
+   },
+   {
+    "axes": {
+     "k": 1,
+     "half_min": 480
+    },
+    "form": "retreat1t480-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat1t480-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "0c0f22b4677c8e9b"
+   },
+   {
+    "axes": {
+     "k": 2,
+     "half_min": 5
+    },
+    "form": "retreat2t5-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat2t5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "cc03bdfac316b198"
+   },
+   {
+    "axes": {
+     "k": 2,
+     "half_min": 15
+    },
+    "form": "retreat2t15-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat2t15-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "97e1c5e677d23a9b"
+   },
+   {
+    "axes": {
+     "k": 2,
+     "half_min": 30
+    },
+    "form": "retreat2t30-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat2t30-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "28ee55fd60b700d8"
+   },
+   {
+    "axes": {
+     "k": 2,
+     "half_min": 60
+    },
+    "form": "retreat2t60-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat2t60-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "d39e8e768daabbd8"
+   },
+   {
+    "axes": {
+     "k": 2,
+     "half_min": 120
+    },
+    "form": "retreat2t120-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat2t120-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "d4956654b7f33026"
+   },
+   {
+    "axes": {
+     "k": 2,
+     "half_min": 240
+    },
+    "form": "retreat2t240-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat2t240-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "5c3609aabe476b6d"
+   },
+   {
+    "axes": {
+     "k": 2,
+     "half_min": 480
+    },
+    "form": "retreat2t480-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat2t480-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "cb558763519b995c"
+   },
+   {
+    "axes": {
+     "k": 3,
+     "half_min": 5
+    },
+    "form": "retreat3t5-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat3t5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "e1f9ddd0f5a89280"
+   },
+   {
+    "axes": {
+     "k": 3,
+     "half_min": 15
+    },
+    "form": "retreat3t15-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat3t15-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "9a97fcbedfabcb7b"
+   },
+   {
+    "axes": {
+     "k": 3,
+     "half_min": 30
+    },
+    "form": "retreat3t30-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat3t30-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "bf31851a35066d2c"
+   },
+   {
+    "axes": {
+     "k": 3,
+     "half_min": 60
+    },
+    "form": "retreat3t60-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat3t60-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "715df22dff9f787e"
+   },
+   {
+    "axes": {
+     "k": 3,
+     "half_min": 120
+    },
+    "form": "retreat3t120-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat3t120-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "35dd2584ef0b9142"
+   },
+   {
+    "axes": {
+     "k": 3,
+     "half_min": 240
+    },
+    "form": "retreat3t240-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat3t240-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "40a9d1650509d5c6"
+   },
+   {
+    "axes": {
+     "k": 3,
+     "half_min": 480
+    },
+    "form": "retreat3t480-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat3t480-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "e5db3945eff97730"
+   },
+   {
+    "axes": {
+     "k": 4,
+     "half_min": 5
+    },
+    "form": "retreat4t5-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat4t5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "c803d9eb352b995b"
+   },
+   {
+    "axes": {
+     "k": 4,
+     "half_min": 15
+    },
+    "form": "retreat4t15-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat4t15-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "2d02c61e0dd69b63"
+   },
+   {
+    "axes": {
+     "k": 4,
+     "half_min": 30
+    },
+    "form": "retreat4t30-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat4t30-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "fb8322166b394804"
+   },
+   {
+    "axes": {
+     "k": 4,
+     "half_min": 60
+    },
+    "form": "retreat4t60-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat4t60-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "5374d4e5b26b82de"
+   },
+   {
+    "axes": {
+     "k": 4,
+     "half_min": 120
+    },
+    "form": "retreat4t120-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat4t120-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "3b841ff4dbbd6556"
+   },
+   {
+    "axes": {
+     "k": 4,
+     "half_min": 240
+    },
+    "form": "retreat4t240-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat4t240-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "3db571f25cd02358"
+   },
+   {
+    "axes": {
+     "k": 4,
+     "half_min": 480
+    },
+    "form": "retreat4t480-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat4t480-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "004e26aeaf3e6dc8"
+   },
+   {
+    "axes": {
+     "k": 6,
+     "half_min": 5
+    },
+    "form": "retreat6t5-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat6t5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "cfc93ae72b6b41e8"
+   },
+   {
+    "axes": {
+     "k": 6,
+     "half_min": 15
+    },
+    "form": "retreat6t15-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat6t15-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "bfafd5dde39b72ff"
+   },
+   {
+    "axes": {
+     "k": 6,
+     "half_min": 30
+    },
+    "form": "retreat6t30-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat6t30-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "647a7cd624a1f3df"
+   },
+   {
+    "axes": {
+     "k": 6,
+     "half_min": 60
+    },
+    "form": "retreat6t60-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat6t60-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "e620d226db631da7"
+   },
+   {
+    "axes": {
+     "k": 6,
+     "half_min": 120
+    },
+    "form": "retreat6t120-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat6t120-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "2a7b907b3a94dc24"
+   },
+   {
+    "axes": {
+     "k": 6,
+     "half_min": 240
+    },
+    "form": "retreat6t240-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat6t240-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "d651dc8ee0d8661a"
+   },
+   {
+    "axes": {
+     "k": 6,
+     "half_min": 480
+    },
+    "form": "retreat6t480-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat6t480-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "6c8c8b3258ed76af"
+   },
+   {
+    "axes": {
+     "k": 8,
+     "half_min": 5
+    },
+    "form": "retreat8t5-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat8t5-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "14ae3523568b3214"
+   },
+   {
+    "axes": {
+     "k": 8,
+     "half_min": 15
+    },
+    "form": "retreat8t15-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat8t15-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "48cafca75930d95a"
+   },
+   {
+    "axes": {
+     "k": 8,
+     "half_min": 30
+    },
+    "form": "retreat8t30-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat8t30-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "c2e5ed77faf2da8c"
+   },
+   {
+    "axes": {
+     "k": 8,
+     "half_min": 60
+    },
+    "form": "retreat8t60-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat8t60-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "955c9a2429d50ac4"
+   },
+   {
+    "axes": {
+     "k": 8,
+     "half_min": 120
+    },
+    "form": "retreat8t120-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat8t120-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "8a43f9f82ed6b307"
+   },
+   {
+    "axes": {
+     "k": 8,
+     "half_min": 240
+    },
+    "form": "retreat8t240-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat8t240-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "ca0a5d9a244deed0"
+   },
+   {
+    "axes": {
+     "k": 8,
+     "half_min": 480
+    },
+    "form": "retreat8t480-pct2-tr1x1-14400-ttl1800",
+    "line": "retreat8t480-pct2-tr1x1-14400-ttl1800 t-bid-btc4h-q1",
+    "hash": "dcfa0bfa022e57ea"
+   }
+  ],
+  "Г-72": [
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 5
+    },
+    "hash": "e949dbacf7382471",
+    "thr": [
+     -0.87,
+     -0.87,
+     -1.3,
+     -1.3,
+     -1.2,
+     -1.1,
+     -1.13,
+     -1.08,
+     -1.04
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 10
+    },
+    "hash": "c9d07cc0d227c59a",
+    "thr": [
+     -0.3,
+     -0.3,
+     -0.69,
+     -0.71,
+     -0.63,
+     -0.54,
+     -0.57,
+     -0.53,
+     -0.49
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 20
+    },
+    "hash": "31a78fb12efc3345",
+    "thr": [
+     -0.01,
+     -0.01,
+     -0.02,
+     -0.03,
+     -0.01,
+     -0.01,
+     -0.01,
+     -0.02,
+     -0.02
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 33
+    },
+    "hash": "55b6bbee7fae711a",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 50
+    },
+    "hash": "8d2fe3d3a889bd4d",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "dup_of": 33
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 67
+    },
+    "hash": "a879484ec4dede69",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "dup_of": 33
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 80
+    },
+    "hash": "d4fb6f5ebc1f9ad8",
+    "thr": [
+     0.01,
+     0.01,
+     0.02,
+     0.03,
+     0.01,
+     0.01,
+     0.01,
+     0.02,
+     0.01
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 90
+    },
+    "hash": "87141034f78d2312",
+    "thr": [
+     0.29,
+     0.29,
+     0.69,
+     0.7,
+     0.63,
+     0.54,
+     0.57,
+     0.52,
+     0.49
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 1,
+     "btc_thr_q": 95
+    },
+    "hash": "ee7744a39cd73a2b",
+    "thr": [
+     0.86,
+     0.86,
+     1.29,
+     1.29,
+     1.2,
+     1.1,
+     1.12,
+     1.07,
+     1.03
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 5
+    },
+    "hash": "3a7e70e4ea1c4318",
+    "thr": [
+     -1.34,
+     -1.34,
+     -1.93,
+     -1.93,
+     -1.79,
+     -1.65,
+     -1.69,
+     -1.62,
+     -1.57
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 10
+    },
+    "hash": "4cbc834de8dc53f0",
+    "thr": [
+     -0.72,
+     -0.72,
+     -1.14,
+     -1.16,
+     -1.06,
+     -0.97,
+     -1.0,
+     -0.96,
+     -0.91
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 20
+    },
+    "hash": "e1db1d38bf08db80",
+    "thr": [
+     -0.01,
+     -0.01,
+     -0.36,
+     -0.41,
+     -0.34,
+     -0.24,
+     -0.28,
+     -0.23,
+     -0.19
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 33
+    },
+    "hash": "41945cf972d4cdd4",
+    "thr": [
+     0.0,
+     0.0,
+     -0.01,
+     -0.01,
+     -0.01,
+     -0.01,
+     -0.01,
+     -0.01,
+     -0.01
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 50
+    },
+    "hash": "9589317eeaf1775f",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 67
+    },
+    "hash": "da2b18a33ea07bbd",
+    "thr": [
+     0.0,
+     0.0,
+     0.01,
+     0.01,
+     0.01,
+     0.01,
+     0.01,
+     0.01,
+     0.01
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 80
+    },
+    "hash": "909a2f20e716b84b",
+    "thr": [
+     0.01,
+     0.01,
+     0.36,
+     0.41,
+     0.34,
+     0.24,
+     0.28,
+     0.23,
+     0.19
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 90
+    },
+    "hash": "ee1f1c40036089d4",
+    "thr": [
+     0.71,
+     0.71,
+     1.13,
+     1.15,
+     1.06,
+     0.97,
+     1.0,
+     0.95,
+     0.91
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 2,
+     "btc_thr_q": 95
+    },
+    "hash": "610d71c378328f45",
+    "thr": [
+     1.34,
+     1.34,
+     1.91,
+     1.9,
+     1.78,
+     1.64,
+     1.67,
+     1.6,
+     1.55
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 5
+    },
+    "hash": "7d6368baa41c4ce3",
+    "thr": [
+     -1.99,
+     -1.99,
+     -2.81,
+     -2.81,
+     -2.61,
+     -2.41,
+     -2.45,
+     -2.35,
+     -2.29
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 10
+    },
+    "hash": "9ef2d9146a2c2239",
+    "thr": [
+     -1.19,
+     -1.19,
+     -1.74,
+     -1.77,
+     -1.64,
+     -1.5,
+     -1.55,
+     -1.48,
+     -1.43
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 20
+    },
+    "hash": "005ab7b3d40a1776",
+    "thr": [
+     -0.41,
+     -0.41,
+     -0.77,
+     -0.82,
+     -0.75,
+     -0.66,
+     -0.69,
+     -0.65,
+     -0.6
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 33
+    },
+    "hash": "9db9c6c8493bc992",
+    "thr": [
+     -0.01,
+     -0.01,
+     -0.02,
+     -0.06,
+     -0.03,
+     -0.01,
+     -0.02,
+     -0.02,
+     -0.02
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 50
+    },
+    "hash": "b3ceaf3471ff060e",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 67
+    },
+    "hash": "9b9a3e5338a7ddc6",
+    "thr": [
+     0.01,
+     0.01,
+     0.02,
+     0.07,
+     0.03,
+     0.01,
+     0.02,
+     0.02,
+     0.02
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 80
+    },
+    "hash": "bb15980273dbc18f",
+    "thr": [
+     0.4,
+     0.4,
+     0.77,
+     0.82,
+     0.75,
+     0.66,
+     0.69,
+     0.65,
+     0.6
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 90
+    },
+    "hash": "4d286aeba411d9d3",
+    "thr": [
+     1.18,
+     1.18,
+     1.72,
+     1.75,
+     1.63,
+     1.49,
+     1.53,
+     1.47,
+     1.41
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 4,
+     "btc_thr_q": 95
+    },
+    "hash": "8a0f896781d2af98",
+    "thr": [
+     1.98,
+     1.98,
+     2.77,
+     2.77,
+     2.59,
+     2.39,
+     2.43,
+     2.33,
+     2.26
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 5
+    },
+    "hash": "748777c0ee7ddfca",
+    "thr": [
+     -2.89,
+     -2.89,
+     -4.05,
+     -4.03,
+     -3.74,
+     -3.46,
+     -3.53,
+     -3.39,
+     -3.29
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 10
+    },
+    "hash": "b839082746b8609b",
+    "thr": [
+     -1.82,
+     -1.82,
+     -2.56,
+     -2.61,
+     -2.42,
+     -2.23,
+     -2.29,
+     -2.2,
+     -2.12
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 20
+    },
+    "hash": "0bb5ea7f949de34f",
+    "thr": [
+     -0.84,
+     -0.84,
+     -1.26,
+     -1.33,
+     -1.23,
+     -1.12,
+     -1.16,
+     -1.11,
+     -1.05
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 33
+    },
+    "hash": "d3d386ee4ef79946",
+    "thr": [
+     -0.02,
+     -0.02,
+     -0.36,
+     -0.43,
+     -0.39,
+     -0.31,
+     -0.34,
+     -0.3,
+     -0.25
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 50
+    },
+    "hash": "ce3e20e8ca7a524f",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 67
+    },
+    "hash": "d19ddbb45ff369a4",
+    "thr": [
+     0.02,
+     0.02,
+     0.36,
+     0.43,
+     0.39,
+     0.31,
+     0.34,
+     0.31,
+     0.26
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 80
+    },
+    "hash": "86c352a54834893c",
+    "thr": [
+     0.84,
+     0.84,
+     1.25,
+     1.32,
+     1.22,
+     1.11,
+     1.15,
+     1.1,
+     1.05
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 90
+    },
+    "hash": "7fbf5ea680bdaf40",
+    "thr": [
+     1.8,
+     1.8,
+     2.52,
+     2.57,
+     2.4,
+     2.2,
+     2.26,
+     2.17,
+     2.1
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 8,
+     "btc_thr_q": 95
+    },
+    "hash": "cea20ae6e09325dd",
+    "thr": [
+     2.86,
+     2.86,
+     3.99,
+     3.98,
+     3.71,
+     3.42,
+     3.49,
+     3.35,
+     3.25
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 5
+    },
+    "hash": "80627d5dbb5b1522",
+    "thr": [
+     -4.13,
+     -4.13,
+     -5.78,
+     -5.72,
+     -5.31,
+     -4.92,
+     -5.03,
+     -4.83,
+     -4.69
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 10
+    },
+    "hash": "0bc8327052d85794",
+    "thr": [
+     -2.66,
+     -2.66,
+     -3.69,
+     -3.75,
+     -3.49,
+     -3.22,
+     -3.31,
+     -3.18,
+     -3.07
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 20
+    },
+    "hash": "40ec3125ba53dc4f",
+    "thr": [
+     -1.35,
+     -1.35,
+     -1.9,
+     -2.0,
+     -1.87,
+     -1.72,
+     -1.78,
+     -1.7,
+     -1.63
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 33
+    },
+    "hash": "cac37d792263af02",
+    "thr": [
+     -0.43,
+     -0.43,
+     -0.72,
+     -0.81,
+     -0.75,
+     -0.68,
+     -0.71,
+     -0.67,
+     -0.61
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 50
+    },
+    "hash": "2f9efdd697ae9560",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 67
+    },
+    "hash": "b7259b794c8b088b",
+    "thr": [
+     0.44,
+     0.44,
+     0.72,
+     0.8,
+     0.75,
+     0.68,
+     0.71,
+     0.68,
+     0.62
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 80
+    },
+    "hash": "15e8d8f1dac59a2d",
+    "thr": [
+     1.34,
+     1.34,
+     1.87,
+     1.97,
+     1.85,
+     1.7,
+     1.75,
+     1.68,
+     1.61
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 90
+    },
+    "hash": "6c6f0a30208ec4a7",
+    "thr": [
+     2.62,
+     2.62,
+     3.62,
+     3.69,
+     3.45,
+     3.18,
+     3.26,
+     3.13,
+     3.03
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 16,
+     "btc_thr_q": 95
+    },
+    "hash": "fd4b9bbc394751da",
+    "thr": [
+     4.07,
+     4.07,
+     5.68,
+     5.65,
+     5.27,
+     4.86,
+     4.97,
+     4.77,
+     4.64
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 5
+    },
+    "hash": "bc743518adb04d71",
+    "thr": [
+     -5.85,
+     -5.85,
+     -8.16,
+     -8.08,
+     -7.51,
+     -6.96,
+     -7.13,
+     -6.85,
+     -6.64
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 10
+    },
+    "hash": "c0ae4a91b10da7f4",
+    "thr": [
+     -3.8,
+     -3.8,
+     -5.26,
+     -5.34,
+     -4.99,
+     -4.59,
+     -4.74,
+     -4.55,
+     -4.4
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 20
+    },
+    "hash": "4e6023222367f779",
+    "thr": [
+     -2.03,
+     -2.03,
+     -2.77,
+     -2.91,
+     -2.74,
+     -2.52,
+     -2.61,
+     -2.5,
+     -2.4
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 33
+    },
+    "hash": "ffd69642077e9ce5",
+    "thr": [
+     -0.82,
+     -0.82,
+     -1.16,
+     -1.27,
+     -1.2,
+     -1.1,
+     -1.14,
+     -1.09,
+     -1.02
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 50
+    },
+    "hash": "1a9cde2447c48a2e",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 67
+    },
+    "hash": "93119dfc9b42fb6b",
+    "thr": [
+     0.82,
+     0.82,
+     1.14,
+     1.25,
+     1.19,
+     1.1,
+     1.14,
+     1.09,
+     1.03
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 80
+    },
+    "hash": "5a1ec46e14ab3f53",
+    "thr": [
+     1.99,
+     1.99,
+     2.7,
+     2.85,
+     2.71,
+     2.49,
+     2.56,
+     2.47,
+     2.37
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 90
+    },
+    "hash": "b74ff813b1f6e1e3",
+    "thr": [
+     3.74,
+     3.74,
+     5.14,
+     5.24,
+     4.91,
+     4.53,
+     4.64,
+     4.46,
+     4.33
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 32,
+     "btc_thr_q": 95
+    },
+    "hash": "363d1a92d1467109",
+    "thr": [
+     5.75,
+     5.75,
+     8.0,
+     7.97,
+     7.43,
+     6.86,
+     7.01,
+     6.74,
+     6.57
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 5
+    },
+    "hash": "99aacfc71cd7aa86",
+    "thr": [
+     -8.25,
+     -8.25,
+     -11.59,
+     -11.5,
+     -10.68,
+     -9.87,
+     -10.14,
+     -9.7,
+     -9.4
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 10
+    },
+    "hash": "745e8f7da4554cbe",
+    "thr": [
+     -5.37,
+     -5.37,
+     -7.45,
+     -7.59,
+     -7.07,
+     -6.51,
+     -6.72,
+     -6.45,
+     -6.23
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 20
+    },
+    "hash": "1e0b197b83fe034d",
+    "thr": [
+     -2.91,
+     -2.91,
+     -3.95,
+     -4.15,
+     -3.9,
+     -3.59,
+     -3.72,
+     -3.57,
+     -3.43
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 33
+    },
+    "hash": "12e3baa1cdda98a9",
+    "thr": [
+     -1.27,
+     -1.27,
+     -1.73,
+     -1.86,
+     -1.77,
+     -1.63,
+     -1.69,
+     -1.63,
+     -1.54
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 50
+    },
+    "hash": "329540159f223861",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 67
+    },
+    "hash": "d66847c2a9adfc5f",
+    "thr": [
+     1.26,
+     1.26,
+     1.69,
+     1.84,
+     1.77,
+     1.63,
+     1.68,
+     1.61,
+     1.53
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 80
+    },
+    "hash": "88e972d1a95405fa",
+    "thr": [
+     2.85,
+     2.85,
+     3.84,
+     4.06,
+     3.85,
+     3.55,
+     3.65,
+     3.51,
+     3.39
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 90
+    },
+    "hash": "fdfed9c27219bfbd",
+    "thr": [
+     5.27,
+     5.27,
+     7.26,
+     7.42,
+     6.97,
+     6.41,
+     6.57,
+     6.33,
+     6.15
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 64,
+     "btc_thr_q": 95
+    },
+    "hash": "28f10dce505e9bac",
+    "thr": [
+     8.09,
+     8.09,
+     11.29,
+     11.27,
+     10.5,
+     9.71,
+     9.93,
+     9.55,
+     9.31
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 5
+    },
+    "hash": "ed8ec1ea99f797b0",
+    "thr": [
+     -11.15,
+     -11.15,
+     -15.88,
+     -15.73,
+     -14.6,
+     -13.48,
+     -13.84,
+     -13.24,
+     -12.8
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 10
+    },
+    "hash": "1592aabf0c2f8eae",
+    "thr": [
+     -7.27,
+     -7.27,
+     -10.23,
+     -10.39,
+     -9.65,
+     -8.87,
+     -9.15,
+     -8.77,
+     -8.46
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 20
+    },
+    "hash": "a2226316434e9d95",
+    "thr": [
+     -3.98,
+     -3.98,
+     -5.42,
+     -5.68,
+     -5.32,
+     -4.89,
+     -5.07,
+     -4.88,
+     -4.68
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 33
+    },
+    "hash": "626078cbad0fa682",
+    "thr": [
+     -1.79,
+     -1.79,
+     -2.39,
+     -2.57,
+     -2.43,
+     -2.24,
+     -2.33,
+     -2.25,
+     -2.14
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 50
+    },
+    "hash": "545fce617d517bc5",
+    "thr": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 67
+    },
+    "hash": "a732a1e41aa47939",
+    "thr": [
+     1.76,
+     1.76,
+     2.35,
+     2.54,
+     2.43,
+     2.25,
+     2.31,
+     2.22,
+     2.12
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 80
+    },
+    "hash": "4f669bfe907eea37",
+    "thr": [
+     3.91,
+     3.91,
+     5.31,
+     5.58,
+     5.28,
+     4.85,
+     4.97,
+     4.8,
+     4.63
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 90
+    },
+    "hash": "a33c19e42afc8a8f",
+    "thr": [
+     7.13,
+     7.13,
+     9.91,
+     10.15,
+     9.5,
+     8.74,
+     8.95,
+     8.62,
+     8.38
+    ]
+   },
+   {
+    "axes": {
+     "btc_lag_s": 118,
+     "btc_thr_q": 95
+    },
+    "hash": "3da012f7c7f1001a",
+    "thr": [
+     10.86,
+     10.86,
+     15.33,
+     15.31,
+     14.27,
+     13.2,
+     13.49,
+     12.98,
+     12.67
+    ]
+   }
+  ],
+  "Г-146": [
+   {
+    "axes": {
+     "btc_thr_q": 5
+    },
+    "hash": "1e4fbda80b141901",
+    "thr": [
+     -372.85,
+     -372.85,
+     -546.48,
+     -461.86,
+     -413.54,
+     -377.58,
+     -397.47,
+     -373.04,
+     -352.47
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 10
+    },
+    "hash": "4d126b38023b061e",
+    "thr": [
+     -240.86,
+     -240.86,
+     -349.68,
+     -343.33,
+     -296.9,
+     -275.68,
+     -294.35,
+     -280.83,
+     -268.45
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 20
+    },
+    "hash": "c66f5db08a168f5e",
+    "thr": [
+     -150.8,
+     -150.8,
+     -224.28,
+     -222.48,
+     -192.96,
+     -178.15,
+     -195.84,
+     -182.28,
+     -167.86
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 33
+    },
+    "hash": "e14fd1303c8e3ceb",
+    "thr": [
+     -70.26,
+     -70.26,
+     -124.86,
+     -116.98,
+     -97.03,
+     -90.6,
+     -101.1,
+     -91.53,
+     -77.82
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 50
+    },
+    "hash": "3521bc482a4912c1",
+    "thr": [
+     -5.78,
+     -5.78,
+     -31.2,
+     -20.1,
+     -9.54,
+     -4.36,
+     -8.69,
+     -2.92,
+     3.36
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 67
+    },
+    "hash": "0e71c8dd2317dfb2",
+    "thr": [
+     58.16,
+     58.16,
+     52.41,
+     73.49,
+     76.87,
+     69.06,
+     66.98,
+     71.97,
+     72.16
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 80
+    },
+    "hash": "5f9a8fba20bf4917",
+    "thr": [
+     125.85,
+     125.85,
+     138.31,
+     160.18,
+     164.07,
+     148.89,
+     143.23,
+     145.09,
+     142.52
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 90
+    },
+    "hash": "38bf2aadf1720809",
+    "thr": [
+     180.61,
+     180.61,
+     239.72,
+     301.19,
+     310.98,
+     272.94,
+     255.53,
+     250.32,
+     252.13
+    ]
+   },
+   {
+    "axes": {
+     "btc_thr_q": 95
+    },
+    "hash": "e76a8b131821254c",
+    "thr": [
+     253.47,
+     253.47,
+     374.68,
+     412.36,
+     421.19,
+     384.79,
+     364.4,
+     351.87,
+     369.42
+    ]
+   }
+  ]
+ },
+ "pending": [
+  "Г-134"
+ ],
+ "check_Г-108": {
+  "cells": 49,
+  "unique_hashes": 49,
+  "unique_cells": 49,
+  "already_in_routes": 0
+ },
+ "check_Г-102": {
+  "cells": 42,
+  "unique_hashes": 42,
+  "unique_cells": 42,
+  "already_in_routes": 0
+ },
+ "check_Г-72": {
+  "cells": 72,
+  "unique_hashes": 72,
+  "unique_cells": 70,
+  "already_in_routes": 0
+ },
+ "check_Г-146": {
+  "cells": 9,
+  "unique_hashes": 9,
+  "unique_cells": 9,
+  "already_in_routes": 0
+ }
+}
