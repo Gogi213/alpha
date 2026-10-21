@@ -13,7 +13,7 @@ for w in $WS; do
   : > "$P/L.cells"; : > "$P/L.args"; echo 2026-01 > "$P/months.txt"
   for d in "$R/$w"/out/run-*; do [ -d "$d" ] && [ ! -e "$d/done" ] && rm -rf "$d"; done
 done
-while read -r m d; do for w in $WS; do echo "$w $m $d"; done; done < /data/tk0279/days9.txt > "$R/units.txt"
+while read -r m d; do for w in $WS; do echo "$w $m $d"; done; done < /data/tk0341/keep/days9.txt > "$R/units.txt"
 export BIN SCRIPTS GT REASON PLAN TP
 xargs -P "$NX" -L1 bash -c 'w=$1; SIG=sigma$w SIGROOT=/data/tk0289/sig2/sigma$w P=$R/$w/plan O=$R/$w/out bash "$SCRIPTS/day-cells.sh" "run-$2-$3" "$2" "$3"' _ < "$R/units.txt"
 rc=$?

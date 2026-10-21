@@ -4,7 +4,7 @@
 set -uo pipefail
 export REASON="TK-289 П-18 F1 ось 6в S×usd_min, 90 клеток, pgo" BIN=/opt/alpha-compute/bin/alpha-tk289-pgo SCRIPTS=/data/tk0231 NX=${NX:-15} GT=${GT:-1} PLAN=L TP=1
 R=/data/tk0289/f6v; mkdir -p "$R/out"; rm -rf "$R/plan"; cp -r /data/tk0289/f6vplan "$R/plan"; : > "$R/plan/L.cells"; : > "$R/plan/L.args"; echo 2026-01 > "$R/plan/months.txt"
-cp /data/tk0279/days9.txt "$R/days.txt"
+cp /data/tk0341/keep/days9.txt "$R/days.txt"
 export P=$R/plan O=$R/out
 for d in "$R"/out/run-*; do [ -d "$d" ] && [ ! -e "$d/done" ] && rm -rf "$d"; done
 xargs -P "$NX" -L1 bash -c 'bash "$0/day-cells.sh" "run-$1-$2" "$1" "$2"' "$SCRIPTS" < "$R/days.txt"

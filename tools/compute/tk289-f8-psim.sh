@@ -5,7 +5,7 @@ set -u
 export PM=1
 R=/data/tk0289/f8; WS="60 90 120 180 360 480 720 960"
 for w in $WS; do
-  cp /data/tk0279/days9.txt "$R/$w/days.txt"
+  cp /data/tk0341/keep/days9.txt "$R/$w/days.txt"
   bash /opt/alpha-launch/tools/launch/psim-launch.sh "$R/$w" || exit $?
 done
 mkdir -p "$R/psim"
