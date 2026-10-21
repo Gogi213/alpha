@@ -378,8 +378,9 @@ class MasterTest(unittest.TestCase):
         sc = json.load(open(os.path.join(p17_scope.RES, "P-17-scope.json"), encoding="utf-8"))["families"]
         thr = os.path.join(self.t, "thr.csv")
         open(thr, "w", encoding="utf-8").write("hyp,month,axis,q,threshold,n\nГ-101,2026-01,btc4h,20,-96.52,281\nГ-135,2026-01,swept_pct_of_size_bp,95,94574,261\n")
-        keep = master._P17_THR, dict(master.LINES), dict(master.MONTHLY), dict(master.MSETS)
+        keep = master._P17_THR, dict(master.LINES), dict(master.MONTHLY), dict(master.MSETS), master._P17_THR_F2
         master._P17_THR = thr
+        master._P17_THR_F2 = os.path.join(self.t, "no-f2.csv")   # TK-340: пороги F2 из репозитория в тест не подмешивать
         try:
             def cell(hyp, av):
                 cfg = p17_scope.cfg_of()
@@ -409,6 +410,7 @@ class MasterTest(unittest.TestCase):
             self.assertIn("нет порогов", master.LINES[h][1])
         finally:
             master._P17_THR = keep[0]
+            master._P17_THR_F2 = keep[4]
             for d, k in ((master.LINES, keep[1]), (master.MONTHLY, keep[2]), (master.MSETS, keep[3])):
                 d.clear(); d.update(k)
 
