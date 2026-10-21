@@ -40,6 +40,10 @@ def cfg_of(ax, v):
     if key == "flow+usd_min":
         sv, uv = v.split("|")
         spec += f",flow={sv}" + ("" if uv == "none" else f",usd_min={uv}")
+    if key == "stack":   # стопка (F3): ttl|flow|usd_min — как p18_plan.cell
+        tv, sv, uv = v.split("|")
+        p["ttl"] = tv
+        spec += f",flow={sv},usd_min={uv}"
     form = f"{pl.entry(p['to'])}-{p['stop']}-{p['take']}-{p['deadline']}-ttl{p['ttl']}"
     c = cfg(form, spec)
     if key == "strength_min":

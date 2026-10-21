@@ -21,7 +21,7 @@ cells_have = {d["id"] for d in db.jl("cells.jsonl")}
 rc_have = {(d["run_id"], d["cell_id"]) for d in db.jl("run_cells.jsonl")}
 r_have = {(d["run_id"], d["cell_id"], d["month"]) for d in db.jl("results.jsonl")}
 cells_new, rc_new, res_new, absent, nozero, seen = [], [], [], [], [], set()
-for ax in ("1", "2", "3", "4", "5", "6a", "6b", "6v", "7", "8"):
+for ax in ("1", "2", "3", "4", "5", "6a", "6b", "6v", "7", "8", "stack"):
     key, vals = pl.AX[ax]
     for v in vals:
         cfg = ch.normalize(sc.cfg_of(ax, v)); h = ch.cell_hash(cfg); hyp = ns.hyp_prefix + ax
