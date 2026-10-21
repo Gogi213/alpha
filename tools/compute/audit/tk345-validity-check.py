@@ -7,6 +7,7 @@
 import csv, glob, hashlib, os, statistics, sys, collections
 
 O = sys.argv[1]
+NOB = "--no-b" in sys.argv   # повтор B не подавался: детерминизм проверяется отдельной пробой
 PARENT = {"age1800": "base", "age7200": "age1800", "usd30k": "base", "flow100": "base", "fr": "base", "btcup": "base", "btcdn": "base",
           "ret1hup": "base", "ret1hdn": "base", "age1800usd30k": "age1800"}
 EXTRA_PARENT = {"age1800usd30k": "usd30k"}
@@ -26,8 +27,8 @@ sets = sorted(os.path.basename(p) for p in glob.glob(f"{O}/A/out/*") if os.path.
 print(f"наборы: {len(sets)}: {' '.join(sets)}")
 bad = 0
 
-print("\n== (1) детерминизм A=B")
-for s in sets:
+print("\n== (1) детерминизм A=B" + (" — пропущено (--no-b)" if NOB else ""))
+for s in ([] if NOB else sets):
     for f in ("rounds.csv", "forms.csv"):
         a, b = f"{O}/A/out/{s}/{f}", f"{O}/B/out/{s}/{f}"
         ok = os.path.exists(a) and os.path.exists(b) and md5(a) == md5(b)
