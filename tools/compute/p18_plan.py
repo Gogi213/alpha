@@ -27,6 +27,7 @@ AX = {
     "6b": ("strength_min", "10 20 33 50 67 80 90 95".split()),
     "6v": ("flow+usd_min", [f"{s}|{u}" for s in S67 for u in ["none"] + USD6]),   # 6в (Судья 19.10): сила В-67 (flow=, % часового оборота) × пол номинала usd_min, оба «И»; «S = нет» — это 6а
     "8": ("sigma", "60 90 120 180 360 480 720 960".split()),   # ось 8: окно σ-таблицы, мин; клетка = B1, окно задаёт --sigma-from прохода (day-cells.sh SIG/SIGROOT) — в плане по одному окну (--only)
+    "stack": ("stack", []),   # стопка (шаг 4, F3): ttl|flow|usd_min — центры плато осей 5 и 6в вместе; значения только из --f2 (tk289-stack-f3.py)
     "7": ("btc", ["none", "-11.1", "-15.7", "-22.3", "-31.5", "-63", "-89", "-126"]),
 }
 
@@ -37,7 +38,7 @@ def load_f2(path):
     f2 = {}
     for r in csv.DictReader(open(path, encoding="utf-8")):
         d = json.loads(r["axes"]); ax = d.pop("ax")
-        f2.setdefault(ax, []).extend(d.values())
+        f2.setdefault(ax, []).extend(["|".join(str(v) for v in d.values())] if ax == "stack" else d.values())
     for ax in AX:
         AX[ax] = (AX[ax][0], f2.get(ax, []))
 
@@ -61,6 +62,10 @@ def cell(ax, val, ym, strength):
         extra = f",usd_min={val}"
     elif key == "strength_min":
         extra = f",strength_min={strength[ym][val]}"
+    elif key == "stack":
+        tv, sv, uv = val.split("|")
+        p["ttl"] = tv
+        extra = f",flow={sv},usd_min={uv}"
     elif key == "flow+usd_min":
         sv, uv = val.split("|")
         extra = f",flow={sv}" + ("" if uv == "none" else f",usd_min={uv}")
