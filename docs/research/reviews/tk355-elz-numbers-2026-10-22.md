@@ -2,8 +2,8 @@
 
 | число | файл:строка |
 |---|---|
-| 1.080 | docs/findings/g015-elz-2026-10-22.csv:11 |
-| 0.911 | docs/findings/g015-elz-2026-10-22.csv:21 |
-| 0.455 | docs/findings/g015-elz-2026-10-22.csv:71 |
-| -3.821 | docs/findings/g015-elz-2026-10-22.csv:101 |
+| +1.08 | docs/findings/g015-elz-2026-10-22.md:28 |
+| +0.91 | docs/findings/g015-elz-2026-10-22.md:29 |
+| +0.46 | docs/findings/g015-elz-2026-10-22.md:34 |
+| -3.82 | docs/findings/g015-elz-2026-10-22.md:37 |
 | +9.06 | docs/findings/g015-elz-2026-10-22.md:68 |
