@@ -4,16 +4,19 @@
 # (2) bounce-grid --emit-events по суткам (набор B1 дословно = tk332-s0-plan.sh; --touches-from $W/cache) → events-SYM.csv;
 # (3) c3-controls по монетам (--events = --wall-events = A_B). Назначаемое — G013-scope/Судья: edges -44.55, max-wait 3600, stride 60,
 # caliper 0.1, k 1, seed 20261022, H 1800, окно часа 3600. Тик > 1 бп — монета «не определена» (перечисляется в c3-summary).
-#   BIN=/data/tk0353/head/alpha-new bash tk353-probe10.sh      env: W=/data/tk0353/probe10 NX=15   Итог: $W/summary.txt, $W/c3out/<SYM>/
+#   BIN=/data/tk0353/head/alpha-new bash tk353-probe10.sh      env: W=/data/tk0353/probe10 NX=15 SYMS=… DAYS=… REUSE=…   Итог: $W/summary.txt, $W/c3out/<SYM>/
 set -uo pipefail
 BIN=${BIN:?BIN}; W=${W:-/data/tk0353/probe10}; NX=${NX:-15}; HERE=$(cd "$(dirname "$0")" && pwd)
 E=/data/tk046/feb/home/alpha/epochs/e-feb; V=${V:-/data/tk044/final3/verdict.csv}
-SYMS="XRPUSDT SOLUSDT DOGEUSDT ADAUSDT LINKUSDT LTCUSDT AVAXUSDT SUIUSDT NEARUSDT BNBUSDT"
-DAYS="2026-02-04 2026-02-05 2026-02-06 2026-02-07 2026-02-08 2026-02-09 2026-02-10"
+SYMS=${SYMS:-"XRPUSDT SOLUSDT DOGEUSDT ADAUSDT LINKUSDT LTCUSDT AVAXUSDT SUIUSDT NEARUSDT BNBUSDT"}
+DAYS=${DAYS:-"2026-02-04 2026-02-05 2026-02-06 2026-02-07 2026-02-08 2026-02-09 2026-02-10"}
+REUSE=${REUSE:-}   # каталог кэша прежней пробы ($W/cache): готовые walls/approaches/touches жёсткими ссылками, не пересчитывать
 S=$W/summary.txt; mkdir -p "$W/plan" "$W/log" "$W/cache" "$W/grid" "$W/ev" "$W/c3out"; : > "$S"
 echo "бинарь: $("$BIN" --version 2>&1 | head -1)  NX=$NX  $(date +%FT%T)" >> "$S"
 # (1) журнал стен и подходов
 for d in $DAYS; do mkdir -p "$W/cache/$d"; done
+if [ -n "$REUSE" ]; then for d in $DAYS; do for s in $SYMS; do for k in walls approaches touches; do
+  [ -s "$REUSE/$d/$k-$s.csv" ] && [ ! -e "$W/cache/$d/$k-$s.csv" ] && ln "$REUSE/$d/$k-$s.csv" "$W/cache/$d/$k-$s.csv"; done; done; done; fi
 for d in $DAYS; do for s in $SYMS; do echo "$d $s"; done; done | xargs -P "$NX" -L1 bash -c '
   d=$0; s=$1; [ -s "'"$W"'/cache/$d/walls-$s.csv" ] && [ -s "'"$W"'/cache/$d/approaches-$s.csv" ] && exit 0
   nice -n 5 "'"$BIN"'" lob touches --root "'"$E"'/study/root-$d" --symbol "$s" --h3-mode notional --h3-usd 10000 --approach-bps 20 \
