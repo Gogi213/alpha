@@ -1322,66 +1322,77 @@ impl<'a> TouchFilter<'a> {
     }
 
     /// То же, что `admits` при `holds`, по строке `AdmitRow` (порядок и арифметика те же, результат тот же).
-    #[allow(clippy::cast_precision_loss)]
     fn admits_row(&self, ti: usize, r: &AdmitRow) -> bool {
+        self.reject_row(ti, r).is_none()
+    }
+
+    /// Первая причина отказа касания `ti` (порядок проверок = порядок `admits`); `None` — проходит.
+    /// Нужны `holds` и `rows` суток (TK-346, `ALPHA_REJECT_REASONS`).
+    pub(crate) fn reject(&self, ti: usize) -> Option<Reject> {
+        let rows = self.rows.expect("reject: rows суток не заданы");
+        self.reject_row(ti, &rows[ti])
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn reject_row(&self, ti: usize, r: &AdmitRow) -> Option<Reject> {
         if self.spec.frontrun_only && !r.frontrun_some {
-            return false;
+            return Some(Reject::FrontrunOnly);
         }
         if self
             .spec
             .frontrun_min_lots
             .is_some_and(|n| r.frontrun_lots < n)
         {
-            return false;
+            return Some(Reject::FrontrunMin);
         }
         if !self.holds.is_some_and(|h| h[ti]) {
-            return false;
+            return Some(Reject::Holds);
         }
         if self.spec.min_age_ms.is_some_and(|n| r.age_ms < n) {
-            return false;
+            return Some(Reject::MinAge);
         }
         if self.spec.max_age_ms.is_some_and(|n| r.age_ms >= n) {
-            return false;
+            return Some(Reject::MaxAge);
         }
         if let Some(s_min) = self.spec.min_flow_pct {
             let flow_ok = r.flow_1h_lots > 0
                 && r.size_at_touch as f64 / r.flow_1h_lots as f64 * 100.0 >= s_min;
             if !flow_ok {
-                return false;
+                return Some(Reject::MinFlow);
             }
         }
         if self.spec.side.is_some_and(|s| r.side != s) {
-            return false;
+            return Some(Reject::Side);
         }
         if self.spec.eaten_max_pct.is_some_and(|m| r.eaten_pct > m) {
-            return false;
+            return Some(Reject::EatenMax);
         }
         if self.spec.eaten_min_pct.is_some_and(|m| r.eaten_pct < m) {
-            return false;
+            return Some(Reject::EatenMin);
         }
         if self.spec.usd_min.is_some_and(|m| {
             r.price_tick as f64 * self.tick * r.size_at_touch as f64 * self.lot < m
         }) {
-            return false;
+            return Some(Reject::UsdMin);
         }
         if self.spec.behind_min_pct.is_some_and(|pct| {
             i128::from(r.depth_behind_lots) * 100 < i128::from(pct) * i128::from(r.size_at_touch)
         }) {
-            return false;
+            return Some(Reject::BehindMin);
         }
         if self.spec.stack_min.is_some_and(|n| r.stack_levels < n) {
-            return false;
+            return Some(Reject::StackMin);
         }
         if self.spec.repeat_min.is_some_and(|k| r.repeat_count < k) {
-            return false;
+            return Some(Reject::RepeatMin);
         }
         if self.spec.strength_min_e2.is_some_and(|m| r.strength_e2 < m) {
-            return false;
+            return Some(Reject::StrengthMin);
         }
         if self.spec.swept_min_bp.is_some_and(|q| {
             i128::from(r.swept_lots) * 10_000 < i128::from(q) * i128::from(r.size_at_touch)
         }) {
-            return false;
+            return Some(Reject::SweptMin);
         }
         if let Some(ctx) = self.spec.ctx {
             let c = &ctx[ti];
@@ -1392,9 +1403,72 @@ impl<'a> TouchFilter<'a> {
                 .zip(&c.axes)
                 .all(|(rg, v)| rg.holds(*v))
             {
-                return false;
+                return Some(Reject::Ctx);
             }
         }
-        true
+        None
+    }
+}
+
+/// Причина отказа касания фильтром набора (TK-346): диагностика `ALPHA_REJECT_REASONS`, на счёт не влияет.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reject {
+    FrontrunOnly,
+    FrontrunMin,
+    Holds,
+    MinAge,
+    MaxAge,
+    MinFlow,
+    Side,
+    EatenMax,
+    EatenMin,
+    UsdMin,
+    BehindMin,
+    StackMin,
+    RepeatMin,
+    StrengthMin,
+    SweptMin,
+    Ctx,
+}
+
+impl Reject {
+    pub(crate) const ALL: [Reject; 16] = [
+        Reject::FrontrunOnly,
+        Reject::FrontrunMin,
+        Reject::Holds,
+        Reject::MinAge,
+        Reject::MaxAge,
+        Reject::MinFlow,
+        Reject::Side,
+        Reject::EatenMax,
+        Reject::EatenMin,
+        Reject::UsdMin,
+        Reject::BehindMin,
+        Reject::StackMin,
+        Reject::RepeatMin,
+        Reject::StrengthMin,
+        Reject::SweptMin,
+        Reject::Ctx,
+    ];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Reject::FrontrunOnly => "frontrun_only",
+            Reject::FrontrunMin => "frontrun_min",
+            Reject::Holds => "holds_at_touch",
+            Reject::MinAge => "min_age",
+            Reject::MaxAge => "max_age",
+            Reject::MinFlow => "min_flow",
+            Reject::Side => "side",
+            Reject::EatenMax => "eaten_max",
+            Reject::EatenMin => "eaten_min",
+            Reject::UsdMin => "usd_min",
+            Reject::BehindMin => "behind_min",
+            Reject::StackMin => "stack_min",
+            Reject::RepeatMin => "repeat_min",
+            Reject::StrengthMin => "strength_min",
+            Reject::SweptMin => "swept_min",
+            Reject::Ctx => "ctx",
+        }
     }
 }

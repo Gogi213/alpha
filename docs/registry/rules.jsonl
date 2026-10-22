@@ -23,3 +23,6 @@
 {"protocol": "P-15", "version": "P-15@r2", "key": "cap_f2", "value": "12"}
 {"protocol": "P-15", "version": "P-15@r2", "key": "cap_f3", "value": "8"}
 {"protocol": "P-15", "version": "P-15@r2", "key": "cap_cells", "value": "100"}
+{"protocol": "TK-330", "version": "LF-1@proposal", "key": "lift_min", "value": "1.5"}
+{"protocol": "TK-330", "version": "LF-1@proposal", "key": "months_neg_min", "value": "6"}
+{"protocol": "TK-330", "version": "LF-1@proposal", "key": "markets_min", "value": "2"}

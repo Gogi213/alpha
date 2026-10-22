@@ -2,7 +2,7 @@
 
 Бинарник F1 `/data/tk0190/alpha-tk190b-r2`, флаги common из `tk196-f1-day.sh`, calc, alsched. Формы B1: `ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800` и `…-pyfresh10`.
 A — один набор `pool:age=2700,side=bid` (`/data/tk214/outA`); B — отдельный процесс, `--round-memo off`, 5 наборов × 2 формы = 10 клеток (`/data/tk214/outB`).
-Скрипт сверки `tools/compute/tk215-cmp.py`, отчёт `/data/tk214/cmp/report.txt`.
+Скрипт сверки `tools/compute/archive/tk215-cmp.py`, отчёт `/data/tk214/cmp/report.txt`.
 
 ## (1) Строки B против A по (symbol, form, t0_ns), без signal_index
 | набор B | rounds равных / неравных / нет в A | signals равных / неравных / нет в A |

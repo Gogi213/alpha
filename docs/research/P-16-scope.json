@@ -1,0 +1,814 @@
+{
+ "protocol": "П-16 r2",
+ "m": 9,
+ "seed": 16,
+ "test_months": [
+  4,
+  5,
+  6,
+  7,
+  8,
+  9
+ ],
+ "boot": 20000,
+ "families": {
+  "Г-10": [
+   {
+    "hash": "f34dfca025d36702",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"5\"}"
+   },
+   {
+    "hash": "8276901af6ce6858",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "9847fbfcfe14cd03",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "9debf8da2cdf2b78",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "128eb43323afcfbb",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "f2cf8464067f9dbc",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "131d6d93981d6de5",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "37931b9e909158ac",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "056440453d379820",
+    "axes": "{\"btc_window_h\": \"1\", \"btc_thr_q\": \"95\"}"
+   },
+   {
+    "hash": "c84121279a93c332",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"5\"}"
+   },
+   {
+    "hash": "27d3dfa694f65b51",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "64b02eb20382b17f",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "9f46a8dd140bcdb7",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "fc4b982e66ba95ee",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "ac596aa8828623db",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "5138f166adc70003",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "8e290d7dbe39b42a",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "0a6d5a49fdeb75b4",
+    "axes": "{\"btc_window_h\": \"2\", \"btc_thr_q\": \"95\"}"
+   },
+   {
+    "hash": "e59f3bc8259c5421",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"5\"}"
+   },
+   {
+    "hash": "c4cc7f9077ca8217",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "5c59f25e221e4bb6",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "582d5b813c9daf67",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "e083c1b4284d9ab7",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "d19f7110c1f986a2",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "f93c1eb8594b1a29",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "37a722be840ced93",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "247f5b30956cbb5a",
+    "axes": "{\"btc_window_h\": \"3\", \"btc_thr_q\": \"95\"}"
+   },
+   {
+    "hash": "234aa888a233f7ce",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"5\"}"
+   },
+   {
+    "hash": "20910caa3d186c52",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "60148f6b43347872",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "92634cd5ef5db026",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "2f2f140bcd76341a",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "44d158dbdb37c6f3",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "c2c1f0f5ec413ac3",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "5070ce8d5fa0087c",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "2d608fdf5ff80040",
+    "axes": "{\"btc_window_h\": \"4\", \"btc_thr_q\": \"95\"}"
+   },
+   {
+    "hash": "ee39e26ad2be5475",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"5\"}"
+   },
+   {
+    "hash": "f0003be54b92f689",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "5a361e4b330a7180",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "e034020bad2b0eac",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "041b8b2e7426296e",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "540299cd3cc229ef",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "5f2827dadd98c250",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "58fe29ff2a7cb7d8",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "2e938dcd1dc4699b",
+    "axes": "{\"btc_window_h\": \"6\", \"btc_thr_q\": \"95\"}"
+   },
+   {
+    "hash": "787a5b5778646d3d",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"5\"}"
+   },
+   {
+    "hash": "446c79a6ccc4fa20",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "aa68aef3022e64f6",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "92d934649623f144",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "7ed13880240ca39b",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "6493ec7273b1dcd3",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "9dba91a92ceb4aed",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "16c7bd96483b148f",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "1dbfa03a557ae751",
+    "axes": "{\"btc_window_h\": \"8\", \"btc_thr_q\": \"95\"}"
+   },
+   {
+    "hash": "6c033259b9adca98",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "267c4dbf30cd1d04",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "c8a30facf87d9a71",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "cca2228e6f73a0c1",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "c28fdddd76940783",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "99a934c031db2579",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "737a39d96306d95a",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "a3a3ecbf3fc31d69",
+    "axes": "{\"btc_window_h\": \"12\", \"btc_thr_q\": \"95\"}"
+   },
+   {
+    "hash": "0523f817b4c1c819",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"10\"}"
+   },
+   {
+    "hash": "9f66f6904d73abda",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"20\"}"
+   },
+   {
+    "hash": "25c9f93b7bf5698f",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"33\"}"
+   },
+   {
+    "hash": "cbe3d8dd8ec89f74",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"50\"}"
+   },
+   {
+    "hash": "dd4aa85f5ffb75e6",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"67\"}"
+   },
+   {
+    "hash": "d9c99a45decbb038",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"80\"}"
+   },
+   {
+    "hash": "7f05b7c4f1b1e062",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"90\"}"
+   },
+   {
+    "hash": "0f7505b6075f3f4b",
+    "axes": "{\"btc_window_h\": \"24\", \"btc_thr_q\": \"95\"}"
+   }
+  ],
+  "Г-65": [
+   {
+    "hash": "6811c7ac5dad95b9",
+    "axes": "{\"offset\": \"-3\"}"
+   },
+   {
+    "hash": "869048b812d96880",
+    "axes": "{\"offset\": \"-2\"}"
+   },
+   {
+    "hash": "f5e1dc8db2fa6699",
+    "axes": "{\"offset\": \"-1\"}"
+   },
+   {
+    "hash": "c62d4060089f009d",
+    "axes": "{\"offset\": \"0\"}"
+   },
+   {
+    "hash": "fbc561c8e2d2b32c",
+    "axes": "{\"offset\": \"1\"}"
+   },
+   {
+    "hash": "3007fad9fc5652d2",
+    "axes": "{\"offset\": \"2\"}"
+   },
+   {
+    "hash": "055b0d5635dad1c2",
+    "axes": "{\"offset\": \"3\"}"
+   }
+  ],
+  "Г-104": [
+   {
+    "hash": "9903dc300cef6f0c",
+    "axes": "{\"exit_share\": \"10\", \"be\": \"да\"}"
+   },
+   {
+    "hash": "80ee4bccceb5519a",
+    "axes": "{\"exit_share\": \"10\", \"be\": \"нет\"}"
+   },
+   {
+    "hash": "623948cab9629f81",
+    "axes": "{\"exit_share\": \"25\", \"be\": \"да\"}"
+   },
+   {
+    "hash": "599a15cfff52897e",
+    "axes": "{\"exit_share\": \"25\", \"be\": \"нет\"}"
+   },
+   {
+    "hash": "3c0135cec3d4d96a",
+    "axes": "{\"exit_share\": \"50\", \"be\": \"да\"}"
+   },
+   {
+    "hash": "8047429e7db49638",
+    "axes": "{\"exit_share\": \"50\", \"be\": \"нет\"}"
+   },
+   {
+    "hash": "4a44cf44d97081b2",
+    "axes": "{\"exit_share\": \"75\", \"be\": \"да\"}"
+   },
+   {
+    "hash": "ed94e54b5b8a1a75",
+    "axes": "{\"exit_share\": \"75\", \"be\": \"нет\"}"
+   },
+   {
+    "hash": "bf04d20352d33bcf",
+    "axes": "{\"exit_share\": \"90\", \"be\": \"да\"}"
+   },
+   {
+    "hash": "513d7cc3f47984be",
+    "axes": "{\"exit_share\": \"90\", \"be\": \"нет\"}"
+   }
+  ],
+  "Г-110": [
+   {
+    "hash": "d37e5e89c93e46d2",
+    "axes": "{\"early_exit_s\": \"0.5\"}"
+   },
+   {
+    "hash": "df34b102d163fa4b",
+    "axes": "{\"early_exit_s\": \"1\"}"
+   },
+   {
+    "hash": "be48b3700203d874",
+    "axes": "{\"early_exit_s\": \"2\"}"
+   },
+   {
+    "hash": "172f67407001b1aa",
+    "axes": "{\"early_exit_s\": \"3\"}"
+   },
+   {
+    "hash": "08e549f07ea8028c",
+    "axes": "{\"early_exit_s\": \"5\"}"
+   },
+   {
+    "hash": "1a4bb222f53386fd",
+    "axes": "{\"early_exit_s\": \"8\"}"
+   },
+   {
+    "hash": "698ca85c594d374f",
+    "axes": "{\"early_exit_s\": \"13\"}"
+   },
+   {
+    "hash": "bff1229b33237038",
+    "axes": "{\"early_exit_s\": \"20\"}"
+   },
+   {
+    "hash": "cc0960b0d88c0476",
+    "axes": "{\"early_exit_s\": \"30\"}"
+   },
+   {
+    "hash": "0f2dde8b883a05cc",
+    "axes": "{\"early_exit_s\": \"60\"}"
+   }
+  ],
+  "Г-112": [
+   {
+    "hash": "2ecd291ffd25da7a",
+    "axes": "{\"W\": \"5\", \"q\": \"5\"}"
+   },
+   {
+    "hash": "993630f9f491ccd9",
+    "axes": "{\"W\": \"5\", \"q\": \"10\"}"
+   },
+   {
+    "hash": "cd4c207564f20ce2",
+    "axes": "{\"W\": \"5\", \"q\": \"20\"}"
+   },
+   {
+    "hash": "15f104717ebb3ce6",
+    "axes": "{\"W\": \"5\", \"q\": \"33\"}"
+   },
+   {
+    "hash": "b35f8075a8bc0fa1",
+    "axes": "{\"W\": \"5\", \"q\": \"50\"}"
+   },
+   {
+    "hash": "01fb725f569d2fd3",
+    "axes": "{\"W\": \"5\", \"q\": \"67\"}"
+   },
+   {
+    "hash": "bb90740f24c60046",
+    "axes": "{\"W\": \"5\", \"q\": \"80\"}"
+   },
+   {
+    "hash": "dcc2d9662857ef21",
+    "axes": "{\"W\": \"5\", \"q\": \"90\"}"
+   },
+   {
+    "hash": "9ec805999e82d7be",
+    "axes": "{\"W\": \"5\", \"q\": \"95\"}"
+   },
+   {
+    "hash": "7ac1249af1211e19",
+    "axes": "{\"W\": \"10\", \"q\": \"5\"}"
+   },
+   {
+    "hash": "b708b3bb02376097",
+    "axes": "{\"W\": \"10\", \"q\": \"10\"}"
+   },
+   {
+    "hash": "b26d8e26e10651bb",
+    "axes": "{\"W\": \"10\", \"q\": \"20\"}"
+   },
+   {
+    "hash": "ece3d28aa80b33a3",
+    "axes": "{\"W\": \"10\", \"q\": \"33\"}"
+   },
+   {
+    "hash": "98f5aaeddd9c460d",
+    "axes": "{\"W\": \"10\", \"q\": \"50\"}"
+   },
+   {
+    "hash": "3c3fc0ec218e0441",
+    "axes": "{\"W\": \"10\", \"q\": \"67\"}"
+   },
+   {
+    "hash": "c986d6674190d483",
+    "axes": "{\"W\": \"10\", \"q\": \"80\"}"
+   },
+   {
+    "hash": "c8b7a0249f964d25",
+    "axes": "{\"W\": \"10\", \"q\": \"90\"}"
+   },
+   {
+    "hash": "1dbcbe022237c4e3",
+    "axes": "{\"W\": \"10\", \"q\": \"95\"}"
+   },
+   {
+    "hash": "204f6e2a79e0e340",
+    "axes": "{\"W\": \"15\", \"q\": \"5\"}"
+   },
+   {
+    "hash": "9625dc44cfebe11e",
+    "axes": "{\"W\": \"15\", \"q\": \"10\"}"
+   },
+   {
+    "hash": "1e4125fe97225a98",
+    "axes": "{\"W\": \"15\", \"q\": \"20\"}"
+   },
+   {
+    "hash": "435f5573826d1074",
+    "axes": "{\"W\": \"15\", \"q\": \"33\"}"
+   },
+   {
+    "hash": "26e3523c2985face",
+    "axes": "{\"W\": \"15\", \"q\": \"50\"}"
+   },
+   {
+    "hash": "c62dbb9c51e10016",
+    "axes": "{\"W\": \"15\", \"q\": \"67\"}"
+   },
+   {
+    "hash": "6bbb79e9110eb09f",
+    "axes": "{\"W\": \"15\", \"q\": \"80\"}"
+   },
+   {
+    "hash": "436711abadfce3af",
+    "axes": "{\"W\": \"15\", \"q\": \"90\"}"
+   },
+   {
+    "hash": "5c0fc66e2dac3647",
+    "axes": "{\"W\": \"15\", \"q\": \"95\"}"
+   },
+   {
+    "hash": "f705f7670bcaabae",
+    "axes": "{\"W\": \"30\", \"q\": \"5\"}"
+   },
+   {
+    "hash": "b4c60b026a1fafff",
+    "axes": "{\"W\": \"30\", \"q\": \"10\"}"
+   },
+   {
+    "hash": "ffa8df06e445d05a",
+    "axes": "{\"W\": \"30\", \"q\": \"20\"}"
+   },
+   {
+    "hash": "b167e3cc4f3f47cf",
+    "axes": "{\"W\": \"30\", \"q\": \"33\"}"
+   },
+   {
+    "hash": "bfcc9f74722d1094",
+    "axes": "{\"W\": \"30\", \"q\": \"50\"}"
+   },
+   {
+    "hash": "81f34e0720500888",
+    "axes": "{\"W\": \"30\", \"q\": \"67\"}"
+   },
+   {
+    "hash": "7fb4b4c8c66e8445",
+    "axes": "{\"W\": \"30\", \"q\": \"80\"}"
+   },
+   {
+    "hash": "130cae2b534b8a2d",
+    "axes": "{\"W\": \"30\", \"q\": \"90\"}"
+   },
+   {
+    "hash": "cd8d145690e975da",
+    "axes": "{\"W\": \"30\", \"q\": \"95\"}"
+   },
+   {
+    "hash": "9912dbb6ac03f138",
+    "axes": "{\"W\": \"60\", \"q\": \"5\"}"
+   },
+   {
+    "hash": "2479aad9981f6f33",
+    "axes": "{\"W\": \"60\", \"q\": \"10\"}"
+   },
+   {
+    "hash": "b5ba6e54d116ff88",
+    "axes": "{\"W\": \"60\", \"q\": \"20\"}"
+   },
+   {
+    "hash": "87a77f8c23602538",
+    "axes": "{\"W\": \"60\", \"q\": \"33\"}"
+   },
+   {
+    "hash": "0381699d1d9fadaf",
+    "axes": "{\"W\": \"60\", \"q\": \"50\"}"
+   },
+   {
+    "hash": "9721913f6ddc882a",
+    "axes": "{\"W\": \"60\", \"q\": \"67\"}"
+   },
+   {
+    "hash": "20459385c5ca6905",
+    "axes": "{\"W\": \"60\", \"q\": \"80\"}"
+   },
+   {
+    "hash": "4bb32cf7ff74e621",
+    "axes": "{\"W\": \"60\", \"q\": \"90\"}"
+   },
+   {
+    "hash": "461079ede31c0bfe",
+    "axes": "{\"W\": \"60\", \"q\": \"95\"}"
+   },
+   {
+    "hash": "8b2958807bb02677",
+    "axes": "{\"W\": \"120\", \"q\": \"5\"}"
+   },
+   {
+    "hash": "bb817748c00a899a",
+    "axes": "{\"W\": \"120\", \"q\": \"10\"}"
+   },
+   {
+    "hash": "284fbea565f84b09",
+    "axes": "{\"W\": \"120\", \"q\": \"20\"}"
+   },
+   {
+    "hash": "de1da810f7ac6dbf",
+    "axes": "{\"W\": \"120\", \"q\": \"33\"}"
+   },
+   {
+    "hash": "f05fdc93feca5264",
+    "axes": "{\"W\": \"120\", \"q\": \"50\"}"
+   },
+   {
+    "hash": "88125b485ebf600c",
+    "axes": "{\"W\": \"120\", \"q\": \"67\"}"
+   },
+   {
+    "hash": "82caf2d703aa4e9b",
+    "axes": "{\"W\": \"120\", \"q\": \"80\"}"
+   },
+   {
+    "hash": "4c9cb3992f3df384",
+    "axes": "{\"W\": \"120\", \"q\": \"90\"}"
+   },
+   {
+    "hash": "8f1e52687d5b4d87",
+    "axes": "{\"W\": \"120\", \"q\": \"95\"}"
+   },
+   {
+    "hash": "b8c0d54aa6d0a99f",
+    "axes": "{\"W\": \"300\", \"q\": \"5\"}"
+   },
+   {
+    "hash": "fad53834e6a72e29",
+    "axes": "{\"W\": \"300\", \"q\": \"10\"}"
+   },
+   {
+    "hash": "8772ff2ed339a765",
+    "axes": "{\"W\": \"300\", \"q\": \"20\"}"
+   },
+   {
+    "hash": "7b4ec65d8e158448",
+    "axes": "{\"W\": \"300\", \"q\": \"33\"}"
+   },
+   {
+    "hash": "bfb38c183b8fbbb8",
+    "axes": "{\"W\": \"300\", \"q\": \"50\"}"
+   },
+   {
+    "hash": "8b4922486323bbc9",
+    "axes": "{\"W\": \"300\", \"q\": \"67\"}"
+   },
+   {
+    "hash": "c0a503438464f3a8",
+    "axes": "{\"W\": \"300\", \"q\": \"80\"}"
+   },
+   {
+    "hash": "a0c40d0bbc9cf5e2",
+    "axes": "{\"W\": \"300\", \"q\": \"90\"}"
+   },
+   {
+    "hash": "0fcf606514ca28f3",
+    "axes": "{\"W\": \"300\", \"q\": \"95\"}"
+   }
+  ],
+  "Г-114": [
+   {
+    "hash": "a2b3ef9e1144c02b",
+    "axes": "{\"trigger\": \"halfstop\", \"f\": \"1/8\"}"
+   },
+   {
+    "hash": "5197d316166f75b3",
+    "axes": "{\"trigger\": \"halfstop\", \"f\": \"3/8\"}"
+   },
+   {
+    "hash": "ea67718bca7a73a8",
+    "axes": "{\"trigger\": \"halfstop\", \"f\": \"1/2\"}"
+   },
+   {
+    "hash": "6083b71a98e71c25",
+    "axes": "{\"trigger\": \"halfstop\", \"f\": \"5/8\"}"
+   },
+   {
+    "hash": "bf6a7ad99a0c9855",
+    "axes": "{\"trigger\": \"halfstop\", \"f\": \"7/8\"}"
+   },
+   {
+    "hash": "f87afa815a532881",
+    "axes": "{\"trigger\": \"halflevel\", \"f\": \"1/8\"}"
+   },
+   {
+    "hash": "102084cf6685638c",
+    "axes": "{\"trigger\": \"halflevel\", \"f\": \"3/8\"}"
+   },
+   {
+    "hash": "755a50bd803c9bd6",
+    "axes": "{\"trigger\": \"halflevel\", \"f\": \"1/2\"}"
+   },
+   {
+    "hash": "7d1b2e44203e7abe",
+    "axes": "{\"trigger\": \"halflevel\", \"f\": \"5/8\"}"
+   },
+   {
+    "hash": "3f7cce93699b37ea",
+    "axes": "{\"trigger\": \"halflevel\", \"f\": \"7/8\"}"
+   }
+  ],
+  "Г-119": [
+   {
+    "hash": "ebda89cfc97f0c22",
+    "axes": "{\"tol_ticks\": \"0\"}"
+   },
+   {
+    "hash": "8ac84b2452ba4759",
+    "axes": "{\"tol_ticks\": \"1\"}"
+   },
+   {
+    "hash": "3de9e85e74864a46",
+    "axes": "{\"tol_ticks\": \"2\"}"
+   },
+   {
+    "hash": "47ba4eb244def2ef",
+    "axes": "{\"tol_ticks\": \"3\"}"
+   },
+   {
+    "hash": "9405ca37e1d711e7",
+    "axes": "{\"tol_ticks\": \"4\"}"
+   },
+   {
+    "hash": "76452f7ad9af84b2",
+    "axes": "{\"tol_ticks\": \"6\"}"
+   },
+   {
+    "hash": "39d15e11743a471d",
+    "axes": "{\"tol_ticks\": \"8\"}"
+   },
+   {
+    "hash": "27e24999ce71a26a",
+    "axes": "{\"tol_ticks\": \"12\"}"
+   },
+   {
+    "hash": "1d79752d0a559939",
+    "axes": "{\"tol_ticks\": \"16\"}"
+   }
+  ],
+  "Г-129": [
+   {
+    "hash": "bc0e4a45b7031968",
+    "axes": "{\"entry_ttl\": \"10\"}"
+   },
+   {
+    "hash": "2766421842c7e6cf",
+    "axes": "{\"entry_ttl\": \"30\"}"
+   },
+   {
+    "hash": "3fb7c35190f64458",
+    "axes": "{\"entry_ttl\": \"60\"}"
+   },
+   {
+    "hash": "04b9746c81283042",
+    "axes": "{\"entry_ttl\": \"120\"}"
+   },
+   {
+    "hash": "b9346f79b3c61d46",
+    "axes": "{\"entry_ttl\": \"300\"}"
+   },
+   {
+    "hash": "51df5d0e3e08989e",
+    "axes": "{\"entry_ttl\": \"600\"}"
+   },
+   {
+    "hash": "d33ec831cfe5dd72",
+    "axes": "{\"entry_ttl\": \"900\"}"
+   },
+   {
+    "hash": "95cbb0c519a18257",
+    "axes": "{\"entry_ttl\": \"1200\"}"
+   },
+   {
+    "hash": "4173fe49b15b6b5f",
+    "axes": "{\"entry_ttl\": \"1800\"}"
+   }
+  ],
+  "Г-133": [
+   {
+    "hash": "7d217744d4cb250f",
+    "axes": "{\"a\": \"1/8\"}"
+   },
+   {
+    "hash": "40b79d43817e8a96",
+    "axes": "{\"a\": \"1/4\"}"
+   },
+   {
+    "hash": "16edc719365d1dce",
+    "axes": "{\"a\": \"1/2\"}"
+   },
+   {
+    "hash": "e1061eea37125331",
+    "axes": "{\"a\": \"1\"}"
+   },
+   {
+    "hash": "4145b84977e338a4",
+    "axes": "{\"a\": \"2\"}"
+   },
+   {
+    "hash": "7b5e0f9e0d4af611",
+    "axes": "{\"a\": \"4\"}"
+   },
+   {
+    "hash": "e76e37de63fd6098",
+    "axes": "{\"a\": \"8\"}"
+   }
+  ]
+ }
+}

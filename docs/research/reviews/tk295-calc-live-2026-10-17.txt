@@ -1,0 +1,11 @@
+[вживую] TK-295 — Судья, ssh calc, 17.10 21:43 CEST (23:43 GMT+4), ~5 с, весь живой список заданий (alsched ps без done).
+md5 голова PR 61ae44a (git show): alsched.py 567a72270b74da5a478f274dd0b41c8a, sched_cfg.py 68f7183cf92f4d55fe8ec2d682139b3c
+md5 calc /data/sched: alsched.py 567a72270b74da5a478f274dd0b41c8a, sched_cfg.py 68f7183cf92f4d55fe8ec2d682139b3c (= голова)
+sched_cfg.py:28 OVERBOOK_MAX дефолт "15"; :24 ELASTIC_MAX "15"
+alpha-sched active, ActiveEnterTimestamp 21:41:38 CEST; /proc/loadavg 12.26 12.32 12.97
+ядра: занято 12/16 по заявкам (16 = NCPU); в очереди 4
+1017145955614 running prod ядер=12 tk279-p17-g81b 165.5 мин — то же задание, что до перезапуска (не потеряно)
+queued: 1017145957809 12 · 1017150324841 15 · 1017195532789 6 · 1017214023317 12 — любая добавка к 12 > 15, не стартуют
+Вывод: сумма заявленных идущего prod 12 ≤ 15 при непустой очереди; load ≈ 12.3 ≤ 15.
+
+Закрытие (Судья, 18.10 00:00 GMT+4): PR #57 MERGED e6b7b43f (голова 61ae44a). calc /data/sched: md5 alsched.py 567a7227, sched_cfg.py 68f7183c = git show origin/master; alpha-sched active; loadavg 13.88 14.29 13.89. Хвост — разморозка gate после окна замера даёт 16 → TK-296.

@@ -1,0 +1,12 @@
+calc 127.0.0.1:8791/<токен>/api/letopis?hyp=М-04, 17.10 ~22:20
+rows 72
+nhash 72
+metrics_n 71
+metrics_dash 1
+ось A · n=0 (первое касание): 17
+ось B · n=1: 17
+ось C · n=2: 17
+ось D · n≥3: 17
+ось ворота 0 · честный lot_first (первое касание): 3
+ось стопка: 1
+{"hash": "90a2771337053ef8", "hyp": "М-04", "axes": {"ось": "стопка", "k": "не определена"}, "squares": ["", "", "", "", "", "", "", "", ""], "status": "none", "verdict": "", "sieved": false, "plateau": false, "edge": false, "off": "нет кодировки", "pnl": [null, null, null, null, null, null, null, null, null], "nd": [false, false, false, false, false, false, false, false, false], "bps": [null, null, null, null, null, null, null, null, null], "sum": null, "trades": null, "sharpe": null, "winrate": null, "overhigh_d": null, "tail_d": null, "worst_d": null, "mwhy": "стопка не определена: плато нет ни на одной оси F1+F2 (68 клеток, мин. p 0,2062); Холм m=5 p=1"}

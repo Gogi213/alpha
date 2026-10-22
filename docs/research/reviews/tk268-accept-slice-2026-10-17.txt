@@ -1,0 +1,9 @@
+# срез живого API формы на calc 17.10 15:41 CEST: /data/tk0268/j268-letopis.json, j268-cov.json
+letopis rows 1555
+letopis metrics_n 1477
+letopis metrics_dash 78
+cov Г-82 done 243
+cov done 13833
+cov К счёту 0
+Г-147 c85c2318c4bd76ae trades 408
+Г-147 c85c2318c4bd76ae sum 10,51

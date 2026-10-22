@@ -1,0 +1,9 @@
+Sat Oct 17 07:05:05 PM CEST 2026
+bf344de77b8b0a1c7278db29bff697b5  /data/sched/alsched.py
+12.44 11.70 11.92 13/318 1910759
+ядра: занято 12/16 по заявкам; в очереди 4
+1017145040346 done    prod    ядер=12 tk274-g03             254.4 мин rc=0 env GUARD_PENDING=/data/registry/pending/a978a61f809b7f0c-17
+1017145955614 running prod    ядер=12 tk279-p17-g81b          7.1 мин rc= env GUARD_PENDING=/data/registry/pending/1b0685da7feae3f5-17
+1017145957809 queued  prod    ядер=12 tk279-p17-bb          245.1 мин rc= env GUARD_PENDING=/data/registry/pending/6d30f13b28ebfd3b-17
+1017150324841 queued  prod    ядер=15 tk289-f1              241.7 мин rc= env GUARD_PENDING=/data/registry/pending/af1857f2ce098d18-17
+1017172509184 done    prod    ядер= 4 tk291-b1-touch         99.9 мин rc=0 env GUARD_PENDING=/data/registry/pending/1ee069d772ec31df-17

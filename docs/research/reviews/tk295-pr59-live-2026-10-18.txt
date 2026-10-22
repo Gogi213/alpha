@@ -1,0 +1,13 @@
+TK-295 PR #59@30e456b4 — [вживую] Судья, calc 89.163.242.211, 18.10 01:39 GMT+4 (ssh calc, alsched.py ps)
+md5 /data/sched/alsched.py   682cdad94fe8df639c7952a49412b8e8 = git show 30e456b:tools/compute/alsched.py
+md5 /data/sched/sched_cfg.py 68f7183cf92f4d55fe8ec2d682139b3c = git show 30e456b:tools/compute/sched_cfg.py
+alpha-sched ActiveState=active, ActiveEnterTimestamp 01:36:50 GMT+4 (перезапуск выкладки)
+идущее 1017145955614 tk279-p17-g81b ядер=12, 281.6 мин, тот же id — не потеряно
+loadavg 12.25 12.20 12.18
+очередь 5: bb 12, tk289-f1 15, g03nw 6, f2c 12, build-TK-272 4 (kind build)
+занято 12/15: в очереди сборка (build-TK-272) — по В-34 «резерв держится, пока есть сборка или гейт»; сборке 4 > 3 свободных — ждёт; заявки <=3 нет.
+Ветка «без gate/build → 15/15» вживую сейчас не наблюдаема (нет состояния); закреплена тестами:
+  голова 30e456b: tests/test_alsched_core.py 45 passed; с alsched.py из origin/master — 4 failed
+  (test_no_reserve_without_gate_in_queue, test_work_takes_all_without_gate, test_gate_submitted_after_work_took_reserve_waits,
+   test_reserve_released_for_gate_wider_than_reserve). Код: g_resv = gate_resv if gate_active else 0 — дословно В-34 (decisions.md:182).
+CI PR #59: все завершённые проверки SUCCESS.
