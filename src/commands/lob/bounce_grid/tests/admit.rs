@@ -391,6 +391,18 @@ fn approach_grid(
     p08_cols: bool,
     busy_off: bool,
 ) -> anyhow::Result<BounceGridSummary> {
+    run_bounce_grid(&approach_args(dir, name, sets, r1_cols, p08_cols, busy_off))
+}
+
+/// Аргументы `approach_grid` — для тестов, которым нужен свой флаг до запуска.
+fn approach_args(
+    dir: &std::path::Path,
+    name: &str,
+    sets: &[&str],
+    r1_cols: bool,
+    p08_cols: bool,
+    busy_off: bool,
+) -> BounceGridArgs {
     let mut a = args(dir, false);
     a.signal = SignalArg::Approach;
     a.entry_form = vec!["ladder3x2..10".to_string()];
@@ -409,7 +421,7 @@ fn approach_grid(
     a.r1_cols = r1_cols;
     a.p08_cols = p08_cols;
     a.out_dir = dir.join(name);
-    run_bounce_grid(&a)
+    a
 }
 
 fn approach_probe() -> crate::lob::levels::ApproachRecord {
@@ -1116,4 +1128,50 @@ fn p18_strength_min_key() {
     assert!(f.admits_oracle(mode, 0, &t(0)));
     assert!(!f.admits_oracle(mode, 0, &t(-1)), "без соседей — не вход");
     assert_eq!(super::plan::g07_label(&s), " strength_min=317.5");
+}
+
+/// TK-353 (G-013 C3): `--emit-events` пишет `events-<SYM>.csv` набора (шапка + взвод подхода, прошедший фильтры набора) и
+/// не меняет прежних файлов (`rounds.csv` байт в байт); набор, отсеивающий подход (`r1_obi1_bp_min=501`), даёт только шапку;
+/// без `--signal approach` — отказ.
+#[test]
+fn emit_events_lists_admitted_arms_and_keeps_old_files() {
+    let dir = tempfile::tempdir().unwrap();
+    approach_cache(dir.path());
+    let sets = ["all:", "hi:usd_min=1000000000"];
+    let base = approach_grid(dir.path(), "g-base", &sets, false, false, true).unwrap();
+    let mut a = approach_args(dir.path(), "g-ev", &sets, false, false, true);
+    a.emit_events = true;
+    let ev = run_bounce_grid(&a).unwrap();
+    for (b, e) in base.sets.iter().zip(&ev.sets) {
+        assert_eq!(
+            std::fs::read(&b.rounds_path).unwrap(),
+            std::fs::read(&e.rounds_path).unwrap(),
+            "{}: rounds.csv тот же",
+            b.name
+        );
+        assert!(!b.rounds_path.with_file_name("events-SOLUSDT.csv").exists());
+    }
+    let events = |name: &str| {
+        let s = ev.sets.iter().find(|s| s.name == name).unwrap();
+        std::fs::read_to_string(s.rounds_path.with_file_name("events-SOLUSDT.csv")).unwrap()
+    };
+    let all = events("all");
+    let rows: Vec<&str> = all.lines().collect();
+    assert_eq!(rows[0], "arm_ms,side,price_tick");
+    assert_eq!(rows.len(), 2, "{all}");
+    let f: Vec<&str> = rows[1].split(',').collect();
+    assert_eq!(f.len(), 3, "{all}");
+    assert!(
+        f[0].parse::<i64>().is_ok() && matches!(f[1], "bid" | "ask") && f[2].parse::<i64>().is_ok()
+    );
+    assert_eq!(
+        events("hi"),
+        "arm_ms,side,price_tick
+",
+        "подход отсеян фильтром набора"
+    );
+    let mut t = approach_args(dir.path(), "g-bad", &sets, false, false, true);
+    t.emit_events = true;
+    t.signal = SignalArg::Touch;
+    assert!(run_bounce_grid(&t).is_err());
 }
