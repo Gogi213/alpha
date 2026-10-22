@@ -13,3 +13,12 @@
 
 Замечание (не возврат): fut Q5 — плюсовая корзина (Σ +369,5, pct_loss 0) внесена как контраст к Q2; спот S0 в
 Летопись не внесён — минус во всех корзинах, отдельного среза нет. Итог владельцу — CEO.
+
+## Ключевые числа
+
+| число | файл:строка |
+|---|---|
+| fut шаг Q2: n 550, Σ −294,12 $, net −10,70 бп | docs/findings/tk356-turnover-tick-2026-10-22.csv:8; docs/registry/loss_findings.jsonl:73 |
+| fut шаг Q5: Σ +369,50 $, net +13,44 бп | docs/registry/loss_findings.jsonl:74 |
+| П-24 pct0.1 шаг Q5: Σ −48611,64 $, 9/9 месяцев минус | docs/registry/loss_findings.jsonl:76 |
+| П-24 pct0.5 шаг Q4: Σ −42396,41 $ | docs/registry/loss_findings.jsonl:77 |
