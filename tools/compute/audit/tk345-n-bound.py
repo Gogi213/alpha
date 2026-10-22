@@ -4,11 +4,23 @@
 tk345-n-bound.py <approaches-dir> <instruments.csv> <каталог-вывода-суток (out/<сутки>)> [<регулярка-имён-клеток>]
 Фильтры клетки (min_age_secs, usd_min, behind_min, side=bid) берутся из шапки её forms.csv. По символам: (а) n_signals +
 n_skipped == все подходы кэша (обе стороны); (б) n_signals <= число подходов, прошедших age/usd/behind/side (без h3 по касанию
-и btc4h — они только режут дальше). Печатает нарушения и итог по клеткам."""
-import csv, os, re, sys
+и btc4h — они только режут дальше). Печатает нарушения и итог по клеткам.
+HDR_ROOT=<каталог бинлогов>: тик и шаг лота — из заголовка бинлога суток (как у движка, `read_tick_step`), а не из instruments.csv
+(в споте csv тик в 10 раз мельче заголовка — §10 аудита)."""
+import csv, glob, os, re, struct, sys
 adir, inst, odir = sys.argv[1:4]
 pat = re.compile(sys.argv[4]) if len(sys.argv) > 4 else None
 ins = {r["symbol"]: (float(r["tick_size"]), float(r["qty_step"])) for r in csv.DictReader(open(inst))}
+hdr_root = os.environ.get("HDR_ROOT")
+day = os.path.basename(os.path.normpath(odir))
+def grid(sym):
+    if hdr_root:
+        fs = sorted(glob.glob(f"{hdr_root}/{sym}-{day}*.binlog"))
+        if fs:
+            b = open(fs[0], "rb").read(21)
+            t, l = struct.unpack("<qq", b[5:21])
+            return t / 1e9, l / 1e9
+    return ins[sym]
 cache = {}
 def appr(sym):
     if sym not in cache:
@@ -32,7 +44,7 @@ for c in sorted(os.listdir(odir)):
         a = appr(r["symbol"])
         if a is None:
             nocache += 1; continue
-        tick, step = ins[r["symbol"]]
+        tick, step = grid(r["symbol"])
         ub = 0
         for x in a:
             if x["side"] != "bid":
