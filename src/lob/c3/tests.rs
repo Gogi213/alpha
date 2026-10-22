@@ -315,3 +315,28 @@ fn prefilter_keeps_selected_pairs() {
     assert_eq!(s0.unmatched, s1.unmatched);
     assert!(s1.rejects[Reject::Caliper as usize] >= s0.rejects[Reject::Caliper as usize]);
 }
+
+#[test]
+fn population_spans_keep_only_spans_with_event_arm() {
+    let sp = |side, tick, from_ms, to_ms| Span {
+        side,
+        tick,
+        from_ms,
+        to_ms,
+    };
+    let spans = [
+        sp(Side::Bid, 9991, 100, 200),
+        sp(Side::Bid, 9991, 300, 400),
+        sp(Side::Ask, 9991, 100, 200),
+        sp(Side::Bid, 9992, 100, 200),
+    ];
+    // взвод внутри первого интервала (9991 bid); во второй, ask и 9992 — нет.
+    let arms = [(Side::Bid, 9991, 150), (Side::Bid, 9991, 250)];
+    let out = population_spans(&spans, &arms);
+    assert_eq!(out.len(), 1);
+    assert_eq!(
+        (out[0].side, out[0].tick, out[0].from_ms),
+        (Side::Bid, 9991, 100)
+    );
+    assert!(population_spans(&spans, &[]).is_empty());
+}

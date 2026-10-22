@@ -19,8 +19,8 @@ use clap::Args;
 
 use crate::book::Side;
 use crate::lob::c3::{
-    pooled_sd, select_controls, sigma_from_second_mids, smd, swap_flags, CovIn, DayCtx, Params,
-    Span, WallRec, NCOV, N_REJECT, SIGMA_WINDOW_S,
+    pooled_sd, population_spans, select_controls, sigma_from_second_mids, smd, swap_flags, CovIn,
+    DayCtx, Params, Span, WallRec, NCOV, N_REJECT, SIGMA_WINDOW_S,
 };
 
 use super::bounce_grid::{cached_walls, read_regime_day, BTC4H_AXIS, COIN_AXES};
@@ -95,6 +95,11 @@ pub struct C3ControlsArgs {
     /// (Судья TK-353, 22.10). Реальной стеной становится только подход кэша с таким ключом; без файла — все подходы.
     #[arg(long)]
     pub events: Option<PathBuf>,
+    /// Стены популяции для проверок «реальная стена в полосе»/«ближе стена» (CSV как `--events`): интервалы журнала
+    /// стен без взвода из этого списка не считаются стеной (Судья TK-353, 22.10: стена = определение популяции —
+    /// `usd_min` И сила набора B1 / rank q90 S\*, не пол детектора 10k). Без флага — `--events`; без обоих — все интервалы.
+    #[arg(long)]
+    pub wall_events: Option<PathBuf>,
     /// Прежний порядок проверок без пред-отсева по `ln σ` (для гейта «пары байт в байт»); по умолчанию пред-отсев вкл.
     #[arg(long)]
     pub no_prefilter: bool,
@@ -377,6 +382,18 @@ pub fn run_c3_controls(args: &C3ControlsArgs) -> anyhow::Result<String> {
     }
     let mut sk = Skips::default();
     let events = args.events.as_deref().map(read_events).transpose()?;
+    let wall_events = args.wall_events.as_deref().map(read_events).transpose()?;
+    let spans_total: usize = data.iter().map(|(_, d)| d.spans.len()).sum();
+    if let Some(pop) = wall_events.as_ref().or(events.as_ref()) {
+        let arms: Vec<(Side, i64, i64)> = pop
+            .iter()
+            .map(|&(ms, ask, tick)| (if ask { Side::Ask } else { Side::Bid }, tick, ms))
+            .collect();
+        for (_, d) in &mut data {
+            d.spans = population_spans(&d.spans, &arms);
+        }
+    }
+    let spans_kept: usize = data.iter().map(|(_, d)| d.spans.len()).sum();
     let mut walls: Vec<(WallRec, String)> = Vec::new();
     for (day, d) in &data {
         walls.extend(real_walls(args, day, d, events.as_ref(), &mut sk)?);
@@ -470,6 +487,7 @@ pub fn run_c3_controls(args: &C3ControlsArgs) -> anyhow::Result<String> {
         "walls": n, "walls_matched": matched,
         "unmatched_share": if n == 0 { f64::NAN } else { st.unmatched.len() as f64 / n as f64 },
         "controls": controls.len(), "candidates": st.candidates, "rejects": rejects,
+        "wall_spans": {"journal": spans_total, "population": spans_kept},
         "pooled_sd": pooled_sd(&wall_recs), "smd_before_outcomes": smds,
         "by_regime_class": by_regime.iter().map(|(r, (a, b))| (r.to_string(), serde_json::json!({"walls": a, "matched": b}))).collect::<BTreeMap<_, _>>(),
         "skipped": {"birth_before_day": sk.birth_before_day, "no_sigma": sk.no_sigma, "no_regime": sk.no_regime,
@@ -477,7 +495,8 @@ pub fn run_c3_controls(args: &C3ControlsArgs) -> anyhow::Result<String> {
         "params": {"horizon_s": p.horizon_s, "tod_window_s": p.tod_window_s, "caliper_sd": p.caliper_sd, "k": p.k,
                    "seed": p.seed, "max_wait_s": p.max_wait_s, "stride_s": p.stride_s,
                    "regime_edges_bps": args.regime_edges_bps, "null_permute": args.null_permute,
-                   "events": args.events.as_ref().map(|p| p.display().to_string()), "prefilter": p.prefilter},
+                   "events": args.events.as_ref().map(|p| p.display().to_string()),
+                   "wall_events": args.wall_events.as_ref().map(|p| p.display().to_string()), "prefilter": p.prefilter},
     });
     std::fs::write(&summary_path, serde_json::to_vec_pretty(&j)?)?;
     Ok(format!(

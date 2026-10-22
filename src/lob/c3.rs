@@ -202,6 +202,30 @@ pub fn sigma_from_second_mids(mid: &[f64], window: usize) -> Vec<f64> {
         .collect()
 }
 
+/// Стены популяции (Судья TK-353, 22.10): интервал журнала остаётся, только если внутри него `[from, to]` есть взвод
+/// события популяции на том же `(side, tick)`. Пол детектора 10k в полосе — почти любой уровень книги (условие пусто
+/// по построению); «реальная стена» для `WallInBand`/`NearerWall` — стена по определению популяции (A_B, S\*).
+/// `arms` — `(side, tick, arm_ms)` событий популяции (порядок любой).
+#[must_use]
+pub fn population_spans(spans: &[Span], arms: &[(Side, i64, i64)]) -> Vec<Span> {
+    let mut by_key: Vec<(bool, i64, i64)> = arms
+        .iter()
+        .map(|&(side, tick, ms)| (side == Side::Ask, tick, ms))
+        .collect();
+    by_key.sort_unstable();
+    spans
+        .iter()
+        .filter(|sp| {
+            let ask = sp.side == Side::Ask;
+            let i = by_key.partition_point(|&k| k < (ask, sp.tick, sp.from_ms));
+            by_key
+                .get(i)
+                .is_some_and(|&(a, t, ms)| a == ask && t == sp.tick && ms <= sp.to_ms)
+        })
+        .copied()
+        .collect()
+}
+
 fn overlaps(a0: i64, a1: i64, b0: i64, b1: i64) -> bool {
     a0 < b1 && b0 < a1
 }
