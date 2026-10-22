@@ -22,7 +22,11 @@
     "strength_W_why": "середина готовых 10/20/50; шкала вторичная (FDR), 10 и 50 — описание",
     "delta_z_star": {"rule": "подстановка A_P(S*) вместо A_B, если MDE_P(S*) = 2,80·SE0 <= dp* = delta_star/(a*+b*) = 5/20 = 0.25 (доля, P_стена − P_C3) по n_эфф из событий и суток (R3.6)", "dp_star": 0.25, "per_cell": "ячейка G0 с MDE_P > dp* — «не определена», в вердикт не идёт"},
     "stable_stratum": {"rule": "монета — стейбл-страта, если медиана σ240 монеты на обучающем окне < 38.2 = sqrt(9.7·150.2) (геом. середина щели медиан)", "check_G0": "если медиана монеты в [19.1, 76.4] — печатается отдельной строкой, разбор Судьи до исходов"},
-    "C3": {"time_of_day_window_h": 1, "same_regime_btc4h": true, "caliper_SMD": 0.1, "k_primary": 1, "k_sensitivity": 3, "replacement": false, "seed": 20261022, "seed_spread_print": [20261022, 20261023, 20261024], "src": "R4.1; caliper 0,1 и k — прецедент П-24 §C3"}
+    "C3": {"time_of_day_window_h": 1, "same_regime_btc4h": true, "caliper_SMD": 0.1, "k_primary": 1, "k_sensitivity": 3, "replacement": false, "seed": 20261022, "seed_spread_print": [20261022, 20261023, 20261024], "src": "R4.1; caliper 0,1 и k — прецедент П-24 §C3",
+      "population": "стены = события оцениваемой величины, не все подходы: A_B — взводы B1 после фильтров B1 на t (возраст, btc4h, σ240, сторона, usd_min/сила); A_P(S*) — события S* (rank q90 по монете, touch_index 0, impulse ≥ 3.271). Все подходы (A_all) — фон без C3; случайная подвыборка N — нет (TK-353, 22.10)",
+      "regime_edges_btc4h_bps": [-44.55], "regime_edges_why": "R4.1 п.1: границы из конфигурации правила — фильтр B1 btc4h ≤ −44,55; два класса",
+      "max_wait_s": 3600, "max_wait_why": "t' − (τ'+a_w) ≤ time_of_day_window_h·3600: взвод контроля не дальше окна времени суток",
+      "stride_s": 60, "stride_why": "сетка τ' = минутная сетка режима (--regime-from); соседние τ' с перекрытием окон всё равно исключает без возвращения"}
   },
   "exam": {
     "kind_primary": "forward (окт 2026+)",
