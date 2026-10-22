@@ -6,7 +6,7 @@
          "roots": {"fut": "<корень с {m}>", "spot": "<корень с {m}>"},       # только для usd (тик/лот из заголовка бинлога)
          "hypotheses": [{"id": str, "where": "<выражение по колонкам кэша>", "sign": 1|-1, "note": str}]}
 Событие = строка кэша; m_* — markout mid в сторону отскока, бп; sign=-1 — гипотеза «против отскока» (m → −m, favour ↔ adverse).
-В where: колонки шапки кэша, производные first/rep (touch_index), w20 (strength_w20_pct, пусто → 0, как g015-ceilings), usd
+В where: колонки шапки кэша, производные first/rep (touch_index), fut (рынок файла 1/0), alt (монета не стейбл), w20 (strength_w20_pct, пусто → 0, как g015-ceilings), usd
 (price_tick·тик·size_at_touch·лот, только из заголовка бинлога — TK-360); and/or/not, сравнения, + − * /, abs(), isnan().
 Популяция "event" — касания; любая другая из "caches" (напр. c3 — контроль «случайные уровни») считается тем же условием,
 S_net = S_event − S_ctrl в той же клетке. Клетка = гипотеза × популяция × рынок × месяц; месяц фьючерса — по каталогу эпохи
@@ -30,7 +30,8 @@ STEP = 0.02  # корзина гистограммы — равномерная 
 KM = int(np.ceil(np.arcsinh(5000.0) / STEP))  # |ход| > 5000 бп — в крайнюю корзину
 NB = 2 * KM + 1
 BASE = ["touch_index", "strength_w20_pct", "day_utc"]
-DERIVED = {"first", "rep", "w20", "usd"}
+DERIVED = {"first", "rep", "w20", "usd", "fut", "alt"}
+STABLE = re.compile(r"^(USDC|USD1|FDUSD|USDE|TUSD|DAI|PYUSD|USDD|RLUSD|USDT0|EUR|XUSD)USDT$")  # как tk361-strata
 FUNCS = {"abs": np.abs, "isnan": np.isnan}
 
 
@@ -131,6 +132,8 @@ def work(a):
     ti = env["touch_index"]
     env["first"] = (ti == 0).astype(float)
     env["rep"] = (ti != 0).astype(float)
+    env["fut"] = np.full(n_rows, float(src == "fut"))  # рынок файла: пороги «фьюч / спот» одной строкой
+    env["alt"] = np.full(n_rows, 0.0 if STABLE.match(sym) else 1.0)  # не стейбл (шкала не в $)
     w = env["strength_w20_pct"].copy()
     w[np.isnan(w)] = 0.0
     env["w20"] = w

@@ -1,0 +1,58 @@
+{
+ "seed": 20261022,
+ "boot": 1000,
+ "caches": {
+  "event": {
+   "fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/study/approaches/D20/2026-*/touches-*USDT.csv",
+   "spot": "/data/tk0319/jrn/2026-*/wt/sub/D20/2026-*/touches-*USDT.csv"
+  }
+ },
+ "roots": {
+  "fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/root",
+  "spot": "/data/tk0319/e-{m}/root"
+ },
+ "hypotheses": [
+  {
+   "id": "H01-01",
+   "where": "first and alt and usd >= 200000 + 100000 * fut",
+   "sign": 1,
+   "note": "size_300k: $300k фьюч / $200k спот, стейблы исключены"
+  },
+  {
+   "id": "H01-02",
+   "where": "first and alt and usd >= 1000000",
+   "sign": 1,
+   "note": "size_1m"
+  },
+  {
+   "id": "H01-06",
+   "where": "first and age_ms >= 3600000",
+   "sign": 1,
+   "note": "age_ge1h"
+  },
+  {
+   "id": "H01-07",
+   "where": "first and age_ms >= 21600000",
+   "sign": 1,
+   "note": "age_ge6h"
+  },
+  {
+   "id": "H01-09",
+   "where": "first and round_zeros >= 1",
+   "sign": 1,
+   "note": "round_ge1"
+  },
+  {
+   "id": "H01-10",
+   "where": "first and round_zeros >= 2",
+   "sign": 1,
+   "note": "round_ge2"
+  },
+  {
+   "id": "H01-16",
+   "where": "touch_index >= 3",
+   "sign": 1,
+   "note": "touch_idx_ge4: touch_index 0-based, номер >= 4"
+  }
+ ]
+}
