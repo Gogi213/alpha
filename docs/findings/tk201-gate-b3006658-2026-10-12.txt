@@ -1,0 +1,7 @@
+family=dl rc=0 files=5 diff=0 
+family=base rc=0 files=661 diff=0 
+family=tk115 rc=0 files=5 diff=0 
+family=tk115w rc=0 files=5 diff=0 
+family=tk115e rc=0 files=34 diff=0 
+family=tk115j rc=0 files=29 diff=0 
+family=r2 rc=0 files=9 diff=0 

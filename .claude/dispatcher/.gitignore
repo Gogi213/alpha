@@ -36,3 +36,18 @@ ceo_triage.*
 triage-*
 triage.jsonl
 tk077-deck-quiet.txt
+# TK-349: рантайм плагина 2.0.x — машинные, переписываются, читателя на другой машине нет
+guard.log
+jobs.jsonl
+mechanics.log
+notify.log
+overseer.json
+overseer.log
+overseer.run.log
+release-auto.log
+release-journal.jsonl
+report.log
+reports/
+supervise-state.json
+tk077-day-check.txt
+branch-delete.json

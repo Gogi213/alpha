@@ -138,7 +138,14 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 .lt th{position:sticky;top:0;background:var(--surface2);text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 .lt td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
 .lt tr:hover td{background:var(--surface2)}
-.mc{width:46px;height:28px;border-radius:5px;text-align:center;font-family:var(--mono);font-size:11px;line-height:28px;display:inline-block;margin-right:2px}
+.lt td.m{width:52px;min-width:52px;padding:7px 2px;text-align:center}
+.lt th.m{width:52px;min-width:52px;padding:9px 2px;text-align:center}
+.lt th[data-sort]{cursor:pointer;user-select:none}
+.lt th[data-sort]:hover{color:var(--text)}
+.lt th[aria-sort]{color:var(--text)}
+.lt th[aria-sort=ascending]::after{content:' ▲';font-size:9px}
+.lt th[aria-sort=descending]::after{content:' ▼';font-size:9px}
+.mc{width:46px;height:28px;border-radius:5px;text-align:center;font-family:var(--mono);font-size:11px;line-height:28px;display:block;margin:0 auto}
 .mc.none{background:repeating-linear-gradient(135deg,var(--surface2) 0 5px,var(--line) 5px 6px)}
 .vd{padding:2px 9px;border-radius:99px;font-size:12px}
 .vd.g{background:var(--ok-bg);color:var(--ok)}.vd.b{background:var(--warn-bg);color:var(--warn)}.vd.x{background:var(--bad-bg);color:var(--bad)}.vd.z{background:var(--surface2);color:var(--muted)}
@@ -277,7 +284,7 @@ table.lt{border-collapse:collapse;width:100%;min-width:1100px}
 (function(){
 var MNN=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 var META,COV,OFFL=[],MON=[],MN=[],H=[],byId={},FAMS=[],STAT={},LR=[],LMN=0,LNH=0,SC=1,lrLoaded=false;
-var sel={},run={},checked={},sv={},focus='',fam='все',q='',flt='all',lvd='',linc=false,vis=[];
+var sel={},run={},checked={},sv={},focus='',fam='все',q='',flt='all',lvd='',linc=false,lsort={k:'',d:1},LMON=[],vis=[];
 function el(id){return document.getElementById(id)}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function api(p,b){return fetch(p,b?{method:'POST',body:JSON.stringify(b)}:{}).then(function(r){return r.json()})}
@@ -370,17 +377,25 @@ function inc(r){return r.status!=='full'}
 function fixMonths(r){var h=byId[r.hyp];if(!h)return[];var n=h.names.length,ix=h.names.map(function(k){return h.ax[k].map(function(o){return o.v}).indexOf(String(r.axes[k]))});
  var c=h.cells.filter(function(x){for(var j=0;j<n;j++){if(x[j]!==ix[j])return false}return true})[0];if(!c||c[n+2])return[];
  return r.pnl.map(function(v,m){return v===null&&!(c[n+1]>>m&1)?m:-1}).filter(function(m){return m>=0})}
+function lkey(x,k){if(k==='hyp')return x.hyp;if(k==='var')return Object.keys(x.axes).map(function(a){return a+' '+x.axes[a]}).join(' · ');
+ if(k.charAt(0)==='m')return x.nd[+k.slice(1)]?null:(x.pnl[+k.slice(1)]===undefined?null:x.pnl[+k.slice(1)]);
+ if(k==='vd')return vdOf(x);return {sum:x.sum,sh:x.sharpe,wr:x.winrate,hp:x.worst_d,tr:x.trades}[k]}
+function lcmp(a,b){return typeof a==='string'?a.localeCompare(b,'ru',{numeric:true}):a-b}
+function lsorted(rows){var k=lsort.k;if(!k)return rows;var d=lsort.d,a=[],n=[];
+ rows.forEach(function(x){var v=lkey(x,k);(v===null||v===undefined?n:a).push([v,x])});
+ a.sort(function(p,q){return d*lcmp(p[0],q[0])});return a.map(function(p){return p[1]}).concat(n.map(function(p){return p[1]}))}
 function rLet(){var qq=el('lq').value.toLowerCase();
  el('vseg').innerHTML=['','годна','не годна','не просеяно','частично','не считали'].map(function(v){return '<button data-vd="'+v+'"'+(lvd===v?' class="on"':'')+'>'+(v||'Все')+'</button>'}).join('');
  el('linc').classList.toggle('on',linc);
- var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')};
- var rows=LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdMatch(x,lvd))&&(!linc||inc(x))});
+ var ps=function(r){return Object.keys(r.axes).map(function(k){return k+' '+r.axes[k]}).join(' · ')},LM=LMON.length?LMON:MON;
+ var rows=lsorted(LR.filter(function(x){return(!qq||(x.hyp+' '+ps(x)).toLowerCase().indexOf(qq)>-1)&&(!lvd||vdMatch(x,lvd))&&(!linc||inc(x))}));
  el('lcnt').textContent=rows.length+' из '+LR.length+' строк / '+LNH+' хешей · Σ $ — cap 0, вердикт сита — по половине монет А · Шарп, винрейт, перехай — cap 0 по поштучным closes, есть у '+LMN+' из '+LR.length+', «—» = closes нет или не сошлись с Σ $';
- el('lt').innerHTML='<tr><th>Гипотеза</th><th>Вариант</th>'+MN.map(function(n){return '<th>'+n+'</th>'}).join('')+'<th>Σ $</th><th>Шарп</th><th>Винрейт</th><th>Перехай, дн</th><th>Сделок</th><th>Вердикт</th><th></th></tr>'+rows.map(function(x){
+ var th=function(k,t,c){return '<th'+(c?' class="'+c+'"':'')+' data-sort="'+k+'"'+(lsort.k===k?' aria-sort="'+(lsort.d>0?'ascending':'descending')+'"':'')+'>'+t+'</th>'};
+ el('lt').innerHTML='<tr>'+th('hyp','Гипотеза')+th('var','Вариант')+LM.map(function(m,i){return th('m'+i,MNN[+m.slice(5)-1],'m').replace('<th','<th title="'+m+'"')}).join('')+th('sum','Σ $')+th('sh','Шарп')+th('wr','Винрейт')+th('hp','Перехай, дн')+th('tr','Сделок')+th('vd','Вердикт')+'<th></th></tr>'+rows.map(function(x){
   var vd=vdOf(x),cls=vd==='годна'?'g':vd==='не годна'?'x':'z',bd=(x.sieved&&x.plateau?' · плато':'')+(x.sieved&&x.edge?' · край':''),mo='font-family:var(--mono)';
-  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td><td colspan="'+MON.length+'" style="padding:4px 10px">'+x.pnl.map(function(v,i){return x.nd[i]?'<span class="mc none" title="$ не записан; sum_net_bps '+x.bps[i]+'">н/д</span>':pnlCell(v)}).join('')+'</td><td style="'+mo+'">'+rubl(x.sum,x)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+(x.trades?x.trades:'—')+'</td><td><span class="vd '+cls+'">'+vd+bd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+LR.indexOf(x)+'">Досчитать →</button>':'')+'</td></tr>'}).join('')}
+  return '<tr><td class="hid">'+x.hyp+'</td><td style="font-family:var(--mono);font-size:12px;color:var(--muted)">'+esc(ps(x))+'</td>'+LM.map(function(m,i){var v=x.pnl[i];return '<td class="m">'+(x.nd[i]?'<span class="mc none" title="$ не записан; sum_net_bps '+x.bps[i]+'">н/д</span>':pnlCell(v===undefined?null:v))+'</td>'}).join('')+'<td style="'+mo+'">'+rubl(x.sum,x)+'</td><td style="'+mo+'">'+pMv(x,'sh','Шарп')+'</td><td style="'+mo+'">'+pMv(x,'wr','Винрейт')+'</td><td style="'+mo+'">'+pMv(x,'hp','Перехай')+'</td><td style="'+mo+'">'+(x.trades?x.trades:'—')+'</td><td><span class="vd '+cls+'">'+vd+bd+'</span></td><td>'+(inc(x)&&fixMonths(x).length?'<button class="link" data-fix="'+LR.indexOf(x)+'">Досчитать →</button>':'')+'</td></tr>'}).join('')}
 function tab(t){el('v-run').hidden=t!=='run';el('v-let').hidden=t!=='let';el('v-prn').hidden=t!=='prn';el('t-run').setAttribute('aria-selected',t==='run');el('t-let').setAttribute('aria-selected',t==='let');el('t-prn').setAttribute('aria-selected',t==='prn');prnTimer(t==='prn');if(t==='let')loadLet();if(t==='prn')loadPrn()}
-function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';api('api/letopis').then(function(d){LR=d.rows;LMN=d.metrics_n||0;LNH=d.nhash||0;lrLoaded=true;
+function loadLet(){if(lrLoaded)return rLet();el('lcnt').textContent='загрузка…';api('api/letopis').then(function(d){LR=d.rows;LMON=d.months||[];LMN=d.metrics_n||0;LNH=d.nhash||0;lrLoaded=true;
  var a=[];LR.forEach(function(r){r.pnl.forEach(function(v){if(v!==null)a.push(Math.abs(v))})});a.sort(function(x,y){return x-y});SC=a.length?(a[Math.floor(a.length*.9)]||1):1;rLet()})}
 var PV=null,pflt='',popen={},pTimer=null,PST={run:'идёт',queue:'в очереди',wait:'ждёт Летопись',done:'в Летописи',fail:'отказ'};
 function pFmt(v,k){if(v===null||v===undefined)return '—';return k==='pnl'?(v>0?'+':'')+Math.round(v):k==='sh'?v.toFixed(2):k==='wr'?Math.round(v*100)+' %':v.toFixed(1)}
@@ -424,6 +439,7 @@ function toast(s){var t=el('toast');t.textContent=s;t.hidden=false;clearTimeout(
 function bump(id){sv[id]=(sv[id]||0)+1}
 var G=null;
 document.addEventListener('click',function(e){var t=e.target,c;
+ if((c=t.closest('#lt th[data-sort]'))){var sk=c.dataset.sort;lsort=lsort.k!==sk?{k:sk,d:1}:lsort.d>0?{k:sk,d:-1}:{k:'',d:1};return rLet()}
  if(t.id==='t-run')return tab('run');if(t.id==='t-let')return tab('let');if(t.closest('#t-prn'))return tab('prn');
  if((c=t.closest('[data-pf]'))){pflt=c.dataset.pf;return rPrn()}
  if((c=t.closest('[data-po]'))){var po=c.dataset.po;popen[po]=!popen[po];return rPrn()}

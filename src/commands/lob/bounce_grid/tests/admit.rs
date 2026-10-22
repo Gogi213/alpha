@@ -5,7 +5,7 @@ use super::*;
 /// TK-049 (admit_soa): `admits` по строкам `AdmitRow` даёт те же ответы, что по записям касаний.
 #[test]
 fn admit_rows_match_records() {
-    use super::sets::{AdmitRow, TouchFilter};
+    use super::sets::{AdmitRow, Reject, TouchFilter};
     let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 5 };
     let touches: Vec<TouchRecord> = (0..64_i64)
         .map(|i| TouchRecord {
@@ -53,6 +53,13 @@ fn admit_rows_match_records() {
             .map(|(i, _)| f.admits(i))
             .collect();
         assert_eq!(got, want, "{spec}");
+        // TK-346: причина отказа есть ровно у отвергнутых, у набора без ключей отказ — только порог плотности.
+        let why: Vec<Option<Reject>> = (0..touches.len()).map(|i| f.reject(i)).collect();
+        let by_reason: Vec<bool> = why.iter().map(Option::is_none).collect();
+        assert_eq!(by_reason, want, "{spec}: reject() согласован с admits()");
+        if spec == "a:" {
+            assert!(why.iter().all(|w| matches!(w, None | Some(Reject::Holds))));
+        }
     }
 }
 

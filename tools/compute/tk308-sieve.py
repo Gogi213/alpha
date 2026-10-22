@@ -38,7 +38,7 @@ for m in range(1, 10):
     mo = f"2026-{m:02d}"
     b1c[mo] = json.load(open(f"/data/p12r3a/closes-sym-b1-cap0-{mo}.json")).get(B1, {}).get(mo, {}).get("0", [])
     for run in set(RUNS.values()):
-        d = json.load(open(f"/data/tk0279/{run}/psim/closes-sym-p14f1-cap0-{mo}.json"))
+        d = json.load(open(f"/data/tk0341/keep/{run}/psim/closes-sym-p14f1-cap0-{mo}.json"))
         dd = closes.setdefault(run, {}).setdefault(mo, {})
         for k, v in d.items():
             pre, form = k.split("@", 1)

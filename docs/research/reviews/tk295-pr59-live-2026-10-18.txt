@@ -11,3 +11,9 @@ loadavg 12.25 12.20 12.18
   (test_no_reserve_without_gate_in_queue, test_work_takes_all_without_gate, test_gate_submitted_after_work_took_reserve_waits,
    test_reserve_released_for_gate_wider_than_reserve). Код: g_resv = gate_resv if gate_active else 0 — дословно В-34 (decisions.md:182).
 CI PR #59: все завершённые проверки SUCCESS.
+
+--- Судья, закрытие после слияния (18.10 ~02:00 GMT+4) ---
+gh pr view 59: MERGED, голова 30e456b4 (= принятая), слияние 56ec5618.
+md5 origin/master: alsched.py 682cdad9, sched_cfg.py 68f7183c.
+ssh calc md5 /data/sched: alsched.py 682cdad9, sched_cfg.py 68f7183c — равны master.
+alpha-sched: active; loadavg 10.85 (calc 23:59:54 CEST).

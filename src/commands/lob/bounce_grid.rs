@@ -728,6 +728,48 @@ impl<'a> GridRun<'a> {
                     f.rows = Some(&rows_day);
                     !day.touches.iter().enumerate().any(|(ti, _)| f.admits(ti))
                 });
+            // TK-346: диагностика — на stderr счётчик первой причины отказа касаний по наборам
+            // (`ALPHA_REJECT_REASONS=1`; `=list` — ещё строка на каждое отвергнутое касание). Счёт не трогает.
+            if let Some(mode_env) = std::env::var_os("ALPHA_REJECT_REASONS") {
+                let list = mode_env == "list";
+                for set in sets.iter() {
+                    let mut f = TouchFilter::from_set(set, tick, lot, &ctx);
+                    f.holds = Some(&holds_day);
+                    f.rows = Some(&rows_day);
+                    let mut counts = [0usize; sets::Reject::ALL.len()];
+                    let mut passed = 0usize;
+                    for (ti, t) in day.touches.iter().enumerate() {
+                        match f.reject(ti) {
+                            None => passed += 1,
+                            Some(r) => {
+                                counts[sets::Reject::ALL
+                                    .iter()
+                                    .position(|a| *a == r)
+                                    .unwrap_or(0)] += 1;
+                                if list {
+                                    eprintln!(
+                                        "reject-touch {symbol} {} set={} ti={ti} start_ms={} side={:?} price_tick={} size_at_touch={} reason={}",
+                                        day.day, set.name, t.start_ms, t.side, t.price_tick, t.size_at_touch, r.name()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    let by: Vec<String> = sets::Reject::ALL
+                        .iter()
+                        .zip(counts)
+                        .filter(|&(_, c)| c > 0)
+                        .map(|(r, c)| format!("{}={c}", r.name()))
+                        .collect();
+                    eprintln!(
+                        "reject-reasons {symbol} {} set={} touches={} admitted={passed} {}",
+                        day.day,
+                        set.name,
+                        day.touches.len(),
+                        by.join(" ")
+                    );
+                }
+            }
             // S4: события одних суток, не всей сессии. TK-029: при `--extra-runs` сутки символа
             // читаются один раз на все прогоны с тем же переносом (`SharedEvents`).
             let carry_key = (day.day.clone(), args.carry_root.clone(), carry_window);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TK-340: сито П-17 F2 (383 хеша, R-20261021-002) поверх F1 (292) — плато на F1∪F2; closes F1 /data/tk0279/p17*, F2 /data/tk0315/p17f2 (psim cap 0, без движка) — половина А.
+"""TK-340: сито П-17 F2 (383 хеша, R-20261021-002) поверх F1 (292) — плато на F1∪F2; closes F1 /data/tk0341/keep/p17* (перенесено TK-341), F2 /data/tk0315/p17f2 (psim cap 0, без движка) — половина А.
 Как tk308-sieve (метод тот же); добавлено: fraction 1+2, помесячный ΔSR к B1 (знак авг/сен у Г-135/136/137), сравнение плато F1 до/после.
 Метод — tk237/tk278-sieve (ΔSR по суткам UTC, парный циклический блочный бутстреп, B=4000, seed 14; годна p ≤ 0,20, сделок ≥ 20, суток ≥ 10),
 плато — как registry/master.sieve (rules P-17@r2). Отличия П-17 §4: окно Г-135/136/137 — янв–июл (авг/сен «видели», в сито не входят);
@@ -39,7 +39,7 @@ for m in range(1, 10):
     mo = f"2026-{m:02d}"
     b1c[mo] = json.load(open(f"/data/p12r3a/closes-sym-b1-cap0-{mo}.json")).get(B1, {}).get(mo, {}).get("0", [])
     for run in set(RUNS.values()) | {"p17f2"}:
-        d = json.load(open(f"/data/tk0315/p17f2/psim/closes-sym-p14f1-cap0-{mo}.json" if run == "p17f2" else f"/data/tk0279/{run}/psim/closes-sym-p14f1-cap0-{mo}.json"))
+        d = json.load(open(f"/data/tk0315/p17f2/psim/closes-sym-p14f1-cap0-{mo}.json" if run == "p17f2" else f"/data/tk0341/keep/{run}/psim/closes-sym-p14f1-cap0-{mo}.json"))
         dd = closes.setdefault(run, {}).setdefault(mo, {})
         for k, v in d.items():
             pre, form = k.split("@", 1)

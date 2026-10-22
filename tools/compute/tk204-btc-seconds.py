@@ -95,10 +95,18 @@ def rest_ref(day: str):
     s = int(dt.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc).timestamp()) * 1000
     ref = {}
     for st in (s, s + 1000 * 60000):
-        with urllib.request.urlopen(KL.format(s=st), timeout=30) as r:
-            for k in json.load(r)["result"]["list"]:
-                if s <= int(k[0]) < s + 86400000:
-                    ref[int(k[0])] = k[4]
+        for n in range(6):
+            with urllib.request.urlopen(KL.format(s=st), timeout=30) as r:
+                j = json.load(r)
+            if j.get("retCode") == 0:
+                break
+            print(f"{day}: kline retCode {j.get('retCode')} {j.get('retMsg')}", flush=True)
+            time.sleep(5 * (n + 1))
+        else:
+            raise RuntimeError(f"{day}: kline: {j}")
+        for k in j["result"]["list"]:
+            if s <= int(k[0]) < s + 86400000:
+                ref[int(k[0])] = k[4]
     return ref
 
 

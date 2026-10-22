@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Макет: вкладка «Гипотезы» (TK-271)</title>
+<style>
+/* Макет, не боевая страница. Данные ниже — ПРИМЕР (12 гипотез + 4 метода из ~150); тексты — черновик, боевые перепишет Исследователь.
+   Три варианта раскладки переключаются сверху: A — карточки по классам, B — таблица с воронкой статусов, C — список + разбор. */
+:root{--bg:#0e1116;--surface:#151a21;--surface2:#1b212a;--line:#28303b;--text:#e7eaf0;--muted:#8d98a8;--accent:#5b9cff;--accent-bg:rgba(91,156,255,.16);--ok:#2fa874;--ok-bg:rgba(47,168,116,.2);--warn:#d6a13a;--warn-bg:rgba(214,161,58,.2);--bad:#e5534b;--bad-bg:rgba(229,83,75,.2);--font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#f3f5f8;--surface:#fff;--surface2:#eef1f5;--line:#d9dee6;--text:#1a2029;--muted:#5d6877;--accent:#2468d8;--accent-bg:rgba(36,104,216,.12);--ok:#1c8a5a;--ok-bg:rgba(28,138,90,.15);--warn:#a87412;--warn-bg:rgba(168,116,18,.16);--bad:#c23a33;--bad-bg:rgba(194,58,51,.14);color-scheme:light}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.45 var(--font);overflow:hidden}
+button,input{font:inherit;color:inherit}button{cursor:pointer}
+button:focus-visible,input:focus-visible,.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.app{display:flex;flex-direction:column;height:100%}
+.top{display:flex;align-items:center;gap:20px;padding:0 16px;height:48px;flex:none;border-bottom:1px solid var(--line);background:var(--surface)}
+.brand{font-weight:600}
+.tabs{display:flex;gap:2px}.tab{padding:6px 14px;border-radius:6px;border:0;background:none;color:var(--muted);font-weight:500}
+.tab[aria-selected="true"]{background:var(--accent-bg);color:var(--accent)}
+.var{margin-left:auto;display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+.var button{border:1px solid var(--line);background:var(--surface2);border-radius:6px;padding:4px 10px}
+.var button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.view{flex:1;min-height:0;overflow:auto;padding:16px 20px 40px}
+.note{font-size:12.5px;color:var(--muted);margin:0 0 12px}
+.chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:500;white-space:nowrap}
+.s-ok{background:var(--ok-bg);color:var(--ok)}.s-run{background:var(--accent-bg);color:var(--accent)}.s-wait{background:var(--warn-bg);color:var(--warn)}
+.s-no{background:var(--surface2);color:var(--muted);border:1px solid var(--line)}.s-bad{background:var(--bad-bg);color:var(--bad)}
+.fr{display:inline-flex;gap:3px}.fr i{font:normal 11px var(--mono);padding:0 5px;border-radius:4px;border:1px solid var(--line);color:var(--muted)}
+.fr i.on{background:var(--ok-bg);border-color:transparent;color:var(--ok)}.fr i.part{background:var(--warn-bg);border-color:transparent;color:var(--warn)}
+.id{font:12px var(--mono);color:var(--muted)}
+a.lt{color:var(--accent);text-decoration:none;font-size:12.5px}a.lt:hover{text-decoration:underline}
+.search{width:100%;max-width:340px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);margin-bottom:12px}
+h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:18px 0 8px}
+/* A */
+.a{display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px}
+.rail{display:flex;flex-direction:column;gap:2px;position:sticky;top:0;align-self:start}
+.rail button{text-align:left;border:0;background:none;padding:6px 10px;border-radius:8px;color:var(--muted);display:flex;justify-content:space-between}
+.rail button.on{background:var(--accent-bg);color:var(--accent)}.rail i{font:normal 12px var(--mono)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.card h3{margin:0;font-size:14.5px;font-weight:600}.card p{margin:0;color:var(--muted);font-size:13.5px}
+.card .ft{display:flex;gap:10px;align-items:center;margin-top:2px;flex-wrap:wrap}
+.card.m{border-left:3px solid var(--accent)}
+/* B */
+.funnel{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.funnel button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 14px;text-align:left;min-width:118px}
+.funnel button.on{border-color:var(--accent);background:var(--accent-bg)}
+.funnel b{display:block;font-size:20px;font-weight:600}.funnel span{font-size:12.5px;color:var(--muted)}
+.tbl{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.row{display:grid;grid-template-columns:62px minmax(0,1fr) 130px 110px 150px;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid var(--line);cursor:pointer}
+.row:first-child{border-top:0}.row:hover{background:var(--surface2)}
+.row.h{cursor:default;color:var(--muted);font-size:12px;background:var(--surface2)}
+.more{grid-column:1/-1;padding:2px 0 4px 74px;color:var(--muted);font-size:13.5px;display:none}
+.row.open .more{display:block}.more b{color:var(--text);font-weight:500}
+/* C */
+.c{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;height:100%}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:auto}
+.li{display:flex;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);cursor:pointer}
+.li:first-child{border-top:0}.li.on{background:var(--accent-bg)}.li span.t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.det{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 22px;overflow:auto}
+.det h3{margin:0 0 4px;font-size:18px}.det dl{display:grid;grid-template-columns:150px 1fr;gap:8px 16px;margin:14px 0 0}
+.det dt{color:var(--muted);font-size:13px}.det dd{margin:0}
+.hid{display:none}
+</style></head><body>
+<div class="app">
+  <header class="top">
+    <span class="brand">alpha · бэктест</span>
+    <div class="tabs" role="tablist">
+      <button class="tab" aria-selected="false">Запуск</button><button class="tab" aria-selected="false">Летопись</button>
+      <button class="tab" aria-selected="true">Гипотезы</button><button class="tab" aria-selected="false">Прогоны</button>
+    </div>
+    <div class="var">макет:
+      <button data-v="a" class="on">A · карточки</button><button data-v="b">B · таблица</button><button data-v="c">C · список + разбор</button>
+    </div>
+  </header>
+  <main class="view" id="view"></main>
+</div>
+<script>
+// ПРИМЕР данных. Статус боевой — из реестра автоматически (Летопись + EXPERIMENTS + пул), тексты — Исследователь.
+var ST={ok:['Посчитана','s-ok'],run:['В счёте','s-run'],wait:['Ждёт решения','s-wait'],nodata:['Нет данных','s-no'],nocode:['Нет кода','s-no'],bad:['Отвергнута','s-bad']};
+var CLS=['Методы','Стена','Режим','Подход','Реакция','Вход','Выход','Портфель','Издержки','Направление'];
+var H=[
+ ['Г-01','Методы','Собираем, чем отличаются стены, которые устояли, от тех, что пробили','Берём все подходы цены к старым стенам и смотрим, по каким признакам «устояла» и «пробили» расходятся. Не торговая идея — способ собрать факты.','ok','F1 F2 F3',0,'метод'],
+ ['Г-02','Методы','Проверка вперёд: подбираем на одном месяце, проверяем на следующем','Защита от самообмана: настройки подбираем на месяце N и честно проверяем на N+1, не подглядывая.','wait','',0,'метод'],
+ ['Г-03','Методы','Контроль: то же самое на случайном месте без стены','Если на случайной цене результат такой же — значит дело не в стене. Это проверка, что стена вообще что-то значит.','run','F1',3,'метод'],
+ ['М-04','Методы','Размер на первом подходе больше, чем на следующих','Пробуем входить крупнее при первом касании уровня и мельче при повторных; смотрим, при каком множителе лучше.','wait','',0,'метод'],
+ ['Г-117','Выход','Тейк «сползает» к рынку, если долго не исполняется','Если заявка на прибыль висит и не исполняется, понемногу двигаем её ближе к цене — но не ниже минимальной прибыли.','ok','F1',81,''],
+ ['Г-82','Реакция','Каскад ликвидаций: всплеск однонаправленных сделок','Когда за полминуты-минуту идёт лавина сделок в одну сторону, цена обычно проносится дальше. Не входим против такого потока.','nodata','',0,''],
+ ['Г-147','Вход','Входить в момент касания уровня, а не на подходе','Сейчас вход взводится на подходе. Проверяем вариант: ждать, пока цена реально коснулась стены.','nocode','',0,''],
+ ['Г-13','Выход','Стоп под волатильность монеты вместо общих 2%','Тихой монете 2% — далеко, бурной — шум. Подгоняем стоп под характер монеты.','bad','F1',12,'отвергнута: в обоих проверенных месяцах хуже, повторять не нужно'],
+ ['Г-72','Подход','Лаг альта за BTC: входим, пока альт не отреагировал','Альты чуть запаздывают за биткоином. Если BTC уже двинулся, а монета ещё нет — успеваем зайти.','wait','',0,''],
+ ['Г-146','Режим','Выключатель по тренду BTC за 24 часа','Когда биткоин сутки ползёт в одну сторону, стены держатся хуже. Тогда новые входы отключаем.','wait','',0,''],
+ ['Г-108','Выход','Цена вернулась под уровень после входа — выходим','Купили у стены, цена ушла обратно под неё: сценарий не сработал, закрываемся, не ждём стопа.','wait','',0,''],
+ ['Г-134','Стена','Стена с большим «завалом» перед собой пробивается чаще','Много заявок перед стеной — не защита, а признак того, что её уже сносят. Проверяем обратную Г-28.','wait','',0,''],
+ ['Г-102','Вход','После стопа входим осторожнее и постепенно возвращаемся','После стопа требуем больший отступ от уровня, затем плавно снижаем — мягче, чем блок монеты.','wait','',0,'']
+];
+var mode='a',cls='Все',flt='all',sel='Г-117',q='';
+function fr(s){return '<span class="fr">'+['F1','F2','F3'].map(function(f){return '<i class="'+(s.indexOf(f)>=0?'on':'')+'">'+f+'</i>'}).join('')+'</span>'}
+function chip(s){return '<span class="chip '+ST[s][1]+'">'+ST[s][0]+'</span>'}
+function lt(n){return n?'<a class="lt" href="#">'+n+' стр. Летописи →</a>':'<span class="id">в Летописи нет</span>'}
+function vis(){return H.filter(function(h){return (cls==='Все'||h[1]===cls)&&(flt==='all'||h[4]===flt)&&(!q||(h[0]+h[2]+h[3]).toLowerCase().indexOf(q)>=0)})}
+function card(h){return '<article class="card'+(h[1]==='Методы'?' m':'')+'"><div style="display:flex;gap:8px;align-items:center"><span class="id">'+h[0]+'</span>'+chip(h[4])+'<span style="margin-left:auto">'+fr(h[5])+'</span></div><h3>'+h[2]+'</h3><p>'+h[3]+'</p>'+(h[7]&&h[7]!=='метод'?'<p><b>Почему:</b> '+h[7]+'</p>':'')+'<div class="ft">'+lt(h[6])+'</div></article>'}
+function A(){
+ var cnt=function(c){return H.filter(function(h){return c==='Все'||h[1]===c}).length};
+ return '<p class="note">Вариант A. Слева классы, справа карточки: что проверяем — два предложения — статус — фракции — ссылка в Летопись. Методы выделены синей полосой и стоят отдельным классом (В-228).</p><input class="search" id="q" placeholder="Поиск по номеру и словам" value="'+q+'"><div class="a"><nav class="rail">'+['Все'].concat(CLS).map(function(c){return '<button data-c="'+c+'"'+(cls===c?' class="on"':'')+'>'+c+'<i>'+cnt(c)+'</i></button>'}).join('')+'</nav><div class="cards">'+vis().map(card).join('')+'</div></div>'}
+function B(){
+ var n=function(s){return H.filter(function(h){return s==='all'||h[4]===s}).length};
+ var f='<div class="funnel">'+[['all','Все']].concat(Object.keys(ST).map(function(k){return [k,ST[k][0]]})).map(function(t){return '<button data-f="'+t[0]+'"'+(flt===t[0]?' class="on"':'')+'><b>'+n(t[0])+'</b><span>'+t[1]+'</span></button>'}).join('')+'</div>';
+ var r=vis().map(function(h){return '<div class="row" tabindex="0"><span class="id">'+h[0]+'</span><span>'+h[2]+'<div class="id">'+h[1]+'</div></span>'+chip(h[4])+fr(h[5])+lt(h[6])+'<div class="more"><b>Простыми словами:</b> '+h[3]+(h[7]&&h[7]!=='метод'?'<br><b>Почему такой статус:</b> '+h[7]:'')+'</div></div>'}).join('');
+ return '<p class="note">Вариант B. Сверху воронка статусов — клик фильтрует. Строка — одна фраза, клик раскрывает пояснение и причину статуса. Самый плотный: влезает ~25 гипотез на экран.</p>'+f+'<div class="tbl"><div class="row h"><span>№</span><span>Что проверяем</span><span>Статус</span><span>Фракции</span><span>Летопись</span></div>'+r+'</div>'}
+function C(){
+ var l=vis(),h=H.filter(function(x){return x[0]===sel})[0]||l[0];
+ var li=l.map(function(x){return '<div class="li'+(x[0]===h[0]?' on':'')+'" data-s="'+x[0]+'"><span class="id">'+x[0]+'</span><span class="t">'+x[2]+'</span>'+chip(x[4])+'</div>'}).join('');
+ return '<p class="note">Вариант C. Слева компактный список с поиском, справа — «разбор» выбранной: идея, как проверяем, что получилось, где смотреть. Читается как короткая статья; методы — в том же списке.</p><div class="c"><div><input class="search" id="q" placeholder="Поиск" value="'+q+'"><div class="list">'+li+'</div></div><section class="det"><span class="id">'+h[0]+' · '+h[1]+'</span><h3>'+h[2]+'</h3>'+chip(h[4])+' '+fr(h[5])+'<dl><dt>Простыми словами</dt><dd>'+h[3]+'</dd><dt>Как проверяем</dt><dd>Вход у стены → фракции F1/F2/F3 → сравнение с базой на тех же сутках.</dd><dt>Что получилось</dt><dd>'+(h[7]&&h[7]!=='метод'?h[7]:(h[4]==='ok'?'Посчитано, числа — в Летописи.':'Пока нечего показать.'))+'</dd><dt>Где смотреть</dt><dd>'+lt(h[6])+'</dd></dl></section></div>'}
+function draw(){document.getElementById('view').innerHTML=(mode==='a'?A():mode==='b'?B():C());
+ var s=document.getElementById('q');if(s){s.oninput=function(){q=s.value.toLowerCase();var p=s.selectionStart;draw();var n=document.getElementById('q');n.focus();n.setSelectionRange(p,p)}}}
+document.addEventListener('click',function(e){var t=e.target.closest('[data-v],[data-c],[data-f],[data-s],.row:not(.h)');if(!t)return;
+ if(t.dataset.v){mode=t.dataset.v;document.querySelectorAll('.var button').forEach(function(b){b.classList.toggle('on',b===t)});draw()}
+ else if(t.dataset.c){cls=t.dataset.c;draw()}else if(t.dataset.f){flt=t.dataset.f;draw()}else if(t.dataset.s){sel=t.dataset.s;draw()}
+ else t.classList.toggle('open')});
+draw();
+</script></body></html>

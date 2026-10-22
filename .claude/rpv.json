@@ -1,0 +1,17 @@
+{
+  "max_parallel": 8,
+  "role_parallel": {"engineer": 6, "researcher": 4, "judge": 4},
+  "role_mcp": "none",
+  "watched_aliases": ["calc"],
+  "job_state_cmd": "sh /data/sched/jobstate.sh {id}",
+  "job_owners_cmd": "sh /data/sched/jobowners.sh",
+  "guard_remote_roots": [
+    "~/alpha/", "$home/alpha/", "${home}/alpha/", "/home/deck/alpha/",
+    "/opt/alpha-compute/", "/etc/systemd/system/alpha-bus-watcher.service.d/",
+    "/root/tk0", "/data/tk0", "/data/alpha-oldtick/", "/data/registry/", "/data/sched/", "/tmp/", "/opt/alpha-board/",
+    "/opt/alpha-archive/stage/", "/opt/alpha-archive-tk021/dup-reimport/",
+    "/opt/alpha-launch/", "/data/launch/", "/etc/alpha-launch/", "/etc/systemd/system/alpha-launch"
+  ],
+  "guard_stage": "/dev/shm/alpha-stage",
+  "guard_forbidden_hosts": ["139.99.91.22"]
+}
