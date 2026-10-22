@@ -35,10 +35,19 @@ STABLE = re.compile(r"^(USDC|USD1|FDUSD|USDE|TUSD|DAI|PYUSD|USDD|RLUSD|USDT0|EUR
 FUNCS = {"abs": np.abs, "isnan": np.isnan}
 
 
+QCALL = re.compile(r"^q(\d+)$")
+
+
 def parse(expr):
-    """where → (вычислитель(env)->bool-массив, множество имён). Только безопасный набор узлов ast."""
+    """where → (вычислитель(env)->bool-массив, множество имён, ключи q-термов). Только безопасный набор узлов ast."""
     tree = ast.parse(expr, mode="eval").body
     names = set()
+    qkeys = []
+
+    def qkey(n):
+        p = int(QCALL.match(n.func.id).group(1))
+        assert 1 <= len(n.args) <= 2 and 0 < p < 100, f"where: qNN(признак[, маска]) в «{expr}»"
+        return f"q{p}|{ast.unparse(n.args[0])}|{ast.unparse(n.args[1]) if len(n.args) == 2 else ''}"
 
     def ev(n, env):
         if isinstance(n, ast.BoolOp):
@@ -71,17 +80,25 @@ def parse(expr):
             return n.value
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in FUNCS and len(n.args) == 1:
             return FUNCS[n.func.id](ev(n.args[0], env))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and QCALL.match(n.func.id):
+            return env["_" + qkey(n)]  # порог монеты за предыдущие 7 суток — скаляр, кладёт воркер
         raise ValueError(f"where: недопустимый узел {type(n).__name__} в «{expr}»")
 
     def collect(n):
+        funcs = set()
         for c in ast.walk(n):
             if isinstance(c, ast.Name):
                 names.add(c.id)
             if isinstance(c, ast.Call):
-                names.discard(c.func.id)
+                funcs.add(c.func.id)
+                if QCALL.match(c.func.id):
+                    qkeys.append(qkey(c))
+        names.difference_update(funcs)  # имена функций — не колонки (BFS видит Name после Call)
     collect(tree)
-    ev(tree, {k: np.zeros(1) for k in names})  # проба: синтаксис и узлы проверены до прохода
-    return (lambda env: ev(tree, env)), names
+    probe = {k: np.zeros(1) for k in names}
+    probe.update({"_" + k: 0.0 for k in qkeys})
+    ev(tree, probe)  # проба: синтаксис и узлы проверены до прохода
+    return (lambda env: ev(tree, env)), names, sorted(set(qkeys))
 
 
 def hdr(root, sym, day):
@@ -103,28 +120,32 @@ def init(cfg):
     global CFG
     CFG = cfg
     CFG["_hyp"] = []
+    need, qk = set(), set()
     for h in cfg["hypotheses"]:
-        f, names = parse(h["where"])
-        CFG["_hyp"].append((h["id"], f, names, float(h.get("sign", 1))))
-    need = set()
-    for _, _, names, _ in CFG["_hyp"]:
+        f, names, qs = parse(h["where"])
+        CFG["_hyp"].append((h["id"], f, names, float(h.get("sign", 1)), qs))
         need |= names
+        qk |= set(qs)
     CFG["_need"] = need
+    CFG["_qk"] = sorted(qk)  # q-термы «qNN|признак|маска»: признак и маска считаются по строкам файла монеты
+    CFG["_qf"] = {}
+    for k in CFG["_qk"]:
+        _, feat, mask = k.split("|")
+        CFG["_qf"][k] = (int(k[1:k.index("|")]), parse(feat)[0], parse(mask)[0] if mask else None)
     CFG["_cols"] = sorted((need - DERIVED) | set(VAL) | set(BASE) | ({"price_tick", "size_at_touch"} if "usd" in need else set()))
 
 
-def work(a):
-    pop, src, mon, p = a
-    sym = os.path.basename(p)[len("touches-"):-4]
+def load(src, mon, sym, p):
+    """Файл (монета, сутки) → (env, days, n_rows); None — нет колонок; n_rows 0 — пусто."""
     with open(p, newline="") as fh:
         r = csv.reader(fh)
         h = next(r)
         ix = {c: i for i, c in enumerate(h)}
         if any(c not in ix for c in CFG["_cols"]):
-            return a, None, None
+            return None
         rows = list(r)
     if not rows:
-        return a, [], []
+        return {}, None, 0
     cols = list(zip(*rows))
     env = {c: np.array([v or "nan" for v in cols[ix[c]]], dtype=float) for c in CFG["_cols"] if c != "day_utc"}
     days = np.array(cols[ix["day_utc"]])
@@ -138,20 +159,54 @@ def work(a):
     w[np.isnan(w)] = 0.0
     env["w20"] = w
     if "usd" in CFG["_need"]:
-        out_nan = np.full(n_rows, np.nan)
-        usd = out_nan.copy()
+        usd = np.full(n_rows, np.nan)
         for d in np.unique(days):
             g = hdr(CFG["roots"][src].format(m=mon), sym, d)
             if g is not None:
                 m = days == d
                 usd[m] = env["price_tick"][m] * g[0] * env["size_at_touch"][m] * g[1]
         env["usd"] = usd
+    return env, days, n_rows
+
+
+def feats(o):
+    """Значения q-признаков файла (конечные, по маске) — для порога монеты по окну суток."""
+    if o is None or o[2] == 0:
+        return {k: np.empty(0) for k in CFG["_qk"]}
+    env, _, n_rows = o
+    out = {}
+    for k, (_, ff, mf) in CFG["_qf"].items():
+        v = np.broadcast_to(np.asarray(ff(env), dtype=float), (n_rows,))
+        m = np.isfinite(v)
+        if mf is not None:
+            m = m & np.broadcast_to(np.asarray(mf(env), dtype=bool), (n_rows,))
+        out[k] = v[m]
+    return out
+
+
+def thresholds(fs, calib):
+    """Порог qNN каждого q-терма по объединению суток fs; пусто → nan (условие ложно). calib — порог по калибровочному отрезку."""
+    out = {"_calib": float(calib)}
+    for k, (p, _, _) in CFG["_qf"].items():
+        a = np.concatenate([f[k] for f in fs]) if fs else np.empty(0)
+        out["_" + k] = float(np.quantile(a, p / 100.0)) if a.size else float("nan")
+    return out
+
+
+def evaluate(o, thr):
+    """Один файл: все гипотезы → (out: [(гипотеза, сутки, вектор)], hist). thr — пороги q-термов монеты на этот файл."""
+    if o is None:
+        return None, None
+    env, days, n_rows = o
+    if n_rows == 0:
+        return [], []
+    env.update(thr)
     vals = np.stack([env[c] for c in VAL], axis=1)
     ok = ~np.isnan(vals)
     z = np.where(ok, vals, 0.0)
     out, hist = [], []
     ud, inv = np.unique(days, return_inverse=True)
-    for hi, (hid, f, _, sign) in enumerate(CFG["_hyp"]):
+    for hi, (hid, f, _, sign, qs) in enumerate(CFG["_hyp"]):
         mask = np.asarray(f(env), dtype=bool)
         if mask.shape == ():
             mask = np.full(n_rows, bool(mask))
@@ -170,10 +225,58 @@ def work(a):
                 u, c = np.unique(KM + np.where(x < 0, -k, k) + j * NB, return_counts=True)
                 hist.append((hi, u, c))
         dm = inv[mask]
+        calib = thr.get("_calib", 0.0) if qs else 0.0  # событий с порогом по калибровочному отрезку (первые 7 суток монеты)
         for k in np.unique(dm):
             s = dm == k
-            out.append((hi, str(ud[k]), np.concatenate([[s.sum()], zz[s].sum(axis=0), oo[s].sum(axis=0)])))
-    return a, out, hist
+            out.append((hi, str(ud[k]), np.concatenate([[s.sum()], zz[s].sum(axis=0), oo[s].sum(axis=0), [calib * s.sum()]])))
+    return out, hist
+
+
+def work(a):
+    """Задача = монета в одном рынке и популяции: файлы по суткам в порядке дат. q-порог монеты на сутки d — по суткам
+    [d−7, d−1] (причинно); первые 7 суток монеты (d < первая + 7) — по калибровочному отрезку [первая, первая + 6]
+    (в том числе по себе), число таких событий — в клетке (В-211). → [(месяц, путь, out, hist)] по файлам emit."""
+    pop, src, sym, files = a
+    res = []
+    if not CFG["_qk"]:
+        for dt, mon, p, emit in files:
+            if emit:
+                res.append((mon, p, *evaluate(load(src, mon, sym, p), {})))
+        return a, res
+    day = [int(np.datetime64(f[0], "D").astype(np.int64)) for f in files]
+    first = day[0]
+    emits = [i for i, f in enumerate(files) if f[3]]
+    need = set()
+    for i in emits:
+        lo = first if day[i] < first + 7 else day[i] - 7
+        hi = first + 6 if day[i] < first + 7 else day[i]
+        need |= {j for j in range(len(files)) if lo <= day[j] <= hi}
+    fs = {}  # индекс файла → q-признаки (сутки в окне)
+    cal = [j for j in range(len(files)) if day[j] < first + 7 and j in need]
+    keep = any(files[j][3] for j in cal)
+    held = {}
+    for j in cal:
+        o = load(src, files[j][1], sym, files[j][2])
+        fs[j] = feats(o)
+        if keep:
+            held[j] = o
+    if keep:
+        thr = thresholds([fs[j] for j in cal], 1)
+        for j in cal:
+            if files[j][3]:
+                res.append((files[j][1], files[j][2], *evaluate(held[j], dict(thr))))
+    held = None
+    for i, (dt, mon, p, emit) in enumerate(files):
+        if day[i] < first + 7 or i not in need:
+            continue
+        o = load(src, mon, sym, p)
+        fs[i] = feats(o)
+        if emit:
+            win = [fs[j] for j in fs if day[i] - 7 <= day[j] < day[i]]
+            res.append((mon, p, *evaluate(o, thresholds(win, 0))))
+        for j in [j for j in fs if day[j] < day[i] - 7]:
+            del fs[j]
+    return a, res
 
 
 def merge(agg, key, day, sym, vec):
@@ -205,9 +308,10 @@ def cell(a, key, B, seed, H):
     n = tot[0]
     top = sorted(a["sym"].items(), key=lambda kv: -kv[1][0])[:3]
     row = {"n": int(n), "n_days": len(a["day"]), "n_coins": len(a["sym"]), "top3_n_share": sum(v[0] for _, v in top) / n}
-    S = np.divide(tot[1:1 + NV], tot[1 + NV:], out=np.full(NV, np.nan), where=tot[1 + NV:] > 0)
+    row["n_calib"] = int(tot[-1])  # событий с q-порогом по калибровочному отрезку (первые 7 суток монеты); 0 — нет q-термов или всё причинно
+    S = np.divide(tot[1:1 + NV], tot[1 + NV:1 + 2 * NV], out=np.full(NV, np.nan), where=tot[1 + NV:1 + 2 * NV] > 0)
     ex = tot - sum(v for _, v in top)
-    Sx = np.divide(ex[1:1 + NV], ex[1 + NV:], out=np.full(NV, np.nan), where=ex[1 + NV:] > 0)
+    Sx = np.divide(ex[1:1 + NV], ex[1 + NV:1 + 2 * NV], out=np.full(NV, np.nan), where=ex[1 + NV:1 + 2 * NV] > 0)
     D = np.array(list(a["day"].values()))
     rng = np.random.default_rng(seed + zlib.crc32("|".join(key).encode()))
     lo = np.full(NV, np.nan)
@@ -215,7 +319,7 @@ def cell(a, key, B, seed, H):
     if len(D) > 1 and B:
         idx = rng.integers(0, len(D), size=(B, len(D)))
         sb = D[idx, 1:1 + NV].sum(axis=1)
-        cb = D[idx, 1 + NV:].sum(axis=1)
+        cb = D[idx, 1 + NV:1 + 2 * NV].sum(axis=1)
         with np.errstate(invalid="ignore", divide="ignore"):
             bs = sb / cb
         lo, hi = np.nanpercentile(bs, 2.5, axis=0), np.nanpercentile(bs, 97.5, axis=0)
@@ -233,31 +337,24 @@ def cell(a, key, B, seed, H):
 
 
 def jobs_for(cfg, nd):
-    jobs = []
-    only = cfg.get("months")  # необязательно: {"fut": ["jul"], "spot": ["sep"]} — только эти месяцы (гейт малым срезом)
+    """Задачи (pop, src, sym, [(дата, месяц, путь, emit)]) — по монете, файлы по возрастанию даты. emit — месяц в cfg["months"]
+    (необязательно: {"fut": ["jul"], "spot": ["sep"]} — гейт малым срезом); файлы вне months нужны только q-порогам (окно 7 суток)."""
+    only = cfg.get("months")
+    tasks = []
     for pop, spec in cfg["caches"].items():
         for src, g in spec.items():
-            if "{m}" in g:
-                for m in MON:
-                    if only and m not in only.get(src, MON):
-                        continue
-                    by = collections.defaultdict(list)
-                    for p in glob.glob(g.format(m=m)):
-                        by[os.path.basename(p)].append(p)
-                    for ps in by.values():
-                        ps.sort()
-                        jobs += [(pop, src, m, p) for p in (ps[:nd] if nd else ps)]
-            else:
-                by = collections.defaultdict(list)
-                for p in glob.glob(g):
-                    by[os.path.basename(p)].append(p)
-                for ps in by.values():
-                    ps.sort()
-                    for p in (ps[:nd] if nd else ps):
-                        m = MON[int(re.search(r"/D20/\d{4}-(\d\d)", p.replace("\\", "/")).group(1)) - 1]
-                        if not only or m in only.get(src, MON):
-                            jobs.append((pop, src, m, p))
-    return jobs
+            by = collections.defaultdict(list)
+            for m in (MON if "{m}" in g else [None]):
+                for p in glob.glob(g.format(m=m) if m else g):
+                    pp = p.replace("\\", "/")
+                    mon = m or MON[int(re.search(r"/D20/\d{4}-(\d\d)", pp).group(1)) - 1]  # спот: месяц по D20/2026-MM в пути
+                    by[os.path.basename(pp)[len("touches-"):-4]].append((pp.split("/")[-2], mon, p))
+            for sym, fl in sorted(by.items()):
+                fl.sort()
+                if nd:
+                    fl = fl[:nd]
+                tasks.append((pop, src, sym, [(dt, mon, p, not only or mon in only.get(src, MON)) for dt, mon, p in fl]))
+    return tasks
 
 
 def main():
@@ -269,21 +366,23 @@ def main():
     ids = [h["id"] for h in cfg["hypotheses"]]
     assert len(set(ids)) == len(ids), "id гипотез повторяются"
     jobs = jobs_for(cfg, nd)
-    agg, bad, hg = {}, 0, {}
+    nfiles = sum(f[3] for j in jobs for f in j[3])
+    agg, bad, hg, done = {}, 0, {}, 0
     t0 = time.time()
-    print(f"jobs {len(jobs)}", file=sys.stderr, flush=True)
+    print(f"tasks {len(jobs)} files {nfiles}", file=sys.stderr, flush=True)
     with mp.Pool(int(os.environ.get("NX", "15")), initializer=init, initargs=(cfg,)) as pool:
-        for i, ((pop, src, mon, p), o, hl) in enumerate(pool.imap_unordered(work, jobs, chunksize=8), 1):
-            if i % 100 == 0:
-                print(f"done {i}/{len(jobs)} {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
-            if o is None:
-                bad += 1
-                continue
-            sym = os.path.basename(p)[len("touches-"):-4]
-            for hi, day, vec in o:
-                merge(agg, (ids[hi], pop, src, mon), day, sym, vec)
-            for hi, u, c in hl:
-                np.add.at(hg.setdefault((ids[hi], pop, src, mon), np.zeros(len(HD) * NB, dtype=np.int64)), u, c)
+        for (pop, src, sym, _), res in pool.imap_unordered(work, jobs, chunksize=1):
+            for mon, p, o, hl in res:
+                done += 1
+                if done % 100 == 0:
+                    print(f"done {done}/{nfiles} {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
+                if o is None:
+                    bad += 1
+                    continue
+                for hi, day, vec in o:
+                    merge(agg, (ids[hi], pop, src, mon), day, sym, vec)
+                for hi, u, c in hl:
+                    np.add.at(hg.setdefault((ids[hi], pop, src, mon), np.zeros(len(HD) * NB, dtype=np.int64)), u, c)
     B, seed = int(cfg.get("boot", 1000)), int(cfg.get("seed", 20261022))
     rows = {k: cell(a, k, B, seed, hg.get(k, np.zeros(len(HD) * NB, dtype=np.int64)).reshape(len(HD), NB)) for k, a in agg.items()}
     hs = [c for c in rows[next(iter(rows))] if c.startswith("S_m_")] if rows else []
@@ -298,7 +397,7 @@ def main():
         for k in sorted(rows, key=lambda k: (ids.index(k[0]), k[1], k[2], MON.index(k[3]))):
             w.writerow(list(k) + [repr(float(rows[k][c])) if isinstance(rows[k][c], (float, np.floating)) else rows[k][c] for c in cols[4:]])
     hashes = len(ids) * sum(len(v) for v in cfg["caches"].values())
-    json.dump({"jobs": len(jobs), "bad_header_files": bad, "hypotheses": len(ids), "cells": len(rows),
+    json.dump({"jobs": nfiles, "bad_header_files": bad, "hypotheses": len(ids), "cells": len(rows),
                "hashes_hyp_x_pop_x_src_x_month": len(rows), "hyp_x_pop_x_src": hashes}, open(os.path.join(out, "pseudotest-summary.json"), "w"))
     open(os.path.join(out, "pseudotest.done"), "w").write("ok\n")
 

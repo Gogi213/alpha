@@ -1,0 +1,58 @@
+{
+ "seed": 20261022,
+ "boot": 1000,
+ "caches": {
+  "event": {
+   "fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/study/approaches/D20/2026-*/touches-*USDT.csv",
+   "spot": "/data/tk0319/jrn/2026-*/wt/sub/D20/2026-*/touches-*USDT.csv"
+  }
+ },
+ "roots": {
+  "fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/root",
+  "spot": "/data/tk0319/e-{m}/root"
+ },
+ "hypotheses": [
+  {
+   "id": "H01-08",
+   "where": "first and age_ms < 60000 and size_at_touch >= q90(size_at_touch)",
+   "sign": -1,
+   "note": "fresh_big_spoof: знак break; q90 размера монеты за пред. 7 суток по всем касаниям кэша D20"
+  },
+  {
+   "id": "H01-11",
+   "where": "first and size_at_touch >= q90(size_at_touch) and age_ms >= 3600000 and round_zeros >= 1",
+   "sign": 1,
+   "note": "setup_whole: размер>=q90 И возраст>=1ч И круглое>=1"
+  },
+  {
+   "id": "H01-15",
+   "where": "1 <= touch_index <= 2 and size_at_touch >= q90(size_at_touch)",
+   "sign": 1,
+   "note": "touch_2_3_big: номер касания 2-3 (touch_index 1..2, 0-based) и размер>=q90"
+  },
+  {
+   "id": "H02-01a",
+   "where": "approach_1s >= 2.5",
+   "sign": 1,
+   "note": "подход>=2.5 бп, колонка approach_1s (вариант окна; колонка не названа в банке)"
+  },
+  {
+   "id": "H02-01b",
+   "where": "approach_10s >= 2.5",
+   "sign": 1,
+   "note": "подход>=2.5 бп, колонка approach_10s (вариант окна; колонка не названа в банке)"
+  },
+  {
+   "id": "H02-02",
+   "where": "sigma_600s_bps > 0 and approach_10s / sigma_600s_bps >= q90(approach_10s / sigma_600s_bps)",
+   "sign": 1,
+   "note": "импульс в σ: approach_10s / sigma_600s_bps >= q90 монеты за пред. 7 суток"
+  },
+  {
+   "id": "H01-16",
+   "where": "touch_index >= 3",
+   "sign": 1,
+   "note": "канарейка: = часть 1 (регресс движка, должна совпасть до последнего знака)"
+  }
+ ]
+}
