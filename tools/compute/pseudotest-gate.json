@@ -1,0 +1,7 @@
+{"seed": 20261022, "boot": 1000,
+ "caches": {"event": {"fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/study/approaches/D20/2026-*/touches-*USDT.csv",
+                      "spot": "/data/tk0319/jrn/2026-*/wt/sub/D20/2026-*/touches-*USDT.csv"}},
+ "roots": {"fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/root", "spot": "/data/tk0319/e-{m}/root"},
+ "hypotheses": [
+  {"id": "first_lt100", "where": "first and w20 < 100", "sign": 1, "note": "гейт: g015 touch=first strength=lt100"},
+  {"id": "rep_ge1000", "where": "rep and w20 >= 1000", "sign": 1, "note": "гейт: g015 touch=rep strength=ge1000"}]}
