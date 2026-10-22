@@ -4,6 +4,7 @@ const DAY_MS: i64 = 86_400_000;
 const SOD: i64 = 36_000;
 
 struct Day {
+    regime: Vec<u8>,
     mid: Vec<f64>,
     sigma: Vec<f64>,
     spans: Vec<Span>,
@@ -11,18 +12,23 @@ struct Day {
 
 // Плоские сутки: mid 100, σ240 = 5 bps. Бид-стена с dist_sigma 2 → уровень 99,9 (тик 0,01 → 9990), mid на 10 bps выше.
 fn flat() -> Day {
+    flat_r(0)
+}
+
+fn flat_r(r: u8) -> Day {
     Day {
+        regime: vec![r; DAY_S as usize],
         mid: vec![100.0; DAY_S as usize],
         sigma: vec![5.0; DAY_S as usize],
         spans: Vec::new(),
     }
 }
 
-fn ctx(d: &Day, idx: i32, regime: u8) -> DayCtx<'_> {
+fn ctx(d: &Day, idx: i32) -> DayCtx<'_> {
     DayCtx {
         day: idx,
         start_ms: i64::from(idx) * DAY_MS,
-        regime,
+        regime: &d.regime,
         tick: 0.01,
         mid: &d.mid,
         sigma: &d.sigma,
@@ -55,14 +61,14 @@ fn params(k: usize, tod: i64) -> Params {
     }
 }
 
-fn zero_cov(_: &DayCtx, _: usize) -> [f64; NCOV] {
+fn zero_cov(_: &CovIn) -> [f64; NCOV] {
     [0.0; NCOV]
 }
 
 #[test]
 fn matches_other_day_with_pseudo_level_and_arm() {
     let (d0, d1) = (flat(), flat());
-    let days = [ctx(&d0, 0, 0), ctx(&d1, 1, 0)];
+    let days = [ctx(&d0, 0), ctx(&d1, 1)];
     let (c, st) = select_controls("X", &[wall(1, SOD, 0.0)], &days, &params(1, 5), zero_cov);
     assert_eq!(c.len(), 1);
     assert!(st.unmatched.is_empty());
@@ -75,14 +81,26 @@ fn matches_other_day_with_pseudo_level_and_arm() {
 
 #[test]
 fn same_day_and_other_regime_are_excluded() {
-    let (d0, d1) = (flat(), flat());
-    let (c, st) = select_controls("X", &[wall(1, SOD, 0.0)], &[ctx(&d0, 0, 0)], &params(1, 5), zero_cov);
+    let (d0, d1) = (flat(), flat_r(1));
+    let (c, st) = select_controls(
+        "X",
+        &[wall(1, SOD, 0.0)],
+        &[ctx(&d0, 0)],
+        &params(1, 5),
+        zero_cov,
+    );
     assert!(c.is_empty());
     assert_eq!(st.unmatched, vec![0]);
     assert_eq!(st.rejects[Reject::SameDay as usize], 1);
-    let (c, st) = select_controls("X", &[wall(1, SOD, 0.0)], &[ctx(&d1, 1, 1)], &params(1, 5), zero_cov);
+    let (c, st) = select_controls(
+        "X",
+        &[wall(1, SOD, 0.0)],
+        &[ctx(&d1, 1)],
+        &params(1, 5),
+        zero_cov,
+    );
     assert!(c.is_empty());
-    assert_eq!(st.rejects[Reject::Regime as usize], 1);
+    assert_eq!(st.rejects[Reject::Regime as usize], 11);
 }
 
 #[test]
@@ -94,7 +112,13 @@ fn real_wall_in_band_rejects_candidate() {
         from_ms: DAY_MS,
         to_ms: 2 * DAY_MS,
     });
-    let (c, st) = select_controls("X", &[wall(1, SOD, 0.0)], &[ctx(&d1, 1, 0)], &params(1, 5), zero_cov);
+    let (c, st) = select_controls(
+        "X",
+        &[wall(1, SOD, 0.0)],
+        &[ctx(&d1, 1)],
+        &params(1, 5),
+        zero_cov,
+    );
     assert!(c.is_empty());
     assert_eq!(st.rejects[Reject::WallInBand as usize], 11);
 }
@@ -109,7 +133,13 @@ fn nearer_same_side_wall_rejects_candidate() {
         from_ms: DAY_MS,
         to_ms: 2 * DAY_MS,
     });
-    let (c, st) = select_controls("X", &[wall(1, SOD, 0.0)], &[ctx(&d1, 1, 0)], &params(1, 5), zero_cov);
+    let (c, st) = select_controls(
+        "X",
+        &[wall(1, SOD, 0.0)],
+        &[ctx(&d1, 1)],
+        &params(1, 5),
+        zero_cov,
+    );
     assert!(c.is_empty());
     assert_eq!(st.rejects[Reject::NearerWall as usize], 11);
 }
@@ -120,7 +150,13 @@ fn crossing_before_arm_is_rejected() {
     d1.mid[(SOD - 4) as usize] = 99.0;
     let day = DAY_S as usize;
     assert_eq!(d1.mid.len(), day);
-    let (c, st) = select_controls("X", &[wall(1, SOD, 0.0)], &[ctx(&d1, 1, 0)], &params(1, 5), zero_cov);
+    let (c, st) = select_controls(
+        "X",
+        &[wall(1, SOD, 0.0)],
+        &[ctx(&d1, 1)],
+        &params(1, 5),
+        zero_cov,
+    );
     assert!(st.rejects[Reject::Crossed as usize] >= 1);
     assert_eq!(c.len(), 1);
 }
@@ -131,7 +167,7 @@ fn no_arm_when_price_never_comes_close() {
     d1.mid.iter_mut().for_each(|m| *m = 100.0);
     let mut w = wall(1, SOD, 0.0);
     w.arm_dist_bps = 5.0;
-    let (c, st) = select_controls("X", &[w], &[ctx(&d1, 1, 0)], &params(1, 5), zero_cov);
+    let (c, st) = select_controls("X", &[w], &[ctx(&d1, 1)], &params(1, 5), zero_cov);
     assert!(c.is_empty());
     assert_eq!(st.rejects[Reject::NoArm as usize], 11);
 }
@@ -139,7 +175,7 @@ fn no_arm_when_price_never_comes_close() {
 #[test]
 fn no_replacement_across_walls() {
     let (d0, d1) = (flat(), flat());
-    let days = [ctx(&d0, 0, 0), ctx(&d1, 1, 0)];
+    let days = [ctx(&d0, 0), ctx(&d1, 1)];
     let walls = [wall(1, SOD, 0.0), wall(2, SOD + 20, 0.0)];
     let (c, st) = select_controls("X", &walls, &days, &params(1, 5), zero_cov);
     assert_eq!(c.len(), 1);
@@ -150,7 +186,7 @@ fn no_replacement_across_walls() {
 #[test]
 fn k_controls_of_one_wall_do_not_overlap_and_run_is_deterministic() {
     let (d0, d1) = (flat(), flat());
-    let days = [ctx(&d0, 0, 0), ctx(&d1, 1, 0)];
+    let days = [ctx(&d0, 0), ctx(&d1, 1)];
     let walls = [wall(1, SOD, 0.0)];
     let (c, _) = select_controls("X", &walls, &days, &params(2, 200), zero_cov);
     assert_eq!(c.len(), 2);
@@ -163,7 +199,7 @@ fn k_controls_of_one_wall_do_not_overlap_and_run_is_deterministic() {
 #[test]
 fn caliper_drops_wall_far_in_covariates() {
     let (d0, d1) = (flat(), flat());
-    let days = [ctx(&d0, 0, 0), ctx(&d1, 1, 0)];
+    let days = [ctx(&d0, 0), ctx(&d1, 1)];
     // Две стены: cov0 = 0 и 10 (SD ≈ 7,07); контроль всегда cov 0 → вторая стена на 1,41 SD дальше caliper 0,5.
     let walls = [wall(1, 20_000, 0.0), wall(2, 60_000, 10.0)];
     let (c, st) = select_controls("X", &walls, &days, &params(1, 5), zero_cov);
@@ -188,8 +224,16 @@ fn smd_and_swap_flags() {
 
 #[test]
 fn second_series_is_asof_and_matches_sigma() {
-    let ms = |ts, b, a| MidSample { ts_ms: ts, bid_tick: b, ask_tick: a };
-    let mids = [ms(-500, 9999, 10001), ms(2_300, 10_000, 10_002), ms(3_000, 10_100, 10_102)];
+    let ms = |ts, b, a| MidSample {
+        ts_ms: ts,
+        bid_tick: b,
+        ask_tick: a,
+    };
+    let mids = [
+        ms(-500, 9999, 10001),
+        ms(2_300, 10_000, 10_002),
+        ms(3_000, 10_100, 10_102),
+    ];
     let sig = SigmaSeries::from_mids(&mids);
     let (mid, sigma) = second_series(&mids, &sig, 0, 5, 0.01);
     // Срез 2300 позже границы 2000 — сек 2 ещё на первом срезе; срез 3000 ≤ границы 3000 — сек 3 уже на нём.
@@ -202,8 +246,25 @@ fn second_series_is_asof_and_matches_sigma() {
 #[test]
 fn second_series_nan_before_first_sample() {
     let sig = SigmaSeries::from_mids(&[]);
-    let m = [MidSample { ts_ms: 2_500, bid_tick: 100, ask_tick: 102 }];
+    let m = [MidSample {
+        ts_ms: 2_500,
+        bid_tick: 100,
+        ask_tick: 102,
+    }];
     let (mid, _) = second_series(&m, &sig, 0, 4, 1.0);
     assert!(mid[0].is_nan() && mid[2].is_nan());
     assert!((mid[3] - 101.0).abs() < 1e-9);
+}
+
+#[test]
+fn covariates_are_computed_after_arm() {
+    let (d0, d1) = (flat(), flat());
+    let days = [ctx(&d0, 0), ctx(&d1, 1)];
+    // Кандидат: взвод через age=10 с после рождения ⇒ ковариата = s_arm − s0 = 10; стена с 10 подходит, с 20 — нет.
+    let walls = [wall(1, 20_000, 10.0), wall(2, 60_000, 20.0)];
+    let arm_gap = |c: &CovIn| [(c.s_arm - c.s0) as f64, 0.0, 0.0];
+    let (c, st) = select_controls("X", &walls, &days, &params(1, 5), arm_gap);
+    assert_eq!(c.len(), 1);
+    assert_eq!(c[0].wall, 0);
+    assert_eq!(st.unmatched, vec![1]);
 }

@@ -5,7 +5,8 @@
 //! `[τ',t'+H]` и `[τ,t+H]` не пересекаются, час `τ'+a_w` в пределах `±tod_window_s` от часа взвода `t`, тот же режим
 //! BTC 4ч; псевдо-уровень стоит на `d_w·σ240(τ')` от `mid(τ')` той же стороны; в `[τ',t']` нет реальной стены на
 //! уровне ±1 тик и нет стены той же стороны ближе `σ240·√(H/240)` от mid; mid не пересекал уровень; взвод `t'` — первая
-//! секунда не раньше `τ'+a_w`, где mid подошёл к уровню на `arm_dist_bps` (не позже `max_wait_s`). Из подходящих —
+//! секунда не раньше `τ'+a_w`, где mid подошёл к уровню на `arm_dist_bps` (не позже `max_wait_s`). Ковариаты пути
+//! (`cov_fn`) считаются ПОСЛЕ поиска взвода — они зависят от уровня и `t'` (Судья, TK-353 п.R4.1 п.3). Из подходящих —
 //! `k` ближайших по стандартизованным ковариатам (метрика Чебышёва, масштаб = SD по реальным стенам монеты) в пределах
 //! `caliper_sd`; ничья — меньший `twin_key(sym, τ', seed)`; без возвращения (окно контроля не пересекает уже занятые).
 //! Стены обходятся в порядке `twin_key(sym, id, seed)`. Числа-параметры — аргументы без умолчаний.
@@ -44,11 +45,12 @@ pub struct Span {
     pub to_ms: i64,
 }
 
-/// Сутки монеты: `mid`/`sigma` по секундам суток (`sigma` в bps, NaN — не определена), `spans` — стены суток.
+/// Сутки монеты: `mid`/`sigma`/`regime` по секундам суток (`sigma` в bps, NaN — не определена; `regime` — режим BTC 4ч
+/// на ту секунду, сравнивается в `τ'+a_w`, Судья TK-353 п.2), `spans` — стены суток.
 pub struct DayCtx<'a> {
     pub day: i32,
     pub start_ms: i64,
-    pub regime: u8,
+    pub regime: &'a [u8],
     pub tick: f64,
     pub mid: &'a [f64],
     pub sigma: &'a [f64],
@@ -119,7 +121,8 @@ pub fn smd(a: &[f64], b: &[f64]) -> f64 {
         return f64::NAN;
     }
     let mean = |x: &[f64]| x.iter().sum::<f64>() / x.len() as f64;
-    let var = |x: &[f64], m: f64| x.iter().map(|v| (v - m).powi(2)).sum::<f64>() / (x.len() as f64 - 1.0);
+    let var =
+        |x: &[f64], m: f64| x.iter().map(|v| (v - m).powi(2)).sum::<f64>() / (x.len() as f64 - 1.0);
     let (ma, mb) = (mean(a), mean(b));
     let pooled = ((var(a, ma) + var(b, mb)) / 2.0).sqrt();
     if pooled == 0.0 {
@@ -156,7 +159,11 @@ pub fn second_series(
             i += 1;
         }
         mid.push(cur);
-        sig.push(sigma.sigma_bps(ts, SIGMA_WINDOW_S as i64).unwrap_or(f64::NAN));
+        sig.push(
+            sigma
+                .sigma_bps(ts, SIGMA_WINDOW_S as i64)
+                .unwrap_or(f64::NAN),
+        );
     }
     (mid, sig)
 }
@@ -173,7 +180,17 @@ struct Cand {
     dist: f64,
 }
 
-fn eval<F: Fn(&DayCtx, usize) -> [f64; NCOV]>(
+/// Вход ковариат кандидата: сутки, секунда рождения `s0`, секунда взвода `s_arm`, псевдо-уровень (цена) и сторона.
+pub struct CovIn<'a, 'b> {
+    pub day: &'a DayCtx<'b>,
+    pub s0: usize,
+    pub s_arm: usize,
+    pub level: f64,
+    pub side: Side,
+    pub arm_dist_bps: f64,
+}
+
+fn eval<F: Fn(&CovIn) -> [f64; NCOV]>(
     w: &WallRec,
     d: &DayCtx,
     s0: usize,
@@ -186,15 +203,10 @@ fn eval<F: Fn(&DayCtx, usize) -> [f64; NCOV]>(
     if !sigma0.is_finite() {
         return Err(Reject::NoSigma);
     }
-    let cov = cov_fn(d, s0);
-    let mut dist = 0.0f64;
-    for j in 0..NCOV {
-        if sd[j] > 0.0 {
-            dist = dist.max((cov[j] - w.cov[j]).abs() / sd[j]);
-        }
-    }
-    if !dist.is_finite() || dist > p.caliper_sd {
-        return Err(Reject::Caliper);
+    let age_s = (w.age_ms / 1000) as usize;
+    let s_a = s0 + age_s;
+    if d.regime.get(s_a).copied() != Some(w.regime) {
+        return Err(Reject::Regime);
     }
     let mid0 = d.mid[s0];
     let off = w.dist_sigma * sigma0 / 1e4;
@@ -207,8 +219,6 @@ fn eval<F: Fn(&DayCtx, usize) -> [f64; NCOV]>(
         Side::Bid => (m - level) / level * 1e4,
         Side::Ask => (level - m) / level * 1e4,
     };
-    let age_s = (w.age_ms / 1000) as usize;
-    let s_a = s0 + age_s;
     let s_end = (s_a + p.max_wait_s as usize).min(d.mid.len().saturating_sub(1));
     let mut arm_s = None;
     for s in s0..=s_end {
@@ -224,6 +234,23 @@ fn eval<F: Fn(&DayCtx, usize) -> [f64; NCOV]>(
     let Some(arm_s) = arm_s else {
         return Err(Reject::NoArm);
     };
+    let cov = cov_fn(&CovIn {
+        day: d,
+        s0,
+        s_arm: arm_s,
+        level,
+        side: w.side,
+        arm_dist_bps: w.arm_dist_bps,
+    });
+    let mut dist = 0.0f64;
+    for j in 0..NCOV {
+        if sd[j] > 0.0 {
+            dist = dist.max((cov[j] - w.cov[j]).abs() / sd[j]);
+        }
+    }
+    if !dist.is_finite() || dist > p.caliper_sd {
+        return Err(Reject::Caliper);
+    }
     let tau_ms = d.start_ms + s0 as i64 * 1000;
     let arm_ms = d.start_ms + arm_s as i64 * 1000;
     let end_ms = arm_ms + p.horizon_s * 1000;
@@ -261,8 +288,8 @@ fn eval<F: Fn(&DayCtx, usize) -> [f64; NCOV]>(
 }
 
 /// Подбор контролей C3 для всех стен монеты. `days` — обучающее окно (сутки с рядами), `cov_fn` — ковариаты в
-/// момент рождения (та же функция, что дала `WallRec.cov`). Возвращает контроли (до `k` на стену) и счётчики.
-pub fn select_controls<F: Fn(&DayCtx, usize) -> [f64; NCOV]>(
+/// взвод (`CovIn`; та же функция, что дала `WallRec.cov`). Возвращает контроли (до `k` на стену) и счётчики.
+pub fn select_controls<F: Fn(&CovIn) -> [f64; NCOV]>(
     sym: &str,
     walls: &[WallRec],
     days: &[DayCtx],
@@ -284,10 +311,6 @@ pub fn select_controls<F: Fn(&DayCtx, usize) -> [f64; NCOV]>(
         for d in days {
             if d.start_ms == day_start_w {
                 st.rejects[Reject::SameDay as usize] += 1;
-                continue;
-            }
-            if d.regime != w.regime {
-                st.rejects[Reject::Regime as usize] += 1;
                 continue;
             }
             let centre = sod_arm - age_s;
