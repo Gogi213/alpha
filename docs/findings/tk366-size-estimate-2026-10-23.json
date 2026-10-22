@@ -1,0 +1,22 @@
+{
+ "fut": {
+  "coins": 754,
+  "todo_coin_days": 62055,
+  "sampled_coins": 63,
+  "head_ok_share": 0.91005291005291,
+  "est_coin_days_with_files": 56038,
+  "est_bytes_gb": 803.2,
+  "median_ob_mb": 7.47,
+  "median_tr_mb": 0.43
+ },
+ "spot": {
+  "coins": 343,
+  "todo_coin_days": 23112,
+  "sampled_coins": 29,
+  "head_ok_share": 1.0,
+  "est_coin_days_with_files": 23112,
+  "est_bytes_gb": 124.8,
+  "median_ob_mb": 4.69,
+  "median_tr_mb": 0.06
+ }
+}
