@@ -69,6 +69,7 @@ pub mod pick;
 pub mod probe;
 mod record;
 mod replay;
+pub mod seconds;
 pub mod session;
 mod shared;
 pub mod sync_basis;
@@ -139,6 +140,7 @@ pub use fee_rate::{run_fee_rate, FeeRateArgs};
 pub use latency::{run_latency, LatencyArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
 pub use probe::{run_probe, ProbeArgs};
+pub use seconds::{run_seconds, SecondsArgs};
 pub use session::{run_session, SessionArgs};
 pub use touches::{run_touches, TouchesArgs};
 pub use trades::{run_trades, TradesArgs};
@@ -242,6 +244,9 @@ pub enum LobCommand {
     /// но без книги и без трекера — сырая строка на сделку (сторона
     /// агрессора, тик и $ цены, лоты, `block`/`rpi`).
     Trades(TradesArgs),
+    /// Посекундный ряд монето-суток (G-015 / TK-358): середина, спред, поток сделок, OBI —
+    /// `<out>/<SYMBOL>-<день>.csv`, 86 400 строк на сутки.
+    Seconds(SecondsArgs),
     /// Что лежит в бинлоге и за что платятся байты (владелец 2026-09-13:
     /// «оптимизировать коллектор сильно — формат файлов, формат записи, тип
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
@@ -308,6 +313,7 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Probe(args) => print_probe(args),
         LobCommand::Touches(args) => print_touches(*args),
         LobCommand::Trades(args) => print_trades(args),
+        LobCommand::Seconds(args) => print_seconds(args),
         LobCommand::ImportArchive(args) => print_import_archive(args),
         LobCommand::BinlogStats(args) => print_binlog_stats(args),
         LobCommand::SyncBasis(args) => {
@@ -434,6 +440,19 @@ fn print_touches(args: TouchesArgs) -> anyhow::Result<()> {
             Some((path, n)) => format!(" levels={n} levels_out={}", path.display()),
             None => String::new(),
         }
+    );
+    Ok(())
+}
+
+fn print_seconds(args: SecondsArgs) -> anyhow::Result<()> {
+    let s = run_seconds(&args)?;
+    println!(
+        "seconds: days={} trades={} dropped={} gap_secs={} out={}",
+        s.days,
+        s.trades,
+        s.dropped,
+        s.gap_secs,
+        s.out_dir.display()
     );
     Ok(())
 }
