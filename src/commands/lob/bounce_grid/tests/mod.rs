@@ -170,6 +170,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         tape_log: None,
         tape_log_ws: vec![],
         touch_col: false,
+        emit_events: false,
         regime_from: None,
         klines_from: None,
         btc_seconds: None,

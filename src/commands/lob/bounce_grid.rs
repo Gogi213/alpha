@@ -121,7 +121,7 @@ pub(crate) use cache::cached_touches;
 pub(crate) use cache::cached_walls;
 use cache::{cached_approaches, DayTouches};
 use carry::{carry_boundary, carry_window_ns, extend_with_carry};
-use drive::{day_events, drive_day, DayParams, DayRows, OrderSizing};
+use drive::{day_events, drive_day, write_arm_events, DayParams, DayRows, OrderSizing};
 use entry_sigma::EntrySigma;
 pub use forms::{grid_forms, ExitForm, GridForm};
 use outputs::FormDayResult;
@@ -706,6 +706,26 @@ impl<'a> GridRun<'a> {
                 "формы wall2*: нужны --exit-group on, --busy-skip off, --driver setups (журнал стен — при форке группы)"
             );
         }
+        // TK-353: `events-<SYM>.csv` у каждого набора — с шапкой, сутки дописываются (`--emit-events`).
+        let event_paths: Vec<PathBuf> = if args.emit_events {
+            anyhow::ensure!(
+                args.signal == SignalArg::Approach,
+                "--emit-events требует --signal approach (события — взводы подходов)"
+            );
+            let mut v = Vec::with_capacity(outs.len());
+            for o in outs.iter() {
+                let path = o.rounds_path.with_file_name(format!("events-{symbol}.csv"));
+                std::fs::write(
+                    &path,
+                    "arm_ms,side,price_tick
+",
+                )?;
+                v.push(path);
+            }
+            v
+        } else {
+            Vec::new()
+        };
         for day in &days {
             // `--day`: гнать только выбранные сутки. Касания при этом считаются
             // по всей записи символа (возраст уровня и прогрев трекера не
@@ -995,7 +1015,12 @@ impl<'a> GridRun<'a> {
             } else {
                 Vec::new()
             };
-            for ((set, out), &ids) in sets.iter().zip(outs.iter_mut()).zip(&set_form_ids) {
+            for (si, ((set, out), &ids)) in sets
+                .iter()
+                .zip(outs.iter_mut())
+                .zip(&set_form_ids)
+                .enumerate()
+            {
                 let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
                 // М-04: размер первого подхода — свой вектор лотов набора (k = 1 и без ключа — общий, байт в байт).
                 let set_qtys: std::borrow::Cow<'_, [f64]> =
@@ -1029,6 +1054,52 @@ impl<'a> GridRun<'a> {
                         .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
                     ),
                 };
+                let dp = DayParams {
+                    holds: Some(&holds_day),
+                    rows: Some(&rows_day),
+                    admitted: Some(&admit_cell),
+                    memos: if memos.is_empty() {
+                        None
+                    } else {
+                        Some(memos.as_slice())
+                    },
+                    form_ids: ids,
+                    tick,
+                    lot,
+                    grid_e9: (tick_e9, step_e9),
+                    step_schedule: step_schedule.as_ref(),
+                    rtt_ns: args.median_rtt_ns,
+                    walls: walls_day.as_deref(),
+                    queue_model,
+                    busy_skip: args.busy_skip == "on",
+                    hold_skip: args.hold_step == "skip",
+                    tape_log_secs: args.tape_log.unwrap_or(0),
+                    tape_log_ws: tape_ws,
+                    exit_group: args.exit_group == "on",
+                    order_qtys: &set_qtys,
+                    threads,
+                    post_only: args.entry_post_only(),
+                    filter: sets::FilterSpec::of_set(set, &ctx),
+                    h3_usd: control::LevelControl::wall_floor_usd(
+                        args.level_control,
+                        args.h3.h3_usd,
+                    ),
+                    band_exit_bps,
+                    sigma: &sigma_series,
+                    entry_sigma: entry_sigma.as_ref(),
+                    ctx_shift_ms,
+                };
+                if let (Some(path), Some(ap)) = (event_paths.get(si), day.approaches.as_deref()) {
+                    let mut f = std::io::BufWriter::new(
+                        std::fs::OpenOptions::new().append(true).open(path)?,
+                    );
+                    let n = write_arm_events(&mut f, &day.touches, ap, &dp)?;
+                    std::io::Write::flush(&mut f)?;
+                    eprintln!(
+                        "bounce-grid:   события A_B (--emit-events): {} {n}",
+                        set.name
+                    );
+                }
                 let forms_done = {
                     let forms_ref = &set_forms_list;
                     let mut sink =
@@ -1058,41 +1129,7 @@ impl<'a> GridRun<'a> {
                         &day.touches,
                         day.approaches.as_deref(),
                         &set_forms_list,
-                        DayParams {
-                            holds: Some(&holds_day),
-                            rows: Some(&rows_day),
-                            admitted: Some(&admit_cell),
-                            memos: if memos.is_empty() {
-                                None
-                            } else {
-                                Some(memos.as_slice())
-                            },
-                            form_ids: ids,
-                            tick,
-                            lot,
-                            grid_e9: (tick_e9, step_e9),
-                            step_schedule: step_schedule.as_ref(),
-                            rtt_ns: args.median_rtt_ns,
-                            walls: walls_day.as_deref(),
-                            queue_model,
-                            busy_skip: args.busy_skip == "on",
-                            hold_skip: args.hold_step == "skip",
-                            tape_log_secs: args.tape_log.unwrap_or(0),
-                            tape_log_ws: tape_ws,
-                            exit_group: args.exit_group == "on",
-                            order_qtys: &set_qtys,
-                            threads,
-                            post_only: args.entry_post_only(),
-                            filter: sets::FilterSpec::of_set(set, &ctx),
-                            h3_usd: control::LevelControl::wall_floor_usd(
-                                args.level_control,
-                                args.h3.h3_usd,
-                            ),
-                            band_exit_bps,
-                            sigma: &sigma_series,
-                            entry_sigma: entry_sigma.as_ref(),
-                            ctx_shift_ms,
-                        },
+                        dp,
                         &mut sink,
                     )?
                 };

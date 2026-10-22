@@ -397,6 +397,10 @@ pub struct BounceGridArgs {
     /// `ApproachRecord.approach_index`). Только запись: исполнение и прежние столбцы те же. Без флага файлы байт в байт прежние.
     #[arg(long = "touch-col", default_value_t = false)]
     pub touch_col: bool,
+    /// TK-353 (G-013 C3): список событий A_B — взводы подходов, прошедшие фильтры набора, — в `<каталог набора>/events-<SYM>.csv`
+    /// (`arm_ms,side,price_tick`; вход `lob c3-controls --events`). Только запись: счёт и прежние файлы те же. Нужен `--signal approach`.
+    #[arg(long = "emit-events", default_value_t = false)]
+    pub emit_events: bool,
     /// Сверка окон (К3, условие Судьи b86eed6): кроме своей книги окон (`WindowDepth`) строит
     /// окна прежним путём на книге крейта и сравнивает каждый снимок по всем полям; расхождение —
     /// отказ с `t0` и полем. Итог счёта не меняет. Только `--driver setups`.

@@ -205,6 +205,37 @@ fn signals_for(
     Ok((signals, skipped))
 }
 
+/// TK-353 (G-013 C3, `--emit-events`): события A_B суток набора — подходы, прошедшие фильтры набора (`admits` +
+/// `admits_r1`, как в `signals_for`; форма не влияет), строками `arm_ms,side,price_tick` в конец `out`.
+pub(super) fn write_arm_events(
+    out: &mut impl std::io::Write,
+    touches: &[TouchRecord],
+    approaches: &[crate::lob::levels::ApproachRecord],
+    p: &DayParams<'_>,
+) -> anyhow::Result<u64> {
+    anyhow::ensure!(
+        approaches.len() == touches.len(),
+        "записи подхода ({}) не совпадают с их видом как касаниями ({})",
+        approaches.len(),
+        touches.len()
+    );
+    let filter = TouchFilter::from_day(p);
+    let mut n = 0u64;
+    for (ti, a) in approaches.iter().enumerate() {
+        if !filter.admits(ti) || !filter.admits_r1(Some(a)) {
+            continue;
+        }
+        let side = if a.side == crate::book::Side::Ask {
+            "ask"
+        } else {
+            "bid"
+        };
+        writeln!(out, "{},{side},{}", a.arm_ms, a.price_tick)?;
+        n += 1;
+    }
+    Ok(n)
+}
+
 /// Г-101: шаг лестницы входа ×`f` — дальняя нога уходит на `from + f·(to − from)`; не лестница — `None`.
 fn scale_ladder(e: EntryForm, f: f64) -> Option<EntryForm> {
     match e {
