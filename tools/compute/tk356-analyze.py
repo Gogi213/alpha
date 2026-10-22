@@ -6,8 +6,8 @@ F = "docs/findings/"
 tv = pd.read_csv(sys.argv[1]); tv = tv[tv.err.isna()]
 fut = pd.concat([pd.read_csv(F + "tk327-features-fut-2026-10-20.csv"), pd.read_csv(F + "p23-fut-B-features-2026-10-20.csv")])
 spot = pd.read_csv(F + "tk327-features-spot-2026-10-20.csv")
-d = pd.concat([fut, spot]).merge(tv[["mode", "sym", "day", "turn_usd", "tick_inst"]], on=["mode", "sym", "day"], how="left")
-d["tick_bps"] = d.tick_inst / d.entry_px * 1e4
+d = pd.concat([fut, spot]).merge(tv[["mode", "sym", "day", "turn_usd", "tick_bin"]], on=["mode", "sym", "day"], how="left")
+d["tick_bps"] = d.tick_bin / d.entry_px * 1e4
 # комиссии: вход maker; выход taker при stop/deadline (как В-47/модель), иначе maker; ×(1−ребейт 10 %)
 mk, tk = {"fut": 1.4, "spot": 6.25}, {"fut": 3.5, "spot": 7.5}
 mkf = d["mode"].map(mk) * 0.9; tkf = d["mode"].map(tk) * 0.9
@@ -30,7 +30,7 @@ def trend(g, col):   # наклон net_bps на ранг признака (Сп
     perm = [np.corrcoef(x, y.sample(frac=1, random_state=i).values)[0, 1] for i in range(500)]
     return r, float(np.mean(np.abs(perm) >= abs(r)))
 
-rows = []; out = ["# TK-356 (G-015): доход против суточного оборота и шага цены\n",
+tp = []; rows = []; out = ["# TK-356 (G-015): доход против суточного оборота и шага цены\n",
     "Срезы — описание на обучающем окне (янв–сен 2026), не правило. Сделки готовые (В-213); gross = net + комиссии "
     "(вход maker; выход taker при stop/deadline, иначе maker; спот — тариф В-47-типа 6,25/7,5 бп × 0,9 — приближение, fut 1,4/3,5 × 0,9).\n"]
 for mode in ("fut", "spot"):
@@ -39,7 +39,7 @@ for mode in ("fut", "spot"):
     m = m.dropna(subset=["turn_usd", "tick_bps"])
     for col, name in (("turn_usd", "оборот $/сутки"), ("tick_bps", "шаг цены бп")):
         m = m.copy(); m["q"] = pd.qcut(m[col].rank(method="first"), 5, labels=[f"Q{i}" for i in range(1, 6)])
-        r, p = trend(m, col)
+        r, p = trend(m, col); tp.append((mode, col, r, p))
         out.append(f"\n### {mode} · {name}: Спирмен(net,{col}) = {r:+.3f}, перестановочный p = {p:.3f}\n")
         out.append("| корзина | диапазон | n | net бп | 95% (сутки) | gross бп | доля стопов | Σ$ | месяцев + / всего |")
         out.append("|---|---|---|---|---|---|---|---|---|")
@@ -52,7 +52,16 @@ for mode in ("fut", "spot"):
                              months_pos=int((mon > 0).sum()), months=len(mon)))
         pv = m.pivot_table(index="q", columns="mon", values="net_bps", aggfunc="mean", observed=True).round(1)
         out.append("\nпо месяцам (средний net бп):\n\n" + pv.to_markdown())
+    out.append(f"\n### {mode} · шаг: монеты по корзинам\n\n| корзина | монет | крупнейшая (по n) | её доля n | net бп | net без неё | Σ$ без неё |\n|---|---|---|---|---|---|---|")
+    for q, g in m.groupby("q", observed=True):
+        top = g.groupby("sym").size().idxmax(); gg = g[g.sym != top]
+        out.append(f"| {q} | {g.sym.nunique()} | {top} | {(g.sym == top).mean():.2f} | {g.net_bps.mean():+.2f} | {gg.net_bps.mean():+.2f} | {gg.usd.sum():+.0f} |")
     out.append(f"\nСпирмен(оборот, шаг) = {m.turn_usd.rank().corr(m.tick_bps.rank()):+.2f} (признаки связаны: мелкий шаг ↔ крупный оборот).")
+o = sorted(range(len(tp)), key=lambda i: tp[i][3]); hp = {}; run = 0.0
+for k, i in enumerate(o):
+    run = max(run, min(1, tp[i][3] * (len(tp) - k))); hp[i] = run
+out.append("\n## Поправка Holm по p тренда (%d теста)\n\n| рынок | признак | Спирмен | p | p Holm |\n|---|---|---|---|---|" % len(tp))
+for i, t in enumerate(tp): out.append(f"| {t[0]} | {t[1]} | {t[2]:+.3f} | {t[3]:.3f} | {hp[i]:.3f} |")
 open(sys.argv[2], "w", encoding="utf-8").write("\n".join(out) + "\n")
 pd.DataFrame(rows).to_csv(sys.argv[3], index=False)
 print("\n".join(out))
