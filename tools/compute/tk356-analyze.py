@@ -41,18 +41,17 @@ def block_tests(g, col, n=5000):
     c = g.groupby("sym").agg(x=(col, "mean"), y=("net_bps", "mean"))
     rc = c.x.rank().corr(c.y.rank()); yy = c.y.rank().values; xx = c.x.rank().values
     pc = float(np.mean([abs(np.corrcoef(xx, rng.permutation(yy))[0, 1]) >= abs(rc) for _ in range(n)])) if len(c) > 3 else np.nan
-    days = [grp for _, grp in g.groupby("day")]; bs = []
-    for _ in range(1000):
-        b = pd.concat([days[i] for i in rng.integers(0, len(days), len(days))])
-        bs.append(b[col].rank().corr(b.net_bps.rank()))
+    x = g[col].rank().values; y = g.net_bps.rank().values   # ранги по всей выборке; кластерный бутстрап суток через суточные суммы
+    s = pd.DataFrame({"d": g.day.values, "n": 1.0, "x": x, "y": y, "xx": x * x, "yy": y * y, "xy": x * y}).groupby("d").sum().values
+    bs = np.empty(1000)
+    for k in range(1000):
+        t = s[rng.integers(0, len(s), len(s))].sum(0); n = t[0]
+        bs[k] = (t[5] / n - t[1] * t[2] / n**2) / np.sqrt((t[3] / n - (t[1] / n)**2) * (t[4] / n - (t[2] / n)**2))
     bs = np.array(bs); pdv = float(min(1, 2 * min((bs > 0).mean(), (bs < 0).mean())))
     return rc, pc, len(c), pdv, np.percentile(bs, 2.5), np.percentile(bs, 97.5)
 
-def trend(g, col):   # наклон net_bps на ранг признака (Спирмен) + перестановочный p
-    x = g[col].rank(); y = g.net_bps.rank()
-    r = np.corrcoef(x, y)[0, 1]
-    perm = [np.corrcoef(x, y.sample(frac=1, random_state=i).values)[0, 1] for i in range(500)]
-    return r, float(np.mean(np.abs(perm) >= abs(r)))
+def trend(g, col):   # Спирмен по сделкам; перестановка по сделкам не считается (занижает p, Судья) — p = nan
+    return g[col].rank().corr(g.net_bps.rank()), float("nan")
 
 tp = []; rows = []; out = ["# TK-356 (G-015): доход против суточного оборота и шага цены\n",
     "Срезы — описание на обучающем окне (янв–сен 2026), не правило. Сделки готовые (В-213); gross = net + комиссии "
