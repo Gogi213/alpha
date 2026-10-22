@@ -447,12 +447,18 @@ fn print_touches(args: TouchesArgs) -> anyhow::Result<()> {
 fn print_seconds(args: SecondsArgs) -> anyhow::Result<()> {
     let s = run_seconds(&args)?;
     println!(
-        "seconds: days={} trades={} dropped={} gap_secs={} out={}",
+        "seconds: days={} trades={} dropped={} gap_secs={} mid_mismatch={} out={}",
         s.days,
         s.trades,
         s.dropped,
         s.gap_secs,
+        s.mid_mismatch,
         s.out_dir.display()
+    );
+    anyhow::ensure!(
+        s.mid_mismatch == 0,
+        "--check-mids: гейт (б) красный, расхождений {}",
+        s.mid_mismatch
     );
     Ok(())
 }

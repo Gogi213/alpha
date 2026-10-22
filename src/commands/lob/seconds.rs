@@ -32,10 +32,11 @@ use crate::binlog::Reader;
 use crate::book::{Book, Side};
 use crate::bybit::verify::FileReplayer;
 use crate::lob::levels::TradeHit;
-use crate::lob::markout::mid_double_tick;
+use crate::lob::levels::{H3Mode, LevelsConfig};
+use crate::lob::markout::{mid_double_tick, sample_asof};
 
 use super::parts::{day_of_filename, read_frame_soft};
-use super::replay::trade_hit_from_record;
+use super::replay::{replay_symbol_over_configs_keep, trade_hit_from_record, ReplayKeep};
 
 #[cfg(test)]
 mod tests;
@@ -66,6 +67,10 @@ pub struct SecondsArgs {
     /// Снять требование маркера сверки (отладочные данные).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+    /// Гейт (б) протокола: после записи сверить `mid2`/`mid2_100` с `sample_asof` по срезам
+    /// реплея (второй проход книги; ограничь `--root` одними сутками). Расхождение — отказ.
+    #[arg(long, default_value_t = false)]
+    pub check_mids: bool,
 }
 
 #[derive(Debug)]
@@ -77,6 +82,8 @@ pub struct SecondsSummary {
     pub dropped: u64,
     /// Секунд с `gap = 1`.
     pub gap_secs: u64,
+    /// Расхождений `mid2`/`mid2_100` с `sample_asof` (0 без `--check-mids`).
+    pub mid_mismatch: u64,
     pub out_dir: PathBuf,
 }
 
@@ -354,7 +361,23 @@ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
         .clone()
         .unwrap_or_else(|| args.root.join("seconds"));
     std::fs::create_dir_all(&out_dir)?;
-    let (mut trades, mut dropped, mut gap_secs) = (0u64, 0u64, 0u64);
+    let (mut trades, mut dropped, mut gap_secs, mut mid_mismatch) = (0u64, 0u64, 0u64, 0u64);
+    let replay = if args.check_mids {
+        let cfg = LevelsConfig {
+            mode: H3Mode::Percentile { h3_lots: 5 },
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            approach_bps: None,
+            approach_min_age_ms: 0,
+        };
+        let keep = ReplayKeep {
+            records: false,
+            ..ReplayKeep::ALL
+        };
+        replay_symbol_over_configs_keep(&args.root, &args.symbol, &[cfg], keep)?.pop()
+    } else {
+        None
+    };
     for (day, parts) in &by_day {
         let mut acc = DayAcc::new(day_start_ms(day)?);
         for p in parts {
@@ -364,6 +387,22 @@ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
         dropped += acc.dropped;
         let rows = acc.finish();
         gap_secs += rows.iter().filter(|r| r[12] == 1).count() as u64;
+        if let Some(stats) = &replay {
+            let mids = &stats
+                .days
+                .iter()
+                .find(|d| &d.day == day)
+                .ok_or_else(|| anyhow::anyhow!("--check-mids: реплей без суток {day}"))?
+                .mids;
+            let want = |t: i64| sample_asof(mids, t, 0).map_or(0, |s| s.bid_tick + s.ask_tick);
+            mid_mismatch += rows
+                .iter()
+                .map(|r| {
+                    u64::from(r[1] != want((r[0] + 1) * 1000))
+                        + u64::from(r[2] != want(r[0] * 1000 + 100))
+                })
+                .sum::<u64>();
+        }
         let path = out_dir.join(format!("{}-{day}.csv", args.symbol));
         let mut w = csv::Writer::from_path(&path)?;
         w.write_record(SECONDS_COLUMNS)?;
@@ -377,6 +416,7 @@ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
         trades,
         dropped,
         gap_secs,
+        mid_mismatch,
         out_dir,
     })
 }

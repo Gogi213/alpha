@@ -14,6 +14,7 @@ fn args(root: &std::path::Path) -> SecondsArgs {
         days: Vec::new(),
         out: None,
         allow_unverified: true,
+        check_mids: false,
     }
 }
 
@@ -101,4 +102,20 @@ fn seconds_gate_mid_gap_flow_and_determinism() {
     // OBI и глубина: 499,2 vs 500,9 → −1699 ppm, 1000,1 $ → 1000
     assert_eq!((rows[0][9], rows[0][10], rows[0][11]), (-1699, -1699, 1000));
     assert_eq!(rows[0][3], 20);
+}
+
+#[test]
+fn check_mids_flag_counts_zero_mismatches_and_leaves_file_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), SYM, DAY, &frames());
+    let s0 = run_seconds(&args(dir.path())).unwrap();
+    let path = s0.out_dir.join(format!("{SYM}-{DAY}.csv"));
+    let first = std::fs::read(&path).unwrap();
+    let s1 = run_seconds(&SecondsArgs {
+        check_mids: true,
+        ..args(dir.path())
+    })
+    .unwrap();
+    assert_eq!((s0.mid_mismatch, s1.mid_mismatch), (0, 0));
+    assert_eq!(first, std::fs::read(&path).unwrap());
 }
