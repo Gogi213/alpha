@@ -2482,6 +2482,22 @@ struct GroupRoundResult {
 /// `u64` половина, нет практического исчерпания на сутки сигналов.
 const GROUP_ID_BASE: u64 = 1 << 40;
 
+/// Ширина диапазона номеров заявок на вариант группы (TK-347): выход берёт новый номер на каждую заявку
+/// (перестановка по цене, дедлайн-погоня, добор, страховка остатка) — при прежних `ID_STRIDE` = 12
+/// вариант с длинной погоней вылезал в диапазон соседа и падал «Order id exists» (drive.rs:263, MYXUSDT
+/// 2026-02-13/02-01). Движок группы свежий на сигнал, поэтому номера нужны лишь уникальные внутри него.
+const VARIANT_ID_SPAN: u64 = 1 << 20;
+
+/// Первый номер заявок выхода варианта `k` (вход — `[base, base + SPAN)`, варианты — следом).
+fn group_variant_id(entry_id_base: u64, k: u64) -> u64 {
+    entry_id_base.saturating_add(VARIANT_ID_SPAN.saturating_mul(k.saturating_add(1)))
+}
+
+/// Первый номер страховки остатка варианта `i` из `n` — за диапазонами всех вариантов.
+fn group_flatten_id(entry_id_base: u64, n: u64, i: u64) -> u64 {
+    group_variant_id(entry_id_base, n.saturating_add(i))
+}
+
 /// То же, что `drive_signal`, но для К вариантов одной группы форм (Э-08, «один проход на
 /// вход»): вход общий, разворачивается один раз (по `variant_plans[0]` — входные поля у всех
 /// вариантов группы равны по построению, проверка вызывающего, `drive_bounce_windowed_group`), а
@@ -2553,12 +2569,12 @@ where
             spread = Some(ask - bid);
         }
     }
-    // Диапазон номеров на клон — не пересекается ни со входом (лестница ≤ `MAX_ENTRY_LEGS` < `ID_STRIDE`),
-    // ни с соседями: `(k+1) × ID_STRIDE` от базы входа этого круга.
+    // Диапазон номеров на клон — не пересекается ни со входом (лестница ≤ `MAX_ENTRY_LEGS` < `VARIANT_ID_SPAN`),
+    // ни с соседями: `(k+1) × VARIANT_ID_SPAN` от базы входа этого круга (TK-347).
     let variant_ids: Vec<u64> = (0..n as u64)
-        .map(|k| entry_id_base.saturating_add(ID_STRIDE.saturating_mul(k.saturating_add(1))))
+        .map(|k| group_variant_id(entry_id_base, k))
         .collect();
-    *next_group_id = entry_id_base.saturating_add(ID_STRIDE.saturating_mul(n as u64 + 2));
+    *next_group_id = group_flatten_id(entry_id_base, n as u64, n as u64);
     let results = run_round_group(
         bot,
         asset_no,
@@ -2589,11 +2605,10 @@ where
         }
         // Страховка остатка (2026-09-18), как у сольного `drive_signal` — по разу на вариант,
         // своим номером заявки (та же группа номеров, что и у выхода варианта — за пределами
-        // диапазонов остальных вариантов и входа: `(n + 1) × ID_STRIDE` от базы круга плюс запас).
+        // диапазонов остальных вариантов и входа: `group_flatten_id`).
         let mut residual = None;
         let mut left = signed_residual(side, r.position);
-        let mut flatten_id =
-            entry_id_base.saturating_add(ID_STRIDE.saturating_mul(n as u64 + 2 + i as u64 * 64));
+        let mut flatten_id = group_flatten_id(entry_id_base, n as u64, i as u64);
         // `idle_ns` — своя метка варианта (`r.idle_ns`, момент его собственного `Idle` в общем
         // движке группы), а не после общего цикла; страховка остатка, если была, её двигает
         // дальше — как у сольного `drive_signal`.
