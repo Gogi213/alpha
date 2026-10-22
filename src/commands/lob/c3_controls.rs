@@ -12,7 +12,7 @@
 // Офлайн-постобработка суток (не горячий путь): индексы — внутри длин рядов, касты — счётчики в пределах f64.
 #![allow(clippy::indexing_slicing, clippy::cast_precision_loss)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use clap::Args;
@@ -91,6 +91,13 @@ pub struct C3ControlsArgs {
     /// Шаг перебора `τ'` внутри окна часа, секунды.
     #[arg(long)]
     pub stride_s: usize,
+    /// Список событий-«стен» (CSV `arm_ms,side,price_tick`, side = bid|ask): A_B — взводы B1 после фильтров, A_P(S*)
+    /// (Судья TK-353, 22.10). Реальной стеной становится только подход кэша с таким ключом; без файла — все подходы.
+    #[arg(long)]
+    pub events: Option<PathBuf>,
+    /// Прежний порядок проверок без пред-отсева по `ln σ` (для гейта «пары байт в байт»); по умолчанию пред-отсев вкл.
+    #[arg(long)]
+    pub no_prefilter: bool,
     /// «Нулевая синтетика» G1 §8: у пар seed-детерминированно меняются роли (колонка `swap`).
     #[arg(long)]
     pub null_permute: bool,
@@ -235,6 +242,29 @@ struct Skips {
     no_regime: u64,
     wrong_side: u64,
     out_of_range: u64,
+    not_event: u64,
+}
+
+type EventKey = (i64, bool, i64);
+
+/// Файл событий → множество ключей `(arm_ms, ask, price_tick)`.
+fn read_events(path: &Path) -> anyhow::Result<HashSet<EventKey>> {
+    let mut rd = csv::Reader::from_path(path)?;
+    let mut out = HashSet::new();
+    for rec in rd.records() {
+        let rec = rec?;
+        let f = |i: usize| {
+            rec.get(i)
+                .ok_or_else(|| anyhow::anyhow!("{path:?}: мало колонок"))
+        };
+        let ask = match f(1)? {
+            "ask" => true,
+            "bid" => false,
+            v => anyhow::bail!("{path:?}: side {v:?}"),
+        };
+        out.insert((f(0)?.parse()?, ask, f(2)?.parse()?));
+    }
+    Ok(out)
 }
 
 /// Реальные стены суток из кэша подходов: ряды суток → `WallRec` (ковариаты той же `path_cov`).
@@ -242,6 +272,7 @@ fn real_walls(
     args: &C3ControlsArgs,
     day: &str,
     d: &DayData,
+    events: Option<&HashSet<EventKey>>,
     sk: &mut Skips,
 ) -> anyhow::Result<Vec<(WallRec, String)>> {
     let csv = args
@@ -252,6 +283,10 @@ fn real_walls(
     let mut out = Vec::new();
     for row in read_approaches_cached(&csv)? {
         let a = &row.approach;
+        if events.is_some_and(|e| !e.contains(&(a.arm_ms, a.side == Side::Ask, a.price_tick))) {
+            sk.not_event += 1;
+            continue;
+        }
         let (Ok(s0), Ok(s_arm)) = (
             usize::try_from((a.level_birth_ms - d.start_ms).div_euclid(1000)),
             usize::try_from((a.arm_ms - d.start_ms).div_euclid(1000)),
@@ -341,9 +376,10 @@ pub fn run_c3_controls(args: &C3ControlsArgs) -> anyhow::Result<String> {
         ));
     }
     let mut sk = Skips::default();
+    let events = args.events.as_deref().map(read_events).transpose()?;
     let mut walls: Vec<(WallRec, String)> = Vec::new();
     for (day, d) in &data {
-        walls.extend(real_walls(args, day, d, &mut sk)?);
+        walls.extend(real_walls(args, day, d, events.as_ref(), &mut sk)?);
     }
     let wall_recs: Vec<WallRec> = walls.iter().map(|(w, _)| *w).collect();
     let ctxs: Vec<DayCtx> = data.iter().map(|(_, d)| d.ctx()).collect();
@@ -355,6 +391,7 @@ pub fn run_c3_controls(args: &C3ControlsArgs) -> anyhow::Result<String> {
         seed: args.seed,
         max_wait_s: args.max_wait_s,
         stride_s: args.stride_s,
+        prefilter: !args.no_prefilter,
     };
     let (controls, st) = select_controls(&args.symbol, &wall_recs, &ctxs, &p, path_cov);
     let swaps = if args.null_permute {
@@ -436,10 +473,11 @@ pub fn run_c3_controls(args: &C3ControlsArgs) -> anyhow::Result<String> {
         "pooled_sd": pooled_sd(&wall_recs), "smd_before_outcomes": smds,
         "by_regime_class": by_regime.iter().map(|(r, (a, b))| (r.to_string(), serde_json::json!({"walls": a, "matched": b}))).collect::<BTreeMap<_, _>>(),
         "skipped": {"birth_before_day": sk.birth_before_day, "no_sigma": sk.no_sigma, "no_regime": sk.no_regime,
-                    "wrong_side": sk.wrong_side, "out_of_range": sk.out_of_range},
+                    "wrong_side": sk.wrong_side, "out_of_range": sk.out_of_range, "not_event": sk.not_event},
         "params": {"horizon_s": p.horizon_s, "tod_window_s": p.tod_window_s, "caliper_sd": p.caliper_sd, "k": p.k,
                    "seed": p.seed, "max_wait_s": p.max_wait_s, "stride_s": p.stride_s,
-                   "regime_edges_bps": args.regime_edges_bps, "null_permute": args.null_permute},
+                   "regime_edges_bps": args.regime_edges_bps, "null_permute": args.null_permute,
+                   "events": args.events.as_ref().map(|p| p.display().to_string()), "prefilter": p.prefilter},
     });
     std::fs::write(&summary_path, serde_json::to_vec_pretty(&j)?)?;
     Ok(format!(

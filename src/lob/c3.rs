@@ -73,6 +73,9 @@ pub struct Params {
     pub seed: u64,
     pub max_wait_s: i64,
     pub stride_s: usize,
+    /// Пред-отсев кандидата по `ln σ` до прохода пути (точное сужение: выбранные пары те же, меняется лишь разбивка
+    /// счётчиков отказов). `false` — прежний порядок проверок (для гейта «байт в байт»).
+    pub prefilter: bool,
 }
 
 /// Причины отбраковки кандидата в порядке проверки (счётчики — в `Stats`).
@@ -230,6 +233,12 @@ fn eval<F: Fn(&CovIn) -> [f64; NCOV]>(
     cov_fn: &F,
     used: &[(i64, i64)],
 ) -> Result<Cand, Reject> {
+    // `used` — непересекающиеся полуинтервалы, отсортированные по началу (концы тоже по возрастанию): пересечение
+    // с [tau, end) может дать только последний интервал с началом < end.
+    let reused = |tau: i64, end: i64| {
+        let i = used.partition_point(|u| u.0 < end);
+        i > 0 && used[i - 1].1 > tau
+    };
     let sigma0 = d.sigma[s0];
     if !sigma0.is_finite() {
         return Err(Reject::NoSigma);
@@ -238,6 +247,9 @@ fn eval<F: Fn(&CovIn) -> [f64; NCOV]>(
     let s_a = s0 + age_s;
     if d.regime.get(s_a).copied() != Some(w.regime) {
         return Err(Reject::Regime);
+    }
+    if p.prefilter && sd[0] > 0.0 && (sigma0.ln() - w.cov[0]).abs() / sd[0] > p.caliper_sd {
+        return Err(Reject::Caliper);
     }
     let mid0 = d.mid[s0];
     let off = w.dist_sigma * sigma0 / 1e4;
@@ -289,7 +301,7 @@ fn eval<F: Fn(&CovIn) -> [f64; NCOV]>(
     if overlaps(tau_ms, end_ms, tau_w, w.arm_ms + p.horizon_s * 1000) {
         return Err(Reject::Overlap);
     }
-    if used.iter().any(|&(a, b)| overlaps(tau_ms, end_ms, a, b)) {
+    if reused(tau_ms, end_ms) {
         return Err(Reject::Reused);
     }
     let level_tick = (level / d.tick).round() as i64;
@@ -319,7 +331,7 @@ fn eval<F: Fn(&CovIn) -> [f64; NCOV]>(
 }
 
 /// Подбор контролей C3 для всех стен монеты. `days` — обучающее окно (сутки с рядами), `cov_fn` — ковариаты в
-/// взвод (`CovIn`; та же функция, что дала `WallRec.cov`). Возвращает контроли (до `k` на стену) и счётчики.
+/// взвод (`CovIn`; та же функция, что дала `WallRec.cov`; `cov[0]` = ln σ240 в рождении — на нём пред-отсев). Возвращает контроли (до `k` на стену) и счётчики.
 pub fn select_controls<F: Fn(&CovIn) -> [f64; NCOV]>(
     sym: &str,
     walls: &[WallRec],
@@ -377,7 +389,8 @@ pub fn select_controls<F: Fn(&CovIn) -> [f64; NCOV]>(
             st.unmatched.push(wi);
         }
         for (_, _, c) in best {
-            used.push((c.tau_ms, c.arm_ms + p.horizon_s * 1000));
+            let iv = (c.tau_ms, c.arm_ms + p.horizon_s * 1000);
+            used.insert(used.partition_point(|u| u.0 < iv.0), iv);
             out.push(Control {
                 wall: wi,
                 day: c.day,

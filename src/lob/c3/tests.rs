@@ -58,6 +58,7 @@ fn params(k: usize, tod: i64) -> Params {
         seed: 1,
         max_wait_s: 10,
         stride_s: 1,
+        prefilter: false,
     }
 }
 
@@ -282,4 +283,35 @@ fn sigma_from_second_mids_window_and_gaps() {
     mid[4] = f64::NAN;
     let sg = sigma_from_second_mids(&mid, 3);
     assert!((4..=7).all(|s| sg[s].is_nan()) && !sg[8].is_nan());
+}
+
+fn sigma_cov(c: &CovIn) -> [f64; NCOV] {
+    [c.day.sigma[c.s0].ln(), 0.0, 0.0]
+}
+
+// Пред-отсев по ln σ и индекс `used` — точные: те же пары, что без пред-отсева; меняется лишь разбивка отказов.
+#[test]
+fn prefilter_keeps_selected_pairs() {
+    let (d0, d1, mut d2) = (flat(), flat(), flat());
+    d2.sigma = vec![13.6; DAY_S as usize];
+    let days = [ctx(&d0, 0), ctx(&d1, 1), ctx(&d2, 2)];
+    let walls = [
+        wall(1, SOD, 5.0f64.ln()),
+        wall(2, SOD + 600, 5.0f64.ln() + 0.2),
+        wall(3, SOD + 1200, 13.6f64.ln()),
+    ];
+    let mut p = params(2, 60);
+    p.caliper_sd = 1.0;
+    let (c0, s0) = select_controls("X", &walls, &days, &p, sigma_cov);
+    p.prefilter = true;
+    let (c1, s1) = select_controls("X", &walls, &days, &p, sigma_cov);
+    let key = |c: &Vec<Control>| {
+        c.iter()
+            .map(|c| (c.wall, c.day, c.tau_ms, c.arm_ms, c.level_tick))
+            .collect::<Vec<_>>()
+    };
+    assert!(!c0.is_empty());
+    assert_eq!(key(&c0), key(&c1));
+    assert_eq!(s0.unmatched, s1.unmatched);
+    assert!(s1.rejects[Reject::Caliper as usize] >= s0.rejects[Reject::Caliper as usize]);
 }
