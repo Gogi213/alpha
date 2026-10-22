@@ -12,7 +12,8 @@
 S_net = S_event − S_ctrl в той же клетке. Клетка = гипотеза × популяция × рынок × месяц; месяц фьючерса — по каталогу эпохи
 ({m}), спота — по D20/2026-MM в пути (как g015-ceilings). Выход: pseudotest-cells.csv, pseudotest-summary.json, pseudotest.done.
 Клетка: n, n_days, n_coins, доля топ-3 монет по n, S по горизонтам (m_100ms…m_2h), интервал бутстрапа по суткам (B=boot,
-сид = seed + crc32(ключ)), S без топ-3 монет, favour/adverse (60 с…2 ч). Всё считается до округления (6 знаков)."""
+сид = seed + crc32(ключ)), S без топ-3 монет, favour/adverse (60 с…2 ч); распределение хода к 10 с / 1 мин / 10 мин / 1 ч: доли up (>0, отскок) /
+dn (<0, пробой), p10 / med / p90 бп (гистограмма asinh-корзин, шаг 0,02 — погрешность ~2 % величины); h_src=tick. Средние до округления."""
 import ast, csv, glob, json, os, re, struct, sys, time, zlib, collections
 import multiprocessing as mp
 import numpy as np
@@ -23,6 +24,11 @@ FAV = ["favour_60s_bps", "favour_600s_bps", "favour_3600s_bps", "favour_7200s_bp
 ADV = ["adverse_60s_bps", "adverse_600s_bps", "adverse_3600s_bps", "adverse_7200s_bps"]
 VAL = MH + FAV + ADV  # значения клетки: суммы и счётчики по этим колонкам
 NV = len(VAL)
+HD = ["m_10s", "m_60s", "m_10m", "m_1h"]  # горизонты распределения хода (медиана, p10/p90, доли вверх/вниз)
+HI = [VAL.index(c) for c in HD]
+STEP = 0.02  # корзина гистограммы — равномерная по asinh(|x|, бп): точно у нуля, ~2 % на 100 бп; ноль — отдельная корзина
+KM = int(np.ceil(np.arcsinh(5000.0) / STEP))  # |ход| > 5000 бп — в крайнюю корзину
+NB = 2 * KM + 1
 BASE = ["touch_index", "strength_w20_pct", "day_utc"]
 DERIVED = {"first", "rep", "w20", "usd"}
 FUNCS = {"abs": np.abs, "isnan": np.isnan}
@@ -114,10 +120,10 @@ def work(a):
         h = next(r)
         ix = {c: i for i, c in enumerate(h)}
         if any(c not in ix for c in CFG["_cols"]):
-            return a, None
+            return a, None, None
         rows = list(r)
     if not rows:
-        return a, []
+        return a, [], []
     cols = list(zip(*rows))
     env = {c: np.array([v or "nan" for v in cols[ix[c]]], dtype=float) for c in CFG["_cols"] if c != "day_utc"}
     days = np.array(cols[ix["day_utc"]])
@@ -140,7 +146,7 @@ def work(a):
     vals = np.stack([env[c] for c in VAL], axis=1)
     ok = ~np.isnan(vals)
     z = np.where(ok, vals, 0.0)
-    out = []
+    out, hist = [], []
     ud, inv = np.unique(days, return_inverse=True)
     for hi, (hid, f, _, sign) in enumerate(CFG["_hyp"]):
         mask = np.asarray(f(env), dtype=bool)
@@ -154,11 +160,17 @@ def work(a):
             zz[:, :len(MH)] *= -1
             zz[:, len(MH):] = np.concatenate([zz[:, len(MH) + 4:], zz[:, len(MH):len(MH) + 4]], axis=1)
             oo = np.concatenate([oo[:, :len(MH)], oo[:, len(MH) + 4:], oo[:, len(MH):len(MH) + 4]], axis=1)
+        for j, hc in enumerate(HI):
+            x = zz[oo[:, hc], hc]
+            if x.size:
+                k = np.minimum(np.ceil(np.arcsinh(np.abs(x)) / STEP), KM).astype(np.int64)
+                u, c = np.unique(KM + np.where(x < 0, -k, k) + j * NB, return_counts=True)
+                hist.append((hi, u, c))
         dm = inv[mask]
         for k in np.unique(dm):
             s = dm == k
             out.append((hi, str(ud[k]), np.concatenate([[s.sum()], zz[s].sum(axis=0), oo[s].sum(axis=0)])))
-    return a, out
+    return a, out, hist
 
 
 def merge(agg, key, day, sym, vec):
@@ -173,8 +185,19 @@ def merge(agg, key, day, sym, vec):
             t += vec
 
 
-def cell(a, key, B, seed):
-    """Итог клетки из сумм по суткам и по монетам."""
+def quant(h, qs):
+    """Квантили по гистограмме хода (корзины asinh): середина корзины в бп."""
+    n = h.sum()
+    cum = np.cumsum(h)
+    out = []
+    for q in qs:
+        k = int(np.searchsorted(cum, q * n)) - KM
+        out.append(np.sign(k) * np.sinh((abs(k) - 0.5) * STEP) if k else 0.0)
+    return out
+
+
+def cell(a, key, B, seed, H):
+    """Итог клетки из сумм по суткам и по монетам; H — гистограммы хода (len(HD), NB)."""
     tot = sum(a["sym"].values())
     n = tot[0]
     top = sorted(a["sym"].items(), key=lambda kv: -kv[1][0])[:3]
@@ -197,6 +220,12 @@ def cell(a, key, B, seed):
         row[f"S_{c}"] = S[i]
         if c in MH:
             row[f"lo_{c}"], row[f"hi_{c}"], row[f"Sex3_{c}"] = lo[i], hi[i], Sx[i]
+    row["h_src"] = "tick"  # горизонты — из тикового кэша касаний (не из секундного ряда)
+    for j, c in enumerate(HD):
+        h, nn = H[j], H[j].sum()
+        p10, med, p90 = quant(h, (0.1, 0.5, 0.9)) if nn else (np.nan,) * 3
+        row[f"up_{c}"], row[f"dn_{c}"] = (h[KM + 1:].sum() / nn, h[:KM].sum() / nn) if nn else (np.nan, np.nan)
+        row[f"p10_{c}"], row[f"med_{c}"], row[f"p90_{c}"] = p10, med, p90
     return row
 
 
@@ -237,11 +266,11 @@ def main():
     ids = [h["id"] for h in cfg["hypotheses"]]
     assert len(set(ids)) == len(ids), "id гипотез повторяются"
     jobs = jobs_for(cfg, nd)
-    agg, bad = {}, 0
+    agg, bad, hg = {}, 0, {}
     t0 = time.time()
     print(f"jobs {len(jobs)}", file=sys.stderr, flush=True)
     with mp.Pool(int(os.environ.get("NX", "15")), initializer=init, initargs=(cfg,)) as pool:
-        for i, ((pop, src, mon, p), o) in enumerate(pool.imap_unordered(work, jobs, chunksize=8), 1):
+        for i, ((pop, src, mon, p), o, hl) in enumerate(pool.imap_unordered(work, jobs, chunksize=8), 1):
             if i % 100 == 0:
                 print(f"done {i}/{len(jobs)} {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
             if o is None:
@@ -250,8 +279,10 @@ def main():
             sym = os.path.basename(p)[len("touches-"):-4]
             for hi, day, vec in o:
                 merge(agg, (ids[hi], pop, src, mon), day, sym, vec)
+            for hi, u, c in hl:
+                np.add.at(hg.setdefault((ids[hi], pop, src, mon), np.zeros(len(HD) * NB, dtype=np.int64)), u, c)
     B, seed = int(cfg.get("boot", 1000)), int(cfg.get("seed", 20261022))
-    rows = {k: cell(a, k, B, seed) for k, a in agg.items()}
+    rows = {k: cell(a, k, B, seed, hg.get(k, np.zeros(len(HD) * NB, dtype=np.int64)).reshape(len(HD), NB)) for k, a in agg.items()}
     hs = [c for c in rows[next(iter(rows))] if c.startswith("S_m_")] if rows else []
     for k, r in rows.items():
         c = rows.get((k[0], "c3", k[2], k[3])) if k[1] == "event" else None
