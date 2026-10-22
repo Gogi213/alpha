@@ -10,6 +10,7 @@ import collections, glob, os, statistics, sys
 from multiprocessing import Pool
 
 P2, P3, OUT = sys.argv[1:4]
+P4 = os.environ.get("P4", "")  # дозапуск суток 01–04 по символам (pass4), единицы «сутки-СИМВОЛ-Fn»
 EPOCH = os.environ.get("EPOCH", "/data/tk046/feb/home/alpha/epochs/e-feb")
 DAYS = [f"2026-02-{d:02d}" for d in range(1, 15)]
 FAMS = ("F1", "F2", "F3")
@@ -27,8 +28,8 @@ def rd(p):
 
 def units_of(day):
     """[(каталог единицы, семейство)] с done для суток: pass3 при day ≥ 05, иначе pass2."""
-    root = P3 if int(day[-2:]) >= 5 else P2
-    return [(u, os.path.basename(u).rsplit("-", 1)[1]) for u in sorted(glob.glob(f"{root}/{day}-*-F[123]")) if os.path.exists(u + "/done")]
+    roots = [P3] if int(day[-2:]) >= 5 else [P2] + ([P4] if P4 else [])
+    return [(u, os.path.basename(u).rsplit("-", 1)[1]) for r in roots for u in sorted(glob.glob(f"{r}/{day}-*-F[123]")) if os.path.exists(u + "/done")]
 
 
 def unit_stats(args):
@@ -100,7 +101,7 @@ def main():
         for u, fam in days_units[d]:
             for s in by_unit[u][2]:
                 have[fam].add(s)
-        failed = sorted(os.path.basename(p)[len(d) + 1:] for p in glob.glob(f"{P3 if int(d[-2:]) >= 5 else P2}/{d}-*/fail"))
+        failed = sorted(os.path.basename(p)[len(d) + 1:] for p in glob.glob(f"{P3 if int(d[-2:]) >= 5 else P2}/{d}-*/fail") + (glob.glob(f"{P4}/{d}-*/fail") if P4 and int(d[-2:]) < 5 else []))
         miss = {f: [s for s in exp if s not in have[f]] for f in FAMS}
         tot_exp += len(exp) * 3; tot_have += sum(len(exp) - len(m) for m in miss.values())
         print(f"{d}: ожидается {len(exp)} символов × 3 семейства; покрыто F1 {len(exp) - len(miss['F1'])}, F2 {len(exp) - len(miss['F2'])}, "

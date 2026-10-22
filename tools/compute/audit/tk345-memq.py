@@ -5,12 +5,13 @@
 при MemAvailable < KILL снимается самая молодая задача (без done — подхватится повтором).
 Параметры (NX BUDGET R0 KILL KW) перечитываются каждый такт из <выход>/memq.cfg (строки KEY=VAL) — крутить без рестарта.
 Уже идущие задачи этого каталога (bash PASS сутки 0 <выход>, чужой экземпляр) подхватываются как свои (учёт памяти, KILL).
-  tk345-memq.py <выход-каталог> <сутки через запятую>   env: NX (15) BUDGET (57) R0 (3.0) KILL (2.5) KW (0.9) PASS GRP DRY=1
+  tk345-memq.py <выход-каталог> <сутки через запятую>   env: NX (15) BUDGET (57) R0 (3.0) KILL (2.5) KW (0.9) PASS GRP ONLY=<файл «сутки символ»> DRY=1
 """
 import os, subprocess, sys, time, glob
 O = sys.argv[1]; days = sys.argv[2].split(","); CFG = f"{O}/memq.cfg"
 P = dict(NX=15, BUDGET=57, R0=3.0, KILL=2.5, KW=0.9)
 for k in P: P[k] = float(os.environ.get(k, P[k]))
+ONLY = {tuple(l.split()) for l in open(os.environ["ONLY"]) if l.strip()} if os.environ.get("ONLY") else None  # файл «сутки символ» — только эти пары
 PASS = os.environ.get("PASS", "/data/tk0345/tk345-validity-pass.sh"); GB = 1048576.0; FAMS = ("F1", "F2", "F3")
 def load_cfg():
     try:
@@ -71,6 +72,7 @@ for d in days:
     fs = sorted(glob.glob(root(d) + "/*.binlog"), key=lambda f: -os.path.getsize(f))
     for f in fs:
         sym = os.path.basename(f).rsplit("-", 3)[0]
+        if ONLY is not None and (d, sym) not in ONLY: continue
         if not is_done(d, sym) and (d, sym) not in run: queue.append((d, sym, 0))
 print(f"задач {len(queue)} подхвачено {len(run)} известных пиков {len(sympeak)}", flush=True)
 if os.environ.get("DRY"): print(sorted(run), queue[:5], sorted(sympeak.items(), key=lambda x: -x[1])[:5], P); sys.exit(0)
