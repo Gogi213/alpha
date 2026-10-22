@@ -1600,6 +1600,8 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
             // T-28: на кадре взвода в окне стека одна плотность — сама стена;
             // впереди неё (строго лучше) 10 020 с 3 лотами за секунду до взвода.
             stack_levels_at_arm: 1,
+            stack_span_bps_at_arm: 0,
+            repeat_count_at_arm: 0,
             frontrun_lots_at_arm: 3,
             p08: Some(ArmP08 {
                 traded_lots: 0,
@@ -1619,6 +1621,60 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
     assert_eq!(ap[0].duration_ms(), 1000);
     assert!(touches.is_empty(), "касание идёт — записи ещё нет");
     assert!(out.is_empty());
+}
+
+/// Г-98: расстояние завала на взводе — bps между первой и последней плотностью окна стека:
+/// стена 10 000 и плотность 9 980 (7 лотов, внутри окна 25 тиков) — две плотности, 20 тиков
+/// при цене 10 000 = 20 bps; без второй плотности — 0.
+#[test]
+fn approach_stack_span_bps_measures_first_to_last_density() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 500));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    let bid = [ob(10020, 3), ob(10000, 10), ob(9980, 7)];
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &bid,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &bid,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        4000,
+        Side::Bid,
+        &[ob(10000, 10), ob(9980, 7)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    let wall = ap
+        .iter()
+        .find(|a| a.price_tick == 10000)
+        .expect("подход стены");
+    assert_eq!(wall.stack_levels_at_arm, 2);
+    assert_eq!(wall.stack_span_bps_at_arm, 20);
 }
 
 /// T2 (Г-07): направленная глубина на подходе — та же стена 10 000, но за
@@ -2705,4 +2761,48 @@ fn second_wall_is_taken_from_walls_alive_at_fill() {
         second_wall_tick(&ev, Side::Bid, 650, 10000, false, &mut live),
         Some(9800)
     );
+}
+
+/// Г-03 (TK-274): сценарий подхода на цене ≈ 100 000 тиков (1 bps ≈ 10 тиков): стена 100 000 (10 лотов), лучший бид
+/// 100 040 (3 лота — не плотность), аск 100 300 → 100 050 (разрыв 50 тиков = 5 bps), взвод на 3000, касание на 4000.
+fn twin_scenario(twins: Option<&[u64]>) -> (Vec<ApproachRecord>, Vec<TwinRec>) {
+    let mut tr = LevelTracker::new(cfg_approach(20, 500));
+    if let Some(seeds) = twins {
+        tr.enable_twins("TST", seeds);
+    }
+    let (mut out, mut touches, mut ap) = (Vec::new(), Vec::new(), Vec::new());
+    let wall = [ob(100_040, 3), ob(100_000, 10)];
+    for (ts, side, lv) in [
+        (1000, Side::Bid, &wall[..]),
+        (1000, Side::Ask, &[ob(100_300, 4)][..]),
+        (2000, Side::Ask, &[ob(100_050, 4)][..]),
+        (3000, Side::Bid, &wall[..]),
+        (4000, Side::Bid, &[ob(100_000, 10)][..]),
+    ] {
+        frame(&mut tr, ts, side, lv, &mut out, &mut touches, &mut ap);
+    }
+    let mut tw = Vec::new();
+    tr.take_twins(&mut tw);
+    (ap, tw)
+}
+
+/// Двойник строится на кадре взвода для каждого seed из корзины того же целого bps (5 bps: тики 99 991…99 999),
+/// без стены; выключенный режим — записи подходов те же, двойников нет.
+#[test]
+fn twins_are_built_at_arm_and_off_changes_nothing() {
+    let (ap_off, tw_off) = twin_scenario(None);
+    assert!(tw_off.is_empty());
+    let (ap_on, tw) = twin_scenario(Some(&[1, 2]));
+    assert_eq!(ap_on, ap_off, "режим двойника не меняет записи подходов");
+    assert_eq!(ap_on.len(), 1);
+    assert_eq!(tw.len(), 2);
+    for (r, seed) in tw.iter().zip([1u64, 2]) {
+        assert_eq!(
+            (r.side, r.price_tick, r.arm_ms, r.seed),
+            (Side::Bid, 100_000, 3000, seed)
+        );
+        let t = r.twin.expect("корзина не пуста");
+        assert_eq!(t.candidates, 9);
+        assert!((99_991..=99_999).contains(&t.tick), "{}", t.tick);
+    }
 }

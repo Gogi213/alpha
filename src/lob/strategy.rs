@@ -31,7 +31,8 @@ use hftbacktest::types::{
 };
 
 use crate::lob::backtest::{
-    entry_side, executed_notional, executed_qty, exit_price, round_half_away, ENTRY_TTL_NS, HOLD_NS,
+    entry_side, executed_notional, executed_qty, exit_price, round_half_away, ENTRY_TTL_NS,
+    HOLD_NS, NO_TAPE_WS, TAPE_WS_MAX,
 };
 
 /// G3б (TK-065): трасса решений R2 в stderr при `ALPHA_R2_TRACE=1`; только исследовательская сборка `r2`.
@@ -106,6 +107,7 @@ where
             cancel_sent_ns,
         } => on_cancel_pending(bot, state, now, order_id, legs, reason, cancel_sent_ns),
         Phase::Idle => on_idle(bot, state, now),
+        Phase::ReclaimWait => on_reclaim_wait(bot, state, now),
     }
 }
 

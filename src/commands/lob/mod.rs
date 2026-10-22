@@ -71,7 +71,9 @@ mod record;
 mod replay;
 pub mod session;
 mod shared;
+pub mod sync_basis;
 pub mod touches;
+pub mod touches_project;
 pub mod trades;
 pub mod validate;
 mod verify;
@@ -82,6 +84,8 @@ pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
+pub use sync_basis::{run_sync_basis, SyncBasisArgs};
+pub use touches_project::{run_touches_project, TouchesProjectArgs};
 pub use validate::{run_validate, ValidateArgs};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
@@ -156,6 +160,7 @@ pub(crate) use parts::{group_parts_by_day, session_days_in_dir, SessionPart};
 pub(crate) use replay::{replay_symbol, replay_symbol_over_configs};
 pub(crate) use replay::{
     replay_symbol_over_configs_keep, replay_symbol_touches_and_second_mids, ReplayDay, ReplayKeep,
+    TwinSeeds,
 };
 pub(crate) use shared::{
     read_verify_marker, select_best_mean_net, size_bucket, CPCV_SELECTION_RULE,
@@ -228,7 +233,9 @@ pub enum LobCommand {
     /// Касания живых уровней с признаками практиков — `touches-<SYMBOL>.csv`
     /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
     /// markout «в сторону отскока», подход, фронтран, круглость, завал.
-    Touches(TouchesArgs),
+    // `Box`: `--touch-col`/`--lot-by-n` (TK-291) подняли `TouchesArgs` выше порога
+    // `clippy::large_enum_variant`; сама структура не тронута, коробка только здесь.
+    Touches(Box<TouchesArgs>),
     /// Лента сделок — `trades-<SYMBOL>.csv` (T1, П-02: открывает Г-46 — знак
     /// CVD, и точную Г-36 — айсберг): та же проверка `Record.ev`
     /// (`is_trade_ev`), что уже отделяет сделки от книжных дельт в реплее,
@@ -240,6 +247,13 @@ pub enum LobCommand {
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
     /// Только чтение, ни одного порога.
     BinlogStats(BinlogStatsArgs),
+    /// Замер П-22 §4 (TK-328): часы, опережение (lead-lag ±5 с) и базис спот/фьючерс одной монеты за сутки по двум наборам
+    /// бинлога; строки `ключ,значение`. Только чтение.
+    SyncBasis(SyncBasisArgs),
+    /// Проекция касаний спота на фьючерс (П-22 §3.2, TK-328): `touches-<SYM>.csv` суток спота → тот же файл с ценами
+    /// стены в тиках фьючерса (`P_f = F_mid·P_wall/S_mid`, пассивное округление); дальше `bounce-grid --touches-from`
+    /// на бинлоге фьючерса.
+    TouchesProject(TouchesProjectArgs),
     /// Дыры по времени в суточных бинлогах (TK-033): CSV на файл — покрытие суток, самая длинная
     /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
     /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
@@ -292,10 +306,20 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         }
         LobCommand::Latency(args) => print_latency(args),
         LobCommand::Probe(args) => print_probe(args),
-        LobCommand::Touches(args) => print_touches(args),
+        LobCommand::Touches(args) => print_touches(*args),
         LobCommand::Trades(args) => print_trades(args),
         LobCommand::ImportArchive(args) => print_import_archive(args),
         LobCommand::BinlogStats(args) => print_binlog_stats(args),
+        LobCommand::SyncBasis(args) => {
+            for line in run_sync_basis(&args)? {
+                println!("{line}");
+            }
+            Ok(())
+        }
+        LobCommand::TouchesProject(args) => {
+            println!("{}", run_touches_project(&args)?);
+            Ok(())
+        }
         LobCommand::Gaps(args) => {
             run_gaps(&args)?;
             Ok(())
@@ -440,6 +464,10 @@ fn print_import_archive(args: ImportArchiveArgs) -> anyhow::Result<()> {
         s.dropped_after_day,
         s.records
     );
+    if args.spot {
+        // Спот (TK-312): сделки мельче сетки стакана усекаются — число в отчёт импорта.
+        println!("import-archive: сделок вне сетки {}", s.trade_off_grid);
+    }
     Ok(())
 }
 

@@ -66,6 +66,7 @@ use crate::lob::costs::{
     NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
 use crate::lob::levels::WallEvent;
+use crate::lob::retreat::{RetreatCfg, RetreatMemory};
 use crate::lob::strategy::{
     on_event, Action, EntryCancelReason, ExitReason, OrphanCarry, StrategyState, TradePlan,
     MAX_ENTRY_LEGS,
@@ -171,6 +172,11 @@ impl MissLedger {
 // Заполнение и PnL-кривая как чистые функции от входов.
 // ---------------------------------------------------------------------------
 
+/// TK-272: сколько окон `W` журнала ленты за один проход (`bounce-grid --tape-log-ws`); 0 в массиве — окно не задано.
+pub const TAPE_WS_MAX: usize = 16;
+/// Журнал ленты по окнам выключен (умолчание `DriveConfig::tape_log_ws`).
+pub const NO_TAPE_WS: [u32; TAPE_WS_MAX] = [0; TAPE_WS_MAX];
+
 /// Один закрытый круг: направление и обе ноги исполнения.
 ///
 /// Размер и цена входа — **по факту исполнения**, а не по плану (F3 плана
@@ -226,6 +232,8 @@ pub struct Fill {
     pub fill_by_cross: bool,
     /// TK-115 Г-112: лоты ленты против позиции за `W` с до исполнения входа (`enable_tape`); 0 — кольцо выключено.
     pub tape_press: f64,
+    /// TK-272: лоты ленты против позиции за каждое `W` из `tape_log_ws` до исполнения входа (тот же порядок); 0 — не задано.
+    pub tape_press_ws: [f64; TAPE_WS_MAX],
     /// TK-115 Г-116: отмены нашей стороны между стопом и рынком за `W` с до исполнения входа; 0 — кольцо выключено.
     pub cxl_press: f64,
     /// TK-115 Г-133: ожидание исполнения лимиткой погони, нс; −1 — погони не было или вышли рынком.
@@ -698,6 +706,8 @@ pub struct DriveConfig {
     /// TK-115 Г-112 (TK-132 С-03): окно журнала ленты, секунды (`bounce-grid --tape-log`); 0 — выключено. Идёт из
     /// плана в состояние круга (`StrategyState::enable_tape`), глобального входа нет.
     pub tape_log_secs: u32,
+    /// TK-272: окна `W` (секунды) журнала ленты за один проход (`bounce-grid --tape-log-ws`); 0 — слот не занят.
+    pub tape_log_ws: [u32; TAPE_WS_MAX],
     /// Размер круга. План: минимальный лот биржи (Decision 22).
     pub order_qty: f64,
     /// Первый идентификатор ордеров; дальше — по порядку, каждый ордер
@@ -957,6 +967,7 @@ where
             TradePlan::SpreadHold,
         );
         state.enable_tape_from(cfg.tape_log_secs);
+        state.enable_tape_ws(&cfg.tape_log_ws);
         // Запас номеров на круг — `ID_STRIDE`: страховка от коллизии id со
         // следующим кругом, не экономическая величина.
         next_id = next_id.saturating_add(ID_STRIDE);
@@ -1146,6 +1157,9 @@ pub struct BounceSignal {
     pub sigma: i8,
     pub plan: TradePlan,
     pub profile: u16,
+    /// П-19 (TK-291): номер касания уровня (`touch_index`) подхода сигнала — только для столбца `rounds.csv`
+    /// (`--touch-col`); на исполнение не влияет.
+    pub touch_index: u32,
     /// Размер круга этого сигнала (R2, ревью 23.09): лот по цене **сигнала** —
     /// номинал `--order-usd` при цене касания, а не одной ценой на символ
     /// (цена последнего касания записи — заглядывание вперёд: сигнал 1-го
@@ -1220,6 +1234,9 @@ pub struct BounceRun {
     /// Снятия по «цена ушла из полосы лестницы» (F5, В-74) — колонка
     /// `n_entry_cancelled_price_left`.
     pub entry_cancelled_price_left: u64,
+    /// Г-81 (П-17): сигналы без входа, снятые воротами `entry_gate=cxl<W>q<Q>` (ни одна нога не исполнилась) — колонка
+    /// `n_entry_cancelled_cxl_gate` (только у набора с ключом). Снятия при частичном исполнении здесь не считаются.
+    pub entry_cancelled_cxl_gate: u64,
     /// F8b (В5/Р2): сколько раз за сутки круг пережил потолок ожидания
     /// подтверждения отмены (`CANCEL_WAIT_NS`) — отдельно по входу
     /// (`EntryCancelReason::CancelTimeout`) и по лимитке выхода. Ноль —
@@ -1232,6 +1249,9 @@ pub struct BounceRun {
     /// за потолок) — колонка `n_orphan_fills`. Ноль — норма; иначе позиция
     /// на бирже расходилась бы с учётом стратегии, и это должно быть видно.
     pub orphan_fills: u64,
+    /// Г-81: мера ворот `(t0_ns сигнала, отмены за W ÷ размер стены)` — только у набора `entry_gate=cxl<W>qprobe`, колонка
+    /// не пишется иначе; пусто, если у набора нет ключа.
+    pub gate_measures: Vec<(i64, f64)>,
     /// Спред книги в момент отправки входа, в единицах цены — по одному
     /// значению на отправленный вход. Перевод в тики делает вызывающий (тик
     /// знает он, а не движок).
@@ -1240,6 +1260,9 @@ pub struct BounceRun {
     /// считается честная доля исполнения `круги / отправленные`, а не
     /// `круги / все касания` — последнее смешивает отказ с пропуском.
     pub submitted_signal: Vec<usize>,
+    /// Г-102: входы суток (отправленные заявки) в окне `[00:00, 00:00 + carry_window_ns)` на этом (вариант, инструмент) —
+    /// верхняя граница входов, затронутых суточным сбросом памяти отступа; колонка `n_retreat_window_entries`.
+    pub retreat_window_entries: u64,
     /// Индексы сигналов, пропущенных как «позиция занята»: по ним вызывающий
     /// считает промахи по строкам осей, а не только итогом.
     pub busy_signal: Vec<usize>,
@@ -1301,6 +1324,10 @@ fn entry_market_px(plan: TradePlan) -> Option<f64> {
 }
 
 /// Итог одного круга в терминах драйвера.
+///
+/// `large_enum_variant`: `Filled` несёт `Fill` (TK-272: +128 Б на окна `--tape-log-ws`), остальные варианты малы.
+/// Значение живёт на стеке драйвера один круг и не копится; `Box` внёс бы аллокацию на круг ради десятков байт.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 enum RoundOutcome {
     /// Круг закрыт: обе ноги исполнены, причина выхода известна.
@@ -1832,6 +1859,7 @@ where
                         legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
                         fill_by_cross,
                         tape_press: state.tape_at_fill(),
+                        tape_press_ws: state.tape_at_fill_ws(),
                         cxl_press: state.cxl_at_fill(),
                         chase_wait_ns: state.chase_wait_ns(),
                     },
@@ -2033,6 +2061,7 @@ where
             legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, saved),
             fill_by_cross,
             tape_press: 0.0,
+            tape_press_ws: [0.0; TAPE_WS_MAX],
             cxl_press: 0.0,
             chase_wait_ns: -1,
         },
@@ -2088,12 +2117,14 @@ where
             entry_state.exit_cancel_timeouts(),
             entry_state.orphan_fills(),
             entry_state.take_orphans(),
+            entry_state.gate_measure(),
         );
         std::iter::repeat_with(move || GroupRoundResult {
             outcome: outcome.clone(),
             position: tail.0,
             exit_cancel_timeouts: tail.1,
             orphan_fills: tail.2,
+            gate_measure: tail.4,
             idle_ns,
             carry_out: tail.3,
         })
@@ -2400,6 +2431,7 @@ where
                 };
                 if let RoundOutcome::Filled { fill, .. } = &mut out {
                     fill.tape_press = states[i].tape_at_fill();
+                    fill.tape_press_ws = states[i].tape_at_fill_ws();
                     fill.cxl_press = states[i].cxl_at_fill();
                     fill.chase_wait_ns = states[i].chase_wait_ns();
                 }
@@ -2416,6 +2448,7 @@ where
             position: s.position(),
             exit_cancel_timeouts: s.exit_cancel_timeouts(),
             orphan_fills: s.orphan_fills(),
+            gate_measure: s.gate_measure(),
             carry_out: s.take_orphans(),
             idle_ns: t,
         })
@@ -2431,6 +2464,7 @@ struct GroupRoundResult {
     position: f64,
     exit_cancel_timeouts: u64,
     orphan_fills: u64,
+    gate_measure: Option<f64>,
     carry_out: OrphanCarry,
     /// Часы стороны в момент, когда **этот** вариант вернулся в `Idle` (`SignalStep::idle_ns` у
     /// сольного круга) — своя метка на клон, взятая **в момент форка/исполнения именно его**, а
@@ -2495,6 +2529,7 @@ where
     let mut entry_state =
         StrategyState::with_plan(asset_no, sig.sigma, qty, entry_id_base, variant_plans[0]);
     entry_state.enable_tape_from(cfg.tape_log_secs);
+    entry_state.enable_tape_ws(&cfg.tape_log_ws);
     let (entry_id, side) = match on_event(bot, &mut entry_state)? {
         Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
         _ => {
@@ -2548,6 +2583,7 @@ where
                 idle_ns: r.idle_ns,
                 exit_cancel_timeouts: r.exit_cancel_timeouts,
                 orphan_fills: r.orphan_fills,
+                gate_measure: r.gate_measure,
             });
             continue;
         }
@@ -2587,6 +2623,7 @@ where
             idle_ns,
             exit_cancel_timeouts: r.exit_cancel_timeouts,
             orphan_fills: r.orphan_fills,
+            gate_measure: r.gate_measure,
         });
     }
     bot.clear_inactive_orders(Some(asset_no));
@@ -2598,6 +2635,10 @@ where
 /// прогона (`drive_bounce`) и прогона по сетапам (`drive_bounce_windowed`):
 /// различие только в том, откуда берётся движок, — иначе это была бы вторая
 /// стратегия.
+///
+/// `large_enum_variant`: `Submitted` несёт `RoundOutcome` с `Fill` (TK-272), `EndOfData`/`NotSubmitted` малы;
+/// значение на стеке драйвера, один шаг на сигнал.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 enum SignalStep {
     /// Часы не дошли до `t0`: запись кончилась.
@@ -2620,6 +2661,8 @@ enum SignalStep {
         exit_cancel_timeouts: u64,
         /// F8c (К1): исполнения заявок-сирот (после потолка) за круг.
         orphan_fills: u64,
+        /// Г-81: мера ворот на `sent + W` круга (проба порогов `entry_gate=cxl<W>qprobe`); `None` — проверки не было.
+        gate_measure: Option<f64>,
     },
 }
 
@@ -2658,13 +2701,25 @@ where
     debug_assert!(qty > 0.0, "размер круга обязан быть положительным: {qty}");
     let mut state = StrategyState::with_plan(asset_no, sig.sigma, qty, *next_id, sig.plan);
     state.enable_tape_from(cfg.tape_log_secs);
+    state.enable_tape_ws(&cfg.tape_log_ws);
     *next_id = next_id.saturating_add(ID_STRIDE);
     // F8c: сироты прошлого круга живут дальше в новом состоянии — уборка
     // (повтор снятия, учёт исполнения) идёт с первого события этого круга.
     state.inherit_orphans(*carry);
 
+    // Г-88: `reclaim` не ставит вход сразу — круг идёт в `ReclaimWait` (заявка уйдёт позже, с тем же номером).
+    let mut reclaim_wait = false;
     let (entry_id, side) = match on_event(bot, &mut state)? {
         Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
+        Action::Idle
+            if state.reclaim_wait_entry_id().is_some() && entry_side(sig.sigma).is_some() =>
+        {
+            reclaim_wait = true;
+            (
+                state.reclaim_wait_entry_id().unwrap_or_default(),
+                entry_side(sig.sigma).unwrap_or(HbtSide::Buy),
+            )
+        }
         _ => {
             *carry = state.take_orphans();
             return Ok(SignalStep::NotSubmitted {
@@ -2677,7 +2732,7 @@ where
     // отвергает, обычный лимит — исполняет как тейкер.
     let mut crossed = false;
     let mut spread = None;
-    if let Some(entry_px) = entry_market_px(sig.plan) {
+    if let (false, Some(entry_px)) = (reclaim_wait, entry_market_px(sig.plan)) {
         let d = bot.depth(asset_no);
         let (bid, ask) = (d.best_bid(), d.best_ask());
         if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
@@ -2710,6 +2765,7 @@ where
             idle_ns: bot.current_timestamp(),
             exit_cancel_timeouts: state.exit_cancel_timeouts(),
             orphan_fills: state.orphan_fills(),
+            gate_measure: state.gate_measure(),
         });
     }
     // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
@@ -2745,6 +2801,7 @@ where
                 idle_ns: bot.current_timestamp(),
                 exit_cancel_timeouts: state.exit_cancel_timeouts(),
                 orphan_fills: state.orphan_fills(),
+                gate_measure: state.gate_measure(),
             });
         }
     }
@@ -2758,6 +2815,7 @@ where
         idle_ns: bot.current_timestamp(),
         exit_cancel_timeouts: state.exit_cancel_timeouts(),
         orphan_fills: state.orphan_fills(),
+        gate_measure: state.gate_measure(),
     })
 }
 
@@ -2896,11 +2954,14 @@ impl BounceRun {
             entry_cancelled_ttl: 0,
             entry_cancelled_wall_dead: 0,
             entry_cancelled_price_left: 0,
+            entry_cancelled_cxl_gate: 0,
             entry_cancelled_cancel_timeout: 0,
             exit_cancel_timeout: 0,
             orphan_fills: 0,
+            gate_measures: Vec::new(),
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
+            retreat_window_entries: 0,
             busy_signal: Vec::new(),
             busy_wait_ns_max: 0,
             round_ns_max: 0,
@@ -3076,6 +3137,41 @@ fn horizon_span_ns(plan: &TradePlan) -> i64 {
         .max(1)
 }
 
+/// Г-102: сигнал со входом, отодвинутым от стены на добавку памяти отступа (`RetreatMemory::offset_ticks` на `t0`),
+/// ОТ рынка (штраф после стопа, X-09: вход труднее — покупка ниже, продажа выше); `None` — форма выключена или добавка ноль (сигнал идёт как есть). Память создаётся по первому сигналу.
+fn retreat_shift(
+    memory: &mut Option<RetreatMemory>,
+    sig: &BounceSignal,
+    side: HbtSide,
+) -> Option<BounceSignal> {
+    let TradePlan::Bounce {
+        pyramid, tick_px, ..
+    } = sig.plan
+    else {
+        return None;
+    };
+    let p = pyramid.eff();
+    if p.retreat_k == 0 {
+        return None;
+    }
+    let mem = memory.get_or_insert_with(|| {
+        RetreatMemory::new(RetreatCfg {
+            k_ticks: u32::from(p.retreat_k),
+            half_life_ns: i64::from(p.retreat_half_min) * 60_000_000_000,
+        })
+    });
+    let ticks = mem.offset_ticks(sig.t0_ns);
+    if ticks == 0 {
+        return None;
+    }
+    let mut out = *sig;
+    if let TradePlan::Bounce { entry_px, .. } = &mut out.plan {
+        let d = f64::from(ticks) * tick_px;
+        *entry_px += if matches!(side, HbtSide::Buy) { -d } else { d };
+    }
+    Some(out)
+}
+
 fn drive_bounce_with<B, MD, S>(
     asset_no: usize,
     signals: &[BounceSignal],
@@ -3110,14 +3206,17 @@ where
     let mut entry_cancelled_ttl: u64 = 0;
     let mut entry_cancelled_wall_dead: u64 = 0;
     let mut entry_cancelled_price_left: u64 = 0;
+    let mut entry_cancelled_cxl_gate: u64 = 0;
     // F8b (В5/Р2): вход, снятый потолком ожидания подтверждения отмены, идёт
     // той же строкой, что и прочие снятия, — причиной `CancelTimeout`.
     let mut entry_cancelled_cancel_timeout: u64 = 0;
     let mut exit_cancel_timeout: u64 = 0;
     let mut orphan_fills: u64 = 0;
+    let mut gate_measures: Vec<(i64, f64)> = Vec::new();
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
     let mut submitted_signal: Vec<usize> = Vec::new();
+    let mut retreat_window_entries: u64 = 0;
     let mut busy_wait_ns_max: i64 = 0;
     let mut round_ns_max: i64 = 0;
     let mut fill_signal: Vec<usize> = Vec::new();
@@ -3143,10 +3242,13 @@ where
     };
 
     let mut trace: Vec<SignalTrace> = Vec::new();
+    // Г-102: память отступа после стопа — одна на этот драйвер (вариант × инструмент × сутки), создаётся по первому сигналу.
+    let mut retreat: Option<RetreatMemory> = None;
+    let mut shifted: BounceSignal;
     for (sig_idx, sig) in order.iter().enumerate() {
-        if entry_side(sig.sigma).is_none() {
+        let Some(side) = entry_side(sig.sigma) else {
             continue;
-        }
+        };
         if cfg.busy_skip && sig.t0_ns < idle_ns {
             busy_signal.push(sig_idx);
             busy_wait_ns_max = busy_wait_ns_max.max(idle_ns.saturating_sub(sig.t0_ns));
@@ -3154,6 +3256,14 @@ where
             observations.push(miss_observation(sig.t0_ns));
             continue;
         }
+        // Г-102: вход отходит от стены на добавку памяти отступа (от рынка); ноль — сигнал как есть.
+        let sig = match retreat_shift(&mut retreat, sig, side) {
+            Some(s) => {
+                shifted = s;
+                &shifted
+            }
+            None => sig,
+        };
         // Память кругов (G10): круг, уже посчитанный над тем же окном с тем же планом, берётся
         // готовым; номера заявок и сироты продолжаются так, как если бы его считали здесь.
         let recalled = memo
@@ -3251,11 +3361,20 @@ where
                 idle_ns: idle,
                 exit_cancel_timeouts,
                 orphan_fills: orphans,
+                gate_measure,
             } => {
+                if let Some(m) = gate_measure {
+                    gate_measures.push((sig.t0_ns, m));
+                }
                 idle_ns = idle;
                 exit_cancel_timeout = exit_cancel_timeout.saturating_add(exit_cancel_timeouts);
                 orphan_fills = orphan_fills.saturating_add(orphans);
                 submitted_signal.push(sig_idx);
+                if let Some(m) = retreat.as_ref() {
+                    if sig.t0_ns.rem_euclid(NANOS_PER_DAY) < m.carry_window_ns() {
+                        retreat_window_entries = retreat_window_entries.saturating_add(1);
+                    }
+                }
                 if crossed {
                     entry_crossed = entry_crossed.saturating_add(1);
                 }
@@ -3298,6 +3417,10 @@ where
                                 entry_cancelled_price_left =
                                     entry_cancelled_price_left.saturating_add(1);
                             }
+                            EntryCancelReason::CxlGate => {
+                                entry_cancelled_cxl_gate =
+                                    entry_cancelled_cxl_gate.saturating_add(1);
+                            }
                             EntryCancelReason::NotPlaced => {}
                             EntryCancelReason::CancelTimeout => {
                                 entry_cancelled_cancel_timeout =
@@ -3323,13 +3446,19 @@ where
                     } => {
                         match reason {
                             ExitReason::Take => exits.take += 1,
-                            ExitReason::Stop => exits.stop += 1,
+                            ExitReason::Stop => {
+                                exits.stop += 1;
+                                if let Some(m) = retreat.as_mut() {
+                                    m.on_stop(exit_ts);
+                                }
+                            }
                             ExitReason::Deadline => exits.deadline += 1,
                             ExitReason::Horizon => exits.horizon += 1,
                             ExitReason::Trail => exits.trail += 1,
                             // Г-119: `Converge`/`Tape`/`Resilience` — отдельной колонки нет (форма в имени клетки); считается как `early`.
                             ExitReason::Early
                             | ExitReason::Converge
+                            | ExitReason::LevelBack
                             | ExitReason::Tape
                             | ExitReason::Resilience => exits.early += 1,
                             ExitReason::Eaten => exits.eaten += 1,
@@ -3394,11 +3523,14 @@ where
         entry_cancelled_ttl,
         entry_cancelled_wall_dead,
         entry_cancelled_price_left,
+        entry_cancelled_cxl_gate,
         entry_cancelled_cancel_timeout,
         exit_cancel_timeout,
         orphan_fills,
+        gate_measures,
         spread_at_entry,
         submitted_signal,
+        retreat_window_entries,
         busy_signal,
         busy_wait_ns_max,
         round_ns_max,

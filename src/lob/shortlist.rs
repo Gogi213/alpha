@@ -94,6 +94,7 @@ pub const DISTANCE_BOUNDS_BPS: [(f64, f64); 5] = [
 /// считает без приближённых чисел; равенство с `DISTANCE_BOUNDS_BPS`
 /// проверяется на компиляции — второго числа нет.
 pub const DISTANCE_MAX_BPS: i64 = 25;
+#[allow(clippy::float_cmp)] // целые bps, точное равенство на компиляции
 const _: () = assert!(
     DISTANCE_BOUNDS_BPS[DISTANCE_BOUNDS_BPS.len() - 1].1 == DISTANCE_MAX_BPS as f64,
     "DISTANCE_MAX_BPS обязана равняться последней границе DISTANCE_BOUNDS_BPS"

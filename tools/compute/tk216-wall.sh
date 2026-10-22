@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # TK-216 п.3: стена волны F1 01–15.01 (13 суток B1). A = текущая: bounce-grid по всем клеткам (day.sh, наборы --set из планов F1).
+# СТЕНД ВЫВЕДЕН 16.10, В-20 (TK-262): мерка «волна F1 01–15.01» не используется — «было/стало» мерится tools/compute/bs-launch.sh (боевой путь формы). Скрипт оставлен как история TK-216.
 # B = пул (один набор pool:age=2700,side=bid, те же формы) + раннер filter-cells.py по тем же клеткам. Каждый запуск — под /data/benchrun.sh wave.
 #   tk216-wall.sh <A|B> <метка>   env: D=3 GT=2   выход /data/tk216/wall/<метка>/{wall.txt,done}; B: outR/ (клетки раннера)
 set -uo pipefail

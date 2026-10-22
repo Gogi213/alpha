@@ -11,7 +11,7 @@
 {"name": "u", "unit": "frac", "resolution": 0.08333333333333333, "axis_type": "numeric", "cfg_path": "", "note": "R2: доля, Г-92/93"}
 {"name": "K", "unit": "count", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-93"}
 {"name": "x", "unit": "mult", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "R2: множитель Г-106 (лог-2)"}
-{"name": "gamma", "unit": "mult", "resolution": null, "axis_type": "log", "cfg_path": "", "note": "R2: Г-117 (лог-2)"}
+{"name": "gamma", "unit": "mult", "resolution": 0.125, "axis_type": "log", "cfg_path": "", "note": "R2: Г-117 (лог-2); разрешимость 1/8 = целое g8 движка (tslx<g8>t<t16>), TK-278, Судья 17.10"}
 {"name": "T", "unit": "frac", "resolution": 0.0625, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-117 доля ttl/дедлайна"}
 {"name": "tol_ticks", "unit": "tick", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "R2: Г-119"}
 {"name": "trigger", "unit": "-", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "R2: Г-114 halfstop|halflevel"}
@@ -43,3 +43,17 @@
 {"name": "chandelier_sigma", "unit": "sigma4h", "resolution": 0.5, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-25 люстра, sigma_4ч"}
 {"name": "rv_day_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-25 порог RV суток (квантиль)"}
 {"name": "share_1to1", "unit": "frac", "resolution": 0.125, "axis_type": "numeric", "cfg_path": "", "note": "П: Г-109 доля на 1:1"}
+{"name": "W_s", "unit": "s", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-81: окно меры отмен от взвода, с"}
+{"name": "cxl_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-81: квантиль меры отмен за W (порог по месяцу, P-17-thresholds.csv)"}
+{"name": "R_usd", "unit": "usd", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-98: риск на сделку, $ (лот = min(500, R·1e4/stack_span_bps))"}
+{"name": "part", "unit": "", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "П-17 Г-101: что раздвигаем в сильной половине тренда BTC — шаг лестницы (ladder) или стоп (stop)"}
+{"name": "T_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-101: квантиль btc4h среди касаний B1 месяца (сильная = btc4h ≤ T)"}
+{"name": "f_bp", "unit": "bp", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-101: множитель шага/стопа в сильной половине, бп (10000 = 1, т.е. B1)"}
+{"name": "swept_q", "unit": "pct", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-135: квантиль swept_lots·1e4/size_at_touch (порог по месяцу)"}
+{"name": "entry", "unit": "", "resolution": null, "axis_type": "categorical", "cfg_path": "", "note": "П-17 Г-135: вход — B1-лестница или postsweep<R> (R bps)"}
+{"name": "A_min", "unit": "min", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-136: возраст стены не больше A (agemax = A·60 с)"}
+{"name": "k", "unit": "", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-17 Г-136/137: repeat_count ≥ k (Г-136: k=0 — контроль)"}
+{"name": "gap_bps", "unit": "bps", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-108: зазор под уровнем, целые bps (forms.rs: u32)"}
+{"name": "secs", "unit": "с", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-108: окно возврата, целые секунды ≥ 1 (forms.rs: u32; П-14 §3.3: 1 с)"}
+{"name": "half_min", "unit": "мин", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-102: полураспад, целые минуты (имя retreat<k>t<T>)"}
+{"name": "btc_lag_s", "unit": "с", "resolution": 1.0, "axis_type": "numeric", "cfg_path": "", "note": "П-15 Г-72: лаг хода BTC, целые секунды (--btc-seconds)"}

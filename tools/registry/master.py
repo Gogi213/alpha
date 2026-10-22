@@ -1,7 +1,7 @@
 """Летопись — мастер плана (TK-187, В-225): слои params / stacks / hyp_axes / rules / plan_cells / sieve в БД.
 Канон — docs/registry/*.jsonl (git); БД собирается из него. Команды (через registry.py):
   load-axes <каталог>            params.csv, stacks.csv, hyp_axes.csv, rules.csv (';', UTF-8) -> jsonl канона
-  plan --protocol P-14 --fraction k   сетка из hyp_axes (k>=2 — окрестность плато из sieve), дедуп по хешу против results
+  plan --protocol P-14 --fraction k   сетка из hyp_axes (k=2 — окрестность зоны F1 по П-14 §11.2, k>=3 — окрестность плато из sieve), дедуп по хешу против results
   sieve --protocol P-14 --fraction k --stats f.csv   правило §4 (числа — rules) -> sieve.jsonl
   render matrix|coverage         docs/findings/hyp-{matrix,coverage}-<дата>.{md,csv} из БД, руками не править
 Хеш клетки — cellhash.cell_hash (одна функция для генератора и загрузчика, TK-186)."""
@@ -20,6 +20,8 @@ COLS = {"params.csv": ("name", "unit", "resolution", "axis_type", "cfg_path", "n
         "hyp_axes.csv": ("hyp", "protocol", "version", "stack", "param", "lo", "hi", "points_f1", "old_points", "note", "role", "engine", "mechanic"),
         "rules.csv": ("protocol", "version", "key", "value")}
 RULE_DEFAULTS = {"months": 9}
+F1_STATS = os.path.join("docs", "findings", "tk278-sieve-f1-all-A-2026-10-16.csv")   # сито F1 по всем 50 гипотезам (TK-278 п.4; было tk237-…-cell-A, 12 гипотез), сторона А (hyp, axes, days_A, dSR, p, status) — вход зоны F2
+MAX_ZONES = 3   # П-14 §11.2 п. 2
 
 
 def fval(x):
@@ -70,11 +72,12 @@ def load_axes(dirp, protocol="P-14"):
     out = {}
     for fn, (jn, key) in LAYERS.items():
         stem = fn[:-4]
-        cand = [x for x in sorted(os.listdir(dirp)) if x == fn or re.fullmatch(r"p14-axes-" + stem + r"-.*\.csv", x)]
+        pre = "p" + (re.sub(r"\D", "", protocol) or "14") + "-axes-"   # файлы слоя — своего протокола: p14-axes-*, p15-axes-* (TK-274)
+        cand = [x for x in sorted(os.listdir(dirp)) if x == fn or re.fullmatch(pre + stem + r"-.*\.csv", x)]
         if not cand:
             continue
         rows = _read(os.path.join(dirp, cand[-1]))
-        ver = next((r["version"] for r in _read(os.path.join(dirp, next((x for x in sorted(os.listdir(dirp)) if x == "stacks.csv" or x.startswith("p14-axes-stacks")), cand[-1]))) if r.get("version")), "") if fn == "hyp_axes.csv" else ""
+        ver = next((r["version"] for r in _read(os.path.join(dirp, next((x for x in sorted(os.listdir(dirp)) if x == "stacks.csv" or x.startswith(pre + "stacks")), cand[-1]))) if r.get("version")), "") if fn == "hyp_axes.csv" else ""
         rows = [_adapt(fn, r, protocol, ver) for r in rows]
         for r in rows:
             miss = [k for k in key if not r.get(k)]
@@ -89,6 +92,85 @@ def load_axes(dirp, protocol="P-14"):
         _replace(jn, rows, lambda d, key=key: tuple(d[k] for k in key))
         out[fn] = len(rows)
     return out
+
+
+# ---------- П-17 (TK-279): Г-81, Г-98, Г-101, Г-135, Г-136, Г-137 ----------
+P17_HYPS = ("81", "98", "101", "135", "136", "137")
+P17_SET_B1 = "age=2700,side=bid,btc4h_max=-44.55"
+_P17_THR = os.path.join(ROOT, "docs", "research", "P-17-thresholds.csv")   # hyp,month,axis,q,threshold,n (p17-*-thresholds.py): порог по касаниям B1 своего месяца
+_P17_THR_F2 = os.path.join(ROOT, "docs", "research", "P-17-thresholds-f2.csv")   # TK-315: то же для q и W новых значений осей F2 (дописью к F1; нет файла — только F1)
+
+
+def p17_thr(hyp, axis):
+    """{ГГГГ-ММ: {q: порог (строкой, как в файле)}} из P-17-thresholds.csv; нет файла или строк — {}."""
+    out = {}
+    for path in (_P17_THR, _P17_THR_F2):
+        if os.path.exists(path):
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f):
+                    if r["hyp"] == hyp and r["axis"] == axis:
+                        out.setdefault(r["month"], {})[int(r["q"])] = r["threshold"]
+    return out
+
+
+def p17_cell(hyp, av, cfg, form):
+    """Клетка П-17 (хеши = docs/research/P-17-scope.json, p17_scope.py): Г-98/136/137 — хеш набора, строка `<форма> <набор>`;
+    Г-81/101/135 — хеш варианта (семья + оси), строки по месяцам из порога месяца (нет порога — строки нет, причина в LINES)."""
+    import cellhash_reg as cr
+    n = re.sub(r"\D", "", hyp)
+    if n in ("98", "136", "137"):
+        if n == "98":
+            r = _int_in(_frac(av["R_usd"]), (2, 3, 5, 8, 12, 20, 30, 50, 80))
+            spec, name = f"{P17_SET_B1},size_risk={r}", f"g98r{r}"
+        elif n == "136":
+            a, k = _frac(av["A_min"]), _frac(av["k"])
+            spec, name = f"side=bid,btc4h_max=-44.55,agemax={int(a) * 60},repeat_min={int(k)}", f"g136a{int(a)}k{int(k)}"
+        else:
+            spec, name = f"{P17_SET_B1},repeat_min={int(_frac(av['k']))}", f"g137k{int(_frac(av['k']))}"
+        cfg["set"] = cr.set_of(spec)
+        MSETS[name] = spec
+        LINES[ch.cell_hash(cfg)] = (f"{form} {name}", None)
+        return
+    fam = f"g{n}"
+    axes = {k: ch.num(_frac(v)) if fval(v) is not None else v for k, v in av.items()}
+    cfg["variant"] = {"family": fam, "axes": axes}
+    h = ch.cell_hash(cfg)
+    q = int(axes.get("cxl_q", axes.get("T_q", axes.get("swept_q", 0))))
+    if not 0 < q < 100:
+        LINES[h] = (None, f"Г-{n}: q ∈ (0, 100)")
+        return
+    if n == "81":
+        w = int(axes["W_s"])
+        thr, axis, pre = p17_thr("Г-81", f"cxl_w{w}_over_size"), f"cxl_w{w}_over_size", f"g81cxlw{w}q{q}"   # «cxl» в имени: строка уходит в пачку с --tape-log (day-cells.sh: grep tape|cxl)
+    elif n == "101":
+        thr, axis, pre = p17_thr("Г-101", "btc4h"), "btc4h", f"g101{axes['part']}t{q}f{axes['f_bp']}"
+    else:
+        thr, axis, pre = p17_thr("Г-135", "swept_pct_of_size_bp"), "swept_pct_of_size_bp", f"g135q{q}"
+        form = form.replace(cr.B1_FORM.split("-", 1)[0], str(axes["entry"]))   # ladder… -> postsweep<R> (форма входа Г-135; B1-лестницы у Г-135 нет)
+    if not thr:
+        LINES[h] = (None, f"Г-{n}: нет порогов {axis} в {os.path.basename(_P17_THR)}" + (" — проход меры (tk279-g81-probe.sh, p17-g81-thresholds.py)" if n == "81" else ""))
+        return
+    LINES[h] = (None, f"месячный набор {pre}-<ГГГГ-ММ> ({axis} ≤/≥ T_m): файлы <имя>-<ГГГГ-ММ>.cells")
+    mm = {}
+    for m, per in thr.items():
+        t = per.get(q)
+        if t is None:
+            continue
+        if n == "81":
+            if float(t) <= 0:
+                continue   # Q > 0 (sets.rs): нулевой порог — ворота не определены в этом месяце
+            spec = f"{P17_SET_B1},entry_gate=cxl{w}q{t}"
+        elif n == "101":
+            key = "lreg" if axes["part"] == "ladder" else "sreg"
+            spec = f"{P17_SET_B1},{key}_t={t},{key}_f={int(axes['f_bp'])}"
+        else:
+            spec = f"{P17_SET_B1},swept_min={int(float(t))}"
+        MSETS[f"{pre}-{m}"] = spec
+        mm[m] = f"{form} {pre}-{m}"
+    if mm:
+        MONTHLY[h] = mm
+    else:
+        LINES[h] = (None, f"Г-{n}: нет порога q={q} ({axis}) ни в одном месяце — {os.path.basename(_P17_THR)} / {os.path.basename(_P17_THR_F2)}")
 
 
 # ---------- сборка конфига клетки из стека и осей ----------
@@ -131,12 +213,24 @@ def family_of(hyp):
     return _FAMILY.get(n, "g" + n)  # может быть «g73-conj» (семья-признак R1)
 
 
+_P15 = {}
+
+
+def p15_thresholds():
+    """P-15-thresholds.csv -> {(семья g72|g146, ось btc_lag_<s>s|btc24h): {q: {месяц: (порог, set_arg)}}}."""
+    if not _P15 and os.path.exists(_P15_THR):
+        for r in csv.DictReader(open(_P15_THR, encoding="utf-8"), delimiter=";"):
+            _P15.setdefault(("g" + re.sub(r"\D", "", r["hyp"]), r["axis"]), {}).setdefault(int(r["q"]), {})[r["month"]] = (r["threshold_bps"], r["set_arg"])
+    return _P15
+
+
 MONTHLY = {}  # хеш клетки -> {ГГГГ-ММ: строка --cells}: число в имени формы меняется по месяцам (Г-133 chase<a·W_m>); файл --cells на месяц
 _THR = os.path.join(FIND, "p12-r2b-thresholds-2026-10-10.json")
 MSETS = {}  # имя набора -> спецификация --set: наборы с порогом по месяцам (Г-10 btc<N>h_max=T_m); write_set добавляет их к --set
-_TAPE_THR = os.path.join(FIND, "tape-thresholds-v7-2026-10-11.json")   # TK-120 v7 (thr7/summary.json): ключи e112_W<W>_q<q> по месяцам
+_TAPE_THR = os.path.join(FIND, "tape-thresholds-v11-2026-10-18.json")   # TK-272 v11 (thr11/summary.json; v9 побитно внутри + q94 + 16 окон W из multi-W ленты wm16): ключи e112_W<W>_q<q> по месяцам
 _TK202_THR = os.path.join(FIND, "tk202-thresholds-2026-10-12.json")   # tools/analyze/tk202-thresholds.py: usd {месяц: {q: T}}, ctx {ось: {месяц: {q20..q80}}}
-_BTC_THR = os.path.join(FIND, "btc-thresholds-2026-10-11.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}
+_P15_THR = os.path.join(ROOT, "docs", "research", "P-15-thresholds.csv")   # TK-274: Г-72 (btc_lag_<s>s_min) и Г-146 (btc24h_min) по месяцам: hyp;axis;q;month;threshold_bps;set_arg
+_BTC_THR = os.path.join(FIND, "btc-thresholds-v4-2026-10-18.json")   # tools/analyze/btc-thresholds.py: {месяц: {N: {q: T}}}; v4 (TK-272): v3 побитно внутри + окна 10, 11 ч
 
 
 def w_median_ms():
@@ -163,6 +257,7 @@ R1_SIGN = {
     "Г-36": {"cancel_life_lots": "lo", "wall_add_max_lots": "hi"},
     "Г-46": {"ofi_10s_lots": "lo", "ofi_60s_lots": "lo", "best_move_1s_cbps": "hi", "best_move_10s_cbps": "hi"},
     "Г-60": {"trade_size_p50_15m": "lo", "trade_size_p90_15m": "lo"},
+    "Г-134": {"frontrun_levels": "lo", "frontrun_delta_10s_lots": "lo"},   # П-15: `_max` — не входим при большом завале (оставить нижние q %)
     "Г-78": {"best_move_1s_cbps": "lo"}, "Г-55": {"tape_press_lots_30s": "lo"}, "Г-140": {"best_flips_15s": "lo", "ofi_10s_lots": "hi"},
 }
 R1X = set()   # хеши R1-клеток, посчитанных tk202-r1x.py (TK-202 B11): /data/tk202/r1x/cells/<мес>/<хеш>.csv, янв–сен (окт 90 кл. на 31 сигнале); в --cells не идут
@@ -170,7 +265,7 @@ def _dec(x):
     return format(Decimal(repr(float(x))), 'f')   # каноническое имя --exit-form: без экспоненты (Rust: 0.0000227…)
 
 
-R1_NODATA = ("tape_burst_press_60s_bp",)   # coverage-r1.json r1ext: jan_n_defined 0, охват 0 во всех месяцах — файлов нет
+R1_NODATA = ()   # TK-268: колонка *_60s_bp в пуле сигналов есть (272 из 273 суток, /data/tk0268/pool60) — «нет данных» не осталось
 R1EXT = "r1ext TK-189: /data/tk189/r1ext/cells/<мес>/ (271 кл./мес, фев…окт; 5 прежних точек побайтно = /data/tk064/r1)"
 R2B_MONTHS = tuple(f"2026-{m:02d}" for m in range(1, 10))   # TK-115 R2-B (job 1011200729464, calc /data/p12r3a/r2b): 31 форма × B1-сутки янв–сен, B1 = набор t-bid-btc4h-q1
 OUTSIDE = {}  # хеш клетки -> где посчитано вне Летописи (не «к счёту», не в --cells): загрузка результатов в Летопись — отдельный шаг
@@ -178,7 +273,7 @@ LINES = {}  # хеш клетки -> (строка --cells «форма набо
 
 
 def r2b_lines():
-    """{ГГГГ-ММ: множество строк --cells} 31 формы R2-B TK-115 (tk115-r2b-day.sh) из порогов v7/v6 — те же числа, что у плана (сверено с thr7 e-thresholds-*.csv, янв–сен)."""
+    """{ГГГГ-ММ: множество строк --cells} 31 формы R2-B TK-115 (archive/tk115-r2b-day.sh) из порогов v7/v6 — те же числа, что у плана (сверено с thr7 e-thresholds-*.csv, янв–сен)."""
     thr = {r["month"]: r for r in json.load(open(_TAPE_THR, encoding="utf-8"))["summary"]} if os.path.exists(_TAPE_THR) else {}
     b, out = "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800", {}
     for m, w_m in w_median_ms().items():
@@ -232,6 +327,8 @@ MECH_RUN = {
     "EntryLadderSigma3": ("t-bid-btc4h-q1", {}),   # запись kind=entry: имя идёт во вход клетки без суффикса выхода
     "StopSigma": (None, {}),   # запись kind=stop: имя идёт в стоп клетки, не в суффикс выхода
     "TakeSchedX": (None, {}),   # набор клетки — из стека; тейк клетки по MECH_TAKE
+    "LevelBack": ("t-bid-btc4h-q1", {}),   # Г-108 (П-15): lvlback<G>w<W> — суффикс выхода на базе B1
+    "EntryRetreat": ("t-bid-btc4h-q1", {}),   # Г-102 (П-15): retreat<k>t<T> — запись kind=entry, имя идёт во вход клетки (нужен r2-бинарь)
 }
 # тейк клетки, когда ось привязана к механике: стек B3 = B1 с тейком 1to1 без трейла (tsl не действует при трейле; Судья 11.10)
 MECH_TAKE = {"TakeSchedX": "1to1"}
@@ -372,14 +469,18 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
     elif "keep_q" in av or "common_q" in av:  # R1: как у клеток Летописи — признак (None, если колонка одна, она в имени клетки не стоит), квантиль «kNN», порог по окну
         fam, _, feat = family_of(hyp).partition("-")
         col = None if "col" in fixed else av.get("col", feat or None)
-        cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "expanding-window"}}
+        cfg["variant"] = {"family": fam, "axes": {"feature": col if col is not None else (feat or None), "q": "k" + str(ch.num(av.get("keep_q", av.get("common_q")))), "thr": "own-month" if hyp == "Г-134" else "expanding-window"}}   # Г-134: порог по B1 своего месяца (П-15 §0)
         if "ctx_q" in av:   # В-227 М3 (Г-78/55/140): страта оси контекста — отдельная клетка, не r1ext
             cfg["variant"]["axes"]["ctx"] = str(av["ctx_q"])
         sign = R1_SIGN.get(hyp, {}).get(col)
-        if "ctx_q" not in av and (col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign))):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
+        if hyp == "Г-134":   # П-15: не r1ext/r1x — «к счёту» маршрутом R1: r1cell.py apply --hist own (пороги своего месяца)
+            pass
+        elif "ctx_q" not in av and (col is None or "common_q" in av or (col in R1EXT_COLS and (sign is None or R1EXT_SIGN.get(col) == sign))):   # колонка/знак вне r1ext (В-227 М1) — не «посчитано»: идёт в «к счёту»
             R1COL[ch.cell_hash(cfg)] = cfg["variant"]["axes"]["feature"]
         elif ("ctx_q" in av or col is not None) and "common_q" not in av:   # В-227 М1/М3: колонка/знак вне r1ext и ctx×keep_q — посчитано tk202-r1x.py (calc /data/tk202/r1x, янв–сен)
             R1X.add(ch.cell_hash(cfg))
+    elif av and re.sub(r"\D", "", hyp) in P17_HYPS:   # П-17 (TK-279): ключи набора B1 (size_risk/repeat_min/agemax — хеш набора; entry_gate/lreg/sreg/swept_min — вариант семьи + порог по месяцам)
+        p17_cell(hyp, av, cfg, form)
     elif av and re.sub(r"\D", "", hyp) == "133":   # chase<round(a·W_m)> мс по месяцам (Судья 11.10, f1-axes): хеш — по оси a (как e133-w* Летописи), строки — на месяц
         a = _frac(av["a"])
         cfg["variant"] = {"family": family_of(hyp), "axes": {"a": int(a) if float(a).is_integer() else a}}
@@ -387,26 +488,26 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
         LINES[h] = (None, "месячная форма chase<a·W_m>: строки --cells по месяцам (файлы <имя>-<ГГГГ-ММ>.cells)")
         MONTHLY[h] = {m: f"{form}-chase{int(round(w * a))} {set_name}" for m, w in w_median_ms().items()}
     elif av and re.sub(r"\D", "", hyp) == "112":   # tape<W>q<Q_m(W,q)>: Q из v7 по прошлым месяцам (Судья 11.10, f1-axes); хеш — по осям W, q
-        w, q = _int_in(_frac(av["W"]), (5, 10, 15, 30, 60, 120, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        w, q = _int_in(_frac(av["W"]), (5, 6, 8, 9, 10, 11, 12, 14, 15, 19, 22, 26, 30, 38, 45, 52, 60, 75, 90, 105, 120, 165, 210, 255, 300)), _int_in(_frac(av["q"]), (5, 10, 20, 33, 50, 67, 80, 90, 91, 92, 94, 95))
         cfg["variant"] = {"family": family_of(hyp), "axes": {"W": w, "q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TAPE_THR, encoding="utf-8"))["summary"] if os.path.exists(_TAPE_THR) else []
         mm = {r["month"]: f"{form}-tape{w}q{'p' if r.get(f'e112_W{w}_q{q}', 0) <= 0 else _dec(r[f'e112_W{w}_q{q}'])} {set_name}" for r in thr if w and q and f"e112_W{w}_q{q}" in r}
         if not (w and q):
-            LINES[h] = (None, "Г-112: W ∈ {5,10,15,30,60,120,300} с, q ∈ {5,10,20,33,50,67,80,90,95}")
+            LINES[h] = (None, "Г-112: W ∈ {5,6,8,9,10,11,12,14,15,19,22,26,30,38,45,52,60,75,90,105,120,165,210,255,300} с, q ∈ {5,10,20,33,50,67,80,90,91,92,94,95}")
         elif not thr:
-            LINES[h] = (None, f"Г-112: нет {os.path.basename(_TAPE_THR)} — v7 TK-120 (thr7/summary.json)")
+            LINES[h] = (None, f"Г-112: нет {os.path.basename(_TAPE_THR)} — v11 TK-272 (thr11/summary.json)")
         else:
             no = sorted(r["month"] for r in thr if r["month"] not in mm)
             LINES[h] = (None, "месячная форма tape<W>q<Q_m>: файлы <имя>-<ГГГГ-ММ>.cells" + (f"; нет порога в v7 — месяцы {','.join(no)}" if no else ""))
             MONTHLY[h] = mm
     elif av and re.sub(r"\D", "", hyp) == "10":   # btc<N>h_max=T_m(N,q): набор B1 с заменой порога, T_m по месяцам из прошлых месяцев (Судья 11.10, f1-axes)
-        n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        n_h, q = _int_in(_frac(av["btc_window_h"]), (1, 2, 3, 4, 6, 8, 9, 10, 11, 12, 24)), _int_in(_frac(av["btc_thr_q"]), (5, 6, 8, 9, 10, 20, 33, 50, 67, 80, 90, 95))
         cfg["variant"] = {"family": family_of(hyp), "axes": {"btc_window_h": n_h, "btc_thr_q": q}}
         h = ch.cell_hash(cfg)
         thr = json.load(open(_BTC_THR, encoding="utf-8")) if os.path.exists(_BTC_THR) else {}
         if not (n_h and q):
-            LINES[h] = (None, "Г-10: окно ∈ {1,2,3,4,6,8,12,24} ч, q ∈ {5,10,20,33,50,67,80,90,95}")
+            LINES[h] = (None, "Г-10: окно ∈ {1,2,3,4,6,8,9,10,11,12,24} ч, q ∈ {5,6,8,9,10,20,33,50,67,80,90,95}")
         elif not thr:
             LINES[h] = (None, f"Г-10: нет {os.path.basename(_BTC_THR)} — btc-thresholds.py по study/regime (regime.py с btc_ret_6h…24h)")
         else:
@@ -419,16 +520,38 @@ def p14_cfg(hyp, sv, av, fixed=(), mm=None):
                     MSETS[name] = f"age=2700,side=bid,btc{n_h}h_max={t}"
                     mm[m] = f"{form} {name}"
             MONTHLY[h] = mm
+    elif av and re.sub(r"\D", "", hyp) in ("72", "146") and "btc_thr_q" in av:   # П-15: Г-72 btc_lag_<s>s_min=T_m, Г-146 B1 + btc24h_min=T_m; пороги по месяцам — P-15-thresholds.csv; хеш — семья g72/g146 + оси (как Г-10)
+        fam, q = "g" + re.sub(r"\D", "", hyp), _int_in(_frac(av["btc_thr_q"]), range(1, 100))   # F2 (TK-303): любые целые q (разрешимость 1); пороги — P-15-thresholds.csv (--all-q)
+        lag = _int_in(_frac(av["btc_lag_s"]), (1, 2, 4, 8, 16, 32, 64, 78, 91, 104, 118)) if fam == "g72" else None
+        cfg["variant"] = {"family": fam, "axes": ({"btc_lag_s": lag, "btc_thr_q": q} if fam == "g72" else {"btc_thr_q": q})}
+        h = ch.cell_hash(cfg)
+        thr = p15_thresholds().get((fam, f"btc_lag_{lag}s" if fam == "g72" else "btc24h"), {})
+        if not q or (fam == "g72" and not lag):
+            LINES[h] = (None, f"{hyp}: q — целое 1..99" + (", лаг ∈ {1,2,4,8,16,32,64,78,91,104,118} с" if fam == "g72" else ""))
+        elif not thr:
+            LINES[h] = (None, f"{hyp}: нет {os.path.basename(_P15_THR)} (tools/registry/p15_scope.py --write-research)")
+        elif q not in thr:
+            LINES[h] = (None, f"{hyp}: нет порогов q={q} в {os.path.basename(_P15_THR)} (btc-lag-thresholds.py/btc-thresholds.py --all-q, p15_scope.py --write-research)")
+        else:
+            LINES[h] = (None, f"месячный набор {fam}{'l' + str(lag) if lag else ''}q<q>-<ГГГГ-ММ>: файлы <имя>-<ГГГГ-ММ>.cells")
+            row = thr[q]   # {месяц: (порог, set_arg)}
+            q0 = min(x for x in thr if [thr[x][m][0] for m in sorted(thr[x])] == [row[m][0] for m in sorted(row)])   # q с теми же 9 границами — одна клетка (лаг 1 с: q50, q67 = q33)
+            mm = {}
+            for m, (_, spec) in row.items():
+                name = f"{fam}{'l' + str(lag) if lag else ''}q{q0}-{m}"
+                MSETS[name] = spec
+                mm[m] = f"{form} {name}"
+            MONTHLY[h] = mm
     elif av and ("usd_min_q" in av or "behind_min_q" in av) and "keep_q" not in av:   # В-227 М3 (Г-89/107/27, Г-32): usd_min=T_m(q) по месяцам; Г-07 — behind_min=T_m(q), % (D20); Г-32 — ещё страта btc4h внутри базы B1 (Судья 12.10 04:14)
         ax, pre, key = ("behind_min_q", "b", "behind") if "behind_min_q" in av else ("usd_min_q", "u", "usd")   # ось, префикс набора, раздел порогов
-        q = _int_in(_frac(av[ax]), (5, 10, 20, 33, 50, 67, 80, 90, 95))
+        q = _int_in(_frac(av[ax]), range(1, 100))   # Q9 F1 + целые F2 (П-14 §3.3: разрешимость процентиля 1); T_m(q) — tk202-thresholds.py --q
         k = int(str(av["ctx_q"])[1:]) if "ctx_q" in av and re.fullmatch(r"q[1-5]", str(av["ctx_q"])) else None
         axes = {ax: q} if k is None else {ax: q, "ctx": f"btc4h-q{k}"}
         cfg["variant"] = {"family": "g32" if "ctx_q" in av else ("behind_min" if key == "behind" else "usd_min"), "axes": axes}   # Г-89/107/27 — одна ось, один хеш
         h = ch.cell_hash(cfg)
         thr = json.load(open(_TK202_THR, encoding="utf-8")) if os.path.exists(_TK202_THR) else {}
         if not q or ("ctx_q" in av and k is None):
-            LINES[h] = (None, f"{ax} ∈ {{5,10,20,33,50,67,80,90,95}}, ctx_q ∈ q1…q5")
+            LINES[h] = (None, f"{ax} — целое 1…99, ctx_q ∈ q1…q5")
         elif not thr:
             LINES[h] = (None, f"нет {os.path.basename(_TK202_THR)} — tools/analyze/tk202-thresholds.py")
         else:
@@ -522,9 +645,94 @@ def refine(vals, grid, ptype, res, div, cap):
     return pts + sorted(new)
 
 
-def build_grid(c, protocol, k, hyps=None, rules=None):
+def f1_stats(path=None):
+    """{гипотеза: [клетка F1]} из CSV сита F1: ax, key=(p, -dSR, -суток), good = «годна», defd = определена (§11.1)."""
+    by = collections.defaultdict(list)
+    for r in csv.DictReader(open(path or os.path.join(ROOT, F1_STATS), encoding="utf-8-sig")):
+        defd = r["status"] in ("годна", "не годна")
+        by[r["hyp"]].append({"ax": json.loads(r["axes"]), "good": r["status"] == "годна", "defd": defd,
+                             "key": (float(r["p"]), -float(r["dSR"]), -int(r["days_A"])) if defd else None})
+    return by
+
+
+def f2_zones(rs, ptypes):
+    """Зоны F1 по П-14 §11.2 п. 1–2, 5: [[клетки зоны]], лучшая зона первой; пусто — гипотеза не определена (§11.1).
+    Годные клетки (p <= p_max) связываются соседством по шагу F1 (категориальные оси — раздельно), зон не более MAX_ZONES;
+    годных нет — одна клетка: p, затем dSR, затем суток со сделками. Одна числовая ось и зона от границы до границы
+    (Г-133, п. 5) — берётся лучшая клетка, не вся ось."""
+    defd = [r for r in rs if r["defd"]]
+    if not defd:
+        return []
+    names = list(rs[0]["ax"])
+    num = [a for a in names if ptypes.get(a, ("numeric", None))[0] != "categorical"]
+    cat = [a for a in names if a not in num]
+    vals = {a: sorted({str(r["ax"][a]) for r in rs}, key=lambda v: (fval(v) is None, fval(v) or 0, v)) for a in num}
+    pos = lambda r: (tuple(str(r["ax"][a]) for a in cat), tuple(vals[a].index(str(r["ax"][a])) for a in num))
+    best = lambda z: min((r["key"], pos(r)) for r in z)
+    good = {pos(r): r for r in defd if r["good"]}
+    if not good:
+        return [[min(defd, key=lambda r: (r["key"], pos(r)))]]
+    seen, zones = set(), []
+    for p0 in good:
+        if p0 in seen:
+            continue
+        zone, todo = [], [p0]
+        seen.add(p0)
+        while todo:
+            ct, ix = todo.pop()
+            zone.append(good[(ct, ix)])
+            for d in itertools.product((-1, 0, 1), repeat=len(num)):
+                nb = (ct, tuple(a + b for a, b in zip(ix, d)))
+                if nb in good and nb not in seen:
+                    seen.add(nb)
+                    todo.append(nb)
+        zones.append(zone)
+    zones = sorted(zones, key=best)[:MAX_ZONES]
+    if len(num) == 1 and not cat:
+        n = len(vals[num[0]])
+        zones = [[min(z, key=lambda r: (r["key"], pos(r)))] if {pos(r)[1][0] for r in z} >= {0, n - 1} else z for z in zones]
+    return zones
+
+
+def f2_points(zone, rs, f1_pts, ptypes, rules):
+    """Точки осей окрестности зоны (§11.2 п. 3–4): зона + сосед F1 с каждой стороны, промежутки дробятся на step_div, потолок cap_f2 новых точек на ось."""
+    pts = {}
+    for name, f1 in f1_pts.items():
+        if name not in rs[0]["ax"]:
+            pts[name] = f1   # ось вне сита F1 (fixed) — точки F1 без изменений
+            continue
+        t, res = ptypes.get(name, ("numeric", None))
+        grid = sorted({str(r["ax"][name]) for r in rs}, key=lambda v: (fval(v) is None, fval(v) or 0, v))
+        pts[name] = refine(sorted({str(r["ax"][name]) for r in zone}), grid, t, res, int(rules.get("step_div", 4)), rules.get("cap_f2", 12))
+    return pts
+
+
+def zone_nearest(combos, pts, names, zone, lim):
+    """Потолок на зону (решение Судьи, tk278 §11.2 п. 4): lim клеток, ближайших к центру зоны — L∞ в шагах точек F2, затем L1, затем по рангам осей. Центр по оси = среднее значений зоны; ось нечисловая или вне сита — расстояние 0."""
+    rank, cen = {}, {}
+    for n in names:
+        g = sorted(pts[n], key=lambda v: (fval(v) is None, fval(v) or 0, str(v)))
+        rank[n] = {v: i for i, v in enumerate(g)}
+        zv = [fval(str(r["ax"][n])) for r in zone if n in r["ax"]]
+        fg = [fval(v) for v in g]
+        if not zv or None in zv or None in fg:
+            cen[n] = None
+            continue
+        c = sum(zv) / len(zv)
+        i = max([j for j in range(len(fg)) if fg[j] <= c] or [0])
+        cen[n] = i + ((c - fg[i]) / (fg[i + 1] - fg[i]) if i + 1 < len(fg) and c > fg[i] else 0)
+
+    def key(combo):
+        ix = tuple(rank[n][v] for n, v in zip(names, combo))
+        d = [abs(i - cen[n]) if cen[n] is not None else 0 for i, n in zip(ix, names)]
+        return (max(d), sum(d), ix)
+    return sorted(combos, key=key)[:int(lim)]
+
+
+def build_grid(c, protocol, k, hyps=None, rules=None, f1=None):
     """{hyp: [(axes_dict, cfg)]} для фракции k; закрытые гипотезы -> список пуст (причина в closed)."""
     rules = rules or rules_of(c, protocol)
+    f1 = f1 if f1 is not None else (f1_stats() if k == 2 else None)
     paths = dict(c.execute("select name, cfg_path from params where cfg_path is not null and cfg_path != ''"))
     ptypes = {r[0]: (r[1], r[2]) for r in c.execute("select name, axis_type, resolution from params")}
     grids, closed = {}, {}
@@ -545,36 +753,49 @@ def build_grid(c, protocol, k, hyps=None, rules=None):
             closed[hyp] = "нет осей в hyp_axes"
             continue
         sv, _ = stack_values(c, axes[0][2], axes[0][3] or None)
+        f1_pts = {a[0]: [x for x in a[1].split("|") if x] for a in axes}
         if k == 1:
-            pts = {a[0]: [x for x in a[1].split("|") if x] for a in axes}
+            psets = [(f1_pts, None)]
+        elif k == 2:
+            rs = f1.get(hyp, [])
+            zones = f2_zones(rs, ptypes)
+            if not zones:
+                closed[hyp] = "не определена (П-14 §11.1): нет определённых клеток F1 — не в F2 и не отбракована"
+                continue
+            psets = [(f2_points(z, rs, f1_pts, ptypes, rules), z) for z in zones]
         else:
             prev = {r[0]: json.loads(r[1]) for r in c.execute("select cell_hash, axes from plan_cells where protocol=? and fraction=? and hyp=?", (protocol, k - 1, hyp))}
             plat = [prev[r[0]] for r in c.execute("select cell_hash from sieve where protocol=? and fraction=? and hyp=? and side='A' and plateau=1", (protocol, k - 1, hyp)) if r[0] in prev]
             if not plat:
                 closed[hyp] = f"плато нет на сетке F{k - 1} — гипотеза закрыта"
                 continue
-            cap = rules.get("cap_f2", 12) if k == 2 else rules.get("cap_f3", 8)
             pts = {}
             for a in axes:
                 t, res = ptypes.get(a[0], ("numeric", None))
-                pts[a[0]] = refine(sorted({str(p[a[0]]) for p in plat}), sorted({str(p[a[0]]) for p in prev.values()}, key=lambda v: (fval(v) is None, fval(v) or 0, v)), t, res, int(rules.get("step_div", 4)), cap)
-        cells = []
-        mm = {a[0]: a[5] for a in axes if a[5]}
-        for combo in itertools.product(*[pts[a[0]] for a in axes]):
-            av = dict(zip([a[0] for a in axes], combo))
-            cells.append((av, make_cfg(paths, sv, av, hyp, {a[0] for a in axes if a[4] == 'fixed'}, mm)))
+                pts[a[0]] = refine(sorted({str(p[a[0]]) for p in plat}), sorted({str(p[a[0]]) for p in prev.values()}, key=lambda v: (fval(v) is None, fval(v) or 0, v)), t, res, int(rules.get("step_div", 4)), rules.get("cap_f3", 8))
+            psets = [(pts, None)]
         lim = rules.get("cap_cells", 100)
-        if k > 1 and len(cells) > lim:
-            closed[hyp] = f"сетка {len(cells)} > потолка {int(lim)} клеток на гипотезу — сузить (решение Судьи)"
-            continue
+        cells, seen = [], set()
+        mm = {a[0]: a[5] for a in axes if a[5]}
+        for pts, zone in psets:
+            combos = list(itertools.product(*[pts[a[0]] for a in axes]))
+            if k > 1 and zone and len(combos) > lim:   # потолок — на зону (решение Судьи, tk269/tk278 §11.2 п. 4): lim ближайших к центру
+                combos = zone_nearest(combos, pts, [a[0] for a in axes], zone, lim)
+            for combo in combos:
+                key = tuple(fval(v) if fval(v) is not None else str(v) for v in combo)
+                if k > 1 and key in seen:   # зоны F2 пересекаются в общих точках
+                    continue
+                seen.add(key)
+                av = dict(zip([a[0] for a in axes], combo))
+                cells.append((av, make_cfg(paths, sv, av, hyp, {a[0] for a in axes if a[4] == 'fixed'}, mm)))
         grids[hyp] = cells
     return grids, closed
 
 
-def plan(protocol, k, hyps=None, out=None, have=None):
+def plan(protocol, k, hyps=None, out=None, have=None, f1=None):
     c = connect()
     rules = rules_of(c, protocol)
-    grids, closed = build_grid(c, protocol, k, hyps, rules)
+    grids, closed = build_grid(c, protocol, k, hyps, rules, f1)
     c.close()
     have = have_hashes() if have is None else have
     months = int(rules["months"])
@@ -654,6 +875,7 @@ def plan(protocol, k, hyps=None, out=None, have=None):
             for u in used:
                 f.write(f"--set {u}:{sets[u]}\n")
         r2 = any(re.match(R2_EXIT_RE, x) for x in (m.group(2) for m in tails if m and m.group(2)))
+        r2 = r2 or any(re.match(R2_EXIT_RE, f.split("-", 1)[0]) for f in forms) or any("entry_gate=" in sets[u] for u in used)   # П-17: вход postsweep<R> и ворота entry_gate — тоже только r2
         with open(stem + ".bin", "w", encoding="utf-8", newline="\n") as f:   # какой бинарь ставить прогону: формы R2 — только cargo feature r2 (forms.rs, ExitForm::parse)
             f.write("r2\n" if r2 else "std\n")
 

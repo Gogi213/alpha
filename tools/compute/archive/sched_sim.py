@@ -43,6 +43,7 @@ class SimBE:
 
     def kill(self, j): self.jobs[j["id"]]["left"] = 0; self.killed.append(j["id"])
     def extend(self, j, remaining): pass
+    def extend_live(self, j, remaining): return True
     mem_av, mem_swap = 36.0, 0.0
     def mem_state(self): return self.mem_av, self.mem_swap
     def job_mem(self, j): return self.mem_used.get(j["id"], 0.0)

@@ -1,10 +1,14 @@
-import os, sys, subprocess
+import json, os, sys, subprocess
 from pathlib import Path
-code = Path(r"C:\Users\Георгий\.claude\plugins\cache\role-play-vibing\role-play-vibing\1.8.21")
+# версия — установленная (installed_plugins.json), env служб — из .claude/settings.json проекта (бабочки, лимиты, стражи)
+_inst = json.loads((Path.home() / ".claude" / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
+code = Path(next(e["installPath"] for k, v in _inst["plugins"].items() if k.startswith("role-play-vibing") for e in v
+                 if e.get("projectPath", "").lower() == r"c:\visual projects\alpha"))
 sys.path.insert(0, str(code / ".claude" / "dispatcher"))
+_settings = json.loads(Path(r"C:\visual projects\alpha\.claude\settings.json").read_text(encoding="utf-8"))
+os.environ.update({k: str(v) for k, v in _settings.get("env", {}).items() if k.startswith("RPV_")})
 os.environ["RPV_CI_REPO"] = "Gogi213/role-play-vibing"
 os.environ.pop("RPV_CEO_TRIAGE", None)
-os.environ["RPV_DISPATCH_ROLE_PARALLEL"] = "engineer:6,researcher:4,judge:4"
 import release
 env = release.clean_env()
 args = sys.argv[1:]

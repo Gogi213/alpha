@@ -8,7 +8,7 @@ use crate::lob::levels::{ApproachEnd, ApproachRecord, ArmP08};
 use super::bincache::{put_day, put_delta, put_plain, read_cached, unwrap, wrap, Rd};
 use super::read::{read_approaches_csv, ApproachRow};
 
-pub(super) const MAGIC: &[u8; 4] = b"ABN1";
+pub(super) const MAGIC: &[u8; 4] = b"ABN3";
 
 /// `read_approaches_csv` через двоичный кэш (`bincache::read_cached`).
 pub(crate) fn read_approaches_cached(csv: &Path) -> anyhow::Result<Vec<ApproachRow>> {
@@ -49,6 +49,8 @@ pub(super) fn encode_file(rows: &[ApproachRow], len: u64, mtime: u64) -> Option<
     put_plain(&mut p, a(|r| r.depth_behind_lots));
     put_plain(&mut p, a(|r| i64::from(r.stack_levels_at_arm)));
     put_plain(&mut p, a(|r| r.frontrun_lots_at_arm));
+    put_plain(&mut p, a(|r| r.stack_span_bps_at_arm));
+    put_plain(&mut p, a(|r| i64::from(r.repeat_count_at_arm)));
     if has_p08 {
         let q = |f: fn(&ArmP08) -> i64| rows.iter().map(move |r| f(&r.approach.p08.unwrap()));
         put_plain(&mut p, q(|x| x.traded_lots));
@@ -88,6 +90,8 @@ pub(super) fn decode_file(b: &[u8], len: u64, mtime: u64) -> Option<Vec<Approach
     let depth = r.plain()?;
     let stack = r.plain()?;
     let front = r.plain()?;
+    let span = r.plain()?;
+    let repeat = r.plain()?;
     let p08 = if has_p08 {
         Some([
             r.plain()?,
@@ -107,6 +111,7 @@ pub(super) fn decode_file(b: &[u8], len: u64, mtime: u64) -> Option<Vec<Approach
         return None;
     }
     let mut out = Vec::with_capacity(n);
+    #[allow(clippy::indexing_slicing)] // каждый столбец `Rd::new(.., n)` длины n, i < n
     for i in 0..n {
         out.push(ApproachRow {
             day: day.clone(),
@@ -125,6 +130,8 @@ pub(super) fn decode_file(b: &[u8], len: u64, mtime: u64) -> Option<Vec<Approach
                 depth_behind_lots: depth[i],
                 stack_levels_at_arm: u32::try_from(stack[i]).ok()?,
                 frontrun_lots_at_arm: front[i],
+                stack_span_bps_at_arm: span[i],
+                repeat_count_at_arm: u32::try_from(repeat[i]).ok()?,
                 p08: p08.as_ref().map(|c| ArmP08 {
                     traded_lots: c[0][i],
                     size_max: c[1][i],

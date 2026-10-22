@@ -8,6 +8,7 @@ use super::forms::{grid_forms_with_axes, grid_forms_with_early, grid_forms_with_
 use super::outputs::{forms_row, sum_net_bps, FORMS_HEADER, FORMS_HEADER_CARRY_LEN};
 use super::sets::{Range, CTX_AXES};
 use super::*;
+use crate::book::Side;
 use crate::commands::lob::backtest::{EntryForm, EntryTtl, PoolLot, StopForm, TakeForm};
 use crate::commands::lob::bounce_verdict::{parse_form, DEADLINE_SECS};
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
@@ -160,12 +161,18 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         sets: Vec::new(),
         cells: None,
         sigma_from: None,
+        ctx_shift_secs: 0,
         hold_step: "poll".to_string(),
+        level_control: None,
         exit_group: "off".to_string(),
         p08_cols: false,
         r1_cols: false,
         tape_log: None,
+        tape_log_ws: vec![],
+        touch_col: false,
         regime_from: None,
+        klines_from: None,
+        btc_seconds: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
@@ -227,6 +234,8 @@ fn col<'a>(header: &[String], row: &'a [String], name: &str) -> &'a str {
 
 mod admit;
 mod carry_cases;
+mod control;
+mod ctx_shift;
 mod form_cases;
 mod grid;
 mod keys;

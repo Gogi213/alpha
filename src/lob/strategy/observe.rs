@@ -129,6 +129,7 @@ impl StrategyState {
         self.phase = Phase::Holding { entry_ns: now };
         if self.tape_on() {
             self.tape_at_fill = self.tape_press(now);
+            self.tape_at_fill_ws = self.tape_press_ws(now);
             self.cxl_at_fill = self.cxl_press(now);
         }
     }
@@ -143,9 +144,39 @@ impl StrategyState {
         self.chase_wait_ns
     }
 
+    /// TK-272: лента против позиции за каждое окно `tape_log_ws` до исполнения входа; пустые слоты и выключенное кольцо — 0.
+    pub fn tape_at_fill_ws(&self) -> [f64; TAPE_WS_MAX] {
+        self.tape_at_fill_ws
+    }
+
     /// TK-115 Г-116: отмены нашей стороны за `W` с до исполнения входа, иначе 0.
     pub fn cxl_at_fill(&self) -> f64 {
         self.cxl_at_fill
+    }
+
+    /// Г-88: сделки шага — в автомат закола/возврата, пока круг в `ReclaimWait` и сигнала ещё нет (первый возврат
+    /// фиксирует `t0`; остальные сделки автомат не читает).
+    fn feed_reclaim(&mut self, trades: &[Event]) {
+        if !matches!(self.phase, Phase::ReclaimWait) || self.reclaim_t0.is_some() {
+            return;
+        }
+        let (Some(watch), TradePlan::Bounce { tick_px, .. }) = (self.reclaim.as_mut(), self.plan)
+        else {
+            return;
+        };
+        for t in trades {
+            if t.ev & EXCH_SELL_TRADE_EVENT == 0 && t.ev & EXCH_BUY_TRADE_EVENT == 0 {
+                continue;
+            }
+            let tick = px_tick(t.px, tick_px);
+            if let Some(t0) = watch.feed(crate::lob::reclaim::TradeTick {
+                ts_ns: t.exch_ts,
+                tick,
+            }) {
+                self.reclaim_t0 = Some(t0);
+                break;
+            }
+        }
     }
 
     /// F7 (Б-75): зачесть сделки этого шага, бьющие **в стену**. Вызывается
@@ -164,6 +195,7 @@ impl StrategyState {
         if self.tape_on() {
             self.record_tape(trades);
         }
+        self.feed_reclaim(trades);
         let TradePlan::Bounce {
             level_px,
             tick_px,

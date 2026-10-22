@@ -19,41 +19,72 @@ def load_config(path=None):
 
 
 def plan_rows(protocol="P-14", fraction=1):
-    """Клетки сетки (docs/registry/plan_cells.jsonl): hyp, hash, axes{}."""
-    out = []
+    """Клетки сетки (docs/registry/plan_cells.jsonl): hyp, hash, axes{}. fraction — число или список долей (TK-272: [1, 2] — F1 и F2);
+    одна пара (гипотеза, хеш) в нескольких долях — одна строка (первая доля)."""
+    fr = {fraction} if isinstance(fraction, int) else set(fraction)
+    out, seen = [], set()
     for line in open(os.path.join(REG, "plan_cells.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
-            if d["protocol"] == protocol and d["fraction"] == fraction:
-                out.append({"hyp": d["hyp"], "hash": d["cell_hash"], "axes": json.loads(d["axes"])})
+            if d["protocol"] == protocol and d["fraction"] in fr and (d["hyp"], d["cell_hash"]) not in seen:
+                seen.add((d["hyp"], d["cell_hash"]))
+                out.append({"hyp": d["hyp"], "hash": d["cell_hash"], "axes": json.loads(d["axes"]), "fraction": d["fraction"]})
     return out
 
 
+def protocols_of(cfg):
+    """[(протокол, фракция)] формы: config.protocols (пары) или один (protocol, fraction) — прежнее поведение (TK-279: П-17 рядом с П-14)."""
+    return [tuple(x) for x in cfg.get("protocols") or [(cfg["protocol"], cfg["fraction"])]]
+
+
+def plan_rows_cfg(cfg):
+    """Клетки сеток всех протоколов формы подряд (plan_rows по каждой паре)."""
+    return [r for proto, fr in protocols_of(cfg) for r in plan_rows(proto, fr)]
+
+
 ROUTES_FILE = os.path.join(HERE, "routes.json")
-COUNTABLE = ("cells", "monthly")   # маршруты, которые кодирует --cells (прочее форма не ставит: посчитано вне Летописи / нет данных / нет кодировки / R1)
-OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata": "нет данных", "noline": "нет кодировки", "r1route": "маршрут R1"}   # причина «вне формы» словами для страницы
+R1_ROUTES = ("r1", "r1x")   # TK-251: R1 не идёт строкой --cells — отбор r1cell.py + psim (r1: отбор по .r1spec; r1x: клетки готовы, только psim)
+COUNTABLE = ("cells", "monthly") + R1_ROUTES   # маршруты, которые форма умеет посчитать (прочее: посчитано вне Летописи / нет данных / нет кодировки / композит R1)
+OFF_LABELS = {"outside": "посчитано вне Летописи", "nodata": "нет данных", "noline": "нет кодировки", "r1route": "маршрут R1",
+              "r1comp": "композит R1 (Г-64/73/83) — отбора в форме нет"}   # причина «вне формы» словами для страницы (TK-247: «посчитано» — только где считали)
 OFF_ROUTES = list(OFF_LABELS)   # код в coverage(): 0 — форма считает, i+1 — OFF_ROUTES[i]
 
 
-def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
+def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE, extra=()):
     """Маршрут каждой клетки сетки по тем же master.LINES/OUTSIDE/R1COL/R1X/MONTHLY, что и master.plan (строки 592-612); пишет routes.json
     (нужна data/registry.sqlite этой машины — серверу достаточно готового файла). {routes:{хеш: маршрут}, lines:{хеш: «форма набор»},
-    monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}}; маршрут: cells | monthly | outside | nodata | noline | r1route."""
+    monthly:{хеш:{мес: строка}}, sets:{набор: спецификация}, r1spec:{хеш: [гипотеза, колонка, знак, keep_q, ось ctx, ctx_q]}};
+    маршрут: cells | monthly | r1 | r1x | outside | r1comp | nodata | noline | r1route (TK-251: r1col → r1 для колонок со знаком, r1comp — композиты common_q)."""
     import master, cellhash as ch, cellhash_reg
+    sys.path.insert(0, os.path.join(ROOT, "tools", "compute"))
+    import r1cell
     c = master.connect()
-    grids, _ = master.build_grid(c, protocol, fraction, None, master.rules_of(c, protocol))
+    items = {}
+    for fr in ([fraction] if isinstance(fraction, int) else fraction):   # TK-272: доли F1+F2 одним файлом
+        for hyp, cells in master.build_grid(c, protocol, fr, None, master.rules_of(c, protocol))[0].items():
+            items.setdefault(hyp, []).extend(cells)
+    items = list(items.items())
+    for pr, fr in extra:   # TK-279: дополнительные протоколы (П-17) — их сетки после основной; гипотеза может быть в обеих (хеши разные)
+        items += list(master.build_grid(c, pr, fr, None, master.rules_of(c, pr))[0].items())
     c.close()
     r2b = master.r2b_lines()
     sets = {**cellhash_reg.load_sets(), **master.MSETS}
-    routes, lines, monthly, used = {}, {}, {}, set()
-    for cells in grids.values():
-        for _, cfg in cells:
+    routes, lines, monthly, used, r1spec = {}, {}, {}, set(), {}
+    for hyp, cells in items:
+        for av, cfg in cells:
             h = ch.cell_hash(cfg)
             if h in routes:
                 continue
             if h in master.R1COL and master.R1COL[h] in master.R1_NODATA:
                 routes[h] = "nodata"
-            elif h in master.OUTSIDE or h in master.R1COL or h in master.R1X or master.r2b_covers(h, r2b):
+            elif h in master.R1COL:
+                sign = r1cell.sign_of(master, hyp, av["col"]) if "col" in av else None
+                routes[h] = "r1" if sign else "r1comp"
+                if sign:
+                    r1spec[h] = [hyp, av["col"], sign, str(av["keep_q"]), r1cell.CTX_AXIS.get(hyp, "") if "ctx_q" in av else "", str(av.get("ctx_q", ""))]
+            elif h in master.R1X:
+                routes[h] = "r1x"
+            elif h in master.OUTSIDE or master.r2b_covers(h, r2b):
                 routes[h] = "outside"
             elif h in master.MONTHLY:
                 routes[h] = "monthly"
@@ -68,7 +99,9 @@ def build_routes(protocol="P-14", fraction=1, out=ROUTES_FILE):
             else:
                 routes[h] = "r1route"
     doc = {"protocol": protocol, "fraction": fraction, "generated": now_iso(), "routes": routes, "r2_re": master.R2_EXIT_RE,
-           "lines": lines, "monthly": monthly, "sets": {u: sets[u] for u in sorted(used)}}
+           "lines": lines, "monthly": monthly, "sets": {u: sets[u] for u in sorted(used)}, "r1spec": r1spec}
+    if extra:
+        doc["protocols"] = [[protocol, fraction]] + [list(x) for x in extra]
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, ensure_ascii=False, sort_keys=True)
     return doc
@@ -120,15 +153,25 @@ def write_set(stem, lines, sets):
 
 def prepare_plan(p, plan_dir=None, doc=None):
     """План-каталог счёта для раннера (day-cells.sh: $P/$PLAN-<ГГГГ-ММ>.cells/.args; общие L.cells/L.args пусты — клетки заданы по месяцам,
-    потому что хеш может быть посчитан не во всех выбранных месяцах). plan_dir=None — только подсчёт. -> ({месяц: число строк --cells}, нужен ли r2-бинарь)"""
+    потому что хеш может быть посчитан не во всех выбранных месяцах). plan_dir=None — только подсчёт. -> ({месяц: число строк --cells}, нужен ли r2-бинарь)
+    TK-251: R1 (маршруты r1/r1x) в --cells не идёт: <план>/L-<мес>.r1spec (hash,hyp,col,sign,keep_q,ctx_axis,ctx_q — для r1cell.py apply), L-<мес>.r1x (хеши с готовыми
+    клетками — только psim), r1months.txt (месяцы с R1); без R1 этих файлов нет — план прежний байт в байт."""
     doc = doc or json.load(open(ROUTES_FILE, encoding="utf-8"))
-    out, needs_r2 = {}, False
+    out, needs_r2, r1months = {}, False, []
     if plan_dir:
         os.makedirs(plan_dir, exist_ok=True)
         for ext in ("cells", "args"):
             open(os.path.join(plan_dir, f"L.{ext}"), "w").close()
     for m in p["months"]:
         todo = [c["hash"] for c in p["cells"] if m in c["new_months"]]
+        rt = doc.get("routes", {})
+        r1 = [h for h in todo if rt.get(h) == "r1"]
+        r1x = [h for h in todo if rt.get(h) == "r1x"]
+        todo = [h for h in todo if rt.get(h) not in R1_ROUTES]
+        if plan_dir and (r1 or r1x):
+            r1months.append(m)
+            _wlines(os.path.join(plan_dir, f"L-{m}.r1spec"), ["hash,hyp,col,sign,keep_q,ctx_axis,ctx_q"] + [",".join([h] + doc["r1spec"][h]) for h in sorted(r1)])
+            _wlines(os.path.join(plan_dir, f"L-{m}.r1x"), sorted(r1x))
         lines = [doc["lines"][h] if h in doc["lines"] else doc["monthly"][h][m] for h in todo]
         out[m] = len(set(lines))
         r2 = any(line_is_r2(ln, doc["r2_re"]) for ln in lines)
@@ -138,6 +181,8 @@ def prepare_plan(p, plan_dir=None, doc=None):
             _wlines(os.path.join(plan_dir, f"L-{m}.bin"), ["r2" if r2 else "std"])
     if plan_dir:
         _wlines(os.path.join(plan_dir, "months.txt"), [m for m in p["months"] if out[m]])
+        if r1months:
+            _wlines(os.path.join(plan_dir, "r1months.txt"), r1months)
     return out, needs_r2
 
 
@@ -231,13 +276,13 @@ def validate_groups(groups, cfg=None, rows=None):
 def plan(hyps, months, axes=None, rows=None, have=None, cfg=None, routes=None, queued=None):
     """Сухой прогон в единицах хеш×месяц (В-224). axes: {param: [значения]} — фильтр сетки (нет = все значения).
     К счёту — только клетки, которые кодирует --cells (routes: хеш -> маршрут; нет клетки в routes = кодируется); остальное — hm_off
-    (off_by по маршрутам: outside — посчитано вне Летописи, nodata — колонки нет в сигналах, noline — нет кодировки, r1route — маршрут R1).
+    (off_by по маршрутам: outside — посчитано вне Летописи, r1col — R1 не считали (данных нет), r1x — клетки R1 есть, $ нет, nodata — колонки нет в сигналах, noline — нет кодировки, r1route — маршрут R1).
     -> {grid, have, new, off, hm_*, cells:[{hyp,hash,axes,route,have_months,new_months}], axis_cov:{param:{value:[посчитано, всего]}}}"""
     cfg = cfg or load_config()
     if routes is None:
         routes = load_routes() if rows is None else {}
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
     if have is None:
         import master
         have = master.have_hashes()
@@ -295,7 +340,7 @@ def plan_groups(groups, rows=None, have=None, cfg=None, routes=None, queued=None
     if routes is None:
         routes = load_routes() if rows is None else {}
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
     if have is None:
         import master
         have = master.have_hashes()
@@ -330,10 +375,11 @@ def _off_code(route):
 
 def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
     """Покрытие страницы по хешам Летописи: {гипотеза: {axes:{ось:[значения]}, cells:[[индекс значения по каждой оси (−1 нет)…, маска «посчитано»,
-    маска «в очереди», 0 или код причины «вне формы» (1+индекс в OFF_ROUTES)]]}}; бит i маски — cfg.months[i]. Один хеш — одна клетка (как в plan)."""
+    маска «в очереди» (только не посчитанное: как qd в plan), 0 или код причины «вне формы» (1+индекс в OFF_ROUTES)]]}}; бит i маски — cfg.months[i].
+    Один хеш — одна клетка гипотезы; хеш, общий у гипотез (Г-27/Г-89/Г-107: одна клетка), виден у каждой (TK-278, проверка Судьи 17.10)."""
     cfg = cfg or load_config()
     if rows is None:
-        rows = plan_rows(cfg["protocol"], cfg["fraction"])
+        rows = plan_rows_cfg(cfg)
         routes = load_routes() if routes is None else routes
     routes = routes or {}
     if have is None:
@@ -346,14 +392,15 @@ def coverage(cfg=None, rows=None, have=None, routes=None, queued=None):
     ga = grid_axes(rows)
     out, seen = {}, set()
     for r in rows:
-        if r["hash"] in seen:
+        if (r["hyp"], r["hash"]) in seen:
             continue
-        seen.add(r["hash"])
+        seen.add((r["hyp"], r["hash"]))
         axn = list(ga[r["hyp"]])
         o = out.setdefault(r["hyp"], {"axes": ga[r["hyp"]], "cells": []})
         idx = [ga[r["hyp"]][k].index(str(r["axes"][k])) if k in r["axes"] else -1 for k in axn]
-        o["cells"].append(idx + [sum(bit[m] for m in have.get(r["hash"], ()) if m in bit),
-                                 sum(bit[m] for m in queued.get(r["hash"], ()) if m in bit),
+        got = have.get(r["hash"], ())
+        o["cells"].append(idx + [sum(bit[m] for m in got if m in bit),
+                                 sum(bit[m] for m in queued.get(r["hash"], ()) if m in bit and m not in got),
                                  _off_code(routes.get(r["hash"], "cells"))])
     return out
 
@@ -428,7 +475,7 @@ def grid_axes(rows=None):
 
 def meta(cfg=None):
     cfg = cfg or load_config()
-    rows = plan_rows(cfg["protocol"], cfg["fraction"])
+    rows = plan_rows_cfg(cfg)
     ncell = collections.Counter(r["hyp"] for r in rows)
     hy = [dict(h, ncells=ncell.get(h["id"], 0)) for h in hyp_list()]
     v227, v227_rows = v227_preset()
@@ -445,6 +492,37 @@ def registry_ts():
     except OSError:
         return None
     return datetime.datetime.fromtimestamp(t, datetime.timezone(datetime.timedelta(hours=4))).strftime("%Y-%m-%d %H:%M")
+
+
+def sieve_rules():
+    """{версия правила: {ключ: число}} из rules.jsonl — пороги сита (p_max, min_trades, min_days) не копируются в код."""
+    out = collections.defaultdict(dict)
+    for line in open(os.path.join(REG, "rules.jsonl"), encoding="utf-8"):
+        if line.strip():
+            d = json.loads(line)
+            try:
+                out[d["version"]][d["key"]] = float(d["value"])
+            except ValueError:
+                pass
+    return out
+
+
+def sieve_note(sv, rules):
+    """Итог сита хеша (сторона А): (не определена, причина текстом) — по строке с годной клеткой, иначе по последней."""
+    x = next((x for x in sv if x.get("eligible")), sv[-1])
+    if x.get("note"):   # причина записана в строке сита (Г-98 §47, контроль k=0): сделок и суток хватает, а клетка не кандидат
+        return True, x["note"]
+    r = rules.get(x.get("rule_version"), {})
+    nt, nd, p = x.get("trades") or 0, x.get("days") or 0, x.get("p")
+    undef = bool(r) and (nt < r.get("min_trades", 0) or nd < r.get("min_days", 0))
+    tail = " · плато" if x.get("plateau") else ""
+    if undef:
+        return True, f"не определена: {nt} сделок (нужно ≥ {r['min_trades']:g}), {nd} суток (≥ {r['min_days']:g})"
+    if x.get("eligible"):
+        return False, f"годна: p {p} ≤ {r.get('p_max', '?')}, ΔSR к B1 > 0, {nt} сделок, {nd} суток{tail}"
+    if r and p is not None and p > r.get("p_max", 1):
+        return False, f"не годна: p {p} > {r['p_max']:g} ({nt} сделок, {nd} суток)"
+    return False, f"не годна: ΔSR к B1 ≤ 0 ({nt} сделок, {nd} суток)"
 
 
 def letopis(hyp=None, month=None, status=None, cfg=None):
@@ -464,14 +542,16 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
     for r in overlay_rows(cfg):
         byhash[r["cell_id"]][r["month"]] = (r.get("pnl_usd"), r.get("trades"), r.get("max_dd"), r.get("sum_net_bps"))
     mets = hash_metrics_file()
+    whys = hash_why_file()
     sieve = {}
     for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
         if line.strip():
             d = json.loads(line)
             sieve.setdefault(d["cell_hash"], []).append(d)
+    srules = sieve_rules()
     routes = load_routes()
     out = []
-    for r in plan_rows(cfg["protocol"], cfg["fraction"]):
+    for r in plan_rows_cfg(cfg):
         if hyp and r["hyp"] != hyp:
             continue
         got = byhash.get(r["hash"], {})
@@ -481,8 +561,9 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
         bps = [got[m][3] if m in got else None for m in months]
         full = all(sq)
         sv = sieve.get(r["hash"], [])
-        sieved = any((x.get("trades") or 0) > 0 or (x.get("days") or 0) > 0 for x in sv)   # в sieve без сделок и суток = не просеяно
+        sieved = any((x.get("trades") or 0) > 0 or (x.get("days") or 0) > 0 or x.get("note") for x in sv)   # в sieve без сделок и суток = не просеяно, кроме строки с причиной (note)
         verdict = next((k for k in ("eligible", "plateau", "edge") if any(x.get(k) for x in sv)), "")
+        undef, svwhy = sieve_note(sv, srules) if sieved else (False, "")
         if month and not sq[months.index(month)]:
             continue
         st = "full" if full else "part" if any(sq) else "none"
@@ -490,16 +571,44 @@ def letopis(hyp=None, month=None, status=None, cfg=None):
             continue
         mt = checked_metrics(mets.get(r["hash"]), got)
         rt = routes.get(r["hash"], "cells")
+        off = OFF_LABELS.get(rt) if st == "none" and rt not in COUNTABLE else None
         known = [v for v in pn if v is not None]
-        out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict, "sieved": sieved,
+        out.append({"hash": r["hash"], "hyp": r["hyp"], "axes": r["axes"], "squares": sq, "status": st, "verdict": verdict, "sieved": sieved, "undef": undef, "svwhy": svwhy,
                     "plateau": any(x.get("plateau") for x in sv), "edge": any(x.get("edge") for x in sv),
-                    "off": OFF_LABELS.get(rt) if st == "none" and rt not in COUNTABLE else None,
+                    "off": off,
                     "pnl": pn, "nd": nd, "bps": bps, "sum": round(sum(known), 2) if known else None,
                     "trades": sum(got[m][1] or 0 for m in months if m in got) if got else None,
                     "sharpe": mt and mt["sharpe"], "winrate": mt and mt["winrate"], "overhigh_d": mt and mt["overhigh_d"],
-                    "tail_d": mt and mt["tail_d"], "worst_d": mt and mt["worst_d"]})
+                    "tail_d": mt and mt["tail_d"], "worst_d": mt and mt["worst_d"],
+                    "mwhy": None if mt else whys.get(r["hash"]) or metrics_why(mets.get(r["hash"]), got, off)})
     return {"months": months, "rows": out, "nhash": len({x["hash"] for x in out}),
-            "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None)}
+            "metrics_n": sum(1 for x in out if x["sharpe"] is not None or x["winrate"] is not None),
+            "metrics_dash": sum(1 for x in out if x["mwhy"])}
+
+
+def hyp_view(cfg=None, cov=None):
+    """Вкладка «Гипотезы» (TK-271): статусы из реестра автоматически (hyps.view), тексты простым языком — hyp_texts.json."""
+    import hyps
+    cfg = cfg or load_config()
+    cov = coverage(cfg) if cov is None else cov
+    hy_of = collections.defaultdict(set)   # хеш -> все гипотезы с этим хешем (Г-27/Г-89/Г-107 — одна клетка)
+    for r in plan_rows_cfg(cfg):
+        hy_of[r["hash"]].add(r["hyp"])
+    ok = collections.defaultdict(set)
+    f2 = collections.defaultdict(lambda: {"n": 0, "ok": 0, "plat": 0, "edge": 0})
+    f3n = 0
+    for line in open(os.path.join(REG, "sieve.jsonl"), encoding="utf-8"):
+        if line.strip():
+            d = json.loads(line)
+            if d.get("fraction") == 2 and (d.get("trades") or d.get("days")):   # сито F2: итог по посчитанным хешам (годна / плато)
+                s = f2[d["hyp"]]
+                s["n"] += 1; s["ok"] += d.get("eligible", 0); s["plat"] += d.get("plateau", 0); s["edge"] += d.get("edge", 0) and d.get("plateau", 0)
+            f3n += (d.get("fraction") or 0) >= 3
+            if d.get("eligible"):
+                for hy in hy_of.get(d["cell_hash"], ()):
+                    ok[hy].add(d["cell_hash"])
+    rows = [json.loads(l) for l in open(os.path.join(REG, "hypotheses.jsonl"), encoding="utf-8") if l.strip()]
+    return hyps.view(rows, cov, cfg["months"], [(r, OFF_LABELS[r]) for r in OFF_ROUTES], hyps.load_texts(), {h: len(v) for h, v in ok.items()}, dict(f2), f3n)
 
 
 def hash_metrics_file():
@@ -513,15 +622,40 @@ def hash_metrics_file():
 
 def checked_metrics(mt, got):
     """Метрики хеша — только если closes покрывают ровно месяцы с $ в Летописи и Σ$ closes сходится с pnl_usd канона (±0,02 $ за месяц):
-    иначе None (прочерк) — не показываем числа по неполным или расходящимся данным."""
+    иначе None (прочерк) — не показываем числа по неполным или расходящимся данным. Канон без $ (R2A, н/д) сверяется по числу сделок:
+    месяцы closes = месяцы канона, $-месяцы по Σ$, остальные — n closes == n канона точно (TK-268, решение Судьи 17.10)."""
     if not mt or not mt.get("n"):
         return None
+    bm = mt["by_month"]
     canon = {m: v for m, v in got.items() if v[0] is not None}
-    if set(mt["by_month"]) != set(canon):
+    if set(bm) == set(canon):
+        return mt if all(abs(bm[m]["pnl"] - v[0]) <= 0.02 for m, v in canon.items()) else None
+    if len(canon) == len(got) or set(bm) != set(got):
         return None
-    if any(abs(mt["by_month"][m]["pnl"] - v[0]) > 0.02 for m, v in canon.items()):
-        return None
-    return mt
+    ok = all(abs(bm[m]["pnl"] - v[0]) <= 0.02 if v[0] is not None else bm[m]["n"] == v[1] for m, v in got.items())
+    return mt if ok else None
+
+
+def metrics_why(mt, got, off=None):
+    """Причина прочерка в метриках строки (для подсказки на странице); None — метрики есть."""
+    if not got:
+        return "нет $ в Летописи" + (f" ({off})" if off else "")
+    if not mt or not mt.get("n"):
+        return "готовых closes нет ни в одном источнике"
+    nod = [m for m, v in got.items() if v[0] is None]
+    if nod:
+        sc, sk = sum(mt["by_month"].get(m, {}).get("n", 0) for m in nod), sum(got[m][1] or 0 for m in nod)
+        return "R2A: канон без $, n канона ≠ n closes" + (f" (×{sk / sc:.1f})".replace(".", ",") if sc and sk else "")
+    return "closes расходятся с каноном (месяцы или Σ$ ≠ pnl_usd)"
+
+
+def hash_why_file():
+    """metrics_why.jsonl снимка Летописи (tk268-cover5.py): {хеш: причина прочерка} там, где closes есть, но сверку с каноном не прошли; файла нет — {}."""
+    try:
+        with open(os.path.join(REG, "metrics_why.jsonl"), encoding="utf-8") as f:
+            return {d["hash"]: d["why"] for d in map(json.loads, filter(str.strip, f))}
+    except OSError:
+        return {}
 
 
 def summary(p):
@@ -552,9 +686,16 @@ EST_K = 1.5   # правило alsched (manifest.check_estimate): max-runtime н
 def queue_cmd(cfg, run_id, run_dir):
     q, b = cfg["queue"], bin_info(cfg)
     max_runtime = max(q["max_runtime"], math.ceil(EST_K * q["est"]))
-    return ["python3", cfg["alsched"], "submit", "--cls", q["cls"], "--name", run_id, "--cores", str(q["cores"]),
+    return ["python3", cfg["alsched"], "submit", "--cls", q["cls"], "--name", run_id, "--cores", str(q["cores"]), "--elastic",
             "--mem", str(q["mem"]), "--max-runtime", str(max_runtime), "--est", str(q["est"]), "--", "env", f"BIN={b['path']}",
             f"SCRIPTS={cfg['scripts_dir']}", f"NX={q['cores']}", "bash", os.path.join(HERE, "run-launch.sh"), run_dir]
+
+
+def bin_protocols_missing(cfg, p):
+    """Протоколы формы с клетками к счёту, которых нет в bin.protocols бинаря (умолч. — основной protocol): ключи П-17 старый бинарь не знает (TK-279)."""
+    ok = set(bin_info(cfg).get("protocols") or [cfg["protocol"]])
+    todo = {c["hash"] for c in p["cells"] if c["new_months"]}
+    return sorted({pr for pr, fr in protocols_of(cfg) if pr not in ok and todo & {r["hash"] for r in plan_rows(pr, fr)}})
 
 
 def precheck(p, dry_run, confirm_bin, cfg, log):
@@ -687,8 +828,15 @@ def submit(hyps, months, axes=None, dry_run=False, confirm_bin=False, cfg=None, 
     if needs_r2 and "r2" not in (b.get("features") or ""):
         log(f"в плане есть формы r2 (ExitForm::is_r2), бинарь {b.get('path')} собран без cargo feature r2")
         return {"ok": False, "why": "r2-bin-needed", "plan": p}
+    miss = bin_protocols_missing(cfg, p)
+    if miss:
+        log(f"в плане клетки протоколов {', '.join(miss)}, бинарь {b.get('path')} собран без их ключей (config bin.protocols)")
+        return {"ok": False, "why": "bin-protocol-needed", "plan": p}
     log("команда: " + shlex.join(cmd))
     log("строк --cells по месяцам: " + ", ".join(f"{m} {n}" for m, n in per_month.items()))
+    r1n = {r: sum(len(c["new_months"]) for c in p["cells"] if c["route"] == r) for r in R1_ROUTES}
+    if any(r1n.values()):
+        log("R1 (хеш×месяц): " + ", ".join(f"{r} {n}" for r, n in r1n.items()))
     if dry_run:
         return {"ok": True, "dry_run": True, "run_id": run_id, "cmd": cmd, "per_month": per_month, "plan": p}
     r = run_cmd(cmd, capture_output=True, text=True)
@@ -734,7 +882,7 @@ def runs_view(cfg=None, ps_text="", now=None):
             ids.setdefault(fn[:-5], {})
     have = None
     rows_of = {}   # хеш -> строки плана: один хеш (клетка) бывает у нескольких гипотез — подпись берём из заявленных прогоном
-    for r in (plan_rows(cfg["protocol"], cfg["fraction"]) if ids else ()):
+    for r in (plan_rows_cfg(cfg) if ids else ()):
         rows_of.setdefault(r["hash"], []).append(r)
 
     def hyp_of(h, want):
@@ -802,7 +950,8 @@ def main(argv=None):
     sp.add_parser("routes", help="пересчитать routes.json (маршруты клеток; нужна data/registry.sqlite)")
     o = ap.parse_args(argv)
     if o.cmd == "routes":
-        d = build_routes()
+        pf = protocols_of(load_config())
+        d = build_routes(*pf[0], extra=pf[1:])
         print(json.dumps(dict(collections.Counter(d["routes"].values())), ensure_ascii=False), "->", ROUTES_FILE)
         return 0
     if o.cmd == "process-requests":

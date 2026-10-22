@@ -49,7 +49,7 @@ def test_submit_dry_run_prints_command_and_sets_nothing():
     calls, out = [], []
     res = launch.submit(["Г-01"], M3, cfg=CFG, p=p(), dry_run=True, run_cmd=lambda *a, **k: calls.append(a), log=out.append, doc=DOC)
     assert res["ok"] and res["dry_run"] and not calls
-    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "12" in res["cmd"]
+    assert res["cmd"][:3] == ["python3", "/data/sched/alsched.py", "submit"] and "--cores" in res["cmd"] and "15" in res["cmd"]
     assert "ssh" not in res["cmd"] and res["cmd"][-2].endswith("run-launch.sh")
     assert any("alsched.py submit" in s for s in out)
 
@@ -63,7 +63,7 @@ def test_submit_needs_bin_confirmation():
 def test_queue_params_only_from_config():
     src = open(os.path.join(LAUNCH, "launch.py"), encoding="utf-8").read()
     assert not re.search(r'"--(cores|mem|est|max-runtime)",\s*"?\d', src)
-    assert CFG["queue"] == {"cls": "prod", "cores": 12, "mem": 24, "max_runtime": 60000, "est": 45000}
+    assert CFG["queue"] == {"cls": "prod", "cores": 15, "mem": 24, "max_runtime": 60000, "est": 45000}
 
 
 def test_queue_cmd_max_runtime_meets_alsched_rule():
@@ -98,7 +98,7 @@ def test_submit_refuses_when_only_off_cells_left():
 def test_routes_file_covers_grid_and_known_routes():
     routes = launch.load_routes()
     assert {r["hash"] for r in launch.plan_rows()} <= set(routes)
-    assert set(routes.values()) <= {"cells", "monthly", "outside", "nodata", "noline", "r1route"}
+    assert set(routes.values()) <= {"cells", "monthly", "outside", "r1", "r1x", "r1comp", "nodata", "noline", "r1route"}
 
 
 def test_prepare_plan_writes_per_month_cells_args_bin(tmp_path):
@@ -265,6 +265,14 @@ def test_coverage_masks_and_validate_groups():
         launch.validate_groups({"hyps": []}, CFG, ROWS)
 
 
+def test_coverage_shared_hash_visible_per_hyp_and_queue_minus_have():
+    """TK-278 (проверка Судьи 17.10): общий хеш (Г-27/Г-89/Г-107) виден у каждой гипотезы; очередь не включает уже посчитанное."""
+    rows = ROWS + [{"hyp": "Г-02", "hash": "aaaa", "axes": {"q": "7"}}]
+    cv = launch.coverage(CFG, rows=rows, have=HAVE, routes={}, queued={"aaaa": set(M3), "bbbb": {"2026-01", "2026-02"}})
+    assert cv["Г-02"]["cells"] == [[0, 0, 0, 0], [1, 7, 0, 0]]   # dddd не считали; aaaa (общий) посчитан полностью
+    assert [c[-2] for c in cv["Г-01"]["cells"]] == [0, 2, 0]   # aaaa посчитан полностью — не «в очереди»; bbbb: 01 есть, в очереди только 02
+
+
 def test_letopis_audit_fields():
     """Аудит Летописи 15.10: none без нулей («—»), «н/д» вместо нулевого $, не просеянное не получает вердикт, причина none — из route."""
     d = launch.letopis()
@@ -279,3 +287,130 @@ def test_letopis_audit_fields():
             assert x["verdict"] == ""
         if x["off"]:
             assert x["status"] == "none" and x["off"] in launch.OFF_LABELS.values()
+
+
+def test_sieve_note_undefined_and_reasons():
+    """TK-299: «не определена» (сделок/суток меньше порога rules), причины годна / p > порога / ΔSR ≤ 0; пороги — из rules."""
+    R = {"V@r": {"p_max": 0.2, "min_trades": 20.0, "min_days": 10.0}}
+    row = lambda **k: [{"rule_version": "V@r", "trades": 700, "days": 200, "p": 0.1, "eligible": 0, "plateau": 0, **k}]
+    assert launch.sieve_note(row(trades=6, days=6), R)[0] is True
+    assert launch.sieve_note(row(days=9), R)[0] is True
+    u, w = launch.sieve_note(row(eligible=1, plateau=1), R)
+    assert (u, w.startswith("годна"), "плато" in w) == (False, True, True)
+    assert launch.sieve_note(row(p=1.0), R) == (False, "не годна: p 1.0 > 0.2 (700 сделок, 200 суток)")
+    assert "ΔSR" in launch.sieve_note(row(p=0.1), R)[1]
+    assert launch.sieve_note(row(trades=1), {})[0] is False   # правил версии нет — «не определена» не выдумываем
+    assert launch.sieve_note(row(note="не определена: контроль"), R) == (True, "не определена: контроль")   # TK-309: причина из строки сита
+
+
+# --- TK-251 П4: маршруты r1/r1x (R1 в форме) ---
+R1DOC = {**DOC, "routes": {"aaaa": "cells", "bbbb": "cells", "cccc": "r1", "dddd": "r1x"},
+         "r1spec": {"cccc": ["Г-01", "wall_add_max_lots", "hi", "5", "", ""]}}
+
+
+def test_r1_routes_are_countable_and_r1comp_is_off():
+    assert set(launch.R1_ROUTES) == {"r1", "r1x"} <= set(launch.COUNTABLE) and "r1comp" in launch.OFF_LABELS
+    r = launch.plan(["Г-01", "Г-02"], M3, rows=ROWS, have=HAVE, cfg=CFG, routes=R1DOC["routes"])
+    by = {c["hash"]: c for c in r["cells"]}
+    assert by["cccc"]["new_months"] == M3 and by["dddd"]["new_months"] == M3 and r["hm_off"] == 0
+    r = launch.plan(["Г-01"], M3, rows=ROWS, have=HAVE, cfg=CFG, routes={"cccc": "r1comp"})
+    assert r["off_by"] == {"r1comp": 3}
+
+
+def test_prepare_plan_writes_r1spec_and_r1x_apart_from_cells(tmp_path):
+    p2 = launch.plan(["Г-01", "Г-02"], M3, rows=ROWS, have=HAVE, cfg=CFG, routes=R1DOC["routes"])
+    per, _ = launch.prepare_plan(p2, str(tmp_path), R1DOC)
+    assert per == {"2026-01": 0, "2026-02": 1, "2026-03": 1}   # только bbbb (cells); r1/r1x в --cells не попадают
+    assert (tmp_path / "L-2026-01.r1spec").read_text(encoding="utf-8").splitlines() == [
+        "hash,hyp,col,sign,keep_q,ctx_axis,ctx_q", "cccc,Г-01,wall_add_max_lots,hi,5,,"]
+    assert (tmp_path / "L-2026-01.r1x").read_text(encoding="utf-8") == "dddd\n"
+    assert (tmp_path / "r1months.txt").read_text(encoding="utf-8").split() == M3
+    assert (tmp_path / "months.txt").read_text(encoding="utf-8").split() == ["2026-02", "2026-03"]
+    assert "cccc" not in "".join(f.read_text(encoding="utf-8") for f in tmp_path.glob("*.cells"))
+
+
+def test_prepare_plan_without_r1_is_as_before(tmp_path):
+    """Гейт «выкл = прежний»: нет r1/r1x в плане — ни .r1spec, ни .r1x, ни r1months.txt; .cells/.args те же."""
+    per, _ = launch.prepare_plan(p(), str(tmp_path), DOC)
+    assert not list(tmp_path.glob("*.r1*")) and not (tmp_path / "r1months.txt").exists()
+    assert per == {"2026-01": 1, "2026-02": 1, "2026-03": 1}
+    assert (tmp_path / "L-2026-02.cells").read_text(encoding="utf-8") == LINE + "\n"
+
+
+def test_postload_r1_and_engine_in_one_run(tmp_path):
+    import json, postload
+    run = tmp_path / "L-1"
+    (run / "psim").mkdir(parents=True)
+    (run / "r1" / "ps").mkdir(parents=True)
+    (run / "run.json").write_text(json.dumps({"id": "L-1", "new_hm": {"bbbb": ["2026-02"], "cccc": ["2026-02"], "dddd": ["2026-02"]}}), encoding="utf-8")
+    (run / "psim" / "psim-p14f1.done").write_text("")
+    (run / "r1" / "psim-r1.done").write_text("")
+    for cap in (0, 3):
+        (run / "psim" / f"closes-p14f1-cap{cap}-2026-02.json").write_text(
+            json.dumps({"t-bid-btc4h-q1@chase-pct2-tr1x1-14400-ttl1800": {"2026-02": {str(cap): [[1, 2.5]]}}}), encoding="utf-8")
+        (run / "r1" / "ps" / f"closes-cap{cap}-feb.json").write_text(   # psim R1: ключ = хеш клетки, B1 — база, пропускается; у dddd сделок нет
+            json.dumps({"B1": {"2026-02": {str(cap): [[1, 9.0]]}}, "cccc": {"2026-02": {str(cap): [[1, 4.0], [2, -1.5]]}}}), encoding="utf-8")
+    doc = {**R1DOC, "lines": {"bbbb": LINE}, "routes": {"bbbb": "cells", "cccc": "r1", "dddd": "r1x"}}
+    assert postload.main([str(run)], doc) == 0
+    rows = {r["cell_id"]: r for r in map(json.loads, open(run / "overlay.jsonl", encoding="utf-8"))}
+    assert set(rows) == {"bbbb", "cccc", "dddd"} and rows["bbbb"]["pnl_usd"] == 2.5 and rows["bbbb"]["ext"]["cell_line"] == LINE
+    assert rows["cccc"]["trades"] == 2 and rows["cccc"]["pnl_usd"] == 2.5 and rows["cccc"]["ext"]["route"] == "r1"
+    assert rows["dddd"]["trades"] == 0 and rows["dddd"]["ext"]["empty"] and rows["dddd"]["ext"]["route"] == "r1x"
+    assert launch.overlay_have({"run_dir": str(tmp_path)})["cccc"] == {"2026-02"}
+
+
+def test_postload_r1_not_done_is_error(tmp_path):
+    import json, postload
+    run = tmp_path / "L-1"
+    (run / "r1").mkdir(parents=True)
+    (run / "run.json").write_text(json.dumps({"id": "L-1", "new_hm": {"cccc": ["2026-02"]}}), encoding="utf-8")
+    (run / "r1" / "r1-fail.txt").write_text("psim feb\n", encoding="utf-8")
+    assert postload.main([str(run)], R1DOC) == 1 and "psim feb" in (run / "postload.log").read_text(encoding="utf-8")
+
+
+def test_routes_file_r1spec_matches_plan_and_counts():
+    """Охрана TK-249: хеш в r1spec = хеш клетки плана с теми же колонкой и keep_q; r1 — все со знаком, r1x — 270 готовых клеток tk202."""
+    import collections
+    doc = launch.json.load(open(launch.ROUTES_FILE, encoding="utf-8"))
+    rows = {r["hash"]: r for r in launch.plan_rows_cfg(launch.load_config())}   # TK-278: доли F1+F2 (config.fraction [1, 2]) и П-17
+    assert set(doc["r1spec"]) == {h for h, r in doc["routes"].items() if r == "r1"}
+    for h, (hyp, col, sign, kq, ctx_axis, ctx_q) in doc["r1spec"].items():
+        a = rows[h]
+        assert (a["hyp"], a["axes"]["col"], str(a["axes"]["keep_q"])) == (hyp, col, kq) and sign in ("hi", "lo") and not ctx_axis and not ctx_q
+    cnt = collections.Counter(doc["routes"][r["hash"]] for r in launch.plan_rows("P-14", 1))   # счёт по доле F1: F2 добавляет свои хеши
+    assert cnt["r1x"] == 270 and cnt["r1"] == 288 and cnt["r1comp"] == 27 and "r1col" not in cnt
+
+
+def test_checked_metrics_nd_months_by_n():
+    """TK-268: канон без $ (R2A, н/д) сверяется по числу сделок — n closes == n канона точно; $-месяцы — по Σ$ ±0,02."""
+    mt = {"n": 30, "by_month": {"2026-01": {"n": 10, "pnl": 5.0}, "2026-02": {"n": 20, "pnl": -1.0}}}
+    assert launch.checked_metrics(mt, {"2026-01": (5.01, 10, None, None), "2026-02": (-1.0, 20, None, None)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (None, 10, None, 1.0), "2026-02": (None, 20, None, 2.0)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (5.0, 10, None, None), "2026-02": (None, 20, None, 2.0)}) is mt
+    assert launch.checked_metrics(mt, {"2026-01": (None, 26, None, 1.0), "2026-02": (None, 52, None, 2.0)}) is None
+    assert launch.checked_metrics(mt, {"2026-01": (None, 10, None, 1.0)}) is None   # месяцы closes != месяцы канона
+    assert launch.checked_metrics(mt, {"2026-01": (5.0, 10, None, None), "2026-02": (-1.5, 20, None, None)}) is None
+    assert launch.checked_metrics(mt, {"2026-01": (None, None, None, None), "2026-02": (None, 20, None, 2.0)}) is None
+
+
+def test_metrics_why_names_the_reason():
+    mt = {"n": 30, "by_month": {"2026-01": {"n": 10, "pnl": 5.0}}}
+    assert launch.metrics_why(mt, {"2026-01": (None, 26, None, 1.0)}) == "R2A: канон без $, n канона ≠ n closes (×2,6)"
+    assert "расходятся" in launch.metrics_why(mt, {"2026-01": (9.0, 10, None, None)})
+    assert "closes нет" in launch.metrics_why(None, {"2026-01": (9.0, 10, None, None)})
+    assert launch.metrics_why(None, {}, "нет кодировки") == "нет $ в Летописи (нет кодировки)"
+
+
+
+
+def test_p17_routes_and_bin_guard():
+    """TK-279: П-17 рядом с П-14 — все 292 хеша в маршрутах, форма видит клетки обоих протоколов; бинарь без P-17 в bin.protocols отказывает."""
+    cfg = launch.load_config()
+    assert launch.protocols_of(cfg) == [("P-14", [1, 2]), ("P-15", 1), ("P-17", 1)] and launch.protocols_of({"protocol": "P-14", "fraction": 1}) == [("P-14", 1)]
+    p17 = launch.plan_rows("P-17", 1)
+    routes = launch.load_routes()
+    assert len(p17) == 292 and {r["hash"] for r in p17} <= set(routes) and {r["hash"] for r in launch.plan_rows_cfg(cfg)} >= {r["hash"] for r in p17}
+    p = {"cells": [{"hash": p17[0]["hash"], "new_months": ["2026-03"]}]}
+    assert launch.bin_protocols_missing(cfg, p) == ["P-17"]
+    assert launch.bin_protocols_missing({**cfg, "bin": {**cfg["bin"], "protocols": ["P-14", "P-17"]}}, p) == []
+    assert launch.bin_protocols_missing({"protocol": "P-14", "fraction": 1}, p) == []

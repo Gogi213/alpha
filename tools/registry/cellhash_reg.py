@@ -49,7 +49,7 @@ def set_of(spec):
         st["r1_born_shift_cbps_min"] = int(kv["r1_born_shift_cbps_min"])
     for k in ch.OPT_SET_KEYS:  # A0: фильтры, которых раньше не было в ключе (заданные входят в хеш)
         if k in kv:
-            st[k] = float(kv[k]) if k.startswith("eaten") else int(kv[k])
+            st[k] = kv[k] if k == "entry_gate" else float(kv[k]) if k.startswith("eaten") or k == "strength_min" else int(kv[k])
     for k, v in kv.items():  # A0: общий r1_<кол>_min|max (born_shift — выше, свой ключ)
         if k != "r1_born_shift_cbps_min" and ch._R1_KEY.fullmatch(k):
             st[k] = int(v)

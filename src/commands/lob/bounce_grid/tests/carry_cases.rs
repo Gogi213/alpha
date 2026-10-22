@@ -390,6 +390,184 @@ fn order_usd_sizes_each_touch_at_its_own_price() {
     );
 }
 
+/// М-04 (TK-206, вердикт Судьи): k применяется к номиналу до округления вниз до шага лота — размер всегда кратен
+/// шагу; ниже min-лота — `None` (клетка не определена), не округление вверх. Шаг 0.001, min 0.001, $5 мин-чек.
+#[test]
+fn lot_first_scales_nominal_floor_to_step_and_refuses_below_min() {
+    let lot = PoolLot {
+        min_order_qty_e9: 1_000_000,
+        qty_step_e9: 1_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let tick_e9 = 10_000_000; // 0.01
+    let mut t = probe_touch();
+    t.price_tick = 1_000; // 10.00 → $100 = 10 монет
+    let usd = OrderSizing::Usd(lot, 100.0);
+    let q = |k: f64| usd.qty_first_e9(t.price_tick, tick_e9, 1, k, 1_000_000);
+    assert_eq!(q(1.5), Some(15_000_000_000));
+    assert_eq!(q(0.375), Some(3_750_000_000));
+    // $1 → 0.1 монеты × 0.375 = 0.0375 → 37 шагов (0.037) < 22а (0.5)
+    let small = OrderSizing::Usd(lot, 1.0);
+    assert_eq!(
+        small.qty_first_e9(t.price_tick, tick_e9, 1, 0.375, 1_000_000),
+        None,
+        "$0.375 ниже min-чека 22а ($5) — не определена, не поднимается до min"
+    );
+    let big = OrderSizing::Usd(lot, 5.1); // 0.51 монеты, k = 0.375 → 0.19125 → 0.191 < 22а (0.5)
+    assert_eq!(
+        big.qty_first_e9(t.price_tick, tick_e9, 1, 0.375, 1_000_000),
+        None
+    );
+    // Pool22a: 0.5 × 1.5 = 0.75; × 0.5 = 0.25 < 0.5 → не определена
+    let pool = OrderSizing::Pool22a(lot);
+    assert_eq!(
+        pool.qty_first_e9(t.price_tick, tick_e9, 1, 1.5, 1_000_000),
+        Some(750_000_000)
+    );
+    assert_eq!(
+        pool.qty_first_e9(t.price_tick, tick_e9, 1, 0.5, 1_000_000),
+        None
+    );
+    // Fixed 0.3, шаг записи 0.1: × 1.5 = 0.45 → 0.4 (вниз, кратно шагу)
+    assert_eq!(
+        OrderSizing::Fixed(300_000_000).qty_first_e9(t.price_tick, tick_e9, 1, 1.5, 100_000_000),
+        Some(400_000_000)
+    );
+}
+
+/// М-04 (TK-206, вердикт Судьи 09:20): `lot_first=k` меняет размер только у `touch_index == 0`; остальные касания —
+/// байт в байт как без ключа (`first_k = None`); k = 1 — сутки как без ключа.
+#[test]
+fn lot_first_scales_only_first_touch_of_the_level() {
+    use super::super::steps::day_order_qtys;
+    let lot = PoolLot {
+        min_order_qty_e9: 1_000_000,
+        qty_step_e9: 1_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let tick_e9 = 10_000_000; // 0.01
+    let mut touches = Vec::new();
+    for (i, idx) in [0_u32, 1, 2, 0, 3].into_iter().enumerate() {
+        let mut t = probe_touch();
+        t.price_tick = 1_000 + 100 * i64::try_from(i).unwrap();
+        t.touch_index = idx;
+        touches.push(t);
+    }
+    let day = super::super::cache::DayTouches {
+        day: "2026-01-01".to_string(),
+        touches,
+        approaches: None,
+        rets: Vec::new(),
+    };
+    let sizing = OrderSizing::Usd(lot, 100.0);
+    let grid = (tick_e9, 1_000_000);
+    let base = day_order_qtys(&sizing, &day, None, grid, 1, None).unwrap();
+    let one = day_order_qtys(&sizing, &day, None, grid, 1, Some(1.0)).unwrap();
+    assert_eq!(base, one, "k = 1 — как без ключа");
+    let k2 = day_order_qtys(&sizing, &day, None, grid, 1, Some(2.0)).unwrap();
+    let k3 = day_order_qtys(&sizing, &day, None, grid, 1, Some(0.375)).unwrap();
+    for (i, t) in day.touches.iter().enumerate() {
+        if t.touch_index == 0 {
+            assert!(
+                (k2[i] - 2.0 * base[i]).abs() < 1e-9,
+                "{i}: {} vs {}",
+                k2[i],
+                base[i]
+            );
+            // кратно шагу 0.001, вниз от 0.375 номинала
+            let steps = k3[i] / 0.001;
+            assert!((steps - steps.round()).abs() < 1e-6, "{i}: {}", k3[i]);
+            assert!(k3[i] <= 0.375 * base[i] + 1e-12 && k3[i] > 0.375 * base[i] - 0.001);
+        } else {
+            assert_eq!(k2[i].to_bits(), base[i].to_bits(), "{i}: touch_index≠0");
+            assert_eq!(k3[i].to_bits(), base[i].to_bits(), "{i}: touch_index≠0");
+        }
+    }
+}
+
+/// П-19 (TK-291): `--touch-col` дописывает в конец `rounds.csv` столбец `touch_index`; прежние столбцы и строки — байт в
+/// байт как без флага (гейт Судьи); без флага шапка прежняя, столбца нет.
+#[test]
+fn touch_col_appends_column_and_keeps_old_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    // настройки гейта `risk_adverse_queue_model_keeps_the_old_bytes` — на них фикстура даёт круги
+    a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.no_post_only = true;
+    a.entry_ttl_secs = vec!["touch".to_string()];
+    a.entry_form = vec!["single@fr".to_string()];
+    a.out_dir = dir.path().join("grid-base");
+    assert!(run_bounce_grid(&a).unwrap().rounds > 0);
+    a.touch_col = true;
+    a.out_dir = dir.path().join("grid-touch");
+    run_bounce_grid(&a).unwrap();
+    let base = std::fs::read_to_string(dir.path().join("grid-base/rounds.csv")).unwrap();
+    let with = std::fs::read_to_string(dir.path().join("grid-touch/rounds.csv")).unwrap();
+    let (bl, wl): (Vec<&str>, Vec<&str>) = (base.lines().collect(), with.lines().collect());
+    assert_eq!(bl.len(), wl.len());
+    assert!(bl.len() > 2, "в фикстуре должны быть круги");
+    assert!(!bl[1].contains("touch_index"));
+    assert!(wl[1].ends_with(",touch_index"), "{}", wl[1]);
+    for (b, w) in bl.iter().zip(&wl).skip(2) {
+        let cut = w.rfind(',').unwrap();
+        assert_eq!(*b, &w[..cut], "старые столбцы не тронуты");
+        assert!(w[cut + 1..].parse::<u32>().is_ok(), "{w}");
+    }
+}
+
+/// Г-98 (П-17): лот под риск — `min(база, R·10⁴ ÷ span_bps)` вниз до шага; span < 1 и нежмущий риск — база как есть
+/// (= B1 байт в байт); ниже min-лота — `None` (пропуск), вверх не поднимаем; без подходов — отказ суток.
+#[test]
+fn size_risk_lot_follows_span_and_floors_at_min_lot() {
+    use super::super::steps::day_risk_qtys;
+    let lot = PoolLot {
+        min_order_qty_e9: 1_000_000,
+        qty_step_e9: 1_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let sizing = OrderSizing::Usd(lot, 100.0);
+    let price_e9 = 10_000_000_000; // $10 → база 10 монет
+    let base = 10_000_000_000;
+    let q = |r: f64, span: i64| sizing.qty_risk_e9(price_e9, 1, base, r, span, 1_000_000);
+    assert_eq!(
+        q(5.0, 1000),
+        Some(5_000_000_000),
+        "R·10⁴/1000 = $50 → 5 монет"
+    );
+    assert_eq!(q(5.0, 500), Some(base), "риск не жмёт ($100 = база) — база");
+    assert_eq!(q(5.0, 100), Some(base), "риск шире базы — не поднимаем");
+    assert_eq!(q(0.001, 0), Some(base), "span < 1 — база");
+    assert_eq!(q(0.4, 1000), None, "$4 < min-лота 22а ($5) — пропуск");
+    let day = super::super::cache::DayTouches {
+        day: "2026-01-01".to_string(),
+        touches: vec![probe_touch()],
+        approaches: None,
+        rets: Vec::new(),
+    };
+    assert!(day_risk_qtys(
+        &sizing,
+        &day,
+        &[10.0],
+        None,
+        (10_000_000, 1_000_000),
+        1,
+        5.0
+    )
+    .is_err());
+}
+
 /// R3 (ревью 23.09, замечание проверки): явный лот `--order-qty-e9`, не
 /// кратный шагу записи, — отказ, а не молчаливое округление ног лестницы
 /// (0.0015 при шаге 0.001 дал бы 2 шага — +33 % к размеру круга).
@@ -433,7 +611,7 @@ fn btc_mid_axes_parse_and_regime_columns() {
     let old = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps\n\
                60000,1,2,5,-10,-40,,\n";
     std::fs::write(dir.path().join("2026-09-08.csv"), old).unwrap();
-    let day = read_regime_day(dir.path(), "2026-09-08", false, false).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-08", false, false, false).unwrap();
     assert_eq!(
         day[&60_000],
         [
@@ -446,10 +624,13 @@ fn btc_mid_axes_parse_and_regime_columns() {
             None,
             None,
             None,
+            None,
+            None,
+            None,
             None
         ]
     );
-    let err = read_regime_day(dir.path(), "2026-09-08", true, false)
+    let err = read_regime_day(dir.path(), "2026-09-08", true, false, false)
         .unwrap_err()
         .to_string();
     assert!(err.contains("btc_ret_2h_bps"), "{err}");
@@ -457,7 +638,7 @@ fn btc_mid_axes_parse_and_regime_columns() {
     let new = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps\n\
                60000,1,2,5,-10,-40,,,-20,-30\n";
     std::fs::write(dir.path().join("2026-09-09.csv"), new).unwrap();
-    let day = read_regime_day(dir.path(), "2026-09-09", true, false).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-09", true, false, false).unwrap();
     assert_eq!(
         day[&60_000],
         [
@@ -467,6 +648,9 @@ fn btc_mid_axes_parse_and_regime_columns() {
             Some(-40.0),
             Some(-20.0),
             Some(-30.0),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -481,18 +665,44 @@ fn btc_mid_axes_parse_and_regime_columns() {
     assert_eq!(set.ctx[9].max, Some(-50.0));
     assert_eq!(set.ctx[12].min, Some(-90.0));
     assert_eq!(set.ctx_label(), "btc6h_max=-50,btc24h_min=-90");
-    let err = read_regime_day(dir.path(), "2026-09-09", true, true)
+    let err = read_regime_day(dir.path(), "2026-09-09", true, true, false)
         .unwrap_err()
         .to_string();
     assert!(err.contains("btc_ret_6h_bps"), "{err}");
     let long = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps,eth_ret_2h_bps,eth_ret_3h_bps,btc_ret_6h_bps,btc_ret_8h_bps,btc_ret_12h_bps,btc_ret_24h_bps\n\
                 60000,1,2,5,-10,-40,,,-20,-30,,,-60,-70,-80,-90\n";
     std::fs::write(dir.path().join("2026-09-10.csv"), long).unwrap();
-    let day = read_regime_day(dir.path(), "2026-09-10", true, true).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-10", true, true, false).unwrap();
     assert_eq!(
-        day[&60_000][6..],
+        day[&60_000][6..10],
         [Some(-60.0), Some(-70.0), Some(-80.0), Some(-90.0)]
     );
+
+    // Г-10 (TK-272): `btc9h`/`btc10h`/`btc11h` — своя группа: прежние файлы (без btc_ret_{9,10,11}h_bps) читаются, пока осей нет.
+    let set = FilterSet::parse("w:btc9h_max=-35").unwrap();
+    assert!(set.uses_regime() && set.uses_btc_long9() && !set.uses_btc_long());
+    assert_eq!(set.ctx_label(), "btc9h_max=-35");
+    assert!(!FilterSet::parse("v:btc6h_max=0").unwrap().uses_btc_long9());
+    let err = read_regime_day(dir.path(), "2026-09-10", true, true, true)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("btc_ret_9h_bps"), "{err}");
+    let with9 = long
+        .replace(
+            "btc_ret_24h_bps
+",
+            "btc_ret_24h_bps,btc_ret_9h_bps,btc_ret_10h_bps,btc_ret_11h_bps
+",
+        )
+        .replace(
+            "-90
+",
+            "-90,-75,-76,-77
+",
+        );
+    std::fs::write(dir.path().join("2026-09-11.csv"), with9).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-11", true, true, true).unwrap();
+    assert_eq!(day[&60_000][10..], [Some(-75.0), Some(-76.0), Some(-77.0)]);
 }
 
 /// Э-08 (T-38): группы выходов (`--exit-group on`) и пропуск шагов удержания (`--hold-step skip`) дают те же

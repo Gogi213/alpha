@@ -103,6 +103,7 @@
 mod args;
 mod cache;
 mod carry;
+mod control;
 mod drive;
 mod e2e;
 mod entry_sigma;
@@ -135,7 +136,6 @@ use std::time::Instant;
 
 use super::backtest::{read_day_schedule, read_tick_step};
 use super::{resolve_h3_mode_full, session_parts_for, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
-use crate::book::Side;
 use crate::lob::backtest::{BounceSignal, CompactEvent, RoundMemo, SignalWindows};
 use crate::lob::levels::LevelsConfig;
 use crate::lob::run_flags::RunFlags;
@@ -472,6 +472,10 @@ impl<'a> GridRun<'a> {
         let args = self.args;
         let queue_model = self.queue_model;
         let threads = self.threads;
+        let mut tape_ws = crate::lob::backtest::NO_TAPE_WS;
+        for (d, &w) in tape_ws.iter_mut().zip(args.tape_log_ws.iter()) {
+            *d = w;
+        }
         let band_exit_bps = self.band_exit_bps;
         let need_regime = self.need_regime;
         let need_ret = self.need_ret;
@@ -480,6 +484,8 @@ impl<'a> GridRun<'a> {
         let sets = &self.sets;
         let outs = &mut self.outs;
         let regime_days = &mut self.regime_days;
+        let mut klines = sets::KlineSeries::default();
+        let mut btc_sec = sets::BtcSeconds::default();
         let summary = &mut self.summary;
         // `--cells` (T-38): у каждого набора — свои формы (номера в `forms`); без флага — все формы.
         let all_forms: Vec<usize> = (0..forms.len()).collect();
@@ -567,6 +573,17 @@ impl<'a> GridRun<'a> {
             summary.symbols_without_touches += 1;
             return Ok(());
         }
+        // Контроль C (TK-333): `--ctx-shift-secs` обязан совпасть с колонкой `ctx_ms` файла кэша (жёсткий отказ).
+        let ctx_shift_ms = args.ctx_shift_secs.checked_mul(1_000).ok_or_else(|| {
+            anyhow::anyhow!("--ctx-shift-secs {} вне диапазона", args.ctx_shift_secs)
+        })?;
+        cache::verify_ctx_shift(
+            args.touches_from.as_deref(),
+            args.signal == SignalArg::Approach,
+            symbol,
+            parts_by_day.keys(),
+            ctx_shift_ms,
+        )?;
         e2e::stage(symbol, "*", "setup", e2e_setup, serde_json::json!({}));
         let e2e_touches = e2e::Mark::now();
         let (days, sigma_series) = if args.signal == SignalArg::Approach {
@@ -577,7 +594,7 @@ impl<'a> GridRun<'a> {
             // Суток в кэше нет — символ пропускается, а не роняет весь прогон
             // (как у `lob fill-capacity --targets approaches`, F2): реплея
             // подходов у сетки нет, полосу `D` знает только прогон F1.
-            let Ok(days) = load_cached_days(
+            let Ok(mut days) = load_cached_days(
                 shared.as_deref_mut(),
                 dir,
                 symbol,
@@ -592,6 +609,20 @@ impl<'a> GridRun<'a> {
                 return Ok(());
             };
             steps::ensure_approach_cache(args, sets, symbol, dir, &days)?;
+            if let Some(c) = args.level_control {
+                // Г-03 (TK-274): подходы суток → двойники/парные стены; отчёт — рядом с `forms.csv`.
+                let mut stats = control::ControlStats::default();
+                for d in &mut days {
+                    control::apply(c, dir, symbol, d, &mut stats)?;
+                }
+                std::fs::create_dir_all(&args.out_dir)?;
+                let mut w = csv::Writer::from_path(
+                    args.out_dir.join(format!("level-control-{symbol}.csv")),
+                )?;
+                w.write_record(control::CONTROL_COLUMNS)?;
+                w.write_record(stats.csv_row(symbol, c))?;
+                w.flush()?;
+            }
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
@@ -703,6 +734,7 @@ impl<'a> GridRun<'a> {
                             &day.day,
                             sets.iter().any(FilterSet::uses_btc_mid),
                             sets.iter().any(FilterSet::uses_btc_long),
+                            sets.iter().any(FilterSet::uses_btc_long9),
                         )?,
                     );
                 }
@@ -710,7 +742,44 @@ impl<'a> GridRun<'a> {
             } else {
                 None
             };
-            let ctx = touch_contexts(&day.rets, &day.touches, regime);
+            let kline_ctx = match args.klines_from.as_deref() {
+                Some(dir) if sets.iter().any(FilterSet::uses_klines) => {
+                    klines.ensure_day(dir, symbol, &day.day)?;
+                    Some((&klines, tick))
+                }
+                _ => None,
+            };
+            let btc_sec_ctx = match args.btc_seconds.as_deref() {
+                Some(dir) if sets.iter().any(FilterSet::uses_btc_seconds) => {
+                    btc_sec.ensure_day(dir, &day.day)?;
+                    Some(&btc_sec)
+                }
+                _ => None,
+            };
+            let ctx = touch_contexts(
+                &day.rets,
+                &day.touches,
+                regime,
+                kline_ctx,
+                btc_sec_ctx,
+                ctx_shift_ms,
+            );
+            if btc_sec_ctx.is_some() {
+                // Г-72, договор Судьи п.7: касание вне ряда — без значения оси (не 0), счётчик в отчёт
+                let lag = sets::CTX_AXES
+                    .iter()
+                    .position(|n| *n == "btc_lag_118s")
+                    .unwrap_or(usize::MAX);
+                let none = ctx
+                    .iter()
+                    .filter(|c| c.axes.get(lag).is_some_and(Option::is_none))
+                    .count();
+                eprintln!(
+                    "bounce-grid: {symbol} {}: btc_lag_118s без значения у {none} из {} касаний",
+                    day.day,
+                    ctx.len()
+                );
+            }
             // TK-174: память порогов и строки скаляров касаний суток — всегда (бывшие `ALPHA_HOLDS_MEMO`, `ALPHA_ADMIT_SOA`).
             let holds_day: Vec<bool> = day
                 .touches
@@ -873,7 +942,7 @@ impl<'a> GridRun<'a> {
                 let no = day
                     .touches
                     .iter()
-                    .filter(|t| es.at(t.start_ms).is_none())
+                    .filter(|t| es.at(t.start_ms - ctx_shift_ms).is_none())
                     .count() as u64;
                 summary.n_sigma_signals += n;
                 summary.n_no_sigma += no;
@@ -885,9 +954,10 @@ impl<'a> GridRun<'a> {
                 &sizing,
                 day,
                 step_schedule.as_ref(),
-                tick_e9,
+                (tick_e9, step_e9),
                 args.order_qty_mult,
-            );
+                None,
+            )?;
             e2e::stage(
                 symbol,
                 &day.day,
@@ -924,6 +994,38 @@ impl<'a> GridRun<'a> {
             };
             for ((set, out), &ids) in sets.iter().zip(outs.iter_mut()).zip(&set_form_ids) {
                 let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
+                // М-04: размер первого подхода — свой вектор лотов набора (k = 1 и без ключа — общий, байт в байт).
+                let set_qtys: std::borrow::Cow<'_, [f64]> =
+                    match set.lot_first.filter(|k| k.to_bits() != 1.0_f64.to_bits()) {
+                        None => std::borrow::Cow::Borrowed(order_qtys.as_slice()),
+                        Some(k) => std::borrow::Cow::Owned(
+                            steps::day_order_qtys(
+                                &sizing,
+                                day,
+                                step_schedule.as_ref(),
+                                (tick_e9, step_e9),
+                                args.order_qty_mult,
+                                Some(k),
+                            )
+                            .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
+                        ),
+                    };
+                // Г-98: лот под риск по размаху завала подхода (ключ набора `size_risk=<R$>`); без ключа — как есть.
+                let set_qtys: std::borrow::Cow<'_, [f64]> = match set.size_risk {
+                    None => set_qtys,
+                    Some(r) => std::borrow::Cow::Owned(
+                        steps::day_risk_qtys(
+                            &sizing,
+                            day,
+                            &set_qtys,
+                            step_schedule.as_ref(),
+                            (tick_e9, step_e9),
+                            args.order_qty_mult,
+                            r,
+                        )
+                        .map_err(|e| anyhow::anyhow!("{symbol} {e}"))?,
+                    ),
+                };
                 let forms_done = {
                     let forms_ref = &set_forms_list;
                     let mut sink =
@@ -973,28 +1075,20 @@ impl<'a> GridRun<'a> {
                             busy_skip: args.busy_skip == "on",
                             hold_skip: args.hold_step == "skip",
                             tape_log_secs: args.tape_log.unwrap_or(0),
+                            tape_log_ws: tape_ws,
                             exit_group: args.exit_group == "on",
-                            order_qtys: &order_qtys,
+                            order_qtys: &set_qtys,
                             threads,
                             post_only: args.entry_post_only(),
-                            frontrun_only: set.frontrun_only,
-                            min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
-                            max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
-                            min_flow_pct: set.min_flow_pct,
-                            side: set.side.map(Side::from),
-                            eaten_max_pct: set.eaten_max_pct,
-                            eaten_min_pct: set.eaten_min_pct,
-                            frontrun_min_lots: set.frontrun_min_lots,
-                            usd_min: set.usd_min,
-                            behind_min_pct: set.behind_min_pct,
-                            stack_min: set.stack_min,
-                            r1: &set.r1,
-                            ctx: if set.uses_ctx() { Some(&ctx) } else { None },
-                            ctx_ranges: set.ctx,
-                            h3_usd: args.h3.h3_usd,
+                            filter: sets::FilterSpec::of_set(set, &ctx),
+                            h3_usd: control::LevelControl::wall_floor_usd(
+                                args.level_control,
+                                args.h3.h3_usd,
+                            ),
                             band_exit_bps,
                             sigma: &sigma_series,
                             entry_sigma: entry_sigma.as_ref(),
+                            ctx_shift_ms,
                         },
                         &mut sink,
                     )?

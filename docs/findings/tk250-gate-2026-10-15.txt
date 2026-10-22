@@ -1,0 +1,32 @@
+OK r1ext feb 130f960171cf730e g39-k20 400
+OK r1ext feb 2812028cfa454910 g39-k33 617
+OK r1ext feb 0b160dbd2d3be840 g39-k50 848
+OK r1ext feb 3acf8323bda3272d g39-k67 1002
+OK r1ext feb 950a0e4213a7c3ea g39-k80 1092
+OK r1ext feb dc2c165d7d698540 g04-k50 557
+OK r1x jan 225754167680ff84 324
+OK r1x jan 47f9688c9be78ae3 246
+OK r1x jan e47e91abff870cc6 1310
+OK r1x jan cd0f634701b1a3fe 984
+OK r1x jan 5b1aa4d113b495f6 985
+OK r1x feb 225754167680ff84 195
+OK r1x feb 47f9688c9be78ae3 132
+OK r1x feb e47e91abff870cc6 1156
+OK r1x feb cd0f634701b1a3fe 415
+OK r1x feb 5b1aa4d113b495f6 646
+apply_s=19 cmp_s=0 расхождений=0
+psim rc=0 s=0
+ls: cannot access 'ps/fail-feb.txt': No such file or directory
+OK cap0 130f960171cf730e g39-k20 сделок 84 84
+OK cap0 2812028cfa454910 g39-k33 сделок 112 112
+OK cap0 0b160dbd2d3be840 g39-k50 сделок 136 136
+OK cap0 3acf8323bda3272d g39-k67 сделок 152 152
+OK cap0 950a0e4213a7c3ea g39-k80 сделок 164 164
+OK cap0 dc2c165d7d698540 g04-k50 сделок 134 134
+OK cap3 130f960171cf730e g39-k20 сделок 74 74
+OK cap3 2812028cfa454910 g39-k33 сделок 97 97
+OK cap3 0b160dbd2d3be840 g39-k50 сделок 109 109
+OK cap3 3acf8323bda3272d g39-k67 сделок 117 117
+OK cap3 950a0e4213a7c3ea g39-k80 сделок 123 123
+OK cap3 dc2c165d7d698540 g04-k50 сделок 108 108
+расхождений 0

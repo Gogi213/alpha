@@ -124,3 +124,28 @@ def test_shared_hash_labelled_by_requested_hyp(tmp_path, monkeypatch):
     cfg = launch.load_config() | {"run_dir": str(tmp_path), "request_dir": str(tmp_path / "req")}
     r = launch.runs_view(cfg, "", NOW)["runs"][0]
     assert [w["hyp"] for w in r["what"]] == ["Г-27"] and r["hm"] == 12
+
+
+def test_r1_only_run_done_without_engine(tmp_path):
+    """TK-251: запуск только из R1 (plan/months.txt пуст, r1months.txt есть) — готов по r1/psim-r1.done + r1/ps/closes-cap{0,3}-<мес>; движок (psim/) не нужен;
+    метрики из r1/ps; без R1-файлов — «в очереди»."""
+    h = "aa3effa71538816e"
+    row = json.dumps({"cell_id": h, "month": "2026-02", "ext": {"route": "r1"}}) + "\n"
+    trades = [[1769904000000 + k * 86_400_000, usd] for k, usd in ((1, 5.0), (2, -1.0), (3, 2.0))]   # февраль 2026
+    d = mk(tmp_path, "L-20261015-131924", hyps=("Г-39",), new_hm={h: ["2026-02"]}, overlay__jsonl=row)
+    (tmp_path / "L-20261015-131924" / "plan").mkdir()
+    (tmp_path / "L-20261015-131924" / "plan" / "months.txt").write_text("", encoding="utf-8")
+    (tmp_path / "L-20261015-131924" / "plan" / "r1months.txt").write_text("2026-02\n", encoding="utf-8")
+    assert runs.run_record(d, "L-20261015-131924", NOW, in_canon=False)["s"] != "wait"   # R1-файлов нет (задания в очереди нет -> «оборвано»)
+    ps = tmp_path / "L-20261015-131924" / "r1" / "ps"
+    ps.mkdir(parents=True)
+    for c in (0, 3):
+        (ps / f"closes-cap{c}-feb.json").write_text(json.dumps({h: {"2026-02": {str(c): trades}}}), encoding="utf-8")
+    assert runs.psim_progress(d, ["2026-02"]) == (1, 1)
+    assert runs.run_record(d, "L-20261015-131924", NOW, in_canon=False)["s"] != "wait"   # psim-r1.done ещё нет
+    (ps.parent / "psim-r1.done").write_text("")
+    r = runs.run_record(d, "L-20261015-131924", NOW, in_canon=False)
+    assert r["s"] == "wait" and r["pct"] == 100 and r["end"].startswith("считано ")
+    assert runs.run_metrics(d)[h]["n"] == 3
+    d2 = mk(tmp_path, "L-20261015-131925", psim=("2026-01",), overlay__jsonl=json.dumps({"cell_id": "h1", "month": "2026-01", "ext": {}}) + "\n")
+    assert runs.run_record(d2, "L-20261015-131925", NOW, in_canon=False)["s"] != "wait"   # запуск движка без psim-p14f1.done — как раньше

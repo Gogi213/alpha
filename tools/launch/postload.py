@@ -7,17 +7,21 @@
 import csv, json, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+R1_ROUTES = ("r1", "r1x")   # TK-251: R1 считает r1-launch.sh (отбор r1cell.py + psim) -> <RUN>/r1/ps/closes-cap{0,3}-<jan…sep>.json, ключ = хеш клетки
+MON = "jan feb mar apr may jun jul aug sep".split()
 
 
-def load_closes(psim, months):
-    """{variant: {месяц: {cap: (n, Σ$)}}}; файла месяца нет — ошибка (иначе упавший psim выглядел бы нулём сделок)."""
+def load_closes(psim, months, r1=False):
+    """{variant: {месяц: {cap: (n, Σ$)}}}; файла месяца нет — ошибка (иначе упавший psim выглядел бы нулём сделок). r1 — файлы psim R1 (имя по jan…sep, база B1 пропускается)."""
     agg = {}
     for m in months:
         for cap in (0, 3):
-            f = os.path.join(psim, f"closes-p14f1-cap{cap}-{m}.json")
+            f = os.path.join(psim, f"closes-cap{cap}-{MON[int(m[5:7]) - 1]}.json" if r1 else f"closes-p14f1-cap{cap}-{m}.json")
             if not os.path.exists(f):
                 raise RuntimeError(f"нет {os.path.basename(f)}: psim не дошёл")
             for v, per in json.load(open(f, encoding="utf-8")).items():
+                if r1 and v == "B1":
+                    continue
                 for mo, caps in per.items():
                     for c, tr in caps.items():
                         agg.setdefault(v, {}).setdefault(mo, {})[str(c)] = (len(tr), round(sum(x[1] for x in tr), 4))
@@ -26,24 +30,39 @@ def load_closes(psim, months):
 
 def build(run_dir, routes_doc):
     run = json.load(open(os.path.join(run_dir, "run.json"), encoding="utf-8"))
-    psim = os.path.join(run_dir, "psim")
-    if not os.path.exists(os.path.join(psim, "psim-p14f1.done")):
-        raise RuntimeError("нет psim-p14f1.done: " + (open(os.path.join(psim, "p14f1-psim-fail.txt"), encoding="utf-8").read()[:200] if os.path.exists(os.path.join(psim, "p14f1-psim-fail.txt")) else "psim не запускался"))
-    months = sorted({m for ms in run["new_hm"].values() for m in ms})
-    agg = load_closes(psim, months)
+    rt = routes_doc.get("routes", {})
+    new_hm = {h: ms for h, ms in run["new_hm"].items() if rt.get(h) not in R1_ROUTES}
+    r1_hm = {h: ms for h, ms in run["new_hm"].items() if rt.get(h) in R1_ROUTES}
+    agg = {}
+    if new_hm:
+        psim = os.path.join(run_dir, "psim")
+        if not os.path.exists(os.path.join(psim, "psim-p14f1.done")):
+            raise RuntimeError("нет psim-p14f1.done: " + (open(os.path.join(psim, "p14f1-psim-fail.txt"), encoding="utf-8").read()[:200] if os.path.exists(os.path.join(psim, "p14f1-psim-fail.txt")) else "psim не запускался"))
+        agg = load_closes(psim, sorted({m for ms in new_hm.values() for m in ms}))
+    agg1 = {}
+    if r1_hm:
+        r1 = os.path.join(run_dir, "r1")
+        if not os.path.exists(os.path.join(r1, "psim-r1.done")):
+            raise RuntimeError("нет psim-r1.done: " + (open(os.path.join(r1, "r1-fail.txt"), encoding="utf-8").read()[:200] if os.path.exists(os.path.join(r1, "r1-fail.txt")) else "R1 не запускался"))
+        agg1 = load_closes(os.path.join(r1, "ps"), sorted({m for ms in r1_hm.values() for m in ms}), r1=True)
     rows = []
     for h, ms in sorted(run["new_hm"].items()):
         for m in ms:
-            ln = routes_doc["lines"].get(h) or routes_doc["monthly"][h][m]
-            form, _, st = ln.partition(" ")
-            caps = agg.get(f"{st}@{form}", {}).get(m)
-            empty = not caps   # psim пишет только варианты со сделками: клетка в --cells есть, в closes нет = 0 сделок
+            if h in r1_hm:
+                caps = agg1.get(h, {}).get(m)
+                ln = None
+            else:
+                ln = routes_doc["lines"].get(h) or routes_doc["monthly"][h][m]
+                form, _, st = ln.partition(" ")
+                caps = agg.get(f"{st}@{form}", {}).get(m)
+            empty = not caps   # psim пишет только варианты со сделками: клетка в --cells (или в клетках R1) есть, в closes нет = 0 сделок
             caps = caps or {"0": (0, 0.0), "3": (0, 0.0)}
-            ext = {"group": "launch", "src": "closes", "cap": "0 (free)", "cell_line": ln, "n_cap3": caps["3"][0], "pnl_usd_cap3": caps["3"][1]}
+            ext = {"group": "launch", "src": "closes", "cap": "0 (free)", "n_cap3": caps["3"][0], "pnl_usd_cap3": caps["3"][1]}
+            ext.update({"route": rt[h]} if ln is None else {"cell_line": ln})
             if empty:
                 ext["empty"] = "нет сделок в closes"
             rows.append({"run_id": run["id"], "cell_id": h, "month": m, "trades": caps["0"][0], "pnl_usd": caps["0"][1], "ext": ext})
-    return rows, agg
+    return rows, {**agg, **agg1}
 
 
 def main(argv=None, doc=None):

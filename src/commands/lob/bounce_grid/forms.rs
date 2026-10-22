@@ -82,6 +82,8 @@ pub enum ExitForm {
     Tape { w: u32, q: f64 },
     /// `cxl<Q>` (TK-115, Г-116): то же по отменам на нашей стороне. Нужен `--tape-log`.
     Cxl { w: u32, q: f64 },
+    /// `lvlback<G>w<W>` (В-227 D, Г-108): цена вернулась под уровень стены входа на `G` bps (против стороны сделки) в первые `W` с после входа — выход по рынку.
+    LevelBack { gap_bps: u32, secs: u32 },
 }
 
 impl ExitForm {
@@ -118,6 +120,7 @@ impl ExitForm {
             ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
             ExitForm::TakeSchedX { g8, t16 } => format!("tslx{g8}t{t16}"),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
+            ExitForm::LevelBack { gap_bps, secs } => format!("lvlback{gap_bps}w{secs}"),
             ExitForm::NoStop { x8 } => match *x8 {
                 4 | 8 | 16 => format!("nostop{}", x8 / 4),
                 _ => format!("nostopx{x8}"),
@@ -238,6 +241,7 @@ impl ExitForm {
             ExitForm::TakeSched { .. } => "TakeSched",
             ExitForm::TakeSchedX { .. } => "TakeSchedX",
             ExitForm::Converge { .. } => "Converge",
+            ExitForm::LevelBack { .. } => "LevelBack",
             ExitForm::NoStop { .. } => "NoStop",
             ExitForm::Wall2 { .. } => "Wall2",
             ExitForm::Chase { .. } => "Chase",
@@ -355,6 +359,20 @@ impl ExitForm {
                 "--exit-form {spec:?}: имя не каноническое (X8 ∈ {{4, 8, 16}} — nostop<X2>, прочие — nostopx<X8>)"
             );
             return Ok(ExitForm::NoStop { x8 });
+        }
+        if let Some(rest) = spec.strip_prefix("lvlback") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается lvlback<G>w<W>, G — bps (≥ 0), W — секунды (≥ 1)"
+                )
+            };
+            let (gap_bps, secs) = rest.split_once('w').ok_or_else(bad)?;
+            let gap_bps: u32 = gap_bps.parse().map_err(|_| bad())?;
+            let secs: u32 = secs.parse().map_err(|_| bad())?;
+            anyhow::ensure!(secs > 0, "lvlback<G>w<W>: W ≥ 1 с");
+            let form = ExitForm::LevelBack { gap_bps, secs };
+            form.ensure_canonical(spec)?;
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("conv") {
             let bad = || {
@@ -551,6 +569,7 @@ pub struct GridForm {
 
 /// Г-114: имя формы `halfstop` / `halfstop` + `f1`|`f3` (доля 1/4 или 3/4; половина — без суффикса).
 /// Часть имени `tape`/`cxl` после `q`: `p` — порог «мера > 0» (наименьшее положительное), иначе число как есть.
+#[allow(clippy::float_cmp)] // сентинел f64::MIN_POSITIVE копируется, не вычисляется
 fn pos_q_label(q: f64) -> String {
     if q == f64::MIN_POSITIVE {
         "p".to_string()
