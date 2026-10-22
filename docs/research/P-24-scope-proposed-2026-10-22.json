@@ -1,0 +1,26 @@
+{
+  "_status": "ПРЕДЛОЖЕНИЕ Исследователя (TK-352, 22.10). Окончательно фиксирует Судья до любого счёта; до фиксации ничего не считается. Источник числа: proposal_ceo = предложение CEO в описании TK-352; practitioners = слова практиков (practitioners-gap-2026-10-21.md); rule = правило методики.",
+  "methodology": "docs/research/methodology-wall-edge-2026-10-21.md @ tag g013-methodology-2026-10-21 (v5 + v5.1, подписано Судьёй 21.10)",
+  "assigned": {
+    "delta_star_bps_net_per_trade": {"value": 5, "src": "proposal_ceo"},
+    "alpha_family": {"value": 0.05, "correction": "Holm", "m": 2, "claims": ["A_B/A_P", "B_S"], "src": "proposal_ceo + R2.9"},
+    "primary_scale_S": {"value": "rank_by_coin", "quantile_large": null, "quantile_src": "ОТКРЫТО: Судья назначает (в П-24 стоит q90 — помечено «выбрано после R5.1»)", "stable_coins": "страта по sigma240, порог — из щели распределения на G0 (медиана стейблов 9.7 против 150.2)", "src": "proposal_ceo + R5.10 п.4"},
+    "scales_secondary_fdr": ["usd", "S/V_hour(strength_flow_pct)", "rank_by_coin", "strength_w{W}_pct"],
+    "strength_W": {"value": null, "choices": [10, 20, 50], "src": "ОТКРЫТО: Судья"},
+    "barriers": {"stop_bps": [10, 50], "take_to_stop_ratio": [1, 3], "b_le_a_required": true, "src": "practitioners; проверка p0 = b/(a+b) <= 0.5 (замечание Судьи)", "H1": null, "H1_src": "ОТКРЫТО: Судья"},
+    "delta_z_star": {"value": null, "src": "ОТКРЫТО: фиксируется коммитом ДО печати таблицы G0 (R5.10 п.2)"},
+    "rank_min_walls_7d": {"value": null, "src": "ОТКРЫТО: Судья; распределение числа стен по монетам печатается на G0"},
+    "rank_warmup_days": {"value": 7, "src": "R5.10 п.3"},
+    "detector_floor_usd": {"value": 10000, "src": "R5.10 п.3 (параметр ранга)"},
+    "C3": {"window_hours": 1, "same_regime_btc4h": true, "caliper_SMD": null, "k": null, "seed": null, "src": "R4.1 п.1; caliper/k/seed ОТКРЫТО: Судья до G1"},
+    "touch_index_primary": {"value": 0, "src": "П-24 v3"},
+    "approach_class": {"value": null, "src": "ОТКРЫТО: Судья"}
+  },
+  "exam": {
+    "kind_primary": "forward (окт 2026+)",
+    "kind_backward": "месяцы до янв 2026 — ТОЛЬКО если сопоставимость архива Bybit и коллектора подтверждена замером на обучающих сутках (R2.8 п.1)",
+    "months": null,
+    "sha256_of_this_file_before_read": "заполняет Судья при фиксации",
+    "blocker": "список месяцев и глубина архива для import-archive/очереди — запрос Инженеру (R2.8 п.2, R5.8); без ответа exam-scope.json не собирается; месяцы не открывать до подписи"
+  }
+}
