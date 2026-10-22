@@ -16,7 +16,6 @@ S_net = S_event − S_ctrl в той же клетке. Клетка = гипо�
 import ast, csv, glob, json, os, re, struct, sys, zlib, collections
 import multiprocessing as mp
 import numpy as np
-import pandas as pd
 
 MON = "jan feb mar apr may jun jul aug sep oct nov dec".split()
 MH = ["m_100ms", "m_1s", "m_10s", "m_60s", "m_10m", "m_1h", "m_2h"]
@@ -110,22 +109,27 @@ def init(cfg):
 def work(a):
     pop, src, mon, p = a
     sym = os.path.basename(p)[len("touches-"):-4]
-    try:
-        df = pd.read_csv(p, usecols=CFG["_cols"], dtype={"day_utc": str})
-    except ValueError:
-        return a, None
-    if len(df) == 0:
+    with open(p, newline="") as fh:
+        r = csv.reader(fh)
+        h = next(r)
+        ix = {c: i for i, c in enumerate(h)}
+        if any(c not in ix for c in CFG["_cols"]):
+            return a, None
+        rows = list(r)
+    if not rows:
         return a, []
-    env = {c: df[c].to_numpy(dtype=float) for c in CFG["_cols"] if c != "day_utc"}
+    cols = list(zip(*rows))
+    env = {c: np.array([v or "nan" for v in cols[ix[c]]], dtype=float) for c in CFG["_cols"] if c != "day_utc"}
+    days = np.array(cols[ix["day_utc"]])
+    n_rows = len(rows)
     ti = env["touch_index"]
     env["first"] = (ti == 0).astype(float)
     env["rep"] = (ti != 0).astype(float)
     w = env["strength_w20_pct"].copy()
     w[np.isnan(w)] = 0.0
     env["w20"] = w
-    days = df["day_utc"].to_numpy()
     if "usd" in CFG["_need"]:
-        out_nan = np.full(len(df), np.nan)
+        out_nan = np.full(n_rows, np.nan)
         usd = out_nan.copy()
         for d in np.unique(days):
             g = hdr(CFG["roots"][src].format(m=mon), sym, d)
@@ -141,7 +145,7 @@ def work(a):
     for hi, (hid, f, _, sign) in enumerate(CFG["_hyp"]):
         mask = np.asarray(f(env), dtype=bool)
         if mask.shape == ():
-            mask = np.full(len(df), bool(mask))
+            mask = np.full(n_rows, bool(mask))
         if not mask.any():
             continue
         zz, oo = z[mask], ok[mask]
