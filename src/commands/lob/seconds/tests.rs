@@ -29,7 +29,7 @@ fn frames() -> Vec<Vec<crate::binlog::Record>> {
         trade_frame_flags(1500, 9990, 500, false, false, false),
         trade_frame_flags(1600, 9990, 500, false, true, false),
         trade_frame_flags(1700, 9990, 500, false, false, true),
-        delta_frame(2500, &[(10010, 1500)], &[]),
+        delta_frame(2500, &[], &[(10010, 1500)]),
         trade_frame_flags(2600, 10010, 1000, true, false, false),
         delta_frame(7200, &[(9990, 2500)], &[]),
     ]
