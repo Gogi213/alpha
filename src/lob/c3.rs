@@ -11,6 +11,8 @@
 //! Стены обходятся в порядке `twin_key(sym, id, seed)`. Числа-параметры — аргументы без умолчаний.
 
 use crate::book::Side;
+use crate::lob::markout::{mid_double_tick, MidSample};
+use crate::lob::sigma::SigmaSeries;
 use crate::lob::twin::twin_key;
 
 /// Окно σ в секундах (`sigma_bps(ts, 240)`); к горизонту `H` приводится множителем `√(H/240)`.
@@ -131,6 +133,32 @@ pub fn swap_flags(n: usize, seed: u64) -> Vec<bool> {
     (0..n)
         .map(|i| twin_key("null-permute", i as i64, seed) & 1 == 1)
         .collect()
+}
+
+/// Посекундные ряды суток для `DayCtx`: `mid[s]` — середина (цена) как есть на границу секунды `start_ms + s·1000`
+/// (последний срез не позже границы; NaN, пока срезов не было), `sigma[s]` — σ240 в bps на ту же границу (NaN —
+/// не определена). `mids` отсортированы по времени (так их выдаёт реплей; можно с хвостом прошлых суток для σ).
+pub fn second_series(
+    mids: &[MidSample],
+    sigma: &SigmaSeries,
+    start_ms: i64,
+    secs: usize,
+    tick: f64,
+) -> (Vec<f64>, Vec<f64>) {
+    let mut mid = Vec::with_capacity(secs);
+    let mut sig = Vec::with_capacity(secs);
+    let mut i = 0usize;
+    let mut cur = f64::NAN;
+    for s in 0..secs {
+        let ts = start_ms + s as i64 * 1000;
+        while i < mids.len() && mids[i].ts_ms <= ts {
+            cur = mid_double_tick(mids[i].bid_tick, mids[i].ask_tick) as f64 / 2.0 * tick;
+            i += 1;
+        }
+        mid.push(cur);
+        sig.push(sigma.sigma_bps(ts, SIGMA_WINDOW_S as i64).unwrap_or(f64::NAN));
+    }
+    (mid, sig)
 }
 
 fn overlaps(a0: i64, a1: i64, b0: i64, b1: i64) -> bool {

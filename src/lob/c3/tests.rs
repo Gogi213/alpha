@@ -185,3 +185,25 @@ fn smd_and_swap_flags() {
     assert!(f.iter().any(|&x| x) && f.iter().any(|&x| !x));
     assert_ne!(f, swap_flags(64, 8));
 }
+
+#[test]
+fn second_series_is_asof_and_matches_sigma() {
+    let ms = |ts, b, a| MidSample { ts_ms: ts, bid_tick: b, ask_tick: a };
+    let mids = [ms(-500, 9999, 10001), ms(2_300, 10_000, 10_002), ms(3_000, 10_100, 10_102)];
+    let sig = SigmaSeries::from_mids(&mids);
+    let (mid, sigma) = second_series(&mids, &sig, 0, 5, 0.01);
+    // Срез 2300 позже границы 2000 — сек 2 ещё на первом срезе; срез 3000 ≤ границы 3000 — сек 3 уже на нём.
+    let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+    assert!(near(mid[0], 100.0) && near(mid[2], 100.0));
+    assert!(near(mid[3], 101.01) && near(mid[4], 101.01));
+    assert!(sigma.iter().all(|v| v.is_nan()), "ряд короче окна 240 с");
+}
+
+#[test]
+fn second_series_nan_before_first_sample() {
+    let sig = SigmaSeries::from_mids(&[]);
+    let m = [MidSample { ts_ms: 2_500, bid_tick: 100, ask_tick: 102 }];
+    let (mid, _) = second_series(&m, &sig, 0, 4, 1.0);
+    assert!(mid[0].is_nan() && mid[2].is_nan());
+    assert!((mid[3] - 101.0).abs() < 1e-9);
+}
