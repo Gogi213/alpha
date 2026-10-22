@@ -1,4 +1,4 @@
-# TK-268: строки Летописи без метрик — по гипотезам и причине (только чтение): ssh calc python3 -I - < tools/compute/tk268-nometrics.py
+# TK-268: строки Летописи без метрик — по гипотезам и причине (только чтение): ssh calc python3 -I - < tools/compute/archive/tk268-nometrics.py
 import sys, json, collections
 sys.path.insert(0, "/opt/alpha-launch/tools/launch")
 import launch

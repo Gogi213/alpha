@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TK-237: хеш клетки -> {месяц: ключ варианта 'набор@форма'} для сита (по master.LINES / MONTHLY, как load_f1.py).
-  python tools/compute/tk237-keymap.py <out.json>"""
+  python tools/compute/archive/tk237-keymap.py <out.json>"""
 import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "registry"))
 import cellhash as ch, master

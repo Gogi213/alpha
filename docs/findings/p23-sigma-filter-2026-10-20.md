@@ -2,7 +2,7 @@
 
 **Итог: по заранее записанному правилу §4 — «фильтр держится» (все три условия), но край тонкий: пункты (1) и (2) выполнены ровно на 6/9 и июнь держит их суммой −0,5 $.**
 
-Порог 94,2 bps не пересчитывался. База — фьюч B1 `ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800` (`p18a6vv2_10000`), тариф (а), Σ$ = net_bps·qty·px/1e4. Половина B = `sha256(symbol)%2==1`. Признаки: `tk327-features.py fut`, `TK327_HALF=B TK327_NOTAPE=1`, calc `/data/tk0331` (job 1020183251290), 1617 сделок, 233 суток, tape_err 0. Сырьё: `docs/findings/p23-fut-B-features-2026-10-20.csv`; счёт: `tools/compute/p23-verdict.py`.
+Порог 94,2 bps не пересчитывался. База — фьюч B1 `ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800` (`p18a6vv2_10000`), тариф (а), Σ$ = net_bps·qty·px/1e4. Половина B = `sha256(symbol)%2==1`. Признаки: `tk327-features.py fut`, `TK327_HALF=B TK327_NOTAPE=1`, calc `/data/tk0331` (job 1020183251290), 1617 сделок, 233 суток, tape_err 0. Сырьё: `docs/findings/p23-fut-B-features-2026-10-20.csv`; счёт: `tools/compute/archive/p23-verdict.py`.
 
 ## Числа (Σ$ по месяцам, половина B)
 | мес | n | n(σ<94,2) | Σ$ без | Σ$ Q1 (отсечено) | Σ$ с фильтром |

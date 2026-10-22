@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-315: маршруты 383 хешей П-17 F2 (monthly — Г-81/101/135 по порогу месяца, cells — Г-136/137 набор) -> routes-p17f2.json
 (routes/lines/monthly/sets, как add-routes.json для tk279-deploy-delta.py). Строки — master.p17_cell с порогами P-17-thresholds{,-f2}.csv.
-  python tools/compute/tk315-make-routes.py <f2-cells.jsonl> <out.json>"""
+  python tools/compute/archive/tk315-make-routes.py <f2-cells.jsonl> <out.json>"""
 import json, os, sys
 R = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "registry")
 sys.path.insert(0, R)

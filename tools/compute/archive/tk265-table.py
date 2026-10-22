@@ -1,4 +1,4 @@
-# TK-265: таблица «есть / считаем» на calc (только чтение): ssh calc python3 -I - < tools/compute/tk265-table.py
+# TK-265: таблица «есть / считаем» на calc (только чтение): ssh calc python3 -I - < tools/compute/archive/tk265-table.py
 import sys, json, collections
 sys.path.insert(0, "/opt/alpha-launch/tools/launch")
 import launch

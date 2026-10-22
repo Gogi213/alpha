@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-188 (В-225): входные файлы registry load-axes из P-14 §3 — params, stacks, hyp_axes.
 Источник чисел: docs/research/P-14-fractions.md §3.1/§3.2 + docs/findings/hyp-stack-2026-10-11.csv (прежние точки).
-Запуск: python tools/compute/p14_axes_build.py -> docs/findings/p14-axes-{params,stacks,hyp_axes}-2026-10-11.csv
+Запуск: python tools/compute/archive/p14_axes_build.py -> docs/findings/p14-axes-{params,stacks,hyp_axes}-2026-10-11.csv
 Формат: CSV, разделитель ';', UTF-8, LF; списки точек — через '|'; числа — десятичные или дроби 'a/b' (Fraction)."""
 import csv
 import os

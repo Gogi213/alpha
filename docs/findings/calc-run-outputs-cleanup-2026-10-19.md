@@ -17,7 +17,7 @@
 | /data/tk0289 | 22.9 | TK-289 waiting | оставить (идёт) | идёт TK-289 |
 | /data/tk0115 | 21.6 | TK-115 done | **кандидат на удаление** | закрытый TK-115; metrics/result_path в Летописи: 1 ссылок |
 | /data/tk050 | 17.3 | TK-050 done | **кандидат на удаление** | закрытый TK-050; metrics/result_path в Летописи: 68 ссылок |
-| /data/tk200 | 14.0 | TK-200 done | оставить (код ссылается) | живой код: tools/compute/tk200-grid.sh, tools/registry/closure_mech.py |
+| /data/tk200 | 14.0 | TK-200 done | оставить (код ссылается) | живой код: tools/compute/archive/tk200-grid.sh, tools/registry/closure_mech.py |
 | /data/tk052 | 13.0 | TK-052 done | **кандидат на удаление** | закрытый TK-052; metrics/result_path в Летописи: 107 ссылок |
 | /data/tk0231 | 8.5 | TK-231 done | оставить (код ссылается) | ссылки: tk244-metrics, tk273 (метрики F1 пересчёт) |
 | /data/tk084 | 7.0 | TK-084 done | **кандидат на удаление** | закрытый TK-084; в Летописи ссылок нет |

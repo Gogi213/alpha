@@ -15,7 +15,7 @@ run = {"id": ns.run, "ts": "2026-10-20T13:20:00+04:00", "ticket": "TK-324", "pro
        "hyp": "Г-03", "data_pool": "v171-spot", "period": "2026-01-01..2026-09-30", "machine": "calc", "result_path": "/data/tk0313",
        "outcome": "ни одна из 16 клеток не проходит П-21 §8 (≥6/9 мес.>0): S0 Σ −1516 $, 3/9 мес., лучшая g-s100-u3 −4,6 $; не подтверждено ≠ опровергнуто",
        "judge": "judge", "status": "боевой",
-       "note": "результаты: docs/findings/tk313-spot-tariff-v47-2026-10-20.md, data/tk324-idx{2,3,4}.json; pnl_usd = (в); ext.sum_usd_b = (б) 10/10; tools/compute/tk324-load-registry.py"}
+       "note": "результаты: docs/findings/tk313-spot-tariff-v47-2026-10-20.md, data/tk324-idx{2,3,4}.json; pnl_usd = (в); ext.sum_usd_b = (б) 10/10; tools/compute/archive/tk324-load-registry.py"}
 rcs, res = [], []
 for n in sorted(V):
     h = ids[n]; rcs.append({"run_id": ns.run, "cell_id": h, "hyp_id": "Г-03"})
