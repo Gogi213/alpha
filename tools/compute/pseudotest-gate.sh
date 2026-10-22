@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TK-363: гейт движка псевдотеста — две гипотезы (pseudotest-gate.json) = g015-cells.csv (TK-355) до округления; итог /data/tk0363/gate-summary.txt.
-# Запуск: python3 /data/sched/alsched.py submit --cls prod --kind gate --name tk363-gate --max-runtime 2h --cores 1 --mem 8 -- bash /data/tk0363/pseudotest-gate.sh
+# Запуск: python3 /data/sched/alsched.py submit --cls prod --kind gate --name tk363-gate --max-runtime 2h --cores 3 (сожмётся до 1: резерв, TK-300; NX=1) --mem 8 -- bash /data/tk0363/pseudotest-gate.sh
 set -uo pipefail
 W=/data/tk0363; PY=/data/tk0278/venv/bin/python; S=$W/gate-summary.txt
 mkdir -p "$W/out-gate"

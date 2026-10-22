@@ -202,10 +202,13 @@ def cell(a, key, B, seed):
 
 def jobs_for(cfg, nd):
     jobs = []
+    only = cfg.get("months")  # необязательно: {"fut": ["jul"], "spot": ["sep"]} — только эти месяцы (гейт малым срезом)
     for pop, spec in cfg["caches"].items():
         for src, g in spec.items():
             if "{m}" in g:
                 for m in MON:
+                    if only and m not in only.get(src, MON):
+                        continue
                     by = collections.defaultdict(list)
                     for p in glob.glob(g.format(m=m)):
                         by[os.path.basename(p)].append(p)
@@ -219,7 +222,9 @@ def jobs_for(cfg, nd):
                 for ps in by.values():
                     ps.sort()
                     for p in (ps[:nd] if nd else ps):
-                        jobs.append((pop, src, MON[int(re.search(r"/D20/\d{4}-(\d\d)", p.replace("\\", "/")).group(1)) - 1], p))
+                        m = MON[int(re.search(r"/D20/\d{4}-(\d\d)", p.replace("\\", "/")).group(1)) - 1]
+                        if not only or m in only.get(src, MON):
+                            jobs.append((pop, src, m, p))
     return jobs
 
 

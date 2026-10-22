@@ -31,7 +31,8 @@ for hid, (t, s) in PAIRS.items():
             else:
                 print("РАСХОЖДЕНИЕ", h, src, mon, c, v, w); bad += 1
     keys = [k for k in mine if k[0] == hid and k[1] == "event"]
-    miss = [k for k in ref if k[0] == t and k[1] == s and ("event" and (hid, "event", k[2], k[3]) not in mine)]
+    have = {(k[2], k[3]) for k in mine}  # гейт малым срезом: ожидаем только присутствующие в выходе (src, месяц)
+    miss = [k for k in ref if k[0] == t and k[1] == s and (k[2], k[3]) in have and (hid, "event", k[2], k[3]) not in mine]
     for k in miss:
         print("НЕТ в pseudotest:", hid, k[2], k[3]); bad += 1
 print(f"сошлось {ok}, ничьи округления {tie}, провалов {bad}")

@@ -1,4 +1,4 @@
-{"seed": 20261022, "boot": 1000,
+{"seed": 20261022, "boot": 1000, "months": {"fut": ["jul"], "spot": ["sep"]},
  "caches": {"event": {"fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/study/approaches/D20/2026-*/touches-*USDT.csv",
                       "spot": "/data/tk0319/jrn/2026-*/wt/sub/D20/2026-*/touches-*USDT.csv"}},
  "roots": {"fut": "/data/tk046/{m}/home/alpha/epochs/e-{m}/root", "spot": "/data/tk0319/e-{m}/root"},
