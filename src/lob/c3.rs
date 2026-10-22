@@ -11,6 +11,13 @@
 //! `caliper_sd`; ничья — меньший `twin_key(sym, τ', seed)`; без возвращения (окно контроля не пересекает уже занятые).
 //! Стены обходятся в порядке `twin_key(sym, id, seed)`. Числа-параметры — аргументы без умолчаний.
 
+// Офлайн-постобработка суток (не горячий путь): индексы — внутри длин рядов, касты — секунды и тики в пределах i64/f64.
+#![allow(
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss
+)]
+
 use crate::book::Side;
 use crate::lob::markout::{mid_double_tick, MidSample};
 use crate::lob::sigma::SigmaSeries;
