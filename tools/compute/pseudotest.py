@@ -33,6 +33,7 @@ BASE = ["touch_index", "strength_w20_pct", "day_utc"]
 DERIVED = {"first", "rep", "w20", "usd", "fut", "alt"}
 STABLE = re.compile(r"^(USDC|USD1|FDUSD|USDE|TUSD|DAI|PYUSD|USDD|RLUSD|USDT0|EUR|XUSD)USDT$")  # как tk361-strata
 FUNCS = {"abs": np.abs, "isnan": np.isnan}
+CTRL_H = {"m_60s": 60, "m_10m": 600}  # горизонты контроля «сдвиг времени»: ряд середины минутный (mids1m), окно контроля меньше сдвига
 
 
 QCALL = re.compile(r"^q(\d+)$")
@@ -116,6 +117,52 @@ def hdr(root, sym, day):
 CFG = None  # заполняется в init() воркера
 
 
+def shift_label(s):
+    return ("p" if s > 0 else "m") + (f"{abs(s) // 3600}h" if s % 3600 == 0 else f"{abs(s)}s")
+
+
+def mids1m(p, sym):
+    """Минутный ряд середины рядом с кэшем касаний (mids1m-SYM.csv: minute_ms, mid2x — закрытие минуты) → (минута0, массив) или None."""
+    try:
+        with open(os.path.join(os.path.dirname(p), f"mids1m-{sym}.csv")) as fh:
+            rows = [l.split(",") for l in fh if l[:1].isdigit()]
+    except OSError:
+        return None
+    if not rows:
+        return None
+    k = np.array([int(r[0]) // 60000 for r in rows])
+    m = np.full(k.max() - k.min() + 1, np.nan)
+    m[k - k.min()] = [float(r[1]) for r in rows]
+    return int(k.min()), m
+
+
+def ctrl(p, sym, st, bid):
+    """Контроль «сдвиг времени»: те же события, момент сдвинут на s сек; markout в сторону отскока события от середины на t+s
+    до середины на t+s+h (h из CTRL_H), середина — закрытие последней завершённой минуты (ряд mids1m того же файла-суток).
+    Вне суток или нет ряда — nan. → {s: массив (n, NV), nan вне CTRL_H}."""
+    out = {s: np.full((len(st), NV), np.nan) for s in CFG["_shifts"]}
+    ser = mids1m(p, sym)
+    if ser is None:
+        return out
+    k0, m = ser
+    d = np.where(bid, 1.0, -1.0)
+
+    def at(t):
+        k = np.floor(t / 60000.0).astype(np.int64) - 1 - k0
+        v = np.full(t.shape, np.nan)
+        ok = (k >= 0) & (k < len(m))
+        v[ok] = m[k[ok]]
+        return v
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        for s in CFG["_shifts"]:
+            t = st + s * 1000.0
+            b = at(t)
+            for col, h in CTRL_H.items():
+                out[s][:, VAL.index(col)] = d * (at(t + h * 1000.0) - b) / b * 1e4
+    return out
+
+
 def init(cfg):
     global CFG
     CFG = cfg
@@ -132,7 +179,9 @@ def init(cfg):
     for k in CFG["_qk"]:
         _, feat, mask = k.split("|")
         CFG["_qf"][k] = (int(k[1:k.index("|")]), parse(feat)[0], parse(mask)[0] if mask else None)
-    CFG["_cols"] = sorted((need - DERIVED) | set(VAL) | set(BASE) | ({"price_tick", "size_at_touch"} if "usd" in need else set()))
+    CFG["_shifts"] = [int(x) for x in cfg.get("shifts_s", [])]  # контроль «сдвиг времени», сек (назначается до счёта, bank §3: ±3600)
+    CFG["_cols"] = sorted((need - DERIVED) | set(VAL) | set(BASE) | ({"price_tick", "size_at_touch"} if "usd" in need else set())
+                          | ({"start_ms"} if CFG["_shifts"] else set()))
 
 
 def load(src, mon, sym, p):
@@ -158,6 +207,8 @@ def load(src, mon, sym, p):
     w = env["strength_w20_pct"].copy()
     w[np.isnan(w)] = 0.0
     env["w20"] = w
+    if CFG["_shifts"]:
+        env["_ctrl"] = ctrl(p, sym, env["start_ms"], np.array(cols[ix["side"]]) == "bid")
     if "usd" in CFG["_need"]:
         usd = np.full(n_rows, np.nan)
         for d in np.unique(days):
@@ -194,16 +245,19 @@ def thresholds(fs, calib):
 
 
 def evaluate(o, thr):
-    """Один файл: все гипотезы → (out: [(гипотеза, сутки, вектор)], hist). thr — пороги q-термов монеты на этот файл."""
+    """Один файл: все гипотезы → (out: [(гипотеза, суффикс популяции, сутки, вектор)], hist). thr — пороги q-термов монеты на этот файл.
+    Суффикс "" — события; "_s<метка>" — контроль «сдвиг времени» (то же условие и те же события, markout со сдвигом; hist только у событий)."""
     if o is None:
         return None, None
     env, days, n_rows = o
     if n_rows == 0:
         return [], []
     env.update(thr)
-    vals = np.stack([env[c] for c in VAL], axis=1)
-    ok = ~np.isnan(vals)
-    z = np.where(ok, vals, 0.0)
+    layers = [("", np.stack([env[c] for c in VAL], axis=1))] + [("_s" + shift_label(sh), env["_ctrl"][sh]) for sh in CFG["_shifts"]]
+    prep = []
+    for sfx, vals in layers:
+        ok = ~np.isnan(vals)
+        prep.append((sfx, np.where(ok, vals, 0.0), ok))
     out, hist = [], []
     ud, inv = np.unique(days, return_inverse=True)
     for hi, (hid, f, _, sign, qs) in enumerate(CFG["_hyp"]):
@@ -212,23 +266,25 @@ def evaluate(o, thr):
             mask = np.full(n_rows, bool(mask))
         if not mask.any():
             continue
-        zz, oo = z[mask], ok[mask]
-        if sign < 0:  # против отскока: markout со знаком, favour ↔ adverse
-            zz = zz.copy()
-            zz[:, :len(MH)] *= -1
-            zz[:, len(MH):] = np.concatenate([zz[:, len(MH) + 4:], zz[:, len(MH):len(MH) + 4]], axis=1)
-            oo = np.concatenate([oo[:, :len(MH)], oo[:, len(MH) + 4:], oo[:, len(MH):len(MH) + 4]], axis=1)
-        for j, hc in enumerate(HI):
-            x = zz[oo[:, hc], hc]
-            if x.size:
-                k = np.minimum(np.ceil(np.arcsinh(np.abs(x)) / STEP), KM).astype(np.int64)
-                u, c = np.unique(KM + np.where(x < 0, -k, k) + j * NB, return_counts=True)
-                hist.append((hi, u, c))
         dm = inv[mask]
         calib = thr.get("_calib", 0.0) if qs else 0.0  # событий с порогом по калибровочному отрезку (первые 7 суток монеты)
-        for k in np.unique(dm):
-            s = dm == k
-            out.append((hi, str(ud[k]), np.concatenate([[s.sum()], zz[s].sum(axis=0), oo[s].sum(axis=0), [calib * s.sum()]])))
+        for sfx, z, ok in prep:
+            zz, oo = z[mask], ok[mask]
+            if sign < 0:  # против отскока: markout со знаком, favour ↔ adverse
+                zz = zz.copy()
+                zz[:, :len(MH)] *= -1
+                zz[:, len(MH):] = np.concatenate([zz[:, len(MH) + 4:], zz[:, len(MH):len(MH) + 4]], axis=1)
+                oo = np.concatenate([oo[:, :len(MH)], oo[:, len(MH) + 4:], oo[:, len(MH):len(MH) + 4]], axis=1)
+            if not sfx:
+                for j, hc in enumerate(HI):
+                    x = zz[oo[:, hc], hc]
+                    if x.size:
+                        k = np.minimum(np.ceil(np.arcsinh(np.abs(x)) / STEP), KM).astype(np.int64)
+                        u, c = np.unique(KM + np.where(x < 0, -k, k) + j * NB, return_counts=True)
+                        hist.append((hi, u, c))
+            for k in np.unique(dm):
+                s = dm == k
+                out.append((hi, sfx, str(ud[k]), np.concatenate([[s.sum()], zz[s].sum(axis=0), oo[s].sum(axis=0), [calib * s.sum()]])))
     return out, hist
 
 
@@ -336,6 +392,27 @@ def cell(a, key, B, seed, H):
     return row
 
 
+def net_ci(ae, ac, cols, B, seed, key):
+    """S_события − S_контроля по горизонтам cols и 95 % интервал парного бутстрапа по суткам (объединение суток обеих популяций) → {col: (d, lo, hi)}."""
+    days = sorted(set(ae["day"]) | set(ac["day"]))
+    z = np.zeros(2 * NV + 2)
+    E = np.array([ae["day"].get(d, z) for d in days])
+    C = np.array([ac["day"].get(d, z) for d in days])
+    idx = np.random.default_rng(seed + zlib.crc32(("|".join(key) + "|net").encode())).integers(0, len(days), size=(B, len(days))) if B else None
+    out = {}
+    with np.errstate(invalid="ignore", divide="ignore"):
+        for col in cols:
+            i = VAL.index(col)
+            d = E[:, 1 + i].sum() / E[:, 1 + NV + i].sum() - C[:, 1 + i].sum() / C[:, 1 + NV + i].sum()
+            lo = hi = float("nan")
+            if idx is not None and len(days) > 1:
+                bs = E[idx, 1 + i].sum(axis=1) / E[idx, 1 + NV + i].sum(axis=1) - C[idx, 1 + i].sum(axis=1) / C[idx, 1 + NV + i].sum(axis=1)
+                if np.isfinite(bs).any():
+                    lo, hi = np.nanpercentile(bs, 2.5), np.nanpercentile(bs, 97.5)
+            out[col] = (d, lo, hi)
+    return out
+
+
 def jobs_for(cfg, nd):
     """Задачи (pop, src, sym, [(дата, месяц, путь, emit)]) — по монете, файлы по возрастанию даты. emit — месяц в cfg["months"]
     (необязательно: {"fut": ["jul"], "spot": ["sep"]} — гейт малым срезом); файлы вне months нужны только q-порогам (окно 7 суток)."""
@@ -379,8 +456,8 @@ def main():
                 if o is None:
                     bad += 1
                     continue
-                for hi, day, vec in o:
-                    merge(agg, (ids[hi], pop, src, mon), day, sym, vec)
+                for hi, sfx, day, vec in o:
+                    merge(agg, (ids[hi], pop + sfx, src, mon), day, sym, vec)
                 for hi, u, c in hl:
                     np.add.at(hg.setdefault((ids[hi], pop, src, mon), np.zeros(len(HD) * NB, dtype=np.int64)), u, c)
     B, seed = int(cfg.get("boot", 1000)), int(cfg.get("seed", 20261022))
@@ -390,7 +467,19 @@ def main():
         c = rows.get((k[0], "c3", k[2], k[3])) if k[1] == "event" else None
         for col in hs:
             r["Snet_" + col[2:]] = r[col] - c[col] if c else float("nan")
-    cols = ["hyp", "pop", "src", "month"] + (list(next(iter(rows.values())).keys()) if rows else [])
+    for k in [k for k in rows if k[1] in cfg["caches"]]:  # контроль «сдвиг времени»: S_net = S_события − S_сдвига (60 с, 10 мин), интервал — по парным суткам
+        for sh in [int(x) for x in cfg.get("shifts_s", [])]:
+            kc = (k[0], k[1] + "_s" + shift_label(sh), k[2], k[3])
+            if kc not in agg:
+                continue
+            net = net_ci(agg[k], agg[kc], list(CTRL_H), B, seed, kc)
+            for col, (d, lo, hi) in net.items():
+                rows[k][f"Snet_s{shift_label(sh)}_{col[2:]}"], rows[k][f"lo_Snet_s{shift_label(sh)}_{col[2:]}"], rows[k][f"hi_Snet_s{shift_label(sh)}_{col[2:]}"] = d, lo, hi
+    keys = list(dict.fromkeys(c for r in rows.values() for c in r))
+    for r in rows.values():  # у строк контроля сетка колонок та же (пустые — nan)
+        for c in keys:
+            r.setdefault(c, float("nan"))
+    cols = ["hyp", "pop", "src", "month"] + keys
     with open(os.path.join(out, "pseudotest-cells.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(cols)
