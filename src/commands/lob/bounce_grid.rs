@@ -115,13 +115,11 @@ mod sets;
 mod steps;
 mod verdict;
 
-pub(crate) use cache::cached_walls;
-pub(crate) use sets::{read_regime_day, BTC4H_AXIS, COIN_AXES};
-
 use args::SignalArg;
 pub use args::{BounceGridArgs, BounceGridSummary};
 pub(crate) use cache::cached_touches;
-use cache::{cached_approaches, cached_walls, DayTouches};
+pub(crate) use cache::cached_walls;
+use cache::{cached_approaches, DayTouches};
 use carry::{carry_boundary, carry_window_ns, extend_with_carry};
 use drive::{day_events, drive_day, DayParams, DayRows, OrderSizing};
 use entry_sigma::EntrySigma;
@@ -130,7 +128,9 @@ use outputs::FormDayResult;
 pub(crate) use plan::ensure_holds_at_touch_checkable;
 use plan::{open_outputs, plan_grid, GridPlan};
 use sets::SetPaths;
-pub(crate) use sets::{read_regime_day, touch_contexts, FilterSet, RegimeDay, TouchFilter};
+pub(crate) use sets::{
+    read_regime_day, touch_contexts, FilterSet, RegimeDay, TouchFilter, BTC4H_AXIS, COIN_AXES,
+};
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
