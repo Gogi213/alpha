@@ -1,0 +1,43 @@
+{
+ "impulse_bps": 3.271074,
+ "stable_sigma_lt": 38.2,
+ "dp_star": 0.25,
+ "n_eff_min_for_defined": 63,
+ "fut": {
+  "coins": 245,
+  "stable_coins": [],
+  "band_coins": [
+   "XAUTUSDT",
+   "BNBUSDT",
+   "PAXGUSDT"
+  ],
+  "walls_per_coin_quartiles": [
+   159.0,
+   1175.0,
+   28851.5
+  ],
+  "events_total": 88363703,
+  "events_no_rank": 3181366
+ },
+ "spot": {
+  "coins": 181,
+  "stable_coins": [
+   "USDEUSDT",
+   "USDCUSDT",
+   "RLUSDUSDT",
+   "USD1USDT",
+   "USATUSDT"
+  ],
+  "band_coins": [
+   "XAUTUSDT",
+   "BNBUSDT"
+  ],
+  "walls_per_coin_quartiles": [
+   52.0,
+   932.0,
+   13004.0
+  ],
+  "events_total": 17511914,
+  "events_no_rank": 847219
+ }
+}
