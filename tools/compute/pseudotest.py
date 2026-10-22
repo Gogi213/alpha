@@ -312,7 +312,7 @@ def cell(a, key, B, seed, H):
     S = np.divide(tot[1:1 + NV], tot[1 + NV:1 + 2 * NV], out=np.full(NV, np.nan), where=tot[1 + NV:1 + 2 * NV] > 0)
     ex = tot - sum(v for _, v in top)
     Sx = np.divide(ex[1:1 + NV], ex[1 + NV:1 + 2 * NV], out=np.full(NV, np.nan), where=ex[1 + NV:1 + 2 * NV] > 0)
-    D = np.array(list(a["day"].values()))
+    D = np.array([a["day"][d] for d in sorted(a["day"])])  # по возрастанию даты: бутстрап не зависит от порядка завершения задач
     rng = np.random.default_rng(seed + zlib.crc32("|".join(key).encode()))
     lo = np.full(NV, np.nan)
     hi = np.full(NV, np.nan)
