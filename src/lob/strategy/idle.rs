@@ -116,6 +116,43 @@ where
     let Some(side) = entry_side(state.sigma) else {
         return Ok(Action::Idle);
     };
+    // Г-88: вход откладывается до закола и возврата; окно — от первого on_idle круга на `entry_ttl`.
+    if let TradePlan::Bounce {
+        pyramid,
+        level_px,
+        tick_px,
+        entry_ttl_ns,
+        ..
+    } = state.plan
+    {
+        let pyr = pyramid.eff();
+        if (pyr.reclaim_depth_bps > 0 || pyr.postsweep_bps > 0) && !state.reclaim_ready {
+            let long = side == HbtSide::Buy;
+            let level_tick = px_tick(level_px, tick_px);
+            state.reclaim = Some(if pyr.postsweep_bps > 0 {
+                // Г-135: окно «назначено П-17» — 30 с от взвода, не длиннее TTL входа.
+                let end =
+                    now.saturating_add(entry_ttl_ns.min(crate::lob::reclaim::POSTSWEEP_WINDOW_NS));
+                crate::lob::reclaim::ReclaimWatch::postsweep(
+                    long,
+                    level_tick,
+                    pyr.postsweep_bps,
+                    (now, end),
+                )
+            } else {
+                crate::lob::reclaim::ReclaimWatch::new(
+                    long,
+                    level_tick,
+                    pyr.reclaim_depth_bps,
+                    i64::from(pyr.reclaim_pause_ms) * 1_000_000,
+                    (now, now.saturating_add(entry_ttl_ns)),
+                )
+            });
+            state.reclaim_t0 = None;
+            state.phase = Phase::ReclaimWait;
+            return Ok(Action::Idle);
+        }
+    }
     // Цена входа: у Decision 20 — свой край спреда (нужна книга), у
     // сделки-отскока — цена, посчитанная уровнем заранее (В-44), и
     // книга для этого не нужна: вход стоит лимитом перед плотностью
@@ -309,4 +346,33 @@ where
         side,
         price: px,
     })
+}
+
+/// Г-88: ждём возврата после закола. Сигнал пришёл (`reclaim_t0 ≤ now`) — вход ставится обычным `on_idle`; окно
+/// кончилось без сигнала — круг без входа (`NotPlaced`, как «сигнал без входа»).
+pub(super) fn on_reclaim_wait<MD, B>(
+    bot: &mut B,
+    state: &mut StrategyState,
+    now: i64,
+) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    if let Some(t0) = state.reclaim_t0 {
+        if now >= t0 {
+            state.reclaim_ready = true;
+            state.phase = Phase::Idle;
+            return on_idle(bot, state, now);
+        }
+        return Ok(Action::Idle);
+    }
+    if state.reclaim.is_some_and(|w| w.expired(now)) {
+        state.phase = Phase::Idle;
+        return Ok(Action::EntryTimedOut {
+            order_id: state.next_order_id,
+            reason: EntryCancelReason::NotPlaced,
+        });
+    }
+    Ok(Action::Idle)
 }

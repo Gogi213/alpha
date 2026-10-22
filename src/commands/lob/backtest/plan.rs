@@ -159,7 +159,17 @@ pub(crate) fn bounce_plan(
         // `MARKET_CROSS_MARGIN_BPS` от стены, гарантированно пересекающий
         // спред (симулятор идёт по стакану до фактической цены фила —
         // дальше этой цели, не по ней).
-        EntryForm::Market => (
+        // Г-88: цена входа — как у `single@fr`; ожидание закола/возврата — в стратегии (`pyramid.reclaim_*`).
+        // Г-102: цена входа — как у `single@fr`; сдвиг на память отступа делает драйвер (`pyramid.retreat_*`).
+        EntryForm::Reclaim { .. } | EntryForm::Retreat { .. } => (
+            EntryLadder::NONE,
+            touch
+                .frontrun_tick
+                .unwrap_or_else(|| p_tick.saturating_add(away)),
+        ),
+        // Г-135: как `market` — заявка за `MARKET_CROSS_MARGIN_BPS` пересекает спред; когда ставить — решает
+        // стратегия (`pyramid.postsweep_bps`, `ReclaimWait`).
+        EntryForm::Market | EntryForm::Postsweep { .. } => (
             EntryLadder::NONE,
             p_tick + away * bps_to_ticks_ceil(MARKET_CROSS_MARGIN_BPS, p_tick),
         ),
@@ -167,7 +177,7 @@ pub(crate) fn bounce_plan(
     // T4 (Г-86): рыночный вход не может быть мейкером — GTX отклонил бы
     // заявку, пересёкшую спред, как Expired (В-72); GTC независимо от
     // `--post-only`/набора.
-    let post_only = if matches!(entry_form, EntryForm::Market) {
+    let post_only = if matches!(entry_form, EntryForm::Market | EntryForm::Postsweep { .. }) {
         false
     } else {
         post_only
@@ -328,104 +338,114 @@ pub(crate) fn bounce_plan(
                 },
                 _ => crate::lob::strategy::WallEatExit::OFF,
             },
-            pyramid: match shape.exit_form {
-                crate::commands::lob::bounce_grid::ExitForm::PyrEat { parts } => {
-                    crate::lob::strategy::PyramidCfg {
-                        eat_parts: parts,
-                        fresh: false,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+            pyramid: with_reclaim(
+                entry_form,
+                match shape.exit_form {
+                    crate::commands::lob::bounce_grid::ExitForm::PyrEat { parts } => {
+                        crate::lob::strategy::PyramidCfg {
+                            eat_parts: parts,
+                            fresh: false,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::PyrFresh { parts } => {
-                    crate::lob::strategy::PyramidCfg {
-                        eat_parts: parts,
-                        fresh: true,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::PyrFresh { parts } => {
+                        crate::lob::strategy::PyramidCfg {
+                            eat_parts: parts,
+                            fresh: true,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::PyrReinstall { n, u12 } => {
-                    crate::lob::strategy::PyramidCfg {
-                        reinstall_n: n,
-                        reinstall_u12: u12,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::PyrReinstall { n, u12 } => {
+                        crate::lob::strategy::PyramidCfg {
+                            reinstall_n: n,
+                            reinstall_u12: u12,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::PyrNewWall { k, u12 } => {
-                    crate::lob::strategy::PyramidCfg {
-                        newwall_k: k,
-                        newwall_u12: u12,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::PyrNewWall { k, u12 } => {
+                        crate::lob::strategy::PyramidCfg {
+                            newwall_k: k,
+                            newwall_u12: u12,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::HalfStop { q8 } => {
-                    crate::lob::strategy::PyramidCfg {
-                        half_stop: true,
-                        half_q8: q8,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::HalfStop { q8 } => {
+                        crate::lob::strategy::PyramidCfg {
+                            half_stop: true,
+                            half_q8: q8,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::HalfLevel { q8 } => {
-                    crate::lob::strategy::PyramidCfg {
-                        half_level: true,
-                        half_q8: q8,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::HalfLevel { q8 } => {
+                        crate::lob::strategy::PyramidCfg {
+                            half_level: true,
+                            half_q8: q8,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::TakeSched { g10, t4 } => {
-                    crate::lob::strategy::PyramidCfg {
-                        sched_g10: g10,
-                        sched_t4: t4,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::TakeSched { g10, t4 } => {
+                        crate::lob::strategy::PyramidCfg {
+                            sched_g10: g10,
+                            sched_t4: t4,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::TakeSchedX { g8, t16 } => {
-                    crate::lob::strategy::PyramidCfg {
-                        sched_g8: g8,
-                        sched_t16: t16,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::TakeSchedX { g8, t16 } => {
+                        crate::lob::strategy::PyramidCfg {
+                            sched_g8: g8,
+                            sched_t16: t16,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::Converge { tol, a_bps } => {
-                    crate::lob::strategy::PyramidCfg {
-                        converge_tol1: tol + 1,
-                        converge_a_bps: a_bps,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::Converge { tol, a_bps } => {
+                        crate::lob::strategy::PyramidCfg {
+                            converge_tol1: tol + 1,
+                            converge_a_bps: a_bps,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::Chase { ms } => {
-                    crate::lob::strategy::PyramidCfg {
-                        chase_ms: ms,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::LevelBack { gap_bps, secs } => {
+                        crate::lob::strategy::PyramidCfg {
+                            levelback_gap_bps: gap_bps,
+                            levelback_secs: secs,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::Tape { w, q } => {
-                    crate::lob::strategy::PyramidCfg {
-                        tape_w: w,
-                        tape_q: q,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::Chase { ms } => {
+                        crate::lob::strategy::PyramidCfg {
+                            chase_ms: ms,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::Cxl { w, q } => {
-                    crate::lob::strategy::PyramidCfg {
-                        cxl_w: w,
-                        cxl_q: q,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::Tape { w, q } => {
+                        crate::lob::strategy::PyramidCfg {
+                            tape_w: w,
+                            tape_q: q,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::NoStop { x8 } => {
-                    crate::lob::strategy::PyramidCfg {
-                        nostop_x8: x8,
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::Cxl { w, q } => {
+                        crate::lob::strategy::PyramidCfg {
+                            cxl_w: w,
+                            cxl_q: q,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                crate::commands::lob::bounce_grid::ExitForm::Wall2 { k } => {
-                    crate::lob::strategy::PyramidCfg {
-                        wall2: crate::lob::strategy::wall2_code(k),
-                        ..crate::lob::strategy::PyramidCfg::OFF
+                    crate::commands::lob::bounce_grid::ExitForm::NoStop { x8 } => {
+                        crate::lob::strategy::PyramidCfg {
+                            nostop_x8: x8,
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
                     }
-                }
-                _ => crate::lob::strategy::PyramidCfg::OFF,
-            },
+                    crate::commands::lob::bounce_grid::ExitForm::Wall2 { k } => {
+                        crate::lob::strategy::PyramidCfg {
+                            wall2: crate::lob::strategy::wall2_code(k),
+                            ..crate::lob::strategy::PyramidCfg::OFF
+                        }
+                    }
+                    _ => crate::lob::strategy::PyramidCfg::OFF,
+                },
+            ),
             // Трейл после снятия (владелец 23.09): откат в bps от входа.
             gone_trail_bps: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::GoneTrail { trail_pct, .. } => {
@@ -435,6 +455,26 @@ pub(crate) fn bounce_plan(
             },
         },
     ))
+}
+
+/// Г-88/Г-102: формы входа `reclaim<D>p<S>` и `retreat<k>t<T>` кладут свои числа в конфиг стратегии (остальные формы — без изменений).
+fn with_reclaim(
+    entry_form: EntryForm,
+    mut pyramid: crate::lob::strategy::PyramidCfg,
+) -> crate::lob::strategy::PyramidCfg {
+    match entry_form {
+        EntryForm::Reclaim { depth_bps, pause_s } => {
+            pyramid.reclaim_depth_bps = depth_bps;
+            pyramid.reclaim_pause_ms = pause_s.saturating_mul(1000);
+        }
+        EntryForm::Postsweep { rise_bps } => pyramid.postsweep_bps = rise_bps,
+        EntryForm::Retreat { k_ticks, half_min } => {
+            pyramid.retreat_k = k_ticks;
+            pyramid.retreat_half_min = half_min;
+        }
+        _ => {}
+    }
+    pyramid
 }
 
 /// Вид записи подхода как касания (F6 этапа F, В-73): `bounce_plan`,
@@ -478,7 +518,7 @@ pub(crate) fn touch_view_of_approach(a: &ApproachRecord) -> TouchRecord {
         flow_1h_lots: a.flow_1h_lots,
         strength_e2: a.strength_e2,
         strength_held_e2: [-1; STRENGTH_HELD_WINDOWS_S.len()],
-        repeat_count: 0,
+        repeat_count: a.repeat_count_at_arm,
         depth_behind_lots: a.depth_behind_lots,
     }
 }
@@ -606,14 +646,21 @@ pub(crate) fn approach_plan_sched(
 /// Предрегистрированная сетка дедлайнов, секунды (B3, В-58 п. 4): ответ
 /// владельца 2 — «S и S-D; S-D значит от секунд до, наверно, пары часов»;
 /// 30 мин и 4 ч добавлены предрегистрацией 20.09 (S8 плана по сторонам),
-/// 6 и 8 ч — В-198 (07.10, клетки x-deadline П-12).
-const DEADLINES_S: [i64; 8] = [60, 600, 1_800, 3_600, 7_200, 14_400, 21_600, 28_800];
+/// 6 и 8 ч — В-198 (07.10, клетки x-deadline П-12), 12 ч — П-18 (TK-289, ось 4: верх сетки, ≤ суток);
+/// 4281, 5091, 6054, 8562, 10182, 12109 — точки F2 П-18 оси 4 (TK-289), прежние значения без изменений.
+const DEADLINES_S: [i64; 15] = [
+    60, 600, 1_800, 3_600, 4_281, 5_091, 6_054, 7_200, 8_562, 10_182, 12_109, 14_400, 21_600,
+    28_800, 43_200,
+];
 
 /// Предрегистрированный набор досрочных выходов, секунды (B4, В-58 п. 5):
 /// «прилипание» касания дольше `X`. Отсутствие флага — четвёртый вариант той
 /// же оси («выключен»), поэтому `None` здесь не ошибка, а значение сетки.
-/// {5…60} добавлены точками F1 П-14 Г-110 (TK-189, решение владельца 11.10).
-pub(crate) const EARLY_EXITS_S: [i64; 9] = [1, 2, 3, 5, 8, 13, 20, 30, 60];
+/// {5…60} добавлены точками F1 П-14 Г-110 (TK-189, решение владельца 11.10); 45 — точка F2 (TK-272, П-14 §11.2).
+pub(crate) const EARLY_EXITS_S: [i64; 10] = [1, 2, 3, 5, 8, 13, 20, 30, 45, 60];
+
+/// Половинные секунды F2 Г-110 (TK-272): 37,5 и 52,5 с — целая часть.
+pub(crate) const EARLY_EXITS_HALF_S: [i64; 2] = [37, 52];
 
 /// Дедлайн `--deadline-secs` → наносекунды: значение обязано быть из сетки
 /// В-58 (она зафиксирована **до** данных, и «попробовать ещё одно» — отдельное
@@ -635,18 +682,28 @@ pub(crate) fn deadline_ns_from_secs(secs: i64) -> anyhow::Result<i64> {
 pub(crate) const EARLY_EXIT_HALF_MS: i64 = 500;
 
 /// Досрочный выход `--early-exit-secs` → наносекунды (B4), вход в миллисекундах: `None` — выключен,
-/// `Some(x)` — целые секунды из `EARLY_EXITS_S` или 500 мс. Другое значение — отказ, тем же
+/// `Some(x)` — целые секунды из `EARLY_EXITS_S`, `EARLY_EXITS_HALF_S` + 0,5 с или 500 мс. Другое значение — отказ, тем же
 /// правилом, что у дедлайна.
 pub(crate) fn early_exit_ns_from_ms(ms: Option<i64>) -> anyhow::Result<i64> {
     let Some(x) = ms else {
         return Ok(0);
     };
     anyhow::ensure!(
-        x == EARLY_EXIT_HALF_MS || (x % 1_000 == 0 && EARLY_EXITS_S.contains(&(x / 1_000))),
-        "--early-exit-secs {} не из предрегистрированного набора В-58 {EARLY_EXITS_S:?} + 0.5",
+        x == EARLY_EXIT_HALF_MS
+            || (x % 1_000 == 0 && EARLY_EXITS_S.contains(&(x / 1_000)))
+            || (x % 1_000 == 500 && EARLY_EXITS_HALF_S.contains(&(x / 1_000))),
+        "--early-exit-secs {} не из предрегистрированного набора В-58 {EARLY_EXITS_S:?} + 0.5 + {EARLY_EXITS_HALF_S:?}.5",
         early_label(x)
     );
     Ok(x.saturating_mul(1_000_000))
+}
+
+/// Метка точки (`2`, `0.5`, `37.5`) → миллисекунды: целые секунды или `<целые>.5`; другое — `None`.
+pub(crate) fn early_ms_from_label(v: &str) -> Option<i64> {
+    match v.strip_suffix(".5") {
+        Some(w) => w.parse::<i64>().ok()?.checked_mul(1_000)?.checked_add(500),
+        None => v.parse::<i64>().ok()?.checked_mul(1_000),
+    }
 }
 
 /// Имя точки в формах и шапке: целые секунды как раньше (`2`), полсекунды — `0.5`.

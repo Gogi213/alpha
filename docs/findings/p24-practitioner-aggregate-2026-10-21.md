@@ -1,6 +1,6 @@
 # П-24 (TK-344, G-014): аддитивный сетап практиков, янв–сен 2026 — описание, не вердикт (v2)
 
-Протокол: `docs/research/P-24-practitioner-aggregate-setup.md`. Исходы: `p24-outcomes-q90-2026-10-21.md/.json`, `p24-outcomes-q95-2026-10-21.md/.json` (агрегатор `tools/compute/p24-agg.py`, v3, job 1021192813664).
+Протокол: `docs/research/P-24-practitioner-aggregate-setup.md`. Исходы: `p24-outcomes-q90-2026-10-21.md/.json`, `p24-outcomes-q95-2026-10-21.md/.json` (агрегатор `tools/compute/archive/p24-agg.py`, v3, job 1021192813664).
 273 суток посчитаны (16 упавших — после А/Б exit-group off ≡ on, байт в байт). Метрика: ITT бп/сигнал P* после В-47, `prob:3`.
 
 ## Цепочка n (q90 / q95)

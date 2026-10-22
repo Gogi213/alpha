@@ -31,8 +31,8 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     check(f"[{tag}] список гипотез из реестра", n_hyp > 10, f"{n_hyp} строк")
     check(f"[{tag}] кольца семейств", len(pg.query_selector_all(".rb")) > 2)
     # выбрать гипотезу: строка → оси с отметками по месяцам
-    pg.click(".hrow[data-h='Г-141']")
-    check(f"[{tag}] оси выбранной гипотезы", "Г-141" in pg.inner_text("#axh") and len(pg.query_selector_all(".axis")) > 0 and len(pg.query_selector_all(".val .ticks i")) > 0)
+    pg.click(".hrow[data-h='Г-106']")
+    check(f"[{tag}] оси выбранной гипотезы", "Г-106" in pg.inner_text("#axh") and len(pg.query_selector_all(".axis")) > 0 and len(pg.query_selector_all(".val .ticks i")) > 0)
     v0 = pg.inner_text("#axh b")
     pg.click(".val:not(.on), .val.on >> nth=0")
     check(f"[{tag}] клик по значению оси меняет число вариантов", pg.inner_text("#axh b") != v0, f"{v0} → {pg.inner_text('#axh b')}")
@@ -74,32 +74,70 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     # поиск и клавиатура
     pg.keyboard.press("/")
     check(f"[{tag}] «/» ставит фокус в поиск", pg.evaluate("document.activeElement.id") == "q")
-    pg.fill("#q", "Г-141")
+    pg.fill("#q", "Г-106")
     check(f"[{tag}] поиск сужает список", len(pg.query_selector_all(".hrow")) < n_hyp)
     pg.fill("#q", "")
     pg.keyboard.press("Escape")
-    # гипотеза целиком вне формы (Г-28: посчитано вне Летописи): отдельное состояние с причиной, а не «не считали» и не «Всё уже посчитано»
+    # гипотеза целиком вне формы (Г-147: нет кодировки клетки; TK-251/257: остальные R1X загружены, у Г-147 остался один хеш без кодировки): отдельное состояние с причиной, а не «не считали» и не «Всё уже посчитано»
     for pid in pg.eval_on_selector_all(".hrow.pin", "e=>e.map(x=>x.dataset.h)"):
         pg.click(f"[data-pin='{pid}']")
-    pg.click(".hrow[data-h='Г-28']")
-    row = pg.query_selector("#mx [data-row='Г-28']")
-    cls = [c.get_attribute("class") for c in pg.query_selector_all("#mx tr:has([data-row='Г-28']) .cell")]
-    check(f"[{tag}] Г-28 вне формы: в списке «вне», в матрице все клетки «вне»", pg.inner_text(".hrow[data-h='Г-28'] .hn") == "вне" and row and cls and all(" o" in " " + c for c in cls) and "0/" not in pg.inner_text("#mx tr:has([data-row='Г-28'])"), f"{len(cls)} клеток")
-    check(f"[{tag}] Г-28: причина словами в легенде, карточке и подсказке", "вне формы" in pg.inner_text(".legend") and "посчитано вне Летописи" in pg.inner_text("#axes") and "посчитано вне Летописи" in pg.get_attribute("#mx tr:has([data-row='Г-28']) .cell", "title"))
-    pg.click("#mx tr:has([data-row='Г-28']) .cell >> nth=0")
-    check(f"[{tag}] Г-28: клик по клетке — причина, не выбор", "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-28']) .cell.sel") is None, pg.inner_text("#toast"))
+    pg.click(".hrow[data-h='Г-147']")
+    row = pg.query_selector("#mx [data-row='Г-147']")
+    cls = [c.get_attribute("class") for c in pg.query_selector_all("#mx tr:has([data-row='Г-147']) .cell")]
+    check(f"[{tag}] Г-147 вне формы: в списке «вне», в матрице все клетки «вне»", pg.inner_text(".hrow[data-h='Г-147'] .hn") == "вне" and row and cls and all(" o" in " " + c for c in cls) and "0/" not in pg.inner_text("#mx tr:has([data-row='Г-147'])"), f"{len(cls)} клеток")
+    check(f"[{tag}] Г-147: причина словами в легенде, карточке и подсказке", "вне формы" in pg.inner_text(".legend") and "нет кодировки" in pg.inner_text("#axes") and "нет кодировки" in pg.get_attribute("#mx tr:has([data-row='Г-147']) .cell", "title"))
+    pg.click("#mx tr:has([data-row='Г-147']) .cell >> nth=0")
+    check(f"[{tag}] Г-147: клик по клетке — причина, не выбор", "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-147']) .cell.sel") is None, pg.inner_text("#toast"))
     pg.click("#allmiss")
     go = pg.inner_text("#go")
-    check(f"[{tag}] Г-28: кнопка называет причину, а не «Всё уже посчитано»", pg.inner_text("#bigN") == "0" and "Всё уже посчитано" not in go and "посчитано вне Летописи" in go and pg.is_disabled("#go"), go)
+    check(f"[{tag}] Г-147: кнопка называет причину, а не «Всё уже посчитано»", pg.inner_text("#bigN") == "0" and "Всё уже посчитано" not in go and "нет кодировки" in go and pg.is_disabled("#go"), go)
     if shot_dir:
         pg.screenshot(path=os.path.join(shot_dir, f"{tag}-vne-formy.png"))
     pg.click("#noneSel")
-    pg.click("[data-pin='Г-28']")
+    pg.click("[data-pin='Г-147']")
+    # TK-247: клетка частично «вне формы» (Г-117: R2-B и OUTSIDE) — зелёная «✓ +N вне»; TK-252/257: R1 (Г-39/Г-35 крайние q 5/10/90/95) загружен в Летопись — клетки «посчитано», к счёту 0
+    pg.click(".hrow[data-h='Г-117']")
+    cells = pg.query_selector_all("#mx tr:has([data-row='Г-117']) .cell")
+    cl = [c.get_attribute("class") for c in cells]
+    tx = [c.inner_text() for c in cells]
+    check(f"[{tag}] Г-117: все клетки зелёные «✓ +N вне», жёлтых нет", cells and all(" f" in " " + c for c in cl) and all(t.startswith("✓") and "вне" in t for t in tx), f"{len(cells)} клеток, {tx[:1]}")
+    check(f"[{tag}] Г-117: в списке «9/9» зелёным, подсказка — «вне формы»", pg.inner_text(".hrow[data-h='Г-117'] .hn") == "9/9" and "hn f" in pg.get_attribute(".hrow[data-h='Г-117'] .hn", "class") and "вне формы" in cells[0].get_attribute("title"), pg.get_attribute(".hrow[data-h='Г-117'] .hn", "class"))
+    for pid in ("Г-39", "Г-35"):
+        pg.click(f".hrow[data-h='{pid}']")
+        cs = pg.query_selector_all(f"#mx tr:has([data-row='{pid}']) .cell")
+        cl, tx = [c.get_attribute("class") for c in cs], [c.inner_text().strip() for c in cs]
+        check(f"[{tag}] {pid}: R1 загружен — все 9 клеток зелёные «✓», ни жёлтых «N/M», ни «вне»", len(cs) == 9 and all(" f" in " " + c for c in cl) and all(t.startswith("✓") and "/" not in t and "вне" not in t for t in tx), str(tx))
+    pg.click("#mx tr:has([data-row='Г-117']) .cell >> nth=0")
+    check(f"[{tag}] Г-117: клик по зелёной клетке — «всё посчитано · +N вне формы», не выбор", "всё посчитано" in pg.inner_text("#toast") and "вне формы" in pg.inner_text("#toast") and pg.query_selector("#mx tr:has([data-row='Г-117']) .cell.sel") is None, pg.inner_text("#toast"))
+    pg.click("#allmiss")
+    go = pg.inner_text("#go")
+    want = launch.plan(["Г-39", "Г-35"], launch.load_config()["months"])["hm_new"]
+    check(f"[{tag}] Г-39/Г-35/Г-117: к счёту 0 (R1 в Летописи), кнопка «Всё уже посчитано» неактивна", want == 0 and pg.inner_text("#bigN") == "0" and "Всё уже посчитано" in go and pg.is_disabled("#go"), f"plan {want}; {pg.inner_text('#bigN')} · {go}")
+    if shot_dir:
+        pg.screenshot(path=os.path.join(shot_dir, f"{tag}-r1-poschitan.png"))
+    pg.click("#noneSel")
+    # инвариант по всем гипотезам: жёлтая клетка — только если форма-считаемое осталось; «вне» — только если посчитанного нет
+    while pg.query_selector("[data-gall]:text-is('добавить все')"):   # список перерисовывается после клика — кнопку берём заново
+        pg.click("[data-gall]:text-is('добавить все') >> nth=0")
+    pt = pg.eval_on_selector_all("#mx .cell.p", "e=>e.map(x=>x.innerText.trim())")
+    bad = [t for t in pt if not re.fullmatch(r"\d+/\d+", t) or int(t.split("/")[0]) >= int(t.split("/")[1])]
+    check(f"[{tag}] ни одной жёлтой клетки без остатка к счёту (все гипотезы в матрице)", len(pg.query_selector_all("#mx tr")) > 40 and not bad, f"жёлтых {len(pt)}, плохих {len(bad)} {bad[:3]}")
+    check(f"[{tag}] серая «вне» — только «вне», зелёная — без «N/M»", all(t == "вне" for t in pg.eval_on_selector_all("#mx .cell.o", "e=>e.map(x=>x.innerText.trim())")) and all("/" not in t for t in pg.eval_on_selector_all("#mx .cell.f", "e=>e.map(x=>x.innerText)")))
+    while pg.query_selector(".hrow.pin"):
+        pg.click(".hrow.pin [data-pin] >> nth=0")
+    # смешанный случай: Г-106 — часть посчитана, часть к счёту (жёлтая «N/M», N < M)
+    pg.click(".hrow[data-h='Г-106']")
+    pt = pg.eval_on_selector_all("#mx tr:has([data-row='Г-106']) .cell.p", "e=>e.map(x=>x.innerText.trim())")
+    check(f"[{tag}] Г-106: жёлтая клетка «посчитано/можно посчитать» остаётся, пока есть что считать", pt and all(re.fullmatch(r"\d+/\d+", t) and int(t.split("/")[0]) < int(t.split("/")[1]) for t in pt), str(pt[:2]))
+    pg.click("[data-pin='Г-106']")
+    pg.click("#noneSel")
     # вкладка «Летопись»
     pg.click("#t-let")
     pg.wait_for_selector("#lt tr .mc")
     rows = len(pg.query_selector_all("#lt tr")) - 1
     check(f"[{tag}] «Летопись»: таблица вариантов × месяцы", rows > 0, f"{rows} строк, {pg.inner_text('#lcnt')}")
+    sh = len(pg.query_selector_all("#lt tbody tr td:nth-last-child(6) .mv:not(.na)"))
+    check(f"[{tag}] «Летопись»: Шарп у ≥ 911 из 1146 строк (TK-258: +431 R1; у остальных — «—»)", sh >= 911 and pg.query_selector("#lt tbody tr td:nth-last-child(6) .mv.na") is not None, f"{sh} из {rows}")
     pg.click("#linc")
     inc_n, links = len(pg.query_selector_all("#lt tr")) - 1, len(pg.query_selector_all("#lt .link"))
     check(f"[{tag}] «Только неполные» оставляет строки, у части — «Досчитать →»", inc_n > 0 and 0 < links <= inc_n, f"{inc_n} строк, {links} ссылок")
@@ -139,6 +177,7 @@ def scenario(b, url, tag, size, scheme, shot_dir):
     pg.click("#linc")
     cnt0 = pg.inner_text("#lcnt").split(" строк")[0]
     t_sort = pg.evaluate("""()=>{var t0=performance.now();document.querySelector("#lt th[data-sort='sum']").click();return performance.now()-t0}""")
+    pg.wait_for_function(f"document.querySelectorAll('#lt tr').length>{int(cnt0.split()[0])}")   # остальные строки вставляются после первых 60
     sums = pg.evaluate("[].map.call(document.querySelectorAll('#lt tr'),function(r){return r.children.length>8?r.children[2+document.querySelectorAll('#lt th.m').length].textContent:''}).slice(1)")
     nums = [float(x) for x in sums if x not in ("—", "")]
     check(f"[{tag}] сортировка по Σ $: числа по возрастанию, быстрее 1 с, фильтр цел", nums == sorted(nums) and len(nums) > 0 and t_sort < 1000 and pg.inner_text("#lcnt").split(" строк")[0] == cnt0, f"{len(nums)} чисел, {t_sort:.0f} мс")

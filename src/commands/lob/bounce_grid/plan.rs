@@ -244,6 +244,10 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
             "--signal approach: нужен кэш подходов --touches-from <dir> (approaches-<SYMBOL>.csv, F1) — реплей подходов сетка не считает"
         );
     }
+    anyhow::ensure!(
+        args.level_control.is_none() || args.signal == SignalArg::Approach,
+        "--level-control: двойники стен — это подходы, нужен --signal approach"
+    );
     if let Some(dir) = &args.touches_from {
         anyhow::ensure!(dir.is_dir(), "--touches-from {}: не каталог", dir.display());
         anyhow::ensure!(
@@ -308,6 +312,20 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         args.regime_from.is_some() || !sets.iter().any(FilterSet::uses_regime),
         "ключи pool*/btc* у наборов требуют --regime-from <study/regime>"
     );
+    anyhow::ensure!(
+        args.klines_from.is_some() || !sets.iter().any(FilterSet::uses_klines),
+        "ключи rng1h/dlow у наборов требуют --klines-from <каталог свечей по месяцам>"
+    );
+    anyhow::ensure!(
+        args.btc_seconds.is_some() || !sets.iter().any(FilterSet::uses_btc_seconds),
+        "ключи btc_lag_<s>s у наборов требуют --btc-seconds <каталог секундного ряда BTC>"
+    );
+    if let Some(dir) = &args.btc_seconds {
+        anyhow::ensure!(dir.is_dir(), "--btc-seconds {}: не каталог", dir.display());
+    }
+    if let Some(dir) = &args.klines_from {
+        anyhow::ensure!(dir.is_dir(), "--klines-from {}: не каталог", dir.display());
+    }
     if let Some(dir) = &args.regime_from {
         anyhow::ensure!(dir.is_dir(), "--regime-from {}: не каталог", dir.display());
     }
@@ -319,7 +337,7 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         None => (forms, None),
     };
     let need_regime = args.regime_from.is_some() && sets.iter().any(FilterSet::uses_regime);
-    let need_ret = sets.iter().any(|s| s.ctx[..3].iter().any(|r| r.is_set()));
+    let need_ret = sets.iter().any(FilterSet::uses_ret);
     let symbols = if args.symbols.is_empty() {
         pool_symbols(&args.root)?
     } else {
@@ -539,8 +557,26 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
     )
     };
     anyhow::ensure!(
+        crate::lob::strategy::R2 || sets.iter().all(|s| s.entry_gate.is_none()),
+        "entry_gate=cxl<W>q<Q> (Г-81): только в сборке с feature r2"
+    );
+    anyhow::ensure!(
         args.tape_log.is_none() || crate::lob::strategy::R2,
         "--tape-log: журнал ленты только в сборке с feature r2"
+    );
+    anyhow::ensure!(
+        args.tape_log_ws.is_empty() || crate::lob::strategy::R2,
+        "--tape-log-ws: журнал ленты только в сборке с feature r2"
+    );
+    anyhow::ensure!(
+        args.tape_log_ws.is_empty() || args.tape_log.is_none(),
+        "--tape-log-ws вместо --tape-log, не вместе"
+    );
+    anyhow::ensure!(
+        args.tape_log_ws.len() <= crate::lob::backtest::TAPE_WS_MAX
+            && args.tape_log_ws.iter().all(|&w| w > 0),
+        "--tape-log-ws: до {} окон W > 0 секунд",
+        crate::lob::backtest::TAPE_WS_MAX
     );
     let ring_need = forms
         .iter()
@@ -550,10 +586,11 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             }
             _ => None,
         })
+        .chain(sets.iter().filter_map(|s| s.entry_gate.map(|(w, _)| w)))
         .max();
     anyhow::ensure!(
         ring_need.is_none() || args.tape_log.is_some_and(|l| Some(l) >= ring_need),
-        "формы tape<W>q<Q>/cxl<W>q<Q> требуют --tape-log не меньше W (кольцо ленты/отмен): без него мера нулевая"
+        "формы tape<W>q<Q>/cxl<W>q<Q> и ключ entry_gate=cxl<W>q<Q> требуют --tape-log не меньше W (кольцо ленты/отмен): без него мера нулевая"
     );
     let mut outs: Vec<Outputs> = Vec::with_capacity(sets.len());
     for set in sets.iter() {
@@ -571,6 +608,12 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             args.p08_cols,
             args.r1_cols,
             args.tape_log.is_some(),
+            &args.tape_log_ws,
+            args.touch_col,
+            forms
+                .iter()
+                .any(|f| matches!(f.entry_form, EntryForm::Retreat { .. })),
+            set.entry_gate.is_some(),
         )?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;
@@ -622,7 +665,7 @@ pub(super) fn env_flag_lines(
     v
 }
 
-/// Г-07 (TK-012): `" behind_min=<%> stack_min=<n>"` — только заданные ключи; без них пусто.
+/// Г-07 (TK-012): `" behind_min=<%> stack_min=<n> lot_first=<k>"` — только заданные ключи; без них пусто.
 pub(super) fn g07_label(set: &FilterSet) -> String {
     let mut out = String::new();
     if let Some(p) = set.behind_min_pct {
@@ -630,6 +673,39 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     }
     if let Some(n) = set.stack_min {
         out.push_str(&format!(" stack_min={n}"));
+    }
+    // П-17 (Г-136/137, Г-135): `repeat_min=0` — контроль, тоже идентичность набора
+    if let Some(k) = set.repeat_min {
+        out.push_str(&format!(" repeat_min={k}"));
+    }
+    if let Some(s) = set.strength_min_e2 {
+        out.push_str(&format!(" strength_min={}", s as f64 / 100.0));
+    }
+    if let Some(q) = set.swept_min_bp {
+        out.push_str(&format!(" swept_min={q}"));
+    }
+    // Г-101 (П-17): режим шага лестницы / стопа — порог bps и множитель в бп
+    if let Some(r) = set.ladder_regime {
+        out.push_str(&format!(" lreg={}:{}", r.t_bps, r.f_bp));
+    }
+    if let Some(r) = set.stop_regime {
+        out.push_str(&format!(" sreg={}:{}", r.t_bps, r.f_bp));
+    }
+    // М-04 (TK-206): множитель размера первого подхода — тоже идентичность набора
+    // Г-98 (П-17): лот под риск — идентичность набора
+    if let Some(r) = set.size_risk {
+        out.push_str(&format!(" size_risk={r}"));
+    }
+    // Г-81 (П-17): ворота входа по отменам — идентичность набора
+    if let Some((w, q)) = set.entry_gate {
+        if q.is_infinite() {
+            out.push_str(&format!(" entry_gate=cxl{w}qprobe"));
+        } else {
+            out.push_str(&format!(" entry_gate=cxl{w}q{q}"));
+        }
+    }
+    if let Some(k) = set.lot_first {
+        out.push_str(&format!(" lot_first={k}"));
     }
     out
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-115 / В-224: готовые closes R2-B (31 клетка П-12, psim v171c, янв–сен) -> cells / run_cells / results по каноническому хешу плана.
 Без пересчёта (В-213). Клетка = хеш из плана P-14 F1, у которого r2b_covers; конфиг клетки кладётся в params.cfg_json (cellhash_reg.config_of
-берёт его как есть), строка месяца — из master.MONTHLY / LINES (те же числа, что tk115-r2b-day.sh). Числа — сводка closes
+берёт его как есть), строка месяца — из master.MONTHLY / LINES (те же числа, что archive/tk115-r2b-day.sh). Числа — сводка closes
 (`sum_closes_r2b.py`): trades = n cap 0, pnl_usd = Σ$ cap 0, ext.n_cap3 / pnl_usd_cap3 = B2.
   python tools/registry/load_r2b.py <closes-r2b-sum.csv> --run ID [--dry]"""
 import argparse, csv, json, os, sys

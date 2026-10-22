@@ -2,77 +2,77 @@
   "mechanics": [
     {
       "id": "StopBefore",
-      "kind": "stop",
-      "prefix": "before",
-      "name_template": "before",
       "is_r2": false,
+      "kind": "stop",
+      "name_template": "before",
       "params": [],
+      "prefix": "before",
       "samples": [
         "before"
       ]
     },
     {
       "id": "StopAt",
-      "kind": "stop",
-      "prefix": "at",
-      "name_template": "at",
       "is_r2": false,
+      "kind": "stop",
+      "name_template": "at",
       "params": [],
+      "prefix": "at",
       "samples": [
         "at"
       ]
     },
     {
       "id": "StopBehind",
-      "kind": "stop",
-      "prefix": "behind",
-      "name_template": "behind",
       "is_r2": false,
+      "kind": "stop",
+      "name_template": "behind",
       "params": [],
+      "prefix": "behind",
       "samples": [
         "behind"
       ]
     },
     {
       "id": "StopMidFrontrun",
-      "kind": "stop",
-      "prefix": "midfr",
-      "name_template": "midfr",
       "is_r2": false,
+      "kind": "stop",
+      "name_template": "midfr",
       "params": [],
+      "prefix": "midfr",
       "samples": [
         "midfr"
       ]
     },
     {
       "id": "StopBehindStack",
-      "kind": "stop",
-      "prefix": "stack2",
-      "name_template": "stack2",
       "is_r2": false,
+      "kind": "stop",
+      "name_template": "stack2",
       "params": [],
+      "prefix": "stack2",
       "samples": [
         "stack2"
       ]
     },
     {
       "id": "StopPct",
-      "kind": "stop",
-      "prefix": "pct",
-      "name_template": "pct{x}",
       "is_r2": false,
+      "kind": "stop",
+      "name_template": "pct{x}",
       "params": [
         {
-          "name": "x",
           "dom": {
-            "type": "real",
-            "lo": 0.0,
             "hi": 100.0,
+            "hi_open": true,
+            "lo": 0.0,
             "lo_open": true,
-            "hi_open": true
-          }
+            "type": "real"
+          },
+          "name": "x"
         }
       ],
+      "prefix": "pct",
       "samples": [
         "pct50",
         "pct25"
@@ -80,22 +80,22 @@
     },
     {
       "id": "StopSigma",
-      "kind": "stop",
-      "prefix": "s",
-      "name_template": "s{a}",
       "is_r2": false,
+      "kind": "stop",
+      "name_template": "s{a}",
       "params": [
         {
-          "name": "a",
           "dom": {
-            "type": "real",
-            "lo": 0.0,
             "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
             "lo_open": false,
-            "hi_open": false
-          }
+            "type": "real"
+          },
+          "name": "a"
         }
       ],
+      "prefix": "s",
       "samples": [
         "s5",
         "s2.5",
@@ -104,44 +104,44 @@
     },
     {
       "id": "Take1to1",
-      "kind": "take",
-      "prefix": "1to1",
-      "name_template": "1to1",
       "is_r2": false,
+      "kind": "take",
+      "name_template": "1to1",
       "params": [],
+      "prefix": "1to1",
       "samples": [
         "1to1"
       ]
     },
     {
       "id": "TakeHalf1to1",
-      "kind": "take",
-      "prefix": "half1to1",
-      "name_template": "half1to1",
       "is_r2": false,
+      "kind": "take",
+      "name_template": "half1to1",
       "params": [],
+      "prefix": "half1to1",
       "samples": [
         "half1to1"
       ]
     },
     {
       "id": "TakePct",
-      "kind": "take",
-      "prefix": "tk",
-      "name_template": "tk{x}",
       "is_r2": false,
+      "kind": "take",
+      "name_template": "tk{x}",
       "params": [
         {
-          "name": "x",
           "dom": {
-            "type": "real",
-            "lo": 0.0,
             "hi": 100.0,
+            "hi_open": true,
+            "lo": 0.0,
             "lo_open": true,
-            "hi_open": true
-          }
+            "type": "real"
+          },
+          "name": "x"
         }
       ],
+      "prefix": "tk",
       "samples": [
         "tk50",
         "tk25"
@@ -149,22 +149,22 @@
     },
     {
       "id": "TakeSigma",
-      "kind": "take",
-      "prefix": "t",
-      "name_template": "t{b}",
       "is_r2": false,
+      "kind": "take",
+      "name_template": "t{b}",
       "params": [
         {
-          "name": "b",
           "dom": {
-            "type": "real",
-            "lo": 0.0,
             "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
             "lo_open": false,
-            "hi_open": false
-          }
+            "type": "real"
+          },
+          "name": "b"
         }
       ],
+      "prefix": "t",
       "samples": [
         "t5",
         "t2.5",
@@ -173,32 +173,32 @@
     },
     {
       "id": "TakeTrail",
-      "kind": "take",
-      "prefix": "tr",
-      "name_template": "tr{a}x{t}",
       "is_r2": false,
+      "kind": "take",
+      "name_template": "tr{a}x{t}",
       "params": [
         {
-          "name": "a",
           "dom": {
-            "type": "real",
-            "lo": 0.0,
             "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
             "lo_open": true,
-            "hi_open": false
-          }
+            "type": "real"
+          },
+          "name": "a"
         },
         {
-          "name": "t",
           "dom": {
-            "type": "real",
-            "lo": 0.0,
             "hi": null,
+            "hi_open": false,
+            "lo": 0.0,
             "lo_open": true,
-            "hi_open": false
-          }
+            "type": "real"
+          },
+          "name": "t"
         }
       ],
+      "prefix": "tr",
       "samples": [
         "tr5x5",
         "tr5x2.5",
@@ -208,43 +208,43 @@
     },
     {
       "id": "EntrySingle",
-      "kind": "entry",
-      "prefix": "single@fr",
-      "name_template": "single@fr",
       "is_r2": false,
+      "kind": "entry",
+      "name_template": "single@fr",
       "params": [],
+      "prefix": "single@fr",
       "samples": [
         "single@fr"
       ]
     },
     {
       "id": "EntryMarket",
-      "kind": "entry",
-      "prefix": "market",
-      "name_template": "market",
       "is_r2": false,
+      "kind": "entry",
+      "name_template": "market",
       "params": [],
+      "prefix": "market",
       "samples": [
         "market"
       ]
     },
     {
       "id": "EntryOffsetPlus",
-      "kind": "entry",
-      "prefix": "single@fr+",
-      "name_template": "single@fr+{n}",
       "is_r2": false,
+      "kind": "entry",
+      "name_template": "single@fr+{n}",
       "params": [
         {
-          "name": "n",
           "dom": {
-            "type": "int",
-            "lo": 1,
+            "excl": [],
             "hi": null,
-            "excl": []
-          }
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "n"
         }
       ],
+      "prefix": "single@fr+",
       "samples": [
         "single@fr+1",
         "single@fr+2",
@@ -255,21 +255,21 @@
     },
     {
       "id": "EntryOffsetMinus",
-      "kind": "entry",
-      "prefix": "single@fr_",
-      "name_template": "single@fr_{n}",
       "is_r2": false,
+      "kind": "entry",
+      "name_template": "single@fr_{n}",
       "params": [
         {
-          "name": "n",
           "dom": {
-            "type": "int",
-            "lo": 1,
+            "excl": [],
             "hi": null,
-            "excl": []
-          }
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "n"
         }
       ],
+      "prefix": "single@fr_",
       "samples": [
         "single@fr_1",
         "single@fr_2",
@@ -280,27 +280,160 @@
     },
     {
       "id": "EntryLadderSigma3",
-      "kind": "entry",
-      "prefix": "ladder",
-      "name_template": "ladder3x0..0.0409sw{w}",
       "is_r2": false,
+      "kind": "entry",
+      "name_template": "ladder3x0..0.0409sw{w}",
       "params": [
         {
-          "name": "w",
           "dom": {
-            "type": "int",
-            "lo": 2,
+            "excl": [],
             "hi": null,
-            "excl": []
-          }
+            "lo": 2,
+            "type": "int"
+          },
+          "name": "w"
         }
       ],
+      "prefix": "ladder",
       "samples": [
         "ladder3x0..0.0409sw2",
         "ladder3x0..0.0409sw3",
         "ladder3x0..0.0409sw4",
         "ladder3x0..0.0409sw6",
         "ladder3x0..0.0409sw7"
+      ]
+    },
+    {
+      "id": "EntryReclaim",
+      "is_r2": true,
+      "kind": "entry",
+      "name_template": "reclaim{d_bps}p{pause_s}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "d_bps"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 0,
+            "type": "int"
+          },
+          "name": "pause_s"
+        }
+      ],
+      "prefix": "reclaim",
+      "samples": [
+        "reclaim1p0",
+        "reclaim1p1",
+        "reclaim1p2",
+        "reclaim1p4",
+        "reclaim1p5",
+        "reclaim2p0",
+        "reclaim2p1",
+        "reclaim2p2",
+        "reclaim2p4",
+        "reclaim2p5",
+        "reclaim3p0",
+        "reclaim3p1",
+        "reclaim3p2",
+        "reclaim3p4",
+        "reclaim3p5",
+        "reclaim5p0",
+        "reclaim5p1",
+        "reclaim5p2",
+        "reclaim5p4",
+        "reclaim5p5",
+        "reclaim6p0",
+        "reclaim6p1",
+        "reclaim6p2",
+        "reclaim6p4",
+        "reclaim6p5"
+      ]
+    },
+    {
+      "id": "EntryPostsweep",
+      "is_r2": true,
+      "kind": "entry",
+      "name_template": "postsweep{r_bps}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "r_bps"
+        }
+      ],
+      "prefix": "postsweep",
+      "samples": [
+        "postsweep1",
+        "postsweep2",
+        "postsweep3",
+        "postsweep5",
+        "postsweep6"
+      ]
+    },
+    {
+      "id": "EntryRetreat",
+      "is_r2": true,
+      "kind": "entry",
+      "name_template": "retreat{k}t{half_min}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": 8,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "k"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "half_min"
+        }
+      ],
+      "prefix": "retreat",
+      "samples": [
+        "retreat1t1",
+        "retreat1t2",
+        "retreat1t3",
+        "retreat1t5",
+        "retreat1t6",
+        "retreat2t1",
+        "retreat2t2",
+        "retreat2t3",
+        "retreat2t5",
+        "retreat2t6",
+        "retreat4t1",
+        "retreat4t2",
+        "retreat4t3",
+        "retreat4t5",
+        "retreat4t6",
+        "retreat7t1",
+        "retreat7t2",
+        "retreat7t3",
+        "retreat7t5",
+        "retreat7t6",
+        "retreat8t1",
+        "retreat8t2",
+        "retreat8t3",
+        "retreat8t5",
+        "retreat8t6"
       ]
     },
     {
@@ -1342,6 +1475,60 @@
       ]
     },
     {
+      "id": "LevelBack",
+      "is_r2": true,
+      "kind": "exit",
+      "name_template": "lvlback{gap_bps}w{secs}",
+      "params": [
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 0,
+            "type": "int"
+          },
+          "name": "gap_bps"
+        },
+        {
+          "dom": {
+            "excl": [],
+            "hi": null,
+            "lo": 1,
+            "type": "int"
+          },
+          "name": "secs"
+        }
+      ],
+      "prefix": "lvlback",
+      "samples": [
+        "lvlback0w1",
+        "lvlback0w2",
+        "lvlback0w3",
+        "lvlback0w5",
+        "lvlback0w6",
+        "lvlback1w1",
+        "lvlback1w2",
+        "lvlback1w3",
+        "lvlback1w5",
+        "lvlback1w6",
+        "lvlback2w1",
+        "lvlback2w2",
+        "lvlback2w3",
+        "lvlback2w5",
+        "lvlback2w6",
+        "lvlback4w1",
+        "lvlback4w2",
+        "lvlback4w3",
+        "lvlback4w5",
+        "lvlback4w6",
+        "lvlback5w1",
+        "lvlback5w2",
+        "lvlback5w3",
+        "lvlback5w5",
+        "lvlback5w6"
+      ]
+    },
+    {
       "id": "NoStop",
       "is_r2": true,
       "kind": "exit",
@@ -1629,10 +1816,9 @@
     },
     {
       "id": "EntryTtl",
-      "kind": "flag",
-      "prefix": "ttl",
-      "name_template": "ttl{secs}",
       "is_r2": false,
+      "kind": "flag",
+      "name_template": "ttl{secs}",
       "params": [
         {
           "dom": {
@@ -1643,33 +1829,93 @@
               60.0,
               120.0,
               300.0,
+              375.0,
+              450.0,
+              525.0,
               600.0,
+              675.0,
+              750.0,
+              825.0,
               900.0,
               1200.0,
-              1800.0
+              1800.0,
+              1963.0,
+              2141.0,
+              2286.0,
+              2335.0,
+              2388.0,
+              2440.0,
+              2493.0,
+              2546.0,
+              2604.0,
+              2661.0,
+              2718.0,
+              2776.0,
+              2839.0,
+              3027.0,
+              3301.0,
+              3600.0,
+              3926.0,
+              4281.0,
+              4669.0,
+              5091.0,
+              5552.0,
+              6054.0,
+              6602.0,
+              7200.0
             ]
           },
           "name": "secs"
         }
       ],
+      "prefix": "ttl",
       "samples": [
         "ttl10",
         "ttl30",
         "ttl60",
         "ttl120",
         "ttl300",
+        "ttl375",
+        "ttl450",
+        "ttl525",
         "ttl600",
+        "ttl675",
+        "ttl750",
+        "ttl825",
         "ttl900",
         "ttl1200",
-        "ttl1800"
+        "ttl1800",
+        "ttl1963",
+        "ttl2141",
+        "ttl2286",
+        "ttl2335",
+        "ttl2388",
+        "ttl2440",
+        "ttl2493",
+        "ttl2546",
+        "ttl2604",
+        "ttl2661",
+        "ttl2718",
+        "ttl2776",
+        "ttl2839",
+        "ttl3027",
+        "ttl3301",
+        "ttl3600",
+        "ttl3926",
+        "ttl4281",
+        "ttl4669",
+        "ttl5091",
+        "ttl5552",
+        "ttl6054",
+        "ttl6602",
+        "ttl7200"
       ]
     },
     {
       "id": "EarlyExit",
-      "kind": "flag",
-      "prefix": "early",
-      "name_template": "early{x}",
       "is_r2": false,
+      "kind": "flag",
+      "name_template": "early{x}",
       "params": [
         {
           "dom": {
@@ -1684,12 +1930,16 @@
               13.0,
               20.0,
               30.0,
+              37.5,
+              45.0,
+              52.5,
               60.0
             ]
           },
           "name": "x"
         }
       ],
+      "prefix": "early",
       "samples": [
         "early0.5",
         "early1",
@@ -1700,6 +1950,9 @@
         "early13",
         "early20",
         "early30",
+        "early37.5",
+        "early45",
+        "early52.5",
         "early60"
       ]
     }

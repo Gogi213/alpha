@@ -1,0 +1,756 @@
+{
+ "protocol": "П-18 r3",
+ "m": 16,
+ "m_note": "9 осей + 6 пар (вход×σ, стоп×тейк, стоп×дедлайн, тейк×дедлайн, BTC×набор, ttl×вход) + 1 стопка; фиксировано до первого исхода",
+ "seed": 18,
+ "test_months": [
+  4,
+  5,
+  6,
+  7,
+  8,
+  9
+ ],
+ "boot": 20000,
+ "window": "2026-01-01..2026-09-30 (В-211); октябрь — пометкой",
+ "split": {
+  "rule": "sha256(symbol) hex как целое, чётное -> A, нечётное -> B (П-13 §6 п. 1)",
+  "pool": "v171c",
+  "n_A": 116,
+  "n_B": 128,
+  "A": [
+   "0GUSDT",
+   "1000BONKUSDT",
+   "1000LUNCUSDT",
+   "1000RATSUSDT",
+   "AEROUSDT",
+   "ALGOUSDT",
+   "APEUSDT",
+   "ARKMUSDT",
+   "ASTERUSDT",
+   "ATOMUSDT",
+   "ATUSDT",
+   "B3USDT",
+   "BARDUSDT",
+   "BILLUSDT",
+   "BIOUSDT",
+   "BLURUSDT",
+   "BMTUSDT",
+   "BNBUSDT",
+   "BROCCOLIUSDT",
+   "BRUSDT",
+   "BUSDT",
+   "CAPUSDT",
+   "CASHCATUSDT",
+   "CLOUSDT",
+   "COTIUSDT",
+   "CRVUSDT",
+   "DEXEUSDT",
+   "DOTUSDT",
+   "DRIFTUSDT",
+   "DUSKUSDT",
+   "DYDXUSDT",
+   "ENAUSDT",
+   "ENSOUSDT",
+   "EPICUSDT",
+   "ESPORTSUSDT",
+   "ETCUSDT",
+   "ETHFIUSDT",
+   "EULUSDT",
+   "FFUSDT",
+   "FIDAUSDT",
+   "GIGGLEUSDT",
+   "GPSUSDT",
+   "HEMIUSDT",
+   "HFTUSDT",
+   "HOMEUSDT",
+   "ICNTUSDT",
+   "IDUSDT",
+   "INJUSDT",
+   "IOSTUSDT",
+   "IRYSUSDT",
+   "JELLYJELLYUSDT",
+   "JUPUSDT",
+   "KATUSDT",
+   "KITEUSDT",
+   "LABUSDT",
+   "LDOUSDT",
+   "LIGHTUSDT",
+   "LINEAUSDT",
+   "LUNA2USDT",
+   "MAGMAUSDT",
+   "MEGAUSDT",
+   "METUSDT",
+   "MNTUSDT",
+   "MOODENGUSDT",
+   "MYXUSDT",
+   "NAORISUSDT",
+   "NEARUSDT",
+   "NIGHTUSDT",
+   "NILUSDT",
+   "NOTUSDT",
+   "ONDOUSDT",
+   "ONGUSDT",
+   "ONTUSDT",
+   "OPNUSDT",
+   "OPUSDT",
+   "PAXGUSDT",
+   "PENGUUSDT",
+   "PHAUSDT",
+   "PIEVERSEUSDT",
+   "PIPPINUSDT",
+   "PORTALUSDT",
+   "POWERUSDT",
+   "PUMPFUNUSDT",
+   "REDUSDT",
+   "RESOLVUSDT",
+   "REUSDT",
+   "ROSEUSDT",
+   "SAGAUSDT",
+   "SANDUSDT",
+   "SHIB1000USDT",
+   "SIGNUSDT",
+   "SLXUSDT",
+   "SOONUSDT",
+   "SPXUSDT",
+   "STABLEUSDT",
+   "STGUSDT",
+   "STOUSDT",
+   "STRKUSDT",
+   "STXUSDT",
+   "SUIUSDT",
+   "TAIKOUSDT",
+   "TIAUSDT",
+   "TLMUSDT",
+   "TONUSDT",
+   "TRUTHUSDT",
+   "TUSDT",
+   "TUTUSDT",
+   "USELESSUSDT",
+   "WIFUSDT",
+   "XAUTUSDT",
+   "XMRUSDT",
+   "XPLUSDT",
+   "XRPUSDT",
+   "ZBTUSDT",
+   "ZENUSDT",
+   "ZILUSDT"
+  ],
+  "B": [
+   "1000PEPEUSDT",
+   "AAVEUSDT",
+   "ACEUSDT",
+   "ACTUSDT",
+   "ADAUSDT",
+   "AKEUSDT",
+   "AKTUSDT",
+   "ALLOUSDT",
+   "ANIMEUSDT",
+   "APRUSDT",
+   "APTUSDT",
+   "ARBUSDT",
+   "ARCUSDT",
+   "ARIAUSDT",
+   "ATHUSDT",
+   "AUCTIONUSDT",
+   "AVAXUSDT",
+   "AVNTUSDT",
+   "AXLUSDT",
+   "AXSUSDT",
+   "BANKUSDT",
+   "BATUSDT",
+   "BEATUSDT",
+   "BELUSDT",
+   "BERAUSDT",
+   "BICOUSDT",
+   "BLESSUSDT",
+   "BSBUSDT",
+   "BTRUSDT",
+   "BTWUSDT",
+   "BZUSDT",
+   "CCUSDT",
+   "CHIPUSDT",
+   "CHZUSDT",
+   "CYSUSDT",
+   "DASHUSDT",
+   "DOGEUSDT",
+   "EDENUSDT",
+   "EDGEUSDT",
+   "EIGENUSDT",
+   "ENJUSDT",
+   "EVAAUSDT",
+   "FARTCOINUSDT",
+   "FILUSDT",
+   "FLOCKUSDT",
+   "FLOWUSDT",
+   "GALAUSDT",
+   "GENIUSUSDT",
+   "GMTUSDT",
+   "GRAMUSDT",
+   "GRASSUSDT",
+   "GWEIUSDT",
+   "HANAUSDT",
+   "HBARUSDT",
+   "HEIUSDT",
+   "HMSTRUSDT",
+   "HNTUSDT",
+   "HUMAUSDT",
+   "HUSDT",
+   "HYPEUSDT",
+   "ICPUSDT",
+   "IPUSDT",
+   "JASMYUSDT",
+   "JCTUSDT",
+   "JTOUSDT",
+   "KAITOUSDT",
+   "LAUSDT",
+   "LINKUSDT",
+   "LITUSDT",
+   "LSKUSDT",
+   "LTCUSDT",
+   "LYNUSDT",
+   "MANAUSDT",
+   "MERLUSDT",
+   "MEUSDT",
+   "MMTUSDT",
+   "MONUSDT",
+   "MOVEUSDT",
+   "MUBARAKUSDT",
+   "MUSDT",
+   "NOMUSDT",
+   "ORCAUSDT",
+   "ORDIUSDT",
+   "PENDLEUSDT",
+   "PIXELUSDT",
+   "PLAYSOUTUSDT",
+   "POLUSDT",
+   "POPCATUSDT",
+   "QNTUSDT",
+   "RAVEUSDT",
+   "RAYDIUMUSDT",
+   "RENDERUSDT",
+   "RIVERUSDT",
+   "SAHARAUSDT",
+   "SEIUSDT",
+   "SENTUSDT",
+   "SIRENUSDT",
+   "SKRUSDT",
+   "SKYAI1USDT",
+   "SNXUSDT",
+   "SOLUSDT",
+   "SOMIUSDT",
+   "SPKUSDT",
+   "SQDUSDT",
+   "TACUSDT",
+   "TAOUSDT",
+   "TNSRUSDT",
+   "TRIAUSDT",
+   "TSTBSCUSDT",
+   "UAIUSDT",
+   "UBUSDT",
+   "UNIUSDT",
+   "USUSDT",
+   "VANRYUSDT",
+   "VELVETUSDT",
+   "VIRTUALUSDT",
+   "VVVUSDT",
+   "WETUSDT",
+   "WHITEWHALEUSDT",
+   "WLDUSDT",
+   "WLFIUSDT",
+   "XAGUSDT",
+   "XLMUSDT",
+   "ZAMAUSDT",
+   "ZECUSDT",
+   "ZEREBROUSDT",
+   "ZKUSDT",
+   "ZROUSDT"
+  ]
+ },
+ "base": {
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "age=2700,side=bid,btc4h_max=-44.55",
+  "sigma": "study/sigma240",
+  "hash": "4173fe49b15b6b5f"
+ },
+ "hash_rule": "оси 1–5, 6а, 7, 8 — хеш клетки (форма+набор+σ); ось 6б — хеш варианта (семья p18b6 + strength_q), порог strength_min — по месяцу",
+ "pending": {
+  "thresholds": [
+   "6б strength_min по месяцам: P-18-thresholds.csv (квантили силы по сигналам B1 своего месяца)"
+  ],
+  "sigma_tables": "окна 60…960 мин (sigma-table.py)"
+ },
+ "cells_total": 74,
+ "families": {
+  "center": [
+   {
+    "axes": {},
+    "hash": "4173fe49b15b6b5f"
+   }
+  ],
+  "1": [
+   {
+    "axes": {
+     "to": "0.0102"
+    },
+    "hash": "c2e935f4df630d22"
+   },
+   {
+    "axes": {
+     "to": "0.0145"
+    },
+    "hash": "7e6c4c1dbe126e71"
+   },
+   {
+    "axes": {
+     "to": "0.0205"
+    },
+    "hash": "6ec27ae8cf1e4a88"
+   },
+   {
+    "axes": {
+     "to": "0.0289"
+    },
+    "hash": "c6c1f91c78fac9a1"
+   },
+   {
+    "axes": {
+     "to": "0.0578"
+    },
+    "hash": "43fa7e08ebeee389"
+   },
+   {
+    "axes": {
+     "to": "0.0818"
+    },
+    "hash": "f9bf36ef1586ded5"
+   },
+   {
+    "axes": {
+     "to": "0.1157"
+    },
+    "hash": "b94de3c4f9ebe75c"
+   },
+   {
+    "axes": {
+     "to": "0.1636"
+    },
+    "hash": "a30008ba094db0e3"
+   }
+  ],
+  "2": [
+   {
+    "axes": {
+     "stop": "pct0.7"
+    },
+    "hash": "d50ff5dda2cae3b0"
+   },
+   {
+    "axes": {
+     "stop": "pct1"
+    },
+    "hash": "1f6f9ac9e9d76239"
+   },
+   {
+    "axes": {
+     "stop": "pct1.4"
+    },
+    "hash": "b698f8e69c453a0a"
+   },
+   {
+    "axes": {
+     "stop": "pct2.5"
+    },
+    "hash": "09b0168935acd840"
+   },
+   {
+    "axes": {
+     "stop": "pct3"
+    },
+    "hash": "fa2c962284daad53"
+   },
+   {
+    "axes": {
+     "stop": "pct4"
+    },
+    "hash": "5437234218f96dbc"
+   },
+   {
+    "axes": {
+     "stop": "pct6"
+    },
+    "hash": "a579b0d640a77424"
+   },
+   {
+    "axes": {
+     "stop": "pct8"
+    },
+    "hash": "2f5930649790761d"
+   }
+  ],
+  "3": [
+   {
+    "axes": {
+     "take": "tr0.35x0.35"
+    },
+    "hash": "a1eaf12db76131e9"
+   },
+   {
+    "axes": {
+     "take": "tr0.5x0.5"
+    },
+    "hash": "f67e4715bd62c4d9"
+   },
+   {
+    "axes": {
+     "take": "tr0.7x0.7"
+    },
+    "hash": "ab6fc519c2221e9b"
+   },
+   {
+    "axes": {
+     "take": "tr1.4x1.4"
+    },
+    "hash": "968a6d0cecb28e0c"
+   },
+   {
+    "axes": {
+     "take": "tr2x2"
+    },
+    "hash": "3f2f60b5dd4c4054"
+   },
+   {
+    "axes": {
+     "take": "tr2.8x2.8"
+    },
+    "hash": "3c8b735332773a06"
+   },
+   {
+    "axes": {
+     "take": "tr4x4"
+    },
+    "hash": "b0fa6b1fe79e4718"
+   },
+   {
+    "axes": {
+     "take": "tr5.6x5.6"
+    },
+    "hash": "0ed546e5b852bef3"
+   }
+  ],
+  "4": [
+   {
+    "axes": {
+     "deadline": "60"
+    },
+    "hash": "b1a0408118924750"
+   },
+   {
+    "axes": {
+     "deadline": "600"
+    },
+    "hash": "047d49481a9a13ca"
+   },
+   {
+    "axes": {
+     "deadline": "1800"
+    },
+    "hash": "e8eb7e6b98633f6b"
+   },
+   {
+    "axes": {
+     "deadline": "3600"
+    },
+    "hash": "35ba92e2a5e86e90"
+   },
+   {
+    "axes": {
+     "deadline": "7200"
+    },
+    "hash": "2434d4eef222b027"
+   },
+   {
+    "axes": {
+     "deadline": "21600"
+    },
+    "hash": "c650b4933170b352"
+   },
+   {
+    "axes": {
+     "deadline": "28800"
+    },
+    "hash": "7e4e4c795a09d690"
+   },
+   {
+    "axes": {
+     "deadline": "43200"
+    },
+    "hash": "17445273bb88a58f"
+   }
+  ],
+  "5": [
+   {
+    "axes": {
+     "ttl": "300"
+    },
+    "hash": "b9346f79b3c61d46"
+   },
+   {
+    "axes": {
+     "ttl": "600"
+    },
+    "hash": "51df5d0e3e08989e"
+   },
+   {
+    "axes": {
+     "ttl": "900"
+    },
+    "hash": "d33ec831cfe5dd72"
+   },
+   {
+    "axes": {
+     "ttl": "1200"
+    },
+    "hash": "95cbb0c519a18257"
+   },
+   {
+    "axes": {
+     "ttl": "2546"
+    },
+    "hash": "633cf5dee63cb93b"
+   },
+   {
+    "axes": {
+     "ttl": "3600"
+    },
+    "hash": "edc9233da2163f2b"
+   },
+   {
+    "axes": {
+     "ttl": "5091"
+    },
+    "hash": "973873dbe28c5b4d"
+   },
+   {
+    "axes": {
+     "ttl": "7200"
+    },
+    "hash": "47122a09051b2c77"
+   }
+  ],
+  "6a": [
+   {
+    "axes": {
+     "usd_min": "10000"
+    },
+    "hash": "7c861fb834d661ab"
+   },
+   {
+    "axes": {
+     "usd_min": "20000"
+    },
+    "hash": "257c8051ee45a4d2"
+   },
+   {
+    "axes": {
+     "usd_min": "30000"
+    },
+    "hash": "6ac223777f5390e2"
+   },
+   {
+    "axes": {
+     "usd_min": "50000"
+    },
+    "hash": "d0a0d0b17d388827"
+   },
+   {
+    "axes": {
+     "usd_min": "75000"
+    },
+    "hash": "54c976d2b53f7adc"
+   },
+   {
+    "axes": {
+     "usd_min": "100000"
+    },
+    "hash": "3603c0c658b92671"
+   },
+   {
+    "axes": {
+     "usd_min": "150000"
+    },
+    "hash": "021f1b4da5fb5231"
+   },
+   {
+    "axes": {
+     "usd_min": "200000"
+    },
+    "hash": "bd149efac0d6d3ec"
+   },
+   {
+    "axes": {
+     "usd_min": "300000"
+    },
+    "hash": "c1a2ab16725124a2"
+   }
+  ],
+  "6b": [
+   {
+    "axes": {
+     "strength_min": "10"
+    },
+    "threshold": "month",
+    "hash": "3d8b150fab988ceb"
+   },
+   {
+    "axes": {
+     "strength_min": "20"
+    },
+    "threshold": "month",
+    "hash": "9fecabe8185179f9"
+   },
+   {
+    "axes": {
+     "strength_min": "33"
+    },
+    "threshold": "month",
+    "hash": "f413782d59d9e429"
+   },
+   {
+    "axes": {
+     "strength_min": "50"
+    },
+    "threshold": "month",
+    "hash": "fd85b591c53f0aa7"
+   },
+   {
+    "axes": {
+     "strength_min": "67"
+    },
+    "threshold": "month",
+    "hash": "5152e7e69320f1e9"
+   },
+   {
+    "axes": {
+     "strength_min": "80"
+    },
+    "threshold": "month",
+    "hash": "7939881737471ded"
+   },
+   {
+    "axes": {
+     "strength_min": "90"
+    },
+    "threshold": "month",
+    "hash": "5be84c7d79ff8962"
+   },
+   {
+    "axes": {
+     "strength_min": "95"
+    },
+    "threshold": "month",
+    "hash": "8351d6c6811a6dd0"
+   }
+  ],
+  "7": [
+   {
+    "axes": {
+     "btc": "none"
+    },
+    "hash": "0e2d6f30bdeb6f7e"
+   },
+   {
+    "axes": {
+     "btc": "-11.1"
+    },
+    "hash": "b77d2a27ef133147"
+   },
+   {
+    "axes": {
+     "btc": "-15.7"
+    },
+    "hash": "529e102453c26c18"
+   },
+   {
+    "axes": {
+     "btc": "-22.3"
+    },
+    "hash": "7cebb580c3f6ec0e"
+   },
+   {
+    "axes": {
+     "btc": "-31.5"
+    },
+    "hash": "0e385b4bcfc85594"
+   },
+   {
+    "axes": {
+     "btc": "-63"
+    },
+    "hash": "ec71882ef8136f9c"
+   },
+   {
+    "axes": {
+     "btc": "-89"
+    },
+    "hash": "b80a67d37292193a"
+   },
+   {
+    "axes": {
+     "btc": "-126"
+    },
+    "hash": "dbc6733fe9485fb8"
+   }
+  ],
+  "8": [
+   {
+    "axes": {
+     "sigma_min": "60"
+    },
+    "hash": "5f27b9e3c1939aaf"
+   },
+   {
+    "axes": {
+     "sigma_min": "90"
+    },
+    "hash": "81afcef4c1681bc2"
+   },
+   {
+    "axes": {
+     "sigma_min": "120"
+    },
+    "hash": "54e4cbe26d2b64f2"
+   },
+   {
+    "axes": {
+     "sigma_min": "180"
+    },
+    "hash": "b2a4a86ae426424e"
+   },
+   {
+    "axes": {
+     "sigma_min": "360"
+    },
+    "hash": "43365f6d9cfa1f51"
+   },
+   {
+    "axes": {
+     "sigma_min": "480"
+    },
+    "hash": "29e34e4bf9033539"
+   },
+   {
+    "axes": {
+     "sigma_min": "720"
+    },
+    "hash": "9fff8c9a26025a14"
+   },
+   {
+    "axes": {
+     "sigma_min": "960"
+    },
+    "hash": "476bf89dd3dfd609"
+   }
+  ]
+ }
+}

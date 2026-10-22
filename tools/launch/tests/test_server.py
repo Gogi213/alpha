@@ -1,4 +1,4 @@
-import json, os, re, sys, threading, urllib.request
+import gzip, json, os, re, sys, threading, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LAUNCH = os.path.abspath(os.path.join(HERE, ".."))
@@ -32,9 +32,21 @@ def test_api_plan_and_nothing_to_count():
         meta = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/meta"))
         assert len(meta["hyps"]) >= 100 and meta["presets"]["v227"]["ids"] and "не 56" in meta["presets"]["v227"]["note"]
         p = _post(port, "/api/plan", {"hyps": ["Г-10"], "months": ["2026-01"], "axes": {}})
-        assert p["hm_new"] == 0 and p["hm_have"] == p["hm_grid"] > 0
+        assert p["hm_new"] == 0 and 0 < p["hm_have"] <= p["hm_grid"]   # F2 Г-10 без кодировки (T_m) — в сетке, но не к счёту
         r = _post(port, "/api/submit", {"hyps": ["Г-10"], "months": ["2026-01"], "axes": {}, "confirm_bin": True})
         assert r["ok"] is False and r["message"] == "нечего считать"
+    finally:
+        s.shutdown()
+
+
+def test_api_hyp_served_under_token_and_cached():
+    s = _tok_srv()
+    base = f"http://127.0.0.1:{s.server_address[1]}"
+    try:
+        d = json.load(urllib.request.urlopen(f"{base}/{TOKEN}/api/hyp"))
+        assert len(d["rows"]) >= 100 and d["rows"][0]["cls"] == "Методы" and d["rows"][0]["status"]
+        assert _code(f"{base}/api/hyp") == 404
+        assert 'id="t-hyp"' in urllib.request.urlopen(f"{base}/{TOKEN}/").read().decode("utf-8")
     finally:
         s.shutdown()
 
@@ -222,3 +234,81 @@ def test_inotify_watcher_sees_new_file_and_new_subdir(tmp_path):
         pass
     (tmp_path / "run" / "done").write_text("")   # подкаталог, появившийся после старта, уже под наблюдением
     assert w.wait(2) is True
+
+
+def test_refresh_builds_light_keys_first_and_letopis_ignores_run_json(monkeypatch, tmp_path):
+    """TK-246 п.2: status/runs строятся первыми; новый run.json задевает cov, но не Летопись/meta (их штамп — снимок и overlay.jsonl)."""
+    reg, runs = tmp_path / "reg", tmp_path / "runs"
+    (runs / "L-1").mkdir(parents=True)
+    reg.mkdir()
+    for n in ("results.jsonl", "sieve.jsonl", "metrics.jsonl"):
+        (reg / n).write_text("{}\n")
+    monkeypatch.setattr(server.launch, "REG", str(reg))
+    monkeypatch.setattr(server.launch, "load_config", lambda path=None: {"run_dir": str(runs), "request_dir": str(tmp_path / "rq"),
+                                                                       "alsched": str(tmp_path / "alsched")})
+    heavy, cov = server._stamp(), server._stamp_cov()
+    (runs / "L-1" / "run.json").write_text("{}")
+    assert server._stamp() == heavy and server._stamp_cov() != cov
+    (runs / "L-1" / "overlay.jsonl").write_text("{}\n")
+    assert server._stamp() != heavy
+    order = []
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_fns", {})
+    monkeypatch.setattr(server, "_watching", True)
+    for k in (("letopis", None, None, None), "cov", "meta", "runs", "status"):
+        server.cached(k, lambda k=k: order.append(k) or {"k": len(order)})
+    del order[:]
+    monkeypatch.setattr(server, "_stamp", lambda: 7)
+    monkeypatch.setattr(server, "_stamp_cov", lambda: 7)
+    monkeypatch.setattr(server, "_stamp_light", lambda: 7)
+    assert server.refresh() == 5 and order == ["status", "runs", "meta", "cov", ("letopis", None, None, None)]
+
+
+def test_cold_key_is_built_once_under_concurrency(monkeypatch):
+    """TK-246 п.3: холодный запрос и прогрев не считают один ключ дважды — второй ждёт первого."""
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_fns", {})
+    monkeypatch.setattr(server, "_build_locks", {})
+    monkeypatch.setattr(server, "_watching", True)
+    calls = []
+
+    def fn():
+        calls.append(1)
+        time.sleep(0.2)
+        return {"n": 1}
+
+    ts = [threading.Thread(target=server.cached, args=("k", fn)) for _ in range(4)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert len(calls) == 1
+
+
+def test_page_embeds_first_screen_and_escapes_script_end(monkeypatch):
+    """TK-246 п.4: страница уже содержит meta/cov/status/runs (один запрос вместо пяти); «</» в данных не рвёт <script>."""
+    monkeypatch.setattr(server, "_page", {})
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_watching", True)
+    server.cached("meta", lambda: {"x": "</script>"})
+    server.cached("cov", lambda: {"c": 1})
+    server.cached("status", lambda: {"s": 1})
+    server.cached("runs", lambda: {"r": 1})
+    ent = server.page_ent()
+    html = ent[0].decode("utf-8")
+    assert server.BOOT_MARK.decode() not in html and '"api/runs":{"r": 1}' in html and r'"api/meta":{"x": "<\/script>"}' in html
+    assert server.page_ent() is ent   # части не менялись — те же байты и ETag
+    assert gzip.decompress(ent[1]) == ent[0]
+
+
+def test_cold_page_does_not_wait_for_calculation(monkeypatch):
+    """TK-246 п.3: холодная страница не считает ключи (под CPUQuota — секунды): вшито только уже посчитанное, остальное страница берёт по сети."""
+    monkeypatch.setattr(server, "_page", {})
+    monkeypatch.setattr(server, "_cache", {})
+    monkeypatch.setattr(server, "_watching", True)
+    called = []
+    monkeypatch.setattr(server.launch, "meta", lambda: called.append("meta") or {})
+    monkeypatch.setattr(server, "_cov", lambda: called.append("cov") or {})
+    cold = server.page_ent()
+    assert not called and b'"api/' not in cold[0]
+    server.cached("status", lambda: {"s": 1})
+    warm = server.page_ent()
+    assert not called and b'"api/status":{"s": 1}' in warm[0] and b'"api/cov"' not in warm[0] and warm[2] != cold[2]

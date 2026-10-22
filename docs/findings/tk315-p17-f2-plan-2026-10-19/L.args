@@ -1,0 +1,15 @@
+--entry-form ladder3x0..0.0409sw2
+--entry-ttl-secs 1800
+--stop-form pct2
+--take-form tr1x1
+--deadline-secs 14400
+--set g136a3k0:side=bid,btc4h_max=-44.55,agemax=180,repeat_min=0
+--set g136a3k1:side=bid,btc4h_max=-44.55,agemax=180,repeat_min=1
+--set g136a3k2:side=bid,btc4h_max=-44.55,agemax=180,repeat_min=2
+--set g136a3k3:side=bid,btc4h_max=-44.55,agemax=180,repeat_min=3
+--set g136a4k0:side=bid,btc4h_max=-44.55,agemax=240,repeat_min=0
+--set g136a4k1:side=bid,btc4h_max=-44.55,agemax=240,repeat_min=1
+--set g136a4k2:side=bid,btc4h_max=-44.55,agemax=240,repeat_min=2
+--set g136a4k3:side=bid,btc4h_max=-44.55,agemax=240,repeat_min=3
+--set g137k7:age=2700,side=bid,btc4h_max=-44.55,repeat_min=7
+--set g137k9:age=2700,side=bid,btc4h_max=-44.55,repeat_min=9

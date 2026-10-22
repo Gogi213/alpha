@@ -45,8 +45,14 @@ def read_closes(dirs, symbol):
     return closes
 
 
-def sigma_rows(closes):
-    """(window_end_ms, sigma_bps) для каждого конца окна, где доходностей ≥ MIN_RETURNS."""
+def min_returns_for(window_min):
+    """Порог полноты окна: доля В-131 (200 из 240 = 5/6), округление вверх; для 240 — ровно 200."""
+    return -(-window_min * MIN_RETURNS // WINDOW_MIN)
+
+
+def sigma_rows(closes, window_min=WINDOW_MIN):
+    """(window_end_ms, sigma_bps) для каждого конца окна, где доходностей ≥ min_returns_for(window_min)."""
+    min_returns = min_returns_for(window_min)
     if not closes:
         return []
     minutes = sorted(closes)
@@ -71,10 +77,10 @@ def sigma_rows(closes):
         ps[i + 1] = ps[i] + sq[i]
         pc[i + 1] = pc[i] + ok[i]
     rows = []
-    for e in range(MIN_RETURNS, n + 1):
-        lo = max(e - WINDOW_MIN, 0)  # до первой свечи доходностей нет — окно просто короче
+    for e in range(min_returns, n + 1):
+        lo = max(e - window_min, 0)  # до первой свечи доходностей нет — окно просто короче
         cnt = pc[e] - pc[lo]
-        if cnt < MIN_RETURNS:
+        if cnt < min_returns:
             continue
         s = max(ps[e] - ps[lo], 0.0)
         rows.append((m0 + e * MINUTE_MS, math.sqrt(s) * 10_000))
@@ -86,7 +92,11 @@ def main():
     ap.add_argument("--klines", action="append", required=True, help="каталог ref-<SYMBOL>-1m.csv (повторяемый)")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--symbols", help="через запятую; по умолчанию — все монеты каталогов")
+    ap.add_argument("--window-min", type=int, default=WINDOW_MIN,
+                    help="окно σ, минут (П-18 ось 8: 60…960); умолчание 240 — как В-131, байты прежние")
     a = ap.parse_args()
+    if a.window_min < 1:
+        raise SystemExit("--window-min ≥ 1")
     if a.symbols:
         symbols = a.symbols.split(",")
     else:
@@ -97,7 +107,7 @@ def main():
         closes = read_closes(a.klines, symbol)
         if not closes:
             raise SystemExit(f"{symbol}: свечей нет ни в одном --klines")
-        rows = sigma_rows(closes)
+        rows = sigma_rows(closes, a.window_min)
         path = os.path.join(a.out_dir, f"sigma-{symbol}.csv")
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8", newline="") as f:

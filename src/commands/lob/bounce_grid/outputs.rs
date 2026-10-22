@@ -30,6 +30,7 @@ fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'static str {
         ExitReason::WallEatBtc => "wall_eat_btc",
         ExitReason::WallEatLocal => "wall_eat_local",
         ExitReason::Converge => "converge",
+        ExitReason::LevelBack => "levelback",
         ExitReason::Tape => "tape",
         ExitReason::Resilience => "resilience",
     }
@@ -137,6 +138,17 @@ pub(super) struct Outputs {
     with_r1: bool,
     // TK-115 Г-112: колонка `tape_press_lots` в `rounds.csv` — только с `--tape-log`.
     with_tape: bool,
+    // TK-272: колонки `tape_press_lots_w<W>` в `rounds.csv` (после колонок П-08/ленты) — только с `--tape-log-ws`.
+    tape_ws: Vec<u32>,
+    // П-19 (TK-291): столбец `touch_index` в конце `rounds.csv` — только с `--touch-col`.
+    with_touch: bool,
+    // Г-102: колонка `n_retreat_window_entries` в `forms.csv` — только если в сетке есть форма `retreat<k>t<T>`.
+    with_retreat: bool,
+    // Г-81: колонка `n_entry_cancelled_cxl_gate` в `forms.csv` — только у набора с `entry_gate=` (после retreat).
+    with_gate: bool,
+    // Г-81: проба порогов `entry_gate=cxl<W>qprobe` — `gate-probe.csv` в `out_dir`, создаётся с первой мерой (иначе файла нет).
+    out_dir: PathBuf,
+    gate_probe: Option<csv::Writer<std::fs::File>>,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -300,6 +312,7 @@ pub(super) fn sum_net_bps(run: &BounceRun) -> f64 {
 }
 
 impl Outputs {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn create(
         out_dir: &Path,
         header: &str,
@@ -308,6 +321,10 @@ impl Outputs {
         with_p08: bool,
         with_r1: bool,
         with_tape: bool,
+        tape_ws: &[u32],
+        with_touch: bool,
+        with_retreat: bool,
+        with_gate: bool,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
@@ -317,15 +334,17 @@ impl Outputs {
         let mut ff = std::fs::File::create(&forms_path)?;
         writeln!(ff, "{header}")?;
         let mut rounds = csv::WriterBuilder::new().has_headers(false).from_writer(rf);
+        let mut names: Vec<String> = ROUNDS_HEADER.iter().map(|s| (*s).to_string()).collect();
         if with_tape {
-            let mut names: Vec<&str> = ROUNDS_HEADER.to_vec();
-            names.push("tape_press_lots");
-            names.push("cxl_lots");
-            names.push("chase_wait_ms");
-            rounds.write_record(names)?;
-        } else {
-            rounds.write_record(ROUNDS_HEADER)?;
+            names.push("tape_press_lots".to_string());
+            names.push("cxl_lots".to_string());
+            names.push("chase_wait_ms".to_string());
         }
+        names.extend(tape_ws.iter().map(|w| format!("tape_press_lots_w{w}")));
+        if with_touch {
+            names.push("touch_index".to_string());
+        }
+        rounds.write_record(names)?;
         let mut forms = csv::WriterBuilder::new().has_headers(false).from_writer(ff);
         // R6: без `--carry-root` шапка — прежние 33 колонки (гейт «те же
         // байты»); с флагом — все 35, включая `n_carried`/`carry_unverified`.
@@ -334,7 +353,14 @@ impl Outputs {
         } else {
             &FORMS_HEADER[..FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN]
         };
-        forms.write_record(forms_header)?;
+        let mut names = forms_header.to_vec();
+        if with_retreat {
+            names.push("n_retreat_window_entries");
+        }
+        if with_gate {
+            names.push("n_entry_cancelled_cxl_gate");
+        }
+        forms.write_record(names)?;
         let signals = if with_signals {
             let mut sf = std::fs::File::create(out_dir.join("signals.csv"))?;
             writeln!(sf, "{header}")?;
@@ -361,6 +387,12 @@ impl Outputs {
             with_p08,
             with_r1,
             with_tape,
+            tape_ws: tape_ws.to_vec(),
+            with_touch,
+            with_retreat,
+            with_gate,
+            out_dir: out_dir.to_path_buf(),
+            gate_probe: None,
         })
     }
 
@@ -398,6 +430,14 @@ impl Outputs {
         // больше сигналов). Сортировка устойчивая, равные t0 взаимозаменяемы.
         let mut t0s: Vec<i64> = signals.iter().map(|s| s.t0_ns).collect();
         t0s.sort_unstable();
+        // П-19 (TK-291): `touch_index` по тому же порядку (устойчивая сортировка по t0, как у драйвера).
+        let touch_by_sig: Vec<u32> = if self.with_touch {
+            let mut v: Vec<(i64, u32)> = signals.iter().map(|s| (s.t0_ns, s.touch_index)).collect();
+            v.sort_by_key(|&(t, _)| t);
+            v.into_iter().map(|(_, k)| k).collect()
+        } else {
+            Vec::new()
+        };
         for (i, fill) in run.fills.iter().enumerate() {
             let net = roundtrip_net_bps(fill);
             let sig = run.fill_signal[i];
@@ -433,6 +473,12 @@ impl Outputs {
                     format!("{:.3}", fill.chase_wait_ns as f64 / 1e6)
                 });
             }
+            for i in 0..self.tape_ws.len() {
+                row.push(format!("{:.6}", fill.tape_press_ws[i]));
+            }
+            if self.with_touch {
+                row.push(touch_by_sig.get(sig).copied().unwrap_or(0).to_string());
+            }
             self.rounds.write_record(row)?;
         }
         let mean_fill_frac = if run.fills.is_empty() {
@@ -440,7 +486,7 @@ impl Outputs {
         } else {
             run.fills.iter().map(|f| f.fill_frac).sum::<f64>() / run.fills.len() as f64
         };
-        self.forms.write_record(forms_row(
+        let mut row = forms_row(
             symbol,
             day,
             form.label,
@@ -451,7 +497,14 @@ impl Outputs {
             carry_boundary_ns,
             carry_unverified,
             self.with_carry,
-        ))?;
+        );
+        if self.with_retreat {
+            row.push(run.retreat_window_entries.to_string());
+        }
+        if self.with_gate {
+            row.push(run.entry_cancelled_cxl_gate.to_string());
+        }
+        self.forms.write_record(row)?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
         debug_assert!({
             let mut fills_by_hour = [0u64; 24];
@@ -571,6 +624,35 @@ impl Outputs {
                 w.write_record(&row)?;
             }
             w.flush()?;
+        }
+        if !run.gate_measures.is_empty() {
+            let w = signals
+                .iter()
+                .find_map(|s| match s.plan {
+                    TradePlan::Bounce { pyramid, .. } => Some(pyramid.eff().gate_cxl_w),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            if self.gate_probe.is_none() {
+                let mut g = csv::WriterBuilder::new()
+                    .has_headers(false)
+                    .from_path(self.out_dir.join("gate-probe.csv"))?;
+                g.write_record(["symbol", "day_utc", "form", "w", "t0_ns", "measure"])?;
+                self.gate_probe = Some(g);
+            }
+            if let Some(g) = self.gate_probe.as_mut() {
+                for &(t0, m) in &run.gate_measures {
+                    g.write_record([
+                        symbol,
+                        day,
+                        form.label,
+                        &w.to_string(),
+                        &t0.to_string(),
+                        &format!("{m:.6}"),
+                    ])?;
+                }
+                g.flush()?;
+            }
         }
         self.rounds.flush()?;
         self.forms.flush()?;

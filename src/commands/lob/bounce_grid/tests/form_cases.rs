@@ -473,11 +473,14 @@ fn run_with_exit_counters(
         entry_cancelled_ttl: 0,
         entry_cancelled_wall_dead: 0,
         entry_cancelled_price_left: 0,
+        entry_cancelled_cxl_gate: 0,
         entry_cancelled_cancel_timeout: entry_cancel_timeout,
         exit_cancel_timeout,
         orphan_fills: 0,
+        gate_measures: Vec::new(),
         spread_at_entry: Vec::new(),
         submitted_signal: Vec::new(),
+        retreat_window_entries: 0,
         busy_signal: Vec::new(),
         busy_wait_ns_max: 0,
         round_ns_max: 0,
@@ -581,6 +584,7 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             legs_rejected: 0,
             fill_by_cross: false,
             tape_press: 0.0,
+            tape_press_ws: [0.0; crate::lob::backtest::TAPE_WS_MAX],
             cxl_press: 0.0,
             chase_wait_ns: -1,
         },
@@ -597,6 +601,7 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
             legs_rejected: 0,
             fill_by_cross: false,
             tape_press: 0.0,
+            tape_press_ws: [0.0; crate::lob::backtest::TAPE_WS_MAX],
             cxl_press: 0.0,
             chase_wait_ns: -1,
         },
@@ -727,3 +732,26 @@ fn early_exit_axis_keeps_default_forms_and_names_enabled_ones() {
 // Перенос круга через полночь (`--carry-root`): круг, ещё открытый на конце
 // суток D, дочитывает выход по данным D+1 вместо `incomplete`.
 // -----------------------------------------------------------------------
+
+/// Г-102: варианты `retreat` с разным `k` или `T` — разные группы входа; одинаковые — одна группа (выходы разные).
+#[test]
+fn retreat_variants_with_different_memory_never_share_an_entry_group() {
+    let r = |k_ticks, half_min| EntryForm::Retreat { k_ticks, half_min };
+    let forms = grid_forms_with_axes(
+        &[StopForm::Pct(2.0)],
+        &[TakeForm::OneToOne],
+        None,
+        &[3600],
+        &[EntryTtl::Touch],
+        &[r(2, 5), r(4, 5), r(2, 15)],
+        &[ExitForm::None, ExitForm::Eat { pct: 50.0 }],
+    );
+    assert_eq!(forms.len(), 6);
+    let groups = super::super::drive::entry_groups(&forms);
+    assert_eq!(groups.len(), 3, "три памяти — три группы: {groups:?}");
+    for g in &groups {
+        assert_eq!(g.len(), 2, "в группе — два выхода одной памяти");
+        let e = forms[g[0]].entry_form;
+        assert!(g.iter().all(|&i| forms[i].entry_form == e));
+    }
+}

@@ -70,6 +70,7 @@ pub(super) enum ExitRule {
     EatenByTrades,
     WallEat,
     Converge,
+    LevelBack,
     Tape,
     Resilience,
     GoneExit,
@@ -82,7 +83,7 @@ pub(super) enum ExitRule {
 /// (проскочила оба уровня за кадр — честнее считать стопом), съедание всей плотности — раньше трейла, трейл —
 /// раньше тейка, половинное съедание — после тейка, защиты `eat`/`gone` — ниже тейка, прилипание и дедлайн —
 /// последние. Порядок — часть плана; тест `exit_priority` проверяет каждую пару.
-pub(super) const EXIT_PRIORITY: [ExitRule; 16] = [
+pub(super) const EXIT_PRIORITY: [ExitRule; 17] = [
     ExitRule::LevelHalf,
     ExitRule::Stop,
     ExitRule::GoneHard,
@@ -93,6 +94,7 @@ pub(super) const EXIT_PRIORITY: [ExitRule; 16] = [
     ExitRule::EatenByTrades,
     ExitRule::WallEat,
     ExitRule::Converge,
+    ExitRule::LevelBack,
     ExitRule::Tape,
     ExitRule::Resilience,
     ExitRule::GoneExit,
@@ -273,6 +275,7 @@ where
                 let before = gone.stop_px;
                 gone.stop_px =
                     state.reinstall_stop(entry_side, be_entry_px, favourable, gone.stop_px);
+                #[allow(clippy::float_cmp)] // цена стопа переставлена или нет: копия, не вычисление
                 if gone.stop_px != before {
                     r2_trace!(
                         bot.current_timestamp(),
@@ -351,6 +354,12 @@ where
             } else {
                 false
             };
+            // Г-108: возврат под уровень стены на `G` bps в окне `W` с после входа.
+            let levelback_hit = pyr.levelback_secs > 0
+                && level_px > 0.0
+                && now.saturating_sub(entry_ns) <= i64::from(pyr.levelback_secs) * 1_000_000_000
+                && sigma_sign * (level_px - favourable) / level_px * 10_000.0
+                    >= f64::from(pyr.levelback_gap_bps);
             // Г-112/116: мера в окне с входа, нормированная на размер стены; только в минусе.
             let in_loss = sigma_sign * (favourable - entry_px) < 0.0;
             let tape_hit = pyr.tape_q > 0.0
@@ -363,6 +372,7 @@ where
                 && state.level_qty_at_entry > 0.0
                 && state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry
                     >= pyr.cxl_q;
+            #[allow(clippy::float_cmp)] // цена стопа переставлена или нет: копия, не вычисление
             let plain_stop = gone.stop_px == stop_px;
             let half_level = pyr.half_level;
             let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
@@ -370,6 +380,7 @@ where
                 && !state.stop_half_done
                 && (state.level_broken || (stop_hit && plain_stop));
             let stop_hit = stop_hit && !(half_level && plain_stop);
+            #[allow(clippy::float_cmp)] // цена стопа переставлена или нет: копия, не вычисление
             let stop_reason = if gone.stop_px != stop_px {
                 // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
                 ExitReason::WallGone
@@ -433,6 +444,11 @@ where
                 ExitRule::Converge,
                 converge_hit,
                 (ExitAt::Market, ExitReason::Converge, 1.0),
+            );
+            hits.set(
+                ExitRule::LevelBack,
+                levelback_hit,
+                (ExitAt::Market, ExitReason::LevelBack, 1.0),
             );
             hits.set(
                 ExitRule::Tape,

@@ -8,7 +8,9 @@
 //! несколькими записями (`pyre…u…` / `pyre…w…`, `wall2`/`wall2x`/`wall2m<n>`) строк несколько,
 //! `id` общий (`ExitForm::variant_id`).
 
-use super::super::backtest::{EARLY_EXITS_S, EARLY_EXIT_HALF_MS, ENTRY_TTL_SECS};
+use super::super::backtest::{
+    EARLY_EXITS_HALF_S, EARLY_EXITS_S, EARLY_EXIT_HALF_MS, ENTRY_TTL_SECS,
+};
 use serde_json::{json, Value};
 
 /// Домен параметра имени. `None` у верхней границы — без верхнего предела.
@@ -149,6 +151,19 @@ const fn entry(
     }
 }
 
+/// Форма входа только для R2-бинарника (состояние стратегии в `PyramidCfg`, при выключенном R2 стёрто в `OFF`).
+const fn entry_r2(
+    id: &'static str,
+    prefix: &'static str,
+    name_template: &'static str,
+    params: &'static [ParamSpec],
+) -> MechSpec {
+    MechSpec {
+        is_r2: true,
+        ..entry(id, prefix, name_template, params)
+    }
+}
+
 const PCT: ParamSpec = real("pct", 0.0, Some(100.0), true, false);
 const SECS: ParamSpec = int("secs", 1, Some(3600), &[]);
 const BTC: ParamSpec = real("btc_bps", 0.0, None, false, false);
@@ -164,11 +179,14 @@ fn entry_ttl_secs() -> Vec<f64> {
     ENTRY_TTL_SECS.iter().map(|&s| s as f64).collect()
 }
 
-/// `--early-exit-secs`: 0,5 с + `EARLY_EXITS_S` (plan.rs).
+/// `--early-exit-secs`: 0,5 с + `EARLY_EXITS_S` + `EARLY_EXITS_HALF_S`.5 (plan.rs).
 fn early_exit_secs() -> Vec<f64> {
-    std::iter::once(EARLY_EXIT_HALF_MS as f64 / 1_000.0)
+    let mut v: Vec<f64> = std::iter::once(EARLY_EXIT_HALF_MS as f64 / 1_000.0)
         .chain(EARLY_EXITS_S.iter().map(|&s| s as f64))
-        .collect()
+        .chain(EARLY_EXITS_HALF_S.iter().map(|&s| s as f64 + 0.5))
+        .collect();
+    v.sort_by(f64::total_cmp);
+    v
 }
 
 const TTL_SECS: ParamSpec = ParamSpec {
@@ -246,6 +264,26 @@ pub static MECHANICS: &[MechSpec] = &[
         "ladder",
         "ladder3x0..0.0409sw{w}",
         &[int("w", 2, None, &[])],
+    ),
+    // Г-88 / Г-102 (В-227 D): вход после закола; память отступа после стопа.
+    entry_r2(
+        "EntryReclaim",
+        "reclaim",
+        "reclaim{d_bps}p{pause_s}",
+        &[int("d_bps", 1, None, &[]), int("pause_s", 0, None, &[])],
+    ),
+    // Г-135 (П-17): вход рынком после отхода цены на R bps от экстремума сделок после взвода, окно 30 с.
+    entry_r2(
+        "EntryPostsweep",
+        "postsweep",
+        "postsweep{r_bps}",
+        &[int("r_bps", 1, None, &[])],
+    ),
+    entry_r2(
+        "EntryRetreat",
+        "retreat",
+        "retreat{k}t{half_min}",
+        &[int("k", 1, Some(8), &[]), int("half_min", 1, None, &[])],
     ),
     // `eat<h>x<a>` (TakeForm::Eaten): связь 0 < h < a ≤ 100 между параметрами — в каталог позже.
     row("None", "none", "none", &[], false),
@@ -359,6 +397,13 @@ pub static MECHANICS: &[MechSpec] = &[
         "conv",
         "conv{tol}a{a_bps}",
         &[int("tol", 0, Some(16), &[]), int("a_bps", 1, None, &[])],
+        true,
+    ),
+    row(
+        "LevelBack",
+        "lvlback",
+        "lvlback{gap_bps}w{secs}",
+        &[int("gap_bps", 0, None, &[]), int("secs", 1, None, &[])],
         true,
     ),
     row(

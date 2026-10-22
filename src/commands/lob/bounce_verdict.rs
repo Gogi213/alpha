@@ -63,8 +63,11 @@ pub const DEADLINE_SECS: [u64; 4] = [60, 600, 3600, 7200];
 /// Все разрешённые дедлайны: В-58 плюс 30 мин, 4 ч (S8 плана по сторонам,
 /// предрегистрация 20.09: у лонгов 60 с / 10 мин на тех же сигналах −$103 /
 /// −$65, час +$120, два часа +$111 — ось «удержание» нужно дотянуть). Сетка
-/// задаёт свой набор `--deadline-secs` из этого списка; чужое число — отказ.
-pub const DEADLINE_SECS_ALLOWED: [u64; 8] = [60, 600, 1800, 3600, 7200, 14400, 21600, 28800];
+/// задаёт свой набор `--deadline-secs` из этого списка; чужое число — отказ. Точки F2 П-18 (TK-289, §11.2, ось 4):
+/// 4281, 5091, 6054, 8562, 10182, 12109 — добавлены, прежние значения без изменений.
+pub const DEADLINE_SECS_ALLOWED: [u64; 15] = [
+    60, 600, 1800, 3600, 4281, 5091, 6054, 7200, 8562, 10182, 12109, 14400, 21600, 28800, 43200,
+];
 /// Причины выхода в порядке колонок артефакта.
 pub const EXIT_REASONS: [&str; 9] = [
     "stop",
@@ -361,16 +364,9 @@ pub fn parse_form_fields(label: &str) -> anyhow::Result<FormFields> {
                 early.is_none() && !v.is_empty(),
                 "{label}: поле выхода по прилипанию — одно (`-early<секунды | 0.5>`)"
             );
-            let x: i64 = if v == "0.5" {
-                crate::commands::lob::backtest::EARLY_EXIT_HALF_MS
-            } else {
-                v.parse::<i64>()
-                    .ok()
-                    .and_then(|s| s.checked_mul(1_000))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("{label}: -early{v}: не секунды (целые или 0.5)")
-                    })?
-            };
+            let x = crate::commands::lob::backtest::early_ms_from_label(v).ok_or_else(|| {
+                anyhow::anyhow!("{label}: -early{v}: не секунды (целые или <целые>.5)")
+            })?;
             crate::commands::lob::backtest::early_exit_ns_from_ms(Some(x))
                 .map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
             early = Some(v.to_string());

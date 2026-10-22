@@ -109,6 +109,66 @@ fn g07_behind_and_stack_keys() {
     assert_eq!(super::plan::g07_label(&set), " behind_min=150 stack_min=2");
 }
 
+/// П-17 (TK-279): `repeat_min` (Г-136/137) и `swept_min` (Г-135) — разбор, отказы, целочисленный допуск, шапка;
+/// `repeat_min=0` пропускает всё, но ключ в идентичности набора (контроль Г-136).
+#[test]
+fn p17_repeat_and_swept_keys() {
+    let s = FilterSet::parse("g:repeat_min=3,swept_min=250").unwrap();
+    assert_eq!((s.repeat_min, s.swept_min_bp), (Some(3), Some(250)));
+    for bad in [
+        "x:repeat_min=-1",
+        "x:repeat_min=1.5",
+        "x:swept_min=-1",
+        "x:swept_min=a",
+        "x:repeat_min=1,repeat_min=2",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
+    let f = super::sets::TouchFilter::from_set(&s, 0.01, 1.0, &[]);
+    let t = |rep: u32, swept: i64| TouchRecord {
+        size_at_touch: 40,
+        repeat_count: rep,
+        swept_lots: swept,
+        ..probe_touch()
+    };
+    assert!(f.admits_oracle(mode, 0, &t(3, 1)), "3 ≥ 3; 1×10⁴ == 250×40");
+    assert!(!f.admits_oracle(mode, 0, &t(2, 1)), "repeat меньше");
+    assert!(!f.admits_oracle(mode, 0, &t(3, 0)), "swept меньше");
+    let ctl = FilterSet::parse("c:repeat_min=0").unwrap();
+    let f = super::sets::TouchFilter::from_set(&ctl, 0.01, 1.0, &[]);
+    assert!(
+        f.admits_oracle(mode, 0, &t(0, 0)),
+        "контроль k=0 пропускает всё"
+    );
+    assert_eq!(super::plan::g07_label(&ctl), " repeat_min=0");
+    assert_eq!(super::plan::g07_label(&s), " repeat_min=3 swept_min=250");
+    let r = FilterSet::parse("r:size_risk=5").unwrap();
+    assert_eq!(r.size_risk, Some(5.0));
+    assert_eq!(super::plan::g07_label(&r), " size_risk=5");
+    for bad in ["x:size_risk=0", "x:size_risk=-1", "x:size_risk=a"] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let g = FilterSet::parse("g:entry_gate=cxl30q0.5").unwrap();
+    assert_eq!(g.entry_gate, Some((30, 0.5)));
+    assert_eq!(super::plan::g07_label(&g), " entry_gate=cxl30q0.5");
+    // Проба порогов: недостижимый порог, своя идентичность.
+    let p = FilterSet::parse("p:entry_gate=cxl45qprobe").unwrap();
+    assert_eq!(p.entry_gate, Some((45, f64::INFINITY)));
+    assert_eq!(super::plan::g07_label(&p), " entry_gate=cxl45qprobe");
+    for bad in [
+        "x:entry_gate=cxl0q1",
+        "x:entry_gate=cxl30q0",
+        "x:entry_gate=cxl30",
+        "x:entry_gate=tape30q1",
+        "x:entry_gate=cxl30qp",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let none = FilterSet::parse("n:").unwrap();
+    assert_eq!(super::plan::g07_label(&none), "");
+}
+
 /// Г-07 сквозь сетку: `behind_min=0` не выбивает ничего (байты те же, шапка с ключом), огромный
 /// `stack_min` выбивает всё; набор без ключей — шапка без `behind_min`/`stack_min`.
 #[test]
@@ -185,6 +245,7 @@ fn p08_cols_in_signals_csv() {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     })
     .unwrap();
     let ap_path = summary.approaches_out[0].clone();
@@ -314,6 +375,7 @@ fn approach_cache(dir: &std::path::Path) -> std::path::PathBuf {
         minute_flow: None,
         r1_cols: false,
         wall_log: false,
+        twin_seeds: Vec::new(),
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
@@ -365,6 +427,8 @@ fn approach_probe() -> crate::lob::levels::ApproachRecord {
         strength_e2: [-1, -1, -1],
         depth_behind_lots: 0,
         stack_levels_at_arm: 0,
+        stack_span_bps_at_arm: 0,
+        repeat_count_at_arm: 0,
         frontrun_lots_at_arm: 0,
         p08: None,
         r1: None,
@@ -969,4 +1033,87 @@ fn tape_cxl_forms_parse_threshold() {
     assert_eq!(p.label(), "tape30qp");
     assert_eq!(ExitForm::parse("cxl5qp").unwrap().label(), "cxl5qp");
     assert!(ExitForm::parse("tape30qpp").is_err());
+}
+
+/// П-17 (TK-279, Г-101): ключи режима `lreg_t/lreg_f`, `sreg_t/sreg_f` — парой, внутри допуска B1 (`btc4h` задан);
+/// шапка набора несёт порог и множитель, два разных множителя — две идентичности; «сильная» половина — `btc4h ≤ T`.
+#[test]
+fn p17_regime_keys_pair_and_gate() {
+    let s =
+        FilterSet::parse("g:btc4h_max=-44.55,lreg_t=-120.5,lreg_f=2500,sreg_t=-90,sreg_f=20000")
+            .unwrap();
+    assert_eq!(
+        s.ladder_regime.map(|r| (r.t_bps, r.f_bp)),
+        Some((-120.5, 2500))
+    );
+    assert_eq!(
+        s.stop_regime.map(|r| (r.t_bps, r.f_bp)),
+        Some((-90.0, 20000))
+    );
+    assert_eq!(
+        super::plan::g07_label(&s),
+        " lreg=-120.5:2500 sreg=-90:20000"
+    );
+    let s2 = FilterSet::parse("g:btc4h_max=-44.55,lreg_t=-120.5,lreg_f=5000").unwrap();
+    assert_ne!(super::plan::g07_label(&s), super::plan::g07_label(&s2));
+    for bad in [
+        "x:btc4h_max=-44.55,lreg_t=-120",
+        "x:btc4h_max=-44.55,sreg_f=5000",
+        "x:lreg_t=-120,lreg_f=5000",
+        "x:btc4h_max=-44.55,lreg_t=-120,lreg_f=0",
+        "x:btc4h_max=-44.55,lreg_t=a,lreg_f=5000",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let r = s.ladder_regime;
+    let mut axes = [None; crate::commands::lob::bounce_grid::sets::CTX_AXES.len()];
+    axes[super::sets::BTC4H_AXIS] = Some(-130.0);
+    let ctx = [
+        super::sets::TouchContext { axes },
+        super::sets::TouchContext {
+            axes: [None; crate::commands::lob::bounce_grid::sets::CTX_AXES.len()],
+        },
+    ];
+    let spec = super::sets::FilterSpec::of_set(&s, &ctx);
+    assert_eq!(
+        spec.regime_factor(r, 0),
+        Some(0.25),
+        "-130 ≤ -120.5: сильная половина"
+    );
+    assert_eq!(
+        spec.regime_factor(r, 1),
+        None,
+        "нет btc4h — режим не включается"
+    );
+    assert_eq!(spec.regime_factor(None, 0), None);
+}
+
+/// П-18 (TK-289, ось 6б): `strength_min=<%>` — разбор, отказы, окно ±20 bps (индекс 1), сила не определена (−1) не
+/// входит даже при 0, шапка.
+#[test]
+fn p18_strength_min_key() {
+    let s = FilterSet::parse("s:strength_min=317.5").unwrap();
+    assert_eq!(s.strength_min_e2, Some(31_750));
+    for bad in [
+        "x:strength_min=-1",
+        "x:strength_min=a",
+        "x:strength_min=inf",
+        "x:strength_min=1,strength_min=2",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
+    let f = super::sets::TouchFilter::from_set(&s, 0.01, 1.0, &[]);
+    let t = |w20: i64| TouchRecord {
+        size_at_touch: 40,
+        strength_e2: [99_999, w20, 99_999],
+        ..probe_touch()
+    };
+    assert!(f.admits_oracle(mode, 0, &t(31_750)), "ровно порог — вход");
+    assert!(!f.admits_oracle(mode, 0, &t(31_749)), "ниже порога");
+    let z = FilterSet::parse("z:strength_min=0").unwrap();
+    let f = super::sets::TouchFilter::from_set(&z, 0.01, 1.0, &[]);
+    assert!(f.admits_oracle(mode, 0, &t(0)));
+    assert!(!f.admits_oracle(mode, 0, &t(-1)), "без соседей — не вход");
+    assert_eq!(super::plan::g07_label(&s), " strength_min=317.5");
 }

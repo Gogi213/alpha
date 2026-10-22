@@ -307,6 +307,9 @@ pub(super) fn an_entry_leg_whose_place_was_in_flight_is_cancelled_by_the_retry()
 /// естественного круга (`Holding` → частичный тейк → рыночная причина)
 /// проверяет Б1-тест, а здесь проверяется сам предохранитель.
 pub(super) fn racing_exit_state(hbt: &mut Backtest<FastMarketDepth>) -> StrategyState {
+    // До первого события время крейта — i64::MAX: заявка с задержкой переполняла бы сложение
+    // (release молча заворачивал, debug паникует). Первый `elapse` ставит время на первое событие.
+    hbt.elapse(0).unwrap();
     hbt.submit_sell_order(
         0,
         EXIT_ID,
@@ -470,6 +473,7 @@ pub(super) fn the_driver_counts_the_entry_cancel_ceiling() {
     );
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -477,6 +481,7 @@ pub(super) fn the_driver_counts_the_entry_cancel_ceiling() {
         hold_skip: false,
     };
     let signal = BounceSignal {
+        touch_index: 0,
         t0_ns: S,
         sigma: SIGMA_LONG,
         plan: cancel_wait_plan(S / 10),
@@ -524,6 +529,7 @@ pub(super) fn an_orphan_survives_the_round_boundary_in_the_driver() {
     let mut hbt = build_backtest(&feed, 1.0, 1.0, lat, QueueModelKind::RiskAdverse);
     let cfg = DriveConfig {
         tape_log_secs: 0,
+        tape_log_ws: crate::lob::backtest::NO_TAPE_WS,
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
@@ -533,6 +539,7 @@ pub(super) fn an_orphan_survives_the_round_boundary_in_the_driver() {
     // Срок жизни входа 0.1 с: снятие на 1.2 с, потолок на 2.2 с — круг закрыт.
     let signals = [
         BounceSignal {
+            touch_index: 0,
             t0_ns: S,
             sigma: SIGMA_LONG,
             plan: cancel_wait_plan(S / 10),
@@ -540,6 +547,7 @@ pub(super) fn an_orphan_survives_the_round_boundary_in_the_driver() {
             qty: None,
         },
         BounceSignal {
+            touch_index: 0,
             t0_ns: 2_400_000_000,
             sigma: SIGMA_LONG,
             plan: cancel_wait_plan(30 * S),
@@ -691,6 +699,8 @@ pub(super) fn holding_decision_reads_time_only_at_the_known_thresholds() {
             "if let Some(b) = state.wall_bucket(now.div_euclid(1_000_000_000)) {",
             "let (eaten, max_qty) = state.wall_window(entry_ns, now);",
             ".and_then(|b| b.move_bps(now, wall_eat.secs))",
+            // Г-108 `lvlback<G>w<W>`: пропуск шагов при форме выключен (`pyramid_on` включает `levelback_secs > 0`).
+            "&& now.saturating_sub(entry_ns) <= i64::from(pyr.levelback_secs) * 1_000_000_000",
             // Г-112/116 `tape<Q>`/`cxl<Q>`: кольцо включено — пропуск шагов выключен (`tape_on` в `hold_wakeup_ns`).
             "&& state.tape_since_entry(entry_ns, now, pyr.tape_w) / state.level_qty_at_entry",
             "&& state.cxl_since_entry(entry_ns, now, pyr.cxl_w) / state.level_qty_at_entry",

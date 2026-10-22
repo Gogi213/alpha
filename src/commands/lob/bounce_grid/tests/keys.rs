@@ -44,6 +44,59 @@ fn frontrun_min_key_filters_by_frontrun_lots_at_touch() {
     }
 }
 
+/// М-04 (TK-206): ключ `lot_first=<k>` — множитель размера на первом подходе; k = 1 — байт в байт как без ключа,
+/// ключ идёт в шапку набора только заданным, не число > 0 — отказ.
+#[test]
+fn lot_first_key_one_equals_base_and_marks_header() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-lotfirst");
+    a.sets = vec![
+        "base:frontrun".to_string(),
+        "lf1:frontrun,lot_first=1".to_string(),
+        "lf2:frontrun,lot_first=2".to_string(),
+    ];
+    let multi = run_bounce_grid(&a).unwrap();
+    let by_name = |n: &str| multi.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        body(&by_name("lf1").rounds_path),
+        body(&by_name("base").rounds_path)
+    );
+    let head = std::fs::read_to_string(&by_name("lf2").forms_path).unwrap();
+    assert!(head.contains(" lot_first=2"), "{head}");
+    let head = std::fs::read_to_string(&by_name("base").forms_path).unwrap();
+    assert!(!head.contains("lot_first"), "без ключа шапка прежняя");
+    for bad in [
+        "x:lot_first=0",
+        "x:lot_first=-1",
+        "x:lot_first=a",
+        "x:lot_first=inf",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+}
+
+/// М-04: k столь малый, что размер первого подхода ниже min-лота, — отказ прогона (fail-closed), не округление.
+#[test]
+fn lot_first_below_min_lot_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-lotfirst-tiny");
+    a.sets = vec!["tiny:frontrun,lot_first=0.000001".to_string()];
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(err.contains("ниже min-лота"), "{err}");
+}
+
 /// Ключ `eaten=<%>` (S1 плана по сторонам): `eaten=100` ничего не выбивает —
 /// байты те же, что без ключа; `eaten=-1` выбивает все касания в
 /// `n_skipped`; фикстура: у первого касания стена целая (`eaten` 0), у
@@ -553,4 +606,174 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
             "счётчик пути (3) обязан быть числом: {r:?}"
         );
     }
+}
+
+/// Реестр осей контекста (пакет C, В-227): прежние индексы не сдвинуты, оси хода монеты
+/// первые, имена уникальны, слот режима = индекс оси − `COIN_AXES`.
+#[test]
+fn ctx_registry_keeps_old_indices() {
+    use super::super::sets::{
+        CtxSrc, COIN_AXES, CTX_SPECS, KLINE_AXES, LEVEL_AXES, REGIME_AXES, SEC_AXES,
+    };
+    let old = [
+        "ret10m",
+        "ret1h",
+        "ret4h",
+        "pool1h",
+        "pool4h",
+        "btc1h",
+        "btc4h",
+        "btc2h",
+        "btc3h",
+        "btc6h",
+        "btc8h",
+        "btc12h",
+        "btc24h",
+        "btc9h",
+        "btc10h",
+        "btc11h",
+        "rng1h",
+        "dlow",
+        "drnd",
+        "btc_lag_1s",
+        "btc_lag_2s",
+        "btc_lag_4s",
+        "btc_lag_8s",
+        "btc_lag_16s",
+        "btc_lag_32s",
+        "btc_lag_64s",
+        "btc_lag_118s",
+    ];
+    assert_eq!(&CTX_AXES[..old.len()], &old);
+    for (i, a) in CTX_SPECS.iter().enumerate() {
+        assert_eq!(
+            matches!(a.src, CtxSrc::Coin(_)),
+            i < COIN_AXES,
+            "{}",
+            a.name
+        );
+        if let CtxSrc::Coin(slot) = a.src {
+            assert_eq!(slot, i);
+        }
+        assert_eq!(CTX_AXES.iter().filter(|n| **n == a.name).count(), 1);
+    }
+    assert_eq!(
+        REGIME_AXES,
+        CTX_SPECS.len() - COIN_AXES - KLINE_AXES - LEVEL_AXES - SEC_AXES
+    );
+    let sec = CTX_SPECS.len() - SEC_AXES;
+    assert!(CTX_SPECS[sec..]
+        .iter()
+        .all(|a| matches!(a.src, CtxSrc::BtcSeconds(_))));
+    let tail = sec - LEVEL_AXES;
+    assert!(CTX_SPECS[tail - KLINE_AXES..tail]
+        .iter()
+        .all(|a| matches!(a.src, CtxSrc::Klines(_))));
+    assert!(CTX_SPECS[tail..sec]
+        .iter()
+        .all(|a| matches!(a.src, CtxSrc::RoundDist)));
+}
+
+/// Оси по свечам монеты (Г-57/Г-08): окно — только минуты до касания; неполный час и пустые
+/// сутки — `None`; расстояние — от цены уровня до минимума суток к моменту касания.
+#[test]
+fn kline_axes_use_only_past_minutes() {
+    use super::super::sets::{KlineAxis, KlineSeries};
+    let dir = std::env::temp_dir().join(format!("tk204-klines-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("jan")).unwrap();
+    let day0 = 1_767_225_600_000_i64; // 2026-01-01 00:00 UTC
+    let mut csv = String::from("minute_ms,open,high,low,close,volume,turnover\n");
+    for i in 0..120_i64 {
+        let (hi, lo) = (100.0 + (i % 10) as f64, 99.0 - (i % 7) as f64);
+        csv += &format!("{},0,{hi},{lo},100,0,0\n", day0 + i * 60_000);
+    }
+    std::fs::write(dir.join("jan").join("ref-XUSDT-1m.csv"), csv).unwrap();
+    let mut k = KlineSeries::default();
+    k.ensure_day(&dir, "XUSDT", "2026-01-01").unwrap();
+    let t = day0 + 90 * 60_000;
+    // минуты 30..90: high до 109, low до 93 → (109 − 93) / 100 · 1e4
+    let rng = k.axis(KlineAxis::Rng1h, t, 10_000, 0.01).unwrap();
+    assert!((rng - 1600.0).abs() < 1e-9, "{rng}");
+    assert_eq!(
+        k.axis(KlineAxis::Rng1h, day0 + 30 * 60_000, 10_000, 0.01),
+        None
+    );
+    // минимум суток до t — 93 (минута 6 по циклу low = 99 − 6)
+    let d = k.axis(KlineAxis::DayLowDist, t, 10_000, 0.01).unwrap();
+    assert_eq!(d, 700.0); // (100 − 93) / 0.01 тиков — точно, целые тики
+                          // граница dlow_max = k: касание ровно на k тиков выше минимума суток (93) даёт ровно k
+    for tick in [1e-6, 0.0001, 0.01, 0.1, 0.5] {
+        let low_ticks = (93.0_f64 / tick).round() as i64;
+        for dist in [0_i64, 1, 4, 16] {
+            let d = k.axis(KlineAxis::DayLowDist, t, low_ticks + dist, tick);
+            assert_eq!(d, Some(dist as f64), "tick {tick} dist {dist}");
+        }
+    }
+    assert_eq!(k.axis(KlineAxis::DayLowDist, day0, 10_000, 0.01), None);
+    assert!(KlineSeries::default()
+        .ensure_day(&dir, "NOPEUSDT", "2026-01-01")
+        .is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `drnd`: расстояние цены уровня до ближайшего кратного 100 тиков, тики.
+#[test]
+fn round_dist_axis_is_ticks_to_nearest_hundred() {
+    use super::super::sets::{round_dist, CtxSrc, CTX_SPECS};
+    let i = CTX_SPECS
+        .iter()
+        .position(|a| matches!(a.src, CtxSrc::RoundDist))
+        .unwrap();
+    assert_eq!(CTX_AXES[i], "drnd");
+    for (p, want) in [
+        (0, 0.0),
+        (7, 7.0),
+        (93, 7.0),
+        (150, 50.0),
+        (10_200, 0.0),
+        (-3, 3.0),
+    ] {
+        assert_eq!(round_dist(p), want, "{p}");
+    }
+}
+
+/// Оси секундного ряда BTC (Г-72): окно — только закрытые секунды до секунды касания; нет
+/// секунд у границы ряда — `None` (не 0); ход в bps по тикам.
+#[test]
+fn btc_lag_axes_use_only_closed_seconds() {
+    use super::super::sets::BtcSeconds;
+    let dir = std::env::temp_dir().join(format!("tk204-btcsec-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let day0 = 1_767_225_600_000_i64; // 2026-01-01 00:00 UTC
+    let mut csv = String::from(
+        "second_ms,close_ticks
+",
+    );
+    for i in 0..86_400_i64 {
+        // close секунды i = 1_000_000 + i тиков
+        csv.push_str(&format!(
+            "{},{}
+",
+            day0 + i * 1000,
+            1_000_000 + i
+        ));
+    }
+    std::fs::write(dir.join("2026-01-01.csv"), csv).unwrap();
+    let mut b = BtcSeconds::default();
+    b.ensure_day(&dir, "2026-01-01").unwrap();
+    // касание в секунде 100.5: последняя закрытая секунда 99 (close 1_000_099), лаг 4 → секунда 95
+    let start = day0 + 100_500;
+    let want = (1_000_099 - 1_000_095) as f64 / 1_000_095_f64 * 1e4;
+    assert_eq!(b.lag_bps(4, start), Some(want));
+    // секунда касания не входит: касание в 100.0 даёт то же окно (последняя закрытая — 99)
+    assert_eq!(b.lag_bps(4, day0 + 100_000), Some(want));
+    // окно уходит за начало ряда (сутки до — нет файла) → None
+    assert_eq!(b.lag_bps(118, day0 + 100_000), None);
+    assert!(b.lag_bps(1, day0 + 500).is_none());
+    assert!(b.lag_bps(1, day0 + 2_500).is_some());
+    // нет файла суток — отказ
+    assert!(BtcSeconds::default()
+        .ensure_day(&dir, "2026-01-02")
+        .is_err());
+    std::fs::remove_dir_all(&dir).ok();
 }

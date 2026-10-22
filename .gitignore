@@ -34,3 +34,6 @@ examples/сторонние/
 /export/
 /hdr-*.tsv
 .playwright-mcp/
+
+# отчёт владельцу (alpha-daily-brief): состояние дня — локально; в git только preferences.md
+.claude/brief/state/

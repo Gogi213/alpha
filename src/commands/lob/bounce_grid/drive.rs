@@ -14,11 +14,10 @@ use std::time::Instant;
 
 use hftbacktest::types::Event as HbtEvent;
 
-use crate::book::Side;
 use crate::commands::lob::backtest::{
     approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, count_feed_events,
     deadline_ns_from_secs, early_exit_ns_from_ms, open_replay_feed, replay_compact_into_until,
-    EntryForm, PlanShape, PoolLot,
+    BounceForm, EntryForm, PlanShape, PoolLot, StopForm,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, precompute_exit_group, with_backtest_over, BounceRun,
@@ -33,7 +32,7 @@ use super::carry::{cached_event_count, store_event_count};
 use super::entry_sigma::EntrySigma;
 use super::forms::GridForm;
 use super::outputs::FormDayResult;
-use super::sets::{R1Bound, Range, TouchContext, TouchFilter, CTX_AXES};
+use super::sets::{FilterSpec, TouchFilter};
 
 /// Сигналы формы: план базы на каждое касание (`σ_H` за окно дедлайна — только
 /// σ-формам); касания, для которых форму не построить, пропускаются и
@@ -52,7 +51,24 @@ fn signals_for(
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
     let early_exit_ns = early_exit_ns_from_ms(form.early_exit_ms)?;
     let mut skipped: u64 = 0;
-    if let Some(ctx) = p.ctx {
+    // Г-101 (П-17): режим бывает только у лестницы входа / стопа `pct`|`s`; иначе множитель молча не сработал бы.
+    anyhow::ensure!(
+        p.filter.ladder_regime.is_none() || scale_ladder(form.entry_form, 1.0).is_some(),
+        "{}: lreg_* (Г-101) требует форму входа ladder…",
+        form.label
+    );
+    anyhow::ensure!(
+        p.filter.stop_regime.is_none() || scale_stop(form.form.stop, 1.0).is_some(),
+        "{}: sreg_* (Г-101) требует стоп pct<x> или s<a>",
+        form.label
+    );
+    // Г-135 (П-17): `swept_lots` — кадр перед касанием; на взводе (лестница B1) это заглядывание вперёд.
+    anyhow::ensure!(
+        p.filter.swept_min_bp.is_none() || matches!(form.entry_form, EntryForm::Postsweep { .. }),
+        "{}: swept_min (Г-135) допустим только с входом postsweep<R> — на взводе величина неизвестна",
+        form.label
+    );
+    if let Some(ctx) = p.filter.ctx {
         anyhow::ensure!(
             ctx.len() == touches.len(),
             "контекст касаний ({}) не совпадает с касаниями ({})",
@@ -94,8 +110,22 @@ fn signals_for(
                 skipped += 1;
                 return None;
             }
-            let sigma_bps = if form.form.needs_sigma() {
-                sigma.sigma_bps(t.start_ms, form.deadline_secs)
+            // Г-101: «сильная» половина (btc4h ≤ T) — шаг лестницы и/или стоп ×f; режим не задан — прежняя форма.
+            let entry_form = p
+                .filter
+                .regime_factor(p.filter.ladder_regime, ti)
+                .and_then(|f| scale_ladder(form.entry_form, f))
+                .unwrap_or(form.entry_form);
+            let bform = match p
+                .filter
+                .regime_factor(p.filter.stop_regime, ti)
+                .and_then(|f| scale_stop(form.form.stop, f))
+            {
+                Some(stop) => BounceForm { stop, ..form.form },
+                None => form.form,
+            };
+            let sigma_bps = if bform.needs_sigma() {
+                sigma.sigma_bps(t.start_ms - p.ctx_shift_ms, form.deadline_secs)
             } else {
                 None
             };
@@ -110,7 +140,7 @@ fn signals_for(
                 // F6 (В-73): форма входа — ось сетки (`--entry-form`):
                 // `single@fr` — прежняя нога, лестница — ноги от `from` до `to`
                 // bps над стеной.
-                entry_form: form.entry_form,
+                entry_form,
                 deadline_ns,
                 early_exit_ns,
                 // F5 (В-74): режим срока жизни входа — из формы сетки
@@ -122,42 +152,95 @@ fn signals_for(
                 // F7 (Б-75): форма выхода — ось сетки (`--exit-form`).
                 exit_form: form.exit_form,
                 // В-131: σ на взводе — только σ-лестнице (`t.start_ms` у подхода — `arm_ms`).
-                entry_sigma_bps: match form.entry_form {
-                    EntryForm::LadderSigma { .. } => p.entry_sigma.and_then(|s| s.at(t.start_ms)),
+                entry_sigma_bps: match entry_form {
+                    EntryForm::LadderSigma { .. } => p
+                        .entry_sigma
+                        .and_then(|s| s.at(t.start_ms - p.ctx_shift_ms)),
                     _ => None,
                 },
             };
+            // Г-98: лот ниже min-лота (`size_risk`) — NaN из `day_risk_qtys`: сделка пропущена и посчитана.
+            if p.order_qtys.get(ti).is_some_and(|q| q.is_nan()) {
+                skipped += 1;
+                return None;
+            }
             let built = match (p.step_schedule, approaches) {
                 (Some(sc), Some(ap)) => approach_plan_sched(
                     &ap[ti],
                     p.grid_e9.0,
                     p.grid_e9.1,
                     sc,
-                    form.form,
+                    bform,
                     sigma_bps,
                     shape,
                 ),
                 (Some(sc), None) => {
-                    bounce_plan_sched(t, p.grid_e9.0, p.grid_e9.1, sc, form.form, sigma_bps, shape)
+                    bounce_plan_sched(t, p.grid_e9.0, p.grid_e9.1, sc, bform, sigma_bps, shape)
                 }
-                (None, Some(ap)) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
-                (None, None) => bounce_plan(t, p.tick, form.form, sigma_bps, shape),
+                (None, Some(ap)) => approach_plan(&ap[ti], p.tick, bform, sigma_bps, shape),
+                (None, None) => bounce_plan(t, p.tick, bform, sigma_bps, shape),
             };
-            let Some((dir, plan)) = built else {
+            let Some((dir, mut plan)) = built else {
                 skipped += 1;
                 return None;
             };
+            // Г-81 (П-17): ворота входа `entry_gate=cxl<W>q<Q>` — в `PyramidCfg` плана; без ключа план как есть.
+            if let (Some((w, q)), crate::lob::strategy::TradePlan::Bounce { pyramid, .. }) =
+                (p.filter.entry_gate, &mut plan)
+            {
+                pyramid.gate_cxl_w = w;
+                pyramid.gate_cxl_q = q;
+            }
             Some(BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),
                 sigma: dir,
                 plan,
                 profile: 0,
+                touch_index: t.touch_index,
                 qty: Some(p.order_qtys[ti]),
             })
         })
         .collect();
     signals.sort_by_key(|s| s.t0_ns);
     Ok((signals, skipped))
+}
+
+/// Г-101: шаг лестницы входа ×`f` — дальняя нога уходит на `from + f·(to − from)`; не лестница — `None`.
+fn scale_ladder(e: EntryForm, f: f64) -> Option<EntryForm> {
+    match e {
+        EntryForm::Ladder {
+            legs,
+            from_bps,
+            to_bps,
+            wall_weight,
+        } => Some(EntryForm::Ladder {
+            legs,
+            from_bps,
+            to_bps: from_bps + f * (to_bps - from_bps),
+            wall_weight,
+        }),
+        EntryForm::LadderSigma {
+            legs,
+            from_sigma,
+            to_sigma,
+            wall_weight,
+        } => Some(EntryForm::LadderSigma {
+            legs,
+            from_sigma,
+            to_sigma: from_sigma + f * (to_sigma - from_sigma),
+            wall_weight,
+        }),
+        _ => None,
+    }
+}
+
+/// Г-101: ширина стопа ×`f` (`pct<x>` → `pct<x·f>`, `s<a>` → `s<a·f>`); прочие формы стопа — `None`.
+fn scale_stop(s: StopForm, f: f64) -> Option<StopForm> {
+    match s {
+        StopForm::Pct(x) => Some(StopForm::Pct(x * f)),
+        StopForm::Sigma(a) => Some(StopForm::Sigma(a * f)),
+        _ => None,
+    }
 }
 
 /// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, потолок `SIG_CACHE_CAP` сигналов на сутки): `signals_for` второй раз не зовётся. Сверх потолка форма не
@@ -198,6 +281,27 @@ impl SigCache {
     }
 }
 
+/// Группы форм с общим входом (Э-08): равные `entry_form` и `entry_ttl`. У `retreat<k>t<T>` `k`/`T` — часть
+/// `entry_form`, поэтому варианты с разной памятью отступа в одну группу не попадают (вход группы — из её первой формы).
+pub(super) fn entry_groups(forms: &[GridForm]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (i, f) in forms.iter().enumerate() {
+        match groups.iter_mut().find(|g| {
+            let h = &forms[g[0]];
+            h.entry_form == f.entry_form
+                && h.entry_ttl == f.entry_ttl
+                && !matches!(
+                    f.entry_form,
+                    EntryForm::Reclaim { .. } | EntryForm::Postsweep { .. }
+                )
+        }) {
+            Some(g) => g.push(i),
+            None => groups.push(vec![i]),
+        }
+    }
+    groups
+}
+
 /// Предсчёт групп выходов (Э-08) для форм суток: группы — по `entry_form` и `entry_ttl`, из двух и больше
 /// форм; сигналы — те же, что у формы (`signals_for`). Печатает число групповых кругов.
 #[allow(clippy::too_many_arguments)]
@@ -211,18 +315,10 @@ fn exit_groups(
     memos: &[Mutex<RoundMemo>],
     cache: Option<&SigCache>,
 ) -> anyhow::Result<()> {
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for (i, f) in forms.iter().enumerate() {
-        match groups.iter_mut().find(|g| {
-            let h = &forms[g[0]];
-            h.entry_form == f.entry_form && h.entry_ttl == f.entry_ttl
-        }) {
-            Some(g) => g.push(i),
-            None => groups.push(vec![i]),
-        }
-    }
+    let groups = entry_groups(forms);
     let cfg = DriveConfig {
         tape_log_secs: p.tape_log_secs,
+        tape_log_ws: p.tape_log_ws,
         order_qty: 0.0,
         first_order_id: 1,
         queue_model: p.queue_model,
@@ -405,6 +501,76 @@ impl OrderSizing {
         }
     }
 
+    /// М-04 (TK-206): размер первого подхода — номинал × `k` до округления вниз до шага лота (как у
+    /// `qty_usd_e9`), не округление вверх. `None` — ниже min-лота (22а) или нуль шагов: клетка не определена
+    /// (spec-m04 §3), вызывающий отказывает, молча не поднимает.
+    pub(super) fn qty_first_e9(
+        &self,
+        price_tick: i64,
+        tick_e9: i64,
+        mult: u32,
+        k: f64,
+        step_e9: i64,
+    ) -> Option<i64> {
+        let price_e9 = price_tick.saturating_mul(tick_e9);
+        let m = f64::from(mult.max(1)) * k;
+        #[allow(clippy::cast_precision_loss)]
+        let (raw, step, min) = match *self {
+            Self::Fixed(v) => (v as f64 * m, step_e9, step_e9),
+            Self::Pool22a(lot) => (
+                lot.qty_22a_e9(price_e9) as f64 * m,
+                lot.qty_step_e9,
+                lot.qty_22a_e9(price_e9),
+            ),
+            Self::Usd(lot, usd) if price_e9 > 0 => (
+                usd * 1e18 / price_e9 as f64 * f64::from(mult.max(1)) * k,
+                lot.qty_step_e9,
+                lot.qty_22a_e9(price_e9),
+            ),
+            Self::Usd(lot, _) => (0.0, lot.qty_step_e9, lot.qty_22a_e9(price_e9)),
+        };
+        if step <= 0 || !raw.is_finite() {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let q = ((raw / step as f64 + 1e-9).floor() as i64).saturating_mul(step);
+        (q > 0 && q >= min.saturating_mul(i64::from(mult.max(1)))).then_some(q)
+    }
+
+    /// Г-98 (П-17, `size_risk=<R$>`): лот под риск — `min(base, R·10⁴ ÷ span_bps)` (в монете по цене уровня), вниз до шага
+    /// `step_e9`; `span_bps < 1` или риск не жмёт — `base` как есть (= B1 байт в байт). `None` — ниже min-лота (22а):
+    /// сделка пропускается и считается, вверх не поднимаем.
+    pub(super) fn qty_risk_e9(
+        &self,
+        price_e9: i64,
+        mult: u32,
+        base_e9: i64,
+        risk_usd: f64,
+        span_bps: i64,
+        step_e9: i64,
+    ) -> Option<i64> {
+        if span_bps < 1 {
+            return Some(base_e9);
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let risk_raw = risk_usd * 1e4 / span_bps as f64 * 1e18 / price_e9.max(1) as f64;
+        #[allow(clippy::cast_precision_loss)]
+        if !risk_raw.is_finite() || risk_raw >= base_e9 as f64 {
+            return Some(base_e9);
+        }
+        let (step, min) = match *self {
+            Self::Fixed(_) => (step_e9, step_e9),
+            Self::Pool22a(lot) | Self::Usd(lot, _) => (lot.qty_step_e9, lot.qty_22a_e9(price_e9)),
+        };
+        let step = if step_e9 > 0 { step_e9 } else { step };
+        if step <= 0 {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let q = ((risk_raw / step as f64 + 1e-9).floor() as i64).saturating_mul(step);
+        (q > 0 && q >= min.saturating_mul(i64::from(mult.max(1)))).then_some(q)
+    }
+
     /// Размер круга на каждое касание суток — по цене этого касания, с
     /// множителем `--order-qty-mult` (E7).
     pub(super) fn touch_qtys(&self, touches: &[TouchRecord], tick_e9: i64, mult: u32) -> Vec<f64> {
@@ -454,6 +620,8 @@ pub(super) struct DayParams<'a> {
     pub(super) hold_skip: bool,
     /// Окно журнала ленты (`--tape-log W`, TK-115 Г-112), секунды; 0 — выключено. Идёт в `DriveConfig`.
     pub(super) tape_log_secs: u32,
+    /// Окна журнала ленты за один проход (`--tape-log-ws`, TK-272); 0 — слот не занят. Идёт в `DriveConfig`.
+    pub(super) tape_log_ws: [u32; crate::lob::backtest::TAPE_WS_MAX],
     /// Группы выходов (`--exit-group on`, Э-08): предсчёт кругов группы в память форм.
     pub(super) exit_group: bool,
     /// Размер круга на каждое касание суток (тот же порядок, что `touches`):
@@ -463,8 +631,6 @@ pub(super) struct DayParams<'a> {
     /// Вход пост-онли (В-72): у плана `post_only`, у сетки умолчание —
     /// включён (`BounceGridArgs::entry_post_only`).
     pub(super) post_only: bool,
-    /// E3: входить только от фронтрана (`--frontrun-only`).
-    pub(super) frontrun_only: bool,
     /// Номинал порога В-66 в долларах (`--h3-usd`): из него план считает
     /// `level_floor_qty` — порог «стена снята» (F5, В-74). `None` — условия
     /// F5 выключены (режим `touch`), иначе `run_bounce_grid` отказал бы.
@@ -474,31 +640,10 @@ pub(super) struct DayParams<'a> {
     pub(super) band_exit_bps: f64,
     /// σ монеты на взводе для σ-лестницы (В-131, `--sigma-from`); `None` — флага нет.
     pub(super) entry_sigma: Option<&'a EntrySigma>,
-    /// Фильтры базы в момент касания: возраст плотности и сила «×поток».
-    pub(super) min_age_ms: Option<i64>,
-    pub(super) max_age_ms: Option<i64>,
-    pub(super) min_flow_pct: Option<f64>,
-    /// Ось стороны (`--side`): `None` — обе стороны.
-    pub(super) side: Option<Side>,
-    /// Доля съедания стены к касанию не больше этого процента (`eaten=`).
-    pub(super) eaten_max_pct: Option<f64>,
-    /// T4 (П-02, Г-86): доля съедания стены к касанию не меньше этого
-    /// процента (`eaten_min=`) — зеркало `eaten_max_pct`.
-    pub(super) eaten_min_pct: Option<f64>,
-    /// T-35: порог фронтрана в лотах (`frontrun_min=`).
-    pub(super) frontrun_min_lots: Option<i64>,
-    /// Номинал стены при касании ≥ (`usd_min=`), доллары.
-    pub(super) usd_min: Option<f64>,
-    /// Г-07: глубина позади ≥ % размера (`behind_min=`).
-    pub(super) behind_min_pct: Option<i64>,
-    /// Г-07: уровней в стопке ≥ (`stack_min=`).
-    pub(super) stack_min: Option<u32>,
-    /// TK-025: границы колонок R1 (`r1_<колонка>_min|_max=`), проверяются на записи подхода.
-    pub(super) r1: &'a [R1Bound],
-    /// Контекст касаний суток (тот же порядок, что `touches`) — только когда
-    /// у набора есть ключи контекста; границы — `ctx_ranges`.
-    pub(super) ctx: Option<&'a [TouchContext]>,
-    pub(super) ctx_ranges: [Range; CTX_AXES.len()],
+    /// Контроль C (TK-333, `--ctx-shift-secs`): сдвиг входа, мс; σ берётся из момента `start_ms − ctx_shift_ms`.
+    pub(super) ctx_shift_ms: i64,
+    /// Фильтры набора в момент касания (возраст, сила «×поток», сторона, съедание, номинал, R1, контекст).
+    pub(super) filter: FilterSpec<'a>,
     /// Ряд `σ` символа (все сутки записи подряд).
     pub(super) sigma: &'a SigmaSeries,
 }
@@ -605,6 +750,7 @@ pub(super) fn drive_day(
                 }
                 let cfg = DriveConfig {
                     tape_log_secs: p.tape_log_secs,
+                    tape_log_ws: p.tape_log_ws,
                     // R2: размер несёт каждый сигнал (`BounceSignal::qty`,
                     // `signals_for`); размер прогона сетке не нужен.
                     order_qty: 0.0,

@@ -330,6 +330,16 @@ pub enum EntryForm {
     /// формы здесь роли не играет: рыночный вход не может быть мейкером,
     /// `GTX` отклонил бы пересёкшую спред заявку как `Expired`, В-72).
     Market,
+    /// `reclaim<D>p<S>` (В-227 D, Г-88): вход после «закола» — сделки за уровень на `D` bps и возврата на уровень в окне
+    /// взвода; вход через `S` с после возврата (цена входа — как у `single@fr`). Нет закола/возврата — нет входа.
+    Reclaim { depth_bps: u32, pause_s: u32 },
+    /// `postsweep<R>` (П-17, Г-135): вход рынком (taker, как `market`) после отхода цены на `R` bps от минимума
+    /// (для шорта — максимума) сделок после взвода, в окне 30 с (`lob::reclaim::POSTSWEEP_WINDOW_NS`) и не дольше
+    /// TTL входа. Нет отхода в окне — нет входа.
+    Postsweep { rise_bps: u32 },
+    /// `retreat<k>t<T>` (В-227 D, Г-102): память отступа — после стопа вход отходит от стены на `k` тиков (1…8), добавка
+    /// затухает с полураспадом `T` минут; цена входа — как у `single@fr`, состояние ведёт драйвер (`lob::retreat`).
+    Retreat { k_ticks: u8, half_min: u32 },
 }
 
 /// Запас пересечения спреда для рыночного входа (`EntryForm::Market`,
@@ -353,6 +363,50 @@ impl EntryForm {
         }
         if spec == "market" {
             return Ok(Self::Market);
+        }
+        if let Some(rest) = spec.strip_prefix("retreat") {
+            let form = rest
+                .split_once('t')
+                .and_then(|(k, t)| Some((k.parse::<u8>().ok()?, t.parse::<u32>().ok()?)))
+                .map(|(k_ticks, half_min)| Self::Retreat { k_ticks, half_min })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{spec}: ожидается retreat<k>t<T>, k — тики (1…8), T — минуты (≥ 1)"
+                    )
+                })?;
+            anyhow::ensure!(
+                matches!(form, Self::Retreat { k_ticks, half_min } if (1..=8).contains(&k_ticks) && half_min > 0)
+                    && form.label() == spec,
+                "{spec}: имя формы входа не каноническое, k вне 1…8 или T = 0"
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("postsweep") {
+            let form = rest
+                .parse::<u32>()
+                .map(|rise_bps| Self::Postsweep { rise_bps })
+                .map_err(|_| anyhow::anyhow!("{spec}: ожидается postsweep<R>, R — bps (≥ 1)"))?;
+            anyhow::ensure!(
+                matches!(form, Self::Postsweep { rise_bps } if rise_bps > 0)
+                    && form.label() == spec,
+                "{spec}: имя формы входа не каноническое или R = 0"
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("reclaim") {
+            let form = rest
+                .split_once('p')
+                .and_then(|(d, p)| Some((d.parse::<u32>().ok()?, p.parse::<u32>().ok()?)))
+                .map(|(depth_bps, pause_s)| Self::Reclaim { depth_bps, pause_s })
+                .ok_or_else(|| {
+                    anyhow::anyhow!("{spec}: ожидается reclaim<D>p<S>, D — bps (≥ 1), S — секунды")
+                })?;
+            anyhow::ensure!(
+                matches!(form, Self::Reclaim { depth_bps, .. } if depth_bps > 0)
+                    && form.label() == spec,
+                "{spec}: имя формы входа не каноническое или D = 0"
+            );
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix(SINGLE_ENTRY_LABEL) {
             let (sign, n_s) = match rest.chars().next() {
@@ -465,6 +519,9 @@ impl EntryForm {
                 format!("{SINGLE_ENTRY_LABEL}_{}", ticks.unsigned_abs())
             }
             Self::Market => "market".to_string(),
+            Self::Reclaim { depth_bps, pause_s } => format!("reclaim{depth_bps}p{pause_s}"),
+            Self::Postsweep { rise_bps } => format!("postsweep{rise_bps}"),
+            Self::Retreat { k_ticks, half_min } => format!("retreat{k_ticks}t{half_min}"),
             Self::Ladder {
                 legs,
                 from_bps,
@@ -652,15 +709,23 @@ pub enum EntryTtl {
     /// Только условия F5, без потолка-таймера (потолок — `i64::MAX`).
     Wall,
     /// Потолок срока жизни в секундах — из сетки замера В-74
-    /// `ENTRY_TTL_SECS` {60, 300, 1800} + точки F1 П-14 Г-129 (TK-189).
+    /// `ENTRY_TTL_SECS` {60, 300, 1800} + точки F1 и F2 П-14 Г-129 (TK-189, TK-272).
     Secs(i64),
 }
 
 /// Предрегистрированная сетка потолков срока жизни входа, секунды (F5,
 /// В-74): «предохранительный потолок — сетка замера {60, 300, 1800} с, не
 /// решение». Числа — не умолчание команды (умолчания в коде нет), а
-/// разрешённые значения `--entry-ttl-secs`.
-pub const ENTRY_TTL_SECS: [i64; 9] = [10, 30, 60, 120, 300, 600, 900, 1_200, 1_800];
+/// разрешённые значения `--entry-ttl-secs`. 375 · 450 · 525 · 675 · 750 · 825 — прежние точки master. 2 546 · 3 600 ·
+/// 5 091 · 7 200 — П-18 (TK-289, ось 5, лог-√2 вверх от 1 800; все < дедлайна 14 400). Точки F2 П-18 (TK-289, §11.2,
+/// ось 5): 1 963 · 2 141 · 2 335 · 2 776 · 3 027 · 3 301 · 3 926 · 4 281 · 4 669 · 5 552 · 6 054 · 6 602 — добавлены,
+/// прежние значения без изменений. Точки F3 П-18 (TK-289, §4 п. 4, ось 5, плато 2 141…3 027): 2 286 · 2 388 · 2 440 ·
+/// 2 493 · 2 604 · 2 661 · 2 718 · 2 839.
+pub const ENTRY_TTL_SECS: [i64; 39] = [
+    10, 30, 60, 120, 300, 375, 450, 525, 600, 675, 750, 825, 900, 1_200, 1_800, 1_963, 2_141,
+    2_286, 2_335, 2_388, 2_440, 2_493, 2_546, 2_604, 2_661, 2_718, 2_776, 2_839, 3_027, 3_301,
+    3_600, 3_926, 4_281, 4_669, 5_091, 5_552, 6_054, 6_602, 7_200,
+];
 
 impl EntryTtl {
     /// Разбор значения `--entry-ttl-secs`: `touch` | `wall` | секунды из
