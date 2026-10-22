@@ -458,6 +458,7 @@ fn lob_help_lists_all_subcommands() {
         "pick",
         "probe",
         "record",
+        "seconds",
         "session",
         "sync-basis",
         "touches",
