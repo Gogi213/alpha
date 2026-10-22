@@ -13,7 +13,7 @@ S_net = S_event − S_ctrl в той же клетке. Клетка = гипо�
 ({m}), спота — по D20/2026-MM в пути (как g015-ceilings). Выход: pseudotest-cells.csv, pseudotest-summary.json, pseudotest.done.
 Клетка: n, n_days, n_coins, доля топ-3 монет по n, S по горизонтам (m_100ms…m_2h), интервал бутстрапа по суткам (B=boot,
 сид = seed + crc32(ключ)), S без топ-3 монет, favour/adverse (60 с…2 ч). Всё считается до округления (6 знаков)."""
-import ast, csv, glob, json, os, re, struct, sys, zlib, collections
+import ast, csv, glob, json, os, re, struct, sys, time, zlib, collections
 import multiprocessing as mp
 import numpy as np
 
@@ -233,8 +233,12 @@ def main():
     assert len(set(ids)) == len(ids), "id гипотез повторяются"
     jobs = jobs_for(cfg, nd)
     agg, bad = {}, 0
+    t0 = time.time()
+    print(f"jobs {len(jobs)}", file=sys.stderr, flush=True)
     with mp.Pool(int(os.environ.get("NX", "15")), initializer=init, initargs=(cfg,)) as pool:
-        for (pop, src, mon, p), o in pool.imap_unordered(work, jobs, chunksize=8):
+        for i, ((pop, src, mon, p), o) in enumerate(pool.imap_unordered(work, jobs, chunksize=8), 1):
+            if i % 100 == 0:
+                print(f"done {i}/{len(jobs)} {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
             if o is None:
                 bad += 1
                 continue
