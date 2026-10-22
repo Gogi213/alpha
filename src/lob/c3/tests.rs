@@ -268,3 +268,18 @@ fn covariates_are_computed_after_arm() {
     assert_eq!(c[0].wall, 0);
     assert_eq!(st.unmatched, vec![1]);
 }
+
+#[test]
+fn sigma_from_second_mids_window_and_gaps() {
+    let mut mid = vec![100.0; 10];
+    mid[6] = 101.0;
+    let sg = sigma_from_second_mids(&mid, 3);
+    assert!(sg[2].is_nan());
+    assert_eq!(sg[3], 0.0);
+    // прыжок 100→101 на секунде 6 и откат на 7: окна s=6..=8 видят хотя бы один скачок
+    assert!((sg[6] - 100.0).abs() < 1e-9);
+    assert!((sg[9] - 99.00990099).abs() < 1e-6);
+    mid[4] = f64::NAN;
+    let sg = sigma_from_second_mids(&mid, 3);
+    assert!((4..=7).all(|s| sg[s].is_nan()) && !sg[8].is_nan());
+}

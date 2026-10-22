@@ -55,6 +55,7 @@ pub mod backtest;
 pub mod binlog_stats;
 pub mod bounce_grid;
 pub mod bounce_verdict;
+pub mod c3_controls;
 pub mod clock;
 pub mod event_cache_probe;
 pub mod fee_rate;
@@ -81,6 +82,7 @@ mod verify;
 pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
+pub use c3_controls::{run_c3_controls, C3ControlsArgs};
 pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
@@ -254,6 +256,9 @@ pub enum LobCommand {
     /// стены в тиках фьючерса (`P_f = F_mid·P_wall/S_mid`, пассивное округление); дальше `bounce-grid --touches-from`
     /// на бинлоге фьючерса.
     TouchesProject(TouchesProjectArgs),
+    /// Контроль C3 «псевдо-стена» Г-013 G1 (TK-353, R4.1): для каждой реальной стены — момент из других суток той же
+    /// монеты без реальной стены в полосе; пары и сводка баланса. Только чтение готовых артефактов.
+    C3Controls(C3ControlsArgs),
     /// Дыры по времени в суточных бинлогах (TK-033): CSV на файл — покрытие суток, самая длинная
     /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
     /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
@@ -318,6 +323,10 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         }
         LobCommand::TouchesProject(args) => {
             println!("{}", run_touches_project(&args)?);
+            Ok(())
+        }
+        LobCommand::C3Controls(args) => {
+            println!("{}", run_c3_controls(&args)?);
             Ok(())
         }
         LobCommand::Gaps(args) => {

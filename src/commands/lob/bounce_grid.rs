@@ -115,6 +115,9 @@ mod sets;
 mod steps;
 mod verdict;
 
+pub(crate) use cache::cached_walls;
+pub(crate) use sets::{read_regime_day, BTC4H_AXIS, COIN_AXES};
+
 use args::SignalArg;
 pub use args::{BounceGridArgs, BounceGridSummary};
 pub(crate) use cache::cached_touches;

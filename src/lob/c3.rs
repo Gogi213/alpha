@@ -168,6 +168,30 @@ pub fn second_series(
     (mid, sig)
 }
 
+/// σ-окно `window` секунд по посекундным mid (bps): `sqrt(Σ r²)`, `r_s = 10⁴·(m_s − m_{s−1})/m_{s−1}` по секундам
+/// `(s − window, s]` — то же определение, что `lob::sigma`, но от готового посекундного ряда (`sync_basis::Market`).
+/// `NaN` — окно выходит за начало суток или в нём есть секунда без mid.
+pub fn sigma_from_second_mids(mid: &[f64], window: usize) -> Vec<f64> {
+    let n = mid.len();
+    let mut pref = vec![0.0f64; n + 1];
+    let mut bad = vec![0u32; n + 1];
+    for s in 1..n {
+        let r = 1e4 * (mid[s] - mid[s - 1]) / mid[s - 1];
+        let ok = r.is_finite();
+        pref[s + 1] = pref[s] + if ok { r * r } else { 0.0 };
+        bad[s + 1] = bad[s] + u32::from(!ok);
+    }
+    (0..n)
+        .map(|s| {
+            if s < window || bad[s + 1] != bad[s + 1 - window] {
+                f64::NAN
+            } else {
+                (pref[s + 1] - pref[s + 1 - window]).sqrt()
+            }
+        })
+        .collect()
+}
+
 fn overlaps(a0: i64, a1: i64, b0: i64, b1: i64) -> bool {
     a0 < b1 && b0 < a1
 }
