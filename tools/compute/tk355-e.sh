@@ -37,8 +37,10 @@ awk -F, 'NR>1{n[$1" "$2]++} END{for(k in n) print n[k], k}' "$B1" | sort -k1,1nr
 if [ "$MODE" = probe ]; then sed -n '120p' "$R/days.txt" > "$R/days-use.txt"; else cp "$R/days.txt" "$R/days-use.txt"; fi
 while read -r m d; do while read -r c qm rtt usd; do echo "$c $m $d"; done <<< "$CFG"; done < "$R/days-use.txt" > "$R/units.txt"
 export BIN SCRIPTS GT REASON PLAN TP
+( while sleep 5; do ps -eo rss,args | awk '/lob bounce-grid/&&index($0,"tk0355/e/")&&!/awk/{s+=$1} END{print s/1048576}' >> "$R/rss-gb.log"; done ) & SAMP=$!   # пик суммарной RSS проходов (ГБ), для --mem полного счёта
 xargs -P "$NX" -L1 bash -c 'c=$1; cfg=$(awk -v c="$c" "\$1==c" "$R/configs.txt"); set -- $cfg $2 $3; qm=$2; rtt=$3; usd=$4; m=$5; d=$6; if [ "$rtt" = - ]; then unset RTTM RTTP; else export RTTM=$rtt RTTP=$rtt; fi; QM=$qm USD=$usd P=$R/$c/plan O=$R/$c/out bash "$SCRIPTS/day-cells.sh" "run-$m-$d" "$m" "$d"' _ < "$R/units.txt"
 rc=$?
+kill $SAMP 2>/dev/null; echo "пик RSS проходов, ГБ: $(sort -g "$R/rss-gb.log" | tail -1)"
 n=$(cat "$R"/*/out/*/fail.txt 2>/dev/null | wc -l)
 [ "$n" = 0 ] || { echo "fail.txt: $n строк"; rc=3; }
 exit $rc
