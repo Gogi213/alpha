@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TK-360 проход валидности СПОТА 1–14.02 (по tk345-validity-pass-check.py): инварианты по всем единицам (сутки × символ × F1–F3 × 10 наборов).
+"""TK-360 проход валидности СПОТА 1–14 числа месяца YM (по tk345-validity-pass-check.py): инварианты по всем единицам (сутки × символ × F1–F3 × 10 наборов).
   tk360-validity-spot-check.py <pass> <out-dir>      env: NP (процессов, 15)
 Единица = <pass>/<сутки>-<СИМВОЛ>-Fn, годна при файле done. Пишет <out>/coverage.txt, <out>/invariants.txt, код 1 при нарушениях (2)(время).
 Наборы: ret1hup/ret1hdn не определены в --signal approach (движок отказывает) — их нет. (5) «группировка» — не применимо (задача = символ)."""
@@ -7,8 +7,9 @@ import collections, glob, os, statistics, sys
 from multiprocessing import Pool
 
 P3, OUT = sys.argv[1:3]
-EPOCH = "/data/tk0319/e-feb"
-DAYS = [f"2026-02-{d:02d}" for d in range(1, 15)]
+YM = os.environ.get("YM", "2026-02")   # месяц прохода (по умолчанию февраль; 23.10 CEO: июль, 2026-07)
+EPOCH = "/data/tk0319/e-" + ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"][int(YM[5:7]) - 1]
+DAYS = [f"{YM}-{d:02d}" for d in range(1, 15)]
 FAMS = ("F1", "F2", "F3")
 SETS = ["base", "age10", "age60", "usd30k", "flow100", "fr", "btcup", "btcdn", "age10usd30k", "ask"]
 PARENTS = {"age10": ["base"], "age60": ["age10"], "usd30k": ["base"], "flow100": ["base"], "fr": ["base"], "btcup": ["base"],
