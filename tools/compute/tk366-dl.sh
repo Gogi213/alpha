@@ -4,7 +4,7 @@
 #   tk366-dl.sh --one mk SYM DAY  — одна монето-сутки (воркер)         env: DLP, SDA_RESERVE_GB(умолч. 120) DATA_RESERVE_GB(умолч. 60)
 # Сырьё: $D/raw (sda5), пока на / свободно > SDA_RESERVE_GB (запас под бинлоги), иначе /data/tk366-raw (пока > DATA_RESERVE_GB), иначе ждёт места.
 # Журнал $D/log/dl.tsv: mk sym day status ob_bytes tr_bytes сек каталог   status = dl|missing-ob|missing-tr|fail:<http>:<rc> (fail и неполное качается заново).
-D=/srv/alpha-sda/tk366; LOG=$D/log/dl.tsv
+D=${TKD:-/srv/alpha-sda/tk366}; LOG=$D/log/dl.tsv   # TKD — другой рабочий каталог (неделя 15–21.10)
 if [ "$1" = --one ]; then
   mk=$2; sym=$3; d=$4; mkdir -p "$D/raw" /data/tk366-raw
   while :; do
@@ -21,7 +21,7 @@ if [ "$1" = --one ]; then
           if [ $rc = 0 ]; then mv "$2.part" "$2"; return 0; fi; rm -f "$2.part"; GETERR="$c:$rc"; [ "$c" = 404 ] && return 44; return 1; }
   [ -f "$ob" ] || { get "$uo" "$ob"; r=$?; [ $r = 44 ] && { log missing-ob; exit 0; }; [ $r != 0 ] && { log "fail:ob:$GETERR"; exit 0; }; }
   # флаг $D/skip-tr: public.bybit.com отдаёт 403 (бан по IP calc) — качаем только стакан, сделки дотягивает фаза tk366-tr.sh
-  [ -f "$tr" ] || { [ -f "$D/skip-tr" ] && { log ob-only "$(stat -c%s "$ob")"; exit 0; }; get "$ut" "$tr"; r=$?; [ $r = 44 ] && { rm -f "$ob"; log missing-tr; exit 0; }; [ $r != 0 ] && { log "fail:tr:$GETERR"; exit 0; }; }
+  [ -f "$tr" ] || { [ -f "$D/ban" ] && exit 0; [ -f "$D/skip-tr" ] && { log ob-only "$(stat -c%s "$ob")"; exit 0; }; get "$ut" "$tr"; r=$?; [ $r = 44 ] && { rm -f "$ob"; log missing-tr; exit 0; }; [ $r != 0 ] && { case "$GETERR" in 403:*) touch "$D/ban";; esac; log "fail:tr:$GETERR"; exit 0; }; }   # 403 — флаг ban: остальные воркеры сделок не бьют, пока круг не закончится
   log dl "$(stat -c%s "$ob")" "$(stat -c%s "$tr")"; exit 0
 fi
 P=${1:-${DLP:-48}}; mkdir -p "$D/log" "$D/raw" /data/tk366-raw; touch "$LOG"

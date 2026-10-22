@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TK-366 (G-016), фаза 2: импорт всего скачанного (журнал dl.tsv status=dl) в бинлоги на NX потоков (слово владельца: 16 ядер). tk366-imp.sh [NX=16]
 # Сырьё на sda5 идёт первым (импорт освобождает больше, чем пишет), потом /data. Готовое и уже импортированное пропускается — повторный запуск безопасен.
-D=/srv/alpha-sda/tk366; NX=${1:-${NX:-16}}; mkdir -p "$D/log" "$D/tmp/i"; touch "$D/log/import2.tsv"
+D=${TKD:-/srv/alpha-sda/tk366}; NX=${1:-${NX:-16}}; mkdir -p "$D/log" "$D/tmp/i"; touch "$D/log/import2.tsv"
 while [ -f "$D/tr-phase.pending" ]; do sleep 60; done   # дотяжка сделок (tk366-tr.sh) идёт — список строим после неё
 python3 - "$D" > "$D/log/imp-list.txt" <<'PY'
 import sys, glob
