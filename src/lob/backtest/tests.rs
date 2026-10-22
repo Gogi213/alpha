@@ -2319,6 +2319,27 @@ fn solo_signal_steps(
         .collect()
 }
 
+/// TK-347: диапазоны номеров заявок входа, вариантов и страховок остатка группы не пересекаются —
+/// вариант с длинной погоней (сотни заявок) не задевает соседа («Order id exists», MYXUSDT 2026-02-13).
+#[test]
+fn group_id_ranges_are_disjoint_for_long_exit_chains() {
+    let base = GROUP_ID_BASE;
+    for n in [1u64, 2, 32, 96] {
+        let mut starts: Vec<u64> = (0..n).map(|k| group_variant_id(base, k)).collect();
+        starts.extend((0..n).map(|i| group_flatten_id(base, n, i)));
+        // Вход — до первого варианта, каждому диапазону хватает ≥ 1000 номеров.
+        assert!(
+            starts[0] >= base + 1000,
+            "вход не должен задевать вариант 0"
+        );
+        assert!(
+            starts.windows(2).all(|w| w[1] - w[0] >= 1000),
+            "диапазоны вариантов/страховок теснее 1000 номеров: {starts:?}"
+        );
+        assert!(starts.windows(2).all(|w| w[0] < w[1]), "порядок диапазонов");
+    }
+}
+
 /// Тот же сигнал, группой (`drive_signal_group`) — один общий вход, К своих выходов.
 fn group_signal_steps(
     feed: &[Event],
