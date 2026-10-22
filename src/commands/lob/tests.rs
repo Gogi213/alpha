@@ -447,6 +447,7 @@ fn lob_help_lists_all_subcommands() {
         "binlog-stats",
         "bounce-grid",
         "bounce-verdict",
+        "c3-controls",
         "clock",
         "cold",
         "event-cache-probe",
