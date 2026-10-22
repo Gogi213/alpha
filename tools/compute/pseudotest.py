@@ -306,7 +306,7 @@ def cell(a, key, B, seed, H):
     """Итог клетки из сумм по суткам и по монетам; H — гистограммы хода (len(HD), NB)."""
     tot = sum(a["sym"].values())
     n = tot[0]
-    top = sorted(a["sym"].items(), key=lambda kv: -kv[1][0])[:3]
+    top = sorted(a["sym"].items(), key=lambda kv: (-kv[1][0], kv[0]))[:3]  # при равном n — по имени монеты (порядок задач не влияет)
     row = {"n": int(n), "n_days": len(a["day"]), "n_coins": len(a["sym"]), "top3_n_share": sum(v[0] for _, v in top) / n}
     row["n_calib"] = int(tot[-1])  # событий с q-порогом по калибровочному отрезку (первые 7 суток монеты); 0 — нет q-термов или всё причинно
     S = np.divide(tot[1:1 + NV], tot[1 + NV:1 + 2 * NV], out=np.full(NV, np.nan), where=tot[1 + NV:1 + 2 * NV] > 0)
