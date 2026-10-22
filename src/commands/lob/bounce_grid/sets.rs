@@ -1338,7 +1338,11 @@ impl<'a> TouchFilter<'a> {
         if self.spec.frontrun_only && !r.frontrun_some {
             return Some(Reject::FrontrunOnly);
         }
-        if self.spec.frontrun_min_lots.is_some_and(|n| r.frontrun_lots < n) {
+        if self
+            .spec
+            .frontrun_min_lots
+            .is_some_and(|n| r.frontrun_lots < n)
+        {
             return Some(Reject::FrontrunMin);
         }
         if !self.holds.is_some_and(|h| h[ti]) {
