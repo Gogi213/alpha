@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # TK-360 проход валидности СПОТА 1–14.02: планировщик по памяти (tk360-memq.py, задача = сутки × символ × F1 F2 F3), затем повтор трёх
 # символов суток 01 (детерминизм: md5 rounds/forms) и проверка инвариантов (tk360-validity-spot-check.py).
-#   tk360-validity-spot-all.sh <выход-каталог>        env: NX (15) BUDGET (80)
+#   tk360-validity-spot-all.sh <выход-каталог>        env: NX (15) BUDGET (48; юнит --mem 56; KILL 4 — в memq.cfg)
 set -uo pipefail
-O=$1; D=/data/tk0360; export NX=${NX:-15} BUDGET=${BUDGET:-80}
+O=$1; D=/data/tk0360; export NX=${NX:-15} BUDGET=${BUDGET:-48}
 mkdir -p "$O"
 python3 $D/tk360-memq.py "$O" 2026-02-01,2026-02-02,2026-02-03,2026-02-04,2026-02-05,2026-02-06,2026-02-07,2026-02-08,2026-02-09,2026-02-10,2026-02-11,2026-02-12,2026-02-13,2026-02-14
 rc=$?
