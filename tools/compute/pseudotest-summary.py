@@ -26,7 +26,8 @@ def main():
     ap.add_argument("cells")
     ap.add_argument("--canary", nargs=2, metavar=("OTHER", "HYP"))
     a = ap.parse_args()
-    rows = rd(a.cells)
+    allrows = rd(a.cells)
+    rows = [r for r in allrows if r.get("pop", "event") == "event"]
     if a.canary:
         other, hyp = a.canary
         o = {(r["hyp"], r["pop"], r["src"], r["month"]): r for r in rd(other)}
@@ -53,8 +54,8 @@ def main():
     groups = {}
     for r in rows:
         groups.setdefault((r["hyp"], r["src"]), []).append(r)
-    print("| гипотеза | рынок | мес | n | S 10 с | S 60 с | S 10 мин | S 1 ч | вверх/вниз 10 мин | мед 10 мин | мес lo>0 | мес hi<0 | топ-3 монет, доля n | n_calib |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    print("| гипотеза | рынок | мес | n | S 10 с | S 60 с | S 10 мин | S 1 ч | вверх/вниз 10 мин | мед 10 мин | мес lo>0 | мес hi<0 | Snet 60 с (±1 ч) | Snet 10 мин (±1 ч) | мес Snet10м lo>0 (оба сдвига) | топ-3 монет, доля n | n_calib |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for (h, s), g in sorted(groups.items()):
         n = sum(int(r["n"]) for r in g)
 
@@ -70,10 +71,15 @@ def main():
         lo = sum(1 for r in g if fl(r["lo_m_10m"]) > 0)
         hi = sum(1 for r in g if fl(r["hi_m_10m"]) < 0)
         nc = sum(int(r.get("n_calib") or 0) for r in g)
+        def wsh(h):  # взвешенно по n, среднее двух сдвигов (+1 ч, −1 ч)
+            return (w(f"Snet_sp1h_{h}") + w(f"Snet_sm1h_{h}")) / 2
+
+        nl = sum(1 for r in g if fl(r["lo_Snet_sp1h_10m"]) > 0 and fl(r["lo_Snet_sm1h_10m"]) > 0)
         f = lambda v: "н/д" if math.isnan(v) else f"{v:.2f}".replace(".", ",")
         print(
             f"| {h} | {s} | {len(g)} | {n:,} | {f(w('S_m_10s'))} | {f(w('S_m_60s'))} | {f(w('S_m_10m'))} | {f(w('S_m_1h'))} "
-            f"| {f(w('up_m_10m'))} / {f(w('dn_m_10m'))} | {f(w('med_m_10m'))} | {lo} | {hi} | {f(w('top3_n_share'))} | {nc:,} |"
+            f"| {f(w('up_m_10m'))} / {f(w('dn_m_10m'))} | {f(w('med_m_10m'))} | {lo} | {hi} | {f(wsh('60s'))} | {f(wsh('10m'))} | {nl} "
+            f"| {f(w('top3_n_share'))} | {nc:,} |"
         )
 
 
