@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TK-360: проход валидности СПОТА (как tk345-validity-pass.sh для фьюча): те же 12 наборов фильтров и семейства форм F1–F3,
-# но корень/подходы спота: /data/tk0319/e-<мес>/study/root-<сутки>, подходы журнала /data/tk0319/jrn/<сутки>/wt/sub/D20 (--signal approach).
+# (ret1h* убраны: в --signal approach ключи ret* не определены — отказ движка; 10 наборов) но корень/подходы спота: /data/tk0319/e-<мес>/study/root-<сутки>, подходы журнала /data/tk0319/jrn/<сутки>/wt/sub/D20 (--signal approach).
 #   tk360-validity-spot.sh <сутки> <выход-каталог> "<символы через пробел>"      env: BIN GT FAMS ("F1 F2 F3")
 set -uo pipefail
 d=$1; O=$2; SYMS=$3
@@ -18,7 +18,7 @@ common=(lob bounce-grid --root "study/root-$d" --day "$d" --touches-from wt/sub/
   --order-usd 500 --carry-root root --h3-mode notional --h3-usd 10000 --band-exit-bps 20 --busy-skip off --threads "$GT" --hold-step skip --exit-group on --events wide
   --set base:side=bid --set age10:side=bid,age=10 --set age60:side=bid,age=60 --set usd30k:side=bid,usd_min=30000
   --set flow100:side=bid,flow=100 --set fr:side=bid,frontrun --set btcup:side=bid,btc4h_min=0 --set btcdn:side=bid,btc4h_max=0
-  --set ret1hup:side=bid,ret1h_min=0 --set ret1hdn:side=bid,ret1h_max=0 --set age10usd30k:side=bid,age=10,usd_min=30000 --set ask:side=ask)
+  --set age10usd30k:side=bid,age=10,usd_min=30000 --set ask:side=ask)
 F1=(--entry-form single@fr --entry-form market --stop-form before --stop-form pct0.5 --stop-form pct2 --take-form 1to1 --take-form tr1x1 --deadline-secs 1800 --exit-form none --early-exit-secs off)
 F2=(--entry-form single@fr --stop-form pct2 --take-form 1to1 --deadline-secs 1800 --deadline-secs 14400 --exit-form none --exit-form eat50 --exit-form gone50 --early-exit-secs 2 --early-exit-secs off)
 F3=(--entry-form market --stop-form pct0.5 --take-form 1to1 --take-form tr1x1 --deadline-secs 14400 --exit-form eat50 --exit-form gone50 --early-exit-secs 2 --early-exit-secs off)
