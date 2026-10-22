@@ -20,7 +20,7 @@
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|
-| 5 трекаемых файлов восстановлены | да | `ls data/judge313 data/tk243/judge`; `git hash-object` = `HEAD:` (cov-check.txt cb8dd6ba); `M` был только устаревший stat — после `git update-index --refresh` `git status --short data/` пусто |
+| 5 трекаемых файлов восстановлены | да | `ls data/judge313 data/tk243/judge`; `git hash-object` = `HEAD:` (cov-check.txt cb8dd6ba); остаётся `M` только из-за перевода строк (`git diff` пуст, хеш после фильтра равен HEAD), содержимое то же |
 | отчёт поправлен | да | findings стр. 7 и 28 — перечислено восстановленное |
 | worktree / теги / .git | да | `git worktree list` = 7, `archive/*` = 95 (без изменений с первой проверки) |
 | rpv / rpv-tk100k | да | оставлены (решение Судьи); строка 33 отчёта «решение за Судьёй» — замечание, вывод не меняет |
