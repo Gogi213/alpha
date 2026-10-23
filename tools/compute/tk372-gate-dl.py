@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""TK-372 (G-016): сделки Gate за 15–21.10.2026 (UTC) по монетам, общим с юниверсом Bybit (>50k$/сут).
+"""TK-372 (G-016): сделки Gate за 15–21.10.2026 (UTC) по монетам Gate, которых нет на Bybit, с оборотом 24ч > 50k$ по рынку (правка владельца 23.10; первая версия — общие монеты).
 Стенд: stdlib, python3. Подкоманды:
-  list  --ticks <bybit-ticks.csv> --out <каталог>      → list-fut.csv / list-spot.csv (карта Bybit→Gate)
+  list  --ticks <bybit-ticks.csv> --out <каталог>      → list-fut.csv / list-spot.csv (карта Bybit→Gate; СТАРЫЙ объём — общие монеты)
+  universe --out <каталог> [--universe <csv>]           → list-fut.csv / list-spot.csv: монеты Gate БЕЗ Bybit (спот+linear+inverse, Trading), оборот 24ч > 50k$ по рынку
   run   --root <каталог> [--workers 4] [--rps 10]       → raw/<market>/<SYM>/<date>.csv.gz + log/dl.tsv (докачка: готовое пропускается)
   check --root <каталог>                                → log/check.tsv: сумма объёма сделок против свечей 1м за сутки
 API: REST futures/usdt/trades, spot/trades (from/to в секундах, [from,to) — правая граница исключена; ответ — от новых к
@@ -123,6 +124,66 @@ def cmd_list(a):
     print("fut: Bybit>50k %d, на Gate %d; spot: Bybit>50k %d, на Gate %d (tradable %d)" % (nf, len(out), ns, len(sp), sum(1 for r in sp if r[2] == "tradable")))
 
 
+STRIP = re.compile(r"^(1000000|100000|10000|1000|100)(?=[A-Z])")
+STABLE = {"USDT", "USDC", "USD", "FDUSD", "TUSD", "DAI", "USD1", "USDE", "PYUSD"}
+
+
+def bybit_coins():
+    """Базовые монеты живых инструментов Bybit (status=Trading): спот + linear + inverse; в наборе и имя, и без префикса 1000*."""
+    import urllib.request
+    out = set(); cnt = {}
+    for cat in ("spot", "linear", "inverse"):
+        cur = ""; n = 0
+        while True:
+            u = "https://api.bybit.com/v5/market/instruments-info?category=%s&limit=1000%s" % (cat, "&cursor=" + cur if cur else "")
+            with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "alpha-research"}), timeout=30) as r: j = json.load(r)
+            for x in j["result"]["list"]:
+                if x.get("status") == "Trading": out.add(x["baseCoin"]); out.add(STRIP.sub("", x["baseCoin"])); n += 1
+            cur = j["result"].get("nextPageCursor") or ""
+            if not cur: break
+        cnt[cat] = n
+    return out, cnt
+
+
+def on_bybit(base, bb):
+    return base in bb or STRIP.sub("", base) in bb
+
+
+def cmd_universe(a):
+    """Монеты Gate БЕЗ Bybit (ни спот, ни фьюч) с оборотом 24ч своего рынка > порога (правка 23.10). → list-*.csv + universe-csv."""
+    o = a.out; os.makedirs(o, exist_ok=True); bb, cnt = bybit_coins()
+    cs = {c["name"]: c for c in get("/api/v4/futures/usdt/contracts")}
+    fut = []
+    for t in get("/api/v4/futures/usdt/tickers"):
+        n = t["contract"]; c = cs.get(n)
+        if not c or c.get("in_delisting") in (True, "true") or c.get("status", "trading") != "trading": continue
+        if on_bybit(n[:-5], bb): continue
+        fut.append([n, "фьюч", "%.2f" % float(t["volume_24h_quote"]), t["volume_24h_quote"], "USDT", c["quanto_multiplier"], c.get("status", "")])
+    ps = {p["id"]: p for p in get("/api/v4/spot/currency_pairs")}; tk = {t["currency_pair"]: t for t in get("/api/v4/spot/tickers")}
+    spot = []; skip_q = 0
+    for pid, p in ps.items():
+        if p["trade_status"] != "tradable" or pid not in tk or on_bybit(p["base"], bb): continue
+        q = p["quote"]; qv = float(tk[pid]["quote_volume"])
+        if q in STABLE: usd = qv
+        elif q + "_USDT" in tk: usd = qv * float(tk[q + "_USDT"]["last"])
+        else: skip_q += 1; continue
+        spot.append([pid, "спот", "%.2f" % usd, tk[pid]["quote_volume"], q, "", p["trade_status"]])
+    hdr = ["gate", "market", "turnover24h_usd", "native_turnover", "native_unit", "gate_quanto_multiplier", "gate_trade_status"]
+    res = {}
+    for mk, rows in (("fut", fut), ("spot", spot)):
+        n0 = len(rows); rows = sorted((r for r in rows if float(r[2]) > a.min_usd), key=lambda r: -float(r[2])); res[mk] = rows
+        p = "%s/list-%s.csv" % (o, mk)
+        if os.path.exists(p): os.replace(p, "%s/list-%s-common-bybit.csv" % (o, mk))  # прежний список (общие с Bybit) — не теряем
+        with open(p, "w", newline="") as f:
+            w = csv.writer(f, lineterminator="\n"); w.writerow(hdr); w.writerows(rows)
+        print("%s: Gate без Bybit %d, оборот > %g$: %d" % (mk, n0, a.min_usd, len(rows)))
+    print("Bybit Trading: %s, монет с префиксами %d; спот без USD-котировки пропущено %d" % (cnt, len(bb), skip_q))
+    if a.universe:
+        with open(a.universe, "w", newline="") as f:
+            w = csv.writer(f, lineterminator="\n"); w.writerow(["symbol", "market", "turnover24h_usd", "native_turnover", "native_unit"])
+            for mk in ("fut", "spot"): w.writerows([r[:5] for r in res[mk]])
+
+
 def units(root, days=None):
     u = []
     for mk in ("spot", "fut"):  # спот первым: история только 30 дн.
@@ -197,7 +258,8 @@ def cmd_check(a):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(); s = p.add_subparsers(dest="c", required=True)
     l = s.add_parser("list"); l.add_argument("--ticks", required=True); l.add_argument("--out", required=True)
+    u = s.add_parser("universe"); u.add_argument("--out", required=True); u.add_argument("--min-usd", type=float, default=50000); u.add_argument("--universe", default="")
     for n in ("run", "check"):
         r = s.add_parser(n); r.add_argument("--root", required=True); r.add_argument("--workers", type=int, default=4); r.add_argument("--rps", type=float, default=10); r.add_argument("--days", default="")
     s.choices["check"].add_argument("--only", default="")
-    a = p.parse_args(); {"list": cmd_list, "run": cmd_run, "check": cmd_check}[a.c](a)
+    a = p.parse_args(); {"list": cmd_list, "universe": cmd_universe, "run": cmd_run, "check": cmd_check}[a.c](a)
