@@ -1,0 +1,108 @@
+{
+ "all": {
+  "n": 4929,
+  "cd": 485,
+  "mean": 14.25,
+  "lo": 11.41,
+  "hi": 17.15
+ },
+ "persistent": {
+  "n": 4,
+  "cd": 2,
+  "mean": 38.03,
+  "lo": 30.58,
+  "hi": 40.52
+ },
+ "nonpersistent": {
+  "n": 4925,
+  "cd": 483,
+  "mean": 14.23,
+  "lo": 11.38,
+  "hi": 17.52
+ },
+ "coins_with_persistent_days": 2,
+ "coins_total": 116,
+ "top_persistent_coins": [
+  [
+   "bsc:BTT-f7C3Bc",
+   1
+  ],
+  [
+   "base:SUPER-da7962",
+   1
+  ],
+  [
+   "ethereum:ZAMA",
+   0
+  ],
+  [
+   "ethereum:UNI-faA318",
+   0
+  ],
+  [
+   "ethereum:UNI",
+   0
+  ],
+  [
+   "ethereum:SUPER",
+   0
+  ],
+  [
+   "ethereum:SAFE-000ba5",
+   0
+  ],
+  [
+   "ethereum:RIVER-1ef948",
+   0
+  ],
+  [
+   "ethereum:RAVE",
+   0
+  ],
+  [
+   "ethereum:QNT-24EE2c",
+   0
+  ],
+  [
+   "ethereum:PEPE",
+   0
+  ],
+  [
+   "ethereum:PAXG-5aE13B",
+   0
+  ],
+  [
+   "ethereum:ONDO",
+   0
+  ],
+  [
+   "ethereum:NEAR-ee8AAa",
+   0
+  ],
+  [
+   "ethereum:NAORIS",
+   0
+  ]
+ ],
+ "nonpers_ethereum": {
+  "n": 1693,
+  "cd": 165,
+  "mean": 26.5,
+  "lo": 25.53,
+  "hi": 27.55
+ },
+ "nonpers_base": {
+  "n": 308,
+  "cd": 79,
+  "mean": 16.27,
+  "lo": 13.36,
+  "hi": 19.42
+ },
+ "nonpers_bsc": {
+  "n": 2924,
+  "cd": 239,
+  "mean": 6.92,
+  "lo": 3.98,
+  "hi": 10.03
+ }
+}
