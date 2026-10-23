@@ -7,7 +7,7 @@ quote-mint — противоположных знаков. Цена = quote/M; 
 import sys, csv, collections
 Q = {'So11111111111111111111111111111111111111112': 'WSOL', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'USDC',
      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'USDT'}
-coin = {r['mint']: r['coin'] for r in csv.DictReader(open(sys.argv[1])) if r['src'] == 'gate'}
+coin = {r['mint']: r['coin'] for r in csv.DictReader(open(sys.argv[1])) if r['src'] == __import__('os').environ.get('SRC', 'gate')}
 files = sys.argv[4:]
 MINTX = 30
 def rows(f):

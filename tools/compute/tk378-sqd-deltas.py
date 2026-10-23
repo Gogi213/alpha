@@ -4,7 +4,7 @@
 Запуск: tk378-sqd-deltas.py MINTS.csv IN.jsonl OUT.csv ; конец — OUT.csv.done"""
 import sys, csv, json
 Q = {'So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'}
-M = {r['mint'] for r in csv.DictReader(open(sys.argv[1])) if r['src'] == 'gate'}
+M = {r['mint'] for r in csv.DictReader(open(sys.argv[1])) if r['src'] == __import__('os').environ.get('SRC', 'gate')}
 w = csv.writer(open(sys.argv[3], 'w', newline=''))
 w.writerow('ts,slot,txidx,sig,payer,fee,cu,mint,account,delta,dec'.split(','))
 for line in open(sys.argv[2]):
