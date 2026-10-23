@@ -1,0 +1,193 @@
+{
+ "requests": 719,
+ "errors": 539,
+ "jobs": 300,
+ "ethereum": {
+  "n": 115,
+  "top_to": [
+   [
+    "0x278d858f05b94576c1e6f73285886876ff6ef8d2",
+    35
+   ],
+   [
+    "0x98c3d3183c4b8a650614ad179a1a98be0a8d6b8e",
+    17
+   ],
+   [
+    "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+    14
+   ],
+   [
+    "0xbdb3ba9ffe392549e1f8658dd2630c141fdf47b6",
+    9
+   ],
+   [
+    "0x09fc9b7545020f6a51d113e495e0a451597969d3",
+    7
+   ],
+   [
+    "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45",
+    5
+   ],
+   [
+    "0x8cc5c24a1666d3214340050315b82b2b6b0d9027",
+    5
+   ],
+   [
+    "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+    5
+   ],
+   [
+    "0xb6c7cb5d255f562546b28bc4c7c60ba5838d7832",
+    4
+   ],
+   [
+    "0xb897969305a508d7dd00e4b8218827c6742c0635",
+    3
+   ]
+  ],
+  "top_from": [
+   [
+    "0x3ff8d98fe2cd35a641e10ac4965e5cd7c5dd25ca",
+    27
+   ],
+   [
+    "0x91aae0aafd9d2d730111b395c6871f248d7bd728",
+    15
+   ],
+   [
+    "0x8bb88a3eafd6ba0b6cce254c0c447c4cf5860afe",
+    14
+   ],
+   [
+    "0x1dc89ab25ab5d8714fcf9ee4bd9c9a58debeb4d8",
+    10
+   ],
+   [
+    "0x5b43453fce04b92e190f391a83136bfbecedefd1",
+    9
+   ],
+   [
+    "0xd166e79f9ed2ea485da2ad5de5553db74dfc0f85",
+    5
+   ],
+   [
+    "0x69583c1cfab69b7358809f6dc1eba11e509c1b22",
+    5
+   ],
+   [
+    "0x32ea9a3a3e71cad78fa701b77d2071b7be97b705",
+    3
+   ],
+   [
+    "0x3e9b19ba0f26ed8ddedb3a5fb310aab0dd790dab",
+    3
+   ],
+   [
+    "0x10bfb75b436156a18d9e4630d8bf7e529015a8e9",
+    2
+   ]
+  ],
+  "share_top1_to": 0.304,
+  "share_top1_from": 0.235,
+  "to_eq_pool": 0.0
+ },
+ "base": {
+  "n": 65,
+  "top_to": [
+   [
+    "0x278d858f05b94576c1e6f73285886876ff6ef8d2",
+    12
+   ],
+   [
+    "0x8b12ca0e3f55da41b11be7381d673efb96e61a8e",
+    7
+   ],
+   [
+    "0x83d55acdc72027ed339d267eebaf9a41e47490d5",
+    6
+   ],
+   [
+    "0x8ea5ad2a58c1dae75394b1e8636e6518eb6dac50",
+    5
+   ],
+   [
+    "0x29be31e7ef434a74d69da1cb6b51ad65c83e9a7b",
+    5
+   ],
+   [
+    "0xa8ff33c8d72ec08d14852464c2c54b6cfd105774",
+    3
+   ],
+   [
+    "0x2626664c2603336e57b271c5c0b26f421741e481",
+    3
+   ],
+   [
+    "0x5d71e479e730329ac46ba06c179efb301e536fdd",
+    3
+   ],
+   [
+    "0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43",
+    3
+   ],
+   [
+    "0x08fb33543ad633db94282df364ad80feb8d9fc35",
+    3
+   ]
+  ],
+  "top_from": [
+   [
+    "0x39d38b422055ecf4992f06c15482573b7be7f2e1",
+    7
+   ],
+   [
+    "0xfb1c505c975e229a7c9746141971abdab71f46c4",
+    4
+   ],
+   [
+    "0x994213733e5296a9ff583988c27f1c1b118f4973",
+    3
+   ],
+   [
+    "0xc049a92dc0a0c46338f12acd426481a01ad06efa",
+    2
+   ],
+   [
+    "0x49e718be169a0b817aa33e4557e5f4adecc4e6da",
+    2
+   ],
+   [
+    "0xfb055bff69d06447ef0288f5f91a2f5c5c81c511",
+    2
+   ],
+   [
+    "0x1dc89ab25ab5d8714fcf9ee4bd9c9a58debeb4d8",
+    2
+   ],
+   [
+    "0x5435a8b2b3da2355684c0f8602694f62a1229b02",
+    2
+   ],
+   [
+    "0x0216de0aff9ed847375a76cfcde5a83bd8ea99c2",
+    1
+   ],
+   [
+    "0x93dfb39e953e5186807557f26ab73f13eefa0c83",
+    1
+   ]
+  ],
+  "share_top1_to": 0.185,
+  "share_top1_from": 0.108,
+  "to_eq_pool": 0.0
+ },
+ "bsc": {
+  "n": 0,
+  "top_to": [],
+  "top_from": [],
+  "share_top1_to": null,
+  "share_top1_from": null,
+  "to_eq_pool": null
+ }
+}
