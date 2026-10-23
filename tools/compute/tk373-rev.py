@@ -3,12 +3,19 @@
 фиксирован до окна счёта 16–21.10; не чаще раза в 60 с). Сторона s = знак хода. После t0=ts+1 на горизонтах HP (10/60/300 с) меряем на DEX:
 imb = s*(buy-sell)/(buy+sell) USD пулов монеты (поток по стороне хода), dpx = s*ход цены последнего свопа (бп), by = s*ход Bybit дальше (бп);
 до события (W с до t0): imb_pre. Контроль — те же величины в моменты t±3600 с (та же сторона s), net = M - среднее контролей.
-usage: tk373-rev.py <usd> <sec> <universe.csv> <outdir> [P=15]   (движок tk369-run2.py)"""
+env VERS=v2|v3 — только пулы этой версии. usage: tk373-rev.py <usd> <sec> <universe.csv> <outdir> [P=15]   (движок tk369-run2.py)"""
 import sys, os, json, bisect, gzip, importlib.util
 from multiprocessing import Pool
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("r2", os.path.join(HERE, "tk369-run2.py"))
 r2 = importlib.util.module_from_spec(spec); sys.modules["r2"] = r2; spec.loader.exec_module(r2)
+VERS = os.environ.get("VERS", "")
+VERMAP = {}
+if VERS:
+    for _v in json.load(open(os.environ.get("POOLSJSON", "/data/tk0373/pools-all.json"))).values():
+        if _v:
+            _l = "".join(_v.get("labels") or []).replace("v", "v")
+            VERMAP[_v["pool"].lower()] = "v3" if "v3" in _l else ("v2" if "v2" in _l else "")
 WS = (10, 60); HP = (10, 60, 300); SHIFT = 3600; COOL = 60
 
 class Dex:
@@ -46,6 +53,8 @@ def work(job):
     fut = r2.load_mid(sym, "fut")
     if fut is None: return key, {"err": "no_fut_mid"}
     pools = r2.read_swaps(coin_dirs)
+    if VERS:                                  # TK-373: только пулы заданной версии (v2/v3) по меткам Dexscreener (pools-all.json)
+        pools = {k: v for k, v in pools.items() if VERMAP.get(k[1].lower()) == VERS}
     allsw = sorted((x[0], x[1], x[2], x[3]) for sw in pools.values() for x in sw if x[3] > 0)
     if len(allsw) < 50: return key, {"err": "few_swaps", "n": len(allsw)}
     dex = Dex(allsw)

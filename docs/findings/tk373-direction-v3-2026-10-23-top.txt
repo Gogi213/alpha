@@ -1,0 +1,128 @@
+         all R10 imb_pre    n= 20189 k= 199 net +0.736±0.032 p=0.0002 q=0.000437
+         all R10 imb10      n= 15205 k= 202 net +0.233±0.038 p=0.0002 q=0.000437
+         all R10 dpx10      n= 77546 k= 300 net +1.526±0.359 p=0.0002 q=0.000437
+         all R10 by10       n= 77546 k= 300 net +0.261±0.091 p=0.0040 q=0.00622
+         all R10 imb60      n= 33821 k= 238 net +0.201±0.022 p=0.0002 q=0.000437
+         all R10 dpx60      n= 77546 k= 300 net +3.520±0.666 p=0.0002 q=0.000437
+         all R10 by60       n= 77545 k= 300 net +0.309±0.272 p=0.2662 q=0.287
+         all R10 imb300     n= 47846 k= 247 net +0.129±0.012 p=0.0002 q=0.000437
+         all R10 dpx300     n= 77546 k= 300 net +6.103±1.225 p=0.0002 q=0.000437
+         all R10 by300      n= 77546 k= 300 net -0.543±0.482 p=0.2934 q=0.304
+         all R10 dpx10_60   n= 77546 k= 300 net +1.994±0.603 p=0.0002 q=0.000437
+         all R10 dpx60_300  n= 77546 k= 300 net +2.583±1.487 p=0.0452 q=0.0576
+         all R10 by10_60    n= 77545 k= 300 net +0.049±0.223 p=0.8403 q=0.84
+         all R10 by60_300   n= 77545 k= 300 net -0.853±0.299 p=0.0032 q=0.00535
+       day16 R10 dpx60      n= 15132 k=  50 net +6.609±1.374 p=0.0002 q=nan
+       day17 R10 dpx60      n= 10219 k=  50 net +3.908±1.256 p=0.0010 q=nan
+       day18 R10 dpx60      n= 13332 k=  50 net +3.631±1.311 p=0.0002 q=nan
+       day19 R10 dpx60      n= 12282 k=  50 net +3.329±0.826 p=0.0002 q=nan
+       day20 R10 dpx60      n= 15049 k=  50 net +1.286±2.535 p=0.8580 q=nan
+       day21 R10 dpx60      n= 11532 k=  50 net +2.114±1.048 p=0.0002 q=nan
+    str1-1.5 R10 dpx60      n= 61605 k= 298 net +3.411±0.782 p=0.0002 q=nan
+    str1.5-2 R10 dpx60      n=  9195 k= 299 net +3.333±0.804 p=0.0002 q=nan
+      str2-3 R10 dpx60      n=  4427 k= 280 net +2.100±1.935 p=0.2814 q=nan
+     str3-99 R10 dpx60      n=  2318 k= 232 net +9.503±3.525 p=0.0005 q=nan
+  chain:base R10 dpx60      n=   870 k=   6 net +7.295±2.224 p=0.0335 q=nan
+chain:base,bsc R10 dpx60      n=  4457 k=  18 net +4.389±0.849 p=0.0002 q=nan
+chain:base,bsc,ethereum R10 dpx60      n=  4935 k=  30 net +3.989±8.840 p=0.7213 q=nan
+   chain:bsc R10 dpx60      n= 42572 k= 150 net +2.823±0.557 p=0.0002 q=nan
+chain:bsc,ethereum R10 dpx60      n= 18082 k=  72 net +4.514±0.646 p=0.0002 q=nan
+chain:ethereum R10 dpx60      n=  6630 k=  24 net +3.855±0.726 p=0.0002 q=nan
+       day16 R10 dpx300     n= 15132 k=  50 net +8.709±1.384 p=0.0002 q=nan
+       day17 R10 dpx300     n= 10219 k=  50 net +6.189±2.552 p=0.0042 q=nan
+       day18 R10 dpx300     n= 13332 k=  50 net +3.306±2.334 p=0.1182 q=nan
+       day19 R10 dpx300     n= 12282 k=  50 net +8.945±4.209 p=0.0002 q=nan
+       day20 R10 dpx300     n= 15049 k=  50 net +8.158±3.956 p=0.0002 q=nan
+       day21 R10 dpx300     n= 11532 k=  50 net +0.130±1.783 p=0.9953 q=nan
+    str1-1.5 R10 dpx300     n= 61605 k= 298 net +6.259±1.063 p=0.0002 q=nan
+    str1.5-2 R10 dpx300     n=  9195 k= 299 net +7.017±6.271 p=0.3209 q=nan
+      str2-3 R10 dpx300     n=  4427 k= 280 net +1.816±2.437 p=0.4741 q=nan
+     str3-99 R10 dpx300     n=  2318 k= 232 net +6.325±6.300 p=0.3284 q=nan
+  chain:base R10 dpx300     n=   870 k=   6 net +14.405±2.426 p=0.0257 q=nan
+chain:base,bsc R10 dpx300     n=  4457 k=  18 net +7.189±1.361 p=0.0002 q=nan
+chain:base,bsc,ethereum R10 dpx300     n=  4935 k=  30 net +31.657±15.236 p=0.0290 q=nan
+   chain:bsc R10 dpx300     n= 42572 k= 150 net +2.404±0.917 p=0.0010 q=nan
+chain:bsc,ethereum R10 dpx300     n= 18082 k=  72 net +6.498±0.958 p=0.0002 q=nan
+chain:ethereum R10 dpx300     n=  6630 k=  24 net +7.934±1.238 p=0.0002 q=nan
+       day16 R10 imb60      n=  7857 k=  47 net +0.216±0.050 p=0.0002 q=nan
+       day17 R10 imb60      n=  5730 k=  48 net +0.184±0.043 p=0.0002 q=nan
+       day18 R10 imb60      n=  7885 k=  47 net +0.149±0.038 p=0.0002 q=nan
+       day19 R10 imb60      n=  6430 k=  48 net +0.202±0.048 p=0.0002 q=nan
+       day20 R10 imb60      n=  5532 k=  36 net +0.245±0.055 p=0.0002 q=nan
+       day21 R10 imb60      n=   387 k=  12 net +0.556±0.073 p=0.0030 q=nan
+    str1-1.5 R10 imb60      n= 25392 k= 234 net +0.224±0.022 p=0.0002 q=nan
+    str1.5-2 R10 imb60      n=  4665 k= 208 net +0.167±0.023 p=0.0002 q=nan
+      str2-3 R10 imb60      n=  2359 k= 166 net +0.114±0.027 p=0.0002 q=nan
+     str3-99 R10 imb60      n=  1404 k= 128 net +0.041±0.029 p=0.1722 q=nan
+  chain:base R10 imb60      n=   168 k=   6 net +0.598±0.109 p=0.0377 q=nan
+chain:base,bsc R10 imb60      n=  1145 k=  15 net +0.611±0.054 p=0.0002 q=nan
+chain:base,bsc,ethereum R10 imb60      n=  1403 k=  24 net +0.489±0.057 p=0.0005 q=nan
+   chain:bsc R10 imb60      n= 24499 k= 116 net +0.137±0.019 p=0.0002 q=nan
+chain:bsc,ethereum R10 imb60      n=  6265 k=  59 net +0.279±0.071 p=0.0002 q=nan
+chain:ethereum R10 imb60      n=   341 k=  18 net +0.594±0.084 p=0.0002 q=nan
+         all R60 imb_pre    n= 18379 k= 236 net +0.553±0.037 p=0.0002 q=0.000437
+         all R60 imb10      n=  9505 k= 187 net +0.141±0.034 p=0.0002 q=0.000437
+         all R60 dpx10      n= 33905 k= 300 net +2.427±0.316 p=0.0002 q=0.000437
+         all R60 by10       n= 33905 k= 300 net +0.223±0.136 p=0.1090 q=0.127
+         all R60 imb60      n= 17591 k= 232 net +0.155±0.026 p=0.0002 q=0.000437
+         all R60 dpx60      n= 33905 k= 300 net +4.595±0.617 p=0.0002 q=0.000437
+         all R60 by60       n= 33905 k= 300 net +0.635±0.269 p=0.0222 q=0.0311
+         all R60 imb300     n= 22666 k= 245 net +0.120±0.017 p=0.0002 q=0.000437
+         all R60 dpx300     n= 33905 k= 300 net +6.544±1.119 p=0.0002 q=0.000437
+         all R60 by300      n= 33905 k= 300 net -0.854±0.556 p=0.1305 q=0.146
+         all R60 dpx10_60   n= 33905 k= 300 net +2.168±0.610 p=0.0002 q=0.000437
+         all R60 dpx60_300  n= 33905 k= 300 net +1.950±1.079 p=0.0440 q=0.0576
+         all R60 by10_60    n= 33905 k= 300 net +0.412±0.231 p=0.0805 q=0.098
+         all R60 by60_300   n= 33905 k= 300 net -1.489±0.571 p=0.0055 q=0.0081
+       day16 R60 dpx60      n=  6548 k=  50 net +6.232±0.861 p=0.0002 q=nan
+       day17 R60 dpx60      n=  4486 k=  50 net +4.976±1.641 p=0.0012 q=nan
+       day18 R60 dpx60      n=  6138 k=  50 net +4.149±0.809 p=0.0002 q=nan
+       day19 R60 dpx60      n=  5082 k=  50 net +3.977±1.247 p=0.0005 q=nan
+       day20 R60 dpx60      n=  6721 k=  50 net +4.480±1.928 p=0.0297 q=nan
+       day21 R60 dpx60      n=  4930 k=  50 net +3.423±2.032 p=0.0002 q=nan
+    str1-1.5 R60 dpx60      n= 28343 k= 300 net +4.418±0.714 p=0.0002 q=nan
+    str1.5-2 R60 dpx60      n=  2784 k= 261 net +7.675±2.707 p=0.0002 q=nan
+      str2-3 R60 dpx60      n=  1625 k= 193 net +6.318±4.272 p=0.1412 q=nan
+     str3-99 R60 dpx60      n=  1152 k= 119 net -1.658±5.320 p=0.7686 q=nan
+  chain:base R60 dpx60      n=   288 k=   6 net +17.052±2.713 p=0.0002 q=nan
+chain:base,bsc R60 dpx60      n=  2029 k=  18 net +5.264±1.421 p=0.0007 q=nan
+chain:base,bsc,ethereum R60 dpx60      n=  1701 k=  30 net +1.156±8.326 p=0.8710 q=nan
+   chain:bsc R60 dpx60      n= 19926 k= 150 net +3.521±0.609 p=0.0002 q=nan
+chain:bsc,ethereum R60 dpx60      n=  7535 k=  72 net +6.200±0.945 p=0.0002 q=nan
+chain:ethereum R60 dpx60      n=  2426 k=  24 net +8.807±1.282 p=0.0002 q=nan
+       day16 R60 dpx300     n=  6548 k=  50 net +6.043±2.614 p=0.0135 q=nan
+       day17 R60 dpx300     n=  4486 k=  50 net +5.995±2.610 p=0.0180 q=nan
+       day18 R60 dpx300     n=  6138 k=  50 net +4.271±2.379 p=0.0117 q=nan
+       day19 R60 dpx300     n=  5082 k=  50 net +6.052±1.640 p=0.0005 q=nan
+       day20 R60 dpx300     n=  6721 k=  50 net +11.667±3.231 p=0.0002 q=nan
+       day21 R60 dpx300     n=  4930 k=  50 net +4.065±2.059 p=0.0005 q=nan
+    str1-1.5 R60 dpx300     n= 28343 k= 300 net +7.419±1.217 p=0.0002 q=nan
+    str1.5-2 R60 dpx300     n=  2784 k= 261 net +7.247±3.344 p=0.0077 q=nan
+      str2-3 R60 dpx300     n=  1625 k= 193 net +0.493±8.245 p=0.9595 q=nan
+     str3-99 R60 dpx300     n=  1152 k= 119 net -8.524±8.639 p=0.3939 q=nan
+  chain:base R60 dpx300     n=   288 k=   6 net +29.222±4.654 p=0.0002 q=nan
+chain:base,bsc R60 dpx300     n=  2029 k=  18 net +8.051±2.213 p=0.0002 q=nan
+chain:base,bsc,ethereum R60 dpx300     n=  1701 k=  30 net +19.619±13.787 p=0.1827 q=nan
+   chain:bsc R60 dpx300     n= 19926 k= 150 net +2.576±1.055 p=0.0045 q=nan
+chain:bsc,ethereum R60 dpx300     n=  7535 k=  72 net +9.804±1.543 p=0.0002 q=nan
+chain:ethereum R60 dpx300     n=  2426 k=  24 net +15.897±2.376 p=0.0002 q=nan
+       day16 R60 imb60      n=  3918 k=  46 net +0.178±0.066 p=0.0002 q=nan
+       day17 R60 imb60      n=  3041 k=  45 net +0.138±0.047 p=0.0002 q=nan
+       day18 R60 imb60      n=  4424 k=  46 net +0.068±0.028 p=0.0002 q=nan
+       day19 R60 imb60      n=  3185 k=  48 net +0.149±0.051 p=0.0002 q=nan
+       day20 R60 imb60      n=  2864 k=  35 net +0.263±0.073 p=0.0002 q=nan
+       day21 R60 imb60      n=   159 k=  12 net +0.542±0.086 p=0.0085 q=nan
+    str1-1.5 R60 imb60      n= 14126 k= 230 net +0.184±0.026 p=0.0002 q=nan
+    str1.5-2 R60 imb60      n=  1618 k= 150 net +0.067±0.022 p=0.0005 q=nan
+      str2-3 R60 imb60      n=  1035 k= 114 net +0.018±0.042 p=0.7386 q=nan
+     str3-99 R60 imb60      n=   811 k=  62 net +0.011±0.024 p=0.6748 q=nan
+  chain:base R60 imb60      n=    78 k=   6 net +0.655±0.091 p=0.0602 q=nan
+chain:base,bsc R60 imb60      n=   598 k=  15 net +0.476±0.088 p=0.0002 q=nan
+chain:base,bsc,ethereum R60 imb60      n=   586 k=  22 net +0.459±0.066 p=0.0002 q=nan
+   chain:bsc R60 imb60      n= 12781 k= 115 net +0.101±0.025 p=0.0002 q=nan
+chain:bsc,ethereum R60 imb60      n=  3361 k=  56 net +0.207±0.073 p=0.0002 q=nan
+chain:ethereum R60 imb60      n=   187 k=  18 net +0.728±0.080 p=0.0002 q=nan
+coins ['R10', 'dpx60', 50, np.float64(0.94), np.float64(3.4991586672181603), np.float64(1550.92)]
+coins ['R10', 'dpx300', 50, np.float64(0.96), np.float64(5.5942108792335485), np.float64(1550.92)]
+coins ['R60', 'dpx60', 50, np.float64(0.96), np.float64(4.403765686740476), np.float64(678.1)]
+coins ['R60', 'dpx300', 50, np.float64(0.82), np.float64(7.356601183164515), np.float64(678.1)]
