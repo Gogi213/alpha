@@ -24,6 +24,7 @@ REFRESH=${REFRESH_REF:-}; ARGS=(); for a in "$@"; do if [ "$a" = --refresh-ref ]
 set -- ${ARGS[@]+"${ARGS[@]}"}
 ALLF=base,r2,dl,tk115,tk115j,tk115w,tk115e
 if [ "${1:-}" = --selftest ]; then SELF=1; NEW=""; FAMS=${2:-$ALLF}; else SELF=0; NEW=${1:?новый бинарник (путь)}; FAMS=${2:-$ALLF}; fi
+GMON=${GATE_MON:-jul}; GDAY=${GATE_DAY:-2026-07-07}  # TK-371: данные янв–июн удалены (TK-367) — гейт на июльских сутках; другой месяц/сутки — GATE_MON/GATE_DAY (нужны дневные скрипты days/ и epochs e-<мес>)
 T=/data/tk164; TAG=${GATE_TAG:-164}; if [ -n "${GATE_TAG:-}" ]; then GW=${GATE_W:-$T/w-$TAG}; G=${GATE_DIR:-$T/gate-$TAG}; else GW=${GATE_W:-$T}; G=${GATE_DIR:-$T/gate}; fi
 BIN=/opt/alpha-compute/bin; RC=${REF_CACHE:-$T/refcache}; mkdir -p "$G" "$T/wrap" "$GW" "$RC"; rm -f "$G/gate.done" "$G/summary.txt"
 rc_on() { [ -z "$REFRESH" ] && [ -z "${ABIN_SPLIT:-}" ]; }
@@ -39,12 +40,12 @@ rc_put() {  # $1 ключ; остальные: пары «каталог-в-кэ
 # семья: опорный (в $BIN или путь) | месяц | сутки | скрипт суток | клетки (для счёта got/exp, пусто — только files>0)
 fam_conf() {
   case $1 in
-    base)  REF=${REF_OVERRIDE:-$BIN/alpha-b14flag};            MON=jan; DAY=2026-01-01,2026-01-15; SCR=jall; CELLS=/data/tk164/cells-241.txt
-           [ $SELF = 1 ] && DAY=2026-01-01;;  # самопроверка: путь jall один раз, не 2×2 прогона по 241 клетке
-    r2)    REF=$BIN/alpha-b15pyr4pgoflag;     MON=mar; DAY=2026-03-07; SCR=/data/tk065/days/r2-2026-03-07.sh;  CELLS=/data/tk065/days/r2-2026-03-07.cells;;
-    dl)    REF=$BIN/alpha-tk084-dl;           MON=mar; DAY=2026-03-07; SCR=/data/tk084/days/p12-2026-03-07.sh; CELLS=/data/tk084/days/p12-2026-03-07.cells;;
-    tk115) REF=$BIN/alpha-b26tk115r2;         MON=mar; DAY=2026-03-07; SCR=/data/tk065/days/r3a-2026-03-07.sh; CELLS=/data/tk065/days/r3a-2026-03-07.cells;;
-    tk115j|tk115w|tk115e) REF=/data/tk0115/bin/alpha-tk115f; MON=mar; DAY=2026-03-07;;
+    base)  REF=${REF_OVERRIDE:-$BIN/alpha-b14flag};            MON=$GMON; DAY=${GATE_BASE_DAYS:-2026-07-01,2026-07-15}; SCR=jall; CELLS=/data/tk164/cells-241.txt
+           [ $SELF = 1 ] && DAY=${DAY%%,*};;  # самопроверка: путь jall один раз, не 2×2 прогона по 241 клетке
+    r2)    REF=$BIN/alpha-b15pyr4pgoflag;     MON=$GMON; DAY=$GDAY; SCR=/data/tk065/days/r2-$GDAY.sh;  CELLS=/data/tk065/days/r2-$GDAY.cells;;
+    dl)    REF=$BIN/alpha-tk084-dl;           MON=$GMON; DAY=$GDAY; SCR=/data/tk084/days/p12-$GDAY.sh; CELLS=/data/tk084/days/p12-$GDAY.cells;;
+    tk115) REF=$BIN/alpha-b26tk115r2;         MON=$GMON; DAY=$GDAY; SCR=/data/tk065/days/r3a-$GDAY.sh; CELLS=/data/tk065/days/r3a-$GDAY.cells;;
+    tk115j|tk115w|tk115e) REF=/data/tk0115/bin/alpha-tk115f; MON=$GMON; DAY=$GDAY;;
   esac
   [ -e "$REF" ] || REF=$BIN/_archive/$(basename "$REF")  # TK-176А: опорные ушли в bin/_archive
   if [ "$(head -c2 "$REF")" = '#!' ]; then  # опорный — обёртка с env: её exec тоже мог уйти в _archive → копия с исправленным путём
@@ -67,7 +68,7 @@ run_day() {  # $1 метка $2 бинарь/обёртка $3 мес $4 сут�
   for x in $E/* $E/.[!.]*; do b=$(basename "$x"); case $b in b5|b5-solo|b5-ref|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$x" "$S/$b"; done
   cp "$6" "$S/cells.txt"
   if [ "$5" = jall ]; then  # строка 3 jall-скрипта суток (как ряд TK-148), --events wide, свои клетки
-    sed -n 3p "$H/alpha/tmp-p07/cells-by-day/jall-jan-$4.sh" | sed "s# bounce-grid # bounce-grid --events wide #; s# --cells [^ ]*# --cells $S/cells.txt#; s# --extra-runs [^ ]*##; s#b5/.cellstmp-$4.log#$S/grid.log#" > "$S/day.sh"
+    sed -n 3p "$H/alpha/tmp-p07/cells-by-day/jall-$3-$4.sh" | sed "s# bounce-grid # bounce-grid --events wide #; s# --cells [^ ]*# --cells $S/cells.txt#; s# --extra-runs [^ ]*##; s#b5/.cellstmp-$4.log#$S/grid.log#" > "$S/day.sh"
   else  # готовый скрипт суток: клетки/каталоги внутри него — как в боевом счёте; пишет в b5/ рабочего каталога $S
     cp "$5" "$S/day.sh"; sed -i "s#--cells [^ ]*#--cells $S/cells.txt#; s#> b5/\.cellstmp-\([^ ]*\)\.log#> b5/.cellstmp-\1.log#; s#^cp b5/\.cellstmp[^ ]*\.log /data/[^ ]*#:#" "$S/day.sh"
   fi
@@ -108,14 +109,14 @@ cmpdirs() {  # $1 A $2 B: cmp всех файлов (без логов), files>0
 WFORMS="chase86400000 chase6040 chase12080 chase24160 tape30q0.014653226867454029 tape30q0.21387408589803297 cxl30q1.5778084895559001 cxl30q15.839990627236537"
 tk115j_run() {  # $1 метка ref|new $2 бинарь: tk115-delta-day (signals/e106/walls), красный при fail.txt/нет done/пустых подпапках
   local O=/data/tk0115/delta/g${TAG}-$1 rc=0 s
-  rm -rf "$O"; BIN=$2 TP=4 GT=2 bash /data/tk0115/tk115-delta-day.sh "g${TAG}-$1" mar 2026-03-07 > "$GW/tk115j-$1.out" 2>&1 || rc=1
+  rm -rf "$O"; BIN=$2 TP=4 GT=2 bash /data/tk0115/tk115-delta-day.sh "g${TAG}-$1" "$GMON" "$GDAY" > "$GW/tk115j-$1.out" 2>&1 || rc=1
   [ -e "$O/done" ] && [ ! -s "$O/fail.txt" ] || { echo "RUNFAIL tk115j $1 (done/fail.txt: $(cat "$O/fail.txt" 2>/dev/null | head -3))"; return 1; }
   for s in signals e106 walls; do [ -n "$(find "$O/$s" -type f 2>/dev/null | head -1)" ] || { echo "RUNFAIL tk115j $1: пусто $s"; rc=1; }; done
   return $rc
 }
 tk115w_run() {  # $1 метка $2 бинарь: сетка B1 суток (логика tk115-w-day.sh, КОПИЕЙ — боевой /data/tk0115/delta/w не трогаем) всеми формами WFORMS
-  local MON=mar d=2026-03-07 BN=$2 H=/data/tk046/mar/home W=$GW/xw-$1 x b rc fl=() f got
-  local E=$H/alpha/epochs/e-mar V=/data/tk044/final3/verdict.csv
+  local MON=$GMON d=$GDAY BN=$2 H=/data/tk046/$GMON/home W=$GW/xw-$1 x b rc fl=() f got
+  local E=$H/alpha/epochs/e-$MON V=/data/tk044/final3/verdict.csv
   rm -rf "$W"; mkdir -p "$W/b5" "$W/bin"; ln -s "$BN" "$W/bin/alpha-tk044k1-new"
   for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in b5|b5-ref|b5-solo|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$(readlink -f "$x")" "$W/$b"; done
   awk -F, -v m="$MON" -v d="$d" 'NR>1 && $1==m && $2==d{print $3}' /data/tk0115/delta/b1-symdays.csv | sort -u > "$W/syms.txt"
@@ -128,8 +129,8 @@ tk115w_run() {  # $1 метка $2 бинарь: сетка B1 суток (ло�
   [ "$rc" = 0 ] && [ "$(find "$W/out" -name 'rounds*.csv' | wc -l)" -gt 0 ] && [ "$got" = "$(echo $WFORMS | wc -w)" ] || { echo "RUNFAIL tk115w $1 (rc=$rc got=$got)"; return 1; }
 }
 tk115e_run() {  # $1 метка $2 бинарь: e65 (wall2/wall2x) — touches --r1-cols --wall-log по символам B1 суток + сетка --driver setups (отказ без журнала стен)
-  local MON=mar d=2026-03-07 BN=$2 H=/data/tk046/mar/home W=$GW/xe-$1 x b rc=0 s got nr
-  local E=$H/alpha/epochs/e-mar V=/data/tk044/final3/verdict.csv
+  local MON=$GMON d=$GDAY BN=$2 H=/data/tk046/$GMON/home W=$GW/xe-$1 x b rc=0 s got nr
+  local E=$H/alpha/epochs/e-$MON V=/data/tk044/final3/verdict.csv
   rm -rf "$W"; mkdir -p "$W/b5" "$W/bin" "$W/study/approaches" "$W/wt/D20/$d" "$W/log"; ln -s "$BN" "$W/bin/alpha-tk044k1-new"
   for x in "$E"/* "$E"/.[!.]*; do b=$(basename "$x"); case $b in study|b5|b5-ref|b5-solo|bin|.day-*) continue;; esac; [ -e "$x" ] && ln -s "$(readlink -f "$x")" "$W/$b"; done
   for x in "$E"/study/*; do b=$(basename "$x"); case $b in root-*|approaches) continue;; esac; ln -s "$(readlink -f "$x")" "$W/study/$b"; done
@@ -150,19 +151,19 @@ fam_ext() {  # $1 tk115j|tk115w: ref и new в одной сессии, свер
   local f=$1 rc=0 nb s; fam_conf "$f"; nb=$(fam_new "$f"); [ $SELF = 1 ] && nb=$REF
   nb=$(readlink -f "$nb")
   if [ "$f" = tk115j ]; then
-    local k O=/data/tk0115/delta/g${TAG}-ref; k=$(rc_key "$(rc_md5 "$REF")" tk115j mar 2026-03-07 /data/tk0115/tk115-delta-day.sh)
+    local k O=/data/tk0115/delta/g${TAG}-ref; k=$(rc_key "$(rc_md5 "$REF")" tk115j "$GMON" "$GDAY" /data/tk0115/tk115-delta-day.sh)
     if rc_hit "$k"; then echo "ref кэш: попадание tk115j ($k)"; rm -rf "$O"; mkdir -p "$O"; for s in signals e106 walls; do ln -s "$RC/$k/$s" "$O/$s"; done
     else tk115j_run ref "$REF" && rc_put "$k" "signals|$O/signals" "e106|$O/e106" "walls|$O/walls" || rc=1; fi
     tk115j_run new "$nb" || rc=1
     for s in signals e106 walls; do cmpdirs /data/tk0115/delta/g${TAG}-ref/$s /data/tk0115/delta/g${TAG}-new/$s || rc=1; done
   elif [ "$f" = tk115e ]; then
-    local k; k=$(rc_key "$(rc_md5 "$REF")" tk115e e65 mar 2026-03-07)
+    local k; k=$(rc_key "$(rc_md5 "$REF")" tk115e e65 "$GMON" "$GDAY")
     if rc_hit "$k"; then echo "ref кэш: попадание tk115e ($k)"; rm -rf "$GW/xe-ref"; mkdir -p "$GW/xe-ref"; ln -s "$RC/$k/out" "$GW/xe-ref/out"
     else tk115e_run ref "$REF" && rc_put "$k" "out|$GW/xe-ref/out" || rc=1; fi
     tk115e_run new "$nb" || rc=1
     cmpdirs "$GW/xe-ref/out" "$GW/xe-new/out" || rc=1
   else
-    local k; k=$(rc_key "$(rc_md5 "$REF")" tk115w mar 2026-03-07 "$WFORMS")
+    local k; k=$(rc_key "$(rc_md5 "$REF")" tk115w "$GMON" "$GDAY" "$WFORMS")
     if rc_hit "$k"; then echo "ref кэш: попадание tk115w ($k)"; rm -rf "$GW/xw-ref"; mkdir -p "$GW/xw-ref"; ln -s "$RC/$k/out" "$GW/xw-ref/out"
     else tk115w_run ref "$REF" && rc_put "$k" "out|$GW/xw-ref/out" || rc=1; fi
     tk115w_run new "$nb" || rc=1
@@ -176,7 +177,7 @@ fam_one() {  # $1 семья
   fam_conf "$f"; nb=$(fam_new "$f"); [ $SELF = 1 ] && nb=$REF
   w=$(mkwrap "$REF" "$nb")
   for d in ${DAY//,/ }; do
-    local k S=$GW/w-$f-ref-$d; k=$(rc_key "$(rc_md5 "$REF")" "$f" "$MON" "$d" "$CELLS" "$SCR" "$([ "$SCR" = jall ] && echo "/data/tk046/$MON/home/alpha/tmp-p07/cells-by-day/jall-jan-$d.sh")")
+    local k S=$GW/w-$f-ref-$d; k=$(rc_key "$(rc_md5 "$REF")" "$f" "$MON" "$d" "$CELLS" "$SCR" "$([ "$SCR" = jall ] && echo "/data/tk046/$MON/home/alpha/tmp-p07/cells-by-day/jall-$MON-$d.sh")")
     if rc_hit "$k"; then echo "ref кэш: попадание $f $d ($k)"; rm -rf "$S"; mkdir -p "$S"; ln -s "$RC/$k/b5" "$S/b5"
     else run_day "$f-ref-$d" "$(mkwrap "$REF" "$REF")" "$MON" "$d" "$SCR" "$CELLS" && rc_put "$k" "b5|$S/b5" || rc=1; fi
     run_day "$f-new-$d" "$w" "$MON" "$d" "$SCR" "$CELLS" || rc=1
