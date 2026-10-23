@@ -76,9 +76,16 @@ for (hid, v, hi), lst in sorted(cells.items()):
     bb = [(bi, bins[(hid, v, hi, bi)]) for bi in range(6) if (hid, v, hi, bi) in bins and bins[(hid, v, hi, bi)][0] >= 30]
     sp = spearman([x[0] for x in bb], [x[1][1] / x[1][0] for x in bb]) if len(bb) >= 3 else float("nan")
     # p_rand: знаковая рандомизация по собственным событиям — z = ΣSnet / sqrt(ΣSnet²)
-    sS2t = sS2.sum()
-    z = sS.sum() / math.sqrt(sS2t) if sS2t > 0 else float("nan")
+    # v2.1 (§12.6): кластер = монето-сутки, дисперсия — Σ(сумма Snet за монето-сутки)²; по-событийная (Σsn², v2.0) — справкой p_rand_ev
+    sCt = (sS ** 2).sum()
+    z = sS.sum() / math.sqrt(sCt) if sCt > 0 else float("nan")
     prand = 1 - ncdf(z) if z == z else float("nan")
+    sS2t = sS2.sum()
+    zev = sS.sum() / math.sqrt(sS2t) if sS2t > 0 else float("nan")
+    prand_ev = 1 - ncdf(zev) if zev == zev else float("nan")
+    okc = n1 > 0
+    cdm = sS[okc] / n1[okc]
+    cd_pos = float((cdm > 0).mean()); cd_med = float(np.median(cdm))
     # контроль 3 (A/B/L): перестановка стороны внутри монето-суток
     pperm = float("nan")
     if hid[0] in "ABL":
@@ -89,7 +96,7 @@ for (hid, v, hi), lst in sorted(cells.items()):
         V = (vs * vd / (nn - 1)).sum()
         if V > 1e-12: pperm = 1 - ncdf((sS[ok].sum() - E) / math.sqrt(V))
     rows.append(dict(hid=hid, v=v, h=H[hi], n=int(N1), cd=len(lst), coins=ncoin, meanM=meanM, snet=meanS, lo=lo, hi=hi_, p=p1,
-                     days_pos=f"{dpos}/{dtot}", coins_pos=f"{cpos}/{ncoin}", top3_share=share3, lo_ex3=lo3, spearman=sp, p_rand=prand, p_perm=pperm))
+                     days_pos=f"{dpos}/{dtot}", coins_pos=f"{cpos}/{ncoin}", top3_share=share3, lo_ex3=lo3, spearman=sp, p_rand=prand, p_rand_ev=prand_ev, cd_pos=cd_pos, cd_med=cd_med, p_perm=pperm))
 
 # BH по всем посчитанным клеткам (оба опорных момента)
 ps = np.array([r["p"] for r in rows]); m = len(ps)
@@ -114,7 +121,7 @@ for r in rows:
 
 # id в банке — G16-A001: подставить
 bank_ids = {k.split("-")[1]: k for k in info}
-cols = ["hid", "v", "h", "n", "cd", "coins", "meanM", "snet", "lo", "hi", "p", "q_bh", "days_pos", "coins_pos", "top3_share", "lo_ex3", "spearman", "p_rand", "p_perm",
+cols = ["hid", "v", "h", "n", "cd", "coins", "meanM", "snet", "lo", "hi", "p", "q_bh", "days_pos", "coins_pos", "top3_share", "lo_ex3", "spearman", "p_rand", "p_rand_ev", "cd_pos", "cd_med", "p_perm",
         "c1_ci_bh", "c2_days_coins", "c3_ex3", "c4_dose", "c5_rand", "c6_perm", "like_alpha", "above_costs"]
 with open(PFX + ".csv", "w", newline="", encoding="utf-8") as f:
     w = csv.writer(f); w.writerow(["id"] + cols[1:])
@@ -128,6 +135,6 @@ with open(PFX + "-top.txt", "w", encoding="utf-8") as f:
     f.write(f"m={m} клеток, монет {len(coins_all)}\n")
     for r in top:
         f.write(f"{r['hid']} h={r['h']:>4} n={r['n']:>7} монето-суток={r['cd']:>4} монет={r['coins']:>3} Snet={r['snet']:+.2f} [{r['lo']:+.2f};{r['hi']:+.2f}] q={r['q_bh']:.3f} "
-                f"дни {r['days_pos']} монеты {r['coins_pos']} top3={r['top3_share']:.2f} ex3_lo={r['lo_ex3']:+.2f} доза={r['spearman']:+.2f} p_rand={r['p_rand']:.3f} "
+                f"дни {r['days_pos']} монеты {r['coins_pos']} top3={r['top3_share']:.2f} ex3_lo={r['lo_ex3']:+.2f} доза={r['spearman']:+.2f} p_rand={r['p_rand']:.3f} p_ev={r['p_rand_ev']:.3f} cd+={r['cd_pos']:.2f} cd_med={r['cd_med']:+.2f} "
                 f"alpha={r['like_alpha']}\n")
 print(open(PFX + "-top.txt", encoding="utf-8").read())
