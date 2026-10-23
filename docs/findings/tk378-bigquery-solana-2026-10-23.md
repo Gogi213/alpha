@@ -30,3 +30,8 @@
 - Для настоящего восстановления нужны `pre/post_token_balances` (Transactions) или Instructions. dry_run (бесплатно): Transactions `signature,fee` за 1 сутки — **50,1 ГБ**; с `pre/post_token_balances` за 1 сутки — **245,5 ГБ** (неделя ≈ 1,7 ТБ — не влезает). Priority fee за неделю ≈ 350 ГБ (по подписи фильтра нет — сканируется всё).
 - Вариант: balances за 1–2 суток (245–490 ГБ) вместо недели; остаток лимита месяца ≈ 880 ГБ минус то, что списал TK-364 (не учтено).
 - Не сделано: п.2 (priority fee, подписант), п.3 (ETH), USD-слой, дозапуск TK-377 — упираются в решение по бюджету.
+
+## Шаг 3 (23.10 ~19:00): balances за 17.10 и 20.10 (по слову CEO 18:36)
+- Расход за месяц до шага: 115,9 ГБ (`list_jobs`, 2 запроса) — остаток ≈ 884 ГБ.
+- dry_run 1 суток (17.10), варианты: post (mint,owner,amount) 113,8 ГБ · pre+post (mint,owner,amount) 187,2 · pre+post полностью 206,3 · только mint 67,3 · balance_changes 358,9 · fee+signers 237,9. Нужны pre и post (дельта vault'а) → вариант pre+post без account_index/decimals.
+- Боевой запрос: сутки 17.10 + 20.10 одним проходом, фильтр EXISTS(mint ∈ наши 18) в pre/post, колонки signature, ts, slot, index, fee, pre, post: dry_run **430,6 ГБ** (≤ 250/сутки; остаток после ≈ 450 > резерва 150). Скрипт `tools/compute/tk378-sol-bal.py`, юнит `tk378-bal` на calc, выход `/data/tk0378/bal.jsonl`, метка `bal.rc`.
