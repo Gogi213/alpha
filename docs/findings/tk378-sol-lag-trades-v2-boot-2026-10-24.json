@@ -1,0 +1,578 @@
+{
+ "CLAUDIA|50": {
+  "coin": "CLAUDIA",
+  "X": 50,
+  "episodes": 1101,
+  "with_ctl": 436,
+  "units": 5,
+  "med_pnl": 1.6,
+  "excess": [
+   30.0,
+   17.9,
+   41.1
+  ],
+  "net_gate": [
+   28.4,
+   24.4,
+   34.3
+  ],
+  "net_gate_dexfee": [
+   28.3,
+   24.4,
+   34.1
+  ],
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 5,
+  "days": 5
+ },
+ "FONE|50": {
+  "coin": "FONE",
+  "X": 50,
+  "episodes": 984,
+  "with_ctl": 446,
+  "units": 8,
+  "med_pnl": 17.9,
+  "excess": [
+   33.9,
+   14.9,
+   52.7
+  ],
+  "net_gate": [
+   20.3,
+   13.8,
+   26.3
+  ],
+  "net_gate_dexfee": [
+   20.3,
+   14.0,
+   26.4
+  ],
+  "fee_bp_1000usd": 0.03,
+  "days_pos_excess": 7,
+  "days": 8
+ },
+ "HOOKED|50": {
+  "coin": "HOOKED",
+  "X": 50,
+  "episodes": 1406,
+  "with_ctl": 763,
+  "units": 8,
+  "med_pnl": 22.9,
+  "excess": [
+   48.2,
+   34.1,
+   62.9
+  ],
+  "net_gate": [
+   26.9,
+   17.0,
+   35.9
+  ],
+  "net_gate_dexfee": [
+   26.9,
+   16.7,
+   35.9
+  ],
+  "fee_bp_1000usd": 0.05,
+  "days_pos_excess": 8,
+  "days": 8
+ },
+ "KIMCHI|50": {
+  "coin": "KIMCHI",
+  "X": 50,
+  "episodes": 262,
+  "with_ctl": 84,
+  "units": 1,
+  "med_pnl": 0.0,
+  "excess": null,
+  "net_gate": null,
+  "net_gate_dexfee": null,
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 1,
+  "days": 1
+ },
+ "SI|50": {
+  "coin": "SI",
+  "X": 50,
+  "episodes": 2616,
+  "with_ctl": 1928,
+  "units": 8,
+  "med_pnl": 16.9,
+  "excess": [
+   23.4,
+   19.8,
+   27.2
+  ],
+  "net_gate": [
+   10.7,
+   6.8,
+   14.2
+  ],
+  "net_gate_dexfee": [
+   10.6,
+   6.8,
+   14.1
+  ],
+  "fee_bp_1000usd": 0.1,
+  "days_pos_excess": 8,
+  "days": 8
+ },
+ "ALL4|50": {
+  "coin": "ALL4",
+  "X": 50,
+  "episodes": 6107,
+  "with_ctl": 3573,
+  "units": 29,
+  "med_pnl": 15.7,
+  "excess": [
+   34.3,
+   26.7,
+   42.6
+  ],
+  "net_gate": [
+   20.9,
+   16.6,
+   25.2
+  ],
+  "net_gate_dexfee": [
+   20.8,
+   16.5,
+   25.1
+  ],
+  "fee_bp_1000usd": null,
+  "days_pos_excess": 28,
+  "days": 29
+ },
+ "CLAUDIA|100": {
+  "coin": "CLAUDIA",
+  "X": 100,
+  "episodes": 1015,
+  "with_ctl": 438,
+  "units": 5,
+  "med_pnl": -0.0,
+  "excess": [
+   51.9,
+   43.0,
+   62.4
+  ],
+  "net_gate": [
+   41.7,
+   33.9,
+   51.4
+  ],
+  "net_gate_dexfee": [
+   41.7,
+   34.4,
+   51.4
+  ],
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 5,
+  "days": 5
+ },
+ "FONE|100": {
+  "coin": "FONE",
+  "X": 100,
+  "episodes": 575,
+  "with_ctl": 290,
+  "units": 8,
+  "med_pnl": 26.7,
+  "excess": [
+   39.6,
+   31.4,
+   47.4
+  ],
+  "net_gate": [
+   35.3,
+   26.8,
+   42.7
+  ],
+  "net_gate_dexfee": [
+   35.3,
+   27.5,
+   42.7
+  ],
+  "fee_bp_1000usd": 0.03,
+  "days_pos_excess": 8,
+  "days": 8
+ },
+ "HOOKED|100": {
+  "coin": "HOOKED",
+  "X": 100,
+  "episodes": 1213,
+  "with_ctl": 726,
+  "units": 8,
+  "med_pnl": 30.7,
+  "excess": [
+   51.9,
+   38.5,
+   66.9
+  ],
+  "net_gate": [
+   38.4,
+   31.2,
+   45.2
+  ],
+  "net_gate_dexfee": [
+   38.4,
+   31.2,
+   45.2
+  ],
+  "fee_bp_1000usd": 0.05,
+  "days_pos_excess": 8,
+  "days": 8
+ },
+ "KIMCHI|100": {
+  "coin": "KIMCHI",
+  "X": 100,
+  "episodes": 267,
+  "with_ctl": 95,
+  "units": 1,
+  "med_pnl": 31.3,
+  "excess": null,
+  "net_gate": null,
+  "net_gate_dexfee": null,
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 1,
+  "days": 1
+ },
+ "SI|100": {
+  "coin": "SI",
+  "X": 100,
+  "episodes": 2080,
+  "with_ctl": 1621,
+  "units": 8,
+  "med_pnl": 23.1,
+  "excess": [
+   29.2,
+   23.8,
+   33.5
+  ],
+  "net_gate": [
+   16.5,
+   11.4,
+   21.2
+  ],
+  "net_gate_dexfee": [
+   16.4,
+   11.4,
+   21.2
+  ],
+  "fee_bp_1000usd": 0.1,
+  "days_pos_excess": 8,
+  "days": 8
+ },
+ "ALL4|100": {
+  "coin": "ALL4",
+  "X": 100,
+  "episodes": 4883,
+  "with_ctl": 3075,
+  "units": 29,
+  "med_pnl": 20.2,
+  "excess": [
+   42.2,
+   36.2,
+   48.5
+  ],
+  "net_gate": [
+   32.1,
+   26.9,
+   37.1
+  ],
+  "net_gate_dexfee": [
+   32.0,
+   27.0,
+   37.1
+  ],
+  "fee_bp_1000usd": null,
+  "days_pos_excess": 29,
+  "days": 29
+ },
+ "CLAUDIA|200": {
+  "coin": "CLAUDIA",
+  "X": 200,
+  "episodes": 330,
+  "with_ctl": 156,
+  "units": 5,
+  "med_pnl": 79.8,
+  "excess": [
+   87.1,
+   67.3,
+   106.8
+  ],
+  "net_gate": [
+   92.6,
+   69.3,
+   115.8
+  ],
+  "net_gate_dexfee": [
+   92.5,
+   69.3,
+   115.8
+  ],
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 5,
+  "days": 5
+ },
+ "FONE|200": {
+  "coin": "FONE",
+  "X": 200,
+  "episodes": 61,
+  "with_ctl": 29,
+  "units": 7,
+  "med_pnl": 58.5,
+  "excess": [
+   75.2,
+   42.9,
+   103.5
+  ],
+  "net_gate": [
+   78.9,
+   48.0,
+   115.7
+  ],
+  "net_gate_dexfee": [
+   78.9,
+   48.0,
+   116.9
+  ],
+  "fee_bp_1000usd": 0.03,
+  "days_pos_excess": 5,
+  "days": 6
+ },
+ "HOOKED|200": {
+  "coin": "HOOKED",
+  "X": 200,
+  "episodes": 598,
+  "with_ctl": 364,
+  "units": 8,
+  "med_pnl": -0.0,
+  "excess": [
+   47.6,
+   25.4,
+   73.4
+  ],
+  "net_gate": [
+   33.3,
+   17.4,
+   50.9
+  ],
+  "net_gate_dexfee": [
+   33.3,
+   17.7,
+   50.8
+  ],
+  "fee_bp_1000usd": 0.05,
+  "days_pos_excess": 8,
+  "days": 8
+ },
+ "KIMCHI|200": {
+  "coin": "KIMCHI",
+  "X": 200,
+  "episodes": 178,
+  "with_ctl": 52,
+  "units": 1,
+  "med_pnl": 56.2,
+  "excess": null,
+  "net_gate": null,
+  "net_gate_dexfee": null,
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 1,
+  "days": 1
+ },
+ "SI|200": {
+  "coin": "SI",
+  "X": 200,
+  "episodes": 621,
+  "with_ctl": 481,
+  "units": 8,
+  "med_pnl": 8.6,
+  "excess": [
+   32.4,
+   21.8,
+   44.0
+  ],
+  "net_gate": [
+   19.0,
+   10.7,
+   27.3
+  ],
+  "net_gate_dexfee": [
+   18.9,
+   10.9,
+   27.3
+  ],
+  "fee_bp_1000usd": 0.1,
+  "days_pos_excess": 8,
+  "days": 8
+ },
+ "ALL4|200": {
+  "coin": "ALL4",
+  "X": 200,
+  "episodes": 1610,
+  "with_ctl": 1030,
+  "units": 28,
+  "med_pnl": 13.2,
+  "excess": [
+   56.5,
+   43.3,
+   70.6
+  ],
+  "net_gate": [
+   51.2,
+   36.8,
+   67.3
+  ],
+  "net_gate_dexfee": [
+   51.1,
+   36.2,
+   67.7
+  ],
+  "fee_bp_1000usd": null,
+  "days_pos_excess": 26,
+  "days": 27
+ },
+ "CLAUDIA|500": {
+  "coin": "CLAUDIA",
+  "X": 500,
+  "episodes": 20,
+  "with_ctl": 6,
+  "units": 2,
+  "med_pnl": 139.8,
+  "excess": [
+   136.8,
+   90.8,
+   182.8
+  ],
+  "net_gate": [
+   148.9,
+   18.0,
+   279.8
+  ],
+  "net_gate_dexfee": [
+   148.8,
+   17.9,
+   279.7
+  ],
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 2,
+  "days": 2
+ },
+ "FONE|500": {
+  "coin": "FONE",
+  "X": 500,
+  "episodes": 7,
+  "with_ctl": 4,
+  "units": 5,
+  "med_pnl": -0.0,
+  "excess": [
+   75.1,
+   0.0,
+   225.2
+  ],
+  "net_gate": [
+   81.1,
+   -14.6,
+   181.8
+  ],
+  "net_gate_dexfee": [
+   81.0,
+   -14.6,
+   181.8
+  ],
+  "fee_bp_1000usd": 0.03,
+  "days_pos_excess": 1,
+  "days": 3
+ },
+ "HOOKED|500": {
+  "coin": "HOOKED",
+  "X": 500,
+  "episodes": 131,
+  "with_ctl": 82,
+  "units": 8,
+  "med_pnl": 0.0,
+  "excess": [
+   14.0,
+   -18.4,
+   50.5
+  ],
+  "net_gate": [
+   8.9,
+   -9.6,
+   29.5
+  ],
+  "net_gate_dexfee": [
+   8.8,
+   -9.6,
+   29.1
+  ],
+  "fee_bp_1000usd": 0.05,
+  "days_pos_excess": 3,
+  "days": 8
+ },
+ "KIMCHI|500": {
+  "coin": "KIMCHI",
+  "X": 500,
+  "episodes": 46,
+  "with_ctl": 9,
+  "units": 1,
+  "med_pnl": 147.1,
+  "excess": null,
+  "net_gate": null,
+  "net_gate_dexfee": null,
+  "fee_bp_1000usd": 0.06,
+  "days_pos_excess": 1,
+  "days": 1
+ },
+ "SI|500": {
+  "coin": "SI",
+  "X": 500,
+  "episodes": 122,
+  "with_ctl": 99,
+  "units": 8,
+  "med_pnl": -0.0,
+  "excess": [
+   1.2,
+   -6.4,
+   8.7
+  ],
+  "net_gate": [
+   -16.6,
+   -25.8,
+   -9.1
+  ],
+  "net_gate_dexfee": [
+   -16.7,
+   -25.7,
+   -9.1
+  ],
+  "fee_bp_1000usd": 0.1,
+  "days_pos_excess": 4,
+  "days": 8
+ },
+ "ALL4|500": {
+  "coin": "ALL4",
+  "X": 500,
+  "episodes": 280,
+  "with_ctl": 191,
+  "units": 23,
+  "med_pnl": -0.0,
+  "excess": [
+   29.5,
+   2.7,
+   61.4
+  ],
+  "net_gate": [
+   27.9,
+   -4.8,
+   65.7
+  ],
+  "net_gate_dexfee": [
+   27.8,
+   -3.2,
+   66.6
+  ],
+  "fee_bp_1000usd": null,
+  "days_pos_excess": 10,
+  "days": 21
+ }
+}
