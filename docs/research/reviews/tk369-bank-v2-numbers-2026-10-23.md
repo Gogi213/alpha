@@ -1,7 +1,7 @@
 | число | файл:строка |
 |---|---|
-| 8.549 | docs/findings/tk369-bank-v2-2026-10-23.csv:238 |
-| 0.9946 | docs/findings/tk369-bank-v2-2026-10-23.csv:572 |
-| 1.124 | docs/findings/tk369-bank-v2-2026-10-23.csv:586 |
-| 0.4995 | docs/findings/tk369-bank-v2-2026-10-23.csv:9 |
-| 0.09044 | docs/findings/tk369-bank-v2-2026-10-23.csv:444 |
+| +8,55 | docs/findings/tk369-bank-v2-2026-10-23.md:19 |
+| +0,99 | docs/findings/tk369-bank-v2-2026-10-23.md:17 |
+| +1,12 | docs/findings/tk369-bank-v2-2026-10-23.md:18 |
+| +0,50 | docs/findings/tk369-bank-v2-2026-10-23.md:14 |
+| +0,09 | docs/findings/tk369-bank-v2-2026-10-23.md:23 |
