@@ -1,0 +1,65 @@
+[
+ {
+  "coin": "TQQQX",
+  "pool": "Bztq1RwZmU4L7cCnkh5pVz4LnRZ2YUMBzQ5VC2ETg789",
+  "created": "2026-05-29T19:22:00Z",
+  "dex_candles": 358,
+  "gate_candles": 7080,
+  "both": 202,
+  "gap_median_bp": -6970.2,
+  "gap_sd_bp": 128.4,
+  "status": "ok"
+ },
+ {
+  "coin": "KIMCHI",
+  "pool": "6f1HD3hodH3A8zHSL4ddA5yB6TjGYpidwiZVHJJRBn5M",
+  "created": "2026-07-27T01:16:39Z",
+  "dex_candles": 4718,
+  "gate_candles": 0,
+  "status": "skip: мало свечей"
+ },
+ {
+  "coin": "CLAUDIA",
+  "pool": "Fe7bpDYCs74GqiCUF14HwgUMToPKV1d9mDYVX5BTohFr",
+  "created": "2026-10-07T01:44:30Z",
+  "dex_candles": 9527,
+  "gate_candles": 5200,
+  "both": 4852,
+  "gap_median_bp": 1.5,
+  "gap_sd_bp": 148.1,
+  "status": "ok"
+ },
+ {
+  "coin": "HOOKED",
+  "pool": "CnA7BFovX8q8gv2z9QEndo8hPi1PD5nqhABRH4rSnGEc",
+  "created": "2026-10-02T20:57:47Z",
+  "dex_candles": 6868,
+  "gate_candles": 7080,
+  "both": 4550,
+  "gap_median_bp": 20.8,
+  "gap_sd_bp": 1249.6,
+  "status": "ok"
+ },
+ {
+  "coin": "STAMP",
+  "pool": "Bgf45Fjqeobgd5viMX8P8AfhiydRewEFKPd7nmcFNQRb",
+  "created": "2026-09-20T18:44:10Z",
+  "dex_candles": 500,
+  "gate_candles": 7080,
+  "both": 340,
+  "gap_median_bp": 234.9,
+  "gap_sd_bp": 1177.7,
+  "status": "ok"
+ },
+ {
+  "coin": "FONE",
+  "pool": "3dcwhqJp6JBTJPq8ga335HWgSQVS7uQmdmeX7iGjMNpj",
+  "created": "2026-08-27T00:03:44Z",
+  "dex_candles": 5073,
+  "gate_candles": 7080,
+  "both": 3535,
+  "gap_median_bp": 25.1,
+  "gap_sd_bp": 71.0,
+  "status": "ok"
+ }
+]
