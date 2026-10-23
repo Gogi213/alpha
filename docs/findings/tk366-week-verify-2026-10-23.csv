@@ -819,7 +819,7 @@ spot,BTCUSD1,fail,0,0,2354,87,0.036958,
 spot,BTCUSDC,ok,0,0,818380,543,0.000664,
 spot,BTCUSDE,fail,0,0,922,171,0.185466,
 spot,BTCUSDT,ok,0,0,7152034,2212,0.000309,
-spot,BTTUSDT,fail,0,7,0,0,,unusable: tick 1e-10 not representable in e9 (price coarsened x10, trades not stored)
+spot,BTTUSDT,fail,0,7,0,0,,"unusable: tick 1e-10 not representable in e9 (price coarsened x10, trades not stored)"
 spot,CAKEUSDT,ok,0,0,112662,42,0.000373,
 spot,CAPUSDT,ok,0,0,257616,6,0.000023,
 spot,CARVUSDT,ok,0,0,37487,4,0.000107,
@@ -951,7 +951,7 @@ spot,NEARUSDC,ok,0,0,10312,0,0.000000,
 spot,NEARUSDT,ok,0,0,786037,0,0.000000,
 spot,NEIROCTOUSDT,ok,0,0,11386,0,0.000000,
 spot,NEXOUSDT,ok,0,0,22427,0,0.000000,
-spot,NFTUSDT,fail,0,7,3,0,0.000000,unusable: tick 1e-10 not representable in e9 (price coarsened x10, trades not stored)
+spot,NFTUSDT,fail,0,7,3,0,0.000000,"unusable: tick 1e-10 not representable in e9 (price coarsened x10, trades not stored)"
 spot,NIGHTUSDT,ok,0,0,161798,0,0.000000,
 spot,NOTUSDT,ok,0,0,16523,0,0.000000,
 spot,NVDAXUSDT,ok,0,0,7172,0,0.000000,
