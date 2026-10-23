@@ -9,14 +9,15 @@ API: REST futures/usdt/trades, spot/trades (from/to в секундах, [from,t
 старым, ≤1000 строк). Пагинация вниз по времени: следующее to = (минимальная секунда страницы)+1, дубли по id; секунда
 плотнее 1000 строк — offset. Поля как отдаёт биржа (строками, без пересчёта); id сквозные по контракту → полнота = число
 строк суток == max-min+1. Нет `side` у фьючерсов — знак size (как отдаёт биржа)."""
-import argparse, csv, gzip, http.client, io, json, os, sys, threading, time, calendar, re, collections
+import argparse, csv, gzip, http.client, io, json, os, sys, threading, time, calendar, re, collections, urllib.parse
 
 HOST = "api.gateio.ws"
 DAYS = ["2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20", "2026-10-21"]
 COLS = {"fut": ["id", "contract", "create_time", "create_time_ms", "size", "price"],
         "spot": ["id", "create_time", "create_time_ms", "currency_pair", "side", "amount", "price", "sequence_id"]}
 URL = {"fut": "/api/v4/futures/usdt/trades?contract=%s", "spot": "/api/v4/spot/trades?currency_pair=%s"}
-CANDLE = {"fut": "/api/v4/futures/usdt/candlesticks?contract=%s&interval=1m", "spot": "/api/v4/spot/candlesticks?currency_pair=%s&interval=1m"}
+CANDLE = {"fut": "/api/v4/futures/usdt/candlesticks?contract=%s&interval=%s", "spot": "/api/v4/spot/candlesticks?currency_pair=%s&interval=%s"}
+STEP = {"1m": 60, "5m": 300}  # свечи 1м живут ≈7 сут назад (400 «too long ago»), 5м — ≈34 сут
 tl = threading.local()
 G = {"pause_until": 0.0, "last": 0.0, "rps": 10.0, "lock": threading.Lock(), "n429": 0, "req": 0, "e403": 0}
 
@@ -65,7 +66,7 @@ def sec(r):
 
 def fetch_day(mk, sym, d):
     """Все сделки суток [d 00:00, d+1 00:00) UTC; возврат (rows по возрастанию id, число запросов)."""
-    a = day0(d); b = a + 86400; base = URL[mk] % sym; seen = {}; hi = b; nreq = 0
+    a = day0(d); b = a + 86400; base = URL[mk] % urllib.parse.quote(sym); seen = {}; hi = b; nreq = 0
     while True:
         rows = get("%s&from=%d&to=%d&limit=1000" % (base, a, hi)); nreq += 1
         new = 0
@@ -228,7 +229,7 @@ def cmd_run(a):
 
 def cmd_check(a):
     """Сумма объёма сделок суток против суммы свечей 1м (fut: v в контрактах = Σ|size|; spot: base-объём = Σ amount)."""
-    root = a.root; G["rps"] = a.rps; out = open(root + "/log/check.tsv", "a", buffering=1)
+    root = a.root; G["rps"] = a.rps; out = open(root + "/log/check.tsv", "a", buffering=1)  # повтор дописывает: последняя строка (монета, сутки) главная
     us = []
     for x in units(root, a.days and a.days.split(",")):
         if os.path.exists("%s/raw/%s/%s/%s.csv.gz" % (root, *x[:1], x[1], x[2])) and (not a.only or x[1] in a.only.split(",")): us.append(x)
@@ -245,7 +246,7 @@ def cmd_check(a):
                     for r in csv.DictReader(f): tr += abs(float(r["size"])) if mk == "fut" else float(r["amount"])
                 cd = 0.0
                 for k in range(2):  # свечи ≤ 1000 точек: сутки двумя половинами
-                    p = "%s&from=%d&to=%d" % (CANDLE[mk] % sym, t0 + k * 43200, t0 + (k + 1) * 43200 - 60)  # limit с from/to фьючам нельзя (400)
+                    p = "%s&from=%d&to=%d" % (CANDLE[mk] % (urllib.parse.quote(sym), a.interval), t0 + k * 43200, t0 + (k + 1) * 43200 - STEP[a.interval])  # limit с from/to фьючам нельзя (400)
                     for c in get(p): cd += float(c["v"]) if mk == "fut" else float(c[6])
                 line = [mk, sym, d, "%.8g" % tr, "%.8g" % cd, "%.6f" % ((tr - cd) / cd if cd else 0.0)]
             except SystemExit: raise
@@ -261,5 +262,5 @@ if __name__ == "__main__":
     u = s.add_parser("universe"); u.add_argument("--out", required=True); u.add_argument("--min-usd", type=float, default=50000); u.add_argument("--universe", default="")
     for n in ("run", "check"):
         r = s.add_parser(n); r.add_argument("--root", required=True); r.add_argument("--workers", type=int, default=4); r.add_argument("--rps", type=float, default=10); r.add_argument("--days", default="")
-    s.choices["check"].add_argument("--only", default="")
+    s.choices["check"].add_argument("--only", default=""); s.choices["check"].add_argument("--interval", default="1m", choices=sorted(STEP))
     a = p.parse_args(); {"list": cmd_list, "universe": cmd_universe, "run": cmd_run, "check": cmd_check}[a.c](a)
