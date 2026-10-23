@@ -1,0 +1,25 @@
+exchange,cls,dex_cov,n_coins,turn_usd,share_turn,med_spread_bp,taker,maker,fee_source
+Gate,без,ETH/Base,1,171453,0.0145,7.7,0.00075,-0.0001,contracts.taker_fee_rate / maker_fee_rate
+Gate,без,BSC(15-17.10),2,25540,0.0022,152.7,0.00075,-0.0001,contracts.taker_fee_rate / maker_fee_rate
+Gate,без,нет в слое,256,11631395,0.9833,85.5,0.00075,-0.0001,contracts.taker_fee_rate / maker_fee_rate
+Gate,с тяжеловесами,ETH/Base,164,8550213203,0.7509,6.7,0.00075,-0.0001,contracts.taker_fee_rate / maker_fee_rate
+Gate,с тяжеловесами,BSC(15-17.10),99,513284194,0.0451,5.6,0.00075,-0.0001,contracts.taker_fee_rate / maker_fee_rate
+Gate,с тяжеловесами,нет в слое,535,2322559027,0.204,7.6,0.00075,-0.0001,contracts.taker_fee_rate / maker_fee_rate
+Bitget,без,ETH/Base,0,0,0.0,,0.0006,0.0002,contracts.takerFeeRate / makerFeeRate
+Bitget,без,BSC(15-17.10),0,0,0.0,,0.0006,0.0002,contracts.takerFeeRate / makerFeeRate
+Bitget,без,нет в слое,138,75739209,1.0,15.6,0.0006,0.0002,contracts.takerFeeRate / makerFeeRate
+Bitget,с тяжеловесами,ETH/Base,158,4226994477,0.5427,8.1,0.0006,0.0002,contracts.takerFeeRate / makerFeeRate
+Bitget,с тяжеловесами,BSC(15-17.10),85,504520429,0.0648,8.2,0.0006,0.0002,contracts.takerFeeRate / makerFeeRate
+Bitget,с тяжеловесами,нет в слое,472,3057273294,0.3925,8.6,0.0006,0.0002,contracts.takerFeeRate / makerFeeRate
+BingX,без,ETH/Base,0,0,0.0,,0.0005,0.0002,contracts.takerFeeRate / makerFeeRate
+BingX,без,BSC(15-17.10),0,0,0.0,,0.0005,0.0002,contracts.takerFeeRate / makerFeeRate
+BingX,без,нет в слое,720,1717182166,1.0,14.6,0.0005,0.0002,contracts.takerFeeRate / makerFeeRate
+BingX,с тяжеловесами,ETH/Base,160,2094572671,0.5631,4.1,0.0005,0.0002,contracts.takerFeeRate / makerFeeRate
+BingX,с тяжеловесами,BSC(15-17.10),93,533012110,0.1433,4.3,0.0005,0.0002,contracts.takerFeeRate / makerFeeRate
+BingX,с тяжеловесами,нет в слое,249,1092129567,0.2936,5.1,0.0005,0.0002,contracts.takerFeeRate / makerFeeRate
+LBank,без,ETH/Base,0,0,0.0,,nan,nan,НЕТ в contracts (instrument)
+LBank,без,BSC(15-17.10),0,0,0.0,,nan,nan,НЕТ в contracts (instrument)
+LBank,без,нет в слое,136,1244833420,1.0,,nan,nan,НЕТ в contracts (instrument)
+LBank,с тяжеловесами,ETH/Base,149,1774227367,0.2124,,nan,nan,НЕТ в contracts (instrument)
+LBank,с тяжеловесами,BSC(15-17.10),88,980668979,0.1174,,nan,nan,НЕТ в contracts (instrument)
+LBank,с тяжеловесами,нет в слое,478,5600052661,0.6703,,nan,nan,НЕТ в contracts (instrument)
