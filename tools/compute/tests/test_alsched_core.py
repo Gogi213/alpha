@@ -148,6 +148,24 @@ class GateFit(unittest.TestCase):
         self.assertFalse([j for j in core.jobs.values() if j.get("frozen_for")])
         self.assertEqual(be.freezes, [])                                                                       # ни одной заморозки
 
+    def test_gate_starts_beside_preempting_head(self):
+        """TK-312 (CEO 19.10): голова 15 вытеснила проход 15 (заморожен), build 1 ядро — сразу на 16-м, не 15 (голова) + 15 (вытесненный) > 16."""
+        S.RESERVE_CORES, S.GATE_FIT = 1, True
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            a = SS.job("a", "a", "prod", 15, 2, "none", 36000, 0); a["prio"] = 5; core.add(a)
+            core.tick(); be.advance(core, S.TICK)
+            b = SS.job("b", "b", "prod", 15, 2, "none", 36000, be.t); b["prio"] = 3; core.add(b)
+            for _ in range(4):
+                core.tick(); be.advance(core, S.TICK)
+            self.assertEqual((core.jobs["a"]["state"], bool(core.jobs["a"].get("frozen_for")), core.jobs["b"]["state"]), ("running", True, "running"))
+            g = SS.job("g", "build", "prod", 1, 2, "none", 900, be.t); g["kind"] = "build"; g["prio"] = 3; core.add(g)
+            for _ in range(3):
+                core.tick(); be.advance(core, S.TICK)
+            self.assertEqual(core.jobs["g"]["state"], "running")
+        finally:
+            S.RESERVE_CORES, S.GATE_FIT = 0, False
+
     def test_second_gate_waits_without_preempt(self):
         core, be = self.run_case([1, 1])
         self.assertEqual(sorted(core.jobs[i]["state"] for i in ("g0", "g1")), ["queued", "running"])
