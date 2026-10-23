@@ -1,0 +1,34 @@
+{
+ "bybit_coins": 438,
+ "coins_with_pool_any": 109,
+ "pools_found": 153,
+ "coins_by_chain": {
+  "arbitrum": 3,
+  "avalanche": 2,
+  "base": 8,
+  "bsc": 55,
+  "ethereum": 40,
+  "optimism": 1,
+  "polygon": 4,
+  "solana": 36,
+  "sui": 4
+ },
+ "pools_by_chain": {
+  "ethereum": 40,
+  "bsc": 55,
+  "solana": 36,
+  "sui": 4,
+  "base": 8,
+  "polygon": 4,
+  "arbitrum": 3,
+  "avalanche": 2,
+  "optimism": 1
+ },
+ "to_download_new": 86,
+ "to_download_by_chain": {
+  "ethereum": 24,
+  "bsc": 54,
+  "base": 8
+ },
+ "coins_with_evm_new": 71
+}
