@@ -1,0 +1,141 @@
+{
+ "AAPLON-ad82C9@ethereum": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ },
+ "AMP-15e86E@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (sushiswap)",
+  "raw": "{'id': 1, 'jsonrpc': '2.0', 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "BABAON-F34bb4@ethereum": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ },
+ "EL-d91c72@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (v2)",
+  "raw": "{'id': 1, 'jsonrpc': '2.0', 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "ELIZAOS-84b783@base": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ },
+ "FAI-5447F7@base": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (aerodrome)",
+  "raw": "{'jsonrpc': '2.0', 'id': 1, 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "FUEL-C7eC87@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "GOOGLON-39FCB1@ethereum": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ },
+ "GUSD-5aA135@ethereum": {
+  "fee_bp": 5.0,
+  "src": "v3 fee() on-chain"
+ },
+ "HELLO-F3DcE0@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (v2)",
+  "raw": "{'id': 1, 'jsonrpc': '2.0', 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "IMPT-1a89Ae@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "KOON-f758C3@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "LAPTOP-99cf3E@base": {
+  "fee_bp": 80.5,
+  "src": "v3 fee() on-chain"
+ },
+ "LYX-6771dc@ethereum": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ },
+ "MBG-53Ead1@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "MSTRX-EC3210@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "NPC-69C7bd@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (v2)",
+  "raw": "{'id': 1, 'jsonrpc': '2.0', 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "NPC-3F413F@base": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (v2)",
+  "raw": "{'jsonrpc': '2.0', 'id': 1, 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "NVDAON-c9b4bC@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "OFC-44b5D0@base": {
+  "fee_bp": 5.0,
+  "src": "v3 fee() on-chain"
+ },
+ "PROM-544bD3@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (v2)",
+  "raw": "{'id': 1, 'jsonrpc': '2.0', 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "PROS-8A8e41@base": {
+  "fee_bp": 1.0,
+  "src": "v3 fee() on-chain"
+ },
+ "SLC-2AdfE8@base": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (aerodrome)",
+  "raw": "{'jsonrpc': '2.0', 'id': 1, 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "SLVON-9B727C@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "SPCXON-c9101F@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "SPYON-5638bb@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v3 fee() on-chain"
+ },
+ "SYN-4A86C0@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (sushiswap)",
+  "raw": "{'id': 1, 'jsonrpc': '2.0', 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "TLTON-2f21b8@ethereum": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ },
+ "TSLAON-31227b@ethereum": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ },
+ "VR-4085cA@ethereum": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (v2)",
+  "raw": "{'id': 1, 'jsonrpc': '2.0', 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "WELL-89D0F3@base": {
+  "fee_bp": 30.0,
+  "src": "v2: нет fee(), 0,30 pct по умолчанию (aerodrome)",
+  "raw": "{'jsonrpc': '2.0', 'id': 1, 'error': {'code': 3, 'message': 'execution reverted'"
+ },
+ "XPR-464BD7@ethereum": {
+  "fee_bp": 100.0,
+  "src": "v3 fee() on-chain"
+ }
+}
