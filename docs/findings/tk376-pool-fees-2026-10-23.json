@@ -1,0 +1,1837 @@
+{
+ "ethereum:0x4Dd26482738bE6C06C31467a19dcdA9AD781e8C4": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x62e0d3fD804dfBf02d08eE632E9634dBa5c00D03": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x38fA0E36a9Eb335Ca00dbd6d0f203b0Bd72Ce3b6": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xC74F05C1e7b86fa42Ab07Ab4a1361286B9a90087": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x9f2EbE69A86c079f3d4C3B94a11932b676B72f74": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x135Cd19cb3c15f7eB10FC21FF79e1259a65Fc958": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "ethereum:0xd31d41DfFa3589bB0c0183e46a1eed983a5E5978": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x629D22E6eEaC46A11dBC96be93b90aee9309Be4c": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x59354356Ec5d56306791873f567d61EBf11dfbD5": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x5aB53EE1d50eeF2C1DD3d5402789cd27bB52c1bB": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x9E7809C21BA130c1A51C112928eA6474D9a9Ae3C": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x256bD88baf707EAaD1B73Dc8B2b8a5D599B45584": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xF1657E004dA2C8808bD4AEcbe61486F1c373FE44": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "ethereum:0x517F451b0A9E1b87Dc0Ae98A05Ee033C3310F046": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "ethereum:0x65680A987f4871a7bB865C86FaE11667e6aA8068": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x1314AE4CF2A9440303fEf6Ae0FDc9ea5aD7a2A37": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xFbB81382CCe6b9cE58F8645353F70d9DB1bB69af": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x180EFC1349A69390aDE25667487a826164C9c6E4": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x4674abc5796e1334B5075326b39B748bee9EaA34": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xA2b04F8133fC25887A436812eaE384e32A8A84F2": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0xCFfDdeD873554F362Ac02f8Fb1f02E5ada10516f": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x81AEE07F99be78d88881Fa6D98FEFF7555113635": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x003896387666C5c11458EEb3F927B72a11b19783": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xE56c60B5f9f7B5FC70DE0eb79c6EE7d00eFa2625": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x47A853718Cf0d9E1506f01e666780B899B193214": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xBabe4490Da9bCf0Bbf062C40112AEa2109d6bA7f": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "ethereum:0xfCd13EA0B906f2f87229650b8D93A51B2e839EBD": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x1EedEc1e540c9d43eAC18d20b138b3B243d9dbE2": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x92560C178cE069CC014138eD3C2F5221Ba71f58a": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xB6909B960DbbE7392D405429eB2b3649752b4838": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x4D63DA0421AB1D71FBF2A3d3c8625a66d9b9799d": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x155738f4Da7d7b55876f5398bB0195d027400127": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xca7c2771D248dCBe09EABE0CE57A62e18dA178c0": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x948b54A93f5aD1df6B8bFF6Dc249D99CA2EcA052": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xc1cd3D0913f4633b43FcdDBCd7342bC9b71C676f": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xC2C390c6CD3C4e6c2b70727d35a45e8a072F18cA": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x06f00544C0bc62E6db10F46D370dFCcDC23d8189": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x4b62Fa30Fea125e43780DC425C2BE5acb4BA743b": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x0143B80d682d2b6fb8945f47b7D199841ab8184C": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "sushiswap"
+ },
+ "ethereum:0x6a091a3406E0073C3CD6340122143009aDac0EDa": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "sushiswap"
+ },
+ "ethereum:0x1a3Fb049C2D88A16B927Be6a4CAE48ca38D93d4C": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x2e81eC0B8B4022fAC83A21B2F2B4B8f5ED744D70": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0xc3Db44ADC1fCdFd5671f555236eae49f4A8EEa18": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xFf29D3E552155180809ea3A877408A4620058086": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x4d1Eff861316396dD1915F69B49f4C2d7B11590d": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x7Bd14D4230ccA852E40D45537F58988314CfCBF1": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x755C1a8F71f4210CD7B60b9439451EfCbeBa33D1": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x4068038AB5490063a3eAd93B3712Ed082e62bD59": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x8878Df9E1A7c87dcBf6d3999D997f262C05D8C70": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x41E570fC65d0F9EfE89a6145306E2ba7B8A0fa6B": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x11b1f53204d03E5529F09EB3091939e4Fd8c9CF3": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0xa6Cc3C2531FdaA6Ae1A3CA84c2855806728693e8": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xa3f558aebAecAf0e11cA4b2199cC5Ed341edfd74": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xD1D5A4c0eA98971894772Dcd6D2f1dc71083C44E": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x70cF99553471FE6C0d513ebFac8aCC55BA02ab7B": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xA40bb1c47F6DD27142a2Bd7C93BFa98db9D1f5c5": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x56534741CD8B152df6d48AdF7ac51f75169A83b2": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x9Aac67dEeF711D438AD711Ae495B8CB43a6eE1A8": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x5d4F3C6fA16908609BAC31Ff148Bd002AA6b8c83": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x1c98562A2FaB5aF19D8Fb3291a36AC3C618835D9": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xc85AA0Aeb2458f9F35f0224f773Cd90A96Ce813C": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xc8219b876753A85025156b22176c2eDEA17aAC53": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x5aE13BAAEF0620FdaE1D355495Dc51a17adb4082": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xc2eaB7d33d3cB97692eCB231A5D0e4A649Cb539d": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x4C54Ff7F1c424Ff5487A32aaD0b48B19cBAf087F": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x0b07188b12e3BbA6A680E553E23c4079e98A034b": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x83abECf7204d5Afc1Bea5dF734f085f2535a9976": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x1ef948fde266e737e6ED3B371C70ecd9ba9a59AC": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x56Ea002B411FD5887E55329852D5777EcB170713": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xe42318eA3b998e8355a3Da364EB9D48eC725Eb45": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x88ada7b1dd1C728ea87404CEa7a0780139EB35d1": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x57aF956d3E2cCa3B86f3D8C6772C03ddca3eAacB": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xE3FE800B0de664bf0bCa8aD58eCbc73B259047b0": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x7b1E5D984A43eE732de195628d20d05CFaBc3cC7": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xa3c40B2c9489dA8D38d8a0BF12d52894F0359BcE": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xc5c9a9AB6403CDBa9722463000146C18b504F0bA": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x8597fa0773888107E2867D36dd87Fe5bAFeAb328": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "sushiswap"
+ },
+ "ethereum:0x43AE24960e5534731Fc831386c07755A2dc33D47": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x2F62f2B4c5fcd7570a709DeC05D68EA19c82A9ec": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x000ba527862e5b82cff0F7c66b646AF023274aA1": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xC511FF68aE3A1379e8eF3F599F88559c9eC77D9c": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xf8e349d1d827a6EdF17eE673664CFAd4ca78C533": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x8867f20c1c63bAcCEc7617626254a060eEb0E61e": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0xA43fe16908251ee70EF74718545e4FE6C5cCEc9f": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0xE0554a476A092703abdB3Ef35c80e0D76d32939F": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x32D9259e6792B2150FD50395D971864647FA27B2": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x0A55882F4E1117ADc54aFbbac4A39079AD52fB89": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x452749253143768e618371E2c5E3Aca812445Ed6": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0xAEF16913b6C50EBCf627a394921F306985FC8604": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x87C7056BBE6084f03304196Be51c6B90B6d85Aa2": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "sushiswap"
+ },
+ "ethereum:0x185A1fF695d30a22C19F44C6B41e2D6D1C8c1f11": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xf31C54cb6F15a5A807Dc33d9dACC2471303D182e": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xf359492d26764481002eD88BD2acae83cA50B5C9": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x3dd49f67E9d5Bc4C5E6634b3F70BfD9dc1b6BD74": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x27941A235804f33D81aDaBb2d56589c5f6Ea6556": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x7baecE5d47f1BC5E1953FBE0E9931D54DAB6D810": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x25647E01Bd0967C1B9599FA3521939871D1d0888": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x24EE2c6B9597F035088CDa8575E9D5e15a84B9DF": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x52c77b0CB827aFbAD022E6d6CAF2C44452eDbc39": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x205302B66aFb13B04E0e65BC3548DfEFd7d0C585": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x95A45A87Dd4d3A1803039072f37E075F37B23D75": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xee8AAa362a75fBF8e0A38A50ddC27f38551e16eA": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x6546055f46e866a4B9a4A13e81273e3152BAE5dA": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x2fDbAdf3C4D5A8666Bc06645B8358ab803996E28": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x6AdA49AECCF6E556Bb7a35ef0119Cc8ca795294A": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x14424eEeCbfF345B38187d0B8b749E56FAA68539": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0x841820459769cd629B10a36FD12E603938cc2679": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "ethereum:0xb36ec83D844c0579Ec2493f10b2087E96Bb65460": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x859f7092f56c43BB48bb46dE7119d9c799716CDF": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "uniswap"
+ },
+ "ethereum:0x1d42064Fc4Beb5F8aAF85F4617AE8b3b5B8Bd801": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xcb7f520d18141E36956fE0b3A6Bc3D4F11245521": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0xf1Fdc83c3A336bdbDC9fB06e318B08EadDC82FF4": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x222cCBE78890A4d9Ef8d22d7FC1B968Be0F2c653": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x7feEd89be48f937E131f764EF01a2AC02ceC31f8": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x03C33a2fC0D444a5B61E573f9e1A285357a694fc": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0xC1a6FBeDAe68E1472DbB91FE29B51F7a0Bd44F97": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x9F82FC01ac38dc8F85B1D59614b0c03CaE9E19B7": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0x4e829F8A5213c42535AB84AA40BD4aDCCE9cBa02": {
+  "fee_bp": 20.99,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xa11fBd0f7112f2fad10F92f09B4A8d85E8ddD401": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x3367fEDd8Ad5a8Cf01cFE89Df3c697D3A59A1cAD": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xe30d5BF485F7476AC15884a28ffb3C9cEA635DCB": {
+  "fee_bp": 27.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x17EA71d7E2dFb58F6b7e95C2ddDAD863E225091c": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "ethereum:0x360acF12e72044ba3eaAA654E51E4725c699DcB1": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xff862675c47B6a2C9072DCBe2f37a78A445c4f37": {
+  "fee_bp": 2.4,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x3c5428b3D6e07f6de38b0c7F84ea9d30b3b27231": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "ethereum:0xfaA318479b7755b2dBfDD34dC306cb28B420Ad12": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x3b3d1a85A248b70100e95437dbeeBCAE5E7eC7a1": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x5B92bef1D62B82035DFA66640af2A0F84bdB7681": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x7AF45dfaF2fDEA139B2295f37fFea2E16e6Fd8BA": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x78fa9fB7a76C8ea204754a8D4FF301aa29935e8e": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x098A4dE96305baFAEA0c0ce07CF6456e2c64982a": {
+  "fee_bp": 27.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x2eA054c177Abd8b8C87704EaA08680DB5C6d805c": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x1bDBFcAB4568546A4BF01E67057130eA486e40Ba": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x94a734bf60cDe88ab10a9951b17278a3CE129860": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "ethereum:0x4d68B530920D26c3b01C99fecC19e21011B72bBD": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xc9034c3E7F58003E6ae0C8438e7c8f4598d5ACAA": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xd7338B6F338DA54b922bbBC6fBE3EFEDD5Ce35fa": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x7ddb31846C8bdf9272f4ca1f6e2d3c6CCE273527": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0xc422BFB18F9FC217f955d759D3753F31137cCEFd": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xC90E88d30b99442B6994915F3b146cE3D55982D9": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0xBB5Eddb5ecC54061D7f5D46668D0395450895EF9": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x275BE3a43B66516e532BcaA36eE453EDd47614ea": {
+  "fee_bp": 27.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x08C049F958E7d1f1b7ae44466b80d7773cA09c8e": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x27bd426eC343845995c527d634c4E07f0608AaCd": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x592E01EDEb601016a20A3E6cD5bF533eBBadBC8b": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x9c42751954513c0461481a9600c9d11A059Ddd12": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x99188F1755B91b95e1F4D732536a833Fb82b4aD1": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x8D479A4C680A76D4Ae03f10203569558405DDFFF": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x3c0AE164970Ab9eC216cF1b7Ae3118766Ab65e43": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xfE8513f8aa444fAaBB1c35e1E0F24D08c4C9BE15": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x51663B8A28E7Ea197c5CcF983AfC084Da0a8023D": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xd55767AdCABF9a486Fbd3E8DEB5f75A4AD31965F": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0x016df91005F30039c9f1A89b44db5e8c60613603": {
+  "fee_bp": 15.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x0040559f59e2391eC57162826df354B1BBb05c12": {
+  "fee_bp": 80.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xBe762d548f8CA86A78E9Da6e3DdC87F91457e398": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x0abe41C8AAa9282429e06EBEd48bE36298981d94": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xa6C7Fbd1b4c71673DFDaDfaa9D17F14833D3245E": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0x80Cc08712Aa61cE9dc7604F9cE7560A25094B862": {
+  "fee_bp": 45.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x11E26bBd1a5547895A50fc39A2D4C0025deC0BDA": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xB06F0135355ce662DF8Bc0040c7648b7cE272720": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x8A7b72F8ff5299E493317D4430293894107af859": {
+  "fee_bp": 27.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xe96a4E9EA3a2C6Db214174738a19Eb7Dbb8A3069": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0xda7962d28C9Cccd2356A771733a63A590d3b257E": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0x7432aaB631B801a10BEF7d70c1507a32755595fa": {
+  "fee_bp": 27.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x81057171115672ac7D08bbEbB04481E19AA0bfEb": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x48Be08d21FCcF3F793783c23C33555F5E0C2B7cd": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x4b0Aaf3EBb163dd45F663b38b6d93f6093EBC2d3": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xB5F0b4aE66C14F7EFaA9aA1468E8FC536A3E288c": {
+  "fee_bp": 27.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x653489511b193DB2BA980D29DbfC36e924E50381": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x82dD34C6631C286cDD1dB16f2c232f60E402Dd5A": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xAD06a870Fc2198398c18a6f2cA035Bf795EdEeFe": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xEBd2eeaB20CeFa41C94343F506ac506bfc3F681e": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0xcF307083dBf8B68Be7F4bc24B0bc0d3BF79bfb54": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x29183f918920a2AEF0115A9C7374945589968aEa": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x3911ED93687873A9b6D849a7dc3665171175F171": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "base:0x17f707CF3EDBbd5d9251D4bCDF9Ad70a247D7B84": {
+  "fee_bp": 6.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "bsc:0xBB124e35aB9e85f8d59ba83500E559Dc052B9368": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0xEdc625B74537eE3a10874f53D170E9c17A906B9c": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xF0a949d3D93B833C183a27Ee067165B6F2C9625e": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "base:0x3693022BD390E147D8dD89a05403C80FF21dd64B": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x6cDcb1C4A4D1C3C6d054b27AC5B77e89eAFb971d": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "bsc:0x28BDb16b623176426305a70D8B475bE73Aca71f3": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xa6bB9815687072c9682b918A318816d1F4F91337": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x1131DB5977242a03eBeaD1aCD18F80A9A29e5922": {
+  "fee_bp": 3.5,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "base:0x0392B12a1cEb0cd13af5Ea448CF5586EA609852D": {
+  "fee_bp": 15.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "bsc:0x2Fe13112be502026671A6E76aF45d14eC394022D": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x673516E510d702Ab5F2bBf0c6B545111a85f7ea7": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x8B22c20cB60Ae915524FB46e1C1b101b50168445": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x27795f5310232b241934ab4E1EC520d17A8b16B9": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x97620e003c03381EaCBDE7135F28d94303bb5672": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x80968a476E0235a026Fd1F33AAac5a3B7b76110F": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xB62088662D9B5C9a47E852Badd52251B3B2E74B6": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x3f0296BF652e19bca772EC3dF08b32732F93014A": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "bsc:0x9669B9EE0Ac0B0EA93181CD04557ffdC857C815D": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x56336dB9642763B34b746cf38CA2E7657F243A43": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x33dcD5381c0fd234867d5D7a49a19C009F82Af4e": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x0022f0dcd574A1e646250eEbD086781823434504": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x6b0F53cbD9272D8117e9535FE25371dedF39a1bE": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "bsc:0x7E58f160B5B77b8B24Cd9900C09A3E730215aC47": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1D8B1eD9b3da5d510FD3723e0Dd02476E0d7e781": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x203d66ecb7263EfE424FCbA0898761fc9FC9a8c0": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xD10612A288Bd5024Db6a47663750996d176130Fe": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x7192966c6d3AB630eE60dBD4c1B39E9e8267F8cF": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xC2d00De94795e60FB76Bc37d899170996cBdA436": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xc7A398A7F9C4D8181Fd847a2062360f9247a5E59": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xc1A780989734a0e5df875cEbe410748562e1c5e6": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xc736cA3d9b1E90Af4230BD8F9626528B3D4e0Ee0": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x8bfb0Fb037b30562fdb7be3F71440575664ab74E": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x07b7556Ede0f9a6a7d155A78Bc0573f531001A57": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x14cFaD9a4Fcb5FB4f702F5d0E90dcC633e1DEd9A": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xE5f1395eFce39A2AC238B63f79DbC5d524C85dcc": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x7A50f72F6091745d3cC3f1388b0CA5F2F14EFF19": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x7F51BBf34156ba802dEB0E38B7671DC4fa32041d": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xBC51349d35F600f6c501A4CDc1dC79108D1fE3eb": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x81C170260493428923431E76B7C99f11268fEc5a": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xee6fF918A1f68B5d2FDEcb14b367FA2EB5C6951c": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x2f74ad2c64be7DC07C9f51E9d338EcB7C1ee0B18": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xB9ce7C953C296796aB665142118B206B15aeb436": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x49986efbeEdEa3Ab962CA95caF86919860ECc9DB": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xBA20Fe9506a904A30EBB8B7C348f4969F5A5Ea07": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xA5067360b13Fc7A2685Dc82dcD1bF2B4B8D7868B": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xe2461367e562df374Acf8D8A012729721aD5b486": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xE62E359809d1D2396341B7C1EC81E205501870D0": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xf7C3Bc007779E50B5249569aCEe709E9D2Ce4abD": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x3A08AE820cf1483ED3Ac9c33CC100913299D0e12": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x30305B22FC2830B42908993e668b31B7234a9737": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x92247860A03F48d5c6425c7CA35CDcFCB1013AA1": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x6045479ab46dF901E7c86977ED22DDeB80728165": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xA5DbEaf16Fc031eae92175974F8d0A439bE4aD17": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1F87F6A5AE82c4fA00B41f1E6E1afaa4e69ea228": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x588d7cf062f4eDD7c7c7f2d66FD770e03b1eA735": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x04a7Da186392640862F7922A2F7a2e9fE7B43b85": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x6045931E511EF7e53A4A817F971e0CA28c758809": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1E8D7AB96323953faC85ab687f5D38b45344e62d": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xeA4d99d5fbBb904EE980C86EE2d376c36CFA0434": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xD4fB9d253739C5dB6aAD90aD2409757d224CCc0C": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xf4D8a211e7330861fE1271BC48803A9EdD6bAa4E": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xAfB2Da14056725E3BA3a30dD846B6BBbd7886c56": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x0ab02e160f0df68dc049B012c514857306960Eae": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "bsc:0x4f1c8BE4685Db434e645F04b811780a82B2331bc": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x01784ef301D79e4B2DF3a21ad9a536d4cF09A5Ce": {
+  "fee_bp": 30.0,
+  "src": "v2 default",
+  "dex": "aerodrome"
+ },
+ "bsc:0xC1D32D62A81B98410395a30e3a336f319E5e90bE": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x778121B464151FE5d931587c457E48FcAaA0dc7A": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x62F0546cBcd684F7C394D8549119e072527C41Bc": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xac109C8025F272414fd9e2faA805a583708A017f": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x64fa53217bde4179f54C9706dE431b73814e92db": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x9AF29F3543904F4cdeFe13FFf514ac973b891811": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x057759b866c2A1a7C615E8546aA1177a1C0c7140": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xE6e51Ea572502DBdF8b40834D0619f9a9144d3A5": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x6425bC30D0751aF5181fC74a50e760b0e4a19811": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x83738a0B95CbD7DFd6989569a99EDaed3dd704D0": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xe4Af4797AFbf733591B6e0C4EA3566Ad3979CA94": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x8149b92eA743Cc382aaDA523B68B8834733b9015": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x231d9e7181E8479A8B40930961e93E7ed798542C": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xCbeAad783FFD2CeA125E9D9B2Ec21E639d20Fa59": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x26deB24a2623Cf54452Ab5183E2C34551831D54d": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xD076128693c93D784E03134bF642104956422567": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x0e6E1F47C64f517fc9dC35698718C7Dfc708D534": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xd6B652AECB704b0AEBEc6317315afb90ba641d57": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x16D7C51e9c59be9F18b19b608d53b37fa9890b8a": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x7Cb113B487e025b3a69537fcA579559433240cb5": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xD77865e605049Bb362E9a6C5a1df7b033C376811": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x8943A75f4D0D1BAbEa4cd77eabC323127714CAA4": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x7f835B82F788c1830df1D9Fde43B8Ff724720344": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x2dF380544B88AdB3ad0A94100dcC45fd705aAE2d": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x9F8f4615Ff5143aeE365fa34f34196fB85Be7650": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xA8D956401D161F61418576B375B4fDaf0e76155F": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x8063181179B613B7b28F2c208146B701A184F672": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xF7f9fC41DA4B8E0d52a642Af2ad38509C3e40BF0": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x4e1f9aDf96dBA6Dc09c973228c286568F1315ea8": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x172fcD41E0913e95784454622d1c3724f546f849": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x717e174d5dAe280802D1a2c15C1C0976561A3f61": {
+  "fee_bp": 15.0,
+  "src": "v3 fee()",
+  "dex": "aerodrome"
+ },
+ "bsc:0xd21bc2291C1aeF340f5265E257B18aa5dafed759": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x5bd808Ab85C124f99080da5F864EDcB39950edE5": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1C4D17440d6ae1d1BBCF6cf2DED2c36163D9B2F8": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x81965714e2A1EC25fB8BcB3DE60a11FE6bCA929a": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x73de8b8D37fAc1aFe156f6533788A0efF197D636": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xceC354f641Fb46b977c3a1f18B5cAf3E2Ede4C2c": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x99E1a43e738B026a2CD4359409594deBaB61b48D": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x2f62969A74159bfC9365d8Cd29aE8F6D15582204": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1b54cd932B6B751803C996cBeF36280b53795f81": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x688aA9136e2d48C4cd4f117a40029C6BC18506F6": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x0E1893BEEb4d0913d26B9614B18Aea29c56d94b9": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xE3cBe4Dd1BD2F7101f17D586F44bAb944091D383": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x302642976506D247c7017B85DdC89E3956F96bA1": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x7874F0ECD450A5F06AcB85543fe1d0d48e1C525f": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x7d7106e0BD3EE6D85e88dABF8721175731cd37F2": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x6ba666f8da1c59e2Fec41C896333Dd07dC14A506": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xcacD3583C7EF55126099BE733B12672c60E2AB23": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xf8209291B074dc74d39C906386f0037718A15072": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xbdccAFB234bE6dC2545B0C25B0a5F5D9D1124228": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x47eEc63A190fBCdc11328341c96543435d8559bC": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xe34C78cE8F585014F922b64b7a4E2c665a629AF6": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x55D0119A43a0E2c54fd6Eb1F17e3b883EEdBA602": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x85533288f67Ec74878444c273c00254eeA74C2C3": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x6eC31Af1Bb9a72aaCEc12E4dED508861b05F4503": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1BdCebcA3b93af70b58C41272AEa2231754B23ca": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x90A54475D512B8f3852351611c38faD30a513491": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x0a4b571C4932d84dE11A6BCA96bb9BA5bF27Ff1C": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xA7DF052672a24885d784A72b5f72d50296161531": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1A9B68ca1dCaCB106c4b853e2d9c915f0cFe2e56": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xC0FB39f705Ee65Ef098dD5452997A7846d156aa9": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x83A9Fd66c9515536d630Cf818c41190b0372c6f6": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x85BeA4fBC57fA22b41Fb1632f0D9a6A99390fd0a": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xdD82975ab85E745c84e497FD75ba409Ec02d4739": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x5f983A39df8bFa0763cBf3FA4321EDc4f7c4B18b": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x0246913eC96765bca457B0a3608872bBa37D1d15": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x73eA6cc8d4DCfaF52d309800F8428D57e6dc3a2b": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x419f8539c423D66dc42Bd80D6f0Bdd6fD4C21DCe": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x45f443892000daEE3676B5Ec14520f704F680BF5": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x3353274E21Dec3964E56CC227582E320533c5869": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xb73381536690C5d62933F51D8e3440F43Ef155Da": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1D519280255d5D90F469f79dC8f5ABE05F64429f": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x30D59a44930B3994c116846EFe55fC8fcF608aa8": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xAE02717e94C9B5bAe817601a49B4584F58324015": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x6e8f6068c312daB9C1f62530959d801eD16b64BE": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xcd2C63E5C63D4dE3313EE6759680Ddb3087eAc22": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xb249B6E4AC29301f680963a45FaC7D09779Ef980": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xb2AF49dBF526054FAf19602860A5E298a79F3D05": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x14ca9d552eD2CF0D5dFD1f89Bc6793a464e2ed16": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xbba8f85c3cEDdF73dB4de17D31608d640Eaea416": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xa7d3C162AdfCAe88cd3440Ac63d51f746f64e81e": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x43256d0dCC2571E564311edb6D7e8F076a72Fc46": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xE6b421a4408c82381b226Ab5B6F8C4b639044359": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xFA7421F1ed6AD1548316a847e8437af7219A8F18": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xeAA6C7292eD954CA9Dd72E769568D057B0525c9A": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x4a978a2D4fb7393063BaBfb0CEE741b8bCd4dd4B": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x809ef7f598673413Cb7cb0A3344EbDd1E32a05D6": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x0b2EB4332A15e5165477aAd2c79721925920a383": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x27820F8b2e7c5dbe1eef6805577c222aFdE1a191": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x82ED13117144344B39e5ec74d614D54465897a24": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x6dAfBf0AB4FD72e2a5C0Ad5a1ED277d3bf8a8d1f": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xF683113764E4499c473aCd38Fc4b37E71554E4aD": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x3C01A8cb79f4561606C6DeDfEb1f4695F8A174b2": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x8cCB4544b3030dACF3d4D71C658f04e8688e25b1": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x4a3218606AF9B4728a9F187E1c1a8c07fBC172a9": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x1B87567de134DbE30e29953c477f1Cbc3D626B6B": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x258474Cd00b4F42842eD424e6C2C1da0087031B8": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xbd045175d2A1451A015079f5F3F59cA5c05524EA": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x5D2913a8EA284E486000177852c87EA4D64D03D6": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xd27517e1cE43A8E73DC1fdd532d836AdDDc9b842": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x89eE0491CE55d2f7472A97602a95426216167189": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x83A0A8A723262651Ae9C54BBbA929F167443bC59": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x7cCC3010e52fbca54467ff68eEc4be78420571C5": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xF8b5dF35f6ef1F9Ab70D1d76B32D254983Af55e3": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xf0750c373EbBB3BaEEF7e03D8300cAaD1983d67c": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x916F992Df86795F24de6C268CFB9031fBB1155da": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x77d5b2560e4B84b3fC58875Cb0133F39560e8AE3": {
+  "fee_bp": 25.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xa286C2Cc64f49726D664316409475A74751dbe99": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x049F1009BC8C5d0048732Fe2F95C27C240214634": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xc152237D92424b7CaEc0D1f6C8142783C1280d88": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xe3D9f8eF633666771B7f1995AaEDEB67d1b3c853": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x6A97867a4b7Eb7646ffB1F359ad582e9903aa1C2": {
+  "fee_bp": 25.0,
+  "src": "v2 default",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x9154C891ebf6bAcF707970C501F58FecFE3A5Bac": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0xC241e8fb314bc3799BE2Db94dCE4d070c29b425d": {
+  "fee_bp": 100.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "base:0x83f3ACa29Bc79B048B99C56013475570acc97ccF": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xDA7630A141dBB6382DDb6409AeA7331da543B0Bb": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x08dEBfC510A2EB0148107Da7AB8E96531323F4D4": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xbFFEc96e8f3b5058B1817c14E4380758Fada01EF": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x50203DF8eFcddBa9755C886F086b9B2D537a15F9": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x6701B287c8170D6c290C6f4Ef426782bD61Ae310": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x90166B5795250FE7f0831E844121CC91799787e9": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0xF7B5a9B7Ef764606f900C9c1db39aFc682049bc4": {
+  "fee_bp": 30.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "base:0x9331F571F79d1E186a095C93756b5680a43932AC": {
+  "fee_bp": 5.0,
+  "src": "v3 fee()",
+  "dex": "uniswap"
+ },
+ "bsc:0x4D3bF29Ba30f8Bfe4624e7678709afA195689c5D": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ },
+ "bsc:0x8Bafe0bdD3eB9ae0539f5B32e771C1a72A189b7f": {
+  "fee_bp": 1.0,
+  "src": "v3 fee()",
+  "dex": "pancakeswap"
+ }
+}

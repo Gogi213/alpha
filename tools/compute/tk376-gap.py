@@ -8,6 +8,7 @@ import sys, os, csv, json, array, collections, multiprocessing as mp, statistics
 OUT = sys.argv[1]; P = int(sys.argv[2]) if len(sys.argv) > 2 else 15; OUT0, P0 = OUT, P
 _pt = open('/data/tk0364/tk364-pseudotest.py').read().split('def work(job):')[0]
 _argv = sys.argv; sys.argv = ['x', '/tmp/tk376-pt-dummy']; exec(_pt); sys.argv = _argv; OUT, P = OUT0, P0  # load_symbols, bybit_sym, day_series, by_series, ROOT, DAYS, D0, MINSW
+FEES = json.load(open('/data/tk0376/pool-fees.json'))  # fee() пулов (tk376-fees.py); цена пула очищена от fee по стороне свопа (buy: /(1+f), sell: /(1-f)); порог эпизода = max(fee, 5) бп
 TH = 13.0   # порог эпизода, бп (fee пулов этих 477 монет не получен: комиссия — в summary как параметр 5/30/100)
 META = json.load(open('/data/tk0364/usd/pool-meta.json'))
 TAKER = {'perp': 5.5, 'spot': 10.0}   # Bybit VIP0, бп
@@ -28,14 +29,19 @@ def work(job):
             p = f'{ROOT}/{net}/{dirname}/2026-10-{d:02d}.csv'
             if not os.path.exists(p): continue
             for r in csv.DictReader(open(p)):
-                if r['price_usd']: pools[r['pool']].append((int(r['ts']), int(r['logidx']), float(r['price_usd']), r['dex'], float(r['quote_usd'] or 0), r['tx'], int(r['block'])))
+                if r['price_usd']:
+                    f0 = (FEES.get(f"{net}:{r['pool']}") or {}).get('fee_bp')
+                    adj = 1 + (1 if r['side'] == 'buy' else -1) * f0 / 1e4 if f0 is not None else 1.0
+                    pools[r['pool']].append((int(r['ts']), int(r['logidx']), float(r['price_usd']) / adj, r['dex'], float(r['quote_usd'] or 0), r['tx'], int(r['block'])))
         cm = statistics.median(v for v in c[::600] if v == v) if any(v == v for v in c[::600]) else 0
         out = []
         for pool, rows in pools.items():
             rows.sort()
             ratio = statistics.median(r[2] for r in rows) / cm if cm else 0
             if not (0.8 < ratio < 1.25): continue
-            fee = TH
+            fe0 = (FEES.get(f'{net}:{pool}') or {}).get('fee_bp')
+            if fe0 is None: continue
+            fee = max(fe0, 5.0)
             perday = collections.Counter((r[0] - D0) // 86400 for r in rows)
             okdays = {d for d, k in perday.items() if k >= MINSW}
             if not okdays: continue
@@ -96,13 +102,13 @@ def work(job):
                 row = dict(net=net, coin=dirname, pool=pool, dex=r0[3], day=15 + d0, ts=D0 + i,
                            side='pool_above' if s > 0 else 'pool_below', open_gap=round(g[i], 2), max_gap=round(mx, 2), dur_s=dur, cens=cens,
                            open_by=open_by, close_by=close_by, one_swap_close=one, pool_share=share, t30=t30, t5=t5, nsw=nsw, sw_day=nsw_day.get(d0, 0),
-                           swap_usd=round(r0[4], 1), tx=r0[5], block=r0[6], bkind=kind)
+                           swap_usd=round(r0[4], 1), fee_bp=fe0, tx=r0[5], block=r0[6], bkind=kind)
                 tk = TAKER[kind]
                 for dl in DELAYS:
                     dd = BLK[net] if dl == 'blk' else dl
                     rem = s * g[i + dd] if i + dd < N and g[i + dd] == g[i + dd] else float('nan')
                     row[f'rem_{dl}'] = round(rem, 2) if rem == rem else ''
-                    row[f'net_{dl}'] = round(rem - tk, 2) if rem == rem else ''  # без комиссии пула (вычитается в summary)
+                    row[f'net_{dl}'] = round(rem - tk - fe0, 2) if rem == rem else ''  # rem − taker CEX − fee пула (газ не учтён)
                 out.append(row)
                 pos += 1
                 # пропустить остаток эпизода
@@ -125,7 +131,7 @@ def main():
             rows += r
             if k % 20 == 0: print(k, len(jobs), len(rows), flush=True)
     cols = ['net', 'coin', 'pool', 'dex', 'day', 'ts', 'side', 'open_gap', 'max_gap', 'dur_s', 'cens', 'open_by', 'close_by',
-            'one_swap_close', 'pool_share', 't30', 't5', 'nsw', 'sw_day', 'swap_usd', 'tx', 'block', 'bkind'] + [f'{a}_{d}' for d in DELAYS for a in ('rem', 'net')]
+            'one_swap_close', 'pool_share', 't30', 't5', 'nsw', 'sw_day', 'swap_usd', 'fee_bp', 'tx', 'block', 'bkind'] + [f'{a}_{d}' for d in DELAYS for a in ('rem', 'net')]
     with open(f'{OUT}/episodes.csv', 'w', newline='') as f:
         w = csv.DictWriter(f, cols, extrasaction='ignore'); w.writeheader(); w.writerows([r for r in rows if r.get('pool') != 'ERR'])
     errs = [r for r in rows if r.get('pool') == 'ERR']

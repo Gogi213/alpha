@@ -3,7 +3,7 @@
 import sys, csv, collections, statistics
 rows = list(csv.DictReader(open(sys.argv[1])))
 for r in rows:
-    for k in ('open_gap', 'max_gap', 'dur_s', 'cens', 'one_swap_close', 'nsw', 'sw_day', 'swap_usd', 'day'):
+    for k in ('open_gap', 'max_gap', 'dur_s', 'cens', 'one_swap_close', 'nsw', 'sw_day', 'swap_usd', 'day', 'fee_bp'):
         r[k] = float(r[k])
     for k in ('rem_1', 'rem_5', 'rem_blk', 'net_1', 'net_5', 'net_blk', 'pool_share', 't30', 't5'):
         r[k] = float(r[k]) if r[k] != '' else None
@@ -27,15 +27,16 @@ def stat(rs, name, out):
              open_pool=round(sum(1 for r in rs if r['open_by'] in ('pool', 'both')) / len(rs), 3),
              one_swap=round(sum(r['one_swap_close'] for r in done) / max(len(done), 1), 3),
              pool_share_mean=round(statistics.mean(pc), 3) if pc else '')
-    for fe in (5, 30):
-        for k in ('1', 'blk'):
-            v = [r[f'net_{k}'] - fe for r in rs if r[f'net_{k}'] is not None]
-            o[f'net{k}_f{fe}_p50'] = statistics.median(v) if v else ''
-            o[f'net{k}_f{fe}_pos'] = round(sum(1 for x in v if x > 0) / len(v), 3) if v else ''
-            o[f'net{k}_f{fe}_mean'] = round(statistics.mean(v), 2) if v else ''
+    for k in ('1', '5', 'blk'):
+        v = [r[f'net_{k}'] for r in rs if r[f'net_{k}'] is not None]   # уже за вычетом taker CEX и fee пула
+        o[f'net{k}_p50'] = statistics.median(v) if v else ''
+        o[f'net{k}_pos'] = round(sum(1 for x in v if x > 0) / len(v), 3) if v else ''
+        o[f'net{k}_mean'] = round(statistics.mean(v), 2) if v else ''
     out.append(o)
 out = []
 stat(rows, 'ALL', out)
+def ftier(r): return 'fee<=5' if r['fee_bp'] <= 5 else 'fee<=25' if r['fee_bp'] <= 25 else 'fee<=30' if r['fee_bp'] <= 30 else 'fee>30'
+for v in ('fee<=5', 'fee<=25', 'fee<=30', 'fee>30'): stat([r for r in rows if ftier(r) == v], v, out)
 for key in ('net', 'dex', 'bkind', 'day', 'open_by', 'close_by', 'side'):
     for v in sorted({r[key] for r in rows}, key=str): stat([r for r in rows if r[key] == v], f'{key}={v}', out)
 def tier(r): return 'sw_day<200' if r['sw_day'] < 200 else 'sw_day<1000' if r['sw_day'] < 1000 else 'sw_day>=1000'
