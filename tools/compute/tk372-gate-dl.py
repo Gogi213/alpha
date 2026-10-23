@@ -3,6 +3,8 @@
 Стенд: stdlib, python3. Подкоманды:
   list  --ticks <bybit-ticks.csv> --out <каталог>      → list-fut.csv / list-spot.csv (карта Bybit→Gate; СТАРЫЙ объём — общие монеты)
   universe --out <каталог> [--universe <csv>]           → list-fut.csv / list-spot.csv: монеты Gate БЕЗ Bybit (спот+linear+inverse, Trading), оборот 24ч > 50k$ по рынку
+  universe --common ...                                 → list-fut-common.csv / list-spot-common.csv: монеты Gate, ОБЩИЕ с Bybit (TK-375), тот же порог по рынку; list-*.csv не трогает
+  run|check ... --lists -common                         → брать list-<рынок>-common.csv вместо list-<рынок>.csv (raw/ и логи общие, готовые сутки пропускаются)
   run   --root <каталог> [--workers 4] [--rps 10]       → raw/<market>/<SYM>/<date>.csv.gz + log/dl.tsv (докачка: готовое пропускается)
   check --root <каталог>                                → log/check.tsv: сумма объёма сделок против свечей 1м за сутки
 API: REST futures/usdt/trades, spot/trades (from/to в секундах, [from,to) — правая граница исключена; ответ — от новых к
@@ -158,12 +160,12 @@ def cmd_universe(a):
     for t in get("/api/v4/futures/usdt/tickers"):
         n = t["contract"]; c = cs.get(n)
         if not c or c.get("in_delisting") in (True, "true") or c.get("status", "trading") != "trading": continue
-        if on_bybit(n[:-5], bb): continue
+        if on_bybit(n[:-5], bb) != a.common: continue
         fut.append([n, "фьюч", "%.2f" % float(t["volume_24h_quote"]), t["volume_24h_quote"], "USDT", c["quanto_multiplier"], c.get("status", "")])
     ps = {p["id"]: p for p in get("/api/v4/spot/currency_pairs")}; tk = {t["currency_pair"]: t for t in get("/api/v4/spot/tickers")}
     spot = []; skip_q = 0
     for pid, p in ps.items():
-        if p["trade_status"] != "tradable" or pid not in tk or on_bybit(p["base"], bb): continue
+        if p["trade_status"] != "tradable" or pid not in tk or on_bybit(p["base"], bb) != a.common: continue
         q = p["quote"]; qv = float(tk[pid]["quote_volume"])
         if q in STABLE: usd = qv
         elif q + "_USDT" in tk: usd = qv * float(tk[q + "_USDT"]["last"])
@@ -173,11 +175,11 @@ def cmd_universe(a):
     res = {}
     for mk, rows in (("fut", fut), ("spot", spot)):
         n0 = len(rows); rows = sorted((r for r in rows if float(r[2]) > a.min_usd), key=lambda r: -float(r[2])); res[mk] = rows
-        p = "%s/list-%s.csv" % (o, mk)
-        if os.path.exists(p): os.replace(p, "%s/list-%s-common-bybit.csv" % (o, mk))  # прежний список (общие с Bybit) — не теряем
+        p = "%s/list-%s%s.csv" % (o, mk, "-common" if a.common else "")
+        if not a.common and os.path.exists(p): os.replace(p, "%s/list-%s-common-bybit.csv" % (o, mk))  # прежний список (общие с Bybit) — не теряем
         with open(p, "w", newline="") as f:
             w = csv.writer(f, lineterminator="\n"); w.writerow(hdr); w.writerows(rows)
-        print("%s: Gate без Bybit %d, оборот > %g$: %d" % (mk, n0, a.min_usd, len(rows)))
+        print("%s: Gate %s Bybit %d, оборот > %g$: %d" % (mk, "и" if a.common else "без", n0, a.min_usd, len(rows)))
     print("Bybit Trading: %s, монет с префиксами %d; спот без USD-котировки пропущено %d" % (cnt, len(bb), skip_q))
     if a.universe:
         with open(a.universe, "w", newline="") as f:
@@ -185,10 +187,10 @@ def cmd_universe(a):
             for mk in ("fut", "spot"): w.writerows([r[:5] for r in res[mk]])
 
 
-def units(root, days=None):
+def units(root, days=None, lists=""):
     u = []
     for mk in ("spot", "fut"):  # спот первым: история только 30 дн.
-        p = "%s/list-%s.csv" % (root, mk)
+        p = "%s/list-%s%s.csv" % (root, mk, lists)
         if not os.path.exists(p): continue
         for r in csv.DictReader(open(p)):
             if mk == "spot" and r["gate_trade_status"] != "tradable": continue
@@ -198,7 +200,7 @@ def units(root, days=None):
 
 def cmd_run(a):
     root = a.root; G["rps"] = a.rps; os.makedirs(root + "/log", exist_ok=True)
-    us = [x for x in units(root, a.days and a.days.split(",")) if not os.path.exists("%s/raw/%s/%s/%s.csv.gz" % (root, x[0], x[1], x[2]))]
+    us = [x for x in units(root, a.days and a.days.split(","), a.lists) if not os.path.exists("%s/raw/%s/%s/%s.csv.gz" % (root, x[0], x[1], x[2]))]
     lock = threading.Lock(); it = iter(us); st = {"done": 0, "rows": 0}; t0 = time.time()
     logf = open(root + "/log/dl.tsv", "a", buffering=1)
     print("к скачиванию: %d монето-суток" % len(us), flush=True)
@@ -231,7 +233,7 @@ def cmd_check(a):
     """Сумма объёма сделок суток против суммы свечей 1м (fut: v в контрактах = Σ|size|; spot: base-объём = Σ amount)."""
     root = a.root; G["rps"] = a.rps; out = open(root + "/log/check.tsv", "a", buffering=1)  # повтор дописывает: последняя строка (монета, сутки) главная
     us = []
-    for x in units(root, a.days and a.days.split(",")):
+    for x in units(root, a.days and a.days.split(","), a.lists):
         if os.path.exists("%s/raw/%s/%s/%s.csv.gz" % (root, *x[:1], x[1], x[2])) and (not a.only or x[1] in a.only.split(",")): us.append(x)
     lock = threading.Lock(); it = iter(us)
 
@@ -259,8 +261,8 @@ def cmd_check(a):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(); s = p.add_subparsers(dest="c", required=True)
     l = s.add_parser("list"); l.add_argument("--ticks", required=True); l.add_argument("--out", required=True)
-    u = s.add_parser("universe"); u.add_argument("--out", required=True); u.add_argument("--min-usd", type=float, default=50000); u.add_argument("--universe", default="")
+    u = s.add_parser("universe"); u.add_argument("--out", required=True); u.add_argument("--min-usd", type=float, default=50000); u.add_argument("--universe", default=""); u.add_argument("--common", action="store_true")
     for n in ("run", "check"):
-        r = s.add_parser(n); r.add_argument("--root", required=True); r.add_argument("--workers", type=int, default=4); r.add_argument("--rps", type=float, default=10); r.add_argument("--days", default="")
+        r = s.add_parser(n); r.add_argument("--root", required=True); r.add_argument("--workers", type=int, default=4); r.add_argument("--rps", type=float, default=10); r.add_argument("--days", default=""); r.add_argument("--lists", default="")
     s.choices["check"].add_argument("--only", default=""); s.choices["check"].add_argument("--interval", default="1m", choices=sorted(STEP))
     a = p.parse_args(); {"list": cmd_list, "universe": cmd_universe, "run": cmd_run, "check": cmd_check}[a.c](a)
