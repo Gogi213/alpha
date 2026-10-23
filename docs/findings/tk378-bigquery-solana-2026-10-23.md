@@ -43,3 +43,9 @@
 - Список TK-380: 172 Solana-пула, 800 288 tx/сут (DexScreener txns24) → одни сутки всех пулов ≈ 0,8 млн кредитов (80% месячного миллиона), 7 суток ≈ 5,6 млн — не по тарифу.
 - Варианты (tx/сут): пулы ≤ 3000 tx/сут — 122 пула, 86,8 тыс.; ≤ 5000 — 135, 140 тыс.; ≤ 10 000 — 149, 246 тыс.; кап 2000 tx на пул-сутки — 181 тыс. (без пяти гигантов USDC/KIMCHI/BIRB/KMNO/SPCX — 556 тыс.).
 - Предложение: 3 суток (17, 18, 20.10) × пулы ≤ 5000 tx/сут ≈ 0,42 млн кредитов; гиганты — по короткому окну (2 ч) отдельно. Жду слова CEO о выборе.
+
+## Helius sigs и SQD Portal (23.10 ~19:20)
+
+- Helius getSignaturesForAddress по 137 пулам готово: `/data/tk0378/hel/sigcounts.csv` — всего ≈ 3,04 млн подписей за 15–22.10 (по суткам 539к/294к/211к/176к/340к/388к/454к/636к; 12 пулов обрезаны, HOOKED забит чужими tx). Переводить на getTransactionsForAddress — дальше после SQD.
+- SQD Portal solana-mainnet работает без ключа (нужен User-Agent браузера — иначе Cloudflare 1010). Слот ≈ 0,18 с (не 0,4), 15.10 00:00 UTC ≈ слот 457,03 млн. Фильтр `tokenBalances` по preMint/postMint + `transaction: true` отдаёт tx целиком (feePayer, fee, CU, transactionIndex, pre/post балансы). Портал отвечает 529 «overloaded» вперемешку — нужны повторы.
+- Выгрузка по mint-ам Gate (STAMP, SI, FONE, CLAUDIA), сутки 15–22.10: `tools/compute/tk378-sqd.py`, юнит `tk378-sqd` на calc, выход `/data/tk0378/sqd/`, метка `sqd/sqd.rc`.
