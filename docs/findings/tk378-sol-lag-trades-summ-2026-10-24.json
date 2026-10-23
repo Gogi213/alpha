@@ -1,0 +1,79 @@
+[
+ {
+  "coin": "CLAUDIA",
+  "swaps": 98912,
+  "swaps_clean": 70671,
+  "dropped": 28241,
+  "gate_trades": 19913,
+  "bins_both": 16516,
+  "gap_median_bp": -4.4,
+  "gap_sd_bp": 181.5,
+  "status": "ok"
+ },
+ {
+  "coin": "FONE",
+  "swaps": 33158,
+  "swaps_clean": 20022,
+  "dropped": 13136,
+  "gate_trades": 66364,
+  "bins_both": 16795,
+  "gap_median_bp": 12.1,
+  "gap_sd_bp": 1537.1,
+  "status": "ok"
+ },
+ {
+  "coin": "HOOKED",
+  "swaps": 27236,
+  "swaps_clean": 18803,
+  "dropped": 8433,
+  "gate_trades": 72611,
+  "bins_both": 25070,
+  "gap_median_bp": 32.1,
+  "gap_sd_bp": 314.3,
+  "status": "ok"
+ },
+ {
+  "coin": "KIMCHI",
+  "swaps": 574127,
+  "swaps_clean": 407580,
+  "dropped": 166547,
+  "gate_trades": 33853,
+  "bins_both": 3329,
+  "gap_median_bp": -80.8,
+  "gap_sd_bp": 337.9,
+  "status": "ok"
+ },
+ {
+  "coin": "SI",
+  "swaps": 86486,
+  "swaps_clean": 56508,
+  "dropped": 29978,
+  "gate_trades": 185008,
+  "bins_both": 47629,
+  "gap_median_bp": -1.4,
+  "gap_sd_bp": 3041.5,
+  "status": "ok"
+ },
+ {
+  "coin": "STAMP",
+  "swaps": 564,
+  "swaps_clean": 280,
+  "dropped": 284,
+  "gate_trades": 17471,
+  "bins_both": 824,
+  "gap_median_bp": 306.9,
+  "gap_sd_bp": 454.5,
+  "status": "ok"
+ },
+ {
+  "coin": "TQQQX",
+  "swaps": 375,
+  "swaps_clean": 103,
+  "dropped": 272,
+  "gate_trades": 180976,
+  "bins_both": 544,
+  "gap_median_bp": -6982.8,
+  "gap_sd_bp": 300.3,
+  "status": "ok"
+ }
+]
