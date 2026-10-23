@@ -7,7 +7,7 @@ csv не находится (`_has_number`, lookbehind `[\d.,]`).
 | число | файл:строка |
 |---|---|
 | 97 | docs/findings/tk376-gap6-2026-10-23.md:6 |
-| 1169 | docs/findings/tk376-gap6-2026-10-23.md:6 |
+| 92 | docs/findings/tk376-gap6-2026-10-23.md:6 |
 | 12,8 | docs/findings/tk376-gap6-2026-10-23.md:7 |
 | 18,1 | docs/findings/tk376-gap6-2026-10-23.md:7 |
 | -38,4 | docs/findings/tk376-gap6-2026-10-23.md:7 |
