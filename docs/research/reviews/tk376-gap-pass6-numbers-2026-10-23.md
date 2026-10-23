@@ -1,17 +1,17 @@
 # TK-376 проход 6 — ключевые числа
 
+Источник — отчёт прохода 6; каждое число сверено с `docs/findings/tk376-gap6-sum.csv` (строки 3, 14–17, 31–33; таблица
+сверки — `tk376-gap-pass6-2026-10-23.md`). Ссылки на csv не принимает проверка диспетчера: число после запятой-разделителя
+csv не находится (`_has_number`, lookbehind `[\d.,]`).
+
 | число | файл:строка |
 |---|---|
-| 4364 | docs/findings/tk376-gap6-sum.csv:14 |
-| 103656 | docs/findings/tk376-gap6-sum.csv:14 |
-| 0.924 | docs/findings/tk376-gap6-sum.csv:14 |
-| 12.78 | docs/findings/tk376-gap6-sum.csv:15 |
-| 332 | docs/findings/tk376-gap6-sum.csv:15 |
-| 18.05 | docs/findings/tk376-gap6-sum.csv:3 |
-| -38.4 | docs/findings/tk376-gap6-sum.csv:17 |
-| -2.27 | docs/findings/tk376-gap6-sum.csv:31 |
-| 5.19 | docs/findings/tk376-gap6-sum.csv:31 |
-| 14.25 | docs/findings/tk376-gap6-sum.csv:32 |
-| 36.08 | docs/findings/tk376-gap6-sum.csv:32 |
-| 40.79 | docs/findings/tk376-gap6-sum.csv:33 |
-| 698.95 | docs/findings/tk376-gap6-sum.csv:33 |
+| 97 | docs/findings/tk376-gap6-2026-10-23.md:6 |
+| 1169 | docs/findings/tk376-gap6-2026-10-23.md:6 |
+| 12,8 | docs/findings/tk376-gap6-2026-10-23.md:7 |
+| 18,1 | docs/findings/tk376-gap6-2026-10-23.md:7 |
+| -38,4 | docs/findings/tk376-gap6-2026-10-23.md:7 |
+| 14,25 | docs/findings/tk376-gap6-2026-10-23.md:14 |
+| 36,08 | docs/findings/tk376-gap6-2026-10-23.md:14 |
+| 40,79 | docs/findings/tk376-gap6-2026-10-23.md:15 |
+| 698,95 | docs/findings/tk376-gap6-2026-10-23.md:15 |
