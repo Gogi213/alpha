@@ -1,7 +1,7 @@
 """TK-364: общий слой данных — каждый своп DEX → строка с ценой монеты в USD.
 usage: tk364-usd.py <root=/data/tk0364> <outdir> [--days 2026-10-15,...] [--only SYM@chain,...]
-Вход: <root>/{outw,outw2,outw3}/<chain|bsc-core>/<SYM>/<день>.csv (block,ts,logidx,tx,kind,data) + pools-файлы (tk364-pools2/3n.json, outw3/pools4.json).
-Метаданные пула (token0/1, symbol, decimals) — eth_call через NodeReal (env NODEREAL_BSC/NODEREAL_BASE), кэш <outdir>/pool-meta.json.
+Вход: <root>/{outw,outw2,outw3,outw4}/<chain|bsc-core>/<SYM>/<день>.csv (block,ts,logidx,tx,kind,data) + pools-файлы (tk364-pools2/3n.json, outw3/pools4.json).
+Метаданные пула (token0/1, symbol, decimals) — eth_call latest через публичные RPC по кругу (RPCS), кэш <outdir>/pool-meta.json.
 Выход: <outdir>/<chain>/<SYM>/<день>.csv: ts,block,logidx,tx,pool,dex,side,base_amt,price_quote,quote_usd,price_usd,quote_src
   side = сторона трейдера по базовой монете (buy — купил монету, sell — продал); price_quote — цена базовой монеты в котируемой;
   quote_usd — USD-цена котируемой на эту секунду: stable=1; обёртка — главный пул wrap/стейбл той же сети (последний своп ≤ ts); иначе пусто (quote_src=none).
@@ -12,22 +12,31 @@ ROOT, OUT = sys.argv[1:3]
 args = sys.argv[3:]
 DAYS = args[args.index("--days") + 1].split(",") if "--days" in args else [f"2026-10-{d}" for d in range(15, 22)]
 ONLY = set(args[args.index("--only") + 1].split(",")) if "--only" in args else None
-_bsc = os.environ["NODEREAL_BSC"]; _key = _bsc.rstrip("/").split("/")[-1]
-URL = {"bsc": _bsc, "ethereum": f"https://eth-mainnet.nodereal.io/v1/{_key}", "base": os.environ.get("NODEREAL_BASE", "")}
+RPCS = {"bsc": ["https://bsc-dataseed.binance.org", "https://bsc-rpc.publicnode.com", "https://bsc.drpc.org", "https://bsc-dataseed1.defibit.io"],
+        "ethereum": ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://eth.drpc.org", "https://rpc.ankr.com/eth"],
+        "base": ["https://mainnet.base.org", "https://base.drpc.org", "https://base-rpc.publicnode.com"]}
 STABLE = {"USDT", "USDC", "BUSD", "USD1", "TUSD", "USDE", "DAI", "FDUSD", "USDS"}
 # обёртка -> (цепь, каталог главного пула со знаком оси): главный пул wrap/стейбл той же сети
 WRAP_SRC = {("ethereum", "WETH"): "ETH@ethereum", ("ethereum", "ETH"): "ETH@ethereum", ("base", "WETH"): "WETH@base",
             ("base", "ETH"): "WETH@base", ("bsc", "WBNB"): "BNB@bsc", ("bsc", "BTCB"): "BTC@bsc"}
 
+BAD = {}  # (chain, to, data) -> None: неудача кэшируется на запуск, чтобы не повторять на каждый пул-день
+_rr = {}
 def rpc_call(chain, to, data):
+    ck = (chain, to.lower(), data)
+    if ck in BAD: return None
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": [{"to": to, "data": data}, "latest"]}).encode()
-    for i in range(6):
+    urls = RPCS[chain]
+    for i in range(2 * len(urls)):
+        u = urls[(_rr.get(chain, 0) + i) % len(urls)]
         try:
-            r = json.load(urllib.request.urlopen(urllib.request.Request(URL[chain], body, {"content-type": "application/json", "user-agent": "Mozilla/5.0"}), timeout=40))
+            r = json.load(urllib.request.urlopen(urllib.request.Request(u, body, {"content-type": "application/json", "user-agent": "Mozilla/5.0"}), timeout=15))
             if "error" in r: raise RuntimeError(r["error"])
+            _rr[chain] = (_rr.get(chain, 0) + i) % len(urls)
             return r["result"]
         except Exception:
-            time.sleep(1.5 * (i + 1))
+            time.sleep(0.3)
+    BAD[ck] = None
     return None
 
 def s_str(h):
@@ -64,7 +73,7 @@ def pools_index():
 
 def find_dirs(sym, chain):
     r = []
-    for o in ("outw", "outw2", "outw3", "outw-wrap"):
+    for o in ("outw", "outw2", "outw3", "outw4", "outw-wrap"):
         for c in ([chain, "bsc-core"] if chain == "bsc" else [chain]):
             d = os.path.join(ROOT, o, c, sym)
             if os.path.isdir(d): r.append(d)
@@ -127,6 +136,7 @@ def main():
         dirs = find_dirs(v["sym"], v["chain"])
         if not dirs: continue
         m = meta(v["chain"], v["pool"])
+        print(key, "meta", "ok" if m else "NONE", flush=True)
         if not m: stat["no_meta"] += 1; continue
         q = v["quote"].upper()
         if q in m["sym"]: qi = m["sym"].index(q)
@@ -162,6 +172,7 @@ def main():
                                 "" if qu is None else f"{qu:.8g}", "" if pu is None else f"{pu:.10g}", qsrc])
                     stat["swaps"] += 1
         stat["pools"] += 1
+        if stat["pools"] % 20 == 0: json.dump(META, open(META_F, "w"))
         if qsrc == "none": stat["no_src"] += 1
     json.dump(META, open(META_F, "w"))
     json.dump(stat, open(os.path.join(OUT, "DONE.json"), "w"))
