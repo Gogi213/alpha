@@ -93,10 +93,10 @@ try:
         if os.path.exists(f):
             done += 1
             continue
-        if r['trunc'] == '1' or r['tot'] > maxtx:
+        if r['tot'] > maxtx:
             skipped.append((pool, r['coin'], r['tot'], r['trunc']))
             continue
-        sl = pool_slices(pool, r['tot'])
+        sl = pool_slices(pool, 10**6 if r['trunc'] == '1' else r['tot'])
         with ThreadPoolExecutor(len(sl)) as ex:
             parts = list(ex.map(lambda ab: run_slice(pool, *ab), sl))
         with gzip.open(f + '.tmp', 'wt') as fo:
