@@ -1,0 +1,99 @@
+{
+ "bsc": {
+  "pools": 243,
+  "coins": 241,
+  "gt_vol8d_musd": 1144.1,
+  "share": 0.2398,
+  "pools_with_swaps": 242,
+  "swaps": 6199767,
+  "vol_share_with_swaps": 1.0
+ },
+ "ethereum": {
+  "pools": 237,
+  "coins": 237,
+  "gt_vol8d_musd": 1115.1,
+  "share": 0.2337,
+  "pools_with_swaps": 143,
+  "swaps": 228133,
+  "vol_share_with_swaps": 0.1037
+ },
+ "solana": {
+  "pools": 172,
+  "coins": 172,
+  "gt_vol8d_musd": 1093.2,
+  "share": 0.2291,
+  "pools_with_swaps": 0,
+  "swaps": 0,
+  "vol_share_with_swaps": 0.0
+ },
+ "base": {
+  "pools": 94,
+  "coins": 93,
+  "gt_vol8d_musd": 932.6,
+  "share": 0.1955,
+  "pools_with_swaps": 68,
+  "swaps": 3239295,
+  "vol_share_with_swaps": 0.9461
+ },
+ "arbitrum": {
+  "pools": 36,
+  "coins": 36,
+  "gt_vol8d_musd": 433.8,
+  "share": 0.0909,
+  "pools_with_swaps": 36,
+  "swaps": 409559,
+  "vol_share_with_swaps": 1.0
+ },
+ "sui": {
+  "pools": 16,
+  "coins": 16,
+  "gt_vol8d_musd": 40.3,
+  "share": 0.0084,
+  "pools_with_swaps": 0,
+  "swaps": 0,
+  "vol_share_with_swaps": 0.0
+ },
+ "polygon": {
+  "pools": 29,
+  "coins": 29,
+  "gt_vol8d_musd": 8.5,
+  "share": 0.0018,
+  "pools_with_swaps": 0,
+  "swaps": 0,
+  "vol_share_with_swaps": 0.0
+ },
+ "optimism": {
+  "pools": 13,
+  "coins": 13,
+  "gt_vol8d_musd": 2.6,
+  "share": 0.0005,
+  "pools_with_swaps": 0,
+  "swaps": 0,
+  "vol_share_with_swaps": 0.0
+ },
+ "tron": {
+  "pools": 2,
+  "coins": 2,
+  "gt_vol8d_musd": 0.6,
+  "share": 0.0001,
+  "pools_with_swaps": 0,
+  "swaps": 0,
+  "vol_share_with_swaps": 0.0
+ },
+ "avalanche": {
+  "pools": 13,
+  "coins": 13,
+  "gt_vol8d_musd": 0.5,
+  "share": 0.0001,
+  "pools_with_swaps": 0,
+  "swaps": 0,
+  "vol_share_with_swaps": 0.0
+ },
+ "_total": {
+  "gt_vol8d_musd": 4771.2,
+  "coins": 514,
+  "coins_any_swaps": 351,
+  "vol_share_with_swaps": 0.5399,
+  "coins_ge50pct": 308
+ }
+}
