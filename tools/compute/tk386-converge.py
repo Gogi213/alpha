@@ -13,6 +13,7 @@ B = 10; D0 = int(datetime.datetime(2026, 10, 15, tzinfo=datetime.timezone.utc).t
 TK, MK = 5.0, 2.0
 TS = (1.0, 2.0, 3.0, 5.0); HS = {'5м': 30, '30м': 180, '2ч': 720, '8ч': 2880}; RFRAC = 0.25; AGE = 6   # бин = 10 с, возраст ≤ 60 с
 NAN = float('nan')
+AGEA = [None]   # возраст последнего обновления цены DEX в корзине, корзин по 10 с (Д8)
 def sec(v): v = float(v); return v / 1000 if v > 1e11 else v
 # --- свопы: (ts, side(+1 buy token / -1 sell), price_usd, usd)
 SW = collections.defaultdict(list)
@@ -60,10 +61,12 @@ def evm_mid(c, bnb=None):
                     px = (rq / 10 ** e['dq']) / (rt / 10 ** e['dt'])
                 i = (ts - D0) // B
                 if 0 <= i < N: a[i] = px; n += 1
-    o = a.copy(); l = np.nan; li = -10 ** 9
+    o = a.copy(); l = np.nan; li = -10 ** 9; ag = np.full(N, np.nan)
     for i in range(N):
         if a[i] == a[i]: l = a[i]; li = i
         elif i - li <= AGE: o[i] = l
+        if o[i] == o[i]: ag[i] = i - li
+    AGEA[0] = ag
     if e['quote'] == 'BNB': o = o * bnb
     print('sync', c, n, flush=True); return o
 def grids(rows):
@@ -73,13 +76,15 @@ def grids(rows):
         i = (ts - D0) // B
         if 0 <= i < N: (pb if sd > 0 else ps)[i] = px
     def ff(a):
-        o = a.copy(); l = np.nan; li = -10 ** 9
+        o = a.copy(); l = np.nan; li = -10 ** 9; ag = np.full(N, np.nan)
         for i in range(N):
             if a[i] == a[i]: l = a[i]; li = i
             elif i - li <= AGE: o[i] = l
-        return o
-    b, s = ff(pb), ff(ps)
+            if o[i] == o[i]: ag[i] = i - li
+        return o, ag
+    (b, ab), (s, as_) = ff(pb), ff(ps)
     mid = np.where((b == b) & (s == s), (b + s) / 2, np.nan)
+    AGEA[0] = np.fmax(ab, as_)
     return mid
 def loadbbo(c):
     p = f'/data/tk0380/bbo/{c}.csv.gz'
@@ -122,6 +127,7 @@ for c in COINS:
         bq = None
         if EVM[c]['quote'] == 'BNB': bq = loadbbo('BNB'); bq = (bq[0] + bq[1]) / 2
         dx = evm_mid(c, bq); SW[c] = [(0, 0, 0, 0, 0, 0)]
+    dage = AGEA[0]
     ok = (mid == mid) & (dx == dx)
     gap = np.where(ok, np.log(mid / dx) * 1e4, np.nan)
     base = rollbase(gap) if MODE == 'med' else np.zeros(N)
@@ -185,7 +191,7 @@ for c in COINS:
                             en = ak[j + 1] if sg > 0 else bd[j + 1]; xx = bd[j + 1 + L] if sg > 0 else ak[j + 1 + L]
                             f2 = fsum(c, D0 + (j + 1) * B, D0 + (j + 1 + L) * B)
                             cs.append(sg * math.log(xx / en) * 1e4 - 2 * TK - (0 if f2 is None else sg * f2 * 1e4))
-                        eps.append(dict(chain=CH, coin=c, form=form, T=T, ex=ex, H=hn, day=15 + (te2 * B) // 86400, ts=D0 + te2 * B, sg=sg, dev0=round(float(dev0), 1), peak=round(float(pk), 1),
+                        eps.append(dict(chain=CH, coin=c, form=form, T=T, ex=ex, H=hn, day=15 + (te2 * B) // 86400, ts=D0 + te2 * B, age=None if dage is None or dage[te2] != dage[te2] else int(dage[te2]) * B, sg=sg, dev0=round(float(dev0), 1), peak=round(float(pk), 1),
                                         dur_bins=L, conv=int(tc is not None), cls=cl, gate_toward=round(float(gt_), 1) if gt_ == gt_ else None, dex_toward=round(float(dt_), 1) if dt_ == dt_ else None,
                                         pnl_gross=round(pnl, 1), fund=None if fund is None else round(fund, 2), net=round(pnl - fee_in - TK - (fund or 0), 1),
                                         ctrl=round(statistics.mean(cs), 1) if cs else None))
