@@ -2,3 +2,6 @@ crossed_coins 11 of 351; zero_cross_coins 340
 participating trades_at_gap_0.5pct total 54607 crossed11 2095 share 3.8
 big_gaps episodes total 20840 crossed11 0
 oos_bbo cross_pct Q 0.02 LAPTOP 0.0
+ETH cross_pct 99.95
+ARIA cross_pct 97.83 med_cross_bp 263
+ESPORTS cross_pct 67.07
