@@ -22,9 +22,10 @@ for r in pools.values():
     if t not in dec:
         v = rpc(t, '0x313ce567'); dec[t] = int(v, 16) if v and len(v) > 2 else None
 # BNB цена: Gate фьюч BNB_USDT, последняя цена в минуте
+def sec(v): v = float(v); return v / 1000 if v > 1e11 else v  # fut: create_time_ms уже в секундах, spot: в мс
 bnb = {}
 for fn in sorted(os.listdir(f'{R}/fut/BNB_USDT')):
-    for r in csv.DictReader(gzip.open(f'{R}/fut/BNB_USDT/{fn}', 'rt')): bnb[int(float(r['create_time_ms'] or r['create_time']) // 60000)] = float(r['price'])
+    for r in csv.DictReader(gzip.open(f'{R}/fut/BNB_USDT/{fn}', 'rt')): bnb[int(sec(r['create_time_ms'] or r['create_time']) // 60)] = float(r['price'])
 def bnbpx(ts):
     m = ts // 60
     for k in (0, -1, 1, -2, 2):
@@ -73,8 +74,7 @@ def load(kind, c):
     tr = []
     for fn in sorted(os.listdir(d)):
         for r in csv.DictReader(gzip.open(f'{d}/{fn}', 'rt')):
-            t = float(r['create_time_ms'] or r['create_time']) / (1000 if float(r['create_time_ms'] or 0) else 1)
-            if r['create_time_ms']: t = float(r['create_time_ms']) / 1000
+            t = sec(r['create_time_ms'] or r['create_time'])
             sg = (1 if float(r['size']) > 0 else -1) if kind == 'fut' else (1 if r['side'] == 'buy' else -1)
             tr.append((t, sg, float(r['price'])))
     tr.sort(key=lambda x: x[0]); return tr
