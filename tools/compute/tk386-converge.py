@@ -22,6 +22,17 @@ if CH == 'solana':
         try: px = float(r['price_usd']); usd = float(r['usd'])
         except ValueError: continue
         if usd > 0 and px > 0: SW[r['coin']].append((int(r['ts']), int(r['slot']), int(r['txidx']), 1 if r['side'] == 'buy' else -1, px, usd))
+if CH == 'ethsw':   # тяжеловесы-контроль (Д10): свопы ETH-пулов tk364, один пул на монету — с наибольшим объёмом (Д3)
+    import glob
+    for c in COINS:
+        byp = collections.defaultdict(list)
+        for f in sorted(glob.glob(f'/data/tk0364/usd/ethereum/{c}/*.csv')):
+            for r in csv.DictReader(open(f)):
+                try: px = float(r['price_usd']); usd = float(r['base_amt']) * px
+                except ValueError: continue
+                if usd > 0 and px > 0: byp[r['pool']].append((int(r['ts']), int(r['block']), int(r['logidx']), 1 if r['side'] == 'buy' else -1, px, usd))
+        if byp:
+            top = max(byp, key=lambda k: sum(x[5] for x in byp[k])); SW[c] = byp[top]; print('pool', c, top, len(byp[top]), len(byp), flush=True)
 # EVM v2: середина пула из Sync (reserve0, reserve1); q0 = квота — token0; USD: USDC=1, WBNB = mid BBO Gate BNB
 EVM = {'SUE': dict(pool='0xfFCa411CFbcD3194503eFfA80Fd394b55387915c', q0=False, dt=18, dq=18, quote='BNB'),
        'LAPTOP': dict(pool='0x99cf3E8bfB02c300312c53Aac5D0B082e3D5975C', q0=True, dt=18, dq=6, quote=None, v3=True)}   # LAPTOP — Slipstream (CL): sqrtPriceX96 из Swap
@@ -104,9 +115,9 @@ def rollbase(gap):
 rng = random.Random(386); eps = []; coins = []
 for c in COINS:
     bb = loadbbo(c)
-    if bb is None or (CH == 'solana' and c not in SW): coins.append(dict(coin=c, chain=CH, status='skip: нет BBO или свопов')); continue
+    if bb is None or (CH in ('solana', 'ethsw') and c not in SW): coins.append(dict(coin=c, chain=CH, status='skip: нет BBO или свопов')); continue
     bd, ak = bb; mid = (bd + ak) / 2; mid = np.where(ak > bd, mid, np.nan)
-    if CH == 'solana': dx = grids(SW[c])
+    if CH in ('solana', 'ethsw'): dx = grids(SW[c])
     else:
         bq = None
         if EVM[c]['quote'] == 'BNB': bq = loadbbo('BNB'); bq = (bq[0] + bq[1]) / 2
