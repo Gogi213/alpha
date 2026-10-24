@@ -86,6 +86,16 @@ def stat(coin, pair, day, A, B, ca, cb, grid, noexec=False):
         # базис-поправка: константа пары = медиана середин-разницы (у спот-фьюч пары постоянная часть — фандинг/базис)
         row['n_exec'] = int(ev.sum())
         if ev.sum() > 600:
+            # задержка 1 с без заглядывания: решение по секунде t-1 (сторона = какая из e1/e2 больше и > входа), исполнение по значению той же стороны на t
+            sg = np.where(e1 >= e2, 1, 2)
+            g_now = np.where(sg[:-1] == 1, e1[1:], e2[1:])
+            sig = ev[:-1] & ev[1:] & (e[:-1] > entry)
+            row['lag_n'] = int(sig.sum())
+            if sig.sum() > 0:
+                gg = g_now[sig]
+                row['lag_mean_g'] = float(gg.mean()); row['lag_med_g'] = float(np.median(gg))
+                row['lag_share_gt_0'] = float((gg > 0).mean()); row['lag_share_gt_entry'] = float((gg > entry).mean())
+                row['lag_mean_net'] = float((gg - entry).mean())
             ee = e[ev]
             row['e_med'] = float(np.median(ee)); row['e_p99'] = float(np.percentile(ee, 99)); row['e_max'] = float(ee.max())
             for nm, th in (('0', 0.0), ('entry', entry), ('round', rt)):
