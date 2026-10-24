@@ -22,8 +22,39 @@ if CH == 'solana':
         try: px = float(r['price_usd']); usd = float(r['usd'])
         except ValueError: continue
         if usd > 0 and px > 0: SW[r['coin']].append((int(r['ts']), int(r['slot']), int(r['txidx']), 1 if r['side'] == 'buy' else -1, px, usd))
-else:
-    exec(open('/srv/alpha-sda/tk386-evm-load.py').read()) if os.path.exists('/srv/alpha-sda/tk386-evm-load.py') else None
+# EVM v2: середина пула из Sync (reserve0, reserve1); q0 = квота — token0; USD: USDC=1, WBNB = mid BBO Gate BNB
+EVM = {'SUE': dict(pool='0xfFCa411CFbcD3194503eFfA80Fd394b55387915c', q0=False, dt=18, dq=18, quote='BNB'),
+       'LAPTOP': dict(pool='0x99cf3E8bfB02c300312c53Aac5D0B082e3D5975C', q0=True, dt=18, dq=6, quote=None, v3=True)}   # LAPTOP — Slipstream (CL): sqrtPriceX96 из Swap
+def evm_mid(c, bnb=None):
+    e = EVM[c]; pl = e['pool'].lower(); a = np.full(N, np.nan); n = 0
+    import glob
+    for f in sorted(glob.glob(f'/data/tk0380/{"sqd" if e.get("v3") else "sqd-sync"}/{CH}/part-*.jsonl')):
+        for line in open(f):
+            if pl not in line: continue
+            try: j = json.loads(line)
+            except ValueError: continue
+            ts = j['header']['timestamp']
+            for lg in j.get('logs', []):
+                if lg['address'].lower() != pl: continue
+                d = lg['data'][2:]
+                if e.get('v3'):
+                    sq = int(d[128:192], 16)
+                    if sq <= 0: continue
+                    p01 = (sq / 2 ** 96) ** 2   # raw token1/token0
+                    px = (1 / p01 if e['q0'] else p01) * 10 ** (e['dt'] - e['dq']) if e['q0'] else p01 * 10 ** (e['dt'] - e['dq'])
+                else:
+                    r0 = int(d[:64], 16); r1 = int(d[64:128], 16)
+                    if r0 <= 0 or r1 <= 0: continue
+                    rq, rt = (r0, r1) if e['q0'] else (r1, r0)
+                    px = (rq / 10 ** e['dq']) / (rt / 10 ** e['dt'])
+                i = (ts - D0) // B
+                if 0 <= i < N: a[i] = px; n += 1
+    o = a.copy(); l = np.nan; li = -10 ** 9
+    for i in range(N):
+        if a[i] == a[i]: l = a[i]; li = i
+        elif i - li <= AGE: o[i] = l
+    if e['quote'] == 'BNB': o = o * bnb
+    print('sync', c, n, flush=True); return o
 def grids(rows):
     """последняя покупка и продажа в корзине -> mid=(pb+ps)/2, если обе не старше AGE корзин."""
     pb = np.full(N, np.nan); ps = np.full(N, np.nan)
@@ -73,9 +104,14 @@ def rollbase(gap):
 rng = random.Random(386); eps = []; coins = []
 for c in COINS:
     bb = loadbbo(c)
-    if bb is None or c not in SW: coins.append(dict(coin=c, chain=CH, status='skip: нет BBO или свопов')); continue
+    if bb is None or (CH == 'solana' and c not in SW): coins.append(dict(coin=c, chain=CH, status='skip: нет BBO или свопов')); continue
     bd, ak = bb; mid = (bd + ak) / 2; mid = np.where(ak > bd, mid, np.nan)
-    dx = grids(SW[c]); ok = (mid == mid) & (dx == dx)
+    if CH == 'solana': dx = grids(SW[c])
+    else:
+        bq = None
+        if EVM[c]['quote'] == 'BNB': bq = loadbbo('BNB'); bq = (bq[0] + bq[1]) / 2
+        dx = evm_mid(c, bq); SW[c] = [(0, 0, 0, 0, 0, 0)]
+    ok = (mid == mid) & (dx == dx)
     gap = np.where(ok, np.log(mid / dx) * 1e4, np.nan)
     base = rollbase(gap) if MODE == 'med' else np.zeros(N)
     dev = gap - base; okd = np.where(dev == dev)[0]
