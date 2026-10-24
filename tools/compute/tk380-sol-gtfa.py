@@ -20,7 +20,7 @@ nreq = [0]
 
 
 def call(params):
-    for att in range(8):
+    for att in range(14):
         with lock:
             if credits[0] + PER_REQ > cap:
                 raise SystemExit('cap')
@@ -37,11 +37,11 @@ def call(params):
                 raise RuntimeError(str(d['error'])[:150])
             return d['result']
         except urllib.error.HTTPError as e:
-            time.sleep(2 + att * 3 if e.code == 429 else 1 + att)
+            time.sleep(min(30, 2 + att * 3 if e.code == 429 else 1 + att * 2))
         except RuntimeError:
             raise
         except Exception:
-            time.sleep(1 + att)
+            time.sleep(min(30, 1 + att * 2))
     raise RuntimeError('retries')
 
 
