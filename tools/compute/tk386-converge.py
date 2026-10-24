@@ -36,6 +36,11 @@ if CH == 'ethsw':   # тяжеловесы-контроль (Д10): свопы E
             top = max(byp, key=lambda k: sum(x[5] for x in byp[k])); SW[c] = byp[top]; print('pool', c, top, len(byp[top]), len(byp), flush=True)
 # EVM v2: середина пула из Sync (reserve0, reserve1); q0 = квота — token0; USD: USDC=1, WBNB = mid BBO Gate BNB
 EVM = {'SUE': dict(pool='0xfFCa411CFbcD3194503eFfA80Fd394b55387915c', q0=False, dt=18, dq=18, quote='BNB'),
+       'ZEC': dict(pool='0x6701B287c8170D6c290C6f4Ef426782bD61Ae310', q0=False, dt=18, dq=18, quote=None, v3=True),   # тяжеловесы-контроль (Д10), BSC v3, USDT
+       'BTR': dict(pool='0x787ABD73593Bed588852163402d191C302c7f8b6', q0=True, dt=18, dq=18, quote=None, v3=True),
+       'Q': dict(pool='0x8Bafe0bdD3eB9ae0539f5B32e771C1a72A189b7f', q0=True, dt=18, dq=18, quote=None, v3=True),
+       'DGAI': dict(pool='0x0e6E1F47C64f517fc9dC35698718C7Dfc708D534', q0=False, dt=18, dq=18, quote=None, v3=True),
+       'CAKE': dict(pool='0xAfB2Da14056725E3BA3a30dD846B6BBbd7886c56', q0=False, dt=18, dq=18, quote='BNB', v3=True),
        'LAPTOP': dict(pool='0x99cf3E8bfB02c300312c53Aac5D0B082e3D5975C', q0=True, dt=18, dq=6, quote=None, v3=True)}   # LAPTOP — Slipstream (CL): sqrtPriceX96 из Swap
 def evm_mid(c, bnb=None):
     e = EVM[c]; pl = e['pool'].lower(); a = np.full(N, np.nan); n = 0
