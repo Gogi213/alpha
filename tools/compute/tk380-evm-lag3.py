@@ -19,7 +19,7 @@ for r in csv.DictReader(open('/data/tk0380/pools-sqd.csv')):
 def rpc(to, data):
     q = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'eth_call', 'params': [{'to': to, 'data': data}, 'latest']}).encode()
     for _ in range(4):
-        try: return json.load(urllib.request.urlopen(urllib.request.Request(CFG['rpc'], q, {'content-type': 'application/json'}), timeout=15))['result']
+        try: return json.load(urllib.request.urlopen(urllib.request.Request(CFG['rpc'], q, {'content-type': 'application/json', 'user-agent': 'curl/8.0'}), timeout=15))['result']
         except Exception: pass
 dec = {}
 for r in pools.values():
