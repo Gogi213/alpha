@@ -13,9 +13,9 @@
   "coins": 237,
   "gt_vol8d_musd": 1115.1,
   "share": 0.2337,
-  "pools_with_swaps": 143,
-  "swaps": 228133,
-  "vol_share_with_swaps": 0.1037
+  "pools_with_swaps": 224,
+  "swaps": 326764,
+  "vol_share_with_swaps": 0.9951
  },
  "solana": {
   "pools": 172,
@@ -92,8 +92,8 @@
  "_total": {
   "gt_vol8d_musd": 4771.2,
   "coins": 514,
-  "coins_any_swaps": 351,
-  "vol_share_with_swaps": 0.5399,
-  "coins_ge50pct": 308
+  "coins_any_swaps": 385,
+  "vol_share_with_swaps": 0.7482,
+  "coins_ge50pct": 357
  }
 }

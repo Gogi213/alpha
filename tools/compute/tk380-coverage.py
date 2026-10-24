@@ -8,6 +8,9 @@ for ch in ("bsc", "base", "ethereum", "arbitrum"):
     p = f"{R}/sqd/{ch}-swaps/summary.csv"
     for r in csv.DictReader(open(p)):
         sw[(ch, r["pool"].lower())] += int(r["swaps"])
+# Uniswap v4 (ETH): Swap из PoolManager, ключ — poolId (TK-380 возврат Судьи)
+for r in csv.DictReader(open(f"{R}/sqd/ethereum-v4/summary.csv")):
+    sw[("ethereum", r["pool"].lower())] += int(r["swaps"])
 rows = []
 for x in pools:
     ch, a = x["chain"], x["pool"]
