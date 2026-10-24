@@ -34,10 +34,10 @@ cur = os.path.join(d, 'cursor')
 if os.path.exists(cur): b, end = map(int, open(cur).read().split())
 else:
     head = json.loads(urllib.request.urlopen(urllib.request.Request(B + '/head', headers={'User-Agent': 'curl/8'}), timeout=60).read())['number']
-    now = ts(head); sec = 0.75 if chain == 'bsc' else 2
+    now = ts(head); sec = {'bsc': 0.46, 'ethereum': 12}.get(chain, 2)
     est = lambda t: max(1, head - int((now - t) / sec))
-    b = find(t0, max(1, est(t0) - 3_000_000), est(t0) + 3_000_000)
-    end = find(t1 + 1, b, min(head, est(t1 + 1) + 3_000_000)) - 1
+    b = find(t0, 1, head)
+    end = find(t1 + 1, b, head) - 1
     open(cur, 'w').write(f'{b} {end}')
 print(chain, len(pools), 'pools blocks', b, end, flush=True)
 n = 0
