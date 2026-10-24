@@ -1,0 +1,7 @@
+bins_valid,chain,coin,gap_sigma_bp,spread_med_bp,status,swaps,usd
+4272,solana,AGENCY,10936.5,107.21,ok,10622,1803534
+1628,solana,ALLINU,11120.8,256.92,ok,5449,1015966
+319,solana,EMBER,1357.5,103.36,skip: мало корзин,4371,829272
+42,solana,HOOKED,136.2,118.76,skip: мало корзин,2811,1161296
+647,solana,SI,14661.2,53.26,ok,7763,2567953
+0,solana,STAMP,,194.17,skip: мало корзин,473,22063
