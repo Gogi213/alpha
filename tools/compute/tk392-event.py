@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """TK-392: событие «середина DEX сдвинулась на >=X за окно W» -> отклик середины Gate (фьюч BBO / спот по сделкам) на 39 горизонтах.
 Запуск (calc, /data/tk0380/npvenv/bin/python): tk392-event.py COIN MIDCSV OUTPREFIX
-Сетка 1 с, окно 15.10 00:00 UTC + 8 суток. Середина DEX: последняя после свопа в секунде, ffill. Gate фьюч: (bid+ask)/2 из BBO, ffill<=6 с (иначе nan);
-спот: последняя цена сделки в секунде, ffill<=60 с (приближение, пометка). Событие: первое пересечение |log D[t]/D[t-W]| >= X в данном знаке; след. событие той же ячейки не раньше t+W.
+Сетка 1 с, окно 15.10 00:00 UTC + 8 суток. Середина DEX: последняя после свопа в секунде, ffill. Gate фьюч и спот: последняя цена сделки в секунде, ffill<=60 с (приближение, BBO TK-380 пересечён). Событие: первое пересечение |log D[t]/D[t-W]| >= X в данном знаке; след. событие той же ячейки не раньше t+W.
 Отклик h: s*log(G[t+h]/G[t]) (s = знак события), доля = отклик / |ход DEX за окно|; ход DEX после: s*log(D[t+h]/D[t]); контроль: те же t0 в случайных секундах (5 повторов), знак как у события.
 Выход: OUTPREFIX-curve.csv (coin,mkt,X,W,dir,day,h,n,...) — day='all' и по суткам по дню t0."""
 import sys, gzip, csv, os, numpy as np
 coin, midf, outp = sys.argv[1:4]
+LEG = sys.argv[4] if len(sys.argv) > 4 else ''  # BNB|ETH: пул с квотой WBNB/WETH -> середина в USD = середина × цена ноги (сделки Gate спот, приближение)
 D0 = 1792022400 - 3 * 86400  # 15.10.2026 00:00 UTC (18.10 = 1792022400 в swaps)
 ND = 8; N = ND * 86400
 HS = [1, 5, 30, 60, 90, 120] + list(range(150, 301, 30)) + list(range(360, 601, 60)) + list(range(900, 3601, 300)) + list(range(4500, 14401, 900))
@@ -24,23 +24,24 @@ D = ffill(d, 10 ** 9);
 first = np.argmax(~np.isnan(D)) if (~np.isnan(D)).any() else N
 D[:first] = np.nan
 gate = {}
-bb = f'/data/tk0380/bbo/{coin}.csv.gz'
-if os.path.exists(bb):
-    bid = np.full(N, np.nan); ask = np.full(N, np.nan)
-    for line in gzip.open(bb, 'rt'):
-        t, b, k = line.rstrip().split(',')
-        i = int(t) - D0
-        if 0 <= i < N and b and k: bid[i] = float(b); ask[i] = float(k)
-    gate['fut'] = ffill((bid + ask) / 2, 6)
-sd = f'/srv/alpha-sda/tk372-gate/raw/spot/{coin}_USDT'
-if os.path.isdir(sd):
+def trades(kind, c=None):
+    sd = f'/srv/alpha-sda/tk372-gate/raw/{kind}/{c or coin}_USDT'
+    if not os.path.isdir(sd): return None
     p = np.full(N, np.nan)
     for fn in sorted(os.listdir(sd)):
         for r in csv.DictReader(gzip.open(f'{sd}/{fn}', 'rt')):
             v = float(r['create_time_ms'] or r['create_time']); t = v / 1000 if v > 1e11 else v
             i = int(t) - D0
             if 0 <= i < N: p[i] = float(r['price'])
-    gate['spot'] = ffill(p, 60)
+    return ffill(p, 60)
+# CEO 25.10: BBO фьюча TK-380 пересечён (TK-394) -> середина фьюча тоже по последней сделке секунды (приближение, пометка)
+if LEG:
+    L = trades('spot', LEG); D = D * L; D[:first] = np.nan
+    first = int(np.argmax(~np.isnan(D))) if (~np.isnan(D)).any() else N
+    D[:first] = np.nan
+for kind, key in (('fut', 'fut'), ('spot', 'spot')):
+    g = trades(kind)
+    if g is not None: gate[key] = g
 rng = np.random.default_rng(392)
 rows = []
 for mkt, G in gate.items():
