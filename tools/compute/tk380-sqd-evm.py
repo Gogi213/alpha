@@ -42,7 +42,7 @@ else:
     end = find(t1 + 1, b, min(head, est(t1 + 1) + 3_000_000)) - 1
     open(cur, 'w').write(f'{b} {end}')
 print(chain, len(pools), 'pools blocks', b, end, flush=True)
-n = 0
+n = len([x for x in os.listdir(d) if x.startswith('part-')])   # докачка не затирает прежние части
 while b <= end:
     q = {"type": "evm", "fromBlock": b, "toBlock": end,
          "fields": {"block": {"number": True, "timestamp": True},
