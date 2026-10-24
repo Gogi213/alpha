@@ -27,3 +27,9 @@ SUE и LAPTOP: все общие столбцы равны, но новый csv 
 1. **Часть B** (13 монет × 96 ячеек × 7 недель) не запущена. SUE упала: нужен Gate BNB BBO за 01.09–14.10 (в выгрузке TK-387 стакана BNB нет; в `/data/tk0380/bbo/BNB.csv.gz` только 15–22.10) — заменить ценой WBNB/USDT из Sync-пула SQD либо запросить BNB у TK-387. Остальные EVM-монеты (EMBER, FONE, GT, PAID, STAMP, KIMCHI…) — в выгрузке TK-387 есть Gate-данные не у всех (в `orderbooks/202609` только ALLINU EMBER FONE GT LAPTOP PAID Q SI STAMP SUE). Solana (`mid=exec`, §4) — после SQD.
 2. Замер памяти воркера (§7.3): пик RSS — в `oos/*.time` на calc; в отчёт не вынесен.
 3. Таблица листингов (§7.2) — не собрана.
+
+## Листинги и покрытие Gate-фьючем, 01.09–14.10 (отбор выжившими — п.1 CEO 20:35)
+
+Источник: `docs/findings/tk387-gate-coverage-2026-10-24.csv`. Суток с непустыми сделками из 44: GT 44, Q 44, FONE 43, SUE 39, LAPTOP 36, EMBER 34, ALLINU 29, PAID 29, STAMP 24, SI 15, HOOKED 12, AGENCY 10, CLAUDIA 0 (листинг 18.10), KIMCHI 0 (22.10).
+Монеты, листингованные после 01.09, в начале окна не торговались: выборка смещена вверх (взлетевшие к 23.10); в вердикте части B это ограничение указывать, недели считать только по суткам с данными. CLAUDIA и KIMCHI из части B исключены (нет суток).
+Часть B = Solana-монеты (FONE, EMBER, SI, ALLINU, STAMP, AGENCY, HOOKED, PAID?) → ждёт TK-389 (`/srv/alpha-sda/tk387-sqdsol/swaps-usd.csv`, метка `post.rc`, ETA ≈01:30).
