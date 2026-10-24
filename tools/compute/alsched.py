@@ -4,7 +4,7 @@
 Заявка: класс prod (производство: ядра/память/диск по заявке, пакуется на свободные ядра) или measure (замер: эксклюзивное
 окно — всё производство на freeze, замер получает все ядра, по выходу размораживается). Всё запускается через него.
 
-  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] [--adhoc ПРИЧИНА] [--kind work|gate|build] [--reason ПРИЧИНА] [--est ОЦЕНКА] -- команда…
+  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] [--vypiska ФАЙЛ_ШАГОВ] [--adhoc ПРИЧИНА] [--kind work|gate|build|net] [--reason ПРИЧИНА] [--est ОЦЕНКА] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
                                                     #   stand по умолчанию --iso 4 (без заморозки производства); --exclusive — заморозка всего; --iso K — другое K; wave — всегда заморозка
   alsched.py ps | cancel <id> [причина] | reprio <id> <prio> | elastic <id>… | daemon
@@ -13,7 +13,7 @@
 import argparse, json, math, os, re, subprocess, sys, time
 
 from sched_cfg import (LIVE_EXTEND_S, LIVE_LEAD_S, LIVE_CHECK_S, LIVE_CPU_MIN, LIVE_CPU_BUSY)   # noqa: F401 — TK-334
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, MIN_FREE_GB, FREE_PATHS)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, NET_MAX, MIN_FREE_GB, FREE_PATHS)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -251,7 +251,15 @@ class Core:
         gdecl = sum(r["cores"] for r in self.running("prod") if r.get("kind") in ("gate", "build") and self.decl_live(r))   # TK-300: заявленные ядра идущих gate/build — потолок RESERVE_CORES
         reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         low = self.disk_low(now)                          # TK-304: диск полон — очередь не стартует (идущие работают дальше)
-        for j in sorted(() if low else (j for j in self.jobs.values() if j["state"] == "queued"),
+        if not low:
+            nets = len(self.running("net"))
+            for j in sorted((j for j in self.jobs.values() if j["state"] == "queued" and j["cls"] == "net"), key=lambda j: (j.get("prio", 5), j["t_submit"])):
+                if nets >= NET_MAX:                       # TK-397 (G-016): закачки — вне суммы ядер, ядер/памяти/резерва не берут; ограничены только числом одновременных
+                    break
+                j.update(state="running", t_start=now, cpus=[])
+                nets += 1
+                be.start(j)
+        for j in sorted(() if low else (j for j in self.jobs.values() if j["state"] == "queued" and j["cls"] != "net"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
             head_pre = j["id"] in self.preempt            # головная вытеснения берёт ядра вытесненных, остальные — нет
             free = [c for c in range(self.ncpu) if c not in used and (head_pre or c not in held)]
@@ -795,7 +803,10 @@ class SystemdBackend:
     def start(self, j):
         os.makedirs(f"{DIR}/logs", exist_ok=True)
         os.makedirs(f"{DIR}/rc", exist_ok=True)
+        net = j["cls"] == "net"
         cpus = ",".join(map(str, range(NCPU - (RESERVE_CORES if GATE_FIT else 0)) if j.get("unpinned") else j["cpus"]))   # TK-300: сверх заявок prod не заходит на резервное (16-е) ядро гейтов
+        if net:
+            cpus = ",".join(map(str, range(NCPU - max(RESERVE_CORES, 1), NCPU)))   # TK-397: закачка — на резервном (16-м) ядре, 15 ядер счёта не трогает
         iso = bool(j.get("iso_cpus"))
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
         fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; grep '^oom_kill ' $cg/memory.events; echo swap_peak $(cat $cg/memory.swap.peak 2>/dev/null || cat $cg/memory.swap.current 2>/dev/null); }} "
@@ -820,7 +831,7 @@ class SystemdBackend:
         sl = ["-p", f"Slice={self.slice(j)}"] if j["cls"] == "measure" else []
         r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", *sl, f"--working-directory={j['cwd']}",
                "-p", f"RuntimeMaxSec={int(j['max_runtime'])}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
-               "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", "MemorySwapMax=0", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') else len(j['cpus']) * 100}%",
+               "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", "MemorySwapMax=0", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') or net else len(j['cpus']) * 100}%",
                "-p", f"CPUWeight={10 if j.get('prio', 5) > BARE_PRIO else 100}",      # 09.10: prio ниже боевого (синтетика, prio>5) — вес ЦП ≤1/10, боевой не страдает при конкуренции
                "-p", f"StandardOutput=append:{DIR}/logs/{j['id']}.log", "-p", "StandardError=inherit",
                *mem_p, "bash", "-c", inner)
@@ -1263,9 +1274,11 @@ def prod_cores(cls, kind, cores, max_runtime):
 
 def submit(cls, name, cores, mem, disk, cwd, cmd, max_runtime, prio=5, io="", iso=0, vypiska=None, kind="work", elastic=False):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
+    if kind == "net" and cls == "prod":
+        cls, cores = "net", 1                 # TK-397: закачка — свой класс, вне суммы заявленных ядер (1 ядро — только квота ЦП юнита)
     cores, raised = prod_cores(cls, kind, cores, max_runtime)
     jid = time.strftime("%m%d%H%M%S") + f"{os.getpid() % 1000:03d}"
-    j = dict(id=jid, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
+    j = dict(id=jid, name=name, cls=cls, cores=cores if cls in ("prod", "net") else NCPU, mem=mem, disk=disk, cwd=cwd, cmd=cmd,
              prio=prio, io=io, max_runtime=max_runtime, active_s=0, state="queued", t_submit=time.time(), cpus=[])
     if kind != "work":
         j["kind"] = kind
@@ -1432,7 +1445,7 @@ def main():
         p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
         p.add_argument("--adhoc", default="", help="КТ-1: обход проверки манифеста для prod — причина (пишется в alerts.log)")
         p.add_argument("--vypiska", default="", help="TK-118, В-213: файл шагов прохода, по которому снята выписка из Летописи (guard.py plan --steps)")
-        p.add_argument("--kind", default="work", choices=["work", "gate", "build"], help="В-229 п.10: gate|build — берут резерв ядер (SCHED_RESERVE_CORES), обычное prod его не занимает")
+        p.add_argument("--kind", default="work", choices=["work", "gate", "build", "net"], help="В-229 п.10: gate|build — берут резерв ядер (SCHED_RESERVE_CORES), обычное prod его не занимает; TK-397: net — закачка/сеть (ЦП ≈ 0), вне суммы ядер, до SCHED_NET_MAX (4) одновременно")
         p.add_argument("--elastic", action="store_true", help="TK-283 (G-005): при старте добрать свободные ядра до SCHED_ELASTIC_MAX (15), если в работе и в очереди нет gate/build; NX в команде = выданные ядра")
         p.add_argument("--reason", default="", help="В-229 п.8: обход быстрого пути (prod > 15 мин не на pgo-бинаре) — причина, пишется в alerts.log")
         p.add_argument("--est", default="", help="В-229 п.9: оценка прохода по пробе «1 сутки x 3 месяца» (90s|30m|2h); max-runtime >= 1,5 x оценки")
@@ -1510,7 +1523,7 @@ VYPISKA_MIN_S = 15 * 60
 def vypiska_warn(o, max_runtime_s):
     """TK-118, В-213: prod > 15 мин без отметки выписки («что есть / что считаем нового / стоимость») — предупреждение в alerts.log и роли (не отказ).
     -> запись для job json: {"file", "steps", "have", "new", "wrapper_only"} | {"file", "missing": true} | None (не требуется)."""
-    if o.cls != "prod" or max_runtime_s <= VYPISKA_MIN_S:
+    if o.cls != "prod" or o.kind == "net" or max_runtime_s <= VYPISKA_MIN_S:
         return None
     sys.path.insert(0, os.environ.get("REG_TOOLS", "/data/registry"))
     import guard

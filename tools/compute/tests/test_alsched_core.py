@@ -221,6 +221,47 @@ class GateFit(unittest.TestCase):
         self.assertEqual(sum(1 for j in core.running("prod") if j.get("kind") != "build"), 15)
 
 
+class NetKind(unittest.TestCase):
+    """TK-397 (G-016): --kind net — закачки вне суммы заявленных ядер: 15-ядерный счёт стартует при любом числе закачек, одновременных net ≤ NET_MAX."""
+    def run_case(self, nets, kind="net", work=15, ticks=12):
+        S.RESERVE_CORES, S.GATE_FIT = 1, True
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56)
+            for i in range(nets):
+                g = SS.job("n%d" % i, "dl", "prod", 1, 2, "none", 36000, 0)
+                g["kind"] = kind
+                if kind == "net":
+                    g["cls"] = "net"
+                core.add(g)
+            core.tick(); be.advance(core, S.TICK)
+            if work:
+                core.add(SS.job("w15", "w15", "prod", work, 2, "none", 36000, be.t))
+            for _ in range(ticks):
+                core.tick(); be.advance(core, S.TICK)
+            return core
+        finally:
+            S.RESERVE_CORES, S.GATE_FIT = 0, False
+
+    def test_work15_starts_beside_two_net(self):
+        core = self.run_case(2)
+        self.assertEqual([core.jobs[i]["state"] for i in ("n0", "n1", "w15")], ["running"] * 3)
+        self.assertEqual(core.jobs["n0"]["cpus"], [])                                                        # net ядер не занимает
+
+    def test_same_two_as_gate_block_work15(self):
+        core = self.run_case(2, kind="gate")                                                                 # воспроизведение 25.10: две gate-закачки держат 15-ядерный счёт
+        self.assertEqual(core.jobs["w15"]["state"], "queued")
+
+    def test_net_limited_to_net_max(self):
+        core = self.run_case(6, work=0)
+        self.assertEqual(sorted(j["state"] for j in core.jobs.values()), ["queued"] * 2 + ["running"] * 4)
+        self.assertEqual(len(core.running("net")), S.NET_MAX)
+
+    def test_net_does_not_count_in_prod(self):
+        core = self.run_case(4)
+        self.assertEqual(core.running("prod")[0]["id"], "w15")
+        self.assertEqual(len(core.running("prod")), 1)
+
+
 class ReserveFact(unittest.TestCase):
     """TK-220: допуск по факту — work резерв не трогает, build на 4 ядра при занятой work машине стартует за ≤ 1 тик."""
     def run_case(self, reserve):
