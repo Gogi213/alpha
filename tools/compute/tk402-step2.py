@@ -56,7 +56,7 @@ def bad_intervals(coin, sym, days):
     for s0, s1 in np.load(gf).reshape(-1, 2):
         if s1 > _ms(dt.datetime.strptime(days[0], '%Y-%m-%d')) and s0 < _ms(dt.datetime.strptime(days[-1], '%Y-%m-%d')) + 86400000: out.append((int(s0), int(s1))); why['gate_out'] += 1
     return out, why
-def tape(g, b, bad=()):
+def tape(g, b, bad=(), A=None):
     """объединённая лента: ts (union), as-of Gate и Bybit котировки, ok, d (бп, log-разница середин)"""
     ts = np.union1d(g[0], b[0])
     def asof(src):
@@ -64,12 +64,15 @@ def tape(g, b, bad=()):
         return np.where(i >= 0, src[1][ii], np.nan), np.where(i >= 0, src[2][ii], np.nan)
     gb, ga = asof(g); bb, ba = asof(b)
     ok = (np.isfinite(gb) & np.isfinite(ga) & np.isfinite(bb) & np.isfinite(ba) & (gb < ga) & (bb < ba)).astype(np.uint8)
+    ig = np.searchsorted(g[0], ts, side='right') - 1; ib = np.searchsorted(b[0], ts, side='right') - 1
+    lgt = np.where(ig >= 0, g[0][np.clip(ig, 0, None)], 0); lbt = np.where(ib >= 0, b[0][np.clip(ib, 0, None)], 0)  # время последнего события книги каждой ноги (as-of)
+    if A is not None: ok &= ((ts - lgt <= A) & (ts - lbt <= A)).astype(np.uint8)  # предел возраста котировки на метке (CEO 21:28)
     for t0, t1 in bad: ok[(ts >= t0) & (ts < t1)] = 0
     ig = np.searchsorted(g[0], ts, side='right') - 1; i1 = np.clip(ig, 0, None); i0 = np.clip(ig - 1, 0, None)  # (а′ п.2) Gate-нога по худшему из 2 состояний: текущее и предыдущее
     gbw = np.fmin(g[1][i1], g[1][i0]); gaw = np.fmax(g[2][i1], g[2][i0])
     with np.errstate(all='ignore'):
         d = np.where(ok > 0, (np.log((gb + ga) / 2) - np.log((bb + ba) / 2)) * 1e4, np.nan)
-    return ts, gb, ga, bb, ba, ok, d, gbw, gaw
+    return ts, gb, ga, bb, ba, ok, d, gbw, gaw, lgt, lbt
 def probe(coin, day):
     L = LIB.load(); sym = coin + 'USDT'
     days = day.split(',')  # опора kind 2 (прошлые сутки) требует ленты минимум из двух подряд суток
@@ -114,8 +117,11 @@ def run(coin, days, out):
     """боевой цикл одной монеты: сутки без любой из двух лент рвут ряд на отрезки (as-of не переносим через дыру, опоры не сшиваем); на отрезок — клетки зонда (15) x 3 опоры, режим 0 (отбор = полный проверен в probe);
     результат — npz с почасовыми массивами sg, fg, cnt, ep, c1, c2, dk по отрезкам для max-T"""
     L = LIB.load(); sym = coin + 'USDT'; res = {}; segs = []; cur = []
+    GD = {}; BD = {}  # сутки с пустой лентой (файл есть, строк нет — AXIS 21.10) рвут ряд как отсутствующие (B14)
     for x in days:
-        if _avail(coin, sym, x): cur.append(x)
+        if _avail(coin, sym, x):
+            GD[x] = gate_day(coin, x); BD[x] = bybit_day(sym, x)
+        if x in GD and GD[x] is not None and BD[x] is not None: cur.append(x)
         else:
             if cur: segs.append(cur)
             cur = []
@@ -127,17 +133,30 @@ def run(coin, days, out):
     except Exception as e:
         raise SystemExit('фандинг пуст/нет: %s %r (B11: пусто = ошибка)' % (coin, e))
     thr, Dl, To, GRID = grid()
+    AS = tuple(int(x) for x in os.environ.get('TK402_AS', '1000,5000,30000').split(','))  # предел возраста котировки обеих ног, мс (CEO 21:28: ось 1/5/30 с, вердикт по 1 с; TK402_AS — только для проверки)
+    RES = {A: {} for A in AS}; ages = []; wts = []
     for si, sd in enumerate(segs):
-        gs = [gate_day(coin, x) for x in sd]; bs = [bybit_day(sym, x) for x in sd]
+        gs = [GD[x] for x in sd]; bs = [BD[x] for x in sd]
         g = tuple(np.concatenate([x[i] for x in gs]) for i in range(3)); b = tuple(np.concatenate([x[i] for x in bs]) for i in range(3))
-        bad, why = bad_intervals(coin, sym, sd); tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d, *_ = tp
-        t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1
-        rk, ds = LIB.ranks(d, ok > 0); res[f's{si}_t0'] = np.array([t0, tend]); res[f's{si}_ok'] = np.array([ok.mean(), len(ts)])
-        for name, kind, par in ANCHORS:
-            a = np.where(ok > 0, 0.0, np.nan) if kind == 3 else LIB.anchor(L, ts, d, ok, rk, ds, kind, par)  # kind 3 = режим A (опора 0)
-            for n, v in zip(('sg', 'fg', 'cnt', 'ep', 'c1', 'c2', 'dk'), LIB.cells(L, tp, a, 0, thr, Dl, To, NH, t0, tend, fg, fb)): res[f's{si}_{name}_{n}'] = v
-    np.savez_compressed(out, segs=np.array([','.join(s) for s in segs]), grid=np.array([f'{f},{k},{D},{T}' for f, k, D, T in GRID]), **res)
-    print(coin, 'segs', [(s[0], s[-1]) for s in segs], '->', out, flush=True)
+        bad, why = bad_intervals(coin, sym, sd)
+        tp0 = tape(g, b, bad); ts0, ok0, lg0, lb0 = tp0[0], tp0[5], tp0[9], tp0[10]  # без предела: распределение возраста (время-взвешенное, середина интервала)
+        dt = np.diff(ts0, append=ts0[-1]).astype(np.float64); m0 = (ok0 > 0) & (dt > 0)
+        ages.append(np.stack([(ts0 - lg0 + dt / 2)[m0], (ts0 - lb0 + dt / 2)[m0]])); wts.append(dt[m0])
+        for A in AS:
+            tp = tape(g, b, bad, A); ts, gb, ga, bb, ba, ok, d, *_ = tp
+            t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1; res = RES[A]
+            rk, ds = LIB.ranks(d, ok > 0); res[f's{si}_t0'] = np.array([t0, tend]); res[f's{si}_ok'] = np.array([ok.mean(), len(ts)])
+            for name, kind, par in ANCHORS:
+                an = np.where(ok > 0, 0.0, np.nan) if kind == 3 else LIB.anchor(L, ts, d, ok, rk, ds, kind, par)  # kind 3 = режим A (опора 0)
+                for n, v in zip(('sg', 'fg', 'cnt', 'ep', 'c1', 'c2', 'dk'), LIB.cells(L, tp, an, 0, thr, Dl, To, NH, t0, tend, fg, fb, A=A)): res[f's{si}_{name}_{n}'] = v
+    ag = np.concatenate(ages, 1) if ages else np.zeros((2, 0)); w = np.concatenate(wts) if wts else np.zeros(0)
+    def wq(x, q):
+        if len(x) == 0: return np.nan
+        o = np.argsort(x); c = np.cumsum(w[o]); return float(x[o][np.searchsorted(c, q * c[-1])])
+    agestat = np.array([wq(ag[0], .5), wq(ag[0], .99), wq(ag[1], .5), wq(ag[1], .99), w.sum()])  # мс: Gate p50, p99, Bybit p50, p99; секунд ok-времени (мс)
+    for A in AS:
+        o = out % A; np.savez_compressed(o, segs=np.array([','.join(s) for s in segs]), grid=np.array([f'{f},{k},{D},{T}' for f, k, D, T in GRID]), agestat=agestat, **RES[A])
+    print(coin, 'segs', [(s[0], s[-1]) for s in segs], '->', out, 'возраст мс G p50/p99, B p50/p99', agestat[:4].round(0).tolist(), flush=True)
 if __name__ == '__main__':
     if sys.argv[1] == 'probe': probe(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == 'run': run(sys.argv[2], sys.argv[3].split(','), sys.argv[4])

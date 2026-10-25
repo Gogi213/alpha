@@ -61,11 +61,13 @@ static double fcum_at(const i64 *pt, const double *cs, i64 n, i64 T) { i64 k = a
 void cells(i64 M, const i64 *ts, const double *gb, const double *ga, const double *bb, const double *ba, const uint8_t *ok, const double *d, const double *b, const double *gbw, const double *gaw, i64 tend, i64 t0, int NH,
            int mode, int nc, const double *thr, const int32_t *Dl, const int32_t *To, int minhold,
            const i64 *pg, const double *cg, i64 ng, const i64 *pb, const double *cb, i64 nb,
+           const i64 *lgt, const i64 *lbt, i64 A,
            double *sg, double *fg, int32_t *cnt, int32_t *ep, int32_t *cr1, int32_t *cr2, int64_t *dropk) {
+#define FR(j, t) (A < 0 || (((t) - lgt[j]) <= A && ((t) - lbt[j]) <= A))  // возраст котировки (с последнего события книги) обеих ног <= A мс; A<0 — без предела
   int8_t *side = calloc(M, 1); double *ed = malloc(M * sizeof(double)); int32_t *n1 = malloc((M + 1) * 4), *n2 = malloc((M + 1) * 4); int32_t *cand = malloc(M * 4);
   for (i64 i = 0; i < M; i++) {
     ed[i] = NAN;
-    if (ok[i] && isfinite(b[i]) && isfinite(d[i])) {
+    if (ok[i] && isfinite(b[i]) && isfinite(d[i]) && FR(i, ts[i])) {
       double mid = (gb[i] + ga[i] + bb[i] + ba[i]) / 4, e1 = (bb[i] - ga[i]) / mid * 1e4 + b[i], e2 = (gb[i] - ba[i]) / mid * 1e4 - b[i];
       side[i] = e1 >= e2 ? 1 : 2; ed[i] = side[i] == 1 ? e1 : e2;
     }
@@ -89,13 +91,13 @@ void cells(i64 M, const i64 *ts, const double *gb, const double *ga, const doubl
       i64 t = ts[i], te = t + D;
       if (te + minhold > tend) { dk[3]++; break; }
       i64 je = asof(ts, M, te);
-      if (je < 0 || !ok[je]) { dk[0]++; pos = i + 1; continue; }
+      if (je < 0 || !ok[je] || !FR(je, te)) { dk[0]++; pos = i + 1; continue; }
       i64 i0 = lb(ts, M, te + minhold), nx = i0 >= M ? M : (side[i] == 1 ? n1[i0] : n2[i0]);
       i64 tx = nx < M ? ts[nx] : (1LL << 60), E = te + T < tx ? te + T : tx, x = E + D;
       if (x > tend) { dk[3]++; break; }
       i64 jx = asof(ts, M, x);
-      if (jx < 0 || !ok[jx]) { dk[1]++; pos = i + 1; continue; }
-      if (E == te + T && E < tx) { i64 jd = asof(ts, M, E); if (jd < 0 || !ok[jd]) { dk[2]++; pos = i + 1; continue; } }
+      if (jx < 0 || !ok[jx] || !FR(jx, x)) { dk[1]++; pos = i + 1; continue; }
+      if (E == te + T && E < tx) { i64 jd = asof(ts, M, E); if (jd < 0 || !ok[jd] || !FR(jd, E)) { dk[2]++; pos = i + 1; continue; } }
       i64 h = (te - t0) / 3600000LL;
       if (h < 0 || h >= NH) { dk[3]++; pos = i + 1; continue; }
       double gr = side[i] == 1 ? ((gbw[jx] / gaw[je] - 1) + (1 - ba[jx] / bb[je])) * 1e4 : ((1 - gaw[jx] / gbw[je]) + (bb[jx] / ba[je] - 1)) * 1e4;  // gbw/gaw — худшее из 2 состояний Gate (а′ п.2)

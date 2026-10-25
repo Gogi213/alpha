@@ -17,15 +17,16 @@ def ranks(d, ok):
 def anchor(L, ts, d, ok, rk, ds, kind, par):
     out = np.empty(len(ts), np.float64)
     L.anchor(ctypes.c_int64(len(ts)), P(ts), P(d), P(ok), P(rk), P(ds), ctypes.c_int(max(len(ds), 1)), ctypes.c_int(kind), ctypes.c_double(par), P(out)); return out
-def cells(L, tape, b, mode, thr, Dl, To, NH, t0, tend, fg_=None, fb_=None, minhold=1000):
+def cells(L, tape, b, mode, thr, Dl, To, NH, t0, tend, fg_=None, fb_=None, minhold=1000, A=-1):
     ts, gb, ga, bb, ba, ok, d, *w = tape; gbw, gaw = (w[0], w[1]) if w else (gb, ga); nc = len(thr)
+    lgt, lbt = (w[2], w[3]) if len(w) >= 4 else (np.zeros(len(ts), np.int64),) * 2  # время последнего события Gate/Bybit на метке; A мс — предел возраста (A<0 — выкл.)
     thr = np.ascontiguousarray(thr, np.float64); Dl = np.ascontiguousarray(Dl, np.int32); To = np.ascontiguousarray(To, np.int32)
     e = (np.zeros(0, np.int64), np.zeros(0))
     pg, cg = fg_ if fg_ is not None else e; pb, cb = fb_ if fb_ is not None else e
     pg = np.ascontiguousarray(pg, np.int64); cg = np.ascontiguousarray(cg, np.float64); pb = np.ascontiguousarray(pb, np.int64); cb = np.ascontiguousarray(cb, np.float64)
     sg = np.zeros((nc, NH)); fg = np.zeros((nc, NH)); cnt = np.zeros((nc, NH), np.int32); ep = np.zeros_like(cnt); c1 = np.zeros_like(cnt); c2 = np.zeros_like(cnt); dk = np.zeros((nc, 4), np.int64)
     L.cells(ctypes.c_int64(len(ts)), P(ts), P(gb), P(ga), P(bb), P(ba), P(ok), P(d), P(b), P(gbw), P(gaw), ctypes.c_int64(tend), ctypes.c_int64(t0), ctypes.c_int(NH), ctypes.c_int(mode), ctypes.c_int(nc),
-            P(thr), P(Dl), P(To), ctypes.c_int(minhold), P(pg), P(cg), ctypes.c_int64(len(pg)), P(pb), P(cb), ctypes.c_int64(len(pb)), P(sg), P(fg), P(cnt), P(ep), P(c1), P(c2), P(dk))
+            P(thr), P(Dl), P(To), ctypes.c_int(minhold), P(pg), P(cg), ctypes.c_int64(len(pg)), P(pb), P(cb), ctypes.c_int64(len(pb)), P(lgt), P(lbt), ctypes.c_int64(A), P(sg), P(fg), P(cnt), P(ep), P(c1), P(c2), P(dk))
     return sg, fg, cnt, ep, c1, c2, dk
 def selftest():
     L = load(); rng = np.random.default_rng(1); M = 400000
