@@ -50,6 +50,11 @@ def bad_intervals(coin, sym, days):
                 except OSError: n = -1
                 k = 'gate_degenerate' if n < 100 else None
             if k: out.append((_ms(t), _ms(t) + 3600000)); why[k] += 1
+    gf = f'/data/tk0402/gout/{coin}.bad.npy'  # (а′) устаревшие интервалы Gate по сделкам вне огибающей; нет файла = ошибка (охват)
+    why['gate_out'] = 0
+    if not os.path.exists(gf): raise SystemExit('нет gout для ' + coin + ' (запустить tk402-gate-out.py)')
+    for s0, s1 in np.load(gf).reshape(-1, 2):
+        if s1 > _ms(dt.datetime.strptime(days[0], '%Y-%m-%d')) and s0 < _ms(dt.datetime.strptime(days[-1], '%Y-%m-%d')) + 86400000: out.append((int(s0), int(s1))); why['gate_out'] += 1
     return out, why
 def tape(g, b, bad=()):
     """объединённая лента: ts (union), as-of Gate и Bybit котировки, ok, d (бп, log-разница середин)"""
@@ -60,9 +65,11 @@ def tape(g, b, bad=()):
     gb, ga = asof(g); bb, ba = asof(b)
     ok = (np.isfinite(gb) & np.isfinite(ga) & np.isfinite(bb) & np.isfinite(ba) & (gb < ga) & (bb < ba)).astype(np.uint8)
     for t0, t1 in bad: ok[(ts >= t0) & (ts < t1)] = 0
+    ig = np.searchsorted(g[0], ts, side='right') - 1; i1 = np.clip(ig, 0, None); i0 = np.clip(ig - 1, 0, None)  # (а′ п.2) Gate-нога по худшему из 2 состояний: текущее и предыдущее
+    gbw = np.fmin(g[1][i1], g[1][i0]); gaw = np.fmax(g[2][i1], g[2][i0])
     with np.errstate(all='ignore'):
         d = np.where(ok > 0, (np.log((gb + ga) / 2) - np.log((bb + ba) / 2)) * 1e4, np.nan)
-    return ts, gb, ga, bb, ba, ok, d
+    return ts, gb, ga, bb, ba, ok, d, gbw, gaw
 def probe(coin, day):
     L = LIB.load(); sym = coin + 'USDT'
     days = day.split(',')  # опора kind 2 (прошлые сутки) требует ленты минимум из двух подряд суток
@@ -70,7 +77,7 @@ def probe(coin, day):
     assert all(x is not None for x in gs + bs), ('нет данных', coin, day)
     g = tuple(np.concatenate([x[i] for x in gs]) for i in range(3)); b = tuple(np.concatenate([x[i] for x in bs]) for i in range(3))
     bad, why = bad_intervals(coin, sym, days); print('запретные интервалы', len(bad), why, flush=True)
-    tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d = tp
+    tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d, *_ = tp
     t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1
     print(coin, day, 'gate rows', len(g[0]), 'bybit rows', len(b[0]), 'tape', len(ts), 'ok share %.4f' % ok.mean(), 'median |d| %.2f бп' % np.nanmedian(np.abs(d)), flush=True)
     rk, ds = LIB.ranks(d, ok > 0)
@@ -123,7 +130,7 @@ def run(coin, days, out):
     for si, sd in enumerate(segs):
         gs = [gate_day(coin, x) for x in sd]; bs = [bybit_day(sym, x) for x in sd]
         g = tuple(np.concatenate([x[i] for x in gs]) for i in range(3)); b = tuple(np.concatenate([x[i] for x in bs]) for i in range(3))
-        bad, why = bad_intervals(coin, sym, sd); tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d = tp
+        bad, why = bad_intervals(coin, sym, sd); tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d, *_ = tp
         t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1
         rk, ds = LIB.ranks(d, ok > 0); res[f's{si}_t0'] = np.array([t0, tend]); res[f's{si}_ok'] = np.array([ok.mean(), len(ts)])
         for name, kind, par in ANCHORS:

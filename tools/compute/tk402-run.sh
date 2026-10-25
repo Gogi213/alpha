@@ -7,6 +7,7 @@ set -uo pipefail
 W=/data/tk0402; PY=/data/tk0380/npvenv/bin/python; DAYS=2026-10-15,2026-10-16,2026-10-17,2026-10-18,2026-10-19,2026-10-20,2026-10-21,2026-10-22
 if [ "${1:-}" = one ]; then
   c=$2; [ -s $W/s2/$c.npz ] && exit 0
+  [ -s $W/gout/$c.bad.npy ] || $PY $W/tk402-gate-out.py $W/gout "$c" >> $W/s2/$c.log 2>&1 || exit 1  # (а′) устаревшие интервалы Gate
   $PY $W/tk402-step2.py run "$c" $DAYS $W/s2/$c.npz.tmp.npz >> $W/s2/$c.log 2>&1 && mv $W/s2/$c.npz.tmp.npz $W/s2/$c.npz
   exit $?
 fi

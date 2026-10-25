@@ -58,7 +58,7 @@ static double fcum_at(const i64 *pt, const double *cs, i64 n, i64 T) { i64 k = a
 // Клетки одного якоря. Клетка c: thr[c] — порог в бп (k*круг), Dl[c] — задержка мс, To[c] — тайм-аут мс. Клетки сгруппированы по thr (список кандидатов перестраивается).
 // mode 0 — кандидаты по списку, 1 — полный перебор (гейт «байт в байт»). Выход (на клетку × NH часов): sg gross бп, fg фандинг бп, cnt, ep, cr1, cr2; dropk (4 причины) на клетку.
 // funding: pg/cg (Gate), pb/cb (Bybit; nb=0 — нет ноги) — времена выплат и накопленные ставки (доля, не бп).
-void cells(i64 M, const i64 *ts, const double *gb, const double *ga, const double *bb, const double *ba, const uint8_t *ok, const double *d, const double *b, i64 tend, i64 t0, int NH,
+void cells(i64 M, const i64 *ts, const double *gb, const double *ga, const double *bb, const double *ba, const uint8_t *ok, const double *d, const double *b, const double *gbw, const double *gaw, i64 tend, i64 t0, int NH,
            int mode, int nc, const double *thr, const int32_t *Dl, const int32_t *To, int minhold,
            const i64 *pg, const double *cg, i64 ng, const i64 *pb, const double *cb, i64 nb,
            double *sg, double *fg, int32_t *cnt, int32_t *ep, int32_t *cr1, int32_t *cr2, int64_t *dropk) {
@@ -98,7 +98,7 @@ void cells(i64 M, const i64 *ts, const double *gb, const double *ga, const doubl
       if (E == te + T && E < tx) { i64 jd = asof(ts, M, E); if (jd < 0 || !ok[jd]) { dk[2]++; pos = i + 1; continue; } }
       i64 h = (te - t0) / 3600000LL;
       if (h < 0 || h >= NH) { dk[3]++; pos = i + 1; continue; }
-      double gr = side[i] == 1 ? ((gb[jx] / ga[je] - 1) + (1 - ba[jx] / bb[je])) * 1e4 : ((1 - ga[jx] / gb[je]) + (bb[jx] / ba[je] - 1)) * 1e4;
+      double gr = side[i] == 1 ? ((gbw[jx] / gaw[je] - 1) + (1 - ba[jx] / bb[je])) * 1e4 : ((1 - gaw[jx] / gbw[je]) + (bb[jx] / ba[je] - 1)) * 1e4;  // gbw/gaw — худшее из 2 состояний Gate (а′ п.2)
       double fr = fcum_at(pg, cg, ng, x) - fcum_at(pg, cg, ng, te) - (nb > 0 ? fcum_at(pb, cb, nb, x) - fcum_at(pb, cb, nb, te) : 0.0);
       csg[h] += gr; cfg[h] += side[i] == 1 ? -fr * 1e4 : fr * 1e4; ccn[h]++;
       if (te - last_exit >= 5000) cep[h]++;
