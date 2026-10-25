@@ -5,6 +5,7 @@ Vault монеты = M-аккаунты в >=MINTX tx с дельтами обо
 quote-mint — противоположных знаков. Цена = quote/M; fee/payer/CU — из tx.
 Запуск: tk378-sol-swaps2.py MINTS.csv OUT_swaps.csv OUT_cov.csv dl/*.csv"""
 import sys, csv, collections
+csv.field_size_limit(sys.maxsize)
 Q = {'So11111111111111111111111111111111111111112': 'WSOL', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'USDC',
      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'USDT'}
 coin = {r['mint']: r['coin'] for r in csv.DictReader(open(sys.argv[1])) if r['src'] == __import__('os').environ.get('SRC', 'gate')}
