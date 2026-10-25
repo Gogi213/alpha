@@ -119,9 +119,9 @@ def _avail(coin, sym, day, mk='fut'):
 def run(coin, days, out):
     """боевой цикл одной монеты: сутки без любой из двух лент рвут ряд на отрезки (as-of не переносим через дыру, опоры не сшиваем); на отрезок — клетки зонда (15) x 3 опоры, режим 0 (отбор = полный проверен в probe);
     результат — npz с почасовыми массивами sg, fg, cnt, ep, c1, c2, dk по отрезкам для max-T"""
-    L = LIB.load(); sym = coin + 'USDT'; res = {}; segs = []; cur = []
-    if MK == 'spot':  # символ спота — из охвата stage1 (у 1000PEPE и т.п. спот без префикса)
-        sym = [r['bybit_spot'] for r in csv.DictReader(open('/data/tk0402/stage1.tsv', encoding='utf-8'), delimiter='	') if r['coin'] == coin][0]
+    L = LIB.load(); res = {}; segs = []; cur = []
+    # символ Bybit — из охвата stage1 (фьюч 1000BONKUSDT / спот BONKUSDT); до 26.10 фьюч брался как COIN+USDT и у 8 монет 1000X ряд был пуст (segs [])
+    sym = [r['bybit_spot' if MK == 'spot' else 'bybit_fut'] for r in csv.DictReader(open('/data/tk0402/stage1.tsv', encoding='utf-8'), delimiter='	') if r['coin'] == coin][0]
     GD = {}; BD = {}  # сутки с пустой лентой (файл есть, строк нет — AXIS 21.10) рвут ряд как отсутствующие (B14)
     for x in days:
         if _avail(coin, sym, x, MK):
