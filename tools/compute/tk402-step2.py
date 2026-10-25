@@ -28,7 +28,30 @@ def bybit_day(sym, day, mk='fut'):
     if len(a) == 0: return None
     tick = TK[(mk, sym)]; m = mult(sym)
     return a[:, 0], np.where(a[:, 1] > 0, a[:, 1] * tick / m, np.nan), np.where(a[:, 2] > 0, a[:, 2] * tick / m, np.nan)
-def tape(g, b):
+import datetime as dt
+def _ms(t): return int(t.replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+_VER = None
+def bad_intervals(coin, sym, days):
+    """запретные интервалы [t0,t1) мс (A7/разрывы): Gate — час без файла или вырожденный (.n<100), Bybit — сутки с verify gaps>0 или invariants>0 (verify.tsv)"""
+    global _VER
+    if _VER is None:
+        _VER = {}
+        for r in csv.DictReader(open('/data/tk0402/verify.tsv', encoding='utf-8'), delimiter='	'):
+            _VER[(r['sym'], r['day'])] = r['admit'] == '1'
+    out = []; why = {'gate_missing': 0, 'gate_degenerate': 0, 'bybit_day': 0}
+    for x in days:
+        d0 = dt.datetime.strptime(x, '%Y-%m-%d')
+        if not _VER.get((sym, x), False): out.append((_ms(d0), _ms(d0) + 86400000)); why['bybit_day'] += 1
+        for h in range(24):
+            t = d0 + dt.timedelta(hours=h); f = f"{GEV}/{coin}/{t.strftime('%Y%m%d%H')}"
+            if not os.path.exists(f + '.npy'): k = 'gate_missing'
+            else:
+                try: n = int(open(f + '.n').read())
+                except OSError: n = -1
+                k = 'gate_degenerate' if n < 100 else None
+            if k: out.append((_ms(t), _ms(t) + 3600000)); why[k] += 1
+    return out, why
+def tape(g, b, bad=()):
     """объединённая лента: ts (union), as-of Gate и Bybit котировки, ok, d (бп, log-разница середин)"""
     ts = np.union1d(g[0], b[0])
     def asof(src):
@@ -36,6 +59,7 @@ def tape(g, b):
         return np.where(i >= 0, src[1][ii], np.nan), np.where(i >= 0, src[2][ii], np.nan)
     gb, ga = asof(g); bb, ba = asof(b)
     ok = (np.isfinite(gb) & np.isfinite(ga) & np.isfinite(bb) & np.isfinite(ba) & (gb < ga) & (bb < ba)).astype(np.uint8)
+    for t0, t1 in bad: ok[(ts >= t0) & (ts < t1)] = 0
     with np.errstate(all='ignore'):
         d = np.where(ok > 0, (np.log((gb + ga) / 2) - np.log((bb + ba) / 2)) * 1e4, np.nan)
     return ts, gb, ga, bb, ba, ok, d
@@ -45,7 +69,8 @@ def probe(coin, day):
     gs = [gate_day(coin, x) for x in days]; bs = [bybit_day(sym, x) for x in days]
     assert all(x is not None for x in gs + bs), ('нет данных', coin, day)
     g = tuple(np.concatenate([x[i] for x in gs]) for i in range(3)); b = tuple(np.concatenate([x[i] for x in bs]) for i in range(3))
-    tp = tape(*(g, b)); ts, gb, ga, bb, ba, ok, d = tp
+    bad, why = bad_intervals(coin, sym, days); print('запретные интервалы', len(bad), why, flush=True)
+    tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d = tp
     t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1
     print(coin, day, 'gate rows', len(g[0]), 'bybit rows', len(b[0]), 'tape', len(ts), 'ok share %.4f' % ok.mean(), 'median |d| %.2f бп' % np.nanmedian(np.abs(d)), flush=True)
     rk, ds = LIB.ranks(d, ok > 0)
