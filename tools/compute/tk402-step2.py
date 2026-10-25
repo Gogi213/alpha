@@ -49,11 +49,11 @@ def probe(coin, day):
     rk, ds = LIB.ranks(d, ok > 0)
     fund = None
     try:
-        fd = json.load(open('/data/tk0394/funding39.json'))[coin]
+        fd = json.load(open('/data/tk0402/funding459.json'))[coin]
         fg = (np.array([a[0] * 1000 for a in fd['g']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['g']]))
         fb = (np.array([a[0] * 1000 for a in fd['b']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['b']])) if fd['b'] else None
     except Exception as e:
-        fg = fb = None; print('фандинг: нет в funding39 (' + repr(e) + ') — нули, только для пробы')
+        fg = fb = None; print('фандинг: нет в funding459 (' + repr(e) + ') — нули, только для пробы')
     GFEE, BFEE = 5.0, 5.5; circle = 2 * (GFEE + BFEE)
     thr = np.array([k * circle for k in (1.0, 1.5, 2.0)] * 5); Dl = np.repeat([0, 100, 250, 500, 1000], 3); To = np.full(15, 30000)
     for kind, par in ((0, 3600000.), (1, 3600000.), (2, 0.)):
