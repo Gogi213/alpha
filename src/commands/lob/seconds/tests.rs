@@ -14,6 +14,7 @@ fn args(root: &std::path::Path) -> SecondsArgs {
         days: Vec::new(),
         out: None,
         allow_unverified: true,
+        bbo_events: false,
     }
 }
 
@@ -101,4 +102,40 @@ fn seconds_gate_mid_gap_flow_and_determinism() {
     // OBI и глубина: 499,2 vs 500,9 → −1699 ppm, 1000,1 $ → 1000
     assert_eq!((rows[0][9], rows[0][10], rows[0][11]), (-1699, -1699, 1000));
     assert_eq!(rows[0][3], 20);
+}
+
+#[test]
+fn bbo_events_state_per_ms_dedup_and_default_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), SYM, DAY, &frames());
+    let sec = run_seconds(&args(dir.path())).unwrap();
+    let sec_csv = std::fs::read(sec.out_dir.join(format!("{SYM}-{DAY}.csv"))).unwrap();
+
+    let mut a = args(dir.path());
+    a.bbo_events = true;
+    let s = run_seconds(&a).unwrap();
+    assert_eq!(s.out_dir, dir.path().join("bbo"));
+    let text = std::fs::read_to_string(s.out_dir.join(format!("{SYM}-{DAY}.csv"))).unwrap();
+    let mut lines = text.lines();
+    assert_eq!(lines.next().unwrap(), BBO_COLUMNS.join(","));
+    let rows: Vec<Vec<i64>> = lines
+        .map(|l| l.split(',').map(|v| v.parse().unwrap()).collect())
+        .collect();
+    assert_eq!(s.bbo_rows, rows.len() as u64);
+    // снимок t=0: бид 9990×2000, аск 10010×1000; дельты без смены BBO (100, 1000, 1001) строк не дают;
+    // 2500: аск 10010 → 1500; 7200: бид 9990 → 2500
+    assert_eq!(
+        rows,
+        vec![
+            vec![0, 9990, 10010, 2000, 1000],
+            vec![2500, 9990, 10010, 2000, 1500],
+            vec![7200, 9990, 10010, 2500, 1500],
+        ]
+    );
+    // посекундный ряд с тем же кодом не изменился
+    run_seconds(&args(dir.path())).unwrap();
+    assert_eq!(
+        sec_csv,
+        std::fs::read(sec.out_dir.join(format!("{SYM}-{DAY}.csv"))).unwrap()
+    );
 }

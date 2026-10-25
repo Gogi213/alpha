@@ -456,11 +456,12 @@ fn print_touches(args: TouchesArgs) -> anyhow::Result<()> {
 fn print_seconds(args: SecondsArgs) -> anyhow::Result<()> {
     let s = run_seconds(&args)?;
     println!(
-        "seconds: days={} trades={} dropped={} gap_secs={} out={}",
+        "seconds: days={} trades={} dropped={} gap_secs={} bbo_rows={} out={}",
         s.days,
         s.trades,
         s.dropped,
         s.gap_secs,
+        s.bbo_rows,
         s.out_dir.display()
     );
     Ok(())

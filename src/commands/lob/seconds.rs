@@ -23,7 +23,17 @@
 //!
 //! Части суток (`-pN`) читаются подряд как один поток; К1 — маркер сверки
 //! `verify-<SYMBOL>.status == ok`, как у `trades` (`--allow-unverified` снимает).
+//!
+//! `--bbo-events` (TK-399, G-016) — вместо посекундного ряда событийный BBO: строка
+//! `t_ms,bid,ask,bq,aq` на каждое изменение лучших бид/аск или их размеров (тики и
+//! лоты, целые). Состояние на метку T — последняя строка с `t_ms <= T` (`searchsorted`
+//! по `t_ms`, любая задержка 0/100/250/500/1000 мс без потери). Одна мс — одна строка
+//! (последнее состояние мс); `t_ms` не убывает и лежит в `[начало суток, +86 400 000)`:
+//! обновления до полуночи схлопываются в её начало (состояние на начало суток), после
+//! конца суток — отбрасываются. Нет одной из сторон → у неё `0,0` (до первого
+//! обновления строк нет). Сделки в этом режиме не читаются в строки.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
@@ -66,6 +76,10 @@ pub struct SecondsArgs {
     /// Снять требование маркера сверки (отладочные данные).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+    /// Событийный BBO (`t_ms,bid,ask,bq,aq`) вместо посекундного ряда; по умолчанию
+    /// каталог результата — `<root>/bbo`.
+    #[arg(long, default_value_t = false)]
+    pub bbo_events: bool,
 }
 
 #[derive(Debug)]
@@ -77,6 +91,8 @@ pub struct SecondsSummary {
     pub dropped: u64,
     /// Секунд с `gap = 1`.
     pub gap_secs: u64,
+    /// Строк событийного BBO (`--bbo-events`), иначе 0.
+    pub bbo_rows: u64,
     pub out_dir: PathBuf,
 }
 
@@ -261,6 +277,133 @@ impl DayAcc {
     }
 }
 
+/// Приёмник событий потока: срез книги после обновления и сделка.
+pub(crate) trait Feed {
+    fn on_book(
+        &mut self,
+        ts_ms: i64,
+        book: &Book,
+        tick_e9: i64,
+        step_e9: i64,
+    ) -> anyhow::Result<()>;
+    fn on_trade(&mut self, hit: TradeHit, tick_e9: i64, step_e9: i64);
+}
+
+impl Feed for DayAcc {
+    fn on_book(
+        &mut self,
+        ts_ms: i64,
+        book: &Book,
+        tick_e9: i64,
+        step_e9: i64,
+    ) -> anyhow::Result<()> {
+        if let Some(s) = snap_of(book, tick_e9, step_e9) {
+            self.on_snap(ts_ms, s);
+        }
+        Ok(())
+    }
+
+    fn on_trade(&mut self, hit: TradeHit, tick_e9: i64, step_e9: i64) {
+        DayAcc::on_trade(self, hit, tick_e9, step_e9);
+    }
+}
+
+const DAY_MS: i64 = DAY_SECS as i64 * 1000;
+
+pub(crate) const BBO_COLUMNS: [&str; 5] = ["t_ms", "bid", "ask", "bq", "aq"];
+
+/// Лучшие бид/аск (тики) и их размеры (лоты); сторона без уровней — `0, 0`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Bbo {
+    bid: i64,
+    ask: i64,
+    bq: i64,
+    aq: i64,
+}
+
+impl Bbo {
+    fn of(book: &Book) -> Self {
+        let bid = book.best_bid_tick_opt();
+        let ask = book.best_ask_tick_opt();
+        Self {
+            bid: bid.unwrap_or(0),
+            ask: ask.unwrap_or(0),
+            bq: bid.map_or(0, |t| book.qty_lots_at(Side::Bid, t)),
+            aq: ask.map_or(0, |t| book.qty_lots_at(Side::Ask, t)),
+        }
+    }
+}
+
+/// Событийный BBO одних суток (`--bbo-events`): строки пишутся потоком, в памяти — одна.
+pub(crate) struct BboAcc<W: Write> {
+    start_ms: i64,
+    w: csv::Writer<W>,
+    pending: Option<(i64, Bbo)>,
+    last: Option<Bbo>,
+    pub rows: u64,
+}
+
+impl<W: Write> BboAcc<W> {
+    pub(crate) fn new(start_ms: i64, w: W) -> anyhow::Result<Self> {
+        let mut w = csv::Writer::from_writer(w);
+        w.write_record(BBO_COLUMNS)?;
+        Ok(Self {
+            start_ms,
+            w,
+            pending: None,
+            last: None,
+            rows: 0,
+        })
+    }
+
+    /// Состояние мс закрыто: строка, если оно отличается от последней записанной.
+    fn flush_pending(&mut self) -> anyhow::Result<()> {
+        if let Some((t, s)) = self.pending.take() {
+            if self.last != Some(s) {
+                self.w
+                    .write_record([t, s.bid, s.ask, s.bq, s.aq].map(|v| v.to_string()))?;
+                self.last = Some(s);
+                self.rows += 1;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish(mut self) -> anyhow::Result<u64> {
+        self.flush_pending()?;
+        self.w.flush()?;
+        Ok(self.rows)
+    }
+}
+
+impl<W: Write> Feed for BboAcc<W> {
+    fn on_book(
+        &mut self,
+        ts_ms: i64,
+        book: &Book,
+        _tick_e9: i64,
+        _step_e9: i64,
+    ) -> anyhow::Result<()> {
+        if ts_ms - self.start_ms >= DAY_MS {
+            return Ok(());
+        }
+        let t = ts_ms
+            .max(self.start_ms)
+            .max(self.pending.map_or(0, |p| p.0));
+        let s = Bbo::of(book);
+        match &mut self.pending {
+            Some((pt, ps)) if *pt == t => *ps = s,
+            _ => {
+                self.flush_pending()?;
+                self.pending = Some((t, s));
+            }
+        }
+        Ok(())
+    }
+
+    fn on_trade(&mut self, _hit: TradeHit, _tick_e9: i64, _step_e9: i64) {}
+}
+
 fn day_start_ms(day: &str) -> anyhow::Result<i64> {
     let d = crate::binlog::parse_calendar_day(day)
         .ok_or_else(|| anyhow::anyhow!("сутки {day:?} не разбираются"))?;
@@ -271,7 +414,7 @@ fn day_start_ms(day: &str) -> anyhow::Result<i64> {
 
 /// Один файл-часть суток в накопитель (реплей: новая книга на файл; разрыв
 /// последовательности останавливает файл, как в `replay`/`verify`).
-fn feed_file(path: &Path, acc: &mut DayAcc) -> anyhow::Result<()> {
+fn feed_file<F: Feed>(path: &Path, acc: &mut F) -> anyhow::Result<()> {
     let data = std::fs::read(path)
         .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
     let mut reader = Reader::open(&data[..])
@@ -298,9 +441,7 @@ fn feed_file(path: &Path, acc: &mut DayAcc) -> anyhow::Result<()> {
                     ok = false;
                     break 'frames;
                 }
-                if let Some(s) = snap_of(&book, tick_e9, step_e9) {
-                    acc.on_snap(up.cts_ms, s);
-                }
+                acc.on_book(up.cts_ms, &book, tick_e9, step_e9)?;
             }
             if let Some(h) = trade_hit_from_record(rec) {
                 acc.on_trade(h, tick_e9, step_e9);
@@ -314,9 +455,7 @@ fn feed_file(path: &Path, acc: &mut DayAcc) -> anyhow::Result<()> {
             if book.apply(up).is_err() {
                 break;
             }
-            if let Some(s) = snap_of(&book, tick_e9, step_e9) {
-                acc.on_snap(up.cts_ms, s);
-            }
+            acc.on_book(up.cts_ms, &book, tick_e9, step_e9)?;
         }
     }
     Ok(())
@@ -349,13 +488,23 @@ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
         }
     }
     anyhow::ensure!(!by_day.is_empty(), "нет суток под --day");
-    let out_dir = args
-        .out
-        .clone()
-        .unwrap_or_else(|| args.root.join("seconds"));
+    let out_dir = args.out.clone().unwrap_or_else(|| {
+        args.root
+            .join(if args.bbo_events { "bbo" } else { "seconds" })
+    });
     std::fs::create_dir_all(&out_dir)?;
-    let (mut trades, mut dropped, mut gap_secs) = (0u64, 0u64, 0u64);
+    let (mut trades, mut dropped, mut gap_secs, mut bbo_rows) = (0u64, 0u64, 0u64, 0u64);
     for (day, parts) in &by_day {
+        if args.bbo_events {
+            let path = out_dir.join(format!("{}-{day}.csv", args.symbol));
+            let file = std::io::BufWriter::new(std::fs::File::create(&path)?);
+            let mut acc = BboAcc::new(day_start_ms(day)?, file)?;
+            for p in parts {
+                feed_file(p, &mut acc)?;
+            }
+            bbo_rows += acc.finish()?;
+            continue;
+        }
         let mut acc = DayAcc::new(day_start_ms(day)?);
         for p in parts {
             feed_file(p, &mut acc)?;
@@ -377,6 +526,7 @@ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
         trades,
         dropped,
         gap_secs,
+        bbo_rows,
         out_dir,
     })
 }
