@@ -16,6 +16,10 @@ def ffill(a, lim):
     idx = np.where(~np.isnan(a), np.arange(len(a)), -10 ** 9); idx = np.maximum.accumulate(idx)
     ok = (idx >= 0) & (np.arange(len(a)) - idx <= lim)
     o = np.full(len(a), np.nan); o[ok] = a[idx[ok]]; return o
+HDR = 'coin mkt X W dir day h n dex_move_bp gate_resp_bp share dex_after_bp ctrl_gate_bp'.split()
+def skip(why):  # пропуск монеты с причиной (rc 0): пустая кривая, чтобы перезапуск не пересчитывал
+    with open(outp + '-curve.csv', 'w', newline='') as f: csv.writer(f).writerow(HDR)
+    print(coin, 'SKIP:', why); sys.exit(0)
 d = np.full(N, np.nan)
 for line in gzip.open(midf, 'rt'):
     ts, b, l, m = line.split(','); i = int(ts) - D0
@@ -36,12 +40,15 @@ def trades(kind, c=None):
     return ffill(p, 60)
 # CEO 25.10: BBO фьюча TK-380 пересечён (TK-394) -> середина фьюча тоже по последней сделке секунды (приближение, пометка)
 if LEG:
-    L = trades('spot', LEG); D = D * L; D[:first] = np.nan
+    L = trades('spot', LEG)
+    if L is None: skip(f'нет сделок спота ноги {LEG}')
+    D = D * L; D[:first] = np.nan
     first = int(np.argmax(~np.isnan(D))) if (~np.isnan(D)).any() else N
     D[:first] = np.nan
 for kind, key in (('fut', 'fut'), ('spot', 'spot')):
     g = trades(kind)
     if g is not None: gate[key] = g
+if N - 14401 <= max(max(WS), first): skip(f'короткий ряд DEX: первая секунда {first} из {N}, контроль не помещается')
 rng = np.random.default_rng(392)
 rows = []
 for mkt, G in gate.items():
@@ -78,5 +85,5 @@ for mkt, G in gate.items():
                                      round(g / dm, 4) if g == g else '', round(float(np.nanmean(dafter[m, k])) * 1e4, 2) if (~np.isnan(dafter[m, k])).any() else '',
                                      round(float(np.nanmean(ctrl[:, m, k])) * 1e4, 2) if (~np.isnan(ctrl[:, m, k])).any() else ''))
 with open(outp + '-curve.csv', 'w', newline='') as f:
-    w = csv.writer(f); w.writerow('coin mkt X W dir day h n dex_move_bp gate_resp_bp share dex_after_bp ctrl_gate_bp'.split()); w.writerows(rows)
+    w = csv.writer(f); w.writerow(HDR); w.writerows(rows)
 print(coin, {k: int(np.isfinite(v).sum()) for k, v in gate.items()}, len(rows), 'rows')
