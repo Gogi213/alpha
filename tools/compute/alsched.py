@@ -13,7 +13,7 @@
 import argparse, json, math, os, re, subprocess, sys, time
 
 from sched_cfg import (LIVE_EXTEND_S, LIVE_LEAD_S, LIVE_CHECK_S, LIVE_CPU_MIN, LIVE_CPU_BUSY)   # noqa: F401 — TK-334
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, NET_MAX, MIN_FREE_GB, FREE_PATHS)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, NET_MAX, MIN_FREE_GB, FREE_PATHS, TAIL_S, TAIL_FIT)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -219,6 +219,7 @@ class Core:
         be = self.be
         self.thaw_victims()
         self.cap_iso()
+        self._tails(now)
         used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]} | self.iso
         mem = sum(j["mem"] for j in self.running("prod"))
         legacy = math.ceil(be.legacy_busy())
@@ -276,9 +277,12 @@ class Core:
             room_s = min(room, decl_cap - declared_j - held_n) if OVERBOOK_MAX else room   # место для сжатия elastic — не выше потолка суммы заявок
             hold = sum(x["cores"] for x in self.jobs.values() if x["state"] == "queued" and x["cls"] == "prod" and x is not j
                        and not x.get("elastic") and x["cores"] <= SMALL_CORES)   # TK-283: мелкие заявки в очереди (не elastic) — им место
-            shrink = room_s - hold if (j.get("elastic") and ELASTIC_MIN and not gate_active and not self.iso
-                                     and ELASTIC_MIN <= room_s - hold < j["cores"]
-                                     and j["max_runtime"] * j["cores"] / (room_s - hold) <= ELASTIC_SHRINK_S) else 0   # CEO 17.10 08:54: многочасовой проход на 4 ядрах застрял бы навсегда (NX не растёт) — сжимаем только короткие   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
+            sh_room = room_s - hold
+            el_fit = bool(j.get("elastic") and ELASTIC_MIN and ELASTIC_MIN <= sh_room < j["cores"]
+                          and j["max_runtime"] * j["cores"] / max(sh_room, 1) <= ELASTIC_SHRINK_S)   # CEO 17.10 08:54: многочасовой проход на 4 ядрах застрял бы навсегда (NX не растёт) — сжимаем только короткие   # TK-283 (CEO 17.10): заявленных ядер нет, свободных >= ELASTIC_MIN — elastic стартует на них (NX=выданные), пустовать не даём
+            tail_fit = bool(TAIL_FIT and j["cls"] == "prod" and j.get("kind", "work") == "work" and j.get("nx_env") and any(r.get("tail") for r in self.running("prod"))
+                            and j["cores"] > sh_room >= max(1, math.ceil(TAIL_FIT * j["cores"])))   # TK-405: на машине хвост (его ядра сжаты) — широкая заявка встаёт на оставшиеся, если это не меньше TAIL_FIT заявленных; NX = выданные (nx_env)
+            shrink = sh_room if ((el_fit or tail_fit) and not gate_active and not self.iso) else 0
             ncor = shrink or j["cores"]               # ядра, с которыми заявка реально встанет
             mrt = j["max_runtime"] * j["cores"] / ncor   # на меньшем числе ядер тот же счёт идёт дольше — бюджет растёт пропорционально
             disk_full = bool(self.slots and j["disk"] != "none"
@@ -340,6 +344,26 @@ class Core:
             if worse or now - head["t_submit"] > PREEMPT_S:    # 10.10 (Судья): prio строго лучше идущего — вытесняем в тот же цикл, без таймера
                 self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now, bare=now - head["t_submit"] > PREEMPT_S)
         return legacy
+
+    def _tails(self, now):
+        """TK-405 (G-016): хвост прохода (1–3 процесса на 15 заявленных ядрах) держал очередь часами. Идущая prod work-заявка, у которой за TAIL_S факт ЦП
+        (выборки cpu_samples alert_underuse) < UNDER_FRAC заявленных ядер, сжимает УЧТЁННЫЕ ядра до ceil(факт)+1: пины — нижние, лишние свободны очереди, в сумму
+        заявок идёт новое число. Юнит не трогаем (квота и AllowedCPUs прежние): выросший хвост не душится, а делит ЦП с соседом по весам."""
+        if not TAIL_S or self.frozen or self.iso:
+            return
+        for j in self.running("prod"):
+            sm = j.get("cpu_samples") or []
+            if j.get("kind", "work") != "work" or j.get("frozen_for") or j["cores"] < 2 or len(sm) < 2:
+                continue
+            old = next((s for s in reversed(sm[:-1]) if sm[-1][0] - s[0] >= TAIL_S), None)
+            if old is None:
+                continue
+            rate = (sm[-1][1] - old[1]) / (sm[-1][0] - old[0])
+            need = math.ceil(rate) + 1
+            if rate < UNDER_FRAC * j["cores"] and need < j["cores"]:
+                j.setdefault("tail_from", j["cores"])
+                j["tail"], j["cores"], j["cpus"] = True, need, j["cpus"][:need]
+                self.be.alert(f"хвост {j['id']} {j['name']} {ticket_of(j['name'])}: за {int((sm[-1][0] - old[0]) / 60)} мин занято {rate:.2f} из {j['tail_from']} ядер — учтено {need}, остальные отданы очереди")
 
     def disk_low(self, now):
         """TK-304 (В-44): свободно на FREE_PATHS меньше MIN_FREE_GB — список (путь, ГБ), иначе []. Тревога один раз на эпизод и раз в час, снятие — строка."""

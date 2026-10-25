@@ -760,5 +760,57 @@ class LiveExtend(unittest.TestCase):
         finally:
             S.LIVE_EXTEND_S = old
 
+
+class Tail(unittest.TestCase):
+    """TK-405 (G-016): хвост 15-ядерной заявки (факт 2 ядра) сжимает учтённые ядра до факта+1, следующая широкая заявка встаёт на оставшиеся."""
+    def run_case(self, tail_s=900, rate=2.0, fit=0.6, secs=1500, kind="work"):
+        old = (S.TAIL_S, S.TAIL_FIT)
+        S.TAIL_S, S.TAIL_FIT = tail_s, fit
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            a = SS.job("a", "tk402-step2", "prod", 15, 4, "none", 36000, 0); a["nx_env"] = True; a["kind"] = kind
+            be.cpu_rate["a"] = rate
+            core.add(a)
+            b = SS.job("b", "tk401-evsol", "prod", 15, 4, "none", 3600, 0); b["nx_env"] = True
+            started = None
+            for t in range(0, secs, S.TICK):
+                if t == 60:
+                    core.add(b)
+                core.tick(); be.advance(core, S.TICK)
+                if started is None and b["state"] == "running":
+                    started = t
+            return core, be, a, b, started
+        finally:
+            S.TAIL_S, S.TAIL_FIT = old
+
+    def test_tail_frees_cores_for_wide_follower(self):
+        core, be, a, b, started = self.run_case()
+        self.assertEqual((a["cores"], a["tail_from"], len(a["cpus"])), (3, 15, 3))      # ceil(2)+1
+        self.assertEqual(b["state"], "running")
+        self.assertEqual((b["cores"], b["cores_req"]), (12, 15))                         # 15 - хвост 3 = потолок OVERBOOK_MAX
+        self.assertGreaterEqual(started, 900)                                            # не раньше окна TAIL_S
+        self.assertLessEqual(sum(r["cores"] for r in core.running("prod")), S.OVERBOOK_MAX)
+        self.assertTrue(any(x.startswith("хвост a ") for x in be.alerts), be.alerts)
+        self.assertEqual(b["max_runtime"], 7200 * 15 / 12)                               # бюджет растёт пропорционально
+
+    def test_busy_job_not_a_tail(self):
+        core, _, a, b, _ = self.run_case(rate=12.0)
+        self.assertEqual((a["cores"], b["state"]), (15, "queued"))
+
+    def test_off_switch(self):
+        core, _, a, b, _ = self.run_case(tail_s=0)
+        self.assertEqual((a["cores"], b["state"]), (15, "queued"))
+        core, _, a, b, _ = self.run_case(fit=0)
+        self.assertEqual((a["cores"], b["state"]), (3, "queued"))                       # хвост сжат, но широкая не втискивается
+
+    def test_follower_below_fit_waits(self):
+        core, _, a, b, _ = self.run_case(rate=6.0, fit=0.9)                              # хвост 7 → остаётся 8 < 0.9 x 15
+        self.assertEqual((a["cores"], b["state"]), (7, "queued"))
+
+    def test_gate_never_a_tail(self):
+        _, _, a, b, _ = self.run_case(kind="gate")
+        self.assertEqual(a["cores"], 15)
+
+
 if __name__ == "__main__":
     unittest.main()
