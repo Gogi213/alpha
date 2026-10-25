@@ -811,6 +811,49 @@ class Tail(unittest.TestCase):
         _, _, a, b, _ = self.run_case(kind="gate")
         self.assertEqual(a["cores"], 15)
 
+    def drive(self, profile, secs, tail_age=1200):
+        """профиль (t_с, ядер факта) для заявки a (15 ядер, nx_env), b (15) подана на t=60; -> (core, be, a, b, {t: (cores, tail) a})"""
+        old = (S.TAIL_S, S.TAIL_FIT, S.TAIL_AGE_S)
+        S.TAIL_S, S.TAIL_FIT, S.TAIL_AGE_S = 900, 0.6, tail_age
+        try:
+            be = SS.SimBE(); core = S.Core(be, ncpu=SS.NCPU, mem=56, pack="fact")
+            a = SS.job("a", "tk407-ev", "prod", 15, 4, "none", 36000, 0); a["nx_env"] = True
+            b = SS.job("b", "tk407-agt", "prod", 15, 4, "none", 3600, 0); b["nx_env"] = True
+            core.add(a); seen = {}
+            for t in range(0, secs, S.TICK):
+                be.cpu_rate["a"] = [r for (t0, r) in profile if t0 <= t][-1]
+                if t == 60:
+                    core.add(b)
+                core.tick(); be.advance(core, S.TICK)
+                seen[t] = (a["cores"], bool(a.get("tail")))
+            return core, be, a, b, seen
+        finally:
+            S.TAIL_S, S.TAIL_FIT, S.TAIL_AGE_S = old
+
+    def test_pause_between_steps_not_a_tail(self):
+        """TK-406: шаг 1 (9 ядер) -> тянется одна монета (1 ядро) -> шаг 2 (9 ядер): в окне TAIL_S среднее < половины, но заявке < 20 мин — хвоста нет"""
+        _, be, a, b, seen = self.drive([(0, 9), (300, 1), (1000, 9)], 1500)
+        self.assertEqual(a["cores"], 15)
+        self.assertEqual(b["state"], "queued")
+        self.assertFalse(any(x.startswith("хвост") for x in be.alerts), be.alerts)
+
+    def test_pause_is_a_tail_without_age_rule(self):
+        """контроль: без возраста (TAIL_AGE_S=0) тот же профиль даёт хвост — тест выше ловит именно правило возраста"""
+        _, be, a, _, _ = self.drive([(0, 9), (300, 1), (1000, 9)], 1500, tail_age=0)
+        self.assertTrue(any(x.startswith("хвост a ") for x in be.alerts), be.alerts)
+
+    def test_release_when_fact_outgrows_accounting(self):
+        """TK-406: хвост учтён (2 ядра -> 3), факт вырос до 6 — учёт возвращается к 7, до 14 — к заявленным 15; нового хвоста сразу нет"""
+        _, be, a, _, seen = self.drive([(0, 2), (1500, 6), (1800, 14)], 2400)
+        tailed = [t for t in sorted(seen) if seen[t] == (3, True)]
+        self.assertTrue(tailed and tailed[0] >= 1200, tailed[:3])                      # возраст соблюдён
+        at = lambda t: seen[max(k for k in seen if k <= t)]
+        self.assertEqual(at(1700), (7, True))                                          # ceil(6)+1, ещё неполный
+        self.assertEqual(at(2399), (15, False))                                        # ceil(14)+1 > заявленных — 15, хвост снят
+        self.assertEqual(len(a["cpus"]), 15)
+        self.assertEqual([x.split(" учтено ")[1] for x in be.alerts if x.startswith("хвост снят a ")][-2:], ["7 из 15", "15 из 15"], be.alerts)
+        self.assertEqual(sum(1 for x in be.alerts if x.startswith("хвост a ")), 1, be.alerts)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,7 +13,7 @@
 import argparse, json, math, os, re, subprocess, sys, time
 
 from sched_cfg import (LIVE_EXTEND_S, LIVE_LEAD_S, LIVE_CHECK_S, LIVE_CPU_MIN, LIVE_CPU_BUSY)   # noqa: F401 — TK-334
-from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, NET_MAX, MIN_FREE_GB, FREE_PATHS, TAIL_S, TAIL_FIT)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
+from sched_cfg import (DIR, RUNS_DIR, NCPU, MEM_GB, TICK, DEAD_S, PREEMPT_S, DISK_SLOTS, FREEZE_PAT, LEGACY_PAT, PACK, FACT_BUSY, FACT_SETTLE_S, PROD_CAP_ISO, HOT_BUSY, PSI_CPU, MEM_RAMP_S, FACT_MEM_GAP_GB, RESERVE_CORES, GATE_FIT, ELASTIC_MAX, ELASTIC_MIN, ELASTIC_SHRINK_S, SMALL_CORES, OVERBOOK_MAX, NET_MAX, MIN_FREE_GB, FREE_PATHS, TAIL_S, TAIL_FIT, TAIL_AGE_S)   # noqa: F401 — вся конфигурация SCHED_* в sched_cfg.py (С-57)
 WAIT_ALERT_S = 600
 UNDER_S = 1800     # п.8(б): окно недогруза заявки
 UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
@@ -348,22 +348,41 @@ class Core:
     def _tails(self, now):
         """TK-405 (G-016): хвост прохода (1–3 процесса на 15 заявленных ядрах) держал очередь часами. Идущая prod work-заявка, у которой за TAIL_S факт ЦП
         (выборки cpu_samples alert_underuse) < UNDER_FRAC заявленных ядер, сжимает УЧТЁННЫЕ ядра до ceil(факт)+1: пины — нижние, лишние свободны очереди, в сумму
-        заявок идёт новое число. Юнит не трогаем (квота и AllowedCPUs прежние): выросший хвост не душится, а делит ЦП с соседом по весам."""
+        заявок идёт новое число. Юнит не трогаем (квота и AllowedCPUs прежние): выросший хвост не душится, а делит ЦП с соседом по весам.
+        TK-406 (Судья 26.10): (а) не раньше TAIL_AGE_S от t_start — пауза между шагами ранней многошаговой заявки хвостом не считается; (б) и за окно, и в последнем интервале выборок (SAMPLE_S) факт < половины заявленных; (в) условие подтверждается на следующей выборке; (г) разжатие: последний
+        интервал выборок (SAMPLE_S) занял больше учтённых ядер — учёт возвращается к ceil(факт)+1 (не выше заявленных), новый хвост — не раньше TAIL_S после этого."""
         if not TAIL_S or self.frozen or self.iso:
             return
         for j in self.running("prod"):
             sm = j.get("cpu_samples") or []
             if j.get("kind", "work") != "work" or j.get("frozen_for") or j["cores"] < 2 or len(sm) < 2:
                 continue
+            if j.get("tail"):
+                rate = (sm[-1][1] - sm[-2][1]) / max(sm[-1][0] - sm[-2][0], 1)
+                if rate > j["cores"]:
+                    new = min(j["tail_from"], math.ceil(rate) + 1)
+                    j.pop("tail_c", None)
+                    j["cores"], j["cpus"], j["tail"], j["tail_rel_t"] = new, (j.get("tail_cpus") or list(range(new)))[:new], new < j["tail_from"], now
+                    self.be.alert(f"хвост снят {j['id']} {j['name']} {ticket_of(j['name'])}: за {int(sm[-1][0] - sm[-2][0])} с занято {rate:.2f} ядер — учтено {new} из {j['tail_from']}")
+                continue
+            if now - j["t_start"] < TAIL_AGE_S or now - j.get("tail_rel_t", -TAIL_S) < TAIL_S:
+                continue
             old = next((s for s in reversed(sm[:-1]) if sm[-1][0] - s[0] >= TAIL_S), None)
             if old is None:
                 continue
             rate = (sm[-1][1] - old[1]) / (sm[-1][0] - old[0])
+            now_rate = (sm[-1][1] - sm[-2][1]) / max(sm[-1][0] - sm[-2][0], 1)
             need = math.ceil(rate) + 1
-            if rate < UNDER_FRAC * j["cores"] and need < j["cores"]:
-                j.setdefault("tail_from", j["cores"])
-                j["tail"], j["cores"], j["cpus"] = True, need, j["cpus"][:need]
-                self.be.alert(f"хвост {j['id']} {j['name']} {ticket_of(j['name'])}: за {int((sm[-1][0] - old[0]) / 60)} мин занято {rate:.2f} из {j['tail_from']} ядер — учтено {need}, остальные отданы очереди")
+            if not (rate < UNDER_FRAC * j["cores"] and now_rate < UNDER_FRAC * j["cores"] and need < j["cores"]):   # и за окно, и сейчас: среднее окна запаздывает за подъёмом после паузы
+                j.pop("tail_c", None)
+                continue
+            if j.setdefault("tail_c", sm[-1][0]) >= sm[-1][0]:    # подтверждение: условие держится и на следующей выборке (SAMPLE_S), а не на смешанном интервале стыка шагов
+                continue
+            j.pop("tail_c", None)
+            j.setdefault("tail_from", j["cores"])
+            j.setdefault("tail_cpus", list(j["cpus"]))
+            j["tail"], j["cores"], j["cpus"] = True, need, j["tail_cpus"][:need]
+            self.be.alert(f"хвост {j['id']} {j['name']} {ticket_of(j['name'])}: за {int((sm[-1][0] - old[0]) / 60)} мин занято {rate:.2f} из {j['tail_from']} ядер — учтено {need}, остальные отданы очереди")
 
     def disk_low(self, now):
         """TK-304 (В-44): свободно на FREE_PATHS меньше MIN_FREE_GB — список (путь, ГБ), иначе []. Тревога один раз на эпизод и раз в час, снятие — строка."""
