@@ -31,7 +31,7 @@ def at(t):
 mm_end = mm_100 = n = 0
 with open(sec_f, newline="") as f:
     for r in csv.DictReader(f):
-        s = int(r["t_s"])
+        s = int(r["t_s"]) - t0 // 1000  # t_s в seconds.csv — абсолютные секунды эпохи
         n += 1
         mm_end += at((s + 1) * 1000) != int(r["mid2"])
         mm_100 += at(s * 1000 + 100) != int(r["mid2_100"])

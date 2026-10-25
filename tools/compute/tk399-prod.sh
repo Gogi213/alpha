@@ -3,6 +3,7 @@
 #   python3 /data/sched/alsched.py submit --cls prod --kind work --name tk399-bbo --cores 15 --mem 24 --est <с> --max-runtime <с> \
 #     --vypiska <файл> -- bash /data/tk0399/tk399-prod.sh
 #   единица: bash tk399-prod.sh one <корень> <SYM> <сутки> <fut|spot>   (env BIN OUT); готовая (.gz непустой) пропускается.
+# --allow-unverified: у 98 из 104 монет маркер verify=fail (доля нарушений сделок ≥0,1 %, gaps=0 invariants=0; список исключений TK-366) — стакан цел, К1 снят осознанно.
 # Выход: $OUT/<cls>/<сутки>/<SYM>-<сутки>.csv.gz (t_ms,bid,ask,bq,aq), сводка $OUT/summary.txt, метка DONE.json (или bbo.failed).
 set -uo pipefail
 W=/data/tk0399; BIN=${BIN:-$W/new/alpha-new}; OUT=${OUT:-$W/bbo}
@@ -10,7 +11,7 @@ if [ "${1:-}" = one ]; then
   root=$2 sym=$3 day=$4 cls=$5; dst=$OUT/$cls/$day; gz=$dst/$sym-$day.csv.gz
   [ -s "$gz" ] && exit 0
   mkdir -p "$dst"; tmp=$(mktemp -d "$OUT/.tmp-XXXXXX")
-  if nice -n 5 "$BIN" lob seconds --bbo-events --root "$root" --symbol "$sym" --day "$day" --out "$tmp" > "$tmp/log" 2>&1 \
+  if nice -n 5 "$BIN" lob seconds --allow-unverified --bbo-events --root "$root" --symbol "$sym" --day "$day" --out "$tmp" > "$tmp/log" 2>&1 \
      && [ -s "$tmp/$sym-$day.csv" ] && gzip -1 -c "$tmp/$sym-$day.csv" > "$gz.tmp" && mv "$gz.tmp" "$gz"; then
     rm -rf "$tmp"
   else

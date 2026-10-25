@@ -14,9 +14,9 @@ for v in base new; do echo "$v $("$W/$v/alpha-new" --version) md5 $(md5sum "$W/$
 fail=0
 while read -r cls sym day R; do
   d=$W/gate/$cls-$sym-$day; rm -rf "$d"; mkdir -p "$d/a" "$d/b" "$d/e"
-  /usr/bin/time -f "%e %U %S %M" -o "$d/time-a" "$W/base/alpha-new" lob seconds --root "$R" --symbol "$sym" --day "$day" --out "$d/a" > "$d/a.log" 2>&1; rca=$?
-  /usr/bin/time -f "%e %U %S %M" -o "$d/time-b" "$W/new/alpha-new" lob seconds --root "$R" --symbol "$sym" --day "$day" --out "$d/b" > "$d/b.log" 2>&1; rcb=$?
-  /usr/bin/time -f "%e %U %S %M" -o "$d/time-e" "$W/new/alpha-new" lob seconds --bbo-events --root "$R" --symbol "$sym" --day "$day" --out "$d/e" > "$d/e.log" 2>&1; rce=$?
+  /usr/bin/time -f "%e %U %S %M" -o "$d/time-a" "$W/base/alpha-new" lob seconds --allow-unverified --root "$R" --symbol "$sym" --day "$day" --out "$d/a" > "$d/a.log" 2>&1; rca=$?
+  /usr/bin/time -f "%e %U %S %M" -o "$d/time-b" "$W/new/alpha-new" lob seconds --allow-unverified --root "$R" --symbol "$sym" --day "$day" --out "$d/b" > "$d/b.log" 2>&1; rcb=$?
+  /usr/bin/time -f "%e %U %S %M" -o "$d/time-e" "$W/new/alpha-new" lob seconds --allow-unverified --bbo-events --root "$R" --symbol "$sym" --day "$day" --out "$d/e" > "$d/e.log" 2>&1; rce=$?
   cmp -s "$d/a/$sym-$day.csv" "$d/b/$sym-$day.csv"; ga=$?
   python3 "$W/tk399-check.py" "$d/b/$sym-$day.csv" "$d/e/$sym-$day.csv" "$day" > "$d/check.txt" 2>&1; gb=$?
   ref=/data/tk0369/mid/$cls/$day/$sym-$day.csv.gz; gc=na
