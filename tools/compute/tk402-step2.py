@@ -89,5 +89,39 @@ def probe(coin, day):
         same = all(np.array_equal(x, y) for x, y in zip(r0, r1))
         print('  сделок', int(r0[2].sum()), 'отбор==полный байт в байт:', same, 'drops', r0[6].sum(0).tolist(), 'gross/сделка (бп) %.2f' % (r0[0].sum() / max(r0[2].sum(), 1)), flush=True)
         if not same: sys.exit(3)
+
+def _avail(coin, sym, day):
+    d = day.replace('-', '')
+    return bool(glob.glob(f'{GEV}/{coin}/{d}??.npy')) and os.path.exists(f'{BEV}/fut/{day}/{sym}-{day}.csv.gz')
+def run(coin, days, out):
+    """боевой цикл одной монеты: сутки без любой из двух лент рвут ряд на отрезки (as-of не переносим через дыру, опоры не сшиваем); на отрезок — клетки зонда (15) x 3 опоры, режим 0 (отбор = полный проверен в probe);
+    результат — npz с почасовыми массивами sg, fg, cnt, ep, c1, c2, dk по отрезкам для max-T"""
+    L = LIB.load(); sym = coin + 'USDT'; res = {}; segs = []; cur = []
+    for x in days:
+        if _avail(coin, sym, x): cur.append(x)
+        else:
+            if cur: segs.append(cur)
+            cur = []
+    if cur: segs.append(cur)
+    try:
+        fd = json.load(open('/data/tk0402/funding459.json'))[coin]
+        fg = (np.array([a[0] * 1000 for a in fd['g']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['g']]))
+        fb = (np.array([a[0] * 1000 for a in fd['b']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['b']])) if fd['b'] else None
+    except Exception as e:
+        raise SystemExit('фандинг пуст/нет: %s %r (B11: пусто = ошибка)' % (coin, e))
+    GFEE, BFEE = 5.0, 5.5; circle = 2 * (GFEE + BFEE)
+    thr = np.array([k * circle for k in (1.0, 1.5, 2.0)] * 5); Dl = np.repeat([0, 100, 250, 500, 1000], 3); To = np.full(15, 30000)
+    for si, sd in enumerate(segs):
+        gs = [gate_day(coin, x) for x in sd]; bs = [bybit_day(sym, x) for x in sd]
+        g = tuple(np.concatenate([x[i] for x in gs]) for i in range(3)); b = tuple(np.concatenate([x[i] for x in bs]) for i in range(3))
+        bad, why = bad_intervals(coin, sym, sd); tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d = tp
+        t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1
+        rk, ds = LIB.ranks(d, ok > 0); res[f's{si}_t0'] = np.array([t0, tend]); res[f's{si}_ok'] = np.array([ok.mean(), len(ts)])
+        for kind, par in ((0, 3600000.), (1, 3600000.), (2, 0.)):
+            a = LIB.anchor(L, ts, d, ok, rk, ds, kind, par)
+            for n, v in zip(('sg', 'fg', 'cnt', 'ep', 'c1', 'c2', 'dk'), LIB.cells(L, tp, a, 0, thr, Dl, To, NH, t0, tend, fg, fb)): res[f's{si}_k{kind}_{n}'] = v
+    np.savez_compressed(out, segs=np.array([','.join(s) for s in segs]), **res)
+    print(coin, 'segs', [(s[0], s[-1]) for s in segs], '->', out, flush=True)
 if __name__ == '__main__':
     if sys.argv[1] == 'probe': probe(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == 'run': run(sys.argv[2], sys.argv[3].split(','), sys.argv[4])
