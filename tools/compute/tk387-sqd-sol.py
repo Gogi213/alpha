@@ -146,6 +146,8 @@ if __name__ == '__main__':
                 jobs.append((f"{time.strftime('%Y%m%d', time.gmtime(t))}-{k:02d}", lo, hi))
     if PROBE:
         jobs = jobs[:1]
+    if os.environ.get('SEG_FROM'):  # TK-393: доп. заявка берёт хвост сегментов (имя >= SEG_FROM) с конца, чтобы не сталкиваться с основной
+        jobs = sorted([j for j in jobs if j[0] >= os.environ['SEG_FROM']], reverse=True)
     print(f'{len(jobs)} сегментов, {len(MINTS)} mint, слоты/сутки ≈ {slots[str(days[1])] - slots[str(days[0])] if len(days) > 1 else "?"}', flush=True)
     with Pool(NPROC) as p:
         for name, rows, dt in p.imap_unordered(seg, jobs):
