@@ -16,5 +16,5 @@
 
 | число | файл:строка |
 |---|---|
-| 0 из 10 697 файлов (563 × 19 ч) | docs/findings/gate-week-download-2026-10-23.md:150 |
-| покрытие 22.10 — 5 ч из 24 | docs/findings/gate-week-download-2026-10-23.md:150 |
+| 0 из 10 697 | docs/findings/gate-week-download-2026-10-23.md:150 |
+| 5 ч из 24 | docs/findings/gate-week-download-2026-10-23.md:150 |
