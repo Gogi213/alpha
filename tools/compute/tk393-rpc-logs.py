@@ -71,6 +71,16 @@ with open(fn, 'a', encoding='utf-8') as w:
         if r is None:
             if hi == b: raise SystemExit('single block fails')
             step = max(1, step // 2); continue
+        need = sorted({int(lg['blockNumber'], 16) for lg in r} - tsc.keys())
+        for i in range(0, len(need), 100):   # батч-запросы времени блоков
+            part = need[i:i + 100]
+            for k in range(40):
+                try:
+                    rq = urllib.request.Request(url, json.dumps([{'jsonrpc': '2.0', 'id': n, 'method': 'eth_getBlockByNumber', 'params': [hex(n), False]} for n in part]).encode(), {'Content-Type': 'application/json', 'User-Agent': 'curl/8'})
+                    with urllib.request.urlopen(rq, timeout=120) as f: jj = json.loads(f.read())
+                    for x in jj: tsc[x['id']] = int(x['result']['timestamp'], 16)
+                    if all(n in tsc for n in part): break
+                except Exception: time.sleep(5)
         for lg in r:
             n = int(lg['blockNumber'], 16)
             w.write(json.dumps({'b': n, 't': tsof(n), 'a': lg['address'], 'tp': lg['topics'], 'd': lg['data'], 'tx': lg['transactionHash'], 'li': lg['logIndex']}) + '\n'); nrows += 1
