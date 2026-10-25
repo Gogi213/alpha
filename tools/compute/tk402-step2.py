@@ -8,6 +8,8 @@ D0 = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, D0)
 import importlib.util
 sp = importlib.util.spec_from_file_location('s2lib', os.path.join(D0, 'tk402-step2lib.py')); LIB = importlib.util.module_from_spec(sp); sp.loader.exec_module(LIB)
 GEV = '/data/tk0402/gev2'; BEV = '/data/tk0399/bbo'
+MK = os.environ.get('TK402_MK', 'fut')  # fut = FF, spot = FS (Gate-фьюч x Bybit-спот: стакан Bybit-спота, фандинга Bybit нет, тариф спота 10 бп)
+VER = '/data/tk0402/verify-spot.tsv' if MK == 'spot' else '/data/tk0402/verify.tsv'
 TK = {}
 for r in csv.DictReader(open('/data/tk0394/bybit-ticks.csv', encoding='utf-8-sig'), delimiter=';'):
     TK[('spot' if r['market'].startswith('сп') else 'fut', r['symbol'])] = float(r['tick'])
@@ -36,7 +38,7 @@ def bad_intervals(coin, sym, days):
     global _VER
     if _VER is None:
         _VER = {}
-        for r in csv.DictReader(open('/data/tk0402/verify.tsv', encoding='utf-8'), delimiter='	'):
+        for r in csv.DictReader(open(VER, encoding='utf-8'), delimiter='	'):
             _VER[(r['sym'], r['day'])] = r['admit'] == '1'
     out = []; why = {'gate_missing': 0, 'gate_degenerate': 0, 'bybit_day': 0}
     for x in days:
@@ -104,23 +106,26 @@ MIN = 60000.; HR = 3600000.
 # опоры П-28 §4: A (0) + B: медианы 5м/30м/1ч/4ч/24ч, EMA 5м/1ч/24ч, медиана прошлых суток; «накопленный фандинг к выплате» — отдельным шагом (нужны времена выплат, в ядре нет)
 ANCHORS = [('A0', 3, 0.), ('med5m', 0, 5 * MIN), ('med30m', 0, 30 * MIN), ('med1h', 0, HR), ('med4h', 0, 4 * HR), ('med24h', 0, 24 * HR),
            ('ema5m', 1, 5 * MIN), ('ema1h', 1, HR), ('ema24h', 1, 24 * HR), ('prevday', 2, 0.)]
-CIRCLE = {'full': 2 * (5.0 + 5.5), 'disc35': 2 * (5.0 * 0.65 + 5.5)}  # FF, taker 4 ноги; Gate VIP0 5 бп (со скидкой 35 %: x0,65), Bybit 5,5
+BF = 10.0 if MK == 'spot' else 5.5  # taker Bybit: спот 10 бп, фьюч 5,5
+CIRCLE = {'full': 2 * (5.0 + BF), 'disc35': 2 * (5.0 * 0.65 + BF)}  # FF/FS, taker 4 ноги; Gate VIP0 5 бп (со скидкой 35 %: x0,65), Bybit 5,5
 def grid():
     """клетки на опору: порог (k x круг, 2 тарифа) x задержка (0 справочно, 100/250/500/1000) x тайм-аут §4; порядок: порог снаружи (список кандидатов ядра переиспользуется)"""
     TO = [1000, 5000, 30000, 60000, 90000, 120000, 3600000, 14400000]; DL = [0, 100, 250, 500, 1000]
     G = [(fee, k, D, T) for fee in CIRCLE for k in (1.0, 1.5, 2.0) for D in DL for T in TO]
     return (np.array([k * CIRCLE[fee] for fee, k, D, T in G]), np.array([D for _, _, D, _ in G]), np.array([T for *_, T in G]), G)
-def _avail(coin, sym, day):
+def _avail(coin, sym, day, mk='fut'):
     d = day.replace('-', '')
-    return bool(glob.glob(f'{GEV}/{coin}/{d}??.npy')) and os.path.exists(f'{BEV}/fut/{day}/{sym}-{day}.csv.gz')
+    return bool(glob.glob(f'{GEV}/{coin}/{d}??.npy')) and os.path.exists(f'{BEV}/{mk}/{day}/{sym}-{day}.csv.gz')
 def run(coin, days, out):
     """боевой цикл одной монеты: сутки без любой из двух лент рвут ряд на отрезки (as-of не переносим через дыру, опоры не сшиваем); на отрезок — клетки зонда (15) x 3 опоры, режим 0 (отбор = полный проверен в probe);
     результат — npz с почасовыми массивами sg, fg, cnt, ep, c1, c2, dk по отрезкам для max-T"""
     L = LIB.load(); sym = coin + 'USDT'; res = {}; segs = []; cur = []
+    if MK == 'spot':  # символ спота — из охвата stage1 (у 1000PEPE и т.п. спот без префикса)
+        sym = [r['bybit_spot'] for r in csv.DictReader(open('/data/tk0402/stage1.tsv', encoding='utf-8'), delimiter='	') if r['coin'] == coin][0]
     GD = {}; BD = {}  # сутки с пустой лентой (файл есть, строк нет — AXIS 21.10) рвут ряд как отсутствующие (B14)
     for x in days:
-        if _avail(coin, sym, x):
-            GD[x] = gate_day(coin, x); BD[x] = bybit_day(sym, x)
+        if _avail(coin, sym, x, MK):
+            GD[x] = gate_day(coin, x); BD[x] = bybit_day(sym, x, MK)
         if x in GD and GD[x] is not None and BD[x] is not None: cur.append(x)
         else:
             if cur: segs.append(cur)
@@ -129,7 +134,7 @@ def run(coin, days, out):
     try:
         fd = json.load(open('/data/tk0402/funding459.json'))[coin]
         fg = (np.array([a[0] * 1000 for a in fd['g']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['g']]))
-        fb = (np.array([a[0] * 1000 for a in fd['b']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['b']])) if fd['b'] else None
+        fb = (np.array([a[0] * 1000 for a in fd['b']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['b']])) if fd['b'] and MK == 'fut' else None  # у спота фандинга нет
     except Exception as e:
         raise SystemExit('фандинг пуст/нет: %s %r (B11: пусто = ошибка)' % (coin, e))
     thr, Dl, To, GRID = grid()

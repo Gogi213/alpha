@@ -3,18 +3,20 @@
 Выход: <out>.csv — клетки с t>=3,5 и p_adj; <out>.json — сводка (число клеток, квантиль max-T*, лидеры). Только numpy."""
 import sys, glob, os, json, numpy as np
 FGFIX = 1e-4  # ошибка 26.10: step2 кладёт ставки фандинга уже в бп (x1e4), ядро умножает ещё на 1e4 -> fg в npz в 1e4 раз велик; на решения фандинг не влияет, поэтому поправка постфактум
-CIRCLE = {'full': 2 * (5.0 + 5.5), 'disc35': 2 * (5.0 * 0.65 + 5.5)}
+CIRCLES = {'FF': {'full': 2 * (5.0 + 5.5), 'disc35': 2 * (5.0 * 0.65 + 5.5)}, 'FS': {'full': 2 * (5.0 + 10.0), 'disc35': 2 * (5.0 * 0.65 + 10.0)}}  # FS: Bybit-спот taker 10 бп
 AN = ['A0', 'med5m', 'med30m', 'med1h', 'med4h', 'med24h', 'ema5m', 'ema1h', 'ema24h', 'prevday']
 H0 = 1792022400000 // 3600000; NH = 173
-def load(d, cover, thr):
+def load(dirs, cover, thr):
+    """dirs: каталоги npz через запятую; s2s* = FS (Gate-фьюч x Bybit-спот, тариф спота), остальные FF; метка монеты у FS — COIN|FS"""
     adm = set()
     for l in open(cover).read().splitlines()[1:]:
         p = l.split('\t')
         if int(p[1]) >= thr: adm.add(p[0])
     meta, X = [], []; allmeta, allX = [], []
-    for f in sorted(glob.glob(d + '/*.npz')):
-        coin = os.path.basename(f)[:-4]; z = np.load(f); grid = [g.split(',') for g in z['grid']]
-        circ = np.array([CIRCLE[g[0]] for g in grid]); D = np.array([int(g[2]) for g in grid]); nsegs = len(z['segs'])
+    fl = [(f, 'FS' if os.path.basename(d.rstrip('/')).startswith('s2s') else 'FF') for d in dirs.split(',') for f in sorted(glob.glob(d + '/*.npz'))]
+    for f, pair in fl:
+        coin0 = os.path.basename(f)[:-4]; coin = coin0 + ('|FS' if pair == 'FS' else ''); z = np.load(f); grid = [g.split(',') for g in z['grid']]
+        circ = np.array([CIRCLES[pair][g[0]] for g in grid]); D = np.array([int(g[2]) for g in grid]); nsegs = len(z['segs'])
         for a in AN:
             net = np.zeros((len(grid), 192)); ep = np.zeros_like(net); cnt = np.zeros_like(net)
             for s in range(nsegs):
@@ -25,7 +27,7 @@ def load(d, cover, thr):
             for i in np.nonzero((E >= 30) & (D >= 100))[0]:
                 row = (coin, a, ','.join(grid[i]), int(E[i]), int(N[i]))
                 x = net[i, :NH].astype(np.float32)
-                (meta if coin in adm else allmeta).append(row); (X if coin in adm else allX).append(x)
+                (meta if coin0 in adm else allmeta).append(row); (X if coin0 in adm else allX).append(x)
     return adm, meta, np.array(X), allmeta, np.array(allX)
 def maxt(X, B, seed, chunk=4000, wchunk=1000, stepdown=True):
     """Westfall–Young max-T. t* = (m* - mu)/se_obs (SE исходной выборки, float64); пошаговый: p_j по max над клетками с рангом >= j."""
@@ -66,14 +68,20 @@ def main(d, cover, out, B=10000):
     san = sanity(X, 1000); print('санити', san, flush=True)
     if not san['ok']: sys.exit('санити max-T не прошла')
     tobs, mx, ok, pad = maxt(X, B, 402)
-    q95 = float(np.quantile(mx, 0.95)); days = X[:, :168].reshape(len(X), 7, 24).sum(2)
+    q95 = float(np.quantile(mx, 0.95)); rr = np.random.default_rng(5); q95_se = float(np.std([np.quantile(rr.choice(mx, len(mx)), 0.95) for _ in range(300)]))  # SE квантиля по бутстрэпу max-T*
+    days = X[:, :168].reshape(len(X), 7, 24).sum(2)
     S = X.sum(1); order = np.argsort(-tobs)
     with open(out + '.csv', 'w') as o:
         o.write('coin,anchor,fee,k,D,T,ep,trades,net_sum_bp,net_per_trade_bp,days_pos_of7,t_hourly173,p_stepdown\n')
         for i in order[:2000]:
             m = meta[i]; o.write(','.join([m[0], m[1], m[2], str(m[3]), str(m[4]), '%.2f' % S[i], '%.2f' % (S[i] / m[4] if m[4] else 0), str(int((days[i] > 0).sum())), '%.3f' % tobs[i], '%.4f' % pad[i]]) + '\n')
+    with open(out + '-days.csv', 'w') as o:  # net по суткам (первые 7 x 24 ч общих часов) для клеток с t>2,5
+        o.write('coin,anchor,fee,k,D,T,t_hourly173,p_stepdown,d1,d2,d3,d4,d5,d6,d7\n')
+        for i in order:
+            if tobs[i] <= 2.5: break
+            m = meta[i]; o.write(','.join([m[0], m[1], m[2], '%.3f' % tobs[i], '%.4f' % pad[i]] + ['%.1f' % v for v in days[i]]) + '\n')
     good = [i for i in range(len(X)) if pad[i] < 0.05 and S[i] > 0 and (days[i] > 0).sum() >= 5]
-    res = dict(admitted_coins=len(adm), cells=len(meta), B=B, sanity=san, q95_maxT=q95, q50_maxT=float(np.quantile(mx, .5)), top_t=float(tobs.max()), n_t_gt_q95=int((tobs > q95).sum()),
+    res = dict(admitted_coins=len(adm), cells=len(meta), B=B, sanity=san, q95_maxT=q95, q95_se=q95_se, q50_maxT=float(np.quantile(mx, .5)), top_t=float(tobs.max()), n_t_gt_q95=int((tobs > q95).sum()),
                n_good=len(good), cells_nonadm=len(allmeta), top5=[(meta[i][0], meta[i][1], meta[i][2], float(tobs[i]), float(pad[i])) for i in order[:5]])
     json.dump(res, open(out + '.json', 'w'), ensure_ascii=False, indent=1); print(res, flush=True)
 if __name__ == '__main__': main(sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 10000)

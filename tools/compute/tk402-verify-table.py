@@ -3,7 +3,8 @@
 Сутки допускаются к счёту, если gaps=0 и invariants=0 (стакан цел); status=fail при gaps=0 invariants=0 — только доля нарушений СДЕЛОК, это пишется в графу reason.
 Запуск (calc): python3 tk402-verify-table.py > /data/tk0402/verify.tsv"""
 import os, re, glob
-R = '/srv/alpha-sda/tk366w/bin-fut/e-2026-10'
+import sys
+R = sys.argv[1] if len(sys.argv) > 1 else '/srv/alpha-sda/tk366w/bin-fut/e-2026-10'  # спот (FS): .../bin-spot/e-2026-10 > verify-spot.tsv
 print('\t'.join(['sym', 'day', 'status', 'gaps', 'invariants', 'trades', 'violations', 'admit', 'reason']))
 for lg in sorted(glob.glob(R + '/verify-*.log')):
     sym = os.path.basename(lg)[7:-4]
