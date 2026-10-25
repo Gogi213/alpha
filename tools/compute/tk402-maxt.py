@@ -2,6 +2,7 @@
 """TK-402 шаг 3b: max-T (Westfall–Young, одношаговый) по всем клеткам (ep>=30, D>=100) допущенных монет; общие 173 часа, B повторов с возвращением.
 Выход: <out>.csv — клетки с t>=3,5 и p_adj; <out>.json — сводка (число клеток, квантиль max-T*, лидеры). Только numpy."""
 import sys, glob, os, json, numpy as np
+FGFIX = 1e-4  # ошибка 26.10: step2 кладёт ставки фандинга уже в бп (x1e4), ядро умножает ещё на 1e4 -> fg в npz в 1e4 раз велик; на решения фандинг не влияет, поэтому поправка постфактум
 CIRCLE = {'full': 2 * (5.0 + 5.5), 'disc35': 2 * (5.0 * 0.65 + 5.5)}
 AN = ['A0', 'med5m', 'med30m', 'med1h', 'med4h', 'med24h', 'ema5m', 'ema1h', 'ema24h', 'prevday']
 H0 = 1792022400000 // 3600000; NH = 173
@@ -19,7 +20,7 @@ def load(d, cover, thr):
             for s in range(nsegs):
                 if f's{s}_{a}_sg' not in z.files: continue
                 o = int(z[f's{s}_t0'][0] // 3600000) - H0; sg = z[f's{s}_{a}_sg']; n = sg.shape[1]; sl = slice(o, o + n)
-                c = z[f's{s}_{a}_cnt']; net[:, sl] += sg - c * circ[:, None] + z[f's{s}_{a}_fg']; ep[:, sl] += z[f's{s}_{a}_ep']; cnt[:, sl] += c
+                c = z[f's{s}_{a}_cnt']; net[:, sl] += sg - c * circ[:, None] + z[f's{s}_{a}_fg'] * FGFIX; ep[:, sl] += z[f's{s}_{a}_ep']; cnt[:, sl] += c
             E = ep.sum(1); N = cnt.sum(1)
             for i in np.nonzero((E >= 30) & (D >= 100))[0]:
                 row = (coin, a, ','.join(grid[i]), int(E[i]), int(N[i]))
