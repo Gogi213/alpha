@@ -23,7 +23,5 @@ alerts.log нет. Договор живого срабатывания не т�
 
 | число | файл:строка |
 |---|---|
-| SCHED_TAIL_S = 900 с | tools/compute/sched_cfg.py:38 |
-| SCHED_TAIL_FIT = 0,6 | tools/compute/sched_cfg.py:39 |
-| need = ceil(факт)+1, порог UNDER_FRAC = 0,5 | tools/compute/alsched.py:362 |
-| тесты 75 passed (5 TK-405) | tools/compute/tests/test_alsched_core.py:765 |
+| SCHED_TAIL_S 900 | tools/compute/sched_cfg.py:38 |
+| SCHED_TAIL_FIT 0.6 | tools/compute/sched_cfg.py:39 |
