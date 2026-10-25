@@ -41,8 +41,10 @@ def tape(g, b):
     return ts, gb, ga, bb, ba, ok, d
 def probe(coin, day):
     L = LIB.load(); sym = coin + 'USDT'
-    g = gate_day(coin, day); b = bybit_day(sym, day)
-    assert g is not None and b is not None, ('нет данных', coin, day, g is None, b is None)
+    days = day.split(',')  # опора kind 2 (прошлые сутки) требует ленты минимум из двух подряд суток
+    gs = [gate_day(coin, x) for x in days]; bs = [bybit_day(sym, x) for x in days]
+    assert all(x is not None for x in gs + bs), ('нет данных', coin, day)
+    g = tuple(np.concatenate([x[i] for x in gs]) for i in range(3)); b = tuple(np.concatenate([x[i] for x in bs]) for i in range(3))
     tp = tape(*(g, b)); ts, gb, ga, bb, ba, ok, d = tp
     t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1
     print(coin, day, 'gate rows', len(g[0]), 'bybit rows', len(b[0]), 'tape', len(ts), 'ok share %.4f' % ok.mean(), 'median |d| %.2f бп' % np.nanmedian(np.abs(d)), flush=True)
