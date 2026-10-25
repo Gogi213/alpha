@@ -90,6 +90,16 @@ def probe(coin, day):
         print('  сделок', int(r0[2].sum()), 'отбор==полный байт в байт:', same, 'drops', r0[6].sum(0).tolist(), 'gross/сделка (бп) %.2f' % (r0[0].sum() / max(r0[2].sum(), 1)), flush=True)
         if not same: sys.exit(3)
 
+MIN = 60000.; HR = 3600000.
+# опоры П-28 §4: A (0) + B: медианы 5м/30м/1ч/4ч/24ч, EMA 5м/1ч/24ч, медиана прошлых суток; «накопленный фандинг к выплате» — отдельным шагом (нужны времена выплат, в ядре нет)
+ANCHORS = [('A0', 3, 0.), ('med5m', 0, 5 * MIN), ('med30m', 0, 30 * MIN), ('med1h', 0, HR), ('med4h', 0, 4 * HR), ('med24h', 0, 24 * HR),
+           ('ema5m', 1, 5 * MIN), ('ema1h', 1, HR), ('ema24h', 1, 24 * HR), ('prevday', 2, 0.)]
+CIRCLE = {'full': 2 * (5.0 + 5.5), 'disc35': 2 * (5.0 * 0.65 + 5.5)}  # FF, taker 4 ноги; Gate VIP0 5 бп (со скидкой 35 %: x0,65), Bybit 5,5
+def grid():
+    """клетки на опору: порог (k x круг, 2 тарифа) x задержка (0 справочно, 100/250/500/1000) x тайм-аут §4; порядок: порог снаружи (список кандидатов ядра переиспользуется)"""
+    TO = [1000, 5000, 30000, 60000, 90000, 120000, 3600000, 14400000]; DL = [0, 100, 250, 500, 1000]
+    G = [(fee, k, D, T) for fee in CIRCLE for k in (1.0, 1.5, 2.0) for D in DL for T in TO]
+    return (np.array([k * CIRCLE[fee] for fee, k, D, T in G]), np.array([D for _, _, D, _ in G]), np.array([T for *_, T in G]), G)
 def _avail(coin, sym, day):
     d = day.replace('-', '')
     return bool(glob.glob(f'{GEV}/{coin}/{d}??.npy')) and os.path.exists(f'{BEV}/fut/{day}/{sym}-{day}.csv.gz')
@@ -109,18 +119,17 @@ def run(coin, days, out):
         fb = (np.array([a[0] * 1000 for a in fd['b']], np.int64), np.cumsum([a[1] * 1e4 for a in fd['b']])) if fd['b'] else None
     except Exception as e:
         raise SystemExit('фандинг пуст/нет: %s %r (B11: пусто = ошибка)' % (coin, e))
-    GFEE, BFEE = 5.0, 5.5; circle = 2 * (GFEE + BFEE)
-    thr = np.array([k * circle for k in (1.0, 1.5, 2.0)] * 5); Dl = np.repeat([0, 100, 250, 500, 1000], 3); To = np.full(15, 30000)
+    thr, Dl, To, GRID = grid()
     for si, sd in enumerate(segs):
         gs = [gate_day(coin, x) for x in sd]; bs = [bybit_day(sym, x) for x in sd]
         g = tuple(np.concatenate([x[i] for x in gs]) for i in range(3)); b = tuple(np.concatenate([x[i] for x in bs]) for i in range(3))
         bad, why = bad_intervals(coin, sym, sd); tp = tape(g, b, bad); ts, gb, ga, bb, ba, ok, d = tp
         t0 = int(ts[0]); tend = int(ts[-1]); NH = int((tend - t0) // 3600000) + 1
         rk, ds = LIB.ranks(d, ok > 0); res[f's{si}_t0'] = np.array([t0, tend]); res[f's{si}_ok'] = np.array([ok.mean(), len(ts)])
-        for kind, par in ((0, 3600000.), (1, 3600000.), (2, 0.)):
-            a = LIB.anchor(L, ts, d, ok, rk, ds, kind, par)
-            for n, v in zip(('sg', 'fg', 'cnt', 'ep', 'c1', 'c2', 'dk'), LIB.cells(L, tp, a, 0, thr, Dl, To, NH, t0, tend, fg, fb)): res[f's{si}_k{kind}_{n}'] = v
-    np.savez_compressed(out, segs=np.array([','.join(s) for s in segs]), **res)
+        for name, kind, par in ANCHORS:
+            a = np.where(ok > 0, 0.0, np.nan) if kind == 3 else LIB.anchor(L, ts, d, ok, rk, ds, kind, par)  # kind 3 = режим A (опора 0)
+            for n, v in zip(('sg', 'fg', 'cnt', 'ep', 'c1', 'c2', 'dk'), LIB.cells(L, tp, a, 0, thr, Dl, To, NH, t0, tend, fg, fb)): res[f's{si}_{name}_{n}'] = v
+    np.savez_compressed(out, segs=np.array([','.join(s) for s in segs]), grid=np.array([f'{f},{k},{D},{T}' for f, k, D, T in GRID]), **res)
     print(coin, 'segs', [(s[0], s[-1]) for s in segs], '->', out, flush=True)
 if __name__ == '__main__':
     if sys.argv[1] == 'probe': probe(sys.argv[2], sys.argv[3])
