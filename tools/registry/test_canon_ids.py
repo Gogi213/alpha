@@ -26,13 +26,13 @@ class CanonIdsTest(unittest.TestCase):
         self.assertEqual(len(plan & res), len(plan & have))
 
     def test_status_sums_to_all_hypotheses(self):
-        """render status: одна строка статуса на гипотезу, сумма = числу гипотез в БД (145; методы В-228 — отдельно)."""
+        """render status: одна строка статуса на гипотезу, сумма = числу гипотез в БД (145; методы В-228 и М-05 — отдельно)."""
         c = master.connect()
         n = c.execute(f"select count(*) from hypotheses where {master.HYP_ONLY}").fetchone()[0]
         nm = c.execute("select count(*) from hypotheses where json_extract(ext, '$.class') = 'method'").fetchone()[0]
         st = master.hyp_status(c, {})
         c.close()
-        self.assertEqual((len(st), n, nm), (145, 145, 4))
+        self.assertEqual((len(st), n, nm), (145, 145, 5))
 
 
 if __name__ == "__main__":
