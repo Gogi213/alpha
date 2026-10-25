@@ -10,11 +10,11 @@ import sys, os, gzip, csv, glob, datetime as dt
 import numpy as np
 coin, midf, outp = sys.argv[1:4]
 LEG = sys.argv[4] if len(sys.argv) > 4 else ''
-D0 = (1792022400 - 3 * 86400) * 1000; ND = 8; DEND = D0 + ND * 86400000
+D0 = 1792022400 * 1000; ND = 8; DEND = D0 + ND * 86400000
 HS = [1, 5, 30, 60, 90, 120] + list(range(150, 301, 30)) + list(range(360, 601, 60)) + list(range(900, 3601, 300)) + list(range(4500, 14401, 900))
 assert len(HS) == 39
 XS = [0.005, 0.01, 0.02, 0.05]; WS = [10, 60, 300]; AS = [1000, 5000, 30000, 10 ** 12]; ALAB = {1000: '1', 5000: '5', 30000: '30', 10 ** 12: 'inf'}
-GEV = '/data/tk0402/gev2'; TR = '/srv/alpha-sda/tk372-gate/raw'
+GEV = os.environ.get('GEV', '/data/tk0402/gev2'); TR = '/srv/alpha-sda/tk372-gate/raw'
 HDR = 'coin mkt A X W dir day h n_ev n_h dex_move_bp resp_bp ctrl_bp excess_bp share pre_bp'.split()
 CH = 'coin mkt A X W dir n_swaps no_window n_cand n_event drop_hole drop_age n_ok n_ctrl_pool coin_days'.split()
 
