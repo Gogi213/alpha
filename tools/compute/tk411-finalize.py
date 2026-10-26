@@ -69,6 +69,8 @@ def main():
         m, s, la, de, st, win = line.split("\t")
         inst[(m, s)] = (int(la), int(de), st, int(win))
     seen = set()
+    tl = root + "/cov/bybit-trades-list.txt"  # контракты, собранные из архива сделок public.bybit.com (API свечей закрытых не отдаёт)
+    from_trades = set(open(tl).read().split()) if os.path.exists(tl) else set()
     for p in sorted(glob.glob(root + "/cov/bybit-*-*.tsv")):
         if p.endswith("instruments.tsv"):
             continue
@@ -80,6 +82,8 @@ def main():
         hi = min(END, de) if de else END
         win = max(0, (hi - lo) // MIN)
         why = "" if n else "API не вернул свечей (контракт %s, поставка/закрытие %s: история закрытых не отдаётся)" % (st, ts(de) if de else "-")
+        if s in from_trades and m == "linear":
+            why = "собрано из архива сделок public.bybit.com/trading (API свечей закрытых контрактов не отдаёт; n_trades — число сделок)"
         r = reason(n, lo, hi, first, last, why)
         if first and int(first) > lo:
             r = r.replace("первая свеча", "первая свеча (запуск %s)" % ts(la) if la > START else "первая свеча", 1)
