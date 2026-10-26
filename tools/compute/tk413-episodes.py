@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TK-413: памп/дамп-эпизоды сентября у волатильных монет (свечи 1 м TK-411, отбор TK-412).
-Использование: tk413-episodes.py <корень свечей> <volatile-coins.csv> <выход.csv> [процессов] [макс. монет]
+Использование: tk413-episodes.py <корень свечей> <volatile-coins.csv> <выход.csv> [процессов] [макс. монет] [candles-1m.csv охвата]
 Отбор инструментов — правило Судьи TK-412: тип=монета, котировка_usd=да, дней≥10, диапазон_дня_мед_%≥10.48.
 Эпизод = нога зигзага по ЗАКРЫТИЯМ 1-м свечей с порогом разворота θ: памп — от впадины до пика, дамп — от пика до дна,
 нога кончается, когда цена развернулась на θ от экстремума (поэтому каждая нога ≥ θ). Три порога θ — чувствительность.
@@ -14,6 +14,10 @@
 Плохой принт (решение Судьи 27.10, В-53): ход эпизода по VWAP минуты (quote_v / base_v; экстремум VWAP на [начало, пик] к VWAP
 начала) < 0,5 × ход по закрытиям → плохой_принт=да (из сводок исключается, в csv остаётся). ход_пары_доля — наибольший
 из ходов того же знака на других инструментах той же монеты в окне [начало, пик] ± 5 мин, делённый на наш ход.
+Заглушка цены (решение Судьи 27.10, v3): цена начала эпизода < 0,01 × медианы закрытий инструмента за сентябрь → плохой_принт=да,
+причина_плохого = vwap | заглушка | vwap+заглушка. Делисты (владелец 27.10): 35 закрытых контрактов Bybit linear (собраны
+из архива сделок TK-411; 3 монеты + 32 датированных) идут тем же поиском без порога волатильности; категория = делист
+(монета) / делист-датированный; в выход — только с ≥ 1 эпизодом при θ=5 %, остальные — в .noep.tsv с категорией.
 Файлы Bybit без n_trades (пустая колонка) читаются с n=0; пустой загруз файла с данными — ошибка."""
 import csv
 import gzip
@@ -33,7 +37,8 @@ HEAD = ["порог_%", "биржа", "рынок", "инструмент", "к�
         "цена_начала", "цена_пика", "ход_%", "длит_до_пика_мин", "откат_доля", "время_отката_мин", "завершён",
         "оборот_эпизода_usd", "норма_оборота_usd", "оборот_к_норме", "минут_с_торгами", "сделок", "макс_дыра_мин",
         "мед_оборот_дня_usd", "выброшено_принтов", "есть_пара_монеты", "синхрон", "пара_инструмент", "лаг_старта_мин",
-        "лаг_пика_мин", "первый", "перекрытие_доля", "сомнительный", "ход_vwap_доля", "плохой_принт", "ход_пары_доля"]
+        "лаг_пика_мин", "первый", "перекрытие_доля", "сомнительный", "ход_vwap_доля", "плохой_принт", "ход_пары_доля",
+        "причина_плохого", "категория"]
 
 
 def iso(ms):
@@ -159,7 +164,7 @@ def pair_share(data, others, s, ts, tp, move):
 
 
 def run_group(args):
-    root, key, sel, allk = args
+    root, key, sel, allk, delist = args
     data = {}
     for ex, mk, sym in allk:
         t, c, q, n, w = load(root, ex, mk, sym)
@@ -168,8 +173,9 @@ def run_group(args):
         days = {}
         for ti, qi in zip(t, q):
             days[(ti - 1788220800000) // DAY] = days.get((ti - 1788220800000) // DAY, 0.0) + qi
+        cmed = statistics.median(c)
         t, c, q, n, w, bad = despike(t, c, q, n, w)
-        data[(ex, mk, sym)] = (t, c, q, n, bad, statistics.median(days.values()) if days else 0.0, w)
+        data[(ex, mk, sym)] = (t, c, q, n, bad, statistics.median(days.values()) if days else 0.0, w, cmed)
     rows = []
     diag = {k: (len(data[k][1]), round((max(data[k][1]) / min(data[k][1]) - 1) * 100, 1) if k in data else "") for k in sel if k in data}
     diag.update({k: (0, "") for k in sel if k not in data})
@@ -178,10 +184,12 @@ def run_group(args):
         for k in sel:
             if k not in data:
                 continue
-            t, c, q, n, bad, medday, _w = data[k]
+            t, c, q, n, bad, medday, _w, cmed = data[k]
             others = [o for o in data if o != k]
             for e in eps[k]:
                 ts, tp, te = t[e["a"]], t[e["b"]], t[e["e"]]
+                vw = e["vm"] != "" and e["vm"] < 0.5
+                stub = c[e["a"]] < 0.01 * cmed
                 best = None
                 for o in others:
                     to = data[o][0]
@@ -206,8 +214,10 @@ def run_group(args):
                              round(e["qe"], 0), round(e["norm"], 0),
                              round(e["ratio"], 2) if e["ratio"] != "" else "", e["mins"], e["trades"],
                              round(e["gap"], 1), round(medday, 0), bad, len(others)] + sync[:5] + [sync[5]] + ["да" if e["mins"] <= 3 else "нет"]
-                             + [round(e["vm"], 2) if e["vm"] != "" else "", "да" if e["vm"] != "" and e["vm"] < 0.5 else "нет",
-                                pair_share(data, others, e["s"], ts, tp, e["move"]) if others else ""])
+                             + [round(e["vm"], 2) if e["vm"] != "" else "", "да" if (vw or stub) else "нет",
+                                pair_share(data, others, e["s"], ts, tp, e["move"]) if others else "",
+                                "+".join(x for x, on in (("vwap", vw), ("заглушка", stub)) if on),
+                                delist.get(k, "волатильный")])
     return rows, diag
 
 
@@ -215,20 +225,35 @@ if __name__ == "__main__":
     root, vol, out = sys.argv[1:4]
     nproc = int(sys.argv[4]) if len(sys.argv) > 4 else 15
     lim = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+    cov = sys.argv[6] if len(sys.argv) > 6 else ""
+    dl = {}
+    if cov:
+        for r in csv.DictReader(open(cov, encoding="utf-8")):
+            if "собрано из архива сделок" in r["причина_пропусков"]:
+                dl[(r["биржа"], r["рынок"], r["инструмент"])] = None
     inst = list(csv.DictReader(open(vol, encoding="utf-8")))
     sel, allk = {}, {}
     for r in inst:
         if r["тип"] != "монета" or r["котировка_usd"] != "да" or not r["дней_с_данными"] or int(r["дней_с_данными"]) < 1:
             continue
         k = (r["биржа"], r["рынок"], r["инструмент"])
+        if k in dl:
+            continue
         allk.setdefault(r["ключ_монеты"], []).append(k)
         if int(r["дней_с_данными"]) >= 10 and float(r["диапазон_дня_мед_%"]) >= 10.48:
             sel.setdefault(r["ключ_монеты"], []).append(k)
+    for r in inst:
+        k = (r["биржа"], r["рынок"], r["инструмент"])
+        if k in dl and r["дней_с_данными"] and int(r["дней_с_данными"]) >= 1:
+            dl[k] = "делист" if r["тип"] == "монета" else "делист-датированный"
+            allk.setdefault(r["ключ_монеты"], []).append(k)
+            sel.setdefault(r["ключ_монеты"], []).append(k)
+    dl = {k: v for k, v in dl.items() if v}
     keys = sorted(sel)
     if lim:
         keys = keys[:lim]
-    print("монет", len(keys), "инструментов отбора", sum(len(sel[k]) for k in keys), flush=True)
-    jobs = [(root, k, sel[k], allk[k]) for k in keys]
+    print("монет", len(keys), "инструментов отбора", sum(len(sel[k]) for k in keys), "из них делистов", len(dl), flush=True)
+    jobs = [(root, k, sel[k], allk[k], dl) for k in keys]
     with Pool(nproc) as pool:
         res = pool.map(run_group, jobs, chunksize=1)
     with open(out, "w", newline="", encoding="utf-8") as f:
@@ -240,7 +265,7 @@ if __name__ == "__main__":
     allsel = {k: d for _, dg in res for k, d in dg.items()}
     miss = [k for k in allsel if k not in have]
     with open(out + ".noep.tsv", "w", encoding="utf-8") as f:
-        f.write("биржа\tрынок\tинструмент\tминут\tмакс/мин_закрытий_%\n")
+        f.write("биржа\tрынок\tинструмент\tминут\tмакс/мин_закрытий_%\tкатегория\n")
         for k in sorted(miss):
-            f.write("%s\t%s\t%s\t%s\t%s\n" % (k + allsel[k]))
+            f.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (k + allsel[k] + (dl.get(k, "волатильный"),)))
     print("эпизодов", sum(len(r) for r, _ in res), "инструментов отбора", len(allsel), "без эпизода при θ=5:", len(miss))
