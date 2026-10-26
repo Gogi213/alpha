@@ -88,11 +88,11 @@ def save(root, ex, kind, sym, header, rows, nreq, note):
     d = "%s/%s/%s" % (root, ex, kind)
     os.makedirs(d, exist_ok=True)
     dst = "%s/%s.csv.gz" % (d, sym)
-    with gzip.open(dst + ".part", "wt", encoding="ascii", compresslevel=6, newline="") as g:
+    with gzip.open(dst + ".part%d" % os.getpid(), "wt", encoding="ascii", compresslevel=6, newline="") as g:
         g.write(",".join(header) + "\n")
         for r in rows:
             g.write(",".join(str(x) for x in r) + "\n")
-    os.replace(dst + ".part", dst)
+    os.replace(dst + ".part%d" % os.getpid(), dst)
     os.makedirs(root + "/cov", exist_ok=True)
     with open("%s/cov/%s-%s-%s.tsv" % (root, ex, kind, sym), "w", encoding="utf-8") as c:
         c.write("%s\t%s\t%d\t%s\t%s\t%d\t%s\n" % (kind, sym, len(rows), rows[0][0] if rows else "", rows[-1][0] if rows else "", nreq, note))
@@ -219,6 +219,8 @@ def main():
         syms, jobs, rps = symbols(cov, "bybit", "linear"), (bybit_oi, bybit_funding), 100
     else:
         syms, jobs, rps = symbols(cov, "gate", "futures_usdt"), (gate_stats, gate_funding), 15
+    if os.environ.get("REVERSE"):  # второй процесс навстречу первому (быстрее при задержке API)
+        syms = syms[::-1]
     print("%s: %d инструментов, потоков %d, rps %d" % (ex, len(syms), threads, rps), flush=True)
     tasks = [(fn, s) for fn in jobs for s in syms]
     left = [len(tasks)]
