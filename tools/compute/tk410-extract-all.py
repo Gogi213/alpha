@@ -20,7 +20,7 @@ for chain, pm in pools.items():
     for p in sorted(glob.glob(f'/data/tk0393/sqd10/{chain}/part-*.jsonl')):
         for line in open(p):
             r = json.loads(line); hd = r['header']
-            for lg in r['logs']:
+            for lg in r.get('logs', ()):
                 a = lg['address'].lower()
                 if a not in fh: continue
                 t0 = lg['topics'][0]; d = lg['data'][2:]; ws = [d[i:i + 64] for i in range(0, len(d), 64)]
