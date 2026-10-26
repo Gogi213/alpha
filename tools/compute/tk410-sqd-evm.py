@@ -7,7 +7,9 @@ B = f'https://portal.sqd.dev/datasets/{ds}'
 SW = ['0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',   # v2
       '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67',   # uni v3
       '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83',   # pancake v3
-      '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1']   # v2 Sync (резервы после свопа)
+      '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1',   # v2 Sync (резервы после свопа)
+      '0xb3e2773606abfd36b5bd91394b3a54d1398336c65005baf7bf7a05efeffaf75b',   # Aerodrome v2 Swap (26.10: без него base-фильтр давал 0 логов)
+      '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a']   # Aerodrome v2 Sync(uint256,uint256)
 def post(path, q):
     for k in range(60):
         try:

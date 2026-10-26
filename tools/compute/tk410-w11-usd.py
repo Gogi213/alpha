@@ -38,4 +38,4 @@ keep = okq
 with open(outf, 'w') as f:
     f.write('ts,block,logidx,kind,mid_raw,liq0,liq1,tick\n')
     for i in np.nonzero(keep)[0]:
-        f.write(f"{raw['ts'][i]},{raw['block'][i]},{raw['logidx'][i]},{raw['kind'][i]},{np.exp(pu[i])!r},,,\n")
+        f.write(f"{raw['ts'][i]},{raw['block'][i]},{raw['logidx'][i]},{raw['kind'][i]},{float(np.exp(pu[i]))!r},,,\n")
