@@ -1,0 +1,25 @@
+монет с эпизодами>=30 и пулом: 171 (13: 0)
+all rho_fut~share: n=147 spearman=-0.15 p=0.0747
+all rho_fut~tconv: n=147 spearman=-0.30 p=0.000231
+all rho_spot~share: n=109 spearman=-0.09 p=0.326
+all rho_spot~tconv: n=109 spearman=-0.29 p=0.00244
+all rho_liq~share: n=171 spearman=-0.18 p=0.0177
+all rho_liq~tconv: n=171 spearman=-0.28 p=0.000169
+13 rho_fut~share: n=0 мало
+13 rho_fut~tconv: n=0 мало
+13 rho_spot~share: n=0 мало
+13 rho_spot~tconv: n=0 мало
+13 rho_liq~share: n=0 мало
+13 rho_liq~tconv: n=0 мало
+rest rho_fut~share: n=147 spearman=-0.15 p=0.0747
+rest rho_fut~tconv: n=147 spearman=-0.30 p=0.000231
+rest rho_spot~share: n=109 spearman=-0.09 p=0.326
+rest rho_spot~tconv: n=109 spearman=-0.29 p=0.00244
+rest rho_liq~share: n=171 spearman=-0.18 p=0.0177
+rest rho_liq~tconv: n=171 spearman=-0.28 p=0.000169
+терциль rho_fut низ: n=49 ρ∈[2.23e-05,0.0509] share_gate med=0.57 tconv med=641c
+терциль rho_fut сред: n=49 ρ∈[0.0562,0.476] share_gate med=0.55 tconv med=251c
+терциль rho_fut верх: n=49 ρ∈[0.512,4.01e+03] share_gate med=0.60 tconv med=241c
+терциль rho_liq низ: n=57 ρ∈[0.108,1.24e+03] share_gate med=0.65 tconv med=498c
+терциль rho_liq сред: n=57 ρ∈[1.44e+03,2.55e+04] share_gate med=0.63 tconv med=304c
+терциль rho_liq верх: n=57 ρ∈[2.57e+04,4.17e+10] share_gate med=0.49 tconv med=189c
