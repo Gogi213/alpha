@@ -179,7 +179,8 @@ def main():
             if r["порог_%"] == "10.48" and (r["плохой_принт"] == "да" or r["сомнительный"] == "да"):
                 bad.add((r["биржа"], r["рынок"], r["инструмент"], r["знак"], r["начало_utc"]))
     ins = sorted({(r["биржа"], r["рынок"], r["инструмент"]) for r in csv.DictReader(open(legs2, encoding="utf-8"))})
-    jobs = [(root, e, m, s, quanto.get(s, 1.0), bad) for (e, m, s) in ins]
+    exf = sys.argv[7] if len(sys.argv) > 7 else ""  # фильтр биржи: Bybit с calc отдаёт 403 (бан IP), Gate — отдельно
+    jobs = [(root, e, m, s, quanto.get(s, 1.0), bad) for (e, m, s) in ins if not exf or e == exf]
     print("инструментов", len(jobs), flush=True)
     eh = ["вариант", "биржа", "рынок", "инструмент", "t_событие", "знак", "t_оценка_старта", "цена_события", "цена_старта", "imb", "surge",
           "сделок", "imb5", "surge5", "сделок5", "нога_того_же_знака", "нога_плохая", "нога_обратная", "обратная_плохая"]
