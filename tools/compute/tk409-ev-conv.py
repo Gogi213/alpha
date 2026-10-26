@@ -79,7 +79,7 @@ def run(Tr, xf, TO, L, A, want_eps=False):
     ab = val & (np.abs(dev) >= Tr); prev = np.r_[True, ~ab[:-1]]
     cand = np.nonzero(ab & prev)[0]
     rng = np.random.default_rng([409, int(Tr * 1e4), int(xf * 10), TO, L, A])
-    eps = []; cnt = dict(n_cand=len(cand), drop_hist=0, drop_age=0, drop_size=0, drop_exit_age=0, exit_thin=0, busy=0)
+    eps = []; cnt = dict(n_cand=len(cand), drop_hist=0, drop_age=0, drop_size=0, drop_exit_age=0, exit_thin=0, busy=0, drop_norev=0)
     last = -1; vidx_all = np.nonzero(val)[0]; dayU = (U - D0) // DAY
     for i in cand:
         if U[i] < D0 + DAY: cnt['drop_hist'] += 1; continue  # ровно сутки без истории базиса
