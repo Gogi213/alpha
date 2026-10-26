@@ -1,3 +1,4 @@
+import sys
 import pandas as pd, numpy as np
 from scipy import stats
 cols="coin,tag,T,xf,TO,L,A,n_swap,gross_swap,excess_swap,n_gate,gross_gate,excess_gate,vis,n,gross,med,ctrl,excess,ci_lo,ci_hi,net_v,net_d,ref_mk,hit,n_days,good_days,pos_good,gate_mv,dex_mv,n_fund,per_day".split(',')
