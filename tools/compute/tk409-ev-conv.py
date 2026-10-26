@@ -13,6 +13,8 @@ import numpy as np
 coin, midf, outp = sys.argv[1:4]
 FORM = sys.argv[5] if len(sys.argv) > 5 else 'a'  # П-30 §4: 'a' первое пересечение; 'b' разворот — вход, когда |отрыв| сократился на R_REV от пика эпизода (вернул Судья 26.10 06:05)
 R_REV = 0.25
+BASIS = os.environ.get('BASIS', 'grid')  # 'ev' — база по событиям (возврат Судьи 07:19); 'grid' — прежняя по сетке 10 с (>= 50 %)
+NB_MIN = 30  # назначено Судьёй: минимум пар в окне 24 ч
 MK_DL = 300000  # (в): мейкер-заявка живёт не дольше 5 мин (и не дольше таймаута); без отмен впереди (пессимистично)
 VIS = int(sys.argv[4]) if len(sys.argv) > 4 else 1000  # судья 26.10: своп с меткой ts(с) известен с tv = ts*1000 + VIS (главная 1000, чувствительность 2000/3000)
 D0 = 1792022400 * 1000; ND = 8; DEND = D0 + ND * 86400000; H = 3600000; DAY = 86400000
@@ -88,7 +90,13 @@ for A in AS:
     d_raw = lg - LP_U; ok = okg & okd
     kg2, okg2 = gate_at(GRID, A); dg = np.log(np.where(okg2, GM[kg2], np.nan)) - LSP[kgd]; dg[~(okg2 & okgd)] = np.nan
     bh = np.full(ND * 24, np.nan); nhist = 0
-    for h in range(24, ND * 24):  # окно [h-24ч, h) по сетке 10 с; нужно >= 50 % валидных (V4)
+    if BASIS == 'ev':  # возврат Судьи 26.10 07:19: база по событиям — медиана пар «своп DEX -> последняя запись Gate не старше A» за [h-24ч, h), N_b >= 30
+        kq, okq = gate_at(ST, A); dsw = np.log(np.where(okq, GM[kq], np.nan)) - LSP; hsw = (ST - D0) // H
+        for h in range(24, ND * 24):
+            m = (hsw >= h - 24) & (hsw < h) & np.isfinite(dsw)
+            if int(m.sum()) >= NB_MIN: bh[h] = np.median(dsw[m])
+    else:
+      for h in range(24, ND * 24):  # окно [h-24ч, h) по сетке 10 с; нужно >= 50 % валидных (V4)
         w = dg[(h - 24) * 360:h * 360]; w = w[np.isfinite(w)]
         if len(w) >= 4320: bh[h] = np.median(w)
     b = bh[np.clip((U - D0) // H, 0, ND * 24 - 1)]
