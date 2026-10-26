@@ -38,7 +38,7 @@ else:
     head = json.loads(urllib.request.urlopen(urllib.request.Request(B + '/head', headers={'User-Agent': 'curl/8'}), timeout=60).read())['number']
     now = ts(head); sec = (now - ts(head - 1_000_000)) / 1_000_000   # TK-393: темп блоков замерен
     est = lambda t: max(1, head - int((now - t) / sec))
-    b = find(t0, max(1, est(t0) - 3_000_000), est(t0) + 3_000_000)
+    b = find(t0, max(1, est(t0) - 3_000_000), min(head, est(t0) + 3_000_000))   # верх не выше head: за head ts=None читался как «рано» (zkSync v2: курсор за head)
     end = find(t1 + 1, b, min(head, est(t1 + 1) + 3_000_000)) - 1
     open(cur, 'w').write(f'{b} {end}')
 print(chain, len(pools), 'pools blocks', b, end, flush=True)
