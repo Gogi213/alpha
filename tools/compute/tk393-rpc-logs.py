@@ -5,7 +5,7 @@ v4-пулы (66 знаков, id в topic1) — фильтр topic0=Swap v4, top
 Выход <outdir>/<chain>/logs-<N>.jsonl (лог + ts блока), cursor, DONE.json. Докачка с cursor."""
 import csv, json, os, sys, time, urllib.request, urllib.error
 url, pcsv, chain, out = sys.argv[1:5]
-T0, T1 = 1792022400, 1792713599
+T0, T1 = int(os.environ.get('T0', 1792022400)), 1792713599
 SW = ['0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',   # v2
       '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67',   # uni v3
       '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83',   # pancake v3
@@ -38,7 +38,7 @@ if os.path.exists(cur): b, end = map(int, open(cur).read().split())
 else:
     head = int(rpc('eth_blockNumber', [])['result'], 16); now = bts(head); s = (now - bts(head - 1000000)) / 1e6
     est = lambda t: max(1, head - int((now - t) / s))
-    b = find(T0, max(1, est(T0) - 2_000_000), est(T0) + 2_000_000)
+    b = find(T0, max(1, est(T0) - 2_000_000), min(head, est(T0) + 2_000_000))
     end = find(T1 + 1, b, min(head, est(T1 + 1) + 2_000_000)) - 1
     open(cur, 'w').write(f'{b} {end}')
 print(chain, len(addr), 'addr', len(ids), 'v4 ids; blocks', b, end, flush=True)
