@@ -10,12 +10,17 @@
 Оборот эпизода = Σ quote_v по минутам от начала до пика; норма = медиана дневного оборота × длительность/1440.
 Сомнительный = эпизод держится на ≤ 3 минутах с торгами (остаток плохих принтов Gate).
 Синхрон: эпизод того же знака на другом инструменте той же монеты (любая биржа/рынок, USD-котировка), чей интервал
-[начало, пик] пересекается с нашим; лаг = старт другого − наш старт (мин; > 0 — мы раньше)."""
+[начало, пик] пересекается с нашим; лаг = старт другого − наш старт (мин; > 0 — мы раньше).
+Плохой принт (решение Судьи 27.10, В-53): ход эпизода по VWAP минуты (quote_v / base_v; экстремум VWAP на [начало, пик] к VWAP
+начала) < 0,5 × ход по закрытиям → плохой_принт=да (из сводок исключается, в csv остаётся). ход_пары_доля — наибольший
+из ходов того же знака на других инструментах той же монеты в окне [начало, пик] ± 5 мин, делённый на наш ход.
+Файлы Bybit без n_trades (пустая колонка) читаются с n=0; пустой загруз файла с данными — ошибка."""
 import csv
 import gzip
 import os
 import statistics
 import sys
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timezone
 from multiprocessing import Pool
 
@@ -28,7 +33,7 @@ HEAD = ["порог_%", "биржа", "рынок", "инструмент", "к�
         "цена_начала", "цена_пика", "ход_%", "длит_до_пика_мин", "откат_доля", "время_отката_мин", "завершён",
         "оборот_эпизода_usd", "норма_оборота_usd", "оборот_к_норме", "минут_с_торгами", "сделок", "макс_дыра_мин",
         "мед_оборот_дня_usd", "выброшено_принтов", "есть_пара_монеты", "синхрон", "пара_инструмент", "лаг_старта_мин",
-        "лаг_пика_мин", "первый", "перекрытие_доля", "сомнительный"]
+        "лаг_пика_мин", "первый", "перекрытие_доля", "сомнительный", "ход_vwap_доля", "плохой_принт", "ход_пары_доля"]
 
 
 def iso(ms):
@@ -36,22 +41,24 @@ def iso(ms):
 
 
 def load(root, ex, mk, sym):
-    t, c, q, n = [], [], [], []
+    t, c, q, n, w = [], [], [], [], []
+    rows = 0
     with gzip.open(os.path.join(root, MKT[(ex, mk)], sym + ".csv.gz"), "rt") as f:
         f.readline()
         for line in f:
-            p = line.split(",")
-            try:
-                ti = int(p[0]); ci = float(p[4]); qi = float(p[6]); ni = int(float(p[7]))
-            except (ValueError, IndexError):
-                continue
+            rows += 1
+            p = line.rstrip("\n").split(",")
+            ti = int(p[0]); ci = float(p[4]); vi = float(p[5]); qi = float(p[6])
+            ni = int(float(p[7])) if len(p) > 7 and p[7] else 0  # Bybit-API n_trades не отдаёт
             if ci <= 0:
                 continue
-            t.append(ti); c.append(ci); q.append(qi); n.append(ni)
-    return t, c, q, n
+            t.append(ti); c.append(ci); q.append(qi); n.append(ni); w.append(qi / vi if vi > 0 and qi > 0 else 0.0)
+    if rows and not c:
+        raise RuntimeError("пустой загруз %s %s %s: %d строк, 0 годных" % (ex, mk, sym, rows))
+    return t, c, q, n, w
 
 
-def despike(t, c, q, n):
+def despike(t, c, q, n, w):
     """Выбросить одиночные закрытия-выбросы (см. docstring); вернуть списки и число выброшенных."""
     keep = [True] * len(c)
     bad = 0
@@ -63,9 +70,9 @@ def despike(t, c, q, n):
                 keep[i] = False
                 bad += 1
     if not bad:
-        return t, c, q, n, 0
+        return t, c, q, n, w, 0
     idx = [i for i in range(len(c)) if keep[i]]
-    return [t[i] for i in idx], [c[i] for i in idx], [q[i] for i in idx], [n[i] for i in idx], bad
+    return [t[i] for i in idx], [c[i] for i in idx], [q[i] for i in idx], [n[i] for i in idx], [w[i] for i in idx], bad
 
 
 def zigzag(c, th):
@@ -106,7 +113,7 @@ def zigzag(c, th):
     return legs
 
 
-def episodes(t, c, q, n, th, medday):
+def episodes(t, c, q, n, w, th, medday):
     legs = zigzag(c, th)
     out = []
     for k, (a, b, s, done) in enumerate(legs):
@@ -121,32 +128,57 @@ def episodes(t, c, q, n, th, medday):
         qe = sum(q[a:b + 1])
         dur = (t[b] - t[a]) / 60000.0
         norm = medday * dur / 1440.0 if medday else 0.0
+        vs = [x for x in w[a:b + 1] if x > 0]
+        vm = ""
+        if vs and w[a] > 0 and move != 0:
+            vm = ((max(vs) if s == 1 else min(vs)) / w[a] - 1) / move
         gap = max((t[j] - t[j - 1]) / 60000.0 for j in range(a + 1, b + 1)) if b > a else 0.0
         out.append(dict(s=s, a=a, b=b, e=e, move=move * 100, dur=dur, retr=retr,
                         tretr=(t[e] - t[b]) / 60000.0, done=done and k + 1 < len(legs), qe=qe, norm=norm,
-                        ratio=(qe / norm) if norm else "", mins=b - a + 1, trades=sum(n[a:b + 1]), gap=gap))
+                        ratio=(qe / norm) if norm else "", mins=b - a + 1, trades=sum(n[a:b + 1]), gap=gap, vm=vm))
     return out
+
+
+def pair_share(data, others, s, ts, tp, move):
+    """Наибольший ход того же знака у других инструментов монеты в окне [ts-5м, tp+5м], доля от нашего хода."""
+    best = None
+    for o in others:
+        to, co = data[o][0], data[o][1]
+        i, j = bisect_left(to, ts - 300000), bisect_right(to, tp + 300000)
+        if j - i < 2:
+            continue
+        ext, m = co[i], 0.0
+        for x in co[i + 1:j]:
+            if s == 1:
+                ext = min(ext, x); m = max(m, x / ext - 1)
+            else:
+                ext = max(ext, x); m = max(m, 1 - x / ext)
+        if best is None or m > best:
+            best = m
+    return round(best * 100 / abs(move), 2) if best is not None and move else ""
 
 
 def run_group(args):
     root, key, sel, allk = args
     data = {}
     for ex, mk, sym in allk:
-        t, c, q, n = load(root, ex, mk, sym)
+        t, c, q, n, w = load(root, ex, mk, sym)
         if not c:
             continue
         days = {}
         for ti, qi in zip(t, q):
             days[(ti - 1788220800000) // DAY] = days.get((ti - 1788220800000) // DAY, 0.0) + qi
-        t, c, q, n, bad = despike(t, c, q, n)
-        data[(ex, mk, sym)] = (t, c, q, n, bad, statistics.median(days.values()) if days else 0.0)
+        t, c, q, n, w, bad = despike(t, c, q, n, w)
+        data[(ex, mk, sym)] = (t, c, q, n, bad, statistics.median(days.values()) if days else 0.0, w)
     rows = []
+    diag = {k: (len(data[k][1]), round((max(data[k][1]) / min(data[k][1]) - 1) * 100, 1) if k in data else "") for k in sel if k in data}
+    diag.update({k: (0, "") for k in sel if k not in data})
     for th in THETAS:
-        eps = {k: episodes(v[0], v[1], v[2], v[3], th, v[5]) for k, v in data.items()}
+        eps = {k: episodes(v[0], v[1], v[2], v[3], v[6], th, v[5]) for k, v in data.items()}
         for k in sel:
             if k not in data:
                 continue
-            t, c, q, n, bad, medday = data[k]
+            t, c, q, n, bad, medday, _w = data[k]
             others = [o for o in data if o != k]
             for e in eps[k]:
                 ts, tp, te = t[e["a"]], t[e["b"]], t[e["e"]]
@@ -173,8 +205,10 @@ def run_group(args):
                              round(e["retr"], 3), round(e["tretr"], 1), "да" if e["done"] else "нет",
                              round(e["qe"], 0), round(e["norm"], 0),
                              round(e["ratio"], 2) if e["ratio"] != "" else "", e["mins"], e["trades"],
-                             round(e["gap"], 1), round(medday, 0), bad, len(others)] + sync[:5] + [sync[5]] + ["да" if e["mins"] <= 3 else "нет"])
-    return rows
+                             round(e["gap"], 1), round(medday, 0), bad, len(others)] + sync[:5] + [sync[5]] + ["да" if e["mins"] <= 3 else "нет"]
+                             + [round(e["vm"], 2) if e["vm"] != "" else "", "да" if e["vm"] != "" and e["vm"] < 0.5 else "нет",
+                                pair_share(data, others, e["s"], ts, tp, e["move"]) if others else ""])
+    return rows, diag
 
 
 if __name__ == "__main__":
@@ -200,6 +234,13 @@ if __name__ == "__main__":
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(HEAD)
-        for rs in res:
+        for rs, _ in res:
             w.writerows(rs)
-    print("эпизодов", sum(len(r) for r in res))
+    have = {(r[1], r[2], r[3]) for rs, _ in res for r in rs if r[0] == 5.0}
+    allsel = {k: d for _, dg in res for k, d in dg.items()}
+    miss = [k for k in allsel if k not in have]
+    with open(out + ".noep.tsv", "w", encoding="utf-8") as f:
+        f.write("биржа\tрынок\tинструмент\tминут\tмакс/мин_закрытий_%\n")
+        for k in sorted(miss):
+            f.write("%s\t%s\t%s\t%s\t%s\n" % (k + allsel[k]))
+    print("эпизодов", sum(len(r) for r, _ in res), "инструментов отбора", len(allsel), "без эпизода при θ=5:", len(miss))
