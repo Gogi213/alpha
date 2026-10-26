@@ -877,3 +877,9 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 26.10 (TK-393 охват 4 ~08:25): Starknet ts 97474/189188 = calc, Scroll 202, Arc 12617, Stable 154, cn5 166771/25 = отчёт; 币安人生 (5-й тикер) пропущен, таблица 15≠16, Arc описан неверно (v4 со свопами) → return, reviews/tk393-coverage-return4; ~8 мин. Урок: сверять список «перезапустить N» с N в итоге.
 - 26.10 (TK-393 охват 5 ~08:35): классы 16, Arc = calc; 币安人生 «10 132» = gt_min, свопов 33 845 (calc summary) → return, reviews/tk393-coverage-return5; ~4 мин. Урок: число из csv сверять по имени колонки.
 - 26.10 (TK-393 охват 6 ~08:40): 币安人生 33 845 в обоих местах (diff 3dd1ada3) = calc → accept, reviews/tk393-coverage-accept; «осталось» стр. 62 — история dl6, сводка закрыта; ~3 мин.
+- 26.10 (TK-409 траты 2 ~08:30): Rq.done на calc (184), load 1,3; траты по делу → return исследователю на агрегат Rq+Холм, LAPTOP/SUE; reviews/tk409-spend-check2; ~3 мин.
+- 26.10 (TK-409 Rq ~08:40): Rq = calc (P X0,10 W1800 h60 n81 +67,42, Q 50/81, 3/7 сут); R да, «кандидат» принят; LAPTOP/SUE не считаны → return, reviews/tk409-rq-return; ~5 мин.
+- 26.10 (TK-410 сторож eth-redo ~08:50): ложная — tk410-ethredo2 done 08:47, eth-redo.done есть, 56/58 пулов → return исследователю на охват/бой, reviews/tk410-ethredo-watch; ~3 мин.
+- 26.10 (TK-409 LAPTOP/SUE ~08:55): причина = «середины/gev2 нет», но книга есть, свопы извлекаемы (aero в TK-410) → return, reviews/tk409-laptop-sue-return; ~3 мин.
+- 26.10 (TK-409 LS таймаут ~10:05): сеть, не счёт (ЦП 28 с/60 мин); bsc+gev2 готовы, base 52 % → return: докачка хвоста base, net ≥2 ч; reviews/tk409-lpsue-timeout; ~4 мин.
+- 26.10 (TK-410 частичный итог ~10:25): В2–В4 нет, окна 12/16, В5 неполн., «лучшая ячейка» в отчёте ≠ csv (W3600 +53, CI∋0); P = спот-сделки → return, reviews/tk410-partial-return; ~5 мин.
