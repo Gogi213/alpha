@@ -1,0 +1,45 @@
+conv episodes 309892 coins 50
+xc 10 -300 48 0.0036 0.0005 0.0071
+xc 10 -60 48 0.0209 0.0147 0.0285
+xc 10 -10 49 0.0908 0.0728 0.1078
+xc 10 0 49 0.2347 0.1931 0.2672
+xc 10 10 49 0.0201 0.0104 0.0326
+xc 10 60 49 0.0047 -0.001 0.0112
+xc 10 300 48 0.0017 -0.0023 0.0054
+xc 60 -300 48 0.0207 0.0122 0.0289
+xc 60 -60 47 0.1145 0.0909 0.1369
+xc 60 -10 47 0.426 0.3577 0.4817
+xc 60 0 47 0.4381 0.3682 0.5067
+xc 60 10 48 0.3347 0.2854 0.3847
+xc 60 60 47 0.0195 0.0064 0.032
+xc 60 300 47 0.0076 -0.0014 0.0178
+xc 300 -300 47 0.0876 0.0584 0.1188
+xc 300 -60 48 0.574 0.507 0.6426
+xc 300 -10 47 0.6411 0.5568 0.7138
+xc 300 0 47 0.6363 0.5691 0.713
+xc 300 10 47 0.6146 0.5418 0.6871
+xc 300 60 47 0.5051 0.4468 0.5654
+xc 300 300 47 0.0125 -0.0098 0.0368
+B4 gate_depth share_gate -0.28 50
+B4 gate_depth tconv -0.279 50
+B4 pool_events share_gate -0.164 50
+B4 pool_events tconv -0.517 50
+B4 gate_events share_gate 0.166 50
+B4 gate_events tconv -0.091 50
+big 3949 coins 43
+{'Xmin': 500, 'strat': '0', 'n': 1699, 'coins': 27, 'reach50': 0.36, 'reach90': 0.18, 't50_med_s': 28800.0, 't90_med_s': 28800.0, 'pre_share_med': 0.0, 'pre_n': 1683, 'post_med_60s': 0.0, 'post_med_1800s': 0.005, 'post_med_86400s': 0.016}
+{'Xmin': 500, 'strat': '1', 'n': 577, 'coins': 35, 'reach50': 0.444, 'reach90': 0.314, 't50_med_s': 7200.0, 't90_med_s': 14400.0, 'pre_share_med': -0.933, 'pre_n': 561, 'post_med_60s': 0.0, 'post_med_1800s': -0.019, 'post_med_86400s': -0.393}
+{'Xmin': 500, 'strat': '2', 'n': 1673, 'coins': 43, 'reach50': 0.108, 'reach90': 0.076, 't50_med_s': 7200.0, 't90_med_s': 14400.0, 'pre_share_med': -0.048, 'pre_n': 48, 'post_med_60s': 0.0, 'post_med_1800s': -0.015, 'post_med_86400s': 0.196}
+{'Xmin': 1000, 'strat': '0', 'n': 100, 'coins': 11, 'reach50': 0.32, 'reach90': 0.1, 't50_med_s': 28800.0, 't90_med_s': 28800.0, 'pre_share_med': 0.0, 'pre_n': 98, 'post_med_60s': 0.0, 'post_med_1800s': -0.004, 'post_med_86400s': 0.01}
+{'Xmin': 1000, 'strat': '1', 'n': 85, 'coins': 7, 'reach50': 0.282, 'reach90': 0.224, 't50_med_s': 28800.0, 't90_med_s': 86400.0, 'pre_share_med': -0.95, 'pre_n': 84, 'post_med_60s': 0.001, 'post_med_1800s': -0.069, 'post_med_86400s': -0.368}
+{'Xmin': 1000, 'strat': '2', 'n': 230, 'coins': 14, 'reach50': 0.096, 'reach90': 0.057, 't50_med_s': 21600.0, 't90_med_s': 28800.0, 'pre_share_med': -1.0, 'pre_n': 2, 'post_med_60s': -0.022, 'post_med_1800s': -0.052, 'post_med_86400s': 0.113}
+{'Xmin': 1500, 'strat': '0', 'n': 2, 'coins': 1, 'reach50': 1.0, 'reach90': 0.0, 't50_med_s': 10.0, 't90_med_s': nan, 'pre_share_med': -0.073, 'pre_n': 2, 'post_med_60s': 0.591, 'post_med_1800s': 0.576, 'post_med_86400s': -1.178}
+{'Xmin': 1500, 'strat': '1', 'n': 24, 'coins': 5, 'reach50': 0.125, 'reach90': 0.083, 't50_med_s': 86400.0, 't90_med_s': 86400.0, 'pre_share_med': -0.941, 'pre_n': 24, 'post_med_60s': 0.013, 'post_med_1800s': -0.094, 'post_med_86400s': -0.586}
+{'Xmin': 1500, 'strat': '2', 'n': 57, 'coins': 6, 'reach50': 0.088, 'reach90': 0.018, 't50_med_s': 86400.0, 't90_med_s': 600.0, 'pre_share_med': -1.023, 'pre_n': 1, 'post_med_60s': -0.021, 'post_med_1800s': -0.05, 'post_med_86400s': -0.649}
+{'Xmin': 2000, 'strat': '0', 'n': 2, 'coins': 1, 'reach50': 1.0, 'reach90': 0.0, 't50_med_s': 10.0, 't90_med_s': nan, 'pre_share_med': -0.073, 'pre_n': 2, 'post_med_60s': 0.591, 'post_med_1800s': 0.576, 'post_med_86400s': -1.178}
+{'Xmin': 2000, 'strat': '1', 'n': 11, 'coins': 4, 'reach50': 0.0, 'reach90': 0.0, 't50_med_s': nan, 't90_med_s': nan, 'pre_share_med': -0.919, 'pre_n': 11, 'post_med_60s': 0.023, 'post_med_1800s': -0.092, 'post_med_86400s': -1.531}
+{'Xmin': 2000, 'strat': '2', 'n': 16, 'coins': 5, 'reach50': 0.062, 'reach90': 0.0, 't50_med_s': 86400.0, 't90_med_s': nan, 'pre_share_med': nan, 'pre_n': 0, 'post_med_60s': -0.004, 'post_med_1800s': -0.058, 'post_med_86400s': -0.249}
+{'block': 'B2', 'd0_lo': 30, 'd0_hi': 50, 'n': 50141, 'coins': 49, 'conv_share': 1.0, 'conv_by_1s': 0.75, 'conv_by_10s': 0.857, 'conv_by_60s': 0.93, 'conv_by_300s': 0.98, 'conv_by_1800s': 0.997, 'conv_by_3600s': 0.999, 'conv_by_86400s': 1.0, 'tconv_med_s': 0.0, 'tconv_med_lo': 0.0, 'tconv_med_hi': 7.026, 'obs_full_share': 0.907, 'first_gate': 0.071, 'first_pool': 0.929, 'first_same': 0.0, 'first_none': 0.0, 'share_gate_med': 0.0, 'share_gate_n': 50138, 'conv_src_gate': 0.108}
+{'block': 'B2', 'd0_lo': 50, 'd0_hi': 100, 'n': 249173, 'coins': 50, 'conv_share': 1.0, 'conv_by_1s': 0.929, 'conv_by_10s': 0.984, 'conv_by_60s': 0.992, 'conv_by_300s': 0.997, 'conv_by_1800s': 1.0, 'conv_by_3600s': 1.0, 'conv_by_86400s': 1.0, 'tconv_med_s': 0.0, 'tconv_med_lo': 0.0, 'tconv_med_hi': 2.0, 'obs_full_share': 0.954, 'first_gate': 0.008, 'first_pool': 0.992, 'first_same': 0.0, 'first_none': 0.0, 'share_gate_med': 0.0, 'share_gate_n': 249170, 'conv_src_gate': 0.012}
+{'block': 'B2', 'd0_lo': 100, 'd0_hi': 200, 'n': 7825, 'coins': 43, 'conv_share': 1.0, 'conv_by_1s': 0.699, 'conv_by_10s': 0.794, 'conv_by_60s': 0.885, 'conv_by_300s': 0.963, 'conv_by_1800s': 0.994, 'conv_by_3600s': 0.997, 'conv_by_86400s': 1.0, 'tconv_med_s': 0.0, 'tconv_med_lo': 0.0, 'tconv_med_hi': 4.0, 'obs_full_share': 0.922, 'first_gate': 0.118, 'first_pool': 0.882, 'first_same': 0.0, 'first_none': 0.0, 'share_gate_med': 0.0, 'share_gate_n': 7824, 'conv_src_gate': 0.174}
+{'block': 'B2', 'd0_lo': 200, 'd0_hi': 1000000000.0, 'n': 2753, 'coins': 37, 'conv_share': 1.0, 'conv_by_1s': 0.723, 'conv_by_10s': 0.887, 'conv_by_60s': 0.947, 'conv_by_300s': 0.981, 'conv_by_1800s': 0.996, 'conv_by_3600s': 0.999, 'conv_by_86400s': 1.0, 'tconv_med_s': 0.0, 'tconv_med_lo': 0.0, 'tconv_med_hi': 0.702, 'obs_full_share': 0.935, 'first_gate': 0.046, 'first_pool': 0.954, 'first_same': 0.0, 'first_none': 0.0, 'share_gate_med': 0.0, 'share_gate_n': 2753, 'conv_src_gate': 0.089}
