@@ -854,6 +854,29 @@ class Tail(unittest.TestCase):
         self.assertEqual([x.split(" учтено ")[1] for x in be.alerts if x.startswith("хвост снят a ")][-2:], ["7 из 15", "15 из 15"], be.alerts)
         self.assertEqual(sum(1 for x in be.alerts if x.startswith("хвост a ")), 1, be.alerts)
 
+    # TK-406: реальный профиль tk407-sol3 (job 1026003314942, calc 26.10): (начало интервала выборки, с от t_start; ядер факта за интервал) по cpu_samples юнита
+    SOL3 = [(0, 14.7), (984, 14.8), (1109, 13.5), (1232, 11.3), (1354, 10.2), (1476, 9.1), (1598, 6.9), (1720, 4.6), (1842, 2.7), (1965, 1.6),
+            (2088, 1.0), (2211, 1.4), (2334, 1.7), (2456, 1.2), (2579, 1.0)]
+
+    def test_sol3_real_profile_tail_never_grew(self):
+        """TK-406: факт sol3 спадал 14,7 -> 1 ядро, хвост на возрасте ≈37 мин (в бою 2216 с) с учётом 7; дальше 1,0–1,7 ядра до конца — «хвост снят» не выходит"""
+        _, be, a, _, seen = self.drive(self.SOL3, 2800)
+        tails = [x for x in be.alerts if x.startswith("хвост a ")]
+        self.assertEqual(len(tails), 1, be.alerts)
+        self.assertIn("учтено 7", tails[0])
+        onset = min(t for t in seen if seen[t][1])
+        self.assertTrue(2100 <= onset <= 2400, onset)
+        self.assertFalse(any(x.startswith("хвост снят") for x in be.alerts), be.alerts)
+        self.assertEqual(seen[max(seen)], (7, True))
+
+    def test_sol3_profile_with_wide_step_releases_within_a_sample(self):
+        """TK-406: тот же профиль, но шаг 3 действительно широк (14 ядер с t=2600 с, после хвоста) — «хвост снят» не позже двух интервалов выборок (2·SAMPLE_S) после роста"""
+        _, be, a, _, seen = self.drive(self.SOL3[:-1] + [(2579, 1.0), (2600, 14.0)], 3200)
+        self.assertEqual(sum(1 for x in be.alerts if x.startswith("хвост a ")), 1, be.alerts)
+        freed = [t for t in sorted(seen) if t >= 2600 and seen[t] == (15, False)]
+        self.assertTrue(freed and freed[0] <= 2600 + 2 * S.SAMPLE_S, freed[:3])
+        self.assertTrue(any(x.startswith("хвост снят a ") for x in be.alerts), be.alerts)
+
 
 if __name__ == "__main__":
     unittest.main()
