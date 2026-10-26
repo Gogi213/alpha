@@ -66,6 +66,29 @@ def stream(ex, mk, ins, quanto, feed):
                 except (ValueError, IndexError):
                     pass
         return miss
+    loc = os.environ.get("TK_BYBIT_LOCAL")  # зеркало TK-417: <loc>/bybit-linear/<СИМ>/<СИМ><дата>.csv.gz, <loc>/bybit-spot/<СИМ>/<СИМ>-2026-09.csv.gz
+    if loc:
+        if mk == "linear":
+            files = [("%s/bybit-linear/%s/%s%s.csv.gz" % (loc, ins, ins, (datetime(2026, 9, 1) + timedelta(days=k)).date().isoformat()), "l")
+                     for k in range(30)]
+        else:
+            files = [("%s/bybit-spot/%s/%s-2026-09.csv.gz" % (loc, ins, ins), "s")]
+        for fn, kind in files:
+            if not os.path.exists(fn):
+                miss.append(os.path.basename(fn))
+                continue
+            with gzip.open(fn, "rt", encoding="ascii", newline="") as f:
+                f.readline()
+                for line in f:
+                    p = line.split(",")
+                    try:
+                        if kind == "l":  # timestamp(с),symbol,side,size,price
+                            feed(float(p[0]), float(p[4]), float(p[3]), p[2] == "Buy")
+                        else:  # id,timestamp(мс),price,volume,side
+                            feed(float(p[1]) / 1000, float(p[2]), float(p[3]), p[4].strip().lower() == "buy")
+                    except (ValueError, IndexError):
+                        pass
+        return miss
     d = datetime(2026, 9, 1).date()
     while d <= datetime(2026, 9, 30).date():
         ds = d.isoformat()
