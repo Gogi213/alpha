@@ -11,6 +11,8 @@ V1: A = живость потока gev2 (последняя любая запи
 import sys, os, glob, datetime as dt
 import numpy as np
 coin, midf, outp = sys.argv[1:4]
+FORM = sys.argv[5] if len(sys.argv) > 5 else 'a'  # П-30 §4: 'a' первое пересечение; 'b' разворот — вход, когда |отрыв| сократился на R_REV от пика эпизода (вернул Судья 26.10 06:05)
+R_REV = 0.25
 VIS = int(sys.argv[4]) if len(sys.argv) > 4 else 1000  # судья 26.10: своп с меткой ts(с) известен с tv = ts*1000 + VIS (главная 1000, чувствительность 2000/3000)
 D0 = 1792022400 * 1000; ND = 8; DEND = D0 + ND * 86400000; H = 3600000; DAY = 86400000
 GEV = os.environ.get('GEV', '/data/tk0393/tk401/gev2all')
@@ -83,6 +85,16 @@ def run(Tr, xf, TO, L, A, want_eps=False):
         if U[i] < D0 + DAY: cnt['drop_hist'] += 1; continue  # ровно сутки без истории базиса
         if i <= last: cnt['busy'] += 1; continue
         s = 1 if dev[i] > 0 else -1; q = -s
+        if FORM == 'b':  # (б): вход на первом барe, где s*dev <= пик*(1-R_REV) при s*dev > Tr*xf; эпизод кончился (<= Tr*xf) или таймаут → без входа
+            jm = int(np.searchsorted(U, U[i] + TO, side='right')); pk = s * dev[i]; i2 = -1
+            for k in range(i + 1, jm):
+                if not val[k]: continue
+                v = s * dev[k]
+                if v <= Tr * xf: break
+                if v <= pk * (1 - R_REV): i2 = k; break
+                pk = max(pk, v)
+            if i2 < 0: cnt['drop_norev'] = cnt.get('drop_norev', 0) + 1; continue
+            i = i2
         pe, st, ke = px(U[i] + L, A, q, True)
         if st == 1: cnt['drop_age'] += 1; continue
         if st == 2: cnt['drop_size'] += 1; continue
