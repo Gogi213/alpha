@@ -67,9 +67,18 @@ def add_day(raw, mins):
     return n
 
 
+def built(dst):
+    """Готовый файл со свечами (не пустая заготовка API с одним заголовком)."""
+    if not os.path.exists(dst):
+        return False
+    with gzip.open(dst, "rt") as f:
+        f.readline()
+        return bool(f.readline())
+
+
 def one(sym, days, root, outdir):
     dst = "%s/%s/%s.csv.gz" % (root, outdir, sym)
-    if os.path.exists(dst):
+    if built(dst):
         return sym, None
     mins = {}
     have = 0
@@ -88,8 +97,9 @@ def one(sym, days, root, outdir):
             c = mins[m]
             g.write(FMT % (m * 60000, c[1], c[5], c[7], c[3], c[8], c[9], c[10]))
     os.replace(dst + ".part", dst)
-    with open("%s/cov/bybit-linear-%s.tsv" % (root, sym), "w") as f:
-        f.write("linear\t%s\t%d\t%s\t%s\t%d\n" % (sym, len(ks), ks[0] * 60000 if ks else "", ks[-1] * 60000 if ks else "", have))
+    if outdir == "candles/bybit-linear":  # проба сверки (другой выход) охват боевых контрактов не трогает
+        with open("%s/cov/bybit-linear-%s.tsv" % (root, sym), "w") as f:
+            f.write("linear\t%s\t%d\t%s\t%s\t%d\n" % (sym, len(ks), ks[0] * 60000 if ks else "", ks[-1] * 60000 if ks else "", have))
     return sym, missing
 
 

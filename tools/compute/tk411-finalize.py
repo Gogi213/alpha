@@ -27,6 +27,14 @@ def gate_first_last(path):
     return first, last
 
 
+def file_stats(path):
+    """Минут, первая и последняя t_open_ms по самому файлу свечей (cov-файл мог устареть)."""
+    with gzip.open(path, "rb") as f:
+        lines = f.read().split(b"\n")
+    rows = [x for x in lines[1:] if x]
+    return len(rows), (rows[0].split(b",")[0].decode() if rows else ""), (rows[-1].split(b",")[0].decode() if rows else "")
+
+
 def reason(n, lo, hi, first, last, why):
     r = []
     if first and int(first) > lo:
@@ -72,10 +80,13 @@ def main():
     tl = root + "/cov/bybit-trades-list.txt"  # контракты, собранные из архива сделок public.bybit.com (API свечей закрытых не отдаёт)
     from_trades = set(open(tl).read().split()) if os.path.exists(tl) else set()
     for p in sorted(glob.glob(root + "/cov/bybit-*-*.tsv")):
-        if p.endswith("instruments.tsv"):
+        if p.endswith(("instruments.tsv", "trades-missing.tsv")):
             continue
         m, s, n, first, last, req = open(p).read().rstrip("\n").split("\t")
         n = int(n)
+        dst = "%s/candles/bybit-%s/%s.csv.gz" % (root, m, s)
+        if os.path.exists(dst):
+            n, first, last = file_stats(dst)
         seen.add((m, s))
         la, de, st, _ = inst[(m, s)]
         lo = max(START, (la // MIN) * MIN)
