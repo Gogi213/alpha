@@ -13,7 +13,8 @@ def s256(h):
 n = 0; kinds = {}
 with open(out, 'w', newline='') as fo:
     w = csv.writer(fo); w.writerow('ts,block,logidx,kind,mid_raw,liq0,liq1,tick'.split(','))
-    for p in sorted(glob.glob(f'/data/tk0393/sqd*/{chain}/part-*.jsonl')):
+    import os
+    for p in sorted(glob.glob(os.environ.get('SRC', f'/data/tk0393/sqd*/{chain}/part-*.jsonl'))):
         for line in open(p):
             if pool not in line: continue
             r = json.loads(line); hd = r['header']

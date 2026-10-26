@@ -9,7 +9,7 @@ RAWCSV = выход tk410-extract.py (ts,block,logidx,kind,mid_raw,liq0,liq1,tic
 import sys, os, glob, csv, datetime as dt
 import numpy as np
 coin, rawf, outp = sys.argv[1:4]
-D0 = 1792022400 * 1000; ND = 8; DEND = D0 + ND * 86400000; H = 3600000; DAY = 86400000
+D0 = int(os.environ.get('D0S', 1792022400)) * 1000; ND = int(os.environ.get('ND', 8)); DEND = D0 + ND * 86400000; H = 3600000; DAY = 86400000
 GEV = os.environ.get('GEV', '/data/tk0393/tk401/gev2all')
 VIS, L, A_IN, NET = 1000, 250, 5000, 2.6
 WS = [1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 43200, 86400]
