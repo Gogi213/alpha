@@ -11,6 +11,7 @@ V1: A = живость потока gev2 (последняя любая запи
 import sys, os, glob, datetime as dt
 import numpy as np
 coin, midf, outp = sys.argv[1:4]
+VIS = int(sys.argv[4]) if len(sys.argv) > 4 else 1000  # судья 26.10: своп с меткой ts(с) известен с tv = ts*1000 + VIS (главная 1000, чувствительность 2000/3000)
 D0 = 1792022400 * 1000; ND = 8; DEND = D0 + ND * 86400000; H = 3600000; DAY = 86400000
 GEV = os.environ.get('GEV', '/data/tk0393/tk401/gev2all')
 TRS = [0.01, 0.02, 0.03, 0.05]; XFS = [0.5, 0.0]; TOS = [300, 1800, 7200, 28800]
@@ -21,7 +22,7 @@ TAKER_V, TAKER_D, MAKER_D = 10.0, 6.5, 2.6
 sw = np.loadtxt(midf, delimiter=',', dtype=np.float64, ndmin=2)
 sw = sw[(sw[:, 0] * 1000 >= D0) & (sw[:, 0] * 1000 < DEND)]
 sw = sw[np.argsort(sw[:, 0], kind='stable')]
-ST = (sw[:, 0] * 1000).astype(np.int64); SP = sw[:, 3]; LSP = np.log(SP)
+ST = (sw[:, 0] * 1000).astype(np.int64) + VIS; SP = sw[:, 3]; LSP = np.log(SP)
 
 hv = np.zeros(ND * 24 + 2, bool); parts = []
 for f in sorted(glob.glob(f'{GEV}/{coin}/??????????.npy')):
@@ -46,6 +47,7 @@ def dex_at(t):
     return kc, (k >= 0) & (t - ST[kc] <= 60000)
 
 U = np.unique(np.concatenate([ST, GT[(GT >= D0) & (GT < DEND)]]))
+IS_SW = np.isin(U, ST)  # событие-сигнал: своп (tv) либо запись Gate
 kd, okd = dex_at(U); LP_U = LSP[kd]
 GRID = np.arange(D0, DEND, 10000, dtype=np.int64); kgd, okgd = dex_at(GRID)
 SER = {}
@@ -104,7 +106,7 @@ def run(Tr, xf, TO, L, A, want_eps=False):
         for r in (rng.choice(pool, 5) if len(pool) else []):
             p1, s1, _ = px(U[r] + L, A, q, True); p2, s2, _ = px(U[r] + (tx - U[i]) + L, A, -q, False)
             if s1 == 0 and s2 != 1 and np.isfinite(p2): cg.append(q * (np.log(p2) - np.log(p1)) * 1e4)
-        eps.append((int(U[i]), int(dayU[i]), s, g, float(np.mean(cg)) if cg else np.nan, kind, tx - int(U[i]), g_mv, d_mv, fund, int(i), jx, ke, kx))
+        eps.append((int(U[i]), int(dayU[i]), s, g, float(np.mean(cg)) if cg else np.nan, kind, tx - int(U[i]), g_mv, d_mv, fund, int(i), jx, ke, kx, 'swap' if IS_SW[i] else 'gate'))
     return eps, cnt
 
 def summ(eps):
@@ -116,7 +118,10 @@ def summ(eps):
     for _ in range(2000):
         pick = rng.choice(days, len(days)); idx = np.concatenate([np.nonzero(day == d)[0] for d in pick]); bs.append(np.nanmean(ex[idx]))
     good = [d for d in days if dayok[d]]; pos = sum(1 for d in good if pd[d][1] > 0)
-    return dict(n=len(g), gross=g.mean(), med=float(np.median(g)), ctrl=float(np.nanmean(c)) if okc.any() else np.nan, excess=float(np.nanmean(ex)), ci_lo=float(np.percentile(bs, 2.5)), ci_hi=float(np.percentile(bs, 97.5)),
+    src = np.array([e[14] for e in eps]); sp = {}
+    for nm in ('swap', 'gate'):
+        m = src == nm; sp[f'n_{nm}'] = int(m.sum()); sp[f'gross_{nm}'] = float(g[m].mean()) if m.any() else np.nan; sp[f'excess_{nm}'] = float(np.nanmean(ex[m])) if m.any() and np.isfinite(ex[m]).any() else np.nan
+    return dict(**sp, vis=VIS, n=len(g), gross=g.mean(), med=float(np.median(g)), ctrl=float(np.nanmean(c)) if okc.any() else np.nan, excess=float(np.nanmean(ex)), ci_lo=float(np.percentile(bs, 2.5)), ci_hi=float(np.percentile(bs, 97.5)),
                 net_v=g.mean() - TAKER_V, net_d=g.mean() - TAKER_D, ref_mk=g.mean() - MAKER_D, hit=float((g > 0).mean()), n_days=len(days), good_days=len(good), pos_good=pos,
                 gate_mv=float(np.mean([e[7] for e in eps])), dex_mv=float(np.mean([e[8] for e in eps])), n_fund=int(sum(e[9] for e in eps)), per_day=';'.join(f'{d}:{pd[d][0]}:{pd[d][1]:.1f}' for d in days))
 
@@ -139,13 +144,13 @@ def wr(fn, rs):
     with open(fn, 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(rs[0].keys())); w.writeheader(); w.writerows(rs)
 wr(outp + '-cells.csv', [dict(coin=coin, **r) for r in rows]); wr(outp + '-counts.csv', [dict(coin=coin, nbasis_hours=SER[A0]['nb'], good_days=sum(dayok), **r) for r in crow])
-wr(outp + '-eps.csv', [dict(coin=coin, t_ms=e[0], day=e[1], s=e[2], gross_bp=e[3], ctrl_bp=e[4], kind=e[5], hold_ms=e[6], gate_mv_bp=e[7], dex_mv_bp=e[8], fund_cross=e[9]) for e in main])
+wr(outp + '-eps.csv', [dict(coin=coin, t_ms=e[0], day=e[1], s=e[2], gross_bp=e[3], ctrl_bp=e[4], kind=e[5], hold_ms=e[6], gate_mv_bp=e[7], dex_mv_bp=e[8], fund_cross=e[9], src=e[14]) for e in main])
 with open(outp + '-manual.txt', 'w') as f:
     f.write(f'{coin}: 3 эпизода главной клетки T={MAIN[0]} xf={MAIN[1]} TO={MAIN[2]} L={L0} A={A0}\n')
     for e in ([main[0], main[len(main) // 2], main[-1]] if len(main) >= 3 else main):
         i, jx = e[10], e[11]; kd_ = int(np.searchsorted(ST, U[i], side='right') - 1)
         f.write(f'\n--- вход сигнал t={U[i]} ({dt.datetime.fromtimestamp(U[i] / 1000, dt.timezone.utc):%d.%m %H:%M:%S.%f}) s={e[2]} -> позиция {"long" if e[2] < 0 else "short"} Gate\n')
-        f.write(f'своп: ts_с={sw[kd_,0]:.0f} блок={sw[kd_,1]:.0f} logidx={sw[kd_,2]:.0f} цена={SP[kd_]:.10g}; возраст свопа {U[i]-ST[kd_]} мс\n')
+        f.write(f'своп: ts_с={sw[kd_,0]:.0f} блок={sw[kd_,1]:.0f} logidx={sw[kd_,2]:.0f} цена={SP[kd_]:.10g}; возраст свопа от tv {U[i]-ST[kd_]} мс (tv = ts+{VIS} мс)\n')
         f.write(f'gate на t: {GT[e[12]]} bid={GB[e[12]]} ask={GA[e[12]]} bq={GBQ[e[12]]} aq={GAQ[e[12]]} (это строка входа при t+L)\n')
         f.write(f'dev сигнала {SER[A0]["dev"][i]*1e4:.1f} бп (сырой {SER[A0]["raw"][i]*1e4:.1f} бп); выход {e[5]} через {e[6]} мс; строка выхода {GT[e[13]]} bid={GB[e[13]]} ask={GA[e[13]]}\n')
         f.write(f'валовый {e[3]:.2f} бп (спред внутри), контроль {e[4]:.2f}, ход Gate {e[7]:.1f}, ход DEX {e[8]:.1f}, fund_cross={e[9]}\n')
