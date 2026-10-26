@@ -13,6 +13,7 @@ import numpy as np
 coin, midf, outp = sys.argv[1:4]
 FORM = sys.argv[5] if len(sys.argv) > 5 else 'a'  # П-30 §4: 'a' первое пересечение; 'b' разворот — вход, когда |отрыв| сократился на R_REV от пика эпизода (вернул Судья 26.10 06:05)
 R_REV = 0.25
+MK_DL = 300000  # (в): мейкер-заявка живёт не дольше 5 мин (и не дольше таймаута); без отмен впереди (пессимистично)
 VIS = int(sys.argv[4]) if len(sys.argv) > 4 else 1000  # судья 26.10: своп с меткой ts(с) известен с tv = ts*1000 + VIS (главная 1000, чувствительность 2000/3000)
 D0 = 1792022400 * 1000; ND = 8; DEND = D0 + ND * 86400000; H = 3600000; DAY = 86400000
 GEV = os.environ.get('GEV', '/data/tk0393/tk401/gev2all')
@@ -38,6 +39,35 @@ if not parts: sys.exit('SKIP: нет gev2')
 a = np.concatenate(parts); a = a[np.argsort(a[:, 0], kind='stable')]
 GT = a[:, 0].astype(np.int64); GB, GA, GBQ, GAQ = a[:, 1], a[:, 2], a[:, 3], a[:, 4]
 GM = (GB + GA) / 2; GOK = np.isfinite(GM) & (GB < GA)
+
+TT = TSZ = TPX = None
+if FORM == 'c':  # (в): сделки мс Gate-фьюча для очереди
+    TRD = os.environ.get('GTR', '/srv/alpha-sda/tk372-gate/raw/fut'); tp = []
+    for d in range(ND):
+        day = (dt.datetime(2026, 10, 15, tzinfo=dt.timezone.utc) + dt.timedelta(days=d)).strftime('%Y-%m-%d')
+        fn = f'{TRD}/{coin}_USDT/{day}.csv.gz'
+        if os.path.exists(fn):
+            x = np.loadtxt(fn, delimiter=',', skiprows=1, usecols=(3, 4, 5), dtype=np.float64, ndmin=2)
+            if len(x): tp.append(x)
+    if not tp: sys.exit('SKIP: нет сделок')
+    tr = np.concatenate(tp); tr = tr[np.argsort(tr[:, 0], kind='stable')]
+    TT = np.round(tr[:, 0] * 1000).astype(np.int64); TSZ = tr[:, 1]; TPX = tr[:, 2]
+
+def side_fill(side, p, ahead, t0, t1):
+    """первое заполнение (как в Y): side=+1 bid (тейкер-продажа size<0), -1 ask; сквозь цену — сразу, на цене — когда накоплено >= впереди + 1 лот"""
+    i0 = int(np.searchsorted(TT, t0, side='left')); i1 = int(np.searchsorted(TT, t1, side='left'))
+    if i1 <= i0: return None
+    sz = TSZ[i0:i1]; pxs = TPX[i0:i1]; t = TT[i0:i1]
+    if side > 0: m = sz < 0; thru = m & (pxs < p - 1e-12 * p)
+    else: m = sz > 0; thru = m & (pxs > p + 1e-12 * p)
+    lvl = m & (np.abs(pxs - p) <= 1e-9 * p); best = None
+    ti = np.nonzero(thru)[0]
+    if len(ti): best = int(t[ti[0]])
+    li = np.nonzero(lvl)[0]
+    if len(li):
+        ok = np.nonzero(np.cumsum(np.abs(sz[li])) >= ahead + 1)[0]
+        if len(ok) and (best is None or int(t[li[ok[0]]]) < best): best = int(t[li[ok[0]]])
+    return best
 
 def gate_at(t, A):
     k = np.searchsorted(GT, t, side='right') - 1; kc = np.clip(k, 0, None)
@@ -74,12 +104,20 @@ def px(t, A, q, open_):
     p = GA[k] if q > 0 else GB[k]; qty = GAQ[k] if q > 0 else GBQ[k]
     return p, (0 if qty >= 1 else 2), k
 
+def mk_entry(t, q, L, A, dl):
+    """(в): мейкер на стороне схождения у лучшей цены на t+L (long -> bid, short -> ask); очередь = объём лучшего на постановке. -> (t заполнения, цена, строка книги) | имя отказа"""
+    k, ok = gate_at(np.array([t + L]), A); k = int(k[0])
+    if not ok[0]: return 'drop_age'
+    p, ah = (GB[k], GBQ[k]) if q > 0 else (GA[k], GAQ[k])
+    tf = side_fill(1 if q > 0 else -1, p, ah, t + L, t + L + dl)
+    return 'unfilled' if tf is None else (tf, float(p), k)
+
 def run(Tr, xf, TO, L, A, want_eps=False):
     S = SER[A]; dev = S['dev']; val = S['val']; lg = S['lg']
     ab = val & (np.abs(dev) >= Tr); prev = np.r_[True, ~ab[:-1]]
     cand = np.nonzero(ab & prev)[0]
     rng = np.random.default_rng([409, int(Tr * 1e4), int(xf * 10), TO, L, A])
-    eps = []; cnt = dict(n_cand=len(cand), drop_hist=0, drop_age=0, drop_size=0, drop_exit_age=0, exit_thin=0, busy=0, drop_norev=0)
+    eps = []; cnt = dict(n_cand=len(cand), drop_hist=0, drop_age=0, drop_size=0, drop_exit_age=0, exit_thin=0, busy=0, drop_norev=0, unfilled=0)
     last = -1; vidx_all = np.nonzero(val)[0]; dayU = (U - D0) // DAY
     for i in cand:
         if U[i] < D0 + DAY: cnt['drop_hist'] += 1; continue  # ровно сутки без истории базиса
@@ -95,10 +133,15 @@ def run(Tr, xf, TO, L, A, want_eps=False):
                 pk = max(pk, v)
             if i2 < 0: cnt['drop_norev'] = cnt.get('drop_norev', 0) + 1; continue
             i = i2
-        pe, st, ke = px(U[i] + L, A, q, True)
+        if FORM == 'c':
+            r = mk_entry(int(U[i]), q, L, A, min(MK_DL, TO))
+            if isinstance(r, str): cnt[r] += 1; continue
+            tin, pe, ke = r; st = 0; t_e = tin
+        else:
+            pe, st, ke = px(U[i] + L, A, q, True); tin = int(U[i]); t_e = tin + L
         if st == 1: cnt['drop_age'] += 1; continue
         if st == 2: cnt['drop_size'] += 1; continue
-        jmax = int(np.searchsorted(U, U[i] + TO, side='right')); j0 = max(i + 1, int(np.searchsorted(U, U[i] + L, side='left')))
+        jmax = int(np.searchsorted(U, U[i] + TO, side='right')); j0 = max(i + 1, int(np.searchsorted(U, t_e, side='left')))
         seg = slice(j0, jmax); hit = np.nonzero(val[seg] & (s * dev[seg] <= Tr * xf))[0]
         if len(hit): jx = j0 + int(hit[0]); tx = int(U[jx]); kind = 'exit'
         else: jx = jmax - 1; tx = int(U[i] + TO); kind = 'timeout'
@@ -111,14 +154,18 @@ def run(Tr, xf, TO, L, A, want_eps=False):
         gx = np.log(GM[kx]); gi = lg[i] if np.isfinite(lg[i]) else np.nan
         kdx, okx = dex_at(np.array([tx])); lpx = LSP[int(kdx[0])]
         g_mv = -s * (gx - gi) * 1e4; d_mv = s * (lpx - LP_U[i]) * 1e4
-        fund = bool(((SETTLE > U[i] + L) & (SETTLE <= tx + L)).any())
+        fund = bool(((SETTLE > t_e) & (SETTLE <= tx + L)).any())
         # контроль: 5 случайных валидных событий той же монеты-суток, тот же знак dev, то же удержание
         pool = vidx_all[(dayU[vidx_all] == dayU[i]) & (np.sign(dev[vidx_all]) == s)]
         cg = []
         for r in (rng.choice(pool, 5) if len(pool) else []):
-            p1, s1, _ = px(U[r] + L, A, q, True); p2, s2, _ = px(U[r] + (tx - U[i]) + L, A, -q, False)
+            if FORM == 'c':
+                m1 = mk_entry(int(U[r]), q, L, A, min(MK_DL, TO))
+                if isinstance(m1, str): continue
+                p1, s1 = m1[1], 0; p2, s2, _ = px(m1[0] + (tx - tin) + L, A, -q, False)
+            else: p1, s1, _ = px(U[r] + L, A, q, True); p2, s2, _ = px(U[r] + (tx - U[i]) + L, A, -q, False)
             if s1 == 0 and s2 != 1 and np.isfinite(p2): cg.append(q * (np.log(p2) - np.log(p1)) * 1e4)
-        eps.append((int(U[i]), int(dayU[i]), s, g, float(np.mean(cg)) if cg else np.nan, kind, tx - int(U[i]), g_mv, d_mv, fund, int(i), jx, ke, kx, 'swap' if IS_SW[i] else 'gate'))
+        eps.append((int(U[i]), int(dayU[i]), s, g, float(np.mean(cg)) if cg else np.nan, kind, tx - tin, g_mv, d_mv, fund, int(i), jx, ke, kx, 'swap' if IS_SW[i] else 'gate'))
     return eps, cnt
 
 def summ(eps):
