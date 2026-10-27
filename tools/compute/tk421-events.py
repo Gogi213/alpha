@@ -27,12 +27,13 @@ TH = {}
 
 def load_q(path, t0, t1):
     t, h, l, c, q = [], [], [], [], []
+    ex = mv.EXCL.get(os.path.basename(os.path.dirname(path)), ())
     with gzip.open(path, "rt") as f:
         f.readline()
         for line in f:
             p = line.split(",", 7)
             ti = int(p[0])
-            if ti < t0 or ti >= t1:
+            if ti < t0 or ti >= t1 or ti in ex:
                 continue
             hi, lo, ci = float(p[2]), float(p[3]), float(p[4])
             if ci <= 0 or lo <= 0 or hi <= 0:
@@ -106,19 +107,19 @@ def one(arg):
             if cur and t[i] - T * MIN <= t[cur[1]]:
                 cur[1] = i
                 cur[2] = min(cur[2], T)
+                cur[4].append(i)
             else:
                 if cur:
                     eps.append(cur)
-                cur = [i, i, T, T]  # первый, последний, T_min, T первой
+                cur = [i, i, T, T, [i]]  # первый, последний, T_min, T первой, проходящие минуты
         if cur:
             eps.append(cur)
-        for i0, i1, tmin, t_first in eps:
-            lo_i = bisect.bisect_left(t, t[i0] - t_first * MIN)
-            ipk = max(range(lo_i, i1 + 1), key=lambda j: hh[j])
+        for i0, i1, tmin, t_first, qi in eps:
+            ipk = max(qi, key=lambda j: hh[j])  # пик — среди проходящих минут: у них есть более ранний минимум в окне T
             astar = TH["%s|%d%s|м" % (mkey, tmin, sign)]
             ist, iend, typ = bounds(t, hh, ll, ipk, tmin, astar)
             a = math.log(hh[ipk] / ll[ist])
-            move = (math.exp(a) - 1) * (1 if up else -1)
+            move = math.exp(a) - 1 if up else math.exp(-a) - 1  # дамп в своих единицах: low/high − 1 ∈ (−1; 0]
             dur = max(1, (t[iend] - t[ist]) // MIN)
             legm = max(1, (t[ipk] - t[ist]) // MIN)
             m = (cq[ipk + 1] - cq[ist]) / (med_q / 1440 * legm) if med_q > 0 else None
@@ -134,7 +135,7 @@ def one(arg):
                 flat = sum(1 for k in range(a0, ist) if h[k] == l[k]) / max(1, ist - a0)
             out["events"].append({
                 "знак": sign, "t_start": t[ist], "t_peak": t[ipk], "t_end": t[iend], "ход_%": round(move * 100, 2),
-                "a": round(a, 4), "длит_мин": dur, "T_min": tmin, "конец": typ,
+                "a": round(a, 4), "a_порог": astar, "инвариант": int(a >= astar and ist < ipk), "длит_мин": dur, "T_min": tmin, "конец": typ,
                 "κ": round(abs(move) / med_rng, 3) if med_rng > 0 else None,
                 "m": round(m, 3) if m is not None else None,
                 "pre_полное": int(full), "оборот_до_отн": None if pre_q is None else round(pre_q, 4),
@@ -149,6 +150,8 @@ def main():
     procs = int(sys.argv[4]) if len(sys.argv) > 4 else 15
     lim = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     ym = sys.argv[6] if len(sys.argv) > 6 else "2026-09"
+    if len(sys.argv) > 7:
+        mv.load_excl(sys.argv[7])
     for k, v in json.load(open(thf))["результат"].items():
         TH[k] = v["x_star"] if isinstance(v, dict) else None
     t0, t1 = mv.month_bounds(ym)

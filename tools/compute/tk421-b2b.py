@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TK-421 шаг B2b (протокол P-TK421 v6): L4 «не рынок», кластеры, пары, id_рынка, диагностика, лист ВСЕХ кандидатов.
-Использование: tk421-b2b.py <корень свечей> <b1-thresh.json> <b2-каталог> <выход-каталог> [месяц]
+Использование: tk421-b2b.py <корень свечей> <b1-thresh.json> <b2-каталог> <выход-каталог> [месяц] [art.json]
 L4 (v6 п.1 + решение Судьи 3): доля монет рынка в csv как есть, фильтр по ней НЕ применяется (излом доли не ищется);
 исключает только ход BTC той же биржи: max a_T(BTC, T_min) на минутах [t_start, t_peak] >= a*_{T_min} рынка события, тот
 же знак. Доля монет — по часам qh (разрешение 1 ч): инструменты рынка с проходящей минутой того же знака в
@@ -14,6 +14,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import statistics
 import sys
 from collections import defaultdict
@@ -42,17 +43,20 @@ def utc(ms):
 
 
 def spark(vals, n=96):
+    """(строка, индексы исходных точек): точка графика = последний close корзины; шкала min–max по окну графика."""
+    ix = list(range(len(vals)))
     if len(vals) > n:
         step = len(vals) / n
-        vals = [vals[min(len(vals) - 1, int((k + 1) * step) - 1)] for k in range(n)]
-    lo, hi = min(vals), max(vals)
+        ix = [min(len(vals) - 1, int((k + 1) * step) - 1) for k in range(n)]
+    vs = [vals[i] for i in ix]
+    lo, hi = min(vs), max(vs)
     if hi <= lo:
-        return BARS[0] * len(vals)
-    return "".join(BARS[min(7, int((v - lo) / (hi - lo) * 8))] for v in vals)
+        return BARS[0] * len(vs), ix
+    return "".join(BARS[min(7, int((v - lo) / (hi - lo) * 8))] for v in vs), ix
 
 
 def chart(arg):
-    d, sym, wins = arg
+    d, sym, wins = arg  # wins: (id, окно_от, окно_до, t_start, t_peak)
     t, c = [], []
     with gzip.open(os.path.join(d, sym + ".csv.gz"), "rt") as f:
         f.readline()
@@ -60,9 +64,18 @@ def chart(arg):
             p = line.split(",", 6)
             t.append(int(p[0])); c.append(float(p[4]))
     out = []
-    for key, a, b in wins:
-        i, j = bisect.bisect_left(t, a), bisect.bisect_right(t, b)
-        out.append((key, spark(c[i:j]) if j - i > 1 else ""))
+    for key, a, b, ts, tp in wins:
+        i, j = bisect.bisect_left(t, a), bisect.bisect_right(t, b)  # окно обрезано началом данных
+        if j - i < 2:
+            out.append((key, ""))
+            continue
+        s, ix = spark(c[i:j])
+        mk = [" "] * len(s)
+        for ch_, tt in (("S", ts), ("P", tp)):
+            k = min(range(len(ix)), key=lambda q: abs(t[i + ix[q]] - tt))
+            mk[k] = ch_ if mk[k] == " " else "*"
+        note = "" if t[0] <= a else " ⟨данные с %s⟩" % utc(t[0])
+        out.append((key, "`%s`<br>`%s`%s" % (s, "".join(mk), note)))
     return out
 
 
@@ -77,6 +90,8 @@ def main():
     root, thf, b2d, outd = sys.argv[1:5]
     ym = sys.argv[5] if len(sys.argv) > 5 else "2026-09"
     TH = {k: (v["x_star"] if isinstance(v, dict) else None) for k, v in json.load(open(thf))["результат"].items()}
+    if len(sys.argv) > 6:
+        mv.load_excl(sys.argv[6])
     t0, t1 = mv.month_bounds(ym)
     os.makedirs(outd, exist_ok=True)
     rows, nins, medq, per_coin = [], {}, defaultdict(dict), defaultdict(lambda: defaultdict(int))
@@ -145,6 +160,7 @@ def main():
         r["лаг_мин"] = (r["t_start"] - first[r["id_рынка"]]) // MIN
         r["пара"], r["тип_пары"], r["парный"] = "", r["знак"] == "+" and "памп" or "дамп", ""
         r["t_pre"] = r["t_start"] - r["длит_мин"] * MIN
+        r["вид"] = "кредитный_токен" if re.search(r"\d[SL]$", r["coin"]) else "обычный"
     pid = 0
     for cn, lst in byc.items():
         for a in lst:
@@ -170,16 +186,16 @@ def main():
     cols = ["биржа", "рынок", "монета", "монета_id", "id", "кластер_id", "id_рынка", "пара_id", "тип_пары", "вид", "знак",
             "парный_id", "t_pre_ms", "t_start_ms", "t_peak_ms", "t_end_ms", "ход_%", "длит_мин", "T_min", "конец"] + \
            ["a_T%d" % T for T in TS] + ["κ", "m", "оборот_до_отн", "σ_до_отн", "плоских_до", "pre_полное",
-                                         "доля_монет_рынка", "ход_BTC_a", "L4", "первый", "лаг_мин", "месяц"]
+                                         "доля_монет_рынка", "ход_BTC_a", "L4", "первый", "лаг_мин", "a_порог", "инвариант", "месяц"]
     with open(os.path.join(outd, "pump-events-%s.csv" % ym), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(cols)
         for r in rows:
             w.writerow([r["ex"], r["mk"], r["sym"], r["coin"], r["id"], r["кластер"], r["id_рынка"], r["пара"], r["тип_пары"],
-                        "event", r["знак"], r["парный"], r["t_pre"], r["t_start"], r["t_peak"], r["t_end"], r["ход_%"],
+                        r["вид"], r["знак"], r["парный"], r["t_pre"], r["t_start"], r["t_peak"], r["t_end"], r["ход_%"],
                         r["длит_мин"], r["T_min"], r["конец"]] + [r["aT"][str(T)] if str(T) in r["aT"] else r["aT"].get(T) for T in TS] +
                        [r["κ"], r["m"], r["оборот_до_отн"], r["σ_до_отн"], r["плоских_до"], r["pre_полное"], r["доля"],
-                        r["btc_a"], r["L4"], r["первый"], r["лаг_мин"], ym])
+                        r["btc_a"], r["L4"], r["первый"], r["лаг_мин"], r["a_порог"], r["инвариант"], ym])
     # диагностика (описание, не фильтр)
     D = {}
     cand = [r for r in rows if r["L4"] == "ok"]
@@ -199,13 +215,14 @@ def main():
             "доля_монет_рынка_медиана/p95/макс": [statistics.median([r["доля"] for r in al]) if al else 0,
                                                   sorted(r["доля"] for r in al)[int(0.95 * len(al))] if al else 0,
                                                   max((r["доля"] for r in al), default=0)],
+            "нарушений_инварианта": sum(1 for r in al if not r["инвариант"]), "ход_вне_допустимого": sum(1 for r in al if r["ход_%"] <= -100),
             "пар_памп↔дамп": len({r["пара"] for r in al if r["пара"]}),
             "по_знаку+": sum(1 for r in cd if r["знак"] == "+"), "по_знаку-": sum(1 for r in cd if r["знак"] == "-")}
     json.dump(D, open(os.path.join(outd, "b2b-diag-%s.json" % ym), "w"), ensure_ascii=False, indent=1)
     # лист ВСЕХ кандидатов
     jobs = defaultdict(list)
     for r in cand:
-        jobs[(r["sub"], r["sym"])].append((r["id"], r["t_start"] - DAY, r["t_end"] + r["длит_мин"] * MIN))
+        jobs[(r["sub"], r["sym"])].append((r["id"], r["t_start"] - DAY, r["t_end"] + r["длит_мин"] * MIN, r["t_start"], r["t_peak"]))
     args = [(os.path.join(root, s), y, w_) for (s, y), w_ in jobs.items()]
     ch = {}
     with Pool(2) as pool:
@@ -214,15 +231,15 @@ def main():
     with open(os.path.join(outd, "pump-events-sample-%s.md" % ym), "w", encoding="utf-8") as f:
         f.write("# Лист просмотра ВСЕХ кандидатов TK-421 (v6, %s): L0 (V0) ∩ L4, без меток\n\n" % ym)
         f.write("Показаны только цена 1 м, ход %, T, доля монет рынка, ход BTC (v6 решение 1). Метка: `памп` или `не памп:<артефакт_данных|листинг|рынок|не_ход>`. "
-                "Время UTC. График: окно [старт − 1 сут, конец + длительность], ≤ 96 точек, min–max на событие.\n\n")
+                "Время UTC. График: окно [старт − 1 сут, конец + длительность], обрезано началом данных (пометка ⟨данные с …⟩), ≤ 96 точек; точка = последний close корзины, шкала min–max по окну графика; вторая строка: S = старт, P = пик, * = совпали. Вид: кредитный_токен (*3S/*5L…) — только пометка.\n\n")
         for ex, mk, sub in mv.MKT:
             for sg in "+-":
                 sel = sorted((r for r in cand if r["sub"] == sub and r["знак"] == sg), key=lambda r: (r["кластер"], r["t_start"]))
                 f.write("## %s %s, %s — %d событий, %d кластеров\n\n" % (ex, mk, "памп" if sg == "+" else "дамп", len(sel), len({r["кластер"] for r in sel})))
-                f.write("| id | кластер | инструмент | старт | пик | ход % | длит. мин | T | доля монет | BTC a | график | метка |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+                f.write("| id | кластер | инструмент | вид | старт | пик | ход % | длит. мин | T | доля монет | BTC a | график | метка |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
                 for r in sel:
-                    f.write("| %s | %s | %s | %s | %s | %s | %d | %d | %s | %s | `%s` | |\n" % (
-                        r["id"], r["кластер"], r["sym"], utc(r["t_start"]), utc(r["t_peak"]), r["ход_%"], r["длит_мин"],
+                    f.write("| %s | %s | %s | %s | %s | %s | %s | %d | %d | %s | %s | %s | |\n" % (
+                        r["id"], r["кластер"], r["sym"], r["вид"], utc(r["t_start"]), utc(r["t_peak"]), r["ход_%"], r["длит_мин"],
                         r["T_min"], r["доля"], r["btc_a"], ch.get(r["id"], "")))
                 f.write("\n")
     print(json.dumps(D, ensure_ascii=False))
