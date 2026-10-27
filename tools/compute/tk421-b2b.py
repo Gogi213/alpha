@@ -111,6 +111,17 @@ def main():
                 per_coin[sub][r["инструмент"]] += 1
                 rows.append(dict(e, ex=ex, mk=mk, sub=sub, sym=r["инструмент"], coin=coin(r["инструмент"])))
         nins[sub] = n
+    # окно артефакта (Судья 28.10): событие, у которого [t_pre, t_end] пересекает окно рынка, снимается целиком
+    WIN = {k: v.get("окно_артефакта", []) for k, v in json.load(open(sys.argv[6]))["результат"].items()} if len(sys.argv) > 6 else {}
+    snyato = defaultdict(list)
+    keep = []
+    for r in rows:
+        tpre = r["t_start"] - r["длит_мин"] * MIN
+        hit = [w for w in WIN.get(r["sub"], []) if tpre <= w[1] and r["t_end"] >= w[0]]
+        (snyato[r["sub"]].append(r) if hit else keep.append(r))
+    rows = keep
+    json.dump({k: [{"sym": r["sym"], "знак": r["знак"], "t_start": r["t_start"], "t_peak": r["t_peak"], "t_end": r["t_end"], "ход_%": r["ход_%"]} for r in v]
+               for k, v in snyato.items()}, open(os.path.join(outd, "art-window-removed-%s.json" % ym), "w"), ensure_ascii=False, indent=1)
     # L4
     btc = {}
     for r in rows:
@@ -206,7 +217,7 @@ def main():
         ev_q = [v[0] for v in medq[sub].values() if v[1] and v[0] > 0]
         no_q = [v[0] for v in medq[sub].values() if not v[1] and v[0] > 0]
         D[sub] = {
-            "инструментов": nins[sub], "событий_L0": len(al), "после_L4": len(cd), "исключено_рынок": len(al) - len(cd),
+            "инструментов": nins[sub], "снято_окном_артефакта": len(snyato[sub]), "в_окне_артефакта": WIN.get(sub, []), "событий_L0": len(al), "после_L4": len(cd), "исключено_рынок": len(al) - len(cd),
             "кластеров_после_L4": len({r["кластер"] for r in cd}), "монет_с_событиями": len(pc),
             "событий_на_монету_медиана/p90/макс": [statistics.median(pc) if pc else 0, pc[int(0.1 * len(pc))] if pc else 0, pc[0] if pc else 0],
             "доля_событий_топ10_монет": round(sum(pc[:10]) / max(1, sum(pc)), 3),

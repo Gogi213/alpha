@@ -94,12 +94,13 @@ def one(arg):
     for sign, up in (("+", True), ("-", False)):
         hh, ll = (h, l) if up else ([1 / x for x in l], [1 / x for x in h])
         A = {T: mv.moves(t, hh, ll, T, True) for T in TS}
-        qual = []
+        qual, qT = [], {}
         for i in range(len(t)):
             for T in TS:
                 th = TH.get("%s|%d%s|м" % (mkey, T, sign))
                 if th is not None and A[T][i] >= th:
                     qual.append((i, T))
+                    qT[i] = T
                     break
         out["qh"][sign] = sorted({(t[i] - t0) // 3600000 for i, _ in qual})
         eps, cur = [], None
@@ -118,6 +119,11 @@ def one(arg):
             ipk = max(qi, key=lambda j: hh[j])  # пик — среди проходящих минут: у них есть более ранний минимум в окне T
             astar = TH["%s|%d%s|м" % (mkey, tmin, sign)]
             ist, iend, typ = bounds(t, hh, ll, ipk, tmin, astar)
+            tpk = qT[ipk]  # T, на котором пик прошёл порог; старт не позже минимума пары, давшей a_T пика (возврат Судьи 27.10: инвариант)
+            jlo = bisect.bisect_left(t, t[ipk] - tpk * MIN)
+            ipair = min(range(jlo, ipk), key=lambda j: ll[j])
+            ist = min(ist, ipair)
+            astar = TH["%s|%d%s|м" % (mkey, tpk, sign)]
             a = math.log(hh[ipk] / ll[ist])
             move = math.exp(a) - 1 if up else math.exp(-a) - 1  # дамп в своих единицах: low/high − 1 ∈ (−1; 0]
             dur = max(1, (t[iend] - t[ist]) // MIN)
@@ -135,7 +141,7 @@ def one(arg):
                 flat = sum(1 for k in range(a0, ist) if h[k] == l[k]) / max(1, ist - a0)
             out["events"].append({
                 "знак": sign, "t_start": t[ist], "t_peak": t[ipk], "t_end": t[iend], "ход_%": round(move * 100, 2),
-                "a": round(a, 4), "a_порог": astar, "инвариант": int(a >= astar and ist < ipk), "длит_мин": dur, "T_min": tmin, "конец": typ,
+                "a": round(a, 4), "T_пик": tpk, "a_порог": astar, "инвариант": int(a >= astar and ist < ipk), "длит_мин": dur, "T_min": tmin, "конец": typ,
                 "κ": round(abs(move) / med_rng, 3) if med_rng > 0 else None,
                 "m": round(m, 3) if m is not None else None,
                 "pre_полное": int(full), "оборот_до_отн": None if pre_q is None else round(pre_q, 4),

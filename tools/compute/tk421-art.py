@@ -117,12 +117,20 @@ def main():
             if ks is None:
                 r["нет_излома_доли"] = True
                 r["артефакт_минут"] = []
+                r["окно_артефакта"] = []
             else:
                 xsh = ks[0]
                 art = np.where((share >= xsh) & (wick >= MIN_CLUST))[0]
                 r.update({"x_доли": xsh, "x_доли_lo": ks[1], "x_доли_max": ks[2], "артефакт_минут_число": int(art.size),
-                          "артефакт_минут": [int(t0 + int(i) * MIN) for i in art],
+                          "артефакт_минут_исходных": [int(t0 + int(i) * MIN) for i in art],
                           "без_условия_30_число": int(((share >= xsh)).sum())})
+                # правило Судьи 28.10 (reviews/tk421-art-window): минуты-артефакты одних суток UTC → окно [первая, последняя+1 мин]
+                days = {}
+                for i in art:
+                    days.setdefault(int(i) // 1440, []).append(int(i))
+                win = [[int(t0 + min(v) * MIN), int(t0 + (max(v) + 1) * MIN)] for _, v in sorted(days.items())]
+                r["окно_артефакта"] = win  # [от, до] включительно, мс начала минуты
+                r["артефакт_минут"] = [a for lo, hi in win for a in range(lo, hi + MIN, MIN)]
             res[sub] = r
             print(sub, {k: v for k, v in r.items() if k not in ("артефакт_минут", "топ_минут")}, flush=True)
     json.dump({"месяц": ym, "результат": res}, open(outp, "w"), ensure_ascii=False, indent=1)
