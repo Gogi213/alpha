@@ -50,5 +50,5 @@ Gate REST `GET /futures/usdt/liq_orders?contract=ACE_USDT&from=T-300&to=T+300` �
 не «рыночный фитиль». Для чистых h/l надёжнее не порог, а **пересборка по рыночной ленте без ликвидаций** (в архиве нет флага — различить
 строки можно только сверкой с `liq_orders` по времени/цене/размеру) либо исключение 30.09 08:00–08:31 для Gate fut.
 
-Артефакты: `tools/compute/tk430-scan-wicks.py`, calc `/tmp/tk430/{sep-gate,sep-bybit,aug-gate}.tsv` (минута_мс, активных, кандидатов; поле
-«кандидатов» в `min_with_cand` скрипта завышено — счёт ключей `defaultdict`, значение «cand» верно).
+Артефакты: `tools/compute/tk430-scan-wicks.py`, calc `/tmp/tk430/{sep-gate,sep-bybit,aug-gate}.tsv` (минута_мс, активных, кандидатов; «min_with_cand» в печати
+этого прогона завышен — `bad[t]` у defaultdict создавал ключи, в скрипте исправлено; «cand» и tsv верны).

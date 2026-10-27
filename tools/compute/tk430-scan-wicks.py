@@ -28,7 +28,7 @@ for fn in sorted(os.listdir(src)):
                 bad[t] += 1
 with open(dst, "w") as g:
     for t in sorted(act):
-        g.write("%d\t%d\t%d\n" % (t, act[t], bad[t]))
+        g.write("%d\t%d\t%d\n" % (t, act[t], bad.get(t, 0)))
 top = sorted(bad.items(), key=lambda kv: -kv[1])[:10]
 print("contracts", nfiles, "minutes", len(act), "cand", sum(bad.values()), "min_with_cand", len(bad))
 for t, n in top:
