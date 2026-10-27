@@ -32,6 +32,7 @@ w = csv.DictWriter(open("gate/volatile-pool-aug-gate.csv", "w", newline="", enco
 print(len(out), "miss", miss)
 PY
 cd gate
-python3 ../tk413-episodes.py /data/tk0393/tk420aug/gate/candles volatile-pool-aug-gate.csv pump-dump-episodes-aug-gate-2026-10-27.csv 15 > ep.log 2>&1
-$P -W ignore ../tk414-label.py pump-dump-episodes-aug-gate-2026-10-27.csv pump-dump-scenarios-legs-aug-gate.csv > label.log 2>&1
+[ -s pump-dump-episodes-aug-gate-2026-10-27.csv ] || python3 ../tk413-episodes.py /data/tk0393/tk420aug/gate/candles volatile-pool-aug-gate.csv pump-dump-episodes-aug-gate-2026-10-27.csv 15 > ep.log 2>&1
+# разметка ног (pandas есть только локально): tk414-label.py episodes -> pump-dump-scenarios-legs-aug-gate.csv, залито в gate/ вручную (как для A)
+test -s pump-dump-scenarios-legs-aug-gate.csv
 python3 ../tk414-detector.py /data/tk0393/tk420aug/gate/candles coverage-aug-gate.csv pump-dump-episodes-aug-gate-2026-10-27.csv volatile-pool-aug-gate.csv pump-dump-scenarios-legs-aug-gate.csv det15 15 > det.log 2>&1
