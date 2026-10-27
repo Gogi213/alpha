@@ -57,8 +57,7 @@ if __name__ == "__main__":
     need, outd, nproc = sys.argv[1], sys.argv[2], int(sys.argv[3])
     jobs = []
     for line in open(need, encoding="utf-8"):
-        gp, rel = line.rstrip("
-").split("	")
+        gp, rel = line.rstrip("\n").split("\t")
         jobs.append((gp, os.path.join(outd, rel)))
     print("файлов", len(jobs), flush=True)
     with Pool(nproc) as p:
