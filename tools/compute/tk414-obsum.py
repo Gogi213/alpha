@@ -11,6 +11,8 @@ from collections import defaultdict
 from datetime import datetime
 
 ev_f, leg_f, l2_f = sys.argv[1:4]
+TITLE = sys.argv[4] if len(sys.argv) > 4 else "Bybit linear 48 инстр., сентябрь 2026"
+MARKETS = sys.argv[5].split(",") if len(sys.argv) > 5 else ["linear"]
 
 
 def tm(s):
@@ -81,6 +83,9 @@ def med(x):
 E = defaultdict(list)
 nofeat = tot = 0
 for r in csv.DictReader(open(ev_f, newline="", encoding="utf-8")):
+    if r["рынок"] not in MARKETS:
+        continue
+    r.setdefault("oi_surge", ""); r.setdefault("oi_dir", "")  # Gate: OI не считался, R5 отвергает всё
     s = int(r["знак"])
     if r["нога_плохая"] == "1" or r["обратная_плохая"] == "1":
         continue
