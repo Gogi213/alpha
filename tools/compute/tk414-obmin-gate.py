@@ -2,6 +2,7 @@
 """TK-414: минутные срезы книги Gate фьючерсов (архив orderbooks TK-415) для признаков точек 1/4. Протокол: docs/research/P-TK414-ob-gate-2026-10-27.md.
 Час-файл = snapshot (строки set) + make/take; знак size: + бид, − аск (как в пилоте tk414-ob.py). Книга каждого часа строится с нуля из его set-строк.
 Срез минуты m — состояние на её конец (перед первым событием следующей минуты). Выход как у tk414-obmin.py: <выход>/<SYM>/<ГГГГММДДЧЧ>.csv: минута_epoch,bb,ba,dB25,dA25.
+Спот Gate (7 колонок: время,side,action,цена,размер,id,merged; side 2 = бид, 1 = аск) — тот же выход, формат строки определяется по числу колонок.
 Использование: tk414-obmin-gate.py <need.tsv: файл<TAB>SYM/ГГГГММДДЧЧ.csv> <выход-каталог> <процессов>
 need.tsv (tk414-obgate-need.py) — только часы, нужные событиям: [t−минB−360 мин−1 ч, t]; срезы тех же часов от выбора не зависят."""
 import csv, gzip, os, sys
@@ -29,7 +30,12 @@ def one(job):
 
     with gzip.open(gp, "rt") as f:
         for line in f:
-            t, a, p, s, _, _ = line.split(",")
+            f_ = line.split(",")
+            if len(f_) == 7:  # спот: время,side(2 бид / 1 аск),action,цена,размер,begin_id,merged
+                t, a, p, s, bid = f_[0], f_[2], f_[3], f_[4], f_[1] == "2"
+            else:
+                t, a, p, s, _, _ = f_
+                bid = float(s) > 0
             m = int(float(t)) // 60 * 60
             if cur is None:
                 cur = m
@@ -37,7 +43,7 @@ def one(job):
                 snap(cur)
                 cur = m
             p = float(p); s = float(s); q = abs(s)
-            d = bids if s > 0 else asks
+            d = bids if bid else asks
             if a == "set":
                 d[p] = q
             elif a == "make":

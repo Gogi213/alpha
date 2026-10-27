@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-422: счётчик признаков пампа/дампа по окну. Описание признаков — docs/findings/pump-features-2026-10-27.md.
 Использование: tk422-features.py <окна.csv> <выход.csv> [--candles /srv/alpha-sda/candles-1m] [--tk415 /srv/alpha-sda/tk415/out]
-               [--trades /data/tk417] [--aug-candles /srv/alpha-sda/tk423/candles] [--ob корень[,корень…]] [--instr bybit-instruments.tsv]
+               [--trades /data/tk417] [--aug-candles /srv/alpha-sda/tk423/candles] [--ob биржа/рынок=корень[,…]] [--instr bybit-instruments.tsv]
                [--grid grid.json] [--procs N]
 Окна: колонки биржа|exchange, рынок|market, инструмент|монета|symbol, t_start, t_peak, t_end (ISO-минута UTC или мс), [t_pre], [знак|sign: памп/дамп/+1/-1].
 Фазы (P-TK421 v3): pre [t_pre,t_start), leg [t_start,t_peak], post (t_peak,t_end]; t_pre = t_start − (t_end − t_start), если не подан. Имя признака = <признак>_<pre|leg|post|ctx>;
@@ -26,7 +26,7 @@ GRID = {
     "ABS_N": [5, 15],              # окно у пика для поглощения, мин (пороги imb/surge/disp — непрерывные колонки, их назначает шаг 3)
 }
 AUG = [None]   # доп. корень свечей (август) — склеивается с основным
-OBR = []       # корни минутных срезов стакана
+OBR = {}       # (биржа, рынок) → корни минутных срезов стакана; чужой рынок подставлять нельзя
 LAUNCH = {}    # Bybit symbol -> launch_ms
 BASE = 1440  # минут нормы
 
@@ -206,11 +206,11 @@ def trades_min(root, sym, ma, mb):
 _oc = {}
 
 
-def ob_series(sym):
-    """минутные срезы стакана (tk414-obmin[-gate]): [(epoch_s, bb, ba, dB25, dA25)], отсортирован; None — нет"""
-    if sym not in _oc:
+def ob_series(ex, mk, sym):
+    """минутные срезы стакана (tk414-obmin[-gate]) своего рынка: [(epoch_s, bb, ba, dB25, dA25)], отсортирован; None — нет"""
+    if (ex, mk, sym) not in _oc:
         a = []
-        for r in OBR:
+        for r in OBR.get((ex, mk), ()):
             d = os.path.join(r, sym)
             if os.path.isdir(d):
                 for fn in sorted(os.listdir(d)):
@@ -220,8 +220,8 @@ def ob_series(sym):
                             if len(p) >= 5:
                                 a.append((int(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])))
         a.sort()
-        _oc[sym] = ([x[0] for x in a], a) if a else None
-    return _oc[sym]
+        _oc[(ex, mk, sym)] = ([x[0] for x in a], a) if a else None
+    return _oc[(ex, mk, sym)]
 
 
 def agg(x, f):
@@ -529,7 +529,7 @@ def features(w, roots, G):
                 F["abs_N%d_surge" % N] = tt / (qmed * len(a)) if qmed else None
     # --- фазовый блок (правка 1): признаки источников данных по pre/leg/post; пороги поглощения — шаг 3 (непрерывные колонки)
     have.update({"oi": oi is not None, "fund": fu is not None, "liq": ex == "gate" and oi is not None, "trades": tr is not None})
-    ob = ob_series(sym)
+    ob = ob_series(ex, mk, sym)
     obb = None
     if ob:
         ks, arr = ob
@@ -702,7 +702,10 @@ def main():
     if opt["--grid"]:
         G.update(json.load(open(opt["--grid"])))
     AUG[0] = opt["--aug-candles"]
-    OBR.extend(x for x in opt["--ob"].split(",") if x)
+    for x in opt["--ob"].split(","):  # биржа/рынок=корень (рынки: futures_usdt, spot, linear)
+        if x:
+            k, r = x.split("=", 1)
+            OBR.setdefault(tuple(k.split("/", 1)), []).append(r)
     if opt["--instr"] and os.path.exists(opt["--instr"]):
         with open(opt["--instr"], encoding="utf-8") as f:
             for line in f:
