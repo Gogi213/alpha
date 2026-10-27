@@ -6,6 +6,7 @@ import sys, re
 import numpy as np, pandas as pd
 
 B, SEED, K = 4000, 433, 135
+TRD = ["K5_fade", "K6_delta", "K6_int", "K7_retest", "K4_fade", "K8_diff"]  # из tk433-trades.py (необязательно)
 GRID = [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
 
 
@@ -21,7 +22,8 @@ def lratio(a, b):
 def feats(x):
     return dict(K1_mono=x.k1_mono, K1_steep=x.k1_last_steepest, K3_saw=x.k3_saw,
                 Z1_m=lratio(x.m_aft, x.m_bef), Z2_v=lratio(x.v_aft, x.v_bef), Z3_bas=lratio(x.bas_aft, x.bas_bef),
-                CONS=np.log(x.cons_ratio) if x.cons_ratio > 0 else np.nan)
+                CONS=np.log(x.cons_ratio) if x.cons_ratio > 0 else np.nan,
+                **{k: getattr(x, k, np.nan) for k in TRD})
 
 
 def passes(x):
@@ -64,7 +66,10 @@ def boot(v, coins, rng, agg):
 
 
 def main(src, out, T):
-    R = r_per_event(pd.read_csv(src))
+    d = pd.read_csv(src)
+    if len(sys.argv) > 4:  # + csv признаков сделок (tk433-trades.py)
+        d = d.merge(pd.read_csv(sys.argv[4]).drop_duplicates("id"), on="id", how="left")
+    R = r_per_event(d)
     rng = np.random.default_rng(SEED)
     cols = [c for c in R.columns if c not in ("id", "знак", "монета")]
     rows = []
