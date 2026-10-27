@@ -58,7 +58,7 @@ short_taker_size, long_users, short_users, last_funding_rate, *_liq_usd, *_liq_a
 ## Часть 3: стаканы (calc:/data/tk415/ob/{gate,bybit}/<рынок>/<СИМ>/), событийные, как отдаёт архив
 
 Окно — весь сентябрь (решение CEO 27.10: границы пампов не знаем). Список — 390 инструментов
-(`/root/obsize-list.tsv`): ликвидные 85 + остальные волатильные с эпизодами TK-413. **Делисты с эпизодами не добавлены.**
+(`/root/obsize-list.tsv`): ликвидные 85 + остальные волатильные с эпизодами TK-413. Делисты с эпизодами — часть 4 ниже.
 
 | Источник | Рынок | Инструментов | Файлов | Размер (gz) |
 |---|---|---|---|---|
@@ -79,4 +79,55 @@ short_taker_size, long_users, short_users, last_funding_rate, *_liq_usd, *_liq_a
 - Сделки Bybit (linear + spot, public.bybit.com) — вынесены в **TK-417** (CEO 27.10 03:25).
 - Ликвидации Bybit — истории в открытом доступе нет, только живой WS (в архив не попадают). У Gate ликвидации — поля
   `long_liq_size/short_liq_size` в contract_stats (часть 1).
-- Стаканы делистов с эпизодами — не скачаны (нет списка); по слову CEO добавить отдельным заданием.
+- Gate: делистов с эпизодами нет (TK-413 v3: все 1018 фьюч. и спот-пары с данными торгуются на 27.10), стаканы Gate для делистов не качались.
+
+## Часть 4: стаканы делистов с эпизодами (27.10, возврат Судьи)
+
+Список — 33 делиста Bybit linear с ≥ 1 эпизодом θ=5 % из TK-413 v3 (`docs/findings/pump-dump-episodes-sep-2026-10-27.csv`, категория «делист»:
+3 снятые монеты ASP/ICX/SCRT + 30 датированных фьючерсов BTC/ETH/SOL/XRP/DOGE/HYPE/MNT на 04, 11, 18, 25.09 и XAUT на 18, 25.09) + спот тех трёх монет.
+Без HEAD: тем же `tk415-ob-dl.py` (4 потока, колено Bybit из части 3) по всем 30 суткам; 404 = «в архиве нет». Job calc `1027020533666` (net),
+выход `calc:/data/tk415/ob-delist/bybit-{linear,spot}/<СИМ>/`, список `/data/tk415/delist-list.tsv`, скрипт таблицы `tools/compute/tk415-delist-table.py`.
+Закачка 3 мин: 505 файлов, 1,66 ГБ, ошибок и 429/403 нет, `_fails.tsv` пуст; 1080 запросов = 505 файлов + 575 «404». /data после закачки ≈ 752 ГБ свободно.
+
+| рынок | инструмент | файлов (дней) | ГБ | 404 (дней нет) | дни с файлами | не получено |
+|---|---|---|---|---|---|---|
+| bybit linear | ASPUSDT | 5 | 0.01 | 25 | 01–05 | 0 |
+| bybit linear | BTCUSDT-04SEP26 | 4 | 0.02 | 26 | 01–04 | 0 |
+| bybit linear | BTCUSDT-11SEP26 | 11 | 0.05 | 19 | 01–11 | 0 |
+| bybit linear | BTCUSDT-18SEP26 | 18 | 0.06 | 12 | 01–18 | 0 |
+| bybit linear | BTCUSDT-25SEP26 | 25 | 0.24 | 5 | 01–25 | 0 |
+| bybit linear | DOGEUSDT-04SEP26 | 4 | 0.01 | 26 | 01–04 | 0 |
+| bybit linear | DOGEUSDT-11SEP26 | 11 | 0.04 | 19 | 01–11 | 0 |
+| bybit linear | DOGEUSDT-18SEP26 | 18 | 0.04 | 12 | 01–18 | 0 |
+| bybit linear | DOGEUSDT-25SEP26 | 25 | 0.07 | 5 | 01–25 | 0 |
+| bybit linear | ETHUSDT-04SEP26 | 4 | 0.02 | 26 | 01–04 | 0 |
+| bybit linear | ETHUSDT-11SEP26 | 11 | 0.07 | 19 | 01–11 | 0 |
+| bybit linear | ETHUSDT-18SEP26 | 18 | 0.09 | 12 | 01–18 | 0 |
+| bybit linear | ETHUSDT-25SEP26 | 25 | 0.23 | 5 | 01–25 | 0 |
+| bybit linear | HYPEUSDT-04SEP26 | 4 | 0.00 | 26 | 01–04 | 0 |
+| bybit linear | HYPEUSDT-11SEP26 | 11 | 0.03 | 19 | 01–11 | 0 |
+| bybit linear | HYPEUSDT-18SEP26 | 18 | 0.04 | 12 | 01–18 | 0 |
+| bybit linear | HYPEUSDT-25SEP26 | 25 | 0.02 | 5 | 01–25 | 0 |
+| bybit linear | ICXUSDT | 18 | 0.14 | 12 | 01–18 | 0 |
+| bybit linear | MNTUSDT-04SEP26 | 4 | 0.01 | 26 | 01–04 | 0 |
+| bybit linear | MNTUSDT-11SEP26 | 11 | 0.02 | 19 | 01–11 | 0 |
+| bybit linear | MNTUSDT-18SEP26 | 18 | 0.02 | 12 | 01–18 | 0 |
+| bybit linear | MNTUSDT-25SEP26 | 25 | 0.04 | 5 | 01–25 | 0 |
+| bybit linear | SCRTUSDT | 5 | 0.03 | 25 | 01–05 | 0 |
+| bybit linear | SOLUSDT-04SEP26 | 4 | 0.01 | 26 | 01–04 | 0 |
+| bybit linear | SOLUSDT-11SEP26 | 11 | 0.03 | 19 | 01–11 | 0 |
+| bybit linear | SOLUSDT-18SEP26 | 18 | 0.04 | 12 | 01–18 | 0 |
+| bybit linear | SOLUSDT-25SEP26 | 25 | 0.06 | 5 | 01–25 | 0 |
+| bybit linear | XAUTUSDT-18SEP26 | 18 | 0.02 | 12 | 01–18 | 0 |
+| bybit linear | XAUTUSDT-25SEP26 | 25 | 0.00 | 5 | 01–25 | 0 |
+| bybit linear | XRPUSDT-04SEP26 | 4 | 0.01 | 26 | 01–04 | 0 |
+| bybit linear | XRPUSDT-11SEP26 | 11 | 0.05 | 19 | 01–11 | 0 |
+| bybit linear | XRPUSDT-18SEP26 | 18 | 0.06 | 12 | 01–18 | 0 |
+| bybit linear | XRPUSDT-25SEP26 | 25 | 0.02 | 5 | 01–25 | 0 |
+| bybit spot | ASPUSDT | 0 | 0.00 | 30 | — | 0 |
+| bybit spot | ICXUSDT | 24 | 0.06 | 6 | 01–24 | 0 |
+| bybit spot | SCRTUSDT | 4 | 0.01 | 26 | 01–04 | 0 |
+| **итого** | | **505** | **1.66** | **575** | | **0** |
+
+- Файлы лежат подряд с 1-го числа до последних суток жизни инструмента (датированные: 04→01–04, 11→01–11, 18→01–18, 25→01–25; пропусков внутри нет), дальше 404 — инструмента уже нет. Снятые монеты: ICX linear — до 18.09, ICX спот — до 24.09, ASP и SCRT linear — до 05.09, SCRT спот — до 04.09; ASP спот в архиве нет совсем (30 из 30 — 404).
+- Сентябрь целиком по каждому делисту, не по окнам эпизодов (как и остальные стаканы). XAUTUSDT-04SEP26 и -11SEP26 (без эпизодов) не качались.
