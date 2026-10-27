@@ -3,7 +3,7 @@
 Подкоманды:
   windows <legs-th60.csv> <legs-th240.csv> <корень свечей> <aug-корень|-> <выход-каталог> [месяц ГГГГ-ММ]
       события = не исключённые ноги, представитель кластера (θ60: E60-n, θ240: E240-n); контроли: та же монета-рынок, та же длительность,
-      тот же час UTC, ±7 суток, окно [старт−60, пик] не пересекает ни одну ногу ≥ 90 мин этого инструмента (любые θ, исключённые тоже),
+      тот же час UTC, ±30 суток, окно [старт−60, пик] не пересекает ни одну ногу ≥ 90 мин этого инструмента (любые θ, исключённые тоже),
       ≥ доли минут со свечой, как у события; до 5, детерминированно (md5 seed 433), без взаимных пересечений.
       Пишет windows.csv (для tk422-features), own.csv (v_in, v_pre, m_in, m_pre, hist_days), controls-diag.json.
   merge <windows.csv> <own.csv> <tk422-features.csv> <выход.csv>
@@ -16,7 +16,7 @@ SEED = 433
 PRE = 60          # мин «до», протокол
 NORM_D = 7        # суток нормы оборота
 PER = 5
-SPAN = 7          # суток ± для контроля
+SPAN = 30         # суток ± для контроля (Судья 28.10: главный ±30, тот же час; ±7 — чувствительность)
 MIN_HIST_D = 3
 
 
@@ -78,6 +78,46 @@ def own_features(d, a, e, busy):
     return out
 
 
+PAIR = {"linear": "spot", "futures_usdt": "spot"}
+
+
+def sf_features(df, ds, a, e, sg):
+    """Спот↔фьючерс (Судья 28.10): basis_pre/in/chg (bps), lead_in (лаг 1 м), fsr_in. df/ds — свечи фьючерса/спота; нет спота — пусто."""
+    out = dict(basis_pre=None, basis_in=None, basis_chg=None, lead_in=None, fsr_in=None)
+    if not ds:
+        return out
+    bas = lambda m: (df[m][0] / ds[m][0] - 1) * 1e4 if m in df and m in ds else None
+    pre = [x for x in (bas(m) for m in range(a - PRE, a)) if x is not None]
+    inn = [(m, bas(m)) for m in range(a, e + 1)]
+    inn = [(m, x) for m, x in inn if x is not None]
+    out["basis_pre"] = med(pre)
+    if inn:
+        out["basis_in"] = med([x for _, x in inn])
+        out["basis_chg"] = (inn[-1][1] - inn[0][1]) * sg
+    rf, rs = {}, {}
+    for m in range(a + 1, e + 1):
+        if m in df and m - 1 in df and m in ds and m - 1 in ds:
+            rf[m] = math.log(df[m][0] / df[m - 1][0])
+            rs[m] = math.log(ds[m][0] / ds[m - 1][0])
+
+    def corr(x, y):
+        n = len(x)
+        if n < 10:
+            return None
+        mx, my = sum(x) / n, sum(y) / n
+        sxx = sum((v - mx) ** 2 for v in x)
+        syy = sum((v - my) ** 2 for v in y)
+        return sum((u - mx) * (v - my) for u, v in zip(x, y)) / math.sqrt(sxx * syy) if sxx > 0 and syy > 0 else None
+    ks = [m for m in rf if m + 1 in rf]
+    c1 = corr([rf[m] for m in ks], [rs[m + 1] for m in ks])
+    c2 = corr([rs[m] for m in ks], [rf[m + 1] for m in ks])
+    out["lead_in"] = None if c1 is None or c2 is None else c1 - c2
+    qf = sum(df[m][1] for m in range(a, e + 1) if m in df)
+    qs = sum(ds[m][1] for m in range(a, e + 1) if m in ds)
+    out["fsr_in"] = math.log(qf / qs) if qf > 0 and qs > 0 else None
+    return out
+
+
 def cmd_windows(av):
     l60, l240, root, aug, outd = av[:5]
     ym = av[5] if len(av) > 5 else "2026-09"
@@ -105,6 +145,7 @@ def cmd_windows(av):
     for (ex, mk, sym), L in sorted(byins.items()):
         sub = "%s-%s" % (ex, mk)
         d = load(roots, sub, sym)
+        dsp = load(roots, "%s-%s" % (ex, PAIR[mk]), sym) if mk in PAIR else {}
         bz = sorted(busy[(ex, mk, sym)])
         for tag, eid, r in sorted(L, key=lambda x: x[1]):
             a, e = int(r["t_start_ms"]) // MIN, int(r["t_peak_ms"]) // MIN
@@ -114,6 +155,7 @@ def cmd_windows(av):
             wins.append(dict(id=eid, биржа=ex, рынок=mk, инструмент=sym, t_start=a * MIN, t_peak=e * MIN, t_end=(e + 1) * MIN,
                              t_pre=(a - PRE) * MIN, знак=sg, роль="event", event_id=eid, θ=tag))
             o = own_features(d, a, e, bz)
+            o.update(sf_features(d, dsp, a, e, int(sg)))
             own.append(dict(id=eid, **o))
             diag["событий"][tag] += 1
             if o["hist_days"] < MIN_HIST_D:
@@ -148,14 +190,16 @@ def cmd_windows(av):
                 cid = "C-%s-%d" % (eid, j)
                 wins.append(dict(id=cid, биржа=ex, рынок=mk, инструмент=sym, t_start=s * MIN, t_peak=(s + dur) * MIN,
                                  t_end=(s + dur + 1) * MIN, t_pre=(s - PRE) * MIN, знак=sg, роль="control", event_id=eid, θ=tag))
-                own.append(dict(id=cid, **own_features(d, s, s + dur, bz)))
+                oc = own_features(d, s, s + dur, bz)
+                oc.update(sf_features(d, dsp, s, s + dur, int(sg)))
+                own.append(dict(id=cid, **oc))
                 diag["контролей"][tag] += 1
     with open(os.path.join(outd, "windows.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, list(wins[0]), lineterminator="\n")
         w.writeheader()
         w.writerows(wins)
     with open(os.path.join(outd, "own.csv"), "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, ["id", "v_in", "v_pre", "m_in", "m_pre", "hist_days"], lineterminator="\n")
+        w = csv.DictWriter(f, ["id", "v_in", "v_pre", "m_in", "m_pre", "hist_days", "basis_pre", "basis_in", "basis_chg", "lead_in", "fsr_in"], lineterminator="\n")
         w.writeheader()
         for o in own:
             w.writerow({k: ("" if v is None else v) for k, v in o.items()})
@@ -177,7 +221,8 @@ def cmd_merge(av):
     O = {r["id"]: r for r in csv.DictReader(open(of, encoding="utf-8"))}
     F = {r["id"]: r for r in csv.DictReader(open(ff, encoding="utf-8"))}
     cols = ["id", "event_id", "роль", "θ", "биржа", "рынок", "инструмент", "знак", "t_start", "t_peak", "hist_days",
-            "v_in", "v_pre", "m_in", "m_pre", "buy_in", "buy_pre", "sf_diff", "sf_corr", "oi_in", "fund_in", "liq_in", "btc_in"]
+            "v_in", "v_pre", "m_in", "m_pre", "buy_in", "buy_pre", "sf_diff", "sf_corr", "oi_in", "fund_in", "liq_in", "btc_in",
+            "basis_pre", "basis_in", "basis_chg", "lead_in", "fsr_in"]
     miss = set()
     with open(outp, "w", newline="", encoding="utf-8") as f:
         wr = csv.writer(f, lineterminator="\n")
@@ -197,7 +242,8 @@ def cmd_merge(av):
             rec = [i, w["event_id"], w["роль"], w["θ"], w["биржа"], w["рынок"], w["инструмент"], w["знак"], w["t_start"], w["t_peak"],
                    o.get("hist_days", ""), o.get("v_in", ""), o.get("v_pre", ""), o.get("m_in", ""), o.get("m_pre", ""),
                    buy(ib), buy(ip), None if sd is None else abs(sd) / 100, g("spot_corr_leg"), g("oi_pct_leg"),
-                   g("funding_last_ctx"), None if ll is None and ls is None else (ll or 0) + (ls or 0), g("btc_ret_bps_leg")]
+                   g("funding_last_ctx"), None if ll is None and ls is None else (ll or 0) + (ls or 0), g("btc_ret_bps_leg"),
+                   o.get("basis_pre", ""), o.get("basis_in", ""), o.get("basis_chg", ""), o.get("lead_in", ""), o.get("fsr_in", "")]
             wr.writerow(["" if v is None else v for v in rec])
     print("нет колонок в tk422:", sorted(miss))
 
