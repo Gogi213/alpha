@@ -1,4 +1,4 @@
 | число | файл:строка |
 |---|---|
-| -22.73 | docs/findings/pump-events-2026-10-28.csv:45 |
-| -21.3 | docs/findings/pump-events-2026-10-28.csv:522 |
+| −22,73 | docs/research/reviews/tk432-png-return-2026-10-28.md:11 |
+| −21,3 | docs/research/reviews/tk432-png-return-2026-10-28.md:12 |
