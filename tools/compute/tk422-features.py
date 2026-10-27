@@ -374,7 +374,7 @@ def features(w, roots, G):
     for Dd in (1, 7):
         hist = seq(D, ms - Dd * 1440, ms)
         F["htf_%dd_hist_min" % Dd] = len(hist)
-        if len(hist) >= Dd * 1440 * 0.5:
+        if ms - min(D) >= Dd * 1440 and len(hist) >= Dd * 1440 * 0.5:  # лукбэк по календарю: первая свеча данных ≤ старт − D сут
             top = max(v[1] for _, v in hist)
             F["htf_%dd_over_bps" % Dd] = bps(top, pk, p0)
             for N in G["N"]:
@@ -390,7 +390,7 @@ def features(w, roots, G):
     dk = sorted(k for k in dd if dd[k][1] >= 1000)
     dfr = [dd[k][0] for i, k in enumerate(dk[1:-1], 1) if dk[i - 1] == k - 1 and dk[i + 1] == k + 1 and dd[k][0] > dd[dk[i - 1]][0] and dd[k][0] > dd[dk[i + 1]][0]]
     F["htf_dfr_hist_days"] = len(dk)
-    if len(dk) >= 3 and ms - 7 * 1440 >= min(D) - 1440:
+    if len(dk) >= 3 and ms - 7 * 1440 >= min(D):
         F["htf_dfr_n"] = len(dfr)
         if dfr:
             top = max(dfr)
@@ -672,7 +672,7 @@ def work_group(a):
         try:
             F = features(w, roots, G)
             have = F.get("_have", {})
-            hist7 = F.get("htf_7d_hist_min", 0) >= 7 * 1440 * 0.5
+            hist7 = F.get("data_age_days", 0) >= 7  # календарь: первая свеча данных ≤ старт − 7 сут (не доля минут)
             res.append((i, w, add_cov(rename(F), have, hist7)))
         except Exception as e:  # окно не должно ронять прогон
             res.append((i, w, {"na": "ошибка: %s" % repr(e)[:150]}))
