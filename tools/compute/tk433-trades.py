@@ -20,7 +20,7 @@ for r in csv.DictReader(open(legs5, encoding="utf-8")):
         pass
 
 
-def load_lin(sym):
+def load_lin(sym, need):
     d = f"{root}/bybit-linear/{sym}"
     A = []
     for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -28,11 +28,13 @@ def load_lin(sym):
             f.readline()
             for ln in f:
                 p = ln.split(",", 10)
-                A.append((float(p[0]), float(p[4]), float(p[9]), p[2] == "Buy"))
+                t = float(p[0])
+                if int(t // 60) in need:
+                    A.extend((t, float(p[4]), float(p[9]), p[2] == "Buy"))
     return np.array(A, dtype=float).reshape(-1, 4) if A else None
 
 
-def load_spot(sym):
+def load_spot(sym, need):
     fn = f"{root}/bybit-spot/{sym}/{sym}-2026-09.csv.gz"
     if not os.path.exists(fn):
         return None
@@ -41,8 +43,10 @@ def load_spot(sym):
         f.readline()
         for ln in f:
             p = ln.split(",", 5)
-            pr = float(p[2])
-            A.append((int(p[1]) / 1000.0, pr, pr * float(p[3]), p[4].strip() == "buy"))
+            t = int(p[1]) / 1000.0
+            if int(t // 60) in need:
+                pr = float(p[2])
+                A.extend((t, pr, pr * float(p[3]), p[4].strip() == "buy"))
     return np.array(A, dtype=float).reshape(-1, 4) if A else None
 
 
@@ -67,10 +71,11 @@ for r in rows:
         bysym[(r["рынок"], r["инструмент"])].append(r)
 res = {}
 for (mk, sym), rs in bysym.items():
-    A = load_lin(sym) if mk == "linear" else load_spot(sym)
+    need = {m for r in rs for m in range(int(r["peak_min"]) - 60, int(r["peak_min"]) + 61)}
+    A = load_lin(sym, need) if mk == "linear" else load_spot(sym, need)
     if A is None:
         continue
-    L = A if mk == "linear" else (load_lin(sym) if os.path.isdir(f"{root}/bybit-linear/{sym}") else None)
+    L = A if mk == "linear" else (load_lin(sym, need) if os.path.isdir(f"{root}/bybit-linear/{sym}") else None)
     for r in rs:
         p, s = int(r["peak_min"]), int(r["знак"])
         b, a = stats(win(A, p - 60, p)), stats(win(A, p + 1, p + 60))
