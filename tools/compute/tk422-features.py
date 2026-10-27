@@ -603,7 +603,7 @@ def features(w, roots, G):
             c0, c1 = F.get("%s_corr_pre" % nm), F.get("%s_corr_%s" % (nm, ph))
             F["%s_decorr_%s" % (nm, ph)] = (c0 - c1) if c0 is not None and c1 is not None else None
     # поглощение по стакану: у пика цена не ушла, стена напротив держится/восполняется (непрерывные: смещение и отношение стены)
-    for N in G["ABS_N"]:
+    for N in (G["ABS_N"] if ob else ()):  # без стакана (`--ob` не дан / нет среза) — колонок ob_* нет вовсе
         a_ = [m for m in range(mp - N + 1, mp + 1) if m in D]
         sl = obwin(mp - N + 1, mp)
         if a_:
