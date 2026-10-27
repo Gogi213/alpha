@@ -4,6 +4,7 @@
 нижняя граница Бонферрони > 0, знак тот же в обеих половинах месяца; < 30 инструменто-суток в выбранных — «мало данных». Справочно: Ek − все остальные кандидат-минуты; E0 − не-E0; доля остановленных окон и MLast.
 Использование: tk420-var4-sum.py <var4-A.csv> <выход.csv> [B=10000] > сводка.md"""
 import csv
+import os
 import sys
 from collections import defaultdict
 from datetime import date, timedelta
@@ -144,7 +145,7 @@ with open(outcsv, "w", newline="", encoding="utf-8") as fo:
     wr.writerows(out)
 wins = {(r["инструмент"], r["окно"]): r for r in rows}
 stopped = sum(1 for r in wins.values() if r["окно_остановлено"] == "1")
-print("# TK-420 вар. 4, популяция A (Bybit linear, сентябрь)\n")
+print("# TK-420 вар. 4, популяция A (Bybit linear, %s)\n" % os.environ.get("VAR4_LABEL", "сентябрь"))
 print("Кандидат-минут %d, окон %d (остановлено разворотом θs=5: %d, %.1f %%), инструментов %d. Бутстрап %d, Бонферрони делитель %d (E3 — описательно). M — бп разворота (−s·Δ) от закрытия минуты, медиана по инструментам (≥5).\n" % (
     len(rows), len(wins), stopped, 100 * stopped / max(1, len(wins)), len({r["инструмент"] for r in rows}), NB, DIV))
 print("Минуты: E0 %d, E1 %d, E2 %d, E3 %d.\n" % tuple(sum(1 for r in rows if r["e"][k]) for k in ("E0", "E1", "E2", "E3")))

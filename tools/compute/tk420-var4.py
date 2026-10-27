@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from multiprocessing import Pool
 
 N, TH, WMAX, HS = 5, 0.05, 120, (5, 15, 60, 240)
-M0 = int(datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp()) // 60
+M0 = int(datetime.strptime(os.environ.get("VAR4_MONTH", "2026-09-01"), "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()) // 60  # начало месяца; август — VAR4_MONTH=2026-08-01
 NM = 31 * 1440
 
 
