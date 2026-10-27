@@ -14,6 +14,8 @@ import time
 from urllib.parse import urlsplit
 
 src = "bybit"
+MONTH = os.environ.get("TK420_MONTH", "2026-08")  # YYYY-MM; сентябрь — TK420_MONTH=2026-09
+NDAYS = {"2026-08": 31, "2026-09": 30}[MONTH]
 listf, outd = sys.argv[1:3]
 steps = [1, 2, 4]
 step_s = 30
@@ -35,11 +37,11 @@ for ln in open(listf, encoding="utf-8"):
 def items():
     for mk, s in inst:
         if mk == "linear":
-            for d in range(1, 32):
-                t = "2026-08-%02d" % d
+            for d in range(1, NDAYS + 1):
+                t = "%s-%02d" % (MONTH, d)
                 yield "bybit linear %s %s" % (s, t), "/trading/%s/%s%s.csv.gz" % (s, s, t), os.path.join(outd, MKDIR[mk], s, "%s%s.csv.gz" % (s, t))
         else:
-            yield "bybit spot %s 2026-08" % s, "/spot/%s/%s-2026-08.csv.gz" % (s, s), os.path.join(outd, MKDIR[mk], s, "%s-2026-08.csv.gz" % s)
+            yield "bybit spot %s %s" % (s, MONTH), "/spot/%s/%s-%s.csv.gz" % (s, s, MONTH), os.path.join(outd, MKDIR[mk], s, "%s-%s.csv.gz" % (s, MONTH))
 
 
 tasks = list(items())
