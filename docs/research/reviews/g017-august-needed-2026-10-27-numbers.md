@@ -1,7 +1,8 @@
-# TK-427 ключевые числа
+# TK-427 ключевые числа (пересчёт Судьи по docs/findings/pump-dump-episodes-sep-2026-10-27.csv, порог 10.48, без плохих принтов)
 
 | число | файл:строка |
 |---|---|
-| 23 381 размахов ≥10,5 % (сент., оценка) | docs/findings/pump-dump-episodes-sep-2026-10-27.csv:1 (порог 10.48, без плохой_принт=да; пересчёт Судьи 27.10) |
-| 285 монет; 12 204 / 11 177 по половинам | docs/findings/pump-dump-episodes-sep-2026-10-27.csv:1 (тот же пересчёт) |
-| 21 736 чистых эпизодов θ10,48 (принято) | docs/research/reviews/tk413-episodes-v3-accept-2026-10-27.md:9 |
+| 23381 | docs/findings/tk427-sep-counts-2026-10-27.csv:2 |
+| 285 | docs/findings/tk427-sep-counts-2026-10-27.csv:3 |
+| 12204 | docs/findings/tk427-sep-counts-2026-10-27.csv:4 |
+| 11177 | docs/findings/tk427-sep-counts-2026-10-27.csv:5 |
