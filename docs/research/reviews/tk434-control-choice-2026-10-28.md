@@ -33,13 +33,3 @@
   дня к дню (в ~5 раз за месяц), чем от часа к часу.
 - Поэтому добавляем второе сравнение — с ближайшими спокойными днями той же монеты, с поправкой на час; признак засчитываем,
   только если оба сравнения говорят одно и то же.
-
-## Источники чисел
-
-| число | файл:строка |
-|---|---|
-| 0,089 | docs/research/reviews/tk434-control-choice-2026-10-28.md:9 |
-| 0,402 | docs/research/reviews/tk434-control-choice-2026-10-28.md:10 |
-| ×3,7 | docs/research/reviews/tk434-control-choice-2026-10-28.md:11 |
-| ×5,1 | docs/research/reviews/tk434-control-choice-2026-10-28.md:13 |
-| 169/256 | docs/research/reviews/tk433-controls-sf-2026-10-28.md:12 |
