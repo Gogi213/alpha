@@ -1,6 +1,6 @@
 #!/bin/bash
 # TK-411: свечи 1 м Gate из сырья tk411-gate-dl.sh -> /srv/alpha-sda/tk411/candles/{fut,spot}/ИНСТР.csv.gz; охват -> candles/coverage-gate.tsv.
-# N потоков ($2, по умолчанию 3); сырьё после сборки удаляется (в тикете «держать только свечи»); готовое пропускается.
+# N потоков ($2, по умолчанию 3); сырьё после сборки удаляется (в тикете «держать только свечи»), при KEEP_RAW=1 — хранится (CEO 28.10, TK-428); готовое пропускается.
 #   alsched submit --cls prod --cores 3 --name tk411-gate-build --max-runtime 3h --est 1h -- bash /data/tk0393/tk411/tk411-gate-build.sh /data/tk0393/tk411/gate-list.tsv 3
 set -u
 list=$1; n=${2:-3}; root=${ROOT:-/srv/alpha-sda/tk411}; here=$(dirname "$(readlink -f "$0")")
@@ -12,7 +12,7 @@ b() {
   [ -s "$dst" ] && return 0
   [ -s "$src" ] || return 0
   r=$(python3 -I "$here/tk411-gate-candles.py" "$k" "$src" "$q" "$dst.part") || { rm -f "$dst.part"; echo "FAIL $k $c" >&2; return 0; }
-  mv "$dst.part" "$dst"; printf '%s\t%s\t%s\n' "$k" "$c" "$r" > "$root/cov/$k-$c.tsv"; rm -f "$src"
+  mv "$dst.part" "$dst"; printf '%s\t%s\t%s\n' "$k" "$c" "$r" > "$root/cov/$k-$c.tsv"; [ -n "${KEEP_RAW:-}" ] || rm -f "$src"
 }
 export -f b
 echo "start $(date +%T) N=$n" >> "$root/log/run.log"
