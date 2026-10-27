@@ -13,3 +13,13 @@
 Замечание (не возврат): Gate без архива (404) — 98 fut / 55 spot против 43/13 в сентябре; причина записана построчно.
 
 Вердикт: **принято**, хвостов нет.
+
+## Ключевые числа
+
+| число | файл:строка |
+|---|---|
+| Bybit linear 35 912 707 мин (= сумма csv) | docs/findings/candles-1m-aug-2026-10-27.md:12 |
+| Bybit spot 23 461 140 мин (= сумма csv) | docs/findings/candles-1m-aug-2026-10-27.md:13 |
+| Gate fut 18 743 240 мин (= сумма csv) | docs/findings/candles-1m-aug-2026-10-27.md:14 |
+| Gate spot 22 742 471 мин (= сумма csv) | docs/findings/candles-1m-aug-2026-10-27.md:15 |
+| всего 100,86 млн мин | docs/findings/candles-1m-aug-2026-10-27.md:17 |
