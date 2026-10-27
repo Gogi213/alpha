@@ -48,8 +48,9 @@ def edges(lo, hi):
     return np.exp(math.log(lo) + (np.arange(1, NB + 1) - 1) * (math.log(hi) - math.log(lo)) / NB)
 
 
-def knee(x_obs, lo, hi):
-    """x_obs: наблюдения; K1 по выживанию на сетке edges(lo,hi). Возврат x*, x_lo, x_max."""
+def knee(x_obs, lo, hi, x_max=None):
+    """x_obs: наблюдения; K1 по выживанию на сетке edges(lo,hi). x_max — верх сетки (по умолчанию 30-е с конца наблюдение).
+    Возврат x*, x_lo, x_max."""
     xs = edges(lo, hi)
     n = len(x_obs)
     srt = np.sort(x_obs)
@@ -57,7 +58,7 @@ def knee(x_obs, lo, hi):
     pos = srt[srt > 0]
     if len(pos) < MIN_CLUST:
         return None
-    xmax = float(pos[-MIN_CLUST])
+    xmax = float(pos[-MIN_CLUST]) if x_max is None else float(x_max)
     i01 = int(np.searchsorted(-S, -0.1))
     xlo = float(xs[min(i01, NB - 1)])
     if not xmax > xlo * 1.05:
@@ -86,7 +87,14 @@ def main():
                 syms = syms[:lim]
             data = list(pool.imap_unordered(one, [(d, s, t0, t1) for s in syms], chunksize=4))
             allw = np.concatenate([w for _, w in data]) if data else np.zeros(0)
-            kw = knee(allw, W_LO, W_HI)
+            # правило Судьи 27.10 (reviews/tk421-art-rule): x_max = наибольшее x, при котором наблюдения >= x лежат на >= 30 РАЗНЫХ минутах
+            pm = np.zeros(nm, dtype=np.float32)
+            for idx, w in data:
+                np.maximum.at(pm, idx, w)
+            pmpos = np.sort(pm[pm > 0])
+            xmax_min = float(pmpos[-MIN_CLUST]) if len(pmpos) >= MIN_CLUST else None
+            kw_old = knee(allw, W_LO, W_HI)
+            kw = knee(allw, W_LO, W_HI, xmax_min) if xmax_min is not None else None
             present = np.zeros(nm, dtype=np.int64)
             for idx, _ in data:
                 present += np.bincount(idx, minlength=nm)
@@ -102,7 +110,8 @@ def main():
             obs = share[present > 0]
             ks = knee(obs, SH_LO, SH_HI)
             r = {"инструментов": len(syms), "инструмент_минут": int(allw.size), "x_w": xw, "x_w_lo": kw[1], "x_w_max": kw[2],
-                 "минут_с_торгами": int((present > 0).sum()), "доля_фитильных_всего": float((allw >= xw).mean())}
+                 "минут_с_торгами": int((present > 0).sum()), "доля_фитильных_всего": float((allw >= xw).mean()),
+                 "x_w_до_правки": kw_old[0] if kw_old else None, "x_w_max_до_правки": kw_old[2] if kw_old else None}
             top = np.argsort(-share * (wick >= MIN_CLUST))[:10]
             r["топ_минут"] = [{"мин_utc_мс": int(t0 + int(i) * MIN), "доля": float(share[i]), "фитильных": int(wick[i]), "присутствует": int(present[i])} for i in top]
             if ks is None:
