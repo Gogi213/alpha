@@ -53,8 +53,8 @@ p("|---|---|---|---|---|---|")
 paths = {
     "июль (24–31.07 Bybit; весь июль Gate)": (R + "/jul/candles/bybit-linear/%sUSDT.csv.gz", R + "/jul/candles/bybit-spot/%sUSDT.csv.gz",
                                               R + "/jul-gate/candles/fut/%s_USDT.csv.gz", R + "/jul-gate/candles/spot/%s_USDT.csv.gz"),
-    "август": (A + "/tk423/candles/bybit-linear/%sUSDT.csv.gz", A + "/tk423/candles/bybit-spot/%sUSDT.csv.gz",
-               A + "/tk423/candles/fut/%s_USDT.csv.gz", A + "/tk423/candles/spot/%s_USDT.csv.gz"),
+    "август": (A + "/candles-1m-aug/bybit-linear/%sUSDT.csv.gz", A + "/candles-1m-aug/bybit-spot/%sUSDT.csv.gz",
+               A + "/candles-1m-aug/gate-futures_usdt/%s_USDT.csv.gz", A + "/candles-1m-aug/gate-spot/%s_USDT.csv.gz"),
     "сентябрь": (A + "/candles-1m/bybit-linear/%sUSDT.csv.gz", A + "/candles-1m/bybit-spot/%sUSDT.csv.gz",
                  A + "/candles-1m/gate-futures_usdt/%s_USDT.csv.gz", A + "/candles-1m/gate-spot/%s_USDT.csv.gz"),
 }
