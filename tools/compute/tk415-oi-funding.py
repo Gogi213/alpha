@@ -18,8 +18,8 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-START = 1788220800000  # 2026-09-01 00:00 UTC, мс
-END = 1790812800000  # 2026-10-01 00:00 UTC (исключая)
+START = int(os.environ.get("K_START", 1788220800000))  # 2026-09-01 00:00 UTC, мс; август (TK-425): K_START=1785542400000
+END = int(os.environ.get("K_END", 1790812800000))  # 2026-10-01 00:00 UTC (исключая); август: K_END=1788220800000
 GATE_INTERVAL = os.environ.get("GATE_INTERVAL", "5m")
 GATE_STEP = {"1m": 60, "5m": 300}[GATE_INTERVAL]
 
