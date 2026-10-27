@@ -2,8 +2,9 @@
 """TK-414: минутные срезы книги Gate фьючерсов (архив orderbooks TK-415) для признаков точек 1/4. Протокол: docs/research/P-TK414-ob-gate-2026-10-27.md.
 Час-файл = snapshot (строки set) + make/take; знак size: + бид, − аск (как в пилоте tk414-ob.py). Книга каждого часа строится с нуля из его set-строк.
 Срез минуты m — состояние на её конец (перед первым событием следующей минуты). Выход как у tk414-obmin.py: <выход>/<SYM>/<ГГГГММДДЧЧ>.csv: минута_epoch,bb,ba,dB25,dA25.
-Использование: tk414-obmin-gate.py <корень gate-fut> <выход-каталог> <процессов> <инструменты через запятую>"""
-import csv, glob, gzip, os, sys
+Использование: tk414-obmin-gate.py <need.tsv: файл<TAB>SYM/ГГГГММДДЧЧ.csv> <выход-каталог> <процессов>
+need.tsv (tk414-obgate-need.py) — только часы, нужные событиям: [t−минB−360 мин−1 ч, t]; срезы тех же часов от выбора не зависят."""
+import csv, gzip, os, sys
 from multiprocessing import Pool
 
 BAND = 25.0
@@ -53,11 +54,12 @@ def one(job):
 
 
 if __name__ == "__main__":
-    root, outd, nproc, syms = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4].split(",")
+    need, outd, nproc = sys.argv[1], sys.argv[2], int(sys.argv[3])
     jobs = []
-    for sym in syms:
-        for gp in sorted(glob.glob(os.path.join(root, sym, sym + "-*.csv.gz"))):
-            jobs.append((gp, os.path.join(outd, sym, os.path.basename(gp)[len(sym) + 1:-7] + ".csv")))
+    for line in open(need, encoding="utf-8"):
+        gp, rel = line.rstrip("
+").split("	")
+        jobs.append((gp, os.path.join(outd, rel)))
     print("файлов", len(jobs), flush=True)
     with Pool(nproc) as p:
         for i, (o, n, s) in enumerate(p.imap_unordered(one, jobs, chunksize=4), 1):
