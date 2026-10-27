@@ -15,8 +15,8 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-START = 1788220800000  # 2026-09-01 00:00 UTC
-END = 1790812800000  # 2026-10-01 00:00 UTC (исключая)
+START = int(os.environ.get("K_START", 1788220800000))  # 2026-09-01 00:00 UTC; август (TK-423): K_START=1785542400000
+END = int(os.environ.get("K_END", 1790812800000))  # 2026-10-01 00:00 UTC (исключая); август: K_END=1788220800000
 BASE = "https://api.bybit.com/v5/market/"
 
 lock = threading.Lock()

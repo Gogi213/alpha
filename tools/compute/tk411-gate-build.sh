@@ -3,7 +3,7 @@
 # N потоков ($2, по умолчанию 3); сырьё после сборки удаляется (в тикете «держать только свечи»); готовое пропускается.
 #   alsched submit --cls prod --cores 3 --name tk411-gate-build --max-runtime 3h --est 1h -- bash /data/tk0393/tk411/tk411-gate-build.sh /data/tk0393/tk411/gate-list.tsv 3
 set -u
-list=$1; n=${2:-3}; root=/srv/alpha-sda/tk411; here=$(dirname "$(readlink -f "$0")")
+list=$1; n=${2:-3}; root=${ROOT:-/srv/alpha-sda/tk411}; here=$(dirname "$(readlink -f "$0")")
 mkdir -p "$root/candles/fut" "$root/candles/spot" "$root/cov"
 while [ ! -e "$root/dl.done" ]; do sleep 15; done  # закачка tk411-gate-dl.sh ещё идёт
 b() {

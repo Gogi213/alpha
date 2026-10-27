@@ -10,8 +10,8 @@ import gzip
 import os
 import sys
 
-START = 1788220800000
-END = 1790812800000
+START = int(os.environ.get("K_START", 1788220800000))  # август (TK-423): K_START=1785542400000 K_END=1788220800000
+END = int(os.environ.get("K_END", 1790812800000))
 MIN = 60000
 
 
