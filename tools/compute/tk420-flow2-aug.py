@@ -51,9 +51,9 @@ def stream(ex, mk, ins, quanto, feed):
     miss = []
     if ex == "gate":
         u = "futures_usdt/trades" if mk == "futures_usdt" else "spot/deals"
-        r = opener("https://download.gatedata.org/%s/202609/%s-202609.csv.gz" % (u, ins))
+        r = opener("https://download.gatedata.org/%s/202608/%s-202608.csv.gz" % (u, ins))
         if r is None:
-            return ["202609"]
+            return ["202608"]
         with gzip.open(r, "rt", encoding="ascii", newline="") as f:
             for line in f:
                 p = line.split(",")
