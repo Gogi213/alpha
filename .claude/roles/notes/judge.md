@@ -916,3 +916,8 @@ TK-001 (пилот диспетчера) — done 27.09 21:40: 10 правок �
 - 27.10 (TK-414 окна Gate ~02:55): протокол a744120c до счёта ✓; пересчёт B ложные 488 → 0,44 = md (база 2222 vs 2220); T/P 11/10, 39/32 → T≈P от потока; Bybit 48 нет (TK-415) → return, reviews/tk414-flow-window-return; ~4 мин.
 - 27.10 (TK-417 сделки Bybit ~04:05): 50+17 = obsize-list; 404 сам HEAD + 96 сут. с нулём в свечах; reconcile ≤4e-16 → accept, reviews/tk417-bybit-trades-accept; ~6 мин.
 - 27.10 (TK-414 окна Bybit ~04:15): пересчёт events.csv B 685→0,48, W 502 = md; T/P 27/29, 32/29; база 2381 vs md 2378; каталог 5 точек нет → return, reviews/tk414-flow-window-bybit-return; ~5 мин.
+- 27.10 (TK-414 каталог Bybit ч.1 ~04:20): сделки = md (0,48, 46/45 %, 126/41); свечевые строки — Gate+Bybit 324, не Bybit; OI/фандинг не считаны (данные есть) → return, reviews/tk414-catalog-bybit-p1-return; ~4 мин. Урок: «часть N» = не сделано → return.
+- 27.10 (TK-414 OI/фанд ~04:55): пересчёт oifund-sum на calc = md (diff пуст), протокол до счёта ✓, T≈P; свечи срезом/ob200/каталог нет → return, reviews/tk414-oifund-bybit-return; ~6 мин.
+- 27.10 (TK-415 сентябрь ~05:10): _missing gate/bybit пусты, своб. 754 ГБ = md; стаканы делистов с эпизодами «не скачаны (нет списка)» — список в TK-413 v3 → return, reviews/tk415-sep-data-return; ~4 мин.
+- 27.10 (TK-416 стаканы Bybit сент. ~05:20): п.1–4а = csv (1914 ok, u 0, пересеч. 0, deep md5 = calc); сделки сентября TK-417 есть на calc, а md «нет» → return, reviews/tk416-bybit-ob-sep-return; ~6 мин. Урок: «если есть» сверять с принятыми тикетами.
+- 27.10 (TK-415 делисты ~05:20): calc 505 zip 1,66 ГБ, 575×404, 33 = csv TK-413 v3 → accept, reviews/tk415-sep-data-accept; ~4 мин.
