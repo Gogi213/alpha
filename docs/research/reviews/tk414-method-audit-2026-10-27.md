@@ -55,12 +55,3 @@
 
 Хвост — тикетом исследователю (варианты 1, 2, 6 одним проходом; 3–5 после итога 1). Протокол до счёта, Судья
 утверждает; торговых выводов нет до марк-аута.
-
-## Ключевые числа
-
-| число | файл:строка |
-|---|---|
-| 17 spot × 30 суток ob200 скачаны и валидированы | docs/findings/bybit-ob-sep-validation-2026-10-27.md:4 |
-| T≈P, разрыв ≤ 3 п.п. (Bybit) | docs/findings/pump-dump-scenarios-catalog-5points-bybit-final-2026-10-27.md:33 |
-| ступень/лестница — 100 % ног с паузой | docs/findings/pump-dump-scenarios-catalog-5points-bybit-final-2026-10-27.md:17 |
-| BAND 25 бп назначен | tools/compute/tk414-obmin.py:10 |
