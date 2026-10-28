@@ -235,5 +235,94 @@ def cmd_oi(av):
     sys.exit(1 if bad else 0)
 
 
+def cmd_trades(av):
+    """К4–К8 (tk433-trades.py) из куба: сделки по минуте (trades-*.npy) + h/l/c свечей bybit-linear вместо разбора сделок построчно."""
+    src, legs5, cube, old_fn = av[:4]
+    out = av[4] if len(av) > 4 else None
+    th = {}
+    for r in csv.DictReader(open(legs5, encoding="utf-8")):
+        try:
+            th[(r["биржа"], r["рынок"], r["знак"])] = float(r["θ"]) / 100.0
+        except (KeyError, ValueError):
+            pass
+    t0 = time.time()
+    tr = {}
+    for mk in ("linear", "spot"):
+        syms = open("%s/trades-bybit-%s.syms" % (cube, mk)).read().split()
+        tr[mk] = ({s: i for i, s in enumerate(syms)}, int(open("%s/trades-bybit-%s.lo" % (cube, mk)).read()), np.load("%s/trades-bybit-%s.npy" % (cube, mk), mmap_mode="r"))
+    csyms = open("%s/bybit-linear.syms" % cube).read().split()
+    cix, clo, cmm = {s: i for i, s in enumerate(csyms)}, int(open("%s/bybit-linear.lo" % cube).read()), np.load("%s/bybit-linear.npy" % cube, mmap_mode="r")
+    t_open = time.time() - t0
+
+    def sl(mk, sym, a, b):
+        """(buy_q, sell_q, buy_n, sell_n) за минуты a..b включительно; None, если сделок нет."""
+        ix, lo, mm = tr[mk]
+        if sym not in ix:
+            return None
+        v = np.asarray(mm[ix[sym], :, max(0, a - lo):max(0, min(mm.shape[2], b + 1 - lo))])
+        if v.shape[1] == 0:
+            return None
+        return v
+
+    def stats(v):
+        if v is None:
+            return None
+        n = int(round(v[2].sum() + v[3].sum()))
+        if n == 0:
+            return None
+        tot, buy = float(v[0].sum() + v[1].sum()), float(v[0].sum())
+        return dict(bs=buy / tot if tot > 0 else float("nan"), n=n, dl=(tot - 2 * buy) / tot if tot > 0 else float("nan"))
+
+    rows = list(csv.DictReader(open(src, encoding="utf-8")))
+    bysym = {}
+    for r in rows:
+        if r["биржа"] == "bybit":
+            bysym.setdefault((r["рынок"], r["инструмент"]), []).append(r)
+    t0 = time.time()
+    res = {}
+    for (mk, sym), rs in bysym.items():
+        for r in rs:
+            p, s = int(r["peak_min"]), int(r["знак"])
+            b, a = stats(sl(mk, sym, p - 60, p)), stats(sl(mk, sym, p + 1, p + 60))
+            if b is None or a is None:
+                continue
+            o = {}
+            o["K5_fade" if mk == "linear" else "K4_fade"] = -s * (a["bs"] - b["bs"])
+            if mk == "linear":
+                o["K6_delta"] = s * a["dl"]
+                o["K6_int"] = float(np.log(a["n"] / b["n"]))
+                if stats(sl(mk, sym, p, p)) is not None and sym in cix:
+                    k = p - clo
+                    pk = float(cmm[cix[sym], H, k]) if s > 0 else float(cmm[cix[sym], L, k])
+                    band = th.get(("bybit", "linear", "+" if s > 0 else "-"))
+                    v = sl(mk, sym, p + 1, p + 60)
+                    if band and v is not None and (v[2] + v[3]).sum() > 0:
+                        ix, lo, mm = tr[mk]
+                        has = np.nonzero((v[2] + v[3]) > 0)[0] + max(0, p + 1 - lo)       # индексы минут «после» со сделками
+                        cl = np.asarray(cmm[cix[sym], C, has + lo - clo])
+                        o["K7_retest"] = float(sum(1 for pr in cl.tolist() if s * (pk - pr) / pk <= band))
+            elif "linear" in tr and sym in tr["linear"][0]:
+                la = stats(sl("linear", sym, p + 1, p + 60))
+                if la is not None:
+                    o["K8_diff"] = s * a["dl"] - s * la["dl"]
+            res[r["id"] + "|" + r["роль"] + "|" + r["event_id"]] = (r["id"], o)
+    t_new = time.time() - t0
+    cols = ["K5_fade", "K6_delta", "K6_int", "K7_retest", "K4_fade", "K8_diff"]
+    new = [[i] + [("%.6g" % o[c]) if c in o else "" for c in cols] for _, (i, o) in res.items()]
+    old = [list(r) for r in list(csv.reader(open(old_fn, encoding="utf-8")))[1:]]
+    bad = [(x, y) for x, y in zip(old, new) if x != y]
+    print("строк (было) %d, (стало) %d; расхождений %d; открытие куба %.2f с, срезы %.2f с" % (len(old), len(new), len(bad) + abs(len(old) - len(new)), t_open, t_new))
+    for j, c in enumerate(["id"] + cols):
+        print("  %-10s непустых было %d стало %d, расхождений %d" % (c, sum(1 for x in old if x[j]), sum(1 for x in new if x[j]), sum(1 for x, y in zip(old, new) if x[j] != y[j])))
+    for x, y in bad[:8]:
+        print("  было ", x, "\n  стало", y)
+    if out:
+        with open(out, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["id"] + cols)
+            w.writerows(new)
+    sys.exit(1 if bad or len(old) != len(new) else 0)
+
+
 if __name__ == "__main__":
-    {"gate": cmd_gate, "oi": cmd_oi}[sys.argv[1]](sys.argv[2:])
+    {"gate": cmd_gate, "oi": cmd_oi, "trades": cmd_trades}[sys.argv[1]](sys.argv[2:])
