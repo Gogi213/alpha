@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-435 (1): локальные тренды окном — ход ≥ X % за ≤ D минут (черновик кода под протокол v11, параметры — по умолчанию).
 Использование:
-  tk435-windows.py events <корень свечей> <l4v8.json|-> <art.json|-> <выход-каталог> [--procs 15] [--ym 2026-09]
+  tk435-windows.py events <корень свечей|-> <l4v8.json|-> <art.json|-> <выход-каталог> [--procs 15] [--ym 2026-09] [--cube <корень куба>]
         [--t0 ГГГГ-ММ-ДД --t1 ГГГГ-ММ-ДД] [--x 5,10,20,30 | q99] [--xq xq.json] [--d 90,180,360,720,1440] [--limit N]
   tk435-windows.py quant <hist.json> <xq.json>      квантили q98/q99/q99,5 |хода| по D и знаку из гистограммы (X протокола v11)
 Окно монеты: close 1 м; для конца j старт i ∈ [j−D, j−90], т. е. длительность j−i ∈ [90 мин; D] по построению (быстрее 90 мин — не
@@ -38,6 +38,7 @@ WICK_MIN, WICK_FRAC = 15, 0.5         # TK-421: ход возвращается 
 EDGES = np.concatenate([np.linspace(0, 1, 2001)[:-1], np.linspace(1, 50, 491)])
 PER = {}
 CFG = {}
+CUBE, _MM = None, {}
 
 
 def coin(sym):
@@ -84,18 +85,46 @@ def starts(src, js, W, sgn):
     return out
 
 
+def load_cube(sub, sym, t0, t1):
+    """(cc, qq, число свечей) окна [t0, t1) из куба tk436-cube.py (memmap) — то же, что ev.load_q + раскладка по минутам:
+    свеча годна при h, l, c > 0 (как load_q), минуты EXCL (артефакты) выкидываются."""
+    if sub not in _MM:
+        syms = open("%s/%s.syms" % (CUBE, sub)).read().split()
+        _MM[sub] = (np.load("%s/%s.npy" % (CUBE, sub), mmap_mode="r"), {s: i for i, s in enumerate(syms)},
+                    int(open("%s/%s.lo" % (CUBE, sub)).read()))
+    mm, ix, lo = _MM[sub]
+    base, n = t0 // MIN, (t1 - t0) // MIN
+    k = ix.get(sym)
+    if k is None:
+        return None
+    assert base >= lo and base - lo + n <= mm.shape[2], "окно вне куба"
+    x = np.array(mm[k, :, base - lo:base - lo + n])
+    with np.errstate(invalid="ignore"):
+        ok = (x[1] > 0) & (x[2] > 0) & (x[3] > 0)
+    for ti in mv.EXCL.get(sub, ()):
+        if t0 <= ti < t1:
+            ok[ti // MIN - base] = False
+    return np.where(ok, x[3], np.nan), np.where(ok, x[4], 0.0), int(ok.sum())
+
+
 def one(arg):
     ex, mk, d, sym, t0, t1 = arg
-    t, h, l, c, q = ev.load_q(os.path.join(d, sym + ".csv.gz"), t0, t1)
     base = t0 // MIN
     n = (t1 - t0) // MIN
-    if len(t) < 100:
-        return [], {}
-    idx = np.fromiter((x // MIN - base for x in t), dtype=np.int64, count=len(t))
-    cc = np.full(n, np.nan)
-    qq = np.zeros(n)
-    cc[idx] = c
-    qq[idx] = q
+    if CUBE:
+        r = load_cube(os.path.basename(d), sym, t0, t1)
+        if r is None or r[2] < 100:
+            return [], {}
+        cc, qq, _ = r
+    else:
+        t, h, l, c, q = ev.load_q(os.path.join(d, sym + ".csv.gz"), t0, t1)
+        if len(t) < 100:
+            return [], {}
+        idx = np.fromiter((x // MIN - base for x in t), dtype=np.int64, count=len(t))
+        cc = np.full(n, np.nan)
+        qq = np.zeros(n)
+        cc[idx] = c
+        qq[idx] = q
     cq = np.concatenate([[0.0], np.cumsum(qq)])
     lev = bool(LEV.search(sym.split("-")[0]))
     sub = os.path.basename(d)
@@ -168,7 +197,11 @@ def main():
     ap.add_argument("--xq")
     ap.add_argument("--d", default="90,180,360,720,1440")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--cube", help="корень куба tk436-cube.py: свечи из куба вместо csv.gz; список инструментов — из корня свечей "
+                    "(как без куба), при корне «-» — весь куб")
     a = ap.parse_args()
+    global CUBE
+    CUBE = a.cube
     if a.art != "-":
         mv.load_excl(a.art)
     if a.l4 != "-":
@@ -191,7 +224,10 @@ def main():
     with Pool(a.procs) as pool:
         for ex, mk, sub in mv.MKT:
             d = os.path.join(a.root, sub)
-            syms = sorted(f[:-7] for f in os.listdir(d) if f.endswith(".csv.gz"))
+            if CUBE and a.root == "-":
+                syms = sorted(open("%s/%s.syms" % (CUBE, sub)).read().split()) if os.path.exists("%s/%s.syms" % (CUBE, sub)) else []
+            else:
+                syms = sorted(f[:-7] for f in os.listdir(d) if f.endswith(".csv.gz"))
             if a.limit:
                 syms = syms[:: max(1, len(syms) // a.limit)][: a.limit]
             nr = 0
