@@ -182,8 +182,8 @@ def cmd_checkoi(av):
     sys.exit(0 if bad == 0 else 1)
 
 
-AWK_LIN = r"""NR>1{m=int($1/60); k=m" "($3=="Buy"); s[k]+=$10; n[k]++} END{for(k in s) print k, s[k], n[k]}"""
-AWK_SPOT = r"""NR>1{m=int($2/60000); k=m" "($5=="buy"); s[k]+=$3*$4; n[k]++} END{for(k in s) print k, s[k], n[k]}"""
+AWK_LIN = r"""NR>1{m=int($1/60); k=m" "($3=="Buy"); s[k]+=$10; n[k]++} END{for(k in s) printf "%s %.17g %d\n", k, s[k], n[k]}"""
+AWK_SPOT = r"""NR>1{m=int($2/60000); k=m" "($5=="buy"); s[k]+=$3*$4; n[k]++} END{for(k in s) printf "%s %.17g %d\n", k, s[k], n[k]}"""
 
 
 def _trade_task(a):
