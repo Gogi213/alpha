@@ -112,11 +112,17 @@ def fut_mkt(ex):
     return "linear" if ex == "bybit" else "futures_usdt"
 
 
+_or = {}
+
+
 def orient(d, s):
-    """минута -> (o,h,l,c,q) в ориентации пампа"""
+    """минута -> (o,h,l,c,q) в ориентации пампа; дамп-ориентация считается один раз на словарь свечей (кэш до конца группы)"""
     if s > 0:
         return d
-    return {m: (-v[0], -v[2], -v[1], -v[3], v[4]) for m, v in d.items()}
+    k = (id(d), s)
+    if k not in _or:
+        _or[k] = (d, {m: (-v[0], -v[2], -v[1], -v[3], v[4]) for m, v in d.items()})  # d в значении — id не переиспользуется
+    return _or[k][1]
 
 
 def seq(d, a, b):
@@ -176,8 +182,18 @@ def pair_corr(r1, r2, lag=0):
     return corr([r1[m] for m in ks], [r2[m + lag] for m in ks]), len(ks)
 
 
+_r5 = {}
+
+
 def read_5m(fn, cols):
-    """OI/фандинг/ликвидации: [(t_ms, {имя: значение})] по заголовку"""
+    """OI/фандинг/ликвидации: [(t_ms, {имя: значение})] по заголовку; файл читается один раз на группу окон инструмента"""
+    k = (fn, tuple(cols))
+    if k not in _r5:
+        _r5[k] = _read_5m(fn, cols)
+    return _r5[k]
+
+
+def _read_5m(fn, cols):
     if not os.path.exists(fn):
         return None
     with gzip.open(fn, "rt") as f:
@@ -728,6 +744,8 @@ def work_group(a):
         del _cc[k]
     _tc.clear()
     _oc.clear()
+    _or.clear()
+    _r5.clear()
     return res, key, time.time() - t
 
 

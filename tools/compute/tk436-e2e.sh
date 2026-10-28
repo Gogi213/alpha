@@ -5,7 +5,7 @@
 #   alsched submit --kind prod --name tk436-e2e --cores 15 --max-runtime 40m -- bash /data/tk0436/tk436-e2e.sh
 cd /data/tk0433/v11f || exit 9
 PY=/data/tk421/venv/bin/python3
-G=/data/tk0436/f422gate/time.txt
+G=${G:-/data/tk0436/f422gate/time.txt}
 for i in $(seq 1 240); do grep -qE '^(IDENTICAL|DIFF)' $G 2>/dev/null && break; sleep 15; done
 grep -q '^IDENTICAL' $G 2>/dev/null || { echo 3 > /data/tk0436/e2e.rc; exit 3; }
 O=/data/tk0436/e2e
