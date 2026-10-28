@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -162,7 +163,7 @@ def gate_stats(sym, root, rps):
     # только from + limit (с to Gate игнорирует from при диапазоне > limit, проба TK-415): страницы вперёд от from
     rows, frm, n, note, header = {}, START // 1000, 0, "", None
     while frm < END // 1000:
-        u = "https://api.gateio.ws/api/v4/futures/usdt/contract_stats?contract=%s&from=%d&interval=%s&limit=1000" % (sym, frm, GATE_INTERVAL)
+        u = "https://api.gateio.ws/api/v4/futures/usdt/contract_stats?contract=%s&from=%d&interval=%s&limit=1000" % (urllib.parse.quote(sym), frm, GATE_INTERVAL)
         d = fetch(u, "gate-stats", rps, gate_ok)
         n += 1
         if not isinstance(d, list):
@@ -189,7 +190,7 @@ def gate_stats(sym, root, rps):
 def gate_funding(sym, root, rps):
     if done(root, "gate", "funding", sym):
         return
-    u = "https://api.gateio.ws/api/v4/futures/usdt/funding_rate?contract=%s&from=%d&to=%d&limit=1000" % (sym, START // 1000, END // 1000 - 1)
+    u = "https://api.gateio.ws/api/v4/futures/usdt/funding_rate?contract=%s&from=%d&to=%d&limit=1000" % (urllib.parse.quote(sym), START // 1000, END // 1000 - 1)
     d = fetch(u, "gate-fund", rps, gate_ok)
     note = ""
     if not isinstance(d, list):

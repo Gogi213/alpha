@@ -128,10 +128,16 @@ def main():
     os.makedirs(root + "/cov", exist_ok=True)
     jobs = []
     only = set(os.environ.get("TK411_ONLY", "").split(",")) - {""}  # проба на нескольких символах
-    with open(root + "/cov/bybit-instruments.tsv", "w") as f:
+    klist = os.environ.get("K_LIST")  # TK-428: свой список «рынок<TAB>символ» (linear|spot|inverse), без instruments-info (снятые с торгов)
+    if klist:
+        with open(klist, encoding="utf-8") as f:
+            jobs = [tuple(ln.split()[:2]) for ln in f if len(ln.split()) >= 2 and ln.split()[0] in ("linear", "spot", "inverse")]
+        for cat in {c for c, _ in jobs}:
+            os.makedirs("%s/candles/bybit-%s" % (root, cat), exist_ok=True)
+    with open(root + "/cov/bybit-instruments.tsv", "w") if not klist else open(os.devnull, "w") as f:
         f.write("рынок\tсимвол\tlaunch_ms\tdelivery_ms\tstatus\tв_окне\n")
         for cat in ("linear", "spot"):
-            for sym, (la, de, st) in sorted(instruments(cat, rps).items()):
+            for sym, (la, de, st) in sorted(instruments(cat, rps).items() if not klist else ()):
                 inwin = la < END and (de == 0 or de >= START)
                 f.write("%s\t%s\t%d\t%d\t%s\t%d\n" % (cat, sym, la, de, st, inwin))
                 if inwin and (not only or sym in only):
