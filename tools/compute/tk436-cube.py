@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TK-436 (G-017): куб признаков «инструмент × минута» на месяц — один раз, дальше детекторы читают memmap.
-  tk436-cube.py candles <месяц ГГГГ-ММ> <корень свечей> <корень куба> [<корень свечей августа|->]
+  tk436-cube.py candles <месяц ГГГГ-ММ> <корень свечей> <корень куба> [<доп. корни свечей через запятую|->]
       <куб>/<sub>.npy  float64 (S, 5, T): o,h,l,c,q (q = quote_v); NaN = нет свечи (как в load() tk433-features), <sub>.syms — список.
   tk436-cube.py trades <месяц> <корень /data/tk417> <корень куба> [<процессов>]
       <куб>/trades-<sub>.npy float64 (S, 4, T): buy_q, sell_q, buy_n, sell_n по минуте (только поминутно, В-172/запрет посекундных не затронуты);
@@ -51,7 +51,7 @@ def _cand_task(a):
 
 def cmd_candles(av):
     ym, root, outd = av[:3]
-    aug = av[3] if len(av) > 3 and av[3] != "-" else None
+    aug = av[3].split(",") if len(av) > 3 and av[3] != "-" else []   # доп. корни через запятую: ранние раньше, основной корень поверх
     lo, hi = month_bounds(ym)
     lo -= PAD * 1440          # запас назад: норма 7 сут, natr суточный (15 суток) у первых окон месяца берут историю прошлого месяца
     T = hi - lo
@@ -60,7 +60,7 @@ def cmd_candles(av):
     for sub in SUBS:
         # август лежит в отдельном корне (как у tk433: сначала aug, затем основной корень поверх)
         srcs = {}
-        for r in ([aug] if aug else []) + [root]:
+        for r in aug + [root]:
             d = "%s/%s" % (r, sub)
             if os.path.isdir(d):
                 for fn in os.listdir(d):
