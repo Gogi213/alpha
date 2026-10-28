@@ -5,13 +5,17 @@ worker: tk444-lead.py work <СИМ> <events.csv> <outdir>   |   agg: tk444-lead.
 первый проход k bps по ходу знака события; контроли = то же окно со сдвигом ±7/14/21 сут, без пересечения с событиями инструмента."""
 import sys, gzip, glob, bisect, csv, os, random, statistics
 from array import array
-ROOT = "/data/tk417"; CAP = 240; KS = (10, 25, 50, 100, 200); SHIFTS = (7, 14, 21, -7, -14, -21); PRE = 300_000
+ROOTS = os.environ.get("TK444_ROOTS", "/data/tk417").split(":"); CAP = 240; KS = (10, 25, 50, 100, 200); SHIFTS = (7, 14, 21, -7, -14, -21); PRE = 300_000
 DAY = 86_400_000
 
 def load(sym, mkt, ivs):
+    # sym = (имя linear, имя spot); корни — TK444_ROOTS (через «:»)
     ts = array("q"); px = array("d")
     rows = []
-    files = sorted(glob.glob("%s/bybit-linear/%s/*.csv.gz" % (ROOT, sym))) if mkt == "lin" else glob.glob("%s/bybit-spot/%s/*.csv.gz" % (ROOT, sym))
+    files = []
+    for R in ROOTS:
+        files += glob.glob("%s/bybit-%s/%s/*.csv.gz" % (R, "linear" if mkt == "lin" else "spot", sym[0] if mkt == "lin" else sym[1]))
+    files.sort()
     starts = [a for a, b in ivs]; ends = [b for a, b in ivs]
     for f in files:
         with gzip.open(f, "rt") as fh:
@@ -46,7 +50,7 @@ def fp(ts, px, t0, t1, s):
         j += 1
     return res
 
-def work(sym, evf, outdir):
+def work(sym, evf, outdir, spot=None):
     evs = []
     with open(evf, encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
@@ -64,7 +68,7 @@ def work(sym, evf, outdir):
             if k >= 0 and ms[k][1] >= a: continue
             wins.append(("ctl", D, i, s, a, b))
     ivs = merge([(a - PRE, b) for _, _, _, _, a, b in wins])
-    lt, lp = load(sym, "lin", ivs); st_, sp = load(sym, "spot", ivs)
+    lt, lp = load((sym, spot or sym), "lin", ivs); st_, sp = load((sym, spot or sym), "spot", ivs)
     with open(os.path.join(outdir, sym + ".csv"), "w") as o:
         o.write("инструмент,вид,D,id,знак,t0," + ",".join("tl%d,ts%d" % (k, k) for k in KS) + "\n")
         for kind, D, i, s, a, b in wins:
@@ -119,5 +123,5 @@ def agg(outdir, month, outcsv, outmd):
     print(open(outcsv, encoding="utf-8").read())
 
 if __name__ == "__main__":
-    if sys.argv[1] == "work": work(*sys.argv[2:5])
+    if sys.argv[1] == "work": work(*sys.argv[2:6])
     else: agg(*sys.argv[2:6])
