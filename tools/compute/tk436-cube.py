@@ -216,6 +216,8 @@ def cmd_trades(av):
     for sub in ("bybit-linear", "bybit-spot"):
         d = "%s/%s" % (root, sub)
         syms = sorted(os.listdir(d)) if os.path.isdir(d) else []
+        if not syms:
+            continue            # нет сделок этого рынка в корне (август: только bybit-linear)
         tasks, owner = [], []
         for si, s in enumerate(syms):
             for fn in sorted(os.listdir("%s/%s" % (d, s))):
