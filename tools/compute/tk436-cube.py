@@ -129,14 +129,18 @@ def cmd_check(av):
     T = mm.shape[2]
     lo = int(open("%s/%s.lo" % (cube, sub)).read())
     got = np.array(mm[syms.index(sym)])
-    d = {}                   # независимый разбор — копия load() из tk433-features.py: {минута: (close, quote_v)}
-    with gzip.open("%s/%s/%s.csv.gz" % (root, sub, sym), "rt") as f:
-        f.readline()
-        for line in f:
-            p = line.split(",", 7)
-            c = float(p[4])
-            if c > 0:
-                d[int(p[0]) // MIN] = (c, float(p[6] or 0))
+    d = {}                   # независимый разбор — копия load() из tk433-features.py: {минута: (close, quote_v)}; root = корни через запятую, поздний поверх раннего
+    for r in root.split(","):
+        fn = "%s/%s/%s.csv.gz" % (r, sub, sym)
+        if not os.path.exists(fn):
+            continue
+        with gzip.open(fn, "rt") as f:
+            f.readline()
+            for line in f:
+                p = line.split(",", 7)
+                c = float(p[4])
+                if c > 0:
+                    d[int(p[0]) // MIN] = (c, float(p[6] or 0))
     bad = 0
     for i in range(T):
         e = d.get(lo + i)
