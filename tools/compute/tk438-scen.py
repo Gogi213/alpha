@@ -94,6 +94,7 @@ def boot_agg(cells, col):
     """агрегат по ячейкам D×знак: взвешенное (n_e ячейки) среднее разностей медиан сценарий-события минус сценарий-контроли; бутстреп по монетам (общий выбор монет на все ячейки)"""
     cs = []
     for ee, cc in cells:
+        ee = ee[[col, "монета"]].dropna(); cc = cc[[col, "монета"]].dropna()  # NaN горизонта (хвост данных) -> выбросить, иначе медиана NaN
         if len(ee) >= 10 and len(cc) >= 10:
             cs.append(({k: v.to_numpy() for k, v in ee.groupby("монета")[col]}, {k: v.to_numpy() for k, v in cc.groupby("монета")[col]}, len(ee)))
     if not cs: return None
