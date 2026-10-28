@@ -29,7 +29,28 @@ def month_bounds(ym):
     return int(a.timestamp() * 1000) // MIN, int(b.timestamp() * 1000) // MIN
 
 
+CUBE, CUT, _MM = None, 0, {}
+
+
+def load_cube(sub, sym):
+    """то же, что load(), из куба tk436 (float64 (S,5,T): o,h,l,c,q; NaN = нет свечи, c>0 уже в кубе); CUT — абс. минута, раньше не берём."""
+    if sub not in _MM:
+        import numpy as np
+        fn = "%s/%s.npy" % (CUBE, sub)
+        _MM[sub] = (np.load(fn, mmap_mode="r"), open("%s/%s.syms" % (CUBE, sub)).read().split(), int(open("%s/%s.lo" % (CUBE, sub)).read()))
+    mm, syms, lo = _MM[sub]
+    if sym not in syms:
+        return {}
+    import numpy as np
+    x = np.array(mm[syms.index(sym)][3:5])
+    ok = np.flatnonzero(~np.isnan(x[0]))
+    ok = ok[ok + lo >= CUT]
+    return {int(i) + lo: (float(x[0, i]), float(x[1, i])) for i in ok}
+
+
 def load(roots, sub, sym):
+    if CUBE:
+        return load_cube(sub, sym)
     d = {}
     for r in roots:
         fn = "%s/%s/%s.csv.gz" % (r, sub, sym) if r else None
@@ -270,4 +291,13 @@ def cmd_merge(av):
 
 
 if __name__ == "__main__":
-    {"windows": cmd_windows, "merge": cmd_merge}[sys.argv[1]](sys.argv[2:])
+    av = sys.argv[2:]
+    for fl in ("--cube", "--cut"):       # TK-436: свечи из куба (memmap) вместо csv.gz; --cut — первая абс. минута (отсечка истории как у прежнего прогона)
+        if fl in av:
+            k = av.index(fl)
+            if fl == "--cube":
+                CUBE = av[k + 1]
+            else:
+                CUT = int(av[k + 1])
+            del av[k:k + 2]
+    {"windows": cmd_windows, "merge": cmd_merge}[sys.argv[1]](av)
