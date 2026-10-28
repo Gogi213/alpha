@@ -52,6 +52,10 @@ def vals(self, var, es):
             m = np.sqrt(np.where(ok, m, 1.0))
         # NATR*: np.float64 как в Series.mean (round() у numpy и у float различается в последнем знаке на больших числах); остальные — float
         return [v if o else None for v, o in zip(list(m) if nm.startswith("NATR") else m.tolist(), ok.tolist())]
+    if NB and nm == "MAD":
+        o, f = np.empty(len(es)), np.zeros(len(es), dtype=np.bool_)
+        _mad_k(self.c, self.r1v, self.n, j, p, o, f, FM)
+        return [v if g else None for v, g in zip(o.tolist(), f.tolist())]
     ok = (j - p >= 0) & (j <= self.n)
     jc = np.where(ok, j, p)
     idx = jc[:, None] + np.arange(-p, 0)
@@ -82,6 +86,71 @@ def vals(self, var, es):
         for i, v in zip(rows.tolist(), res):
             out[i] = v
     return out
+
+
+NB = os.environ.get("TK441_NUMBA") == "1"
+FM = int(os.environ.get("TK441_FM", "0"))
+if NB:
+    import numba
+
+    @numba.njit(cache=True)
+    def _pw(a, n):
+        """numpy pairwise_sum (n <= 128: 8 аккумуляторов, хвост по одному) — побитно как np.add.reduce по строке."""
+        if n < 8:
+            res = 0.0
+            for i in range(n):
+                res += a[i]
+            return res
+        r0, r1, r2, r3, r4, r5, r6, r7 = a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]
+        i = 8
+        while i < n - (n % 8):
+            r0 += a[i]
+            r1 += a[i + 1]
+            r2 += a[i + 2]
+            r3 += a[i + 3]
+            r4 += a[i + 4]
+            r5 += a[i + 5]
+            r6 += a[i + 6]
+            r7 += a[i + 7]
+            i += 8
+        res = ((r0 + r1) + (r2 + r3)) + ((r4 + r5) + (r6 + r7))
+        while i < n:
+            res += a[i]
+            i += 1
+        return res
+
+    @numba.njit(cache=True)
+    def _mad_k(c, r, n, j, p, out, okout, fm):
+        """MAD_p по окнам [j-p, j): отбор, среднее, две сортировки — как ветка MAD в vals, без матрицы индексов."""
+        for i in range(len(j)):
+            ji = j[i]
+            okout[i] = False
+            if ji - p < 0 or ji > n:
+                continue
+            nc = 0
+            m = 0
+            for k in range(ji - p, ji):
+                if np.isnan(c[k]):
+                    nc += 1
+                if not np.isnan(r[k]):
+                    m += 1
+            if nc > p // 2 or m < 5:
+                continue
+            V = np.empty(m)
+            q = 0
+            for k in range(ji - p, ji):
+                if not np.isnan(r[k]):
+                    V[q] = r[k]
+                    q += 1
+            if fm == 0:
+                sm = 0.0 + _pw(V, m)
+            else:
+                sm = V[0] + _pw(V[1:], m - 1)
+            X = np.sort(V - sm / m)
+            D = np.sort(np.abs(X - X[m // 2]))
+            md = D[m // 2] if m % 2 == 1 else (D[m // 2 - 1] + D[m // 2]) / 2
+            out[i] = md * 1.4826
+            okout[i] = True
 
 
 M.Series.vals = vals
