@@ -115,13 +115,38 @@ def fut_mkt(ex):
 _or = {}
 
 
+class Neg:
+    """дамп-ориентация свечей без копии словаря: (o,h,l,c,q) -> (-o,-l,-h,-c,q) на обращении (TK-439: копия всего месяца на окно стоила 11 из 70 с)"""
+    __slots__ = ("d",)
+
+    def __init__(self, d):
+        self.d = d
+
+    def __getitem__(self, m):
+        v = self.d[m]
+        return (-v[0], -v[2], -v[1], -v[3], v[4])
+
+    def get(self, m, default=None):
+        v = self.d.get(m)
+        return default if v is None else (-v[0], -v[2], -v[1], -v[3], v[4])
+
+    def __contains__(self, m):
+        return m in self.d
+
+    def __iter__(self):
+        return iter(self.d)
+
+    def __len__(self):
+        return len(self.d)
+
+
 def orient(d, s):
-    """минута -> (o,h,l,c,q) в ориентации пампа; дамп-ориентация считается один раз на словарь свечей (кэш до конца группы)"""
+    """минута -> (o,h,l,c,q) в ориентации пампа; дамп-ориентация — ленивая обёртка над словарём свечей (кэш до конца группы)"""
     if s > 0:
         return d
     k = (id(d), s)
     if k not in _or:
-        _or[k] = (d, {m: (-v[0], -v[2], -v[1], -v[3], v[4]) for m, v in d.items()})  # d в значении — id не переиспользуется
+        _or[k] = (d, Neg(d))  # d в значении — id не переиспользуется
     return _or[k][1]
 
 
