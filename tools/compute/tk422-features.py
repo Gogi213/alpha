@@ -187,6 +187,19 @@ def seq(d, a, b):
     return list(zip(ks[i:j], vs[i:j]))
 
 
+_dy = {}
+
+
+def day_ent(d, a, b):
+    """(максимум high, число минут) серии d на [a, b); None — минут нет; память на группу, очищается вместе с _sq (TK-441)"""
+    k = (id(d), a, b)
+    r = _dy.get(k)
+    if r is None or r[0] is not d:
+        sq = seq(d, a, b)
+        r = _dy[k] = (d, (max(v[1] for _, v in sq), len(sq)) if sq else None)
+    return r[1]
+
+
 def fractals(bars, k, hi=True):
     """индексы фракталов в списке bars [(m,(o,h,l,c,q))]; фрактал i подтверждён к бару i+k"""
     out = []
@@ -505,10 +518,10 @@ def features(w, roots, G):
                         F["htf_%dd_ret_N%d_T%d" % (Dd, N, T)] = ret_close(D, mpk, top, N, T, p0)
     # --- 9". дневные фракталы-хаи (k=1) за 7 суток до старта: вынос и возврат телом; недельных нет (истории < 3 нед.)
     dd = {}
-    for m, v in seq(D, ms - 7 * 1440, ms):
-        e = dd.setdefault(m // 1440, [v[1], 0])
-        e[0] = max(e[0], v[1])
-        e[1] += 1
+    for dy in range((ms - 7 * 1440) // 1440, (ms - 1) // 1440 + 1):  # сутки целиком — из памяти группы, края окна — срезом (TK-441: цикл по 10 080 минутам на окно)
+        r = day_ent(D, max(dy * 1440, ms - 7 * 1440), min(dy * 1440 + 1440, ms))
+        if r:
+            dd[dy] = [r[0], r[1]]
     dk = sorted(k for k in dd if dd[k][1] >= 1000)
     dfr = [dd[k][0] for i, k in enumerate(dk[1:-1], 1) if dk[i - 1] == k - 1 and dk[i + 1] == k + 1 and dd[k][0] > dd[dk[i - 1]][0] and dd[k][0] > dd[dk[i + 1]][0]]
     F["htf_dfr_hist_days"] = len(dk)
@@ -807,6 +820,7 @@ def work_group(a):
     _oc.clear()
     _or.clear()
     _sq.clear()
+    _dy.clear()
     _r5.clear()
     RNG[0] = None
     return res, key, time.time() - t
