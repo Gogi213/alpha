@@ -32,6 +32,7 @@ _cm = {}              # кэш memmap кубов: (куб, имя) -> (масс�
 OBR = {}       # (биржа, рынок) → корни минутных срезов стакана; чужой рынок подставлять нельзя
 LAUNCH = {}    # Bybit symbol -> launch_ms
 BASE = 1440  # минут нормы
+NEG_INF = -(1 << 62)  # нижняя граница среза sub()
 
 
 def tms(s):
@@ -249,6 +250,11 @@ def rets(d, a, b):
     """доходности закрытий соседних минут (только если обе минуты есть) -> {m: ret}; по отсортированному виду серии (TK-441: 3 поиска в словаре на минуту -> один проход)"""
     sq = seq(d, a, b)
     return {m1: v1[3] / v0[3] - 1 for (m0, v0), (m1, v1) in zip(sq, sq[1:]) if m1 == m0 + 1 and v0[3] != 0}
+
+
+def sub(r, ks, lo, hi):
+    """{m: r[m]} для m в (lo, hi]; ks = list(r) по возрастанию (TK-441: вместо прохода по всему словарю на каждую фазу)"""
+    return {m: r[m] for m in ks[bisect_right(ks, lo):bisect_right(ks, hi)]}
 
 
 def pair_corr(r1, r2, lag=0):
@@ -546,6 +552,8 @@ def features(w, roots, G):
                         F["htf_dfr_ret_N%d_T%d" % (N, T)] = ret_close(D, mpk, top, N, T, p0)
     # --- 4,12. спот и BTC: раскорреляция, базис, лидерство, SMT
     r_f = rets(D, ms - BASE, me + 1)
+    kf = list(r_f)
+    kS = kB = []
     spd = candles(croot, ex, "spot", spot_name(ex, sym)) if mk == fut_mkt(ex) else {}
     S = B = None
     r_s = r_b = {}
@@ -560,10 +568,11 @@ def features(w, roots, G):
             F["spot_minus_fut_leg_bps"] = F["spot_leg_bps"] - F["leg_bps"]
             F["spot_end_bps"] = bps(S[ms][0], S[me][3], Sp0) if me in S else None
         r_s = rets(S, ms - BASE, me + 1)
-        rw_f = {m: v for m, v in r_f.items() if ms < m <= mp}  # xcorr — только нога
-        rw_s = {m: v for m, v in r_s.items() if ms < m <= mp}
-        rb_f = {m: v for m, v in r_f.items() if m <= ms}
-        rb_s = {m: v for m, v in r_s.items() if m <= ms}
+        kS = list(r_s)
+        rw_f = sub(r_f, kf, ms, mp)  # xcorr — только нога
+        rw_s = sub(r_s, kS, ms, mp)
+        rb_f = sub(r_f, kf, NEG_INF, ms)
+        rb_s = sub(r_s, kS, NEG_INF, ms)
         c_w, n_w = pair_corr(rw_f, rw_s)
         c_b, n_b = pair_corr(rb_f, rb_s)
         F["spot_corr_win"], F["spot_corr_base"], F["spot_corr_n"] = c_w, c_b, n_w
@@ -576,8 +585,7 @@ def features(w, roots, G):
             return bps(spd[m][3], d0[m][3], abs(spd[m][3])) if m in spd and m in d0 else None
         b0, bp, b1 = basis(ms - 1), basis(mp), basis(me)
         F["basis_pre_bps"], F["basis_peak_bps"], F["basis_end_bps"] = b0, bp, b1
-        bb = [basis(m) for m in range(ms - BASE, ms)]
-        bb = [x for x in bb if x is not None]
+        bb = [bps(spd[m][3], d0[m][3], abs(spd[m][3])) for m in range(ms - BASE, ms) if m in spd and m in d0]  # = basis(m) без None
         bmed = med(bb)
         F["basis_base_med_bps"] = bmed
         F["basis_peak_vs_base_bps"] = (bp - bmed) if bp is not None and bmed is not None else None
@@ -595,10 +603,11 @@ def features(w, roots, G):
     if btc:
         B = orient(btc, s)
         r_b = rets(B, ms - BASE, me + 1)
-        rw = {m: v for m, v in r_f.items() if ms < m <= me}
-        rbb = {m: v for m, v in r_f.items() if m <= ms}
-        cw, _ = pair_corr(rw, {m: v for m, v in r_b.items() if ms < m <= me})
-        cb, _ = pair_corr(rbb, {m: v for m, v in r_b.items() if m <= ms})
+        kB = list(r_b)
+        rw = sub(r_f, kf, ms, me)
+        rbb = sub(r_f, kf, NEG_INF, ms)
+        cw, _ = pair_corr(rw, sub(r_b, kB, ms, me))
+        cb, _ = pair_corr(rbb, sub(r_b, kB, NEG_INF, ms))
         F["btc_corr_win"], F["btc_corr_base"] = cw, cb
         F["btc_decorr"] = (cb - cw) if cw is not None and cb is not None else None
         if ms in B and me in B:
@@ -696,27 +705,24 @@ def features(w, roots, G):
         r = at_or_before(oi, t) if oi else None
         return r[1].get("open_interest") if r and t - r[0] <= 900000 and r[1].get("open_interest") else None
 
-    def basis2(m):
-        return bps(spd[m][3], d0[m][3], abs(spd[m][3])) if m in spd and m in d0 else None
-
     for ph, (a_, b_) in PH.items():
         if b_ < a_:
             continue
-        rf = {m: v for m, v in r_f.items() if a_ < m <= b_}
+        rf = sub(r_f, kf, a_, b_)
         if spd and S is not None:
-            rs = {m: v for m, v in r_s.items() if a_ < m <= b_}
+            rs = sub(r_s, kS, a_, b_)
             F["spot_corr_" + ph], _ = pair_corr(rf, rs)
             ss = seq(S, a_, b_ + 1)
             if ss:
                 F["spot_ret_bps_" + ph] = bps(ss[0][1][0], ss[-1][1][3], abs(spd[ss[0][0]][0]))
                 if F.get("ret_bps_" + ph) is not None:
                     F["spot_gap_bps_" + ph] = F["spot_ret_bps_" + ph] - F["ret_bps_" + ph]
-            bsv = [x for x in (basis2(m) for m in range(a_, b_ + 1)) if x is not None]
+            bsv = [bps(spd[m][3], d0[m][3], abs(spd[m][3])) for m in range(a_, b_ + 1) if m in spd and m in d0]  # = basis2(m) без None
             F["basis_mean_bps_" + ph] = sum(bsv) / len(bsv) if bsv else None
             if bsv and F.get("basis_base_med_bps") is not None:
                 F["basis_vs_base_bps_" + ph] = F["basis_mean_bps_" + ph] - F["basis_base_med_bps"]
         if btc and B is not None:
-            F["btc_corr_" + ph], _ = pair_corr(rf, {m: v for m, v in r_b.items() if a_ < m <= b_})
+            F["btc_corr_" + ph], _ = pair_corr(rf, sub(r_b, kB, a_, b_))
             bb_ = seq(B, a_, b_ + 1)
             if bb_:
                 F["btc_ret_bps_" + ph] = bps(bb_[0][1][0], bb_[-1][1][3], abs(btc[bb_[0][0]][0]))
