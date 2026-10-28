@@ -4,12 +4,14 @@
   tk435-windows.py events <корень свечей> <l4v8.json|-> <art.json|-> <выход-каталог> [--procs 15] [--ym 2026-09]
         [--t0 ГГГГ-ММ-ДД --t1 ГГГГ-ММ-ДД] [--x 5,10,20,30 | q99] [--xq xq.json] [--d 90,180,360,720,1440] [--limit N]
   tk435-windows.py quant <hist.json> <xq.json>      квантили q98/q99/q99,5 |хода| по D и знаку из гистограммы (X протокола v11)
-Окно монеты: close 1 м; для конца j ход вверх = close[j] / min(close[j−D..j]) − 1 (low раньше high), вниз = max/close − 1 (≥ 0 по модулю).
+Окно монеты: close 1 м; для конца j старт i ∈ [j−D, j−90], т. е. длительность j−i ∈ [90 мин; D] по построению (быстрее 90 мин — не
+событие); ход вверх = close[j] / min(close[j−D..j−90]) − 1 (low раньше high), вниз = 1 − close[j] / max(close[j−D..j−90]) (= 1 − min/max); меньше 0 → 0.
 Событие на (X, D, знак): жадно по ходу (убывание), непересекающиеся интервалы [старт, конец] внутри инструмента; один интервал —
 одно событие (склейка смежных окон одного хода). E1 имя с плечом; E2 минуты артефактов (art.json) не читаются; E3 пересечение
-с рыночным периодом L4 v8 своего знака; E4 фитиль: ≥ 50 % хода возвращается за ≤ 15 мин после пика (порог TK-421). Кластер по
-монете×знак×(X,D) через рынки/биржи, представитель — наибольший оборот окна. Гистограмма |хода| всех окон (без плечевых имён) —
-hist-<ym>.json (по ней `quant`). Ребалансы TK-431 и пары памп→дамп здесь не размечены."""
+с рыночным периодом L4 v8 своего знака; E4 фитиль: ≥ 50 % хода возвращается за ≤ 15 мин после пика (порог TK-421). Пара (как
+tk433-legs (а)): событие вверх и вниз того же инструмента и (X, D), пик первого = старт второго → «памп→дамп:памп/дамп», иначе
+«одиночная». Кластер по монете×знак×(X,D) через рынки/биржи, представитель — наибольший оборот окна. Гистограмма |хода| всех
+окон (без плечевых имён) — hist-<ym>.json (по ней `quant`). Ребалансы TK-431 здесь не размечены."""
 import argparse
 import csv
 import importlib.util
@@ -31,6 +33,7 @@ ev = importlib.util.module_from_spec(sp)
 sp.loader.exec_module(ev)
 mv, MIN = ev.mv, ev.MIN
 LEV = re.compile(r"(\d+[LS]|BULL|BEAR|UP|DOWN)(_?USDT?|_?USD)?$")
+MIN_DUR = 90                          # мин: тренд ≥ 1,5 ч (число владельца, В-57); старт окна не ближе MIN_DUR к концу
 WICK_MIN, WICK_FRAC = 15, 0.5         # TK-421: ход возвращается ≥ 50 % за ≤ 15 мин после пика
 EDGES = np.concatenate([np.linspace(0, 1, 2001)[:-1], np.linspace(1, 50, 491)])
 PER = {}
@@ -50,26 +53,33 @@ def day_ms(s):
 
 
 def moves(cc, W):
-    """(up, dn, mn, mx): ход вверх/вниз по концу окна j для окна D=W мин; NaN где закрытия нет."""
+    """(up, dn, lo, hi): ход вверх c[j]/min−1 и вниз 1−c[j]/max по концу j, старт ∈ [j−W, j−MIN_DUR] (длительность ≥ MIN_DUR по
+    построению); отрицательный ход → 0; NaN, где закрытия нет или в окне старта нет ни одной свечи."""
     n = len(cc)
+    L = W - MIN_DUR + 1                       # ширина окна старта [j−W, j−MIN_DUR]
     lo = np.where(np.isnan(cc), np.inf, cc)
     hi = np.where(np.isnan(cc), -np.inf, cc)
-    pad = np.full(W, np.inf)
-    mn = swv(np.concatenate([pad, lo]), W + 1).min(axis=1)
-    mx = swv(np.concatenate([-pad, hi]), W + 1).max(axis=1)
-    up = np.where(np.isnan(cc), np.nan, cc / mn - 1)
-    dn = np.where(np.isnan(cc), np.nan, mx / cc - 1)
+    pad = np.full(L - 1, np.inf)
+    rmn = swv(np.concatenate([pad, lo]), L).min(axis=1)       # rmn[e] = min close[e−L+1..e]
+    rmx = swv(np.concatenate([-pad, hi]), L).max(axis=1)
+    mn = np.concatenate([np.full(MIN_DUR, np.inf), rmn[:n - MIN_DUR]])[:n]
+    mx = np.concatenate([np.full(MIN_DUR, -np.inf), rmx[:n - MIN_DUR]])[:n]
+    bad = np.isnan(cc) | ~np.isfinite(mn)
+    with np.errstate(invalid="ignore"):
+        up = np.where(bad, np.nan, np.maximum(cc / mn - 1, 0))
+        dn = np.where(bad, np.nan, np.maximum(1 - cc / mx, 0))
     return up, dn, lo, hi
 
 
 def starts(src, js, W, sgn):
-    """индекс старта (argmin/argmax окна [j−W, j]) для концов js; src — lo (для вверх) или hi (для вниз) без паддинга."""
-    pad = np.full(W, np.inf if sgn > 0 else -np.inf)
-    v = swv(np.concatenate([pad, src]), W + 1)
+    """индекс старта (argmin/argmax окна [j−W, j−MIN_DUR]) для концов js; src — lo (для вверх) или hi (для вниз) без паддинга."""
+    L = W - MIN_DUR + 1
+    pad = np.full(L - 1, np.inf if sgn > 0 else -np.inf)
+    v = swv(np.concatenate([pad, src]), L)
     out = np.empty(len(js), dtype=np.int64)
     for a in range(0, len(js), 2000):
         blk = js[a:a + 2000]
-        w = v[blk]
+        w = v[blk - MIN_DUR]
         out[a:a + 2000] = blk - W + (w.argmin(axis=1) if sgn > 0 else w.argmax(axis=1))
     return out
 
@@ -170,6 +180,7 @@ def main():
     if a.t0:
         t0, t1 = day_ms(a.t0), day_ms(a.t1)
     CFG["d"] = [int(v) for v in a.d.split(",")]
+    assert all(D >= MIN_DUR for D in CFG["d"]), "D < %d мин" % MIN_DUR
     if a.x.startswith("q"):
         xq = json.load(open(a.xq))
         CFG["x"] = {(D, s): [xq["%d|%s" % (D, "+" if s > 0 else "-")][a.x] / 100] for D in CFG["d"] for s in (1, -1)}
@@ -196,6 +207,15 @@ def main():
         r["E3"] = int(any(p <= r["t_peak_ms"] and q >= r["t_start_ms"] for p, q in PER.get((r["sub"], sg), [])))
         r["исключено"] = ",".join(k for k in ("E1", "E3", "E4") if r[k])
     rows.sort(key=lambda r: (r["D"], r["X"], r["sub"], r["инструмент"], r["t_start_ms"]))
+    peaks = {}
+    for r in rows:
+        r["пара"] = "одиночная"
+        if r["знак"] == "+":
+            peaks[(r["sub"], r["инструмент"], r["X"], r["D"], r["t_peak_ms"])] = r
+    for r in rows:
+        pu = peaks.get((r["sub"], r["инструмент"], r["X"], r["D"], r["t_start_ms"])) if r["знак"] == "-" else None
+        if pu is not None:
+            pu["пара"], r["пара"] = "памп→дамп:памп", "памп→дамп:дамп"
     by = defaultdict(list)
     for r in rows:
         if not r["исключено"]:
@@ -214,7 +234,7 @@ def main():
             if r is not None:
                 cur.append(r)
                 end = max(end, r["t_peak_ms"])
-    cols = ["кластер", "представитель", "рынков_в_кластере", "X", "D", "биржа", "рынок", "инструмент", "монета", "знак",
+    cols = ["кластер", "представитель", "рынков_в_кластере", "X", "D", "биржа", "рынок", "инструмент", "монета", "знак", "пара",
             "t_start_ms", "t_peak_ms", "t_end_ms", "длит_мин", "ход_%", "оборот", "минут_со_свечой", "E1", "E3", "E4", "исключено"]
     tag = a.ym if not a.t0 else "%s_%s" % (a.t0, a.t1)
     with open(os.path.join(a.out, "windows-%s.csv" % tag), "w", newline="", encoding="utf-8") as f:
@@ -229,6 +249,7 @@ def main():
         fun[k]["после E1,E3"] += not (r["E1"] or r["E3"])
         fun[k]["после E1,E3,E4"] += not r["исключено"]
         fun[k]["представителей"] += r.get("представитель", 0)
+        fun[k]["в парах памп→дамп"] += r["пара"] != "одиночная"
     json.dump({k: dict(v) for k, v in fun.items()}, open(os.path.join(a.out, "funnel-%s.json" % tag), "w"), ensure_ascii=False, indent=1)
     json.dump({"hist": {"%d|%s" % (D, "+" if s > 0 else "-"): v.tolist() for (D, s), v in hist.items()}, "edges": "linspace(0,1,2001)[:-1]+linspace(1,50,491)"},
               open(os.path.join(a.out, "hist-%s.json" % tag), "w"))
