@@ -206,6 +206,16 @@ def main(cube, ym, outd, xjson):
         x90 = [xu, xd]
         json.dump(x90, open(xjson, "w"))
     F, nz = build(c, h, l, q, qs, sy, lo, ts, x90)
+    if os.environ.get("TK447_EXTRA"):  # п.6: фандинг / lsr / ликвидации (tk447-fund.py)
+        sp = importlib.util.spec_from_file_location("fund", os.environ["TK447_EXTRA"])
+        fm = importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(fm)
+        F = fm.extra(sy, lo, ts, q, ym)
+        nz = nz & np.ones_like(nz)
+        F = {**F}
+        if os.environ.get("TK447_EXTRA_ONLY") != "1":
+            F0, _ = build(c, h, l, q, qs, sy, lo, ts, x90)
+            F = {**F0, **F}
     LB = labels(c, ts, nz, ym)
     names = list(F)
     np.save(f"{outd}/{ym}.f.npy", np.stack([F[k] for k in names]))
