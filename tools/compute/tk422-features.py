@@ -905,7 +905,11 @@ def work_group(a):
             F = features(w, roots, G)
             have = F.get("_have", {})
             hist7 = F.get("data_age_days", 0) >= 7  # календарь: первая свеча данных ≤ старт − 7 сут (не доля минут)
-            res.append((i, w, add_cov(rename(F), have, hist7)))
+            Fr = add_cov(rename(F), have, hist7)
+            sp = int(Fr.get("spot_present") or 0)
+            Fr = {k: (v if k == "_cov" else fnum(v)) for k, v in Fr.items()}  # TK-441: формат ячеек в воркере, не в главном
+            Fr["_sp"] = sp
+            res.append((i, w, Fr))
         except Exception as e:  # окно не должно ронять прогон
             res.append((i, w, {"na": "ошибка: %s" % repr(e)[:150]}))
     for k in [k for k in _cc if k[2] not in ("BTCUSDT", "BTC_USDT")]:
@@ -993,26 +997,33 @@ def main():
     kd = {}  # порядок первого появления; dict вместо поиска по списку (TK-441: 15 из 35 с серийного хвоста)
     for _, _, F in res:
         for k in F:
-            if k not in kd and k != "_cov":
+            if k not in kd and k != "_cov" and k != "_sp":
                 kd[k] = None
     keys = list(kd)
     tk("ключи")
     # признак, которого в окне не вычислялось вовсе (нет источника/условие не выполнено), тоже получает cov_
     cand = [k for k in keys if not k.startswith("cov_") and not SERVICE.match(k)]  # один раз, не на окно
+    meta = [("cov_" + k, next((n for pat, n in SRC if re.match(pat, k)), "candle"), k.startswith(("htf_7d", "htf_dfr")), bool(STRUCT.match(k))) for k in cand]
+    cov_sig = {}  # cov_of(k, None, have, hist7) зависит только от (have, hist7): таблица один раз на сочетание
     for _, _, F in res:
         if "na" in F:
             continue
         have, hist7 = F.get("_cov", ({}, False))
-        for k in cand:
-            if "cov_" + k not in F:
-                F["cov_" + k] = cov_of(k, None, have, hist7)
+        sg = (tuple(sorted(have.items())), hist7)
+        tb = cov_sig.get(sg)
+        if tb is None:
+            tb = cov_sig[sg] = [(ck, "нет_данных" if (not have.get(src, True) or (h7 and not hist7)) else ("не_применимо" if st else "нет_данных"))
+                                for ck, src, h7, st in meta]
+        for ck, v in tb:
+            if ck not in F:
+                F[ck] = v
     tk("cov")
     base = ["id", "биржа", "рынок", "инструмент", "t_start_ms", "t_peak_ms", "t_end_ms"]
     with open(outp, "w", newline="", encoding="utf-8") as g:
         wr = csv.writer(g)
         wr.writerow(base + keys)
         for _, w, F in res:
-            wr.writerow([w["id"], w["ex"], w["mk"], w["sym"], w["t0"], w["tp"], w["t1"]] + [fnum(F.get(k)) for k in keys])
+            wr.writerow([w["id"], w["ex"], w["mk"], w["sym"], w["t0"], w["tp"], w["t1"]] + [F.get(k, "") for k in keys])
     tk("csv записан")
     # таблица пар фьючерс↔спот и ряд BTC (правка 4)
     pr = {}
@@ -1020,7 +1031,7 @@ def main():
         k = (w["ex"], w["mk"], w["sym"])
         e = pr.setdefault(k, [0, 0, 0])
         e[0] += 1
-        e[1] += int(F.get("spot_present") or 0)
+        e[1] += F.get("_sp", 0)
         e[2] += int(F.get("cov_btc_corr_leg") == "ok")
     with open(outp + ".pairs.csv", "w", newline="", encoding="utf-8") as g:
         wr = csv.writer(g)
