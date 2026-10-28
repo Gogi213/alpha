@@ -60,13 +60,15 @@ MC = (("m07", "C1", "июль"), ("aug", "C2", "август"), ("sep", "C3", "�
 
 def lines(a_, grp, thr, col="подъём", title="", xl="порог"):
     P = grp.pivot_table(index=thr, columns="мес", values=col)
+    N = grp.pivot_table(index=thr, columns="мес", values="срабат")
+    P = P.where(N.reindex_like(P) > 0)  # срабатываний нет = разрыв линии, не нулевой подъём
     tr = P[[m for m in TRAIN if m in P]]
     a_.fill_between(P.index, tr.min(axis=1), tr.max(axis=1), color="0.85", label="янв–июнь мин–макс")
     a_.plot(P.index, tr.median(axis=1), "k", lw=1.5, label="янв–июнь медиана")
     for m, c, nm in MC:
         if m in P:
             a_.plot(P.index, P[m], c, lw=1.3, label=nm)
-    a_.set_xscale("log"); a_.set_title(title, fontsize=9); a_.set_xlabel(xl); a_.set_ylabel(col); a_.legend(fontsize=6)
+    a_.set_xscale("log"); a_.set_title(title, fontsize=9); a_.set_xlabel(xl); a_.set_ylabel("ср. возврат, б.п." if title.startswith("A4") else col); a_.legend(fontsize=6)
 
 
 curve("A1", fam("A1"), ["сигнал", "D"], "порог", "", None)
