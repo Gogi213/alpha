@@ -6,7 +6,7 @@ import sys, re
 import numpy as np, pandas as pd
 
 B, SEED, K = 4000, 433, 135
-TRD = ["K5_fade", "K6_delta", "K6_int", "K7_retest", "K4_fade", "K8_diff"]  # из tk433-trades.py (необязательно)
+TRD = ["K5_fade", "K6_delta", "K6_int", "K7_retest", "K4_fade", "K8_diff", "K2_pre", "K2_post"]  # из tk433-trades.py (необязательно)
 GRID = [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
 
 
