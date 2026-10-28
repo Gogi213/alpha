@@ -21,10 +21,10 @@ def oi(ex, sym):
         else:
             T, V = [], []
             with gzip.open(fn, "rt") as f:
-                f.readline()
+                ci = f.readline().rstrip("\n").split(",").index("open_interest")  # E-007: у Gate колонка 1 = lsr_taker
                 for ln in f:
-                    q = ln.split(",", 2)
-                    v = float(q[1])
+                    q = ln.split(",", ci + 1)
+                    v = float(q[ci])
                     if v > 0:
                         T.append(int(q[0]))
                         V.append(v)
