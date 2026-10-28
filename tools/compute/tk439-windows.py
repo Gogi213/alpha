@@ -64,4 +64,24 @@ w.moves, w.starts = moves, starts
 
 if __name__ == "__main__":
     _win(np.zeros(4), 2, 1, 1)             # компиляция/загрузка кэша до fork
+    if os.environ.get("TK441_T"):          # метки времени этапов main() в stderr (TK-441: хвост после пула), вывод не меняется
+        import csv as _csv
+        import time
+        _T0 = time.time()
+        _pr = print
+
+        def _tp(*a, **k):
+            sys.stderr.write(("T %.2f" % (time.time() - _T0)) + chr(10))
+            _pr(*a, **k)
+
+        class _DW(_csv.DictWriter):
+            def writerows(self, rows):
+                t = time.time()
+                super().writerows(rows)
+                sys.stderr.write(("T writerows %.2f с" % (time.time() - t)) + chr(10))
+
+        class _CSV:
+            DictWriter = _DW
+
+        w.print, w.csv = _tp, _CSV
     w.main()
