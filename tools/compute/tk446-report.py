@@ -34,7 +34,7 @@ def pick(x, keys, thr):
     return g.min(axis=1).sort_values(ascending=False)
 
 
-fig, ax = plt.subplots(2, 2, figsize=(14, 9))
+fig, ax = plt.subplots(2, 3, figsize=(18, 9))
 def curve(axis, x, keys, thr, title, a_):
     sel = []
     for k, grp in x.groupby(keys):
@@ -44,46 +44,53 @@ def curve(axis, x, keys, thr, title, a_):
             continue
         best = sc.index[0]
         sel.append((k, best, sc.iloc[0]))
-        row = {"ось": axis, "семья": "|".join(map(str, k)), "порог": best, "min_lo_янв-июнь": round(sc.iloc[0], 3)}
+        med = grp[grp.мес.isin(TRAIN)].groupby(thr).подъём.median()
+        row = {"ось": axis, "семья": "|".join(map(str, k)), "порог": best, "min_lo_янв-июнь": round(sc.iloc[0], 3),
+               "пик_по_медиане_янв-июнь": f"×{med.idxmax():.4g} (подъём {med.max():.1f})", "конец_сетки": round(float(grp[thr].max()), 3)}
         for m in TEST + TRAIN:
             r = grp[(grp.мес == m) & (np.isclose(grp[thr], best))]
             if len(r):
                 r = r.iloc[0]
                 row[MON[m]] = f"{r.подъём:.2f} [{r.подъём_lo:.2f};{r.подъём_hi:.2f}] т={r.точность:.4f} n={int(r.срабат)} ({r.срабат_в_сутки_на_монету:.3g}/сут/мон)"
         out_rows.append(row)
-    for k, grp in x.groupby(keys):
-        k = k if isinstance(k, tuple) else (k,)
-        med = grp[grp.мес.isin(TRAIN)].groupby(thr).подъём.median()
-        a_.plot(med.index, med.values, lw=1, alpha=.5, label="/".join(map(str, k)) + " янв–июнь мед.")
-        for m, c in (("m07", "C1"), ("aug", "C2"), ("sep", "C3")):
-            g = grp[grp.мес == m].sort_values(thr)
-            a_.plot(g[thr], g.подъём, c, lw=.7, alpha=.6)
-    a_.set_xscale("log"); a_.set_title(title); a_.set_xlabel("порог"); a_.set_ylabel("подъём к базе")
 
 
-curve("A1", fam("A1"), ["сигнал", "D"], "порог", "A1 оборот к норме (цвета: июль/авг/сент.)", ax[0, 0])
-curve("A2", fam("A2"), ["D"], "порог", "A2 волатильность к норме", ax[0, 1])
-# A3: порог = (D,q)
+MC = (("m07", "C1", "июль"), ("aug", "C2", "август"), ("sep", "C3", "сент."))
+
+
+def lines(a_, grp, thr, col="подъём", title="", xl="порог"):
+    P = grp.pivot_table(index=thr, columns="мес", values=col)
+    tr = P[[m for m in TRAIN if m in P]]
+    a_.fill_between(P.index, tr.min(axis=1), tr.max(axis=1), color="0.85", label="янв–июнь мин–макс")
+    a_.plot(P.index, tr.median(axis=1), "k", lw=1.5, label="янв–июнь медиана")
+    for m, c, nm in MC:
+        if m in P:
+            a_.plot(P.index, P[m], c, lw=1.3, label=nm)
+    a_.set_xscale("log"); a_.set_title(title, fontsize=9); a_.set_xlabel(xl); a_.set_ylabel(col); a_.legend(fontsize=6)
+
+
+curve("A1", fam("A1"), ["сигнал", "D"], "порог", "", None)
+curve("A2", fam("A2"), ["D"], "порог", "", None)
+lines(ax[0, 0], fam("A1").query("сигнал=='q15' and D==90"), "порог", title="A1 оборот 15 м к норме, D=90: подъём", xl="кратность оборота")
+lines(ax[0, 1], fam("A2").query("D==90"), "порог", title="A2 σ1м к норме, D=90: подъём", xl="кратность σ")
 x3 = fam("A3").copy(); x3["Dq"] = x3.D.astype(str) + "/" + x3.q.astype(str)
 sc3 = pick(x3, [], "Dq")
 b3 = sc3.index[0]
+bD, bq = b3.split("/"); bD, bq = int(bD), float(bq)
 row = {"ось": "A3", "семья": "S10", "порог": "D/q=" + b3, "min_lo_янв-июнь": round(sc3.iloc[0], 3)}
 for m in TEST + TRAIN:
     r = x3[(x3.мес == m) & (x3.Dq == b3)].iloc[0]
     row[MON[m]] = f"{r.подъём:.2f} [{r.подъём_lo:.2f};{r.подъём_hi:.2f}] т={r.точность:.4f} n={int(r.срабат)}"
 out_rows.append(row)
-for q, grp in x3.groupby("q"):
-    med = grp[grp.мес.isin(TRAIN)].groupby("D").подъём.median()
-    ax[1, 0].plot(med.index, med.values, label=f"q{q} янв–июнь мед.")
-    s = grp[grp.мес == "sep"].sort_values("D"); ax[1, 0].plot(s.D, s.подъём, ":", alpha=.6)
-ax[1, 0].set_xscale("log"); ax[1, 0].set_title("A3 длительность хода D × квантиль (пунктир — сент.)"); ax[1, 0].legend(fontsize=6)
+lines(ax[0, 2], x3[x3.q == bq], "D", title=f"A3 S10: подъём по D мин при q{bq}", xl="D, мин")
+lines(ax[1, 0], x3[x3.D == bD], "q", title=f"A3 S10: подъём по квантилю хода при D={bD}", xl="q, %")
+ax[1, 0].set_xscale("linear")
 # A4: горизонт
 a4 = d[(d.ось == "A4") & d.сигнал.str.startswith("S10:r60")].copy()
 for sgl, grp in a4.groupby("сигнал"):
     P = grp.pivot_table(index="порог", columns="мес", values="точность")
     LO = grp.pivot_table(index="порог", columns="мес", values="подъём_lo")
     HI = grp.pivot_table(index="порог", columns="мес", values="подъём_hi")
-    pr, hi_ = P[TRAIN], HI[TRAIN]
     hc = LO[TRAIN].dropna().min(axis=1).idxmax()          # продолжение
     hr = (-HI[TRAIN]).dropna().min(axis=1).idxmax()        # откат
     for nm, h in (("продолжение", hc), ("откат", hr)):
@@ -93,10 +100,9 @@ for sgl, grp in a4.groupby("сигнал"):
             r = grp[(grp.мес == m) & (grp.порог == h)].iloc[0]
             row[MON[m]] = f"ср.{r.точность:+.1f}б.п. [{r.подъём_lo:+.1f};{r.подъём_hi:+.1f}] n={int(r.срабат)}"
         out_rows.append(row)
-    ax[1, 1].plot(P.index, P[TRAIN].median(axis=1), label=sgl + " янв–июнь мед.")
-    ax[1, 1].plot(P.index, P["sep"], ":", label=sgl + " сент.")
-ax[1, 1].axhline(0, c="k", lw=.5); ax[1, 1].set_xscale("log"); ax[1, 1].set_title("A4 ср. направленный возврат (б.п.) за горизонт, мин"); ax[1, 1].legend(fontsize=6)
-ax[0, 0].legend(fontsize=5)
+    a_ = ax[1, 1] if sgl.endswith(">0") else ax[1, 2]
+    lines(a_, grp, "порог", col="точность", title=f"A4 {sgl}: ср. направл. возврат б.п. за горизонт", xl="горизонт, мин")
+    a_.axhline(0, c="k", lw=.5)
 plt.tight_layout(); plt.savefig(outp + ".png", dpi=110)
 pd.DataFrame(out_rows).to_csv(outp + "-selected.csv", index=False)
 d.to_csv(outp + "-all.csv", index=False)
