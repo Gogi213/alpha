@@ -20,6 +20,7 @@ import math
 import os
 import re
 import sys
+from bisect import bisect_right
 from collections import defaultdict
 from datetime import datetime, timezone
 from multiprocessing import Pool
@@ -53,6 +54,18 @@ def day_ms(s):
     return int(datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
 
 
+def roll(x, L, f, ident):
+    """f-свёртка (min/max) окна [e−L+1, e] за O(n): ван Херк — префиксы/суффиксы по блокам длины L; значения те же, что у swv(...).min()."""
+    n = len(x)
+    k = -(-(n + L - 1) // L)
+    p = np.full(k * L, ident)
+    p[L - 1:L - 1 + n] = x
+    b = p.reshape(k, L)
+    g = f.accumulate(b, axis=1).ravel()
+    h = f.accumulate(b[:, ::-1], axis=1)[:, ::-1].ravel()
+    return f(h[:n], g[L - 1:L - 1 + n])
+
+
 def moves(cc, W):
     """(up, dn, lo, hi): ход вверх c[j]/min−1 и вниз 1−c[j]/max по концу j, старт ∈ [j−W, j−MIN_DUR] (длительность ≥ MIN_DUR по
     построению); отрицательный ход → 0; NaN, где закрытия нет или в окне старта нет ни одной свечи."""
@@ -60,9 +73,8 @@ def moves(cc, W):
     L = W - MIN_DUR + 1                       # ширина окна старта [j−W, j−MIN_DUR]
     lo = np.where(np.isnan(cc), np.inf, cc)
     hi = np.where(np.isnan(cc), -np.inf, cc)
-    pad = np.full(L - 1, np.inf)
-    rmn = swv(np.concatenate([pad, lo]), L).min(axis=1)       # rmn[e] = min close[e−L+1..e]
-    rmx = swv(np.concatenate([-pad, hi]), L).max(axis=1)
+    rmn = roll(lo, L, np.minimum, np.inf)       # rmn[e] = min close[e−L+1..e]
+    rmx = roll(hi, L, np.maximum, -np.inf)
     mn = np.concatenate([np.full(MIN_DUR, np.inf), rmn[:n - MIN_DUR]])[:n]
     mx = np.concatenate([np.full(MIN_DUR, -np.inf), rmx[:n - MIN_DUR]])[:n]
     bad = np.isnan(cc) | ~np.isfinite(mn)
@@ -143,27 +155,32 @@ def one(arg):
             js = np.nonzero(ok & (mvv >= xmin))[0]
             if not len(js):
                 continue
-            ist = starts(src, js, D, sgn)
+            ist = np.maximum(starts(src, js, D, sgn), 0)
             order = np.argsort(-mvv[js], kind="stable")
+            jo, io, vo = js[order].tolist(), ist[order].tolist(), mvv[js][order].tolist()
+            # жадно по убыванию хода: решение по кандидату зависит только от прежних, поэтому приёмы при X — префикс (ход ≥ X) приёмов
+            # при минимальном X; один проход вместо одного на X. Занятое — непересекающиеся отрезки, проверка пересечения — bisect
+            sts, ens, acc = [], [], []
+            for j, i, v in zip(jo, io, vo):
+                if v < xmin:
+                    break
+                p = bisect_right(sts, j)
+                if p and ens[p - 1] >= i:
+                    continue
+                sts.insert(p, i)
+                ens.insert(p, j)
+                ret = cc[j] - (cc[j] - cc[i]) * WICK_FRAC
+                post = cc[j + 1:j + 1 + WICK_MIN]
+                post = post[~np.isnan(post)]
+                wick = int(len(post) > 0 and (post.min() <= ret if sgn > 0 else post.max() >= ret))
+                ts, tp = (base + i) * MIN, (base + j) * MIN
+                acc.append((v, {"D": D, "биржа": ex, "рынок": mk, "sub": sub, "инструмент": sym, "монета": coin(sym),
+                                "знак": "+" if sgn > 0 else "-", "t_start_ms": ts, "t_peak_ms": tp, "t_end_ms": tp + MIN,
+                                "длит_мин": j - i, "ход_%": round(float(v) * 100, 3), "E1": int(lev), "E4": wick,
+                                "оборот": round(float(cq[j + 1] - cq[i]), 2),
+                                "минут_со_свечой": int((~np.isnan(cc[i:j + 1])).sum())}))
             for X in xl:
-                occ = np.zeros(n, dtype=bool)
-                for k in order:
-                    if mvv[js[k]] < X:
-                        break
-                    i, j = max(int(ist[k]), 0), int(js[k])
-                    if occ[i:j + 1].any():
-                        continue
-                    occ[i:j + 1] = True
-                    ret = cc[j] - (cc[j] - cc[i]) * WICK_FRAC
-                    post = cc[j + 1:j + 1 + WICK_MIN]
-                    post = post[~np.isnan(post)]
-                    wick = int(len(post) > 0 and (post.min() <= ret if sgn > 0 else post.max() >= ret))
-                    ts, tp = (base + i) * MIN, (base + j) * MIN
-                    rows.append({"X": X, "D": D, "биржа": ex, "рынок": mk, "sub": sub, "инструмент": sym, "монета": coin(sym),
-                                 "знак": "+" if sgn > 0 else "-", "t_start_ms": ts, "t_peak_ms": tp, "t_end_ms": tp + MIN,
-                                 "длит_мин": j - i, "ход_%": round(float(mvv[j]) * 100, 3), "E1": int(lev), "E4": wick,
-                                 "оборот": round(float(cq[j + 1] - cq[i]), 2),
-                                 "минут_со_свечой": int((~np.isnan(cc[i:j + 1])).sum())})
+                rows += [dict(r, X=X) for v, r in acc if v >= X]
     return rows, hist
 
 
