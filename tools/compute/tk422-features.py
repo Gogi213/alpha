@@ -201,15 +201,16 @@ def day_ent(d, a, b):
 
 
 def fractals(bars, k, hi=True):
-    """индексы фракталов в списке bars [(m,(o,h,l,c,q))]; фрактал i подтверждён к бару i+k"""
+    """индексы фракталов в списке bars [(m,(o,h,l,c,q))]; фрактал i подтверждён к бару i+k (TK-441: колонка high/low списком, срезы вместо индексов)"""
     out = []
     j = 1 if hi else 2
+    xs = [b[1][j] for b in bars]
     for i in range(k, len(bars) - k):
-        v = bars[i][1][j]
+        x = xs[i]
         if hi:
-            ok = all(bars[i][1][1] > bars[i + t][1][1] and bars[i][1][1] > bars[i - t][1][1] for t in range(1, k + 1))
+            ok = all(x > y for y in xs[i - k : i]) and all(x > y for y in xs[i + 1 : i + k + 1])
         else:
-            ok = all(bars[i][1][2] < bars[i + t][1][2] and bars[i][1][2] < bars[i - t][1][2] for t in range(1, k + 1))
+            ok = all(x < y for y in xs[i - k : i]) and all(x < y for y in xs[i + 1 : i + k + 1])
         if ok:
             out.append(i)
     return out
@@ -221,8 +222,11 @@ def bps(a, b, p0):
 
 def ret_close(d, mp, level, N, T, p0):
     """после пика mp: есть ли закрытие ниже level на T bps в течение N минут"""
+    thr = level - T / 1e4 * p0
+    g = d.get
     for m in range(mp + 1, mp + N + 1):
-        if m in d and d[m][3] <= level - T / 1e4 * p0:
+        v = g(m)
+        if v is not None and v[3] <= thr:
             return 1
     return 0
 
@@ -277,8 +281,15 @@ def _read_5m(fn, cols):
     return out
 
 
+_ak = {}
+
+
 def at_or_before(arr, t):
-    i = bisect_right([a[0] for a in arr], t) - 1
+    """последний элемент arr с ключом <= t; список ключей — один раз на массив (TK-441; arr в значении — id не переиспользуется)"""
+    e = _ak.get(id(arr))
+    if e is None or e[0] is not arr or e[1] != len(arr):
+        e = _ak[id(arr)] = (arr, len(arr), [a[0] for a in arr])
+    i = bisect_right(e[2], t) - 1
     return arr[i] if i >= 0 else None
 
 
@@ -604,7 +615,7 @@ def features(w, roots, G):
                 F["smt_btc_H%d_coin_swept" % H], F["smt_btc_H%d_btc_swept" % H] = c_sw, b_sw
                 F["smt_btc_H%d_diverge" % H] = int(c_sw != b_sw)
     oi = fu = tr = None
-    buy = sel = {}
+    dd = tt_ = {}
     # --- OI / фандинг / ликвидности
     if ex == "bybit" and mk == "linear":
         oi = read_5m("%s/bybit/oi/%s.csv.gz" % (oroot, sym), ["open_interest"])
@@ -646,18 +657,20 @@ def features(w, roots, G):
         tr = trades_min(troot, sym, mpre, me)
         F["trades_present"] = int(tr is not None)
         if tr:
-            buy = {m: (v[0] if s > 0 else v[1]) for m, v in tr.items()}  # агрессор «по ходу»
-            sel = {m: (v[1] if s > 0 else v[0]) for m, v in tr.items()}
-            dl = sum(buy.get(m, 0) - sel.get(m, 0) for m in range(ms, mp + 1))
-            tl = sum(buy.get(m, 0) + sel.get(m, 0) for m in range(ms, mp + 1))
+            ib, isl = (0, 1) if s > 0 else (1, 0)  # агрессор «по ходу»: buy = v[ib], sel = v[isl]; минуты без сделок — int 0, как раньше
+            dd, tt_ = {}, {}
+            for m, v in tr.items():
+                dd[m], tt_[m] = v[ib] - v[isl], v[ib] + v[isl]
+            dl = sum([dd.get(m, 0) for m in range(ms, mp + 1)])
+            tl = sum([tt_.get(m, 0) for m in range(ms, mp + 1)])
             F["flow_delta_leg_usd"], F["flow_imb_leg"] = dl, dl / tl if tl else None
             F["flow_delta_per_bps"] = dl / F["leg_bps"] if F["leg_bps"] > 0 else None
             for N in G["ABS_N"]:
                 a = [m for m in range(mp - N + 1, mp + 1) if m in tr]
                 if not a:
                     continue
-                db = sum(buy.get(m, 0) - sel.get(m, 0) for m in a)
-                tt = sum(buy.get(m, 0) + sel.get(m, 0) for m in a)
+                db = sum([dd[m] for m in a])
+                tt = sum([tt_[m] for m in a])
                 imb = db / tt if tt else 0
                 disp = bps(D[a[0]][0], D[a[-1]][3], p0) if a[0] in D and a[-1] in D else None
                 F["abs_N%d_imb" % N], F["abs_N%d_disp_bps" % N] = imb, disp
@@ -719,8 +732,8 @@ def features(w, roots, G):
         if tr is not None:
             mm = [m for m in range(a_, b_ + 1) if m in tr]
             if mm:
-                dl = sum(buy.get(m, 0) - sel.get(m, 0) for m in mm)
-                tl = sum(buy.get(m, 0) + sel.get(m, 0) for m in mm)
+                dl = sum([dd[m] for m in mm])
+                tl = sum([tt_[m] for m in mm])
                 F["flow_delta_usd_" + ph], F["flow_imb_" + ph] = dl, (dl / tl if tl else None)
                 F["flow_turn_x_" + ph] = tl / (qmed * len(mm)) if qmed else None
         sl = obwin(a_, b_)
@@ -821,6 +834,7 @@ def work_group(a):
     _or.clear()
     _sq.clear()
     _dy.clear()
+    _ak.clear()
     _r5.clear()
     RNG[0] = None
     return res, key, time.time() - t
