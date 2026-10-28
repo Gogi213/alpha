@@ -8,7 +8,7 @@ sys.argv = ["x", "-", "-", F9, F8, XQ_, C9_, C8_, OUTP]
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "tk426-classes.py"), encoding="utf-8").read()
 src = src.rsplit("\nmain()", 1)[0]
 exec(compile(src, "tk426-classes.py", "exec"))
-B = int(os.environ.get("NB", 400)); H = {"1ч": 60, "6ч": 360, "24ч": 1440}
+B = int(os.environ.get("NB", 400)); MODE = os.environ.get("MODE", "both"); H = {"1ч": 60, "6ч": 360, "24ч": 1440}
 rng = np.random.default_rng(438)
 
 
@@ -109,14 +109,14 @@ for mon, F, root in (("09", F9, C9_), ("08", F8, C8_)):
                 ee[s] = fe[s]; cc[s] = fc[s]
                 r = boot_share(ee, cc, s)
                 if r: rows_s.append(dict(месяц=mon, D=D, знак=zn, сценарий=s, **r))
-                for h in H:
+                for h in (H if MODE != "shares" else ()):
                     col = "пик+" + h
                     r = boot_med(ee, cc, col, ee[s] == 1, cc[s] == 1)
                     if r: rows_e.append(dict(месяц=mon, D=D, знак=zn, сценарий=s, горизонт=h, **r))
-            for h in H:  # база: все события / все контроли
+            for h in (H if MODE != "shares" else ()):  # база: все события / все контроли
                 r = boot_med(ee, cc, "пик+" + h, ee.index == ee.index, cc.index == cc.index)
                 if r: rows_e.append(dict(месяц=mon, D=D, знак=zn, сценарий="все", горизонт=h, **r))
         print(mon, "D", D, "готово", flush=True)
-pd.DataFrame(rows_s).to_csv(OUTP + "-shares.csv", index=False)
-pd.DataFrame(rows_e).to_csv(OUTP + "-end.csv", index=False)
+if MODE != "end": pd.DataFrame(rows_s).to_csv(OUTP + "-shares.csv", index=False)
+if MODE != "shares": pd.DataFrame(rows_e).to_csv(OUTP + "-end.csv", index=False)
 print("OK")
