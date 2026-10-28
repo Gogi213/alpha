@@ -15,11 +15,13 @@ tk433-legs (а)): событие вверх и вниз того же инстр
 import argparse
 import csv
 import importlib.util
+import io
 import json
 import math
 import os
 import re
 import sys
+import time
 from bisect import bisect_right
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -197,6 +199,22 @@ def quant(hf, outf):
     print(json.dumps(res, ensure_ascii=False))
 
 
+def _m(name):
+    if os.environ.get("TK441_M"):           # метки этапов хвоста main() в stderr (TK-441); вывод не меняется
+        sys.stderr.write("M %s %.2f" % (name, time.time() - _M0[0]) + chr(10))
+
+
+_M0 = [time.time()]
+_CS = {}
+
+
+def _fmt_rows(ab):
+    buf = io.StringIO(newline="")
+    cols = _CS["cols"]
+    csv.writer(buf, lineterminator="\n").writerows([[r.get(c, "") for c in cols] for r in _CS["rows"][ab[0]:ab[1]]])
+    return buf.getvalue()
+
+
 def main():
     if sys.argv[1] == "quant":
         return quant(sys.argv[2], sys.argv[3])
@@ -254,12 +272,15 @@ def main():
                 for k, v in h.items():
                     hist[k] = hist.get(k, 0) + v
             print(ex, mk, len(syms), "инструментов", nr, "событий (все X, D)", flush=True)
+    _m("pool")
     for r in rows:
         r["X"] = round(r["X"] * 100, 4)
         sg = r["знак"]
         r["E3"] = int(any(p <= r["t_peak_ms"] and q >= r["t_start_ms"] for p, q in PER.get((r["sub"], sg), [])))
         r["исключено"] = ",".join(k for k in ("E1", "E3", "E4") if r[k])
+    _m("E3")
     rows.sort(key=lambda r: (r["D"], r["X"], r["sub"], r["инструмент"], r["t_start_ms"]))
+    _m("sort")
     peaks = {}
     for r in rows:
         r["пара"] = "одиночная"
@@ -269,6 +290,7 @@ def main():
         pu = peaks.get((r["sub"], r["инструмент"], r["X"], r["D"], r["t_start_ms"])) if r["знак"] == "-" else None
         if pu is not None:
             pu["пара"], r["пара"] = "памп→дамп:памп", "памп→дамп:дамп"
+    _m("pairs")
     by = defaultdict(list)
     for r in rows:
         if not r["исключено"]:
@@ -291,9 +313,23 @@ def main():
             "t_start_ms", "t_peak_ms", "t_end_ms", "длит_мин", "ход_%", "оборот", "минут_со_свечой", "E1", "E3", "E4", "исключено"]
     tag = a.ym if not a.t0 else "%s_%s" % (a.t0, a.t1)
     with open(os.path.join(a.out, "windows-%s.csv" % tag), "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore", lineterminator="\n")
-        w.writeheader()
-        w.writerows(rows)
+        _m("clusters")
+        if os.environ.get("TK441_CSVP"):    # форматирование строк CSV чанками в 15 процессах (fork делит rows), порядок imap = порядок строк (TK-441)
+            _CS["rows"], _CS["cols"] = rows, cols
+            csv.writer(f, lineterminator="\n").writerow(cols)
+            nr_, k_ = len(rows), a.procs * 4
+            with Pool(a.procs) as pp:
+                for part in pp.imap(_fmt_rows, [(i * nr_ // k_, (i + 1) * nr_ // k_) for i in range(k_)]):
+                    f.write(part)
+        elif os.environ.get("TK441_CSVW"):    # csv.writer по спискам вместо DictWriter (TK-441): те же значения и restval "", байты те же
+            w = csv.writer(f, lineterminator="\n")
+            w.writerow(cols)
+            w.writerows([[r.get(c, "") for c in cols] for r in rows])
+        else:
+            w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore", lineterminator="\n")
+            w.writeheader()
+            w.writerows(rows)
+        _m("csv")
     fun = defaultdict(lambda: defaultdict(int))
     for r in rows:
         k = "D%d|X%g" % (r["D"], r["X"])
