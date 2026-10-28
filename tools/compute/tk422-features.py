@@ -31,6 +31,54 @@ CUBE_FROM = [0]       # --cube-from: первая минута, с которо�
 _cm = {}              # кэш memmap кубов: (куб, имя) -> (массив, [инструменты], lo)
 OBR = {}       # (биржа, рынок) → корни минутных срезов стакана; чужой рынок подставлять нельзя
 LAUNCH = {}    # Bybit symbol -> launch_ms
+NB = os.environ.get("TK422_NUMBA") == "1"  # TK-441: numba-ядра corr/fractals (умолчание — прежний python); sum() Py3.13 повторён побитно (Neumaier)
+if NB:
+    import numpy as np
+    from numba import njit
+
+    @njit(cache=True)
+    def _nsum(a):
+        f = 0.0 + a[0]  # CPython: 0 + x0, далее Kahan–Babuška–Neumaier, в конце + c при c != 0 и конечном
+        c = 0.0
+        for i in range(1, a.shape[0]):
+            x = a[i]
+            t = f + x
+            if abs(f) >= abs(x):
+                c += (f - t) + x
+            else:
+                c += (x - t) + f
+            f = t
+        if c != 0.0 and math.isfinite(c):
+            f += c
+        return f
+
+    @njit(cache=True)
+    def _ncorr(x, y):
+        n = x.shape[0]
+        mx = _nsum(x) / n
+        my = _nsum(y) / n
+        dx = x - mx
+        dy = y - my
+        sxx = _nsum(dx * dx)
+        syy = _nsum(dy * dy)
+        if sxx <= 0 or syy <= 0:
+            return np.nan
+        return _nsum(dx * dy) / math.sqrt(sxx * syy)
+
+    @njit(cache=True)
+    def _nfr(xs, k, hi):
+        n = xs.shape[0]
+        out = []
+        for i in range(k, n - k):
+            x = xs[i]
+            ok = True
+            for j in range(i - k, i + k + 1):
+                if j != i and not (x > xs[j] if hi else x < xs[j]):
+                    ok = False
+                    break
+            if ok:
+                out.append(i)
+        return out
 BASE = 1440  # минут нормы
 NEG_INF = -(1 << 62)  # нижняя граница среза sub()
 
@@ -206,6 +254,8 @@ def fractals(bars, k, hi=True):
     out = []
     j = 1 if hi else 2
     xs = [b[1][j] for b in bars]
+    if NB:
+        return list(_nfr(np.array(xs, dtype=np.float64), k, hi))
     for i in range(k, len(bars) - k):
         x = xs[i]
         if hi:
@@ -236,6 +286,9 @@ def corr(x, y):
     n = len(x)
     if n < 5:
         return None
+    if NB:
+        r = _ncorr(np.array(x, dtype=np.float64), np.array(y, dtype=np.float64))
+        return None if r != r else float(r)
     mx, my = sum(x) / n, sum(y) / n
     dx = [a - mx for a in x]
     dy = [b - my for b in y]
