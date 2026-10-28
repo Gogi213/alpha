@@ -220,8 +220,7 @@ def orient(d, s):
 _sq = {}
 
 
-def seq(d, a, b):
-    """[(минута, свеча)] по возрастанию минут в [a, b); отсортированный вид словаря строится один раз на группу (TK-439: циклом по минутам — 5 из 24 с профиля)"""
+def _sqe(d):
     k = id(d)
     e = _sq.get(k)
     if e is None or e[0] is not d or e[1] != len(d):
@@ -231,9 +230,35 @@ def seq(d, a, b):
         if isinstance(d, Neg):
             vs = [(-v[0], -v[2], -v[1], -v[3], v[4]) for v in vs]
         e = _sq[k] = (d, len(d), ks, vs)  # d в значении — id не переиспользуется
+    return e
+
+
+def seq(d, a, b):
+    """[(минута, свеча)] по возрастанию минут в [a, b); отсортированный вид словаря строится один раз на группу (TK-439: циклом по минутам — 5 из 24 с профиля)"""
+    e = _sqe(d)
     ks, vs = e[2], e[3]
     i, j = bisect_left(ks, a), bisect_left(ks, b)
     return list(zip(ks[i:j], vs[i:j]))
+
+
+_sx = {}
+
+
+def hl(d, a, b):
+    """(число минут, max high, min low) в [a, b); None, None при пустом. TK-441: за TK422_NUMBA — срезы numpy вместо генераторов по seq (max/min точные, значения те же float)"""
+    if not NB:
+        s = seq(d, a, b)
+        return len(s), (max(v[1] for _, v in s) if s else None), (min(v[2] for _, v in s) if s else None)
+    e = _sqe(d)
+    x = _sx.get(id(d))
+    if x is None or x[0] is not e:
+        vs = e[3]
+        x = _sx[id(d)] = (e, np.fromiter((v[1] for v in vs), np.float64, len(vs)), np.fromiter((v[2] for v in vs), np.float64, len(vs)))
+    ks = e[2]
+    i, j = bisect_left(ks, a), bisect_left(ks, b)
+    if j <= i:
+        return 0, None, None
+    return j - i, float(x[1][i:j].max()), float(x[2][i:j].min())
 
 
 _dy = {}
@@ -554,18 +579,17 @@ def features(w, roots, G):
                 F["%s_%s_body_cancel" % (pre, nm)] = int(any(v[3] < g[1] for _, v in pull))
     # --- 10. AMD с диапазоном
     for R in G["R"]:
-        a = seq(D, ms - R, ms - R // 3)
-        if len(a) < R // 3:
+        an, rh, rl = hl(D, ms - R, ms - R // 3)
+        if an < R // 3:
             continue
-        rl, rh = min(v[2] for _, v in a), max(v[1] for _, v in a)
         pre = "amd_R%d" % R
         F[pre + "_range_bps"] = (rh - rl) / p0 * 1e4
         rr = []
         st = R // 3
         for z in range(ms - BASE - R, ms - R, st):
-            b = seq(D, z, z + (R - st))
-            if len(b) >= (R - st) // 2:
-                rr.append(max(v[1] for _, v in b) - min(v[2] for _, v in b))
+            bn, bh, bl = hl(D, z, z + (R - st))
+            if bn >= (R - st) // 2:
+                rr.append(bh - bl)
         mr = med(rr)
         F[pre + "_range_vs_base"] = (rh - rl) / mr if mr else None
         for KM in G["KM"]:
@@ -576,10 +600,9 @@ def features(w, roots, G):
         F[pre + "_break"] = int(pk > rh)
     # --- 9'. старший ТФ: максимум последних D суток до старта (день/неделя), вынос и возврат телом
     for Dd in (1, 7):
-        hist = seq(D, ms - Dd * 1440, ms)
-        F["htf_%dd_hist_min" % Dd] = len(hist)
-        if ms - dmin(D) >= Dd * 1440 and len(hist) >= Dd * 1440 * 0.5:  # лукбэк по календарю: первая свеча данных ≤ старт − D сут
-            top = max(v[1] for _, v in hist)
+        hn, top, _ = hl(D, ms - Dd * 1440, ms)
+        F["htf_%dd_hist_min" % Dd] = hn
+        if ms - dmin(D) >= Dd * 1440 and hn >= Dd * 1440 * 0.5:  # лукбэк по календарю: первая свеча данных ≤ старт − D сут
             F["htf_%dd_over_bps" % Dd] = bps(top, pk, p0)
             for N in G["N"]:
                 for T in G["T"]:
