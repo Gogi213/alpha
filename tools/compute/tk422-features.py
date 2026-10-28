@@ -236,20 +236,19 @@ def corr(x, y):
     if n < 5:
         return None
     mx, my = sum(x) / n, sum(y) / n
-    sxx = sum((a - mx) ** 2 for a in x)
-    syy = sum((b - my) ** 2 for b in y)
+    dx = [a - mx for a in x]
+    dy = [b - my for b in y]
+    sxx = sum([a ** 2 for a in dx])  # списки, не генераторы: те же слагаемые в том же порядке -> sum() Py3.13 побитно прежний (TK-441)
+    syy = sum([b ** 2 for b in dy])
     if sxx <= 0 or syy <= 0:
         return None
-    return sum((a - mx) * (b - my) for a, b in zip(x, y)) / math.sqrt(sxx * syy)
+    return sum([a * b for a, b in zip(dx, dy)]) / math.sqrt(sxx * syy)
 
 
 def rets(d, a, b):
-    """доходности закрытий соседних минут (только если обе минуты есть) -> {m: ret}"""
-    out = {}
-    for m in range(a + 1, b):
-        if m in d and (m - 1) in d and d[m - 1][3] != 0:
-            out[m] = d[m][3] / d[m - 1][3] - 1
-    return out
+    """доходности закрытий соседних минут (только если обе минуты есть) -> {m: ret}; по отсортированному виду серии (TK-441: 3 поиска в словаре на минуту -> один проход)"""
+    sq = seq(d, a, b)
+    return {m1: v1[3] / v0[3] - 1 for (m0, v0), (m1, v1) in zip(sq, sq[1:]) if m1 == m0 + 1 and v0[3] != 0}
 
 
 def pair_corr(r1, r2, lag=0):
