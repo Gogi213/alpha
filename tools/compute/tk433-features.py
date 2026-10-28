@@ -258,7 +258,7 @@ def cmd_merge(av):
                 return num(x.get(k))
             ib, ip = g("flow_imb_leg"), g("flow_imb_pre")      # imb в ориентации хода: +1 = агрессор по ходу
             buy = lambda v: None if v is None else (1 + sg * v) / 2   # доля рыночных покупок: вверх — по ходу, вниз — против
-            sd = g("spot_minus_fut_leg_bps")
+            sd = g("spot_gap_bps_leg")   # spot_minus_fut_leg_bps отброшен DROP в tk422 (rename) — TK-433 07:5x: берём spot_gap_bps_leg (спот − фьючерс за ногу)
             ll, ls = g("liq_long_usd_leg"), g("liq_short_usd_leg")
             rec = [i, w["event_id"], w["роль"], w["θ"], w["биржа"], w["рынок"], w["инструмент"], w["знак"], w["t_start"], w["t_peak"],
                    o.get("hist_days", ""), o.get("v_in", ""), o.get("v_pre", ""), o.get("m_in", ""), o.get("m_pre", ""),
