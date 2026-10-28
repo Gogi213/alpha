@@ -58,6 +58,8 @@ def med(x):
 
 
 _cc = {}
+RNG_ON = [False]   # --cube-range 1: загружать свечи группы окном минут (умолчание — весь ряд, как раньше)
+RNG = [None]   # (мин. минута, макс. минута) загрузки свечей группы: [min(ms, mpre) − 8 сут, max(me) + 3 сут]; None — весь ряд
 
 
 def cube_open(cube, name):
@@ -66,6 +68,17 @@ def cube_open(cube, name):
         _cm[(cube, name)] = (np.load("%s/%s.npy" % (cube, name), mmap_mode="r"), open("%s/%s.syms" % (cube, name)).read().split(),
                              int(open("%s/%s.lo" % (cube, name)).read()))
     return _cm[(cube, name)]
+
+
+class Cd(dict):
+    """словарь свечей окна минут группы; first — первая валидная минута всего ряда"""
+    first = None
+
+
+def dmin(d):
+    """min(ключей) словаря свечей: у урезанного по окну словаря — первая минута всего ряда"""
+    d = d.d if isinstance(d, Neg) else d
+    return d.first if isinstance(d, Cd) and d.first is not None else min(d)
 
 
 def candles_cube(ex, mk, sym):
@@ -78,8 +91,13 @@ def candles_cube(ex, mk, sym):
     if CUBE_FROM[0] > lo:
         ok[:CUBE_FROM[0] - lo] = False
     ix = ok.nonzero()[0]
+    first = int(ix[0]) + lo if len(ix) else None  # первая валидная минута ВСЕГО ряда (data_age_days, htf) — не окна
+    if RNG[0] and sym not in ("BTCUSDT", "BTC_USDT"):  # BTC общий для групп — целиком
+        ix = ix[(ix + lo >= RNG[0][0]) & (ix + lo <= RNG[0][1])]
     v = x[:, ix].tolist()
-    return dict(zip((ix + lo).tolist(), zip(v[0], v[1], v[2], v[3], v[4])))
+    d = Cd(zip((ix + lo).tolist(), zip(v[0], v[1], v[2], v[3], v[4])))
+    d.first = first
+    return d
 
 
 def candles(root, ex, mk, sym):
@@ -340,7 +358,7 @@ def features(w, roots, G):
     F["leg_min"], F["pull_min"], F["hist_min"] = mp - ms, me - mp, len(base)
     have = {"candle": True}
     # возраст: Bybit — launch_ms биржи; для всех — от первой свечи данных (цензурирован началом выгрузки)
-    F["data_age_days"] = (ms - min(d0)) / 1440
+    F["data_age_days"] = (ms - dmin(d0)) / 1440
     F["listing_age_days"] = (ms * 60000 - LAUNCH[sym]) / 86400000 if ex == "bybit" and sym in LAUNCH else None
     have["instr"] = F["listing_age_days"] is not None
     pk = max(v[1] for _, v in leg)
@@ -463,7 +481,7 @@ def features(w, roots, G):
     for Dd in (1, 7):
         hist = seq(D, ms - Dd * 1440, ms)
         F["htf_%dd_hist_min" % Dd] = len(hist)
-        if ms - min(D) >= Dd * 1440 and len(hist) >= Dd * 1440 * 0.5:  # лукбэк по календарю: первая свеча данных ≤ старт − D сут
+        if ms - dmin(D) >= Dd * 1440 and len(hist) >= Dd * 1440 * 0.5:  # лукбэк по календарю: первая свеча данных ≤ старт − D сут
             top = max(v[1] for _, v in hist)
             F["htf_%dd_over_bps" % Dd] = bps(top, pk, p0)
             for N in G["N"]:
@@ -479,7 +497,7 @@ def features(w, roots, G):
     dk = sorted(k for k in dd if dd[k][1] >= 1000)
     dfr = [dd[k][0] for i, k in enumerate(dk[1:-1], 1) if dk[i - 1] == k - 1 and dk[i + 1] == k + 1 and dd[k][0] > dd[dk[i - 1]][0] and dd[k][0] > dd[dk[i + 1]][0]]
     F["htf_dfr_hist_days"] = len(dk)
-    if len(dk) >= 3 and ms - 7 * 1440 >= min(D):
+    if len(dk) >= 3 and ms - 7 * 1440 >= dmin(D):
         F["htf_dfr_n"] = len(dfr)
         if dfr:
             top = max(dfr)
@@ -757,6 +775,9 @@ def work_group(a):
     key, items, roots, G = a
     t = time.time()
     res = []
+    if RNG_ON[0]:
+        RNG[0] = (min(min(w["tpre"] // 60000 if w["tpre"] else 2 * (w["t0"] // 60000) - w["t1"] // 60000, w["t0"] // 60000) for _, w in items) - 8 * 1440,
+                  max(w["t1"] // 60000 for _, w in items) + 3 * 1440)
     for i, w in items:
         try:
             F = features(w, roots, G)
@@ -771,13 +792,14 @@ def work_group(a):
     _oc.clear()
     _or.clear()
     _r5.clear()
+    RNG[0] = None
     return res, key, time.time() - t
 
 
 def main():
     av = sys.argv[1:]
     opt = {"--candles": "/srv/alpha-sda/candles-1m", "--tk415": "/srv/alpha-sda/tk415/out", "--trades": "/data/tk417", "--grid": None, "--procs": "1",
-           "--aug-candles": None, "--ob": "", "--instr": None, "--cube": None, "--cube-trades": None, "--cube-from": ""}
+           "--aug-candles": None, "--ob": "", "--instr": None, "--cube": None, "--cube-trades": None, "--cube-from": "", "--cube-range": ""}
     pos = []
     i = 0
     while i < len(av):
@@ -793,6 +815,7 @@ def main():
     if opt["--grid"]:
         G.update(json.load(open(opt["--grid"])))
     AUG[0] = opt["--aug-candles"]
+    RNG_ON[0] = opt["--cube-range"] == "1"
     CUBE[0], CUBE[1] = opt["--cube"], opt["--cube-trades"]
     if opt["--cube-from"]:
         CUBE_FROM[0] = tms(opt["--cube-from"]) // 60000
