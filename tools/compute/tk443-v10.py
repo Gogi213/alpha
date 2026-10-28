@@ -2,7 +2,9 @@
 """TK-443 V10 (H-025): после события v11 вверх — неудачные возвраты выше уровня → дамп. Уровень mid=(c[t_start]+c[t_peak])/2 (середина хода).
 t0 = первая минута после t_peak, где c<mid; неудачный возврат = переход c>=mid снизу с обратным закрытием <mid в течение 60 мин; N считается в [t0;t0+180].
 Решение в t1=t0+180 при mid>c[t1]>c[t_start]; исход: дамп = min c(t1;t1+360]<=c[t_start]. Группы N=0|1|2|3+; база = все условные события.
-  python3 tk443-v10.py <куб> <events.csv> <вых.csv> [месяц-метка]"""
+  python3 tk443-v10.py <куб> <events.csv> <вых.csv> [месяц-метка]
+events.csv — pump-v11-events (авг., сент.) или windows-<ГГГГ-ММ>.csv TK-440 (янв.–июль: представитель=1, без «исключено»).
+Полнота = доля дампов условных событий, попавших в группу; срабат./сут/монету = событий группы / (суток куба × монет куба)."""
 import sys
 import numpy as np
 
@@ -14,7 +16,11 @@ def main(cube, ev, out, tag=""):
     lo = int(open(f"{cube}/bybit-linear.lo").read().split()[0])
     A = np.load(f"{cube}/bybit-linear.npy", mmap_mode="r")
     ix = {s: i for i, s in enumerate(sy)}
-    rows = [l.rstrip("\n").split(",") for l in open(ev)][1:]
+    rows = [l.rstrip("\n").split(",") for l in open(ev)]
+    if rows[0][0] == "кластер":     # windows TK-440 → формат pump-v11-events
+        rows = [[r[4], "", r[5] + "-" + r[6], r[7], r[9], r[11], r[12]] for r in rows[1:] if r[1] == "1" and r[21] == ""]
+    else:
+        rows = rows[1:]
     rows = [r for r in rows if r[2] == "bybit-linear" and r[4] == "+" and r[3] in ix and int(r[0]) in (360, 720)]
     T = A.shape[2]
     cache = {}
@@ -73,6 +79,8 @@ def main(cube, ev, out, tag=""):
             return n_, h_
         nb, hb = stat(np.ones(len(R), bool))
         base = dm.mean()
+        ndump = dm.sum()
+        cd = len(sy) * T / 1440
         for nm, sel in (("N=0", Nn == 0), ("N=1", Nn == 1), ("N=2", Nn == 2), ("N>=3", Nn >= 3), ("N>=1", Nn >= 1), ("N>=2", Nn >= 2)):
             if not sel.any():
                 continue
@@ -82,9 +90,10 @@ def main(cube, ev, out, tag=""):
                 lb = pb / ((Wt @ hb) / (Wt @ nb))
             pr = dm[sel].mean()
             outl.append((tag, Dsel or "все", nm, len(R), int(sel.sum()), round(base, 4), round(pr, 4), round(pr / base, 3),
-                         round(np.nanpercentile(lb, 2.5), 3), round(np.nanpercentile(lb, 97.5), 3), NC))
+                         round(np.nanpercentile(lb, 2.5), 3), round(np.nanpercentile(lb, 97.5), 3), NC,
+                         round(dm[sel].sum() / ndump, 4) if ndump else "", round(int(sel.sum()) / cd, 5)))
     with open(out, "w") as f:
-        f.write("месяц,D,группа,условных_событий,в_группе,база_дамп,доля_дампа,подъём,подъём_lo,подъём_hi,кластеров\n")
+        f.write("месяц,D,группа,условных_событий,в_группе,база_дамп,доля_дампа,подъём,подъём_lo,подъём_hi,кластеров,полнота,срабат_сут_монету\n")
         for o in outl:
             f.write(",".join(map(str, o)) + "\n")
 
