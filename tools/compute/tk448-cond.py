@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """TK-448: механичность подъёма признаков TK-447 — условный подъём внутри страт по |ret24h| и vol24h (только данные <= t).
   python3 tk448-cond.py <куб> <ГГГГ-ММ> <каталог признаков> <каталог доп.признаков|-> <каталог вых.> [D=360]
-Страты: |ret24h_bps| (5 квантилей месяца) x vol24h = sqrt(mean r^2 за 1440 мин) (5 квантилей) = 25 страт.
+Страты (v2, после возврата Судьи): |ret24h_bps| x vol24h = sqrt(mean r^2 за 1440 мин), по 23 корзины на оси (квантили 5 % шагом + 97,5/99/99,5 %) = 529 страт.
+Самопроверка контроля: ret24h_bps, ctl_abs_ret24h, ctl_vol24h как признаки внутри страт должны дать разброс < 1,3.
 Внутри страты признак режется на 5 квантильных корзин (ZERO: корзина 0 = ровно 0 + 5 квантилей ненулевых); метка и кластеры — как TK-447.
 Условный подъём корзины = попаданий / sum(база страты по ячейкам корзины); безусловный — как TK-447, но на квинтилях месяца. CI — бутстреп кластеров монета-сутки (B=100)."""
 import importlib.util
@@ -17,6 +18,9 @@ spec.loader.exec_module(f7)
 t = f7.t
 ZERO = f7.ZERO_BUCKET
 NS = 5
+PQ = np.concatenate([np.linspace(0.05, 0.95, 19), [0.975, 0.99, 0.995]])
+NA = len(PQ) + 1
+NST = NA * NA
 
 
 def qbin(x, ok, zero):
@@ -54,21 +58,22 @@ def main(cube, ym, fd, ed, outd, D=360):
     ar = np.abs(np.asarray(F["ret24h_bps"], np.float64))
     del c, h, l, q, qs, lc, r
     ok0 = valid & np.isfinite(vol) & np.isfinite(ar)
-    ea = np.quantile(ar[ok0], np.linspace(0, 1, NS + 1)[1:-1])
-    ev = np.quantile(vol[ok0], np.linspace(0, 1, NS + 1)[1:-1])
-    st = np.where(ok0, np.searchsorted(ea, ar, "right") * NS + np.searchsorted(ev, vol, "right"), -1)
-    base_s = np.zeros(NS * NS)
-    nst = np.zeros(NS * NS, int)
-    for s in range(NS * NS):
-        m = st == s
-        nst[s] = m.sum()
-        base_s[s] = (lab & m).sum() / max(nst[s], 1)
+    F["ctl_abs_ret24h"] = ar
+    F["ctl_vol24h"] = vol
+    ea = np.quantile(ar[ok0], PQ)
+    ev = np.quantile(vol[ok0], PQ)
+    st = np.where(ok0, np.searchsorted(ea, ar, "right") * NA + np.searchsorted(ev, vol, "right"), -1)
+    nst = np.bincount(st[ok0], minlength=NST)
+    base_s = np.bincount(st[ok0 & lab], minlength=NST) / np.maximum(nst, 1)
+    idx0 = np.flatnonzero(ok0)
+    sidx = idx0[np.argsort(st.ravel()[idx0], kind="stable")]
+    sb = np.searchsorted(st.ravel()[sidx], np.arange(NST + 1))
     bs = np.where(st >= 0, base_s[np.clip(st, 0, None)], 0.0)
     base = (lab & ok0).sum() / ok0.sum()
     with open(f"{outd}/strata-{ym}.csv", "w") as fo:
         fo.write("месяц,страта_ret24h,страта_vol,ячеек,база,подъём_страты\n")
-        for s in range(NS * NS):
-            fo.write(f"{ym},{s // NS + 1},{s % NS + 1},{nst[s]},{base_s[s]:.5f},{base_s[s] / base:.3f}\n")
+        for s in range(NST):
+            fo.write(f"{ym},{s // NA + 1},{s % NA + 1},{nst[s]},{base_s[s]:.5f},{base_s[s] / base:.3f}\n")
     dayi = ((lo + ts) // f7.DAY).astype(np.int64)
     dayi -= dayi.min()
     cid = np.arange(n, dtype=np.int64)[:, None] * (int(dayi.max()) + 1) + dayi[None, :]
@@ -88,10 +93,11 @@ def main(cube, ym, fd, ed, outd, D=360):
         zero = nm in ZERO
         bu = qbin(f, ok, zero)  # безусловные корзины месяца
         bc = np.full(f.shape, -1, np.int8)  # условные: внутри страты
-        for s in range(NS * NS):
-            m = ok & (st == s)
-            if m.sum() >= 50:
-                bc[m] = qbin(f, m, zero)[m]
+        fr, okr, bcr = f.ravel(), ok.ravel(), bc.ravel()
+        for s in range(NST):
+            ii = sidx[sb[s]:sb[s + 1]]
+            if len(ii) >= 50:
+                bcr[ii] = qbin(fr[ii], okr[ii], zero)
         cov = ok.sum() / ok0.sum()
         base_ok = (lab & ok).sum() / ok.sum()
         for kind, b in (("безусл", bu), ("усл", bc)):
