@@ -99,6 +99,9 @@ def one(arg):
     first = int(np.argmax(avail)) + g0
     busy = sorted((int(e["t_start_ms"]) // M.MIN, int(e["t_peak_ms"]) // M.MIN) for e in evs)
     PRE, SEED, PER, SPAN, NORM_D, MIN_HIST_D, MIN = M.PRE, M.SEED, M.PER, M.SPAN, M.NORM_D, M.MIN_HIST_D, M.MIN
+    ca = np.concatenate([[0], np.cumsum(avail)])
+    B0, B1 = np.array([x[0] for x in busy]) - PRE, np.array([x[1] for x in busy])
+    DD, KS = np.array([d for d in range(-SPAN, SPAN + 1) if d != 0]), np.arange(0, 60, 5)
     out = []
     for e in evs:
         a, b = int(e["t_start_ms"]) // MIN, int(e["t_peak_ms"]) // MIN
@@ -106,17 +109,14 @@ def one(arg):
         eid = "%s|%s|%d" % (sub, sym, a)
         frac = int(avail[a - g0:b - g0 + 1].sum()) / (dur + 1)
         hs = a - a % 60
-        cand = []
-        for dd in range(-SPAN, SPAN + 1):
-            if dd == 0:
-                continue
-            for k in range(0, 60, 5):
-                s = hs + dd * 1440 + k
-                if s - PRE < g0 or s + dur - g0 >= S.n or any(not (s + dur < b0 - PRE or s - PRE > b1) for b0, b1 in busy):
-                    continue
-                if not (avail[s - g0] and avail[s + dur - g0]) or int(avail[s - g0:s + dur - g0 + 1].sum()) < frac * (dur + 1):
-                    continue
-                cand.append((hashlib.md5(("%d|%s|%d" % (SEED, eid, s)).encode()).hexdigest(), s))
+        # кандидаты контролей: те же условия, что в tk435-vol.one, но по всем 720 сдвигам сразу (busy и доступность — матрицей/префиксом)
+        s = (hs + DD[:, None] * 1440 + KS[None, :]).ravel()
+        ok = (s - PRE >= g0) & (s + dur - g0 < S.n)
+        sc = np.where(ok, s, g0 + PRE)
+        ok &= ~((B0[None, :] <= sc[:, None] + dur) & (sc[:, None] - PRE <= B1[None, :])).any(axis=1)
+        i0, i1 = np.clip(sc - g0, 0, S.n - 1), np.clip(sc + dur - g0, 0, S.n - 1)
+        ok &= avail[i0] & avail[i1] & ((ca[i1 + 1] - ca[i0]) >= frac * (dur + 1))
+        cand = [(hashlib.md5(("%d|%s|%d" % (SEED, eid, x)).encode()).hexdigest(), x) for x in s[ok].tolist()]
         cand.sort()
         got = []
         for _, s in cand:
@@ -125,9 +125,8 @@ def one(arg):
                 if len(got) == PER:
                     break
         hist = (a - first) / 1440
-        pts = [p for p in range(a - NORM_D * 1440, a, 60) if p - g0 >= 0 and not any(b0 - PRE <= p <= b1 + 90 for b0, b1 in busy)]
-        if hist < MIN_HIST_D:
-            pts = []
+        P = np.arange(a - NORM_D * 1440, a, 60)
+        pts = P[(P - g0 >= 0) & ~((B0[None, :] <= P[:, None]) & (P[:, None] <= B1[None, :] + 90)).any(axis=1)].tolist() if hist >= MIN_HIST_D else []
         ng, npt = len(got), len(pts)
         es = pts + [a - 1, b] + [s - 1 for s in got] + [s + dur for s in got]
         row = {"id": eid, "биржа_рынок": sub, "инструмент": sym, "знак": e["знак"], "t_start_ms": a * MIN, "t_peak_ms": b * MIN,
