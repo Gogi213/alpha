@@ -9,6 +9,7 @@
   merge <windows.csv> <own.csv> <tk422-features.csv> <выход.csv>
       таблица признаков 12 (v_in, v_pre, m_in, m_pre, buy_in, buy_pre, sf_diff, sf_corr, oi_in, fund_in, liq_in, btc_in) по окну."""
 import csv, gzip, hashlib, json, math, os, sys
+from bisect import bisect_right
 from collections import defaultdict
 
 MIN = 60000
@@ -63,6 +64,24 @@ def med(x):
     return y[len(y) // 2] if y else None
 
 
+def merge_busy(iv):
+    """Слияние интервалов занятости: тот же результат проверок пересечения, но поиск по bisect (v11: тысячи событий на инструмент)."""
+    out = []
+    for i0, i1 in sorted(iv):
+        if out and i0 <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], i1))
+        else:
+            out.append((i0, i1))
+    return out
+
+
+def hit(mb, x, y):
+    """Пересекает ли [x,y] слитую занятость mb = (merged, starts)."""
+    mg, st = mb
+    k = bisect_right(st, y) - 1
+    return k >= 0 and mg[k][1] >= x
+
+
 def own_features(d, a, e, busy):
     """a..e — минуты окна ноги [старт, пик]; busy — [(i0,i1)] минуты всех ног ≥ 90 мин инструмента (исключаются из нормы)."""
     out = {"v_in": mad_demeaned(d, a, e), "v_pre": mad_demeaned(d, a - PRE, a - 1)}
@@ -70,7 +89,7 @@ def own_features(d, a, e, busy):
     out["hist_days"] = round((a - first) / 1440, 2)
     norm = None
     if out["hist_days"] >= MIN_HIST_D:
-        q = [d[m][1] for m in range(a - NORM_D * 1440, a) if m in d and not any(i0 <= m <= i1 for i0, i1 in busy)]
+        q = [d[m][1] for m in range(a - NORM_D * 1440, a) if m in d and not hit(busy, m, m)]
         norm = med(q)
     for nm, (x, y) in (("m_in", (a, e)), ("m_pre", (a - PRE, a - 1))):
         s = sum(d[m][1] for m in range(x, y + 1) if m in d)
@@ -137,7 +156,8 @@ def cmd_windows(av):
         for r in rs:
             if r["исключено"] == "" and r.get("представитель") == "1":
                 n += 1
-                ev.append((tag, "E%s-%d" % (tag, n), r))
+                t = r.get("θ") or tag          # v11: θ = D (колонка в выборке)
+                ev.append((t, "E%s-%d" % (t, n), r))
     byins = defaultdict(list)
     for e in ev:
         byins[(e[2]["биржа"], e[2]["рынок"], e[2]["инструмент"])].append(e)
@@ -146,7 +166,8 @@ def cmd_windows(av):
         sub = "%s-%s" % (ex, mk)
         d = load(roots, sub, sym)
         dsp = load(roots, "%s-%s" % (ex, PAIR[mk]), sym) if mk in PAIR else {}
-        bz = sorted(busy[(ex, mk, sym)])
+        mg = merge_busy(busy[(ex, mk, sym)])
+        bz = (mg, [x[0] for x in mg])
         for tag, eid, r in sorted(L, key=lambda x: x[1]):
             a, e = int(r["t_start_ms"]) // MIN, int(r["t_peak_ms"]) // MIN
             dur = e - a
@@ -170,7 +191,7 @@ def cmd_windows(av):
                     pre_s, end_s = s - PRE, s + dur
                     if pre_s < lo or end_s >= hi:
                         continue
-                    if any(not (end_s < b0 or pre_s > b1) for b0, b1 in bz):
+                    if hit(bz, pre_s, end_s):
                         continue
                     if s not in d or end_s not in d:
                         continue
