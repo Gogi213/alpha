@@ -105,6 +105,7 @@ def boot_agg(cells, col):
             if xe and xc: num += w * (np.median(np.concatenate(xe)) - np.median(np.concatenate(xc))); den += w
         return num / den if den else np.nan
     d0 = stat(coins); bd = np.array([stat(coins[rng.integers(0, len(coins), len(coins))]) for _ in range(B)]); bd = bd[~np.isnan(bd)]
+    if not len(bd) or np.isnan(d0): return None
     lo, hi = np.percentile(bd, [2.5, 97.5]); p = 2 * min((bd <= 0).mean(), (bd >= 0).mean())
     return dict(ячеек=len(cs), n_e=sum(w for _, _, w in cs), разность=d0, lo=lo, hi=hi, p=max(p, 1 / B), монет=len(coins))
 
