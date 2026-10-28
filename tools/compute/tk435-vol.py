@@ -40,6 +40,8 @@ def load_cube(sub, sym):
     if sym not in syms:
         return None
     x = np.array(mm[syms.index(sym)])
+    if CUT > lo:  # --cut как в load(): свечи раньше минуты CUT не берутся (без --cut — вся история куба)
+        x[:, :CUT - lo] = np.nan
     with np.errstate(invalid="ignore"):
         x[:, ~((x[0] > 0) & (x[1] > 0) & (x[2] > 0) & (x[3] > 0))] = np.nan
     ok = np.flatnonzero(~np.isnan(x[3]))
@@ -219,12 +221,13 @@ def one(arg):
 
 
 def main():
-    global CUBE, CUT
+    global CUBE, CUT, SPAN
     CUBE = sys.argv[sys.argv.index("--cube") + 1] if "--cube" in sys.argv else None
     CUT = int(sys.argv[sys.argv.index("--cut") + 1]) if "--cut" in sys.argv else 0
     procs = int(sys.argv[sys.argv.index("--procs") + 1]) if "--procs" in sys.argv else 15
     limit = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else 0
-    av = [a for i, a in enumerate(sys.argv[1:], 1) if not a.startswith("--") and sys.argv[i - 1] not in ("--procs", "--limit", "--cube", "--cut")]
+    SPAN = int(sys.argv[sys.argv.index("--span") + 1]) if "--span" in sys.argv else SPAN
+    av = [a for i, a in enumerate(sys.argv[1:], 1) if not a.startswith("--") and sys.argv[i - 1] not in ("--procs", "--limit", "--cube", "--cut", "--span")]
     wf, D, X, outf = av[:4]
     roots = av[4:]
     by = defaultdict(list)
