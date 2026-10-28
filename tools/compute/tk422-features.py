@@ -2,7 +2,7 @@
 """TK-422: счётчик признаков пампа/дампа по окну. Описание признаков — docs/findings/pump-features-2026-10-27.md.
 Использование: tk422-features.py <окна.csv> <выход.csv> [--candles /srv/alpha-sda/candles-1m] [--tk415 /srv/alpha-sda/tk415/out]
                [--trades /data/tk417] [--aug-candles /srv/alpha-sda/tk423/candles] [--ob биржа/рынок=корень[,…]] [--instr bybit-instruments.tsv]
-               [--grid grid.json] [--procs N] [--cube куб свечей tk436-cube.py] [--cube-trades куб сделок: свечи/сделки вместо разбора csv.gz]
+               [--grid grid.json] [--procs N] [--cube куб свечей tk436-cube.py] [--cube-trades куб сделок: свечи/сделки вместо разбора csv.gz] [--cube-from ГГГГ-ММ-ДДTЧЧ:ММ: куб виден с этой минуты]
 Окна: колонки биржа|exchange, рынок|market, инструмент|монета|symbol, t_start, t_peak, t_end (ISO-минута UTC или мс), [t_pre], [знак|sign: памп/дамп/+1/-1].
 Фазы (P-TK421 v3): pre [t_pre,t_start), leg [t_start,t_peak], post (t_peak,t_end]; t_pre = t_start − (t_end − t_start), если не подан. Имя признака = <признак>_<pre|leg|post|ctx>;
 ctx = контекст до старта по лукбэку H/суток (не фаза). На каждый признак — cov_<признак> ∈ {ok, нет_данных, не_применимо}.
@@ -27,6 +27,7 @@ GRID = {
 }
 AUG = [None]   # доп. корень свечей (август) — склеивается с основным
 CUBE = [None, None]   # [куб свечей tk436-cube.py, куб сделок] (--cube / --cube-trades): вместо разбора csv.gz; numpy — только здесь
+CUBE_FROM = [0]       # --cube-from: первая минута, с которой куб виден (запас PAD раньше прежнего источника меняет data_age_days/hist7); 0 — весь куб
 _cm = {}              # кэш memmap кубов: (куб, имя) -> (массив, [инструменты], lo)
 OBR = {}       # (биржа, рынок) → корни минутных срезов стакана; чужой рынок подставлять нельзя
 LAUNCH = {}    # Bybit symbol -> launch_ms
@@ -74,6 +75,8 @@ def candles_cube(ex, mk, sym):
         return {}
     x = mm[syms.index(sym)]
     ok = ~(x[3] != x[3])
+    if CUBE_FROM[0] > lo:
+        ok[:CUBE_FROM[0] - lo] = False
     ix = ok.nonzero()[0]
     v = x[:, ix].tolist()
     return dict(zip((ix + lo).tolist(), zip(v[0], v[1], v[2], v[3], v[4])))
@@ -214,17 +217,20 @@ def trades_day(root, sym, day):
 
 
 def trades_min_cube(sym, ma, mb):
-    """{минута: [buy_usd, sell_usd]} за [ma, mb] из куба сделок Bybit linear; минуты без сделок не попадают (как в csv-пути); None — нет инструмента/сделок в диапазоне"""
+    """{минута: [buy_usd, sell_usd]} за [ma, mb] из куба сделок Bybit linear; минуты без сделок не попадают (как в csv-пути).
+    None — нет сделок инструмента в сутках окна; {} — сутки со сделками есть (в csv-пути файл суток), а в [ma, mb] их нет"""
     mm, syms, lo = cube_open(CUBE[1], "trades-bybit-linear")
     if sym not in syms:
         return None
+    x = mm[syms.index(sym)]
+    da, db = max(ma // 1440 * 1440 - lo, 0), min((mb // 1440 + 1) * 1440 - lo, mm.shape[2])
+    if da >= db or not ((x[2, da:db] + x[3, da:db]) > 0).any():
+        return None
     a, b = max(ma - lo, 0), min(mb - lo + 1, mm.shape[2])
     if a >= b:
-        return None
-    x = mm[syms.index(sym)][:, a:b]
+        return {}
+    x = x[:, a:b]
     ix = ((x[2] + x[3]) > 0).nonzero()[0]
-    if not len(ix):
-        return None
     s = x[:2, ix].tolist()
     return dict(zip((ix + a + lo).tolist(), ([p, q] for p, q in zip(s[0], s[1]))))
 
@@ -728,7 +734,7 @@ def work_group(a):
 def main():
     av = sys.argv[1:]
     opt = {"--candles": "/srv/alpha-sda/candles-1m", "--tk415": "/srv/alpha-sda/tk415/out", "--trades": "/data/tk417", "--grid": None, "--procs": "1",
-           "--aug-candles": None, "--ob": "", "--instr": None, "--cube": None, "--cube-trades": None}
+           "--aug-candles": None, "--ob": "", "--instr": None, "--cube": None, "--cube-trades": None, "--cube-from": ""}
     pos = []
     i = 0
     while i < len(av):
@@ -745,6 +751,8 @@ def main():
         G.update(json.load(open(opt["--grid"])))
     AUG[0] = opt["--aug-candles"]
     CUBE[0], CUBE[1] = opt["--cube"], opt["--cube-trades"]
+    if opt["--cube-from"]:
+        CUBE_FROM[0] = tms(opt["--cube-from"]) // 60000
     for x in opt["--ob"].split(","):  # биржа/рынок=корень (рынки: futures_usdt, spot, linear)
         if x:
             k, r = x.split("=", 1)

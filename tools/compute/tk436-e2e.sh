@@ -13,7 +13,7 @@ rm -rf $O; mkdir -p $O; rm -f /data/tk0436/e2e.rc
 T0=$(date +%s.%N); t() { echo -e "$1\t$(echo "$(date +%s.%N) - $T0" | bc)" >> $O/t.tsv; }
 $PY /data/tk0436/tk433-features.py windows smp/legs-2026-09.csv smp/legs-2026-09.csv - - $O 2026-09 --cube /data/tk0436/cube3 --cut 29759040 --jobs 15 > $O/windows.log 2>&1 || { echo 1 > /data/tk0436/e2e.rc; exit 1; }
 t controls
-$PY /data/tk0436/tk422-features.py $O/windows.csv $O/tk422-features.csv --procs 15 --aug-candles /srv/alpha-sda/candles-1m-aug --instr /srv/alpha-sda/tk423/cov/bybit-instruments.tsv --cube /data/tk0436/cube3 --cube-trades /data/tk0436/cube3t > $O/feat.log 2> $O/feat.err || { echo 2 > /data/tk0436/e2e.rc; exit 2; }
+$PY /data/tk0436/tk422-features.py $O/windows.csv $O/tk422-features.csv --procs 15 --aug-candles /srv/alpha-sda/candles-1m-aug --instr /srv/alpha-sda/tk423/cov/bybit-instruments.tsv --cube /data/tk0436/cube3 --cube-trades /data/tk0436/cube3t --cube-from 2026-08-01T00:00 > $O/feat.log 2> $O/feat.err || { echo 2 > /data/tk0436/e2e.rc; exit 2; }
 t tk422
 $PY /data/tk0436/tk433-features.py merge $O/windows.csv $O/own.csv $O/tk422-features.csv $O/features-2026-09.csv > $O/merge.log 2>&1 || { echo 4 > /data/tk0436/e2e.rc; exit 4; }
 t merge
