@@ -3,7 +3,9 @@
   tk436-vec.py gate <end-start-th{T}.csv> <legs-th{T}.csv> <куб> <корень свечей> <aug-корень|-> [N окон]
 Считает по окнам файла end-start: dv24, natr15/30/60/1d, cons_range, cons_ratio, m_bef/m_aft, v_bef/v_aft
   «стало» = куб (memmap) + срезы numpy; «было» = load_ohlcq + atr_pct + F.mad_demeaned из tk433-end.py (те же функции, что в боевом прогоне);
-  сверка: число из «стало» == число из файла end-start (точно) и == «было»; печатает стену обоих и расхождения."""
+  сверка: число из «стало» == число из файла end-start (точно) и == «было»; печатает стену обоих и расхождения.
+  tk436-vec.py oi <end-start-th{T}.csv> <trades-oi-th{T}.csv прежнего tk433-oi.py> <куб с oi-*.npy> [выход.csv]
+K2_pre/K2_post (tk433-oi.py) из OI-куба 5 мин: срез по сетке вместо разбора csv.gz; сверка строк «%.6g» с прежним выходом."""
 import csv, importlib.util, math, os, sys, time
 import numpy as np
 
@@ -179,5 +181,59 @@ def cmd_gate(av):
     print("расхождений с файлом end-start: было %d, стало %d из %d; макс. относит. %.2e; по мерам %s" % (ex_old, ex_new, n * len(keys), worst, perkey))
 
 
+def cmd_oi(av):
+    src, old_fn, cube = av[:3]
+    out = av[3] if len(av) > 3 else None
+    D = list(csv.DictReader(open(src, encoding="utf-8")))
+    old = {r["id"]: (r["K2_pre"], r["K2_post"]) for r in csv.DictReader(open(old_fn, encoding="utf-8"))}
+    t0 = time.time()
+    cb = {}
+    for sub in ("bybit-linear", "gate-futures_usdt"):
+        syms = open("%s/oi-%s.syms" % (cube, sub)).read().split()
+        chs = open("%s/oi-%s.ch" % (cube, sub)).read().split()
+        lo = int(open("%s/oi-%s.lo" % (cube, sub)).read())
+        mm = np.load("%s/oi-%s.npy" % (cube, sub), mmap_mode="r")
+        cb[sub] = ({s: i for i, s in enumerate(syms)}, lo, mm, chs.index("open_interest/open_interest") if "open_interest/open_interest" in chs else chs.index("oi/open_interest"))
+    t_open = time.time() - t0
+
+    def at(a, lo, t_min):
+        """последняя запись OI > 0 не старше 15 мин на сетке 5 мин (как at() в tk433-oi.py)."""
+        k = (t_min - lo) // 5
+        for j in range(k, k - 4, -1):
+            if 0 <= j < len(a):
+                v = a[j]
+                if v > 0:                                  # NaN > 0 == False
+                    return v if t_min - (lo + 5 * j) <= 15 else float("nan")
+        return float("nan")
+
+    t0 = time.time()
+    new, seen = {}, set()
+    for r in D:
+        pre = post = float("nan")
+        sub = "%s-%s" % (r["биржа"], r["рынок"])
+        if sub in cb and r["инструмент"] in cb[sub][0]:
+            ix, lo, mm, ch = cb[sub]
+            a = np.asarray(mm[ix[r["инструмент"]], ch])
+            p = int(r["peak_min"])
+            x, y, z = at(a, lo, p - 60), at(a, lo, p), at(a, lo, p + 60)
+            pre, post = (y - x) / x, (z - y) / y
+        if r["id"] not in seen:
+            seen.add(r["id"])
+            new[r["id"]] = tuple(("%.6g" % v) if v == v else "" for v in (pre, post))
+    t_new = time.time() - t0
+    bad = [(i, old.get(i), new[i]) for i in new if old.get(i) != new[i]]
+    have = sum(1 for v in new.values() if v[1])
+    print("id %d, с K2 (стало) %d, (было) %d; расхождений %d; открытие куба %.2f с, срезы %.2f с" % (len(new), have, sum(1 for v in old.values() if v[1]), len(bad), t_open, t_new))
+    for b in bad[:10]:
+        print("  ", b)
+    if out:
+        with open(out, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["id", "K2_pre", "K2_post"])
+            for i, v in new.items():
+                w.writerow([i, v[0], v[1]])
+    sys.exit(1 if bad else 0)
+
+
 if __name__ == "__main__":
-    {"gate": cmd_gate}[sys.argv[1]](sys.argv[2:])
+    {"gate": cmd_gate, "oi": cmd_oi}[sys.argv[1]](sys.argv[2:])
