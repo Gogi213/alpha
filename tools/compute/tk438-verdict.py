@@ -13,7 +13,7 @@ def run(df, keys, tag):
     m = s.merge(a[keys + ["разность", "p"]], on=keys, how="left", suffixes=("", "_авг"))
     m["сент_знач"] = m.p_holm < 0.05
     m["авг_подтв"] = (m.p_авг < 0.05) & (np.sign(m.разность) == np.sign(m.разность_авг))
-    m["вердикт"] = np.where(m.сент_знач & m.авг_подтв, "подтверждено", np.where(m.сент_знач, "оспорено(авг. нет)", "не различимо"))
+    m["вердикт"] = np.where(m.сент_знач & m.авг_подтв, "подтверждено", np.where(m.сент_знач & m.p_авг.isna(), "не проверено(авг. без OI/фандинга)", np.where(m.сент_знач, "оспорено(авг. нет)", "не различимо")))
     m["тип"] = tag; return m
 a = run(sh, ["D", "знак", "сценарий"], "доля"); b = run(en, ["D", "знак", "сценарий", "горизонт"], "конец")
 a.to_csv("data/tk438/verdict-shares.csv", index=False); b.to_csv("data/tk438/verdict-end.csv", index=False)
