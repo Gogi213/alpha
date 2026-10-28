@@ -936,6 +936,11 @@ def main():
             i += 1
     inp, outp = pos
     t_all = time.time()
+    TT = os.environ.get("TK441_T") == "1"  # TK-441: метки этапов главного процесса в stderr
+
+    def tk(m):
+        if TT:
+            print("метка %s: %.1f с" % (m, time.time() - t_all), file=sys.stderr)
     G = dict(GRID)
     if opt["--grid"]:
         G.update(json.load(open(opt["--grid"])))
@@ -974,31 +979,41 @@ def main():
     for i, w in enumerate(W):
         groups.setdefault((w["ex"], w["mk"], w["sym"]), []).append((i, w))
     jobs = [(k, v, roots, G) for k, v in sorted(groups.items(), key=lambda kv: -len(kv[1]))]
+    tk("вход прочитан")
     if procs > 1:
         with Pool(procs) as p:
             outs = list(p.imap_unordered(work_group, jobs))
     else:
         outs = [work_group(j) for j in jobs]
+    tk("пул кончил")
     res = sorted((r for o in outs for r in o[0]), key=lambda r: r[0])
     for _, key, dt in outs:
         print("группа %s: %.1f с" % ("/".join(key), dt), file=sys.stderr)
-    keys = []
+    tk("сортировка")
+    kd = {}  # порядок первого появления; dict вместо поиска по списку (TK-441: 15 из 35 с серийного хвоста)
     for _, _, F in res:
         for k in F:
-            if k not in keys and k != "_cov":
-                keys.append(k)
+            if k not in kd and k != "_cov":
+                kd[k] = None
+    keys = list(kd)
+    tk("ключи")
     # признак, которого в окне не вычислялось вовсе (нет источника/условие не выполнено), тоже получает cov_
+    cand = [k for k in keys if not k.startswith("cov_") and not SERVICE.match(k)]  # один раз, не на окно
     for _, _, F in res:
+        if "na" in F:
+            continue
         have, hist7 = F.get("_cov", ({}, False))
-        for k in [k for k in keys if not k.startswith("cov_") and not SERVICE.match(k)]:
-            if "cov_" + k not in F and "na" not in F:
+        for k in cand:
+            if "cov_" + k not in F:
                 F["cov_" + k] = cov_of(k, None, have, hist7)
+    tk("cov")
     base = ["id", "биржа", "рынок", "инструмент", "t_start_ms", "t_peak_ms", "t_end_ms"]
     with open(outp, "w", newline="", encoding="utf-8") as g:
         wr = csv.writer(g)
         wr.writerow(base + keys)
         for _, w, F in res:
             wr.writerow([w["id"], w["ex"], w["mk"], w["sym"], w["t0"], w["tp"], w["t1"]] + [fnum(F.get(k)) for k in keys])
+    tk("csv записан")
     # таблица пар фьючерс↔спот и ряд BTC (правка 4)
     pr = {}
     for _, w, F in res:
