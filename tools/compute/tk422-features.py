@@ -168,8 +168,23 @@ def orient(d, s):
     return _or[k][1]
 
 
+_sq = {}
+
+
 def seq(d, a, b):
-    return [(m, d[m]) for m in range(a, b) if m in d]
+    """[(минута, свеча)] по возрастанию минут в [a, b); отсортированный вид словаря строится один раз на группу (TK-439: циклом по минутам — 5 из 24 с профиля)"""
+    k = id(d)
+    e = _sq.get(k)
+    if e is None or e[0] is not d or e[1] != len(d):
+        src = d.d if isinstance(d, Neg) else d
+        ks = sorted(src)
+        vs = [src[m] for m in ks]
+        if isinstance(d, Neg):
+            vs = [(-v[0], -v[2], -v[1], -v[3], v[4]) for v in vs]
+        e = _sq[k] = (d, len(d), ks, vs)  # d в значении — id не переиспользуется
+    ks, vs = e[2], e[3]
+    i, j = bisect_left(ks, a), bisect_left(ks, b)
+    return list(zip(ks[i:j], vs[i:j]))
 
 
 def fractals(bars, k, hi=True):
@@ -791,6 +806,7 @@ def work_group(a):
     _tc.clear()
     _oc.clear()
     _or.clear()
+    _sq.clear()
     _r5.clear()
     RNG[0] = None
     return res, key, time.time() - t
