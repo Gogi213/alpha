@@ -8,6 +8,8 @@ EV9, EV8, F9, F8, XQ, C9, C8, OUT = sys.argv[1:9]
 MIN = 60000; DAY = 86400000
 SEP1 = 1788220800000; HALF = SEP1 + 15 * DAY
 rng = np.random.default_rng(426)
+NREP = int(os.environ.get('NREP', 200)); NREP_SUB = int(os.environ.get('NREP_SUB', 100))
+SUBS = [('D{90,180}', lambda d: d.D.isin([90, 180])), ('D{720,1440}', lambda d: d.D.isin([720, 1440])), ('ход≥×1,5', lambda d: d['ход/X'] >= 1.5), ('ход≥×2', lambda d: d['ход/X'] >= 2), ('без D/длит', lambda d: d.D > 0)]
 xq = json.load(open(XQ))
 GATE_BAD = (SEP1 + 29 * DAY + 3 * 3600000 + 55 * MIN, SEP1 + 29 * DAY + 4 * 3600000 + 5 * MIN)  # 30.09 07:55-08:05 GMT+4
 cache = {}
@@ -48,12 +50,14 @@ def shape(biz, mkt, ins, sgn, t0, t1, root):
         out["середина"] = float(np.argmax(lr >= mv / 2) / max(1, len(lr) - 1))
         d1 = np.diff(np.concatenate([[np.log(p0)], np.log(leg)])) * sgn
         out["доля1м"] = float(np.max(np.abs(d1)) / mv)
-    k0 = np.searchsorted(t, a - 360)
-    pr = np.log(cl[k0:i0])
-    if len(pr) >= 180: out["vol_pre"] = float(np.log10(np.std(np.diff(pr)) * 1e4 + 1e-9))
-    k1 = np.searchsorted(t, a - 1440)
-    qq = q[k1:i0]
-    if len(qq) >= 720: out["оборот24"] = float(np.log10(np.median(qq) * 1440 + 1))
+    # свечи Gate разрежены (минуты без сделок не выдуманы, coverage.csv): отсутствие свечи = нет сделок -> цена прежняя, оборот 0;
+    # данных нет только до первой свечи инструмента (листинг)
+    g = np.arange(a - 360, a); ix = np.searchsorted(t, g, side="right") - 1; okg = ix >= 0
+    if okg.sum() >= 180:
+        pr = np.log(cl[ix[okg]]); out["vol_pre"] = float(np.log10(np.std(np.diff(pr)) * 1e4 + 1e-9))
+    if t[0] <= a - 720:
+        k1, k2 = np.searchsorted(t, a - 1440), np.searchsorted(t, a)
+        out["оборот24"] = float(np.log10(q[k1:k2].sum() + 1))
     return out
 
 
@@ -122,9 +126,9 @@ class Frozen:
         return R
 
 
-def cluster(Xr, k):
+def cluster(Xr, k, Dm=None):
     """k-medoids по матрице Гауэра: старт farthest-first от самой центральной точки, до 30 итераций."""
-    Dm = gower(Xr)
+    if Dm is None: Dm = gower(Xr)
     med = [int(np.argmin(Dm.sum(1)))]
     while len(med) < k:
         med.append(int(np.argmax(Dm[:, med].min(1))))
@@ -163,6 +167,19 @@ def assign(Xn, Xf, med):
     return out
 
 
+def structure(X, nrep):
+    """силуэт k=2..6 на X против нулевой: каждый столбец переставлен независимо (маргинали целы, связь разрушена); k сравнивается с нулевой того же k."""
+    Dm = gower(X); sils = {}
+    for k in range(2, 7):
+        lab, _, _ = cluster(X, k, Dm); sils[k] = sil(Dm, lab)
+    nul = {k: [] for k in range(2, 7)}
+    for _ in range(nrep):
+        Xp = np.column_stack([rng.permutation(X[:, j]) for j in range(X.shape[1])]); Dp = gower(Xp)
+        for k in range(2, 7):
+            lab, _, _ = cluster(Xp, k, Dp); nul[k].append(sil(Dp, lab))
+    return sils, nul, {k: float(np.percentile(v, 95)) for k, v in nul.items()}
+
+
 def ari(a, b):
     _, ia = np.unique(a, return_inverse=True); _, ib = np.unique(b, return_inverse=True)
     M = np.zeros((ia.max() + 1, ib.max() + 1))
@@ -198,17 +215,23 @@ def main():
     F = r9[r9.t_start < HALF].copy(); T = r9[r9.t_start >= HALF].copy()
     fz = Frozen(F[cols]); Xf = fz.rank(F)
     ctl = c9[c9.t_start < HALF].copy(); ctl["ход/X"] = np.nan; Xc = fz.rank(ctl[cols])
-    sils = {}
-    for k in range(2, 7):
-        lab, Dm, _ = cluster(Xf, k); sils[k] = sil(Dm, lab)
+    sils, nul, null95 = structure(Xf, NREP)
     nulls = []
     for _ in range(10):
         ix = rng.choice(len(Xc), min(len(Xf), len(Xc)), replace=False)
         lab, Dm, _ = cluster(Xc[ix], 3); nulls.append(sil(Dm, lab))
-    null95 = float(np.percentile(nulls, 95))
-    P(f"\n## Классы: репрезентантов 1–15.09 = {len(F)}, 16–30.09 = {len(T)}; авг. {len(r8)}. Силуэт по k: {({k: round(v, 3) for k, v in sils.items()})}; нулевая на C1 (95-й проц., k=3): {null95:.3f}")
-    kb = max(sils, key=sils.get)
-    k = kb if sils[kb] > null95 else 1
+    P(f"\n## Классы: репрезентантов 1–15.09 = {len(F)}, 16–30.09 = {len(T)}; авг. {len(r8)}. Силуэт по k: {({k: round(v, 3) for k, v in sils.items()})}; "
+      f"нулевая = перестановка каждого столбца независимо по событиям 1–15.09, {NREP} повторов, 95-й проц. по k: {({k: round(v, 3) for k, v in null95.items()})}; "
+      f"справка (C1 без ход/X, неравный набор): {round(float(np.percentile(nulls, 95)), 3)}")
+    for nm, sub in SUBS:
+        sx = Xf[sub(F).to_numpy()] if nm != "без D/длит" else Xf[:, [j for j, c in enumerate(cols) if c not in ("D", "длит")]]
+        if len(sx) < 60: P(f"  подмножество {nm}: {len(sx)} < 60, не считалось"); continue
+        sl, _, n95 = structure(sx, NREP_SUB)
+        P(f"  подмножество {nm}: n={len(sx)}; силуэт {({k: round(v, 3) for k, v in sl.items()})}; нулевая 95 % {({k: round(v, 3) for k, v in n95.items()})}; "
+          f"k сильнее нулевой: {[k for k in sl if sl[k] > n95[k]]}")
+    beat = {kk: sils[kk] - null95[kk] for kk in sils if sils[kk] > null95[kk]}
+    kb = max(beat, key=beat.get) if beat else 1
+    k = kb
     P(f"Выбрано k = {k}" + (" — структуры сильнее нулевой нет: «один класс»" if k == 1 else ""))
     if k > 1:
         lab, Dm, med = cluster(Xf, k)
@@ -252,30 +275,48 @@ def main():
         P("\n## Класс × терциль оборота 24 ч (кластеров)\n" + pd.crosstab(allr.класс, allr.терциль).to_string())
     P("\n## Класс × знак × D (кластеров)\n" + pd.crosstab(allr.класс, [allr.зн, allr.D]).to_string())
     cgrp = {i: g for i, g in c9.groupby("event_id")}
-    rows = []
-    for g in range(k):
-        for sg in ("+", "-"):
-            ss = T[(T.класс == g) & (T.зн == sg)]
-            for f in DELTA:
-                dl = []
-                for r_id, v in zip(ss.event_id, ss[f]):
-                    cc = cgrp[r_id][f].dropna() if r_id in cgrp else []
-                    if len(cc) >= 3 and not np.isnan(v): dl.append(v - float(np.median(cc)))
-                dl = np.array(dl); n = len(dl)
-                if n < 5: rows.append(dict(класс=g, знак=sg, признак=f, кластеров=n)); continue
-                delta = float((dl > 0).mean() - (dl < 0).mean())
-                sgn = rng.choice([-1, 1], size=(5000, n)); perm = np.abs((np.sign(dl)[None, :] * sgn).mean(1))
-                p = float((np.sum(perm >= abs(delta) - 1e-12) + 1) / 5001)
-                bs = [(lambda x: (x > 0).mean() - (x < 0).mean())(dl[rng.integers(0, n, n)]) for _ in range(500)]
-                rows.append(dict(класс=g, знак=sg, признак=f, кластеров=n, delta=delta, lo=float(np.percentile(bs, 2.5)), hi=float(np.percentile(bs, 97.5)), p=p))
-    R = pd.DataFrame(rows)
-    ok = R.p.notna() if "p" in R else pd.Series(False, index=R.index)
-    R["q"] = np.nan
-    if ok.any(): R.loc[ok, "q"] = bh(R.loc[ok, "p"].to_numpy())
+
+    def delta_table(TT, strat):
+        rows = []
+        for g in range(k):
+            for sg in ("+", "-"):
+                ss = TT[(TT.класс == g) & (TT.зн == sg)]
+                for f in DELTA:
+                    dl = []
+                    for r_id, v in zip(ss.event_id, ss[f]):
+                        cc = cgrp[r_id][f].dropna() if r_id in cgrp else []
+                        if len(cc) >= 3 and not np.isnan(v): dl.append(v - float(np.median(cc)))
+                    dl = np.array(dl); n = len(dl)
+                    base = dict(срез=strat, класс=g, знак=sg, признак=f, кластеров=n)
+                    if n < 5: rows.append(base); continue
+                    delta = float((dl > 0).mean() - (dl < 0).mean())
+                    sgn = rng.choice([-1, 1], size=(5000, n)); perm = np.abs((np.sign(dl)[None, :] * sgn).mean(1))
+                    p = float((np.sum(perm >= abs(delta) - 1e-12) + 1) / 5001)
+                    bs = [(lambda x: (x > 0).mean() - (x < 0).mean())(dl[rng.integers(0, n, n)]) for _ in range(500)]
+                    rows.append(dict(base, delta=delta, lo=float(np.percentile(bs, 2.5)), hi=float(np.percentile(bs, 97.5)), p=p))
+        R = pd.DataFrame(rows)
+        if "p" not in R: R["p"] = np.nan
+        ok = R.p.notna(); R["q"] = np.nan
+        if ok.any(): R.loc[ok, "q"] = bh(R.loc[ok, "p"].to_numpy())
+        return R
+
+    # срезы «общего»: всё / по оборот24-терцилям (границы по всем репрезентантам сент.) / по бирже; BH — внутри каждого среза
+    edges = allr.оборот24.quantile([1 / 3, 2 / 3]).to_numpy() if allr.оборот24.notna().any() else None
+    strata = [("всё", T)]
+    if edges is not None:
+        tt = pd.cut(T.оборот24, [-np.inf, edges[0], edges[1], np.inf], labels=["низ", "сред", "верх"])
+        strata += [(f"оборот24 {nm}", T[tt == nm]) for nm in ("низ", "сред", "верх")]
+    strata += [("Bybit", T[T.биржа == "bybit"]), ("Gate", T[T.биржа == "gate"])]
+    R = pd.concat([delta_table(TT, nm) for nm, TT in strata], ignore_index=True)
     R["вердикт"] = np.where(R.q.notna() & (R.q <= 0.10) & (R.lo * R.hi > 0), np.where(R.delta > 0, "выше контроля", "ниже контроля"), "не различимо")
-    P(f"\n## «Общее» внутри классов, 16–30.09 (δ знаков против медианы C1; BH q*=0,10 по {int(ok.sum())} ячейкам): различимых {int((R.вердикт != 'не различимо').sum())}")
-    P(md(R[R.вердикт != "не различимо"]) if (R.вердикт != "не различимо").any() else "нет")
-    P("\nмалых ячеек (<5 кластеров):", int((~ok).sum()))
+    # оговорка 1 протокола: признаки, входящие в определение тренда, — по построению, не «общее»
+    R["тип"] = R.признак.map(lambda f: "общее" if f in ("m_pre", "vol_pre", "оборот24") else ("частично по определению" if f == "v_in" else "форма/по построению"))
+    for nm, _ in strata:
+        r = R[R.срез == nm]
+        P(f"\n## «Общее», срез «{nm}», 16–30.09 (δ знаков против медианы C1; BH q*=0,10 по {int(r.p.notna().sum())} ячейкам): различимых {int((r.вердикт != 'не различимо').sum())}, малых (<5): {int(r.p.isna().sum())}")
+        rr = r[(r.вердикт != "не различимо")]
+        P(md(rr[["класс", "знак", "признак", "тип", "кластеров", "delta", "lo", "hi", "q", "вердикт"]]) if len(rr) else "нет")
+    P("\n## Знак δ по бирже и терцилям для признаков «общего» (согласованность срезов)\n" + md(R[R.признак.isin(["m_pre", "vol_pre", "оборот24", "v_in"])][["срез", "знак", "признак", "кластеров", "delta", "lo", "hi", "q", "вердикт"]].round(3)))
     allr.to_csv(OUT + "-events.csv", index=False); R.to_csv(OUT + "-common.csv", index=False); comp.to_csv(OUT + "-classes.csv", index=False)
 
 
