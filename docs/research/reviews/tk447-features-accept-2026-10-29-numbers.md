@@ -1,8 +1,7 @@
 | число | файл:строка |
 |---|---|
-| 0.637 | docs/findings/pump-features-v2-2026-10-29-fund-lift-2026-09.csv:87 |
-| 6.352 | docs/findings/pump-features-v2-2026-10-29-fund-lift-2026-09.csv:96 |
-| 5.11 | docs/findings/pump-features-v2-2026-10-29-fund-lift-2026-09.csv:97 |
-| 0.652 | docs/findings/pump-features-v2-2026-10-29-fund-lift-2026-09.csv:103 |
-| 6.134 | docs/findings/pump-features-v2-2026-10-29-fund-lift-2026-09.csv:110 |
-| 1.393 | docs/findings/pump-features-v2-2026-10-29-fund-lift-2026-09.csv:113 |
+| 0,64 | docs/findings/pump-features-v2-2026-10-29.md:45 |
+| 6,35 | docs/findings/pump-features-v2-2026-10-29.md:45 |
+| 6,13 | docs/findings/pump-features-v2-2026-10-29.md:45 |
+| 1409,9 | docs/findings/pump-features-v2-2026-10-29.md:46 |
+| 0,019 | docs/findings/pump-features-v2-2026-10-29.md:47 |
