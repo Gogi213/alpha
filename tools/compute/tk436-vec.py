@@ -236,7 +236,7 @@ def cmd_oi(av):
 
 
 def cmd_trades(av):
-    """К4–К8 (tk433-trades.py) из куба: сделки по минуте (trades-*.npy) + h/l/c свечей bybit-linear вместо разбора сделок построчно."""
+    """К4–К8 (tk433-trades.py) из куба: сделки по минуте (trades-*.npy: суммы, счётчики, max/min цены) + close свечей bybit-linear вместо разбора сделок построчно."""
     src, legs5, cube, old_fn = av[:4]
     out = av[4] if len(av) > 4 else None
     th = {}
@@ -291,9 +291,9 @@ def cmd_trades(av):
             if mk == "linear":
                 o["K6_delta"] = s * a["dl"]
                 o["K6_int"] = float(np.log(a["n"] / b["n"]))
-                if stats(sl(mk, sym, p, p)) is not None and sym in cix:
-                    k = p - clo
-                    pk = float(cmm[cix[sym], H, k]) if s > 0 else float(cmm[cix[sym], L, k])
+                vp = sl(mk, sym, p, p)
+                if stats(vp) is not None and sym in cix:
+                    pk = float(vp[4, 0]) if s > 0 else float(vp[5, 0])     # max/min цены СДЕЛОК минуты пика, не high/low свечи (в архиве сделок бывают дыры)
                     band = th.get(("bybit", "linear", "+" if s > 0 else "-"))
                     v = sl(mk, sym, p + 1, p + 60)
                     if band and v is not None and (v[2] + v[3]).sum() > 0:

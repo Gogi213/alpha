@@ -3,7 +3,7 @@
   tk436-cube.py candles <месяц ГГГГ-ММ> <корень свечей> <корень куба> [<доп. корни свечей через запятую|->]
       <куб>/<sub>.npy  float64 (S, 5, T): o,h,l,c,q (q = quote_v); NaN = нет свечи (как в load() tk433-features), <sub>.syms — список.
   tk436-cube.py trades <месяц> <корень /data/tk417> <корень куба> [<процессов>]
-      <куб>/trades-<sub>.npy float64 (S, 4, T): buy_q, sell_q, buy_n, sell_n по минуте (только поминутно, В-172/запрет посекундных не затронуты);
+      <куб>/trades-<sub>.npy float64 (S, 6, T): buy_q, sell_q, buy_n, sell_n, max и min цены сделки по минуте (0 = сделок нет) (только поминутно, В-172/запрет посекундных не затронуты);
       sub = bybit-linear (foreignNotional, сторона Buy/Sell тикета) и bybit-spot (price*volume, buy/sell); сумма в порядке файла.
   tk436-cube.py oi <месяц> <корень tk415/out> <корень куба>
       <куб>/oi-<sub>.npy float64 (S, K, T5): сетка 5 мин от начала куба (lo, тот же отступ PAD), NaN = нет записи; значения как в файле, без заполнения
@@ -190,14 +190,19 @@ def _trade_task(a):
     sub, path, lo, T = a
     awk = AWK_LIN if sub == "bybit-linear" else AWK_SPOT
     r = subprocess.run("zcat %s | mawk -F, '%s'" % (path, awk), shell=True, capture_output=True, text=True, check=True)
-    out = np.zeros((4, T))
+    out = np.zeros((6, T))
     for ln in r.stdout.splitlines():
-        m, buy, s, n = ln.split()
+        m, buy, s, n, h, l = ln.split()
         i = int(m) - lo
         if 0 <= i < T:
             j = 0 if buy == "1" else 1
             out[j, i] += float(s)
             out[2 + j, i] += int(n)
+            h, l = float(h), float(l)
+            if out[4, i] == 0 or h > out[4, i]:
+                out[4, i] = h
+            if out[5, i] == 0 or l < out[5, i]:
+                out[5, i] = l
     return out
 
 
@@ -216,7 +221,7 @@ def cmd_trades(av):
             for fn in sorted(os.listdir("%s/%s" % (d, s))):
                 tasks.append((sub, "%s/%s/%s" % (d, s, fn), lo, T))
                 owner.append(si)
-        mm = np.lib.format.open_memmap("%s/trades-%s.npy" % (outd, sub), mode="w+", dtype=np.float64, shape=(len(syms), 4, T))
+        mm = np.lib.format.open_memmap("%s/trades-%s.npy" % (outd, sub), mode="w+", dtype=np.float64, shape=(len(syms), 6, T))
         mm[:] = 0
         for si, arr in zip(owner, pool.imap(_trade_task, tasks, chunksize=1)):
             mm[si] += arr          # суточные файлы не пересекаются по минутам
