@@ -3,6 +3,7 @@
 событий первыми), серия инструмента строится один раз на все файлы; выход каждого файла — как у tk435-vol.main (те же строки, сортировка, округление).
   tk439-volall.py <windows.csv> <xq.json> <выходной каталог> --cube <куб> --cut <мин> [--procs N]   → vol-D<D>{p|m}.csv"""
 import csv
+import io
 import time
 import importlib.util
 import os
@@ -18,6 +19,7 @@ sp.loader.exec_module(V)
 M = V.M
 SC, LOAD0 = M.Series, M.load
 _C = {}
+LT = chr(10)
 
 
 def _load(roots, sub, sym):
@@ -40,10 +42,27 @@ def _series(*ld):
 M.Series = _series
 
 
+def _fmt(rs):
+    """Строки файла форматируются в воркере (запись 83 тыс. × 141 в главном процессе = 28 с); ячейки — как у DictWriter."""
+    out, cols = [], None
+    b = io.StringIO()
+    w = csv.writer(b, lineterminator=LT)
+    for r in rs:
+        if cols is None:
+            cols = tuple(r)
+        elif tuple(r) != cols:
+            raise ValueError("разные колонки в строках одного файла")
+        w.writerow(["" if v is None else (round(v, 8) if isinstance(v, float) else v) for v in r.values()])
+        out.append((r["биржа_рынок"], r["инструмент"], r["t_start_ms"], b.getvalue()))
+        b.seek(0)
+        b.truncate()
+    return cols, out
+
+
 def run(job):
     sub, sym, parts, roots = job
     t = time.time()
-    r = [(k, V.one((sub, sym, evs, roots))) for k, evs in parts]
+    r = [(k, _fmt(V.one((sub, sym, evs, roots)))) for k, evs in parts]
     print('job %s %s %d ev %.1f s' % (sub, sym, sum(len(e) for _, e in parts), time.time() - t), file=sys.stderr)
     return r
 
@@ -68,22 +87,25 @@ def main():
                 by[("%s-%s" % (r["биржа"], r["рынок"]), r["инструмент"])][k].append(r)
     jobs = [(s, i, sorted(p.items()), []) for (s, i), p in sorted(by.items())]
     jobs.sort(key=lambda j: -sum(len(e) for _, e in j[2]))
-    rows = defaultdict(list)
+    rows, hdr = defaultdict(list), {}
     t0 = time.time()
     with Pool(procs) as pool:
         for res in pool.imap_unordered(run, jobs, chunksize=1):
-            for k, r in res:
-                rows[k] += r
+            for k, (cols, out) in res:
+                if cols is not None:
+                    if hdr.setdefault(k, cols) != cols:
+                        raise ValueError("разные колонки у инструментов файла %s" % (k,))
+                rows[k] += out
     print('пул %.1f с, заданий %d' % (time.time() - t0, len(jobs)), file=sys.stderr)
     os.makedirs(outd, exist_ok=True)
     for k, D, X, fn in specs:
-        rs = sorted(rows[k], key=lambda r: (r["биржа_рынок"], r["инструмент"], r["t_start_ms"]))
-        cols = list(rs[0]) if rs else []
+        rs = sorted(rows[k], key=lambda r: r[:3])
         with open(os.path.join(outd, fn), "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, cols, lineterminator="\n")
-            w.writeheader()
-            for r in rs:
-                w.writerow({a: ("" if v is None else (round(v, 8) if isinstance(v, float) else v)) for a, v in r.items()})
+            if rs:
+                b = io.StringIO()
+                csv.writer(b, lineterminator=LT).writerow(hdr[k])
+                f.write(b.getvalue())
+            f.writelines(r[3] for r in rs)
         print(fn, len(rs), "событий")
     print('всего с пула %.1f с' % (time.time() - t0), file=sys.stderr)
 
