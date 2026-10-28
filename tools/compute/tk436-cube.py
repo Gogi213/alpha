@@ -13,7 +13,7 @@ import numpy as np
 MIN = 60000
 SUBS = ("bybit-linear", "bybit-spot", "gate-futures_usdt", "gate-spot")
 F = ("o", "h", "l", "c", "q")
-PAD = 15                  # суток запаса назад в кубе свечей
+PAD = int(os.environ.get("CUBE_PAD", "15"))   # суток запаса назад в кубе свечей; контроли ±30 сут (tk435-vol) — для точного повтора нужно ≥ 31
 
 
 def month_bounds(ym):

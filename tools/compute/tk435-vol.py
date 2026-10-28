@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """TK-435 (2): меры волатильности окна события v11 (черновик под протокол v11 §2, параметры — по умолчанию).
 Использование: tk435-vol.py <windows-*.csv (tk435-windows.py)> <D> <X> <выход.csv> <корень свечей> [ещё корни (август)…] [--procs 15] [--limit N]
+  [--cube <корень куба tk436-cube.py>] — свечи из куба (memmap) вместо разбора csv.gz; корни свечей не читаются; сетка и выход те же, что без --cube
+  [--cut <абс. минута>] — без куба: отбросить свечи раньше минуты (для гейта «было/стало» с кубом: --cut = первая минута куба, файл <куб>/<sub>.lo)
 События = строки с исключено="" и представитель=1 для заданных D (мин) и X (%). Для каждого события и до PER=5 контролей
 (та же монета-рынок, та же длина окна, тот же час UTC, ±30 сут, окно [старт−60, пик] не пересекает ни одного события инструмента;
 md5 seed 433 — как tk433-features.py) считаются 22 варианта в двух положениях: pre — окно кончается в t_start, in — в t_peak:
@@ -26,10 +28,36 @@ VARS = (["NATR1_%d" % n for n in N1] + ["NATR5_%d" % n for n in N5] +
         ["%s_%d" % (m, w) for m in ("RV1", "RV5", "PK", "GK", "RNG", "MAD") for w in WS])
 LN2 = math.log(2)
 EXCL = {}
+CUBE, CUT, _MM = None, 0, {}
+
+
+def load_cube(sub, sym):
+    """то же, что load(), из куба tk436: фильтр o,h,l,c > 0 как в load(); сетка — от суток первой свечи до конца суток последней."""
+    if sub not in _MM:
+        _MM[sub] = (np.load("%s/%s.npy" % (CUBE, sub), mmap_mode="r"), open("%s/%s.syms" % (CUBE, sub)).read().split(),
+                    int(open("%s/%s.lo" % (CUBE, sub)).read()))
+    mm, syms, lo = _MM[sub]
+    if sym not in syms:
+        return None
+    x = np.array(mm[syms.index(sym)])
+    with np.errstate(invalid="ignore"):
+        x[:, ~((x[0] > 0) & (x[1] > 0) & (x[2] > 0) & (x[3] > 0))] = np.nan
+    ok = np.flatnonzero(~np.isnan(x[3]))
+    if not len(ok):
+        return None
+    a, b = int(ok[0]) + lo, int(ok[-1]) + lo
+    g0 = a // 1440 * 1440
+    n = (b // 1440 + 1) * 1440 - g0
+    A = np.full((5, n), np.nan)
+    k0, k1 = g0 - lo, min(g0 - lo + n, x.shape[1])
+    A[:, :k1 - k0] = x[:, k0:k1]
+    return g0, A
 
 
 def load(roots, sub, sym):
     """сетка минут (абс. минута − g0): o,h,l,c,q; g0 кратно 1440; несколько корней склеиваются."""
+    if CUBE:
+        return load_cube(sub, sym)
     rows = []
     for r in roots:
         fn = os.path.join(r, sub, sym + ".csv.gz")
@@ -40,7 +68,7 @@ def load(roots, sub, sym):
                     p = line.split(",", 7)
                     ti = int(p[0])
                     o, h, l, c = float(p[1]), float(p[2]), float(p[3]), float(p[4])
-                    if c > 0 and l > 0 and h > 0 and o > 0:
+                    if c > 0 and l > 0 and h > 0 and o > 0 and ti // MIN >= CUT:
                         rows.append((ti // MIN, o, h, l, c, float(p[6] or 0)))
     if not rows:
         return None
@@ -191,9 +219,12 @@ def one(arg):
 
 
 def main():
+    global CUBE, CUT
+    CUBE = sys.argv[sys.argv.index("--cube") + 1] if "--cube" in sys.argv else None
+    CUT = int(sys.argv[sys.argv.index("--cut") + 1]) if "--cut" in sys.argv else 0
     procs = int(sys.argv[sys.argv.index("--procs") + 1]) if "--procs" in sys.argv else 15
     limit = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else 0
-    av = [a for i, a in enumerate(sys.argv[1:], 1) if not a.startswith("--") and sys.argv[i - 1] not in ("--procs", "--limit")]
+    av = [a for i, a in enumerate(sys.argv[1:], 1) if not a.startswith("--") and sys.argv[i - 1] not in ("--procs", "--limit", "--cube", "--cut")]
     wf, D, X, outf = av[:4]
     roots = av[4:]
     by = defaultdict(list)
