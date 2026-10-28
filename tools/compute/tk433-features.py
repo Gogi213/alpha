@@ -29,7 +29,7 @@ def month_bounds(ym):
     return int(a.timestamp() * 1000) // MIN, int(b.timestamp() * 1000) // MIN
 
 
-CUBE, CUT, _MM = None, 0, {}
+CUBE, CUT, _MM, JOBS = None, 0, {}, 1
 
 
 def load_cube(sub, sym):
@@ -103,15 +103,18 @@ def hit(mb, x, y):
     return k >= 0 and mg[k][1] >= x
 
 
-def own_features(d, a, e, busy):
+def own_features(d, a, e, busy, nz=None):
     """a..e — минуты окна ноги [старт, пик]; busy — [(i0,i1)] минуты всех ног ≥ 90 мин инструмента (исключаются из нормы)."""
     out = {"v_in": mad_demeaned(d, a, e), "v_pre": mad_demeaned(d, a - PRE, a - 1)}
     first = min(d) if d else a
     out["hist_days"] = round((a - first) / 1440, 2)
     norm = None
     if out["hist_days"] >= MIN_HIST_D:
-        q = [d[m][1] for m in range(a - NORM_D * 1440, a) if m in d and not hit(busy, m, m)]
-        norm = med(q)
+        if nz:      # TK-436: та же медиана, выбор по маскам numpy (присутствует и не занято)
+            norm = nz(a)
+        else:
+            q = [d[m][1] for m in range(a - NORM_D * 1440, a) if m in d and not hit(busy, m, m)]
+            norm = med(q)
     for nm, (x, y) in (("m_in", (a, e)), ("m_pre", (a - PRE, a - 1))):
         s = sum(d[m][1] for m in range(x, y + 1) if m in d)
         out[nm] = s / (norm * (y - x + 1)) if norm else None
@@ -158,6 +161,106 @@ def sf_features(df, ds, a, e, sg):
     return out
 
 
+def inst_arrays(d, mg):
+    """TK-436: по инструменту — присутствие свечи (префиксные суммы), оборот и маска занятости; (base, P, nz) или None."""
+    if not d:
+        return None
+    import numpy as np
+    base, top = min(d), max(d)
+    n = top - base + 1
+    ks = np.fromiter(d.keys(), np.int64, len(d)) - base
+    pres = np.zeros(n, bool)
+    pres[ks] = True
+    vol = np.full(n, np.nan)
+    vol[ks] = np.fromiter((v[1] for v in d.values()), float, len(d))
+    P = np.concatenate(([0], np.cumsum(pres)))
+    busy = np.zeros(n, bool)
+    for i0, i1 in mg:
+        x, y = max(i0 - base, 0), min(i1 - base + 1, n)
+        if y > x:
+            busy[x:y] = True
+    keep = pres & ~busy
+
+    def nz(a):
+        x, y = max(a - NORM_D * 1440 - base, 0), min(a - base, n)
+        if y <= x:
+            return None
+        q = vol[x:y][keep[x:y]]
+        if not len(q):
+            return None
+        q.sort()
+        return float(q[len(q) // 2])
+    return base, P, nz
+
+
+CTX = {}
+
+
+def proc_instr(item):
+    """Один инструмент (ex, mk, sym) -> (wins, own, diag-часть); порядок слияния частей = порядок исходного цикла."""
+    (ex, mk, sym), L = item
+    roots, lo, hi = CTX["roots"], CTX["lo"], CTX["hi"]
+    wins, own = [], []
+    diag = {"событий": defaultdict(int), "контролей": defaultdict(int), "без_контролей": [], "короткая_история": []}
+    sub = "%s-%s" % (ex, mk)
+    d = load(roots, sub, sym)
+    dsp = load(roots, "%s-%s" % (ex, PAIR[mk]), sym) if mk in PAIR else {}
+    mg = merge_busy(CTX["busy"][(ex, mk, sym)])
+    bz = (mg, [x[0] for x in mg])
+    ar = inst_arrays(d, mg)
+    nz = ar[2] if ar else None
+    for tag, eid, r in sorted(L, key=lambda x: x[1]):
+        a, e = int(r["t_start_ms"]) // MIN, int(r["t_peak_ms"]) // MIN
+        dur = e - a
+        sg = "+1" if r["знак"] == "+" else "-1"
+        frac = sum(1 for m in range(a, e + 1) if m in d) / (dur + 1)
+        wins.append(dict(id=eid, биржа=ex, рынок=mk, инструмент=sym, t_start=a * MIN, t_peak=e * MIN, t_end=(e + 1) * MIN,
+                         t_pre=(a - PRE) * MIN, знак=sg, роль="event", event_id=eid, θ=tag))
+        o = own_features(d, a, e, bz, nz)
+        o.update(sf_features(d, dsp, a, e, int(sg)))
+        own.append(dict(id=eid, **o))
+        diag["событий"][tag] += 1
+        if o["hist_days"] < MIN_HIST_D:
+            diag["короткая_история"].append(eid)
+        hs = a - a % 60
+        cand = []
+        if ar:
+            base, P, _ = ar
+            for dd in range(-SPAN, SPAN + 1):
+                if dd == 0:
+                    continue
+                for k in range(0, 60, 5):
+                    s = hs + dd * 1440 + k
+                    pre_s, end_s = s - PRE, s + dur
+                    if pre_s < lo or end_s >= hi:
+                        continue
+                    if hit(bz, pre_s, end_s):
+                        continue
+                    if s not in d or end_s not in d:
+                        continue
+                    if int(P[end_s + 1 - base] - P[s - base]) < frac * (dur + 1):
+                        continue
+                    cand.append((hashlib.md5(("%d|%s|%d" % (SEED, eid, s)).encode()).hexdigest(), s))
+        cand.sort()
+        got = []
+        for _, s in cand:
+            if all(s + dur < g - PRE or s - PRE > g + dur for g in got):
+                got.append(s)
+                if len(got) == PER:
+                    break
+        if not got:
+            diag["без_контролей"].append(eid)
+        for j, s in enumerate(got, 1):
+            cid = "C-%s-%d" % (eid, j)
+            wins.append(dict(id=cid, биржа=ex, рынок=mk, инструмент=sym, t_start=s * MIN, t_peak=(s + dur) * MIN,
+                             t_end=(s + dur + 1) * MIN, t_pre=(s - PRE) * MIN, знак=sg, роль="control", event_id=eid, θ=tag))
+            oc = own_features(d, s, s + dur, bz, nz)
+            oc.update(sf_features(d, dsp, s, s + dur, int(sg)))
+            own.append(dict(id=cid, **oc))
+            diag["контролей"][tag] += 1
+    return wins, own, diag
+
+
 def cmd_windows(av):
     l60, l240, root, aug, outd = av[:5]
     ym = av[5] if len(av) > 5 else "2026-09"
@@ -183,59 +286,22 @@ def cmd_windows(av):
     for e in ev:
         byins[(e[2]["биржа"], e[2]["рынок"], e[2]["инструмент"])].append(e)
     wins, own, diag = [], [], {"событий": defaultdict(int), "контролей": defaultdict(int), "без_контролей": [], "короткая_история": []}
-    for (ex, mk, sym), L in sorted(byins.items()):
-        sub = "%s-%s" % (ex, mk)
-        d = load(roots, sub, sym)
-        dsp = load(roots, "%s-%s" % (ex, PAIR[mk]), sym) if mk in PAIR else {}
-        mg = merge_busy(busy[(ex, mk, sym)])
-        bz = (mg, [x[0] for x in mg])
-        for tag, eid, r in sorted(L, key=lambda x: x[1]):
-            a, e = int(r["t_start_ms"]) // MIN, int(r["t_peak_ms"]) // MIN
-            dur = e - a
-            sg = "+1" if r["знак"] == "+" else "-1"
-            frac = sum(1 for m in range(a, e + 1) if m in d) / (dur + 1)
-            wins.append(dict(id=eid, биржа=ex, рынок=mk, инструмент=sym, t_start=a * MIN, t_peak=e * MIN, t_end=(e + 1) * MIN,
-                             t_pre=(a - PRE) * MIN, знак=sg, роль="event", event_id=eid, θ=tag))
-            o = own_features(d, a, e, bz)
-            o.update(sf_features(d, dsp, a, e, int(sg)))
-            own.append(dict(id=eid, **o))
-            diag["событий"][tag] += 1
-            if o["hist_days"] < MIN_HIST_D:
-                diag["короткая_история"].append(eid)
-            hs = a - a % 60
-            cand = []
-            for dd in range(-SPAN, SPAN + 1):
-                if dd == 0:
-                    continue
-                for k in range(0, 60, 5):
-                    s = hs + dd * 1440 + k
-                    pre_s, end_s = s - PRE, s + dur
-                    if pre_s < lo or end_s >= hi:
-                        continue
-                    if hit(bz, pre_s, end_s):
-                        continue
-                    if s not in d or end_s not in d:
-                        continue
-                    if sum(1 for m in range(s, end_s + 1) if m in d) < frac * (dur + 1):
-                        continue
-                    cand.append((hashlib.md5(("%d|%s|%d" % (SEED, eid, s)).encode()).hexdigest(), s))
-            cand.sort()
-            got = []
-            for _, s in cand:
-                if all(s + dur < g - PRE or s - PRE > g + dur for g in got):
-                    got.append(s)
-                    if len(got) == PER:
-                        break
-            if not got:
-                diag["без_контролей"].append(eid)
-            for j, s in enumerate(got, 1):
-                cid = "C-%s-%d" % (eid, j)
-                wins.append(dict(id=cid, биржа=ex, рынок=mk, инструмент=sym, t_start=s * MIN, t_peak=(s + dur) * MIN,
-                                 t_end=(s + dur + 1) * MIN, t_pre=(s - PRE) * MIN, знак=sg, роль="control", event_id=eid, θ=tag))
-                oc = own_features(d, s, s + dur, bz)
-                oc.update(sf_features(d, dsp, s, s + dur, int(sg)))
-                own.append(dict(id=cid, **oc))
-                diag["контролей"][tag] += 1
+    CTX.update(roots=roots, lo=lo, hi=hi, busy=busy)
+    items = sorted(byins.items())
+    if JOBS > 1:      # TK-436: инструменты независимы; imap держит порядок -> выход тот же побайтно
+        import multiprocessing as mp
+        with mp.get_context("fork").Pool(JOBS) as pool:
+            parts = list(pool.imap(proc_instr, items, chunksize=1))
+    else:
+        parts = [proc_instr(it) for it in items]
+    for w_, o_, d_ in parts:
+        wins += w_
+        own += o_
+        for k in ("событий", "контролей"):
+            for t, c in d_[k].items():
+                diag[k][t] += c
+        diag["без_контролей"] += d_["без_контролей"]
+        diag["короткая_история"] += d_["короткая_история"]
     with open(os.path.join(outd, "windows.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, list(wins[0]), lineterminator="\n")
         w.writeheader()
@@ -292,11 +358,13 @@ def cmd_merge(av):
 
 if __name__ == "__main__":
     av = sys.argv[2:]
-    for fl in ("--cube", "--cut"):       # TK-436: свечи из куба (memmap) вместо csv.gz; --cut — первая абс. минута (отсечка истории как у прежнего прогона)
+    for fl in ("--cube", "--cut", "--jobs"):       # TK-436: свечи из куба (memmap) вместо csv.gz; --cut — первая абс. минута (отсечка истории как у прежнего прогона)
         if fl in av:
             k = av.index(fl)
             if fl == "--cube":
                 CUBE = av[k + 1]
+            elif fl == "--jobs":
+                JOBS = int(av[k + 1])
             else:
                 CUT = int(av[k + 1])
             del av[k:k + 2]
