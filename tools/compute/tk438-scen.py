@@ -9,12 +9,15 @@ src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "tk426-class
 src = src.rsplit("\nmain()", 1)[0]
 exec(compile(src, "tk426-classes.py", "exec"))
 B = int(os.environ.get("NB", 400)); MODE = os.environ.get("MODE", "both"); H = {"1ч": 60, "6ч": 360, "24ч": 1440}
+if MODE == "agg": H = {"1ч": 60, "6ч": 360, "24ч": 1440}
 rng = np.random.default_rng(438)
 
 
-def after(df, root):
+def after(df, root, ref="peak"):
+    """ход после точки отсчёта: peak = t_peak (у контролей — конец окна той же длительности, не максимум!); D = t_start+D мин (одинаково для событий и контролей)"""
     out = {k: [] for k in H}
-    for b, m, i, s, t1 in zip(df.биржа, df.рынок, df.инструмент, df.зн, df.t_peak):
+    t_ref = df.t_peak if ref == "peak" else df.t_start + df.D * MIN
+    for b, m, i, s, t1 in zip(df.биржа, df.рынок, df.инструмент, df.зн, t_ref):
         c = candles(root, b, m, i); sg = 1 if s == "+" else -1
         r = {k: np.nan for k in H}
         if c is not None:
@@ -26,7 +29,7 @@ def after(df, root):
                         j2 = np.searchsorted(t, p + h, side="right") - 1
                         r[k] = sg * np.log(cl[j2] / cl[j]) * 1e4
         for k in H: out[k].append(r[k])
-    return pd.DataFrame({"пик+" + k: v for k, v in out.items()})
+    return pd.DataFrame({("пик+" if ref == "peak" else "кD+") + k: v for k, v in out.items()})
 
 
 def flags(d, c):
@@ -87,7 +90,26 @@ def boot_med(e, c, col, mask_e, mask_c):
     return dict(n_e=len(ee), n_c=len(cc), мед_соб=ee[col].median(), мед_контр=cc[col].median(), разность=d0, lo=lo, hi=hi, p=max(p, 1 / B), монет=len(coins))
 
 
-rows_s, rows_e = [], []
+def boot_agg(cells, col):
+    """агрегат по ячейкам D×знак: взвешенное (n_e ячейки) среднее разностей медиан сценарий-события минус сценарий-контроли; бутстреп по монетам (общий выбор монет на все ячейки)"""
+    cs = []
+    for ee, cc in cells:
+        if len(ee) >= 10 and len(cc) >= 10:
+            cs.append(({k: v.to_numpy() for k, v in ee.groupby("монета")[col]}, {k: v.to_numpy() for k, v in cc.groupby("монета")[col]}, len(ee)))
+    if not cs: return None
+    coins = np.array(sorted(set().union(*[set(a) | set(b) for a, b, _ in cs])))
+    def stat(pick):
+        num = den = 0.0
+        for pe, pc, w in cs:
+            xe = [pe[k] for k in pick if k in pe]; xc = [pc[k] for k in pick if k in pc]
+            if xe and xc: num += w * (np.median(np.concatenate(xe)) - np.median(np.concatenate(xc))); den += w
+        return num / den if den else np.nan
+    d0 = stat(coins); bd = np.array([stat(coins[rng.integers(0, len(coins), len(coins))]) for _ in range(B)]); bd = bd[~np.isnan(bd)]
+    lo, hi = np.percentile(bd, [2.5, 97.5]); p = 2 * min((bd <= 0).mean(), (bd >= 0).mean())
+    return dict(ячеек=len(cs), n_e=sum(w for _, _, w in cs), разность=d0, lo=lo, hi=hi, p=max(p, 1 / B), монет=len(coins))
+
+
+rows_s, rows_e, rows_a = [], [], []
 for mon, F, root in (("09", F9, C9_), ("08", F8, C8_)):
     f = pd.read_csv(F, low_memory=False)
     f["зн"] = np.where(pd.to_numeric(f.знак, errors="coerce") > 0, "+", "-")
@@ -97,9 +119,31 @@ for mon, F, root in (("09", F9, C9_), ("08", F8, C8_)):
         d.reset_index(drop=True, inplace=True)
         d["D"] = d.D.astype(int)
         for k, v in after(d, root).items(): d[k] = v.to_numpy()
+        if MODE == "agg":
+            for k, v in after(d, root, "D").items(): d[k] = v.to_numpy()
     gb = (c.биржа == "gate") & (c.t_start <= GATE_BAD[1]) & (c.t_peak >= GATE_BAD[0])
     c = c[~gb].reset_index(drop=True)
     print(mon, "соб.", len(e), "контр.", len(c), flush=True)
+    if MODE == "agg":
+        sp, sn = [int(x) for x in os.environ.get("SPLIT", "0/1").split("/")]
+        cells = {}
+        for D in sorted(e.D.unique()):
+            for zn in ("+", "-"):
+                ee = e[(e.D == D) & (e.зн == zn)].reset_index(drop=True); cc = c[(c.D == D) & (c.зн == zn)].reset_index(drop=True)
+                if len(ee) < 10 or len(cc) < 10: continue
+                fe, fc = flags(ee, cc), flags(cc, cc)
+                for s_ in fe.columns: ee[s_] = fe[s_]; cc[s_] = fc[s_]
+                cells[(D, zn)] = (ee, cc)
+        scs = list(flags(*[cells[next(iter(cells))][0]] * 2).columns)
+        for si, s_ in enumerate(scs):
+            if si % sn != sp: continue
+            for ref in ("кD", "пик"):
+                for h in H:
+                    col = ref + "+" + h
+                    r = boot_agg([(ee.loc[ee[s_] == 1], cc.loc[cc[s_] == 1]) for ee, cc in cells.values()], col)
+                    if r: rows_a.append(dict(месяц=mon, сценарий=s_, отсчёт=ref, горизонт=h, **r))
+            print(mon, s_, "готово", flush=True)
+        continue
     for D in sorted(e.D.unique()):
         for zn in ("+", "-"):
             ee = e[(e.D == D) & (e.зн == zn)].reset_index(drop=True); cc = c[(c.D == D) & (c.зн == zn)].reset_index(drop=True)
@@ -117,6 +161,7 @@ for mon, F, root in (("09", F9, C9_), ("08", F8, C8_)):
                 r = boot_med(ee, cc, "пик+" + h, ee.index == ee.index, cc.index == cc.index)
                 if r: rows_e.append(dict(месяц=mon, D=D, знак=zn, сценарий="все", горизонт=h, **r))
         print(mon, "D", D, "готово", flush=True)
-if MODE != "end": pd.DataFrame(rows_s).to_csv(OUTP + "-shares.csv", index=False)
-if MODE != "shares": pd.DataFrame(rows_e).to_csv(OUTP + "-end.csv", index=False)
+if MODE == "agg": pd.DataFrame(rows_a).to_csv(OUTP + "-agg.csv", index=False)
+if MODE not in ("end", "agg"): pd.DataFrame(rows_s).to_csv(OUTP + "-shares.csv", index=False)
+if MODE not in ("shares", "agg"): pd.DataFrame(rows_e).to_csv(OUTP + "-end.csv", index=False)
 print("OK")
