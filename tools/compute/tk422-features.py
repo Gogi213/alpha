@@ -120,8 +120,12 @@ def cube_open(cube, name):
 
 
 class Cd(dict):
-    """словарь свечей окна минут группы; first — первая валидная минута всего ряда"""
+    """словарь свечей окна минут группы; first — первая валидная минута всего ряда; sv — (минуты, свечи) по возрастанию, готовы при загрузке (TK-441: вид не строится заново на группу);
+    nv — те же свечи в дамп-ориентации, hx — (high, low) массивами numpy: считаются один раз и живут с словарём (BTC — между группами)"""
     first = None
+    sv = None
+    nv = None
+    hx = None
 
 
 def dmin(d):
@@ -144,8 +148,11 @@ def candles_cube(ex, mk, sym):
     if RNG[0] and sym not in ("BTCUSDT", "BTC_USDT"):  # BTC общий для групп — целиком
         ix = ix[(ix + lo >= RNG[0][0]) & (ix + lo <= RNG[0][1])]
     v = x[:, ix].tolist()
-    d = Cd(zip((ix + lo).tolist(), zip(v[0], v[1], v[2], v[3], v[4])))
+    ks = (ix + lo).tolist()
+    vs = list(zip(v[0], v[1], v[2], v[3], v[4]))
+    d = Cd(zip(ks, vs))  # ix по возрастанию — ks уже отсортирован, кортежи общие со словарём
     d.first = first
+    d.sv = (ks, vs)
     return d
 
 
@@ -225,10 +232,18 @@ def _sqe(d):
     e = _sq.get(k)
     if e is None or e[0] is not d or e[1] != len(d):
         src = d.d if isinstance(d, Neg) else d
-        ks = sorted(src)
-        vs = [src[m] for m in ks]
-        if isinstance(d, Neg):
-            vs = [(-v[0], -v[2], -v[1], -v[3], v[4]) for v in vs]
+        sv = getattr(src, "sv", None)
+        if sv is not None and len(sv[0]) == len(src):  # Cd из куба: вид готов (TK-441)
+            ks, vs = sv
+            if isinstance(d, Neg):
+                if src.nv is None:
+                    src.nv = [(-v[0], -v[2], -v[1], -v[3], v[4]) for v in vs]
+                vs = src.nv
+        else:
+            ks = sorted(src)
+            vs = [src[m] for m in ks]
+            if isinstance(d, Neg):
+                vs = [(-v[0], -v[2], -v[1], -v[3], v[4]) for v in vs]
         e = _sq[k] = (d, len(d), ks, vs)  # d в значении — id не переиспользуется
     return e
 
@@ -253,7 +268,14 @@ def hl(d, a, b):
     x = _sx.get(id(d))
     if x is None or x[0] is not e:
         vs = e[3]
-        x = _sx[id(d)] = (e, np.fromiter((v[1] for v in vs), np.float64, len(vs)), np.fromiter((v[2] for v in vs), np.float64, len(vs)))
+        src = d.d if isinstance(d, Neg) else d
+        sv = getattr(src, "sv", None)
+        if sv is not None and e[2] is sv[0]:  # Cd из куба: массивы high/low один раз на словарь; дамп — те же значения с минусом (high<->low)
+            if src.hx is None:
+                src.hx = (np.fromiter((v[1] for v in sv[1]), np.float64, len(sv[1])), np.fromiter((v[2] for v in sv[1]), np.float64, len(sv[1])))
+            x = _sx[id(d)] = (e, -src.hx[1], -src.hx[0]) if isinstance(d, Neg) else (e, src.hx[0], src.hx[1])
+        else:
+            x = _sx[id(d)] = (e, np.fromiter((v[1] for v in vs), np.float64, len(vs)), np.fromiter((v[2] for v in vs), np.float64, len(vs)))
     ks = e[2]
     i, j = bisect_left(ks, a), bisect_left(ks, b)
     if j <= i:
@@ -918,6 +940,7 @@ def work_group(a):
     _oc.clear()
     _or.clear()
     _sq.clear()
+    _sx.clear()
     _dy.clear()
     _ak.clear()
     _r5.clear()
