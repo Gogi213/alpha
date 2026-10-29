@@ -4,12 +4,12 @@
 
 | пункт договора | да/нет | на чём проверено |
 |---|---|---|
-| 1. монета → символ по листингу | да | map.csv на calc 88 строк; нет RLUSD, U, ATM, IQ |
-| 2. sha256 == .CHECKSUM | да | verify.csv на calc: все строки ok, расхождений ноль |
-| 3. формат как Bybit, порядок | да | заголовок BTCUSDT.csv.gz == заголовку bybit-linear/0GUSDT.csv.gz; первая минута BTC 2020-01-01 |
-| 4. охват csv + отчёт | да | docs/findings/binance-klines-1m-2026-10-30.{md,csv}; сумма минут и пропусков в coverage.csv на calc == отчёту |
-| 5. потоки, юнит, сырьё | да | alsched rc 0 у обоих заданий; упавшее (код 127) — прежний запуск fill, заменён; raw/ хранится, 84 каталога |
-| 6. [вживую] | да | ssh calc, `ls binance-um/*.csv.gz \| wc -l` + coverage.csv — 84 монеты, первая дата, за 1,4 с (30.10 03:40 GMT+4) |
+| список: монета → символ по листингу | да | map.csv на calc, полный список; нет RLUSD, U, ATM, IQ |
+| целостность: хеш == .CHECKSUM | да | verify.csv на calc: все строки ok, расхождений ноль |
+| формат как Bybit, порядок | да | заголовок BTCUSDT.csv.gz == заголовку bybit-linear/0GUSDT.csv.gz; первая минута BTC 2020-01-01 |
+| охват csv + отчёт | да | docs/findings/binance-klines-1m-2026-10-30.{md,csv}; сумма минут и пропусков в coverage.csv на calc == отчёту |
+| потоки, юнит, сырьё | да | alsched rc 0 у обоих заданий; упавшее — прежний запуск fill, заменён; raw/ хранится |
+| [вживую] | да | см. tk450-binance-live-2026-10-30.md |
 
 Последняя дата — 27.10: проверено Судьёй curl к data.binance.vision — daily BTCUSDT за 28.10 отдаёт 404, за 27.10 — 200; 29.10 UTC ещё идёт. Дозагрузка — TK-453.
 
@@ -21,4 +21,3 @@
 | 161 291 315 минут | docs/findings/binance-klines-1m-2026-10-30.md:3 |
 | 5 990 zip, расхождений 0 | docs/findings/binance-klines-1m-2026-10-30.md:11 |
 | ICP 7 350 мин, PUMP 450 мин | docs/findings/binance-klines-1m-2026-10-30.md:13 |
-| BTC 3588480 минут | docs/findings/binance-klines-1m-2026-10-30.csv:2 |
