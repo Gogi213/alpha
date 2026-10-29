@@ -56,14 +56,28 @@ def fit_model(u, w, y, rng, nfit=1_500_000):
     yy = y[sel].astype(np.float64)
     b = np.zeros(X.shape[1])
     b[0] = np.log(yy.mean() / (1 - yy.mean()))
-    for _ in range(25):
+    def nll(bb):
+        z = X @ bb
+        return float(np.sum(np.logaddexp(0, z) - yy * z) + 5e-4 * bb @ bb)
+
+    cur = nll(b)
+    for _ in range(40):
         p = 1 / (1 + np.exp(-(X @ b)))
         g = X.T @ (yy - p) - 1e-3 * b
         H = (X * (p * (1 - p))[:, None]).T @ X + 1e-3 * np.eye(len(b))
         step = np.linalg.solve(H, g)
-        b += step
-        if np.abs(step).max() < 1e-6:
+        t_ = 1.0
+        while t_ > 1e-4 and nll(b + t_ * step) > cur:
+            t_ /= 2
+        if t_ <= 1e-4:
             break
+        b += t_ * step
+        new = nll(b)
+        done = cur - new < 1e-6 * abs(cur)
+        cur = new
+        if done:
+            break
+    print("логит: n", len(yy), "средн. p", round(float((1 / (1 + np.exp(-(X @ b)))).mean()), 5), "метка", round(float(yy.mean()), 5), flush=True)
     out = np.empty(len(u))
     for i in range(0, len(u), 2_000_000):
         Z = (design(u[i:i + 2_000_000], w[i:i + 2_000_000], ku, kw) - mu) / sd
