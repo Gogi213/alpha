@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-448: механичность подъёма признаков TK-447 — условный подъём внутри страт по |ret24h| и vol24h (только данные <= t).
   python3 tk448-cond.py <куб> <ГГГГ-ММ> <каталог признаков> <каталог доп.признаков|-> <каталог вых.> [D=360]
-Страты (v2, после возврата Судьи): |ret24h_bps| x vol24h = sqrt(mean r^2 за 1440 мин), по 23 корзины на оси (квантили 5 % шагом + 97,5/99/99,5 %) = 529 страт.
+Страты (v3, после 2-го возврата Судьи: + знак ret24h, 2 x 23 x 23 = 1058): знак x |ret24h_bps| x vol24h = sqrt(mean r^2 за 1440 мин), по 23 корзины на оси (квантили 5 % шагом + 97,5/99/99,5 %) = 529 страт.
 Самопроверка контроля: ret24h_bps, ctl_abs_ret24h, ctl_vol24h как признаки внутри страт должны дать разброс < 1,3.
 Внутри страты признак режется на 5 квантильных корзин (ZERO: корзина 0 = ровно 0 + 5 квантилей ненулевых); метка и кластеры — как TK-447.
 Условный подъём корзины = попаданий / sum(база страты по ячейкам корзины); безусловный — как TK-447, но на квинтилях месяца. CI — бутстреп кластеров монета-сутки (B=100)."""
@@ -20,7 +20,7 @@ ZERO = f7.ZERO_BUCKET
 NS = 5
 PQ = np.concatenate([np.linspace(0.05, 0.95, 19), [0.975, 0.99, 0.995]])
 NA = len(PQ) + 1
-NST = NA * NA
+NST = 2 * NA * NA
 
 
 def qbin(x, ok, zero):
@@ -34,6 +34,41 @@ def qbin(x, ok, zero):
     if zero:
         b[ok & ~(x > 0)] = 0
     return b
+
+
+def design(u, w, ku, kw):
+    """базис логита (v4): кубический сплайн (усечённые степени) по u = asinh(ret24h/100) и по w = ln vol24h + тензор u^i w^j, i,j = 1..3."""
+    cols = []
+    for x, k in ((u, ku), (w, kw)):
+        cols += [x, x * x, x ** 3] + [np.maximum(x - kk, 0) ** 3 for kk in k]
+    cols += [u ** i * w ** j for i in (1, 2, 3) for j in (1, 2, 3)]
+    return np.stack(cols, 1)
+
+
+def fit_model(u, w, y, rng, nfit=1_500_000):
+    """логит P(метка | ret24h знаковый, vol24h) непрерывно; Ньютон на подвыборке, предсказание чанками. Возвращает p на всех ячейках u."""
+    ku = np.quantile(u, [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 0.998])
+    kw = np.quantile(w, [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 0.998])
+    sel = rng.choice(len(u), min(nfit, len(u)), replace=False)
+    X = design(u[sel], w[sel], ku, kw)
+    mu, sd = X.mean(0), X.std(0) + 1e-12
+    X = np.hstack([np.ones((len(X), 1)), (X - mu) / sd])
+    yy = y[sel].astype(np.float64)
+    b = np.zeros(X.shape[1])
+    b[0] = np.log(yy.mean() / (1 - yy.mean()))
+    for _ in range(25):
+        p = 1 / (1 + np.exp(-(X @ b)))
+        g = X.T @ (yy - p) - 1e-3 * b
+        H = (X * (p * (1 - p))[:, None]).T @ X + 1e-3 * np.eye(len(b))
+        step = np.linalg.solve(H, g)
+        b += step
+        if np.abs(step).max() < 1e-6:
+            break
+    out = np.empty(len(u))
+    for i in range(0, len(u), 2_000_000):
+        Z = (design(u[i:i + 2_000_000], w[i:i + 2_000_000], ku, kw) - mu) / sd
+        out[i:i + 2_000_000] = 1 / (1 + np.exp(-(b[0] + Z @ b[1:])))
+    return out
 
 
 def main(cube, ym, fd, ed, outd, D=360):
@@ -60,20 +95,27 @@ def main(cube, ym, fd, ed, outd, D=360):
     ok0 = valid & np.isfinite(vol) & np.isfinite(ar)
     F["ctl_abs_ret24h"] = ar
     F["ctl_vol24h"] = vol
+    MODEL = os.environ.get("TK448_MODEL") == "1"
+    if MODEL:  # v4: база — логит от (ret24h знаковый, vol24h) непрерывно, без страт
+        rt = np.asarray(F["ret24h_bps"], np.float64)
+        pm = np.zeros(ok0.shape)
+        pm[ok0] = fit_model(np.arcsinh(rt[ok0] / 100.0), np.log(np.maximum(vol[ok0], 1e-9)), lab[ok0], np.random.default_rng(448))
+        print(ym, "модель: сумма p", round(float(pm[ok0].sum())), "метка", int((lab & ok0).sum()), flush=True)
     ea = np.quantile(ar[ok0], PQ)
     ev = np.quantile(vol[ok0], PQ)
-    st = np.where(ok0, np.searchsorted(ea, ar, "right") * NA + np.searchsorted(ev, vol, "right"), -1)
+    sg = (np.asarray(F["ret24h_bps"], np.float64) < 0).astype(np.int64)  # v3: знак ret24h — отдельная ось страт
+    st = np.where(ok0, (sg * NA + np.searchsorted(ea, ar, "right")) * NA + np.searchsorted(ev, vol, "right"), -1)
     nst = np.bincount(st[ok0], minlength=NST)
     base_s = np.bincount(st[ok0 & lab], minlength=NST) / np.maximum(nst, 1)
     idx0 = np.flatnonzero(ok0)
     sidx = idx0[np.argsort(st.ravel()[idx0], kind="stable")]
     sb = np.searchsorted(st.ravel()[sidx], np.arange(NST + 1))
-    bs = np.where(st >= 0, base_s[np.clip(st, 0, None)], 0.0)
+    bs = pm if MODEL else np.where(st >= 0, base_s[np.clip(st, 0, None)], 0.0)
     base = (lab & ok0).sum() / ok0.sum()
     with open(f"{outd}/strata-{ym}.csv", "w") as fo:
-        fo.write("месяц,страта_ret24h,страта_vol,ячеек,база,подъём_страты\n")
+        fo.write("месяц,знак,страта_ret24h,страта_vol,ячеек,база,подъём_страты\n")
         for s in range(NST):
-            fo.write(f"{ym},{s // NA + 1},{s % NA + 1},{nst[s]},{base_s[s]:.5f},{base_s[s] / base:.3f}\n")
+            fo.write(f"{ym},{s // (NA * NA)},{s // NA % NA + 1},{s % NA + 1},{nst[s]},{base_s[s]:.5f},{base_s[s] / base:.3f}\n")
     dayi = ((lo + ts) // f7.DAY).astype(np.int64)
     dayi -= dayi.min()
     cid = np.arange(n, dtype=np.int64)[:, None] * (int(dayi.max()) + 1) + dayi[None, :]
@@ -94,18 +136,18 @@ def main(cube, ym, fd, ed, outd, D=360):
         bu = qbin(f, ok, zero)  # безусловные корзины месяца
         bc = np.full(f.shape, -1, np.int8)  # условные: внутри страты
         fr, okr, bcr = f.ravel(), ok.ravel(), bc.ravel()
-        for s in range(NST):
+        for s in range(0 if MODEL else NST):
             ii = sidx[sb[s]:sb[s + 1]]
             if len(ii) >= 50:
                 bcr[ii] = qbin(fr[ii], okr[ii], zero)
         cov = ok.sum() / ok0.sum()
         base_ok = (lab & ok).sum() / ok.sum()
-        for kind, b in (("безусл", bu), ("усл", bc)):
+        for kind, b in (("безусл", bu), ("мод", bu)) if MODEL else (("безусл", bu), ("усл", bc)):
             mk = b >= 0
             key = cidc * 6 + b
             den = np.bincount(key[mk], minlength=NC * 6).reshape(NC, 6).astype(np.float32)
             pos = np.bincount(key[mk & lab], minlength=NC * 6).reshape(NC, 6).astype(np.float32)
-            exp = np.bincount(key[mk], weights=bs[mk] if kind == "усл" else np.full(mk.sum(), base), minlength=NC * 6).reshape(NC, 6)
+            exp = np.bincount(key[mk], weights=bs[mk] if kind != "безусл" else np.full(mk.sum(), base), minlength=NC * 6).reshape(NC, 6)
             pB, eB = Wt @ pos, Wt @ exp.astype(np.float32)
             for bi in range(6):
                 if den[:, bi].sum() == 0:

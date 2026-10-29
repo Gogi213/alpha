@@ -5,6 +5,7 @@
 import csv, glob, sys, statistics as st
 from collections import defaultdict
 d, outp = sys.argv[1:3]
+KC = sys.argv[3] if len(sys.argv) > 3 else "усл"  # вид условной базы: усл (страты) | мод (логит v4)
 R = defaultdict(lambda: defaultdict(list))  # (признак,вид) -> месяц -> строки
 for fn in sorted(glob.glob(f"{d}/cond-*.csv")):
     for r in csv.DictReader(open(fn, encoding="utf-8")):
@@ -19,18 +20,18 @@ def stat(rows):
 out = []
 for nm in sorted({k[0] for k in R}):
     res = {}
-    for kind in ("безусл", "усл"):
+    for kind in ("безусл", KC):
         ms = {m: stat(rs) for m, rs in R[(nm, kind)].items()}
         ms = {m: v for m, v in ms.items() if v}
         res[kind] = ms
-    nmo = len(res["усл"])
+    nmo = len(res[KC])
     if nmo == 0:
         continue
     def agg(kind):
         v = list(res[kind].values())
         if not v: return None
         return st.median(x[0] for x in v), sum(x[1] for x in v), sum(x[2] for x in v)
-    a, c = agg("безусл"), agg("усл")
+    a, c = agg("безусл"), agg(KC)
     if c is None or a is None: continue
     sb, su = a[0], c[0]
     keep = (su - 1) / (sb - 1) if sb > 1.0001 and su != float("inf") else float("nan")
@@ -52,3 +53,7 @@ from collections import Counter
 print(Counter(r[9] for r in out))
 for r in out:
     if r[0] in ("ret24h_bps", "ctl_abs_ret24h", "ctl_vol24h"): print("САМОПРОВЕРКА", r[0], "усл.", round(r[2], 2), "безусл.", round(r[1], 2))
+print("САМОПРОВЕРКА помесячно (разброс усл., порог < 1,3):")
+for nm in ("ret24h_bps", "ctl_abs_ret24h", "ctl_vol24h"):
+    ms = {m: stat(rs) for m, rs in R[(nm, KC)].items()}
+    print(nm, " ".join(f"{m[-2:]}:{v[0]:.2f}" for m, v in sorted(ms.items()) if v))
