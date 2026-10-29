@@ -125,8 +125,13 @@ def load(dirp, tf, k, syms=None):
     fs = sorted(glob.glob(f"{dirp}/l1-*-{tf}-{k}.csv.gz"))
     if syms:
         fs = [f for f in fs if f.split("/")[-1].split("-")[1] in syms]
-    ds = [pd.read_csv(f) for f in fs]
+    f64 = ("depth", "wick", "atr_bps", "gap_3", "gap_4", "gap_8", "gap_16")  # вещественные — как есть; x*/brk — int8, age — int32, bos — float32 (экономия памяти 5m)
+    cols = pd.read_csv(fs[0], nrows=0).columns
+    dt = {c: ("int64" if c == "t" else "int32" if c == "age" else "category" if c in ("sym", "dir") else "float64" if c in f64 else "float32" if c.startswith("bos_") else "int8") for c in cols}
+    ds = [pd.read_csv(f, dtype=dt) for f in fs]
     d = pd.concat(ds, ignore_index=True)
+    d["dir"] = d["dir"].astype(str)
+    del ds
     # деление на ноль в ATR: бесконечные/NaN — вон
     bad = ~np.isfinite(d.wick) | ~np.isfinite(d.atr_bps) | (d.brk.eq(1) & ~np.isfinite(d.depth))
     return d[~bad].reset_index(drop=True), len(fs), int(bad.sum())
