@@ -151,7 +151,84 @@ def report(sym, tf, k, N, res):
               f"слой2 от t0 {pct([r['x2_t0'] for r in s_u])} vs база {pct([r['x2_t0'] for r in b])}")
 
 
-if __name__ == "__main__":
+
+# ---- слой 1: таблица событий по сетке осей (N, K окна имбаланса/слома, g) — агрегат считается отдельно ----
+NS = (1, 2, 4, 8, 10, 16, 32, 50)
+KI = (3, 4, 8, 16)       # окно имбаланса от бара касания t (i+2 <= t+K-1)
+KB = (1, 2, 4, 8, 16)    # окно слома после t
+
+
+def l1_table(path, tf, k, strict=True):
+    """Строка = первое касание (хай и лой, лой зеркалом). Исходы от касания t (слой 1: как у автора, со взглядом вперёд).
+    x1_N/x2_N — исход при N баров; gap_K — макс. щель имбаланса в ATR в окне K (-1: нет); bos_K — слом (close < последнего
+    подтв. swing-low на t) в окне K. Агрегация по осям g/зеркало/класс — в l1_aggregate (отдельно)."""
+    a = bars(path, tf)
+    ok = a.ok.values
+    tms = a.t.values
+    rows = []
+    for dname, sgn in (("H", 1), ("L", -1)):
+        if sgn == 1:
+            o, h, l, c = (a[x].values.astype(float) for x in "ohlc")
+        else:
+            o, h, l, c = -a.o.values.astype(float), -a.l.values.astype(float), -a.h.values.astype(float), -a.c.values.astype(float)
+        n = len(h)
+        atr = atr14(h, l, c)
+        sh = swings(h, ok, k)
+        sl = swings(-l, ok, k)
+        slc = sl + k
+        cap = 100000
+        for i in sh:
+            L = h[i]
+            s = i + k + 1
+            hit = np.nonzero(h[s:min(n, s + cap)] > L)[0] if strict else np.nonzero(h[s:min(n, s + cap)] >= L)[0]
+            if not len(hit):
+                continue
+            j = s + hit[0]
+            if not (ok[j] and ok[j - 1]) or np.isnan(atr[j - 1]):
+                continue
+            A = atr[j - 1]
+            brk = c[j] > L
+            r = dict(dir=dname, t=int(tms[j]), brk=int(brk), depth=(c[j] - L) / A if brk else np.nan,
+                     wick=(h[j] - L) / A, age=int(j - i), atr_bps=1e4 * A / abs(c[j]))
+            for N in NS:
+                if j + N < n and ok[j + 1:j + N + 1].all():
+                    cl = c[j + 1:j + N + 1]
+                    r[f"x1_{N}"] = int(c[j + N] > L) if brk else int(c[j + N] <= L)
+                    r[f"x2_{N}"] = int((cl > L).all()) if brk else int((cl <= L).all())
+                else:
+                    r[f"x1_{N}"] = r[f"x2_{N}"] = -1
+            if not brk:
+                m = slc <= j
+                last = l[sl[np.nonzero(m)[0][-1]]] if m.any() else np.nan
+                for K in KI:
+                    g = -1.0
+                    if j + K - 1 < n and ok[j:j + K].all():
+                        for q in range(j, j + K - 2):   # i=q, i+2 <= j+K-1
+                            g = max(g, (l[q] - h[q + 2]) / A)
+                    else:
+                        g = np.nan
+                    r[f"gap_{K}"] = g
+                for K in KB:
+                    if j + K < n and ok[j:j + K + 1].all() and not np.isnan(last):
+                        r[f"bos_{K}"] = int((c[j + 1:j + 1 + K] < last).any())
+                    else:
+                        r[f"bos_{K}"] = -1
+            rows.append(r)
+    return pd.DataFrame(rows)
+
+
+def l1_main():
+    # python sancho.py l1 <csv.gz> <tf_min> <k> <out.csv.gz>
+    path, tf, k, out = sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+    d = l1_table(path, tf, k)
+    d.insert(0, "sym", path.replace("\\", "/").split("/")[-1].split(".")[0])
+    d.to_csv(out, index=False, compression="gzip")
+    print(out, len(d))
+
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "l1":
+    l1_main()
+elif __name__ == "__main__":
     path, tf, k = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
     N = int(sys.argv[4]) if len(sys.argv) > 4 else 10
     import os
