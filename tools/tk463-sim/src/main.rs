@@ -753,29 +753,10 @@ fn one(
     out.push('\n');
 }
 
-fn main() {
-    let a: Vec<String> = std::env::args().skip(1).collect();
-    let opt = |k: &str| a.iter().position(|x| x == k).map(|i| a[i + 1].clone());
-    let threads: usize = opt("--threads").map_or(1, |s| s.parse().unwrap());
-    let gz_level: u32 = opt("--gz").map_or(6, |s| s.parse().unwrap());
-    let maxev = opt("--max-events").map(|s| s.parse::<usize>().unwrap());
-    let mut pos: Vec<&String> = vec![];
-    let mut i = 0;
-    while i < a.len() {
-        if a[i].starts_with("--") {
-            i += 2;
-        } else {
-            pos.push(&a[i]);
-            i += 1;
-        }
-    }
-    let t_start = std::time::Instant::now();
-    let tf: i64 = pos[1].parse().unwrap();
-    let cn = Coin::load(pos[0], tf, pos[3]);
-    let (ix, rows) = read_table(open_text(pos[2]));
+/// входы из таблицы: колонки ev,dir,side,t0,tt0,atr_bps (+ evk,cj, ss_bps, ot1_bps)
+fn entries(ix: &HashMap<String, usize>, rows: &[Vec<String>]) -> Vec<Entry> {
     let g = |r: &Vec<String>, k: &str| r[ix[k]].clone();
-    let mut ents: Vec<Entry> = rows
-        .iter()
+    rows.iter()
         .map(|r| Entry {
             ev: g(r, "ev"),
             dir: g(r, "dir"),
@@ -796,7 +777,59 @@ fn main() {
             mid: String::new(),
             gk: 0,
         })
-        .collect();
+        .collect()
+}
+
+/// парная сумма (режим `--pair`): событие против среднего net его контролей — как tk461_d2a.one (c, d, b, k, d2)
+#[derive(Default)]
+struct PAcc {
+    c: u64,
+    d: f64,
+    b: f64,
+    k: f64,
+    d2: f64,
+}
+
+type Pairm = BTreeMap<(usize, u32, i64, i64), PAcc>;
+
+/// net одной сделки (gross − fee − fund) или None: ячейка пропущена / nofill / no_target — через `one` в режиме агрегата,
+/// чтобы арифметика была той же, что в построчном выводе
+fn net_of(
+    cn: &Coin,
+    s: &Entry,
+    cell: &Cell,
+    legs: &mut Vec<Leg>,
+    tcache: &mut Option<Option<f64>>,
+    scratch: &mut Option<Aggm>,
+) -> Option<f64> {
+    scratch.as_mut().unwrap().clear();
+    let mut dummy = String::new();
+    one(cn, "", s, cell, legs, tcache, &mut dummy, 0, scratch);
+    let a = scratch.as_ref().unwrap().values().next()?;
+    (a.n == 1).then_some(a.net)
+}
+
+fn main() {
+    let a: Vec<String> = std::env::args().skip(1).collect();
+    let opt = |k: &str| a.iter().position(|x| x == k).map(|i| a[i + 1].clone());
+    let threads: usize = opt("--threads").map_or(1, |s| s.parse().unwrap());
+    let gz_level: u32 = opt("--gz").map_or(6, |s| s.parse().unwrap());
+    let maxev = opt("--max-events").map(|s| s.parse::<usize>().unwrap());
+    let mut pos: Vec<&String> = vec![];
+    let mut i = 0;
+    while i < a.len() {
+        if a[i].starts_with("--") {
+            i += 2;
+        } else {
+            pos.push(&a[i]);
+            i += 1;
+        }
+    }
+    let t_start = std::time::Instant::now();
+    let tf: i64 = pos[1].parse().unwrap();
+    let cn = Coin::load(pos[0], tf, pos[3]);
+    let (ix, rows) = read_table(open_text(pos[2]));
+    let mut ents = entries(&ix, &rows);
     if let Some(m) = maxev {
         ents.truncate(m);
     }
@@ -874,7 +907,107 @@ fn main() {
     head += ",reason,gross,fee,fee_mk,fee_tk,fund,bars,mfe_bps,risk_bps\n";
     let t_load = t_start.elapsed().as_secs_f64();
     let aggmode = opt("--agg").is_some_and(|v| v == "1");
+    let pair_file = opt("--pair");
     let chunk = ents.len().div_ceil(threads.max(1)).max(1);
+    if let Some(pf_) = pair_file {
+        // парный режим: события pos[2] + контроли pf_ (evk = tt0 события, ev с префиксом из 2 знаков), группа
+        // (ячейка, ev, dir, сторона, сутки tt0) -> c, d, b, k, d2; события без разрешённых контролей не считаются
+        let (cix, crows) = read_table(open_text(&pf_));
+        let ctrl = entries(&cix, &crows);
+        let mut by: HashMap<(String, String, i64), Vec<usize>> = HashMap::new();
+        for (i, c) in ctrl.iter().enumerate() {
+            by.entry((c.ev[2..].to_string(), c.dir.clone(), c.evk.expect("evk"))).or_default().push(i);
+        }
+        let parts: Vec<Pairm> = std::thread::scope(|sc| {
+            let hs: Vec<_> = ents
+                .chunks(chunk)
+                .map(|ch| {
+                    let (cn, cells, ctrl, by) = (&cn, &cells, &ctrl, &by);
+                    sc.spawn(move || {
+                        let mut legs = Vec::with_capacity(4);
+                        let mut scratch: Option<Aggm> = Some(BTreeMap::new());
+                        let mut pm = Pairm::new();
+                        for s in ch {
+                            let cs: &[usize] = by
+                                .get(&(s.ev.clone(), s.dir.clone(), s.tt0))
+                                .map_or(&[], |v| v.as_slice());
+                            if cs.is_empty() {
+                                continue;
+                            }
+                            let mut tcs: Vec<Option<Option<f64>>> = vec![None; cs.len()];
+                            let mut ts = None;
+                            for (ci, cell) in cells.iter().enumerate() {
+                                let Some(net) = net_of(cn, s, cell, &mut legs, &mut ts, &mut scratch) else {
+                                    continue;
+                                };
+                                let (mut sum, mut cnt) = (0.0f64, 0u64);
+                                for (j, &k) in cs.iter().enumerate() {
+                                    if let Some(x) = net_of(cn, &ctrl[k], cell, &mut legs, &mut tcs[j], &mut scratch) {
+                                        sum += x;
+                                        cnt += 1;
+                                    }
+                                }
+                                if cnt == 0 {
+                                    continue;
+                                }
+                                let k = sum / cnt as f64;
+                                let d = net - k;
+                                let a = pm.entry((ci, s.gk, s.side, s.tt0.div_euclid(86_400_000))).or_default();
+                                a.c += 1;
+                                a.d += d;
+                                a.b += net;
+                                a.k += k;
+                                a.d2 += d * d;
+                            }
+                        }
+                        pm
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let mut tot = Pairm::new();
+        for m in &parts {
+            for (k, a) in m {
+                let t = tot.entry(*k).or_default();
+                t.c += a.c;
+                t.d += a.d;
+                t.b += a.b;
+                t.k += a.k;
+                t.d2 += a.d2;
+            }
+        }
+        let mut h = String::from("sym,tf,ev,dir,day,side,stop,take,par");
+        if cx.contains_key("be_r") {
+            h += ",be_r";
+        }
+        if cx.contains_key("ot") {
+            h += ",ot,otp";
+        }
+        h += ",c,d,b,k,d2";
+        h.push(char::from(10));
+        let mut o = h;
+        for ((ci, gk, side, day), a) in &tot {
+            let (ev, dir, _) = &gkeys[*gk as usize];
+            let cell = &cells[*ci];
+            write!(o, "{},{},{ev},{dir},{day},{side}{}{}", cn.sym, cn.tf, cell.a, cell.b).unwrap();
+            write!(o, ",{}", a.c).unwrap();
+            for x in [a.d, a.b, a.k, a.d2] {
+                o.push(',');
+                pf(&mut o, x);
+            }
+            o.push(char::from(10));
+        }
+        let path = pos[5];
+        let mut w = std::fs::File::create(path).unwrap();
+        w.write_all(o.as_bytes()).unwrap();
+        eprintln!(
+            "время: загрузка {t_load:.2} с, счёт {:.2} с; {path} {} строк",
+            t_start.elapsed().as_secs_f64() - t_load,
+            tot.len()
+        );
+        return;
+    }
     let parts: Vec<(String, Option<Aggm>)> = std::thread::scope(|sc| {
         let hs: Vec<_> = ents
             .chunks(chunk)
