@@ -5,7 +5,7 @@
 set -u
 B=/data/tk0463; OUT=$B/bench3; DF=$B/d2a_full; BIN=$B/bin/tk463-sim; SRC=/srv/alpha-sda/candles-1m/binance-um; W=/data/tk0461; FUND=/data/tk0455/fund; PY=/data/tk421/venv/bin/python
 mkdir -p $OUT $DF; rm -f $OUT/BENCH3.DONE $OUT/bench3.log
-ls $W/ev | sed 's/\.csv\.gz$//' | awk -F- '{print $1, $2}' > $OUT/pairs.txt
+source "$(dirname "$0")/tk463-lib.sh"; pairs_make $W/ev $OUT/pairs.txt || exit 2   # TK-464: без служебных файлов ev (иначе xargs -L1 склеивает строки)
 echo "пар $(wc -l <$OUT/pairs.txt)" >>$OUT/bench3.log
 job() { c=$1; tf=$2; $BIN $SRC/$c.csv.gz $tf $W/ev/$c-$tf.csv.gz $FUND $B/out/cells.csv $DF/$c-$tf.csv.gz --threads 1 --gz 1 2>&1 | grep -E "строк" | sed "s|^|$c $tf |"; }
 export -f job; export B DF BIN SRC W FUND

@@ -2,7 +2,7 @@
 //! tk463-sim <минуты.csv[.gz]> <tf> <входы.csv[.gz]> <кэш фандинга> <ячейки.csv> <out.csv[.gz]> [--threads N] [--max-events N]
 //! Входы: колонки ev,dir,side,t0,tt0,atr_bps (+ evk,cj у контролей). Ячейки: stop,m,take,par[,be_r]. Арифметика — в том же
 //! порядке операций, что в Python (f64 IEEE, сумма фандинга — pairwise numpy), чтобы совпадать побитно.
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
@@ -328,6 +328,9 @@ enum Why {
 }
 
 impl Why {
+    fn idx(self) -> usize {
+        self as usize
+    }
     fn s(self) -> &'static str {
         match self {
             Why::Stop => "stop",
@@ -528,6 +531,52 @@ struct Entry {
     ss_bps: Option<f64>,
     ot1_bps: Option<f64>,
     mid: String, // ",evk,cj" или пусто
+    gk: u32,     // номер (ev, dir, mid) для режима --agg
+}
+
+/// сумма по группе (ячейка, ev/dir/mid, сторона, сутки UTC входа) — режим `--agg 1` (TK-464); net = gross − fee − fund
+#[derive(Default)]
+struct Acc {
+    n: u64,
+    nofill: u64,
+    no_target: u64,
+    why: [u64; 4],
+    gross: f64,
+    fund: f64,
+    net: f64,
+    net_tk: f64,
+    net_mk: f64,
+    sq: f64,
+    win: u64,
+    bars: f64,
+    mfe: f64,
+}
+
+impl Acc {
+    fn merge(&mut self, o: &Acc) {
+        self.n += o.n;
+        self.nofill += o.nofill;
+        self.no_target += o.no_target;
+        for i in 0..4 {
+            self.why[i] += o.why[i];
+        }
+        self.gross += o.gross;
+        self.fund += o.fund;
+        self.net += o.net;
+        self.net_tk += o.net_tk;
+        self.net_mk += o.net_mk;
+        self.sq += o.sq;
+        self.win += o.win;
+        self.bars += o.bars;
+        self.mfe += o.mfe;
+    }
+}
+
+type Aggm = BTreeMap<(usize, u32, i64, i64), Acc>;
+
+fn slot<'a>(m: &'a mut Aggm, ci: usize, s: &Entry) -> &'a mut Acc {
+    m.entry((ci, s.gk, s.side, s.tt0.div_euclid(86_400_000)))
+        .or_default()
 }
 
 /// число как repr Python (кратчайшее круглое); NaN — пусто (как pandas); inf/-inf у Debug те же
@@ -556,6 +605,8 @@ fn one(
     legs: &mut Vec<Leg>,
     tcache: &mut Option<Option<f64>>,
     out: &mut String,
+    ci: usize,
+    agg: &mut Option<Aggm>,
 ) {
     let tf = cn.tf;
     let d = s.side;
@@ -566,12 +617,17 @@ fn one(
     if (ss && s.ss_bps.is_none()) || (cell.ot == 1 && s.ot1_bps.is_none()) {
         return; // SS/OT1 без определённого расстояния — ячейка для строки пропущена (§12.2 п.1)
     }
-    out.push_str(pre);
-    out.push_str(&cell.a);
-    out.push_str(&s.mid);
-    out.push_str(&cell.b);
+    if agg.is_none() {
+        out.push_str(pre);
+        out.push_str(&cell.a);
+        out.push_str(&s.mid);
+        out.push_str(&cell.b);
+    }
     if (e as i64) > last {
-        out.push_str(",nofill\n");
+        match agg {
+            Some(m) => slot(m, ci, s).nofill += 1,
+            None => out.push_str(",nofill\n"),
+        }
         return;
     }
     let last = last as usize;
@@ -593,7 +649,10 @@ fn one(
             "TS" => match *tcache.get_or_insert_with(|| cn.target_s(d, s.t0, ep.abs())) {
                 Some(tp) if d as f64 * tp > ep => tgt = Some(d as f64 * tp),
                 _ => {
-                    out.push_str(",no_target\n");
+                    match agg {
+                        Some(m) => slot(m, ci, s).no_target += 1,
+                        None => out.push_str(",no_target\n"),
+                    }
                     return;
                 }
             },
@@ -659,6 +718,23 @@ fn one(
     } else {
         cell.m * s.atr
     };
+    if let Some(m) = agg {
+        let (fee, fee_mk, fee_tk) = (TK + fee_s, MK + mk_s, TK + tk_s);
+        let net = g - fee - fund;
+        let a = slot(m, ci, s);
+        a.n += 1;
+        a.why[why.idx()] += 1;
+        a.gross += g;
+        a.fund += fund;
+        a.net += net;
+        a.net_tk += g - fee_tk - fund;
+        a.net_mk += g - fee_mk - fund;
+        a.sq += net * net;
+        a.win += (net > 0.0) as u64;
+        a.bars += bars;
+        a.mfe += mfe_bps;
+        return;
+    }
     out.push(',');
     out.push_str(why.s());
     for x in [
@@ -718,15 +794,23 @@ fn main() {
                 .map(|_| num(&g(r, "ot1_bps")))
                 .filter(|v| v.is_finite()),
             mid: String::new(),
+            gk: 0,
         })
         .collect();
     if let Some(m) = maxev {
         ents.truncate(m);
     }
+    let mut gkeys: Vec<(String, String, String)> = vec![];
+    let mut gmap: HashMap<(String, String, String), u32> = HashMap::new();
     for e in &mut ents {
         if let (Some(k), Some(j)) = (e.evk, e.cj) {
             e.mid = format!(",{k},{j}");
         }
+        let key = (e.ev.clone(), e.dir.clone(), e.mid.clone());
+        e.gk = *gmap.entry(key.clone()).or_insert_with(|| {
+            gkeys.push(key);
+            gkeys.len() as u32 - 1
+        });
     }
     let (cx, crow) = read_table(open_text(pos[4]));
     let cells: Vec<Cell> = crow
@@ -789,25 +873,29 @@ fn main() {
     }
     head += ",reason,gross,fee,fee_mk,fee_tk,fund,bars,mfe_bps,risk_bps\n";
     let t_load = t_start.elapsed().as_secs_f64();
+    let aggmode = opt("--agg").is_some_and(|v| v == "1");
     let chunk = ents.len().div_ceil(threads.max(1)).max(1);
-    let parts: Vec<String> = std::thread::scope(|sc| {
+    let parts: Vec<(String, Option<Aggm>)> = std::thread::scope(|sc| {
         let hs: Vec<_> = ents
             .chunks(chunk)
             .map(|ch| {
                 let (cn, cells) = (&cn, &cells);
                 sc.spawn(move || {
                     let (mut out, mut legs) = (String::new(), Vec::with_capacity(4));
+                    let mut agg: Option<Aggm> = aggmode.then(BTreeMap::new);
                     for s in ch {
                         let mut tcache = None; // цель TS не зависит от ячейки: одна на вход
                         let pre = format!(
                             "{},{},{},{},{},{}",
                             cn.sym, cn.tf, s.ev, s.dir, s.tt0, s.side
                         );
-                        for cell in cells {
-                            one(cn, &pre, s, cell, &mut legs, &mut tcache, &mut out);
+                        for (ci, cell) in cells.iter().enumerate() {
+                            one(
+                                cn, &pre, s, cell, &mut legs, &mut tcache, &mut out, ci, &mut agg,
+                            );
                         }
                     }
-                    out
+                    (out, agg)
                 })
             })
             .collect();
@@ -825,9 +913,53 @@ fn main() {
     } else {
         (Box::new(std::fs::File::create(path).unwrap()), None)
     };
-    w.write_all(head.as_bytes()).unwrap();
-    for p in &parts {
-        w.write_all(p.as_bytes()).unwrap();
+    let mut nlines = 0usize;
+    if aggmode {
+        let mut tot = Aggm::new();
+        for (_, m) in &parts {
+            for (k, a) in m.as_ref().unwrap() {
+                tot.entry(*k).or_default().merge(a);
+            }
+        }
+        let h = head.replace("sym,tf,ev,dir,t0,side,", "sym,tf,ev,dir,day,side,");
+        let mut h = h.split(",reason,").next().unwrap().to_string();
+        h += ",n,nofill,no_target,n_stop,n_target,n_deadline,n_ot,gross,fund,net,net_tk,net_mk,sq,win,bars,mfe_bps\n";
+        w.write_all(h.as_bytes()).unwrap();
+        let mut o = String::new();
+        for ((ci, gk, side, day), a) in &tot {
+            let (ev, dir, mid) = &gkeys[*gk as usize];
+            let cell = &cells[*ci];
+            write!(
+                o,
+                "{},{},{ev},{dir},{day},{side}{}{mid}{}",
+                cn.sym, cn.tf, cell.a, cell.b
+            )
+            .unwrap();
+            write!(
+                o,
+                ",{},{},{},{},{},{},{}",
+                a.n, a.nofill, a.no_target, a.why[0], a.why[1], a.why[2], a.why[3]
+            )
+            .unwrap();
+            for x in [a.gross, a.fund, a.net, a.net_tk, a.net_mk, a.sq] {
+                o.push(',');
+                pf(&mut o, x);
+            }
+            write!(o, ",{}", a.win).unwrap();
+            for x in [a.bars, a.mfe] {
+                o.push(',');
+                pf(&mut o, x);
+            }
+            o.push('\n');
+            nlines += 1;
+        }
+        w.write_all(o.as_bytes()).unwrap();
+    } else {
+        w.write_all(head.as_bytes()).unwrap();
+        for (p, _) in &parts {
+            w.write_all(p.as_bytes()).unwrap();
+        }
+        nlines = parts.iter().map(|p| p.0.matches('\n').count()).sum::<usize>();
     }
     drop(w);
     if let Some(mut ch) = child {
@@ -837,9 +969,5 @@ fn main() {
         "время: загрузка {t_load:.2} с, счёт {:.2} с, всего до записи {t_calc:.2} с",
         t_calc - t_load
     );
-    eprintln!(
-        "{} {} строк",
-        path,
-        parts.iter().map(|p| p.matches('\n').count()).sum::<usize>()
-    );
+    eprintln!("{path} {nlines} строк");
 }
