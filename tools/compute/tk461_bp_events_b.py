@@ -275,7 +275,8 @@ def g32_cols(ev, sym, path):
     W1, D1, H1 = G32.bars(d, 10080, G32.MON), G32.bars(d, 1440), G32.bars(d, 60)
     keys, miss = {}, [0]
     for tfn, de, ts in zip(ev.tf, ev.def_id, ev.ts_utc_ms):
-        keys.setdefault((tfn, de.split(":")[-1]), set()).add(int(ts))
+        k_ = keys.setdefault((tfn, de.split(":")[-1]), {})
+        k_[int(ts)] = k_.get(int(ts), 0) + 1
     parts, nev = [], 0
     for nm, ek, H, Mb, mode in [("G3.2 W1-фрактал→D1", "g32a", W1, D1, "frac"), ("G3.3 D1-фрактал→H1", "g32b", D1, H1, "frac"),
                                 ("G3.3 PDH/PDL→H1", "g32c", D1, H1, "pd")]:
@@ -311,10 +312,16 @@ def g32_cols(ev, sym, path):
                     continue
                 S.append(s)
             # события - только из bp-g32-events (P-TK461 стр.7): ключ = монета x ТФ-имя x сторона x ts (= открытие бара касания + tf)
-            keep = keys.get((nm, dn), set())
+            keep = keys.get((nm, dn), {})
             got = {int(Ms["st"][x]) + tf * 60000 for x in S}
-            miss[0] += len(keep - got)  # события файла, не воспроизведённые на текущих свечах
-            S = [x for x in S if int(Ms["st"][x]) + tf * 60000 in keep]
+            miss[0] += len(set(keep) - got)  # события файла, не воспроизведённые на текущих свечах
+            left, S2 = dict(keep), []  # кратность ключа - как в файле (на обновлённых свечах уровней на баре могло стать больше)
+            for x in S:
+                k = int(Ms["st"][x]) + tf * 60000
+                if left.get(k, 0) > 0:
+                    left[k] -= 1
+                    S2.append(x)
+            S = S2
             if not S:
                 continue
             s = np.array(S)
