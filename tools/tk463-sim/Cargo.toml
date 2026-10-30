@@ -1,0 +1,11 @@
+# TK-463: ядро симулятора выходов TK-461 (G-019), отдельный крейт вне основного бинарника lob; зависимостей нет (std).
+[package]
+name = "tk463-sim"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[profile.release]
+opt-level = 3
+debug = false
