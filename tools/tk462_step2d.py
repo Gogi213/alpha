@@ -81,7 +81,7 @@ def inwin(t, ev, W):
     return (i >= 0) & (t < ev[np.clip(i, 0, None)] + W * MIN)
 
 
-spyd = spy.set_index("date")
+spyd = spy[spy.sym == "SPY"].drop_duplicates("date").set_index("date")
 dlist = list(days); didx = {d: i for i, d in enumerate(dlist)}
 def ny_date(ms): return pd.Timestamp(ms, unit="ms", tz="UTC").tz_convert(NY)
 def neg_of(ms, kind):
