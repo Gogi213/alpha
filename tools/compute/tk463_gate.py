@@ -27,7 +27,7 @@ def cmp(ref, new):
             xf, yf = x.to_numpy(float), y.to_numpy(float)
             neq = ~((xf.view("int64") == yf.view("int64")) | (np.isnan(xf) & np.isnan(yf)))
         else:
-            neq = (x.astype(str) != y.astype(str)).to_numpy()
+            neq = ~((x.astype(object) == y.astype(object)) | (x.isna() & y.isna())).to_numpy(bool)
         n = int(neq.sum())
         if n:
             i = int(np.flatnonzero(neq)[0])
