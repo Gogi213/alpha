@@ -137,6 +137,9 @@ struct Coin {
     ft: Vec<i64>,
     fr: Vec<f64>,
     f_sorted: bool,
+    pidx: Vec<u32>,          // минута -> индекс бара ТФ
+    bar: [[Vec<f64>; 3]; 2], // по ориентации: open/high/low бара (зеркало: -o,-l,-h)
+    sw: [Vec<f64>; 2], // TW: последний подтверждённый свинг-уровень на конец минуты (NaN — нет), в ориентации
 }
 
 impl Coin {
@@ -170,10 +173,16 @@ impl Coin {
         let g: Vec<i64> = tm.iter().map(|t| t.div_euclid(w)).collect();
         let g0 = g[0];
         let nb = (g[n - 1] - g0 + 1) as usize;
-        let (mut bh, mut bl, mut cnt) = (vec![f64::NAN; nb], vec![f64::NAN; nb], vec![0i64; nb]);
+        let (mut bh, mut bl, mut bo, mut cnt) = (
+            vec![f64::NAN; nb],
+            vec![f64::NAN; nb],
+            vec![f64::NAN; nb],
+            vec![0i64; nb],
+        );
         for i in 0..n {
             let p = (g[i] - g0) as usize;
             if cnt[p] == 0 {
+                bo[p] = o[i];
                 bh[p] = h[i];
                 bl[p] = l[i];
             } else {
@@ -190,8 +199,29 @@ impl Coin {
         let nbl: Vec<f64> = bl.iter().map(|x| -x).collect();
         let swh_i = swings(&bh, &ok, K_SWING as usize);
         let swl_i = swings(&nbl, &ok, K_SWING as usize);
-        let swh_p = swh_i.iter().map(|&i| bh[i as usize]).collect();
-        let swl_p = swl_i.iter().map(|&i| bl[i as usize]).collect();
+        let swh_p: Vec<f64> = swh_i.iter().map(|&i| bh[i as usize]).collect();
+        let swl_p: Vec<f64> = swl_i.iter().map(|&i| bl[i as usize]).collect();
+        // TW (P-TK461 §12.2 п.3): свинг k=2 подтверждён после закрытия бара i+2 (конец-минута бара i+2 — календарная:
+        // (t+1 мин) кратно ТФ); уровень = последний подтверждённый, до входа — тоже (переносится по минутам)
+        let sw_for = |idx: &[i64], lvl: &[f64], sign: f64| -> Vec<f64> {
+            let (mut out, mut k, mut cur) = (vec![f64::NAN; n], 0usize, f64::NAN);
+            for m in 0..n {
+                let p = g[m] - g0;
+                let cb = if (tm[m] + 60_000) % w == 0 { p } else { p - 1 };
+                while k < idx.len() && idx[k] + K_SWING <= cb {
+                    cur = sign * lvl[k];
+                    k += 1;
+                }
+                out[m] = cur;
+            }
+            out
+        };
+        let sw = [sw_for(&swl_i, &swl_p, 1.0), sw_for(&swh_i, &swh_p, -1.0)];
+        let pidx: Vec<u32> = g.iter().map(|x| (x - g0) as u32).collect();
+        let bar = [
+            [bo.clone(), bh.clone(), bl.clone()],
+            [neg(&bo), neg(&bl), neg(&bh)],
+        ];
         let sym = std::path::Path::new(path)
             .file_name()
             .unwrap()
@@ -247,6 +277,9 @@ impl Coin {
             ft,
             fr,
             f_sorted,
+            pidx,
+            bar,
+            sw,
         }
     }
 
@@ -291,6 +324,7 @@ enum Why {
     Stop,
     Target,
     Deadline,
+    Ot,
 }
 
 impl Why {
@@ -299,6 +333,7 @@ impl Why {
             Why::Stop => "stop",
             Why::Target => "target",
             Why::Deadline => "deadline",
+            Why::Ot => "ot",
         }
     }
 }
@@ -333,7 +368,32 @@ struct Leg {
     maker: bool,
 }
 
-/// tk461_sim.trade без ОТ и свинга-массива (формы D2a + БУ). Возврат (минута выхода, причина, mfe); ноги — в `legs`.
+/// ОТ (P-TK461 §12.2 п.5): проверка на закрытии бара ТФ; kind 1/3/4/5 = OT1/OT3/OT4/OT5
+struct OtCtx<'a> {
+    kind: u8,
+    p: f64,
+    lvl: f64,    // OT1: уровень, ниже которого open и close бара
+    atr_px: f64, // ATR14(t0-1) в цене
+    r: f64,      // R в цене (NaN у ST — OT5 не срабатывает)
+    entry: f64,
+    cn: &'a Coin,
+    orient: usize,
+}
+
+impl OtCtx<'_> {
+    fn fires(&self, m: usize, mfe: f64, since: i64, close: f64) -> bool {
+        let p = self.cn.pidx[m] as usize;
+        let [bo, bh, bl] = &self.cn.bar[self.orient];
+        match self.kind {
+            1 => bo[p] < self.lvl && close < self.lvl,
+            3 => since as f64 >= self.p,
+            4 => close < bo[p] && (bh[p] - bl[p]) / self.atr_px >= self.p,
+            _ => mfe >= self.entry + self.p * self.r && close <= self.entry,
+        }
+    }
+}
+
+/// tk461_sim.trade (формы D2a + БУ + TW-свинг + ОТ). Возврат (минута выхода, причина, mfe); ноги — в `legs`.
 #[allow(clippy::too_many_arguments)]
 fn trade(
     o: &[f64],
@@ -348,6 +408,9 @@ fn trade(
     trail: Option<f64>,
     part: Option<&Part>,
     be: Option<f64>,
+    swing: Option<&[f64]>,
+    ot: Option<&OtCtx>,
+    tm: &[i64],
     legs: &mut Vec<Leg>,
 ) -> (usize, Why, f64) {
     legs.clear();
@@ -356,6 +419,8 @@ fn trade(
     let mut cur = stop;
     let mut part_done = part.is_none();
     let mut mfe = entry;
+    let (mut since, mut mfe_prev) = (0i64, entry);
+    let wms = ot.map_or(0, |o| o.cn.tf * 60_000);
     for m in e..=last {
         if cur.is_finite() && l[m] <= cur {
             let px = if m > e {
@@ -406,9 +471,28 @@ fn trade(
                 cur = pmax(cur, ext - p.trail);
             }
         }
+        if let Some(sw) = swing {
+            if sw[m].is_finite() {
+                cur = pmax(cur, sw[m]);
+            }
+        }
         if let Some(b) = be {
             if h[m] >= b {
                 cur = pmax(cur, entry);
+            }
+        }
+        if let Some(ot) = ot {
+            if (tm[m] + 60_000) % wms == 0 {
+                since = if mfe > mfe_prev { 0 } else { since + 1 };
+                mfe_prev = mfe;
+                if ot.fires(m, mfe, since, c[m]) {
+                    legs.push(Leg {
+                        f: pos,
+                        px: c[m],
+                        maker: false,
+                    });
+                    return (m, Why::Ot, mfe);
+                }
             }
         }
     }
@@ -426,6 +510,8 @@ struct Cell {
     take: String,
     par: f64,
     be_r: Option<f64>,
+    ot: u8, // 0 — нет, 1/3/4/5 — OT1/OT3/OT4/OT5
+    otp: f64,
     a: String, // ",stop,take,par"
     b: String, // ",be_r" или пусто
 }
@@ -439,6 +525,8 @@ struct Entry {
     atr: f64,
     evk: Option<i64>,
     cj: Option<i64>,
+    ss_bps: Option<f64>,
+    ot1_bps: Option<f64>,
     mid: String, // ",evk,cj" или пусто
 }
 
@@ -474,6 +562,10 @@ fn one(
     let [o, h, l, c] = &cn.px[if d == 1 { 0 } else { 1 }];
     let e = search_left(&cn.tm, s.tt0 + tf * 60_000);
     let last = search_left(&cn.tm, s.tt0 + (N_BARS + 1) * tf * 60_000) as i64 - 1;
+    let ss = cell.stop == "SS";
+    if (ss && s.ss_bps.is_none()) || (cell.ot == 1 && s.ot1_bps.is_none()) {
+        return; // SS/OT1 без определённого расстояния — ячейка для строки пропущена (§12.2 п.1)
+    }
     out.push_str(pre);
     out.push_str(&cell.a);
     out.push_str(&s.mid);
@@ -487,8 +579,13 @@ fn one(
     let st = cell.stop == "ST";
     let (mut stop, mut tgt, mut trail, mut part, mut be) =
         (f64::NEG_INFINITY, None, None, None, None);
+    let mut dist = f64::NAN;
     if !st {
-        let dist = cell.m * s.atr / 1e4 * ep.abs();
+        dist = if ss {
+            s.ss_bps.unwrap() / 1e4 * ep.abs()
+        } else {
+            cell.m * s.atr / 1e4 * ep.abs()
+        };
         stop = ep - dist;
         let risk = dist;
         match cell.take.as_str() {
@@ -508,13 +605,25 @@ fn one(
                     trail: 1.0 * s.atr / 1e4 * ep.abs(),
                 })
             }
-            "TN" => {}
+            "TN" | "TW" => {}
             t => panic!("take {t}"),
         }
         if let Some(b) = cell.be_r {
             be = Some(ep + b * risk);
         }
     }
+    let orient = if d == 1 { 0 } else { 1 };
+    let swing = (cell.take == "TW").then(|| cn.sw[orient].as_slice());
+    let otc = (cell.ot != 0).then(|| OtCtx {
+        kind: cell.ot,
+        p: cell.otp,
+        lvl: ep - (s.ot1_bps.unwrap_or(f64::NAN) + cell.otp * s.atr) * 1e-4 * ep.abs(),
+        atr_px: s.atr / 1e4 * ep.abs(),
+        r: dist,
+        entry: ep,
+        cn,
+        orient,
+    });
     let (mx, why, mfe) = trade(
         o,
         h,
@@ -528,6 +637,9 @@ fn one(
         trail,
         part.as_ref(),
         be,
+        swing,
+        otc.as_ref(),
+        &cn.tm,
         legs,
     );
     let (mut g, mut fee_s, mut mk_s, mut tk_s) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
@@ -540,7 +652,13 @@ fn one(
     let fund = cn.funding_bps(cn.tm[e], cn.tm[mx] + 60_000, d);
     let bars = (mx - e + 1) as f64 / tf as f64;
     let mfe_bps = 1e4 * (mfe - ep) / ep.abs();
-    let risk_bps = if st { f64::NAN } else { cell.m * s.atr };
+    let risk_bps = if st {
+        f64::NAN
+    } else if ss {
+        s.ss_bps.unwrap()
+    } else {
+        cell.m * s.atr
+    };
     out.push(',');
     out.push_str(why.s());
     for x in [
@@ -591,6 +709,14 @@ fn main() {
             atr: num(&g(r, "atr_bps")),
             evk: ix.get("evk").map(|_| num(&g(r, "evk")) as i64),
             cj: ix.get("cj").map(|_| num(&g(r, "cj")) as i64),
+            ss_bps: ix
+                .get("ss_bps")
+                .map(|_| num(&g(r, "ss_bps")))
+                .filter(|v| v.is_finite()),
+            ot1_bps: ix
+                .get("ot1_bps")
+                .map(|_| num(&g(r, "ot1_bps")))
+                .filter(|v| v.is_finite()),
             mid: String::new(),
         })
         .collect();
@@ -619,9 +745,30 @@ fn main() {
                 r[cx["take"]].clone(),
                 num(&r[cx["par"]]),
             );
+            let (otn, otp) = cx
+                .get("ot")
+                .map_or(("", f64::NAN), |&i| (r[i].as_str(), num(&r[cx["otp"]])));
+            let ot = match otn {
+                "" => 0,
+                "OT1" => 1,
+                "OT3" => 3,
+                "OT4" => 4,
+                "OT5" => 5,
+                x => panic!("ot {x}"),
+            };
+            let mut b = if cx.contains_key("be_r") {
+                format!(",{}", be_r.map_or(String::new(), fl))
+            } else {
+                String::new()
+            };
+            if cx.contains_key("ot") {
+                b += &format!(",{otn},{}", fl(otp));
+            }
             Cell {
                 a: format!(",{stop},{take},{}", fl(par)),
-                b: be_r.map_or(String::new(), |b| format!(",{}", fl(b))),
+                b,
+                ot,
+                otp,
                 m: num(&r[cx["m"]]),
                 stop,
                 take,
@@ -636,6 +783,9 @@ fn main() {
     }
     if cx.contains_key("be_r") {
         head += ",be_r";
+    }
+    if cx.contains_key("ot") {
+        head += ",ot,otp";
     }
     head += ",reason,gross,fee,fee_mk,fee_tk,fund,bars,mfe_bps,risk_bps\n";
     let t_load = t_start.elapsed().as_secs_f64();
