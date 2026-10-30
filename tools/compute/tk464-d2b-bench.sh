@@ -13,7 +13,7 @@ echo "ячеек $(( $(wc -l <$O/cells449.csv) - 1 )) (базовых $n)" >>$O/
 for tf in 60 240 1440; do
   inp=$B/out/$c-$tf.ctrl-in.csv
   echo "== $c ТФ$tf событий $(( $(wc -l <$inp) - 1 )) потоков $th" >>$O/bench.log
-  /usr/bin/time -f "стена %e с, ЦП %U+%S с, пик %M КБ" $BIN $SRC/$c.csv.gz $tf $inp /data/tk0455/fund $O/cells449.csv $O/$c-$tf.agg.csv --threads $th --agg 1 >>$O/bench.log 2>&1
+  /usr/bin/time -f "стена %e с, ЦП %U+%S с, пик %M КБ" $BIN $SRC/$c.csv.gz $tf $inp /data/tk0455/fund $O/cells449.csv $O/$c-$tf.agg.csv --threads $th --agg 1 ${MAXEV:+--max-events $MAXEV} >>$O/bench.log 2>&1
   ls -l $O/$c-$tf.agg.csv | awk '{print "агрегат, байт: " $5}' >>$O/bench.log
 done
 echo done >$O/bench.DONE
