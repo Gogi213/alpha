@@ -152,7 +152,7 @@ def main():
     t = text(rows)
     p = os.path.join(a.root, OUT)
     if a.check:
-        ok = os.path.exists(p) and open(p, encoding="utf-8", newline="").read() == t
+        ok = os.path.exists(p) and open(p, encoding="utf-8").read() == t  # универсальные переводы строк: CRLF-checkout читается как LF
         print(("OK  " if ok else "FAIL"), f"{OUT}: {len(rows)} признаков, пересборка = файл")
         sys.exit(0 if ok else 1)
     open(p, "w", encoding="utf-8", newline="").write(t)
