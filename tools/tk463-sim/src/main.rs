@@ -561,6 +561,7 @@ fn main() {
             i += 1;
         }
     }
+    let t_start = std::time::Instant::now();
     let tf: i64 = pos[1].parse().unwrap();
     let cn = Coin::load(pos[0], tf, pos[3]);
     let (ix, rows) = read_table(open_text(pos[2]));
@@ -607,6 +608,7 @@ fn main() {
         head += ",be_r";
     }
     head += ",reason,gross,fee,fee_mk,fee_tk,fund,bars,mfe_bps,risk_bps\n";
+    let t_load = t_start.elapsed().as_secs_f64();
     let chunk = ents.len().div_ceil(threads.max(1)).max(1);
     let parts: Vec<String> = std::thread::scope(|sc| {
         let hs: Vec<_> = ents
@@ -627,6 +629,7 @@ fn main() {
             .collect();
         hs.into_iter().map(|h| h.join().unwrap()).collect()
     });
+    let t_calc = t_start.elapsed().as_secs_f64();
     let path = pos[5];
     let (mut w, child): (Box<dyn Write>, _) = if path.ends_with(".gz") {
         let mut ch = Command::new("sh")
@@ -646,6 +649,10 @@ fn main() {
     if let Some(mut ch) = child {
         ch.wait().unwrap();
     }
+    eprintln!(
+        "время: загрузка {t_load:.2} с, счёт {:.2} с, всего до записи {t_calc:.2} с",
+        t_calc - t_load
+    );
     eprintln!(
         "{} {} строк",
         path,
