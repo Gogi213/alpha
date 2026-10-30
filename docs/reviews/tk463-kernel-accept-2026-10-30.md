@@ -54,3 +54,7 @@ TWTUSDT 1440 ctrl, d2b/gate2.log BYTES_EQ и IDENTICAL, synth; несовпад�
 `accept` гоняет ярлык `bash tools/compute/tk463-check.sh` из Windows: `bash` там — WSL (ext4.vhdx не найден), rc 1 до запуска
 скрипта. Из Git Bash скрипт даёт rc 0. По делу принято; вернуть на форму ярлыка: тот же скрипт на Python
 (`tools/compute/tk463-check.py`, `subprocess` ssh calc, те же счётчики, rc ≠ 0 при несовпадении), ярлыки — `[запуск: python tools/compute/tk463-check.py]`.
+
+## Повтор приёмки (728e8122) — проверка на Python
+`tools/compute/tk463-check.py` прочитан: те же счётчики, что в check.sh (md5 бинарника, D2a, GATE.DONE, gate.log, TWTUSDT 1440 ctrl,
+d2b/gate2.log, synth), rc 1 при несовпадении, rc 2 без ssh. Запустил сам: «OK: все счётчики сошлись», rc 0. Вердикт — принято; хвост — TK-464.
