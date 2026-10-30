@@ -62,6 +62,11 @@ HYP = [("id", "id", "t"), ("дата", "date", "t"), ("тикет", "ticket", "t
        ("признаки", "features", "t"), ("вид_r", "kind_r", "t"), ("семейство_K", "family_k", "t"), ("накоплено_K", "accum_k", "t"),
        ("месяц_подтв", "month_confirmed", "t"), ("статус", "status", "t"), ("документ", "doc", "t")]
 
+SM = [(c, c2, "t") for c, c2 in (("sm_id", "sm_id"), ("layer", "layer"), ("test", "test"), ("row_label", "row_label"), ("def_ids", "def_ids"),
+      ("claim_ids", "claim_ids"), ("event_label", "event_label"), ("event_key", "event_key"), ("events_file", "events_file"),
+      ("controls", "controls"), ("verdict", "verdict"), ("verdict_file", "verdict_file"), ("verdict_rows", "verdict_rows"),
+      ("verdict_md5", "verdict_md5"))] + [("n_rows", "n_rows", "i"), ("delta_min", "delta_min", "r"), ("p_holm_max", "p_holm_max", "r")]
+
 # (загрузчик, тикет, файл, таблица, столбцы, постоянные поля). В csv TK-447 колонки направления нет: метка — «сильный ход вперёд»
 # (md TK-447), направление 'any'. Step1 TK-442 (pump-forward-signal-2026-10-28-{aug,sep}.csv) — подмножество step2-all, не грузится.
 SPEC = [("signals", "TK-442", F + "pump-forward-signal-2026-10-28-step2-all.csv", "signals", SIG, {}),
@@ -73,7 +78,8 @@ SPEC = [("signals", "TK-442", F + "pump-forward-signal-2026-10-28-step2-all.csv"
         ("lift", "TK-447", F + "pump-features-v2-2026-10-29-lift-all.csv", "feature_lift", LIFT, {"direction": "any"}),
         ("lift", "TK-447", F + "pump-features-v2-2026-10-29-fund-lift-2026-08.csv", "feature_lift", LIFT, {"direction": "any"}),
         ("lift", "TK-447", F + "pump-features-v2-2026-10-29-fund-lift-2026-09.csv", "feature_lift", LIFT, {"direction": "any"}),
-        ("hypotheses", "TK-433", "docs/research/g017-hypotheses.csv", "hypotheses", HYP, {})]
+        ("hypotheses", "TK-433", "docs/research/g017-hypotheses.csv", "hypotheses", HYP, {}),
+        ("smartmoney", "TK-460", F + "smartmoney-survivors-2026-10-30.csv", "sm_features", SM, {})]
 CODE, FCODE = "tools/compute/tk447-features.py", "tools/compute/tk447-fund.py"
 EVENT_GLOBS = [(F + "pump-v11-events-2026-*.csv", "events-v11", "TK-433"), (F + "pump-classes-2026-10-28-events.csv", "events-classes", "TK-435")]
 NOW = lambda: time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -289,7 +295,7 @@ def main():
     init(c)
     if a.cmd == "load":
         load(c, a.root)
-        for t in ("runs", "features", "feature_coverage", "feature_lift", "hypotheses", "signals", "signal_groups", "events_ref"):
+        for t in ("runs", "features", "feature_coverage", "feature_lift", "hypotheses", "signals", "signal_groups", "events_ref", "sm_features"):
             print(t, c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
     elif a.cmd == "verify":
         sys.exit(1 if verify(c, a.root) else 0)
