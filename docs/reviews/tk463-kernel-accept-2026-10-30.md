@@ -44,3 +44,8 @@ GATE.DONE «jobs 21 ok 42», d2b/gate2.log BYTES_EQ 9, synth/gate.log IDENTICAL 
 (выше); вернуть автору на ярлыки: один скрипт в git, напр. `tools/compute/tk463-check.sh`, читает логи calc по `ssh calc` и
 выходит ≠ 0 при несовпадении любого счётчика (D2a «IDENTICAL 252 из 252», GATE.DONE «ok 42», gate2.log BYTES_EQ 9 и IDENTICAL 9,
 synth IDENTICAL 6, строка TWTUSDT 1440 ctrl IDENTICAL); ярлыки сдачи — `[запуск: bash tools/compute/tk463-check.sh]`.
+
+## Повтор приёмки (b0288db2) — ярлыки на tools/compute/tk463-check.sh
+Скрипт прочитан: один ssh calc, счётчики md5 бинарника, D2a 252/252, GATE.DONE, gate.log (IDENTICAL и ноль прочих строк), строка
+TWTUSDT 1440 ctrl, d2b/gate2.log BYTES_EQ и IDENTICAL, synth; несовпадение любого — rc 1, нет ssh — rc 2. Запустил сам: «OK: все
+счётчики сошлись», rc 0. Вердикт — принято; хвост — TK-464.
