@@ -29,10 +29,10 @@ def main():
         src = f"{d}/src"; os.makedirs(src)
         syms = ["AAAUSDT", "BBBUSDT", "CCCUSDT"]
         for i, s in enumerate(syms): gen(src, s, 458 + i)
-        for g in ("g5", "g6", "g61", "g7", "g8", "g63"):
+        for g in ("g5", "g6", "g61", "g7", "g8", "g63", "g2", "g3", "g32"):
             run(os.path.join(TOOLS, f"bp_{g}.py"), src, f"{d}/bp-{g}", *syms)
         out = {}
-        for g in ("g5", "g6", "g61", "g7", "g8", "g63"):
+        for g in ("g5", "g6", "g61", "g7", "g8", "g63", "g2", "g3", "g32"):
             evp = f"{d}/bp-{g}-out-events.csv.gz" if g == "g63" else f"{d}/bp-{g}-events.csv.gz"
             ev = pd.read_csv(evp)
             if g == "g63":
@@ -42,6 +42,7 @@ def main():
             x = pd.read_csv(o); out[g] = (len(ev), x)
             print(g, "events", len(ev), "rows", len(x))
             assert len(ev) > 0, g
+            if g == "g2": out[g] = (int(ev[["f0", "f1", "f2"]].notna().sum().sum()), x)
             assert list(x.columns)[:8] == ["sym", "tf", "ev", "dir", "side", "t0", "tt0", "atr_bps"], x.columns
             assert set(x.side) <= {1, -1}
         n, x = out["g5"]; assert len(x) == 2 * n and (x.groupby("dir").side.first().to_dict() == {"long": 1, "short": -1}), "g5"
@@ -62,6 +63,14 @@ def main():
         # g63: как G4 - длина = число bull/bear out-событий, ss > 0, сторона bull -> +1, bear -> -1
         n, x = out["g63"]; assert len(x) == n and (x.ss_bps.dropna() > 0).all() and x.ss_bps.notna().any(), "g63"
         assert (x.side == np.where(x.dir == "bull", 1, -1)).all(), "g63 side"
+        # g2: строка на (событие x тест с касанием), сторона = продолжение ноги (хай-нога -> лонг), ss по свингу-лою > 0
+        n, x = out["g2"]; assert len(x) == n and set(x.ev) <= {"g2.1", "g2.2", "g2.3"}, "g2"
+        assert (x.side == np.where(x.dir == "high", 1, -1)).all() and x.ss_bps.notna().any() and (x.ss_bps.dropna() > 0).all(), "g2 ss"
+        # g3 / g32: разворот (хай-снятие -> шорт), ss по свингу-хаю > 0, ss = ot1
+        for g in ("g3", "g32"):
+            n, x = out[g]; assert len(x) == n, (g, n, len(x))
+            assert (x.side == np.where(x.dir == "high", -1, 1)).all() and (x.ss_bps.dropna() > 0).all() and x.ss_bps.equals(x.ot1_bps), g
+        assert set(out["g32"][1].ev) <= {"g32a", "g32b", "g32c"} and out["g3"][1].ss_bps.notna().any(), "g3/g32"
         print("OK")
 
 
