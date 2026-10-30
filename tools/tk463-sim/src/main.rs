@@ -983,6 +983,8 @@ fn main() {
     let t_load = t_start.elapsed().as_secs_f64();
     let aggmode = opt("--agg").is_some_and(|v| v == "1");
     let pair_file = opt("--pair");
+    // TK-469 `--stream 1` (только с `--pair`): цикл «каноническая ячейка -> события», вывод по ячейке; порядок строк и суммы те же
+    let stream = opt("--stream").is_some_and(|v| v == "1");
     let chunk = ents.len().div_ceil(threads.max(1)).max(1);
     if let Some(pf_) = pair_file {
         // парный режим: события pos[2] + контроли pf_ (evk = tt0 события, ev с префиксом из 2 знаков), группа
@@ -994,6 +996,145 @@ fn main() {
             by.entry((c.ev[2..].to_string(), c.dir.clone(), c.evk.expect("evk")))
                 .or_default()
                 .push(i);
+        }
+        if stream {
+            // память ∝ группам одной канонической ячейки (а не всех): события в порядке файла, слои одной канонической
+            // ячейки — в одном проходе, поэтому порядок сложения в ключе (ячейка, группа, сторона, сутки) тот же, что у цикла по событиям
+            let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+            for (ci, &cid) in canon.iter().enumerate() {
+                groups.entry(cid).or_default().push(ci);
+            }
+            let groups: Vec<(usize, Vec<usize>)> = groups.into_iter().collect();
+            let cell_ok: Vec<Vec<bool>> = (0..cells.len())
+                .map(|ci| lists.iter().map(|l| l.binary_search(&ci).is_ok()).collect())
+                .collect();
+            let ev_cs: Vec<&[usize]> = ents
+                .iter()
+                .map(|s| {
+                    by.get(&(s.ev.clone(), s.dir.clone(), s.tt0))
+                        .map_or(&[][..], |v| v.as_slice())
+                })
+                .collect();
+            let mut h = String::from("sym,tf,ev,dir,day,side,stop,take,par");
+            if cx.contains_key("be_r") {
+                h += ",be_r";
+            }
+            if cx.contains_key("ot") {
+                h += ",ot,otp";
+            }
+            h += ",c,d,b,k,d2\n";
+            type Tc = Vec<Option<Option<f64>>>; // цель TS зависит только от входа: кэш на событие и на контроль
+            let calc = |cid: usize,
+                        cis: &[usize],
+                        st: &mut (Vec<Leg>, Option<Aggm>, Tc, Tc)|
+             -> String {
+                let (legs, scratch, tev, tct) = st;
+                let mut pm: BTreeMap<(u32, i64, i64), PAcc> = BTreeMap::new();
+                for (si, s) in ents.iter().enumerate() {
+                    let cs = ev_cs[si];
+                    if cs.is_empty() {
+                        continue;
+                    }
+                    for &ci in cis {
+                        if !cell_ok[ci][s.ck as usize] {
+                            continue;
+                        }
+                        let cell = &cells[ci];
+                        let Some(net) = net_of(&cn, s, cell, legs, &mut tev[si], scratch) else {
+                            continue;
+                        };
+                        let (mut sum, mut cnt) = (0.0f64, 0u64);
+                        for &k in cs {
+                            if let Some(x) = net_of(&cn, &ctrl[k], cell, legs, &mut tct[k], scratch)
+                            {
+                                sum += x;
+                                cnt += 1;
+                            }
+                        }
+                        if cnt == 0 {
+                            continue;
+                        }
+                        let k = sum / cnt as f64;
+                        let d = net - k;
+                        let a = pm
+                            .entry((s.gk, s.side, s.tt0.div_euclid(86_400_000)))
+                            .or_default();
+                        a.c += 1;
+                        a.d += d;
+                        a.b += net;
+                        a.k += k;
+                        a.d2 += d * d;
+                    }
+                }
+                let cell = &cells[cid];
+                let mut o = String::new();
+                for ((gk, side, day), a) in &pm {
+                    let (ev, dir, _) = &gkeys[*gk as usize];
+                    write!(
+                        o,
+                        "{},{},{ev},{dir},{day},{side}{}{}",
+                        cn.sym, cn.tf, cell.a, cell.b
+                    )
+                    .unwrap();
+                    write!(o, ",{}", a.c).unwrap();
+                    for x in [a.d, a.b, a.k, a.d2] {
+                        o.push(',');
+                        pf(&mut o, x);
+                    }
+                    o.push('\n');
+                }
+                o
+            };
+            let new_st = || -> (Vec<Leg>, Option<Aggm>, Tc, Tc) {
+                (
+                    Vec::with_capacity(4),
+                    Some(BTreeMap::new()),
+                    vec![None; ents.len()],
+                    vec![None; ctrl.len()],
+                )
+            };
+            let path = pos[5];
+            let (mut w, child) = open_out(path, gz_level);
+            w.write_all(h.as_bytes()).unwrap();
+            let mut nlines = 0usize;
+            let gchunk = groups.len().div_ceil(threads.max(1)).max(1);
+            if threads <= 1 {
+                let mut st = new_st();
+                for (cid, cis) in &groups {
+                    let o = calc(*cid, cis, &mut st);
+                    nlines += o.matches('\n').count();
+                    w.write_all(o.as_bytes()).unwrap();
+                }
+            } else {
+                let parts: Vec<Vec<String>> = std::thread::scope(|sc| {
+                    let hs: Vec<_> = groups
+                        .chunks(gchunk)
+                        .map(|gs| {
+                            let (calc, new_st) = (&calc, &new_st);
+                            sc.spawn(move || {
+                                let mut st = new_st();
+                                gs.iter()
+                                    .map(|(cid, cis)| calc(*cid, cis, &mut st))
+                                    .collect()
+                            })
+                        })
+                        .collect();
+                    hs.into_iter().map(|h| h.join().unwrap()).collect()
+                });
+                for o in parts.iter().flatten() {
+                    nlines += o.matches('\n').count();
+                    w.write_all(o.as_bytes()).unwrap();
+                }
+            }
+            drop(w);
+            if let Some(mut ch) = child {
+                ch.wait().unwrap();
+            }
+            eprintln!(
+                "время: загрузка {t_load:.2} с, счёт {:.2} с; {path} {nlines} строк (stream)",
+                t_start.elapsed().as_secs_f64() - t_load
+            );
+            return;
         }
         let parts: Vec<Pairm> = std::thread::scope(|sc| {
             let hs: Vec<_> = ents
