@@ -1,0 +1,5 @@
+calc /srv/alpha-sda/candles-1m/binance-um, время сервера +0100
+-rw-r--r-- 1 root root 0 2026-10-30 07:31:07.922139735 +0100 /data/tk459/DONE_S3
+старейший файл свечей:
+-rw-r--r-- 1 root root  12144319 2026-10-30 18:27:52.201720928 +0100 0GUSDT.csv.gz
+файлов свечей новее DONE_S3: 84 из 84
