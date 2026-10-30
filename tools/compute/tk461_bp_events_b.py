@@ -42,6 +42,31 @@ SN = _load("sancho", os.path.join(HERE, "sancho.py"))
 COLS = ["sym", "tf", "ev", "dir", "side", "t0", "tt0", "atr_bps", "ss_bps", "ot1_bps", "ot1_fallback", "tf_min"]
 R, T = G5.R, G5.T
 
+_RAW = [None, None]
+
+
+def _raw(path):
+    """TK-469 (флаг TK469_BARS_CACHE=1): минуты монеты читаются один раз на монету, не на каждый ТФ/вызов bars (g2/g3 - 3 чтения -> 1)."""
+    if _RAW[0] != path:
+        d = pd.read_csv(path, usecols=[0, 1, 2, 3, 4])
+        d.columns = ["t", "o", "h", "l", "c"]
+        _RAW[0], _RAW[1] = path, d
+    return _RAW[1]
+
+
+def _bars_cached(path, tf):
+    """= bp_g4.bars (то же агрегирование), но поверх _raw"""
+    d = _raw(path)
+    g = d.t // (tf * 60000)
+    a = d.groupby(g, sort=True).agg(h=("h", "max"), l=("l", "min"), c=("c", "last"), n=("t", "size"))
+    a = a.reindex(pd.RangeIndex(a.index.min(), a.index.max() + 1))
+    ok = (a.n == tf).fillna(False).to_numpy()
+    return a.index.to_numpy(), a.h.to_numpy(), a.l.to_numpy(), a.c.to_numpy(), ok
+
+
+if os.environ.get("TK469_BARS_CACHE") == "1":
+    G4.bars = _bars_cached
+
 
 def mk(sym, tf, tf_min, ev, dr, side, t0, tt0, atr_bps, ss=np.nan):
     n = len(t0)
