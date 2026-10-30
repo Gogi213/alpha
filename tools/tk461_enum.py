@@ -41,6 +41,17 @@ def bp():
     return out
 
 
+# S1-S6 (P-TK459 §3) — строки, которые считались: S1 только 1H (4H/1D «не проверяется»), S6 — цепочки канала без бара/ТФ
+# события входа -> вне оси входов. S = фактор-подмножество A5 (S3 — A8), M0 у них совпадает с M0 носителя -> одна строка M1.
+S_ROWS = [("S1", "60", "H/L x asia,frankfurt,london,ny", 8), ("S2", "60|240|1440", "H/L x (ТФ свипа, старший ТФ)", 12),
+          ("S3", "60|240|1440", "H/L x (fulfill, инвалидация) x (k=2, k=1)", 24), ("S4", "5 пар ТФ", "H/L", 10),
+          ("S5", "60", "H/L x d(0,25;0,5;1;без предела)", 8)]
+# M3: >= 2 РАЗНЫХ признака (разные event_label; исходы одного признака — один признак). Из survivors: A5 1H = S2 ∩ S5 (+L2 для L);
+# + A8 ∩ S-сочетание по 3 ТФ x 2 стороны. Непустоту проверяет шаг 0b на calc; K объявлен как ВЕРХНЯЯ граница (пустые строки
+# отбрасываются, K не уменьшается).
+M3_ROWS = [("A5", "60", "H"), ("A5", "60", "L")] + [("A8", tf, d) for tf in ("60", "240", "1440") for d in ("H", "L")]
+
+
 def main():
     rows = []  # source, tf, side, mode, n_events, where
     for ev, tf, d in sancho():
@@ -52,14 +63,19 @@ def main():
     with open(F + "smartmoney-survivors-2026-10-30.csv", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             rows.append(("sm:" + r["sm_id"], "", r["event_label"], "M2", "", "local"))
+    for sid, tf, side, k in S_ROWS:
+        for i in range(k):
+            rows.append((f"S:{sid}", tf, f"{side} #{i + 1}", "M1", "", "calc-count"))
+    for src, tf, d in M3_ROWS:
+        rows.append((src, tf, d, "M3", "", "calc-count"))
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(["source", "tf", "side_or_def", "mode", "n_events", "where"])
         w.writerows(rows)
     e = len(rows)
     by = collections.Counter(r[3] for r in rows)
-    print(f"E_local={e} {dict(by)} X={X} K_local={e * X}")
-    print("M3 и S1-S6 M0/M1 — добавляются на calc по ключам (шаг 0b); итоговый K = (E_local + E_calc) * X")
+    print(f"E_local={e} {dict(by)} X={X} K_upper={e * X}")
+    print("K — верхняя граница; шаг 0b (calc) считает n_events для calc/calc-count и отбрасывает пустые строки, K не уменьшается")
 
 
 if __name__ == "__main__":

@@ -166,3 +166,73 @@ sm:SM-S-11,,sm_s5.asia_boundary_taken,M2,,local
 sm:SM-S-12,,sm_s5.asia_boundary_taken,M2,,local
 sm:SM-S-13,,sm_s5.asia_boundary_taken,M2,,local
 sm:SM-S-14,,sm_s5.asia_boundary_taken,M2,,local
+S:S1,60,"H/L x asia,frankfurt,london,ny #1",M1,,calc-count
+S:S1,60,"H/L x asia,frankfurt,london,ny #2",M1,,calc-count
+S:S1,60,"H/L x asia,frankfurt,london,ny #3",M1,,calc-count
+S:S1,60,"H/L x asia,frankfurt,london,ny #4",M1,,calc-count
+S:S1,60,"H/L x asia,frankfurt,london,ny #5",M1,,calc-count
+S:S1,60,"H/L x asia,frankfurt,london,ny #6",M1,,calc-count
+S:S1,60,"H/L x asia,frankfurt,london,ny #7",M1,,calc-count
+S:S1,60,"H/L x asia,frankfurt,london,ny #8",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #1",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #2",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #3",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #4",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #5",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #6",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #7",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #8",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #9",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #10",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #11",M1,,calc-count
+S:S2,60|240|1440,"H/L x (ТФ свипа, старший ТФ) #12",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #1",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #2",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #3",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #4",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #5",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #6",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #7",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #8",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #9",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #10",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #11",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #12",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #13",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #14",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #15",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #16",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #17",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #18",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #19",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #20",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #21",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #22",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #23",M1,,calc-count
+S:S3,60|240|1440,"H/L x (fulfill, инвалидация) x (k=2, k=1) #24",M1,,calc-count
+S:S4,5 пар ТФ,H/L #1,M1,,calc-count
+S:S4,5 пар ТФ,H/L #2,M1,,calc-count
+S:S4,5 пар ТФ,H/L #3,M1,,calc-count
+S:S4,5 пар ТФ,H/L #4,M1,,calc-count
+S:S4,5 пар ТФ,H/L #5,M1,,calc-count
+S:S4,5 пар ТФ,H/L #6,M1,,calc-count
+S:S4,5 пар ТФ,H/L #7,M1,,calc-count
+S:S4,5 пар ТФ,H/L #8,M1,,calc-count
+S:S4,5 пар ТФ,H/L #9,M1,,calc-count
+S:S4,5 пар ТФ,H/L #10,M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #1",M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #2",M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #3",M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #4",M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #5",M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #6",M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #7",M1,,calc-count
+S:S5,60,"H/L x d(0,25;0,5;1;без предела) #8",M1,,calc-count
+A5,60,H,M3,,calc-count
+A5,60,L,M3,,calc-count
+A8,60,H,M3,,calc-count
+A8,60,L,M3,,calc-count
+A8,240,H,M3,,calc-count
+A8,240,L,M3,,calc-count
+A8,1440,H,M3,,calc-count
+A8,1440,L,M3,,calc-count
