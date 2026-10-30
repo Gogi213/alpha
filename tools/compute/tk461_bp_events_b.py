@@ -273,6 +273,9 @@ def g32_cols(ev, sym, path):
     d = pd.read_csv(path, usecols=[0, 1, 2, 3, 4])
     d.columns = ["t", "o", "h", "l", "c"]
     W1, D1, H1 = G32.bars(d, 10080, G32.MON), G32.bars(d, 1440), G32.bars(d, 60)
+    keys, miss = {}, [0]
+    for tfn, de, ts in zip(ev.tf, ev.def_id, ev.ts_utc_ms):
+        keys.setdefault((tfn, de.split(":")[-1]), set()).add(int(ts))
     parts, nev = [], 0
     for nm, ek, H, Mb, mode in [("G3.2 W1-фрактал→D1", "g32a", W1, D1, "frac"), ("G3.3 D1-фрактал→H1", "g32b", D1, H1, "frac"),
                                 ("G3.3 PDH/PDL→H1", "g32c", D1, H1, "pd")]:
@@ -307,12 +310,19 @@ def g32_cols(ev, sym, path):
                 if L - c[s - 1] <= 0:
                     continue
                 S.append(s)
+            # события - только из bp-g32-events (P-TK461 стр.7): ключ = монета x ТФ-имя x сторона x ts (= открытие бара касания + tf)
+            keep = keys.get((nm, dn), set())
+            got = {int(Ms["st"][x]) + tf * 60000 for x in S}
+            miss[0] += len(keep - got)  # события файла, не воспроизведённые на текущих свечах
+            S = [x for x in S if int(Ms["st"][x]) + tf * 60000 in keep]
             if not S:
                 continue
             s = np.array(S)
             ss = swing_ss(h, ok, h, c[s], s, 1)
             parts.append(pack(sym, "D1" if tf == 1440 else "H1", tf, ek, dn, -sign, s, Ms["st"][s] // (tf * 60000), atr, c, ss))
             nev += len(s)
+    if miss[0]:
+        print(sym, "g32 событий файла не воспроизведено:", miss[0], file=sys.stderr)
     return (pd.concat(parts) if parts else pd.DataFrame(columns=COLS)), nev
 
 
