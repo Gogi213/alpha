@@ -11,6 +11,9 @@ import numpy as np
 import pandas as pd
 
 B, CH, SEED = 20000, 4000, 455
+# Тариф 2/5 bps подтверждён датой только страницей поддержки Binance (обновлена 2026-05-01, доступ 30.10.2026); истории изменений нет
+# (поиск 30.10, архив недоступен) -> по протоколу §3 net для (P) и подписи «после издержек» — только сделки с t0 >= этой даты; раньше — gross.
+TARIFF_FROM_MS = 1777593600000  # 2026-05-01 00:00 UTC
 DAY = 86400000
 G = None
 
@@ -28,6 +31,9 @@ def load(run):
     D["net_mix"] = D.gross - D.fee_mix - D.fund
     D["net_mk"] = D.gross - D.fee_mk - D.fund
     D["net_tk"] = D.gross - D.fee_tk - D.fund
+    D["dated"] = D.t0 >= TARIFF_FROM_MS
+    for c in ("mk", "tk"):  # для (P): net только по датированному тарифу, иначе 0 в суммах (счёт — n_d)
+        D[f"d_{c}"] = D[f"net_{c}"].where(D.dated, 0.0)
     return D, ok
 
 
@@ -35,7 +41,7 @@ def boot(key):
     """key = (ev, form, tf, dir); на день: n и суммы net_{mix,mk,tk} real / C1 / C2."""
     days, M = G[key]  # M: dict роль -> (n, s_mix, s_mk, s_tk) по дням
     D = len(days)
-    n_r, sm, sk, st = M["real"]
+    n_r, sm, sk, st, n_d, sk_d, st_d = M["real"]
     N = n_r.sum()
     if N < 8 or D < 5:
         return key, None
@@ -45,7 +51,9 @@ def boot(key):
         cnt = rng.multinomial(D, np.full(D, 1 / D), CH).astype(np.float64)
         nr = cnt @ n_r
         nr = np.where(nr > 0, nr, np.nan)
-        mix, mk, tk = (cnt @ sm) / nr, (cnt @ sk) / nr, (cnt @ st) / nr
+        nd = cnt @ n_d
+        nd = np.where(nd > 0, nd, np.nan)
+        mix, mk, tk = (cnt @ sm) / nr, (cnt @ sk_d) / nd, (cnt @ st_d) / nd
         out["mix"].append(mix); out["mk"].append(mk); out["tk"].append(tk)
         for c, nm in (("C1", "d1"), ("C2", "d2")):
             if c in M:
@@ -53,10 +61,13 @@ def boot(key):
                 out[nm].append(mix - (cnt @ M[c][1]) / np.where(nc > 0, nc, np.nan))
     o = {k: np.concatenate(v) for k, v in out.items() if v}
     pt = lambda x, f: float(np.nanpercentile(x, f))
-    res = dict(N=int(N), days=D, mean_mix=sm.sum() / N, mean_mk=sk.sum() / N, mean_tk=st.sum() / N,
+    Nd = n_d.sum()
+    res = dict(N=int(N), days=D, N_dated=int(Nd), mean_mix=sm.sum() / N, mean_mk=sk_d.sum() / Nd if Nd else np.nan,
+               mean_tk=st_d.sum() / Nd if Nd else np.nan,
                mix_lo=pt(o["mix"], 2.5), mix_hi=pt(o["mix"], 97.5),
                mk_hi=pt(o["mk"], 97.5), tk_lo=pt(o["tk"], 2.5),
-               p_tk_pos=(np.nanmean(o["tk"] <= 0) + 1 / B), p_mk_neg=(np.nanmean(o["mk"] >= 0) + 1 / B))
+               p_tk_pos=(np.nanmean(o["tk"] <= 0) + 1 / B) if Nd >= 30 else np.nan,
+               p_mk_neg=(np.nanmean(o["mk"] >= 0) + 1 / B) if Nd >= 30 else np.nan)
     for c, nm in (("C1", "d1"), ("C2", "d2")):
         if nm in o:
             nc = M[c][0].sum()
@@ -77,7 +88,8 @@ def holm(p):
 
 
 def day_arrays(g):
-    d = g.groupby("day").agg(n=("net_mix", "size"), s_mix=("net_mix", "sum"), s_mk=("net_mk", "sum"), s_tk=("net_tk", "sum"))
+    d = g.groupby("day").agg(n=("net_mix", "size"), s_mix=("net_mix", "sum"), s_mk=("net_mk", "sum"), s_tk=("net_tk", "sum"),
+                             n_d=("dated", "sum"), s_mk_d=("d_mk", "sum"), s_tk_d=("d_tk", "sum"))
     return d
 
 
@@ -116,7 +128,7 @@ if __name__ == "__main__":
             if len(gr) == 0:
                 continue
             a = day_arrays(gr).reindex(days, fill_value=0.0)
-            M[role] = tuple(a[c].values.astype(np.float64) for c in ("n", "s_mix", "s_mk", "s_tk"))
+            M[role] = tuple(a[c].values.astype(np.float64) for c in ("n", "s_mix", "s_mk", "s_tk", "n_d", "s_mk_d", "s_tk_d"))
         if "real" in M:
             G[key] = (days, M)
     with Pool(nx) as p:
@@ -140,6 +152,10 @@ if __name__ == "__main__":
                                  mean_tk=g[g.role == "real"].net_tk.mean(),
                                  d1=g[g.role == "real"].net_mix.mean() - g[g.role == "C1"].net_mix.mean(),
                                  d2=g[g.role == "real"].net_mix.mean() - g[g.role == "C2"].net_mix.mean())), include_groups=False).reset_index()
+    Yd = T[(T.role == "real") & T.dated].groupby(["ev", "form", "tf", "dir", "year"], observed=True).agg(
+        N_dated=("gross", "size"), net_mk_dated=("net_mk", "mean"), net_tk_dated=("net_tk", "mean")).reset_index()
+    Yg = T[T.role == "real"].groupby(["ev", "form", "tf", "dir", "year"], observed=True).gross.mean().rename("mean_gross").reset_index()
+    Y = Y.merge(Yg, how="left", on=["ev", "form", "tf", "dir", "year"]).merge(Yd, how="left", on=["ev", "form", "tf", "dir", "year"])
     Y["enough"] = (Y.N >= 8) & (Y.coins >= 5)
     Y.to_csv(f"{pre}-years.csv", index=False)
     ys = Y[Y.enough].groupby(["ev", "form", "tf", "dir"], observed=True).apply(
@@ -155,7 +171,8 @@ if __name__ == "__main__":
     yok_neg = (F.yrs_mixed == 0) & (F.yrs_pos == 0) & (F.yrs >= 1)
     F["D"] = np.where((F.p_D_holm < .05) & both_pos & yok_pos & (F.lo_C1 > 0) & (F.lo_C2 > 0), "подтверждено",
               np.where((F.p_D_holm < .05) & both_neg & yok_neg & (F.hi_C1 < 0) & (F.hi_C2 < 0), "оспорено", "не различимо"))
-    F["P"] = np.where(F.p_P_pos_holm < .05, "положительно", np.where(F.p_P_neg_holm < .05, "отрицательно", "не различимо"))
+    F["P"] = np.where(F.N_dated.fillna(0) < 30, "не оценено (нет датированного тарифа)",
+              np.where(F.p_P_pos_holm < .05, "положительно", np.where(F.p_P_neg_holm < .05, "отрицательно", "не различимо")))
     F["verdict"] = np.where((F.D == "подтверждено") & (F.P == "положительно"), "держится",
                     np.where((F.D == "оспорено") | (F.P == "отрицательно"), "оспорено", "не различимо"))
     F["breakeven_slip_bps_leg"] = F.mean_mix / np.where(F.form == "A", 2.0, 2.0)  # 2 ноги; >0 -> запас на ногу
