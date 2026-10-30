@@ -424,6 +424,11 @@ fn trade(
     let mut mfe = entry;
     let (mut since, mut mfe_prev) = (0i64, entry);
     let wms = ot.map_or(0, |o| o.cn.tf * 60_000);
+    // граница окна ОТ: наименьшее кратное wms >= tm[m]+60_000 (tm не убывает) вместо деления на каждой минуте — тот же результат
+    let mut nb = match tm.get(e) {
+        Some(&t) if wms > 0 => (t + 60_000 + wms - 1).div_euclid(wms) * wms,
+        _ => 0,
+    };
     for m in e..=last {
         if cur.is_finite() && l[m] <= cur {
             let px = if m > e {
@@ -485,7 +490,11 @@ fn trade(
             }
         }
         if let Some(ot) = ot {
-            if (tm[m] + 60_000) % wms == 0 {
+            let v = tm[m] + 60_000;
+            while nb < v {
+                nb += wms;
+            }
+            if v == nb {
                 since = if mfe > mfe_prev { 0 } else { since + 1 };
                 mfe_prev = mfe;
                 if ot.fires(m, mfe, since, c[m]) {
