@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TK-461 / P-TK461 §12.2 п.1: bp-события (B2) -> входной csv ядра TK-463 с ss_bps/ot1_bps. Исходов не считает.
-python tk461_bp_events.py <g4|g41|g42> <events.csv.gz bp-gN> <каталог минут csv.gz> <out.csv.gz> [SYM ...]
+python tk461_bp_events.py <g1|g4|g41|g42> <events.csv.gz bp-gN> <каталог минут csv.gz> <out.csv.gz> [SYM ...]
 Шаг 1 (30.10): семейство G4 (имбаланс, def.imbalance+fulfill:bull|bear): сторона = +1 бык / -1 медведь; событие ts = конец бара j
 (bp_g4: (idx[j]+1)*tf*60000), вход по close бара j (= open первой минуты после ts, как Санчо), зона = [h[j-2], l[j]] (в ориентации
 быка), дальний от входа край = h[j-2]; ss_bps = (c[j] - h[j-2])/|c[j]|*1e4 (для медведя зеркало). Колонки как у sig_table:
@@ -33,6 +33,22 @@ def g4_cols(ev, sym, name, tf, idx, h, l, c):
     ss = np.where(np.isfinite(ss) & (ss > 0), ss, np.nan)
     out = pd.DataFrame(dict(sym=sym, tf=tf, ev="g4", dir=np.where(sign > 0, "bull", "bear"), side=sign, t0=j + 1,
                             tt0=idx[j] * tf * 60000, atr_bps=atrj / np.abs(cj) * 1e4, ss_bps=ss))
+    out["ot1_bps"] = out.ss_bps
+    out["ot1_fallback"] = 0
+    return out
+
+
+def g1_cols(ev, sym, name, tf, idx, h, l, c):
+    """G1.1 (P-TK458-b2-g1): событие на баре подтверждения свинга t=b+2 (ts=(idx[t]+1)*tf*60000), вход = close t, сторона = ожидаемый откат
+    (после свинг-хая шорт -1, после свинг-лоя лонг +1), стоп = обновление конца ноги: ss_bps = (H[b]-C[t])/|C[t]|*1e4 (лой - зеркало)."""
+    atr = G.atr14(h, l, c)
+    t = (ev.ts_utc_ms.values // (tf * 60000) - 1 - idx[0]).astype(int)
+    hi = ev.def_id.str.endswith(":high").values
+    cj = c[t]
+    ss = np.where(hi, h[t - 2] - cj, cj - l[t - 2]) / np.abs(cj) * 1e4
+    ss = np.where(np.isfinite(ss) & (ss > 0), ss, np.nan)
+    out = pd.DataFrame(dict(sym=sym, tf=name, ev="g1", dir=np.where(hi, "high", "low"), side=np.where(hi, -1, 1), t0=t + 1,
+                            tt0=idx[t] * tf * 60000, atr_bps=atr[t] / np.abs(cj) * 1e4, ss_bps=ss))
     out["ot1_bps"] = out.ss_bps
     out["ot1_fallback"] = 0
     return out
@@ -97,6 +113,7 @@ if __name__ == "__main__":
             if len(x):
                 idx, h, l, c, ok = G.bars(f"{src}/{sym}.csv.gz", tf)
                 parts.append(g4_cols(x, sym, name, tf, idx, h, l, c) if kind == "g4" else
+                             g1_cols(x, sym, name, tf, idx, h, l, c) if kind == "g1" else
                              g42_cols(x, sym, name, tf, idx, h, l, c, ok) if kind == "g42" else
                              g41_cols(x, sym, name, tf, idx, h, l, c, ok))
     out = pd.concat(parts) if parts else pd.DataFrame()
