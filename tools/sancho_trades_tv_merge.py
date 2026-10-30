@@ -7,7 +7,8 @@ S = "-2026-10-30.csv"
 rd = lambda f: list(csv.DictReader(open(F + f + S, encoding="utf-8")))
 def w(name, rows, cols):
     x = csv.DictWriter(open(O + name, "w", newline="", encoding="utf-8"), fieldnames=cols); x.writeheader(); x.writerows(rows)
-tr, hand, t0, claim, text, tv = (rd(n) for n in ("sancho-trades", "sancho-trades-hand", "sancho-trades-t0", "sancho-trades-claim", "sancho-trades-text", "sancho-trades-handtv"))
+tr, hand, t0, claim, text, tv, cltv = (rd(n) for n in ("sancho-trades", "sancho-trades-hand", "sancho-trades-t0", "sancho-trades-claim", "sancho-trades-text", "sancho-trades-handtv", "sancho-trades-claim-tv"))
+ctv = {c["trade_id"]: c for c in cltv}  # ручной класс заявления цепочек TV (sancho_trades_claim_tv.py)
 tx = {t["trade_id"]: t for t in text}
 have = {r["trade_id"] for r in tr}
 def parse(s, off):
@@ -32,8 +33,7 @@ for r in tv:
     nh.append({"trade_id": i, "image_file": r["tv_snap"], "source": "tv", "chart_exchange_tf_market": r["chart_tf_market"]})
     b = parse(r["box_left_chart_tz"], off)
     if b: n0.append({"trade_id": i, "image_file": r["tv_snap"], "box_left_gmt4": b.strftime("%d.%m.%Y %H:%M"), "edge_hi_gmt4": "", "tf": "", "chart_tz": r["chart_tz"], "read": "TV handtv"})
-    cl = tx[i]["class_claim_rule"]
-    nc.append({"trade_id": i, "post_class": "план" if cl.startswith("план") else "итог", "claim_class": "", "claim_R": "", "quote": "правило по тексту: " + cl})
+    c = ctv[i]; nc.append({"trade_id": i, "post_class": c["post_class"], "claim_class": c["claim_class"], "claim_R": c["claim_R"], "quote": c["quote"]})
 cols = lambda a, b: list(a[0]) if a else list(b[0])
 w("trades.csv", tr + nt, list(tr[0]) + [c for c in nt[0] if c not in tr[0]])
 w("hand.csv", hand + nh, list(hand[0]))
