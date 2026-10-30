@@ -3,7 +3,8 @@
 //! Входы: колонки ev,dir,side,t0,tt0,atr_bps (+ evk,cj у контролей). Ячейки: stop,m,take,par[,be_r]. Арифметика — в том же
 //! порядке операций, что в Python (f64 IEEE, сумма фандинга — pairwise numpy), чтобы совпадать побитно.
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::fmt::Write as _;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 
 const MK: f64 = 1.26;
@@ -140,17 +141,28 @@ struct Coin {
 
 impl Coin {
     fn load(path: &str, tf: i64, fcache: &str) -> Coin {
-        let (_, rows) = read_table(open_text(path)); // колонки 0..4: время, o, h, l, c
-        let n = rows.len();
-        let (mut tm, mut o, mut h, mut l, mut c) =
-            (Vec::with_capacity(n), vec![], vec![], vec![], vec![]);
-        for r in &rows {
-            tm.push(r[0].parse::<i64>().unwrap());
-            o.push(num(&r[1]));
-            h.push(num(&r[2]));
-            l.push(num(&r[3]));
-            c.push(num(&r[4]));
+        let t_ld = std::time::Instant::now();
+        // колонки 0..4: время, o, h, l, c; разбор без аллокаций на поле
+        let mut text = String::new();
+        open_text(path).read_to_string(&mut text).expect("свечи");
+        let (mut tm, mut o, mut h, mut l, mut c) = (vec![], vec![], vec![], vec![], vec![]);
+        for line in text.lines().skip(1) {
+            let line = line.trim_end();
+            if line.is_empty() {
+                continue;
+            }
+            let mut f = line.split(',');
+            tm.push(f.next().unwrap().parse::<i64>().unwrap());
+            for v in [&mut o, &mut h, &mut l, &mut c] {
+                v.push(num(f.next().unwrap()));
+            }
         }
+        drop(text);
+        let n = tm.len();
+        eprintln!(
+            "загрузка: свечи {:.2} с ({n} минут)",
+            t_ld.elapsed().as_secs_f64()
+        );
         let neg = |v: &[f64]| v.iter().map(|x| -x).collect::<Vec<f64>>();
         let mir = [neg(&o), neg(&l), neg(&h), neg(&c)];
         // бары ТФ: группа = t // (tf*60000); дыры — пустые бары (не ok)
@@ -188,6 +200,7 @@ impl Coin {
             .next()
             .unwrap()
             .to_string();
+        let t_fu = std::time::Instant::now();
         let (mut ft, mut fr) = (vec![], vec![]); // фандинг: месяцы от первой до последней минуты
         let (mut y, mut m) = civil_ym(tm[0]);
         let (y1, m1) = civil_ym(tm[n - 1]);
@@ -216,6 +229,11 @@ impl Coin {
                 y += 1;
             }
         }
+        eprintln!(
+            "загрузка: бары+свинги до фандинга {:.2} с, фандинг {:.2} с",
+            t_fu.duration_since(t_ld).as_secs_f64(),
+            t_fu.elapsed().as_secs_f64()
+        );
         let f_sorted = ft.windows(2).all(|w| w[0] <= w[1]);
         Coin {
             sym,
@@ -408,6 +426,8 @@ struct Cell {
     take: String,
     par: f64,
     be_r: Option<f64>,
+    a: String, // ",stop,take,par"
+    b: String, // ",be_r" или пусто
 }
 
 struct Entry {
@@ -419,18 +439,20 @@ struct Entry {
     atr: f64,
     evk: Option<i64>,
     cj: Option<i64>,
+    mid: String, // ",evk,cj" или пусто
 }
 
-/// число как repr Python (кратчайшее круглое); NaN — пусто (как pandas)
+/// число как repr Python (кратчайшее круглое); NaN — пусто (как pandas); inf/-inf у Debug те же
 fn fl(x: f64) -> String {
-    if x.is_nan() {
-        String::new()
-    } else if x == f64::INFINITY {
-        "inf".into()
-    } else if x == f64::NEG_INFINITY {
-        "-inf".into()
-    } else {
-        format!("{x:?}")
+    let mut s = String::new();
+    pf(&mut s, x);
+    s
+}
+
+#[inline]
+fn pf(out: &mut String, x: f64) {
+    if !x.is_nan() {
+        write!(out, "{x:?}").unwrap();
     }
 }
 
@@ -440,6 +462,7 @@ fn search_left(a: &[i64], v: i64) -> usize {
 
 fn one(
     cn: &Coin,
+    pre: &str,
     s: &Entry,
     cell: &Cell,
     legs: &mut Vec<Leg>,
@@ -451,26 +474,12 @@ fn one(
     let [o, h, l, c] = &cn.px[if d == 1 { 0 } else { 1 }];
     let e = search_left(&cn.tm, s.tt0 + tf * 60_000);
     let last = search_left(&cn.tm, s.tt0 + (N_BARS + 1) * tf * 60_000) as i64 - 1;
-    let mut row = format!(
-        "{},{},{},{},{},{},{},{},{}",
-        cn.sym,
-        tf,
-        s.ev,
-        s.dir,
-        s.tt0,
-        d,
-        cell.stop,
-        cell.take,
-        fl(cell.par)
-    );
-    if let (Some(k), Some(j)) = (s.evk, s.cj) {
-        row += &format!(",{k},{j}");
-    }
-    if let Some(b) = cell.be_r {
-        row += &format!(",{}", fl(b));
-    }
+    out.push_str(pre);
+    out.push_str(&cell.a);
+    out.push_str(&s.mid);
+    out.push_str(&cell.b);
     if (e as i64) > last {
-        out.push_str(&format!("{row},nofill\n"));
+        out.push_str(",nofill\n");
         return;
     }
     let last = last as usize;
@@ -487,7 +496,7 @@ fn one(
             "TS" => match *tcache.get_or_insert_with(|| cn.target_s(d, s.t0, ep.abs())) {
                 Some(tp) if d as f64 * tp > ep => tgt = Some(d as f64 * tp),
                 _ => {
-                    out.push_str(&format!("{row},no_target\n"));
+                    out.push_str(",no_target\n");
                     return;
                 }
             },
@@ -532,24 +541,29 @@ fn one(
     let bars = (mx - e + 1) as f64 / tf as f64;
     let mfe_bps = 1e4 * (mfe - ep) / ep.abs();
     let risk_bps = if st { f64::NAN } else { cell.m * s.atr };
-    out.push_str(&format!(
-        "{row},{},{},{},{},{},{},{},{},{}\n",
-        why.s(),
-        fl(g),
-        fl(TK + fee_s),
-        fl(MK + mk_s),
-        fl(TK + tk_s),
-        fl(fund),
-        fl(bars),
-        fl(mfe_bps),
-        fl(risk_bps)
-    ));
+    out.push(',');
+    out.push_str(why.s());
+    for x in [
+        g,
+        TK + fee_s,
+        MK + mk_s,
+        TK + tk_s,
+        fund,
+        bars,
+        mfe_bps,
+        risk_bps,
+    ] {
+        out.push(',');
+        pf(out, x);
+    }
+    out.push('\n');
 }
 
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let opt = |k: &str| a.iter().position(|x| x == k).map(|i| a[i + 1].clone());
     let threads: usize = opt("--threads").map_or(1, |s| s.parse().unwrap());
+    let gz_level: u32 = opt("--gz").map_or(6, |s| s.parse().unwrap());
     let maxev = opt("--max-events").map(|s| s.parse::<usize>().unwrap());
     let mut pos: Vec<&String> = vec![];
     let mut i = 0;
@@ -577,27 +591,43 @@ fn main() {
             atr: num(&g(r, "atr_bps")),
             evk: ix.get("evk").map(|_| num(&g(r, "evk")) as i64),
             cj: ix.get("cj").map(|_| num(&g(r, "cj")) as i64),
+            mid: String::new(),
         })
         .collect();
     if let Some(m) = maxev {
         ents.truncate(m);
     }
+    for e in &mut ents {
+        if let (Some(k), Some(j)) = (e.evk, e.cj) {
+            e.mid = format!(",{k},{j}");
+        }
+    }
     let (cx, crow) = read_table(open_text(pos[4]));
     let cells: Vec<Cell> = crow
         .iter()
-        .map(|r| Cell {
-            stop: r[cx["stop"]].clone(),
-            m: num(&r[cx["m"]]),
-            take: r[cx["take"]].clone(),
-            par: num(&r[cx["par"]]),
-            be_r: cx.get("be_r").and_then(|&i| {
+        .map(|r| {
+            let be_r = cx.get("be_r").and_then(|&i| {
                 let v = num(&r[i]);
                 if v.is_nan() {
                     None
                 } else {
                     Some(v)
                 }
-            }),
+            });
+            let (stop, take, par) = (
+                r[cx["stop"]].clone(),
+                r[cx["take"]].clone(),
+                num(&r[cx["par"]]),
+            );
+            Cell {
+                a: format!(",{stop},{take},{}", fl(par)),
+                b: be_r.map_or(String::new(), |b| format!(",{}", fl(b))),
+                m: num(&r[cx["m"]]),
+                stop,
+                take,
+                par,
+                be_r,
+            }
         })
         .collect();
     let mut head = String::from("sym,tf,ev,dir,t0,side,stop,take,par");
@@ -619,8 +649,12 @@ fn main() {
                     let (mut out, mut legs) = (String::new(), Vec::with_capacity(4));
                     for s in ch {
                         let mut tcache = None; // цель TS не зависит от ячейки: одна на вход
+                        let pre = format!(
+                            "{},{},{},{},{},{}",
+                            cn.sym, cn.tf, s.ev, s.dir, s.tt0, s.side
+                        );
                         for cell in cells {
-                            one(cn, s, cell, &mut legs, &mut tcache, &mut out);
+                            one(cn, &pre, s, cell, &mut legs, &mut tcache, &mut out);
                         }
                     }
                     out
@@ -633,7 +667,7 @@ fn main() {
     let path = pos[5];
     let (mut w, child): (Box<dyn Write>, _) = if path.ends_with(".gz") {
         let mut ch = Command::new("sh")
-            .args(["-c", &format!("gzip -c > '{path}'")])
+            .args(["-c", &format!("gzip -{gz_level} -c > '{path}'")])
             .stdin(Stdio::piped())
             .spawn()
             .unwrap();
