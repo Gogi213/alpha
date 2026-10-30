@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TK-461 / P-TK461 §12.2 п.1: bp-события (B2) -> входной csv ядра TK-463 с ss_bps/ot1_bps. Исходов не считает.
-python tk461_bp_events.py <g4|g41> <events.csv.gz bp-gN> <каталог минут csv.gz> <out.csv.gz> [SYM ...]
+python tk461_bp_events.py <g4|g41|g42> <events.csv.gz bp-gN> <каталог минут csv.gz> <out.csv.gz> [SYM ...]
 Шаг 1 (30.10): семейство G4 (имбаланс, def.imbalance+fulfill:bull|bear): сторона = +1 бык / -1 медведь; событие ts = конец бара j
 (bp_g4: (idx[j]+1)*tf*60000), вход по close бара j (= open первой минуты после ts, как Санчо), зона = [h[j-2], l[j]] (в ориентации
 быка), дальний от входа край = h[j-2]; ss_bps = (c[j] - h[j-2])/|c[j]|*1e4 (для медведя зеркало). Колонки как у sig_table:
@@ -8,6 +8,8 @@ sym,tf,ev,dir,side,t0,tt0,atr_bps + ss_bps,ot1_bps,ot1_fallback. tt0 = врем�
 G41 (закрытие телом за имбалансом, P-TK458-b2-g41): событие на баре k (первый бар j+1..j+10 с low<=h[j-2], close<h[j-2]; ts=(idx[k]+1)*tf*60000),
 сторона = ПРОТИВ имбаланса (бычий имбаланс, закрытие под ним -> -1 шорт: протокол «не отработан» = нет возврата в щель, т.е. движение продолжается
 от щели), вход = close k, стоп = возврат в щель (ближняя граница l[j], как исход протокола): ss_bps = (l[j]-c[k])/|c[k]|*1e4 в зеркальной рамке.
+G42 (P-TK458-b2-g42): зеркало D1-строк G41 - те же события, сторона инвертирована (возврат в щель); стоп протоколом не задан -> ss_bps/ot1_bps пустые
+(ядро пропускает SS/ОТ для строки, остальные ячейки считаются от ATR/входа); независимого свидетельства не добавляет (протокол: вердикт симметричен G41).
 Строка события сопоставляется со строкой bp-g41-events по (ts,coin,tf,def_id) и g_atr (g/ATR14[j]); без пары - не берётся."""
 import importlib.util
 import os
@@ -70,6 +72,18 @@ def g41_cols(ev, sym, name, tf, idx, h, l, c, ok):
     return out
 
 
+def g42_cols(ev, sym, name, tf, idx, h, l, c, ok):
+    if name != "D1":
+        return pd.DataFrame()
+    out = g41_cols(ev, sym, name, tf, idx, h, l, c, ok)
+    if len(out):
+        out["ev"] = "g42"
+        out["side"] = -out.side
+        out["ss_bps"] = np.nan
+        out["ot1_bps"] = np.nan
+    return out
+
+
 if __name__ == "__main__":
     kind, evp, src, outp = sys.argv[1:5]
     syms = sys.argv[5:]
@@ -83,6 +97,7 @@ if __name__ == "__main__":
             if len(x):
                 idx, h, l, c, ok = G.bars(f"{src}/{sym}.csv.gz", tf)
                 parts.append(g4_cols(x, sym, name, tf, idx, h, l, c) if kind == "g4" else
+                             g42_cols(x, sym, name, tf, idx, h, l, c, ok) if kind == "g42" else
                              g41_cols(x, sym, name, tf, idx, h, l, c, ok))
     out = pd.concat(parts) if parts else pd.DataFrame()
     out.to_csv(outp, index=False, compression="gzip")
