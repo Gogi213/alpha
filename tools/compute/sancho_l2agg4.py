@@ -59,6 +59,13 @@ if __name__ == "__main__":
     w["p_base"] = w.groupby(["claim", "tf", "k", "dir", "base"]).p_row.transform("max")
     w["family"] = w.claim.isin(FAM_CL) & w.oc.isin(ANCHOR) & w.tf.isin([60, 240, 1440])
     ub = w[w.family].drop_duplicates(["claim", "tf", "k", "dir", "base"])[["claim", "tf", "k", "dir", "base", "p_base"]].sort_values("p_base").reset_index(drop=True)
+    # строки семейства без данных (N<8 или <5 дней, 1D k=2 A7/A8) остаются в K с p=1 («нет данных → не различимо»): K=216 по протоколу
+    full = pd.MultiIndex.from_product([FAM_CL, [60, 240, 1440], [1, 2], sorted(w.dir.unique()), ["x1", "x2", "x3m2"]],
+                                      names=["claim", "tf", "k", "dir", "base"]).to_frame(index=False)
+    ub = full.merge(ub, how="left", on=["claim", "tf", "k", "dir", "base"])
+    print("строк без данных (p=1):", int(ub.p_base.isna().sum()))
+    ub["p_base"] = ub.p_base.fillna(1.0)
+    ub = ub.sort_values("p_base", kind="stable").reset_index(drop=True)
     K = len(ub)
     print("K семейства", K)
     assert K == 216, K
