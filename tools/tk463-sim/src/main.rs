@@ -86,13 +86,9 @@ fn pairwise(a: &[f64]) -> f64 {
     }
 }
 
-/// ndarray.sum() непустого массива: a[0] + pairwise(a[1..]); пустого — 0.0
+/// ndarray.sum(): pairwise по всем элементам (numpy редукция add стартует с единицы-нуля, не с a[0]); пустой — 0.0
 fn np_sum(a: &[f64]) -> f64 {
-    if a.is_empty() {
-        0.0
-    } else {
-        a[0] + pairwise(&a[1..])
-    }
+    pairwise(a)
 }
 
 fn civil_ym(ms: i64) -> (i64, i64) {
@@ -139,6 +135,7 @@ struct Coin {
     swl_p: Vec<f64>,
     ft: Vec<i64>,
     fr: Vec<f64>,
+    f_sorted: bool,
 }
 
 impl Coin {
@@ -219,6 +216,7 @@ impl Coin {
                 y += 1;
             }
         }
+        let f_sorted = ft.windows(2).all(|w| w[0] <= w[1]);
         Coin {
             sym,
             tf,
@@ -230,6 +228,7 @@ impl Coin {
             swl_p,
             ft,
             fr,
+            f_sorted,
         }
     }
 
@@ -253,6 +252,11 @@ impl Coin {
     }
 
     fn funding_bps(&self, t_in: i64, t_out: i64, side: i64) -> f64 {
+        if self.f_sorted {
+            let lo = self.ft.partition_point(|&t| t <= t_in);
+            let hi = self.ft.partition_point(|&t| t <= t_out).max(lo);
+            return side as f64 * 1e4 * np_sum(&self.fr[lo..hi]);
+        }
         let v: Vec<f64> = self
             .ft
             .iter()
@@ -434,7 +438,14 @@ fn search_left(a: &[i64], v: i64) -> usize {
     a.partition_point(|&x| x < v)
 }
 
-fn one(cn: &Coin, s: &Entry, cell: &Cell, legs: &mut Vec<Leg>, out: &mut String) {
+fn one(
+    cn: &Coin,
+    s: &Entry,
+    cell: &Cell,
+    legs: &mut Vec<Leg>,
+    tcache: &mut Option<Option<f64>>,
+    out: &mut String,
+) {
     let tf = cn.tf;
     let d = s.side;
     let [o, h, l, c] = &cn.px[if d == 1 { 0 } else { 1 }];
@@ -473,7 +484,7 @@ fn one(cn: &Coin, s: &Entry, cell: &Cell, legs: &mut Vec<Leg>, out: &mut String)
         let risk = dist;
         match cell.take.as_str() {
             "TP" => tgt = Some(ep + cell.par * risk),
-            "TS" => match cn.target_s(d, s.t0, ep.abs()) {
+            "TS" => match *tcache.get_or_insert_with(|| cn.target_s(d, s.t0, ep.abs())) {
                 Some(tp) if d as f64 * tp > ep => tgt = Some(d as f64 * tp),
                 _ => {
                     out.push_str(&format!("{row},no_target\n"));
@@ -605,8 +616,9 @@ fn main() {
                 sc.spawn(move || {
                     let (mut out, mut legs) = (String::new(), Vec::with_capacity(4));
                     for s in ch {
+                        let mut tcache = None; // цель TS не зависит от ячейки: одна на вход
                         for cell in cells {
-                            one(cn, s, cell, &mut legs, &mut out);
+                            one(cn, s, cell, &mut legs, &mut tcache, &mut out);
                         }
                     }
                     out
