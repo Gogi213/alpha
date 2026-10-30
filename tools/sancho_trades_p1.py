@@ -1,7 +1,10 @@
 """TK-454: порядок событий по правилу П1 (протокол §2.4–2.6, §8) и сверка с заявленным исходом.
-Запуск на calc: python3 sancho_trades_p1.py <trades.csv> <hand.csv> <text.csv> <claim.csv> <out.csv>.
+Запуск на calc: python3 sancho_trades_p1.py <trades.csv> <hand.csv> <text.csv> <claim.csv> <out.csv> [<t0.csv>].
 Старт «стоп или цель1»: «план» — первая минута t>=t_post, где [L,H] накрывает entry (до конца цепочки); «отчёт/итог» —
 первая минута накрытия entry в окне [t_pub_img−ТФ, t_post]; не найдено — «нельзя проверить: нет минуты входа».
+П3 (Судья 30.10, tk454-p1-window): для «отчёт/итог» t0 из источника: а) первый пост цепочки, если он раньше публикации
+картинки; б) левый край бокса позиции на снимке (файл t0.csv, колонка box_left_gmt4) − 1 бар ТФ; в) иначе «нельзя
+проверить: нет времени входа». Окно [t0, max(t_post, t_pub_img)+1 мин]. Колонка t0_source.
 Допуск ε=0 и ε1=медиана (H−L) за сутки до t_post. Минута, где касаются стоп и цель (в т.ч. минута входа) — неразрешимо."""
 import csv, gzip, re, sys, bisect, statistics, os, datetime as dt
 D = "/srv/alpha-sda/candles-1m/binance-um/"
@@ -24,6 +27,7 @@ def load(sym, lo, hi):
     return out
 rd = lambda f: list(csv.DictReader(open(f, encoding="utf-8")))
 tr, hand, text, claim = (rd(a) for a in sys.argv[1:5])
+box = {(b["trade_id"], b["image_file"]): b for b in rd(sys.argv[6])} if len(sys.argv) > 6 else {}
 htf = {(h["trade_id"], h["image_file"]): tf_ms(h["chart_exchange_tf_market"]) for h in hand}
 tx = {t["trade_id"]: t for t in text}
 cl = {}
@@ -36,7 +40,7 @@ for r in tr:
         lo, hi = rng.get(r["symbol"], (a, b)); rng[r["symbol"]] = (min(lo, a), max(hi, b))
 for r in tr:
     o = {"trade_id": r["trade_id"], "image_file": r["image_file"], "dir": r["dir"], "symbol": r["symbol"],
-         "post_class": "", "claim_class": "", "entry_min": "", "p1": "", "match": ""}
+         "post_class": "", "claim_class": "", "t0_source": "", "t0_read": "", "entry_min": "", "p1": "", "match": ""}
     c = cl.get(r["trade_id"]); o["post_class"] = c["post_class"] if c else ""; o["claim_class"] = c["claim_class"] if c else ""
     if not r["entry"] or r["check"].startswith(("не извлечено", "нельзя", "ФЛАГ")):
         o["p1"] = r["check"]; o["match"] = "нельзя проверить: нет цены/флаг"; out.append(o); continue
@@ -50,9 +54,17 @@ for r in tr:
     day = cd[max(0, i0 - 1440):i0]
     eps1 = statistics.median(x[1] - x[2] for x in day) if day else 0.0
     res = []
+    tpub = int(r["t_pub_utc_ms"]); t0 = None
+    if not plan:
+        bx = box.get((r["trade_id"], r["image_file"]), {}).get("box_left_gmt4", "")
+        if tp < tpub: t0, o["t0_source"], o["t0_read"] = tp, "а", t["t_post_gmt4"]
+        elif bx and re.match(r"\d\d\.\d\d\.\d{4} \d\d:\d\d", bx): t0, o["t0_source"], o["t0_read"] = post_ms(bx) - tf, "б", bx
+        else: o["t0_source"] = "в"
+        if t0 is None:
+            o["p1"] = "нельзя проверить: нет времени входа"; o["match"] = o["p1"]; out.append(o); continue
     for eps in (0.0, eps1):
         if plan: lo, hi = tp, tl + 60000
-        else: lo, hi = int(r["t_pub_utc_ms"]) - tf, tp + 60000
+        else: lo, hi = t0, max(tp, tpub) + 60000
         a, b = bisect.bisect_left(ts, lo), bisect.bisect_left(ts, hi)
         j = next((k for k in range(a, b) if cd[k][2] - eps <= e <= cd[k][1] + eps), None)
         if j is None: res.append(("нет минуты входа", None)); continue
