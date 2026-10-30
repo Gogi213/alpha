@@ -141,6 +141,8 @@ if __name__ == "__main__":
         lambda g: pd.Series(dict(yrs=len(g), yrs_pos=int(((g.d1 > 0) & (g.d2 > 0)).sum()), yrs_neg=int(((g.d1 < 0) & (g.d2 < 0)).sum()),
                                  yrs_mixed=int(len(g) - ((g.d1 > 0) & (g.d2 > 0)).sum() - ((g.d1 < 0) & (g.d2 < 0)).sum()))),
         include_groups=False).reset_index()
+    if ys.empty:  # ни один год не прошёл порог: apply на пустом возвращает колонки Y
+        ys = pd.DataFrame(columns=["ev", "form", "tf", "dir", "yrs", "yrs_pos", "yrs_neg", "yrs_mixed"])
     F = F.merge(ys, how="left", on=["ev", "form", "tf", "dir"])
     both_pos = (F.delta_C1 > 0) & (F.delta_C2 > 0)
     both_neg = (F.delta_C1 < 0) & (F.delta_C2 < 0)
