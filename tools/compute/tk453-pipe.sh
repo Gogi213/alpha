@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# TK-453: докачка свежих дневных архивов Binance → verify → пересборка только затронутых монет → охват. Итог — /data/tk453/done.
+# TK-453: докачка свежих дневных архивов Binance → verify → пересборка только затронутых монет → охват. Итог — файл $1 (по умолчанию /data/tk453/done).
 set -eu
+OUT=${1:-/data/tk453/done}
 R=/srv/alpha-sda/candles-1m/binance-um
 K="python3 /data/tk450/tk450-binance-klines.py"
 $K map
@@ -11,4 +12,4 @@ for d in $R/raw/*/; do s=$(basename $d); [ -n "$(find $d -name '*.zip' -newer $R
 echo "пересборка:$S"
 [ -z "$S" ] || $K build $S
 $K coverage
-echo "ok $(date -u +%F\ %T) UTC; монет пересобрано: $(echo $S | wc -w)" > /data/tk453/done
+echo "ok $(date -u +%F\ %T) UTC; монет пересобрано: $(echo $S | wc -w)" > "$OUT"
