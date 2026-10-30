@@ -55,7 +55,8 @@ def main():
             for nm in names:
                 w.writelines(f"{ln},{nm},{k_dir}\n" for ln in lines[1:])
     t_prep = time.time()
-    subprocess.run([e["BIN"], f"{e['SRC']}/{sym}.csv.gz", str(tf), pe, e["FUND"], pcell, po, "--threads", "1", "--pair", pc, "--merge-layers", "1"],
+    subprocess.run([e["BIN"], f"{e['SRC']}/{sym}.csv.gz", str(tf), pe, e["FUND"], pcell, po, "--threads", "1", "--pair", pc, "--merge-layers", "1"]
+                   + (["--stream", "1"] if e.get("STREAM") == "1" else []),  # TK-469: потоковый режим ядра, умолчание = прежний
                    check=True, stderr=subprocess.DEVNULL)
     t_ker = time.time()
     os.replace(po, outp)
