@@ -93,11 +93,11 @@ def run_signal(cn, s, d, form, E, W, S, m, T, r, N, stop_dist_bps=None):
             stop_pre = lvl - m * s["atr_bps"] / 1e4 * abs(lvl)
         fl = fill_e1(o, l, e0, hi, lvl, stop_pre)
         if fl is None:
-            return "nofill"
+            return "nofill", None
         e, ep = fl
         kind_in, e1 = "maker", True
     if e > last:
-        return "nofill"
+        return "nofill", None
     # --- стоп / цель
     if form == "A":
         stop, tgt = -np.inf, None
@@ -110,18 +110,24 @@ def run_signal(cn, s, d, form, E, W, S, m, T, r, N, stop_dist_bps=None):
         else:
             stop = ep - m * s["atr_bps"] / 1e4 * abs(ep)
         if not stop < ep:
-            return "stop_invalid"
+            return "stop_invalid", None
         risk = (ep - stop) / abs(ep) * 1e4
         if T == "TS":
             tp = cn.target_s(d, s["t0"], abs(ep))
             if tp is None:
-                return "no_target"
+                return "no_target", None
             tgt = d * tp
             if not tgt > ep:
-                return "no_target"
+                return "no_target", None
         else:
             tgt = ep + r * (ep - stop)
     reason, mx, xp = trade(o, h, l, c, e, last, ep, stop, tgt, e1=e1)
+    return finish(cn, d, e, ep, reason, mx, xp, kind_in, risk), dict(e=e, e0=e0, ep=ep, reason=reason, mx=mx, last=last,
+                                                                     kind_in=kind_in, risk=risk, e1=e1, c=c, xp=xp, t0ms_s=s["tt0"])
+
+
+def finish(cn, d, e, ep, reason, mx, xp, kind_in, risk):
+    tf = cn.tf
     g = gross_bps(ep, xp)
     kind_out = "maker" if reason == TARGET else "taker"
     legs = [kind_in, kind_out]
@@ -129,6 +135,21 @@ def run_signal(cn, s, d, form, E, W, S, m, T, r, N, stop_dist_bps=None):
     fund = funding_bps(cn.ft, cn.fr, int(cn.tm[e]), int(cn.tm[mx]) + 60000, d)
     return dict(reason=REASON[reason], gross=g, fee_mix=fee_mix, fee_mk=2 * MAKER_BPS, fee_tk=2 * TAKER_BPS, fund=fund,
                 risk=risk, bars=(mx - e + 1) / tf)
+
+
+def derive_n(cn, d, big, N, W):
+    """тот же путь при меньшем дедлайне N: сделка причинна, поэтому выход до last_N не меняется; позже — дедлайн по close last_N.
+    E1: окно заявки min(W,N) — заполнение позже окна = nofill. Точно, не приближение (сверка derive vs прямой счёт в проверке)."""
+    tf = cn.tf
+    last = int(np.searchsorted(cn.tm, big["t0ms_s"] + (N + 1) * tf * 60000)) - 1
+    e = big["e"]
+    if big["e1"] and e - big["e0"] >= min(W, N) * tf:
+        return "nofill"
+    if e > last:
+        return "nofill"
+    if big["reason"] != DEADLINE and big["mx"] <= last:
+        return finish(cn, d, e, big["ep"], big["reason"], big["mx"], big["xp"], big["kind_in"], big["risk"])
+    return finish(cn, d, e, big["ep"], DEADLINE, last, big["c"][last], big["kind_in"], big["risk"])
 
 
 def cells(ev, anchor):
@@ -145,33 +166,76 @@ def cells(ev, anchor):
     return out
 
 
+REASONS = ("stop", "target", "deadline", "nofill", "stop_invalid", "no_target")
+AGG_COLS = ["n_att", "n", "gross", "fee_mix", "fee_mk", "fee_tk", "fund", "gross2", "win_mix", "win_mk", "win_tk"] + ["r_" + x for x in REASONS]
+KEYC = ["ev", "dir", "role", "c3", "form", "E", "W", "S", "m", "T", "r", "N", "year"]
+
+
+def is_anchor(form, E, S, T, N):
+    return N == 10 and E == "E0" and (form == "A" or (S == "S1" and T == "TS"))
+
+
+def acc(agg, key, res):
+    """агрегат (не строки): иначе 22 млн строк на монету-ТФ — память (OOM 30.10). Сумма net считается из gross/fee/fund."""
+    a = agg.get(key)
+    if a is None:
+        a = agg[key] = [0.0] * len(AGG_COLS)
+    a[0] += 1
+    if isinstance(res, str):
+        a[11 + REASONS.index(res)] += 1
+        return
+    a[1] += 1
+    g, fm, fk, ft, fu = res["gross"], res["fee_mix"], res["fee_mk"], res["fee_tk"], res["fund"]
+    a[2] += g; a[3] += fm; a[4] += fk; a[5] += ft; a[6] += fu; a[7] += g * g
+    a[8] += g - fm - fu > 0
+    a[9] += g - fk - fu > 0
+    a[10] += g - ft - fu > 0
+    a[11 + REASONS.index(res["reason"])] += 1
+
+
 def run(path, tf, k, fcache, anchor):
+    """возврат (строки якорных ячеек по сигналам, агрегат сетки по (ev,dir,role,c3,ячейка,год))."""
     cn = Coin(path, tf, k, fcache)
     sg = sig_table(path, tf, k)
-    rows = []
+    rows, agg = [], {}
     for s in sg.to_dict("records"):
         d = side_of(s["ev"], s["dir"])
-        for (form, E, W, S, m, T, r, N) in cells(s["ev"], anchor):
-            res = run_signal(cn, s, d, form, E, W, S, m, T, r, N)
-            key = dict(sym=cn.sym, tf=tf, role=s["role"], evi=s["evi"], ev=s["ev"], dir=s["dir"], t0=s["tt0"], side=d, form=form,
-                       E=E, W=W, S=S, m=m, T=T, r=r, N=N, c3=0)
-            if isinstance(res, str):
-                rows.append(dict(**key, reason=res))
-                continue
-            rows.append(dict(**key, **res))
-            if s["role"] == "real" and E == "E0":   # C3: та же ячейка, случайная сторона; стоп того же расстояния в bps
-                d3 = rnd_side(cn.sym, tf, "real", s["evi"], s["ev"], s["dir"], s["tt0"])
-                sd = res["risk"] if form == "B" else None
-                if form == "B" and np.isnan(sd):
-                    continue
-                r3 = run_signal(cn, s, d3, form, E, W, S, m, T, r, N, stop_dist_bps=sd) if (d3 != d or form == "B") else res
-                key3 = dict(key, side=d3, c3=1, role="C3")
-                rows.append(dict(**key3, reason=r3) if isinstance(r3, str) else dict(**key3, **r3))
-    return pd.DataFrame(rows)
+        year = pd.Timestamp(s["tt0"], unit="ms").year
+        groups = {}
+        for cell in cells(s["ev"], anchor):
+            groups.setdefault(cell[:7], []).append(cell[7])
+        for (form, E, W, S, m, T, r), ns in groups.items():
+            nmax = max(ns)
+            res_big, big = run_signal(cn, s, d, form, E, W, S, m, T, r, nmax)
+            for n in ns:
+                if isinstance(res_big, str):
+                    res = res_big
+                else:
+                    res = res_big if n == nmax else derive_n(cn, d, big, n, W)
+                key = (s["ev"], s["dir"], s["role"], 0, form, E, W, S, m, T, r, n, year)
+                acc(agg, key, res)
+                keep = is_anchor(form, E, S, T, n)
+                if keep:
+                    base = dict(sym=cn.sym, tf=tf, role=s["role"], evi=s["evi"], ev=s["ev"], dir=s["dir"], t0=s["tt0"], side=d,
+                                form=form, E=E, W=W, S=S, m=m, T=T, r=r, N=n, c3=0)
+                    rows.append(dict(**base, reason=res) if isinstance(res, str) else dict(**base, **res))
+                if s["role"] == "real" and E == "E0" and not isinstance(res, str):  # C3: случайная сторона, стоп того же расстояния
+                    d3 = rnd_side(cn.sym, tf, "real", s["evi"], s["ev"], s["dir"], s["tt0"])
+                    sd = res["risk"] if form == "B" else None
+                    if form == "B" and np.isnan(sd):
+                        continue
+                    r3 = run_signal(cn, s, d3, form, E, W, S, m, T, r, n, stop_dist_bps=sd)[0] if (d3 != d or form == "B") else res
+                    acc(agg, (s["ev"], s["dir"], "C3", 1, form, E, W, S, m, T, r, n, year), r3)
+                    if keep:
+                        k3 = dict(base, side=d3, c3=1, role="C3")
+                        rows.append(dict(**k3, reason=r3) if isinstance(r3, str) else dict(**k3, **r3))
+    ag = pd.DataFrame([list(k) + v for k, v in agg.items()], columns=KEYC + AGG_COLS)
+    return pd.DataFrame(rows), ag
 
 
 if __name__ == "__main__":
     path, tf, k, fc, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]
-    df = run(path, tf, k, fc, "--anchor" in sys.argv)
+    df, ag = run(path, tf, k, fc, "--anchor" in sys.argv)
     df.to_csv(out, index=False, compression="gzip")
-    print(out, len(df), df.reason.value_counts().to_dict())
+    ag.to_csv(out.replace(".csv.gz", "-agg.csv.gz"), index=False, compression="gzip")
+    print(out, len(df), len(ag), ag.n_att.sum(), int(ag.n.sum()))
