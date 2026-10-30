@@ -38,3 +38,9 @@ GATE.DONE «jobs 21 ok 42», d2b/gate2.log BYTES_EQ 9, synth/gate.log IDENTICAL 
 | синтетика 6/6 IDENTICAL | docs/findings/tk463-kernel-2026-10-30.md:11 |
 | D2a полный: ядро 68,8 с, эталон ≈1450 с, fast ≈200 с | docs/findings/tk463-kernel-2026-10-30.md:25 |
 | D2b 449 ячеек: ядро ≈58 мин (оценка), эталон ≈39 ч, fast ≈5,3 ч | docs/findings/tk463-kernel-2026-10-30.md:26 |
+
+## Повтор приёмки — отказ кода (21:4x)
+`accept` не допускает ярлык `[запуск: ssh calc "…"]`: argv[0] — только python/python3/bash + скрипт из репо. По делу всё сверено
+(выше); вернуть автору на ярлыки: один скрипт в git, напр. `tools/compute/tk463-check.sh`, читает логи calc по `ssh calc` и
+выходит ≠ 0 при несовпадении любого счётчика (D2a «IDENTICAL 252 из 252», GATE.DONE «ok 42», gate2.log BYTES_EQ 9 и IDENTICAL 9,
+synth IDENTICAL 6, строка TWTUSDT 1440 ctrl IDENTICAL); ярлыки сдачи — `[запуск: bash tools/compute/tk463-check.sh]`.
