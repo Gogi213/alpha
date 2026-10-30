@@ -17,7 +17,11 @@ G = None
 
 def load(run):
     fs = sorted(f for f in glob.glob(os.path.join(run, "*.csv.gz")) if not f.endswith("-agg.csv.gz") and ".tmp" not in f)
-    D = pd.concat((pd.read_csv(f) for f in fs), ignore_index=True)
+    cat = {c: "category" for c in ("sym", "role", "ev", "dir", "form", "reason")}  # 26 млн строк: object-строки давали oom (8 ГБ)
+    cols = ["sym", "tf", "role", "ev", "dir", "form", "t0", "gross", "fee_mix", "fee_mk", "fee_tk", "fund", "reason"]
+    D = pd.concat((pd.read_csv(f, usecols=cols, dtype=cat) for f in fs), ignore_index=True)
+    for c in cat:
+        D[c] = D[c].astype("category")
     D["day"] = D.t0 // DAY
     D["year"] = pd.to_datetime(D.t0, unit="ms").dt.year
     ok = D.gross.notna()
@@ -80,7 +84,7 @@ def day_arrays(g):
 def slice_table(R, C, keys):
     """срез (год / монета): N, средние net, Δ против C1, C2 (описательно, без бутстрепа)."""
     rows = []
-    for k, g in R.groupby(keys):
+    for k, g in R.groupby(keys, observed=True):
         r = dict(zip(keys, k if isinstance(k, tuple) else (k,)))
         r.update(N=len(g), coins=g.sym.nunique(), mean_gross=g.gross.mean(), mean_mix=g.net_mix.mean(), mean_mk=g.net_mk.mean(),
                  mean_tk=g.net_tk.mean(), win_mix=(g.net_mix > 0).mean())
@@ -93,17 +97,18 @@ if __name__ == "__main__":
     nx = int(sys.argv[3]) if len(sys.argv) > 3 else 15
     D, ok = load(run)
     # воронка (причины по роли real)
-    fun = D[D.role == "real"].assign(trade=ok).groupby(["ev", "form", "tf", "dir"]).apply(
-        lambda g: pd.Series(dict(signals=len(g), trades=int(g.trade.sum()), **g[~g.trade].reason.value_counts().to_dict())),
+    fun = D[D.role == "real"].assign(trade=ok).groupby(["ev", "form", "tf", "dir"], observed=True).apply(
+        lambda g: pd.Series(dict(signals=len(g), trades=int(g.trade.sum()), **{k: v for k, v in g[~g.trade].reason.value_counts().items() if v})),
         include_groups=False).reset_index()
     fun.to_csv(f"{pre}-funnel.csv", index=False)
-    T = D[ok].copy()
     # монета «с историей с 2020»: есть строки C2 (бары без условия) в 2020 по этому ТФ
-    first = D.groupby("sym").t0.min()
+    first = D.groupby("sym", observed=True).t0.min()
+    T = D[ok]
+    del D, ok, fun
     hist = set(first[pd.to_datetime(first, unit="ms").dt.year <= 2020].index)
     T["hist2020"] = T.sym.isin(hist)
     G = {}
-    for key, g in T.groupby(["ev", "form", "tf", "dir"]):
+    for key, g in T.groupby(["ev", "form", "tf", "dir"], observed=True):
         days = np.sort(g.day.unique())
         M = {}
         for role in ("real", "C1", "C2"):
@@ -129,7 +134,7 @@ if __name__ == "__main__":
     F["p_P_pos_holm"] = holm(F.p_tk_pos.fillna(1.0))
     F["p_P_neg_holm"] = holm(F.p_mk_neg.fillna(1.0))
     # года: знак Δ по годам (N >= 8 и >= 5 монет)
-    Y = T.groupby(["ev", "form", "tf", "dir", "year"]).apply(
+    Y = T.groupby(["ev", "form", "tf", "dir", "year"], observed=True).apply(
         lambda g: pd.Series(dict(N=int((g.role == "real").sum()), coins=g[g.role == "real"].sym.nunique(),
                                  mean_mix=g[g.role == "real"].net_mix.mean(), mean_mk=g[g.role == "real"].net_mk.mean(),
                                  mean_tk=g[g.role == "real"].net_tk.mean(),
@@ -137,7 +142,7 @@ if __name__ == "__main__":
                                  d2=g[g.role == "real"].net_mix.mean() - g[g.role == "C2"].net_mix.mean())), include_groups=False).reset_index()
     Y["enough"] = (Y.N >= 8) & (Y.coins >= 5)
     Y.to_csv(f"{pre}-years.csv", index=False)
-    ys = Y[Y.enough].groupby(["ev", "form", "tf", "dir"]).apply(
+    ys = Y[Y.enough].groupby(["ev", "form", "tf", "dir"], observed=True).apply(
         lambda g: pd.Series(dict(yrs=len(g), yrs_pos=int(((g.d1 > 0) & (g.d2 > 0)).sum()), yrs_neg=int(((g.d1 < 0) & (g.d2 < 0)).sum()),
                                  yrs_mixed=int(len(g) - ((g.d1 > 0) & (g.d2 > 0)).sum() - ((g.d1 < 0) & (g.d2 < 0)).sum()))),
         include_groups=False).reset_index()
@@ -155,10 +160,10 @@ if __name__ == "__main__":
                     np.where((F.D == "оспорено") | (F.P == "отрицательно"), "оспорено", "не различимо"))
     F["breakeven_slip_bps_leg"] = F.mean_mix / np.where(F.form == "A", 2.0, 2.0)  # 2 ноги; >0 -> запас на ногу
     # доля выигрышей, средний gross, C3 — по сделкам
-    X = T[T.role == "real"].groupby(["ev", "form", "tf", "dir"]).agg(
+    X = T[T.role == "real"].groupby(["ev", "form", "tf", "dir"], observed=True).agg(
         win_mix=("net_mix", lambda s: (s > 0).mean()), mean_gross=("gross", "mean"), mean_fund=("fund", "mean"),
         coins=("sym", "nunique")).reset_index()
-    X3 = T[T.role == "C3"].groupby(["ev", "form", "tf", "dir"]).agg(c3_mean_mix=("net_mix", "mean"), c3_n=("net_mix", "size")).reset_index()
+    X3 = T[T.role == "C3"].groupby(["ev", "form", "tf", "dir"], observed=True).agg(c3_mean_mix=("net_mix", "mean"), c3_n=("net_mix", "size")).reset_index()
     F = F.merge(X, how="left", on=["ev", "form", "tf", "dir"]).merge(X3, how="left", on=["ev", "form", "tf", "dir"])
     # срезы: BTC/ETH, с историей 2020, по монетам
     sp = T[T.role == "real"].assign(grp=lambda d: np.where(d.sym.isin(["BTCUSDT", "ETHUSDT"]), "BTC/ETH", "прочие"))
