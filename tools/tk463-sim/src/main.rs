@@ -524,8 +524,10 @@ struct Cell {
     be_r: Option<f64>,
     ot: u8, // 0 — нет, 1/3/4/5 — OT1/OT3/OT4/OT5
     otp: f64,
-    a: String, // ",stop,take,par"
-    b: String, // ",be_r" или пусто
+    a: String,   // ",stop,take,par"
+    b: String,   // ",be_r" или пусто
+    kev: String, // TK-467: область ячейки — ключ (ev, dir) событий; пусто — все события (умолчание)
+    kdir: String,
 }
 
 struct Entry {
@@ -541,6 +543,7 @@ struct Entry {
     ot1_bps: Option<f64>,
     mid: String, // ",evk,cj" или пусто
     gk: u32,     // номер (ev, dir, mid) для режима --agg
+    ck: u32,     // номер списка ячеек (по ключу (ev, dir)) в `lists`
 }
 
 /// сумма по группе (ячейка, ev/dir/mid, сторона, сутки UTC входа) — режим `--agg 1` (TK-464); net = gross − fee − fund
@@ -785,6 +788,7 @@ fn entries(ix: &HashMap<String, usize>, rows: &[Vec<String>]) -> Vec<Entry> {
                 .filter(|v| v.is_finite()),
             mid: String::new(),
             gk: 0,
+            ck: 0,
         })
         .collect()
 }
@@ -818,6 +822,20 @@ fn net_of(
     (a.n == 1).then_some(a.net)
 }
 
+/// выход: `.gz` — через gzip, иначе файл
+fn open_out(path: &str, gz_level: u32) -> (Box<dyn Write>, Option<std::process::Child>) {
+    if path.ends_with(".gz") {
+        let mut ch = Command::new("sh")
+            .args(["-c", &format!("gzip -{gz_level} -c > '{path}'")])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        (Box::new(ch.stdin.take().unwrap()), Some(ch))
+    } else {
+        (Box::new(std::fs::File::create(path).unwrap()), None)
+    }
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let opt = |k: &str| a.iter().position(|x| x == k).map(|i| a[i + 1].clone());
@@ -842,13 +860,22 @@ fn main() {
     if let Some(m) = maxev {
         ents.truncate(m);
     }
+    // TK-467 `--merge-layers 1`: слои дублей кодируются суффиксом "~k" в ev; в группе вывода слои складываются (ключ без суффикса)
+    let merge = opt("--merge-layers").is_some_and(|v| v == "1");
+    let base = |s: &str| {
+        if merge {
+            s.split('~').next().unwrap().to_string()
+        } else {
+            s.to_string()
+        }
+    };
     let mut gkeys: Vec<(String, String, String)> = vec![];
     let mut gmap: HashMap<(String, String, String), u32> = HashMap::new();
     for e in &mut ents {
         if let (Some(k), Some(j)) = (e.evk, e.cj) {
             e.mid = format!(",{k},{j}");
         }
-        let key = (e.ev.clone(), e.dir.clone(), e.mid.clone());
+        let key = (base(&e.ev), e.dir.clone(), e.mid.clone());
         e.gk = *gmap.entry(key.clone()).or_insert_with(|| {
             gkeys.push(key);
             gkeys.len() as u32 - 1
@@ -893,6 +920,8 @@ fn main() {
             Cell {
                 a: format!(",{stop},{take},{}", fl(par)),
                 b,
+                kev: cx.get("ev").map_or(String::new(), |&i| r[i].clone()),
+                kdir: cx.get("dir").map_or(String::new(), |&i| r[i].clone()),
                 ot,
                 otp,
                 m: num(&r[cx["m"]]),
@@ -903,6 +932,43 @@ fn main() {
             }
         })
         .collect();
+    // TK-467: каноническая ячейка для сложения слоёв: (ev без суффикса, dir, текст ячейки, порядковый номер среди одинаковых в слое)
+    let canon: Vec<usize> = if merge {
+        let (mut m, mut seen) = (HashMap::new(), HashMap::new());
+        cells
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let n = seen
+                    .entry((c.kev.clone(), c.kdir.clone(), c.a.clone(), c.b.clone()))
+                    .or_insert(0usize);
+                *n += 1;
+                *m.entry((base(&c.kev), c.kdir.clone(), c.a.clone(), c.b.clone(), *n))
+                    .or_insert(i)
+            })
+            .collect()
+    } else {
+        (0..cells.len()).collect()
+    };
+    // TK-467: список ячеек на ключ (ev, dir) события; ячейка без области (колонок ev, dir нет или пусто) — для всех событий
+    let mut lists: Vec<Vec<usize>> = vec![];
+    let mut lmap: HashMap<(String, String), u32> = HashMap::new();
+    for e in &mut ents {
+        e.ck = *lmap
+            .entry((e.ev.clone(), e.dir.clone()))
+            .or_insert_with(|| {
+                lists.push(
+                    (0..cells.len())
+                        .filter(|&ci| {
+                            let c = &cells[ci];
+                            (c.kev.is_empty() || c.kev == e.ev)
+                                && (c.kdir.is_empty() || c.kdir == e.dir)
+                        })
+                        .collect(),
+                );
+                lists.len() as u32 - 1
+            });
+    }
     let mut head = String::from("sym,tf,ev,dir,t0,side,stop,take,par");
     if ents.first().is_some_and(|e| e.evk.is_some()) {
         head += ",evk,cj";
@@ -925,13 +991,16 @@ fn main() {
         let ctrl = entries(&cix, &crows);
         let mut by: HashMap<(String, String, i64), Vec<usize>> = HashMap::new();
         for (i, c) in ctrl.iter().enumerate() {
-            by.entry((c.ev[2..].to_string(), c.dir.clone(), c.evk.expect("evk"))).or_default().push(i);
+            by.entry((c.ev[2..].to_string(), c.dir.clone(), c.evk.expect("evk")))
+                .or_default()
+                .push(i);
         }
         let parts: Vec<Pairm> = std::thread::scope(|sc| {
             let hs: Vec<_> = ents
                 .chunks(chunk)
                 .map(|ch| {
-                    let (cn, cells, ctrl, by) = (&cn, &cells, &ctrl, &by);
+                    let (cn, cells, ctrl, by, lists, canon) =
+                        (&cn, &cells, &ctrl, &by, &lists, &canon);
                     sc.spawn(move || {
                         let mut legs = Vec::with_capacity(4);
                         let mut scratch: Option<Aggm> = Some(BTreeMap::new());
@@ -945,13 +1014,23 @@ fn main() {
                             }
                             let mut tcs: Vec<Option<Option<f64>>> = vec![None; cs.len()];
                             let mut ts = None;
-                            for (ci, cell) in cells.iter().enumerate() {
-                                let Some(net) = net_of(cn, s, cell, &mut legs, &mut ts, &mut scratch) else {
+                            for &ci in &lists[s.ck as usize] {
+                                let cell = &cells[ci];
+                                let Some(net) =
+                                    net_of(cn, s, cell, &mut legs, &mut ts, &mut scratch)
+                                else {
                                     continue;
                                 };
                                 let (mut sum, mut cnt) = (0.0f64, 0u64);
                                 for (j, &k) in cs.iter().enumerate() {
-                                    if let Some(x) = net_of(cn, &ctrl[k], cell, &mut legs, &mut tcs[j], &mut scratch) {
+                                    if let Some(x) = net_of(
+                                        cn,
+                                        &ctrl[k],
+                                        cell,
+                                        &mut legs,
+                                        &mut tcs[j],
+                                        &mut scratch,
+                                    ) {
                                         sum += x;
                                         cnt += 1;
                                     }
@@ -961,7 +1040,9 @@ fn main() {
                                 }
                                 let k = sum / cnt as f64;
                                 let d = net - k;
-                                let a = pm.entry((ci, s.gk, s.side, s.tt0.div_euclid(86_400_000))).or_default();
+                                let a = pm
+                                    .entry((canon[ci], s.gk, s.side, s.tt0.div_euclid(86_400_000)))
+                                    .or_default();
                                 a.c += 1;
                                 a.d += d;
                                 a.b += net;
@@ -999,7 +1080,12 @@ fn main() {
         for ((ci, gk, side, day), a) in &tot {
             let (ev, dir, _) = &gkeys[*gk as usize];
             let cell = &cells[*ci];
-            write!(o, "{},{},{ev},{dir},{day},{side}{}{}", cn.sym, cn.tf, cell.a, cell.b).unwrap();
+            write!(
+                o,
+                "{},{},{ev},{dir},{day},{side}{}{}",
+                cn.sym, cn.tf, cell.a, cell.b
+            )
+            .unwrap();
             write!(o, ",{}", a.c).unwrap();
             for x in [a.d, a.b, a.k, a.d2] {
                 o.push(',');
@@ -1008,8 +1094,12 @@ fn main() {
             o.push(char::from(10));
         }
         let path = pos[5];
-        let mut w = std::fs::File::create(path).unwrap();
+        let (mut w, child) = open_out(path, gz_level);
         w.write_all(o.as_bytes()).unwrap();
+        drop(w);
+        if let Some(mut ch) = child {
+            ch.wait().unwrap();
+        }
         eprintln!(
             "время: загрузка {t_load:.2} с, счёт {:.2} с; {path} {} строк",
             t_start.elapsed().as_secs_f64() - t_load,
@@ -1021,7 +1111,7 @@ fn main() {
         let hs: Vec<_> = ents
             .chunks(chunk)
             .map(|ch| {
-                let (cn, cells) = (&cn, &cells);
+                let (cn, cells, lists) = (&cn, &cells, &lists);
                 sc.spawn(move || {
                     let (mut out, mut legs) = (String::new(), Vec::with_capacity(4));
                     let mut agg: Option<Aggm> = aggmode.then(BTreeMap::new);
@@ -1031,9 +1121,18 @@ fn main() {
                             "{},{},{},{},{},{}",
                             cn.sym, cn.tf, s.ev, s.dir, s.tt0, s.side
                         );
-                        for (ci, cell) in cells.iter().enumerate() {
+                        for &ci in &lists[s.ck as usize] {
+                            let cell = &cells[ci];
                             one(
-                                cn, &pre, s, cell, &mut legs, &mut tcache, &mut out, ci, &mut agg,
+                                cn,
+                                &pre,
+                                s,
+                                cell,
+                                &mut legs,
+                                &mut tcache,
+                                &mut out,
+                                ci,
+                                &mut agg,
                             );
                         }
                     }
@@ -1045,16 +1144,7 @@ fn main() {
     });
     let t_calc = t_start.elapsed().as_secs_f64();
     let path = pos[5];
-    let (mut w, child): (Box<dyn Write>, _) = if path.ends_with(".gz") {
-        let mut ch = Command::new("sh")
-            .args(["-c", &format!("gzip -{gz_level} -c > '{path}'")])
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
-        (Box::new(ch.stdin.take().unwrap()), Some(ch))
-    } else {
-        (Box::new(std::fs::File::create(path).unwrap()), None)
-    };
+    let (mut w, child) = open_out(path, gz_level);
     let mut nlines = 0usize;
     if aggmode {
         let mut tot = Aggm::new();
@@ -1101,7 +1191,10 @@ fn main() {
         for (p, _) in &parts {
             w.write_all(p.as_bytes()).unwrap();
         }
-        nlines = parts.iter().map(|p| p.0.matches('\n').count()).sum::<usize>();
+        nlines = parts
+            .iter()
+            .map(|p| p.0.matches('\n').count())
+            .sum::<usize>();
     }
     drop(w);
     if let Some(mut ch) = child {
