@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """TK-461 / P-TK461 §12.2 п.1: bp-события (B2) -> входной csv ядра TK-463 с ss_bps/ot1_bps. Исходов не считает.
-python tk461_bp_events.py <g4|g41|g42> <events.csv.gz bp-gN> <каталог минут csv.gz> <out.csv.gz> [SYM ...]
+python tk461_bp_events.py <g4|g41> <events.csv.gz bp-gN> <каталог минут csv.gz> <out.csv.gz> [SYM ...]
 Шаг 1 (30.10): семейство G4 (имбаланс, def.imbalance+fulfill:bull|bear): сторона = +1 бык / -1 медведь; событие ts = конец бара j
 (bp_g4: (idx[j]+1)*tf*60000), вход по close бара j (= open первой минуты после ts, как Санчо), зона = [h[j-2], l[j]] (в ориентации
 быка), дальний от входа край = h[j-2]; ss_bps = (c[j] - h[j-2])/|c[j]|*1e4 (для медведя зеркало). Колонки как у sig_table:
-sym,tf,ev,dir,side,t0,tt0,atr_bps + ss_bps,ot1_bps,ot1_fallback. tt0 = время открытия бара j, atr_bps = ATR14(j)/|c[j]|*1e4."""
+sym,tf,ev,dir,side,t0,tt0,atr_bps + ss_bps,ot1_bps,ot1_fallback. tt0 = время открытия бара j, atr_bps = ATR14(j)/|c[j]|*1e4.
+G41 (закрытие телом за имбалансом, P-TK458-b2-g41): событие на баре k (первый бар j+1..j+10 с low<=h[j-2], close<h[j-2]; ts=(idx[k]+1)*tf*60000),
+сторона = ПРОТИВ имбаланса (бычий имбаланс, закрытие под ним -> -1 шорт: протокол «не отработан» = нет возврата в щель, т.е. движение продолжается
+от щели), вход = close k, стоп = возврат в щель (ближняя граница l[j], как исход протокола): ss_bps = (l[j]-c[k])/|c[k]|*1e4 в зеркальной рамке.
+Строка события сопоставляется со строкой bp-g41-events по (ts,coin,tf,def_id) и g_atr (g/ATR14[j]); без пары - не берётся."""
 import importlib.util
 import os
 import sys
@@ -32,6 +36,40 @@ def g4_cols(ev, sym, name, tf, idx, h, l, c):
     return out
 
 
+def g41_cols(ev, sym, name, tf, idx, h, l, c, ok):
+    """ev: строки bp-g41-events одной монеты и ТФ. Пересчёт (k,j) тем же правилом, что bp_g41.side; пары - по g_atr."""
+    atr = G.atr14(h, l, c)
+    n = len(h)
+    rows = []
+    for dn, sign in (("bull", 1), ("bear", -1)):
+        x = ev[ev.def_id.str.endswith(":" + dn)]
+        if not len(x):
+            continue
+        hh, ll, cc = (h, l, c) if sign > 0 else (-l, -h, -c)
+        gap = np.zeros(n, bool)
+        gap[2:] = ok[2:] & ok[1:-1] & ok[:-2] & (ll[2:] > hh[:-2])
+        for ts, ga in zip(x.ts_utc_ms.values, x.g_atr.values):
+            k = int(ts // (tf * 60000) - 1 - idx[0])
+            for j in range(max(k - 10, 2), k):
+                if not gap[j] or j + 11 > n or np.isnan(atr[j]) or atr[j] <= 0:
+                    continue
+                top = hh[j - 2]
+                hit = np.flatnonzero(ll[j + 1:j + 11] <= top)
+                if len(hit) == 0 or j + 1 + hit[0] != k or not cc[k] < top:
+                    continue
+                if abs((ll[j] - hh[j - 2]) / atr[j] - ga) > 1e-9:
+                    continue
+                D = (ll[j] - cc[k]) / abs(c[k]) * 1e4
+                rows.append(dict(sym=sym, tf=name, ev="g41", dir=dn, side=-sign, t0=k + 1, tt0=idx[k] * tf * 60000,
+                                 atr_bps=atr[k] / abs(c[k]) * 1e4, ss_bps=D if D > 0 else np.nan))
+                break
+    out = pd.DataFrame(rows)
+    if len(out):
+        out["ot1_bps"] = out.ss_bps
+        out["ot1_fallback"] = 0
+    return out
+
+
 if __name__ == "__main__":
     kind, evp, src, outp = sys.argv[1:5]
     syms = sys.argv[5:]
@@ -44,7 +82,8 @@ if __name__ == "__main__":
             x = e[e.tf == name]
             if len(x):
                 idx, h, l, c, ok = G.bars(f"{src}/{sym}.csv.gz", tf)
-                parts.append(g4_cols(x, sym, name, tf, idx, h, l, c))
+                parts.append(g4_cols(x, sym, name, tf, idx, h, l, c) if kind == "g4" else
+                             g41_cols(x, sym, name, tf, idx, h, l, c, ok))
     out = pd.concat(parts) if parts else pd.DataFrame()
     out.to_csv(outp, index=False, compression="gzip")
     print(outp, len(out), int(out.ss_bps.notna().sum()) if len(out) else 0)
