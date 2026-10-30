@@ -5,7 +5,7 @@ python tk461_bp_events_b.py <g5|g6|g61|g63|g7|g8> <events.csv.gz bp-gN> <кат�
 вход = open первой минуты >= tt0 + tf_min*60000). Набор событий = строки bp-gN-events (ключ ts,coin[,def_id]); код детекторов - модули
 tools/bp_g{5,61,7,8}.py без правок (импорт). Правила, где протокол молчит (пусто = «не определено», ячейки SS/ОТ1 строки пропускаются, §12.2):
 - сторона/стоп - только из P-TK458-b2-g*: G8 - сторона и ρ протокола (ss=ρ/E), G7 - сторона = ожидаемый разворот (хай-свип -> шорт),
-  стоп протоколом не задан -> ss пусто; G5/G61/G6 - строки входов «bp-side-x2» (оба направления, dir=long|short), стоп не задан -> ss пусто.
+  ss = до последнего подтверждённого свинга k=2 (sancho.swings) на t0-1 по §12.2 п.1; G5/G61/G6 - строки входов «bp-side-x2» (оба направления, dir=long|short), стоп не задан -> ss пусто.
 - G5/G61: событие = первая минута снятия границы Азии, вход = open следующей минуты (tt0 = открытие минуты снятия, tf 1 мин); ATR14 минутный.
 - G6: событие = окно (асия/франкфурт/лондон/ny), вход = open первой минуты окна (tt0 = старт окна - 1 ч, tf_min=60), ATR14 H1 бара до окна;
   ev=g6-<окно>, два направления.
@@ -34,6 +34,7 @@ G8 = _load("bp_g8", os.path.join(TOOLS, "bp_g8.py"))
 G7 = _load("bp_g7", os.path.join(TOOLS, "bp_g7.py"))
 G4 = G7.G  # bp_g4
 E1 = _load("tk461_bp_events", os.path.join(HERE, "tk461_bp_events.py"))
+SN = _load("sancho", os.path.join(HERE, "sancho.py"))
 COLS = ["sym", "tf", "ev", "dir", "side", "t0", "tt0", "atr_bps", "ss_bps", "ot1_bps", "ot1_fallback", "tf_min"]
 R, T = G5.R, G5.T
 
@@ -128,7 +129,13 @@ def g7_cols(ev, sym, path):
         g = S >= 0
         nev += int(g.sum())
         s = S[g]
-        parts.append(mk(sym, "H1", 60, "g7", dn, -sign, s + 1, idx[s].astype(np.int64) * 3600000, atr[s] / np.abs(c[s]) * 1e4))
+        # §12.2 п.1: стоп - последний подтверждённый (i+2 <= s) свинг k=2 по sancho.swings в рамке входа; ss = (уровень - close s)/|c|, > 0
+        sw = SN.swings(hh, ok, 2)
+        pos = np.searchsorted(sw + 2, s, side="right") - 1
+        lv = np.where(pos >= 0, hh[sw[np.maximum(pos, 0)]] if len(sw) else np.nan, np.nan)
+        ss = (lv - cc[s]) / np.abs(c[s]) * 1e4
+        ss = np.where(np.isfinite(ss) & (ss > 0), ss, np.nan)
+        parts.append(mk(sym, "H1", 60, "g7", dn, -sign, s + 1, idx[s].astype(np.int64) * 3600000, atr[s] / np.abs(c[s]) * 1e4, ss))
     return pd.concat(parts) if parts else pd.DataFrame(columns=COLS), nev
 
 
