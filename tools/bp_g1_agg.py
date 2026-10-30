@@ -1,12 +1,12 @@
 """TK-458 B2 G1.1: агрегатор (6 строк ТФ x направление, якорь X=0,3; кривая X; Холм по 12). Протокол P-TK458-b2-g1.
-python -I tools/bp_g4_agg.py <каталог *-events.csv.gz> <выход-префикс>"""
+python -I tools/bp_g1_agg.py <каталог *-events.csv.gz> <выход-префикс>"""
 import sys, glob
 import numpy as np, pandas as pd
 
 d = pd.concat([pd.read_csv(f) for f in sorted(glob.glob(sys.argv[1] + "/*-events.csv.gz"))])
 d["day"] = d.ts_utc_ms // 86400000; d["year"] = pd.to_datetime(d.ts_utc_ms, unit="ms").dt.year
 d["dir"] = d.def_id.str.split(":").str[1]; d["row"] = d.tf + "/" + d.dir
-d["dl"] = d.f1 - d.c1; d["f_ful"] = d.f1; d["c_ful"] = d.c1; d["g_atr"] = 1.0; d = d[d.f1.notna()]
+d["dl"] = d.f1 - d.c1; d["d5"] = d.f2 - d.c2; d["f_ful"] = d.f1; d["c_ful"] = d.c1; d["g_atr"] = 1.0; d = d[d.f1.notna()]
 first = d.groupby("coin").ts_utc_ms.min(); early = set(first[first < 1577836800000 + 7 * 86400000].index)
 rng = np.random.default_rng(458); B = 2000
 THR = {"g>0": 0.0, "g>=1/8": .125, "g>=1/4 (якорь)": .25, "g>=1/2": .5}
