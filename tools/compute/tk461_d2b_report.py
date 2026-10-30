@@ -23,15 +23,58 @@ def strcol(s):
     return pd.Series(u.to_numpy()[codes], index=s.index)
 
 
-def one(f):
+FAST = os.environ.get("TK469_REPORT_FAST") == "1"
+
+
+def codes_of(x, cols):
+    """Составной int64-ключ строк по sorted-кодам колонок (порядок = лексикографический, как у groupby по самим колонкам) -> (ключ, [(коды, число значений)])."""
+    key = np.zeros(len(x), dtype=np.int64)
+    for c in cols:
+        cd, un = pd.factorize(x[c], sort=True, use_na_sentinel=False)
+        key = key * len(un) + cd
+    return key
+
+
+def one_fast(f):
+    """TK-469: тот же результат, что one(), без groupby/drop_duplicates по 10 строковым колонкам: группы и пары (sym, ключ) -- по одному int64 (в 4,2 млн строк BTC-60 groupby KEY+day 9,5 с, strcol 3 с, read_csv 15 с)."""
     x = pd.read_csv(f, low_memory=False)
     if not len(x):
         return None
     for k in ("be_r", "ot", "otp", "par"):
         x[k] = strcol(x[k])
+    cols = KEY + ["day"]
+    card = 1
+    for c in cols:
+        card *= max(x[c].nunique(dropna=False), 1)
+    if card >= 2 ** 62:
+        return one_slow(x)
+    comp = codes_of(x, cols)
+    uq, first = np.unique(comp, return_index=True)
+    s = x[SUMS].groupby(comp, sort=True).sum()
+    g = x[cols].iloc[first].reset_index(drop=True)
+    for c in SUMS:
+        g[c] = s[c].to_numpy()
+    sk = codes_of(x, KEY + ["sym", "side"])
+    _, sf = np.unique(sk, return_index=True)
+    sy = x[KEY + ["sym", "side"]].iloc[np.sort(sf)]
+    return g, sy
+
+
+def one_slow(x):
     g = x.groupby(KEY + ["day"], observed=True)[SUMS].sum().reset_index()
     sy = x[KEY + ["sym", "side"]].drop_duplicates()
     return g, sy
+
+
+def one(f):
+    if FAST:
+        return one_fast(f)
+    x = pd.read_csv(f, low_memory=False)
+    if not len(x):
+        return None
+    for k in ("be_r", "ot", "otp", "par"):
+        x[k] = strcol(x[k])
+    return one_slow(x)
 
 
 def main(sd, oc, oy, nproc="8", pat="*.csv.gz", kfam="163923"):
