@@ -38,9 +38,9 @@ for i, r in fun(3).iterrows():
         continue
     seen.add(p)
     g = s[(s.tf == {"1H": 60, "4H": 240, "1D": 1440}[p[0]]) & (s.dir == p[1]) & (s.anchor == p[2])]
-    g = g[g.p459 == 1]
-    add(3, f"{p[0]}/{p[1]}/k={p[2]} события A6 (p459=1)", len(g), r["событий A6"], i + 2)
+    add(3, f"{p[0]}/{p[1]}/k={p[2]} события A6", len(g), r["событий A6"], i + 2)
     add(3, f"{p[0]}/{p[1]}/k={p[2]} из них A8", g.a8.sum(), r["из них A8 (слом)"], i + 2)
+    add(3, f"{p[0]}/{p[1]}/k={p[2]} с контролем C2 (p459=1)", g.p459.sum(), r["с контролем C2"], i + 2)
 
 s = pd.read_csv(f"{OUT}/s-4.csv.gz")
 for i, r in fun(4).iterrows():
