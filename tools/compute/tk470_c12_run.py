@@ -18,11 +18,17 @@ from sancho import bars
 from sancho_l3_sig import sig_table
 from sancho_l3_trades import side_of
 from tk461_d2b_cols import add_cols
+from tk461_d2b_run import controls
 from tk467_d2b_run import lay
+
+COLS = ["sym", "tf", "ev", "dir", "side", "t0", "tt0", "atr_bps", "evk", "cj", "ss_bps", "ot1_bps", "ot1_fallback"]  # формат контролей controls() TK-461
 
 
 def ctl_frames(src, tf, ev):
     """ev — реальные события пары (с rk). -> {"C1": df, "C2": df} в формате pair-файла ядра."""
+    if os.environ.get("CTL") == "CX":  # гейт: C-X прежним controls() через тот же путь -> байт в байт с d2b-out
+        ct = controls(src, tf, ev)
+        return {"CX": ct.assign(ev=lay(ct))[COLS]} if len(ct) else {}
     a = bars(src, tf)
     d = sig_table(src, tf, 2, ctl=True)
     c = d[d.role.isin(["C1", "C2"])].copy()
@@ -37,7 +43,7 @@ def ctl_frames(src, tf, ev):
     c = c.merge(key, on=["ev", "dir", "evi"], how="inner")  # контроль без реального события того же класса не нужен
     c["cj"] = c.groupby(["role", "ev", "dir", "evk", "rk"]).cumcount()
     c["ev"] = "C-" + lay(c)
-    return {r: c[c.role == r].drop(columns=["rk", "role"]) for r in ("C1", "C2")}
+    return {r: c[c.role == r][COLS] for r in ("C1", "C2")}
 
 
 def main():
