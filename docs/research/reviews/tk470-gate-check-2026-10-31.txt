@@ -1,6 +1,0 @@
-# Судья 31.10 ~05:15: /data/tk0470/gate/x/cx/<SYM>-60.csv.gz против /data/tk0461/d2b-out (сортировка по ключам; c — точно; d,b,k,d2 — rtol 1e-9)
-0GUSDT 648662 648662 keys+c True floats True maxrel 5.36354888509827e-12
-ASTERUSDT 663672 663672 keys+c True floats True maxrel 5.906147017702273e-13
-BMTUSDT 918103 918103 keys+c True floats True maxrel 1.3461659068497291e-12
-# /data/tk0461/c12-out/DONE:
-pairs 252 done 252 fail 0
