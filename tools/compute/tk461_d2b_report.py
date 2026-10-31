@@ -4,6 +4,7 @@
 по годам, Холм одной семьёй размера KFAM (P-TK461 §12.1 п.7: 377 + K_TK461 <= 163923; двусторонний p ~ 2K односторонних), ячейки с c=0 пропущены.
 python tk461_d2b_report.py <d2b_dir> <out_cells.csv> <out_years.csv> [процессы] [маска] [KFAM]"""
 import glob
+import hashlib
 import os
 import sys
 from math import erfc, sqrt
@@ -24,6 +25,17 @@ def strcol(s):
 
 
 FAST = os.environ.get("TK469_REPORT_FAST") == "1"
+PART = os.environ.get("TK461_PART", "")  # P-TK461 §8: check | xa | xb | open; пусто = все строки (прежнее поведение)
+_D2024 = 19723  # 2024-01-01 UTC, сутки с эпохи
+
+
+def part_mask(x):
+    """§8: открытие = чётные монеты x <=2023; проверка = нечётные x >=2024; xa = чётные x >=2024; xb = нечётные x <=2023 (md5(символ) чётный как tk461_open)."""
+    ev = x.sym.map({s: int(hashlib.md5(s.encode()).hexdigest(), 16) % 2 == 0 for s in x.sym.unique()})
+    late = x.day >= _D2024
+    return {"open": ev & ~late, "check": ~ev & late, "xa": ev & late, "xb": ~ev & ~late}[PART]
+
+
 
 
 def codes_of(x, cols):
@@ -38,6 +50,8 @@ def codes_of(x, cols):
 def one_fast(f):
     """TK-469: тот же результат, что one(), без groupby/drop_duplicates по 10 строковым колонкам: группы и пары (sym, ключ) -- по одному int64 (в 4,2 млн строк BTC-60 groupby KEY+day 9,5 с, strcol 3 с, read_csv 15 с)."""
     x = pd.read_csv(f, low_memory=False)
+    if PART:
+        x = x[part_mask(x)]
     if not len(x):
         return None
     for k in ("be_r", "ot", "otp", "par"):
@@ -70,6 +84,8 @@ def one(f):
     if FAST:
         return one_fast(f)
     x = pd.read_csv(f, low_memory=False)
+    if PART:
+        x = x[part_mask(x)]
     if not len(x):
         return None
     for k in ("be_r", "ot", "otp", "par"):
