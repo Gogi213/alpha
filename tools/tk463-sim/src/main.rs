@@ -801,12 +801,14 @@ struct PAcc {
     b: f64,
     k: f64,
     d2: f64,
+    bt: f64, // TK-471 `--legs 1`: сумма net, если все ноги — тейкер (худший конец издержек)
+    bm: f64, // то же, все ноги — мейкер (лучший конец)
 }
 
 type Pairm = BTreeMap<(usize, u32, i64, i64), PAcc>;
 
-/// net одной сделки (gross − fee − fund) или None: ячейка пропущена / nofill / no_target — через `one` в режиме агрегата,
-/// чтобы арифметика была той же, что в построчном выводе
+/// net одной сделки (gross − fee − fund; затем то же при всех ногах тейкер и при всех мейкер — TK-471) или None: ячейка
+/// пропущена / nofill / no_target — через `one` в режиме агрегата, чтобы арифметика была той же, что в построчном выводе
 fn net_of(
     cn: &Coin,
     s: &Entry,
@@ -814,12 +816,12 @@ fn net_of(
     legs: &mut Vec<Leg>,
     tcache: &mut Option<Option<f64>>,
     scratch: &mut Option<Aggm>,
-) -> Option<f64> {
+) -> Option<(f64, f64, f64)> {
     scratch.as_mut().unwrap().clear();
     let mut dummy = String::new();
     one(cn, "", s, cell, legs, tcache, &mut dummy, 0, scratch);
     let a = scratch.as_ref().unwrap().values().next()?;
-    (a.n == 1).then_some(a.net)
+    (a.n == 1).then_some((a.net, a.net_tk, a.net_mk))
 }
 
 /// выход: `.gz` — через gzip, иначе файл
@@ -985,6 +987,8 @@ fn main() {
     let pair_file = opt("--pair");
     // TK-469 `--stream 1` (только с `--pair`): цикл «каноническая ячейка -> события», вывод по ячейке; порядок строк и суммы те же
     let stream = opt("--stream").is_some_and(|v| v == "1");
+    // TK-471 `--legs 1` (только с `--pair`): после d2 столбцы bt, bm — суммы net при всех ногах тейкер / всех мейкер (по тем же сделкам, что b)
+    let legs_cols = opt("--legs").is_some_and(|v| v == "1");
     let chunk = ents.len().div_ceil(threads.max(1)).max(1);
     if let Some(pf_) = pair_file {
         // парный режим: события pos[2] + контроли pf_ (evk = tt0 события, ev с префиксом из 2 знаков), группа
@@ -1022,7 +1026,11 @@ fn main() {
             if cx.contains_key("ot") {
                 h += ",ot,otp";
             }
-            h += ",c,d,b,k,d2\n";
+            h += ",c,d,b,k,d2";
+            if legs_cols {
+                h += ",bt,bm";
+            }
+            h.push('\n');
             type Tc = Vec<Option<Option<f64>>>; // цель TS зависит только от входа: кэш на событие и на контроль
             let calc = |cid: usize,
                         cis: &[usize],
@@ -1040,12 +1048,15 @@ fn main() {
                             continue;
                         }
                         let cell = &cells[ci];
-                        let Some(net) = net_of(&cn, s, cell, legs, &mut tev[si], scratch) else {
+                        let Some((net, net_tk, net_mk)) =
+                            net_of(&cn, s, cell, legs, &mut tev[si], scratch)
+                        else {
                             continue;
                         };
                         let (mut sum, mut cnt) = (0.0f64, 0u64);
                         for &k in cs {
-                            if let Some(x) = net_of(&cn, &ctrl[k], cell, legs, &mut tct[k], scratch)
+                            if let Some((x, _, _)) =
+                                net_of(&cn, &ctrl[k], cell, legs, &mut tct[k], scratch)
                             {
                                 sum += x;
                                 cnt += 1;
@@ -1064,6 +1075,8 @@ fn main() {
                         a.b += net;
                         a.k += k;
                         a.d2 += d * d;
+                        a.bt += net_tk;
+                        a.bm += net_mk;
                     }
                 }
                 let cell = &cells[cid];
@@ -1080,6 +1093,12 @@ fn main() {
                     for x in [a.d, a.b, a.k, a.d2] {
                         o.push(',');
                         pf(&mut o, x);
+                    }
+                    if legs_cols {
+                        for x in [a.bt, a.bm] {
+                            o.push(',');
+                            pf(&mut o, x);
+                        }
                     }
                     o.push('\n');
                 }
@@ -1157,14 +1176,14 @@ fn main() {
                             let mut ts = None;
                             for &ci in &lists[s.ck as usize] {
                                 let cell = &cells[ci];
-                                let Some(net) =
+                                let Some((net, net_tk, net_mk)) =
                                     net_of(cn, s, cell, &mut legs, &mut ts, &mut scratch)
                                 else {
                                     continue;
                                 };
                                 let (mut sum, mut cnt) = (0.0f64, 0u64);
                                 for (j, &k) in cs.iter().enumerate() {
-                                    if let Some(x) = net_of(
+                                    if let Some((x, _, _)) = net_of(
                                         cn,
                                         &ctrl[k],
                                         cell,
@@ -1189,6 +1208,8 @@ fn main() {
                                 a.b += net;
                                 a.k += k;
                                 a.d2 += d * d;
+                                a.bt += net_tk;
+                                a.bm += net_mk;
                             }
                         }
                         pm
@@ -1206,6 +1227,8 @@ fn main() {
                 t.b += a.b;
                 t.k += a.k;
                 t.d2 += a.d2;
+                t.bt += a.bt;
+                t.bm += a.bm;
             }
         }
         let mut h = String::from("sym,tf,ev,dir,day,side,stop,take,par");
@@ -1216,6 +1239,9 @@ fn main() {
             h += ",ot,otp";
         }
         h += ",c,d,b,k,d2";
+        if legs_cols {
+            h += ",bt,bm";
+        }
         h.push(char::from(10));
         let mut o = h;
         for ((ci, gk, side, day), a) in &tot {
@@ -1231,6 +1257,12 @@ fn main() {
             for x in [a.d, a.b, a.k, a.d2] {
                 o.push(',');
                 pf(&mut o, x);
+            }
+            if legs_cols {
+                for x in [a.bt, a.bm] {
+                    o.push(',');
+                    pf(&mut o, x);
+                }
             }
             o.push(char::from(10));
         }
