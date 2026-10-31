@@ -1,5 +1,7 @@
 # Канал Санчо, слой 4: заявления против минуток Binance (TK-454, 30.10)
 
+Пути убранных скриптов и таблиц — в теге `archive/smartmoney-2026-10` (`docs/findings/SMARTMONEY-ARCHIVE.md`).
+
 Протокол: `docs/research/P-TK454-sancho-trades-2026-10-30.md` (утверждён Судьёй). Скрипты: `tools/sancho_channel_report.py`, `tools/sancho_channel_summary.py` (сводки), `tools/sancho_trades_p1.py`, `tools/sancho_trades_tv_merge.py`, `tools/sancho_deposit_claims.py`. Данные: `sancho-trades-p1-all-*.csv`, `sancho-trades-handtv-*.csv`, `sancho-deposit-claims-*.csv`.
 
 ## За 10 секунд

@@ -1,5 +1,7 @@
 # Эксель Санчо «Статистика бэктеста — 88 активов.xlsx» до запятой (TK-452, В-61, слой 0)
 
+Пути убранных скриптов и таблиц — в теге `archive/smartmoney-2026-10` (`docs/findings/SMARTMONEY-ARCHIVE.md`).
+
 Файл не менялся. Скрипт `tools/sancho_xlsx_audit.py` (перезапуск даёт те же файлы). Артефакты: `sancho-xlsx-2026-10-30-{audit-log.txt, violations.csv, derived.csv, ci.json}`. Адреса — лист!ячейка; проценты в файле — доли 0–1.
 
 ## Итог
