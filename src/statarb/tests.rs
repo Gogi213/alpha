@@ -282,7 +282,7 @@ fn flat_x_params() -> Params {
 #[test]
 fn single_trade_gross_fees_by_leg_closed_form() {
     // X плоская (100), Y: 100×6, 98, 99, 100…; окно 4. Сигнал входа t=6 (z=−√3), исполнение open[7]=c[6]=98;
-    // выход по сигналу t=7, исполнение open[8]=c[7]=99; следующий вход — сигнал t=10, не закрыт.
+    // выход по сигналу t=7 (z≈−0,3), исполнение open[8]=c[7]=99; дальше |z| ≤ 0,9 < 1,5 — входов нет.
     let mut cy = vec![100.0; 6];
     cy.extend([98.0, 99.0, 100.0, 100.0, 100.0, 100.0, 100.0]);
     let n = cy.len();
@@ -306,7 +306,7 @@ fn single_trade_gross_fees_by_leg_closed_form() {
     let mut tr: Vec<Trade> = Vec::new();
     let c = run_pair(&inp, &p, &mut tr);
     assert_eq!(tr.len(), 1);
-    assert_eq!((c.trades, c.entries, c.open_at_end), (1, 2, 1));
+    assert_eq!((c.trades, c.entries, c.open_at_end), (1, 1, 0));
     let t = tr[0];
     assert_eq!(
         (t.dir, t.sig_in, t.fill_in, t.sig_out, t.fill_out),

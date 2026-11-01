@@ -13,6 +13,7 @@
 //! (`lob::costs`), фандинг платит нога-перп, державшаяся строго через момент выплаты.
 //! Пороги, окна, сетки не назначаются — это `Params` прогона.
 
+pub mod cli;
 pub mod kernel;
 pub mod panel;
 pub mod reference;

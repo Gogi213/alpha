@@ -17,11 +17,17 @@ enum TopCommand {
         #[command(subcommand)]
         cmd: LobCommand,
     },
+    /// Стат-арбитраж: конвертер панелей и замер ядра (TK-479).
+    Statarb {
+        #[command(subcommand)]
+        cmd: alpha::statarb::cli::StatarbCommand,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         TopCommand::Lob { cmd } => dispatch(cmd),
+        TopCommand::Statarb { cmd } => alpha::statarb::cli::dispatch(cmd),
     }
 }

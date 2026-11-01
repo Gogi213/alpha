@@ -122,10 +122,23 @@ fn price(f: &str, line: usize) -> io::Result<f64> {
     }
 }
 
-/// Свечи csv (`t_open_ms,o,h,l,c,...`, с заголовком или без) → панель. Строки строго по возрастанию
-/// минут, каждая — на границе минуты; нарушение — ошибка, не молчаливая правка. Пустой csv → `None`.
-/// Дыры между строками — `NaN`, ничего не выдумывается.
+/// Счётчики конвертации: строки данных и строки с нулевым объёмом (минута без сделок → `NaN`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConvertStats {
+    pub rows: u64,
+    pub zero_volume: u64,
+}
+
 pub fn convert_csv<R: BufRead>(csv: R) -> io::Result<Option<Series>> {
+    convert_csv_stats(csv).map(|(s, _)| s)
+}
+
+/// Свечи csv (`t_open_ms,o,h,l,c[,v,...]`, с заголовком или без) → панель. Строки строго по
+/// возрастанию минут, каждая — на границе минуты; нарушение — ошибка, не молчаливая правка. Пустой
+/// csv → `None`. Дыры между строками и строки с объёмом 0 (биржа отдала плоскую свечу без сделок) —
+/// `NaN`, ничего не выдумывается; число таких строк — в `ConvertStats`.
+pub fn convert_csv_stats<R: BufRead>(csv: R) -> io::Result<(Option<Series>, ConvertStats)> {
+    let mut st = ConvertStats::default();
     let mut s: Option<Series> = None;
     let mut last_idx = i64::MIN;
     for (i, line) in csv.lines().enumerate() {
@@ -156,6 +169,12 @@ pub fn convert_csv<R: BufRead>(csv: R) -> io::Result<Option<Series>> {
         if idx <= last_idx {
             return Err(bad(format!("строка {}: минуты не по возрастанию", i + 1)));
         }
+        st.rows += 1;
+        last_idx = idx;
+        if f.next().and_then(|v| v.trim().parse::<f64>().ok()) == Some(0.0) {
+            st.zero_volume += 1;
+            continue;
+        }
         let (o, c) = (price(o, i + 1)?, price(c, i + 1)?);
         let ser = s.get_or_insert_with(|| Series {
             first_min: idx,
@@ -167,7 +186,6 @@ pub fn convert_csv<R: BufRead>(csv: R) -> io::Result<Option<Series>> {
         ser.close.resize(at, f64::NAN);
         ser.open.push(o);
         ser.close.push(c);
-        last_idx = idx;
     }
-    Ok(s)
+    Ok((s, st))
 }
