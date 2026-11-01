@@ -21,7 +21,8 @@ UA = {'User-Agent': 'alpha-tk476'}
 BN_S3 = 'https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/'
 
 
-def rd(url, tries=6, raw=False):
+def rd(url, tries=8, raw=False):
+    url = urllib.parse.quote(url, safe=":/?&=%")  # контракты Gate с иероглифами/кириллицей в URL
     for i in range(tries):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=40) as r:
@@ -30,7 +31,7 @@ def rd(url, tries=6, raw=False):
         except urllib.error.HTTPError as e:
             if e.code in (400, 403, 404):
                 return None
-            time.sleep(1.5 * (i + 1))
+            time.sleep(min(60, 3 * (i + 1) ** 2) if e.code in (418, 429) else 1.5 * (i + 1))  # лимит запросов — пауза растёт
         except Exception:
             time.sleep(1.5 * (i + 1))
     raise RuntimeError(url)
@@ -100,7 +101,7 @@ def binance_all():
                         rows.append((day_of(int(p[0])), float(p[7])))
         print('binance-arch', sym, len(rows), flush=True)
         return sym, 'archive', rows
-    with ThreadPoolExecutor(8) as ex:
+    with ThreadPoolExecutor(4) as ex:
         a = list(ex.map(rest, sorted(live)))
         b = list(ex.map(arch, dead))
     return a + b, {'live': len(live), 'archive_only': len(dead)}

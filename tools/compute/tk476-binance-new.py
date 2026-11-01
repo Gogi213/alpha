@@ -6,7 +6,7 @@ import csv, hashlib, importlib.util, os, re, sys, time, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 spec = importlib.util.spec_from_file_location('k450', os.environ.get('TK450_PY', '/data/tk450/tk450-binance-klines.py'))
-k = importlib.util.module_from_spec(spec); spec.loader.exec_module(k)
+k = importlib.util.module_from_spec(spec); sys.modules['k450'] = k; spec.loader.exec_module(k)  # иначе build_one не пиклится в ProcessPool
 ROOT, RAW = k.ROOT, k.RAW
 _get = k.get
 
