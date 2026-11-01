@@ -4,11 +4,18 @@
 итоговый файл = стадия ∪ минуты, которых нет в стадии (прежний уходит в <STAGE>/prev/<биржа>/); иначе лежащий НЕ трогаем, символ в
 overlap-<биржа>.csv помечен «расхождение». Нового символа (нет лежащего) — просто перенос. Минут не выдумывает.
 usage: tk476_merge.py <биржа> [--apply] [--only SYM,SYM] [--part I/N]   (без --apply — только сверка, файлы не меняются;
---part I/N — каждый N-й символ с номера I, итог в overlap-<биржа>.pI.csv: N процессов параллельно, узкое место — gzip уровня 6)"""
-import csv, gzip, math, os, shutil, sys
+--part I/N — символы с crc32(имя) % N == I, итог в overlap-<биржа>.pI.csv: N процессов параллельно, узкое место — gzip уровня 6)"""
+import csv, gzip, math, os, shutil, sys, zlib
 
-ROOT, STAGE = '/srv/alpha-sda/candles-1m', '/srv/alpha-sda/candles-1m-476'
+ROOT = os.environ.get('TK476_ROOT', '/srv/alpha-sda/candles-1m')
+STAGE = os.environ.get('TK476_STAGE', '/srv/alpha-sda/candles-1m-476')
 HDR = 't_open_ms,o,h,l,c,v,quote_v,n_trades\n'
+
+
+def pick(syms, i, n):
+    """Срез I/N по хешу имени, не по номеру в списке: номер сдвигается, когда соседний процесс уже убрал свои файлы из стадии,
+    и два процесса брали один символ (02.11: 1000CATUSDT, 10000ELONUSDT — оба упали, у 1000CATUSDT затёрт prev)."""
+    return [s for s in syms if zlib.crc32(s.encode()) % n == i]
 
 
 def same(a, b):
@@ -32,7 +39,7 @@ def one(ex, sym, apply):
     seen = mism = 0
     lo = min(old, key=int) if old else None
     tmp = st + '.merge.tmp'
-    with gzip.open(st, 'rt') as f, gzip.open(tmp, 'wt', compresslevel=6) as g:
+    with gzip.open(st, 'rt') as f, gzip.open(tmp, 'xt', compresslevel=6) as g:  # 'x': второй процесс на символе — сразу отказ
         g.write(HDR); next(f)
         for l in f:
             t = l.split(',', 1)[0]
@@ -70,7 +77,7 @@ def main():
     suf = ''
     if '--part' in sys.argv:
         i, n = map(int, sys.argv[sys.argv.index('--part') + 1].split('/'))
-        syms, suf = syms[i::n], f'.p{i}'
+        syms, suf = pick(syms, i, n), f'.p{i}'
     with open(f'{STAGE}/overlap-{ex}{suf}.csv', 'w', newline='') as o:
         w = csv.writer(o); w.writerow(['символ', 'общих_минут', 'расхождений', 'минут_только_в_лежащем', 'действие'])
         for s in syms:

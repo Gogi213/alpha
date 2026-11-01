@@ -4,6 +4,9 @@
 cd /data/tk0476 || exit 1
 ex=$1; n=$2; tag=$3
 rm -f "$tag.done" "$tag.fail"
+# второй запуск поверх первого брал те же символы (02.11): при живом слиянии отказ; хвосты .merge.tmp упавшего слияния убираем
+if pgrep -f 'python3 tk476_merge.py' > /dev/null; then echo "fail: tk476_merge.py уже идёт" > "$tag.fail"; exit 1; fi
+rm -f /srv/alpha-sda/candles-1m-476/"$ex"/*.merge.tmp
 pids=()
 for ((i = 0; i < n; i++)); do
   python3 tk476_merge.py "$ex" --apply --part "$i/$n" > "$tag.p$i.log" 2>&1 &
