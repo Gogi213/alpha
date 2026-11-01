@@ -8,7 +8,7 @@ import gzip, json, os, shutil, subprocess, sys, time, urllib.error, urllib.reque
 from concurrent.futures import ProcessPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CANDLES = os.path.join(HERE, "tk411-gate-candles.py")
+CANDLES = os.path.join(HERE, "tk476-gate-candles.py")  # TK-476: порядок строк архива не важен (старые месяцы — от новых к старым)
 BASE = "https://download.gatedata.org/futures_usdt/trades/%s/%s-%s.csv.gz"
 FIRST, LAST = (2020, 1), tuple(int(x) for x in os.environ.get("G_LAST", "2026-10").split("-"))
 
