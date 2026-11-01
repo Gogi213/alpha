@@ -4,7 +4,7 @@ usage: tk476-gate.py <out> <contracts.txt> [процессов=12] [потоко
 Раскладка: <out>/gate-raw/<C>/<C>-<ГГГГММ>.csv.gz (сырьё), <out>/gate-parts/<C>/<ГГГГММ>.csv.gz (свечи месяца), <out>/gate-futures_usdt/<C>.csv.gz (все месяцы подряд),
 <out>/gate-cov/<C>.tsv (контракт, минут, строк-сделок, первая_мс, последняя_мс, месяцев, нет_месяцев). Месяца нет на источнике (404) — не выдумывается.
 Свечи: tk411-gate-candles.py (o/c по порядку id, v = |size|·quanto, минута без сделок не пишется). Готовый месяц пропускается."""
-import gzip, json, os, shutil, subprocess, sys, time, urllib.error, urllib.request
+import gzip, json, os, shutil, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ProcessPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,7 +61,7 @@ def _work(a):
         part = "%s/gate-parts/%s/%s.csv.gz" % (out, c, ym)
         if not os.path.exists(part):
             if not os.path.exists(raw):
-                if not fetch(BASE % (ym, c, ym), raw):
+                if not fetch(BASE % (ym, urllib.parse.quote(c), ym), raw):  # иероглифы в имени контракта
                     miss.append(ym); continue
             r = subprocess.run([sys.executable, "-I", CANDLES, "fut", raw, q, part + ".part"], capture_output=True, text=True)
             if r.returncode:
@@ -100,6 +100,12 @@ def main():
             jobs.append((out, c, qm[c]))
         else:
             nq.append(c)  # снят с торгов / нет в списке REST
+    for c in list(nq):  # снятые с торгов: REST-листинг их не отдаёт, а /contracts/<имя> отдаёт quanto_multiplier
+        try:
+            with urllib.request.urlopen("https://api.gateio.ws/api/v4/futures/usdt/contracts/" + urllib.parse.quote(c), timeout=30) as r:
+                jobs.append((out, c, json.load(r)["quanto_multiplier"])); nq.remove(c)
+        except Exception as e:  # noqa: BLE001
+            print("quanto нет:", c, e, flush=True)
     print("контрактов", len(cs), "с quanto", len(jobs), "без quanto (нужно из tk411 gate-list):", nq, flush=True)
     if nq and os.path.exists("/data/tk0393/tk411/gate-list.tsv"):
         old = {l.split("\t")[1]: l.split("\t")[2].strip() for l in open("/data/tk0393/tk411/gate-list.tsv") if l.startswith("fut\t")}

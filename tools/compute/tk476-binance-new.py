@@ -16,6 +16,8 @@ def _qget(url, *a, **kw):  # символы с не-ASCII (кириллица/и
 
 
 k.get = _qget
+k.THREADS = int(os.environ.get('TK476_THREADS', k.THREADS))  # дельта: CDN data.binance.vision без лимита по IP
+BUILD_PROCS = int(os.environ.get('TK476_BUILD', 6))
 FIRST = k.FIRST
 
 
@@ -66,7 +68,7 @@ def main():
     print('verify files', n, 'mismatch', bad, flush=True)
     if bad: raise SystemExit('verify: расхождения sha256')
     have = [r[0] for r in rows if r[1]]
-    with ProcessPoolExecutor(6) as ex:
+    with ProcessPoolExecutor(BUILD_PROCS) as ex:
         for r in ex.map(k.build_one, have): print('build', r, flush=True)
     with ProcessPoolExecutor(6) as ex:
         res = {r[0]: r for r in ex.map(k.scan, have)}
