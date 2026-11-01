@@ -2,12 +2,20 @@
 """TK-476 (В-85): минутные свечи Binance USDⓈ-M для монет пула (> 5 млн/сут), которых ещё нет в binance-um. Использует функции tk450.
 usage: tk476-binance-new.py <список_символов.txt>   (map → dl → verify → build → coverage только по этим символам; существующие файлы не трогает)
 Выход: $ROOT/map-476.csv, verify-476.csv, coverage-476.csv, gaps-476.csv; файлы <SYM>.csv.gz в $ROOT."""
-import csv, hashlib, importlib.util, os, re, sys, time
+import csv, hashlib, importlib.util, os, re, sys, time, urllib.parse
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 spec = importlib.util.spec_from_file_location('k450', os.environ.get('TK450_PY', '/data/tk450/tk450-binance-klines.py'))
 k = importlib.util.module_from_spec(spec); spec.loader.exec_module(k)
 ROOT, RAW = k.ROOT, k.RAW
+_get = k.get
+
+
+def _qget(url, *a, **kw):  # символы с не-ASCII (кириллица/иероглифы) в ключе S3 — иначе UnicodeEncodeError
+    return _get(urllib.parse.quote(url, safe=":/?&=%"), *a, **kw)
+
+
+k.get = _qget
 FIRST = k.FIRST
 
 
