@@ -3,7 +3,8 @@
 Сверка по перекрытию: на общих минутах t_open_ms o,h,l,c,v,quote_v совпадают (отн. 1e-9), n_trades — равны как строки. Расхождений 0 →
 итоговый файл = стадия ∪ минуты, которых нет в стадии (прежний уходит в <STAGE>/prev/<биржа>/); иначе лежащий НЕ трогаем, символ в
 overlap-<биржа>.csv помечен «расхождение». Нового символа (нет лежащего) — просто перенос. Минут не выдумывает.
-usage: tk476_merge.py <биржа> [--apply] [--only SYM,SYM]   (без --apply — только сверка, файлы не меняются)"""
+usage: tk476_merge.py <биржа> [--apply] [--only SYM,SYM] [--part I/N]   (без --apply — только сверка, файлы не меняются;
+--part I/N — каждый N-й символ с номера I, итог в overlap-<биржа>.pI.csv: N процессов параллельно, узкое место — gzip уровня 6)"""
 import csv, gzip, math, os, shutil, sys
 
 ROOT, STAGE = '/srv/alpha-sda/candles-1m', '/srv/alpha-sda/candles-1m-476'
@@ -66,7 +67,11 @@ def main():
     ex, apply = sys.argv[1], '--apply' in sys.argv
     only = sys.argv[sys.argv.index('--only') + 1].split(',') if '--only' in sys.argv else None
     syms = sorted(f[:-7] for f in os.listdir(f'{STAGE}/{ex}') if f.endswith('.csv.gz') and (not only or f[:-7] in only))
-    with open(f'{STAGE}/overlap-{ex}.csv', 'w', newline='') as o:
+    suf = ''
+    if '--part' in sys.argv:
+        i, n = map(int, sys.argv[sys.argv.index('--part') + 1].split('/'))
+        syms, suf = syms[i::n], f'.p{i}'
+    with open(f'{STAGE}/overlap-{ex}{suf}.csv', 'w', newline='') as o:
         w = csv.writer(o); w.writerow(['символ', 'общих_минут', 'расхождений', 'минут_только_в_лежащем', 'действие'])
         for s in syms:
             r = one(ex, s, apply); w.writerow(r); print(*r, flush=True)
