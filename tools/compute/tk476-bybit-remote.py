@@ -21,6 +21,7 @@ VPS = os.environ.get("T_VPS", "")
 DEST = "/srv/alpha-sda/candles-1m-476/bybit-linear"
 INC = "/data/tk0476/incoming"
 CLAIMS = "/data/tk0476/claims"
+claim_lock = threading.Lock()  # 24 одновременных ssh.exe на Windows зависали после выполнения команды
 
 
 def upload(out, sym):
@@ -34,8 +35,9 @@ def upload(out, sym):
 
 
 def work_push(sym, out, rps):
-    r = subprocess.run(SSH + [CALC, "test -e %s/%s.csv.gz && exit 2; mkdir %s/%s" % (DEST, sym, CLAIMS, sym)],
-                       capture_output=True)
+    with claim_lock:
+        r = subprocess.run(SSH + [CALC, "test -e %s/%s.csv.gz && exit 2; mkdir %s/%s" % (DEST, sym, CLAIMS, sym)],
+                           capture_output=True, stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         return "skip " + sym
     hist.one(sym, out, rps)
@@ -61,17 +63,19 @@ def run_pool(fn, syms, out, threads, rps):
 def relay(vout):
     done = set()
     while True:
-        r = subprocess.run(SSH + [VPS, "ls %s/cov" % vout], capture_output=True, text=True)
+        r = subprocess.run(SSH + [VPS, "ls %s/cov" % vout], capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL)
         for f in r.stdout.split():
             sym = f[:-4]
             if not f.endswith(".tsv") or sym in done:
                 continue
             p1 = subprocess.Popen(SSH + [VPS, "cd %s && tar -cf - bybit-linear/%s.csv.gz cov/%s.tsv" % (vout, sym, sym)],
-                                  stdout=subprocess.PIPE)
+                                  stdout=subprocess.PIPE, stdin=subprocess.DEVNULL)
             p2 = subprocess.Popen(SSH + [CALC, "tar -xf - -C %s" % INC], stdin=p1.stdout)
             p1.stdout.close()
             if p2.wait() == 0 and p1.wait() == 0:
-                subprocess.run(SSH + [VPS, "rm -f %s/bybit-linear/%s.csv.gz %s/cov/%s.tsv" % (vout, sym, vout, sym)])
+                subprocess.run(SSH + [VPS, "rm -f %s/bybit-linear/%s.csv.gz %s/cov/%s.tsv" % (vout, sym, vout, sym)],
+                               stdin=subprocess.DEVNULL)
                 done.add(sym); print("relay ok", sym, len(done), flush=True)
         if os.path.exists("relay.stop"):
             return 0
