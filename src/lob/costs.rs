@@ -53,6 +53,21 @@ pub const TAKER_FEE_BPS: f64 = 3.5;
 /// вознаграждения от торговых комиссий»). Применяется к каждой ноге.
 pub const FEE_REBATE_SHARE: f64 = 0.10;
 
+/// Комиссия спот-мейкера, bps: 0.0625 % (В-88, владелец 02.11: «комиссия везде как на байбите»).
+pub const SPOT_MAKER_FEE_BPS: f64 = 6.25;
+
+/// Комиссия спот-тейкера, bps: 0.075 % (там же).
+pub const SPOT_TAKER_FEE_BPS: f64 = 7.5;
+
+/// Эффективная комиссия спот-ноги после возврата 10 %, bps: мейкер 5.625, тейкер 6.75.
+pub fn spot_leg_fee_bps(taker: bool) -> f64 {
+    (if taker {
+        SPOT_TAKER_FEE_BPS
+    } else {
+        SPOT_MAKER_FEE_BPS
+    }) * (1.0 - FEE_REBATE_SHARE)
+}
+
 /// Эффективная комиссия одной ноги после возврата, bps: мейкер 1.26, тейкер 3.15.
 pub fn leg_fee_bps(taker: bool) -> f64 {
     (if taker { TAKER_FEE_BPS } else { MAKER_FEE_BPS }) * (1.0 - FEE_REBATE_SHARE)
