@@ -6,46 +6,46 @@
 
 ## Было / стало (`/data`, ГБ)
 
-| число | что | файл:строка |
-|---|---|---|
-| 1362 | занято до | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:2` |
-| 378 | свободно до | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:3` |
-| 1277 | занято после | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:18` |
-| 463 | свободно после | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:19` |
-| 85.0 | удалено всего (сумма `du` перед `rm`; совпадает с разницей `df`) | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:20` |
+| число | файл:строка | что |
+| --- | --- | --- |
+| 1362 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:2` | занято до |
+| 378 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:3` | свободно до |
+| 1277 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:18` | занято после |
+| 463 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:19` | свободно после |
+| 85.0 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:20` | удалено всего (сумма `du` перед `rm`; совпадает с разницей `df`) |
 
 ## Удалено — класс А (выходы счёта закрытой линии стенок/скорости, тикеты приняты, регенерируемы скриптами из репо/тегов `archive/*`)
 
 Явные пути, без шаблонов, симлинки пропускались; код возврата каждого `rm` — ноль (`data/tk477/rmA.tsv`). Ссылки Летописи
 `/data/registry` на эти пути — только строки команд, шагов guard, опирающихся на них, нет.
 
-| число (ГБ) | путь | файл:строка |
-|---|---|---|
-| 34.5 | `/data/tk0319/jrn` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:4` |
-| 11.5 | `/data/p12r3a/jrn` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:5` |
-| 3.1 | `/data/tk0289/sig` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:6` |
-| 6.1 | `/data/tk0289/sig2` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:7` |
-| 0.7 | `/data/tk0289/f2` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:8` |
-| 8.0 | `/data/tk0315/p17f2` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:9` |
-| 5.0 | `/data/tk200/grid` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:10` |
-| 2.7 | `/data/tk051/abin-train` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:11` |
-| 2.4 | `/data/tk051/stand-out` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:12` |
-| 2.1 | `/data/tk048/abin-t46` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:13` |
-| 3.0 | `/data/tk046/aug` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:14` |
-| 2.8 | `/data/tk046/sep` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:15` |
-| 1.9 | `/data/tk046/jul` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:16` |
-| 1.2 | `/data/tk046/oct` | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:17` |
+| число (ГБ) | файл:строка | путь |
+| --- | --- | --- |
+| 34.5 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:4` | `/data/tk0319/jrn` |
+| 11.5 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:5` | `/data/p12r3a/jrn` |
+| 3.1 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:6` | `/data/tk0289/sig` |
+| 6.1 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:7` | `/data/tk0289/sig2` |
+| 0.7 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:8` | `/data/tk0289/f2` |
+| 8.0 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:9` | `/data/tk0315/p17f2` |
+| 5.0 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:10` | `/data/tk200/grid` |
+| 2.7 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:11` | `/data/tk051/abin-train` |
+| 2.4 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:12` | `/data/tk051/stand-out` |
+| 2.1 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:13` | `/data/tk048/abin-t46` |
+| 3.0 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:14` | `/data/tk046/aug` |
+| 2.8 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:15` | `/data/tk046/sep` |
+| 1.9 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:16` | `/data/tk046/jul` |
+| 1.2 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:17` | `/data/tk046/oct` |
 
 ## Оставлено
 
 - **Класс Г — под вопросом владельцу (хранится, пока владелец не скажет):**
 
-| число (ГБ) | путь | почему вопрос | файл:строка |
-|---|---|---|---|
-| 14.4 | `/data/tk0364` | промежуточное линии DEX↔CEX (на холде) | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:21` |
-| 6.7 | `/data/tk0399` | BBO Bybit по миллисекундам для арбитража Gate↔Bybit (арбитраж снят) | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:22` |
-| 13.0 | `/data/tk0402` | арбитраж Gate↔Bybit на всех общих монетах (снят) | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:23` |
-| 3.9 | `/data/tk084` | выход счёта клеток В-198 (линия стенок закрыта; сырьё докачки — проверить) | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:24` |
+| число (ГБ) | файл:строка | путь | почему вопрос |
+| --- | --- | --- | --- |
+| 14.4 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:21` | `/data/tk0364` | промежуточное линии DEX↔CEX (на холде) |
+| 6.7 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:22` | `/data/tk0399` | BBO Bybit по миллисекундам для арбитража Gate↔Bybit (арбитраж снят) |
+| 13.0 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:23` | `/data/tk0402` | арбитраж Gate↔Bybit на всех общих монетах (снят) |
+| 3.9 | `docs/findings/tk477-calc-cleanup-2026-11-01.tsv:24` | `/data/tk084` | выход счёта клеток В-198 (линия стенок закрыта; сырьё докачки — проверить) |
 
 - **Класс В — не трогали (сырьё, единственные копии, опора живых выводов):** `/data/alpha` (бинлоги), `/srv/alpha-sda/*`
   (свечи, `binlog-spot*`, `tk305`, `tk366*`, `tk379-ob`), данные DEX (`tk0378`, `tk0380`, `tk0393`, `tk387`), закачка стакана
