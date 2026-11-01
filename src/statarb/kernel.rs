@@ -204,7 +204,10 @@ pub(crate) fn beta_z(s: &Sums, mode: BetaMode, x: f64, y: f64, min_obs: usize) -
     };
     let ssr = cyy - 2.0 * beta * cxy + beta * beta * cxx;
     let scale = cyy + beta * beta * cxx;
-    if !(ssr > 8.0 * f64::EPSILON * scale) {
+    if !matches!(
+        ssr.partial_cmp(&(8.0 * f64::EPSILON * scale)),
+        Some(std::cmp::Ordering::Greater)
+    ) {
         return (beta, f64::NAN);
     }
     let sigma = (ssr / n).sqrt();

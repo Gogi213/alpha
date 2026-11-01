@@ -4,7 +4,11 @@
 
 use super::kernel::{BetaMode, Counters, PairInput, Params, Sink, Trade};
 
+/// Нога для фандинга: события, open, количество.
+type Leg<'a> = (&'a [(i64, f64)], &'a [f64], f64);
+
 /// z-скор и β на каждой минуте окна `[t−W+1, t]` (двухпроходная формула).
+#[allow(clippy::needless_range_loop)] // наивный эталон: индекс t нужен по всем рядам сразу
 pub fn z_series(inp: &PairInput, p: &Params) -> Vec<(f64, f64)> {
     let n = inp.ly.len();
     let mut out = vec![(f64::NAN, f64::NAN); n];
@@ -110,16 +114,15 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                 let mut fund = 0.0;
                 for m in (o.fill_in + 1)..t {
                     let ft = inp.first_min + m as i64;
-                    let legs: Vec<(&[(i64, f64)], &[f64], f64)> =
-                        std::iter::once((inp.fund_y, inp.oy, o.qty[0]))
-                            .chain((0..k).map(|i| {
-                                (
-                                    inp.fund_x.get(i).copied().unwrap_or(&[]),
-                                    inp.ox[i],
-                                    o.qty[i + 1],
-                                )
-                            }))
-                            .collect();
+                    let legs: Vec<Leg> = std::iter::once((inp.fund_y, inp.oy, o.qty[0]))
+                        .chain((0..k).map(|i| {
+                            (
+                                inp.fund_x.get(i).copied().unwrap_or(&[]),
+                                inp.ox[i],
+                                o.qty[i + 1],
+                            )
+                        }))
+                        .collect();
                     for (ev, op, q) in legs {
                         for &(fm, r) in ev {
                             if fm == ft {
