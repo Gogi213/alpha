@@ -34,11 +34,25 @@ def upload(out, sym):
         raise RuntimeError("заливка %s" % sym)
 
 
+class Claimer:
+    """Один постоянный ssh на calc: claim монеты = строка в stdin → «yes»/«no» (без рукопожатия ssh на каждую монету)."""
+    CMD = ("while read s; do if [ -e %s/$s.csv.gz ]; then echo no; elif mkdir %s/$s 2>/dev/null; "
+           "then echo yes; else echo no; fi; done" % (DEST, CLAIMS))
+
+    def __init__(self):
+        self.p = subprocess.Popen(SSH + [CALC, self.CMD], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+
+    def claim(self, sym):
+        with claim_lock:
+            self.p.stdin.write(sym + "\n"); self.p.stdin.flush()
+            return self.p.stdout.readline().strip() == "yes"
+
+
+claimer = None
+
+
 def work_push(sym, out, rps):
-    with claim_lock:
-        r = subprocess.run(SSH + [CALC, "test -e %s/%s.csv.gz && exit 2; mkdir %s/%s" % (DEST, sym, CLAIMS, sym)],
-                           capture_output=True, stdin=subprocess.DEVNULL)
-    if r.returncode != 0:
+    if not claimer.claim(sym):
         return "skip " + sym
     hist.one(sym, out, rps)
     upload(out, sym)
@@ -89,6 +103,9 @@ def main():
     out, syms = sys.argv[2], [s.strip() for s in open(sys.argv[3]) if s.strip()]
     threads = int(sys.argv[4]) if len(sys.argv) > 4 else 24
     rps = float(sys.argv[5]) if len(sys.argv) > 5 else 100.0
+    global claimer
+    if mode == "push":
+        claimer = Claimer()
     fn = work_push if mode == "push" else (lambda s, o, r: hist.one(s, o, r) or "ok " + s)
     sys.exit(run_pool(fn, syms, out, threads, rps))
 
