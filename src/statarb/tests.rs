@@ -651,7 +651,7 @@ fn funding_rule_matches_reference_and_rule_holds() {
             );
         }
         if t.sig_out - t.fill_x < 3000 {
-            assert!(!(edge(t.dir, t.sig_out) > cost), "выход {t:?}");
+            assert!(edge(t.dir, t.sig_out) <= cost, "выход {t:?}");
         }
     }
 }
