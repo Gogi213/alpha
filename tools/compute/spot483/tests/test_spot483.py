@@ -1,6 +1,6 @@
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import gate, hist, status, universe
+import closed, gate, hist, status, universe
 
 
 def test_base_of():
@@ -76,3 +76,48 @@ def test_get_retries_server_timeout(monkeypatch):
     seq[:] = [{"retCode": 10001, "retMsg": "Not supported symbols"}]
     calls.clear()
     assert hist.get("x", 1e9) == {"list": []} and len(calls) == 1
+
+
+def _trades(tmp_path, name, rows):
+    import gzip
+    f = tmp_path / name
+    with gzip.open(f, "wt", encoding="ascii", newline="") as g:
+        g.write("id,timestamp,price,volume,side\n")
+        for r in rows:
+            g.write("%d,%d,%s,%s,%s\n" % r)
+    return str(f)
+
+
+def test_closed_candles_rules(tmp_path):
+    """o = c прошлой сделочной минуты (через сутки), первая минута — первая сделка; h/l с учётом o; пустая минута не пишется;
+    конец свипа: buy — max цены последней мс, sell — min; неоднозначная мс — ≥ 2 цен."""
+    import io
+    d1 = _trades(tmp_path, "a.csv.gz", [(1, 60000, "10", "1", "buy"), (2, 60500, "12", "2", "buy"), (3, 61000, "11", "1", "sell")])
+    d2 = _trades(tmp_path, "b.csv.gz", [
+        (4, 180000, "13", "1", "buy"),                                            # минута 3 (минута 2 без сделок — не пишется), o=11 с d1
+        (5, 240001, "14", "1", "buy"), (6, 240001, "15", "1", "buy"),            # buy-свип: c = max = 15
+        (7, 300002, "9", "1", "sell"), (8, 300002, "8", "1", "sell"),            # sell-свип: c = min = 8
+        (9, 360003, "7", "1", "sell"), (10, 360003, "8", "1", "buy"),            # смешанные стороны: решает сторона max id (buy)
+    ])
+    st, out = [None], io.StringIO()
+    n, tr, amb = closed.candles_day(d1, st, out)
+    assert (n, tr, amb) == (1, 3, set()) and st[0] == "11"
+    first = out.getvalue().splitlines()[0].split(",")
+    assert first[:5] == ["60000", "10", "12", "10", "11"] and first[5] == "4" and first[7] == "3"  # o = первая сделка суток, v = 1+2+1
+    out = io.StringIO()
+    n, tr, amb = closed.candles_day(d2, st, out)
+    rows = [ln.split(",") for ln in out.getvalue().splitlines()]
+    assert [r[0] for r in rows] == ["180000", "240000", "300000", "360000"]
+    assert rows[0][1:5] == ["11", "13", "11", "13"]                                # o = c d1, h с учётом, l = o
+    assert rows[1][1:5] == ["13", "15", "13", "15"] and rows[1][4] == "15"
+    assert rows[2][1:5] == ["15", "15", "8", "8"]
+    assert rows[3][4] == "8" and amb == {240000, 300000, 360000}
+
+
+def test_closed_gate_compare():
+    import closed_gate as cg
+    a = {60000: (1, 2, 1, 2, 3, 4, 5), 120000: (2, 2, 2, 2, 1, 2, 1), 180000: (2, 3, 2, 3, 1, 3, 1)}
+    r = {60000: (1, 2, 1, 2.5, 3, 4), 120000: (2.5, 2.5, 2, 2, 1, 2), 180000: (2, 3, 2, 3, 1, 3), 240000: (3, 3, 3, 3, 0, 0)}
+    res = cg.compare(a, {60000}, r)
+    assert res["bad_c"] == 1 and res["bad_o"] == 1 and res["unexplained"] == 0 and res["rest_only_flat"] == 1 and cg.ok(res)
+    assert cg.compare(a, set(), r)["unexplained"] == 2 and not cg.ok(cg.compare(a, set(), r))
