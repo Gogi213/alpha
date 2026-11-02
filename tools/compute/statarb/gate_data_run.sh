@@ -6,7 +6,7 @@ S=/data/tk0484/src/gate_data.py
 C=/srv/alpha-sda/candles-1m
 mkdir -p daily out
 for ex in binance-um bybit-linear gate-futures_usdt; do
-  [ -s daily/daily-$ex.csv.done ] || { python3 $S probe --dir $C/$ex --out daily/daily-$ex.csv --jobs 15 && touch daily/daily-$ex.csv.done; }
+  [ -e daily/daily-$ex.csv.done ] || { python3 $S probe --dir $C/$ex --out daily/daily-$ex.csv --jobs 15 && touch daily/daily-$ex.csv.done; }
 done
 python3 $S build --daily-dir daily --universe-dir /data/tk0476/universe --coverage /data/tk0476/coverage.csv \
   --out-dir out --date 2026-11-03 \
