@@ -439,3 +439,123 @@ fn overlap_of_spans() {
     assert_eq!(mk(10, 10).overlap(&mk(15, 10)), Some((5, 0, 5)));
     assert_eq!(mk(10, 3).overlap(&mk(13, 3)), None);
 }
+
+/// `statarb run`: суточные суммы = сумма сделок из `--trades-out` по суткам закрытия; потоки результат
+/// не меняют; сделки до окна отброшены; нет панели — посчитано отдельным счётчиком.
+#[test]
+fn run_daily_equals_trades_and_is_thread_independent() {
+    use super::run::RunArgs;
+    use clap::Parser;
+    use std::collections::BTreeMap;
+
+    #[derive(Parser)]
+    struct W {
+        #[command(flatten)]
+        a: RunArgs,
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut rng = Lcg(77);
+    let n = 7 * 1440;
+    let base = walk(n, &mut rng, 4e-4, 0.0);
+    let ln_y = ou_on(&base, 1.0, &mut rng, 6e-4);
+    let ln_x = ou_on(&base, 0.0, &mut rng, 4e-4);
+    for (sym, ln) in [("AAA", &ln_y), ("BBB", &ln_x)] {
+        let (open, close) = with_gaps(ln, &mut rng, None);
+        let s = Series {
+            first_min: 0,
+            open,
+            close,
+        };
+        let mut f = std::fs::File::create(dir.path().join(format!("{sym}.sap"))).unwrap();
+        write_series(&mut f, &s).unwrap();
+    }
+    let jobs = dir.path().join("jobs.csv");
+    std::fs::write(
+        &jobs,
+        "y,x,from_day,to_day\nAAA,BBB,2,6\nAAA,ZZZ,2,6\nBBB,AAA,3,5\n",
+    )
+    .unwrap();
+    let go = |threads: &str, tag: &str| {
+        let daily = dir.path().join(format!("daily-{tag}.csv"));
+        let trades = dir.path().join(format!("trades-{tag}.csv"));
+        let a = W::parse_from([
+            "run",
+            "--kind",
+            "pair",
+            "--cell",
+            "T",
+            "--jobs",
+            jobs.to_str().unwrap(),
+            "--panels",
+            dir.path().to_str().unwrap(),
+            "--daily-out",
+            daily.to_str().unwrap(),
+            "--trades-out",
+            trades.to_str().unwrap(),
+            "--trade-jobs",
+            "0,2",
+            "--min-span",
+            "100",
+            "--threads",
+            threads,
+            "--window",
+            "240",
+            "--min-obs",
+            "120",
+            "--entry-z",
+            "2.0",
+            "--exit-z",
+            "0.2",
+            "--stop-z",
+            "inf",
+            "--max-hold",
+            "720",
+            "--refresh",
+            "0",
+        ])
+        .a;
+        super::run::run(&a).unwrap();
+        (
+            std::fs::read_to_string(&daily).unwrap(),
+            std::fs::read_to_string(&trades).unwrap(),
+        )
+    };
+    let (d1, t1) = go("1", "a");
+    let (d4, t4) = go("4", "b");
+    assert_eq!(d1, d4, "суточный csv зависит от числа потоков");
+    assert_eq!(t1, t4);
+    let mut by_day: BTreeMap<i64, (f64, u64)> = BTreeMap::new();
+    let mut seen_jobs = std::collections::BTreeSet::new();
+    for l in t1.lines().skip(1) {
+        let f: Vec<&str> = l.split(',').collect();
+        let job: i64 = f[1].parse().unwrap();
+        seen_jobs.insert(job);
+        let (from, to) = if job == 0 { (2, 6) } else { (3, 5) };
+        let (fill_in, fill_out): (i64, i64) = (f[6].parse().unwrap(), f[8].parse().unwrap());
+        assert!(
+            fill_in >= from * 1440 && fill_out < to * 1440,
+            "сделка вне окна: {l}"
+        );
+        let e = by_day.entry(fill_out / 1440).or_default();
+        e.0 += f[12].parse::<f64>().unwrap();
+        e.1 += 1;
+    }
+    assert!(!by_day.is_empty(), "сделок нет — тест ничего не проверяет");
+    assert!(seen_jobs.is_subset(&[0, 2].into()));
+    // посчитанные задания — 0 и 2 (у 1 нет панели ZZZ), оба в --trade-jobs: суточный csv = сумма записанных сделок
+    let mut days = 0;
+    for l in d1.lines().skip(1) {
+        let f: Vec<&str> = l.split(',').collect();
+        let day: i64 = f[1].parse().unwrap();
+        let (net, cnt) = by_day.get(&day).copied().unwrap_or_default();
+        assert_eq!(
+            f[6].parse::<u64>().unwrap(),
+            cnt,
+            "число сделок суток {day}"
+        );
+        assert!(close(f[2].parse::<f64>().unwrap(), net), "net суток {day}");
+        days += 1;
+    }
+    assert_eq!(days, by_day.len());
+}

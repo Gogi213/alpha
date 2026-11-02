@@ -17,6 +17,7 @@ pub mod cli;
 pub mod kernel;
 pub mod panel;
 pub mod reference;
+pub mod run;
 
 #[cfg(test)]
 mod tests;

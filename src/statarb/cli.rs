@@ -76,6 +76,8 @@ pub enum StatarbCommand {
         #[arg(long)]
         refresh: usize,
     },
+    /// Клетка П-32 × список заданий-пар на окнах суток → суточные агрегаты по суткам закрытия (TK-484).
+    Run(super::run::RunArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -88,7 +90,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn two_panels(self) -> bool {
+    pub(super) fn two_panels(self) -> bool {
         matches!(self, Kind::Cross | Kind::FundingPp | Kind::FundingPs)
     }
 }
@@ -183,6 +185,7 @@ fn drift(inp: &PairInput, p: &Params) -> Drift {
 pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
     match cmd {
         StatarbCommand::Convert { src, out, threads } => convert(&src, &out, threads),
+        StatarbCommand::Run(a) => super::run::run(&a),
         StatarbCommand::Bench {
             kind,
             engine,
@@ -340,16 +343,16 @@ struct BenchArgs<'a> {
     p: Params,
 }
 
-struct Loaded {
-    name: String,
-    s: Series,
-    ln: Vec<f64>,
+pub(super) struct Loaded {
+    pub(super) name: String,
+    pub(super) s: Series,
+    pub(super) ln: Vec<f64>,
     /// Выплаты фандинга `(минута, ставка)` по возрастанию; пусто — файла нет или спот.
-    fund: Vec<(i64, f64)>,
+    pub(super) fund: Vec<(i64, f64)>,
 }
 
 /// `time_ms,rate,interval_h` → `(time_ms / 60000, rate)`; нет файла — пусто (счётчик в выводе bench).
-fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
+pub(super) fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
     let f = dir.join(format!("{name}.csv.gz"));
     if !f.exists() {
         return Ok(Vec::new());
@@ -389,6 +392,40 @@ fn load(dir: &Path, n: usize, fund: Option<&Path>) -> Result<Vec<Loaded>> {
     Ok(v)
 }
 
+/// Панели по именам (для `run`): нет файла `<SYM>.sap` — имя в списке отсутствующих, не ошибка.
+pub(super) fn load_names(
+    dir: &Path,
+    names: &[String],
+    fund: Option<&Path>,
+) -> Result<(HashMap<String, Loaded>, Vec<String>)> {
+    let mut map = HashMap::new();
+    let mut missing = Vec::new();
+    for name in names {
+        let f = dir.join(format!("{name}.sap"));
+        if !f.exists() {
+            missing.push(name.clone());
+            continue;
+        }
+        let s = read_series(&mut BufReader::with_capacity(1 << 20, File::open(&f)?))
+            .with_context(|| f.display().to_string())?;
+        let ln = s.ln_close();
+        let fund = match fund {
+            Some(d) => read_funding(d, name)?,
+            None => Vec::new(),
+        };
+        map.insert(
+            name.clone(),
+            Loaded {
+                name: name.clone(),
+                s,
+                ln,
+                fund,
+            },
+        );
+    }
+    Ok((map, missing))
+}
+
 /// Задание: Y — индекс, X — индексы компонент (по ним и из какого набора), набор Y и набор X.
 struct Job {
     y: usize,
@@ -396,7 +433,7 @@ struct Job {
 }
 
 /// Общий спан набора рядов: первая минута и срезы `[from, from+len)` в координатах каждого.
-fn common(ser: &[&Series]) -> Option<(i64, Vec<usize>, usize)> {
+pub(super) fn common(ser: &[&Series]) -> Option<(i64, Vec<usize>, usize)> {
     let lo = ser.iter().map(|s| s.first_min).max()?;
     let hi = ser.iter().map(|s| s.last_min()).min()?;
     if hi < lo {
