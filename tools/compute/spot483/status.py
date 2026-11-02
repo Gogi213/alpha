@@ -2,7 +2,7 @@
 """TK-483: статус спота по каждому перпу вселенной TK-476. Вход: <w>/universe.csv + <w>/cov/*.tsv (hist.py: sym,rows,first_ms,last_ms,запросов).
 Выход <w>/coverage.csv: perp_exchange,perp_symbol,base,mult,spot_symbol,spot_live,spot_archive,rows,first_utc,last_utc,status,reason.
 status: «есть» (свечи REST лежат), «нет в архиве» (по критерию тикета: пары на споте нет или свечей нет) — причина в reason.
-usage: status.py <w> [out.csv]"""
+usage: status.py <w> [out.csv] [cov-каталог, по умолчанию <w>/cov; на calc — /srv/alpha-sda/candles-1m-483/cov]"""
 import csv, os, sys, time
 
 
@@ -24,9 +24,10 @@ def classify(live, arch, rows):
 def main():
     w = sys.argv[1]
     out = sys.argv[2] if len(sys.argv) > 2 else w + "/coverage.csv"
+    cdir = sys.argv[3] if len(sys.argv) > 3 else w + "/cov"
     cov = {}
-    for fn in os.listdir(w + "/cov"):
-        p = open(w + "/cov/" + fn).read().rstrip("\n").split("\t")
+    for fn in os.listdir(cdir):
+        p = open(cdir + "/" + fn).read().rstrip("\n").split("\t")
         cov[p[0]] = (int(p[1]), p[2], p[3])
     n = {"есть": 0, "нет в архиве": 0}
     with open(out, "w", newline="") as f:
