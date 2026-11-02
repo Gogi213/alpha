@@ -1,6 +1,6 @@
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import closed, gate, hist, status, universe
+import closed, gate, hist, remote_check, status, universe
 
 
 def test_base_of():
@@ -122,3 +122,13 @@ def test_closed_gate_compare():
     res = cg.compare(a, {60000}, r)
     assert res["bad_c"] == 1 and res["bad_o"] == 1 and res["unexplained"] == 0 and res["rest_only_flat"] == 1 and cg.ok(res)
     assert cg.compare(a, set(), r)["unexplained"] == 2 and not cg.ok(cg.compare(a, set(), r))
+
+
+def test_remote_check_coverage(tmp_path):
+    p = tmp_path / "cov.csv"
+    p.write_text("\n".join(["perp_symbol,spot_symbol,rows,status", "AUSDT,AUSDT,5,есть", "BUSDT,,0,нет в архиве",
+                            "CUSDT,,0,есть", ""]), encoding="utf-8")
+    bad, n, s = remote_check.coverage(str(p))
+    assert n == 3 and s == 2
+    assert any("CUSDT" in b for b in bad) and any("строк 3" in b for b in bad)
+
