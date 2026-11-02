@@ -29,6 +29,7 @@ def test_classify():
     assert "сборкой" in status.classify(0, 1, 0)[1]
     assert "нет" in status.classify(0, 0, 0)[1]
     assert status.classify(1, 1, 0)[0] == "нет в архиве"
+    assert "сборка из архива сделок" in status.classify(0, 1, 7, True)[1] and status.classify(0, 1, 7, True)[0] == "есть"
 
 
 def test_gate_times_and_file(tmp_path):
