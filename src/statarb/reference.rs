@@ -2,7 +2,9 @@
 //! (O(W), два прохода, без скользящих сумм), фандинг — постфактум по списку событий. Правила те же,
 //! код другой: сверка `kernel::run_pair` с ней — тест и вариант `naive` в таблице замера.
 
-use super::kernel::{BetaMode, Counters, PairInput, Params, Sink, Trade};
+use super::kernel::{
+    round_trip_cost_bps, BetaMode, Counters, PairInput, Params, Rule, Sink, Trade,
+};
 
 /// Нога для фандинга: события, open, количество.
 type Leg<'a> = (&'a [(i64, f64)], &'a [f64], f64);
@@ -55,6 +57,9 @@ struct Open {
     dir: i8,
     sig_in: usize,
     fill_in: usize,
+    /// Минута входа ноги X; `None` — нога X ещё ждёт срока или open.
+    fill_x: Option<usize>,
+    beta: f64,
     qty: Vec<f64>,
     pin: Vec<f64>,
 }
@@ -66,10 +71,32 @@ fn last_open(o: &[f64], mut t: usize) -> f64 {
     o[t]
 }
 
+/// Трейлинг-среднее `k` последних выплат с минутой ≤ `ft`; `NaN`, если выплат меньше `k`.
+fn trailing_mean(ev: &[(i64, f64)], ft: i64, k: usize) -> f64 {
+    let cnt = ev.partition_point(|e| e.0 <= ft);
+    if cnt < k {
+        return f64::NAN;
+    }
+    let mut acc = 0.0;
+    for e in &ev[cnt - k..cnt] {
+        acc += e.1;
+    }
+    acc / k as f64
+}
+
 pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters {
     let n = inp.ly.len();
     let k = inp.ox.len();
     let zs = z_series(inp, p);
+    let wsum = inp.wx.iter().sum::<f64>();
+    let (fk, fh) = match p.rule {
+        Rule::Z => (0, 0.0),
+        Rule::Funding { k, hold_payments } => (k, hold_payments as f64),
+    };
+    assert!(
+        fk > 0 || matches!(p.rule, Rule::Z),
+        "Rule::Funding: нужно k ≥ 1"
+    );
     let mut c = Counters::default();
     let mut pos: Option<Open> = None;
     let mut want_enter: Option<(i8, f64, usize)> = None;
@@ -77,28 +104,41 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
     for t in 0..n {
         let ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
         if let Some((d, beta, sig)) = want_enter.take() {
-            if ok {
-                let mut qty = vec![f64::from(d) / inp.oy[t]];
-                let mut pin = vec![inp.oy[t]];
-                for i in 0..k {
-                    qty.push(-f64::from(d) * beta * inp.wx[i] / inp.ox[i][t]);
-                    pin.push(inp.ox[i][t]);
-                }
+            // Без задержки нужны open всех ног в эту минуту; с задержкой — только у Y.
+            if (p.delay_x == 0 && ok) || (p.delay_x > 0 && inp.oy[t].is_finite()) {
                 pos = Some(Open {
                     dir: d,
                     sig_in: sig,
                     fill_in: t,
-                    qty,
-                    pin,
+                    fill_x: None,
+                    beta,
+                    qty: vec![f64::from(d) / inp.oy[t]],
+                    pin: vec![inp.oy[t]],
                 });
                 c.entries += 1;
             } else {
                 c.entry_deferred += 1;
             }
         }
+        // Нога X: срок `fill_in + delay_x`, дальше — первая минута с open у всех компонент.
+        if let Some(o) = pos.as_mut() {
+            if o.fill_x.is_none() && t >= o.fill_in.saturating_add(p.delay_x) {
+                if inp.ox.iter().all(|x| x[t].is_finite()) {
+                    for i in 0..k {
+                        o.qty
+                            .push(-f64::from(o.dir) * o.beta * inp.wx[i] / inp.ox[i][t]);
+                        o.pin.push(inp.ox[i][t]);
+                    }
+                    o.fill_x = Some(t);
+                } else {
+                    c.x_deferred += 1;
+                }
+            }
+        }
         if let Some(sig) = want_exit {
             if ok {
                 let o = pos.take().expect("выход без позиции");
+                let fx = o.fill_x.expect("выход без ноги X");
                 let outs: Vec<f64> = std::iter::once(inp.oy[t])
                     .chain(inp.ox.iter().map(|x| x[t]))
                     .collect();
@@ -111,19 +151,20 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                         * (o.pin[i] * kind.fee_bps(p.taker_in)
                             + outs[i] * kind.fee_bps(p.taker_out));
                 }
+                // Фандинг постфактум: каждая нога — за метки строго между её входом и минутой выхода.
                 let mut fund = 0.0;
                 for m in (o.fill_in + 1)..t {
                     let ft = inp.first_min + m as i64;
-                    let legs: Vec<Leg> = std::iter::once((inp.fund_y, inp.oy, o.qty[0]))
-                        .chain((0..k).map(|i| {
-                            (
-                                inp.fund_x.get(i).copied().unwrap_or(&[]),
-                                inp.ox[i],
-                                o.qty[i + 1],
-                            )
-                        }))
-                        .collect();
-                    for (ev, op, q) in legs {
+                    let mut legs: Vec<(Leg, usize)> =
+                        vec![((inp.fund_y, inp.oy, o.qty[0]), o.fill_in)];
+                    for i in 0..k {
+                        let ev = inp.fund_x.get(i).copied().unwrap_or(&[]);
+                        legs.push(((ev, inp.ox[i], o.qty[i + 1]), fx));
+                    }
+                    for ((ev, op, q), start) in legs {
+                        if m <= start {
+                            continue;
+                        }
                         for &(fm, r) in ev {
                             if fm == ft {
                                 fund -= q * last_open(op, m) * r;
@@ -137,6 +178,7 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                     dir: o.dir,
                     sig_in: inp.first_min + o.sig_in as i64,
                     fill_in: inp.first_min + o.fill_in as i64,
+                    fill_x: inp.first_min + fx as i64,
                     sig_out: inp.first_min + sig as i64,
                     fill_out: inp.first_min + t as i64,
                     gross_bps,
@@ -160,22 +202,56 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             c.gap_minutes += 1;
         }
         let (beta, z) = zs[t];
+        let r_mean = if fk > 0 {
+            trailing_mean(inp.fund_y, inp.first_min + t as i64, fk)
+        } else {
+            f64::NAN
+        };
         match &pos {
             None => {
-                if want_enter.is_none() && z.is_finite() && beta.is_finite() {
-                    if z <= -p.entry_z {
-                        want_enter = Some((1, beta, t));
-                    } else if z >= p.entry_z {
-                        want_enter = Some((-1, beta, t));
+                if want_enter.is_none() {
+                    match p.rule {
+                        Rule::Z => {
+                            if z.is_finite() && beta.is_finite() {
+                                if z <= -p.entry_z {
+                                    want_enter = Some((1, beta, t));
+                                } else if z >= p.entry_z {
+                                    want_enter = Some((-1, beta, t));
+                                }
+                            }
+                        }
+                        Rule::Funding { .. } => {
+                            let b = match p.beta {
+                                BetaMode::Fixed(b) => b,
+                                BetaMode::Ols => beta,
+                            };
+                            if r_mean.is_finite()
+                                && b.is_finite()
+                                && r_mean.abs() * 1e4 * fh > round_trip_cost_bps(p, b, wsum)
+                            {
+                                want_enter = Some((if r_mean > 0.0 { -1 } else { 1 }, b, t));
+                            }
+                        }
                     }
                 }
             }
             Some(o) => {
                 if want_exit.is_none() {
-                    let dz = f64::from(o.dir) * z;
-                    let timed = p.max_hold > 0 && t - o.fill_in >= p.max_hold;
-                    if (z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z)) || timed {
-                        want_exit = Some(t);
+                    if let Some(fx) = o.fill_x {
+                        let timed = p.max_hold > 0 && t - fx >= p.max_hold;
+                        let by_rule = match p.rule {
+                            Rule::Z => {
+                                let dz = f64::from(o.dir) * z;
+                                z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z)
+                            }
+                            Rule::Funding { .. } => {
+                                let edge = -f64::from(o.dir) * r_mean * 1e4 * fh;
+                                !(edge > round_trip_cost_bps(p, o.beta, wsum))
+                            }
+                        };
+                        if by_rule || timed {
+                            want_exit = Some(t);
+                        }
                     }
                 }
             }

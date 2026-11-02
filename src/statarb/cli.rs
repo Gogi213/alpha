@@ -1,7 +1,7 @@
 //! `alpha statarb convert|bench` (TK-479): csv.gz свечей → панели `.sap` один раз; замер
 //! пропускной способности ядра по видам. Пороги и окна не назначаются — все параметры обязательны.
 
-use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Sink, Trade};
+use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Rule, Sink, Trade};
 use super::panel::{convert_csv_stats, read_series, write_series, ConvertStats, Series};
 use super::reference;
 use anyhow::{bail, Context, Result};
@@ -79,6 +79,15 @@ pub enum StatarbCommand {
         /// Без флага горячий путь идёт с пустым приёмником и вывод прежний.
         #[arg(long, default_value_t = false)]
         digest: bool,
+        /// C1: задержка входа ноги X после ноги Y, минут; 0 — обе ноги на одном open (как раньше).
+        #[arg(long, default_value_t = 0)]
+        delay_x: usize,
+        /// D3: k последних выплат ноги Y для входа по уровню ставки (требует --funding-y); 0 — правило z (как раньше).
+        #[arg(long, default_value_t = 0)]
+        funding_k: usize,
+        /// D3: ожидаемое удержание в выплатах (обязательно при --funding-k ≥ 1).
+        #[arg(long, default_value_t = 0)]
+        hold_payments: usize,
     },
 }
 
@@ -169,11 +178,18 @@ impl HashSink {
         ] {
             self.eat(v);
         }
+        // Поля, которых не было в прежнем бинарнике, входят в хеш только при ненулевом значении.
+        if c.x_deferred != 0 {
+            self.eat(c.x_deferred);
+        }
     }
 }
 
 impl Sink for HashSink {
     fn trade(&mut self, t: &Trade) {
+        if t.fill_x != t.fill_in {
+            self.eat(t.fill_x as u64);
+        }
         for v in [
             t.dir as u64,
             t.sig_in as u64,
@@ -253,7 +269,13 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
             max_hold,
             refresh,
             digest,
+            delay_x,
+            funding_k,
+            hold_payments,
         } => {
+            if funding_k > 0 && (hold_payments == 0 || funding_y.is_none()) {
+                bail!("--funding-k требует --hold-payments ≥ 1 и --funding-y");
+            }
             let p = Params {
                 window,
                 min_obs,
@@ -275,6 +297,15 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                 },
                 taker_in: true,
                 taker_out: true,
+                delay_x,
+                rule: if funding_k > 0 {
+                    Rule::Funding {
+                        k: funding_k,
+                        hold_payments,
+                    }
+                } else {
+                    Rule::Z
+                },
             };
             bench(&BenchArgs {
                 kind,
