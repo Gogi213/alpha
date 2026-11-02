@@ -6,7 +6,9 @@
   o = c последней сделки ДО минуты (через границу суток; для самой первой минуты — цена первой сделки), h/l — с учётом o.
 Минуты без сделок НЕ пишутся (не выдумываем). Выход OUT/<SYM>.csv.gz (t_open_ms,o,h,l,c,v,quote_v,n_trades; o/h/l/c — строки цены архива).
 Использование: tk476-bybit-closed.py <список символов> <RAW> <OUT> <метка-каталог для .done/.fail> [потоков=48] [процессов=15]
-Итог: <метка>.done при FAIL=0 (все скачано и собрано), иначе <метка>.fail; сводка по монете — OUT/summary.csv."""
+Итог: <метка>.done при FAIL=0 (все скачано и собрано), иначе <метка>.fail; сводка по монете — OUT/summary.csv.
+403/404 на сутки = «нет в архиве» (не провал, без повторов): список <метка>.absent (символ день), повторный запуск эти сутки не запрашивает.
+Было (первый запуск 02.11): 403 повторялся 6 раз со сном 2…12 с = 42 с на сутки × 25 336 суток / 48 потоков ≈ 6,2 ч из 7,5 ч скачивания."""
 import csv, gzip, os, re, sys, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
@@ -21,7 +23,7 @@ def http(url, tries=6):
             with urllib.request.urlopen(url, timeout=120) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
-            if e.code == 404:
+            if e.code in (403, 404):
                 raise
             err = e
         except Exception as e:
@@ -37,6 +39,7 @@ def listing(sym):
 
 
 def fetch(job):
+    """None — файл есть; ("absent", sym, day) — суток нет в архиве (403/404); строка — провал (повтор запуском)."""
     sym, day, raw = job
     dst = f"{raw}/{sym}/{sym}{day}.csv.gz"
     if os.path.exists(dst):
@@ -48,6 +51,10 @@ def fetch(job):
             f.write(data)
         os.replace(tmp, dst)
         return None
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404):
+            return ("absent", sym, day)
+        return f"{sym} {day} {type(e).__name__} {e}"
     except Exception as e:
         return f"{sym} {day} {type(e).__name__} {e}"
 
@@ -127,17 +134,27 @@ def main():
     days = dict(zip(syms, lst))
     for s in syms:
         os.makedirs(f"{raw}/{s}", exist_ok=True)
-    jobs = [(s, d, raw) for s in syms for d in days[s]]
-    print(f"монет {len(syms)} суток {len(jobs)} листинг {time.time() - t0:.0f} с", flush=True)
+    absent = set()
+    if os.path.exists(tag + ".absent"):
+        absent = {tuple(l.split()) for l in open(tag + ".absent") if l.strip()}
+    jobs = [(s, d, raw) for s in syms for d in days[s] if (s, d) not in absent]
+    print(f"монет {len(syms)} суток {len(jobs)} (известных «нет в архиве» {len(absent)}) листинг {time.time() - t0:.0f} с", flush=True)
     fails = []
     with ThreadPoolExecutor(nthr) as ex:
         for i, r in enumerate(ex.map(fetch, jobs)):
-            if r:
+            if isinstance(r, tuple):
+                absent.add(r[1:])
+            elif r:
                 fails.append(r)
                 print("FAIL", r, flush=True)
             if (i + 1) % 2000 == 0:
                 print(f"скачано {i + 1}/{len(jobs)} за {time.time() - t0:.0f} с, FAIL={len(fails)}", flush=True)
-    print(f"скачивание: {len(jobs)} суток, FAIL={len(fails)}, {time.time() - t0:.0f} с", flush=True)
+    with open(tag + ".absent", "w") as f:
+        for a in sorted(absent):
+            f.write("%s %s" % a + chr(10))
+    print(f"скачивание: {len(jobs)} суток, нет в архиве {len(absent)}, FAIL={len(fails)}, {time.time() - t0:.0f} с", flush=True)
+    for s in syms:
+        days[s] = [d for d in days[s] if (s, d) not in absent]
     if fails:
         open(tag + ".fail", "w").write("скачивание FAIL=%d, первые: %s\n" % (len(fails), "; ".join(fails[:5])))
         sys.exit(1)
