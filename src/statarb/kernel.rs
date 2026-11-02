@@ -285,7 +285,24 @@ fn rates_at(ev: &[(i64, f64)], cur: &mut usize, ft: i64) -> f64 {
 }
 
 /// Прогон одной пары по всему спану. Память на минуту не выделяется: векторы размера `K` — до цикла.
+/// Режимы `delay_x > 0` и `Rule::Funding` — отдельные мономорфизации цикла: умолчание (без задержки, правило z)
+/// не несёт их состояния в регистрах горячего цикла (замер TK-482: общий цикл был на ~10 % медленнее прежнего).
 pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters {
+    let funding = matches!(p.rule, Rule::Funding { .. });
+    match (p.delay_x > 0, funding) {
+        (false, false) => run_pair_impl::<S, false, false>(inp, p, sink),
+        (true, false) => run_pair_impl::<S, true, false>(inp, p, sink),
+        (false, true) => run_pair_impl::<S, false, true>(inp, p, sink),
+        (true, true) => run_pair_impl::<S, true, true>(inp, p, sink),
+    }
+}
+
+/// `DELAY` — нога X входит позже ноги Y (`delay_x > 0`); `FUND` — правило `Rule::Funding`.
+fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
+    inp: &PairInput,
+    p: &Params,
+    sink: &mut S,
+) -> Counters {
     let n = inp.ly.len();
     let k = inp.ox.len();
     let refresh = if p.refresh == 0 { p.window } else { p.refresh };
@@ -308,13 +325,10 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
     let no_fund: &[(i64, f64)] = &[];
     // D3: кольцо `fk` последних выплат ноги Y, трейлинг-среднее, курсор по выплатам.
     let (fk, fh) = match p.rule {
-        Rule::Z => (0, 0.0),
-        Rule::Funding { k, hold_payments } => (k, hold_payments as f64),
+        Rule::Funding { k, hold_payments } if FUND => (k, hold_payments as f64),
+        _ => (0, 0.0),
     };
-    assert!(
-        fk > 0 || matches!(p.rule, Rule::Z),
-        "Rule::Funding: нужно k ≥ 1"
-    );
+    assert!(!FUND || fk > 0, "Rule::Funding: нужно k ≥ 1");
     let mut ring = vec![0.0f64; fk];
     let (mut ring_len, mut ring_head, mut cur_k) = (0usize, 0usize, 0usize);
     let mut r_mean = f64::NAN;
@@ -327,14 +341,22 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             Pend::Enter(d, beta, sig) => {
                 pend = Pend::None;
                 // Без задержки нужны open всех ног в эту минуту; с задержкой — только у Y, нога X идёт в свой срок.
-                if (p.delay_x == 0 && opens_ok) || (p.delay_x > 0 && inp.oy[t].is_finite()) {
+                if (!DELAY && opens_ok) || (DELAY && inp.oy[t].is_finite()) {
                     dir = d;
                     sig_in = sig;
                     fill_in = t;
                     qty[0] = f64::from(d) / inp.oy[t];
                     pin[0] = inp.oy[t];
                     x_beta = beta;
-                    x_due = t.saturating_add(p.delay_x);
+                    if DELAY {
+                        x_due = t.saturating_add(p.delay_x);
+                    } else {
+                        for i in 0..k {
+                            pin[i + 1] = inp.ox[i][t];
+                            qty[i + 1] = -f64::from(d) * beta * inp.wx[i] / inp.ox[i][t];
+                        }
+                        fill_x = t;
+                    }
                     fund = 0.0;
                     c.entries += 1;
                     filled_now = true;
@@ -379,8 +401,9 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             Pend::None => {}
         }
         // Нога X: вход в свой срок по open минуты, где он есть у всех компонент.
-        let mut x_filled_now = false;
-        if x_due <= t && dir != 0 {
+        // Без задержки нога X вошла вместе с Y (`x_filled_now == filled_now`).
+        let mut x_filled_now = filled_now;
+        if DELAY && x_due <= t && dir != 0 {
             if inp.ox.iter().all(|o| o[t].is_finite()) {
                 for i in 0..k {
                     pin[i + 1] = inp.ox[i][t];
@@ -444,7 +467,7 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
         };
         sink.z(t, z);
         // D3: выплаты ноги Y с минутой ≤ t входят в трейлинг-среднее (известны на закрытии минуты t).
-        if fk > 0 {
+        if FUND {
             let ev = if inp.fund_y.is_empty() {
                 no_fund
             } else {
@@ -473,40 +496,36 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
         // Сигнал по закрытию минуты t; исполнение — следующая минута. Выход — когда позиция набрана.
         if matches!(pend, Pend::None) {
             if dir == 0 {
-                match p.rule {
-                    Rule::Z => {
-                        if z.is_finite() && beta.is_finite() {
-                            if z <= -p.entry_z {
-                                pend = Pend::Enter(1, beta, t);
-                            } else if z >= p.entry_z {
-                                pend = Pend::Enter(-1, beta, t);
-                            }
+                if !FUND {
+                    if z.is_finite() && beta.is_finite() {
+                        if z <= -p.entry_z {
+                            pend = Pend::Enter(1, beta, t);
+                        } else if z >= p.entry_z {
+                            pend = Pend::Enter(-1, beta, t);
                         }
                     }
-                    Rule::Funding { .. } => {
-                        let b = match p.beta {
-                            BetaMode::Fixed(b) => b,
-                            BetaMode::Ols => beta,
-                        };
-                        if r_mean.is_finite() && b.is_finite() {
-                            let edge = r_mean.abs() * 1e4 * fh;
-                            if edge > round_trip_cost_bps(p, b, wsum) {
-                                pend = Pend::Enter(if r_mean > 0.0 { -1 } else { 1 }, b, t);
-                            }
+                } else {
+                    let b = match p.beta {
+                        BetaMode::Fixed(b) => b,
+                        BetaMode::Ols => beta,
+                    };
+                    if r_mean.is_finite() && b.is_finite() {
+                        let edge = r_mean.abs() * 1e4 * fh;
+                        if edge > round_trip_cost_bps(p, b, wsum) {
+                            pend = Pend::Enter(if r_mean > 0.0 { -1 } else { 1 }, b, t);
                         }
                     }
                 }
-            } else if x_due == NO_DUE {
+            } else if !DELAY || x_due == NO_DUE {
                 let timed = p.max_hold > 0 && t - fill_x >= p.max_hold;
-                let by_rule = match p.rule {
-                    Rule::Z => {
-                        let dz = f64::from(dir) * z;
-                        z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z)
-                    }
-                    Rule::Funding { .. } => {
-                        let edge = -f64::from(dir) * r_mean * 1e4 * fh;
-                        !(edge > round_trip_cost_bps(p, x_beta, wsum))
-                    }
+                let by_rule = if !FUND {
+                    let dz = f64::from(dir) * z;
+                    z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z)
+                } else {
+                    let edge = -f64::from(dir) * r_mean * 1e4 * fh;
+                    // не «выше круга», в том числе когда ставки ещё нет (NaN)
+                    edge.partial_cmp(&round_trip_cost_bps(p, x_beta, wsum))
+                        != Some(std::cmp::Ordering::Greater)
                 };
                 if by_rule || timed {
                     pend = Pend::Exit(t);

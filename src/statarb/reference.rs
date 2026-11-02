@@ -246,7 +246,9 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                             }
                             Rule::Funding { .. } => {
                                 let edge = -f64::from(o.dir) * r_mean * 1e4 * fh;
-                                !(edge > round_trip_cost_bps(p, o.beta, wsum))
+                                // не «выше круга», в том числе когда ставки ещё нет (NaN)
+                                edge.partial_cmp(&round_trip_cost_bps(p, o.beta, wsum))
+                                    != Some(std::cmp::Ordering::Greater)
                             }
                         };
                         if by_rule || timed {
