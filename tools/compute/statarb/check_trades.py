@@ -49,12 +49,15 @@ def main():
     a = p.parse_args()
     rows = list(csv.DictReader(open(a.trades)))
     fee = a.taker_fee_bps
+    lo_all = min(int(rows[i]["sig_in"]) for i in a.pick) - a.window
+    hi_all = max(int(rows[i]["fill_out"]) for i in a.pick)
+    syms = {rows[i][k] for i in a.pick for k in ("y", "x")}
+    cache = {s_: load(f"{a.candles}/{s_}.csv.gz", lo_all, hi_all) for s_ in sorted(syms)}  # один проход по символу
     for i in a.pick:
         r = rows[i]
         d = int(r["dir"])
         si, fi, so, fo = (int(r[k]) for k in ("sig_in", "fill_in", "sig_out", "fill_out"))
-        lo = si - a.window
-        cy, cx = (load(f"{a.candles}/{r[k]}.csv.gz", lo, fo) for k in ("y", "x"))
+        cy, cx = cache[r["y"]], cache[r["x"]]
         yi, yo = cy[fi][0], cy[fo][0]
         xi, xo = cx[fi][0], cx[fo][0]
         beta = ((yo / yi - 1) - float(r["gross_bps"]) / 1e4 / d) / (xo / xi - 1)
