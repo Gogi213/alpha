@@ -29,7 +29,7 @@ export PATH=/opt/rbuild/cargo/bin:\$PATH RUSTUP_HOME=/opt/rbuild/rustup CARGO_HO
 set -eo pipefail
 $STEPS
 EOS
-cd /opt/rbuild && SCHED_MANIFEST=0 python3 /data/sched/alsched.py submit --name build-TK-479-$MODE --max-runtime 25m --cls prod --kind build --cores 1 --mem 12 --prio 3 -- bash /opt/rbuild/run.sh $ARCR /opt/rbuild/in/cmd-tk479-$$.sh 1" | tail -1) ;;
+cd /opt/rbuild && SCHED_MANIFEST=0 python3 /data/sched/alsched.py submit --name build-TK-479-$MODE --max-runtime 25m --reason 'TK-479: сборка и проверки ядра' --cls prod --kind build --cores 1 --mem 12 --prio 3 -- bash /opt/rbuild/run.sh $ARCR /opt/rbuild/in/cmd-tk479-$$.sh 1" | tail -1) ;;
 bench)
   N="${2:-50}"; TH="${3:-8}"
   scp -q "${KEY[@]}" "$(dirname "$0")/statarb-bench.sh" "$HOST:/data/tk0479/statarb-bench.sh"
