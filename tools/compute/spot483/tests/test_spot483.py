@@ -49,6 +49,15 @@ def test_gate_times_and_file(tmp_path):
         assert False
     except ValueError:
         pass
+    # пустая пара (REST пуст): файл только с шапкой + cov 0 строк — зелёное; строки при cov 0 — красное
+    with gzip.open(f, "wt", encoding="ascii", newline="") as g:
+        g.write(head + "\n")
+    assert gate.check_symbol((str(f), "E", (0, "", ""))) == []
+    assert gate.check_symbol((str(f), "E", (5, "1", "2")))[0].startswith("E: файл пуст")
+    with gzip.open(f, "wt", encoding="ascii", newline="") as g:
+        g.write(head + "\n60000,1,2,0.5,1.5,10,15,\n")
+    assert gate.check_symbol((str(f), "X", (1, "60000", "60000"))) == []
+    assert "строк 1/2" in gate.check_symbol((str(f), "X", (2, "60000", "60000")))[0]
 
 
 def test_get_retries_server_timeout(monkeypatch):
