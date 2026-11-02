@@ -1,0 +1,11 @@
+key,value,source
+symmap_candidates,2376,build_symmap
+symmap_dev_threshold,0.0062474,"kneedle(dev) по кандидатам, линейная шкала"
+symmap_accepted,2344,dev <= порог
+gate_share_symbols,767,вселенная Gate (universe) × coverage
+gate_share_knee_index,699,"Kneedle, форма concave"
+gate_share_threshold,0.191709,доля минут со сделкой на колене
+bybit_empty_symbols,BUZZUSDT|CANTOUSDT|GEMSUSDT|JAILSTOOLUSDT|KUSDT|MAPOUSDT|NODEUSDT|PENGUSDT,исключение Д-2 (учтено в счётчике)
+bybit_absent_symbol_days,25336,исключение Д-2 (учтено в счётчике)
+exclude_window,gate-futures_usdt:2026-09-30T08:00:2026-09-30T08:31,биржа:от_UTC:до_UTC (минуты исключаются)
+exclude_window,binance-um:2026-10-28T00:00:2026-10-30T23:59,биржа:от_UTC:до_UTC (минуты исключаются)
