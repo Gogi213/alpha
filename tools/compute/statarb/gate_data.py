@@ -106,12 +106,15 @@ def build_symmap(daily):
 
 
 def dev_threshold(rows):
-    """Порог |отн.−1| по колену log10(dev) среди кандидатов; None, если мало точек."""
-    logs = [math.log10(max(r["dev"], 1e-9)) for r in rows]
-    kn = kneedle(logs)
+    """Порог |отн.−1| по колену Kneedle отсортированных dev кандидатов; None, если мало точек.
+
+    Линейная шкала (как у колена Gate): на логарифме колено ложится внутрь массы настоящих совпадений
+    (замер 03.11: 0,195 % отсёк 84 пары с dev 0,2…0,6 %), на линейной — на границу хвоста.
+    """
+    kn = kneedle([r["dev"] for r in rows])
     if kn is None:
         return None
-    return 10 ** kn[1]
+    return kn[1]
 
 
 def accept_rows(rows, thr):
@@ -243,7 +246,7 @@ def cmd_build(a):
 
     params = [("symmap_candidates", len(rows), "build_symmap"),
               ("symmap_dev_threshold", "" if thr is None else f"{thr:.6g}",
-               "kneedle(log10 dev) по кандидатам"),
+               "kneedle(dev) по кандидатам, линейная шкала"),
               ("symmap_accepted", sum(r["accepted"] for r in rows), "dev <= порог")]
     if kn:
         params += [("gate_share_symbols", n_g, "вселенная Gate (universe) × coverage"),
