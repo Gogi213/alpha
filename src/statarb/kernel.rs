@@ -99,6 +99,9 @@ pub struct Trade {
 
 pub trait Sink {
     fn trade(&mut self, t: &Trade);
+    /// z-скор минуты `t` (`NaN` — оценки нет); по умолчанию не нужен и вычёркивается при мономорфизации.
+    #[inline]
+    fn z(&mut self, _t: usize, _z: f64) {}
 }
 
 impl Sink for () {
@@ -371,6 +374,7 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
         } else {
             (f64::NAN, f64::NAN)
         };
+        sink.z(t, z);
         // Сигнал по закрытию минуты t; исполнение — следующая минута.
         if matches!(pend, Pend::None) {
             if dir == 0 {

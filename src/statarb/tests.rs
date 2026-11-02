@@ -152,6 +152,53 @@ fn pair_kernel_matches_reference_with_gaps() {
     }
 }
 
+/// Приёмник z-скора ядра по минутам (хук `Sink::z`, им меряется дрейф на реальных данных).
+struct ZSink(Vec<f64>);
+
+impl Sink for ZSink {
+    fn trade(&mut self, _: &Trade) {}
+    fn z(&mut self, t: usize, z: f64) {
+        self.0[t] = z;
+    }
+}
+
+#[test]
+fn z_hook_matches_reference_z_series() {
+    let mut r = Lcg(5);
+    let x = walk(N, &mut r, 1e-3, 4.0);
+    let y = ou_on(&x, 0.8, &mut r, 2e-3);
+    let (ox, cx) = with_gaps(&x, &mut r, None);
+    let (oy, cy) = with_gaps(&y, &mut r, Some((3000, 3040)));
+    let (lx, ly) = (lns(&cx), lns(&cy));
+    let inp = PairInput {
+        first_min: 0,
+        ly: &ly,
+        lx: &lx,
+        oy: &oy,
+        ox: &[&ox],
+        wx: &[1.0],
+        fund_y: &[],
+        fund_x: &[],
+    };
+    for refresh in [0, 7] {
+        let p = Params {
+            refresh,
+            ..params(BetaMode::Ols, LegKind::Perp, LegKind::Perp)
+        };
+        let mut k = ZSink(vec![f64::NAN; N]);
+        run_pair(&inp, &p, &mut k);
+        let zr = reference::z_series(&inp, &p);
+        let finite = zr.iter().filter(|q| q.1.is_finite()).count();
+        assert!(finite > N / 2, "тест пуст: z конечных {finite}");
+        for (t, (a, (_, b))) in k.0.iter().zip(&zr).enumerate() {
+            assert_eq!(a.is_finite(), b.is_finite(), "минута {t}");
+            if a.is_finite() {
+                assert!((a - b).abs() <= 1e-7, "минута {t}: {a} против {b}");
+            }
+        }
+    }
+}
+
 #[test]
 fn basket_kernel_matches_reference() {
     let mut r = Lcg(2);

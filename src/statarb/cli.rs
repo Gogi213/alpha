@@ -1,11 +1,12 @@
 //! `alpha statarb convert|bench` (TK-479): csv.gz свечей → панели `.sap` один раз; замер
 //! пропускной способности ядра по видам. Пороги и окна не назначаются — все параметры обязательны.
 
-use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params};
+use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Sink, Trade};
 use super::panel::{convert_csv_stats, read_series, write_series, ConvertStats, Series};
 use super::reference;
 use anyhow::{bail, Context, Result};
 use clap::{Subcommand, ValueEnum};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -33,7 +34,8 @@ pub enum StatarbCommand {
         /// (спот-ног фандинга нет, комиссия спота).
         #[arg(long, value_enum)]
         kind: Kind,
-        /// kernel — онлайн-ядро; reference — наивный O(W) пересчёт.
+        /// kernel — онлайн-ядро; reference — наивный O(W) пересчёт; drift — ядро и reference на тех же
+        /// заданиях, печатает расхождение z и сделок (скорость не мерится).
         #[arg(long, value_enum)]
         engine: Engine,
         #[arg(long)]
@@ -95,6 +97,87 @@ impl Kind {
 pub enum Engine {
     Kernel,
     Reference,
+    Drift,
+}
+
+/// Расхождение ядра с референсом на одном задании.
+#[derive(Debug, Clone, Copy, Default)]
+struct Drift {
+    z_cmp: u64,
+    z_nan_diff: u64,
+    max_dz: f64,
+    trades_k: u64,
+    trades_r: u64,
+    trades_diff: u64,
+    max_dnet: f64,
+}
+
+impl Drift {
+    fn add(&mut self, o: &Drift) {
+        self.z_cmp += o.z_cmp;
+        self.z_nan_diff += o.z_nan_diff;
+        self.max_dz = self.max_dz.max(o.max_dz);
+        self.trades_k += o.trades_k;
+        self.trades_r += o.trades_r;
+        self.trades_diff += o.trades_diff;
+        self.max_dnet = self.max_dnet.max(o.max_dnet);
+    }
+}
+
+/// Приёмник замера дрейфа: сделки и z-скор каждой минуты.
+struct DriftSink {
+    z: Vec<f64>,
+    tr: Vec<Trade>,
+}
+
+impl Sink for DriftSink {
+    fn trade(&mut self, t: &Trade) {
+        self.tr.push(*t);
+    }
+    fn z(&mut self, t: usize, z: f64) {
+        self.z[t] = z;
+    }
+}
+
+type TradeKey = (i8, i64, i64, i64, i64);
+
+fn key(t: &Trade) -> TradeKey {
+    (t.dir, t.sig_in, t.fill_in, t.sig_out, t.fill_out)
+}
+
+fn drift(inp: &PairInput, p: &Params) -> Drift {
+    let mut k = DriftSink {
+        z: vec![f64::NAN; inp.ly.len()],
+        tr: Vec::new(),
+    };
+    run_pair(inp, p, &mut k);
+    let mut r: Vec<Trade> = Vec::new();
+    reference::run_pair(inp, p, &mut r);
+    let zr = reference::z_series(inp, p);
+    let mut d = Drift::default();
+    for (a, (_, b)) in k.z.iter().zip(&zr) {
+        match (a.is_finite(), b.is_finite()) {
+            (true, true) => {
+                d.z_cmp += 1;
+                d.max_dz = d.max_dz.max((a - b).abs());
+            }
+            (false, false) => {}
+            _ => d.z_nan_diff += 1,
+        }
+    }
+    let by_key: HashMap<TradeKey, f64> = r.iter().map(|t| (key(t), t.net_bps)).collect();
+    d.trades_k = k.tr.len() as u64;
+    d.trades_r = r.len() as u64;
+    let mut matched = 0u64;
+    for t in &k.tr {
+        if let Some(n) = by_key.get(&key(t)) {
+            matched += 1;
+            d.max_dnet = d.max_dnet.max((t.net_bps - n).abs());
+        }
+    }
+    // Симметрическая разность множеств сделок: ядро без пары в референсе + референс без пары в ядре.
+    d.trades_diff = (d.trades_k - matched) + (d.trades_r - matched);
+    d
 }
 
 pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
@@ -326,7 +409,12 @@ fn common(ser: &[&Series]) -> Option<(i64, Vec<usize>, usize)> {
     ))
 }
 
-fn run_job(a: &BenchArgs, ys: &[Loaded], xs: &[Loaded], j: &Job) -> Option<(Counters, usize)> {
+fn run_job(
+    a: &BenchArgs,
+    ys: &[Loaded],
+    xs: &[Loaded],
+    j: &Job,
+) -> Option<(Counters, usize, Drift)> {
     let y = &ys[j.y];
     let xv: Vec<&Loaded> = j.x.iter().map(|&i| &xs[i]).collect();
     let mut all: Vec<&Series> = vec![&y.s];
@@ -361,11 +449,16 @@ fn run_job(a: &BenchArgs, ys: &[Loaded], xs: &[Loaded], j: &Job) -> Option<(Coun
         fund_y: &y.fund,
         fund_x: &fx,
     };
+    let mut dr = Drift::default();
     let c = match a.engine {
         Engine::Kernel => run_pair(&inp, &a.p, &mut ()),
         Engine::Reference => reference::run_pair(&inp, &a.p, &mut ()),
+        Engine::Drift => {
+            dr = drift(&inp, &a.p);
+            Counters::default()
+        }
     };
-    Some((c, len))
+    Some((c, len, dr))
 }
 
 fn bench(a: &BenchArgs) -> Result<()> {
@@ -429,15 +522,18 @@ fn bench(a: &BenchArgs) -> Result<()> {
         };
     let next = AtomicUsize::new(0);
     let acc = Mutex::new((0u64, 0u64, 0u64, 0u64)); // заданий, минут, сделок, пропусков
+    let dacc = Mutex::new(Drift::default());
     let t0 = Instant::now();
     std::thread::scope(|s| {
         for _ in 0..a.threads.max(1) {
             s.spawn(|| {
                 let (mut n, mut rows, mut tr, mut gaps) = (0u64, 0u64, 0u64, 0u64);
+                let mut dr = Drift::default();
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(j) = jobs.get(i) else { break };
-                    if let Some((c, len)) = run_job(a, &ys, xs, j) {
+                    if let Some((c, len, d)) = run_job(a, &ys, xs, j) {
+                        dr.add(&d);
                         n += 1;
                         rows += len as u64;
                         tr += c.trades;
@@ -449,11 +545,20 @@ fn bench(a: &BenchArgs) -> Result<()> {
                 g.1 += rows;
                 g.2 += tr;
                 g.3 += gaps;
+                dacc.lock().unwrap().add(&dr);
             });
         }
     });
     let (n, rows, tr, gaps) = acc.into_inner().unwrap();
     let wall = t0.elapsed().as_secs_f64();
+    if matches!(a.engine, Engine::Drift) {
+        let d = dacc.into_inner().unwrap();
+        println!(
+            "drift kind={:?} window={} refresh={}: заданий {} из {}, минут z сравнено {}, минут с разной конечностью z {}, max|Δz| {:.3e}, сделок ядро {} / референс {}, разошлось сделок {}, max|Δnet_bps| по совпавшим {:.3e}, {:.1} с",
+            a.kind, a.p.window, a.p.refresh, n, jobs.len(), d.z_cmp, d.z_nan_diff, d.max_dz, d.trades_k, d.trades_r, d.trades_diff, d.max_dnet, wall
+        );
+        return Ok(());
+    }
     println!(
         "bench kind={:?} engine={:?} threads={} window={} refresh={}: заданий {} из {}, минут {}, пропусков {}, сделок {}, счёт {:.3} с (загрузка {:.1} с, ставок фандинга {}), {:.3e} строк/с, {:.1} пар/с",
         a.kind, a.engine, a.threads, a.p.window, a.p.refresh, n, jobs.len(), rows, gaps, tr, wall, load_s, fund_rows,
