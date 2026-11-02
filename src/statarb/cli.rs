@@ -78,6 +78,8 @@ pub enum StatarbCommand {
     },
     /// Клетка П-32 × список заданий-пар на окнах суток → суточные агрегаты по суткам закрытия (TK-484).
     Run(super::run::RunArgs),
+    /// Замер матричного предфильтра формирования (TK-486): корреляция всех пар вселенной блоками.
+    CorrBench(super::corr::CorrBenchArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -186,6 +188,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
     match cmd {
         StatarbCommand::Convert { src, out, threads } => convert(&src, &out, threads),
         StatarbCommand::Run(a) => super::run::run(&a),
+        StatarbCommand::CorrBench(a) => super::corr::run(&a),
         StatarbCommand::Bench {
             kind,
             engine,
