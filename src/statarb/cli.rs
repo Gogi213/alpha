@@ -11,7 +11,7 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -75,6 +75,10 @@ pub enum StatarbCommand {
         max_hold: usize,
         #[arg(long)]
         refresh: usize,
+        /// Печатает хеш всех сделок и счётчиков (kernel / reference): гейт «байт в байт» между бинарниками.
+        /// Без флага горячий путь идёт с пустым приёмником и вывод прежний.
+        #[arg(long, default_value_t = false)]
+        digest: bool,
     },
 }
 
@@ -136,6 +140,53 @@ impl Sink for DriftSink {
     }
     fn z(&mut self, t: usize, z: f64) {
         self.z[t] = z;
+    }
+}
+
+/// FNV-1a по побитовому представлению сделок: два бинарника выдают один хеш, только если все сделки совпали до бита.
+struct HashSink(u64);
+
+impl HashSink {
+    const SEED: u64 = 0xcbf2_9ce4_8422_2325;
+
+    fn eat(&mut self, v: u64) {
+        for b in v.to_le_bytes() {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+
+    fn counters(&mut self, c: &Counters) {
+        for v in [
+            c.obs_minutes,
+            c.gap_minutes,
+            c.entries,
+            c.entry_deferred,
+            c.exit_deferred,
+            c.trades,
+            c.minutes_in_pos,
+            c.open_at_end,
+            c.sum_net_bps.to_bits(),
+        ] {
+            self.eat(v);
+        }
+    }
+}
+
+impl Sink for HashSink {
+    fn trade(&mut self, t: &Trade) {
+        for v in [
+            t.dir as u64,
+            t.sig_in as u64,
+            t.fill_in as u64,
+            t.sig_out as u64,
+            t.fill_out as u64,
+            t.gross_bps.to_bits(),
+            t.fee_bps.to_bits(),
+            t.funding_bps.to_bits(),
+            t.net_bps.to_bits(),
+        ] {
+            self.eat(v);
+        }
     }
 }
 
@@ -201,6 +252,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
             exit_z,
             max_hold,
             refresh,
+            digest,
         } => {
             let p = Params {
                 window,
@@ -236,6 +288,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                 min_span,
                 basket_k,
                 threads,
+                digest,
                 p,
             })
         }
@@ -337,6 +390,7 @@ struct BenchArgs<'a> {
     min_span: usize,
     basket_k: usize,
     threads: usize,
+    digest: bool,
     p: Params,
 }
 
@@ -414,7 +468,7 @@ fn run_job(
     ys: &[Loaded],
     xs: &[Loaded],
     j: &Job,
-) -> Option<(Counters, usize, Drift)> {
+) -> Option<(Counters, usize, Drift, u64)> {
     let y = &ys[j.y];
     let xv: Vec<&Loaded> = j.x.iter().map(|&i| &xs[i]).collect();
     let mut all: Vec<&Series> = vec![&y.s];
@@ -450,15 +504,19 @@ fn run_job(
         fund_x: &fx,
     };
     let mut dr = Drift::default();
-    let c = match a.engine {
-        Engine::Kernel => run_pair(&inp, &a.p, &mut ()),
-        Engine::Reference => reference::run_pair(&inp, &a.p, &mut ()),
-        Engine::Drift => {
+    let mut h = HashSink(HashSink::SEED);
+    let c = match (a.engine, a.digest) {
+        (Engine::Kernel, false) => run_pair(&inp, &a.p, &mut ()),
+        (Engine::Kernel, true) => run_pair(&inp, &a.p, &mut h),
+        (Engine::Reference, false) => reference::run_pair(&inp, &a.p, &mut ()),
+        (Engine::Reference, true) => reference::run_pair(&inp, &a.p, &mut h),
+        (Engine::Drift, _) => {
             dr = drift(&inp, &a.p);
             Counters::default()
         }
     };
-    Some((c, len, dr))
+    h.counters(&c);
+    Some((c, len, dr, h.0))
 }
 
 fn bench(a: &BenchArgs) -> Result<()> {
@@ -523,6 +581,7 @@ fn bench(a: &BenchArgs) -> Result<()> {
     let next = AtomicUsize::new(0);
     let acc = Mutex::new((0u64, 0u64, 0u64, 0u64)); // заданий, минут, сделок, пропусков
     let dacc = Mutex::new(Drift::default());
+    let hacc = AtomicU64::new(0);
     let t0 = Instant::now();
     std::thread::scope(|s| {
         for _ in 0..a.threads.max(1) {
@@ -532,7 +591,12 @@ fn bench(a: &BenchArgs) -> Result<()> {
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(j) = jobs.get(i) else { break };
-                    if let Some((c, len, d)) = run_job(a, &ys, xs, j) {
+                    if let Some((c, len, d, h)) = run_job(a, &ys, xs, j) {
+                        // Хеш заданий складывается по номеру задания: порядок потоков результат не меняет.
+                        hacc.fetch_add(
+                            h ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+                            Ordering::Relaxed,
+                        );
                         dr.add(&d);
                         n += 1;
                         rows += len as u64;
@@ -564,5 +628,8 @@ fn bench(a: &BenchArgs) -> Result<()> {
         a.kind, a.engine, a.threads, a.p.window, a.p.refresh, n, jobs.len(), rows, gaps, tr, wall, load_s, fund_rows,
         rows as f64 / wall, n as f64 / wall
     );
+    if a.digest {
+        println!("digest {:016x}", hacc.load(Ordering::Relaxed));
+    }
     Ok(())
 }
