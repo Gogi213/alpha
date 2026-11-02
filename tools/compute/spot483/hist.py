@@ -44,7 +44,7 @@ def get(path, rps):
                 with lock:
                     pause_until = max(pause_until, time.monotonic() + 5 * (attempt + 1))
                 continue
-            if d.get("retCode") == 10016:
+            if d.get("retCode") in (10000, 10016):  # Server Timeout / сервис недоступен — повтор, не провал
                 time.sleep(3 * (attempt + 1))
                 continue
             raise RuntimeError("bybit retCode %s %s" % (d.get("retCode"), d.get("retMsg")))

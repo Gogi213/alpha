@@ -1,6 +1,6 @@
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import gate, status, universe
+import gate, hist, status, universe
 
 
 def test_base_of():
@@ -49,3 +49,21 @@ def test_gate_times_and_file(tmp_path):
         assert False
     except ValueError:
         pass
+
+
+def test_get_retries_server_timeout(monkeypatch):
+    """retCode 10000 (Server Timeout) — повтор; 10001 — пусто без повтора."""
+    import io, json
+    seq = [{"retCode": 10000, "retMsg": "Server Timeout"}, {"retCode": 0, "result": {"list": [["1"]]}}]
+    calls = []
+
+    def fake(url, timeout):
+        calls.append(url)
+        return io.StringIO(json.dumps(seq[len(calls) - 1]))
+
+    monkeypatch.setattr(hist.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(hist.time, "sleep", lambda s: None)
+    assert hist.get("x", 1e9) == {"list": [["1"]]} and len(calls) == 2
+    seq[:] = [{"retCode": 10001, "retMsg": "Not supported symbols"}]
+    calls.clear()
+    assert hist.get("x", 1e9) == {"list": []} and len(calls) == 1
