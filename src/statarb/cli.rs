@@ -28,7 +28,9 @@ pub enum StatarbCommand {
     /// Замер скорости ядра на панелях: строк (минут) в секунду и пар в секунду.
     Bench {
         /// pair — все пары первых N символов; cross — один символ на двух биржах (β = 1);
-        /// basket — символ против K следующих с равными весами.
+        /// basket — символ против K следующих с равными весами; funding-pp — перп против перпа
+        /// другой биржи с выплатами фандинга обеих ног; funding-ps — перп против спота
+        /// (спот-ног фандинга нет, комиссия спота).
         #[arg(long, value_enum)]
         kind: Kind,
         /// kernel — онлайн-ядро; reference — наивный O(W) пересчёт.
@@ -36,9 +38,15 @@ pub enum StatarbCommand {
         engine: Engine,
         #[arg(long)]
         panels: PathBuf,
-        /// Вторая биржа для cross.
+        /// Вторая биржа для cross / funding-*.
         #[arg(long)]
         panels_b: Option<PathBuf>,
+        /// Каталог `<SYM>.csv.gz` фандинга ноги Y (funding-*).
+        #[arg(long)]
+        funding_y: Option<PathBuf>,
+        /// Каталог `<SYM>.csv.gz` фандинга ноги X (funding-pp).
+        #[arg(long)]
+        funding_x: Option<PathBuf>,
         /// Сколько первых (по имени) панелей брать.
         #[arg(long)]
         symbols: usize,
@@ -73,6 +81,14 @@ pub enum Kind {
     Pair,
     Cross,
     Basket,
+    FundingPp,
+    FundingPs,
+}
+
+impl Kind {
+    fn two_panels(self) -> bool {
+        matches!(self, Kind::Cross | Kind::FundingPp | Kind::FundingPs)
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -89,6 +105,8 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
             engine,
             panels,
             panels_b,
+            funding_y,
+            funding_x,
             symbols,
             max_jobs,
             min_span,
@@ -104,7 +122,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
             let p = Params {
                 window,
                 min_obs,
-                beta: if matches!(kind, Kind::Cross) {
+                beta: if kind.two_panels() {
                     BetaMode::Fixed(1.0)
                 } else {
                     BetaMode::Ols
@@ -115,7 +133,11 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                 max_hold,
                 refresh,
                 y_kind: LegKind::Perp,
-                x_kind: LegKind::Perp,
+                x_kind: if matches!(kind, Kind::FundingPs) {
+                    LegKind::Spot
+                } else {
+                    LegKind::Perp
+                },
                 taker_in: true,
                 taker_out: true,
             };
@@ -124,6 +146,8 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                 engine,
                 panels: &panels,
                 panels_b: panels_b.as_deref(),
+                funding_y: funding_y.as_deref(),
+                funding_x: funding_x.as_deref(),
                 symbols,
                 max_jobs,
                 min_span,
@@ -223,6 +247,8 @@ struct BenchArgs<'a> {
     engine: Engine,
     panels: &'a Path,
     panels_b: Option<&'a Path>,
+    funding_y: Option<&'a Path>,
+    funding_x: Option<&'a Path>,
     symbols: usize,
     max_jobs: usize,
     min_span: usize,
@@ -235,16 +261,47 @@ struct Loaded {
     name: String,
     s: Series,
     ln: Vec<f64>,
+    /// Выплаты фандинга `(минута, ставка)` по возрастанию; пусто — файла нет или спот.
+    fund: Vec<(i64, f64)>,
 }
 
-fn load(dir: &Path, n: usize) -> Result<Vec<Loaded>> {
+/// `time_ms,rate,interval_h` → `(time_ms / 60000, rate)`; нет файла — пусто (счётчик в выводе bench).
+fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
+    let f = dir.join(format!("{name}.csv.gz"));
+    if !f.exists() {
+        return Ok(Vec::new());
+    }
+    let out = Command::new("gzip")
+        .arg("-dc")
+        .arg(&f)
+        .output()
+        .context("gzip -dc")?;
+    if !out.status.success() {
+        bail!("gzip -dc {}: ненулевой код", f.display());
+    }
+    let mut v = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
+        let mut it = line.split(',');
+        let (Some(t), Some(r)) = (it.next(), it.next()) else {
+            continue;
+        };
+        v.push((t.parse::<i64>()? / 60_000, r.parse::<f64>()?));
+    }
+    Ok(v)
+}
+
+fn load(dir: &Path, n: usize, fund: Option<&Path>) -> Result<Vec<Loaded>> {
     let mut v = Vec::new();
     for f in sorted(dir, ".sap")?.into_iter().take(n) {
         let s = read_series(&mut BufReader::with_capacity(1 << 20, File::open(&f)?))
             .with_context(|| f.display().to_string())?;
         let name = f.file_stem().unwrap().to_string_lossy().into_owned();
         let ln = s.ln_close();
-        v.push(Loaded { name, s, ln });
+        let fund = match fund {
+            Some(d) => read_funding(d, &name)?,
+            None => Vec::new(),
+        };
+        v.push(Loaded { name, s, ln, fund });
     }
     Ok(v)
 }
@@ -293,6 +350,7 @@ fn run_job(a: &BenchArgs, ys: &[Loaded], xs: &[Loaded], j: &Job) -> Option<(Coun
         .map(|i| &xv[i].s.open[off[i + 1]..off[i + 1] + len])
         .collect();
     let wx = vec![w; k];
+    let fx: Vec<&[(i64, f64)]> = xv.iter().map(|x| x.fund.as_slice()).collect();
     let inp = PairInput {
         first_min: first,
         ly: &y.ln[off[0]..off[0] + len],
@@ -300,8 +358,8 @@ fn run_job(a: &BenchArgs, ys: &[Loaded], xs: &[Loaded], j: &Job) -> Option<(Coun
         oy: &y.s.open[off[0]..off[0] + len],
         ox: &ox,
         wx: &wx,
-        fund_y: &[],
-        fund_x: &[],
+        fund_y: &y.fund,
+        fund_x: &fx,
     };
     let c = match a.engine {
         Engine::Kernel => run_pair(&inp, &a.p, &mut ()),
@@ -312,14 +370,21 @@ fn run_job(a: &BenchArgs, ys: &[Loaded], xs: &[Loaded], j: &Job) -> Option<(Coun
 
 fn bench(a: &BenchArgs) -> Result<()> {
     let t_load = Instant::now();
-    let ys = load(a.panels, a.symbols)?;
+    let fund_on = matches!(a.kind, Kind::FundingPp | Kind::FundingPs);
+    if fund_on && a.funding_y.is_none() {
+        bail!("funding-* требует --funding-y");
+    }
+    if matches!(a.kind, Kind::FundingPp) && a.funding_x.is_none() {
+        bail!("funding-pp требует --funding-x");
+    }
+    let ys = load(a.panels, a.symbols, a.funding_y)?;
     let xs_b;
-    let xs: &[Loaded] = match (a.kind, a.panels_b) {
-        (Kind::Cross, Some(b)) => {
-            xs_b = load(b, usize::MAX)?;
+    let xs: &[Loaded] = match (a.kind.two_panels(), a.panels_b) {
+        (true, Some(b)) => {
+            xs_b = load(b, usize::MAX, a.funding_x)?;
             &xs_b
         }
-        (Kind::Cross, None) => bail!("cross требует --panels-b"),
+        (true, None) => bail!("cross / funding-* требует --panels-b"),
         _ => &ys,
     };
     let mut jobs: Vec<Job> = Vec::new();
@@ -334,7 +399,7 @@ fn bench(a: &BenchArgs) -> Result<()> {
                 }
             }
         }
-        Kind::Cross => {
+        Kind::Cross | Kind::FundingPp | Kind::FundingPs => {
             for (i, y) in ys.iter().enumerate() {
                 if let Some(j) = xs.iter().position(|x| x.name == y.name) {
                     if jobs.len() < a.max_jobs {
@@ -356,6 +421,12 @@ fn bench(a: &BenchArgs) -> Result<()> {
         }
     }
     let load_s = t_load.elapsed().as_secs_f64();
+    let fund_rows: usize = ys.iter().map(|l| l.fund.len()).sum::<usize>()
+        + if a.kind.two_panels() {
+            xs.iter().map(|l| l.fund.len()).sum()
+        } else {
+            0
+        };
     let next = AtomicUsize::new(0);
     let acc = Mutex::new((0u64, 0u64, 0u64, 0u64)); // заданий, минут, сделок, пропусков
     let t0 = Instant::now();
@@ -384,8 +455,8 @@ fn bench(a: &BenchArgs) -> Result<()> {
     let (n, rows, tr, gaps) = acc.into_inner().unwrap();
     let wall = t0.elapsed().as_secs_f64();
     println!(
-        "bench kind={:?} engine={:?} threads={} window={} refresh={}: заданий {} из {}, минут {}, пропусков {}, сделок {}, счёт {:.3} с (загрузка {:.1} с), {:.3e} строк/с, {:.1} пар/с",
-        a.kind, a.engine, a.threads, a.p.window, a.p.refresh, n, jobs.len(), rows, gaps, tr, wall, load_s,
+        "bench kind={:?} engine={:?} threads={} window={} refresh={}: заданий {} из {}, минут {}, пропусков {}, сделок {}, счёт {:.3} с (загрузка {:.1} с, ставок фандинга {}), {:.3e} строк/с, {:.1} пар/с",
+        a.kind, a.engine, a.threads, a.p.window, a.p.refresh, n, jobs.len(), rows, gaps, tr, wall, load_s, fund_rows,
         rows as f64 / wall, n as f64 / wall
     );
     Ok(())

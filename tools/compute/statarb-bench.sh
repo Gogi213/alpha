@@ -8,7 +8,7 @@ S=/srv/alpha-sda/candles-1m; W=/data/tk0479
 mkdir -p "$W"
 # N самых длинных по размеру архива на Bybit; на Binance — те же имена (для cross)
 ls -S "$S/bybit-linear" | grep '\.csv\.gz$' | head -n "$N" > "$W/names.txt"
-for ex in bybit-linear binance-um; do
+for ex in bybit-linear binance-um bybit-spot; do
   d="$W/src-$ex"; rm -rf "$d" "$W/panels-$ex"; mkdir -p "$d"
   while read -r f; do [ -e "$S/$ex/$f" ] && ln -s "$S/$ex/$f" "$d/$f"; done < "$W/names.txt"
   echo "== convert $ex ($(ls "$d" | wc -l) файлов, потоков $TH)"
@@ -16,8 +16,11 @@ for ex in bybit-linear binance-um; do
 done
 NP=$((N * (N - 1) / 2)); NEVER=4000000000   # refresh=NEVER — окно катится без пересчёта
 b() { echo "-- $*"; "$BIN" statarb bench --panels "$W/panels-bybit-linear" --symbols "$N" --min-span 1440 --min-obs 240 --entry-z 2 --exit-z 0.5 --max-hold 1440 "$@"; }
-for kind in pair cross basket; do
+F=/srv/alpha-sda/funding
+for kind in pair cross basket funding-pp funding-ps; do
   X=(); [ "$kind" = cross ] && X=(--panels-b "$W/panels-binance-um"); [ "$kind" = basket ] && X=(--basket-k 10)
+  [ "$kind" = funding-pp ] && X=(--panels-b "$W/panels-binance-um" --funding-y "$F/bybit-linear" --funding-x "$F/binance-um")
+  [ "$kind" = funding-ps ] && X=(--panels-b "$W/panels-bybit-spot" --funding-y "$F/bybit-linear")
   J=$NP; [ "$kind" != pair ] && J=$N
   b --kind "$kind" "${X[@]}" --max-jobs 8 --threads "$TH" --window 240 --refresh 240 --engine reference
   b --kind "$kind" "${X[@]}" --max-jobs "$J" --threads "$TH" --window 240 --refresh $NEVER --engine kernel
