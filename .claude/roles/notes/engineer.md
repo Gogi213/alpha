@@ -7,9 +7,10 @@
 - Свечи ПОСТАВЛЕНЫ 04:31 (rc 0): Binance +4 нового (IBKR/MCD/MSTU/USDEX, конец 11-01 23:59, у остальных 10-31), Bybit AEHR/GILD/QNTX слиты (43200 общих минут, 0 расхождений; прежние в `/srv/alpha-sda/candles-1m-488/prev`, sha в `/data/tk0488/sha-{before,after,prev}.txt`).
 - Идут: фандинг job `1103013209590` (только недостающие Binance 21, Bybit 7; sha до/после `fund-sha-*.txt`, логи fund-{by,bn}.log, `fund.done`); coverage 440 job `1103013242438` (`run-cov.sh` → `/data/tk0488/coverage-tradfi.csv`, ссылки cov-links/, `cov-nofile.txt`). wait до 05:10.
 - Дальше: (1) `python tools/compute/tk488_report.py data/tk488/tradfi-list.csv <universe> coverage-tradfi.csv /srv/alpha-sda/funding docs/findings/tradfi-class-table-2026-11-03.csv` (скопировать с calc tradfi-list.csv, universe/, coverage); (2) отчёт `docs/findings/tradfi-candles-2026-11-03.md`; (3) Судье списком: pre-IPO, Gate pre-market, USD1, Binance/Gate снятые вне метаданных, Gate-фандинг (TK-478 не качал); (4) result done --path docs/findings/tradfi-candles-2026-11-03.md.
-- ssh: `/tmp/sshx root@89.163.242.211` (обёртка с -i); `alsched submit` требует --max-runtime ≤ 900 или --est.
+- ssh: `/tmp/sshx root@89.163.242.211`; `alsched submit`: --max-runtime ≤ 900 или --est.
 
-## TK-487 — ГОТОВО (панели .sap на calc `/data/tk0487/panels-*`, манифест `panels-manifest.csv`, отчёт docs/findings/statarb-panels-2026-11-03.md)
+## TK-487 (панели .sap; tk487-convert, eabdf11f) — ГОТОВО, rc 0
+- calc `/data/tk0487/panels-*` (48,7 ГБ), манифест `/data/tk0487/panels-manifest.csv`; отчёт docs/findings/statarb-panels-2026-11-03.md. Бин `/data/tk0484/alpha-run-plain`.
 
 ## TK-484 (tk484-pipeline, 6d0483e2; на приёмке) и TK-482 (tk479-statarb, 32e53065; на приёмке)
 - Осталось: слияние TK-482 (конфликт tests.rs) → Params в run.rs (delay_x, rule); формирование под П-32 v4; «было/стало» (В-90). Worktrees ../alpha-tk482-head, ../alpha-tk482-prev — удалить после job 1103011440821.
