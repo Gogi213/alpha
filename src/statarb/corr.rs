@@ -219,6 +219,7 @@ pub fn run(a: &CorrBenchArgs) -> Result<()> {
     let t_gram = t1.elapsed().as_secs_f64();
     let pairs = (a.symbols * a.symbols.saturating_sub(1) / 2) as f64;
     let (mut worst, mut checked) = (0f32, 0usize);
+    let t2 = Instant::now();
     'chk: for i in 0..a.symbols {
         for j in (i + 1)..a.symbols {
             if checked >= a.check_pairs {
@@ -235,6 +236,12 @@ pub fn run(a: &CorrBenchArgs) -> Result<()> {
             checked += 1;
         }
     }
+    let t_naive = t2.elapsed().as_secs_f64();
+    let naive_rate = checked as f64 * a.minutes as f64 / t_naive.max(1e-9);
+    println!(
+        "naive: пар {}, {:.2} с, {:.3e} пар·отсчётов/с (один поток, прямой расчёт)",
+        checked, t_naive, naive_rate
+    );
     println!(
         "corr: символов {}, отсчётов {}, пар {:.0}, потоков {}, упаковка {:.2} с, матрица {:.2} с, {:.3e} пар·отсчётов/с, сверено пар {}, max|Δcorr| {:.2e}",
         a.symbols,
