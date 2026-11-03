@@ -1,5 +1,5 @@
 - Судье списком (в отчёте): pre-IPO/pre-market, дыра Binance 28.10 (архив 404, REST отдаёт) у 170, горизонт 11-01…02, Gate-фандинг. Бэкап: 3 Bybit файла слиты (prev в `/srv/alpha-sda/candles-1m-488/prev`).
-- Грабли calc: системный python3 без numpy — `/data/tk421/venv/bin/python`; universe-*.csv: символ во 2-й колонке; sha-списки сравнивать awk по пути (comm ломается на порядке).
+- Грабли calc: python3 без numpy — `/data/tk421/venv/bin/python`; universe-*.csv: символ во 2-й колонке.
 
 ## TK-488 возврат Судьи (03.11 05:00; код c3186ec9 на tk479-statarb) — в работе на calc
 - Вселенная без PREDICTUSDT до 11-02: `/data/tk0488/universe2` (439). Юнит fill2 `1103015533069` (run-fill.sh): fill (REST) + Gate-фандинг + merge (стадия `/srv/alpha-sda/candles-1m-488b`, prev там же) + stat до/после + coverage → `coverage-tradfi2.csv`, done = `fill.done`. sha крипто Binance до: `sha-crypto-before.txt` (юнит ...539216); после — `bash sha-crypto.sh after`, сверка diff.
@@ -8,12 +8,13 @@
 ## TK-487 (панели .sap; ветка tk487-convert, eabdf11f) — ГОТОВО, rc 0
 - calc `/data/tk0487/panels-*` (манифест `/data/tk0487/panels-manifest.csv`), отчёт docs/findings/statarb-panels-2026-11-03.md. Бин `/data/tk0484/alpha-run-plain`; ssh: -i + UserKnownHostsFile, root@89.163.242.211.
 
-## TK-484 (tk484-pipeline, 6d0483e2; на приёмке) и TK-482 (tk479-statarb, 32e53065; на приёмке)
-- Осталось: слияние TK-482 (конфликт tests.rs) → Params в run.rs (delay_x, rule); формирование под П-32 v4; «было/стало» (В-90). Worktrees ../alpha-tk482-head, ../alpha-tk482-prev — удалить после job 1103011440821.
-
-## TK-486 (скорость этапа 1; ветка tk486-speed c8d518dd, worktree .claude/worktrees/TK-486) — 04:58
-- Замер без v3: прямая пара 2,7e8 пар·отсч/с, матрица corr.rs ×1,1/ядро, 8 потоков ×7,4; HDD мимо кэша 77–85 МБ/с. Сборка v3 готова: `/data/tk0486/alpha-run-v3` (юнит 1103013057390 rc 0).
-- Сделано: corr.rs блоки (RowStrip — clippy), eg.rs (EG по 15 суммам, окно/половины = суммы блоков; центровать ряд на символ до сумм). Тест eg на calc зелёный до правки центровки α — перепроверить: лог `/tmp/tk486-check-c8d518dd.log` (vps-check all, VPS_TAG=-tk486c).
-- В полёте: corr-bench на v3 (1 и 8 потоков) юнит 1103015629095, лог `/data/sched/logs/1103015629095.log`; wait до 05:40.
-- Дальше: ядро сумм EG по блокам (15 сумм вместо 6, маска w = m_t·m_{t−1}, 5 признаков на ногу + 4 кросс) в corr.rs, бенч окон «пересчёт vs блоки», отчёт docs/findings/statarb-speed-<дата>.md. alsched submit: бинарь вне манифеста — предупреждение, но принимает.
-- ssh-обёртка /tmp/sshx глотает первую команду: начинать `true; …`. vps-check test на calc может стоять в очереди > 7 мин.
+## TK-484 (tk484-pipeline, 6d0483e2; на приёмке) и TK-482 (tk479-statarb, f940f2ef; in_review у Судьи, E-010 исправлен a62ef6eb)
+- Осталось: слияние TK-482 (конфликт tests.rs) → Params в run.rs (delay_x, rule); формирование под П-32 v4; «было/стало» (В-90). Выход без задержки 2-й ноги — вне ТЗ. D2 TK-479 мог считать фандинг на пустых ставках — CEO уведомлён комментарием.
+- Worktrees ../alpha-tk482-{head,prev,prev2,red,green} — удалить после приёмки; ветка tk482-e010-red. Бинари calc `/data/tk0482/alpha-{e010-plain,prev,prev2-plain}`.
+- Грабли vps-check: одна сборка на тикет (`build-TK-482 уже идёт`, rc 75; CALC_FORCE=1 обходит) — тесты/clippy подавать по очереди; две заявки с одним VPS_TAG делят слот и затирают исходники друг друга (красный/зелёный в параллель — только с разными TAG и по одному); фоновый `( … &)` в Bash-инструменте умирает — run_in_background.
+## TK-486 (скорость этапа 1; ветка tk486-speed 11435b8e, worktree .claude/worktrees/TK-486) — 05:20
+- Замер: прямая пара 3,0e8 пар·отсч/с; матрица corr.rs (ref) 3,09e8/ядро и на plain, и на v3 (бинарь v3 имеет всего 46 AVX-инструкций) → цикл не векторизуется (вероятно проверки границ `ma[e]`), а не «нет AVX2». 8 потоков ×7,3. HDD мимо кэша 77–85 МБ/с.
+- Сделано: corr.rs блоки + `--kernel ref|zip|zip2` (zip без границ, zip2 по 2 строки; тест байт в байт `kernels_are_bit_identical`), eg.rs (EG по 15 суммам). vps-check `all` отказывает (check-sprawl: tools/compute 741 > 83) → гонять `test statarb` и `clippy` по отдельности; tests c8d518dd — юнит 1103021135552, тесты corr 11435b8e — 1103021405231.
+- В полёте: сборка v3 коммита 11435b8e → `/data/tk0486/alpha-run-k` (юнит 1103021524887, свой target-v3; скрипт-копия tools/vps-check-v3.tmp.sh в worktree — не коммитить, удалить). Затем: `alsched submit` `bash /data/tk0486/corr-bench-k.sh /data/tk0486/alpha-run-k 300 1` (cores 1) и `… 900 8` (cores 8); сравнить ref/zip/zip2.
+- Дальше: выбрать ядро (умолчанием — после гейта); EG-суммы по блокам в corr.rs, бенч окон, отчёт docs/findings/statarb-speed-<дата>.md (было/стало).
+- ssh-обёртка /tmp/sshx глотает первую команду: начинать `true; …`. vps-check при уже идущем build-TK-486 отказывает дублем — `CALC_FORCE=1`.
