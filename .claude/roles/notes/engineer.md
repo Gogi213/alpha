@@ -2,8 +2,8 @@
 
 ## TK-489 (перемер D2 TK-479 после E-010) — ГОТОВО: `docs/findings/statarb-funding-remeasure-2026-11-03.md`, строки 67–68,70 отчёта TK-479 поправлены. Заявки calc 1103022721144 (--digest) и 1103023301277 (чистая скорость); `python -X utf8 tools/compute/statarb/remeasure_table.py table|report|check <id>` (без -I: он глушит PYTHONIOENCODING).
 
-## TK-488 — СДАНО (fb26f150, отчёт tradfi-candles-2026-11-03.md), ждёт Судью
-- calc `/data/tk0488/` (universe2, coverage-tradfi2.csv, sha-crypto-*), стадия `/srv/alpha-sda/candles-1m-488b`. Скрипты на calc копировать scp в `/data/tk0488/bin/` (там лежала старая копия); submit — `--kind net -- bash …`.
+## TK-488 — возврат 2 (Н6–Н8) СДАНО (код 274d692e, отчёт tradfi-candles-2026-11-03.md, вселенная 436 = 168/184/84), ждёт Судью
+- calc `/data/tk0488/` (universe3, tradfi-class-table3.csv, tradfi-list3.csv, run-uni3.sh); правило «дни не раньше листинга −1 сут» в tk488_universe.py; MDTUSDT-файл TK-476 уже сшит из двух активов — не трогал. Скрипты копировать scp в `/data/tk0488/bin/`; submit — `--kind net -- bash …`.
 ## TK-487 (панели .sap, tk487-convert eabdf11f) — ГОТОВО: calc `/data/tk0487/panels-*`, отчёт statarb-panels-2026-11-03.md. Бин `/data/tk0484/alpha-run-plain`.
 
 ## TK-484 (tk484-pipeline, 6d0483e2; на приёмке) и TK-482 (tk479-statarb, f940f2ef; in_review у Судьи, E-010 исправлен a62ef6eb)
