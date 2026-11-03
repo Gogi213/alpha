@@ -30,6 +30,13 @@ fn pair(t: usize, rho: f64, coint: bool, seed: u64) -> (Vec<f64>, Vec<f64>) {
     (xs, ys)
 }
 
+/// Центровка ряда на символ (как требует `eg.rs`): одна константа на всё окно, `NaN` остаются.
+fn centered(v: &[f64]) -> Vec<f64> {
+    let f: Vec<f64> = v.iter().copied().filter(|a| a.is_finite()).collect();
+    let m = f.iter().sum::<f64>() / f.len() as f64;
+    v.iter().map(|a| a - m).collect()
+}
+
 fn close(a: f64, b: f64, tol: f64) -> bool {
     (a - b).abs() <= tol * (1.0 + b.abs())
 }
@@ -37,6 +44,7 @@ fn close(a: f64, b: f64, tol: f64) -> bool {
 #[test]
 fn sums_match_naive_with_gaps() {
     let (x, y) = pair(3000, 0.9, true, 7);
+    let (x, y) = (centered(&x), centered(&y));
     let s = EgSums::from_series(&x, &y).test(100).unwrap();
     let n = eg_naive(&x, &y, 100).unwrap();
     assert_eq!(s.n, n.n);
