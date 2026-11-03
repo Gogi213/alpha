@@ -2,7 +2,8 @@
 # TK-489: перемер D2 TK-479 (funding-pp / funding-ps) после E-010 — прежний бинарник (unix-эпоха ставок, пустые ставки)
 # и новый (ставки на минутах панелей) чередуются на одних панелях; те же 5 вариантов, что в bench.sh.
 # Окна/пороги — аргументы замера (как в bench.sh), не назначение.
-#   remeasure-funding.sh <новый бинарь> <прежний бинарь> <потоки> <повторов>
+#   [DIGEST=0] remeasure-funding.sh <новый бинарь> <прежний бинарь> <потоки> <повторов>
+# DIGEST=0 — новый без --digest (чистая скорость: с флагом горячий путь собирает сделки в хеш).
 set -u
 NEW="${1:?новый бинарь}"; PREV="${2:?прежний бинарь}"; TH="${3:-15}"; NR="${4:-2}"
 W=/data/tk0479; F=/srv/alpha-sda/funding; N=50; NEVER=4000000000
@@ -20,7 +21,7 @@ for rep in $(seq "$NR"); do
       set -- $v
       for who in PREV NEW; do
         bin=$PREV; [ $who = NEW ] && bin=$NEW
-        dg=""; [ $who = NEW ] && dg="--digest"
+        dg=""; [ $who = NEW ] && [ "${DIGEST:-1}" != 0 ] && dg="--digest"
         echo "-- повтор $rep $who $kind jobs=$1 window=$2 refresh=$3 engine=$4 threads=$5"
         b "$bin" --kind "$kind" $X --max-jobs "$1" --threads "$5" --window "$2" --refresh "$3" --engine "$4" $dg 2>&1
       done

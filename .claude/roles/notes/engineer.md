@@ -1,8 +1,6 @@
 - Грабли calc: python3 без numpy — `/data/tk421/venv/bin/python`; universe-*.csv: символ во 2-й колонке.
 
-## TK-489 (перемер D2 TK-479 после E-010; скрипты 276b5176) — waiting до 05:50
-- Заявка calc `1103022721144` (remeasure-funding.sh: прежний `/data/tk0479/alpha-tk479` vs новый `/data/tk0482/alpha-e010-plain`, 2 повтора, лог `/data/sched/logs/1103022721144.log`). Дальше: `PYTHONIOENCODING=utf-8 python tools/compute/statarb/remeasure_table.py table|check 1103022721144` → таблица прежнее/новое (старый лог 1102012237287) → в отчёт TK-479 `docs/findings/statarb-core-bench-2026-11-02.md` строки 67, 68, 70: пометка «неверно, E-010» + новые числа; `accept.py log 1103022721144`; result done с --path отчёта.
-- Зависят от фандинга только строки 67–68 (скорость funding-pp/ps) и 70 (ставок); пары/кросс/корзины/дрейф/Gate — нет; в ревью tk479-* фандинга нет.
+## TK-489 (перемер D2 TK-479 после E-010) — ГОТОВО: `docs/findings/statarb-funding-remeasure-2026-11-03.md`, строки 67–68,70 отчёта TK-479 поправлены. Заявки calc 1103022721144 (--digest) и 1103023301277 (чистая скорость); `python -X utf8 tools/compute/statarb/remeasure_table.py table|report|check <id>` (без -I: он глушит PYTHONIOENCODING).
 
 ## TK-488 — СДАНО (fb26f150, отчёт tradfi-candles-2026-11-03.md), ждёт Судью
 - calc `/data/tk0488/` (universe2, coverage-tradfi2.csv, sha-crypto-*), стадия `/srv/alpha-sda/candles-1m-488b`. Скрипты на calc копировать scp в `/data/tk0488/bin/` (там лежала старая копия); submit — `--kind net -- bash …`.

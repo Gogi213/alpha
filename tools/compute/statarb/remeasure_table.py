@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """TK-489: таблица «прежнее/новое» по D2 TK-479 (funding-pp / funding-ps) после E-010 из логов calc.
   remeasure_table.py table <id заявки перемера> [<id старого лога, по умолчанию 1102012237287>]   markdown-таблица
+  remeasure_table.py report <id заявки>           две строки (funding-pp, funding-ps) в формате таблицы отчёта TK-479, медианы нового
   remeasure_table.py check <id заявки перемера>   rc 0, если: digest funding-pp новый != digest cross новый (240/240, ядро),
                                                   сделки нового == прежнего по каждому варианту, обе стороны не пусты.
 Лог берётся по ssh с calc (/data/sched/logs/<id>.log); `--file <путь>` вместо id — локальный файл."""
@@ -90,6 +91,30 @@ def cmd_table(new_id, old_id):
     return 0
 
 
+def comma(x):
+    return x.replace(".", ",")
+
+
+def cmd_report(new_id):
+    new = parse(fetch(new_id))
+    gn = group(new, "NEW")
+    order = [("reference", 15, 240, 240, False), ("kernel", 15, 240, 4000000000, False), ("kernel", 15, 240, 240, True),
+             ("kernel", 15, 1440, 1440, False), ("kernel", 1, 240, 240, True)]
+    for kind, name in (("funding-pp", "фандинг перп↔перп (49)"), ("funding-ps", "фандинг перп↔спот (47)")):
+        cells = []
+        for eng, th, w, rf, show_t in order:
+            rs = gn.get((kind, eng, th, w, rf))
+            if not rs:
+                cells.append("—")
+                continue
+            e = comma(f"{med(rs, 'rps'):.2e}").replace("e+0", "e").replace("e+", "e")
+            secs, pps = comma("%.3f" % med(rs, "secs")), comma("%.1f" % med(rs, "pps"))
+            t = f" ({secs} с)" if show_t else ""
+            cells.append(f"{e}, {pps} пар/с{t}")
+        print(f"| {name} | " + " | ".join(cells) + " |")
+    return 0
+
+
 def cmd_check(new_id):
     new = parse(fetch(new_id))
     ok = True
@@ -121,6 +146,8 @@ def main(argv):
     args = [a for a in argv[1:] if a != "--file"]
     if len(args) >= 2 and args[0] == "table":
         return cmd_table(args[1], args[2] if len(args) > 2 else OLD_ID)
+    if len(args) >= 2 and args[0] == "report":
+        return cmd_report(args[1])
     if len(args) >= 2 and args[0] == "check":
         return cmd_check(args[1])
     print(__doc__)
