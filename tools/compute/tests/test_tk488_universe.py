@@ -91,6 +91,47 @@ class T(unittest.TestCase):
         self.assertEqual(uni['NEWUSDT'], ('2026-09-02', '2026-09-05'))
         self.assertEqual({r['symbol'] for r in self.read(out, 'turnover-delta.csv')}, {'TSLAUSDT', 'NEWUSDT'})
 
+    def test_no_days_before_listing(self):
+        # Н7: символ занят прежним крипто-контрактом (дни 09-01…09-05 до листинга TradFi 09-04) — во вселенную идут дни не раньше листинга -1 сут;
+        # контракт, у которого до листинга только чужие дни, получает дельту REST с даты листинга и в no-turnover не попадает
+        for ex in m.EXCH:
+            self.turnover(ex, {})
+        self.turnover('binance-um', {'MDTUSDT': [3e6] * 5, 'OLDUSDT': [3e6] * 3})
+        listing = int(datetime(2026, 9, 4).replace(tzinfo=m.timezone.utc).timestamp() * 1000)
+        calls = []
+
+        def fake(ex, sym, since=None):
+            calls.append((sym, since))
+            return [(D0 + timedelta(i), 3e6) for i in range(8) if since is None or D0 + timedelta(i) >= since]
+        m.fetch_days = fake
+        rows = [lrow('binance-um', 'MDTUSDT'), lrow('binance-um', 'OLDUSDT')]
+        rows[0][7] = str(listing)
+        rows[1][7] = str(listing + 10 * 86400000)  # листинг 09-14, оборот чужой 09-01…09-03 — весь отбрасывается
+        out = self.run_all(rows, [], fetch=True)
+        uni = {r['symbol']: (r['from_day'], r['to_day']) for r in self.read(out, 'universe-binance-um.csv')}
+        self.assertGreaterEqual(uni['MDTUSDT'][0], '2026-09-04')
+        self.assertNotIn('OLDUSDT', uni)  # после 09-14 REST (фейк) дней не отдаёт
+        self.assertIn(('OLDUSDT', date(2026, 9, 14)), calls)
+        for r in self.read(out, 'need-candles.csv'):
+            self.assertGreaterEqual(r['from_day'], '2026-09-03')
+
+    def test_listing_day(self):
+        self.assertIsNone(m.listing_day({'onboard_ms': ''}))
+        self.assertIsNone(m.listing_day({}))
+        self.assertIsNone(m.listing_day({'onboard_ms': '0'}))
+        self.assertEqual(m.listing_day({'onboard_ms': '1792574400000'}), date(2026, 10, 21))
+        d = {date(2026, 9, 1): 1.0, date(2026, 9, 3): 2.0}
+        self.assertEqual(m.after_listing(d, None), d)
+        self.assertEqual(m.after_listing(d, date(2026, 9, 4)), {date(2026, 9, 3): 2.0})  # листинг -1 сут включительно
+        self.assertEqual(m.after_listing(d, date(2026, 9, 5)), {})
+
+    def test_stable_excluded(self):
+        for ex in m.EXCH:
+            self.turnover(ex, {})
+        self.turnover('gate-futures_usdt', {'USDC_USDT': [3e6] * 3, 'EURUSD_USDT': [3e6] * 3})
+        out = self.run_all([lrow('gate-futures_usdt', 'USDC_USDT', 'fx', 'стейбл-коин: не TradFi, в вселенную не берём'), lrow('gate-futures_usdt', 'EURUSD_USDT', 'fx')], [])
+        self.assertEqual({r['symbol'] for r in self.read(out, 'sources-gate-futures_usdt.csv')}, {'EURUSD_USDT'})
+
     def test_need_candles(self):
         ivs = [(date(2026, 9, 2), date(2026, 9, 20))]
         last = date(2026, 10, 31)

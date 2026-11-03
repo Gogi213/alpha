@@ -7,7 +7,8 @@ usage: tk488_universe.py <tradfi-list.csv> <каталог universe TK-476> <cov
 --last-day — до какого дня вселенная требует свечи (умолчание = последняя минута лежащих файлов; В-93 возврат: до конца вселенной, 11-02)
 Выход в <out>/: turnover-/universe-/union-/sources-<биржа>.csv(.gz) как в TK-476 (только TradFi, порог 1 млн);
 turnover-delta.csv (что добрано REST); need-candles.csv (exchange,symbol,class,from_day,to_day,have_first,have_last,need) — что вселенная требует сверх лежащего;
-no-turnover.csv (контракты списка без единого дня оборота и причина). Крипто-индексы, крипто pre-market и котировка не USDT — в вселенную не входят."""
+no-turnover.csv (контракты списка без единого дня оборота и причина). Крипто-индексы, крипто pre-market, стейбл-коины и котировка не USDT — в вселенную не входят.
+Дни оборота и свечи TradFi-контракта — не раньше его даты листинга по метаданным (-1 сут): символ мог быть занят крипто-контрактом (Binance MDTUSDT), его дни во вселенную не идут."""
 import csv, gzip, importlib.util, os, sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -26,10 +27,27 @@ def tradfi_rows(path):
     1–5 млн, В-93 их не трогает), котировка USDT."""
     out = []
     for r in csv.DictReader(open(path, encoding='utf-8')):
-        if r['flag'].startswith(('crypto-index', 'pre-market крипто', 'котировка')):
+        if r['flag'].startswith(('crypto-index', 'pre-market крипто', 'котировка', 'стейбл')):
             continue
         out.append(r)
     return out
+
+
+def listing_day(r):
+    """Дата листинга TradFi-контракта по метаданным (onboard_ms списка) | None, если даты нет."""
+    try:
+        ms = int(r.get('onboard_ms') or 0)
+    except ValueError:
+        return None
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).date() if ms > 0 else None
+
+
+def after_listing(days, lday):
+    """Дни оборота не раньше листинга -1 сут (граница суток UTC); без даты листинга — как есть."""
+    if lday is None:
+        return days
+    lo = lday - timedelta(1)
+    return {d: v for d, v in days.items() if d >= lo} if isinstance(days, dict) else [(d, v) for d, v in days if d >= lo]
 
 
 def load_turnover(unidir, ex, syms):
@@ -115,7 +133,9 @@ def main():
     for ex in EXCH:
         mine = [r for r in rows if r['exchange'] == ex]
         cls = {r['symbol']: r['class'] for r in mine}
-        by = load_turnover(unidir, ex, set(cls))
+        lday = {r['symbol']: listing_day(r) for r in mine}
+        by = {s: after_listing(v, lday[s]) for s, v in load_turnover(unidir, ex, set(cls)).items()}
+        by = {s: v for s, v in by.items() if v}  # все дни до листинга (чужой крипто-контракт на том же символе) — как «нет оборота»
         end = max((max(v) for v in by.values()), default=None)
         for sym in sorted(cls):
             if not fetch:
@@ -124,7 +144,7 @@ def main():
                 continue
             if sym in by and by[sym] and end is not None and max(by[sym]) >= end:
                 continue
-            got = fetch_days(ex, sym, max(by[sym]) + timedelta(1) if by.get(sym) else None)  # дельта к таблице TK-476 (В-213)
+            got = after_listing(fetch_days(ex, sym, max(by[sym]) + timedelta(1) if by.get(sym) else (lday[sym] if lday[sym] and lday[sym].year >= 2020 else None)), lday[sym])  # дельта к таблице TK-476 (В-213)
             if got:
                 by.setdefault(sym, {}).update(got)
                 delta[(ex, sym)] = (min(d for d, _ in got), max(d for d, _ in got), len(got))

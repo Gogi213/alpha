@@ -5,7 +5,7 @@
 usage: tk488_report.py <tradfi-list.csv> <каталог universe TK-488> <coverage-tradfi.csv> <каталог фандинга|-> <выход.csv>"""
 import csv, gzip, importlib.util, os, sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location('tk488u', os.path.join(HERE, 'tk488_universe.py'))
@@ -71,9 +71,22 @@ def build(lst, unidir, covf, fdir):
     return out
 
 
+def listing_violations(rows, unidir):
+    """Контракты, у которых вселенная начинается раньше даты листинга -1 сут (символ занят чужим крипто-контрактом) — должно быть пусто."""
+    out = []
+    for r in rows:
+        ld = u.listing_day(r)
+        ivs = u.intervals(os.path.join(unidir, f"universe-{r['exchange']}.csv")).get(r['symbol'])
+        if ld and ivs and min(a for a, _ in ivs) < ld - timedelta(1):
+            out.append((r['exchange'], r['symbol'], min(a for a, _ in ivs), ld))
+    return out
+
+
 def main():
     lst, unidir, covf, fdir, outf = sys.argv[1:6]
     rows = build(lst, unidir, covf, fdir)
+    viol = listing_violations(u.tradfi_rows(lst), unidir)
+    print('вселенная раньше листинга -1 сут:', len(viol), *viol)
     with open(outf, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         w.writerow(COLS)

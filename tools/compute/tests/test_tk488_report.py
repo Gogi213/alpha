@@ -75,6 +75,20 @@ class T(unittest.TestCase):
         g = r[('gate-futures_usdt', 'AAPL_USDT')]
         self.assertEqual((g['причина'], g['фандинг_записей'], g['флаг']), ('ок', 1, 'pre-market'))  # Gate-фандинг читается из каталога, не «вне TK-478»
 
+    def test_listing_violations(self):
+        # Н7: вселенная не раньше листинга -1 сут; нарушение (символ занят чужим контрактом) попадает в список
+        listing = 1788220800000  # 2026-09-01 UTC
+        lst = self.write('l2.csv', LIST_HDR, [['binance-um', 'OKUSDT', 'equity', 'X', '', 'P', 'TRADING', str(listing), 'm', ''],
+                                              ['binance-um', 'REUSEDUSDT', 'equity', 'X', '', 'P', 'TRADING', str(listing), 'm', ''],
+                                              ['binance-um', 'NODATEUSDT', 'equity', 'X', '', 'P', 'TRADING', '', 'm', '']])
+        uni = os.path.join(self.d, 'u2')
+        os.makedirs(uni)
+        for ex in m.u.EXCH:
+            self.write(f'u2/universe-{ex}.csv', ['symbol', 'from_day', 'to_day'],
+                       [['OKUSDT', '2026-08-31', '2026-09-30'], ['REUSEDUSDT', '2026-08-01', '2026-09-30'], ['NODATEUSDT', '2020-01-01', '2026-09-30']] if ex == 'binance-um' else [])
+        v = m.listing_violations(m.u.tradfi_rows(lst), uni)
+        self.assertEqual([(x[0], x[1]) for x in v], [('binance-um', 'REUSEDUSDT')])
+
     def test_no_funding_dir(self):
         lst = self.write('l.csv', LIST_HDR, [['binance-um', 'XUSDT', 'fx', 'X', '', 'P', 'TRADING', '1', 'meta', '']])
         uni = os.path.join(self.d, 'u2')

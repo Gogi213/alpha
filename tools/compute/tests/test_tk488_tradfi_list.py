@@ -15,6 +15,8 @@ BN = {'symbols': [
     {'symbol': 'OPENAIUSDT', 'underlyingType': 'PREMARKET', 'underlyingSubType': ['Pre-IPO', 'TradFi'], 'contractType': 'TRADIFI_PERPETUAL', 'status': 'TRADING', 'quoteAsset': 'USDT'},
     {'symbol': 'XAUUSDT', 'underlyingType': 'COMMODITY', 'underlyingSubType': ['TradFi'], 'contractType': 'TRADIFI_PERPETUAL', 'status': 'TRADING', 'quoteAsset': 'USDT'},
     {'symbol': 'SPYUSD1', 'underlyingType': 'EQUITY', 'underlyingSubType': ['TradFi'], 'contractType': 'TRADIFI_PERPETUAL', 'status': 'TRADING', 'quoteAsset': 'USD1'},
+    {'symbol': 'DEFIUSDT', 'underlyingType': 'INDEX', 'underlyingSubType': ['Index'], 'contractType': 'PERPETUAL', 'status': 'SETTLING', 'quoteAsset': 'USDT'},
+    {'symbol': 'SPXUSDT', 'underlyingType': 'INDEX', 'underlyingSubType': ['Index', 'TradFi'], 'contractType': 'TRADIFI_PERPETUAL', 'status': 'TRADING', 'quoteAsset': 'USDT'},
     {'symbol': 'BTCUSDT', 'underlyingType': 'COIN', 'underlyingSubType': ['PoW'], 'contractType': 'PERPETUAL', 'status': 'TRADING', 'quoteAsset': 'USDT'},
     {'symbol': 'NOTYPE', 'contractType': 'PERPETUAL', 'status': 'TRADING', 'quoteAsset': 'USDT'},
 ]}
@@ -29,6 +31,9 @@ GT = [
     {'name': 'AAPL_USDT', 'contract_type': 'stocks', 'type': 'direct', 'status': 'trading', 'is_pre_market': False, 'launch_time': 5},
     {'name': 'ANTHROPIC_USDT', 'contract_type': 'stocks', 'type': 'direct', 'status': 'trading', 'is_pre_market': True, 'create_time': 7},
     {'name': 'XAU_USDT', 'contract_type': 'metals', 'type': 'direct', 'status': 'trading', 'is_pre_market': False},
+    {'name': 'USDC_USDT', 'contract_type': 'forex', 'type': 'direct', 'status': 'trading', 'is_pre_market': False, 'create_time': 3},
+    {'name': 'EURUSD_USDT', 'contract_type': 'forex', 'type': 'direct', 'status': 'trading', 'is_pre_market': False, 'create_time': 3},
+    {'name': 'PAXG_USDT', 'contract_type': 'metals', 'type': 'direct', 'status': 'trading', 'is_pre_market': False, 'create_time': 3},
     {'name': 'BTC_USDT', 'contract_type': '', 'type': 'direct', 'status': 'trading', 'is_pre_market': False},
 ]
 
@@ -56,6 +61,8 @@ class Classify(unittest.TestCase):
         self.assertIn('не TradFi', r[('binance-um', 'PREDICTUSDT')][9])
         self.assertIn('Судье', r[('binance-um', 'OPENAIUSDT')][9])
         self.assertIn('USD1', r[('binance-um', 'SPYUSD1')][9])
+        self.assertIn('crypto-index', r[('binance-um', 'DEFIUSDT')][9])  # подтип Index без TradFi — тоже крипто-индекс (Н6)
+        self.assertEqual(r[('binance-um', 'SPXUSDT')][9], '')  # индекс с подтипом TradFi — остаётся
         self.assertNotIn(('binance-um', 'BTCUSDT'), r)
         self.assertNotIn(('binance-um', 'NOTYPE'), r)  # нет underlyingType — не TradFi, без падения
 
@@ -74,6 +81,13 @@ class Classify(unittest.TestCase):
         self.assertIn('Судье', r[('gate-futures_usdt', 'ANTHROPIC_USDT')][9])
         self.assertEqual(r[('gate-futures_usdt', 'ANTHROPIC_USDT')][7], '7000')  # launch_time нет → create_time
         self.assertNotIn(('gate-futures_usdt', 'BTC_USDT'), r)
+
+    def test_gate_stable_and_gold_token(self):
+        r = self.run_all()
+        self.assertIn('стейбл', r[('gate-futures_usdt', 'USDC_USDT')][9])  # USDC — не фиат (Н8)
+        self.assertEqual(r[('gate-futures_usdt', 'EURUSD_USDT')][9], '')
+        self.assertIn('токен на золото', r[('gate-futures_usdt', 'PAXG_USDT')][9])
+        self.assertEqual(r[('gate-futures_usdt', 'XAU_USDT')][9], '')
 
 
 if __name__ == '__main__':
