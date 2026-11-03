@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TK-482: повторный замер скорости ядра — чередование прежнего и нового бинарника, N прогонов каждого, медиана и разброс.
-#   speed-prev.sh <новый бинарь> <прежний бинарь> <потоки> <прогонов> [pair|cross|funding-pp ...]
+#   speed-prev.sh <новый бинарь> <прежний бинарь> <потоки> <прогонов> [pair|cross|funding-pp|funding-ps ...]
 # Те же аргументы bench, что в gate-prev.sh; строки `ИТОГ скорость`.
 set -u
 NEW="${1:?новый бинарь}"; PREV="${2:?прежний бинарь}"; TH="${3:-8}"; NR="${4:-5}"; shift 4
@@ -14,6 +14,7 @@ for k in "${KINDS[@]}"; do
     pair) args="--kind pair"; jobs=$NP ;;
     cross) args="--kind cross --panels-b $W/panels-binance-um"; jobs=$N ;;
     funding-pp) args="--kind funding-pp --panels-b $W/panels-binance-um --funding-y $F/bybit-linear --funding-x $F/binance-um"; jobs=$N ;;
+    funding-ps) args="--kind funding-ps --panels-b $W/panels-bybit-spot --funding-y $F/bybit-linear"; jobs=$N ;;
   esac
   : > /tmp/tk482-sp-prev.$$; : > /tmp/tk482-sp-new.$$
   for i in $(seq "$NR"); do
