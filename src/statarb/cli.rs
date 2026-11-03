@@ -437,7 +437,7 @@ struct Loaded {
 
 /// Минута сетки панелей (индекс от `GRID0_MS`) для времени выплаты в мс unix: ставки и `.sap` в одной эпохе (E-010).
 pub fn funding_min(time_ms: i64) -> i64 {
-    time_ms.div_euclid(MINUTE_MS)
+    (time_ms - GRID0_MS).div_euclid(MINUTE_MS)
 }
 
 /// `time_ms,rate,interval_h` → `(funding_min(time_ms), rate)`; первая строка — заголовок.
