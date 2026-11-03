@@ -6,7 +6,9 @@
 E-011: слот сборки на calc общий, tar хранит mtime файлов, а cargo считает крейт свежим, если исходники не новее
 прежней сборки в слоте — после дерева 75d318ab исправленный cli.rs (mtime старше) не пересобирался, тест шёл на
 чужом бинарнике. Перед отправкой исходникам ставится mtime в будущем (+30 мин, запас на расхождение часов): крейт
-пересобирается всегда, результат зависит только от содержимого дерева."""
+пересобирается всегда, результат зависит только от содержимого дерева.
+CALC_FORCE=1: защита vps-check от дубля сборки (rc 75) видит предыдущую сборку этой же метки ещё «running» в alsched ps
+сразу после её rc — подряд идущие шаги check_e011.py ложно падали (прогон 06:19, шаг 3); проверки идут строго по одной."""
 import os
 import subprocess
 import sys
@@ -32,7 +34,8 @@ def main(tree: str) -> int:
     n = bust_cargo_cache(tree)
     print(f"check_e010: {tree}: mtime +{FUTURE_S} с у {n} файлов, vps-check.sh test funding", flush=True)
     vps_check = os.path.join(REPO, "tools", "vps-check.sh").replace("\\", "/")
-    return subprocess.run([GIT_BASH, vps_check, tree.replace("\\", "/"), "test", "funding"], cwd=tree).returncode
+    env = {**os.environ, "CALC_FORCE": "1"}
+    return subprocess.run([GIT_BASH, vps_check, tree.replace("\\", "/"), "test", "funding"], cwd=tree, env=env).returncode
 
 
 if __name__ == "__main__":
