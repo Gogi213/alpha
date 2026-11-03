@@ -80,6 +80,8 @@ pub enum StatarbCommand {
     Run(super::run::RunArgs),
     /// Замер матричного предфильтра формирования (TK-486): корреляция всех пар вселенной блоками.
     CorrBench(super::corr::CorrBenchArgs),
+    /// Формирование пар окна: EG-суммы всех пар блоками + отбор §6.1 → список заданий для `run` (TK-486).
+    Form(super::form::FormArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -189,6 +191,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
         StatarbCommand::Convert { src, out, threads } => convert(&src, &out, threads),
         StatarbCommand::Run(a) => super::run::run(&a),
         StatarbCommand::CorrBench(a) => super::corr::run(&a),
+        StatarbCommand::Form(a) => super::form::run(&a),
         StatarbCommand::Bench {
             kind,
             engine,
@@ -248,7 +251,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
     }
 }
 
-fn sorted(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
+pub(super) fn sorted(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
     let mut v: Vec<PathBuf> = fs::read_dir(dir)
         .with_context(|| format!("каталог {}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
