@@ -21,6 +21,7 @@ pub mod kernel;
 pub mod panel;
 pub mod reference;
 pub mod run;
+pub mod select;
 
 #[cfg(test)]
 mod corr_tests;
@@ -28,5 +29,7 @@ mod corr_tests;
 mod eg_tests;
 #[cfg(test)]
 mod egmat_tests;
+#[cfg(test)]
+mod select_tests;
 #[cfg(test)]
 mod tests;
