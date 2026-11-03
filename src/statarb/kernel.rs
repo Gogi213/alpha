@@ -148,7 +148,7 @@ pub(crate) struct Sums {
 
 impl Sums {
     #[inline]
-    fn add(&mut self, x: f64, y: f64) {
+    pub(crate) fn add(&mut self, x: f64, y: f64) {
         if !self.anchored {
             self.ax = x;
             self.ay = y;
@@ -164,7 +164,7 @@ impl Sums {
     }
 
     #[inline]
-    fn sub(&mut self, x: f64, y: f64) {
+    pub(crate) fn sub(&mut self, x: f64, y: f64) {
         let (x, y) = (x - self.ax, y - self.ay);
         self.n -= 1;
         self.sx -= x;
@@ -175,7 +175,7 @@ impl Sums {
     }
 
     /// Точный пересчёт по окну `[lo, hi]` с новым якорем.
-    fn rebuild(lx: &[f64], ly: &[f64], lo: usize, hi: usize) -> Sums {
+    pub(crate) fn rebuild(lx: &[f64], ly: &[f64], lo: usize, hi: usize) -> Sums {
         let mut s = Sums::default();
         for i in lo..=hi {
             if lx[i].is_finite() && ly[i].is_finite() {
@@ -219,14 +219,14 @@ pub(crate) fn beta_z(s: &Sums, mode: BetaMode, x: f64, y: f64, min_obs: usize) -
 }
 
 #[derive(Clone, Copy)]
-enum Pend {
+pub(crate) enum Pend {
     None,
     Enter(i8, f64, usize),
     Exit(usize),
 }
 
 /// Цена для выплаты фандинга: open минуты, а если там нет сделок — последний известный open.
-fn price_at(open: &[f64], t: usize) -> f64 {
+pub(crate) fn price_at(open: &[f64], t: usize) -> f64 {
     let mut i = t;
     loop {
         if open[i].is_finite() {
@@ -238,7 +238,7 @@ fn price_at(open: &[f64], t: usize) -> f64 {
 
 /// Ставки с минутой ровно `ft`; курсор проходит и более ранние (они не относятся к держанию).
 #[inline]
-fn rates_at(ev: &[(i64, f64)], cur: &mut usize, ft: i64) -> f64 {
+pub(crate) fn rates_at(ev: &[(i64, f64)], cur: &mut usize, ft: i64) -> f64 {
     let mut r = 0.0;
     while *cur < ev.len() && ev[*cur].0 <= ft {
         if ev[*cur].0 == ft {

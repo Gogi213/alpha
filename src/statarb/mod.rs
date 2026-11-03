@@ -19,6 +19,7 @@ pub mod eg;
 pub mod egmat;
 pub mod form;
 pub mod kernel;
+pub mod multi;
 pub mod panel;
 pub mod reference;
 pub mod run;
@@ -32,6 +33,8 @@ mod eg_tests;
 mod egmat_tests;
 #[cfg(test)]
 mod form_tests;
+#[cfg(test)]
+mod multi_tests;
 #[cfg(test)]
 mod select_tests;
 #[cfg(test)]

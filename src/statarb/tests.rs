@@ -8,22 +8,26 @@ fn close(a: f64, b: f64) -> bool {
 }
 
 /// Детерминированный генератор: u ∈ (−1, 1), сумма трёх — грубая «гауссиана».
-struct Lcg(u64);
+pub(super) struct Lcg(pub(super) u64);
 impl Lcg {
-    fn u(&mut self) -> f64 {
+    pub(super) fn u(&mut self) -> f64 {
         self.0 = self
             .0
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
         ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
     }
-    fn g(&mut self) -> f64 {
+    pub(super) fn g(&mut self) -> f64 {
         (self.u() + self.u() + self.u()) / 1.7
     }
 }
 
 /// Ряд цен `exp(ln)` с пропусками (`NaN` в open и close), open = прежнее закрытие с шумом.
-fn with_gaps(ln: &[f64], rng: &mut Lcg, burst: Option<(usize, usize)>) -> (Vec<f64>, Vec<f64>) {
+pub(super) fn with_gaps(
+    ln: &[f64],
+    rng: &mut Lcg,
+    burst: Option<(usize, usize)>,
+) -> (Vec<f64>, Vec<f64>) {
     let n = ln.len();
     let mut o = vec![f64::NAN; n];
     let mut c = vec![f64::NAN; n];
@@ -37,11 +41,11 @@ fn with_gaps(ln: &[f64], rng: &mut Lcg, burst: Option<(usize, usize)>) -> (Vec<f
     (o, c)
 }
 
-fn lns(c: &[f64]) -> Vec<f64> {
+pub(super) fn lns(c: &[f64]) -> Vec<f64> {
     c.iter().map(|v| v.ln()).collect()
 }
 
-fn walk(n: usize, rng: &mut Lcg, step: f64, start: f64) -> Vec<f64> {
+pub(super) fn walk(n: usize, rng: &mut Lcg, step: f64, start: f64) -> Vec<f64> {
     let mut v = Vec::with_capacity(n);
     let mut x = start;
     for _ in 0..n {
@@ -51,7 +55,7 @@ fn walk(n: usize, rng: &mut Lcg, step: f64, start: f64) -> Vec<f64> {
     v
 }
 
-fn ou_on(base: &[f64], beta: f64, rng: &mut Lcg, sig: f64) -> Vec<f64> {
+pub(super) fn ou_on(base: &[f64], beta: f64, rng: &mut Lcg, sig: f64) -> Vec<f64> {
     let mut o = 0.0;
     base.iter()
         .map(|x| {
@@ -61,7 +65,7 @@ fn ou_on(base: &[f64], beta: f64, rng: &mut Lcg, sig: f64) -> Vec<f64> {
         .collect()
 }
 
-fn params(beta: BetaMode, yk: LegKind, xk: LegKind) -> Params {
+pub(super) fn params(beta: BetaMode, yk: LegKind, xk: LegKind) -> Params {
     Params {
         window: 240,
         min_obs: 120,
@@ -109,14 +113,20 @@ fn both(inp: &PairInput, p: &Params) -> (Vec<Trade>, Counters) {
     (a, ca)
 }
 
-fn funding_events(first: i64, n: usize, every: i64, off: i64, sign: f64) -> Vec<(i64, f64)> {
+pub(super) fn funding_events(
+    first: i64,
+    n: usize,
+    every: i64,
+    off: i64,
+    sign: f64,
+) -> Vec<(i64, f64)> {
     (0..n as i64)
         .filter(|i| i % every == off)
         .map(|i| (first + i, sign * 1e-4 * (1.0 + (i % 3) as f64)))
         .collect()
 }
 
-const N: usize = 8000;
+pub(super) const N: usize = 8000;
 
 #[test]
 fn pair_kernel_matches_reference_with_gaps() {
