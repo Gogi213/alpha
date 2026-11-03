@@ -638,7 +638,11 @@ fn funding_from_exchange_files_lands_in_panel_minutes() {
     // Ряд в эпохе панелей, ставки — через загрузчик из текста биржи: выплаты начисляются (D2), вход по ставке (D3)
     // даёт сделки, ядро == референс.
     let t0 = 1_585_152_000_000 + 25 * 60 * MINUTE_MS;
-    let first = funding_min(t0);
+    // Начало ряда — по правилу конвертера панелей, независимо от загрузчика ставок.
+    let first = convert_csv(format!("t_open_ms,o,h,l,c\n{t0},1,1,1,1\n").as_bytes())
+        .unwrap()
+        .unwrap()
+        .first_min;
     let mut r = Lcg(31);
     let x = walk(N, &mut r, 1e-3, 4.0);
     let y = ou_on(&x, 1.0, &mut r, 3e-4);
