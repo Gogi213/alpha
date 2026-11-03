@@ -2,7 +2,9 @@
 //! пропускной способности ядра по видам. Пороги и окна не назначаются — все параметры обязательны.
 
 use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Rule, Sink, Trade};
-use super::panel::{convert_csv_stats, read_series, write_series, ConvertStats, Series};
+use super::panel::{
+    convert_csv_stats, read_series, write_series, ConvertStats, Series, GRID0_MS, MINUTE_MS,
+};
 use super::reference;
 use anyhow::{bail, Context, Result};
 use clap::{Subcommand, ValueEnum};
@@ -433,7 +435,25 @@ struct Loaded {
     fund: Vec<(i64, f64)>,
 }
 
-/// `time_ms,rate,interval_h` → `(time_ms / 60000, rate)`; нет файла — пусто (счётчик в выводе bench).
+/// Минута сетки панелей (индекс от `GRID0_MS`) для времени выплаты в мс unix: ставки и `.sap` в одной эпохе (E-010).
+pub fn funding_min(time_ms: i64) -> i64 {
+    time_ms.div_euclid(MINUTE_MS)
+}
+
+/// `time_ms,rate,interval_h` → `(funding_min(time_ms), rate)`; первая строка — заголовок.
+pub fn parse_funding(text: &str) -> Result<Vec<(i64, f64)>> {
+    let mut v = Vec::new();
+    for line in text.lines().skip(1) {
+        let mut it = line.split(',');
+        let (Some(t), Some(r)) = (it.next(), it.next()) else {
+            continue;
+        };
+        v.push((funding_min(t.parse::<i64>()?), r.parse::<f64>()?));
+    }
+    Ok(v)
+}
+
+/// Ставки файла `<name>.csv.gz` на минутах сетки панелей; нет файла — пусто (счётчик в выводе bench).
 fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
     let f = dir.join(format!("{name}.csv.gz"));
     if !f.exists() {
@@ -447,15 +467,7 @@ fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
     if !out.status.success() {
         bail!("gzip -dc {}: ненулевой код", f.display());
     }
-    let mut v = Vec::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
-        let mut it = line.split(',');
-        let (Some(t), Some(r)) = (it.next(), it.next()) else {
-            continue;
-        };
-        v.push((t.parse::<i64>()? / 60_000, r.parse::<f64>()?));
-    }
-    Ok(v)
+    parse_funding(&String::from_utf8_lossy(&out.stdout))
 }
 
 fn load(dir: &Path, n: usize, fund: Option<&Path>) -> Result<Vec<Loaded>> {

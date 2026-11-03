@@ -1,3 +1,4 @@
+use super::cli::{funding_min, parse_funding};
 use super::kernel::*;
 use super::panel::*;
 use super::reference;
@@ -606,6 +607,65 @@ fn mean_at(ev: &[(i64, f64)], ft: i64, k: usize) -> f64 {
         return f64::NAN;
     }
     v[v.len() - k..].iter().sum::<f64>() / k as f64
+}
+
+/// Файл ставок как у биржи: `time_ms,rate,interval_h`, время выплаты в мс unix с дрожанием в мс.
+fn funding_csv(t0_ms: i64, ev: &[(i64, f64)], first: i64) -> String {
+    let mut s = String::from("time_ms,rate,interval_h\n");
+    for (m, r) in ev {
+        s.push_str(&format!("{},{r},8\n", t0_ms + (m - first) * MINUTE_MS + 3));
+    }
+    s
+}
+
+#[test]
+fn funding_minutes_share_the_epoch_of_panels() {
+    // E-010: ставки читались как `time_ms / 60000` (unix), панели — минуты от GRID0_MS: выплата не попадала в ряд.
+    let t0 = 1_585_152_000_000; // первая выплата BTCUSDT Binance, 2020-03-25 16:00 UTC
+    assert_eq!(funding_min(t0), 121_920);
+    assert_eq!(funding_min(GRID0_MS), 0);
+    assert_eq!(funding_min(GRID0_MS + 10 * MINUTE_MS + 3), 10);
+    assert_eq!(funding_min(GRID0_MS - 1), -1);
+    let csv = format!("t_open_ms,o,h,l,c\n{t0},1,1,1,1\n");
+    let s = convert_csv(csv.as_bytes()).unwrap().unwrap();
+    let f = parse_funding(&format!("time_ms,rate,interval_h\n{},0.0001,8\n", t0 + 7)).unwrap();
+    assert_eq!(f, vec![(s.first_min, 1e-4)]);
+    assert!(parse_funding("time_ms,rate,interval_h\nx,1,8\n").is_err());
+}
+
+#[test]
+fn funding_from_exchange_files_lands_in_panel_minutes() {
+    // Ряд в эпохе панелей, ставки — через загрузчик из текста биржи: выплаты начисляются (D2), вход по ставке (D3)
+    // даёт сделки, ядро == референс.
+    let t0 = 1_585_152_000_000 + 25 * 60 * MINUTE_MS;
+    let first = funding_min(t0);
+    let mut r = Lcg(31);
+    let x = walk(N, &mut r, 1e-3, 4.0);
+    let y = ou_on(&x, 1.0, &mut r, 3e-4);
+    let (ox, cx) = with_gaps(&x, &mut r, None);
+    let (oy, cy) = with_gaps(&y, &mut r, None);
+    let (lx, ly) = (lns(&cx), lns(&cy));
+    let ev = swinging_funding(first + 50, N, 60, 6e-4);
+    let fy = parse_funding(&funding_csv(t0, &ev, first)).unwrap();
+    assert_eq!(fy.len(), ev.len());
+    assert!(fy.iter().zip(&ev).all(|(a, b)| a.0 == b.0 && a.1 == b.1));
+    let inp = PairInput {
+        first_min: first,
+        ly: &ly,
+        lx: &lx,
+        oy: &oy,
+        ox: &[&ox],
+        wx: &[1.0],
+        fund_y: &fy,
+        fund_x: &[],
+    };
+    let (d3, _) = both(&inp, &funding_params(0, 2, 5));
+    assert!(d3.iter().any(|t| t.funding_bps != 0.0));
+    let (d2, _) = both(
+        &inp,
+        &params(BetaMode::Fixed(1.0), LegKind::Perp, LegKind::Spot),
+    );
+    assert!(d2.iter().any(|t| t.funding_bps != 0.0), "D2: фандинг ноль");
 }
 
 #[test]
