@@ -4,9 +4,8 @@
 - Заявка calc `1103022721144` (remeasure-funding.sh: прежний `/data/tk0479/alpha-tk479` vs новый `/data/tk0482/alpha-e010-plain`, 2 повтора, лог `/data/sched/logs/1103022721144.log`). Дальше: `PYTHONIOENCODING=utf-8 python tools/compute/statarb/remeasure_table.py table|check 1103022721144` → таблица прежнее/новое (старый лог 1102012237287) → в отчёт TK-479 `docs/findings/statarb-core-bench-2026-11-02.md` строки 67, 68, 70: пометка «неверно, E-010» + новые числа; `accept.py log 1103022721144`; result done с --path отчёта.
 - Зависят от фандинга только строки 67–68 (скорость funding-pp/ps) и 70 (ставок); пары/кросс/корзины/дрейф/Gate — нет; в ревью tk479-* фандинга нет.
 
-## TK-488 возврат Судьи (код c3186ec9; отчёт и таблица 03.11 05:35) — СДАНО, ждёт Судью
-- Результат: вселенная 439 (universe2), `docs/findings/tradfi-candles-2026-11-03.md`, `tradfi-class-table-2026-11-03.csv`, known3 3/3. calc `/data/tk0488/`: coverage-tradfi2.csv, sha-crypto-{before,after} (diff 0), stat-*-{before,after}, fill.done. Стадия/prev `/srv/alpha-sda/candles-1m-488b`.
-- Gate funding API: ≤30 сут/запрос, `from` старше 180 сут — 400; листание только `to`. alsched submit требует `--kind net` для лёгкого и `-- bash …` (guard ругается, но ставит). Скрипты на calc копировать scp в `/data/tk0488/bin/` вручную (старый tk488_report.py лежал, md5!). Python на Windows не видит /tmp Git-Bash — копии в data/.
+## TK-488 — СДАНО (fb26f150, отчёт tradfi-candles-2026-11-03.md), ждёт Судью
+- calc `/data/tk0488/` (universe2, coverage-tradfi2.csv, sha-crypto-*), стадия `/srv/alpha-sda/candles-1m-488b`. Скрипты на calc копировать scp в `/data/tk0488/bin/` (там лежала старая копия); submit — `--kind net -- bash …`.
 ## TK-487 (панели .sap, tk487-convert eabdf11f) — ГОТОВО: calc `/data/tk0487/panels-*`, отчёт statarb-panels-2026-11-03.md. Бин `/data/tk0484/alpha-run-plain`.
 
 ## TK-484 (tk484-pipeline, 6d0483e2; на приёмке) и TK-482 (tk479-statarb, f940f2ef; in_review у Судьи, E-010 исправлен a62ef6eb)
