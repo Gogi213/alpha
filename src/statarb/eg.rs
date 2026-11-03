@@ -75,6 +75,27 @@ impl EgSums {
         self.x1y += o.x1y;
     }
 
+    /// Те же наблюдения с ногами наоборот (`x` ↔ `y`): тест для обратной регрессии без нового прохода.
+    pub fn swapped(&self) -> EgSums {
+        EgSums {
+            n: self.n,
+            x: self.y,
+            x1: self.y1,
+            y: self.x,
+            y1: self.x1,
+            xx: self.yy,
+            x1x1: self.y1y1,
+            xx1: self.yy1,
+            yy: self.xx,
+            y1y1: self.x1x1,
+            yy1: self.xx1,
+            xy: self.xy,
+            x1y1: self.x1y1,
+            xy1: self.x1y,
+            x1y: self.xy1,
+        }
+    }
+
     /// Суммы прямым проходом по рядам ln-цен (`NaN` — нет свечи): эталон и «было» для замера.
     pub fn from_series(x: &[f64], y: &[f64]) -> EgSums {
         let mut s = EgSums::default();

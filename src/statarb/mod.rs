@@ -16,6 +16,7 @@
 pub mod cli;
 pub mod corr;
 pub mod eg;
+pub mod egmat;
 pub mod kernel;
 pub mod panel;
 pub mod reference;
@@ -25,5 +26,7 @@ pub mod run;
 mod corr_tests;
 #[cfg(test)]
 mod eg_tests;
+#[cfg(test)]
+mod egmat_tests;
 #[cfg(test)]
 mod tests;

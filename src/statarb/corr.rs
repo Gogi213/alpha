@@ -66,6 +66,8 @@ impl Packed {
 }
 
 /// Суммы блока для пары (a, b): `n, Σx_a·m_b, Σm_a·x_b, Σq_a·m_b, Σm_a·q_b, Σx_a·x_b`.
+// прежнее ядро (`Ref`) оставлено дословно: эталон порядка сложения для остальных ядер
+#[allow(clippy::needless_range_loop)]
 #[inline]
 fn pair_chunk(a: Tile<'_>, b: Tile<'_>) -> [f32; 6] {
     let (xa, ma, qa) = a;
@@ -272,7 +274,7 @@ pub struct Gram {
 }
 
 /// Номер пары `i < j` в упакованном верхнем треугольнике `s × s`.
-fn pair_idx(s: usize, i: usize, j: usize) -> usize {
+pub(crate) fn pair_idx(s: usize, i: usize, j: usize) -> usize {
     i * s - i * (i + 1) / 2 + (j - i - 1)
 }
 
