@@ -450,20 +450,8 @@ fn overlap_of_spans() {
     assert_eq!(mk(10, 3).overlap(&mk(13, 3)), None);
 }
 
-/// `statarb run`: суточные суммы = сумма сделок из `--trades-out` по суткам закрытия; потоки результат
-/// не меняют; сделки до окна отброшены; нет панели — посчитано отдельным счётчиком.
-#[test]
-fn run_daily_equals_trades_and_is_thread_independent() {
-    use super::run::RunArgs;
-    use clap::Parser;
-    use std::collections::BTreeMap;
-
-    #[derive(Parser)]
-    struct W {
-        #[command(flatten)]
-        a: RunArgs,
-    }
-
+/// Каталог панелей AAA, BBB (7 суток, коинтегрированная пара с пропусками) для тестов `statarb run`.
+fn run_panels_dir() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let mut rng = Lcg(77);
     let n = 7 * 1440;
@@ -480,6 +468,24 @@ fn run_daily_equals_trades_and_is_thread_independent() {
         let mut f = std::fs::File::create(dir.path().join(format!("{sym}.sap"))).unwrap();
         write_series(&mut f, &s).unwrap();
     }
+    dir
+}
+
+/// `statarb run`: суточные суммы = сумма сделок из `--trades-out` по суткам закрытия; потоки результат
+/// не меняют; сделки до окна отброшены; нет панели — посчитано отдельным счётчиком.
+#[test]
+fn run_daily_equals_trades_and_is_thread_independent() {
+    use super::run::RunArgs;
+    use clap::Parser;
+    use std::collections::BTreeMap;
+
+    #[derive(Parser)]
+    struct W {
+        #[command(flatten)]
+        a: RunArgs,
+    }
+
+    let dir = run_panels_dir();
     let jobs = dir.path().join("jobs.csv");
     std::fs::write(
         &jobs,
@@ -568,4 +574,142 @@ fn run_daily_equals_trades_and_is_thread_independent() {
         days += 1;
     }
     assert_eq!(days, by_day.len());
+}
+
+/// `statarb run --cells`: каждая клетка многоклеточного прогона (две группы по window/refresh, разные пороги,
+/// стоп и срок) совпадает побайтно с отдельным прогоном той же клетки: суточный csv и сделки; потоки не влияют.
+#[test]
+fn run_cells_equals_single_cell_runs() {
+    use super::run::RunArgs;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct W {
+        #[command(flatten)]
+        a: RunArgs,
+    }
+
+    let dir = run_panels_dir();
+    let jobs = dir.path().join("jobs.csv");
+    std::fs::write(
+        &jobs,
+        "y,x,from_day,to_day\nAAA,BBB,2,6\nAAA,ZZZ,2,6\nBBB,AAA,3,5\n",
+    )
+    .unwrap();
+    // метка, window, min_obs, beta_fixed, entry_z, exit_z, stop_z, max_hold, refresh
+    let cells = [
+        ("c0", "240", "120", "", "2.0", "0.2", "inf", "720", "0"),
+        ("c1", "240", "120", "", "1.5", "0.5", "4.0", "0", "0"),
+        ("c2", "360", "180", "", "2.0", "0.0", "inf", "240", "97"),
+        ("c3", "240", "120", "1.0", "2.5", "0.2", "3.5", "480", "0"),
+        ("c4", "360", "180", "", "2.5", "0.3", "5.0", "0", "97"),
+    ];
+    let mut csv =
+        String::from("cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh\n");
+    for c in &cells {
+        csv += &format!(
+            "{},{},{},{},{},{},{},{},{}\n",
+            c.0, c.1, c.2, c.3, c.4, c.5, c.6, c.7, c.8
+        );
+    }
+    let cells_csv = dir.path().join("cells.csv");
+    std::fs::write(&cells_csv, csv).unwrap();
+    let base = |daily: &std::path::Path, trades: &std::path::Path, threads: &str| -> Vec<String> {
+        [
+            "run",
+            "--kind",
+            "pair",
+            "--jobs",
+            jobs.to_str().unwrap(),
+            "--panels",
+            dir.path().to_str().unwrap(),
+            "--daily-out",
+            daily.to_str().unwrap(),
+            "--trades-out",
+            trades.to_str().unwrap(),
+            "--trade-jobs",
+            "0,1,2",
+            "--min-span",
+            "100",
+            "--threads",
+            threads,
+        ]
+        .map(String::from)
+        .to_vec()
+    };
+    let read = |d: &std::path::Path, t: &std::path::Path| {
+        (
+            std::fs::read_to_string(d).unwrap(),
+            std::fs::read_to_string(t).unwrap(),
+        )
+    };
+    // эталон: клетки по одной, склейка в порядке файла
+    let (mut want_d, mut want_t) = (String::new(), String::new());
+    for (i, c) in cells.iter().enumerate() {
+        let (d, t) = (
+            dir.path().join(format!("s{i}-d.csv")),
+            dir.path().join(format!("s{i}-t.csv")),
+        );
+        let mut args = base(&d, &t, "1");
+        let mut flags = vec![
+            "--cell",
+            c.0,
+            "--window",
+            c.1,
+            "--min-obs",
+            c.2,
+            "--entry-z",
+            c.4,
+            "--exit-z",
+            c.5,
+            "--stop-z",
+            c.6,
+            "--max-hold",
+            c.7,
+            "--refresh",
+            c.8,
+        ];
+        if !c.3.is_empty() {
+            flags.extend(["--beta-fixed", c.3]);
+        }
+        args.extend(flags.into_iter().map(String::from));
+        super::run::run(&W::parse_from(args).a).unwrap();
+        let (sd, st) = read(&d, &t);
+        let skip = usize::from(i > 0);
+        want_d += &sd
+            .lines()
+            .skip(skip)
+            .map(|l| format!("{l}\n"))
+            .collect::<String>();
+        want_t += &st
+            .lines()
+            .skip(skip)
+            .map(|l| format!("{l}\n"))
+            .collect::<String>();
+    }
+    assert!(
+        want_t.lines().count() > cells.len(),
+        "сделок нет — тест ничего не проверяет"
+    );
+    for threads in ["1", "4"] {
+        let (d, t) = (
+            dir.path().join(format!("m{threads}-d.csv")),
+            dir.path().join(format!("m{threads}-t.csv")),
+        );
+        let mut args = base(&d, &t, threads);
+        args.extend([
+            "--cells".to_string(),
+            cells_csv.to_str().unwrap().to_string(),
+        ]);
+        super::run::run(&W::parse_from(args).a).unwrap();
+        let (got_d, got_t) = read(&d, &t);
+        assert_eq!(
+            got_d, want_d,
+            "суточный csv --cells ≠ отдельным прогонам (потоки {threads})"
+        );
+        assert_eq!(
+            got_t, want_t,
+            "сделки --cells ≠ отдельным прогонам (потоки {threads})"
+        );
+    }
 }
