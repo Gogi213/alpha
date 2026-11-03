@@ -90,13 +90,15 @@ fn pair_chunk(a: Tile<'_>, b: Tile<'_>) -> [f32; 6] {
 }
 
 /// Вариант ядра суммирования блока (TK-486): `Ref` — прежний, `Zip` и `Zip2` — тот же порядок сложения (8 дорожек,
-/// те же суммы), но без проверок границ в цикле (цикл векторизуется) и по 2 строки на один проход блока `j`.
+/// те же суммы), но без проверок границ в цикле (цикл векторизуется) и по 2 строки на один проход блока `j`;
+/// `Avx` — явные 256-бит команды (раздельные умножение и сложение, без FMA: те же суммы бит в бит), на ЦП без AVX — `Zip`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Kernel {
     #[default]
     Ref,
     Zip,
     Zip2,
+    Avx,
 }
 
 impl std::str::FromStr for Kernel {
@@ -106,7 +108,8 @@ impl std::str::FromStr for Kernel {
             "ref" => Ok(Kernel::Ref),
             "zip" => Ok(Kernel::Zip),
             "zip2" => Ok(Kernel::Zip2),
-            _ => Err(format!("ядро: ref|zip|zip2, получено {v}")),
+            "avx" => Ok(Kernel::Avx),
+            _ => Err(format!("ядро: ref|zip|zip2|avx, получено {v}")),
         }
     }
 }
@@ -151,6 +154,65 @@ fn pair_chunk_zip(a: Tile<'_>, b: Tile<'_>) -> [f32; 6] {
         }
     }
     fold(&acc)
+}
+
+/// Те же суммы и тот же порядок сложения по дорожкам, что у `pair_chunk`, но 256-бит командами: на 8 дорожек —
+/// 6 умножений и 6 сложений (без FMA, чтобы округление совпало с `Ref`).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx")]
+unsafe fn pair_chunk_avx_impl(a: Tile<'_>, b: Tile<'_>) -> [f32; 6] {
+    use std::arch::x86_64::{
+        _mm256_add_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_storeu_ps,
+    };
+    let (xa, ma, qa) = a;
+    let (xb, mb, qb) = b;
+    let mut acc = [_mm256_setzero_ps(); 6];
+    for k in (0..CH).step_by(8) {
+        let (vxa, vma, vqa) = (
+            _mm256_loadu_ps(xa[k..].as_ptr()),
+            _mm256_loadu_ps(ma[k..].as_ptr()),
+            _mm256_loadu_ps(qa[k..].as_ptr()),
+        );
+        let (vxb, vmb, vqb) = (
+            _mm256_loadu_ps(xb[k..].as_ptr()),
+            _mm256_loadu_ps(mb[k..].as_ptr()),
+            _mm256_loadu_ps(qb[k..].as_ptr()),
+        );
+        acc[0] = _mm256_add_ps(acc[0], _mm256_mul_ps(vma, vmb));
+        acc[1] = _mm256_add_ps(acc[1], _mm256_mul_ps(vxa, vmb));
+        acc[2] = _mm256_add_ps(acc[2], _mm256_mul_ps(vma, vxb));
+        acc[3] = _mm256_add_ps(acc[3], _mm256_mul_ps(vqa, vmb));
+        acc[4] = _mm256_add_ps(acc[4], _mm256_mul_ps(vma, vqb));
+        acc[5] = _mm256_add_ps(acc[5], _mm256_mul_ps(vxa, vxb));
+    }
+    let mut lanes = [[0f32; 8]; 6];
+    for (l, v) in lanes.iter_mut().zip(acc) {
+        _mm256_storeu_ps(l.as_mut_ptr(), v);
+    }
+    fold(&lanes)
+}
+
+/// `Avx` без проверки процессора вызывать нельзя: вызывающий берёт `avx_ok()` один раз на проход.
+#[cfg(target_arch = "x86_64")]
+fn avx_ok() -> bool {
+    std::arch::is_x86_feature_detected!("avx")
+}
+#[cfg(not(target_arch = "x86_64"))]
+fn avx_ok() -> bool {
+    false
+}
+
+#[inline]
+fn pair_chunk_avx(a: Tile<'_>, b: Tile<'_>) -> [f32; 6] {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // SAFETY: вызывается только при `avx_ok()` (см. `block_moments_with`).
+        unsafe { pair_chunk_avx_impl(a, b) }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        pair_chunk_zip(a, b)
+    }
 }
 
 /// Две строки (`a0`, `a1`) против одного блока `b`: блок `b` читается из кэша один раз на две пары.
@@ -233,6 +295,11 @@ pub fn block_moments_with(
     kernel: Kernel,
 ) -> BlockMoments {
     let s = p.s;
+    let kernel = if kernel == Kernel::Avx && !avx_ok() {
+        Kernel::Zip
+    } else {
+        kernel
+    };
     let bc = block_chunks.max(1);
     let blocks = p.nch.div_ceil(bc).max(1);
     let next = AtomicUsize::new(0);
@@ -257,6 +324,7 @@ pub fn block_moments_with(
                             let (r0, r1) = match kernel {
                                 Kernel::Ref => (pair_chunk(p.tile(c, i0 + ii), b), None),
                                 Kernel::Zip => (pair_chunk_zip(p.tile(c, i0 + ii), b), None),
+                                Kernel::Avx => (pair_chunk_avx(p.tile(c, i0 + ii), b), None),
                                 Kernel::Zip2 if two => {
                                     let [r0, r1] = pair_chunk_zip2(
                                         p.tile(c, i0 + ii),
@@ -360,7 +428,7 @@ pub struct CorrBenchArgs {
     /// Сколько пар сверить с прямым расчётом.
     #[arg(long)]
     check_pairs: usize,
-    /// Ядро суммирования блока: ref (прежнее, умолчание) | zip | zip2 (TK-486).
+    /// Ядро суммирования блока: ref (прежнее, умолчание) | zip | zip2 | avx (TK-486).
     #[arg(long, default_value = "ref")]
     kernel: Kernel,
 }

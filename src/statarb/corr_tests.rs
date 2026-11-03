@@ -89,7 +89,7 @@ fn kernels_are_bit_identical() {
     let refs: Vec<&[f64]> = rows.iter().map(|r| r.as_slice()).collect();
     let p = Packed::new(&refs).unwrap();
     let r = gram_with(&p, 30, 2, Kernel::Ref);
-    for k in [Kernel::Zip, Kernel::Zip2] {
+    for k in [Kernel::Zip, Kernel::Zip2, Kernel::Avx] {
         let g = gram_with(&p, 30, 3, k);
         assert_eq!(g.n, r.n, "{k:?}: n");
         let same = g
