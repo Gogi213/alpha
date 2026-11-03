@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 # TK-479: заявки на calc для ядра statarb. Не ждёт: печатает id; ждать — host:calc:/data/sched/rc/<id>.
 #   statarb/calc.sh build <дерево>            релизная сборка (слот rbuild, 1 ядро резерва) → /data/tk0479/alpha-tk479
+#   statarb/calc.sh buildv3 <дерево>          то же с -C target-cpu=x86-64-v3 (боевой набор команд, TK-486) → /data/tk0486/alpha-run-v3
 #   statarb/calc.sh check <дерево>            clippy -D warnings + test statarb (слот rbuild, 1 ядро резерва)
 #   statarb/calc.sh bench [N символов] [ядра]  convert + bench (bench.sh), обычное prod-задание на <ядра> ядер
 #   statarb/calc.sh gate [ядра]                Gate: convert + кросс-биржа + дрейф против референса (gate.sh)
 #   statarb/calc.sh table <вид> [ядра]         таблица одного вида на готовых панелях (table.sh), секунды
 set -euo pipefail
-MODE="${1:?build|check|bench|gate|table}"
+MODE="${1:?build|buildv3|check|bench|gate|table}"
 KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o ConnectTimeout=15)
 HOST=root@89.163.242.211
 case "$MODE" in
-build|check)
+build|buildv3|check)
   TREE="${2:?дерево}"
   if [ "$MODE" = build ]; then
     STEPS='cargo build --release --target-dir $SLOT_TGT -j $JOBS 2>&1 | tail -3
 install -D $SLOT_TGT/release/alpha /data/tk0479/alpha-tk479 && md5sum /data/tk0479/alpha-tk479'
+  elif [ "$MODE" = buildv3 ]; then
+    STEPS='RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --target-dir $SLOT_TGT-v3 -j $JOBS 2>&1 | tail -3
+install -D $SLOT_TGT-v3/release/alpha /data/tk0486/alpha-run-v3 && md5sum /data/tk0486/alpha-run-v3'
   else
     STEPS='cargo clippy --release --target-dir $SLOT_TGT --all-targets -j $JOBS -- -D warnings 2>&1 | tail -5
 cargo test --release --target-dir $SLOT_TGT -j $JOBS statarb 2>&1 | grep -E "^test result|FAILED|panicked|^error"'
