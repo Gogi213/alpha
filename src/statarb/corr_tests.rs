@@ -62,3 +62,22 @@ fn rows_of_different_length_rejected() {
     let b = vec![0.0; 11];
     assert!(Packed::new(&[&a, &b]).is_err());
 }
+
+#[test]
+fn window_of_blocks_equals_direct_gram_of_slice() {
+    // блок = 2 куска по CH отсчётов; окно блоков 1..3 = отсчёты [2·CH .. 6·CH) — те же куски, что у прямого расчёта среза
+    let rows = series(9, 8 * CH - 100);
+    let refs: Vec<&[f64]> = rows.iter().map(|r| r.as_slice()).collect();
+    let bm = block_moments(&Packed::new(&refs).unwrap(), 2, 2);
+    assert_eq!(bm.blocks, 4);
+    let w = bm.window(1, 3, 30);
+    let cut: Vec<&[f64]> = rows.iter().map(|r| &r[2 * CH..6 * CH]).collect();
+    let d = gram(&Packed::new(&cut).unwrap(), 30, 1);
+    for i in 0..9 {
+        for j in (i + 1)..9 {
+            let k = i * 9 + j;
+            assert_eq!(w.n[k], d.n[k], "n {i},{j}");
+            assert!((w.corr[k] - d.corr[k]).abs() < 1e-5, "corr {i},{j}");
+        }
+    }
+}

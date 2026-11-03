@@ -107,10 +107,25 @@ pub struct Gram {
     pub n: Vec<u32>,
 }
 
-pub fn gram(p: &Packed, min_obs: u32, threads: usize) -> Gram {
+/// Номер пары `i < j` в упакованном верхнем треугольнике `s × s`.
+fn pair_idx(s: usize, i: usize, j: usize) -> usize {
+    i * s - i * (i + 1) / 2 + (j - i - 1)
+}
+
+/// Суммы пар (6 штук, как в `pair_chunk`) по блокам из `block_chunks` кусков отсчётов: окно формирования —
+/// сумма подряд идущих блоков, скользящее окно не пересчитывает общие блоки (TK-486).
+pub struct BlockMoments {
+    pub s: usize,
+    pub blocks: usize,
+    m: Vec<[f64; 6]>,
+}
+
+pub fn block_moments(p: &Packed, block_chunks: usize, threads: usize) -> BlockMoments {
     let s = p.s;
+    let bc = block_chunks.max(1);
+    let blocks = p.nch.div_ceil(bc).max(1);
     let next = AtomicUsize::new(0);
-    let out: Mutex<Vec<(usize, Vec<f32>, Vec<u32>)>> = Mutex::new(Vec::new());
+    let out: Mutex<Vec<(usize, usize, Vec<[f64; 6]>)>> = Mutex::new(Vec::new());
     std::thread::scope(|sc| {
         for _ in 0..threads.max(1) {
             sc.spawn(|| loop {
@@ -119,38 +134,66 @@ pub fn gram(p: &Packed, min_obs: u32, threads: usize) -> Gram {
                     break;
                 }
                 let rows = RB.min(s - i0);
-                let mut acc = vec![[0f64; 6]; rows * s];
+                let mut acc = vec![[0f64; 6]; blocks * rows * s];
                 for c in 0..p.nch {
+                    let bl = c / bc;
                     for j in (i0 + 1)..s {
                         let b = p.tile(c, j);
                         for ii in 0..rows.min(j - i0) {
                             let r = pair_chunk(p.tile(c, i0 + ii), b);
-                            let a = &mut acc[ii * s + j];
+                            let a = &mut acc[(bl * rows + ii) * s + j];
                             for (o, v) in a.iter_mut().zip(r) {
                                 *o += f64::from(v);
                             }
                         }
                     }
                 }
-                let (mut cv, mut nv) = (vec![f32::NAN; rows * s], vec![0u32; rows * s]);
-                for ii in 0..rows {
-                    for j in (i0 + ii + 1)..s {
-                        let (c, n) = finish(&acc[ii * s + j], min_obs);
-                        cv[ii * s + j] = c;
-                        nv[ii * s + j] = n;
-                    }
-                }
-                out.lock().unwrap().push((i0, cv, nv));
+                out.lock().unwrap().push((i0, rows, acc));
             });
         }
     });
-    let (mut corr, mut n) = (vec![f32::NAN; s * s], vec![0u32; s * s]);
-    for (i0, cv, nv) in out.into_inner().unwrap() {
-        let rows = cv.len() / s;
-        corr[i0 * s..(i0 + rows) * s].copy_from_slice(&cv);
-        n[i0 * s..(i0 + rows) * s].copy_from_slice(&nv);
+    let np = s * s.saturating_sub(1) / 2;
+    let mut m = vec![[0f64; 6]; blocks * np];
+    for (i0, rows, acc) in out.into_inner().unwrap() {
+        for bl in 0..blocks {
+            for ii in 0..rows {
+                let i = i0 + ii;
+                for j in (i + 1)..s {
+                    m[bl * np + pair_idx(s, i, j)] = acc[(bl * rows + ii) * s + j];
+                }
+            }
+        }
     }
-    Gram { s, corr, n }
+    BlockMoments { s, blocks, m }
+}
+
+impl BlockMoments {
+    /// Корреляция и число общих отсчётов по окну из блоков `lo..hi`.
+    pub fn window(&self, lo: usize, hi: usize, min_obs: u32) -> Gram {
+        let s = self.s;
+        let np = s * s.saturating_sub(1) / 2;
+        let (mut corr, mut n) = (vec![f32::NAN; s * s], vec![0u32; s * s]);
+        for i in 0..s {
+            for j in (i + 1)..s {
+                let k = pair_idx(s, i, j);
+                let mut t = [0f64; 6];
+                for b in lo..hi.min(self.blocks) {
+                    for (o, v) in t.iter_mut().zip(self.m[b * np + k]) {
+                        *o += v;
+                    }
+                }
+                let (c, nn) = finish(&t, min_obs);
+                corr[i * s + j] = c;
+                n[i * s + j] = nn;
+            }
+        }
+        Gram { s, corr, n }
+    }
+}
+
+/// Одно окно на весь ряд: один блок.
+pub fn gram(p: &Packed, min_obs: u32, threads: usize) -> Gram {
+    block_moments(p, p.nch.max(1), threads).window(0, 1, min_obs)
 }
 
 /// Прямая корреляция одной пары по общим отсчётам (`f64`, один проход) — эталон для проверки.
