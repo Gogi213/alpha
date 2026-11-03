@@ -16,6 +16,9 @@ pub const CH: usize = 256;
 /// Строк матрицы на задачу потока: блок символа `j` читается из кэша `RB` раз.
 const RB: usize = 4;
 
+/// Суммы блоков одной полосы строк матрицы: (первая строка, строк, суммы блок × строка × столбец).
+type RowStrip = (usize, usize, Vec<[f64; 6]>);
+
 type Tile<'a> = (&'a [f32; CH], &'a [f32; CH], &'a [f32; CH]);
 
 /// Окно формирования: `s` символов × `t` отсчётов, раскладка блоками.
@@ -125,7 +128,7 @@ pub fn block_moments(p: &Packed, block_chunks: usize, threads: usize) -> BlockMo
     let bc = block_chunks.max(1);
     let blocks = p.nch.div_ceil(bc).max(1);
     let next = AtomicUsize::new(0);
-    let out: Mutex<Vec<(usize, usize, Vec<[f64; 6]>)>> = Mutex::new(Vec::new());
+    let out: Mutex<Vec<RowStrip>> = Mutex::new(Vec::new());
     std::thread::scope(|sc| {
         for _ in 0..threads.max(1) {
             sc.spawn(|| loop {
