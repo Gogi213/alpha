@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-488 (В-93): итоговая таблица класса TradFi — по контракту вселенной: класс, биржа, источник метаданных, флаг, дни во вселенной,
 покрытие свечей (из tk476_coverage.py), чего не хватает вселенной (need_candles из tk488_universe.py), фандинг и причина дыр.
-Ничего не выдумывает: причина — числа coverage и need-candles словами; фандинг Gate в TK-478 не качали — пишется как есть.
+Ничего не выдумывает: причина — числа coverage и need-candles словами; фандинг всех трёх бирж — из каталога фандинга (Gate качает tk488_gate_funding.py).
 usage: tk488_report.py <tradfi-list.csv> <каталог universe TK-488> <coverage-tradfi.csv> <каталог фандинга|-> <выход.csv>"""
 import csv, gzip, importlib.util, os, sys
 from collections import Counter
@@ -22,9 +22,7 @@ def days_in(ivs):
 
 
 def funding(fdir, ex, sym):
-    """(записей, первая, последняя) | None; Gate — вне TK-478."""
-    if ex == 'gate-futures_usdt':
-        return 'вне TK-478'
+    """(записей, первая, последняя) | None."""
     p = os.path.join(fdir, ex, sym + '.csv.gz')
     if not os.path.exists(p):
         return None

@@ -65,11 +65,11 @@ class T(unittest.TestCase):
     def test_excluded_and_no_turnover(self):
         for ex in m.EXCH:
             self.turnover(ex, {})
-        self.turnover('binance-um', {'XAUUSDT': [2e6] * 3})
-        rows = [lrow('binance-um', 'XAUUSDT', 'commodity'), lrow('binance-um', 'BTCDOMUSDT', 'index', 'crypto-index: не TradFi, в вселенную не берём'),
+        self.turnover('binance-um', {'XAUUSDT': [2e6] * 3, 'PREDICTUSDT': [2e6] * 3})  # оборот выше порога — вне вселенной только по флагу
+        rows = [lrow('binance-um', 'PREDICTUSDT', 'pre-ipo', 'pre-market крипто: не TradFi'), lrow('binance-um', 'XAUUSDT', 'commodity'), lrow('binance-um', 'BTCDOMUSDT', 'index', 'crypto-index: не TradFi, в вселенную не берём'),
                 lrow('binance-um', 'SPCXUSD1', flag='котировка USD1, не USDT'), lrow('binance-um', 'NEWUSDT')]
         out = self.run_all(rows, [])
-        self.assertEqual({r['symbol'] for r in self.read(out, 'sources-binance-um.csv')}, {'XAUUSDT'})
+        self.assertEqual({r['symbol'] for r in self.read(out, 'sources-binance-um.csv')}, {'XAUUSDT'})  # PREDICTUSDT (крипто pre-market) не вошёл
         nt = self.read(out, 'no-turnover.csv')
         self.assertEqual([r['symbol'] for r in nt], ['NEWUSDT'])
 

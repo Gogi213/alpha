@@ -1,4 +1,4 @@
-"""TK-488: итоговая таблица класса (tk488_report.py), офлайн: причина дыр только из чисел coverage и need-candles; Gate-фандинг вне TK-478;
+"""TK-488: итоговая таблица класса (tk488_report.py), офлайн: причина дыр только из чисел coverage и need-candles; Gate-фандинг читается как у остальных бирж;
 контракт без файла свечей / с дырой / с требованием вселенной до первой минуты файла / без файла фандинга."""
 import csv, gzip, importlib.util, os, shutil, tempfile, unittest
 
@@ -54,6 +54,9 @@ class T(unittest.TestCase):
         os.makedirs(os.path.join(fd, 'binance-um'))
         with gzip.open(os.path.join(fd, 'binance-um', 'OKUSDT.csv.gz'), 'wt', newline='') as f:
             f.write('time_ms,rate,interval_h\n1788220800000,0.0001,8\n1788249600000,0.0001,8\n')
+        os.makedirs(os.path.join(fd, 'gate-futures_usdt'))
+        with gzip.open(os.path.join(fd, 'gate-futures_usdt', 'AAPL_USDT.csv.gz'), 'wt', newline='') as f:
+            f.write('time_ms,rate,interval_h\n1788220800000,0,8\n')
         out = m.build(lst, uni, covf, fd)
         return {(r[0], r[1]): dict(zip(m.COLS, r)) for r in out}
 
@@ -70,7 +73,7 @@ class T(unittest.TestCase):
         self.assertIn('до первой 2026-08-01…2026-09-09', early['причина'])
         self.assertEqual(early['не_хватает'], 'до первой 2026-08-01…2026-09-09')
         g = r[('gate-futures_usdt', 'AAPL_USDT')]
-        self.assertEqual((g['причина'], g['фандинг_записей'], g['флаг']), ('ок', 'вне TK-478', 'pre-market'))
+        self.assertEqual((g['причина'], g['фандинг_записей'], g['флаг']), ('ок', 1, 'pre-market'))  # Gate-фандинг читается из каталога, не «вне TK-478»
 
     def test_no_funding_dir(self):
         lst = self.write('l.csv', LIST_HDR, [['binance-um', 'XUSDT', 'fx', 'X', '', 'P', 'TRADING', '1', 'meta', '']])

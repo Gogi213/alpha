@@ -3,10 +3,11 @@
 не 5), и список недостающих свечей 1 м. Оборот не пересчитывается (В-213): берётся из таблиц TK-476 (`turnover-<биржа>.csv.gz`),
 у контрактов, чей оборот в таблице кончается раньше конца таблицы (Binance TRADIFI_PERPETUAL: в TK-476 шли как «снятые» через месячный архив — оборот
 только до 30.09), и у контрактов без строк оборота дневные свечи доберутся дельтой тем же REST, что в tk476_universe.py (turnover-delta.csv). Правило прохождения и формат выходных файлов — функция `write` из tk476_universe (порог переопределён).
-usage: tk488_universe.py <tradfi-list.csv> <каталог universe TK-476> <coverage2.csv TK-476> <out> [--no-fetch]
+usage: tk488_universe.py <tradfi-list.csv> <каталог universe TK-476> <coverage2.csv TK-476> <out> [--no-fetch] [--last-day YYYY-MM-DD]
+--last-day — до какого дня вселенная требует свечи (умолчание = последняя минута лежащих файлов; В-93 возврат: до конца вселенной, 11-02)
 Выход в <out>/: turnover-/universe-/union-/sources-<биржа>.csv(.gz) как в TK-476 (только TradFi, порог 1 млн);
 turnover-delta.csv (что добрано REST); need-candles.csv (exchange,symbol,class,from_day,to_day,have_first,have_last,need) — что вселенная требует сверх лежащего;
-no-turnover.csv (контракты списка без единого дня оборота и причина). Крипто-индексы и котировка не USDT — в вселенную не входят."""
+no-turnover.csv (контракты списка без единого дня оборота и причина). Крипто-индексы, крипто pre-market и котировка не USDT — в вселенную не входят."""
 import csv, gzip, importlib.util, os, sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -21,10 +22,11 @@ EXCH = ('binance-um', 'bybit-linear', 'gate-futures_usdt')
 
 
 def tradfi_rows(path):
-    """Строки списка, входящие во вселенную: не крипто-индекс, котировка USDT."""
+    """Строки списка, входящие во вселенную: не крипто-индекс, не крипто pre-market (Binance PREDICTUSDT: подтип без TradFi — это крипто
+    1–5 млн, В-93 их не трогает), котировка USDT."""
     out = []
     for r in csv.DictReader(open(path, encoding='utf-8')):
-        if r['flag'].startswith('crypto-index') or r['flag'].startswith('котировка'):
+        if r['flag'].startswith(('crypto-index', 'pre-market крипто', 'котировка')):
             continue
         out.append(r)
     return out
@@ -107,6 +109,8 @@ def main():
         if r['первая_utc']:
             cov[(r['биржа'], r['символ'])] = (datetime.strptime(r['первая_utc'], '%Y-%m-%d %H:%M'), datetime.strptime(r['последняя_utc'], '%Y-%m-%d %H:%M'))
     last_day = max((v[1] for v in cov.values()), default=datetime.now()).date()
+    if '--last-day' in sys.argv:
+        last_day = date.fromisoformat(sys.argv[sys.argv.index('--last-day') + 1])
     nt, needs, delta = [], [], {}
     for ex in EXCH:
         mine = [r for r in rows if r['exchange'] == ex]
