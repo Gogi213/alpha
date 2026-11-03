@@ -89,6 +89,105 @@ fn pair_chunk(a: Tile<'_>, b: Tile<'_>) -> [f32; 6] {
     r
 }
 
+/// Вариант ядра суммирования блока (TK-486): `Ref` — прежний, `Zip` и `Zip2` — тот же порядок сложения (8 дорожек,
+/// те же суммы), но без проверок границ в цикле (цикл векторизуется) и по 2 строки на один проход блока `j`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Kernel {
+    #[default]
+    Ref,
+    Zip,
+    Zip2,
+}
+
+impl std::str::FromStr for Kernel {
+    type Err = String;
+    fn from_str(v: &str) -> Result<Self, String> {
+        match v {
+            "ref" => Ok(Kernel::Ref),
+            "zip" => Ok(Kernel::Zip),
+            "zip2" => Ok(Kernel::Zip2),
+            _ => Err(format!("ядро: ref|zip|zip2, получено {v}")),
+        }
+    }
+}
+
+type Lane = [f32; 8];
+
+#[inline]
+fn lanes(a: &[f32; CH]) -> &[Lane] {
+    a.as_chunks::<8>().0
+}
+
+#[inline]
+fn fold(acc: &[Lane; 6]) -> [f32; 6] {
+    let mut r = [0f32; 6];
+    for (o, a) in r.iter_mut().zip(acc.iter()) {
+        *o = a.iter().sum();
+    }
+    r
+}
+
+/// То же, что `pair_chunk`, но без индексации по `e` (границы известны типом `[f32; 8]`).
+#[inline]
+fn pair_chunk_zip(a: Tile<'_>, b: Tile<'_>) -> [f32; 6] {
+    let (xa, ma, qa) = a;
+    let (xb, mb, qb) = b;
+    let mut acc = [[0f32; 8]; 6];
+    let it = lanes(xa)
+        .iter()
+        .zip(lanes(ma))
+        .zip(lanes(qa))
+        .zip(lanes(xb))
+        .zip(lanes(mb))
+        .zip(lanes(qb));
+    for (((((xa, ma), qa), xb), mb), qb) in it {
+        for l in 0..8 {
+            acc[0][l] += ma[l] * mb[l];
+            acc[1][l] += xa[l] * mb[l];
+            acc[2][l] += ma[l] * xb[l];
+            acc[3][l] += qa[l] * mb[l];
+            acc[4][l] += ma[l] * qb[l];
+            acc[5][l] += xa[l] * xb[l];
+        }
+    }
+    fold(&acc)
+}
+
+/// Две строки (`a0`, `a1`) против одного блока `b`: блок `b` читается из кэша один раз на две пары.
+#[inline]
+fn pair_chunk_zip2(a0: Tile<'_>, a1: Tile<'_>, b: Tile<'_>) -> [[f32; 6]; 2] {
+    let (xb, mb, qb) = b;
+    let mut acc0 = [[0f32; 8]; 6];
+    let mut acc1 = [[0f32; 8]; 6];
+    let it = lanes(a0.0)
+        .iter()
+        .zip(lanes(a0.1))
+        .zip(lanes(a0.2))
+        .zip(lanes(a1.0))
+        .zip(lanes(a1.1))
+        .zip(lanes(a1.2))
+        .zip(lanes(xb))
+        .zip(lanes(mb))
+        .zip(lanes(qb));
+    for ((((((((xa, ma), qa), xc), mc), qc), xb), mb), qb) in it {
+        for l in 0..8 {
+            acc0[0][l] += ma[l] * mb[l];
+            acc0[1][l] += xa[l] * mb[l];
+            acc0[2][l] += ma[l] * xb[l];
+            acc0[3][l] += qa[l] * mb[l];
+            acc0[4][l] += ma[l] * qb[l];
+            acc0[5][l] += xa[l] * xb[l];
+            acc1[0][l] += mc[l] * mb[l];
+            acc1[1][l] += xc[l] * mb[l];
+            acc1[2][l] += mc[l] * xb[l];
+            acc1[3][l] += qc[l] * mb[l];
+            acc1[4][l] += mc[l] * qb[l];
+            acc1[5][l] += xc[l] * xb[l];
+        }
+    }
+    [fold(&acc0), fold(&acc1)]
+}
+
 /// Корреляция по суммам; `NaN` — общих отсчётов меньше `min_obs` или нулевая дисперсия.
 fn finish(s: &[f64; 6], min_obs: u32) -> (f32, u32) {
     let n = s[0];
@@ -124,6 +223,15 @@ pub struct BlockMoments {
 }
 
 pub fn block_moments(p: &Packed, block_chunks: usize, threads: usize) -> BlockMoments {
+    block_moments_with(p, block_chunks, threads, Kernel::Ref)
+}
+
+pub fn block_moments_with(
+    p: &Packed,
+    block_chunks: usize,
+    threads: usize,
+    kernel: Kernel,
+) -> BlockMoments {
     let s = p.s;
     let bc = block_chunks.max(1);
     let blocks = p.nch.div_ceil(bc).max(1);
@@ -142,12 +250,30 @@ pub fn block_moments(p: &Packed, block_chunks: usize, threads: usize) -> BlockMo
                     let bl = c / bc;
                     for j in (i0 + 1)..s {
                         let b = p.tile(c, j);
-                        for ii in 0..rows.min(j - i0) {
-                            let r = pair_chunk(p.tile(c, i0 + ii), b);
-                            let a = &mut acc[(bl * rows + ii) * s + j];
-                            for (o, v) in a.iter_mut().zip(r) {
-                                *o += f64::from(v);
+                        let lim = rows.min(j - i0);
+                        let mut ii = 0;
+                        while ii < lim {
+                            let two = kernel == Kernel::Zip2 && ii + 1 < lim;
+                            let (r0, r1) = match kernel {
+                                Kernel::Ref => (pair_chunk(p.tile(c, i0 + ii), b), None),
+                                Kernel::Zip => (pair_chunk_zip(p.tile(c, i0 + ii), b), None),
+                                Kernel::Zip2 if two => {
+                                    let [r0, r1] = pair_chunk_zip2(
+                                        p.tile(c, i0 + ii),
+                                        p.tile(c, i0 + ii + 1),
+                                        b,
+                                    );
+                                    (r0, Some(r1))
+                                }
+                                Kernel::Zip2 => (pair_chunk_zip(p.tile(c, i0 + ii), b), None),
+                            };
+                            for (k, r) in [Some(r0), r1].into_iter().flatten().enumerate() {
+                                let a = &mut acc[(bl * rows + ii + k) * s + j];
+                                for (o, v) in a.iter_mut().zip(r) {
+                                    *o += f64::from(v);
+                                }
                             }
+                            ii += if two { 2 } else { 1 };
                         }
                     }
                 }
@@ -196,7 +322,11 @@ impl BlockMoments {
 
 /// Одно окно на весь ряд: один блок.
 pub fn gram(p: &Packed, min_obs: u32, threads: usize) -> Gram {
-    block_moments(p, p.nch.max(1), threads).window(0, 1, min_obs)
+    gram_with(p, min_obs, threads, Kernel::Ref)
+}
+
+pub fn gram_with(p: &Packed, min_obs: u32, threads: usize, kernel: Kernel) -> Gram {
+    block_moments_with(p, p.nch.max(1), threads, kernel).window(0, 1, min_obs)
 }
 
 /// Прямая корреляция одной пары по общим отсчётам (`f64`, один проход) — эталон для проверки.
@@ -230,6 +360,9 @@ pub struct CorrBenchArgs {
     /// Сколько пар сверить с прямым расчётом.
     #[arg(long)]
     check_pairs: usize,
+    /// Ядро суммирования блока: ref (прежнее, умолчание) | zip | zip2 (TK-486).
+    #[arg(long, default_value = "ref")]
+    kernel: Kernel,
 }
 
 /// Замер: время упаковки, время матрицы, пар-отсчётов в секунду, максимум |Δcorr| против прямого расчёта.
@@ -261,7 +394,7 @@ pub fn run(a: &CorrBenchArgs) -> Result<()> {
     let p = Packed::new(&refs)?;
     let t_pack = t0.elapsed().as_secs_f64();
     let t1 = Instant::now();
-    let g = gram(&p, a.min_obs, a.threads);
+    let g = gram_with(&p, a.min_obs, a.threads, a.kernel);
     let t_gram = t1.elapsed().as_secs_f64();
     let pairs = (a.symbols * a.symbols.saturating_sub(1) / 2) as f64;
     let (mut worst, mut checked) = (0f32, 0usize);
@@ -289,7 +422,8 @@ pub fn run(a: &CorrBenchArgs) -> Result<()> {
         checked, t_naive, naive_rate
     );
     println!(
-        "corr: символов {}, отсчётов {}, пар {:.0}, потоков {}, упаковка {:.2} с, матрица {:.2} с, {:.3e} пар·отсчётов/с, сверено пар {}, max|Δcorr| {:.2e}",
+        "corr[{:?}]: символов {}, отсчётов {}, пар {:.0}, потоков {}, упаковка {:.2} с, матрица {:.2} с, {:.3e} пар·отсчётов/с, сверено пар {}, max|Δcorr| {:.2e}",
+        a.kernel,
         a.symbols,
         a.minutes,
         pairs,

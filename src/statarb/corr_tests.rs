@@ -81,3 +81,22 @@ fn window_of_blocks_equals_direct_gram_of_slice() {
         }
     }
 }
+
+#[test]
+fn kernels_are_bit_identical() {
+    // нечётное число строк и строка с дырой: хвост пары строк у zip2 идёт одиночным проходом
+    let rows = series(13, 2 * CH + 77);
+    let refs: Vec<&[f64]> = rows.iter().map(|r| r.as_slice()).collect();
+    let p = Packed::new(&refs).unwrap();
+    let r = gram_with(&p, 30, 2, Kernel::Ref);
+    for k in [Kernel::Zip, Kernel::Zip2] {
+        let g = gram_with(&p, 30, 3, k);
+        assert_eq!(g.n, r.n, "{k:?}: n");
+        let same = g
+            .corr
+            .iter()
+            .zip(&r.corr)
+            .all(|(a, b)| a.to_bits() == b.to_bits());
+        assert!(same, "{k:?}: corr не байт в байт");
+    }
+}
