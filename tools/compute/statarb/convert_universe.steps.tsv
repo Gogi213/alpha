@@ -1,0 +1,4 @@
+convert-binance-um	/data/tk0487/panels-binance-um.done	/srv/alpha-sda/candles-1m/binance-um	bash /data/tk0487/src/convert_universe.sh /data/tk0484/alpha-run-plain 15 binance-um
+convert-bybit-linear	/data/tk0487/panels-bybit-linear.done	/srv/alpha-sda/candles-1m/bybit-linear	bash /data/tk0487/src/convert_universe.sh /data/tk0484/alpha-run-plain 15 bybit-linear
+convert-gate-futures	/data/tk0487/panels-gate-futures_usdt.done	/srv/alpha-sda/candles-1m/gate-futures_usdt	bash /data/tk0487/src/convert_universe.sh /data/tk0484/alpha-run-plain 15 gate-futures_usdt
+convert-bybit-spot	/data/tk0487/panels-bybit-spot.done	/srv/alpha-sda/candles-1m/bybit-spot	bash /data/tk0487/src/convert_universe.sh /data/tk0484/alpha-run-plain 15 bybit-spot
