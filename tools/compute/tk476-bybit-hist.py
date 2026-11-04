@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 START = int(os.environ.get("K_START", 1577836800000))  # 2020-01-01 00:00 UTC
 END = int(os.environ.get("K_END", int(time.time() // 86400 * 86400 * 1000)))
 BASE = "https://api.bybit.com/v5/market/"
+GZ = {"Accept-Encoding": "gzip"} if os.environ.get("K_GZIP") == "1" else {}  # TK-490: ответ сжатый (в 2 раза меньше трафика); умолчание прежнее
 lock = threading.Lock()
 next_slot = pause_until = 0.0
 reqs = 0
@@ -33,8 +34,9 @@ def get(path, rps):
         try:
             with lock:
                 reqs += 1
-            with urllib.request.urlopen(BASE + path, timeout=30) as r:
-                d = json.load(r)
+            with urllib.request.urlopen(urllib.request.Request(BASE + path, headers=GZ), timeout=30) as r:
+                raw = r.read()
+                d = json.loads(gzip.decompress(raw) if r.headers.get("Content-Encoding") == "gzip" else raw)
             if d.get("retCode") == 0:
                 return d["result"]
             if d.get("retCode") == 10006:

@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 UA = {'User-Agent': 'alpha-tk478'}
 BN_S3 = 'https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/'
 CACHE = os.environ.get('TK478_CACHE', '/data/tk0455/fund')
+FROM_MS = int(os.environ.get('TK478_FROM_MS', 0))  # TK-490: с какого момента (умолчание — вся история)
+SYMFILE = os.environ.get('TK478_SYMBOLS')  # TK-490: список контрактов файлом вместо union
 HOLE_H = 8.0  # максимальный интервал фандинга у обеих бирж
 REST_GAP = 0.8  # с между REST-запросами Binance на весь процесс (лимит ~500/5 мин на IP)
 _rl, _rt = threading.Lock(), [0.0]
@@ -72,6 +74,8 @@ def write_rows(path, rows):
 
 
 def symbols(udir, ex):
+    if SYMFILE:
+        return sorted({s.strip() for s in open(SYMFILE) if s.strip()})
     with open(os.path.join(udir, f'union-{ex}.csv')) as f:
         return sorted({r['symbol'] for r in csv.DictReader(f)})
 
@@ -91,10 +95,10 @@ def bybit_one(sym, out):
             break
         rows += [(int(x['fundingRateTimestamp']), x['fundingRate'], None) for x in lst]
         mn = min(int(x['fundingRateTimestamp']) for x in lst)
-        if len(lst) < 200:
+        if len(lst) < 200 or mn <= FROM_MS:
             break
         end = mn - 1
-    return sym, write_rows(p, rows), nreq
+    return sym, write_rows(p, [r for r in rows if r[0] >= FROM_MS]), nreq
 
 
 def parse_zip(b):
@@ -130,7 +134,7 @@ def binance_one(sym, out):
             break
         tok = mt.group(1)
     rows = []
-    for mo in sorted(months):
+    for mo in sorted(m for m in months if m >= datetime.fromtimestamp(FROM_MS / 1000, timezone.utc).strftime('%Y-%m')):
         cp = os.path.join(CACHE, f'{sym}-fundingRate-{mo}.zip')
         if os.path.exists(cp):
             b = open(cp, 'rb').read()
@@ -140,7 +144,7 @@ def binance_one(sym, out):
         rows += parse_zip(b)
     # хвост после последнего месячного архива: REST, интервал = разрыв
     last = max(r[0] for r in rows) if rows else 0
-    start = last + 1 if rows else 1569888000000  # 2019-10-01: запуск USDT-M
+    start = last + 1 if rows else max(FROM_MS, 1569888000000)  # 2019-10-01: запуск USDT-M
     fetch = not rows or last > time.time() * 1000 - 62 * 86400000  # давно делистнутые: хвоста нет, запрос не нужен
     while fetch:
         rest_wait()
@@ -153,7 +157,7 @@ def binance_one(sym, out):
             break
         start = max(int(x['fundingTime']) for x in d) + 1
     # REST-часть без interval_h: write_rows считает разрыв по соседям; из архива interval_h брали из файла
-    return sym, write_rows(p, rows), nreq
+    return sym, write_rows(p, [r for r in rows if r[0] >= FROM_MS]), nreq
 
 
 def cov(out, ex):
