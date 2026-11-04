@@ -95,8 +95,21 @@ fn oi_empty_field_is_nan_and_bad_inputs_rejected() {
     assert!(run(oi_text(HEAD, &[(0, "1,2,3,4,5,abc")])).is_err());
     assert!(run(oi_text(HEAD, &[(0, "1,2,3")])).is_err());
     assert!(run(oi_text(HEAD, &[(5, "1,2,3,4,5,6"), (5, "1,2,3,4,5,6")])).is_err());
+    // метка не на сетке 5 мин — дыра, не ошибка и не округление; рядом в том же слоте остаётся только сеточная строка
     let off = format!("{HEAD}\n{},1,2,3,4,5,6\n", G + 60_000);
-    assert!(run(off).is_err());
+    assert_eq!(run(off).unwrap(), 0);
+    let mut c2 = Contract::default();
+    let mix = format!(
+        "{HEAD}\n{},1,2,3,4,5,6\n{},9,9,9,9,9,9\n",
+        G + 300_000,
+        G + 300_000 + 10_000
+    );
+    assert_eq!(
+        parse_oi_counted(Cursor::new(mix.into_bytes()), &mut c2).unwrap(),
+        (1, 1)
+    );
+    assert_eq!(c2.oi[0], vec![1.0]);
+    assert!(run(format!("{HEAD}\n{},1,2,3,4,5,6\n", G - 300_000)).is_err());
 }
 
 #[test]
