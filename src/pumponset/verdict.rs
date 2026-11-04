@@ -12,8 +12,9 @@
 //!    иначе правило «без ранга» и в отбор не идёт (счётчик — в строке журнала).
 //! 2. Ничья ранга — меньший θ, затем меньший w (протокол), затем меньшее семейство/индекс; сравнение ранга точное.
 //! 3. «Тот же знак» в вердикте = та же ячейка (правило, знак, H) в фите и в тесте: обе нижние границы > 1.
-//! 4. Доля месяцев теста с lift > 1: числитель — месяцы, где lift ячейки определён и > 1; знаменатель — все
-//!    месяцы, присутствующие в `daycells-test.csv` (месяц без данных ячейки — не «lift > 1»). То же для net > 0.
+//! 4. Доля месяцев теста с lift > 1: числитель — месяцы, где lift ячейки определён и > 1; знаменатель — ВСЕ месяцы
+//!    периода `split.test` (2026-01…2026-10 — 10), а не только присутствующие в `daycells-test.csv`: месяц без данных
+//!    ячейки (или совсем без строк) — не «lift > 1». То же для net > 0 (месяц без сделок — не «net > 0»).
 //! 5. Net: интервал и p — как у lift (нижняя граница 95 % = перцентиль 2,5; односторонний p по рекурсии «net ≤ 0»);
 //!    Холм по `trials.test_net_m` только на основных ячейках (`verdict.net.H_min`), прочие H — описательно.
 //! 6. «Встать рано можно» (§7.6) для (правило, знак) при основном H: lift-вердикт «подтверждено» (включая фит) И
@@ -538,6 +539,25 @@ fn month_of(s: &str) -> Result<i32> {
         bail!("месяц '{s}': номер месяца 1..12");
     }
     Ok(y * 100 + m)
+}
+
+/// Все месяцы периода `["гггг-мм", "гггг-мм"]` (оба включительно) как `ггггмм` по возрастанию (допущение 4).
+fn period_months(r: &[String; 2]) -> Result<Vec<i32>> {
+    let (lo, hi) = (month_of(&r[0])?, month_of(&r[1])?);
+    if lo > hi {
+        bail!("период {r:?}: начало позже конца");
+    }
+    let mut out = Vec::new();
+    let (mut y, mut m) = (lo / 100, lo % 100);
+    while y * 100 + m <= hi {
+        out.push(y * 100 + m);
+        m += 1;
+        if m == 13 {
+            y += 1;
+            m = 1;
+        }
+    }
+    Ok(out)
 }
 
 /// Допущение 9: диапазон месяцев стадии. Возвращает строки в диапазоне и число отброшенных (только тест, позже конца).
@@ -1352,6 +1372,8 @@ fn test_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> {
         Stage::Fit,
         vp,
     )?;
+    // знаменатель доли месяцев — все месяцы периода теста, а не присутствующие в файле (допущение 4)
+    let test_months = period_months(&vp.split.test)?;
     let tt = build_table(&rows_t, Some(want.as_slice()))?;
     let tf = build_table(&rows_f, Some(want.as_slice()))?;
     let not_k = rows_t
@@ -1379,7 +1401,7 @@ fn test_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> {
     let mut cells = Vec::with_capacity(tt.keys.len());
     for (c, key) in tt.keys.iter().enumerate() {
         let months = month_counts(&tt, c, fees.0);
-        let months_total = tt.months.len();
+        let months_total = test_months.len();
         let verdict = lift_verdict(
             vp,
             &LiftIn {
@@ -1453,6 +1475,7 @@ fn test_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> {
         vp,
         sha,
         tt: &tt,
+        test_months: &test_months,
         krules: &krules,
         out: &out,
         lags: &lags,
@@ -1701,6 +1724,8 @@ struct ReportIn<'a> {
     vp: &'a VParams,
     sha: &'a str,
     tt: &'a Table,
+    /// Все месяцы периода `split.test` (знаменатель долей месяцев).
+    test_months: &'a [i32],
     krules: &'a [Rule],
     out: &'a TestOut,
     lags: &'a BTreeMap<LagKey, LagAgg>,
@@ -1718,7 +1743,7 @@ fn build_report(r: &ReportIn) -> String {
     d.line("");
     d.line(&format!(
         "Параметры: sha256 `{}`; бутстрэп по суткам (все монеты вместе) B={}, seed={}, интервал {:.0} % = перцентили {:.1}/{:.1}; \
-         Холм: lift m={} (ячеек {}), net m={} (основных ячеек {}). Суток-кластеров {}, месяцев теста {} ({}).",
+         Холм: lift m={} (ячеек {}), net m={} (основных ячеек {}). Суток-кластеров {}, месяцев теста {} ({}), из них с данными в `daycells-test` {}.",
         r.sha,
         v.bootstrap_b,
         v.seed,
@@ -1730,13 +1755,13 @@ fn build_report(r: &ReportIn) -> String {
         vp.trials.test_net_m,
         r.out.early.len(),
         r.tt.days,
-        r.tt.months.len(),
-        r.tt
-            .months
+        r.test_months.len(),
+        r.test_months
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>()
-            .join(", ")
+            .join(", "),
+        r.tt.months.len()
     ));
     d.line(&format!(
         "Правила K ({}): {}. Строк `daycells-test` вне замороженных правил: {} (не использованы); вне периода теста отброшено: {}.",
@@ -1897,6 +1922,8 @@ fn build_report(r: &ReportIn) -> String {
             let mut rows: Vec<(u8, f64, f64)> = per
                 .iter()
                 .map(|(f, k)| (*f, share(k[0].1, k[0].0), share(k[1].1, k[1].0)))
+                // доля без знаменателя (нет эпизодов или C2b) — `NaN`; `total_cmp` ставит её первой, поэтому до сортировки
+                .filter(|(_, se, sc)| !(se - sc).is_nan())
                 .collect();
             rows.sort_by(|a, b| (b.1 - b.2).total_cmp(&(a.1 - a.2)).then(a.0.cmp(&b.0)));
             for (f, se, sc) in rows.into_iter().take(3) {
@@ -1949,7 +1976,7 @@ fn build_report(r: &ReportIn) -> String {
         vp.trials.test_net_m
     ));
     d.line("- Реплика бутстрэпа с неопределённой статистикой не входит в границы интервала и считается «не отвергла нуль» в p.");
-    d.line("- Месяцы теста: знаменатель долей — все месяцы в `daycells-test.csv`; месяц без данных ячейки не считается «lift > 1» / «net > 0».");
+    d.line("- Месяцы теста: знаменатель долей — все месяцы периода `split.test`, а не только присутствующие в `daycells-test.csv`; месяц без данных ячейки не считается «lift > 1» / «net > 0».");
     d.line("- Метка «эпизод уже идёт» и страты outlier/wick в `daycells` не входят; вердикт — на всех срабатываниях правила.");
     d.0
 }

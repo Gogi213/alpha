@@ -27,7 +27,7 @@ net). Связь между ними — только csv-файлы ниже: �
 `kind,stratum,fam,wi,ti,sign,di,month,n_ep,n_fired,n_lt0,n_le0,n_le30,n_le60,p10,p50,p90`
 - `kind` = `ep` (эпизоды) | `c2b` (псевдо-моменты, `L_post'` = медиана длины фазы эпизодов страты); `month` — месяц `t0` (или `t'`);
 - `stratum` = `all` (эпизоды без FLAG_WICK и без FLAG_OUTLIER) | `market` | `nonmarket` (разбиение `all` по FLAG_MARKET) | `outlier` (FLAG_OUTLIER, без FLAG_WICK) | `wick`;
-- `n_ep` — эпизодов; `n_fired` — с лагом; `n_lt0` — лаг < 0; `n_le0/30/60` — лаг ≤ δ (recall при δ = 0/30/60); `p10/p50/p90` — квантиль лага среди сработавших
+- `n_ep` — эпизодов (моментов C2b), у которых правило НАБЛЮДАЕМО: в слотах окна лага (`[t0 − L_pre, t_end]`, для C2b `[t' − L_pre, t' + L_post']`) уровень правила определён хотя бы в одном слоте (нет `NaN` у признаков правила: не первые сутки/недели после листинга без нормы, не дыра OI) — П-34 §1, минуты без признаков в выборку не входят; ненаблюдаемые пары считаются в `run-meta.json` (`lag_observability`), в `first` и `progress` не участвуют; `n_fired` — с лагом; `n_lt0` — лаг < 0; `n_le0/30/60` — лаг ≤ δ (recall при δ = 0/30/60); `p10/p50/p90` — квантиль лага среди сработавших
   (точный, по отсортированным значениям, метод нижнего ранга `floor(q·(n−1))`); пусто, если `n_fired = 0`.
 
 **`first-<stage>.csv`** — «какой признак первым»: для каждого эпизода и пары (wi, ti) — одиночное семейство (fam 0–8) с наименьшим лагом (ничья — меньший fam):
@@ -40,7 +40,7 @@ net). Связь между ними — только csv-файлы ниже: �
 
 **`episodes-<stage>.csv`** — все эпизоды: `sym,di,sign,t0,t_end,mv,flags,x_d` (t0/t_end — минуты, `mv` — ln-ход) — для проверки по v11 и ответов «где был памп».
 **`xd.csv`** — `di,sign,x_d,n_windows` (порог из фита).
-**`run-meta.json`** — `stage, params_sha256, seed, oi_lag_slots, contracts, symbol_days, episodes, triggers, secs_total, secs_by_phase, peak_rss_mb, git_head`.
+**`run-meta.json`** — `stage, params_sha256, seed, oi_lag_slots, contracts, symbol_days, episodes, triggers, secs_total, secs_by_phase, peak_rss_mb, git_head`; блоки `universe` (снятые контракты, эпизоды, теряемые правилом `d − 1`), `lag_observability` (`{kind: {страта: {pairs, unobserved}}}` — пар (эпизод | момент C2b, правило) и из них ненаблюдаемых) и `funding_coverage` (`trades` — сделок в `nret`; `trades_uncovered` (всего и `trades_uncovered_by_h`) — сделок с ценами, но без покрытия фандинга окна удержания: в `nret` не входят; `contracts_with_uncovered`). Покрытие фандинга: первая ставка файла не позже `t_f + 1` и последняя не раньше `t_f + H − G`, `G` — наибольший интервал между соседними ставками этого файла; пустой файл — «нет данных». Эпизоды `ref_symbol` (BTCUSDT) помечены `FLAG_MARKET`.
 
 ## `verdict` (читает только csv + `P-34-params.json`)
 - Ранг фита (§5, Р-3): для каждого правила — нижняя граница 95 % lift точности при H = 360 (бутстрэп по суткам, B = `verdict.bootstrap_B`, seed = `verdict.seed`), среднее по двум знакам;

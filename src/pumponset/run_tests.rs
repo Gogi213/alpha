@@ -1,7 +1,7 @@
 //! Тесты слоя `run` (trade, agg, run): синтетика с известным ответом, быстрое == наивное, детерминизм по потокам,
 //! отсутствие утечек (будущее, тест в фите), вселенная.
 
-use super::agg::{q_index, strata_of, NO_LAG};
+use super::agg::{q_index, strata_of, NOT_OBS, NO_LAG};
 use super::cache::{write_contract, Contract};
 use super::control;
 use super::episodes::XdAcc;
@@ -11,7 +11,7 @@ use super::params::Params;
 use super::run::{
     clip_contract, day_of_min, period, run, slot_range, Fast, RunArgs, Stage, Universe,
 };
-use super::trade::round_trip;
+use super::trade::{round_trip, Funding, Skip};
 use super::types::{Cube, Episode, Rule, XdTable, FLAG_MARKET, FLAG_OUTLIER, FLAG_WICK, NF};
 use std::collections::BTreeMap;
 use std::fs;
@@ -466,6 +466,12 @@ fn single_pump_scenario_matches_hand_calculation() {
     assert_eq!(meta["seed"], SEED);
     assert_eq!(meta["btc_missing"], true);
     assert_eq!(meta["params_sha256"].as_str().unwrap().len(), 64);
+    // фандинг покрывает все окна: 4 правила × 2 горизонта; признаки всех правил в окне эпизода определены
+    assert_eq!(meta["funding_coverage"]["trades"], 8);
+    assert_eq!(meta["funding_coverage"]["trades_uncovered"], 0);
+    assert_eq!(meta["funding_coverage"]["contracts_with_uncovered"], 0);
+    assert_eq!(meta["lag_observability"]["ep"]["all"]["pairs"], 4);
+    assert_eq!(meta["lag_observability"]["ep"]["all"]["unobserved"], 0);
 }
 
 // ---------- (б) детерминизм по потокам ----------
@@ -594,6 +600,9 @@ fn run_is_byte_identical_for_any_thread_count() {
             m["universe"], meta["universe"],
             "universe: потоки 1 против другого"
         );
+        for key in ["lag_observability", "funding_coverage"] {
+            assert_eq!(m[key], meta[key], "{key}: потоки 1 против другого");
+        }
     }
 
     // --limit: первые N по алфавиту, число пишется в мета
@@ -615,14 +624,18 @@ fn run_is_byte_identical_for_any_thread_count() {
 
 #[test]
 fn trade_gross_and_funding_both_signs() {
-    // минуты 100..499: цена = номер минуты
-    let cf: Vec<f64> = (0..400).map(|i| 100.0 + i as f64).collect();
-    let fund = [
-        (150i64, 1.0e-4),
+    // минуты 100..699: цена = номер минуты
+    let cf: Vec<f64> = (0..600).map(|i| 100.0 + i as f64).collect();
+    // выплаты каждые 50 минут с 100-й по 700-ю; наибольший интервал файла — 50
+    let mut rates = vec![
+        (100i64, 5.0e-4),
+        (150, 1.0e-4),
         (200, -2.0e-4),
         (250, 3.0e-4),
         (300, 1.0e-4),
     ];
+    rates.extend((350..=700).step_by(50).map(|m| (m, 1.0e-4)));
+    let fund = Funding::new(&rates);
     // вход c[141] = 141, выход c[240] = 240; выплаты в (141, 240]: 150 (+1e-4) и 200 (−2e-4)
     let long = round_trip(&cf, 100, &fund, 140, 100, 1).unwrap();
     approx(long.gross_bps, (240.0f64 / 141.0).ln() * 1.0e4, 1e-9);
@@ -630,26 +643,65 @@ fn trade_gross_and_funding_both_signs() {
     let short = round_trip(&cf, 100, &fund, 140, 100, -1).unwrap();
     approx(short.gross_bps, -(240.0f64 / 141.0).ln() * 1.0e4, 1e-9);
     approx(short.fund_bps, 1.0, 1e-9); // шорт заплатил 1 bps
-                                       // граница: выплата в минуту входа не входит, в минуту выхода входит
+
+    // граница: выплата в минуту входа не входит, в минуту выхода входит
     let a = round_trip(&cf, 100, &fund, 149, 100, 1).unwrap(); // (150, 249] → только 200
     approx(a.fund_bps, -2.0, 1e-9);
     let b = round_trip(&cf, 100, &fund, 149, 101, 1).unwrap(); // (150, 250] → 200 и 250
     approx(b.fund_bps, -2.0 + 3.0, 1e-9);
-    // окно без выплат при непустом файле — ноль, сделка есть
-    let z = round_trip(&cf, 100, &fund, 301, 50, 1).unwrap();
+    // окно без выплат внутри покрытого файла — ноль, сделка есть: (202, 241], следующая выплата в 250
+    let z = round_trip(&cf, 100, &fund, 201, 40, 1).unwrap();
     approx(z.fund_bps, 0.0, 1e-12);
     // нет данных: выход за рядом, вход до ряда, знак 0, H = 0, пустой фандинг, дыра в цене входа
-    assert!(round_trip(&cf, 100, &fund, 140, 400, 1).is_none());
-    assert!(round_trip(&cf, 100, &fund, 90, 20, 1).is_none());
-    assert!(round_trip(&cf, 100, &fund, 140, 100, 0).is_none());
-    assert!(round_trip(&cf, 100, &fund, 140, 0, 1).is_none());
-    assert!(round_trip(&cf, 100, &[], 140, 100, 1).is_none());
+    let nodata = Err(Skip::NoData);
+    assert_eq!(round_trip(&cf, 100, &fund, 140, 600, 1), nodata);
+    assert_eq!(round_trip(&cf, 100, &fund, 90, 20, 1), nodata);
+    assert_eq!(round_trip(&cf, 100, &fund, 140, 100, 0), nodata);
+    assert_eq!(round_trip(&cf, 100, &fund, 140, 0, 1), nodata);
+    assert_eq!(
+        round_trip(&cf, 100, &Funding::new(&[]), 140, 100, 1),
+        nodata
+    );
     let mut hole = cf.clone();
     hole[41] = f64::NAN;
-    assert!(round_trip(&hole, 100, &fund, 140, 100, 1).is_none());
-    // последняя минута ряда (499) — выход допустим, следующая — нет
-    assert!(round_trip(&cf, 100, &fund, 100, 399, 1).is_some());
-    assert!(round_trip(&cf, 100, &fund, 100, 400, 1).is_none());
+    assert_eq!(round_trip(&hole, 100, &fund, 140, 100, 1), nodata);
+    // последняя минута ряда (699) — выход допустим, следующая — нет
+    assert!(round_trip(&cf, 100, &fund, 100, 599, 1).is_ok());
+    assert_eq!(round_trip(&cf, 100, &fund, 100, 600, 1), nodata);
+
+    // покрытие фандингом, конец файла: последняя ставка 300, интервал 50 — выход до 350 включительно покрыт
+    let ended = Funding::new(&rates[..5]);
+    let edge = round_trip(&cf, 100, &ended, 301, 49, 1).unwrap(); // m_out = 350: 300 ≥ 350 − 50
+    approx(edge.fund_bps, 0.0, 1e-12);
+    // m_out = 351: между 300 и 351 обязательно была выплата, а в файле её нет
+    assert_eq!(round_trip(&cf, 100, &ended, 301, 50, 1), Err(Skip::Funding));
+    // ... и тем более сделка целиком после файла
+    assert_eq!(
+        round_trip(&cf, 100, &ended, 500, 100, -1),
+        Err(Skip::Funding)
+    );
+    // начало файла: первая ставка 150 позже входа 141 — выплаты до неё неизвестны; вход в 150 — покрыто
+    let late = Funding::new(&rates[1..]);
+    assert_eq!(round_trip(&cf, 100, &late, 140, 100, 1), Err(Skip::Funding));
+    let from_first = round_trip(&cf, 100, &late, 149, 100, 1).unwrap();
+    approx(from_first.fund_bps, -2.0, 1e-9);
+    // нет цены — «нет данных», даже если фандинг не покрыт (причина — цена)
+    assert_eq!(round_trip(&cf, 100, &ended, 90, 20, 1), nodata);
+    // наибольший интервал измеряется по файлу: ставки 100, 160, 400 → 240; выход до 640 включительно покрыт
+    let sparse_rates = [(100i64, 1.0e-4), (160, 1.0e-4), (400, 1.0e-4)];
+    let sparse = Funding::new(&sparse_rates);
+    assert!(round_trip(&cf, 100, &sparse, 399, 240, 1).is_ok()); // вход 400, выход 639
+    assert!(round_trip(&cf, 100, &sparse, 399, 241, 1).is_ok()); // выход 640 = 400 + 240
+
+    // выход 641 — уже за пределом
+    assert_eq!(
+        round_trip(&cf, 100, &sparse, 399, 242, 1),
+        Err(Skip::Funding)
+    );
+    // одна ставка: интервал файла неизвестен (0); окно до первой ставки не покрыто
+    let one_rate = [(300i64, 1.0e-4)];
+    let one = Funding::new(&one_rate);
+    assert_eq!(round_trip(&cf, 100, &one, 290, 5, 1), Err(Skip::Funding));
 }
 
 // ---------- (г) утечки ----------
@@ -1291,4 +1343,353 @@ fn run_rejects_bad_setup() {
     let empty = dir.path().join("empty");
     fs::create_dir_all(&empty).unwrap();
     assert!(run(args(&empty, &pj, &out, Stage::Fit, None, None, 1)).is_err());
+}
+
+// ---------- (ж) наблюдаемость правил, рыночный эталон, покрытие фандинга ----------
+
+/// Наивная наблюдаемость: в слотах окна минут `[lo, hi]` есть слот, где z всех признаков правила не `NaN`.
+fn observed_naive(cube: &Cube, r: Rule, lo: i64, hi: i64) -> bool {
+    slot_range(cube.slot0, cube.n, lo, hi).is_some_and(|(a, b)| {
+        (a..=b).any(|i| {
+            feat::FAMILIES[r.fam as usize]
+                .iter()
+                .all(|&f| !cube.zat(f, r.wi as usize, i).is_nan())
+        })
+    })
+}
+
+/// Итог `observability_case` по правилам (в порядке `rules`), страта `all`.
+struct Obs {
+    n_eps: usize,
+    ep_n: Vec<u64>,
+    ep_fired: Vec<u64>,
+    c2b_total: Vec<u64>,
+    c2b_n: Vec<u64>,
+}
+
+/// Прогон `test` на одном контракте и сверка `n_ep` / `n_fired` таблицы лагов (страта `all`) и блока
+/// `lag_observability` с наивным счётом по кубу. Эпизоды берутся из `episodes-test.csv` (в сценариях нет эпизодов
+/// вне вселенной, поэтому список равен списку прогона).
+fn observability_case(c: &Contract, text: &str, rules: &[(u8, u8, u8)]) -> Obs {
+    let dir = tempfile::tempdir().unwrap();
+    let (cache, out) = (dir.path().join("cache"), dir.path().join("out"));
+    fs::create_dir_all(&cache).unwrap();
+    put(&cache, "ABCUSDT", c);
+    let pj = dir.path().join("params.json");
+    fs::write(&pj, text).unwrap();
+    run(args(
+        &cache,
+        &pj,
+        &out,
+        Stage::Test,
+        Some(rules_file(dir.path(), rules)),
+        Some(xd_file(dir.path(), XD)),
+        2,
+    ))
+    .unwrap();
+
+    let p = Params::from_json(text).unwrap();
+    let cube = feat::build_cube(c, &p, 1);
+    let cf = c.close_ff();
+    let eps: Vec<Episode> = table(&out.join("episodes-test.csv"))
+        .iter()
+        .map(|r| Episode {
+            di: r["di"].parse().unwrap(),
+            sign: r["sign"].parse().unwrap(),
+            t0: r["t0"].parse().unwrap(),
+            t_end: r["t_end"].parse().unwrap(),
+            mv: num(r, "mv"),
+            flags: r["flags"].parse().unwrap(),
+        })
+        .collect();
+    let rl: Vec<Rule> = rules
+        .iter()
+        .map(|&(fam, wi, ti)| Rule { fam, wi, ti })
+        .collect();
+    let l_pre = i64::from(p.onset.l_pre_min);
+    let mut lens: Vec<i64> = eps.iter().map(|e| e.t_end - e.t0).collect();
+    lens.sort_unstable();
+    let l_post = lens[(lens.len() - 1) / 2];
+    let inp = control::Input {
+        sym: "ABCUSDT",
+        cube: &cube,
+        cf: &cf,
+        first_min: 0,
+        eps: &eps,
+    };
+    let c2b = control::c2b(&inp, &rl, &p, l_post, SEED).unwrap();
+    let univ = Universe::build(c, 1000.0, 1);
+    let lags = table(&out.join("lags-test.csv"));
+    let sum = |kind: &str, r: Rule, col: &str| -> u64 {
+        pick(
+            &lags,
+            &[
+                ("kind", kind.to_string()),
+                ("stratum", "all".to_string()),
+                ("fam", r.fam.to_string()),
+                ("wi", r.wi.to_string()),
+                ("ti", r.ti.to_string()),
+            ],
+        )
+        .iter()
+        .map(|row| row[col].parse::<u64>().unwrap())
+        .sum()
+    };
+    let mut o = Obs {
+        n_eps: eps.len(),
+        ep_n: Vec::new(),
+        ep_fired: Vec::new(),
+        c2b_total: Vec::new(),
+        c2b_n: Vec::new(),
+    };
+    for &r in &rl {
+        let want_ep = eps
+            .iter()
+            .filter(|e| observed_naive(&cube, r, e.t0 - l_pre, e.t_end))
+            .count() as u64;
+        let moments: Vec<_> = c2b
+            .iter()
+            .filter(|x| x.rule == r && univ.min_ok(x.t_pseudo))
+            .collect();
+        let seen: Vec<_> = moments
+            .iter()
+            .filter(|x| observed_naive(&cube, r, x.t_pseudo - l_pre, x.t_pseudo + l_post))
+            .collect();
+        assert_eq!(sum("ep", r, "n_ep"), want_ep, "{r:?}: n_ep эпизодов");
+        assert_eq!(
+            sum("c2b", r, "n_ep"),
+            seen.len() as u64,
+            "{r:?}: n_ep моментов C2b"
+        );
+        assert_eq!(
+            sum("c2b", r, "n_fired"),
+            seen.iter().filter(|x| x.lag.is_some()).count() as u64,
+            "{r:?}: n_fired моментов C2b"
+        );
+        o.ep_n.push(want_ep);
+        o.ep_fired.push(sum("ep", r, "n_fired"));
+        o.c2b_total.push(moments.len() as u64);
+        o.c2b_n.push(seen.len() as u64);
+    }
+    // блок run-meta: число пар и ненаблюдаемых по kind и страте
+    let meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("run-meta.json")).unwrap()).unwrap();
+    let ob = &meta["lag_observability"];
+    let pairs_ep = (eps.len() * rl.len()) as u64;
+    assert_eq!(ob["ep"]["all"]["pairs"].as_u64(), Some(pairs_ep));
+    assert_eq!(
+        ob["ep"]["all"]["unobserved"].as_u64(),
+        Some(pairs_ep - o.ep_n.iter().sum::<u64>())
+    );
+    let pairs_c2b: u64 = o.c2b_total.iter().sum();
+    assert_eq!(ob["c2b"]["all"]["pairs"].as_u64(), Some(pairs_c2b));
+    assert_eq!(
+        ob["c2b"]["all"]["unobserved"].as_u64(),
+        Some(pairs_c2b - o.c2b_n.iter().sum::<u64>())
+    );
+    assert_eq!(ob["ep"]["market"]["pairs"].as_u64(), Some(0));
+    o
+}
+
+/// Эпизод на 3-и сутки жизни контракта: нормы за 3 суток там ещё нет — признаки F1/F3 в окне не определены, а у
+/// фандинга (норма — сутки) определены. Такая пара не растёт в `n_ep` и не даёт `n_fired`.
+#[test]
+fn episode_before_norm_exists_is_not_observable() {
+    let text = params_json("2019-12", "2020-01", "[90]")
+        .replace("\"history_days\":1", "\"history_days\":3");
+    let c = pump_contract(17_280, &[3_000, T0]);
+    let rules = [(0u8, 0u8, 0u8), (1, 0, 0), (8, 0, 0)];
+    let o = observability_case(&c, &text, &rules);
+    assert_eq!(o.n_eps, 2);
+    // F1, F3: только второй эпизод; F10 (фандинг): оба, но z = 0 — не срабатывает
+    assert_eq!(o.ep_n, vec![1, 1, 2]);
+    assert_eq!(o.ep_fired, vec![1, 1, 0]);
+}
+
+/// Эпизод внутри дыры OI: OI-правила (F1, S_oi) его не наблюдают, F3 (оборот) наблюдает; нулевая линия C2b —
+/// те же правила, дыра накрывает три четверти ряда, так что часть моментов F1 ненаблюдаема.
+#[test]
+fn episode_inside_oi_hole_is_not_observable_for_oi_rules() {
+    let mut c = pump_contract(17_280, &[6_000, T0]);
+    for v in c.oi[0].iter_mut().skip(300).take(2_201) {
+        *v = f64::NAN; // слоты 300..=2500: минуты 1500…12500
+    }
+    let text = params_json("2019-12", "2020-01", "[90]");
+    let rules = [(0u8, 0u8, 0u8), (1, 0, 0), (9, 0, 0)];
+    let o = observability_case(&c, &text, &rules);
+    assert_eq!(o.n_eps, 2);
+    assert_eq!(o.ep_n, vec![1, 2, 1], "F1 и S_oi — только эпизод вне дыры");
+    assert_eq!(o.ep_fired, vec![1, 2, 1]);
+    assert!(
+        o.c2b_n[0] < o.c2b_total[0],
+        "в дыре есть моменты C2b: {} из {}",
+        o.c2b_n[0],
+        o.c2b_total[0]
+    );
+    assert!(o.c2b_n[0] > 0, "и есть наблюдаемые");
+}
+
+/// Префиксные суммы `Fast` против наивного обхода слотов окна: длинные провалы у всех признаков и только у части.
+#[test]
+fn fast_unobserved_marks_equal_naive_scan() {
+    let p = params_of("[90]");
+    let rules = feat::rules(&p);
+    let quiet = (p.onset.l_pre_min / 5) as usize;
+    let n = 2000usize;
+    let mut cube = random_cube(21, n);
+    for wi in 0..2 {
+        // слоты 0..400 — провал у всех признаков; 900..1300 — только у F1 и F4 (индексы 0 и 3)
+        for f in 0..NF {
+            for i in 0..400 {
+                cube.z[(f * 2 + wi) * n + i] = f32::NAN;
+            }
+        }
+        for f in [0usize, 3] {
+            for i in 900..1300 {
+                cube.z[(f * 2 + wi) * n + i] = f32::NAN;
+            }
+        }
+    }
+    let mut fast = Fast::new();
+    fast.build(&cube, &p, &rules, quiet, &|_| true);
+    let mut r = Xs(8);
+    let mut seen = [0usize; 2];
+    for k in 0..400 {
+        let t_lo = r.below(10_600) as i64 - 300;
+        let t_hi = t_lo + r.below(if k % 2 == 0 { 40 } else { 900 }) as i64;
+        let mut buf = vec![NO_LAG; rules.len()];
+        fast.mark_unobserved(cube.slot0, t_lo, t_hi, &mut buf);
+        for (ri, &rule) in rules.iter().enumerate() {
+            let want = !observed_naive(&cube, rule, t_lo, t_hi);
+            assert_eq!(buf[ri] == NOT_OBS, want, "{rule:?} [{t_lo}, {t_hi}]");
+            seen[usize::from(want)] += 1;
+        }
+    }
+    assert!(
+        seen[0] > 100 && seen[1] > 100,
+        "вырожденный сценарий: {seen:?}"
+    );
+}
+
+/// Эпизоды самого эталона (BTCUSDT) — «рыночные» по определению §2; остальные — по перекрытию с эталоном.
+#[test]
+fn reference_symbol_episodes_get_market_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let (cache, out) = (dir.path().join("cache"), dir.path().join("out"));
+    fs::create_dir_all(&cache).unwrap();
+    put(&cache, "BTCUSDT", &pump_contract(17_280, &[T0]));
+    put(&cache, "AAAUSDT", &pump_contract(17_280, &[T0]));
+    put(&cache, "BBBUSDT", &pump_contract(17_280, &[8_000]));
+    let pj = dir.path().join("params.json");
+    fs::write(&pj, params_json("2019-12", "2020-01", "[90]")).unwrap();
+    run(args(
+        &cache,
+        &pj,
+        &out,
+        Stage::Test,
+        Some(rules_file(dir.path(), &[(0, 0, 0)])),
+        Some(xd_file(dir.path(), XD)),
+        3,
+    ))
+    .unwrap();
+    let ep = table(&out.join("episodes-test.csv"));
+    let flags_of = |sym: &str| -> Vec<String> {
+        pick(&ep, &[("sym", sym.to_string())])
+            .iter()
+            .map(|r| r["flags"].clone())
+            .collect()
+    };
+    assert_eq!(flags_of("BTCUSDT"), vec!["4"], "эталон — рыночный");
+    assert_eq!(flags_of("AAAUSDT"), vec!["4"], "совпадает с эталоном");
+    assert_eq!(flags_of("BBBUSDT"), vec!["0"], "не пересекается с эталоном");
+    let lags = table(&out.join("lags-test.csv"));
+    let n_ep = |stratum: &str| -> u64 {
+        pick(
+            &lags,
+            &[
+                ("kind", "ep".to_string()),
+                ("stratum", stratum.to_string()),
+                ("fam", "0".to_string()),
+            ],
+        )
+        .iter()
+        .map(|r| r["n_ep"].parse::<u64>().unwrap())
+        .sum()
+    };
+    assert_eq!(
+        (n_ep("all"), n_ep("market"), n_ep("nonmarket")),
+        (3, 2, 1),
+        "{lags:?}"
+    );
+}
+
+/// Прогон `test` по одному контракту с одним пампом, у которого правится файл фандинга: строки `daycells` и мета.
+fn funding_case(edit: impl FnOnce(&mut Contract)) -> (Vec<Row>, serde_json::Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let (cache, out) = (dir.path().join("cache"), dir.path().join("out"));
+    fs::create_dir_all(&cache).unwrap();
+    let mut c = pump_contract(17_280, &[T0]);
+    edit(&mut c);
+    put(&cache, "ABCUSDT", &c);
+    let pj = dir.path().join("params.json");
+    fs::write(&pj, params_json("2019-12", "2020-01", "[90]")).unwrap();
+    let rules = [(0u8, 0u8, 0u8), (0, 1, 1), (1, 0, 0), (9, 0, 0)];
+    run(args(
+        &cache,
+        &pj,
+        &out,
+        Stage::Test,
+        Some(rules_file(dir.path(), &rules)),
+        Some(xd_file(dir.path(), XD)),
+        2,
+    ))
+    .unwrap();
+    let meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("run-meta.json")).unwrap()).unwrap();
+    (table(&out.join("daycells-test.csv")), meta)
+}
+
+/// Файл фандинга не покрывает окно удержания: сделка в `nret` не входит (фандинг не молчаливый ноль) и считается
+/// в `run-meta.json`; метки (`n`, `hit`) от фандинга не зависят.
+#[test]
+fn trades_without_funding_coverage_are_dropped_and_counted() {
+    let nret = |dc: &[Row], fam: &str| -> Vec<String> {
+        pick(dc, &[("fam", fam.to_string())])
+            .iter()
+            .map(|r| r["nret"].clone())
+            .collect()
+    };
+    let counts = |meta: &serde_json::Value| -> [Option<u64>; 4] {
+        let fc = &meta["funding_coverage"];
+        [
+            fc["trades"].as_u64(),
+            fc["trades_uncovered"].as_u64(),
+            fc["contracts_with_uncovered"].as_u64(),
+            fc["trades_uncovered_by_h"]["90"].as_u64(),
+        ]
+    };
+
+    // полный файл — ничего не теряется: 4 правила × 2 горизонта
+    let (dc, meta) = funding_case(|_| {});
+    assert_eq!(dc.len(), 8);
+    assert!(dc.iter().all(|r| r["nret"] == "1"));
+    assert_eq!(counts(&meta), [Some(8), Some(0), Some(0), Some(0)]);
+
+    // файл начинается в минуту 14 980: вход F1 (14 946) раньше первой ставки, вход остальных (15 001) позже
+    let (dc, meta) = funding_case(|c| c.funding.retain(|f| f.0 >= 14_800));
+    assert_eq!(nret(&dc, "0"), vec!["0"; 4]);
+    assert_eq!(nret(&dc, "1"), vec!["1"; 2]);
+    assert_eq!(nret(&dc, "9"), vec!["1"; 2]);
+    assert!(
+        dc.iter().all(|r| r["n"] == "1"),
+        "метки от фандинга не зависят"
+    );
+    assert_eq!(counts(&meta), [Some(4), Some(4), Some(1), Some(2)]);
+    assert_eq!(meta["funding_coverage"]["trades_uncovered_by_h"]["180"], 2);
+
+    // файл кончился: последняя ставка 14 500, наибольший интервал 480 — выход (≥ 15 035) не покрыт нигде
+    let (dc, meta) = funding_case(|c| c.funding.retain(|f| f.0 <= 14_500));
+    assert_eq!(dc.len(), 8);
+    assert!(dc.iter().all(|r| r["nret"] == "0" && r["n"] == "1"));
+    assert_eq!(counts(&meta), [Some(0), Some(8), Some(1), Some(4)]);
 }

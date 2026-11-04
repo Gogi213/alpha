@@ -27,6 +27,16 @@
 //! 5. **Месяц** строки лагов — месяц `t0` эпизода (у псевдо-момента — тот же: пул берётся в месяце эпизода).
 //! 6. `first` считается среди правил, которые есть в прогоне (для `test` — среди замороженных K).
 //! 7. Знак срабатывания 0 (`r_w` нулевая или не определена) — строки `daycells` нет (учтено в `triggers_no_sign`).
+//! 8. **Наблюдаемость правила** (П-34 §1: минуты без признаков исключаются из выборки). Пара (эпизод | псевдо-момент
+//!    C2b, правило) наблюдаема, если в слотах окна лага (`[t0 − L_pre, t_end]` / `[t' − L_pre, t' + L_post']`)
+//!    есть хотя бы один слот, где уровень правила определён (все компоненты не `NaN`): нет нормы первые сутки/недели
+//!    после листинга, дыра OI. Ненаблюдаемая пара не растит `n_ep` в `lags` и не входит в `first`/`progress` (сработать
+//!    не могла); без этого такие пары шли бы как «не сработало» и занижали полноту, особенно на свежих листингах.
+//!    Число пар по `kind` и страте — блок `lag_observability` в `run-meta.json`. Эпизод в таблицу эпизодов и в
+//!    счётчик `episodes` входит по-прежнему (он есть в данных; не наблюдаемо только правило).
+//! 9. **Рынок:** эпизоды самого `ref_symbol` (BTCUSDT) помечены `FLAG_MARKET` — по определению §2 они «рыночные».
+//! 10. **Покрытие фандинга** (`trade.rs`, допущение 3): сделка с ценами, но без покрытия файлом ставок окна удержания
+//!     в `nret` не входит; число таких сделок (всего, по H) и контрактов — блок `funding_coverage` в `run-meta.json`.
 
 #![allow(
     // индексы ограничены размерами плотных массивов, заданных `Layout`; бюджет линтов (TK-211) не растим
@@ -38,9 +48,9 @@
 )]
 
 use super::agg::{
-    fix, strata_of, write_daycells, write_episodes, write_first, write_lags, write_progress,
-    write_xd, Agg, Counters, Dims, EpRow, Layout, NO_LAG, NS, PH_CONTROLS, PH_CUBE, PH_EPISODES,
-    PH_PARSE, STRATA,
+    fix, has_lag, strata_of, write_daycells, write_episodes, write_first, write_lags,
+    write_progress, write_xd, Agg, Counters, Dims, EpRow, Layout, KINDS, NOT_OBS, NO_LAG, NS,
+    PH_CONTROLS, PH_CUBE, PH_EPISODES, PH_PARSE, STRATA,
 };
 use super::cache::{Contract, SLOT_MIN};
 use super::cli::{load_contract, sorted, sym_of};
@@ -48,8 +58,8 @@ use super::control::{self, yyyymm, Input, Label, TriggerRow};
 use super::episodes::{is_leverage, mark_market, Finder, XdAcc};
 use super::feat;
 use super::params::Params;
-use super::trade;
-use super::types::{Cube, Episode, Rule, XdTable, NF};
+use super::trade::{self, Skip};
+use super::types::{Cube, Episode, Rule, XdTable, FLAG_MARKET, NF};
 use crate::statarb::panel::{GRID0_MS, MINUTE_MS};
 use anyhow::{bail, ensure, Context, Result};
 use chrono::NaiveDate;
@@ -283,6 +293,10 @@ pub struct Fast {
     pub nxt: Vec<u32>,
     pub trig: Vec<Vec<usize>>,
     lvl: Vec<f32>,
+    /// Пара (семейство, окно) каждого правила и префиксные суммы числа слотов с определённым уровнем по парам:
+    /// `obs[пара · (n + 1) + i]` — слотов `< i` с уровнем не `NaN` (наблюдаемость правила в окне лага).
+    pair_of: Vec<u32>,
+    obs: Vec<u32>,
 }
 
 impl Default for Fast {
@@ -299,6 +313,8 @@ impl Fast {
             nxt: Vec::new(),
             trig: Vec::new(),
             lvl: Vec::new(),
+            pair_of: Vec::new(),
+            obs: Vec::new(),
         }
     }
 
@@ -324,19 +340,36 @@ impl Fast {
         self.trig.resize_with(nr, Vec::new);
         // правила по парам (семейство, окно): уровень считается один раз на пару
         let mut pairs: Vec<Pair> = Vec::new();
+        self.pair_of.clear();
         for (ri, r) in rules.iter().enumerate() {
             let (fam, wi, ti) = (r.fam as usize, r.wi as usize, r.ti as usize);
-            match pairs.iter_mut().find(|q| q.fam == fam && q.wi == wi) {
-                Some(q) => q.tis.push((ti, ri)),
-                None => pairs.push(Pair {
-                    fam,
-                    wi,
-                    tis: vec![(ti, ri)],
-                }),
-            }
+            let pi = match pairs.iter().position(|q| q.fam == fam && q.wi == wi) {
+                Some(pi) => {
+                    pairs[pi].tis.push((ti, ri));
+                    pi
+                }
+                None => {
+                    pairs.push(Pair {
+                        fam,
+                        wi,
+                        tis: vec![(ti, ri)],
+                    });
+                    pairs.len() - 1
+                }
+            };
+            self.pair_of.push(pi as u32);
         }
-        for Pair { fam, wi, tis } in &pairs {
+        self.obs.clear();
+        self.obs.resize(pairs.len() * (n + 1), 0);
+        for (pi, Pair { fam, wi, tis }) in pairs.iter().enumerate() {
             fill_level(cube, *fam, *wi, &mut self.lvl);
+            let pre = &mut self.obs[pi * (n + 1)..(pi + 1) * (n + 1)];
+            let mut c = 0u32;
+            for (o, &v) in pre.iter_mut().zip(&self.lvl) {
+                *o = c;
+                c += u32::from(!v.is_nan());
+            }
+            pre[n] = c;
             let thr: Vec<f64> = tis.iter().map(|&(ti, _)| p.features.theta[ti]).collect();
             let mut last: Vec<Option<usize>> = vec![None; tis.len()];
             for (i, &v) in self.lvl.iter().enumerate() {
@@ -364,6 +397,23 @@ impl Fast {
                         nx[k] = i as u32;
                     }
                     row[ri] = nx[k];
+                }
+            }
+        }
+    }
+
+    /// Пометить `NOT_OBS` правила, у которых в слотах окна минут `[t_lo, t_hi]` нет ни одного определённого уровня
+    /// (те же слоты, что берёт `fill_lags`; такое правило сработать не могло, поэтому в `out` у него уже `NO_LAG`).
+    pub fn mark_unobserved(&self, slot0: i64, t_lo: i64, t_hi: i64, out: &mut [i32]) {
+        match slot_range(slot0, self.n, t_lo, t_hi) {
+            None => out.fill(NOT_OBS),
+            Some((lo, hi)) => {
+                let stride = self.n + 1;
+                for (o, &pi) in out.iter_mut().zip(&self.pair_of) {
+                    let pre = &self.obs[pi as usize * stride..(pi as usize + 1) * stride];
+                    if pre[hi + 1] == pre[lo] {
+                        *o = NOT_OBS;
+                    }
                 }
             }
         }
@@ -721,7 +771,12 @@ fn prepare(
     // только счётчик «что было бы по обороту суток t0» (П-34 §1); в выборку не входит
     let same_day = Universe::build(&c, rn.min_turnover, 0);
     let mut eps = acc.finder.find(&c, rn.p, &rn.xd, sym);
-    if sym != rn.ref_sym {
+    if sym == rn.ref_sym {
+        // эпизоды самого эталона «рыночные» по определению §2 (они же эталон для остальных)
+        for e in &mut eps {
+            e.flags |= FLAG_MARKET;
+        }
+    } else {
         mark_market(
             &mut eps,
             btc,
@@ -769,7 +824,7 @@ struct Work {
 struct Prices<'a> {
     cf: &'a [f64],
     first_min: i64,
-    funding: &'a [(i64, f64)],
+    funding: trade::Funding<'a>,
 }
 
 fn mask_r(cube: &mut Cube, rn: &Run, univ: &Universe) {
@@ -794,7 +849,7 @@ fn sink_trigger(rn: &Run, agg: &mut Agg, px: &Prices, row: TriggerRow) {
     let si = usize::from(row.sign < 0);
     let doff = (day_of_min(row.t_f) - rn.lay.day0) as usize;
     for (hi, &h) in rn.lay.h_min.iter().enumerate() {
-        let tr = trade::round_trip(px.cf, px.first_min, px.funding, row.t_f, h, row.sign);
+        let tr = trade::round_trip(px.cf, px.first_min, &px.funding, row.t_f, h, row.sign);
         let cell = agg.cell_mut(ri, si, hi, doff);
         match row.label[hi] {
             Label::Hit => {
@@ -806,10 +861,18 @@ fn sink_trigger(rn: &Run, agg: &mut Agg, px: &Prices, row: TriggerRow) {
         }
         cell.bn += u32::from(row.c2a_n[hi]);
         cell.bhit += u32::from(row.c2a_hit[hi]);
-        if let Some(t) = tr {
-            cell.nret += 1;
-            cell.gross += fix(t.gross_bps);
-            cell.fund += fix(t.fund_bps);
+        match tr {
+            Ok(t) => {
+                cell.nret += 1;
+                cell.gross += fix(t.gross_bps);
+                cell.fund += fix(t.fund_bps);
+                agg.cnt.trades += 1;
+            }
+            Err(Skip::Funding) => {
+                agg.cnt.trades_funding_gap += 1;
+                agg.gap_h[hi] += 1;
+            }
+            Err(Skip::NoData) => {}
         }
     }
 }
@@ -833,7 +896,7 @@ fn episode_progress(agg: &mut Agg, px: &Prices, e: &Episode, sm: u8, lags: &[i32
     }
     let (si, di) = (usize::from(e.sign < 0), e.di as usize);
     for (ri, &l) in lags.iter().enumerate() {
-        if l == NO_LAG {
+        if !has_lag(l) {
             continue;
         }
         let Some(cb) = at(e.t0 + i64::from(l) + 1) else {
@@ -885,7 +948,7 @@ fn process(
     let px = Prices {
         cf: &cf,
         first_min: c.first_min,
-        funding: &funding,
+        funding: trade::Funding::new(&funding),
     };
     let inp = Input {
         sym,
@@ -894,6 +957,7 @@ fn process(
         first_min: c.first_min,
         eps: &pre.eps,
     };
+    let gap0 = agg.cnt.trades_funding_gap;
     {
         let trig = &mut fast.trig;
         control::c2a_with(
@@ -906,6 +970,7 @@ fn process(
             |row| sink_trigger(rn, agg, &px, row),
         )?;
     }
+    agg.cnt.contracts_funding_gap += u64::from(agg.cnt.trades_funding_gap > gap0);
     // лаги эпизодов (kind = ep)
     let slot0 = cube.slot0;
     lagbuf.clear();
@@ -923,6 +988,7 @@ fn process(
         agg.cnt.episodes += 1;
         agg.eps.push(EpRow::new(idx, e));
         fast.fill_lags(slot0, e.t0, e.t0 - rn.l_pre, e.t_end, lagbuf);
+        fast.mark_unobserved(slot0, e.t0 - rn.l_pre, e.t_end, lagbuf);
         let (si, di) = (usize::from(e.sign < 0), e.di as usize);
         for s in 0..NS {
             if has(sm, s) {
@@ -961,6 +1027,7 @@ fn process(
                     row.t_pseudo + lp,
                     lagbuf,
                 );
+                fast.mark_unobserved(slot0, row.t_pseudo - rn.l_pre, row.t_pseudo + lp, lagbuf);
                 agg.record_lags(
                     &rn.lay,
                     1,
@@ -1250,6 +1317,29 @@ pub fn run(a: RunArgs) -> Result<()> {
         .zip(rn.l_post)
         .map(|(s, v)| ((*s).to_string(), serde_json::Value::from(v)))
         .collect();
+    // пары (эпизод | момент C2b, правило), не вошедшие в `n_ep` лаг-таблицы: признаки правила в окне не определены
+    let mut observability = serde_json::Map::new();
+    for (k, kname) in KINDS.iter().enumerate() {
+        let by_stratum: serde_json::Map<String, serde_json::Value> = STRATA
+            .iter()
+            .enumerate()
+            .map(|(s, sname)| {
+                let [pairs, unobserved] = agg.obs[k * NS + s];
+                (
+                    (*sname).to_string(),
+                    serde_json::json!({"pairs": pairs, "unobserved": unobserved}),
+                )
+            })
+            .collect();
+        observability.insert((*kname).to_string(), by_stratum.into());
+    }
+    let gap_by_h: serde_json::Map<String, serde_json::Value> = rn
+        .lay
+        .h_min
+        .iter()
+        .zip(&agg.gap_h)
+        .map(|(h, n)| (h.to_string(), serde_json::Value::from(*n)))
+        .collect();
     let (data_end_day, delisted) = sel.delisted();
     let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).context("эпоха")?;
     let meta = serde_json::json!({
@@ -1296,6 +1386,13 @@ pub fn run(a: RunArgs) -> Result<()> {
             "episodes_member_same_day": sel.eps_same_day,
             "episodes_lost_by_lag": sel.eps_lost,
             "episodes_gained_by_lag": sel.eps_gained,
+        },
+        "lag_observability": observability,
+        "funding_coverage": {
+            "trades": cnt.trades,
+            "trades_uncovered": cnt.trades_funding_gap,
+            "trades_uncovered_by_h": gap_by_h,
+            "contracts_with_uncovered": cnt.contracts_funding_gap,
         },
         "btc_missing": btc_missing,
         "triggers_no_sign": cnt.triggers_no_sign,

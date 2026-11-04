@@ -8,6 +8,11 @@
 //! Страты (спека, `lags`): `all` (без FLAG_WICK и FLAG_OUTLIER), `market`/`nonmarket` (разбиение `all` по
 //! FLAG_MARKET), `outlier` (FLAG_OUTLIER без FLAG_WICK), `wick`. Эпизод входит в одну («особую») страту и, если
 //! он «чистый», ещё в `all`. Квантили — по отсортированным значениям, метод нижнего ранга `floor(q·(n−1))`.
+//!
+//! Наблюдаемость (П-34 §1: минуты без признаков исключаются из выборки): `n_ep` в `lags` — по ПАРЕ (эпизод | момент
+//! C2b, правило) и растёт, только если признаки правила определены хотя бы в одном слоте окна лага (`NOT_OBS` в
+//! буфере лагов — пара не входит ни в `n_ep`, ни в `first`, ни в `progress`); число таких пар по `kind` и страте —
+//! `Agg::obs` (в `run-meta.json`).
 
 #![allow(
     // индексы ограничены размерами плотных массивов, заданных `Layout`; бюджет линтов (TK-211) не растим
@@ -39,8 +44,16 @@ pub const STRATA: [&str; NS] = ["all", "market", "nonmarket", "outlier", "wick"]
 pub const KINDS: [&str; 2] = ["ep", "c2b"];
 /// Одиночные семейства для таблицы `first` (fam 0..=8; составные 9, 10 не участвуют).
 pub const NSINGLE: usize = 9;
-/// «Нет лага» в буфере лагов правил.
+/// «Нет лага» в буфере лагов правил: правило наблюдаемо в окне, но не сработало.
 pub const NO_LAG: i32 = i32::MIN;
+/// «Не наблюдаемо» в буфере лагов правил: признаки правила нигде в окне не определены (`NaN`: нет нормы после
+/// листинга, дыра OI) — пара (эпизод | момент, правило) в выборку не входит (П-34 §1: минуты без признаков исключаются).
+pub const NOT_OBS: i32 = i32::MIN + 1;
+
+/// В буфере лагов лежит лаг (правило сработало), а не пометка.
+pub fn has_lag(l: i32) -> bool {
+    l != NO_LAG && l != NOT_OBS
+}
 
 /// Страты эпизода по флагам: `(список, сколько)`; последняя в списке — «особая» (`market`/`nonmarket`/`outlier`/`wick`).
 pub fn strata_of(flags: u8) -> ([usize; 2], usize) {
@@ -172,6 +185,12 @@ pub struct Counters {
     pub triggers: u64,
     pub triggers_no_sign: u64,
     pub c2b_moments: u64,
+    /// Сделки «встать рано» (срабатывание × H), вошедшие в `nret`.
+    pub trades: u64,
+    /// Сделки, у которых есть цены входа/выхода, но файл фандинга не покрывает окно удержания: в `nret` не входят.
+    pub trades_funding_gap: u64,
+    /// Контракты, у которых была хотя бы одна такая сделка.
+    pub contracts_funding_gap: u64,
     /// Секунды по фазам (сумма по потокам): разбор, эпизоды, куб, контроли.
     pub secs: [f64; 4],
 }
@@ -189,6 +208,9 @@ impl Counters {
         self.triggers += o.triggers;
         self.triggers_no_sign += o.triggers_no_sign;
         self.c2b_moments += o.c2b_moments;
+        self.trades += o.trades;
+        self.trades_funding_gap += o.trades_funding_gap;
+        self.contracts_funding_gap += o.contracts_funding_gap;
         for (a, b) in self.secs.iter_mut().zip(o.secs) {
             *a += b;
         }
@@ -200,10 +222,15 @@ pub struct Agg {
     pub dims: Dims,
     /// `day[((ri · 2 + si) · nh + hi) · ndays + сутки]`, `si` = 0 памп / 1 дамп.
     pub day: Vec<Cell>,
-    /// Группа лагов `g = (((kind · NS + страта) · 2 + si) · nd + di) · nm + месяц`; `lag_n[g]` — эпизодов (моментов).
+    /// Группа лагов `g = (((kind · NS + страта) · 2 + si) · nd + di) · nm + месяц`; `lag_n[g · nr + ri]` — эпизодов
+    /// (моментов), у которых правило `ri` НАБЛЮДАЕМО в окне лага (хотя бы один слот с определённым уровнем).
     pub lag_n: Vec<u32>,
     /// Лаги сработавших, мин: `lag_v[g · nr + ri]`.
     pub lag_v: Vec<Vec<i16>>,
+    /// По `kind · NS + страта`: `[пар (эпизод | момент, правило), из них ненаблюдаемых]` (в `run-meta.json`).
+    pub obs: Vec<[u64; 2]>,
+    /// Сделки без покрытия фандинга по `hi` (в `nret` не входят).
+    pub gap_h: Vec<u64>,
     /// Группа «первого»: `gf = ((((kind · NS + страта) · nw + wi) · nt + ti) · 2 + si) · nd + di`.
     pub first_n: Vec<u32>,
     pub first_c: Vec<u32>,
@@ -220,8 +247,10 @@ impl Agg {
         Agg {
             dims: d,
             day: vec![Cell::default(); d.nr * 2 * d.nh * d.ndays],
-            lag_n: vec![0; groups],
+            lag_n: vec![0; groups * d.nr],
             lag_v: vec![Vec::new(); groups * d.nr],
+            obs: vec![[0; 2]; 2 * NS],
+            gap_h: vec![0; d.nh],
             first_n: vec![0; nfirst],
             first_c: vec![0; nfirst * NSINGLE],
             prog: (0..groups / 2 * d.nr)
@@ -242,8 +271,8 @@ impl Agg {
         (((kind * NS + stratum) * 2 + si) * d.nd + di) * d.nm + mi
     }
 
-    /// Записать лаги всех правил одного эпизода/псевдо-момента в страту (`lags` — `NO_LAG` или лаг, мин) и
-    /// «какое семейство первым» (спека `first`).
+    /// Записать лаги всех правил одного эпизода/псевдо-момента в страту (`lags` — `NO_LAG`, `NOT_OBS` или лаг, мин)
+    /// и «какое семейство первым» (спека `first`). Пара с `NOT_OBS` не растит `n_ep` и в `first` не участвует.
     #[allow(clippy::too_many_arguments)]
     pub fn record_lags(
         &mut self,
@@ -257,8 +286,14 @@ impl Agg {
     ) {
         let d = self.dims;
         let g = self.group(kind, stratum, si, di, mi);
-        self.lag_n[g] += 1;
+        let ob = &mut self.obs[kind * NS + stratum];
         for (ri, &l) in lags.iter().enumerate() {
+            ob[0] += 1;
+            if l == NOT_OBS {
+                ob[1] += 1;
+                continue;
+            }
+            self.lag_n[g * d.nr + ri] += 1;
             if l != NO_LAG {
                 self.lag_v[g * d.nr + ri].push(l as i16);
             }
@@ -268,7 +303,7 @@ impl Agg {
                 let mut best: Option<(i32, u8)> = None;
                 for &(fam, ri) in &lay.first_map[wi * d.nt + ti] {
                     let l = lags[ri];
-                    if l != NO_LAG && best.is_none_or(|(b, _)| l < b) {
+                    if has_lag(l) && best.is_none_or(|(b, _)| l < b) {
                         best = Some((l, fam));
                     }
                 }
@@ -311,6 +346,13 @@ impl Agg {
             a.fund += b.fund;
         }
         for (a, b) in self.lag_n.iter_mut().zip(&o.lag_n) {
+            *a += b;
+        }
+        for (a, b) in self.obs.iter_mut().zip(&o.obs) {
+            a[0] += b[0];
+            a[1] += b[1];
+        }
+        for (a, b) in self.gap_h.iter_mut().zip(&o.gap_h) {
             *a += b;
         }
         for (a, b) in self.lag_v.iter_mut().zip(o.lag_v) {
@@ -421,7 +463,7 @@ pub fn write_lags(path: &Path, lay: &Layout, agg: &mut Agg) -> Result<()> {
                     for di in 0..d.nd {
                         for mi in 0..d.nm {
                             let g = agg.group(kind, s, si, di, mi);
-                            let n_ep = agg.lag_n[g];
+                            let n_ep = agg.lag_n[g * d.nr + ri];
                             if n_ep == 0 {
                                 continue;
                             }

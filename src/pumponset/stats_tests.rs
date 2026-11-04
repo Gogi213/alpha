@@ -371,12 +371,13 @@ fn gen_fit(rules: &[FitRule]) -> String {
     s
 }
 
-/// Тест (60 суток, 3 месяца): X (0,0,0) — lift 3, net +; Y (1,0,0) — lift 0,5, net −; Z (2,0,0) — lift ≈ 1
-/// с разбросом по суткам. Плюс строка X вне периода теста и строка правила вне K.
+/// Тест (60 суток во всех 10 месяцах `split.test` 2026-01…2026-10, по 6 суток): X (0,0,0) — lift 3, net +;
+/// Y (1,0,0) — lift 0,5, net −; Z (2,0,0) — lift ≈ 1 с разбросом по суткам. Плюс строка X вне периода теста и
+/// строка правила вне K.
 fn gen_test() -> String {
     let mut s = String::from(DC_HEAD);
     for d in 0..60i64 {
-        let month = 202601 + (d / 20) as i32;
+        let month = 202601 + (d / 6) as i32;
         for sign in [-1i8, 1] {
             for hi in 0..3u8 {
                 let day = 30000 + d;
@@ -665,7 +666,7 @@ fn test_stage_three_scenarios() {
     assert!(approx(num(x, "fit_lift_lo"), 3.0));
     assert_eq!(
         (x["months_gt1"].as_str(), x["months_total"].as_str()),
-        ("3", "3")
+        ("10", "10")
     );
     // сценарий Z: интервал невырожденный и накрывает 1
     let z = vt
@@ -722,7 +723,9 @@ fn test_stage_three_scenarios() {
         "{rep}"
     );
     assert!(rep.contains("не считалась"));
-    assert!(rep.contains("202601, 202602, 202603"));
+    assert!(rep.contains(
+        "202601, 202602, 202603, 202604, 202605, 202606, 202607, 202608, 202609, 202610"
+    ));
 }
 
 #[test]
@@ -874,4 +877,156 @@ fn test_stage_input_errors() {
     // неверный заголовок
     fs::write(inp.join("daycells-test.csv"), "a,b\n1,2\n").unwrap();
     assert!(run_verdict(Stage::Test, &inp, &params, &out, Some(&k), 1).is_err());
+}
+
+/// `gen_test` без строк позже месяца `last` (`ггггмм`): в файле только первые месяцы периода теста.
+fn gen_test_until(last: i32) -> String {
+    let mut out = String::from(DC_HEAD);
+    for l in gen_test().lines().skip(1) {
+        let month: i32 = l.split(',').nth(6).unwrap().parse().unwrap();
+        if month <= last {
+            out.push_str(l);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Знаменатель доли месяцев (2/3, §5 и §7.6) — все 10 месяцев `split.test` (2026-01…2026-10), а не присутствующие в
+/// `daycells-test.csv`: месяц без данных — «lift не > 1» и «net не > 0». Данные первых 6 месяцев с идеальным lift в
+/// каждом — 6 из 10 < 2/3, не подтверждено; 7 из 10 — подтверждено (граница включительно).
+#[test]
+fn month_share_denominator_is_all_test_period_months() {
+    for (last, present, ok) in [(202606, 6, false), (202607, 7, true)] {
+        let d = tempfile::tempdir().unwrap();
+        let inp = inputs(d.path(), false);
+        fs::write(inp.join("daycells-test.csv"), gen_test_until(last)).unwrap();
+        let params = params_file(d.path(), |_| {});
+        let k = k_file(d.path(), &[(0, 0, 0)]);
+        let out = d.path().join("out");
+        run_verdict(Stage::Test, &inp, &params, &out, Some(&k), 1).unwrap();
+
+        let vt = table(&out.join("verdict-test.csv"));
+        assert_eq!(vt.len(), 6);
+        for r in &vt {
+            assert_eq!(r["months_total"], "10", "знаменатель — период, не файл");
+            assert_eq!(r["months_gt1"], present.to_string());
+            assert_eq!(r["months_defined"], present.to_string());
+            assert_eq!(
+                r["verdict"],
+                if ok {
+                    "подтверждено"
+                } else {
+                    "не различимо"
+                },
+                "{present} месяцев из 10"
+            );
+        }
+        let nt = table(&out.join("net-test.csv"));
+        assert!(nt.iter().all(|r| r["months_total"] == "10"));
+        assert!(nt.iter().all(|r| r["months_pos"] == present.to_string()));
+        let early = table(&out.join("early-test.csv"));
+        assert_eq!(early.len(), 2);
+        for r in &early {
+            assert_eq!(r["net_months_ok"], if ok { "1" } else { "0" });
+            assert_eq!(
+                r["early"],
+                if ok {
+                    "можно"
+                } else {
+                    "не доказано"
+                }
+            );
+            assert_eq!(
+                r["fail"].contains("net > 0 менее чем в 2/3 месяцев"),
+                !ok,
+                "{}",
+                r["fail"]
+            );
+        }
+        let rep = fs::read_to_string(out.join("report-tables.md")).unwrap();
+        assert!(rep.contains("месяцев теста 10 ("), "{rep}");
+        assert!(
+            rep.contains(&format!("с данными в `daycells-test` {present}")),
+            "{rep}"
+        );
+        assert!(rep.contains(&format!("{present}/10")), "{rep}");
+    }
+}
+
+#[test]
+fn period_months_cover_the_whole_period() {
+    let d = tempfile::tempdir().unwrap();
+    let params = params_file(d.path(), |v| {
+        v["split"]["test"] = serde_json::json!(["2025-11", "2026-02"]);
+    });
+    let inp = d.path().join("in");
+    fs::create_dir_all(&inp).unwrap();
+    // единственный месяц с данными — 2026-01; период 2025-11…2026-02 (переход через год) = 4 месяца
+    let mut s = String::from(DC_HEAD);
+    for day in 0..4i64 {
+        for sign in [-1i8, 1] {
+            for hi in 0..3u8 {
+                s.push_str(&dc(
+                    (0, 0, 0, sign, hi),
+                    30000 + day,
+                    202601,
+                    [10, 3, 100, 10, 10],
+                    1000.0,
+                    0.0,
+                ));
+            }
+        }
+    }
+    fs::write(inp.join("daycells-test.csv"), s).unwrap();
+    fs::write(inp.join("daycells-fit.csv"), gen_fit(&fit_rules())).unwrap();
+    fs::write(inp.join("lags-test.csv"), LAGS_HEAD).unwrap();
+    fs::write(inp.join("first-test.csv"), FIRST_HEAD).unwrap();
+    let k = k_file(d.path(), &[(0, 0, 0)]);
+    let out = d.path().join("out");
+    run_verdict(Stage::Test, &inp, &params, &out, Some(&k), 1).unwrap();
+    let vt = table(&out.join("verdict-test.csv"));
+    let cell = vt
+        .iter()
+        .find(|r| r["sign"] == "1" && r["hi"] == "1")
+        .unwrap();
+    assert_eq!(
+        (cell["months_gt1"].as_str(), cell["months_total"].as_str()),
+        ("1", "4")
+    );
+    let rep = fs::read_to_string(out.join("report-tables.md")).unwrap();
+    assert!(rep.contains("202511, 202512, 202601, 202602"), "{rep}");
+}
+
+/// «Три крупнейших по разности» (отчёт, §4): строка с неопределённой долей (нет эпизодов или C2b) — `NaN` — не
+/// должна вставать первой при сортировке по убыванию (`total_cmp` ставит `NaN` выше всех), её нет в таблице.
+#[test]
+fn first_table_drops_nan_differences_before_sorting() {
+    let d = tempfile::tempdir().unwrap();
+    let inp = inputs(d.path(), false);
+    // семейство 2 (F4) есть только у эпизодов: доля C2b неопределена
+    let first = gen_first() + "ep,all,0,0,1,0,2,20,19\n";
+    fs::write(inp.join("first-test.csv"), first).unwrap();
+    let params = params_file(d.path(), |_| {});
+    let k = k_file(d.path(), &[(0, 0, 0), (1, 0, 0), (2, 0, 0)]);
+    let out = d.path().join("out");
+    run_verdict(Stage::Test, &inp, &params, &out, Some(&k), 1).unwrap();
+    let rep = fs::read_to_string(out.join("report-tables.md")).unwrap();
+    let from = rep.find("## 4.").unwrap();
+    let section = &rep[from..];
+    let section = &section[..section.find("\n## ").map_or(section.len(), |p| p + 1)];
+    let rows: Vec<&str> = section
+        .lines()
+        .filter(|l| l.starts_with("| w5 θ2 |"))
+        .collect();
+    assert_eq!(rows.len(), 2, "{section}");
+    assert!(
+        rows[0].contains("| F1 |") && rows[0].contains("0.300"),
+        "{section}"
+    );
+    assert!(rows[1].contains("| F3 |"), "{section}");
+    assert!(
+        !section.contains("| F4 |") && !section.contains('—'),
+        "{section}"
+    );
 }
