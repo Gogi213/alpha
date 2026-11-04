@@ -3,13 +3,15 @@
 Идём от END назад до листинга (пустой ответ); START — 2020-01-01. Выход: <out>/bybit-linear/СИМВОЛ.csv.gz (формат как у лежащих:
 t_open_ms,o,h,l,c,v,quote_v,n_trades; n_trades пуст — API не отдаёт) и <out>/cov/СИМВОЛ.tsv. Готовое пропускается.
 usage: tk476-bybit-hist.py <out> <symbols.txt> [threads=16] [rps=80]   (END = 00:00 UTC сегодняшних суток, env K_END=мс)"""
-import gzip, os, sys, threading, time, json, urllib.error, urllib.request
+import gzip, http.client, os, sys, threading, time, json, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 START = int(os.environ.get("K_START", 1577836800000))  # 2020-01-01 00:00 UTC
 END = int(os.environ.get("K_END", int(time.time() // 86400 * 86400 * 1000)))
 BASE = "https://api.bybit.com/v5/market/"
 GZ = {"Accept-Encoding": "gzip"} if os.environ.get("K_GZIP") == "1" else {}  # TK-490: ответ сжатый (в 2 раза меньше трафика); умолчание прежнее
+KA = os.environ.get("K_KEEPALIVE") == "1"  # TK-490: постоянное соединение потока (без TCP+TLS на запрос); умолчание прежнее
+tl = threading.local()
 lock = threading.Lock()
 next_slot = pause_until = 0.0
 reqs = 0
@@ -34,9 +36,24 @@ def get(path, rps):
         try:
             with lock:
                 reqs += 1
-            with urllib.request.urlopen(urllib.request.Request(BASE + path, headers=GZ), timeout=30) as r:
-                raw = r.read()
-                d = json.loads(gzip.decompress(raw) if r.headers.get("Content-Encoding") == "gzip" else raw)
+            if KA:
+                c = getattr(tl, "c", None) or http.client.HTTPSConnection("api.bybit.com", timeout=30)
+                tl.c = c
+                try:
+                    c.request("GET", "/v5/market/" + path, headers=GZ)
+                    r = c.getresponse()
+                    raw = r.read()
+                except (OSError, http.client.HTTPException):
+                    tl.c = None
+                    raise
+                if r.status != 200:
+                    tl.c = None
+                    raise urllib.error.HTTPError(BASE + path, r.status, "", None, None)
+                d = json.loads(gzip.decompress(raw) if r.getheader("Content-Encoding") == "gzip" else raw)
+            else:
+                with urllib.request.urlopen(urllib.request.Request(BASE + path, headers=GZ), timeout=30) as r:
+                    raw = r.read()
+                    d = json.loads(gzip.decompress(raw) if r.headers.get("Content-Encoding") == "gzip" else raw)
             if d.get("retCode") == 0:
                 return d["result"]
             if d.get("retCode") == 10006:
@@ -54,7 +71,7 @@ def get(path, rps):
                 print("HTTP %d, пауза %ds" % (e.code, 30 * (attempt + 1)), file=sys.stderr, flush=True)
                 continue
             time.sleep(2 * (attempt + 1))
-        except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, http.client.HTTPException, json.JSONDecodeError):
             time.sleep(2 * (attempt + 1))
     raise RuntimeError("не вышло: " + path)
 

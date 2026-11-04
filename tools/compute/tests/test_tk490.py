@@ -38,4 +38,4 @@ def test_defaults_unchanged():
     assert mf.FROM_MS == 0 and mf.SYMFILE is None
     b = importlib.util.spec_from_file_location('b476', os.path.join(COMP, 'tk476-bybit-hist.py'))
     mb = importlib.util.module_from_spec(b); b.loader.exec_module(mb)
-    assert mb.GZ == {}
+    assert mb.GZ == {} and mb.KA is False

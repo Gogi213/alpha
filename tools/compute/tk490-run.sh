@@ -14,7 +14,7 @@ candles)
   [ -f "$U/universe.done" ] || { echo "нет universe.done"; exit 2; }
   # Bybit: два процесса по половине списка (один упирается в GIL ≈ 50 запр/с), вместе ≈ 100 запр/с на IP (лимит биржи 600/5 с)
   awk 'NR%2==1' "$U/symbols-bybit-linear.txt" > "$U/symbols-bybit-linear-a.txt"; awk 'NR%2==0' "$U/symbols-bybit-linear.txt" > "$U/symbols-bybit-linear-b.txt"
-  for p in a b; do run pump-candles-bybit-$p env K_GZIP=1 K_START=$START_MS K_END=$END_MS python3 "$B/tk476-bybit-hist.py" "$H/candles" "$U/symbols-bybit-linear-$p.txt" 80 50; done
+  for p in a b; do run pump-candles-bybit-$p env K_KEEPALIVE=1 K_GZIP=1 K_START=$START_MS K_END=$END_MS python3 "$B/tk476-bybit-hist.py" "$H/candles" "$U/symbols-bybit-linear-$p.txt" 80 50; done
   run pump-candles-binance env TK450_ROOT="$H/candles/binance-um" TK450_PY="$B/tk450-binance-klines.py" TK450_FIRST=2025-01 TK476_THREADS=8 python3 "$B/tk476-binance-new.py" "$U/symbols-binance-um.txt" ;;
 funding)
   [ -f "$U/universe.done" ] || { echo "нет universe.done"; exit 2; }
@@ -24,7 +24,7 @@ funding)
   done ;;
 oi)  # Binance — архив metrics (потоков символов 24 × 8 суток), Bybit — REST 5 мин, после свечей Bybit (общий лимит IP): bin/tk490-oi-bybit-after.sh
   mkdir -p "$H/oi"
-  run pump-oi-binance python3 "$B/tk490-oi.py" binance "$H/oi" "$U/symbols-binance-um.txt" 24
+  run pump-oi-binance env OI_DAYTHREADS=48 python3 "$B/tk490-oi.py" binance "$H/oi" "$U/symbols-binance-um.txt" 24
   run pump-oi-bybit-chain bash "$B/tk490-oi-bybit-after.sh" ;;
 check)
   for x in bybit-linear binance-um; do

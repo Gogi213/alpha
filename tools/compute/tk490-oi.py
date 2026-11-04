@@ -3,20 +3,22 @@
 usage: tk490-oi.py bybit|binance <OUT> <symbols.txt> [threads] [rps]      OUT/<биржа>/<SYM>.csv.gz, охват — OUT/cov-<биржа>/<SYM>.tsv
   bybit  : REST /v5/market/open-interest intervalTime=5min (самый мелкий шаг истории), 200 точек/запрос, назад от конца по endTime;
            колонки как у TK-415 (читатели G-017): t_ms,open_interest,single_open_interest. Accept-Encoding gzip.
-  binance: архив data.binance.vision futures/um/daily/metrics (openInterestHist REST даёт ~30 суток); список дней — S3 ListObjectsV2
+  binance: архив data.binance.vision (S3 Токио, keep-alive) futures/um/daily/metrics (openInterestHist REST даёт ~30 суток); список дней — S3 ListObjectsV2
            (в архиве лежат ровно существующие сутки: дыры видны без 404-запросов), целостность — md5 скачанного = ETag объекта.
            Колонки: t_ms (create_time UTC → мс), open_interest (= sum_open_interest), open_interest_value (= sum_open_interest_value),
            далее остальные колонки архива как есть (count_toptrader_long_short_ratio, sum_toptrader_long_short_ratio,
            count_long_short_ratio, sum_taker_long_short_vol_ratio); symbol опущен (имя файла).
 Готовое пропускается; запись <SYM>.csv.gz.part<pid> → os.replace. Env: OI_START/OI_END (мс, END не включая), по умолчанию 2025-01-01 … 2026-11-04 00:00 UTC."""
-import csv, gzip, hashlib, io, json, os, re, sys, threading, time, urllib.error, urllib.parse, urllib.request, zipfile
+import csv, gzip, hashlib, http.client, io, json, os, re, sys, threading, time, urllib.error, urllib.parse, urllib.request, zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 START = int(os.environ.get("OI_START", 1735689600000))  # 2025-01-01 00:00 UTC
 END = int(os.environ.get("OI_END", 1793750400000))  # 2026-11-04 00:00 UTC (не включая)
 UA = {"User-Agent": "alpha-tk490"}
-BN_S3 = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/"
+BN_HOST = "s3-ap-northeast-1.amazonaws.com"  # data.binance.vision (CloudFront) с Deck зависает; S3 Токио — 100+ файлов/с на 64 потоках с keep-alive (замер 04.11)
+BN_PFX = "/data.binance.vision/"
+tl = threading.local()
 lock = threading.Lock()
 state = {"next": 0.0, "pause": 0.0, "reqs": 0, "bytes": 0, "e429": 0}
 
@@ -61,6 +63,35 @@ def get(url, rps=None, gz=False, retries=12):
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             time.sleep(2 * (attempt + 1))
     raise RuntimeError("не вышло: " + url)
+
+
+def s3get(path):
+    """GET по постоянному соединению потока (keep-alive: без TLS на каждый файл); 404 → None."""
+    for attempt in range(10):
+        c = getattr(tl, "c", None)
+        if c is None:
+            c = tl.c = http.client.HTTPSConnection(BN_HOST, timeout=20)
+        try:
+            with lock:
+                state["reqs"] += 1
+            c.request("GET", path, headers=UA)
+            r = c.getresponse()
+            b = r.read()
+            if r.status == 200:
+                with lock:
+                    state["bytes"] += len(b)
+                return b
+            if r.status == 404:
+                return None
+            if r.status in (403, 429, 503):
+                with lock:
+                    state["e429"] += 1
+            tl.c = None
+            time.sleep(2 * (attempt + 1))
+        except (OSError, http.client.HTTPException):
+            tl.c = None
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError("не вышло: " + path)
 
 
 def save(out, ex, sym, header, rows, nreq, note):
@@ -114,10 +145,10 @@ def bn_list(sym):
     d0 = datetime.fromtimestamp(START / 1000, timezone.utc).strftime("%Y-%m-%d")
     d1 = datetime.fromtimestamp((END - 1) / 1000, timezone.utc).strftime("%Y-%m-%d")
     while True:
-        u = BN_S3 + "?list-type=2&prefix=data/futures/um/daily/metrics/%s/&max-keys=1000" % sym
+        u = BN_PFX + "?list-type=2&prefix=data/futures/um/daily/metrics/%s/&max-keys=1000" % sym
         if token:
             u += "&continuation-token=" + urllib.parse.quote(token, safe="")
-        body = get(u).decode()
+        body = s3get(u).decode()
         for m in re.finditer(r"<Contents><Key>[^<]*-metrics-(\d{4}-\d\d-\d\d)\.zip</Key>.*?<ETag>&quot;([0-9a-f]+)&quot;</ETag>", body):
             if d0 <= m.group(1) <= d1:
                 days.append((m.group(1), m.group(2)))
@@ -128,7 +159,7 @@ def bn_list(sym):
 
 
 def bn_day(sym, day, etag):
-    raw = get(BN_S3 + "data/futures/um/daily/metrics/%s/%s-metrics-%s.zip" % (sym, sym, day))
+    raw = s3get(BN_PFX + "data/futures/um/daily/metrics/%s/%s-metrics-%s.zip" % (sym, sym, day))
     if raw is None:
         raise RuntimeError("404 %s %s" % (sym, day))
     if "-" not in etag and hashlib.md5(raw).hexdigest() != etag:
@@ -137,12 +168,11 @@ def bn_day(sym, day, etag):
         return z.read(z.namelist()[0]).decode()
 
 
-def binance_one(sym, out, days_threads):
+def binance_one(sym, out, pool):
     if os.path.exists("%s/binance/%s.csv.gz" % (out, sym)):
         return
     days = bn_list(sym)
-    with ThreadPoolExecutor(days_threads) as ex:
-        texts = list(ex.map(lambda de: bn_day(sym, de[0], de[1]), days))
+    texts = list(pool.map(lambda de: bn_day(sym, de[0], de[1]), days))
     rows, header = {}, None
     for txt in texts:
         rd = csv.reader(io.StringIO(txt))
@@ -165,14 +195,15 @@ def binance_one(sym, out, days_threads):
 
 def main():
     ex, out, syms = sys.argv[1], sys.argv[2], [s.strip() for s in open(sys.argv[3]) if s.strip()]
-    threads = int(sys.argv[4]) if len(sys.argv) > 4 else (64 if ex == "bybit" else 6)
+    threads = int(sys.argv[4]) if len(sys.argv) > 4 else (64 if ex == "bybit" else 24)
     rps = float(sys.argv[5]) if len(sys.argv) > 5 else 50.0
     print(ex, "символов", len(syms), "окно", START, END, flush=True)
     t0, fails = time.time(), []
     if ex == "bybit":
         fn = lambda s: bybit_one(s, out, rps)
-    else:  # потоков символов × 8 потоков суток внутри
-        fn = lambda s: binance_one(s, out, 8)
+    else:  # threads — потоков символов (ждут), суточные файлы качает общий пул из OI_DAYTHREADS (128) потоков с keep-alive
+        daypool = ThreadPoolExecutor(int(os.environ.get("OI_DAYTHREADS", 128)))
+        fn = lambda s: binance_one(s, out, daypool)
     with ThreadPoolExecutor(threads) as pool:
         futs = {pool.submit(fn, s): s for s in syms}
         for i, fu in enumerate(futs, 1):
