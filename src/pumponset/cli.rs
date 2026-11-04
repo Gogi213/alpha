@@ -38,6 +38,8 @@ pub enum PumponsetCommand {
     Run(super::run::RunArgs),
     /// Бутстрэп по суткам, Холм, отбор K, вердикты по таблицам `run`.
     Verdict(super::verdict::VerdictArgs),
+    /// Трассировка контракта в окнах для графиков: цена, OI, z, срабатывания правил K.
+    Trace(super::trace::TraceArgs),
 }
 
 pub fn dispatch(cmd: PumponsetCommand) -> Result<()> {
@@ -52,6 +54,7 @@ pub fn dispatch(cmd: PumponsetCommand) -> Result<()> {
         } => cache(&candles, &oi, &funding, &out, threads, lenient),
         PumponsetCommand::Run(a) => super::run::run(a),
         PumponsetCommand::Verdict(a) => super::verdict::verdict(a),
+        PumponsetCommand::Trace(a) => super::trace::trace(a),
     }
 }
 

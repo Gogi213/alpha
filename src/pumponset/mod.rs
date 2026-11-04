@@ -17,6 +17,7 @@ pub mod feat_ref;
 pub mod params;
 pub mod run;
 pub mod stats;
+pub mod trace;
 pub mod trade;
 pub mod types;
 pub mod verdict;
