@@ -494,6 +494,29 @@ impl XdAcc {
 
     /// Добавить ходы контракта за `fit_min` (проход 1 — счётчики, проход 2 — значения нужных корзин).
     pub fn add(&mut self, c: &Contract, p: &Params, fit_min: [i64; 2]) {
+        self.add_impl(c, p, fit_min, &|_| true);
+    }
+
+    /// `add` с маской вселенной: в выборку входят только концы `j`, чья минута (от `GRID0_MS`) проходит
+    /// `in_universe` (слой `run`: сутки, где оборот предыдущих суток ≥ порога, П-34 §1). Окно старта маской не
+    /// режется — маска решает, считать ли ход конца `j`. Тот же вызов в обоих проходах.
+    pub fn add_masked(
+        &mut self,
+        c: &Contract,
+        p: &Params,
+        fit_min: [i64; 2],
+        in_universe: impl Fn(i64) -> bool,
+    ) {
+        self.add_impl(c, p, fit_min, &in_universe);
+    }
+
+    fn add_impl(
+        &mut self,
+        c: &Contract,
+        p: &Params,
+        fit_min: [i64; 2],
+        keep: &impl Fn(i64) -> bool,
+    ) {
         assert_eq!(
             p.episodes.d_min.len(),
             self.nd,
@@ -505,6 +528,7 @@ impl XdAcc {
         if from >= to {
             return;
         }
+        let first_min = c.first_min;
         self.sc.load(c);
         let Scratch { lc, dmin, dmax, .. } = &mut self.sc;
         for (di, &d) in p.episodes.d_min.iter().enumerate() {
@@ -513,8 +537,8 @@ impl XdAcc {
             match &mut self.phase {
                 Phase::Hist(h) => {
                     let (hu, hd) = h[di * 2 * BINS..(di * 2 + 2) * BINS].split_at_mut(BINS);
-                    scan_moves(lc, w, dmin, dmax, from, to, |_, up, _, dn, _| {
-                        if !up.is_nan() {
+                    scan_moves(lc, w, dmin, dmax, from, to, |j, up, _, dn, _| {
+                        if !up.is_nan() && keep(first_min + j as i64) {
                             hu[bin_of(up)] += 1;
                             hd[bin_of(dn)] += 1;
                         }
@@ -523,8 +547,8 @@ impl XdAcc {
                 Phase::Collect(ts) => {
                     let (tu, td) = ts[di * 2..di * 2 + 2].split_at_mut(1);
                     let (tu, td) = (&mut tu[0], &mut td[0]);
-                    scan_moves(lc, w, dmin, dmax, from, to, |_, up, _, dn, _| {
-                        if !up.is_nan() {
+                    scan_moves(lc, w, dmin, dmax, from, to, |j, up, _, dn, _| {
+                        if !up.is_nan() && keep(first_min + j as i64) {
                             tu.take(up);
                             td.take(dn);
                         }
