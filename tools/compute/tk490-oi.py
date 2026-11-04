@@ -145,7 +145,7 @@ def bn_list(sym):
     d0 = datetime.fromtimestamp(START / 1000, timezone.utc).strftime("%Y-%m-%d")
     d1 = datetime.fromtimestamp((END - 1) / 1000, timezone.utc).strftime("%Y-%m-%d")
     while True:
-        u = BN_PFX + "?list-type=2&prefix=data/futures/um/daily/metrics/%s/&max-keys=1000" % sym
+        u = BN_PFX + "?list-type=2&prefix=data/futures/um/daily/metrics/%s/&max-keys=1000" % urllib.parse.quote(sym, safe="")
         if token:
             u += "&continuation-token=" + urllib.parse.quote(token, safe="")
         body = s3get(u).decode()
@@ -159,7 +159,8 @@ def bn_list(sym):
 
 
 def bn_day(sym, day, etag):
-    raw = s3get(BN_PFX + "data/futures/um/daily/metrics/%s/%s-metrics-%s.zip" % (sym, sym, day))
+    qs = urllib.parse.quote(sym, safe="")
+    raw = s3get(BN_PFX + "data/futures/um/daily/metrics/%s/%s-metrics-%s.zip" % (qs, qs, day))
     if raw is None:
         raise RuntimeError("404 %s %s" % (sym, day))
     if "-" not in etag and hashlib.md5(raw).hexdigest() != etag:
