@@ -9,6 +9,7 @@ pub mod bybit;
 pub mod commands;
 pub mod feed;
 pub mod lob;
+pub mod pumponset;
 pub mod statarb;
 pub mod stats;
 

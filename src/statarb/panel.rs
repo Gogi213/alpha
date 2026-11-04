@@ -106,11 +106,11 @@ pub fn read_series<R: Read>(r: &mut R) -> io::Result<Series> {
     })
 }
 
-fn bad(msg: String) -> io::Error {
+pub(crate) fn bad(msg: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg)
 }
 
-fn price(f: &str, line: usize) -> io::Result<f64> {
+pub(crate) fn price(f: &str, line: usize) -> io::Result<f64> {
     let v: f64 = f
         .trim()
         .parse()
