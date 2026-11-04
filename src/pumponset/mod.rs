@@ -5,6 +5,7 @@
 //! строки (дыра) — `NaN` во всех колонках OI, ничего не дорисовывается (П-34 §1).
 //! Сетка минут общая со `statarb::panel` (`GRID0_MS`), слот OI = 5 минут.
 
+pub mod agg;
 pub mod cache;
 pub mod cli;
 pub mod control;
@@ -14,7 +15,11 @@ pub mod episodes_ref;
 pub mod feat;
 pub mod feat_ref;
 pub mod params;
+pub mod run;
+pub mod stats;
+pub mod trade;
 pub mod types;
+pub mod verdict;
 
 #[cfg(test)]
 mod control_tests;
@@ -22,5 +27,9 @@ mod control_tests;
 mod episodes_tests;
 #[cfg(test)]
 mod feat_tests;
+#[cfg(test)]
+mod run_tests;
+#[cfg(test)]
+mod stats_tests;
 #[cfg(test)]
 mod tests;

@@ -29,6 +29,10 @@ pub enum PumponsetCommand {
         #[arg(long)]
         threads: usize,
     },
+    /// Прогон ядра по кэшу: признаки, эпизоды, контроли → таблицы csv (`docs/findings/pumponset-run-spec-2026-11-05.md`).
+    Run(super::run::RunArgs),
+    /// Бутстрэп по суткам, Холм, отбор K, вердикты по таблицам `run`.
+    Verdict(super::verdict::VerdictArgs),
 }
 
 pub fn dispatch(cmd: PumponsetCommand) -> Result<()> {
@@ -40,6 +44,8 @@ pub fn dispatch(cmd: PumponsetCommand) -> Result<()> {
             out,
             threads,
         } => cache(&candles, &oi, &funding, &out, threads),
+        PumponsetCommand::Run(a) => super::run::run(a),
+        PumponsetCommand::Verdict(a) => super::verdict::verdict(a),
     }
 }
 
