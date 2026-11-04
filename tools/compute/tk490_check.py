@@ -2,6 +2,7 @@
 """TK-490: проверка скачанных файлов пампов — свечи 1 м и ставки фандинга по списку контрактов вселенной.
 usage: tk490_check.py candles <каталог> <symbols.txt> <out.csv>   (каждый <SYM>.csv.gz: t_open_ms,o,h,l,c,v,quote_v,n_trades)
        tk490_check.py funding <каталог> <symbols.txt> <out.csv>   (каждый <SYM>.csv.gz: time_ms,rate,interval_h)
+       tk490_check.py oi <каталог> <symbols.txt> <out.csv>        (каждый <SYM>.csv.gz: t_ms,open_interest,...; шаг 5 мин; колонки out как у свечей, off_minute = не на 5 мин)
        tk490_check.py --selftest
 out.csv — строка на контракт: symbol,rows,first,last,dups,unordered,off_minute,missing_min,gaps,max_gap_min,status
 (для фандинга: symbol,rows,first,last,dups,unordered,days,rows_per_day,min_interval_h,max_interval_h,status).
@@ -18,7 +19,7 @@ def iso(ms):
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime('%Y-%m-%d %H:%M') if ms is not None else ''
 
 
-def candles_one(path):
+def candles_one(path, step=MIN):
     rows = dups = unordered = off = missing = gaps = mx = 0
     first = prev = None
     with gzip.open(path, 'rt') as f:
@@ -29,15 +30,15 @@ def candles_one(path):
                 continue
             t = int(p[0])
             rows += 1
-            off += t % MIN != 0
+            off += t % step != 0
             if first is None:
                 first = t
             elif t == prev:
                 dups += 1
             elif t < prev:
                 unordered += 1
-            elif t > prev + MIN:
-                g = (t - prev) // MIN - 1
+            elif t > prev + step:
+                g = (t - prev) // step - 1
                 missing += g
                 gaps += 1
                 mx = max(mx, g)
@@ -45,6 +46,10 @@ def candles_one(path):
                 prev = t
     status = 'empty' if rows == 0 else 'dups' if dups else 'unordered' if unordered else 'off_minute' if off else 'ok'
     return [rows, iso(first), iso(prev), dups, unordered, off, missing, gaps, mx, status]
+
+
+def oi_one(path):
+    return candles_one(path, 5 * MIN)
 
 
 def funding_one(path):
@@ -78,9 +83,9 @@ def funding_one(path):
 
 def run(kind, d, symfile, out):
     syms = [s.strip() for s in open(symfile) if s.strip()]
-    one = candles_one if kind == 'candles' else funding_one
+    one = {'candles': candles_one, 'oi': oi_one, 'funding': funding_one}[kind]
     head = (['symbol', 'rows', 'first', 'last', 'dups', 'unordered', 'off_minute', 'missing_min', 'gaps', 'max_gap_min', 'status']
-            if kind == 'candles' else
+            if kind in ('candles', 'oi') else
             ['symbol', 'rows', 'first', 'last', 'dups', 'unordered', 'days', 'rows_per_day', 'min_interval_h', 'max_interval_h', 'status'])
     res = []
     for s in syms:
@@ -118,6 +123,14 @@ def selftest():
     assert got['OK']['status'] == 'ok' and got['OK']['missing_min'] == '2' and got['OK']['gaps'] == '1', got['OK']
     assert got['DUP']['status'] == 'dups' and got['ORD']['status'] == 'unordered' and got['OFF']['status'] == 'off_minute'
     assert got['EMP']['status'] == 'empty' and got['GONE']['status'] == 'missing_file'
+    oh = 't_ms,open_interest,single_open_interest'
+    w('O1', [f'{base + i * 300000},5,2' for i in (0, 1, 2, 5)], oh)  # дыра 2 точки
+    w('O2', [f'{base},5,2', f'{base},5,2'], oh)
+    w('O3', [f'{base},5,2', f'{base + 301000},5,2'], oh)
+    open(os.path.join(tmp, 'o.txt'), 'w').write('O1\nO2\nO3\n')
+    assert run('oi', tmp, os.path.join(tmp, 'o.txt'), out) == 1
+    got = {r['symbol']: r for r in csv.DictReader(open(out))}
+    assert got['O1']['status'] == 'ok' and got['O1']['missing_min'] == '2' and got['O2']['status'] == 'dups' and got['O3']['status'] == 'off_minute', got
     fh = 'time_ms,rate,interval_h'
     w('F1', [f'{base + i * 8 * 3600000},0.0001,8' for i in range(6)], fh)
     w('F2', [f'{base},0.0001,8', f'{base},0.0001,8'], fh)
