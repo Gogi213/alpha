@@ -6,6 +6,7 @@
 //! Сетка минут общая со `statarb::panel` (`GRID0_MS`), слот OI = 5 минут.
 
 pub mod cache;
+pub mod cli;
 pub mod control;
 pub mod control_ref;
 pub mod episodes;

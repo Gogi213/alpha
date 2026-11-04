@@ -146,7 +146,8 @@ const PARAMS: &str = r#"{
  "protocol":"P-34 r4","verdict":{"seed":34},
  "grid_min":{"value":5},
  "episodes":{"_src":"2","D_min":[90,180,360,720,1440],"quantile_X_D":0.99,
-  "E4_wick":{"return_share":0.5,"within_min":15},"outlier_tail_candles_lt":3},
+  "E4_wick":{"return_share":0.5,"within_min":15},"outlier_tail_candles_lt":3,
+  "market_stratum":{"ref_symbol":"BTCUSDT","same_sign":true,"same_D":true,"min_overlap_share":0.5}},
  "features":{"windows_min":[5,15,30,60],"norm":{"history_days":7,"mad_factor":1.4826},
   "funding_z_history_days":30,"theta":[2,3,4],"ids":["F1"]},
  "onset":{"L_pre_min":360,"L_post":"t_peak"},
@@ -176,6 +177,8 @@ fn params_read_protocol_file_shape_and_reject_bad_values() {
     assert!(bad("\"history_days\":7", "\"history_days\":0"));
     assert!(bad("\"quantile_X_D\":0.99", "\"quantile_X_D\":1.5"));
     assert!(bad("\"quantile_X_D\":0.99", "\"quantile_X_D\":\"a\""));
+    assert!(bad("\"min_overlap_share\":0.5", "\"min_overlap_share\":0"));
+    assert!(bad("\"min_overlap_share\":0.5", "\"min_overlap_share\":1.5"));
     assert!(bad("[-360,1440]", "[1440,-360]"));
     assert!(bad("\"L_pre_min\":360", "\"L_pre_min\":0"));
     assert!(Params::from_json("").is_err());

@@ -22,6 +22,11 @@ enum TopCommand {
         #[command(subcommand)]
         cmd: alpha::statarb::cli::StatarbCommand,
     },
+    /// Ядро раннего старта пампов: кэш колонок и прогон П-34 (TK-492).
+    Pumponset {
+        #[command(subcommand)]
+        cmd: alpha::pumponset::cli::PumponsetCommand,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -29,5 +34,6 @@ fn main() -> anyhow::Result<()> {
     match cli.cmd {
         TopCommand::Lob { cmd } => dispatch(cmd),
         TopCommand::Statarb { cmd } => alpha::statarb::cli::dispatch(cmd),
+        TopCommand::Pumponset { cmd } => alpha::pumponset::cli::dispatch(cmd),
     }
 }

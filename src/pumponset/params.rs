@@ -34,6 +34,14 @@ pub struct Episodes {
     /// Строго меньше этого числа свечей в хвосте — событие помечено выбросом (П-34 §8).
     #[serde(rename = "outlier_tail_candles_lt")]
     pub outlier_tail_candles_lt: u32,
+    /// Страта «рыночный эпизод» (П-34 §2): эпизод монеты помечен, если эпизод BTCUSDT того же знака и D
+    /// перекрывает его хотя бы на эту долю.
+    pub market_stratum: MarketStratum,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct MarketStratum {
+    pub min_overlap_share: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -134,6 +142,10 @@ impl Params {
         let share = self.episodes.e4_wick.return_share;
         if !(share > 0.0 && share <= 1.0) {
             bail!("episodes.E4_wick.return_share в (0,1]");
+        }
+        let ov = self.episodes.market_stratum.min_overlap_share;
+        if !(ov > 0.0 && ov <= 1.0) {
+            bail!("episodes.market_stratum.min_overlap_share в (0,1]");
         }
         let (n, f, s) = (
             self.features.norm.history_days,
