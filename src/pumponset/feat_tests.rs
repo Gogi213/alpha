@@ -459,7 +459,13 @@ fn sigma_is_population_std_of_minute_returns() {
     for &s in &cube.sigma[576..] {
         assert!(((f64::from(s) - a) / a).abs() < 1e-6, "{s}");
     }
-    assert_cubes(&cube, &build_cube_naive(&c, &p, 0));
+    // z F9 на ряду с постоянной σ — шум порядка 1e-16 делится на MAD такого же порядка, поэтому куб целиком не
+    // сравниваем (порядок суммирования быстрого пути и эталона даёт разные z); σ сверяем с эталоном.
+    let naive = build_cube_naive(&c, &p, 0);
+    assert_eq!(cube.sigma.len(), naive.sigma.len());
+    for (i, (&x, &y)) in cube.sigma.iter().zip(&naive.sigma).enumerate() {
+        assert!(same(x, y, 1e-6), "sigma i={i}: {x} vs {y}");
+    }
 }
 
 #[test]
