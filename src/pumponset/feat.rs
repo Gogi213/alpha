@@ -200,7 +200,7 @@ fn std_series(
         .enumerate()
         .map(|(i, (&a, &b))| {
             let start = (slot0 + i as i64 - wb as i64) * SLOT_MIN + 1;
-            if a.is_nan() || !fd_min.is_some_and(|f| start >= f) {
+            if a.is_nan() || fd_min.is_none_or(|f| start < f) {
                 return f64::NAN;
             }
             let mean = a / nmin;
@@ -282,7 +282,12 @@ impl Ctx<'_> {
         for (i, xi) in x.iter_mut().enumerate() {
             let hi = self.minute(i) - self.c.first_min;
             let lo = hi - w + 1;
-            *xi = match (lo >= 0).then(|| col.get(lo as usize..=hi as usize)).flatten() {
+            let part = if lo >= 0 {
+                col.get(lo as usize..=hi as usize)
+            } else {
+                None
+            };
+            *xi = match part {
                 Some(part) => {
                     let mut s = 0.0;
                     for &v in part {

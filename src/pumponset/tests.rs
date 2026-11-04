@@ -178,7 +178,10 @@ fn params_read_protocol_file_shape_and_reject_bad_values() {
     assert!(bad("\"quantile_X_D\":0.99", "\"quantile_X_D\":1.5"));
     assert!(bad("\"quantile_X_D\":0.99", "\"quantile_X_D\":\"a\""));
     assert!(bad("\"min_overlap_share\":0.5", "\"min_overlap_share\":0"));
-    assert!(bad("\"min_overlap_share\":0.5", "\"min_overlap_share\":1.5"));
+    assert!(bad(
+        "\"min_overlap_share\":0.5",
+        "\"min_overlap_share\":1.5"
+    ));
     assert!(bad("[-360,1440]", "[1440,-360]"));
     assert!(bad("\"L_pre_min\":360", "\"L_pre_min\":0"));
     assert!(Params::from_json("").is_err());

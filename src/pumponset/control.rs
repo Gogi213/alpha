@@ -47,10 +47,7 @@
 use super::cache::SLOT_MIN;
 use super::feat;
 use super::params::Params;
-use super::types::{
-    Cube, Episode, LagRow, Rule, XdTable, F_FUND, F_GLOBAL, F_OI_PCT, F_TAKER, F_TOP_COUNT, F_TOP_SUM,
-    F_TRADES, F_TURN, F_VR, NF,
-};
+use super::types::{Cube, Episode, LagRow, Rule, XdTable, NF};
 use crate::statarb::panel::{GRID0_MS, MINUTE_MS};
 use anyhow::{bail, Result};
 use chrono::{DateTime, Datelike};
@@ -185,26 +182,12 @@ fn ceil_div(a: i64, b: i64) -> i64 {
 /// Число страт σ — определение «дециль», не параметр.
 pub(super) const DECILES: usize = 10;
 pub(super) const NONE8: u8 = u8::MAX;
-/// Число семейств правил (`Rule::fam` 0..=10, `types.rs`).
-pub(super) const NFAM: usize = 11;
+/// Число семейств правил (`Rule::fam`, состав — `feat::FAMILIES`).
+pub(super) const NFAM: usize = feat::FAMILIES.len();
 
-/// Признаки, нужные правилу (`Rule::fam`: 0..=8 — одиночные F1,F3,F4,F5,F6,F7,F8,F9,F10; 9 = F1&F3;
-/// 10 = F1&F3&F4; `types.rs`).
+/// Признаки, нужные правилу семейства `fam` (`feat::FAMILIES`; неизвестное семейство — пусто).
 pub(super) fn rule_features(fam: u8) -> &'static [usize] {
-    match fam {
-        0 => &[F_OI_PCT],
-        1 => &[F_TURN],
-        2 => &[F_TRADES],
-        3 => &[F_TAKER],
-        4 => &[F_TOP_COUNT],
-        5 => &[F_TOP_SUM],
-        6 => &[F_GLOBAL],
-        7 => &[F_VR],
-        8 => &[F_FUND],
-        9 => &[F_OI_PCT, F_TURN],
-        10 => &[F_OI_PCT, F_TURN, F_TRADES],
-        _ => &[],
-    }
+    feat::FAMILIES.get(fam as usize).copied().unwrap_or(&[])
 }
 
 /// Дециль σ по слотам (допущение 1); `NONE8` — σ не конечна.

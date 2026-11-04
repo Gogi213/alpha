@@ -39,7 +39,10 @@ pub fn is_leverage(sym: &str) -> bool {
 }
 
 fn ends_with_lev(s: &str) -> bool {
-    if ["BULL", "BEAR", "UP", "DOWN"].iter().any(|w| s.ends_with(w)) {
+    if ["BULL", "BEAR", "UP", "DOWN"]
+        .iter()
+        .any(|w| s.ends_with(w))
+    {
         return true;
     }
     let b = s.as_bytes();
@@ -550,15 +553,13 @@ impl XdAcc {
         }
     }
 
-    /// Число значений проход 1 по `[di][вверх|вниз]` (после `begin_pass2` — те же числа).
+    /// Число значений прохода 1 по `[di][вверх|вниз]` (после `begin_pass2` — те же числа).
     pub fn counts(&self) -> Vec<[u64; 2]> {
         match &self.phase {
             Phase::Hist(h) => (0..self.nd)
                 .map(|di| {
                     let s = |k: usize| -> u64 {
-                        h[(di * 2 + k) * BINS..(di * 2 + k + 1) * BINS]
-                            .iter()
-                            .sum()
+                        h[(di * 2 + k) * BINS..(di * 2 + k + 1) * BINS].iter().sum()
                     };
                     [s(0), s(1)]
                 })
