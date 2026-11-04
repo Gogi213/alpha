@@ -582,6 +582,19 @@ fn run_is_byte_identical_for_any_thread_count() {
     assert_eq!(meta["skipped"]["no_oi"], 1);
     assert_eq!(meta["btc_missing"], false);
     assert_eq!(meta["xd_source"], "computed");
+    // отчёт о вселенной не зависит от числа потоков и сходится со счётчиком основного прохода
+    let uni = &meta["universe"];
+    assert_eq!(uni["contracts_eligible"], 5);
+    assert_eq!(uni["episodes_member"], meta["episodes"]);
+    assert!(uni["episodes_period"].as_u64() >= uni["episodes_member"].as_u64());
+    for o in &outs[1..] {
+        let m: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(o.join("run-meta.json")).unwrap()).unwrap();
+        assert_eq!(
+            m["universe"], meta["universe"],
+            "universe: потоки 1 против другого"
+        );
+    }
 
     // --limit: первые N по алфавиту, число пишется в мета
     let out = dir.path().join("out-limit");
@@ -820,6 +833,65 @@ fn contract_below_turnover_yesterday_gives_no_rows_today() {
     let u2 = Universe::build(&edge, 1000.0, 2);
     assert!(!u2.day_ok(d0 + 1) && u2.day_ok(d0 + 2));
     assert_eq!(u.days_in(0, 3 * 1440), 1);
+}
+
+/// Отчёт о вселенной (П-34 §1): снятые контракты и эпизоды, которые правило `d − 1` теряет и добавляет.
+#[test]
+fn universe_report_counts_delisted_and_lag_losses() {
+    let dir = tempfile::tempdir().unwrap();
+    let (cache, out) = (dir.path().join("cache"), dir.path().join("out"));
+    fs::create_dir_all(&cache).unwrap();
+    let n = 17_280;
+    let set_day = |c: &mut Contract, day: usize, q: f32| {
+        for x in c.qvol.iter_mut().skip(day * 1440).take(1440) {
+            *x = q;
+        }
+    };
+    // памп в 10-е сутки; оборот всех суток выше порога (14 400 за сутки против 1000)
+    put(&cache, "AAAUSDT", &pump_contract(n, &[T0]));
+    // оборот 9-х суток ниже порога, 10-х выше (из-за самого пампа): по d − 1 эпизод теряется
+    let mut lost = pump_contract(n, &[T0]);
+    set_day(&mut lost, 9, 0.1);
+    put(&cache, "BBBUSDT", &lost);
+    // оборот 10-х суток ниже порога (всплеск пампа убран), 9-х выше: по d − 1 эпизод добавляется
+    let mut gained = pump_contract(n, &[T0]);
+    set_day(&mut gained, 10, 0.1);
+    put(&cache, "CCCUSDT", &gained);
+    // снят в конце 9-х суток, до пампа: эпизодов нет
+    put(&cache, "DDDUSDT", &pump_contract(9 * 1440, &[]));
+    // левередж-токен: пропущен, в подходящие и в счёт эпизодов не входит
+    put(&cache, "BTCUPUSDT", &pump_contract(n, &[T0]));
+    let pj = dir.path().join("params.json");
+    fs::write(&pj, params_json("2019-12", "2020-01", "[90]")).unwrap();
+    run(args(
+        &cache,
+        &pj,
+        &out,
+        Stage::Test,
+        Some(rules_file(dir.path(), &[(0, 0, 0)])),
+        Some(xd_file(dir.path(), XD)),
+        3,
+    ))
+    .unwrap();
+    let meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("run-meta.json")).unwrap()).unwrap();
+    let u = &meta["universe"];
+    assert_eq!(u["turnover_lag_days"], 1);
+    assert_eq!(u["min_quote_turnover_usd_per_day"].as_f64(), Some(1000.0));
+    assert_eq!(u["data_end_day"], "2020-01-12");
+    assert_eq!(u["contracts_eligible"], 4);
+    assert_eq!(u["contracts_delisted"], 1, "{u}");
+    assert_eq!(u["episodes_period"], 3, "{u}");
+    assert_eq!(u["episodes_member"], 2, "AAA и CCC");
+    assert_eq!(u["episodes_member_same_day"], 2, "AAA и BBB");
+    assert_eq!(u["episodes_lost_by_lag"], 1, "BBB");
+    assert_eq!(u["episodes_gained_by_lag"], 1, "CCC");
+    assert_eq!(meta["episodes"], u["episodes_member"]);
+    assert_eq!(meta["skipped"]["leverage"], 1);
+    let ep = table(&out.join("episodes-test.csv"));
+    let mut syms: Vec<&str> = ep.iter().map(|r| r["sym"].as_str()).collect();
+    syms.sort_unstable();
+    assert_eq!(syms, ["AAAUSDT", "CCCUSDT"], "в таблице только члены");
 }
 
 // ---------- (е) стадия fit не читает тест ----------

@@ -15,7 +15,10 @@
 //!    `t0`; момент C2a — по суткам слота (выбор кандидатов режется маской через `cube.r = NaN` вне вселенной и
 //!    периода, а `σ`-децили остаются по всему ряду); псевдо-момент C2b вне вселенной отбрасывается (его место не
 //!    добирается — выборка чуть меньше, смещения нет). Контракты `is_leverage` и без строк OI пропущены (счётчики в
-//!    `run-meta.json`).
+//!    `run-meta.json`). Отчёт о вселенной (П-34 §1, блок `universe` в `run-meta.json`): число снятых контрактов
+//!    (подходящие, у которых последняя свеча раньше суток конца данных; конец данных — максимум по всем прочитанным
+//!    контрактам, до усечения стадии `fit`) и эпизоды периода: всего, по правилу `d − lag`, по обороту суток `t0`
+//!    (только счётчик), теряемые правилом (в вселенной суток `t0`, но не по правилу) и добавляемые им (наоборот).
 //! 3. **X_D** считается по ходам концов `j` из фита в сутки вселенной (маска `XdAcc::add_masked`); для `test` без
 //!    `--xd` пересчитывается тем же кодом по фиту (контракты усекаются по концу фита), а не по тесту.
 //! 4. **Страты** эпизодов — `agg::strata_of`; `L_post'` C2b для страты = нижняя медиана `t_end − t0` эпизодов страты
@@ -519,12 +522,66 @@ struct Skips {
     no_funding: u64,
 }
 
-fn load(rn: &Run, path: &Path) -> Result<Contract> {
+/// Контракт стадии и минута после его последней свечи (до усечения стадии `fit`).
+fn load_end(rn: &Run, path: &Path) -> Result<(Contract, i64)> {
     let mut c = load_contract(path)?;
-    if let Some(end) = rn.clip {
-        clip_contract(&mut c, end);
+    let end = c.first_min + c.close.len() as i64;
+    if let Some(e) = rn.clip {
+        clip_contract(&mut c, e);
     }
-    Ok(c)
+    Ok((c, end))
+}
+
+fn load(rn: &Run, path: &Path) -> Result<Contract> {
+    Ok(load_end(rn, path)?.0)
+}
+
+/// Отчёт о вселенной (П-34 §1): снятые контракты и эпизоды, теряемые правилом `d − lag`. Суммы по потокам не зависят
+/// от раздачи контрактов потокам (счётчики и максимум).
+#[derive(Debug, Clone, Default)]
+struct Selection {
+    /// Минута после последней свечи каждого подходящего контракта.
+    ends: Vec<i64>,
+    /// Максимум такой минуты по всем прочитанным контрактам (в том числе пропущенным).
+    data_end: i64,
+    /// Эпизоды подходящих контрактов с `t0` в периоде стадии: всего, по правилу прогона, по обороту суток `t0`.
+    eps_period: u64,
+    eps_rule: u64,
+    eps_same_day: u64,
+    /// В вселенной суток `t0`, но не по правилу / по правилу, но не в вселенной суток `t0`.
+    eps_lost: u64,
+    eps_gained: u64,
+}
+
+impl Selection {
+    fn add_episode(&mut self, by_rule: bool, same_day: bool) {
+        self.eps_period += 1;
+        self.eps_rule += u64::from(by_rule);
+        self.eps_same_day += u64::from(same_day);
+        self.eps_lost += u64::from(same_day && !by_rule);
+        self.eps_gained += u64::from(by_rule && !same_day);
+    }
+
+    fn merge(&mut self, o: Selection) {
+        self.ends.extend(o.ends);
+        self.data_end = self.data_end.max(o.data_end);
+        self.eps_period += o.eps_period;
+        self.eps_rule += o.eps_rule;
+        self.eps_same_day += o.eps_same_day;
+        self.eps_lost += o.eps_lost;
+        self.eps_gained += o.eps_gained;
+    }
+
+    /// Сутки последней свечи данных и число подходящих контрактов, чья последняя свеча в более ранние сутки.
+    fn delisted(&self) -> (i64, u64) {
+        let last = day_of_min(self.data_end - 1);
+        let n = self
+            .ends
+            .iter()
+            .filter(|&&e| day_of_min(e - 1) < last)
+            .count();
+        (last, n as u64)
+    }
 }
 
 // ---------- X_D ----------
@@ -617,6 +674,7 @@ struct EAcc {
     /// Длины фаз членов по «особым» стратам: market, nonmarket, outlier, wick.
     lens: [Vec<i64>; 4],
     sk: Skips,
+    sel: Selection,
     secs: [f64; 2],
 }
 
@@ -636,8 +694,9 @@ fn prepare(
     (idx, path, sym): (usize, &Path, &str),
 ) -> Result<()> {
     let t = Instant::now();
-    let c = load(rn, path)?;
+    let (c, end) = load_end(rn, path)?;
     acc.secs[0] += t.elapsed().as_secs_f64();
+    acc.sel.data_end = acc.sel.data_end.max(end);
     match eligible(sym, &c) {
         Elig::Ok => {}
         Elig::Leverage => {
@@ -656,8 +715,11 @@ fn prepare(
     if c.funding.is_empty() {
         acc.sk.no_funding += 1;
     }
+    acc.sel.ends.push(end);
     let t = Instant::now();
     let univ = Universe::build(&c, rn.min_turnover, rn.lag_days);
+    // только счётчик «что было бы по обороту суток t0» (П-34 §1); в выборку не входит
+    let same_day = Universe::build(&c, rn.min_turnover, 0);
     let mut eps = acc.finder.find(&c, rn.p, &rn.xd, sym);
     if sym != rn.ref_sym {
         mark_market(
@@ -668,6 +730,10 @@ fn prepare(
     }
     let mut mask = vec![0u8; eps.len()];
     for (k, e) in eps.iter().enumerate() {
+        if rn.in_stage(e.t0) {
+            acc.sel
+                .add_episode(univ.min_ok(e.t0), same_day.min_ok(e.t0));
+        }
         if !rn.is_member(e, &univ) {
             continue;
         }
@@ -1096,6 +1162,7 @@ pub fn run(a: RunArgs) -> Result<()> {
             pre: Vec::new(),
             lens: Default::default(),
             sk: Skips::default(),
+            sel: Selection::default(),
             secs: [0.0; 2],
         },
         {
@@ -1108,7 +1175,9 @@ pub fn run(a: RunArgs) -> Result<()> {
     let mut pres: Vec<Option<Pre>> = (0..files.len()).map(|_| None).collect();
     let mut lens: [Vec<i64>; 4] = Default::default();
     let (mut sk, mut e_secs) = (Skips::default(), [0.0f64; 2]);
+    let mut sel = Selection::default();
     for acc in eaccs {
+        sel.merge(acc.sel);
         for (i, pre) in acc.pre {
             pres[i] = Some(pre);
         }
@@ -1181,6 +1250,8 @@ pub fn run(a: RunArgs) -> Result<()> {
         .zip(rn.l_post)
         .map(|(s, v)| ((*s).to_string(), serde_json::Value::from(v)))
         .collect();
+    let (data_end_day, delisted) = sel.delisted();
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).context("эпоха")?;
     let meta = serde_json::json!({
         "stage": st,
         "params_sha256": params_sha256,
@@ -1212,6 +1283,20 @@ pub fn run(a: RunArgs) -> Result<()> {
             "no_oi": sk.no_oi,
         },
         "contracts_without_funding": sk.no_funding,
+        "universe": {
+            "min_quote_turnover_usd_per_day": rn.min_turnover,
+            "turnover_lag_days": rn.lag_days,
+            "data_end_day": epoch
+                .checked_add_signed(chrono::Duration::days(data_end_day))
+                .map(|d| d.to_string()),
+            "contracts_eligible": sel.ends.len(),
+            "contracts_delisted": delisted,
+            "episodes_period": sel.eps_period,
+            "episodes_member": sel.eps_rule,
+            "episodes_member_same_day": sel.eps_same_day,
+            "episodes_lost_by_lag": sel.eps_lost,
+            "episodes_gained_by_lag": sel.eps_gained,
+        },
         "btc_missing": btc_missing,
         "triggers_no_sign": cnt.triggers_no_sign,
         "c2b_moments": cnt.c2b_moments,
@@ -1222,10 +1307,13 @@ pub fn run(a: RunArgs) -> Result<()> {
         serde_json::to_string_pretty(&meta)? + "\n",
     )?;
     println!(
-        "run {st}: контрактов {}, суток во вселенной {}, эпизодов {}, срабатываний {}, {:.1} с",
+        "run {st}: контрактов {}, суток во вселенной {}, эпизодов {} (теряется из-за d − {}: {}), снятых контрактов {}, срабатываний {}, {:.1} с",
         cnt.contracts,
         cnt.symbol_days,
         cnt.episodes,
+        rn.lag_days,
+        sel.eps_lost,
+        delisted,
         cnt.triggers,
         t_all.elapsed().as_secs_f64()
     );
