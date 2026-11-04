@@ -101,7 +101,7 @@ fn rules6() -> Vec<Rule> {
 
 /// Срабатывание правила в слоте: функция от (зерно, правило, слот), примерно 1 из 120.
 fn fires_at(seed: u64, rule: Rule, i: usize) -> bool {
-    mix64(seed ^ rule_tag(9, rule) ^ mix64(i as u64)) % 120 == 0
+    (mix64(seed ^ rule_tag(9, rule) ^ mix64(i as u64))).is_multiple_of(120)
 }
 
 /// Первые срабатывания: без срабатывания в предыдущие 72 слота (`L_pre/5`).
