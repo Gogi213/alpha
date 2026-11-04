@@ -9,6 +9,10 @@ use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Params {
+    /// Вселенная (П-34 §1). Ядро (`cache`/`feat`/`episodes`/`control`) её не читает — нужна слою `run`;
+    /// отсутствие секции — ошибка только там (`Params::universe`), чтобы не ломать разбор усечённых файлов.
+    #[serde(default)]
+    pub universe: Option<Universe>,
     pub grid_min: GridMin,
     pub episodes: Episodes,
     pub features: Features,
@@ -16,6 +20,14 @@ pub struct Params {
     pub controls: Controls,
     pub label_forward: LabelForward,
     pub split: Split,
+}
+
+/// Вселенная контрактов (П-34 §1, правило вперёд Н-2): контракт в выборке в сутки d, если сумма `qvol` за сутки
+/// d − `turnover_lag_days` не меньше порога. Оба ключа обязательны, умолчаний нет.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Universe {
+    pub min_quote_turnover_usd_per_day: f64,
+    pub turnover_lag_days: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -116,7 +128,22 @@ impl Params {
         Self::from_json(&text)
     }
 
+    /// Секция `universe` (обязательна для слоя `run`).
+    pub fn universe(&self) -> Result<&Universe> {
+        self.universe.as_ref().context(
+            "params.json: нет секции universe (min_quote_turnover_usd_per_day, turnover_lag_days)",
+        )
+    }
+
     fn validate(&self) -> Result<()> {
+        if let Some(u) = &self.universe {
+            if !(u.min_quote_turnover_usd_per_day.is_finite()
+                && u.min_quote_turnover_usd_per_day > 0.0)
+                || u.turnover_lag_days == 0
+            {
+                bail!("universe: min_quote_turnover_usd_per_day конечен и > 0, turnover_lag_days >= 1");
+            }
+        }
         let g = self.grid_min.value;
         if g == 0 {
             bail!("grid_min.value > 0");
@@ -136,7 +163,7 @@ impl Params {
             bail!("features.theta: непусто, каждый порог конечен и > 0");
         }
         let (q, m) = (self.episodes.quantile_x_d, self.features.norm.mad_factor);
-        if !(q > 0.0 && q < 1.0) || !(m.is_finite() && m > 0.0) {
+        if !(q > 0.0 && q < 1.0 && m.is_finite() && m > 0.0) {
             bail!("episodes.quantile_X_D в (0,1), features.norm.mad_factor > 0");
         }
         let share = self.episodes.e4_wick.return_share;
