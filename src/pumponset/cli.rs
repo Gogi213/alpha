@@ -1,7 +1,9 @@
 //! `alpha pumponset cache|run|bench` (TK-492): csv.gz → кэш `.pmc` один раз; прогон ядра по контрактам.
 //! Окна, пороги, зерно — не здесь: параметры из `params.json`, зерно и сдвиг OI — аргументы запуска.
 
-use super::cache::{is_stale, parse_candles, parse_oi, read_contract, write_contract, Contract};
+use super::cache::{
+    is_stale, parse_candles, parse_oi_counted, read_contract, write_contract, Contract,
+};
 use crate::statarb::cli::parse_funding;
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
@@ -99,6 +101,7 @@ fn with_gz<T>(
 struct Built {
     candle_rows: u64,
     oi_rows: u64,
+    oi_off_grid: u64,
     funding_rows: usize,
 }
 
@@ -107,10 +110,10 @@ fn cache_one(candles: &Path, oi: &Path, funding: &Path, out: &Path) -> Result<Op
     let Some(mut c) = c else {
         return Ok(None);
     };
-    let oi_rows = if oi.exists() {
-        with_gz(oi, |rd| Ok(parse_oi(rd, &mut c)?))?
+    let (oi_rows, oi_off_grid) = if oi.exists() {
+        with_gz(oi, |rd| Ok(parse_oi_counted(rd, &mut c)?))?
     } else {
-        0
+        (0, 0)
     };
     if funding.exists() {
         let text = with_gz(funding, |mut rd| {
@@ -129,6 +132,7 @@ fn cache_one(candles: &Path, oi: &Path, funding: &Path, out: &Path) -> Result<Op
     Ok(Some(Built {
         candle_rows: st.rows,
         oi_rows,
+        oi_off_grid,
         funding_rows: c.funding.len(),
     }))
 }
@@ -137,7 +141,7 @@ fn cache(candles: &Path, oi: &Path, funding: &Path, out: &Path, threads: usize) 
     fs::create_dir_all(out)?;
     let files = sorted(candles, ".csv.gz")?;
     let next = AtomicUsize::new(0);
-    // (собрано, актуально, пустых, свечей, OI-строк, ставок, ошибки)
+    // (собрано, актуально, пустых, свечей, OI-строк, ставок, ошибки, OI-строк вне сетки 5 мин)
     let acc = Mutex::new((
         0usize,
         0usize,
@@ -146,6 +150,7 @@ fn cache(candles: &Path, oi: &Path, funding: &Path, out: &Path, threads: usize) 
         0u64,
         0usize,
         Vec::<String>::new(),
+        0u64,
     ));
     let t0 = Instant::now();
     std::thread::scope(|s| {
@@ -176,6 +181,7 @@ fn cache(candles: &Path, oi: &Path, funding: &Path, out: &Path, threads: usize) 
                         a.0 += 1;
                         a.3 += b.candle_rows;
                         a.4 += b.oi_rows;
+                        a.7 += b.oi_off_grid;
                         a.5 += b.funding_rows;
                     }
                     Ok((true, None)) => a.2 += 1,
@@ -187,8 +193,8 @@ fn cache(candles: &Path, oi: &Path, funding: &Path, out: &Path, threads: usize) 
     });
     let a = acc.into_inner().unwrap();
     println!(
-        "cache: файлов {} (собрано {}, актуально {}, пустых {}, ошибок {}), строк свечей {}, OI {}, ставок {}, {:.1} с",
-        files.len(), a.0, a.1, a.2, a.6.len(), a.3, a.4, a.5, t0.elapsed().as_secs_f64()
+        "cache: файлов {} (собрано {}, актуально {}, пустых {}, ошибок {}), строк свечей {}, OI {} (вне сетки 5 мин пропущено {}), ставок {}, {:.1} с",
+        files.len(), a.0, a.1, a.2, a.6.len(), a.3, a.4, a.7, a.5, t0.elapsed().as_secs_f64()
     );
     for e in a.6.iter().take(10) {
         println!("ошибка {e}");

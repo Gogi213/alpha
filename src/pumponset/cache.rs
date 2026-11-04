@@ -132,9 +132,15 @@ pub fn parse_candles<R: BufRead>(csv: R) -> io::Result<(Option<Contract>, Candle
 }
 
 /// OI-статистика (заголовок обязателен: время и `OI_COLS` по имени, регистр не важен, лишние колонки
-/// игнорируются) → колонки слотов. Пустое поле — `NaN`; не число/отрицательное — ошибка; слот не на
-/// границе 5 мин или не по возрастанию — ошибка. Пропущенные слоты — `NaN`.
+/// игнорируются) → колонки слотов. Пустое поле — `NaN`; не число/отрицательное — ошибка; слоты не по
+/// возрастанию — ошибка. Строка с меткой не на границе 5 мин (секундный джиттер архива, 8 контрактов Binance)
+/// пропускается как дыра (`NaN`, ничего не дорисовывается и не округляется) и считается отдельно. Пропущенные слоты — `NaN`.
 pub fn parse_oi<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<u64> {
+    parse_oi_counted(csv, into).map(|(rows, _)| rows)
+}
+
+/// `parse_oi` с числом пропущенных строк не на сетке: `(принято строк, пропущено не на сетке)`.
+pub fn parse_oi_counted<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<(u64, u64)> {
     let mut lines = csv.lines();
     let head = lines
         .next()
@@ -151,7 +157,7 @@ pub fn parse_oi<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<u64> {
     }
     let need = cols.iter().copied().chain([tcol]).max().unwrap_or(0);
     let step = SLOT_MIN * MINUTE_MS;
-    let (mut rows, mut last) = (0u64, i64::MIN);
+    let (mut rows, mut off_grid, mut last) = (0u64, 0u64, i64::MIN);
     for (i, line) in lines.enumerate() {
         let line = line?;
         let n = i + 2;
@@ -167,8 +173,12 @@ pub fn parse_oi<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<u64> {
             .parse()
             .map_err(|_| bad(format!("строка {n}: время не число: {:?}", f[tcol])))?;
         let rel = t_ms - GRID0_MS;
-        if rel < 0 || rel % step != 0 {
-            return Err(bad(format!("строка {n}: время {t_ms} не на слоте 5 мин")));
+        if rel < 0 {
+            return Err(bad(format!("строка {n}: время {t_ms} раньше начала сетки")));
+        }
+        if rel % step != 0 {
+            off_grid += 1;
+            continue;
         }
         let slot = rel / step;
         if slot <= last {
@@ -190,7 +200,7 @@ pub fn parse_oi<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<u64> {
         }
         rows += 1;
     }
-    Ok(rows)
+    Ok((rows, off_grid))
 }
 
 fn w_all<W: Write, T: Copy, const N: usize>(
