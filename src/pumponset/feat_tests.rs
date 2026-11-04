@@ -55,7 +55,7 @@ fn synth(seed: u64, first_min: i64, minutes: usize) -> Contract {
     };
     let (mut lnp, mut sig) = (2.0f64, 1e-3);
     for m in 0..minutes {
-        if m % 700 == 0 {
+        if m.is_multiple_of(700) {
             sig = 3e-4 * (1.0 + 8.0 * g.u());
         }
         if !(2000..2400).contains(&m) {
@@ -201,6 +201,17 @@ fn cube_equals_naive_lag0() {
 }
 
 #[test]
+fn cube_equals_naive_short_series() {
+    // 700 минут = 140 слотов: истории для z нет, но r, σ-NaN, размеры и раскладка совпадают с эталоном
+    let p = params(360);
+    let c = synth(3, 12_345, 700);
+    let fast = build_cube(&c, &p, 0);
+    assert_cubes(&fast, &build_cube_naive(&c, &p, 0));
+    assert!(fast.z.iter().all(|v| v.is_nan()));
+    assert!(fast.r.iter().any(|v| v.is_finite()));
+}
+
+#[test]
 fn cube_equals_naive_lag1_aligned_start() {
     let p = params(360);
     let c = synth(11, 500_000, 4300);
@@ -312,7 +323,12 @@ fn edge_empty_one_slot_and_short_history() {
     // три минуты 3, 4, 5 — один слот (s = 1, t = 5): окон нет, всё NaN
     let one = check(&flat(3, vec![1.0, 2.0, 3.0]));
     assert_eq!((one.n, one.slot0), (1, 1));
-    assert!(one.z.iter().chain(&one.r).chain(&one.sigma).all(|v| v.is_nan()));
+    assert!(one
+        .z
+        .iter()
+        .chain(&one.r)
+        .chain(&one.sigma)
+        .all(|v| v.is_nan()));
     // r = ln(c[t]/c[t−w]); окно 5 в слоте t = 5 есть, окно 15 — нет
     let two = check(&flat(0, (1..=6u32).map(f64::from).collect()));
     assert_eq!((two.n, two.slot0), (2, 0));
@@ -343,7 +359,11 @@ fn window_not_multiple_of_slot_is_rejected() {
 }
 
 /// Контракт без OI и фандинга: постоянная цена, `qvol` и `trades` заданы функциями индекса минуты.
-fn flat_flows(minutes: usize, trades: impl Fn(usize) -> f32, qvol: impl Fn(usize) -> f32) -> Contract {
+fn flat_flows(
+    minutes: usize,
+    trades: impl Fn(usize) -> f32,
+    qvol: impl Fn(usize) -> f32,
+) -> Contract {
     Contract {
         first_min: 0,
         close: vec![1.0; minutes],
@@ -356,7 +376,7 @@ fn flat_flows(minutes: usize, trades: impl Fn(usize) -> f32, qvol: impl Fn(usize
 
 /// Номер слота (блока), которому принадлежит минута: минуты (5(s−1), 5s].
 fn block_of(m: usize) -> usize {
-    (m + 4) / 5
+    m.div_ceil(5)
 }
 
 #[test]
@@ -394,13 +414,21 @@ fn hand_periodic_ties_and_infinite_z_on_zero_mad() {
     let cube = build_cube(&c, &p, 0);
     let f = p.features.norm.mad_factor;
     for (i, x) in [(305, 60.0), (300, 10.0), (302, 30.0)] {
-        assert_eq!(cube.zat(F_TRADES, 0, i), ((x - 35.0) / (f * 15.0)) as f32, "i={i}");
+        assert_eq!(
+            cube.zat(F_TRADES, 0, i),
+            ((x - 35.0) / (f * 15.0)) as f32,
+            "i={i}"
+        );
     }
     // оборот постоянен (MAD = 0): z = 0, а на всплеске в последнем блоке — +∞, и правило срабатывает
     assert_eq!(cube.zat(F_TURN, 0, 398), 0.0);
     assert_eq!(cube.zat(F_TURN, 0, 399), f32::INFINITY);
     assert_eq!(cube.zat(F_TURN, 1, 399), f32::INFINITY);
-    let spike = Rule { fam: 1, wi: 0, ti: 2 };
+    let spike = Rule {
+        fam: 1,
+        wi: 0,
+        ti: 2,
+    };
     assert!(fires(&cube, spike, &p, 399));
     assert!(!fires(&cube, spike, &p, 398));
     // фандинг один раз начислен в минуту 0: ставка постоянна, но история меньше 2 суток — NaN
@@ -512,7 +540,8 @@ fn rolling_med_mad_matches_sorting_with_holes_and_ties() {
         let (mut med, mut mad) = (vec![0.0; x.len()], vec![0.0; x.len()]);
         rolling_med_mad(&x, len, &mut med, &mut mad);
         for (j, (&m1, &d1)) in med.iter().zip(&mad).enumerate() {
-            let win: Vec<f64> = if j + 1 < len {
+            let v0 = x.iter().position(|v| !v.is_nan());
+            let win: Vec<f64> = if v0.is_none_or(|v| j + 1 < v + len) {
                 Vec::new()
             } else {
                 x[j + 1 - len..=j]
@@ -556,7 +585,10 @@ fn rules_order_and_count() {
     let rs = rules(&p);
     assert_eq!(rs.len(), 11 * 4 * 3);
     let r = |fam, wi, ti| Rule { fam, wi, ti };
-    assert_eq!((rs[0], rs[1], rs[2], rs[3]), (r(0, 0, 0), r(0, 0, 1), r(0, 0, 2), r(0, 1, 0)));
+    assert_eq!(
+        (rs[0], rs[1], rs[2], rs[3]),
+        (r(0, 0, 0), r(0, 0, 1), r(0, 0, 2), r(0, 1, 0))
+    );
     assert_eq!((rs[12], rs[131]), (r(1, 0, 0), r(10, 3, 2)));
     assert!(rs.windows(2).all(|w| w[0] < w[1]), "порядок fam, wi, ti");
 }
@@ -573,7 +605,17 @@ fn families_follow_protocol() {
     // F1, F3, F4, F5, F6, F7, F8, F9, F10 — без F2
     assert_eq!(
         singles,
-        [F_OI_PCT, F_TURN, F_TRADES, F_TAKER, F_TOP_COUNT, F_TOP_SUM, F_GLOBAL, F_VR, F_FUND]
+        [
+            F_OI_PCT,
+            F_TURN,
+            F_TRADES,
+            F_TAKER,
+            F_TOP_COUNT,
+            F_TOP_SUM,
+            F_GLOBAL,
+            F_VR,
+            F_FUND
+        ]
     );
     assert_eq!(FAMILIES[9], [F_OI_PCT, F_TURN]);
     assert_eq!(FAMILIES[10], [F_OI_PCT, F_TURN, F_TRADES]);
@@ -642,7 +684,11 @@ fn fires_signs_thresholds_composites_and_nan() {
 fn first_triggers_quiet_period_and_nan_gaps() {
     // L_pre = 30 мин = 6 слотов: первое срабатывание, если в [i − 6, i) срабатываний нет
     let p = params(30);
-    let rule = Rule { fam: 0, wi: 0, ti: 0 };
+    let rule = Rule {
+        fam: 0,
+        wi: 0,
+        ti: 0,
+    };
     let mut c = hand_cube(40);
     for i in 0..40 {
         setz(&mut c, F_OI_PCT, 0, i, 0.5);
@@ -663,7 +709,18 @@ fn first_triggers_quiet_period_and_nan_gaps() {
         setz(&mut d, F_TURN, 0, i, 4.0);
     }
     setz(&mut d, F_OI_PCT, 0, 12, 4.0);
-    assert_eq!(first_triggers(&d, Rule { fam: 9, wi: 0, ti: 2 }, &p), vec![5]);
+    assert_eq!(
+        first_triggers(
+            &d,
+            Rule {
+                fam: 9,
+                wi: 0,
+                ti: 2
+            },
+            &p
+        ),
+        vec![5]
+    );
     assert_eq!(first_triggers(&hand_cube(0), rule, &p), Vec::<usize>::new());
 }
 
@@ -684,4 +741,27 @@ fn first_triggers_match_brute_force_on_synthetic_cube() {
         gated += on.iter().filter(|&&b| b).count() - got.len();
     }
     assert!(total > 0 && gated > 0, "total={total} gated={gated}");
+}
+
+/// Замер скорости боевого размера (В-170): параметры протокола как есть (норма 7 сут, фандинг 30 сут, σ 7 сут),
+/// 120 суток минут. Запуск на VPS: `cargo test --release feat_speed -- --ignored --nocapture`.
+#[test]
+#[ignore = "замер скорости, не проверка"]
+fn feat_speed_real_params() {
+    let p = Params::from_json(include_str!("../../docs/research/P-34-params.json")).unwrap();
+    let c = synth(1, 1_000_000, 120 * 1440);
+    let t0 = std::time::Instant::now();
+    let cube = build_cube(&c, &p, 0);
+    let dt = t0.elapsed();
+    let series = NF * cube.windows.len();
+    println!(
+        "feat_speed: {} слотов, {} рядов z, {:.0} мс, {:.0} нс на слот-ряд",
+        cube.n,
+        series,
+        dt.as_secs_f64() * 1e3,
+        dt.as_secs_f64() * 1e9 / (cube.n * series) as f64
+    );
+    for f in 0..NF {
+        assert!(finite_count(&cube, f) > 0, "признак {f} пуст");
+    }
 }

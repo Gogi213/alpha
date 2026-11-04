@@ -12,8 +12,8 @@
 
 use super::cache::SLOT_MIN;
 use super::control::{
-    ep_key, pick, rule_features, rule_tag, seed_for, sign_of, slot_t, stream, yyyymm, C2bRow, Input,
-    Label, TriggerRow, DECILES, TAG_C2A, TAG_C2B,
+    ep_key, pick, rule_features, rule_tag, seed_for, sign_of, slot_t, stream, yyyymm, C2bRow,
+    Input, Label, TriggerRow, DECILES, TAG_C2A, TAG_C2B,
 };
 use super::params::Params;
 use super::types::{Cube, Episode, LagRow, Rule, XdTable};

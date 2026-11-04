@@ -132,11 +132,15 @@ impl Naive<'_> {
 }
 
 /// Робастный z слота `i` по ряду `xs`: норма — значения `xs[i−k−hist+1..=i−k]` без `NaN`; окно должно целиком
-/// лежать в ряду. `MAD = 0`: `x = med` → 0, иначе `±∞` (допущение 10 шапки `feat.rs`).
-fn z_naive(xs: &[f64], i: usize, k: usize, hist: usize, factor: f64) -> f64 {
+/// лежать в данных ряда (начинаться не раньше `v0` — первого определённого значения). `MAD = 0`: `x = med` → 0,
+/// иначе `±∞` (допущения 2 и 10 шапки `feat.rs`).
+fn z_naive(xs: &[f64], v0: Option<usize>, i: usize, k: usize, hist: usize, factor: f64) -> f64 {
     let end = i as i64 - k as i64;
     let start = end - hist as i64 + 1;
-    if start < 0 || xs[i].is_nan() {
+    let Some(v0) = v0 else {
+        return f64::NAN;
+    };
+    if start < v0 as i64 || xs[i].is_nan() {
         return f64::NAN;
     }
     let mut v: Vec<f64> = xs[start as usize..=end as usize]
@@ -212,9 +216,10 @@ pub fn build_cube_naive(c: &Contract, p: &Params, oi_lag_slots: u32) -> Cube {
         for (wi, &w) in ws.iter().enumerate() {
             let xs: Vec<f64> = (0..n).map(|i| nv.raw(p, f, i64::from(w), i)).collect();
             let k = (i64::from(w) / SLOT_MIN) as usize;
+            let v0 = xs.iter().position(|x| !x.is_nan());
             let o = (f * nw + wi) * n;
             for (i, zi) in cube.z[o..o + n].iter_mut().enumerate() {
-                *zi = z_naive(&xs, i, k, len, factor) as f32;
+                *zi = z_naive(&xs, v0, i, k, len, factor) as f32;
             }
         }
     }

@@ -9,9 +9,10 @@
 //! 1. **Сетка и область куба.** Слоты — от `⌈first_min/5⌉` до `⌊последняя минута свечей/5⌋`; OI вне диапазона
 //!    свечей не используется. `grid_min.value` обязан равняться `SLOT_MIN` кэша, окна — кратны ему (иначе `assert!`).
 //! 2. **Минимум истории — полное окно.** Окно нормы (`history_days` суток, у F10 `funding_z_history_days`) целиком
-//!    лежит в кубе (его первый слот — начало свечей), иначе `NaN`. Внутри окна значения `NaN` (дыры OI, нет истории
-//!    у самого признака) в норму не входят; нет ни одного значения — `NaN`. Окно признака (свечи, OI-слоты) тоже
-//!    должно быть полным, иначе `NaN`.
+//!    лежит в данных самого признака: оно начинается не раньше первого определённого `x` (у F9 `x` определён лишь после
+//!    `history_days` суток для `σ_H`, поэтому первый z — через `2·history_days`; у F10 — после первой выплаты), иначе
+//!    `NaN`. Внутри окна значения `NaN` (дыры OI) в норму не входят; сколько значений осталось — не проверяется
+//!    (порога доли нет в протоколе); нет ни одного — `NaN`. Окно самого признака (свечи, OI-слоты) тоже полное, иначе `NaN`.
 //! 3. **Окно нормы кончается в `t − w`:** `z(t) = (x(t) − med)/(mad_factor·MAD)`, `med` и `MAD` — по `x(t′)` на слотах
 //!    `t′ ∈ (t − w − H, t − w]` (`x(t′)` — тот же признак того же окна `w`, посчитанный в `t′`).
 //! 4. **OI-признаки** берут слот `u = s − oi_lag_slots`; прирост за окно `w` — между `u` и `u − w/5`.
@@ -167,11 +168,15 @@ pub(crate) fn window_sums(b: &[f64], w: usize) -> Vec<f64> {
     }
     let mut pre = vec![0.0; n];
     for (j, &x) in b.iter().enumerate() {
-        pre[j] = if j % w == 0 { x } else { pre[j - 1] + x };
+        pre[j] = if j.is_multiple_of(w) {
+            x
+        } else {
+            pre[j - 1] + x
+        };
     }
     let mut suf = vec![0.0; n];
     for j in (0..n).rev() {
-        suf[j] = if j + 1 == n || (j + 1) % w == 0 {
+        suf[j] = if j + 1 == n || (j + 1).is_multiple_of(w) {
             b[j]
         } else {
             suf[j + 1] + b[j]
@@ -179,20 +184,18 @@ pub(crate) fn window_sums(b: &[f64], w: usize) -> Vec<f64> {
     }
     for (j, o) in out.iter_mut().enumerate().skip(w - 1) {
         let a = j + 1 - w;
-        *o = if a % w == 0 { pre[j] } else { suf[a] + pre[j] };
+        *o = if a.is_multiple_of(w) {
+            pre[j]
+        } else {
+            suf[a] + pre[j]
+        };
     }
     out
 }
 
 /// Ст. откл. (по 1/N) минутных ln-доходностей за `wb` блоков (`wb·SLOT_MIN` минут), кончающихся блоком `i`.
 /// `NaN`: окно неполное или начинается раньше первой определённой доходности (`fd_min` — её минута).
-fn std_series(
-    s1: &[f64],
-    s2: &[f64],
-    wb: usize,
-    slot0: i64,
-    fd_min: Option<i64>,
-) -> Vec<f64> {
+fn std_series(s1: &[f64], s2: &[f64], wb: usize, slot0: i64, fd_min: Option<i64>) -> Vec<f64> {
     let (w1, w2) = (window_sums(s1, wb), window_sums(s2, wb));
     let nmin = (wb as i64 * SLOT_MIN) as f64;
     w1.iter()
@@ -432,9 +435,11 @@ pub(crate) fn med_mad(s: &[f64]) -> (f64, f64) {
 }
 
 /// Скользящие медиана и MAD по окну из `len` последних значений `x[j+1−len..=j]` (`NaN` пропускаются):
-/// `med[j]`, `mad[j]`; `NaN`, пока окно не помещается в ряд (`j + 1 < len`) или в нём нет значений.
-/// `x` — конечные числа или `NaN`; `med`, `mad` той же длины. Аллокация одна — окно ёмкостью `len`.
+/// `med[j]`, `mad[j]`; `NaN`, пока окно не лежит целиком в данных ряда (начинается раньше первого определённого
+/// `x`, `j + 1 < v0 + len`) или в нём нет значений. `x` — конечные числа или `NaN`; `med`, `mad` той же длины.
+/// Аллокация одна — окно ёмкостью `len`.
 pub(crate) fn rolling_med_mad(x: &[f64], len: usize, med: &mut [f64], mad: &mut [f64]) {
+    let v0 = x.iter().position(|v| !v.is_nan());
     let mut s: Vec<f64> = Vec::with_capacity(len);
     for (j, &new) in x.iter().enumerate() {
         let old = if j >= len { x[j - len] } else { f64::NAN };
@@ -444,7 +449,7 @@ pub(crate) fn rolling_med_mad(x: &[f64], len: usize, med: &mut [f64], mad: &mut 
             (false, true) => win_remove(&mut s, old),
             (false, false) => win_replace(&mut s, old, new),
         }
-        if j + 1 >= len && !s.is_empty() {
+        if v0.is_some_and(|v| j + 1 >= v + len) && !s.is_empty() {
             (med[j], mad[j]) = med_mad(&s);
         } else {
             (med[j], mad[j]) = (f64::NAN, f64::NAN);
@@ -486,8 +491,7 @@ pub fn build_cube(c: &Contract, p: &Params, oi_lag_slots: u32) -> Cube {
     let ws = &p.features.windows_min;
     let nw = ws.len();
     assert!(
-        i64::from(p.grid_min.value) == SLOT_MIN
-            && ws.iter().all(|&w| i64::from(w) % SLOT_MIN == 0),
+        i64::from(p.grid_min.value) == SLOT_MIN && ws.iter().all(|&w| i64::from(w) % SLOT_MIN == 0),
         "feat: grid_min.value должен равняться шагу кэша, окна — быть кратны ему"
     );
     let (slot0, n) = slot_range(c);

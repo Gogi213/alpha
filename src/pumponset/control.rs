@@ -402,7 +402,11 @@ impl Mono {
     fn push(&mut self, c: &[f64], e: usize, is_max: bool) {
         while self.q.len() > self.head {
             let last = self.q[self.q.len() - 1] as usize;
-            let covered = if is_max { c[last] <= c[e] } else { c[last] >= c[e] };
+            let covered = if is_max {
+                c[last] <= c[e]
+            } else {
+                c[last] >= c[e]
+            };
             if !covered {
                 break;
             }
@@ -445,7 +449,14 @@ impl Labels {
         }
         let mut dmax = Vec::with_capacity(lf.h_min.len());
         for &h in &lf.h_min {
-            dmax.push(lf.d_min.iter().copied().filter(|&d| d <= h).max().unwrap_or(0));
+            dmax.push(
+                lf.d_min
+                    .iter()
+                    .copied()
+                    .filter(|&d| d <= h)
+                    .max()
+                    .unwrap_or(0),
+            );
         }
         let mut hits = vec![0u64; n];
         let (mut qmax, mut qmin) = (Mono::default(), Mono::default());
@@ -531,9 +542,7 @@ fn first_lag(
     mut fires: impl FnMut(usize) -> bool,
 ) -> Option<i64> {
     let (lo, hi) = slot_range(cube, t0 - l_pre, t0 + l_post)?;
-    (lo..=hi)
-        .find(|&i| fires(i))
-        .map(|i| slot_t(cube, i) - t0)
+    (lo..=hi).find(|&i| fires(i)).map(|i| slot_t(cube, i) - t0)
 }
 
 /// Лаги правил к эпизодам (П-34 §4): для каждого эпизода и правила `lag = t_f − t0` первого срабатывания в
@@ -617,9 +626,7 @@ pub struct TriggerRow {
 
 fn check_cube(cube: &Cube) -> Result<()> {
     let nw = cube.windows.len();
-    if cube.sigma.len() != cube.n
-        || cube.r.len() != nw * cube.n
-        || cube.z.len() != NF * nw * cube.n
+    if cube.sigma.len() != cube.n || cube.r.len() != nw * cube.n || cube.z.len() != NF * nw * cube.n
     {
         bail!(
             "куб: n = {}, окон {nw}, но z = {}, r = {}, sigma = {}",
@@ -713,7 +720,10 @@ where
     check_cube(cube)?;
     let k_want = p.controls.c2a.moments_per_first_trigger as usize;
     if k_want > usize::from(u16::MAX) {
-        bail!("controls.C2a.moments_per_first_trigger: не больше {}", u16::MAX);
+        bail!(
+            "controls.C2a.moments_per_first_trigger: не больше {}",
+            u16::MAX
+        );
     }
     let labels = Labels::new(inp.cf, inp.first_min, xd, p)?;
     let nh = p.label_forward.h_min.len();
@@ -740,8 +750,8 @@ where
             }
             let t_f = slot_t(cube, i);
             let sign = sign_of(cube.rat(wi, i));
-            let mut hit = vec![0u16; nh];
-            let mut cnt = vec![0u16; nh];
+            let mut n_hit = vec![0u16; nh];
+            let mut n_all = vec![0u16; nh];
             let mut drawn = 0u16;
             if sign != 0 {
                 if let Some(key) = st.key(i) {
@@ -755,10 +765,10 @@ where
                         for hi in 0..nh {
                             match labels.get(tj, sj, hi) {
                                 Label::Hit => {
-                                    hit[hi] += 1;
-                                    cnt[hi] += 1;
+                                    n_hit[hi] += 1;
+                                    n_all[hi] += 1;
                                 }
-                                Label::Miss => cnt[hi] += 1,
+                                Label::Miss => n_all[hi] += 1,
                                 Label::NoData => {}
                             }
                         }
@@ -771,8 +781,8 @@ where
                 month: yyyymm(t_f),
                 sign,
                 label: (0..nh).map(|hi| labels.get(t_f, sign, hi)).collect(),
-                c2a_hit: hit,
-                c2a_n: cnt,
+                c2a_hit: n_hit,
+                c2a_n: n_all,
                 c2a_drawn: drawn,
                 in_episode_running: sign != 0 && running[usize::from(sign < 0)][i],
             });
@@ -803,13 +813,7 @@ fn excluded(starts: &[i64], lo: i64, hi: i64) -> bool {
 /// C2b (П-34 §5): на каждый эпизод до `moments_per_episode` псевдо-моментов той же монеты и месяца, дециль σ
 /// «до» (`t − L_pre`) как у эпизода, без эпизода того же знака в `[t + a, t + b]`; для каждого — лаги всех
 /// правил в окне `[t' − L_pre, t' + l_post]`, `l_post` — медиана длины фазы эпизодов (передаёт вызывающий).
-pub fn c2b(
-    inp: &Input,
-    rules: &[Rule],
-    p: &Params,
-    l_post: i64,
-    seed: u64,
-) -> Result<Vec<C2bRow>> {
+pub fn c2b(inp: &Input, rules: &[Rule], p: &Params, l_post: i64, seed: u64) -> Result<Vec<C2bRow>> {
     let mut out = Vec::new();
     c2b_with(
         inp,
@@ -881,7 +885,8 @@ where
             Pool::build(nb, cube.n, |j| {
                 let ref_dec = st.dec.get(j.checked_sub(shift)?).copied()?;
                 let t = slot_t(cube, j);
-                if ref_dec == NONE8 || t + l_post > t_last || excluded(&starts[si], t + wa, t + wb) {
+                if ref_dec == NONE8 || t + l_post > t_last || excluded(&starts[si], t + wa, t + wb)
+                {
                     return None;
                 }
                 Some(st.month_of[j] as usize * DECILES + ref_dec as usize)
