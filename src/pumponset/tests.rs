@@ -113,6 +113,38 @@ fn oi_empty_field_is_nan_and_bad_inputs_rejected() {
 }
 
 #[test]
+fn lenient_accepts_bybit_shapes_and_strict_rejects() {
+    // Bybit: OI только open_interest (+ лишняя колонка), n_trades пустой
+    let oi = "t_ms,open_interest,single_open_interest
+"
+    .to_string()
+        + &format!(
+            "{G},5,2.5
+{},6,3
+",
+            G + 300_000
+        );
+    let mut c = Contract::default();
+    assert!(parse_oi_with(Cursor::new(oi.clone().into_bytes()), &mut c, false).is_err());
+    let mut c = Contract::default();
+    assert_eq!(
+        parse_oi_with(Cursor::new(oi.into_bytes()), &mut c, true).unwrap(),
+        (2, 0)
+    );
+    assert_eq!(c.oi[0], vec![5.0, 6.0]);
+    assert!(c.oi[1..]
+        .iter()
+        .all(|col| col.len() == 2 && col.iter().all(|x| x.is_nan())));
+    let t = format!(
+        "{G},1,2,0.5,1.5,10,15,
+"
+    );
+    assert!(parse_candles_with(Cursor::new(t.clone().into_bytes()), false).is_err());
+    let (k, _) = parse_candles_with(Cursor::new(t.into_bytes()), true).unwrap();
+    assert_eq!(k.unwrap().trades, vec![0.0]);
+}
+
+#[test]
 fn cache_roundtrip_and_staleness() {
     let (c, _) = candles(&format!(
         "{}{}",

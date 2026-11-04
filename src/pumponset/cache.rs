@@ -75,6 +75,14 @@ fn num(f: &str, line: usize, what: &str) -> io::Result<f64> {
 /// Свечи `t_open_ms,o,h,l,c,v,quote_v,n_trades` (заголовок есть/нет) → колонки минут. Строго по возрастанию,
 /// каждая на границе минуты; нарушение — ошибка. Дыры и v = 0 → `close = NaN`, объёмы 0. Пустой csv → `None`.
 pub fn parse_candles<R: BufRead>(csv: R) -> io::Result<(Option<Contract>, CandleStats)> {
+    parse_candles_with(csv, false)
+}
+
+/// `parse_candles`; `lenient` — пустое поле `n_trades` (Bybit его не отдаёт) читается как 0 вместо ошибки.
+pub fn parse_candles_with<R: BufRead>(
+    csv: R,
+    lenient: bool,
+) -> io::Result<(Option<Contract>, CandleStats)> {
     let mut st = CandleStats::default();
     let mut c: Option<Contract> = None;
     let mut last = i64::MIN;
@@ -106,7 +114,11 @@ pub fn parse_candles<R: BufRead>(csv: R) -> io::Result<(Option<Contract>, Candle
         st.rows += 1;
         let v = num(f[5], n, "v")?;
         let q = num(f[6], n, "quote_v")?;
-        let tr = num(f[7], n, "n_trades")?;
+        let tr = if lenient && f[7].trim().is_empty() {
+            0.0
+        } else {
+            num(f[7], n, "n_trades")?
+        };
         let close = if v == 0.0 {
             st.zero_volume += 1;
             f64::NAN
@@ -141,6 +153,16 @@ pub fn parse_oi<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<u64> {
 
 /// `parse_oi` с числом пропущенных строк не на сетке: `(принято строк, пропущено не на сетке)`.
 pub fn parse_oi_counted<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<(u64, u64)> {
+    parse_oi_with(csv, into, false)
+}
+
+/// `parse_oi_counted`; `lenient` — отсутствующие в файле колонки, кроме `open_interest`, остаются `NaN`
+/// (Bybit отдаёт только `open_interest`), а не ошибка.
+pub fn parse_oi_with<R: BufRead>(
+    csv: R,
+    into: &mut Contract,
+    lenient: bool,
+) -> io::Result<(u64, u64)> {
     let mut lines = csv.lines();
     let head = lines
         .next()
@@ -151,11 +173,21 @@ pub fn parse_oi_counted<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<(
         .collect();
     let find = |keys: &[&str]| names.iter().position(|n| keys.contains(&n.as_str()));
     let tcol = find(&OI_TIME).ok_or_else(|| bad(format!("OI: нет колонки времени {OI_TIME:?}")))?;
-    let mut cols = [0usize; 6];
+    let mut cols = [usize::MAX; 6];
     for (k, name) in OI_COLS.iter().enumerate() {
-        cols[k] = find(&[name]).ok_or_else(|| bad(format!("OI: нет колонки {name}")))?;
+        cols[k] = match find(&[name]) {
+            Some(i) => i,
+            None if lenient && k > 0 => usize::MAX,
+            None => return Err(bad(format!("OI: нет колонки {name}"))),
+        };
     }
-    let need = cols.iter().copied().chain([tcol]).max().unwrap_or(0);
+    let need = cols
+        .iter()
+        .copied()
+        .filter(|&c| c != usize::MAX)
+        .chain([tcol])
+        .max()
+        .unwrap_or(0);
     let step = SLOT_MIN * MINUTE_MS;
     let (mut rows, mut off_grid, mut last) = (0u64, 0u64, i64::MIN);
     for (i, line) in lines.enumerate() {
@@ -191,6 +223,10 @@ pub fn parse_oi_counted<R: BufRead>(csv: R, into: &mut Contract) -> io::Result<(
         let at = (slot - into.oi_first_slot) as usize;
         for (k, col) in into.oi.iter_mut().enumerate() {
             col.resize(at, f64::NAN);
+            if cols[k] == usize::MAX {
+                col.push(f64::NAN);
+                continue;
+            }
             let s = f[cols[k]].trim();
             col.push(if s.is_empty() {
                 f64::NAN

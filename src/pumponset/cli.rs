@@ -2,7 +2,7 @@
 //! Окна, пороги, зерно — не здесь: параметры из `params.json`, зерно и сдвиг OI — аргументы запуска.
 
 use super::cache::{
-    is_stale, parse_candles, parse_oi_counted, read_contract, write_contract, Contract,
+    is_stale, parse_candles_with, parse_oi_with, read_contract, write_contract, Contract,
 };
 use crate::statarb::cli::parse_funding;
 use anyhow::{bail, Context, Result};
@@ -30,6 +30,9 @@ pub enum PumponsetCommand {
         out: PathBuf,
         #[arg(long)]
         threads: usize,
+        /// Bybit: пустой `n_trades` и отсутствующие колонки OI (кроме `open_interest`) — `NaN`/0, а не ошибка.
+        #[arg(long)]
+        lenient: bool,
     },
     /// Прогон ядра по кэшу: признаки, эпизоды, контроли → таблицы csv (`docs/findings/pumponset-run-spec-2026-11-05.md`).
     Run(super::run::RunArgs),
@@ -45,7 +48,8 @@ pub fn dispatch(cmd: PumponsetCommand) -> Result<()> {
             funding,
             out,
             threads,
-        } => cache(&candles, &oi, &funding, &out, threads),
+            lenient,
+        } => cache(&candles, &oi, &funding, &out, threads, lenient),
         PumponsetCommand::Run(a) => super::run::run(a),
         PumponsetCommand::Verdict(a) => super::verdict::verdict(a),
     }
@@ -105,13 +109,19 @@ struct Built {
     funding_rows: usize,
 }
 
-fn cache_one(candles: &Path, oi: &Path, funding: &Path, out: &Path) -> Result<Option<Built>> {
-    let (c, st) = with_gz(candles, |rd| Ok(parse_candles(rd)?))?;
+fn cache_one(
+    candles: &Path,
+    oi: &Path,
+    funding: &Path,
+    out: &Path,
+    lenient: bool,
+) -> Result<Option<Built>> {
+    let (c, st) = with_gz(candles, |rd| Ok(parse_candles_with(rd, lenient)?))?;
     let Some(mut c) = c else {
         return Ok(None);
     };
     let (oi_rows, oi_off_grid) = if oi.exists() {
-        with_gz(oi, |rd| Ok(parse_oi_counted(rd, &mut c)?))?
+        with_gz(oi, |rd| Ok(parse_oi_with(rd, &mut c, lenient)?))?
     } else {
         (0, 0)
     };
@@ -137,7 +147,14 @@ fn cache_one(candles: &Path, oi: &Path, funding: &Path, out: &Path) -> Result<Op
     }))
 }
 
-fn cache(candles: &Path, oi: &Path, funding: &Path, out: &Path, threads: usize) -> Result<()> {
+fn cache(
+    candles: &Path,
+    oi: &Path,
+    funding: &Path,
+    out: &Path,
+    threads: usize,
+    lenient: bool,
+) -> Result<()> {
     fs::create_dir_all(out)?;
     let files = sorted(candles, ".csv.gz")?;
     let next = AtomicUsize::new(0);
@@ -171,7 +188,7 @@ fn cache(candles: &Path, oi: &Path, funding: &Path, out: &Path, threads: usize) 
                         .filter(|p| p.exists()),
                 );
                 let r = if is_stale(&dst, &srcs) {
-                    cache_one(f, &o, &fu, &dst).map(|b| (true, b))
+                    cache_one(f, &o, &fu, &dst, lenient).map(|b| (true, b))
                 } else {
                     Ok((false, None))
                 };
