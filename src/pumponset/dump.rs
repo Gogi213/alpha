@@ -44,6 +44,7 @@
 use super::cache::{Contract, SLOT_MIN};
 use super::cli::load_contract;
 use super::control::{sign_of, slot_t, yyyymm, TriggerRow};
+use super::play::Play;
 use super::run::{clip_contract, day_of_min};
 use super::types::{Cube, Rule};
 use crate::statarb::panel::{GRID0_MS, MINUTE_MS};
@@ -84,6 +85,11 @@ ret_prev60_bps,ret_prev360_bps,drop360_bps,ep_running,age_days,qv1440_usd,btc_pr
 gross_5,gross_15,gross_30,gross_60,gross_120,gross_240,gross_360,gross_720,gross_1440,\
 mfe_bps,mfe_min,mae_bps,mae_min,mfe_price,\
 b_gross_60,b_gross_360,b_gross_1440";
+
+/// Столбцы выборки «монеты в игре» (`play.rs`): добавляются в конец строки, только если фильтр включён.
+/// `natr_pct` — NATR в `t_f` (`NaN`, если `--hv-natr-pct` не задан); `ok_long`/`ok_short` — откуп не мешает лонгу/шорту
+/// (1, если `--no-reversal` не задан); `first_phase` — минута перехода в игру (1, если нет `--hv-natr-pct`).
+pub const PLAY_COLS: &str = "natr_pct,ok_long,ok_short,first_phase";
 
 // ---------- время ----------
 
@@ -304,6 +310,8 @@ pub struct Collector<'a> {
     cf: &'a [f64],
     cube: &'a Cube,
     items: Vec<Item>,
+    /// Маски выборки «в игре»: есть — к строке добавляются `PLAY_COLS`.
+    play: Option<&'a Play>,
 }
 
 impl<'a> Collector<'a> {
@@ -321,7 +329,14 @@ impl<'a> Collector<'a> {
             cf,
             cube,
             items: Vec::new(),
+            play: None,
         }
+    }
+
+    /// Дописывать столбцы `PLAY_COLS` (`None` — схема прежняя).
+    pub fn with_play(mut self, play: Option<&'a Play>) -> Collector<'a> {
+        self.play = play;
+        self
     }
 
     /// Принять срабатывание (строка `control::c2a_moments_with`) и слоты куба его моментов C2a; знак 0 — строки нет.
@@ -515,6 +530,16 @@ impl<'a> Collector<'a> {
         for b in it.base {
             put_f(out, b);
         }
+        if let Some(pl) = self.play {
+            let _ = write!(
+                out,
+                ",{},{},{},{}",
+                pl.natr_at(it.t_f) + 0.0,
+                u8::from(pl.ok_at(it.t_f, 1)),
+                u8::from(pl.ok_at(it.t_f, -1)),
+                u8::from(pl.first_at(it.t_f))
+            );
+        }
         out.push(b'\n');
     }
 }
@@ -534,13 +559,27 @@ fn put_k(out: &mut Vec<u8>, k: Option<usize>) {
 }
 
 /// Записать `triggers-<stage>.csv`: заголовок и контракты по алфавиту имён (`syms[индекс файла]`).
-pub fn write(path: &Path, syms: &[String], mut parts: Vec<(usize, Vec<u8>)>) -> Result<()> {
+pub fn write(path: &Path, syms: &[String], parts: Vec<(usize, Vec<u8>)>) -> Result<()> {
+    write_with(path, syms, parts, false)
+}
+
+/// `write`; `play_cols` — заголовок с `PLAY_COLS` (строки собраны `Collector::with_play`).
+pub fn write_with(
+    path: &Path,
+    syms: &[String],
+    mut parts: Vec<(usize, Vec<u8>)>,
+    play_cols: bool,
+) -> Result<()> {
     parts.sort_by(|a, b| syms[a.0].cmp(&syms[b.0]).then(a.0.cmp(&b.0)));
     let mut w = BufWriter::with_capacity(
         1 << 20,
         File::create(path).with_context(|| path.display().to_string())?,
     );
-    writeln!(w, "{HEADER}")?;
+    if play_cols {
+        writeln!(w, "{HEADER},{PLAY_COLS}")?;
+    } else {
+        writeln!(w, "{HEADER}")?;
+    }
     for (_, bytes) in &parts {
         w.write_all(bytes)?;
     }

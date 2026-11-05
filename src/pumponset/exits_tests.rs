@@ -10,6 +10,7 @@ use super::exits::{
     atr_proxy_bps, exits_head, grid, grid_csv, scan, scan_a, Cfg, ExitAgg, Fac, FacA, Family, Px,
     CAPS, NCAP, NCFG, NCFG_FIXED, SLA_MULT, SL_LEVELS, TPA_MULT, TP_LEVELS, TRAIL_LEVELS, TRA_MULT,
 };
+use super::play::PlayArgs;
 use super::run::{day_of_min, run, RunArgs, Stage};
 use super::run_tests::{
     lnp, params_json, pump_contract, put, rules_file, table, xd_file, Row, SEED, T0, XD,
@@ -778,6 +779,7 @@ fn args_run(
         limit: None,
         exits,
         dump_triggers: false,
+        play: PlayArgs::default(),
     }
 }
 

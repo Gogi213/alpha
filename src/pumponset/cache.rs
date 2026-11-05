@@ -1,14 +1,19 @@
 //! Бинарный кэш контракта `.pmc` (TK-492): разбор csv.gz один раз, дальше прогоны идут с диска/памяти.
 //!
-//! Заголовок 40 байт: магия `PMC1`, `u32` резерв, `i64` первая минута, `u64` число минут, `i64` первый слот
+//! Заголовок 40 байт: магия `PMC2`, `u32` резерв, `i64` первая минута, `u64` число минут, `i64` первый слот
 //! OI (5 мин от `GRID0_MS`), `u64` число слотов. Затем столбцы LE подряд: минутные `close` (`f64`), `vol`,
-//! `qvol`, `trades` (`f32`); слотовые `OI_COLS` (`f64`); число ставок фандинга `u64` и пары `(i64, f64)`.
+//! `qvol`, `trades`, `high`, `low` (`f32`); слотовые `OI_COLS` (`f64`); число ставок фандинга `u64` и пары
+//! `(i64, f64)`. Версия 2 добавила `high`/`low` (нужны NATR, `play.rs`); файлы `PMC1` читаются с ошибкой
+//! «кэш старого формата, пересоберите» и считаются устаревшими (`is_stale`) — `alpha pumponset cache` их заменяет.
 
 use crate::statarb::panel::{bad, price, GRID0_MS, MINUTE_MS};
+use std::fs::File;
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 
-const MAGIC: [u8; 4] = *b"PMC1";
+const MAGIC: [u8; 4] = *b"PMC2";
+/// Магия прежнего формата (без `high`/`low`): читать нельзя, пересобрать.
+const MAGIC_V1: [u8; 4] = *b"PMC1";
 pub const SLOT_MIN: i64 = 5;
 /// Колонки OI в порядке хранения; имена — как в csv (без учёта регистра).
 pub const OI_COLS: [&str; 6] = [
@@ -28,6 +33,9 @@ pub struct Contract {
     pub vol: Vec<f32>,
     pub qvol: Vec<f32>,
     pub trades: Vec<f32>,
+    /// `high` / `low` минуты (свечи `h`, `l`); `NaN` в минутах без сделок (v = 0) и в дырах.
+    pub high: Vec<f32>,
+    pub low: Vec<f32>,
     pub oi_first_slot: i64,
     /// `oi[k][i]` — колонка `OI_COLS[k]` на слоте `oi_first_slot + i`; `NaN` — дыра.
     pub oi: [Vec<f64>; 6],
@@ -73,12 +81,15 @@ fn num(f: &str, line: usize, what: &str) -> io::Result<f64> {
 }
 
 /// Свечи `t_open_ms,o,h,l,c,v,quote_v,n_trades` (заголовок есть/нет) → колонки минут. Строго по возрастанию,
-/// каждая на границе минуты; нарушение — ошибка. Дыры и v = 0 → `close = NaN`, объёмы 0. Пустой csv → `None`.
+/// каждая на границе минуты; нарушение — ошибка. Дыры и v = 0 → `close`, `high`, `low` = `NaN`, объёмы 0 (цены `h`, `l`
+/// проверяются как `o`, `c`: положительные, конечные). Пустой csv → `None`.
 pub fn parse_candles<R: BufRead>(csv: R) -> io::Result<(Option<Contract>, CandleStats)> {
     parse_candles_with(csv, false)
 }
 
 /// `parse_candles`; `lenient` — пустое поле `n_trades` (Bybit его не отдаёт) читается как 0 вместо ошибки.
+// столбцы объёмов, числа сделок, `high`, `low` хранятся в `f32` (формат `.pmc`); бюджет линтов (TK-211) не растим
+#[allow(clippy::cast_possible_truncation)]
 pub fn parse_candles_with<R: BufRead>(
     csv: R,
     lenient: bool,
@@ -119,12 +130,14 @@ pub fn parse_candles_with<R: BufRead>(
         } else {
             num(f[7], n, "n_trades")?
         };
-        let close = if v == 0.0 {
+        let (close, hi, lo) = if v == 0.0 {
             st.zero_volume += 1;
-            f64::NAN
+            (f64::NAN, f64::NAN, f64::NAN)
         } else {
             price(f[1], n)?;
-            price(f[4], n)?
+            let h = price(f[2], n)?;
+            let l = price(f[3], n)?;
+            (price(f[4], n)?, h, l)
         };
         let k = c.get_or_insert_with(|| Contract {
             first_min: idx,
@@ -135,10 +148,14 @@ pub fn parse_candles_with<R: BufRead>(
         k.vol.resize(at, 0.0);
         k.qvol.resize(at, 0.0);
         k.trades.resize(at, 0.0);
+        k.high.resize(at, f32::NAN);
+        k.low.resize(at, f32::NAN);
         k.close.push(close);
         k.vol.push(v as f32);
         k.qvol.push(q as f32);
         k.trades.push(tr as f32);
+        k.high.push(hi as f32);
+        k.low.push(lo as f32);
     }
     Ok((c, st))
 }
@@ -255,6 +272,14 @@ fn w_all<W: Write, T: Copy, const N: usize>(
     Ok(())
 }
 
+/// Столбец ровно в `n` значений: короче — добивается `NaN` (контракт без `high`/`low`, собранный не из csv),
+/// длиннее — обрезается; формат файла требует по `n` значений на каждый минутный столбец.
+fn padded(v: &[f32], n: usize) -> Vec<f32> {
+    let mut out: Vec<f32> = v.iter().copied().take(n).collect();
+    out.resize(n, f32::NAN);
+    out
+}
+
 pub fn write_contract<W: Write>(w: &mut W, c: &Contract) -> io::Result<()> {
     w.write_all(&MAGIC)?;
     w.write_all(&0u32.to_le_bytes())?;
@@ -265,6 +290,9 @@ pub fn write_contract<W: Write>(w: &mut W, c: &Contract) -> io::Result<()> {
     w_all(w, &c.close, f64::to_le_bytes)?;
     for col in [&c.vol, &c.qvol, &c.trades] {
         w_all(w, col, f32::to_le_bytes)?;
+    }
+    for col in [&c.high, &c.low] {
+        w_all(w, &padded(col, c.close.len()), f32::to_le_bytes)?;
     }
     for col in &c.oi {
         w_all(w, col, f64::to_le_bytes)?;
@@ -307,8 +335,13 @@ fn r8<R: Read>(r: &mut R) -> io::Result<[u8; 8]> {
 pub fn read_contract<R: Read>(r: &mut R) -> io::Result<Contract> {
     let mut h = [0u8; 40];
     r.read_exact(&mut h)?;
+    if h[..4] == MAGIC_V1 {
+        return Err(bad(
+            "кэш старого формата PMC1 (нет high/low), пересоберите: alpha pumponset cache".into(),
+        ));
+    }
     if h[..4] != MAGIC {
-        return Err(bad("не кэш PMC1".into()));
+        return Err(bad("не кэш PMC2".into()));
     }
     let i64_at = |a: usize| i64::from_le_bytes(h[a..a + 8].try_into().expect("8 байт"));
     let (first_min, n, oi_first_slot, slots) = (
@@ -324,6 +357,8 @@ pub fn read_contract<R: Read>(r: &mut R) -> io::Result<Contract> {
         vol: r_all(r, n, f32::from_le_bytes)?,
         qvol: r_all(r, n, f32::from_le_bytes)?,
         trades: r_all(r, n, f32::from_le_bytes)?,
+        high: r_all(r, n, f32::from_le_bytes)?,
+        low: r_all(r, n, f32::from_le_bytes)?,
         ..Default::default()
     };
     for col in c.oi.iter_mut() {
@@ -338,11 +373,20 @@ pub fn read_contract<R: Read>(r: &mut R) -> io::Result<Contract> {
     Ok(c)
 }
 
-/// Событийный сброс: кэш устарел, если его нет или он старше любого из источников.
+/// Событийный сброс: кэш устарел, если его нет, он старого формата (магия не `PMC2`) или он старше любого из
+/// источников.
 pub fn is_stale(cache: &Path, sources: &[&Path]) -> bool {
     let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
     let Some(cm) = mtime(cache) else {
         return true;
     };
+    let mut magic = [0u8; 4];
+    if File::open(cache)
+        .and_then(|mut f| f.read_exact(&mut magic))
+        .is_err()
+        || magic != MAGIC
+    {
+        return true;
+    }
     sources.iter().any(|s| mtime(s).is_some_and(|t| t > cm))
 }

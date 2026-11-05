@@ -864,10 +864,32 @@ pub fn c2b_with<F, S>(
     p: &Params,
     l_post: i64,
     seed: u64,
+    fires: F,
+    sink: S,
+) -> Result<()>
+where
+    F: FnMut(Rule, usize) -> bool,
+    S: FnMut(C2bRow),
+{
+    c2b_with_cand(inp, rules, p, l_post, seed, |_, _| true, fires, sink)
+}
+
+/// `c2b_with` с дополнительным условием на кандидата: `cand(слот куба, знак эпизода)` — псевдо-момент берётся только
+/// из слотов, где оно истинно (выборка «монет в игре», `play.rs`: контроль из той же популяции, что срабатывания).
+/// Условие входит в состав пула до выбора, а не отбрасывает уже выбранные моменты; `|_, _| true` — прежний `c2b_with`.
+#[allow(clippy::too_many_arguments)]
+pub fn c2b_with_cand<C, F, S>(
+    inp: &Input,
+    rules: &[Rule],
+    p: &Params,
+    l_post: i64,
+    seed: u64,
+    cand: C,
     mut fires: F,
     mut sink: S,
 ) -> Result<()>
 where
+    C: Fn(usize, i8) -> bool,
     F: FnMut(Rule, usize) -> bool,
     S: FnMut(C2bRow),
 {
@@ -915,7 +937,10 @@ where
             Pool::build(nb, cube.n, |j| {
                 let ref_dec = st.dec.get(j.checked_sub(shift)?).copied()?;
                 let t = slot_t(cube, j);
-                if ref_dec == NONE8 || t + l_post > t_last || excluded(&starts[si], t + wa, t + wb)
+                if ref_dec == NONE8
+                    || t + l_post > t_last
+                    || excluded(&starts[si], t + wa, t + wb)
+                    || !cand(j, if si == 0 { 1 } else { -1 })
                 {
                     return None;
                 }
