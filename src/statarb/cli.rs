@@ -1,8 +1,10 @@
 //! `alpha statarb convert|bench` (TK-479): csv.gz свечей → панели `.sap` один раз; замер
 //! пропускной способности ядра по видам. Пороги и окна не назначаются — все параметры обязательны.
 
-use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Sink, Trade};
-use super::panel::{convert_csv_stats, read_series, write_series, ConvertStats, Series};
+use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Rule, Sink, Trade};
+use super::panel::{
+    convert_csv_stats, read_series, write_series, ConvertStats, Series, GRID0_MS, MINUTE_MS,
+};
 use super::reference;
 use anyhow::{bail, Context, Result};
 use clap::{Subcommand, ValueEnum};
@@ -11,7 +13,7 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -75,6 +77,19 @@ pub enum StatarbCommand {
         max_hold: usize,
         #[arg(long)]
         refresh: usize,
+        /// Печатает хеш всех сделок и счётчиков (kernel / reference): гейт «байт в байт» между бинарниками.
+        /// Без флага горячий путь идёт с пустым приёмником и вывод прежний.
+        #[arg(long, default_value_t = false)]
+        digest: bool,
+        /// C1: задержка входа ноги X после ноги Y, минут; 0 — обе ноги на одном open (как раньше).
+        #[arg(long, default_value_t = 0)]
+        delay_x: usize,
+        /// D3: k последних выплат ноги Y для входа по уровню ставки (требует --funding-y); 0 — правило z (как раньше).
+        #[arg(long, default_value_t = 0)]
+        funding_k: usize,
+        /// D3: ожидаемое удержание в выплатах (обязательно при --funding-k ≥ 1).
+        #[arg(long, default_value_t = 0)]
+        hold_payments: usize,
     },
     /// Клетка П-32 × список заданий-пар на окнах суток → суточные агрегаты по суткам закрытия (TK-484).
     Run(Box<super::run::RunArgs>),
@@ -145,6 +160,60 @@ impl Sink for DriftSink {
     }
 }
 
+/// FNV-1a по побитовому представлению сделок: два бинарника выдают один хеш, только если все сделки совпали до бита.
+struct HashSink(u64);
+
+impl HashSink {
+    const SEED: u64 = 0xcbf2_9ce4_8422_2325;
+
+    fn eat(&mut self, v: u64) {
+        for b in v.to_le_bytes() {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+
+    fn counters(&mut self, c: &Counters) {
+        for v in [
+            c.obs_minutes,
+            c.gap_minutes,
+            c.entries,
+            c.entry_deferred,
+            c.exit_deferred,
+            c.trades,
+            c.minutes_in_pos,
+            c.open_at_end,
+            c.sum_net_bps.to_bits(),
+        ] {
+            self.eat(v);
+        }
+        // Поля, которых не было в прежнем бинарнике, входят в хеш только при ненулевом значении.
+        if c.x_deferred != 0 {
+            self.eat(c.x_deferred);
+        }
+    }
+}
+
+impl Sink for HashSink {
+    fn trade(&mut self, t: &Trade) {
+        if t.fill_x != t.fill_in {
+            self.eat(t.fill_x as u64);
+        }
+        for v in [
+            t.dir as u64,
+            t.sig_in as u64,
+            t.fill_in as u64,
+            t.sig_out as u64,
+            t.fill_out as u64,
+            t.gross_bps.to_bits(),
+            t.fee_bps.to_bits(),
+            t.funding_bps.to_bits(),
+            t.net_bps.to_bits(),
+        ] {
+            self.eat(v);
+        }
+    }
+}
+
 type TradeKey = (i8, i64, i64, i64, i64);
 
 fn key(t: &Trade) -> TradeKey {
@@ -210,7 +279,14 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
             exit_z,
             max_hold,
             refresh,
+            digest,
+            delay_x,
+            funding_k,
+            hold_payments,
         } => {
+            if funding_k > 0 && (hold_payments == 0 || funding_y.is_none()) {
+                bail!("--funding-k требует --hold-payments ≥ 1 и --funding-y");
+            }
             let p = Params {
                 window,
                 min_obs,
@@ -232,6 +308,15 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                 },
                 taker_in: true,
                 taker_out: true,
+                delay_x,
+                rule: if funding_k > 0 {
+                    Rule::Funding {
+                        k: funding_k,
+                        hold_payments,
+                    }
+                } else {
+                    Rule::Z
+                },
             };
             bench(&BenchArgs {
                 kind,
@@ -245,6 +330,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                 min_span,
                 basket_k,
                 threads,
+                digest,
                 p,
             })
         }
@@ -346,6 +432,7 @@ struct BenchArgs<'a> {
     min_span: usize,
     basket_k: usize,
     threads: usize,
+    digest: bool,
     p: Params,
 }
 
@@ -357,7 +444,25 @@ pub(super) struct Loaded {
     pub(super) fund: Vec<(i64, f64)>,
 }
 
-/// `time_ms,rate,interval_h` → `(time_ms / 60000, rate)`; нет файла — пусто (счётчик в выводе bench).
+/// Минута сетки панелей (индекс от `GRID0_MS`) для времени выплаты в мс unix: ставки и `.sap` в одной эпохе (E-010).
+pub fn funding_min(time_ms: i64) -> i64 {
+    (time_ms - GRID0_MS).div_euclid(MINUTE_MS)
+}
+
+/// `time_ms,rate,interval_h` → `(funding_min(time_ms), rate)`; первая строка — заголовок.
+pub fn parse_funding(text: &str) -> Result<Vec<(i64, f64)>> {
+    let mut v = Vec::new();
+    for line in text.lines().skip(1) {
+        let mut it = line.split(',');
+        let (Some(t), Some(r)) = (it.next(), it.next()) else {
+            continue;
+        };
+        v.push((funding_min(t.parse::<i64>()?), r.parse::<f64>()?));
+    }
+    Ok(v)
+}
+
+/// Ставки файла `<name>.csv.gz` на минутах сетки панелей; нет файла — пусто (счётчик в выводе bench).
 pub(super) fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
     let f = dir.join(format!("{name}.csv.gz"));
     if !f.exists() {
@@ -371,15 +476,7 @@ pub(super) fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
     if !out.status.success() {
         bail!("gzip -dc {}: ненулевой код", f.display());
     }
-    let mut v = Vec::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
-        let mut it = line.split(',');
-        let (Some(t), Some(r)) = (it.next(), it.next()) else {
-            continue;
-        };
-        v.push((t.parse::<i64>()? / 60_000, r.parse::<f64>()?));
-    }
-    Ok(v)
+    parse_funding(&String::from_utf8_lossy(&out.stdout))
 }
 
 fn load(dir: &Path, n: usize, fund: Option<&Path>) -> Result<Vec<Loaded>> {
@@ -457,7 +554,7 @@ fn run_job(
     ys: &[Loaded],
     xs: &[Loaded],
     j: &Job,
-) -> Option<(Counters, usize, Drift)> {
+) -> Option<(Counters, usize, Drift, u64)> {
     let y = &ys[j.y];
     let xv: Vec<&Loaded> = j.x.iter().map(|&i| &xs[i]).collect();
     let mut all: Vec<&Series> = vec![&y.s];
@@ -493,15 +590,19 @@ fn run_job(
         fund_x: &fx,
     };
     let mut dr = Drift::default();
-    let c = match a.engine {
-        Engine::Kernel => run_pair(&inp, &a.p, &mut ()),
-        Engine::Reference => reference::run_pair(&inp, &a.p, &mut ()),
-        Engine::Drift => {
+    let mut h = HashSink(HashSink::SEED);
+    let c = match (a.engine, a.digest) {
+        (Engine::Kernel, false) => run_pair(&inp, &a.p, &mut ()),
+        (Engine::Kernel, true) => run_pair(&inp, &a.p, &mut h),
+        (Engine::Reference, false) => reference::run_pair(&inp, &a.p, &mut ()),
+        (Engine::Reference, true) => reference::run_pair(&inp, &a.p, &mut h),
+        (Engine::Drift, _) => {
             dr = drift(&inp, &a.p);
             Counters::default()
         }
     };
-    Some((c, len, dr))
+    h.counters(&c);
+    Some((c, len, dr, h.0))
 }
 
 fn bench(a: &BenchArgs) -> Result<()> {
@@ -566,6 +667,7 @@ fn bench(a: &BenchArgs) -> Result<()> {
     let next = AtomicUsize::new(0);
     let acc = Mutex::new((0u64, 0u64, 0u64, 0u64)); // заданий, минут, сделок, пропусков
     let dacc = Mutex::new(Drift::default());
+    let hacc = AtomicU64::new(0);
     let t0 = Instant::now();
     std::thread::scope(|s| {
         for _ in 0..a.threads.max(1) {
@@ -575,7 +677,12 @@ fn bench(a: &BenchArgs) -> Result<()> {
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(j) = jobs.get(i) else { break };
-                    if let Some((c, len, d)) = run_job(a, &ys, xs, j) {
+                    if let Some((c, len, d, h)) = run_job(a, &ys, xs, j) {
+                        // Хеш заданий складывается по номеру задания: порядок потоков результат не меняет.
+                        hacc.fetch_add(
+                            h ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+                            Ordering::Relaxed,
+                        );
                         dr.add(&d);
                         n += 1;
                         rows += len as u64;
@@ -607,5 +714,8 @@ fn bench(a: &BenchArgs) -> Result<()> {
         a.kind, a.engine, a.threads, a.p.window, a.p.refresh, n, jobs.len(), rows, gaps, tr, wall, load_s, fund_rows,
         rows as f64 / wall, n as f64 / wall
     );
+    if a.digest {
+        println!("digest {:016x}", hacc.load(Ordering::Relaxed));
+    }
     Ok(())
 }

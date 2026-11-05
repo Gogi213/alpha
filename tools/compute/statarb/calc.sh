@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TK-479: заявки на calc для ядра statarb. Не ждёт: печатает id; ждать — host:calc:/data/sched/rc/<id>.
-#   statarb/calc.sh build <дерево>            релизная сборка (слот rbuild, 1 ядро резерва) → /data/tk0479/alpha-tk479
-#   statarb/calc.sh buildv3 <дерево>          то же с -C target-cpu=x86-64-v3 (боевой набор команд, TK-486) → /data/tk0486/alpha-run-v3
+#   statarb/calc.sh build <дерево> [бинарь]   релизная сборка (слот rbuild, 1 ядро резерва) → бинарь (по умолчанию /data/tk0479/alpha-tk479)
+#   statarb/calc.sh buildv3 <дерево> [бинарь] то же с -C target-cpu=x86-64-v3 (боевой набор команд, TK-486) → по умолчанию /data/tk0486/alpha-run-v3
 #   statarb/calc.sh check <дерево>            clippy -D warnings + test statarb (слот rbuild, 1 ядро резерва)
 #   statarb/calc.sh bench [N символов] [ядра]  convert + bench (bench.sh), обычное prod-задание на <ядра> ядер
 #   statarb/calc.sh gate [ядра]                Gate: convert + кросс-биржа + дрейф против референса (gate.sh)
@@ -14,11 +14,13 @@ case "$MODE" in
 build|buildv3|check)
   TREE="${2:?дерево}"
   if [ "$MODE" = build ]; then
-    STEPS='cargo build --release --target-dir $SLOT_TGT -j $JOBS 2>&1 | tail -3
-install -D $SLOT_TGT/release/alpha /data/tk0479/alpha-tk479 && md5sum /data/tk0479/alpha-tk479'
+    OUT="${3:-/data/tk0479/alpha-tk479}"
+    STEPS="cargo build --release --target-dir \$SLOT_TGT -j \$JOBS 2>&1 | tail -3
+install -D \$SLOT_TGT/release/alpha $OUT && md5sum $OUT"
   elif [ "$MODE" = buildv3 ]; then
-    STEPS='RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --target-dir $SLOT_TGT-v3 -j $JOBS 2>&1 | tail -3
-install -D $SLOT_TGT-v3/release/alpha /data/tk0486/alpha-run-v3 && md5sum /data/tk0486/alpha-run-v3'
+    OUT="${3:-/data/tk0486/alpha-run-v3}"
+    STEPS="RUSTFLAGS='-C target-cpu=x86-64-v3' cargo build --release --target-dir \$SLOT_TGT-v3 -j \$JOBS 2>&1 | tail -3
+install -D \$SLOT_TGT-v3/release/alpha $OUT && md5sum $OUT"
   else
     STEPS='cargo clippy --release --target-dir $SLOT_TGT --all-targets -j $JOBS -- -D warnings 2>&1 | tail -5
 cargo test --release --target-dir $SLOT_TGT -j $JOBS statarb 2>&1 | grep -E "^test result|FAILED|panicked|^error"'
@@ -48,6 +50,6 @@ table)
   KIND="${2:?вид}"; TH="${3:-15}"
   scp -q "${KEY[@]}" "$(dirname "$0")/table.sh" "$HOST:/data/tk0479/statarb-table.sh"
   ID=$(ssh "${KEY[@]}" "$HOST" "cd /data/sched && SCHED_MANIFEST=0 python3 /data/sched/alsched.py submit --name tk479-table --max-runtime 5m --est 1m --cls prod --kind work --cores $TH --mem 24 --reason 'TK-479: таблица пропускной способности ядра' --adhoc 'TK-479: разовый замер' -- bash /data/tk0479/statarb-table.sh $KIND $TH" | tail -1) ;;
-*) echo "build|check|bench|gate|table"; exit 2 ;;
+*) echo "build|buildv3|check|bench|gate|table"; exit 2 ;;
 esac
 echo "alsched id $ID — wait_for: host:calc:/data/sched/rc/$ID (лог /data/sched/logs/$ID.log)"
