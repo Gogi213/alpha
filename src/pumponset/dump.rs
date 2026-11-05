@@ -30,6 +30,9 @@
 //!    `m` (как метка момента); моменты без цен входа/выхода в среднее не входят, нет ни одного — `NaN`. Моменты лежат
 //!    в том же месяце и дециле σ, но могут быть и позже `t_f`: это база исхода, а не признак момента.
 //!
+//! 8. **Цель `play-onset`** (`run --target play-onset`): после `PLAY_COLS` добавлен `lead_hv_min` (`ONSET_COL`) — минут от
+//!    `t_f` до первой минуты `hv_state` в `[t_f + 1, t_f + 1440]`, иначе `NaN`. Это исход (смотрит вперёд), не признак.
+//!
 //! Детерминизм: поток накапливает срабатывания контракта, сортирует по `(t_f, fam, wi, ti, sign)` и пишет текст
 //! в память; `write` склеивает контракты по алфавиту имён — байты не зависят от числа потоков.
 
@@ -44,7 +47,7 @@
 use super::cache::{Contract, SLOT_MIN};
 use super::cli::load_contract;
 use super::control::{sign_of, slot_t, yyyymm, TriggerRow};
-use super::play::Play;
+use super::play::{Play, LEAD_MAX_MIN};
 use super::run::{clip_contract, day_of_min};
 use super::types::{Cube, Rule};
 use crate::statarb::panel::{GRID0_MS, MINUTE_MS};
@@ -90,6 +93,10 @@ b_gross_60,b_gross_360,b_gross_1440";
 /// `natr_pct` — NATR в `t_f` (`NaN`, если `--hv-natr-pct` не задан); `ok_long`/`ok_short` — откуп не мешает лонгу/шорту
 /// (1, если `--no-reversal` не задан); `first_phase` — минута перехода в игру (1, если нет `--hv-natr-pct`).
 pub const PLAY_COLS: &str = "natr_pct,ok_long,ok_short,first_phase";
+
+/// Столбец цели `play-onset` (после `PLAY_COLS`): минут от `t_f` до первой минуты `hv_state` в `[t_f + 1, t_f + 1440]`
+/// (`play::LEAD_MAX_MIN`), `NaN`, если её там нет. Смотрит вперёд (исход, не признак момента).
+pub const ONSET_COL: &str = "lead_hv_min";
 
 // ---------- время ----------
 
@@ -539,6 +546,13 @@ impl<'a> Collector<'a> {
                 u8::from(pl.ok_at(it.t_f, -1)),
                 u8::from(pl.first_at(it.t_f))
             );
+            if pl.is_onset() {
+                put_k(
+                    out,
+                    pl.lead_hv_min(it.t_f, LEAD_MAX_MIN)
+                        .and_then(|l| usize::try_from(l).ok()),
+                );
+            }
         }
         out.push(b'\n');
     }
@@ -567,18 +581,29 @@ pub fn write(path: &Path, syms: &[String], parts: Vec<(usize, Vec<u8>)>) -> Resu
 pub fn write_with(
     path: &Path,
     syms: &[String],
-    mut parts: Vec<(usize, Vec<u8>)>,
+    parts: Vec<(usize, Vec<u8>)>,
     play_cols: bool,
+) -> Result<()> {
+    write_cols(path, syms, parts, if play_cols { PLAY_COLS } else { "" })
+}
+
+/// `write` с дополнительными столбцами заголовка `extra` (пусто — схема прежняя; `PLAY_COLS` — выборка «в игре»;
+/// `PLAY_COLS,ONSET_COL` — цель `play-onset`); строки собраны `Collector::with_play` с теми же столбцами.
+pub fn write_cols(
+    path: &Path,
+    syms: &[String],
+    mut parts: Vec<(usize, Vec<u8>)>,
+    extra: &str,
 ) -> Result<()> {
     parts.sort_by(|a, b| syms[a.0].cmp(&syms[b.0]).then(a.0.cmp(&b.0)));
     let mut w = BufWriter::with_capacity(
         1 << 20,
         File::create(path).with_context(|| path.display().to_string())?,
     );
-    if play_cols {
-        writeln!(w, "{HEADER},{PLAY_COLS}")?;
-    } else {
+    if extra.is_empty() {
         writeln!(w, "{HEADER}")?;
+    } else {
+        writeln!(w, "{HEADER},{extra}")?;
     }
     for (_, bytes) in &parts {
         w.write_all(bytes)?;

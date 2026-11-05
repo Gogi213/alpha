@@ -42,6 +42,12 @@
 //!     вселенной, «первое» срабатывание определяется до отбора), кандидаты C2a — маской `cube.r` (`mask_r_with`), C2b —
 //!     условием на кандидата в пуле (`control::c2b_with_cand`), эпизоды — в `prepare` (`hv` по факту в `[t0, t_end]`);
 //!     выходы и выгрузка берут те же срабатывания. Блок `sample_filter` в `run-meta.json` и `sample-coins-<stage>.csv`.
+//! 12. **Цель `play-onset`** (`--target play-onset`, `play.rs`, заголовок модуля): срабатывание отбирается тишиной
+//!     (`Gate::NotQuiet`), метка вперёд — воспламенение `hv_state` в `[t_f + 1, t_f + H]` (`Play::onset_label`),
+//!     контроли C2a — тихие моменты вне зоны срабатывания (`control::c2a_moments_custom`). C2b, лаги эпизодов, `first` и
+//!     `progress` не считаются: `lags`/`first`/`progress` пишутся только с заголовком, в `run-meta.json` — блок
+//!     `play_onset`. Эпизоды ищутся и пишутся в `episodes-<stage>.csv` как без флагов (фильтр выборки к ним не применяется).
+//!     Выходы и выгрузка берут те же срабатывания (вход `c[t_f+1]` раньше воспламенения), в выгрузке добавлен `lead_hv_min`.
 
 #![allow(
     // индексы ограничены размерами плотных массивов, заданных `Layout`; бюджет линтов (TK-211) не растим
@@ -150,6 +156,7 @@ pub struct RunArgs {
     pub dump_triggers: bool,
     /// Выборка «монеты в игре» (`play.rs`, слова владельца 05.11): NATR-фильтр, без откупов, первая фаза. Без флагов —
     /// прогон и таблицы прежние; с ними — блок `sample_filter` в `run-meta.json` и `sample-coins-<stage>.csv`.
+    /// `--target play-onset` — другая цель метки (вход в игру после тишины), блок `play_onset` в `run-meta.json`.
     #[command(flatten)]
     pub play: PlayArgs,
 }
@@ -591,6 +598,11 @@ impl Run<'_> {
         })
     }
 
+    /// Цель `play-onset` (`play.rs`): метка — воспламенение, C2b и таблицы лагов не считаются.
+    fn onset(&self) -> bool {
+        self.play.is_some_and(|c| c.onset)
+    }
+
     fn in_stage(&self, m: i64) -> bool {
         m >= self.pmin[0] && m < self.pmin[1]
     }
@@ -874,8 +886,9 @@ fn prepare(
         if !rn.is_member(e, &univ) {
             continue;
         }
-        if let Some(pl) = &play {
-            // выборка «в игре»: hv — по факту в [t0, t_end], откуп — по состоянию в t0 (play.rs, (в))
+        if let Some(pl) = play.as_ref().filter(|_| !rn.onset()) {
+            // выборка «в игре»: hv — по факту в [t0, t_end], откуп — по состоянию в t0 (play.rs, (в)); в цели
+            // `play-onset` эпизоды фильтром не режутся (считаются как без флагов)
             acc.filt.episodes_before += 1;
             if !pl.hv_any(e.t0, e.t_end) {
                 acc.filt.episodes_dropped_hv += 1;
@@ -1087,6 +1100,18 @@ fn process(
     } = wk;
     filt.merge(&fast.gate_cnt);
     let trig_kept: u64 = fast.trig.iter().map(|v| v.len() as u64).sum();
+    let onset = rn.onset();
+    if let Some(pl) = play.as_ref().filter(|_| onset) {
+        // воспламенение после оставленных срабатываний с направлением (`hv_first_cross_share`); срабатывания ещё не
+        // забраны контролями
+        for (r, slots) in rn.lay.rules.iter().zip(&fast.trig) {
+            for &i in slots {
+                if sign_of(cube.rat(r.wi as usize, i)) != 0 {
+                    filt.lead(pl, slot_t(&cube, i));
+                }
+            }
+        }
+    }
     let ep_before = agg.cnt.episodes;
     agg.cnt.contracts += 1;
     agg.cnt.symbol_days += univ.days_in(rn.pmin[0], rn.pmin[1]);
@@ -1119,22 +1144,51 @@ fn process(
         .as_ref()
         .map(|sh| dump::Collector::new(sh, sym, &c, &cf, &cube).with_play(play.as_ref()));
     {
+        let want_moments = dc.is_some();
         let trig = &mut fast.trig;
-        control::c2a_moments_with(
-            &inp,
-            &rn.lay.rules,
-            &rn.xd,
-            rn.p,
-            rn.seed,
-            dc.is_some(),
-            |r| std::mem::take(&mut trig[rn.ridx(r)]),
-            |row, moments| {
-                if let Some(d) = dc.as_mut() {
-                    d.add(&row, moments);
-                }
-                sink_trigger(rn, agg, &px, row);
-            },
-        )?;
+        let mut take = |r: Rule| std::mem::take(&mut trig[rn.ridx(r)]);
+        let mut emit = |row: TriggerRow, moments: &[u32]| {
+            if let Some(d) = dc.as_mut() {
+                d.add(&row, moments);
+            }
+            sink_trigger(rn, agg, &px, row);
+        };
+        match play.as_ref().filter(|_| onset) {
+            Some(pl) => {
+                // цель `play-onset`: метка — воспламенение в [t_f + 1, t_f + H], контроли вне зоны срабатывания
+                // `|m − t_f| ≤ L_quiet + max H` (play.rs, п. 2–3)
+                let hs = &rn.lay.h_min;
+                let zone = rn.l_pre + i64::from(hs.iter().copied().max().unwrap_or(0));
+                let label = |t: i64, sign: i8, hi: usize| {
+                    if sign == 0 {
+                        Label::NoData
+                    } else {
+                        pl.onset_label(t, hs[hi])
+                    }
+                };
+                filt.controls_dropped_overlap += control::c2a_moments_custom(
+                    &inp,
+                    &rn.lay.rules,
+                    rn.p,
+                    rn.seed,
+                    want_moments,
+                    zone,
+                    &label,
+                    &mut take,
+                    &mut emit,
+                )?;
+            }
+            None => control::c2a_moments_with(
+                &inp,
+                &rn.lay.rules,
+                &rn.xd,
+                rn.p,
+                rn.seed,
+                want_moments,
+                &mut take,
+                &mut emit,
+            )?,
+        }
     }
     if let Some(d) = dc {
         dumped.push((idx, d.finish()));
@@ -1156,6 +1210,10 @@ fn process(
         present |= sm;
         agg.cnt.episodes += 1;
         agg.eps.push(EpRow::new(idx, e));
+        if onset {
+            // цель `play-onset`: лаги эпизодов, «какой признак первым» и прогресс хода не считаются (таблицы пустые)
+            continue;
+        }
         fast.fill_lags(slot0, e.t0, e.t0 - rn.l_pre, e.t_end, lagbuf);
         fast.mark_unobserved(slot0, e.t0 - rn.l_pre, e.t_end, lagbuf);
         let (si, di) = (usize::from(e.sign < 0), e.di as usize);
@@ -1171,7 +1229,8 @@ fn process(
     }
     // нулевая линия C2b (kind = c2b): моменты берёт `control::c2b_with`, лаги — таблица следующего срабатывания
     for s in 0..NS {
-        if !has(present, s) {
+        // цель `play-onset`: C2b не используется (контроль — тихие моменты C2a вне зоны срабатывания)
+        if onset || !has(present, s) {
             continue;
         }
         let lp = rn.l_post[s];
@@ -1524,11 +1583,17 @@ pub fn run(a: RunArgs) -> Result<()> {
         exits::write_grid(&out.join("exits-grid.csv"))?;
     }
     if rn.dump.is_some() {
-        dump::write_with(
+        // столбцы выборки «в игре» — только с флагами; `lead_hv_min` — только в цели `play-onset`
+        let extra = match &rn.play {
+            None => String::new(),
+            Some(c) if c.onset => format!("{},{}", dump::PLAY_COLS, dump::ONSET_COL),
+            Some(_) => dump::PLAY_COLS.to_string(),
+        };
+        dump::write_cols(
             &out.join(format!("triggers-{st}.csv")),
             &syms,
             dumps,
-            rn.play.is_some(),
+            &extra,
         )?;
     }
     if rn.play.is_some() {
@@ -1650,6 +1715,9 @@ pub fn run(a: RunArgs) -> Result<()> {
     }
     if let Some(cfg) = &rn.play {
         meta["sample_filter"] = play::meta(cfg, &filt, sel.ends.len(), rn.x360);
+        if cfg.onset {
+            meta["play_onset"] = play::onset_meta(&filt, rn.l_pre, &rn.lay.h_min);
+        }
     }
     fs::write(
         out.join("run-meta.json"),

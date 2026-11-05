@@ -4,12 +4,12 @@
 //! отсутствие утечки в будущее, число строк выгрузки против `daycells`, выходы на тех же срабатываниях.
 
 use super::cache::Contract;
-use super::control::{self, sign_of, slot_t};
-use super::dump::{HEADER, PLAY_COLS};
+use super::control::{self, sign_of, slot_t, Label};
+use super::dump::{HEADER, ONSET_COL, PLAY_COLS};
 use super::feat;
 use super::params::Params;
 use super::play::{
-    first_phase_mask, natr_series, reversal_masks, Gate, HvCfg, Play, PlayArgs, PlayCfg,
+    first_phase_mask, natr_series, reversal_masks, Gate, HvCfg, Play, PlayArgs, PlayCfg, Target,
 };
 use super::run::{mask_r_with, run, RunArgs, Stage};
 use super::run_tests::{
@@ -178,6 +178,7 @@ fn cfg_hv(pct: f64, n: usize) -> PlayCfg {
         hv: Some(HvCfg { natr_pct: pct, n }),
         no_reversal: false,
         first_phase: false,
+        onset: false,
     }
 }
 
@@ -427,6 +428,7 @@ fn play_masks_on_three_bursts() {
         hv: None,
         no_reversal: true,
         first_phase: false,
+        onset: false,
     };
     let q = Play::build(&c, &cf, only_rev, 360, [0.2, 0.2]);
     assert!(q.natr_at(407).is_nan());
@@ -448,6 +450,7 @@ fn gate_order_is_volatility_then_reversal_then_first_phase() {
         }),
         no_reversal: true,
         first_phase: true,
+        onset: false,
     };
     let pl = Play::build(&c, &cf, cfg, 360, [0.2, 0.2]);
     assert_eq!(
@@ -504,6 +507,7 @@ fn play_masks_do_not_peek_into_the_future() {
         }),
         no_reversal: true,
         first_phase: true,
+        onset: false,
     };
     let a = Play::build(&base, &base.close_ff(), cfg, 360, [0.2, 0.2]);
     let b = Play::build(&late, &late.close_ff(), cfg, 360, [0.2, 0.2]);
@@ -567,6 +571,7 @@ fn flags_parse_and_validate() {
         hv_n: n,
         no_reversal: false,
         hv_first_phase: fp,
+        ..Default::default()
     };
     assert!(a(Some(1.0), None, false).cfg().is_err());
     assert!(a(None, Some(30), false).cfg().is_err());
@@ -720,6 +725,7 @@ fn hv_args(first_phase: bool, no_reversal: bool) -> PlayArgs {
         hv_n: Some(30),
         no_reversal,
         hv_first_phase: first_phase,
+        ..Default::default()
     }
 }
 
@@ -1003,6 +1009,7 @@ fn neutral_flags_leave_every_table_byte_for_byte() {
         hv_n: Some(30),
         no_reversal: true,
         hv_first_phase: false,
+        ..Default::default()
     };
     let b = go(dir.path(), "neutral", &cache, neutral, &o);
     tables_equal(&a, &b, &TABLES);
@@ -1358,4 +1365,733 @@ fn c2b_candidates_are_restricted_before_the_draw() {
     )
     .unwrap();
     assert!(none.is_empty());
+}
+
+// ---------- прежнее поведение без новых флагов: байт в байт ----------
+
+fn sha_hex(b: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b);
+    h.finalize().iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Сценарии без флагов цели и выборки; (файл, SHA-256). Сценарий 1 — стадия `fit` на пяти случайных контрактах (все
+/// правила, лаги и C2b, выгрузка срабатываний); сценарий 2 — стадия `test` на «игровых» контрактах `mixed`.
+fn default_digests() -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    for (i, sym) in ["AAAUSDT", "BBBUSDT", "BTCUSDT", "CCCUSDT", "DDDUSDT"]
+        .iter()
+        .enumerate()
+    {
+        put(
+            &cache,
+            sym,
+            &super::run_tests::random_contract(11 + i as u64, 14),
+        );
+    }
+    let pj = dir.path().join("params.json");
+    fs::write(&pj, params_json("2020-01", "2020-02", "[90,180]")).unwrap();
+    let o1 = dir.path().join("out1");
+    run(RunArgs {
+        cache,
+        params: pj,
+        out: o1.clone(),
+        stage: Stage::Fit,
+        rules: None,
+        seed: SEED,
+        oi_lag: 1,
+        threads: 1,
+        xd: None,
+        limit: None,
+        exits: false,
+        dump_triggers: true,
+        play: PlayArgs::default(),
+    })
+    .unwrap();
+    for f in [
+        "daycells-fit.csv",
+        "lags-fit.csv",
+        "first-fit.csv",
+        "progress-fit.csv",
+        "episodes-fit.csv",
+        "xd.csv",
+        "triggers-fit.csv",
+    ] {
+        out.push((format!("1:{f}"), sha_hex(&fs::read(o1.join(f)).unwrap())));
+    }
+    let dir2 = tempfile::tempdir().unwrap();
+    let cache2 = cache_of(dir2.path(), &mixed());
+    let o2 = go(
+        dir2.path(),
+        "g2",
+        &cache2,
+        PlayArgs::default(),
+        &Opt::with_360(0.2),
+    );
+    for f in [
+        "daycells-test.csv",
+        "lags-test.csv",
+        "first-test.csv",
+        "progress-test.csv",
+        "episodes-test.csv",
+        "xd.csv",
+        "triggers-test.csv",
+    ] {
+        out.push((format!("2:{f}"), sha_hex(&fs::read(o2.join(f)).unwrap())));
+    }
+    out
+}
+
+/// SHA-256 таблиц сценариев `default_digests`, снятые на коммите 743610bc (до цели `play-onset`): без `--target` и
+/// флагов выборки результат побайтно прежний (кроме выходов П-35 — у них свои тесты).
+const GOLDEN: [(&str, &str); 14] = [
+    (
+        "1:daycells-fit.csv",
+        "a3c5746631b8760068e9479ae5689805ac4f21eaef1d16448f37abb2d0f00c68",
+    ),
+    (
+        "1:lags-fit.csv",
+        "e12037584c017caeb3b654290ae72150760e160cd626c23e5c0064ba34d6c77e",
+    ),
+    (
+        "1:first-fit.csv",
+        "26da0ad87e04b1f2b297b8405accced16ca2834ec487483c1f92014ad575b73a",
+    ),
+    (
+        "1:progress-fit.csv",
+        "b728894cee41ab1d22630a1fe50de814eab36b6e1114e05d48530ba20020a49d",
+    ),
+    (
+        "1:episodes-fit.csv",
+        "2d6575962c43506b3d33aba30a0b6399b44c016b311da17ebab2fd509896b4f1",
+    ),
+    (
+        "1:xd.csv",
+        "e712c7dd6746ca645f9ed64fce87598ac9221c1d44be8eef89d335ad39b6fb53",
+    ),
+    (
+        "1:triggers-fit.csv",
+        "3a6aa5fb54625c29ba468836e3329057014666c8b30ba0ffaae2e9364692b796",
+    ),
+    (
+        "2:daycells-test.csv",
+        "47d44f0581d9f8556b56347dd97cd584501b6df444d4fd7731b35218e704c25c",
+    ),
+    (
+        "2:lags-test.csv",
+        "85e8901efbaea06cb65a16ea9c5dcb2e03b2335b98f4dc76800f1a4e3e612e7c",
+    ),
+    (
+        "2:first-test.csv",
+        "4f9ca0ab770d841dbae8b8c473c80d4ecd87ff1717537aa753bce31d7dfdc13d",
+    ),
+    (
+        "2:progress-test.csv",
+        "037934e846f6d3649022c47e635126af5d48f860e03dd1f634aef657d89054b2",
+    ),
+    (
+        "2:episodes-test.csv",
+        "985abaa4346b0fd3edb74ea6d2f8d2ac5366b9794b05fa3ffd04199cdb3ffad2",
+    ),
+    (
+        "2:xd.csv",
+        "400b32522cc688f83dc31c2c02321f1ed75511bf9f0a047a19f1c070e7340e6a",
+    ),
+    (
+        "2:triggers-test.csv",
+        "ad97e963dae7bcd2e587df57a057d06ae220c022f668aa2c1b202ff3b37ca9c5",
+    ),
+];
+
+#[test]
+fn default_target_tables_equal_the_pre_onset_golden() {
+    let got = default_digests();
+    assert_eq!(got.len(), GOLDEN.len());
+    for ((f, h), (gf, gh)) in got.iter().zip(GOLDEN) {
+        assert_eq!(f, gf);
+        assert_eq!(h, gh, "{f}: таблица без флагов изменилась");
+    }
+    // явная прежняя цель — те же байты, что умолчание
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache_of(dir.path(), &mixed());
+    let mut o = Opt::with_360(0.2);
+    o.exits = true;
+    let a = go(dir.path(), "dflt", &cache, PlayArgs::default(), &o);
+    let explicit = PlayArgs {
+        target: Target::Move,
+        ..Default::default()
+    };
+    let b = go(dir.path(), "move", &cache, explicit, &o);
+    let mut names: Vec<&str> = TABLES.to_vec();
+    names.push("triggers-test.csv");
+    tables_equal(&a, &b, &names);
+    assert!(jmeta(&b).get("play_onset").is_none());
+}
+
+// ---------- цель play-onset ----------
+
+fn onset_cfg(pct: f64, n: usize) -> PlayCfg {
+    PlayCfg {
+        hv: Some(HvCfg { natr_pct: pct, n }),
+        no_reversal: false,
+        first_phase: false,
+        onset: true,
+    }
+}
+
+fn onset_args() -> PlayArgs {
+    PlayArgs {
+        hv_natr_pct: Some(1.0),
+        hv_n: Some(30),
+        target: Target::PlayOnset,
+        ..Default::default()
+    }
+}
+
+/// Прогон одного контракта в цели `play-onset`; каталог живёт, пока жива первая часть пары.
+fn run_one(c: &Contract, tag: &str, o: &Opt) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = caches(dir.path(), &[("ABCUSDT", c)]);
+    let out = go(dir.path(), tag, &cache, onset_args(), o);
+    (dir, out)
+}
+
+/// `[n, hit, bn, bhit]` из `daycells-test.csv`, сумма по суткам для (семейство, сторона +1, `hi`).
+fn cell(out: &Path, fam: &str, hi: &str) -> [f64; 4] {
+    let mut t = [0.0; 4];
+    let rows = table(&out.join("daycells-test.csv"));
+    for r in rows
+        .iter()
+        .filter(|r| r["fam"] == fam && r["sign"] == "1" && r["hi"] == hi)
+    {
+        for (x, c) in t.iter_mut().zip(["n", "hit", "bn", "bhit"]) {
+            *x += num(r, c);
+        }
+    }
+    t
+}
+
+#[test]
+fn quiet_minute_needs_no_hv_in_the_whole_window() {
+    // hv: [407, 471], [907, 971], [1107, 1171]; окно тишины L_quiet = 360 включает саму минуту
+    let c = three_bursts();
+    let pl = Play::build(&c, &c.close_ff(), onset_cfg(1.0, 30), 360, [NAN; 2]);
+    assert!(pl.is_onset());
+    let quiet: Vec<i64> = (0..1500).filter(|&m| pl.quiet_at(m)).collect();
+    let want: Vec<i64> = (0..407).chain(832..907).collect();
+    assert_eq!(quiet, want);
+    // последняя hv-минута 471 уходит из окна [m − 360, m] ровно при m = 832
+    assert!(!pl.quiet_at(831) && pl.quiet_at(832));
+    // вне сетки минута не тихая
+    assert!(!pl.quiet_at(-1) && !pl.quiet_at(1500));
+    // ворота цели: только тишина, сторона не важна
+    for s in [1i8, -1, 0] {
+        assert_eq!(pl.gate(406, s), Gate::Keep);
+        assert_eq!(pl.gate(407, s), Gate::NotQuiet);
+        assert_eq!(pl.gate(1200, s), Gate::NotQuiet);
+        assert!(pl.moment_ok(850, s) && !pl.moment_ok(950, s));
+    }
+    // окно 100 минут: hv 471 держит окно до m = 571
+    let short = Play::build(&c, &c.close_ff(), onset_cfg(1.0, 30), 100, [NAN; 2]);
+    assert!(!short.quiet_at(571) && short.quiet_at(572));
+    // NaN в NATR (первые n − 1 минут) — не hv: минута тихая
+    assert!(pl.quiet_at(0) && pl.quiet_at(10));
+}
+
+#[test]
+fn onset_label_is_hv_in_the_forward_window() {
+    let c = three_bursts();
+    let pl = Play::build(&c, &c.close_ff(), onset_cfg(1.0, 30), 360, [NAN; 2]);
+    // hv: [407, 471], [907, 971], [1107, 1171]; окно метки [t_f + 1, t_f + H]
+    assert_eq!(pl.onset_label(406, 30), Label::Hit); // [407, 436]
+    assert_eq!(pl.onset_label(377, 30), Label::Hit); // [378, 407]: hv в последней минуте окна
+    assert_eq!(pl.onset_label(376, 30), Label::Miss); // [377, 406]
+    assert_eq!(pl.onset_label(500, 100), Label::Miss); // [501, 600]
+    assert_eq!(pl.onset_label(500, 407), Label::Hit); // [501, 907]
+    assert_eq!(pl.onset_label(500, 406), Label::Miss); // [501, 906]
+    assert_eq!(pl.onset_label(420, 30), Label::Hit); // t_f сама в hv: смотрим только вперёд
+    assert_eq!(pl.onset_label(472, 30), Label::Miss); // [473, 502]
+                                                      // край данных (сетка 0..=1499): окно должно лежать в ней целиком
+    assert_eq!(pl.onset_label(1469, 30), Label::Miss); // [1470, 1499]
+    assert_eq!(pl.onset_label(1470, 30), Label::NoData); // [1471, 1500]
+    assert_eq!(pl.onset_label(1499, 1), Label::NoData);
+    assert_eq!(pl.onset_label(-5, 30), Label::NoData);
+    assert_eq!(pl.onset_label(100, 0), Label::NoData);
+}
+
+#[test]
+fn lead_hv_min_is_the_first_hv_minute_strictly_after_t_f() {
+    let c = three_bursts();
+    let pl = Play::build(&c, &c.close_ff(), onset_cfg(1.0, 30), 360, [NAN; 2]);
+    assert_eq!(pl.lead_hv_min(0, 1440), Some(407));
+    assert_eq!(pl.lead_hv_min(406, 1440), Some(1));
+    assert_eq!(pl.lead_hv_min(407, 1440), Some(1), "сама t_f не считается");
+    assert_eq!(pl.lead_hv_min(471, 1440), Some(436));
+    assert_eq!(pl.lead_hv_min(1171, 1440), None);
+    assert_eq!(pl.lead_hv_min(1499, 1440), None);
+    assert_eq!(pl.lead_hv_min(0, 406), None);
+    assert_eq!(pl.lead_hv_min(0, 407), Some(407));
+    assert_eq!(pl.lead_hv_min(10_000, 1440), None);
+    assert!(pl.lead_window_in_data(0, 1440) && !pl.lead_window_in_data(100, 1440));
+    assert!(pl.lead_window_in_data(1000, 499) && !pl.lead_window_in_data(1000, 500));
+}
+
+#[test]
+fn onset_run_ignition_30_minutes_after_f1_keeps_f1_and_drops_f3() {
+    // всплеск в 14975, через 30 минут после F1 (14945): hv [14975, 15004]. F3 (15000) уже внутри hv — не тихий
+    let mut o = Opt::base();
+    o.exits = true;
+    let (_d, out) = run_one(&pump_hl(&[(14_975, 1)]), "a30", &o);
+    let rows = trig(&out);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let r = &rows[0];
+    assert_eq!(
+        (r["fam"].as_str(), r["t_f"].as_str(), r["sign"].as_str()),
+        ("0", "14945", "1")
+    );
+    assert!(num(r, "natr_pct") < 1.0, "в t_f монета тихая");
+    assert_eq!(
+        (
+            r["ok_long"].as_str(),
+            r["ok_short"].as_str(),
+            r["first_phase"].as_str()
+        ),
+        ("1", "1", "0")
+    );
+    assert_eq!(r["lead_hv_min"], "30");
+    let text = fs::read_to_string(out.join("triggers-test.csv")).unwrap();
+    assert_eq!(
+        text.lines().next().unwrap(),
+        format!("{HEADER},{PLAY_COLS},{ONSET_COL}")
+    );
+    // метка вперёд: минута 14975 накрыта обоими горизонтами (90 и 180)
+    let (h0, h1) = (cell(&out, "0", "0"), cell(&out, "0", "1"));
+    assert_eq!((h0[0], h0[1], h1[0], h1[1]), (1.0, 1.0, 1.0, 1.0));
+    assert_eq!(cell(&out, "1", "0")[0] + cell(&out, "1", "1")[0], 0.0);
+    let m = jmeta(&out);
+    let po = &m["play_onset"];
+    assert_eq!(po["l_quiet_min"], 360);
+    assert_eq!(po["h_min"], serde_json::json!([90, 180]));
+    assert_eq!(po["triggers_before"], 2);
+    assert_eq!(po["triggers_dropped_not_quiet"], 1);
+    assert!(po["controls_dropped_overlap"].as_u64().unwrap() > 0);
+    approx(po["hv_first_cross_share"].as_f64().unwrap(), 1.0, 0.0);
+    let sf = &m["sample_filter"];
+    assert_eq!(sf["triggers_dropped_hv"], 0);
+    assert_eq!(sf["triggers_dropped_first_phase"], 0);
+    assert_eq!(sf["episode_hv"], "не применяется (цель play-onset)");
+    // выходы П-35 — те же срабатывания: одна сделка по cfg 0 (только cap), вход c[14946] до воспламенения
+    assert_eq!(m["exits"]["triggers"], 1);
+    let ex = table(&out.join("exits-test.csv"));
+    let base: Vec<&Row> = ex.iter().filter(|r| r["cfg"] == "0").collect();
+    assert_eq!(base.len(), 1);
+    assert_eq!((base[0]["fam"].as_str(), base[0]["n"].as_str()), ("0", "1"));
+}
+
+#[test]
+fn onset_run_ignition_after_200_minutes_labels_by_horizon() {
+    // всплеск в 15145: от F1 (14945) через 200 минут, от F3 (15000) через 145; оба срабатывания тихие
+    let mut o = Opt::base();
+    o.exits = true;
+    let (dir, out) = run_one(&pump_hl(&[(15_145, 1)]), "b200", &o);
+    let rows = trig(&out);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    let lead = |fam: &str| -> String {
+        rows.iter()
+            .find(|r| r["fam"] == fam)
+            .map(|r| r["lead_hv_min"].clone())
+            .unwrap()
+    };
+    assert_eq!(
+        (lead("0"), lead("1")),
+        ("200".to_string(), "145".to_string())
+    );
+    // F1: окна [14946, 15035] и [14946, 15125] без hv — промах; F3: [15001, 15090] промах, [15001, 15180] попадание
+    let c = |fam: &str, hi: &str| {
+        let t = cell(&out, fam, hi);
+        (t[0], t[1])
+    };
+    assert_eq!(
+        (c("0", "0"), c("0", "1"), c("1", "0"), c("1", "1")),
+        ((1.0, 0.0), (1.0, 0.0), (1.0, 0.0), (1.0, 1.0))
+    );
+    let m = jmeta(&out);
+    let po = &m["play_onset"];
+    assert_eq!(po["triggers_before"], 2);
+    assert_eq!(po["triggers_dropped_not_quiet"], 0);
+    assert_eq!(po["hv_first_cross_known"], 2);
+    assert_eq!(po["hv_first_cross_found"], 2);
+    // выходы берут оба срабатывания
+    assert_eq!(m["exits"]["triggers"], 2);
+    let ex = table(&out.join("exits-test.csv"));
+    assert_eq!(ex.iter().filter(|r| r["cfg"] == "0").count(), 2);
+    // таблицы лагов, «первых» признаков и прогресса — только заголовки (C2b не используется); эпизоды — как без флагов
+    for f in ["lags-test.csv", "first-test.csv", "progress-test.csv"] {
+        let text = fs::read_to_string(out.join(f)).unwrap();
+        assert_eq!(text.lines().count(), 1, "{f}: ждали только заголовок");
+    }
+    assert_eq!(m["c2b_moments"], 0);
+    assert_eq!(m["episodes"], 1);
+    let cache = dir.path().join("cache");
+    let plain = go(
+        dir.path(),
+        "plain",
+        &cache,
+        PlayArgs::default(),
+        &Opt::base(),
+    );
+    tables_equal(&out, &plain, &["episodes-test.csv", "xd.csv"]);
+}
+
+#[test]
+fn onset_run_without_ignition_is_all_miss_and_lead_is_nan() {
+    let (_d, out) = run_one(&pump_hl(&[]), "calm", &Opt::base());
+    let rows = trig(&out);
+    assert_eq!(rows.len(), 2, "тишина везде: оба срабатывания оставлены");
+    for r in &rows {
+        assert!(r["lead_hv_min"].parse::<f64>().unwrap().is_nan(), "{r:?}");
+    }
+    for fam in ["0", "1"] {
+        for hi in ["0", "1"] {
+            let t = cell(&out, fam, hi);
+            assert_eq!((t[0], t[1]), (1.0, 0.0), "fam {fam} hi {hi}");
+            assert_eq!(t[3], 0.0, "в контроле тоже нет воспламенений");
+        }
+    }
+    let po = jmeta(&out)["play_onset"].clone();
+    assert_eq!(po["triggers_dropped_not_quiet"], 0);
+    assert_eq!(po["hv_first_cross_known"], 2);
+    assert_eq!(po["hv_first_cross_found"], 0);
+    approx(po["hv_first_cross_share"].as_f64().unwrap(), 0.0, 0.0);
+}
+
+#[test]
+fn onset_lead_window_is_1440_minutes() {
+    // F1 в 14945: всплеск в 16385 (ровно +1440) — lead 1440; в 16386 — NaN. F3 (15000): +1385 и +1386
+    let (_d, out) = run_one(&pump_hl(&[(16_385, 1)]), "l1440", &Opt::base());
+    let by = |rows: &[Row], fam: &str| {
+        rows.iter()
+            .find(|r| r["fam"] == fam)
+            .map(|r| r["lead_hv_min"].clone())
+            .unwrap()
+    };
+    let rows = trig(&out);
+    assert_eq!(
+        (by(&rows, "0"), by(&rows, "1")),
+        ("1440".into(), "1385".into())
+    );
+    let (_d2, out2) = run_one(&pump_hl(&[(16_386, 1)]), "l1441", &Opt::base());
+    let rows2 = trig(&out2);
+    assert!(by(&rows2, "0").parse::<f64>().unwrap().is_nan());
+    assert_eq!(by(&rows2, "1"), "1386");
+}
+
+#[test]
+fn onset_label_is_no_data_when_the_window_leaves_the_grid() {
+    // памп в 17150 (данные до 17279): F1 в 17095, F3 в 17150. F3 при H = 180: окно [17151, 17330] за краем — NoData
+    let c = lit(pump_contract(17_280, &[17_150]), bursts(&[]));
+    let (_d, out) = run_one(&c, "edge", &Opt::base());
+    let rows = trig(&out);
+    assert_eq!(rows.len(), 2, "NoData строку выгрузки не убирает");
+    let n = |fam: &str, hi: &str| cell(&out, fam, hi)[0];
+    assert_eq!((n("0", "0"), n("0", "1")), (1.0, 1.0));
+    assert_eq!((n("1", "0"), n("1", "1")), (1.0, 0.0));
+    // исход «наступила ли hv за 1440» неизвестен: окна за краем данных
+    let po = jmeta(&out)["play_onset"].clone();
+    assert_eq!(po["hv_first_cross_known"], 0);
+    assert!(po["hv_first_cross_share"].is_null());
+}
+
+#[test]
+fn onset_controls_are_quiet_and_outside_the_trigger_zone() {
+    let p = test_params("[90]");
+    // один посторонний всплеск далеко от срабатывания F1 (14945); пул тихих слотов широк
+    let c = pump_hl(&[(3_000, 1)]);
+    let cf = c.close_ff();
+    let play = Play::build(&c, &cf, onset_cfg(1.0, 30), 360, [NAN; 2]);
+    let cube = feat::build_cube(&c, &p, 1);
+    let eps = [Episode {
+        di: 0,
+        sign: 1,
+        t0: T0 as i64,
+        t_end: T0 as i64 + 90,
+        mv: 0.0909,
+        flags: 0,
+    }];
+    let xd = XdTable { x: vec![[XD, XD]] };
+    let rules = [Rule {
+        fam: 0,
+        wi: 0,
+        ti: 0,
+    }];
+    let keep = |t: i64| (1440..17_280).contains(&t);
+    let mut masked = cube.clone();
+    mask_r_with(&mut masked, &keep, Some(&play));
+    let inp = control::Input {
+        sym: "ABCUSDT",
+        cube: &masked,
+        cf: &cf,
+        first_min: 0,
+        eps: &eps,
+    };
+    // зона = L_quiet + max H (в этих параметрах H = 90, 180)
+    let zone = 360 + 180;
+    let label = |t: i64, s: i8, hi: usize| {
+        if s == 0 {
+            Label::NoData
+        } else {
+            play.onset_label(t, [90u32, 180][hi])
+        }
+    };
+    let mut rows = Vec::new();
+    let dropped = control::c2a_moments_custom(
+        &inp,
+        &rules,
+        &p,
+        SEED,
+        true,
+        zone,
+        &label,
+        |r| feat::first_triggers(&masked, r, &p),
+        |row, moms| rows.push((row.t_f, row.c2a_drawn, moms.to_vec())),
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    let (t_f, drawn, moms) = &rows[0];
+    assert_eq!((*t_f, *drawn as usize), (14_945, 10));
+    assert!(dropped > 0, "в зоне срабатывания были кандидаты пула");
+    for &j in moms {
+        let t = slot_t(&masked, j as usize);
+        assert!(play.quiet_at(t), "момент {t} не тихий");
+        assert!(
+            (t - t_f).abs() > zone,
+            "момент {t} в зоне срабатывания {t_f} ± {zone}"
+        );
+    }
+    // контроль теста: без зоны моменты из окна срабатывания попадаются
+    let mut inside = 0usize;
+    for seed in 1..=30u64 {
+        control::c2a_moments_with(
+            &inp,
+            &rules,
+            &xd,
+            &p,
+            seed,
+            true,
+            |r| feat::first_triggers(&masked, r, &p),
+            |_, ms| {
+                inside += ms
+                    .iter()
+                    .filter(|&&j| (slot_t(&masked, j as usize) - 14_945).abs() <= zone)
+                    .count();
+            },
+        )
+        .unwrap();
+    }
+    assert!(
+        inside > 0,
+        "без зоны контроль делит событие с срабатыванием"
+    );
+}
+
+#[test]
+fn onset_lift_is_high_for_an_informative_rule_and_about_one_for_noise() {
+    let mut o = Opt::base();
+    o.rules = vec![(0, 0, 0)];
+    o.dump = false;
+    // информативный: везде воспламенение через 30 минут после F1; посторонние всплески далеко от срабатывания
+    let dir = tempfile::tempdir().unwrap();
+    let inf: Vec<(String, Contract)> = (0..10)
+        .map(|k| {
+            (
+                format!("I{k:02}USDT"),
+                pump_hl(&[(3_000, 1), (8_000, 1), (14_975, 1)]),
+            )
+        })
+        .collect();
+    let refs: Vec<(&str, &Contract)> = inf.iter().map(|(s, c)| (s.as_str(), c)).collect();
+    let cache = caches(dir.path(), &refs);
+    let out = go(dir.path(), "inf", &cache, onset_args(), &o);
+    let [n, hit, bn, bhit] = cell(&out, "0", "0");
+    assert_eq!((n, hit), (10.0, 10.0));
+    assert!(bn >= 80.0, "контролей {bn}");
+    let (prec, base) = (hit / n, bhit / bn);
+    assert!(base < 0.1, "база {base}");
+    assert!(prec / base.max(1e-9) > 10.0, "lift {}", prec / base);
+
+    // шум: всплески раз в 1000 минут, фаза у каждого контракта своя (шаг 20), срабатывание F1 в 14945 всегда
+    let dir2 = tempfile::tempdir().unwrap();
+    let noise: Vec<(String, Contract)> = (0..50usize)
+        .map(|k| {
+            let parts: Vec<(usize, usize)> = (0..)
+                .map(|j| (20 * k + 1000 * j, 1))
+                .take_while(|&(s, _)| s < 17_280)
+                .collect();
+            (format!("N{k:02}USDT"), pump_hl(&parts))
+        })
+        .collect();
+    let refs2: Vec<(&str, &Contract)> = noise.iter().map(|(s, c)| (s.as_str(), c)).collect();
+    let cache2 = caches(dir2.path(), &refs2);
+    let out2 = go(dir2.path(), "noise", &cache2, onset_args(), &o);
+    let [n2, hit2, bn2, bhit2] = cell(&out2, "0", "0");
+    // тихие: фазы 0…540 и 960, 980 (30 из 50); попадания (hv в [14946, 15035]): фазы 960, 980, 0, 20
+    assert_eq!((n2, hit2), (30.0, 4.0));
+    let po = jmeta(&out2)["play_onset"].clone();
+    assert_eq!(po["triggers_before"], 50);
+    assert_eq!(po["triggers_dropped_not_quiet"], 20);
+    assert!(bn2 >= 250.0, "контролей {bn2}");
+    let lift = (hit2 / n2) / (bhit2 / bn2);
+    assert!(
+        lift > 0.4 && lift < 2.5,
+        "шум: lift {lift} (precision {}, база {})",
+        hit2 / n2,
+        bhit2 / bn2
+    );
+}
+
+#[test]
+fn onset_run_is_the_same_for_one_and_four_threads() {
+    let dir = tempfile::tempdir().unwrap();
+    let noise: Vec<(String, Contract)> = (0..4usize)
+        .map(|k| {
+            let parts: Vec<(usize, usize)> = (0..)
+                .map(|j| (100 * k + 200 + 1000 * j, 1))
+                .take_while(|&(s, _)| s < 17_280)
+                .collect();
+            (format!("Z{k}USDT"), pump_hl(&parts))
+        })
+        .collect();
+    let mut items: Vec<(&str, &Contract)> = noise.iter().map(|(s, c)| (s.as_str(), c)).collect();
+    let (a30, b200, calm) = (
+        pump_hl(&[(14_975, 1)]),
+        pump_hl(&[(15_145, 1)]),
+        pump_hl(&[]),
+    );
+    items.extend([("AAAUSDT", &a30), ("BBBUSDT", &b200), ("CCCUSDT", &calm)]);
+    let cache = caches(dir.path(), &items);
+    let mut o = Opt::base();
+    o.exits = true;
+    o.threads = 1;
+    let a = go(dir.path(), "t1", &cache, onset_args(), &o);
+    o.threads = 4;
+    let b = go(dir.path(), "t4", &cache, onset_args(), &o);
+    let mut names: Vec<&str> = TABLES.to_vec();
+    names.push("triggers-test.csv");
+    names.push("sample-coins-test.csv");
+    tables_equal(&a, &b, &names);
+    assert_eq!(jmeta(&a)["play_onset"], jmeta(&b)["play_onset"]);
+    assert_eq!(jmeta(&a)["sample_filter"], jmeta(&b)["sample_filter"]);
+    assert!(trig(&a).len() >= 8, "непустая выгрузка: {}", trig(&a).len());
+}
+
+#[test]
+fn onset_qualification_does_not_depend_on_data_after_t_f() {
+    // два контракта различаются только всплеском в 15100 — после обоих срабатываний (14945 и 15000)
+    let calm = pump_hl(&[]);
+    let late = pump_hl(&[(15_100, 1)]);
+    let (_d1, a) = run_one(&calm, "ua", &Opt::base());
+    let (_d2, b) = run_one(&late, "ub", &Opt::base());
+    let key = |r: &Row| {
+        [
+            "sym",
+            "fam",
+            "wi",
+            "ti",
+            "sign",
+            "t_f",
+            "natr_pct",
+            "ok_long",
+            "ok_short",
+            "first_phase",
+        ]
+        .iter()
+        .map(|k| r[*k].clone())
+        .collect::<Vec<_>>()
+    };
+    let (ra, rb): (Vec<_>, Vec<_>) = (
+        trig(&a).iter().map(key).collect(),
+        trig(&b).iter().map(key).collect(),
+    );
+    assert_eq!(ra.len(), 2);
+    assert_eq!(
+        ra, rb,
+        "квалификация срабатываний зависит от данных после t_f"
+    );
+    assert_eq!(
+        jmeta(&a)["play_onset"]["triggers_dropped_not_quiet"],
+        jmeta(&b)["play_onset"]["triggers_dropped_not_quiet"]
+    );
+    // а метка смотрит вперёд: F3 (15000) при H = 180 попадает в [15001, 15180] только во втором контракте
+    let (t_a, t_b) = (cell(&a, "1", "1"), cell(&b, "1", "1"));
+    assert_eq!((t_a[1], t_b[1]), (0.0, 1.0));
+    // на уровне масок: правка всех данных после cut не меняет тишину и ворота до cut (hv только [100, 129])
+    let base = with_w(vec![100.0; 1500], bursts(&[(100, 1)]));
+    let cut = 1000usize;
+    let mut tampered = base.clone();
+    tamper(&mut tampered, cut, &mut Lcg(9), 0.4);
+    let pa = Play::build(&base, &base.close_ff(), onset_cfg(1.0, 30), 360, [NAN; 2]);
+    let pb = Play::build(
+        &tampered,
+        &tampered.close_ff(),
+        onset_cfg(1.0, 30),
+        360,
+        [NAN; 2],
+    );
+    for m in 0..cut as i64 {
+        assert_eq!(pa.quiet_at(m), pb.quiet_at(m), "quiet, m = {m}");
+        assert_eq!(pa.gate(m, 1), pb.gate(m, 1), "gate, m = {m}");
+    }
+    assert!(
+        (cut as i64..1500).any(|m| pa.quiet_at(m) != pb.quiet_at(m)),
+        "правка данных после cut должна менять поздние значения"
+    );
+}
+
+#[test]
+fn onset_flags_parse_and_validate() {
+    let get = |args: &[&str]| -> anyhow::Result<Option<PlayCfg>> {
+        let mut v = vec!["t"];
+        v.extend_from_slice(args);
+        W::try_parse_from(v)?.a.cfg()
+    };
+    // умолчание — прежняя цель
+    assert_eq!(W::try_parse_from(["t"]).unwrap().a.target, Target::Move);
+    let ok = get(&[
+        "--target",
+        "play-onset",
+        "--hv-natr-pct",
+        "1",
+        "--hv-n",
+        "30",
+    ])
+    .unwrap()
+    .unwrap();
+    assert!(ok.onset && ok.hv.is_some() && !ok.no_reversal && !ok.first_phase);
+    let mv = get(&["--target", "move", "--hv-natr-pct", "1", "--hv-n", "30"])
+        .unwrap()
+        .unwrap();
+    assert!(!mv.onset);
+    // порог волатильности обязателен
+    let e = get(&["--target", "play-onset"]).unwrap_err();
+    assert!(format!("{e:#}").contains("--hv-natr-pct"), "{e:#}");
+    // откуп и «минута перехода» с тишиной несовместимы
+    let base = [
+        "--target",
+        "play-onset",
+        "--hv-natr-pct",
+        "1",
+        "--hv-n",
+        "30",
+    ];
+    for extra in ["--no-reversal", "--hv-first-phase"] {
+        let mut a = base.to_vec();
+        a.push(extra);
+        let e = get(&a).unwrap_err();
+        assert!(format!("{e:#}").contains(extra), "{extra}: {e:#}");
+    }
+    assert!(W::try_parse_from(["t", "--target", "bogus"]).is_err());
 }
