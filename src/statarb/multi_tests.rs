@@ -136,3 +136,33 @@ fn multi_rejects_mixed_groups() {
     assert!(run_pair_multi(&inp, &[], &mut [(); 0]).is_err());
     assert!(run_pair_multi(&inp, &[a], &mut [(), ()]).is_err());
 }
+
+/// Многоклеточный проход не умеет задержку ноги X и правило фандинга: такие клетки он отклоняет, а не считает молча по z.
+#[test]
+fn multi_rejects_delay_x_and_funding_rule() {
+    let (ly, lx, oy, ox) = (vec![0.0; 10], vec![0.0; 10], vec![1.0; 10], vec![1.0; 10]);
+    let inp = PairInput {
+        first_min: 0,
+        ly: &ly,
+        lx: &lx,
+        oy: &oy,
+        ox: &[&ox],
+        wx: &[1.0],
+        fund_y: &[],
+        fund_x: &[],
+    };
+    let a = params(BetaMode::Ols, LegKind::Perp, LegKind::Perp);
+    assert!(run_pair_multi(&inp, &[a], &mut [()]).is_ok());
+    let delayed = Params { delay_x: 1, ..a };
+    assert!(run_pair_multi(&inp, &[delayed], &mut [()]).is_err());
+    let funding = Params {
+        rule: Rule::Funding {
+            k: 3,
+            hold_payments: 6,
+        },
+        ..a
+    };
+    assert!(run_pair_multi(&inp, &[funding], &mut [()]).is_err());
+    // одна непригодная клетка в группе отклоняет всю группу
+    assert!(run_pair_multi(&inp, &[a, delayed], &mut [(), ()]).is_err());
+}
