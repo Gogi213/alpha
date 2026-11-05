@@ -178,6 +178,7 @@ fn args(
         exits: false,
         exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
+        dump_features: false,
         play: PlayArgs::default(),
     }
 }

@@ -33,6 +33,25 @@
 //! 8. **Цель `play-onset`** (`run --target play-onset`): после `PLAY_COLS` добавлен `lead_hv_min` (`ONSET_COL`) — минут от
 //!    `t_f` до первой минуты `hv_state` в `[t_f + 1, t_f + 1440]`, иначе `NaN`. Это исход (смотрит вперёд), не признак.
 //!
+//! 9. **Признаки направления** (`run --dump-features`, требует `--dump-triggers`; `FEATURE_COLS`): 23 столбца в КОНЦЕ
+//!    строки (после `PLAY_COLS`/`ONSET_COL`, если они есть); без флага схема и байты прежние. Только данные `≤ t_f`
+//!    (проверка — тест «данные после t_f не меняют признаки»):
+//!    * `z_f1…z_f10` — `cube.z` признаков F1…F10 (индексы 0..9, в том числе F2) окна правила строки (`wi`) в слоте
+//!      `t_f/5`; `NaN` — не определён; `±inf` — `MAD = 0` (допущение 10 `feat.rs`), пишется как `inf`/`-inf`. Куб хранит
+//!      `f32` — пишется кратчайшая запись этого `f32`;
+//!    * `r_w_bps = ln(c[t_f]/c[t_f − w])·1e4` по `close_ff` для окна правила (то же, что `cube.r`, но в `f64`; знак — источник
+//!      `sign`; на `sign` НЕ умножен);
+//!    * уровни OI-колонок на слоте `u = t_f/5 − oi_lag` (тот же сдвиг, что в кубе), без переноса значения через дыру —
+//!      дыра или слот вне ряда дают `NaN`: `oi_value` — `open_interest_value` (в $), `taker_ratio` —
+//!      `sum_taker_long_short_vol_ratio`, `top_count_ratio` — `count_toptrader_long_short_ratio`, `top_sum_ratio` —
+//!      `sum_toptrader_long_short_ratio`, `global_ratio` — `count_long_short_ratio` (колонки F5…F8 куба);
+//!    * `doi_60_pct = ln(OI_u / OI_{u−12})·100` — рост `open_interest` (в контрактах, как F1; рост в $ смешал бы его с ходом
+//!      цены) за час; `NaN`, если любой из двух слотов — дыра или `≤ 0`;
+//!    * `d_taker_60`, `d_top_count_60`, `d_top_sum_60`, `d_global_60` — уровень соотношения в слоте `u` минус он же в слоте
+//!      `u − 12` (60 минут назад); `NaN`, если любой из двух слотов — дыра;
+//!    * `funding_rate` — ставка последней выплаты с минутой `≤ t_f` (`Contract::funding`, как F10 куба; нет ни одной —
+//!      `NaN`), `funding_age_min = t_f − минута этой выплаты`.
+//!
 //! Детерминизм: поток накапливает срабатывания контракта, сортирует по `(t_f, fam, wi, ti, sign)` и пишет текст
 //! в память; `write` склеивает контракты по алфавиту имён — байты не зависят от числа потоков.
 
@@ -49,7 +68,7 @@ use super::cli::load_contract;
 use super::control::{sign_of, slot_t, yyyymm, TriggerRow};
 use super::play::{Play, LEAD_MAX_MIN};
 use super::run::{clip_contract, day_of_min};
-use super::types::{Cube, Rule};
+use super::types::{Cube, Rule, NF};
 use crate::statarb::panel::{GRID0_MS, MINUTE_MS};
 use anyhow::{Context, Result};
 use std::fs::File;
@@ -97,6 +116,25 @@ pub const PLAY_COLS: &str = "natr_pct,ok_long,ok_short,first_phase";
 /// Столбец цели `play-onset` (после `PLAY_COLS`): минут от `t_f` до первой минуты `hv_state` в `[t_f + 1, t_f + 1440]`
 /// (`play::LEAD_MAX_MIN`), `NaN`, если её там нет. Смотрит вперёд (исход, не признак момента).
 pub const ONSET_COL: &str = "lead_hv_min";
+
+/// Столбцы признаков направления (`run --dump-features`): в самый конец строки, после `PLAY_COLS` и `ONSET_COL`
+/// (порядок = порядок записи в `Collector::write_feats`; смысл — допущение 9 шапки модуля).
+pub const FEATURE_COLS: &str = "z_f1,z_f2,z_f3,z_f4,z_f5,z_f6,z_f7,z_f8,z_f9,z_f10,r_w_bps,\
+oi_value,taker_ratio,top_count_ratio,top_sum_ratio,global_ratio,doi_60_pct,\
+funding_rate,funding_age_min,d_taker_60,d_top_count_60,d_top_sum_60,d_global_60";
+
+/// Колонки `Contract::oi` (порядок `cache::OI_COLS`; тесты признаков находят колонки по именам): `open_interest`,
+/// `open_interest_value`, соотношения top-trader по числу и по объёму, global по числу, taker по объёму.
+const OI_QTY: usize = 0;
+const OI_USD: usize = 1;
+const OI_TOP_COUNT: usize = 2;
+const OI_TOP_SUM: usize = 3;
+const OI_GLOBAL: usize = 4;
+const OI_TAKER: usize = 5;
+/// Соотношения в порядке столбцов выгрузки: taker, top count, top sum, global.
+const RATIO_COLS: [usize; 4] = [OI_TAKER, OI_TOP_COUNT, OI_TOP_SUM, OI_GLOBAL];
+/// Час в слотах OI (`60 / SLOT_MIN`) — шаг `doi_60_pct` и `d_*_60` (60 минут из ТЗ).
+const HOUR_SLOTS: i64 = 60 / SLOT_MIN;
 
 // ---------- время ----------
 
@@ -214,6 +252,15 @@ fn gross(cf: &[f64], first_min: i64, e_min: i64, h: usize, side: f64) -> f64 {
     )
 }
 
+/// Значение колонки `col` OI на слоте `u` (абсолютный индекс слота от `GRID0_MS`) или `NaN`: дыра, слот вне ряда.
+fn oi_at(c: &Contract, col: usize, u: i64) -> f64 {
+    usize::try_from(u - c.oi_first_slot)
+        .ok()
+        .and_then(|k| c.oi[col].get(k).copied())
+        .filter(|x| x.is_finite())
+        .unwrap_or(f64::NAN)
+}
+
 /// Эталон для `btc_*`: `close_ff` `ref_symbol`, усечённый так же, как контракты стадии.
 #[derive(Debug, Default)]
 pub struct Shared {
@@ -307,6 +354,16 @@ struct Common {
     btc_prev60: f64,
     btc_next360: f64,
     ext: Option<Extremes>,
+    /// Готовый текст (с ведущими запятыми) столбцов признаков направления, общих для правил и сторон момента, — от
+    /// `oi_value` до `d_global_60` (`Collector::feats_text`); `None` — флага нет. Строки одного `t_f` идут подряд —
+    /// форматирование чисел один раз на момент, а не на строку.
+    feats: Option<Vec<u8>>,
+}
+
+/// Настройки `--dump-features` контракта: сдвиг OI в слотах (`--oi-lag`) и ставки фандинга по возрастанию минуты.
+struct FeatCfg {
+    oi_lag: i64,
+    fund: Vec<(i64, f64)>,
 }
 
 /// Накопитель срабатываний одного контракта.
@@ -319,6 +376,8 @@ pub struct Collector<'a> {
     items: Vec<Item>,
     /// Маски выборки «в игре»: есть — к строке добавляются `PLAY_COLS`.
     play: Option<&'a Play>,
+    /// Настройки признаков направления: есть — в конец строки добавляются `FEATURE_COLS`.
+    feat: Option<FeatCfg>,
 }
 
 impl<'a> Collector<'a> {
@@ -337,12 +396,28 @@ impl<'a> Collector<'a> {
             cube,
             items: Vec::new(),
             play: None,
+            feat: None,
         }
     }
 
     /// Дописывать столбцы `PLAY_COLS` (`None` — схема прежняя).
     pub fn with_play(mut self, play: Option<&'a Play>) -> Collector<'a> {
         self.play = play;
+        self
+    }
+
+    /// Дописывать в конец строки `FEATURE_COLS`; `Some(сдвиг OI в слотах)` — `--oi-lag` прогона (тот же, что у куба),
+    /// `None` — схема прежняя.
+    pub fn with_features(mut self, oi_lag: Option<u32>) -> Collector<'a> {
+        let c = self.c;
+        self.feat = oi_lag.map(|lag| {
+            let mut fund = c.funding.clone();
+            fund.sort_by_key(|&(m, _)| m);
+            FeatCfg {
+                oi_lag: i64::from(lag),
+                fund,
+            }
+        });
         self
     }
 
@@ -450,7 +525,46 @@ impl<'a> Collector<'a> {
             btc_prev60: ln_bps(self.sh.at(t_f), self.sh.at(t_f - W_BTC_PREV)),
             btc_next360: ln_bps(self.sh.at(e + W_BTC_NEXT), self.sh.at(e)),
             ext,
+            feats: self.feats_text(t_f),
         }
+    }
+
+    /// Столбцы признаков направления момента `t_f`, общие для правил и сторон (допущение 9 шапки): уровни OI на слоте
+    /// `t_f/5 − oi_lag`, рост OI и изменения соотношений за час, последняя ставка фандинга — текстом в порядке
+    /// `FEATURE_COLS` после `r_w_bps`; `None` — флага нет. Только данные `≤ t_f`: слот OI `t_f/5 − oi_lag` (сдвиг ≥ 0)
+    /// кончается не позже `t_f`, ставка фандинга — с минутой `≤ t_f`.
+    fn feats_text(&self, t_f: i64) -> Option<Vec<u8>> {
+        let cfg = self.feat.as_ref()?;
+        let c = self.c;
+        let u = t_f.div_euclid(SLOT_MIN) - cfg.oi_lag;
+        let level = |col: usize| oi_at(c, col, u);
+        let hour_ago = |col: usize| oi_at(c, col, u - HOUR_SLOTS);
+        // `NaN` в любом из двух слотов даёт `NaN`
+        let delta = |col: usize| level(col) - hour_ago(col);
+        let (now, ago) = (level(OI_QTY), hour_ago(OI_QTY));
+        let doi_60_pct = if now > 0.0 && ago > 0.0 {
+            (now / ago).ln() * 100.0
+        } else {
+            f64::NAN
+        };
+        // последняя выплата с минутой ≤ t_f (при равных минутах — последняя в порядке файла, как `feat::fill_fund`)
+        let k = cfg.fund.partition_point(|&(m, _)| m <= t_f);
+        let (funding_rate, funding_age_min) = match k.checked_sub(1).and_then(|k| cfg.fund.get(k)) {
+            Some(&(m, r)) => (if r.is_finite() { r } else { f64::NAN }, (t_f - m) as f64),
+            None => (f64::NAN, f64::NAN),
+        };
+        let mut out = Vec::with_capacity(12 * 18);
+        put_f(&mut out, level(OI_USD));
+        for col in RATIO_COLS {
+            put_f(&mut out, level(col));
+        }
+        for x in [doi_60_pct, funding_rate, funding_age_min] {
+            put_f(&mut out, x);
+        }
+        for col in RATIO_COLS {
+            put_f(&mut out, delta(col));
+        }
+        Some(out)
     }
 
     /// Текст строк контракта (без заголовка), в порядке `(t_f, fam, wi, ti, sign)`.
@@ -469,7 +583,9 @@ impl<'a> Collector<'a> {
                 *r = l * l;
             }
         }
-        let mut out = Vec::with_capacity(self.items.len() * 900);
+        // оценка байт на строку (только ёмкость буфера): 49 столбцов ≈ 900, с признаками направления ещё 23 ≈ +350
+        let row_bytes = if self.feat.is_some() { 1_250 } else { 900 };
+        let mut out = Vec::with_capacity(self.items.len() * row_bytes);
         let mut cur: Option<(i64, Common)> = None;
         for it in &self.items {
             if cur.as_ref().map(|c| c.0) != Some(it.t_f) {
@@ -554,13 +670,44 @@ impl<'a> Collector<'a> {
                 );
             }
         }
+        if let Some(common) = &cm.feats {
+            self.write_feats(out, it, common);
+        }
         out.push(b'\n');
+    }
+
+    /// `FEATURE_COLS` строки: `z_f1…z_f10` и `r_w_bps` — для окна правила строки, остальное (`common`) — общее для момента.
+    fn write_feats(&self, out: &mut Vec<u8>, it: &Item, common: &[u8]) {
+        let (cube, wi) = (self.cube, usize::from(it.rule.wi));
+        // слот `t_f` в кубе; нет (вне куба, нет окна `wi`) — `NaN`, как «не определено»
+        let slot = usize::try_from(it.t_f.div_euclid(SLOT_MIN) - cube.slot0)
+            .ok()
+            .filter(|&i| i < cube.n && wi < cube.windows.len());
+        for f in 0..NF {
+            put_z(out, slot.map_or(f32::NAN, |i| cube.zat(f, wi, i)));
+        }
+        let (fm, cf) = (self.c.first_min, self.cf);
+        put_f(
+            out,
+            cube.windows.get(wi).map_or(f64::NAN, |&w| {
+                ln_bps(
+                    price_at(cf, fm, it.t_f),
+                    price_at(cf, fm, it.t_f - i64::from(w)),
+                )
+            }),
+        );
+        out.extend_from_slice(common);
     }
 }
 
 /// Число через запятую; `-0` пишется как `0`, `NaN` — как `NaN`.
 fn put_f(out: &mut Vec<u8>, x: f64) {
     let _ = write!(out, ",{}", x + 0.0);
+}
+
+/// z куба (`f32`) через запятую: кратчайшая запись самого `f32`; `-0` — как `0`, `NaN` — `NaN`, `±inf` — `inf`/`-inf`.
+fn put_z(out: &mut Vec<u8>, z: f32) {
+    let _ = write!(out, ",{}", z + 0.0);
 }
 
 fn put_k(out: &mut Vec<u8>, k: Option<usize>) {

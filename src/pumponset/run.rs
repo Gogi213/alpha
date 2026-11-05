@@ -51,6 +51,9 @@
 //!     `progress` не считаются: `lags`/`first`/`progress` пишутся только с заголовком, в `run-meta.json` — блок
 //!     `play_onset`. Эпизоды ищутся и пишутся в `episodes-<stage>.csv` как без флагов (фильтр выборки к ним не применяется).
 //!     Выходы и выгрузка берут те же срабатывания (вход `c[t_f+1]` раньше воспламенения), в выгрузке добавлен `lead_hv_min`.
+//! 14. **Признаки направления в выгрузке** (`--dump-features`, требует `--dump-triggers`; `dump.rs`, допущение 9): 23 столбца
+//!     в конце строки `triggers-<stage>.csv` (z F1…F10 окна правила, `r_w_bps`, уровни и изменения OI-соотношений, фандинг),
+//!     сдвиг OI — `--oi-lag`, как у куба. Без флага выгрузка и все таблицы прежние байт в байт.
 
 #![allow(
     // индексы ограничены размерами плотных массивов, заданных `Layout`; бюджет линтов (TK-211) не растим
@@ -160,6 +163,10 @@ pub struct RunArgs {
     /// (`dump.rs`); без флага прогон и его таблицы прежние.
     #[arg(long)]
     pub dump_triggers: bool,
+    /// К выгрузке `--dump-triggers` — признаки направления на момент `t_f` в конце строки (`dump::FEATURE_COLS`: z F1…F10
+    /// окна правила, `r_w_bps`, уровни и изменения OI-соотношений, фандинг); без флага схема `triggers-<stage>.csv` прежняя.
+    #[arg(long, requires = "dump_triggers")]
+    pub dump_features: bool,
     /// Выборка «монеты в игре» (`play.rs`, слова владельца 05.11): NATR-фильтр, без откупов, первая фаза. Без флагов —
     /// прогон и таблицы прежние; с ними — блок `sample_filter` в `run-meta.json` и `sample-coins-<stage>.csv`.
     /// `--target play-onset` — другая цель метки (вход в игру после тишины), блок `play_onset` в `run-meta.json`.
@@ -592,6 +599,8 @@ struct Run<'a> {
     exits_units: Option<usize>,
     /// Эталон `btc_*` выгрузки срабатываний (`--dump-triggers`); `None` — выгрузки нет.
     dump: Option<dump::Shared>,
+    /// Признаки направления в выгрузке (`--dump-features`, только вместе с `dump`).
+    dump_features: bool,
     /// Выборка «монеты в игре» (`play.rs`); `None` — фильтра нет. `x360` — `[вверх, вниз]` порога `X_360` (с откупом).
     play: Option<PlayCfg>,
     x360: [f64; 2],
@@ -1149,10 +1158,11 @@ fn process(
         ex.cnt.secs += t.elapsed().as_secs_f64();
     }
     let gap0 = agg.cnt.trades_funding_gap;
-    let mut dc = rn
-        .dump
-        .as_ref()
-        .map(|sh| dump::Collector::new(sh, sym, &c, &cf, &cube).with_play(play.as_ref()));
+    let mut dc = rn.dump.as_ref().map(|sh| {
+        dump::Collector::new(sh, sym, &c, &cf, &cube)
+            .with_play(play.as_ref())
+            .with_features(rn.dump_features.then_some(rn.oi_lag))
+    });
     // цель `play-onset`: сколько срабатываний осталось без контролей или с недобором (в `run-meta.json`)
     let mut ctl = FilterCnt::default();
     {
@@ -1370,6 +1380,11 @@ pub fn run(a: RunArgs) -> Result<()> {
     let params_sha256 = hex(&sha.finalize());
     control::check_label_d(&p)?;
     let play_cfg = a.play.cfg()?;
+    // `requires` в clap ловит это при разборе командной строки; здесь — для вызова структурой
+    ensure!(
+        !a.dump_features || a.dump_triggers,
+        "--dump-features требует --dump-triggers"
+    );
     if play_cfg.is_some_and(|c| c.no_reversal) {
         play::reversal_di(&p)?;
     }
@@ -1451,6 +1466,7 @@ pub fn run(a: RunArgs) -> Result<()> {
         exits: a.exits,
         exits_units,
         dump: None,
+        dump_features: a.dump_features,
         play: play_cfg,
         x360: [f64::NAN; 2],
     };
@@ -1608,12 +1624,19 @@ pub fn run(a: RunArgs) -> Result<()> {
         ex.write_grid(&out.join("exits-grid.csv"))?;
     }
     if rn.dump.is_some() {
-        // столбцы выборки «в игре» — только с флагами; `lead_hv_min` — только в цели `play-onset`
-        let extra = match &rn.play {
+        // столбцы выборки «в игре» — только с флагами; `lead_hv_min` — только в цели `play-onset`; признаки направления
+        // (`--dump-features`) — последними
+        let mut extra = match &rn.play {
             None => String::new(),
             Some(c) if c.onset => format!("{},{}", dump::PLAY_COLS, dump::ONSET_COL),
             Some(_) => dump::PLAY_COLS.to_string(),
         };
+        if rn.dump_features {
+            if !extra.is_empty() {
+                extra.push(',');
+            }
+            extra.push_str(dump::FEATURE_COLS);
+        }
         dump::write_cols(
             &out.join(format!("triggers-{st}.csv")),
             &syms,

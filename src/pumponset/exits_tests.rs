@@ -788,6 +788,7 @@ fn args_run(
         exits,
         exits_units: UnitsArgs::default(),
         dump_triggers: false,
+        dump_features: false,
         play: PlayArgs::default(),
     }
 }

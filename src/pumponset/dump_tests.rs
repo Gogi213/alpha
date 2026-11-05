@@ -2,9 +2,11 @@
 //! волатильность, контекст, исходы, база), отсутствие утечки в будущее, детерминизм по потокам, число строк против
 //! `daycells`, сверка каждого столбца с прямым (наивным) расчётом на случайных контрактах.
 
-use super::cache::{write_contract, Contract};
+use super::cache::{write_contract, Contract, OI_COLS};
 use super::control::{self, sign_of, slot_t, TriggerRow};
-use super::dump::{nearest_level_bps, time_cols, Collector, Shared, DEC, HALF, HEADER, M125};
+use super::dump::{
+    nearest_level_bps, time_cols, Collector, Shared, DEC, FEATURE_COLS, HALF, HEADER, M125,
+};
 use super::episodes::find_episodes;
 use super::feat;
 use super::params::Params;
@@ -218,6 +220,7 @@ fn args(cache: &Path, params: &Path, out: &Path, stage: Stage, threads: usize) -
         exits: false,
         exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
+        dump_features: false,
         play: PlayArgs::default(),
     }
 }
@@ -718,6 +721,8 @@ fn run_dump(c: &Contract, rules: &[(u8, u8, u8)], threads: usize) -> Vec<Row> {
     a.rules = Some(rules_file(dir.path(), rules));
     a.xd = Some(xd_file(dir.path(), XD));
     a.dump_triggers = true;
+    // признаки направления включены: проверки утечки ниже сравнивают и их
+    a.dump_features = true;
     run(a).unwrap();
     table(&out.join("triggers-test.csv"))
 }
@@ -1088,10 +1093,17 @@ const DAY: i64 = 1440;
 const N_RAND: i64 = 14 * DAY;
 
 fn random_set(dir: &Path) -> (PathBuf, PathBuf) {
+    random_set_with(dir, &|_, _| {})
+}
+
+/// `random_set`; `edit(индекс контракта, контракт)` правит данные перед записью в кэш.
+fn random_set_with(dir: &Path, edit: &dyn Fn(usize, &mut Contract)) -> (PathBuf, PathBuf) {
     let cache = dir.join("cache");
     fs::create_dir_all(&cache).unwrap();
     for (i, sym) in SYMS.iter().enumerate() {
-        put(&cache, sym, &random_contract(11 + i as u64, 14));
+        let mut c = random_contract(11 + i as u64, 14);
+        edit(i, &mut c);
+        put(&cache, sym, &c);
     }
     let pj = dir.join("params.json");
     fs::write(&pj, params_json("2020-01", "2020-02", "[90]")).unwrap();
@@ -1099,10 +1111,22 @@ fn random_set(dir: &Path) -> (PathBuf, PathBuf) {
 }
 
 fn fit_run(dir: &Path, cache: &Path, pj: &Path, name: &str, threads: usize, dump: bool) -> PathBuf {
+    fit_run_with(dir, cache, pj, name, threads, (dump, false))
+}
+
+/// `fit_run`; `flags` — (`--dump-triggers`, `--dump-features`).
+fn fit_run_with(
+    dir: &Path,
+    cache: &Path,
+    pj: &Path,
+    name: &str,
+    threads: usize,
+    flags: (bool, bool),
+) -> PathBuf {
     let out = dir.join(name);
     let mut a = args(cache, pj, &out, Stage::Fit, threads);
     a.xd = Some(xd_file(dir, XD_RAND));
-    a.dump_triggers = dump;
+    (a.dump_triggers, a.dump_features) = flags;
     run(a).unwrap();
     out
 }
@@ -1510,4 +1534,581 @@ fn every_dump_column_matches_direct_calculation_on_random_contracts() {
     }
     assert!(longs > 0 && shorts > 0, "обе стороны: {longs} / {shorts}");
     assert!(full_path > 0, "нет строк с полным путём");
+}
+
+// ---------- признаки направления (`--dump-features`) ----------
+
+/// Первый слот и число слотов OI теста признаков: минуты 250…3749 (`t_f` вне диапазона дают `NaN`).
+const OI_SLOT0: i64 = 50;
+const OI_SLOTS: usize = 700;
+/// Окна куба теста: `r_w_bps` и z берутся для окна правила строки.
+const FZ_WINDOWS: [u32; 2] = [10, 60];
+/// Слот куба теста `t_f = 2000` (`slot0 = 8`): в нём особые z.
+const FZ_SLOT_2000: usize = 392;
+
+/// Индекс колонки OI по имени (порядок `cache::OI_COLS`): тест не знает номеров колонок из `dump.rs`.
+fn oi_col(name: &str) -> usize {
+    OI_COLS.iter().position(|n| *n == name).unwrap()
+}
+
+/// Линейный ряд колонки: основание и шаг на слот (у каждой колонки свои — путаница колонок видна).
+fn oi_line(name: &str) -> (f64, f64) {
+    match name {
+        "open_interest" => (1000.0, 2.0),
+        "open_interest_value" => (5.0e5, 100.0),
+        "count_toptrader_long_short_ratio" => (1.5, 0.01),
+        "sum_toptrader_long_short_ratio" => (2.5, 0.02),
+        "count_long_short_ratio" => (0.8, 0.005),
+        "sum_taker_long_short_vol_ratio" => (1.1, 0.03),
+        _ => unreachable!("колонка {name}"),
+    }
+}
+
+/// Дыры (колонка, слот): при `t_f = 2500` и сдвиге 1 слот `u` = 499, час назад — 487.
+const OI_HOLES: [(&str, i64); 4] = [
+    ("open_interest_value", 499),
+    ("count_toptrader_long_short_ratio", 499),
+    ("open_interest", 487),
+    ("sum_taker_long_short_vol_ratio", 487),
+];
+/// Слот с нулевым `open_interest`: при `t_f = 2900` час назад (567) — `ln` не определён.
+const OI_ZERO: (&str, i64) = ("open_interest", 567);
+
+/// Ожидаемое значение колонки `name` на слоте `u`: формула; `NaN` — дыра или слот вне ряда; 0 — слот нуля.
+fn oi_exp(name: &str, u: i64) -> f64 {
+    if !(OI_SLOT0..OI_SLOT0 + OI_SLOTS as i64).contains(&u) || OI_HOLES.contains(&(name, u)) {
+        return f64::NAN;
+    }
+    if (name, u) == OI_ZERO {
+        return 0.0;
+    }
+    let (base, step) = oi_line(name);
+    base + step * (u - OI_SLOT0) as f64
+}
+
+/// Выплаты фандинга теста (по возрастанию минуты).
+const PAYMENTS: [(i64, f64); 5] = [
+    (100, 1.0e-4),
+    (580, -2.0e-4),
+    (1060, 3.0e-4),
+    (2000, 5.0e-4),
+    (2480, 7.0e-4),
+];
+
+/// `(ставка, возраст)` последней выплаты с минутой `≤ t_f`; выплат ещё не было — `NaN`.
+fn fund_exp(t_f: i64) -> (f64, f64) {
+    PAYMENTS
+        .iter()
+        .rev()
+        .find(|p| p.0 <= t_f)
+        .map_or((f64::NAN, f64::NAN), |p| (p.1, (t_f - p.0) as f64))
+}
+
+/// `unit_contract` с рядами OI по формулам `oi_exp` и фандингом вперемешку (сборщик сортирует по минуте).
+fn feat_contract() -> Contract {
+    let mut c = unit_contract();
+    c.oi_first_slot = OI_SLOT0;
+    for (col, name) in OI_COLS.iter().enumerate() {
+        c.oi[col] = (OI_SLOT0..OI_SLOT0 + OI_SLOTS as i64)
+            .map(|u| oi_exp(name, u))
+            .collect();
+    }
+    c.funding = [3, 0, 4, 1, 2].iter().map(|&k| PAYMENTS[k]).collect();
+    c
+}
+
+/// z куба теста: `100·f + 10·wi + 0,25 + 0,001·i`; в слоте `t_f = 2000` окна 0 особые — `NaN`, `+inf`, `-inf`, `-0`.
+fn zexp(f: usize, wi: usize, i: usize) -> f32 {
+    if wi == 0 && i == FZ_SLOT_2000 {
+        match f {
+            2 => return f32::NAN,
+            3 => return f32::INFINITY,
+            4 => return f32::NEG_INFINITY,
+            5 => return -0.0,
+            _ => {}
+        }
+    }
+    (f * 100 + wi * 10) as f32 + 0.25 + i as f32 * 0.001
+}
+
+fn feat_cube() -> Cube {
+    let (n, slot0, nw) = (800usize, 8i64, FZ_WINDOWS.len());
+    let mut z = vec![0.0f32; NF * nw * n];
+    for f in 0..NF {
+        for wi in 0..nw {
+            for i in 0..n {
+                z[(f * nw + wi) * n + i] = zexp(f, wi, i);
+            }
+        }
+    }
+    Cube {
+        slot0,
+        n,
+        windows: FZ_WINDOWS.to_vec(),
+        z,
+        r: vec![f32::NAN; nw * n],
+        sigma: vec![f32::NAN; n],
+    }
+}
+
+fn zcell(r: &Row, col: &str) -> f32 {
+    r[col].parse().unwrap()
+}
+
+fn z_same(a: f32, b: f32) -> bool {
+    a == b || (a.is_nan() && b.is_nan())
+}
+
+/// Ожидаемое `doi_60_pct` по рядам `open_interest` слотов `u` и `u − 12`.
+fn doi_exp(u: i64) -> f64 {
+    let (now, ago) = (oi_exp("open_interest", u), oi_exp("open_interest", u - 12));
+    if now > 0.0 && ago > 0.0 {
+        (now / ago).ln() * 100.0
+    } else {
+        f64::NAN
+    }
+}
+
+/// Строки `(t_f, окно, знак)` теста признаков.
+const FZ_ROWS: [(i64, u8, i8); 8] = [
+    (2000, 0, -1),
+    (2000, 1, -1),
+    (1990, 0, 1),
+    (3000, 0, 1),
+    (50, 0, 1),
+    (2500, 0, 1),
+    (2900, 0, 1),
+    (3800, 0, 1),
+];
+
+/// Текст строк `Collector` для `FZ_ROWS`: `lag` — сдвиг OI (`Some`) или признаков нет (`None`).
+fn feat_bytes(lag: Option<u32>) -> Vec<u8> {
+    let (sh, c, cube) = (Shared::default(), feat_contract(), feat_cube());
+    let cf = c.close_ff();
+    let mut col = Collector::new(&sh, "XYZUSDT", &c, &cf, &cube).with_features(lag);
+    for &(t_f, wi, sign) in FZ_ROWS.iter().rev() {
+        col.add(&trig((0, wi, 0), t_f, sign, false), &[]);
+    }
+    col.finish()
+}
+
+fn feat_rows(lag: u32) -> Vec<Row> {
+    let bytes = feat_bytes(Some(lag));
+    rows_from(
+        &format!("{HEADER},{FEATURE_COLS}"),
+        std::str::from_utf8(&bytes).unwrap(),
+    )
+}
+
+fn row_at(rows: &[Row], t_f: i64, wi: u8) -> &Row {
+    rows.iter()
+        .find(|r| r["t_f"] == t_f.to_string() && r["wi"] == wi.to_string())
+        .unwrap_or_else(|| panic!("нет строки t_f {t_f} окно {wi}"))
+}
+
+/// Каждый столбец признаков каждой строки теста против формул (сдвиг OI `lag`).
+fn check_feature_rows(rows: &[Row], lag: i64) {
+    assert_eq!(rows.len(), FZ_ROWS.len());
+    for &(t_f, wi, sign) in &FZ_ROWS {
+        let r = row_at(rows, t_f, wi);
+        assert_eq!(r["sign"], sign.to_string());
+        let (i, u) = ((t_f / 5 - 8) as usize, t_f / 5 - lag);
+        for f in 0..NF {
+            let (got, want) = (zcell(r, &format!("z_f{}", f + 1)), zexp(f, wi.into(), i));
+            assert!(
+                z_same(got, want),
+                "t_f {t_f} окно {wi} z_f{}: {got} против {want}",
+                f + 1
+            );
+        }
+        let w = i64::from(FZ_WINDOWS[usize::from(wi)]);
+        expect(r, "r_w_bps", bps_ln(pf(t_f), pf(t_f - w)));
+        let lv = |name: &str| oi_exp(name, u);
+        let dl = |name: &str| oi_exp(name, u) - oi_exp(name, u - 12);
+        for (col, name) in [
+            ("oi_value", "open_interest_value"),
+            ("taker_ratio", "sum_taker_long_short_vol_ratio"),
+            ("top_count_ratio", "count_toptrader_long_short_ratio"),
+            ("top_sum_ratio", "sum_toptrader_long_short_ratio"),
+            ("global_ratio", "count_long_short_ratio"),
+        ] {
+            expect(r, col, lv(name));
+        }
+        for (col, name) in [
+            ("d_taker_60", "sum_taker_long_short_vol_ratio"),
+            ("d_top_count_60", "count_toptrader_long_short_ratio"),
+            ("d_top_sum_60", "sum_toptrader_long_short_ratio"),
+            ("d_global_60", "count_long_short_ratio"),
+        ] {
+            expect(r, col, dl(name));
+        }
+        expect(r, "doi_60_pct", doi_exp(u));
+        let (rate, age) = fund_exp(t_f);
+        expect(r, "funding_rate", rate);
+        expect(r, "funding_age_min", age);
+    }
+}
+
+#[test]
+fn feature_columns_have_known_answers() {
+    assert_eq!(FEATURE_COLS.split(',').count(), 23);
+    for lag in [0u32, 1, 2] {
+        check_feature_rows(&feat_rows(lag), i64::from(lag));
+    }
+    let rows = feat_rows(1);
+
+    // руками (сдвиг 1): t_f = 2000 — слот OI u = 399, час назад 387
+    let r = row_at(&rows, 2000, 0);
+    expect(r, "oi_value", 5.0e5 + 100.0 * 349.0);
+    expect(r, "taker_ratio", 1.1 + 0.03 * 349.0);
+    expect(r, "top_count_ratio", 1.5 + 0.01 * 349.0);
+    expect(r, "top_sum_ratio", 2.5 + 0.02 * 349.0);
+    expect(r, "global_ratio", 0.8 + 0.005 * 349.0);
+    expect(r, "doi_60_pct", (1698.0f64 / 1674.0).ln() * 100.0);
+    for (col, want) in [
+        ("d_taker_60", 0.36),
+        ("d_top_count_60", 0.12),
+        ("d_top_sum_60", 0.24),
+        ("d_global_60", 0.06),
+    ] {
+        expect(r, col, want);
+    }
+    // r_w_bps — знак хода цены, не стороны: сторона −1, ход за 10 минут вниз (цена в t_f − 10 выше на 2 %)
+    expect(r, "r_w_bps", bps_ln(P0, P0 * 1.02));
+    assert!(val(r, "r_w_bps") < 0.0 && r["sign"] == "-1");
+    expect(row_at(&rows, 1990, 0), "r_w_bps", bps_ln(P0 * 1.02, P0));
+    expect(row_at(&rows, 2000, 1), "r_w_bps", bps_ln(P0, P0 * 1.03));
+    // z окна правила: окно 1 берёт ряд окна 1
+    assert!(z_same(
+        zcell(row_at(&rows, 2000, 1), "z_f1"),
+        zexp(0, 1, FZ_SLOT_2000)
+    ));
+    assert!(!z_same(
+        zcell(row_at(&rows, 2000, 1), "z_f1"),
+        zcell(r, "z_f1")
+    ));
+    // особые z: NaN, ±inf, -0 пишется как 0
+    assert_eq!(
+        (
+            r["z_f3"].as_str(),
+            r["z_f4"].as_str(),
+            r["z_f5"].as_str(),
+            r["z_f6"].as_str()
+        ),
+        ("NaN", "inf", "-inf", "0")
+    );
+
+    // фандинг: выплата ровно в t_f учтена (возраст 0); раньше первой — NaN; после последней — растущий возраст
+    expect(r, "funding_rate", 5.0e-4);
+    expect(r, "funding_age_min", 0.0);
+    expect(row_at(&rows, 1990, 0), "funding_rate", 3.0e-4);
+    expect(row_at(&rows, 1990, 0), "funding_age_min", 930.0);
+    expect(row_at(&rows, 3000, 0), "funding_rate", 7.0e-4);
+    expect(row_at(&rows, 3000, 0), "funding_age_min", 520.0);
+    for c in ["funding_rate", "funding_age_min", "oi_value", "doi_60_pct"] {
+        assert!(
+            val(row_at(&rows, 50, 0), c).is_nan(),
+            "{c} до первых данных"
+        );
+    }
+
+    // дыры: уровень в дыре — NaN, его изменение за час — NaN; соседние колонки не затронуты
+    let hole = row_at(&rows, 2500, 0);
+    for c in [
+        "oi_value",
+        "top_count_ratio",
+        "d_top_count_60",
+        "doi_60_pct",
+        "d_taker_60",
+    ] {
+        assert!(val(hole, c).is_nan(), "{c} в дыре");
+    }
+    expect(hole, "taker_ratio", 1.1 + 0.03 * 449.0);
+    expect(hole, "top_sum_ratio", 2.5 + 0.02 * 449.0);
+    expect(hole, "d_top_sum_60", 0.24);
+    expect(hole, "d_global_60", 0.06);
+    // нулевой OI час назад: ln не определён, остальное считается
+    let zero = row_at(&rows, 2900, 0);
+    assert!(val(zero, "doi_60_pct").is_nan());
+    expect(zero, "oi_value", 5.0e5 + 100.0 * 529.0);
+    // слот вне ряда (после последнего): все OI-столбцы NaN, фандинг есть
+    let past = row_at(&rows, 3800, 0);
+    for c in ["oi_value", "taker_ratio", "doi_60_pct", "d_global_60"] {
+        assert!(val(past, c).is_nan(), "{c} за концом ряда");
+    }
+    expect(past, "funding_age_min", 1320.0);
+}
+
+#[test]
+fn without_features_the_row_and_schema_stay_and_features_only_append() {
+    let (off, on) = (feat_bytes(None), feat_bytes(Some(1)));
+    let (off, on) = (
+        std::str::from_utf8(&off).unwrap(),
+        std::str::from_utf8(&on).unwrap(),
+    );
+    // прежняя схема читается заголовком `HEADER`, строк столько же
+    assert_eq!(rows_from(HEADER, off).len(), FZ_ROWS.len());
+    assert_eq!(on.lines().count(), off.lines().count());
+    for (a, b) in off.lines().zip(on.lines()) {
+        let tail = b.strip_prefix(a).expect("начало строки прежнее");
+        assert!(tail.starts_with(','));
+        assert_eq!(tail.matches(',').count(), 23, "{tail}");
+    }
+}
+
+#[test]
+fn features_without_dump_triggers_are_refused() {
+    use clap::Parser;
+    #[derive(clap::Parser)]
+    struct FeatCli {
+        #[command(flatten)]
+        a: RunArgs,
+    }
+    let base = [
+        "t",
+        "--cache",
+        "c",
+        "--params",
+        "p",
+        "--out",
+        "o",
+        "--stage",
+        "fit",
+        "--seed",
+        "1",
+        "--oi-lag",
+        "1",
+        "--threads",
+        "1",
+    ];
+    let with = |extra: &[&str]| {
+        FeatCli::try_parse_from(base.iter().chain(extra.iter()).copied()).map(|c| c.a)
+    };
+    assert!(with(&["--dump-features"]).is_err());
+    let a = with(&["--dump-triggers", "--dump-features"]).unwrap();
+    assert!(a.dump_triggers && a.dump_features);
+    let a = with(&["--dump-triggers"]).unwrap();
+    assert!(a.dump_triggers && !a.dump_features);
+    assert!(!with(&[]).unwrap().dump_features);
+
+    // вызов структурой (без разбора командной строки): отказ до чтения кэша
+    let dir = tempfile::tempdir().unwrap();
+    let pj = dir.path().join("params.json");
+    fs::write(&pj, params_json("2019-12", "2020-01", "[90]")).unwrap();
+    let mut a = args(dir.path(), &pj, &dir.path().join("out"), Stage::Test, 1);
+    a.dump_features = true;
+    let e = run(a).unwrap_err();
+    assert!(
+        format!("{e:#}").contains("--dump-features требует --dump-triggers"),
+        "{e:#}"
+    );
+}
+
+#[test]
+fn feature_dump_is_byte_identical_for_any_thread_count_and_changes_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    let (cache, pj) = random_set(dir.path());
+    let outs: Vec<PathBuf> = [1usize, 4, 3]
+        .iter()
+        .map(|&th| {
+            fit_run_with(
+                dir.path(),
+                &cache,
+                &pj,
+                &format!("ft{th}"),
+                th,
+                (true, true),
+            )
+        })
+        .collect();
+    let first = fs::read(outs[0].join("triggers-fit.csv")).unwrap();
+    for o in &outs[1..] {
+        assert_eq!(
+            first,
+            fs::read(o.join("triggers-fit.csv")).unwrap(),
+            "triggers-fit.csv: потоки 1 против другого"
+        );
+    }
+
+    // без признаков: заголовок прежний, строки — начало строк с признаками, число строк то же
+    let off = fit_run(dir.path(), &cache, &pj, "ft-off", 2, true);
+    let (on_text, off_text) = (
+        String::from_utf8(first).unwrap(),
+        fs::read_to_string(off.join("triggers-fit.csv")).unwrap(),
+    );
+    let (mut on_lines, mut off_lines) = (on_text.lines(), off_text.lines());
+    assert_eq!(off_lines.next().unwrap(), HEADER);
+    assert_eq!(on_lines.next().unwrap(), format!("{HEADER},{FEATURE_COLS}"));
+    assert_eq!(on_text.lines().count(), off_text.lines().count());
+    assert!(off_text.lines().count() > 100, "мало строк выгрузки");
+    for (a, b) in off_lines.zip(on_lines) {
+        let tail = b.strip_prefix(a).expect("начало строки прежнее");
+        assert!(tail.starts_with(','));
+        assert_eq!(tail.matches(',').count(), 23);
+    }
+
+    // остальные таблицы те же байт в байт; без --dump-triggers файла нет
+    let plain = fit_run(dir.path(), &cache, &pj, "ft-plain", 2, false);
+    assert!(!plain.join("triggers-fit.csv").exists());
+    for f in FILES {
+        assert_eq!(
+            fs::read(outs[0].join(f)).unwrap(),
+            fs::read(plain.join(f)).unwrap(),
+            "{f}: с признаками и без"
+        );
+    }
+}
+
+/// Значение колонки OI `name` контракта `c` на слоте `s` прямым чтением ряда (`NaN` — дыра или вне ряда).
+fn oi_direct(c: &Contract, name: &str, s: i64) -> f64 {
+    let (col, k) = (oi_col(name), s - c.oi_first_slot);
+    usize::try_from(k)
+        .ok()
+        .and_then(|k| c.oi[col].get(k).copied())
+        .unwrap_or(f64::NAN)
+}
+
+#[test]
+fn every_feature_column_matches_direct_calculation_on_random_contracts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (cache, pj) = random_set(dir.path());
+    let out = fit_run_with(dir.path(), &cache, &pj, "out", 3, (true, true));
+    let rows = table(&out.join("triggers-fit.csv"));
+    assert!(rows.len() > 100, "мало строк: {}", rows.len());
+
+    let p = Params::from_json(&params_json("2020-01", "2020-02", "[90]")).unwrap();
+    let contracts: Vec<Contract> = (0..SYMS.len())
+        .map(|i| random_contract(11 + i as u64, 14))
+        .collect();
+    let cubes: Vec<Cube> = contracts
+        .iter()
+        .map(|c| feat::build_cube(c, &p, 1))
+        .collect();
+    let (mut finite_z, mut oi_levels) = (0, 0);
+    for r in &rows {
+        let si = SYMS.iter().position(|s| *s == r["sym"]).unwrap();
+        let (c, cube) = (&contracts[si], &cubes[si]);
+        let (t_f, _, wi, _, _) = keys(r);
+        let i = (t_f / 5 - cube.slot0) as usize;
+        for f in 0..NF {
+            let (got, want) = (
+                zcell(r, &format!("z_f{}", f + 1)),
+                cube.zat(f, wi as usize, i),
+            );
+            assert!(
+                z_same(got, want),
+                "{} t_f {t_f} z_f{}: {got} против {want}",
+                r["sym"],
+                f + 1
+            );
+            finite_z += usize::from(got.is_finite());
+        }
+        let w = i64::from(p.features.windows_min[wi as usize]);
+        expect(r, "r_w_bps", bps_ln(px(c, t_f), px(c, t_f - w)));
+        // сдвиг OI прогона — 1 слот
+        let u = t_f / 5 - 1;
+        let lv = |name: &str| oi_direct(c, name, u);
+        let dl = |name: &str| oi_direct(c, name, u) - oi_direct(c, name, u - 12);
+        for (col, name) in [
+            ("oi_value", "open_interest_value"),
+            ("taker_ratio", "sum_taker_long_short_vol_ratio"),
+            ("top_count_ratio", "count_toptrader_long_short_ratio"),
+            ("top_sum_ratio", "sum_toptrader_long_short_ratio"),
+            ("global_ratio", "count_long_short_ratio"),
+        ] {
+            expect(r, col, lv(name));
+        }
+        for (col, name) in [
+            ("d_taker_60", "sum_taker_long_short_vol_ratio"),
+            ("d_top_count_60", "count_toptrader_long_short_ratio"),
+            ("d_top_sum_60", "sum_toptrader_long_short_ratio"),
+            ("d_global_60", "count_long_short_ratio"),
+        ] {
+            expect(r, col, dl(name));
+        }
+        let (now, ago) = (lv("open_interest"), oi_direct(c, "open_interest", u - 12));
+        expect(
+            r,
+            "doi_60_pct",
+            if now > 0.0 && ago > 0.0 {
+                100.0 * (now / ago).ln()
+            } else {
+                f64::NAN
+            },
+        );
+        let last = c.funding.iter().rev().find(|f| f.0 <= t_f);
+        expect(r, "funding_rate", last.map_or(f64::NAN, |f| f.1));
+        expect(
+            r,
+            "funding_age_min",
+            last.map_or(f64::NAN, |f| (t_f - f.0) as f64),
+        );
+        oi_levels += usize::from(val(r, "oi_value").is_finite());
+    }
+    assert!(finite_z > rows.len(), "z почти везде NaN: {finite_z}");
+    assert!(oi_levels > rows.len() / 2, "уровни OI: {oi_levels}");
+}
+
+/// Минута, после которой данные заменяются в проверке утечки: 10-е сутки контрактов из 14.
+const LEAK_M: i64 = 10 * DAY;
+
+/// Всё после минуты `m` (цены, объёмы, все колонки OI, ставки) заменено другими числами; до `m` — прежнее.
+fn scramble_after(c: &mut Contract, m: usize) {
+    for t in m + 1..c.close.len() {
+        c.close[t] *= 1.0 + 0.05 * (t % 11) as f64;
+        c.qvol[t] *= 1.0 + (t % 5) as f32;
+        c.trades[t] *= 3.0;
+    }
+    for col in &mut c.oi {
+        for (s, v) in col.iter_mut().enumerate().skip(m / 5 + 1) {
+            *v = if s % 17 == 0 {
+                f64::NAN
+            } else {
+                *v * (1.0 + 0.1 * (s % 3) as f64)
+            };
+        }
+    }
+    for f in &mut c.funding {
+        if f.0 > m as i64 {
+            f.1 *= -5.0;
+        }
+    }
+}
+
+type FeatMap = BTreeMap<(String, (i64, i64, i64, i64, i64)), Vec<String>>;
+
+/// Значения столбцов признаков строк до (`early`) или после минуты `LEAK_M`.
+fn feature_cells(rows: &[Row], early: bool) -> FeatMap {
+    rows.iter()
+        .filter(|r| (keys(r).0 <= LEAK_M) == early)
+        .map(|r| {
+            let cells: Vec<String> = FEATURE_COLS.split(',').map(|n| r[n].clone()).collect();
+            ((r["sym"].clone(), keys(r)), cells)
+        })
+        .collect()
+}
+
+#[test]
+fn data_after_t_f_does_not_change_the_feature_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_on = |sub: &str, edit: &dyn Fn(usize, &mut Contract)| -> Vec<Row> {
+        let d = dir.path().join(sub);
+        fs::create_dir_all(&d).unwrap();
+        let (cache, pj) = random_set_with(&d, edit);
+        let out = fit_run_with(&d, &cache, &pj, "out", 2, (true, true));
+        table(&out.join("triggers-fit.csv"))
+    };
+    let base = run_on("base", &|_, _| {});
+    let cut = run_on("cut", &|_, c| scramble_after(c, LEAK_M as usize));
+
+    // до LEAK_M: тот же набор строк и те же значения всех 23 столбцов
+    let (be, ce) = (feature_cells(&base, true), feature_cells(&cut, true));
+    assert!(be.len() > 20, "мало строк до LEAK_M: {}", be.len());
+    assert_eq!(be, ce);
+    assert!(
+        be.values().any(|v| v[..NF].iter().any(|s| s != "NaN")),
+        "до LEAK_M нет ни одного определённого z"
+    );
+    // после: данные другие — признаки поздних строк другие (проверка не пуста)
+    assert_ne!(feature_cells(&base, false), feature_cells(&cut, false));
 }

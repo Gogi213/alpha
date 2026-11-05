@@ -5,7 +5,7 @@
 
 use super::cache::Contract;
 use super::control::{self, sign_of, slot_t, Label};
-use super::dump::{HEADER, ONSET_COL, PLAY_COLS};
+use super::dump::{FEATURE_COLS, HEADER, ONSET_COL, PLAY_COLS};
 use super::feat;
 use super::params::Params;
 use super::play::{
@@ -603,6 +603,7 @@ fn reversal_without_d360_in_params_is_an_error_before_any_work() {
         exits: false,
         exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
+        dump_features: false,
         play: PlayArgs {
             no_reversal: true,
             ..Default::default()
@@ -636,6 +637,7 @@ fn old_cache_file_gives_a_clear_error_in_run() {
         exits: false,
         exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
+        dump_features: false,
         play: PlayArgs::default(),
     })
     .unwrap_err();
@@ -654,6 +656,8 @@ struct Opt {
     rules: Vec<(u8, u8, u8)>,
     threads: usize,
     dump: bool,
+    /// `--dump-features` (требует `dump`).
+    features: bool,
     exits: bool,
 }
 
@@ -666,6 +670,7 @@ impl Opt {
             rules: vec![(0, 0, 0), (1, 0, 0)],
             threads: 2,
             dump: true,
+            features: false,
             exits: false,
         }
     }
@@ -717,6 +722,7 @@ fn go(dir: &Path, tag: &str, cache: &Path, play: PlayArgs, o: &Opt) -> PathBuf {
         exits: o.exits,
         exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: o.dump,
+        dump_features: o.features,
         play,
     })
     .unwrap();
@@ -1412,7 +1418,9 @@ fn default_digests() -> Vec<(String, String)> {
         xd: None,
         limit: None,
         exits: false,
+        exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: true,
+        dump_features: false,
         play: PlayArgs::default(),
     })
     .unwrap();
@@ -2230,4 +2238,80 @@ fn onset_flags_parse_and_validate() {
         assert!(format!("{e:#}").contains(extra), "{extra}: {e:#}");
     }
     assert!(W::try_parse_from(["t", "--target", "bogus"]).is_err());
+}
+
+// ---------- признаки направления (`--dump-features`) вместе с выборкой и целью ----------
+
+fn trig_text(out: &Path) -> String {
+    fs::read_to_string(out.join("triggers-test.csv")).unwrap()
+}
+
+#[test]
+fn direction_features_come_last_after_the_play_and_onset_columns() {
+    // всплеск в 14975: F1 (14945) тихий — остаётся в цели play-onset, F3 (15000) внутри hv — остаётся в фильтре «в игре»
+    let dir = tempfile::tempdir().unwrap();
+    let cache = caches(dir.path(), &[("ABCUSDT", &pump_hl(&[(14_975, 1)]))]);
+    let mut with_features = Opt::base();
+    with_features.features = true;
+    let cases = [
+        ("hv", hv_args(false, false), PLAY_COLS.to_string()),
+        ("onset", onset_args(), format!("{PLAY_COLS},{ONSET_COL}")),
+    ];
+    for (tag, play, play_cols) in cases {
+        let off = go(
+            dir.path(),
+            &format!("{tag}-off"),
+            &cache,
+            play.clone(),
+            &Opt::base(),
+        );
+        let on = go(
+            dir.path(),
+            &format!("{tag}-on"),
+            &cache,
+            play,
+            &with_features,
+        );
+        let (off_t, on_t) = (trig_text(&off), trig_text(&on));
+        let (mut off_lines, mut on_lines) = (off_t.lines(), on_t.lines());
+        assert_eq!(off_lines.next().unwrap(), format!("{HEADER},{play_cols}"));
+        assert_eq!(
+            on_lines.next().unwrap(),
+            format!("{HEADER},{play_cols},{FEATURE_COLS}"),
+            "{tag}"
+        );
+        let n = off_t.lines().count() - 1;
+        assert!(n >= 1, "{tag}: нет строк");
+        assert_eq!(on_t.lines().count() - 1, n, "{tag}: число строк");
+        for (a, b) in off_lines.zip(on_lines) {
+            let tail = b.strip_prefix(a).expect("начало строки прежнее");
+            assert!(tail.starts_with(','));
+            assert_eq!(tail.matches(',').count(), 23, "{tag}");
+        }
+        // цель play-onset: строка F1 в t_f = 14945 (слот OI 2988, час назад 2976; ряды `pump_contract` известны)
+        if tag == "onset" {
+            let rows = trig(&on);
+            let r = &rows[0];
+            assert_eq!(r["t_f"], "14945");
+            for (col, want) in [
+                ("oi_value", 1.0e5),
+                ("taker_ratio", 1.0),
+                ("top_count_ratio", 1.0),
+                ("top_sum_ratio", 1.0),
+                ("global_ratio", 1.0),
+                ("d_taker_60", 0.0),
+                ("d_top_count_60", 0.0),
+                ("d_top_sum_60", 0.0),
+                ("d_global_60", 0.0),
+                ("funding_rate", 1.0e-4),
+                ("funding_age_min", 445.0),
+                ("doi_60_pct", (1010.0f64 / 1000.0).ln() * 100.0),
+            ] {
+                approx(num(r, col), want, 1.0e-9 * (1.0 + want.abs()));
+            }
+            // дрейф цены 1e-5 за минуту: за окно 5 минут +0,5 bps; z F1 окна правила — определён и положителен
+            approx(num(r, "r_w_bps"), 0.5, 1.0e-6);
+            assert!(num(r, "z_f1") > 0.0, "{}", r["z_f1"]);
+        }
+    }
 }
