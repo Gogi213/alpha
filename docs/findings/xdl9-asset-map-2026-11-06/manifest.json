@@ -1,0 +1,94 @@
+{
+ "asset_map.csv": {
+  "sha256": "2c0503ba9e8ff752456573e421c03fee8e6e61341fe3bc5d6de892684b62df06",
+  "bytes": 1119178,
+  "rows": 5560
+ },
+ "asset_pairs.csv": {
+  "sha256": "1163d0607208e454e2057ceb7a98930c68dede8b4be606e3f7250a0cc3824f07",
+  "bytes": 3478834,
+  "rows": 12835
+ },
+ "pairstats.csv": {
+  "sha256": "41c02bb9ebf2b73fab4e94c9abb5fca6cdc3c5d242f590db8436d83e31eefc91",
+  "bytes": 2034373,
+  "rows": 12835
+ },
+ "asset_scan.csv": {
+  "sha256": "07cfd1b2148b2daa08bd1556f2bb4b4a3d06b4e3eda96f358c3bb3ad63d89cfc",
+  "bytes": 8089,
+  "rows": 53
+ },
+ "calib_pairs.csv": {
+  "sha256": "c12eabc1dd8ca4cc3db2630d8024d6652adfa54e0b0b97e31f70f94d5b1780a6",
+  "bytes": 22095,
+  "rows": 178
+ },
+ "asset/binance.f32": {
+  "sha256": "fc8ff037e52703b03a8842fe4901fb8c30b9328aa3fc5d708fd197af7c6fcac8",
+  "bytes": 65076480
+ },
+ "asset/binance.idx.csv": {
+  "sha256": "fd2e113affde60e1cdf13ba83b13760db82f62b0929695a530ac535df8528443",
+  "bytes": 88060
+ },
+ "asset/bybit.f32": {
+  "sha256": "0ff165c2b9a7aeac0a07e20ac90250f5a16739f9c48f985f0b1922a56dd4b2c6",
+  "bytes": 72817920
+ },
+ "asset/bybit.idx.csv": {
+  "sha256": "b01bfee9e025a887f1a12dfa7427ece6359d176d53fbcbe4b87508c3fa7bc135",
+  "bytes": 97154
+ },
+ "asset/okx.f32": {
+  "sha256": "96a21f214ed18e9b97443c67c02f1297ec63cc496d4a1afb84f4531be0036ad5",
+  "bytes": 43545600
+ },
+ "asset/okx.idx.csv": {
+  "sha256": "4f35e279a0e783612540cdf4834233a6b47c6db719b8eccbbbbf6650fcaf95d1",
+  "bytes": 59953
+ },
+ "asset/bingx.f32": {
+  "sha256": "b02b1eb9b022dfb127a0af5dd5b95e0db5cd60a7afc332faadbf00eb6492a367",
+  "bytes": 105396480
+ },
+ "asset/bingx.idx.csv": {
+  "sha256": "8068a362efdf6ef5a5e9349b0d23fd86aec10bb4efde9a1409679ae2127c80ce",
+  "bytes": 123204
+ },
+ "asset/aster.f32": {
+  "sha256": "ecc32078bc2d7df2d359ad2396e902770fcf324cc1856e98eeacc1f9e60f2114",
+  "bytes": 49916160
+ },
+ "asset/aster.idx.csv": {
+  "sha256": "b5f602d91f072ddd48f2fe91404ddda28d8f3a2626a17431d48e01489e3c12d0",
+  "bytes": 65574
+ },
+ "asset/kraken.f32": {
+  "sha256": "a3511f8c3b17e79b4ddc1d87e5aa41d7db512b6e1cebf576adf23648c1765752",
+  "bytes": 16853760
+ },
+ "asset/kraken.idx.csv": {
+  "sha256": "258fa534e9f6c4eeac910ddc0a72e0de2b3c2a57b9aa1e0bd78fc9899f0d9b2d",
+  "bytes": 18900
+ },
+ "asset/lighter.f32": {
+  "sha256": "9d31330ef2883b5b1cc61931018f8e2addeb3235b8a16728879b0f2706b6775d",
+  "bytes": 19514880
+ },
+ "asset/lighter.idx.csv": {
+  "sha256": "5a11bc03ed1050bb0e4686ef28baf4aa63bb3f6d0b0b05ef812a461757a2f43a",
+  "bytes": 22626
+ },
+ "asset/bitget.f32": {
+  "sha256": "67d28e7b7b12b89269bb542691c28a2a75bcecfab808876de8a1b055a78d9801",
+  "bytes": 75237120
+ },
+ "asset/bitget.idx.csv": {
+  "sha256": "67eb40059477213593952c8439f0246bb06f1183d422c9d4e0300d6d80989559",
+  "bytes": 98343
+ },
+ "tools/compute/statarb/xdl9/asset_alias.csv": {
+  "sha256": "0a051a103c74df9d6e43758cf0c9dd2913e4e42807baf4e2465ec3a6653069e6"
+ }
+}

@@ -1,0 +1,250 @@
+exchange,symbol,main_symbol,asset_id,reason,S_vs_main,corr_vs_main,ratio_vs_main,n_ret,unverified,leg_c1d2
+binance,1000BONKUSDC,1000BONKUSDT,BONK|крипта,котировка USDC вместо USDT,0.0078,0.9349,1.00118,19838,0,0
+binance,1000PEPEUSDC,1000PEPEUSDT,PEPE|крипта,котировка USDC вместо USDT,0.0097,0.9891,1.00071,20151,0,0
+binance,1000SHIBUSDC,1000SHIBUSDT,SHIB|крипта,котировка USDC вместо USDT,0.0116,0.9393,1.00067,20059,0,0
+binance,AAVEUSDC,AAVEUSDT,AAVE|крипта,котировка USDC вместо USDT,0.0078,0.9806,1.00106,20153,0,0
+binance,ADAUSDC,ADAUSDT,ADA|крипта,котировка USDC вместо USDT,0.0097,0.9404,1.00044,19862,0,0
+binance,ARBUSDC,ARBUSDT,ARB|крипта,котировка USDC вместо USDT,0.0088,0.9876,1.00084,20157,0,0
+binance,AVAXUSDC,AVAXUSDT,AVAX|крипта,котировка USDC вместо USDT,0.0107,0.9818,1.00064,20092,0,0
+binance,BCHUSDC,BCHUSDT,BCH|крипта,котировка USDC вместо USDT,0.0057,0.9820,1.00065,20139,0,0
+binance,BIOUSDC,BIOUSDT,BIO|крипта,котировка USDC вместо USDT,0.0138,0.8981,1.001,19462,0,0
+binance,BNBUSDC,BNBUSDT,BNB|крипта,котировка USDC вместо USDT,0.0137,0.9889,1.00021,20123,0,0
+binance,BOMEUSDC,BOMEUSDT,BOME|крипта,котировка USDC вместо USDT,0.0069,0.9632,1.00071,20111,0,0
+binance,BTCU,BTCUSDT,BTC|крипта,котировка U вместо USDT,0.0236,0.8427,0.99987,6205,0,0
+binance,BTCUSD1,BTCUSDT,BTC|крипта,котировка USD1 вместо USDT,0.0176,0.9442,0.999975,14748,0,0
+binance,BTCUSDC,BTCUSDT,BTC|крипта,котировка USDC вместо USDT,0.0232,0.9927,1.00045,20159,0,0
+binance,CRVUSDC,CRVUSDT,CRV|крипта,котировка USDC вместо USDT,0.0125,0.9625,1.0008,19914,0,0
+binance,DATAIPUSDC,DATAIPUSDT,DATA|крипта,котировка USDC вместо USDT,0.0261,0.8615,1.00102,10569,0,0
+binance,DOGEUSDC,DOGEUSDT,DOGE|крипта,котировка USDC вместо USDT,0.0068,0.9843,1.00064,20145,0,0
+binance,ENAUSDC,ENAUSDT,ENA|крипта,котировка USDC вместо USDT,0.0050,0.9922,1.00082,20159,0,0
+binance,ETHFIUSDC,ETHFIUSDT,ETHFI|крипта,котировка USDC вместо USDT,0.0157,0.9597,1.00141,20141,0,0
+binance,ETHU,ETHUSDT,ETH|крипта,котировка U вместо USDT,0.0153,0.8380,0.999872,5837,0,0
+binance,ETHUSD1,ETHUSDT,ETH|крипта,котировка USD1 вместо USDT,0.0094,0.9161,1.00016,12340,0,0
+binance,ETHUSDC,ETHUSDT,ETH|крипта,котировка USDC вместо USDT,0.0093,0.9955,1.00045,20159,0,0
+binance,FILUSDC,FILUSDT,FIL|крипта,котировка USDC вместо USDT,0.0072,0.9848,1.00076,20153,0,0
+binance,HBARUSDC,HBARUSDT,HBAR|крипта,котировка USDC вместо USDT,0.0065,0.9486,1.00022,20105,0,0
+binance,HK0700USDT,TENCENTUSDT,TENCENT|акции+ETF,нога в HKD [по политике HKD r2 §4.2; S=0.122 выше порога дубля],0.1221,0.7648,7.84235,4134,0,1
+binance,KAITOUSDC,KAITOUSDT,KAITO|крипта,котировка USDC вместо USDT,0.0112,0.9374,1.00098,19572,0,0
+binance,LINKUSDC,LINKUSDT,LINK|крипта,котировка USDC вместо USDT,0.0084,0.9819,1.00062,20097,0,0
+binance,LTCUSDC,LTCUSDT,LTC|крипта,котировка USDC вместо USDT,0.0074,0.9725,1.00059,19741,0,0
+binance,NEARUSDC,NEARUSDT,NEAR|крипта,котировка USDC вместо USDT,0.0068,0.9934,1.00082,20159,0,0
+binance,NEOUSDC,NEOUSDT,NEO|крипта,котировка USDC вместо USDT,0.0181,0.9091,0.999623,17461,0,0
+binance,ORDIUSDC,ORDIUSDT,ORDI|крипта,котировка USDC вместо USDT,0.0122,0.9234,1.00088,19659,0,0
+binance,PENGUUSDC,PENGUUSDT,PENGU|крипта,котировка USDC вместо USDT,0.0061,0.9809,1.00087,20157,0,0
+binance,PNUTUSDC,PNUTUSDT,PNUT|крипта,котировка USDC вместо USDT,0.0175,0.8651,1.00128,17890,0,0
+binance,SOLUSDC,SOLUSDT,SOL|крипта,котировка USDC вместо USDT,0.0074,0.9898,1.0005,20159,0,0
+binance,SPCXUSD1,SPCXUSDT,SPCX|акции+ETF,котировка USD1 вместо USDT,0.0138,0.9167,0.999768,6782,0,0
+binance,SUIUSDC,SUIUSDT,SUI|крипта,котировка USDC вместо USDT,0.0078,0.9936,1.00067,20157,0,0
+binance,TIAUSDC,TIAUSDT,TIA|крипта,котировка USDC вместо USDT,0.0056,0.9840,1.00093,20151,0,0
+binance,TRUMPUSDC,TRUMPUSDT,TRUMP|крипта,котировка USDC вместо USDT,0.0097,0.9064,1.00054,18057,0,0
+binance,UNIUSDC,UNIUSDT,UNI|крипта,котировка USDC вместо USDT,0.0048,0.9917,1.00078,20153,0,0
+binance,WIFUSDC,WIFUSDT,WIF|крипта,котировка USDC вместо USDT,0.0064,0.9190,1.00092,19331,0,0
+binance,WLDUSDC,WLDUSDT,WLD|крипта,котировка USDC вместо USDT,0.0063,0.9852,1.00088,20157,0,0
+binance,WLFIUSDC,WLFIUSDT,WLFI|крипта,котировка USDC вместо USDT,0.0272,0.9086,1.00055,17343,0,0
+binance,XRPUSDC,XRPUSDT,XRP|крипта,котировка USDC вместо USDT,0.0087,0.9920,1.00049,20157,0,0
+binance,ZECUSDC,ZECUSDT,ZEC|крипта,котировка USDC вместо USDT,0.0074,0.9955,1.00076,20159,0,0
+bybit,1000BONKPERP,1000BONKUSDT,BONK|крипта,котировка USDC вместо USDT; PERP (USDC),0.0203,0.7114,1.0003,593,0,0
+bybit,1000NEIROCTOPERP,1000NEIROCTOUSDT,NEIROCTO|крипта,котировка USDC вместо USDT; PERP (USDC),0.0274,0.7159,0.99901,1301,0,0
+bybit,1000PEPEPERP,1000PEPEUSDT,PEPE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0211,0.7655,1.00069,1820,0,0
+bybit,AAVEPERP,AAVEUSDT,AAVE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0208,0.6970,1.00035,2602,0,0
+bybit,AEVOPERP,AEVOUSDT,AEVO|крипта,котировка USDC вместо USDT; PERP (USDC),0.0471,0.8485,0.999623,1233,0,0
+bybit,ARBPERP,ARBUSDT,ARB|крипта,котировка USDC вместо USDT; PERP (USDC),0.0218,0.7568,1.00108,4200,0,0
+bybit,ASTERPERP,ASTERUSDT,ASTER|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=239 < 300],0.0483,0.6132,1.00113,239,1,0
+bybit,AVNTPERP,AVNTUSDT,AVNT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0554,0.7013,1.00032,520,0,0
+bybit,BCHPERP,BCHUSDT,BCH|крипта,котировка USDC вместо USDT; PERP (USDC),0.0142,0.7780,1.00073,656,0,0
+bybit,BNBPERP,BNBUSDT,BNB|крипта,котировка USDC вместо USDT; PERP (USDC),0.0180,0.7491,1.0008,2974,0,0
+bybit,BTCPERP,BTCUSDT,BTC|крипта,котировка USDC вместо USDT; PERP (USDC),0.0242,0.8540,1.0005,15664,0,0
+bybit,CRVPERP,CRVUSDT,CRV|крипта,котировка USDC вместо USDT; PERP (USDC),0.0316,0.6540,1.00027,965,0,0
+bybit,DOGEPERP,DOGEUSDT,DOGE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0124,0.8159,1.0007,4781,0,0
+bybit,DOTPERP,DOTUSDT,DOT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0208,0.7766,1.00096,3809,0,0
+bybit,EIGENPERP,EIGENUSDT,EIGEN|крипта,котировка USDC вместо USDT; PERP (USDC),0.0331,0.6231,1.00122,349,0,0
+bybit,ENAPERP,ENAUSDT,ENA|крипта,котировка USDC вместо USDT; PERP (USDC),0.0175,0.7416,1.00068,1974,0,0
+bybit,ETCPERP,ETCUSDT,ETC|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=146 < 300],0.0327,0.7238,1.00072,146,1,0
+bybit,ETHFIPERP,ETHFIUSDT,ETHFI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0320,0.6759,1.0018,916,0,0
+bybit,ETHPERP,ETHUSDT,ETH|крипта,котировка USDC вместо USDT; PERP (USDC),0.0110,0.8603,1.00056,15872,0,0
+bybit,FARTCOINPERP,FARTCOINUSDT,FARTCOIN|крипта,котировка USDC вместо USDT; PERP (USDC),0.0213,0.7246,0.999753,3316,0,0
+bybit,FILPERP,FILUSDT,FIL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0293,0.5873,1.00056,1029,0,0
+bybit,HBARPERP,HBARUSDT,HBAR|крипта,котировка USDC вместо USDT; PERP (USDC),0.0216,0.6444,1.00022,334,0,0
+bybit,HPERP,HUSDT,H|крипта,котировка USDC вместо USDT; PERP (USDC),0.0551,0.2912,1.00327,451,0,0
+bybit,HYPEPERP,HYPEUSDT,HYPE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0187,0.7581,1.00056,1763,0,0
+bybit,ICNTPERP,ICNTUSDT,ICNT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0899,0.5513,1.00314,311,0,0
+bybit,ICPPERP,ICPUSDT,ICP|крипта,котировка USDC вместо USDT; PERP (USDC),0.0302,0.6476,1,1723,0,0
+bybit,INJPERP,INJUSDT,INJ|крипта,котировка USDC вместо USDT; PERP (USDC),0.0380,0.7211,1.00013,2790,0,0
+bybit,KASPERP,KASUSDT,KAS|крипта,котировка USDC вместо USDT; PERP (USDC),0.0284,0.6921,0.999546,1978,0,0
+bybit,LINKPERP,LINKUSDT,LINK|крипта,котировка USDC вместо USDT; PERP (USDC),0.0194,0.7651,1.00054,1096,0,0
+bybit,LTCPERP,LTCUSDT,LTC|крипта,котировка USDC вместо USDT; PERP (USDC),0.0175,0.5623,1.00046,380,0,0
+bybit,MERLPERP,MERLUSDT,MERL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0391,0.7426,1,2638,0,0
+bybit,MNTPERP,MNTUSDT,MNT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0181,0.7731,1.00069,899,0,0
+bybit,MOODENGPERP,MOODENGUSDT,MOODENG|крипта,котировка USDC вместо USDT; PERP (USDC),0.0278,0.6792,1.00043,666,0,0
+bybit,NIGHTPERP,NIGHTUSDT,NIGHT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0253,0.7774,1,2192,0,0
+bybit,NOTPERP,NOTUSDT,NOT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0293,0.6059,0.999418,2244,0,0
+bybit,ONDOPERP,ONDOUSDT,ONDO|крипта,котировка USDC вместо USDT; PERP (USDC),0.0301,0.7548,1.00108,3270,0,0
+bybit,OPPERP,OPUSDT,OP|крипта,котировка USDC вместо USDT; PERP (USDC),0.0268,0.6131,1.0002,2277,0,0
+bybit,ORDIPERP,ORDIUSDT,ORDI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0352,0.6536,1.00091,349,0,0
+bybit,PAXGPERP,PAXGUSDT,PAXG|металлы+энергия,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=202 < 300],0.0861,0.6169,1.00005,202,1,0
+bybit,PENDLEPERP,PENDLEUSDT,PENDLE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0267,0.5566,1.00105,860,0,0
+bybit,PENGUPERP,PENGUUSDT,PENGU|крипта,котировка USDC вместо USDT; PERP (USDC),0.0152,0.6439,1.00062,897,0,0
+bybit,PNUTPERP,PNUTUSDT,PNUT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0365,0.5785,0.999638,470,0,0
+bybit,POLPERP,POLUSDT,POL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0263,0.6400,1,956,0,0
+bybit,POPCATPERP,POPCATUSDT,POPCAT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0273,0.6445,1.00206,315,0,0
+bybit,PUMPFUNPERP,PUMPFUNUSDT,PUMP|крипта,котировка USDC вместо USDT; PERP (USDC),0.0188,0.7118,1.00017,3733,0,0
+bybit,RESOLVPERP,RESOLVUSDT,RESOLV|крипта,котировка USDC вместо USDT; PERP (USDC),0.0393,0.7200,1.0005,476,0,0
+bybit,SAHARAPERP,SAHARAUSDT,SAHARA|крипта,котировка USDC вместо USDT; PERP (USDC),0.0251,0.6460,1.00011,2562,0,0
+bybit,SEIPERP,SEIUSDT,SEI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0260,0.5262,1.00116,1119,0,0
+bybit,SHIB1000PERP,SHIB1000USDT,SHIB|крипта,котировка USDC вместо USDT; PERP (USDC),0.0189,0.6928,1.00036,4663,0,0
+bybit,SOLPERP,SOLUSDT,SOL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0095,0.8435,1.00065,11824,0,0
+bybit,SPXPERP,SPXUSDT,SPX|крипта,котировка USDC вместо USDT; PERP (USDC),0.0226,0.7016,0.999719,636,0,0
+bybit,STRKPERP,STRKUSDT,STRK|крипта,котировка USDC вместо USDT; PERP (USDC),0.0060,0.8621,1.00153,8037,0,0
+bybit,SUIPERP,SUIUSDT,SUI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0180,0.7539,1.00077,3471,0,0
+bybit,TAOPERP,TAOUSDT,TAO|крипта,котировка USDC вместо USDT; PERP (USDC),0.0315,0.6318,1.00031,692,0,0
+bybit,TIAPERP,TIAUSDT,TIA|крипта,котировка USDC вместо USDT; PERP (USDC),0.0272,0.3422,0.999829,665,0,0
+bybit,TRUMPPERP,TRUMPUSDT,TRUMP|крипта,котировка USDC вместо USDT; PERP (USDC),0.0222,0.7964,1.00107,782,0,0
+bybit,TRXPERP,TRXUSDT,TRX|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=248 < 300],0.0784,0.5756,1.0009,248,1,0
+bybit,TWTPERP,TWTUSDT,TWT|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=219 < 300],0.0317,0.6842,1.00089,219,1,0
+bybit,UNIPERP,UNIUSDT,UNI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0111,0.7497,1.00066,1830,0,0
+bybit,VIRTUALPERP,VIRTUALUSDT,VIRTUAL|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=237 < 300],0.0228,0.4582,1.00087,237,1,0
+bybit,WIFPERP,WIFUSDT,WIF|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=247 < 300],0.0193,0.5306,1.00086,247,1,0
+bybit,WLDPERP,WLDUSDT,WLD|крипта,котировка USDC вместо USDT; PERP (USDC),0.0179,0.7459,1.00134,5506,0,0
+bybit,WLFIPERP,WLFIUSDT,WLFI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0767,0.5694,1.00018,362,0,0
+bybit,XAUTPERP,XAUTUSDT,XAUT|металлы+энергия,котировка USDC вместо USDT; PERP (USDC),0.0946,0.6140,1.00002,1116,0,0
+bybit,XLMPERP,XLMUSDT,XLM|крипта,котировка USDC вместо USDT; PERP (USDC),0.0132,0.7244,1.00094,1141,0,0
+bybit,XMRPERP,XMRUSDT,XMR|крипта,котировка USDC вместо USDT; PERP (USDC),0.0436,0.7113,1.00026,431,0,0
+bybit,XPLPERP,XPLUSDT,XPL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0193,0.7427,1.00136,2020,0,0
+bybit,XRPPERP,XRPUSDT,XRP|крипта,котировка USDC вместо USDT; PERP (USDC),0.0126,0.8046,1.00063,8390,0,0
+okx,ADA-USD-SWAP,ADA-USDT-SWAP,ADA|крипта,котировка USD вместо USDT; инверсный (в монете),0.0110,0.9141,1.00079,13831,0,0
+okx,BCH-USD-SWAP,BCH-USDT-SWAP,BCH|крипта,котировка USD вместо USDT; инверсный (в монете),0.0088,0.8822,1.00071,5402,0,0
+okx,BTC-USD-SWAP,BTC-USDT-SWAP,BTC|крипта,котировка USD вместо USDT; инверсный (в монете),0.0228,0.9798,1.00056,19099,0,0
+okx,DOGE-USD-SWAP,DOGE-USDT-SWAP,DOGE|крипта,котировка USD вместо USDT; инверсный (в монете),0.0088,0.9336,1.00081,16923,0,0
+okx,DOT-USD-SWAP,DOT-USDT-SWAP,DOT|крипта,котировка USD вместо USDT; инверсный (в монете),0.0118,0.9226,1.00088,11291,0,0
+okx,ETC-USD-SWAP,ETC-USDT-SWAP,ETC|крипта,котировка USD вместо USDT; инверсный (в монете),0.0181,0.7841,1.00068,2031,0,0
+okx,ETH-USD-SWAP,ETH-USDT-SWAP,ETH|крипта,котировка USD вместо USDT; инверсный (в монете),0.0096,0.9674,1.00064,19020,0,0
+okx,FIL-USD-SWAP,FIL-USDT-SWAP,FIL|крипта,котировка USD вместо USDT; инверсный (в монете),0.0115,0.8893,1.00059,13772,0,0
+okx,HYPE-USD-SWAP,HYPE-USDT-SWAP,HYPE|крипта,котировка USD вместо USDT; инверсный (в монете),0.0130,0.8791,1.00151,8526,0,0
+okx,LINK-USD-SWAP,LINK-USDT-SWAP,LINK|крипта,котировка USD вместо USDT; инверсный (в монете),0.0105,0.8875,1.00092,11085,0,0
+okx,LTC-USD-SWAP,LTC-USDT-SWAP,LTC|крипта,котировка USD вместо USDT; инверсный (в монете),0.0075,0.8941,1.00057,12294,0,0
+okx,SOL-USD-SWAP,SOL-USDT-SWAP,SOL|крипта,котировка USD вместо USDT; инверсный (в монете),0.0080,0.9314,1.00064,17074,0,0
+okx,SUI-USD-SWAP,SUI-USDT-SWAP,SUI|крипта,котировка USD вместо USDT; инверсный (в монете),0.0087,0.9239,1.00076,13479,0,0
+okx,UNI-USD-SWAP,UNI-USDT-SWAP,UNI|крипта,котировка USD вместо USDT; инверсный (в монете),0.0065,0.9166,1.00054,13064,0,0
+okx,XRP-USD-SWAP,XRP-USDT-SWAP,XRP|крипта,котировка USD вместо USDT; инверсный (в монете),0.0103,0.8996,1.00073,11365,0,0
+bingx,1000BONK-USDT,1000BONK-USDC,BONK|крипта,котировка USDT вместо USDC,0.0075,0.8416,1,20159,0,0
+bingx,1000PEPE-USDC,1000PEPE-USDT,PEPE|крипта,котировка USDC вместо USDT,0.0091,0.9824,1.00068,20159,0,0
+bingx,1000SHIB-USDC,1000SHIB-USDT,SHIB|крипта,котировка USDC вместо USDT,0.0143,0.8505,1.00037,20156,0,0
+bingx,AAVE-USDC,AAVE-USDT,AAVE|крипта,котировка USDC вместо USDT,0.0027,0.9870,1,20159,0,0
+bingx,ADA-USDC,ADA-USDT,ADA|крипта,котировка USDC вместо USDT,0.0115,0.8204,1,20157,0,0
+bingx,AEVO-USDC,AEVO-USDT,AEVO|крипта,котировка USDC вместо USDT,0.0232,0.8120,1,20159,0,0
+bingx,APT-USDC,APT-USDT,APT|крипта,котировка USDC вместо USDT,0.0554,0.9396,1,20159,0,0
+bingx,ARB-USDC,ARB-USDT,ARB|крипта,котировка USDC вместо USDT,0.0117,0.9480,1.00098,20159,0,0
+bingx,AVAX-USDC,AVAX-USDT,AVAX|крипта,котировка USDC вместо USDT,0.0041,0.9770,1,20157,0,0
+bingx,BCH-USDC,BCH-USDT,BCH|крипта,котировка USDC вместо USDT,0.0022,0.9768,1,20155,0,0
+bingx,BNB-USDC,BNB-USDT,BNB|крипта,котировка USDC вместо USDT,0.0132,0.9414,1.00038,20138,0,0
+bingx,BOME-USDC,BOME-USDT,BOME|крипта,котировка USDC вместо USDT,0.0017,0.9875,1,20159,0,0
+bingx,BTC-USDC,BTC-USDT,BTC|крипта,котировка USDC вместо USDT,0.0225,0.9921,1.00049,20159,0,0
+bingx,CRV-USDC,CRV-USDT,CRV|крипта,котировка USDC вместо USDT,0.0071,0.9449,1,20159,0,0
+bingx,DOGE-USDC,DOGE-USDT,DOGE|крипта,котировка USDC вместо USDT,0.0078,0.9580,1.0007,20157,0,0
+bingx,DOT-USDC,DOT-USDT,DOT|крипта,котировка USDC вместо USDT,0.0347,0.8878,1,20159,0,0
+bingx,EIGEN-USDT,EIGEN-USDC,EIGEN|крипта,котировка USDT вместо USDC,0.0182,0.7915,1,20159,0,0
+bingx,ENA-USDC,ENA-USDT,ENA|крипта,котировка USDC вместо USDT,0.0023,0.9911,1,20159,0,0
+bingx,ETC-USDC,ETC-USDT,ETC|крипта,котировка USDC вместо USDT,0.0072,0.8950,1,20159,0,0
+bingx,ETH-USDC,ETH-USDT,ETH|крипта,котировка USDC вместо USDT,0.0091,0.9847,1.00049,20159,0,0
+bingx,ETHFI-USDC,ETHFI-USDT,ETHFI|крипта,котировка USDC вместо USDT,0.0068,0.9566,1,20159,0,0
+bingx,FARTCOIN-USDC,FARTCOIN-USDT,FARTCOIN|крипта,котировка USDC вместо USDT,0.0138,0.7765,1,20157,0,0
+bingx,FIL-USDT,FIL-USDC,FIL|крипта,котировка USDT вместо USDC,0.0035,0.9831,1,20157,0,0
+bingx,HBAR-USDT,HBAR-USDC,HBAR|крипта,котировка USDT вместо USDC,0.0032,0.9568,1,20157,0,0
+bingx,KAITO-USDC,KAITO-USDT,KAITO|крипта,котировка USDC вместо USDT,0.0075,0.8822,1,20159,0,0
+bingx,LINK-USDC,LINK-USDT,LINK|крипта,котировка USDC вместо USDT,0.0033,0.9725,1,20154,0,0
+bingx,LTC-USDC,LTC-USDT,LTC|крипта,котировка USDC вместо USDT,0.0042,0.9284,1,20159,0,0
+bingx,NEAR-USDC,NEAR-USDT,NEAR|крипта,котировка USDC вместо USDT,0.0043,0.9828,1,20159,0,0
+bingx,NEO-USDT,NEO-USDC,NEO|крипта,котировка USDT вместо USDC,0.0202,0.7205,1,20159,0,0
+bingx,NOT-USDC,NOT-USDT,NOT|крипта,котировка USDC вместо USDT,0.0083,0.8588,1,20159,0,0
+bingx,ONDO-USDC,ONDO-USDT,ONDO|крипта,котировка USDC вместо USDT,0.0125,0.9081,1,20157,0,0
+bingx,OP-USDC,OP-USDT,OP|крипта,котировка USDC вместо USDT,0.0135,0.7910,1,20159,0,0
+bingx,ORDI-USDC,ORDI-USDT,ORDI|крипта,котировка USDC вместо USDT,0.0111,0.9363,1.00095,20159,0,0
+bingx,PENGU-USDC,PENGU-USDT,PENGU|крипта,котировка USDC вместо USDT,0.0066,0.9515,1.0009,20159,0,0
+bingx,PNUT-USDC,PNUT-USDT,PNUT|крипта,котировка USDC вместо USDT,0.0068,0.9042,1,20159,0,0
+bingx,POL-USDC,POL-USDT,POL|крипта,котировка USDC вместо USDT,0.0070,0.9264,1,20159,0,0
+bingx,POPCAT-USDC,POPCAT-USDT,POPCAT|крипта,котировка USDC вместо USDT,0.0059,0.8960,1,20159,0,0
+bingx,SOL-USDC,SOL-USDT,SOL|крипта,котировка USDC вместо USDT,0.0073,0.9711,1.00055,20159,0,0
+bingx,STRK-USDC,STRK-USDT,STRK|крипта,котировка USDC вместо USDT,0.0028,0.9312,1,20159,0,0
+bingx,SUI-USDC,SUI-USDT,SUI|крипта,котировка USDC вместо USDT,0.0033,0.9809,1,20159,0,0
+bingx,TIA-USDC,TIA-USDT,TIA|крипта,котировка USDC вместо USDT,0.0029,0.9787,1,20159,0,0
+bingx,TRX-USDT,TRX-USDC,TRX|крипта,котировка USDT вместо USDC,0.0095,0.9134,1,20110,0,0
+bingx,UNI-USDC,UNI-USDT,UNI|крипта,котировка USDC вместо USDT,0.0021,0.9752,1,20159,0,0
+bingx,WIF-USDC,WIF-USDT,WIF|крипта,котировка USDC вместо USDT,0.0068,0.8821,1.00092,20159,0,0
+bingx,WLD-USDC,WLD-USDT,WLD|крипта,котировка USDC вместо USDT,0.0053,0.9610,1,20159,0,0
+bingx,WLFI-USDC,WLFI-USDT,WLFI|крипта,котировка USDC вместо USDT,0.0306,0.7787,1.00036,20159,0,0
+bingx,XLM-USDT,XLM-USDC,XLM|крипта,котировка USDT вместо USDC,0.0020,0.9806,1,20159,0,0
+bingx,XRP-USDC,XRP-USDT,XRP|крипта,котировка USDC вместо USDT,0.0091,0.9664,1.00057,20159,0,0
+bingx,ZEC-USDC,ZEC-USDT,ZEC|крипта,котировка USDC вместо USDT,0.0075,0.9765,1.00081,20159,0,0
+aster,BTCU,BTCUSDT,BTC|крипта,котировка U вместо USDT; AOS2-контракт,0.0757,0.1750,0.999854,4601,0,0
+aster,BTCUSD1,BTCUSDT,BTC|крипта,котировка USD1 вместо USDT,0.0198,0.8065,0.999895,12536,0,0
+aster,BZUSD1,BZUSDT,BRENT|металлы+энергия,котировка USD1 вместо USDT; AOS2-контракт [не проверено измерением: n_ret=1 < 300],0.1614,,1.00024,1,1,0
+aster,CLUSDT,CLUSD1,WTI|металлы+энергия,котировка USDT вместо USD1,0.0225,0.8767,1,8878,0,0
+aster,CRCLUSD1,CRCLUSDT,CRCL|акции+ETF,котировка USD1 вместо USDT [не проверено измерением: n_ret=6 < 300],0.0286,0.9893,1.00012,6,1,0
+aster,ETHU,ETHUSDT,ETH|крипта,котировка U вместо USDT; AOS2-контракт,0.0130,0.7898,0.99973,6409,0,0
+aster,ETHUSD1,ETHUSDT,ETH|крипта,котировка USD1 вместо USDT,0.0092,0.8634,0.999904,11393,0,0
+aster,KORUUSD1,KORUUSDT,KORU|акции+ETF,котировка USD1 вместо USDT [не проверено измерением: n_ret=1 < 300],0.0387,,1,1,1,0
+aster,METAUSDT,METAUSD1,META|акции+ETF,котировка USDT вместо USD1,0.0393,0.7546,0.999843,409,0,0
+aster,MUUSDT,MUUSD1,MU|акции+ETF,котировка USDT вместо USD1,0.0116,0.8078,0.99997,1689,0,0
+aster,NVDAUSD1,NVDAUSDT,NVDA|акции+ETF,котировка USD1 вместо USDT [не проверено измерением: n_ret=5 < 300],0.0903,0.8939,1.00004,5,1,0
+aster,QQQUSD1,QQQUSDT,QQQ|акции+ETF,котировка USD1 вместо USDT; AOS2-контракт [не проверено измерением: n_ret=11 < 300],0.0916,0.6591,1.00008,11,1,0
+aster,SKHYNIXUSDT,SKHYNIXUSD1,SKHYNIX|акции+ETF,котировка USDT вместо USD1,0.0075,0.8145,0.999985,2081,0,0
+aster,SNDKUSDT,SNDKUSD1,SNDK|акции+ETF,котировка USDT вместо USD1,0.0066,0.8929,1.00012,5484,0,0
+aster,SOLUSD1,SOLUSDT,SOL|крипта,котировка USD1 вместо USDT,0.0119,0.7843,0.999909,1901,0,0
+aster,SOXLUSD1,SOXLUSDT,SOXL|акции+ETF,котировка USD1 вместо USDT; AOS2-контракт,0.0309,0.7956,1,373,0,0
+aster,SPCXUSDT,SPCXUSD1,SPCX|акции+ETF,котировка USDT вместо USD1,0.0123,0.8609,1.00024,2320,0,0
+aster,XAGUSDT,XAGUSD1,XAG|металлы+энергия,котировка USDT вместо USD1 [не проверено измерением: n_ret=175 < 300],0.0230,0.7712,0.999503,175,1,0
+aster,XAUUSDT,XAUUSD1,XAU|металлы+энергия,котировка USDT вместо USD1,0.0421,0.8560,1.00007,5954,0,0
+bitget,1000BONKPERP,1000BONKUSDT,BONK|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=30 < 300],0.0214,0.2958,1.00075,30,1,0
+bitget,AAVEPERP,AAVEUSDT,AAVE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0207,0.6685,1.00098,4921,0,0
+bitget,ADAPERP,ADAUSDT,ADA|крипта,котировка USDC вместо USDT; PERP (USDC),0.0182,0.7567,1.00081,1712,0,0
+bitget,ARBPERP,ARBUSDT,ARB|крипта,котировка USDC вместо USDT; PERP (USDC),0.0225,0.7962,1.0017,757,0,0
+bitget,AVAXPERP,AVAXUSDT,AVAX|крипта,котировка USDC вместо USDT; PERP (USDC),0.0235,0.7662,1.00045,834,0,0
+bitget,BCHPERP,BCHUSDT,BCH|крипта,котировка USDC вместо USDT; PERP (USDC),0.0146,0.7785,1.00089,498,0,0
+bitget,BIOPERP,BIOUSDT,BIO|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=255 < 300],0.0281,0.8114,1.00036,255,1,0
+bitget,BNBPERP,BNBUSDT,BNB|крипта,котировка USDC вместо USDT; PERP (USDC),0.0207,0.7639,1.00053,1012,0,0
+bitget,BOMEPERP,BOMEUSDT,BOME|крипта,котировка USDC вместо USDT; PERP (USDC),0.0154,0.7745,1.00085,1239,0,0
+bitget,BTCPERP,BTCUSDT,BTC|крипта,котировка USDC вместо USDT; PERP (USDC),0.0245,0.9334,1.00074,16374,0,0
+bitget,CRVPERP,CRVUSDT,CRV|крипта,котировка USDC вместо USDT; PERP (USDC),0.0251,0.7446,1.0003,509,0,0
+bitget,DATAPERP,DATAUSDT,DATA|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=28 < 300],0.0684,0.6631,1.00099,28,1,0
+bitget,DOGEPERP,DOGEUSDT,DOGE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0120,0.7972,1.00086,3353,0,0
+bitget,DOTPERP,DOTUSDT,DOT|крипта,котировка USDC вместо USDT; PERP (USDC),0.0241,0.7541,1.00159,1968,0,0
+bitget,EIGENPERP,EIGENUSDT,EIGEN|крипта,котировка USDC вместо USDT; PERP (USDC),0.0219,0.7471,1.00041,572,0,0
+bitget,ENAPERP,ENAUSDT,ENA|крипта,котировка USDC вместо USDT; PERP (USDC),0.0166,0.7318,1.00083,2257,0,0
+bitget,ETCPERP,ETCUSDT,ETC|крипта,котировка USDC вместо USDT; PERP (USDC),0.0239,0.6621,1.00137,426,0,0
+bitget,ETHFIPERP,ETHFIUSDT,ETHFI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0233,0.8036,1.0011,6037,0,0
+bitget,ETHPERP,ETHUSDT,ETH|крипта,котировка USDC вместо USDT; PERP (USDC),0.0102,0.9361,1.00075,16749,0,0
+bitget,FARTCOINPERP,FARTCOINUSDT,FARTCOIN|крипта,котировка USDC вместо USDT; PERP (USDC),0.0214,0.8324,0.999624,384,0,0
+bitget,FILPERP,FILUSDT,FIL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0420,0.5275,1.00122,854,0,0
+bitget,GRAMPERP,GRAMUSDT,GRAM|крипта,котировка USDC вместо USDT; PERP (USDC),0.0231,0.7975,1.00102,338,0,0
+bitget,HBARPERP,HBARUSDT,HBAR|крипта,котировка USDC вместо USDT; PERP (USDC),0.0121,0.8298,1.00062,662,0,0
+bitget,KAITOPERP,KAITOUSDT,KAITO|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=7 < 300],0.0291,0.4765,1.00034,7,1,0
+bitget,LINKPERP,LINKUSDT,LINK|крипта,котировка USDC вместо USDT; PERP (USDC),0.0188,0.7472,1.00094,917,0,0
+bitget,LTCPERP,LTCUSDT,LTC|крипта,котировка USDC вместо USDT; PERP (USDC),0.0141,0.7748,1.00078,1031,0,0
+bitget,MINIMAXHKDUSDT,MINIMAXUSDT,MINIMAX|акции+ETF,нога в HKD,0.0265,0.7720,0.127489,1715,0,1
+bitget,NEARPERP,NEARUSDT,NEAR|крипта,котировка USDC вместо USDT; PERP (USDC),0.0195,0.8055,1.00077,6637,0,0
+bitget,NEOPERP,NEOUSDT,NEO|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=196 < 300],0.0438,0.7126,1.00082,196,1,0
+bitget,ONDOPERP,ONDOUSDT,ONDO|крипта,котировка USDC вместо USDT; PERP (USDC),0.0282,0.7389,1.00121,3682,0,0
+bitget,OPPERP,OPUSDT,OP|крипта,котировка USDC вместо USDT; PERP (USDC),0.0197,0.7276,1.00075,1167,0,0
+bitget,ORDIPERP,ORDIUSDT,ORDI|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=170 < 300],0.0273,0.8520,1.00091,170,1,0
+bitget,PENGUPERP,PENGUUSDT,PENGU|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=187 < 300],0.0232,0.5437,1.00168,187,1,0
+bitget,PEPEPERP,PEPEUSDT,PEPE|крипта,котировка USDC вместо USDT; PERP (USDC),0.0230,0.6969,1.00061,1027,0,0
+bitget,PNUTPERP,PNUTUSDT,PNUT|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=2 < 300],0.0444,,1.00141,2,1,0
+bitget,POLPERP,POLUSDT,POL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0271,0.7926,1.0018,1677,0,0
+bitget,POPCATUSDT,POPCATPERP,POPCAT|крипта,котировка USDT вместо USDC [не проверено измерением: n_ret=241 < 300],0.0208,0.7390,0.999787,241,1,0
+bitget,SHEINHKDUSDT,SHEINUSDT,SHEIN|акции+ETF,нога в HKD,0.0531,0.7152,0.127616,533,0,1
+bitget,SHIBPERP,SHIBUSDT,SHIB|крипта,котировка USDC вместо USDT; PERP (USDC),0.0200,0.6295,1.00034,559,0,0
+bitget,SOLPERP,SOLUSDT,SOL|крипта,котировка USDC вместо USDT; PERP (USDC),0.0118,0.8589,1.00073,12942,0,0
+bitget,STRKPERP,STRKUSDT,STRK|крипта,котировка USDC вместо USDT; PERP (USDC),0.0074,0.8421,1.00056,4213,0,0
+bitget,SUIPERP,SUIUSDT,SUI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0166,0.7760,1.00086,3683,0,0
+bitget,TENCENTHKDUSDT,TENCENTUSDT,TENCENT|акции+ETF,нога в HKD [по политике HKD r2 §4.2; S=0.184 выше порога дубля],0.1836,0.6506,7.83831,630,0,1
+bitget,TIAPERP,TIAUSDT,TIA|крипта,котировка USDC вместо USDT; PERP (USDC),0.0142,0.8008,1.00055,2527,0,0
+bitget,TRUMPPERP,TRUMPUSDT,TRUMP|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=56 < 300],0.0232,0.8339,1.00105,56,1,0
+bitget,TRXPERP,TRXUSDT,TRX|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=290 < 300],0.0635,0.6960,1.00079,290,1,0
+bitget,UNIPERP,UNIUSDT,UNI|крипта,котировка USDC вместо USDT; PERP (USDC),0.0129,0.6509,1.00088,681,0,0
+bitget,WIFPERP,WIFUSDT,WIF|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=190 < 300],0.0131,0.7829,1.00121,190,1,0
+bitget,WLDPERP,WLDUSDT,WLD|крипта,котировка USDC вместо USDT; PERP (USDC),0.0315,0.6852,1.00061,2647,0,0
+bitget,WLFIPERP,WLFIUSDT,WLFI|крипта,котировка USDC вместо USDT; PERP (USDC) [не проверено измерением: n_ret=98 < 300],0.0535,0.8678,1.00018,98,1,0
+bitget,XIAOMIHKDUSDT,XIAOMIUSDT,XIAOMI|акции+ETF,нога в HKD,0.0541,0.8071,7.83056,2450,0,1
+bitget,XLMPERP,XLMUSDT,XLM|крипта,котировка USDC вместо USDT; PERP (USDC),0.0132,0.7792,1.00021,1129,0,0
+bitget,XRPPERP,XRPUSDT,XRP|крипта,котировка USDC вместо USDT; PERP (USDC),0.0128,0.8202,1.00086,9093,0,0
+bitget,ZHIPUHKDUSDT,ZHIPUUSDT,ZHIPU|акции+ETF,нога в HKD,0.0346,0.7801,0.127382,1917,0,1

@@ -1,0 +1,221 @@
+{
+ "n_same": 56,
+ "n_diff": 122,
+ "corr": {
+  "worst_same": 0.9555540435787832,
+  "best_diff": 0.965345974474818,
+  "gap": false,
+  "mid": 0.9604500090268006,
+  "argmax_diff": "XAU против XAUT/PAXG"
+ },
+ "dev": {
+  "worst_same": 0.0001131326493337592,
+  "best_diff": 5.357969697256763e-07,
+  "gap": false,
+  "mid": 5.6834223151742444e-05,
+  "argmin_diff": "XAU против XAUT/PAXG"
+ },
+ "S": {
+  "worst_same": 0.02507754521635822,
+  "best_diff": 0.09835096486276287,
+  "gap": true,
+  "mid": 0.061714255039560545,
+  "argmin_diff": "XAU против XAUT/PAXG"
+ },
+ "by_group_diff": {
+  "DASH-акция против DASH-крипты": {
+   "n": 7,
+   "corr_max": 0.013958467677365952,
+   "corr_min": -0.0013734907950607484,
+   "dev_min": 0.4202386238066126,
+   "S_min": 0.9812978254043492
+  },
+  "Aster MEME против MEME других": {
+   "n": 4,
+   "corr_max": 0.008513711941687537,
+   "corr_min": -0.019048180860767344,
+   "dev_min": 0.40867082206158334,
+   "S_min": 2.5898082556611044
+  },
+  "OKX AI против AI Aster/Lighter": {
+   "n": 2,
+   "corr_max": 0.033609046544443744,
+   "corr_min": 0.013252723112239248,
+   "dev_min": 0.257487793369363,
+   "S_min": 4.760269912874261
+  },
+  "ETHBTC против ETH": {
+   "n": 16,
+   "corr_max": 0.6182540873565202,
+   "corr_min": 0.482516437554086,
+   "dev_min": 0.07805323723461566,
+   "S_min": 0.42926341850732724
+  },
+  "XAU против XAUT/PAXG": {
+   "n": 93,
+   "corr_max": 0.965345974474818,
+   "corr_min": 0.638239945724681,
+   "dev_min": 5.357969697256763e-07,
+   "S_min": 0.09835096486276287
+  }
+ },
+ "skipped": [
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bingx",
+    "NCSKDASH2USD-USDT"
+   ],
+   "b": [
+    "lighter",
+    "DASH"
+   ],
+   "why": "n_ret=107 < 300"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "aster",
+    "DASHUSDT"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "binance",
+    "DASHUSDT"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "bingx",
+    "DASH-USDT"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "bitget",
+    "DASHUSDT"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "bybit",
+    "DASHUSDT"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "kraken",
+    "PF_DASHUSD"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "lighter",
+    "DASH"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "DASH-акция против DASH-крипты",
+   "a": [
+    "bitget",
+    "DASHSTOCKUSDT"
+   ],
+   "b": [
+    "okx",
+    "DASH-USDT-SWAP"
+   ],
+   "why": "нет валидных минут у bitget:DASHSTOCKUSDT"
+  },
+  {
+   "group": "Aster MEME против MEME других",
+   "a": [
+    "bitget",
+    "MEMEUSDT"
+   ],
+   "b": [
+    "aster",
+    "MEMEUSDT"
+   ],
+   "why": "n_ret=92 < 300"
+  },
+  {
+   "group": "XAU против XAUT/PAXG",
+   "a": [
+    "kraken",
+    "PF_XAUUSD"
+   ],
+   "b": [
+    "kraken",
+    "PF_PAXGUSD"
+   ],
+   "why": "n_ret=240 < 300"
+  },
+  {
+   "group": "XAU против XAUT/PAXG",
+   "a": [
+    "kraken",
+    "PF_XAUUSD"
+   ],
+   "b": [
+    "lighter",
+    "PAXG"
+   ],
+   "why": "n_ret=215 < 300"
+  },
+  {
+   "group": "XAU против XAUT/PAXG",
+   "a": [
+    "kraken",
+    "PF_XAUUSD"
+   ],
+   "b": [
+    "aster",
+    "PAXGUSDT"
+   ],
+   "why": "n_ret=190 < 300"
+  }
+ ],
+ "n_ret_min": 300
+}

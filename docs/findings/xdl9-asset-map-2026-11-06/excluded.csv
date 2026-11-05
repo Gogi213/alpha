@@ -1,0 +1,373 @@
+exchange,symbol,class,big,status,n_valid,reason
+binance,ABBVUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,AMGNUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,ANTHROPICUSDT,other,вне теста,TRADING,17169,вне теста: pre-IPO/pre-launch
+binance,BACUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,CEGUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,EIDOUSDT,etf,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,EQTUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,EWZSUSDT,etf,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,IBKRUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,MDTUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,MELIUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,MOONSHOTUSDT,other,вне теста,TRADING,5794,вне теста: pre-IPO/pre-launch
+binance,OPENAIUSDT,other,вне теста,TRADING,18119,вне теста: pre-IPO/pre-launch
+binance,OURAUSDT,other,вне теста,TRADING,6044,вне теста: pre-IPO/pre-launch
+binance,OXYUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,PFEUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,PREDICTUSDT,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,SMRUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+binance,STMUSDT,equity,акции+ETF,TRADING,0,нет валидных минут на формировании (n_valid=0)
+bybit,ABBVUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,AGPUUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,AKAMUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,AXISUSDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,AXPUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,BAUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,BKNGUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,CEGUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,CRMLUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,CSTOCKUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,DNAUSDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,DRVUSDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,EIDOUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,EQTUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,EWZSUSDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,IBKRUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,LMTUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,MDTSTOCKUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,MXLUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,OXYUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,PFEUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,PGUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,PREDICTUSDT,crypto,крипта,PreLaunch,0,нет валидных минут на формировании (n_valid=0)
+bybit,SMRUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,STMUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,TTMIUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,USDBRLUSDT,fx,фиат,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,XLIUSDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bybit,XPUSDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+okx,ABBV-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,ADI-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,AMGN-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,ANTHROPIC-USDT-SWAP,other,вне теста,live,17816,вне теста: pre-IPO/pre-launch
+okx,AXIS-USDT-SWAP,crypto,крипта,live,0,нет валидных минут на формировании (n_valid=0)
+okx,BAC-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,BIDU-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,BTW-USDT-SWAP,crypto,крипта,live,0,нет валидных минут на формировании (n_valid=0)
+okx,CEG-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,CRML-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,CVNA-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,DNA-USDT-SWAP,crypto,крипта,live,0,нет валидных минут на формировании (n_valid=0)
+okx,FLEX-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,GE-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,GIGADEV-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,GILD-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,GS-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,H100-USDT-SWAP,other,вне теста,live,5688,вне теста: класс other
+okx,IBKR-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,JPM-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,MCD-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,MELI-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,MOONSHOT-USDT-SWAP,other,вне теста,live,1831,вне теста: pre-IPO/pre-launch
+okx,MP-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,MPWR-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,MURATA-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,NVO-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,OPENAI-USDT-SWAP,other,вне теста,live,11454,вне теста: pre-IPO/pre-launch
+okx,OURA-USDT-SWAP,other,вне теста,live,1670,вне теста: pre-IPO/pre-launch
+okx,OXY-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,PANW-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,PDD-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,PEP-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,PFE-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,RUM-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,SMR-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,TWST-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,UMC-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,V-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,VST-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+okx,WUXIBIO-USDT-SWAP,equity,акции+ETF,live,0,нет валидных минут на формировании (n_valid=0)
+bingx,1000XEC-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,AXIS-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,DACITY-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,DNA-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,DOPE-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,ETHW-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,FLOAT-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,FTR-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,GANG-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,GTA6-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,JAGENT-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,KIMCHI-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,KNTQ-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCCOXAUKRW2USD-USDT,metal,металлы+энергия,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCCOXAUXPT2USD-USDT,metal,металлы+энергия,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCCOXAUZAR2USD-USDT,metal,металлы+энергия,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSIB2002USD-USDT,other,вне теста,Trading,20146,вне теста: класс other
+bingx,NCSIH1002USD-USDT,other,вне теста,Trading,20160,вне теста: класс other
+bingx,NCSKADP2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKAMT2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKANTHROPIC2USD-USDT,other,вне теста,Trading,20160,вне теста: класс other
+bingx,NCSKAPO2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKARGX2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKARKG2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKBBD2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKBHP2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKBNY2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKBOTZ2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKBP2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKCART2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKCB2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKCCI2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKCLF2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKCLS2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKCTSH2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKCVS2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKDHI2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKDIA2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKDISK2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKDLR2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKDTE2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKDVN2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKDXYZ2USD-USDT,other,вне теста,Trading,18784,вне теста: класс other
+bingx,NCSKEIDO2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKEL2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKELV2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKEMR2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKEOG2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKEQIX2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKEQT2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKEWZS2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKFDX2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKFIX2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKFN2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKFSLY2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKGD2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKGM2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKGRAL2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKHAL2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKHCA2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKHLT2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKHON2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKHTZ2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKIJR2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKITUB2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKJCI2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKJPL2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKKEYS2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKKKR2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKKMI2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKLABU2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKLEN2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKLHX2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKLOW2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKMCHP2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKMMM2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKMRSH2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKMUD2USD-USDT,other,вне теста,Trading,3910,вне теста: класс other
+bingx,NCSKMURATA2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKMXL2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKNBIL2USD-USDT,other,вне теста,Trading,3910,вне теста: класс other
+bingx,NCSKNOC2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKNRG2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKNTRA2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKNUE2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKOPENAI2USD-USDT,other,вне теста,Trading,20160,вне теста: класс other
+bingx,NCSKP2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKPH2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKPLD2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKPNC2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKPOLYMARKET2USD-USDT,other,вне теста,Trading,16511,вне теста: класс other
+bingx,NCSKPSX2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKRIO2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKRRC2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKSE2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKSKDD2USD-USDT,other,вне теста,Trading,20160,вне теста: класс other
+bingx,NCSKSKUU2USD-USDT,other,вне теста,Trading,20160,вне теста: класс other
+bingx,NCSKSMTC2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKSNDQ2USD-USDT,other,вне теста,Trading,3910,вне теста: класс other
+bingx,NCSKSSPC2USD-USDT,other,вне теста,Trading,20160,вне теста: класс other
+bingx,NCSKSTXX2USD-USDT,other,вне теста,Trading,3628,вне теста: класс other
+bingx,NCSKSYK2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKTGT2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKUGL2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKUNP2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKUPS2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKURI2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKVCX2USD-USDT,other,вне теста,Trading,20160,вне теста: класс other
+bingx,NCSKWMB2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKWPM2USD-USDT,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,NCSKXME2USD-USDT,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,PREDICT-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,PRIORS-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,RLS-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+bingx,VRAX-USDT,crypto,крипта,Trading,0,нет валидных минут на формировании (n_valid=0)
+aster,ANTHROPICUSD1,other,вне теста,TRADING,0,вне теста: pre-IPO/pre-launch
+aster,ANTHROPICUSDT,other,вне теста,TRADING,152,вне теста: pre-IPO/pre-launch
+aster,AXISUSDT,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+aster,BTCUSDC,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+aster,DNAUSDT,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+aster,ETHUSDC,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+aster,IOSTUSDT,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+aster,MOONSHOTUSD1,other,вне теста,TRADING,1934,вне теста: pre-IPO/pre-launch
+aster,OPENAIUSD1,other,вне теста,TRADING,0,вне теста: pre-IPO/pre-launch
+aster,OPENAIUSDT,other,вне теста,TRADING,222,вне теста: pre-IPO/pre-launch
+aster,OURAUSD1,other,вне теста,TRADING,3376,вне теста: pre-IPO/pre-launch
+aster,PAPERUSDT,crypto,вне теста,SETTLING,0,вне теста: pre-IPO/pre-launch
+aster,POLYMARKETUSD1,other,вне теста,TRADING,2246,вне теста: pre-IPO/pre-launch
+aster,PREDICTUSDT,crypto,вне теста,TRADING,0,вне теста: pre-IPO/pre-launch
+aster,SOLUSDC,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+aster,WALUSDT,crypto,крипта,TRADING,0,нет валидных минут на формировании (n_valid=0)
+aster,XTENUSDT,crypto,вне теста,TRADING,0,вне теста: pre-IPO/pre-launch
+kraken,PF_AMDUSD,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+kraken,PF_ANTHROPICXUSD,equity,вне теста,Trading,4159,вне теста: pre-IPO/pre-launch
+kraken,PF_EWYUSD,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+kraken,PF_EWZUSD,etf,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+kraken,PF_GBPUSD,fx,фиат,Trading,0,нет валидных минут на формировании (n_valid=0)
+kraken,PF_MOONSHOTXUSD,equity,вне теста,Trading,70,вне теста: pre-IPO/pre-launch
+kraken,PF_MRVLUSD,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+kraken,PF_OPENAIXUSD,equity,вне теста,Trading,202,вне теста: pre-IPO/pre-launch
+kraken,PF_OURAXUSD,equity,вне теста,Trading,185,вне теста: pre-IPO/pre-launch
+kraken,PF_PLTRUSD,equity,акции+ETF,Trading,0,нет валидных минут на формировании (n_valid=0)
+kraken,PF_SPCXXUSD,other,вне теста,Trading,3816,вне теста: класс other
+lighter,1000TOSHI,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,AAOI,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,ADI,other,вне теста,inactive,0,вне теста: класс other
+lighter,AI,other,вне теста,active,7845,вне теста: класс other
+lighter,AI16Z,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,ANSEM,other,вне теста,active,7488,вне теста: класс other
+lighter,ANTHROPIC,equity,вне теста,active,11139,вне теста: pre-IPO/pre-launch
+lighter,ARM,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,AVGO,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,AXTI,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,BE,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,BIRB,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,BOTZ,etf,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,BYD,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,DIA,etf,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,DOLO,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,DRV,other,вне теста,active,9408,вне теста: класс other
+lighter,DUSK,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,EDEN,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,FOGO,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,GME,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,H100,other,вне теста,active,324,вне теста: класс other
+lighter,HANMI,equity,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,HYUNDAI,equity,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,IREN,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,KIOXIA,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,KORU,etf,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,KRCOMP,index,индексы,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,LAUNCHCOIN,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,MAGS,etf,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,MKR,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,MYX,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,NOK,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,OPENAI,equity,вне теста,active,9100,вне теста: pre-IPO/pre-launch
+lighter,OURA,equity,вне теста,active,843,вне теста: pre-IPO/pre-launch
+lighter,PIPPIN,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,POPMART,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,PRL,other,вне теста,active,16453,вне теста: класс other
+lighter,QCOM,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,RESOLV,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,SAMSUNG,equity,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,SKHYNIX,equity,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,SOXS,etf,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,SOXX,etf,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,SPACEX,equity,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,STABLECOINX,other,вне теста,active,7283,вне теста: класс other
+lighter,TUR30,other,вне теста,active,0,вне теста: класс other
+lighter,URA,etf,акции+ETF,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,US10Y,other,вне теста,active,79,вне теста: класс other
+lighter,USDHKD,fx,фиат,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,VARIATIONAL,other,вне теста,active,0,вне теста: класс other
+lighter,WDC,equity,акции+ETF,active,0,нет валидных минут на формировании (n_valid=0)
+lighter,WHEAT,commodity,металлы+энергия,inactive,0,нет валидных минут на формировании (n_valid=0)
+lighter,XTEN,other,вне теста,active,0,вне теста: класс other
+lighter,YZY,crypto,крипта,inactive,0,нет валидных минут на формировании (n_valid=0)
+bitget,ABBVUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,AGPUUSDT,other,вне теста,normal,5092,вне теста: класс other
+bitget,ANTHROPICUSDT,other,вне теста,normal,12160,вне теста: класс other
+bitget,AXISUSDT,crypto,крипта,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,B200USDT,other,вне теста,normal,2102,вне теста: класс other
+bitget,BHARTIARTLUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,BNCUSDT,other,вне теста,normal,7901,вне теста: класс other
+bitget,BOTUSDT,other,вне теста,normal,4536,вне теста: класс other
+bitget,BPUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,BSPUSDT,other,вне теста,normal,5555,вне теста: класс other
+bitget,CLSUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,CSTOCKUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,CSXUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,DASHSTOCKUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,DHRUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,DISKUSDT,other,вне теста,normal,2349,вне теста: класс other
+bitget,DRAMUSDT,other,вне теста,normal,14948,вне теста: класс other
+bitget,EBAYUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,ECHOUSDT,other,вне теста,normal,2374,вне теста: класс other
+bitget,EIDOUSDT,etf,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,ELICEUSDT,other,вне теста,normal,0,вне теста: класс other
+bitget,EQTUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,EUVUSDT,other,вне теста,normal,2479,вне теста: класс other
+bitget,EWZSUSDT,etf,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,FASTRETAILINGUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,FISVUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,FTNTUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,H100USDT,other,вне теста,normal,4132,вне теста: класс other
+bitget,HDFCBANKUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,HINDUNILVRUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,HLTUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,HONHAIUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,IBKRUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,ICICIBANKUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,INFYUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,INTWUSDT,other,вне теста,normal,14048,вне теста: класс other
+bitget,ITCUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,ITUBUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,JMKEUSDT,other,вне теста,normal,2175,вне теста: класс other
+bitget,KMBUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,LNGUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,LTUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,MAUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,MDTUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,MEDIATEKUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,MOONSHOTUSDT,other,вне теста,normal,3779,вне теста: класс other
+bitget,MOUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,MSCIUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,MSUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,MVLLUSDT,other,вне теста,normal,11476,вне теста: класс other
+bitget,NANYAUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,NUUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,OPENAIUSDT,other,вне теста,normal,12023,вне теста: класс other
+bitget,OURAUSDT,other,вне теста,normal,4896,вне теста: класс other
+bitget,PBRUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,PFEUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,PGUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,POLYMARKETUSDT,other,вне теста,normal,1228,вне теста: класс other
+bitget,RAMUSDT,other,вне теста,normal,10430,вне теста: класс other
+bitget,RELIANCEUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,SBINUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,SECZUSDT,other,вне теста,normal,8347,вне теста: класс other
+bitget,SHAZUSDT,other,вне теста,normal,4074,вне теста: класс other
+bitget,SKDDUSDT,other,вне теста,normal,9637,вне теста: класс other
+bitget,SKHYUSDT,other,вне теста,normal,16829,вне теста: класс other
+bitget,SKUUUSDT,other,вне теста,normal,7773,вне теста: класс other
+bitget,SNXXUSDT,other,вне теста,normal,16244,вне теста: класс other
+bitget,SPCHUSDT,other,вне теста,normal,8294,вне теста: класс other
+bitget,SPCXUSDT,other,вне теста,normal,16235,вне теста: класс other
+bitget,SPOTUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,SSPCUSDT,other,вне теста,normal,4312,вне теста: класс other
+bitget,STMUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,TCSUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,TSTOCKUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,TWASXUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,TWDELTAUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,TWTSMUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,TWUMCUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,USDESTOCKUSDT,other,вне теста,normal,4149,вне теста: класс other
+bitget,VLOUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,WALSINUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,WINBONDUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,XNDUUSDT,other,вне теста,normal,3632,вне теста: класс other
+bitget,YAGEOUSDT,equity,акции+ETF,normal,0,нет валидных минут на формировании (n_valid=0)
+bitget,ZCSHUSDT,other,вне теста,normal,1215,вне теста: класс other

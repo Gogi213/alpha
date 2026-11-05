@@ -1,0 +1,51 @@
+exchange,base,key,kind,source,evidence
+binance,HK0700,TENCENT,hk_leg,словарь: HKEX 0700; ноги в HKD,скан: лучшая пара bitget:TENCENTHKDUSDT corr=0.68499 S=0.08507 ratio=1.00088 n_ret=1502
+binance,HK0992,LENOVO,hk_leg,словарь: HKEX 992 (ticker=992HK у Bybit); ноги в HKD,скан: лучшая пара bitget:LENOVOHKDUSDT corr=0.27173 S=0.06324 ratio=1.00269 n_ret=537
+binance,HK1810,XIAOMI,hk_leg,словарь: HKEX 1810; ноги в HKD,скан: лучшая пара bitget:XIAOMIHKDUSDT corr=0.86015 S=0.04358 ratio=0.999122 n_ret=4333
+binance,HK0625,SHEIN,hk_leg,"скан F5 (по данным, код HKEX не подтверждён) - подтвердить",скан: лучшая пара okx:SHEIN-USDT-SWAP corr=0.75765 S=0.03950 ratio=7.85429 n_ret=1938
+bitget,CSOPSK2LHKD,CSOPSKHYNIX2L,hk_leg,"скан F5: нога в HKD, имя другое",скан: лучшая пара binance:CSOPSKHYNIX2LUSDT corr=0.69930 S=0.01478 ratio=7.84915 n_ret=5549
+bitget,CSOPSS2LHKD,CSOPSAMSUNG2L,hk_leg,"скан F5: нога в HKD, имя другое",скан: лучшая пара okx:CSOPSAMSUNG2L-USDT-SWAP corr=0.72339 S=0.02149 ratio=7.84274 n_ret=1207
+bybit,PUMPFUN,PUMP,rename,скан F5,скан: лучшая пара binance:PUMPUSDT corr=0.98910 S=0.00404 ratio=0.99982 n_ret=20155
+binance,RAYSOL,RAY,rename,скан F5,скан: лучшая пара okx:RAY-USDT-SWAP corr=0.97987 S=0.00552 ratio=0.999562 n_ret=20159
+bybit,RAYDIUM,RAY,rename,скан F5,скан: лучшая пара binance:RAYSOLUSDT corr=0.96974 S=0.00633 ratio=0.999893 n_ret=20149
+bingx,LIGHTER,LIT,rename,скан F5,скан: лучшая пара binance:LITUSDT corr=0.97696 S=0.00591 ratio=1.00009 n_ret=20159
+okx,QUANT,QNT,rename,скан F5,скан: лучшая пара bingx:QNT-USDT corr=0.97048 S=0.00906 ratio=1.00024 n_ret=19602
+bingx,BNLIFE,币安人生,rename,скан F5,скан: лучшая пара binance:币安人生USDT corr=0.96756 S=0.00523 ratio=1.00002 n_ret=20026
+bingx,METEORA,MET,rename,скан F5,скан: лучшая пара binance:METUSDT corr=0.96358 S=0.00322 ratio=1.00025 n_ret=20157
+bingx,AEONBSC,AEON,rename,скан F5,скан: лучшая пара okx:AEON-USDT-SWAP corr=0.95254 S=0.00447 ratio=1.00002 n_ret=16472
+binance,BEAMX,BEAM,rename,скан F5,скан: лучшая пара bybit:BEAMUSDT corr=0.95119 S=0.01110 ratio=0.999987 n_ret=18219
+bingx,OPENEDEN,EDEN,rename,скан F5,скан: лучшая пара okx:EDEN-USDT-SWAP corr=0.94049 S=0.01901 ratio=0.999761 n_ret=18945
+bingx,NOMINA,NOM,rename,скан F5,скан: лучшая пара binance:NOMUSDT corr=0.93383 S=0.00797 ratio=1.00029 n_ret=20159
+bingx,FIGHTID,FIGHT,rename,скан F5,скан: лучшая пара binance:FIGHTUSDT corr=0.93078 S=0.00527 ratio=0.999422 n_ret=20089
+bybit,SKYAI1,SKYAI,rename,скан F5,скан: лучшая пара bingx:SKYAI-USDT corr=0.92888 S=0.00969 ratio=0.999199 n_ret=12741
+bingx,EDGEX,EDGE,rename,скан F5,скан: лучшая пара binance:EDGEUSDT corr=0.92252 S=0.00298 ratio=0.999509 n_ret=20083
+bingx,CITREA,CTR,rename,скан F5,скан: лучшая пара binance:CTRUSDT corr=0.91834 S=0.01345 ratio=0.999994 n_ret=19510
+bingx,HYPERLANE,HYPER,rename,скан F5,скан: лучшая пара binance:HYPERUSDT corr=0.91601 S=0.01553 ratio=1.00018 n_ret=19745
+bingx,MONAD,MON,rename,скан F5,скан: лучшая пара binance:MONUSDT corr=0.91415 S=0.00470 ratio=0.999762 n_ret=20159
+binance,DATAIP,DATA,rename,скан F5,скан: лучшая пара okx:DATA-USDT-SWAP corr=0.90474 S=0.02021 ratio=1.00162 n_ret=15568
+bingx,DATANETWORK,DATA,rename,скан F5,скан: лучшая пара okx:DATA-USDT-SWAP corr=0.80315 S=0.02218 ratio=1.00059 n_ret=15789
+bingx,WOTAMALAILE,我踏马来了,rename,скан F5,скан: лучшая пара binance:我踏马来了USDT corr=0.89494 S=0.01579 ratio=1.00001 n_ret=19669
+bingx,SPACECOIN,SPACE,rename,скан F5,скан: лучшая пара binance:SPACEUSDT corr=0.87558 S=0.00505 ratio=0.999413 n_ret=19848
+bybit,NESA,NES,rename,скан F5 (пограничное по S),скан: лучшая пара okx:NES-USDT-SWAP corr=0.85642 S=0.07284 ratio=1.00353 n_ret=3071
+bingx,TRUMPSOL,TRUMP,rename,скан F5,скан: лучшая пара aster:TRUMPUSDT corr=0.85000 S=0.01515 ratio=0.99992 n_ret=3436
+bingx,REDSTONE,RED,rename,скан F5,скан: лучшая пара aster:REDUSDT corr=0.84466 S=0.03651 ratio=1.00005 n_ret=308
+bybit,SOLAYER,LAYER,rename,скан F5,скан: лучшая пара okx:LAYER-USDT-SWAP corr=0.84184 S=0.02420 ratio=1.00213 n_ret=10208
+bingx,BITLIGHT,LIGHT,rename,скан F5,скан: лучшая пара okx:LIGHT-USDT-SWAP corr=0.83275 S=0.01749 ratio=0.999899 n_ret=16053
+bingx,MIRANETWORK,MIRA,rename,скан F5,скан: лучшая пара binance:MIRAUSDT corr=0.83000 S=0.03339 ratio=1.00075 n_ret=19765
+aster,FUN,SPORTFUN,rename,"скан F5 (пограничное по S; Binance FUN - другой актив, у Aster FUN = SPORTFUN)",скан: лучшая пара bingx:SPORTFUN-USDT corr=0.82396 S=0.08098 ratio=0.999307 n_ret=352
+bitget,UNITAS,UP,rename,скан F5,скан: лучшая пара okx:UP-USDT-SWAP corr=0.80129 S=0.01261 ratio=0.998219 n_ret=7407
+bingx,RON,RONIN,rename,скан F5 (пограничное по S),скан: лучшая пара binance:RONINUSDT corr=0.78880 S=0.07393 ratio=0.999274 n_ret=19989
+bingx,GRAMTON,GRAM,rename,скан F5,скан: лучшая пара bitget:GRAMPERP corr=0.77988 S=0.02613 ratio=1.0005 n_ret=386
+bingx,OPENLEDGER,OPEN,rename,скан F5,скан: лучшая пара bitget:OPENUSDT corr=0.74738 S=0.02015 ratio=0.998607 n_ret=3145
+bingx,GENSYN,GENSYN,rename,скан F5,скан: лучшая пара bybit:AIGENSYNUSDT corr=0.74648 S=0.02401 ratio=0.999909 n_ret=8949
+binance,AIGENSYN,GENSYN,rename,скан F5,
+bybit,AIGENSYN,GENSYN,rename,скан F5,
+okx,AI,GENSYN,extra,скан F5: OKX AI = токен Gensyn (контр. к Aster/Lighter AI - другой актив; ключ AI оставлен),
+aster,MEME,AMEMECOIN,rename,скан F5: Aster MEME = AMEMECOIN BingX (пограничное по S); не MEME других бирж,
+bybit,NOKIA,NOK,rename,скан F5,скан: лучшая пара bitget:NOKSTOCKUSDT corr=0.77837 S=0.03054 ratio=0.998445 n_ret=1187
+binance,GIGADEV,GIGADEVICE,rename,скан F5,скан: лучшая пара bitget:GIGADEVICEUSDT corr=0.63988 S=0.01800 ratio=0.995708 n_ret=2300
+bingx,DISNEY,DIS,rename,скан F5,скан: лучшая пара binance:DISUSDT corr=0.63037 S=0.01372 ratio=0.999976 n_ret=5525
+bingx,RAMUS,RAM,rename,скан F5,скан: лучшая пара okx:RAM-USDT-SWAP corr=0.71051 S=0.00892 ratio=0.999739 n_ret=8900
+binance,BBX,BB,rename,"скан F5: BlackBerry (BB у Bitget/OKX/BingX), не крипто-BB",
+bybit,BBX,BB,rename,скан F5: BlackBerry,
+aster,BBX,BB,rename,скан F5: BlackBerry,

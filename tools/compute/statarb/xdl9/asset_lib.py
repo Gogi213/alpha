@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""TK-493 F5: общие функции таблицы «один актив» (только формирование 01.10-14.10 UTC; торговое окно не читается нигде).
+
+Загрузка контрактов (instruments.csv + ряды закрытий формирования со стадии 1 `asset_extract.py`), укрупнённый класс (П-37 §4.1),
+нормализация имени (приставки множителя, суффиксы-псевдонимы), статистики пары.
+Только numpy и stdlib.
+"""
+import csv, math, os, re
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
+DATA = os.path.join(ROOT, "data", "xdl9")
+N_MIN = 14 * 1440                      # минут формирования
+EXCH = ["binance", "bybit", "okx", "bingx", "aster", "kraken", "lighter", "bitget"]   # 8 минутных бирж (Hyperliquid 15 м - вне)
+
+# П-37 §4.1 (Н3): укрупнённые классы
+BIG = {"crypto": "крипта", "equity": "акции+ETF", "etf": "акции+ETF", "index": "индексы", "metal": "металлы+энергия",
+       "energy": "металлы+энергия", "commodity": "металлы+энергия", "fx": "фиат"}
+OUT_OF_TEST = "вне теста"
+
+
+def safe_name(sym):
+    return "".join(c if c.isalnum() or c in "-_.@" else "_" for c in sym)
+
+
+def f(x, default=float("nan")):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
+def load_contracts(data=DATA):
+    """-> (list[dict], close float32 [N, N_MIN]); строка контракта = инструмент со свечами формирования."""
+    rows, mats = [], []
+    for ex in EXCH:
+        inst = {}
+        with open(os.path.join(data, "inst", ex + ".csv"), encoding="utf-8", newline="") as fh:
+            for r in csv.DictReader(fh):
+                inst[safe_name(r["symbol"])] = r
+        with open(os.path.join(data, "asset", ex + ".idx.csv"), encoding="utf-8", newline="") as fh:
+            idx = list(csv.DictReader(fh))
+        raw = np.fromfile(os.path.join(data, "asset", ex + ".f32"), dtype="<f4").reshape(-1, N_MIN)
+        assert raw.shape[0] == len(idx), (ex, raw.shape, len(idx))
+        for r in idx:
+            stem = r["file"][:-7]
+            ins = inst.get(stem)
+            if ins is None:
+                raise SystemExit("нет в instruments: %s %s" % (ex, stem))
+            d = dict(ins)
+            d.update(file=r["file"], n_bars=int(r["n_bars"]), n_valid=int(r["n_valid"]), qv_rows=int(r["qv_rows"]),
+                     turnover_qv=f(r["turnover_qv"]), turnover_cv=f(r["turnover_cv"]), turnover=f(r["turnover"]),
+                     price_med=f(r["price_med"]), first_valid=int(r["first_valid"]), last_valid=int(r["last_valid"]),
+                     row=int(r["row"]))
+            rows.append(d)
+        mats.append(raw)
+    C = np.concatenate(mats, axis=0)
+    for i, d in enumerate(rows):
+        d["i"] = i
+        d["zero_share"] = 1.0 - d["n_valid"] / N_MIN
+    return rows, C
+
+
+def big_class(d):
+    if "pre-IPO" in d.get("note", "") or "pre-launch" in d.get("note", "") or "pre_market" in d.get("note", ""):
+        return OUT_OF_TEST
+    if "dated future" in d.get("note", ""):
+        return OUT_OF_TEST
+    if d["class"] == "other":
+        return OUT_OF_TEST
+    return BIG.get(d["class"], OUT_OF_TEST)
+
+
+# ---------------------------------------------------------------- нормализация имени
+MULT_RE = re.compile(r"^(1000000|100000|10000|1000|1M)(?=[A-Z])")
+
+
+def norm_key(d):
+    """-> (ключ актива, список меток нормализации). Ключ только ПРЕДЛАГАЕТ кандидатов (словарь псевдонимов, П-37 §4.2 [Н29]);
+    решение «один актив» принимает измеренное правило."""
+    tags = []
+    b = d["base"]
+    ex = d["exchange"]
+    cl = d["class"]
+    if ex == "kraken" and cl in ("equity", "etf") and b.endswith("x") and len(b) > 2:
+        b = b[:-1]
+        tags.append("kraken_xstock")
+    if ex == "lighter" and re.match(r"^rh[A-Z]", b):
+        b = b[2:]
+        tags.append("lighter_rh")
+    b = b.upper()
+    if ex == "lighter" and cl in ("equity", "etf") and b.endswith("USD") and len(b) > 4:
+        b = b[:-3]
+        tags.append("lighter_usd")
+    if cl in ("equity", "etf") and b.endswith("STOCK") and len(b) > 5:
+        b = b[:-5]
+        tags.append("suffix_STOCK")
+    if b.endswith("HKD") and len(b) > 5 and cl in ("equity", "etf"):
+        b = b[:-3]
+        tags.append("suffix_HKD")
+    m = MULT_RE.match(b)
+    if m:
+        b = b[len(m.group(1)):]
+        tags.append("mult_" + m.group(1))
+    m2 = re.match(r"^([A-Z]{2,})(1000)$", b)           # суффикс множителя (Bybit SHIB1000)
+    if m2:
+        b = m2.group(1)
+        tags.append("mult_" + m2.group(2))
+    if d["quote"] == "BTC" and not b.endswith("BTC"):
+        b = b + "BTC"
+        tags.append("quote_BTC")
+    return b, tags
+
+
+# ---------------------------------------------------------------- статистики пары
+def log_returns(c):
+    """c: [T] float; -> r [T] (NaN, где нет обоих баров подряд)."""
+    lc = np.log(c.astype(np.float64))
+    r = np.full(lc.shape, np.nan)
+    r[1:] = lc[1:] - lc[:-1]
+    return r
+
+
+def pair_stats(c1, c2, r1=None, r2=None):
+    """Статистики пары по ОБЩИМ валидным минутам формирования (обе ноги v>0). Возвращает dict.
+    corr   - Пирсон минутных лог-доходностей (минуты, где у обеих ног есть доходность);
+    med_ratio - медиана c1/c2 по общим минутам; k - ближайшая целая степень 10; dev - |log10(med_ratio) - k|;
+    S      - σ(lr)/σ(ln c1) по общим минутам, lr = ln c1 - ln c2;
+    mean_lr - среднее lr; n_common - общих минут; n_ret - общих минут с доходностью."""
+    both = np.isfinite(c1) & np.isfinite(c2)
+    n = int(both.sum())
+    out = dict(n_common=n, n_ret=0, corr=float("nan"), med_ratio=float("nan"), k=0, dev=float("nan"), S=float("nan"),
+               mean_lr=float("nan"), sd_lr=float("nan"), sd_l1=float("nan"))
+    if n < 2:
+        return out
+    a = c1[both].astype(np.float64)
+    b = c2[both].astype(np.float64)
+    ratio = a / b
+    med = float(np.median(ratio))
+    out["med_ratio"] = med
+    lm = math.log10(med)
+    k = int(round(lm))
+    out["k"] = k
+    out["dev"] = abs(lm - k)
+    la, lb = np.log(a), np.log(b)
+    lr = la - lb
+    out["mean_lr"] = float(lr.mean())
+    out["sd_lr"] = float(lr.std())
+    out["sd_l1"] = float(la.std())
+    out["S"] = float(lr.std() / la.std()) if la.std() > 0 else float("nan")
+    if r1 is None:
+        r1 = log_returns(c1)
+    if r2 is None:
+        r2 = log_returns(c2)
+    m = np.isfinite(r1) & np.isfinite(r2)
+    nr = int(m.sum())
+    out["n_ret"] = nr
+    if nr >= 3:
+        x, y = r1[m], r2[m]
+        if x.std() > 0 and y.std() > 0:
+            out["corr"] = float(np.corrcoef(x, y)[0, 1])
+    return out
