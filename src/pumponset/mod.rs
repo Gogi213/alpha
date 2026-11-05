@@ -10,6 +10,7 @@ pub mod cache;
 pub mod cli;
 pub mod control;
 pub mod control_ref;
+pub mod dump;
 pub mod episodes;
 pub mod episodes_ref;
 pub mod exits;
@@ -25,6 +26,8 @@ pub mod verdict;
 
 #[cfg(test)]
 mod control_tests;
+#[cfg(test)]
+mod dump_tests;
 #[cfg(test)]
 mod episodes_tests;
 #[cfg(test)]

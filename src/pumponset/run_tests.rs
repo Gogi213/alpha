@@ -173,6 +173,7 @@ fn args(
         xd,
         limit: None,
         exits: false,
+        dump_triggers: false,
     }
 }
 

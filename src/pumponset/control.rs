@@ -709,12 +709,34 @@ pub fn c2a_with<T, S>(
     xd: &XdTable,
     p: &Params,
     seed: u64,
-    mut first_triggers: T,
+    first_triggers: T,
     mut sink: S,
 ) -> Result<()>
 where
     T: FnMut(Rule) -> Vec<usize>,
     S: FnMut(TriggerRow),
+{
+    c2a_moments_with(inp, rules, xd, p, seed, false, first_triggers, |row, _| {
+        sink(row);
+    })
+}
+
+/// `c2a_with`, у которого приёмник получает ещё слоты куба выбранных моментов C2a (`moments = true`; иначе срез
+/// пуст — вызов обычного прогона ничего лишнего не строит). Строки, зерно и порядок те же, что у `c2a_with`.
+#[allow(clippy::too_many_arguments)]
+pub fn c2a_moments_with<T, S>(
+    inp: &Input,
+    rules: &[Rule],
+    xd: &XdTable,
+    p: &Params,
+    seed: u64,
+    moments: bool,
+    mut first_triggers: T,
+    mut sink: S,
+) -> Result<()>
+where
+    T: FnMut(Rule) -> Vec<usize>,
+    S: FnMut(TriggerRow, &[u32]),
 {
     let cube = inp.cube;
     check_cube(cube)?;
@@ -733,6 +755,7 @@ where
     let running = running_mask(cube, inp.eps);
     let mut pools: Vec<Option<Pool>> = (0..NFAM * nw).map(|_| None).collect();
     let mut buf: Vec<u32> = Vec::with_capacity(k_want);
+    let mut moms: Vec<u32> = Vec::new();
     for &rule in rules {
         check_rule(rule, nw)?;
         let wi = rule.wi as usize;
@@ -753,6 +776,7 @@ where
             let mut n_hit = vec![0u16; nh];
             let mut n_all = vec![0u16; nh];
             let mut drawn = 0u16;
+            moms.clear();
             if sign != 0 {
                 if let Some(key) = st.key(i) {
                     let bucket = pool.bucket(key);
@@ -761,6 +785,9 @@ where
                     drawn = k as u16;
                     for &q in &buf {
                         let j = bucket[q as usize] as usize;
+                        if moments {
+                            moms.push(j as u32);
+                        }
                         let (tj, sj) = (slot_t(cube, j), sign_of(cube.rat(wi, j)));
                         for hi in 0..nh {
                             match labels.get(tj, sj, hi) {
@@ -775,17 +802,20 @@ where
                     }
                 }
             }
-            sink(TriggerRow {
-                rule,
-                t_f,
-                month: yyyymm(t_f),
-                sign,
-                label: (0..nh).map(|hi| labels.get(t_f, sign, hi)).collect(),
-                c2a_hit: n_hit,
-                c2a_n: n_all,
-                c2a_drawn: drawn,
-                in_episode_running: sign != 0 && running[usize::from(sign < 0)][i],
-            });
+            sink(
+                TriggerRow {
+                    rule,
+                    t_f,
+                    month: yyyymm(t_f),
+                    sign,
+                    label: (0..nh).map(|hi| labels.get(t_f, sign, hi)).collect(),
+                    c2a_hit: n_hit,
+                    c2a_n: n_all,
+                    c2a_drawn: drawn,
+                    in_episode_running: sign != 0 && running[usize::from(sign < 0)][i],
+                },
+                &moms,
+            );
         }
     }
     Ok(())
