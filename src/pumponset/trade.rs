@@ -56,6 +56,15 @@ impl<'a> Funding<'a> {
         let max_gap = rates.windows(2).map(|w| w[1].0 - w[0].0).max().unwrap_or(0);
         Funding { rates, max_gap }
     }
+
+    /// Выплаты с минутой в `(after, upto]` по возрастанию минуты — те же границы, что у `round_trip`
+    /// (`after = t_f + 1` — выплата в минуту входа позицию не застаёт; `upto` — минута выхода, включительно).
+    /// Нужны выходам П-35 (`exits`): выход в произвольную минуту, а не только в `t_f + H`.
+    pub fn window(&self, after: i64, upto: i64) -> &'a [(i64, f64)] {
+        let lo = self.rates.partition_point(|&(m, _)| m <= after);
+        let hi = self.rates.partition_point(|&(m, _)| m <= upto);
+        &self.rates[lo..hi.max(lo)]
+    }
 }
 
 /// Сделка срабатывания: `cf` — `close_ff` (индекс 0 ↔ минута `first_min`), `funding` — выплаты контракта,

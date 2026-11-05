@@ -56,6 +56,7 @@ use super::cache::{Contract, SLOT_MIN};
 use super::cli::{load_contract, sorted, sym_of};
 use super::control::{self, yyyymm, Input, Label, TriggerRow};
 use super::episodes::{is_leverage, mark_market, Finder, XdAcc};
+use super::exits::{self, ExitAgg};
 use super::feat;
 use super::params::Params;
 use super::trade::{self, Skip};
@@ -130,6 +131,11 @@ pub struct RunArgs {
     /// Первые N контрактов по алфавиту (замеры); пишется в `run-meta.json`.
     #[arg(long)]
     pub limit: Option<usize>,
+    /// П-35: кроме основных таблиц — выходы в прибыль: для каждого первого срабатывания правил `--rules` и каждой
+    /// стороны симулируются 84 конфигурации выхода (`exits.rs`) → `exits-<stage>.csv`, `exits-grid.csv`, блок `exits`
+    /// в `run-meta.json`. Основные таблицы от флага не зависят. Память: на поток ≈ 3,4 КБ × правил × 2 × суток периода.
+    #[arg(long)]
+    pub exits: bool,
 }
 
 // ---------- время, вселенная, период ----------
@@ -519,6 +525,8 @@ struct Run<'a> {
     ref_sym: String,
     /// `(fam · nw + wi) · nt + ti` → позиция правила (`u32::MAX` — правила нет в прогоне).
     rpos: Vec<u32>,
+    /// Считать выходы П-35 (`--exits`).
+    exits: bool,
 }
 
 impl Run<'_> {
@@ -818,6 +826,8 @@ struct Work {
     agg: Agg,
     fast: Fast,
     lagbuf: Vec<i32>,
+    /// Накопитель выходов П-35; `None` без `--exits`.
+    exits: Option<ExitAgg>,
 }
 
 /// Цены и фандинг контракта для сделок и прогресса.
@@ -942,7 +952,12 @@ fn process(
     wk.agg.cnt.secs[PH_CUBE] += t.elapsed().as_secs_f64();
 
     let t = Instant::now();
-    let Work { agg, fast, lagbuf } = wk;
+    let Work {
+        agg,
+        fast,
+        lagbuf,
+        exits,
+    } = wk;
     agg.cnt.contracts += 1;
     agg.cnt.symbol_days += univ.days_in(rn.pmin[0], rn.pmin[1]);
     let px = Prices {
@@ -957,6 +972,17 @@ fn process(
         first_min: c.first_min,
         eps: &pre.eps,
     };
+    // выходы П-35: те же первые срабатывания, что берёт основной проход (до того, как C2a их заберёт), без контролей
+    if let Some(ex) = exits.as_mut() {
+        let t = Instant::now();
+        let xp = exits::Px {
+            cf: px.cf,
+            first_min: px.first_min,
+            funding: px.funding,
+        };
+        ex.add_triggers(&rn.lay, &cube, &fast.trig, &xp);
+        ex.cnt.secs += t.elapsed().as_secs_f64();
+    }
     let gap0 = agg.cnt.trades_funding_gap;
     {
         let trig = &mut fast.trig;
@@ -1187,6 +1213,7 @@ pub fn run(a: RunArgs) -> Result<()> {
         l_post: [0; NS],
         ref_sym,
         rpos,
+        exits: a.exits,
     };
 
     let mut files = sorted(&a.cache, ".pmc")?;
@@ -1281,6 +1308,7 @@ pub fn run(a: RunArgs) -> Result<()> {
                 agg: Agg::new(dims),
                 fast: Fast::new(),
                 lagbuf: Vec::new(),
+                exits: rn.exits.then(|| ExitAgg::new(dims.nr, dims.ndays)),
             },
             move |wk: &mut Work, i: usize| match &pres[i] {
                 Some(pre) => process(rn, wk, (i, files[i].as_path(), syms[i].as_str()), pre),
@@ -1289,9 +1317,14 @@ pub fn run(a: RunArgs) -> Result<()> {
         )?
     };
     let mut it = works.into_iter();
-    let mut agg = it.next().context("нет потоков")?.agg;
+    let first = it.next().context("нет потоков")?;
+    let mut agg = first.agg;
+    let mut ex_agg = first.exits;
     for w in it {
         agg.merge(w.agg);
+        if let (Some(a), Some(b)) = (ex_agg.as_mut(), w.exits) {
+            a.merge(b);
+        }
     }
 
     // 4. запись
@@ -1309,6 +1342,10 @@ pub fn run(a: RunArgs) -> Result<()> {
         &mut agg,
     )?;
     write_xd(&out.join("xd.csv"), &rn.xd, &windows)?;
+    if let Some(ex) = &ex_agg {
+        exits::write_exits(&out.join(format!("exits-{st}.csv")), &rn.lay, ex)?;
+        exits::write_grid(&out.join("exits-grid.csv"))?;
+    }
     let secs_write = t.elapsed().as_secs_f64();
 
     let cnt: &Counters = &agg.cnt;
@@ -1342,7 +1379,7 @@ pub fn run(a: RunArgs) -> Result<()> {
         .collect();
     let (data_end_day, delisted) = sel.delisted();
     let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).context("эпоха")?;
-    let meta = serde_json::json!({
+    let mut meta = serde_json::json!({
         "stage": st,
         "params_sha256": params_sha256,
         "seed": a.seed,
@@ -1399,6 +1436,9 @@ pub fn run(a: RunArgs) -> Result<()> {
         "c2b_moments": cnt.c2b_moments,
         "l_post_min": l_post,
     });
+    if let Some(ex) = &ex_agg {
+        meta["exits"] = ex.meta();
+    }
     fs::write(
         out.join("run-meta.json"),
         serde_json::to_string_pretty(&meta)? + "\n",
@@ -1414,5 +1454,14 @@ pub fn run(a: RunArgs) -> Result<()> {
         cnt.triggers,
         t_all.elapsed().as_secs_f64()
     );
+    if let Some(ex) = &ex_agg {
+        println!(
+            "exits {st}: {} конфигураций, срабатываний с направлением {}, сделок по cap {:?}, {:.1} с (сумма по потокам)",
+            exits::NCFG,
+            ex.cnt.triggers,
+            ex.cnt.caps.iter().map(|c| c.trades).collect::<Vec<_>>(),
+            ex.cnt.secs
+        );
+    }
     Ok(())
 }
