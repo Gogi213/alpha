@@ -1143,13 +1143,19 @@ fn process(
         .dump
         .as_ref()
         .map(|sh| dump::Collector::new(sh, sym, &c, &cf, &cube).with_play(play.as_ref()));
+    // цель `play-onset`: сколько срабатываний осталось без контролей или с недобором (в `run-meta.json`)
+    let mut ctl = FilterCnt::default();
     {
         let want_moments = dc.is_some();
+        let k_want = rn.p.controls.c2a.moments_per_first_trigger as usize;
         let trig = &mut fast.trig;
         let mut take = |r: Rule| std::mem::take(&mut trig[rn.ridx(r)]);
         let mut emit = |row: TriggerRow, moments: &[u32]| {
             if let Some(d) = dc.as_mut() {
                 d.add(&row, moments);
+            }
+            if onset && row.sign != 0 {
+                ctl.controls(row.c2a_drawn, k_want);
             }
             sink_trigger(rn, agg, &px, row);
         };
@@ -1190,6 +1196,7 @@ fn process(
             )?,
         }
     }
+    filt.merge(&ctl);
     if let Some(d) = dc {
         dumped.push((idx, d.finish()));
     }

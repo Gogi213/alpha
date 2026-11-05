@@ -56,6 +56,10 @@
 //! 3. **Контроли C2a**: моменты той же монеты, месяца и дециля σ, тоже тихие, и такие, что окно `[m − L_quiet, m + H_max]`
 //!    не пересекается с `[t_f − L_quiet, t_f + H_max]` срабатывания (то есть `|m − t_f| > L_quiet + H_max`); других
 //!    правил отбора нет. C2b не используется: `lags`/`first`/`progress` пишутся пустыми (только заголовки).
+//!    Зона может опустошить корзину (месяц × дециль σ) или оставить меньше `moments_per_first_trigger`: такое срабатывание
+//!    всё равно входит в `n/hit`, а в `bn/bhit` не даёт ничего (`TriggerRow::c2a_drawn == 0`). Сколько таких —
+//!    `controls_triggers_none` (пусто) и `controls_triggers_short` (недобор) из `controls_triggers` в `run-meta.json`;
+//!    исключать ли их из `n/hit` — решение по методике (Судья), не правка кода.
 //! 4. **`lead_hv_min`** (`--dump-triggers`): минут от `t_f` до первой минуты `hv_state` после `t_f`
 //!    (`[t_f + 1, t_f + LEAD_MAX_MIN]`), `NaN`, если не наступила.
 
@@ -521,6 +525,13 @@ pub struct FilterCnt {
     pub minutes_hv: u64,
     /// Цель `play-onset`: кандидаты пула C2a в зоне срабатывания (`|m − t_f| ≤ L_quiet + H_max`), сумма по срабатываниям.
     pub controls_dropped_overlap: u64,
+    /// Цель `play-onset`, срабатывания с направлением (строки правило × `t_f`), для которых выбирались контроли C2a.
+    pub controls_triggers: u64,
+    /// ...из них без единого контроля: после исключения зоны корзина (месяц × дециль σ) пуста. Такое срабатывание входит
+    /// в `n/hit`, а в `bn/bhit` не даёт ничего — lift сравнивает разные популяции (см. `controls`).
+    pub controls_triggers_none: u64,
+    /// ...из них с недобором: выбрано меньше `moments_per_first_trigger`, но не ноль.
+    pub controls_triggers_short: u64,
     /// Цель `play-onset`, срабатывания с направлением (строки правило × `t_f`): с известным исходом «наступила ли
     /// `hv_state` за `LEAD_MAX_MIN`» (наступила либо окно целиком в данных) и из них с наступившей.
     pub lead_known: u64,
@@ -552,6 +563,19 @@ impl FilterCnt {
         }
     }
 
+    /// Учесть срабатывание цели `play-onset` с направлением после выбора контролей: `drawn` — выбрано моментов
+    /// (`TriggerRow::c2a_drawn`), `k_want` — `moments_per_first_trigger`. Пустая корзина после зоны срабатывания
+    /// (`drawn == 0`) и недобор (`0 < drawn < k_want`) считаются отдельно; срабатывание в `n/hit` при этом остаётся
+    /// (исключать его — отдельное решение по методике, а не правка кода).
+    pub fn controls(&mut self, drawn: u16, k_want: usize) {
+        self.controls_triggers += 1;
+        if drawn == 0 {
+            self.controls_triggers_none += 1;
+        } else if usize::from(drawn) < k_want {
+            self.controls_triggers_short += 1;
+        }
+    }
+
     pub fn merge(&mut self, o: &FilterCnt) {
         self.triggers_before += o.triggers_before;
         self.triggers_dropped_hv += o.triggers_dropped_hv;
@@ -565,6 +589,9 @@ impl FilterCnt {
         self.minutes_universe += o.minutes_universe;
         self.minutes_hv += o.minutes_hv;
         self.controls_dropped_overlap += o.controls_dropped_overlap;
+        self.controls_triggers += o.controls_triggers;
+        self.controls_triggers_none += o.controls_triggers_none;
+        self.controls_triggers_short += o.controls_triggers_short;
         self.lead_known += o.lead_known;
         self.lead_found += o.lead_found;
     }
@@ -621,6 +648,9 @@ pub fn onset_meta(cnt: &FilterCnt, l_quiet: i64, h_min: &[u32]) -> serde_json::V
         "triggers_before": cnt.triggers_before,
         "triggers_dropped_not_quiet": cnt.triggers_dropped_not_quiet,
         "controls_dropped_overlap": cnt.controls_dropped_overlap,
+        "controls_triggers": cnt.controls_triggers,
+        "controls_triggers_none": cnt.controls_triggers_none,
+        "controls_triggers_short": cnt.controls_triggers_short,
         "hv_first_cross_share": share,
         "hv_first_cross_found": cnt.lead_found,
         "hv_first_cross_known": cnt.lead_known,

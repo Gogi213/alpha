@@ -9,7 +9,8 @@ use super::dump::{HEADER, ONSET_COL, PLAY_COLS};
 use super::feat;
 use super::params::Params;
 use super::play::{
-    first_phase_mask, natr_series, reversal_masks, Gate, HvCfg, Play, PlayArgs, PlayCfg, Target,
+    first_phase_mask, natr_series, reversal_masks, FilterCnt, Gate, HvCfg, Play, PlayArgs, PlayCfg,
+    Target,
 };
 use super::run::{mask_r_with, run, RunArgs, Stage};
 use super::run_tests::{
@@ -1679,6 +1680,8 @@ fn onset_run_ignition_30_minutes_after_f1_keeps_f1_and_drops_f3() {
     assert_eq!(po["triggers_before"], 2);
     assert_eq!(po["triggers_dropped_not_quiet"], 1);
     assert!(po["controls_dropped_overlap"].as_u64().unwrap() > 0);
+    assert_eq!(po["controls_triggers"], 1);
+    assert_eq!(po["controls_triggers_none"], 0);
     approx(po["hv_first_cross_share"].as_f64().unwrap(), 1.0, 0.0);
     let sf = &m["sample_filter"];
     assert_eq!(sf["triggers_dropped_hv"], 0);
@@ -1896,6 +1899,136 @@ fn onset_controls_are_quiet_and_outside_the_trigger_zone() {
         inside > 0,
         "без зоны контроль делит событие с срабатыванием"
     );
+}
+
+#[test]
+fn controls_counter_splits_empty_short_and_full() {
+    // k_want = 10: пусто (0), недобор (3, 9), полный набор (10)
+    let mut c = FilterCnt::default();
+    for drawn in [0u16, 3, 9, 10] {
+        c.controls(drawn, 10);
+    }
+    let got = |c: &FilterCnt| {
+        (
+            c.controls_triggers,
+            c.controls_triggers_none,
+            c.controls_triggers_short,
+        )
+    };
+    assert_eq!(got(&c), (4, 1, 2));
+    // слияние потоков складывает все три счётчика
+    let mut d = FilterCnt::default();
+    d.controls(0, 10);
+    d.controls(10, 10);
+    c.merge(&d);
+    assert_eq!(got(&c), (6, 2, 2));
+}
+
+#[test]
+fn onset_zone_can_empty_or_shorten_the_controls_pool() {
+    let p = test_params("[90]");
+    let c = pump_hl(&[(3_000, 1)]);
+    let cf = c.close_ff();
+    let play = Play::build(&c, &cf, onset_cfg(1.0, 30), 360, [NAN; 2]);
+    let cube = feat::build_cube(&c, &p, 1);
+    let eps = [Episode {
+        di: 0,
+        sign: 1,
+        t0: T0 as i64,
+        t_end: T0 as i64 + 90,
+        mv: 0.0909,
+        flags: 0,
+    }];
+    let rules = [Rule {
+        fam: 0,
+        wi: 0,
+        ti: 0,
+    }];
+    let keep = |t: i64| (1440..17_280).contains(&t);
+    let mut masked = cube.clone();
+    mask_r_with(&mut masked, &keep, Some(&play));
+    let inp = control::Input {
+        sym: "ABCUSDT",
+        cube: &masked,
+        cf: &cf,
+        first_min: 0,
+        eps: &eps,
+    };
+    let label = |t: i64, s: i8, hi: usize| {
+        if s == 0 {
+            Label::NoData
+        } else {
+            play.onset_label(t, [90u32, 180][hi])
+        }
+    };
+    // единственное срабатывание F1 (14945): `(кандидатов в зоне, выбрано, c2a_n, метки срабатывания, моментов)`
+    let draw = |zone: i64| {
+        let mut out = Vec::new();
+        let dropped = control::c2a_moments_custom(
+            &inp,
+            &rules,
+            &p,
+            SEED,
+            true,
+            zone,
+            &label,
+            |r| feat::first_triggers(&masked, r, &p),
+            |row, moms| out.push((row.c2a_drawn, row.c2a_n, row.label, moms.len())),
+        )
+        .unwrap();
+        assert_eq!(out.len(), 1);
+        let (drawn, n, lab, moms) = out.remove(0);
+        (dropped, drawn, n, lab, moms)
+    };
+    // зона как в прогоне (L_quiet + max H): корзина полная
+    let (dropped0, drawn0, ..) = draw(540);
+    assert_eq!(drawn0, 10);
+    // зона на весь ряд: корзина пуста — срабатывание остаётся строкой с известной меткой (идёт в n/hit), контролей нет
+    let (dropped_all, drawn, n, lab, moms) = draw(100_000);
+    assert!(dropped_all > dropped0);
+    assert_eq!((drawn, moms), (0, 0));
+    assert!(n.iter().all(|&x| x == 0), "{n:?}");
+    assert!(lab.iter().all(|l| *l != Label::NoData), "{lab:?}");
+    // наименьшая зона, при которой выбрано меньше 10: недобор, но не пусто (зона растёт на минуту — уходит не больше двух слотов)
+    let (mut lo, mut hi) = (540i64, 100_000i64);
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if draw(mid).1 < 10 {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    let (_, drawn_short, _, _, moms_short) = draw(hi);
+    assert!((1..10).contains(&drawn_short), "выбрано {drawn_short}");
+    assert_eq!(usize::from(drawn_short), moms_short);
+}
+
+#[test]
+fn onset_run_reports_triggers_left_without_controls() {
+    // всплески закрывают весь ряд, кроме отрезка вокруг срабатываний: hv до 14528, тишина с 14889 (360 мин без hv),
+    // следующий всплеск с 15300. Все тихие слоты лежат в зоне |m − t_f| ≤ 360 + 180 и F1 (14945), и F3 (15000):
+    // корзин нет, срабатывания остаются в n, в bn не попадает ничего
+    let c = pump_hl(&[(0, 14_500), (15_300, 17_280 - 15_300)]);
+    let (_d, out) = run_one(&c, "nozero", &Opt::base());
+    assert_eq!(trig(&out).len(), 2);
+    let po = jmeta(&out)["play_onset"].clone();
+    assert_eq!(po["triggers_before"], 2);
+    assert_eq!(po["triggers_dropped_not_quiet"], 0);
+    assert_eq!(po["controls_triggers"], 2);
+    assert_eq!(po["controls_triggers_none"], 2);
+    assert_eq!(po["controls_triggers_short"], 0);
+    assert!(po["controls_dropped_overlap"].as_u64().unwrap() > 0);
+    for fam in ["0", "1"] {
+        for hi in ["0", "1"] {
+            let [n, hit, bn, bhit] = cell(&out, fam, hi);
+            assert_eq!(
+                (n, hit, bn, bhit),
+                (1.0, 0.0, 0.0, 0.0),
+                "fam {fam} hi {hi}"
+            );
+        }
+    }
 }
 
 #[test]
