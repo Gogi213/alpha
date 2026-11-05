@@ -1,0 +1,14 @@
+{
+ "total_pairs": 84,
+ "anomalies": [],
+ "per_exchange": {
+  "binance": 0,
+  "bybit": 0,
+  "okx": 0,
+  "bingx": 0,
+  "aster": 0,
+  "kraken": 0,
+  "lighter": 0,
+  "bitget": 0
+ }
+}

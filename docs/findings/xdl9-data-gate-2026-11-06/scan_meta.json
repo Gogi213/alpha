@@ -1,0 +1,232 @@
+[
+ {
+  "exchange": "aster",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 619,
+  "n_candle_files": 619,
+  "n_done": 619,
+  "btc_symbol": "BTCUSDT",
+  "seconds": 20.0,
+  "python": "3.14.6",
+  "host": "Jasuraoka",
+  "scanned_utc": "2026-11-05 21:05"
+ },
+ {
+  "exchange": "binance",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 808,
+  "n_candle_files": 807,
+  "n_done": 807,
+  "btc_symbol": "BTCUSDT",
+  "seconds": 30.5,
+  "python": "3.14.6",
+  "host": "Jasuraoka",
+  "scanned_utc": "2026-11-05 21:04"
+ },
+ {
+  "exchange": "bingx",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 1329,
+  "n_candle_files": 1307,
+  "n_done": 1314,
+  "btc_symbol": "BTC-USDT",
+  "seconds": 154.7,
+  "python": "3.12.3",
+  "host": "server",
+  "scanned_utc": "2026-11-05 21:10"
+ },
+ {
+  "exchange": "bitget",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "merged:A+B",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 933,
+  "n_candle_files": 933,
+  "n_done": 933,
+  "btc_symbol": "BTCUSDT",
+  "seconds": 77.1,
+  "python": "3.12.3",
+  "host": "server",
+  "scanned_utc": "2026-11-05 21:35",
+  "parts": [
+   {
+    "exchange": "bitget",
+    "grid": "candles",
+    "step_ms": 60000,
+    "tag": "A",
+    "window": [
+     "2026-10-01",
+     "2026-11-05"
+    ],
+    "nbars": 50400,
+    "n_instruments": 933,
+    "n_candle_files": 581,
+    "n_done": 581,
+    "btc_symbol": "BTCUSDT",
+    "seconds": 77.1,
+    "python": "3.12.3",
+    "host": "server",
+    "scanned_utc": "2026-11-05 21:35"
+   },
+   {
+    "exchange": "bitget",
+    "grid": "candles",
+    "step_ms": 60000,
+    "tag": "B",
+    "window": [
+     "2026-10-01",
+     "2026-11-05"
+    ],
+    "nbars": 50400,
+    "n_instruments": 933,
+    "n_candle_files": 352,
+    "n_done": 352,
+    "btc_symbol": "",
+    "seconds": 12.6,
+    "python": "3.14.6",
+    "host": "Jasuraoka",
+    "scanned_utc": "2026-11-05 21:34"
+   }
+  ]
+ },
+ {
+  "exchange": "bybit",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 903,
+  "n_candle_files": 903,
+  "n_done": 903,
+  "btc_symbol": "BTCUSDT",
+  "seconds": 133.2,
+  "python": "3.12.3",
+  "host": "server",
+  "scanned_utc": "2026-11-05 21:06"
+ },
+ {
+  "exchange": "hyperliquid",
+  "grid": "candles15",
+  "step_ms": 900000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 3360,
+  "n_instruments": 558,
+  "n_candle_files": 352,
+  "n_done": 558,
+  "btc_symbol": "BTC",
+  "seconds": 4.5,
+  "python": "3.12.3",
+  "host": "server",
+  "scanned_utc": "2026-11-05 21:10"
+ },
+ {
+  "exchange": "hyperliquid",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 558,
+  "n_candle_files": 352,
+  "n_done": 558,
+  "btc_symbol": "BTC",
+  "seconds": 4.5,
+  "python": "3.12.3",
+  "host": "server",
+  "scanned_utc": "2026-11-05 21:10"
+ },
+ {
+  "exchange": "kraken",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 219,
+  "n_candle_files": 209,
+  "n_done": 209,
+  "btc_symbol": "PF_XBTUSD",
+  "seconds": 2.0,
+  "python": "3.14.6",
+  "host": "Jasuraoka",
+  "scanned_utc": "2026-11-05 21:05"
+ },
+ {
+  "exchange": "lighter",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 254,
+  "n_candle_files": 242,
+  "n_done": 242,
+  "btc_symbol": "BTC",
+  "seconds": 3.0,
+  "python": "3.14.6",
+  "host": "Jasuraoka",
+  "scanned_utc": "2026-11-05 21:05"
+ },
+ {
+  "exchange": "okx",
+  "grid": "candles",
+  "step_ms": 60000,
+  "tag": "",
+  "window": [
+   "2026-10-01",
+   "2026-11-05"
+  ],
+  "nbars": 50400,
+  "n_instruments": 540,
+  "n_candle_files": 540,
+  "n_done": 540,
+  "btc_symbol": "BTC-USDT-SWAP",
+  "seconds": 76.9,
+  "python": "3.12.3",
+  "host": "server",
+  "scanned_utc": "2026-11-05 21:07"
+ }
+]
