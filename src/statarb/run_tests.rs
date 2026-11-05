@@ -400,6 +400,7 @@ fn open_run(root: &Path, tag: &str, mtm: bool) -> Files {
     kv(&mut a, "--cells-out", &f.cells_out);
     if mtm {
         a.push("--mtm-open".to_string());
+        kv(&mut a, "--open-out", &root.join(format!("open-{tag}.csv")));
     }
     go(&a).unwrap();
     f
@@ -427,7 +428,24 @@ fn open_position_is_marked_to_last_valid_close() {
     assert!(close(num(c, "mtm_funding_bps"), funding), "{c:?}");
     assert!(close(num(c, "mtm_net_bps"), gross - fee + funding), "{c:?}");
     assert_eq!(num(c, "mtm_stale_max_min"), 19.0); // конец окна 59 − последний close Y в 40
-                                                   // оценка не попадает ни в сутки, ни в сделки
+                                                   // --open-out: та же позиция построчно — вход и оценка (для ручной сверки)
+    let open = table(&root.join("open-m1.csv"));
+    assert_eq!(open.len(), 1);
+    let o = &open[0];
+    assert_eq!(
+        (
+            num(o, "job"),
+            num(o, "dir"),
+            num(o, "sig_in"),
+            num(o, "fill_in")
+        ),
+        (0.0, 1.0, 6.0, 7.0)
+    );
+    assert_eq!((o["y"].as_str(), o["x"].as_str()), ("YYY", "XXX"));
+    assert_eq!(num(o, "fill_x"), 7.0);
+    assert!(close(num(o, "net_bps"), num(c, "mtm_net_bps")), "{o:?}");
+    assert_eq!(num(o, "stale_min"), 19.0);
+    // оценка не попадает ни в сутки, ни в сделки
     assert_eq!(body(&f.daily).len(), 0);
     assert_eq!(body(&f.trades).len(), 0);
 
@@ -469,6 +487,7 @@ fn open_position_with_pending_x_leg_values_only_y() {
     put_fund(&root.join("f"), "XXX", &[(9, 5e-4)]); // нога X не вошла: её выплата не начисляется
     let f = files(root, "pend", "y,x,from_day,to_day\nYYY,XXX,0,1\n");
     let mut a = args(&["--kind", "pair", "--delay-x", "5", "--mtm-open"]);
+    kv(&mut a, "--open-out", &root.join("open-pend.csv"));
     kv(&mut a, "--panels", &root.join("p"));
     kv(&mut a, "--funding-y", &root.join("f"));
     a.extend(common(&f));
@@ -492,6 +511,13 @@ fn open_position_with_pending_x_leg_values_only_y() {
     assert!(close(num(c, "mtm_funding_bps"), -3.0), "{c:?}");
     assert!(close(num(c, "mtm_net_bps"), -fee - 3.0), "{c:?}");
     assert_eq!(num(c, "mtm_stale_max_min"), 0.0);
+    // нога X не вошла: в --open-out fill_x пуст
+    let open = table(&root.join("open-pend.csv"));
+    assert_eq!(open.len(), 1);
+    assert_eq!(
+        (open[0]["fill_in"].as_str(), open[0]["fill_x"].as_str()),
+        ("7", "")
+    );
 }
 
 /// Выплаты ноги: раз в час `amp·sin(j/4)` — знак и величина меняются, вход и выход по правилу funding идут по уровню.
@@ -898,6 +924,7 @@ fn bad_flag_combinations_are_rejected() {
         "относятся к правилу funding",
     );
     fail("pair", &["--mtm-open"], "--cells-out");
+    fail("pair", &["--open-out", dir], "--open-out требует");
     fail("pair", &["--from-day", "5", "--to-day", "3"], "--to-day 3");
 }
 

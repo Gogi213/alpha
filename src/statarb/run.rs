@@ -31,7 +31,9 @@
 //!   x_deferred,gap_minutes,minutes_in_pos,open_at_end,open_pre_window` и столбцы оценки `mtm_*`.
 //! - `--mtm-open` (по умолчанию выкл., требует `--cells-out`): позиция, оставшаяся открытой на конце окна задания,
 //!   оценивается по последнему валидному close каждой ноги (`mtm::value`) — граница чувствительности, а не результат;
-//!   в суточный csv и сделки она не попадает. Без флага столбцы `mtm_*` — `nan`.
+//!   в суточный csv и сделки она не попадает. Без флага столбцы `mtm_*` — `nan`. `--open-out <csv>` (требует
+//!   `--mtm-open` и `--trade-jobs`): по строке на такую позицию заданий из `--trade-jobs` — вход, оценка, давность
+//!   последнего close (для ручной сверки, G8b).
 
 use super::cli::{common, load_names, Kind, Loaded};
 use super::kernel::{
@@ -126,6 +128,9 @@ pub struct RunArgs {
     /// Сводка по клетке: счётчики (сделки, входы, отложенные входы/выходы, открытые на конце) и оценка `--mtm-open`.
     #[arg(long)]
     cells_out: Option<PathBuf>,
+    /// Открытые на конце окна позиции заданий из `--trade-jobs` с оценкой, по строке на позицию (требует `--mtm-open`).
+    #[arg(long)]
+    open_out: Option<PathBuf>,
     /// Обрезать окна всех заданий снизу (сутки, включительно); см. модульную документацию про дыры биржи.
     #[arg(long)]
     from_day: Option<i64>,
@@ -178,6 +183,9 @@ fn check_args(a: &RunArgs) -> Result<Mode> {
     }
     if a.mtm_open && a.cells_out.is_none() {
         bail!("--mtm-open пишет оценку только в --cells-out: укажите его");
+    }
+    if a.open_out.is_some() && (!a.mtm_open || a.trade_jobs.is_empty()) {
+        bail!("--open-out требует --mtm-open и --trade-jobs");
     }
     if let (Some(f), Some(t)) = (a.from_day, a.to_day) {
         if t <= f {
@@ -275,12 +283,14 @@ struct JobOut {
     open_pre: u64,
     /// Оценка позиции, открытой на конце окна (`--mtm-open`).
     mtm: Option<Mtm>,
+    /// Она же вместе со входом, для заданий из `--trade-jobs` (`--open-out`).
+    open: Option<(OpenSnap, Mtm)>,
 }
 
 enum Outcome {
     Missing,
     NoSpan,
-    Done(JobOut),
+    Done(Box<JobOut>),
 }
 
 /// Вход задания готов (`Ready`) либо нет панели / нет общего спана.
@@ -412,6 +422,9 @@ fn tally(sink: RunSink, c: Counters, from_min: i64, keep: bool, mark: Mark) -> J
             o.open_pre += 1;
         } else {
             o.mtm = mark.map(|m| m(op));
+            if keep {
+                o.open = o.mtm.map(|m| (op.clone(), m));
+            }
         }
     }
     for t in sink.trades {
@@ -436,7 +449,7 @@ fn outcome(p: Prep<JobOut>) -> Outcome {
     match p {
         Prep::Missing => Outcome::Missing,
         Prep::NoSpan => Outcome::NoSpan,
-        Prep::Ready(o) => Outcome::Done(o),
+        Prep::Ready(o) => Outcome::Done(Box::new(o)),
     }
 }
 
@@ -524,7 +537,7 @@ fn run_job_cells(
         match prep {
             Prep::Ready(v) => {
                 for (&i, o) in g.iter().zip(v) {
-                    out[i] = Some(Outcome::Done(o));
+                    out[i] = Some(Outcome::Done(Box::new(o)));
                 }
             }
             Prep::Missing => g.iter().for_each(|&i| out[i] = Some(Outcome::Missing)),
@@ -663,6 +676,7 @@ struct Agg {
     mtm_n: u64,
     mtm: [f64; 4],
     mtm_stale_max: i64,
+    opens: Vec<(usize, OpenSnap, Mtm)>,
 }
 
 impl Agg {
@@ -671,6 +685,7 @@ impl Agg {
             Outcome::Missing => self.missing += 1,
             Outcome::NoSpan => self.no_span += 1,
             Outcome::Done(o) => {
+                let o = *o;
                 self.done += 1;
                 self.pre += o.pre_window;
                 self.open_pre += o.open_pre;
@@ -689,6 +704,9 @@ impl Agg {
                         *acc += x;
                     }
                     self.mtm_stale_max = self.mtm_stale_max.max(m.stale_min);
+                }
+                if let Some((snap, m)) = o.open {
+                    self.opens.push((job, snap, m));
                 }
                 for (d, v) in o.daily {
                     let t = self.daily.entry(d).or_default();
@@ -787,6 +805,39 @@ fn write_trades(
                 w,
                 "{},{},{},{},{},{}",
                 t.sig_out, t.fill_out, t.gross_bps, t.fee_bps, t.funding_bps, t.net_bps
+            )?;
+        }
+    }
+    w.flush()?;
+    Ok(())
+}
+
+/// Открытые на конце окна позиции с оценкой (`--open-out`); `fill_x` пусто — нога X ещё не вошла (`--delay-x`).
+fn write_open(path: &Path, cells: &[Cell], aggs: &[Agg], jobs: &[Job]) -> Result<()> {
+    let mut w = BufWriter::new(File::create(path)?);
+    writeln!(
+        w,
+        "cell,job,y,x,dir,sig_in,fill_in,fill_x,gross_bps,fee_bps,funding_bps,net_bps,stale_min"
+    )?;
+    for (cell, agg) in cells.iter().zip(aggs) {
+        for (job, o, m) in &agg.opens {
+            let Some(j) = jobs.get(*job) else { continue };
+            writeln!(
+                w,
+                "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                cell.label,
+                job,
+                j.y,
+                j.x.join("+"),
+                o.dir,
+                o.sig_in,
+                o.fill_in,
+                o.fill_x.map_or_else(String::new, |v| v.to_string()),
+                m.gross_bps,
+                m.fee_bps,
+                m.funding_bps,
+                m.net_bps,
+                m.stale_min
             )?;
         }
     }
@@ -954,6 +1005,9 @@ pub fn run(a: &RunArgs) -> Result<()> {
     }
     if let Some(f) = &a.cells_out {
         write_cells_out(f, &cells, &aggs, jobs.len(), a.mtm_open)?;
+    }
+    if let Some(f) = &a.open_out {
+        write_open(f, &cells, &aggs, &jobs)?;
     }
     // Одна клетка — строка как раньше; много клеток — одна строка: сделки и входы суммой по клеткам,
     // задания по первой клетке (у всех клеток одни и те же задания), по клетке — суточный csv.
