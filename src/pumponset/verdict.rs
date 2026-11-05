@@ -49,10 +49,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+mod exits_stage;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Stage {
     Fit,
     Test,
+    /// П-35: выбор выхода на фите (`exits-fit.csv`, `--k` = `k.json` фита П-34) → `exits-k.json`.
+    ExitsFit,
+    /// П-35: проверка замороженных пар на тесте (`exits-test.csv`, `--k` = `exits-k.json`).
+    ExitsTest,
 }
 
 impl Stage {
@@ -60,6 +66,8 @@ impl Stage {
         match self {
             Stage::Fit => "fit",
             Stage::Test => "test",
+            Stage::ExitsFit => "exits-fit",
+            Stage::ExitsTest => "exits-test",
         }
     }
 }
@@ -563,8 +571,8 @@ fn period_months(r: &[String; 2]) -> Result<Vec<i32>> {
 /// Допущение 9: диапазон месяцев стадии. Возвращает строки в диапазоне и число отброшенных (только тест, позже конца).
 fn guard_months(rows: Vec<DayRow>, stage: Stage, vp: &VParams) -> Result<(Vec<DayRow>, usize)> {
     let r = match stage {
-        Stage::Fit => &vp.split.fit,
-        Stage::Test => &vp.split.test,
+        Stage::Fit | Stage::ExitsFit => &vp.split.fit,
+        Stage::Test | Stage::ExitsTest => &vp.split.test,
     };
     let (lo, hi) = (month_of(&r[0])?, month_of(&r[1])?);
     let mut kept = Vec::with_capacity(rows.len());
@@ -1991,5 +1999,7 @@ pub fn verdict(a: VerdictArgs) -> Result<()> {
     match a.stage {
         Stage::Fit => fit_stage(&a, &vp, &sha),
         Stage::Test => test_stage(&a, &vp, &sha),
+        Stage::ExitsFit => exits_stage::fit_stage(&a, &vp, &sha),
+        Stage::ExitsTest => exits_stage::test_stage(&a, &vp, &sha),
     }
 }

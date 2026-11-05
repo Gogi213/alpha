@@ -12,6 +12,7 @@ pub mod control;
 pub mod control_ref;
 pub mod episodes;
 pub mod episodes_ref;
+pub mod exits;
 pub mod feat;
 pub mod feat_ref;
 pub mod params;
@@ -26,6 +27,8 @@ pub mod verdict;
 mod control_tests;
 #[cfg(test)]
 mod episodes_tests;
+#[cfg(test)]
+mod exits_tests;
 #[cfg(test)]
 mod feat_tests;
 #[cfg(test)]

@@ -17,17 +17,17 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const SEED: u64 = 7;
+pub(super) const SEED: u64 = 7;
 /// Порог хода `X_D` сценария пампа: `90·ε + 87,5·R` (см. `pump_contract`).
-const XD: f64 = 0.0884;
+pub(super) const XD: f64 = 0.0884;
 /// Дрейф цены за минуту (ln) и добавка хода за минуту на 90-минутном участке пампа.
-const EPS: f64 = 1.0e-5;
-const R: f64 = 1.0e-3;
-const T0: usize = 15_000;
+pub(super) const EPS: f64 = 1.0e-5;
+pub(super) const R: f64 = 1.0e-3;
+pub(super) const T0: usize = 15_000;
 
 // ---------- данные ----------
 
-const TPL: &str = r#"{
+pub(super) const TPL: &str = r#"{
  "universe":{"min_quote_turnover_usd_per_day":1000,"turnover_lag_days":1},
  "grid_min":{"value":5},
  "episodes":{"D_min":@DS@,"quantile_X_D":0.99,
@@ -43,7 +43,7 @@ const TPL: &str = r#"{
  "split":{"fit":["@FIT@","@FIT@"],"test":["@TEST@","@TEST@"]}
 }"#;
 
-fn params_json(fit: &str, test: &str, ds: &str) -> String {
+pub(super) fn params_json(fit: &str, test: &str, ds: &str) -> String {
     TPL.replace("@FIT@", fit)
         .replace("@TEST@", test)
         .replace("@DS@", ds)
@@ -74,7 +74,7 @@ impl Xs {
 }
 
 /// ln цены сценария: дрейф `ε` и 90-минутные участки пампов `R` с началами `pumps` (минуты).
-fn lnp(t: usize, pumps: &[usize]) -> f64 {
+pub(super) fn lnp(t: usize, pumps: &[usize]) -> f64 {
     EPS * t as f64
         + R * pumps
             .iter()
@@ -84,7 +84,7 @@ fn lnp(t: usize, pumps: &[usize]) -> f64 {
 
 /// Контракт с пампами: цена `100·exp(lnp)`, OI-заливка за 55 минут до цены (рост OI на 10 в слот 40 слотов, первое
 /// срабатывание F1 в `T − 55`), всплеск оборота в минуту `T` на 60 минут, фандинг `1e-4` в минуты `100 + 480·k`.
-fn pump_contract(n: usize, pumps: &[usize]) -> Contract {
+pub(super) fn pump_contract(n: usize, pumps: &[usize]) -> Contract {
     let slots = n / 5;
     let close: Vec<f64> = (0..n).map(|t| 100.0 * lnp(t, pumps).exp()).collect();
     let mut qvol = vec![10.0f32; n];
@@ -127,12 +127,12 @@ fn pump_contract(n: usize, pumps: &[usize]) -> Contract {
     }
 }
 
-fn put(dir: &Path, sym: &str, c: &Contract) {
+pub(super) fn put(dir: &Path, sym: &str, c: &Contract) {
     let mut f = std::io::BufWriter::new(fs::File::create(dir.join(format!("{sym}.pmc"))).unwrap());
     write_contract(&mut f, c).unwrap();
 }
 
-fn xd_file(dir: &Path, x: f64) -> PathBuf {
+pub(super) fn xd_file(dir: &Path, x: f64) -> PathBuf {
     let p = dir.join("xd-in.csv");
     fs::write(
         &p,
@@ -142,7 +142,7 @@ fn xd_file(dir: &Path, x: f64) -> PathBuf {
     p
 }
 
-fn rules_file(dir: &Path, rules: &[(u8, u8, u8)]) -> PathBuf {
+pub(super) fn rules_file(dir: &Path, rules: &[(u8, u8, u8)]) -> PathBuf {
     let items: Vec<String> = rules
         .iter()
         .map(|(f, w, t)| format!("{{\"fam\":{f},\"wi\":{w},\"ti\":{t},\"rank_lo\":1.5}}"))
@@ -172,12 +172,13 @@ fn args(
         threads,
         xd,
         limit: None,
+        exits: false,
     }
 }
 
-type Row = BTreeMap<String, String>;
+pub(super) type Row = BTreeMap<String, String>;
 
-fn table(path: &Path) -> Vec<Row> {
+pub(super) fn table(path: &Path) -> Vec<Row> {
     let text = fs::read_to_string(path).unwrap();
     let mut lines = text.lines();
     let head: Vec<&str> = lines.next().unwrap().split(',').collect();
@@ -198,11 +199,11 @@ fn pick<'a>(rows: &'a [Row], conds: &[(&str, String)]) -> Vec<&'a Row> {
         .collect()
 }
 
-fn num(r: &Row, col: &str) -> f64 {
+pub(super) fn num(r: &Row, col: &str) -> f64 {
     r[col].parse().unwrap()
 }
 
-fn approx(a: f64, b: f64, tol: f64) {
+pub(super) fn approx(a: f64, b: f64, tol: f64) {
     assert!((a - b).abs() <= tol, "{a} против {b} (допуск {tol})");
 }
 
