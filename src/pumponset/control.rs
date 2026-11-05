@@ -670,7 +670,7 @@ fn cand_ok(cube: &Cube, st: &Strata, fam: u8, wi: usize, j: usize) -> Option<usi
 }
 
 /// Маска «эпизод того же знака уже идёт»: `t0 < 5·s ≤ t_end` по слотам куба, [памп, дамп].
-fn running_mask(cube: &Cube, eps: &[Episode]) -> [Vec<bool>; 2] {
+pub(super) fn running_mask(cube: &Cube, eps: &[Episode]) -> [Vec<bool>; 2] {
     let mut m = [vec![false; cube.n], vec![false; cube.n]];
     for e in eps {
         if e.sign == 0 {

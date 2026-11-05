@@ -16,6 +16,7 @@ pub mod episodes_ref;
 pub mod exits;
 pub mod feat;
 pub mod feat_ref;
+pub mod ignitions;
 pub mod params;
 pub mod play;
 pub mod run;
@@ -35,6 +36,8 @@ mod episodes_tests;
 mod exits_tests;
 #[cfg(test)]
 mod feat_tests;
+#[cfg(test)]
+mod ignitions_tests;
 #[cfg(test)]
 mod play_tests;
 #[cfg(test)]

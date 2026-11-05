@@ -52,6 +52,11 @@
 //!    * `funding_rate` — ставка последней выплаты с минутой `≤ t_f` (`Contract::funding`, как F10 куба; нет ни одной —
 //!      `NaN`), `funding_age_min = t_f − минута этой выплаты`.
 //!
+//! 10. **События воспламенения** (`alpha pumponset ignitions`, `ignitions.rs`): тот же сборщик пишет строку события
+//!     (`Collector::add_ignition`) — общая часть ключ … `mfe_price` (`header_core`, `write_core`) и признаки направления
+//!     (`write_feats`, окно `Item::fw`) те же, что у срабатывания, без базы `b_gross_*`; после `mfe_price` — `natr_pct`,
+//!     `FEATURE_COLS`, `IGN_TAIL_COLS` (`ign_header`). Поведение выгрузки срабатываний от этого не меняется.
+//!
 //! Детерминизм: поток накапливает срабатывания контракта, сортирует по `(t_f, fam, wi, ti, sign)` и пишет текст
 //! в память; `write` склеивает контракты по алфавиту имён — байты не зависят от числа потоков.
 
@@ -91,7 +96,7 @@ const W_RET_SHORT: i64 = 60;
 const W_RET_LONG: i64 = 360;
 const W_BTC_PREV: i64 = 60;
 const W_BTC_NEXT: i64 = 360;
-const PATH_MIN: usize = 1440;
+pub(super) const PATH_MIN: usize = 1440;
 
 /// Наборы мантисс круглых уровней: каждый набор включает 1 и верхнюю границу декады 10.
 pub const DEC: [f64; 2] = [1.0, 10.0];
@@ -122,6 +127,23 @@ pub const ONSET_COL: &str = "lead_hv_min";
 pub const FEATURE_COLS: &str = "z_f1,z_f2,z_f3,z_f4,z_f5,z_f6,z_f7,z_f8,z_f9,z_f10,r_w_bps,\
 oi_value,taker_ratio,top_count_ratio,top_sum_ratio,global_ratio,doi_60_pct,\
 funding_rate,funding_age_min,d_taker_60,d_top_count_60,d_top_sum_60,d_global_60";
+
+/// Столбцы базы C2a — последние в `HEADER`; у событий воспламенения (`ignitions.rs`) их нет.
+const BASE_COLS: &str = ",b_gross_60,b_gross_360,b_gross_1440";
+
+/// Хвост заголовка `ignitions-<stage>.csv` (после `FEATURE_COLS`): минут тишины перед событием, максимум NATR за 6 ч до
+/// него, `t_f − m` (значение 0…4, как в ТЗ; имя столбца — из ТЗ).
+pub const IGN_TAIL_COLS: &str = "lead_m_since_quiet,natr_prev_max_6h,m_minus_tf";
+
+/// Столбцы `HEADER` до базы (ключ … `mfe_price`): общая часть `triggers-<stage>.csv` и `ignitions-<stage>.csv`.
+pub fn header_core() -> &'static str {
+    HEADER.strip_suffix(BASE_COLS).unwrap_or(HEADER)
+}
+
+/// Заголовок `ignitions-<stage>.csv`: общая часть `HEADER`, `natr_pct` (NATR в `t_f`), `FEATURE_COLS`, `IGN_TAIL_COLS`.
+pub fn ign_header() -> String {
+    format!("{},natr_pct,{FEATURE_COLS},{IGN_TAIL_COLS}", header_core())
+}
 
 /// Колонки `Contract::oi` (порядок `cache::OI_COLS`; тесты признаков находят колонки по именам): `open_interest`,
 /// `open_interest_value`, соотношения top-trader по числу и по объёму, global по числу, taker по объёму.
@@ -329,6 +351,17 @@ fn scan_extremes(cf: &[f64], e: usize) -> Option<Extremes> {
 
 // ---------- сбор ----------
 
+/// Хвост строки события воспламенения (`alpha pumponset ignitions`, `ignitions.rs`): столбцы `IGN_TAIL_COLS`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IgnTail {
+    /// `lead_m_since_quiet` — минут подряд без `hv_state` перед минутой события (не больше `QUIET_CAP_MIN`).
+    pub quiet_min: i64,
+    /// `natr_prev_max_6h` — максимум NATR (%) за `[m − 360, m − 1]`, `NaN`, если ни одного определённого значения.
+    pub natr_prev_max: f32,
+    /// `m_minus_tf` — `t_f − m`, 0…4 мин (момент отсчёта не раньше минуты события).
+    pub m_minus_tf: i64,
+}
+
 /// Срабатывание, отложенное до сортировки и записи.
 struct Item {
     t_f: i64,
@@ -336,6 +369,10 @@ struct Item {
     sign: i8,
     running: bool,
     base: [f64; 3],
+    /// Индекс окна `features.windows_min` для `z_f1…z_f10` и `r_w_bps` (у срабатывания — окно правила).
+    fw: usize,
+    /// Событие воспламенения: строка без базы `b_gross_*` и с хвостом (`IgnTail`); у срабатывания `None`.
+    tail: Option<IgnTail>,
 }
 
 /// Атрибуты момента `t_f`, не зависящие от стороны и правила (считаются один раз на `t_f`).
@@ -453,6 +490,24 @@ impl<'a> Collector<'a> {
             sign: row.sign,
             running: row.in_episode_running,
             base,
+            fw: wi,
+            tail: None,
+        });
+    }
+
+    /// Принять событие воспламенения (`ignitions.rs`): псевдо-правило `rule`, сторона +1 (исходы — доходность вверх),
+    /// `fw` — индекс окна `features.windows_min` для `z_f1…z_f10` и `r_w_bps`, `running` — `ep_running`. Строка
+    /// пишется теми же функциями, что строка срабатывания (атрибуты, исходы, признаки направления), но без базы
+    /// `b_gross_*` и с `natr_pct` и хвостом `IGN_TAIL_COLS` (`Collector::with_play` нужен для `natr_pct`).
+    pub fn add_ignition(&mut self, rule: Rule, t_f: i64, fw: usize, running: bool, tail: IgnTail) {
+        self.items.push(Item {
+            t_f,
+            rule,
+            sign: 1,
+            running,
+            base: [f64::NAN; 3],
+            fw,
+            tail: Some(tail),
         });
     }
 
@@ -599,6 +654,52 @@ impl<'a> Collector<'a> {
     }
 
     fn write_row(&self, out: &mut Vec<u8>, it: &Item, cm: &Common) {
+        self.write_core(out, it, cm);
+        if let Some(tail) = &it.tail {
+            // событие воспламенения: без базы; `natr_pct` (NATR в `t_f`), признаки направления, хвост `IGN_TAIL_COLS`
+            let natr = self.play.map_or(f32::NAN, |pl| pl.natr_at(it.t_f));
+            let _ = write!(out, ",{}", natr + 0.0);
+            if let Some(common) = &cm.feats {
+                self.write_feats(out, it, common);
+            }
+            let _ = write!(
+                out,
+                ",{},{},{}",
+                tail.quiet_min,
+                tail.natr_prev_max + 0.0,
+                tail.m_minus_tf
+            );
+            out.push(b'\n');
+            return;
+        }
+        for b in it.base {
+            put_f(out, b);
+        }
+        if let Some(pl) = self.play {
+            let _ = write!(
+                out,
+                ",{},{},{},{}",
+                pl.natr_at(it.t_f) + 0.0,
+                u8::from(pl.ok_at(it.t_f, 1)),
+                u8::from(pl.ok_at(it.t_f, -1)),
+                u8::from(pl.first_at(it.t_f))
+            );
+            if pl.is_onset() {
+                put_k(
+                    out,
+                    pl.lead_hv_min(it.t_f, LEAD_MAX_MIN)
+                        .and_then(|l| usize::try_from(l).ok()),
+                );
+            }
+        }
+        if let Some(common) = &cm.feats {
+            self.write_feats(out, it, common);
+        }
+        out.push(b'\n');
+    }
+
+    /// Общая часть строки срабатывания и события воспламенения: ключ … `mfe_price` (`header_core`), без перевода строки.
+    fn write_core(&self, out: &mut Vec<u8>, it: &Item, cm: &Common) {
         let (fm, p) = (self.c.first_min, cm.p);
         let side = f64::from(it.sign);
         let tc = &cm.tc;
@@ -650,35 +751,12 @@ impl<'a> Collector<'a> {
         put_f(out, mae.map_or(f64::NAN, |m| side * ln_bps(m.0, p)));
         put_k(out, mae.map(|m| m.1));
         put_f(out, mfe_price);
-        for b in it.base {
-            put_f(out, b);
-        }
-        if let Some(pl) = self.play {
-            let _ = write!(
-                out,
-                ",{},{},{},{}",
-                pl.natr_at(it.t_f) + 0.0,
-                u8::from(pl.ok_at(it.t_f, 1)),
-                u8::from(pl.ok_at(it.t_f, -1)),
-                u8::from(pl.first_at(it.t_f))
-            );
-            if pl.is_onset() {
-                put_k(
-                    out,
-                    pl.lead_hv_min(it.t_f, LEAD_MAX_MIN)
-                        .and_then(|l| usize::try_from(l).ok()),
-                );
-            }
-        }
-        if let Some(common) = &cm.feats {
-            self.write_feats(out, it, common);
-        }
-        out.push(b'\n');
     }
 
-    /// `FEATURE_COLS` строки: `z_f1…z_f10` и `r_w_bps` — для окна правила строки, остальное (`common`) — общее для момента.
+    /// `FEATURE_COLS` строки: `z_f1…z_f10` и `r_w_bps` — для окна строки (`Item::fw`: у срабатывания окно правила), остальное
+    /// (`common`) — общее для момента.
     fn write_feats(&self, out: &mut Vec<u8>, it: &Item, common: &[u8]) {
-        let (cube, wi) = (self.cube, usize::from(it.rule.wi));
+        let (cube, wi) = (self.cube, it.fw);
         // слот `t_f` в кубе; нет (вне куба, нет окна `wi`) — `NaN`, как «не определено»
         let slot = usize::try_from(it.t_f.div_euclid(SLOT_MIN) - cube.slot0)
             .ok()
@@ -739,19 +817,30 @@ pub fn write_with(
 pub fn write_cols(
     path: &Path,
     syms: &[String],
-    mut parts: Vec<(usize, Vec<u8>)>,
+    parts: Vec<(usize, Vec<u8>)>,
     extra: &str,
+) -> Result<()> {
+    if extra.is_empty() {
+        write_header(path, HEADER, syms, parts)
+    } else {
+        write_header(path, &format!("{HEADER},{extra}"), syms, parts)
+    }
+}
+
+/// Записать csv со своим заголовком `header`: контракты по алфавиту имён (`syms[индекс файла]`), строки контрактов —
+/// как их собрал `Collector::finish`. Байты не зависят от порядка `parts` (`ignitions-<stage>.csv`).
+pub fn write_header(
+    path: &Path,
+    header: &str,
+    syms: &[String],
+    mut parts: Vec<(usize, Vec<u8>)>,
 ) -> Result<()> {
     parts.sort_by(|a, b| syms[a.0].cmp(&syms[b.0]).then(a.0.cmp(&b.0)));
     let mut w = BufWriter::with_capacity(
         1 << 20,
         File::create(path).with_context(|| path.display().to_string())?,
     );
-    if extra.is_empty() {
-        writeln!(w, "{HEADER}")?;
-    } else {
-        writeln!(w, "{HEADER},{extra}")?;
-    }
+    writeln!(w, "{header}")?;
     for (_, bytes) in &parts {
         w.write_all(bytes)?;
     }

@@ -516,7 +516,7 @@ impl Fast {
 
 /// Элементы `0..n` раздаются потокам счётчиком; у потока своё состояние `T` (из `init`), состояния возвращаются в
 /// порядке потоков. Первая ошибка по номеру элемента останавливает остальных.
-fn par_map<T, I, F>(threads: usize, n: usize, init: I, f: F) -> Result<Vec<T>>
+pub(super) fn par_map<T, I, F>(threads: usize, n: usize, init: I, f: F) -> Result<Vec<T>>
 where
     T: Send,
     I: Fn(usize) -> T + Sync,
@@ -643,14 +643,14 @@ fn has(mask: u8, s: usize) -> bool {
     (mask >> s) & 1 == 1
 }
 
-enum Elig {
+pub(super) enum Elig {
     Ok,
     Leverage,
     Empty,
     NoOi,
 }
 
-fn eligible(sym: &str, c: &Contract) -> Elig {
+pub(super) fn eligible(sym: &str, c: &Contract) -> Elig {
     if is_leverage(sym) {
         Elig::Leverage
     } else if c.close.is_empty() {
@@ -740,18 +740,38 @@ fn xd_passes(
     syms: &[String],
     threads: usize,
 ) -> Result<(XdTable, Vec<[u64; 2]>)> {
+    xd_passes_for(
+        rn.p,
+        rn.fit,
+        (rn.min_turnover, rn.lag_days),
+        files,
+        syms,
+        threads,
+    )
+}
+
+/// `xd_passes` без контекста прогона: период фита `fit`, вселенная `(оборот, лаг суток)` — общий вход `run` и
+/// `ignitions` (там `X_D` нужен только для эпизодов столбца `ep_running`).
+pub(super) fn xd_passes_for(
+    p: &Params,
+    fit: [i64; 2],
+    universe: (f64, u32),
+    files: &[PathBuf],
+    syms: &[String],
+    threads: usize,
+) -> Result<(XdTable, Vec<[u64; 2]>)> {
     let feed = |acc: &mut XdAcc, i: usize| -> Result<()> {
         let mut c = load_contract(&files[i])?;
-        clip_contract(&mut c, rn.fit[1]);
+        clip_contract(&mut c, fit[1]);
         if !matches!(eligible(&syms[i], &c), Elig::Ok) {
             return Ok(());
         }
-        let u = Universe::build(&c, rn.min_turnover, rn.lag_days);
-        acc.add_masked(&c, rn.p, rn.fit, |m| u.min_ok(m));
+        let u = Universe::build(&c, universe.0, universe.1);
+        acc.add_masked(&c, p, fit, |m| u.min_ok(m));
         Ok(())
     };
-    let mut master = XdAcc::new(rn.p);
-    for a in par_map(threads, files.len(), |_| XdAcc::new(rn.p), feed)? {
+    let mut master = XdAcc::new(p);
+    for a in par_map(threads, files.len(), |_| XdAcc::new(p), feed)? {
         master.merge(a);
     }
     let counts = master.counts();
@@ -762,7 +782,7 @@ fn xd_passes(
     Ok((master.finish()?, counts))
 }
 
-fn read_xd(path: &Path, nd: usize) -> Result<(XdTable, Vec<[u64; 2]>)> {
+pub(super) fn read_xd(path: &Path, nd: usize) -> Result<(XdTable, Vec<[u64; 2]>)> {
     let text = fs::read_to_string(path).with_context(|| path.display().to_string())?;
     let mut x = vec![[f64::NAN; 2]; nd];
     let mut cnt = vec![[0u64; 2]; nd];
@@ -1347,12 +1367,12 @@ fn load_rules(path: &Path, p: &Params) -> Result<Vec<Rule>> {
     Ok(out)
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Пик резидентной памяти, МБ (`VmHWM`); вне Linux — `None`.
-fn peak_rss_mb() -> Option<f64> {
+pub(super) fn peak_rss_mb() -> Option<f64> {
     let s = fs::read_to_string("/proc/self/status").ok()?;
     let kb: f64 = s
         .lines()
