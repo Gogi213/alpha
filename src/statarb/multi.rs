@@ -5,9 +5,12 @@
 //! по `window`, `min_obs`, `beta`, `refresh` — остальное свободно. Сделки и счётчики каждой клетки
 //! совпадают с `kernel::run_pair` побитно (тест `multi_equals_single_cell_passes`); `run_pair` остаётся
 //! эталоном и умолчанием, пока гейт против прежнего бинарника на calc не пройден.
+//!
+//! Задержка ноги X (`delay_x`) и правило фандинга (`Rule::Funding`) здесь не реализованы: клетка с ненулевой
+//! задержкой или правилом не `Rule::Z` отклоняется явной ошибкой, такие клетки считает одноклеточный `run_pair`.
 
 use super::kernel::{
-    beta_z, price_at, rates_at, Counters, PairInput, Params, Pend, Sink, Sums, Trade,
+    beta_z, price_at, rates_at, Counters, PairInput, Params, Pend, Rule, Sink, Sums, Trade,
 };
 
 struct Cell {
@@ -89,6 +92,8 @@ impl Cell {
                         dir: self.dir,
                         sig_in: inp.first_min + self.sig_in as i64,
                         fill_in: inp.first_min + self.fill_in as i64,
+                        // delay_x = 0 (иное отклоняется в `run_pair_multi`): нога X идёт на том же open, что и Y.
+                        fill_x: inp.first_min + self.fill_in as i64,
                         sig_out: inp.first_min + sig as i64,
                         fill_out: ft,
                         gross_bps,
@@ -164,6 +169,9 @@ pub fn run_pair_multi<S: Sink>(
             || p.refresh != p0.refresh
     }) {
         return Err("клетки группы различаются по window / min_obs / beta / refresh");
+    }
+    if cells.iter().any(|p| p.delay_x != 0 || p.rule != Rule::Z) {
+        return Err("многоклеточный проход не умеет delay_x и Rule::Funding — такую клетку считает run_pair");
     }
     let n = inp.ly.len();
     let k = inp.ox.len();

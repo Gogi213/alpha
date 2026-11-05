@@ -12,7 +12,7 @@
 //! побайтно (суточный csv и сделки, порядок — клетка, затем задание/сутки).
 
 use super::cli::{common, load_names, Kind, Loaded};
-use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Trade};
+use super::kernel::{run_pair, BetaMode, Counters, LegKind, PairInput, Params, Rule, Trade};
 use super::multi::run_pair_multi;
 use anyhow::{bail, Context, Result};
 use clap::Args;
@@ -349,6 +349,8 @@ fn cell_params(
         },
         taker_in: true,
         taker_out: true,
+        delay_x: 0,
+        rule: Rule::Z,
     }
 }
 
