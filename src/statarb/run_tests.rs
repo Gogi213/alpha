@@ -7,7 +7,7 @@
 
 use super::cli::parse_funding;
 use super::kernel::{run_pair, BetaMode, LegKind, OpenPos, PairInput, Params, Rule, Sink, Trade};
-use super::mtm::{last_valid, OpenSnap};
+use super::mtm::{last_valid, value, OpenSnap};
 use super::multi::run_pair_multi;
 use super::panel::{read_series, write_series, Series, GRID0_MS, MINUTE_MS};
 use super::run::{run, RunArgs};
@@ -994,6 +994,37 @@ fn open_end_hook_is_the_same_in_single_and_multi_passes() {
         opened > 0,
         "тест пуст: позиции на конце нет ни в одной обрезке"
     );
+}
+
+#[test]
+fn mtm_values_each_basket_leg_at_its_own_last_close() {
+    // Корзина из двух компонент: Y лонг, X — две ноги с весами ½; вход комиссии taker, выход maker (params).
+    // Закрытия ряда (минута = 10 + индекс, вход в минуте 12): Y последняя цена в индексе 5, X0 — в 4, X1 — в 3.
+    let p = params(BetaMode::Fixed(1.0), LegKind::Perp, LegKind::Perp);
+    let o = OpenSnap {
+        dir: 1,
+        sig_in: 11,
+        fill_in: 12,
+        fill_x: Some(12),
+        qty: vec![1.0 / 100.0, -0.5 / 50.0, -0.5 / 20.0],
+        pin: vec![100.0, 50.0, 20.0],
+        fund: 1e-4,
+    };
+    let nan = f64::NAN;
+    let cy = [100.0, 100.0, 100.0, 101.0, 102.0, 103.0, nan, nan];
+    let cx0 = [50.0, 50.0, 50.0, 52.0, 55.0, nan, nan, nan];
+    let cx1 = [20.0, 20.0, 20.0, 19.0, nan, nan, nan, nan];
+    let m = value(&p, &o, 10, &cy, &[&cx0, &cx1]);
+    let gross = 1e4 * (0.01 * (103.0 - 100.0) - 0.01 * (55.0 - 50.0) - 0.025 * (19.0 - 20.0));
+    let (fi, fo) = (leg_fee_bps(true), leg_fee_bps(false));
+    let fee = 0.01 * (100.0 * fi + 103.0 * fo)
+        + 0.01 * (50.0 * fi + 55.0 * fo)
+        + 0.025 * (20.0 * fi + 19.0 * fo);
+    assert!(close(m.gross_bps, gross), "{m:?}");
+    assert!(close(m.fee_bps, fee), "{m:?}");
+    assert!(close(m.funding_bps, 1.0), "{m:?}");
+    assert!(close(m.net_bps, gross - fee + 1.0), "{m:?}");
+    assert_eq!(m.stale_min, 7 - 3); // конец окна — индекс 7, самая «старая» нога X1 — индекс 3
 }
 
 #[test]
