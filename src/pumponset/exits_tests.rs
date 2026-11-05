@@ -4,13 +4,21 @@
 //! числу потоков, вердикт на синтетике с заведомым победителем. Семейства в единицах ATR-прокси (C `tpa`, D `tra`):
 //! ручные пути при заданной A (в том числе на границе порога), A не определена, устойчивость нумерации первых 84
 //! конфигураций, совпадение с семействами в bps при A = 100, лучшая в семействе (fixed против atr) в вердикте.
+//! Единицы текущей волатильности (E–H, `--exits-units`, сетка из 510): нумерация 140–509 выписана независимо от кода,
+//! ручные пути tpr/trr/tpn/trn при заданных U (граница включена, стоп приоритетнее, пределы 30/60/180), единица не
+//! определена — сделка выпадает только из неё, старые 140 ячеек не меняются, быстрый проход против наивного по всем
+//! 510, ранний выход прохода, отсутствие утечки в rv60 и NATR, детерминизм по потокам, вердикт на синтетике с
+//! заведомым победителем в новой единице и устойчивость выбора.
 
 use super::agg::{fix, unfix, Dims, Layout};
+use super::cache::Contract;
 use super::exits::{
-    atr_proxy_bps, exits_head, grid, grid_csv, scan, scan_a, Cfg, ExitAgg, Fac, FacA, Family, Px,
-    CAPS, NCAP, NCFG, NCFG_FIXED, SLA_MULT, SL_LEVELS, TPA_MULT, TP_LEVELS, TRAIL_LEVELS, TRA_MULT,
+    atr_proxy_bps, exits_head, grid, grid_all, grid_csv, grid_csv_all, nt_bps, rv60_bps, scan,
+    scan_a, scan_x, Cfg, ExitAgg, Fac, FacA, FacU, Facs, Family, Px, Unit, Units, UnitsArgs, CAPS,
+    CAPS_U, NCAP, NCAPU, NCFG, NCFG_ALL, NCFG_FIXED, NCFG_U, NCFG_UNIT, NO_STOP, SLA_MULT,
+    SLU_MULT, SL_LEVELS, TPA_MULT, TPU_MULT, TP_LEVELS, TRAIL_LEVELS, TRA_MULT, TRU_MULT,
 };
-use super::play::PlayArgs;
+use super::play::{natr_series, PlayArgs};
 use super::run::{day_of_min, run, RunArgs, Stage};
 use super::run_tests::{
     lnp, params_json, pump_contract, put, rules_file, table, xd_file, Row, SEED, T0, XD,
@@ -577,8 +585,8 @@ enum Why {
 fn naive(cf: &[f64], sign: i8, cfg: &Cfg, rates: &[(i64, f64)], a: f64) -> (Why, u32, f64, f64) {
     let (b, s, c_in) = (1usize, f64::from(sign), cf[1]);
     let cap_j = cfg.cap() as usize - 1;
-    // пороги в bps: тейк, стоп, трейлинг
-    let (g_thr, s_thr, r_thr) = if cfg.family.is_atr() {
+    // пороги в bps: тейк, стоп, трейлинг; `a` — единица семейства (A, rv или nt), у семейств в bps не используется
+    let (g_thr, s_thr, r_thr) = if cfg.family.unit_kind() != Unit::Bps {
         (
             cfg.g_mult().map(|m| m * a),
             cfg.s_mult().map(|m| m * a),
@@ -778,6 +786,7 @@ fn args_run(
         xd: Some(xd),
         limit: None,
         exits,
+        exits_units: UnitsArgs::default(),
         dump_triggers: false,
         play: PlayArgs::default(),
     }
@@ -1972,7 +1981,7 @@ fn fit_rejects_test_months_grid_mismatch_and_missing_k() {
 
 /// exits-k.json из списка (правило, сторона, cfg).
 fn exits_k_file(dir: &Path, pairs: &[((u8, u8, u8), i8, usize)]) -> PathBuf {
-    let g = grid();
+    let g = grid_all();
     let items: Vec<serde_json::Value> = pairs
         .iter()
         .map(|(r, sign, cfg)| {
@@ -2512,4 +2521,1599 @@ fn test_stage_checks_best_by_group_and_rejects_old_grid() {
     );
     let e = verdict(vargs(VStage::ExitsFit, &inp_old, &pj, &o, &kf, 1)).unwrap_err();
     assert!(format!("{e:#}").contains("сетка"), "{e:#}");
+}
+
+// ---------- единицы текущей волатильности (rv, nt): сетка из 510 конфигураций ----------
+
+/// Номер конфигурации семейств E и G (`fam` = `TpR` | `TpN`) в сетке из 510: множители `g·U`, `s·U`.
+fn tpu(fam: Family, g: f64, s: Option<f64>, cap: u32) -> usize {
+    grid_all()
+        .iter()
+        .position(|c| c.family == fam && c.g_mult() == Some(g) && c.s_mult() == s && c.cap() == cap)
+        .unwrap()
+}
+
+/// Номер конфигурации семейств F и H (`fam` = `TrR` | `TrN`).
+fn tru(fam: Family, r: f64, s: Option<f64>, cap: u32) -> usize {
+    grid_all()
+        .iter()
+        .position(|c| c.family == fam && c.r_mult() == Some(r) && c.s_mult() == s && c.cap() == cap)
+        .unwrap()
+}
+
+/// Единицы сделки: A — `A_DEF`, rv и nt — заданные.
+fn units(rv: f64, nt: f64) -> Units {
+    Units { atr: A_DEF, rv, nt }
+}
+
+/// Одна сделка в пустой накопитель с единицами rv и nt (1 правило, 1 сутки, `t_f = 0`).
+fn ext_one(cf: &[f64], rates: &[(i64, f64)], sign: i8, u: Units) -> ExitAgg {
+    let mut ex = ExitAgg::with_units(1, 1, 30);
+    let px = Px {
+        cf,
+        first_min: 0,
+        funding: Funding::new(rates),
+    };
+    let g = ex.group(0, usize::from(sign < 0), 0);
+    ex.add_trade_u(g, &px, 0, sign, u);
+    ex
+}
+
+const RATES_U: [(i64, f64); 2] = [(-1000, 0.0), (5000, 0.0)];
+
+#[test]
+fn grid_all_has_510_configs_and_first_140_are_stable() {
+    let g = grid_all();
+    assert_eq!(g.len(), NCFG_ALL);
+    assert_eq!(
+        (NCFG, NCFG_FIXED, NCFG_UNIT, NCFG_U, NCFG_ALL),
+        (140, 84, 185, 370, 510)
+    );
+    // нумерация 0–139 не менялась: те же конфигурации и те же строки exits-grid.csv
+    assert_eq!(g[..NCFG], grid()[..]);
+    let (csv, old) = (grid_csv_all(), grid_csv());
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(lines.len(), NCFG_ALL + 1);
+    assert_eq!(lines[..=NCFG], old.lines().collect::<Vec<_>>()[..]);
+    // новые 370 — выписаны независимо от кода: единица rv, затем nt; внутри tp, затем trail; циклы по возрастанию,
+    // предел внутренний
+    let caps = [30, 60, 180, 360, 1440];
+    let mut want: Vec<String> = Vec::new();
+    for (unit, tp_f, tr_f) in [("rv", "tpr", "trr"), ("nt", "tpn", "trn")] {
+        for gm in ["0.5", "1.0", "2.0", "3.0", "5.0"] {
+            for s in ["0.5", "1.0", "2.0", "3.0", "none"] {
+                for cap in caps {
+                    want.push(format!(
+                        "{},{tp_f},{gm},{s},,{cap},{unit}",
+                        NCFG + want.len()
+                    ));
+                }
+            }
+        }
+        for r in ["0.5", "1.0", "2.0", "3.0"] {
+            for s in ["1.0", "2.0", "none"] {
+                for cap in caps {
+                    want.push(format!(
+                        "{},{tr_f},,{s},{r},{cap},{unit}",
+                        NCFG + want.len()
+                    ));
+                }
+            }
+        }
+    }
+    assert_eq!(want.len(), NCFG_U);
+    for (k, w) in want.iter().enumerate() {
+        assert_eq!(lines[1 + NCFG + k], w, "cfg {}", NCFG + k);
+    }
+    // состав по семействам и единицам
+    let count = |f: Family| g.iter().filter(|c| c.family == f).count();
+    assert_eq!(
+        (
+            count(Family::TpR),
+            count(Family::TrR),
+            count(Family::TpN),
+            count(Family::TrN)
+        ),
+        (125, 60, 125, 60)
+    );
+    assert_eq!(g[NCFG].family, Family::TpR);
+    assert_eq!(g[NCFG + NCFG_UNIT].family, Family::TpN);
+    assert_eq!(g[NCFG_ALL - 1].family, Family::TrN);
+    // пределы новых семейств — свои; параметры в bps и A у них не определены
+    for c in &g[NCFG..] {
+        assert!(c.family.is_units() && !c.family.is_atr());
+        assert!(CAPS_U.contains(&c.cap()));
+        assert!(c.g_bps().is_none() && c.s_bps().is_none() && c.r_bps().is_none());
+        assert!(c.s_mult().is_some() || c.sl == NO_STOP);
+    }
+    assert!(g[..NCFG]
+        .iter()
+        .all(|c| !c.family.is_units() && CAPS.contains(&c.cap())));
+    // уникальность параметров (с семейством и единицей)
+    let uniq: std::collections::HashSet<String> = csv
+        .lines()
+        .skip(1)
+        .map(|l| l.split_once(',').unwrap().1.to_string())
+        .collect();
+    assert_eq!(uniq.len(), NCFG_ALL);
+    assert_eq!(TPU_MULT, [0.5, 1.0, 2.0, 3.0, 5.0]);
+    assert_eq!(SLU_MULT, [0.5, 1.0, 2.0, 3.0]);
+    assert_eq!(TRU_MULT, [0.5, 1.0, 2.0, 3.0]);
+    assert_eq!(CAPS_U, caps);
+    assert_eq!(NCAPU, 5);
+    // порядок единиц при ничьей: bps < atr < rv < nt
+    assert!(Unit::Bps < Unit::Atr && Unit::Atr < Unit::Rv && Unit::Rv < Unit::Nt);
+    assert_eq!(
+        [Unit::Bps, Unit::Atr, Unit::Rv, Unit::Nt].map(Unit::name),
+        ["bps", "atr", "rv", "nt"]
+    );
+}
+
+#[test]
+fn rv_and_nt_take_profit_thresholds_are_multiples_of_their_own_unit() {
+    // решение на минуте 5 (130), исполнение по минуте 6 (90); затем 400
+    let pnl = |j: usize| match j {
+        1..=4 => 0.0,
+        5 => 130.0,
+        6 => 90.0,
+        _ => 400.0,
+    };
+    for sign in [1i8, -1] {
+        let cf = path(sign, 1500, pnl);
+        // rv = 50, nt = 80: пороги rv — 25, 50, 100, 150, 250; пороги nt — 40, 80, 160, 240, 400 (400 — ровно на границе)
+        let ex = ext_one(&cf, &RATES_U, sign, units(50.0, 80.0));
+        for (fam, u) in [(Family::TpR, 50.0), (Family::TpN, 80.0)] {
+            for (m, gross, hold) in [
+                (0.5, 90.0, 6),
+                (1.0, 90.0, 6),
+                (
+                    2.0,
+                    if u < 60.0 { 90.0 } else { 400.0 },
+                    if u < 60.0 { 6 } else { 8 },
+                ),
+                (3.0, 400.0, 8),
+                (5.0, 400.0, 8),
+            ] {
+                for s in [None, Some(3.0)] {
+                    for cap in CAPS_U {
+                        let (g, _, h, why) = res(&ex, sign, tpu(fam, m, s, cap));
+                        approx(g, gross, 1e-6);
+                        assert_eq!(
+                            (h, why),
+                            (hold, "tp"),
+                            "sign {sign} {fam:?} U{u} g{m} s{s:?} cap {cap}"
+                        );
+                    }
+                }
+            }
+        }
+        // rv = 400: порог 1·U = 400 достигнут ровно (pnl 400 ≥ 400) на минуте 7; 2·U — нет, предел
+        let ex = ext_one(&cf, &RATES_U, sign, units(400.0, 400.0));
+        for fam in [Family::TpR, Family::TpN] {
+            let (_, _, h, w) = res(&ex, sign, tpu(fam, 1.0, None, 360));
+            assert_eq!((h, w), (8, "tp"));
+            let (_, _, h, w) = res(&ex, sign, tpu(fam, 2.0, None, 360));
+            assert_eq!((h, w), (359, "cap"));
+            // короткий предел 30: касание на минуте 7 раньше предела — тейк
+            let (_, _, h, w) = res(&ex, sign, tpu(fam, 1.0, None, 30));
+            assert_eq!((h, w), (8, "tp"));
+        }
+    }
+}
+
+#[test]
+fn rv_and_nt_stop_priority_and_boundary_are_inclusive() {
+    // минута 3: −110, минута 4: −150, далее +500; U = 50: стопы 25, 50, 100 касаются на минуте 3 (исполнение на 4 =
+    // −150), стоп 3·U = 150 — на минуте 4 ровно (граница), исполнение на 5 (500); тейк 0.5·U = 25 — на минуте 5
+    let pnl = |j: usize| match j {
+        1..=2 => -20.0,
+        3 => -110.0,
+        4 => -150.0,
+        _ => 500.0,
+    };
+    for sign in [1i8, -1] {
+        let cf = path(sign, 1500, pnl);
+        let ex = ext_one(&cf, &RATES_U, sign, units(50.0, 50.0));
+        for fam in [Family::TpR, Family::TpN] {
+            for cap in CAPS_U {
+                for s in [0.5, 1.0, 2.0] {
+                    let (g, _, hold, why) = res(&ex, sign, tpu(fam, 0.5, Some(s), cap));
+                    approx(g, -150.0, 1e-6);
+                    assert_eq!((hold, why), (4, "sl"), "{fam:?} s{s} cap {cap}");
+                }
+                let (g, _, hold, why) = res(&ex, sign, tpu(fam, 0.5, Some(3.0), cap));
+                approx(g, 500.0, 1e-6);
+                assert_eq!((hold, why), (5, "sl"), "{fam:?} s3 cap {cap}");
+                // без стопа — тейк на минуте 5, исполнение на 6
+                let (_, _, hold, why) = res(&ex, sign, tpu(fam, 0.5, None, cap));
+                assert_eq!((hold, why), (6, "tp"));
+            }
+        }
+    }
+    // тейк раньше стопа: +150 на минуте 2, затем −300 на минуте 4; U = 100 → тейк 1·U на минуте 2, исполнение на 3
+    let pnl = |j: usize| match j {
+        1 => 0.0,
+        2 => 150.0,
+        3 => 160.0,
+        _ => -300.0,
+    };
+    let ex = ext_one(&path(1, 1500, pnl), &RATES_U, 1, units(100.0, 100.0));
+    for fam in [Family::TpR, Family::TpN] {
+        let (g, _, hold, why) = res(&ex, 1, tpu(fam, 1.0, Some(1.0), 360));
+        approx(g, 160.0, 1e-6);
+        assert_eq!((hold, why), (3, "tp"));
+    }
+}
+
+#[test]
+fn rv_and_nt_trailing_activation_drawdown_and_stop_priority() {
+    // минута 3: +150 (максимум), минута 5: −120 — и просадка от максимума, и стоп в одну минуту; исполнение на 6 = −130
+    let pnl = |j: usize| match j {
+        1..=2 => 0.0,
+        3..=4 => 150.0,
+        5 => -120.0,
+        _ => -130.0,
+    };
+    for sign in [1i8, -1] {
+        let cf = path(sign, 1500, pnl);
+        // U = 60: R = 30, 60, 120, 180
+        let ex = ext_one(&cf, &RATES_U, sign, units(60.0, 60.0));
+        for fam in [Family::TrR, Family::TrN] {
+            for cap in [30u32, 60, 1440] {
+                // стоп 1·U = 60 и трейлинг R = 1·U в минуту 5: приоритет стопа
+                let (g, _, hold, why) = res(&ex, sign, tru(fam, 1.0, Some(1.0), cap));
+                approx(g, -130.0, 1e-6);
+                assert_eq!((hold, why), (6, "sl"), "{fam:?} cap {cap}");
+                // стоп 2·U = 120 ровно на границе (−120 ≤ −120): тоже стоп
+                let (_, _, hold, why) = res(&ex, sign, tru(fam, 1.0, Some(2.0), cap));
+                assert_eq!((hold, why), (6, "sl"));
+                // без стопа — трейлинг
+                let (g, _, hold, why) = res(&ex, sign, tru(fam, 1.0, None, cap));
+                approx(g, -130.0, 1e-6);
+                assert_eq!((hold, why), (6, "trail"));
+                for r in [0.5, 2.0] {
+                    let (_, _, hold, why) = res(&ex, sign, tru(fam, r, None, cap));
+                    assert_eq!((hold, why), (6, "trail"), "R {r}");
+                }
+                // R = 3·U = 180 не активен (максимум 150): со стопом — стоп, без — предел (цена −130)
+                let (_, _, hold, why) = res(&ex, sign, tru(fam, 3.0, Some(1.0), cap));
+                assert_eq!((hold, why), (6, "sl"));
+                let (g, _, hold, why) = res(&ex, sign, tru(fam, 3.0, None, cap));
+                approx(g, -130.0, 1e-6);
+                assert_eq!((hold, why), (i64::from(cap) - 1, "cap"), "cap {cap}");
+            }
+        }
+    }
+    // откат от максимума без стопа; U = 50: R = 25, 50, 100, 150. Максимум 400 на минуте 10
+    let pnl = |j: usize| match j {
+        1..=9 => 60.0,
+        10 => 400.0,
+        11 => 340.0,
+        12 => 299.0,
+        13 => 280.0,
+        _ => 100.0,
+    };
+    for sign in [1i8, -1] {
+        let ex = ext_one(&path(sign, 1500, pnl), &RATES_U, sign, units(50.0, 50.0));
+        for fam in [Family::TrR, Family::TrN] {
+            // R = 25 и 50: откат ≤ 375 и ≤ 350 — минута 11 (340), исполнение на 12 (299)
+            for r in [0.5, 1.0] {
+                let (g, _, hold, why) = res(&ex, sign, tru(fam, r, None, 360));
+                approx(g, 299.0, 1e-6);
+                assert_eq!((hold, why), (12, "trail"), "R {r}");
+            }
+            // R = 100: откат ≤ 300 — минута 12 (299), исполнение на 13 (280)
+            let (g, _, hold, why) = res(&ex, sign, tru(fam, 2.0, None, 360));
+            approx(g, 280.0, 1e-6);
+            assert_eq!((hold, why), (13, "trail"));
+            // R = 150: откат ≤ 250 — минута 14 (100), исполнение на 15 (100)
+            let (g, _, hold, why) = res(&ex, sign, tru(fam, 3.0, None, 1440));
+            approx(g, 100.0, 1e-6);
+            assert_eq!((hold, why), (15, "trail"));
+        }
+    }
+}
+
+#[test]
+fn short_caps_30_60_180_execute_at_their_own_scheduled_minute() {
+    let ucaps = [30u32, 60, 180, 360];
+    for sign in [1i8, -1] {
+        for (i, &c) in ucaps.iter().enumerate() {
+            let next = CAPS_U[i + 1];
+            // касание на последней минуте решения c − 2 (150 ≥ 100), исполнение на c − 1 (140): тейк успевает
+            let early = |j: usize| match j {
+                j if j == c as usize - 2 => 150.0,
+                j if j == c as usize - 1 => 140.0,
+                _ => 0.0,
+            };
+            let ex = ext_one(
+                &path(sign, 1500, early),
+                &RATES_U,
+                sign,
+                units(100.0, 100.0),
+            );
+            for fam in [Family::TpR, Family::TpN] {
+                let (g, _, hold, why) = res(&ex, sign, tpu(fam, 1.0, None, c));
+                approx(g, 140.0, 1e-6);
+                assert_eq!((hold, why), (i64::from(c) - 1, "tp"), "{fam:?} cap {c}");
+            }
+            // касание на минуте c − 1 — решение уже не принимается: предел по c[c − 1]; у следующего предела — тейк
+            let late = |j: usize| if j == c as usize - 1 { 150.0 } else { 0.0 };
+            let ex = ext_one(&path(sign, 1500, late), &RATES_U, sign, units(100.0, 100.0));
+            for fam in [Family::TpR, Family::TpN] {
+                let (g, _, hold, why) = res(&ex, sign, tpu(fam, 1.0, None, c));
+                approx(g, 150.0, 1e-6);
+                assert_eq!((hold, why), (i64::from(c) - 1, "cap"), "{fam:?} cap {c}");
+                let (g, _, hold, why) = res(&ex, sign, tpu(fam, 1.0, None, next));
+                approx(g, 0.0, 1e-6);
+                assert_eq!((hold, why), (i64::from(c), "tp"), "{fam:?} cap {next}");
+            }
+        }
+        // ничего не происходит: предел 30 — по цене минуты 29, 60 — по 59, 180 — по 179
+        let ex = ext_one(
+            &path(sign, 1500, |_| 10.0),
+            &rates_wide(),
+            sign,
+            units(100.0, 100.0),
+        );
+        for (&c, &h) in CAPS_U.iter().zip(&[29i64, 59, 179, 359, 1439]) {
+            let (g, _, hold, why) = res(&ex, sign, tru(Family::TrR, 1.0, None, c));
+            approx(g, 10.0, 1e-6);
+            assert_eq!((hold, why), (h, "cap"));
+        }
+    }
+}
+
+#[test]
+fn undefined_unit_excludes_trade_from_its_own_unit_only() {
+    let rates = rates_var();
+    let (rv_range, nt_range) = (NCFG..NCFG + NCFG_UNIT, NCFG + NCFG_UNIT..NCFG_ALL);
+    for sign in [1i8, -1] {
+        let cf = rw(77, sign, 1500, 6.0);
+        let base = ext_one(&cf, &rates, sign, units(40.0, 25.0));
+        let g = base.group(0, usize::from(sign < 0), 0);
+        assert_eq!(
+            (base.cnt.rv_undefined, base.cnt.nt_undefined),
+            (0, 0),
+            "единицы определены"
+        );
+        assert!((NCFG..NCFG_ALL).any(|k| *base.cfg_cell(g, k) != Default::default()));
+        for bad in [f64::NAN, 0.0, -3.0, f64::INFINITY, f64::NEG_INFINITY] {
+            for rv_bad in [true, false] {
+                let ex = ext_one(
+                    &cf,
+                    &rates,
+                    sign,
+                    if rv_bad {
+                        units(bad, 25.0)
+                    } else {
+                        units(40.0, bad)
+                    },
+                );
+                let (gone, kept) = if rv_bad {
+                    (rv_range.clone(), nt_range.clone())
+                } else {
+                    (nt_range.clone(), rv_range.clone())
+                };
+                // прежние 140 конфигураций и их n — как при определённых единицах
+                for k in 0..NCFG {
+                    assert_eq!(ex.cfg_cell(g, k), base.cfg_cell(g, k), "bad {bad} cfg {k}");
+                }
+                for ci in 0..NCAP {
+                    assert_eq!(ex.cap_cell(g, ci), base.cap_cell(g, ci));
+                    assert_eq!(ex.cap_cell_atr(g, ci), base.cap_cell_atr(g, ci));
+                }
+                // другая единица — как при определённой; своей единицы у сделки нет
+                for k in kept {
+                    assert_eq!(ex.cfg_cell(g, k), base.cfg_cell(g, k), "bad {bad} cfg {k}");
+                }
+                for k in gone {
+                    assert_eq!(*ex.cfg_cell(g, k), Default::default(), "bad {bad} cfg {k}");
+                }
+                for ui in 0..NCAPU {
+                    let (mine, other) = if rv_bad {
+                        (ex.cap_cell_rv(g, ui), ex.cap_cell_nt(g, ui))
+                    } else {
+                        (ex.cap_cell_nt(g, ui), ex.cap_cell_rv(g, ui))
+                    };
+                    assert_eq!(*mine, Default::default());
+                    assert_eq!(other.n, 1);
+                }
+                let (u, v) = if rv_bad {
+                    (ex.cnt.rv_undefined_by_cap, ex.cnt.nt_undefined_by_cap)
+                } else {
+                    (ex.cnt.nt_undefined_by_cap, ex.cnt.rv_undefined_by_cap)
+                };
+                assert_eq!((u, v), ([1; NCAPU], [0; NCAPU]), "bad {bad}");
+                assert_eq!(ex.cnt.triggers, 1);
+            }
+        }
+    }
+    // короткий ряд: достижимы пределы до 360, предел 1440 — «нет цен»; исключение считается по взятым пределам
+    let cf = path(1, 400, |j| if j == 300 { 250.0 } else { 0.0 });
+    let ex = ext_one(&cf, &rates_wide(), 1, units(f64::NAN, 30.0));
+    assert_eq!(ex.cnt.rv_undefined, 1);
+    assert_eq!(ex.cnt.rv_undefined_by_cap, [1, 1, 1, 1, 0]);
+    assert_eq!(ex.cnt.nt_undefined_by_cap, [0; NCAPU]);
+    let trades: Vec<u64> = ex.cnt.caps_u.iter().map(|c| c.trades).collect();
+    assert_eq!(trades, [1, 1, 1, 1, 0]);
+    assert_eq!(ex.cnt.caps_u[4].nodata, 1);
+    // прежние счётчики по CAPS — хвост счётчиков по CAPS_U
+    assert_eq!((ex.cnt.caps[0].trades, ex.cnt.caps[1].nodata), (1, 1));
+    // сделка без цен/фандинга в симуляцию не берётся и как «без единицы» не считается
+    let ex = ext_one(
+        &path(1, 1500, |_| 10.0),
+        &[(5, 1.0e-4)],
+        1,
+        units(f64::NAN, f64::NAN),
+    );
+    assert_eq!((ex.cnt.rv_undefined, ex.cnt.nt_undefined), (0, 0));
+}
+
+#[test]
+fn trade_sets_of_short_caps_follow_round_trip_and_funding_coverage() {
+    // файл фандинга кончается на минуте 480: пределы 30, 60, 180, 360 покрыты (gap 480), 1440 — нет
+    let short = [(-480i64, 1.0e-4), (0, 1.0e-4), (480, 1.0e-4)];
+    let cf = path(1, 1500, |j| if j == 40 { 120.0 } else { 0.0 });
+    let ex = ext_one(&cf, &short, 1, units(50.0, 50.0));
+    let g = ex.group(0, 0, 0);
+    let n: Vec<u32> = (0..NCAPU).map(|u| ex.cap_cell_rv(g, u).n).collect();
+    assert_eq!(n, [1, 1, 1, 1, 0]);
+    let n: Vec<u32> = (0..NCAPU).map(|u| ex.cap_cell_nt(g, u).n).collect();
+    assert_eq!(n, [1, 1, 1, 1, 0]);
+    // набор сделок = round_trip(H = cap) для каждого предела; пределы 360 и 1440 — те же счётчики, что у прежних cap
+    for (ui, &cap) in CAPS_U.iter().enumerate() {
+        let r = round_trip(&cf, 0, &Funding::new(&short), 0, cap, 1);
+        assert_eq!(ex.cnt.caps_u[ui].trades, u64::from(r.is_ok()), "cap {cap}");
+        assert_eq!(
+            ex.cnt.caps_u[ui].uncovered,
+            u64::from(r == Err(super::trade::Skip::Funding)),
+            "cap {cap}"
+        );
+    }
+    assert_eq!(ex.cnt.caps[0].trades, ex.cnt.caps_u[3].trades);
+    assert_eq!(ex.cnt.caps[1].uncovered, ex.cnt.caps_u[4].uncovered);
+    // потолок: максимум за окно самого длинного cap — 120 на минуте 40; за окно собственного cap — по его окну
+    approx(unfix(ex.cap_cell_rv(g, 0).mfe), 120.0, 1e-6);
+    assert_eq!(ex.cap_cell_rv(g, 0).mfe_min, 40);
+    approx(unfix(ex.cap_cell_rv(g, 0).mfe_cap), 0.0, 1e-6); // окно cap 30: j ≤ 29, до минуты 40 pnl = 0
+    approx(unfix(ex.cap_cell_rv(g, 1).mfe_cap), 120.0, 1e-6); // окно cap 60
+    assert_eq!(ex.cap_cell_rv(g, 1).mfe_cap_min, 40);
+    // первый конфиг предела 1440 пуст, предела 30 — заполнен (hold = 29)
+    let c30 = tpu(Family::TpR, 5.0, None, 30);
+    assert_eq!(ex.cfg_cell(g, c30).hold, 29);
+    assert_eq!(
+        *ex.cfg_cell(g, tpu(Family::TpR, 5.0, None, 1440)),
+        Default::default()
+    );
+
+    // сделка, взятая лишь короткими пределами (ряд из 100 минут после входа): в совокупность семейств C и D (пределы
+    // 360 и 1440) она не входила, поэтому «A не определена» её не считает; единицы rv и nt — на коротких пределах
+    let cf = path(1, 100, |_| 0.0);
+    let u = Units {
+        atr: f64::NAN,
+        rv: 30.0,
+        nt: 30.0,
+    };
+    let ex = ext_one(&cf, &rates_wide(), 1, u);
+    let g = ex.group(0, 0, 0);
+    assert_eq!(
+        (
+            ex.cnt.triggers,
+            ex.cnt.atr_undefined,
+            ex.cnt.atr_undefined_by_cap
+        ),
+        (1, 0, [0, 0])
+    );
+    let trades: Vec<u64> = ex.cnt.caps_u.iter().map(|c| c.trades).collect();
+    assert_eq!(trades, [1, 1, 0, 0, 0]);
+    assert_eq!(ex.cnt.caps_u[2].nodata, 1);
+    assert_eq!((ex.cap_cell_rv(g, 1).n, ex.cap_cell_rv(g, 2).n), (1, 0));
+    assert_eq!((ex.cap_cell(g, 0).n, ex.cap_cell_atr(g, 0).n), (0, 0));
+}
+
+/// Единицы по семейству конфигурации для наивного сравнения: bps — не нужна, A, rv, nt — свои.
+fn unit_of(cfg: &Cfg, u: &Units) -> f64 {
+    match cfg.family.unit_kind() {
+        Unit::Bps => f64::NAN,
+        Unit::Atr => u.atr,
+        Unit::Rv => u.rv,
+        Unit::Nt => u.nt,
+    }
+}
+
+fn defined(x: f64) -> bool {
+    x.is_finite() && x > 0.0
+}
+
+#[test]
+fn fast_scan_equals_naive_for_all_510_configs() {
+    let rates = rates_var();
+    let mut reasons = BTreeMap::<String, usize>::new();
+    for seed in 1..=40u64 {
+        let step = [2.0, 6.0, 15.0][(seed % 3) as usize];
+        // единицы сопоставимы с ходом пути (σ минутных доходностей ≈ 0,58·step; за час ×√60), чтобы пороги задевались;
+        // каждая пятая сделка без rv, каждая седьмая без nt
+        let scale = [0.7, 4.5, 11.0][(seed % 3) as usize] * step;
+        let u = Units {
+            atr: scale,
+            rv: if seed % 5 == 0 { f64::NAN } else { 1.3 * scale },
+            nt: if seed % 7 == 0 { 0.0 } else { 0.8 * scale },
+        };
+        for sign in [1i8, -1] {
+            let cf = rw(seed * 6007, sign, 1500, step);
+            let ex = ext_one(&cf, &rates, sign, u);
+            let g = ex.group(0, usize::from(sign < 0), 0);
+            for (k, cfg) in grid_all().iter().enumerate() {
+                let x = unit_of(cfg, &u);
+                let c = ex.cfg_cell(g, k);
+                if cfg.family.unit_kind() != Unit::Bps && !defined(x) {
+                    assert_eq!(*c, Default::default(), "seed {seed} sign {sign} cfg {k}");
+                    continue;
+                }
+                let (why, hold, gross, fund) = naive(&cf, sign, cfg, &rates, x);
+                let tag = format!("seed {seed} sign {sign} cfg {k} {cfg:?}");
+                assert_eq!(c.gross, fix(gross), "{tag} gross");
+                assert_eq!(c.fund, fix(fund), "{tag} fund");
+                assert_eq!(c.hold, i64::from(hold), "{tag} hold");
+                let got = match (c.n_tp, c.n_sl, c.n_trail) {
+                    (1, 0, 0) => Why::Tp,
+                    (0, 1, 0) => Why::Sl,
+                    (0, 0, 1) => Why::Trail,
+                    _ => Why::Cap,
+                };
+                assert_eq!(got, why, "{tag} причина");
+                if cfg.family.is_units() {
+                    let key = format!(
+                        "{}_{}",
+                        cfg.family.unit(),
+                        format!("{got:?}").to_lowercase()
+                    );
+                    *reasons.entry(key).or_default() += 1;
+                }
+            }
+        }
+    }
+    // случайные пути задевают все причины выхода в обеих новых единицах (иначе сравнение было бы вырожденным)
+    for unit in ["rv", "nt"] {
+        for why in ["tp", "sl", "trail"] {
+            let n = reasons[&format!("{unit}_{why}")];
+            assert!(n > 200, "{unit}_{why}: {reasons:?}");
+        }
+    }
+}
+
+#[test]
+fn units_do_not_change_the_old_140_cells_bit_for_bit() {
+    let rates = rates_var();
+    for seed in 1..=25u64 {
+        let step = [3.0, 9.0, 22.0][(seed % 3) as usize];
+        for sign in [1i8, -1] {
+            let cf = rw(seed * 2_654_435_761, sign, 1500, step);
+            let a = if seed % 4 == 0 { f64::NAN } else { 4.0 * step };
+            let old = one_a(&cf, &rates, sign, a);
+            assert!(!old.is_ext() && old.grid().len() == NCFG);
+            let ext = ext_one(
+                &cf,
+                &rates,
+                sign,
+                Units {
+                    atr: a,
+                    rv: 5.0 * step,
+                    nt: if seed % 3 == 0 { f64::NAN } else { 2.0 * step },
+                },
+            );
+            assert!(ext.is_ext() && ext.grid().len() == NCFG_ALL);
+            let g = old.group(0, usize::from(sign < 0), 0);
+            for k in 0..NCFG {
+                assert_eq!(
+                    ext.cfg_cell(g, k),
+                    old.cfg_cell(g, k),
+                    "seed {seed} sign {sign} cfg {k}"
+                );
+            }
+            for ci in 0..NCAP {
+                assert_eq!(ext.cap_cell(g, ci), old.cap_cell(g, ci));
+                assert_eq!(ext.cap_cell_atr(g, ci), old.cap_cell_atr(g, ci));
+            }
+            assert_eq!(ext.cnt.caps[0].trades, old.cnt.caps[0].trades);
+            assert_eq!(ext.cnt.atr_undefined_by_cap, old.cnt.atr_undefined_by_cap);
+            // у накопителя по умолчанию ячеек rv и nt нет вовсе
+            assert_eq!(old.cnt.caps_u[0].trades, 0);
+        }
+    }
+}
+
+#[test]
+fn scan_x_keeps_bps_and_atr_hits_and_orders_new_levels() {
+    let fac = [Fac::new(1.0), Fac::new(-1.0)];
+    for seed in 1..=15u64 {
+        for sign in [1i8, -1] {
+            let cf = rw(seed * 99_991, sign, 1500, 8.0);
+            let f = &fac[usize::from(sign < 0)];
+            let s = f64::from(sign);
+            let fa = FacA::new(s, 40.0);
+            let (fr, fnn) = (FacU::new(s, 60.0), FacU::new(s, 30.0));
+            let base = scan_a(&cf, 1, 1439, sign, f, fa.as_ref());
+            let x = scan_x(
+                &cf,
+                1,
+                1439,
+                sign,
+                &Facs {
+                    bps: f,
+                    atr: fa.as_ref(),
+                    rv: fr.as_ref(),
+                    nt: fnn.as_ref(),
+                },
+            );
+            // части bps и A, потолки — те же, что без единиц rv и nt
+            assert_eq!(x.hits[0].tp, base.tp);
+            assert_eq!(x.hits[0].sl[..], base.sl[..]);
+            assert_eq!(x.hits[0].tr[..], base.tr[..]);
+            assert_eq!(x.hits[1].tp[..4], base.tpa);
+            assert_eq!(x.hits[1].sl[..3], base.sla);
+            assert_eq!(x.hits[1].tr[..3], base.tra);
+            assert_eq!(x.mfe, base.mfe);
+            assert_eq!([x.mfe_cap[3], x.mfe_cap[4]], base.mfe_cap);
+            // новые уровни: касаются, и более высокий порог не раньше низкого
+            for h in &x.hits[2..] {
+                assert!(h.tp.iter().chain(&h.sl).any(|&t| t != u32::MAX));
+                assert!(h.tp.windows(2).all(|w| w[0] <= w[1]), "{:?}", h.tp);
+                assert!(h.sl.windows(2).all(|w| w[0] <= w[1]), "{:?}", h.sl);
+            }
+            // единицы без множителей (None) указателей не заводят
+            let none = scan_x(
+                &cf,
+                1,
+                1439,
+                sign,
+                &Facs {
+                    bps: f,
+                    atr: None,
+                    rv: None,
+                    nt: None,
+                },
+            );
+            assert_eq!(none.hits[0], x.hits[0]);
+            for h in &none.hits[1..] {
+                assert_eq!(h.tp, [u32::MAX; 5]);
+                assert_eq!(h.sl, [u32::MAX; 4]);
+                assert_eq!(h.tr, [u32::MAX; 4]);
+            }
+        }
+    }
+    for u in [f64::NAN, 0.0, -1.0, f64::INFINITY] {
+        assert!(FacU::new(1.0, u).is_none(), "U = {u}");
+    }
+    // слишком большая единица: порог не представим — единица не определена
+    assert!(FacU::new(1.0, 1.0e9).is_none());
+}
+
+#[test]
+fn early_exit_keeps_maximum_and_caps_windows_after_all_levels_are_taken() {
+    // всплеск вверх до +1500 (минута 5) и обвал до −1000 (минута 10) берут все уровни всех единиц; дальше проход
+    // следит только за максимумом: ещё более высокий пик на минуте 700 (+2500) и его окно cap обязаны сохраниться
+    let pnl = |j: usize| match j {
+        1..=4 => 0.0,
+        5 => 1500.0,
+        6..=9 => 500.0,
+        10..=699 => -1000.0,
+        700 => 2500.0,
+        _ => -1000.0,
+    };
+    let fac = [Fac::new(1.0), Fac::new(-1.0)];
+    for sign in [1i8, -1] {
+        let cf = path(sign, 1500, pnl);
+        let s = f64::from(sign);
+        let (fa, fr, fnn) = (FacA::new(s, 30.0), FacU::new(s, 20.0), FacU::new(s, 25.0));
+        let x = scan_x(
+            &cf,
+            1,
+            1439,
+            sign,
+            &Facs {
+                bps: &fac[usize::from(sign < 0)],
+                atr: fa.as_ref(),
+                rv: fr.as_ref(),
+                nt: fnn.as_ref(),
+            },
+        );
+        // все уровни взяты до минуты 700
+        for h in &x.hits {
+            assert!(h.tp.iter().filter(|&&t| t != u32::MAX).all(|&t| t < 700));
+        }
+        assert!(x.hits[2].tr.iter().all(|&t| t < 700), "{:?}", x.hits[2].tr);
+        assert!(x.hits[0].sl.iter().all(|&t| t < 700));
+        // потолки: до минуты 700 максимум 1500 на минуте 5, окно 1440 — 2500 на минуте 700
+        assert_eq!(x.mfe.1, 700);
+        approx(x.mfe.0, 2500.0, 1e-6);
+        for (ui, &(m, at)) in x.mfe_cap.iter().enumerate().take(4) {
+            approx(m, 1500.0, 1e-6);
+            assert_eq!(at, 5, "cap {}", CAPS_U[ui]);
+        }
+        assert_eq!(x.mfe_cap[4], x.mfe);
+        // окна короче 700 минут тоже: прохода по сегментам хватает на любой jmax
+        for jmax in [1439usize, 700, 699, 359, 29, 5, 1] {
+            let y = scan_x(
+                &cf,
+                1,
+                jmax,
+                sign,
+                &Facs {
+                    bps: &fac[usize::from(sign < 0)],
+                    atr: fa.as_ref(),
+                    rv: fr.as_ref(),
+                    nt: fnn.as_ref(),
+                },
+            );
+            let s = f64::from(sign);
+            let pn: Vec<f64> = (1..=jmax)
+                .map(|j| s * (cf[1 + j] / cf[1]).ln() * BPS)
+                .collect();
+            let argmax = |hi: usize| {
+                let (mut best, mut at) = (f64::NEG_INFINITY, 0usize);
+                for (i, &v) in pn[..hi.min(pn.len())].iter().enumerate() {
+                    if v > best {
+                        (best, at) = (v, i + 1);
+                    }
+                }
+                (best, at as u32)
+            };
+            assert_eq!(y.mfe, argmax(jmax), "jmax {jmax}");
+            for (ui, &cap) in CAPS_U.iter().enumerate() {
+                if jmax + 1 >= cap as usize {
+                    assert_eq!(
+                        y.mfe_cap[ui],
+                        argmax(cap as usize - 1),
+                        "jmax {jmax} cap {cap}"
+                    );
+                } else {
+                    assert!(y.mfe_cap[ui].0.is_nan(), "jmax {jmax} cap {cap}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn result_does_not_depend_on_prices_after_exit_in_any_unit() {
+    let rates = rates_var();
+    for seed in 1..=10u64 {
+        for sign in [1i8, -1] {
+            let cf = rw(seed * 15_485_863, sign, 1500, 8.0);
+            let u = units(35.0, 20.0);
+            let ex = ext_one(&cf, &rates, sign, u);
+            let g = ex.group(0, usize::from(sign < 0), 0);
+            for k in 0..NCFG_ALL {
+                let base = *ex.cfg_cell(g, k);
+                let after = 1 + usize::try_from(base.hold).unwrap() + 1;
+                let mut cf2 = cf.clone();
+                for x in &mut cf2[after..] {
+                    *x *= 3.0;
+                }
+                let ex2 = ext_one(&cf2, &rates, sign, u);
+                assert_eq!(
+                    *ex2.cfg_cell(g, k),
+                    base,
+                    "seed {seed} sign {sign} cfg {k}: цены после выхода изменили сделку"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn rv60_follows_dump_formula_and_uses_only_data_up_to_t_f() {
+    // произвольный путь с шумом: окно из 60 минутных ln-доходностей, оканчивающихся в t_f
+    let mut r = Xs(0xA5A5_1234_9E37_79B9);
+    let mut cf = vec![100.0];
+    for _ in 1..300 {
+        let last = *cf.last().unwrap();
+        cf.push(last * ((r.unit() - 0.5) * 6.0e-3).exp());
+    }
+    let first_min = 1_000i64;
+    for t_f in [
+        first_min + 60,
+        first_min + 61,
+        first_min + 150,
+        first_min + 299,
+    ] {
+        let i = (t_f - first_min) as usize;
+        let mut sum = 0.0f64;
+        for k in i - 59..=i {
+            let l = (cf[k] / cf[k - 1]).ln();
+            sum += l * l;
+        }
+        let want = sum.sqrt() * BPS;
+        assert_eq!(rv60_bps(&cf, first_min, t_f).to_bits(), want.to_bits());
+        // данные после t_f на значение не влияют
+        let mut later = cf.clone();
+        for x in &mut later[i + 1..] {
+            *x *= 1.7;
+        }
+        assert_eq!(
+            rv60_bps(&later, first_min, t_f).to_bits(),
+            want.to_bits(),
+            "t_f {t_f}"
+        );
+        // а данные в окне — влияют
+        let mut inside = cf.clone();
+        inside[i - 30] *= 1.01;
+        assert_ne!(rv60_bps(&inside, first_min, t_f).to_bits(), want.to_bits());
+    }
+    // окно не помещается (нужны 61 цена), t_f вне ряда или до его начала — не определена
+    assert!(rv60_bps(&cf, first_min, first_min + 59).is_nan());
+    assert!(rv60_bps(&cf, first_min, first_min + 300).is_nan());
+    assert!(rv60_bps(&cf, first_min, first_min - 5).is_nan());
+    // нечестная цена в окне (NaN, 0, −1) — не определена; вне окна — не мешает
+    for bad in [f64::NAN, 0.0, -1.0] {
+        let mut c = cf.clone();
+        c[100] = bad;
+        assert!(rv60_bps(&c, first_min, first_min + 120).is_nan(), "{bad}");
+        assert!(
+            rv60_bps(&c, first_min, first_min + 161).is_finite(),
+            "{bad}"
+        );
+    }
+    // плоская цена: rv = 0 — единица не определена (FacU требует > 0)
+    let flat = vec![100.0; 200];
+    assert_eq!(rv60_bps(&flat, 0, 100), 0.0);
+    assert!(FacU::new(1.0, rv60_bps(&flat, 0, 100)).is_none());
+}
+
+#[test]
+fn nt_is_natr_percent_in_bps_and_uses_only_data_up_to_t_f() {
+    // NATR 0,8 % на минуте 100 → 80 bps; вне ряда и NaN — не определено
+    let mut natr = vec![f32::NAN; 200];
+    natr[100] = 0.8;
+    natr[101] = 1.3;
+    assert_eq!(nt_bps(&natr, 0, 100), f64::from(0.8f32) * 100.0);
+    assert_eq!(nt_bps(&natr, 50, 151), f64::from(1.3f32) * 100.0);
+    assert!(nt_bps(&natr, 0, 99).is_nan());
+    assert!(nt_bps(&natr, 0, 200).is_nan());
+    assert!(nt_bps(&natr, 150, 100).is_nan());
+    // NATR из play::natr_series на свечах с high/low: правка свечей ПОСЛЕ минуты не меняет значения в минуте
+    let mut r = Xs(0xC0FF_EE00_1234_5678);
+    let n = 400usize;
+    let mut close = vec![100.0f64];
+    for _ in 1..n {
+        let last = *close.last().unwrap();
+        close.push(last * ((r.unit() - 0.5) * 4.0e-3).exp());
+    }
+    let mk = |close: &[f64]| Contract {
+        first_min: 0,
+        close: close.to_vec(),
+        high: close.iter().map(|&x| (x * 1.001) as f32).collect(),
+        low: close.iter().map(|&x| (x * 0.999) as f32).collect(),
+        ..Default::default()
+    };
+    let c = mk(&close);
+    let s = natr_series(&c, 30);
+    let t = 250usize;
+    assert!(s[t].is_finite());
+    // TR ≈ 0,2 % (гэп от прошлого close дополняет размах), поэтому NATR порядка десятков bps
+    assert!(nt_bps(&s, 0, t as i64) > 10.0);
+    let mut later = close.clone();
+    for x in &mut later[t + 1..] {
+        *x *= 1.3;
+    }
+    let s2 = natr_series(&mk(&later), 30);
+    assert_eq!(s[t].to_bits(), s2[t].to_bits());
+    assert_eq!(
+        nt_bps(&s, 0, t as i64).to_bits(),
+        nt_bps(&s2, 0, t as i64).to_bits()
+    );
+    // а правка внутри окна — меняет
+    let mut inside = close.clone();
+    inside[t - 10] *= 1.05;
+    assert_ne!(natr_series(&mk(&inside), 30)[t].to_bits(), s[t].to_bits());
+}
+
+/// Путь с шумом до `t_in` включительно и ровно `100` на минуте входа: дальше `100·exp(s·pnl(j)/1e4)`.
+fn noisy_path_from(sign: i8, t_in: usize, n: usize, pnl: impl Fn(usize) -> f64) -> Vec<f64> {
+    let s = f64::from(sign);
+    let mut r = Xs(0x1357_9BDF_2468_ACE0);
+    let mut cf: Vec<f64> = (0..t_in)
+        .map(|_| 100.0 * ((r.unit() - 0.5) * 2.0e-3).exp())
+        .collect();
+    cf.push(100.0);
+    for j in 1..=n {
+        cf.push(100.0 * (s * pnl(j) / BPS).exp());
+    }
+    cf
+}
+
+#[test]
+fn add_triggers_u_takes_rv_and_nt_from_the_trigger_minute() {
+    let t_f = 100i64; // слот 20, вход на минуте 101
+    let lay = layout_one_rule(day_of_min(t_f));
+    let rates = rates_wide();
+    let natr_pct = 0.8f32;
+    let u_nt = f64::from(natr_pct) * 100.0;
+    for sign in [1i8, -1] {
+        // шумный путь до входа: rv60 на минуте t_f определён и положителен; независимое вычисление по формуле
+        let probe = noisy_path_from(sign, 101, 1500, |_| 0.0);
+        let u_rv = rv60_bps(&probe, 0, t_f);
+        assert!(u_rv > 0.0 && u_rv.is_finite());
+        let mut sum = 0.0f64;
+        for k in 41..=100 {
+            let l = (probe[k] / probe[k - 1]).ln();
+            sum += l * l;
+        }
+        assert_eq!(u_rv.to_bits(), (sum.sqrt() * BPS).to_bits());
+        let mut natr = vec![f32::NAN; probe.len()];
+        natr[100] = natr_pct;
+        // слот 20 ↔ минута 100; σ слота не определена (A не нужна)
+        let mut sigma = vec![f32::NAN; 21];
+        sigma[20] = 0.004;
+        let mk = |u: f64| {
+            // 1,5·U на минуте 3, 1,2·U на минуте 4, затем 2,5·U
+            noisy_path_from(sign, 101, 1500, |j| match j {
+                1..=2 => 0.0,
+                3 => 1.5 * u,
+                4 => 1.2 * u,
+                _ => 2.5 * u,
+            })
+        };
+        let run_one = |cf: &[f64], natr: Option<&[f32]>| {
+            let px = Px {
+                cf,
+                first_min: 0,
+                funding: Funding::new(&rates),
+            };
+            let mut ex = ExitAgg::with_units(1, 1, 30);
+            ex.add_triggers_u(
+                &lay,
+                &cube_with_sigma(sigma.clone(), sign),
+                &[vec![20]],
+                &px,
+                natr,
+            );
+            ex
+        };
+        // единица rv: 1·U — касание на минуте 3, исполнение на 4 (1,2·U); 2·U — на 5, исполнение на 6 (2,5·U);
+        // 3·U недостижим → предел
+        let ex = run_one(&mk(u_rv), Some(&natr[..]));
+        assert_eq!(
+            (ex.cnt.triggers, ex.cnt.rv_undefined, ex.cnt.nt_undefined),
+            (1, 0, 0)
+        );
+        for (m, gross, hold, why) in [
+            (1.0, 1.2 * u_rv, 4, "tp"),
+            (2.0, 2.5 * u_rv, 6, "tp"),
+            (3.0, 2.5 * u_rv, 29, "cap"),
+        ] {
+            let (g, _, h, w) = res(&ex, sign, tpu(Family::TpR, m, None, 30));
+            approx(g, gross, 1e-6);
+            assert_eq!((h, w), (hold, why), "rv g{m}");
+        }
+        // единица nt: тот же путь, построенный на U_nt = NATR·100 минуты срабатывания
+        let ex = run_one(&mk(u_nt), Some(&natr[..]));
+        for (m, gross, hold, why) in [
+            (1.0, 1.2 * u_nt, 4, "tp"),
+            (2.0, 2.5 * u_nt, 6, "tp"),
+            (3.0, 2.5 * u_nt, 29, "cap"),
+        ] {
+            let (g, _, h, w) = res(&ex, sign, tpu(Family::TpN, m, None, 30));
+            approx(g, gross, 1e-6);
+            assert_eq!((h, w), (hold, why), "nt g{m}");
+        }
+        let gi = ex.group(0, usize::from(sign < 0), 0);
+        assert_eq!((ex.cap_cell_nt(gi, 0).n, ex.cap_cell_rv(gi, 0).n), (1, 1));
+        // ряда NATR нет вовсе — nt не определена, rv считается; прежние семейства на месте
+        let ex = run_one(&mk(u_rv), None);
+        assert_eq!((ex.cnt.rv_undefined, ex.cnt.nt_undefined), (0, 1));
+        let gi = ex.group(0, usize::from(sign < 0), 0);
+        assert_eq!((ex.cap_cell_rv(gi, 0).n, ex.cap_cell_nt(gi, 0).n), (1, 0));
+        assert_ne!(
+            *ex.cfg_cell(gi, tpu(Family::TpR, 1.0, None, 30)),
+            Default::default()
+        );
+        assert_eq!(
+            *ex.cfg_cell(gi, tpu(Family::TpN, 1.0, None, 30)),
+            Default::default()
+        );
+        assert_ne!(*ex.cfg_cell(gi, tp(100, None, 360)), Default::default());
+        // NATR в минуте срабатывания не определён (в соседней есть): nt не определена
+        let mut other = vec![f32::NAN; probe.len()];
+        other[101] = natr_pct;
+        let ex = run_one(&mk(u_rv), Some(&other[..]));
+        assert_eq!(ex.cnt.nt_undefined, 1);
+        // срабатывание раньше окна rv60 (t_f < 60): rv не определена
+        let lay_early = layout_one_rule(day_of_min(30));
+        let cf = mk(u_rv);
+        let px = Px {
+            cf: &cf,
+            first_min: 0,
+            funding: Funding::new(&rates),
+        };
+        let mut ex = ExitAgg::with_units(1, 1, 30);
+        let mut sg = vec![f32::NAN; 7];
+        sg[6] = 0.004;
+        ex.add_triggers_u(
+            &lay_early,
+            &cube_with_sigma(sg, sign),
+            &[vec![6]],
+            &px,
+            Some(&natr[..]),
+        );
+        assert_eq!((ex.cnt.triggers, ex.cnt.rv_undefined), (1, 1));
+    }
+}
+
+/// Как `noisy_cache_dir`, но свечи с `high`/`low` (±0,05 % цены): NATR определён, единицы rv и nt положительны.
+fn noisy_hl_cache_dir(dir: &Path) -> PathBuf {
+    let cache = dir.join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    let mut d = pump_contract(17_280, &[5_000, T0]);
+    for x in &mut d.close {
+        *x = 10_000.0 / *x;
+    }
+    let mut r = Xs(0x9E37_79B9_7F4A_7C15);
+    for (sym, mut c) in [
+        ("ABCUSDT", pump_contract(17_280, &[4_000, 9_000, T0])),
+        ("DEFUSDT", pump_contract(17_280, &[6_000, 12_000])),
+        ("GHIUSDT", pump_contract(17_280, &[T0])),
+        ("DMPUSDT", d),
+    ] {
+        for x in &mut c.close {
+            *x *= ((r.unit() - 0.5) * 2.0e-4).exp();
+        }
+        c.high = c.close.iter().map(|&x| (x * 1.0005) as f32).collect();
+        c.low = c.close.iter().map(|&x| (x * 0.9995) as f32).collect();
+        put(&cache, sym, &c);
+    }
+    cache
+}
+
+fn args_units(
+    cache: &Path,
+    params: &Path,
+    out: &Path,
+    rules: PathBuf,
+    xd: PathBuf,
+    threads: usize,
+    natr_n: Option<usize>,
+) -> RunArgs {
+    let mut a = args_run(cache, params, out, rules, xd, threads, true);
+    a.exits_units = UnitsArgs {
+        exits_units: true,
+        exits_natr_n: natr_n,
+    };
+    a
+}
+
+#[test]
+fn exits_units_run_is_deterministic_and_keeps_old_rows_byte_for_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = noisy_hl_cache_dir(dir.path());
+    let pj = params_360_1440(dir.path());
+    let (rf, xf) = (rules_file(dir.path(), &RULES), xd_file(dir.path(), XD));
+    let (o_def, o1, o4) = (
+        dir.path().join("def"),
+        dir.path().join("u1"),
+        dir.path().join("u4"),
+    );
+    run(args_run(
+        &cache,
+        &pj,
+        &o_def,
+        rf.clone(),
+        xf.clone(),
+        2,
+        true,
+    ))
+    .unwrap();
+    run(args_units(
+        &cache,
+        &pj,
+        &o1,
+        rf.clone(),
+        xf.clone(),
+        1,
+        Some(30),
+    ))
+    .unwrap();
+    run(args_units(&cache, &pj, &o4, rf, xf, 4, Some(30))).unwrap();
+    // побайтно при любом числе потоков; сетка файла — расширенная
+    let a = fs::read(o1.join("exits-test.csv")).unwrap();
+    assert_eq!(a, fs::read(o4.join("exits-test.csv")).unwrap());
+    assert_eq!(
+        fs::read_to_string(o1.join("exits-grid.csv")).unwrap(),
+        grid_csv_all()
+    );
+    assert_eq!(
+        fs::read_to_string(o_def.join("exits-grid.csv")).unwrap(),
+        grid_csv(),
+        "без флага сетка прежняя"
+    );
+    // строки прежних 140 конфигураций — те же байты, что без флага; основные таблицы от флага не зависят
+    let text = String::from_utf8(a).unwrap();
+    let old_rows: Vec<&str> = text
+        .lines()
+        .filter(|l| l.split(',').nth(4).and_then(|c| c.parse::<usize>().ok()) < Some(NCFG))
+        .collect();
+    let def_text = fs::read_to_string(o_def.join("exits-test.csv")).unwrap();
+    assert_eq!(old_rows, def_text.lines().collect::<Vec<_>>());
+    for f in ["daycells-test.csv", "lags-test.csv", "first-test.csv"] {
+        assert_eq!(
+            fs::read(o1.join(f)).unwrap(),
+            fs::read(o_def.join(f)).unwrap(),
+            "{f}"
+        );
+    }
+
+    let ex = table(&o1.join("exits-test.csv"));
+    let rows_of = |lo: usize, hi: usize| -> Vec<&Row> {
+        ex.iter()
+            .filter(|r| (lo..hi).contains(&r["cfg"].parse::<usize>().unwrap()))
+            .collect()
+    };
+    let rv_rows = rows_of(NCFG, NCFG + NCFG_UNIT);
+    let nt_rows = rows_of(NCFG + NCFG_UNIT, NCFG_ALL);
+    assert!(!rv_rows.is_empty() && !nt_rows.is_empty());
+    let g = grid_all();
+    let mut tp_n = [0u64; 2];
+    for (ui, rows) in [&rv_rows, &nt_rows].into_iter().enumerate() {
+        for r in rows.iter() {
+            let cfg: usize = r["cfg"].parse().unwrap();
+            let c = g[cfg];
+            let (n, part) = (r["n"].parse::<u64>().unwrap(), |name: &str| {
+                r[name].parse::<u64>().unwrap()
+            });
+            assert_eq!(
+                part("n_tp") + part("n_sl") + part("n_trail") + part("n_cap"),
+                n,
+                "cfg {cfg}"
+            );
+            match c.family {
+                Family::TpR | Family::TpN => assert_eq!(part("n_trail"), 0),
+                Family::TrR | Family::TrN => assert_eq!(part("n_tp"), 0),
+                other => panic!("не семейство rv/nt: {other:?}"),
+            }
+            tp_n[ui] += part("n_tp");
+        }
+    }
+    // пампы данных задевают тейк в обеих единицах
+    assert!(tp_n[0] > 0 && tp_n[1] > 0, "тейков нет: {tp_n:?}");
+
+    // сделок в ячейке предела не больше, чем у предела короче (покрытие фандинга и длины ряда монотонно по пределу)
+    let cols = ["fam", "wi", "ti", "sign", "day"];
+    for fam in [Family::TpR, Family::TpN] {
+        let by_cap: Vec<BTreeMap<String, u64>> = CAPS_U
+            .iter()
+            .map(|&cap| {
+                let cfg = tpu(fam, 1.0, None, cap);
+                ex.iter()
+                    .filter(|r| r["cfg"] == cfg.to_string())
+                    .map(|r| (key(r, &cols), r["n"].parse().unwrap()))
+                    .collect()
+            })
+            .collect();
+        for w in by_cap.windows(2) {
+            for (k, n_long) in &w[1] {
+                assert!(w[0].get(k).copied().unwrap_or(0) >= *n_long, "{fam:?} {k}");
+            }
+        }
+    }
+
+    // мета: ключи единиц, сделки единицы по пределу = сделки предела − исключённые; Σ n первой конфигурации = ей
+    let meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(o1.join("run-meta.json")).unwrap()).unwrap();
+    let m = &meta["exits"];
+    assert_eq!(
+        (
+            m["configs"].as_u64(),
+            m["configs_atr"].as_u64(),
+            m["configs_rv"].as_u64(),
+            m["configs_nt"].as_u64(),
+            m["nt_n"].as_u64()
+        ),
+        (Some(510), Some(56), Some(185), Some(185), Some(30))
+    );
+    assert_eq!(m["caps_units"], serde_json::json!(CAPS_U));
+    for (ci, cap) in ["30", "60", "180", "360", "1440"].into_iter().enumerate() {
+        for (unit, fam) in [("rv", Family::TpR), ("nt", Family::TpN)] {
+            let (t, u, a) = (
+                m["trades_by_cap_units"][cap].as_u64().unwrap(),
+                m[format!("{unit}_undefined_by_cap")][cap].as_u64().unwrap(),
+                m[format!("{unit}_trades_by_cap")][cap].as_u64().unwrap(),
+            );
+            assert_eq!(t - u, a, "{unit} cap {cap}");
+            // первая конфигурация предела: тейк 0.5·U без стопа
+            let cfg = tpu(fam, 0.5, None, CAPS_U[ci]);
+            assert_eq!(g[cfg].cap().to_string(), cap);
+            let n_first: u64 = ex
+                .iter()
+                .filter(|r| r["cfg"] == cfg.to_string())
+                .map(|r| r["n"].parse::<u64>().unwrap())
+                .sum();
+            assert_eq!(n_first, a, "{unit} cap {cap}");
+        }
+    }
+    // прежние ключи не менялись: сделки по 360 и 1440 — те же, что по пределам единиц
+    for cap in ["360", "1440"] {
+        assert_eq!(m["trades_by_cap"][cap], m["trades_by_cap_units"][cap]);
+    }
+    assert!(m["rv_unit"].as_str().unwrap().contains("rv60_bps"));
+    assert!(m["nt_unit"].as_str().unwrap().contains("NATR"));
+    assert!(m["nt_trades_by_cap"]["360"].as_u64().unwrap() > 0);
+    // без флага блока единиц нет
+    let meta_def: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(o_def.join("run-meta.json")).unwrap()).unwrap();
+    assert!(meta_def["exits"].get("rv_undefined").is_none());
+    assert_eq!(meta_def["exits"]["configs"].as_u64(), Some(140));
+}
+
+#[test]
+fn nt_is_undefined_without_high_low_in_the_cache_and_rows_are_absent() {
+    // `pump_contract` без high/low: NATR нигде не определён — единица nt пуста, rv и прежние семейства считаются
+    let dir = tempfile::tempdir().unwrap();
+    let cache = noisy_cache_dir(dir.path());
+    let pj = params_360_1440(dir.path());
+    let (rf, xf) = (rules_file(dir.path(), &RULES), xd_file(dir.path(), XD));
+    let out = dir.path().join("o");
+    run(args_units(&cache, &pj, &out, rf, xf, 2, Some(30))).unwrap();
+    let ex = table(&out.join("exits-test.csv"));
+    assert!(ex
+        .iter()
+        .all(|r| r["cfg"].parse::<usize>().unwrap() < NCFG + NCFG_UNIT));
+    assert!(ex
+        .iter()
+        .any(|r| r["cfg"].parse::<usize>().unwrap() >= NCFG));
+    let meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("run-meta.json")).unwrap()).unwrap();
+    let m = &meta["exits"];
+    assert_eq!(m["nt_trades_by_cap"]["360"].as_u64(), Some(0));
+    assert!(m["nt_undefined"].as_u64().unwrap() > 0);
+}
+
+#[derive(clap::Parser)]
+struct Cli {
+    #[command(flatten)]
+    a: RunArgs,
+}
+
+#[test]
+fn exits_units_flags_parse_validate_and_take_natr_n_from_the_filter() {
+    use clap::Parser;
+    let base = [
+        "t",
+        "--cache",
+        "c",
+        "--params",
+        "p",
+        "--out",
+        "o",
+        "--stage",
+        "fit",
+        "--seed",
+        "1",
+        "--oi-lag",
+        "1",
+        "--threads",
+        "1",
+    ];
+    let with = |extra: &[&str]| {
+        let args: Vec<&str> = base.iter().chain(extra.iter()).copied().collect();
+        Cli::try_parse_from(args)
+    };
+    let a = with(&["--exits", "--exits-units", "--exits-natr-n", "30"])
+        .unwrap()
+        .a;
+    assert!(a.exits && a.exits_units.exits_units);
+    assert_eq!(a.exits_units.natr_n(a.exits, None).unwrap(), Some(30));
+    // без флагов — единиц нет
+    let a = with(&["--exits"]).unwrap().a;
+    assert_eq!(a.exits_units.natr_n(a.exits, None).unwrap(), None);
+    // зависимости на уровне разбора: единицы требуют --exits, окно — единицы
+    assert!(with(&["--exits-units", "--exits-natr-n", "30"]).is_err());
+    assert!(with(&["--exits", "--exits-natr-n", "30"]).is_err());
+    // окно: явное побеждает окно фильтра выборки, без явного берётся оно; ни того ни другого — отказ
+    let u = |n: Option<usize>| UnitsArgs {
+        exits_units: true,
+        exits_natr_n: n,
+    };
+    assert_eq!(u(Some(30)).natr_n(true, Some(45)).unwrap(), Some(30));
+    assert_eq!(u(None).natr_n(true, Some(45)).unwrap(), Some(45));
+    assert!(u(None).natr_n(true, None).is_err());
+    assert!(u(Some(0)).natr_n(true, None).is_err());
+    assert!(u(Some(30)).natr_n(false, None).is_err());
+    assert_eq!(UnitsArgs::default().natr_n(false, Some(45)).unwrap(), None);
+}
+
+// ---------- verdict: сетка из 510 конфигураций ----------
+
+#[test]
+fn fit_and_test_stages_with_units_pick_by_unit_order_and_report_stability() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = (0u8, 0u8, 0u8);
+    let b = (1u8, 0u8, 0u8);
+    // (A, +1): победитель в единицах NATR (номер > 255), лучшие в группах — каждая своя
+    let win_nt = tpu(Family::TpN, 2.0, Some(1.0), 60);
+    let win_rv = tru(Family::TrR, 1.0, Some(2.0), 180);
+    let win_fixed = tp(300, Some(100), 1440);
+    let win_atr = tpa(2.0, Some(1.0), 360);
+    assert!(win_nt > 255);
+    // (A, −1): четыре конфигурации с одинаковыми данными и cap 360 — ничья, выбирается bps; в группах — свои
+    let tie = [
+        tp(100, Some(100), 360),
+        tpa(1.0, Some(1.0), 360),
+        tpu(Family::TpR, 1.0, Some(1.0), 360),
+        tpu(Family::TpN, 1.0, Some(1.0), 360),
+    ];
+    // (B, +1): rv и nt с одним cap и одинаковыми данными — rv раньше; rv с меньшим cap раньше большего
+    let b_tie = [
+        tpu(Family::TpR, 1.0, Some(0.5), 180),
+        tpu(Family::TpR, 1.0, Some(0.5), 60),
+        tpu(Family::TpN, 1.0, Some(0.5), 60),
+    ];
+    let grid_text = grid_csv_all();
+    let inp = write_exits_input(
+        dir.path(),
+        "fit",
+        |lines| {
+            for (rule, sign) in [(a, 1i8), (a, -1), (b, 1)] {
+                for cfg in 0..NCFG_ALL {
+                    for d in 0..12usize {
+                        let mu = if (rule, sign) == (a, 1) && cfg == win_nt {
+                            40.0
+                        } else if (rule, sign) == (a, 1) && cfg == win_rv {
+                            30.0
+                        } else if (rule, sign) == (a, 1) && cfg == win_atr {
+                            20.0
+                        } else if (rule, sign) == (a, 1) && cfg == win_fixed {
+                            25.0
+                        } else if (rule, sign) == (a, -1) && tie.contains(&cfg) {
+                            30.0
+                        } else if (rule, sign) == (b, 1) && b_tie.contains(&cfg) {
+                            35.0
+                        } else {
+                            -10.0 + (cfg % 5) as f64
+                        };
+                        let day = FIT_DAY0 + d as i64;
+                        lines.push(xrow(rule, sign, cfg, day, 202_503, 10, mu + wiggle(d)));
+                    }
+                }
+            }
+        },
+        &grid_text,
+    );
+    let pj = params_file(dir.path());
+    let kf = rules_file(dir.path(), &[a, b]);
+    let (o1, o4) = (dir.path().join("o1"), dir.path().join("o4"));
+    verdict(vargs(VStage::ExitsFit, &inp, &pj, &o1, &kf, 1)).unwrap();
+    verdict(vargs(VStage::ExitsFit, &inp, &pj, &o4, &kf, 4)).unwrap();
+    for f in [
+        "exits-k.json",
+        "exits-verdict-fit.csv",
+        "exits-verdict-fit-groups.csv",
+        "exits-journal-line.txt",
+    ] {
+        assert_eq!(
+            fs::read(o1.join(f)).unwrap(),
+            fs::read(o4.join(f)).unwrap(),
+            "{f}: зависит от числа потоков"
+        );
+    }
+    let k = read_json(&o1.join("exits-k.json"));
+    let arr = k.as_array().unwrap();
+    assert_eq!(arr.len(), 3);
+    let pick = |rule: (u8, u8, u8), sign: i64| -> &serde_json::Value {
+        arr.iter()
+            .find(|e| e["fam"] == rule.0 && e["sign"] == sign)
+            .unwrap()
+    };
+    // (A, +1): победитель — nt, номер больше 255 записан и прочитан без потерь
+    let p = pick(a, 1);
+    assert_eq!(p["cfg"].as_u64(), Some(win_nt as u64));
+    assert_eq!(
+        (
+            p["exit_family"].as_str(),
+            p["unit"].as_str(),
+            p["cap"].as_u64()
+        ),
+        (Some("tpn"), Some("nt"), Some(60))
+    );
+    assert_eq!((p["G"].as_f64(), p["S"].as_f64()), (Some(2.0), Some(1.0)));
+    for (name, cfg) in [
+        ("nt", win_nt),
+        ("rv", win_rv),
+        ("fixed", win_fixed),
+        ("atr", win_atr),
+    ] {
+        assert_eq!(
+            p["best_by_group"][name].as_u64(),
+            Some(cfg as u64),
+            "{name}"
+        );
+    }
+    // (A, −1): ничья в cap 360 → bps раньше atr, atr раньше rv, rv раньше nt; в группах — свой
+    let p = pick(a, -1);
+    assert_eq!(p["cfg"].as_u64(), Some(tie[0] as u64));
+    assert_eq!(p["unit"], "bps");
+    for (name, cfg) in [
+        ("fixed", tie[0]),
+        ("atr", tie[1]),
+        ("rv", tie[2]),
+        ("nt", tie[3]),
+    ] {
+        assert_eq!(
+            p["best_by_group"][name].as_u64(),
+            Some(cfg as u64),
+            "{name}"
+        );
+    }
+    // (B, +1): меньший cap раньше при равенстве, затем rv раньше nt
+    let p = pick(b, 1);
+    assert_eq!(p["cfg"].as_u64(), Some(b_tie[1] as u64), "{p}");
+    assert_eq!(p["unit"], "rv");
+    assert_eq!(p["best_by_group"]["nt"].as_u64(), Some(b_tie[2] as u64));
+    // таблица фита: все 510 ячеек на пару и знак; колонка unit; ровно одна выбранная на пару
+    let rows = csv_rows(&o1.join("exits-verdict-fit.csv"));
+    assert_eq!(rows.len(), 2 * 2 * NCFG_ALL);
+    assert_eq!(rows.iter().filter(|r| r["chosen"] == "1").count(), 3);
+    let w = rows
+        .iter()
+        .find(|r| r["fam"] == "0" && r["sign"] == "1" && r["cfg"] == win_nt.to_string())
+        .unwrap();
+    assert_eq!(
+        (
+            w["family"].as_str(),
+            w["unit"].as_str(),
+            w["G"].as_str(),
+            w["S"].as_str(),
+            w["cap"].as_str()
+        ),
+        ("tpn", "nt", "2.0", "1.0", "60")
+    );
+    // сводка по группам включает rv и nt
+    let grp = csv_rows(&o1.join("exits-verdict-fit-groups.csv"));
+    for name in ["rv", "nt"] {
+        assert!(grp.iter().any(|r| r["group"] == name), "{name}");
+    }
+    let line = fs::read_to_string(o1.join("exits-journal-line.txt")).unwrap();
+    assert!(
+        line.contains("510 конфигураций")
+            && line.contains("Множественность подбора")
+            && line.contains("bps < atr < rv < nt")
+            && line.contains("exits-verdict-test-stability.csv"),
+        "{line}"
+    );
+
+    // ---- тест: замороженные пары; в паре (A, −1) выбранная на фите bps-конфигурация не лучшая на тесте
+    let inp_t = write_exits_input(
+        dir.path(),
+        "test",
+        |lines| {
+            for (rule, sign) in [(a, 1i8), (a, -1), (b, 1)] {
+                for cfg in 0..NCFG_ALL {
+                    for m in 0..10usize {
+                        for d in 0..3usize {
+                            let day = TEST_DAY0 + (m * 31 + d) as i64;
+                            let mu = if (rule, sign) == (a, 1) && cfg == win_nt {
+                                30.0
+                            } else if (rule, sign) == (a, -1) && cfg == tie[2] {
+                                50.0
+                            } else if (rule, sign) == (a, -1) && cfg == tie[3] {
+                                40.0
+                            } else if ((rule, sign) == (a, -1) && (cfg == tie[0] || cfg == tie[1]))
+                                || ((rule, sign) == (b, 1) && cfg == b_tie[1])
+                            {
+                                30.0
+                            } else {
+                                -12.0 + (cfg % 4) as f64
+                            };
+                            let month = 202_601 + m as i32;
+                            lines.push(xrow(rule, sign, cfg, day, month, 8, mu + wiggle(m + d)));
+                        }
+                    }
+                }
+            }
+        },
+        &grid_text,
+    );
+    let (t1, t4) = (dir.path().join("t1"), dir.path().join("t4"));
+    verdict(vargs(
+        VStage::ExitsTest,
+        &inp_t,
+        &pj,
+        &t1,
+        &o1.join("exits-k.json"),
+        1,
+    ))
+    .unwrap();
+    verdict(vargs(
+        VStage::ExitsTest,
+        &inp_t,
+        &pj,
+        &t4,
+        &o1.join("exits-k.json"),
+        4,
+    ))
+    .unwrap();
+    for f in [
+        "exits-verdict-test.csv",
+        "exits-verdict-test-grid.csv",
+        "exits-verdict-test-groups.csv",
+        "exits-verdict-test-stability.csv",
+        "report-exits-tables.md",
+    ] {
+        assert_eq!(
+            fs::read(t1.join(f)).unwrap(),
+            fs::read(t4.join(f)).unwrap(),
+            "{f}: зависит от числа потоков"
+        );
+    }
+    assert_eq!(
+        csv_rows(&t1.join("exits-verdict-test-grid.csv")).len(),
+        3 * NCFG_ALL
+    );
+    let st = csv_rows(&t1.join("exits-verdict-test-stability.csv"));
+    assert_eq!(st.len(), 3);
+    let s_plus = by_pair(&st, "0", "1");
+    assert_eq!(s_plus["cfg"], win_nt.to_string());
+    assert_eq!(s_plus["rank_lo"], "1", "{s_plus:?}");
+    assert_eq!(s_plus["top_cfg"], win_nt.to_string());
+    assert_eq!(
+        (s_plus["pos_net"].as_str(), s_plus["configs"].as_str()),
+        ("1", "510")
+    );
+    let s_minus = by_pair(&st, "0", "-1");
+    // две конфигурации лучше выбранной (tie[2] = 50, tie[3] = 40); равная ей tie[1] места не отнимает
+    assert_eq!(s_minus["cfg"], tie[0].to_string());
+    assert_eq!(s_minus["rank_lo"], "3", "{s_minus:?}");
+    assert_eq!(s_minus["top_cfg"], tie[2].to_string());
+    assert_eq!(s_minus["pos_net"], "4");
+    approx(s_minus["share_pos"].parse().unwrap(), 4.0 / 510.0, 1e-6);
+    let rep = fs::read_to_string(t1.join("report-exits-tables.md")).unwrap();
+    for needle in [
+        "## 3. Лучшая в семействе: bps против единиц ATR-прокси, rv60 и NATR",
+        "## 4. Устойчивость выбора",
+        "Множественность подбора",
+        "510 конфигураций",
+        "tpn G2.0nt S1.0nt cap60",
+        "rv − fixed: Δnet",
+        "nt − fixed: Δnet",
+    ] {
+        assert!(rep.contains(needle), "нет «{needle}» в отчёте:\n{rep}");
+    }
+    let tg = csv_rows(&t1.join("exits-verdict-test-groups.csv"));
+    for name in ["rv", "nt"] {
+        assert!(tg.iter().any(|r| r["group"] == name), "{name}");
+    }
+    // номер конфигурации вне сетки из 510 — отказ; сетка файла из 140 и таблицы из 510 строк не сочетаются
+    let bad = write_exits_input(
+        dir.path(),
+        "fit",
+        |l| l.push(xrow(a, 1, NCFG_ALL, FIT_DAY0, 202_503, 5, 10.0)),
+        &grid_text,
+    );
+    let e = verdict(vargs(
+        VStage::ExitsFit,
+        &bad,
+        &pj,
+        &dir.path().join("x"),
+        &kf,
+        1,
+    ))
+    .unwrap_err();
+    assert!(format!("{e:#}").contains("вне сетки"), "{e:#}");
+    let old_grid = write_exits_input(
+        dir.path(),
+        "fit",
+        |l| l.push(xrow(a, 1, 200, FIT_DAY0, 202_503, 5, 10.0)),
+        &grid_csv(),
+    );
+    let e = verdict(vargs(
+        VStage::ExitsFit,
+        &old_grid,
+        &pj,
+        &dir.path().join("x"),
+        &kf,
+        1,
+    ))
+    .unwrap_err();
+    assert!(format!("{e:#}").contains("вне сетки"), "{e:#}");
 }

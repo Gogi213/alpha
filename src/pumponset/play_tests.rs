@@ -595,6 +595,7 @@ fn reversal_without_d360_in_params_is_an_error_before_any_work() {
         xd: None,
         limit: None,
         exits: false,
+        exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
         play: PlayArgs {
             no_reversal: true,
@@ -627,6 +628,7 @@ fn old_cache_file_gives_a_clear_error_in_run() {
         xd: Some(super::run_tests::xd_file(dir.path(), XD)),
         limit: None,
         exits: false,
+        exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
         play: PlayArgs::default(),
     })
@@ -707,6 +709,7 @@ fn go(dir: &Path, tag: &str, cache: &Path, play: PlayArgs, o: &Opt) -> PathBuf {
         xd: Some(xd_multi(dir, &o.xs)),
         limit: None,
         exits: o.exits,
+        exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: o.dump,
         play,
     })

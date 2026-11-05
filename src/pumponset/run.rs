@@ -42,6 +42,9 @@
 //!     вселенной, «первое» срабатывание определяется до отбора), кандидаты C2a — маской `cube.r` (`mask_r_with`), C2b —
 //!     условием на кандидата в пуле (`control::c2b_with_cand`), эпизоды — в `prepare` (`hv` по факту в `[t0, t_end]`);
 //!     выходы и выгрузка берут те же срабатывания. Блок `sample_filter` в `run-meta.json` и `sample-coins-<stage>.csv`.
+//! 12. **Выходы в единицах текущей волатильности** (`--exits-units`, окно NATR — `--exits-natr-n`, а без него `--hv-n`;
+//!     `exits.rs`, допущения 11–17): к 140 конфигурациям выходов добавляются 370 (cfg 140–509), `exits-grid.csv` на 510
+//!     строк; NATR единицы nt считается отдельно от фильтра выборки тем же `play::natr_series`. Без флага выходы прежние.
 
 #![allow(
     // индексы ограничены размерами плотных массивов, заданных `Layout`; бюджет линтов (TK-211) не растим
@@ -62,7 +65,7 @@ use super::cli::{load_contract, sorted, sym_of};
 use super::control::{self, sign_of, slot_t, yyyymm, Input, Label, TriggerRow};
 use super::dump;
 use super::episodes::{is_leverage, mark_market, Finder, XdAcc};
-use super::exits::{self, ExitAgg};
+use super::exits::{self, ExitAgg, UnitsArgs};
 use super::feat;
 use super::params::Params;
 use super::play::{self, CoinRow, FilterCnt, Gate, Play, PlayArgs, PlayCfg};
@@ -141,9 +144,12 @@ pub struct RunArgs {
     /// П-35: кроме основных таблиц — выходы в прибыль: для каждого первого срабатывания правил `--rules` и каждой
     /// стороны симулируются 140 конфигураций выхода (84 в bps + 56 в единицах ATR-прокси, `exits.rs`) →
     /// `exits-<stage>.csv`, `exits-grid.csv`, блок `exits` в `run-meta.json`. Основные таблицы от флага не зависят.
-    /// Память: на поток ≈ 5,8 КБ × правил × 2 × суток периода.
+    /// Память: на поток ≈ 5,8 КБ × правил × 2 × суток периода (с `--exits-units` ≈ 20,4 КБ).
     #[arg(long)]
     pub exits: bool,
+    /// Единицы текущей волатильности для выходов (`--exits-units`, `--exits-natr-n`): +370 конфигураций (всего 510).
+    #[command(flatten)]
+    pub exits_units: UnitsArgs,
     /// Выгрузить первые срабатывания правил со всеми атрибутами момента и исходами в `triggers-<stage>.csv`
     /// (`dump.rs`); без флага прогон и его таблицы прежние.
     #[arg(long)]
@@ -575,6 +581,8 @@ struct Run<'a> {
     rpos: Vec<u32>,
     /// Считать выходы П-35 (`--exits`).
     exits: bool,
+    /// Окно NATR единицы nt выходов (`--exits-units`); `None` — единиц rv и nt нет.
+    exits_units: Option<usize>,
     /// Эталон `btc_*` выгрузки срабатываний (`--dump-triggers`); `None` — выгрузки нет.
     dump: Option<dump::Shared>,
     /// Выборка «монеты в игре» (`play.rs`); `None` — фильтра нет. `x360` — `[вверх, вниз]` порога `X_360` (с откупом).
@@ -1110,7 +1118,9 @@ fn process(
             first_min: px.first_min,
             funding: px.funding,
         };
-        ex.add_triggers(&rn.lay, &cube, &fast.trig, &xp);
+        // NATR единицы nt — на сетке контракта (тот же `play::natr_series`, окно из `--exits-natr-n`)
+        let natr = rn.exits_units.map(|n| play::natr_series(&c, n));
+        ex.add_triggers_u(&rn.lay, &cube, &fast.trig, &xp, natr.as_deref());
         ex.cnt.secs += t.elapsed().as_secs_f64();
     }
     let gap0 = agg.cnt.trades_funding_gap;
@@ -1297,6 +1307,10 @@ pub fn run(a: RunArgs) -> Result<()> {
     if play_cfg.is_some_and(|c| c.no_reversal) {
         play::reversal_di(&p)?;
     }
+    // окно NATR единицы nt: `--exits-natr-n`, а без него — окно фильтра `--hv-n`; числа в коде нет
+    let exits_units = a
+        .exits_units
+        .natr_n(a.exits, play_cfg.and_then(|c| c.hv).map(|h| h.n))?;
     let threads = a.threads.max(1);
     let (nw, nt, nd) = (
         p.features.windows_min.len(),
@@ -1369,6 +1383,7 @@ pub fn run(a: RunArgs) -> Result<()> {
         ref_sym,
         rpos,
         exits: a.exits,
+        exits_units,
         dump: None,
         play: play_cfg,
         x360: [f64::NAN; 2],
@@ -1476,7 +1491,10 @@ pub fn run(a: RunArgs) -> Result<()> {
                 agg: Agg::new(dims),
                 fast: Fast::new(),
                 lagbuf: Vec::new(),
-                exits: rn.exits.then(|| ExitAgg::new(dims.nr, dims.ndays)),
+                exits: rn.exits.then(|| match rn.exits_units {
+                    Some(n) => ExitAgg::with_units(dims.nr, dims.ndays, n),
+                    None => ExitAgg::new(dims.nr, dims.ndays),
+                }),
                 dumped: Vec::new(),
                 filt: FilterCnt::default(),
                 coins: Vec::new(),
@@ -1521,7 +1539,7 @@ pub fn run(a: RunArgs) -> Result<()> {
     write_xd(&out.join("xd.csv"), &rn.xd, &windows)?;
     if let Some(ex) = &ex_agg {
         exits::write_exits(&out.join(format!("exits-{st}.csv")), &rn.lay, ex)?;
-        exits::write_grid(&out.join("exits-grid.csv"))?;
+        ex.write_grid(&out.join("exits-grid.csv"))?;
     }
     if rn.dump.is_some() {
         dump::write_with(
@@ -1669,7 +1687,7 @@ pub fn run(a: RunArgs) -> Result<()> {
     if let Some(ex) = &ex_agg {
         println!(
             "exits {st}: {} конфигураций, срабатываний с направлением {}, сделок по cap {:?}, {:.1} с (сумма по потокам)",
-            exits::NCFG,
+            ex.grid().len(),
             ex.cnt.triggers,
             ex.cnt.caps.iter().map(|c| c.trades).collect::<Vec<_>>(),
             ex.cnt.secs

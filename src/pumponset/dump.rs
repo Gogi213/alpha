@@ -62,7 +62,7 @@ const MIN0: i64 = GRID0_MS / MINUTE_MS;
 const HS: [usize; 9] = [5, 15, 30, 60, 120, 240, 360, 720, 1440];
 const BASE_HS: [usize; 3] = [60, 360, 1440];
 /// Окна атрибутов, мин (из ТЗ) и длина пути `mfe/mae` после входа.
-const W_RV_SHORT: usize = 60;
+pub(super) const W_RV_SHORT: usize = 60; // окно `rv60`; то же окно берёт единица rv выходов (`exits::rv60_bps`)
 const W_DAY: usize = 1440;
 const W_DROP: usize = 360;
 const W_RET_SHORT: i64 = 60;

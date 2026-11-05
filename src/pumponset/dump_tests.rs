@@ -216,6 +216,7 @@ fn args(cache: &Path, params: &Path, out: &Path, stage: Stage, threads: usize) -
         xd: None,
         limit: None,
         exits: false,
+        exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
         play: PlayArgs::default(),
     }

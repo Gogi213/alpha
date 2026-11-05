@@ -176,6 +176,7 @@ fn args(
         xd,
         limit: None,
         exits: false,
+        exits_units: super::exits::UnitsArgs::default(),
         dump_triggers: false,
         play: PlayArgs::default(),
     }
