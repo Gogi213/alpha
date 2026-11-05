@@ -5,7 +5,8 @@
 use super::cache::{write_contract, Contract, OI_COLS};
 use super::control::{self, sign_of, slot_t, TriggerRow};
 use super::dump::{
-    nearest_level_bps, time_cols, Collector, Shared, DEC, FEATURE_COLS, HALF, HEADER, M125,
+    ign_header, nearest_level_bps, time_cols, Collector, IgnTail, Shared, DEC, FEATURE_COLS, HALF,
+    HEADER, M125,
 };
 use super::episodes::find_episodes;
 use super::feat;
@@ -263,6 +264,11 @@ fn expect(r: &Row, col: &str, want: f64) {
 
 fn bps_ln(a: f64, b: f64) -> f64 {
     (a / b).ln() * 1.0e4
+}
+
+/// Простая доходность `(a/b − 1)·1e4` — результат сделки лонга (допущение 11 шапки `dump.rs`); у шорта со знаком минус.
+fn bps_simple(a: f64, b: f64) -> f64 {
+    (a / b - 1.0) * 1.0e4
 }
 
 // ---------- время ----------
@@ -607,21 +613,28 @@ fn collector_columns_have_known_answers() {
     expect(up, "btc_prev60_bps", 0.0002 * 60.0 * 1.0e4);
     expect(up, "btc_next360_bps", 0.0002 * 360.0 * 1.0e4);
 
-    // исходы: знаковые доходности, путь, минуты экстремумов (первая из равных на плато 300…310)
+    // исходы: знаковые ПРОСТЫЕ доходности (не ln), путь, минуты экстремумов (первая из равных на плато 300…310)
     for (side, row) in [(1.0, up), (-1.0, dn)] {
         for h in [5i64, 15, 30, 60, 120, 240, 360, 720, 1440] {
-            expect(row, &format!("gross_{h}"), side * shape(h).ln() * 1.0e4);
+            expect(row, &format!("gross_{h}"), side * (shape(h) - 1.0) * 1.0e4);
         }
     }
-    expect(up, "mfe_bps", 1.1f64.ln() * 1.0e4);
-    expect(up, "mae_bps", 0.9f64.ln() * 1.0e4);
+    expect(up, "mfe_bps", (1.1f64 - 1.0) * 1.0e4);
+    expect(up, "mae_bps", (0.9f64 - 1.0) * 1.0e4);
     assert_eq!(
         (up["mfe_min"].as_str(), up["mae_min"].as_str()),
         ("300", "900")
     );
     expect(up, "mfe_price", hi);
-    expect(dn, "mfe_bps", -(0.9f64.ln()) * 1.0e4);
-    expect(dn, "mae_bps", -(1.1f64.ln()) * 1.0e4);
+    expect(dn, "mfe_bps", -(0.9f64 - 1.0) * 1.0e4);
+    expect(dn, "mae_bps", -(1.1f64 - 1.0) * 1.0e4);
+    // шорт на тех же ценах — ровно минус лонг (а не «минус ln»): исходы и потолки зеркальны побитово
+    for h in [5i64, 15, 30, 60, 120, 240, 360, 720, 1440] {
+        let c = format!("gross_{h}");
+        assert_eq!(val(dn, &c), -val(up, &c), "{c}");
+    }
+    assert_eq!(val(dn, "mfe_bps"), -val(up, "mae_bps"));
+    assert_eq!(val(dn, "mae_bps"), -val(up, "mfe_bps"));
     assert_eq!(
         (dn["mfe_min"].as_str(), dn["mae_min"].as_str()),
         ("900", "300")
@@ -633,7 +646,7 @@ fn collector_columns_have_known_answers() {
         let v: Vec<f64> = moms
             .iter()
             .filter(|&&(t, _)| t + 1 + h < FM + NMIN as i64)
-            .map(|&(t, s)| s * (pf(t + 1 + h) / pf(t + 1)).ln() * 1.0e4)
+            .map(|&(t, s)| s * (pf(t + 1 + h) / pf(t + 1) - 1.0) * 1.0e4)
             .collect();
         v.iter().sum::<f64>() / v.len() as f64
     };
@@ -663,7 +676,7 @@ fn collector_columns_have_known_answers() {
         expect(
             edge,
             &format!("gross_{h}"),
-            (pf(3001 + h) / p3).ln() * 1.0e4,
+            (pf(3001 + h) / p3 - 1.0) * 1.0e4,
         );
     }
     for c in [
@@ -811,14 +824,14 @@ fn pump_scenario_dump_matches_hand_calculation() {
         expect(
             &a,
             &format!("gross_{h}"),
-            (lnp(e + h, &pumps) - lnp(e, &pumps)) * 1.0e4,
+            ((lnp(e + h, &pumps) - lnp(e, &pumps)).exp() - 1.0) * 1.0e4,
         );
     }
     // цена растёт монотонно: пик в конце пути, просадки нет
     expect(
         &a,
         "mfe_bps",
-        (lnp(e + 1440, &pumps) - lnp(e, &pumps)) * 1.0e4,
+        ((lnp(e + 1440, &pumps) - lnp(e, &pumps)).exp() - 1.0) * 1.0e4,
     );
     expect(&a, "mae_bps", 0.0);
     expect(&a, "mfe_price", c.close[e + 1440]);
@@ -833,7 +846,7 @@ fn pump_scenario_dump_matches_hand_calculation() {
         expect(
             &b,
             &format!("gross_{h}"),
-            (lnp(e2 + h, &pumps) - lnp(e2, &pumps)) * 1.0e4,
+            ((lnp(e2 + h, &pumps) - lnp(e2, &pumps)).exp() - 1.0) * 1.0e4,
         );
     }
     for col in [
@@ -1367,7 +1380,9 @@ fn expected(
     let sigma = f64::from(cube.sigma[(t_f / 5 - cube.slot0) as usize]) * 60f64.sqrt() * 1.0e4;
 
     // путь от входа: 1441 минута, первая из равных на экстремуме
-    let pnl: Vec<f64> = (0..=1440).map(|k| side * bps_ln(px(c, e + k), p)).collect();
+    let pnl: Vec<f64> = (0..=1440)
+        .map(|k| side * bps_simple(px(c, e + k), p))
+        .collect();
     let (mut mfe, mut mfe_min, mut mae, mut mae_min, mut mfe_price) = (nan, nan, nan, nan, nan);
     if !pnl.iter().any(|x| x.is_nan()) {
         let (mut hi, mut lo) = (0usize, 0usize);
@@ -1394,7 +1409,7 @@ fn expected(
                     return None;
                 }
                 let tj = slot_t(cube, j as usize);
-                let g = f64::from(sj) * bps_ln(px(c, tj + 1 + h), px(c, tj + 1));
+                let g = f64::from(sj) * bps_simple(px(c, tj + 1 + h), px(c, tj + 1));
                 (!g.is_nan()).then_some(g)
             })
             .collect();
@@ -1449,7 +1464,7 @@ fn expected(
         ("gross_720", 720),
         ("gross_1440", 1440),
     ] {
-        v.push((name, side * bps_ln(px(c, e + h), p)));
+        v.push((name, side * bps_simple(px(c, e + h), p)));
     }
     v.extend([
         ("mfe_bps", mfe),
@@ -2111,4 +2126,65 @@ fn data_after_t_f_does_not_change_the_feature_columns() {
     );
     // после: данные другие — признаки поздних строк другие (проверка не пуста)
     assert_ne!(feature_cells(&base, false), feature_cells(&cut, false));
+}
+
+// ---------- простая доходность в исходах (допущение 11 шапки `dump.rs`) ----------
+
+#[test]
+fn ignition_outcomes_are_simple_long_return_and_short_is_its_exact_negative() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "BTCUSDT", &btc_contract());
+    let sh = Shared::load(&dir.path().join("BTCUSDT.pmc"), None).unwrap();
+    let cube = unit_cube(&[]);
+    let c = unit_contract();
+    let cf = c.close_ff();
+    // событие воспламенения: сторона +1 всегда, исходы — доходность вверх (перспектива лонга)
+    let mut ig = Collector::new(&sh, "XYZUSDT", &c, &cf, &cube).with_features(Some(1));
+    ig.add_ignition(
+        Rule {
+            fam: 11,
+            wi: 0,
+            ti: 0,
+        },
+        TF,
+        0,
+        false,
+        IgnTail {
+            quiet_min: 400,
+            natr_prev_max: f32::NAN,
+            m_minus_tf: 0,
+        },
+    );
+    let bytes = ig.finish();
+    let rows = rows_from(&ign_header(), std::str::from_utf8(&bytes).unwrap());
+    assert_eq!(rows.len(), 1);
+    let ev = &rows[0];
+    assert_eq!(ev["sign"], "1");
+    // срабатывание шорта на тех же ценах
+    let mut tr = Collector::new(&sh, "XYZUSDT", &c, &cf, &cube);
+    tr.add(&trig((0, 0, 0), TF, -1, false), &[]);
+    let tbytes = tr.finish();
+    let trows = rows_from(HEADER, std::str::from_utf8(&tbytes).unwrap());
+    assert_eq!(trows.len(), 1);
+    let short = &trows[0];
+    assert_eq!(short["sign"], "-1");
+    for h in [5i64, 15, 30, 60, 120, 240, 360, 720, 1440] {
+        let col = format!("gross_{h}");
+        // событие: `e^r − 1` для ln-хода `r = ln(c[e+h]/c[e])`, не `r`
+        let r = (pf(TF + 1 + h) / pf(TF + 1)).ln();
+        expect(ev, &col, (r.exp() - 1.0) * 1.0e4);
+        if r.abs() > 0.01 {
+            assert!(
+                (val(ev, &col) - r * 1.0e4).abs() > 1.0,
+                "{col}: простая доходность не должна совпадать с ln-ходом"
+            );
+        }
+        // шорт на тех же ценах — ровно минус лонг
+        assert_eq!(val(short, &col), -val(ev, &col), "{col}");
+    }
+    assert_eq!(val(short, "mfe_bps"), -val(ev, "mae_bps"));
+    assert_eq!(val(short, "mae_bps"), -val(ev, "mfe_bps"));
+    // контекст остаётся в ln-bps: доходность до t_f не заменена простой
+    expect(ev, "ret_prev60_bps", bps_ln(1.0, 1.03));
+    expect(ev, "ret_prev360_bps", bps_ln(1.0, 0.96));
 }

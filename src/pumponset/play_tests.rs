@@ -1459,11 +1459,14 @@ fn default_digests() -> Vec<(String, String)> {
 }
 
 /// SHA-256 таблиц сценариев `default_digests`, снятые на коммите 743610bc (до цели `play-onset`): без `--target` и
-/// флагов выборки результат побайтно прежний (кроме выходов П-35 — у них свои тесты).
+/// флагов выборки результат побайтно прежний (кроме выходов П-35 — у них свои тесты). Хэши `daycells-*` и `triggers-*`
+/// сняты заново 05.11 после перехода результата сделки на простую доходность (`gross_bps`, `gross_*`, `mfe`/`mae`,
+/// `b_gross_*`: `trade.rs`, `dump.rs`); остальные таблицы (лаги, первые признаки, прогресс, эпизоды, `xd`) — прежние
+/// хэши 743610bc, то есть метки, `n/hit/bn/bhit` и контекст не изменились.
 const GOLDEN: [(&str, &str); 14] = [
     (
         "1:daycells-fit.csv",
-        "a3c5746631b8760068e9479ae5689805ac4f21eaef1d16448f37abb2d0f00c68",
+        "72cd1fbc7447d7eb3394935c8061cffcd72b3c8c2eff650bd0e819c3d03aaf71",
     ),
     (
         "1:lags-fit.csv",
@@ -1487,11 +1490,11 @@ const GOLDEN: [(&str, &str); 14] = [
     ),
     (
         "1:triggers-fit.csv",
-        "3a6aa5fb54625c29ba468836e3329057014666c8b30ba0ffaae2e9364692b796",
+        "c2b6c0f7e81dee486e6d39e9a0747989325d624c70e015381c301c24aa588057",
     ),
     (
         "2:daycells-test.csv",
-        "47d44f0581d9f8556b56347dd97cd584501b6df444d4fd7731b35218e704c25c",
+        "9762d54bb1a5a3aef27a6bb98dc9cb5bbbbc83fce2f2366ad7c502c2ccf12127",
     ),
     (
         "2:lags-test.csv",
@@ -1515,7 +1518,7 @@ const GOLDEN: [(&str, &str); 14] = [
     ),
     (
         "2:triggers-test.csv",
-        "ad97e963dae7bcd2e587df57a057d06ae220c022f668aa2c1b202ff3b37ca9c5",
+        "accd23352a6ebe46ef3f35d484dd061ec02744017fd7f785a09a22a70306e0ce",
     ),
 ];
 
@@ -1523,10 +1526,15 @@ const GOLDEN: [(&str, &str); 14] = [
 fn default_target_tables_equal_the_pre_onset_golden() {
     let got = default_digests();
     assert_eq!(got.len(), GOLDEN.len());
+    // все расхождения сразу (имя таблицы и новый SHA-256), а не первое
+    let mut bad: Vec<String> = Vec::new();
     for ((f, h), (gf, gh)) in got.iter().zip(GOLDEN) {
         assert_eq!(f, gf);
-        assert_eq!(h, gh, "{f}: таблица без флагов изменилась");
+        if h != gh {
+            bad.push(format!("{f}: {h}"));
+        }
     }
+    assert!(bad.is_empty(), "таблицы без флагов изменились: {bad:#?}");
     // явная прежняя цель — те же байты, что умолчание
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_of(dir.path(), &mixed());

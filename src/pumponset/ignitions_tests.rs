@@ -664,10 +664,18 @@ fn sign_is_plus_one_and_the_move_direction_is_in_r_w_and_prior_returns() {
         approx(num(r, "r_w_bps"), -0.0005 * 15.0 * 1.0e4, 1.0e-6);
         approx(num(r, "ret_prev60_bps"), -0.0005 * 60.0 * 1.0e4, 1.0e-6);
         approx(num(r, "ret_prev360_bps"), -0.0005 * 360.0 * 1.0e4, 1.0e-6);
-        // исходы — абсолютная доходность вверх: падение даёт минус, mfe — вход (0), mae — конец пути
-        approx(num(r, "gross_60"), -0.0005 * 60.0 * 1.0e4, 1.0e-6);
+        // исходы — ПРОСТАЯ доходность вверх (`e^r − 1`, не `r`): падение даёт минус, mfe — вход (0), mae — конец пути
+        approx(
+            num(r, "gross_60"),
+            ((-0.0005f64 * 60.0).exp() - 1.0) * 1.0e4,
+            1.0e-6,
+        );
         approx(num(r, "mfe_bps"), 0.0, 1.0e-6);
-        approx(num(r, "mae_bps"), -0.0005 * 1440.0 * 1.0e4, 1.0e-6);
+        approx(
+            num(r, "mae_bps"),
+            ((-0.0005f64 * 1440.0).exp() - 1.0) * 1.0e4,
+            1.0e-6,
+        );
         assert_eq!(r["mfe_min"], "0");
         assert_eq!(r["mae_min"], "1440");
     }

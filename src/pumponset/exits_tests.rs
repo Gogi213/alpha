@@ -9,6 +9,10 @@
 //! определена — сделка выпадает только из неё, старые 140 ячеек не меняются, быстрый проход против наивного по всем
 //! 510, ранний выход прохода, отсутствие утечки в rv60 и NATR, детерминизм по потокам, вердикт на синтетике с
 //! заведомым победителем в новой единице и устойчивость выбора.
+//! Результат сделки — ПРОСТАЯ доходность стороны `sign·(c/c_in − 1)`, не `ln` (допущение 18 `exits.rs`): ручные пути
+//! строятся на `100·(1 + sign·pnl/1e4)`, а границы тейка, стопа и трейлинга (лонг и шорт) проверены на ценах, где
+//! простая и логарифмическая формулы расходятся: шорт ±50 %, тейк шорта 10 % (90,0 / 89,99 / 90,01 / 90,4), стоп 5 %,
+//! трейлинг 5 % от максимума, `mfe`, лонг + шорт = 0 точно, недостижимые пороги (≥ 1e4 bps).
 
 use super::agg::{fix, unfix, Dims, Layout};
 use super::cache::Contract;
@@ -174,13 +178,14 @@ fn grid_numbering_of_old_84_is_unchanged_after_adding_atr_families() {
 
 // ---------- пути с известным ответом ----------
 
-/// Путь: `cf[0] = cf[1] = 100` (вход на минуте 1, `t_f = 0`, `first_min = 0`), дальше `cf[1 + j] = 100·exp(s·pnl(j)/1e4)`
-/// — позиция стороны `sign` в минуте `j` имеет ровно `pnl(j)` bps. Всего `n` минут после входа.
+/// Путь: `cf[0] = cf[1] = 100` (вход на минуте 1, `t_f = 0`, `first_min = 0`), дальше `cf[1 + j] = 100·(1 + s·pnl(j)/1e4)`
+/// — позиция стороны `sign` в минуте `j` имеет ровно `pnl(j)` bps ПРОСТОЙ доходности (`s·(c/100 − 1)·1e4`). Всего `n`
+/// минут после входа.
 fn path(sign: i8, n: usize, pnl: impl Fn(usize) -> f64) -> Vec<f64> {
     let s = f64::from(sign);
     let mut cf = vec![100.0, 100.0];
     for j in 1..=n {
-        cf.push(100.0 * (s * pnl(j) / BPS).exp());
+        cf.push(100.0 * (1.0 + s * pnl(j) / BPS));
     }
     cf
 }
@@ -580,7 +585,7 @@ enum Why {
     Cap,
 }
 
-/// Наивная реализация П-35 «в лоб»: пошагово, `ln` на каждой минуте, один конфиг за раз. Пороги семейств C и D —
+/// Наивная реализация П-35 «в лоб»: пошагово, простая доходность на каждой минуте, один конфиг за раз. Пороги семейств C и D —
 /// `множитель·a` bps (`a` — A сделки). Возвращает `(причина, удержание, gross bps, fund bps)`.
 fn naive(cf: &[f64], sign: i8, cfg: &Cfg, rates: &[(i64, f64)], a: f64) -> (Why, u32, f64, f64) {
     let (b, s, c_in) = (1usize, f64::from(sign), cf[1]);
@@ -602,7 +607,7 @@ fn naive(cf: &[f64], sign: i8, cfg: &Cfg, rates: &[(i64, f64)], a: f64) -> (Why,
     let mut pmax = f64::NEG_INFINITY;
     let (mut why, mut j_exec) = (Why::Cap, cap_j);
     for j in 1..cap_j {
-        let pnl = s * (cf[b + j] / c_in).ln() * BPS;
+        let pnl = s * (cf[b + j] / c_in - 1.0) * BPS;
         pmax = pmax.max(pnl);
         let sl = s_thr.is_some_and(|x| pnl <= -x);
         let tp = g_thr.is_some_and(|x| pnl >= x);
@@ -621,7 +626,7 @@ fn naive(cf: &[f64], sign: i8, cfg: &Cfg, rates: &[(i64, f64)], a: f64) -> (Why,
             break;
         }
     }
-    let gross = s * (cf[b + j_exec] / c_in).ln() * BPS;
+    let gross = s * (cf[b + j_exec] / c_in - 1.0) * BPS;
     let mut sum = 0.0;
     for &(m, r) in rates {
         if m > b as i64 && m <= (b + j_exec) as i64 {
@@ -698,7 +703,7 @@ fn scan_maximum_matches_naive_maximum() {
             let sc = scan(&cf, 1, 1439, sign, &fac[usize::from(sign < 0)]);
             let s = f64::from(sign);
             let pnl: Vec<f64> = (1..=1439)
-                .map(|j| s * (cf[1 + j] / cf[1]).ln() * BPS)
+                .map(|j| s * (cf[1 + j] / cf[1] - 1.0) * BPS)
                 .collect();
             let argmax = |hi: usize| {
                 let (mut best, mut at) = (f64::NEG_INFINITY, 0usize);
@@ -1000,15 +1005,17 @@ fn exits_on_single_pump_match_hand_calculation() {
     .unwrap();
     let ex = table(&out.join("exits-test.csv"));
     let t_in = T0 + 1;
-    let pnl = |j: usize| (lnp(t_in + j, &[T0]) - lnp(t_in, &[T0])) * BPS;
+    // простая доходность лонга от входа: `exp(Δln) − 1`; `ln`-ход растёт на 10,1 bps в минуту (допущение 18 `exits.rs`)
+    let pnl = |j: usize| ((lnp(t_in + j, &[T0]) - lnp(t_in, &[T0])).exp() - 1.0) * BPS;
     let row = |cfg: usize| one_row(&ex, cfg);
-    // тейк G: касание на первой минуте j с pnl_j ≥ G (10,1·j: 100 → 10, 200 → 20, 300 → 30, 500 → 50), исполнение на j + 1;
-    // до 1000 bps путь в окне cap 360 не доходит (максимум 898,9 на минуте 89) — выход по пределу
+    // тейк G: касание на первой минуте j с pnl_j ≥ G (простая: 10 → 101,5; 20 → 204,1; 30 → 307,6; 49 → 507,3 — а не 50,
+    // как было бы по `ln`: 10,1·49 = 494,9 < 500), исполнение на j + 1; до 1000 bps путь в окне cap 360 не доходит
+    // (простая доходность на минуте 89 — 940,6, к минуте 358 с дрейфом ε — ≈ 970) — выход по пределу
     for (g_lvl, want) in [
         (100u32, Some(10usize)),
         (200, Some(20)),
         (300, Some(30)),
-        (500, Some(50)),
+        (500, Some(49)),
         (1000, None),
     ] {
         assert_eq!((1..=358).find(|&j| pnl(j) >= f64::from(g_lvl)), want);
@@ -1026,7 +1033,9 @@ fn exits_on_single_pump_match_hand_calculation() {
         // удержание короче интервала фандинга (ближайшие выплаты 14980 и 15460): выплат в окне нет
         approx(r["fund_bps_sum"].parse().unwrap(), 0.0, 1e-12);
     }
-    approx(pnl(2), 20.2, 1e-9);
+    // простая доходность за 2 минуты: exp(0,00202) − 1 = 20,2204 bps, а не 20,2 (как было бы по ln)
+    approx(pnl(2), ((0.00202f64).exp() - 1.0) * BPS, 1e-9);
+    approx(pnl(2), 20.2204, 1e-3);
     // потолок: максимум на минуте 89 после входа (дальше только дрейф ε вверх → максимум на последней минуте окна)
     let r = row(0);
     assert_eq!(r["n"], "1");
@@ -1048,12 +1057,12 @@ fn exits_on_single_pump_match_hand_calculation() {
 /// Фандинг без выплат, покрывающий окна всех тестов с ручными путями.
 const RATES0: [(i64, f64); 2] = [(-1000, 0.0), (5000, 0.0)];
 
-/// Как `path`, но вход на минуте `t_in`: `cf[0..=t_in] = 100`, дальше `cf[t_in + j] = 100·exp(s·pnl(j)/1e4)`.
+/// Как `path`, но вход на минуте `t_in`: `cf[0..=t_in] = 100`, дальше `cf[t_in + j] = 100·(1 + s·pnl(j)/1e4)`.
 fn path_from(sign: i8, t_in: usize, n: usize, pnl: impl Fn(usize) -> f64) -> Vec<f64> {
     let s = f64::from(sign);
     let mut cf = vec![100.0; t_in + 1];
     for j in 1..=n {
-        cf.push(100.0 * (s * pnl(j) / BPS).exp());
+        cf.push(100.0 * (1.0 + s * pnl(j) / BPS));
     }
     cf
 }
@@ -1319,7 +1328,7 @@ fn undefined_a_excludes_trade_from_atr_families_only() {
 
 #[test]
 fn atr_families_equal_bps_families_when_a_is_100() {
-    // при A = 100 порог m·A совпадает с m·100 bps: одинаковые аргументы `exp` → одинаковые первые касания, значит
+    // при A = 100 порог m·A совпадает с m·100 bps: одинаковые выражения множителей → одинаковые первые касания, значит
     // семейства C и D обязаны дать побитово те же ячейки, что A и B с теми же значениями
     let rates = rates_var();
     let tp_grid = [(1.0, 100u32), (2.0, 200), (3.0, 300), (5.0, 500)];
@@ -1405,23 +1414,36 @@ fn scan_with_atr_does_not_change_bps_part_and_orders_levels() {
     for a in [f64::NAN, 0.0, -1.0, f64::INFINITY] {
         assert!(FacA::new(1.0, a).is_none(), "A = {a}");
     }
-    // слишком большая A: порог не представим — A считается не определённой
-    assert!(FacA::new(1.0, 1.0e9).is_none());
+    // слишком большая A: порог не представим (не конечен) — A считается не определённой
+    assert!(FacA::new(1.0, 1.0e308).is_none());
+    // а порог ≥ 1e4 bps представим и просто недостижим: тейк шорта 5·A = 12 500 bps даёт неположительный множитель
+    // (цена не бывает ≤ 0); цена падает до 1 % входа (+9900 bps шорта): множители 1, 2, 3·A взяты, 5·A — никогда
+    let fa = FacA::new(-1.0, 2500.0).expect("порог 1e4 bps представим");
+    let cf = path(-1, 50, |j| if j >= 3 { 9900.0 } else { 0.0 });
+    let sc = scan_a(&cf, 1, 49, -1, &Fac::new(-1.0), Some(&fa));
+    assert_eq!(sc.tpa, [3, 3, 3, u32::MAX]);
+    // стоп лонга 3·A = 12 000 bps — то же: цена падает до 1 % входа (−9900 bps), стопы 1, 2·A взяты, 3·A — никогда
+    let fa = FacA::new(1.0, 4000.0).expect("порог 1e4 bps представим");
+    let cf = path(1, 50, |j| if j >= 3 { -9900.0 } else { 0.0 });
+    let sc = scan_a(&cf, 1, 49, 1, &Fac::new(1.0), Some(&fa));
+    assert_eq!(sc.sla, [3, 3, u32::MAX]);
 }
 
-/// Прежний проход (до семейств в единицах A), дословно: указатели по каждому уровню, сравнение на каждой минуте.
-/// Эталон «байт в байт» для части в bps: новый проход обязан дать те же первые касания и потолки.
+/// Прежний проход (до семейств в единицах A): указатели по каждому уровню, сравнение на каждой минуте; пороги — те же
+/// выражения простой доходности, что в `Fac::new` и `scan_core` (допущение 18 `exits.rs`). Эталон «байт в байт» для
+/// части в bps: новый проход обязан дать те же первые касания и потолки.
 type PrevScan = ([u32; 5], [u32; 4], [u32; 4], [(u64, u32); 2], (u64, u32));
 
 fn scan_prev(cf: &[f64], b: usize, jmax: usize, sign: i8) -> PrevScan {
     let s = f64::from(sign);
-    let e = |lvl: u32, k: f64| (k * f64::from(lvl) / BPS).exp();
+    let m = |lvl: u32, k: f64| 1.0 + k * f64::from(lvl) / BPS;
     let (ftp, fsl, ftr) = (
-        TP_LEVELS.map(|l| e(l, s)),
-        SL_LEVELS.map(|l| e(l, -s)),
-        TRAIL_LEVELS.map(|l| e(l, -s)),
+        TP_LEVELS.map(|l| m(l, s)),
+        SL_LEVELS.map(|l| m(l, -s)),
+        TRAIL_LEVELS.map(|l| f64::from(l) / BPS),
     );
-    let v_in = s * cf[b];
+    let c_in = cf[b];
+    let v_in = s * c_in;
     let mut tp_thr = [f64::INFINITY; 5];
     let mut sl_thr = [f64::NEG_INFINITY; 4];
     for (t, f) in tp_thr.iter_mut().zip(&ftp) {
@@ -1430,7 +1452,7 @@ fn scan_prev(cf: &[f64], b: usize, jmax: usize, sign: i8) -> PrevScan {
     for (t, f) in sl_thr.iter_mut().zip(&fsl) {
         *t = v_in * f;
     }
-    let pnl = |v: f64| s * (v / v_in).ln() * BPS;
+    let pnl = |v: f64| s * (v / v_in - 1.0) * BPS;
     let (mut otp, mut osl, mut otr) = ([u32::MAX; 5], [u32::MAX; 4], [u32::MAX; 4]);
     let mut mfe_cap = [(f64::NAN, 0u32); 2];
     let (mut vbest, mut jbest) = (f64::NEG_INFINITY, 0u32);
@@ -1454,7 +1476,7 @@ fn scan_prev(cf: &[f64], b: usize, jmax: usize, sign: i8) -> PrevScan {
                     osl[sln] = jj;
                     sln += 1;
                 }
-                while trn < tpn.min(4) && v <= vbest * ftr[trn] {
+                while trn < tpn.min(4) && v <= vbest - ftr[trn] * c_in {
                     otr[trn] = jj;
                     trn += 1;
                 }
@@ -3187,8 +3209,8 @@ fn scan_x_keeps_bps_and_atr_hits_and_orders_new_levels() {
     for u in [f64::NAN, 0.0, -1.0, f64::INFINITY] {
         assert!(FacU::new(1.0, u).is_none(), "U = {u}");
     }
-    // слишком большая единица: порог не представим — единица не определена
-    assert!(FacU::new(1.0, 1.0e9).is_none());
+    // слишком большая единица: порог не представим (не конечен) — единица не определена
+    assert!(FacU::new(1.0, 1.0e308).is_none());
 }
 
 #[test]
@@ -3250,7 +3272,7 @@ fn early_exit_keeps_maximum_and_caps_windows_after_all_levels_are_taken() {
             );
             let s = f64::from(sign);
             let pn: Vec<f64> = (1..=jmax)
-                .map(|j| s * (cf[1 + j] / cf[1]).ln() * BPS)
+                .map(|j| s * (cf[1 + j] / cf[1] - 1.0) * BPS)
                 .collect();
             let argmax = |hi: usize| {
                 let (mut best, mut at) = (f64::NEG_INFINITY, 0usize);
@@ -3411,7 +3433,7 @@ fn nt_is_natr_percent_in_bps_and_uses_only_data_up_to_t_f() {
     assert_ne!(natr_series(&mk(&inside), 30)[t].to_bits(), s[t].to_bits());
 }
 
-/// Путь с шумом до `t_in` включительно и ровно `100` на минуте входа: дальше `100·exp(s·pnl(j)/1e4)`.
+/// Путь с шумом до `t_in` включительно и ровно `100` на минуте входа: дальше `100·(1 + s·pnl(j)/1e4)`.
 fn noisy_path_from(sign: i8, t_in: usize, n: usize, pnl: impl Fn(usize) -> f64) -> Vec<f64> {
     let s = f64::from(sign);
     let mut r = Xs(0x1357_9BDF_2468_ACE0);
@@ -3420,7 +3442,7 @@ fn noisy_path_from(sign: i8, t_in: usize, n: usize, pnl: impl Fn(usize) -> f64) 
         .collect();
     cf.push(100.0);
     for j in 1..=n {
-        cf.push(100.0 * (s * pnl(j) / BPS).exp());
+        cf.push(100.0 * (1.0 + s * pnl(j) / BPS));
     }
     cf
 }
@@ -4117,4 +4139,206 @@ fn fit_and_test_stages_with_units_pick_by_unit_order_and_report_stability() {
     ))
     .unwrap_err();
     assert!(format!("{e:#}").contains("вне сетки"), "{e:#}");
+}
+
+// ---------- простая доходность стороны, не ln (допущение 18 `exits.rs`) ----------
+
+/// Путь с явными ценами: `cf[0] = cf[1] = 100` (вход на минуте 1, `t_f = 0`), `cf[1 + j] = price(j)`, `j = 1..=n`.
+fn prices(n: usize, price: impl Fn(usize) -> f64) -> Vec<f64> {
+    let mut cf = vec![100.0, 100.0];
+    cf.extend((1..=n).map(price));
+    cf
+}
+
+/// Итог единственной сделки стороны `sign` по конфигурации `cfg` на явном пути цен: `(gross, удержание, причина)`.
+fn on_prices(cf: &[f64], sign: i8, cfg: usize) -> (f64, i64, &'static str) {
+    let ex = one(cf, &RATES0, sign);
+    let (g, _, hold, why) = res(&ex, sign, cfg);
+    (g, hold, why)
+}
+
+#[test]
+fn trade_result_of_a_side_is_simple_return_not_log() {
+    let rates = rates_wide();
+    let fund = Funding::new(&rates);
+    // цена вверх на 50 % и вниз на 50 %: шорт −5000 и +5000 bps (по ln было бы −4054,65 и +6931,47), лонг наоборот
+    for (c_out, long, short) in [(150.0, 5000.0, -5000.0), (50.0, -5000.0, 5000.0)] {
+        let cf = [100.0, 100.0, c_out];
+        let l = round_trip(&cf, 0, &fund, 0, 2, 1).unwrap();
+        let s = round_trip(&cf, 0, &fund, 0, 2, -1).unwrap();
+        assert_eq!((l.gross_bps, s.gross_bps), (long, short), "c_out {c_out}");
+        let ln = (c_out / 100.0f64).ln() * BPS;
+        assert!((s.gross_bps + ln).abs() > 900.0, "ln-значение {ln}");
+        // базовая линия выходов (cap 360 → цена минуты 359) на пути, который остаётся на этой цене, — те же ±5000
+        let cf = prices(1500, |j| if j >= 3 { c_out } else { 100.0 });
+        for (sign, want) in [(1i8, long), (-1, short)] {
+            let (g, hold, why) = on_prices(&cf, sign, 0);
+            approx(g, want, 1e-6);
+            assert_eq!((hold, why), (359, "cap"), "sign {sign} c_out {c_out}");
+        }
+    }
+}
+
+#[test]
+fn long_plus_short_on_the_same_prices_is_exactly_zero() {
+    let rates = rates_wide();
+    let fund = Funding::new(&rates);
+    for r in [0.37, 0.9, 0.9999, 1.0, 1.0001, 1.5, 1.9, 2.0, 7.3] {
+        let cf = [100.0, 100.0, 100.0 * r];
+        let l = round_trip(&cf, 0, &fund, 0, 2, 1).unwrap();
+        let s = round_trip(&cf, 0, &fund, 0, 2, -1).unwrap();
+        assert_eq!(l.gross_bps + s.gross_bps, 0.0, "r {r}");
+        assert_eq!(l.gross_bps, -s.gross_bps, "r {r}");
+    }
+    // выходы: лонг и шорт на одном и том же случайном пути; базовая линия (цена предела) — сумма ровно 0
+    let rates = rates_var();
+    for seed in 1..=10u64 {
+        let cf = rw(seed * 4_099, 1, 1500, 9.0);
+        let (lo, sh) = (one(&cf, &rates, 1), one(&cf, &rates, -1));
+        for cfg in [0usize, 1] {
+            let (gl, gs) = (res(&lo, 1, cfg).0, res(&sh, -1, cfg).0);
+            assert_eq!(gl + gs, 0.0, "seed {seed} cfg {cfg}");
+        }
+    }
+}
+
+#[test]
+fn take_profit_ten_percent_fires_at_simple_threshold_not_at_log_equivalent() {
+    // решение на минуте 5 по цене c5, исполнение на минуте 6 по цене 100 (результат 0); тейк 1000 bps (10 %), без стопа
+    let fire = |sign: i8, c5: f64| -> (&'static str, i64) {
+        let cf = prices(1500, |j| if j == 5 { c5 } else { 100.0 });
+        let (g, hold, why) = on_prices(&cf, sign, tp(1000, None, 360));
+        approx(g, 0.0, 1e-6);
+        (why, hold)
+    };
+    // шорт: 10 % — это c ≤ 0,9·c0 = 90 (по ln-эквиваленту сработало бы уже при c ≤ 100·e^(−0,1) = 90,48)
+    for (c5, fires) in [
+        (90.0, true),   // 0,9·c0: граница включена
+        (89.99, true),  // 0,8999·c0
+        (90.01, false), // 0,9001·c0
+        (90.4, false),  // простая доходность 960 bps (по ln было бы 1009 bps — тейк сработал бы)
+        (91.0, false),
+    ] {
+        let want = if fires { ("tp", 6) } else { ("cap", 359) };
+        assert_eq!(fire(-1, c5), want, "шорт c5 {c5}");
+    }
+    // лонг: 10 % — это c ≥ 1,1·c0 = 110 (по ln-эквиваленту — только при c ≥ 110,52)
+    for (c5, fires) in [
+        (110.01, true),
+        (110.4, true), // простая доходность 1040 bps (по ln было бы 989 bps — тейка нет)
+        (109.99, false),
+        (109.0, false),
+    ] {
+        let want = if fires { ("tp", 6) } else { ("cap", 359) };
+        assert_eq!(fire(1, c5), want, "лонг c5 {c5}");
+    }
+}
+
+#[test]
+fn stop_and_trailing_use_simple_return_for_both_sides() {
+    // стоп 500 bps (5 %); тейк 1000 на этих путях недостижим
+    let stop = |sign: i8, c5: f64| -> (&'static str, i64) {
+        let cf = prices(1500, |j| if j == 5 { c5 } else { 100.0 });
+        let (_, hold, why) = on_prices(&cf, sign, tp(1000, Some(500), 360));
+        (why, hold)
+    };
+    // лонг: стоп — c ≤ 95 (по ln-эквиваленту — c ≤ 95,12)
+    for (c5, fires) in [(95.0, true), (94.95, true), (95.05, false), (95.1, false)] {
+        let want = if fires { ("sl", 6) } else { ("cap", 359) };
+        assert_eq!(stop(1, c5), want, "лонг c5 {c5}");
+    }
+    // шорт: стоп — c ≥ 105 (по ln-эквиваленту — c ≥ 105,13)
+    for (c5, fires) in [
+        (105.0, true),
+        (105.05, true),
+        (104.95, false),
+        (104.9, false),
+    ] {
+        let want = if fires { ("sl", 6) } else { ("cap", 359) };
+        assert_eq!(stop(-1, c5), want, "шорт c5 {c5}");
+    }
+
+    // трейлинг R = 500 bps: активен после +500; выход при откате на 500 bps от максимума по простой доходности;
+    // цена 100 → максимум `peak` на минуте 3 → `c4` с минуты 4 (решение на 4, исполнение на 5)
+    let trail_run = |sign: i8, peak: f64, c4: f64| -> (&'static str, i64) {
+        let cf = prices(1500, |j| match j {
+            1..=2 => 100.0,
+            3 => peak,
+            _ => c4,
+        });
+        let (_, hold, why) = on_prices(&cf, sign, trail(500, None, 360));
+        (why, hold)
+    };
+    // шорт: максимум 90 (+1000) → выход при c ≥ 95 (+500); по ln-эквиваленту — только при c ≥ 94,62
+    assert_eq!(trail_run(-1, 90.0, 95.1), ("trail", 5));
+    assert_eq!(trail_run(-1, 90.0, 94.9), ("cap", 359));
+    // лонг: максимум 110 (+1000) → выход при c ≤ 105 (+500); по ln-эквиваленту — только при c ≤ 104,64
+    assert_eq!(trail_run(1, 110.0, 104.8), ("trail", 5));
+    assert_eq!(trail_run(1, 110.0, 105.2), ("cap", 359));
+}
+
+#[test]
+fn mfe_is_simple_return_signed_by_side() {
+    // лонг: максимум цены 110 на минуте 10 → +1000 bps (по ln 953,1); шорт: минимум 90 → +1000 bps (по ln 1053,6)
+    for (sign, peak) in [(1i8, 110.0), (-1, 90.0)] {
+        let cf = prices(1500, |j| if j == 10 { peak } else { 100.0 });
+        let ex = one(&cf, &RATES0, sign);
+        let c = ex.cap_cell(ex.group(0, usize::from(sign < 0), 0), 0);
+        approx(unfix(c.mfe), 1000.0, 1e-6);
+        approx(unfix(c.mfe_cap), 1000.0, 1e-6);
+        assert_eq!((c.mfe_min, c.mfe_cap_min), (10, 10), "sign {sign}");
+    }
+    // потолок — максимум по j ≥ 1 со знаком стороны, а не 0; цена +20 %: шорт целиком в минусе, −2000 (по ln −1823,2),
+    // лонг +2000 (по ln +1823,2)
+    let cf = prices(1500, |_| 120.0);
+    for (sign, want) in [(-1i8, -2000.0), (1, 2000.0)] {
+        let ex = one(&cf, &RATES0, sign);
+        let c = ex.cap_cell(ex.group(0, usize::from(sign < 0), 0), 0);
+        approx(unfix(c.mfe), want, 1e-6);
+        assert_eq!(c.mfe_min, 1, "sign {sign}");
+    }
+}
+
+/// Случайный путь с мультипликативными шагами `c ← c·(1 + u·step/1e4)`, `u` равномерна на ±1: цена всегда положительна,
+/// путь уходит на десятки процентов — там простая и логарифмическая доходности заметно расходятся.
+fn rw_mult(seed: u64, n: usize, step: f64) -> Vec<f64> {
+    let mut r = Xs(seed | 1);
+    let mut cf = vec![100.0, 100.0];
+    for _ in 1..=n {
+        let last = *cf.last().unwrap();
+        cf.push(last * (1.0 + (r.unit() - 0.5) * 2.0 * step / BPS));
+    }
+    cf
+}
+
+#[test]
+fn fast_scan_equals_naive_on_wide_multiplicative_paths() {
+    let rates = rates_var();
+    let mut reasons = BTreeMap::<&str, usize>::new();
+    for seed in 1..=30u64 {
+        let step = [40.0, 90.0][(seed % 2) as usize];
+        let a = [2.0, 6.0, 15.0][(seed % 3) as usize] * step;
+        for sign in [1i8, -1] {
+            let cf = rw_mult(seed * 7_001, 1500, step);
+            assert_matches_naive(
+                &cf,
+                &rates,
+                sign,
+                a,
+                &format!("wide seed {seed} sign {sign}"),
+            );
+            let ex = one_a(&cf, &rates, sign, a);
+            let g = ex.group(0, usize::from(sign < 0), 0);
+            for k in 0..NCFG {
+                let c = ex.cfg_cell(g, k);
+                *reasons.entry("tp").or_default() += c.n_tp as usize;
+                *reasons.entry("sl").or_default() += c.n_sl as usize;
+                *reasons.entry("trail").or_default() += c.n_trail as usize;
+            }
+        }
+    }
+    // широкие пути задевают все причины выхода (иначе сравнение было бы вырожденным)
+    for why in ["tp", "sl", "trail"] {
+        assert!(reasons[why] > 200, "{why}: {reasons:?}");
+    }
 }

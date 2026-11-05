@@ -315,7 +315,8 @@ fn single_pump_scenario_matches_hand_calculation() {
                 lnp((t_f + 1) as usize, &[T0]),
                 lnp((t_f + h) as usize, &[T0]),
             );
-            approx(num(r, "gross_bps"), (b - a) * 1.0e4, 1e-6);
+            // результат сделки — простая доходность: `exp(Δln) − 1`, не `Δln` (допущение 4 `trade.rs`)
+            approx(num(r, "gross_bps"), ((b - a).exp() - 1.0) * 1.0e4, 1e-6);
             let pays = (0..40_000i64)
                 .map(|k| 100 + 480 * k)
                 .filter(|&m| m > t_f + 1 && m <= t_f + h)
@@ -648,10 +649,13 @@ fn trade_gross_and_funding_both_signs() {
     let fund = Funding::new(&rates);
     // вход c[141] = 141, выход c[240] = 240; выплаты в (141, 240]: 150 (+1e-4) и 200 (−2e-4)
     let long = round_trip(&cf, 100, &fund, 140, 100, 1).unwrap();
-    approx(long.gross_bps, (240.0f64 / 141.0).ln() * 1.0e4, 1e-9);
+    approx(long.gross_bps, (240.0f64 / 141.0 - 1.0) * 1.0e4, 1e-9);
     approx(long.fund_bps, -1.0, 1e-9); // лонг получил 1 bps
     let short = round_trip(&cf, 100, &fund, 140, 100, -1).unwrap();
-    approx(short.gross_bps, -(240.0f64 / 141.0).ln() * 1.0e4, 1e-9);
+    approx(short.gross_bps, -(240.0f64 / 141.0 - 1.0) * 1.0e4, 1e-9);
+    // шорт на той же паре цен — ровно минус лонг; по ln-формуле был бы другой модуль
+    assert_eq!(short.gross_bps, -long.gross_bps);
+    assert!((long.gross_bps - (240.0f64 / 141.0).ln() * 1.0e4).abs() > 500.0);
     approx(short.fund_bps, 1.0, 1e-9); // шорт заплатил 1 bps
 
     // граница: выплата в минуту входа не входит, в минуту выхода входит
