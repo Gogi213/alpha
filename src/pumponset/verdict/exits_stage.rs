@@ -7,19 +7,30 @@
 //!    лишние отбрасываются и считаются). `exits-test`: `exits-k.json`, который записал `exits-fit` (замороженные пары).
 //! 2. **Выбор.** Для каждой пары (правило ∈ K, сторона) — конфигурация с наибольшей нижней границей 95 % среднего
 //!    net на сделку (основной вариант издержек, `2·leg_fee_bps(true)`), бутстрэп по суткам как в `verdict.rs`; ничья
-//!    (граница равна точно) — меньший `cap`, затем меньший `S` (стоп «нет» — самый большой), затем меньший номер. Пара
-//!    без сделок ни в одной конфигурации в выбор не идёт (`no_data`) и в тесте считается непрошедшей.
+//!    (граница равна точно) — меньший `cap`, затем конфигурация в bps раньше конфигурации в единицах ATR-прокси
+//!    (стопы `S` в разных единицах несравнимы; это соглашение о порядке, а не утверждение), затем меньший `S` (стоп
+//!    «нет» — самый большой), затем меньший номер. Выбор идёт по всем 140 конфигурациям сетки (84 в bps и 56 в единицах
+//!    A; у последних `n` меньше — сделки без определённой A в них не входят). Пара без сделок ни в одной конфигурации
+//!    в выбор не идёт (`no_data`) и в тесте считается непрошедшей.
 //! 3. **net** на сделку = `(Σ gross − Σ фандинг)/n − 2·leg_fee_bps(true)`; второй вариант — `ROUNDTRIP_FEES_BPS`.
 //!    Односторонний `p` (net > 0) и интервал — как у net в `verdict.rs`; Холм по `trials.test_net_m` на замороженных парах.
 //! 4. **Месяцы теста.** Знаменатель доли месяцев с net > 0 — все месяцы `split.test`, а не присутствующие в файле;
 //!    месяц без сделок пары — не «net > 0» (как у net в `verdict.rs`, допущение 4).
 //! 5. **Итог «выход в прибыль найден»** (П-35 «Отбор и проверка», правило §7.6 П-34 без условия по lift): нижняя
 //!    граница 95 % net > 0, p-Холм < `holm_alpha`, доля месяцев net > 0 не меньше `min_months_share`. Пампы и дампы —
-//!    отдельные итоги. Подбор из 84 конфигураций в m теста не входит (подбор только на фите).
+//!    отдельные итоги. Подбор из 140 конфигураций в m теста не входит (подбор только на фите).
 //! 6. **Доля mfe, которую забрали** = `Σ gross / Σ mfe` ячейки; в таблицах две: по потолку окна 1440 мин (литерально
 //!    П-35) и по окну собственного `cap`. Описательно, в правило не входит.
 //! 7. **Месяцы вне периода.** Фит: любой месяц вне `split.fit` — отказ (тест не должен попасть в выбор). Тест: месяц
 //!    раньше начала — отказ, позже конца — строки отбрасываются (число — в отчёт).
+//! 8. **Лучшая в семействе.** Кроме замороженной пары `exits-fit` для каждой пары (правило, сторона) выбирает по тому же
+//!    порядку предпочтения лучшую конфигурацию в каждой группе — `fixed` (tp + trail), `atr` (tpa + tra), tp, trail,
+//!    tpa, tra (базовая линия в группы не входит) — и пишет их в `exits-k.json` (`best_by_group`) и
+//!    `exits-verdict-fit-groups.csv`; `exits-test` только оценивает эти конфигурации на тесте
+//!    (`exits-verdict-test-groups.csv`, раздел 3 отчёта) и показывает `atr − fixed`. Описательно, без Холма и вне m
+//!    теста: подбор лишь на фите, на тесте ничего не выбирается. Без `best_by_group` в `exits-k.json` раздел не строится.
+//! 9. **Формат сетки.** `exits-grid.csv` содержит колонку `unit` (`bps` | `atr`); файл прежней версии (84 конфигурации,
+//!    без `unit`) не совпадёт с сеткой кода и будет отвергнут — таблицы надо пересчитать (`run --exits`).
 
 use super::{
     f6, fam_name, field, md_row, md_sep, month_of, period_months, pos, r3, ratio, read_csv, read_k,
@@ -328,47 +339,108 @@ fn month_pos(t: &XTable, c: usize) -> (usize, usize) {
 
 fn cfg_label(grid: &[xg::Cfg], k: u8) -> String {
     let c = &grid[usize::from(k)];
-    let s = c.s_bps().map_or("none".to_string(), |v| v.to_string());
+    let (g, s, r) = c.gsr_cols();
+    let s = if s.is_empty() { "none".to_string() } else { s };
     match c.family {
         xg::Family::Base => format!("base cap{}", c.cap()),
-        xg::Family::Tp => format!("tp G{} S{} cap{}", c.g_bps().unwrap_or(0), s, c.cap()),
-        xg::Family::Trail => format!("trail R{} S{} cap{}", c.r_bps().unwrap_or(0), s, c.cap()),
+        xg::Family::Tp => format!("tp G{g} S{s} cap{}", c.cap()),
+        xg::Family::Trail => format!("trail R{r} S{s} cap{}", c.cap()),
+        // множители при A: «G2.0A» = 2,0·A
+        xg::Family::TpA => format!("tpa G{g}A S{}cap{}", atr_stop(&s), c.cap()),
+        xg::Family::TrA => format!("tra R{r}A S{}cap{}", atr_stop(&s), c.cap()),
     }
 }
 
-/// Колонки параметров конфигурации в csv: `cfg,family,G,S,R,cap`.
+/// Стоп семейств C и D для подписи: `2.0A ` или `none `.
+fn atr_stop(s: &str) -> String {
+    if s == "none" {
+        "none ".to_string()
+    } else {
+        format!("{s}A ")
+    }
+}
+
+/// Колонки параметров конфигурации в csv: `cfg,family,G,S,R,cap,unit` (как `exits-grid.csv`).
 fn cfg_cols(grid: &[xg::Cfg], k: u8) -> String {
     let c = &grid[usize::from(k)];
-    let opt = |x: Option<u32>| x.map_or(String::new(), |v| v.to_string());
-    let stop = match (c.family, c.s_bps()) {
-        (xg::Family::Base, _) => String::new(),
-        (_, Some(v)) => v.to_string(),
-        (_, None) => "none".to_string(),
-    };
+    let (g, s, r) = c.gsr_cols();
     format!(
-        "{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{}",
         k,
         c.family.name(),
-        opt(c.g_bps()),
-        stop,
-        opt(c.r_bps()),
-        c.cap()
+        g,
+        s,
+        r,
+        c.cap(),
+        c.family.unit()
     )
 }
 
-const CFG_COLS: &str = "cfg,family,G,S,R,cap";
+const CFG_COLS: &str = "cfg,family,G,S,R,cap,unit";
+
+/// Группы «лучшая в семействе» (допущение 8): fixed (tp, trail) против atr (tpa, tra) и каждое из четырёх семейств.
+/// Базовая линия (только cap) в группы не входит — она есть в полной таблице.
+const GROUPS: [(&str, &[xg::Family]); 6] = [
+    ("fixed", &[xg::Family::Tp, xg::Family::Trail]),
+    ("atr", &[xg::Family::TpA, xg::Family::TrA]),
+    ("tp", &[xg::Family::Tp]),
+    ("trail", &[xg::Family::Trail]),
+    ("tpa", &[xg::Family::TpA]),
+    ("tra", &[xg::Family::TrA]),
+];
+const NGROUP: usize = GROUPS.len();
+
+/// Параметр конфигурации в `exits-k.json`: bps — целое, множитель A — число с точкой, нет — `null`.
+fn gsr_json(bps: Option<u32>, mult: Option<f64>) -> serde_json::Value {
+    match (bps, mult) {
+        (Some(v), _) => serde_json::Value::from(v),
+        (None, Some(m)) => serde_json::Value::from(m),
+        (None, None) => serde_json::Value::Null,
+    }
+}
 
 // ---------- стадия exits-fit ----------
 
-/// Порядок предпочтения (допущение 2): больше нижняя граница, затем меньший `cap`, меньший `S`, меньший номер.
+/// Порядок предпочтения (допущение 2): больше нижняя граница, затем меньший `cap`, затем конфигурация в bps раньше
+/// конфигурации в единицах A (стопы в разных единицах несравнимы — соглашение, не утверждение), затем меньший `S`
+/// (внутри одной единицы; «нет» — наибольший), затем меньший номер.
 fn pref(grid: &[xg::Cfg], a: (XKey, &XNet), b: (XKey, &XNet)) -> Ordering {
     let (ca, cb) = (grid[usize::from(a.0.cfg)], grid[usize::from(b.0.cfg)]);
-    let s = |c: &xg::Cfg| c.s_bps().unwrap_or(u32::MAX);
+    let s = |c: &xg::Cfg| {
+        c.s_bps()
+            .map(f64::from)
+            .or(c.s_mult())
+            .unwrap_or(f64::INFINITY)
+    };
     b.1.lo
         .total_cmp(&a.1.lo)
         .then(ca.cap().cmp(&cb.cap()))
-        .then(s(&ca).cmp(&s(&cb)))
+        .then(ca.family.is_atr().cmp(&cb.family.is_atr()))
+        .then(s(&ca).total_cmp(&s(&cb)))
         .then(a.0.cfg.cmp(&b.0.cfg))
+}
+
+/// Лучшая по `pref` ячейка пары (правило, сторона) среди конфигураций группы `gi` с определённой нижней границей.
+fn best_in_group(
+    t: &XTable,
+    res: &[XNet],
+    grid: &[xg::Cfg],
+    rule: Rule,
+    sign: i8,
+    gi: usize,
+) -> Option<usize> {
+    let fams = GROUPS[gi].1;
+    t.keys
+        .iter()
+        .enumerate()
+        .filter(|(c, k)| {
+            k.rule() == rule
+                && k.sign == sign
+                && res[*c].lo.is_finite()
+                && fams.contains(&grid[usize::from(k.cfg)].family)
+        })
+        .min_by(|x, y| pref(grid, (*x.1, &res[x.0]), (*y.1, &res[y.0])))
+        .map(|(c, _)| c)
 }
 
 pub(super) fn fit_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> {
@@ -400,8 +472,10 @@ pub(super) fn fit_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> 
     let t = build_xtable(&rows, &want)?;
     let res = x_results(&t, vp, a.threads)?;
 
-    // выбор: по паре (правило, сторона) — лучшая конфигурация
+    // выбор: по паре (правило, сторона) — лучшая конфигурация из всех 140; отдельно — лучшая в каждой группе
+    // семейств (допущение 8), тоже по фиту: на тесте они оцениваются как замороженные
     let mut chosen: Vec<(Rule, i8, usize)> = Vec::new();
+    let mut groups: Vec<[Option<usize>; NGROUP]> = Vec::new();
     let mut no_data = 0usize;
     for r in &krules {
         for sign in [1i8, -1] {
@@ -412,7 +486,12 @@ pub(super) fn fit_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> 
                 .filter(|(c, k)| k.rule() == *r && k.sign == sign && res[*c].lo.is_finite())
                 .min_by(|x, y| pref(&grid, (*x.1, &res[x.0]), (*y.1, &res[y.0])));
             match best {
-                Some((c, _)) => chosen.push((*r, sign, c)),
+                Some((c, _)) => {
+                    chosen.push((*r, sign, c));
+                    groups.push(std::array::from_fn(|gi| {
+                        best_in_group(&t, &res, &grid, *r, sign, gi)
+                    }));
+                }
                 None => no_data += 1,
             }
         }
@@ -446,13 +525,28 @@ pub(super) fn fit_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> 
         );
     }
     write_lines(&a.out.join("exits-verdict-fit.csv"), &vl)?;
+    write_groups_fit(a, vp, &grid, &t, &res, &chosen, &groups)?;
 
     let kj: Vec<serde_json::Value> = chosen
         .iter()
+        .zip(&groups)
         .enumerate()
-        .map(|(i, (rule, sign, c))| {
+        .map(|(i, ((rule, sign, c), gr))| {
             let (k, r) = (t.keys[*c], &res[*c]);
             let g = &grid[usize::from(k.cfg)];
+            // лучшая в группе: номер конфигурации или null
+            let best: serde_json::Map<String, serde_json::Value> = GROUPS
+                .iter()
+                .zip(gr)
+                .map(|((name, _), cell)| {
+                    (
+                        (*name).to_string(),
+                        cell.map_or(serde_json::Value::Null, |c| {
+                            serde_json::Value::from(t.keys[c].cfg)
+                        }),
+                    )
+                })
+                .collect();
             serde_json::json!({
                 "pos": i + 1,
                 "fam": rule.fam,
@@ -464,14 +558,16 @@ pub(super) fn fit_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> 
                 "sign": sign,
                 "cfg": k.cfg,
                 "exit_family": g.family.name(),
-                "G": g.g_bps(),
-                "S": g.s_bps(),
-                "R": g.r_bps(),
+                "unit": g.family.unit(),
+                "G": gsr_json(g.g_bps(), g.g_mult()),
+                "S": gsr_json(g.s_bps(), g.s_mult()),
+                "R": gsr_json(g.r_bps(), g.r_mult()),
                 "cap": g.cap(),
                 "n": r.n,
                 "net": r.main,
                 "net_lo": r.lo,
                 "net_hi": r.hi,
+                "best_by_group": best,
             })
         })
         .collect();
@@ -495,8 +591,10 @@ pub(super) fn fit_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> 
     let line = format!(
         "П-35 · фит {}…{} · замороженные пары (правило, сторона → выход) до открытия теста (params sha256 {}): {}. \
          Выбор = наибольшая нижняя граница {:.0} % среднего net на сделку (издержки 2·leg_fee_bps(true), реальный фандинг); ничья — меньший cap, \
-         затем меньший S; бутстрэп по суткам B={}, seed={}. Пар (правило×сторона) {}, без данных {}; ячеек (пара × {} конфигураций) {}; \
-         строк вне K отброшено {}. Подбор только на фите, в m теста не входит. Файлы: exits-k.json, exits-verdict-fit.csv.",
+         затем конфигурация в bps раньше конфигурации в единицах ATR-прокси, затем меньший S; бутстрэп по суткам B={}, seed={}. \
+         Пар (правило×сторона) {}, без данных {}; ячеек (пара × {} конфигураций) {}; \
+         строк вне K отброшено {}. Подбор только на фите, в m теста не входит. Лучшая в семействе (fixed против atr) на фите — \
+         exits-verdict-fit-groups.csv. Файлы: exits-k.json, exits-verdict-fit.csv.",
         vp.split.fit[0],
         vp.split.fit[1],
         &sha[..sha.len().min(12)],
@@ -515,6 +613,52 @@ pub(super) fn fit_stage(a: &VerdictArgs, vp: &VParams, sha: &str) -> Result<()> 
     Ok(())
 }
 
+/// `exits-verdict-fit-groups.csv`: по каждой паре (правило, сторона) — лучшая на фите конфигурация в каждой группе
+/// семейств (`fixed` = tp+trail, `atr` = tpa+tra, и каждое из четырёх) с показателями на фите; `chosen = 1` — совпала
+/// с конфигурацией, замороженной для пары (лучшей из всех 140). Группа без конфигураций с определённой границей — без строки.
+fn write_groups_fit(
+    a: &VerdictArgs,
+    vp: &VParams,
+    grid: &[xg::Cfg],
+    t: &XTable,
+    res: &[XNet],
+    chosen: &[(Rule, i8, usize)],
+    groups: &[[Option<usize>; NGROUP]],
+) -> Result<()> {
+    let mut gl = vec![format!(
+        "fam,wi,ti,theta,w_min,sign,group,{CFG_COLS},n,gross_mean,fund_mean,hold_mean,net_main,net_lo,net_hi,b_valid,chosen"
+    )];
+    for ((rule, sign, ch), gr) in chosen.iter().zip(groups) {
+        for ((name, _), cell) in GROUPS.iter().zip(gr) {
+            let Some(c) = *cell else { continue };
+            let (k, r) = (t.keys[c], &res[c]);
+            gl.push(
+                [
+                    rule.fam.to_string(),
+                    rule.wi.to_string(),
+                    rule.ti.to_string(),
+                    vp.theta(rule.ti).to_string(),
+                    vp.window(rule.wi).to_string(),
+                    sign.to_string(),
+                    (*name).to_string(),
+                    cfg_cols(grid, k.cfg),
+                    r.n.to_string(),
+                    f6(r.gross),
+                    f6(r.fund),
+                    f6(r.hold),
+                    f6(r.main),
+                    f6(r.lo),
+                    f6(r.hi),
+                    r.valid.to_string(),
+                    u8::from(c == *ch).to_string(),
+                ]
+                .join(","),
+            );
+        }
+    }
+    write_lines(&a.out.join("exits-verdict-fit-groups.csv"), &gl)
+}
+
 // ---------- стадия exits-test ----------
 
 /// Замороженная пара из `exits-k.json`.
@@ -523,6 +667,39 @@ struct Frozen {
     rule: Rule,
     sign: i8,
     cfg: u8,
+    /// Лучшие на фите конфигурации по группам `GROUPS` (`best_by_group` в `exits-k.json`); `None` — в файле нет поля.
+    best: Option<[Option<u8>; NGROUP]>,
+}
+
+/// `best_by_group` элемента `exits-k.json`: объект «группа → номер конфигурации | null». Номер должен лежать в сетке и
+/// принадлежать семейству группы (сетка могла смениться между стадиями). Нет поля или `null` — `None`.
+fn read_best_by_group(
+    o: &serde_json::Value,
+    i: usize,
+    grid: &[xg::Cfg],
+) -> Result<Option<[Option<u8>; NGROUP]>> {
+    let m = match o.get("best_by_group") {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(v) => v
+            .as_object()
+            .with_context(|| format!("exits-k.json[{i}].best_by_group: ожидался объект"))?,
+    };
+    let mut best = [None; NGROUP];
+    for (slot, (name, fams)) in best.iter_mut().zip(GROUPS.iter()) {
+        let Some(x) = m.get(*name).filter(|x| !x.is_null()) else {
+            continue;
+        };
+        let cfg = x
+            .as_u64()
+            .and_then(|c| u8::try_from(c).ok())
+            .filter(|c| usize::from(*c) < xg::NCFG)
+            .with_context(|| format!("exits-k.json[{i}].best_by_group.{name}: вне сетки"))?;
+        if !fams.contains(&grid[usize::from(cfg)].family) {
+            bail!("exits-k.json[{i}].best_by_group.{name}: cfg {cfg} не из этой группы семейств");
+        }
+        *slot = Some(cfg);
+    }
+    Ok(Some(best))
 }
 
 fn read_exits_k(path: &Path, vp: &VParams, grid: &[xg::Cfg]) -> Result<Vec<Frozen>> {
@@ -566,7 +743,13 @@ fn read_exits_k(path: &Path, vp: &VParams, grid: &[xg::Cfg]) -> Result<Vec<Froze
         if out.iter().any(|f| f.rule == rule && f.sign == sign) {
             bail!("exits-k.json[{i}]: повтор пары (правило, сторона)");
         }
-        out.push(Frozen { rule, sign, cfg });
+        let best = read_best_by_group(o, i, grid)?;
+        out.push(Frozen {
+            rule,
+            sign,
+            cfg,
+            best,
+        });
     }
     if out.is_empty() || out.len() > vp.trials.test_net_m {
         bail!(
@@ -835,7 +1018,63 @@ fn write_test_csvs(
             .join(","),
         );
     }
-    write_lines(&a.out.join("exits-verdict-test-grid.csv"), &gl)
+    write_lines(&a.out.join("exits-verdict-test-grid.csv"), &gl)?;
+
+    // лучшая в семействе (выбрана на фите, здесь только оценка): fixed против atr и по четырём семействам
+    let mut tl = vec![format!(
+        "fam,wi,ti,theta,w_min,sign,group,{CFG_COLS},n,gross_mean,fund_mean,hold_mean,net_main,net_lo,net_hi,net_second"
+    )];
+    for (_, g, k, n) in group_cells(t, res, out) {
+        tl.push(
+            [
+                k.fam.to_string(),
+                k.wi.to_string(),
+                k.ti.to_string(),
+                vp.theta(k.ti).to_string(),
+                vp.window(k.wi).to_string(),
+                k.sign.to_string(),
+                GROUPS[g].0.to_string(),
+                cfg_cols(grid, k.cfg),
+                n.n.to_string(),
+                f6(n.gross),
+                f6(n.fund),
+                f6(n.hold),
+                f6(n.main),
+                f6(n.lo),
+                f6(n.hi),
+                f6(n.second),
+            ]
+            .join(","),
+        );
+    }
+    write_lines(&a.out.join("exits-verdict-test-groups.csv"), &tl)
+}
+
+/// Ячейки «лучшая в семействе» замороженных пар на тесте: `(индекс ячейки, группа, ключ, показатели)`, по парам в
+/// порядке `exits-k.json`, затем по группам `GROUPS`. Пары без `best_by_group` и пустые группы пропускаются.
+fn group_cells<'a>(
+    t: &'a XTable,
+    res: &'a [XNet],
+    out: &[TestRow],
+) -> Vec<(usize, usize, XKey, &'a XNet)> {
+    let mut v = Vec::new();
+    for r in out {
+        let Some(best) = r.fz.best else { continue };
+        for (gi, cfg) in best.iter().enumerate() {
+            let Some(cfg) = *cfg else { continue };
+            let key = XKey {
+                fam: r.fz.rule.fam,
+                wi: r.fz.rule.wi,
+                ti: r.fz.rule.ti,
+                sign: r.fz.sign,
+                cfg,
+            };
+            if let Ok(c) = pos(&t.keys, &key, "ячейка") {
+                v.push((c, gi, key, &res[c]));
+            }
+        }
+    }
+    v
 }
 
 /// Строки итога по сторонам: «выход в прибыль найден» / «не доказан» с названием, что не сошлось.
@@ -903,6 +1142,82 @@ fn pct(x: f64) -> String {
     } else {
         format!("{:.0} %", x * 100.0)
     }
+}
+
+/// Раздел 3 отчёта: лучшая в семействе — fixed (tp, trail) против atr (tpa, tra), выбрана на фите, оценена на тесте.
+fn groups_section(d: &mut Doc, r: &ReportIn) {
+    let (vp, t) = (r.vp, r.t);
+    d.line("## 3. Лучшая в семействе: bps против единиц ATR-прокси (выбрана на фите, оценена на тесте)");
+    if r.out.iter().all(|o| o.fz.best.is_none()) {
+        d.line("В `exits-k.json` нет `best_by_group` (файл записан версией без семейств в единицах ATR-прокси) — сводка не строится.");
+        d.line("");
+        return;
+    }
+    d.line("Для каждой пары конфигурация лучшей нижней границы в группе (`fixed` = tp+trail, `atr` = tpa+tra, а также каждое из четырёх семейств) выбрана на фите (`exits-verdict-fit-groups.csv`); здесь — её результат на тесте. Описательно, без Холма: это не новое испытание гипотезы, а ответ на вопрос «зависит ли лучший стоп/трейлинг от волатильности». Сделок у `atr`-групп меньше: сделки без определённой A в них не входят.");
+    let cells = group_cells(t, r.res, r.out);
+    for o in r.out {
+        let mine: Vec<&(usize, usize, XKey, &XNet)> = cells
+            .iter()
+            .filter(|(_, _, k, _)| k.rule() == o.fz.rule && k.sign == o.fz.sign)
+            .collect();
+        if mine.is_empty() {
+            continue;
+        }
+        d.line("");
+        d.line(&format!(
+            "### {} · {}",
+            rule_label(vp, o.fz.rule),
+            if o.fz.sign > 0 {
+                "памп (+1)"
+            } else {
+                "дамп (−1)"
+            }
+        ));
+        d.line(&md_row(&[
+            "группа".into(),
+            "cfg".into(),
+            "выход".into(),
+            "сделок".into(),
+            "net [нижн.; верхн.]".into(),
+            "удержание, мин".into(),
+            "tp / sl / trail / cap".into(),
+        ]));
+        d.line(&md_sep(7));
+        for (c, gi, k, n) in mine.iter().map(|x| **x) {
+            let s = shares(t, c);
+            d.line(&md_row(&[
+                GROUPS[gi].0.to_string(),
+                k.cfg.to_string(),
+                cfg_label(r.grid, k.cfg),
+                format!("{}", n.n),
+                format!("{} [{}; {}]", r3(n.main), r3(n.lo), r3(n.hi)),
+                r3(n.hold),
+                format!(
+                    "{} / {} / {} / {}",
+                    pct(s.tp),
+                    pct(s.sl),
+                    pct(s.tr),
+                    pct(s.cap)
+                ),
+            ]));
+        }
+        let by = |name: &str| {
+            mine.iter()
+                .find(|(_, gi, _, _)| GROUPS[*gi].0 == name)
+                .map(|(_, _, _, n)| *n)
+        };
+        if let (Some(a), Some(f)) = (by("atr"), by("fixed")) {
+            d.line(&format!(
+                "atr − fixed: Δnet = {} bps (net {} против {}; сделок {} против {}).",
+                r3(a.main - f.main),
+                r3(a.main),
+                r3(f.main),
+                a.n,
+                f.n
+            ));
+        }
+    }
+    d.line("");
 }
 
 fn build_report(r: &ReportIn) -> String {
@@ -996,7 +1311,7 @@ fn build_report(r: &ReportIn) -> String {
     d.line("");
 
     d.line("## 2. Все конфигурации на тесте (описательно, без Холма; ★ — выбранная на фите)");
-    d.line("Чтобы было видно, не случайность ли выбор: net и нижняя граница каждой из 84 конфигураций по каждой паре. Показатели mfe — средний потолок задним числом, bps (окно 1440 мин) и минута его достижения от входа.");
+    d.line(&format!("Чтобы было видно, не случайность ли выбор: net и нижняя граница каждой из {} конфигураций по каждой паре (84 в bps и 56 в единицах ATR-прокси; у последних «сделок» меньше — A определена не у всех сделок). Показатели mfe — средний потолок задним числом, bps (окно 1440 мин) и минута его достижения от входа.", xg::NCFG));
     for (rule, sign) in r.pairs {
         d.line("");
         d.line(&format!(
@@ -1049,12 +1364,16 @@ fn build_report(r: &ReportIn) -> String {
     }
     d.line("");
 
+    groups_section(&mut d, r);
+
     d.line("## Оговорки");
     d.line(&format!(
-        "- Число испытаний: подбор — 84 конфигурации × пары на фите (в m теста не входит); тест — {} замороженных пар, Холм по m={}; расширений сетки после просмотра нет.",
+        "- Число испытаний: подбор — {} конфигураций × пары на фите (в m теста не входит); тест — {} замороженных пар, Холм по m={}; расширений сетки после просмотра нет.",
+        xg::NCFG,
         r.out.len(),
         vp.trials.test_net_m
     ));
+    d.line("- Единица A — close-to-close прокси ATR (`sigma_h_bps`), настоящего ATR нет: в кэше нет high/low. Семейства `tpa`/`tra` считаются только по сделкам с определённой A, поэтому «bps против ATR» сравнивается на разных наборах сделок (колонка «сделок»); число исключённых — `atr_undefined` в `run-meta.json`.");
     d.line("- Реплика бутстрэпа с неопределённой статистикой не входит в границы интервала и считается «не отвергла нуль» в p.");
     d.line("- Месяцы теста: знаменатель долей — все месяцы периода `split.test`; месяц без сделок пары не считается «net > 0».");
     d.line("- Выход решается по close минуты и исполняется по c[k+1] (задержка в одну минуту), предел `cap` — по c[k] в запланированную минуту; внутриминутные касания не моделируются. `mfe` — потолок задним числом, не стратегия.");

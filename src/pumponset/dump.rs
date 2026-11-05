@@ -408,7 +408,7 @@ impl<'a> Collector<'a> {
         let sigma_h = usize::try_from(slot)
             .ok()
             .and_then(|s| self.cube.sigma.get(s).copied())
-            .map_or(nan, |s| f64::from(s) * 60f64.sqrt() * BPS);
+            .map_or(nan, super::exits::atr_proxy_bps);
         let at = |m: i64| price_at(cf, fm, m);
         let ext = usize::try_from(e - fm)
             .ok()

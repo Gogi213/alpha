@@ -210,6 +210,7 @@ fn args(cache: &Path, params: &Path, out: &Path, stage: Stage, threads: usize) -
         threads,
         xd: None,
         limit: None,
+        exits: false,
         dump_triggers: false,
     }
 }
