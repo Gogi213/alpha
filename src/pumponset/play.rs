@@ -37,6 +37,31 @@
 //!
 //! Порядок учёта потерь в счётчиках: волатильность, затем откуп, затем первая фаза — срабатывание/эпизод считается
 //! по первому не выполненному условию.
+//!
+//! # Цель `play-onset` (`run --target play-onset`, слова владельца: «мы ищем не предпамп - а первую фазу монеты инплей»)
+//! Прежняя постановка меряет «лучше ли сигнальная минута, чем другая минута того же игрового хода»: фильтр требует
+//! `hv_state` на минуте сигнала (монета уже в игре), а контроли берутся из игровых минут той же монеты и месяца.
+//! Цель `play-onset` меряет другое — предсказывает ли сигнал ВХОД В ИГРУ. Требует `--hv-natr-pct` и `--hv-n`;
+//! `--no-reversal` и `--hv-first-phase` с ней несовместимы (отказ до счёта: монета тихая, откупа нет, а «минута
+//! перехода» противоречит тишине). Без `--target` (или `--target move`) прогон и все csv прежние байт в байт.
+//! 1. **Тихая минута** `m`: `hv_state` ложь в каждой минуте `[m − L_quiet, m]`, `L_quiet = onset.L_pre_min`. Минуты вне
+//!    сетки контракта и с неопределённым NATR — не `hv_state` (как в п. 2 выше); окно, начинающееся раньше сетки,
+//!    проверяется по доступной части. Квалификация использует только данные `≤ m`. «Первые» срабатывания определяются
+//!    как прежде (тишина `L_pre` от любого срабатывания), затем отбираются тихие (`Gate::NotQuiet`).
+//! 2. **Метка вперёд** `Hit(H)`: `hv_state` истинно хотя бы в одной минуте `[t_f + 1, t_f + H]`; `Miss` — нет;
+//!    `NoData` — окно `[t_f + 1, t_f + H]` не целиком в сетке контракта (решение по индексам, не по значениям). От
+//!    направления сигнала не зависит; знак срабатывания (`r_w`) остаётся для стороны сделок и выходов, срабатывание со
+//!    знаком 0 — строка без меток и без моментов, как раньше. `X_D` в метке не участвуют (эпизоды и их таблица считаются
+//!    как прежде, фильтр выборки к ним в этой цели не применяется).
+//! 3. **Контроли C2a**: моменты той же монеты, месяца и дециля σ, тоже тихие, и такие, что окно `[m − L_quiet, m + H_max]`
+//!    не пересекается с `[t_f − L_quiet, t_f + H_max]` срабатывания (то есть `|m − t_f| > L_quiet + H_max`); других
+//!    правил отбора нет. C2b не используется: `lags`/`first`/`progress` пишутся пустыми (только заголовки).
+//!    Зона может опустошить корзину (месяц × дециль σ) или оставить меньше `moments_per_first_trigger`: такое срабатывание
+//!    всё равно входит в `n/hit`, а в `bn/bhit` не даёт ничего (`TriggerRow::c2a_drawn == 0`). Сколько таких —
+//!    `controls_triggers_none` (пусто) и `controls_triggers_short` (недобор) из `controls_triggers` в `run-meta.json`;
+//!    исключать ли их из `n/hit` — решение по методике (Судья), не правка кода.
+//! 4. **`lead_hv_min`** (`--dump-triggers`): минут от `t_f` до первой минуты `hv_state` после `t_f`
+//!    (`[t_f + 1, t_f + LEAD_MAX_MIN]`), `NaN`, если не наступила.
 
 #![allow(
     // индексы ограничены длиной сетки контракта (`len`), проверяемой до обращения; бюджет линтов (TK-211) не растим
@@ -46,10 +71,11 @@
 )]
 
 use super::cache::Contract;
+use super::control::Label;
 use super::params::Params;
 use super::types::XdTable;
 use anyhow::{bail, ensure, Context, Result};
-use clap::Args;
+use clap::{Args, ValueEnum};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -57,12 +83,28 @@ use std::path::Path;
 
 /// Класс `D` (мин) для откупа — из ТЗ владельца 05.11; `X_360` берётся из `XdTable` по `episodes.D_min`.
 pub const REVERSAL_D_MIN: u32 = 360;
+/// Окно колонки `lead_hv_min` (мин) и знаменателя `hv_first_cross_share` — из ТЗ CEO 05.11 («NaN, если не наступило за 1440»).
+pub const LEAD_MAX_MIN: i64 = 1440;
 /// Доля → проценты (единица измерения NATR, не параметр).
 const PCT: f64 = 100.0;
+
+/// Что считается попаданием метки вперёд (`run --target`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum Target {
+    /// Прежняя цель: ход класса `D` не меньше `X_D` (П-34 §5).
+    #[default]
+    Move,
+    /// Вход в игру: после тихой минуты `hv_state` наступает в окне `[t_f + 1, t_f + H]` (заголовок модуля).
+    PlayOnset,
+}
 
 /// Флаги `run` выборки «в игре» (группа аргументов; без флагов — выборка прежняя).
 #[derive(Debug, Clone, Default, Args)]
 pub struct PlayArgs {
+    /// Цель метки вперёд: `move` (прежняя, ход ≥ X_D) или `play-onset` (вход в игру; требует `--hv-natr-pct`/`--hv-n`,
+    /// несовместима с `--no-reversal` и `--hv-first-phase`).
+    #[arg(long, value_enum, default_value_t = Target::Move)]
+    pub target: Target,
     /// Порог высокой волатильности: `NATR_n ≥ порога`, % (только вместе с `--hv-n`).
     #[arg(long, requires = "hv_n")]
     pub hv_natr_pct: Option<f64>,
@@ -89,6 +131,8 @@ pub struct PlayCfg {
     pub hv: Option<HvCfg>,
     pub no_reversal: bool,
     pub first_phase: bool,
+    /// Цель `play-onset` (тогда `hv` задан, откупа и первой фазы нет).
+    pub onset: bool,
 }
 
 impl PlayArgs {
@@ -110,10 +154,26 @@ impl PlayArgs {
             !self.hv_first_phase || hv.is_some(),
             "--hv-first-phase требует --hv-natr-pct"
         );
+        let onset = self.target == Target::PlayOnset;
+        if onset {
+            ensure!(
+                hv.is_some(),
+                "--target play-onset требует --hv-natr-pct и --hv-n (порог высокой волатильности)"
+            );
+            ensure!(
+                !self.no_reversal,
+                "--target play-onset несовместима с --no-reversal: монета до срабатывания тихая, откупа нет"
+            );
+            ensure!(
+                !self.hv_first_phase,
+                "--target play-onset несовместима с --hv-first-phase: срабатывание должно быть в тишине, а не в минуте перехода"
+            );
+        }
         Ok((hv.is_some() || self.no_reversal).then_some(PlayCfg {
             hv,
             no_reversal: self.no_reversal,
             first_phase: self.hv_first_phase,
+            onset,
         }))
     }
 }
@@ -257,6 +317,8 @@ pub enum Gate {
     Hv,
     Reversal,
     FirstPhase,
+    /// Цель `play-onset`: в `[m − L_quiet, m]` есть минута `hv_state`.
+    NotQuiet,
 }
 
 /// Маски одного контракта по минутам его сетки (индекс 0 ↔ `first_min`). Все маски в минуте `m` используют данные
@@ -266,6 +328,8 @@ pub struct Play {
     cfg: PlayCfg,
     first_min: i64,
     len: usize,
+    /// Окно тишины цели `play-onset` (`onset.L_pre_min`), мин.
+    l_quiet: i64,
     /// Пусты, если `hv` не задан.
     natr: Vec<f32>,
     hv: Vec<bool>,
@@ -285,6 +349,7 @@ impl Play {
             cfg,
             first_min: c.first_min,
             len,
+            l_quiet: l_pre.max(0),
             natr: Vec::new(),
             hv: Vec::new(),
             hv_cum: Vec::new(),
@@ -359,8 +424,58 @@ impl Play {
         lo <= hi && self.hv_cum[hi as usize + 1] > self.hv_cum[lo as usize]
     }
 
-    /// Проверка момента `m` стороны `sign` по порядку: волатильность, откуп, первая фаза.
+    /// Цель `play-onset`.
+    pub fn is_onset(&self) -> bool {
+        self.cfg.onset
+    }
+
+    /// Тихая минута (п. 1 заголовка): `m` в сетке и `hv_state` нет ни в одной минуте `[m − L_quiet, m]`; данные `≤ m`.
+    pub fn quiet_at(&self, m: i64) -> bool {
+        self.at(m).is_some() && !self.hv_any(m - self.l_quiet, m)
+    }
+
+    /// Метка вперёд цели `play-onset` для срабатывания в `t_f` и горизонта `h` (п. 2 заголовка): `hv_state` в
+    /// `[t_f + 1, t_f + h]` — `Hit`, нет — `Miss`, окно не целиком в сетке — `NoData`. Смотрит вперёд по определению.
+    pub fn onset_label(&self, t_f: i64, h: u32) -> Label {
+        let (a, b) = (t_f + 1, t_f + i64::from(h));
+        if h == 0 || self.at(a).is_none() || self.at(b).is_none() {
+            Label::NoData
+        } else if self.hv_any(a, b) {
+            Label::Hit
+        } else {
+            Label::Miss
+        }
+    }
+
+    /// Минут от `t_f` до первой минуты `hv_state` в `[t_f + 1, t_f + max_min]`; `None`, если её там нет (или `hv` не задан).
+    pub fn lead_hv_min(&self, t_f: i64, max_min: i64) -> Option<i64> {
+        self.cfg.hv?;
+        let a = usize::try_from(t_f + 1 - self.first_min).unwrap_or(0);
+        if a >= self.len {
+            return None;
+        }
+        // `hv_cum[j]` — число минут с `hv_state` среди первых `j`; первая минута `≥ a` — та, на которой счёт растёт
+        let c = self.hv_cum[a];
+        let j = self.hv_cum.partition_point(|&x| x <= c);
+        let m = self.first_min + j as i64 - 1;
+        (j <= self.len && m > t_f && m - t_f <= max_min).then_some(m - t_f)
+    }
+
+    /// Окно `[t_f + 1, t_f + max_min]` целиком в сетке контракта (отсутствие `hv_state` в нём — факт, а не нехватка данных).
+    pub fn lead_window_in_data(&self, t_f: i64, max_min: i64) -> bool {
+        self.at(t_f + 1).is_some() && self.at(t_f + max_min).is_some()
+    }
+
+    /// Проверка момента `m` стороны `sign` по порядку: волатильность, откуп, первая фаза; в цели `play-onset` — только
+    /// тишина (от стороны не зависит).
     pub fn gate(&self, m: i64, sign: i8) -> Gate {
+        if self.cfg.onset {
+            return if self.quiet_at(m) {
+                Gate::Keep
+            } else {
+                Gate::NotQuiet
+            };
+        }
         if !self.hv_at(m) {
             Gate::Hv
         } else if !self.ok_at(m, sign) {
@@ -400,12 +515,27 @@ pub struct FilterCnt {
     pub triggers_dropped_hv: u64,
     pub triggers_dropped_reversal: u64,
     pub triggers_dropped_first_phase: u64,
+    /// Цель `play-onset`: срабатывания, у которых в `[t_f − L_quiet, t_f]` была минута `hv_state`.
+    pub triggers_dropped_not_quiet: u64,
     pub episodes_before: u64,
     pub episodes_dropped_hv: u64,
     pub episodes_dropped_reversal: u64,
     pub contracts_with_hv: u64,
     pub minutes_universe: u64,
     pub minutes_hv: u64,
+    /// Цель `play-onset`: кандидаты пула C2a в зоне срабатывания (`|m − t_f| ≤ L_quiet + H_max`), сумма по срабатываниям.
+    pub controls_dropped_overlap: u64,
+    /// Цель `play-onset`, срабатывания с направлением (строки правило × `t_f`), для которых выбирались контроли C2a.
+    pub controls_triggers: u64,
+    /// ...из них без единого контроля: после исключения зоны корзина (месяц × дециль σ) пуста. Такое срабатывание входит
+    /// в `n/hit`, а в `bn/bhit` не даёт ничего — lift сравнивает разные популяции (см. `controls`).
+    pub controls_triggers_none: u64,
+    /// ...из них с недобором: выбрано меньше `moments_per_first_trigger`, но не ноль.
+    pub controls_triggers_short: u64,
+    /// Цель `play-onset`, срабатывания с направлением (строки правило × `t_f`): с известным исходом «наступила ли
+    /// `hv_state` за `LEAD_MAX_MIN`» (наступила либо окно целиком в данных) и из них с наступившей.
+    pub lead_known: u64,
+    pub lead_found: u64,
 }
 
 impl FilterCnt {
@@ -419,7 +549,30 @@ impl FilterCnt {
             Gate::Hv => self.triggers_dropped_hv += 1,
             Gate::Reversal => self.triggers_dropped_reversal += 1,
             Gate::FirstPhase => self.triggers_dropped_first_phase += 1,
+            Gate::NotQuiet => self.triggers_dropped_not_quiet += 1,
             Gate::Keep | Gate::Out => {}
+        }
+    }
+
+    /// Учесть оставленное срабатывание цели `play-onset`: воспламенение за `LEAD_MAX_MIN` (`pl.lead_hv_min`).
+    pub fn lead(&mut self, pl: &Play, t_f: i64) {
+        let found = pl.lead_hv_min(t_f, LEAD_MAX_MIN).is_some();
+        if found || pl.lead_window_in_data(t_f, LEAD_MAX_MIN) {
+            self.lead_known += 1;
+            self.lead_found += u64::from(found);
+        }
+    }
+
+    /// Учесть срабатывание цели `play-onset` с направлением после выбора контролей: `drawn` — выбрано моментов
+    /// (`TriggerRow::c2a_drawn`), `k_want` — `moments_per_first_trigger`. Пустая корзина после зоны срабатывания
+    /// (`drawn == 0`) и недобор (`0 < drawn < k_want`) считаются отдельно; срабатывание в `n/hit` при этом остаётся
+    /// (исключать его — отдельное решение по методике, а не правка кода).
+    pub fn controls(&mut self, drawn: u16, k_want: usize) {
+        self.controls_triggers += 1;
+        if drawn == 0 {
+            self.controls_triggers_none += 1;
+        } else if usize::from(drawn) < k_want {
+            self.controls_triggers_short += 1;
         }
     }
 
@@ -428,12 +581,19 @@ impl FilterCnt {
         self.triggers_dropped_hv += o.triggers_dropped_hv;
         self.triggers_dropped_reversal += o.triggers_dropped_reversal;
         self.triggers_dropped_first_phase += o.triggers_dropped_first_phase;
+        self.triggers_dropped_not_quiet += o.triggers_dropped_not_quiet;
         self.episodes_before += o.episodes_before;
         self.episodes_dropped_hv += o.episodes_dropped_hv;
         self.episodes_dropped_reversal += o.episodes_dropped_reversal;
         self.contracts_with_hv += o.contracts_with_hv;
         self.minutes_universe += o.minutes_universe;
         self.minutes_hv += o.minutes_hv;
+        self.controls_dropped_overlap += o.controls_dropped_overlap;
+        self.controls_triggers += o.controls_triggers;
+        self.controls_triggers_none += o.controls_triggers_none;
+        self.controls_triggers_short += o.controls_triggers_short;
+        self.lead_known += o.lead_known;
+        self.lead_found += o.lead_found;
     }
 }
 
@@ -448,6 +608,11 @@ pub fn meta(
     let share = (cfg.hv.is_some() && cnt.minutes_universe > 0)
         .then(|| cnt.minutes_hv as f64 / cnt.minutes_universe as f64);
     let x = |v: f64| cfg.no_reversal.then_some(v);
+    let episode_hv = if cfg.onset {
+        "не применяется (цель play-onset)"
+    } else {
+        "по факту: хотя бы одна минута [t0, t_end]"
+    };
     serde_json::json!({
         "hv_natr_pct": cfg.hv.map(|h| h.natr_pct),
         "hv_n": cfg.hv.map(|h| h.n),
@@ -457,7 +622,7 @@ pub fn meta(
         "x360_up": x(x360[0]),
         "x360_down": x(x360[1]),
         "x_d_scope": "по вселенной фита без фильтра выборки (фильтр порогов не меняет)",
-        "episode_hv": "по факту: хотя бы одна минута [t0, t_end]",
+        "episode_hv": episode_hv,
         "contracts_eligible": contracts_eligible,
         "contracts_with_hv": cfg.hv.map(|_| cnt.contracts_with_hv),
         "hv_minutes_share": share,
@@ -468,6 +633,32 @@ pub fn meta(
         "triggers_dropped_hv": cnt.triggers_dropped_hv,
         "triggers_dropped_reversal": cnt.triggers_dropped_reversal,
         "triggers_dropped_first_phase": cnt.triggers_dropped_first_phase,
+    })
+}
+
+/// Блок `play_onset` в `run-meta.json` (только цель `play-onset`). `l_quiet` — `L_quiet` = `onset.L_pre_min`, `h_min` —
+/// `label_forward.H_min`. `hv_first_cross_share` — доля оставленных срабатываний с направлением (строки правило × `t_f`),
+/// после которых первая минута `hv_state` наступила за `LEAD_MAX_MIN` мин, среди срабатываний с известным исходом
+/// (наступила либо окно целиком в данных); `null`, если таких нет.
+pub fn onset_meta(cnt: &FilterCnt, l_quiet: i64, h_min: &[u32]) -> serde_json::Value {
+    let share = (cnt.lead_known > 0).then(|| cnt.lead_found as f64 / cnt.lead_known as f64);
+    serde_json::json!({
+        "l_quiet_min": l_quiet,
+        "h_min": h_min,
+        "triggers_before": cnt.triggers_before,
+        "triggers_dropped_not_quiet": cnt.triggers_dropped_not_quiet,
+        "controls_dropped_overlap": cnt.controls_dropped_overlap,
+        "controls_triggers": cnt.controls_triggers,
+        "controls_triggers_none": cnt.controls_triggers_none,
+        "controls_triggers_short": cnt.controls_triggers_short,
+        "hv_first_cross_share": share,
+        "hv_first_cross_found": cnt.lead_found,
+        "hv_first_cross_known": cnt.lead_known,
+        "lead_max_min": LEAD_MAX_MIN,
+        "label": "hv_state в [t_f+1, t_f+H]; NoData — окно не целиком в данных; X_D в метке не участвуют",
+        "controls": "тихие моменты той же монеты, месяца и дециля σ; |m − t_f| > L_quiet + max(H)",
+        "no_reversal": "не применяется (монета тихая)",
+        "c2b": "не используется; lags, first, progress — только заголовки",
     })
 }
 

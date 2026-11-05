@@ -483,7 +483,7 @@ fn single_pump_scenario_matches_hand_calculation() {
 
 // ---------- (б) детерминизм по потокам ----------
 
-fn random_contract(seed: u64, days: usize) -> Contract {
+pub(super) fn random_contract(seed: u64, days: usize) -> Contract {
     let n = days * 1440;
     let slots = n / 5;
     let mut r = Xs(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);

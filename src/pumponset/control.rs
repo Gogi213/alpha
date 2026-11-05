@@ -36,6 +36,14 @@
 //!    лага за краем куба обрезается; в слоте с `NaN`-признаками правило не срабатывает (решает `feat::fires`).
 //! 10. Порядок строк: `lags` — эпизод, затем правило; `c2a` — правило (как в списке), затем срабатывание;
 //!     `c2b` — эпизод, затем момент в порядке выбора, затем правило.
+//! 11. Цель `play-onset` (`c2a_moments_custom`, `play.rs`): метка вперёд — своя функция, а не ход `X_D`; из корзины
+//!     (месяц, дециль σ) исключаются кандидаты зоны срабатывания `|m − t_f| ≤ zone` (`zone` = `L_quiet + max H`, задаёт
+//!     вызывающий). Корзина отсортирована по слотам, поэтому зона — один отрезок, а выбор идёт по номерам оставшихся
+//!     кандидатов тем же потоком `(правило, t_f)`; без зоны выбор и зерно те же, что в `c2a_moments_with`. Без зоны
+//!     срабатывание-источник из своей корзины не исключается (допущение 3), с зоной уходит вместе с окрестностью: корзина
+//!     может опустеть (`c2a_drawn == 0`, строка остаётся с меткой, моментов нет) или стать короче
+//!     `moments_per_first_trigger`. Сколько таких срабатываний — считает вызывающий по `c2a_drawn`
+//!     (`play::FilterCnt::controls`, `run-meta.json` → `play_onset`).
 
 #![allow(
     // численное ядро: индексы ограничены проверенными длинами куба и корзин; бюджет линтов (TK-211) не растим
@@ -731,9 +739,96 @@ pub fn c2a_moments_with<T, S>(
     p: &Params,
     seed: u64,
     moments: bool,
+    first_triggers: T,
+    sink: S,
+) -> Result<()>
+where
+    T: FnMut(Rule) -> Vec<usize>,
+    S: FnMut(TriggerRow, &[u32]),
+{
+    c2a_core(
+        inp,
+        rules,
+        p,
+        seed,
+        moments,
+        &LabelSrc::Move(xd),
+        None,
+        first_triggers,
+        sink,
+    )
+    .map(|_| ())
+}
+
+/// `c2a_moments_with` со своей меткой `метка(минута, знак, индекс H)` вместо хода класса `D` (цель `play-onset`, `play.rs`)
+/// и зоной исключения вокруг срабатывания: кандидат `m` пула годен только при `|m − t_f| > zone` (окно `[m − L, m + H]`
+/// не пересекает окно срабатывания). Возвращает число кандидатов пула, попавших в зону (сумма по срабатываниям). Выбор
+/// из оставшихся — тот же, что без зоны, с тем же зерном потока на `(правило, t_f)`.
+#[allow(clippy::too_many_arguments)]
+pub fn c2a_moments_custom<T, S>(
+    inp: &Input,
+    rules: &[Rule],
+    p: &Params,
+    seed: u64,
+    moments: bool,
+    zone: i64,
+    label: &dyn Fn(i64, i8, usize) -> Label,
+    first_triggers: T,
+    sink: S,
+) -> Result<u64>
+where
+    T: FnMut(Rule) -> Vec<usize>,
+    S: FnMut(TriggerRow, &[u32]),
+{
+    c2a_core(
+        inp,
+        rules,
+        p,
+        seed,
+        moments,
+        &LabelSrc::Custom(label),
+        Some(zone),
+        first_triggers,
+        sink,
+    )
+}
+
+/// Откуда берётся метка вперёд момента в `c2a_core`.
+enum LabelSrc<'a> {
+    /// Ход класса `D` не меньше `X_D` по ценам контракта (`Labels`, П-34 §5).
+    Move(&'a XdTable),
+    /// Своя метка (`минута, знак, индекс H`).
+    Custom(&'a dyn Fn(i64, i8, usize) -> Label),
+}
+
+/// Метки, готовые к чтению (`LabelSrc::Move` строит `Labels` по ценам один раз на контракт).
+enum LabelGet<'a> {
+    Move(Labels),
+    Custom(&'a dyn Fn(i64, i8, usize) -> Label),
+}
+
+impl LabelGet<'_> {
+    fn get(&self, t: i64, sign: i8, hi: usize) -> Label {
+        match self {
+            LabelGet::Move(l) => l.get(t, sign, hi),
+            LabelGet::Custom(f) => f(t, sign, hi),
+        }
+    }
+}
+
+/// Общее тело `c2a_moments_with` и `c2a_moments_custom`; `zone = None` — прежний выбор из всей корзины.
+#[allow(clippy::too_many_arguments)]
+fn c2a_core<T, S>(
+    inp: &Input,
+    rules: &[Rule],
+    p: &Params,
+    seed: u64,
+    moments: bool,
+    src: &LabelSrc,
+    zone: Option<i64>,
     mut first_triggers: T,
     mut sink: S,
-) -> Result<()>
+) -> Result<u64>
 where
     T: FnMut(Rule) -> Vec<usize>,
     S: FnMut(TriggerRow, &[u32]),
@@ -747,7 +842,11 @@ where
             u16::MAX
         );
     }
-    let labels = Labels::new(inp.cf, inp.first_min, xd, p)?;
+    let labels = match src {
+        LabelSrc::Move(xd) => LabelGet::Move(Labels::new(inp.cf, inp.first_min, xd, p)?),
+        LabelSrc::Custom(f) => LabelGet::Custom(*f),
+    };
+    let mut dropped = 0u64;
     let nh = p.label_forward.h_min.len();
     let nw = cube.windows.len();
     let st = Strata::new(cube);
@@ -780,11 +879,26 @@ where
             if sign != 0 {
                 if let Some(key) = st.key(i) {
                     let bucket = pool.bucket(key);
-                    let k = bucket.len().min(k_want);
-                    pick(&mut stream(rseed, t_f as u64), bucket.len(), k, &mut buf);
+                    // зона срабатывания: корзина отсортирована по слотам, исключённое — один непрерывный отрезок
+                    // `[cut_lo, cut_hi)`; кандидаты — `bucket[..cut_lo]` и `bucket[cut_hi..]` (без зоны оба — `len`)
+                    let (cut_lo, cut_hi) = zone.map_or((bucket.len(), bucket.len()), |z| {
+                        (
+                            bucket.partition_point(|&j| slot_t(cube, j as usize) < t_f - z),
+                            bucket.partition_point(|&j| slot_t(cube, j as usize) <= t_f + z),
+                        )
+                    });
+                    dropped += (cut_hi - cut_lo) as u64;
+                    let avail = cut_lo + (bucket.len() - cut_hi);
+                    let k = avail.min(k_want);
+                    pick(&mut stream(rseed, t_f as u64), avail, k, &mut buf);
                     drawn = k as u16;
                     for &q in &buf {
-                        let j = bucket[q as usize] as usize;
+                        let q = q as usize;
+                        let j = (if q < cut_lo {
+                            bucket[q]
+                        } else {
+                            bucket[cut_hi + (q - cut_lo)]
+                        }) as usize;
                         if moments {
                             moms.push(j as u32);
                         }
@@ -818,7 +932,7 @@ where
             );
         }
     }
-    Ok(())
+    Ok(dropped)
 }
 
 // ---------- C2b ----------
