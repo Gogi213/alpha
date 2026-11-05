@@ -172,6 +172,7 @@ fn args(
         threads,
         xd,
         limit: None,
+        dump_triggers: false,
     }
 }
 

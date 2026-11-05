@@ -55,6 +55,7 @@ use super::agg::{
 use super::cache::{Contract, SLOT_MIN};
 use super::cli::{load_contract, sorted, sym_of};
 use super::control::{self, yyyymm, Input, Label, TriggerRow};
+use super::dump;
 use super::episodes::{is_leverage, mark_market, Finder, XdAcc};
 use super::feat;
 use super::params::Params;
@@ -130,6 +131,10 @@ pub struct RunArgs {
     /// Первые N контрактов по алфавиту (замеры); пишется в `run-meta.json`.
     #[arg(long)]
     pub limit: Option<usize>,
+    /// Выгрузить первые срабатывания правил со всеми атрибутами момента и исходами в `triggers-<stage>.csv`
+    /// (`dump.rs`); без флага прогон и его таблицы прежние.
+    #[arg(long)]
+    pub dump_triggers: bool,
 }
 
 // ---------- время, вселенная, период ----------
@@ -519,6 +524,8 @@ struct Run<'a> {
     ref_sym: String,
     /// `(fam · nw + wi) · nt + ti` → позиция правила (`u32::MAX` — правила нет в прогоне).
     rpos: Vec<u32>,
+    /// Эталон `btc_*` выгрузки срабатываний (`--dump-triggers`); `None` — выгрузки нет.
+    dump: Option<dump::Shared>,
 }
 
 impl Run<'_> {
@@ -818,6 +825,8 @@ struct Work {
     agg: Agg,
     fast: Fast,
     lagbuf: Vec<i32>,
+    /// Выгрузка срабатываний: текст строк контрактов потока `(индекс файла, байты)`.
+    dumped: Vec<(usize, Vec<u8>)>,
 }
 
 /// Цены и фандинг контракта для сделок и прогресса.
@@ -942,7 +951,12 @@ fn process(
     wk.agg.cnt.secs[PH_CUBE] += t.elapsed().as_secs_f64();
 
     let t = Instant::now();
-    let Work { agg, fast, lagbuf } = wk;
+    let Work {
+        agg,
+        fast,
+        lagbuf,
+        dumped,
+    } = wk;
     agg.cnt.contracts += 1;
     agg.cnt.symbol_days += univ.days_in(rn.pmin[0], rn.pmin[1]);
     let px = Prices {
@@ -958,17 +972,30 @@ fn process(
         eps: &pre.eps,
     };
     let gap0 = agg.cnt.trades_funding_gap;
+    let mut dc = rn
+        .dump
+        .as_ref()
+        .map(|sh| dump::Collector::new(sh, sym, &c, &cf, &cube));
     {
         let trig = &mut fast.trig;
-        control::c2a_with(
+        control::c2a_moments_with(
             &inp,
             &rn.lay.rules,
             &rn.xd,
             rn.p,
             rn.seed,
+            dc.is_some(),
             |r| std::mem::take(&mut trig[rn.ridx(r)]),
-            |row| sink_trigger(rn, agg, &px, row),
+            |row, moments| {
+                if let Some(d) = dc.as_mut() {
+                    d.add(&row, moments);
+                }
+                sink_trigger(rn, agg, &px, row);
+            },
         )?;
+    }
+    if let Some(d) = dc {
+        dumped.push((idx, d.finish()));
     }
     agg.cnt.contracts_funding_gap += u64::from(agg.cnt.trades_funding_gap > gap0);
     // лаги эпизодов (kind = ep)
@@ -1187,6 +1214,7 @@ pub fn run(a: RunArgs) -> Result<()> {
         l_post: [0; NS],
         ref_sym,
         rpos,
+        dump: None,
     };
 
     let mut files = sorted(&a.cache, ".pmc")?;
@@ -1216,6 +1244,10 @@ pub fn run(a: RunArgs) -> Result<()> {
         "X_D не определён или не положителен ({xd:?}): выборка фита пуста?"
     );
     rn.xd = xd;
+    if a.dump_triggers {
+        let btc = a.cache.join(format!("{}.pmc", rn.ref_sym));
+        rn.dump = Some(dump::Shared::load(&btc, rn.clip)?);
+    }
 
     // 2. эпизоды: BTC первым, затем все контракты; медианы длины фазы по стратам
     let btc = btc_episodes(&rn, &a.cache)?;
@@ -1281,6 +1313,7 @@ pub fn run(a: RunArgs) -> Result<()> {
                 agg: Agg::new(dims),
                 fast: Fast::new(),
                 lagbuf: Vec::new(),
+                dumped: Vec::new(),
             },
             move |wk: &mut Work, i: usize| match &pres[i] {
                 Some(pre) => process(rn, wk, (i, files[i].as_path(), syms[i].as_str()), pre),
@@ -1289,9 +1322,11 @@ pub fn run(a: RunArgs) -> Result<()> {
         )?
     };
     let mut it = works.into_iter();
-    let mut agg = it.next().context("нет потоков")?.agg;
+    let first = it.next().context("нет потоков")?;
+    let (mut agg, mut dumps) = (first.agg, first.dumped);
     for w in it {
         agg.merge(w.agg);
+        dumps.extend(w.dumped);
     }
 
     // 4. запись
@@ -1309,6 +1344,9 @@ pub fn run(a: RunArgs) -> Result<()> {
         &mut agg,
     )?;
     write_xd(&out.join("xd.csv"), &rn.xd, &windows)?;
+    if rn.dump.is_some() {
+        dump::write(&out.join(format!("triggers-{st}.csv")), &syms, dumps)?;
+    }
     let secs_write = t.elapsed().as_secs_f64();
 
     let cnt: &Counters = &agg.cnt;
