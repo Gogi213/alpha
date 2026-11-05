@@ -8,6 +8,7 @@ use super::episodes::XdAcc;
 use super::episodes_ref::{ff_ln, moves_naive, xd_from_values};
 use super::feat;
 use super::params::Params;
+use super::play::PlayArgs;
 use super::run::{
     clip_contract, day_of_min, period, run, slot_range, Fast, RunArgs, Stage, Universe,
 };
@@ -111,6 +112,8 @@ pub(super) fn pump_contract(n: usize, pumps: &[usize]) -> Contract {
         vol: vec![1.0; n],
         qvol,
         trades: vec![5.0; n],
+        high: Vec::new(),
+        low: Vec::new(),
         oi_first_slot: 0,
         oi: [
             oi0,
@@ -174,6 +177,7 @@ fn args(
         limit: None,
         exits: false,
         dump_triggers: false,
+        play: PlayArgs::default(),
     }
 }
 
@@ -518,6 +522,8 @@ fn random_contract(seed: u64, days: usize) -> Contract {
         trades: (0..n)
             .map(|_| (3.0 + 3.0 * r.unit()).round() as f32)
             .collect(),
+        high: Vec::new(),
+        low: Vec::new(),
         oi_first_slot: 0,
         oi: [oi0, oi1, oi2, oi3, oi4, oi5],
         funding: (0..n as i64)
@@ -822,6 +828,8 @@ fn universe_contract() -> Contract {
         vol: vec![1.0; n],
         qvol,
         trades: vec![5.0; n],
+        high: Vec::new(),
+        low: Vec::new(),
         oi_first_slot: 0,
         oi: [
             oi0,

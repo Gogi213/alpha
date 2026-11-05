@@ -8,6 +8,7 @@ use super::dump::{nearest_level_bps, time_cols, Collector, Shared, DEC, HALF, HE
 use super::episodes::find_episodes;
 use super::feat;
 use super::params::Params;
+use super::play::PlayArgs;
 use super::run::{run, RunArgs, Stage};
 use super::types::{Cube, Episode, Rule, XdTable, NF};
 use crate::statarb::panel::{GRID0_MS, MINUTE_MS};
@@ -106,6 +107,8 @@ fn pump_contract(n: usize, pumps: &[usize]) -> Contract {
         vol: vec![1.0; n],
         qvol,
         trades: vec![5.0; n],
+        high: Vec::new(),
+        low: Vec::new(),
         oi_first_slot: 0,
         oi: [
             oi0,
@@ -163,6 +166,8 @@ fn random_contract(seed: u64, days: usize) -> Contract {
         trades: (0..n)
             .map(|_| (3.0 + 3.0 * r.unit()).round() as f32)
             .collect(),
+        high: Vec::new(),
+        low: Vec::new(),
         oi_first_slot: 0,
         oi: [oi0, oi1, oi2, oi3, oi4, oi5],
         funding: (0..n as i64)
@@ -210,7 +215,9 @@ fn args(cache: &Path, params: &Path, out: &Path, stage: Stage, threads: usize) -
         threads,
         xd: None,
         limit: None,
+        exits: false,
         dump_triggers: false,
+        play: PlayArgs::default(),
     }
 }
 

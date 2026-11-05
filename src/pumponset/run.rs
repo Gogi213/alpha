@@ -37,6 +37,11 @@
 //! 9. **Рынок:** эпизоды самого `ref_symbol` (BTCUSDT) помечены `FLAG_MARKET` — по определению §2 они «рыночные».
 //! 10. **Покрытие фандинга** (`trade.rs`, допущение 3): сделка с ценами, но без покрытия файлом ставок окна удержания
 //!     в `nret` не входит; число таких сделок (всего, по H) и контрактов — блок `funding_coverage` в `run-meta.json`.
+//! 11. **Выборка «монеты в игре»** (`play.rs`, флаги `--hv-natr-pct`/`--hv-n`/`--no-reversal`/`--hv-first-phase`): без
+//!     флагов её нет, прогон и таблицы прежние. С флагами срабатывания отбираются в `Fast::build_gated` (после периода и
+//!     вселенной, «первое» срабатывание определяется до отбора), кандидаты C2a — маской `cube.r` (`mask_r_with`), C2b —
+//!     условием на кандидата в пуле (`control::c2b_with_cand`), эпизоды — в `prepare` (`hv` по факту в `[t0, t_end]`);
+//!     выходы и выгрузка берут те же срабатывания. Блок `sample_filter` в `run-meta.json` и `sample-coins-<stage>.csv`.
 
 #![allow(
     // индексы ограничены размерами плотных массивов, заданных `Layout`; бюджет линтов (TK-211) не растим
@@ -54,12 +59,13 @@ use super::agg::{
 };
 use super::cache::{Contract, SLOT_MIN};
 use super::cli::{load_contract, sorted, sym_of};
-use super::control::{self, yyyymm, Input, Label, TriggerRow};
+use super::control::{self, sign_of, slot_t, yyyymm, Input, Label, TriggerRow};
 use super::dump;
 use super::episodes::{is_leverage, mark_market, Finder, XdAcc};
 use super::exits::{self, ExitAgg};
 use super::feat;
 use super::params::Params;
+use super::play::{self, CoinRow, FilterCnt, Gate, Play, PlayArgs, PlayCfg};
 use super::trade::{self, Skip};
 use super::types::{Cube, Episode, Rule, XdTable, FLAG_MARKET, NF};
 use crate::statarb::panel::{GRID0_MS, MINUTE_MS};
@@ -141,6 +147,10 @@ pub struct RunArgs {
     /// (`dump.rs`); без флага прогон и его таблицы прежние.
     #[arg(long)]
     pub dump_triggers: bool,
+    /// Выборка «монеты в игре» (`play.rs`, слова владельца 05.11): NATR-фильтр, без откупов, первая фаза. Без флагов —
+    /// прогон и таблицы прежние; с ними — блок `sample_filter` в `run-meta.json` и `sample-coins-<stage>.csv`.
+    #[command(flatten)]
+    pub play: PlayArgs,
 }
 
 // ---------- время, вселенная, период ----------
@@ -201,6 +211,8 @@ pub fn clip_contract(c: &mut Contract, end_min: i64) {
     c.vol.truncate(keep);
     c.qvol.truncate(keep);
     c.trades.truncate(keep);
+    c.high.truncate(keep);
+    c.low.truncate(keep);
     let slots =
         (end_min.div_euclid(SLOT_MIN) - c.oi_first_slot).clamp(0, c.oi[0].len() as i64) as usize;
     for col in &mut c.oi {
@@ -308,6 +320,8 @@ pub struct Fast {
     /// `obs[пара · (n + 1) + i]` — слотов `< i` с уровнем не `NaN` (наблюдаемость правила в окне лага).
     pair_of: Vec<u32>,
     obs: Vec<u32>,
+    /// Исходы проверки выборки «в игре» по первым срабатываниям последней сборки (`build_gated`; поля `triggers_*`).
+    pub gate_cnt: FilterCnt,
 }
 
 impl Default for Fast {
@@ -326,6 +340,7 @@ impl Fast {
             lvl: Vec::new(),
             pair_of: Vec::new(),
             obs: Vec::new(),
+            gate_cnt: FilterCnt::default(),
         }
     }
 
@@ -338,7 +353,29 @@ impl Fast {
         quiet: usize,
         keep: &dyn Fn(i64) -> bool,
     ) {
+        self.build_gated(cube, p, rules, quiet, &|t_f, _| {
+            if keep(t_f) {
+                Gate::Keep
+            } else {
+                Gate::Out
+            }
+        });
+    }
+
+    /// `build`, у которого отбор первых срабатываний решает `gate(t_f, знак r_w окна правила)`: `Keep` — оставить,
+    /// `Out` — вне стадии/вселенной (молча), остальное — потеряно выборкой «в игре» (считается в `gate_cnt`). Знак — по
+    /// `cube.r` до маскировки (`mask_r`). «Первое» срабатывание определяется до отбора: тишина `quiet` от любого
+    /// срабатывания, отобранного или нет.
+    pub fn build_gated(
+        &mut self,
+        cube: &Cube,
+        p: &Params,
+        rules: &[Rule],
+        quiet: usize,
+        gate: &dyn Fn(i64, i8) -> Gate,
+    ) {
         let (n, nr) = (cube.n, rules.len());
+        self.gate_cnt = FilterCnt::default();
         self.n = n;
         self.nr = nr;
         self.nxt.clear();
@@ -390,10 +427,15 @@ impl Fast {
                 let vf = f64::from(v);
                 for (k, &(_, ri)) in tis.iter().enumerate() {
                     if vf >= thr[k] {
-                        if last[k].is_none_or(|l| l + quiet < i)
-                            && keep(SLOT_MIN * (cube.slot0 + i as i64))
-                        {
-                            self.trig[ri].push(i);
+                        if last[k].is_none_or(|l| l + quiet < i) {
+                            let g = gate(
+                                SLOT_MIN * (cube.slot0 + i as i64),
+                                sign_of(cube.rat(*wi, i)),
+                            );
+                            self.gate_cnt.trigger(g);
+                            if g == Gate::Keep {
+                                self.trig[ri].push(i);
+                            }
                         }
                         last[k] = Some(i);
                     }
@@ -534,9 +576,20 @@ struct Run<'a> {
     exits: bool,
     /// Эталон `btc_*` выгрузки срабатываний (`--dump-triggers`); `None` — выгрузки нет.
     dump: Option<dump::Shared>,
+    /// Выборка «монеты в игре» (`play.rs`); `None` — фильтра нет. `x360` — `[вверх, вниз]` порога `X_360` (с откупом).
+    play: Option<PlayCfg>,
+    x360: [f64; 2],
 }
 
 impl Run<'_> {
+    /// Маски «в игре» контракта; `cf` — его `close_ff`, если уже посчитан (иначе считается здесь, только с фильтром).
+    fn play_of(&self, c: &Contract, cf: Option<&[f64]>) -> Option<Play> {
+        self.play.map(|cfg| match cf {
+            Some(cf) => Play::build(c, cf, cfg, self.l_pre, self.x360),
+            None => Play::build(c, &c.close_ff(), cfg, self.l_pre, self.x360),
+        })
+    }
+
     fn in_stage(&self, m: i64) -> bool {
         m >= self.pmin[0] && m < self.pmin[1]
     }
@@ -731,6 +784,8 @@ struct Pre {
     univ: Universe,
     eps: Vec<Episode>,
     mask: Vec<u8>,
+    /// Минут периода стадии во вселенной и из них с `hv_state` (только с выборкой «в игре»).
+    minutes: (u64, u64),
 }
 
 struct EAcc {
@@ -741,6 +796,8 @@ struct EAcc {
     sk: Skips,
     sel: Selection,
     secs: [f64; 2],
+    /// Счётчики выборки «в игре» по эпизодам и минутам.
+    filt: FilterCnt,
 }
 
 fn btc_episodes(rn: &Run, dir: &Path) -> Result<Option<Vec<Episode>>> {
@@ -799,6 +856,15 @@ fn prepare(
         );
     }
     let mut mask = vec![0u8; eps.len()];
+    let play = rn.play_of(&c, None);
+    let minutes = play.as_ref().map_or((0, 0), |pl| {
+        pl.minutes(|m| rn.in_stage(m) && univ.min_ok(m))
+    });
+    if play.is_some() {
+        acc.filt.minutes_universe += minutes.0;
+        acc.filt.minutes_hv += minutes.1;
+        acc.filt.contracts_with_hv += u64::from(minutes.1 > 0);
+    }
     for (k, e) in eps.iter().enumerate() {
         if rn.in_stage(e.t0) {
             acc.sel
@@ -807,6 +873,18 @@ fn prepare(
         if !rn.is_member(e, &univ) {
             continue;
         }
+        if let Some(pl) = &play {
+            // выборка «в игре»: hv — по факту в [t0, t_end], откуп — по состоянию в t0 (play.rs, (в))
+            acc.filt.episodes_before += 1;
+            if !pl.hv_any(e.t0, e.t_end) {
+                acc.filt.episodes_dropped_hv += 1;
+                continue;
+            }
+            if !pl.ok_at(e.t0, e.sign) {
+                acc.filt.episodes_dropped_reversal += 1;
+                continue;
+            }
+        }
         let (st, ns) = strata_of(e.flags);
         for &s in &st[..ns] {
             mask[k] |= 1 << s;
@@ -814,7 +892,15 @@ fn prepare(
         acc.lens[st[ns - 1] - 1].push(e.t_end - e.t0);
     }
     acc.secs[1] += t.elapsed().as_secs_f64();
-    acc.pre.push((idx, Pre { univ, eps, mask }));
+    acc.pre.push((
+        idx,
+        Pre {
+            univ,
+            eps,
+            mask,
+            minutes,
+        },
+    ));
     Ok(())
 }
 
@@ -837,6 +923,9 @@ struct Work {
     exits: Option<ExitAgg>,
     /// Выгрузка срабатываний: текст строк контрактов потока `(индекс файла, байты)`.
     dumped: Vec<(usize, Vec<u8>)>,
+    /// Выборка «в игре»: счётчики срабатываний потока и по монетам `(индекс файла, срабатываний, эпизодов)` после всех условий.
+    filt: FilterCnt,
+    coins: Vec<(usize, u64, u64)>,
 }
 
 /// Цены и фандинг контракта для сделок и прогресса.
@@ -846,13 +935,28 @@ struct Prices<'a> {
     funding: trade::Funding<'a>,
 }
 
-fn mask_r(cube: &mut Cube, rn: &Run, univ: &Universe) {
+/// Маска `cube.r` (кандидаты C2a берутся только из слотов с конечной ненулевой `r`): вне периода стадии и вселенной — все
+/// окна; с выборкой «в игре» — ещё окна, где момент не проходит `play.moment_ok` для знака своей `r` (контроль из той же
+/// «игровой» популяции, что срабатывания).
+fn mask_r(cube: &mut Cube, rn: &Run, univ: &Universe, play: Option<&Play>) {
+    mask_r_with(cube, &|t| rn.in_stage(t) && univ.min_ok(t), play);
+}
+
+/// `mask_r` с заданным условием «минута в периоде стадии и во вселенной».
+pub(super) fn mask_r_with(cube: &mut Cube, keep: &dyn Fn(i64) -> bool, play: Option<&Play>) {
     let (n, nw) = (cube.n, cube.windows.len());
     for i in 0..n {
         let t = SLOT_MIN * (cube.slot0 + i as i64);
-        if !(rn.in_stage(t) && univ.min_ok(t)) {
+        if !keep(t) {
             for wi in 0..nw {
                 cube.r[wi * n + i] = f32::NAN;
+            }
+        } else if let Some(pl) = play {
+            for wi in 0..nw {
+                let s = sign_of(cube.r[wi * n + i]);
+                if s != 0 && !pl.moment_ok(t, s) {
+                    cube.r[wi * n + i] = f32::NAN;
+                }
             }
         }
     }
@@ -954,10 +1058,20 @@ fn process(
     let mut funding = c.funding.clone();
     funding.sort_unstable_by_key(|&(m, _)| m);
     let univ = &pre.univ;
-    wk.fast.build(&cube, rn.p, &rn.lay.rules, rn.quiet, &|t_f| {
-        rn.in_stage(t_f) && univ.min_ok(t_f)
-    });
-    mask_r(&mut cube, rn, univ);
+    let play = rn.play_of(&c, Some(&cf));
+    // отбор первых срабатываний: период стадии и вселенная, затем (с флагами) выборка «в игре» по состоянию в t_f
+    let gate = |t_f: i64, sign: i8| -> Gate {
+        if !(rn.in_stage(t_f) && univ.min_ok(t_f)) {
+            Gate::Out
+        } else if let Some(pl) = &play {
+            pl.gate(t_f, sign)
+        } else {
+            Gate::Keep
+        }
+    };
+    wk.fast
+        .build_gated(&cube, rn.p, &rn.lay.rules, rn.quiet, &gate);
+    mask_r(&mut cube, rn, univ, play.as_ref());
     wk.agg.cnt.secs[PH_CUBE] += t.elapsed().as_secs_f64();
 
     let t = Instant::now();
@@ -967,7 +1081,12 @@ fn process(
         lagbuf,
         exits,
         dumped,
+        filt,
+        coins,
     } = wk;
+    filt.merge(&fast.gate_cnt);
+    let trig_kept: u64 = fast.trig.iter().map(|v| v.len() as u64).sum();
+    let ep_before = agg.cnt.episodes;
     agg.cnt.contracts += 1;
     agg.cnt.symbol_days += univ.days_in(rn.pmin[0], rn.pmin[1]);
     let px = Prices {
@@ -997,7 +1116,7 @@ fn process(
     let mut dc = rn
         .dump
         .as_ref()
-        .map(|sh| dump::Collector::new(sh, sym, &c, &cf, &cube));
+        .map(|sh| dump::Collector::new(sh, sym, &c, &cf, &cube).with_play(play.as_ref()));
     {
         let trig = &mut fast.trig;
         control::c2a_moments_with(
@@ -1046,18 +1165,26 @@ fn process(
         }
         episode_progress(agg, &px, e, sm, lagbuf, mi);
     }
+    if play.is_some() {
+        coins.push((idx, trig_kept, agg.cnt.episodes - ep_before));
+    }
     // нулевая линия C2b (kind = c2b): моменты берёт `control::c2b_with`, лаги — таблица следующего срабатывания
     for s in 0..NS {
         if !has(present, s) {
             continue;
         }
         let lp = rn.l_post[s];
-        control::c2b_with(
+        // с выборкой «в игре» псевдо-моменты берутся из «игровых» слотов (знак — знак эпизода), как кандидаты C2a
+        control::c2b_with_cand(
             &inp,
             &DUMMY,
             rn.p,
             lp,
             rn.seed,
+            |j, sign| {
+                play.as_ref()
+                    .is_none_or(|pl| pl.moment_ok(slot_t(&cube, j), sign))
+            },
             |_, _| true,
             |row| {
                 let k = row.episode_idx as usize;
@@ -1165,6 +1292,10 @@ pub fn run(a: RunArgs) -> Result<()> {
     sha.update(text.as_bytes());
     let params_sha256 = hex(&sha.finalize());
     control::check_label_d(&p)?;
+    let play_cfg = a.play.cfg()?;
+    if play_cfg.is_some_and(|c| c.no_reversal) {
+        play::reversal_di(&p)?;
+    }
     let threads = a.threads.max(1);
     let (nw, nt, nd) = (
         p.features.windows_min.len(),
@@ -1238,6 +1369,8 @@ pub fn run(a: RunArgs) -> Result<()> {
         rpos,
         exits: a.exits,
         dump: None,
+        play: play_cfg,
+        x360: [f64::NAN; 2],
     };
 
     let mut files = sorted(&a.cache, ".pmc")?;
@@ -1267,6 +1400,9 @@ pub fn run(a: RunArgs) -> Result<()> {
         "X_D не определён или не положителен ({xd:?}): выборка фита пуста?"
     );
     rn.xd = xd;
+    if play_cfg.is_some_and(|c| c.no_reversal) {
+        rn.x360 = play::x_reversal(&p, &rn.xd)?;
+    }
     if a.dump_triggers {
         let btc = a.cache.join(format!("{}.pmc", rn.ref_sym));
         rn.dump = Some(dump::Shared::load(&btc, rn.clip)?);
@@ -1286,6 +1422,7 @@ pub fn run(a: RunArgs) -> Result<()> {
             sk: Skips::default(),
             sel: Selection::default(),
             secs: [0.0; 2],
+            filt: FilterCnt::default(),
         },
         {
             let (rn, btc, files, syms) = (&rn, &btc, &files, &syms);
@@ -1298,8 +1435,10 @@ pub fn run(a: RunArgs) -> Result<()> {
     let mut lens: [Vec<i64>; 4] = Default::default();
     let (mut sk, mut e_secs) = (Skips::default(), [0.0f64; 2]);
     let mut sel = Selection::default();
+    let mut filt = FilterCnt::default();
     for acc in eaccs {
         sel.merge(acc.sel);
+        filt.merge(&acc.filt);
         for (i, pre) in acc.pre {
             pres[i] = Some(pre);
         }
@@ -1338,6 +1477,8 @@ pub fn run(a: RunArgs) -> Result<()> {
                 lagbuf: Vec::new(),
                 exits: rn.exits.then(|| ExitAgg::new(dims.nr, dims.ndays)),
                 dumped: Vec::new(),
+                filt: FilterCnt::default(),
+                coins: Vec::new(),
             },
             move |wk: &mut Work, i: usize| match &pres[i] {
                 Some(pre) => process(rn, wk, (i, files[i].as_path(), syms[i].as_str()), pre),
@@ -1350,12 +1491,16 @@ pub fn run(a: RunArgs) -> Result<()> {
     let mut agg = first.agg;
     let mut ex_agg = first.exits;
     let mut dumps = first.dumped;
+    filt.merge(&first.filt);
+    let mut coin_cnt = first.coins;
     for w in it {
         agg.merge(w.agg);
         if let (Some(a), Some(b)) = (ex_agg.as_mut(), w.exits) {
             a.merge(b);
         }
         dumps.extend(w.dumped);
+        filt.merge(&w.filt);
+        coin_cnt.extend(w.coins);
     }
 
     // 4. запись
@@ -1378,7 +1523,36 @@ pub fn run(a: RunArgs) -> Result<()> {
         exits::write_grid(&out.join("exits-grid.csv"))?;
     }
     if rn.dump.is_some() {
-        dump::write(&out.join(format!("triggers-{st}.csv")), &syms, dumps)?;
+        dump::write_with(
+            &out.join(format!("triggers-{st}.csv")),
+            &syms,
+            dumps,
+            rn.play.is_some(),
+        )?;
+    }
+    if rn.play.is_some() {
+        // монеты, прошедшие отбор подходящих контрактов (по алфавиту): что осталось после всех условий прогона
+        let mut by_file: Vec<Option<(u64, u64)>> = vec![None; files.len()];
+        for &(i, trig, eps) in &coin_cnt {
+            by_file[i] = Some((trig, eps));
+        }
+        let mut rows: Vec<CoinRow> = pres
+            .iter()
+            .enumerate()
+            .filter_map(|(i, pre)| {
+                let pre = pre.as_ref()?;
+                let (trig, eps) = by_file[i].unwrap_or((0, 0));
+                Some(CoinRow {
+                    sym: syms[i].clone(),
+                    minutes_in_universe: pre.minutes.0,
+                    minutes_hv: pre.minutes.1,
+                    triggers_kept: trig,
+                    episodes_kept: eps,
+                })
+            })
+            .collect();
+        rows.sort_by(|a, b| a.sym.cmp(&b.sym));
+        play::write_coins(&out.join(format!("sample-coins-{st}.csv")), &rows)?;
     }
     let secs_write = t.elapsed().as_secs_f64();
 
@@ -1472,6 +1646,9 @@ pub fn run(a: RunArgs) -> Result<()> {
     });
     if let Some(ex) = &ex_agg {
         meta["exits"] = ex.meta();
+    }
+    if let Some(cfg) = &rn.play {
+        meta["sample_filter"] = play::meta(cfg, &filt, sel.ends.len(), rn.x360);
     }
     fs::write(
         out.join("run-meta.json"),

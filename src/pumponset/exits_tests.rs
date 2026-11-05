@@ -7,6 +7,7 @@ use super::agg::{fix, unfix};
 use super::exits::{
     exits_head, grid, grid_csv, scan, Cfg, ExitAgg, Fac, Family, Px, CAPS, NCAP, NCFG,
 };
+use super::play::PlayArgs;
 use super::run::{run, RunArgs, Stage};
 use super::run_tests::{
     lnp, params_json, pump_contract, put, rules_file, table, xd_file, Row, SEED, T0, XD,
@@ -631,6 +632,8 @@ fn args_run(
         xd: Some(xd),
         limit: None,
         exits,
+        dump_triggers: false,
+        play: PlayArgs::default(),
     }
 }
 

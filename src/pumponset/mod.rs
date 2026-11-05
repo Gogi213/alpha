@@ -17,6 +17,7 @@ pub mod exits;
 pub mod feat;
 pub mod feat_ref;
 pub mod params;
+pub mod play;
 pub mod run;
 pub mod stats;
 pub mod trace;
@@ -34,6 +35,8 @@ mod episodes_tests;
 mod exits_tests;
 #[cfg(test)]
 mod feat_tests;
+#[cfg(test)]
+mod play_tests;
 #[cfg(test)]
 mod run_tests;
 #[cfg(test)]

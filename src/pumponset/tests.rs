@@ -170,6 +170,12 @@ fn cache_roundtrip_and_staleness() {
     assert_eq!(back.oi[3], vec![4.0]);
     assert_eq!(back.funding, c.funding);
     assert!(read_contract(&mut Cursor::new(b"XXXX".to_vec())).is_err());
+    // high/low версии 2: те же значения побитно, NaN в дыре сетки (минута 4)
+    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+    assert_eq!(bits(&back.high), bits(&c.high));
+    assert_eq!(bits(&back.low), bits(&c.low));
+    assert_eq!((back.high[0], back.low[0], back.high[2]), (1.25, 1.25, 1.5));
+    assert!(back.high[1].is_nan() && back.low[1].is_nan());
 
     let dir = std::env::temp_dir().join(format!("pmc-stale-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -177,11 +183,86 @@ fn cache_roundtrip_and_staleness() {
     std::fs::write(&src, b"x").unwrap();
     assert!(is_stale(&cache, &[&src]), "кэша нет");
     std::thread::sleep(std::time::Duration::from_millis(30));
-    std::fs::write(&cache, b"y").unwrap();
+    std::fs::write(&cache, &buf).unwrap();
     assert!(!is_stale(&cache, &[&src]));
     std::thread::sleep(std::time::Duration::from_millis(30));
     std::fs::write(&src, b"z").unwrap();
     assert!(is_stale(&cache, &[&src]), "источник новее");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn candles_read_high_low_with_price_validation() {
+    // h, l — колонки 2, 3; v = 0 → NaN у close, high, low; дыра между минутами → NaN
+    let text = format!(
+        "t,o,h,l,c,v,qv,n\n{},10,12,9,11,5,50,3\n{},0,0,0,0,0,0,0\n{},11,15,10.5,14,2,28,1\n",
+        G,
+        G + M,
+        G + 3 * M
+    );
+    let (c, _) = candles(&text).unwrap();
+    let c = c.unwrap();
+    assert_eq!(c.high.len(), 4);
+    assert_eq!(c.low.len(), 4);
+    assert_eq!((c.high[0], c.low[0]), (12.0, 9.0));
+    assert!(c.high[1].is_nan() && c.low[1].is_nan(), "минута без сделок");
+    assert!(c.high[2].is_nan() && c.low[2].is_nan(), "дыра сетки");
+    assert_eq!((c.high[3], c.low[3]), (15.0, 10.5));
+    // h, l проверяются как цены: не число, ноль, отрицательное
+    let bad_h = format!("{G},10,x,9,11,5,50,3\n");
+    assert!(candles(&bad_h).is_err());
+    let zero_l = format!("{G},10,12,0,11,5,50,3\n");
+    assert!(candles(&zero_l).is_err());
+    let neg_h = format!("{G},10,-12,9,11,5,50,3\n");
+    assert!(candles(&neg_h).is_err());
+    // Bybit с --lenient: n_trades пуст, h и l есть
+    let by = format!("{G},10,12,9,11,5,50,\n");
+    let (k, _) = parse_candles_with(Cursor::new(by.into_bytes()), true).unwrap();
+    let k = k.unwrap();
+    assert_eq!((k.high[0], k.low[0], k.trades[0]), (12.0, 9.0, 0.0));
+}
+
+#[test]
+fn old_cache_format_is_rejected_clearly_and_stale() {
+    let (c, _) = candles(&row(3, 1.25, 2.0, 3.0, 4)).unwrap();
+    let c = c.unwrap();
+    let mut buf = Vec::new();
+    write_contract(&mut buf, &c).unwrap();
+    // версия 1 — та же магия без high/low
+    let mut old = buf.clone();
+    old[..4].copy_from_slice(b"PMC1");
+    let e = read_contract(&mut Cursor::new(&old))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("старого формата") && e.contains("пересоберите"),
+        "{e}"
+    );
+    // контракт без high/low (собранный не из csv) пишется с NaN той же длины и читается
+    let mut bare = c.clone();
+    bare.high.clear();
+    bare.low.clear();
+    let mut b2 = Vec::new();
+    write_contract(&mut b2, &bare).unwrap();
+    let back = read_contract(&mut Cursor::new(&b2)).unwrap();
+    assert_eq!(back.high.len(), back.close.len());
+    assert!(back.high.iter().chain(&back.low).all(|x| x.is_nan()));
+
+    let dir = std::env::temp_dir().join(format!("pmc-old-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (src, cache) = (dir.join("a.csv.gz"), dir.join("a.pmc"));
+    std::fs::write(&src, b"x").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    // кэш новее источника, но старого формата или обрывок — устарел
+    std::fs::write(&cache, &old).unwrap();
+    assert!(
+        is_stale(&cache, &[&src]),
+        "PMC1 новее источника, но устарел"
+    );
+    std::fs::write(&cache, b"PM").unwrap();
+    assert!(is_stale(&cache, &[&src]), "короче магии");
+    std::fs::write(&cache, &buf).unwrap();
+    assert!(!is_stale(&cache, &[&src]), "PMC2 новее источника");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
