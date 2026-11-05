@@ -1,0 +1,100 @@
+exchange,symbol,class,status,listed_ms,delisted_ms,reason,detail,note
+binance,GAIBUSDT,crypto,PENDING_TRADING,1763629200000,,нет файла свечей в выгрузке,статус PENDING_TRADING; причина по полям списка не определяется,интервал фандинга 8 по умолчанию (нет в fundingInfo)
+bingx,HOT-USDT,crypto,Trading,1793873400000,,нет файла свечей в выгрузке,листинг после конца окна,qty_step=1; min_notional_usdt=2
+bingx,NCCONICKEL2USD-USDT,metal,Trading,1765362000000,,нет файла свечей в выгрузке,статус Trading; причина по полям списка не определяется,display=Nickel(XNI); qty_step=0.00001; min_notional_usdt=2
+bingx,NCCOZINC2USD-USDT,metal,Trading,1765362000000,,нет файла свечей в выгрузке,статус Trading; причина по полям списка не определяется,display=Zinc(XZN); qty_step=0.0001; min_notional_usdt=2
+bingx,NCCOLEAD2USD-USDT,metal,Trading,1767867000000,,нет файла свечей в выгрузке,статус Trading; причина по полям списка не определяется,display=Lead(XPB); qty_step=0.0001; min_notional_usdt=2
+bingx,NCCOALUMINIUM2USD-USDT,metal,Trading,1767867000000,,нет файла свечей в выгрузке,статус Trading; причина по полям списка не определяется,display=Aluminium(XAL); qty_step=0.0001; min_notional_usdt=2
+bingx,NCSINIFTYBK2USD-USDT,index,Paused,1780385400000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"display=Nifty Bank; qty_step=0.0000001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне че"
+bingx,NCSINIFTY52USD-USDT,index,Paused,1780470000000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"display=Nifty 50; qty_step=0.0000001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне чере"
+bingx,NCSIGER2USD-USDT,index,Paused,1780560000000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"display=GER40; qty_step=0.0000001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне через A"
+bingx,NCSKKVUE2USD-USDT,equity,Paused,1783347000000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"qty_step=0.0001; min_notional_usdt=2; api_open=false; api_close=false; приостановлен: klines отдают code 109415, истории"
+bingx,NCSKXNDU2USD-USDT,equity,Trading,1794294000000,,нет файла свечей в выгрузке,листинг после конца окна,qty_step=0.0001; min_notional_usdt=2
+bingx,NCFXUSD2TWD-USDT,fx,Paused,1784704800000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"pair=USDTWD; qty_step=0.0001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне через API не"
+bingx,NCFXUSD2IDR-USDT,fx,Paused,1784704800000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"pair=USDIDR; qty_step=0.0000001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне через API"
+bingx,NCFXUSD2ARS-USDT,fx,Paused,1785246600000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"pair=USDARS; qty_step=0.000001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне через API "
+bingx,NCFXUSD2INR-USDT,fx,Paused,1786333800000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"pair=USDINR; qty_step=0.0001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне через API не"
+bingx,NCSKCSCL2USD-USDT,equity,Paused,1786975200000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"qty_step=0.0001; min_notional_usdt=2; api_open=false; api_close=false; приостановлен: klines отдают code 109415, истории"
+bingx,NCCOXAUINR2USD-USDT,metal,Paused,1787131800000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"cross: XAU в INR; qty_step=0.00000001; min_notional_usdt=2; приостановлен: klines отдают code 109415, истории в окне чер"
+bingx,NCSKOKTG2USD-USDT,etf,Paused,1788186000000,,нет файла свечей в выгрузке,статус Paused; причина по полям списка не определяется,"qty_step=0.0001; min_notional_usdt=2; api_open=false; api_close=false; приостановлен: klines отдают code 109415, истории"
+bingx,NCSKITA2USD-USDT,etf,Trading,1794235800000,,нет файла свечей в выгрузке,листинг после конца окна,qty_step=0.00001; min_notional_usdt=2; api_open=false; api_close=false
+bingx,KOR-USDT,crypto,Trading,1793847600000,,нет файла свечей в выгрузке,листинг после конца окна,qty_step=0.1; min_notional_usdt=2
+bingx,GATO-USDT,crypto,Trading,1793847600000,,нет файла свечей в выгрузке,листинг после конца окна,qty_step=0.1; min_notional_usdt=2
+bingx,NCSKMSCI2USD-USDT,equity,Trading,1793869200000,,нет файла свечей в выгрузке,листинг после конца окна,qty_step=0.00001; min_notional_usdt=2
+bingx,NCSKDFEN2USD-USDT,equity,Trading,1793869200000,,нет файла свечей в выгрузке,листинг после конца окна,qty_step=0.0001; min_notional_usdt=2
+bitget,HINDUNILVRUSDT,equity,normal,1793351838007,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,LTUSDT,equity,normal,1793351841585,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,ITCUSDT,equity,normal,1793351844313,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.1; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,BHARTIARTLUSDT,equity,normal,1793351847222,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,TCSUSDT,equity,normal,1793351849247,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,INFYUSDT,equity,normal,1793351851557,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,SBINUSDT,equity,normal,1793351855758,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,ICICIBANKUSDT,equity,normal,1793351858191,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,HDFCBANKUSDT,equity,normal,1793351860690,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,RELIANCEUSDT,equity,normal,1793351863991,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20; листинг IN; вне часов базового рынка свечи плоские
+bitget,MSUSDT,equity,normal,1793874273218,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20
+bitget,KMBUSDT,equity,normal,1793874275352,,файл без строк данных (только заголовок),,pt=usdt-futures; lot=0.01; maxLev=20
+kraken,PF_GBPUSD,fx,Trading,1744894790000,,файл без строк данных (только заголовок),,pair GBP/USD; type=flexible_futures
+kraken,FF_ETHUSD_261225,crypto,Trading,1779436800000,1798185600000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-12-25T08:00:00Z"
+kraken,FF_XBTUSD_261225,crypto,Trading,1779436800000,1798185600000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-12-25T08:00:00Z"
+kraken,FF_SOLUSD_261225,crypto,Trading,1787904004000,1798185600000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-12-25T08:00:00Z"
+kraken,FF_ETHUSD_270326,crypto,Trading,1789628804000,1806048000000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2027-03-26T08:00:00Z"
+kraken,FF_XBTUSD_270326,crypto,Trading,1789628814000,1806048000000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2027-03-26T08:00:00Z"
+kraken,FF_ETHUSD_261127,crypto,Trading,1792742430000,1795766400000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-11-27T08:00:00Z"
+kraken,FF_XBTUSD_261127,crypto,Trading,1792742430000,1795766400000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-11-27T08:00:00Z"
+kraken,FF_ETHUSD_261106,crypto,Trading,1793347463307,1793952000000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-11-06T08:00:00Z"
+kraken,FF_SOLUSD_261127,crypto,Trading,1793347463551,1795766400000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-11-27T08:00:00Z"
+kraken,FF_XBTUSD_261106,crypto,Trading,1793347463974,1793952000000,нет файла свечей в выгрузке,"датированный фьючерс, не перпетуал (не качали)","type=flexible_futures; dated future (not perpetual), expiry=2026-11-06T08:00:00Z"
+lighter,AI16Z,crypto,inactive,1739641276377,,файл без строк данных (только заголовок),,market_id=22
+lighter,MKR,crypto,inactive,1741193078035,,файл без строк данных (только заголовок),,market_id=28
+lighter,RESOLV,crypto,inactive,1753809149798,,файл без строк данных (только заголовок),,market_id=51
+lighter,LAUNCHCOIN,crypto,inactive,1753809185849,,файл без строк данных (только заголовок),,market_id=54
+lighter,YZY,crypto,inactive,1755772113977,,файл без строк данных (только заголовок),,market_id=70
+lighter,DOLO,crypto,inactive,1756480029382,,файл без строк данных (только заголовок),,market_id=75
+lighter,MYX,crypto,inactive,1758191596843,,файл без строк данных (только заголовок),,market_id=80
+lighter,1000TOSHI,crypto,inactive,1758191608983,,файл без строк данных (только заголовок),,market_id=81; multiplier 1000: price and size per 1000 TOSHI
+lighter,EDEN,crypto,inactive,1759422109069,,файл без строк данных (только заголовок),,market_id=89
+lighter,FOGO,crypto,inactive,1768486801655,,файл без строк данных (только заголовок),,market_id=124
+lighter,DUSK,crypto,inactive,1769097406139,,файл без строк данных (только заголовок),,market_id=125
+lighter,BIRB,crypto,inactive,1770318520252,,файл без строк данных (только заголовок),,market_id=133
+lighter,PIPPIN,crypto,inactive,1770318520338,,файл без строк данных (только заголовок),,market_id=135
+lighter,SAMSUNG,equity,inactive,1770825551892,,файл без строк данных (только заголовок),,market_id=140
+lighter,HYUNDAI,equity,inactive,1770825551906,,файл без строк данных (только заголовок),,market_id=141
+lighter,KRCOMP,index,inactive,1770825551908,,файл без строк данных (только заголовок),,market_id=142
+lighter,SKHYNIX,equity,inactive,1770825551938,,файл без строк данных (только заголовок),,market_id=143
+lighter,HANMI,equity,inactive,1771440148372,,файл без строк данных (только заголовок),,market_id=148
+lighter,URA,etf,inactive,1772570399726,,файл без строк данных (только заголовок),,market_id=150
+lighter,DIA,etf,inactive,1772570399731,,файл без строк данных (только заголовок),,market_id=152
+lighter,BOTZ,etf,inactive,1772570399732,,файл без строк данных (только заголовок),,market_id=154
+lighter,MAGS,etf,inactive,1772570399858,,файл без строк данных (только заголовок),,market_id=155
+lighter,SOXX,etf,inactive,1778090119293,,файл без строк данных (только заголовок),,market_id=169
+lighter,WHEAT,commodity,inactive,1778229044413,,файл без строк данных (только заголовок),,market_id=170
+lighter,SPACEX,equity,inactive,1778267448907,,файл без строк данных (только заголовок),,market_id=173
+lighter,GME,equity,active,1778529708326,,файл без строк данных (только заголовок),,market_id=176
+lighter,BE,equity,active,1781190442900,,файл без строк данных (только заголовок),,market_id=196
+lighter,USDHKD,fx,active,1782137271582,,файл без строк данных (только заголовок),,pair USD/HKD; market_id=198
+lighter,BYD,equity,active,1782137271590,,файл без строк данных (только заголовок),,market_id=200
+lighter,POPMART,equity,active,1782137271596,,файл без строк данных (только заголовок),,market_id=204
+lighter,ARM,equity,active,1782318988526,,файл без строк данных (только заголовок),,market_id=206
+lighter,AAOI,equity,active,1782318988529,,файл без строк данных (только заголовок),,market_id=207
+lighter,NOK,equity,active,1782318988530,,файл без строк данных (только заголовок),,market_id=208
+lighter,QCOM,equity,active,1782318988533,,файл без строк данных (только заголовок),,market_id=209
+lighter,AVGO,equity,active,1782318988534,,файл без строк данных (только заголовок),,market_id=210
+lighter,ADI,other,inactive,1782838090935,,файл без строк данных (только заголовок),,underlying not identified from exchange metadata (strategy_index=7); market_id=213
+lighter,SOXS,etf,active,1786635163435,,файл без строк данных (только заголовок),,market_id=222
+lighter,WDC,equity,active,1786635163446,,файл без строк данных (только заголовок),,market_id=223
+lighter,AXTI,equity,active,1786635163447,,файл без строк данных (только заголовок),,market_id=224
+lighter,ETH/USDC,crypto,active,1765036263130,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2048; no strategy_index (details unavailable)
+lighter,LIT/USDC,crypto,active,1767042614755,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2049; no strategy_index (details unavailable)
+lighter,LINK/USDC,crypto,active,1768058911367,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2050; no strategy_index (details unavailable)
+lighter,UNI/USDC,crypto,active,1768058911382,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2051; no strategy_index (details unavailable)
+lighter,AAVE/USDC,crypto,active,1768058911383,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2052; no strategy_index (details unavailable)
+lighter,SKY/USDC,crypto,active,1768058911384,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2053; no strategy_index (details unavailable)
+lighter,LDO/USDC,crypto,active,1768058911386,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2054; no strategy_index (details unavailable)
+lighter,AZTEC/USDC,crypto,inactive,1770885132538,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=2055; no strategy_index (details unavailable)
+lighter,XAUT/USDC,metal,active,1787244811305,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; gold-backed token; market_id=2056; no strategy_index (details unavailable)
+lighter,rhSPY/USDC,etf,active,1787244811307,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; tokenized ETF (rebasing); market_id=2057; multiplier=1.001717991187472003; no strategy_index (details unavailable)
+lighter,rhQQQ/USDC,etf,active,1787244811320,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; tokenized ETF (rebasing); market_id=2058; multiplier=1.000700791241405425; no strategy_index (details unavailable)
+lighter,VARIATIONAL,other,active,1791371881781,,файл без строк данных (только заголовок),,underlying not identified from exchange metadata (strategy_index=7); market_id=4098
+lighter,weETH/USDC,crypto,active,1792517339504,,нет файла свечей в выгрузке,спот-рынок (не качали),spot; market_id=4510; no strategy_index (details unavailable)
+lighter,IREN,equity,active,1793814754983,,файл без строк данных (только заголовок),,market_id=7829
