@@ -1,0 +1,158 @@
+######## statarb-tk479-f27c879e statarb convert
+Каталог `<SYM>.csv.gz` → каталог `<SYM>.sap` (минуты с объёмом 0 и дыры → NaN)
+
+Usage: statarb-tk479-f27c879e statarb convert --src <SRC> --out <OUT> --threads <THREADS>
+
+Options:
+      --src <SRC>          
+      --out <OUT>          
+      --threads <THREADS>  
+  -h, --help               Print help
+rc=0
+######## statarb-tk479-f27c879e statarb bench
+Замер скорости ядра на панелях: строк (минут) в секунду и пар в секунду
+
+Usage: statarb-tk479-f27c879e statarb bench [OPTIONS] --kind <KIND> --engine <ENGINE> --panels <PANELS> --symbols <SYMBOLS> --max-jobs <MAX_JOBS> --min-span <MIN_SPAN> --threads <THREADS> --window <WINDOW> --min-obs <MIN_OBS> --entry-z <ENTRY_Z> --exit-z <EXIT_Z> --max-hold <MAX_HOLD> --refresh <REFRESH>
+
+Options:
+      --kind <KIND>                    pair — все пары первых N символов; cross — один символ на двух биржах (β = 1); basket — символ против K следующих с равными весами; funding-pp — перп против перпа другой биржи с выплатами фандинга обеих ног; funding-ps — перп против спота (спот-ног фандинга нет, комиссия спота) [possible values: pair, cross, basket, funding-pp, funding-ps]
+      --engine <ENGINE>                kernel — онлайн-ядро; reference — наивный O(W) пересчёт; drift — ядро и reference на тех же заданиях, печатает расхождение z и сделок (скорость не мерится) [possible values: kernel, reference, drift]
+      --panels <PANELS>                
+      --panels-b <PANELS_B>            Вторая биржа для cross / funding-*
+      --funding-y <FUNDING_Y>          Каталог `<SYM>.csv.gz` фандинга ноги Y (funding-*)
+      --funding-x <FUNDING_X>          Каталог `<SYM>.csv.gz` фандинга ноги X (funding-pp)
+      --symbols <SYMBOLS>              Сколько первых (по имени) панелей брать
+      --max-jobs <MAX_JOBS>            Потолок числа заданий (пар/корзин)
+      --min-span <MIN_SPAN>            Минимум общих минут спана у задания
+      --basket-k <BASKET_K>            K компонент корзины (только basket) [default: 0]
+      --threads <THREADS>              
+      --window <WINDOW>                
+      --min-obs <MIN_OBS>              
+      --entry-z <ENTRY_Z>              
+      --exit-z <EXIT_Z>                
+      --max-hold <MAX_HOLD>            
+      --refresh <REFRESH>              
+      --digest                         Печатает хеш всех сделок и счётчиков (kernel / reference): гейт «байт в байт» между бинарниками. Без флага горячий путь идёт с пустым приёмником и вывод прежний
+      --delay-x <DELAY_X>              C1: задержка входа ноги X после ноги Y, минут; 0 — обе ноги на одном open (как раньше) [default: 0]
+      --funding-k <FUNDING_K>          D3: k последних выплат ноги Y для входа по уровню ставки (требует --funding-y); 0 — правило z (как раньше) [default: 0]
+      --hold-payments <HOLD_PAYMENTS>  D3: ожидаемое удержание в выплатах (обязательно при --funding-k ≥ 1) [default: 0]
+  -h, --help                           Print help
+rc=0
+######## statarb-tk479-f27c879e statarb run
+error: unrecognized subcommand 'run'
+
+Usage: statarb-tk479-f27c879e statarb <COMMAND>
+
+For more information, try '--help'.
+rc=2
+######## statarb-tk479-f27c879e statarb corr-bench
+error: unrecognized subcommand 'corr-bench'
+
+Usage: statarb-tk479-f27c879e statarb <COMMAND>
+
+For more information, try '--help'.
+rc=2
+######## statarb-tk479-f27c879e statarb form
+error: unrecognized subcommand 'form'
+
+Usage: statarb-tk479-f27c879e statarb <COMMAND>
+
+For more information, try '--help'.
+rc=2
+######## statarb-tk486-60e61cea statarb convert
+Каталог `<SYM>.csv.gz` → каталог `<SYM>.sap` (минуты с объёмом 0 и дыры → NaN)
+
+Usage: statarb-tk486-60e61cea statarb convert --src <SRC> --out <OUT> --threads <THREADS>
+
+Options:
+      --src <SRC>          
+      --out <OUT>          
+      --threads <THREADS>  
+  -h, --help               Print help
+rc=0
+######## statarb-tk486-60e61cea statarb bench
+Замер скорости ядра на панелях: строк (минут) в секунду и пар в секунду
+
+Usage: statarb-tk486-60e61cea statarb bench [OPTIONS] --kind <KIND> --engine <ENGINE> --panels <PANELS> --symbols <SYMBOLS> --max-jobs <MAX_JOBS> --min-span <MIN_SPAN> --threads <THREADS> --window <WINDOW> --min-obs <MIN_OBS> --entry-z <ENTRY_Z> --exit-z <EXIT_Z> --max-hold <MAX_HOLD> --refresh <REFRESH>
+
+Options:
+      --kind <KIND>            pair — все пары первых N символов; cross — один символ на двух биржах (β = 1); basket — символ против K следующих с равными весами; funding-pp — перп против перпа другой биржи с выплатами фандинга обеих ног; funding-ps — перп против спота (спот-ног фандинга нет, комиссия спота) [possible values: pair, cross, basket, funding-pp, funding-ps]
+      --engine <ENGINE>        kernel — онлайн-ядро; reference — наивный O(W) пересчёт; drift — ядро и reference на тех же заданиях, печатает расхождение z и сделок (скорость не мерится) [possible values: kernel, reference, drift]
+      --panels <PANELS>        
+      --panels-b <PANELS_B>    Вторая биржа для cross / funding-*
+      --funding-y <FUNDING_Y>  Каталог `<SYM>.csv.gz` фандинга ноги Y (funding-*)
+      --funding-x <FUNDING_X>  Каталог `<SYM>.csv.gz` фандинга ноги X (funding-pp)
+      --symbols <SYMBOLS>      Сколько первых (по имени) панелей брать
+      --max-jobs <MAX_JOBS>    Потолок числа заданий (пар/корзин)
+      --min-span <MIN_SPAN>    Минимум общих минут спана у задания
+      --basket-k <BASKET_K>    K компонент корзины (только basket) [default: 0]
+      --threads <THREADS>      
+      --window <WINDOW>        
+      --min-obs <MIN_OBS>      
+      --entry-z <ENTRY_Z>      
+      --exit-z <EXIT_Z>        
+      --max-hold <MAX_HOLD>    
+      --refresh <REFRESH>      
+  -h, --help                   Print help
+rc=0
+######## statarb-tk486-60e61cea statarb run
+Клетка П-32 × список заданий-пар на окнах суток → суточные агрегаты по суткам закрытия (TK-484)
+
+Usage: statarb-tk486-60e61cea statarb run [OPTIONS] --kind <KIND> --jobs <JOBS> --panels <PANELS> --daily-out <DAILY_OUT> --min-span <MIN_SPAN> --threads <THREADS>
+
+Options:
+      --kind <KIND>              [possible values: pair, cross, basket, funding-pp, funding-ps]
+      --cell <CELL>              Метка клетки — первый столбец суточного csv
+      --cells <CELLS>            Список клеток одним проходом: csv `cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh` (`beta_fixed` пусто — как без `--beta-fixed`; `stop_z` `inf` выключает). Вместо флагов одной клетки
+      --jobs <JOBS>              csv `y,x,from_day,to_day`; `x` — символы через `+` (корзина — равные веса)
+      --panels <PANELS>          
+      --panels-b <PANELS_B>      Панели ноги X для cross / funding-*
+      --funding-y <FUNDING_Y>    
+      --funding-x <FUNDING_X>    
+      --daily-out <DAILY_OUT>    Выход: `cell,day,net_bps,gross_bps,fee_bps,funding_bps,trades` по суткам закрытия
+      --trades-out <TRADES_OUT>  
+      --trade-jobs <TRADE_JOBS>  Номера заданий (с 0, без заголовка) через запятую, чьи сделки писать в `--trades-out`
+      --min-span <MIN_SPAN>      Минимум минут общего спана вместе с прогревом
+      --threads <THREADS>        
+      --window <WINDOW>          
+      --min-obs <MIN_OBS>        
+      --beta-fixed <BETA_FIXED>  β фиксированный; без флага — OLS для pair/basket и 1 для cross/funding-*
+      --entry-z <ENTRY_Z>        
+      --exit-z <EXIT_Z>          
+      --stop-z <STOP_Z>          Стоп по z; `inf` выключает
+      --max-hold <MAX_HOLD>      
+      --refresh <REFRESH>        
+  -h, --help                     Print help
+rc=0
+######## statarb-tk486-60e61cea statarb corr-bench
+Замер матричного предфильтра формирования (TK-486): корреляция всех пар вселенной блоками
+
+Usage: statarb-tk486-60e61cea statarb corr-bench [OPTIONS] --symbols <SYMBOLS> --minutes <MINUTES> --min-obs <MIN_OBS> --threads <THREADS> --check-pairs <CHECK_PAIRS>
+
+Options:
+      --symbols <SYMBOLS>          Символов во вселенной (синтетика: общий фактор + шум, 5 % пропусков)
+      --minutes <MINUTES>          Отсчётов в окне формирования (90 суток по 1 м = 129600)
+      --min-obs <MIN_OBS>          
+      --threads <THREADS>          
+      --check-pairs <CHECK_PAIRS>  Сколько пар сверить с прямым расчётом
+      --kernel <KERNEL>            Ядро суммирования блока: ref (прежнее, умолчание) | zip | zip2 | avx (TK-486) [default: ref]
+  -h, --help                       Print help
+rc=0
+######## statarb-tk486-60e61cea statarb form
+Формирование пар окна: EG-суммы всех пар блоками + отбор §6.1 → список заданий для `run` (TK-486)
+
+Usage: statarb-tk486-60e61cea statarb form [OPTIONS] --panels <PANELS> --from-day <FROM_DAY> --to-day <TO_DAY> --window-days <WINDOW_DAYS> --block-chunks <BLOCK_CHUNKS> --min-obs <MIN_OBS> --alpha <ALPHA> --threads <THREADS> --jobs-out <JOBS_OUT>
+
+Options:
+      --panels <PANELS>              Каталог панелей `<SYM>.sap`
+      --from-day <FROM_DAY>          Первые сутки торговли пар; окно формирования — `window_days` суток перед ними
+      --to-day <TO_DAY>              Сутки конца торговли (не включая)
+      --window-days <WINDOW_DAYS>    
+      --block-chunks <BLOCK_CHUNKS>  Кусков по `CH` отсчётов в блоке сумм; половины окна режутся по границам блоков
+      --min-obs <MIN_OBS>            Минимум пар отсчётов (k−1, k) у пары на половине окна и у символа в окне
+      --alpha <ALPHA>                Уровень Холма по семье `s·(s−1)` проверок
+      --threads <THREADS>            
+      --jobs-out <JOBS_OUT>          Выход: `y,x,from_day,to_day` (формат `statarb run --jobs`), по возрастанию p
+      --detail-out <DETAIL_OUT>      Выход: `y,x,beta,t_first,t_second,p` в том же порядке
+  -h, --help                         Print help
+rc=0
