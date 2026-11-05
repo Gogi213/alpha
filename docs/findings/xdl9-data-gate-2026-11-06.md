@@ -206,4 +206,3 @@ Kraken ниже Binance в среднем на 6,5 bps (предположени
 - Вне git на ПК (`C:\visual projects\alpha\data\xdl9\`, 111 МБ): `manifest.csv`, `gate/` (манифесты, `daily_*`, `minutes_*`, `rep/`, `lag/`), `core/` (BTC/ETH/SOL), `binance_rest/`, `binance_xdl30/`. На машинах: Sofia `/opt/xdl/gate/`, Deck `~/xdl/gate/`.
 - Воспроизведение: `data_gate.py scan --root <out> --out <dir> --exchanges …` на машине с данными; `merge --exchange bitget --parts A,B`; `report --in <dir> --out <dir>/rep` на ПК; `lagcorr.py --core data/xdl9/core --out data/xdl9/gate/lag`; `compare_tk490.py --xdl … --prev … --out …`.
 
-===== КОНЕЦ ОТЧЁТА =====
