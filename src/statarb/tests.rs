@@ -456,7 +456,7 @@ fn overlap_of_spans() {
 }
 
 /// Каталог панелей AAA, BBB (7 суток, коинтегрированная пара с пропусками) для тестов `statarb run`.
-fn run_panels_dir() -> tempfile::TempDir {
+pub(super) fn run_panels_dir() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let mut rng = Lcg(77);
     let n = 7 * 1440;

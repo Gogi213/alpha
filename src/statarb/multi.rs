@@ -8,9 +8,11 @@
 //!
 //! Задержка ноги X (`delay_x`) и правило фандинга (`Rule::Funding`) здесь не реализованы: клетка с ненулевой
 //! задержкой или правилом не `Rule::Z` отклоняется явной ошибкой, такие клетки считает одноклеточный `run_pair`.
+//! Позиция, оставшаяся открытой на конце данных, передаётся приёмнику `Sink::open_end` так же, как в `run_pair`
+//! (TK-493, `--mtm-open`): состояние то же побитно (тест `open_end_hook_is_the_same_in_single_and_multi_passes`).
 
 use super::kernel::{
-    beta_z, price_at, rates_at, Counters, PairInput, Params, Pend, Rule, Sink, Sums, Trade,
+    beta_z, price_at, rates_at, Counters, OpenPos, PairInput, Params, Pend, Rule, Sink, Sums, Trade,
 };
 
 struct Cell {
@@ -232,11 +234,23 @@ pub fn run_pair_multi<S: Sink>(
     }
     Ok(st
         .into_iter()
-        .map(|mut cell| {
+        .zip(sinks.iter_mut())
+        .map(|(mut cell, sink)| {
             cell.c.obs_minutes = obs_minutes;
             cell.c.gap_minutes = gap_minutes;
             if cell.dir != 0 {
                 cell.c.open_at_end = 1;
+                let fill = inp.first_min + cell.fill_in as i64;
+                sink.open_end(&OpenPos {
+                    dir: cell.dir,
+                    sig_in: inp.first_min + cell.sig_in as i64,
+                    fill_in: fill,
+                    // delay_x = 0: нога X вошла на том же open, что и Y
+                    fill_x: Some(fill),
+                    qty: &cell.qty,
+                    pin: &cell.pin,
+                    fund: cell.fund,
+                });
             }
             cell.c
         })

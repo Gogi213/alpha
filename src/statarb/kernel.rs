@@ -127,11 +127,32 @@ pub struct Trade {
     pub net_bps: f64,
 }
 
+/// Позиция, оставшаяся открытой на конце данных (TK-493, `--mtm-open`): состояние ядра на последней минуте.
+/// Минуты — абсолютные (индекс сетки панелей), как в `Trade`.
+#[derive(Debug, Clone, Copy)]
+pub struct OpenPos<'a> {
+    pub dir: i8,
+    pub sig_in: i64,
+    /// Исполнение ноги Y.
+    pub fill_in: i64,
+    /// Исполнение ног X; `None` — нога X ещё не вошла (`delay_x`: срок не наступил или нет open), открыта одна нога Y.
+    pub fill_x: Option<i64>,
+    /// Количества по ногам (0 = Y, дальше компоненты X) и цены входа; для ног X при `fill_x == None` значения не определены.
+    pub qty: &'a [f64],
+    pub pin: &'a [f64],
+    /// Накопленный фандинг (доля номинала Y, до умножения на 1e4).
+    pub fund: f64,
+}
+
 pub trait Sink {
     fn trade(&mut self, t: &Trade);
     /// z-скор минуты `t` (`NaN` — оценки нет); по умолчанию не нужен и вычёркивается при мономорфизации.
     #[inline]
     fn z(&mut self, _t: usize, _z: f64) {}
+    /// Вызывается один раз после последней минуты, если позиция осталась открытой (`Counters::open_at_end == 1`).
+    /// По умолчанию не нужен: бинарные хеши, `Vec<Trade>` и `()` его не принимают.
+    #[inline]
+    fn open_end(&mut self, _pos: &OpenPos) {}
 }
 
 impl Sink for () {
@@ -535,6 +556,19 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
     }
     if dir != 0 {
         c.open_at_end = 1;
+        sink.open_end(&OpenPos {
+            dir,
+            sig_in: inp.first_min + sig_in as i64,
+            fill_in: inp.first_min + fill_in as i64,
+            fill_x: if DELAY && x_due != NO_DUE {
+                None
+            } else {
+                Some(inp.first_min + fill_x as i64)
+            },
+            qty: &qty,
+            pin: &pin,
+            fund,
+        });
     }
     c
 }
