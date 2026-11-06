@@ -16,6 +16,7 @@ W=${W:-/opt/alpha-compute/pgo-xdl9}; SRC=${SRC:-$W/src}; NAME=${NAME:-statarb-xd
 # В-100 (07.11): сборки — на Deck (build_deck.sh): LOCK= (пусто) снимает замок VPS, JOBS=8, NICE=10; на VPS значения по умолчанию прежние
 LOCK=${LOCK-/opt/alpha-compute/.build.lock}
 export PATH=$HOME/.cargo/bin:$PATH
+[ -f "$HOME/xdl9/zigcc/env.sh" ] && . "$HOME/xdl9/zigcc/env.sh"   # Deck без gcc: zig cc как cc/линкер (В-100)
 SYSROOT=$(rustc --print sysroot); PROFDATA=$SYSROOT/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-profdata
 export CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_PANIC=abort
 [ -n "${ALPHA_COMMIT:-}" ] && export ALPHA_COMMIT
