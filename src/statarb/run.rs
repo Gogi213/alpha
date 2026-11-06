@@ -716,9 +716,10 @@ fn group_cells(cells: &[Cell]) -> Vec<Vec<usize>> {
     groups
 }
 
-/// Клетку умеет многоклеточный проход (`multi.rs`): без задержки ноги X и с правилом z.
+/// Клетку умеет многоклеточный проход (`multi.rs`): без задержки ноги X, с правилом z и без запрета входа до `from_min`
+/// (`--no-entry-before-from`: такие клетки идут одноклеточным `run_pair`, результат равен отдельным прогонам клеток).
 fn multi_ok(p: &Params) -> bool {
-    p.delay_x == 0 && p.rule == Rule::Z
+    p.delay_x == 0 && p.rule == Rule::Z && p.entry_from.is_none()
 }
 
 /// Все клетки одного задания: по проходу `run_pair_multi` на группу, а клетки с `delay_x` / правилом funding

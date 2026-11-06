@@ -6,14 +6,17 @@
 //! совпадают с `kernel::run_pair` побитно (тест `multi_equals_single_cell_passes`); `run_pair` остаётся
 //! эталоном и умолчанием, пока гейт против прежнего бинарника на calc не пройден.
 //!
-//! Задержка ноги X (`delay_x`) и правило фандинга (`Rule::Funding`) здесь не реализованы: клетка с ненулевой
-//! задержкой или правилом не `Rule::Z` отклоняется явной ошибкой, такие клетки считает одноклеточный `run_pair`.
+//! Задержка ноги X (`delay_x`), правило фандинга (`Rule::Funding`) и запрет входа до `from_min` (`Params::entry_from`,
+//! TK-493 w5, D5(ii)) здесь не реализованы: такая клетка отклоняется явной ошибкой, её считает одноклеточный `run_pair`
+//! (`run.rs: multi_ok`). Код цикла не менялся с 4ef45cc8 побайтно: любая правка этой функции (даже ветка на сигнале) меняла выбор
+//! LLVM по циклам и замедляла проход на 3–10 % (замеры G13 и perf stat w5: +1,3 % инструкций, +22 % промахов предсказания; const
+//! generic `GATE` — +15 % инструкций), а запрет входа нужен правилу funding (D2), которое multi и так не считает.
 //! Позиция, оставшаяся открытой на конце данных, передаётся приёмнику `Sink::open_end` так же, как в `run_pair`
 //! (TK-493, `--mtm-open`): состояние то же побитно (тест `open_end_hook_is_the_same_in_single_and_multi_passes`).
 
 use super::kernel::{
-    beta_z, entry_gate, price_at, rates_at, Counters, ExitReason, OpenPos, PairInput, Params, Pend,
-    Rule, Sink, Sums, Trade,
+    beta_z, price_at, rates_at, Counters, ExitReason, OpenPos, PairInput, Params, Pend, Rule, Sink,
+    Sums, Trade,
 };
 
 struct Cell {
@@ -30,14 +33,10 @@ struct Cell {
     /// Причина решённого выхода и сторона, закрытая стопом или сроком (`Params::rearm`).
     why: ExitReason,
     block: i8,
-    /// Первый индекс сетки, с которого допустимо исполнение входа (`Params::entry_from`, TK-493 w5, D5(ii)); без флага 0.
-    /// Лежит в состоянии клетки, а не отдельным аргументом цикла: лишний аргумент и параллельный итератор на горячем пути
-    /// замедляли многоклеточный проход на ~5 % (замер G13).
-    enter_t0: usize,
 }
 
 impl Cell {
-    fn new(k: usize, enter_t0: usize) -> Cell {
+    fn new(k: usize) -> Cell {
         Cell {
             pend: Pend::None,
             dir: 0,
@@ -50,7 +49,6 @@ impl Cell {
             beta: 0.0,
             why: ExitReason::Rule,
             block: 0,
-            enter_t0,
         }
     }
 
@@ -152,12 +150,9 @@ impl Cell {
         }
     }
 
-    /// Сигнал входа `d` по закрытию минуты `t`; `rearm` не пускает вход в сторону, закрытую стопом или сроком;
-    /// `Params::entry_from` (`enter_t0` клетки) не пускает вход в разогреве (TK-493 w5, D5(ii)).
+    /// Сигнал входа `d` по закрытию минуты `t`; `rearm` не пускает вход в сторону, закрытую стопом или сроком.
     fn signal(&mut self, p: &Params, d: i8, beta: f64, t: usize) {
-        if t + 1 < self.enter_t0 {
-            self.c.warmup_blocked += 1;
-        } else if p.rearm && self.block == d {
+        if p.rearm && self.block == d {
             self.c.rearm_blocked += 1;
         } else {
             self.pend = Pend::Enter(d, beta, t);
@@ -228,8 +223,11 @@ pub fn run_pair_multi<S: Sink>(
     }) {
         return Err("клетки группы различаются по window / min_obs / beta / refresh");
     }
-    if cells.iter().any(|p| p.delay_x != 0 || p.rule != Rule::Z) {
-        return Err("многоклеточный проход не умеет delay_x и Rule::Funding — такую клетку считает run_pair");
+    if cells
+        .iter()
+        .any(|p| p.delay_x != 0 || p.rule != Rule::Z || p.entry_from.is_some())
+    {
+        return Err("многоклеточный проход не умеет delay_x, Rule::Funding и entry_from — такую клетку считает run_pair");
     }
     let n = inp.ly.len();
     let k = inp.ox.len();
@@ -238,11 +236,7 @@ pub fn run_pair_multi<S: Sink>(
     } else {
         p0.refresh
     };
-    // D5(ii): у каждой клетки свой `entry_from` (в `run` он один на прогон, API допускает разные).
-    let mut st: Vec<Cell> = cells
-        .iter()
-        .map(|p| Cell::new(k, entry_gate(p, inp.first_min)))
-        .collect();
+    let mut st: Vec<Cell> = cells.iter().map(|_| Cell::new(k)).collect();
     let (mut obs_minutes, mut gap_minutes) = (0u64, 0u64);
     let (mut eval_minutes, mut z_def_minutes) = (0u64, 0u64);
     let mut s = Sums::default();

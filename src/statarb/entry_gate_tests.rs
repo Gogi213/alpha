@@ -162,10 +162,16 @@ fn z_rule_with_min_obs_equal_window_is_unchanged_by_the_gate() {
     assert_eq!(t_off, t_on);
     assert_eq!(c_off, c_on);
     assert_eq!(c_on.warmup_blocked, 0);
+    // и многоклеточный проход (клетка без запрета) даёт ту же сделки и счётчики, что ядро с запретом: на видах z с min_obs = W
+    // боевой путь `run --cells` без флага и одноклеточный путь с флагом равны
+    let mut ms = [Vec::<Trade>::new()];
+    let cm = run_pair_multi(&inp, std::slice::from_ref(&p), &mut ms).unwrap();
+    assert_eq!(t_on, ms[0]);
+    assert_eq!(c_on, cm[0]);
 }
 
 #[test]
-fn z_rule_gate_blocks_early_entries_and_agrees_in_kernel_reference_and_multi() {
+fn z_rule_gate_blocks_early_entries_kernel_equals_reference_and_multi_rejects_gated_cells() {
     let mut r = Lcg(12);
     let x = walk(N, &mut r, 1e-3, 4.0);
     let y = ou_on(&x, 0.8, &mut r, 2e-3);
@@ -205,8 +211,10 @@ fn z_rule_gate_blocks_early_entries_and_agrees_in_kernel_reference_and_multi() {
             ..base
         })
         .collect();
+    // многоклеточный проход запрет входа не умеет (его цикл не менялся с 4ef45cc8 — скорость): такие клетки он отклоняет явной
+    // ошибкой, а `run --cells` считает их одноклеточным `run_pair` (run.rs: `multi_ok`)
     let mut sinks: Vec<Vec<Trade>> = cells.iter().map(|_| Vec::new()).collect();
-    let cm = run_pair_multi(&inp, &cells, &mut sinks).unwrap();
+    assert!(run_pair_multi(&inp, &cells, &mut sinks).is_err());
     for (i, p) in cells.iter().enumerate() {
         let (tk, ck) = both(&inp, p); // ядро против референса
         assert!(
@@ -214,14 +222,6 @@ fn z_rule_gate_blocks_early_entries_and_agrees_in_kernel_reference_and_multi() {
             "клетка {i}: вход в разогреве"
         );
         assert!(ck.warmup_blocked > 0, "клетка {i}: подавлено 0");
-        assert_eq!(
-            tk, sinks[i],
-            "клетка {i}: ядро против многоклеточного прохода"
-        );
-        assert_eq!(
-            ck, cm[i],
-            "клетка {i}: счётчики ядра и многоклеточного прохода"
-        );
     }
     // первая сделка запрещённого прогона не раньше границы (сигнал допустим на закрытии минуты from − 1)
     let (t_on, _) = both(&inp, &cells[0]);
