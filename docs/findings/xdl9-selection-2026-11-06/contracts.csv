@@ -42,7 +42,7 @@ binance,AINUSDT,AIN|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,4
 binance,AIOTUSDT,AIOT|крипта,main,крипта,crypto,0,0.99301,20019,1,1,,41
 binance,AIOUSDT,AIO|крипта,main,крипта,crypto,0,0.99797,20119,1,1,,42
 binance,AIXBTUSDT,AIXBT|крипта,main,крипта,crypto,0,0.99296,20018,1,1,,43
-binance,AKAMUSDT,AKAM|акции+ETF,main,акции+ETF,eq_us,1,0.47923,1869,0,1,доля валидных минут 0.4792 < порога 0.5887,44
+binance,AKAMUSDT,AKAM|акции+ETF,main,акции+ETF,eq_us,1,0.47923,1869,0,1,доля валидных минут 0.4792 < порога 0.6262,44
 binance,AKEUSDT,AKE|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,45
 binance,AKTUSDT,AKT|крипта,main,крипта,crypto,0,0.99668,20093,1,1,,46
 binance,ALABUSDT,ALAB|акции+ETF,main,акции+ETF,eq_us,1,0.96282,3755,1,1,,47
@@ -57,7 +57,7 @@ binance,AMATUSDT,AMAT|акции+ETF,main,акции+ETF,eq_us,1,0.98179,3829,1,
 binance,AMCUSDT,AMC|акции+ETF,main,акции+ETF,eq_us,1,0.72256,2818,1,1,,56
 binance,AMDUSDT,AMD|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,57
 binance,AMZNUSDT,AMZN|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,59
-binance,ANETUSDT,ANET|акции+ETF,main,акции+ETF,eq_us,1,0.57128,2228,0,1,доля валидных минут 0.5713 < порога 0.5887,60
+binance,ANETUSDT,ANET|акции+ETF,main,акции+ETF,eq_us,1,0.57128,2228,0,1,доля валидных минут 0.5713 < порога 0.6262,60
 binance,ANIMEUSDT,ANIME|крипта,main,крипта,crypto,0,0.98700,19898,1,1,,61
 binance,ANKRUSDT,ANKR|крипта,main,крипта,crypto,0,0.98338,19825,1,1,,62
 binance,APEUSDT,APE|крипта,main,крипта,crypto,0,0.99866,20133,1,1,,64
@@ -124,7 +124,7 @@ binance,BILLUSDT,BILL|крипта,main,крипта,crypto,0,0.98765,19911,1,1,
 binance,BIOUSDC,BIO|крипта,dup,крипта,crypto,0,0.98304,19818,0,0,,126
 binance,BIOUSDT,BIO|крипта,main,крипта,crypto,0,0.99846,20129,1,1,,127
 binance,BIRBUSDT,BIRB|крипта,main,крипта,crypto,0,0.98869,19932,1,1,,128
-binance,BITOUSDT,BITO|акции+ETF,main,акции+ETF,eq_us,1,0.40744,1589,0,1,доля валидных минут 0.4074 < порога 0.5887,129
+binance,BITOUSDT,BITO|акции+ETF,main,акции+ETF,eq_us,1,0.40744,1589,0,1,доля валидных минут 0.4074 < порога 0.6262,129
 binance,BLESSUSDT,BLESS|крипта,main,крипта,crypto,0,0.99663,20092,1,1,,130
 binance,BLUAIUSDT,BLUAI|крипта,main,крипта,crypto,0,0.99697,20099,1,1,,131
 binance,BLURUSDT,BLUR|крипта,main,крипта,crypto,0,0.99395,20038,1,1,,132
@@ -157,7 +157,7 @@ binance,BULLAUSDT,BULLA|крипта,main,крипта,crypto,0,0.99985,20157,1,
 binance,BUSDT,B|крипта,main,крипта,crypto,0,0.98819,19922,1,1,,159
 binance,BWETUSDT,BWET|акции+ETF,main,акции+ETF,eq_us,1,0.87949,3430,1,1,,160
 binance,BXUSDT,BX|акции+ETF,main,акции+ETF,eq_us,1,0.73513,2867,1,1,,161
-binance,BYDUSDT,BYD|акции+ETF,main,акции+ETF,eq_nonus,0,0.28279,5701,0,1,доля валидных минут 0.2828 < порога 0.8115,162
+binance,BYDUSDT,BYD|акции+ETF,main,акции+ETF,eq_nonus,0,0.28279,5701,0,1,доля валидных минут 0.2828 < порога 0.3322,162
 binance,BZUSDT,BRENT|металлы+энергия,main,металлы+энергия,metal_energy,0,0.99891,20138,1,1,,163
 binance,C98USDT,C98|крипта,main,крипта,crypto,0,0.99226,20004,1,1,,164
 binance,CAKEUSDT,CAKE|крипта,main,крипта,crypto,0,0.99995,20159,1,1,,165
@@ -202,8 +202,8 @@ binance,CRVUSDT,CRV|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,2
 binance,CRWDUSDT,CRWD|акции+ETF,main,акции+ETF,eq_us,1,0.95795,3736,1,1,,205
 binance,CRWVUSDT,CRWV|акции+ETF,main,акции+ETF,eq_us,1,0.99641,3886,1,1,,206
 binance,CSCOUSDT,CSCO|акции+ETF,main,акции+ETF,eq_us,1,0.78487,3061,1,1,,207
-binance,CSOPSAMSUNG2LUSDT,CSOPSAMSUNG2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.58368,11767,0,1,доля валидных минут 0.5837 < порога 0.8115,208
-binance,CSOPSKHYNIX2LUSDT,CSOPSKHYNIX2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.79906,16109,0,1,доля валидных минут 0.7991 < порога 0.8115,209
+binance,CSOPSAMSUNG2LUSDT,CSOPSAMSUNG2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.58368,11767,1,1,,208
+binance,CSOPSKHYNIX2LUSDT,CSOPSKHYNIX2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.79906,16109,1,1,,209
 binance,CTKUSDT,CTK|крипта,main,крипта,crypto,0,0.97401,19636,1,1,,210
 binance,CTRUSDT,CTR|крипта,main,крипта,crypto,0,0.98348,19827,1,1,,211
 binance,CTSIUSDT,CTSI|крипта,main,крипта,crypto,0,0.99807,20121,1,1,,212
@@ -212,14 +212,14 @@ binance,CUSDT,C|крипта,main,крипта,crypto,0,0.99950,20150,1,1,,214
 binance,CVCUSDT,CVC|крипта,main,крипта,crypto,0,0.99896,20139,1,1,,215
 binance,CVNAUSDT,CVNA|акции+ETF,main,акции+ETF,eq_us,1,0.62692,2445,1,1,,216
 binance,CVXUSDT,CVX|крипта,main,крипта,crypto,0,0.98492,19856,1,1,,217
-binance,CXMTUSDT,CXMT|акции+ETF,main,акции+ETF,eq_nonus,0,0.75799,15281,0,1,доля валидных минут 0.7580 < порога 0.8115,218
+binance,CXMTUSDT,CXMT|акции+ETF,main,акции+ETF,eq_nonus,0,0.75799,15281,1,1,,218
 binance,CYBERUSDT,CYBER|крипта,main,крипта,crypto,0,0.99608,20081,1,1,,219
 binance,CYPHUSDT,CYPH|акции+ETF,main,акции+ETF,eq_us,1,0.94205,3674,1,1,,220
 binance,CYSUSDT,CYS|крипта,main,крипта,crypto,0,0.98363,19830,1,1,,221
 binance,DASHUSDT,DASH|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,222
 binance,DATAIPUSDC,DATA|крипта,dup,крипта,crypto,0,0.70228,14158,0,0,,223
 binance,DATAIPUSDT,DATA|крипта,main,крипта,crypto,0,0.98477,19853,1,1,,224
-binance,DDOGUSDT,DDOG|акции+ETF,main,акции+ETF,eq_us,1,0.54564,2128,0,1,доля валидных минут 0.5456 < порога 0.5887,225
+binance,DDOGUSDT,DDOG|акции+ETF,main,акции+ETF,eq_us,1,0.54564,2128,0,1,доля валидных минут 0.5456 < порога 0.6262,225
 binance,DEEPUSDT,DEEP|крипта,main,крипта,crypto,0,0.98631,19884,1,1,,226
 binance,DELLUSDT,DELL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,227
 binance,DEXEUSDT,DEXE|крипта,main,крипта,crypto,0,0.99975,20155,1,1,,228
@@ -267,10 +267,10 @@ binance,ETHUSDT,ETH|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,2
 binance,ETHWUSDT,ETHW|крипта,main,крипта,crypto,0,0.96210,19396,1,1,,272
 binance,EULUSDT,EUL|крипта,main,крипта,crypto,0,0.99762,20112,1,1,,273
 binance,EVAAUSDT,EVAA|крипта,main,крипта,crypto,0,0.99960,20152,1,1,,274
-binance,EWJUSDT,EWJ|акции+ETF,main,акции+ETF,eq_us,1,0.57103,2227,0,1,доля валидных минут 0.5710 < порога 0.5887,275
-binance,EWTUSDT,EWT|акции+ETF,main,акции+ETF,eq_us,1,0.56462,2202,0,1,доля валидных минут 0.5646 < порога 0.5887,276
+binance,EWJUSDT,EWJ|акции+ETF,main,акции+ETF,eq_us,1,0.57103,2227,0,1,доля валидных минут 0.5710 < порога 0.6262,275
+binance,EWTUSDT,EWT|акции+ETF,main,акции+ETF,eq_us,1,0.56462,2202,0,1,доля валидных минут 0.5646 < порога 0.6262,276
 binance,EWYUSDT,EWY|акции+ETF,main,акции+ETF,eq_us,1,0.99974,3899,1,1,,277
-binance,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_nonus,0,0.61518,12402,0,1,доля валидных минут 0.6152 < порога 0.8115,279
+binance,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_us,1,0.81590,3182,1,1,,279
 binance,FARTCOINUSDT,FARTCOIN|крипта,main,крипта,crypto,0,0.99995,20159,1,1,,280
 binance,FETUSDT,FET|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,281
 binance,FFUSDT,FF|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,282
@@ -279,7 +279,7 @@ binance,FIDAUSDT,FIDA|крипта,main,крипта,crypto,0,0.99385,20036,1,1,
 binance,FIGHTUSDT,FIGHT|крипта,main,крипта,crypto,0,0.99826,20125,1,1,,285
 binance,FILUSDC,FIL|крипта,dup,крипта,crypto,0,0.99985,20157,0,0,,286
 binance,FILUSDT,FIL|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,287
-binance,FLEXUSDT,FLEX|акции+ETF,main,акции+ETF,eq_us,1,0.60179,2347,1,1,,288
+binance,FLEXUSDT,FLEX|акции+ETF,main,акции+ETF,eq_us,1,0.60179,2347,0,1,доля валидных минут 0.6018 < порога 0.6262,288
 binance,FLNCUSDT,FLNC|акции+ETF,main,акции+ETF,eq_us,1,0.85872,3349,1,1,,289
 binance,FLOCKUSDT,FLOCK|крипта,main,крипта,crypto,0,0.99960,20152,1,1,,290
 binance,FLOWUSDT,FLOW|крипта,main,крипта,crypto,0,0.99648,20089,1,1,,291
@@ -293,10 +293,10 @@ binance,FUSDT,F|крипта,main,крипта,crypto,0,0.99906,20141,1,1,,298
 binance,FWDIUSDT,FWDI|акции+ETF,main,акции+ETF,eq_us,1,0.86974,3392,1,1,,299
 binance,GALAUSDT,GALA|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,300
 binance,GASUSDT,GAS|крипта,main,крипта,crypto,0,0.92986,18746,0,1,доля валидных минут 0.9299 < порога 0.9615,301
-binance,GDXUSDT,GDX|акции+ETF,main,акции+ETF,eq_us,1,0.61872,2413,1,1,,302
+binance,GDXUSDT,GDX|акции+ETF,main,акции+ETF,eq_us,1,0.61872,2413,0,1,доля валидных минут 0.6187 < порога 0.6262,302
 binance,GENIUSUSDT,GENIUS|крипта,main,крипта,crypto,0,0.99975,20155,1,1,,303
 binance,GEVUSDT,GEV|акции+ETF,main,акции+ETF,eq_us,1,0.73462,2865,1,1,,304
-binance,GIGADEVUSDT,GIGADEVICE|акции+ETF,main,акции+ETF,eq_nonus,0,0.60987,12295,0,1,доля валидных минут 0.6099 < порога 0.8115,305
+binance,GIGADEVUSDT,GIGADEVICE|акции+ETF,main,акции+ETF,eq_nonus,0,0.60987,12295,1,1,,305
 binance,GIGGLEUSDT,GIGGLE|крипта,main,крипта,crypto,0,0.99945,20149,1,1,,306
 binance,GLMUSDT,GLM|крипта,main,крипта,crypto,0,0.97927,19742,1,1,,307
 binance,GLWUSDT,GLW|акции+ETF,main,акции+ETF,eq_us,1,0.99897,3896,1,1,,308
@@ -312,7 +312,7 @@ binance,GRASSUSDT,GRASS|крипта,main,крипта,crypto,0,1.00000,20160,1,
 binance,GRIFFAINUSDT,GRIFFAIN|крипта,main,крипта,crypto,0,0.99980,20156,1,1,,318
 binance,GRTUSDT,GRT|крипта,main,крипта,crypto,0,0.99881,20136,1,1,,319
 binance,GRVTUSDT,GRVT|крипта,main,крипта,crypto,0,0.99802,20120,1,1,,320
-binance,GSUSDT,GS|акции+ETF,main,акции+ETF,eq_us,1,0.59308,2313,1,1,,321
+binance,GSUSDT,GS|акции+ETF,main,акции+ETF,eq_us,1,0.59308,2313,0,1,доля валидных минут 0.5931 < порога 0.6262,321
 binance,GTCUSDT,GTC|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,322
 binance,GTLBUSDT,GTLB|акции+ETF,main,акции+ETF,eq_us,1,0.66359,2588,1,1,,323
 binance,GUAUSDT,GUA|крипта,main,крипта,crypto,0,0.99420,20043,1,1,,324
@@ -321,18 +321,18 @@ binance,GUSDT,G|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,326
 binance,GWEIUSDT,GWEI|крипта,main,крипта,crypto,0,0.99474,20054,1,1,,327
 binance,HAEDALUSDT,HAEDAL|крипта,main,крипта,crypto,0,0.99454,20050,1,1,,328
 binance,HANAUSDT,HANA|крипта,main,крипта,crypto,0,0.99807,20121,1,1,,329
-binance,HANMIUSDT,HANMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.37406,7541,0,1,доля валидных минут 0.3741 < порога 0.8115,330
+binance,HANMIUSDT,HANMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.37406,7541,1,1,,330
 binance,HBARUSDC,HBAR|крипта,dup,крипта,crypto,0,0.99866,20133,0,0,,331
 binance,HBARUSDT,HBAR|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,332
-binance,HDUSDT,HD|акции+ETF,main,акции+ETF,eq_us,1,0.59564,2323,1,1,,333
+binance,HDUSDT,HD|акции+ETF,main,акции+ETF,eq_us,1,0.59564,2323,0,1,доля валидных минут 0.5956 < порога 0.6262,333
 binance,HEIUSDT,HEI|крипта,main,крипта,crypto,0,0.99955,20151,1,1,,334
 binance,HEMIUSDT,HEMI|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,335
 binance,HIMSUSDT,HIMS|акции+ETF,main,акции+ETF,eq_us,1,0.95359,3719,1,1,,336
 binance,HIVEUSDT,HIVE|крипта,main,крипта,crypto,0,0.97827,19722,1,1,,337
-binance,HK0625USDT,SHEIN|акции+ETF,main,акции+ETF,eq_nonus,0,0.39931,8050,0,1,доля валидных минут 0.3993 < порога 0.8115,338
+binance,HK0625USDT,SHEIN|акции+ETF,main,акции+ETF,eq_nonus,0,0.39931,8050,1,1,,338
 binance,HK0700USDT,TENCENT|акции+ETF,dup,акции+ETF,eq_nonus,0,0.44519,8975,0,1,,339
-binance,HK0992USDT,LENOVO|акции+ETF,main,акции+ETF,eq_nonus,0,0.30575,6164,0,1,доля валидных минут 0.3058 < порога 0.8115,340
-binance,HK1810USDT,XIAOMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.73839,14886,0,1,доля валидных минут 0.7384 < порога 0.8115,341
+binance,HK0992USDT,LENOVO|акции+ETF,main,акции+ETF,eq_nonus,0,0.30575,6164,0,1,доля валидных минут 0.3058 < порога 0.3322,340
+binance,HK1810USDT,XIAOMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.73839,14886,1,1,,341
 binance,HMSTRUSDT,HMSTR|крипта,main,крипта,crypto,0,0.99206,20000,1,1,,342
 binance,HOLOUSDT,HOLO|крипта,main,крипта,crypto,0,0.98750,19908,1,1,,343
 binance,HOMEUSDT,HOME|крипта,main,крипта,crypto,0,0.99911,20142,1,1,,344
@@ -344,7 +344,7 @@ binance,HUSDT,H|крипта,main,крипта,crypto,0,0.99841,20128,1,1,,349
 binance,HUTUSDT,HUT|акции+ETF,main,акции+ETF,eq_us,1,0.73103,2851,1,1,,350
 binance,HYPERUSDT,HYPER|крипта,main,крипта,crypto,0,0.98948,19948,1,1,,351
 binance,HYPEUSDT,HYPE|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,352
-binance,HYUNDAIUSDT,HYUNDAI|акции+ETF,main,акции+ETF,eq_nonus,0,0.56553,11401,0,1,доля валидных минут 0.5655 < порога 0.8115,353
+binance,HYUNDAIUSDT,HYUNDAI|акции+ETF,main,акции+ETF,eq_nonus,0,0.56553,11401,1,1,,353
 binance,IBMUSDT,IBM|акции+ETF,main,акции+ETF,eq_us,1,0.95462,3723,1,1,,355
 binance,ICNTUSDT,ICNT|крипта,main,крипта,crypto,0,0.97579,19672,1,1,,356
 binance,ICPUSDT,ICP|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,357
@@ -386,18 +386,18 @@ binance,KITEUSDT,KITE|крипта,main,крипта,crypto,0,1.00000,20160,1,1,
 binance,KLACUSDT,KLAC|акции+ETF,main,акции+ETF,eq_us,1,0.84410,3292,1,1,,393
 binance,KMNOUSDT,KMNO|крипта,main,крипта,crypto,0,0.99707,20101,1,1,,394
 binance,KNCUSDT,KNC|крипта,main,крипта,crypto,0,0.93829,18916,0,1,доля валидных минут 0.9383 < порога 0.9615,395
-binance,KODEX200USDT,KODEX200|акции+ETF,main,акции+ETF,eq_nonus,0,0.23735,4785,0,1,доля валидных минут 0.2374 < порога 0.8115,396
+binance,KODEX200USDT,KODEX200|акции+ETF,main,акции+ETF,eq_nonus,0,0.23735,4785,0,1,доля валидных минут 0.2374 < порога 0.3322,396
 binance,KOMAUSDT,KOMA|крипта,main,крипта,crypto,0,0.99876,20135,1,1,,397
 binance,KORUUSDT,KORU|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,398
 binance,KOUSDT,KO|акции+ETF,main,акции+ETF,eq_us,1,0.73256,2857,1,1,,399
 binance,KSMUSDT,KSM|крипта,main,крипта,crypto,0,0.99459,20051,1,1,,400
-binance,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_nonus,0,0.64266,12956,0,1,доля валидных минут 0.6427 < порога 0.8115,401
-binance,KUAISHOUUSDT,KUAISHOU|акции+ETF,main,акции+ETF,eq_nonus,0,0.43566,8783,0,1,доля валидных минут 0.4357 < порога 0.8115,402
+binance,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_us,1,0.64615,2520,1,1,,401
+binance,KUAISHOUUSDT,KUAISHOU|акции+ETF,main,акции+ETF,eq_nonus,0,0.43566,8783,1,1,,402
 binance,LABUSDT,LAB|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,403
 binance,LAUSDT,LA|крипта,main,крипта,crypto,0,0.99965,20153,1,1,,404
 binance,LAYERUSDT,LAYER|крипта,main,крипта,crypto,0,0.99286,20016,1,1,,405
 binance,LDOUSDT,LDO|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,406
-binance,LGELECTRONICSUSDT,LGELECTRONICS|акции+ETF,main,акции+ETF,eq_nonus,0,0.33224,6698,0,1,доля валидных минут 0.3322 < порога 0.8115,407
+binance,LGELECTRONICSUSDT,LGELECTRONICS|акции+ETF,main,акции+ETF,eq_nonus,0,0.33224,6698,1,1,,407
 binance,LIGHTUSDT,LIGHT|крипта,main,крипта,crypto,0,0.99549,20069,1,1,,408
 binance,LINEAUSDT,LINEA|крипта,main,крипта,crypto,0,0.99221,20003,1,1,,409
 binance,LINKUSDC,LINK|крипта,dup,крипта,crypto,0,0.99846,20129,0,0,,410
@@ -415,7 +415,7 @@ binance,LTCUSDT,LTC|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,4
 binance,LUMIAUSDT,LUMIA|крипта,main,крипта,crypto,0,0.99777,20115,1,1,,422
 binance,LUNA2USDT,LUNA2|крипта,main,крипта,crypto,0,0.99137,19986,1,1,,423
 binance,LYNUSDT,LYN|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,424
-binance,LYTEUSDT,LYTE|акции+ETF,main,акции+ETF,eq_us,1,0.58872,2296,1,1,,425
+binance,LYTEUSDT,LYTE|акции+ETF,main,акции+ETF,eq_us,1,0.58872,2296,0,1,доля валидных минут 0.5887 < порога 0.6262,425
 binance,MAGICUSDT,MAGIC|крипта,main,крипта,crypto,0,0.99990,20158,1,1,,426
 binance,MAGMAUSDT,MAGMA|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,427
 binance,MANAUSDT,MANA|крипта,main,крипта,crypto,0,0.99980,20156,1,1,,428
@@ -426,10 +426,10 @@ binance,MARSCOINUSDT,MARSCOIN|крипта,main,крипта,crypto,0,1.00000,20
 binance,MASKUSDT,MASK|крипта,main,крипта,crypto,0,0.98844,19927,1,1,,433
 binance,MAVIAUSDT,MAVIA|крипта,main,крипта,crypto,0,0.99221,20003,1,1,,434
 binance,MAVUSDT,MAV|крипта,main,крипта,crypto,0,0.99663,20092,1,1,,435
-binance,MCDUSDT,MCD|акции+ETF,main,акции+ETF,eq_us,1,0.61103,2383,1,1,,436
-binance,MDBUSDT,MDB|акции+ETF,main,акции+ETF,eq_us,1,0.60795,2371,1,1,,437
+binance,MCDUSDT,MCD|акции+ETF,main,акции+ETF,eq_us,1,0.61103,2383,0,1,доля валидных минут 0.6110 < порога 0.6262,436
+binance,MDBUSDT,MDB|акции+ETF,main,акции+ETF,eq_us,1,0.60795,2371,0,1,доля валидных минут 0.6079 < порога 0.6262,437
 binance,MEGAUSDT,MEGA|крипта,main,крипта,crypto,0,0.99965,20153,1,1,,439
-binance,MEITUANUSDT,MEITUAN|акции+ETF,main,акции+ETF,eq_nonus,0,0.27381,5520,0,1,доля валидных минут 0.2738 < порога 0.8115,440
+binance,MEITUANUSDT,MEITUAN|акции+ETF,main,акции+ETF,eq_nonus,0,0.27381,5520,0,1,доля валидных минут 0.2738 < порога 0.3322,440
 binance,MELANIAUSDT,MELANIA|крипта,main,крипта,crypto,0,0.97892,19735,1,1,,441
 binance,MEMEUSDT,MEME|крипта,main,крипта,crypto,0,0.99737,20107,1,1,,443
 binance,MERLUSDT,MERL|крипта,main,крипта,crypto,0,0.99752,20110,1,1,,444
@@ -439,7 +439,7 @@ binance,METUSDT,MET|крипта,main,крипта,crypto,0,0.99995,20159,1,1,,4
 binance,MEUSDT,ME|крипта,main,крипта,crypto,0,0.98968,19952,1,1,,448
 binance,MEWUSDT,MEW|крипта,main,крипта,crypto,0,0.98879,19934,1,1,,449
 binance,MINAUSDT,MINA|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,450
-binance,MINIMAXUSDT,MINIMAX|акции+ETF,main,акции+ETF,eq_nonus,0,0.76930,15509,0,1,доля валидных минут 0.7693 < порога 0.8115,451
+binance,MINIMAXUSDT,MINIMAX|акции+ETF,main,акции+ETF,eq_nonus,0,0.76930,15509,1,1,,451
 binance,MIRAUSDT,MIRA|крипта,main,крипта,crypto,0,0.98988,19956,1,1,,452
 binance,MITOUSDT,MITO|крипта,main,крипта,crypto,0,0.99524,20064,1,1,,453
 binance,MMTUSDT,MMT|крипта,main,крипта,crypto,0,0.99529,20065,1,1,,454
@@ -450,12 +450,12 @@ binance,MORPHOUSDT,MORPHO|крипта,main,крипта,crypto,0,1.00000,20160,
 binance,MOVEUSDT,MOVE|крипта,main,крипта,crypto,0,0.99861,20132,1,1,,460
 binance,MOVRUSDT,MOVR|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,461
 binance,MPUSDT,MP|акции+ETF,main,акции+ETF,eq_us,1,0.63205,2465,1,1,,462
-binance,MRKUSDT,MRK|акции+ETF,main,акции+ETF,eq_us,1,0.51923,2025,0,1,доля валидных минут 0.5192 < порога 0.5887,463
+binance,MRKUSDT,MRK|акции+ETF,main,акции+ETF,eq_us,1,0.51923,2025,0,1,доля валидных минут 0.5192 < порога 0.6262,463
 binance,MRNAUSDT,MRNA|акции+ETF,main,акции+ETF,eq_us,1,0.99795,3892,1,1,,464
 binance,MRVLUSDT,MRVL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,465
 binance,MSFTUSDT,MSFT|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,466
 binance,MSTRUSDT,MSTR|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,467
-binance,MSTUUSDT,MSTU|акции+ETF,main,акции+ETF,eq_us,1,0.25462,993,0,1,доля валидных минут 0.2546 < порога 0.5887,468
+binance,MSTUUSDT,MSTU|акции+ETF,main,акции+ETF,eq_us,1,0.25462,993,0,1,доля валидных минут 0.2546 < порога 0.6262,468
 binance,MTLUSDT,MTL|крипта,main,крипта,crypto,0,0.98770,19912,1,1,,469
 binance,MUBARAKUSDT,MUBARAK|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,470
 binance,MUSDT,M|крипта,main,крипта,crypto,0,0.98686,19895,1,1,,471
@@ -465,7 +465,7 @@ binance,MVLLUSDT,MVLL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,
 binance,MYXUSDT,MYX|крипта,main,крипта,crypto,0,0.99812,20122,1,1,,475
 binance,NAORISUSDT,NAORIS|крипта,main,крипта,crypto,0,0.98899,19938,1,1,,476
 binance,NATGASUSDT,NATGAS|металлы+энергия,main,металлы+энергия,metal_energy,0,0.96116,19377,0,1,доля валидных минут 0.9612 < порога 0.9965,477
-binance,NAVERUSDT,NAVER|акции+ETF,main,акции+ETF,eq_nonus,0,0.19593,3950,0,1,доля валидных минут 0.1959 < порога 0.8115,478
+binance,NAVERUSDT,NAVER|акции+ETF,main,акции+ETF,eq_nonus,0,0.19593,3950,0,1,доля валидных минут 0.1959 < порога 0.3322,478
 binance,NBISUSDT,NBIS|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,479
 binance,NEARUSDC,NEAR|крипта,dup,крипта,crypto,0,1.00000,20160,0,0,,480
 binance,NEARUSDT,NEAR|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,481
@@ -508,7 +508,7 @@ binance,ORDIUSDT,ORDI|крипта,main,крипта,crypto,0,1.00000,20160,1,1,
 binance,OUSDT,O|крипта,main,крипта,crypto,0,0.97292,19614,1,1,,520
 binance,PANWUSDT,PANW|акции+ETF,main,акции+ETF,eq_us,1,0.64359,2510,1,1,,522
 binance,PARTIUSDT,PARTI|крипта,main,крипта,crypto,0,0.99866,20133,1,1,,523
-binance,PATHUSDT,PATH|акции+ETF,main,акции+ETF,eq_us,1,0.53205,2075,0,1,доля валидных минут 0.5321 < порога 0.5887,524
+binance,PATHUSDT,PATH|акции+ETF,main,акции+ETF,eq_us,1,0.53205,2075,0,1,доля валидных минут 0.5321 < порога 0.6262,524
 binance,PAXGUSDT,PAXG|металлы+энергия,main,металлы+энергия,metal_energy,0,0.99955,20151,1,1,,525
 binance,PAYPUSDT,PAYP|акции+ETF,main,акции+ETF,eq_us,1,0.65897,2570,1,1,,526
 binance,PDDUSDT,PDD|акции+ETF,main,акции+ETF,eq_us,1,0.79026,3082,1,1,,527
@@ -531,7 +531,7 @@ binance,POLUSDT,POL|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,5
 binance,POLYXUSDT,POLYX|крипта,main,крипта,crypto,0,0.97148,19585,1,1,,545
 binance,PONSUSDT,PONS|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,546
 binance,POPCATUSDT,POPCAT|крипта,main,крипта,crypto,0,0.99653,20090,1,1,,547
-binance,POPMARTUSDT,POPMART|акции+ETF,main,акции+ETF,eq_nonus,0,0.28824,5811,0,1,доля валидных минут 0.2882 < порога 0.8115,548
+binance,POPMARTUSDT,POPMART|акции+ETF,main,акции+ETF,eq_nonus,0,0.28824,5811,0,1,доля валидных минут 0.2882 < порога 0.3322,548
 binance,PORTALUSDT,PORTAL|крипта,main,крипта,crypto,0,0.99256,20010,1,1,,549
 binance,POWERUSDT,POWER|крипта,main,крипта,crypto,0,0.99851,20130,1,1,,550
 binance,POWRUSDT,POWR|крипта,main,крипта,crypto,0,0.98780,19914,1,1,,551
@@ -556,7 +556,7 @@ binance,RAREUSDT,RARE|крипта,main,крипта,crypto,0,0.99955,20151,1,1,
 binance,RAVEUSDT,RAVE|крипта,main,крипта,crypto,0,0.98745,19907,1,1,,571
 binance,RAYSOLUSDT,RAY|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,572
 binance,RDDTUSDT,RDDT|акции+ETF,main,акции+ETF,eq_us,1,0.90872,3544,1,1,,573
-binance,RDWUSDT,RDW|акции+ETF,main,акции+ETF,eq_us,1,0.23282,908,0,1,доля валидных минут 0.2328 < порога 0.5887,574
+binance,RDWUSDT,RDW|акции+ETF,main,акции+ETF,eq_us,1,0.23282,908,0,1,доля валидных минут 0.2328 < порога 0.6262,574
 binance,RECALLUSDT,RECALL|крипта,main,крипта,crypto,0,0.98348,19827,1,1,,575
 binance,REDUSDT,RED|крипта,main,крипта,crypto,0,0.98631,19884,1,1,,576
 binance,RENDERUSDT,RENDER|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,577
@@ -579,7 +579,7 @@ binance,RVNUSDT,RVN|крипта,main,крипта,crypto,0,0.99355,20030,1,1,,5
 binance,SAFEUSDT,SAFE|крипта,main,крипта,crypto,0,0.99117,19982,1,1,,594
 binance,SAGAUSDT,SAGA|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,595
 binance,SAHARAUSDT,SAHARA|крипта,main,крипта,crypto,0,0.99856,20131,1,1,,596
-binance,SAMSUNGEMUSDT,SAMSUNGEM|акции+ETF,main,акции+ETF,eq_nonus,0,0.29613,5970,0,1,доля валидных минут 0.2961 < порога 0.8115,597
+binance,SAMSUNGEMUSDT,SAMSUNGEM|акции+ETF,main,акции+ETF,eq_nonus,0,0.29613,5970,0,1,доля валидных минут 0.2961 < порога 0.3322,597
 binance,SAMSUNGUSDT,SAMSUNG|акции+ETF,main,акции+ETF,eq_nonus,0,0.96200,19394,1,1,,598
 binance,SANDUSDT,SAND|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,599
 binance,SANTOSUSDT,SANTOS|крипта,main,крипта,crypto,0,0.99147,19988,1,1,,600
@@ -608,7 +608,7 @@ binance,SMCIUSDT,SMCI|акции+ETF,main,акции+ETF,eq_us,1,0.97564,3805,1,
 binance,SMHUSDT,SMH|акции+ETF,main,акции+ETF,eq_us,1,0.82692,3225,1,1,,623
 binance,SNDKUSDT,SNDK|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,625
 binance,SNOWUSDT,SNOW|акции+ETF,main,акции+ETF,eq_us,1,0.74308,2898,1,1,,626
-binance,SNPSUSDT,SNPS|акции+ETF,main,акции+ETF,eq_us,1,0.16333,637,0,1,доля валидных минут 0.1633 < порога 0.5887,627
+binance,SNPSUSDT,SNPS|акции+ETF,main,акции+ETF,eq_us,1,0.16333,637,0,1,доля валидных минут 0.1633 < порога 0.6262,627
 binance,SNXUSDT,SNX|крипта,main,крипта,crypto,0,0.99380,20035,1,1,,628
 binance,SNXXUSDT,SNXX|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,629
 binance,SOFIUSDT,SOFI|акции+ETF,main,акции+ETF,eq_us,1,0.69821,2723,1,1,,630
@@ -617,7 +617,7 @@ binance,SOLUSDT,SOL|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,6
 binance,SOLVUSDT,SOLV|крипта,main,крипта,crypto,0,0.99826,20125,1,1,,633
 binance,SOMIUSDT,SOMI|крипта,main,крипта,crypto,0,0.98343,19826,1,1,,634
 binance,SONICUSDT,SONIC|крипта,main,крипта,crypto,0,0.97574,19671,1,1,,635
-binance,SONYUSDT,SONY|акции+ETF,main,акции+ETF,eq_us,1,0.54641,2131,0,1,доля валидных минут 0.5464 < порога 0.5887,636
+binance,SONYUSDT,SONY|акции+ETF,main,акции+ETF,eq_us,1,0.54641,2131,0,1,доля валидных минут 0.5464 < порога 0.6262,636
 binance,SOONUSDT,SOON|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,637
 binance,SOPHUSDT,SOPH|крипта,main,крипта,crypto,0,0.99955,20151,1,1,,638
 binance,SOXLUSDT,SOXL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,639
@@ -638,7 +638,7 @@ binance,STARUSDT,STAR|крипта,main,крипта,crypto,0,0.99861,20132,1,1,
 binance,STBLUSDT,STBL|крипта,main,крипта,crypto,0,0.96300,19414,1,1,,654
 binance,STEEMUSDT,STEEM|крипта,main,крипта,crypto,0,0.99415,20042,1,1,,655
 binance,STOUSDT,STO|крипта,main,крипта,crypto,0,0.99454,20050,1,1,,657
-binance,STRCUSDT,STRC|акции+ETF,main,акции+ETF,eq_nonus,0,0.52659,10616,0,1,доля валидных минут 0.5266 < порога 0.8115,658
+binance,STRCUSDT,STRC|акции+ETF,main,акции+ETF,eq_nonus,0,0.52659,10616,1,1,,658
 binance,STRKUSDT,STRK|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,659
 binance,STXUSDT,STX|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,660
 binance,STXXUSDT,STXX|акции+ETF,main,акции+ETF,eq_us,1,0.98769,3852,1,1,,661
@@ -658,10 +658,10 @@ binance,TAIKOUSDT,TAIKO|крипта,main,крипта,crypto,0,0.99092,19977,1,
 binance,TAKEUSDT,TAKE|крипта,main,крипта,crypto,0,0.99980,20156,1,1,,675
 binance,TAOUSDT,TAO|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,676
 binance,TAUSDT,TA|крипта,main,крипта,crypto,0,0.99469,20053,1,1,,677
-binance,TBTUSDT,TBT|акции+ETF,main,акции+ETF,eq_us,1,0.52718,2056,0,1,доля валидных минут 0.5272 < порога 0.5887,678
-binance,TEAMUSDT,TEAM|акции+ETF,main,акции+ETF,eq_us,1,0.53205,2075,0,1,доля валидных минут 0.5321 < порога 0.5887,679
+binance,TBTUSDT,TBT|акции+ETF,main,акции+ETF,eq_us,1,0.52718,2056,0,1,доля валидных минут 0.5272 < порога 0.6262,678
+binance,TEAMUSDT,TEAM|акции+ETF,main,акции+ETF,eq_us,1,0.53205,2075,0,1,доля валидных минут 0.5321 < порога 0.6262,679
 binance,TEMUSDT,TEM|акции+ETF,main,акции+ETF,eq_us,1,0.83692,3264,1,1,,680
-binance,TENCENTUSDT,TENCENT|акции+ETF,main,акции+ETF,eq_nonus,0,0.49276,9934,0,1,доля валидных минут 0.4928 < порога 0.8115,681
+binance,TENCENTUSDT,TENCENT|акции+ETF,main,акции+ETF,eq_nonus,0,0.49276,9934,1,1,,681
 binance,TERUSDT,TER|акции+ETF,main,акции+ETF,eq_us,1,0.82641,3223,1,1,,682
 binance,THETAUSDT,THETA|крипта,main,крипта,crypto,0,0.99633,20086,1,1,,683
 binance,THEUSDT,THE|крипта,main,крипта,crypto,0,0.98889,19936,1,1,,684
@@ -700,14 +700,14 @@ binance,UBERUSDT,UBER|акции+ETF,main,акции+ETF,eq_us,1,0.80615,3144,1,
 binance,UBUSDT,UB|крипта,main,крипта,crypto,0,0.99812,20122,1,1,,717
 binance,UMAUSDT,UMA|крипта,main,крипта,crypto,0,0.98125,19782,1,1,,718
 binance,UNHUSDT,UNH|акции+ETF,main,акции+ETF,eq_us,1,0.66667,2600,1,1,,719
-binance,UNITREEUSDT,UNITREE|акции+ETF,main,акции+ETF,eq_nonus,0,0.66171,13340,0,1,доля валидных минут 0.6617 < порога 0.8115,720
+binance,UNITREEUSDT,UNITREE|акции+ETF,main,акции+ETF,eq_nonus,0,0.66171,13340,1,1,,720
 binance,UNIUSDC,UNI|крипта,dup,крипта,crypto,0,0.99985,20157,0,0,,721
 binance,UNIUSDT,UNI|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,722
 binance,URNMUSDT,URNM|акции+ETF,main,акции+ETF,eq_us,1,0.75718,2953,1,1,,723
 binance,USARUSDT,USAR|акции+ETF,main,акции+ETF,eq_us,1,0.93872,3661,1,1,,724
 binance,USDBRLUSDT,USDBRL|фиат,main,фиат,fx,0,0.45303,9133,1,1,,725
 binance,USDCUSDT,USDC|крипта,main,крипта,crypto,0,0.99360,20031,1,1,,726
-binance,USDEXUSDT,USDEX|акции+ETF,main,акции+ETF,eq_us,1,0.57256,2233,0,1,доля валидных минут 0.5726 < порога 0.5887,727
+binance,USDEXUSDT,USDEX|акции+ETF,main,акции+ETF,eq_us,1,0.57256,2233,0,1,доля валидных минут 0.5726 < порога 0.6262,727
 binance,USELESSUSDT,USELESS|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,728
 binance,USTCUSDT,USTC|крипта,main,крипта,crypto,0,0.96652,19485,1,1,,729
 binance,USUALUSDT,USUAL|крипта,main,крипта,crypto,0,0.98834,19925,1,1,,730
@@ -718,7 +718,7 @@ binance,VELODROMEUSDT,VELODROME|крипта,main,крипта,crypto,0,0.99772,
 binance,VELVETUSDT,VELVET|крипта,main,крипта,crypto,0,0.99990,20158,1,1,,735
 binance,VETUSDT,VET|крипта,main,крипта,crypto,0,0.99995,20159,1,1,,736
 binance,VIRTUALUSDT,VIRTUAL|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,737
-binance,VKTXUSDT,VKTX|акции+ETF,main,акции+ETF,eq_us,1,0.50308,1962,0,1,доля валидных минут 0.5031 < порога 0.5887,738
+binance,VKTXUSDT,VKTX|акции+ETF,main,акции+ETF,eq_us,1,0.50308,1962,0,1,доля валидных минут 0.5031 < порога 0.6262,738
 binance,VRTUSDT,VRT|акции+ETF,main,акции+ETF,eq_us,1,0.84154,3282,1,1,,739
 binance,VSTUSDT,VST|акции+ETF,main,акции+ETF,eq_us,1,0.89897,3506,1,1,,740
 binance,VTHOUSDT,VTHO|крипта,main,крипта,crypto,0,0.99995,20159,1,1,,741
@@ -744,7 +744,7 @@ binance,XAIUSDT,XAI|крипта,main,крипта,crypto,0,0.99960,20152,1,1,,7
 binance,XANUSDT,XAN|крипта,main,крипта,crypto,0,0.99583,20076,1,1,,761
 binance,XAUTUSDT,XAUT|металлы+энергия,main,металлы+энергия,metal_energy,0,1.00000,20160,1,1,,762
 binance,XAUUSDT,XAU|металлы+энергия,main,металлы+энергия,metal_energy,0,1.00000,20160,1,1,,763
-binance,XBIUSDT,XBI|акции+ETF,main,акции+ETF,eq_us,1,0.60308,2352,1,1,,764
+binance,XBIUSDT,XBI|акции+ETF,main,акции+ETF,eq_us,1,0.60308,2352,0,1,доля валидных минут 0.6031 < порога 0.6262,764
 binance,XLEUSDT,XLE|акции+ETF,main,акции+ETF,eq_us,1,0.68256,2662,1,1,,765
 binance,XLMUSDT,XLM|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,766
 binance,XMRUSDT,XMR|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,767
@@ -764,7 +764,7 @@ binance,YFIUSDT,YFI|крипта,main,крипта,crypto,0,0.99013,19961,1,1,,7
 binance,YGGUSDT,YGG|крипта,main,крипта,crypto,0,0.99782,20116,1,1,,781
 binance,ZAMAUSDT,ZAMA|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,782
 binance,ZBTUSDT,ZBT|крипта,main,крипта,crypto,0,0.99187,19996,1,1,,783
-binance,ZCSHUSDT,ZCSH|акции+ETF,main,акции+ETF,eq_us,1,0.19897,776,0,1,доля валидных минут 0.1990 < порога 0.5887,784
+binance,ZCSHUSDT,ZCSH|акции+ETF,main,акции+ETF,eq_us,1,0.19897,776,0,1,доля валидных минут 0.1990 < порога 0.6262,784
 binance,ZECUSDC,ZEC|крипта,dup,крипта,crypto,0,1.00000,20160,0,0,,785
 binance,ZECUSDT,ZEC|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,786
 binance,ZENUSDT,ZEN|крипта,main,крипта,crypto,0,0.99995,20159,1,1,,787
@@ -917,7 +917,7 @@ bybit,BERAUSDT,BERA|крипта,main,крипта,crypto,0,0.90461,18237,1,1,,9
 bybit,BEUSDT,BE|акции+ETF,main,акции+ETF,eq_us,1,0.95744,3734,0,1,доля валидных минут 0.9574 < порога 0.9803,941
 bybit,BICOUSDT,BICO|крипта,main,крипта,crypto,0,0.89435,18030,1,1,,942
 bybit,BIGTIMEUSDT,BIGTIME|крипта,main,крипта,crypto,0,0.76171,15356,1,1,,943
-bybit,BIIBUSDT,BIIB|акции+ETF,main,акции+ETF,eq_nonus,0,0.13036,2628,0,1,доля валидных минут 0.1304 < порога 0.3152,944
+bybit,BIIBUSDT,BIIB|акции+ETF,main,акции+ETF,eq_us,1,0.21590,842,0,1,доля валидных минут 0.2159 < порога 0.9803,944
 bybit,BILLUSDT,BILL|крипта,main,крипта,crypto,0,0.84534,17042,1,1,,945
 bybit,BIOUSDT,BIO|крипта,main,крипта,crypto,0,0.91761,18499,1,1,,946
 bybit,BIRBUSDT,BIRB|крипта,main,крипта,crypto,0,0.46195,9313,0,1,доля валидных минут 0.4620 < порога 0.5905,947
@@ -1070,7 +1070,7 @@ bybit,EVAAUSDT,EVAA|крипта,main,крипта,crypto,0,0.85427,17222,1,1,,1
 bybit,EWJUSDT,EWJ|акции+ETF,main,акции+ETF,eq_us,1,0.20308,792,0,1,доля валидных минут 0.2031 < порога 0.9803,1103
 bybit,EWTUSDT,EWT|акции+ETF,main,акции+ETF,eq_us,1,0.26513,1034,0,1,доля валидных минут 0.2651 < порога 0.9803,1104
 bybit,EWYUSDT,EWY|акции+ETF,main,акции+ETF,eq_us,1,0.93846,3660,0,1,доля валидных минут 0.9385 < порога 0.9803,1105
-bybit,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_nonus,0,0.25818,5205,0,1,доля валидных минут 0.2582 < порога 0.3152,1107
+bybit,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_us,1,0.46051,1796,0,1,доля валидных минут 0.4605 < порога 0.9803,1107
 bybit,FARTCOINPERP,FARTCOIN|крипта,dup,крипта,crypto,0,0.33249,6703,0,0,,1108
 bybit,FARTCOINUSDT,FARTCOIN|крипта,main,крипта,crypto,0,0.99970,20154,1,1,,1109
 bybit,FFUSDT,FF|крипта,main,крипта,crypto,0,0.97123,19580,1,1,,1110
@@ -1139,7 +1139,7 @@ bybit,HNTUSDT,HNT|крипта,main,крипта,crypto,0,0.94841,19120,1,1,,117
 bybit,HOLOUSDT,HOLO|крипта,main,крипта,crypto,0,0.64449,12993,1,1,,1173
 bybit,HOMEUSDT,HOME|крипта,main,крипта,crypto,0,0.90967,18339,1,1,,1174
 bybit,HOODUSDT,HOOD|акции+ETF,main,акции+ETF,eq_us,1,0.89795,3502,0,1,доля валидных минут 0.8979 < порога 0.9803,1175
-bybit,HORIZONUSDT,HORIZON|акции+ETF,main,акции+ETF,eq_us,1,0.11718,457,0,1,доля валидных минут 0.1172 < порога 0.9803,1176
+bybit,HORIZONUSDT,HORIZON|акции+ETF,main,акции+ETF,eq_nonus,0,0.10729,2163,0,1,доля валидных минут 0.1073 < порога 0.3152,1176
 bybit,HPERP,H|крипта,dup,крипта,crypto,0,0.05947,1199,0,0,,1177
 bybit,HPEUSDT,HPE|акции+ETF,main,акции+ETF,eq_us,1,0.48487,1891,0,1,доля валидных минут 0.4849 < порога 0.9803,1178
 bybit,HUAHONGUSDT,HUAHONG|акции+ETF,main,акции+ETF,eq_nonus,0,0.12932,2607,0,1,доля валидных минут 0.1293 < порога 0.3152,1179
@@ -1150,7 +1150,7 @@ bybit,HYPEPERP,HYPE|крипта,dup,крипта,crypto,0,0.20317,4096,0,0,,118
 bybit,HYPERUSDT,HYPER|крипта,main,крипта,crypto,0,0.72421,14600,1,1,,1184
 bybit,HYPEUSDT,HYPE|крипта,main,крипта,crypto,0,0.99990,20158,1,1,,1185
 bybit,HYUNDAIUSDT,HYUNDAI|акции+ETF,main,акции+ETF,eq_nonus,0,0.19712,3974,0,1,доля валидных минут 0.1971 < порога 0.3152,1186
-bybit,IBITUSDT,IBIT|акции+ETF,main,акции+ETF,eq_nonus,0,0.22049,4445,0,1,доля валидных минут 0.2205 < порога 0.3152,1187
+bybit,IBITUSDT,IBIT|акции+ETF,main,акции+ETF,eq_us,1,0.33051,1289,0,1,доля валидных минут 0.3305 < порога 0.9803,1187
 bybit,IBMUSDT,IBM|акции+ETF,main,акции+ETF,eq_us,1,0.28718,1120,0,1,доля валидных минут 0.2872 < порога 0.9803,1189
 bybit,ICNTPERP,ICNT|крипта,dup,крипта,crypto,0,0.05188,1046,0,0,,1190
 bybit,ICNTUSDT,ICNT|крипта,main,крипта,crypto,0,0.57173,11526,0,1,доля валидных минут 0.5717 < порога 0.5905,1191
@@ -1203,10 +1203,10 @@ bybit,KODEX200USDT,KODEX200|акции+ETF,main,акции+ETF,eq_nonus,0,0.0828
 bybit,KORUUSDT,KORU|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,1238
 bybit,KOUSDT,KO|акции+ETF,main,акции+ETF,eq_us,1,0.20615,804,0,1,доля валидных минут 0.2062 < порога 0.9803,1239
 bybit,KSMUSDT,KSM|крипта,main,крипта,crypto,0,0.82366,16605,1,1,,1240
-bybit,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_nonus,0,0.25387,5118,0,1,доля валидных минут 0.2539 < порога 0.3152,1241
+bybit,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_us,1,0.28128,1097,0,1,доля валидных минут 0.2813 < порога 0.9803,1241
 bybit,KUAISHOUUSDT,KUAISHOU|акции+ETF,main,акции+ETF,eq_nonus,0,0.05828,1175,0,1,доля валидных минут 0.0583 < порога 0.3152,1242
 bybit,LABUSDT,LAB|крипта,main,крипта,crypto,0,0.86558,17450,1,1,,1243
-bybit,LAOPUUSDT,LAOPU|акции+ETF,main,акции+ETF,eq_us,1,0.14051,548,0,1,доля валидных минут 0.1405 < порога 0.9803,1244
+bybit,LAOPUUSDT,LAOPU|акции+ETF,main,акции+ETF,eq_nonus,0,0.11052,2228,0,1,доля валидных минут 0.1105 < порога 0.3152,1244
 bybit,LAUSDT,LA|крипта,main,крипта,crypto,0,0.95198,19192,1,1,,1245
 bybit,LDOUSDT,LDO|крипта,main,крипта,crypto,0,0.99529,20065,1,1,,1246
 bybit,LENOVOUSDT,LENOVO|акции+ETF,main,акции+ETF,eq_nonus,0,0.10923,2202,0,1,доля валидных минут 0.1092 < порога 0.3152,1247
@@ -1246,7 +1246,7 @@ bybit,MCDUSDT,MCD|акции+ETF,main,акции+ETF,eq_us,1,0.58641,2287,0,1,д
 bybit,MDBUSDT,MDB|акции+ETF,main,акции+ETF,eq_us,1,0.37103,1447,0,1,доля валидных минут 0.3710 < порога 0.9803,1282
 bybit,MEGAUSDT,MEGA|крипта,main,крипта,crypto,0,0.96687,19492,1,1,,1284
 bybit,MEITUANUSDT,MEITUAN|акции+ETF,main,акции+ETF,eq_nonus,0,0.05843,1178,0,1,доля валидных минут 0.0584 < порога 0.3152,1285
-bybit,MEITUUSDT,MEITU|акции+ETF,main,акции+ETF,eq_us,1,0.12564,490,0,1,доля валидных минут 0.1256 < порога 0.9803,1286
+bybit,MEITUUSDT,MEITU|акции+ETF,main,акции+ETF,eq_nonus,0,0.11364,2291,0,1,доля валидных минут 0.1136 < порога 0.3152,1286
 bybit,MELANIAUSDT,MELANIA|крипта,main,крипта,crypto,0,0.43641,8798,0,1,доля валидных минут 0.4364 < порога 0.5905,1287
 bybit,MELIUSDT,MELI|акции+ETF,main,акции+ETF,eq_us,1,0.06462,252,0,1,доля валидных минут 0.0646 < порога 0.9803,1288
 bybit,MEMEUSDT,MEME|крипта,main,крипта,crypto,0,0.82624,16657,1,1,,1289
@@ -1270,7 +1270,7 @@ bybit,MONUSDT,MON|крипта,main,крипта,crypto,0,0.99454,20050,1,1,,130
 bybit,MOODENGPERP,MOODENG|крипта,dup,крипта,crypto,0,0.08904,1795,0,0,,1307
 bybit,MOODENGUSDT,MOODENG|крипта,main,крипта,crypto,0,0.82450,16622,1,1,,1308
 bybit,MORPHOUSDT,MORPHO|крипта,main,крипта,crypto,0,0.92877,18724,1,1,,1310
-bybit,MOUSDT,MO|акции+ETF,main,акции+ETF,eq_nonus,0,0.08730,1760,0,1,доля валидных минут 0.0873 < порога 0.3152,1311
+bybit,MOUSDT,MO|акции+ETF,main,акции+ETF,eq_us,1,0.16154,630,0,1,доля валидных минут 0.1615 < порога 0.9803,1311
 bybit,MOVEUSDT,MOVE|крипта,main,крипта,crypto,0,0.76696,15462,1,1,,1312
 bybit,MOVRUSDT,MOVR|крипта,main,крипта,crypto,0,0.99732,20106,1,1,,1313
 bybit,MPUSDT,MP|акции+ETF,main,акции+ETF,eq_us,1,0.09231,360,0,1,доля валидных минут 0.0923 < порога 0.9803,1314
@@ -1768,7 +1768,7 @@ okx,CRV-USDT-SWAP,CRV|крипта,main,крипта,crypto,0,0.99524,20064,1,1,
 okx,CRWD-USDT-SWAP,CRWD|акции+ETF,main,акции+ETF,eq_us,1,0.58538,2283,0,1,доля валидных минут 0.5854 < порога 0.9249,1830
 okx,CRWV-USDT-SWAP,CRWV|акции+ETF,main,акции+ETF,eq_us,1,0.96205,3752,1,1,,1831
 okx,CSCO-USDT-SWAP,CSCO|акции+ETF,main,акции+ETF,eq_us,1,0.43769,1707,0,1,доля валидных минут 0.4377 < порога 0.9249,1832
-okx,CSOPSAMSUNG2L-USDT-SWAP,CSOPSAMSUNG2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.25848,5211,0,1,доля валидных минут 0.2585 < порога 0.2679,1833
+okx,CSOPSAMSUNG2L-USDT-SWAP,CSOPSAMSUNG2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.25848,5211,0,1,доля валидных минут 0.2585 < порога 0.2612,1833
 okx,CSOPSKHYNIX2L-USDT-SWAP,CSOPSKHYNIX2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.36811,7421,1,1,,1834
 okx,CT-USDT-SWAP,CT|крипта,main,крипта,crypto,0,0.99911,20142,1,1,,1835
 okx,CVX-USDT-SWAP,CVX|крипта,main,крипта,crypto,0,0.66404,13387,0,1,доля валидных минут 0.6640 < порога 0.8287,1837
@@ -1806,7 +1806,7 @@ okx,ETHW-USDT-SWAP,ETHW|крипта,main,крипта,crypto,0,0.75437,15208,0,
 okx,EWJ-USDT-SWAP,EWJ|акции+ETF,main,акции+ETF,eq_us,1,0.30641,1195,0,1,доля валидных минут 0.3064 < порога 0.9249,1870
 okx,EWT-USDT-SWAP,EWT|акции+ETF,main,акции+ETF,eq_us,1,0.23000,897,0,1,доля валидных минут 0.2300 < порога 0.9249,1871
 okx,EWY-USDT-SWAP,EWY|акции+ETF,main,акции+ETF,eq_us,1,0.97897,3818,1,1,,1872
-okx,EWZ-USDT-SWAP,EWZ|акции+ETF,main,акции+ETF,eq_nonus,0,0.26786,5400,1,1,,1873
+okx,EWZ-USDT-SWAP,EWZ|акции+ETF,main,акции+ETF,eq_us,1,0.39308,1533,0,1,доля валидных минут 0.3931 < порога 0.9249,1873
 okx,F-USDT-SWAP,F|крипта,main,крипта,crypto,0,0.82872,16707,1,1,,1874
 okx,FARTCOIN-USDT-SWAP,FARTCOIN|крипта,main,крипта,crypto,0,0.97545,19665,1,1,,1875
 okx,FET-USDT-SWAP,FET|крипта,main,крипта,crypto,0,0.98170,19791,1,1,,1876
@@ -1837,7 +1837,7 @@ okx,GRT-USDT-SWAP,GRT|крипта,main,крипта,crypto,0,0.91711,18489,1,1,
 okx,GRVT-USDT-SWAP,GRVT|крипта,main,крипта,crypto,0,0.96453,19445,1,1,,1905
 okx,GTLB-USDT-SWAP,GTLB|акции+ETF,main,акции+ETF,eq_us,1,0.26410,1030,0,1,доля валидных минут 0.2641 < порога 0.9249,1907
 okx,H-USDT-SWAP,H|крипта,main,крипта,crypto,0,0.95357,19224,1,1,,1908
-okx,HANMI-USDT-SWAP,HANMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.13765,2775,0,1,доля валидных минут 0.1376 < порога 0.2679,1910
+okx,HANMI-USDT-SWAP,HANMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.13765,2775,0,1,доля валидных минут 0.1376 < порога 0.2612,1910
 okx,HBAR-USDT-SWAP,HBAR|крипта,main,крипта,crypto,0,0.99742,20108,1,1,,1911
 okx,HIMS-USDT-SWAP,HIMS|акции+ETF,main,акции+ETF,eq_us,1,0.68538,2673,0,1,доля валидных минут 0.6854 < порога 0.9249,1912
 okx,HMSTR-USDT-SWAP,HMSTR|крипта,main,крипта,crypto,0,0.72525,14621,0,1,доля валидных минут 0.7252 < порога 0.8287,1913
@@ -1848,7 +1848,7 @@ okx,HUMA-USDT-SWAP,HUMA|крипта,main,крипта,crypto,0,0.96379,19430,1,
 okx,HUT-USDT-SWAP,HUT|акции+ETF,main,акции+ETF,eq_us,1,0.42949,1675,0,1,доля валидных минут 0.4295 < порога 0.9249,1918
 okx,HYPE-USD-SWAP,HYPE|крипта,dup,крипта,crypto,0,0.59464,11988,0,0,,1919
 okx,HYPE-USDT-SWAP,HYPE|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,1920
-okx,HYUNDAI-USDT-SWAP,HYUNDAI|акции+ETF,main,акции+ETF,eq_nonus,0,0.26121,5266,0,1,доля валидных минут 0.2612 < порога 0.2679,1921
+okx,HYUNDAI-USDT-SWAP,HYUNDAI|акции+ETF,main,акции+ETF,eq_nonus,0,0.26121,5266,1,1,,1921
 okx,IBM-USDT-SWAP,IBM|акции+ETF,main,акции+ETF,eq_us,1,0.72744,2837,0,1,доля валидных минут 0.7274 < порога 0.9249,1923
 okx,ICP-USDT-SWAP,ICP|крипта,main,крипта,crypto,0,0.99722,20104,1,1,,1924
 okx,IMX-USDT-SWAP,IMX|крипта,main,крипта,crypto,0,0.98462,19850,1,1,,1925
@@ -1866,27 +1866,27 @@ okx,ISRG-USDT-SWAP,ISRG|акции+ETF,main,акции+ETF,eq_us,1,0.45590,1778,
 okx,IWM-USDT-SWAP,IWM|акции+ETF,main,акции+ETF,eq_us,1,0.23103,901,0,1,доля валидных минут 0.2310 < порога 0.9249,1937
 okx,JELLYJELLY-USDT-SWAP,JELLYJELLY|крипта,main,крипта,crypto,0,0.65590,13223,0,1,доля валидных минут 0.6559 < порога 0.8287,1938
 okx,JNJ-USDT-SWAP,JNJ|акции+ETF,main,акции+ETF,eq_us,1,0.53897,2102,0,1,доля валидных минут 0.5390 < порога 0.9249,1939
-okx,JP225-USDT-SWAP,NIKKEI225|индексы,main,индексы,idx_us,1,0.17872,697,0,1,доля валидных минут 0.1787 < порога 0.2272,1940
+okx,JP225-USDT-SWAP,NIKKEI225|индексы,main,индексы,idx_us,1,0.17872,697,1,1,,1940
 okx,JTO-USDT-SWAP,JTO|крипта,main,крипта,crypto,0,0.99831,20126,1,1,,1942
 okx,JUP-USDT-SWAP,JUP|крипта,main,крипта,crypto,0,0.98824,19923,1,1,,1943
 okx,KAITO-USDT-SWAP,KAITO|крипта,main,крипта,crypto,0,0.97465,19649,1,1,,1944
 okx,KAT-USDT-SWAP,KAT|крипта,main,крипта,crypto,0,0.81756,16482,0,1,доля валидных минут 0.8176 < порога 0.8287,1945
 okx,KGEN-USDT-SWAP,KGEN|крипта,main,крипта,crypto,0,0.47713,9619,0,1,доля валидных минут 0.4771 < порога 0.8287,1946
 okx,KII-USDT-SWAP,KII|крипта,main,крипта,crypto,0,0.36528,7364,0,1,доля валидных минут 0.3653 < порога 0.8287,1947
-okx,KIOXIA-USDT-SWAP,KIOXIA|акции+ETF,main,акции+ETF,eq_us,1,0.49128,1916,0,1,доля валидных минут 0.4913 < порога 0.9249,1948
+okx,KIOXIA-USDT-SWAP,KIOXIA|акции+ETF,main,акции+ETF,eq_nonus,0,0.35967,7251,1,1,,1948
 okx,KITE-USDT-SWAP,KITE|крипта,main,крипта,crypto,0,0.89985,18141,1,1,,1949
 okx,KLAC-USDT-SWAP,KLAC|акции+ETF,main,акции+ETF,eq_us,1,0.77641,3028,0,1,доля валидных минут 0.7764 < порога 0.9249,1950
 okx,KMNO-USDT-SWAP,KMNO|крипта,main,крипта,crypto,0,0.88289,17799,1,1,,1951
 okx,KO-USDT-SWAP,KO|акции+ETF,main,акции+ETF,eq_us,1,0.47564,1855,0,1,доля валидных минут 0.4756 < порога 0.9249,1952
 okx,KORU-USDT-SWAP,KORU|акции+ETF,main,акции+ETF,eq_us,1,0.99897,3896,1,1,,1953
-okx,KR200-USDT-SWAP,KR200|индексы,main,индексы,idx_us,1,0.22718,886,1,1,,1954
+okx,KR200-USDT-SWAP,KR200|индексы,main,индексы,idx_nonus,0,0.16295,3285,1,1,,1954
 okx,KSM-USDT-SWAP,KSM|крипта,main,крипта,crypto,0,0.88829,17908,1,1,,1955
-okx,KSTR-USDT-SWAP,KSTR|акции+ETF,main,акции+ETF,eq_nonus,0,0.15813,3188,0,1,доля валидных минут 0.1581 < порога 0.2679,1956
+okx,KSTR-USDT-SWAP,KSTR|акции+ETF,main,акции+ETF,eq_us,1,0.17744,692,0,1,доля валидных минут 0.1774 < порога 0.9249,1956
 okx,LA-USDT-SWAP,LA|крипта,main,крипта,crypto,0,0.97867,19730,1,1,,1957
 okx,LAB-USDT-SWAP,LAB|крипта,main,крипта,crypto,0,0.99306,20020,1,1,,1958
 okx,LAYER-USDT-SWAP,LAYER|крипта,main,крипта,crypto,0,0.85883,17314,1,1,,1959
 okx,LDO-USDT-SWAP,LDO|крипта,main,крипта,crypto,0,0.99757,20111,1,1,,1960
-okx,LGELECTRONICS-USDT-SWAP,LGELECTRONICS|акции+ETF,main,акции+ETF,eq_nonus,0,0.15645,3154,0,1,доля валидных минут 0.1564 < порога 0.2679,1961
+okx,LGELECTRONICS-USDT-SWAP,LGELECTRONICS|акции+ETF,main,акции+ETF,eq_nonus,0,0.15645,3154,0,1,доля валидных минут 0.1564 < порога 0.2612,1961
 okx,LIGHT-USDT-SWAP,LIGHT|крипта,main,крипта,crypto,0,0.88289,17799,1,1,,1962
 okx,LINEA-USDT-SWAP,LINEA|крипта,main,крипта,crypto,0,0.87183,17576,1,1,,1963
 okx,LINK-USD-SWAP,LINK|крипта,dup,крипта,crypto,0,0.69896,14091,0,0,,1964
@@ -1931,7 +1931,7 @@ okx,MU-USDT-SWAP,MU|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,
 okx,MUBARAK-USDT-SWAP,MUBARAK|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,2008
 okx,MUU-USDT-SWAP,MUU|акции+ETF,main,акции+ETF,eq_us,1,0.99821,3893,1,1,,2010
 okx,MVLL-USDT-SWAP,MVLL|акции+ETF,main,акции+ETF,eq_us,1,0.98051,3824,1,1,,2011
-okx,NAVER-USDT-SWAP,NAVER|акции+ETF,main,акции+ETF,eq_nonus,0,0.06642,1339,0,1,доля валидных минут 0.0664 < порога 0.2679,2012
+okx,NAVER-USDT-SWAP,NAVER|акции+ETF,main,акции+ETF,eq_nonus,0,0.06642,1339,0,1,доля валидных минут 0.0664 < порога 0.2612,2012
 okx,NBIS-USDT-SWAP,NBIS|акции+ETF,main,акции+ETF,eq_us,1,0.99949,3898,1,1,,2013
 okx,NEAR-USDT-SWAP,NEAR|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,2014
 okx,NEIRO-USDT-SWAP,NEIRO|крипта,main,крипта,crypto,0,0.96667,19488,1,1,,2015
@@ -1983,7 +1983,7 @@ okx,POET-USDT-SWAP,POET|акции+ETF,main,акции+ETF,eq_us,1,0.48385,1887,
 okx,POL-USDT-SWAP,POL|крипта,main,крипта,crypto,0,0.99380,20035,1,1,,2069
 okx,PONS-USDT-SWAP,PONS|крипта,main,крипта,crypto,0,0.99980,20156,1,1,,2070
 okx,POPCAT-USDT-SWAP,POPCAT|крипта,main,крипта,crypto,0,0.78120,15749,0,1,доля валидных минут 0.7812 < порога 0.8287,2071
-okx,POPMART-USDT-SWAP,POPMART|акции+ETF,main,акции+ETF,eq_nonus,0,0.16210,3268,0,1,доля валидных минут 0.1621 < порога 0.2679,2072
+okx,POPMART-USDT-SWAP,POPMART|акции+ETF,main,акции+ETF,eq_nonus,0,0.16210,3268,0,1,доля валидных минут 0.1621 < порога 0.2612,2072
 okx,PROS-USDT-SWAP,PROS|крипта,main,крипта,crypto,0,0.95303,19213,1,1,,2073
 okx,PROVE-USDT-SWAP,PROVE|крипта,main,крипта,crypto,0,0.68323,13774,0,1,доля валидных минут 0.6832 < порога 0.8287,2074
 okx,PUMP-USDT-SWAP,PUMP|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,2075
@@ -2010,7 +2010,7 @@ okx,RIVN-USDT-SWAP,RIVN|акции+ETF,main,акции+ETF,eq_us,1,0.42128,1643,
 okx,RKLB-USDT-SWAP,RKLB|акции+ETF,main,акции+ETF,eq_us,1,0.99385,3876,1,1,,2096
 okx,RLS-USDT-SWAP,RLS|крипта,main,крипта,crypto,0,0.73626,14843,0,1,доля валидных минут 0.7363 < порога 0.8287,2097
 okx,ROBO-USDT-SWAP,ROBO|крипта,main,крипта,crypto,0,0.92103,18568,1,1,,2098
-okx,ROK-USDT-SWAP,ROK|акции+ETF,main,акции+ETF,eq_nonus,0,0.10322,2081,0,1,доля валидных минут 0.1032 < порога 0.2679,2099
+okx,ROK-USDT-SWAP,ROK|акции+ETF,main,акции+ETF,eq_nonus,0,0.10322,2081,0,1,доля валидных минут 0.1032 < порога 0.2612,2099
 okx,RSR-USDT-SWAP,RSR|крипта,main,крипта,crypto,0,0.83646,16863,1,1,,2100
 okx,RVN-USDT-SWAP,RVN|крипта,main,крипта,crypto,0,0.90208,18186,1,1,,2102
 okx,S-USDT-SWAP,S|крипта,main,крипта,crypto,0,0.98115,19780,1,1,,2103
@@ -2023,10 +2023,10 @@ okx,SECZ-USDT-SWAP,SECZ|акции+ETF,main,акции+ETF,eq_us,1,0.83308,3249,
 okx,SEI-USDT-SWAP,SEI|крипта,main,крипта,crypto,0,0.99494,20058,1,1,,2110
 okx,SENT-USDT-SWAP,SENT|крипта,main,крипта,crypto,0,0.96890,19533,1,1,,2111
 okx,SHAZ-USDT-SWAP,SHAZ|акции+ETF,main,акции+ETF,eq_us,1,0.67077,2616,0,1,доля валидных минут 0.6708 < порога 0.9249,2112
-okx,SHEIN-USDT-SWAP,SHEIN|акции+ETF,main,акции+ETF,eq_nonus,0,0.22917,4620,0,1,доля валидных минут 0.2292 < порога 0.2679,2113
+okx,SHEIN-USDT-SWAP,SHEIN|акции+ETF,main,акции+ETF,eq_nonus,0,0.22917,4620,0,1,доля валидных минут 0.2292 < порога 0.2612,2113
 okx,SHELL-USDT-SWAP,SHELL|крипта,main,крипта,crypto,0,0.51885,10460,0,1,доля валидных минут 0.5188 < порога 0.8287,2114
 okx,SHIB-USDT-SWAP,SHIB|крипта,main,крипта,crypto,0,0.99241,20007,1,1,,2115
-okx,SHLD-USDT-SWAP,SHLD|акции+ETF,main,акции+ETF,eq_nonus,0,0.07986,1610,0,1,доля валидных минут 0.0799 < порога 0.2679,2116
+okx,SHLD-USDT-SWAP,SHLD|акции+ETF,main,акции+ETF,eq_nonus,0,0.07986,1610,0,1,доля валидных минут 0.0799 < порога 0.2612,2116
 okx,SHOP-USDT-SWAP,SHOP|акции+ETF,main,акции+ETF,eq_us,1,0.53154,2073,0,1,доля валидных минут 0.5315 < порога 0.9249,2117
 okx,SIGN-USDT-SWAP,SIGN|крипта,main,крипта,crypto,0,0.59311,11957,0,1,доля валидных минут 0.5931 < порога 0.8287,2118
 okx,SIMO-USDT-SWAP,SIMO|акции+ETF,main,акции+ETF,eq_us,1,0.49923,1947,0,1,доля валидных минут 0.4992 < порога 0.9249,2119
@@ -2043,7 +2043,7 @@ okx,SNOW-USDT-SWAP,SNOW|акции+ETF,main,акции+ETF,eq_us,1,0.32974,1286,
 okx,SNX-USDT-SWAP,SNX|крипта,main,крипта,crypto,0,0.85977,17333,1,1,,2131
 okx,SNXX-USDT-SWAP,SNXX|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2132
 okx,SOFI-USDT-SWAP,SOFI|акции+ETF,main,акции+ETF,eq_us,1,0.05333,208,0,1,доля валидных минут 0.0533 < порога 0.9249,2133
-okx,SOFTBANK-USDT-SWAP,SOFTBANK|акции+ETF,main,акции+ETF,eq_nonus,0,0.18616,3753,0,1,доля валидных минут 0.1862 < порога 0.2679,2134
+okx,SOFTBANK-USDT-SWAP,SOFTBANK|акции+ETF,main,акции+ETF,eq_nonus,0,0.18616,3753,0,1,доля валидных минут 0.1862 < порога 0.2612,2134
 okx,SOL-USD-SWAP,SOL|крипта,dup,крипта,crypto,0,0.91334,18413,0,0,,2135
 okx,SOL-USDT-SWAP,SOL|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,2136
 okx,SONY-USDT-SWAP,SONY|акции+ETF,main,акции+ETF,eq_us,1,0.19897,776,0,1,доля валидных минут 0.1990 < порога 0.9249,2137
@@ -2060,7 +2060,7 @@ okx,SPY-USDT-SWAP,SPY|акции+ETF,main,акции+ETF,eq_us,1,0.94564,3688,1,
 okx,SQQQ-USDT-SWAP,SQQQ|акции+ETF,main,акции+ETF,eq_us,1,0.83692,3264,0,1,доля валидных минут 0.8369 < порога 0.9249,2148
 okx,SSV-USDT-SWAP,SSV|крипта,main,крипта,crypto,0,0.77917,15708,0,1,доля валидных минут 0.7792 < порога 0.8287,2149
 okx,STABLE-USDT-SWAP,STABLE|крипта,main,крипта,crypto,0,0.46835,9442,0,1,доля валидных минут 0.4684 < порога 0.8287,2150
-okx,STRC-USDT-SWAP,STRC|акции+ETF,main,акции+ETF,eq_nonus,0,0.21756,4386,0,1,доля валидных минут 0.2176 < порога 0.2679,2151
+okx,STRC-USDT-SWAP,STRC|акции+ETF,main,акции+ETF,eq_nonus,0,0.21756,4386,0,1,доля валидных минут 0.2176 < порога 0.2612,2151
 okx,STRK-USDT-SWAP,STRK|крипта,main,крипта,crypto,0,0.99945,20149,1,1,,2152
 okx,STX-USDT-SWAP,STX|крипта,main,крипта,crypto,0,0.99489,20057,1,1,,2153
 okx,SUI-USD-SWAP,SUI|крипта,dup,крипта,crypto,0,0.79836,16095,0,0,,2154
@@ -2100,7 +2100,7 @@ okx,UNITREE-USDT-SWAP,UNITREE|акции+ETF,main,акции+ETF,eq_nonus,0,0.53
 okx,UP-USDT-SWAP,UP|крипта,main,крипта,crypto,0,0.92961,18741,1,1,,2190
 okx,URNM-USDT-SWAP,URNM|акции+ETF,main,акции+ETF,eq_us,1,0.44077,1719,0,1,доля валидных минут 0.4408 < порога 0.9249,2191
 okx,US100-USDT-SWAP,NASDAQ100|индексы,main,индексы,idx_us,1,0.29974,1169,1,1,,2192
-okx,US500-USDT-SWAP,SP500|индексы,main,индексы,idx_us,1,0.10821,422,0,1,доля валидных минут 0.1082 < порога 0.2272,2193
+okx,US500-USDT-SWAP,SP500|индексы,main,индексы,idx_us,1,0.10821,422,0,1,доля валидных минут 0.1082 < порога 0.1787,2193
 okx,USAR-USDT-SWAP,USAR|акции+ETF,main,акции+ETF,eq_us,1,0.79590,3104,0,1,доля валидных минут 0.7959 < порога 0.9249,2194
 okx,USDC-USDT-SWAP,USDC|крипта,main,крипта,crypto,0,0.19732,3978,0,1,доля валидных минут 0.1973 < порога 0.8287,2195
 okx,USELESS-USDT-SWAP,USELESS|крипта,main,крипта,crypto,0,1.00000,20160,1,1,,2196
@@ -2571,7 +2571,7 @@ bingx,NCSIEWJ2USD-USDT,EWJ|акции+ETF,main,акции+ETF,eq_us,1,1.00000,39
 bingx,NCSIEWY2USD-USDT,EWY|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2681
 bingx,NCSIFLKR2USD-USDT,FLKR|акции+ETF,main,акции+ETF,eq_us,1,0.99872,3895,1,1,,2682
 bingx,NCSIKOSPI12USD-USDT,KOSPI1|индексы,main,индексы,idx_nonus,0,1.00000,20160,1,1,,2684
-bingx,NCSIKOSPI2USD-USDT,KR200|индексы,main,индексы,idx_us,1,1.00000,3900,1,1,,2685
+bingx,NCSIKOSPI2USD-USDT,KR200|индексы,main,индексы,idx_nonus,0,1.00000,20160,1,1,,2685
 bingx,NCSINASDAQ1002USD-USDT,NASDAQ100|индексы,main,индексы,idx_us,1,1.00000,3900,1,1,,2686
 bingx,NCSINIKKEI2252USD-USDT,NIKKEI225|индексы,main,индексы,idx_us,1,1.00000,3900,1,1,,2687
 bingx,NCSIRUSSELL20002USD-USDT,RUSSELL2000|индексы,main,индексы,idx_us,1,1.00000,3900,1,1,,2688
@@ -2629,7 +2629,7 @@ bingx,NCSKAVAV2USD-USDT,AVAV|акции+ETF,main,акции+ETF,eq_us,1,1.00000,
 bingx,NCSKAVGO2USD-USDT,AVGO|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2746
 bingx,NCSKAVGX2USD-USDT,AVGX|акции+ETF,main,акции+ETF,eq_us,1,0.99821,3893,1,1,,2747
 bingx,NCSKAXONUSDT-USDT,AXON|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2748
-bingx,NCSKAXP2USD-USDT,AXP|акции+ETF,main,акции+ETF,eq_nonus,0,0.99782,20116,1,1,,2749
+bingx,NCSKAXP2USD-USDT,AXP|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2749
 bingx,NCSKAXTI2USD-USDT,AXTI|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2750
 bingx,NCSKAZN2USD-USDT,AZN|акции+ETF,main,акции+ETF,eq_nonus,0,0.86488,17436,0,1,доля валидных минут 0.8649 < порога 0.9793,2751
 bingx,NCSKB2USD-USDT,B|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2752
@@ -2641,7 +2641,7 @@ bingx,NCSKBB2USD-USDT,BB|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900
 bingx,NCSKBBAI2USD-USDT,BBAI|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2758
 bingx,NCSKBE2USD-USDT,BE|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2760
 bingx,NCSKBIDU2USD-USDT,BIDU|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2762
-bingx,NCSKBIIB2USD-USDT,BIIB|акции+ETF,main,акции+ETF,eq_nonus,0,1.00000,20160,1,1,,2763
+bingx,NCSKBIIB2USD-USDT,BIIB|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2763
 bingx,NCSKBIL2USD-USDT,BIL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2764
 bingx,NCSKBITO2USD-USDT,BITO|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2765
 bingx,NCSKBITX2USD-USDT,BITX|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2766
@@ -2727,7 +2727,7 @@ bingx,NCSKESTC2USD-USDT,ESTC|акции+ETF,main,акции+ETF,eq_us,1,1.00000,
 bingx,NCSKETN2USD-USDT,ETN|акции+ETF,main,акции+ETF,eq_us,1,0.99897,3896,1,1,,2870
 bingx,NCSKEUV2USD-USDT,EUV|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2871
 bingx,NCSKEWT2USD-USDT,EWT|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2872
-bingx,NCSKEWZ2USD-USDT,EWZ|акции+ETF,main,акции+ETF,eq_nonus,0,1.00000,20160,1,1,,2873
+bingx,NCSKEWZ2USD-USDT,EWZ|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2873
 bingx,NCSKEXEL2USD-USDT,EXEL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2875
 bingx,NCSKEXPE2USD-USDT,EXPE|акции+ETF,main,акции+ETF,eq_us,1,0.49231,1920,0,1,доля валидных минут 0.4923 < порога 0.9982,2876
 bingx,NCSKF2USD-USDT,F|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2877
@@ -2789,7 +2789,7 @@ bingx,NCSKHWM2USD-USDT,HWM|акции+ETF,main,акции+ETF,eq_us,1,1.00000,39
 bingx,NCSKHYG2USD-USDT,HYG|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2945
 bingx,NCSKHYUNDAI2USD-USDT,HYUNDAI|акции+ETF,main,акции+ETF,eq_nonus,0,1.00000,20160,1,1,,2946
 bingx,NCSKIBB2USD-USDT,IBB|акции+ETF,main,акции+ETF,eq_us,1,0.10000,390,0,1,доля валидных минут 0.1000 < порога 0.9982,2947
-bingx,NCSKIBIT2USD-USDT,IBIT|акции+ETF,main,акции+ETF,eq_nonus,0,1.00000,20160,1,1,,2948
+bingx,NCSKIBIT2USD-USDT,IBIT|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2948
 bingx,NCSKIBKR2USD-USDT,IBKR|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2949
 bingx,NCSKIBMR2USD-USDT,IBM|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2950
 bingx,NCSKIEF2USD-USDT,IEF|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2951
@@ -2816,7 +2816,7 @@ bingx,NCSKJNJ2USD-USDT,JNJ|акции+ETF,main,акции+ETF,eq_us,1,1.00000,39
 bingx,NCSKJOBY2USD-USDT,JOBY|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2975
 bingx,NCSKJPM2USD-USDT,JPM|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2977
 bingx,NCSKKEEL2USD-USDT,KEEL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2978
-bingx,NCSKKIOXIA2USD-USDT,KIOXIA|акции+ETF,main,акции+ETF,eq_us,1,0.50000,1950,0,1,доля валидных минут 0.5000 < порога 0.9982,2980
+bingx,NCSKKIOXIA2USD-USDT,KIOXIA|акции+ETF,main,акции+ETF,eq_nonus,0,0.47321,9540,0,1,доля валидных минут 0.4732 < порога 0.9793,2980
 bingx,NCSKKLAC2USD-USDT,KLAC|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2982
 bingx,NCSKKO2USD-USDT,KO|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2984
 bingx,NCSKKOD2USD-USDT,KOD|акции+ETF,main,акции+ETF,eq_us,1,0.50000,1950,0,1,доля валидных минут 0.5000 < порога 0.9982,2985
@@ -2824,7 +2824,7 @@ bingx,NCSKKODEX2002USD-USDT,KODEX200|акции+ETF,main,акции+ETF,eq_nonus
 bingx,NCSKKOPN2USD-USDT,KOPN|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2987
 bingx,NCSKKORU2USD-USDT,KORU|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2988
 bingx,NCSKKRE2USD-USDT,KRE|акции+ETF,main,акции+ETF,eq_us,1,0.29231,1140,0,1,доля валидных минут 0.2923 < порога 0.9982,2989
-bingx,NCSKKSTR2USD-USDT,KSTR|акции+ETF,main,акции+ETF,eq_nonus,0,1.00000,20160,1,1,,2990
+bingx,NCSKKSTR2USD-USDT,KSTR|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,2990
 bingx,NCSKKTOS2USD-USDT,KTOS|акции+ETF,main,акции+ETF,eq_us,1,0.99949,3898,1,1,,2991
 bingx,NCSKKWEB2USD-USDT,KWEB|акции+ETF,main,акции+ETF,eq_nonus,0,0.99821,20124,1,1,,2992
 bingx,NCSKLASERTEC2USD-USDT,LASERTEC|акции+ETF,main,акции+ETF,eq_nonus,0,0.99687,20097,1,1,,2994
@@ -2852,13 +2852,13 @@ bingx,NCSKMARA2USD-USDT,MARA|акции+ETF,main,акции+ETF,eq_us,1,1.00000,
 bingx,NCSKMCD2USD-USDT,MCD|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3019
 bingx,NCSKMCK2USD-USDT,MCK|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3021
 bingx,NCSKMDB2USD-USDT,MDB|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3022
-bingx,NCSKMDT2USD-USDT,MDT|акции+ETF,main,акции+ETF,eq_nonus,0,0.04901,988,0,1,доля валидных минут 0.0490 < порога 0.9793,3023
+bingx,NCSKMDT2USD-USDT,MDT|акции+ETF,main,акции+ETF,eq_us,1,0.10000,390,0,1,доля валидных минут 0.1000 < порога 0.9982,3023
 bingx,NCSKMELI2USD-USDT,MELI|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3024
 bingx,NCSKMETA2USD-USDT,META|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3025
 bingx,NCSKMETU2USD-USDT,METU|акции+ETF,main,акции+ETF,eq_us,1,0.99923,3897,1,1,,3026
 bingx,NCSKMGM2USD-USDT,MGM|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3027
 bingx,NCSKMNST2USD-USDT,MNST|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3029
-bingx,NCSKMO2USD-USDT,MO|акции+ETF,main,акции+ETF,eq_nonus,0,1.00000,20160,1,1,,3030
+bingx,NCSKMO2USD-USDT,MO|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3030
 bingx,NCSKMP2USD-USDT,MP|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3031
 bingx,NCSKMPC2USD-USDT,MPC|акции+ETF,main,акции+ETF,eq_us,1,0.99897,3896,1,1,,3032
 bingx,NCSKMPWR2USD-USDT,MPWR|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3033
@@ -2912,7 +2912,7 @@ bingx,NCSKOSCR2USD-USDT,OSCR|акции+ETF,main,акции+ETF,eq_us,1,1.00000,
 bingx,NCSKOSS2USD-USDT,OSS|акции+ETF,main,акции+ETF,eq_us,1,0.99333,3874,0,1,доля валидных минут 0.9933 < порога 0.9982,3091
 bingx,NCSKOUST2USD-USDT,OUST|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3093
 bingx,NCSKOWL2USD-USDT,OWL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3094
-bingx,NCSKOXY2USD-USDT,OXY|акции+ETF,main,акции+ETF,eq_nonus,0,0.99172,19993,1,1,,3095
+bingx,NCSKOXY2USD-USDT,OXY|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3095
 bingx,NCSKPANW2USD-USDT,PANW|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3097
 bingx,NCSKPATH2USD-USDT,PATH|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3098
 bingx,NCSKPAYP2USD-USDT,PAYP|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,3099
@@ -3554,7 +3554,7 @@ aster,EVAAUSDT,EVAA|крипта,main,крипта,crypto,0,0.08537,1721,0,1,д�
 aster,EWJUSDT,EWJ|акции+ETF,main,акции+ETF,eq_us,1,0.00103,4,0,1,доля валидных минут 0.0010 < порога 0.1228,3766
 aster,EWTUSDT,EWT|акции+ETF,main,акции+ETF,eq_us,1,0.00282,11,0,1,доля валидных минут 0.0028 < порога 0.1228,3767
 aster,EWYUSDT,EWY|акции+ETF,main,акции+ETF,eq_us,1,0.02231,87,0,1,доля валидных минут 0.0223 < порога 0.1228,3768
-aster,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_nonus,0,0.00308,62,0,1,доля валидных минут 0.0031 < порога 0.0514,3769
+aster,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_us,1,0.00385,15,0,1,доля валидных минут 0.0038 < порога 0.1228,3769
 aster,FARTCOINUSDT,FARTCOIN|крипта,main,крипта,crypto,0,0.26949,5433,1,1,,3770
 aster,FETUSDT,FET|крипта,main,крипта,crypto,0,0.34201,6895,1,1,,3771
 aster,FFUSDT,FF|крипта,main,крипта,crypto,0,0.08457,1705,0,1,доля валидных минут 0.0846 < порога 0.1511,3772
@@ -3639,7 +3639,7 @@ aster,KNCUSDT,KNC|крипта,main,крипта,crypto,0,0.00089,18,0,1,дол�
 aster,KOMAUSDT,KOMA|крипта,main,крипта,crypto,0,0.04539,915,0,1,доля валидных минут 0.0454 < порога 0.1511,3852
 aster,KORUUSD1,KORU|акции+ETF,dup,акции+ETF,eq_us,1,0.00590,23,0,0,,3853
 aster,KORUUSDT,KORU|акции+ETF,main,акции+ETF,eq_us,1,0.32103,1252,1,1,,3854
-aster,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_nonus,0,0.00253,51,0,1,доля валидных минут 0.0025 < порога 0.0514,3855
+aster,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_us,1,0.00641,25,0,1,доля валидных минут 0.0064 < порога 0.1228,3855
 aster,KUAISHOUUSDT,KUAISHOU|акции+ETF,main,акции+ETF,eq_nonus,0,0.00268,54,0,1,доля валидных минут 0.0027 < порога 0.0514,3856
 aster,LABUSDT,LAB|крипта,main,крипта,crypto,0,0.25511,5143,1,1,,3857
 aster,LAPTOPUSDT,LAPTOP|крипта,main,крипта,crypto,0,0.02550,514,0,1,доля валидных минут 0.0255 < порога 0.1511,3858
@@ -4349,23 +4349,23 @@ bitget,1INCHUSDT,1INCH|крипта,main,крипта,crypto,0,0.27986,5642,0,1,
 bitget,1MBABYDOGEUSDT,BABYDOGE|крипта,main,крипта,crypto,0,0.21959,4427,0,1,доля валидных минут 0.2196 < порога 0.5061,4636
 bitget,1MCHEEMSUSDT,CHEEMS|крипта,main,крипта,crypto,0,0.36409,7340,0,1,доля валидных минут 0.3641 < порога 0.5061,4637
 bitget,2ZUSDT,2Z|крипта,main,крипта,crypto,0,0.64856,13075,1,1,,4638
-bitget,AALUSDT,AAL|акции+ETF,main,акции+ETF,eq_us,1,0.20846,813,0,1,доля валидных минут 0.2085 < порога 0.4285,4639
+bitget,AALUSDT,AAL|акции+ETF,main,акции+ETF,eq_us,1,0.20846,813,0,1,доля валидных минут 0.2085 < порога 0.4269,4639
 bitget,AAOIUSDT,AAOI|акции+ETF,main,акции+ETF,eq_us,1,0.99667,3887,1,1,,4640
 bitget,AAPLUSDT,AAPL|акции+ETF,main,акции+ETF,eq_us,1,0.93282,3638,1,1,,4641
-bitget,AAPUUSDT,AAPU|акции+ETF,main,акции+ETF,eq_us,1,0.13897,542,0,1,доля валидных минут 0.1390 < порога 0.4285,4642
+bitget,AAPUUSDT,AAPU|акции+ETF,main,акции+ETF,eq_us,1,0.13897,542,0,1,доля валидных минут 0.1390 < порога 0.4269,4642
 bitget,AAVEPERP,AAVE|крипта,dup,крипта,crypto,0,0.51959,10475,0,0,,4643
 bitget,AAVEUSDT,AAVE|крипта,main,крипта,crypto,0,0.95322,19217,1,1,,4644
-bitget,ABNBUSDT,ABNB|акции+ETF,main,акции+ETF,eq_us,1,0.22051,860,0,1,доля валидных минут 0.2205 < порога 0.4285,4646
+bitget,ABNBUSDT,ABNB|акции+ETF,main,акции+ETF,eq_us,1,0.22051,860,0,1,доля валидных минут 0.2205 < порога 0.4269,4646
 bitget,ACEUSDT,ACE|крипта,main,крипта,crypto,0,0.54876,11063,1,1,,4647
-bitget,ACHRUSDT,ACHR|акции+ETF,main,акции+ETF,eq_us,1,0.14590,569,0,1,доля валидных минут 0.1459 < порога 0.4285,4648
+bitget,ACHRUSDT,ACHR|акции+ETF,main,акции+ETF,eq_us,1,0.14590,569,0,1,доля валидных минут 0.1459 < порога 0.4269,4648
 bitget,ACHUSDT,ACH|крипта,main,крипта,crypto,0,0.24435,4926,0,1,доля валидных минут 0.2443 < порога 0.5061,4649
-bitget,ACNSTOCKUSDT,ACN|акции+ETF,main,акции+ETF,eq_us,1,0.32641,1273,0,1,доля валидных минут 0.3264 < порога 0.4285,4650
+bitget,ACNSTOCKUSDT,ACN|акции+ETF,main,акции+ETF,eq_us,1,0.32641,1273,0,1,доля валидных минут 0.3264 < порога 0.4269,4650
 bitget,ACTUSDT,ACT|крипта,main,крипта,crypto,0,0.37440,7548,0,1,доля валидных минут 0.3744 < порога 0.5061,4651
 bitget,ACUUSDT,ACU|крипта,main,крипта,crypto,0,0.17867,3602,0,1,доля валидных минут 0.1787 < порога 0.5061,4652
 bitget,ADAPERP,ADA|крипта,dup,крипта,crypto,0,0.28661,5778,0,0,,4653
 bitget,ADAUSDT,ADA|крипта,main,крипта,crypto,0,0.96657,19486,1,1,,4654
-bitget,ADBEUSDT,ADBE|акции+ETF,main,акции+ETF,eq_us,1,0.39103,1525,0,1,доля валидных минут 0.3910 < порога 0.4285,4655
-bitget,ADIUSDT,ADI|акции+ETF,main,акции+ETF,eq_us,1,0.16051,626,0,1,доля валидных минут 0.1605 < порога 0.4285,4656
+bitget,ADBEUSDT,ADBE|акции+ETF,main,акции+ETF,eq_us,1,0.39103,1525,0,1,доля валидных минут 0.3910 < порога 0.4269,4655
+bitget,ADIUSDT,ADI|акции+ETF,main,акции+ETF,eq_us,1,0.16051,626,0,1,доля валидных минут 0.1605 < порога 0.4269,4656
 bitget,ADVANTESTUSDT,ADVANTEST|акции+ETF,main,акции+ETF,eq_nonus,0,0.17445,3517,0,1,доля валидных минут 0.1745 < порога 0.3177,4657
 bitget,AEHRUSDT,AEHR|акции+ETF,main,акции+ETF,eq_us,1,0.60205,2348,1,1,,4658
 bitget,AEONUSDT,AEON|крипта,main,крипта,crypto,0,0.50809,10243,1,1,,4659
@@ -4375,29 +4375,29 @@ bitget,AGLDUSDT,AGLD|крипта,main,крипта,crypto,0,0.19603,3952,0,1,д
 bitget,AGPUUSDT,AGPU|акции+ETF,main,акции+ETF,eq_us,1,0.43590,1700,1,1,,4663
 bitget,AIOUSDT,AIO|крипта,main,крипта,crypto,0,0.50580,10197,0,1,доля валидных минут 0.5058 < порога 0.5061,4664
 bitget,AIXBTUSDT,AIXBT|крипта,main,крипта,crypto,0,0.26885,5420,0,1,доля валидных минут 0.2688 < порога 0.5061,4665
-bitget,AKAMUSDT,AKAM|акции+ETF,main,акции+ETF,eq_us,1,0.35128,1370,0,1,доля валидных минут 0.3513 < порога 0.4285,4666
+bitget,AKAMUSDT,AKAM|акции+ETF,main,акции+ETF,eq_us,1,0.35128,1370,0,1,доля валидных минут 0.3513 < порога 0.4269,4666
 bitget,AKEUSDT,AKE|крипта,main,крипта,crypto,0,0.85600,17257,1,1,,4667
 bitget,AKTUSDT,AKT|крипта,main,крипта,crypto,0,0.56473,11385,1,1,,4668
-bitget,ALABUSDT,ALAB|акции+ETF,main,акции+ETF,eq_us,1,0.39436,1538,0,1,доля валидных минут 0.3944 < порога 0.4285,4669
+bitget,ALABUSDT,ALAB|акции+ETF,main,акции+ETF,eq_us,1,0.39436,1538,0,1,доля валидных минут 0.3944 < порога 0.4269,4669
 bitget,ALCHUSDT,ALCH|крипта,main,крипта,crypto,0,0.10407,2098,0,1,доля валидных минут 0.1041 < порога 0.5061,4670
 bitget,ALGOUSDT,ALGO|крипта,main,крипта,crypto,0,0.84162,16967,1,1,,4671
 bitget,ALICEUSDT,ALICE|крипта,main,крипта,crypto,0,0.52540,10592,1,1,,4672
 bitget,ALLOUSDT,ALLO|крипта,main,крипта,crypto,0,0.49226,9924,0,1,доля валидных минут 0.4923 < порога 0.5061,4673
 bitget,ALTUSDT,ALT|крипта,main,крипта,crypto,0,0.30441,6137,0,1,доля валидных минут 0.3044 < порога 0.5061,4674
-bitget,AMATUSDT,AMAT|акции+ETF,main,акции+ETF,eq_us,1,0.35513,1385,0,1,доля валидных минут 0.3551 < порога 0.4285,4675
-bitget,AMCUSDT,AMC|акции+ETF,main,акции+ETF,eq_us,1,0.40615,1584,0,1,доля валидных минут 0.4062 < порога 0.4285,4676
+bitget,AMATUSDT,AMAT|акции+ETF,main,акции+ETF,eq_us,1,0.35513,1385,0,1,доля валидных минут 0.3551 < порога 0.4269,4675
+bitget,AMCUSDT,AMC|акции+ETF,main,акции+ETF,eq_us,1,0.40615,1584,0,1,доля валидных минут 0.4062 < порога 0.4269,4676
 bitget,AMDUSDT,AMD|акции+ETF,main,акции+ETF,eq_us,1,0.96051,3746,1,1,,4677
-bitget,AMGNUSDT,AMGN|акции+ETF,main,акции+ETF,eq_us,1,0.30000,1170,0,1,доля валидных минут 0.3000 < порога 0.4285,4678
-bitget,AMKRUSDT,AMKR|акции+ETF,main,акции+ETF,eq_us,1,0.26205,1022,0,1,доля валидных минут 0.2621 < порога 0.4285,4679
+bitget,AMGNUSDT,AMGN|акции+ETF,main,акции+ETF,eq_us,1,0.30000,1170,0,1,доля валидных минут 0.3000 < порога 0.4269,4678
+bitget,AMKRUSDT,AMKR|акции+ETF,main,акции+ETF,eq_us,1,0.26205,1022,0,1,доля валидных минут 0.2621 < порога 0.4269,4679
 bitget,AMZNUSDT,AMZN|акции+ETF,main,акции+ETF,eq_us,1,0.76538,2985,1,1,,4680
-bitget,AMZUUSDT,AMZU|акции+ETF,main,акции+ETF,eq_us,1,0.34205,1334,0,1,доля валидных минут 0.3421 < порога 0.4285,4681
-bitget,ANETUSDT,ANET|акции+ETF,main,акции+ETF,eq_us,1,0.24692,963,0,1,доля валидных минут 0.2469 < порога 0.4285,4682
+bitget,AMZUUSDT,AMZU|акции+ETF,main,акции+ETF,eq_us,1,0.34205,1334,0,1,доля валидных минут 0.3421 < порога 0.4269,4681
+bitget,ANETUSDT,ANET|акции+ETF,main,акции+ETF,eq_us,1,0.24692,963,0,1,доля валидных минут 0.2469 < порога 0.4269,4682
 bitget,ANIMEUSDT,ANIME|крипта,main,крипта,crypto,0,0.26324,5307,0,1,доля валидных минут 0.2632 < порога 0.5061,4683
 bitget,ANKRUSDT,ANKR|крипта,main,крипта,crypto,0,0.30729,6195,0,1,доля валидных минут 0.3073 < порога 0.5061,4684
 bitget,APDUSDT,APD|акции+ETF,main,акции+ETF,eq_nonus,0,0.15526,3130,0,1,доля валидных минут 0.1553 < порога 0.3177,4686
 bitget,APEUSDT,APE|крипта,main,крипта,crypto,0,0.50308,10142,0,1,доля валидных минут 0.5031 < порога 0.5061,4687
 bitget,API3USDT,API3|крипта,main,крипта,crypto,0,0.46949,9465,0,1,доля валидных минут 0.4695 < порога 0.5061,4688
-bitget,APLDUSDT,APLD|акции+ETF,main,акции+ETF,eq_us,1,0.31846,1242,0,1,доля валидных минут 0.3185 < порога 0.4285,4689
+bitget,APLDUSDT,APLD|акции+ETF,main,акции+ETF,eq_us,1,0.31846,1242,0,1,доля валидных минут 0.3185 < порога 0.4269,4689
 bitget,APPUSDT,APP|акции+ETF,main,акции+ETF,eq_us,1,0.45436,1772,1,1,,4690
 bitget,APRUSDT,APR|крипта,main,крипта,crypto,0,0.66756,13458,1,1,,4691
 bitget,APTUSDT,APT|крипта,main,крипта,crypto,0,0.95010,19154,1,1,,4692
@@ -4409,7 +4409,7 @@ bitget,ARKMUSDT,ARKM|крипта,main,крипта,crypto,0,0.32440,6540,0,1,д
 bitget,ARKUSDT,ARK|крипта,main,крипта,crypto,0,0.64350,12973,1,1,,4698
 bitget,ARMUSDT,ARM|акции+ETF,main,акции+ETF,eq_us,1,0.90256,3520,1,1,,4699
 bitget,ARPAUSDT,ARPA|крипта,main,крипта,crypto,0,0.41106,8287,0,1,доля валидных минут 0.4111 < порога 0.5061,4700
-bitget,ARQQUSDT,ARQQ|акции+ETF,main,акции+ETF,eq_us,1,0.27897,1088,0,1,доля валидных минут 0.2790 < порога 0.4285,4701
+bitget,ARQQUSDT,ARQQ|акции+ETF,main,акции+ETF,eq_us,1,0.27897,1088,0,1,доля валидных минут 0.2790 < порога 0.4269,4701
 bitget,ARUSDT,AR|крипта,main,крипта,crypto,0,0.50605,10202,1,1,,4702
 bitget,ARXUSDT,ARX|крипта,main,крипта,crypto,0,0.68378,13785,1,1,,4703
 bitget,ASMLUSDT,ASML|акции+ETF,main,акции+ETF,eq_us,1,0.49795,1942,1,1,,4704
@@ -4417,28 +4417,28 @@ bitget,ASRUSDT,ASR|крипта,main,крипта,crypto,0,0.24023,4843,0,1,до
 bitget,ASTERUSDT,ASTER|крипта,main,крипта,crypto,0,0.73408,14799,1,1,,4706
 bitget,ASTRUSDT,ASTR|крипта,main,крипта,crypto,0,0.35923,7242,0,1,доля валидных минут 0.3592 < порога 0.5061,4707
 bitget,ASTSUSDT,ASTS|акции+ETF,main,акции+ETF,eq_us,1,0.78564,3064,1,1,,4708
-bitget,ASXUSDT,ASX|акции+ETF,main,акции+ETF,eq_us,1,0.35103,1369,0,1,доля валидных минут 0.3510 < порога 0.4285,4709
+bitget,ASXUSDT,ASX|акции+ETF,main,акции+ETF,eq_us,1,0.35103,1369,0,1,доля валидных минут 0.3510 < порога 0.4269,4709
 bitget,ATHUSDT,ATH|крипта,main,крипта,crypto,0,0.49623,10004,0,1,доля валидных минут 0.4962 < порога 0.5061,4710
 bitget,ATOMUSDT,ATOM|крипта,main,крипта,crypto,0,0.76062,15334,1,1,,4711
 bitget,ATUSDT,AT|крипта,main,крипта,crypto,0,0.27887,5622,0,1,доля валидных минут 0.2789 < порога 0.5061,4712
 bitget,AUCTIONUSDT,AUCTION|крипта,main,крипта,crypto,0,0.24023,4843,0,1,доля валидных минут 0.2402 < порога 0.5061,4713
 bitget,AUSDT,A|крипта,main,крипта,crypto,0,0.36210,7300,0,1,доля валидных минут 0.3621 < порога 0.5061,4714
 bitget,AVAUSDT,AVA|крипта,main,крипта,crypto,0,0.42937,8656,0,1,доля валидных минут 0.4294 < порога 0.5061,4715
-bitget,AVAVUSDT,AVAV|акции+ETF,main,акции+ETF,eq_us,1,0.24615,960,0,1,доля валидных минут 0.2462 < порога 0.4285,4716
+bitget,AVAVUSDT,AVAV|акции+ETF,main,акции+ETF,eq_us,1,0.24615,960,0,1,доля валидных минут 0.2462 < порога 0.4269,4716
 bitget,AVAXPERP,AVAX|крипта,dup,крипта,crypto,0,0.22361,4508,0,0,,4717
 bitget,AVAXUSDT,AVAX|крипта,main,крипта,crypto,0,0.95208,19194,1,1,,4718
 bitget,AVGOUSDT,AVGO|акции+ETF,main,акции+ETF,eq_us,1,0.90359,3524,1,1,,4719
 bitget,AVNTUSDT,AVNT|крипта,main,крипта,crypto,0,0.37098,7479,0,1,доля валидных минут 0.3710 < порога 0.5061,4720
 bitget,AWEUSDT,AWE|крипта,main,крипта,crypto,0,0.20675,4168,0,1,доля валидных минут 0.2067 < порога 0.5061,4721
 bitget,AXLUSDT,AXL|крипта,main,крипта,crypto,0,0.32212,6494,0,1,доля валидных минут 0.3221 < порога 0.5061,4723
-bitget,AXONUSDT,AXON|акции+ETF,main,акции+ETF,eq_us,1,0.22513,878,0,1,доля валидных минут 0.2251 < порога 0.4285,4724
+bitget,AXONUSDT,AXON|акции+ETF,main,акции+ETF,eq_us,1,0.22513,878,0,1,доля валидных минут 0.2251 < порога 0.4269,4724
 bitget,AXSUSDT,AXS|крипта,main,крипта,crypto,0,0.58442,11782,1,1,,4725
 bitget,AXTIUSDT,AXTI|акции+ETF,main,акции+ETF,eq_us,1,0.97154,3789,1,1,,4726
 bitget,AZTECUSDT,AZTEC|крипта,main,крипта,crypto,0,0.30184,6085,0,1,доля валидных минут 0.3018 < порога 0.5061,4727
 bitget,B2USDT,B2|крипта,main,крипта,crypto,0,0.30099,6068,0,1,доля валидных минут 0.3010 < порога 0.5061,4729
 bitget,BABAUSDT,BABA|акции+ETF,main,акции+ETF,eq_us,1,0.60205,2348,1,1,,4730
 bitget,BABYUSDT,BABY|крипта,main,крипта,crypto,0,0.24167,4872,0,1,доля валидных минут 0.2417 < порога 0.5061,4731
-bitget,BACUSDT,BAC|акции+ETF,main,акции+ETF,eq_us,1,0.33538,1308,0,1,доля валидных минут 0.3354 < порога 0.4285,4732
+bitget,BACUSDT,BAC|акции+ETF,main,акции+ETF,eq_us,1,0.33538,1308,0,1,доля валидных минут 0.3354 < порога 0.4269,4732
 bitget,BANANAS31USDT,BANANAS31|крипта,main,крипта,crypto,0,0.07173,1446,0,1,доля валидных минут 0.0717 < порога 0.5061,4733
 bitget,BANANAUSDT,BANANA|крипта,main,крипта,crypto,0,0.10248,2066,0,1,доля валидных минут 0.1025 < порога 0.5061,4734
 bitget,BANDUSDT,BAND|крипта,main,крипта,crypto,0,0.27763,5597,0,1,доля валидных минут 0.2776 < порога 0.5061,4735
@@ -4447,8 +4447,8 @@ bitget,BANUSDT,BAN|крипта,main,крипта,crypto,0,0.19568,3945,0,1,до
 bitget,BARDUSDT,BARD|крипта,main,крипта,crypto,0,0.22991,4635,0,1,доля валидных минут 0.2299 < порога 0.5061,4738
 bitget,BASEDUSDT,BASED|крипта,main,крипта,crypto,0,0.46920,9459,0,1,доля валидных минут 0.4692 < порога 0.5061,4739
 bitget,BATUSDT,BAT|крипта,main,крипта,crypto,0,0.66012,13308,1,1,,4740
-bitget,BAUSDT,BA|акции+ETF,main,акции+ETF,eq_us,1,0.20641,805,0,1,доля валидных минут 0.2064 < порога 0.4285,4741
-bitget,BBSTOCKUSDT,BB|акции+ETF,main,акции+ETF,eq_us,1,0.27897,1088,0,1,доля валидных минут 0.2790 < порога 0.4285,4742
+bitget,BAUSDT,BA|акции+ETF,main,акции+ETF,eq_us,1,0.20641,805,0,1,доля валидных минут 0.2064 < порога 0.4269,4741
+bitget,BBSTOCKUSDT,BB|акции+ETF,main,акции+ETF,eq_us,1,0.27897,1088,0,1,доля валидных минут 0.2790 < порога 0.4269,4742
 bitget,BBUSDT,BB|крипта,main,крипта,crypto,0,0.35273,7111,0,1,доля валидных минут 0.3527 < порога 0.5061,4743
 bitget,BCHPERP,BCH|крипта,dup,крипта,crypto,0,0.19891,4010,0,0,,4744
 bitget,BCHUSDT,BCH|крипта,main,крипта,crypto,0,0.87421,17624,1,1,,4745
@@ -4457,17 +4457,17 @@ bitget,BEATUSDT,BEAT|крипта,main,крипта,crypto,0,0.66741,13455,1,1,,
 bitget,BERAUSDT,BERA|крипта,main,крипта,crypto,0,0.44777,9027,0,1,доля валидных минут 0.4478 < порога 0.5061,4748
 bitget,BEUSDT,BE|акции+ETF,main,акции+ETF,eq_us,1,0.94667,3692,1,1,,4749
 bitget,BGBUSDT,BGB|крипта,main,крипта,crypto,0,0.55283,11145,1,1,,4750
-bitget,BHPUSDT,BHP|акции+ETF,main,акции+ETF,eq_us,1,0.10231,399,0,1,доля валидных минут 0.1023 < порога 0.4285,4752
+bitget,BHPUSDT,BHP|акции+ETF,main,акции+ETF,eq_us,1,0.10231,399,0,1,доля валидных минут 0.1023 < порога 0.4269,4752
 bitget,BICOUSDT,BICO|крипта,main,крипта,crypto,0,0.34231,6901,0,1,доля валидных минут 0.3423 < порога 0.5061,4753
 bitget,BIGTIMEUSDT,BIGTIME|крипта,main,крипта,crypto,0,0.35069,7070,0,1,доля валидных минут 0.3507 < порога 0.5061,4754
 bitget,BILLUSDT,BILL|крипта,main,крипта,crypto,0,0.47103,9496,0,1,доля валидных минут 0.4710 < порога 0.5061,4755
 bitget,BIOPERP,BIO|крипта,dup,крипта,crypto,0,0.17178,3463,0,0,,4756
 bitget,BIOUSDT,BIO|крипта,main,крипта,crypto,0,0.43115,8692,0,1,доля валидных минут 0.4312 < порога 0.5061,4757
 bitget,BIRBUSDT,BIRB|крипта,main,крипта,crypto,0,0.13656,2753,0,1,доля валидных минут 0.1366 < порога 0.5061,4758
-bitget,BITOUSDT,BITO|акции+ETF,main,акции+ETF,eq_us,1,0.15487,604,0,1,доля валидных минут 0.1549 < порога 0.4285,4759
-bitget,BKNGUSDT,BKNG|акции+ETF,main,акции+ETF,eq_us,1,0.15179,592,0,1,доля валидных минут 0.1518 < порога 0.4285,4760
+bitget,BITOUSDT,BITO|акции+ETF,main,акции+ETF,eq_us,1,0.15487,604,0,1,доля валидных минут 0.1549 < порога 0.4269,4759
+bitget,BKNGUSDT,BKNG|акции+ETF,main,акции+ETF,eq_us,1,0.15179,592,0,1,доля валидных минут 0.1518 < порога 0.4269,4760
 bitget,BLESSUSDT,BLESS|крипта,main,крипта,crypto,0,0.47019,9479,0,1,доля валидных минут 0.4702 < порога 0.5061,4761
-bitget,BLSHUSDT,BLSH|акции+ETF,main,акции+ETF,eq_us,1,0.20051,782,0,1,доля валидных минут 0.2005 < порога 0.4285,4762
+bitget,BLSHUSDT,BLSH|акции+ETF,main,акции+ETF,eq_us,1,0.20051,782,0,1,доля валидных минут 0.2005 < порога 0.4269,4762
 bitget,BLURUSDT,BLUR|крипта,main,крипта,crypto,0,0.44196,8910,0,1,доля валидных минут 0.4420 < порога 0.5061,4763
 bitget,BMNRUSDT,BMNR|акции+ETF,main,акции+ETF,eq_us,1,0.80821,3152,1,1,,4764
 bitget,BNBPERP,BNB|крипта,dup,крипта,crypto,0,0.23482,4734,0,0,,4765
@@ -4476,11 +4476,11 @@ bitget,BNCUSDT,BNC|акции+ETF,main,акции+ETF,eq_us,1,0.47769,1863,1,1,,
 bitget,BNTUSDT,BNT|крипта,main,крипта,crypto,0,0.20913,4216,0,1,доля валидных минут 0.2091 < порога 0.5061,4768
 bitget,BOMEPERP,BOME|крипта,dup,крипта,crypto,0,0.24281,4895,0,0,,4769
 bitget,BOMEUSDT,BOME|крипта,main,крипта,crypto,0,0.73894,14897,1,1,,4770
-bitget,BOTUSDT,BOT|акции+ETF,main,акции+ETF,eq_us,1,0.35564,1387,0,1,доля валидных минут 0.3556 < порога 0.4285,4771
-bitget,BOTZUSDT,BOTZ|акции+ETF,main,акции+ETF,eq_us,1,0.10410,406,0,1,доля валидных минут 0.1041 < порога 0.4285,4772
+bitget,BOTUSDT,BOT|акции+ETF,main,акции+ETF,eq_us,1,0.35564,1387,0,1,доля валидных минут 0.3556 < порога 0.4269,4771
+bitget,BOTZUSDT,BOTZ|акции+ETF,main,акции+ETF,eq_us,1,0.10410,406,0,1,доля валидных минут 0.1041 < порога 0.4269,4772
 bitget,BRETTUSDT,BRETT|крипта,main,крипта,crypto,0,0.38566,7775,0,1,доля валидных минут 0.3857 < порога 0.5061,4774
 bitget,BREVUSDT,BREV|крипта,main,крипта,crypto,0,0.26632,5369,0,1,доля валидных минут 0.2663 < порога 0.5061,4775
-bitget,BRKBUSDT,BRKB|акции+ETF,main,акции+ETF,eq_us,1,0.37359,1457,0,1,доля валидных минут 0.3736 < порога 0.4285,4776
+bitget,BRKBUSDT,BRKB|акции+ETF,main,акции+ETF,eq_us,1,0.37359,1457,0,1,доля валидных минут 0.3736 < порога 0.4269,4776
 bitget,BROCCOLIUSDT,BROCCOLI|крипта,main,крипта,crypto,0,0.25134,5067,0,1,доля валидных минут 0.2513 < порога 0.5061,4777
 bitget,BRUSDT,BR|крипта,main,крипта,crypto,0,0.93790,18908,1,1,,4778
 bitget,BSBUSDT,BSB|крипта,main,крипта,crypto,0,0.36151,7288,0,1,доля валидных минут 0.3615 < порога 0.5061,4779
@@ -4492,7 +4492,7 @@ bitget,BTWUSDT,BTW|крипта,main,крипта,crypto,0,0.99251,20009,1,1,,47
 bitget,BUDUSDT,BUD|акции+ETF,main,акции+ETF,eq_nonus,0,0.11592,2337,0,1,доля валидных минут 0.1159 < порога 0.3177,4785
 bitget,BUSDT,B|крипта,main,крипта,crypto,0,0.26592,5361,0,1,доля валидных минут 0.2659 < порога 0.5061,4786
 bitget,BWETUSDT,BWET|акции+ETF,main,акции+ETF,eq_us,1,0.56231,2193,1,1,,4787
-bitget,BXUSDT,BX|акции+ETF,main,акции+ETF,eq_us,1,0.13615,531,0,1,доля валидных минут 0.1362 < порога 0.4285,4788
+bitget,BXUSDT,BX|акции+ETF,main,акции+ETF,eq_us,1,0.13615,531,0,1,доля валидных минут 0.1362 < порога 0.4269,4788
 bitget,BYDUSDT,BYD|акции+ETF,main,акции+ETF,eq_nonus,0,0.13844,2791,0,1,доля валидных минут 0.1384 < порога 0.3177,4789
 bitget,BZUSDT,BRENT|металлы+энергия,main,металлы+энергия,metal_energy,0,0.86473,17433,1,1,,4790
 bitget,C98USDT,C98|крипта,main,крипта,crypto,0,0.45794,9232,0,1,доля валидных минут 0.4579 < порога 0.5061,4791
@@ -4500,53 +4500,53 @@ bitget,CAKEUSDT,CAKE|крипта,main,крипта,crypto,0,0.34762,7008,0,1,д
 bitget,CAPUSDT,CAP|крипта,main,крипта,crypto,0,0.85843,17306,1,1,,4793
 bitget,CARVUSDT,CARV|крипта,main,крипта,crypto,0,0.41597,8386,0,1,доля валидных минут 0.4160 < порога 0.5061,4794
 bitget,CATIUSDT,CATI|крипта,main,крипта,crypto,0,0.21662,4367,0,1,доля валидных минут 0.2166 < порога 0.5061,4795
-bitget,CATUSDT,CAT|акции+ETF,main,акции+ETF,eq_us,1,0.32949,1285,0,1,доля валидных минут 0.3295 < порога 0.4285,4796
+bitget,CATUSDT,CAT|акции+ETF,main,акции+ETF,eq_us,1,0.32949,1285,0,1,доля валидных минут 0.3295 < порога 0.4269,4796
 bitget,CBRSUSDT,CBRS|акции+ETF,main,акции+ETF,eq_us,1,0.97513,3803,1,1,,4797
-bitget,CCLUSDT,CCL|акции+ETF,main,акции+ETF,eq_us,1,0.19205,749,0,1,доля валидных минут 0.1921 < порога 0.4285,4798
+bitget,CCLUSDT,CCL|акции+ETF,main,акции+ETF,eq_us,1,0.19205,749,0,1,доля валидных минут 0.1921 < порога 0.4269,4798
 bitget,CCUSDT,CC|крипта,main,крипта,crypto,0,0.46339,9342,0,1,доля валидных минут 0.4634 < порога 0.5061,4799
-bitget,CEGUSDT,CEG|акции+ETF,main,акции+ETF,eq_us,1,0.06179,241,0,1,доля валидных минут 0.0618 < порога 0.4285,4800
+bitget,CEGUSDT,CEG|акции+ETF,main,акции+ETF,eq_us,1,0.06179,241,0,1,доля валидных минут 0.0618 < порога 0.4269,4800
 bitget,CELOUSDT,CELO|крипта,main,крипта,crypto,0,0.37123,7484,0,1,доля валидных минут 0.3712 < порога 0.5061,4801
 bitget,CELRUSDT,CELR|крипта,main,крипта,crypto,0,0.27381,5520,0,1,доля валидных минут 0.2738 < порога 0.5061,4802
 bitget,CETUSUSDT,CETUS|крипта,main,крипта,crypto,0,0.29276,5902,0,1,доля валидных минут 0.2928 < порога 0.5061,4803
 bitget,CFGUSDT,CFG|крипта,main,крипта,crypto,0,0.32113,6474,0,1,доля валидных минут 0.3211 < порога 0.5061,4804
 bitget,CFXUSDT,CFX|крипта,main,крипта,crypto,0,0.47822,9641,0,1,доля валидных минут 0.4782 < порога 0.5061,4805
-bitget,CGNXUSDT,CGNX|акции+ETF,main,акции+ETF,eq_us,1,0.19385,756,0,1,доля валидных минут 0.1938 < порога 0.4285,4806
+bitget,CGNXUSDT,CGNX|акции+ETF,main,акции+ETF,eq_us,1,0.19385,756,0,1,доля валидных минут 0.1938 < порога 0.4269,4806
 bitget,CGPTUSDT,CGPT|крипта,main,крипта,crypto,0,0.31186,6287,0,1,доля валидных минут 0.3119 < порога 0.5061,4807
 bitget,CHILLGUYUSDT,CHILLGUY|крипта,main,крипта,crypto,0,0.20580,4149,0,1,доля валидных минут 0.2058 < порога 0.5061,4808
 bitget,CHIPUSDT,CHIP|крипта,main,крипта,crypto,0,0.72966,14710,1,1,,4809
 bitget,CHRUSDT,CHR|крипта,main,крипта,crypto,0,0.39211,7905,0,1,доля валидных минут 0.3921 < порога 0.5061,4810
 bitget,CHZUSDT,CHZ|крипта,main,крипта,crypto,0,0.37882,7637,0,1,доля валидных минут 0.3788 < порога 0.5061,4811
-bitget,CIENUSDT,CIEN|акции+ETF,main,акции+ETF,eq_us,1,0.26795,1045,0,1,доля валидных минут 0.2679 < порога 0.4285,4812
+bitget,CIENUSDT,CIEN|акции+ETF,main,акции+ETF,eq_us,1,0.26795,1045,0,1,доля валидных минут 0.2679 < порога 0.4269,4812
 bitget,CKBUSDT,CKB|крипта,main,крипта,crypto,0,0.38438,7749,0,1,доля валидных минут 0.3844 < порога 0.5061,4813
 bitget,CLANKERUSDT,CLANKER|крипта,main,крипта,crypto,0,0.17118,3451,0,1,доля валидных минут 0.1712 < порога 0.5061,4814
-bitget,CLSKUSDT,CLSK|акции+ETF,main,акции+ETF,eq_us,1,0.42692,1665,0,1,доля валидных минут 0.4269 < порога 0.4285,4815
+bitget,CLSKUSDT,CLSK|акции+ETF,main,акции+ETF,eq_us,1,0.42692,1665,1,1,,4815
 bitget,CLUSDT,WTI|металлы+энергия,main,металлы+энергия,metal_energy,0,0.93963,18943,1,1,,4817
-bitget,CMCSAUSDT,CMCSA|акции+ETF,main,акции+ETF,eq_us,1,0.22410,874,0,1,доля валидных минут 0.2241 < порога 0.4285,4818
+bitget,CMCSAUSDT,CMCSA|акции+ETF,main,акции+ETF,eq_us,1,0.22410,874,0,1,доля валидных минут 0.2241 < порога 0.4269,4818
 bitget,COAIUSDT,COAI|крипта,main,крипта,crypto,0,0.39807,8025,0,1,доля валидных минут 0.3981 < порога 0.5061,4819
 bitget,COHRUSDT,COHR|акции+ETF,main,акции+ETF,eq_us,1,0.61846,2412,1,1,,4820
 bitget,COINUSDT,COIN|акции+ETF,main,акции+ETF,eq_us,1,0.96410,3760,1,1,,4821
 bitget,COMPUSDT,COMP|крипта,main,крипта,crypto,0,0.39623,7988,0,1,доля валидных минут 0.3962 < порога 0.5061,4822
-bitget,CONLUSDT,CONL|акции+ETF,main,акции+ETF,eq_us,1,0.42564,1660,0,1,доля валидных минут 0.4256 < порога 0.4285,4823
+bitget,CONLUSDT,CONL|акции+ETF,main,акции+ETF,eq_us,1,0.42564,1660,0,1,доля валидных минут 0.4256 < порога 0.4269,4823
 bitget,COOKIEUSDT,COOKIE|крипта,main,крипта,crypto,0,0.20298,4092,0,1,доля валидных минут 0.2030 < порога 0.5061,4824
 bitget,COPPERUSDT,COPPER|металлы+энергия,main,металлы+энергия,metal_energy,0,0.47768,9630,0,1,доля валидных минут 0.4777 < порога 0.7600,4825
 bitget,COPUSDT,COP|акции+ETF,main,акции+ETF,eq_nonus,0,0.16558,3338,0,1,доля валидных минут 0.1656 < порога 0.3177,4826
 bitget,CORZUSDT,CORZ|акции+ETF,main,акции+ETF,eq_us,1,0.43513,1697,1,1,,4827
-bitget,COSTUSDT,COST|акции+ETF,main,акции+ETF,eq_us,1,0.19128,746,0,1,доля валидных минут 0.1913 < порога 0.4285,4828
+bitget,COSTUSDT,COST|акции+ETF,main,акции+ETF,eq_us,1,0.19128,746,0,1,доля валидных минут 0.1913 < порога 0.4269,4828
 bitget,COTIUSDT,COTI|крипта,main,крипта,crypto,0,0.55402,11169,1,1,,4829
 bitget,COWUSDT,COW|крипта,main,крипта,crypto,0,0.26369,5316,0,1,доля валидных минут 0.2637 < порога 0.5061,4830
 bitget,CPNGUSDT,CPNG|акции+ETF,main,акции+ETF,eq_nonus,0,0.13765,2775,0,1,доля валидных минут 0.1376 < порога 0.3177,4831
 bitget,CPUSDT,CP|крипта,main,крипта,crypto,0,0.34603,6976,0,1,доля валидных минут 0.3460 < порога 0.5061,4832
 bitget,CRCLUSDT,CRCL|акции+ETF,main,акции+ETF,eq_us,1,0.99590,3884,1,1,,4833
 bitget,CRDOUSDT,CRDO|акции+ETF,main,акции+ETF,eq_us,1,0.78641,3067,1,1,,4834
-bitget,CRMLUSDT,CRML|акции+ETF,main,акции+ETF,eq_us,1,0.36564,1426,0,1,доля валидных минут 0.3656 < порога 0.4285,4835
+bitget,CRMLUSDT,CRML|акции+ETF,main,акции+ETF,eq_us,1,0.36564,1426,0,1,доля валидных минут 0.3656 < порога 0.4269,4835
 bitget,CRMUSDT,CRM|акции+ETF,main,акции+ETF,eq_us,1,0.47154,1839,1,1,,4836
 bitget,CROSSUSDT,CROSS|крипта,main,крипта,crypto,0,0.23090,4655,0,1,доля валидных минут 0.2309 < порога 0.5061,4837
 bitget,CROUSDT,CRO|крипта,main,крипта,crypto,0,0.42793,8627,0,1,доля валидных минут 0.4279 < порога 0.5061,4838
 bitget,CRVPERP,CRV|крипта,dup,крипта,crypto,0,0.19985,4029,0,0,,4839
 bitget,CRVUSDT,CRV|крипта,main,крипта,crypto,0,0.75258,15172,1,1,,4840
-bitget,CRWDUSDT,CRWD|акции+ETF,main,акции+ETF,eq_us,1,0.21359,833,0,1,доля валидных минут 0.2136 < порога 0.4285,4841
+bitget,CRWDUSDT,CRWD|акции+ETF,main,акции+ETF,eq_us,1,0.21359,833,0,1,доля валидных минут 0.2136 < порога 0.4269,4841
 bitget,CRWVUSDT,CRWV|акции+ETF,main,акции+ETF,eq_us,1,0.93179,3634,1,1,,4842
-bitget,CSCOUSDT,CSCO|акции+ETF,main,акции+ETF,eq_us,1,0.18769,732,0,1,доля валидных минут 0.1877 < порога 0.4285,4843
+bitget,CSCOUSDT,CSCO|акции+ETF,main,акции+ETF,eq_us,1,0.18769,732,0,1,доля валидных минут 0.1877 < порога 0.4269,4843
 bitget,CSOPSK2LHKDUSDT,CSOPSKHYNIX2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.44881,9048,1,1,,4844
 bitget,CSOPSS2LHKDUSDT,CSOPSAMSUNG2L|акции+ETF,main,акции+ETF,eq_nonus,0,0.31766,6404,1,1,,4845
 bitget,CTKUSDT,CTK|крипта,main,крипта,crypto,0,0.28363,5718,0,1,доля валидных минут 0.2836 < порога 0.5061,4848
@@ -4555,8 +4555,8 @@ bitget,CTSIUSDT,CTSI|крипта,main,крипта,crypto,0,0.50347,10150,0,1,�
 bitget,CTUSDT,CT|крипта,main,крипта,crypto,0,0.85794,17296,1,1,,4851
 bitget,CUSDT,C|крипта,main,крипта,crypto,0,0.18968,3824,0,1,доля валидных минут 0.1897 < порога 0.5061,4852
 bitget,CVCUSDT,CVC|крипта,main,крипта,crypto,0,0.32693,6591,0,1,доля валидных минут 0.3269 < порога 0.5061,4853
-bitget,CVNAUSDT,CVNA|акции+ETF,main,акции+ETF,eq_us,1,0.34513,1346,0,1,доля валидных минут 0.3451 < порога 0.4285,4854
-bitget,CVXSTOCKUSDT,CVX|акции+ETF,main,акции+ETF,eq_us,1,0.23821,929,0,1,доля валидных минут 0.2382 < порога 0.4285,4855
+bitget,CVNAUSDT,CVNA|акции+ETF,main,акции+ETF,eq_us,1,0.34513,1346,0,1,доля валидных минут 0.3451 < порога 0.4269,4854
+bitget,CVXSTOCKUSDT,CVX|акции+ETF,main,акции+ETF,eq_us,1,0.23821,929,0,1,доля валидных минут 0.2382 < порога 0.4269,4855
 bitget,CVXUSDT,CVX|крипта,main,крипта,crypto,0,0.28785,5803,0,1,доля валидных минут 0.2878 < порога 0.5061,4856
 bitget,CXMTUSDT,CXMT|акции+ETF,main,акции+ETF,eq_nonus,0,0.38323,7726,1,1,,4857
 bitget,CYBERUSDT,CYBER|крипта,main,крипта,crypto,0,0.40779,8221,0,1,доля валидных минут 0.4078 < порога 0.5061,4858
@@ -4565,30 +4565,30 @@ bitget,CYSUSDT,CYS|крипта,main,крипта,crypto,0,0.44221,8915,0,1,до
 bitget,DASHUSDT,DASH|крипта,main,крипта,crypto,0,0.62103,12520,1,1,,4862
 bitget,DATAPERP,DATA|крипта,dup,крипта,crypto,0,0.17515,3531,0,0,,4863
 bitget,DATAUSDT,DATA|крипта,main,крипта,crypto,0,0.42138,8495,0,1,доля валидных минут 0.4214 < порога 0.5061,4864
-bitget,DDOGUSDT,DDOG|акции+ETF,main,акции+ETF,eq_us,1,0.31513,1229,0,1,доля валидных минут 0.3151 < порога 0.4285,4865
+bitget,DDOGUSDT,DDOG|акции+ETF,main,акции+ETF,eq_us,1,0.31513,1229,0,1,доля валидных минут 0.3151 < порога 0.4269,4865
 bitget,DEEPUSDT,DEEP|крипта,main,крипта,crypto,0,0.35516,7160,0,1,доля валидных минут 0.3552 < порога 0.5061,4866
 bitget,DELLUSDT,DELL|акции+ETF,main,акции+ETF,eq_us,1,0.96308,3756,1,1,,4867
-bitget,DEUSDT,DE|акции+ETF,main,акции+ETF,eq_us,1,0.20590,803,0,1,доля валидных минут 0.2059 < порога 0.4285,4868
+bitget,DEUSDT,DE|акции+ETF,main,акции+ETF,eq_us,1,0.20590,803,0,1,доля валидных минут 0.2059 < порога 0.4269,4868
 bitget,DEXEUSDT,DEXE|крипта,main,крипта,crypto,0,0.40729,8211,0,1,доля валидных минут 0.4073 < порога 0.5061,4869
-bitget,DFENUSDT,DFEN|акции+ETF,main,акции+ETF,eq_us,1,0.23564,919,0,1,доля валидных минут 0.2356 < порога 0.4285,4870
+bitget,DFENUSDT,DFEN|акции+ETF,main,акции+ETF,eq_us,1,0.23564,919,0,1,доля валидных минут 0.2356 < порога 0.4269,4870
 bitget,DGAIUSDT,DGAI|крипта,main,крипта,crypto,0,0.31369,6324,0,1,доля валидных минут 0.3137 < порога 0.5061,4871
-bitget,DIASTOCKUSDT,DIA|акции+ETF,main,акции+ETF,eq_us,1,0.11103,433,0,1,доля валидных минут 0.1110 < порога 0.4285,4873
+bitget,DIASTOCKUSDT,DIA|акции+ETF,main,акции+ETF,eq_us,1,0.11103,433,0,1,доля валидных минут 0.1110 < порога 0.4269,4873
 bitget,DIAUSDT,DIA|крипта,main,крипта,crypto,0,0.20650,4163,0,1,доля валидных минут 0.2065 < порога 0.5061,4874
-bitget,DJTUSDT,DJT|акции+ETF,main,акции+ETF,eq_us,1,0.31897,1244,0,1,доля валидных минут 0.3190 < порога 0.4285,4876
-bitget,DKNGUSDT,DKNG|акции+ETF,main,акции+ETF,eq_us,1,0.30949,1207,0,1,доля валидных минут 0.3095 < порога 0.4285,4877
+bitget,DJTUSDT,DJT|акции+ETF,main,акции+ETF,eq_us,1,0.31897,1244,0,1,доля валидных минут 0.3190 < порога 0.4269,4876
+bitget,DKNGUSDT,DKNG|акции+ETF,main,акции+ETF,eq_us,1,0.30949,1207,0,1,доля валидных минут 0.3095 < порога 0.4269,4877
 bitget,DOGEPERP,DOGE|крипта,dup,крипта,crypto,0,0.31776,6406,0,0,,4878
 bitget,DOGEUSDT,DOGE|крипта,main,крипта,crypto,0,0.98522,19862,1,1,,4879
 bitget,DOGSUSDT,DOGS|крипта,main,крипта,crypto,0,0.12971,2615,0,1,доля валидных минут 0.1297 < порога 0.5061,4880
 bitget,DOLOUSDT,DOLO|крипта,main,крипта,crypto,0,0.08299,1673,0,1,доля валидных минут 0.0830 < порога 0.5061,4881
 bitget,DOODUSDT,DOOD|крипта,main,крипта,crypto,0,0.20064,4045,0,1,доля валидных минут 0.2006 < порога 0.5061,4882
-bitget,DOOSBOTUSDT,DOOSBOT|акции+ETF,main,акции+ETF,eq_us,1,0.09744,380,0,1,доля валидных минут 0.0974 < порога 0.4285,4883
-bitget,DOOSENERUSDT,DOOSENER|акции+ETF,main,акции+ETF,eq_us,1,0.08821,344,0,1,доля валидных минут 0.0882 < порога 0.4285,4884
+bitget,DOOSBOTUSDT,DOOSBOT|акции+ETF,main,акции+ETF,eq_nonus,0,0.09668,1949,0,1,доля валидных минут 0.0967 < порога 0.3177,4883
+bitget,DOOSENERUSDT,DOOSENER|акции+ETF,main,акции+ETF,eq_nonus,0,0.10377,2092,0,1,доля валидных минут 0.1038 < порога 0.3177,4884
 bitget,DOSUSDT,DOS|крипта,main,крипта,crypto,0,0.58016,11696,1,1,,4885
 bitget,DOTPERP,DOT|крипта,dup,крипта,crypto,0,0.28189,5683,0,0,,4886
 bitget,DOTUSDT,DOT|крипта,main,крипта,crypto,0,0.88690,17880,1,1,,4887
 bitget,DRAMUSDT,DRAM|акции+ETF,main,акции+ETF,eq_us,1,0.97179,3790,1,1,,4888
 bitget,DRIFTUSDT,DRIFT|крипта,main,крипта,crypto,0,0.36989,7457,0,1,доля валидных минут 0.3699 < порога 0.5061,4889
-bitget,DXYZUSDT,DXYZ|акции+ETF,main,акции+ETF,eq_us,1,0.19103,745,0,1,доля валидных минут 0.1910 < порога 0.4285,4890
+bitget,DXYZUSDT,DXYZ|акции+ETF,main,акции+ETF,eq_us,1,0.19103,745,0,1,доля валидных минут 0.1910 < порога 0.4269,4890
 bitget,DYDXUSDT,DYDX|крипта,main,крипта,crypto,0,0.39668,7997,0,1,доля валидных минут 0.3967 < порога 0.5061,4891
 bitget,DYMUSDT,DYM|крипта,main,крипта,crypto,0,0.32217,6495,0,1,доля валидных минут 0.3222 < порога 0.5061,4892
 bitget,EDGEUSDT,EDGE|крипта,main,крипта,crypto,0,0.35501,7157,0,1,доля валидных минут 0.3550 < порога 0.5061,4895
@@ -4610,60 +4610,60 @@ bitget,ETHFIUSDT,ETHFI|крипта,main,крипта,crypto,0,0.87401,17620,1,1
 bitget,ETHPERP,ETH|крипта,dup,крипта,crypto,0,0.89702,18084,0,0,,4914
 bitget,ETHUSDT,ETH|крипта,main,крипта,crypto,0,0.99985,20157,1,1,,4915
 bitget,ETHWUSDT,ETHW|крипта,main,крипта,crypto,0,0.15729,3171,0,1,доля валидных минут 0.1573 < порога 0.5061,4916
-bitget,ETNUSDT,ETN|акции+ETF,main,акции+ETF,eq_us,1,0.24231,945,0,1,доля валидных минут 0.2423 < порога 0.4285,4917
+bitget,ETNUSDT,ETN|акции+ETF,main,акции+ETF,eq_us,1,0.24231,945,0,1,доля валидных минут 0.2423 < порога 0.4269,4917
 bitget,EULUSDT,EUL|крипта,main,крипта,crypto,0,0.35784,7214,0,1,доля валидных минут 0.3578 < порога 0.5061,4918
 bitget,EURUSDUSDT,EURUSD|фиат,main,фиат,fx,0,0.11984,2416,1,1,,4919
 bitget,EVAAUSDT,EVAA|крипта,main,крипта,crypto,0,0.44306,8932,0,1,доля валидных минут 0.4431 < порога 0.5061,4921
 bitget,EVEXUSDT,EVEX|акции+ETF,main,акции+ETF,eq_nonus,0,0.15848,3195,0,1,доля валидных минут 0.1585 < порога 0.3177,4922
-bitget,EWHUSDT,EWH|акции+ETF,main,акции+ETF,eq_us,1,0.11641,454,0,1,доля валидных минут 0.1164 < порога 0.4285,4923
-bitget,EWJUSDT,EWJ|акции+ETF,main,акции+ETF,eq_us,1,0.20667,806,0,1,доля валидных минут 0.2067 < порога 0.4285,4924
-bitget,EWTUSDT,EWT|акции+ETF,main,акции+ETF,eq_us,1,0.32385,1263,0,1,доля валидных минут 0.3238 < порога 0.4285,4925
+bitget,EWHUSDT,EWH|акции+ETF,main,акции+ETF,eq_us,1,0.11641,454,0,1,доля валидных минут 0.1164 < порога 0.4269,4923
+bitget,EWJUSDT,EWJ|акции+ETF,main,акции+ETF,eq_us,1,0.20667,806,0,1,доля валидных минут 0.2067 < порога 0.4269,4924
+bitget,EWTUSDT,EWT|акции+ETF,main,акции+ETF,eq_us,1,0.32385,1263,0,1,доля валидных минут 0.3238 < порога 0.4269,4925
 bitget,EWYUSDT,EWY|акции+ETF,main,акции+ETF,eq_us,1,0.87179,3400,1,1,,4926
-bitget,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_nonus,0,0.25466,5134,0,1,доля валидных минут 0.2547 < порога 0.3177,4928
+bitget,EWZUSDT,EWZ|акции+ETF,main,акции+ETF,eq_us,1,0.27667,1079,0,1,доля валидных минут 0.2767 < порога 0.4269,4928
 bitget,FARTCOINPERP,FARTCOIN|крипта,dup,крипта,crypto,0,0.08433,1700,0,0,,4929
 bitget,FARTCOINUSDT,FARTCOIN|крипта,main,крипта,crypto,0,0.89082,17959,1,1,,4930
-bitget,FCXUSDT,FCX|акции+ETF,main,акции+ETF,eq_us,1,0.15436,602,0,1,доля валидных минут 0.1544 < порога 0.4285,4932
+bitget,FCXUSDT,FCX|акции+ETF,main,акции+ETF,eq_us,1,0.15436,602,0,1,доля валидных минут 0.1544 < порога 0.4269,4932
 bitget,FETUSDT,FET|крипта,main,крипта,crypto,0,0.91493,18445,1,1,,4933
 bitget,FFUSDT,FF|крипта,main,крипта,crypto,0,0.40635,8192,0,1,доля валидных минут 0.4063 < порога 0.5061,4934
 bitget,FIDAUSDT,FIDA|крипта,main,крипта,crypto,0,0.19782,3988,0,1,доля валидных минут 0.1978 < порога 0.5061,4935
 bitget,FIGHTUSDT,FIGHT|крипта,main,крипта,crypto,0,0.21047,4243,0,1,доля валидных минут 0.2105 < порога 0.5061,4936
 bitget,FILPERP,FIL|крипта,dup,крипта,crypto,0,0.22391,4514,0,0,,4937
 bitget,FILUSDT,FIL|крипта,main,крипта,crypto,0,0.95402,19233,1,1,,4938
-bitget,FLEXUSDT,FLEX|акции+ETF,main,акции+ETF,eq_us,1,0.20103,784,0,1,доля валидных минут 0.2010 < порога 0.4285,4940
+bitget,FLEXUSDT,FLEX|акции+ETF,main,акции+ETF,eq_us,1,0.20103,784,0,1,доля валидных минут 0.2010 < порога 0.4269,4940
 bitget,FLNCUSDT,FLNC|акции+ETF,main,акции+ETF,eq_us,1,0.64410,2512,1,1,,4941
 bitget,FLOCKUSDT,FLOCK|крипта,main,крипта,crypto,0,0.50134,10107,0,1,доля валидных минут 0.5013 < порога 0.5061,4942
 bitget,FLOKIUSDT,FLOKI|крипта,main,крипта,crypto,0,0.39122,7887,0,1,доля валидных минут 0.3912 < порога 0.5061,4943
 bitget,FLUIDUSDT,FLUID|крипта,main,крипта,crypto,0,0.43864,8843,0,1,доля валидных минут 0.4386 < порога 0.5061,4944
 bitget,FLUXUSDT,FLUX|крипта,main,крипта,crypto,0,0.35412,7139,0,1,доля валидных минут 0.3541 < порога 0.5061,4945
-bitget,FLYUSDT,FLY|акции+ETF,main,акции+ETF,eq_us,1,0.32410,1264,0,1,доля валидных минут 0.3241 < порога 0.4285,4946
+bitget,FLYUSDT,FLY|акции+ETF,main,акции+ETF,eq_us,1,0.32410,1264,0,1,доля валидных минут 0.3241 < порога 0.4269,4946
 bitget,FOGOUSDT,FOGO|крипта,main,крипта,crypto,0,0.40888,8243,0,1,доля валидных минут 0.4089 < порога 0.5061,4947
 bitget,FOLKSUSDT,FOLKS|крипта,main,крипта,crypto,0,0.22981,4633,0,1,доля валидных минут 0.2298 < порога 0.5061,4948
 bitget,FORMUSDT,FORM|крипта,main,крипта,crypto,0,0.17009,3429,0,1,доля валидных минут 0.1701 < порога 0.5061,4949
-bitget,FOXAUSDT,FOXA|акции+ETF,main,акции+ETF,eq_us,1,0.17487,682,0,1,доля валидных минут 0.1749 < порога 0.4285,4950
+bitget,FOXAUSDT,FOXA|акции+ETF,main,акции+ETF,eq_us,1,0.17487,682,0,1,доля валидных минут 0.1749 < порога 0.4269,4950
 bitget,FRAXUSDT,FRAX|крипта,main,крипта,crypto,0,0.30109,6070,0,1,доля валидных минут 0.3011 < порога 0.5061,4951
 bitget,FUSDT,F|крипта,main,крипта,crypto,0,0.21801,4395,0,1,доля валидных минут 0.2180 < порога 0.5061,4953
 bitget,FUTUUSDT,FUTU|акции+ETF,main,акции+ETF,eq_us,1,0.45410,1771,1,1,,4954
-bitget,FWDIUSDT,FWDI|акции+ETF,main,акции+ETF,eq_us,1,0.34462,1344,0,1,доля валидных минут 0.3446 < порога 0.4285,4955
+bitget,FWDIUSDT,FWDI|акции+ETF,main,акции+ETF,eq_us,1,0.34462,1344,0,1,доля валидных минут 0.3446 < порога 0.4269,4955
 bitget,GALAUSDT,GALA|крипта,main,крипта,crypto,0,0.64916,13087,1,1,,4956
 bitget,GASUSDT,GAS|крипта,main,крипта,crypto,0,0.26200,5282,0,1,доля валидных минут 0.2620 < порога 0.5061,4957
 bitget,GBPUSDUSDT,GBPUSD|фиат,main,фиат,fx,0,0.11171,2252,0,1,доля валидных минут 0.1117 < порога 0.1198,4958
-bitget,GDXUSDT,GDX|акции+ETF,main,акции+ETF,eq_us,1,0.22154,864,0,1,доля валидных минут 0.2215 < порога 0.4285,4959
+bitget,GDXUSDT,GDX|акции+ETF,main,акции+ETF,eq_us,1,0.22154,864,0,1,доля валидных минут 0.2215 < порога 0.4269,4959
 bitget,GENIUSUSDT,GENIUS|крипта,main,крипта,crypto,0,0.16414,3309,0,1,доля валидных минут 0.1641 < порога 0.5061,4960
-bitget,GEUSDT,GE|акции+ETF,main,акции+ETF,eq_us,1,0.16769,654,0,1,доля валидных минут 0.1677 < порога 0.4285,4961
-bitget,GEVUSDT,GEV|акции+ETF,main,акции+ETF,eq_us,1,0.26923,1050,0,1,доля валидных минут 0.2692 < порога 0.4285,4962
-bitget,GFSUSDT,GFS|акции+ETF,main,акции+ETF,eq_us,1,0.24231,945,0,1,доля валидных минут 0.2423 < порога 0.4285,4963
-bitget,GGLLUSDT,GGLL|акции+ETF,main,акции+ETF,eq_us,1,0.25718,1003,0,1,доля валидных минут 0.2572 < порога 0.4285,4964
+bitget,GEUSDT,GE|акции+ETF,main,акции+ETF,eq_us,1,0.16769,654,0,1,доля валидных минут 0.1677 < порога 0.4269,4961
+bitget,GEVUSDT,GEV|акции+ETF,main,акции+ETF,eq_us,1,0.26923,1050,0,1,доля валидных минут 0.2692 < порога 0.4269,4962
+bitget,GFSUSDT,GFS|акции+ETF,main,акции+ETF,eq_us,1,0.24231,945,0,1,доля валидных минут 0.2423 < порога 0.4269,4963
+bitget,GGLLUSDT,GGLL|акции+ETF,main,акции+ETF,eq_us,1,0.25718,1003,0,1,доля валидных минут 0.2572 < порога 0.4269,4964
 bitget,GIGADEVICEUSDT,GIGADEVICE|акции+ETF,main,акции+ETF,eq_nonus,0,0.27123,5468,0,1,доля валидных минут 0.2712 < порога 0.3177,4965
 bitget,GIGGLEUSDT,GIGGLE|крипта,main,крипта,crypto,0,0.26151,5272,0,1,доля валидных минут 0.2615 < порога 0.5061,4966
-bitget,GILDUSDT,GILD|акции+ETF,main,акции+ETF,eq_us,1,0.18641,727,0,1,доля валидных минут 0.1864 < порога 0.4285,4967
+bitget,GILDUSDT,GILD|акции+ETF,main,акции+ETF,eq_us,1,0.18641,727,0,1,доля валидных минут 0.1864 < порога 0.4269,4967
 bitget,GLMUSDT,GLM|крипта,main,крипта,crypto,0,0.26567,5356,0,1,доля валидных минут 0.2657 < порога 0.5061,4968
 bitget,GLWUSDT,GLW|акции+ETF,main,акции+ETF,eq_us,1,0.82923,3234,1,1,,4969
-bitget,GMEUSDT,GME|акции+ETF,main,акции+ETF,eq_us,1,0.41949,1636,0,1,доля валидных минут 0.4195 < порога 0.4285,4970
+bitget,GMEUSDT,GME|акции+ETF,main,акции+ETF,eq_us,1,0.41949,1636,0,1,доля валидных минут 0.4195 < порога 0.4269,4970
 bitget,GMTUSDT,GMT|крипта,main,крипта,crypto,0,0.35501,7157,0,1,доля валидных минут 0.3550 < порога 0.5061,4971
 bitget,GMXUSDT,GMX|крипта,main,крипта,crypto,0,0.23254,4688,0,1,доля валидных минут 0.2325 < порога 0.5061,4972
-bitget,GNRCUSDT,GNRC|акции+ETF,main,акции+ETF,eq_us,1,0.13949,544,0,1,доля валидных минут 0.1395 < порога 0.4285,4973
+bitget,GNRCUSDT,GNRC|акции+ETF,main,акции+ETF,eq_us,1,0.13949,544,0,1,доля валидных минут 0.1395 < порога 0.4269,4973
 bitget,GOOGLUSDT,GOOGL|акции+ETF,main,акции+ETF,eq_us,1,0.91641,3574,1,1,,4974
-bitget,GPROUSDT,GPRO|акции+ETF,main,акции+ETF,eq_us,1,0.21769,849,0,1,доля валидных минут 0.2177 < порога 0.4285,4975
+bitget,GPROUSDT,GPRO|акции+ETF,main,акции+ETF,eq_us,1,0.21769,849,0,1,доля валидных минут 0.2177 < порога 0.4269,4975
 bitget,GPSUSDT,GPS|крипта,main,крипта,crypto,0,0.32822,6617,0,1,доля валидных минут 0.3282 < порога 0.5061,4976
 bitget,GRAMPERP,GRAM|крипта,dup,крипта,crypto,0,0.19087,3848,0,0,,4977
 bitget,GRAMUSDT,GRAM|крипта,main,крипта,crypto,0,0.66959,13499,1,1,,4978
@@ -4671,8 +4671,8 @@ bitget,GRASSUSDT,GRASS|крипта,main,крипта,crypto,0,0.85446,17226,1,1
 bitget,GRIFFAINUSDT,GRIFFAIN|крипта,main,крипта,crypto,0,0.46022,9278,0,1,доля валидных минут 0.4602 < порога 0.5061,4980
 bitget,GRTUSDT,GRT|крипта,main,крипта,crypto,0,0.33730,6800,0,1,доля валидных минут 0.3373 < порога 0.5061,4981
 bitget,GRVTUSDT,GRVT|крипта,main,крипта,crypto,0,0.35620,7181,0,1,доля валидных минут 0.3562 < порога 0.5061,4982
-bitget,GSUSDT,GS|акции+ETF,main,акции+ETF,eq_us,1,0.15103,589,0,1,доля валидных минут 0.1510 < порога 0.4285,4983
-bitget,GTLBUSDT,GTLB|акции+ETF,main,акции+ETF,eq_us,1,0.31103,1213,0,1,доля валидных минут 0.3110 < порога 0.4285,4984
+bitget,GSUSDT,GS|акции+ETF,main,акции+ETF,eq_us,1,0.15103,589,0,1,доля валидных минут 0.1510 < порога 0.4269,4983
+bitget,GTLBUSDT,GTLB|акции+ETF,main,акции+ETF,eq_us,1,0.31103,1213,0,1,доля валидных минут 0.3110 < порога 0.4269,4984
 bitget,GUNUSDT,GUN|крипта,main,крипта,crypto,0,0.27991,5643,0,1,доля валидных минут 0.2799 < порога 0.5061,4985
 bitget,GUSDT,G|крипта,main,крипта,crypto,0,0.34444,6944,0,1,доля валидных минут 0.3444 < порога 0.5061,4986
 bitget,GWEIUSDT,GWEI|крипта,main,крипта,crypto,0,0.43413,8752,0,1,доля валидных минут 0.4341 < порога 0.5061,4987
@@ -4680,23 +4680,23 @@ bitget,HAEDALUSDT,HAEDAL|крипта,main,крипта,crypto,0,0.15134,3051,0,
 bitget,HANMIUSDT,HANMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.20893,4212,0,1,доля валидных минут 0.2089 < порога 0.3177,4990
 bitget,HBARPERP,HBAR|крипта,dup,крипта,crypto,0,0.20585,4150,0,0,,4991
 bitget,HBARUSDT,HBAR|крипта,main,крипта,crypto,0,0.93884,18927,1,1,,4992
-bitget,HDUSDT,HD|акции+ETF,main,акции+ETF,eq_us,1,0.04795,187,0,1,доля валидных минут 0.0479 < порога 0.4285,4994
+bitget,HDUSDT,HD|акции+ETF,main,акции+ETF,eq_us,1,0.04795,187,0,1,доля валидных минут 0.0479 < порога 0.4269,4994
 bitget,HIVEUSDT,HIVE|крипта,main,крипта,crypto,0,0.22540,4544,0,1,доля валидных минут 0.2254 < порога 0.5061,4996
 bitget,HOLOUSDT,HOLO|крипта,main,крипта,crypto,0,0.11642,2347,0,1,доля валидных минут 0.1164 < порога 0.5061,4998
 bitget,HOMEUSDT,HOME|крипта,main,крипта,crypto,0,0.30208,6090,0,1,доля валидных минут 0.3021 < порога 0.5061,4999
 bitget,HOODUSDT,HOOD|акции+ETF,main,акции+ETF,eq_us,1,0.76487,2983,1,1,,5001
 bitget,HOTUSDT,HOT|крипта,main,крипта,crypto,0,0.20898,4213,0,1,доля валидных минут 0.2090 < порога 0.5061,5002
 bitget,HPEUSDT,HPE|акции+ETF,main,акции+ETF,eq_us,1,0.45462,1773,1,1,,5003
-bitget,HPQUSDT,HPQ|акции+ETF,main,акции+ETF,eq_us,1,0.14795,577,0,1,доля валидных минут 0.1479 < порога 0.4285,5004
-bitget,HSIUSDT,HSI|индексы,main,индексы,idx_us,1,0.11590,452,0,1,доля валидных минут 0.1159 < порога 0.1531,5005
+bitget,HPQUSDT,HPQ|акции+ETF,main,акции+ETF,eq_us,1,0.14795,577,0,1,доля валидных минут 0.1479 < порога 0.4269,5004
+bitget,HSIUSDT,HSI|индексы,main,индексы,idx_nonus,0,0.11825,2384,1,1,,5005
 bitget,HUMAUSDT,HUMA|крипта,main,крипта,crypto,0,0.60119,12120,1,1,,5006
 bitget,HUSDT,H|крипта,main,крипта,crypto,0,0.42783,8625,0,1,доля валидных минут 0.4278 < порога 0.5061,5007
-bitget,HUTUSDT,HUT|акции+ETF,main,акции+ETF,eq_us,1,0.26641,1039,0,1,доля валидных минут 0.2664 < порога 0.4285,5008
+bitget,HUTUSDT,HUT|акции+ETF,main,акции+ETF,eq_us,1,0.26641,1039,0,1,доля валидных минут 0.2664 < порога 0.4269,5008
 bitget,HYPERUSDT,HYPER|крипта,main,крипта,crypto,0,0.23606,4759,0,1,доля валидных минут 0.2361 < порога 0.5061,5009
 bitget,HYPEUSDT,HYPE|крипта,main,крипта,crypto,0,0.99742,20108,1,1,,5010
 bitget,HYUNDAIUSDT,HYUNDAI|акции+ETF,main,акции+ETF,eq_nonus,0,0.31508,6352,0,1,доля валидных минут 0.3151 < порога 0.3177,5011
-bitget,IBBUSDT,IBB|акции+ETF,main,акции+ETF,eq_us,1,0.19179,748,0,1,доля валидных минут 0.1918 < порога 0.4285,5012
-bitget,IBITUSDT,IBIT|акции+ETF,main,акции+ETF,eq_nonus,0,0.13661,2754,0,1,доля валидных минут 0.1366 < порога 0.3177,5013
+bitget,IBBUSDT,IBB|акции+ETF,main,акции+ETF,eq_us,1,0.19179,748,0,1,доля валидных минут 0.1918 < порога 0.4269,5012
+bitget,IBITUSDT,IBIT|акции+ETF,main,акции+ETF,eq_us,1,0.14179,553,0,1,доля валидных минут 0.1418 < порога 0.4269,5013
 bitget,IBMUSDT,IBM|акции+ETF,main,акции+ETF,eq_us,1,0.50359,1964,1,1,,5015
 bitget,ICNTUSDT,ICNT|крипта,main,крипта,crypto,0,0.20312,4095,0,1,доля валидных минут 0.2031 < порога 0.5061,5017
 bitget,ICPUSDT,ICP|крипта,main,крипта,crypto,0,0.78705,15867,1,1,,5018
@@ -4705,7 +4705,7 @@ bitget,IDUSDT,ID|крипта,main,крипта,crypto,0,0.45129,9098,0,1,дол
 bitget,ILVUSDT,ILV|крипта,main,крипта,crypto,0,0.29638,5975,0,1,доля валидных минут 0.2964 < порога 0.5061,5021
 bitget,IMXUSDT,IMX|крипта,main,крипта,crypto,0,0.43100,8689,0,1,доля валидных минут 0.4310 < порога 0.5061,5022
 bitget,INDAUSDT,INDA|акции+ETF,main,акции+ETF,eq_nonus,0,0.11076,2233,0,1,доля валидных минут 0.1108 < порога 0.3177,5023
-bitget,INFQUSDT,INFQ|акции+ETF,main,акции+ETF,eq_us,1,0.40077,1563,0,1,доля валидных минут 0.4008 < порога 0.4285,5024
+bitget,INFQUSDT,INFQ|акции+ETF,main,акции+ETF,eq_us,1,0.40077,1563,0,1,доля валидных минут 0.4008 < порога 0.4269,5024
 bitget,INITUSDT,INIT|крипта,main,крипта,crypto,0,0.34038,6862,0,1,доля валидных минут 0.3404 < порога 0.5061,5026
 bitget,INJUSDT,INJ|крипта,main,крипта,crypto,0,0.92292,18606,1,1,,5027
 bitget,INTCUSDT,INTC|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,5028
@@ -4719,46 +4719,46 @@ bitget,IOTXUSDT,IOTX|крипта,main,крипта,crypto,0,0.27267,5497,0,1,д
 bitget,IOUSDT,IO|крипта,main,крипта,crypto,0,0.55655,11220,1,1,,5036
 bitget,IRENUSDT,IREN|акции+ETF,main,акции+ETF,eq_us,1,0.88359,3446,1,1,,5037
 bitget,IRYSUSDT,IRYS|крипта,main,крипта,crypto,0,0.20501,4133,0,1,доля валидных минут 0.2050 < порога 0.5061,5038
-bitget,ISRGUSDT,ISRG|акции+ETF,main,акции+ETF,eq_us,1,0.26385,1029,0,1,доля валидных минут 0.2638 < порога 0.4285,5039
-bitget,IWMUSDT,IWM|акции+ETF,main,акции+ETF,eq_us,1,0.13487,526,0,1,доля валидных минут 0.1349 < порога 0.4285,5042
+bitget,ISRGUSDT,ISRG|акции+ETF,main,акции+ETF,eq_us,1,0.26385,1029,0,1,доля валидных минут 0.2638 < порога 0.4269,5039
+bitget,IWMUSDT,IWM|акции+ETF,main,акции+ETF,eq_us,1,0.13487,526,0,1,доля валидных минут 0.1349 < порога 0.4269,5042
 bitget,JASMYUSDT,JASMY|крипта,main,крипта,crypto,0,0.61885,12476,1,1,,5043
 bitget,JCTUSDT,JCT|крипта,main,крипта,crypto,0,0.41672,8401,0,1,доля валидных минут 0.4167 < порога 0.5061,5044
-bitget,JDUSDT,JD|акции+ETF,main,акции+ETF,eq_us,1,0.22436,875,0,1,доля валидных минут 0.2244 < порога 0.4285,5045
-bitget,JEPQUSDT,JEPQ|акции+ETF,main,акции+ETF,eq_us,1,0.10462,408,0,1,доля валидных минут 0.1046 < порога 0.4285,5046
-bitget,JIOUSDT,JIO|акции+ETF,main,акции+ETF,eq_us,1,0.02564,100,0,1,доля валидных минут 0.0256 < порога 0.4285,5047
-bitget,JOBYUSDT,JOBY|акции+ETF,main,акции+ETF,eq_us,1,0.24179,943,0,1,доля валидных минут 0.2418 < порога 0.4285,5049
+bitget,JDUSDT,JD|акции+ETF,main,акции+ETF,eq_us,1,0.22436,875,0,1,доля валидных минут 0.2244 < порога 0.4269,5045
+bitget,JEPQUSDT,JEPQ|акции+ETF,main,акции+ETF,eq_us,1,0.10462,408,0,1,доля валидных минут 0.1046 < порога 0.4269,5046
+bitget,JIOUSDT,JIO|акции+ETF,main,акции+ETF,eq_nonus,0,0.01746,352,0,1,доля валидных минут 0.0175 < порога 0.3177,5047
+bitget,JOBYUSDT,JOBY|акции+ETF,main,акции+ETF,eq_us,1,0.24179,943,0,1,доля валидных минут 0.2418 < порога 0.4269,5049
 bitget,JOEUSDT,JOE|крипта,main,крипта,crypto,0,0.28021,5649,0,1,доля валидных минут 0.2802 < порога 0.5061,5050
-bitget,JP225USDT,NIKKEI225|индексы,main,индексы,idx_us,1,0.13256,517,0,1,доля валидных минут 0.1326 < порога 0.1531,5051
-bitget,JPMUFGUSDT,JPMUFG|акции+ETF,main,акции+ETF,eq_us,1,0.02205,86,0,1,доля валидных минут 0.0221 < порога 0.4285,5052
-bitget,JPMUSDT,JPM|акции+ETF,main,акции+ETF,eq_us,1,0.23333,910,0,1,доля валидных минут 0.2333 < порога 0.4285,5053
-bitget,JPSONYUSDT,JPSONY|акции+ETF,main,акции+ETF,eq_us,1,0.02282,89,0,1,доля валидных минут 0.0228 < порога 0.4285,5054
+bitget,JP225USDT,NIKKEI225|индексы,main,индексы,idx_us,1,0.13256,517,0,1,доля валидных минут 0.1326 < порога 0.1918,5051
+bitget,JPMUFGUSDT,JPMUFG|акции+ETF,main,акции+ETF,eq_nonus,0,0.01379,278,0,1,доля валидных минут 0.0138 < порога 0.3177,5052
+bitget,JPMUSDT,JPM|акции+ETF,main,акции+ETF,eq_us,1,0.23333,910,0,1,доля валидных минут 0.2333 < порога 0.4269,5053
+bitget,JPSONYUSDT,JPSONY|акции+ETF,main,акции+ETF,eq_nonus,0,0.01314,265,0,1,доля валидных минут 0.0131 < порога 0.3177,5054
 bitget,JSTUSDT,JST|крипта,main,крипта,crypto,0,0.40446,8154,0,1,доля валидных минут 0.4045 < порога 0.5061,5055
 bitget,JTOUSDT,JTO|крипта,main,крипта,crypto,0,0.74276,14974,1,1,,5056
 bitget,JUPUSDT,JUP|крипта,main,крипта,crypto,0,0.83323,16798,1,1,,5057
 bitget,KAIAUSDT,KAIA|крипта,main,крипта,crypto,0,0.62555,12611,1,1,,5058
 bitget,KAITOPERP,KAITO|крипта,dup,крипта,crypto,0,0.16984,3424,0,0,,5059
 bitget,KAITOUSDT,KAITO|крипта,main,крипта,crypto,0,0.48299,9737,0,1,доля валидных минут 0.4830 < порога 0.5061,5060
-bitget,KAKAOUSDT,KAKAO|акции+ETF,main,акции+ETF,eq_us,1,0.03128,122,0,1,доля валидных минут 0.0313 < порога 0.4285,5061
+bitget,KAKAOUSDT,KAKAO|акции+ETF,main,акции+ETF,eq_nonus,0,0.02272,458,0,1,доля валидных минут 0.0227 < порога 0.3177,5061
 bitget,KASUSDT,KAS|крипта,main,крипта,crypto,0,0.61205,12339,1,1,,5062
 bitget,KATUSDT,KAT|крипта,main,крипта,crypto,0,0.19385,3908,0,1,доля валидных минут 0.1938 < порога 0.5061,5063
 bitget,KAVAUSDT,KAVA|крипта,main,крипта,crypto,0,0.23452,4728,0,1,доля валидных минут 0.2345 < порога 0.5061,5064
-bitget,KBFGUSDT,KBFG|акции+ETF,main,акции+ETF,eq_us,1,0.03205,125,0,1,доля валидных минут 0.0321 < порога 0.4285,5065
+bitget,KBFGUSDT,KBFG|акции+ETF,main,акции+ETF,eq_nonus,0,0.02321,468,0,1,доля валидных минут 0.0232 < порога 0.3177,5065
 bitget,KERNELUSDT,KERNEL|крипта,main,крипта,crypto,0,0.18383,3706,0,1,доля валидных минут 0.1838 < порога 0.5061,5066
 bitget,KGENUSDT,KGEN|крипта,main,крипта,crypto,0,0.41563,8379,0,1,доля валидных минут 0.4156 < порога 0.5061,5067
-bitget,KIAUSDT,KIA|акции+ETF,main,акции+ETF,eq_us,1,0.03308,129,0,1,доля валидных минут 0.0331 < порога 0.4285,5068
-bitget,KIOXIAUSDT,KIOXIA|акции+ETF,main,акции+ETF,eq_us,1,0.42846,1671,1,1,,5069
+bitget,KIAUSDT,KIA|акции+ETF,main,акции+ETF,eq_nonus,0,0.02674,539,0,1,доля валидных минут 0.0267 < порога 0.3177,5068
+bitget,KIOXIAUSDT,KIOXIA|акции+ETF,main,акции+ETF,eq_nonus,0,0.34697,6995,1,1,,5069
 bitget,KITEUSDT,KITE|крипта,main,крипта,crypto,0,0.41801,8427,0,1,доля валидных минут 0.4180 < порога 0.5061,5070
-bitget,KLACUSDT,KLAC|акции+ETF,main,акции+ETF,eq_us,1,0.26846,1047,0,1,доля валидных минут 0.2685 < порога 0.4285,5071
+bitget,KLACUSDT,KLAC|акции+ETF,main,акции+ETF,eq_us,1,0.26846,1047,0,1,доля валидных минут 0.2685 < порога 0.4269,5071
 bitget,KMNOUSDT,KMNO|крипта,main,крипта,crypto,0,0.33259,6705,0,1,доля валидных минут 0.3326 < порога 0.5061,5073
 bitget,KNCUSDT,KNC|крипта,main,крипта,crypto,0,0.13651,2752,0,1,доля валидных минут 0.1365 < порога 0.5061,5074
-bitget,KODUSDT,KOD|акции+ETF,main,акции+ETF,eq_us,1,0.35897,1400,0,1,доля валидных минут 0.3590 < порога 0.4285,5075
-bitget,KOPNUSDT,KOPN|акции+ETF,main,акции+ETF,eq_us,1,0.20513,800,0,1,доля валидных минут 0.2051 < порога 0.4285,5076
+bitget,KODUSDT,KOD|акции+ETF,main,акции+ETF,eq_us,1,0.35897,1400,0,1,доля валидных минут 0.3590 < порога 0.4269,5075
+bitget,KOPNUSDT,KOPN|акции+ETF,main,акции+ETF,eq_us,1,0.20513,800,0,1,доля валидных минут 0.2051 < порога 0.4269,5076
 bitget,KORUUSDT,KORU|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,5077
-bitget,KOUSDT,KO|акции+ETF,main,акции+ETF,eq_us,1,0.18897,737,0,1,доля валидных минут 0.1890 < порога 0.4285,5078
-bitget,KR200USDT,KR200|индексы,main,индексы,idx_us,1,0.15308,597,1,1,,5079
+bitget,KOUSDT,KO|акции+ETF,main,акции+ETF,eq_us,1,0.18897,737,0,1,доля валидных минут 0.1890 < порога 0.4269,5078
+bitget,KR200USDT,KR200|индексы,main,индексы,idx_nonus,0,0.14960,3016,1,1,,5079
 bitget,KSMUSDT,KSM|крипта,main,крипта,crypto,0,0.26176,5277,0,1,доля валидных минут 0.2618 < порога 0.5061,5080
-bitget,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_nonus,0,0.17316,3491,0,1,доля валидных минут 0.1732 < порога 0.3177,5081
-bitget,KTOSUSDT,KTOS|акции+ETF,main,акции+ETF,eq_us,1,0.18282,713,0,1,доля валидных минут 0.1828 < порога 0.4285,5082
+bitget,KSTRUSDT,KSTR|акции+ETF,main,акции+ETF,eq_us,1,0.18385,717,0,1,доля валидных минут 0.1838 < порога 0.4269,5081
+bitget,KTOSUSDT,KTOS|акции+ETF,main,акции+ETF,eq_us,1,0.18282,713,0,1,доля валидных минут 0.1828 < порога 0.4269,5082
 bitget,KUAISHOUUSDT,KUAISHOU|акции+ETF,main,акции+ETF,eq_nonus,0,0.18239,3677,0,1,доля валидных минут 0.1824 < порога 0.3177,5083
 bitget,KWEBUSDT,KWEB|акции+ETF,main,акции+ETF,eq_nonus,0,0.12346,2489,0,1,доля валидных минут 0.1235 < порога 0.3177,5084
 bitget,LABUSDT,LAB|крипта,main,крипта,crypto,0,0.68423,13794,1,1,,5085
@@ -4767,9 +4767,9 @@ bitget,LAUSDT,LA|крипта,main,крипта,crypto,0,0.50565,10194,0,1,до�
 bitget,LAYERUSDT,LAYER|крипта,main,крипта,crypto,0,0.20124,4057,0,1,доля валидных минут 0.2012 < порога 0.5061,5088
 bitget,LDOUSDT,LDO|крипта,main,крипта,crypto,0,0.70536,14220,1,1,,5089
 bitget,LENOVOHKDUSDT,LENOVO|акции+ETF,main,акции+ETF,eq_nonus,0,0.14122,2847,0,1,доля валидных минут 0.1412 < порога 0.3177,5090
-bitget,LENUSDT,LEN|акции+ETF,main,акции+ETF,eq_us,1,0.04436,173,0,1,доля валидных минут 0.0444 < порога 0.4285,5091
+bitget,LENUSDT,LEN|акции+ETF,main,акции+ETF,eq_us,1,0.04436,173,0,1,доля валидных минут 0.0444 < порога 0.4269,5091
 bitget,LGELECTRONICSUSDT,LGELECTRONICS|акции+ETF,main,акции+ETF,eq_nonus,0,0.17783,3585,0,1,доля валидных минут 0.1778 < порога 0.3177,5092
-bitget,LGENERGYUSDT,LGENERGY|акции+ETF,main,акции+ETF,eq_us,1,0.02949,115,0,1,доля валидных минут 0.0295 < порога 0.4285,5093
+bitget,LGENERGYUSDT,LGENERGY|акции+ETF,main,акции+ETF,eq_nonus,0,0.02545,513,0,1,доля валидных минут 0.0254 < порога 0.3177,5093
 bitget,LINEAUSDT,LINEA|крипта,main,крипта,crypto,0,0.36602,7379,0,1,доля валидных минут 0.3660 < порога 0.5061,5094
 bitget,LINKPERP,LINK|крипта,dup,крипта,crypto,0,0.22674,4571,0,0,,5095
 bitget,LINKUSDT,LINK|крипта,main,крипта,crypto,0,0.94767,19105,1,1,,5096
@@ -4777,42 +4777,42 @@ bitget,LINUSDT,LIN|акции+ETF,main,акции+ETF,eq_nonus,0,0.12763,2573,0,
 bitget,LISTAUSDT,LISTA|крипта,main,крипта,crypto,0,0.16488,3324,0,1,доля валидных минут 0.1649 < порога 0.5061,5098
 bitget,LITEUSDT,LITE|акции+ETF,main,акции+ETF,eq_us,1,0.98410,3838,1,1,,5099
 bitget,LITUSDT,LIT|крипта,main,крипта,crypto,0,0.77232,15570,1,1,,5100
-bitget,LLYUSDT,LLY|акции+ETF,main,акции+ETF,eq_us,1,0.29308,1143,0,1,доля валидных минут 0.2931 < порога 0.4285,5101
-bitget,LMTUSDT,LMT|акции+ETF,main,акции+ETF,eq_us,1,0.31564,1231,0,1,доля валидных минут 0.3156 < порога 0.4285,5102
+bitget,LLYUSDT,LLY|акции+ETF,main,акции+ETF,eq_us,1,0.29308,1143,0,1,доля валидных минут 0.2931 < порога 0.4269,5101
+bitget,LMTUSDT,LMT|акции+ETF,main,акции+ETF,eq_us,1,0.31564,1231,0,1,доля валидных минут 0.3156 < порога 0.4269,5102
 bitget,LPTUSDT,LPT|крипта,main,крипта,crypto,0,0.44653,9002,0,1,доля валидных минут 0.4465 < порога 0.5061,5104
 bitget,LQTYUSDT,LQTY|крипта,main,крипта,crypto,0,0.10228,2062,0,1,доля валидных минут 0.1023 < порога 0.5061,5105
-bitget,LRCXUSDT,LRCX|акции+ETF,main,акции+ETF,eq_us,1,0.42154,1644,0,1,доля валидных минут 0.4215 < порога 0.4285,5106
+bitget,LRCXUSDT,LRCX|акции+ETF,main,акции+ETF,eq_us,1,0.42154,1644,0,1,доля валидных минут 0.4215 < порога 0.4269,5106
 bitget,LSKUSDT,LSK|крипта,main,крипта,crypto,0,0.85347,17206,1,1,,5107
 bitget,LTCPERP,LTC|крипта,dup,крипта,crypto,0,0.23185,4674,0,0,,5108
 bitget,LTCUSDT,LTC|крипта,main,крипта,crypto,0,0.86488,17436,1,1,,5109
 bitget,LUMIAUSDT,LUMIA|крипта,main,крипта,crypto,0,0.44360,8943,0,1,доля валидных минут 0.4436 < порога 0.5061,5111
 bitget,LUNAUSDT,LUNA|крипта,main,крипта,crypto,0,0.22812,4599,0,1,доля валидных минут 0.2281 < порога 0.5061,5112
 bitget,LUNCUSDT,LUNC|крипта,main,крипта,crypto,0,0.27242,5492,0,1,доля валидных минут 0.2724 < порога 0.5061,5113
-bitget,LWLGUSDT,LWLG|акции+ETF,main,акции+ETF,eq_us,1,0.32333,1261,0,1,доля валидных минут 0.3233 < порога 0.4285,5114
+bitget,LWLGUSDT,LWLG|акции+ETF,main,акции+ETF,eq_us,1,0.32333,1261,0,1,доля валидных минут 0.3233 < порога 0.4269,5114
 bitget,LYNUSDT,LYN|крипта,main,крипта,crypto,0,0.72971,14711,1,1,,5115
-bitget,LYTEUSDT,LYTE|акции+ETF,main,акции+ETF,eq_us,1,0.17154,669,0,1,доля валидных минут 0.1715 < порога 0.4285,5116
+bitget,LYTEUSDT,LYTE|акции+ETF,main,акции+ETF,eq_us,1,0.17154,669,0,1,доля валидных минут 0.1715 < порога 0.4269,5116
 bitget,MAGICUSDT,MAGIC|крипта,main,крипта,crypto,0,0.70461,14205,1,1,,5117
 bitget,MAGMAUSDT,MAGMA|крипта,main,крипта,crypto,0,0.87356,17611,1,1,,5118
 bitget,MANAUSDT,MANA|крипта,main,крипта,crypto,0,0.67148,13537,1,1,,5119
 bitget,MANTAUSDT,MANTA|крипта,main,крипта,crypto,0,0.36999,7459,0,1,доля валидных минут 0.3700 < порога 0.5061,5120
 bitget,MANTRAUSDT,MANTRA|крипта,main,крипта,crypto,0,0.29762,6000,0,1,доля валидных минут 0.2976 < порога 0.5061,5121
-bitget,MARAUSDT,MARA|акции+ETF,main,акции+ETF,eq_us,1,0.20769,810,0,1,доля валидных минут 0.2077 < порога 0.4285,5122
+bitget,MARAUSDT,MARA|акции+ETF,main,акции+ETF,eq_us,1,0.20769,810,0,1,доля валидных минут 0.2077 < порога 0.4269,5122
 bitget,MARSCOINUSDT,MARSCOIN|крипта,main,крипта,crypto,0,0.88080,17757,1,1,,5123
 bitget,MARUSDT,MAR|акции+ETF,main,акции+ETF,eq_nonus,0,0.11806,2380,0,1,доля валидных минут 0.1181 < порога 0.3177,5124
 bitget,MASKUSDT,MASK|крипта,main,крипта,crypto,0,0.31275,6305,0,1,доля валидных минут 0.3127 < порога 0.5061,5125
 bitget,MAVUSDT,MAV|крипта,main,крипта,crypto,0,0.23363,4710,0,1,доля валидных минут 0.2336 < порога 0.5061,5127
 bitget,MCDUSDT,MCD|акции+ETF,main,акции+ETF,eq_us,1,0.43974,1715,1,1,,5128
-bitget,MDBUSDT,MDB|акции+ETF,main,акции+ETF,eq_us,1,0.27385,1068,0,1,доля валидных минут 0.2738 < порога 0.4285,5129
+bitget,MDBUSDT,MDB|акции+ETF,main,акции+ETF,eq_us,1,0.27385,1068,0,1,доля валидных минут 0.2738 < порога 0.4269,5129
 bitget,MEGAUSDT,MEGA|крипта,main,крипта,crypto,0,0.51419,10366,1,1,,5132
 bitget,MEITUANUSDT,MEITUAN|акции+ETF,main,акции+ETF,eq_nonus,0,0.13428,2707,0,1,доля валидных минут 0.1343 < порога 0.3177,5133
 bitget,MELANIAUSDT,MELANIA|крипта,main,крипта,crypto,0,0.11811,2381,0,1,доля валидных минут 0.1181 < порога 0.5061,5134
-bitget,MELIUSDT,MELI|акции+ETF,main,акции+ETF,eq_us,1,0.22846,891,0,1,доля валидных минут 0.2285 < порога 0.4285,5135
+bitget,MELIUSDT,MELI|акции+ETF,main,акции+ETF,eq_us,1,0.22846,891,0,1,доля валидных минут 0.2285 < порога 0.4269,5135
 bitget,MEMEUSDT,MEME|крипта,main,крипта,crypto,0,0.27718,5588,0,1,доля валидных минут 0.2772 < порога 0.5061,5136
 bitget,MERLUSDT,MERL|крипта,main,крипта,crypto,0,0.36141,7286,0,1,доля валидных минут 0.3614 < порога 0.5061,5137
 bitget,METAUSDT,META|акции+ETF,main,акции+ETF,eq_us,1,0.89487,3490,1,1,,5138
 bitget,METISUSDT,METIS|крипта,main,крипта,crypto,0,0.40962,8258,0,1,доля валидных минут 0.4096 < порога 0.5061,5139
 bitget,METUSDT,MET|крипта,main,крипта,crypto,0,0.65794,13264,1,1,,5140
-bitget,METUUSDT,METU|акции+ETF,main,акции+ETF,eq_us,1,0.17641,688,0,1,доля валидных минут 0.1764 < порога 0.4285,5141
+bitget,METUUSDT,METU|акции+ETF,main,акции+ETF,eq_us,1,0.17641,688,0,1,доля валидных минут 0.1764 < порога 0.4269,5141
 bitget,MEUSDT,ME|крипта,main,крипта,crypto,0,0.28433,5732,0,1,доля валидных минут 0.2843 < порога 0.5061,5142
 bitget,MEWUSDT,MEW|крипта,main,крипта,crypto,0,0.22049,4445,0,1,доля валидных минут 0.2205 < порога 0.5061,5143
 bitget,MINAUSDT,MINA|крипта,main,крипта,crypto,0,0.81200,16370,1,1,,5144
@@ -4827,7 +4827,7 @@ bitget,MORPHOUSDT,MORPHO|крипта,main,крипта,crypto,0,0.52445,10573,1
 bitget,MOVEUSDT,MOVE|крипта,main,крипта,crypto,0,0.37312,7522,0,1,доля валидных минут 0.3731 < порога 0.5061,5155
 bitget,MOVRUSDT,MOVR|крипта,main,крипта,crypto,0,0.87619,17664,1,1,,5156
 bitget,MPUSDT,MP|акции+ETF,main,акции+ETF,eq_us,1,0.50615,1974,1,1,,5157
-bitget,MRKUSDT,MRK|акции+ETF,main,акции+ETF,eq_us,1,0.17128,668,0,1,доля валидных минут 0.1713 < порога 0.4285,5158
+bitget,MRKUSDT,MRK|акции+ETF,main,акции+ETF,eq_us,1,0.17128,668,0,1,доля валидных минут 0.1713 < порога 0.4269,5158
 bitget,MRNAUSDT,MRNA|акции+ETF,main,акции+ETF,eq_us,1,0.86667,3380,1,1,,5159
 bitget,MRVLUSDT,MRVL|акции+ETF,main,акции+ETF,eq_us,1,0.98077,3825,1,1,,5160
 bitget,MSFTUSDT,MSFT|акции+ETF,main,акции+ETF,eq_us,1,0.68821,2684,1,1,,5162
@@ -4837,7 +4837,7 @@ bitget,MSTUUSDT,MSTU|акции+ETF,main,акции+ETF,eq_us,1,0.86205,3362,1,1
 bitget,MTLUSDT,MTL|крипта,main,крипта,crypto,0,0.23596,4757,0,1,доля валидных минут 0.2360 < порога 0.5061,5167
 bitget,MUBARAKUSDT,MUBARAK|крипта,main,крипта,crypto,0,0.94459,19043,1,1,,5168
 bitget,MUFGUSDT,MUFG|акции+ETF,main,акции+ETF,eq_nonus,0,0.10923,2202,0,1,доля валидных минут 0.1092 < порога 0.3177,5169
-bitget,MURATAUSDT,MURATA|акции+ETF,main,акции+ETF,eq_us,1,0.02256,88,0,1,доля валидных минут 0.0226 < порога 0.4285,5170
+bitget,MURATAUSDT,MURATA|акции+ETF,main,акции+ETF,eq_nonus,0,0.01473,297,0,1,доля валидных минут 0.0147 < порога 0.3177,5170
 bitget,MUSDT,M|крипта,main,крипта,crypto,0,0.25992,5240,0,1,доля валидных минут 0.2599 < порога 0.5061,5171
 bitget,MUUSDT,MU|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,5172
 bitget,MUUUSDT,MUU|акции+ETF,main,акции+ETF,eq_us,1,0.99282,3872,1,1,,5173
@@ -4853,28 +4853,28 @@ bitget,NEARUSDT,NEAR|крипта,main,крипта,crypto,0,0.99990,20158,1,1,,
 bitget,NEIROCTOUSDT,NEIROCTO|крипта,main,крипта,crypto,0,0.21265,4287,0,1,доля валидных минут 0.2126 < порога 0.5061,5184
 bitget,NEOPERP,NEO|крипта,dup,крипта,crypto,0,0.18418,3713,0,0,,5185
 bitget,NEOUSDT,NEO|крипта,main,крипта,crypto,0,0.30565,6162,0,1,доля валидных минут 0.3057 < порога 0.5061,5186
-bitget,NETEASEUSDT,NETEASE|акции+ETF,main,акции+ETF,eq_us,1,0.11026,430,0,1,доля валидных минут 0.1103 < порога 0.4285,5187
+bitget,NETEASEUSDT,NETEASE|акции+ETF,main,акции+ETF,eq_nonus,0,0.10754,2168,0,1,доля валидных минут 0.1075 < порога 0.3177,5187
 bitget,NETUSDT,NET|акции+ETF,main,акции+ETF,eq_us,1,0.55026,2146,1,1,,5188
 bitget,NEWTUSDT,NEWT|крипта,main,крипта,crypto,0,0.28899,5826,0,1,доля валидных минут 0.2890 < порога 0.5061,5189
 bitget,NFLXUSDT,NFLX|акции+ETF,main,акции+ETF,eq_us,1,0.59154,2307,1,1,,5190
 bitget,NIGHTUSDT,NIGHT|крипта,main,крипта,crypto,0,0.71741,14463,1,1,,5191
 bitget,NILUSDT,NIL|крипта,main,крипта,crypto,0,0.87674,17675,1,1,,5192
-bitget,NIOUSDT,NIO|акции+ETF,main,акции+ETF,eq_us,1,0.17462,681,0,1,доля валидных минут 0.1746 < порога 0.4285,5193
+bitget,NIOUSDT,NIO|акции+ETF,main,акции+ETF,eq_us,1,0.17462,681,0,1,доля валидных минут 0.1746 < порога 0.4269,5193
 bitget,NKEUSDT,NKE|акции+ETF,main,акции+ETF,eq_us,1,0.64231,2505,1,1,,5194
 bitget,NMRUSDT,NMR|крипта,main,крипта,crypto,0,0.76731,15469,1,1,,5195
-bitget,NOCUSDT,NOC|акции+ETF,main,акции+ETF,eq_us,1,0.19462,759,0,1,доля валидных минут 0.1946 < порога 0.4285,5196
+bitget,NOCUSDT,NOC|акции+ETF,main,акции+ETF,eq_us,1,0.19462,759,0,1,доля валидных минут 0.1946 < порога 0.4269,5196
 bitget,NOKSTOCKUSDT,NOK|акции+ETF,main,акции+ETF,eq_us,1,0.49821,1943,1,1,,5197
 bitget,NOTUSDT,NOT|крипта,main,крипта,crypto,0,0.24668,4973,0,1,доля валидных минут 0.2467 < порога 0.5061,5198
-bitget,NOWUSDT,NOW|акции+ETF,main,акции+ETF,eq_us,1,0.39487,1540,0,1,доля валидных минут 0.3949 < порога 0.4285,5199
-bitget,NTAPUSDT,NTAP|акции+ETF,main,акции+ETF,eq_us,1,0.16641,649,0,1,доля валидных минут 0.1664 < порога 0.4285,5200
+bitget,NOWUSDT,NOW|акции+ETF,main,акции+ETF,eq_us,1,0.39487,1540,0,1,доля валидных минут 0.3949 < порога 0.4269,5199
+bitget,NTAPUSDT,NTAP|акции+ETF,main,акции+ETF,eq_us,1,0.16641,649,0,1,доля валидных минут 0.1664 < порога 0.4269,5200
 bitget,NVDAUSDT,NVDA|акции+ETF,main,акции+ETF,eq_us,1,0.99513,3881,1,1,,5202
-bitget,NVDLUSDT,NVDL|акции+ETF,main,акции+ETF,eq_us,1,0.18128,707,0,1,доля валидных минут 0.1813 < порога 0.4285,5203
-bitget,NVSUSDT,NVS|акции+ETF,main,акции+ETF,eq_us,1,0.11462,447,0,1,доля валидных минут 0.1146 < порога 0.4285,5204
+bitget,NVDLUSDT,NVDL|акции+ETF,main,акции+ETF,eq_us,1,0.18128,707,0,1,доля валидных минут 0.1813 < порога 0.4269,5203
+bitget,NVSUSDT,NVS|акции+ETF,main,акции+ETF,eq_us,1,0.11462,447,0,1,доля валидных минут 0.1146 < порога 0.4269,5204
 bitget,NXPCUSDT,NXPC|крипта,main,крипта,crypto,0,0.14782,2980,0,1,доля валидных минут 0.1478 < порога 0.5061,5205
 bitget,OGNUSDT,OGN|крипта,main,крипта,crypto,0,0.69886,14089,1,1,,5206
 bitget,OGUSDT,OG|крипта,main,крипта,crypto,0,0.21032,4240,0,1,доля валидных минут 0.2103 < порога 0.5061,5207
 bitget,OKLOUSDT,OKLO|акции+ETF,main,акции+ETF,eq_us,1,0.57308,2235,1,1,,5208
-bitget,OKTAUSDT,OKTA|акции+ETF,main,акции+ETF,eq_us,1,0.30462,1188,0,1,доля валидных минут 0.3046 < порога 0.4285,5209
+bitget,OKTAUSDT,OKTA|акции+ETF,main,акции+ETF,eq_us,1,0.30462,1188,0,1,доля валидных минут 0.3046 < порога 0.4269,5209
 bitget,ONDOPERP,ONDO|крипта,dup,крипта,crypto,0,0.38274,7716,0,0,,5210
 bitget,ONDOUSDT,ONDO|крипта,main,крипта,crypto,0,0.98304,19818,1,1,,5211
 bitget,ONDSUSDT,ONDS|акции+ETF,main,акции+ETF,eq_us,1,0.50744,1979,1,1,,5212
@@ -4891,16 +4891,16 @@ bitget,ORCLUSDT,ORCL|акции+ETF,main,акции+ETF,eq_us,1,0.90897,3545,1,1
 bitget,ORDERUSDT,ORDER|крипта,main,крипта,crypto,0,0.13641,2750,0,1,доля валидных минут 0.1364 < порога 0.5061,5224
 bitget,ORDIPERP,ORDI|крипта,dup,крипта,crypto,0,0.11062,2230,0,0,,5225
 bitget,ORDIUSDT,ORDI|крипта,main,крипта,crypto,0,0.51979,10479,1,1,,5226
-bitget,OSSUSDT,OSS|акции+ETF,main,акции+ETF,eq_us,1,0.20333,793,0,1,доля валидных минут 0.2033 < порога 0.4285,5227
+bitget,OSSUSDT,OSS|акции+ETF,main,акции+ETF,eq_us,1,0.20333,793,0,1,доля валидных минут 0.2033 < порога 0.4269,5227
 bitget,OUSDT,O|крипта,main,крипта,crypto,0,0.20784,4190,0,1,доля валидных минут 0.2078 < порога 0.5061,5229
 bitget,OUSTUSDT,OUST|акции+ETF,main,акции+ETF,eq_us,1,0.47692,1860,1,1,,5230
-bitget,OXYUSDT,OXY|акции+ETF,main,акции+ETF,eq_nonus,0,0.13026,2626,0,1,доля валидных минут 0.1303 < порога 0.3177,5231
-bitget,PANWUSDT,PANW|акции+ETF,main,акции+ETF,eq_us,1,0.26026,1015,0,1,доля валидных минут 0.2603 < порога 0.4285,5232
+bitget,OXYUSDT,OXY|акции+ETF,main,акции+ETF,eq_us,1,0.18513,722,0,1,доля валидных минут 0.1851 < порога 0.4269,5231
+bitget,PANWUSDT,PANW|акции+ETF,main,акции+ETF,eq_us,1,0.26026,1015,0,1,доля валидных минут 0.2603 < порога 0.4269,5232
 bitget,PARTIUSDT,PARTI|крипта,main,крипта,crypto,0,0.42951,8659,0,1,доля валидных минут 0.4295 < порога 0.5061,5233
-bitget,PATHUSDT,PATH|акции+ETF,main,акции+ETF,eq_us,1,0.13718,535,0,1,доля валидных минут 0.1372 < порога 0.4285,5234
+bitget,PATHUSDT,PATH|акции+ETF,main,акции+ETF,eq_us,1,0.13718,535,0,1,доля валидных минут 0.1372 < порога 0.4269,5234
 bitget,PAXGUSDT,PAXG|металлы+энергия,main,металлы+энергия,metal_energy,0,0.75997,15321,1,1,,5235
-bitget,PCVXUSDT,PCVX|акции+ETF,main,акции+ETF,eq_us,1,0.19590,764,0,1,доля валидных минут 0.1959 < порога 0.4285,5237
-bitget,PDDUSDT,PDD|акции+ETF,main,акции+ETF,eq_us,1,0.24051,938,0,1,доля валидных минут 0.2405 < порога 0.4285,5238
+bitget,PCVXUSDT,PCVX|акции+ETF,main,акции+ETF,eq_us,1,0.19590,764,0,1,доля валидных минут 0.1959 < порога 0.4269,5237
+bitget,PDDUSDT,PDD|акции+ETF,main,акции+ETF,eq_us,1,0.24051,938,0,1,доля валидных минут 0.2405 < порога 0.4269,5238
 bitget,PENDLEUSDT,PENDLE|крипта,main,крипта,crypto,0,0.63700,12842,1,1,,5239
 bitget,PENGUPERP,PENGU|крипта,dup,крипта,crypto,0,0.17822,3593,0,0,,5240
 bitget,PENGUSDT,PENG|акции+ETF,main,акции+ETF,eq_us,1,0.55590,2168,1,1,,5241
@@ -4908,7 +4908,7 @@ bitget,PENGUUSDT,PENGU|крипта,main,крипта,crypto,0,0.92128,18573,1,1
 bitget,PEOPLEUSDT,PEOPLE|крипта,main,крипта,crypto,0,0.36310,7320,0,1,доля валидных минут 0.3631 < порога 0.5061,5243
 bitget,PEPEPERP,PEPE|крипта,dup,крипта,crypto,0,0.20670,4167,0,0,,5244
 bitget,PEPEUSDT,PEPE|крипта,main,крипта,crypto,0,0.97103,19576,1,1,,5245
-bitget,PEPUSDT,PEP|акции+ETF,main,акции+ETF,eq_us,1,0.18282,713,0,1,доля валидных минут 0.1828 < порога 0.4285,5246
+bitget,PEPUSDT,PEP|акции+ETF,main,акции+ETF,eq_us,1,0.18282,713,0,1,доля валидных минут 0.1828 < порога 0.4269,5246
 bitget,PHAUSDT,PHA|крипта,main,крипта,crypto,0,0.64375,12978,1,1,,5249
 bitget,PIEVERSEUSDT,PIEVERSE|крипта,main,крипта,crypto,0,0.16414,3309,0,1,доля валидных минут 0.1641 < порога 0.5061,5250
 bitget,PIPPINUSDT,PIPPIN|крипта,main,крипта,crypto,0,0.35441,7145,0,1,доля валидных минут 0.3544 < порога 0.5061,5251
@@ -4916,10 +4916,10 @@ bitget,PIUSDT,PI|крипта,main,крипта,crypto,0,0.69142,13939,1,1,,5252
 bitget,PIXELUSDT,PIXEL|крипта,main,крипта,crypto,0,0.46488,9372,0,1,доля валидных минут 0.4649 < порога 0.5061,5253
 bitget,PLTRUSDT,PLTR|акции+ETF,main,акции+ETF,eq_us,1,0.80333,3133,1,1,,5254
 bitget,PLUMEUSDT,PLUME|крипта,main,крипта,crypto,0,0.59802,12056,1,1,,5255
-bitget,PLUSDT,PL|акции+ETF,main,акции+ETF,eq_us,1,0.34538,1347,0,1,доля валидных минут 0.3454 < порога 0.4285,5256
+bitget,PLUSDT,PL|акции+ETF,main,акции+ETF,eq_us,1,0.34538,1347,0,1,доля валидных минут 0.3454 < порога 0.4269,5256
 bitget,PNUTPERP,PNUT|крипта,dup,крипта,crypto,0,0.16865,3400,0,0,,5257
 bitget,PNUTUSDT,PNUT|крипта,main,крипта,crypto,0,0.27331,5510,0,1,доля валидных минут 0.2733 < порога 0.5061,5258
-bitget,POETUSDT,POET|акции+ETF,main,акции+ETF,eq_us,1,0.30821,1202,0,1,доля валидных минут 0.3082 < порога 0.4285,5259
+bitget,POETUSDT,POET|акции+ETF,main,акции+ETF,eq_us,1,0.30821,1202,0,1,доля валидных минут 0.3082 < порога 0.4269,5259
 bitget,POLPERP,POL|крипта,dup,крипта,crypto,0,0.28884,5823,0,0,,5260
 bitget,POLUSDT,POL|крипта,main,крипта,crypto,0,0.63586,12819,1,1,,5261
 bitget,POLYXUSDT,POLYX|крипта,main,крипта,crypto,0,0.23522,4742,0,1,доля валидных минут 0.2352 < порога 0.5061,5263
@@ -4935,32 +4935,32 @@ bitget,PROSUSDT,PROS|крипта,main,крипта,crypto,0,0.33130,6679,0,1,д
 bitget,PROVEUSDT,PROVE|крипта,main,крипта,crypto,0,0.19043,3839,0,1,доля валидных минут 0.1904 < порога 0.5061,5273
 bitget,PUMPUSDT,PUMP|крипта,main,крипта,crypto,0,0.99182,19995,1,1,,5274
 bitget,PUNDIXUSDT,PUNDIX|крипта,main,крипта,crypto,0,0.17049,3437,0,1,доля валидных минут 0.1705 < порога 0.5061,5275
-bitget,PURRUSDT,PURR|акции+ETF,main,акции+ETF,eq_us,1,0.35923,1401,0,1,доля валидных минут 0.3592 < порога 0.4285,5276
-bitget,PYPLUSDT,PYPL|акции+ETF,main,акции+ETF,eq_us,1,0.13231,516,0,1,доля валидных минут 0.1323 < порога 0.4285,5277
+bitget,PURRUSDT,PURR|акции+ETF,main,акции+ETF,eq_us,1,0.35923,1401,0,1,доля валидных минут 0.3592 < порога 0.4269,5276
+bitget,PYPLUSDT,PYPL|акции+ETF,main,акции+ETF,eq_us,1,0.13231,516,0,1,доля валидных минут 0.1323 < порога 0.4269,5277
 bitget,PYTHUSDT,PYTH|крипта,main,крипта,crypto,0,0.67564,13621,1,1,,5278
-bitget,QBTSUSDT,QBTS|акции+ETF,main,акции+ETF,eq_us,1,0.34897,1361,0,1,доля валидных минут 0.3490 < порога 0.4285,5279
+bitget,QBTSUSDT,QBTS|акции+ETF,main,акции+ETF,eq_us,1,0.34897,1361,0,1,доля валидных минут 0.3490 < порога 0.4269,5279
 bitget,QCOMUSDT,QCOM|акции+ETF,main,акции+ETF,eq_us,1,0.78538,3063,1,1,,5280
 bitget,QLDUSDT,QLD|акции+ETF,main,акции+ETF,eq_nonus,0,0.14573,2938,0,1,доля валидных минут 0.1457 < порога 0.3177,5281
-bitget,QNTSTOCKUSDT,QNT|акции+ETF,main,акции+ETF,eq_us,1,0.36949,1441,0,1,доля валидных минут 0.3695 < порога 0.4285,5282
+bitget,QNTSTOCKUSDT,QNT|акции+ETF,main,акции+ETF,eq_us,1,0.36949,1441,0,1,доля валидных минут 0.3695 < порога 0.4269,5282
 bitget,QNTUSDT,QNT|крипта,main,крипта,crypto,0,0.99707,20101,1,1,,5283
 bitget,QQQUSDT,QQQ|акции+ETF,main,акции+ETF,eq_us,1,0.92769,3618,1,1,,5284
 bitget,QTUMUSDT,QTUM|крипта,main,крипта,crypto,0,0.34732,7002,0,1,доля валидных минут 0.3473 < порога 0.5061,5285
-bitget,QUBTUSDT,QUBT|акции+ETF,main,акции+ETF,eq_us,1,0.17154,669,0,1,доля валидных минут 0.1715 < порога 0.4285,5286
+bitget,QUBTUSDT,QUBT|акции+ETF,main,акции+ETF,eq_us,1,0.17154,669,0,1,доля валидных минут 0.1715 < порога 0.4269,5286
 bitget,QUSDT,Q|крипта,main,крипта,crypto,0,0.66151,13336,1,1,,5287
 bitget,RAMUSDT,RAM|акции+ETF,main,акции+ETF,eq_us,1,0.71949,2806,1,1,,5288
 bitget,RAREUSDT,RARE|крипта,main,крипта,crypto,0,0.26250,5292,0,1,доля валидных минут 0.2625 < порога 0.5061,5289
 bitget,RAVEUSDT,RAVE|крипта,main,крипта,crypto,0,0.50511,10183,0,1,доля валидных минут 0.5051 < порога 0.5061,5290
 bitget,RAYUSDT,RAY|крипта,main,крипта,crypto,0,0.84053,16945,1,1,,5291
-bitget,RDDTUSDT,RDDT|акции+ETF,main,акции+ETF,eq_us,1,0.35795,1396,0,1,доля валидных минут 0.3579 < порога 0.4285,5292
-bitget,RDWUSDT,RDW|акции+ETF,main,акции+ETF,eq_us,1,0.36949,1441,0,1,доля валидных минут 0.3695 < порога 0.4285,5293
+bitget,RDDTUSDT,RDDT|акции+ETF,main,акции+ETF,eq_us,1,0.35795,1396,0,1,доля валидных минут 0.3579 < порога 0.4269,5292
+bitget,RDWUSDT,RDW|акции+ETF,main,акции+ETF,eq_us,1,0.36949,1441,0,1,доля валидных минут 0.3695 < порога 0.4269,5293
 bitget,RECALLUSDT,RECALL|крипта,main,крипта,crypto,0,0.14454,2914,0,1,доля валидных минут 0.1445 < порога 0.5061,5294
 bitget,REDUSDT,RED|крипта,main,крипта,crypto,0,0.31066,6263,0,1,доля валидных минут 0.3107 < порога 0.5061,5295
 bitget,RENDERUSDT,RENDER|крипта,main,крипта,crypto,0,0.88710,17884,1,1,,5297
 bitget,RESOLVUSDT,RESOLV|крипта,main,крипта,crypto,0,0.42257,8519,0,1,доля валидных минут 0.4226 < порога 0.5061,5298
 bitget,REUSDT,RE|крипта,main,крипта,crypto,0,0.36820,7423,0,1,доля валидных минут 0.3682 < порога 0.5061,5299
 bitget,REZUSDT,REZ|крипта,main,крипта,crypto,0,0.26989,5441,0,1,доля валидных минут 0.2699 < порога 0.5061,5300
-bitget,RGTIUSDT,RGTI|акции+ETF,main,акции+ETF,eq_us,1,0.26692,1041,0,1,доля валидных минут 0.2669 < порога 0.4285,5301
-bitget,RIOUSDT,RIO|акции+ETF,main,акции+ETF,eq_us,1,0.10692,417,0,1,доля валидных минут 0.1069 < порога 0.4285,5302
+bitget,RGTIUSDT,RGTI|акции+ETF,main,акции+ETF,eq_us,1,0.26692,1041,0,1,доля валидных минут 0.2669 < порога 0.4269,5301
+bitget,RIOUSDT,RIO|акции+ETF,main,акции+ETF,eq_us,1,0.10692,417,0,1,доля валидных минут 0.1069 < порога 0.4269,5302
 bitget,RIVERUSDT,RIVER|крипта,main,крипта,crypto,0,0.60947,12287,1,1,,5303
 bitget,RKLBUSDT,RKLB|акции+ETF,main,акции+ETF,eq_us,1,0.97231,3792,1,1,,5304
 bitget,ROBOUSDT,ROBO|крипта,main,крипта,crypto,0,0.42078,8483,0,1,доля валидных минут 0.4208 < порога 0.5061,5305
@@ -4968,8 +4968,8 @@ bitget,ROKUSDT,ROK|акции+ETF,main,акции+ETF,eq_nonus,0,0.13968,2816,0,
 bitget,ROSEUSDT,ROSE|крипта,main,крипта,crypto,0,0.36161,7290,0,1,доля валидных минут 0.3616 < порога 0.5061,5307
 bitget,RPLUSDT,RPL|крипта,main,крипта,crypto,0,0.13507,2723,0,1,доля валидных минут 0.1351 < порога 0.5061,5308
 bitget,RSRUSDT,RSR|крипта,main,крипта,crypto,0,0.37976,7656,0,1,доля валидных минут 0.3798 < порога 0.5061,5309
-bitget,RTXSTOCKUSDT,RTX|акции+ETF,main,акции+ETF,eq_us,1,0.15308,597,0,1,доля валидных минут 0.1531 < порога 0.4285,5310
-bitget,RUMUSDT,RUM|акции+ETF,main,акции+ETF,eq_us,1,0.38692,1509,0,1,доля валидных минут 0.3869 < порога 0.4285,5311
+bitget,RTXSTOCKUSDT,RTX|акции+ETF,main,акции+ETF,eq_us,1,0.15308,597,0,1,доля валидных минут 0.1531 < порога 0.4269,5310
+bitget,RUMUSDT,RUM|акции+ETF,main,акции+ETF,eq_us,1,0.38692,1509,0,1,доля валидных минут 0.3869 < порога 0.4269,5311
 bitget,RUNEUSDT,RUNE|крипта,main,крипта,crypto,0,0.56766,11444,1,1,,5312
 bitget,RVNUSDT,RVN|крипта,main,крипта,crypto,0,0.47803,9637,0,1,доля валидных минут 0.4780 < порога 0.5061,5313
 bitget,SAFEUSDT,SAFE|крипта,main,крипта,crypto,0,0.40888,8243,0,1,доля валидных минут 0.4089 < порога 0.5061,5314
@@ -4979,25 +4979,25 @@ bitget,SAMSUNGUSDT,SAMSUNG|акции+ETF,main,акции+ETF,eq_nonus,0,0.70174
 bitget,SANDUSDT,SAND|крипта,main,крипта,crypto,0,0.94583,19068,1,1,,5318
 bitget,SANTOSUSDT,SANTOS|крипта,main,крипта,crypto,0,0.09787,1973,0,1,доля валидных минут 0.0979 < порога 0.5061,5319
 bitget,SAPIENUSDT,SAPIEN|крипта,main,крипта,crypto,0,0.09003,1815,0,1,доля валидных минут 0.0900 < порога 0.5061,5320
-bitget,SATLUSDT,SATL|акции+ETF,main,акции+ETF,eq_us,1,0.22513,878,0,1,доля валидных минут 0.2251 < порога 0.4285,5321
-bitget,SBUXUSDT,SBUX|акции+ETF,main,акции+ETF,eq_us,1,0.08462,330,0,1,доля валидных минут 0.0846 < порога 0.4285,5323
-bitget,SDGRUSDT,SDGR|акции+ETF,main,акции+ETF,eq_us,1,0.28513,1112,0,1,доля валидных минут 0.2851 < порога 0.4285,5324
+bitget,SATLUSDT,SATL|акции+ETF,main,акции+ETF,eq_us,1,0.22513,878,0,1,доля валидных минут 0.2251 < порога 0.4269,5321
+bitget,SBUXUSDT,SBUX|акции+ETF,main,акции+ETF,eq_us,1,0.08462,330,0,1,доля валидных минут 0.0846 < порога 0.4269,5323
+bitget,SDGRUSDT,SDGR|акции+ETF,main,акции+ETF,eq_us,1,0.28513,1112,0,1,доля валидных минут 0.2851 < порога 0.4269,5324
 bitget,SECZUSDT,SECZ|акции+ETF,main,акции+ETF,eq_us,1,0.66077,2577,1,1,,5325
 bitget,SEIUSDT,SEI|крипта,main,крипта,crypto,0,0.87753,17691,1,1,,5326
 bitget,SENTUSDT,SENT|крипта,main,крипта,crypto,0,0.44077,8886,0,1,доля валидных минут 0.4408 < порога 0.5061,5327
 bitget,SFPUSDT,SFP|крипта,main,крипта,crypto,0,0.19494,3930,0,1,доля валидных минут 0.1949 < порога 0.5061,5328
-bitget,SGOVUSDT,SGOV|акции+ETF,main,акции+ETF,eq_us,1,0.10231,399,0,1,доля валидных минут 0.1023 < порога 0.4285,5329
-bitget,SHAZUSDT,SHAZ|акции+ETF,main,акции+ETF,eq_us,1,0.35154,1371,0,1,доля валидных минут 0.3515 < порога 0.4285,5330
+bitget,SGOVUSDT,SGOV|акции+ETF,main,акции+ETF,eq_us,1,0.10231,399,0,1,доля валидных минут 0.1023 < порога 0.4269,5329
+bitget,SHAZUSDT,SHAZ|акции+ETF,main,акции+ETF,eq_us,1,0.35154,1371,0,1,доля валидных минут 0.3515 < порога 0.4269,5330
 bitget,SHEINHKDUSDT,SHEIN|акции+ETF,dup,акции+ETF,eq_nonus,0,0.16151,3256,0,1,,5331
 bitget,SHEINUSDT,SHEIN|акции+ETF,main,акции+ETF,eq_nonus,0,0.18904,3811,0,1,доля валидных минут 0.1890 < порога 0.3177,5332
 bitget,SHELLUSDT,SHELL|крипта,main,крипта,crypto,0,0.21726,4380,0,1,доля валидных минут 0.2173 < порога 0.5061,5333
 bitget,SHIBPERP,SHIB|крипта,dup,крипта,crypto,0,0.16925,3412,0,0,,5334
 bitget,SHIBUSDT,SHIB|крипта,main,крипта,crypto,0,0.91161,18378,1,1,,5335
-bitget,SHOPUSDT,SHOP|акции+ETF,main,акции+ETF,eq_us,1,0.34795,1357,0,1,доля валидных минут 0.3479 < порога 0.4285,5336
+bitget,SHOPUSDT,SHOP|акции+ETF,main,акции+ETF,eq_us,1,0.34795,1357,0,1,доля валидных минут 0.3479 < порога 0.4269,5336
 bitget,SIGNUSDT,SIGN|крипта,main,крипта,crypto,0,0.19747,3981,0,1,доля валидных минут 0.1975 < порога 0.5061,5337
-bitget,SIMOUSDT,SIMO|акции+ETF,main,акции+ETF,eq_us,1,0.19692,768,0,1,доля валидных минут 0.1969 < порога 0.4285,5338
+bitget,SIMOUSDT,SIMO|акции+ETF,main,акции+ETF,eq_us,1,0.19692,768,0,1,доля валидных минут 0.1969 < порога 0.4269,5338
 bitget,SIRENUSDT,SIREN|крипта,main,крипта,crypto,0,0.45957,9265,0,1,доля валидных минут 0.4596 < порога 0.5061,5339
-bitget,SITMUSDT,SITM|акции+ETF,main,акции+ETF,eq_us,1,0.22821,890,0,1,доля валидных минут 0.2282 < порога 0.4285,5340
+bitget,SITMUSDT,SITM|акции+ETF,main,акции+ETF,eq_us,1,0.22821,890,0,1,доля валидных минут 0.2282 < порога 0.4269,5340
 bitget,SKDDUSDT,SKDD|акции+ETF,main,акции+ETF,eq_us,1,0.69051,2693,1,1,,5341
 bitget,SKHYNIXUSDT,SKHYNIX|акции+ETF,main,акции+ETF,eq_nonus,0,0.85888,17315,1,1,,5342
 bitget,SKHYUSDT,SKHY|акции+ETF,main,акции+ETF,eq_us,1,0.99949,3898,1,1,,5343
@@ -5009,21 +5009,21 @@ bitget,SKYUSDT,SKY|крипта,main,крипта,crypto,0,0.55997,11289,1,1,,53
 bitget,SLPUSDT,SLP|крипта,main,крипта,crypto,0,0.17768,3582,0,1,доля валидных минут 0.1777 < порога 0.5061,5349
 bitget,SLXUSDT,SLX|крипта,main,крипта,crypto,0,0.29340,5915,0,1,доля валидных минут 0.2934 < порога 0.5061,5350
 bitget,SMCIUSDT,SMCI|акции+ETF,main,акции+ETF,eq_us,1,0.72872,2842,1,1,,5351
-bitget,SMHUSDT,SMH|акции+ETF,main,акции+ETF,eq_us,1,0.18538,723,0,1,доля валидных минут 0.1854 < порога 0.4285,5352
+bitget,SMHUSDT,SMH|акции+ETF,main,акции+ETF,eq_us,1,0.18538,723,0,1,доля валидных минут 0.1854 < порога 0.4269,5352
 bitget,SMICUSDT,SMIC|акции+ETF,main,акции+ETF,eq_nonus,0,0.22426,4521,0,1,доля валидных минут 0.2243 < порога 0.3177,5353
-bitget,SMRUSDT,SMR|акции+ETF,main,акции+ETF,eq_us,1,0.26333,1027,0,1,доля валидных минут 0.2633 < порога 0.4285,5354
+bitget,SMRUSDT,SMR|акции+ETF,main,акции+ETF,eq_us,1,0.26333,1027,0,1,доля валидных минут 0.2633 < порога 0.4269,5354
 bitget,SNDKUSDT,SNDK|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,5355
-bitget,SNOWUSDT,SNOW|акции+ETF,main,акции+ETF,eq_us,1,0.41103,1603,0,1,доля валидных минут 0.4110 < порога 0.4285,5356
-bitget,SNPSUSDT,SNPS|акции+ETF,main,акции+ETF,eq_us,1,0.07615,297,0,1,доля валидных минут 0.0762 < порога 0.4285,5357
+bitget,SNOWUSDT,SNOW|акции+ETF,main,акции+ETF,eq_us,1,0.41103,1603,0,1,доля валидных минут 0.4110 < порога 0.4269,5356
+bitget,SNPSUSDT,SNPS|акции+ETF,main,акции+ETF,eq_us,1,0.07615,297,0,1,доля валидных минут 0.0762 < порога 0.4269,5357
 bitget,SNXUSDT,SNX|крипта,main,крипта,crypto,0,0.39663,7996,0,1,доля валидных минут 0.3966 < порога 0.5061,5358
 bitget,SNXXUSDT,SNXX|акции+ETF,main,акции+ETF,eq_us,1,0.99897,3896,1,1,,5359
-bitget,SOFIUSDT,SOFI|акции+ETF,main,акции+ETF,eq_us,1,0.25590,998,0,1,доля валидных минут 0.2559 < порога 0.4285,5360
+bitget,SOFIUSDT,SOFI|акции+ETF,main,акции+ETF,eq_us,1,0.25590,998,0,1,доля валидных минут 0.2559 < порога 0.4269,5360
 bitget,SOFTBANKUSDT,SOFTBANK|акции+ETF,main,акции+ETF,eq_nonus,0,0.28715,5789,0,1,доля валидных минут 0.2872 < порога 0.3177,5361
 bitget,SOLPERP,SOL|крипта,dup,крипта,crypto,0,0.78135,15752,0,0,,5362
 bitget,SOLUSDT,SOL|крипта,main,крипта,crypto,0,0.99980,20156,1,1,,5363
 bitget,SOMIUSDT,SOMI|крипта,main,крипта,crypto,0,0.27039,5451,0,1,доля валидных минут 0.2704 < порога 0.5061,5364
 bitget,SONICUSDT,SONIC|крипта,main,крипта,crypto,0,0.28115,5668,0,1,доля валидных минут 0.2812 < порога 0.5061,5365
-bitget,SONYUSDT,SONY|акции+ETF,main,акции+ETF,eq_us,1,0.18897,737,0,1,доля валидных минут 0.1890 < порога 0.4285,5366
+bitget,SONYUSDT,SONY|акции+ETF,main,акции+ETF,eq_us,1,0.18897,737,0,1,доля валидных минут 0.1890 < порога 0.4269,5366
 bitget,SOONUSDT,SOON|крипта,main,крипта,crypto,0,0.69296,13970,1,1,,5367
 bitget,SOPHUSDT,SOPH|крипта,main,крипта,crypto,0,0.29618,5971,0,1,доля валидных минут 0.2962 < порога 0.5061,5368
 bitget,SOXLUSDT,SOXL|акции+ETF,main,акции+ETF,eq_us,1,1.00000,3900,1,1,,5369
@@ -5034,14 +5034,14 @@ bitget,SPACEUSDT,SPACE|крипта,main,крипта,crypto,0,0.28785,5803,0,1,
 bitget,SPCHUSDT,SPCH|акции+ETF,main,акции+ETF,eq_us,1,0.79667,3107,1,1,,5374
 bitget,SPCXUSDT,SPCX|акции+ETF,main,акции+ETF,eq_us,1,0.99974,3899,1,1,,5375
 bitget,SPELLUSDT,SPELL|крипта,main,крипта,crypto,0,0.09995,2015,0,1,доля валидных минут 0.1000 < порога 0.5061,5376
-bitget,SPIRUSDT,SPIR|акции+ETF,main,акции+ETF,eq_us,1,0.18641,727,0,1,доля валидных минут 0.1864 < порога 0.4285,5377
+bitget,SPIRUSDT,SPIR|акции+ETF,main,акции+ETF,eq_us,1,0.18641,727,0,1,доля валидных минут 0.1864 < порога 0.4269,5377
 bitget,SPKUSDT,SPK|крипта,main,крипта,crypto,0,0.32629,6578,0,1,доля валидных минут 0.3263 < порога 0.5061,5378
 bitget,SPXUSDT,SPX|крипта,main,крипта,crypto,0,0.40848,8235,0,1,доля валидных минут 0.4085 < порога 0.5061,5380
 bitget,SPYUSDT,SPY|акции+ETF,main,акции+ETF,eq_us,1,0.74615,2910,1,1,,5381
 bitget,SQDUSDT,SQD|крипта,main,крипта,crypto,0,0.15233,3071,0,1,доля валидных минут 0.1523 < порога 0.5061,5382
 bitget,SQQQUSDT,SQQQ|акции+ETF,main,акции+ETF,eq_us,1,0.64974,2534,1,1,,5383
-bitget,SSBIOLOGICSUSDT,SSBIOLOGICS|акции+ETF,main,акции+ETF,eq_us,1,0.03282,128,0,1,доля валидных минут 0.0328 < порога 0.4285,5384
-bitget,SSPCUSDT,SSPC|акции+ETF,main,акции+ETF,eq_us,1,0.37487,1462,0,1,доля валидных минут 0.3749 < порога 0.4285,5385
+bitget,SSBIOLOGICSUSDT,SSBIOLOGICS|акции+ETF,main,акции+ETF,eq_nonus,0,0.02302,464,0,1,доля валидных минут 0.0230 < порога 0.3177,5384
+bitget,SSPCUSDT,SSPC|акции+ETF,main,акции+ETF,eq_us,1,0.37487,1462,0,1,доля валидных минут 0.3749 < порога 0.4269,5385
 bitget,SSVUSDT,SSV|крипта,main,крипта,crypto,0,0.12272,2474,0,1,доля валидных минут 0.1227 < порога 0.5061,5386
 bitget,STABLEUSDT,STABLE|крипта,main,крипта,crypto,0,0.24836,5007,0,1,доля валидных минут 0.2484 < порога 0.5061,5387
 bitget,STEEMUSDT,STEEM|крипта,main,крипта,crypto,0,0.29092,5865,0,1,доля валидных минут 0.2909 < порога 0.5061,5388
@@ -5050,7 +5050,7 @@ bitget,STOUSDT,STO|крипта,main,крипта,crypto,0,0.17247,3477,0,1,до
 bitget,STRCUSDT,STRC|акции+ETF,main,акции+ETF,eq_nonus,0,0.24474,4934,0,1,доля валидных минут 0.2447 < порога 0.3177,5392
 bitget,STRKPERP,STRK|крипта,dup,крипта,crypto,0,0.37426,7545,0,0,,5393
 bitget,STRKUSDT,STRK|крипта,main,крипта,crypto,0,0.90015,18147,1,1,,5394
-bitget,STXSTOCKUSDT,STX|акции+ETF,main,акции+ETF,eq_us,1,0.41385,1614,0,1,доля валидных минут 0.4138 < порога 0.4285,5395
+bitget,STXSTOCKUSDT,STX|акции+ETF,main,акции+ETF,eq_us,1,0.41385,1614,0,1,доля валидных минут 0.4138 < порога 0.4269,5395
 bitget,STXUSDT,STX|крипта,main,крипта,crypto,0,0.81329,16396,1,1,,5396
 bitget,SUIPERP,SUI|крипта,dup,крипта,crypto,0,0.38963,7855,0,0,,5397
 bitget,SUIUSDT,SUI|крипта,main,крипта,crypto,0,0.99841,20128,1,1,,5398
@@ -5066,25 +5066,25 @@ bitget,TAGUSDT,TAG|крипта,main,крипта,crypto,0,0.24400,4919,0,1,до
 bitget,TAIKOUSDT,TAIKO|крипта,main,крипта,crypto,0,0.18075,3644,0,1,доля валидных минут 0.1808 < порога 0.5061,5408
 bitget,TAIYOYUDENUSDT,TAIYOYUDEN|акции+ETF,main,акции+ETF,eq_nonus,0,0.01959,395,0,1,доля валидных минут 0.0196 < порога 0.3177,5409
 bitget,TAOUSDT,TAO|крипта,main,крипта,crypto,0,0.96786,19512,1,1,,5410
-bitget,TBTUSDT,TBT|акции+ETF,main,акции+ETF,eq_us,1,0.42308,1650,0,1,доля валидных минут 0.4231 < порога 0.4285,5411
-bitget,TEAMUSDT,TEAM|акции+ETF,main,акции+ETF,eq_us,1,0.18487,721,0,1,доля валидных минут 0.1849 < порога 0.4285,5413
-bitget,TEMUSDT,TEM|акции+ETF,main,акции+ETF,eq_us,1,0.25205,983,0,1,доля валидных минут 0.2521 < порога 0.4285,5414
+bitget,TBTUSDT,TBT|акции+ETF,main,акции+ETF,eq_us,1,0.42308,1650,0,1,доля валидных минут 0.4231 < порога 0.4269,5411
+bitget,TEAMUSDT,TEAM|акции+ETF,main,акции+ETF,eq_us,1,0.18487,721,0,1,доля валидных минут 0.1849 < порога 0.4269,5413
+bitget,TEMUSDT,TEM|акции+ETF,main,акции+ETF,eq_us,1,0.25205,983,0,1,доля валидных минут 0.2521 < порога 0.4269,5414
 bitget,TENCENTHKDUSDT,TENCENT|акции+ETF,dup,акции+ETF,eq_nonus,0,0.20551,4143,0,1,,5415
 bitget,TENCENTUSDT,TENCENT|акции+ETF,main,акции+ETF,eq_nonus,0,0.21974,4430,0,1,доля валидных минут 0.2197 < порога 0.3177,5416
-bitget,TERUSDT,TER|акции+ETF,main,акции+ETF,eq_us,1,0.29179,1138,0,1,доля валидных минут 0.2918 < порога 0.4285,5417
+bitget,TERUSDT,TER|акции+ETF,main,акции+ETF,eq_us,1,0.29179,1138,0,1,доля валидных минут 0.2918 < порога 0.4269,5417
 bitget,THETAUSDT,THETA|крипта,main,крипта,crypto,0,0.31161,6282,0,1,доля валидных минут 0.3116 < порога 0.5061,5418
 bitget,THEUSDT,THE|крипта,main,крипта,crypto,0,0.15159,3056,0,1,доля валидных минут 0.1516 < порога 0.5061,5419
 bitget,TIAPERP,TIA|крипта,dup,крипта,crypto,0,0.31493,6349,0,0,,5420
 bitget,TIAUSDT,TIA|крипта,main,крипта,crypto,0,0.94945,19141,1,1,,5421
 bitget,TLMUSDT,TLM|крипта,main,крипта,crypto,0,0.29201,5887,0,1,доля валидных минут 0.2920 < порога 0.5061,5422
-bitget,TLTUSDT,TLT|акции+ETF,main,акции+ETF,eq_us,1,0.23487,916,0,1,доля валидных минут 0.2349 < порога 0.4285,5423
-bitget,TMFUSDT,TMF|акции+ETF,main,акции+ETF,eq_us,1,0.38846,1515,0,1,доля валидных минут 0.3885 < порога 0.4285,5424
-bitget,TMUSDT,TM|акции+ETF,main,акции+ETF,eq_us,1,0.10231,399,0,1,доля валидных минут 0.1023 < порога 0.4285,5425
+bitget,TLTUSDT,TLT|акции+ETF,main,акции+ETF,eq_us,1,0.23487,916,0,1,доля валидных минут 0.2349 < порога 0.4269,5423
+bitget,TMFUSDT,TMF|акции+ETF,main,акции+ETF,eq_us,1,0.38846,1515,0,1,доля валидных минут 0.3885 < порога 0.4269,5424
+bitget,TMUSDT,TM|акции+ETF,main,акции+ETF,eq_us,1,0.10231,399,0,1,доля валидных минут 0.1023 < порога 0.4269,5425
 bitget,TNSRUSDT,TNSR|крипта,main,крипта,crypto,0,0.33219,6697,0,1,доля валидных минут 0.3322 < порога 0.5061,5426
 bitget,TOKYOELUSDT,TOKYOEL|акции+ETF,main,акции+ETF,eq_nonus,0,0.13814,2785,0,1,доля валидных минут 0.1381 < порога 0.3177,5427
 bitget,TOSHIUSDT,TOSHI|крипта,main,крипта,crypto,0,0.18527,3735,0,1,доля валидных минут 0.1853 < порога 0.5061,5428
 bitget,TOWNSUSDT,TOWNS|крипта,main,крипта,crypto,0,0.11503,2319,0,1,доля валидных минут 0.1150 < порога 0.5061,5429
-bitget,TOYOTAUSDT,TOYOTA|акции+ETF,main,акции+ETF,eq_us,1,0.02154,84,0,1,доля валидных минут 0.0215 < порога 0.4285,5430
+bitget,TOYOTAUSDT,TOYOTA|акции+ETF,main,акции+ETF,eq_nonus,0,0.01339,270,0,1,доля валидных минут 0.0134 < порога 0.3177,5430
 bitget,TQQQUSDT,TQQQ|акции+ETF,main,акции+ETF,eq_us,1,0.95179,3712,1,1,,5431
 bitget,TRBUSDT,TRB|крипта,main,крипта,crypto,0,0.47783,9633,0,1,доля валидных минут 0.4778 < порога 0.5061,5432
 bitget,TREEUSDT,TREE|крипта,main,крипта,crypto,0,0.31736,6398,0,1,доля валидных минут 0.3174 < порога 0.5061,5433
@@ -5094,28 +5094,28 @@ bitget,TRUMPUSDT,TRUMP|крипта,main,крипта,crypto,0,0.86949,17529,1,1
 bitget,TRUSTUSDT,TRUST|крипта,main,крипта,crypto,0,0.31086,6267,0,1,доля валидных минут 0.3109 < порога 0.5061,5437
 bitget,TRXPERP,TRX|крипта,dup,крипта,crypto,0,0.14132,2849,0,0,,5438
 bitget,TRXUSDT,TRX|крипта,main,крипта,crypto,0,0.57470,11586,1,1,,5439
-bitget,TSEMUSDT,TSEM|акции+ETF,main,акции+ETF,eq_us,1,0.23282,908,0,1,доля валидных минут 0.2328 < порога 0.4285,5440
+bitget,TSEMUSDT,TSEM|акции+ETF,main,акции+ETF,eq_us,1,0.23282,908,0,1,доля валидных минут 0.2328 < порога 0.4269,5440
 bitget,TSLAUSDT,TSLA|акции+ETF,main,акции+ETF,eq_us,1,0.99179,3868,1,1,,5441
 bitget,TSLLUSDT,TSLL|акции+ETF,main,акции+ETF,eq_us,1,0.52692,2055,1,1,,5442
 bitget,TSMUSDT,TSM|акции+ETF,main,акции+ETF,eq_us,1,0.68949,2689,1,1,,5443
-bitget,TTWOUSDT,TTWO|акции+ETF,main,акции+ETF,eq_us,1,0.39205,1529,0,1,доля валидных минут 0.3921 < порога 0.4285,5445
+bitget,TTWOUSDT,TTWO|акции+ETF,main,акции+ETF,eq_us,1,0.39205,1529,0,1,доля валидных минут 0.3921 < порога 0.4269,5445
 bitget,TURBOUSDT,TURBO|крипта,main,крипта,crypto,0,0.20585,4150,0,1,доля валидных минут 0.2059 < порога 0.5061,5446
 bitget,TUSDT,T|крипта,main,крипта,crypto,0,0.44608,8993,0,1,доля валидных минут 0.4461 < порога 0.5061,5447
 bitget,TUTUSDT,TUT|крипта,main,крипта,crypto,0,0.40670,8199,0,1,доля валидных минут 0.4067 < порога 0.5061,5448
-bitget,TWLOUSDT,TWLO|акции+ETF,main,акции+ETF,eq_us,1,0.40744,1589,0,1,доля валидных минут 0.4074 < порога 0.4285,5451
+bitget,TWLOUSDT,TWLO|акции+ETF,main,акции+ETF,eq_us,1,0.40744,1589,0,1,доля валидных минут 0.4074 < порога 0.4269,5451
 bitget,TWSTUSDT,TWST|акции+ETF,main,акции+ETF,eq_us,1,0.53923,2103,1,1,,5452
-bitget,TXNUSDT,TXN|акции+ETF,main,акции+ETF,eq_us,1,0.19872,775,0,1,доля валидных минут 0.1987 < порога 0.4285,5455
-bitget,TZAUSDT,TZA|акции+ETF,main,акции+ETF,eq_us,1,0.14872,580,0,1,доля валидных минут 0.1487 < порога 0.4285,5456
+bitget,TXNUSDT,TXN|акции+ETF,main,акции+ETF,eq_us,1,0.19872,775,0,1,доля валидных минут 0.1987 < порога 0.4269,5455
+bitget,TZAUSDT,TZA|акции+ETF,main,акции+ETF,eq_us,1,0.14872,580,0,1,доля валидных минут 0.1487 < порога 0.4269,5456
 bitget,UAIUSDT,UAI|крипта,main,крипта,crypto,0,0.70888,14291,1,1,,5457
-bitget,UBERUSDT,UBER|акции+ETF,main,акции+ETF,eq_us,1,0.22385,873,0,1,доля валидных минут 0.2238 < порога 0.4285,5458
+bitget,UBERUSDT,UBER|акции+ETF,main,акции+ETF,eq_us,1,0.22385,873,0,1,доля валидных минут 0.2238 < порога 0.4269,5458
 bitget,UBUSDT,UB|крипта,main,крипта,crypto,0,0.40035,8071,0,1,доля валидных минут 0.4003 < порога 0.5061,5459
 bitget,UMAUSDT,UMA|крипта,main,крипта,crypto,0,0.35729,7203,0,1,доля валидных минут 0.3573 < порога 0.5061,5460
-bitget,UNHUSDT,UNH|акции+ETF,main,акции+ETF,eq_us,1,0.38385,1497,0,1,доля валидных минут 0.3838 < порога 0.4285,5461
+bitget,UNHUSDT,UNH|акции+ETF,main,акции+ETF,eq_us,1,0.38385,1497,0,1,доля валидных минут 0.3838 < порога 0.4269,5461
 bitget,UNIPERP,UNI|крипта,dup,крипта,crypto,0,0.20923,4218,0,0,,5462
 bitget,UNITASUSDT,UP|крипта,main,крипта,crypto,0,0.55813,11252,1,1,,5463
 bitget,UNITREEUSDT,UNITREE|акции+ETF,main,акции+ETF,eq_nonus,0,0.28606,5767,0,1,доля валидных минут 0.2861 < порога 0.3177,5464
 bitget,UNIUSDT,UNI|крипта,main,крипта,crypto,0,0.97450,19646,1,1,,5465
-bitget,URNMUSDT,URNM|акции+ETF,main,акции+ETF,eq_us,1,0.13641,532,0,1,доля валидных минут 0.1364 < порога 0.4285,5466
+bitget,URNMUSDT,URNM|акции+ETF,main,акции+ETF,eq_us,1,0.13641,532,0,1,доля валидных минут 0.1364 < порога 0.4269,5466
 bitget,USARUSDT,USAR|акции+ETF,main,акции+ETF,eq_us,1,0.72769,2838,1,1,,5467
 bitget,USDBRLUSDT,USDBRL|фиат,main,фиат,fx,0,0.20293,4091,1,1,,5468
 bitget,USDCUSDT,USDC|крипта,main,крипта,crypto,0,0.16548,3336,0,1,доля валидных минут 0.1655 < порога 0.5061,5469
@@ -5125,24 +5125,24 @@ bitget,USTCUSDT,USTC|крипта,main,крипта,crypto,0,0.21920,4419,0,1,д
 bitget,USUALUSDT,USUAL|крипта,main,крипта,crypto,0,0.24177,4874,0,1,доля валидных минут 0.2418 < порога 0.5061,5474
 bitget,USUSDT,US|крипта,main,крипта,crypto,0,0.99449,20049,1,1,,5475
 bitget,UVXYUSDT,UVXY|акции+ETF,main,акции+ETF,eq_us,1,0.54154,2112,1,1,,5476
-bitget,VALEUSDT,VALE|акции+ETF,main,акции+ETF,eq_us,1,0.15179,592,0,1,доля валидных минут 0.1518 < порога 0.4285,5477
+bitget,VALEUSDT,VALE|акции+ETF,main,акции+ETF,eq_us,1,0.15179,592,0,1,доля валидных минут 0.1518 < порога 0.4269,5477
 bitget,VANAUSDT,VANA|крипта,main,крипта,crypto,0,0.26691,5381,0,1,доля валидных минут 0.2669 < порога 0.5061,5478
-bitget,VEEVUSDT,VEEV|акции+ETF,main,акции+ETF,eq_us,1,0.17256,673,0,1,доля валидных минут 0.1726 < порога 0.4285,5479
+bitget,VEEVUSDT,VEEV|акции+ETF,main,акции+ETF,eq_us,1,0.17256,673,0,1,доля валидных минут 0.1726 < порога 0.4269,5479
 bitget,VELVETUSDT,VELVET|крипта,main,крипта,crypto,0,0.74301,14979,1,1,,5480
 bitget,VETUSDT,VET|крипта,main,крипта,crypto,0,0.39871,8038,0,1,доля валидных минут 0.3987 < порога 0.5061,5481
 bitget,VIRTUALUSDT,VIRTUAL|крипта,main,крипта,crypto,0,0.86577,17454,1,1,,5482
-bitget,VKTXUSDT,VKTX|акции+ETF,main,акции+ETF,eq_us,1,0.31462,1227,0,1,доля валидных минут 0.3146 < порога 0.4285,5483
-bitget,VOOUSDT,VOO|акции+ETF,main,акции+ETF,eq_us,1,0.10949,427,0,1,доля валидных минут 0.1095 < порога 0.4285,5485
-bitget,VRTUSDT,VRT|акции+ETF,main,акции+ETF,eq_us,1,0.37410,1459,0,1,доля валидных минут 0.3741 < порога 0.4285,5486
+bitget,VKTXUSDT,VKTX|акции+ETF,main,акции+ETF,eq_us,1,0.31462,1227,0,1,доля валидных минут 0.3146 < порога 0.4269,5483
+bitget,VOOUSDT,VOO|акции+ETF,main,акции+ETF,eq_us,1,0.10949,427,0,1,доля валидных минут 0.1095 < порога 0.4269,5485
+bitget,VRTUSDT,VRT|акции+ETF,main,акции+ETF,eq_us,1,0.37410,1459,0,1,доля валидных минут 0.3741 < порога 0.4269,5486
 bitget,VSTUSDT,VST|акции+ETF,main,акции+ETF,eq_us,1,0.60846,2373,1,1,,5487
 bitget,VTHOUSDT,VTHO|крипта,main,крипта,crypto,0,0.62634,12627,1,1,,5488
-bitget,VUSDT,V|акции+ETF,main,акции+ETF,eq_us,1,0.13128,512,0,1,доля валидных минут 0.1313 < порога 0.4285,5489
+bitget,VUSDT,V|акции+ETF,main,акции+ETF,eq_us,1,0.13128,512,0,1,доля валидных минут 0.1313 < порога 0.4269,5489
 bitget,VVVUSDT,VVV|крипта,main,крипта,crypto,0,0.74291,14977,1,1,,5490
 bitget,WALUSDT,WAL|крипта,main,крипта,crypto,0,0.68447,13799,1,1,,5492
 bitget,WAXPUSDT,WAXP|крипта,main,крипта,crypto,0,0.23026,4642,0,1,доля валидных минут 0.2303 < порога 0.5061,5493
 bitget,WCTUSDT,WCT|крипта,main,крипта,crypto,0,0.21275,4289,0,1,доля валидных минут 0.2127 < порога 0.5061,5494
 bitget,WDCUSDT,WDC|акции+ETF,main,акции+ETF,eq_us,1,0.91179,3556,1,1,,5495
-bitget,WENUSDT,WEN|акции+ETF,main,акции+ETF,eq_us,1,0.20103,784,0,1,доля валидных минут 0.2010 < порога 0.4285,5496
+bitget,WENUSDT,WEN|акции+ETF,main,акции+ETF,eq_us,1,0.20103,784,0,1,доля валидных минут 0.2010 < порога 0.4269,5496
 bitget,WETUSDT,WET|крипта,main,крипта,crypto,0,0.07247,1461,0,1,доля валидных минут 0.0725 < порога 0.5061,5497
 bitget,WIFPERP,WIF|крипта,dup,крипта,crypto,0,0.18100,3649,0,0,,5498
 bitget,WIFUSDT,WIF|крипта,main,крипта,crypto,0,0.72604,14637,1,1,,5499
@@ -5150,7 +5150,7 @@ bitget,WLDPERP,WLD|крипта,dup,крипта,crypto,0,0.32817,6616,0,0,,5501
 bitget,WLDUSDT,WLD|крипта,main,крипта,crypto,0,0.99519,20063,1,1,,5502
 bitget,WLFIPERP,WLFI|крипта,dup,крипта,crypto,0,0.17396,3507,0,0,,5503
 bitget,WLFIUSDT,WLFI|крипта,main,крипта,crypto,0,0.53085,10702,1,1,,5504
-bitget,WMTUSDT,WMT|акции+ETF,main,акции+ETF,eq_us,1,0.37128,1448,0,1,доля валидных минут 0.3713 < порога 0.4285,5505
+bitget,WMTUSDT,WMT|акции+ETF,main,акции+ETF,eq_us,1,0.37128,1448,0,1,доля валидных минут 0.3713 < порога 0.4269,5505
 bitget,WOOUSDT,WOO|крипта,main,крипта,crypto,0,0.16081,3242,0,1,доля валидных минут 0.1608 < порога 0.5061,5506
 bitget,WUSDT,W|крипта,main,крипта,crypto,0,0.70635,14240,1,1,,5507
 bitget,XAGUSDT,XAG|металлы+энергия,main,металлы+энергия,metal_energy,0,0.78874,15901,1,1,,5508
@@ -5158,22 +5158,22 @@ bitget,XAIUSDT,XAI|крипта,main,крипта,crypto,0,0.39985,8061,0,1,до
 bitget,XANUSDT,XAN|крипта,main,крипта,crypto,0,0.18234,3676,0,1,доля валидных минут 0.1823 < порога 0.5061,5510
 bitget,XAUTUSDT,XAUT|металлы+энергия,main,металлы+энергия,metal_energy,0,0.77713,15667,1,1,,5511
 bitget,XAUUSDT,XAU|металлы+энергия,main,металлы+энергия,metal_energy,0,0.88462,17834,1,1,,5512
-bitget,XBIUSDT,XBI|акции+ETF,main,акции+ETF,eq_us,1,0.22769,888,0,1,доля валидных минут 0.2277 < порога 0.4285,5513
+bitget,XBIUSDT,XBI|акции+ETF,main,акции+ETF,eq_us,1,0.22769,888,0,1,доля валидных минут 0.2277 < порога 0.4269,5513
 bitget,XIAOMIHKDUSDT,XIAOMI|акции+ETF,dup,акции+ETF,eq_nonus,0,0.39841,8032,0,1,,5514
 bitget,XIAOMIUSDT,XIAOMI|акции+ETF,main,акции+ETF,eq_nonus,0,0.31637,6378,0,1,доля валидных минут 0.3164 < порога 0.3177,5515
-bitget,XLEUSDT,XLE|акции+ETF,main,акции+ETF,eq_us,1,0.23256,907,0,1,доля валидных минут 0.2326 < порога 0.4285,5516
-bitget,XLKUSDT,XLK|акции+ETF,main,акции+ETF,eq_us,1,0.17385,678,0,1,доля валидных минут 0.1738 < порога 0.4285,5517
+bitget,XLEUSDT,XLE|акции+ETF,main,акции+ETF,eq_us,1,0.23256,907,0,1,доля валидных минут 0.2326 < порога 0.4269,5516
+bitget,XLKUSDT,XLK|акции+ETF,main,акции+ETF,eq_us,1,0.17385,678,0,1,доля валидных минут 0.1738 < порога 0.4269,5517
 bitget,XLMPERP,XLM|крипта,dup,крипта,crypto,0,0.17907,3610,0,0,,5518
 bitget,XLMUSDT,XLM|крипта,main,крипта,crypto,0,0.91756,18498,1,1,,5519
-bitget,XLUUSDT,XLU|акции+ETF,main,акции+ETF,eq_us,1,0.21769,849,0,1,доля валидных минут 0.2177 < порога 0.4285,5520
-bitget,XLVUSDT,XLV|акции+ETF,main,акции+ETF,eq_us,1,0.12487,487,0,1,доля валидных минут 0.1249 < порога 0.4285,5521
+bitget,XLUUSDT,XLU|акции+ETF,main,акции+ETF,eq_us,1,0.21769,849,0,1,доля валидных минут 0.2177 < порога 0.4269,5520
+bitget,XLVUSDT,XLV|акции+ETF,main,акции+ETF,eq_us,1,0.12487,487,0,1,доля валидных минут 0.1249 < порога 0.4269,5521
 bitget,XMRUSDT,XMR|крипта,main,крипта,crypto,0,0.62292,12558,1,1,,5522
-bitget,XOMUSDT,XOM|акции+ETF,main,акции+ETF,eq_us,1,0.36308,1416,0,1,доля валидных минут 0.3631 < порога 0.4285,5524
+bitget,XOMUSDT,XOM|акции+ETF,main,акции+ETF,eq_us,1,0.36308,1416,0,1,доля валидных минут 0.3631 < порога 0.4269,5524
 bitget,XPDUSDT,XPD|металлы+энергия,main,металлы+энергия,metal_energy,0,0.44593,8990,0,1,доля валидных минут 0.4459 < порога 0.7600,5525
 bitget,XPINUSDT,XPIN|крипта,main,крипта,crypto,0,0.20228,4078,0,1,доля валидных минут 0.2023 < порога 0.5061,5526
 bitget,XPLUSDT,XPL|крипта,main,крипта,crypto,0,0.86047,17347,1,1,,5527
 bitget,XPTUSDT,XPT|металлы+энергия,main,металлы+энергия,metal_energy,0,0.43899,8850,0,1,доля валидных минут 0.4390 < порога 0.7600,5528
-bitget,XPUSDT,XP|акции+ETF,main,акции+ETF,eq_us,1,0.16154,630,0,1,доля валидных минут 0.1615 < порога 0.4285,5529
+bitget,XPUSDT,XP|акции+ETF,main,акции+ETF,eq_us,1,0.16154,630,0,1,доля валидных минут 0.1615 < порога 0.4269,5529
 bitget,XRPPERP,XRP|крипта,dup,крипта,crypto,0,0.62470,12594,0,0,,5530
 bitget,XRPUSDT,XRP|крипта,main,крипта,crypto,0,0.99906,20141,1,1,,5531
 bitget,XTZUSDT,XTZ|крипта,main,крипта,crypto,0,0.41205,8307,0,1,доля валидных минут 0.4121 < порога 0.5061,5532
@@ -5194,11 +5194,11 @@ bitget,ZILUSDT,ZIL|крипта,main,крипта,crypto,0,0.37624,7585,0,1,до
 bitget,ZKCUSDT,ZKC|крипта,main,крипта,crypto,0,0.27421,5528,0,1,доля валидных минут 0.2742 < порога 0.5061,5549
 bitget,ZKPUSDT,ZKP|крипта,main,крипта,crypto,0,0.28884,5823,0,1,доля валидных минут 0.2888 < порога 0.5061,5550
 bitget,ZKUSDT,ZK|крипта,main,крипта,crypto,0,0.60417,12180,1,1,,5551
-bitget,ZMUSDT,ZM|акции+ETF,main,акции+ETF,eq_us,1,0.13667,533,0,1,доля валидных минут 0.1367 < порога 0.4285,5552
+bitget,ZMUSDT,ZM|акции+ETF,main,акции+ETF,eq_us,1,0.13667,533,0,1,доля валидных минут 0.1367 < порога 0.4269,5552
 bitget,ZORAUSDT,ZORA|крипта,main,крипта,crypto,0,0.21240,4282,0,1,доля валидных минут 0.2124 < порога 0.5061,5553
 bitget,ZROUSDT,ZRO|крипта,main,крипта,crypto,0,0.92956,18740,1,1,,5554
 bitget,ZRXUSDT,ZRX|крипта,main,крипта,crypto,0,0.26612,5365,0,1,доля валидных минут 0.2661 < порога 0.5061,5555
-bitget,ZSUSDT,ZS|акции+ETF,main,акции+ETF,eq_us,1,0.17615,687,0,1,доля валидных минут 0.1762 < порога 0.4285,5556
+bitget,ZSUSDT,ZS|акции+ETF,main,акции+ETF,eq_us,1,0.17615,687,0,1,доля валидных минут 0.1762 < порога 0.4269,5556
 bitget,哈基米USDT,哈基米|крипта,main,крипта,crypto,0,0.22847,4606,0,1,доля валидных минут 0.2285 < порога 0.5061,5557
 bitget,牛来USDT,牛来|крипта,main,крипта,crypto,0,0.68512,13812,1,1,,5558
 bitget,龙虾USDT,龙虾|крипта,main,крипта,crypto,0,0.98353,19828,1,1,,5559

@@ -1,152 +1,146 @@
-cell,jobs_done,active_pair_days,daily_values,days_with_trades,trades,mean_daily_bps_per_active_pair,sigma_bps_per_day_per_active_pair
-A1|binance|crypto|a0,41,83,7,7,396,197.6153,129.5105
-A1|binance|crypto|a1,41,83,7,7,583,12.2143,75.1746
-A1|bingx|crypto|a0,35,245,7,7,2738,80.6684,336.3958
-A1|bingx|crypto|a1,35,245,7,7,3486,-18.4992,269.3031
-A1|bingx|eq_us|a0,46,230,5,5,920,60.3806,18.1427
-A1|bingx|eq_us|a1,46,230,5,5,920,60.3806,18.1427
-A1|okx|crypto|a0,19,14,7,7,45,26.3514,197.7893
-A1|okx|crypto|a1,19,14,7,7,67,4.9621,191.9130
-A2|aster|crypto|a0,127,52,7,7,77,20.7653,130.8104
-A2|aster|crypto|a1,127,52,7,7,84,10.4722,124.8108
-A2|binance|crypto|a0,512,1340,7,7,1945,32.9961,196.6849
-A2|binance|crypto|a1,512,1340,7,7,3060,-35.9396,38.7317
-A2|bingx|crypto|a0,528,3616,7,7,4676,10.5204,213.3907
-A2|bingx|crypto|a1,528,3616,7,7,7099,-25.6717,39.9047
-A2|bitget|crypto|a0,149,44,7,7,52,103.7807,1047.3756
-A2|bitget|crypto|a1,149,44,7,7,85,-415.7751,409.3856
-A2|bybit|crypto|a0,425,331,7,7,489,31.7905,336.1680
-A2|bybit|crypto|a1,425,331,7,7,796,-82.5013,105.0758
-A2|okx|crypto|a0,230,308,7,7,421,106.3799,237.3851
-A2|okx|crypto|a1,230,308,7,7,659,15.9151,126.9583
-B1|binance|crypto|a0,513,958,7,7,886,-2.2711,49.2483
-B1|binance|crypto|a1,513,958,7,7,1058,-11.2688,45.4280
-B1|bingx|crypto|a0,529,3274,7,7,3030,-16.7960,86.5111
-B1|bingx|crypto|a1,529,3274,7,7,3711,-26.2540,85.2959
-B1|bingx|metal_energy|a0,9,47,7,6,17,5.5203,7.5577
-B1|bingx|metal_energy|a1,9,47,7,6,17,5.5203,7.5577
-B1|bitget|crypto|a0,150,28,5,7,36,49.2267,88.8051
-B1|bitget|crypto|a1,150,28,5,7,43,36.2327,110.3092
-B1|bybit|crypto|a0,426,83,7,7,74,24.0656,242.9437
-B1|bybit|crypto|a1,426,83,7,7,79,3.8228,272.1457
-B1|lighter|crypto|a0,18,12,6,6,23,142.3346,226.2134
-B1|lighter|crypto|a1,18,12,6,6,37,52.0157,150.8890
-B1|okx|crypto|a0,231,75,7,7,133,44.8646,70.2446
-B1|okx|crypto|a1,231,75,7,7,232,-6.5291,131.4104
-C1|aster~okx|crypto|w64|a0,142,230,7,7,33,7.1766,23.0729
-C1|aster~okx|crypto|w64|a1,142,230,7,7,33,7.1766,23.0729
-D2|aster~binance|crypto|a0,213,182,7,4,5,-0.3475,1.1140
-D2|aster~binance|eq_nonus|a0,2,3,3,0,0,0.0000,не измерена
-D2|aster~binance|eq_us|a0,30,17,5,0,0,0.0000,не измерена
-D2|aster~binance|metal_energy|a0,6,14,7,0,0,0.0000,не измерена
-D2|aster~bingx|crypto|a0,212,176,7,7,11,-0.0349,1.6533
-D2|aster~bingx|eq_nonus|a0,1,3,3,0,0,0.0000,не измерена
-D2|aster~bingx|eq_us|a0,29,17,5,4,7,11.9481,24.3759
-D2|aster~bingx|metal_energy|a0,5,13,7,4,5,-5.0624,11.1523
-D2|aster~bitget|crypto|a0,163,126,7,7,27,2.5500,5.9195
-D2|aster~bitget|eq_nonus|a0,2,3,3,0,0,0.0000,не измерена
-D2|aster~bitget|eq_us|a0,27,16,5,0,0,0.0000,не измерена
-D2|aster~bitget|metal_energy|a0,6,11,5,0,0,0.0000,не измерена
-D2|aster~bybit|crypto|a0,192,158,7,6,10,1.1405,3.5497
-D2|aster~bybit|eq_nonus|a0,2,3,3,0,0,0.0000,не измерена
-D2|aster~bybit|eq_us|a0,28,16,5,0,0,0.0000,не измерена
-D2|aster~bybit|metal_energy|a0,5,11,5,0,0,0.0000,не измерена
-D2|aster~kraken|crypto|a0,69,64,7,1,1,-1.3651,3.6116
-D2|aster~kraken|eq_us|a0,5,0,0,1,1,,не измерена
-D2|aster~kraken|metal_energy|a0,2,0,0,0,0,,не измерена
-D2|aster~lighter|crypto|a0,60,81,7,1,2,0.9762,2.5827
-D2|aster~lighter|eq_nonus|a0,1,0,0,0,0,,не измерена
-D2|aster~lighter|eq_us|a0,21,10,4,0,0,0.0000,не измерена
-D2|aster~lighter|metal_energy|a0,4,11,6,5,13,-22.5024,24.8340
-D2|aster~okx|crypto|a0,142,134,7,3,3,2.2126,4.4553
-D2|aster~okx|eq_nonus|a0,2,3,3,0,0,0.0000,не измерена
-D2|aster~okx|eq_us|a0,27,16,5,0,0,0.0000,не измерена
-D2|aster~okx|metal_energy|a0,5,12,6,0,0,0.0000,не измерена
-D2|binance~bingx|crypto|a0,488,3416,7,7,23,0.0640,0.0816
-D2|binance~bingx|eq_nonus|a0,10,24,7,4,5,1.2400,3.9869
-D2|binance~bingx|eq_us|a0,170,543,5,5,24,0.4983,1.2844
-D2|binance~bingx|fx|a0,1,2,2,1,1,-5.4782,не измерена
-D2|binance~bingx|metal_energy|a0,8,51,7,5,7,1.3402,5.6107
-D2|binance~bitget|crypto|a0,447,759,7,4,4,0.0758,0.1614
-D2|binance~bitget|eq_nonus|a0,23,35,7,0,0,0.0000,не измерена
-D2|binance~bitget|eq_us|a0,147,234,5,2,4,1.1853,2.8493
-D2|binance~bitget|metal_energy|a0,8,36,7,1,1,-0.7704,2.0384
-D2|binance~bybit|crypto|a0,469,2179,7,5,9,-0.2430,0.3043
-D2|binance~bybit|eq_nonus|a0,18,32,7,0,0,0.0000,не измерена
-D2|binance~bybit|eq_us|a0,151,265,5,3,5,-0.2890,0.7840
-D2|binance~bybit|metal_energy|a0,6,38,7,0,0,0.0000,не измерена
-D2|binance~kraken|crypto|a0,105,139,7,5,13,1.4681,9.0902
-D2|binance~kraken|eq_nonus|a0,1,0,0,0,0,,не измерена
-D2|binance~kraken|eq_us|a0,18,0,0,3,7,,не измерена
-D2|binance~kraken|metal_energy|a0,4,0,0,0,0,,не измерена
-D2|binance~lighter|crypto|a0,82,233,7,2,3,-0.3072,0.5385
-D2|binance~lighter|eq_nonus|a0,2,2,2,0,0,0.0000,не измерена
-D2|binance~lighter|eq_us|a0,29,62,5,0,0,0.0000,не измерена
-D2|binance~lighter|metal_energy|a0,6,22,7,3,3,0.0701,7.5762
-D2|binance~okx|crypto|a0,265,1623,7,2,2,-0.0413,0.1473
-D2|binance~okx|eq_nonus|a0,16,46,6,0,0,0.0000,не измерена
-D2|binance~okx|eq_us|a0,134,325,5,1,1,0.2703,0.6044
-D2|binance~okx|metal_energy|a0,8,36,7,0,0,0.0000,не измерена
-D2|bingx~bitget|crypto|a0,439,757,7,7,13,0.1703,0.4177
-D2|bingx~bitget|eq_nonus|a0,15,15,7,5,11,-4.6616,44.5543
-D2|bingx~bitget|eq_us|a0,179,242,5,5,38,4.8383,7.6149
-D2|bingx~bitget|idx_us|a0,1,0,0,0,0,,не измерена
-D2|bingx~bitget|metal_energy|a0,7,31,7,2,2,8.1306,19.3302
-D2|bingx~bybit|crypto|a0,472,2242,7,7,42,-0.3164,0.3724
-D2|bingx~bybit|eq_nonus|a0,11,14,7,6,10,11.9806,14.4370
-D2|bingx~bybit|eq_us|a0,175,303,5,5,39,1.5748,4.2562
-D2|bingx~bybit|metal_energy|a0,4,26,7,0,0,0.0000,не измерена
-D2|bingx~kraken|crypto|a0,107,139,7,7,20,0.8455,7.0587
-D2|bingx~kraken|eq_nonus|a0,1,0,0,0,0,,не измерена
-D2|bingx~kraken|eq_us|a0,18,0,0,4,10,,не измерена
-D2|bingx~kraken|metal_energy|a0,4,0,0,3,4,,не измерена
-D2|bingx~lighter|crypto|a0,85,240,7,2,2,0.4213,0.7195
-D2|bingx~lighter|eq_nonus|a0,2,2,2,0,0,0.0000,не измерена
-D2|bingx~lighter|eq_us|a0,30,67,5,0,0,0.0000,не измерена
-D2|bingx~lighter|idx_us|a0,2,7,4,0,0,0.0000,не измерена
-D2|bingx~lighter|metal_energy|a0,6,22,7,1,1,0.8795,2.3269
-D2|bingx~okx|crypto|a0,275,1682,7,3,4,-0.0106,0.0364
-D2|bingx~okx|eq_nonus|a0,10,13,6,3,3,8.4713,25.0526
-D2|bingx~okx|eq_us|a0,150,336,5,5,36,1.0324,1.8132
-D2|bingx~okx|idx_us|a0,1,0,0,0,0,,не измерена
-D2|bingx~okx|metal_energy|a0,8,36,7,2,2,0.1039,2.4690
-D2|bitget~bybit|crypto|a0,426,724,7,6,25,0.2369,1.9549
-D2|bitget~bybit|eq_nonus|a0,19,27,6,1,1,-1.3588,3.3285
-D2|bitget~bybit|eq_us|a0,129,205,5,3,4,0.0852,0.4828
-D2|bitget~bybit|metal_energy|a0,5,28,6,0,0,0.0000,не измерена
-D2|bitget~kraken|crypto|a0,96,123,7,4,9,3.4315,5.7960
-D2|bitget~kraken|eq_nonus|a0,1,0,0,0,0,,не измерена
-D2|bitget~kraken|eq_us|a0,16,0,0,3,7,,не измерена
-D2|bitget~kraken|metal_energy|a0,4,0,0,2,2,,не измерена
-D2|bitget~lighter|crypto|a0,76,171,7,1,1,-0.1906,0.5042
-D2|bitget~lighter|eq_nonus|a0,4,2,2,0,0,0.0000,не измерена
-D2|bitget~lighter|eq_us|a0,29,58,5,0,0,0.0000,не измерена
-D2|bitget~lighter|metal_energy|a0,5,18,6,2,2,2.6227,6.4242
-D2|bitget~okx|crypto|a0,263,590,7,2,4,-0.2927,0.7371
-D2|bitget~okx|eq_nonus|a0,20,32,6,0,0,0.0000,не измерена
-D2|bitget~okx|eq_us|a0,121,233,5,2,3,0.5343,1.7976
-D2|bitget~okx|metal_energy|a0,7,29,7,0,0,0.0000,не измерена
-D2|bybit~kraken|crypto|a0,104,135,7,7,16,-1.2231,4.9133
-D2|bybit~kraken|eq_nonus|a0,1,0,0,1,1,,не измерена
-D2|bybit~kraken|eq_us|a0,17,0,0,3,8,,не измерена
-D2|bybit~kraken|metal_energy|a0,3,0,0,0,0,,не измерена
-D2|bybit~lighter|crypto|a0,85,236,7,7,15,-0.4230,2.0624
-D2|bybit~lighter|eq_nonus|a0,2,2,2,0,0,0.0000,не измерена
-D2|bybit~lighter|eq_us|a0,31,62,5,0,0,0.0000,не измерена
-D2|bybit~lighter|metal_energy|a0,3,18,7,0,0,0.0000,не измерена
-D2|bybit~okx|crypto|a0,271,1393,7,2,4,-0.0492,0.1057
-D2|bybit~okx|eq_nonus|a0,16,30,6,0,0,0.0000,не измерена
-D2|bybit~okx|eq_us|a0,134,235,5,3,6,0.1757,0.7573
-D2|bybit~okx|metal_energy|a0,4,25,7,0,0,0.0000,не измерена
-D2|kraken~lighter|crypto|a0,49,67,7,0,0,0.0000,не измерена
-D2|kraken~lighter|eq_nonus|a0,1,0,0,0,0,,не измерена
-D2|kraken~lighter|eq_us|a0,12,0,0,0,0,,не измерена
-D2|kraken~lighter|metal_energy|a0,3,0,0,0,0,,не измерена
-D2|kraken~okx|crypto|a0,95,137,7,5,8,1.3574,8.3071
-D2|kraken~okx|eq_nonus|a0,1,0,0,1,1,,не измерена
-D2|kraken~okx|eq_us|a0,16,0,0,4,7,,не измерена
-D2|kraken~okx|metal_energy|a0,4,0,0,4,4,,не измерена
-D2|lighter~okx|crypto|a0,80,226,7,2,2,-0.0856,0.5447
-D2|lighter~okx|eq_nonus|a0,3,2,2,0,0,0.0000,не измерена
-D2|lighter~okx|eq_us|a0,28,57,5,0,0,0.0000,не измерена
-D2|lighter~okx|metal_energy|a0,6,20,7,3,3,2.1021,30.1798
+cell,jobs_done,active_pair_days,daily_values,days_with_trades,trades,mean_daily_bps_per_active_pair,sigma_bps_per_day_per_active_pair,mtm_net_bps_last_day,active_pair_days_kernel_d2
+A1|binance|crypto|a0,23,38,7,7,203,140.8103,182.7748,-18.2593,
+A1|binance|crypto|a1,23,38,7,7,281,94.1771,139.1782,0.0000,
+A1|bingx|crypto|a0,18,126,7,7,2595,229.1775,99.7754,-481.9153,
+A1|bingx|crypto|a1,18,126,7,7,3542,37.6521,78.0677,-106.9683,
+A1|bingx|eq_us|a0,46,230,5,5,885,57.7471,13.9118,-14.1164,
+A1|bingx|eq_us|a1,46,230,5,5,885,57.7471,13.9118,-14.1164,
+A2|aster|crypto|a0,127,52,7,7,77,20.3519,131.3686,-23.1469,
+A2|aster|crypto|a1,127,52,7,7,84,10.6273,124.5825,8.6882,
+A2|bitget|crypto|a0,149,44,7,7,52,106.5399,1041.8546,135.2032,
+A2|bitget|crypto|a1,149,44,7,7,85,-414.7176,410.2386,51.8195,
+A2|bybit|crypto|a0,425,331,7,7,408,11.0780,361.8362,-3216.9717,
+A2|bybit|crypto|a1,425,331,7,7,618,-42.2390,103.4074,-3692.9942,
+A2|okx|crypto|a0,230,308,7,7,421,65.4559,280.2250,-12604.5914,
+A2|okx|crypto|a1,230,308,7,7,659,24.0798,131.2406,2514.7112,
+B1|binance|crypto|a0,513,958,7,7,237,3.7721,20.1348,-3799.1053,
+B1|binance|crypto|a1,513,958,7,7,241,0.9234,20.1795,-3799.1053,
+B1|bingx|crypto|a0,529,3274,7,7,976,-10.3937,29.6612,-21190.8499,
+B1|bingx|crypto|a1,529,3274,7,7,1058,-16.8911,38.6142,-18922.2390,
+B1|bingx|metal_energy|a0,9,47,7,6,17,5.5203,7.5577,0.0000,
+B1|bingx|metal_energy|a1,9,47,7,6,17,5.5203,7.5577,0.0000,
+B1|bitget|crypto|a0,150,28,5,7,36,48.7301,88.9875,-9.9317,
+B1|bitget|crypto|a1,150,28,5,7,43,40.1057,107.5798,77.4606,
+B1|bybit|crypto|a0,426,83,7,7,74,7.6098,203.7051,-230.3809,
+B1|bybit|crypto|a1,426,83,7,7,79,-12.6329,236.1358,-230.3809,
+B1|lighter|crypto|a0,18,12,6,6,23,118.1970,188.6080,-289.6509,
+B1|lighter|crypto|a1,18,12,6,6,37,50.4211,149.6893,-19.1351,
+B1|okx|crypto|a0,231,75,7,7,133,19.3147,64.8977,-1967.3409,
+B1|okx|crypto|a1,231,75,7,7,232,-11.3945,129.5318,-374.6400,
+C1|aster~okx|crypto|w64|a0,142,230,7,7,33,7.1766,23.0729,0.0000,
+C1|aster~okx|crypto|w64|a1,142,230,7,7,33,7.1766,23.0729,0.0000,
+D2|aster~binance|crypto|a0,213,1481,7,4,5,-0.0220,0.1619,0.0000,182
+D2|aster~binance|eq_nonus|a0,2,14,7,0,0,0.0000,не измерена,0.0000,3
+D2|aster~binance|eq_us|a0,30,150,5,0,0,0.0000,не измерена,0.0000,17
+D2|aster~binance|metal_energy|a0,6,38,7,0,0,0.0000,не измерена,0.0000,14
+D2|aster~bingx|crypto|a0,212,1471,7,7,11,0.0099,0.2078,0.0000,176
+D2|aster~bingx|eq_nonus|a0,1,7,7,0,0,0.0000,не измерена,0.0000,3
+D2|aster~bingx|eq_us|a0,29,145,5,4,7,0.6557,2.5352,-46.9631,17
+D2|aster~bingx|metal_energy|a0,5,31,7,4,5,-2.0512,4.9061,0.0000,13
+D2|aster~bitget|crypto|a0,163,1130,7,7,27,0.2990,0.6272,0.0000,126
+D2|aster~bitget|eq_nonus|a0,2,14,7,0,0,0.0000,не измерена,0.0000,3
+D2|aster~bitget|eq_us|a0,27,135,5,0,0,0.0000,не измерена,0.0000,16
+D2|aster~bitget|metal_energy|a0,6,38,7,0,0,0.0000,не измерена,0.0000,11
+D2|aster~bybit|crypto|a0,192,1334,7,6,10,0.1173,0.4107,0.0000,158
+D2|aster~bybit|eq_nonus|a0,2,14,7,0,0,0.0000,не измерена,0.0000,3
+D2|aster~bybit|eq_us|a0,28,140,5,0,0,0.0000,не измерена,0.0000,16
+D2|aster~bybit|metal_energy|a0,5,31,7,0,0,0.0000,не измерена,0.0000,11
+D2|aster~kraken|crypto|a0,69,474,7,2,2,0.5078,1.6582,30.1565,64
+D2|aster~kraken|eq_us|a0,5,25,5,1,1,0.2669,0.5967,0.0000,0
+D2|aster~kraken|metal_energy|a0,2,0,0,0,0,,не измерена,0.0000,
+D2|aster~lighter|crypto|a0,60,420,7,3,7,0.1876,2.0391,0.0000,81
+D2|aster~lighter|eq_nonus|a0,1,0,0,0,0,,не измерена,0.0000,
+D2|aster~lighter|eq_us|a0,21,105,5,0,0,0.0000,не измерена,0.0000,10
+D2|aster~lighter|metal_energy|a0,4,24,7,2,2,0.1680,1.1878,0.0000,11
+D2|aster~okx|crypto|a0,142,985,7,7,24,0.1975,0.8407,0.0000,134
+D2|aster~okx|eq_nonus|a0,2,14,7,0,0,0.0000,не измерена,0.0000,3
+D2|aster~okx|eq_us|a0,27,135,5,0,0,0.0000,не измерена,0.0000,16
+D2|aster~okx|metal_energy|a0,5,31,7,4,4,0.5144,4.4745,0.0000,12
+D2|binance~bingx|crypto|a0,488,3416,7,7,23,0.0601,0.0875,-13.2713,3416
+D2|binance~bingx|eq_nonus|a0,8,56,7,4,10,0.8315,2.8276,27.9673,20
+D2|binance~bingx|eq_us|a0,172,852,5,5,24,0.4155,0.7429,114.9062,544
+D2|binance~bingx|fx|a0,1,7,7,1,1,-1.5652,4.1411,0.0000,2
+D2|binance~bingx|metal_energy|a0,8,56,7,5,7,2.1194,6.8946,82.9510,51
+D2|binance~bitget|crypto|a0,447,3129,7,4,4,0.0313,0.0447,30.7665,759
+D2|binance~bitget|eq_nonus|a0,21,147,7,2,6,0.3705,0.7218,0.0000,35
+D2|binance~bitget|eq_us|a0,149,743,5,2,4,0.3464,0.8438,-1.9683,234
+D2|binance~bitget|metal_energy|a0,8,56,7,1,1,-0.5778,1.5288,0.0000,36
+D2|binance~bybit|crypto|a0,469,3283,7,7,28,-0.0674,0.3406,-58.5898,2179
+D2|binance~bybit|eq_nonus|a0,16,112,7,0,0,0.0000,не измерена,0.0000,32
+D2|binance~bybit|eq_us|a0,153,761,5,3,5,-0.0834,0.3288,22.2596,265
+D2|binance~bybit|metal_energy|a0,6,42,7,0,0,0.0000,не измерена,0.0000,38
+D2|binance~kraken|crypto|a0,105,735,7,5,13,-0.2061,1.9767,-231.8196,139
+D2|binance~kraken|eq_nonus|a0,1,0,0,0,0,,не измерена,0.0000,
+D2|binance~kraken|eq_us|a0,18,90,5,3,7,8.3203,19.2504,0.0000,0
+D2|binance~kraken|metal_energy|a0,4,0,0,0,0,,не измерена,0.0000,
+D2|binance~lighter|crypto|a0,82,574,7,2,3,-0.1123,0.2018,0.0000,233
+D2|binance~lighter|eq_nonus|a0,2,14,7,0,0,0.0000,не измерена,0.0000,2
+D2|binance~lighter|eq_us|a0,29,145,5,0,0,0.0000,не измерена,0.0000,62
+D2|binance~lighter|metal_energy|a0,6,42,7,3,3,0.0350,3.7881,0.0000,22
+D2|binance~okx|crypto|a0,265,1855,7,2,2,-0.0434,0.1374,-9.6774,1623
+D2|binance~okx|eq_nonus|a0,14,98,7,3,3,0.7602,1.5250,54.9483,46
+D2|binance~okx|eq_us|a0,136,678,5,1,1,0.1319,0.2930,0.4578,325
+D2|binance~okx|metal_energy|a0,8,56,7,3,4,-1.7687,4.0944,0.0000,36
+D2|bingx~bitget|crypto|a0,439,3073,7,7,13,0.0544,0.0851,51.6739,757
+D2|bingx~bitget|eq_nonus|a0,13,91,7,4,8,1.1765,8.7862,141.5504,16
+D2|bingx~bitget|eq_us|a0,181,903,5,5,39,1.4628,1.9267,117.1157,242
+D2|bingx~bitget|idx_nonus|a0,1,0,0,0,0,,не измерена,0.0000,
+D2|bingx~bitget|metal_energy|a0,7,49,7,2,2,1.6885,3.0081,0.0000,31
+D2|bingx~bybit|crypto|a0,472,3304,7,7,32,-0.1417,0.1863,-26.1373,2242
+D2|bingx~bybit|eq_nonus|a0,7,49,7,3,7,2.5240,7.1492,110.8544,12
+D2|bingx~bybit|eq_us|a0,179,891,5,5,40,0.5381,1.2170,52.0549,305
+D2|bingx~bybit|metal_energy|a0,4,28,7,0,0,0.0000,не измерена,0.0000,26
+D2|bingx~kraken|crypto|a0,107,749,7,7,20,-0.0693,1.5789,-96.4686,139
+D2|bingx~kraken|eq_nonus|a0,1,0,0,0,0,,не измерена,0.0000,
+D2|bingx~kraken|eq_us|a0,18,90,5,4,10,5.2224,10.6386,0.0000,0
+D2|bingx~kraken|metal_energy|a0,4,28,7,3,4,-2.6366,6.8136,0.0000,0
+D2|bingx~lighter|crypto|a0,85,595,7,3,3,0.1676,0.2524,0.0000,240
+D2|bingx~lighter|eq_nonus|a0,2,14,7,0,0,0.0000,не измерена,0.0000,2
+D2|bingx~lighter|eq_us|a0,30,150,5,0,0,0.0000,не измерена,0.0000,67
+D2|bingx~lighter|idx_us|a0,2,10,5,0,0,0.0000,не измерена,0.0000,7
+D2|bingx~lighter|metal_energy|a0,6,42,7,1,1,0.2932,0.7756,0.0000,22
+D2|bingx~okx|crypto|a0,275,1925,7,7,14,-0.0128,0.0823,0.0000,1682
+D2|bingx~okx|eq_nonus|a0,9,61,7,3,3,5.3817,16.1725,377.9277,14
+D2|bingx~okx|eq_us|a0,151,755,5,5,37,0.7725,0.6814,181.3562,335
+D2|bingx~okx|idx_nonus|a0,1,0,0,0,0,,не измерена,0.0000,
+D2|bingx~okx|metal_energy|a0,8,56,7,4,5,2.4186,8.5649,75.9002,36
+D2|bitget~bybit|crypto|a0,426,2982,7,6,19,0.1346,0.4296,199.0621,724
+D2|bitget~bybit|eq_nonus|a0,17,119,7,1,1,-0.4111,1.0876,0.0000,27
+D2|bitget~bybit|eq_us|a0,131,655,5,3,4,0.0323,0.1546,0.0000,205
+D2|bitget~bybit|metal_energy|a0,5,35,7,0,0,0.0000,не измерена,0.0000,28
+D2|bitget~kraken|crypto|a0,96,672,7,4,9,0.3102,1.0475,-136.5884,123
+D2|bitget~kraken|eq_nonus|a0,1,0,0,0,0,,не измерена,0.0000,
+D2|bitget~kraken|eq_us|a0,16,80,5,3,7,0.2654,3.6797,0.0000,0
+D2|bitget~kraken|metal_energy|a0,4,28,7,2,2,-0.3942,2.7298,0.0000,0
+D2|bitget~lighter|crypto|a0,76,532,7,1,1,-0.0627,0.1659,0.0000,171
+D2|bitget~lighter|eq_nonus|a0,4,28,7,0,0,0.0000,не измерена,0.0000,2
+D2|bitget~lighter|eq_us|a0,29,145,5,0,0,0.0000,не измерена,0.0000,58
+D2|bitget~lighter|metal_energy|a0,5,35,7,2,2,2.7825,4.7552,0.0000,18
+D2|bitget~okx|crypto|a0,263,1841,7,4,10,-0.1300,0.2574,0.0000,590
+D2|bitget~okx|eq_nonus|a0,19,133,7,1,1,-0.3901,1.0322,0.0000,32
+D2|bitget~okx|eq_us|a0,122,610,5,2,3,0.2240,0.7003,6.4285,233
+D2|bitget~okx|metal_energy|a0,7,49,7,4,4,-1.2111,5.5221,12.1709,29
+D2|bybit~kraken|crypto|a0,104,728,7,7,16,-0.3861,1.0225,-27.8598,135
+D2|bybit~kraken|eq_nonus|a0,1,7,7,1,1,3.4466,9.1188,0.0000,0
+D2|bybit~kraken|eq_us|a0,17,85,5,3,8,6.0635,6.0459,0.0000,0
+D2|bybit~kraken|metal_energy|a0,3,0,0,0,0,,не измерена,0.0000,
+D2|bybit~lighter|crypto|a0,85,595,7,7,15,-0.1501,0.7330,0.0000,236
+D2|bybit~lighter|eq_nonus|a0,2,14,7,0,0,0.0000,не измерена,0.0000,2
+D2|bybit~lighter|eq_us|a0,31,155,5,0,0,0.0000,не измерена,0.0000,62
+D2|bybit~lighter|metal_energy|a0,3,21,7,0,0,0.0000,не измерена,0.0000,18
+D2|bybit~okx|crypto|a0,271,1897,7,6,10,-0.1105,0.1312,-10.3340,1393
+D2|bybit~okx|eq_nonus|a0,14,98,7,0,0,0.0000,не измерена,0.0000,30
+D2|bybit~okx|eq_us|a0,136,680,5,3,7,0.1125,0.2171,31.0634,235
+D2|bybit~okx|metal_energy|a0,4,28,7,4,5,0.6485,7.3419,0.0000,25
+D2|kraken~lighter|crypto|a0,49,343,7,0,0,0.0000,не измерена,0.0000,67
+D2|kraken~lighter|eq_nonus|a0,1,0,0,0,0,,не измерена,0.0000,
+D2|kraken~lighter|eq_us|a0,12,0,0,0,0,,не измерена,0.0000,
+D2|kraken~lighter|metal_energy|a0,3,0,0,0,0,,не измерена,0.0000,
+D2|kraken~okx|crypto|a0,95,665,7,5,8,0.1923,1.6450,10.5311,137
+D2|kraken~okx|eq_nonus|a0,1,7,7,1,1,1.2747,3.3727,0.0000,0
+D2|kraken~okx|eq_us|a0,16,80,5,4,7,3.2171,8.3174,64.7693,0
+D2|kraken~okx|metal_energy|a0,4,28,7,4,4,-4.0948,9.6365,-6.5708,0
+D2|lighter~okx|crypto|a0,80,560,7,2,2,-0.0234,0.2266,0.0000,226
+D2|lighter~okx|eq_nonus|a0,3,21,7,0,0,-1.2693,не измерена,-26.6551,2
+D2|lighter~okx|eq_us|a0,28,140,5,0,0,0.0000,не измерена,0.0000,57
+D2|lighter~okx|metal_energy|a0,6,42,7,3,3,-0.2550,11.7897,0.0000,20

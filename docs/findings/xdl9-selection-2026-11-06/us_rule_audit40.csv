@@ -1,0 +1,41 @@
+asset,rule_decision,rule_cause,median_var_share_session,measured,labels,truth,truth_basis,agree,disputed_adr
+DHR,не-США,данные (доля дисперсии в кассе),0.0920,1,,США,"Danaher, NYSE",0,0
+SUMIELEC,не-США,метка биржи,0.0807,2,bitget:JP,не-США,"Sumitomo Electric, Токийская биржа (5802); Bitget JP",1,0
+BYD,не-США,метка биржи,0.1501,3,binance:HK;bitget:HK;bybit:HK,не-США,"BYD, Гонконг; метки Binance HK_EQUITY, Bybit HK, Bitget HK",1,0
+MUFG,не-США,данные (доля дисперсии в кассе),0.0774,2,,США (АДР),"Mitsubishi UFJ Financial: Токио 8306, АДР на NYSE; спорный случай",0,1
+SENSETIME,не-США,метка биржи,0.0717,1,bybit:HK,не-США,"SenseTime, Гонконг; Bybit HK",1,0
+TENCENT,не-США,метка биржи,0.2723,4,binance:HK;bitget:HK;bybit:HK,не-США,"Tencent, Гонконг; метки Binance HK_EQUITY, Bitget HK",1,0
+SHLD,не-США,данные (доля дисперсии в кассе),0.1677,2,,США,"Global X Defense Tech ETF, Cboe",0,0
+KWEB,не-США,данные (доля дисперсии в кассе),0.1141,2,,США,"KraneShares CSI China Internet ETF, NYSE Arca",0,0
+SAMSUNGEM,не-США,метка биржи,0.2125,4,binance:KR;bitget:KR;bybit:KR,не-США,"Samsung Electro-Mechanics, KRX; метки Binance KR_EQUITY, Bybit KR",1,0
+UNITREE,не-США,метка биржи,0.0799,5,binance:CN;bitget:HK;bybit:CN,не-США,"Unitree Robotics, Шанхай STAR; метки Binance CN_EQUITY, Bybit CN",1,0
+CXMT,не-США,метка биржи,0.2194,4,binance:CN;bitget:HK;bybit:CN,не-США,"ChangXin Memory, Китай; метки Binance CN_EQUITY, Bybit CN, Bitget HK",1,0
+SMIC,не-США,метка биржи,0.1131,3,bitget:HK;bybit:HK,не-США,"SMIC, Гонконг; Bybit HK, Bitget HK",1,0
+POPMART,не-США,метка биржи,0.1122,4,binance:HK;bitget:HK;bybit:HK,не-США,"Pop Mart, Гонконг; метки Binance HK_EQUITY, Bybit HK",1,0
+SHEIN,не-США,метка биржи,0.0582,4,bitget:HK;bybit:HK,не-США,"Shein, Гонконг (Bybit region=HK, Binance HK_EQUITY)",1,0
+ROK,не-США,данные (доля дисперсии в кассе),0.1623,3,,США,"Rockwell Automation, NYSE",0,0
+BUD,не-США,данные (доля дисперсии в кассе),0.1093,1,,США (АДР),"Anheuser-Busch InBev: основной листинг Euronext Brussels, АДР на NYSE; спорный случай",0,1
+COP,не-США,данные (доля дисперсии в кассе),0.1880,2,,США,"ConocoPhillips, NYSE",0,0
+YOFC,не-США,метка биржи,0.0747,1,bybit:HK,не-США,"YOFC, Гонконг; Bybit HK",1,0
+HANMI,не-США,метка биржи,0.0833,5,binance:KR;bitget:KR;bybit:KR,не-США,"Hanmi Semiconductor, KRX; метки Binance KR_EQUITY, Bybit KR",1,0
+HYUNDAI,не-США,метка биржи,0.2047,5,binance:KR;bitget:KR;bybit:KR,не-США,"Hyundai Motor, KRX; метки Binance KR_EQUITY, Bybit KR",1,0
+AMKR,США,данные,0.3660,2,,США,"Amkor Technology, Nasdaq",1,0
+FDS,США,данные,0.9987,1,,США,"FactSet, NYSE",1,0
+LYG,США,данные,0.9146,1,,США (АДР),"Lloyds Banking Group: основной листинг LSE, АДР на NYSE; спорный случай",1,1
+VST,США,метка биржи,0.6909,4,bybit:US,США,"Vistra, NYSE; Bybit region=US",1,0
+SWKS,США,данные,0.9995,1,,США,"Skyworks Solutions, Nasdaq",1,0
+EFA,США,данные,0.9990,1,,США,"iShares MSCI EAFE ETF, NYSE Arca",1,0
+CNC,США,данные,0.9683,1,,США,"Centene, NYSE",1,0
+OXY,США,метка биржи,0.1777,2,bybit:US,США,"Occidental Petroleum, NYSE; Bybit region=US",1,0
+EWH,США,по умолчанию (П-37 §9),,0,,США,"iShares MSCI Hong Kong ETF, NYSE Arca (листинг в США, актив Гонконга)",1,0
+MDT,США,метка биржи,0.0563,1,bybit:US,США,"Medtronic, NYSE; Bybit region=US",1,0
+IEF,США,данные,0.9982,1,,США,"iShares 7-10 Year Treasury ETF, Nasdaq",1,0
+AVGO,США,метка биржи,0.5662,5,bybit:US,США,"Broadcom, Nasdaq; Bybit region=US",1,0
+AXP,США,метка биржи,0.0927,1,bybit:US,США,"American Express, NYSE; Bybit region=US",1,0
+IBIT,США,метка биржи,0.1545,3,bybit:US,США,"iShares Bitcoin Trust, Nasdaq; Bybit region=US",1,0
+CEG,США,метка биржи,0.9940,1,bybit:US,США,"Constellation Energy, Nasdaq; Bybit region=US",1,0
+MO,США,метка биржи,0.1671,2,bybit:US,США,"Altria, NYSE; Bybit region=US",1,0
+PCG,США,данные,0.9950,1,,США,"PG&E, NYSE",1,0
+BIIB,США,метка биржи,0.1921,2,bybit:US,США,"Biogen, Nasdaq; Bybit region=US",1,0
+BKNG,США,метка биржи,0.2791,2,bybit:US,США,"Booking Holdings, Nasdaq; Bybit region=US",1,0
+KSTR,США,метка биржи,0.0524,5,bybit:US,США,"KraneShares China T&S STR 50 Index ETF, США (Bybit region=US)",1,0
