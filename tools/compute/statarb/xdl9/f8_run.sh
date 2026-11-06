@@ -45,13 +45,14 @@ if git -C "$HERE" rev-parse --show-toplevel >/dev/null 2>&1; then REPO="$(git -C
 blob_sha() { git -C "$REPO" show "HEAD:$1" 2>/dev/null | sha256sum | cut -d' ' -f1; }      # sha256 закоммиченного содержимого (не рабочей копии: autocrlf)
 check_git() {
   [ -n "$REPO" ] || return 2
-  local rel="$F8_PARAMS_REL" urel="${UNITS#$REPO/}" c
+  local rel="$F8_PARAMS_REL" c urel
+  urel="$(git -C "$(dirname "$UNITS")" ls-files --full-name -- "$(basename "$UNITS")" 2>/dev/null | head -1)"     # путь списка внутри репозитория (в msys-путях префикс не режется)
   c="$(git -C "$REPO" log -1 --format=%H -- "$rel")"
   [ -n "$c" ] || die "params ($rel) не закоммичены (git log по файлу пуст)"
   [ -z "$(git -C "$REPO" status --porcelain -- "$rel")" ] || die "params ($rel) изменены относительно HEAD"
   git -C "$REPO" merge-base --is-ancestor "$c" HEAD || die "коммит params $c не предок HEAD"
   [ "$(blob_sha "$rel")" = "$F8_PARAMS_SHA256" ] || die "sha256 закоммиченных params не равен записанному в f8_expected.env"
-  git -C "$REPO" cat-file -e "HEAD:$urel" 2>/dev/null || die "список единиц ($urel) не в git"
+  [ -n "$urel" ] && git -C "$REPO" cat-file -e "HEAD:$urel" 2>/dev/null || die "список единиц ($UNITS) не в git"
   [ -z "$(git -C "$REPO" status --porcelain -- "$urel")" ] || die "список единиц изменён относительно HEAD"
   [ "$(blob_sha "$urel")" = "$F8_UNITS_SHA256" ] || die "sha256 закоммиченного списка единиц не равен записанному в f8_expected.env"
   PARAMS_COMMIT="$c"; HEAD_COMMIT="$(git -C "$REPO" rev-parse HEAD)"
