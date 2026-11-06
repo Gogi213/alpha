@@ -7,9 +7,9 @@
 #   g6b_run_vs_tk486.sh [потоки]
 set -u
 BIN_O=$HOME/xdl9/bin/statarb-tk486-60e61cea
-BIN_N=$HOME/xdl9/bin/statarb-xdl9-02c6a0df
+BIN_N=${BIN_N:-$HOME/xdl9/bin/statarb-xdl9-02c6a0df}   # TK-493 w3: BIN_N / G6B_DIR переопределяют бинарь и каталог
 P=$HOME/xdl9/panels
-G=$HOME/xdl9/gates/g6b
+G=${G6B_DIR:-$HOME/xdl9/gates/g6b}
 TH=${1:-4}
 FROM=2465; TO=2479
 mkdir -p "$G"; rm -rf "${G:?}"/*

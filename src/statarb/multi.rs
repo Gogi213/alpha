@@ -12,7 +12,8 @@
 //! (TK-493, `--mtm-open`): состояние то же побитно (тест `open_end_hook_is_the_same_in_single_and_multi_passes`).
 
 use super::kernel::{
-    beta_z, price_at, rates_at, Counters, OpenPos, PairInput, Params, Pend, Rule, Sink, Sums, Trade,
+    beta_z, price_at, rates_at, Counters, ExitReason, OpenPos, PairInput, Params, Pend, Rule, Sink,
+    Sums, Trade,
 };
 
 struct Cell {
@@ -24,6 +25,11 @@ struct Cell {
     pin: Vec<f64>,
     fund: f64,
     c: Counters,
+    /// β на сигнале входа текущей позиции.
+    beta: f64,
+    /// Причина решённого выхода и сторона, закрытая стопом или сроком (`Params::rearm`).
+    why: ExitReason,
+    block: i8,
 }
 
 impl Cell {
@@ -37,6 +43,9 @@ impl Cell {
             pin: vec![0.0; k + 1],
             fund: 0.0,
             c: Counters::default(),
+            beta: 0.0,
+            why: ExitReason::Rule,
+            block: 0,
         }
     }
 
@@ -62,6 +71,7 @@ impl Cell {
                     self.dir = d;
                     self.sig_in = sig;
                     self.fill_in = t;
+                    self.beta = beta;
                     self.qty[0] = f64::from(d) / inp.oy[t];
                     self.pin[0] = inp.oy[t];
                     for i in 0..k {
@@ -102,9 +112,18 @@ impl Cell {
                         fee_bps: fee,
                         funding_bps,
                         net_bps: net,
+                        beta: self.beta,
+                        reason: self.why,
                     });
                     self.c.trades += 1;
                     self.c.sum_net_bps += net;
+                    if p.rearm {
+                        self.block = if self.why == ExitReason::Rule {
+                            0
+                        } else {
+                            self.dir
+                        };
+                    }
                     self.dir = 0;
                     self.pend = Pend::None;
                 } else {
@@ -128,23 +147,52 @@ impl Cell {
         }
     }
 
-    /// Конец минуты `t`: сигнал по закрытию, исполнение — следующая минута.
-    fn close_minute(&mut self, p: &Params, t: usize, beta: f64, z: f64) {
+    /// Сигнал входа `d` по закрытию минуты `t`; `rearm` не пускает вход в сторону, закрытую стопом или сроком.
+    fn signal(&mut self, p: &Params, d: i8, beta: f64, t: usize) {
+        if p.rearm && self.block == d {
+            self.c.rearm_blocked += 1;
+        } else {
+            self.pend = Pend::Enter(d, beta, t);
+            if p.rearm {
+                self.block = 0;
+            }
+        }
+    }
+
+    /// Конец минуты `t`: сигнал по закрытию, исполнение — следующая минута. `short` — окно неполное (дыры): нет
+    /// права входа из-за окна (см. `Counters::noentry_window_minutes`), общее для клеток группы.
+    fn close_minute(&mut self, p: &Params, t: usize, beta: f64, z: f64, short: bool) {
+        if self.dir != 0 && !z.is_finite() {
+            self.c.pos_z_nan_minutes += 1;
+        }
         if !matches!(self.pend, Pend::None) {
             return;
         }
         if self.dir == 0 {
             if z.is_finite() && beta.is_finite() {
-                if z <= -p.entry_z {
-                    self.pend = Pend::Enter(1, beta, t);
-                } else if z >= p.entry_z {
-                    self.pend = Pend::Enter(-1, beta, t);
+                if p.rearm && z.abs() < p.entry_z {
+                    self.block = 0;
                 }
+                if z <= -p.entry_z {
+                    self.signal(p, 1, beta, t);
+                } else if z >= p.entry_z {
+                    self.signal(p, -1, beta, t);
+                }
+            } else if short {
+                self.c.noentry_window_minutes += 1;
             }
         } else {
             let dz = f64::from(self.dir) * z;
             let timed = p.max_hold > 0 && t - self.fill_in >= p.max_hold;
-            if (z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z)) || timed {
+            let by_rule = z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z);
+            if by_rule || timed {
+                self.why = if !by_rule {
+                    ExitReason::Timeout
+                } else if dz <= -p.stop_z {
+                    ExitReason::Stop
+                } else {
+                    ExitReason::Rule
+                };
                 self.pend = Pend::Exit(t);
             }
         }
@@ -184,6 +232,7 @@ pub fn run_pair_multi<S: Sink>(
     };
     let mut st: Vec<Cell> = cells.iter().map(|_| Cell::new(k)).collect();
     let (mut obs_minutes, mut gap_minutes) = (0u64, 0u64);
+    let (mut eval_minutes, mut z_def_minutes) = (0u64, 0u64);
     let mut s = Sums::default();
     let mut cur_y = 0usize;
     let mut cur_x = vec![0usize; k];
@@ -227,9 +276,16 @@ pub fn run_pair_multi<S: Sink>(
         } else {
             (f64::NAN, f64::NAN)
         };
+        if t + 1 >= p0.window {
+            eval_minutes += 1;
+            if z.is_finite() {
+                z_def_minutes += 1;
+            }
+        }
+        let short = obs && t + 1 >= p0.window && (s.n as usize) < p0.min_obs.max(2);
         for ((cell, p), sink) in st.iter_mut().zip(cells).zip(sinks.iter_mut()) {
             sink.z(t, z);
-            cell.close_minute(p, t, beta, z);
+            cell.close_minute(p, t, beta, z, short);
         }
     }
     Ok(st
@@ -238,6 +294,8 @@ pub fn run_pair_multi<S: Sink>(
         .map(|(mut cell, sink)| {
             cell.c.obs_minutes = obs_minutes;
             cell.c.gap_minutes = gap_minutes;
+            cell.c.eval_minutes = eval_minutes;
+            cell.c.z_def_minutes = z_def_minutes;
             if cell.dir != 0 {
                 cell.c.open_at_end = 1;
                 let fill = inp.first_min + cell.fill_in as i64;

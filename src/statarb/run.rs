@@ -34,10 +34,23 @@
 //!   в суточный csv и сделки она не попадает. Без флага столбцы `mtm_*` — `nan`. `--open-out <csv>` (требует
 //!   `--mtm-open` и `--trade-jobs`): по строке на такую позицию заданий из `--trade-jobs` — вход, оценка, давность
 //!   последнего close (для ручной сверки, G8b).
+//!
+//! Правки по аудиту TK-493 (волна 3, F-01/F-02/F-03/P-02). Без новых флагов вывод побайтно прежний.
+//! - `--rearm` (по умолчанию выкл., правило z): после выхода по стопу и по `max_hold` вход в ту же сторону разрешён, только когда
+//!   `|z| < entry_z` (`Params::rearm`, ядро, многоклеточный проход и reference — одно правило). Без флага стоп закрывает и тут же
+//!   открывает заново: z на следующей минуте всё ещё за порогом входа.
+//! - `--trades-ext`: в конец `--trades-out` дописываются столбцы `exit_reason` (rule / stop / timeout) и `beta_in` (β на входе).
+//! - `--ext-out <csv>`: по клетке счётчики F-01 (доля минут с определённым z, минуты в позиции с z = NaN, минуты без права
+//!   входа из-за неполного окна), разбивка выходов по причинам и `open_end`, F-03 (bps номинала Y и bps валового номинала
+//!   `1 + |β|·Σw`, перцентили β на входе — наибольший ранг, доля сделок с β < 0), `rearm_blocked`. Сделки — те же, что в
+//!   суточном csv (вход не раньше `from_day`).
+//! - `--job-day-out <csv>`: строка на (клетка, задание, сутки): net, gross, fee, funding, сделок по суткам закрытия и `active`
+//!   (z определён хотя бы в одной минуте суток внутри окна задания; `Sink::z`). Сумма по заданиям равна суточному csv клетки.
 
 use super::cli::{common, load_names, Kind, Loaded};
 use super::kernel::{
-    run_pair, BetaMode, Counters, LegKind, OpenPos, PairInput, Params, Rule, Sink, Trade,
+    run_pair, BetaMode, Counters, ExitReason, LegKind, OpenPos, PairInput, Params, Rule, Sink,
+    Trade,
 };
 use super::mtm::{self, Mtm, OpenSnap};
 use super::multi::run_pair_multi;
@@ -137,6 +150,19 @@ pub struct RunArgs {
     /// Обрезать окна всех заданий сверху (сутки, не включая).
     #[arg(long)]
     to_day: Option<i64>,
+    /// F-02: после выхода по стопу и по `max_hold` вход в ту же сторону разрешён, только когда |z| < entry_z (по умолчанию
+    /// выкл.: стоп закрывает и тут же открывает заново). Только правило z.
+    #[arg(long, default_value_t = false)]
+    rearm: bool,
+    /// В конец `--trades-out` дописать столбцы `exit_reason,beta_in` (прежние столбцы не меняются).
+    #[arg(long, default_value_t = false)]
+    trades_ext: bool,
+    /// Сводка по клетке с новыми счётчиками (F-01, F-02, F-03); см. модульную документацию.
+    #[arg(long)]
+    ext_out: Option<PathBuf>,
+    /// Строка на (клетка, задание, сутки): net, gross, fee, funding, сделок и `active` (P-02, M-07).
+    #[arg(long)]
+    job_day_out: Option<PathBuf>,
 }
 
 /// Правило входа и выхода (`--rule`).
@@ -153,6 +179,7 @@ pub enum RuleArg {
 struct Mode {
     delay_x: usize,
     rule: Rule,
+    rearm: bool,
 }
 
 /// Проверка флагов и режим. Ошибка — до чтения панелей.
@@ -214,9 +241,16 @@ fn check_args(a: &RunArgs) -> Result<Mode> {
         }
         Rule::Z
     };
+    if a.rearm && !matches!(rule, Rule::Z) {
+        bail!("--rearm относится к правилу z (полоса входа |z| < entry_z), с правилом funding не сочетается");
+    }
+    if a.trades_ext && a.trades_out.is_none() {
+        bail!("--trades-ext дописывает столбцы в --trades-out: укажите его");
+    }
     Ok(Mode {
         delay_x: a.delay_x,
         rule,
+        rearm: a.rearm,
     })
 }
 
@@ -272,10 +306,76 @@ fn clamp_jobs(jobs: &mut [Job], from: Option<i64>, to: Option<i64>) {
 /// Сутки закрытия → net, gross, fee, funding, число сделок.
 type Daily = BTreeMap<i64, [f64; 5]>;
 
+/// Статистика сделок для `--ext-out` (сделки с входом не раньше `from_day`, как в суточном csv): выходы по причинам,
+/// net в bps номинала Y и в bps валового номинала `1 + |β|·Σw`, β на входе.
+#[derive(Default)]
+struct ExtStats {
+    n: u64,
+    /// Выходы по причинам: rule, stop, timeout.
+    reasons: [u64; 3],
+    net_y: f64,
+    net_gross: f64,
+    notional: f64,
+    beta_neg: u64,
+    betas: Vec<f64>,
+}
+
+impl ExtStats {
+    fn add(&mut self, t: &Trade, wsum: f64) {
+        let notional = 1.0 + t.beta.abs() * wsum;
+        self.n += 1;
+        self.reasons[match t.reason {
+            ExitReason::Rule => 0,
+            ExitReason::Stop => 1,
+            ExitReason::Timeout => 2,
+        }] += 1;
+        self.net_y += t.net_bps;
+        self.net_gross += t.net_bps / notional;
+        self.notional += notional;
+        if t.beta < 0.0 {
+            self.beta_neg += 1;
+        }
+        self.betas.push(t.beta);
+    }
+
+    /// Слияние в порядке номера задания: суммы f64 не зависят от потоков.
+    fn merge(&mut self, o: ExtStats) {
+        self.n += o.n;
+        for (a, b) in self.reasons.iter_mut().zip(o.reasons) {
+            *a += b;
+        }
+        self.net_y += o.net_y;
+        self.net_gross += o.net_gross;
+        self.notional += o.notional;
+        self.beta_neg += o.beta_neg;
+        self.betas.extend(o.betas);
+    }
+}
+
+/// Что собирать сверх суточных сумм (новые выводы TK-493 w3); всё выключено — работа прежняя.
+#[derive(Clone, Copy)]
+struct Extra {
+    ext: bool,
+    job_day: bool,
+    /// Σ весов компонент X задания (равные веса: 1).
+    wsum: f64,
+}
+
+/// Сутки, в которых z определён хотя бы в одной минуте окна задания (`Sink::z`); сутки идут по возрастанию.
+struct Active {
+    first_min: i64,
+    /// Индекс первой минуты окна задания (до неё — разогрев `window`, его сутки не считаются).
+    start: usize,
+    days: Vec<i64>,
+}
+
 #[derive(Default)]
 struct JobOut {
     daily: Daily,
     c: Counters,
+    ext: ExtStats,
+    /// Сутки задания (сутки, суммы за сутки закрытия, `active`) — для `--job-day-out`.
+    jd: Vec<(i64, [f64; 5], bool)>,
     pre_window: u64,
     trades: Vec<Trade>,
     /// Позиция, открытая на конце окна, вошла до `from_day` (в разогреве): сделку с таким входом `tally` отбрасывает,
@@ -306,8 +406,34 @@ type Panels = HashMap<String, Loaded>;
 struct Env<'a> {
     min_span: usize,
     mtm: bool,
+    /// `--ext-out`: собирать статистику сделок.
+    ext: bool,
+    /// `--job-day-out`: собирать сутки заданий и `Sink::z`.
+    job_day: bool,
     ys: &'a Panels,
     xs: &'a Panels,
+}
+
+impl Env<'_> {
+    fn extra(&self, inp: &PairInput) -> Extra {
+        Extra {
+            ext: self.ext,
+            job_day: self.job_day,
+            wsum: inp.wx.iter().sum(),
+        }
+    }
+
+    /// Приёмник прогона задания; z-хук включается только для `--job-day-out`.
+    fn sink(&self, inp: &PairInput, from_min: i64) -> RunSink {
+        RunSink {
+            active: self.job_day.then(|| Active {
+                first_min: inp.first_min,
+                start: usize::try_from((from_min - inp.first_min).max(0)).unwrap_or(0),
+                days: Vec::new(),
+            }),
+            ..RunSink::default()
+        }
+    }
 }
 
 /// Закрытия окна задания: индекс `i` ↔ минута `first_min + i`, как в `PairInput`.
@@ -396,11 +522,23 @@ fn with_input<R>(
 struct RunSink {
     trades: Vec<Trade>,
     open: Option<OpenSnap>,
+    active: Option<Active>,
 }
 
 impl Sink for RunSink {
     fn trade(&mut self, t: &Trade) {
         self.trades.push(*t);
+    }
+
+    fn z(&mut self, t: usize, z: f64) {
+        if let Some(a) = &mut self.active {
+            if z.is_finite() && t >= a.start {
+                let d = (a.first_min + t as i64).div_euclid(MIN_DAY);
+                if a.days.last() != Some(&d) {
+                    a.days.push(d);
+                }
+            }
+        }
     }
 
     fn open_end(&mut self, pos: &OpenPos) {
@@ -412,11 +550,19 @@ impl Sink for RunSink {
 type Mark<'a> = Option<&'a dyn Fn(&OpenSnap) -> Mtm>;
 
 /// Сделки клетки → суточные суммы по суткам закрытия; сделки с входом до `from_min` отбрасываются и считаются.
-fn tally(sink: RunSink, c: Counters, from_min: i64, keep: bool, mark: Mark) -> JobOut {
+fn tally(
+    mut sink: RunSink,
+    c: Counters,
+    from_min: i64,
+    keep: bool,
+    mark: Mark,
+    extra: Extra,
+) -> JobOut {
     let mut o = JobOut {
         c,
         ..JobOut::default()
     };
+    let active = sink.active.take();
     if let Some(op) = &sink.open {
         if op.fill_in < from_min {
             o.open_pre += 1;
@@ -438,9 +584,23 @@ fn tally(sink: RunSink, c: Counters, from_min: i64, keep: bool, mark: Mark) -> J
         d[2] += t.fee_bps;
         d[3] += t.funding_bps;
         d[4] += 1.0;
+        if extra.ext {
+            o.ext.add(&t, extra.wsum);
+        }
         if keep {
             o.trades.push(t);
         }
+    }
+    if extra.job_day {
+        // сутки с активностью и сутки закрытия сделок; активность без сделок — нули
+        let mut days: BTreeMap<i64, bool> = o.daily.keys().map(|&d| (d, false)).collect();
+        for d in active.map(|a| a.days).unwrap_or_default() {
+            days.insert(d, true);
+        }
+        o.jd = days
+            .into_iter()
+            .map(|(d, a)| (d, o.daily.get(&d).copied().unwrap_or_default(), a))
+            .collect();
     }
     o
 }
@@ -457,11 +617,11 @@ fn outcome(p: Prep<JobOut>) -> Outcome {
 fn run_job(p: &Params, env: &Env, j: &Job, keep: bool) -> Outcome {
     let from_min = j.from_day * MIN_DAY;
     outcome(with_input(p.window, env, j, |inp, cl| {
-        let mut sink = RunSink::default();
+        let mut sink = env.sink(inp, from_min);
         let c = run_pair(inp, p, &mut sink);
         let val = |o: &OpenSnap| mtm::value(p, o, inp.first_min, cl.y, &cl.x);
         let mark: Mark = env.mtm.then_some(&val as &dyn Fn(&OpenSnap) -> Mtm);
-        tally(sink, c, from_min, keep, mark)
+        tally(sink, c, from_min, keep, mark, env.extra(inp))
     }))
 }
 
@@ -514,7 +674,7 @@ fn run_job_cells(
     for g in groups {
         let ps: Vec<Params> = g.iter().map(|&i| cells[i].p).collect();
         let prep = with_input(ps[0].window, env, j, |inp, cl| {
-            let mut sinks: Vec<RunSink> = g.iter().map(|_| RunSink::default()).collect();
+            let mut sinks: Vec<RunSink> = g.iter().map(|_| env.sink(inp, from_min)).collect();
             let cs: Vec<Counters> = if ps.iter().all(multi_ok) {
                 run_pair_multi(inp, &ps, &mut sinks).expect("группа клеток согласована")
             } else {
@@ -530,7 +690,7 @@ fn run_job_cells(
                 .map(|((sink, c), p)| {
                     let val = |o: &OpenSnap| mtm::value(p, o, inp.first_min, cl.y, &cl.x);
                     let mark: Mark = env.mtm.then_some(&val as &dyn Fn(&OpenSnap) -> Mtm);
-                    tally(sink, c, from_min, keep, mark)
+                    tally(sink, c, from_min, keep, mark, env.extra(inp))
                 })
                 .collect::<Vec<JobOut>>()
         });
@@ -586,6 +746,7 @@ fn cell_params(
         taker_out: true,
         delay_x: mode.delay_x,
         rule: mode.rule,
+        rearm: mode.rearm,
     }
 }
 
@@ -677,6 +838,9 @@ struct Agg {
     mtm: [f64; 4],
     mtm_stale_max: i64,
     opens: Vec<(usize, OpenSnap, Mtm)>,
+    ext: ExtStats,
+    /// (задание, сутки, суммы за сутки закрытия, active) — `--job-day-out`.
+    job_days: Vec<(usize, i64, [f64; 5], bool)>,
 }
 
 impl Agg {
@@ -697,6 +861,14 @@ impl Agg {
                 self.c.minutes_in_pos += o.c.minutes_in_pos;
                 self.c.open_at_end += o.c.open_at_end;
                 self.c.gap_minutes += o.c.gap_minutes;
+                self.c.eval_minutes += o.c.eval_minutes;
+                self.c.z_def_minutes += o.c.z_def_minutes;
+                self.c.pos_z_nan_minutes += o.c.pos_z_nan_minutes;
+                self.c.noentry_window_minutes += o.c.noentry_window_minutes;
+                self.c.rearm_blocked += o.c.rearm_blocked;
+                self.ext.merge(o.ext);
+                self.job_days
+                    .extend(o.jd.into_iter().map(|(d, v, a)| (job, d, v, a)));
                 if let Some(m) = o.mtm {
                     self.mtm_n += 1;
                     let parts = [m.net_bps, m.gross_bps, m.fee_bps, m.funding_bps];
@@ -770,19 +942,22 @@ fn write_daily(path: &Path, cells: &[Cell], aggs: &[Agg]) -> Result<()> {
     Ok(())
 }
 
-/// Сделки выбранных заданий. Столбец `fill_x` — только при `--delay-x ≥ 1` (иначе он равен `fill_in`, заголовок прежний).
+/// Сделки выбранных заданий. Столбец `fill_x` — только при `--delay-x ≥ 1` (иначе он равен `fill_in`, заголовок прежний);
+/// `exit_reason,beta_in` в конце — только при `--trades-ext`.
 fn write_trades(
     path: &Path,
     cells: &[Cell],
     aggs: &[Agg],
     jobs: &[Job],
     fill_x: bool,
+    ext: bool,
 ) -> Result<()> {
     let mut w = BufWriter::new(File::create(path)?);
     writeln!(
         w,
-        "cell,job,y,x,dir,sig_in,fill_in,{}sig_out,fill_out,gross_bps,fee_bps,funding_bps,net_bps",
-        if fill_x { "fill_x," } else { "" }
+        "cell,job,y,x,dir,sig_in,fill_in,{}sig_out,fill_out,gross_bps,fee_bps,funding_bps,net_bps{}",
+        if fill_x { "fill_x," } else { "" },
+        if ext { ",exit_reason,beta_in" } else { "" }
     )?;
     for (cell, agg) in cells.iter().zip(aggs) {
         for (job, t) in &agg.trades {
@@ -801,12 +976,153 @@ fn write_trades(
             if fill_x {
                 write!(w, "{},", t.fill_x)?;
             }
-            writeln!(
+            write!(
                 w,
                 "{},{},{},{},{},{}",
                 t.sig_out, t.fill_out, t.gross_bps, t.fee_bps, t.funding_bps, t.net_bps
             )?;
+            if ext {
+                write!(w, ",{},{}", t.reason.as_str(), t.beta)?;
+            }
+            writeln!(w)?;
         }
+    }
+    w.flush()?;
+    Ok(())
+}
+
+/// Сутки заданий (`--job-day-out`): `cell,job,y,x,day,net_bps,gross_bps,fee_bps,funding_bps,trades,active`; суммы за сутки
+/// закрытия сделки, `active` 1/0. Строки клетки идут по номеру задания, затем по суткам.
+fn write_job_day(path: &Path, cells: &[Cell], aggs: &[Agg], jobs: &[Job]) -> Result<()> {
+    let mut w = BufWriter::new(File::create(path)?);
+    writeln!(
+        w,
+        "cell,job,y,x,day,net_bps,gross_bps,fee_bps,funding_bps,trades,active"
+    )?;
+    for (cell, agg) in cells.iter().zip(aggs) {
+        for (job, d, v, active) in &agg.job_days {
+            let Some(j) = jobs.get(*job) else { continue };
+            writeln!(
+                w,
+                "{},{},{},{},{},{},{},{},{},{},{}",
+                cell.label,
+                job,
+                j.y,
+                j.x.join("+"),
+                d,
+                v[0],
+                v[1],
+                v[2],
+                v[3],
+                v[4] as u64,
+                u8::from(*active)
+            )?;
+        }
+    }
+    w.flush()?;
+    Ok(())
+}
+
+const EXT_OUT_COLUMNS: [&str; 30] = [
+    "cell",
+    "jobs_done",
+    "eval_minutes",
+    "z_def_minutes",
+    "z_def_share",
+    "minutes_in_pos",
+    "pos_z_nan_minutes",
+    "pos_z_nan_share",
+    "noentry_window_minutes",
+    "rearm_blocked",
+    "trades_n",
+    "exit_rule",
+    "exit_stop",
+    "exit_timeout",
+    "open_end",
+    "net_y_sum_bps",
+    "net_gross_sum_bps",
+    "net_y_mean_bps",
+    "net_gross_mean_bps",
+    "notional_mean",
+    "beta_neg_share",
+    "beta_min",
+    "beta_p01",
+    "beta_p05",
+    "beta_p25",
+    "beta_p50",
+    "beta_p75",
+    "beta_p95",
+    "beta_p99",
+    "beta_max",
+];
+
+/// Доля `a / b`; `nan`, если знаменателя нет.
+fn share(a: u64, b: u64) -> String {
+    if b == 0 {
+        "nan".to_string()
+    } else {
+        (a as f64 / b as f64).to_string()
+    }
+}
+
+/// Наибольший ранг: q-й процентиль (`q` — целое, 1…99) отсортированного ряда `v`; пусто — `nan`.
+fn rank_pctl(v: &[f64], q: usize) -> String {
+    if v.is_empty() {
+        return "nan".to_string();
+    }
+    let i = (q * v.len()).div_ceil(100).max(1) - 1;
+    v.get(i).map_or_else(|| "nan".to_string(), f64::to_string)
+}
+
+/// Расширенная сводка по клетке (`--ext-out`). Счётчики F-01 — по всему спану заданий после разогрева окна
+/// (`eval_minutes`: минуты с `t + 1 ≥ window`), `minutes_in_pos` и `pos_z_nan_minutes` — по всему спану; разбивка выходов
+/// и F-03 — по сделкам с входом не раньше `from_day`, как в суточном csv.
+fn write_ext(path: &Path, cells: &[Cell], aggs: &[Agg]) -> Result<()> {
+    let mut w = BufWriter::new(File::create(path)?);
+    writeln!(w, "{}", EXT_OUT_COLUMNS.join(","))?;
+    for (cell, g) in cells.iter().zip(aggs) {
+        let (c, e) = (&g.c, &g.ext);
+        let mut betas = e.betas.clone();
+        betas.sort_by(f64::total_cmp);
+        let mean = |x: f64| {
+            if e.n == 0 {
+                "nan".to_string()
+            } else {
+                (x / e.n as f64).to_string()
+            }
+        };
+        let mut f: Vec<String> = vec![cell.label.clone(), g.done.to_string()];
+        f.push(c.eval_minutes.to_string());
+        f.push(c.z_def_minutes.to_string());
+        f.push(share(c.z_def_minutes, c.eval_minutes));
+        f.push(c.minutes_in_pos.to_string());
+        f.push(c.pos_z_nan_minutes.to_string());
+        f.push(share(c.pos_z_nan_minutes, c.minutes_in_pos));
+        f.push(c.noentry_window_minutes.to_string());
+        f.push(c.rearm_blocked.to_string());
+        f.push(e.n.to_string());
+        f.extend(e.reasons.map(|v| v.to_string()));
+        f.push(c.open_at_end.saturating_sub(g.open_pre).to_string());
+        f.push(e.net_y.to_string());
+        f.push(e.net_gross.to_string());
+        f.push(mean(e.net_y));
+        f.push(mean(e.net_gross));
+        f.push(mean(e.notional));
+        f.push(share(e.beta_neg, e.n));
+        f.push(
+            betas
+                .first()
+                .map_or_else(|| "nan".to_string(), f64::to_string),
+        );
+        for q in [1, 5, 25, 50, 75, 95, 99] {
+            f.push(rank_pctl(&betas, q));
+        }
+        f.push(
+            betas
+                .last()
+                .map_or_else(|| "nan".to_string(), f64::to_string),
+        );
+        writeln!(w, "{}", f.join(","))?;
     }
     w.flush()?;
     Ok(())
@@ -972,6 +1288,8 @@ pub fn run(a: &RunArgs) -> Result<()> {
     let env = Env {
         min_span: a.min_span,
         mtm: a.mtm_open,
+        ext: a.ext_out.is_some(),
+        job_day: a.job_day_out.is_some(),
         ys: &ys,
         xs,
     };
@@ -1001,7 +1319,13 @@ pub fn run(a: &RunArgs) -> Result<()> {
     let aggs = merge.into_inner().unwrap().aggs;
     write_daily(&a.daily_out, &cells, &aggs)?;
     if let Some(f) = &a.trades_out {
-        write_trades(f, &cells, &aggs, &jobs, mode.delay_x > 0)?;
+        write_trades(f, &cells, &aggs, &jobs, mode.delay_x > 0, a.trades_ext)?;
+    }
+    if let Some(f) = &a.ext_out {
+        write_ext(f, &cells, &aggs)?;
+    }
+    if let Some(f) = &a.job_day_out {
+        write_job_day(f, &cells, &aggs, &jobs)?;
     }
     if let Some(f) = &a.cells_out {
         write_cells_out(f, &cells, &aggs, jobs.len(), a.mtm_open)?;

@@ -576,6 +576,7 @@ fn run_equals_direct_kernel_for_delay_and_funding_rule() {
         taker_in: true,
         taker_out: true,
         delay_x: 0,
+        rearm: false,
         rule: Rule::Z,
     };
     let fund_rule = Rule::Funding {
@@ -1034,4 +1035,430 @@ fn last_valid_close_search() {
     assert_eq!(last_valid(&c, 2), Some((2, 3.0)));
     assert_eq!(last_valid(&c, 3), None);
     assert_eq!(last_valid(&c, 9), None);
+}
+
+// ---- TK-493 волна 3: --rearm, --trades-ext, --ext-out, --job-day-out (аудит F-01, F-02, F-03, P-02, M-07) ----
+// Сценарии замкнутые (ряд Y, X плоская 100, окно 24, β = 1, пересчёт окна каждую минуту), ожидания — независимая модель
+// правила (см. `fix_tests`): те же числа, что в проверках ядра, но через `statarb run` и файлы вывода.
+
+use super::fix_tests::{hole_case, two_events, EVENT};
+
+/// Клетка окна 24 с β = 1: пороги и срок параметрами, `min_obs` = окну.
+fn z_cell(label: &str, entry: &str, exit: &str, stop: &str, hold: &str) -> Vec<String> {
+    args(&[
+        "--cell",
+        label,
+        "--window",
+        "24",
+        "--min-obs",
+        "24",
+        "--beta-fixed",
+        "1.0",
+        "--entry-z",
+        entry,
+        "--exit-z",
+        exit,
+        "--stop-z",
+        stop,
+        "--max-hold",
+        hold,
+        "--refresh",
+        "1",
+    ])
+}
+
+/// Прогон `pair` над панелями `root/<panels>`: задания, клетка (`--cell …` или `--cells …`), доп. флаги.
+fn run_with(
+    root: &Path,
+    tag: &str,
+    panels: &str,
+    jobs: &str,
+    cell: &[String],
+    extra: &[String],
+) -> Files {
+    let f = files(root, tag, jobs);
+    let mut a = args(&["--kind", "pair"]);
+    kv(&mut a, "--panels", &root.join(panels));
+    a.extend(common(&f));
+    a.extend(cell.iter().cloned());
+    a.extend(extra.iter().cloned());
+    go(&a).unwrap();
+    f
+}
+
+/// Новые флаги вывода: `--trades-ext`, `--ext-out`, `--job-day-out`.
+fn flag_files(root: &Path, tag: &str) -> (Vec<String>, PathBuf, PathBuf) {
+    let (ext, jd) = (
+        root.join(format!("ext-{tag}.csv")),
+        root.join(format!("jd-{tag}.csv")),
+    );
+    let mut v = args(&["--trades-ext"]);
+    kv(&mut v, "--ext-out", &ext);
+    kv(&mut v, "--job-day-out", &jd);
+    (v, ext, jd)
+}
+
+const EXT_HEADER: &str = "cell,jobs_done,eval_minutes,z_def_minutes,z_def_share,minutes_in_pos,pos_z_nan_minutes,\
+pos_z_nan_share,noentry_window_minutes,rearm_blocked,trades_n,exit_rule,exit_stop,exit_timeout,open_end,net_y_sum_bps,\
+net_gross_sum_bps,net_y_mean_bps,net_gross_mean_bps,notional_mean,beta_neg_share,beta_min,beta_p01,beta_p05,beta_p25,\
+beta_p50,beta_p75,beta_p95,beta_p99,beta_max";
+
+/// (dir, sig_in, fill_in, sig_out, fill_out, причина выхода).
+type Tr = (i64, i64, i64, i64, i64, String);
+
+/// Сделки из `--trades-out` со столбцами `--trades-ext`.
+fn trade_keys(path: &Path) -> Vec<Tr> {
+    table(path)
+        .iter()
+        .map(|r| {
+            (
+                num(r, "dir") as i64,
+                num(r, "sig_in") as i64,
+                num(r, "fill_in") as i64,
+                num(r, "sig_out") as i64,
+                num(r, "fill_out") as i64,
+                r["exit_reason"].clone(),
+            )
+        })
+        .collect()
+}
+
+fn owned(v: &[(i64, i64, i64, i64, i64, &str)]) -> Vec<Tr> {
+    v.iter()
+        .map(|t| (t.0, t.1, t.2, t.3, t.4, t.5.to_string()))
+        .collect()
+}
+
+/// Строка сделки без двух последних столбцов (`exit_reason,beta_in`).
+fn without_ext(line: &str) -> String {
+    let f: Vec<&str> = line.split(',').collect();
+    f[..f.len() - 2].join(",")
+}
+
+#[test]
+fn rearm_reason_and_ext_out_on_closed_scenario() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    put_panel(&root.join("p"), "AAA", &series_from(&two_events()));
+    put_panel(&root.join("p"), "XXX", &flat(100));
+    let jobs = "y,x,from_day,to_day\nAAA,XXX,0,1\n";
+    let cell = z_cell("cA", "2.0", "0.2", "3.5", "0");
+    let base = run_with(root, "base", "p", jobs, &cell, &[]);
+    let (fl, ext0, jd0) = flag_files(root, "off");
+    let off = run_with(root, "off", "p", jobs, &cell, &fl);
+
+    // новые флаги не трогают старые выводы: суточный csv побайтно, сделки — те же столбцы, дописаны два
+    assert_eq!(body(&off.daily), body(&base.daily));
+    assert_eq!(header(&base.trades), OLD_TRADES_HEADER);
+    assert_eq!(
+        header(&off.trades),
+        format!("{OLD_TRADES_HEADER},exit_reason,beta_in")
+    );
+    let stripped: Vec<String> = body(&off.trades).iter().map(|l| without_ext(l)).collect();
+    assert_eq!(stripped, body(&base.trades));
+
+    // без rearm: стоп закрывает и тут же открывает заново (три сделки на событие), причины — по модели
+    let want_off = owned(&[
+        (1, 30, 31, 31, 32, "stop"),
+        (1, 32, 33, 33, 34, "stop"),
+        (1, 34, 35, 41, 42, "rule"),
+        (1, 68, 69, 69, 70, "stop"),
+        (1, 70, 71, 71, 72, "stop"),
+        (1, 72, 73, 79, 80, "rule"),
+    ]);
+    assert_eq!(trade_keys(&off.trades), want_off);
+    assert!(table(&off.trades).iter().all(|r| num(r, "beta_in") == 1.0));
+    assert_eq!(header(&ext0), EXT_HEADER);
+    let e = &table(&ext0)[0];
+    assert_eq!(e["cell"], "cA");
+    assert_eq!(
+        (
+            num(e, "trades_n"),
+            num(e, "exit_rule"),
+            num(e, "exit_stop"),
+            num(e, "exit_timeout"),
+            num(e, "open_end")
+        ),
+        (6.0, 2.0, 4.0, 0.0, 0.0)
+    );
+    assert_eq!(
+        (
+            num(e, "eval_minutes"),
+            num(e, "z_def_minutes"),
+            num(e, "minutes_in_pos")
+        ),
+        (63.0, 54.0, 18.0)
+    );
+    assert!(close(num(e, "z_def_share"), 54.0 / 63.0));
+    assert_eq!(
+        (
+            num(e, "pos_z_nan_minutes"),
+            num(e, "noentry_window_minutes"),
+            num(e, "rearm_blocked")
+        ),
+        (0.0, 0.0, 0.0)
+    );
+    // F-03: β = 1 у всех сделок, валовый номинал 1 + |β|·Σw = 2: bps валового номинала вдвое меньше bps номинала Y
+    let net: f64 = table(&off.trades).iter().map(|r| num(r, "net_bps")).sum();
+    assert!(close(num(e, "net_y_sum_bps"), net), "{e:?}");
+    assert!(close(num(e, "net_gross_sum_bps"), net / 2.0), "{e:?}");
+    assert!(close(num(e, "net_y_mean_bps"), net / 6.0));
+    assert!(close(num(e, "net_gross_mean_bps"), net / 12.0));
+    assert!(close(num(e, "notional_mean"), 2.0));
+    assert_eq!(num(e, "beta_neg_share"), 0.0);
+    for k in [
+        "beta_min", "beta_p01", "beta_p05", "beta_p25", "beta_p50", "beta_p75", "beta_p95",
+        "beta_p99", "beta_max",
+    ] {
+        assert_eq!(num(e, k), 1.0, "{k}");
+    }
+    // сутки заданий: одна строка (клетка, задание 0, сутки 0), шесть сделок, сутки активны; суммы = суточный csv
+    let jd = table(&jd0);
+    assert_eq!(jd.len(), 1);
+    assert_eq!(
+        (
+            jd[0]["cell"].as_str(),
+            jd[0]["y"].as_str(),
+            jd[0]["x"].as_str()
+        ),
+        ("cA", "AAA", "XXX")
+    );
+    assert_eq!(
+        (
+            num(&jd[0], "job"),
+            num(&jd[0], "day"),
+            num(&jd[0], "trades"),
+            num(&jd[0], "active")
+        ),
+        (0.0, 0.0, 6.0, 1.0)
+    );
+    let day = &table(&off.daily)[0];
+    for k in ["net_bps", "gross_bps", "fee_bps", "funding_bps"] {
+        assert_eq!(num(&jd[0], k), num(day, k), "{k}");
+    }
+
+    // с rearm: вход в сторону стопа закрыт, пока |z| ≥ 2; на событие одна сделка
+    let (mut fl_on, ext1, jd1) = flag_files(root, "on");
+    fl_on.push("--rearm".to_string());
+    let on = run_with(root, "on", "p", jobs, &cell, &fl_on);
+    let want_on = owned(&[(1, 30, 31, 31, 32, "stop"), (1, 68, 69, 69, 70, "stop")]);
+    assert_eq!(trade_keys(&on.trades), want_on);
+    let e = &table(&ext1)[0];
+    assert_eq!(
+        (
+            num(e, "trades_n"),
+            num(e, "exit_stop"),
+            num(e, "rearm_blocked"),
+            num(e, "minutes_in_pos")
+        ),
+        (2.0, 2.0, 10.0, 2.0)
+    );
+    assert_eq!(table(&jd1)[0]["trades"], "2");
+    // один --rearm, без остальных новых флагов: те же две сделки, заголовок сделок прежний
+    let only = run_with(root, "only", "p", jobs, &cell, &args(&["--rearm"]));
+    assert_eq!(body(&only.daily), body(&on.daily));
+    assert_eq!(header(&only.trades), OLD_TRADES_HEADER);
+    assert_eq!(body(&only.trades).len(), 2);
+}
+
+#[test]
+fn ext_out_counts_holes_in_window_and_in_position() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    put_panel(&root.join("p"), "DDD", &series_from(&hole_case()));
+    put_panel(&root.join("p"), "XXX", &flat(100));
+    let jobs = "y,x,from_day,to_day\nDDD,XXX,0,1\n";
+    let cell = z_cell("cD", "1.5", "0.0", "inf", "0");
+    let (fl, ext, jd) = flag_files(root, "d");
+    let f = run_with(root, "d", "p", jobs, &cell, &fl);
+    // позиция открыта на конце: сделок нет, суточный csv пуст
+    assert_eq!(body(&f.daily).len(), 0);
+    assert_eq!(body(&f.trades).len(), 0);
+    let e = &table(&ext)[0];
+    assert_eq!(
+        (
+            num(e, "eval_minutes"),
+            num(e, "z_def_minutes"),
+            num(e, "minutes_in_pos")
+        ),
+        (77.0, 12.0, 35.0)
+    );
+    assert_eq!(
+        (
+            num(e, "pos_z_nan_minutes"),
+            num(e, "noentry_window_minutes")
+        ),
+        (24.0, 23.0)
+    );
+    assert!(close(num(e, "z_def_share"), 12.0 / 77.0));
+    assert!(close(num(e, "pos_z_nan_share"), 24.0 / 35.0));
+    assert_eq!((num(e, "trades_n"), num(e, "open_end")), (0.0, 1.0));
+    for k in [
+        "net_y_mean_bps",
+        "net_gross_mean_bps",
+        "notional_mean",
+        "beta_neg_share",
+        "beta_min",
+        "beta_p50",
+        "beta_max",
+    ] {
+        assert_eq!(e[k], "nan", "{k}");
+    }
+    // сутки: сделок нет, но z определён (64…69, 94…99) — строка суток есть, активна
+    let r = &table(&jd)[0];
+    assert_eq!(
+        (
+            num(r, "day"),
+            num(r, "trades"),
+            num(r, "active"),
+            num(r, "net_bps")
+        ),
+        (0.0, 0.0, 1.0, 0.0)
+    );
+}
+
+#[test]
+fn job_day_out_sums_to_daily_and_skips_warmup_days() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    // 3 суток: флэт 100, событие на минутах 1430 (за 10 минут до суток 1: разогрев задания 0) и 2910
+    let mut cy = vec![100.0; 3 * 1440];
+    for b in [1430usize, 2910] {
+        cy[b..b + EVENT.len()].copy_from_slice(&EVENT);
+    }
+    put_panel(&root.join("p"), "EEE", &series_from(&cy));
+    put_panel(&root.join("p"), "XXX", &flat(cy.len()));
+    // задание 0: сутки 1…3 (окно греется с минуты 1416), 1: нет панели ZZZ, 2: сутки 0…2
+    let jobs = "y,x,from_day,to_day\nEEE,XXX,1,3\nEEE,ZZZ,1,3\nEEE,XXX,0,2\n";
+    std::fs::write(
+        root.join("cells3.csv"),
+        "cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh\n\
+         c0,24,24,1.0,2.0,0.2,3.5,0,1\nc1,24,24,1.0,2.0,0.2,inf,0,1\n",
+    )
+    .unwrap();
+    let mut cells = args(&[]);
+    kv(&mut cells, "--cells", &root.join("cells3.csv"));
+    let (mut fl, _ext, jd) = flag_files(root, "j");
+    fl.extend(args(&["--trade-jobs", "2"]));
+    let f = run_with(root, "j", "p", jobs, &cells, &fl);
+
+    // (клетка, задание, сутки, сделок, активна): у задания 0 нет суток 0 — там z определён в разогреве (минута 1439),
+    // но сутки до `from_day` не считаются; у задания 1 (нет панели) строк нет
+    let want: [(&str, i64, i64, i64, i64); 8] = [
+        ("c0", 0, 1, 0, 1),
+        ("c0", 0, 2, 3, 1),
+        ("c0", 2, 0, 2, 1),
+        ("c0", 2, 1, 1, 1),
+        ("c1", 0, 1, 0, 1),
+        ("c1", 0, 2, 1, 1),
+        ("c1", 2, 0, 0, 1),
+        ("c1", 2, 1, 1, 1),
+    ];
+    let rows = table(&jd);
+    let got: Vec<(String, i64, i64, i64, i64)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r["cell"].clone(),
+                num(r, "job") as i64,
+                num(r, "day") as i64,
+                num(r, "trades") as i64,
+                num(r, "active") as i64,
+            )
+        })
+        .collect();
+    let want_owned: Vec<(String, i64, i64, i64, i64)> = want
+        .iter()
+        .map(|w| (w.0.to_string(), w.1, w.2, w.3, w.4))
+        .collect();
+    assert_eq!(got, want_owned);
+    // сумма по заданиям (в порядке номера, от нуля) равна суточному csv клетки побитно
+    let cols = ["net_bps", "gross_bps", "fee_bps", "funding_bps", "trades"];
+    let mut sums: std::collections::BTreeMap<(String, i64), [f64; 5]> = Default::default();
+    for r in &rows {
+        let e = sums
+            .entry((r["cell"].clone(), num(r, "day") as i64))
+            .or_default();
+        for (i, k) in cols.iter().enumerate() {
+            e[i] += num(r, k);
+        }
+    }
+    let daily = table(&f.daily);
+    let with_trades = sums.values().filter(|v| v[4] > 0.0).count();
+    assert_eq!(daily.len(), with_trades);
+    for r in &daily {
+        let s = sums[&(r["cell"].clone(), num(r, "day") as i64)];
+        for (i, k) in cols.iter().enumerate() {
+            assert_eq!(s[i], num(r, k), "{} сутки {} {k}", r["cell"], r["day"]);
+        }
+    }
+    // сделки заданий 0 и 2 (--trade-jobs 0 из общих флагов и 2): по клеткам, внутри — по заданию; причины по модели
+    let kinds: Vec<(String, i64, String)> = table(&f.trades)
+        .iter()
+        .map(|r| {
+            (
+                r["cell"].clone(),
+                num(r, "job") as i64,
+                r["exit_reason"].clone(),
+            )
+        })
+        .collect();
+    let want_kinds: Vec<(String, i64, String)> = [
+        ("c0", 0, "stop"),
+        ("c0", 0, "stop"),
+        ("c0", 0, "rule"),
+        ("c0", 2, "stop"),
+        ("c0", 2, "stop"),
+        ("c0", 2, "rule"),
+        ("c1", 0, "rule"),
+        ("c1", 2, "rule"),
+    ]
+    .iter()
+    .map(|(a, j, b)| (a.to_string(), *j, b.to_string()))
+    .collect();
+    assert_eq!(kinds, want_kinds);
+}
+
+#[test]
+fn new_flags_are_validated() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    put_panel(&root.join("p"), "AAA", &series_from(&two_events()));
+    put_panel(&root.join("p"), "XXX", &flat(100));
+    let jobs = "y,x,from_day,to_day\nAAA,XXX,0,1\n";
+    // --rearm с правилом funding
+    let f = files(root, "v1", jobs);
+    let mut a = args(&["--kind", "pair"]);
+    kv(&mut a, "--panels", &root.join("p"));
+    kv(&mut a, "--funding-y", root);
+    a.extend(common(&f));
+    a.extend(z_cell("c", "2.0", "0.2", "3.5", "0"));
+    a.extend(args(&[
+        "--rearm",
+        "--rule",
+        "funding",
+        "--funding-k",
+        "2",
+        "--hold-payments",
+        "3",
+    ]));
+    let e = go(&a).unwrap_err().to_string();
+    assert!(e.contains("--rearm"), "{e}");
+    // --trades-ext без --trades-out
+    let f = files(root, "v2", jobs);
+    let mut a = args(&[
+        "--kind",
+        "pair",
+        "--trades-ext",
+        "--min-span",
+        "10",
+        "--threads",
+        "1",
+    ]);
+    kv(&mut a, "--panels", &root.join("p"));
+    kv(&mut a, "--jobs", &f.jobs);
+    kv(&mut a, "--daily-out", &f.daily);
+    a.extend(z_cell("c", "2.0", "0.2", "3.5", "0"));
+    let e = go(&a).unwrap_err().to_string();
+    assert!(e.contains("--trades-ext"), "{e}");
 }

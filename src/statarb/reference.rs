@@ -3,7 +3,7 @@
 //! код другой: сверка `kernel::run_pair` с ней — тест и вариант `naive` в таблице замера.
 
 use super::kernel::{
-    round_trip_cost_bps, BetaMode, Counters, PairInput, Params, Rule, Sink, Trade,
+    round_trip_cost_bps, BetaMode, Counters, ExitReason, PairInput, Params, Rule, Sink, Trade,
 };
 
 /// Нога для фандинга: события, open, количество.
@@ -53,6 +53,14 @@ pub fn z_series(inp: &PairInput, p: &Params) -> Vec<(f64, f64)> {
     out
 }
 
+/// Совместных наблюдений в окне `[t−W+1, t]` (для `Counters::noentry_window_minutes`).
+fn window_obs(inp: &PairInput, p: &Params, t: usize) -> usize {
+    let lo = (t + 1).saturating_sub(p.window);
+    (lo..=t)
+        .filter(|&i| inp.lx[i].is_finite() && inp.ly[i].is_finite())
+        .count()
+}
+
 struct Open {
     dir: i8,
     sig_in: usize,
@@ -100,7 +108,10 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
     let mut c = Counters::default();
     let mut pos: Option<Open> = None;
     let mut want_enter: Option<(i8, f64, usize)> = None;
-    let mut want_exit: Option<usize> = None;
+    let mut want_exit: Option<(usize, ExitReason)> = None;
+    // `rearm` — сторона, закрытая стопом или сроком; действует только с правилом z.
+    let rearm = p.rearm && matches!(p.rule, Rule::Z);
+    let mut block = 0i8;
     for t in 0..n {
         let ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
         if let Some((d, beta, sig)) = want_enter.take() {
@@ -135,7 +146,7 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                 }
             }
         }
-        if let Some(sig) = want_exit {
+        if let Some((sig, reason)) = want_exit {
             if ok {
                 let o = pos.take().expect("выход без позиции");
                 let fx = o.fill_x.expect("выход без ноги X");
@@ -185,9 +196,14 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                     fee_bps: fee,
                     funding_bps,
                     net_bps: net,
+                    beta: o.beta,
+                    reason,
                 });
                 c.trades += 1;
                 c.sum_net_bps += net;
+                if rearm {
+                    block = if reason == ExitReason::Rule { 0 } else { o.dir };
+                }
                 want_exit = None;
             } else {
                 c.exit_deferred += 1;
@@ -202,6 +218,15 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             c.gap_minutes += 1;
         }
         let (beta, z) = zs[t];
+        if t + 1 >= p.window {
+            c.eval_minutes += 1;
+            if z.is_finite() {
+                c.z_def_minutes += 1;
+            }
+        }
+        if pos.is_some() && !z.is_finite() {
+            c.pos_z_nan_minutes += 1;
+        }
         let r_mean = if fk > 0 {
             trailing_mean(inp.fund_y, inp.first_min + t as i64, fk)
         } else {
@@ -213,11 +238,30 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                     match p.rule {
                         Rule::Z => {
                             if z.is_finite() && beta.is_finite() {
-                                if z <= -p.entry_z {
-                                    want_enter = Some((1, beta, t));
-                                } else if z >= p.entry_z {
-                                    want_enter = Some((-1, beta, t));
+                                if rearm && z.abs() < p.entry_z {
+                                    block = 0;
                                 }
+                                let side = if z <= -p.entry_z {
+                                    1
+                                } else if z >= p.entry_z {
+                                    -1
+                                } else {
+                                    0
+                                };
+                                if side != 0 && rearm && block == side {
+                                    c.rearm_blocked += 1;
+                                } else if side != 0 {
+                                    want_enter = Some((side, beta, t));
+                                    if rearm {
+                                        block = 0;
+                                    }
+                                }
+                            } else if inp.lx[t].is_finite()
+                                && inp.ly[t].is_finite()
+                                && t + 1 >= p.window
+                                && window_obs(inp, p, t) < p.min_obs.max(2)
+                            {
+                                c.noentry_window_minutes += 1;
                             }
                         }
                         Rule::Funding { .. } => {
@@ -252,7 +296,15 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                             }
                         };
                         if by_rule || timed {
-                            want_exit = Some(t);
+                            let reason = if !by_rule {
+                                ExitReason::Timeout
+                            } else if matches!(p.rule, Rule::Z) && f64::from(o.dir) * z <= -p.stop_z
+                            {
+                                ExitReason::Stop
+                            } else {
+                                ExitReason::Rule
+                            };
+                            want_exit = Some((t, reason));
                         }
                     }
                 }

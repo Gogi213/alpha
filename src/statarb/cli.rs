@@ -90,6 +90,10 @@ pub enum StatarbCommand {
         /// D3: ожидаемое удержание в выплатах (обязательно при --funding-k ≥ 1).
         #[arg(long, default_value_t = 0)]
         hold_payments: usize,
+        /// F-02 (TK-493 w3): после выхода по сроку вход в ту же сторону — только когда |z| вернулся внутрь полосы входа
+        /// (в `bench` стопа нет). Умолчание выкл.; только правило z.
+        #[arg(long, default_value_t = false)]
+        rearm: bool,
     },
     /// Клетка П-32 × список заданий-пар на окнах суток → суточные агрегаты по суткам закрытия (TK-484).
     Run(Box<super::run::RunArgs>),
@@ -283,9 +287,13 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
             delay_x,
             funding_k,
             hold_payments,
+            rearm,
         } => {
             if funding_k > 0 && (hold_payments == 0 || funding_y.is_none()) {
                 bail!("--funding-k требует --hold-payments ≥ 1 и --funding-y");
+            }
+            if rearm && funding_k > 0 {
+                bail!("--rearm относится к правилу z, с --funding-k не сочетается");
             }
             let p = Params {
                 window,
@@ -317,6 +325,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                 } else {
                     Rule::Z
                 },
+                rearm,
             };
             bench(&BenchArgs {
                 kind,

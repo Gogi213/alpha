@@ -81,11 +81,12 @@ pub(super) fn params(beta: BetaMode, yk: LegKind, xk: LegKind) -> Params {
         taker_in: true,
         taker_out: false,
         delay_x: 0,
+        rearm: false,
         rule: Rule::Z,
     }
 }
 
-fn both(inp: &PairInput, p: &Params) -> (Vec<Trade>, Counters) {
+pub(super) fn both(inp: &PairInput, p: &Params) -> (Vec<Trade>, Counters) {
     inp.check().unwrap();
     let mut a: Vec<Trade> = Vec::new();
     let mut b: Vec<Trade> = Vec::new();
@@ -99,11 +100,14 @@ fn both(inp: &PairInput, p: &Params) -> (Vec<Trade>, Counters) {
             (x.dir, x.sig_in, x.fill_in, x.fill_x, x.sig_out, x.fill_out),
             (y.dir, y.sig_in, y.fill_in, y.fill_x, y.sig_out, y.fill_out)
         );
+        // TK-493 w3: причина выхода и β на входе — те же в ядре и в референсе
+        assert_eq!(x.reason, y.reason, "причина выхода");
         for (u, v) in [
             (x.gross_bps, y.gross_bps),
             (x.fee_bps, y.fee_bps),
             (x.funding_bps, y.funding_bps),
             (x.net_bps, y.net_bps),
+            (x.beta, y.beta),
         ] {
             assert!(close(u, v), "{u} против {v}");
         }
@@ -337,6 +341,7 @@ fn flat_x_params() -> Params {
         taker_in: true,
         taker_out: true,
         delay_x: 0,
+        rearm: false,
         rule: Rule::Z,
     }
 }

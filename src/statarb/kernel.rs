@@ -44,6 +44,27 @@ pub enum Rule {
     Funding { k: usize, hold_payments: usize },
 }
 
+/// Причина выхода (TK-493 w3, F-02): правило возврата по z (`Rule`), стоп по z (`Stop`) либо срок `max_hold` (`Timeout`).
+/// Для `Rule::Funding` стопа нет: выход по уровню ставки — `Rule`. Позиция, не закрытая к концу данных, сделкой не
+/// становится и причины не имеет (`Counters::open_at_end`, в сводках — `open_end`). Решается на сигнальной минуте:
+/// стоп важнее возврата, возврат важнее срока.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitReason {
+    Rule,
+    Stop,
+    Timeout,
+}
+
+impl ExitReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExitReason::Rule => "rule",
+            ExitReason::Stop => "stop",
+            ExitReason::Timeout => "timeout",
+        }
+    }
+}
+
 /// Круг издержек, bps номинала Y: комиссии входа и выхода по обеим ногам при цене выхода = цене входа;
 /// номинал X = `|β|·Σw` (замораживается при входе). Ставки — только `lob::costs` через `LegKind::fee_bps`.
 pub fn round_trip_cost_bps(p: &Params, beta: f64, wsum: f64) -> f64 {
@@ -78,6 +99,11 @@ pub struct Params {
     /// ноги Y платится с её собственного входа. На выходе обе ноги по одному open, как раньше.
     pub delay_x: usize,
     pub rule: Rule,
+    /// F-02 (TK-493 w3, по умолчанию выкл. — иначе повторный вход в ту же сторону идёт сразу): после выхода по стопу или
+    /// по сроку вход в ту же сторону разрешён, только когда z вернулся внутрь полосы входа (`|z| < entry_z`; нет данных —
+    /// нет возврата). Другая сторона разрешена сразу. Выход по правилу ничего не блокирует. Только для `Rule::Z`:
+    /// при `Rule::Funding` полосы z нет, флаг не действует (в `statarb run` / `bench` такое сочетание — ошибка).
+    pub rearm: bool,
 }
 
 /// Вход для одной пары: ряды выровнены по общей сетке, индекс `i` ↔ минута `first_min + i`.
@@ -125,6 +151,11 @@ pub struct Trade {
     pub fee_bps: f64,
     pub funding_bps: f64,
     pub net_bps: f64,
+    /// β на сигнале входа, по которой заморожены номиналы ног X (F-03): круг издержек и валовый номинал сделки —
+    /// `1 + |β|·Σw`. Только для новых выводов; хеши и старые столбцы его не используют.
+    pub beta: f64,
+    /// Причина выхода (F-02); только для новых выводов.
+    pub reason: ExitReason,
 }
 
 /// Позиция, оставшаяся открытой на конце данных (TK-493, `--mtm-open`): состояние ядра на последней минуте.
@@ -184,6 +215,19 @@ pub struct Counters {
     /// Позиция, оставшаяся открытой на конце данных (не закрывается и не считается).
     pub open_at_end: u64,
     pub sum_net_bps: f64,
+    /// F-01 (TK-493 w3), знаменатель: минуты спана, где окно оценки уже могло набраться (`t + 1 ≥ window`), с пропусками;
+    /// разогрев первых `window − 1` минут спана в счётчик не входит (там окно неполное по построению).
+    pub eval_minutes: u64,
+    /// Из них минуты с определённым z. Доля `z_def_minutes / eval_minutes`.
+    pub z_def_minutes: u64,
+    /// Минуты спана, где позиция удержана (как в `minutes_in_pos`) и z не определён: правило выхода и стоп по z слепы,
+    /// остаётся только `max_hold`. Считается по всему спану, как `minutes_in_pos`.
+    pub pos_z_nan_minutes: u64,
+    /// Минуты без права входа из-за неполного окна: нет позиции и ордера, у минуты есть свеча, окно уже могло набраться
+    /// (`t + 1 ≥ window`), но совместных наблюдений в нём меньше `max(min_obs, 2)` (дыры). Только правило z.
+    pub noentry_window_minutes: u64,
+    /// F-02: сигналов входа, подавленных `Params::rearm` (z всё ещё за порогом после стопа или срока в ту же сторону).
+    pub rearm_blocked: u64,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -191,7 +235,8 @@ pub(crate) struct Sums {
     anchored: bool,
     ax: f64,
     ay: f64,
-    n: u32,
+    /// Совместных наблюдений в окне.
+    pub(crate) n: u32,
     sx: f64,
     sy: f64,
     sxx: f64,
@@ -310,16 +355,20 @@ pub(crate) fn rates_at(ev: &[(i64, f64)], cur: &mut usize, ft: i64) -> f64 {
 /// не несёт их состояния в регистрах горячего цикла (замер TK-482: общий цикл был на ~10 % медленнее прежнего).
 pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters {
     let funding = matches!(p.rule, Rule::Funding { .. });
-    match (p.delay_x > 0, funding) {
-        (false, false) => run_pair_impl::<S, false, false>(inp, p, sink),
-        (true, false) => run_pair_impl::<S, true, false>(inp, p, sink),
-        (false, true) => run_pair_impl::<S, false, true>(inp, p, sink),
-        (true, true) => run_pair_impl::<S, true, true>(inp, p, sink),
+    // `rearm` действует только с правилом z (при funding игнорируется); без флага код цикла тот же, что до F-02.
+    match (p.delay_x > 0, funding, p.rearm) {
+        (false, false, false) => run_pair_impl::<S, false, false, false>(inp, p, sink),
+        (true, false, false) => run_pair_impl::<S, true, false, false>(inp, p, sink),
+        (false, false, true) => run_pair_impl::<S, false, false, true>(inp, p, sink),
+        (true, false, true) => run_pair_impl::<S, true, false, true>(inp, p, sink),
+        (false, true, _) => run_pair_impl::<S, false, true, false>(inp, p, sink),
+        (true, true, _) => run_pair_impl::<S, true, true, false>(inp, p, sink),
     }
 }
 
-/// `DELAY` — нога X входит позже ноги Y (`delay_x > 0`); `FUND` — правило `Rule::Funding`.
-fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
+/// `DELAY` — нога X входит позже ноги Y (`delay_x > 0`); `FUND` — правило `Rule::Funding`; `REARM` — `Params::rearm`
+/// (только с правилом z).
+fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool>(
     inp: &PairInput,
     p: &Params,
     sink: &mut S,
@@ -354,6 +403,9 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
     let (mut ring_len, mut ring_head, mut cur_k) = (0usize, 0usize, 0usize);
     let mut r_mean = f64::NAN;
     let wsum = inp.wx.iter().sum::<f64>();
+    // F-02: причина решённого выхода; сторона, закрытая стопом или сроком (0 — нет; только `REARM`).
+    let mut why = ExitReason::Rule;
+    let mut block = 0i8;
     for t in 0..n {
         let ft = inp.first_min + t as i64;
         let opens_ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
@@ -410,9 +462,14 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
                         fee_bps: fee,
                         funding_bps,
                         net_bps: net,
+                        beta: x_beta,
+                        reason: why,
                     });
                     c.trades += 1;
                     c.sum_net_bps += net;
+                    if REARM {
+                        block = if why == ExitReason::Rule { 0 } else { dir };
+                    }
                     dir = 0;
                     pend = Pend::None;
                 } else {
@@ -487,6 +544,15 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
             (f64::NAN, f64::NAN)
         };
         sink.z(t, z);
+        if t + 1 >= p.window {
+            c.eval_minutes += 1;
+            if z.is_finite() {
+                c.z_def_minutes += 1;
+            }
+        }
+        if dir != 0 && !z.is_finite() {
+            c.pos_z_nan_minutes += 1;
+        }
         // D3: выплаты ноги Y с минутой ≤ t входят в трейлинг-среднее (известны на закрытии минуты t).
         if FUND {
             let ev = if inp.fund_y.is_empty() {
@@ -519,11 +585,30 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
             if dir == 0 {
                 if !FUND {
                     if z.is_finite() && beta.is_finite() {
-                        if z <= -p.entry_z {
-                            pend = Pend::Enter(1, beta, t);
-                        } else if z >= p.entry_z {
-                            pend = Pend::Enter(-1, beta, t);
+                        if REARM && z.abs() < p.entry_z {
+                            block = 0;
                         }
+                        if z <= -p.entry_z {
+                            if REARM && block == 1 {
+                                c.rearm_blocked += 1;
+                            } else {
+                                pend = Pend::Enter(1, beta, t);
+                                if REARM {
+                                    block = 0;
+                                }
+                            }
+                        } else if z >= p.entry_z {
+                            if REARM && block == -1 {
+                                c.rearm_blocked += 1;
+                            } else {
+                                pend = Pend::Enter(-1, beta, t);
+                                if REARM {
+                                    block = 0;
+                                }
+                            }
+                        }
+                    } else if obs && t + 1 >= p.window && (s.n as usize) < p.min_obs.max(2) {
+                        c.noentry_window_minutes += 1;
                     }
                 } else {
                     let b = match p.beta {
@@ -549,6 +634,13 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
                         != Some(std::cmp::Ordering::Greater)
                 };
                 if by_rule || timed {
+                    why = if !by_rule {
+                        ExitReason::Timeout
+                    } else if !FUND && f64::from(dir) * z <= -p.stop_z {
+                        ExitReason::Stop
+                    } else {
+                        ExitReason::Rule
+                    };
                     pend = Pend::Exit(t);
                 }
             }

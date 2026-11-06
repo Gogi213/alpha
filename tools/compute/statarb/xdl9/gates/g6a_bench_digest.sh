@@ -4,10 +4,10 @@
 #   g6a_bench_digest.sh [потоки]   (по умолчанию 4: на Deck в это время считают другие)
 set -u
 BIN_A=$HOME/xdl9/bin/statarb-tk479-f27c879e
-BIN_N=$HOME/xdl9/bin/statarb-xdl9-02c6a0df
+BIN_N=${BIN_N:-$HOME/xdl9/bin/statarb-xdl9-02c6a0df}   # TK-493 w3: BIN_N / G6A_DIR переопределяют бинарь и каталог (новая сборка против эталонных sha256)
 P=$HOME/xdl9/panels
 F=$HOME/xdl9/funding
-G=$HOME/xdl9/gates/g6
+G=${G6A_DIR:-$HOME/xdl9/gates/g6}
 TH=${1:-4}
 OUT=$G/g6a
 mkdir -p "$OUT"
