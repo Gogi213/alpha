@@ -10,7 +10,12 @@
            сохранена, партнёр X заменён случайным другим активом той же биржи и класса
   sm     - чувствительность min_obs = ceil(0.9 W) (§6.8 в), вне семьи (A1, A2, B1, C1; у D2 min_obs не используется)
   n17    - чувствительность «без 17 контрактов Binance TradFi» (§11.9): группы, где такие контракты есть, без заданий с ними, вне семьи
-Режим `--mode form` строит те же команды на панелях формирования (~/xdl9/form, сутки 2468-2478) для сухого прогона; `--mode trade` - боевой F8.
+  mk1    - панели «+1 мин на обеих ногах» (D11): open'[i] = open[i+1] (f8_p1.py mk), только символы, которые есть в заданиях торгуемых клеток
+  p1     - те же клетки и задания на панелях +1 мин (условие (ж) статуса: net при задержке +1 мин на обеих ногах), лёгкие выходы с --mtm-open
+  act    - активные пары-сутки D2 по панелям (D5 iii, M3-01): f8_act.py (numpy, venv), по одной единице на семейство (main, pl, rp, n17)
+  re     - случайные входы (§11.3) НА DECK: f8_re_all.py --local (numpy, venv), один процесс-пул на все группы основного счёта
+Режим `--mode form` строит те же команды на панелях формирования (~/xdl9/form, сутки 2468-2478) для сухого прогона (рабочий каталог - F8_CWD сухого прогона,
+выходы `out/`, `d2*/` - в нём; сдвинутые панели - `<dry>/plac_form`, `<dry>/form1`); `--mode trade` - боевой F8.
 
   python f8_lists.py gen --mode trade --out <каталог списков> --units <f8_units.tsv>
   python f8_lists.py selftest
@@ -34,9 +39,12 @@ TAG = "@p1"
 NO17 = ["ACN", "ASML", "BX", "CAT", "COST", "CSCO", "DELL", "EQT", "GEV", "JPM", "KODEX200", "MRVL", "MU", "NOK", "ORCL", "STRC", "TXN"]
 NO17_SYMS = {b + "USDT" for b in NO17}
 
+DRY = "$HOME/xdl9/audit2/f8dry"          # корень сухого прогона на формировании (не боевые каталоги)
+PYV = "$HOME/xdl9/venv/bin/python"       # python 3.12 + numpy на Deck
+TOOLS = "$HOME/xdl9/tools/statarb/xdl9"
 MODES = {
-    "trade": dict(P="$HOME/xdl9/trade", F="$HOME/xdl9/funding", PL="$HOME/xdl9/plac", D0=2479, D1=2500, OUT="out", LST="f8", LO=2465, HI=2500),
-    "form": dict(P="$HOME/xdl9/form", F="$HOME/xdl9/funding_form", PL="$HOME/xdl9/plac_form", D0=2468, D1=2479, OUT="$HOME/xdl9/sel/f8_dry/out", LST="f8form", LO=2465, HI=2479),
+    "trade": dict(P="$HOME/xdl9/trade", F="$HOME/xdl9/funding", PL="$HOME/xdl9/plac", P1="$HOME/xdl9/trade1", D0=2479, D1=2500, OUT="out", LST="f8", LO=2465, HI=2500, MODE="trade"),
+    "form": dict(P="$HOME/xdl9/form", F="$HOME/xdl9/funding_form", PL=DRY + "/plac_form", P1=DRY + "/form1", D0=2468, D1=2479, OUT="out", LST="f8form", LO=2465, HI=2479, MODE="form"),
 }
 
 
@@ -91,7 +99,7 @@ def outs_main(O, st, jf):
 
 
 def outs_light(O, st):
-    return ("--daily-out {O}/{st}.daily.csv --cells-out {O}/{st}.cells_out.csv --ext-out {O}/{st}.ext.csv "
+    return ("--daily-out {O}/{st}.daily.csv --mtm-open --cells-out {O}/{st}.cells_out.csv --ext-out {O}/{st}.ext.csv "
             "--job-day-out {O}/{st}.jobday.csv").format(O=O, st=st)
 
 
@@ -133,7 +141,7 @@ def unit_main(g, M):
     P, F = "%s/%s" % (M["P"], g["exy"]), "%s/%s" % (M["F"], g["exy"])
     PX, FX = "%s/%s" % (M["P"], g["exx"]), "%s/%s" % (M["F"], g["exx"])
     if g["kind"] == "D2":
-        d2dir = ("d2/" + st) if M is MODES["trade"] else ("$HOME/xdl9/sel/f8_dry/d2/" + st)
+        d2dir = "d2/" + st
         gen = d2_gen_cmd(g["jobs_file"], F, FX, d2dir, M, O + "/d2_diff.log")
         return build_run(g, M, "main", st, g["cells_file"], g["jobs_file"], O, P, F, PX, FX, d2dir, gen), O + "/" + st + "* " + d2dir
     return build_run(g, M, "main", st, g["cells_file"], g["jobs_file"], O, P, F, PX, FX), O + "/" + st + ".*"
@@ -213,6 +221,9 @@ def random_partners(g, cat, jobs):
 
 
 # ------------------------------------------------------------------ генерация
+ACT_FAMILIES = ("main", "pl", "rp", "n17")
+
+
 def gen(mode, out_dir_lists, units_path, groups=None, cat=None, only=None):
     M = MODES[mode]
     groups = groups or load_groups()
@@ -221,6 +232,7 @@ def gen(mode, out_dir_lists, units_path, groups=None, cat=None, only=None):
     cat = cat or Catalog()
     L = M["LST"]
     units, needs, ctrl_rows, skipped = [], set(), [], []
+    p1_needs, act_rows, re_rows, flag_rows = set(), {fam: [] for fam in ACT_FAMILIES}, [], []
     day_re = lambda row: row[:2] + [str(M["D0"]), str(M["D1"])]
 
     def add(uid, stage, cmd, outs):
@@ -252,16 +264,23 @@ def gen(mode, out_dir_lists, units_path, groups=None, cat=None, only=None):
                 write_lines(os.path.join(out_dir_lists, "main", os.path.basename(g["cells_file"])), open(src, encoding="utf-8").read().splitlines())
                 cmd = cmd.replace(g["cells_file"], cf)
         add("main:" + g["stem"], "w%d" % g["wave"], cmd, outs)
+        mj = "%s/main/%s" % (L, os.path.basename(g["jobs_file"])) if mode == "form" else g["jobs_file"]
+        mc = ("%s/main/%s" % (L, os.path.basename(g["cells_file"])) if mode == "form" else g["cells_file"]) if g["kind"] != "D2" else ""
+        re_rows.append((g["stem"], g["kind"], g["cell"], g["exy"], g["exx"], str(g["wave"]), mj, mc))
+        if g["kind"] in ("C1", "D2"):
+            flag_rows.append((g["stem"], g["kind"], "%s/%s" % (M["P"], g["exy"]), "%s/%s" % (M["P"], g["exx"]), mj))
+        if g["kind"] == "D2":
+            act_rows["main"].append((g["stem"], g["cell"] + "|a0", "%s/%s" % (M["P"], g["exy"]), "%s/%s" % (M["P"], g["exx"]), "d2/" + g["stem"], g["k"]))
     if not only:
-        for cid in ("binance-crypto", "bingx-crypto", "bingx-eq_us", "okx-crypto"):
-            ex, slug = cid.split("-", 1)
-            cellname = "A1|%s|%s" % (ex, slug)
-            gg = [g for g in groups if g["cell"] == cellname][0]
+        for gg in [g for g in groups if g["kind"] == "A1"]:          # §11.8 считается только для каталогов с торгуемой клеткой A1 (есть W и entry_z)
+            ex, slug = gg["exy"], gg["slug"]
+            cid = "%s-%s" % (ex, slug)
+            cfm = "%s/main/%s" % (L, os.path.basename(gg["cells_file"])) if mode == "form" else gg["cells_file"]
             st = "ALLPAIRS_" + gg["stem"]
             cmd = ("python3 $HOME/xdl9/tools/statarb/xdl9/sel_allpairs_jobs.py %s w4/%s.jobs.csv %d %d && %s statarb run --kind pair --panels %s/%s --funding-y %s/%s --rearm "
                    "--cells %s --jobs w4/%s.jobs.csv --daily-out %s/w4/%s.daily.csv --cells-out %s/w4/%s.cells_out.csv --ext-out %s/w4/%s.ext.csv --mtm-open "
                    "--min-span 1440 --threads ${THREADS:-8}"
-                   % (cid, st, M["D0"], M["D1"], BIN, M["P"], ex, M["F"], ex, gg["cells_file"], st, M["OUT"], st, M["OUT"], st, M["OUT"], st))
+                   % (cid, st, M["D0"], M["D1"], BIN, M["P"], ex, M["F"], ex, cfm, st, M["OUT"], st, M["OUT"], st, M["OUT"], st))
             add("ap:" + gg["stem"], "w4", cmd, "%s/w4/%s.*" % (M["OUT"], st))
 
     # --- плацебо, случайные пары, чувствительность
@@ -289,10 +308,11 @@ def gen(mode, out_dir_lists, units_path, groups=None, cat=None, only=None):
         jf = write_jobs("pl/%s.%s.csv" % (st, "pairs" if d2 else "jobs"), pj, d2)
         O = out_dir(M, "pl")
         if d2:
-            d2dir = ("d2_pl/" + st) if mode == "trade" else ("$HOME/xdl9/sel/f8_dry/d2_pl/" + st)
+            d2dir = "d2_pl/" + st
             gen_ = d2_gen_cmd(jf, "%s/%s" % (M["F"], exy), "%s/fx/%s" % (M["PL"], exx), d2dir, M, O + "/d2_diff.log")
             cmd = build_run(g, M, "light", st, None, jf, O, P, F, PX, FX, d2dir, gen_)
             add("pl:" + st, "pl", cmd, "%s/%s* %s" % (O, st, d2dir))
+            act_rows["pl"].append((st, g["cell"] + "|a0", "%s/%s" % (M["P"], exy), "%s/x/%s" % (M["PL"], exx), d2dir, g["k"]))
         else:
             add("pl:" + st, "pl", build_run(g, M, "light", st, base_cf, jf, O, P, F, PX, FX), "%s/%s.*" % (O, st))
         # --- rp
@@ -304,9 +324,10 @@ def gen(mode, out_dir_lists, units_path, groups=None, cat=None, only=None):
         elif d2:
             jf = write_jobs("rp/%s.pairs.csv" % st, rj, True)
             O = out_dir(M, "rp")
-            d2dir = ("d2_rp/" + st) if mode == "trade" else ("$HOME/xdl9/sel/f8_dry/d2_rp/" + st)
+            d2dir = "d2_rp/" + st
             gen_ = d2_gen_cmd(jf, F, FX, d2dir, M, O + "/d2_diff.log")
             add("rp:" + st, "rp", build_run(g, M, "light", st, None, jf, O, P, F, PX, FX, d2dir, gen_), "%s/%s* %s" % (O, st, d2dir))
+            act_rows["rp"].append((st, g["cell"] + "|a0", P, PX, d2dir, g["k"]))
         else:
             jf = write_jobs("rp/%s.jobs.csv" % st, rj, False)
             O = out_dir(M, "rp")
@@ -331,21 +352,51 @@ def gen(mode, out_dir_lists, units_path, groups=None, cat=None, only=None):
             O = out_dir(M, "n17")
             ctrl_rows.append((st, g["cell"], len(jobs), len(hit), len(keep)))
             if d2:
-                d2dir = ("d2_n17/" + st) if mode == "trade" else ("$HOME/xdl9/sel/f8_dry/d2_n17/" + st)
+                d2dir = "d2_n17/" + st
                 gen_ = d2_gen_cmd(jf, F, FX, d2dir, M, O + "/d2_diff.log")
                 add("n17:" + st, "n17", build_run(g, M, "light", st, None, jf, O, P, F, PX, FX, d2dir, gen_), "%s/%s* %s" % (O, st, d2dir))
+                act_rows["n17"].append((st, g["cell"] + "|a0", P, PX, d2dir, g["k"]))
             else:
                 add("n17:" + st, "n17", build_run(g, M, "light", st, base_cf, jf, O, P, F, PX, FX), "%s/%s.*" % (O, st))
+        # --- p1: те же клетки и задания на панелях +1 мин на обеих ногах (D11, условие (ж))
+        jf_main = "%s/main/%s" % (L, os.path.basename(g["jobs_file"])) if mode == "form" else g["jobs_file"]
+        for y_, x_ in jobs:
+            p1_needs.add((exy, y_))
+            p1_needs.update((exx, c_) for c_ in x_.split("+"))
+        P1y, P1x = "%s/%s" % (M["P1"], exy), "%s/%s" % (M["P1"], exx)
+        Fy, Fx = "%s/%s" % (M["F"], exy), "%s/%s" % (M["F"], exx)
+        O = out_dir(M, "p1")
+        if d2:
+            d2dir = "d2_p1/" + st
+            gen_ = d2_gen_cmd(jf_main, Fy, Fx, d2dir, M, O + "/d2_diff.log")
+            add("p1:" + st, "p1", build_run(g, M, "light", st, None, jf_main, O, P1y, Fy, P1x, Fx, d2dir, gen_), "%s/%s* %s" % (O, st, d2dir))
+        else:
+            add("p1:" + st, "p1", build_run(g, M, "light", st, base_cf, jf_main, O, P1y, Fy, P1x, Fx), "%s/%s.*" % (O, st))
 
     # --- mkplac
     nd = os.path.join(out_dir_lists, "plac_needs.tsv")
     write_lines(nd, ["layout\texchange\tsymbol\tmode"] + ["\t".join(n) for n in sorted(needs)])
     src, fsrc = M["P"], M["F"]
-    mk = ("python3 $HOME/xdl9/tools/statarb/xdl9/f8_shift.py mkplac --needs %s/plac_needs.tsv --src %s --fsrc %s --out %s --lo %d --hi %d --k 1"
-          % (L, src, fsrc, M["PL"], M["LO"], M["HI"]))
-    units.insert(len([u for u in units if u[1] in ("w1", "w2", "w3", "w4")]), ("mkplac", "mkplac", mk, M["PL"] + "/*"))
+    mk = ("python3 %s/f8_shift.py mkplac --needs %s/plac_needs.tsv --src %s --fsrc %s --out %s --lo %d --hi %d --k 1"
+          % (TOOLS, L, src, fsrc, M["PL"], M["LO"], M["HI"]))
+    units.append(("mkplac", "mkplac", mk, M["PL"] + "/*"))
+    # --- mk1: панели +1 мин только для символов заданий торгуемых клеток (D11)
+    write_lines(os.path.join(out_dir_lists, "p1_needs.tsv"), ["exchange\tsymbol"] + ["%s\t%s" % n for n in sorted(p1_needs)])
+    units.append(("mk1", "mk1", "%s %s/f8_p1.py mk --needs %s/p1_needs.tsv --src %s --out %s" % (PYV, TOOLS, L, M["P"], M["P1"]), M["P1"] + "/*"))
+    # --- act: активные пары-сутки D2 по панелям (D5 iii, M3-01)
+    for fam in ACT_FAMILIES:
+        write_lines(os.path.join(out_dir_lists, "act", fam + ".tsv"), ["stem\tcell\tpanels_y\tpanels_x\tdir\tk"] + ["\t".join(r) for r in act_rows[fam]])
+        units.append(("act:" + fam, "act", "%s %s/f8_act.py --groups %s/act/%s.tsv --d0 %d --d1 %d --out %s/act/%s --procs ${THREADS:-8}"
+                      % (PYV, TOOLS, L, fam, M["D0"], M["D1"], M["OUT"], fam), "%s/act/%s/*" % (M["OUT"], fam)))
+    # --- flags: метки «разрыв после формирования» пар C1 и D2 (S по торговому окну > stab_threshold); читает панели окна, пишет один pair_flags.csv
+    write_lines(os.path.join(out_dir_lists, "flags.tsv"), ["stem\tkind\tpanels_y\tpanels_x\tpairs"] + ["\t".join(r) for r in flag_rows])
+    units.append(("flags:all", "flags", "%s %s/f8_agg.py breakflags_all --groups %s/flags.tsv --d0 %d --d1 %d --out %s/flags/pair_flags.csv" % (PYV, TOOLS, L, M["D0"], M["D1"], M["OUT"]), "%s/flags/*" % M["OUT"]))
+    # --- re: случайные входы (§11.3) на Deck; выходы по группам пишутся атомарно с меткой .done_<группа>, поэтому glob выходов единицы пустой (возобновление без стирания)
+    write_lines(os.path.join(out_dir_lists, "re_groups.tsv"), ["stem\tkind\tcell\texy\texx\twave\tjobs\tcells"] + ["\t".join(r) for r in re_rows])
+    units.append(("re:all", "re", "%s %s/f8_re_all.py --local --groups %s/re_groups.tsv --panels %s --funding %s --out %s/re --procs ${THREADS:-8}"
+                  % (PYV, TOOLS, L, M["P"], M["F"], M["OUT"]), "%s/re/.unit_has_no_erasable_outputs" % M["OUT"]))
     # --- порядок стадий
-    order = {"w1": 0, "w2": 1, "w3": 2, "w4": 3, "mkplac": 4, "pl": 5, "rp": 6, "sm": 7, "n17": 8}
+    order = {"w1": 0, "w2": 1, "w3": 2, "w4": 3, "mkplac": 4, "pl": 5, "rp": 6, "sm": 7, "n17": 8, "mk1": 9, "p1": 10, "act": 11, "flags": 12, "re": 13}
     units.sort(key=lambda u: (order[u[1]], u[0]))
     with open(units_path, "w", encoding="utf-8", newline=NL) as fh:
         fh.write("id\tstage\tcmd\touts" + NL)

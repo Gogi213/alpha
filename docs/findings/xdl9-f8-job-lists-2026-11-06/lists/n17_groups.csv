@@ -1,11 +1,11 @@
 stem,cell,jobs_all,jobs_with_17,jobs_without_17
 D2_aster-binance_eq_us__binance__aster,D2|aster~binance|eq_us,29,2,27
 D2_binance-bingx_eq_nonus__bingx__binance,D2|binance~bingx|eq_nonus,6,1,5
-D2_binance-bingx_eq_us__binance__bingx,D2|binance~bingx|eq_us,91,6,85
+D2_binance-bingx_eq_us__binance__bingx,D2|binance~bingx|eq_us,93,6,87
 D2_binance-bingx_eq_us__bingx__binance,D2|binance~bingx|eq_us,79,8,71
-D2_binance-bitget_eq_us__binance__bitget,D2|binance~bitget|eq_us,139,12,127
-D2_binance-bybit_eq_us__binance__bybit,D2|binance~bybit|eq_us,138,8,130
+D2_binance-bitget_eq_us__binance__bitget,D2|binance~bitget|eq_us,141,12,129
+D2_binance-bybit_eq_us__binance__bybit,D2|binance~bybit|eq_us,140,8,132
 D2_binance-bybit_eq_us__bybit__binance,D2|binance~bybit|eq_us,13,4,9
 D2_binance-kraken_eq_us__binance__kraken,D2|binance~kraken|eq_us,18,1,17
 D2_binance-lighter_eq_us__binance__lighter,D2|binance~lighter|eq_us,29,3,26
-D2_binance-okx_eq_us__binance__okx,D2|binance~okx|eq_us,133,11,122
+D2_binance-okx_eq_us__binance__okx,D2|binance~okx|eq_us,135,11,124

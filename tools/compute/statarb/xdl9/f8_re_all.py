@@ -4,6 +4,12 @@
 
   python f8_re_all.py --mode trade --out <каталог re> [--only REGEX] [--stage w1,w2,w3] [--dry]
   python f8_re_all.py --mode form  --out <каталог re> --only REGEX         (сухой прогон на формировании: панели ~/xdl9/form, факт - ~/xdl9/sel/f8_dry/out)
+  python f8_re_all.py --local --groups f8/re_groups.tsv --panels ~/xdl9/trade --funding ~/xdl9/funding --out out/re [--procs 8] [--only REGEX]
+                                                                           (w5 F: НА DECK, без ssh и tar; рабочий каталог - F8_CWD; ssh-режим выше устарел)
+
+Режим --local (стадия `re` списка единиц F8): панели и фандинг читаются прямо из каталогов команды (~/xdl9/{trade,funding}; form: ~/xdl9/{form,funding_form}), список групп, задания и клетки -
+из рабочего каталога (re_groups.tsv пишет f8_lists.gen; трейд: `w1/…`; form: `f8form/main/…`), сделки факта - `out/wN/<имя>[__shardN].trades.csv`, шарды D2 - `d2/<имя>/shardN*`. Группы идут пулом процессов (--procs), результат группы пишется
+атомарно (`.part` -> rename) и закрывается меткой `.done_<имя>`: упавший запуск возобновляется без пересчёта готовых групп. Все группы основного счёта (w1-w3).
 
 Источники группы: задания и клетки S1 (docs/findings/xdl9-selection-2026-11-06/waves), сделки факта - с Deck (`out/wN/<имя>.trades.csv`, у D2 - `…__shardN.trades.csv`),
 ряд d и списки заданий D2 - `d2/<имя>/shardN*`. Нужны ssh-ключ и known_hosts (переменные F8_SSH_KEY, F8_SSH_KNOWN) и хост deck@192.168.1.49 (F8_DECK).
@@ -113,16 +119,104 @@ def one_group(g, M, out_dir, tmp, out_trades=False):
     return produced
 
 
+# ------------------------------------------------------------------ Deck: локальный режим (w5 F)
+def read_groups(path):
+    """re_groups.tsv (пишет f8_lists.gen): stem, kind, cell, exy, exx, wave, jobs, cells -> список словарей (без обращения к docs репозитория - на Deck их нет)."""
+    import csv
+    with open(path, encoding="utf-8", newline="") as fh:
+        return [dict(zip(("stem", "kind", "cell", "exy", "exx", "wave", "jobs", "cells"), r)) for r in list(csv.reader(fh, delimiter="\t"))[1:] if r]
+
+
+def one_group_local(g, a):
+    """Группа основного счёта: случайные входы по панелям на Deck. a - dict(panels, funding, out, out_trades). -> (имя, число записанных файлов)."""
+    stem, out_dir, out_trades = g["stem"], a["out"], a["out_trades"]
+    kind, exy, exx, cellname = g["kind"], g["exy"], g["exx"], g["cell"]
+    pan, fund = os.path.expandvars(a["panels"]), os.path.expandvars(a["funding"])
+    wdir = "w%d" % int(g["wave"])
+    units = []
+    if kind == "D2":
+        d2root = os.path.join("d2", stem)
+        for sh in sorted(x for x in os.listdir(d2root) if re.fullmatch(r"shard\d+", x)) if os.path.isdir(d2root) else []:
+            units.append(dict(shard=sh, jobs=os.path.join(d2root, sh + ".jobs.csv"), fund=os.path.join(d2root, sh),
+                              trades=os.path.join("out", wdir, "%s__%s.trades.csv" % (stem, sh))))
+    else:
+        units.append(dict(shard=None, jobs=g["jobs"], fund=None, trades=os.path.join("out", wdir, stem + ".trades.csv")))
+    produced = 0
+    os.makedirs(out_dir, exist_ok=True)
+    for u in units:
+        if not os.path.exists(u["trades"]) or os.path.getsize(u["trades"]) < 100 or not os.path.exists(u["jobs"]):
+            continue
+        with tempfile.TemporaryDirectory(prefix="f8re_") as td:
+            if kind == "D2":
+                cells = os.path.join(td, stem + ".cells.csv")
+                with open(cells, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(L.HDR_CELLS + "\n%s|a0,%d,%d,,1.00,0,inf,0,%d\n" % (cellname, L.D2_WINDOW, L.D2_WINDOW, L.D2_WINDOW))
+            else:
+                cells = g["cells"]
+            base = "%s%s" % (stem, ("__" + u["shard"]) if u["shard"] else "")
+            tmp_out = os.path.join(out_dir, base + ".jobday.csv.part")
+            a = dict(kind={"A1": "pair", "A2": "pair", "B1": "basket", "C1": "cross", "D2": "funding-pp"}[kind],
+                     panels=os.path.join(pan, exy), panels_b=(os.path.join(pan, exx) if kind in ("C1", "D2") else None),
+                     funding_y=(u["fund"] if kind == "D2" else os.path.join(fund, exy)),
+                     funding_x=(os.path.join(fund, exx) if kind == "C1" else None), cells=cells, jobs=u["jobs"], real_trades=u["trades"],
+                     out=tmp_out, out_trades=((os.path.join(out_dir, base + ".trades.csv.part")) if out_trades else None),
+                     delay_x=1 if kind == "C1" else 0, seed=RE.SEED, replay=False)
+            RE.run(a)
+        os.replace(tmp_out, os.path.join(out_dir, base + ".jobday.csv"))
+        if out_trades:
+            os.replace(a["out_trades"], os.path.join(out_dir, base + ".trades.csv"))
+        produced += 1
+    with open(os.path.join(out_dir, ".done_" + stem + ".part"), "w") as fh:
+        fh.write("files=%d\n" % produced)
+    os.replace(os.path.join(out_dir, ".done_" + stem + ".part"), os.path.join(out_dir, ".done_" + stem))
+    return stem, produced
+
+
+def main_local(a):
+    groups = read_groups(a.groups)
+    todo = [g for g in groups if (not a.only or re.search(a.only, g["stem"])) and not os.path.exists(os.path.join(a.out, ".done_" + g["stem"]))]
+    print("re_all --local: групп в списке %d, к счёту %d, процессов %d" % (len(groups), len(todo), a.procs), flush=True)
+    t0 = time.time()
+    opts = dict(panels=a.panels, funding=a.funding, out=a.out, out_trades=a.out_trades)
+    args = [(g, opts) for g in todo]
+    os.makedirs(a.out, exist_ok=True)
+    if a.procs > 1 and len(args) > 1:
+        from multiprocessing import Pool
+        with Pool(min(a.procs, len(args))) as p:
+            for n, (stem, k) in enumerate(p.imap_unordered(_star, args), 1):
+                print("[%d/%d] %s: файлов %d" % (n, len(args), stem, k), flush=True)
+    else:
+        for i, x in enumerate(args):
+            stem, k = one_group_local(*x)
+            print("[%d/%d] %s: файлов %d" % (i + 1, len(args), stem, k), flush=True)
+    print("re_all --local: готово за %.1f с" % (time.time() - t0))
+
+
+def _star(x):
+    return one_group_local(*x)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["trade", "form"], required=True)
+    ap.add_argument("--mode", choices=["trade", "form"])
     ap.add_argument("--out", required=True)
     ap.add_argument("--only")
     ap.add_argument("--stage")
     ap.add_argument("--out-trades", action="store_true")
     ap.add_argument("--tmp", default=None)
+    ap.add_argument("--local", action="store_true")
+    ap.add_argument("--procs", type=int, default=1)
+    ap.add_argument("--groups")
+    ap.add_argument("--panels")
+    ap.add_argument("--funding")
     a = ap.parse_args()
+    if a.local:
+        if not (a.groups and a.panels and a.funding):
+            raise SystemExit("--local: нужны --groups, --panels, --funding")
+        return main_local(a)
+    if not a.mode:
+        raise SystemExit("нужен --mode")
     M = dict(L.MODES[a.mode], mode=a.mode)
     stages = set(a.stage.split(",")) if a.stage else {"w1", "w2", "w3"}
     todo = [g for g in L.load_groups() if ("w%d" % g["wave"]) in stages and (not a.only or re.search(a.only, g["stem"]))]

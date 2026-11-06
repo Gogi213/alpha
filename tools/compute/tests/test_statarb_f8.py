@@ -1,4 +1,5 @@
-"""TK-493 S3: тесты контролей и запуска F8 (f8_shift, f8_lists, f8_randentry, f8_agg, f8_run.sh). Торговое окно не читается: синтетика и закоммиченные списки S1."""
+"""TK-493 S3 + w5 F: тесты контролей и запуска F8 (f8_shift, f8_lists, f8_randentry, f8_agg, f8_p1, f8_act, f8_handexample, f8_run.sh). Торговое окно не читается:
+синтетика и закоммиченные списки S1/S2."""
 import csv, hashlib, math, os, shutil, subprocess, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -12,7 +13,9 @@ import f8_agg as AG     # noqa: E402
 try:
     import numpy as np
     import f8_randentry as RE
-except ImportError:      # numpy нет - тесты симуляции пропускаются
+    import f8_p1 as P1
+    import f8_act as ACT
+except ImportError:      # numpy нет - тесты симуляции и панелей пропускаются
     np = None
 
 NAN = float("nan")
@@ -76,6 +79,52 @@ class ListsTests(unittest.TestCase):
         self.assertEqual(len(L.NO17_SYMS), 17)
         self.assertIn("KODEX200USDT", L.NO17_SYMS)
 
+    def test_gen_has_all_stages_and_flags(self):
+        """Состав единиц F8 (w5 F): стадии, PGO-бинарь, 8 потоков, флаги D5(ii)/D10/D11, пути только внутри рабочего каталога и сухого корня."""
+        import f8_lists as L
+        if not os.path.exists(os.path.join(L.SELDOC, "waves_manifest.csv")) or not os.path.exists(L.CONTRACTS):
+            self.skipTest("нет манифеста волн или contracts.csv")
+        tmp = tempfile.mkdtemp()
+        try:
+            for mode in ("form", "trade"):
+                units = os.path.join(tmp, mode + ".tsv")
+                us = L.gen(mode, os.path.join(tmp, "lists_" + mode), units)
+                stages = {u[1] for u in us}
+                self.assertEqual(stages, {"w1", "w2", "w3", "w4", "mkplac", "pl", "rp", "sm", "n17", "mk1", "p1", "act", "flags", "re"})
+                groups = L.load_groups()
+                self.assertEqual(sum(1 for u in us if u[1] == "p1"), len(groups))               # +1 мин: тот же состав клеток
+                self.assertEqual(sum(1 for u in us if u[1] == "pl"), len(groups))
+                self.assertEqual(sum(1 for u in us if u[1] == "w4"), sum(1 for g in groups if g["kind"] == "A1"))
+                for uid, st, cmd, outs in us:
+                    self.assertNotIn("4ef45cc8", cmd, uid)
+                    self.assertNotIn("sel/f8_dry", cmd, uid)
+                    self.assertNotIn("--threads 4", cmd, uid)
+                    if "statarb run" in cmd:
+                        self.assertIn("statarb-xdl9-a24f4c96-pgo", cmd, uid)
+                        self.assertIn("--threads ${THREADS:-8}", cmd, uid)
+                        if st in ("w1", "w2", "w3", "pl", "rp", "sm", "n17", "p1", "w4"):
+                            self.assertIn("--mtm-open", cmd, uid)
+                        if "--kind funding-pp" in cmd:
+                            self.assertIn("--no-entry-before-from", cmd, uid)
+                        if st in ("w1", "w2", "w3"):
+                            self.assertIn("--job-ext-out", cmd, uid)
+                            self.assertIn("--trades-ext", cmd, uid)
+                    if st == "p1":
+                        self.assertIn("/trade1/" if mode == "trade" else "/form1/", cmd, uid)
+                self.assertTrue(os.path.exists(os.path.join(tmp, "lists_" + mode, "p1_needs.tsv")))
+                self.assertTrue(os.path.exists(os.path.join(tmp, "lists_" + mode, "act", "main.tsv")))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+@unittest.skipIf(np is None, "нет numpy")
+class P1ActTests(unittest.TestCase):
+    def test_p1_selftest(self):
+        P1.selftest()
+
+    def test_act_selftest(self):
+        ACT.selftest()
+
 
 @unittest.skipIf(np is None, "нет numpy")
 class RandomEntryTests(unittest.TestCase):
@@ -129,45 +178,61 @@ class AggTests(unittest.TestCase):
     def _write(self, path, header, rows):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="") as fh:
-            w = csv.writer(fh)
+            w = csv.writer(fh, lineterminator="\n")
             w.writerow(header)
             w.writerows(rows)
 
     def test_selftest(self):
         AG.selftest()
 
-    def test_cells_and_controls_on_synthetic_run(self):
+    def test_hand_example_three_pairs_to_status(self):
+        """Ручной пример с известным ответом: 3 пары -> f8_agg.py cells (CLI) -> cell_status; каждое число сверено независимой формулой."""
+        import f8_handexample as HX
+        self.assertEqual(HX.main(), 0)
+
+    def test_cells_refuse_without_contracts(self):
         tmp = tempfile.mkdtemp()
         try:
-            hdr = ["cell", "job", "y", "x", "day", "net_bps", "gross_bps", "fee_bps", "funding_bps", "trades", "active"]
-            cell = "A2|aster|crypto|a0"
-            rows, rows_pl, rows_re = [], [], []
+            with self.assertRaises(SystemExit):
+                AG.cmd_cells(dict(run=tmp, out=os.path.join(tmp, "o"), d0=AG.D0, d1=AG.D1))              # --contracts не задан (аудит M3-02)
+            ctr = os.path.join(tmp, "empty.csv")
+            self._write(ctr, ["exchange", "symbol", "asset_id", "slug"], [])
+            with self.assertRaises(SystemExit):
+                AG.cmd_cells(dict(run=tmp, out=os.path.join(tmp, "o"), d0=AG.D0, d1=AG.D1, contracts=ctr))   # файл пуст
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_d2_denominator_from_panels_and_orphans(self):
+        """D2: знаменатель - активность по панелям (act/main), а не z ядра (active = 0 в jobday); сделки в (задание, сутки) без активности считаются сиротами по (задание, сутки)."""
+        tmp = tempfile.mkdtemp()
+        try:
+            cell = "D2|binance~kraken|crypto|a0"
+            jd = ["cell", "job", "y", "x", "day", "net_bps", "gross_bps", "fee_bps", "funding_bps", "trades", "active"]
+            rows = []
             for d in range(AG.D0, AG.D1):
-                v = 10.0 + (d % 3)
-                rows.append([cell, 0, "AAAUSDT", "BTCUSDT", d, v, v + 12.6, 12.6, 0, 1, 1])
-                rows.append([cell, 1, "BBBUSDT", "BTCUSDT", d, -2.0, 10.6, 12.6, 0, 1, 1])
-                rows_pl.append([cell, 0, "AAAUSDT", "BTCUSDT@p1", d, -12.6, 0, 12.6, 0, 1, 1])
-                rows_re.append([cell, 0, "AAAUSDT", "BTCUSDT", d, -12.6, 0, 12.6, 0, 1])
-            self._write(os.path.join(tmp, "w1", "A2_aster_crypto__aster__aster.jobday.csv"), hdr, rows)
-            self._write(os.path.join(tmp, "pl", "A2_aster_crypto__aster__aster.jobday.csv"), hdr, rows_pl)
-            self._write(os.path.join(tmp, "re", "A2_aster_crypto__aster__aster.jobday.csv"), hdr[:-1], rows_re)
-            out = os.path.join(tmp, "agg")
-            sm = AG.cmd_cells(dict(run=tmp, out=out, d0=AG.D0, d1=AG.D1))
-            self.assertEqual(len(sm), 1)
-            with open(os.path.join(out, "cell_summary.csv"), encoding="utf-8") as fh:
-                cols = fh.readline().strip().split(",")
-            row = dict(zip(cols, sm[0]))
-            self.assertEqual(row["days_with_value"], 21)
-            self.assertEqual(row["trades"], 42)
-            ds = [((10.0 + d % 3) - 2.0) / 2 for d in range(AG.D0, AG.D1)]
-            self.assertAlmostEqual(row["mean_bps_day_pair"], sum(ds) / 21, places=9)
-            self.assertEqual(row["trades_on_days_without_active_pairs"], 0)
-            ctr = AG.cmd_controls(dict(run=tmp, out=out, d0=AG.D0, d1=AG.D1))
-            stages = {r[1] for r in ctr}
-            self.assertEqual(stages, {"main", "pl", "re"})
-            re_row = [r for r in ctr if r[1] == "re"][0]
-            self.assertGreater(re_row[8], 0)             # разность «клетка - случайные входы» положительна по построению
-            self.assertGreater(re_row[9], 0)             # и нижняя граница > 0
+                rows.append([cell, 0, "AAAUSDT", "AAAUSDT", d, 10.0, 22.6, 12.6, 0, 1, 0])             # z ядра не определён: active = 0
+                rows.append([cell, 1, "BBBUSDT", "BBBUSDT", d, 6.0, 18.6, 12.6, 0, 1, 0])
+            self._write(os.path.join(tmp, "w1", "D2_binance-kraken_crypto__binance__kraken__shard0.jobday.csv"), jd, rows)
+            act = []
+            for d in range(AG.D0, AG.D1):
+                act.append([cell, "AAAUSDT", "AAAUSDT", d, 1])
+                act.append([cell, "BBBUSDT", "BBBUSDT", d, 1 if d != AG.D0 else 0])                    # на первых сутках пара 2 неактивна, а сделка есть
+            self._write(os.path.join(tmp, "act", "main", "D2_binance-kraken_crypto__binance__kraken.act.csv"), ["cell", "y", "x", "day", "active"], act)
+            run = AG.Run(tmp, AG.MAIN_STAGES, AG.D0, AG.D1, act=AG.load_act(tmp, "main"))
+            keys = run.keys_of(cell)
+            self.assertEqual(len(keys), 2)
+            sm = run.sums(keys, range(AG.D0, AG.D1))
+            self.assertEqual(sm["active"], 2 * 21 - 1)
+            n, net = run.orphans(keys, range(AG.D0, AG.D1))
+            self.assertEqual((n, net), (1, 6.0))
+            s = run.series(cell, keys, list(range(AG.D0, AG.D1)))
+            self.assertEqual(len(s["closed"]), 21)
+            self.assertAlmostEqual(s["closed"][1], 8.0)                                                  # (10 + 6)/2 на обычные сутки
+            self.assertAlmostEqual(s["closed"][0], (10.0 + 6.0) / 1)                                     # в числителе обе сделки, в знаменателе одна пара: сирота виден в orphans
+            # пара D2 без записи в act получает active = 0 (act_missing), а не z ядра
+            run2 = AG.Run(tmp, AG.MAIN_STAGES, AG.D0, AG.D1, act={})
+            self.assertEqual(len(run2.act_missing), 2)
+            self.assertEqual(run2.sums(run2.keys_of(cell), range(AG.D0, AG.D1))["active"], 0)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -187,8 +252,7 @@ class AggTests(unittest.TestCase):
             self._write(os.path.join(defs, "slices_days.csv"), ["slice", "description", "days"], [["d", "x", "2480"]])
             self._write(os.path.join(defs, "slices_hours.csv"), ["slice", "description", "hour_from", "hour_to"], [["H00_05", "x", 0, 5], ["H06_11", "x", 6, 11]])
             self._write(os.path.join(defs, "slices_hyp.csv"), ["slice", "text", "kinds", "ex_pairs", "bases", "availability"],
-                        [["H3", "LAB", "C1", "aster~binance", "LAB", ""], ["H5", "PORT3", "", "", "", "нет в данных"]])
-            # контракты: LAB и AAA
+                        [["H3", "LAB", "C1", "aster~binance", "LAB", ""], ["H5", "PORT3", "", "", "", "нет в данных"], ["H1", "ZZZ", "C1", "aster~binance", "ZZZ", ""]])
             ctr = os.path.join(tmp, "contracts.csv")
             self._write(ctr, ["exchange", "symbol", "asset_id", "slug"],
                         [["aster", "LABUSDT", "LAB|крипта", "crypto"], ["binance", "LABUSDT", "LAB|крипта", "crypto"], ["aster", "AAAUSDT", "AAA|крипта", "crypto"], ["binance", "AAAUSDT", "AAA|крипта", "crypto"]])
@@ -199,11 +263,18 @@ class AggTests(unittest.TestCase):
             self.assertEqual(by[("H3", cell)][3], 1)           # из двух заданий в срез LAB попало одно
             self.assertEqual(by[("H3", cell)][5], 1)
             self.assertIn(("H5", "-"), by)                     # «нет в данных» остаётся строкой
+            self.assertIn("нет данных", by[("H5", "-")][-1])
+            self.assertIn(("H1", "-"), by)                     # D8: пары гипотезы вне торгуемых клеток - строка «нет данных», а не пропуск и не чужие параметры
+            self.assertIn("нет данных", by[("H1", "-")][-1])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-@unittest.skipIf(shutil.which("bash") is None or sys.platform == "win32" and shutil.which("flock") is None, "нет bash/flock")
+GIT = shutil.which("git")
+FLOCK = shutil.which("flock")
+
+
+@unittest.skipIf(shutil.which("bash") is None or FLOCK is None, "нет bash/flock")
 class RunScriptTests(unittest.TestCase):
     """Защиты f8_run.sh на фиктивном бинаре и списке из трёх единиц (git и params не нужны: --dry-form пропускает боевые проверки, но не sha бинаря)."""
 
@@ -213,9 +284,10 @@ class RunScriptTests(unittest.TestCase):
         with open(self.fbin, "w", newline="\n") as fh:
             fh.write("#!/bin/sh\nexit 0\n")
         os.chmod(self.fbin, 0o755)
-        self.sha = hashlib.sha256(open(self.fbin, "rb").read()).hexdigest()
+        with open(self.fbin, "rb") as fh:
+            self.sha = hashlib.sha256(fh.read()).hexdigest()
         with open(os.path.join(self.tmp, "f8_expected.env"), "w", newline="\n") as fh:
-            fh.write("F8_BIN_SHA256=%s\nF8_PARAMS_REL=none.csv\nF8_PARAMS_SHA256=x\nF8_UNITS_SHA256=x\nF8_NEED_GB=0\n" % self.sha)
+            fh.write("F8_BIN_SHA256=%s\nF8_PARAMS_REL=none.csv\nF8_PARAMS_SHA256=x\nF8_PROTO_REL=none.md\nF8_PROTO_SHA256=x\nF8_UNITS_SHA256=x\nF8_NEED_GB=0\n" % self.sha)
         self.cwd = os.path.join(self.tmp, "cwd")
         os.makedirs(self.cwd)
         with open(os.path.join(self.tmp, "f8_units.tsv"), "w", newline="\n") as fh:
@@ -270,6 +342,180 @@ class RunScriptTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertTrue(os.path.exists(os.path.join(self.cwd, ".done", "b_three")))
         self.assertFalse(os.path.exists(os.path.join(self.cwd, ".done", "a_one")))
+
+    def test_threads_above_limit_refused(self):
+        r = self.run_sh("--go", "--dry-form", env={"THREADS": "9"})
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("THREADS=9", r.stdout)
+
+    def test_eight_threads_allowed(self):
+        open(os.path.join(self.cwd, "marker_ok"), "w").close()
+        r = self.run_sh("--go", "--dry-form", "--stage", "w2", env={"THREADS": "8"})
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+
+@unittest.skipIf(shutil.which("bash") is None or FLOCK is None or GIT is None, "нет bash/flock/git")
+class RunScriptRealModeTests(unittest.TestCase):
+    """Боевые защиты f8_run.sh в настоящем git-дереве (временный репозиторий: params, протокол и список закоммичены; скрипт лежит внутри него).
+    Каждая защита проверяется поломкой: правка params / протокола / списка после коммита, непустой out, метка .f8_started от другого params, чужой замок,
+    подмена бинаря, потоков больше 8."""
+
+    def sh(self, *a, cwd=None, env=None, check=True):
+        e = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        e.update(env or {})
+        r = subprocess.run(list(a), capture_output=True, text=True, cwd=cwd or self.repo, env=e)
+        if check and r.returncode != 0:
+            raise AssertionError("%s: %s%s" % (a, r.stdout, r.stderr))
+        return r
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmp, "repo")
+        os.makedirs(os.path.join(self.repo, "docs", "research"))
+        os.makedirs(os.path.join(self.repo, "tools"))
+        self.fbin = os.path.join(self.tmp, "fakebin")
+        with open(self.fbin, "w", newline="\n") as fh:
+            fh.write("#!/bin/sh\nexit 0\n")
+        os.chmod(self.fbin, 0o755)
+        with open(self.fbin, "rb") as fh:
+            self.bsha = hashlib.sha256(fh.read()).hexdigest()
+        self.params = os.path.join(self.repo, "docs", "research", "params.csv")
+        self.proto = os.path.join(self.repo, "docs", "research", "proto.md")
+        self.units = os.path.join(self.repo, "tools", "f8_units.tsv")
+        for p, t in ((self.params, "key,value\nk,1\n"), (self.proto, "# protocol\n"),
+                     (self.units, "id\tstage\tcmd\touts\na:one\tw1\techo one > out/w1/one.txt\tout/w1/one.*\n")):
+            with open(p, "w", newline="\n") as fh:
+                fh.write(t)
+        shutil.copy(os.path.join(XD, "f8_run.sh"), os.path.join(self.repo, "tools", "f8_run.sh"))
+        self.sh("git", "init", "-q")
+        self.sh("git", "add", "-A")
+        self.sh("git", "commit", "-q", "-m", "init")
+        sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+        self.env_path = os.path.join(self.repo, "tools", "f8_expected.env")
+        with open(self.env_path, "w", newline="\n") as fh:
+            fh.write("F8_BIN_SHA256=%s\nF8_PARAMS_REL=docs/research/params.csv\nF8_PARAMS_SHA256=%s\nF8_PROTO_REL=docs/research/proto.md\nF8_PROTO_SHA256=%s\n"
+                     "F8_UNITS_SHA256=%s\nF8_NEED_GB=0\n" % (self.bsha, sha(self.params), sha(self.proto), sha(self.units)))
+        self.cwd = os.path.join(self.tmp, "cwd")
+        os.makedirs(self.cwd)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def go(self, *args, env=None):
+        e = dict(os.environ, HOME=os.path.join(self.tmp, "home"), F8_CWD=self.cwd, F8_BIN=self.fbin, F8_UNITS=self.units, THREADS="2")
+        e.update(env or {})
+        return subprocess.run(["bash", os.path.join(self.repo, "tools", "f8_run.sh"), "--go"] + list(args), capture_output=True, text=True, env=e, cwd=self.tmp)
+
+    def test_clean_run_passes_and_writes_started(self):
+        r = self.go()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertTrue(os.path.exists(os.path.join(self.cwd, ".f8_started")))
+        self.assertIn("started_proto_sha256=", open(os.path.join(self.cwd, ".f8_started"), encoding="utf-8").read())
+
+    def test_params_changed_after_commit_refused(self):
+        with open(self.params, "a", newline="\n") as fh:
+            fh.write("k2,2\n")
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("изменён относительно HEAD", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.cwd, ".f8_started")))
+
+    def test_proto_changed_after_commit_refused(self):
+        with open(self.proto, "a", newline="\n") as fh:
+            fh.write("x\n")
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("протокол", r.stdout)
+
+    def test_units_changed_refused(self):
+        with open(self.units, "a", newline="\n") as fh:
+            fh.write("b:two\tw1\techo\tout/w1/x.*\n")
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("список единиц", r.stdout)
+
+    def test_expected_sha_mismatch_refused(self):
+        text = open(self.env_path, encoding="utf-8").read().replace("F8_PROTO_SHA256=", "F8_PROTO_SHA256=00")
+        with open(self.env_path, "w", newline="\n") as fh:
+            fh.write(text)
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("sha256", r.stdout)
+
+    def test_nonempty_out_before_first_run_refused(self):
+        os.makedirs(os.path.join(self.cwd, "out"))
+        open(os.path.join(self.cwd, "out", "x"), "w").close()
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("не пуст", r.stdout)
+
+    def test_existing_d2_dir_before_first_run_refused(self):
+        os.makedirs(os.path.join(self.cwd, "d2_p1"))
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("d2_p1", r.stdout)
+
+    def test_resume_refused_when_started_with_other_params(self):
+        self.assertEqual(self.go().returncode, 0)
+        text = open(os.path.join(self.cwd, ".f8_started"), encoding="utf-8").read().replace("started_params_sha256=", "started_params_sha256=ff")
+        with open(os.path.join(self.cwd, ".f8_started"), "w", newline="\n") as fh:
+            fh.write(text)
+        shutil.rmtree(os.path.join(self.cwd, ".done"))
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("возобновление запрещено", r.stdout)
+
+    def test_second_concurrent_run_refused_by_lock(self):
+        import time
+        lock = os.path.join(self.cwd, ".f8_lock")
+        os.makedirs(self.cwd, exist_ok=True)
+        holder = subprocess.Popen(["bash", "-c", "exec 9>%s; flock -n 9 && sleep 20" % lock])
+        try:
+            time.sleep(0.6)
+            r = self.go()
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("уже идёт другой запуск", r.stdout)
+        finally:
+            holder.kill()
+            holder.wait()
+
+    def test_wrong_binary_refused(self):
+        with open(self.fbin, "a", newline="\n") as fh:
+            fh.write("# tampered\n")
+        r = self.go()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("sha256 бинаря", r.stdout)
+
+    def test_nine_threads_refused(self):
+        r = self.go(env={"THREADS": "9"})
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("THREADS=9", r.stdout)
+
+    def test_token_mode_on_copy_without_git(self):
+        """Deck: копия без git + токен f8_git_ok + копии params и протокола с теми же sha256."""
+        deck = os.path.join(self.tmp, "deckdir")
+        os.makedirs(deck)
+        shutil.copy(os.path.join(XD, "f8_run.sh"), deck)
+        shutil.copy(self.env_path, deck)
+        shutil.copy(self.units, os.path.join(deck, "f8_units.tsv"))
+        r = subprocess.run(["bash", os.path.join(self.repo, "tools", "f8_run.sh"), "--git-token"], capture_output=True, text=True, env=dict(os.environ, F8_UNITS=self.units))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        shutil.copy(os.path.join(self.repo, "tools", "f8_git_ok"), deck)
+        home = os.path.join(self.tmp, "home", "xdl9", "sel")
+        os.makedirs(home)
+        shutil.copy(self.params, home)
+        shutil.copy(self.proto, home)
+        e = dict(os.environ, HOME=os.path.join(self.tmp, "home"), F8_CWD=self.cwd, F8_BIN=self.fbin, F8_UNITS=os.path.join(deck, "f8_units.tsv"), THREADS="2")
+        ok = subprocess.run(["bash", os.path.join(deck, "f8_run.sh"), "--go"], capture_output=True, text=True, env=e, cwd=self.tmp)
+        self.assertEqual(ok.returncode, 0, ok.stdout)
+        # подмена копии протокола на Deck - отказ
+        with open(os.path.join(home, "proto.md"), "a", newline="\n") as fh:
+            fh.write("tampered\n")
+        shutil.rmtree(self.cwd)
+        os.makedirs(self.cwd)
+        bad = subprocess.run(["bash", os.path.join(deck, "f8_run.sh"), "--go"], capture_output=True, text=True, env=e, cwd=self.tmp)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("протокола", bad.stdout)
 
 
 if __name__ == "__main__":

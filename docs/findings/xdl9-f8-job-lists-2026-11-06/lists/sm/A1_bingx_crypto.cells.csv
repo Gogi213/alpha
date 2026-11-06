@@ -1,3 +1,3 @@
 cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
-A1|bingx|crypto|a0,508,458,,1.50,0,inf,508,508
-A1|bingx|crypto|a1,508,458,,1.50,0,3.00,508,508
+A1|bingx|crypto|a0,396,357,,1.25,0,inf,396,396
+A1|bingx|crypto|a1,396,357,,1.25,0,2.50,396,396

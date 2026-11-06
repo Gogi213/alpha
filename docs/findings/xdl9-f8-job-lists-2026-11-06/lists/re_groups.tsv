@@ -1,0 +1,180 @@
+stem	kind	cell	exy	exx	wave	jobs	cells
+A2_aster_crypto__aster__aster	A2	A2|aster|crypto	aster	aster	1	w1/A2_aster_crypto__aster__aster.jobs.csv	w1/A2_aster_crypto.cells.csv
+A2_bitget_crypto__bitget__bitget	A2	A2|bitget|crypto	bitget	bitget	1	w1/A2_bitget_crypto__bitget__bitget.jobs.csv	w1/A2_bitget_crypto.cells.csv
+A2_bybit_crypto__bybit__bybit	A2	A2|bybit|crypto	bybit	bybit	1	w1/A2_bybit_crypto__bybit__bybit.jobs.csv	w1/A2_bybit_crypto.cells.csv
+A2_okx_crypto__okx__okx	A2	A2|okx|crypto	okx	okx	1	w1/A2_okx_crypto__okx__okx.jobs.csv	w1/A2_okx_crypto.cells.csv
+C1_aster-okx_crypto_w64__aster__okx	C1	C1|aster~okx|crypto|w64	aster	okx	1	w1/C1_aster-okx_crypto_w64__aster__okx.jobs.csv	w1/C1_aster~okx_crypto_w64.cells.csv
+C1_aster-okx_crypto_w64__okx__aster	C1	C1|aster~okx|crypto|w64	okx	aster	1	w1/C1_aster-okx_crypto_w64__okx__aster.jobs.csv	w1/C1_aster~okx_crypto_w64.cells.csv
+D2_aster-binance_crypto__binance__aster	D2	D2|aster~binance|crypto	binance	aster	1	w1/D2_aster-binance_crypto__binance__aster.pairs.csv	
+D2_aster-binance_eq_nonus__binance__aster	D2	D2|aster~binance|eq_nonus	binance	aster	1	w1/D2_aster-binance_eq_nonus__binance__aster.pairs.csv	
+D2_aster-binance_eq_us__aster__binance	D2	D2|aster~binance|eq_us	aster	binance	1	w1/D2_aster-binance_eq_us__aster__binance.pairs.csv	
+D2_aster-binance_eq_us__binance__aster	D2	D2|aster~binance|eq_us	binance	aster	1	w1/D2_aster-binance_eq_us__binance__aster.pairs.csv	
+D2_aster-binance_metal_energy__binance__aster	D2	D2|aster~binance|metal_energy	binance	aster	1	w1/D2_aster-binance_metal_energy__binance__aster.pairs.csv	
+D2_aster-bingx_crypto__aster__bingx	D2	D2|aster~bingx|crypto	aster	bingx	1	w1/D2_aster-bingx_crypto__aster__bingx.pairs.csv	
+D2_aster-bingx_crypto__bingx__aster	D2	D2|aster~bingx|crypto	bingx	aster	1	w1/D2_aster-bingx_crypto__bingx__aster.pairs.csv	
+D2_aster-bingx_eq_nonus__aster__bingx	D2	D2|aster~bingx|eq_nonus	aster	bingx	1	w1/D2_aster-bingx_eq_nonus__aster__bingx.pairs.csv	
+D2_aster-bingx_eq_us__aster__bingx	D2	D2|aster~bingx|eq_us	aster	bingx	1	w1/D2_aster-bingx_eq_us__aster__bingx.pairs.csv	
+D2_aster-bingx_eq_us__bingx__aster	D2	D2|aster~bingx|eq_us	bingx	aster	1	w1/D2_aster-bingx_eq_us__bingx__aster.pairs.csv	
+D2_aster-bingx_metal_energy__aster__bingx	D2	D2|aster~bingx|metal_energy	aster	bingx	1	w1/D2_aster-bingx_metal_energy__aster__bingx.pairs.csv	
+D2_aster-bingx_metal_energy__bingx__aster	D2	D2|aster~bingx|metal_energy	bingx	aster	1	w1/D2_aster-bingx_metal_energy__bingx__aster.pairs.csv	
+D2_aster-bitget_crypto__aster__bitget	D2	D2|aster~bitget|crypto	aster	bitget	1	w1/D2_aster-bitget_crypto__aster__bitget.pairs.csv	
+D2_aster-bitget_crypto__bitget__aster	D2	D2|aster~bitget|crypto	bitget	aster	1	w1/D2_aster-bitget_crypto__bitget__aster.pairs.csv	
+D2_aster-bitget_eq_nonus__aster__bitget	D2	D2|aster~bitget|eq_nonus	aster	bitget	1	w1/D2_aster-bitget_eq_nonus__aster__bitget.pairs.csv	
+D2_aster-bitget_eq_nonus__bitget__aster	D2	D2|aster~bitget|eq_nonus	bitget	aster	1	w1/D2_aster-bitget_eq_nonus__bitget__aster.pairs.csv	
+D2_aster-bitget_eq_us__bitget__aster	D2	D2|aster~bitget|eq_us	bitget	aster	1	w1/D2_aster-bitget_eq_us__bitget__aster.pairs.csv	
+D2_aster-bitget_metal_energy__aster__bitget	D2	D2|aster~bitget|metal_energy	aster	bitget	1	w1/D2_aster-bitget_metal_energy__aster__bitget.pairs.csv	
+D2_aster-bitget_metal_energy__bitget__aster	D2	D2|aster~bitget|metal_energy	bitget	aster	1	w1/D2_aster-bitget_metal_energy__bitget__aster.pairs.csv	
+D2_aster-bybit_crypto__aster__bybit	D2	D2|aster~bybit|crypto	aster	bybit	1	w1/D2_aster-bybit_crypto__aster__bybit.pairs.csv	
+D2_aster-bybit_crypto__bybit__aster	D2	D2|aster~bybit|crypto	bybit	aster	1	w1/D2_aster-bybit_crypto__bybit__aster.pairs.csv	
+D2_aster-bybit_eq_nonus__bybit__aster	D2	D2|aster~bybit|eq_nonus	bybit	aster	1	w1/D2_aster-bybit_eq_nonus__bybit__aster.pairs.csv	
+D2_aster-bybit_eq_us__aster__bybit	D2	D2|aster~bybit|eq_us	aster	bybit	1	w1/D2_aster-bybit_eq_us__aster__bybit.pairs.csv	
+D2_aster-bybit_eq_us__bybit__aster	D2	D2|aster~bybit|eq_us	bybit	aster	1	w1/D2_aster-bybit_eq_us__bybit__aster.pairs.csv	
+D2_aster-bybit_metal_energy__aster__bybit	D2	D2|aster~bybit|metal_energy	aster	bybit	1	w1/D2_aster-bybit_metal_energy__aster__bybit.pairs.csv	
+D2_aster-bybit_metal_energy__bybit__aster	D2	D2|aster~bybit|metal_energy	bybit	aster	1	w1/D2_aster-bybit_metal_energy__bybit__aster.pairs.csv	
+D2_aster-kraken_crypto__aster__kraken	D2	D2|aster~kraken|crypto	aster	kraken	1	w1/D2_aster-kraken_crypto__aster__kraken.pairs.csv	
+D2_aster-kraken_eq_us__aster__kraken	D2	D2|aster~kraken|eq_us	aster	kraken	1	w1/D2_aster-kraken_eq_us__aster__kraken.pairs.csv	
+D2_aster-kraken_metal_energy__aster__kraken	D2	D2|aster~kraken|metal_energy	aster	kraken	1	w1/D2_aster-kraken_metal_energy__aster__kraken.pairs.csv	
+D2_aster-lighter_crypto__aster__lighter	D2	D2|aster~lighter|crypto	aster	lighter	1	w1/D2_aster-lighter_crypto__aster__lighter.pairs.csv	
+D2_aster-lighter_crypto__lighter__aster	D2	D2|aster~lighter|crypto	lighter	aster	1	w1/D2_aster-lighter_crypto__lighter__aster.pairs.csv	
+D2_aster-lighter_eq_nonus__aster__lighter	D2	D2|aster~lighter|eq_nonus	aster	lighter	1	w1/D2_aster-lighter_eq_nonus__aster__lighter.pairs.csv	
+D2_aster-lighter_eq_us__aster__lighter	D2	D2|aster~lighter|eq_us	aster	lighter	1	w1/D2_aster-lighter_eq_us__aster__lighter.pairs.csv	
+D2_aster-lighter_metal_energy__aster__lighter	D2	D2|aster~lighter|metal_energy	aster	lighter	1	w1/D2_aster-lighter_metal_energy__aster__lighter.pairs.csv	
+D2_aster-okx_crypto__aster__okx	D2	D2|aster~okx|crypto	aster	okx	1	w1/D2_aster-okx_crypto__aster__okx.pairs.csv	
+D2_aster-okx_crypto__okx__aster	D2	D2|aster~okx|crypto	okx	aster	1	w1/D2_aster-okx_crypto__okx__aster.pairs.csv	
+D2_aster-okx_eq_nonus__okx__aster	D2	D2|aster~okx|eq_nonus	okx	aster	1	w1/D2_aster-okx_eq_nonus__okx__aster.pairs.csv	
+D2_aster-okx_eq_us__aster__okx	D2	D2|aster~okx|eq_us	aster	okx	1	w1/D2_aster-okx_eq_us__aster__okx.pairs.csv	
+D2_aster-okx_eq_us__okx__aster	D2	D2|aster~okx|eq_us	okx	aster	1	w1/D2_aster-okx_eq_us__okx__aster.pairs.csv	
+D2_aster-okx_metal_energy__okx__aster	D2	D2|aster~okx|metal_energy	okx	aster	1	w1/D2_aster-okx_metal_energy__okx__aster.pairs.csv	
+D2_binance-bingx_crypto__binance__bingx	D2	D2|binance~bingx|crypto	binance	bingx	1	w1/D2_binance-bingx_crypto__binance__bingx.pairs.csv	
+D2_binance-bingx_crypto__bingx__binance	D2	D2|binance~bingx|crypto	bingx	binance	1	w1/D2_binance-bingx_crypto__bingx__binance.pairs.csv	
+D2_binance-bingx_eq_nonus__binance__bingx	D2	D2|binance~bingx|eq_nonus	binance	bingx	1	w1/D2_binance-bingx_eq_nonus__binance__bingx.pairs.csv	
+D2_binance-bingx_eq_nonus__bingx__binance	D2	D2|binance~bingx|eq_nonus	bingx	binance	1	w1/D2_binance-bingx_eq_nonus__bingx__binance.pairs.csv	
+D2_binance-bingx_eq_us__binance__bingx	D2	D2|binance~bingx|eq_us	binance	bingx	1	w1/D2_binance-bingx_eq_us__binance__bingx.pairs.csv	
+D2_binance-bingx_eq_us__bingx__binance	D2	D2|binance~bingx|eq_us	bingx	binance	1	w1/D2_binance-bingx_eq_us__bingx__binance.pairs.csv	
+D2_binance-bingx_fx__bingx__binance	D2	D2|binance~bingx|fx	bingx	binance	1	w1/D2_binance-bingx_fx__bingx__binance.pairs.csv	
+D2_binance-bingx_metal_energy__binance__bingx	D2	D2|binance~bingx|metal_energy	binance	bingx	1	w1/D2_binance-bingx_metal_energy__binance__bingx.pairs.csv	
+D2_binance-bingx_metal_energy__bingx__binance	D2	D2|binance~bingx|metal_energy	bingx	binance	1	w1/D2_binance-bingx_metal_energy__bingx__binance.pairs.csv	
+D2_binance-bitget_crypto__binance__bitget	D2	D2|binance~bitget|crypto	binance	bitget	1	w1/D2_binance-bitget_crypto__binance__bitget.pairs.csv	
+D2_binance-bitget_crypto__bitget__binance	D2	D2|binance~bitget|crypto	bitget	binance	1	w1/D2_binance-bitget_crypto__bitget__binance.pairs.csv	
+D2_binance-bitget_eq_nonus__binance__bitget	D2	D2|binance~bitget|eq_nonus	binance	bitget	1	w1/D2_binance-bitget_eq_nonus__binance__bitget.pairs.csv	
+D2_binance-bitget_eq_nonus__bitget__binance	D2	D2|binance~bitget|eq_nonus	bitget	binance	1	w1/D2_binance-bitget_eq_nonus__bitget__binance.pairs.csv	
+D2_binance-bitget_eq_us__binance__bitget	D2	D2|binance~bitget|eq_us	binance	bitget	1	w1/D2_binance-bitget_eq_us__binance__bitget.pairs.csv	
+D2_binance-bitget_eq_us__bitget__binance	D2	D2|binance~bitget|eq_us	bitget	binance	1	w1/D2_binance-bitget_eq_us__bitget__binance.pairs.csv	
+D2_binance-bitget_metal_energy__binance__bitget	D2	D2|binance~bitget|metal_energy	binance	bitget	1	w1/D2_binance-bitget_metal_energy__binance__bitget.pairs.csv	
+D2_binance-bybit_crypto__binance__bybit	D2	D2|binance~bybit|crypto	binance	bybit	1	w1/D2_binance-bybit_crypto__binance__bybit.pairs.csv	
+D2_binance-bybit_crypto__bybit__binance	D2	D2|binance~bybit|crypto	bybit	binance	1	w1/D2_binance-bybit_crypto__bybit__binance.pairs.csv	
+D2_binance-bybit_eq_nonus__bybit__binance	D2	D2|binance~bybit|eq_nonus	bybit	binance	1	w1/D2_binance-bybit_eq_nonus__bybit__binance.pairs.csv	
+D2_binance-bybit_eq_us__binance__bybit	D2	D2|binance~bybit|eq_us	binance	bybit	1	w1/D2_binance-bybit_eq_us__binance__bybit.pairs.csv	
+D2_binance-bybit_eq_us__bybit__binance	D2	D2|binance~bybit|eq_us	bybit	binance	1	w1/D2_binance-bybit_eq_us__bybit__binance.pairs.csv	
+D2_binance-bybit_metal_energy__binance__bybit	D2	D2|binance~bybit|metal_energy	binance	bybit	1	w1/D2_binance-bybit_metal_energy__binance__bybit.pairs.csv	
+D2_binance-bybit_metal_energy__bybit__binance	D2	D2|binance~bybit|metal_energy	bybit	binance	1	w1/D2_binance-bybit_metal_energy__bybit__binance.pairs.csv	
+D2_binance-kraken_crypto__binance__kraken	D2	D2|binance~kraken|crypto	binance	kraken	1	w1/D2_binance-kraken_crypto__binance__kraken.pairs.csv	
+D2_binance-kraken_eq_nonus__binance__kraken	D2	D2|binance~kraken|eq_nonus	binance	kraken	1	w1/D2_binance-kraken_eq_nonus__binance__kraken.pairs.csv	
+D2_binance-kraken_eq_us__binance__kraken	D2	D2|binance~kraken|eq_us	binance	kraken	1	w1/D2_binance-kraken_eq_us__binance__kraken.pairs.csv	
+D2_binance-kraken_metal_energy__binance__kraken	D2	D2|binance~kraken|metal_energy	binance	kraken	1	w1/D2_binance-kraken_metal_energy__binance__kraken.pairs.csv	
+D2_binance-lighter_crypto__binance__lighter	D2	D2|binance~lighter|crypto	binance	lighter	1	w1/D2_binance-lighter_crypto__binance__lighter.pairs.csv	
+D2_binance-lighter_eq_nonus__binance__lighter	D2	D2|binance~lighter|eq_nonus	binance	lighter	1	w1/D2_binance-lighter_eq_nonus__binance__lighter.pairs.csv	
+D2_binance-lighter_eq_us__binance__lighter	D2	D2|binance~lighter|eq_us	binance	lighter	1	w1/D2_binance-lighter_eq_us__binance__lighter.pairs.csv	
+D2_binance-lighter_metal_energy__binance__lighter	D2	D2|binance~lighter|metal_energy	binance	lighter	1	w1/D2_binance-lighter_metal_energy__binance__lighter.pairs.csv	
+D2_binance-okx_crypto__binance__okx	D2	D2|binance~okx|crypto	binance	okx	1	w1/D2_binance-okx_crypto__binance__okx.pairs.csv	
+D2_binance-okx_crypto__okx__binance	D2	D2|binance~okx|crypto	okx	binance	1	w1/D2_binance-okx_crypto__okx__binance.pairs.csv	
+D2_binance-okx_eq_nonus__okx__binance	D2	D2|binance~okx|eq_nonus	okx	binance	1	w1/D2_binance-okx_eq_nonus__okx__binance.pairs.csv	
+D2_binance-okx_eq_us__binance__okx	D2	D2|binance~okx|eq_us	binance	okx	1	w1/D2_binance-okx_eq_us__binance__okx.pairs.csv	
+D2_binance-okx_eq_us__okx__binance	D2	D2|binance~okx|eq_us	okx	binance	1	w1/D2_binance-okx_eq_us__okx__binance.pairs.csv	
+D2_binance-okx_metal_energy__binance__okx	D2	D2|binance~okx|metal_energy	binance	okx	1	w1/D2_binance-okx_metal_energy__binance__okx.pairs.csv	
+D2_binance-okx_metal_energy__okx__binance	D2	D2|binance~okx|metal_energy	okx	binance	1	w1/D2_binance-okx_metal_energy__okx__binance.pairs.csv	
+D2_bingx-bitget_crypto__bingx__bitget	D2	D2|bingx~bitget|crypto	bingx	bitget	1	w1/D2_bingx-bitget_crypto__bingx__bitget.pairs.csv	
+D2_bingx-bitget_crypto__bitget__bingx	D2	D2|bingx~bitget|crypto	bitget	bingx	1	w1/D2_bingx-bitget_crypto__bitget__bingx.pairs.csv	
+D2_bingx-bitget_eq_nonus__bingx__bitget	D2	D2|bingx~bitget|eq_nonus	bingx	bitget	1	w1/D2_bingx-bitget_eq_nonus__bingx__bitget.pairs.csv	
+D2_bingx-bitget_eq_nonus__bitget__bingx	D2	D2|bingx~bitget|eq_nonus	bitget	bingx	1	w1/D2_bingx-bitget_eq_nonus__bitget__bingx.pairs.csv	
+D2_bingx-bitget_eq_us__bingx__bitget	D2	D2|bingx~bitget|eq_us	bingx	bitget	1	w1/D2_bingx-bitget_eq_us__bingx__bitget.pairs.csv	
+D2_bingx-bitget_eq_us__bitget__bingx	D2	D2|bingx~bitget|eq_us	bitget	bingx	1	w1/D2_bingx-bitget_eq_us__bitget__bingx.pairs.csv	
+D2_bingx-bitget_idx_nonus__bingx__bitget	D2	D2|bingx~bitget|idx_nonus	bingx	bitget	1	w1/D2_bingx-bitget_idx_nonus__bingx__bitget.pairs.csv	
+D2_bingx-bitget_metal_energy__bingx__bitget	D2	D2|bingx~bitget|metal_energy	bingx	bitget	1	w1/D2_bingx-bitget_metal_energy__bingx__bitget.pairs.csv	
+D2_bingx-bitget_metal_energy__bitget__bingx	D2	D2|bingx~bitget|metal_energy	bitget	bingx	1	w1/D2_bingx-bitget_metal_energy__bitget__bingx.pairs.csv	
+D2_bingx-bybit_crypto__bingx__bybit	D2	D2|bingx~bybit|crypto	bingx	bybit	1	w1/D2_bingx-bybit_crypto__bingx__bybit.pairs.csv	
+D2_bingx-bybit_crypto__bybit__bingx	D2	D2|bingx~bybit|crypto	bybit	bingx	1	w1/D2_bingx-bybit_crypto__bybit__bingx.pairs.csv	
+D2_bingx-bybit_eq_nonus__bybit__bingx	D2	D2|bingx~bybit|eq_nonus	bybit	bingx	1	w1/D2_bingx-bybit_eq_nonus__bybit__bingx.pairs.csv	
+D2_bingx-bybit_eq_us__bingx__bybit	D2	D2|bingx~bybit|eq_us	bingx	bybit	1	w1/D2_bingx-bybit_eq_us__bingx__bybit.pairs.csv	
+D2_bingx-bybit_eq_us__bybit__bingx	D2	D2|bingx~bybit|eq_us	bybit	bingx	1	w1/D2_bingx-bybit_eq_us__bybit__bingx.pairs.csv	
+D2_bingx-bybit_metal_energy__bingx__bybit	D2	D2|bingx~bybit|metal_energy	bingx	bybit	1	w1/D2_bingx-bybit_metal_energy__bingx__bybit.pairs.csv	
+D2_bingx-bybit_metal_energy__bybit__bingx	D2	D2|bingx~bybit|metal_energy	bybit	bingx	1	w1/D2_bingx-bybit_metal_energy__bybit__bingx.pairs.csv	
+D2_bingx-kraken_crypto__bingx__kraken	D2	D2|bingx~kraken|crypto	bingx	kraken	1	w1/D2_bingx-kraken_crypto__bingx__kraken.pairs.csv	
+D2_bingx-kraken_eq_nonus__bingx__kraken	D2	D2|bingx~kraken|eq_nonus	bingx	kraken	1	w1/D2_bingx-kraken_eq_nonus__bingx__kraken.pairs.csv	
+D2_bingx-kraken_eq_us__bingx__kraken	D2	D2|bingx~kraken|eq_us	bingx	kraken	1	w1/D2_bingx-kraken_eq_us__bingx__kraken.pairs.csv	
+D2_bingx-kraken_metal_energy__bingx__kraken	D2	D2|bingx~kraken|metal_energy	bingx	kraken	1	w1/D2_bingx-kraken_metal_energy__bingx__kraken.pairs.csv	
+D2_bingx-lighter_crypto__bingx__lighter	D2	D2|bingx~lighter|crypto	bingx	lighter	1	w1/D2_bingx-lighter_crypto__bingx__lighter.pairs.csv	
+D2_bingx-lighter_eq_nonus__bingx__lighter	D2	D2|bingx~lighter|eq_nonus	bingx	lighter	1	w1/D2_bingx-lighter_eq_nonus__bingx__lighter.pairs.csv	
+D2_bingx-lighter_eq_us__bingx__lighter	D2	D2|bingx~lighter|eq_us	bingx	lighter	1	w1/D2_bingx-lighter_eq_us__bingx__lighter.pairs.csv	
+D2_bingx-lighter_idx_us__bingx__lighter	D2	D2|bingx~lighter|idx_us	bingx	lighter	1	w1/D2_bingx-lighter_idx_us__bingx__lighter.pairs.csv	
+D2_bingx-lighter_metal_energy__bingx__lighter	D2	D2|bingx~lighter|metal_energy	bingx	lighter	1	w1/D2_bingx-lighter_metal_energy__bingx__lighter.pairs.csv	
+D2_bingx-okx_crypto__bingx__okx	D2	D2|bingx~okx|crypto	bingx	okx	1	w1/D2_bingx-okx_crypto__bingx__okx.pairs.csv	
+D2_bingx-okx_crypto__okx__bingx	D2	D2|bingx~okx|crypto	okx	bingx	1	w1/D2_bingx-okx_crypto__okx__bingx.pairs.csv	
+D2_bingx-okx_eq_nonus__bingx__okx	D2	D2|bingx~okx|eq_nonus	bingx	okx	1	w1/D2_bingx-okx_eq_nonus__bingx__okx.pairs.csv	
+D2_bingx-okx_eq_nonus__okx__bingx	D2	D2|bingx~okx|eq_nonus	okx	bingx	1	w1/D2_bingx-okx_eq_nonus__okx__bingx.pairs.csv	
+D2_bingx-okx_eq_us__bingx__okx	D2	D2|bingx~okx|eq_us	bingx	okx	1	w1/D2_bingx-okx_eq_us__bingx__okx.pairs.csv	
+D2_bingx-okx_eq_us__okx__bingx	D2	D2|bingx~okx|eq_us	okx	bingx	1	w1/D2_bingx-okx_eq_us__okx__bingx.pairs.csv	
+D2_bingx-okx_idx_nonus__bingx__okx	D2	D2|bingx~okx|idx_nonus	bingx	okx	1	w1/D2_bingx-okx_idx_nonus__bingx__okx.pairs.csv	
+D2_bingx-okx_metal_energy__okx__bingx	D2	D2|bingx~okx|metal_energy	okx	bingx	1	w1/D2_bingx-okx_metal_energy__okx__bingx.pairs.csv	
+D2_bitget-bybit_crypto__bitget__bybit	D2	D2|bitget~bybit|crypto	bitget	bybit	1	w1/D2_bitget-bybit_crypto__bitget__bybit.pairs.csv	
+D2_bitget-bybit_crypto__bybit__bitget	D2	D2|bitget~bybit|crypto	bybit	bitget	1	w1/D2_bitget-bybit_crypto__bybit__bitget.pairs.csv	
+D2_bitget-bybit_eq_nonus__bitget__bybit	D2	D2|bitget~bybit|eq_nonus	bitget	bybit	1	w1/D2_bitget-bybit_eq_nonus__bitget__bybit.pairs.csv	
+D2_bitget-bybit_eq_nonus__bybit__bitget	D2	D2|bitget~bybit|eq_nonus	bybit	bitget	1	w1/D2_bitget-bybit_eq_nonus__bybit__bitget.pairs.csv	
+D2_bitget-bybit_eq_us__bitget__bybit	D2	D2|bitget~bybit|eq_us	bitget	bybit	1	w1/D2_bitget-bybit_eq_us__bitget__bybit.pairs.csv	
+D2_bitget-bybit_eq_us__bybit__bitget	D2	D2|bitget~bybit|eq_us	bybit	bitget	1	w1/D2_bitget-bybit_eq_us__bybit__bitget.pairs.csv	
+D2_bitget-bybit_metal_energy__bitget__bybit	D2	D2|bitget~bybit|metal_energy	bitget	bybit	1	w1/D2_bitget-bybit_metal_energy__bitget__bybit.pairs.csv	
+D2_bitget-bybit_metal_energy__bybit__bitget	D2	D2|bitget~bybit|metal_energy	bybit	bitget	1	w1/D2_bitget-bybit_metal_energy__bybit__bitget.pairs.csv	
+D2_bitget-kraken_crypto__bitget__kraken	D2	D2|bitget~kraken|crypto	bitget	kraken	1	w1/D2_bitget-kraken_crypto__bitget__kraken.pairs.csv	
+D2_bitget-kraken_eq_nonus__bitget__kraken	D2	D2|bitget~kraken|eq_nonus	bitget	kraken	1	w1/D2_bitget-kraken_eq_nonus__bitget__kraken.pairs.csv	
+D2_bitget-kraken_eq_us__bitget__kraken	D2	D2|bitget~kraken|eq_us	bitget	kraken	1	w1/D2_bitget-kraken_eq_us__bitget__kraken.pairs.csv	
+D2_bitget-kraken_metal_energy__bitget__kraken	D2	D2|bitget~kraken|metal_energy	bitget	kraken	1	w1/D2_bitget-kraken_metal_energy__bitget__kraken.pairs.csv	
+D2_bitget-lighter_crypto__bitget__lighter	D2	D2|bitget~lighter|crypto	bitget	lighter	1	w1/D2_bitget-lighter_crypto__bitget__lighter.pairs.csv	
+D2_bitget-lighter_eq_nonus__bitget__lighter	D2	D2|bitget~lighter|eq_nonus	bitget	lighter	1	w1/D2_bitget-lighter_eq_nonus__bitget__lighter.pairs.csv	
+D2_bitget-lighter_eq_us__bitget__lighter	D2	D2|bitget~lighter|eq_us	bitget	lighter	1	w1/D2_bitget-lighter_eq_us__bitget__lighter.pairs.csv	
+D2_bitget-lighter_metal_energy__bitget__lighter	D2	D2|bitget~lighter|metal_energy	bitget	lighter	1	w1/D2_bitget-lighter_metal_energy__bitget__lighter.pairs.csv	
+D2_bitget-okx_crypto__bitget__okx	D2	D2|bitget~okx|crypto	bitget	okx	1	w1/D2_bitget-okx_crypto__bitget__okx.pairs.csv	
+D2_bitget-okx_crypto__okx__bitget	D2	D2|bitget~okx|crypto	okx	bitget	1	w1/D2_bitget-okx_crypto__okx__bitget.pairs.csv	
+D2_bitget-okx_eq_nonus__bitget__okx	D2	D2|bitget~okx|eq_nonus	bitget	okx	1	w1/D2_bitget-okx_eq_nonus__bitget__okx.pairs.csv	
+D2_bitget-okx_eq_nonus__okx__bitget	D2	D2|bitget~okx|eq_nonus	okx	bitget	1	w1/D2_bitget-okx_eq_nonus__okx__bitget.pairs.csv	
+D2_bitget-okx_eq_us__bitget__okx	D2	D2|bitget~okx|eq_us	bitget	okx	1	w1/D2_bitget-okx_eq_us__bitget__okx.pairs.csv	
+D2_bitget-okx_eq_us__okx__bitget	D2	D2|bitget~okx|eq_us	okx	bitget	1	w1/D2_bitget-okx_eq_us__okx__bitget.pairs.csv	
+D2_bitget-okx_metal_energy__okx__bitget	D2	D2|bitget~okx|metal_energy	okx	bitget	1	w1/D2_bitget-okx_metal_energy__okx__bitget.pairs.csv	
+D2_bybit-kraken_crypto__bybit__kraken	D2	D2|bybit~kraken|crypto	bybit	kraken	1	w1/D2_bybit-kraken_crypto__bybit__kraken.pairs.csv	
+D2_bybit-kraken_eq_nonus__bybit__kraken	D2	D2|bybit~kraken|eq_nonus	bybit	kraken	1	w1/D2_bybit-kraken_eq_nonus__bybit__kraken.pairs.csv	
+D2_bybit-kraken_eq_us__bybit__kraken	D2	D2|bybit~kraken|eq_us	bybit	kraken	1	w1/D2_bybit-kraken_eq_us__bybit__kraken.pairs.csv	
+D2_bybit-kraken_metal_energy__bybit__kraken	D2	D2|bybit~kraken|metal_energy	bybit	kraken	1	w1/D2_bybit-kraken_metal_energy__bybit__kraken.pairs.csv	
+D2_bybit-lighter_crypto__bybit__lighter	D2	D2|bybit~lighter|crypto	bybit	lighter	1	w1/D2_bybit-lighter_crypto__bybit__lighter.pairs.csv	
+D2_bybit-lighter_eq_nonus__bybit__lighter	D2	D2|bybit~lighter|eq_nonus	bybit	lighter	1	w1/D2_bybit-lighter_eq_nonus__bybit__lighter.pairs.csv	
+D2_bybit-lighter_eq_us__bybit__lighter	D2	D2|bybit~lighter|eq_us	bybit	lighter	1	w1/D2_bybit-lighter_eq_us__bybit__lighter.pairs.csv	
+D2_bybit-lighter_metal_energy__bybit__lighter	D2	D2|bybit~lighter|metal_energy	bybit	lighter	1	w1/D2_bybit-lighter_metal_energy__bybit__lighter.pairs.csv	
+D2_bybit-okx_crypto__bybit__okx	D2	D2|bybit~okx|crypto	bybit	okx	1	w1/D2_bybit-okx_crypto__bybit__okx.pairs.csv	
+D2_bybit-okx_crypto__okx__bybit	D2	D2|bybit~okx|crypto	okx	bybit	1	w1/D2_bybit-okx_crypto__okx__bybit.pairs.csv	
+D2_bybit-okx_eq_nonus__bybit__okx	D2	D2|bybit~okx|eq_nonus	bybit	okx	1	w1/D2_bybit-okx_eq_nonus__bybit__okx.pairs.csv	
+D2_bybit-okx_eq_nonus__okx__bybit	D2	D2|bybit~okx|eq_nonus	okx	bybit	1	w1/D2_bybit-okx_eq_nonus__okx__bybit.pairs.csv	
+D2_bybit-okx_eq_us__bybit__okx	D2	D2|bybit~okx|eq_us	bybit	okx	1	w1/D2_bybit-okx_eq_us__bybit__okx.pairs.csv	
+D2_bybit-okx_eq_us__okx__bybit	D2	D2|bybit~okx|eq_us	okx	bybit	1	w1/D2_bybit-okx_eq_us__okx__bybit.pairs.csv	
+D2_bybit-okx_metal_energy__bybit__okx	D2	D2|bybit~okx|metal_energy	bybit	okx	1	w1/D2_bybit-okx_metal_energy__bybit__okx.pairs.csv	
+D2_bybit-okx_metal_energy__okx__bybit	D2	D2|bybit~okx|metal_energy	okx	bybit	1	w1/D2_bybit-okx_metal_energy__okx__bybit.pairs.csv	
+D2_kraken-lighter_crypto__kraken__lighter	D2	D2|kraken~lighter|crypto	kraken	lighter	1	w1/D2_kraken-lighter_crypto__kraken__lighter.pairs.csv	
+D2_kraken-lighter_crypto__lighter__kraken	D2	D2|kraken~lighter|crypto	lighter	kraken	1	w1/D2_kraken-lighter_crypto__lighter__kraken.pairs.csv	
+D2_kraken-lighter_eq_nonus__lighter__kraken	D2	D2|kraken~lighter|eq_nonus	lighter	kraken	1	w1/D2_kraken-lighter_eq_nonus__lighter__kraken.pairs.csv	
+D2_kraken-lighter_eq_us__lighter__kraken	D2	D2|kraken~lighter|eq_us	lighter	kraken	1	w1/D2_kraken-lighter_eq_us__lighter__kraken.pairs.csv	
+D2_kraken-lighter_metal_energy__lighter__kraken	D2	D2|kraken~lighter|metal_energy	lighter	kraken	1	w1/D2_kraken-lighter_metal_energy__lighter__kraken.pairs.csv	
+D2_kraken-okx_crypto__okx__kraken	D2	D2|kraken~okx|crypto	okx	kraken	1	w1/D2_kraken-okx_crypto__okx__kraken.pairs.csv	
+D2_kraken-okx_eq_nonus__okx__kraken	D2	D2|kraken~okx|eq_nonus	okx	kraken	1	w1/D2_kraken-okx_eq_nonus__okx__kraken.pairs.csv	
+D2_kraken-okx_eq_us__okx__kraken	D2	D2|kraken~okx|eq_us	okx	kraken	1	w1/D2_kraken-okx_eq_us__okx__kraken.pairs.csv	
+D2_kraken-okx_metal_energy__okx__kraken	D2	D2|kraken~okx|metal_energy	okx	kraken	1	w1/D2_kraken-okx_metal_energy__okx__kraken.pairs.csv	
+D2_lighter-okx_crypto__okx__lighter	D2	D2|lighter~okx|crypto	okx	lighter	1	w1/D2_lighter-okx_crypto__okx__lighter.pairs.csv	
+D2_lighter-okx_eq_nonus__okx__lighter	D2	D2|lighter~okx|eq_nonus	okx	lighter	1	w1/D2_lighter-okx_eq_nonus__okx__lighter.pairs.csv	
+D2_lighter-okx_eq_us__okx__lighter	D2	D2|lighter~okx|eq_us	okx	lighter	1	w1/D2_lighter-okx_eq_us__okx__lighter.pairs.csv	
+D2_lighter-okx_metal_energy__okx__lighter	D2	D2|lighter~okx|metal_energy	okx	lighter	1	w1/D2_lighter-okx_metal_energy__okx__lighter.pairs.csv	
+A1_binance_crypto__binance__binance	A1	A1|binance|crypto	binance	binance	2	w2/A1_binance_crypto__binance__binance.jobs.csv	w2/A1_binance_crypto.cells.csv
+A1_bingx_crypto__bingx__bingx	A1	A1|bingx|crypto	bingx	bingx	2	w2/A1_bingx_crypto__bingx__bingx.jobs.csv	w2/A1_bingx_crypto.cells.csv
+A1_bingx_eq_us__bingx__bingx	A1	A1|bingx|eq_us	bingx	bingx	2	w2/A1_bingx_eq_us__bingx__bingx.jobs.csv	w2/A1_bingx_eq_us.cells.csv
+B1_binance_crypto__binance__binance	B1	B1|binance|crypto	binance	binance	3	w3/B1_binance_crypto__binance__binance.jobs.csv	w3/B1_binance_crypto.cells.csv
+B1_bingx_crypto__bingx__bingx	B1	B1|bingx|crypto	bingx	bingx	3	w3/B1_bingx_crypto__bingx__bingx.jobs.csv	w3/B1_bingx_crypto.cells.csv
+B1_bingx_metal_energy__bingx__bingx	B1	B1|bingx|metal_energy	bingx	bingx	3	w3/B1_bingx_metal_energy__bingx__bingx.jobs.csv	w3/B1_bingx_metal_energy.cells.csv
+B1_bitget_crypto__bitget__bitget	B1	B1|bitget|crypto	bitget	bitget	3	w3/B1_bitget_crypto__bitget__bitget.jobs.csv	w3/B1_bitget_crypto.cells.csv
+B1_bybit_crypto__bybit__bybit	B1	B1|bybit|crypto	bybit	bybit	3	w3/B1_bybit_crypto__bybit__bybit.jobs.csv	w3/B1_bybit_crypto.cells.csv
+B1_lighter_crypto__lighter__lighter	B1	B1|lighter|crypto	lighter	lighter	3	w3/B1_lighter_crypto__lighter__lighter.jobs.csv	w3/B1_lighter_crypto.cells.csv
+B1_okx_crypto__okx__okx	B1	B1|okx|crypto	okx	okx	3	w3/B1_okx_crypto__okx__okx.jobs.csv	w3/B1_okx_crypto.cells.csv
