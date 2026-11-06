@@ -1,0 +1,20 @@
+exchange,class_src,fate,contracts
+aster,exchange:underlyingSubType=pre-launch+STOCK,вне: пред-листинг (первичное поле),2
+aster,exchange:underlyingSubType=pre-launch+STOCK+AOS2+USD1-RWA,вне: пред-листинг (первичное поле),3
+aster,exchange:underlyingSubType=pre-launch+STOCK+USD1-RWA,вне: пред-листинг (первичное поле),1
+aster,exchange:underlyingSubType=pre-launch+USD1-RWA+STOCK,вне: пред-листинг (первичное поле),1
+binance,exchange:underlyingType=PREMARKET,вне: пред-листинг (первичное поле),4
+bingx,ticker_list,в тест: акции+ETF,3
+bingx,ticker_list,вне: класс не определён измерением,8
+bingx,ticker_list,вне: приватная база (ключ),3
+bitget,isRwa=YES (подкласс не установлен),в тест: акции+ETF,17
+bitget,isRwa=YES (подкласс не установлен),вне: класс не определён измерением,9
+bitget,isRwa=YES (подкласс не установлен),вне: нет валидных минут на формировании,1
+bitget,isRwa=YES+ticker_map,вне: приватная база (ключ),5
+kraken,kraken:category=xStocks,в тест: акции+ETF,1
+lighter,lighter:strategy_index=3,вне: класс не определён измерением,1
+lighter,lighter:strategy_index=7,в тест: крипта,1
+lighter,lighter:strategy_index=7,вне: класс не определён измерением,5
+lighter,lighter:strategy_index=7,вне: нет валидных минут на формировании,4
+okx,okx:instCategory=3,вне: пред-листинг (первичное поле),4
+okx,okx:instCategory=4+ticker_map,вне: класс не определён измерением,1

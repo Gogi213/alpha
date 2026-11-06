@@ -6,7 +6,7 @@ import numpy as np
 import asset_lib as L, asset_cands as A
 
 def main():
-    rows, C = L.load_contracts()
+    rows, C = L.load_contracts(lazy=True)      # строки по одной: память не копируется
     A.build(rows, C)
     g = collections.defaultdict(list)
     for d in rows:

@@ -1,0 +1,21 @@
+exchange,symbol,truth,truth_basis
+aster,OPENAIUSD1,вне,OpenAI - частная компания (пред-запуск Aster); n_valid=0
+aster,OPENAIUSDT,вне,"OpenAI - частная компания, пред-листинг"
+aster,OURAUSD1,вне,"Oura Health - частная компания, пред-листинг"
+binance,OPENAIUSDT,вне,"OpenAI - частная компания, Binance PREMARKET"
+bingx,NCSIB2002USD-USDT,вне,"индекс цены аренды GPU NVIDIA B200 (примечание скачивателя): не акция/ETF/крипто, класса П-37 нет"
+bingx,NCSKANTHROPIC2USD-USDT,вне,Anthropic - частная компания
+bitget,ANTHROPICUSDT,вне,Anthropic - частная компания
+bitget,BNCUSDT,в тест,"Bybit: name=CEA Industries Inc, region=US (листингованная акция); та же ценовая серия на 4 биржах, S<=0.022"
+bitget,H100USDT,вне,"индекс цены аренды GPU (примечание скачивателя): не акция и не товар, класса П-37 нет"
+bitget,SKDDUSDT,в тест,Bybit: name=GraniteShares 2x Short SK Hynix Daily ETF (ETF)
+bitget,SKHYUSDT,в тест,"Bybit: name=Sk Hynix Inc Nasdaq (акция/АДР); Kraken, Hyperliquid, Binance, Aster - equity"
+bitget,SPCHUSDT,в тест,Bybit: name=Leverage Shares 2X Long SpaceX daily ETF (ETF)
+bitget,SSPCUSDT,в тест,Bybit: name=Leverage Shares 2x Short SPCX Daily ETF (ETF)
+bitget,USDESTOCKUSDT,неясно,примечание скачивателя: тикер USDE с суффиксом STOCK - не установлено; контрагентов на других биржах нет
+bitget,ZCSHUSDT,в тест,"Bybit: name=Zcash ETF (ETF), тот же тикер на Binance, BingX, Bybit, листинг 12-14.10; измерение S=0.10-0.12 при n_ret 227-463 - шум короткого перекрытия"
+kraken,PF_SPCXXUSD,в тест,"xStock на SPCX (SpaceX), тот же актив у Binance, Bybit, OKX, Aster; Kraken не назвал класс (underlying not identified)"
+lighter,ADI,нет данных,"Analog Devices (акция), но n_valid=0 на формировании: решение не влияет на счёт"
+lighter,TUR30,нет данных,n_valid=0 на формировании; базовый актив не установлен
+lighter,VARIATIONAL,нет данных,n_valid=0 на формировании; базовый актив не установлен
+okx,MOONSHOT-USDT-SWAP,вне,"Moonshot AI - частная компания, OKX ruleType=pre_market"

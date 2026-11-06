@@ -1,0 +1,14 @@
+base_key,group,marked_by
+ANT,company,hyperliquid perpCategories=preipo
+ANTH,company,hyperliquid perpCategories=preipo
+ANTHROPIC,company,П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; kraken category=Pre-IPO; okx ruleType=pre_market
+BP,crypto,bybit status=PreLaunch
+MOONSHOT,company,П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; kraken category=Pre-IPO; okx ruleType=pre_market
+OAI,company,hyperliquid perpCategories=preipo
+OPENAI,company,П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; kraken category=Pre-IPO; okx ruleType=pre_market
+OURA,company,П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; kraken category=Pre-IPO; okx ruleType=pre_market
+PAPER,crypto,aster underlyingSubType=pre-launch
+POLYMARKET,company,П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; bybit status=PreLaunch
+PREDICT,crypto,aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch
+SPACEX,company,hyperliquid perpCategories=preipo
+XTEN,crypto,aster underlyingSubType=pre-launch

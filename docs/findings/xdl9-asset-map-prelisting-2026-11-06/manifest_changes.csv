@@ -1,0 +1,49 @@
+exchange,symbol,class,p37_class_old,p37_class_new,pre_ipo_old,pre_ipo_new,has_panel
+aster,PAPERUSDT,crypto,крипта,вне теста,0,1,1
+aster,PREDICTUSDT,crypto,крипта,вне теста,0,1,1
+aster,XTENUSDT,crypto,крипта,вне теста,0,1,1
+binance,PREDICTUSDT,crypto,крипта,вне теста,0,1,1
+bingx,NCSKANTHROPIC2USD-USDT,other,вне теста,вне теста,0,1,1
+bingx,NCSKOPENAI2USD-USDT,other,вне теста,вне теста,0,1,1
+bingx,NCSKOURA2USD-USDT,equity,акции+ETF,вне теста,0,1,1
+bingx,NCSKPOLYMARKET2USD-USDT,other,вне теста,вне теста,0,1,1
+bingx,NCSKSKDD2USD-USDT,other,вне теста,акции+ETF,0,0,1
+bingx,NCSKSKUU2USD-USDT,other,вне теста,акции+ETF,0,0,1
+bingx,NCSKSSPC2USD-USDT,other,вне теста,акции+ETF,0,0,1
+bingx,PREDICT-USDT,crypto,крипта,вне теста,0,1,1
+bitget,AGPUUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,ANTHROPICUSDT,other,вне теста,вне теста,0,1,1
+bitget,BNCUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,BOTUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,BSPUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,DRAMUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,INTWUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,MOONSHOTUSDT,other,вне теста,вне теста,0,1,1
+bitget,MVLLUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,OPENAIUSDT,other,вне теста,вне теста,0,1,1
+bitget,OURAUSDT,other,вне теста,вне теста,0,1,1
+bitget,POLYMARKETUSDT,other,вне теста,вне теста,0,1,1
+bitget,RAMUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SECZUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SHAZUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SKDDUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SKHYUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SKUUUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SNXXUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SPCHUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SPCXUSDT,other,вне теста,акции+ETF,0,0,1
+bitget,SSPCUSDT,other,вне теста,акции+ETF,0,0,1
+bybit,ANTHROPICUSDT,equity,акции+ETF,вне теста,0,1,1
+bybit,BPUSDT,crypto,крипта,вне теста,0,1,1
+bybit,MOONSHOTUSDT,equity,акции+ETF,вне теста,0,1,1
+bybit,OPENAIUSDT,equity,акции+ETF,вне теста,0,1,1
+bybit,OURAUSDT,equity,акции+ETF,вне теста,0,1,1
+bybit,POLYMARKETUSDT,equity,акции+ETF,вне теста,0,1,1
+bybit,PREDICTUSDT,crypto,крипта,вне теста,0,1,1
+kraken,PF_SPCXXUSD,other,вне теста,акции+ETF,0,0,1
+lighter,AI,other,вне теста,крипта,0,0,1
+lighter,SPACEX,equity,акции+ETF,вне теста,0,1,0
+okx,ANTHROPIC-USDT-SWAP,other,вне теста,вне теста,0,1,1
+okx,MOONSHOT-USDT-SWAP,other,вне теста,вне теста,0,1,1
+okx,OPENAI-USDT-SWAP,other,вне теста,вне теста,0,1,1
+okx,OURA-USDT-SWAP,other,вне теста,вне теста,0,1,1

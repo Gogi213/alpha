@@ -100,6 +100,7 @@ def dup_reason(d, m):
 def build(rows, C):
     """Добавляет к rows: key, tags, big. Возвращает группы {(ex, key, big): [contracts]}."""
     for d in rows:
-        d["big"] = L.big_class(d)
+        c = L.classify(d)                       # единая функция (asset_class.classify): пред-листинг, приватные базы, other, класс
+        d["big"], d["out_kind"], d["out_reason"], d["pre"] = c.big, c.kind, c.reason, c.pre
         d["key"], d["tags"] = pair_key(d)
     return rows

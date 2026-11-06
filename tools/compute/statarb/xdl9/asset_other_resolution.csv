@@ -1,0 +1,52 @@
+exchange,symbol,decision,class_new,basis,evidence
+bingx,NCSIB2002USD-USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bingx,NCSIH1002USD-USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bingx,NCSKDXYZ2USD-USDT,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",bitget:DXYZUSDT S=0.085 n=834
+bingx,NCSKMUD2USD-USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bingx,NCSKNBIL2USD-USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bingx,NCSKSKDD2USD-USDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:2/etf:1; S <= 0.06171, n_ret >= 300)",binance:SKDDUSDT S=0.003 n=15287; bybit:SKDDUSDT S=0.010 n=5584; okx:SKDD-USDT-SWAP S=0.004 n=12997
+bingx,NCSKSKUU2USD-USDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:2/etf:1; S <= 0.06171, n_ret >= 300)",binance:SKUUUSDT S=0.003 n=14468; bybit:SKUUUSDT S=0.008 n=3390; okx:SKUU-USDT-SWAP S=0.004 n=11104
+bingx,NCSKSNDQ2USD-USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bingx,NCSKSSPC2USD-USDT,в тест,etf,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы etf:1; S <= 0.06171, n_ret >= 300)",bybit:SSPCUSDT S=0.024 n=3092
+bingx,NCSKSTXX2USD-USDT,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",binance:STXXUSDT S=0.532 n=3516; bybit:STXXUSDT S=0.533 n=2023; aster:STXXUSDT S=0.533 n=109
+bingx,NCSKVCX2USD-USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bitget,AGPUUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:2; S <= 0.06171, n_ret >= 300)",binance:AGPUUSDT S=0.028 n=1962; bingx:NCSKAGPU2USD-USDT S=0.027 n=2443
+bitget,B200USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bitget,BNCUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:3; S <= 0.06171, n_ret >= 300)",binance:BNCUSDT S=0.018 n=4476; bybit:BNCUSDT S=0.022 n=1777; bingx:NCSKBNC2USD-USDT S=0.018 n=4544
+bitget,BOTUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:4; S <= 0.06171, n_ret >= 300)",binance:BOTUSDT S=0.024 n=1727; bybit:BOTUSDT S=0.026 n=1362; okx:BOT-USDT-SWAP S=0.024 n=1229; bingx:NCSKBOT2USD-USDT S=0.025 n=1821
+bitget,BSPUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:4; S <= 0.06171, n_ret >= 300)",binance:BSPUSDT S=0.011 n=2963; bybit:BSPUSDT S=0.011 n=2514; okx:BSP-USDT-SWAP S=0.010 n=2333; bingx:NCSKBSP2USD-USDT S=0.012 n=3065
+bitget,DISKUSDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bitget,DRAMUSDT,в тест,etf,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:1/etf:5; S <= 0.06171, n_ret >= 300)",binance:DRAMUSDT S=0.004 n=12980; bybit:DRAMUSDT S=0.005 n=11861; okx:DRAM-USDT-SWAP S=0.004 n=11213; bingx:NCSKDRAM2USD-USDT S=0.004 n=13088
+bitget,ECHOUSDT,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",bingx:NCSKECHO2USD-USDT S=0.080 n=267
+bitget,ELICEUSDT,вне,,нет валидных минут на формировании (n_valid=0): класс ни на что не влияет,
+bitget,EUVUSDT,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",bingx:NCSKEUV2USD-USDT S=0.068 n=123
+bitget,H100USDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bitget,INTWUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:3/etf:1; S <= 0.06171, n_ret >= 300)",binance:INTWUSDT S=0.005 n=10814; bybit:INTWUSDT S=0.008 n=4271; okx:INTW-USDT-SWAP S=0.007 n=7930; bingx:NCSKINTW2USD-USDT S=0.006 n=11103
+bitget,JMKEUSDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bitget,MVLLUSDT,в тест,etf,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:1/etf:3; S <= 0.06171, n_ret >= 300)",binance:MVLLUSDT S=0.012 n=8521; bybit:MVLLUSDT S=0.013 n=6119; okx:MVLL-USDT-SWAP S=0.013 n=7647; bingx:NCSKMVLL2USD-USDT S=0.014 n=8569
+bitget,RAMUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:3/etf:1; S <= 0.06171, n_ret >= 300)",binance:RAMUSDT S=0.006 n=6462; bybit:RAMUSDT S=0.010 n=2708; okx:RAM-USDT-SWAP S=0.006 n=5385; bingx:NCSKRAM12USD-USDT S=0.009 n=7156
+bitget,SECZUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:4; S <= 0.06171, n_ret >= 300)",binance:SECZUSDT S=0.024 n=4492; bybit:SECZUSDT S=0.029 n=3566; okx:SECZ-USDT-SWAP S=0.027 n=3720; bingx:NCSKSECZ2USD-USDT S=0.024 n=5075
+bitget,SHAZUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:4; S <= 0.06171, n_ret >= 300)",binance:SHAZUSDT S=0.012 n=1336; bybit:SHAZUSDT S=0.013 n=892; okx:SHAZ-USDT-SWAP S=0.013 n=809; bingx:NCSKSHAZ2USD-USDT S=0.012 n=1420
+bitget,SKDDUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:2/etf:1; S <= 0.06171, n_ret >= 300)",binance:SKDDUSDT S=0.010 n=6489; bybit:SKDDUSDT S=0.012 n=3550; okx:SKDD-USDT-SWAP S=0.010 n=6029
+bitget,SKHYUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:7; S <= 0.06171, n_ret >= 300)",binance:SKHYUSDT S=0.006 n=15422; bybit:SKHYUSDT S=0.006 n=14840; okx:SKHY-USDT-SWAP S=0.005 n=14735; bingx:NCSKSKHYP2USD-USDT S=0.006 n=15475
+bitget,SKUUUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:2/etf:1; S <= 0.06171, n_ret >= 300)",binance:SKUUUSDT S=0.008 n=4453; bybit:SKUUUSDT S=0.010 n=1867; okx:SKUU-USDT-SWAP S=0.008 n=4004
+bitget,SNXXUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:2/etf:2; S <= 0.06171, n_ret >= 300)",binance:SNXXUSDT S=0.003 n=14348; bybit:SNXXUSDT S=0.004 n=13372; okx:SNXX-USDT-SWAP S=0.004 n=13479; bingx:NCSKSNXX2USD-USDT S=0.005 n=14572
+bitget,SPCHUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:2/etf:1; S <= 0.06171, n_ret >= 300)",bybit:SPCHUSDT S=0.027 n=3611; okx:SPCH-USDT-SWAP S=0.027 n=2563; bingx:NCSKSPCH2USD-USDT S=0.027 n=5581
+bitget,SPCXUSDT,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:8; S <= 0.06171, n_ret >= 300)",binance:SPCXUSD1 S=0.014 n=6428; binance:SPCXUSDT S=0.005 n=14292; bybit:SPCXUSDT S=0.004 n=13375; okx:SPCX-USDT-SWAP S=0.004 n=13897
+bitget,SSPCUSDT,в тест,etf,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы etf:1; S <= 0.06171, n_ret >= 300)",bybit:SSPCUSDT S=0.038 n=802
+bitget,USDESTOCKUSDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bitget,XNDUUSDT,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+bitget,ZCSHUSDT,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",binance:ZCSHUSDT S=0.120 n=463; bybit:ZCSHUSDT S=0.104 n=227; bingx:NCSKZCSH2USD-USDT S=0.113 n=600
+kraken,PF_SPCXXUSD,в тест,equity,"тот же актив, что контракт(ы) акции+ETF на другой бирже (сырые классы equity:8; S <= 0.06171, n_ret >= 300)",binance:SPCXUSD1 S=0.027 n=1234; binance:SPCXUSDT S=0.020 n=1723; bybit:SPCXUSDT S=0.020 n=1696; okx:SPCX-USDT-SWAP S=0.020 n=1717
+lighter,ADI,вне,,нет валидных минут на формировании (n_valid=0): класс ни на что не влияет,
+lighter,AI,в тест,crypto,"тот же актив, что контракт(ы) крипта на другой бирже (сырые классы crypto:1; S <= 0.06171, n_ret >= 300)",aster:AIUSDT S=0.040 n=2127
+lighter,ANSEM,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",bingx:ANSEM-USDT S=0.115 n=6504; aster:ANSEMUSDT S=0.082 n=1001
+lighter,DRV,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",aster:DRVUSDT S=0.167 n=1771
+lighter,H100,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+lighter,PRL,вне,,"биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»",binance:PRLUSDT S=1.169 n=13814; bybit:PRLUSDT S=1.176 n=4577; bingx:PRL-USDT S=1.167 n=15924; aster:PRLUSDT S=1.178 n=7
+lighter,STABLECOINX,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+lighter,TUR30,вне,,нет валидных минут на формировании (n_valid=0): класс ни на что не влияет,
+lighter,US10Y,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",
+lighter,VARIATIONAL,вне,,нет валидных минут на формировании (n_valid=0): класс ни на что не влияет,
+lighter,XTEN,вне,,нет валидных минут на формировании (n_valid=0): класс ни на что не влияет,
+okx,H100-USDT-SWAP,вне,,"биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет",

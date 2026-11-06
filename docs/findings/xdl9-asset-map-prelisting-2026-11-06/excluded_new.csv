@@ -1,0 +1,45 @@
+exchange,symbol,class,n_valid,pre_listing,kind,reason,was_in_test_as
+aster,ANTHROPICUSD1,other,0,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,ANTHROPICUSDT,other,152,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,MOONSHOTUSD1,other,1934,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,OPENAIUSD1,other,0,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,OPENAIUSDT,other,222,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,OURAUSD1,other,3376,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,PAPERUSDT,crypto,0,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,POLYMARKETUSD1,other,2246,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,PREDICTUSDT,crypto,0,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+aster,XTENUSDT,crypto,0,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)",
+binance,ANTHROPICUSDT,other,17169,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)",
+binance,MOONSHOTUSDT,other,5794,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)",
+binance,OPENAIUSDT,other,18119,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)",
+binance,OURAUSDT,other,6044,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)",
+binance,PREDICTUSDT,crypto,0,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)",
+bingx,NCSKANTHROPIC2USD-USDT,other,20160,0,приватная база (ключ),вне теста: приватная база ANTHROPIC (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; k,
+bingx,NCSKOPENAI2USD-USDT,other,20160,0,приватная база (ключ),вне теста: приватная база OPENAI (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; krak,
+bingx,NCSKOURA2USD-USDT,equity,20160,0,приватная база (ключ),вне теста: приватная база OURA (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; kraken,main/акции+ETF
+bingx,NCSKPOLYMARKET2USD-USDT,other,16511,0,приватная база (ключ),вне теста: приватная база POLYMARKET (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; bybit status=PreLaunch),
+bingx,PREDICT-USDT,crypto,0,0,приватная база (ключ),вне теста: приватная база PREDICT (помечена: aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch),
+bitget,ANTHROPICUSDT,other,12160,0,приватная база (ключ),вне теста: приватная база ANTHROPIC (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; k,
+bitget,MOONSHOTUSDT,other,3779,0,приватная база (ключ),вне теста: приватная база MOONSHOT (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; kraken category=Pre-IPO; okx ruleType,
+bitget,OPENAIUSDT,other,12023,0,приватная база (ключ),вне теста: приватная база OPENAI (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; krak,
+bitget,OURAUSDT,other,4896,0,приватная база (ключ),вне теста: приватная база OURA (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; kraken,
+bitget,POLYMARKETUSDT,other,1228,0,приватная база (ключ),вне теста: приватная база POLYMARKET (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; bybit status=PreLaunch),
+bybit,ANTHROPICUSDT,equity,4346,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)",main/акции+ETF
+bybit,BPUSDT,crypto,7068,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)",main/крипта
+bybit,MOONSHOTUSDT,equity,1460,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)",main/акции+ETF
+bybit,OPENAIUSDT,equity,4583,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)",main/акции+ETF
+bybit,OURAUSDT,equity,1704,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)",main/акции+ETF
+bybit,POLYMARKETUSDT,equity,3742,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)",main/акции+ETF
+bybit,PREDICTUSDT,crypto,0,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)",
+kraken,PF_ANTHROPICXUSD,equity,4159,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)",
+kraken,PF_MOONSHOTXUSD,equity,70,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)",
+kraken,PF_OPENAIXUSD,equity,202,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)",
+kraken,PF_OURAXUSD,equity,185,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)",
+lighter,ANTHROPIC,equity,11139,0,приватная база (ключ),вне теста: приватная база ANTHROPIC (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; k,
+lighter,OPENAI,equity,9100,0,приватная база (ключ),вне теста: приватная база OPENAI (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; krak,
+lighter,OURA,equity,843,0,приватная база (ключ),вне теста: приватная база OURA (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch; hyperliquid perpCategories=preipo; kraken,
+lighter,SPACEX,equity,0,0,приватная база (ключ),вне теста: приватная база SPACEX (помечена: hyperliquid perpCategories=preipo),
+okx,ANTHROPIC-USDT-SWAP,other,17816,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)",
+okx,MOONSHOT-USDT-SWAP,other,1831,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)",
+okx,OPENAI-USDT-SWAP,other,11454,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)",
+okx,OURA-USDT-SWAP,other,1670,1,пред-листинг (первичное поле),"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)",

@@ -64,9 +64,7 @@ def main():
     for d in rows:
         if d["big"] == L.OUT_OF_TEST:
             d["role"] = "excluded"
-            n = d.get("note", "")
-            d["reason"] = ("вне теста: " + ("pre-IPO/pre-launch" if ("pre-IPO" in n or "pre-launch" in n or "pre_market" in n)
-                                           else "датированный фьючерс" if "dated future" in n else "класс other"))
+            d["reason"] = d["out_reason"]
         elif d["n_valid"] == 0:
             d["role"] = "excluded"; d["reason"] = "нет валидных минут на формировании (n_valid=0)"
         else:

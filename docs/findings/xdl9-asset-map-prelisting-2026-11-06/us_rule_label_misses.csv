@@ -1,0 +1,20 @@
+asset,big,exchanges,median_var_share_session,rule_why,non_us_labels
+DOOSBOT,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:KR
+DOOSENER,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:KR
+HORIZON,акции+ETF,bybit,0.2013,данные: медиана 0.201 >= 0.1935,bybit:HK
+HSI,индексы,bitget,,по умолчанию (П-37 §9),bitget:HK
+JIO,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:IN
+JPMUFG,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:JP
+JPSONY,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:JP
+KAKAO,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:KR
+KBFG,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:KR
+KIA,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:KR
+KIOXIA,акции+ETF,bingx;bitget;okx,0.2649,данные: медиана 0.265 >= 0.1935,bitget:JP
+KR200,индексы,bingx;bitget;okx,0.2473,данные: медиана 0.247 >= 0.1935,bitget:KR
+LAOPU,акции+ETF,bybit,0.2866,данные: медиана 0.287 >= 0.1935,bybit:HK
+LGENERGY,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:KR
+MEITU,акции+ETF,bybit,0.2107,данные: медиана 0.211 >= 0.1935,bybit:HK
+MURATA,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:JP
+NETEASE,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:HK
+SSBIOLOGICS,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:KR
+TOYOTA,акции+ETF,bitget,,по умолчанию (П-37 §9),bitget:JP

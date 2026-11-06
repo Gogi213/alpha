@@ -1,0 +1,38 @@
+{
+ "roles_old": {
+  "main": 4939,
+  "dup": 249,
+  "excluded": 372
+ },
+ "roles_new": {
+  "main": 4954,
+  "dup": 249,
+  "excluded": 357
+ },
+ "role_moves": {
+  "excluded->excluded": 66,
+  "main->excluded": 7,
+  "excluded->main": 22
+ },
+ "changed_contracts": 95,
+ "pairs_old": 12835,
+ "pairs_new": 12927,
+ "pairs_added": 93,
+ "pairs_removed": 1,
+ "pairs_changed": 0,
+ "usable_old": 7985,
+ "usable_new": 8069,
+ "excluded_new_by_exchange": {
+  "aster": 10,
+  "binance": 5,
+  "bingx": 5,
+  "bitget": 5,
+  "bybit": 7,
+  "kraken": 4,
+  "lighter": 4,
+  "okx": 4
+ },
+ "excluded_pre_listing": 30,
+ "excluded_private_base": 14,
+ "n_valid_gt0_excluded_new": 35
+}

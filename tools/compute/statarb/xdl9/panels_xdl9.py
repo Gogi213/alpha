@@ -24,6 +24,8 @@ from multiprocessing import Pool
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))  # tools/compute/statarb
 import panels_manifest as pm  # noqa: E402
+sys.path.insert(0, HERE)
+import asset_class as AC  # noqa: E402  единая функция классификации (D-01, П-37 r3 §4.1): та же, что в asset_lib.py
 
 GRID0_MS = 1_577_836_800_000
 MINUTE_MS = 60_000
@@ -33,21 +35,10 @@ I64_MIN, I64_MAX = -(2**63), 2**63 - 1
 # Грамматики Rust: i64::from_str и f64::from_str (без пробелов, без «_», регистр inf/nan не важен).
 RE_I64 = re.compile(r"[+-]?[0-9]+\Z")
 RE_F64 = re.compile(r"[+-]?(?:inf|infinity|nan|(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:e[+-]?[0-9]+)?)\Z", re.I)
-# Укрупнение классов — П-37 §4.1 / P-37-params class_map_*; other, pre-IPO, датированные — вне теста.
-P37_CLASS = {
-    "crypto": "крипта",
-    "equity": "акции+ETF",
-    "etf": "акции+ETF",
-    "index": "индексы",
-    "metal": "металлы+энергия",
-    "energy": "металлы+энергия",
-    "commodity": "металлы+энергия",
-    "fx": "фиат",
-}
-OUT_OF_TEST = "вне теста"
+# Укрупнение классов - asset_class.BIG (П-37 §4.1 / P-37-params class_map_*); other, пред-листинг, приватные базы, датированные - вне теста.
+P37_CLASS = AC.BIG
+OUT_OF_TEST = AC.OUT_OF_TEST
 WINDOW_END_MS = 1_793_836_800_000  # 2026-11-05 00:00 UTC, конец окна данных (П-37 §3)
-RE_PRE_IPO = re.compile(r"pre.?ipo", re.I)
-RE_DATED = re.compile(r"^FF_")  # датированные фьючерсы Kraken (FF_ETHUSD_261225 и подобные)
 
 
 def utc(min_idx):
@@ -163,13 +154,21 @@ def read_csv(path):
         return list(csv.DictReader(f))
 
 
-def p37_class(row):
-    """Укрупнённый класс П-37 §4.1; pre-IPO и датированные — «вне теста» вместе с other."""
-    if RE_PRE_IPO.search(row.get("note", "") + " " + row.get("class_src", "") + " " + row.get("status", "")):
-        return OUT_OF_TEST, 1, 0
-    if RE_DATED.match(row["symbol"]):
-        return OUT_OF_TEST, 0, 1
-    return P37_CLASS.get(row["class"], OUT_OF_TEST), 0, 0
+def p37_class(row, private_bases=None, resolution=None):
+    """Укрупнённый класс П-37 §4.1 -> (класс, пред-листинг/приватная база 0|1, датированный 0|1): ровно asset_class.classify,
+    та же функция, что в asset_lib.py (D-01). Столбец манифеста `pre_ipo` = пред-листинг по первичным полям или приватная база."""
+    c = AC.classify(row, private_bases, resolution)
+    return c.big, c.pre, c.dated
+
+
+def load_private_bases(root):
+    """Приватные базы по instruments.csv ВСЕХ бирж корня выгрузки (в том числе Hyperliquid, если он там есть)."""
+    rows = []
+    for ex in sorted(os.listdir(root)):
+        p = os.path.join(root, ex, "instruments.csv")
+        if os.path.isfile(p):
+            rows.extend(read_csv(p))
+    return AC.derive_private_bases(rows)
 
 
 def refusal_detail(r):
@@ -210,6 +209,8 @@ MAN_COLS = ["exchange", "symbol", "base", "quote", "class", "class_src", "p37_cl
 
 def cmd_manifest(a):
     sweep = {(r["exchange"], r["symbol"]): r for r in read_csv(a.sweep)}
+    pbases = load_private_bases(a.root)
+    resol = AC.load_resolution()
     fund = {(r["exchange"], r["symbol"]): r for r in read_csv(a.funding_check)}
     out_dir = os.path.join(a.work, "panels")
     man, summ_ex, summ_cl, refusals = [], [], {}, []
@@ -226,7 +227,7 @@ def cmd_manifest(a):
                    convert_fail=0, orphans=len(set(files) - known), csv_rows=0, zero=0, minutes=0, nan=0, diffs=0)
         for r in rows:
             sym = r["symbol"]
-            cls, pre, dated = p37_class(r) if r["class"] else (OUT_OF_TEST, 0, 0)
+            cls, pre, dated = p37_class(r, pbases, resol) if r["class"] else (OUT_OF_TEST, 0, 0)
             sw = sweep.get((ex, sym))
             pth = os.path.join(a.work, "panels", ex, sym + ".sap")
             has_panel = os.path.exists(pth)

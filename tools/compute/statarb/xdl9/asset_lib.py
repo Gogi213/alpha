@@ -5,19 +5,21 @@
 нормализация имени (приставки множителя, суффиксы-псевдонимы), статистики пары.
 Только numpy и stdlib.
 """
-import csv, math, os, re
+import csv, glob, math, os, sys
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import asset_class as AC                 # единая функция классификации (D-01): пред-листинг, приватные базы, класс other
+from asset_class import BIG, OUT_OF_TEST, MULT_RE, norm_key    # noqa: E402,F401  (норма имени - одна, в asset_class)
+
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 DATA = os.path.join(ROOT, "data", "xdl9")
 N_MIN = 14 * 1440                      # минут формирования
 EXCH = ["binance", "bybit", "okx", "bingx", "aster", "kraken", "lighter", "bitget"]   # 8 минутных бирж (Hyperliquid 15 м - вне)
-
-# П-37 §4.1 (Н3): укрупнённые классы
-BIG = {"crypto": "крипта", "equity": "акции+ETF", "etf": "акции+ETF", "index": "индексы", "metal": "металлы+энергия",
-       "energy": "металлы+энергия", "commodity": "металлы+энергия", "fx": "фиат"}
-OUT_OF_TEST = "вне теста"
+# приватные базы и решения по классу other (выводятся из instruments.csv ВСЕХ бирж; заполняет load_contracts)
+PRIVATE_BASES = {}
+RESOLUTION = {}
 
 
 def safe_name(sym):
@@ -31,9 +33,45 @@ def f(x, default=float("nan")):
         return default
 
 
-def load_contracts(data=DATA):
-    """-> (list[dict], close float32 [N, N_MIN]); строка контракта = инструмент со свечами формирования."""
-    rows, mats = [], []
+def load_inst_all(data=DATA):
+    """Строки instruments.csv ВСЕХ бирж каталога inst/ (в том числе Hyperliquid: из его пред-IPO берутся приватные базы)."""
+    out = []
+    for fn in sorted(glob.glob(os.path.join(data, "inst", "*.csv"))):
+        with open(fn, encoding="utf-8", newline="") as fh:
+            out.extend(csv.DictReader(fh))
+    return out
+
+
+class RowStore:
+    """Строки закрытий по контрактам без склейки в один массив: np.memmap по файлам бирж (файловое отображение, память не копируется).
+    Поддерживает C[i] (строка float32 [N_MIN]) и .shape; для скриптов, читающих по одной строке (статистики пар)."""
+
+    def __init__(self, parts):
+        self.parts = parts                      # [(начало, конец, memmap [n, N_MIN])]
+        self.shape = (parts[-1][1], N_MIN)
+
+    def __getitem__(self, i):
+        for a, b, m in self.parts:
+            if a <= i < b:
+                return m[i - a]
+        raise IndexError(i)
+
+
+def load_contracts(data=DATA, lazy=False):
+    """-> (list[dict], close float32 [N, N_MIN]); строка контракта = инструмент со свечами формирования.
+    lazy=True: вместо массива - RowStore (только C[i]; для машин с малым запасом памяти)."""
+    global PRIVATE_BASES, RESOLUTION
+    PRIVATE_BASES = AC.derive_private_bases(load_inst_all(data))
+    RESOLUTION = AC.load_resolution()
+    rows = []
+    C = None                              # единый массив: пик памяти = один массив, а не список частей + конкатенация
+    n_all = 0
+    for ex in EXCH:
+        with open(os.path.join(data, "asset", ex + ".idx.csv"), encoding="utf-8", newline="") as fh:
+            n_all += sum(1 for _ in csv.DictReader(fh))
+    C = None if lazy else np.empty((n_all, N_MIN), dtype="<f4")
+    parts = []
+    at = 0
     for ex in EXCH:
         inst = {}
         with open(os.path.join(data, "inst", ex + ".csv"), encoding="utf-8", newline="") as fh:
@@ -41,8 +79,14 @@ def load_contracts(data=DATA):
                 inst[safe_name(r["symbol"])] = r
         with open(os.path.join(data, "asset", ex + ".idx.csv"), encoding="utf-8", newline="") as fh:
             idx = list(csv.DictReader(fh))
-        raw = np.fromfile(os.path.join(data, "asset", ex + ".f32"), dtype="<f4").reshape(-1, N_MIN)
+        if lazy:
+            raw = np.memmap(os.path.join(data, "asset", ex + ".f32"), dtype="<f4", mode="r").reshape(-1, N_MIN)
+            parts.append((at, at + raw.shape[0], raw))
+        else:
+            raw = np.fromfile(os.path.join(data, "asset", ex + ".f32"), dtype="<f4").reshape(-1, N_MIN)
+            C[at:at + raw.shape[0]] = raw
         assert raw.shape[0] == len(idx), (ex, raw.shape, len(idx))
+        at += raw.shape[0]
         for r in idx:
             stem = r["file"][:-7]
             ins = inst.get(stem)
@@ -54,63 +98,21 @@ def load_contracts(data=DATA):
                      price_med=f(r["price_med"]), first_valid=int(r["first_valid"]), last_valid=int(r["last_valid"]),
                      row=int(r["row"]))
             rows.append(d)
-        mats.append(raw)
-    C = np.concatenate(mats, axis=0)
+        if not lazy:
+            del raw
     for i, d in enumerate(rows):
         d["i"] = i
         d["zero_share"] = 1.0 - d["n_valid"] / N_MIN
-    return rows, C
+    return rows, (RowStore(parts) if lazy else C)
+
+
+def classify(d):
+    """Единая классификация (asset_class.classify) с приватными базами и решениями по other, выведенными load_contracts."""
+    return AC.classify(d, PRIVATE_BASES, RESOLUTION)
 
 
 def big_class(d):
-    if "pre-IPO" in d.get("note", "") or "pre-launch" in d.get("note", "") or "pre_market" in d.get("note", ""):
-        return OUT_OF_TEST
-    if "dated future" in d.get("note", ""):
-        return OUT_OF_TEST
-    if d["class"] == "other":
-        return OUT_OF_TEST
-    return BIG.get(d["class"], OUT_OF_TEST)
-
-
-# ---------------------------------------------------------------- нормализация имени
-MULT_RE = re.compile(r"^(1000000|100000|10000|1000|1M)(?=[A-Z])")
-
-
-def norm_key(d):
-    """-> (ключ актива, список меток нормализации). Ключ только ПРЕДЛАГАЕТ кандидатов (словарь псевдонимов, П-37 §4.2 [Н29]);
-    решение «один актив» принимает измеренное правило."""
-    tags = []
-    b = d["base"]
-    ex = d["exchange"]
-    cl = d["class"]
-    if ex == "kraken" and cl in ("equity", "etf") and b.endswith("x") and len(b) > 2:
-        b = b[:-1]
-        tags.append("kraken_xstock")
-    if ex == "lighter" and re.match(r"^rh[A-Z]", b):
-        b = b[2:]
-        tags.append("lighter_rh")
-    b = b.upper()
-    if ex == "lighter" and cl in ("equity", "etf") and b.endswith("USD") and len(b) > 4:
-        b = b[:-3]
-        tags.append("lighter_usd")
-    if cl in ("equity", "etf") and b.endswith("STOCK") and len(b) > 5:
-        b = b[:-5]
-        tags.append("suffix_STOCK")
-    if b.endswith("HKD") and len(b) > 5 and cl in ("equity", "etf"):
-        b = b[:-3]
-        tags.append("suffix_HKD")
-    m = MULT_RE.match(b)
-    if m:
-        b = b[len(m.group(1)):]
-        tags.append("mult_" + m.group(1))
-    m2 = re.match(r"^([A-Z]{2,})(1000)$", b)           # суффикс множителя (Bybit SHIB1000)
-    if m2:
-        b = m2.group(1)
-        tags.append("mult_" + m2.group(2))
-    if d["quote"] == "BTC" and not b.endswith("BTC"):
-        b = b + "BTC"
-        tags.append("quote_BTC")
-    return b, tags
+    return classify(d).big
 
 
 # ---------------------------------------------------------------- статистики пары

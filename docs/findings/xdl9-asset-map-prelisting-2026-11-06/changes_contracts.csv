@@ -1,0 +1,96 @@
+exchange,symbol,class,n_valid,role_old,role_new,big_old,big_new,leg_c1d2_old,leg_c1d2_new,a1a2b1_old,a1a2b1_new,reason_old,reason_new
+aster,ANTHROPICUSD1,other,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,ANTHROPICUSDT,other,152,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,MOONSHOTUSD1,other,1934,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,OPENAIUSD1,other,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,OPENAIUSDT,other,222,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,OURAUSD1,other,3376,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,PAPERUSDT,crypto,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,POLYMARKETUSD1,other,2246,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,PREDICTUSDT,crypto,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+aster,XTENUSDT,crypto,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (aster underlyingSubType=pre-launch)"
+binance,ANTHROPICUSDT,other,17169,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)"
+binance,MOONSHOTUSDT,other,5794,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)"
+binance,OPENAIUSDT,other,18119,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)"
+binance,OURAUSDT,other,6044,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)"
+binance,PREDICTUSDT,crypto,0,excluded,excluded,крипта,вне теста,0,0,0,0,нет валидных минут на формировании (n_valid=0),"вне теста: пред-листинг, первичное поле (binance underlyingType=PREMARKET)"
+bingx,NCSIB2002USD-USDT,other,20146,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bingx,NCSIH1002USD-USDT,other,20160,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bingx,NCSKANTHROPIC2USD-USDT,other,20160,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база ANTHROPIC (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; 
+bingx,NCSKDXYZ2USD-USDT,other,18784,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+bingx,NCSKMUD2USD-USDT,other,3910,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bingx,NCSKNBIL2USD-USDT,other,3910,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bingx,NCSKOPENAI2USD-USDT,other,20160,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база OPENAI (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; byb
+bingx,NCSKOURA2USD-USDT,equity,20160,main,excluded,акции+ETF,вне теста,1,0,1,0,,вне теста: приватная база OURA (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit
+bingx,NCSKPOLYMARKET2USD-USDT,other,16511,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база POLYMARKET (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; bybit status=PreLaunch)
+bingx,NCSKSKDD2USD-USDT,other,20160,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bingx,NCSKSKUU2USD-USDT,other,20160,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bingx,NCSKSNDQ2USD-USDT,other,3910,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bingx,NCSKSSPC2USD-USDT,other,20160,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bingx,NCSKSTXX2USD-USDT,other,3628,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+bingx,NCSKVCX2USD-USDT,other,20160,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bingx,PREDICT-USDT,crypto,0,excluded,excluded,крипта,вне теста,0,0,0,0,нет валидных минут на формировании (n_valid=0),вне теста: приватная база PREDICT (помечена: aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit status=PreLaunch)
+bitget,AGPUUSDT,other,5092,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,ANTHROPICUSDT,other,12160,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база ANTHROPIC (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; 
+bitget,B200USDT,other,2102,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bitget,BNCUSDT,other,7901,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,BOTUSDT,other,4536,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,BSPUSDT,other,5555,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,DISKUSDT,other,2349,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bitget,DRAMUSDT,other,14948,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,ECHOUSDT,other,2374,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+bitget,ELICEUSDT,other,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: класс other (нет валидных минут на формировании (n_valid=0): класс ни на что не влияет)
+bitget,EUVUSDT,other,2479,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+bitget,H100USDT,other,4132,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bitget,INTWUSDT,other,14048,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,JMKEUSDT,other,2175,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bitget,MOONSHOTUSDT,other,3779,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база MOONSHOT (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; b
+bitget,MVLLUSDT,other,11476,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,OPENAIUSDT,other,12023,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база OPENAI (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; byb
+bitget,OURAUSDT,other,4896,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база OURA (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit
+bitget,POLYMARKETUSDT,other,1228,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: приватная база POLYMARKET (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; bybit status=PreLaunch)
+bitget,RAMUSDT,other,10430,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SECZUSDT,other,8347,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SHAZUSDT,other,4074,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SKDDUSDT,other,9637,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SKHYUSDT,other,16829,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SKUUUSDT,other,7773,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SNXXUSDT,other,16244,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SPCHUSDT,other,8294,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SPCXUSDT,other,16235,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,SSPCUSDT,other,4312,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+bitget,USDESTOCKUSDT,other,4149,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bitget,XNDUUSDT,other,3632,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+bitget,ZCSHUSDT,other,1215,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+bybit,ANTHROPICUSDT,equity,4346,main,excluded,акции+ETF,вне теста,1,0,1,0,,"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)"
+bybit,BPUSDT,crypto,7068,main,excluded,крипта,вне теста,1,0,1,0,,"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)"
+bybit,MOONSHOTUSDT,equity,1460,main,excluded,акции+ETF,вне теста,1,0,1,0,,"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)"
+bybit,OPENAIUSDT,equity,4583,main,excluded,акции+ETF,вне теста,1,0,1,0,,"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)"
+bybit,OURAUSDT,equity,1704,main,excluded,акции+ETF,вне теста,1,0,1,0,,"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)"
+bybit,POLYMARKETUSDT,equity,3742,main,excluded,акции+ETF,вне теста,1,0,1,0,,"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)"
+bybit,PREDICTUSDT,crypto,0,excluded,excluded,крипта,вне теста,0,0,0,0,нет валидных минут на формировании (n_valid=0),"вне теста: пред-листинг, первичное поле (bybit status=PreLaunch)"
+kraken,PF_ANTHROPICXUSD,equity,4159,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)"
+kraken,PF_MOONSHOTXUSD,equity,70,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)"
+kraken,PF_OPENAIXUSD,equity,202,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)"
+kraken,PF_OURAXUSD,equity,185,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (kraken category=Pre-IPO)"
+kraken,PF_SPCXXUSD,other,3816,excluded,main,вне теста,акции+ETF,0,1,0,1,вне теста: класс other,
+lighter,ADI,other,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: класс other (нет валидных минут на формировании (n_valid=0): класс ни на что не влияет)
+lighter,AI,other,7845,excluded,main,вне теста,крипта,0,1,0,1,вне теста: класс other,
+lighter,ANSEM,other,7488,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+lighter,ANTHROPIC,equity,11139,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,вне теста: приватная база ANTHROPIC (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; 
+lighter,DRV,other,9408,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+lighter,H100,other,324,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+lighter,OPENAI,equity,9100,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,вне теста: приватная база OPENAI (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; byb
+lighter,OURA,equity,843,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,вне теста: приватная база OURA (помечена: П-37 r3 §4.1 (список); aster underlyingSubType=pre-launch; binance underlyingType=PREMARKET; bybit
+lighter,PRL,other,16453,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, ни один контракт с тем же ключом имени не прошёл «одно»)"
+lighter,SPACEX,equity,0,excluded,excluded,акции+ETF,вне теста,0,0,0,0,нет валидных минут на формировании (n_valid=0),вне теста: приватная база SPACEX (помечена: hyperliquid perpCategories=preipo)
+lighter,STABLECOINX,other,7283,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+lighter,TUR30,other,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: класс other (нет валидных минут на формировании (n_valid=0): класс ни на что не влияет)
+lighter,US10Y,other,79,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+lighter,VARIATIONAL,other,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: класс other (нет валидных минут на формировании (n_valid=0): класс ни на что не влияет)
+lighter,XTEN,other,0,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,вне теста: класс other (нет валидных минут на формировании (n_valid=0): класс ни на что не влияет)
+okx,ANTHROPIC-USDT-SWAP,other,17816,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)"
+okx,H100-USDT-SWAP,other,5688,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: класс other,"вне теста: класс other (биржа класс не назвала, контрактов с тем же ключом имени на других биржах нет)"
+okx,MOONSHOT-USDT-SWAP,other,1831,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)"
+okx,OPENAI-USDT-SWAP,other,11454,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)"
+okx,OURA-USDT-SWAP,other,1670,excluded,excluded,вне теста,вне теста,0,0,0,0,вне теста: pre-IPO/pre-launch,"вне теста: пред-листинг, первичное поле (okx ruleType=pre_market)"
