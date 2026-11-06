@@ -1,0 +1,277 @@
+cell,kind,slug,pairs,hl_pairs_ok,phi_outside_unit,hl_median_min,window,max_hold,refresh,entry_z,stop_z_a1,trades_at_entry_z_formation,d2_params,sigma_formation_bps_day,status
+A1|binance|crypto,A1,crypto,37,37,0,93.239,373,373,373,2.00,4.00,425,,a0=42.5513;a1=40.8052,торгуется
+A1|binance|eq_us,A1,eq_us,8,8,0,13.030,52,52,52,,,,,,не торгуется: безубыточной точки на формировании нет
+A1|bingx|crypto,A1,crypto,63,63,0,78.615,314,314,314,1.00,2.00,31897,,a0=113.8665;a1=295.6995,торгуется
+A1|bingx|eq_us,A1,eq_us,8,8,0,0.508,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+A1|bingx|idx_us,A1,idx_us,5,5,0,445.617,1782,1782,1782,,,,,,не торгуется: безубыточной точки на формировании нет
+A1|bitget|crypto,A1,crypto,64,64,0,276.417,1106,1106,1106,3.25,6.50,2,,a0=не измерена;a1=не измерена,торгуется
+A1|bitget|eq_us,A1,eq_us,9,9,0,10.184,41,41,41,,,,,,не торгуется: безубыточной точки на формировании нет
+A1|bybit|crypto,A1,crypto,7,7,0,76.426,306,306,306,1.00,2.00,78,,a0=не измерена;a1=не измерена,торгуется
+A1|kraken|crypto,A1,crypto,41,41,0,476.167,1905,1905,1905,,,,,,не торгуется: безубыточной точки на формировании нет
+A1|lighter|crypto,A1,crypto,29,29,0,445.306,1781,1781,1781,1.50,3.00,342,,a0=42.9478;a1=62.3021,торгуется
+A1|okx|eq_us,A1,eq_us,9,9,0,34.691,139,139,139,,,,,,не торгуется: безубыточной точки на формировании нет
+A2|aster|crypto,A2,crypto,127,124,3,461.646,1847,1847,1847,2.25,4.50,139,,a0=3.6526;a1=4.2146,торгуется
+A2|binance|crypto,A2,crypto,512,508,4,954.047,3816,3816,3816,1.00,2.00,3109,,a0=76.3140;a1=744.6013,торгуется
+A2|bingx|crypto,A2,crypto,528,524,4,901.816,3607,3607,3607,1.25,2.50,8228,,a0=216.5495;a1=1296.2557,торгуется
+A2|bitget|crypto,A2,crypto,149,148,1,806.812,3227,3227,3227,1.00,2.00,82,,a0=42.8515;a1=193.0912,торгуется
+A2|bybit|crypto,A2,crypto,425,421,4,812.159,3249,3249,3249,1.00,2.00,803,,a0=33.0958;a1=255.5166,торгуется
+A2|kraken|crypto,A2,crypto,52,52,0,587.647,2351,2351,2351,,,,,,не торгуется: безубыточной точки на формировании нет
+A2|lighter|crypto,A2,crypto,62,61,1,605.179,2421,2421,2421,,,,,,не торгуется: безубыточной точки на формировании нет
+A2|okx|crypto,A2,crypto,230,227,3,943.062,3772,3772,3772,1.00,2.00,639,,a0=40.3182;a1=440.8824,торгуется
+B1|aster|crypto,B1,crypto,37,34,3,216.954,868,868,868,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|aster|eq_us,B1,eq_us,1,1,0,136.565,546,546,546,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|binance|crypto,B1,crypto,513,510,3,762.170,3049,3049,3049,2.00,4.00,1544,,a0=15.2227;a1=17.3011,торгуется
+B1|binance|eq_nonus,B1,eq_nonus,4,4,0,1058.193,4233,4233,4233,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|binance|eq_us,B1,eq_us,162,157,5,258.566,1034,1034,1034,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|binance|metal_energy,B1,metal_energy,6,5,1,1328.867,5315,5315,5315,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bingx|crypto,B1,crypto,529,526,3,696.782,2787,2787,2787,2.00,4.00,5728,,a0=65.6537;a1=35.3676,торгуется
+B1|bingx|eq_nonus,B1,eq_nonus,32,32,0,393.426,1574,1574,1574,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bingx|eq_us,B1,eq_us,457,455,2,249.486,998,998,998,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bingx|fx,B1,fx,35,35,0,168.498,674,674,674,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bingx|idx_us,B1,idx_us,7,7,0,462.967,1852,1852,1852,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bingx|metal_energy,B1,metal_energy,9,9,0,814.709,3259,3259,3259,3.75,7.50,40,,a0=4.7339;a1=4.7339,торгуется
+B1|bitget|crypto,B1,crypto,150,133,17,455.482,1822,1822,1822,1.50,3.00,61,,a0=2.1039;a1=3.8811,торгуется
+B1|bitget|eq_nonus,B1,eq_nonus,8,8,0,96.625,387,387,387,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bitget|eq_us,B1,eq_us,70,61,9,215.112,860,860,860,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bitget|metal_energy,B1,metal_energy,6,5,1,736.105,2944,2944,2944,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bybit|crypto,B1,crypto,426,399,27,523.467,2094,2094,2094,2.50,5.00,142,,a0=2.3266;a1=3.0946,торгуется
+B1|bybit|eq_nonus,B1,eq_nonus,5,5,0,205.226,821,821,821,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bybit|eq_us,B1,eq_us,23,23,0,477.793,1911,1911,1911,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|bybit|metal_energy,B1,metal_energy,5,4,1,576.404,2306,2306,2306,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|kraken|crypto,B1,crypto,28,27,1,402.061,1608,1608,1608,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|lighter|crypto,B1,crypto,17,14,3,634.687,2539,2539,2539,1.00,2.00,48,,a0=22.0526;a1=201.8371,торгуется
+B1|lighter|eq_us,B1,eq_us,19,17,2,232.110,928,928,928,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|lighter|metal_energy,B1,metal_energy,5,3,2,898.167,3593,3593,3593,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|okx|crypto,B1,crypto,231,227,4,829.347,3317,3317,3317,1.00,2.00,231,,a0=4.2570;a1=37.1255,торгуется
+B1|okx|eq_nonus,B1,eq_nonus,10,10,0,380.800,1523,1523,1523,,,,,,не торгуется: безубыточной точки на формировании нет
+B1|okx|eq_us,B1,eq_us,53,52,1,466.917,1868,1868,1868,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~binance|crypto,C1,crypto,213,186,27,0.330,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~binance|eq_nonus,C1,eq_nonus,2,2,0,0.484,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~binance|eq_us,C1,eq_us,30,11,15,0.235,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~binance|metal_energy,C1,metal_energy,6,6,0,0.482,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bingx|crypto,C1,crypto,212,192,20,0.362,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bingx|eq_nonus,C1,eq_nonus,1,1,0,0.590,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bingx|eq_us,C1,eq_us,29,12,14,0.277,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bingx|metal_energy,C1,metal_energy,5,5,0,0.719,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bitget|crypto,C1,crypto,163,152,11,0.380,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bitget|eq_nonus,C1,eq_nonus,2,2,0,0.500,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bitget|eq_us,C1,eq_us,24,13,8,0.221,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bitget|metal_energy,C1,metal_energy,6,6,0,1.027,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bybit|crypto,C1,crypto,192,184,8,0.399,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bybit|eq_nonus,C1,eq_nonus,2,2,0,0.780,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bybit|eq_us,C1,eq_us,28,17,7,0.301,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~bybit|metal_energy,C1,metal_energy,5,5,0,1.286,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~kraken|crypto,C1,crypto,69,69,0,0.400,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~kraken|eq_us,C1,eq_us,4,3,0,0.291,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~kraken|metal_energy,C1,metal_energy,2,2,0,0.602,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~lighter|crypto,C1,crypto,59,57,2,0.484,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~lighter|eq_nonus,C1,eq_nonus,1,1,0,0.898,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~lighter|eq_us,C1,eq_us,21,18,0,0.522,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~lighter|metal_energy,C1,metal_energy,4,4,0,2.533,10,10,10,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~okx|crypto,C1,crypto,142,139,3,0.401,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~okx|eq_nonus,C1,eq_nonus,2,2,0,0.736,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~okx|eq_us,C1,eq_us,27,15,9,0.286,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|aster~okx|metal_energy,C1,metal_energy,5,5,0,2.441,10,10,10,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bingx|crypto,C1,crypto,488,487,1,0.554,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bingx|eq_nonus,C1,eq_nonus,10,9,1,0.374,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bingx|eq_us,C1,eq_us,168,150,18,0.267,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bingx|fx,C1,fx,1,1,0,1.825,7,7,7,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bingx|metal_energy,C1,metal_energy,8,8,0,0.429,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bitget|crypto,C1,crypto,447,447,0,0.474,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bitget|eq_nonus,C1,eq_nonus,23,23,0,1.540,6,6,6,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bitget|eq_us,C1,eq_us,132,113,1,0.473,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bitget|metal_energy,C1,metal_energy,8,8,0,2.392,10,10,10,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bybit|crypto,C1,crypto,469,469,0,1.014,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bybit|eq_nonus,C1,eq_nonus,18,18,0,0.981,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bybit|eq_us,C1,eq_us,151,145,1,0.543,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~bybit|metal_energy,C1,metal_energy,6,6,0,4.531,18,18,18,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~kraken|crypto,C1,crypto,105,104,1,0.445,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~kraken|eq_nonus,C1,eq_nonus,1,1,0,0.544,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~kraken|eq_us,C1,eq_us,17,6,0,0.511,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~kraken|metal_energy,C1,metal_energy,4,4,0,0.812,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~lighter|crypto,C1,crypto,82,81,1,0.564,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~lighter|eq_nonus,C1,eq_nonus,2,2,0,1.054,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~lighter|eq_us,C1,eq_us,29,28,0,0.850,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~lighter|metal_energy,C1,metal_energy,6,6,0,4.019,16,16,16,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~okx|crypto,C1,crypto,265,265,0,1.361,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~okx|eq_nonus,C1,eq_nonus,16,16,0,1.402,6,6,6,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~okx|eq_us,C1,eq_us,134,131,0,0.581,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|binance~okx|metal_energy,C1,metal_energy,8,8,0,3.490,14,14,14,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bitget|crypto,C1,crypto,439,438,1,0.467,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bitget|eq_nonus,C1,eq_nonus,15,15,0,1.291,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bitget|eq_us,C1,eq_us,162,138,3,0.467,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bitget|idx_us,C1,idx_us,1,0,0,,,,,,,,,,"полураспад не измерен: нет пар с phi in (0, 1)"
+C1|bingx~bitget|metal_energy,C1,metal_energy,7,7,0,1.322,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bybit|crypto,C1,crypto,472,472,0,0.600,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bybit|eq_nonus,C1,eq_nonus,11,11,0,1.280,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bybit|eq_us,C1,eq_us,172,165,3,0.599,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~bybit|metal_energy,C1,metal_energy,4,4,0,4.816,19,19,19,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~kraken|crypto,C1,crypto,107,106,1,0.471,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~kraken|eq_nonus,C1,eq_nonus,1,1,0,0.548,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~kraken|eq_us,C1,eq_us,17,6,0,0.511,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~kraken|metal_energy,C1,metal_energy,4,4,0,0.848,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~lighter|crypto,C1,crypto,85,83,2,0.594,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~lighter|eq_nonus,C1,eq_nonus,2,2,0,1.145,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~lighter|eq_us,C1,eq_us,30,29,0,0.879,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~lighter|idx_us,C1,idx_us,2,2,0,1.125,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~lighter|metal_energy,C1,metal_energy,6,6,0,3.252,13,13,13,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~okx|crypto,C1,crypto,275,275,0,0.659,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~okx|eq_nonus,C1,eq_nonus,10,10,0,0.946,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~okx|eq_us,C1,eq_us,148,148,0,0.566,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~okx|idx_us,C1,idx_us,1,1,0,1.503,6,6,6,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bingx~okx|metal_energy,C1,metal_energy,8,8,0,3.021,12,12,12,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~bybit|crypto,C1,crypto,426,425,1,0.650,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~bybit|eq_nonus,C1,eq_nonus,19,19,0,1.158,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~bybit|eq_us,C1,eq_us,113,100,1,0.563,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~bybit|metal_energy,C1,metal_energy,5,5,0,4.382,18,18,18,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~kraken|crypto,C1,crypto,96,95,1,0.436,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~kraken|eq_nonus,C1,eq_nonus,1,1,0,0.517,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~kraken|eq_us,C1,eq_us,14,6,0,0.524,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~kraken|metal_energy,C1,metal_energy,4,4,0,0.849,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~lighter|crypto,C1,crypto,76,74,2,0.543,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~lighter|eq_nonus,C1,eq_nonus,4,4,0,0.748,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~lighter|eq_us,C1,eq_us,26,25,0,0.707,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~lighter|metal_energy,C1,metal_energy,5,5,0,3.729,15,15,15,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~okx|crypto,C1,crypto,263,263,0,0.653,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~okx|eq_nonus,C1,eq_nonus,20,20,0,1.876,8,8,8,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~okx|eq_us,C1,eq_us,107,94,0,0.525,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bitget~okx|metal_energy,C1,metal_energy,7,7,0,2.176,9,9,9,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~kraken|crypto,C1,crypto,104,104,0,0.489,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~kraken|eq_nonus,C1,eq_nonus,1,1,0,0.569,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~kraken|eq_us,C1,eq_us,16,5,1,0.582,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~kraken|metal_energy,C1,metal_energy,3,3,0,0.763,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~lighter|crypto,C1,crypto,85,83,2,0.616,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~lighter|eq_nonus,C1,eq_nonus,2,2,0,1.080,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~lighter|eq_us,C1,eq_us,31,30,0,0.922,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~lighter|metal_energy,C1,metal_energy,3,3,0,5.601,22,22,22,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~okx|crypto,C1,crypto,271,271,0,1.160,5,5,5,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~okx|eq_nonus,C1,eq_nonus,16,16,0,1.037,4,4,4,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~okx|eq_us,C1,eq_us,134,125,2,0.620,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|bybit~okx|metal_energy,C1,metal_energy,4,4,0,5.157,21,21,21,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~lighter|crypto,C1,crypto,49,49,0,0.432,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~lighter|eq_nonus,C1,eq_nonus,1,1,0,0.444,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~lighter|eq_us,C1,eq_us,11,4,1,0.433,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~lighter|metal_energy,C1,metal_energy,3,3,0,0.455,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~okx|crypto,C1,crypto,95,94,1,0.509,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~okx|eq_nonus,C1,eq_nonus,1,1,0,0.553,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~okx|eq_us,C1,eq_us,15,6,0,0.516,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|kraken~okx|metal_energy,C1,metal_energy,4,4,0,0.857,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|lighter~okx|crypto,C1,crypto,80,80,0,0.605,2,2,2,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|lighter~okx|eq_nonus,C1,eq_nonus,3,3,0,0.750,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|lighter~okx|eq_us,C1,eq_us,28,27,0,0.871,3,3,3,,,,,,не торгуется: безубыточной точки на формировании нет
+C1|lighter~okx|metal_energy,C1,metal_energy,6,6,0,4.779,19,19,19,,,,,,не торгуется: безубыточной точки на формировании нет
+D2|aster~binance|crypto,D2,crypto,213,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=1.2393,торгуется (G7 пройден в F6)
+D2|aster~binance|eq_nonus,D2,eq_nonus,2,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~binance|eq_us,D2,eq_us,30,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.5508,торгуется (G7 пройден в F6)
+D2|aster~binance|metal_energy,D2,metal_energy,6,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=4.2293,торгуется (G7 пройден в F6)
+D2|aster~bingx|crypto,D2,crypto,212,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=0.6600,торгуется (G7 пройден в F6)
+D2|aster~bingx|eq_nonus,D2,eq_nonus,1,,,,60,240,60,,,,k=6;hold_payments=1;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~bingx|eq_us,D2,eq_us,29,,,,60,1440,60,,,,k=6;hold_payments=3;interval_h_y=8,a0=2.7556,торгуется (G7 пройден в F6)
+D2|aster~bingx|metal_energy,D2,metal_energy,5,,,,60,720,60,,,,k=1;hold_payments=3;interval_h_y=4,a0=7.3375,торгуется (G7 пройден в F6)
+D2|aster~bitget|crypto,D2,crypto,163,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=1.1394,торгуется (G7 пройден в F6)
+D2|aster~bitget|eq_nonus,D2,eq_nonus,2,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~bitget|eq_us,D2,eq_us,24,,,,60,480,60,,,,k=6;hold_payments=1;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~bitget|metal_energy,D2,metal_energy,6,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=2.9860,торгуется (G7 пройден в F6)
+D2|aster~bybit|crypto,D2,crypto,192,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=1.4170,торгуется (G7 пройден в F6)
+D2|aster~bybit|eq_nonus,D2,eq_nonus,2,,,,60,720,60,,,,k=6;hold_payments=2;interval_h_y=6,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~bybit|eq_us,D2,eq_us,28,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.3786,торгуется (G7 пройден в F6)
+D2|aster~bybit|metal_energy,D2,metal_energy,5,,,,60,720,60,,,,k=1;hold_payments=3;interval_h_y=4,a0=4.9788,торгуется (G7 пройден в F6)
+D2|aster~kraken|crypto,D2,crypto,69,,,,60,120,60,,,,k=3;hold_payments=2;interval_h_y=1,a0=1.1951,торгуется (G7 пройден в F6)
+D2|aster~kraken|eq_us,D2,eq_us,4,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~kraken|metal_energy,D2,metal_energy,2,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=5.3369,торгуется (G7 пройден в F6)
+D2|aster~lighter|crypto,D2,crypto,59,,,,60,120,60,,,,k=3;hold_payments=2;interval_h_y=1,a0=1.3811,торгуется (G7 пройден в F6)
+D2|aster~lighter|eq_nonus,D2,eq_nonus,1,,,,60,240,60,,,,k=6;hold_payments=1;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~lighter|eq_us,D2,eq_us,21,,,,60,240,60,,,,k=6;hold_payments=4;interval_h_y=1,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~lighter|metal_energy,D2,metal_energy,4,,,,60,450,60,,,,k=1;hold_payments=3;interval_h_y=2.5,a0=11.5064,торгуется (G7 пройден в F6)
+D2|aster~okx|crypto,D2,crypto,142,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=0.5140,торгуется (G7 пройден в F6)
+D2|aster~okx|eq_nonus,D2,eq_nonus,2,,,,60,480,60,,,,k=3;hold_payments=1;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~okx|eq_us,D2,eq_us,27,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|aster~okx|metal_energy,D2,metal_energy,5,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=9.6928,торгуется (G7 пройден в F6)
+D2|binance~bingx|crypto,D2,crypto,488,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=0.1513,торгуется (G7 пройден в F6)
+D2|binance~bingx|eq_nonus,D2,eq_nonus,10,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=0.7677,торгуется (G7 пройден в F6)
+D2|binance~bingx|eq_us,D2,eq_us,168,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.3464,торгуется (G7 пройден в F6)
+D2|binance~bingx|fx,D2,fx,1,,,,60,480,60,,,,k=3;hold_payments=1;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|binance~bingx|metal_energy,D2,metal_energy,8,,,,60,720,60,,,,k=1;hold_payments=3;interval_h_y=4,a0=2.4888,торгуется (G7 пройден в F6)
+D2|binance~bitget|crypto,D2,crypto,447,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.3292,торгуется (G7 пройден в F6)
+D2|binance~bitget|eq_nonus,D2,eq_nonus,23,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=0.2376,торгуется (G7 пройден в F6)
+D2|binance~bitget|eq_us,D2,eq_us,132,,,,60,480,60,,,,k=3;hold_payments=1;interval_h_y=8,a0=0.3446,торгуется (G7 пройден в F6)
+D2|binance~bitget|metal_energy,D2,metal_energy,8,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=4.7012,торгуется (G7 пройден в F6)
+D2|binance~bybit|crypto,D2,crypto,469,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.1929,торгуется (G7 пройден в F6)
+D2|binance~bybit|eq_nonus,D2,eq_nonus,18,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=0.7618,торгуется (G7 пройден в F6)
+D2|binance~bybit|eq_us,D2,eq_us,151,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.5221,торгуется (G7 пройден в F6)
+D2|binance~bybit|metal_energy,D2,metal_energy,6,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=2.5836,торгуется (G7 пройден в F6)
+D2|binance~kraken|crypto,D2,crypto,105,,,,60,960,60,,,,k=1;hold_payments=2;interval_h_y=8,a0=0.8820,торгуется (G7 пройден в F6)
+D2|binance~kraken|eq_nonus,D2,eq_nonus,1,,,,60,240,60,,,,k=6;hold_payments=1;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|binance~kraken|eq_us,D2,eq_us,17,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|binance~kraken|metal_energy,D2,metal_energy,4,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=7.3719,торгуется (G7 пройден в F6)
+D2|binance~lighter|crypto,D2,crypto,82,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.3136,торгуется (G7 пройден в F6)
+D2|binance~lighter|eq_nonus,D2,eq_nonus,2,,,,60,240,60,,,,k=6;hold_payments=1;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|binance~lighter|eq_us,D2,eq_us,29,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|binance~lighter|metal_energy,D2,metal_energy,6,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=3.0307,торгуется (G7 пройден в F6)
+D2|binance~okx|crypto,D2,crypto,265,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.1066,торгуется (G7 пройден в F6)
+D2|binance~okx|eq_nonus,D2,eq_nonus,16,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=0.5142,торгуется (G7 пройден в F6)
+D2|binance~okx|eq_us,D2,eq_us,134,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.2685,торгуется (G7 пройден в F6)
+D2|binance~okx|metal_energy,D2,metal_energy,8,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=5.7069,торгуется (G7 пройден в F6)
+D2|bingx~bitget|crypto,D2,crypto,439,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=0.1784,торгуется (G7 пройден в F6)
+D2|bingx~bitget|eq_nonus,D2,eq_nonus,15,,,,60,1440,60,,,,k=6;hold_payments=3;interval_h_y=8,a0=4.7807,торгуется (G7 пройден в F6)
+D2|bingx~bitget|eq_us,D2,eq_us,162,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.3757,торгуется (G7 пройден в F6)
+D2|bingx~bitget|idx_us,D2,idx_us,1,,,,60,960,60,,,,k=3;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bingx~bitget|metal_energy,D2,metal_energy,7,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=4.5688,торгуется (G7 пройден в F6)
+D2|bingx~bybit|crypto,D2,crypto,472,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=0.2979,торгуется (G7 пройден в F6)
+D2|bingx~bybit|eq_nonus,D2,eq_nonus,11,,,,60,1440,60,,,,k=6;hold_payments=3;interval_h_y=8,a0=4.2013,торгуется (G7 пройден в F6)
+D2|bingx~bybit|eq_us,D2,eq_us,172,,,,60,1440,60,,,,k=6;hold_payments=3;interval_h_y=8,a0=0.7359,торгуется (G7 пройден в F6)
+D2|bingx~bybit|metal_energy,D2,metal_energy,4,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=3.9414,торгуется (G7 пройден в F6)
+D2|bingx~kraken|crypto,D2,crypto,107,,,,60,960,60,,,,k=1;hold_payments=2;interval_h_y=8,a0=0.7816,торгуется (G7 пройден в F6)
+D2|bingx~kraken|eq_nonus,D2,eq_nonus,1,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bingx~kraken|eq_us,D2,eq_us,17,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bingx~kraken|metal_energy,D2,metal_energy,4,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=18.7436,торгуется (G7 пройден в F6)
+D2|bingx~lighter|crypto,D2,crypto,85,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=0.5012,торгуется (G7 пройден в F6)
+D2|bingx~lighter|eq_nonus,D2,eq_nonus,2,,,,60,450,60,,,,k=3;hold_payments=3;interval_h_y=2.5,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bingx~lighter|eq_us,D2,eq_us,30,,,,60,1440,60,,,,k=6;hold_payments=3;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bingx~lighter|idx_us,D2,idx_us,2,,,,60,8910,60,,,,k=1;hold_payments=33;interval_h_y=4.5,a0=1.3946,торгуется (G7 пройден в F6)
+D2|bingx~lighter|metal_energy,D2,metal_energy,6,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=4.9798,торгуется (G7 пройден в F6)
+D2|bingx~okx|crypto,D2,crypto,275,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.2274,торгуется (G7 пройден в F6)
+D2|bingx~okx|eq_nonus,D2,eq_nonus,10,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=2.0225,торгуется (G7 пройден в F6)
+D2|bingx~okx|eq_us,D2,eq_us,148,,,,60,1440,60,,,,k=6;hold_payments=3;interval_h_y=8,a0=0.7021,торгуется (G7 пройден в F6)
+D2|bingx~okx|idx_us,D2,idx_us,1,,,,60,960,60,,,,k=3;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bingx~okx|metal_energy,D2,metal_energy,8,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=3.6852,торгуется (G7 пройден в F6)
+D2|bitget~bybit|crypto,D2,crypto,426,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=0.3755,торгуется (G7 пройден в F6)
+D2|bitget~bybit|eq_nonus,D2,eq_nonus,19,,,,60,480,60,,,,k=6;hold_payments=1;interval_h_y=8,a0=1.1688,торгуется (G7 пройден в F6)
+D2|bitget~bybit|eq_us,D2,eq_us,113,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.1964,торгуется (G7 пройден в F6)
+D2|bitget~bybit|metal_energy,D2,metal_energy,5,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=3.8218,торгуется (G7 пройден в F6)
+D2|bitget~kraken|crypto,D2,crypto,96,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.3156,торгуется (G7 пройден в F6)
+D2|bitget~kraken|eq_nonus,D2,eq_nonus,1,,,,60,240,60,,,,k=6;hold_payments=1;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bitget~kraken|eq_us,D2,eq_us,14,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bitget~kraken|metal_energy,D2,metal_energy,4,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=10.9487,торгуется (G7 пройден в F6)
+D2|bitget~lighter|crypto,D2,crypto,76,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.0695,торгуется (G7 пройден в F6)
+D2|bitget~lighter|eq_nonus,D2,eq_nonus,4,,,,60,480,60,,,,k=6;hold_payments=2;interval_h_y=4,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bitget~lighter|eq_us,D2,eq_us,26,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bitget~lighter|metal_energy,D2,metal_energy,5,,,,60,720,60,,,,k=1;hold_payments=3;interval_h_y=4,a0=5.2328,торгуется (G7 пройден в F6)
+D2|bitget~okx|crypto,D2,crypto,263,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.1654,торгуется (G7 пройден в F6)
+D2|bitget~okx|eq_nonus,D2,eq_nonus,20,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=1.4840,торгуется (G7 пройден в F6)
+D2|bitget~okx|eq_us,D2,eq_us,107,,,,60,480,60,,,,k=3;hold_payments=1;interval_h_y=8,a0=0.2815,торгуется (G7 пройден в F6)
+D2|bitget~okx|metal_energy,D2,metal_energy,7,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=5.0668,торгуется (G7 пройден в F6)
+D2|bybit~kraken|crypto,D2,crypto,104,,,,60,960,60,,,,k=1;hold_payments=2;interval_h_y=8,a0=1.2837,торгуется (G7 пройден в F6)
+D2|bybit~kraken|eq_nonus,D2,eq_nonus,1,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bybit~kraken|eq_us,D2,eq_us,16,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bybit~kraken|metal_energy,D2,metal_energy,3,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=6.7812,торгуется (G7 пройден в F6)
+D2|bybit~lighter|crypto,D2,crypto,85,,,,60,480,60,,,,k=3;hold_payments=2;interval_h_y=4,a0=0.4847,торгуется (G7 пройден в F6)
+D2|bybit~lighter|eq_nonus,D2,eq_nonus,2,,,,60,960,60,,,,k=3;hold_payments=2;interval_h_y=8,a0=0.9753,торгуется (G7 пройден в F6)
+D2|bybit~lighter|eq_us,D2,eq_us,31,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bybit~lighter|metal_energy,D2,metal_energy,3,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=4.3469,торгуется (G7 пройден в F6)
+D2|bybit~okx|crypto,D2,crypto,271,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.1393,торгуется (G7 пройден в F6)
+D2|bybit~okx|eq_nonus,D2,eq_nonus,16,,,,60,480,60,,,,k=6;hold_payments=1;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|bybit~okx|eq_us,D2,eq_us,134,,,,60,960,60,,,,k=3;hold_payments=2;interval_h_y=8,a0=0.5969,торгуется (G7 пройден в F6)
+D2|bybit~okx|metal_energy,D2,metal_energy,4,,,,60,960,60,,,,k=1;hold_payments=2;interval_h_y=8,a0=7.6330,торгуется (G7 пройден в F6)
+D2|kraken~lighter|crypto,D2,crypto,49,,,,60,120,60,,,,k=1;hold_payments=2;interval_h_y=1,a0=не измерена,торгуется (G7 пройден в F6)
+D2|kraken~lighter|eq_nonus,D2,eq_nonus,1,,,,60,180,60,,,,k=6;hold_payments=3;interval_h_y=1,a0=не измерена,торгуется (G7 пройден в F6)
+D2|kraken~lighter|eq_us,D2,eq_us,11,,,,60,120,60,,,,k=3;hold_payments=2;interval_h_y=1,a0=не измерена,торгуется (G7 пройден в F6)
+D2|kraken~lighter|metal_energy,D2,metal_energy,3,,,,60,120,60,,,,k=1;hold_payments=2;interval_h_y=1,a0=не измерена,торгуется (G7 пройден в F6)
+D2|kraken~okx|crypto,D2,crypto,95,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=0.3205,торгуется (G7 пройден в F6)
+D2|kraken~okx|eq_nonus,D2,eq_nonus,1,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|kraken~okx|eq_us,D2,eq_us,15,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|kraken~okx|metal_energy,D2,metal_energy,4,,,,60,960,60,,,,k=1;hold_payments=2;interval_h_y=8,a0=22.2504,торгуется (G7 пройден в F6)
+D2|lighter~okx|crypto,D2,crypto,80,,,,60,480,60,,,,k=1;hold_payments=2;interval_h_y=4,a0=0.0380,торгуется (G7 пройден в F6)
+D2|lighter~okx|eq_nonus,D2,eq_nonus,3,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|lighter~okx|eq_us,D2,eq_us,28,,,,60,960,60,,,,k=6;hold_payments=2;interval_h_y=8,a0=не измерена,торгуется (G7 пройден в F6)
+D2|lighter~okx|metal_energy,D2,metal_energy,6,,,,60,960,60,,,,k=1;hold_payments=2;interval_h_y=8,a0=6.1004,торгуется (G7 пройден в F6)

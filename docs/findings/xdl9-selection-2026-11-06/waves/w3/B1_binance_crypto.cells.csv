@@ -1,0 +1,3 @@
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+B1|binance|crypto|a0,3049,3049,,2.00,0,inf,3049,3049
+B1|binance|crypto|a1,3049,3049,,2.00,0,4.00,3049,3049

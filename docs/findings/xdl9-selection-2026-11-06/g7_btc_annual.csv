@@ -1,0 +1,9 @@
+exchange,symbol,payments,interval_h_median,annual_rate_mean,mean_rate_bps_per_payment
+binance,BTCUSDT,42,8,0.0229,0.21
+bybit,BTCUSDT,42,8,0.0280,0.26
+okx,BTC-USDT-SWAP,42,8,0.0318,0.29
+bingx,BTC-USDT,42,8,0.0695,0.64
+aster,BTCUSDT,42,8,0.0367,0.33
+kraken,PF_XBTUSD,336,1,0.0735,0.08
+lighter,BTC,336,1,0.0491,0.06
+bitget,BTCUSDT,42,8,0.0591,0.54

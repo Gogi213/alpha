@@ -1,0 +1,2 @@
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+D2|bitget~bybit|eq_us|a0,60,60,,1.00,0,inf,960,60
