@@ -5,14 +5,16 @@
   python3 sel_deck_prep.py mask   - ~/xdl9/panels_us/<биржа>/<SYM>.sap: маска кассы США на всех 35 сутках (us_mask=1)
   python3 sel_deck_prep.py form   - ~/xdl9/form/<биржа>/<SYM>.sap:
                                     ТОЛЬКО минуты формирования [01.10 00:00, 15.10 00:00); торговое окно физически не попадает в файл
-  python3 sel_deck_prep.py formsh - ~/xdl9/form_sh/<тег>/<биржа>/<SYM>.sap, тег p1/p2/m1 = сдвиг партнёра на +1, +2, -1 (П-37 r3.1 §7.2) для контрактов
+  python3 sel_deck_prep.py formsh - ~/xdl9/form_sh/<тег>/<биржа>/<SYM>.sap, тег p1/p2/m1 = сдвиг серии на +1, +2, -1 (П-37 r3.1 §7.2, r3.2 D13) для контрактов
                                     каталогов A: крипта - календарные сутки, остальные полосы - торговые дни (sel_shift.py); панель содержит только
-                                    общее пересечение сдвигов 03.10-13.10 (сутки 2467-2477, 15 840 минут), источники лежат внутри формирования
+                                    общее пересечение сдвигов 03.10-13.10 (сутки 2467-2477, 15 840 минут), источники лежат внутри формирования;
+                                    r3.2: у полос с торговыми днями выходные цели остаются NaN (target_blank)
   python3 sel_deck_prep.py fundcut- ~/xdl9/funding_form/<биржа>/<SYM>.csv.gz: фандинг ТОЛЬКО формирования (time_ms < 15.10 00:00 UTC). Механическая
                                     обрезка по метке времени: у каждой строки разбирается только первое поле, остановка на первой строке >= границы;
                                     значения ставок торгового окна не разбираются и не читаются дальше (D2 и все расчёты S1 берут только эти файлы)
   python3 sel_deck_prep.py links  - ~/xdl9/trade/<биржа>/ (все контракты теста), ~/xdl9/cat/{a,c}/<биржа>-<полоса>/,
-                                    ~/xdl9/cat/form/<биржа>-<полоса>/{real, null<k><тег>}/ (k = 1..4 разбиение, тег - сдвиг)
+                                    ~/xdl9/cat/form/<биржа>-<полоса>/{real, al_<о1>_<о2>}/ (r3.2 D13: al_* - нуль на рёбрах реального графа,
+                                    по одному каталогу на пару смещений sel_shift.RUNS; `S` - символ с первым смещением, `S@B` - со вторым)
 Вход: ~/xdl9/sel/contracts.csv, ~/xdl9/sel/splits.csv (с ПК). Формат .sap: panel.rs (SAP1, u32 резерв, i64 first_min, u64 n, open[n], close[n]).
 Календарь (П-37 §9, Н22): касса 13:30-20:00 UTC в будни до 31.10 включительно (EDT), 14:30-21:00 UTC с 01.11 (EST).
 """
@@ -147,6 +149,14 @@ def abs_slice(col, first_min, start, n):
     return out
 
 
+def target_blank(mode, d):
+    """Сутки цели остаются NaN в сдвинутой панели (r3.2, D13): у полос с торговыми днями (`trade`) выходные - у реальных серий там баров нет, а заполнение выходных
+    днём-источником (пятницей) даёт повторяющиеся блоки: у выравниваний без реальной серии получается ≈ 11 сессий вместо 7 у реальных пар и тяжёлый хвост нуля
+    (bingx-eq_us: q0,1 % статистики -42 против -33 у запусков с реальной серией)."""
+    import sel_shift as SH
+    return mode == "trade" and not SH.is_weekday(d)
+
+
 def cmd_formsh():
     import sel_shift as SH
     t0 = time.time()
@@ -167,6 +177,8 @@ def cmd_formsh():
         for k in SH.SHIFTS:
             out = [array.array("d", [NAN]) * (nd * MIN_DAY), array.array("d", [NAN]) * (nd * MIN_DAY)]
             for d in range(first, end):
+                if target_blank(mode, d):
+                    continue
                 sd = SH.source_day(d, k, mode)
                 assert sd is not None and D_FORM0 <= sd < D_TRADE0, (d, k, mode, sd)
                 for c, col in enumerate((op, cl)):
@@ -229,13 +241,22 @@ def cmd_links():
             link(os.path.join(HOME, "form", r["exchange"], stem), os.path.join(HOME, "cat", "form", cid, "real", stem))
         if r["leg_c1d2"] == "1":
             link(tgt, os.path.join(HOME, "cat", "c", cid, stem)); cnt["c"] += 1
+    # r3.2 (D13): нуль на рёбрах реального графа - по одному каталогу form на неупорядоченную пару смещений (sel_shift.RUNS): `S.sap` - символ
+    # со ПЕРВЫМ смещением, `S@B.sap` - со ВТОРЫМ (смещение r = панель form, иначе form_sh/<тег>)
+    def panel_of(off, ex, stem):
+        return os.path.join(HOME, "form" if off == "r" else os.path.join("form_sh", off), ex, stem)
+
     with open(os.path.join(HOME, "sel", "splits.csv"), encoding="utf-8", newline="") as fh:
         for r in csv.DictReader(fh):
+            if r["split"] != "1":              # состав каталога один и тот же во всех разбиениях
+                continue
             stem = safe(r["symbol"]) + ".sap"
-            for k in SH.SHIFTS:
-                sub = os.path.join(HOME, "form", r["exchange"]) if r["half"] == "A" else os.path.join(HOME, "form_sh", SH.TAG[k], r["exchange"])
-                link(os.path.join(sub, stem), os.path.join(HOME, "cat", "form", r["catalog"], "null" + r["split"] + SH.TAG[k], stem))
-                cnt["form"] += 1
+            stem_b = safe(r["symbol"]) + SH.SUFFIX_B + ".sap"
+            for run, (o1, o2) in enumerate(SH.RUNS):
+                d = os.path.join(HOME, "cat", "form", r["catalog"], SH.run_dir(run))
+                link(panel_of(o1, r["exchange"], stem), os.path.join(d, stem))
+                link(panel_of(o2, r["exchange"], stem), os.path.join(d, stem_b))
+                cnt["form"] += 2
     print("links:", cnt, "%.1f с" % (time.time() - t0))
 
 

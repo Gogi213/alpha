@@ -25,7 +25,7 @@ SELDOC = os.path.join(ROOT, "docs", "findings", "xdl9-selection-2026-11-06")
 WAVES = os.path.join(SELDOC, "waves")
 CONTRACTS = os.path.join(ROOT, "data", "xdl9", "sel", "contracts.csv")
 
-BIN = "$HOME/xdl9/bin/statarb-xdl9-4ef45cc8"
+BIN = "$HOME/xdl9/bin/statarb-xdl9-a24f4c96-pgo"          # S2 (D3, В-32): PGO-сборка финального исходника ядра; команды волн - sel_waves.build_cmd
 SEED = 37
 NL = chr(10)
 HDR_CELLS = "cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh"
@@ -87,7 +87,7 @@ def read_jobs(path, header_cols):
 def outs_main(O, st, jf):
     return ("--daily-out {O}/{st}.daily.csv --trades-out {O}/{st}.trades.csv --trades-ext --trade-jobs \"$(tj {jf})\" "
             "--open-out {O}/{st}.open.csv --mtm-open --cells-out {O}/{st}.cells_out.csv --ext-out {O}/{st}.ext.csv "
-            "--job-day-out {O}/{st}.jobday.csv").format(O=O, st=st, jf=jf)
+            "--job-ext-out {O}/{st}.jobext.csv --job-day-out {O}/{st}.jobday.csv").format(O=O, st=st, jf=jf)
 
 
 def outs_light(O, st):
@@ -99,7 +99,7 @@ def build_run(g, M, variant, st, cf, jf, O, P, F, PX=None, FX=None, d2dir=None, 
     """Одна группа запусков. variant main - команда S1 (боевые выходы), иначе лёгкие выходы. P/F - каталоги панелей и фандинга ноги Y (и X в одной бирже);
     PX/FX - каталоги ноги X для cross/D2 (по умолчанию как у Y-биржи группы)."""
     exy, exx = g["exy"], g["exx"]
-    flags = "--min-span 1440 --threads ${THREADS:-4}"
+    flags = "--min-span 1440 --threads ${THREADS:-8}"
     outs = outs_main(O, st, jf) if variant == "main" else outs_light(O, st)
     kind = g["kind"]
     if kind in ("A1", "A2"):
@@ -111,7 +111,7 @@ def build_run(g, M, variant, st, cf, jf, O, P, F, PX=None, FX=None, d2dir=None, 
     else:
         body = ("%s statarb run --kind funding-pp --panels %s --panels-b %s --funding-y %s/$S --funding-x %s/empty_x --rule funding "
                 "--funding-k %s --hold-payments %s --cell \"%s|a0\" --window %d --min-obs %d --entry-z 1.00 --exit-z 0 --stop-z inf --max-hold 0 "
-                "--refresh %d --jobs $J %s %s"
+                "--refresh %d --jobs $J --no-entry-before-from %s %s"
                 % (BIN, P, PX, d2dir, d2dir, g["k"], g["hold"], g["cell"], D2_WINDOW, D2_WINDOW, D2_WINDOW, flags,
                    outs.replace("\"$(tj %s)\"" % jf, "\"$(tj $J)\"").replace(st + ".", st + "__$S.")))
         return "%sfor J in %s/shard*.jobs.csv; do S=$(basename $J .jobs.csv); [ $(wc -l < $J) -gt 1 ] || continue; %s; done" % (d2_gen, d2dir, body)
@@ -260,7 +260,7 @@ def gen(mode, out_dir_lists, units_path, groups=None, cat=None, only=None):
             st = "ALLPAIRS_" + gg["stem"]
             cmd = ("python3 $HOME/xdl9/tools/statarb/xdl9/sel_allpairs_jobs.py %s w4/%s.jobs.csv %d %d && %s statarb run --kind pair --panels %s/%s --funding-y %s/%s --rearm "
                    "--cells %s --jobs w4/%s.jobs.csv --daily-out %s/w4/%s.daily.csv --cells-out %s/w4/%s.cells_out.csv --ext-out %s/w4/%s.ext.csv --mtm-open "
-                   "--min-span 1440 --threads ${THREADS:-4}"
+                   "--min-span 1440 --threads ${THREADS:-8}"
                    % (cid, st, M["D0"], M["D1"], BIN, M["P"], ex, M["F"], ex, gg["cells_file"], st, M["OUT"], st, M["OUT"], st, M["OUT"], st))
             add("ap:" + gg["stem"], "w4", cmd, "%s/w4/%s.*" % (M["OUT"], st))
 

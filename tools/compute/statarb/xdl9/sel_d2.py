@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TK-493 S1 (Steam Deck, только stdlib): параметры клеток D2 по РАЗНОСТНОМУ ряду фандинга ФОРМИРОВАНИЯ (П-37 r3.1 §5, §6.3, Н21, Н36).
+"""TK-493 S1/S2 (Steam Deck, только stdlib): параметры клеток D2 по РАЗНОСТНОМУ ряду фандинга ФОРМИРОВАНИЯ (П-37 r3.2 §5, §6.3, Н21, Н36, Н55).
 Платежи только с time_ms < 15.10 00:00 UTC: вход - ~/xdl9/funding_form/<биржа> (sel_deck_prep.py fundcut), торговое окно не читается.
 
   python3 sel_d2.py all   - для каждой клетки D2 (cellpairs/D2_*.csv, пары Y/X с общим активом):
@@ -8,21 +8,29 @@
     2. k - из {1, 3, 6}: минимум средней квадратичной ошибки прогноза следующего значения d трейлинг-средним k прошлых значений (пул по парам клетки,
        только пары с >= 7 значениями d); hold_payments - медианная длина эпизодов постоянного знака d в метках Y (пул эпизодов клетки), не меньше 1;
     3. max_hold = 0 (выключен); window = min_obs = refresh = 60 (ядром при правиле funding не используются; НАЗНАЧЕНО без Судьи, подтвердить);
-    4. прогон ядра 4ef45cc8 по формированию (панели ~/xdl9/form, окно 01.10-14.10), сделки всех заданий -> длительности позиций (только времена,
-       без P&L): медиана, квартили, доля сделок короче одного интервала выплаты Y, число позиций, не закрытых к концу окна.
-Выходы: ~/xdl9/sel/d2_params.csv, d2_excluded.csv, d2_durations.csv (копируются на ПК в docs/findings/xdl9-selection-s1-2026-11-06/).
+    4. прогон ядра a24f4c96 (PGO) по формированию (панели ~/xdl9/form, окно 01.10-14.10) с `--no-entry-before-from --mtm-open` (r3.2, D5 ii: нет входа в разогреве
+       ряда ставок), сделки всех заданий -> длительности позиций (только времена, без P&L): медиана, квартили, доля сделок короче одного интервала выплаты Y, число
+       позиций, не закрытых к концу окна;
+    5. (r3.2, D5 i, L3-01) ориентация пар: Y - нога с БОЛЬШИМ медианным интервалом выплат (задаёт sel_cells.py по funding_interval_form.csv); для каждой пары
+       grid_kind: «равные» (интервалы равны и каждая выплата X лежит ровно на метке Y), «Y реже» (интервал Y больше: в метку Y падает сумма выплат X),
+       «сдвиг» (интервалы равны, метки не совпадают) - d2_pairs.csv; доли по клеткам - d2_params.csv.
+    6. (r3.2, D5 iii) активные пары-сутки формирования ПО ПАНЕЛЯМ (d2_active.py): d2_active_form.csv - знаменатель σ_форм D2 (kernel `active` у D2 меряет окно z, не правило).
+Запуск: ~/xdl9/venv/bin/python sel_d2.py all (нужен numpy для d2_active.py; остальное - stdlib).
+Выходы: ~/xdl9/sel/d2_params.csv, d2_excluded.csv, d2_durations.csv, d2_pairs.csv, d2_active_form.csv (копируются на ПК в docs/findings/xdl9-selection-2026-11-06/).
 """
 import csv, glob, gzip, math, os, statistics, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import d2_diff_funding as DD  # noqa: E402
+import d2_active as DA  # noqa: E402   (numpy: запуск ~/xdl9/venv/bin/python)
 
 HOME = os.path.expanduser("~/xdl9")
 SEL = os.path.join(HOME, "sel")
 KS = (1, 3, 6)
 MIN_VALUES = max(KS) + 1
 D_FORM0, D_TRADE0 = 2465, 2479
-BIN = os.path.join(HOME, "bin", "statarb-xdl9-4ef45cc8")
+BIN = os.path.join(HOME, "bin", "statarb-xdl9-a24f4c96-pgo")          # PGO-сборка финального исходника ядра (D3, В-32); sha256 65e02a49...
+THREADS = os.environ.get("THREADS", "8")
 D2_WINDOW = 60
 
 
@@ -69,14 +77,25 @@ def episodes(d):
 
 
 def cell_groups():
-    """-> {(cid, ex_y, ex_x): [(y, x)]} по cellpairs/D2_*.csv."""
-    g = {}
+    """-> ({(cid, ex_y, ex_x): [(y, x)]}, {(cid, ex_y, y, ex_x, x): (itv_y_h, itv_x_h, ориентация)}) по cellpairs/D2_*.csv."""
+    g, info = {}, {}
     for f in sorted(glob.glob(os.path.join(SEL, "cellpairs", "D2_*.csv"))):
         cid = "|".join(os.path.basename(f)[:-4].split("_", 2))      # D2_<биржи>_<полоса>: полоса может содержать "_" (eq_us)
         with open(f, encoding="utf-8", newline="") as fh:
             for r in csv.DictReader(fh):
                 g.setdefault((cid, r["ex_y"], r["ex_x"]), []).append((r["y"], r["x"]))
-    return g
+                info[(cid, r["ex_y"], r["y"], r["ex_x"], r["x"])] = (r["itv_y_h"], r["itv_x_h"], r["orient"])
+    return g, info
+
+
+def grid_kind(itv_y, itv_x, grid_equal):
+    """Вид сетки выплат пары D2 после ориентации (r3.2, D5 i): равные | Y реже | сдвиг."""
+    try:
+        if float(itv_y) > float(itv_x) + 1e-9:
+            return "Y реже"
+    except ValueError:
+        pass
+    return "равные" if str(grid_equal) == "1" else "сдвиг"
 
 
 def stem(cid, exy, exx):
@@ -85,9 +104,10 @@ def stem(cid, exy, exx):
 
 def run_all():
     os.makedirs(os.path.join(SEL, "d2form"), exist_ok=True)
-    groups = cell_groups()
+    groups, info = cell_groups()
     per_cell = {}
     excl = []
+    pair_rows = []
     for (cid, exy, exx), prs in sorted(groups.items()):
         out = os.path.join(SEL, "d2form", stem(cid, exy, exx))
         pairs_csv = out + ".pairs.csv"
@@ -98,7 +118,7 @@ def run_all():
         man, rc = DD.run(DD.read_pairs(pairs_csv), os.path.join(HOME, "funding_form", exy), os.path.join(HOME, "funding_form", exx), out, D_FORM0, D_TRADE0)
         if rc:
             raise SystemExit("d2_diff_funding: масса не сошлась в %s" % out)
-        st = per_cell.setdefault(cid, dict(pairs=0, used=0, unequal=0, sse={k: [0.0, 0] for k in KS}, eps=[], itv=[], groups=[]))
+        st = per_cell.setdefault(cid, dict(pairs=0, used=0, unequal=0, kinds={"равные": 0, "Y реже": 0, "сдвиг": 0}, sse={k: [0.0, 0] for k in KS}, eps=[], itv=[], groups=[]))
         for m in man:
             st["pairs"] += 1
             if m["status"] != "ok":
@@ -110,6 +130,10 @@ def run_all():
                 continue
             st["used"] += 1
             st["unequal"] += int(m["grid_equal"] != 1 and m["grid_equal"] != "1")
+            iy, ix, why = info[(cid, exy, m["y"], exx, m["x"])]
+            gk = grid_kind(iy, ix, m["grid_equal"])
+            st["kinds"][gk] += 1
+            pair_rows.append([cid, exy, m["y"], exx, m["x"], iy, ix, why, m["grid_equal"], gk])
             st["eps"].extend(episodes(d))
             if itv:
                 st["itv"].append(statistics.median(itv))
@@ -121,23 +145,41 @@ def run_all():
     rows = []
     for cid, st in sorted(per_cell.items()):
         if not st["used"]:
-            rows.append([cid, st["pairs"], 0, "", "", "", "", "", "нет пар с фандингом обеих ног"])
+            rows.append([cid, st["pairs"], 0, "", "", "", "", "", "нет пар с фандингом обеих ног", "", "", ""])
             continue
         mse = {k: st["sse"][k][0] / max(1, st["sse"][k][1]) for k in KS}
         kbest = min(KS, key=lambda k: (mse[k], k))
         hold = max(1, int(round(statistics.median(st["eps"])))) if st["eps"] else 1
         ih = statistics.median(st["itv"]) if st["itv"] else float("nan")
         rows.append([cid, st["pairs"], st["used"], kbest, hold, "%g" % ih, "%.4f" % (st["unequal"] / st["used"]),
-                     "|".join("%.6g" % mse[k] for k in KS), "параметры измерены"])
+                     "|".join("%.6g" % mse[k] for k in KS), "параметры измерены"] + ["%.4f" % (st["kinds"][g_] / st["used"]) for g_ in ("равные", "Y реже", "сдвиг")])
         st["k"], st["hold"], st["ih"] = kbest, hold, ih
     with open(os.path.join(SEL, "d2_params.csv"), "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["cell", "pairs", "pairs_with_d", "k", "hold_payments", "interval_h_y_median", "unequal_grid_share", "mse_k1|k3|k6", "status"])
+        w.writerow(["cell", "pairs", "pairs_with_d", "k", "hold_payments", "interval_h_y_median", "unequal_grid_share", "mse_k1|k3|k6", "status",
+                    "share_grid_equal", "share_y_rarer", "share_shift"])
         w.writerows(rows)
+    with open(os.path.join(SEL, "d2_pairs.csv"), "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["cell", "ex_y", "y", "ex_x", "x", "itv_y_h", "itv_x_h", "orient_basis", "grid_equal", "grid_kind"])
+        w.writerows(pair_rows)
     with open(os.path.join(SEL, "d2_excluded.csv"), "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["cell", "ex_y", "y", "ex_x", "x", "reason"])
         w.writerows(excl)
+    # знаменатель D2 по панелям (r3.2, D5 iii): активные пары-сутки формирования = open обеих ног конечен хотя бы в одну минуту суток И накоплено >= k выплат ряда d
+    act_rows = []
+    for cid, st in sorted(per_cell.items()):
+        if "k" not in st:
+            continue
+        for exy, exx, out, _shards in st["groups"]:
+            for y, x, act in DA.group_active(os.path.join(HOME, "form", exy), os.path.join(HOME, "form", exx), out, st["k"], D_FORM0, D_TRADE0):
+                for d, v in zip(range(D_FORM0, D_TRADE0), act):
+                    act_rows.append([cid, exy, y, exx, x, d, v])
+    with open(os.path.join(SEL, "d2_active_form.csv"), "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh, lineterminator="\n")
+        w.writerow(["cell", "ex_y", "y", "ex_x", "x", "day", "active"])
+        w.writerows(act_rows)
     # прогон ядра по формированию: длительности позиций
     dur = []
     os.makedirs(os.path.join(SEL, "d2form_out"), exist_ok=True)
@@ -156,12 +198,12 @@ def run_all():
                     fh.write("%s|a0,%d,%d,,1.00,0,inf,0,%d\n" % (cid, D2_WINDOW, D2_WINDOW, D2_WINDOW))
                 tr = os.path.join(SEL, "d2form_out", tag + ".trades.csv")
                 co = os.path.join(SEL, "d2form_out", tag + ".cells_out.csv")
-                cmd = ["nice", "-n", "19", BIN, "statarb", "run", "--kind", "funding-pp", "--panels", os.path.join(HOME, "form", exy),
+                cmd = [BIN, "statarb", "run", "--kind", "funding-pp", "--panels", os.path.join(HOME, "form", exy),
                        "--panels-b", os.path.join(HOME, "form", exx), "--funding-y", os.path.join(out, sh.replace(".jobs", "")),
                        "--funding-x", os.path.join(out, "empty_x"), "--rule", "funding", "--funding-k", str(st["k"]),
-                       "--hold-payments", str(st["hold"]), "--cells", cellrow, "--jobs", jf,
+                       "--hold-payments", str(st["hold"]), "--cells", cellrow, "--jobs", jf, "--no-entry-before-from", "--mtm-open",
                        "--daily-out", os.path.join(SEL, "d2form_out", tag + ".daily.csv"), "--trades-out", tr,
-                       "--trade-jobs", ",".join(str(i) for i in range(n)), "--cells-out", co, "--min-span", "1440", "--threads", "4"]
+                       "--trade-jobs", ",".join(str(i) for i in range(n)), "--cells-out", co, "--min-span", "1440", "--threads", THREADS]
                 subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                 with open(tr, encoding="utf-8", newline="") as fh:
                     rd = csv.DictReader(fh)

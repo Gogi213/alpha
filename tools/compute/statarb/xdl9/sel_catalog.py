@@ -6,7 +6,7 @@
   session_assets.csv   - по активам акций/ETF/индексов: решение США / не-США и причина
   contracts.csv        - все контракты теста: полоса, маска, доля, вошёл ли в каталог A (A1/A2/B1), в ноги C1/D2, причина
   catalogs.csv         - по каталогу (биржа x полоса): кандидатов, колено, порог, вошло, метка 24/7|сессия
-  splits.csv           - разбиения A/B для эмпирического нуля (seed 37; 3 разбиения + 1 контрольное)
+  splits.csv           - разбиения A/B (seed 37; 3 разбиения задают граф реальных пар A1, 4-е зарезервировано: поток случайных чисел как в r3.1)
 Правила и числа: см. отчёт docs/findings/xdl9-selection-2026-11-06.md; всё без источника - «назначено без Судьи, подтвердить».
 """
 import re, sys, os, json
@@ -14,9 +14,10 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sel_lib as S  # noqa: E402
+import asset_class as AC  # noqa: E402
 
 SEED = 37
-N_SPLITS = 4        # 3 для порога t* + 1 контрольное (G9 нулевой тест)
+N_SPLITS = 4        # 3 разбиения задают граф реальных пар A1 (§7.2); 4-е в r3.2 не используется (G9 - контрольные выравнивания рёбер), но остаётся в потоке случайных чисел: разбиения 1-3 как в r3.1
 
 
 def nonus_tags(a):
@@ -62,28 +63,40 @@ def main():
                 a["var_share"] = float(r2[sessR].sum() / tot)
         cont.append(a)
 
-    # ---------------- активы: США / не-США
+    # ---------------- активы: США / не-США. r3.2 (D6, M-08, [Н56]): МЕТКИ РЕГИОНА БИРЖИ ПРИОРИТЕТНЫ (Bybit region=, Bitget «листинг XX», Binance *_EQUITY,
+    # нога в HKD, валюта в имени BingX); правило по доле дисперсии в кассе США - только запасное, для активов без метки.
+    region = AC.region_labels(S.AL.load_inst_all())
     by_asset = {}
     for a in cont:
         if a["big"] not in ("акции+ETF", "индексы"):
             continue
         by_asset.setdefault(a["asset_id"], []).append(a)
     asset_rows, nonus = [], {}
+    n_by = dict(метка=0, данные=0, умолчание=0, метка_против_данных=0)
     for aid, lst in sorted(by_asset.items()):
         tags = sorted({t for a in lst for t in nonus_tags(a)})
+        verdict, vwhy = AC.region_verdict(region.get(aid.split("|")[0], set()))
         vs = [a["var_share"] for a in lst if a["var_share"] == a["var_share"] and a["role"] == "main"]
         med = float(np.median(vs)) if vs else float("nan")
         data_flag = bool(vs) and med < chance
         if tags:
-            dec, why = "не-США", "; ".join(tags)
+            dec, why = "не-США", "; ".join(tags + ([vwhy] if verdict == "не-США" else []))
+            n_by["метка"] += 1
+        elif verdict is not None:
+            dec, why = verdict, vwhy
+            n_by["метка"] += 1
         elif data_flag:
             dec, why = "не-США", "данные: медиана доли дисперсии в кассе %.3f < %.4f" % (med, chance)
+            n_by["данные"] += 1
         else:
             dec = "США"
             why = "по умолчанию (П-37 §9)" if not vs else "данные: медиана %.3f >= %.4f" % (med, chance)
+            n_by["умолчание" if not vs else "данные"] += 1
+        if (tags or verdict is not None) and vs and (dec == "не-США") != data_flag:
+            n_by["метка_против_данных"] += 1          # метка и данные расходятся (метка побеждает)
         nonus[aid] = dec == "не-США"
         asset_rows.append([aid, lst[0]["big"], ";".join(sorted({a["exchange"] for a in lst})), len(lst), len(vs),
-                           "" if med != med else "%.4f" % med, "; ".join(tags), dec, why])
+                           "" if med != med else "%.4f" % med, "; ".join(tags + ([vwhy] if verdict else [])), dec, why])
     S.write_csv(os.path.join(S.SEL, "session_assets.csv"),
                 ["asset_id", "big", "exchanges", "contracts", "measured", "median_var_share_session", "tags", "decision", "why"],
                 asset_rows)
@@ -160,7 +173,7 @@ def main():
                 sp.append([ex + "-" + slug, ex, slug, k, s_, h])
     S.write_csv(os.path.join(S.SEL, "splits.csv"), ["catalog", "exchange", "slug", "split", "symbol", "half"], sp)
     meta = dict(chance_session_share=chance, session_minutes=int(sess.sum()), seed=SEED, n_splits=N_SPLITS,
-                n_contracts=len(cont), n_catalogs=len(cat), nonus_assets=sum(nonus.values()), assets=len(nonus))
+                n_contracts=len(cont), n_catalogs=len(cat), nonus_assets=sum(nonus.values()), assets=len(nonus), us_rule_decided_by=n_by)
     json.dump(meta, open(os.path.join(S.SEL, "catalog_meta.json"), "w"), indent=1)
     print(meta)
 

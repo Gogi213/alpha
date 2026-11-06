@@ -131,6 +131,51 @@ def norm_key(d):
     return b, tags
 
 
+# ---------------------------------------------------------------- метки региона биржи (П-37 §9, r3.2 D6 [Н56])
+_REGION_BYBIT = re.compile(r"region=(\w*) ticker")
+_REGION_BITGET = re.compile(r"листинг ([A-Z]+)")
+_REGION_BINANCE = re.compile(r"(HK|KR|CN)_EQUITY")
+
+
+def region_labels(rows):
+    """Метки региона листинга базового актива из ПЕРВИЧНЫХ полей бирж (не из данных): Bybit `region=XX` (note), Bitget `листинг XX` (note),
+    Binance `HK|KR|CN_EQUITY` (class_src). Hyperliquid не берётся. -> {ключ актива (norm_key): {'биржа:XX'}}. Метка `XX = US` — «США»,
+    любая другая — «не-США». Правило США/не-США (sel_catalog.py): метка биржи приоритетна, доля дисперсии в кассе — только запасное (D6)."""
+    lab = {}
+    for r in rows:
+        ex = r.get("exchange", "")
+        if ex == "hyperliquid":
+            continue
+        found = []
+        if ex == "bybit":
+            m = _REGION_BYBIT.search(r.get("note", ""))
+            if m and m.group(1):
+                found.append("bybit:" + m.group(1))
+        elif ex == "bitget":
+            m = _REGION_BITGET.search(r.get("note", ""))
+            if m:
+                found.append("bitget:" + m.group(1))
+        elif ex == "binance":
+            m = _REGION_BINANCE.search(r.get("class_src", ""))
+            if m:
+                found.append("binance:" + m.group(1))
+        if found:
+            k, _ = norm_key(r)
+            lab.setdefault(k, set()).update(found)
+    return lab
+
+
+def region_verdict(labels):
+    """Решение по меткам актива: ('не-США' | 'США' | None, текст причины). Любая метка не-США побеждает метку США; нет меток - None (запасное правило по данным)."""
+    non = sorted(x for x in labels if not x.endswith(":US"))
+    us = sorted(x for x in labels if x.endswith(":US"))
+    if non:
+        return "не-США", "метка биржи: " + ",".join(non)
+    if us:
+        return "США", "метка биржи: " + ",".join(us)
+    return None, ""
+
+
 # ---------------------------------------------------------------- приватные базы
 def group_of(cls):
     """Группа для ключа приватной базы: компания (equity/etf/other) или сам класс (crypto)."""

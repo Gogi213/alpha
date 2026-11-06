@@ -30,23 +30,12 @@ def read(p):
 
 
 def labels():
-    """Метки региона из первичных полей бирж: Bybit region=, Bitget `листинг XX` (note), Binance *_EQUITY (class_src). -> {ключ актива: {метки}}."""
-    lab = collections.defaultdict(set)
+    """Метки региона из первичных полей бирж: Bybit region=, Bitget `листинг XX` (note), Binance *_EQUITY (class_src). -> {ключ актива: {метки}}.
+    Одна функция с sel_catalog.py (asset_class.region_labels, r3.2 D6)."""
+    rows = []
     for fn in sorted(glob.glob(os.path.join(DATA, "inst", "*.csv"))):
-        for r in read(fn):
-            if r["exchange"] == "hyperliquid":
-                continue
-            k, _ = AC.norm_key(r)
-            m = re.search(r"region=(\w*) ticker", r["note"])
-            if r["exchange"] == "bybit" and m and m.group(1):
-                lab[k].add("bybit:" + m.group(1))
-            m = re.search(r"листинг ([A-Z]+)", r["note"])
-            if r["exchange"] == "bitget" and m:
-                lab[k].add("bitget:" + m.group(1))
-            m = re.search(r"(HK|KR|CN)_EQUITY", r["class_src"])
-            if r["exchange"] == "binance" and m:
-                lab[k].add("binance:" + m.group(1))
-    return lab
+        rows.extend(read(fn))
+    return collections.defaultdict(set, AC.region_labels(rows))
 
 
 def agree_of(decision, truth):

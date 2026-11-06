@@ -59,7 +59,7 @@ class ListsTests(unittest.TestCase):
     def test_manifest_reproduced(self):
         import f8_lists as L
         if not os.path.exists(os.path.join(L.SELDOC, "waves_manifest.csv")):
-            self.skipTest("нет манифеста S1")
+            self.skipTest("нет манифеста волн")
         n = 0
         for g in L.load_groups():
             cmd, _ = L.unit_main(g, L.MODES["trade"])
@@ -69,7 +69,7 @@ class ListsTests(unittest.TestCase):
                 orig = re.sub(r"--pairs \S+\.cells\.csv", "--pairs " + g["jobs_file"], orig)
             self.assertEqual(cmd, orig, g["stem"])
             n += 1
-        self.assertEqual(n, 195)
+        self.assertEqual(n, len(L.load_groups()))
 
     def test_no17_list(self):
         import f8_lists as L

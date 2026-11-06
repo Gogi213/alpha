@@ -10,6 +10,11 @@ W (r3.1): W = max(2, round(m * медиана HL)) по парам клетки;
 каждого из трёх окон, Н44); min_obs = refresh = W. Пол 2 - технический минимум ядра (min_obs >= 2), не статистическое число; W_raw пишется рядом.
 Достижимость (§6.2 (а)): z по окну из W точек не больше z_max(W) = sqrt(W - 1); печатаются z_max, доля недостижимой части сетки и доля пар клетки с
 недостижимым entry_z (у пары собственное W_пары = max(2, round(m * HL_пары)) даёт z_max ниже верхнего края сетки 4,00, то есть W_пары < 17).
+HL(лаг 15) (r3.2, D14, L5-05): рядом с HL(лаг 1) печатается полураспад по AR(1) на шаге 15 минут, s_{t+15} = a + phi15*s_t + e по парам значений, обе конечны:
+HL15 = 15*ln2 / (-ln phi15), phi15 in (0, 1). Лаг 1 занижен шумом измерения (отскок цены); W остальных видов и сетка окон C1 (m x HL лага 1) НЕ меняются -
+HL15 диагностика, не новый множитель.
+D2 (r3.2, D5 i, L3-01): пары D2 ориентируются так, что Y - нога с БОЛЬШИМ медианным интервалом выплат на формировании (ничья или нет данных - как у C1: Y - нога с большим
+оборотом); интервалы берутся из sel/funding_interval_form.csv (готовит funding_intervals.py на Deck по ~/xdl9/funding_form: фандинг только формирования).
 Выходы: data/xdl9/sel/cellpairs/<клетка>.csv (по базовой клетке без окна), docs/.../cells_hl.csv.
 """
 import csv, math, os, sys
@@ -42,6 +47,7 @@ class Store:
         self.ci = {(d["exchange"], S.safe(d["symbol"])): i for i, d in enumerate(self.rows)}
         self.con = {(r["exchange"], S.safe(r["symbol"])): r for r in S.read_csv(os.path.join(S.SEL, "contracts.csv"))}
         self.sess = S.session_mask(self.C.shape[1])
+        self.itv = load_funding_intervals()
         self._ln = OrderedDict()
         self.cap = cap
 
@@ -92,14 +98,72 @@ def hl_of(ly, lx, ols):
     return phi, hl, n
 
 
+LAG15 = 15
+
+
+def hl15_of(ly, lx, ols):
+    """-> (phi15, hl15 в минутах, n) или None. Тот же спред и та же регрессия, что hl_of, но по парам (s_t, s_{t+15}); n >= N_RET_MIN пар."""
+    ok = np.isfinite(ly) & np.isfinite(lx)
+    if ok.sum() < S.N_RET_MIN + LAG15:
+        return None
+    if ols:
+        x, y = lx[ok], ly[ok]
+        vx = x.var()
+        if vx <= 0:
+            return None
+        b = ((x - x.mean()) * (y - y.mean())).mean() / vx
+        a = y.mean() - b * x.mean()
+        s = ly - a - b * lx
+    else:
+        s = ly - lx
+    s0, s1 = s[:-LAG15], s[LAG15:]
+    m = np.isfinite(s0) & np.isfinite(s1)
+    n = int(m.sum())
+    if n < S.N_RET_MIN:
+        return None
+    x, y = s0[m], s1[m]
+    xc = x - x.mean()
+    den = float((xc * xc).sum())
+    if den <= 0:
+        return None
+    phi = float((xc * (y - y.mean())).sum() / den)
+    hl = LAG15 * math.log(2.0) / -math.log(phi) if 0.0 < phi < 1.0 else float("nan")
+    return phi, hl, n
+
+
+def load_funding_intervals():
+    """-> {(биржа, символ-stem): медианный интервал выплат на формировании, часы} из sel/funding_interval_form.csv (funding_intervals.py, Deck)."""
+    p = os.path.join(S.SEL, "funding_interval_form.csv")
+    if not os.path.exists(p):
+        raise SystemExit("нет %s: сначала funding_intervals.py на Deck (ориентация D2, r3.2 D5 i)" % p)
+    out = {}
+    for r in S.read_csv(p):
+        if r["median_gap_h"]:
+            out[(r["exchange"], r["stem"])] = float(r["median_gap_h"])
+    return out
+
+
+def orient_d2(itv, exy, y, exx, x):
+    """Ориентация пары D2 (r3.2, D5 i): Y - нога с БОЛЬШИМ медианным интервалом выплат; ничья или нет данных - ориентация по обороту (как у C1, y уже стоит первым).
+    -> (exy, y, exx, x, itv_y, itv_x, причина)."""
+    iy, ix = itv.get((exy, y)), itv.get((exx, x))
+    if iy is not None and ix is not None and abs(iy - ix) > 1e-9:
+        if iy < ix:
+            return exx, x, exy, y, ix, iy, "интервал (смена)"
+        return exy, y, exx, x, iy, ix, "интервал"
+    return exy, y, exx, x, iy, ix, "оборот"
+
+
 def collect_cells(st):
     """-> {cell_id (без окна и руки): dict(kind, slug, pairs=[(ex_y, y, ex_x, [x...])])}"""
     cells = {}
 
-    def add(kind, exy, exx, slug, y, xs):
+    def add(kind, exy, exx, slug, y, xs, meta=None):
         cid = "%s|%s|%s" % (kind, exy if exy == exx else "~".join(sorted([exy, exx])), slug)
-        c = cells.setdefault(cid, dict(kind=kind, slug=slug, pairs=[]))
+        c = cells.setdefault(cid, dict(kind=kind, slug=slug, pairs=[], meta={}))
         c["pairs"].append((exy, y, exx, xs))
+        if meta is not None:
+            c["meta"][(exy, y, exx, "+".join(xs))] = meta
 
     p = os.path.join(S.SEL, "a1_pairs.csv")
     if os.path.exists(p):
@@ -126,8 +190,9 @@ def collect_cells(st):
         s1, s2 = st.con[k1]["slug"], st.con[k2]["slug"]
         if s1 != s2 or s1 is None:
             continue
-        for kind in ("C1", "D2"):
-            add(kind, r["ex1"], r["ex2"], s1, k1[1], [k2[1]])
+        add("C1", r["ex1"], r["ex2"], s1, k1[1], [k2[1]])
+        exy, y, exx, x, iy, ix, why = orient_d2(st.itv, r["ex1"], k1[1], r["ex2"], k2[1])
+        add("D2", exy, exx, s1, y, [x], meta=dict(itv_y_h=iy, itv_x_h=ix, orient=why))
     p = os.path.join(S.SEL, "b1_baskets.csv")
     if os.path.exists(p):
         for r in S.read_csv(p):
@@ -140,6 +205,12 @@ def pair_hl(st, kind, exy, y, exx, xs):
     ly = st.ln(exy, y)
     lx = st.ln(exx, xs[0]) if len(xs) == 1 else np.mean([st.ln(exx, x) for x in xs], axis=0)
     return hl_of(ly, lx, ols=kind in ("A1", "A2", "B1"))
+
+
+def pair_hl15(st, kind, exy, y, exx, xs):
+    ly = st.ln(exy, y)
+    lx = st.ln(exx, xs[0]) if len(xs) == 1 else np.mean([st.ln(exx, x) for x in xs], axis=0)
+    return hl15_of(ly, lx, ols=kind in ("A1", "A2", "B1"))
 
 
 def mults_of(kind):
@@ -157,29 +228,36 @@ def main():
     rows = []
     for cid in sorted(cells):
         c = cells[cid]
-        hls, n_phi_out, n_none = [], 0, 0
+        hls, hls15, n_phi_out, n_none = [], [], 0, 0
         pr = []
         for (exy, y, exx, xs) in c["pairs"]:
             if c["kind"] == "D2":
-                pr.append((exy, y, exx, "+".join(xs), "", "", ""))
+                m = c["meta"][(exy, y, exx, "+".join(xs))]
+                pr.append((exy, y, exx, "+".join(xs), "", "", "", "", "", "%g" % m["itv_y_h"] if m["itv_y_h"] is not None else "",
+                           "%g" % m["itv_x_h"] if m["itv_x_h"] is not None else "", m["orient"]))
                 continue
             r = pair_hl(st, c["kind"], exy, y, exx, xs)
+            r15 = pair_hl15(st, c["kind"], exy, y, exx, xs)
+            if r15 is not None and r15[1] == r15[1]:
+                hls15.append(r15[1])
+            p15 = ("%.6f" % r15[0], "" if r15[1] != r15[1] else "%.3f" % r15[1]) if r15 is not None else ("", "")
             if r is None:
                 n_none += 1
-                pr.append((exy, y, exx, "+".join(xs), "", "", ""))
+                pr.append((exy, y, exx, "+".join(xs), "", "", "", p15[0], p15[1], "", "", ""))
             else:
                 phi, hl, n = r
                 if hl == hl:
                     hls.append(hl)
                 else:
                     n_phi_out += 1
-                pr.append((exy, y, exx, "+".join(xs), "%.6f" % phi, "" if hl != hl else "%.3f" % hl, n))
+                pr.append((exy, y, exx, "+".join(xs), "%.6f" % phi, "" if hl != hl else "%.3f" % hl, n, p15[0], p15[1], "", "", ""))
         S.write_csv(os.path.join(S.SEL, "cellpairs", cid.replace("|", "_") + ".csv"),
-                    ["ex_y", "y", "ex_x", "x", "phi", "hl_min", "n_pairs_obs"], pr)
+                    ["ex_y", "y", "ex_x", "x", "phi", "hl_min", "n_pairs_obs", "phi15", "hl15_min", "itv_y_h", "itv_x_h", "orient"], pr)
         med = float(np.median(hls)) if hls else float("nan")
+        med15 = float(np.median(hls15)) if hls15 else float("nan")
         for cell, m in cell_ids(cid, c["kind"]):
             if c["kind"] == "D2":
-                rows.append([cell, c["kind"], c["slug"], "", len(c["pairs"]), "", "", "", "", "", "", "", "", "", ""])
+                rows.append([cell, c["kind"], c["slug"], "", len(c["pairs"]), "", "", "", "", "", "", "", "", "", "", "", "", ""])
                 continue
             W_raw = int(round(m * med)) if hls else ""
             W = max(W_FLOOR, W_raw) if hls else ""
@@ -193,10 +271,11 @@ def main():
             rows.append([cell, c["kind"], c["slug"], m, len(c["pairs"]), len(hls), n_phi_out, n_none,
                          "" if not hls else "%.3f" % med, W_raw, W,
                          "" if not hls else "%.3f" % zm, n_reach, "" if not hls else "%.4f" % unreach_grid,
-                         "" if not hls else "%.4f" % unreach_pairs])
+                         "" if not hls else "%.4f" % unreach_pairs,
+                         "" if not hls15 else "%.3f" % med15, len(hls15), "" if not (hls and hls15) else "%.2f" % (med15 / med)])
     S.write_csv(os.path.join(S.DOCS, "cells_hl.csv"),
                 ["cell", "kind", "slug", "m", "pairs", "hl_pairs_ok", "phi_outside_unit", "no_estimate", "hl_median_min", "W_raw_min", "W_min",
-                 "z_max", "grid_reachable_n", "grid_unreachable_share", "pairs_unreachable_share"], rows)
+                 "z_max", "grid_reachable_n", "grid_unreachable_share", "pairs_unreachable_share", "hl15_median_min", "hl15_pairs_ok", "hl15_over_hl1"], rows)
     print("клеток", len(rows))
 
 
