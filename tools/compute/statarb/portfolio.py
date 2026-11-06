@@ -185,6 +185,78 @@ def block_t_interval(series, alpha, block=None):
     return mean, mean - q * se, mean + q * se, min(1.0, t_sf_two_sided(mean / se, df)), df
 
 
+def skewness(series):
+    """Выборочная асимметрия g1 = m3 / m2^{3/2} (центральные моменты с делением на n); None при n < 3 или нулевой дисперсии.
+    Печатается рядом со статусом клетки (w5, D12, аудит L5-02): у отрицательно скошенных суточных рядов («мелкий плюс / редкий крупный минус»)
+    интервалы по нижней границе завышают долю «> 0» при истинном нуле."""
+    n = len(series)
+    if n < 3:
+        return None
+    mean = sum(series) / n
+    m2 = sum((x - mean) ** 2 for x in series) / n
+    if not m2 > 0.0:
+        return None
+    m3 = sum((x - mean) ** 3 for x in series) / n
+    return m3 / m2 ** 1.5
+
+
+def boot_t_starts(n, block, n_boot, seed):
+    """Начала скользящих блоков для студентизованного бутстрепа: n_boot строк по ⌈n/block⌉ начал, равномерно по [0, n) (блоки с оборачиванием)."""
+    nb = math.ceil(n / block)
+    rng = random.Random(seed)
+    return [[rng.randrange(n) for _ in range(nb)] for _ in range(n_boot)]
+
+
+def block_boot_t_interval(series, alpha, n_boot, seed, block=None, starts=None):
+    """Студентизованный блочный бутстреп-t (w5, D12): возвращает (среднее, нижняя, верхняя границы).
+
+    Ресэмпл - ⌈n/block⌉ скользящих блоков с оборачиванием (последний усечён до n), как `block_bootstrap`; для каждого ресэмпла считается
+    t* = (среднее* − среднее) / se*, где se* - кластерная оценка по блокам ресэмпла (та же формула, что в `block_t_interval`:
+    V = nb/(nb−1) · Σ_k (S_k − среднее·n_k)² / n²). Границы: [среднее − t*_{1−alpha/2}·se, среднее − t*_{alpha/2}·se], se - по блокам исходного ряда;
+    индексы квантилей - min(B−1, int(q·B)), как в `block_bootstrap`. Один блок (nb < 2) → (−∞, +∞); se = 0 → интервал схлопывается в среднее.
+    Критерий «нижняя граница > 0» этого интервала в статусе берётся ВМЕСТЕ с `block_t_interval` (оба > 0): размер правила не больше меньшего из двух.
+    `starts` - готовые начала блоков (для сверки с векторной копией в size_test.py); иначе `boot_t_starts(n, block, n_boot, seed)`.
+    """
+    n = len(series)
+    if n == 0:
+        raise ValueError("пустой ряд")
+    b = block or block_len(n)
+    nb = math.ceil(n / b)
+    mean = sum(series) / n
+    if nb < 2:
+        return mean, -math.inf, math.inf
+    lens = [b] * (nb - 1) + [n - (nb - 1) * b]
+
+    def se_of(sums, m):
+        ss = 0.0
+        for s, ln in zip(sums, lens):
+            r = s - m * ln
+            ss += r * r
+        return math.sqrt(nb / (nb - 1) * ss / (n * n))
+
+    se_hat = se_of([sum(series[k * b:(k + 1) * b]) for k in range(nb)], mean)
+    if se_hat == 0.0:
+        return mean, mean, mean
+    if starts is None:
+        starts = boot_t_starts(n, b, n_boot, seed)
+    pref = [0.0]
+    for x in list(series) + list(series):
+        pref.append(pref[-1] + x)
+    ts = []
+    for row in starts:
+        sums = [pref[s + ln] - pref[s] for s, ln in zip(row, lens)]
+        m_star = sum(sums) / n
+        se_star = se_of(sums, m_star)
+        if se_star > 0.0:
+            ts.append((m_star - mean) / se_star)
+        else:
+            ts.append(0.0 if m_star == mean else (math.inf if m_star > mean else -math.inf))
+    ts.sort()
+    nbt = len(ts)
+    i_lo, i_hi = min(nbt - 1, int(alpha / 2 * nbt)), min(nbt - 1, int((1 - alpha / 2) * nbt))
+    return mean, mean - ts[i_hi] * se_hat, mean - ts[i_lo] * se_hat
+
+
 def holm(pvals):
     """Поправка Холма: скорректированные p в исходном порядке."""
     m = len(pvals)

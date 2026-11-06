@@ -99,6 +99,83 @@ class TInterval(unittest.TestCase):
         self.assertEqual(p.block_t_interval(x, 0.10), p.block_t_interval(x, 0.10, 3))
 
 
+class BootT(unittest.TestCase):
+    """w5 D12: студентизованный блочный бутстреп-t (второй интервал статуса) и асимметрия суточного ряда."""
+
+    def test_skewness(self):
+        self.assertIsNone(p.skewness([1.0, 2.0]))
+        self.assertIsNone(p.skewness([3.0] * 10))
+        self.assertAlmostEqual(p.skewness([1.0, 2.0, 3.0, 4.0, 5.0]), 0.0, places=12)
+        x = [1.0, 1.0, 1.0, 1.0, -9.0]                       # один крупный минус: отрицательная асимметрия, g1 = −1,5 для 4 одинаковых и одного выброса
+        self.assertLess(p.skewness(x), -1.0)
+        self.assertAlmostEqual(p.skewness([-v for v in x]), -p.skewness(x), places=12)
+
+    def _naive(self, x, starts, alpha, b):
+        """Прямая реализация: строим ресэмплы явно (индексы с оборачиванием), се по блокам ресэмпла и исходного ряда считаем отдельно."""
+        n = len(x)
+        nb = math.ceil(n / b)
+
+        def mean_se(y):
+            m = sum(y) / n
+            ss = sum((sum(y[k * b:(k + 1) * b]) - m * len(y[k * b:(k + 1) * b])) ** 2 for k in range(nb))
+            return m, math.sqrt(nb / (nb - 1) * ss / (n * n))
+
+        mean, se_hat = mean_se(x)
+        ts = []
+        for row in starts:
+            idx = [(s + j) % n for s in row for j in range(b)][:n]
+            m, se = mean_se([x[i] for i in idx])
+            ts.append((m - mean) / se)
+        ts.sort()
+        B = len(ts)
+        return mean - ts[min(B - 1, int((1 - alpha / 2) * B))] * se_hat, mean - ts[min(B - 1, int(alpha / 2 * B))] * se_hat
+
+    def test_matches_naive_resampling_with_given_starts(self):
+        for n, b in ((21, 3), (15, 3), (10, 3), (22, 3)):          # в том числе с усечённым последним блоком
+            rng = random.Random(n)
+            x = [rng.gauss(0.5, 2.0) for _ in range(n)]
+            starts = p.boot_t_starts(n, b, 400, 9)
+            mean, lo, hi = p.block_boot_t_interval(x, 0.10, 400, 9, b, starts=starts)
+            nlo, nhi = self._naive(x, starts, 0.10, b)
+            self.assertAlmostEqual(mean, sum(x) / n, places=12)
+            self.assertAlmostEqual(lo, nlo, places=9)
+            self.assertAlmostEqual(hi, nhi, places=9)
+
+    def test_deterministic_seed_and_default_block(self):
+        x = [float((i * 13) % 7 - 3) + 0.1 * i for i in range(21)]
+        a = p.block_boot_t_interval(x, 0.10, 500, 37)
+        self.assertEqual(a, p.block_boot_t_interval(x, 0.10, 500, 37))
+        self.assertEqual(a, p.block_boot_t_interval(x, 0.10, 500, 37, 3))
+        self.assertNotEqual(a, p.block_boot_t_interval(x, 0.10, 500, 38))
+
+    def test_interval_contains_mean_and_is_close_to_t_for_normal_data(self):
+        rng = random.Random(3)
+        x = [rng.gauss(1.0, 1.0) for _ in range(300)]
+        mean, lo, hi = p.block_boot_t_interval(x, 0.10, 1000, 37)
+        _, tlo, thi, _, _ = p.block_t_interval(x, 0.10)
+        self.assertLess(lo, mean)
+        self.assertGreater(hi, mean)
+        self.assertLess(abs(lo - tlo), 0.25 * (mean - tlo))          # для нормальных данных при большом n два интервала близки
+        self.assertLess(abs(hi - thi), 0.25 * (thi - mean))
+
+    def test_negatively_skewed_series_has_lower_bound_below_t(self):
+        # «мелкие плюсы, один крупный минус»: блочный t оптимистичен, бутстреп-t честнее (D12, аудит L5-02)
+        x = [0.68, 1.22, 1.07, 1.01, 1.21, 0.88, 1.5, 1.32, 1.09, 0.97, 0.9, 1.05, 0.89, 1.26, 1.16, -5.74, 1.12, 1.04, 1.08, 0.81, 0.76]
+        _, tlo, _, _, _ = p.block_t_interval(x, 0.10)
+        _, blo, _ = p.block_boot_t_interval(x, 0.10, 3000, 37)
+        self.assertGreater(tlo, 0.0)
+        self.assertLess(blo, tlo)
+        self.assertLess(blo, 0.0)
+
+    def test_degenerate_cases(self):
+        self.assertEqual(p.block_boot_t_interval([2.0] * 21, 0.10, 200, 1), (2.0, 2.0, 2.0))
+        self.assertEqual(p.block_boot_t_interval([0.0] * 21, 0.10, 200, 1), (0.0, 0.0, 0.0))
+        mean, lo, hi = p.block_boot_t_interval([1.0, 2.0], 0.10, 200, 1)      # один блок
+        self.assertEqual((lo, hi), (-math.inf, math.inf))
+        with self.assertRaises(ValueError):
+            p.block_boot_t_interval([], 0.10, 200, 1)
+
+
 class HolmAndPlacebo(unittest.TestCase):
     def test_holm(self):
         self.assertEqual(p.holm([0.01, 0.04, 0.03]), [0.03, 0.06, 0.06])
