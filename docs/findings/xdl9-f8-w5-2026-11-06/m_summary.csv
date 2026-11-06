@@ -1,0 +1,8 @@
+field,value
+M_cells_with_series,145
+M_distinct,104
+M_eff_columns_used,79
+M_eff_daily_series,7.6953265837540705
+expected_false_candidates_range_low,0.38476632918770354
+expected_false_candidates_range_high,5.2
+note,"M_eff по суточным рядам клеток с полным рядом (часовые ряды не строились); оценка занижена при числе суток < числа клеток (cell_status.m_eff); ориентир, не оценка"
