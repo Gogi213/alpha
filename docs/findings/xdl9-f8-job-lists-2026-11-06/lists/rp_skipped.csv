@@ -1,0 +1,8 @@
+stem,cell,jobs,reason
+D2_binance-bingx_fx__bingx__binance,D2|binance~bingx|fx,1,нет кандидатов другого актива в каталоге биржи и полосы
+D2_binance-kraken_eq_nonus__binance__kraken,D2|binance~kraken|eq_nonus,1,нет кандидатов другого актива в каталоге биржи и полосы
+D2_bingx-kraken_eq_nonus__bingx__kraken,D2|bingx~kraken|eq_nonus,1,нет кандидатов другого актива в каталоге биржи и полосы
+D2_bitget-kraken_eq_nonus__bitget__kraken,D2|bitget~kraken|eq_nonus,1,нет кандидатов другого актива в каталоге биржи и полосы
+D2_bybit-kraken_eq_nonus__bybit__kraken,D2|bybit~kraken|eq_nonus,1,нет кандидатов другого актива в каталоге биржи и полосы
+D2_kraken-lighter_eq_nonus__lighter__kraken,D2|kraken~lighter|eq_nonus,1,нет кандидатов другого актива в каталоге биржи и полосы
+D2_kraken-okx_eq_nonus__okx__kraken,D2|kraken~okx|eq_nonus,1,нет кандидатов другого актива в каталоге биржи и полосы

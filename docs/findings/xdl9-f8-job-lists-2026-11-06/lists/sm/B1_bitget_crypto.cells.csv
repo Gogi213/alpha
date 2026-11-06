@@ -1,0 +1,3 @@
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+B1|bitget|crypto|a0,1822,1640,,1.50,0,inf,1822,1822
+B1|bitget|crypto|a1,1822,1640,,1.50,0,3.00,1822,1822

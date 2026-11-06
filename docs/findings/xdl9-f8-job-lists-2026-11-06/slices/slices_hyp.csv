@@ -1,0 +1,8 @@
+slice,text,kinds,ex_pairs,bases,availability
+H1,Гонконгские акции Binance-Bitget (MINIMAX ZHIPU TENCENT LENOVO; Bitget USDT и HKD),C1,binance~bitget,MINIMAX|ZHIPU|TENCENT|LENOVO,доступна: классы акции+ETF (eq_nonus/eq_us); календарь HKEX не задан
+H2,BRETT BingX-Bitget,C1,bingx~bitget,BRETT,доступна (крипта)
+H3,LAB Binance-Aster,C1,aster~binance,LAB,доступна (крипта)
+H4,TA (рассказ: Gate-Binance; Gate в xdl9 нет): срез Binance-Aster и Binance-BingX,C1,aster~binance|binance~bingx,TA,связка рассказа недоступна (Gate); срез по двум доступным парам бирж
+H5,PORT3 BingX-Binance,,,,нет в данных: PORT3 нет ни на одной из 9 бирж на 05.11
+H6,LPT BingX-Binance (BROCCOLI на Binance нет),C1,binance~bingx,LPT,доступна для LPT; BROCCOLI в срез не входит
+H7,Разница фандингов WCT и H Binance-BingX (D2 рука a0),D2,binance~bingx,WCT|H,доступна если фандинг пары прошёл G7 (интервалы по списку 4 ч)

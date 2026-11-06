@@ -10,3 +10,5 @@
 *.txt text eol=lf
 .claude/tickets/*.md text eol=lf
 .claude/dispatcher/*.py text eol=lf
+*.tsv text eol=lf
+*.env text eol=lf
