@@ -1,0 +1,4 @@
+    Checking alpha v0.1.0 (/opt/alpha-compute/wave2-srcw5k-720)
+    Finished `release` profile [optimized] target(s) in 30.53s
+[bus] сборка.готова: шина недоступна (URLError), в spool
+rc=0

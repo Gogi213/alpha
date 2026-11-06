@@ -1,0 +1,22 @@
+G17 nonpgo3: бинарь /home/deck/xdl9/bin/statarb-xdl9-a24f4c96 (d873aea99771d615), потоков 8, окно формирования, from_day 2472, нагрузка 4.63 2.98 2.42 2/879 1986325
+РАВНО  (а) pair_binance z min_obs=W: сделок 6275, daily/trades/ext/jd/jext/cells с флагом = без флага, warmup_blocked 0
+РАВНО  (а) pair_kraken z min_obs=W: сделок 45, daily/trades/ext/jd/jext/cells с флагом = без флага, warmup_blocked 0
+РАВНО  (а) basket_okx z min_obs=W: сделок 430, daily/trades/ext/jd/jext/cells с флагом = без флага, warmup_blocked 0
+РАВНО  (а) cross_binance_bybit z min_obs=W: сделок 11389, daily/trades/ext/jd/jext/cells с флагом = без флага, warmup_blocked 0
+РАВНО  (б) funding_binance funding k=3 h=40: без флага сделок 3573 (до окна отброшено 166), с флагом 3477 (отброшено 0, открыто до окна 0), подавлено минут сигнала 9912; --cells = склейка клеток; входов раньше границы 0
+РАВНО  (б) funding_bybit funding k=3 h=40: без флага сделок 2525 (до окна отброшено 98), с флагом 2481 (отброшено 0, открыто до окна 0), подавлено минут сигнала 5782; --cells = склейка клеток; входов раньше границы 0
+== (в) funding bybit ETH: сделок в csv 10, пересчитано 10 (до окна отброшено 0), расхождений 0, warmup_blocked run 0, rc=0
+== (в) funding bybit SOL: сделок в csv 18, пересчитано 18 (до окна отброшено 0), расхождений 0, warmup_blocked run 59, rc=0
+== (в) funding okx ETH: сделок в csv 10, пересчитано 10 (до окна отброшено 0), расхождений 0, warmup_blocked run 59, rc=0
+== (в) funding okx SOL: сделок в csv 29, пересчитано 29 (до окна отброшено 0), расхождений 0, warmup_blocked run 0, rc=0
+== (в) funding kraken ETH: сделок в csv 0, пересчитано 0 (до окна отброшено 0), расхождений 0, warmup_blocked run 0, rc=0
+== (в) funding kraken SOL: сделок в csv 8, пересчитано 8 (до окна отброшено 0), расхождений 0, warmup_blocked run 0, rc=0
+== (в) z bybit ETH: сделок в csv 44, пересчитано 44 (до окна отброшено 0), расхождений 0, warmup_blocked run 3, rc=0
+== (в) z bybit SOL: сделок в csv 35, пересчитано 35 (до окна отброшено 0), расхождений 0, warmup_blocked run 83, rc=0
+== (в) z okx ETH: сделок в csv 42, пересчитано 42 (до окна отброшено 0), расхождений 0, warmup_blocked run 5, rc=0
+== (в) z okx SOL: сделок в csv 38, пересчитано 38 (до окна отброшено 0), расхождений 0, warmup_blocked run 87, rc=0
+== (в) z kraken ETH: сделок в csv 41, пересчитано 41 (до окна отброшено 0), расхождений 0, warmup_blocked run 3, rc=0
+== (в) z kraken SOL: сделок в csv 40, пересчитано 40 (до окна отброшено 0), расхождений 0, warmup_blocked run 84, rc=0
+РАВНО  (в) независимая сверка из сырья: заданий 12, расхождений 0, подавлено сигналов (сумма) 383
+ИТОГ G17 nonpgo3: расхождений 0
+g17 rc=0

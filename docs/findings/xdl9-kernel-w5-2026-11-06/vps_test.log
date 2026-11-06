@@ -1,0 +1,7 @@
+test bybit::rest::tests::api_rejection_is_returned_not_panicked ... ok
+test result: ok. 1259 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 12.99s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+[bus] сборка.готова: шина недоступна (URLError), в spool
+rc=0

@@ -1,0 +1,12 @@
+65e02a49a0f09f2bee57b87e20eac9b2a816248ef99a98b8bf496ae8cea83097  /home/deck/xdl9/bin/statarb-xdl9-a24f4c96-pgo     # БОЕВОЙ (D3): PGO финального исходника, 8 443 696 Б
+d873aea99771d615343ac6478a6e6542bbbb12cc8bdffd1de4b5c712f7116b3b  /home/deck/xdl9/bin/statarb-xdl9-a24f4c96         # не-PGO того же исходника (профиль release крейта по умолчанию), 13 822 392 Б
+a12a41f065f1cb2c8f6bcc6e6bb49287d3363ec0975209827e7f6d367f10e503  /home/deck/xdl9/pgo/bin/statarb-xdl9-a24f4c96-v3lto   # контроль: те же флаги сборки, без PGO (x86-64-v3 + fat LTO + CGU 1 + panic=abort), 9 523 192 Б
+c21d69dc737c00c8c88adfbc9bf3a345b45e42d7a90bfda9352609f4f64829c8  /home/deck/xdl9/pgo/bin/statarb-xdl9-a24f4c96-gen     # инструментированный (обучение), 20 724 088 Б
+6d330b6c4613864e9cff703b6b4cd730  alpha-5634788946586993098_0.profraw   # md5, профиль 110 запусков train.sh (0 ошибок), 2 697 424 Б
+89dcba4afb2be14874029aeb5da2cb42  /opt/alpha-compute/pgo-w5e/merged.profdata   # md5, llvm-profdata 21.1.8-rust-1.93.1, только alpha-*.profraw, 4 211 000 Б
+alpha a24f4c96ea44322ea83634c0202a31b1f6fca54d   # statarb-xdl9-a24f4c96{,-pgo} --version (ALPHA_COMMIT вшит той же строкой)
+969db9270adbe6f32887e14d8407c1e89e744c38fd12df045cf847653e8cca2b  /home/deck/xdl9/bin/statarb-xdl9-4ef45cc8         # предыдущий не-PGO (база гейтов при выключенных флагах)
+3ea36b83c7b504068bbdea2958d83dc360714141678d2d978ca6a5cf9200a3de  /home/deck/xdl9/bin/statarb-xdl9-4ef45cc8-pgo     # предыдущая PGO (заменена)
+копии на VPS: /opt/alpha-compute/xdl9-bin/statarb-xdl9-a24f4c96{,-pgo} (те же sha256); рабочий каталог VPS /opt/alpha-compute/pgo-w5e (профиль, merged.profdata, логи сборок; src и target удалены)
+исходники: git archive a24f4c96 (src/, vendor/, Cargo.toml, Cargo.lock, rust-toolchain.toml); src/ ветки на HEAD равен a24f4c96 (после него только документы)
+итерации исходника w5 (не использовать): b115fc13, 8eed44b7, 9b760e6c (откачена коммитом 7bd31b48) — см. iterations/ и §5 отчёта
