@@ -13,6 +13,8 @@
 set -uo pipefail
 STEP=${1:?base|plain|gen|use|merge}
 W=${W:-/opt/alpha-compute/pgo-xdl9}; SRC=${SRC:-$W/src}; NAME=${NAME:-statarb-xdl9-4ef45cc8}
+# В-100 (07.11): сборки — на Deck (build_deck.sh): LOCK= (пусто) снимает замок VPS, JOBS=8, NICE=10; на VPS значения по умолчанию прежние
+LOCK=${LOCK-/opt/alpha-compute/.build.lock}
 export PATH=$HOME/.cargo/bin:$PATH
 SYSROOT=$(rustc --print sysroot); PROFDATA=$SYSROOT/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-profdata
 export CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_PANIC=abort
@@ -20,16 +22,16 @@ export CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO
 V3='-C target-cpu=x86-64-v3'
 mkdir -p "$W/bin"
 build() {  # <метка> <rustflags>
-  local avail; avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+  local avail; avail=$(df --output=avail -BG "$W" | tail -1 | tr -dc 0-9)
   [ "$avail" -lt 6 ] && { echo "build_pgo_vps: свободно ${avail}G < 6G — отказ"; return 75; }
   rm -f "$W/bin/$NAME-$1"
   echo "== $1: flags=[$2] avail=${avail}G $(date +%T)"
-  ( cd "$SRC" && flock -w 7200 /opt/alpha-compute/.build.lock env RUSTFLAGS="$2" nice -n 5 cargo build --release --locked -j 4 --bin alpha --target-dir "$W/tgt-$1" ) > "$W/build-$1.log" 2>&1
+  ( cd "$SRC" && ${LOCK:+flock -w 7200 "$LOCK"} env RUSTFLAGS="$2" nice -n "${NICE:-5}" cargo build --release --locked -j "${JOBS:-4}" --bin alpha --target-dir "$W/tgt-$1" ) > "$W/build-$1.log" 2>&1
   local rc=$?
   tail -4 "$W/build-$1.log"
   [ $rc -eq 0 ] && install -D "$W/tgt-$1/release/alpha" "$W/bin/$NAME-$1" && sha256sum "$W/bin/$NAME-$1" | tee -a "$W/binaries.sha256"
   rm -rf "$W/tgt-$1"
-  echo "== $1: rc=$rc $(date +%T) avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)G"
+  echo "== $1: rc=$rc $(date +%T) avail=$(df --output=avail -BG "$W" | tail -1 | tr -dc 0-9)G"
   return $rc
 }
 case "$STEP" in
