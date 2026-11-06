@@ -311,8 +311,10 @@ type Daily = BTreeMap<i64, [f64; 5]>;
 #[derive(Default)]
 struct ExtStats {
     n: u64,
-    /// Выходы по причинам: rule, stop, timeout.
-    reasons: [u64; 3],
+    /// Выходы по причинам.
+    n_rule: u64,
+    n_stop: u64,
+    n_timeout: u64,
     net_y: f64,
     net_gross: f64,
     notional: f64,
@@ -324,11 +326,11 @@ impl ExtStats {
     fn add(&mut self, t: &Trade, wsum: f64) {
         let notional = 1.0 + t.beta.abs() * wsum;
         self.n += 1;
-        self.reasons[match t.reason {
-            ExitReason::Rule => 0,
-            ExitReason::Stop => 1,
-            ExitReason::Timeout => 2,
-        }] += 1;
+        match t.reason {
+            ExitReason::Rule => self.n_rule += 1,
+            ExitReason::Stop => self.n_stop += 1,
+            ExitReason::Timeout => self.n_timeout += 1,
+        }
         self.net_y += t.net_bps;
         self.net_gross += t.net_bps / notional;
         self.notional += notional;
@@ -341,9 +343,9 @@ impl ExtStats {
     /// Слияние в порядке номера задания: суммы f64 не зависят от потоков.
     fn merge(&mut self, o: ExtStats) {
         self.n += o.n;
-        for (a, b) in self.reasons.iter_mut().zip(o.reasons) {
-            *a += b;
-        }
+        self.n_rule += o.n_rule;
+        self.n_stop += o.n_stop;
+        self.n_timeout += o.n_timeout;
         self.net_y += o.net_y;
         self.net_gross += o.net_gross;
         self.notional += o.notional;
@@ -1002,6 +1004,8 @@ fn write_job_day(path: &Path, cells: &[Cell], aggs: &[Agg], jobs: &[Job]) -> Res
     for (cell, agg) in cells.iter().zip(aggs) {
         for (job, d, v, active) in &agg.job_days {
             let Some(j) = jobs.get(*job) else { continue };
+            // число сделок — целое в f64, `{}` печатает его без дробной части
+            let [net, gross, fee, funding, trades] = *v;
             writeln!(
                 w,
                 "{},{},{},{},{},{},{},{},{},{},{}",
@@ -1010,11 +1014,11 @@ fn write_job_day(path: &Path, cells: &[Cell], aggs: &[Agg], jobs: &[Job]) -> Res
                 j.y,
                 j.x.join("+"),
                 d,
-                v[0],
-                v[1],
-                v[2],
-                v[3],
-                v[4] as u64,
+                net,
+                gross,
+                fee,
+                funding,
+                trades,
                 u8::from(*active)
             )?;
         }
@@ -1101,7 +1105,9 @@ fn write_ext(path: &Path, cells: &[Cell], aggs: &[Agg]) -> Result<()> {
         f.push(c.noentry_window_minutes.to_string());
         f.push(c.rearm_blocked.to_string());
         f.push(e.n.to_string());
-        f.extend(e.reasons.map(|v| v.to_string()));
+        f.push(e.n_rule.to_string());
+        f.push(e.n_stop.to_string());
+        f.push(e.n_timeout.to_string());
         f.push(c.open_at_end.saturating_sub(g.open_pre).to_string());
         f.push(e.net_y.to_string());
         f.push(e.net_gross.to_string());

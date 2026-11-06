@@ -56,9 +56,14 @@ pub fn z_series(inp: &PairInput, p: &Params) -> Vec<(f64, f64)> {
 /// Совместных наблюдений в окне `[t−W+1, t]` (для `Counters::noentry_window_minutes`).
 fn window_obs(inp: &PairInput, p: &Params, t: usize) -> usize {
     let lo = (t + 1).saturating_sub(p.window);
-    (lo..=t)
-        .filter(|&i| inp.lx[i].is_finite() && inp.ly[i].is_finite())
-        .count()
+    match (inp.lx.get(lo..=t), inp.ly.get(lo..=t)) {
+        (Some(x), Some(y)) => x
+            .iter()
+            .zip(y)
+            .filter(|(a, b)| a.is_finite() && b.is_finite())
+            .count(),
+        _ => 0,
+    }
 }
 
 struct Open {
@@ -212,7 +217,8 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
         if pos.is_some() {
             c.minutes_in_pos += 1;
         }
-        if inp.lx[t].is_finite() && inp.ly[t].is_finite() {
+        let obs = inp.lx[t].is_finite() && inp.ly[t].is_finite();
+        if obs {
             c.obs_minutes += 1;
         } else {
             c.gap_minutes += 1;
@@ -256,8 +262,7 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                                         block = 0;
                                     }
                                 }
-                            } else if inp.lx[t].is_finite()
-                                && inp.ly[t].is_finite()
+                            } else if obs
                                 && t + 1 >= p.window
                                 && window_obs(inp, p, t) < p.min_obs.max(2)
                             {

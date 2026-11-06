@@ -22,6 +22,10 @@
   * фандинг: за каждую минуту строго между входом и исполнением выхода, где есть выплата, нога платит
     −qty·price·rate, price — open минуты либо последний известный open.
 
+TK-493 w3 (F-01, F-02, F-03): `--rearm` (после стопа и срока вход в ту же сторону — только когда |z| < entry_z), причина
+выхода (rule/stop/timeout) и β на входе сверяются со столбцами `exit_reason,beta_in` (`--trades-ext`), счётчики окна и z — с
+`--ext-out` (только правило z: у правила funding z ядра считается, а здесь не нужен).
+
 Запуск (пример):
   check_trades.py --root ~/xdl/out --y-ex okx --y BTC-USDT-SWAP --x-ex okx --x BTC-USDT-SWAP ... (см. --help)
 Код возврата 0 — все сделки задания и счётчики сошлись.
@@ -121,7 +125,10 @@ def simulate(P, Y, X, lo, hi, use_fund):
     ev_y = Y.fund if use_fund else []
     cost = lambda b: 2 * FEE + abs(b) * 2 * FEE  # noqa: E731  (wsum = 1)
 
+    last_k = [0]
+
     def zb(i):
+        last_k[0] = 0
         if not (isfinite(ly[i]) and isfinite(lx[i])):
             return NAN, NAN
         a = max(0, i - W + 1)
@@ -131,6 +138,7 @@ def simulate(P, Y, X, lo, hi, use_fund):
                 xs.append(xx)
                 ys.append(yy)
         k = len(xs)
+        last_k[0] = k
         if k < max(min_obs, 2):
             return NAN, NAN
         mx, my = fsum(xs) / k, fsum(ys) / k
@@ -152,7 +160,10 @@ def simulate(P, Y, X, lo, hi, use_fund):
         ssr = fsum((b_ - beta * a_) ** 2 for a_, b_ in zip(dx, dy))
         return beta, (dy[-1] - beta * dx[-1]) / sqrt(ssr / k)
 
-    cnt = dict(obs_minutes=0, gap_minutes=0, entries=0, entry_deferred=0, exit_deferred=0, trades=0, minutes_in_pos=0)
+    cnt = dict(obs_minutes=0, gap_minutes=0, entries=0, entry_deferred=0, exit_deferred=0, trades=0, minutes_in_pos=0,
+               eval_minutes=0, z_def_minutes=0, pos_z_nan_minutes=0, noentry_window_minutes=0, rearm_blocked=0)
+    rearm = P.get("rearm", False) and P["rule"] == "z"
+    block = 0
     trades = []
     d = 0
     pend = None
@@ -178,15 +189,17 @@ def simulate(P, Y, X, lo, hi, use_fund):
                 else:
                     cnt["entry_deferred"] += 1
             else:
-                sg = pend[1]
+                sg, why = pend[1], pend[2]
                 if ok:
                     gross = qy * (oy[i] - pin_y) + qx * (ox[i] - pin_x)
                     fee = abs(qy) * (pin_y * FEE + oy[i] * FEE) + abs(qx) * (pin_x * FEE + ox[i] * FEE)
                     gb, fb = gross * 1e4, fund * 1e4
                     trades.append(dict(dir=d, sig_in=lo + sig_in, fill_in=lo + fill_in, sig_out=lo + sg, fill_out=ft,
                                        gross_bps=gb, fee_bps=fee, funding_bps=fb, net_bps=gb - fee + fb,
-                                       qy=qy, qx=qx, beta=x_beta, pin_y=pin_y, pin_x=pin_x, pout_y=oy[i], pout_x=ox[i]))
+                                       qy=qy, qx=qx, beta=x_beta, pin_y=pin_y, pin_x=pin_x, pout_y=oy[i], pout_x=ox[i], reason=why))
                     cnt["trades"] += 1
+                    if rearm:
+                        block = 0 if why == "rule" else d
                     d = 0
                     pend = None
                 else:
@@ -205,6 +218,12 @@ def simulate(P, Y, X, lo, hi, use_fund):
             beta, z = zb(i) if obs else (NAN, NAN)
         else:
             beta, z = fixed, NAN
+        if i + 1 >= W:
+            cnt["eval_minutes"] += 1
+            if isfinite(z):
+                cnt["z_def_minutes"] += 1
+        if d != 0 and not isfinite(z):
+            cnt["pos_z_nan_minutes"] += 1
         if rule == "funding":
             got = False
             while cur_k < len(ev_y) and ev_y[cur_k][0] <= ft:
@@ -222,10 +241,18 @@ def simulate(P, Y, X, lo, hi, use_fund):
             if d == 0:
                 if rule == "z":
                     if isfinite(z) and isfinite(beta):
-                        if z <= -P["entry_z"]:
-                            pend = ("E", 1, beta, i)
-                        elif z >= P["entry_z"]:
-                            pend = ("E", -1, beta, i)
+                        if rearm and abs(z) < P["entry_z"]:
+                            block = 0
+                        side = 1 if z <= -P["entry_z"] else (-1 if z >= P["entry_z"] else 0)
+                        if side:
+                            if rearm and block == side:
+                                cnt["rearm_blocked"] += 1
+                            else:
+                                pend = ("E", side, beta, i)
+                                if rearm:
+                                    block = 0
+                    elif obs and i + 1 >= W and last_k[0] < max(min_obs, 2):
+                        cnt["noentry_window_minutes"] += 1
                 else:
                     b = fixed if fixed is not None else beta
                     if isfinite(r_mean) and isfinite(b):
@@ -240,7 +267,8 @@ def simulate(P, Y, X, lo, hi, use_fund):
                     edge = -d * r_mean * 1e4 * fh
                     by_rule = not (edge > cost(x_beta))
                 if by_rule or timed:
-                    pend = ("X", i)
+                    why = "timeout" if not by_rule else ("stop" if (rule == "z" and d * z <= -P["stop_z"]) else "rule")
+                    pend = ("X", i, why)
     openp = None
     if d != 0:
         fi = fill_in
@@ -291,6 +319,8 @@ def main():
     ap.add_argument("--exit-z", type=float, default=0.0)
     ap.add_argument("--stop-z", type=float, default=math.inf)
     ap.add_argument("--max-hold", type=int, default=0)
+    ap.add_argument("--rearm", action="store_true", help="run запущен с --rearm (F-02)")
+    ap.add_argument("--ext-out", help="csv --ext-out того же прогона (счётчики F-01, причины выходов, F-03)")
     ap.add_argument("--funding-k", type=int, default=0)
     ap.add_argument("--hold-payments", type=int, default=0)
     ap.add_argument("--funding", action="store_true", help="фандинг включён в run (--funding-y / --funding-x)")
@@ -309,7 +339,7 @@ def main():
     print(f"задание {a.y_ex}/{a.y} против {a.x_ex}/{a.x}: спан ног Y {fmt_min(Y.first)}..{fmt_min(Y.last)}, X {fmt_min(X.first)}..{fmt_min(X.last)}; "
           f"окно задания {fmt_min(lo)}..{fmt_min(hi)} ({hi - lo + 1} мин), ставок Y {len(Y.fund)}, X {len(X.fund)}; ставки в run: {'да' if a.funding else 'нет'}")
     P = dict(window=a.window, min_obs=a.min_obs, beta_fixed=a.beta_fixed, rule=a.rule, entry_z=a.entry_z, exit_z=a.exit_z,
-             stop_z=a.stop_z, max_hold=a.max_hold, funding_k=a.funding_k, hold_payments=a.hold_payments)
+             stop_z=a.stop_z, max_hold=a.max_hold, funding_k=a.funding_k, hold_payments=a.hold_payments, rearm=a.rearm)
     if a.rule == "z" and a.beta_fixed is None:
         pass
     if a.rule == "funding" and a.beta_fixed is None:
@@ -329,6 +359,8 @@ def main():
     worst = 0.0
     for r, t in zip(rows, kept):
         ints = all(int(r[k]) == t[k] for k in ("dir", "sig_in", "fill_in", "sig_out", "fill_out"))
+        if "exit_reason" in r:  # --trades-ext: причина выхода и β на входе
+            ints = ints and r["exit_reason"] == t["reason"] and abs(float(r["beta_in"]) - t["beta"]) <= 1e-9 * max(1.0, abs(t["beta"]))
         diffs = [abs(float(r[k]) - t[k]) for k in ("gross_bps", "fee_bps", "funding_bps", "net_bps")]
         dm = max(diffs)
         worst = max(worst, dm)
@@ -382,6 +414,39 @@ def main():
               f"(разница {int(cr['exit_deferred']) - exits} мин — ожидание выхода открытой позиции на конце окна)")
         if cr.get("mtm_n") not in (None, "nan"):
             print(f"  оценка открытой по cells-out: mtm_n={cr['mtm_n']} net={cr['mtm_net_bps']} gross={cr['mtm_gross_bps']} fee={cr['mtm_fee_bps']} fund={cr['mtm_funding_bps']} stale_max={cr['mtm_stale_max_min']}")
+    if a.ext_out:
+        er = [r for r in csv.DictReader(open(a.ext_out, encoding="utf-8")) if not a.cell or r["cell"] == a.cell][0]
+        reasons = {k: sum(1 for t in kept if t["reason"] == k) for k in ("rule", "stop", "timeout")}
+        want = dict(minutes_in_pos=cnt["minutes_in_pos"], rearm_blocked=cnt["rearm_blocked"], trades_n=len(kept),
+                    exit_rule=reasons["rule"], exit_stop=reasons["stop"], exit_timeout=reasons["timeout"],
+                    open_end=cnt["open_at_end"] if not (openp and openp["fill_in"] < from_min) else 0)
+        if a.rule == "z":
+            want.update(eval_minutes=cnt["eval_minutes"], z_def_minutes=cnt["z_def_minutes"],
+                        pos_z_nan_minutes=cnt["pos_z_nan_minutes"], noentry_window_minutes=cnt["noentry_window_minutes"])
+        cmpd = {k: (int(er[k]), v) for k, v in want.items()}
+        diff = {k: v for k, v in cmpd.items() if v[0] != v[1]}
+        print("ext-out run / руками: " + ", ".join(f"{k} {v[0]}/{v[1]}" for k, v in cmpd.items()))
+        if diff:
+            bad += 1
+            print("ОШИБКА ext-out:", diff)
+        nets = [t["net_bps"] for t in kept]
+        gn = [t["net_bps"] / (1.0 + abs(t["beta"])) for t in kept]
+        for k, v in (("net_y_sum_bps", fsum(nets)), ("net_gross_sum_bps", fsum(gn))):
+            dv = abs(float(er[k]) - v)
+            if dv > a.tol * max(1, len(kept)):
+                bad += 1
+                print(f"ОШИБКА ext-out {k}: csv {er[k]} руками {v!r}")
+        if kept:
+            bs = sorted(t["beta"] for t in kept)
+            neg = sum(1 for b in bs if b < 0) / len(bs)
+            if abs(float(er["beta_neg_share"]) - neg) > 1e-12:
+                bad += 1
+                print(f"ОШИБКА ext-out beta_neg_share: csv {er['beta_neg_share']} руками {neg!r}")
+            for q in (1, 5, 25, 50, 75, 95, 99):
+                idx = max(1, -(-q * len(bs) // 100)) - 1  # наибольший ранг
+                if abs(float(er[f"beta_p{q:02d}"]) - bs[idx]) > 1e-9 * max(1.0, abs(bs[idx])):
+                    bad += 1
+                    print(f"ОШИБКА ext-out beta_p{q:02d}: csv {er[f'beta_p{q:02d}']} руками {bs[idx]!r}")
     if openp:
         print(f"открытая позиция на конце окна (руками): dir={openp['dir']:+d} сигнал {fmt_min(openp['sig_in'])} вход {fmt_min(openp['fill_in'])}; "
               f"последний close Y {fmt_min(openp['last_close_y'])}, X {fmt_min(openp['last_close_x'])}; давность {openp['stale_min']} мин"
