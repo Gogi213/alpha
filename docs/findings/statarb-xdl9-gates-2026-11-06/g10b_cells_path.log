@@ -1,0 +1,22 @@
+нагрузка до: 0.68 3.35 2.93 1/866 580454
+--cells   one [1 кл.]          счёт 1.57 с счёт 1.59 с счёт 1.37 с <- statarb-xdl9-02c6a0df
+--cells   one [1 кл.]          счёт 1.14 с счёт 1.15 с счёт 1.14 с <- statarb-tk486-60e61cea
+--cells   same [2 кл.]         счёт 1.35 с счёт 1.35 с счёт 1.35 с <- statarb-xdl9-02c6a0df
+--cells   same [2 кл.]         счёт 1.29 с счёт 1.30 с счёт 1.30 с <- statarb-tk486-60e61cea
+--cells   two [2 кл.]          счёт 4.08 с счёт 4.07 с счёт 4.09 с <- statarb-xdl9-02c6a0df
+--cells   two [2 кл.]          счёт 3.40 с счёт 3.40 с счёт 3.39 с <- statarb-tk486-60e61cea
+--cells   three [3 кл.]        счёт 5.24 с счёт 5.25 с счёт 5.23 с <- statarb-xdl9-02c6a0df
+--cells   three [3 кл.]        счёт 4.52 с счёт 4.45 с счёт 4.48 с <- statarb-tk486-60e61cea
+--cells   five [5 кл.]         счёт 7.36 с счёт 7.37 с счёт 7.37 с <- statarb-xdl9-02c6a0df
+счёт 6.48 с счёт 6.30 с счёт 6.29 с <- statarb-tk486-60e61cea
+--cell    c0 (W=720 refresh=0)   счёт 1.09 с счёт 1.09 с счёт 1.08 с <- statarb-xdl9-02c6a0df
+--cell    c0 (W=720 refresh=0)   счёт 1.14 с счёт 1.13 с счёт 1.13 с <- statarb-tk486-60e61cea
+--cell    c1 (W=720 refresh=0)   счёт 1.10 с счёт 1.09 с счёт 1.10 с <- statarb-xdl9-02c6a0df
+--cell    c1 (W=720 refresh=0)   счёт 1.15 с счёт 1.13 с счёт 1.14 с <- statarb-tk486-60e61cea
+--cell    c2 (W=1440 refresh=97) счёт 2.60 с счёт 2.61 с счёт 2.60 с <- statarb-xdl9-02c6a0df
+--cell    c2 (W=1440 refresh=97) счёт 2.76 с счёт 2.78 с счёт 2.75 с <- statarb-tk486-60e61cea
+--cell    c3 (W=720 refresh=0)   счёт 1.00 с счёт 0.98 с счёт 0.98 с <- statarb-xdl9-02c6a0df
+--cell    c3 (W=720 refresh=0)   счёт 1.04 с счёт 1.03 с счёт 1.04 с <- statarb-tk486-60e61cea
+--cell    c4 (W=1440 refresh=200) счёт 1.78 с счёт 1.78 с счёт 1.78 с <- statarb-xdl9-02c6a0df
+--cell    c4 (W=1440 refresh=200) счёт 1.87 с счёт 1.87 с счёт 1.87 с <- statarb-tk486-60e61cea
+нагрузка после: 7.61 5.35 3.76 1/868 582078

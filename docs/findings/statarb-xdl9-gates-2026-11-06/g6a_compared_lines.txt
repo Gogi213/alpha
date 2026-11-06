@@ -1,0 +1,73 @@
+##### g6/g6a\basket3_c1.N.cmp
+bench kind=Basket engine=Kernel threads=4 window=720 refresh=0: заданий 50 из 50, минут 2520000, пропусков 5249, сделок 7924, (ставок фандинга 0)
+digest 04a745714b900e6a
+rc=0
+
+##### g6/g6a\basket3_c2.N.cmp
+bench kind=Basket engine=Kernel threads=4 window=1440 refresh=97: заданий 50 из 50, минут 2520000, пропусков 5249, сделок 6141, (ставок фандинга 0)
+digest 631cd473b2b468ee
+rc=0
+
+##### g6/g6a\cross_c1.N.cmp
+bench kind=Cross engine=Kernel threads=4 window=720 refresh=0: заданий 47 из 47, минут 2368800, пропусков 1234, сделок 78503, (ставок фандинга 0)
+digest 49bf53ecf569a4b0
+rc=0
+
+##### g6/g6a\cross_c2.N.cmp
+bench kind=Cross engine=Kernel threads=4 window=1440 refresh=97: заданий 47 из 47, минут 2368800, пропусков 1234, сделок 140965, (ставок фандинга 0)
+digest e4519a61652eda83
+rc=0
+
+##### g6/g6a\cross_delay1.N.cmp
+bench kind=Cross engine=Kernel threads=4 window=720 refresh=0: заданий 47 из 47, минут 2368800, пропусков 1234, сделок 75011, (ставок фандинга 0)
+digest 97bdee50c6695668
+rc=0
+
+##### g6/g6a\fundpp_c1.N.cmp
+bench kind=FundingPp engine=Kernel threads=4 window=720 refresh=0: заданий 47 из 47, минут 2368800, пропусков 1234, сделок 78503, (ставок фандинга 15182)
+digest 19967a0f1f668f5d
+rc=0
+
+##### g6/g6a\fundpp_c2.N.cmp
+bench kind=FundingPp engine=Kernel threads=4 window=1440 refresh=97: заданий 47 из 47, минут 2368800, пропусков 1234, сделок 140965, (ставок фандинга 15182)
+digest 2e0c9d86c408a699
+rc=0
+
+##### g6/g6a\fundpp_d3.N.cmp
+bench kind=FundingPp engine=Kernel threads=4 window=720 refresh=0: заданий 47 из 47, минут 2368800, пропусков 1234, сделок 244, (ставок фандинга 15182)
+digest 873a8c92f156714e
+rc=0
+
+##### g6/g6a\fundps_c1.N.cmp
+bench kind=FundingPs engine=Kernel threads=4 window=720 refresh=0: заданий 47 из 47, минут 2368800, пропусков 1234, сделок 78503, (ставок фандинга 7937)
+digest cb7b17f443f03610
+rc=0
+
+##### g6/g6a\pair_c1.N.cmp
+bench kind=Pair engine=Kernel threads=4 window=720 refresh=0: заданий 1225 из 1225, минут 61740000, пропусков 64533, сделок 194939, (ставок фандинга 0)
+digest c0b260a7ce0a73ed
+rc=0
+
+##### g6/g6a\pair_c1.N.th1.cmp
+bench kind=Pair engine=Kernel threads=1 window=720 refresh=0: заданий 1225 из 1225, минут 61740000, пропусков 64533, сделок 194939, (ставок фандинга 0)
+digest c0b260a7ce0a73ed
+
+##### g6/g6a\pair_c1.N.th8.cmp
+bench kind=Pair engine=Kernel threads=8 window=720 refresh=0: заданий 1225 из 1225, минут 61740000, пропусков 64533, сделок 194939, (ставок фандинга 0)
+digest c0b260a7ce0a73ed
+
+##### g6/g6a\pair_c2.N.cmp
+bench kind=Pair engine=Kernel threads=4 window=1440 refresh=97: заданий 1225 из 1225, минут 61740000, пропусков 64533, сделок 150858, (ставок фандинга 0)
+digest 99ad271356210961
+rc=0
+
+##### g6/g6a\pair_delay2.N.cmp
+bench kind=Pair engine=Kernel threads=4 window=720 refresh=0: заданий 1225 из 1225, минут 61740000, пропусков 64533, сделок 194864, (ставок фандинга 0)
+digest 4531c3d3b09cfb86
+rc=0
+
+##### g6/g6a\pair_reference.N.cmp
+bench kind=Pair engine=Reference threads=4 window=720 refresh=0: заданий 190 из 190, минут 9576000, пропусков 11681, сделок 30025, (ставок фандинга 0)
+digest 1f8dd04949386eb4
+rc=0
+

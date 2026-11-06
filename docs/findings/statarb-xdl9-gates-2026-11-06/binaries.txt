@@ -1,0 +1,6 @@
+09d685f8d4fccc6026d1bf9bb5caf652909050d485ec20bc428b6af0b6450840  /home/deck/xdl9/bin/statarb-tk479-f27c879e
+f9104f0c5a245e6fd6b2b1a6d2637c4403bc55773f9a1ec191b6c996915abe76  /home/deck/xdl9/bin/statarb-tk486-60e61cea
+3aba6a0d4cc95a3c559552a2f200584aedd6e15287055ef64adbccbf52a96ac7  /home/deck/xdl9/bin/statarb-xdl9-02c6a0df
+3ba1a60d56432cb935d25b57a6117f4493806861ae3870359e93720439374c97  /home/deck/xdl9/bin/statarb-xdl9-02c6a0df.sha256
+3aba6a0d4cc95a3c559552a2f200584aedd6e15287055ef64adbccbf52a96ac7  statarb-xdl9-02c6a0df
+alpha 02c6a0df3eee81165d1c232a92a3c2af15dfae97
