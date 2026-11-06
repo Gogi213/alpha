@@ -82,6 +82,7 @@ fn cell(
         taker_out: true,
         delay_x: 0,
         rearm,
+        entry_from: None,
         rule: Rule::Z,
     }
 }

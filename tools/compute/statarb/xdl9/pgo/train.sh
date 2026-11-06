@@ -95,6 +95,43 @@ done < <(tail -n +2 "$CELLS" | head -2)
 go "delay2_pair"  run --kind pair  --jobs "$J/jobs_pair_binance.csv" --panels "$PF/binance" --min-span 1000 --threads "$TH" --delay-x 2 --cells "$CELLS" --daily-out "$OUT/y.daily.csv" --trades-out "$OUT/y.trades.csv" --trade-jobs 0,1,2
 go "delay1_cross" run --kind cross --jobs "$J/jobs_cross_binance_bybit.csv" --panels "$PF/binance" --panels-b "$PF/bybit" --min-span 1000 --threads "$TH" --delay-x 1 --cells "$CELLS" --daily-out "$OUT/y.daily.csv"
 
+# 5б. w5 (D5(ii), L1-03): --no-entry-before-from, --job-ext-out — боевая форма F8: правило funding с запретом входа до from_min (D2), виды z с
+# min_obs = window (клетки F8), все выводы сразу; from_day 2472 — перед границей есть разогрев. Задания — те же списки G6б с from_day 2472.
+cat > "$OUT/cellsW.csv" <<'EOF'
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+w0,720,720,,2.0,0.5,inf,720,0
+w1,720,720,,1.5,0.3,4.0,0,0
+w2,1440,1440,,2.5,0.5,inf,1440,97
+w3,720,720,1.0,2.0,0.5,3.5,480,0
+w4,1440,1440,,2.0,0.5,3.0,720,200
+EOF
+cat > "$OUT/cellsF.csv" <<'EOF'
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+f0,60,60,1.0,2.0,0.5,inf,240,0
+f1,60,60,1.0,2.0,0.5,inf,720,0
+EOF
+for ex in binance bybit okx bitget kraken; do
+  sed -E 's/,2465,2479$/,2472,2479/' "$J/jobs_pair_$ex.csv" > "$OUT/jobs2472_pair_$ex.csv"
+  go "w5_d2_gate_$ex" run --kind pair --jobs "$OUT/jobs2472_pair_$ex.csv" --panels "$PF/$ex" --funding-y "$FF/$ex" --rule funding --funding-k 3 --hold-payments 40 --min-span 1000 --threads "$TH" \
+    --no-entry-before-from --trades-ext --trade-jobs "$(nb "$OUT/jobs2472_pair_$ex.csv")" --mtm-open --cells "$OUT/cellsF.csv" --daily-out "$OUT/w5.daily.csv" --trades-out "$OUT/w5.trades.csv" \
+    --cells-out "$OUT/w5.cells.csv" --job-ext-out "$OUT/w5.jext.csv" --ext-out "$OUT/w5.ext.csv" --job-day-out "$OUT/w5.jd.csv"
+  go "w5_z_gate_$ex" run --kind pair --jobs "$OUT/jobs2472_pair_$ex.csv" --panels "$PF/$ex" --min-span 1000 --threads "$TH" --rearm --no-entry-before-from --trades-ext \
+    --trade-jobs "$(nb "$OUT/jobs2472_pair_$ex.csv")" --mtm-open --cells "$OUT/cellsW.csv" --daily-out "$OUT/w5.daily.csv" --trades-out "$OUT/w5.trades.csv" --cells-out "$OUT/w5.cells.csv" \
+    --job-ext-out "$OUT/w5.jext.csv" --ext-out "$OUT/w5.ext.csv" --job-day-out "$OUT/w5.jd.csv" --open-out "$OUT/w5.open.csv"
+done
+sed -E 's/,2465,2479$/,2472,2479/' "$J/jobs_basket_okx.csv" > "$OUT/jobs2472_basket_okx.csv"
+go w5_z_gate_basket run --kind basket --jobs "$OUT/jobs2472_basket_okx.csv" --panels "$PF/okx" --min-span 1000 --threads "$TH" --rearm --no-entry-before-from --trades-ext --mtm-open \
+  --cells "$OUT/cellsW.csv" --daily-out "$OUT/w5.daily.csv" --cells-out "$OUT/w5.cells.csv" --job-ext-out "$OUT/w5.jext.csv" --ext-out "$OUT/w5.ext.csv" --job-day-out "$OUT/w5.jd.csv"
+sed -E 's/,2465,2479$/,2472,2479/' "$J/jobs_cross_binance_bitget.csv" > "$OUT/jobs2472_cross_bb.csv"
+go w5_z_gate_cross run --kind cross --jobs "$OUT/jobs2472_cross_bb.csv" --panels "$PF/binance" --panels-b "$PF/bitget" --min-span 1000 --threads "$TH" --rearm --no-entry-before-from --trades-ext \
+  --cells "$OUT/cellsW.csv" --daily-out "$OUT/w5.daily.csv" --cells-out "$OUT/w5.cells.csv" --job-ext-out "$OUT/w5.jext.csv" --ext-out "$OUT/w5.ext.csv" --job-day-out "$OUT/w5.jd.csv"
+# крупный набор g10 с флагами w5 (основной вес профиля — как боевой счёт)
+sed -E 's/,2465,2479$/,2472,2479/' "$G10/jobs_pair.csv" > "$OUT/jobs2472_big_pair.csv"
+go big_pair_w5     run --kind pair  --jobs "$OUT/jobs2472_big_pair.csv" --panels "$NB" --min-span 1000 --threads "$TH" --cells "$OUT/cellsW.csv" --rearm --no-entry-before-from --trades-ext \
+  --daily-out "$OUT/B.daily.csv" --ext-out "$OUT/B.ext.csv" --job-day-out "$OUT/B.jd.csv" --job-ext-out "$OUT/B.jext.csv" --mtm-open --cells-out "$OUT/B.cells.csv"
+go big_pair_w5_d2  run --kind pair  --jobs "$OUT/jobs2472_big_pair.csv" --panels "$NB" --funding-y "$FF/binance" --rule funding --funding-k 3 --hold-payments 40 --min-span 1000 --threads "$TH" \
+  --cells "$OUT/cellsF.csv" --no-entry-before-from --daily-out "$OUT/B.daily.csv" --job-ext-out "$OUT/B.jext.csv" --cells-out "$OUT/B.cells.csv"
+
 # 6. bench: пустой приёмник (скорость) и --digest, все виды, reference и drift (панели формирования, а не полные)
 C1="--window 720 --min-obs 360 --entry-z 2.0 --exit-z 0.5 --max-hold 720 --refresh 0"
 C2="--window 1440 --min-obs 720 --entry-z 1.5 --exit-z 0.2 --max-hold 480 --refresh 97"

@@ -82,6 +82,7 @@ pub(super) fn params(beta: BetaMode, yk: LegKind, xk: LegKind) -> Params {
         taker_out: false,
         delay_x: 0,
         rearm: false,
+        entry_from: None,
         rule: Rule::Z,
     }
 }
@@ -342,6 +343,7 @@ fn flat_x_params() -> Params {
         taker_out: true,
         delay_x: 0,
         rearm: false,
+        entry_from: None,
         rule: Rule::Z,
     }
 }

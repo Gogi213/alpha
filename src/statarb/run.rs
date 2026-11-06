@@ -46,6 +46,18 @@
 //!   суточном csv (вход не раньше `from_day`).
 //! - `--job-day-out <csv>`: строка на (клетка, задание, сутки): net, gross, fee, funding, сделок по суткам закрытия и `active`
 //!   (z определён хотя бы в одной минуте суток внутри окна задания; `Sink::z`). Сумма по заданиям равна суточному csv клетки.
+//!
+//! Волна 5 TK-493 (D5(ii), аудит M3-04, L1-03, L2-03). Без новых флагов вывод побайтно прежний.
+//! - `--no-entry-before-from` (по умолчанию выкл.): вход не исполняется раньше `from_day · 1440` задания (`Params::entry_from`,
+//!   ядро, многоклеточный проход и reference — одно правило; сигнал допустим с минуты `from_min − 1`). Окно z и кольцо ставок
+//!   фандинга греются как раньше — запрещены только решения о входе (D2: первая сделка пары больше не открывается в разогреве
+//!   и не отбрасывается как `pre_window`). Минуты с подавленным сигналом — `warmup_blocked`; столбец дописывается в `--cells-out`
+//!   (и в `--job-ext-out`) только с флагом, заголовки без флага прежние.
+//! - `--job-ext-out <csv>`: строка на (клетка, задание) со счётчиками ядра по заданию: `status` (done / missing / no_span),
+//!   `eval_minutes`, `z_def_minutes`, `minutes_in_pos`, `pos_z_nan_minutes`, `noentry_window_minutes`, `warmup_blocked`, `entries`, `trades`,
+//!   `pre_window`, `pre_window_net_bps` (Σ net отброшенных сделок), `open_at_end`, `open_pre_window` и оценка открытой позиции задания `mtm_*` (`nan` без `--mtm-open`, 0 без позиции).
+//!   Для D2 (`Rule::Funding`) счётчики z относятся к окну z (60 мин), а решение принимает кольцо ставок: `z_def_minutes` и
+//!   `pos_z_nan_minutes` там не показатель (аудит L1-04), активность пары-суток считает агрегатор по панелям.
 
 use super::cli::{common, load_names, Kind, Loaded};
 use super::kernel::{
@@ -163,6 +175,13 @@ pub struct RunArgs {
     /// Строка на (клетка, задание, сутки): net, gross, fee, funding, сделок и `active` (P-02, M-07).
     #[arg(long)]
     job_day_out: Option<PathBuf>,
+    /// D5(ii) (TK-493 w5): не исполнять вход раньше `from_day · 1440` задания — разогрев окна z и кольца ставок идёт как
+    /// обычно, решения о входе запрещены (по умолчанию выкл.). Подавленные минуты — `warmup_blocked` в `--cells-out`.
+    #[arg(long, default_value_t = false)]
+    no_entry_before_from: bool,
+    /// Строка на (клетка, задание): счётчики ядра по заданию, `pre_window`, оценка открытой позиции (аудит L1-03, M3-04).
+    #[arg(long)]
+    job_ext_out: Option<PathBuf>,
 }
 
 /// Правило входа и выхода (`--rule`).
@@ -181,6 +200,9 @@ struct Mode {
     rule: Rule,
     rearm: bool,
 }
+
+/// `delay_x = usize::MAX` совпадает с признаком «нога X не ждёт» в ядре (`NO_DUE`) — зарезервировано.
+const DELAY_X_RESERVED: usize = usize::MAX;
 
 /// Проверка флагов и режим. Ошибка — до чтения панелей.
 fn check_args(a: &RunArgs) -> Result<Mode> {
@@ -208,8 +230,11 @@ fn check_args(a: &RunArgs) -> Result<Mode> {
         }
         _ => {}
     }
-    if a.mtm_open && a.cells_out.is_none() {
-        bail!("--mtm-open пишет оценку только в --cells-out: укажите его");
+    if a.delay_x == DELAY_X_RESERVED {
+        bail!("--delay-x {DELAY_X_RESERVED} зарезервирован ядром (признак «нога X не ждёт»)");
+    }
+    if a.mtm_open && a.cells_out.is_none() && a.job_ext_out.is_none() {
+        bail!("--mtm-open пишет оценку только в --cells-out и --job-ext-out: укажите один из них");
     }
     if a.open_out.is_some() && (!a.mtm_open || a.trade_jobs.is_empty()) {
         bail!("--open-out требует --mtm-open и --trade-jobs");
@@ -261,8 +286,28 @@ struct Job {
     to_day: i64,
 }
 
+const JOBS_HEADER: &str = "y,x,from_day,to_day";
+
+/// Первая строка файла — заголовок ровно такой, как в формате (аудит L2-03): иначе `skip(1)` молча съедал бы первую строку данных.
+fn check_header(path: &Path, txt: &str, want: &str) -> Result<()> {
+    let first = txt
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('\u{feff}')
+        .trim();
+    if first != want {
+        bail!(
+            "{}: первая строка должна быть заголовком «{want}», а не «{first}»",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 fn read_jobs(path: &Path) -> Result<Vec<Job>> {
     let txt = fs::read_to_string(path).with_context(|| path.display().to_string())?;
+    check_header(path, &txt, JOBS_HEADER)?;
     let mut v = Vec::new();
     for (n, line) in txt.lines().enumerate().skip(1) {
         if line.trim().is_empty() {
@@ -379,6 +424,8 @@ struct JobOut {
     /// Сутки задания (сутки, суммы за сутки закрытия, `active`) — для `--job-day-out`.
     jd: Vec<(i64, [f64; 5], bool)>,
     pre_window: u64,
+    /// Σ net отброшенных `pre_window` сделок, bps (величина потери, не только их число; `--job-ext-out`).
+    pre_net_bps: f64,
     trades: Vec<Trade>,
     /// Позиция, открытая на конце окна, вошла до `from_day` (в разогреве): сделку с таким входом `tally` отбрасывает,
     /// открытую позицию тоже не оцениваем.
@@ -412,11 +459,21 @@ struct Env<'a> {
     ext: bool,
     /// `--job-day-out`: собирать сутки заданий и `Sink::z`.
     job_day: bool,
+    /// `--no-entry-before-from`: вход не раньше `from_min` задания (`Params::entry_from`).
+    gate: bool,
     ys: &'a Panels,
     xs: &'a Panels,
 }
 
 impl Env<'_> {
+    /// Параметры клетки на задании: с `--no-entry-before-from` в них минута `from_min` задания.
+    fn gated(&self, p: &Params, from_min: i64) -> Params {
+        Params {
+            entry_from: self.gate.then_some(from_min),
+            ..*p
+        }
+    }
+
     fn extra(&self, inp: &PairInput) -> Extra {
         Extra {
             ext: self.ext,
@@ -578,6 +635,7 @@ fn tally(
     for t in sink.trades {
         if t.fill_in < from_min {
             o.pre_window += 1;
+            o.pre_net_bps += t.net_bps;
             continue;
         }
         let d = o.daily.entry(t.fill_out.div_euclid(MIN_DAY)).or_default();
@@ -618,6 +676,7 @@ fn outcome(p: Prep<JobOut>) -> Outcome {
 /// Одна клетка, ядро-эталон `run_pair`.
 fn run_job(p: &Params, env: &Env, j: &Job, keep: bool) -> Outcome {
     let from_min = j.from_day * MIN_DAY;
+    let p = &env.gated(p, from_min);
     outcome(with_input(p.window, env, j, |inp, cl| {
         let mut sink = env.sink(inp, from_min);
         let c = run_pair(inp, p, &mut sink);
@@ -674,7 +733,10 @@ fn run_job_cells(
     let from_min = j.from_day * MIN_DAY;
     let mut out: Vec<Option<Outcome>> = cells.iter().map(|_| None).collect();
     for g in groups {
-        let ps: Vec<Params> = g.iter().map(|&i| cells[i].p).collect();
+        let ps: Vec<Params> = g
+            .iter()
+            .map(|&i| env.gated(&cells[i].p, from_min))
+            .collect();
         let prep = with_input(ps[0].window, env, j, |inp, cl| {
             let mut sinks: Vec<RunSink> = g.iter().map(|_| env.sink(inp, from_min)).collect();
             let cs: Vec<Counters> = if ps.iter().all(multi_ok) {
@@ -749,6 +811,8 @@ fn cell_params(
         delay_x: mode.delay_x,
         rule: mode.rule,
         rearm: mode.rearm,
+        // D5(ii): `from_min` у каждого задания свой, подставляется в `gated` на задании
+        entry_from: None,
     }
 }
 
@@ -756,6 +820,7 @@ const CELLS_HEADER: &str = "cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z
 
 fn read_cells(path: &Path, kind: Kind, mode: Mode) -> Result<Vec<Cell>> {
     let txt = fs::read_to_string(path).with_context(|| path.display().to_string())?;
+    check_header(path, &txt, CELLS_HEADER)?;
     let mut v: Vec<Cell> = Vec::new();
     for (n, line) in txt.lines().enumerate().skip(1) {
         if line.trim().is_empty() {
@@ -771,10 +836,14 @@ fn read_cells(path: &Path, kind: Kind, mode: Mode) -> Result<Vec<Cell>> {
         } else {
             Some(f[3].parse::<f64>().with_context(at)?)
         };
+        let window: usize = f[1].parse().with_context(at)?;
+        if window == 0 {
+            bail!("{}: window должно быть ≥ 1", at());
+        }
         let p = cell_params(
             kind,
             mode,
-            f[1].parse().with_context(at)?,
+            window,
             f[2].parse().with_context(at)?,
             beta_fixed,
             f[4].parse().with_context(at)?,
@@ -807,6 +876,9 @@ fn one_cell(a: &RunArgs, mode: Mode) -> Result<Cell> {
     let (Some(stop_z), Some(max_hold), Some(refresh)) = (a.stop_z, a.max_hold, a.refresh) else {
         bail!(need)
     };
+    if window == 0 {
+        bail!("--window должно быть ≥ 1");
+    }
     Ok(Cell {
         label: label.clone(),
         p: cell_params(
@@ -843,10 +915,40 @@ struct Agg {
     ext: ExtStats,
     /// (задание, сутки, суммы за сутки закрытия, active) — `--job-day-out`.
     job_days: Vec<(usize, i64, [f64; 5], bool)>,
+    /// Счётчики по заданиям — `--job-ext-out`.
+    rows: Vec<JobRow>,
+}
+
+/// Счётчики одного задания клетки (`--job-ext-out`): статус, счётчики ядра, `pre_window`, оценка открытой позиции.
+struct JobRow {
+    job: usize,
+    status: &'static str,
+    c: Counters,
+    pre: u64,
+    pre_net: f64,
+    open_pre: u64,
+    mtm: Option<Mtm>,
 }
 
 impl Agg {
-    fn add(&mut self, job: usize, o: Outcome) {
+    /// `rows` — копить строки `--job-ext-out` (по строке на задание: память растёт с числом заданий, поэтому только по флагу).
+    fn add(&mut self, job: usize, o: Outcome, rows: bool) {
+        if rows {
+            let (status, c, pre, pre_net, open_pre, mtm) = match &o {
+                Outcome::Missing => ("missing", Counters::default(), 0, 0.0, 0, None),
+                Outcome::NoSpan => ("no_span", Counters::default(), 0, 0.0, 0, None),
+                Outcome::Done(d) => ("done", d.c, d.pre_window, d.pre_net_bps, d.open_pre, d.mtm),
+            };
+            self.rows.push(JobRow {
+                job,
+                status,
+                c,
+                pre,
+                pre_net,
+                open_pre,
+                mtm,
+            });
+        }
         match o {
             Outcome::Missing => self.missing += 1,
             Outcome::NoSpan => self.no_span += 1,
@@ -868,6 +970,7 @@ impl Agg {
                 self.c.pos_z_nan_minutes += o.c.pos_z_nan_minutes;
                 self.c.noentry_window_minutes += o.c.noentry_window_minutes;
                 self.c.rearm_blocked += o.c.rearm_blocked;
+                self.c.warmup_blocked += o.c.warmup_blocked;
                 self.ext.merge(o.ext);
                 self.job_days
                     .extend(o.jd.into_iter().map(|(d, v, a)| (job, d, v, a)));
@@ -900,6 +1003,8 @@ struct Merge {
     next: usize,
     pending: BTreeMap<usize, Vec<Outcome>>,
     aggs: Vec<Agg>,
+    /// `--job-ext-out`: копить строки по заданиям.
+    rows: bool,
 }
 
 impl Merge {
@@ -907,7 +1012,7 @@ impl Merge {
         self.pending.insert(job, outs);
         while let Some(outs) = self.pending.remove(&self.next) {
             for (agg, o) in self.aggs.iter_mut().zip(outs) {
-                agg.add(self.next, o);
+                agg.add(self.next, o, self.rows);
             }
             self.next += 1;
         }
@@ -1081,13 +1186,14 @@ fn rank_pctl(v: &[f64], q: usize) -> String {
 /// Расширенная сводка по клетке (`--ext-out`). Счётчики F-01 — по всему спану заданий после разогрева окна
 /// (`eval_minutes`: минуты с `t + 1 ≥ window`), `minutes_in_pos` и `pos_z_nan_minutes` — по всему спану; разбивка выходов
 /// и F-03 — по сделкам с входом не раньше `from_day`, как в суточном csv.
-fn write_ext(path: &Path, cells: &[Cell], aggs: &[Agg]) -> Result<()> {
+fn write_ext(path: &Path, cells: &[Cell], aggs: &mut [Agg]) -> Result<()> {
     let mut w = BufWriter::new(File::create(path)?);
     writeln!(w, "{}", EXT_OUT_COLUMNS.join(","))?;
-    for (cell, g) in cells.iter().zip(aggs) {
+    for (cell, g) in cells.iter().zip(aggs.iter_mut()) {
+        // сортировка на месте: вектор β на сделку большой, копия при сортировке удваивала пик памяти (аудит L1-09)
+        g.ext.betas.sort_by(f64::total_cmp);
         let (c, e) = (&g.c, &g.ext);
-        let mut betas = e.betas.clone();
-        betas.sort_by(f64::total_cmp);
+        let betas = &e.betas;
         let mean = |x: f64| {
             if e.n == 0 {
                 "nan".to_string()
@@ -1121,7 +1227,7 @@ fn write_ext(path: &Path, cells: &[Cell], aggs: &[Agg]) -> Result<()> {
                 .map_or_else(|| "nan".to_string(), f64::to_string),
         );
         for q in [1, 5, 25, 50, 75, 95, 99] {
-            f.push(rank_pctl(&betas, q));
+            f.push(rank_pctl(betas, q));
         }
         f.push(
             betas
@@ -1192,15 +1298,21 @@ const CELLS_OUT_COLUMNS: [&str; 21] = [
 ];
 
 /// Сводка по клетке (`--cells-out`). Столбцы `mtm_*` без `--mtm-open` — `nan`: «нет оценки», а не «ноль».
+/// С `--no-entry-before-from` (`gate`) в конец дописывается `warmup_blocked`; без флага заголовок и строки прежние.
 fn write_cells_out(
     path: &Path,
     cells: &[Cell],
     aggs: &[Agg],
     njobs: usize,
     mtm_on: bool,
+    gate: bool,
 ) -> Result<()> {
     let mut w = BufWriter::new(File::create(path)?);
-    writeln!(w, "{}", CELLS_OUT_COLUMNS.join(","))?;
+    write!(w, "{}", CELLS_OUT_COLUMNS.join(","))?;
+    if gate {
+        write!(w, ",warmup_blocked")?;
+    }
+    writeln!(w)?;
     for (cell, g) in cells.iter().zip(aggs) {
         let c = &g.c;
         let mut f: Vec<String> = vec![cell.label.clone(), njobs.to_string()];
@@ -1229,7 +1341,93 @@ fn write_cells_out(
         } else {
             f.extend(["nan"; 6].map(String::from));
         }
+        if gate {
+            f.push(c.warmup_blocked.to_string());
+        }
         writeln!(w, "{}", f.join(","))?;
+    }
+    w.flush()?;
+    Ok(())
+}
+
+const JOB_EXT_COLUMNS: [&str; 18] = [
+    "cell",
+    "job",
+    "y",
+    "x",
+    "status",
+    "eval_minutes",
+    "z_def_minutes",
+    "minutes_in_pos",
+    "pos_z_nan_minutes",
+    "noentry_window_minutes",
+    "entries",
+    "trades",
+    "pre_window",
+    "pre_window_net_bps",
+    "open_at_end",
+    "open_pre_window",
+    "warmup_blocked",
+    "mtm_n",
+];
+
+/// MTM-столбцы `--job-ext-out`: сумма по позиции задания (0 или 1 позиция); `nan` без `--mtm-open`.
+const JOB_EXT_MTM: [&str; 5] = [
+    "mtm_net_bps",
+    "mtm_gross_bps",
+    "mtm_fee_bps",
+    "mtm_funding_bps",
+    "mtm_stale_min",
+];
+
+/// Счётчики по заданиям (`--job-ext-out`): строка на (клетка, задание) в порядке клеток и номера задания. `trades` — сделки ядра
+/// (в том числе отброшенные как `pre_window`, как в `--cells-out`); сделок в окне задания `trades − pre_window`.
+fn write_job_ext(
+    path: &Path,
+    cells: &[Cell],
+    aggs: &[Agg],
+    jobs: &[Job],
+    mtm_on: bool,
+) -> Result<()> {
+    let mut w = BufWriter::new(File::create(path)?);
+    writeln!(w, "{},{}", JOB_EXT_COLUMNS.join(","), JOB_EXT_MTM.join(","))?;
+    for (cell, g) in cells.iter().zip(aggs) {
+        for r in &g.rows {
+            let Some(j) = jobs.get(r.job) else { continue };
+            let c = &r.c;
+            write!(
+                w,
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                cell.label,
+                r.job,
+                j.y,
+                j.x.join("+"),
+                r.status,
+                c.eval_minutes,
+                c.z_def_minutes,
+                c.minutes_in_pos,
+                c.pos_z_nan_minutes,
+                c.noentry_window_minutes,
+                c.entries,
+                c.trades,
+                r.pre,
+                r.pre_net,
+                c.open_at_end,
+                r.open_pre,
+                c.warmup_blocked,
+                u8::from(r.mtm.is_some())
+            )?;
+            match (mtm_on, r.mtm) {
+                (false, _) => write!(w, ",nan,nan,nan,nan,nan")?,
+                (true, None) => write!(w, ",0,0,0,0,0")?,
+                (true, Some(m)) => write!(
+                    w,
+                    ",{},{},{},{},{}",
+                    m.net_bps, m.gross_bps, m.fee_bps, m.funding_bps, m.stale_min
+                )?,
+            }
+            writeln!(w)?;
+        }
     }
     w.flush()?;
     Ok(())
@@ -1296,6 +1494,7 @@ pub fn run(a: &RunArgs) -> Result<()> {
         mtm: a.mtm_open,
         ext: a.ext_out.is_some(),
         job_day: a.job_day_out.is_some(),
+        gate: a.no_entry_before_from,
         ys: &ys,
         xs,
     };
@@ -1305,6 +1504,7 @@ pub fn run(a: &RunArgs) -> Result<()> {
         next: 0,
         pending: BTreeMap::new(),
         aggs: cells.iter().map(|_| Agg::default()).collect(),
+        rows: a.job_ext_out.is_some(),
     });
     std::thread::scope(|s| {
         for _ in 0..a.threads.max(1) {
@@ -1322,19 +1522,29 @@ pub fn run(a: &RunArgs) -> Result<()> {
         }
     });
     let run_s = t0.elapsed().as_secs_f64() - load_s;
-    let aggs = merge.into_inner().unwrap().aggs;
+    let mut aggs = merge.into_inner().unwrap().aggs;
     write_daily(&a.daily_out, &cells, &aggs)?;
     if let Some(f) = &a.trades_out {
         write_trades(f, &cells, &aggs, &jobs, mode.delay_x > 0, a.trades_ext)?;
     }
     if let Some(f) = &a.ext_out {
-        write_ext(f, &cells, &aggs)?;
+        write_ext(f, &cells, &mut aggs)?;
     }
     if let Some(f) = &a.job_day_out {
         write_job_day(f, &cells, &aggs, &jobs)?;
     }
     if let Some(f) = &a.cells_out {
-        write_cells_out(f, &cells, &aggs, jobs.len(), a.mtm_open)?;
+        write_cells_out(
+            f,
+            &cells,
+            &aggs,
+            jobs.len(),
+            a.mtm_open,
+            a.no_entry_before_from,
+        )?;
+    }
+    if let Some(f) = &a.job_ext_out {
+        write_job_ext(f, &cells, &aggs, &jobs, a.mtm_open)?;
     }
     if let Some(f) = &a.open_out {
         write_open(f, &cells, &aggs, &jobs)?;
@@ -1363,6 +1573,10 @@ pub fn run(a: &RunArgs) -> Result<()> {
         label, a.kind, a.threads, jobs.len(), g0.done, g0.missing, g0.no_span, missing_y.len(), missing_x.len(),
         c.trades, pre, c.entries, c.entry_deferred, c.exit_deferred, c.gap_minutes, c.open_at_end, days, load_s, run_s
     );
+    if a.no_entry_before_from {
+        let w: u64 = aggs.iter().map(|g| g.c.warmup_blocked).sum();
+        println!("запрет входа до from_min: подавлено {w} мин сигналов входа (сумма по клеткам)");
+    }
     if let Some(l) = funding_line(a, &ys, xs) {
         println!("{l}");
     }

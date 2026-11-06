@@ -295,6 +295,12 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
             if rearm && funding_k > 0 {
                 bail!("--rearm относится к правилу z, с --funding-k не сочетается");
             }
+            if window == 0 {
+                bail!("--window должно быть ≥ 1");
+            }
+            if delay_x == usize::MAX {
+                bail!("--delay-x {} зарезервирован ядром", usize::MAX);
+            }
             let p = Params {
                 window,
                 min_obs,
@@ -326,6 +332,7 @@ pub fn dispatch(cmd: StatarbCommand) -> Result<()> {
                     Rule::Z
                 },
                 rearm,
+                entry_from: None,
             };
             bench(&BenchArgs {
                 kind,
@@ -460,6 +467,13 @@ pub fn funding_min(time_ms: i64) -> i64 {
 
 /// `time_ms,rate,interval_h` → `(funding_min(time_ms), rate)`; первая строка — заголовок.
 pub fn parse_funding(text: &str) -> Result<Vec<(i64, f64)>> {
+    // Заголовок обязателен (аудит L2-03): без него `skip(1)` молча терял бы первую выплату. Пустой файл — нет ставок.
+    if let Some(first) = text.lines().next() {
+        let first = first.trim_start_matches('\u{feff}');
+        if !first.starts_with("time_ms,") {
+            bail!("файл ставок: первая строка должна быть заголовком `time_ms,rate,interval_h`, а не «{first}»");
+        }
+    }
     let mut v = Vec::new();
     for line in text.lines().skip(1) {
         let mut it = line.split(',');

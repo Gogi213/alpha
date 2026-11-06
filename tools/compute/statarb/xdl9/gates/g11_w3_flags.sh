@@ -11,8 +11,8 @@
 set -u
 BIN_N=${BIN_N:-$HOME/xdl9/bin/statarb-xdl9-6108b0bf}
 BIN_O=${BIN_O:-$HOME/xdl9/bin/statarb-xdl9-02c6a0df}
-P=$HOME/xdl9/panels
-J=$HOME/xdl9/gates/g6b
+P=${P_DIR:-$HOME/xdl9/panels}   # TK-493 w5: P_DIR=<pform> — копии панелей, обрезанные до суток формирования
+J=${G11_JOBS:-$HOME/xdl9/gates/g6b}
 G=${G11_DIR:-$HOME/xdl9/gates/g11}
 TH=${1:-4}
 mkdir -p "$G"; rm -rf "${G:?}"/*

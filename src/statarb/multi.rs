@@ -12,8 +12,8 @@
 //! (TK-493, `--mtm-open`): состояние то же побитно (тест `open_end_hook_is_the_same_in_single_and_multi_passes`).
 
 use super::kernel::{
-    beta_z, price_at, rates_at, Counters, ExitReason, OpenPos, PairInput, Params, Pend, Rule, Sink,
-    Sums, Trade,
+    beta_z, entry_gate, price_at, rates_at, Counters, ExitReason, OpenPos, PairInput, Params, Pend,
+    Rule, Sink, Sums, Trade,
 };
 
 struct Cell {
@@ -147,9 +147,12 @@ impl Cell {
         }
     }
 
-    /// Сигнал входа `d` по закрытию минуты `t`; `rearm` не пускает вход в сторону, закрытую стопом или сроком.
-    fn signal(&mut self, p: &Params, d: i8, beta: f64, t: usize) {
-        if p.rearm && self.block == d {
+    /// Сигнал входа `d` по закрытию минуты `t`; `rearm` не пускает вход в сторону, закрытую стопом или сроком;
+    /// `Params::entry_from` (`enter_t0` — первый индекс исполнения) не пускает вход в разогреве (TK-493 w5, D5(ii)).
+    fn signal(&mut self, p: &Params, d: i8, beta: f64, t: usize, enter_t0: usize) {
+        if t + 1 < enter_t0 {
+            self.c.warmup_blocked += 1;
+        } else if p.rearm && self.block == d {
             self.c.rearm_blocked += 1;
         } else {
             self.pend = Pend::Enter(d, beta, t);
@@ -161,7 +164,15 @@ impl Cell {
 
     /// Конец минуты `t`: сигнал по закрытию, исполнение — следующая минута. `short` — окно неполное (дыры): нет
     /// права входа из-за окна (см. `Counters::noentry_window_minutes`), общее для клеток группы.
-    fn close_minute(&mut self, p: &Params, t: usize, beta: f64, z: f64, short: bool) {
+    fn close_minute(
+        &mut self,
+        p: &Params,
+        t: usize,
+        beta: f64,
+        z: f64,
+        short: bool,
+        enter_t0: usize,
+    ) {
         if self.dir != 0 && !z.is_finite() {
             self.c.pos_z_nan_minutes += 1;
         }
@@ -174,9 +185,9 @@ impl Cell {
                     self.block = 0;
                 }
                 if z <= -p.entry_z {
-                    self.signal(p, 1, beta, t);
+                    self.signal(p, 1, beta, t, enter_t0);
                 } else if z >= p.entry_z {
-                    self.signal(p, -1, beta, t);
+                    self.signal(p, -1, beta, t, enter_t0);
                 }
             } else if short {
                 self.c.noentry_window_minutes += 1;
@@ -231,6 +242,8 @@ pub fn run_pair_multi<S: Sink>(
         p0.refresh
     };
     let mut st: Vec<Cell> = cells.iter().map(|_| Cell::new(k)).collect();
+    // D5(ii): у каждой клетки свой `entry_from` (в `run` он один на прогон, API допускает разные).
+    let gate: Vec<usize> = cells.iter().map(|p| entry_gate(p, inp.first_min)).collect();
     let (mut obs_minutes, mut gap_minutes) = (0u64, 0u64);
     let (mut eval_minutes, mut z_def_minutes) = (0u64, 0u64);
     let mut s = Sums::default();
@@ -283,9 +296,9 @@ pub fn run_pair_multi<S: Sink>(
             }
         }
         let short = obs && t + 1 >= p0.window && (s.n as usize) < p0.min_obs.max(2);
-        for ((cell, p), sink) in st.iter_mut().zip(cells).zip(sinks.iter_mut()) {
+        for (((cell, p), sink), &g) in st.iter_mut().zip(cells).zip(sinks.iter_mut()).zip(&gate) {
             sink.z(t, z);
-            cell.close_minute(p, t, beta, z, short);
+            cell.close_minute(p, t, beta, z, short, g);
         }
     }
     Ok(st

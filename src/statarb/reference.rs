@@ -3,7 +3,8 @@
 //! код другой: сверка `kernel::run_pair` с ней — тест и вариант `naive` в таблице замера.
 
 use super::kernel::{
-    round_trip_cost_bps, BetaMode, Counters, ExitReason, PairInput, Params, Rule, Sink, Trade,
+    entry_gate, round_trip_cost_bps, BetaMode, Counters, ExitReason, PairInput, Params, Rule, Sink,
+    Trade,
 };
 
 /// Нога для фандинга: события, open, количество.
@@ -117,6 +118,8 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
     // `rearm` — сторона, закрытая стопом или сроком; действует только с правилом z.
     let rearm = p.rearm && matches!(p.rule, Rule::Z);
     let mut block = 0i8;
+    // D5(ii): первая минута сетки, на которой допустимо исполнение входа (`Params::entry_from`).
+    let enter_t0 = entry_gate(p, inp.first_min);
     for t in 0..n {
         let ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
         if let Some((d, beta, sig)) = want_enter.take() {
@@ -254,7 +257,9 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                                 } else {
                                     0
                                 };
-                                if side != 0 && rearm && block == side {
+                                if side != 0 && t + 1 < enter_t0 {
+                                    c.warmup_blocked += 1;
+                                } else if side != 0 && rearm && block == side {
                                     c.rearm_blocked += 1;
                                 } else if side != 0 {
                                     want_enter = Some((side, beta, t));
@@ -278,7 +283,11 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                                 && b.is_finite()
                                 && r_mean.abs() * 1e4 * fh > round_trip_cost_bps(p, b, wsum)
                             {
-                                want_enter = Some((if r_mean > 0.0 { -1 } else { 1 }, b, t));
+                                if t + 1 < enter_t0 {
+                                    c.warmup_blocked += 1;
+                                } else {
+                                    want_enter = Some((if r_mean > 0.0 { -1 } else { 1 }, b, t));
+                                }
                             }
                         }
                     }

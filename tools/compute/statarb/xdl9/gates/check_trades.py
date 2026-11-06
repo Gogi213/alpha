@@ -161,8 +161,12 @@ def simulate(P, Y, X, lo, hi, use_fund):
         return beta, (dy[-1] - beta * dx[-1]) / sqrt(ssr / k)
 
     cnt = dict(obs_minutes=0, gap_minutes=0, entries=0, entry_deferred=0, exit_deferred=0, trades=0, minutes_in_pos=0,
-               eval_minutes=0, z_def_minutes=0, pos_z_nan_minutes=0, noentry_window_minutes=0, rearm_blocked=0)
+               eval_minutes=0, z_def_minutes=0, pos_z_nan_minutes=0, noentry_window_minutes=0, rearm_blocked=0,
+               warmup_blocked=0)
     rearm = P.get("rearm", False) and P["rule"] == "z"
+    # TK-493 w5 (D5(ii)): run запущен с --no-entry-before-from — вход не исполняется раньше from_min (индекс окна enter_t0);
+    # сигнал на закрытии минуты from_min − 1 допустим (исполнение ровно на from_min). Без флага enter_t0 = 0.
+    enter_t0 = P.get("enter_t0", 0)
     block = 0
     trades = []
     d = 0
@@ -245,7 +249,9 @@ def simulate(P, Y, X, lo, hi, use_fund):
                             block = 0
                         side = 1 if z <= -P["entry_z"] else (-1 if z >= P["entry_z"] else 0)
                         if side:
-                            if rearm and block == side:
+                            if i + 1 < enter_t0:
+                                cnt["warmup_blocked"] += 1
+                            elif rearm and block == side:
                                 cnt["rearm_blocked"] += 1
                             else:
                                 pend = ("E", side, beta, i)
@@ -257,7 +263,10 @@ def simulate(P, Y, X, lo, hi, use_fund):
                     b = fixed if fixed is not None else beta
                     if isfinite(r_mean) and isfinite(b):
                         if abs(r_mean) * 1e4 * fh > cost(b):
-                            pend = ("E", -1 if r_mean > 0 else 1, b, i)
+                            if i + 1 < enter_t0:
+                                cnt["warmup_blocked"] += 1
+                            else:
+                                pend = ("E", -1 if r_mean > 0 else 1, b, i)
             else:
                 timed = P["max_hold"] > 0 and i - fill_in >= P["max_hold"]
                 if rule == "z":
@@ -320,6 +329,9 @@ def main():
     ap.add_argument("--stop-z", type=float, default=math.inf)
     ap.add_argument("--max-hold", type=int, default=0)
     ap.add_argument("--rearm", action="store_true", help="run запущен с --rearm (F-02)")
+    ap.add_argument("--no-entry-before-from", action="store_true",
+                    help="run запущен с --no-entry-before-from (w5, D5(ii)): вход не раньше from_day·1440; pre_window обязан быть 0, "
+                         "подавленные сигналы сверяются со столбцом warmup_blocked в --cells-out")
     ap.add_argument("--ext-out", help="csv --ext-out того же прогона (счётчики F-01, причины выходов, F-03)")
     ap.add_argument("--funding-k", type=int, default=0)
     ap.add_argument("--hold-payments", type=int, default=0)
@@ -344,6 +356,8 @@ def main():
         pass
     if a.rule == "funding" and a.beta_fixed is None:
         P["beta_fixed"] = 1.0  # как run для funding-*: β = 1
+    if a.no_entry_before_from:
+        P["enter_t0"] = max(0, a.from_day * DAY - lo)
     trades, openp, cnt = simulate(P, Y, X, lo, hi, a.funding)
     from_min = a.from_day * DAY
     kept = [t for t in trades if t["fill_in"] >= from_min]
@@ -353,6 +367,10 @@ def main():
     if a.cell:
         rows = [r for r in rows if r["cell"] == a.cell]
     bad = 0
+    if a.no_entry_before_from and (pre or openp and openp["fill_in"] < from_min):
+        print(f"ОШИБКА: с запретом входа до from_min пересчёт дал сделок до окна {pre}"
+              f"{', открытую позицию до окна' if openp and openp['fill_in'] < from_min else ''}")
+        bad += 1
     if len(rows) != len(kept):
         print(f"ОШИБКА: сделок в csv {len(rows)}, пересчитано {len(kept)} (до окна отброшено {pre})")
         bad += 1
@@ -403,6 +421,8 @@ def main():
         want = dict(entries=cnt["entries"], entry_deferred=cnt["entry_deferred"], exit_deferred=cnt["exit_deferred"],
                     gap_minutes=cnt["gap_minutes"], minutes_in_pos=cnt["minutes_in_pos"], open_at_end=cnt["open_at_end"],
                     trades=cnt["trades"], pre_window=pre)
+        if a.no_entry_before_from:  # столбец дописывается в --cells-out только с флагом
+            want["warmup_blocked"] = cnt["warmup_blocked"]
         cmpd = {k: (int(cr[k]), v) for k, v in want.items()}
         diff = {k: v for k, v in cmpd.items() if v[0] != v[1]}
         print("счётчики run / руками: " + ", ".join(f"{k} {v[0]}/{v[1]}" for k, v in cmpd.items()))

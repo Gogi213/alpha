@@ -33,6 +33,8 @@ mod eg_tests;
 #[cfg(test)]
 mod egmat_tests;
 #[cfg(test)]
+mod entry_gate_tests;
+#[cfg(test)]
 mod fix_tests;
 #[cfg(test)]
 mod form_tests;

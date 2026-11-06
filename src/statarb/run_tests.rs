@@ -20,6 +20,9 @@ use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// TK-493 волна 5: `--no-entry-before-from`, `--job-ext-out`, проверки входных файлов.
+mod w5;
+
 #[derive(Parser)]
 struct W {
     #[command(flatten)]
@@ -577,6 +580,7 @@ fn run_equals_direct_kernel_for_delay_and_funding_rule() {
         taker_out: true,
         delay_x: 0,
         rearm: false,
+        entry_from: None,
         rule: Rule::Z,
     };
     let fund_rule = Rule::Funding {

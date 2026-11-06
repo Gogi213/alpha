@@ -104,6 +104,19 @@ pub struct Params {
     /// нет возврата). Другая сторона разрешена сразу. Выход по правилу ничего не блокирует. Только для `Rule::Z`:
     /// при `Rule::Funding` полосы z нет, флаг не действует (в `statarb run` / `bench` такое сочетание — ошибка).
     pub rearm: bool,
+    /// TK-493 w5, D5(ii) (по умолчанию `None`, поведение прежнее): абсолютная минута сетки (как `PairInput::first_min`), раньше
+    /// которой вход не исполняется — `--no-entry-before-from`, `from_day · 1440` задания. Сигнал по закрытию минуты `t`
+    /// даёт исполнение на `t + 1`, поэтому сигнал допустим с минуты `entry_from − 1` (вход ровно в `entry_from`, как у видов z
+    /// при `min_obs = window`); на минутах разогрева с сигналом вход не создаётся, минута идёт в
+    /// `Counters::warmup_blocked`. Окно z и кольцо ставок фандинга копятся как обычно (разогрев ряда ставок сохранён,
+    /// запрещены только решения). Правило одно для `Rule::Z` и `Rule::Funding`.
+    pub entry_from: Option<i64>,
+}
+
+/// Первый индекс сетки, с которого допустимо исполнение входа (`Params::entry_from`); без флага — 0.
+pub(crate) fn entry_gate(p: &Params, first_min: i64) -> usize {
+    p.entry_from
+        .map_or(0, |m| usize::try_from(m - first_min).unwrap_or(0))
 }
 
 /// Вход для одной пары: ряды выровнены по общей сетке, индекс `i` ↔ минута `first_min + i`.
@@ -228,6 +241,9 @@ pub struct Counters {
     pub noentry_window_minutes: u64,
     /// F-02: сигналов входа, подавленных `Params::rearm` (z всё ещё за порогом после стопа или срока в ту же сторону).
     pub rearm_blocked: u64,
+    /// TK-493 w5 (D5(ii)): минуты, где сигнал входа был, а вход запрещён `Params::entry_from` (разогрев до `from_min`
+    /// задания): правило z — z за порогом входа, `Rule::Funding` — доход выше круга. Без флага всегда 0.
+    pub warmup_blocked: u64,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -406,6 +422,8 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
     // F-02: причина решённого выхода; сторона, закрытая стопом или сроком (0 — нет; только `REARM`).
     let mut why = ExitReason::Rule;
     let mut block = 0i8;
+    // D5(ii): первая минута сетки, на которой допустимо исполнение входа; сигнал на `t` исполняется на `t + 1`.
+    let enter_t0 = entry_gate(p, inp.first_min);
     for t in 0..n {
         let ft = inp.first_min + t as i64;
         let opens_ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
@@ -589,7 +607,9 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
                             block = 0;
                         }
                         if z <= -p.entry_z {
-                            if REARM && block == 1 {
+                            if t + 1 < enter_t0 {
+                                c.warmup_blocked += 1;
+                            } else if REARM && block == 1 {
                                 c.rearm_blocked += 1;
                             } else {
                                 pend = Pend::Enter(1, beta, t);
@@ -598,7 +618,9 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
                                 }
                             }
                         } else if z >= p.entry_z {
-                            if REARM && block == -1 {
+                            if t + 1 < enter_t0 {
+                                c.warmup_blocked += 1;
+                            } else if REARM && block == -1 {
                                 c.rearm_blocked += 1;
                             } else {
                                 pend = Pend::Enter(-1, beta, t);
@@ -618,7 +640,11 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
                     if r_mean.is_finite() && b.is_finite() {
                         let edge = r_mean.abs() * 1e4 * fh;
                         if edge > round_trip_cost_bps(p, b, wsum) {
-                            pend = Pend::Enter(if r_mean > 0.0 { -1 } else { 1 }, b, t);
+                            if t + 1 < enter_t0 {
+                                c.warmup_blocked += 1;
+                            } else {
+                                pend = Pend::Enter(if r_mean > 0.0 { -1 } else { 1 }, b, t);
+                            }
                         }
                     }
                 }

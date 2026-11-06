@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # TK-493 pgo (В-32): сборка ядра stat-arb для Steam Deck на VPS Софии — рецепт tools/compute/build-pgo.sh
 # (x86-64-v3 + fat LTO + 1 codegen-unit + panic=abort), но без calc-специфики: обучение идёт на Deck (train.sh), здесь только сборки.
+#   build_pgo_vps.sh base        не-PGO боевая сборка по умолчанию крейта (профиль release без v3 / LTO / panic=abort) → W/bin/..-base (TK-493 w5:
+#                                так собирались 4ef45cc8 и его предшественники; на Deck кладётся как statarb-xdl9-<sha8>)
 #   build_pgo_vps.sh plain       v3 + LTO без PGO (контроль: отделяет эффект флагов сборки от PGO)
 #   build_pgo_vps.sh gen         инструментированный бинарь (-C profile-generate) → W/bin/..-gen
 #   build_pgo_vps.sh use         PGO-бинарь (-C profile-use=$W/merged.profdata) → W/bin/..-pgo
@@ -9,7 +11,7 @@
 #      NAME (имя бинаря, по умолчанию statarb-xdl9-4ef45cc8), ALPHA_COMMIT (вшивается в --version, как у обычной сборки).
 # Замок /opt/alpha-compute/.build.lock берётся на время сборки (очередь vps-check не нарушаем); target — свой, удаляется после сборки.
 set -uo pipefail
-STEP=${1:?plain|gen|use|merge}
+STEP=${1:?base|plain|gen|use|merge}
 W=${W:-/opt/alpha-compute/pgo-xdl9}; SRC=${SRC:-$W/src}; NAME=${NAME:-statarb-xdl9-4ef45cc8}
 export PATH=$HOME/.cargo/bin:$PATH
 SYSROOT=$(rustc --print sysroot); PROFDATA=$SYSROOT/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-profdata
@@ -31,6 +33,7 @@ build() {  # <метка> <rustflags>
   return $rc
 }
 case "$STEP" in
+  base)  unset CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS CARGO_PROFILE_RELEASE_PANIC; build base "" ;;
   plain) build plainv3 "$V3" ;;
   # rustc 1.93.1 / LLVM 21.1.8: fat LTO + profile-generate + v3 падает SIGSEGV в LoopVectorize (VPIRPhi::execute, 06.11) —
   # у инструментированной сборки векторизатор циклов выключен (инструментация идёт ДО него: профиль и CFG-хеши те же; PGO-сборка векторизует как обычно)
@@ -39,5 +42,5 @@ case "$STEP" in
   use)   [ -s "$W/merged.profdata" ] || { echo "нет $W/merged.profdata"; exit 2; }
          build pgo "$V3 -C profile-use=$W/merged.profdata -C llvm-args=-pgo-warn-missing-function"
          echo "предупреждений о функциях без профиля: $(grep -c 'no profile data available' "$W/build-pgo.log")" ;;
-  *) echo "plain|gen|use|merge"; exit 2 ;;
+  *) echo "base|plain|gen|use|merge"; exit 2 ;;
 esac

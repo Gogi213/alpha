@@ -3,16 +3,23 @@
 # Запуск на Steam Deck. Хеш и счётчики обязаны совпасть побайтно; время и скорость из сравнения исключаются.
 #   g6a_bench_digest.sh [потоки]   (по умолчанию 4: на Deck в это время считают другие)
 set -u
-BIN_A=$HOME/xdl9/bin/statarb-tk479-f27c879e
+BIN_A=${BIN_A:-$HOME/xdl9/bin/statarb-tk479-f27c879e}   # TK-493 w5: BIN_A — сторона сравнения (по умолчанию tk479; w5 — не-PGO предшественник)
 BIN_N=${BIN_N:-$HOME/xdl9/bin/statarb-xdl9-02c6a0df}   # TK-493 w3: BIN_N / G6A_DIR переопределяют бинарь и каталог (новая сборка против эталонных sha256)
-P=$HOME/xdl9/panels
-F=$HOME/xdl9/funding
+P=${P_DIR:-$HOME/xdl9/panels}
+F=${F_DIR:-$HOME/xdl9/funding}
+# TK-493 w5 (аудит M1-02): G6A_FORM=<корень копий формирования, pform> — вместо набора из манифеста полных панелей берутся копии, обрезанные
+# до суток формирования (< 2479): byb50 = $G6A_FORM/byb50, bin50 = $G6A_FORM/bin120; F_DIR — копии ставок (pfund). Торговое окно в прогон не попадает.
 G=${G6A_DIR:-$HOME/xdl9/gates/g6}
 TH=${1:-4}
 OUT=$G/g6a
 mkdir -p "$OUT"
 
 # 1. Набор: 50 длиннейших панелей Bybit = по убыванию (минут панели, валидных минут), затем по имени.
+if [ -n "${G6A_FORM:-}" ]; then
+  rm -rf "$G/byb50" "$G/bin50"; mkdir -p "$G"
+  ln -s "$G6A_FORM/byb50" "$G/byb50"; ln -s "$G6A_FORM/bin120" "$G/bin50"
+  echo "byb50: $(ls "$G6A_FORM/byb50" | wc -l) панелей формирования ($G6A_FORM), Binance (bin120): $(ls "$G6A_FORM/bin120" | wc -l)"
+else
 python3 - "$P/manifest.csv" "$P/bybit" "$P/binance" "$G" <<'PY'
 import csv, os, sys
 man, pb, pbin, g = sys.argv[1:5]
@@ -37,6 +44,7 @@ with open(os.path.join(g, "byb50.csv"), "w") as w:
         w.write(f"{s},{r['panel_minutes']},{r['panel_valid']},{int(inb)}\n")
 print(f"byb50: {len(top)} панелей (минут панели {top[-1]['panel_minutes']}..{top[0]['panel_minutes']}), из них есть на Binance: {nb}")
 PY
+fi
 
 # 2. Прогоны: одинаковые аргументы у обоих бинарей. Строка сравнения = всё, кроме времени ("счёт … пар/с").
 cmp_line() { sed -E 's/, счёт [0-9.]+ с \(загрузка [0-9.]+ с, /, (/; s/\), [0-9.e+-]+ строк\/с, [0-9.]+ пар\/с$/)/' ; }

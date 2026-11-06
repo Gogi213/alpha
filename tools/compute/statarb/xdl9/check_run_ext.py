@@ -125,11 +125,18 @@ def recompute_open(row, py, px, fy, fx, end):
     return gross, fee, fund, gross - fee + fund, end - oldest
 
 
+def early_entries(rows, min_fill_in):
+    """Сколько строк csv с fill_in раньше `min_fill_in` (None — проверка выключена, 0)."""
+    if min_fill_in is None:
+        return 0
+    return sum(1 for r in rows if int(r["fill_in"]) < min_fill_in)
+
+
 def main_open(a):
     rows = list(csv.DictReader(open(a.open, encoding="utf-8")))
     if not rows:
         raise SystemExit("в csv нет открытых позиций")
-    bad = 0
+    bad = early_entries(rows, a.min_fill_in)
     for r in rows[: a.n]:
         py = read_sap(os.path.join(a.panels_y, f"{r['y']}.sap"))
         px = read_sap(os.path.join(a.panels_x, f"{r['x']}.sap"))
@@ -143,7 +150,7 @@ def main_open(a):
         print(f"{'OK ' if ok else 'ОШИБКА'} job={r['job']} {r['y']}/{r['x']} dir={r['dir']} fill_in={r['fill_in']} "
               f"fill_x={r['fill_x'] or '-'}: net csv {want['net_bps']:.6f} руками {n:.6f}; funding csv {want['funding_bps']:.6f} "
               f"руками {fu:.6f}; stale csv {r['stale_min']} руками {stale}; max|Δ| {diff:.2e}")
-    print(f"проверено {min(len(rows), a.n)} открытых позиций, расхождений {bad}")
+    print(f"проверено {min(len(rows), a.n)} открытых позиций, расхождений (в том числе входов раньше границы) {bad}")
     sys.exit(1 if bad else 0)
 
 
@@ -158,6 +165,9 @@ def main():
     ap.add_argument("--funding-x")
     ap.add_argument("--n", type=int, default=5, help="сколько сделок с ненулевым фандингом проверить (плюс столько же без)")
     ap.add_argument("--tol", type=float, default=1e-6)
+    ap.add_argument("--min-fill-in", type=int,
+                    help="TK-493 w5 (D5(ii)): run запущен с --no-entry-before-from — у ВСЕХ строк csv fill_in >= этой минуты "
+                         "(from_day·1440 задания); иначе код возврата 1")
     a = ap.parse_args()
     if a.open:
         if a.end_minute is None:
@@ -168,6 +178,7 @@ def main():
     rows = list(csv.DictReader(open(a.trades, encoding="utf-8")))
     if not rows:
         raise SystemExit("в csv нет сделок")
+    early = early_entries(rows, a.min_fill_in)
     nz = [r for r in rows if float(r["funding_bps"]) != 0.0][: a.n]
     zr = [r for r in rows if float(r["funding_bps"]) == 0.0][: a.n]
     pick = nz + zr
@@ -194,8 +205,9 @@ def main():
         print(f"{'OK ' if ok else 'ОШИБКА'} job={r['job']} {r['y']}/{r['x']} dir={r['dir']} fill_in={r['fill_in']}"
               f"{' fill_x=' + r['fill_x'] if 'fill_x' in r else ''} fill_out={r['fill_out']}: "
               f"funding csv {want['funding_bps']:.6f} руками {fu:.6f}; net csv {want['net_bps']:.6f} руками {n:.6f}; max|Δ| {diff:.2e}")
-    print(f"проверено {len(pick)} сделок (с фандингом {len(nz)}), расхождений {bad}")
-    sys.exit(1 if bad or not nz else 0)
+    print(f"проверено {len(pick)} сделок (с фандингом {len(nz)}), расхождений {bad}"
+          + (f"; входов раньше минуты {a.min_fill_in}: {early} из {len(rows)}" if a.min_fill_in is not None else ""))
+    sys.exit(1 if bad or not nz or early else 0)
 
 
 if __name__ == "__main__":

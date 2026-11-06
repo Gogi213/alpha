@@ -6,9 +6,9 @@
 # Окно — ФОРМИРОВАНИЕ (сутки 2465..2478 = 01.10..14.10): торговое окно 15.10..04.11 для технических гейтов не открываем.
 #   g6b_run_vs_tk486.sh [потоки]
 set -u
-BIN_O=$HOME/xdl9/bin/statarb-tk486-60e61cea
+BIN_O=${BIN_O:-$HOME/xdl9/bin/statarb-tk486-60e61cea}   # TK-493 w5: BIN_O — сторона сравнения (по умолчанию tk486; w5 — не-PGO предшественник)
 BIN_N=${BIN_N:-$HOME/xdl9/bin/statarb-xdl9-02c6a0df}   # TK-493 w3: BIN_N / G6B_DIR переопределяют бинарь и каталог
-P=$HOME/xdl9/panels
+P=${P_DIR:-$HOME/xdl9/panels}   # TK-493 w5: P_DIR=<pform> — копии панелей, обрезанные до суток формирования; G6B_JOBS_DIR=<каталог с jobs_*.csv> — готовые задания вместо манифеста
 G=${G6B_DIR:-$HOME/xdl9/gates/g6b}
 TH=${1:-4}
 FROM=2465; TO=2479
@@ -24,6 +24,9 @@ c4,1440,720,,2.0,0.5,3.0,720,200
 EOF
 
 # Наборы заданий из манифеста панелей (14 символов на биржу: 10 самых полных + 4 самых дырявых с достаточными данными).
+if [ -n "${G6B_JOBS_DIR:-}" ]; then
+  cp "$G6B_JOBS_DIR"/jobs_*.csv "$G"/   # w5: задания те же, что в прежних прогонах G6б (формирование 2465..2478), без манифеста полных панелей
+else
 python3 - "$P/manifest.csv" "$G" "$FROM" "$TO" <<'PY'
 import csv, itertools, os, sys
 man, g, fr, to = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -59,6 +62,7 @@ for b in ("bybit", "aster", "bitget"):
             w.write(f"{s},{s},{fr},{to}\n")
 print({ex: len(v) for ex, v in pick.items()})
 PY
+fi
 
 NC=$(( $(wc -l < "$G/cells.csv") - 1 ))
 fail=0; total=0
