@@ -1,0 +1,65 @@
+== rearm=0 binance ETH: сделок в csv 201, пересчитано 201 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 8102/8102, rearm_blocked 0/0, trades_n 201/201, exit_rule 68/68, exit_stop 133/133, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 binance SOL: сделок в csv 165, пересчитано 165 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7676/7676, rearm_blocked 0/0, trades_n 165/165, exit_rule 60/60, exit_stop 105/105, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 bybit ETH: сделок в csv 198, пересчитано 198 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7908/7908, rearm_blocked 0/0, trades_n 198/198, exit_rule 70/70, exit_stop 128/128, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 bybit SOL: сделок в csv 159, пересчитано 159 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7761/7761, rearm_blocked 0/0, trades_n 159/159, exit_rule 61/61, exit_stop 98/98, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 okx ETH: сделок в csv 199, пересчитано 199 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 8114/8114, rearm_blocked 0/0, trades_n 199/199, exit_rule 71/71, exit_stop 128/128, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 okx SOL: сделок в csv 162, пересчитано 162 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7716/7716, rearm_blocked 0/0, trades_n 162/162, exit_rule 59/59, exit_stop 103/103, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 bingx ETH: сделок в csv 203, пересчитано 203 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7992/7992, rearm_blocked 0/0, trades_n 203/203, exit_rule 71/71, exit_stop 132/132, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 bingx SOL: сделок в csv 161, пересчитано 161 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7791/7791, rearm_blocked 0/0, trades_n 161/161, exit_rule 62/62, exit_stop 99/99, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 bitget ETH: сделок в csv 200, пересчитано 200 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 8061/8061, rearm_blocked 0/0, trades_n 200/200, exit_rule 70/70, exit_stop 130/130, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19437/19437, pos_z_nan_minutes 1/1, noentry_window_minutes 0/0
+== rearm=0 bitget SOL: сделок в csv 164, пересчитано 164 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7893/7893, rearm_blocked 0/0, trades_n 164/164, exit_rule 61/61, exit_stop 103/103, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19436/19436, pos_z_nan_minutes 2/2, noentry_window_minutes 0/0
+== rearm=0 kraken ETH: сделок в csv 196, пересчитано 196 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7874/7874, rearm_blocked 0/0, trades_n 196/196, exit_rule 67/67, exit_stop 129/129, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 18999/18999, pos_z_nan_minutes 172/172, noentry_window_minutes 0/0
+== rearm=0 kraken SOL: сделок в csv 167, пересчитано 167 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7585/7585, rearm_blocked 0/0, trades_n 167/167, exit_rule 66/66, exit_stop 101/101, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 18855/18855, pos_z_nan_minutes 182/182, noentry_window_minutes 0/0
+== rearm=0 aster ETH: сделок в csv 204, пересчитано 204 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 8078/8078, rearm_blocked 0/0, trades_n 204/204, exit_rule 72/72, exit_stop 132/132, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 aster SOL: сделок в csv 168, пересчитано 168 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7864/7864, rearm_blocked 0/0, trades_n 168/168, exit_rule 62/62, exit_stop 106/106, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 lighter ETH: сделок в csv 200, пересчитано 200 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7804/7804, rearm_blocked 0/0, trades_n 200/200, exit_rule 67/67, exit_stop 133/133, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19439/19439, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=0 lighter SOL: сделок в csv 163, пересчитано 163 (до окна отброшено 0), расхождений 0, подавлено rearm 0, rc=0
+ext-out run / руками: minutes_in_pos 7893/7893, rearm_blocked 0/0, trades_n 163/163, exit_rule 62/62, exit_stop 101/101, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19439/19439, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 binance ETH: сделок в csv 79, пересчитано 79 (до окна отброшено 0), расхождений 0, подавлено rearm 750, rc=0
+ext-out run / руками: minutes_in_pos 7117/7117, rearm_blocked 750/750, trades_n 79/79, exit_rule 62/62, exit_stop 17/17, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 binance SOL: сделок в csv 77, пересчитано 77 (до окна отброшено 0), расхождений 0, подавлено rearm 655, rc=0
+ext-out run / руками: minutes_in_pos 6988/6988, rearm_blocked 655/655, trades_n 77/77, exit_rule 57/57, exit_stop 20/20, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 bybit ETH: сделок в csv 85, пересчитано 85 (до окна отброшено 0), расхождений 0, подавлено rearm 758, rc=0
+ext-out run / руками: minutes_in_pos 7061/7061, rearm_blocked 758/758, trades_n 85/85, exit_rule 66/66, exit_stop 19/19, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 bybit SOL: сделок в csv 72, пересчитано 72 (до окна отброшено 0), расхождений 0, подавлено rearm 587, rc=0
+ext-out run / руками: minutes_in_pos 7075/7075, rearm_blocked 587/587, trades_n 72/72, exit_rule 56/56, exit_stop 16/16, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 okx ETH: сделок в csv 82, пересчитано 82 (до окна отброшено 0), расхождений 0, подавлено rearm 726, rc=0
+ext-out run / руками: minutes_in_pos 7205/7205, rearm_blocked 726/726, trades_n 82/82, exit_rule 65/65, exit_stop 17/17, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 okx SOL: сделок в csv 73, пересчитано 73 (до окна отброшено 0), расхождений 0, подавлено rearm 774, rc=0
+ext-out run / руками: minutes_in_pos 6745/6745, rearm_blocked 774/774, trades_n 73/73, exit_rule 53/53, exit_stop 20/20, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 bingx ETH: сделок в csv 83, пересчитано 83 (до окна отброшено 0), расхождений 0, подавлено rearm 758, rc=0
+ext-out run / руками: minutes_in_pos 6997/6997, rearm_blocked 758/758, trades_n 83/83, exit_rule 65/65, exit_stop 18/18, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 bingx SOL: сделок в csv 75, пересчитано 75 (до окна отброшено 0), расхождений 0, подавлено rearm 587, rc=0
+ext-out run / руками: minutes_in_pos 7195/7195, rearm_blocked 587/587, trades_n 75/75, exit_rule 59/59, exit_stop 16/16, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 bitget ETH: сделок в csv 84, пересчитано 84 (до окна отброшено 0), расхождений 0, подавлено rearm 772, rc=0
+ext-out run / руками: minutes_in_pos 7115/7115, rearm_blocked 772/772, trades_n 84/84, exit_rule 65/65, exit_stop 19/19, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19437/19437, pos_z_nan_minutes 1/1, noentry_window_minutes 0/0
+== rearm=1 bitget SOL: сделок в csv 74, пересчитано 74 (до окна отброшено 0), расхождений 0, подавлено rearm 658, rc=0
+ext-out run / руками: minutes_in_pos 7103/7103, rearm_blocked 658/658, trades_n 74/74, exit_rule 56/56, exit_stop 18/18, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19436/19436, pos_z_nan_minutes 1/1, noentry_window_minutes 0/0
+== rearm=1 kraken ETH: сделок в csv 77, пересчитано 77 (до окна отброшено 0), расхождений 0, подавлено rearm 741, rc=0
+ext-out run / руками: minutes_in_pos 6883/6883, rearm_blocked 741/741, trades_n 77/77, exit_rule 61/61, exit_stop 16/16, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 18999/18999, pos_z_nan_minutes 172/172, noentry_window_minutes 0/0
+== rearm=1 kraken SOL: сделок в csv 84, пересчитано 84 (до окна отброшено 0), расхождений 0, подавлено rearm 660, rc=0
+ext-out run / руками: minutes_in_pos 6931/6931, rearm_blocked 660/660, trades_n 84/84, exit_rule 64/64, exit_stop 20/20, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 18855/18855, pos_z_nan_minutes 169/169, noentry_window_minutes 0/0
+== rearm=1 aster ETH: сделок в csv 87, пересчитано 87 (до окна отброшено 0), расхождений 0, подавлено rearm 777, rc=0
+ext-out run / руками: minutes_in_pos 7219/7219, rearm_blocked 777/777, trades_n 87/87, exit_rule 68/68, exit_stop 19/19, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 aster SOL: сделок в csv 77, пересчитано 77 (до окна отброшено 0), расхождений 0, подавлено rearm 641, rc=0
+ext-out run / руками: minutes_in_pos 7156/7156, rearm_blocked 641/641, trades_n 77/77, exit_rule 59/59, exit_stop 18/18, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19441/19441, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 lighter ETH: сделок в csv 80, пересчитано 80 (до окна отброшено 0), расхождений 0, подавлено rearm 739, rc=0
+ext-out run / руками: minutes_in_pos 7032/7032, rearm_blocked 739/739, trades_n 80/80, exit_rule 62/62, exit_stop 18/18, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19439/19439, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+== rearm=1 lighter SOL: сделок в csv 78, пересчитано 78 (до окна отброшено 0), расхождений 0, подавлено rearm 700, rc=0
+ext-out run / руками: minutes_in_pos 7035/7035, rearm_blocked 700/700, trades_n 78/78, exit_rule 58/58, exit_stop 20/20, exit_timeout 0/0, open_end 0/0, eval_minutes 19441/19441, z_def_minutes 19439/19439, pos_z_nan_minutes 0/0, noentry_window_minutes 0/0
+ИТОГ G11b: заданий 32, с расхождениями 0, подавлено --rearm сигналов (сумма) 11283

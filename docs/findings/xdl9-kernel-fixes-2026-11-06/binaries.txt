@@ -1,0 +1,6 @@
+09d685f8d4fccc6026d1bf9bb5caf652909050d485ec20bc428b6af0b6450840  /home/deck/xdl9/bin/statarb-tk479-f27c879e
+f9104f0c5a245e6fd6b2b1a6d2637c4403bc55773f9a1ec191b6c996915abe76  /home/deck/xdl9/bin/statarb-tk486-60e61cea
+3aba6a0d4cc95a3c559552a2f200584aedd6e15287055ef64adbccbf52a96ac7  /home/deck/xdl9/bin/statarb-xdl9-02c6a0df
+969db9270adbe6f32887e14d8407c1e89e744c38fd12df045cf847653e8cca2b  /home/deck/xdl9/bin/statarb-xdl9-4ef45cc8
+alpha 4ef45cc82e028f53084bca4970da1197d4387fc0   # statarb-xdl9-4ef45cc8 --version
+sha256-списки G6б: новые (4ef45cc8) и tk486 побайтно совпадают по значениям (76 хешей), совпадают с эталоном 02c6a0df
