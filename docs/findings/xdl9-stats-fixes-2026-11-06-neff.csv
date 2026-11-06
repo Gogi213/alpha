@@ -1,0 +1,6 @@
+scenario,n_days,reps,n_eff_ceil_n3,n_eff_autocorr_mean,n_eff_autocorr_median,note
+normal,15,4000,5,13.94,15.00,
+normal,21,4000,7,19.63,21.00,
+ar1,15,4000,5,12.31,15.00,
+ar1,21,4000,7,17.37,21.00,
+sigma_form_m7,7,4000,,,,sd(sigma_hat)/sigma = 0.290; аналитически 1/sqrt(2*(m-1)) = 0.289
