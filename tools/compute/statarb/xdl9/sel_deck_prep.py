@@ -3,17 +3,22 @@
 сдвинутые на +1 сутки (для эмпирического нуля A1), каталоги символьными ссылками.
 
   python3 sel_deck_prep.py mask   - ~/xdl9/panels_us/<биржа>/<SYM>.sap: маска кассы США на всех 35 сутках (us_mask=1)
-  python3 sel_deck_prep.py form   - ~/xdl9/form/<биржа>/<SYM>.sap и ~/xdl9/form_s1/<биржа>/<SYM>.sap (сдвиг +1440 мин):
+  python3 sel_deck_prep.py form   - ~/xdl9/form/<биржа>/<SYM>.sap:
                                     ТОЛЬКО минуты формирования [01.10 00:00, 15.10 00:00); торговое окно физически не попадает в файл
-  python3 sel_deck_prep.py formb  - ~/xdl9/form_s1b/<биржа>/<SYM>.sap: сдвиг на +1 ТОРГОВЫЙ день (пн <- пт, вс <- пт, сб <- пт, иначе -1 сутки)
-                                    для нуля A1 в классах с недельной структурой (все, кроме крипты): календарный сдвиг +1 сутки
-                                    сокращает у них перекрытие до 80 % и делает нуль слишком мягким для вырожденных пар (см. отчёт §3)
+  python3 sel_deck_prep.py formsh - ~/xdl9/form_sh/<тег>/<биржа>/<SYM>.sap, тег p1/p2/m1 = сдвиг партнёра на +1, +2, -1 (П-37 r3.1 §7.2) для контрактов
+                                    каталогов A: крипта - календарные сутки, остальные полосы - торговые дни (sel_shift.py); панель содержит только
+                                    общее пересечение сдвигов 03.10-13.10 (сутки 2467-2477, 15 840 минут), источники лежат внутри формирования
+  python3 sel_deck_prep.py fundcut- ~/xdl9/funding_form/<биржа>/<SYM>.csv.gz: фандинг ТОЛЬКО формирования (time_ms < 15.10 00:00 UTC). Механическая
+                                    обрезка по метке времени: у каждой строки разбирается только первое поле, остановка на первой строке >= границы;
+                                    значения ставок торгового окна не разбираются и не читаются дальше (D2 и все расчёты S1 берут только эти файлы)
   python3 sel_deck_prep.py links  - ~/xdl9/trade/<биржа>/ (все контракты теста), ~/xdl9/cat/{a,c}/<биржа>-<полоса>/,
-                                    ~/xdl9/cat/form/<биржа>-<полоса>/{real,null1..4}/
+                                    ~/xdl9/cat/form/<биржа>-<полоса>/{real, null<k><тег>}/ (k = 1..4 разбиение, тег - сдвиг)
 Вход: ~/xdl9/sel/contracts.csv, ~/xdl9/sel/splits.csv (с ПК). Формат .sap: panel.rs (SAP1, u32 резерв, i64 first_min, u64 n, open[n], close[n]).
 Календарь (П-37 §9, Н22): касса 13:30-20:00 UTC в будни до 31.10 включительно (EDT), 14:30-21:00 UTC с 01.11 (EST).
 """
 import array, csv, os, struct, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 HOME = os.path.expanduser("~/xdl9")
 GRID0_DAY = 0                      # сутки от 2020-01-01
@@ -124,7 +129,7 @@ def cmd_form():
         fm, op, cl = read_sap(src)
         keep = max(0, min(len(cl), cut - fm))
         op, cl = op[:keep], cl[:keep]
-        for sub, shift in (("form", 0), ("form_s1", MIN_DAY)):
+        for sub, shift in (("form", 0),):
             d = os.path.join(HOME, sub, r["exchange"])
             os.makedirs(d, exist_ok=True)
             if keep > 0:
@@ -133,34 +138,71 @@ def cmd_form():
     print("form: контрактов %d, нет панели %d, %.1f с" % (n, miss, time.time() - t0))
 
 
-def cmd_formb():
+def abs_slice(col, first_min, start, n):
+    """n значений ряда col (начало на абсолютной минуте first_min) с абсолютной минуты start; вне панели - NaN."""
+    out = array.array("d", [NAN]) * n
+    lo, hi = max(start, first_min), min(start + n, first_min + len(col))
+    if hi > lo:
+        out[lo - start:hi - start] = col[lo - first_min:hi - first_min]
+    return out
+
+
+def cmd_formsh():
+    import sel_shift as SH
     t0 = time.time()
+    first, end = SH.common_window("cal")
+    nd = end - first
+    assert SH.common_window("trade") == (first, end)
+    have = set()
+    with open(os.path.join(HOME, "sel", "splits.csv"), encoding="utf-8", newline="") as fh:
+        for r in csv.DictReader(fh):
+            have.add((r["exchange"], r["symbol"], r["slug"]))
     n = 0
-    d0, nd = D_FORM0, D_TRADE0 - D_FORM0
-    for r in load_contracts():
-        src = os.path.join(HOME, "form", r["exchange"], safe(r["symbol"]) + ".sap")
+    for ex, sym, slug in sorted(have):
+        mode = SH.mode_of(slug)
+        src = os.path.join(HOME, "form", ex, safe(sym) + ".sap")
         if not os.path.exists(src):
             continue
         fm, op, cl = read_sap(src)
-        off = fm - d0 * MIN_DAY
-        full = []
-        for col in (op, cl):
-            a = array.array("d", [NAN]) * (nd * MIN_DAY)
-            a[off:off + len(col)] = col
-            full.append(a)
-        out = [array.array("d", [NAN]) * (nd * MIN_DAY), array.array("d", [NAN]) * (nd * MIN_DAY)]
-        for d in range(nd):
-            dow = (d0 + d + 2) % 7              # 0 = понедельник
-            delta = 3 if dow == 0 else (2 if dow == 6 else 1)
-            sd = d - delta
-            if sd >= 0:
-                for k in range(2):
-                    out[k][d * MIN_DAY:(d + 1) * MIN_DAY] = full[k][sd * MIN_DAY:(sd + 1) * MIN_DAY]
-        dd = os.path.join(HOME, "form_s1b", r["exchange"])
-        os.makedirs(dd, exist_ok=True)
-        write_sap(os.path.join(dd, os.path.basename(src)), d0 * MIN_DAY, out[0], out[1])
+        for k in SH.SHIFTS:
+            out = [array.array("d", [NAN]) * (nd * MIN_DAY), array.array("d", [NAN]) * (nd * MIN_DAY)]
+            for d in range(first, end):
+                sd = SH.source_day(d, k, mode)
+                assert sd is not None and D_FORM0 <= sd < D_TRADE0, (d, k, mode, sd)
+                for c, col in enumerate((op, cl)):
+                    out[c][(d - first) * MIN_DAY:(d - first + 1) * MIN_DAY] = abs_slice(col, fm, sd * MIN_DAY, MIN_DAY)
+            dd = os.path.join(HOME, "form_sh", SH.TAG[k], ex)
+            os.makedirs(dd, exist_ok=True)
+            write_sap(os.path.join(dd, os.path.basename(src)), first * MIN_DAY, out[0], out[1])
         n += 1
-    print("formb: контрактов %d, %.1f с" % (n, time.time() - t0))
+    print("formsh: контрактов %d x %d сдвигов, окно суток [%d, %d), %.1f с" % (n, len(SH.SHIFTS), first, end, time.time() - t0))
+
+
+def cmd_fundcut():
+    import gzip
+    t0 = time.time()
+    cut_ms = 1_577_836_800_000 + D_TRADE0 * MIN_DAY * 60_000      # 15.10 00:00 UTC (начало сетки панелей 2020-01-01 + сутки)
+    n = rows = 0
+    for ex in sorted(os.listdir(os.path.join(HOME, "funding"))):
+        d_in = os.path.join(HOME, "funding", ex)
+        if not os.path.isdir(d_in):
+            continue
+        d_out = os.path.join(HOME, "funding_form", ex)
+        os.makedirs(d_out, exist_ok=True)
+        for fn in sorted(os.listdir(d_in)):
+            if not fn.endswith(".csv.gz"):
+                continue
+            tmp = os.path.join(d_out, fn + ".part")
+            with gzip.open(os.path.join(d_in, fn), "rt", encoding="utf-8", newline="") as fi, gzip.open(tmp, "wt", encoding="utf-8", newline="") as fo:
+                fo.write(fi.readline())                              # заголовок
+                for line in fi:
+                    if int(line.split(",", 1)[0]) >= cut_ms:        # разбирается только метка времени; дальше строка не используется
+                        break
+                    fo.write(line)
+                    rows += 1
+            os.replace(tmp, os.path.join(d_out, fn))
+            n += 1
+    print("fundcut: файлов %d, строк формирования %d, %.1f с" % (n, rows, time.time() - t0))
 
 
 def link(target, path):
@@ -171,6 +213,7 @@ def link(target, path):
 
 
 def cmd_links():
+    import sel_shift as SH
     t0 = time.time()
     rows = load_contracts()
     cnt = {"trade": 0, "a": 0, "c": 0, "form": 0}
@@ -189,11 +232,12 @@ def cmd_links():
     with open(os.path.join(HOME, "sel", "splits.csv"), encoding="utf-8", newline="") as fh:
         for r in csv.DictReader(fh):
             stem = safe(r["symbol"]) + ".sap"
-            sub = "form" if r["half"] == "A" else ("form_s1" if r["slug"] == "crypto" else "form_s1b")
-            link(os.path.join(HOME, sub, r["exchange"], stem), os.path.join(HOME, "cat", "form", r["catalog"], "null" + r["split"], stem))
-            cnt["form"] += 1
+            for k in SH.SHIFTS:
+                sub = os.path.join(HOME, "form", r["exchange"]) if r["half"] == "A" else os.path.join(HOME, "form_sh", SH.TAG[k], r["exchange"])
+                link(os.path.join(sub, stem), os.path.join(HOME, "cat", "form", r["catalog"], "null" + r["split"] + SH.TAG[k], stem))
+                cnt["form"] += 1
     print("links:", cnt, "%.1f с" % (time.time() - t0))
 
 
 if __name__ == "__main__":
-    {"mask": cmd_mask, "form": cmd_form, "formb": cmd_formb, "links": cmd_links}[sys.argv[1]]()
+    {"mask": cmd_mask, "form": cmd_form, "formsh": cmd_formsh, "fundcut": cmd_fundcut, "links": cmd_links}[sys.argv[1]]()

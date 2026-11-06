@@ -33,18 +33,14 @@ def nonus_tags(a):
 
 
 def main():
-    rows, C, am = S.load_formation()
+    rows, C, am = S.load_formation(lazy=True)
     n = C.shape[1]
     sess = S.session_mask(n)
     wkend = S.weekend_mask(n)
     chance = float(sess.sum()) / n            # доля минут кассы в неделе (3900 / 20160), не назначенное число
-    lc = np.log(C.astype(np.float64))
-    R = lc[:, 1:] - lc[:, :-1]
-    valid_ret = np.isfinite(R)
-    R0 = np.where(valid_ret, R, 0.0)
     sessR = sess[1:]
 
-    # ---------------- контракты теста и доля дисперсии в кассе (для акций/ETF/индексов)
+    # ---------------- контракты теста и доля дисперсии в кассе (для акций/ETF/индексов); по одной строке, без матриц float64
     cont = []
     for i, d in enumerate(rows):
         a = am[(d["exchange"], d["symbol"])]
@@ -52,17 +48,19 @@ def main():
             continue
         a = dict(a)
         a["i"] = i
-        a["n_valid_now"] = int(np.isfinite(C[i]).sum())
-        cont.append(a)
-    for a in cont:
-        i = a["i"]
+        row = np.asarray(C[i], dtype=np.float64)
+        fin = np.isfinite(row)
+        a["n_valid_now"] = int(fin.sum())
+        r = np.log(row[1:]) - np.log(row[:-1])
+        vr = np.isfinite(r)
+        a["n_ret"] = int(vr.sum())
         a["var_share"] = float("nan")
-        a["n_ret"] = int(valid_ret[i].sum())
         if a["big"] in ("акции+ETF", "индексы") and a["n_ret"] >= S.N_RET_MIN:
-            r2 = R0[i] ** 2
+            r2 = np.where(vr, r, 0.0) ** 2
             tot = r2.sum()
             if tot > 0:
                 a["var_share"] = float(r2[sessR].sum() / tot)
+        cont.append(a)
 
     # ---------------- активы: США / не-США
     by_asset = {}
@@ -96,7 +94,7 @@ def main():
         a["us_mask"] = int(us)
         a["slug"] = S.slug_of(a, us)
         i = a["i"]
-        fin = np.isfinite(C[i])
+        fin = np.isfinite(np.asarray(C[i]))
         if us:
             a["share"] = float((fin & sess).sum()) / float(sess.sum())
             a["n_valid_masked"] = int((fin & sess).sum())
@@ -128,7 +126,7 @@ def main():
             bigc.setdefault((a["exchange"], a["big"]), []).append(a)
     label = {}
     for (ex, big), lst in sorted(bigc.items()):
-        wv = [int((np.isfinite(C[a["i"]]) & wkend).sum()) for a in lst]
+        wv = [int((np.isfinite(np.asarray(C[a["i"]])) & wkend).sum()) for a in lst]
         label[(ex, big)] = "24/7" if float(np.median(wv)) > 0 else "сессия"
     for r in cat_rows:
         r.append(label[(r[0], r[2])])

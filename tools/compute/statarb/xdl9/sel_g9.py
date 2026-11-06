@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """TK-493 F7, ворота G9 (ПК, numpy): независимая реализация теста Энгла-Грейнджера на 30 парах против `form` (Rust, Deck).
 
-Читает панели формирования (копии ~/xdl9/form/<биржа>/<SYM>.sap, float64), строит ту же выборку, что form (окно 02.10-14.10,
-13 суток, половины по границе блока 12 x 768 минут = 9216), и считает ПРЯМО по рядам (lstsq с константой, затем ADF остатка без
+Читает панели формирования (копии ~/xdl9/form/<биржа>/<SYM>.sap, float64), строит ту же выборку, что form (окно 03.10-13.10,
+11 суток, половины по границе блока 10 x 768 минут = 7680), и считает ПРЯМО по рядам (lstsq с константой, затем ADF остатка без
 лага и без константы, как определено в eg.rs): t_first, t_second по половинам и beta по всему окну.
 Реализация написана заново через массивы и lstsq, а не через суммы 15 слагаемых, как в egmat.rs / eg.rs.
 Допуск: относительное расхождение t <= 1e-6 (суммы f64 против lstsq), beta <= 1e-8.
 """
-import json, os, struct, sys
+import json, math, os, struct, sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sel_lib as S  # noqa: E402
 
-GRID_W0 = (S.D_TRADE0 - S.EG_DAYS) * S.MIN_DAY        # абсолютная минута начала окна EG (02.10 00:00)
-LEN = S.EG_DAYS * S.MIN_DAY
-MID = 12 * 6 * 128                                    # 12 блоков по 6 кусков по CH=128
-
-
+GRID_W0 = (S.D_FORM0 * S.MIN_DAY) + S.EG_FROM         # абсолютная минута начала окна EG (03.10 00:00, сутки 2467)
+LEN = S.EG_DAYS * S.MIN_DAY                           # 11 суток = 15 840 минут
+MID = (math.ceil(LEN / 768) // 2) * 768               # form: блоков ceil(LEN/768) = 21, середина = 10 блоков = 7680 (select.rs: mid = lo + (hi-lo)/2)
+G9_CATALOGS = ["binance-crypto", "bingx-crypto", "bybit-crypto", "kraken-crypto", "binance-eq_us", "okx-eq_us"]   # включая США-панели с маской
+G9_QUANTILES = (0.0, 0.25, 0.5, 0.75, 1.0)
 def read_sap(path):
     with open(path, "rb") as f:
         h = f.read(24)
@@ -64,6 +64,36 @@ def eg_pair(path_y, path_x):
     return h1, h2, full
 
 
+def gen():
+    """Выбор 30 пар (6 каталогов x 5 квантилей статистики реальных пар, детерминированно) из form_out/<каталог>/real.csv -> g9_pairs.json, g9_need.txt."""
+    out, need = [], set()
+    for cid in G9_CATALOGS:
+        rows = []
+        with open(os.path.join(S.SEL, "form_out", cid, "real.csv"), encoding="utf-8", newline="") as fh:
+            import csv
+            rd = csv.reader(fh)
+            next(rd)
+            for y, x, beta, t1, t2, p in rd:
+                t = max(float(t1), float(t2))
+                if t == t:
+                    rows.append((t, y, x, float(beta), float(t1), float(t2), float(p)))
+        rows.sort()
+        ex = cid.split("-")[0]
+        used = set()
+        for q in G9_QUANTILES:
+            i = int(round(q * (len(rows) - 1)))
+            while i < len(rows) and (rows[i][1], rows[i][2]) in used:
+                i += 1
+            t, y, x, beta, t1, t2, p = rows[i]
+            used.add((y, x))
+            out.append(dict(catalog=cid, y=y, x=x, beta=beta, t_first=t1, t_second=t2, p=p))
+            need.update([ex + "/" + y + ".sap", ex + "/" + x + ".sap"])
+    json.dump(out, open(os.path.join(S.SEL, "g9_pairs.json"), "w", encoding="utf-8"), indent=1)
+    with open(os.path.join(S.SEL, "g9_need.txt"), "w", encoding="utf-8", newline=chr(10)) as fh:
+        fh.write(chr(10).join(sorted(need)) + chr(10))
+    print("пар", len(out), "панелей", len(need))
+
+
 def main():
     pairs = json.load(open(os.path.join(S.SEL, "g9_pairs.json"), encoding="utf-8"))
     base = os.path.join(S.SEL, "g9_sap")
@@ -90,4 +120,7 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(1 if main() else 0)
+    if len(sys.argv) > 1 and sys.argv[1] == "gen":
+        gen()
+    else:
+        raise SystemExit(1 if main() else 0)

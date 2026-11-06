@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""TK-493 F7 шаг 4 (ПК, numpy): пары клеток, полураспад и окно W на ФОРМИРОВАНИИ; файлы заданий для калибровки entry_z (Deck).
+"""TK-493 S1 шаг 4 (ПК, numpy): пары клеток, полураспад и окно W на ФОРМИРОВАНИИ (П-37 r3.1 §5, §6.1-6.2); файлы для калибровки entry_z (Deck).
 
-Клетка = (вид, биржа или пара бирж, полоса). Виды: A1 (отобранные эмпирическим нулём пары), A2 (монета против BTC биржи, только крипта),
+Клетка = (вид, биржа или пара бирж, полоса[, окно C1]). Виды: A1 (пары, отобранные sel_fdr.py), A2 (монета против BTC биржи, только крипта),
 C1 и D2 (один актив на двух биржах, пары таблицы F5 c1d2 = 1; Y - нога с большим оборотом, Н20), B1 (корзины sel_b1.py).
-Полураспад пары (П-37 §6.1): AR(1) спреда s_{t+1} = a + phi*s_t + e по соседним валидным минутам формирования; HL = ln2 / (-ln phi),
-phi in (0, 1); пары с phi вне (0, 1) или с < 300 соседних пар (N_RET_MIN) в медиану не входят, их число - в таблице.
-Спред: A1/A2/B1 - ln y - a - b*ln x (a, b - МНК по общим минутам формирования), C1/D2 - ln y - ln x (b = 1).
-W = max_hold = round(4 * медиана HL) по парам клетки (П-37 §5); min_obs = W; refresh = W.
-Выходы: data/xdl9/sel/cellpairs/<клетка>.csv, docs/.../cells_hl.csv, data/xdl9/sel/entry/* (задания для калибровки на Deck).
+Полураспад пары (§6.1): AR(1) спреда s_{t+1} = a + phi*s_t + e по соседним валидным минутам формирования; HL = ln2 / (-ln phi), phi in (0, 1); пары
+с phi вне (0, 1) или с < 300 соседних пар (N_RET_MIN) в медиану не входят, их число - в таблице. Спред: A1/A2/B1 - ln y - a - b*ln x (a, b - МНК по
+общим минутам формирования), C1/D2 - ln y - ln x (b = 1).
+W (r3.1): W = max(2, round(m * медиана HL)) по парам клетки; m = 4 для A1, A2, B1; у C1 три клетки m in {4, 16, 64}. max_hold = W (у C1 - для
+каждого из трёх окон, Н44); min_obs = refresh = W. Пол 2 - технический минимум ядра (min_obs >= 2), не статистическое число; W_raw пишется рядом.
+Достижимость (§6.2 (а)): z по окну из W точек не больше z_max(W) = sqrt(W - 1); печатаются z_max, доля недостижимой части сетки и доля пар клетки с
+недостижимым entry_z (у пары собственное W_пары = max(2, round(m * HL_пары)) даёт z_max ниже верхнего края сетки 4,00, то есть W_пары < 17).
+Выходы: data/xdl9/sel/cellpairs/<клетка>.csv (по базовой клетке без окна), docs/.../cells_hl.csv.
 """
 import csv, math, os, sys
+from collections import OrderedDict
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,25 +21,42 @@ import sel_lib as S  # noqa: E402
 
 W_FLOOR = 2        # технический минимум ядра: min_obs >= 2 (kernel.rs beta_z); не статистическое число
 ENTRY_GRID = [1.0 + 0.25 * i for i in range(13)]       # 1,00 ... 4,00 шаг 0,25 (Н8)
+C1_MULTS = (4, 16, 64)                                 # окна C1 (Н37)
+GRID_TOP = ENTRY_GRID[-1]
+
+
+def zmax(w):
+    return math.sqrt(max(w - 1, 0))
+
+
+def reachable_grid(w):
+    zm = zmax(w)
+    return [z for z in ENTRY_GRID if z <= zm + 1e-12]
 
 
 class Store:
-    def __init__(self):
-        self.rows, self.C, self.am = S.load_formation()
+    """Закрытия формирования по строке из файла (RowStore); ln-ряды с небольшим кэшем (без матрицы всех контрактов)."""
+
+    def __init__(self, cap=300):
+        self.rows, self.C, self.am = S.load_formation(lazy=True)
         self.ci = {(d["exchange"], S.safe(d["symbol"])): i for i, d in enumerate(self.rows)}
         self.con = {(r["exchange"], S.safe(r["symbol"])): r for r in S.read_csv(os.path.join(S.SEL, "contracts.csv"))}
         self.sess = S.session_mask(self.C.shape[1])
-        self._ln = {}
+        self._ln = OrderedDict()
+        self.cap = cap
 
     def ln(self, ex, stem):
         k = (ex, stem)
-        if k not in self._ln:
-            i = self.ci[k]
-            v = np.log(self.C[i].astype(np.float64))
-            if self.con[k]["us_mask"] == "1":
-                v[~self.sess] = np.nan
-            self._ln[k] = v
-        return self._ln[k]
+        if k in self._ln:
+            self._ln.move_to_end(k)
+            return self._ln[k]
+        v = np.log(np.asarray(self.C[self.ci[k]], dtype=np.float64))
+        if self.con[k]["us_mask"] == "1":
+            v[~self.sess] = np.nan
+        self._ln[k] = v
+        if len(self._ln) > self.cap:
+            self._ln.popitem(last=False)
+        return v
 
     def slug(self, ex, stem):
         return self.con[(ex, stem)]["slug"]
@@ -72,19 +93,19 @@ def hl_of(ly, lx, ols):
 
 
 def collect_cells(st):
-    """-> {cell_id: dict(kind, ex_y, ex_x, slug, pairs=[(ex_y, y, ex_x, [x...])])}"""
+    """-> {cell_id (без окна и руки): dict(kind, slug, pairs=[(ex_y, y, ex_x, [x...])])}"""
     cells = {}
 
-    def add(kind, exy, exx, slug, y, xs, exxs=None):
+    def add(kind, exy, exx, slug, y, xs):
         cid = "%s|%s|%s" % (kind, exy if exy == exx else "~".join(sorted([exy, exx])), slug)
         c = cells.setdefault(cid, dict(kind=kind, slug=slug, pairs=[]))
         c["pairs"].append((exy, y, exx, xs))
 
-    # A1
-    for r in S.read_csv(os.path.join(S.SEL, "a1_pairs.csv")):
-        ex, slug = r["catalog"].split("-", 1)
-        add("A1", ex, ex, slug, r["y"], [r["x"]])
-    # A2: монета против BTC той же биржи, только крипта
+    p = os.path.join(S.SEL, "a1_pairs.csv")
+    if os.path.exists(p):
+        for r in S.read_csv(p):
+            ex, slug = r["catalog"].split("-", 1)
+            add("A1", ex, ex, slug, r["y"], [r["x"]])
     by_ex = {}
     for (ex, stem), r in st.con.items():
         if r["slug"] == "crypto" and r["in_catalog_a"] == "1":
@@ -96,7 +117,6 @@ def collect_cells(st):
         for stem, r in sorted(lst):
             if stem != btc[0]:
                 add("A2", ex, ex, "crypto", stem, [btc[0]])
-    # C1, D2
     for r in S.read_csv(os.path.join(S.DATA, "asset_pairs.csv")):
         if r["c1d2"] != "1" or r["scope"] != "между биржами":
             continue
@@ -108,7 +128,6 @@ def collect_cells(st):
             continue
         for kind in ("C1", "D2"):
             add(kind, r["ex1"], r["ex2"], s1, k1[1], [k2[1]])
-    # B1
     p = os.path.join(S.SEL, "b1_baskets.csv")
     if os.path.exists(p):
         for r in S.read_csv(p):
@@ -119,17 +138,23 @@ def collect_cells(st):
 
 def pair_hl(st, kind, exy, y, exx, xs):
     ly = st.ln(exy, y)
-    if len(xs) == 1:
-        lx = st.ln(exx, xs[0])
-    else:
-        lx = np.mean([st.ln(exx, x) for x in xs], axis=0)
+    lx = st.ln(exx, xs[0]) if len(xs) == 1 else np.mean([st.ln(exx, x) for x in xs], axis=0)
     return hl_of(ly, lx, ols=kind in ("A1", "A2", "B1"))
+
+
+def mults_of(kind):
+    return C1_MULTS if kind == "C1" else (4,)
+
+
+def cell_ids(cid, kind):
+    """Идентификаторы клеток с окном: у C1 - cid|w4, cid|w16, cid|w64; у остальных - сам cid (m = 4)."""
+    return [(cid + "|w%d" % m, m) for m in C1_MULTS] if kind == "C1" else [(cid, 4)]
 
 
 def main():
     st = Store()
     cells = collect_cells(st)
-    out, rows = [], []
+    rows = []
     for cid in sorted(cells):
         c = cells[cid]
         hls, n_phi_out, n_none = [], 0, 0
@@ -152,12 +177,26 @@ def main():
         S.write_csv(os.path.join(S.SEL, "cellpairs", cid.replace("|", "_") + ".csv"),
                     ["ex_y", "y", "ex_x", "x", "phi", "hl_min", "n_pairs_obs"], pr)
         med = float(np.median(hls)) if hls else float("nan")
-        W_raw = int(round(4.0 * med)) if hls else ""
-        W = max(W_FLOOR, W_raw) if hls else ""
-        rows.append([cid, c["kind"], c["slug"], len(c["pairs"]), len(hls), n_phi_out, n_none,
-                     "" if not hls else "%.3f" % med, W_raw, W])
+        for cell, m in cell_ids(cid, c["kind"]):
+            if c["kind"] == "D2":
+                rows.append([cell, c["kind"], c["slug"], "", len(c["pairs"]), "", "", "", "", "", "", "", "", "", ""])
+                continue
+            W_raw = int(round(m * med)) if hls else ""
+            W = max(W_FLOOR, W_raw) if hls else ""
+            if hls:
+                zm = zmax(W)
+                n_reach = len(reachable_grid(W))
+                unreach_grid = 1.0 - n_reach / len(ENTRY_GRID)
+                unreach_pairs = sum(1 for h in hls if max(W_FLOOR, int(round(m * h))) < 17) / len(hls)    # z_max(W_пары) < 4,00 <=> W_пары < 17
+            else:
+                zm = n_reach = unreach_grid = unreach_pairs = ""
+            rows.append([cell, c["kind"], c["slug"], m, len(c["pairs"]), len(hls), n_phi_out, n_none,
+                         "" if not hls else "%.3f" % med, W_raw, W,
+                         "" if not hls else "%.3f" % zm, n_reach, "" if not hls else "%.4f" % unreach_grid,
+                         "" if not hls else "%.4f" % unreach_pairs])
     S.write_csv(os.path.join(S.DOCS, "cells_hl.csv"),
-                ["cell", "kind", "slug", "pairs", "hl_pairs_ok", "phi_outside_unit", "no_estimate", "hl_median_min", "W_raw_min", "W_min"], rows)
+                ["cell", "kind", "slug", "m", "pairs", "hl_pairs_ok", "phi_outside_unit", "no_estimate", "hl_median_min", "W_raw_min", "W_min",
+                 "z_max", "grid_reachable_n", "grid_unreachable_share", "pairs_unreachable_share"], rows)
     print("клеток", len(rows))
 
 

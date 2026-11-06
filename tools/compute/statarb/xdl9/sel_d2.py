@@ -1,136 +1,191 @@
 #!/usr/bin/env python3
-"""TK-493 F7 (ПК, stdlib+numpy): параметры клеток D2 по фандингу ФОРМИРОВАНИЯ (П-37 §6.3, Н21). Платежи с time_ms < 15.10 00:00 UTC.
+"""TK-493 S1 (Steam Deck, только stdlib): параметры клеток D2 по РАЗНОСТНОМУ ряду фандинга ФОРМИРОВАНИЯ (П-37 r3.1 §5, §6.3, Н21, Н36).
+Платежи только с time_ms < 15.10 00:00 UTC: вход - ~/xdl9/funding_form/<биржа> (sel_deck_prep.py fundcut), торговое окно не читается.
 
-  k            - из {1, 3, 6}: минимум средней квадратичной ошибки прогноза следующей выплаты ноги Y трейлинг-средним k прошлых выплат
-                 (пул по ногам Y клетки, каждая нога один раз);
-  hold_payments- медианная длина эпизодов постоянного знака разности ставок (Y минус X, обе приведены к ставке в час: rate / interval_h)
-                 в выплатах ноги Y (пул эпизодов клетки), не меньше 1;
-  max_hold     - П-37 не задаёт для D2: НАЗНАЧЕНО без Судьи, подтвердить: hold_payments x медианный interval_h ноги Y x 60 минут
-                 (буквальное 4 x полураспад спреда цен - минуты - не даёт держать позицию через выплату);
-  window, min_obs, refresh - ядром при правиле funding не используются; прогрев: window = min_obs = 60 минут (НАЗНАЧЕНО без Судьи).
-Единицы и знак ставок не сверены (G7, F6): годовая ставка BTC по биржам выводится справочно в g7_btc_annual.csv.
+  python3 sel_d2.py all   - для каждой клетки D2 (cellpairs/D2_*.csv, пары Y/X с общим активом):
+    1. ряд d = r_Y - r_X на метках Y (d2_diff_funding.py; --funding-x пуст): ~/xdl9/sel/d2form/<клетка>__<exY>__<exX>/shardN/;
+       пары без файла ставок исключаются (причина в d2_excluded.csv); доля пар с неравными сетками выплат - в d2_params.csv;
+    2. k - из {1, 3, 6}: минимум средней квадратичной ошибки прогноза следующего значения d трейлинг-средним k прошлых значений (пул по парам клетки,
+       только пары с >= 7 значениями d); hold_payments - медианная длина эпизодов постоянного знака d в метках Y (пул эпизодов клетки), не меньше 1;
+    3. max_hold = 0 (выключен); window = min_obs = refresh = 60 (ядром при правиле funding не используются; НАЗНАЧЕНО без Судьи, подтвердить);
+    4. прогон ядра 4ef45cc8 по формированию (панели ~/xdl9/form, окно 01.10-14.10), сделки всех заданий -> длительности позиций (только времена,
+       без P&L): медиана, квартили, доля сделок короче одного интервала выплаты Y, число позиций, не закрытых к концу окна.
+Выходы: ~/xdl9/sel/d2_params.csv, d2_excluded.csv, d2_durations.csv (копируются на ПК в docs/findings/xdl9-selection-s1-2026-11-06/).
 """
-import csv, gzip, os, sys
-import numpy as np
+import csv, glob, gzip, math, os, statistics, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import sel_lib as S  # noqa: E402
+import d2_diff_funding as DD  # noqa: E402
 
-GRID0_MS = 1_577_836_800_000
-CUT_MS = GRID0_MS + S.D_TRADE0 * S.MIN_DAY * 60_000
+HOME = os.path.expanduser("~/xdl9")
+SEL = os.path.join(HOME, "sel")
 KS = (1, 3, 6)
-FUND = os.path.join(S.SEL, "funding")
+MIN_VALUES = max(KS) + 1
+D_FORM0, D_TRADE0 = 2465, 2479
+BIN = os.path.join(HOME, "bin", "statarb-xdl9-4ef45cc8")
+D2_WINDOW = 60
 
 
-def load_funding(ex, stem):
-    p = os.path.join(FUND, ex, stem + ".csv.gz")
-    if not os.path.exists(p):
-        return None
-    t, r, h = [], [], []
-    with gzip.open(p, "rt", encoding="utf-8", newline="") as fh:
+def read_d(path):
+    """-> (d: list[float], interval_h: list[float]) по меткам Y."""
+    d, itv = [], []
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
         rd = csv.reader(fh)
         next(rd)
-        for row in rd:
-            ms = int(row[0])
-            if ms >= CUT_MS:
-                break
-            t.append(ms); r.append(float(row[1])); h.append(float(row[2]))
-    return np.array(t), np.array(r), np.array(h)
+        for r in rd:
+            d.append(float(r[1]))
+            try:
+                itv.append(float(r[2]))
+            except (ValueError, IndexError):
+                pass
+    return d, itv
 
 
 def mse_k(r, k):
     if len(r) <= k:
         return 0.0, 0
-    c = np.cumsum(np.insert(r, 0, 0.0))
-    mean_prev = (c[k:-1] - c[:-k - 1]) / k          # среднее r[j-k..j-1] для j = k..n-1
-    e = r[k:] - mean_prev
-    return float((e * e).sum()), len(e)
+    s = n = 0
+    run = sum(r[:k])
+    for j in range(k, len(r)):
+        e = r[j] - run / k
+        s += e * e
+        n += 1
+        run += r[j] - r[j - k]
+    return s, n
 
 
-def episodes(ty, ry, hy, tx, rx, hx):
-    """Длины (в выплатах Y) эпизодов постоянного знака d = ry/hy - rx/hx; ставка X - последняя выплата до момента выплаты Y."""
-    if len(tx) == 0 or len(ty) == 0:
-        return []
-    idx = np.searchsorted(tx, ty, side="right") - 1
-    ok = idx >= 0
-    if ok.sum() < 2:
-        return []
-    d = (ry / hy)[ok] - (rx / hx)[idx[ok]]
-    sg = np.sign(d)
-    sg = sg[sg != 0]
+def episodes(d):
+    sg = [1 if x > 0 else -1 for x in d if x != 0]
     out, run = [], 1
     for i in range(1, len(sg)):
         if sg[i] == sg[i - 1]:
             run += 1
         else:
-            out.append(run); run = 1
-    if len(sg):
+            out.append(run)
+            run = 1
+    if sg:
         out.append(run)
     return out
 
 
-def main():
-    cells = {r["cell"]: r for r in S.read_csv(os.path.join(S.DOCS, "cells_hl.csv"))}
-    res, excl = [], []
-    cache = {}
-    for cid in sorted(cells):
-        if cells[cid]["kind"] != "D2":
-            continue
-        pr = S.read_csv(os.path.join(S.SEL, "cellpairs", cid.replace("|", "_") + ".csv"))
-        sse = {k: [0.0, 0] for k in KS}
-        eps, hy_all, used, seen_y = [], [], 0, set()
-        keep = []
-        for p in pr:
-            ky, kx = (p["ex_y"], p["y"]), (p["ex_x"], p["x"])
-            for k_ in (ky, kx):
-                if k_ not in cache:
-                    cache[k_] = load_funding(*k_)
-            fy, fx = cache[ky], cache[kx]
-            why = None
-            if fy is None or fx is None:
-                why = "нет файла фандинга"
-            elif len(fy[0]) < max(KS) + 1 or len(fx[0]) < 2:
-                why = "выплат на формировании меньше %d (Y) или 2 (X)" % (max(KS) + 1)
-            if why:
-                excl.append([cid, p["ex_y"], p["y"], p["ex_x"], p["x"], why])
+def cell_groups():
+    """-> {(cid, ex_y, ex_x): [(y, x)]} по cellpairs/D2_*.csv."""
+    g = {}
+    for f in sorted(glob.glob(os.path.join(SEL, "cellpairs", "D2_*.csv"))):
+        cid = "|".join(os.path.basename(f)[:-4].split("_", 2))      # D2_<биржи>_<полоса>: полоса может содержать "_" (eq_us)
+        with open(f, encoding="utf-8", newline="") as fh:
+            for r in csv.DictReader(fh):
+                g.setdefault((cid, r["ex_y"], r["ex_x"]), []).append((r["y"], r["x"]))
+    return g
+
+
+def stem(cid, exy, exx):
+    return "%s__%s__%s" % (cid.replace("|", "_").replace("~", "-"), exy, exx)
+
+
+def run_all():
+    os.makedirs(os.path.join(SEL, "d2form"), exist_ok=True)
+    groups = cell_groups()
+    per_cell = {}
+    excl = []
+    for (cid, exy, exx), prs in sorted(groups.items()):
+        out = os.path.join(SEL, "d2form", stem(cid, exy, exx))
+        pairs_csv = out + ".pairs.csv"
+        with open(pairs_csv, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("y,x\n")
+            for y, x in prs:
+                fh.write("%s,%s\n" % (y, x))
+        man, rc = DD.run(DD.read_pairs(pairs_csv), os.path.join(HOME, "funding_form", exy), os.path.join(HOME, "funding_form", exx), out, D_FORM0, D_TRADE0)
+        if rc:
+            raise SystemExit("d2_diff_funding: масса не сошлась в %s" % out)
+        st = per_cell.setdefault(cid, dict(pairs=0, used=0, unequal=0, sse={k: [0.0, 0] for k in KS}, eps=[], itv=[], groups=[]))
+        for m in man:
+            st["pairs"] += 1
+            if m["status"] != "ok":
+                excl.append([cid, exy, m["y"], exx, m["x"], m["status"]])
                 continue
-            keep.append(p)
-            used += 1
-            eps.extend(episodes(fy[0], fy[1], fy[2], fx[0], fx[1], fx[2]))
-            if ky not in seen_y:
-                seen_y.add(ky)
-                hy_all.append(float(np.median(fy[2])))
-                for k in KS:
-                    s, n = mse_k(fy[1], k)
-                    sse[k][0] += s; sse[k][1] += n
-        if not used:
-            res.append([cid, len(pr), 0, "", "", "", "", "", "нет пар с фандингом обеих ног"])
+            d, itv = read_d(os.path.join(out, "shard%s" % m["shard"], m["y"] + ".csv.gz"))
+            if len(d) < MIN_VALUES:
+                excl.append([cid, exy, m["y"], exx, m["x"], "значений d на формировании меньше %d" % MIN_VALUES])
+                continue
+            st["used"] += 1
+            st["unequal"] += int(m["grid_equal"] != 1 and m["grid_equal"] != "1")
+            st["eps"].extend(episodes(d))
+            if itv:
+                st["itv"].append(statistics.median(itv))
+            for k in KS:
+                s, n = mse_k(d, k)
+                st["sse"][k][0] += s
+                st["sse"][k][1] += n
+        st["groups"].append((exy, exx, out, sorted(glob.glob(os.path.join(out, "shard*.jobs.csv")))))
+    rows = []
+    for cid, st in sorted(per_cell.items()):
+        if not st["used"]:
+            rows.append([cid, st["pairs"], 0, "", "", "", "", "", "нет пар с фандингом обеих ног"])
             continue
-        mse = {k: sse[k][0] / sse[k][1] for k in KS}
+        mse = {k: st["sse"][k][0] / max(1, st["sse"][k][1]) for k in KS}
         kbest = min(KS, key=lambda k: (mse[k], k))
-        hold = max(1, int(round(float(np.median(eps))))) if eps else 1
-        ih = float(np.median(hy_all))
-        mh = int(round(hold * ih * 60))
-        res.append([cid, len(pr), used, kbest, hold, "%g" % ih, mh, "|".join("%g" % mse[k] for k in KS), "параметры измерены"])
-        S.write_csv(os.path.join(S.SEL, "cellpairs", cid.replace("|", "_") + ".d2ok.csv"),
-                    ["ex_y", "y", "ex_x", "x"], [[p["ex_y"], p["y"], p["ex_x"], p["x"]] for p in keep])
-    S.write_csv(os.path.join(S.DOCS, "d2_params.csv"),
-                ["cell", "pairs", "pairs_with_funding", "k", "hold_payments", "interval_h_y_median", "max_hold_min", "mse_k1|k3|k6", "status"], res)
-    S.write_csv(os.path.join(S.DOCS, "d2_excluded.csv"), ["cell", "ex_y", "y", "ex_x", "x", "reason"], excl)
-    # справочно G7: годовая ставка BTC на формировании по биржам = mean(rate / interval_h) * 8760
-    btc = {"binance": "BTCUSDT", "bybit": "BTCUSDT", "okx": "BTC-USDT-SWAP", "bingx": "BTC-USDT", "aster": "BTCUSDT",
-           "kraken": "PF_XBTUSD", "lighter": "BTC", "bitget": "BTCUSDT"}
-    g7 = []
-    for ex, sym in btc.items():
-        f = load_funding(ex, S.safe(sym))
-        if f is None or len(f[0]) == 0:
-            g7.append([ex, sym, "", "", "", ""])
+        hold = max(1, int(round(statistics.median(st["eps"])))) if st["eps"] else 1
+        ih = statistics.median(st["itv"]) if st["itv"] else float("nan")
+        rows.append([cid, st["pairs"], st["used"], kbest, hold, "%g" % ih, "%.4f" % (st["unequal"] / st["used"]),
+                     "|".join("%.6g" % mse[k] for k in KS), "параметры измерены"])
+        st["k"], st["hold"], st["ih"] = kbest, hold, ih
+    with open(os.path.join(SEL, "d2_params.csv"), "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["cell", "pairs", "pairs_with_d", "k", "hold_payments", "interval_h_y_median", "unequal_grid_share", "mse_k1|k3|k6", "status"])
+        w.writerows(rows)
+    with open(os.path.join(SEL, "d2_excluded.csv"), "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["cell", "ex_y", "y", "ex_x", "x", "reason"])
+        w.writerows(excl)
+    # прогон ядра по формированию: длительности позиций
+    dur = []
+    os.makedirs(os.path.join(SEL, "d2form_out"), exist_ok=True)
+    for cid, st in sorted(per_cell.items()):
+        if "k" not in st:
             continue
-        t, r, h = f
-        g7.append([ex, sym, len(t), "%g" % np.median(h), "%.4f" % (np.mean(r / h) * 8760), "%.2f" % (np.mean(r) * 1e4)])
-    S.write_csv(os.path.join(S.DOCS, "g7_btc_annual.csv"), ["exchange", "symbol", "payments", "interval_h_median", "annual_rate_mean", "mean_rate_bps_per_payment"], g7)
-    print("D2 клеток", len(res), "исключено пар", len(excl))
+        trades_all, open_end, done = [], 0, 0
+        for exy, exx, out, shards in st["groups"]:
+            for jf in shards:
+                sh = os.path.basename(jf)[:-9]               # shardN
+                n = sum(1 for _ in open(jf, encoding="utf-8")) - 1
+                tag = os.path.basename(out) + "__" + sh
+                cellrow = os.path.join(SEL, "d2form_out", tag + ".cells.csv")
+                with open(cellrow, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write("cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh\n")
+                    fh.write("%s|a0,%d,%d,,1.00,0,inf,0,%d\n" % (cid, D2_WINDOW, D2_WINDOW, D2_WINDOW))
+                tr = os.path.join(SEL, "d2form_out", tag + ".trades.csv")
+                co = os.path.join(SEL, "d2form_out", tag + ".cells_out.csv")
+                cmd = ["nice", "-n", "19", BIN, "statarb", "run", "--kind", "funding-pp", "--panels", os.path.join(HOME, "form", exy),
+                       "--panels-b", os.path.join(HOME, "form", exx), "--funding-y", os.path.join(out, sh.replace(".jobs", "")),
+                       "--funding-x", os.path.join(out, "empty_x"), "--rule", "funding", "--funding-k", str(st["k"]),
+                       "--hold-payments", str(st["hold"]), "--cells", cellrow, "--jobs", jf,
+                       "--daily-out", os.path.join(SEL, "d2form_out", tag + ".daily.csv"), "--trades-out", tr,
+                       "--trade-jobs", ",".join(str(i) for i in range(n)), "--cells-out", co, "--min-span", "1440", "--threads", "4"]
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                with open(tr, encoding="utf-8", newline="") as fh:
+                    rd = csv.DictReader(fh)
+                    for r in rd:
+                        trades_all.append(int(float(r["fill_out"])) - int(float(r.get("fill_in", r.get("fill", 0)))) if "fill_in" in r else None)
+                with open(co, encoding="utf-8", newline="") as fh:
+                    for r in csv.DictReader(fh):
+                        open_end += int(float(r.get("open_at_end", 0) or 0))
+                        done += int(float(r.get("done", 0) or 0))
+        vals = sorted(v for v in trades_all if v is not None)
+        ih_min = st["ih"] * 60
+        if vals:
+            q = lambda p: vals[min(len(vals) - 1, int(p * len(vals)))]
+            dur.append([cid, len(vals), q(0.25), q(0.5), q(0.75), "%g" % ih_min, "%.4f" % (sum(1 for v in vals if v < ih_min) / len(vals)),
+                        open_end, "медиана >= интервала" if q(0.5) >= ih_min else "МЕДИАНА < ИНТЕРВАЛА"])
+        else:
+            dur.append([cid, 0, "", "", "", "%g" % ih_min, "", open_end, "нет закрытых сделок на формировании"])
+    with open(os.path.join(SEL, "d2_durations.csv"), "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["cell", "closed_positions", "dur_p25_min", "dur_median_min", "dur_p75_min", "interval_y_min", "share_shorter_than_interval",
+                    "open_at_end_positions", "median_vs_interval"])
+        w.writerows(dur)
+    print("клеток D2", len(rows), "исключено пар", len(excl), "клеток с длительностями", len(dur))
 
 
 if __name__ == "__main__":
-    main()
+    {"all": run_all}[sys.argv[1]]()

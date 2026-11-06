@@ -12,7 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 DATA = os.path.join(ROOT, "data", "xdl9")
 SEL = os.path.join(DATA, "sel")
-DOCS = os.path.join(ROOT, "docs", "findings", "xdl9-selection-2026-11-06")
+DOCS = os.path.join(ROOT, "docs", "findings", "xdl9-selection-2026-11-06")      # r2 (F7) - в docs/archive/xdl9-selection-r2-2026-11-06/ (r2 F7 перенесён тем же коммитом, что отчёт S1)
 
 import sys
 sys.path.insert(0, HERE)
@@ -22,8 +22,8 @@ import asset_lib as AL   # noqa: E402
 D_FORM0, D_TRADE0, D_END = 2465, 2479, 2500
 MIN_DAY = 1440
 N_FORM = (D_TRADE0 - D_FORM0) * MIN_DAY            # 20160
-EG_FROM = 1 * MIN_DAY                               # окно EG 02.10-14.10: 13 суток (П-37 §7 п.2)
-EG_DAYS = 13
+EG_FROM = 2 * MIN_DAY                               # окно EG 03.10-13.10: 11 суток - общее пересечение сдвигов {+1,+2,-1} (П-37 r3.1 §7.2)
+EG_DAYS = 11
 EXCH = AL.EXCH
 N_RET_MIN = 300                                     # F5, назначено без Судьи
 
@@ -52,9 +52,10 @@ def weekend_mask(n=N_FORM):
     return dow >= 5
 
 
-def load_formation():
-    """-> rows (контракты со свечами формирования, как asset_lib), C float32 [N, 20160], am {(биржа, символ): строка asset_map}."""
-    rows, C = AL.load_contracts()
+def load_formation(lazy=True):
+    """-> rows (контракты со свечами формирования, как asset_lib), C ([N, 20160] float32 или RowStore: C[i] читает строку из файла),
+    am {(биржа, символ): строка asset_map}. lazy=True (по умолчанию в S1): без склейки в один массив - ПК с малым запасом памяти."""
+    rows, C = AL.load_contracts(lazy=lazy)
     am = {}
     with open(os.path.join(DATA, "asset_map.csv"), encoding="utf-8", newline="") as fh:
         for r in csv.DictReader(fh):

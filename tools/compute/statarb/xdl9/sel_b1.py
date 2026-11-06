@@ -19,7 +19,7 @@ K = 3
 
 def returns_matrix(C, idx, sess_flags):
     """ln-доходности [s, T-1] float64, NaN где нет обоих баров; маска кассы для US-контрактов."""
-    L = np.log(C[idx].astype(np.float64))
+    L = np.log(np.stack([np.asarray(C[i], dtype=np.float64) for i in idx]))      # по строке из файла (RowStore): без матрицы всех контрактов
     sess = S.session_mask(C.shape[1])
     for j, us in enumerate(sess_flags):
         if us:
@@ -42,7 +42,7 @@ def corr_matrix(R):
 
 
 def build():
-    rows, C, am = S.load_formation()
+    rows, C, am = S.load_formation(lazy=True)
     ci = {(d["exchange"], d["symbol"]): i for i, d in enumerate(rows)}
     contracts = S.read_csv(os.path.join(S.SEL, "contracts.csv"))
     cats = {}
@@ -58,7 +58,6 @@ def build():
         idx = [ci[(r["exchange"], r["symbol"])] for r in lst]
         L, R = returns_matrix(C, idx, [r["us_mask"] == "1" for r in lst])
         cm, n = corr_matrix(R)
-        cache[cid] = (lst, L, R)
         s = len(lst)
         cm2 = np.where(n >= S.N_RET_MIN, cm, np.nan)
         np.fill_diagonal(cm2, np.nan)
@@ -77,10 +76,18 @@ def build():
                 continue
             out.append([cid, lst[t]["symbol"], S.safe(lst[t]["symbol"])] + [S.safe(lst[j]["symbol"]) for j in order]
                        + ["%.6f" % row[j] for j in order] + [n_joint])
-    return out, excl, cache
+    return out, excl, (cats, ci, C)
 
 
-def check(out, cache, n_targets=10, seed=37):
+def catalog_arrays(ctx, cid):
+    """Пересборка (список, L, R) одного каталога для контроля G9b: матрицы всех каталогов в памяти не держим (ПК с малым запасом ОЗУ)."""
+    cats, ci, C = ctx
+    lst = cats[cid]
+    L, R = returns_matrix(C, [ci[(r["exchange"], r["symbol"])] for r in lst], [r["us_mask"] == "1" for r in lst])
+    return lst, L, R
+
+
+def check(out, ctx, n_targets=10, seed=37):
     """G9b: 10 случайных целей, прямой путь: np.corrcoef по общим минутам каждой пары, те же правила отбора."""
     rs = np.random.RandomState(seed)
     pick = rs.choice(len(out), size=min(n_targets, len(out)), replace=False)
@@ -88,7 +95,7 @@ def check(out, cache, n_targets=10, seed=37):
     for k in sorted(pick):
         row = out[k]
         cid, tgt = row[0], row[1]
-        lst, L, R = cache[cid]
+        lst, L, R = catalog_arrays(ctx, cid)
         syms = [r["symbol"] for r in lst]
         t = syms.index(tgt)
         cand = []
@@ -114,11 +121,11 @@ def check(out, cache, n_targets=10, seed=37):
 
 
 def main():
-    out, excl, cache = build()
+    out, excl, ctx = build()
     hdr = ["catalog", "target", "target_stem", "c1", "c2", "c3", "corr1", "corr2", "corr3", "n_joint_ret"]
     S.write_csv(os.path.join(S.SEL, "b1_baskets.csv"), hdr, out)
     S.write_csv(os.path.join(S.DOCS, "b1_excluded.csv"), ["catalog", "target", "reason"], excl)
-    res, worst = check(out, cache)
+    res, worst = check(out, ctx)
     S.write_csv(os.path.join(S.DOCS, "g9b_b1_vs_numpy.csv"), ["catalog", "target", "status", "top3_direct", "top3_matrix", "max_dcorr"], res)
     bad = [r for r in res if r[2] != "ok"]
     print("корзин", len(out), "исключено целей", len(excl), "G9b: целей", len(res), "расхождений", len(bad), "макс dcorr %.2e" % worst)

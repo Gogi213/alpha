@@ -4,8 +4,7 @@
   a1_pairs_flags.csv  - для каждой отобранной пары статистика каждой ноги отдельно (ADF без лага и без константы по ряду ln-цены ноги, центрированному
                         по окну 02.10-14.10, максимум по двум половинам, как у пары): стационарная нога (привязанный к номиналу ETF) даёт «коинтеграцию»
                         с чем угодно. Порога нет: колонки для среза отчёта; факты о SGOV и BIL - в отчёте.
-  g9_null_test.csv    - нулевой тест: контрольное разбиение 4 (в t* не участвует), сдвиг +1 сутки (+1 торговый день вне крипты): сколько нулевых
-                        пар проходит t* каталога, против ожидания по обучающему нулю (k0 / n0 x n0_hold).
+  (нулевой тест G9 - g9_null_test.csv - теперь пишет sel_fdr.py: контрольное разбиение 4 x три сдвига, в единицах баз и пар)
   catalog_excluded.csv- основные контракты, не вошедшие в каталог A (доля валидных минут ниже порога колена), с причиной.
 """
 import csv, os, sys
@@ -14,12 +13,14 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sel_lib as S  # noqa: E402
 
-MID = 12 * 6 * 128
+import math
+LEN = S.EG_DAYS * S.MIN_DAY
+MID = (math.ceil(LEN / 768) // 2) * 768          # как в sel_g9.py: form делит 21 блок пополам по 10
 LO = S.EG_FROM
 
 
 def adf_leg(u):
-    """ADF лаг 0 без константы по ряду (ln-цена, NaN допустимы) на половинах окна; -> max(t_first, t_second) или nan."""
+    """ADF лаг 0 без константы по ряду (ln-цена, NaN допустимы) на половинах окна EG (03.10-13.10); -> max(t_first, t_second) или nan."""
     ts = []
     for a, b in ((1, MID), (MID, len(u))):
         k = np.arange(max(a, 1), b)
@@ -53,7 +54,7 @@ def main():
         v = np.log(C[ci[(ex, stem)]].astype(np.float64))
         if con[(ex, stem)]["us_mask"] == "1":
             v[~sess] = np.nan
-        return v[LO:]
+        return v[LO:LO + LEN]
 
     out, per_cat = [], {}
     for r in S.read_csv(os.path.join(S.SEL, "a1_pairs.csv")):
@@ -64,18 +65,6 @@ def main():
         c = per_cat.setdefault(r["catalog"], [0, 0])
         c[0] += 1; c[1] += int(min(ty, tx) < -10)
     S.write_csv(os.path.join(S.DOCS, "a1_pairs_flags.csv"), ["catalog", "y", "x", "t_pair", "t_leg_y", "t_leg_x"], out)
-    # нулевой тест
-    nt = []
-    tot_k, tot_n, tot_exp = 0, 0, 0.0
-    for r in S.read_csv(os.path.join(S.DOCS, "a1_catalogs.csv")):
-        if r["status"] != "отобрано":
-            continue
-        k0, n0, kh, nh = int(r["k0"]), int(r["n0"]), int(r["k0_hold"]), int(r["n0_hold"])
-        exp = k0 / n0 * nh
-        tot_k += kh; tot_n += nh; tot_exp += exp
-        nt.append([r["catalog"], r["t_star"], n0, k0, nh, kh, "%.2f" % exp, r["R"], r["selected"]])
-    S.write_csv(os.path.join(S.DOCS, "g9_null_test.csv"),
-                ["catalog", "t_star", "n0_train", "k0_train", "n0_holdout", "k0_holdout", "k0_holdout_expected", "R_real", "selected_real"], nt)
     # исключённые из каталога A
     ex_rows = []
     for k, r in sorted(con.items()):
@@ -83,7 +72,6 @@ def main():
             ex_rows.append([r["exchange"], r["symbol"], r["slug"], r["share"], r["catalog_reason"]])
     S.write_csv(os.path.join(S.DOCS, "catalog_excluded.csv"), ["exchange", "symbol", "slug", "share", "reason"], ex_rows)
     print("пар A1", len(out), "пар с ногой t_leg < -10 (справочно):", sum(v[1] for v in per_cat.values()), per_cat)
-    print("нулевой тест: прошло %d из %d нулевых пар контрольного разбиения, ожидание по обучению %.2f" % (tot_k, tot_n, tot_exp))
     print("исключено из каталогов A (ниже порога колена): %d" % len(ex_rows))
 
 
