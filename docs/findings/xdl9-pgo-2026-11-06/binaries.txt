@@ -1,0 +1,9 @@
+3ea36b83c7b504068bbdea2958d83dc360714141678d2d978ca6a5cf9200a3de  /home/deck/xdl9/bin/statarb-xdl9-4ef45cc8-pgo
+969db9270adbe6f32887e14d8407c1e89e744c38fd12df045cf847653e8cca2b  /home/deck/xdl9/bin/statarb-xdl9-4ef45cc8
+4c16ee2e17d4fcc73d3eddc17f8be6f7ec23f4dba2936b2e6b0ecc7a0dfe4c78  /home/deck/xdl9/pgo/bin/statarb-xdl9-4ef45cc8-v3lto   # контроль: те же флаги, без PGO
+b644c54fac2bdaefb4573c80f925c4924dc7b7095c991f844b9afd11a1004573  /home/deck/xdl9/pgo/bin/statarb-xdl9-4ef45cc8-gen      # инструментированный (обучение)
+50a4428454b84a950712c9eaf2ed8ff1  /home/deck/xdl9/pgo/profraw/alpha-5634655603949136330_0.profraw   # md5, профиль 96 запусков train.sh, 2 693 112 Б
+48a51b77ebb11694edd2942137e3eb3f  /opt/alpha-compute/pgo-xdl9/merged.profdata   # md5, llvm-profdata 21.1.8-rust-1.93.1, 4 206 000 Б
+alpha 4ef45cc82e028f53084bca4970da1197d4387fc0   # statarb-xdl9-4ef45cc8-pgo --version (ALPHA_COMMIT вшит той же строкой, что у не-PGO)
+копия PGO на VPS: /opt/alpha-compute/xdl9-bin/statarb-xdl9-4ef45cc8-pgo (тот же sha256); рабочий каталог VPS /opt/alpha-compute/pgo-xdl9 (профили, логи сборок, control v3lto)
+исходники: git archive 4ef45cc8 (src/, vendor/, Cargo.*, rust-toolchain.toml); HEAD ветки на старте c3c0130f отличается от 4ef45cc8 только docs/tools (git diff 4ef45cc8 HEAD -- src Cargo.toml Cargo.lock vendor — пусто)

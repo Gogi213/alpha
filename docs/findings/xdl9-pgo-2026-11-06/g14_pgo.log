@@ -1,0 +1,13 @@
+G14 pgo: бинарь /home/deck/xdl9/bin/statarb-xdl9-4ef45cc8-pgo (3ea36b83c7b50406), эталон не-PGO /home/deck/xdl9/bin/statarb-xdl9-4ef45cc8 (969db9270adbe6f3), потоков 4, нагрузка 1.38 0.42 0.14 3/885 848493
+РАВНО  pair_c1 потоков 1: digest c0b260a7ce0a73ed
+РАВНО  pair_c1 потоков 8: digest c0b260a7ce0a73ed
+ИТОГ G6a: случаев 13, расхождений 0
+РАВНО G6а: sha256-cmp (13 файлов) = эталон 4ef45cc8, скрипт rc=0
+РАВНО  cross_binance_bitget: сделок 31314, строк суточного 70; daily[tk486 cells=17039eb9c2f846e2 single=17039eb9c2f846e2 | новый cells=17039eb9c2f846e2 single=17039eb9c2f846e2] trades[tk486 cells=4370182d44c41f61 single=4370182d44c41f61 | новый cells=4370182d44c41f61 single=4370182d44c41f61]
+ИТОГ G6b: наборов 19 (клеток в наборе 5), расхождений 0
+РАВНО G6б: sha256-new (76 хешей) = эталон 4ef45cc8, скрипт rc=0
+ИТОГ G11: расхождений 0
+G11 эталон 4ef45cc8: ИТОГ G11: расхождений 0
+РАВНО G11: все 151 csv (daily, trades, ext, job-day; с --rearm и без) побайтно = выходам не-PGO 4ef45cc8
+РАВНО G11: строки итогов (1)-(4) лога совпадают с логом не-PGO
+ИТОГ G14 pgo: код 0 (0 — расхождений нет)
