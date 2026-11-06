@@ -38,7 +38,9 @@ case "$STEP" in
   # rustc 1.93.1 / LLVM 21.1.8: fat LTO + profile-generate + v3 падает SIGSEGV в LoopVectorize (VPIRPhi::execute, 06.11) —
   # у инструментированной сборки векторизатор циклов выключен (инструментация идёт ДО него: профиль и CFG-хеши те же; PGO-сборка векторизует как обычно)
   gen)   rm -rf "$W/profraw"; mkdir -p "$W/profraw"; build gen "$V3 -C profile-generate=$W/profraw ${GEN_EXTRA--C no-vectorize-loops}" ;;
-  merge) "$PROFDATA" merge -o "$W/merged.profdata" "$W"/profraw/*.profraw && ls -l "$W/merged.profdata" && md5sum "$W/merged.profdata" | tee -a "$W/binaries.sha256" ;;
+  # w5: только профиль ядра (alpha-*.profraw с Deck). Инструментированная сборка сама пишет в тот же каталог default_*.profraw от build-скриптов и
+  # proc-macro (31 файл) — это профили чужих бинарей; их убирают в profraw_buildscripts/ до слияния (в слиянии они раздували profdata 4 → 13 МБ)
+  merge) "$PROFDATA" merge -o "$W/merged.profdata" "$W"/profraw/alpha-*.profraw && ls -l "$W/merged.profdata" && md5sum "$W/merged.profdata" | tee -a "$W/binaries.sha256" ;;
   use)   [ -s "$W/merged.profdata" ] || { echo "нет $W/merged.profdata"; exit 2; }
          build pgo "$V3 -C profile-use=$W/merged.profdata -C llvm-args=-pgo-warn-missing-function"
          echo "предупреждений о функциях без профиля: $(grep -c 'no profile data available' "$W/build-pgo.log")" ;;

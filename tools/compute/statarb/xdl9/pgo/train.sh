@@ -10,7 +10,7 @@
 set -u
 BIN=${1:?инструментированный бинарь}; TH=${2:-4}
 R=$HOME/xdl9; O=$R/pgo; PF=$O/pform; FF=$O/pfund; J=$R/gates/g6b
-PROF=${PROF:-$O/profraw}; OUT=$O/train_out
+PROF=${PROF:-$O/profraw}; OUT=${TRAIN_OUT:-$O/train_out}   # w5: PROF / TRAIN_OUT — свои каталоги (профиль прежнего исходника не затирается)
 rm -rf "$PROF" "$OUT"; mkdir -p "$PROF" "$OUT"
 export LLVM_PROFILE_FILE="$PROF/alpha-%m.profraw"
 CELLS=$J/cells.csv
@@ -120,14 +120,14 @@ for ex in binance bybit okx bitget kraken; do
     --job-ext-out "$OUT/w5.jext.csv" --ext-out "$OUT/w5.ext.csv" --job-day-out "$OUT/w5.jd.csv" --open-out "$OUT/w5.open.csv"
 done
 sed -E 's/,2465,2479$/,2472,2479/' "$J/jobs_basket_okx.csv" > "$OUT/jobs2472_basket_okx.csv"
-go w5_z_gate_basket run --kind basket --jobs "$OUT/jobs2472_basket_okx.csv" --panels "$PF/okx" --min-span 1000 --threads "$TH" --rearm --no-entry-before-from --trades-ext --mtm-open \
+go w5_z_gate_basket run --kind basket --jobs "$OUT/jobs2472_basket_okx.csv" --panels "$PF/okx" --min-span 1000 --threads "$TH" --rearm --no-entry-before-from --mtm-open \
   --cells "$OUT/cellsW.csv" --daily-out "$OUT/w5.daily.csv" --cells-out "$OUT/w5.cells.csv" --job-ext-out "$OUT/w5.jext.csv" --ext-out "$OUT/w5.ext.csv" --job-day-out "$OUT/w5.jd.csv"
-sed -E 's/,2465,2479$/,2472,2479/' "$J/jobs_cross_binance_bitget.csv" > "$OUT/jobs2472_cross_bb.csv"
-go w5_z_gate_cross run --kind cross --jobs "$OUT/jobs2472_cross_bb.csv" --panels "$PF/binance" --panels-b "$PF/bitget" --min-span 1000 --threads "$TH" --rearm --no-entry-before-from --trades-ext \
+sed -E 's/,2465,2479$/,2472,2479/' "$J/jobs_cross_binance_bybit.csv" > "$OUT/jobs2472_cross_bb.csv"
+go w5_z_gate_cross run --kind cross --jobs "$OUT/jobs2472_cross_bb.csv" --panels "$PF/binance" --panels-b "$PF/bybit" --min-span 1000 --threads "$TH" --rearm --no-entry-before-from \
   --cells "$OUT/cellsW.csv" --daily-out "$OUT/w5.daily.csv" --cells-out "$OUT/w5.cells.csv" --job-ext-out "$OUT/w5.jext.csv" --ext-out "$OUT/w5.ext.csv" --job-day-out "$OUT/w5.jd.csv"
 # крупный набор g10 с флагами w5 (основной вес профиля — как боевой счёт)
 sed -E 's/,2465,2479$/,2472,2479/' "$G10/jobs_pair.csv" > "$OUT/jobs2472_big_pair.csv"
-go big_pair_w5     run --kind pair  --jobs "$OUT/jobs2472_big_pair.csv" --panels "$NB" --min-span 1000 --threads "$TH" --cells "$OUT/cellsW.csv" --rearm --no-entry-before-from --trades-ext \
+go big_pair_w5     run --kind pair  --jobs "$OUT/jobs2472_big_pair.csv" --panels "$NB" --min-span 1000 --threads "$TH" --cells "$OUT/cellsW.csv" --rearm --no-entry-before-from \
   --daily-out "$OUT/B.daily.csv" --ext-out "$OUT/B.ext.csv" --job-day-out "$OUT/B.jd.csv" --job-ext-out "$OUT/B.jext.csv" --mtm-open --cells-out "$OUT/B.cells.csv"
 go big_pair_w5_d2  run --kind pair  --jobs "$OUT/jobs2472_big_pair.csv" --panels "$NB" --funding-y "$FF/binance" --rule funding --funding-k 3 --hold-payments 40 --min-span 1000 --threads "$TH" \
   --cells "$OUT/cellsF.csv" --no-entry-before-from --daily-out "$OUT/B.daily.csv" --job-ext-out "$OUT/B.jext.csv" --cells-out "$OUT/B.cells.csv"

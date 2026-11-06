@@ -54,7 +54,8 @@ za() {  # метка, вид, панели Y, панели X или -, файл 
 za pair_binance pair "$PF/binance" - "$J/jobs_pair_binance.csv"
 za pair_kraken  pair "$PF/kraken"  - "$J/jobs_pair_kraken.csv"
 za basket_okx   basket "$PF/okx"   - "$J/jobs_basket_okx.csv"
-za cross_binance_bitget cross "$PF/binance" "$PF/bitget" "$J/jobs_cross_binance_bitget.csv"
+# кросс Binance–Bybit, а не Binance–Bitget: у Bitget дыр 38 % минут и окно min_obs = window не набирается ни разу (сделок 0 — проверка пуста)
+za cross_binance_bybit cross "$PF/binance" "$PF/bybit" "$J/jobs_cross_binance_bybit.csv"
 
 # (б) правило funding: pre_window без флага, нет его с флагом
 cat > "$G/cellsF.csv" <<'EOF'
@@ -97,12 +98,14 @@ zb funding_bybit bybit
 
 # (в) независимая сверка из сырья (копии формирования): сделки, счётчики, открытая позиция, warmup_blocked
 RF="$G/rawform"
-declare -A BTC=( [binance]=BTCUSDT [bybit]=BTCUSDT ) ETH=( [binance]=ETHUSDT [bybit]=ETHUSDT ) SOL=( [binance]=SOLUSDT [bybit]=SOLUSDT )
-specs=(); for ex in binance bybit; do for s in "${BTC[$ex]}" "${ETH[$ex]}" "${SOL[$ex]}"; do specs+=("$ex:$s"); done; done
+# в копиях формирования major-контракты есть у bybit, okx, kraken (у binance/bingx наборы G6б их не содержат)
+declare -A BTC=( [bybit]=BTCUSDT [okx]=BTC-USDT-SWAP [kraken]=PF_XBTUSD ) ETH=( [bybit]=ETHUSDT [okx]=ETH-USDT-SWAP [kraken]=PF_ETHUSD ) SOL=( [bybit]=SOLUSDT [okx]=SOL-USDT-SWAP [kraken]=PF_SOLUSD )
+EXS=(bybit okx kraken)
+specs=(); for ex in "${EXS[@]}"; do for s in "${BTC[$ex]}" "${ETH[$ex]}" "${SOL[$ex]}"; do specs+=("$ex:$s"); done; done
 python3 "$S/cut_raw_form.py" "$RAWSRC" "$RF" $CUT "${specs[@]}" > "$G/cut_raw.log" 2>&1 || { echo "ОШИБКА cut_raw_form"; tail -3 "$G/cut_raw.log"; fail=$((fail+1)); }
 tot=0; bad=0; blocked=0
 for rule in funding z; do
-  for ex in binance bybit; do
+  for ex in "${EXS[@]}"; do
     for alt in ETH SOL; do
       if [ $alt = ETH ]; then Y=${ETH[$ex]}; else Y=${SOL[$ex]}; fi
       X=${BTC[$ex]}; D="$G/c_${rule}_${ex}_$alt"; mkdir -p "$D"

@@ -12,6 +12,22 @@ NB=$PF/bin120
 mapfile -t NM < <(ls "$NB" | sed 's/\.sap$//')
 { echo y,x,from_day,to_day; for i in "${!NM[@]}"; do for d in 1 7 13; do echo "${NM[i]},${NM[(i+d)%${#NM[@]}]}+${NM[(i+d+1)%${#NM[@]}]}+${NM[(i+d+2)%${#NM[@]}]},2465,2479"; done; done; } > "$T/jobs_basket.csv"
 T0=0,1,2,3,4,5,6,7,8,9
+# w5: флаги --no-entry-before-from и --job-ext-out (D5(ii), L1-03) на крупном наборе: те же задания с from_day 2472 (перед границей есть разогрев),
+# клетки z с min_obs = window (как в F8) и правило funding (D2-подобное, ставки из pfund)
+sed -E 's/,2465,2479$/,2472,2479/' "$G/jobs_pair.csv" > "$T/jobs2472_pair.csv"
+cat > "$T/cellsW.csv" <<'EOF2'
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+w0,720,720,,2.0,0.5,inf,720,0
+w1,720,720,,1.5,0.3,4.0,0,0
+w2,1440,1440,,2.5,0.5,inf,1440,97
+w3,720,720,1.0,2.0,0.5,3.5,480,0
+w4,1440,1440,,2.0,0.5,3.0,720,200
+EOF2
+cat > "$T/cellsF.csv" <<'EOF2'
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+f0,60,60,1.0,2.0,0.5,inf,240,0
+f1,60,60,1.0,2.0,0.5,inf,720,0
+EOF2
 fail=0
 runs() {  # метка бинаря, каталог выхода
   local bin=$1 D=$2; mkdir -p "$D"
@@ -26,6 +42,8 @@ runs() {  # метка бинаря, каталог выхода
   b cross_fund  --kind funding-pp --jobs "$G/jobs_cross.csv" --panels "$NB" --panels-b "$PF/byb120" --funding-y "$FF/binance" --funding-x "$FF/bybit" --min-span 1000 --threads "$TH" --trade-jobs 0,1,2 --cells "$G/cells5.csv" --daily-out "$D/cf.daily.csv" --trades-out "$D/cf.trades.csv"
   b d3          --kind funding-pp --jobs "$G/jobs_cross.csv" --panels "$NB" --panels-b "$PF/byb120" --funding-y "$FF/binance" --funding-x "$FF/bybit" --min-span 1000 --threads "$TH" --trade-jobs 0,1,2 --cell d3 --window 720 --min-obs 360 --entry-z 2.0 --exit-z 0.5 --stop-z inf --max-hold 720 --refresh 0 --rule funding --funding-k 3 --hold-payments 8 --daily-out "$D/d3.daily.csv" --trades-out "$D/d3.trades.csv"
   b basket      --kind basket --jobs "$T/jobs_basket.csv" --panels "$NB" --min-span 1000 --threads "$TH" --trade-jobs $T0 --trades-ext --rearm --cells "$G/cells5.csv" --daily-out "$D/bk.daily.csv" --trades-out "$D/bk.trades.csv" --ext-out "$D/bk.ext.csv" --job-day-out "$D/bk.jd.csv"
+  b pair_w5     --kind pair   --jobs "$T/jobs2472_pair.csv" --panels "$NB" --min-span 1000 --threads "$TH" --trade-jobs $T0 --trades-ext --rearm --no-entry-before-from --mtm-open --cells "$T/cellsW.csv" --daily-out "$D/w5.daily.csv" --trades-out "$D/w5.trades.csv" --ext-out "$D/w5.ext.csv" --job-day-out "$D/w5.jd.csv" --cells-out "$D/w5.cells.csv" --job-ext-out "$D/w5.jext.csv" --open-out "$D/w5.open.csv"
+  b pair_w5_d2  --kind pair   --jobs "$T/jobs2472_pair.csv" --panels "$NB" --funding-y "$FF/binance" --rule funding --funding-k 3 --hold-payments 40 --min-span 1000 --threads "$TH" --trade-jobs $T0 --no-entry-before-from --mtm-open --cells "$T/cellsF.csv" --daily-out "$D/w5d.daily.csv" --trades-out "$D/w5d.trades.csv" --cells-out "$D/w5d.cells.csv" --job-ext-out "$D/w5d.jext.csv" --open-out "$D/w5d.open.csv"
   ( cd "$D" && sha256sum *.csv | sed 's/  / /' ) > "$D/sha256.txt"
 }
 ref="";

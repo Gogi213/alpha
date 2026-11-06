@@ -30,10 +30,14 @@ struct Cell {
     /// Причина решённого выхода и сторона, закрытая стопом или сроком (`Params::rearm`).
     why: ExitReason,
     block: i8,
+    /// Первый индекс сетки, с которого допустимо исполнение входа (`Params::entry_from`, TK-493 w5, D5(ii)); без флага 0.
+    /// Лежит в состоянии клетки, а не отдельным аргументом цикла: лишний аргумент и параллельный итератор на горячем пути
+    /// замедляли многоклеточный проход на ~5 % (замер G13).
+    enter_t0: usize,
 }
 
 impl Cell {
-    fn new(k: usize) -> Cell {
+    fn new(k: usize, enter_t0: usize) -> Cell {
         Cell {
             pend: Pend::None,
             dir: 0,
@@ -46,6 +50,7 @@ impl Cell {
             beta: 0.0,
             why: ExitReason::Rule,
             block: 0,
+            enter_t0,
         }
     }
 
@@ -148,9 +153,9 @@ impl Cell {
     }
 
     /// Сигнал входа `d` по закрытию минуты `t`; `rearm` не пускает вход в сторону, закрытую стопом или сроком;
-    /// `Params::entry_from` (`enter_t0` — первый индекс исполнения) не пускает вход в разогреве (TK-493 w5, D5(ii)).
-    fn signal(&mut self, p: &Params, d: i8, beta: f64, t: usize, enter_t0: usize) {
-        if t + 1 < enter_t0 {
+    /// `Params::entry_from` (`enter_t0` клетки) не пускает вход в разогреве (TK-493 w5, D5(ii)).
+    fn signal(&mut self, p: &Params, d: i8, beta: f64, t: usize) {
+        if t + 1 < self.enter_t0 {
             self.c.warmup_blocked += 1;
         } else if p.rearm && self.block == d {
             self.c.rearm_blocked += 1;
@@ -164,15 +169,7 @@ impl Cell {
 
     /// Конец минуты `t`: сигнал по закрытию, исполнение — следующая минута. `short` — окно неполное (дыры): нет
     /// права входа из-за окна (см. `Counters::noentry_window_minutes`), общее для клеток группы.
-    fn close_minute(
-        &mut self,
-        p: &Params,
-        t: usize,
-        beta: f64,
-        z: f64,
-        short: bool,
-        enter_t0: usize,
-    ) {
+    fn close_minute(&mut self, p: &Params, t: usize, beta: f64, z: f64, short: bool) {
         if self.dir != 0 && !z.is_finite() {
             self.c.pos_z_nan_minutes += 1;
         }
@@ -185,9 +182,9 @@ impl Cell {
                     self.block = 0;
                 }
                 if z <= -p.entry_z {
-                    self.signal(p, 1, beta, t, enter_t0);
+                    self.signal(p, 1, beta, t);
                 } else if z >= p.entry_z {
-                    self.signal(p, -1, beta, t, enter_t0);
+                    self.signal(p, -1, beta, t);
                 }
             } else if short {
                 self.c.noentry_window_minutes += 1;
@@ -241,9 +238,11 @@ pub fn run_pair_multi<S: Sink>(
     } else {
         p0.refresh
     };
-    let mut st: Vec<Cell> = cells.iter().map(|_| Cell::new(k)).collect();
     // D5(ii): у каждой клетки свой `entry_from` (в `run` он один на прогон, API допускает разные).
-    let gate: Vec<usize> = cells.iter().map(|p| entry_gate(p, inp.first_min)).collect();
+    let mut st: Vec<Cell> = cells
+        .iter()
+        .map(|p| Cell::new(k, entry_gate(p, inp.first_min)))
+        .collect();
     let (mut obs_minutes, mut gap_minutes) = (0u64, 0u64);
     let (mut eval_minutes, mut z_def_minutes) = (0u64, 0u64);
     let mut s = Sums::default();
@@ -296,9 +295,9 @@ pub fn run_pair_multi<S: Sink>(
             }
         }
         let short = obs && t + 1 >= p0.window && (s.n as usize) < p0.min_obs.max(2);
-        for (((cell, p), sink), &g) in st.iter_mut().zip(cells).zip(sinks.iter_mut()).zip(&gate) {
+        for ((cell, p), sink) in st.iter_mut().zip(cells).zip(sinks.iter_mut()) {
             sink.z(t, z);
-            cell.close_minute(p, t, beta, z, short, g);
+            cell.close_minute(p, t, beta, z, short);
         }
     }
     Ok(st

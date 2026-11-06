@@ -119,6 +119,13 @@ pub(crate) fn entry_gate(p: &Params, first_min: i64) -> usize {
         .map_or(0, |m| usize::try_from(m - first_min).unwrap_or(0))
 }
 
+/// Сигнал по закрытию минуты `ft` (абсолютной) исполнился бы на `ft + 1` раньше `Params::entry_from` — вход запрещён. Читает границу
+/// из `Params` только когда сигнал есть: переменной цикла и лишнего регистра на горячем пути нет (замер G13: общий цикл не замедляется).
+#[inline]
+fn entry_blocked(p: &Params, ft: i64) -> bool {
+    p.entry_from.is_some_and(|m| ft + 1 < m)
+}
+
 /// Вход для одной пары: ряды выровнены по общей сетке, индекс `i` ↔ минута `first_min + i`.
 pub struct PairInput<'a> {
     pub first_min: i64,
@@ -422,8 +429,6 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
     // F-02: причина решённого выхода; сторона, закрытая стопом или сроком (0 — нет; только `REARM`).
     let mut why = ExitReason::Rule;
     let mut block = 0i8;
-    // D5(ii): первая минута сетки, на которой допустимо исполнение входа; сигнал на `t` исполняется на `t + 1`.
-    let enter_t0 = entry_gate(p, inp.first_min);
     for t in 0..n {
         let ft = inp.first_min + t as i64;
         let opens_ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
@@ -607,7 +612,7 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
                             block = 0;
                         }
                         if z <= -p.entry_z {
-                            if t + 1 < enter_t0 {
+                            if entry_blocked(p, ft) {
                                 c.warmup_blocked += 1;
                             } else if REARM && block == 1 {
                                 c.rearm_blocked += 1;
@@ -618,7 +623,7 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
                                 }
                             }
                         } else if z >= p.entry_z {
-                            if t + 1 < enter_t0 {
+                            if entry_blocked(p, ft) {
                                 c.warmup_blocked += 1;
                             } else if REARM && block == -1 {
                                 c.rearm_blocked += 1;
@@ -640,7 +645,7 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool, const REARM: bool
                     if r_mean.is_finite() && b.is_finite() {
                         let edge = r_mean.abs() * 1e4 * fh;
                         if edge > round_trip_cost_bps(p, b, wsum) {
-                            if t + 1 < enter_t0 {
+                            if entry_blocked(p, ft) {
                                 c.warmup_blocked += 1;
                             } else {
                                 pend = Pend::Enter(if r_mean > 0.0 { -1 } else { 1 }, b, t);
