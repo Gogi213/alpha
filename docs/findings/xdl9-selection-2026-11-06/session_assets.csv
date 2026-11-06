@@ -19,7 +19,7 @@ AEHR|акции+ETF,акции+ETF,bingx;bitget;bybit;okx,4,4,0.5922,,США,д�
 AEM|акции+ETF,акции+ETF,bingx,1,1,0.9992,,США,данные: медиана 0.999 >= 0.1935
 AFRM|акции+ETF,акции+ETF,bingx,1,1,0.9975,,США,данные: медиана 0.997 >= 0.1935
 AGNC|акции+ETF,акции+ETF,bingx,1,1,0.9929,,США,данные: медиана 0.993 >= 0.1935
-AGPU|акции+ETF,акции+ETF,aster;binance;bingx,3,2,0.5092,,США,данные: медиана 0.509 >= 0.1935
+AGPU|акции+ETF,акции+ETF,aster;binance;bingx;bitget,4,3,0.6049,,США,данные: медиана 0.605 >= 0.1935
 AGQ|акции+ETF,акции+ETF,bingx,1,1,0.9995,,США,данные: медиана 1.000 >= 0.1935
 AIQ|акции+ETF,акции+ETF,bingx,1,1,0.9943,,США,данные: медиана 0.994 >= 0.1935
 AKAM|акции+ETF,акции+ETF,binance;bingx;bitget,3,3,0.5082,,США,данные: медиана 0.508 >= 0.1935
@@ -35,7 +35,6 @@ AMZN|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;light
 AMZU|акции+ETF,акции+ETF,bingx;bitget;bybit,3,3,0.4891,,США,данные: медиана 0.489 >= 0.1935
 ANET|акции+ETF,акции+ETF,binance;bingx;bitget;bybit,4,4,0.6242,,США,данные: медиана 0.624 >= 0.1935
 ANF|акции+ETF,акции+ETF,bingx,1,1,0.9994,,США,данные: медиана 0.999 >= 0.1935
-ANTHROPIC|акции+ETF,акции+ETF,bybit,1,1,0.4987,,США,данные: медиана 0.499 >= 0.1935
 APD|акции+ETF,акции+ETF,bingx;bitget,2,2,0.0721,,не-США,данные: медиана доли дисперсии в кассе 0.072 < 0.1935
 APH|акции+ETF,акции+ETF,bingx,1,1,0.2429,,США,данные: медиана 0.243 >= 0.1935
 APLD|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.4397,,США,данные: медиана 0.440 >= 0.1935
@@ -74,13 +73,13 @@ BLK|акции+ETF,акции+ETF,bingx,1,1,0.2201,,США,данные: мед�
 BLSH|акции+ETF,акции+ETF,bitget,1,1,0.9283,,США,данные: медиана 0.928 >= 0.1935
 BMNR|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;lighter;okx,7,5,0.5888,,США,данные: медиана 0.589 >= 0.1935
 BMNU|акции+ETF,акции+ETF,bingx;bybit,2,2,0.3643,,США,данные: медиана 0.364 >= 0.1935
-BNC|акции+ETF,акции+ETF,aster;binance;bingx;bybit,4,4,0.5956,,США,данные: медиана 0.596 >= 0.1935
+BNC|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit,5,5,0.5563,,США,данные: медиана 0.556 >= 0.1935
 BNTX|акции+ETF,акции+ETF,bingx,1,1,0.9777,,США,данные: медиана 0.978 >= 0.1935
 BOIL|акции+ETF,акции+ETF,bingx,1,1,0.9970,,США,данные: медиана 0.997 >= 0.1935
 BOTZ|акции+ETF,акции+ETF,bitget,1,0,,,США,по умолчанию (П-37 §9)
-BOT|акции+ETF,акции+ETF,binance;bingx;bybit;lighter;okx,5,4,0.6497,,США,данные: медиана 0.650 >= 0.1935
+BOT|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;lighter;okx,6,5,0.6523,,США,данные: медиана 0.652 >= 0.1935
 BRKB|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;okx,6,5,0.6793,,США,данные: медиана 0.679 >= 0.1935
-BSP|акции+ETF,акции+ETF,binance;bingx;bybit;okx,4,4,0.6973,,США,данные: медиана 0.697 >= 0.1935
+BSP|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.6873,,США,данные: медиана 0.687 >= 0.1935
 BSX|акции+ETF,акции+ETF,bingx,1,1,0.9987,,США,данные: медиана 0.999 >= 0.1935
 BTDR|акции+ETF,акции+ETF,bingx;bybit,2,2,0.4733,,США,данные: медиана 0.473 >= 0.1935
 BUD|акции+ETF,акции+ETF,bingx;bitget,2,1,0.1093,,не-США,данные: медиана доли дисперсии в кассе 0.109 < 0.1935
@@ -151,7 +150,7 @@ DNN|акции+ETF,акции+ETF,bingx,1,1,0.9946,,США,данные: мед�
 DOOSBOT|акции+ETF,акции+ETF,bitget,1,0,,,США,по умолчанию (П-37 §9)
 DOOSENER|акции+ETF,акции+ETF,bitget,1,0,,,США,по умолчанию (П-37 §9)
 DOWJONES|индексы,индексы,bingx,1,1,0.5208,,США,данные: медиана 0.521 >= 0.1935
-DRAM|акции+ETF,акции+ETF,aster;binance;bingx;bybit;lighter;okx,6,6,0.4593,,США,данные: медиана 0.459 >= 0.1935
+DRAM|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;lighter;okx,7,7,0.4592,,США,данные: медиана 0.459 >= 0.1935
 DUOL|акции+ETF,акции+ETF,bingx,1,1,0.9996,,США,данные: медиана 1.000 >= 0.1935
 DXCM|акции+ETF,акции+ETF,bingx,1,1,0.9975,,США,данные: медиана 0.997 >= 0.1935
 DXYZ|акции+ETF,акции+ETF,bitget,1,1,0.2534,,США,данные: медиана 0.253 >= 0.1935
@@ -249,7 +248,7 @@ INDA|акции+ETF,акции+ETF,bingx;bitget,2,2,0.0719,,не-США,данн
 INFQ|акции+ETF,акции+ETF,bingx;bitget;bybit;okx,4,4,0.5515,,США,данные: медиана 0.551 >= 0.1935
 INTC|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;lighter;okx,8,8,0.5338,,США,данные: медиана 0.534 >= 0.1935
 INTU|акции+ETF,акции+ETF,bingx;bybit,2,2,0.5111,,США,данные: медиана 0.511 >= 0.1935
-INTW|акции+ETF,акции+ETF,binance;bingx;bybit;okx,4,4,0.5542,,США,данные: медиана 0.554 >= 0.1935
+INTW|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.5614,,США,данные: медиана 0.561 >= 0.1935
 IONQ|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.6924,,США,данные: медиана 0.692 >= 0.1935
 IOT|акции+ETF,акции+ETF,bingx,1,1,0.9938,,США,данные: медиана 0.994 >= 0.1935
 IOVA|акции+ETF,акции+ETF,bingx,1,1,0.9986,,США,данные: медиана 0.999 >= 0.1935
@@ -324,7 +323,6 @@ METU|акции+ETF,акции+ETF,bingx;bitget,2,2,0.6232,,США,данные:
 MGM|акции+ETF,акции+ETF,bingx,1,1,0.9986,,США,данные: медиана 0.999 >= 0.1935
 MINIMAX|акции+ETF,акции+ETF,aster;binance;bitget;bybit;lighter;okx,7,4,0.0407,binance:HK_EQUITY; нога HKD,не-США,binance:HK_EQUITY; нога HKD
 MNST|акции+ETF,акции+ETF,bingx;bybit,2,2,0.2111,,США,данные: медиана 0.211 >= 0.1935
-MOONSHOT|акции+ETF,акции+ETF,bybit,1,1,0.1325,,не-США,данные: медиана доли дисперсии в кассе 0.132 < 0.1935
 MO|акции+ETF,акции+ETF,bingx;bybit,2,2,0.1671,,не-США,данные: медиана доли дисперсии в кассе 0.167 < 0.1935
 MPC|акции+ETF,акции+ETF,bingx,1,1,0.2393,,США,данные: медиана 0.239 >= 0.1935
 MPWR|акции+ETF,акции+ETF,bingx,1,1,0.9907,,США,данные: медиана 0.991 >= 0.1935
@@ -345,7 +343,7 @@ MUFG|акции+ETF,акции+ETF,bingx;bitget,2,2,0.0774,,не-США,данн
 MURATA|акции+ETF,акции+ETF,bitget,1,0,,,США,по умолчанию (П-37 §9)
 MUU|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;okx,6,5,0.6281,,США,данные: медиана 0.628 >= 0.1935
 MU|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;lighter;okx,9,8,0.6212,,США,данные: медиана 0.621 >= 0.1935
-MVLL|акции+ETF,акции+ETF,binance;bingx;bybit;okx,4,4,0.6601,,США,данные: медиана 0.660 >= 0.1935
+MVLL|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.6616,,США,данные: медиана 0.662 >= 0.1935
 NASA|акции+ETF,акции+ETF,bingx,1,1,0.9931,,США,данные: медиана 0.993 >= 0.1935
 NASDAQ100|индексы,индексы,bingx;bitget;kraken;lighter;okx,5,4,0.5751,,США,данные: медиана 0.575 >= 0.1935
 NAVER|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,4,0.1926,binance:KR_EQUITY,не-США,binance:KR_EQUITY
@@ -377,13 +375,11 @@ OKLO|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.7228,,С
 OKTA|акции+ETF,акции+ETF,bingx;bitget;bybit;okx,4,4,0.5714,,США,данные: медиана 0.571 >= 0.1935
 ONDS|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;okx,6,5,0.6592,,США,данные: медиана 0.659 >= 0.1935
 ON|акции+ETF,акции+ETF,bingx;bybit;okx,3,3,0.2252,,США,данные: медиана 0.225 >= 0.1935
-OPENAI|акции+ETF,акции+ETF,bybit,1,1,0.6273,,США,данные: медиана 0.627 >= 0.1935
 OPEN|акции+ETF,акции+ETF,bingx,1,1,0.9959,,США,данные: медиана 0.996 >= 0.1935
 ORCL|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;lighter;okx,7,6,0.7368,,США,данные: медиана 0.737 >= 0.1935
 ORCX|акции+ETF,акции+ETF,bingx,1,1,0.9980,,США,данные: медиана 0.998 >= 0.1935
 OSCR|акции+ETF,акции+ETF,bingx;okx,2,2,0.5910,,США,данные: медиана 0.591 >= 0.1935
 OSS|акции+ETF,акции+ETF,bingx;bitget,2,2,0.3227,,США,данные: медиана 0.323 >= 0.1935
-OURA|акции+ETF,акции+ETF,bingx;bybit,2,2,0.2279,,США,данные: медиана 0.228 >= 0.1935
 OUST|акции+ETF,акции+ETF,bingx;bitget;bybit;okx,4,4,0.5745,,США,данные: медиана 0.574 >= 0.1935
 OWL|акции+ETF,акции+ETF,bingx,1,1,0.9989,,США,данные: медиана 0.999 >= 0.1935
 OXY|акции+ETF,акции+ETF,bingx;bitget,2,2,0.1777,,не-США,данные: медиана доли дисперсии в кассе 0.178 < 0.1935
@@ -405,7 +401,6 @@ PLUG|акции+ETF,акции+ETF,bingx,1,1,0.9949,,США,данные: мед
 PL|акции+ETF,акции+ETF,bingx;bitget,2,2,0.8613,,США,данные: медиана 0.861 >= 0.1935
 PM|акции+ETF,акции+ETF,bingx,1,1,0.9989,,США,данные: медиана 0.999 >= 0.1935
 POET|акции+ETF,акции+ETF,bingx;bitget;bybit;okx,4,4,0.5400,,США,данные: медиана 0.540 >= 0.1935
-POLYMARKET|акции+ETF,акции+ETF,bybit,1,1,0.1836,,не-США,данные: медиана доли дисперсии в кассе 0.184 < 0.1935
 POPMART|акции+ETF,акции+ETF,aster;binance;bitget;bybit;okx,5,4,0.1122,binance:HK_EQUITY,не-США,binance:HK_EQUITY
 PTC|акции+ETF,акции+ETF,bingx,1,1,0.9932,,США,данные: медиана 0.993 >= 0.1935
 PURR|акции+ETF,акции+ETF,bingx;bitget;bybit;okx,4,4,0.5910,,США,данные: медиана 0.591 >= 0.1935
@@ -420,7 +415,7 @@ QQQ|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;lighte
 QS|акции+ETF,акции+ETF,bingx,1,1,0.9935,,США,данные: медиана 0.993 >= 0.1935
 QUBT|акции+ETF,акции+ETF,bingx;bitget,2,1,0.5143,,США,данные: медиана 0.514 >= 0.1935
 RACE|акции+ETF,акции+ETF,bingx,1,1,0.9955,,США,данные: медиана 0.996 >= 0.1935
-RAM|акции+ETF,акции+ETF,binance;bingx;bybit;okx,4,4,0.4793,,США,данные: медиана 0.479 >= 0.1935
+RAM|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.4870,,США,данные: медиана 0.487 >= 0.1935
 RBLX|акции+ETF,акции+ETF,bingx,1,1,0.4670,,США,данные: медиана 0.467 >= 0.1935
 RBRK|акции+ETF,акции+ETF,bingx,1,1,0.4026,,США,данные: медиана 0.403 >= 0.1935
 RCL|акции+ETF,акции+ETF,bingx,1,1,0.9996,,США,данные: медиана 1.000 >= 0.1935
@@ -453,10 +448,10 @@ SCHD|акции+ETF,акции+ETF,bingx,1,1,0.9880,,США,данные: мед
 SCHW|акции+ETF,акции+ETF,bingx,1,1,0.9869,,США,данные: медиана 0.987 >= 0.1935
 SDEV|акции+ETF,акции+ETF,aster,1,0,,,США,по умолчанию (П-37 §9)
 SDGR|акции+ETF,акции+ETF,bingx;bitget;bybit,3,3,0.6698,,США,данные: медиана 0.670 >= 0.1935
-SECZ|акции+ETF,акции+ETF,binance;bingx;bybit;okx,4,4,0.5492,,США,данные: медиана 0.549 >= 0.1935
+SECZ|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.5528,,США,данные: медиана 0.553 >= 0.1935
 SENSETIME|акции+ETF,акции+ETF,bybit,1,1,0.0717,,не-США,данные: медиана доли дисперсии в кассе 0.072 < 0.1935
 SGOV|акции+ETF,акции+ETF,bingx;bitget,2,1,0.9970,,США,данные: медиана 0.997 >= 0.1935
-SHAZ|акции+ETF,акции+ETF,binance;bingx;bybit;okx,4,4,0.7366,,США,данные: медиана 0.737 >= 0.1935
+SHAZ|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.7474,,США,данные: медиана 0.747 >= 0.1935
 SHEIN|акции+ETF,акции+ETF,binance;bitget;bybit;lighter;okx,6,4,0.0582,binance:HK_EQUITY; нога HKD,не-США,binance:HK_EQUITY; нога HKD
 SHEL|акции+ETF,акции+ETF,bingx,1,1,0.9896,,США,данные: медиана 0.990 >= 0.1935
 SHLD|акции+ETF,акции+ETF,bingx;okx,2,2,0.1677,,не-США,данные: медиана доли дисперсии в кассе 0.168 < 0.1935
@@ -466,11 +461,11 @@ SILJ|акции+ETF,акции+ETF,bingx,1,1,0.9892,,США,данные: мед
 SIL|акции+ETF,акции+ETF,bingx,1,1,0.9310,,США,данные: медиана 0.931 >= 0.1935
 SIMO|акции+ETF,акции+ETF,bingx;bitget;okx,3,3,0.5880,,США,данные: медиана 0.588 >= 0.1935
 SITM|акции+ETF,акции+ETF,bingx;bitget,2,2,0.4748,,США,данные: медиана 0.475 >= 0.1935
-SKDD|акции+ETF,акции+ETF,binance;bybit;okx,3,3,0.4197,,США,данные: медиана 0.420 >= 0.1935
+SKDD|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.4197,,США,данные: медиана 0.420 >= 0.1935
 SKHYNIX|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;lighter;okx,8,7,0.3063,binance:KR_EQUITY,не-США,binance:KR_EQUITY
-SKHY|акции+ETF,акции+ETF,aster;binance;bingx;bybit;kraken;lighter;okx,7,7,0.4193,,США,данные: медиана 0.419 >= 0.1935
+SKHY|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;lighter;okx,8,8,0.4198,,США,данные: медиана 0.420 >= 0.1935
 SKSQUARE|акции+ETF,акции+ETF,bingx,1,1,0.0420,bingx:валюта KRW,не-США,bingx:валюта KRW
-SKUU|акции+ETF,акции+ETF,binance;bybit;okx,3,3,0.4540,,США,данные: медиана 0.454 >= 0.1935
+SKUU|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.4491,,США,данные: медиана 0.449 >= 0.1935
 SLB|акции+ETF,акции+ETF,bingx,1,1,0.9996,,США,данные: медиана 1.000 >= 0.1935
 SLV|акции+ETF,акции+ETF,bingx,1,1,0.9979,,США,данные: медиана 0.998 >= 0.1935
 SMCI|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.8205,,США,данные: медиана 0.821 >= 0.1935
@@ -483,7 +478,7 @@ SNAP|акции+ETF,акции+ETF,bingx,1,1,0.9873,,США,данные: мед
 SNDK|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;lighter;okx,9,8,0.5996,,США,данные: медиана 0.600 >= 0.1935
 SNOW|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.6130,,США,данные: медиана 0.613 >= 0.1935
 SNPS|акции+ETF,акции+ETF,binance;bingx;bitget;bybit,4,4,0.2278,,США,данные: медиана 0.228 >= 0.1935
-SNXX|акции+ETF,акции+ETF,aster;binance;bingx;bybit;okx,5,4,0.6060,,США,данные: медиана 0.606 >= 0.1935
+SNXX|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;okx,6,5,0.6123,,США,данные: медиана 0.612 >= 0.1935
 SOFI|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,4,0.5521,,США,данные: медиана 0.552 >= 0.1935
 SOFTBANK|акции+ETF,акции+ETF,bingx;bitget;okx,3,3,0.1863,bingx:валюта JPY,не-США,bingx:валюта JPY
 SONY|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;okx,5,5,0.2971,,США,данные: медиана 0.297 >= 0.1935
@@ -494,8 +489,8 @@ SOXS|акции+ETF,акции+ETF,binance;bingx;bitget;bybit;kraken;okx,6,6,0.4
 SOXX|акции+ETF,акции+ETF,bingx;bitget;bybit,3,3,0.5697,,США,данные: медиана 0.570 >= 0.1935
 SP500|индексы,индексы,bingx;bitget;lighter;okx,4,3,0.5443,,США,данные: медиана 0.544 >= 0.1935
 SPCE|акции+ETF,акции+ETF,bingx,1,1,0.9949,,США,данные: медиана 0.995 >= 0.1935
-SPCH|акции+ETF,акции+ETF,bingx;bybit;okx,3,3,0.7416,,США,данные: медиана 0.742 >= 0.1935
-SPCX|акции+ETF,акции+ETF,aster;binance;bingx;bybit;lighter;okx,8,6,0.7412,,США,данные: медиана 0.741 >= 0.1935
+SPCH|акции+ETF,акции+ETF,bingx;bitget;bybit;okx,4,4,0.7439,,США,данные: медиана 0.744 >= 0.1935
+SPCX|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;lighter;okx,10,8,0.7424,,США,данные: медиана 0.742 >= 0.1935
 SPGI|акции+ETF,акции+ETF,bingx,1,1,0.9988,,США,данные: медиана 0.999 >= 0.1935
 SPIR|акции+ETF,акции+ETF,bitget,1,1,0.2086,,США,данные: медиана 0.209 >= 0.1935
 SPOT|акции+ETF,акции+ETF,bingx;bybit,2,2,0.5920,,США,данные: медиана 0.592 >= 0.1935
@@ -504,7 +499,7 @@ SPYM|акции+ETF,акции+ETF,bingx,1,1,0.9928,,США,данные: мед
 SPY|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;kraken;lighter;okx,8,7,0.5524,,США,данные: медиана 0.552 >= 0.1935
 SQQQ|акции+ETF,акции+ETF,aster;binance;bingx;bitget;bybit;okx,6,5,0.5667,,США,данные: медиана 0.567 >= 0.1935
 SSBIOLOGICS|акции+ETF,акции+ETF,bitget,1,0,,,США,по умолчанию (П-37 §9)
-SSPC|акции+ETF,акции+ETF,bybit,1,1,0.6337,,США,данные: медиана 0.634 >= 0.1935
+SSPC|акции+ETF,акции+ETF,bingx;bitget;bybit,3,3,0.5880,,США,данные: медиана 0.588 >= 0.1935
 STM|акции+ETF,акции+ETF,bingx,1,1,0.9963,,США,данные: медиана 0.996 >= 0.1935
 STRC|акции+ETF,акции+ETF,aster;binance;bingx;bitget;lighter;okx,6,5,0.1914,,не-США,данные: медиана доли дисперсии в кассе 0.191 < 0.1935
 STXX|акции+ETF,акции+ETF,aster;binance;bybit,3,2,0.6434,,США,данные: медиана 0.643 >= 0.1935

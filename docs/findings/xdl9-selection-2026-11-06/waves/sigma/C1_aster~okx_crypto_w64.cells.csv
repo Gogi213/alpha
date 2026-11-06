@@ -1,0 +1,3 @@
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+C1|aster~okx|crypto|w64|a0,26,26,,4.00,0,inf,26,26
+C1|aster~okx|crypto|w64|a1,26,26,,4.00,0,8.00,26,26

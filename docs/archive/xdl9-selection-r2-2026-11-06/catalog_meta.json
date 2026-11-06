@@ -1,0 +1,10 @@
+{
+ "chance_session_share": 0.19345238095238096,
+ "session_minutes": 3900,
+ "seed": 37,
+ "n_splits": 4,
+ "n_contracts": 5188,
+ "n_catalogs": 44,
+ "nonus_assets": 66,
+ "assets": 614
+}

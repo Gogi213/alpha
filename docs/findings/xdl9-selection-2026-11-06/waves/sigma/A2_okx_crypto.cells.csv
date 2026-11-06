@@ -1,0 +1,3 @@
+cell,window,min_obs,beta_fixed,entry_z,exit_z,stop_z,max_hold,refresh
+A2|okx|crypto|a0,3772,3772,,1.00,0,inf,3772,3772
+A2|okx|crypto|a1,3772,3772,,1.00,0,2.00,3772,3772
