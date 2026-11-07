@@ -1,0 +1,21 @@
+{
+ "_banner": "ПЕРЕПИСЬ T2 (фандинг) - ОПИСАТЕЛЬНАЯ, не торговля и не подтверждение: сутки 2465..2499 (01.10-04.11.2026), статусов нет; формирование 2465..2478 и окно 2479..2499 раздельно",
+ "selfcheck": [
+  {
+   "which": "ante",
+   "pairs_checked": 306,
+   "grid_mismatch": 0,
+   "runs_mismatch": 0
+  },
+  {
+   "which": "post",
+   "pairs_checked": 306,
+   "grid_mismatch": 0,
+   "runs_mismatch": 0
+  }
+ ],
+ "seconds": 44.4,
+ "asset_pairs_sha256": "8c977521c2f390dabee842ca894a6f49c48658bace5d2441c1e9e3177adf955e",
+ "missing_funding_files": [],
+ "n_missing": 0
+}

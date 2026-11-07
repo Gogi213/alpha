@@ -1,0 +1,9 @@
+# ПЕРЕПИСЬ T2 (фандинг) - ОПИСАТЕЛЬНАЯ, не торговля и не подтверждение: сутки 2465..2499 (01.10-04.11.2026), статусов нет; формирование 2465..2478 и окно 2479..2499 раздельно
+rank,key,exA,symA,exB,symB,half,start,len,delta_max,delta_mean,S,rA_start,rB_start,short_leg,lead_leg
+1,IOST,bybit,IOSTUSDT,gate,IOST_USDT,win,21.10 23:00,2,181.506,155.898,311.796,-18.4938,-200,bybit,gate
+2,IOST,bybit,IOSTUSDT,gate,IOST_USDT,win,22.10 01:00,2,129.65,114.934,229.868,-200,-70.35,gate,bybit
+3,T,bybit,TUSDT,gate,T_USDT,win,25.10 10:00,2,115.89,114.77,229.54,-200,-86.35,gate,bybit
+4,BLUR,bybit,BLURUSDT,gate,BLUR_USDT,win,30.10 19:00,1,176.585,176.585,176.585,-179.092,-2.5075,gate,bybit
+5,ERA,bybit,ERAUSDT,gate,ERA_USDT,win,18.10 01:00,1,112.442,112.442,112.442,-120.942,-8.5,gate,bybit
+6,ERA,bybit,ERAUSDT,gate,ERA_USDT,win,20.10 02:00,1,103.988,103.988,103.988,-108.863,-4.875,gate,bybit
+7,IOST,okx,IOST-USDT-SWAP,gate,IOST_USDT,win,21.10 23:00,1,100,100,100,-100,-200,okx,gate

@@ -1,0 +1,240 @@
+{
+ "_banner": "ПЕРЕПИСЬ T2 (фандинг) - ОПИСАТЕЛЬНАЯ, не торговля и не подтверждение: сутки 2465..2499 (01.10-04.11.2026), статусов нет; формирование 2465..2478 и окно 2479..2499 раздельно",
+ "ante_U1": {
+  "form": {
+   "pair_day_events": 85,
+   "asset_day_events": 23,
+   "assets": 12,
+   "asset_episodes": 37,
+   "runs": 139,
+   "pair_hours": 221,
+   "pairs_with_hit": 53
+  },
+  "win": {
+   "pair_day_events": 559,
+   "asset_day_events": 118,
+   "assets": 62,
+   "asset_episodes": 128,
+   "runs": 559,
+   "pair_hours": 917,
+   "pairs_with_hit": 330
+  },
+  "all": {
+   "pair_day_events": 644,
+   "asset_day_events": 141,
+   "assets": 69,
+   "asset_episodes": 165,
+   "runs": 698,
+   "pair_hours": 1138,
+   "pairs_with_hit": 366
+  }
+ },
+ "ante_U2": {
+  "form": {
+   "pair_day_events": 219,
+   "asset_day_events": 55,
+   "assets": 23,
+   "asset_episodes": 97,
+   "runs": 372,
+   "pair_hours": 639,
+   "pairs_with_hit": 107
+  },
+  "win": {
+   "pair_day_events": 1045,
+   "asset_day_events": 207,
+   "assets": 94,
+   "asset_episodes": 235,
+   "runs": 1112,
+   "pair_hours": 1690,
+   "pairs_with_hit": 535
+  },
+  "all": {
+   "pair_day_events": 1264,
+   "asset_day_events": 262,
+   "assets": 104,
+   "asset_episodes": 332,
+   "runs": 1484,
+   "pair_hours": 2329,
+   "pairs_with_hit": 589
+  }
+ },
+ "ante_U3": {
+  "form": {
+   "pair_day_events": 87,
+   "asset_day_events": 24,
+   "assets": 13,
+   "asset_episodes": 38,
+   "runs": 141,
+   "pair_hours": 223,
+   "pairs_with_hit": 55
+  },
+  "win": {
+   "pair_day_events": 572,
+   "asset_day_events": 121,
+   "assets": 65,
+   "asset_episodes": 131,
+   "runs": 572,
+   "pair_hours": 969,
+   "pairs_with_hit": 343
+  },
+  "all": {
+   "pair_day_events": 659,
+   "asset_day_events": 145,
+   "assets": 73,
+   "asset_episodes": 169,
+   "runs": 713,
+   "pair_hours": 1192,
+   "pairs_with_hit": 381
+  }
+ },
+ "ante_G": {
+  "form": {
+   "pair_day_events": 33,
+   "asset_day_events": 24,
+   "assets": 14,
+   "asset_episodes": 38,
+   "runs": 48,
+   "pair_hours": 88,
+   "pairs_with_hit": 23
+  },
+  "win": {
+   "pair_day_events": 120,
+   "asset_day_events": 94,
+   "assets": 52,
+   "asset_episodes": 88,
+   "runs": 123,
+   "pair_hours": 216,
+   "pairs_with_hit": 66
+  },
+  "all": {
+   "pair_day_events": 153,
+   "asset_day_events": 118,
+   "assets": 60,
+   "asset_episodes": 126,
+   "runs": 171,
+   "pair_hours": 304,
+   "pairs_with_hit": 83
+  }
+ },
+ "post_U1": {
+  "form": {
+   "pair_day_events": 78,
+   "asset_day_events": 23,
+   "assets": 11,
+   "asset_episodes": 38,
+   "runs": 123,
+   "pair_hours": 179,
+   "pairs_with_hit": 46
+  },
+  "win": {
+   "pair_day_events": 399,
+   "asset_day_events": 87,
+   "assets": 59,
+   "asset_episodes": 110,
+   "runs": 489,
+   "pair_hours": 800,
+   "pairs_with_hit": 294
+  },
+  "all": {
+   "pair_day_events": 477,
+   "asset_day_events": 110,
+   "assets": 66,
+   "asset_episodes": 148,
+   "runs": 612,
+   "pair_hours": 979,
+   "pairs_with_hit": 328
+  }
+ },
+ "post_U2": {
+  "form": {
+   "pair_day_events": 213,
+   "asset_day_events": 55,
+   "assets": 22,
+   "asset_episodes": 96,
+   "runs": 359,
+   "pair_hours": 592,
+   "pairs_with_hit": 100
+  },
+  "win": {
+   "pair_day_events": 793,
+   "asset_day_events": 161,
+   "assets": 91,
+   "asset_episodes": 216,
+   "runs": 1040,
+   "pair_hours": 1574,
+   "pairs_with_hit": 497
+  },
+  "all": {
+   "pair_day_events": 1006,
+   "asset_day_events": 216,
+   "assets": 101,
+   "asset_episodes": 312,
+   "runs": 1399,
+   "pair_hours": 2166,
+   "pairs_with_hit": 550
+  }
+ },
+ "post_U3": {
+  "form": {
+   "pair_day_events": 80,
+   "asset_day_events": 24,
+   "assets": 12,
+   "asset_episodes": 39,
+   "runs": 125,
+   "pair_hours": 181,
+   "pairs_with_hit": 48
+  },
+  "win": {
+   "pair_day_events": 407,
+   "asset_day_events": 89,
+   "assets": 61,
+   "asset_episodes": 112,
+   "runs": 497,
+   "pair_hours": 808,
+   "pairs_with_hit": 302
+  },
+  "all": {
+   "pair_day_events": 487,
+   "asset_day_events": 113,
+   "assets": 69,
+   "asset_episodes": 151,
+   "runs": 622,
+   "pair_hours": 989,
+   "pairs_with_hit": 338
+  }
+ },
+ "post_G": {
+  "form": {
+   "pair_day_events": 27,
+   "asset_day_events": 22,
+   "assets": 12,
+   "asset_episodes": 37,
+   "runs": 42,
+   "pair_hours": 69,
+   "pairs_with_hit": 17
+  },
+  "win": {
+   "pair_day_events": 89,
+   "asset_day_events": 73,
+   "assets": 50,
+   "asset_episodes": 81,
+   "runs": 102,
+   "pair_hours": 189,
+   "pairs_with_hit": 61
+  },
+  "all": {
+   "pair_day_events": 116,
+   "asset_day_events": 95,
+   "assets": 58,
+   "asset_episodes": 118,
+   "runs": 144,
+   "pair_hours": 258,
+   "pairs_with_hit": 74
+  }
+ },
+ "rule": "семейство I запускается, если >= 30 независимых событий «пара x сутки» с Delta_h >= 25 bps/ч (П-39, аудит T2 §7)",
+ "met_ante_U1_all_pair_day": true,
+ "met_ante_U1_all_asset_day": true,
+ "met_ante_U1_all_assets": true,
+ "met_post_U1_all_pair_day": true
+}

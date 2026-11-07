@@ -1,0 +1,71 @@
+# ПЕРЕПИСЬ T2 (фандинг) - ОПИСАТЕЛЬНАЯ, не торговля и не подтверждение: сутки 2465..2499 (01.10-04.11.2026), статусов нет; формирование 2465..2478 и окно 2479..2499 раздельно
+key,runs,pair_hours_runs,S_sum,delta_max,days,first,last,lead_mode,lead_mode_share,exchanges
+IOST,29,67,4768.09,175.306,4,21.10,27.10,bybit,0.310345,binance bingx bitget bybit okx
+BIRB,39,81,4754.51,177.375,5,21.10,25.10,bybit,0.717949,binance bingx bitget bybit
+ERA,58,81,3748.81,110.383,6,17.10,24.10,bybit,0.465517,aster binance bingx bitget bybit
+CAT,16,46,2238.69,106.875,3,02.11,04.11,bybit,1,binance bingx bitget bybit
+DOOD,12,27,1690.38,99.2975,2,21.10,28.10,bybit,0.5,binance bingx bitget bybit okx
+BLUR,13,27,1660.45,178.767,3,15.10,30.10,bybit,0.692308,binance bingx bitget bybit okx
+SAND,18,50,1429.76,32.3488,3,02.10,19.10,bybit,1,aster binance bingx bitget bybit okx
+BAT,35,35,1427.1,50.1979,3,02.10,04.10,kraken,1,binance bingx bitget bybit kraken okx
+ORDER,19,33,1337.29,82.7389,2,24.10,25.10,bybit,0.684211,binance bingx bitget bybit okx
+NMR,26,44,1299.33,42.1873,1,06.10,06.10,bybit,0.346154,binance bingx bitget bybit lighter okx
+T,7,19,1195.2,116.212,3,25.10,29.10,bybit,0.857143,binance bitget bybit
+ARK,16,22,971.402,72.09,5,01.10,25.10,bingx,1,binance bingx bitget
+KAIA,17,26,950.829,50.125,2,09.10,10.10,bybit,0.588235,binance bingx bitget bybit kraken
+MOVR,15,20,887.845,49.875,4,01.10,30.10,kraken,1,aster binance bingx bitget bybit kraken
+Q,16,21,817.78,54.774,3,31.10,02.11,bybit,0.75,aster binance bingx bitget bybit
+BMT,13,22,785.068,50.125,5,24.10,04.11,aster,0.692308,aster binance bingx bybit
+MOODENG,12,16,757.741,51.1763,3,28.10,30.10,kraken,1,binance bingx bybit kraken okx
+EIGEN,10,15,739.587,50.9891,3,28.10,30.10,kraken,1,binance bingx bitget bybit kraken okx
+SAGA,12,18,732.823,49.9358,4,05.10,04.11,kraken,1,binance bingx bybit kraken
+MEW,10,25,708.491,32.0328,1,21.10,21.10,kraken,0.5,binance bingx bitget bybit kraken okx
+LDO,14,14,699.946,50.125,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+MORPHO,10,15,699.898,50.125,3,28.10,30.10,kraken,1,binance bingx bitget bybit kraken okx
+ASTER,7,14,698.344,49.9586,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+ETHFI,7,14,698.322,49.9368,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+ALGO,6,12,599.904,50.32,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+ATOM,6,12,599.612,50.2925,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+MANA,6,12,599.26,50.1017,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+PYTH,6,12,598.86,50.0772,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+IRYS,16,19,587.594,42.5,4,23.10,28.10,bybit,0.6875,binance bingx bitget bybit okx
+UP,10,18,527.845,37.0903,3,09.10,13.10,aster,1,aster bitget okx
+BTW,4,16,522.729,33.343,1,26.10,26.10,bybit,0.25,aster binance bingx bitget bybit
+FLOW,12,12,516.581,50.3629,2,29.10,30.10,kraken,1,binance bingx bybit kraken okx
+EGLD,5,10,499.757,50.2524,2,28.10,29.10,kraken,1,binance bingx bitget bybit kraken okx
+ZEN,5,10,498.762,49.8867,2,28.10,29.10,kraken,1,binance bingx bitget bybit kraken okx
+ZK,10,10,467.573,49.875,2,01.10,06.10,kraken,1,binance bingx bitget bybit kraken okx
+WIF,6,12,462.225,49.875,2,28.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+SOPH,7,15,445.299,32.8507,1,30.10,30.10,bitget,0.285714,binance bingx bitget bybit okx
+RSR,8,12,407.559,50.125,3,12.10,28.10,kraken,0.5,binance bingx bitget bybit kraken okx
+ENS,10,10,402.918,50.051,2,29.10,30.10,kraken,1,binance bingx bitget bybit kraken okx
+SUSHI,4,8,400.821,50.125,2,28.10,29.10,kraken,1,binance bingx bybit kraken okx
+SNX,4,8,399.252,50.0302,2,28.10,29.10,kraken,1,binance bingx bybit kraken okx
+KAS,4,8,399,49.875,2,28.10,29.10,kraken,1,binance bingx bitget bybit kraken
+MON,7,7,350.213,50.1725,1,30.10,30.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+TIA,7,7,349.824,50.125,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+ICP,7,7,349.383,49.9988,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+SEI,7,7,349.345,49.9833,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+ONDO,7,7,349.13,49.88,1,28.10,28.10,kraken,1,aster binance bingx bitget bybit kraken lighter okx
+BONK,8,8,347.329,49.8756,2,28.10,29.10,kraken,1,binance bingx bybit kraken okx
+ARIA,3,12,332.51,28.1675,1,18.10,18.10,bitget,1,binance bingx bitget bybit
+CARV,3,12,316.417,28.1796,1,05.10,05.10,bybit,0.333333,binance bingx bitget bybit
+POL,6,6,300.01,50.1874,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+SHIB,6,6,299.291,49.915,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+SPX,6,6,299.255,49.88,1,29.10,29.10,kraken,1,binance bingx bitget bybit kraken lighter okx
+CFX,6,6,299.25,49.875,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+INJ,6,6,273.566,45.6071,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+ARC,5,5,250.706,50.195,1,28.10,28.10,kraken,1,aster binance bingx bitget bybit kraken
+XTZ,5,5,249.759,50.2589,1,29.10,29.10,kraken,1,binance bingx bitget bybit kraken okx
+DYDX,5,5,249.461,49.9614,1,29.10,29.10,kraken,1,binance bingx bitget bybit kraken okx
+FET,5,5,249.444,49.9444,1,29.10,29.10,kraken,1,aster binance bingx bitget kraken okx
+JTO,5,5,249.376,49.8764,1,29.10,29.10,kraken,1,binance bingx bitget bybit kraken okx
+PENDLE,5,5,249.375,49.875,1,28.10,28.10,kraken,1,binance bingx bitget bybit kraken okx
+STX,6,6,238.335,39.7869,1,29.10,29.10,kraken,1,aster binance bingx bitget bybit kraken okx
+ANIME,4,8,226.633,33.1252,1,25.10,25.10,bybit,0.25,aster binance bingx bybit okx
+RLC,2,8,222.688,29.8721,1,05.10,05.10,bybit,1,binance bingx bybit
+RIVER,4,4,198.061,49.875,1,28.10,28.10,kraken,1,bingx bitget bybit kraken okx
+PTB,2,6,186.4,49.3681,2,22.10,23.10,binance,1,binance bybit
+BCH,6,6,164.554,27.49,1,28.10,28.10,kraken,1,aster binance bingx bitget bybit kraken okx
+TRX,3,3,95.5294,31.8535,1,29.10,29.10,kraken,1,bingx bitget kraken okx
+GTC,2,2,60.2744,30.1597,1,17.10,17.10,aster,1,aster binance bingx

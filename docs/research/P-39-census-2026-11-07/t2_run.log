@@ -1,0 +1,32 @@
+asset_pairs.csv sha256 8c977521c2f390da строк 12927
+U1 пар с фандингом обеих ног 5830 без фандинга 0 активов 550
+U2 пар с фандингом обеих ног 7164 без фандинга 0 активов 560
+U3 пар с фандингом обеих ног 8069 без фандинга 0 активов 819
+G (Gate, крипта, c1d2=1) пар с фандингом 2460 без 0
+ноги binance контрактов 807 выплат 133632 interval_h пусто 0 разрыв != interval_h 21
+ноги bybit контрактов 903 выплат 137744 interval_h пусто 0 разрыв != interval_h 0
+ноги okx контрактов 540 выплат 76807 interval_h пусто 2 разрыв != interval_h 0
+ноги bingx контрактов 1307 выплат 187712 interval_h пусто 0 разрыв != interval_h 13
+ноги bitget контрактов 931 выплат 135910 interval_h пусто 0 разрыв != interval_h 0
+ноги kraken контрактов 209 выплат 173302 interval_h пусто 0 разрыв != interval_h 209
+ноги aster контрактов 619 выплат 134780 interval_h пусто 0 разрыв != interval_h 0
+ноги lighter контрактов 215 выплат 178151 interval_h пусто 0 разрыв != interval_h 0
+ноги gate контрактов 1072 выплат 156547 interval_h пусто 0 разрыв != interval_h 0
+контрактов в сетке 4694 часов 840
+census ante U1 пар 5830
+census ante U2 пар 7164
+census ante U3 пар 8069
+census ante G пар 2460
+census post U1 пар 5830
+census post U2 пар 7164
+census post U3 пар 8069
+census post G пар 2460
+серии ante tau 50 162
+серии ante tau 100 28
+серии ante tau 200 0
+серии post tau 50 140
+серии post tau 100 28
+серии post tau 200 0
+самопроверка {'which': 'ante', 'pairs_checked': 306, 'grid_mismatch': 0, 'runs_mismatch': 0}
+самопроверка {'which': 'post', 'pairs_checked': 306, 'grid_mismatch': 0, 'runs_mismatch': 0}
+готово, секунд 44.4
