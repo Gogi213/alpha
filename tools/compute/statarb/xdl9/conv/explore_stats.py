@@ -265,37 +265,47 @@ def base_view(vd, ref):
     return R, act
 
 
+def diff_stats(vd, Rb, actb, pre=""):
+    """Парная разность y_d варианта и базы (Rb, actb) по общим суткам: полный ряд и половины, 90 %-интервал блочного t; разность net на сделку (полный ряд, H1, H2)."""
+    sv = make_series(vd.rows, vd.act)
+    sb = make_series(Rb, actb)
+    out = {}
+    if not (sv["primary"] and sb["primary"]):
+        return out
+    mv = dict(zip(sv["primary_days"], sv["primary"]))
+    mb = dict(zip(sb["primary_days"], sb["primary"]))
+    days = sorted(set(mv) & set(mb))
+    for nm, sel in (("all", days), ("h1", [d for d in days if d <= H1_LAST]), ("h2", [d for d in days if d > H1_LAST])):
+        ds = [mv[d] - mb[d] for d in sel]
+        iv = AG.interval(ds) if len(ds) >= 3 else None
+        out[pre + nm + "_n"] = len(ds)
+        out[pre + nm + "_diff_mean"] = float(np.mean(ds)) if ds else None
+        out[pre + nm + "_diff_lo_t"] = None if iv is None else iv["lo"]
+        out[pre + nm + "_diff_hi_t"] = None if iv is None else iv["hi"]
+    tv, tb = trade_means(vd.rows), trade_means(Rb)
+    out[pre + "net_diff"] = None if tv["net"] is None or tb["net"] is None else tv["net"] - tb["net"]
+    out[pre + "n_base"] = tb["n"]
+    m1, m2 = half_mask(vd.rows) if len(vd.rows) else (np.zeros(0, bool), np.zeros(0, bool))
+    b1, b2 = half_mask(Rb) if len(Rb) else (np.zeros(0, bool), np.zeros(0, bool))
+    for nm, mv_, mb_ in (("h1", m1, b1), ("h2", m2, b2)):
+        a_, b_ = trade_means(vd.rows, mv_), trade_means(Rb, mb_)
+        out[pre + nm + "_net_diff"] = None if a_["net"] is None or b_["net"] is None else a_["net"] - b_["net"]
+    return out
+
+
 def paired_rows(vd, ref):
+    """База того же универсума (протокол §4 п. 7) и, для подмножеств/иных универсумов, ВТОРАЯ разность - с полной базой REF (full_*): для E-X и терцилей разность с базой того же универсума почти нулевая
+    по построению, а вопрос семейства («что даёт подмножество») читается по full_*."""
     bv = base_view(vd, ref)
     if bv is None:
         return None
     Rb, actb = bv
     if vd.src and vd.src.startswith("main") and den_same(vd):
         actb = vd.act
-    sv = make_series(vd.rows, vd.act)
-    sb = make_series(Rb, actb)
-    out = dict(id=vd.id, base=ref.id)
-    if not (sv["primary"] and sb["primary"]):
-        return out
-    mv = dict(zip(sv["primary_days"], sv["primary"]))
-    mb = dict(zip(sb["primary_days"], sb["primary"]))
-    days = sorted(set(mv) & set(mb))
-    diff = [mv[d] - mb[d] for d in days]
-    for nm, sel in (("all", days), ("h1", [d for d in days if d <= H1_LAST]), ("h2", [d for d in days if d > H1_LAST])):
-        ds = [mv[d] - mb[d] for d in sel]
-        iv = AG.interval(ds) if len(ds) >= 3 else None
-        out[nm + "_n"] = len(ds)
-        out[nm + "_diff_mean"] = float(np.mean(ds)) if ds else None
-        out[nm + "_diff_lo_t"] = None if iv is None else iv["lo"]
-        out[nm + "_diff_hi_t"] = None if iv is None else iv["hi"]
-    tv, tb = trade_means(vd.rows), trade_means(Rb)
-    out["net_diff"] = None if tv["net"] is None or tb["net"] is None else tv["net"] - tb["net"]
-    out["n_variant"], out["n_base"] = tv["n"], tb["n"]
-    m1, m2 = half_mask(vd.rows) if len(vd.rows) else (np.zeros(0, bool), np.zeros(0, bool))
-    b1, b2 = half_mask(Rb) if len(Rb) else (np.zeros(0, bool), np.zeros(0, bool))
-    for nm, mv_, mb_ in (("h1", m1, b1), ("h2", m2, b2)):
-        a_, b_ = trade_means(vd.rows, mv_), trade_means(Rb, mb_)
-        out[nm + "_net_diff"] = None if a_["net"] is None or b_["net"] is None else a_["net"] - b_["net"]
+    out = dict(id=vd.id, base=ref.id, n_variant=len(vd.rows))
+    out.update(diff_stats(vd, Rb, actb))
+    if vd.v["excl"] or vd.v["terc"] or vd.v["univ"] != "main":
+        out.update(diff_stats(vd, ref.rows, ref.act, pre="full_"))
     return out
 
 
@@ -304,7 +314,9 @@ def den_same(vd):
 
 
 PAIRED_COLS = ["id", "base", "n_variant", "n_base", "net_diff", "h1_net_diff", "h2_net_diff", "all_n", "all_diff_mean", "all_diff_lo_t", "all_diff_hi_t", "h1_n", "h1_diff_mean", "h1_diff_lo_t",
-               "h1_diff_hi_t", "h2_n", "h2_diff_mean", "h2_diff_lo_t", "h2_diff_hi_t"]
+               "h1_diff_hi_t", "h2_n", "h2_diff_mean", "h2_diff_lo_t", "h2_diff_hi_t",
+               "full_n_base", "full_net_diff", "full_h1_net_diff", "full_h2_net_diff", "full_all_n", "full_all_diff_mean", "full_all_diff_lo_t", "full_all_diff_hi_t", "full_h1_diff_mean", "full_h1_diff_lo_t",
+               "full_h1_diff_hi_t", "full_h2_diff_mean", "full_h2_diff_lo_t", "full_h2_diff_hi_t"]
 
 
 # ------------------------------------------------------------------ диагностики §10
@@ -425,10 +437,62 @@ def cmd_tables(a):
     print("таблицы записаны: вариантов %d, различных наборов сделок %d, M_эфф %s" % (len(order), len(set(hashes.values())), "%.2f" % m_eff if m_eff else "—"))
 
 
+def subfam(r):
+    """Подсемейство строки для сводки: E - по префиксу id; остальные - по семейству."""
+    i, fam = r["id"], r["fam"]
+    if fam != "E":
+        return fam
+    for key, nm in (("-no-", "E-X (без биржи)"), ("noshort", "E-SB (без шорта на Bybit)"), ("-terc", "E-T (терцили оборота)"), ("-out", "E-O (выбросная нога S/L)"), ("-ox", "E-OX (без выбросных ног)"),
+                    ("gate", "E-G (с Gate)"), ("-eq-", "E-EQ (акции+ETF)")):
+        if key in i:
+            return nm
+    return fam
+
+
+def cmd_summary(a):
+    """Сводка по семействам (главная таблица отчёта): число вариантов; лучшие и худшие по нижней границе y_d и по net на сделку; сколько вариантов с net > 0 в полном ряду и в обеих половинах; разделение половин."""
+    XG.configure(script_path=os.path.abspath(__file__), out_root=a.out)
+    with open(os.path.join(a.out, "tables", "variants_main.csv"), encoding="utf-8", newline="") as f:
+        f.readline()
+        import csv
+        rows = list(csv.DictReader(f))
+
+    def fv(r, k):
+        try:
+            return float(r[k])
+        except (TypeError, ValueError):
+            return None
+    groups = {}
+    for r in rows:
+        if r["id"].endswith("-d0"):
+            continue                                     # d0 в ранжирование не входит (§4.1)
+        groups.setdefault(subfam(r), []).append(r)
+    out = []
+    for g, rs in groups.items():
+        ok_lo = [r for r in rs if fv(r, "yd_lo_t") is not None]
+        best = max(ok_lo, key=lambda r: fv(r, "yd_lo_t")) if ok_lo else None
+        worst = min(ok_lo, key=lambda r: fv(r, "yd_lo_t")) if ok_lo else None
+        bn = max(rs, key=lambda r: fv(r, "net") if fv(r, "net") is not None else -1e9)
+        wn = min(rs, key=lambda r: fv(r, "net") if fv(r, "net") is not None else 1e9)
+        both = sum(1 for r in rs if all((fv(r, k) or 0) > 0 for k in ("net", "h1_net", "h2_net")))
+        lo_pos = sum(1 for r in rs if (fv(r, "yd_lo_t") or -1) > 0)
+
+        def cells(r):
+            return [r["id"], fv(r, "n"), fv(r, "net"), fv(r, "yd_lo_t"), fv(r, "h1_net"), fv(r, "h2_net"), fv(r, "h1_yd"), fv(r, "h2_yd")]
+        out.append([g, len(rs), both, lo_pos] + cells(best) + cells(worst) + cells(bn)[:3] + cells(wn)[:3])
+    hdr = ["семейство", "вариантов", "net>0 в ряду и обеих половинах", "нижняя граница y_d > 0"]
+    for p_ in ("лучший_по_lo", "худший_по_lo"):
+        hdr += ["%s_id" % p_, "n", "net", "yd_lo_t", "h1_net", "h2_net", "h1_yd", "h2_yd"]
+    for p_ in ("лучший_по_net", "худший_по_net"):
+        hdr += ["%s_id" % p_, "n", "net"]
+    XG.write_csv(os.path.join(a.out, "tables", "family_summary.csv"), hdr, out)
+    print("сводка: семейств %d" % len(out))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("tables", "null"):
+    for name in ("tables", "null", "summary"):
         s = sp.add_parser(name)
         s.add_argument("--out", default=XG.c2x_home())
         s.add_argument("--tags", default="main")
@@ -438,6 +502,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "tables":
         cmd_tables(a)
+    elif a.cmd == "summary":
+        cmd_summary(a)
     else:
         import explore_null as EN
         EN.cmd_null(a)

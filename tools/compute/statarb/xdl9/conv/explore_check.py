@@ -3,7 +3,7 @@
 
 Читает out/<tag>/trades/<id>.csv.gz и out/<tag>/den/<id>.csv, пересчитывает для выбранных вариантов: сделки, активы, gross/комиссию/фандинг/net на сделку, c*, net при 8,82 и 5,04, ряд y_d
 (закрытые + MTM в последние сутки, знаменатель из den), среднее, нижнюю границу блочного t (t-квантиль - численным интегрированием плотности), net и y_d по половинам;
-сравнивает со столбцами tables/variants_main.csv. Допуск: средние 1e-9 (относительный), интервалы 1e-6.
+сравнивает со столбцами tables/variants_main.csv. Допуск: 1e-9 относительный, но не жёстче 1e-7 абсолютного (сделки в csv.gz с 9 значащими цифрами); нижние границы интервала - 1e-6.
   python explore_check.py --out ~/xdl9/c2x --tag main --ids REF-B1,REF-B2,A-B1-Linf-T1440,B-B1-hT-phi0,E-B1-no-bybit
 """
 import argparse
@@ -133,7 +133,8 @@ def main(argv=None):
                 continue
             want = float(t[k])
             tol = 1e-6 if k.endswith("_lo_t") else 1e-9
-            if abs(v - want) > tol * max(1.0, abs(want)):
+            # сделки в csv.gz записаны с 9 значащими цифрами (формат окна): среднее по ним отличается от расчёта в памяти на ~1e-8 bps - допуск 1e-7 абсолютный
+            if abs(v - want) > max(tol * abs(want), 1e-7 if not k.endswith("_lo_t") else 1e-6):
                 bad += 1
                 print("РАСХОЖДЕНИЕ %s %s: независимо %.12g, таблица %.12g" % (vid, k, v, want))
         print("%-26s сверено %d столбцов" % (vid, sum(1 for k, v in mine.items() if v is not None and t.get(k, "") != "")))

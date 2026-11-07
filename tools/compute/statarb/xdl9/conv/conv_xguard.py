@@ -233,7 +233,7 @@ def _cell(x):
     if x is None:
         return ""
     if isinstance(x, (float, np.floating)):
-        return "" if not np.isfinite(x) else "%.9g" % x
+        return "" if not np.isfinite(x) else "%.12g" % x
     s = str(x)
     if "," in s or '"' in s or "\n" in s:
         s = '"' + s.replace('"', '""') + '"'
