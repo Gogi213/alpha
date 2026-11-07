@@ -168,12 +168,20 @@ def cmd_measure(a, world, pairs, cfgd, initargs, d0, d1, p0day):
 
 
 def pool_map(fn, tasks, threads, initargs):
+    return list(pool_iter(fn, tasks, threads, initargs))
+
+
+def pool_iter(fn, tasks, threads, initargs):
+    """Результаты задач по одному, в порядке задач (imap): память не растёт с числом задач (потоковая запись сетки, 07.11 отступление R-MEM)."""
     if threads <= 1:
         _init(*initargs)
-        return [fn(t) for t in tasks]
+        for t in tasks:
+            yield fn(t)
+        return
     ctx = mp.get_context("fork")
     with ctx.Pool(threads, initializer=_init, initargs=initargs) as pool:
-        return list(pool.imap(fn, tasks, chunksize=1))
+        for r in pool.imap(fn, tasks, chunksize=1):
+            yield r
 
 
 def main(argv=None):
@@ -286,36 +294,55 @@ def main(argv=None):
         tasks += W.components(pc)
     initargs = (root, bool(test_world), a.calendar, ("test" if test_world else a.mode), a.go_window, pparams, script, root if test_world else None, cfgd, a.out, cpd,
                 combos, d0, d1, p0day, q5, a.trades_out, not a.no_turn)
-    res = pool_map(_grid_task, tasks, a.threads, initargs)
     odir = os.path.join(a.out, "grid_" + a.tag)
-    byc = {}
-    for r, t in zip(res, tasks):
-        byc.setdefault(t[0]["cls"], []).append(r)
-    for cls, rs in byc.items():
-        d = os.path.join(odir, cls)
-        os.makedirs(d, exist_ok=True)
-        np.save(os.path.join(d, "tab.npy"), np.concatenate([r["tab"] for r in rs], axis=1))
-        np.save(os.path.join(d, "act.npy"), np.concatenate([r["act"] for r in rs], axis=1))
-        np.save(os.path.join(d, "hist.npy"), sum(r["hist"] for r in rs))
-        np.save(os.path.join(d, "minnet.npy"), np.min(np.stack([r["minnet"] for r in rs]), axis=0))
-        pids = [x for r in rs for x in r["pids"]]
-        json.dump(pids, open(os.path.join(d, "pids.json"), "w"))
-        json.dump({"keys": [x for r in rs for x in r["keys"]], "cells": [x for r in rs for x in r["cells"]], "exch": [x for r in rs for x in r["exch"]]},
-                  open(os.path.join(d, "pairmeta.json"), "w"))
-        cn = []
-        for ci in range(len(combos)):
-            tot = {}
-            for r in rs:
-                for k, v in r["cnt"][ci].items():
-                    tot[k] = tot.get(k, 0) + v
-            cn.append(tot)
-        json.dump(cn, open(os.path.join(d, "counters.json"), "w"), sort_keys=True)
-        if a.trades_out:
-            with open(os.path.join(d, "trades.csv"), "w", encoding="utf-8", newline="\n") as f:
-                f.write("combo,pid,key," + ",".join(L.TRADE_FIELDS) + "\n")
-                for r in rs:
-                    for t in r["trades"]:
-                        f.write(",".join(("%.9g" % v) if isinstance(v, float) else str(v) for v in t) + "\n")
+    nd = d1 - d0 + 1
+    nC = len(combos)
+    npairs_cls = {}
+    for t in tasks:
+        npairs_cls[t[0]["cls"]] = npairs_cls.get(t[0]["cls"], 0) + len(t)
+    acc = {}
+    # потоковая запись (отступление R-MEM 07.11): результат компоненты пишется в заранее выделенные файлы .npy сразу; содержимое файлов то же, что при записи после сбора
+    for r, t in zip(pool_iter(_grid_task, tasks, a.threads, initargs), tasks):
+        cls = t[0]["cls"]
+        st = acc.get(cls)
+        if st is None:
+            d = os.path.join(odir, cls)
+            os.makedirs(d, exist_ok=True)
+            st = acc[cls] = dict(d=d, off=0, hist=0, minnet=None, pids=[], keys=[], cells=[], exch=[], cn=[dict() for _ in range(nC)], tf=None,
+                                 tab=np.lib.format.open_memmap(os.path.join(d, "tab.npy"), mode="w+", dtype=np.float64, shape=(nC, npairs_cls[cls], nd + 1, GR.NF)),
+                                 act=np.lib.format.open_memmap(os.path.join(d, "act.npy"), mode="w+", dtype=np.uint8, shape=(nC, npairs_cls[cls], nd)))
+            if a.trades_out:
+                st["tf"] = open(os.path.join(d, "trades.csv"), "w", encoding="utf-8", newline=chr(10))
+                st["tf"].write("combo,pid,key," + ",".join(L.TRADE_FIELDS) + chr(10))
+        n = len(t)
+        st["tab"][:, st["off"]:st["off"] + n] = r["tab"]
+        st["act"][:, st["off"]:st["off"] + n] = r["act"]
+        st["off"] += n
+        st["hist"] = st["hist"] + r["hist"]
+        st["minnet"] = r["minnet"] if st["minnet"] is None else np.minimum(st["minnet"], r["minnet"])
+        st["pids"] += r["pids"]
+        st["keys"] += r["keys"]
+        st["cells"] += r["cells"]
+        st["exch"] += r["exch"]
+        for ci in range(nC):
+            tot = st["cn"][ci]
+            for k, v in r["cnt"][ci].items():
+                tot[k] = tot.get(k, 0) + v
+        if st["tf"] is not None:
+            for tr in r["trades"]:
+                st["tf"].write(",".join(("%.9g" % v) if isinstance(v, float) else str(v) for v in tr) + chr(10))
+    for cls, st in acc.items():
+        d = st["d"]
+        st["tab"].flush()
+        st["act"].flush()
+        del st["tab"], st["act"]
+        np.save(os.path.join(d, "hist.npy"), st["hist"])
+        np.save(os.path.join(d, "minnet.npy"), st["minnet"])
+        json.dump(st["pids"], open(os.path.join(d, "pids.json"), "w"))
+        json.dump({"keys": st["keys"], "cells": st["cells"], "exch": st["exch"]}, open(os.path.join(d, "pairmeta.json"), "w"))
+        json.dump(st["cn"], open(os.path.join(d, "counters.json"), "w"), sort_keys=True)
+        if st["tf"] is not None:
+            st["tf"].close()
     json.dump([list(c) for c in combos], open(os.path.join(odir, "combos.json"), "w"))
     json.dump({"fields": GR.DF, "d0": d0, "d1": d1, "first_sig_day": p0day, "cfg": cfgd, "pairs": len(pairs), "components": len(tasks),
                "seconds": round(time.time() - t0, 1)}, open(os.path.join(odir, "meta.json"), "w"), sort_keys=True)

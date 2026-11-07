@@ -50,8 +50,8 @@ class Grid:
     def __init__(self, gdir, cls):
         d = os.path.join(gdir, cls)
         self.cls = cls
-        self.tab = np.load(os.path.join(d, "tab.npy"))
-        self.act = np.load(os.path.join(d, "act.npy"))
+        self.tab = np.load(os.path.join(d, "tab.npy"), mmap_mode="r")          # R-MEM: большие массивы не читаются целиком
+        self.act = np.load(os.path.join(d, "act.npy"), mmap_mode="r")
         self.pids = json.load(open(os.path.join(d, "pids.json")))
         pm = json.load(open(os.path.join(d, "pairmeta.json")))
         self.keys, self.cells, self.exch = pm["keys"], pm["cells"], pm["exch"]
@@ -212,8 +212,9 @@ def step_distance(c1, c2):
     return d
 
 
-def class_formation(gr_full, gr_train, cls_name):
-    """Условия формирования класса §7.4: выбор c_полн и c_обуч, плато, согласие, A3b (половины активов), A8 (без каждой биржи). -> dict с причинами."""
+def class_formation(gr_full, gr_train, cls_name, a3b_given=None):
+    """Условия формирования класса §7.4: выбор c_полн и c_обуч, плато, согласие, A3b (половины активов), A8 (без каждой биржи). -> dict с причинами.
+    a3b_given - результат A3b, посчитанный отдельными прогонами половин со структурными числами только своей половины (conv_k7); иначе приближение внутри полной сетки."""
     out = dict(cls=cls_name, formed=False, reasons=[])
     ci_full, table = class_selection(gr_full)
     out["table"] = table
@@ -234,7 +235,7 @@ def class_formation(gr_full, gr_train, cls_name):
     else:
         out["agree"] = True
     a3b = []
-    for h in (0, 1):
+    for h in ((0, 1) if a3b_given is None else ()):
         r_h = gr_full.rows(asset_half=h)
         r_o = gr_full.rows(asset_half=1 - h)
         ci_h, _ = class_selection(gr_full, r_h)
@@ -243,6 +244,9 @@ def class_formation(gr_full, gr_train, cls_name):
             continue
         ser = y_series(gr_full, ci_h, r_o)["primary"]
         a3b.append(bool(ser is not None and len(ser) > 0 and sum(ser) / len(ser) > 0))
+    if a3b_given is not None:
+        a3b = list(a3b_given["ok"])
+        out["a3b_detail"] = a3b_given
     out["a3b"] = a3b
     if not all(a3b):
         out["reasons"].append("A3b: комбинация одной половины активов не даёт плюс на другой")
@@ -343,9 +347,8 @@ def perm_pwin(gr, cls_rows, n_perm=1000, seed=37):
                 obs_best = max(obs_best, iv["lo"])
     if not math.isfinite(obs_best):
         return None
-    t = gr.tab[:, cls_rows]                           # [комб, пары, сутки+1, поля]
-    n = t[:, :, :, FI["n"]].sum(axis=1)               # [комб, сутки+1]
-    var = t[:, :, :, FI["sx2"]].sum(axis=1)
+    n = np.stack([np.asarray(gr.tab[ci][cls_rows][:, :, FI["n"]]).sum(axis=0) for ci in range(len(gr.combos))])        # [комб, сутки+1]
+    var = np.stack([np.asarray(gr.tab[ci][cls_rows][:, :, FI["sx2"]]).sum(axis=0) for ci in range(len(gr.combos))])
     den = gr.act[:, cls_rows].sum(axis=1).astype(float)   # [комб, сутки]
     hit = 0
     for _ in range(n_perm):

@@ -63,20 +63,23 @@ class World:
                 raise SystemExit("asset_pairs.csv: sha256 %s не совпадает с 8c977521… (П-37 params table_asset_pairs)" % h)
         out = []
         with open(path, encoding="utf-8", newline="") as f:
-            for r in csv.DictReader(f):
-                if r.get("c1d2") != "1" or r.get("scope") != "между биржами":
-                    continue
-                cls = CLASS_CODE.get(r["big1"])
-                if cls is None or r["big1"] != r["big2"]:
-                    continue
-                a, b = (r["ex1"], r["sym1"]), (r["ex2"], r["sym2"])
-                if (a[0], a[1]) > (b[0], b[1]):
-                    a, b = b, a
-                if a[0] == b[0]:
-                    a, b = ((r["ex1"], r["sym1"]), (r["ex2"], r["sym2"])) if r["sym1"] < r["sym2"] else ((r["ex2"], r["sym2"]), (r["ex1"], r["sym1"]))
-                pid = "%s~%s|%s|%s" % (a[0], b[0], safe(a[1]), safe(b[1]))
-                out.append(dict(pid=pid, key=r["key"], cls=cls, exA=a[0], symA=a[1], exB=b[0], symB=b[1], cell="%s~%s/%s" % (a[0], b[0], cls),
-                                quoteA=r.get("quote1", ""), quoteB=r.get("quote2", ""), legs=((a[0], a[1]), (b[0], b[1]))))
+            rows_all = list(csv.DictReader(f))
+        # метка рынка «Гонконг» - по АКТИВУ (§3.6): у актива есть контракт в HKD (Bitget) либо биржевой код HK#### (Binance) в любой строке таблицы (отступление R-HK 07.11: в r2-коде метка шла по паре)
+        hk_keys = {r["key"] for r in rows_all for s in (r["sym1"], r["sym2"]) if re.search(r"HKD", s) or re.match(r"^HK\d{4}", s)}
+        for r in rows_all:
+            if r.get("c1d2") != "1" or r.get("scope") != "между биржами":
+                continue
+            cls = CLASS_CODE.get(r["big1"])
+            if cls is None or r["big1"] != r["big2"]:
+                continue
+            a, b = (r["ex1"], r["sym1"]), (r["ex2"], r["sym2"])
+            if (a[0], a[1]) > (b[0], b[1]):
+                a, b = b, a
+            if a[0] == b[0]:
+                a, b = ((r["ex1"], r["sym1"]), (r["ex2"], r["sym2"])) if r["sym1"] < r["sym2"] else ((r["ex2"], r["sym2"]), (r["ex1"], r["sym1"]))
+            pid = "%s~%s|%s|%s" % (a[0], b[0], safe(a[1]), safe(b[1]))
+            out.append(dict(pid=pid, key=r["key"], cls=cls, exA=a[0], symA=a[1], exB=b[0], symB=b[1], cell="%s~%s/%s" % (a[0], b[0], cls),
+                            quoteA=r.get("quote1", ""), quoteB=r.get("quote2", ""), legs=((a[0], a[1]), (b[0], b[1])), hk=r["key"] in hk_keys))
         out.sort(key=lambda p: p["pid"])
         for p in out:
             p["market"] = self.market_of(p)
@@ -86,7 +89,7 @@ class World:
         if p["cls"] == "crypto":
             return "24x7"
         us = [os.path.isfile(os.path.join(self.root, "panels_us", e, safe_name(s) + ".sap")) for e, s in p["legs"]]
-        hk = any(re.search(r"HKD", s) or re.match(r"^HK\d{4}", s) for _, s in p["legs"])
+        hk = bool(p.get("hk")) or any(re.search(r"HKD", s) or re.match(r"^HK\d{4}", s) for _, s in p["legs"])
         if p["cls"] == "metal":
             return "CME" if self.calendar.get("cme") else "no_calendar"
         if all(us):

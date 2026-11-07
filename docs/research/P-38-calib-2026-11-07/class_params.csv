@@ -1,0 +1,3 @@
+class,formed,theta,k,p,T_min,s_stop,c_train,plateau,agree,a3b_H0toH1,a3b_H1toH0,reasons
+crypto,False,40.0,3,3,1440,,"[80.0,5,3,1440,null]",True,True,False,True,A3b: комбинация одной половины активов не даёт плюс на другой
+eq,False,40.0,5,1,120,2.0,null,False,False,False,False,"плато: у соседей c_полн среднее y_d <= 0; согласие: c_обуч и c_полн отличаются больше чем на шаг; A3b: комбинация одной половины активов не даёт плюс на другой; A8: без биржи(ей) aster,binance,bingx,bitget,bybit,kraken,lighter,okx среднее y_d <= 0"

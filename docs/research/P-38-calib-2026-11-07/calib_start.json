@@ -1,0 +1,13 @@
+{
+ "gate_checks": [],
+ "gate_mtime": 1794015020.6759648,
+ "gate_nsym": null,
+ "gate_ready_exists": true,
+ "gate_ready_valid": false,
+ "gate_sha256": "04349c75b2574b61810e4bab60a28cdbfb3aae42ea1a5f3a4f74bb7f778dedb8",
+ "params_sha256": [
+  "7f77ab91a7e27a51a2849272f5a33cc489da8a5469c324780ded8df6becc0443",
+  null
+ ],
+ "time_utc": "2026-11-07T01:52:29Z"
+}

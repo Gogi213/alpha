@@ -1,0 +1,401 @@
+{
+ "crypto": {
+  "gmax_rule": {
+   "a90": [],
+   "a90_edges": [
+    25.2,
+    40.0,
+    80.0,
+    160.0,
+    320.0,
+    640.0,
+    1280.0,
+    2560.0,
+    5120.0,
+    10240.0
+   ],
+   "a90_vals": [
+    0.0,
+    0.0,
+    0.531893418123988,
+    0.0,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "bins": [
+    {
+     "basis": "bps",
+     "episodes": 25516,
+     "hi": 40.0,
+     "lo": 25.2,
+     "p_conv": 0.9903978052126201,
+     "p_conv_hi": 0.9922273944023784,
+     "p_conv_lo": 0.9885216634762098,
+     "p_stop": 0.009523809523809526,
+     "p_stop_hi": 0.011395948316103842,
+     "p_stop_lo": 0.007690505952009284,
+     "race_lost": false,
+     "support": true,
+     "units": 4579
+    },
+    {
+     "basis": "bps",
+     "episodes": 6894,
+     "hi": 80.0,
+     "lo": 40.0,
+     "p_conv": 0.9911517261386712,
+     "p_conv_hi": 0.9934670605953523,
+     "p_conv_lo": 0.9885637746124771,
+     "p_stop": 0.008268059181897306,
+     "p_stop_hi": 0.010889359885177502,
+     "p_stop_lo": 0.006016329140408514,
+     "race_lost": false,
+     "support": true,
+     "units": 1957
+    },
+    {
+     "basis": "bps",
+     "episodes": 573,
+     "hi": 160.0,
+     "lo": 80.0,
+     "p_conv": 0.9842931937172774,
+     "p_conv_hi": 0.9933333333333336,
+     "p_conv_lo": 0.9744056941056084,
+     "p_stop": 0.015706806282722526,
+     "p_stop_hi": 0.02559430589439137,
+     "p_stop_lo": 0.006666666666666668,
+     "race_lost": false,
+     "support": true,
+     "units": 301
+    },
+    {
+     "basis": "bps",
+     "episodes": 82,
+     "hi": 320.0,
+     "lo": 160.0,
+     "p_conv": 0.9878048780487805,
+     "p_conv_hi": 1.0000000000000002,
+     "p_conv_lo": 0.9642857142857142,
+     "p_stop": 0.012195121951219513,
+     "p_stop_hi": 0.03571428571428571,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 49
+    },
+    {
+     "basis": "bps",
+     "episodes": 4,
+     "hi": 640.0,
+     "lo": 320.0,
+     "support": false,
+     "units": 4
+    },
+    {
+     "basis": "bps",
+     "episodes": 2,
+     "hi": 1280.0,
+     "lo": 640.0,
+     "support": false,
+     "units": 2
+    },
+    {
+     "basis": "sigma",
+     "episodes": 25752,
+     "hi": 5.0,
+     "lo": 3.0,
+     "p_conv": 0.9902916391596444,
+     "p_conv_hi": 0.9920393154517655,
+     "p_conv_lo": 0.9884632640342592,
+     "p_stop": 0.009475360180187178,
+     "p_stop_hi": 0.011321380088447849,
+     "p_stop_lo": 0.007711500001961929,
+     "race_lost": false,
+     "support": true,
+     "units": 4239
+    },
+    {
+     "basis": "sigma",
+     "episodes": 6023,
+     "hi": 8.0,
+     "lo": 5.0,
+     "p_conv": 0.9905362776025237,
+     "p_conv_hi": 0.993270559730709,
+     "p_conv_lo": 0.9875441886199118,
+     "p_stop": 0.00946372239747634,
+     "p_stop_hi": 0.012455811380086617,
+     "p_stop_lo": 0.0067294402692904655,
+     "race_lost": false,
+     "support": true,
+     "units": 2496
+    },
+    {
+     "basis": "sigma",
+     "episodes": 1055,
+     "hi": 13.0,
+     "lo": 8.0,
+     "p_conv": 0.9933649289099528,
+     "p_conv_hi": 0.9972249201037585,
+     "p_conv_lo": 0.9887005649717518,
+     "p_stop": 0.006635071090047394,
+     "p_stop_hi": 0.011299435028248586,
+     "p_stop_lo": 0.0027750798962417555,
+     "race_lost": false,
+     "support": true,
+     "units": 732
+    },
+    {
+     "basis": "sigma",
+     "episodes": 193,
+     "hi": 21.0,
+     "lo": 13.0,
+     "p_conv": 0.9948186528497409,
+     "p_conv_hi": 1.0,
+     "p_conv_lo": 0.9846938775510203,
+     "p_stop": 0.005181347150259066,
+     "p_stop_hi": 0.015306122448979586,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 164
+    },
+    {
+     "basis": "sigma",
+     "episodes": 38,
+     "hi": 34.0,
+     "lo": 21.0,
+     "p_conv": 0.9736842105263157,
+     "p_conv_hi": 1.0,
+     "p_conv_lo": 0.9230769230769231,
+     "p_stop": 0.026315789473684223,
+     "p_stop_hi": 0.07692307692307693,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 34
+    },
+    {
+     "basis": "sigma",
+     "episodes": 9,
+     "hi": 55.0,
+     "lo": 34.0,
+     "support": false,
+     "units": 9
+    },
+    {
+     "basis": "sigma",
+     "episodes": 1,
+     "hi": 89.0,
+     "lo": 55.0,
+     "support": false,
+     "units": 1
+    }
+   ],
+   "episodes_total": 33071,
+   "gmax": 320.0,
+   "gmax_kind": "граница опоры данных, не измеренный разрыв",
+   "gsig_max": 34.0,
+   "k6_stop_was_right": [
+    {
+     "T": 120,
+     "ext_q50": 2.311801163611552,
+     "ext_q90": 4.9900306288808345,
+     "ext_q99": 18.448284106559182,
+     "share_converged": 0.8258064516129032,
+     "stops": 310
+    },
+    {
+     "T": 360,
+     "ext_q50": 2.4453898124391893,
+     "ext_q90": 5.372665862013677,
+     "ext_q99": 18.448284106559182,
+     "share_converged": 0.9419354838709677,
+     "stops": 310
+    },
+    {
+     "T": 1440,
+     "ext_q50": 2.5973193342976044,
+     "ext_q90": 5.861402241786969,
+     "ext_q99": 18.448284106559182,
+     "share_converged": 0.9774193548387097,
+     "stops": 310
+    }
+   ],
+   "t_struct": 59.0,
+   "t_struct_truncated": false
+  },
+  "k_stale": 32,
+  "m_r": 1,
+  "m_shift": 1.568,
+  "pairs": 5830,
+  "pass_tag": "full",
+  "q_c": 7.327515268325806,
+  "q_stale": 0.8333333333333334
+ },
+ "eq": {
+  "gmax_rule": {
+   "a90": [],
+   "a90_edges": [
+    25.2,
+    40.0,
+    80.0,
+    160.0,
+    320.0,
+    640.0,
+    1280.0,
+    2560.0,
+    5120.0,
+    10240.0
+   ],
+   "a90_vals": [
+    0.0,
+    5.002610365454352,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "bins": [
+    {
+     "basis": "bps",
+     "episodes": 236,
+     "hi": 40.0,
+     "lo": 25.2,
+     "p_conv": 0.9872881355932204,
+     "p_conv_hi": 0.9999999999999997,
+     "p_conv_lo": 0.9742489270386266,
+     "p_stop": 0.008474576271186442,
+     "p_stop_hi": 0.019013217454282087,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 133
+    },
+    {
+     "basis": "bps",
+     "episodes": 76,
+     "hi": 80.0,
+     "lo": 40.0,
+     "p_conv": 0.9868421052631581,
+     "p_conv_hi": 1.0000000000000002,
+     "p_conv_lo": 0.9629629629629636,
+     "p_stop": 0.0,
+     "p_stop_hi": 0.0,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 54
+    },
+    {
+     "basis": "bps",
+     "episodes": 6,
+     "hi": 160.0,
+     "lo": 80.0,
+     "support": false,
+     "units": 6
+    },
+    {
+     "basis": "bps",
+     "episodes": 1,
+     "hi": 320.0,
+     "lo": 160.0,
+     "support": false,
+     "units": 1
+    },
+    {
+     "basis": "sigma",
+     "episodes": 229,
+     "hi": 5.0,
+     "lo": 3.0,
+     "p_conv": 0.982532751091703,
+     "p_conv_hi": 0.9956140350877195,
+     "p_conv_lo": 0.9676103988603989,
+     "p_stop": 0.008733624454148471,
+     "p_stop_hi": 0.020165371555439446,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 133
+    },
+    {
+     "basis": "sigma",
+     "episodes": 59,
+     "hi": 8.0,
+     "lo": 5.0,
+     "p_conv": 0.9999999999999998,
+     "p_conv_hi": 1.0000000000000002,
+     "p_conv_lo": 0.9999999999999999,
+     "p_stop": 0.0,
+     "p_stop_hi": 0.0,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 44
+    },
+    {
+     "basis": "sigma",
+     "episodes": 27,
+     "hi": 13.0,
+     "lo": 8.0,
+     "support": false,
+     "units": 16
+    },
+    {
+     "basis": "sigma",
+     "episodes": 4,
+     "hi": 21.0,
+     "lo": 13.0,
+     "support": false,
+     "units": 4
+    }
+   ],
+   "episodes_total": 319,
+   "gmax": 80.0,
+   "gmax_kind": "граница опоры данных, не измеренный разрыв",
+   "gsig_max": 8.0,
+   "k6_stop_was_right": [
+    {
+     "T": 120,
+     "ext_q50": 1.6675059052935568,
+     "ext_q90": 2.1066925980750297,
+     "ext_q99": 2.205509603950861,
+     "share_converged": 1.0,
+     "stops": 2
+    },
+    {
+     "T": 360,
+     "ext_q50": 1.6675059052935568,
+     "ext_q90": 2.1066925980750297,
+     "ext_q99": 2.205509603950861,
+     "share_converged": 1.0,
+     "stops": 2
+    },
+    {
+     "T": 1440,
+     "ext_q50": 1.8270218087234746,
+     "ext_q90": 2.138595778761013,
+     "ext_q99": 2.208699922019459,
+     "share_converged": 1.0,
+     "stops": 2
+    }
+   ],
+   "t_struct": 1381.0,
+   "t_struct_truncated": false
+  },
+  "k_stale": 22,
+  "m_r": 1,
+  "m_shift": 1.349,
+  "pairs": 1971,
+  "pass_tag": "full",
+  "q_c": 4.774508677721015,
+  "q_stale": 0.7666666666666667
+ }
+}
