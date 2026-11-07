@@ -1,0 +1,1 @@
+[{"R": 63139, "dedup_dropped": 117, "drop_Q1": 0, "drop_Q3": 10129, "drop_Q6": 57332, "drop_Q7": 248, "drop_range": 3276, "entry_deferred": 12, "exit_CV": 487, "exit_S1": 22, "exit_S2": 1, "exit_S3": 22, "exit_TO": 81, "exit_ffill": 13, "jump_trades": 1, "pair_excluded": 1, "signal_total": 613}]

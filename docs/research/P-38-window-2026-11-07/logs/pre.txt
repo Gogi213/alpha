@@ -1,0 +1,6 @@
+--- до запуска 2026-11-07T08:09:15Z
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p8  464G  451G   14G  98% /home
+               total        used        free      shared  buff/cache   available
+Mem:           14798        2514        6405         251        6490       12283
+loadavg: 0.52 1.80 3.37 1/891 2671558

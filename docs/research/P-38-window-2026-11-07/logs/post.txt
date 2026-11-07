@@ -1,0 +1,8 @@
+--- после запуска 2026-11-07T08:33:31Z
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p8  464G  451G   14G  98% /home
+               total        used        free      shared  buff/cache   available
+Mem:           14798        2151        9733           2        3280       12646
+loadavg: 4.73 4.44 4.02 1/890 2681424
+замеров 288; диск: начало 13568 МиБ, минимум 7801 МиБ, пик занятого 5.63 ГиБ; MemAvailable минимум 4880 МиБ; суммарный RSS пик 7587 МиБ при 6 процессах
+EXIT=0

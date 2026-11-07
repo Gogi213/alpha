@@ -1,0 +1,5 @@
+2026-11-07T08:09:15Z	conv_window.py	bd4e1324f3d5a30ae9f479a9c4d57f46358578a61678486f206d9fc0695b3d75	pid=2671560	event=token_claimed	token_sha256=68dff40ec2b32920bdd5d5f82b2bc3d1b929831184a5d26a07e9536538ace660 manifest_files=69
+2026-11-07T08:09:15Z	conv_window.py	bd4e1324f3d5a30ae9f479a9c4d57f46358578a61678486f206d9fc0695b3d75	pid=2671560	last_day=2499	раннер: старт
+2026-11-07T08:09:15Z	conv_window.py	bd4e1324f3d5a30ae9f479a9c4d57f46358578a61678486f206d9fc0695b3d75	pid=2671560	event=run_start	out=/home/deck/xdl9/c2/window inputs=35 threads=5
+2026-11-07T08:09:16Z	conv_window.py	bd4e1324f3d5a30ae9f479a9c4d57f46358578a61678486f206d9fc0695b3d75	pid=2671560	event=first_window_read	turnover 0GUSDT.csv.gz
+2026-11-07T08:33:30Z	conv_window.py	bd4e1324f3d5a30ae9f479a9c4d57f46358578a61678486f206d9fc0695b3d75	pid=2671560	event=run_end	outcome=done

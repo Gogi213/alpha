@@ -1,0 +1,85 @@
+{
+ "calib_multiplicity_result": {
+  "M": 0,
+  "M_eff_formation_estimate": 0.0,
+  "M_grid": 360,
+  "classes": 2,
+  "grid_combos_per_class": 180
+ },
+ "calib_start_json": "2026-11-07T04:14:27Z; gate_ready существует: True; валиден как манифест §3.4: True (проверки rows,gaps,units,open_semantics,funding,classes, symbols=1072); Gate в универсум C2 ВКЛЮЧЁН (manifest valid, таблица пар Gate по R2' asset_pairs_gate.csv); контроль без Gate (--no-gate) посчитан отдельными выходами; K0 записан в ~/xdl9/c2g/calib_start.json ДО чтения панелей",
+ "cells_admitted": [],
+ "gmax_by_class": {
+  "Pi_full": {
+   "crypto": [
+    320.0,
+    "граница опоры данных, не измеренный разрыв"
+   ],
+   "eq": [
+    80.0,
+    "граница опоры данных, не измеренный разрыв"
+   ]
+  },
+  "Pi_train": {
+   "crypto": [
+    320.0,
+    "граница опоры данных, не измеренный разрыв"
+   ],
+   "eq": [
+    80.0,
+    "граница опоры данных, не измеренный разрыв"
+   ]
+  }
+ },
+ "k_stale_by_class": {
+  "Pi_full": {
+   "crypto": 32,
+   "eq": 22
+  },
+  "Pi_train": {
+   "crypto": 33,
+   "eq": 23
+  }
+ },
+ "katok_quartiles": {
+  "crypto": {
+   "ratio_q25": 0.936455215015004,
+   "win_rate_q75": 0.7116576487948844
+  },
+  "eq": {
+   "ratio_q25": 0.552596122419367,
+   "win_rate_q75": 0.6666666666666666
+  }
+ },
+ "p_win": {
+  "crypto": {
+   "obs_best": 0.025547418186477093,
+   "p_win": 0.000999000999000999
+  },
+  "eq": {
+   "obs_best": 0.0,
+   "p_win": 1.0
+  }
+ },
+ "tstruct_by_class": {
+  "Pi_full": {
+   "crypto": [
+    56.0,
+    false
+   ],
+   "eq": [
+    1381.0,
+    false
+   ]
+  },
+  "Pi_train": {
+   "crypto": [
+    58.0,
+    false
+   ],
+   "eq": [
+    1440,
+    true
+   ]
+  }
+ }
+}

@@ -1,0 +1,123 @@
+{
+ "gate_descriptive": {
+  "M_gate_variants": 2,
+  "expected_false_total_high": 6.9,
+  "groups": [
+   {
+    "count": 2,
+    "expected_false_high": 0.1,
+    "expected_false_low": 0.1,
+    "group": "строки Gate: варианты (описательно, без Холма)"
+   },
+   {
+    "count": 14,
+    "expected_false_high": 0.7000000000000001,
+    "expected_false_low": 0.7000000000000001,
+    "group": "контроли К-а..К-г (Gate)"
+   },
+   {
+    "count": 4,
+    "expected_false_high": 0.2,
+    "expected_false_low": 0.2,
+    "group": "срезы «пары с ногой Gate / пары 8 бирж»"
+   },
+   {
+    "count": 18,
+    "expected_false_high": 0.9,
+    "expected_false_low": 0.9,
+    "group": "прогоны A8 (Gate, 9 бирж)"
+   },
+   {
+    "count": 8,
+    "expected_false_high": 0.4,
+    "expected_false_low": 0.4,
+    "group": "прогоны A3b окна (Gate)"
+   },
+   {
+    "count": 92,
+    "expected_false_high": 4.6000000000000005,
+    "expected_false_low": 4.6000000000000005,
+    "group": "строки срезов (Gate)"
+   },
+   {
+    "count": 0,
+    "expected_false_high": 0.0,
+    "expected_false_low": 0.0,
+    "group": "строки W2 (новые, если список заданий иной)"
+   }
+  ],
+  "note": "описательные строки вне M_окно; число испытаний на тех же сутках окна; ожидаемо ложных при размере 0,05 - ориентир",
+  "total_tests_gate": 138,
+  "w2_rows_reused": 170,
+  "w2_same_jobs": true
+ },
+ "main": {
+  "M_eff": 1.1827799444260723,
+  "M_eff_note": "по суточным y_d вариантов (r3 R3.2); в поправку не идёт (поправка - Холм на M_окно)",
+  "M_window": 2,
+  "a3b_runs": 8,
+  "a8_runs": 16,
+  "controls_per_variant": 7,
+  "controls_total": 14,
+  "expected_false_independent": 0.1,
+  "expected_false_range": [
+   0.05913899722130361,
+   0.1
+  ],
+  "expected_false_total_high": 21.650000000000002,
+  "f8_cells": 133,
+  "groups": [
+   {
+    "count": 133,
+    "expected_false_high": 6.65,
+    "expected_false_low": 6.65,
+    "group": "клетки F8"
+   },
+   {
+    "count": 2,
+    "expected_false_high": 0.1,
+    "expected_false_low": 0.05913899722130361,
+    "group": "M_окно (варианты C2)"
+   },
+   {
+    "count": 170,
+    "expected_false_high": 8.5,
+    "expected_false_low": 8.5,
+    "group": "строки W2"
+   },
+   {
+    "count": 14,
+    "expected_false_high": 0.7000000000000001,
+    "expected_false_low": 0.7000000000000001,
+    "group": "контроли К-а..К-г"
+   },
+   {
+    "count": 16,
+    "expected_false_high": 0.8,
+    "expected_false_low": 0.8,
+    "group": "прогоны A8 окна"
+   },
+   {
+    "count": 8,
+    "expected_false_high": 0.4,
+    "expected_false_low": 0.4,
+    "group": "прогоны A3b окна"
+   },
+   {
+    "count": 90,
+    "expected_false_high": 4.5,
+    "expected_false_low": 4.5,
+    "group": "строки срезов"
+   }
+  ],
+  "note": "число испытаний на одних и тех же сутках окна; ожидаемое число ложных срабатываний при размере 0,05 - ориентир (испытания зависимы)",
+  "slices_rows": 90,
+  "total_tests_on_window": 433,
+  "w2_pairs": 17,
+  "w2_rows": 170
+ },
+ "note": "основной набор (M_окно = 2) и описательные строки Gate (вне M) - раздельные группы; сумма - число испытаний на одних и тех же сутках окна",
+ "total_tests_all": 571,
+ "total_tests_gate_descriptive": 138,
+ "total_tests_main": 433
+}

@@ -1,0 +1,2531 @@
+[
+ {
+  "a3b_window": {
+   "h0on1": {
+    "assets": 292,
+    "combo": [
+     25.2,
+     5,
+     3,
+     360,
+     null
+    ],
+    "mean": -0.021986797655704153,
+    "on_half": "H0",
+    "pairs": 3201,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": 0.010279255570870283,
+     "hi_t": 0.023397397616273637,
+     "lo_boot": -0.09845272970162153,
+     "lo_t": -0.06737099292768195,
+     "mean": -0.021986797655704153,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.38284393510198633,
+     "skew": -2.479989435611857
+    },
+    "trades": 159
+   },
+   "h1on0": {
+    "assets": 258,
+    "combo": [
+     25.2,
+     3,
+     3,
+     120,
+     null
+    ],
+    "mean": -0.12749129316613653,
+    "on_half": "H1",
+    "pairs": 2629,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": -0.044205698798946896,
+     "hi_t": -0.014128610683788193,
+     "lo_boot": -0.3304111376255178,
+     "lo_t": -0.24085397564848487,
+     "mean": -0.12749129316613653,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.07153054960253945,
+     "skew": -2.385485910250303
+    },
+    "trades": 718
+   }
+  },
+  "a3b_window_reference": {
+   "H0": {
+    "assets": 292,
+    "mean": -0.032582977642198974,
+    "ok": false,
+    "pairs": 3201,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": 0.01366762043654586,
+     "lo_boot": null,
+     "lo_t": -0.07883357572094381,
+     "mean": -0.032582977642198974,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.2200501624825808,
+     "skew": -1.5290808379256935
+    },
+    "trades": 215
+   },
+   "H1": {
+    "assets": 258,
+    "mean": -0.03199247638714992,
+    "ok": false,
+    "pairs": 2629,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": 0.0001755102748817322,
+     "lo_boot": null,
+     "lo_t": -0.06416046304918158,
+     "mean": -0.03199247638714992,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.10148079980478449,
+     "skew": -0.1862330492576825
+    },
+    "trades": 373
+   }
+  },
+  "a8": {
+   "aster": {
+    "mean": -0.040198118978897586,
+    "ok": false,
+    "pairs": 4779,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.018935575877421916,
+     "lo_boot": null,
+     "lo_t": -0.061460662080373256,
+     "mean": -0.040198118978897586,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.01040834316349658,
+     "skew": -0.5534282055603882
+    }
+   },
+   "binance": {
+    "mean": -0.0440573916020933,
+    "ok": false,
+    "pairs": 3761,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.007317065992714145,
+     "lo_boot": null,
+     "lo_t": -0.08079771721147246,
+     "mean": -0.0440573916020933,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.0586265439943543,
+     "skew": -1.1159466664489681
+    }
+   },
+   "bingx": {
+    "mean": -0.017428561445198866,
+    "ok": false,
+    "pairs": 3752,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": 0.0004684685825754528,
+     "lo_boot": null,
+     "lo_t": -0.035325591472973185,
+     "mean": -0.017428561445198866,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.10730697992114924,
+     "skew": -0.1782155723305731
+    }
+   },
+   "bitget": {
+    "mean": -0.04159023277240052,
+    "ok": false,
+    "pairs": 3920,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.012429430683579823,
+     "lo_boot": null,
+     "lo_t": -0.07075103486122122,
+     "mean": -0.04159023277240052,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.032360971941128656,
+     "skew": -0.48601875850286846
+    }
+   },
+   "bybit": {
+    "mean": 0.03841994572161005,
+    "ok": true,
+    "pairs": 3811,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": 0.06990268697496105,
+     "lo_boot": null,
+     "lo_t": 0.006937204468259059,
+     "mean": 0.03841994572161005,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.0554177904067052,
+     "skew": 1.6463295374115177
+    }
+   },
+   "kraken": {
+    "mean": -0.03671710286313912,
+    "ok": false,
+    "pairs": 5205,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.01747674385361004,
+     "lo_boot": null,
+     "lo_t": -0.055957461872668195,
+     "mean": -0.03671710286313912,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.009990341259223538,
+     "skew": -0.3790924546798885
+    }
+   },
+   "lighter": {
+    "mean": -0.03488226857293507,
+    "ok": false,
+    "pairs": 5313,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.01604578152978878,
+     "lo_boot": null,
+     "lo_t": -0.05371875561608136,
+     "mean": -0.03488226857293507,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.011387405986493418,
+     "skew": -0.40377518643099897
+    }
+   },
+   "okx": {
+    "mean": -0.06735765725824419,
+    "ok": false,
+    "pairs": 4439,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.007859020111373793,
+     "lo_boot": null,
+     "lo_t": -0.1268562944051146,
+     "mean": -0.06735765725824419,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.07011668282435737,
+     "skew": -0.27690130893392745
+    }
+   }
+  },
+  "assets": 550,
+  "cells": 28,
+  "cells_table": [
+   {
+    "assets": 6,
+    "cell": "aster~binance/crypto",
+    "days": 12,
+    "mean_yd": 0.0915533266850756,
+    "net_trade": 6.45776621613586,
+    "pairs": 213,
+    "trades": 15,
+    "variant": "V1"
+   },
+   {
+    "assets": 5,
+    "cell": "aster~bingx/crypto",
+    "days": 7,
+    "mean_yd": -0.06709396299153936,
+    "net_trade": -3.9463988143136586,
+    "pairs": 212,
+    "trades": 11,
+    "variant": "V1"
+   },
+   {
+    "assets": 3,
+    "cell": "aster~bitget/crypto",
+    "days": 3,
+    "mean_yd": 0.10258150932318959,
+    "net_trade": 39.23829911251618,
+    "pairs": 163,
+    "trades": 3,
+    "variant": "V1"
+   },
+   {
+    "assets": 5,
+    "cell": "aster~bybit/crypto",
+    "days": 6,
+    "mean_yd": 0.14813613507897494,
+    "net_trade": 23.250300857291844,
+    "pairs": 192,
+    "trades": 7,
+    "variant": "V1"
+   },
+   {
+    "assets": 0,
+    "cell": "aster~kraken/crypto",
+    "days": 0,
+    "mean_yd": 0.0,
+    "net_trade": null,
+    "pairs": 69,
+    "trades": 0,
+    "variant": "V1"
+   },
+   {
+    "assets": 0,
+    "cell": "aster~lighter/crypto",
+    "days": 0,
+    "mean_yd": 0.0,
+    "net_trade": null,
+    "pairs": 60,
+    "trades": 0,
+    "variant": "V1"
+   },
+   {
+    "assets": 1,
+    "cell": "aster~okx/crypto",
+    "days": 2,
+    "mean_yd": 0.05705342740722501,
+    "net_trade": 23.183845713853362,
+    "pairs": 142,
+    "trades": 3,
+    "variant": "V1"
+   },
+   {
+    "assets": 23,
+    "cell": "binance~bingx/crypto",
+    "days": 14,
+    "mean_yd": 0.06290273169603142,
+    "net_trade": 22.05582954181321,
+    "pairs": 488,
+    "trades": 29,
+    "variant": "V1"
+   },
+   {
+    "assets": 14,
+    "cell": "binance~bitget/crypto",
+    "days": 11,
+    "mean_yd": -0.04502907432994859,
+    "net_trade": -17.16659024290402,
+    "pairs": 447,
+    "trades": 16,
+    "variant": "V1"
+   },
+   {
+    "assets": 51,
+    "cell": "binance~bybit/crypto",
+    "days": 21,
+    "mean_yd": -0.15445403423939966,
+    "net_trade": -12.006103323083128,
+    "pairs": 469,
+    "trades": 125,
+    "variant": "V1"
+   },
+   {
+    "assets": 7,
+    "cell": "binance~kraken/crypto",
+    "days": 6,
+    "mean_yd": -0.0762934981292544,
+    "net_trade": -11.868504184004294,
+    "pairs": 105,
+    "trades": 8,
+    "variant": "V1"
+   },
+   {
+    "assets": 1,
+    "cell": "binance~lighter/crypto",
+    "days": 1,
+    "mean_yd": -0.002283683357362564,
+    "net_trade": -2.3019528242214644,
+    "pairs": 82,
+    "trades": 1,
+    "variant": "V1"
+   },
+   {
+    "assets": 15,
+    "cell": "binance~okx/crypto",
+    "days": 15,
+    "mean_yd": 0.10737868736907231,
+    "net_trade": 14.560306410630464,
+    "pairs": 265,
+    "trades": 41,
+    "variant": "V1"
+   },
+   {
+    "assets": 13,
+    "cell": "bingx~bitget/crypto",
+    "days": 13,
+    "mean_yd": -0.009717216697308167,
+    "net_trade": -4.94188978367895,
+    "pairs": 439,
+    "trades": 15,
+    "variant": "V1"
+   },
+   {
+    "assets": 62,
+    "cell": "bingx~bybit/crypto",
+    "days": 21,
+    "mean_yd": -0.25727697325116,
+    "net_trade": -19.806815665614078,
+    "pairs": 472,
+    "trades": 125,
+    "variant": "V1"
+   },
+   {
+    "assets": 1,
+    "cell": "bingx~kraken/crypto",
+    "days": 1,
+    "mean_yd": -0.021874499050201418,
+    "net_trade": -27.561868803253788,
+    "pairs": 107,
+    "trades": 1,
+    "variant": "V1"
+   },
+   {
+    "assets": 2,
+    "cell": "bingx~lighter/crypto",
+    "days": 2,
+    "mean_yd": -0.008922154135075107,
+    "net_trade": -5.4164581380634615,
+    "pairs": 85,
+    "trades": 2,
+    "variant": "V1"
+   },
+   {
+    "assets": 19,
+    "cell": "bingx~okx/crypto",
+    "days": 17,
+    "mean_yd": 0.006742287707086607,
+    "net_trade": 1.1060172959958874,
+    "pairs": 275,
+    "trades": 36,
+    "variant": "V1"
+   },
+   {
+    "assets": 28,
+    "cell": "bitget~bybit/crypto",
+    "days": 18,
+    "mean_yd": -0.20636690101652544,
+    "net_trade": -17.385849791168255,
+    "pairs": 426,
+    "trades": 64,
+    "variant": "V1"
+   },
+   {
+    "assets": 3,
+    "cell": "bitget~kraken/crypto",
+    "days": 2,
+    "mean_yd": 0.11570481094296138,
+    "net_trade": 39.43553383604532,
+    "pairs": 96,
+    "trades": 3,
+    "variant": "V1"
+   },
+   {
+    "assets": 0,
+    "cell": "bitget~lighter/crypto",
+    "days": 0,
+    "mean_yd": 0.0,
+    "net_trade": null,
+    "pairs": 76,
+    "trades": 0,
+    "variant": "V1"
+   },
+   {
+    "assets": 11,
+    "cell": "bitget~okx/crypto",
+    "days": 15,
+    "mean_yd": 0.21967054834478209,
+    "net_trade": 30.579930549257774,
+    "pairs": 263,
+    "trades": 31,
+    "variant": "V1"
+   },
+   {
+    "assets": 4,
+    "cell": "bybit~kraken/crypto",
+    "days": 4,
+    "mean_yd": 0.10383063046740218,
+    "net_trade": 24.78058085922869,
+    "pairs": 104,
+    "trades": 4,
+    "variant": "V1"
+   },
+   {
+    "assets": 2,
+    "cell": "bybit~lighter/crypto",
+    "days": 2,
+    "mean_yd": 0.04463801293637144,
+    "net_trade": 23.674889070807,
+    "pairs": 85,
+    "trades": 2,
+    "variant": "V1"
+   },
+   {
+    "assets": 17,
+    "cell": "bybit~okx/crypto",
+    "days": 16,
+    "mean_yd": -0.03664464371367511,
+    "net_trade": -4.941051605611573,
+    "pairs": 271,
+    "trades": 41,
+    "variant": "V1"
+   },
+   {
+    "assets": 1,
+    "cell": "kraken~lighter/crypto",
+    "days": 1,
+    "mean_yd": -0.035050900421255825,
+    "net_trade": -18.40172272115931,
+    "pairs": 49,
+    "trades": 1,
+    "variant": "V1"
+   },
+   {
+    "assets": 3,
+    "cell": "kraken~okx/crypto",
+    "days": 3,
+    "mean_yd": 0.023527431139037908,
+    "net_trade": 9.730800759930618,
+    "pairs": 95,
+    "trades": 3,
+    "variant": "V1"
+   },
+   {
+    "assets": 1,
+    "cell": "lighter~okx/crypto",
+    "days": 1,
+    "mean_yd": -0.008131052513431339,
+    "net_trade": -7.513092522410558,
+    "pairs": 80,
+    "trades": 1,
+    "variant": "V1"
+   }
+  ],
+  "clip1000": {
+   "mean": -0.03231616503562865,
+   "n_abs_gt_1000": 0,
+   "stat": {
+    "block": 3,
+    "df": 6,
+    "hi_boot": null,
+    "hi_t": -0.014407272497557893,
+    "lo_boot": null,
+    "lo_t": -0.0502250575736994,
+    "mean": -0.03231616503562865,
+    "n": 21,
+    "n_eff": 7,
+    "p_t": 0.012726606372885809,
+    "skew": -0.4183845090678585
+   }
+  },
+  "closed": {
+   "block": 3,
+   "df": 6,
+   "hi_boot": -0.015408138090334016,
+   "hi_t": -0.014407272497557869,
+   "lo_boot": -0.05005366763280221,
+   "lo_t": -0.0502250575736994,
+   "mean": -0.03231616503562863,
+   "n": 21,
+   "n_eff": 7,
+   "p_t": 0.01272660637288587,
+   "skew": -0.41838450906785835
+  },
+  "cls": "crypto",
+  "combo": [
+   40.0,
+   3,
+   3,
+   1440,
+   null
+  ],
+  "controls": {
+   "p_win": {
+    "obs_best": -0.0502250575736994,
+    "p_win": 0.000999000999000999
+   },
+   "random_entries": {
+    "diff": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": 0.0996850743582065,
+     "hi_t": 0.09468839216350872,
+     "lo_boot": -0.010569488845651502,
+     "lo_t": -0.015467090388242684,
+     "mean": 0.03961065088763301,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.21175667496860784,
+     "skew": -0.09006718963359663
+    },
+    "mean_control": -0.07192681592326162,
+    "pairs_with_trades": 298,
+    "real_closed_trades": 588,
+    "seed": 37,
+    "trades_done": 588
+   },
+   "real_closed_mean_yd": -0.03231616503562863,
+   "reversed": {
+    "block": 3,
+    "df": 6,
+    "hi_boot": -0.06072323263895682,
+    "hi_t": -0.07335185272800498,
+    "lo_boot": -0.19941567271366642,
+    "lo_t": -0.2039602994499713,
+    "mean": -0.13865607608898814,
+    "n": 21,
+    "n_eff": 7,
+    "p_t": 0.006175808569350649,
+    "skew": 0.13187005657732265
+   },
+   "reversed_mean": -0.13865607608898814,
+   "shifts": {
+    "-15": {
+     "mean_yd_closed": -0.0003142862727071582,
+     "skipped": 584,
+     "trades_done": 4
+    },
+    "-5": {
+     "mean_yd_closed": 0.0002996001313134397,
+     "skipped": 585,
+     "trades_done": 3
+    },
+    "15": {
+     "mean_yd_closed": 0.0015953785091088828,
+     "skipped": 484,
+     "trades_done": 104
+    },
+    "5": {
+     "mean_yd_closed": -0.00918674363710206,
+     "skipped": 410,
+     "trades_done": 178
+    }
+   }
+  },
+  "counters": {
+   "R": 63139,
+   "dedup_dropped": 111,
+   "drop_Q1": 0,
+   "drop_Q3": 10129,
+   "drop_Q5": 719,
+   "drop_Q6": 57332,
+   "drop_Q7": 248,
+   "drop_range": 3276,
+   "entry_deferred": 12,
+   "exit_CV": 529,
+   "exit_S1": 31,
+   "exit_S2": 1,
+   "exit_S3": 24,
+   "exit_TO": 3,
+   "exit_ffill": 14,
+   "jump_trades": 1,
+   "pair_excluded": 1,
+   "signal_total": 588
+  },
+  "d1": 2499,
+  "first_sig": 2479,
+  "formation_labels": {
+   "a3_cells": {
+    "ok": false,
+    "text": "формирование: A3 по клеткам не пройдено (0 из 28)"
+   },
+   "a3b": {
+    "ok": false,
+    "text": "формирование: A3b не пройдено (H0->H1 -0.011 (375 сделок); H1->H0 +0.075 (192))"
+   },
+   "a8": {
+    "ok": true,
+    "text": "формирование: A8 пройдено (8 бирж из 8)"
+   }
+  },
+  "holm": {
+   "M": 2,
+   "boot": {
+    "by_i": false,
+    "by_ii": false,
+    "lo_a05": -0.05617799035768479,
+    "lo_a10": -0.05005366763280221,
+    "passed": false,
+    "rule": "M=2: (i) alpha 0,05 либо (ii) alpha 0,10 и другой по (i)"
+   },
+   "p_one_sided": 0.993636696813557,
+   "pass_both": false,
+   "rank": 2,
+   "t": {
+    "by_i": false,
+    "by_ii": false,
+    "lo_a05": -0.05486758850966085,
+    "lo_a10": -0.0502250575736994,
+    "passed": false,
+    "rule": "M=2: (i) alpha 0,05 либо (ii) alpha 0,10 и другой по (i)"
+   }
+  },
+  "id": "V1",
+  "katok": false,
+  "katok_bounds": {
+   "ratio_q25": 0.8290398265085966,
+   "win_rate_q75": 0.7088815789473685
+  },
+  "main": {
+   "block": 3,
+   "df": 6,
+   "hi_boot": -0.015408138090334016,
+   "hi_t": -0.014407272497557869,
+   "lo_boot": -0.05005366763280221,
+   "lo_t": -0.0502250575736994,
+   "mean": -0.03231616503562863,
+   "n": 21,
+   "n_eff": 7,
+   "p_t": 0.01272660637288587,
+   "skew": -0.41838450906785835
+  },
+  "mean_no_stale": -0.03231616503562863,
+  "p37_status": {
+   "cond_a": false,
+   "cond_b": false,
+   "cond_c": false,
+   "cond_d": true,
+   "cond_e": false,
+   "cond_g": false,
+   "hi": -0.014407272497557869,
+   "hi_boot": -0.015408138090334016,
+   "label": "Не ясно",
+   "lo": -0.0502250575736994,
+   "lo_boot": -0.05005366763280221,
+   "mean": -0.03231616503562863,
+   "r2_extra_unmet": [],
+   "status": "unclear",
+   "unmet": [
+    "a",
+    "b",
+    "c",
+    "e",
+    "g"
+   ]
+  },
+  "pairs": 5830,
+  "q5": true,
+  "r1_mean": -0.032888865531172026,
+  "series": {
+   "closed": [
+    0.06581182467501012,
+    -0.0011587391718104758,
+    -0.2528011899288754,
+    -0.030361629776597066,
+    0.02822898452208507,
+    -0.07290920507103461,
+    0.10165535649499259,
+    -0.23450115823874843,
+    -0.0499493059876889,
+    -0.10795267288942179,
+    -0.09470056511843199,
+    0.08145434205760675,
+    0.052773337741278924,
+    0.010663367141642545,
+    -0.04970630977196846,
+    -0.18991601254727772,
+    0.1689021676614408,
+    -0.02231993976067131,
+    -0.08244012570699205,
+    -0.001947408906240555,
+    0.002535416833500652
+   ],
+   "days": [
+    2479,
+    2480,
+    2481,
+    2482,
+    2483,
+    2484,
+    2485,
+    2486,
+    2487,
+    2488,
+    2489,
+    2490,
+    2491,
+    2492,
+    2493,
+    2494,
+    2495,
+    2496,
+    2497,
+    2498,
+    2499
+   ],
+   "mtm_available": true,
+   "mtm_day_added": false,
+   "mtm_value": 0.0,
+   "primary": [
+    0.06581182467501012,
+    -0.0011587391718104758,
+    -0.2528011899288754,
+    -0.030361629776597066,
+    0.02822898452208507,
+    -0.07290920507103461,
+    0.10165535649499259,
+    -0.23450115823874843,
+    -0.0499493059876889,
+    -0.10795267288942179,
+    -0.09470056511843199,
+    0.08145434205760675,
+    0.052773337741278924,
+    0.010663367141642545,
+    -0.04970630977196846,
+    -0.18991601254727772,
+    0.1689021676614408,
+    -0.02231993976067131,
+    -0.08244012570699205,
+    -0.001947408906240555,
+    0.002535416833500652
+   ],
+   "primary_days": [
+    2479,
+    2480,
+    2481,
+    2482,
+    2483,
+    2484,
+    2485,
+    2486,
+    2487,
+    2488,
+    2489,
+    2490,
+    2491,
+    2492,
+    2493,
+    2494,
+    2495,
+    2496,
+    2497,
+    2498,
+    2499
+   ]
+  },
+  "series_from_trades_equals_grid": true,
+  "sigma_form": 0.06458778413053327,
+  "sigma_form_src": "std суточного ряда y_d (закрытые + MTM) по суткам 2472..2478 (n=7) из /home/deck/xdl9/c2g/ng/out/calib/grid_full",
+  "slices": [
+   {
+    "gross_mean": 17.96605954830748,
+    "net_mean": -5.078983033158152,
+    "slice": "deferred",
+    "trades": 576,
+    "value": "0",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 15.726887299023495,
+    "net_mean": 3.7566929290601276,
+    "slice": "deferred",
+    "trades": 12,
+    "value": "1",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 12.640502584865837,
+    "net_mean": -13.40056758644171,
+    "slice": "dir",
+    "trades": 342,
+    "value": "-1",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 25.260654729224665,
+    "net_mean": 6.921057734197916,
+    "slice": "dir",
+    "trades": 246,
+    "value": "1",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 22.605935469277274,
+    "net_mean": 10.345503763198442,
+    "slice": "exchange",
+    "trades": 39,
+    "value": "aster",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 21.167782064350806,
+    "net_mean": -2.294554182032514,
+    "slice": "exchange",
+    "trades": 235,
+    "value": "binance",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 11.565227318439893,
+    "net_mean": -8.914839258563187,
+    "slice": "exchange",
+    "trades": 219,
+    "value": "bingx",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 21.72822744643775,
+    "net_mean": -2.102188116695014,
+    "slice": "exchange",
+    "trades": 132,
+    "value": "bitget",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 10.731586889499088,
+    "net_mean": -13.539859153457675,
+    "slice": "exchange",
+    "trades": 368,
+    "value": "bybit",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 17.327589515800547,
+    "net_mean": 5.2854851114197565,
+    "slice": "exchange",
+    "trades": 20,
+    "value": "kraken",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 13.802870542527966,
+    "net_mean": 1.1857276853851073,
+    "slice": "exchange",
+    "trades": 7,
+    "value": "lighter",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 34.775506162083566,
+    "net_mean": 9.444966433253576,
+    "slice": "exchange",
+    "trades": 156,
+    "value": "okx",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 31.262146061037132,
+    "net_mean": 8.957923330152735,
+    "slice": "exit_code",
+    "trades": 529,
+    "value": "CV",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": -201.51933291684247,
+    "net_mean": -228.65435879098547,
+    "slice": "exit_code",
+    "trades": 31,
+    "value": "S1",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 54.97041377318324,
+    "net_mean": 42.37041377318324,
+    "slice": "exit_code",
+    "trades": 1,
+    "value": "S2",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 9.877673460685722,
+    "net_mean": -14.646630305940747,
+    "slice": "exit_code",
+    "trades": 24,
+    "value": "S3",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": -15.145858427586163,
+    "net_mean": -73.90717250374243,
+    "slice": "exit_code",
+    "trades": 3,
+    "value": "TO",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 32.76820612081466,
+    "net_mean": -2.8190725612214464,
+    "slice": "hour_in",
+    "trades": 51,
+    "value": "00",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 16.959198349516736,
+    "net_mean": 5.710766177378231,
+    "slice": "hour_in",
+    "trades": 16,
+    "value": "01",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 11.808619318067558,
+    "net_mean": -19.37993238003094,
+    "slice": "hour_in",
+    "trades": 28,
+    "value": "02",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 24.332249477823044,
+    "net_mean": -2.0534370472165726,
+    "slice": "hour_in",
+    "trades": 23,
+    "value": "03",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 6.62245626475975,
+    "net_mean": -21.45899820415417,
+    "slice": "hour_in",
+    "trades": 17,
+    "value": "04",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 19.105240190723283,
+    "net_mean": 6.996207195682435,
+    "slice": "hour_in",
+    "trades": 26,
+    "value": "05",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 36.37627741055919,
+    "net_mean": 8.226381289775796,
+    "slice": "hour_in",
+    "trades": 36,
+    "value": "06",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 11.747509394311724,
+    "net_mean": -21.621624490852575,
+    "slice": "hour_in",
+    "trades": 34,
+    "value": "07",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 17.28585584890677,
+    "net_mean": -4.618096880382208,
+    "slice": "hour_in",
+    "trades": 43,
+    "value": "08",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 4.878447543886509,
+    "net_mean": -10.448844797881147,
+    "slice": "hour_in",
+    "trades": 33,
+    "value": "09",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 35.20022576594929,
+    "net_mean": 10.273787819765413,
+    "slice": "hour_in",
+    "trades": 16,
+    "value": "10",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 22.241384630008742,
+    "net_mean": 10.120357764617939,
+    "slice": "hour_in",
+    "trades": 16,
+    "value": "11",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 10.520652631810712,
+    "net_mean": -14.060642689578117,
+    "slice": "hour_in",
+    "trades": 30,
+    "value": "12",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 26.890350349892636,
+    "net_mean": 4.963643161506054,
+    "slice": "hour_in",
+    "trades": 14,
+    "value": "13",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 28.85194898787149,
+    "net_mean": 12.413502490974219,
+    "slice": "hour_in",
+    "trades": 25,
+    "value": "14",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 6.459820791453509,
+    "net_mean": -14.952324861349487,
+    "slice": "hour_in",
+    "trades": 25,
+    "value": "15",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 19.26060189807506,
+    "net_mean": 7.896713855726727,
+    "slice": "hour_in",
+    "trades": 26,
+    "value": "16",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 3.285247623197038,
+    "net_mean": -11.920147455395787,
+    "slice": "hour_in",
+    "trades": 27,
+    "value": "17",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": -38.57217555137604,
+    "net_mean": -58.61520842137186,
+    "slice": "hour_in",
+    "trades": 20,
+    "value": "18",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 66.18036177133006,
+    "net_mean": 48.21991123934474,
+    "slice": "hour_in",
+    "trades": 18,
+    "value": "19",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 21.320523555802332,
+    "net_mean": -14.275359871686991,
+    "slice": "hour_in",
+    "trades": 20,
+    "value": "20",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 5.131660298529715,
+    "net_mean": 2.2906624124837047,
+    "slice": "hour_in",
+    "trades": 13,
+    "value": "21",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 14.31921144240085,
+    "net_mean": -11.170533301185474,
+    "slice": "hour_in",
+    "trades": 25,
+    "value": "22",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 21.246188817522864,
+    "net_mean": -4.584927751703442,
+    "slice": "hour_in",
+    "trades": 6,
+    "value": "23",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 17.920362155464954,
+    "net_mean": -4.898663115561859,
+    "slice": "kind",
+    "trades": 588,
+    "value": "closed",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 18.00195946756932,
+    "net_mean": -4.815363393246707,
+    "slice": "near_00_08_16",
+    "trades": 585,
+    "value": "no",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 2.008886295112866,
+    "net_mean": -21.14210896701677,
+    "slice": "near_00_08_16",
+    "trades": 3,
+    "value": "yes",
+    "variant": "V1"
+   },
+   {
+    "gross_mean": 17.920362155464954,
+    "net_mean": -4.898663115561859,
+    "slice": "stale_leg",
+    "trades": 588,
+    "value": "0",
+    "variant": "V1"
+   }
+  ],
+  "status": {
+   "c1": true,
+   "c2": false,
+   "c3": false,
+   "confirmed": false,
+   "formation": {
+    "a3_cells": "формирование: A3 по клеткам не пройдено (0 из 28)",
+    "a3b": "формирование: A3b не пройдено (H0->H1 -0.011 (375 сделок); H1->H0 +0.075 (192))",
+    "a8": "формирование: A8 пройдено (8 бирж из 8)"
+   },
+   "formation_ok": false,
+   "k_days": 7,
+   "label": "не подтверждено",
+   "min_assets": 5,
+   "n_min": 30,
+   "note": "метка «подтверждено на окне» - статистический статус заранее названной гипотезы, не подтверждение исполнимой торговли"
+  },
+  "tail": {
+   "mean": -4.898663115561866,
+   "trades": 588.0,
+   "win_loss_ratio": 0.5696509456049732,
+   "win_rate": 0.5816326530612245
+  },
+  "trades": {
+   "all": 588,
+   "assets": 126,
+   "assets_closed": 126,
+   "closed": 588,
+   "days_with_trades": 21,
+   "fund_trade": -10.219025271026812,
+   "gross_trade": 17.920362155464943,
+   "mtm_open": 0,
+   "net_closed_trade": -4.898663115561867,
+   "net_trade": -4.898663115561866,
+   "net_trade_maker": 2.6613368844381338,
+   "share_deferred": 0.02040816326530612,
+   "share_ffill": 0.023809523809523808,
+   "share_le2": 0.10884353741496598
+  },
+  "weeks": {
+   "0": {
+    "days": 7,
+    "mean": -0.023076371179461395
+   },
+   "1": {
+    "days": 7,
+    "mean": -0.04888752218482327
+   },
+   "2": {
+    "days": 7,
+    "mean": -0.024984601742601233
+   }
+  },
+  "window_labels": {
+   "A3b": "A3b окна: нет",
+   "A8": "A8 окна: нет (aster,binance,bingx,bitget,kraken,lighter,okx)",
+   "K_a": "К-а: ок",
+   "K_g": "К-г: нет"
+  },
+  "without_best": {
+   "best_assets": [
+    "IRYS",
+    "LSK",
+    "NIL"
+   ],
+   "mean_wo1": -0.039847622845645504,
+   "mean_wo3": -0.05016346895013941
+  }
+ },
+ {
+  "a3b_window": {
+   "h0on1": {
+    "assets": 292,
+    "combo": [
+     25.2,
+     5,
+     3,
+     360,
+     null
+    ],
+    "mean": -0.02187530389013131,
+    "on_half": "H0",
+    "pairs": 3201,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": 0.01102333987316945,
+     "hi_t": 0.02318193931390884,
+     "lo_boot": -0.09284985453287188,
+     "lo_t": -0.06693254709417146,
+     "mean": -0.02187530389013131,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.3818888669783337,
+     "skew": -2.468092953462306
+    },
+    "trades": 162
+   },
+   "h1on0": {
+    "assets": 258,
+    "combo": [
+     40.0,
+     3,
+     3,
+     1440,
+     null
+    ],
+    "mean": -0.07367585920909747,
+    "on_half": "H1",
+    "pairs": 2629,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": -0.002744022859097958,
+     "hi_t": 0.026573534378420346,
+     "lo_boot": -0.23123838361863946,
+     "lo_t": -0.1739252527966153,
+     "mean": -0.07367585920909747,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.20318278282667135,
+     "skew": -1.741051277891338
+    },
+    "trades": 364
+   }
+  },
+  "a3b_window_reference": {
+   "H0": {
+    "assets": 292,
+    "mean": -0.030249809771864977,
+    "ok": false,
+    "pairs": 3201,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": 0.0019814137904102178,
+     "lo_boot": null,
+     "lo_t": -0.06248103333414017,
+     "mean": -0.030249809771864977,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.11800999426765406,
+     "skew": -1.454475081527137
+    },
+    "trades": 227
+   },
+   "H1": {
+    "assets": 258,
+    "mean": -0.03805409453336465,
+    "ok": false,
+    "pairs": 2629,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": 0.011013646040334162,
+     "lo_boot": null,
+     "lo_t": -0.08712183510706345,
+     "mean": -0.03805409453336465,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.18252630085259405,
+     "skew": -0.46294747402904746
+    },
+    "trades": 386
+   }
+  },
+  "a8": {
+   "aster": {
+    "mean": -0.04274671852271853,
+    "ok": false,
+    "pairs": 4779,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.01338253176230312,
+     "lo_boot": null,
+     "lo_t": -0.07211090528313394,
+     "mean": -0.04274671852271853,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.03000615637552612,
+     "skew": -0.9550669475529677
+    }
+   },
+   "binance": {
+    "mean": -0.04878244240739201,
+    "ok": false,
+    "pairs": 3761,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.011773222419666614,
+     "lo_boot": null,
+     "lo_t": -0.0857916623951174,
+     "mean": -0.04878244240739201,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.04283151700355253,
+     "skew": -1.222329738063211
+    }
+   },
+   "bingx": {
+    "mean": -0.024096034494050296,
+    "ok": false,
+    "pairs": 3752,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.0007564871153196255,
+     "lo_boot": null,
+     "lo_t": -0.04743558187278096,
+     "mean": -0.024096034494050296,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.09164038378597485,
+     "skew": -0.20735157921825978
+    }
+   },
+   "bitget": {
+    "mean": -0.03645449859339654,
+    "ok": false,
+    "pairs": 3920,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.004184447672113734,
+     "lo_boot": null,
+     "lo_t": -0.06872454951467935,
+     "mean": -0.03645449859339654,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.07057199677125779,
+     "skew": -0.08386147863512398
+    }
+   },
+   "bybit": {
+    "mean": 0.03549942643098457,
+    "ok": true,
+    "pairs": 3811,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": 0.06670117748848413,
+     "lo_boot": null,
+     "lo_t": 0.004297675373485008,
+     "mean": 0.03549942643098457,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.06906425930722002,
+     "skew": 2.478858020848443
+    }
+   },
+   "kraken": {
+    "mean": -0.03992666301519096,
+    "ok": false,
+    "pairs": 5205,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.01815870821643718,
+     "lo_boot": null,
+     "lo_t": -0.06169461781394474,
+     "mean": -0.03992666301519096,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.011867297142920915,
+     "skew": -0.581950862684221
+    }
+   },
+   "lighter": {
+    "mean": -0.038133620648430754,
+    "ok": false,
+    "pairs": 5313,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.01584730123436329,
+     "lo_boot": null,
+     "lo_t": -0.06041994006249822,
+     "mean": -0.038133620648430754,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.01590653549400563,
+     "skew": -0.6526617067509096
+    }
+   },
+   "okx": {
+    "mean": -0.06116457989317566,
+    "ok": false,
+    "pairs": 4439,
+    "stat": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": null,
+     "hi_t": -0.007161028786786351,
+     "lo_boot": null,
+     "lo_t": -0.11516813099956497,
+     "mean": -0.06116457989317566,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.07001998857927912,
+     "skew": -0.3572968251755791
+    }
+   }
+  },
+  "assets": 550,
+  "cells": 28,
+  "cells_table": [
+   {
+    "assets": 6,
+    "cell": "aster~binance/crypto",
+    "days": 12,
+    "mean_yd": 0.089917881779502,
+    "net_trade": 6.2758744277489935,
+    "pairs": 213,
+    "trades": 16,
+    "variant": "V2"
+   },
+   {
+    "assets": 5,
+    "cell": "aster~bingx/crypto",
+    "days": 7,
+    "mean_yd": -0.06204794270909656,
+    "net_trade": -3.9463988143136586,
+    "pairs": 212,
+    "trades": 11,
+    "variant": "V2"
+   },
+   {
+    "assets": 3,
+    "cell": "aster~bitget/crypto",
+    "days": 3,
+    "mean_yd": 0.10093405354422103,
+    "net_trade": 39.23829911251618,
+    "pairs": 163,
+    "trades": 3,
+    "variant": "V2"
+   },
+   {
+    "assets": 5,
+    "cell": "aster~bybit/crypto",
+    "days": 6,
+    "mean_yd": 0.19337812595964768,
+    "net_trade": 28.117616487073537,
+    "pairs": 192,
+    "trades": 8,
+    "variant": "V2"
+   },
+   {
+    "assets": 0,
+    "cell": "aster~kraken/crypto",
+    "days": 0,
+    "mean_yd": 0.0,
+    "net_trade": null,
+    "pairs": 69,
+    "trades": 0,
+    "variant": "V2"
+   },
+   {
+    "assets": 0,
+    "cell": "aster~lighter/crypto",
+    "days": 0,
+    "mean_yd": 0.0,
+    "net_trade": null,
+    "pairs": 60,
+    "trades": 0,
+    "variant": "V2"
+   },
+   {
+    "assets": 1,
+    "cell": "aster~okx/crypto",
+    "days": 2,
+    "mean_yd": 0.055331081528185985,
+    "net_trade": 23.183845713853362,
+    "pairs": 142,
+    "trades": 3,
+    "variant": "V2"
+   },
+   {
+    "assets": 23,
+    "cell": "binance~bingx/crypto",
+    "days": 14,
+    "mean_yd": 0.06277309052095045,
+    "net_trade": 22.05582954181321,
+    "pairs": 488,
+    "trades": 29,
+    "variant": "V2"
+   },
+   {
+    "assets": 16,
+    "cell": "binance~bitget/crypto",
+    "days": 10,
+    "mean_yd": -0.03829617390584967,
+    "net_trade": -12.769413606222344,
+    "pairs": 447,
+    "trades": 19,
+    "variant": "V2"
+   },
+   {
+    "assets": 51,
+    "cell": "binance~bybit/crypto",
+    "days": 21,
+    "mean_yd": -0.12753718664248517,
+    "net_trade": -9.58207364660294,
+    "pairs": 469,
+    "trades": 129,
+    "variant": "V2"
+   },
+   {
+    "assets": 7,
+    "cell": "binance~kraken/crypto",
+    "days": 6,
+    "mean_yd": -0.07442432472517112,
+    "net_trade": -11.868504184004294,
+    "pairs": 105,
+    "trades": 8,
+    "variant": "V2"
+   },
+   {
+    "assets": 1,
+    "cell": "binance~lighter/crypto",
+    "days": 1,
+    "mean_yd": -0.0021923360230680614,
+    "net_trade": -2.3019528242214644,
+    "pairs": 82,
+    "trades": 1,
+    "variant": "V2"
+   },
+   {
+    "assets": 15,
+    "cell": "binance~okx/crypto",
+    "days": 15,
+    "mean_yd": 0.0766862571212319,
+    "net_trade": 10.404371375267417,
+    "pairs": 265,
+    "trades": 41,
+    "variant": "V2"
+   },
+   {
+    "assets": 14,
+    "cell": "bingx~bitget/crypto",
+    "days": 13,
+    "mean_yd": -0.011612281932495503,
+    "net_trade": -5.157082704130879,
+    "pairs": 439,
+    "trades": 17,
+    "variant": "V2"
+   },
+   {
+    "assets": 62,
+    "cell": "bingx~bybit/crypto",
+    "days": 21,
+    "mean_yd": -0.22815071994322653,
+    "net_trade": -17.275493648676775,
+    "pairs": 472,
+    "trades": 127,
+    "variant": "V2"
+   },
+   {
+    "assets": 1,
+    "cell": "bingx~kraken/crypto",
+    "days": 1,
+    "mean_yd": -0.021515900705116147,
+    "net_trade": -27.561868803253788,
+    "pairs": 107,
+    "trades": 1,
+    "variant": "V2"
+   },
+   {
+    "assets": 2,
+    "cell": "bingx~lighter/crypto",
+    "days": 2,
+    "mean_yd": -0.009192377859921103,
+    "net_trade": -5.4164581380634615,
+    "pairs": 85,
+    "trades": 2,
+    "variant": "V2"
+   },
+   {
+    "assets": 19,
+    "cell": "bingx~okx/crypto",
+    "days": 17,
+    "mean_yd": -0.0036117070468104475,
+    "net_trade": -0.5552384139354564,
+    "pairs": 275,
+    "trades": 36,
+    "variant": "V2"
+   },
+   {
+    "assets": 31,
+    "cell": "bitget~bybit/crypto",
+    "days": 19,
+    "mean_yd": -0.27065093452665917,
+    "net_trade": -20.82486276229492,
+    "pairs": 426,
+    "trades": 75,
+    "variant": "V2"
+   },
+   {
+    "assets": 3,
+    "cell": "bitget~kraken/crypto",
+    "days": 2,
+    "mean_yd": 0.10923389863603628,
+    "net_trade": 39.43553383604532,
+    "pairs": 96,
+    "trades": 3,
+    "variant": "V2"
+   },
+   {
+    "assets": 0,
+    "cell": "bitget~lighter/crypto",
+    "days": 0,
+    "mean_yd": 0.0,
+    "net_trade": null,
+    "pairs": 76,
+    "trades": 0,
+    "variant": "V2"
+   },
+   {
+    "assets": 11,
+    "cell": "bitget~okx/crypto",
+    "days": 15,
+    "mean_yd": 0.20787190942529418,
+    "net_trade": 28.521498775865084,
+    "pairs": 263,
+    "trades": 31,
+    "variant": "V2"
+   },
+   {
+    "assets": 4,
+    "cell": "bybit~kraken/crypto",
+    "days": 4,
+    "mean_yd": 0.10375783299719885,
+    "net_trade": 24.78058085922869,
+    "pairs": 104,
+    "trades": 4,
+    "variant": "V2"
+   },
+   {
+    "assets": 2,
+    "cell": "bybit~lighter/crypto",
+    "days": 2,
+    "mean_yd": 0.04253055614380526,
+    "net_trade": 23.674889070807,
+    "pairs": 85,
+    "trades": 2,
+    "variant": "V2"
+   },
+   {
+    "assets": 17,
+    "cell": "bybit~okx/crypto",
+    "days": 16,
+    "mean_yd": -0.07424637434151722,
+    "net_trade": -10.100938932309555,
+    "pairs": 271,
+    "trades": 41,
+    "variant": "V2"
+   },
+   {
+    "assets": 2,
+    "cell": "kraken~lighter/crypto",
+    "days": 1,
+    "mean_yd": 0.20721064797909533,
+    "net_trade": 58.744218702073525,
+    "pairs": 49,
+    "trades": 2,
+    "variant": "V2"
+   },
+   {
+    "assets": 3,
+    "cell": "kraken~okx/crypto",
+    "days": 3,
+    "mean_yd": 0.022723780324695436,
+    "net_trade": 9.730800759930618,
+    "pairs": 95,
+    "trades": 3,
+    "variant": "V2"
+   },
+   {
+    "assets": 1,
+    "cell": "lighter~okx/crypto",
+    "days": 1,
+    "mean_yd": -0.00795036245757731,
+    "net_trade": -7.513092522410558,
+    "pairs": 80,
+    "trades": 1,
+    "variant": "V2"
+   }
+  ],
+  "clip1000": {
+   "mean": -0.03379540224963392,
+   "n_abs_gt_1000": 0,
+   "stat": {
+    "block": 3,
+    "df": 6,
+    "hi_boot": null,
+    "hi_t": -0.011369635124023083,
+    "lo_boot": null,
+    "lo_t": -0.05622116937524475,
+    "mean": -0.03379540224963392,
+    "n": 21,
+    "n_eff": 7,
+    "p_t": 0.026343441938217124,
+    "skew": -0.642109286668176
+   }
+  },
+  "closed": {
+   "block": 3,
+   "df": 6,
+   "hi_boot": -0.011655357440644155,
+   "hi_t": -0.011369635124023069,
+   "lo_boot": -0.055256145945108234,
+   "lo_t": -0.05622116937524474,
+   "mean": -0.033795402249633906,
+   "n": 21,
+   "n_eff": 7,
+   "p_t": 0.026343441938217138,
+   "skew": -0.6421092866681762
+  },
+  "cls": "crypto",
+  "combo": [
+   40.0,
+   3,
+   3,
+   120,
+   null
+  ],
+  "controls": {
+   "p_win": {
+    "obs_best": -0.05622116937524474,
+    "p_win": 0.000999000999000999
+   },
+   "random_entries": {
+    "diff": {
+     "block": 3,
+     "df": 6,
+     "hi_boot": 0.08724672023661924,
+     "hi_t": 0.09807092282593832,
+     "lo_boot": -0.03433187113536409,
+     "lo_t": -0.026895575657843555,
+     "mean": 0.03558767358404739,
+     "n": 21,
+     "n_eff": 7,
+     "p_t": 0.3107900332783319,
+     "skew": 0.06484480798794333
+    },
+    "mean_control": -0.06938307583368129,
+    "pairs_with_trades": 305,
+    "real_closed_trades": 613,
+    "seed": 37,
+    "trades_done": 613
+   },
+   "real_closed_mean_yd": -0.03379540224963392,
+   "reversed": {
+    "block": 3,
+    "df": 6,
+    "hi_boot": -0.077166858603328,
+    "hi_t": -0.07972122125526208,
+    "lo_boot": -0.20270352392880875,
+    "lo_t": -0.20431518895016632,
+    "mean": -0.1420182051027142,
+    "n": 21,
+    "n_eff": 7,
+    "p_t": 0.004423764191574752,
+    "skew": -0.18104666698996372
+   },
+   "reversed_mean": -0.1420182051027142,
+   "shifts": {
+    "-15": {
+     "mean_yd_closed": -0.00032473395810910964,
+     "skipped": 609,
+     "trades_done": 4
+    },
+    "-5": {
+     "mean_yd_closed": 0.0003143847660347452,
+     "skipped": 610,
+     "trades_done": 3
+    },
+    "15": {
+     "mean_yd_closed": 0.007204150251223065,
+     "skipped": 503,
+     "trades_done": 110
+    },
+    "5": {
+     "mean_yd_closed": -0.01181996241092676,
+     "skipped": 421,
+     "trades_done": 192
+    }
+   }
+  },
+  "counters": {
+   "R": 63139,
+   "dedup_dropped": 117,
+   "drop_Q1": 0,
+   "drop_Q3": 10129,
+   "drop_Q6": 57332,
+   "drop_Q7": 248,
+   "drop_range": 3276,
+   "entry_deferred": 12,
+   "exit_CV": 487,
+   "exit_S1": 22,
+   "exit_S2": 1,
+   "exit_S3": 22,
+   "exit_TO": 81,
+   "exit_ffill": 13,
+   "jump_trades": 1,
+   "pair_excluded": 1,
+   "signal_total": 613
+  },
+  "d1": 2499,
+  "first_sig": 2479,
+  "formation_labels": {
+   "a3_cells": {
+    "ok": false,
+    "text": "формирование: A3 по клеткам не пройдено (0 из 28)"
+   },
+   "a3b": {
+    "ok": true,
+    "text": "формирование: A3b пройдено (H0->H1 +0.027 (156 сделок); H1->H0 +0.073 (206))"
+   },
+   "a8": {
+    "ok": true,
+    "text": "формирование: A8 пройдено (8 бирж из 8)"
+   }
+  },
+  "holm": {
+   "M": 2,
+   "boot": {
+    "by_i": false,
+    "by_ii": false,
+    "lo_a05": -0.06068502908724091,
+    "lo_a10": -0.055256145945108234,
+    "passed": false,
+    "rule": "M=2: (i) alpha 0,05 либо (ii) alpha 0,10 и другой по (i)"
+   },
+   "p_one_sided": 0.9868282790308914,
+   "pass_both": false,
+   "rank": 1,
+   "t": {
+    "by_i": false,
+    "by_ii": false,
+    "lo_a05": -0.06203461191067754,
+    "lo_a10": -0.05622116937524474,
+    "passed": false,
+    "rule": "M=2: (i) alpha 0,05 либо (ii) alpha 0,10 и другой по (i)"
+   }
+  },
+  "id": "V2",
+  "katok": false,
+  "katok_bounds": {
+   "ratio_q25": 0.8290398265085966,
+   "win_rate_q75": 0.7088815789473685
+  },
+  "main": {
+   "block": 3,
+   "df": 6,
+   "hi_boot": -0.011655357440644155,
+   "hi_t": -0.011369635124023069,
+   "lo_boot": -0.055256145945108234,
+   "lo_t": -0.05622116937524474,
+   "mean": -0.033795402249633906,
+   "n": 21,
+   "n_eff": 7,
+   "p_t": 0.026343441938217138,
+   "skew": -0.6421092866681762
+  },
+  "mean_no_stale": -0.033795402249633906,
+  "p37_status": {
+   "cond_a": false,
+   "cond_b": false,
+   "cond_c": false,
+   "cond_d": true,
+   "cond_e": false,
+   "cond_g": false,
+   "hi": -0.011369635124023069,
+   "hi_boot": -0.011655357440644155,
+   "label": "Не ясно",
+   "lo": -0.05622116937524474,
+   "lo_boot": -0.055256145945108234,
+   "mean": -0.033795402249633906,
+   "r2_extra_unmet": [],
+   "status": "unclear",
+   "unmet": [
+    "a",
+    "b",
+    "c",
+    "e",
+    "g"
+   ]
+  },
+  "pairs": 5830,
+  "q5": false,
+  "r1_mean": -0.03436213751170329,
+  "series": {
+   "closed": [
+    0.04164419460066535,
+    -0.0011454386762662784,
+    -0.13284775228066337,
+    -0.0008442095960555371,
+    -0.012268559198479273,
+    -0.1467317351703207,
+    0.009710251414194942,
+    -0.19001600103187083,
+    -0.0005999587869451293,
+    -0.1251119380301049,
+    -0.09108990464264492,
+    0.019419205583470326,
+    -0.03546510649829572,
+    0.03272113124523846,
+    0.06607155333080524,
+    -0.2388354863550841,
+    0.13367042873211388,
+    -0.0018671144341195663,
+    -0.020269756290355382,
+    -0.0019244802299504386,
+    -0.013922770927644136
+   ],
+   "days": [
+    2479,
+    2480,
+    2481,
+    2482,
+    2483,
+    2484,
+    2485,
+    2486,
+    2487,
+    2488,
+    2489,
+    2490,
+    2491,
+    2492,
+    2493,
+    2494,
+    2495,
+    2496,
+    2497,
+    2498,
+    2499
+   ],
+   "mtm_available": true,
+   "mtm_day_added": false,
+   "mtm_value": 0.0,
+   "primary": [
+    0.04164419460066535,
+    -0.0011454386762662784,
+    -0.13284775228066337,
+    -0.0008442095960555371,
+    -0.012268559198479273,
+    -0.1467317351703207,
+    0.009710251414194942,
+    -0.19001600103187083,
+    -0.0005999587869451293,
+    -0.1251119380301049,
+    -0.09108990464264492,
+    0.019419205583470326,
+    -0.03546510649829572,
+    0.03272113124523846,
+    0.06607155333080524,
+    -0.2388354863550841,
+    0.13367042873211388,
+    -0.0018671144341195663,
+    -0.020269756290355382,
+    -0.0019244802299504386,
+    -0.013922770927644136
+   ],
+   "primary_days": [
+    2479,
+    2480,
+    2481,
+    2482,
+    2483,
+    2484,
+    2485,
+    2486,
+    2487,
+    2488,
+    2489,
+    2490,
+    2491,
+    2492,
+    2493,
+    2494,
+    2495,
+    2496,
+    2497,
+    2498,
+    2499
+   ]
+  },
+  "series_from_trades_equals_grid": true,
+  "sigma_form": 0.05762034947061348,
+  "sigma_form_src": "std суточного ряда y_d (закрытые + MTM) по суткам 2472..2478 (n=7) из /home/deck/xdl9/c2g/ng/out_noq5/calib/grid_full",
+  "slices": [
+   {
+    "gross_mean": 14.724702753682324,
+    "net_mean": -5.180630890922183,
+    "slice": "deferred",
+    "trades": 601,
+    "value": "0",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 15.726887299023495,
+    "net_mean": 3.7566929290601276,
+    "slice": "deferred",
+    "trades": 12,
+    "value": "1",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 9.633906626669617,
+    "net_mean": -12.027675276233305,
+    "slice": "dir",
+    "trades": 364,
+    "value": "-1",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 22.214967833106883,
+    "net_mean": 5.259417470897224,
+    "slice": "dir",
+    "trades": 249,
+    "value": "1",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 23.721166019495243,
+    "net_mean": 11.444170006395867,
+    "slice": "exchange",
+    "trades": 41,
+    "value": "aster",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 18.169073009294532,
+    "net_mean": -1.6845435032252223,
+    "slice": "exchange",
+    "trades": 243,
+    "value": "binance",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 10.216006397855605,
+    "net_mean": -7.819878016045287,
+    "slice": "exchange",
+    "trades": 223,
+    "value": "bingx",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 16.045593975803335,
+    "net_mean": -5.215986559209912,
+    "slice": "exchange",
+    "trades": 148,
+    "value": "bitget",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 6.911068558607429,
+    "net_mean": -13.043174517397471,
+    "slice": "exchange",
+    "trades": 386,
+    "value": "bybit",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 23.5734262114913,
+    "net_mean": 11.504755350176259,
+    "slice": "exchange",
+    "trades": 21,
+    "value": "kraken",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 30.63878174037526,
+    "net_mean": 18.023781740375263,
+    "slice": "exchange",
+    "trades": 8,
+    "value": "lighter",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 29.66758624305997,
+    "net_mean": 6.2041631808356,
+    "slice": "exchange",
+    "trades": 156,
+    "value": "okx",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 30.47169817961964,
+    "net_mean": 12.709659160415987,
+    "slice": "exit_code",
+    "trades": 487,
+    "value": "CV",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": -149.75889747504695,
+    "net_mean": -158.9586981914329,
+    "slice": "exit_code",
+    "trades": 22,
+    "value": "S1",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 54.97041377318324,
+    "net_mean": 42.37041377318324,
+    "slice": "exit_code",
+    "trades": 1,
+    "value": "S2",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 7.258336802080051,
+    "net_mean": -6.271668687860034,
+    "slice": "exit_code",
+    "trades": 22,
+    "value": "S3",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": -33.59760604804077,
+    "net_mean": -69.94302720798564,
+    "slice": "exit_code",
+    "trades": 81,
+    "value": "TO",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 27.322562584186045,
+    "net_mean": -2.063617840488774,
+    "slice": "hour_in",
+    "trades": 54,
+    "value": "00",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 14.980842502333376,
+    "net_mean": 2.554533118494782,
+    "slice": "hour_in",
+    "trades": 16,
+    "value": "01",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": -2.7134407712068738,
+    "net_mean": -29.08017750386046,
+    "slice": "hour_in",
+    "trades": 31,
+    "value": "02",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 14.833298854180256,
+    "net_mean": -6.298245991096035,
+    "slice": "hour_in",
+    "trades": 25,
+    "value": "03",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 12.303127285363793,
+    "net_mean": -5.602816085528343,
+    "slice": "hour_in",
+    "trades": 17,
+    "value": "04",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 19.105240190723283,
+    "net_mean": 6.996207195682435,
+    "slice": "hour_in",
+    "trades": 26,
+    "value": "05",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 29.077895709304475,
+    "net_mean": 1.2908566848005267,
+    "slice": "hour_in",
+    "trades": 39,
+    "value": "06",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 13.457285595330637,
+    "net_mean": -12.432543118073673,
+    "slice": "hour_in",
+    "trades": 34,
+    "value": "07",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 16.88421938630235,
+    "net_mean": -3.1525113161595635,
+    "slice": "hour_in",
+    "trades": 45,
+    "value": "08",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 9.264874579937702,
+    "net_mean": -3.3351254200622975,
+    "slice": "hour_in",
+    "trades": 33,
+    "value": "09",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 33.744006911679286,
+    "net_mean": 8.817568965495404,
+    "slice": "hour_in",
+    "trades": 16,
+    "value": "10",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 22.241384630008742,
+    "net_mean": 10.120357764617939,
+    "slice": "hour_in",
+    "trades": 16,
+    "value": "11",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 10.787338048478789,
+    "net_mean": -7.952285437154918,
+    "slice": "hour_in",
+    "trades": 30,
+    "value": "12",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 9.541906362632298,
+    "net_mean": -3.0920901318896834,
+    "slice": "hour_in",
+    "trades": 14,
+    "value": "13",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 28.85194898787149,
+    "net_mean": 12.413502490974219,
+    "slice": "hour_in",
+    "trades": 25,
+    "value": "14",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 6.352284228396749,
+    "net_mean": -13.533194888782244,
+    "slice": "hour_in",
+    "trades": 27,
+    "value": "15",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 20.944963789115697,
+    "net_mean": 8.21599302633402,
+    "slice": "hour_in",
+    "trades": 28,
+    "value": "16",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": -1.0860860673880526,
+    "net_mean": -13.686086067388054,
+    "slice": "hour_in",
+    "trades": 27,
+    "value": "17",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": -30.66131910092581,
+    "net_mean": -49.46384649258898,
+    "slice": "hour_in",
+    "trades": 24,
+    "value": "18",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 58.32328149317854,
+    "net_mean": 37.570086045813184,
+    "slice": "hour_in",
+    "trades": 19,
+    "value": "19",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 11.578035434534415,
+    "net_mean": -13.775574246240241,
+    "slice": "hour_in",
+    "trades": 22,
+    "value": "20",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 5.014568548542465,
+    "net_mean": 11.950800646624886,
+    "slice": "hour_in",
+    "trades": 14,
+    "value": "21",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 1.833953274203061,
+    "net_mean": -23.655791469383267,
+    "slice": "hour_in",
+    "trades": 25,
+    "value": "22",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 21.246188817522864,
+    "net_mean": -4.584927751703442,
+    "slice": "hour_in",
+    "trades": 6,
+    "value": "23",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 14.74432137447204,
+    "net_mean": -5.005675122831175,
+    "slice": "kind",
+    "trades": 613,
+    "value": "closed",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 14.806954661747575,
+    "net_mean": -4.926315612122066,
+    "slice": "near_00_08_16",
+    "trades": 610,
+    "value": "no",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 2.008886295112866,
+    "net_mean": -21.14210896701677,
+    "slice": "near_00_08_16",
+    "trades": 3,
+    "value": "yes",
+    "variant": "V2"
+   },
+   {
+    "gross_mean": 14.74432137447204,
+    "net_mean": -5.005675122831175,
+    "slice": "stale_leg",
+    "trades": 613,
+    "value": "0",
+    "variant": "V2"
+   }
+  ],
+  "status": {
+   "c1": true,
+   "c2": false,
+   "c3": false,
+   "confirmed": false,
+   "formation": {
+    "a3_cells": "формирование: A3 по клеткам не пройдено (0 из 28)",
+    "a3b": "формирование: A3b пройдено (H0->H1 +0.027 (156 сделок); H1->H0 +0.073 (206))",
+    "a8": "формирование: A8 пройдено (8 бирж из 8)"
+   },
+   "formation_ok": false,
+   "k_days": 7,
+   "label": "не подтверждено",
+   "min_assets": 5,
+   "n_min": 30,
+   "note": "метка «подтверждено на окне» - статистический статус заранее названной гипотезы, не подтверждение исполнимой торговли"
+  },
+  "tail": {
+   "mean": -5.005675122831182,
+   "trades": 613.0,
+   "win_loss_ratio": 0.6071022911449713,
+   "win_rate": 0.564437194127243
+  },
+  "trades": {
+   "all": 613,
+   "assets": 127,
+   "assets_closed": 127,
+   "closed": 613,
+   "days_with_trades": 21,
+   "fund_trade": -7.1499964973032135,
+   "gross_trade": 14.744321374472031,
+   "mtm_open": 0,
+   "net_closed_trade": -5.005675122831182,
+   "net_trade": -5.005675122831182,
+   "net_trade_maker": 2.554324877168818,
+   "share_deferred": 0.01957585644371941,
+   "share_ffill": 0.021207177814029365,
+   "share_le2": 0.11256117455138662
+  },
+  "weeks": {
+   "0": {
+    "days": 7,
+    "mean": -0.03464046412956069
+   },
+   "1": {
+    "days": 7,
+    "mean": -0.05573465316587896
+   },
+   "2": {
+    "days": 7,
+    "mean": -0.011011089453462072
+   }
+  },
+  "window_labels": {
+   "A3b": "A3b окна: нет",
+   "A8": "A8 окна: нет (aster,binance,bingx,bitget,kraken,lighter,okx)",
+   "K_a": "К-а: ок",
+   "K_g": "К-г: нет"
+  },
+  "without_best": {
+   "best_assets": [
+    "LSK",
+    "NIL",
+    "IRYS"
+   ],
+   "mean_wo1": -0.039573119459174265,
+   "mean_wo3": -0.04706536878999788
+  }
+ }
+]
