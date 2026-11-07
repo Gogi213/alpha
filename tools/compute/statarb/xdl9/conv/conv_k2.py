@@ -89,7 +89,9 @@ def main(argv=None):
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--json", default=None)
     ap.add_argument("--params", default=None)
+    W.add_gate_args(ap)
     a = ap.parse_args(argv)
+    W.apply_gate_args(a)
     script = os.path.join(HERE, "conv_run.py")
     params = (a.params or os.path.join(HERE, "P-38-params-2026-11-07.csv"), None)
     if not os.path.isfile(params[0]):

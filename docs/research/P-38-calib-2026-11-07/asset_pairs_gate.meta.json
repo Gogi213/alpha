@@ -1,0 +1,85 @@
+{
+ "c1d2_cells": {
+  "aster~gate/акции+ETF": 28,
+  "aster~gate/крипта": 189,
+  "aster~gate/металлы+энергия": 6,
+  "binance~gate/акции+ETF": 104,
+  "binance~gate/крипта": 488,
+  "binance~gate/металлы+энергия": 10,
+  "bingx~gate/акции+ETF": 105,
+  "bingx~gate/крипта": 484,
+  "bingx~gate/металлы+энергия": 8,
+  "bitget~gate/акции+ETF": 96,
+  "bitget~gate/крипта": 390,
+  "bitget~gate/металлы+энергия": 9,
+  "bybit~gate/акции+ETF": 96,
+  "bybit~gate/крипта": 456,
+  "bybit~gate/металлы+энергия": 6,
+  "gate~kraken/акции+ETF": 19,
+  "gate~kraken/крипта": 98,
+  "gate~kraken/металлы+энергия": 4,
+  "gate~lighter/акции+ETF": 31,
+  "gate~lighter/крипта": 80,
+  "gate~lighter/металлы+энергия": 6,
+  "gate~okx/акции+ETF": 92,
+  "gate~okx/крипта": 275,
+  "gate~okx/металлы+энергия": 7
+ },
+ "c1d2_pairs_by_class": {
+  "акции+ETF": 571,
+  "крипта": 2460,
+  "металлы+энергия": 56
+ },
+ "c1d2_pairs_total": 3087,
+ "gate_big": {
+  "акции+ETF": 429,
+  "вне теста": 15,
+  "индексы": 16,
+  "крипта": 594,
+  "металлы+энергия": 15,
+  "фиат": 3
+ },
+ "gate_by_class": {
+  "crypto": 597,
+  "energy": 3,
+  "equity": 439,
+  "fx": 3,
+  "index": 18,
+  "metal": 12
+ },
+ "gate_contracts": 1072,
+ "gate_out_kinds": {
+  "pre_listing": 7,
+  "private_base": 8
+ },
+ "gate_roles": {
+  "dup": 4,
+  "excluded": 45,
+  "main": 1023
+ },
+ "inputs": {
+  "asset_map_sha256": "54f81d2e273d2e91d1441b6cc2e14eab637d402394e49b087b3fa240daa3441c",
+  "asset_pairs_sha256": "8c977521c2f390dabee842ca894a6f49c48658bace5d2441c1e9e3177adf955e",
+  "gate_closes_sha256": "5391dda87f1d3eea458a2cdfbea2057b2128768c03fc23933fb536bd6af992f0",
+  "gate_idx_sha256": "a878110648168f3454fcfc2b8b3fc2aacb2e6654bf34ede6360979055c074ada",
+  "gate_instruments_sha256": "b4f530d70859fb61661ae3ee7ce8a52def93adeefb7e216f8a198762965fe157"
+ },
+ "pairs_by_scope_verdict": {
+  "внутри биржи|нет данных": 2,
+  "внутри биржи|разное": 2,
+  "между биржами|класс не совпал": 39,
+  "между биржами|нет данных": 1125,
+  "между биржами|одно": 3297,
+  "между биржами|пограничное": 103,
+  "между биржами|разное": 50
+ },
+ "pairs_rows": 4618,
+ "pairs_sha256": "b21627e1eb53eaae57e750f2781e09cbeb1c07bd56e23dc838980cd8178cda3a",
+ "thresholds": {
+  "mult_tol": 0.02,
+  "n_ret_min": 300,
+  "stab": 0.06171426,
+  "stab_hi": 0.09835096,
+  "worst_same": 0.02507755
+ }
+}

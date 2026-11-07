@@ -1,0 +1,120 @@
+# G1 (TK-493, П-38 §3.4, R3.7): проверки Gate в универсуме C2. Формирование (сутки 2465..2478); торговое окно не читалось. Собрано 2026-11-07T03:54:20Z
+
+## 1. conv_gate.py manifest (валидность gate_ready)
+{
+ "valid": true,
+ "reasons": [],
+ "info": {
+  "symbols": 1072,
+  "mult": 1.0,
+  "open_label": "first_trade",
+  "funding_dir": "/home/deck/xdl/out/gate/funding",
+  "panels_dir": "/home/deck/xdl9/panels/gate",
+  "raw_root": "/home/deck/xdl/out"
+ }
+}
+
+## 2. conv_gate.py verify8 --n 20000 (код пар Gate против F5 на 8 биржах: все 12 927 строк asset_pairs.csv, роли 5 560 контрактов, классификация 2 045 контрактов трёх бирж)
+verify8 (1) строк сверено 12927, расхождений 0 []
+verify8 (2) контрактов 5560, расхождений ролей/leg_c1d2/asset_id 0 []
+verify8 (3) контрактов 2045, расхождений класса/ключа/меток 0 []
+
+## 3. --no-gate побайтно против боевого ~/xdl9/c2/out (series и grid, 180 комбинаций)
+компонент crypto всего 550 малых 508
+взято компонент 100 пар 1072
+ячейки series: [('kraken~lighter/crypto', 49), ('aster~lighter/crypto', 60)]
+Gate: вне универсума (Gate выключен (--no-gate))
+series: ячеек 2, пар 109, 7.0 с (15.54 пар/с)
+Gate: вне универсума (Gate выключен (--no-gate))
+grid: пар 1072, компонент 100, комбинаций 180, 23.4 с
+grid crypto: пар 1072, комбинаций 180; tab побайтно равны 1072, act побайтно равны 1072; сделок в выборке (сумма n) 67025
+series: пар 109: pairs.npy равны 109, meta.json равны 109; ячеек 2: cells.npy равны 2
+ИТОГ расхождений: 0
+EXIT=0
+
+## 4. Gate включён: дымовая проверка на реальных панелях формирования (не калибровка: 3 комбинации, 60 компонент; результат не используется)
+== series (Gate включён по манифесту, без флага)
+Sat Nov  7 03:44:11 AM UTC 2026
+Gate: в универсуме (манифест валиден)
+series: ячеек 8, пар 2460, 93.9 с (26.20 пар/с)
+== turn (боковые панели оборота для ног пар Gate)
+Sat Nov  7 03:45:45 AM UTC 2026
+Gate: в универсуме (манифест валиден)
+turn: боковых панелей оборота 2981, 77.9 с
+== turn-verify gate (G-C2-7, 40 символов, сверка с месячным архивом)
+Sat Nov  7 03:47:03 AM UTC 2026
+Gate: в универсуме (манифест валиден)
+G-C2-7 (gate): проверено символов 40, максимум относительного расхождения 5.95e-08, расхождений 0
+== выбор 60 компонент и сетка 3 комбинации, потоки 1 и 3
+Sat Nov  7 03:47:04 AM UTC 2026
+компонент 60 пар 285
+Gate: в универсуме (манифест валиден)
+grid: пар 285, компонент 60, комбинаций 3, 2.4 с
+Gate: в универсуме (манифест валиден)
+grid: пар 285, компонент 60, комбинаций 3, 1.0 с
+== сравнение потоков 1 и 3 (sha256 файлов сетки, без meta.json)
+потоки 1 и 3: побайтно равны, файлов 9
+пар 285 комбинаций 3 сделок всего (сумма n по комбинациям) 1251
+сделок по комбинациям [1212, 10, 29]
+строк trades.csv 1251
+ALLDONE
+
+## 5. тесты (Deck)
+test_conv.py:
+PASS t01_constant_spread_no_trades
+PASS t02_single_spike_known_gross_net
+PASS t03_spike_shorter_than_two_minutes_plus1_is_zero_gross
+PASS t04_timeout
+PASS t05_mtm_open_at_end
+PASS t06_two_overlapping_spikes_one_position
+PASS t07_stop_pause_reentry_exclusion
+PASS t08_deferred_entry_and_signal_expired
+PASS t09_exit_at_last_known_price
+PASS t10_confirmation_p3
+PASS t11_ceiling_gmax_and_s1
+PASS t12_stale_leg_s2_stop
+PASS t13_cell_common_factor_and_s3
+PASS t14_session_forced_exit_and_borders
+PASS t15_dedup_common_leg
+PASS t16_funding_hand_computed
+PASS t17_basis_sigma_vs_naive_median
+PASS t18_vector_vs_naive_40_lines
+PASS t19_window_guard_red
+PASS t20_panel_reader_offsets_and_guard
+PASS t21_determinism_threads_and_repeat
+PASS t22_cli_refuses_window_without_token
+PASS t23_aj_km_known_answers
+PASS t24_halflife_known_phi
+PASS t25_episode_outcomes
+PASS t26_agg_on_synthetic_grid
+PASS t27_controls_shift_and_random
+итог: 0 из 27 тестов не прошли
+test_conv_gate.py:
+PASS g01_manifest_valid_and_red
+PASS g02_universe_toggle_and_markets
+   --no-gate = мир без Gate (48 файлов побайтно); Gate включён: потоки 1/4 равны, пар Gate 18
+PASS g03_nogate_byte_identical_and_gate_deterministic
+PASS g04_cli_flags
+   G-C2-7 (Gate): 12 символов, макс. расхождение 5.9e-08; красные: множитель 10 -> 12 расхождений, v без quanto -> 10
+PASS g05_turnover_multiplier_and_gc2_7_gate
+PASS g06_gate_funding_dir_and_open_label
+PASS g07_pairs_table_known_answers
+PASS g08_hints_membership_h4
+PASS g09_manifest_contract_checks_and_window_not_read
+итог: 0 из 9 тестов не прошли
+
+## 6. gate.py --mode manifest (журнал записи манифеста)
+03:50:19 manifest: контрактов в instruments 1072; формирование сутки 2465..2478 (окно >= 2479 не читается)
+03:50:39 manifest: контракты разобраны за 19 с
+03:50:39 rows: контрактов 1072, строк файла/архива за формирование 7980472/7980472, строк v>0&c>0 7977188, валидных минут панелей 7977188 -> ok
+03:50:39 units: топ-20 активов, log10 отношения оборотов Gate/Binance: медиана -0.998, максимум |отклонение| 0.770; все активы 499, групп quanto со сдвигом >= 1: [], выбросов 3
+03:50:39 gaps: выравнивание: пар (актив, биржа) 144, измеримых 144 (n_ret >= 300), пик не на лаге 0: 0
+03:50:39 gaps: -> ok
+03:50:39 units: quanto положительны True, макс. относительное расхождение оборота по контрактам 3.54e-16, множитель на v файла 1, кросс-биржа True -> ok
+03:50:39 open_semantics: контрактов 764, доля open[t]=close[t-1] медиана 0.1847 (q10 0.0710, q90 0.3982), метка first_trade -> ok
+03:50:40 funding: Gate против Binance: активов 499, точек (актив, сутки) 6986, корреляция 0.946, наклон 0.972
+03:50:40 funding: выплат формирования в файлах 61683, расхождений число/ставка/минута 0/0/0, знак-единицы True -> ok
+03:50:40 classes: {'crypto': 597, 'equity': 439, 'index': 18, 'energy': 3, 'fx': 3, 'metal': 12}; классы C2 {'крипта': 597, 'акции+ETF': 439, 'индексы': 18, 'металлы+энергия': 15, 'фиат': 3} -> ok
+03:50:40 manifest: подробности /home/deck/xdl9/gx/gate_manifest_checks.json
+03:50:40 manifest: gate_ready.old уже есть, текущий gate_ready заменяется без переименования
+03:50:40 manifest: записан /home/deck/xdl9/gate_ready (валиден: все шесть проверок ok)

@@ -33,6 +33,7 @@ HINTS = [
     ("H3 LAB Binance x Aster", "binance", "LABUSDT", "aster", "LABUSDT"),
     ("H4a TA Binance x Aster", "binance", "TAUSDT", "aster", "TAUSDT"),
     ("H4b TA Binance x BingX", "binance", "TAUSDT", "bingx", "TA-USDT"),
+    ("H4c TA Binance x Gate", "binance", "TAUSDT", "gate", "TA_USDT"),
     ("H6 LPT Binance x BingX", "binance", "LPTUSDT", "bingx", "LPT-USDT"),
     ("H1 MINIMAX Binance x Bitget HKD", "binance", "MINIMAXUSDT", "bitget", "MINIMAXHKDUSDT"),
     ("H1 MINIMAX Binance x Bitget USDT", "binance", "MINIMAXUSDT", "bitget", "MINIMAXUSDT"),
@@ -70,7 +71,9 @@ def main(argv=None):
     ap.add_argument("--last-day", type=int, default=2478)
     ap.add_argument("--L", type=int, default=1440)
     ap.add_argument("--res", default=None)
+    W.add_gate_args(ap)
     a = ap.parse_args(argv)
+    W.apply_gate_args(a)
     script = os.path.join(HERE, "conv_run.py")
     params = (os.path.join(HERE, "P-38-params-2026-11-07.csv"), None)
     G.configure(go_window=False, script_path=script, params_paths=params, mode="calib", require_k0=True)
@@ -80,7 +83,7 @@ def main(argv=None):
     world = W.World(G.HOME)
     U = world.universe()
     byid = {(p["exA"], p["symA"], p["exB"], p["symB"]): p for p in U}
-    allrows = list(csv.DictReader(open(os.path.join(G.HOME, "asset_pairs.csv"), encoding="utf-8")))
+    allrows = world.pair_table_rows()                 # asset_pairs.csv (8 бирж) + таблица пар Gate, если Gate включён (G1)
     verd = {}
     for r in allrows:
         verd[norm_key(r["ex1"], r["sym1"], r["ex2"], r["sym2"])] = (r["verdict"], r["c1d2"], r["why"])

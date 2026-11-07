@@ -9,6 +9,8 @@
                                                             сетка комбинаций по компонентам -> <out>/grid_<tag>/<класс>/*.npy (+ json)
 Режимы защиты: --mode calib (по умолчанию; last_day <= 2478), train (Pi_train, last_day <= 2471), window (только с --go-window и токеном CEO).
 --test-world DIR: синтетический мир (каталог не внутри ~/xdl9); боевые пути в этом режиме недоступны.
+Gate (G1, П-38 §3.4): --with-gate (нужен валидный манифест gate_ready и таблица пар Gate, иначе отказ) / --no-gate (универсум 8 бирж, побайтно как раньше); без флага Gate входит в универсум
+только при валидном манифесте (gate_ready: шесть строк ok, sha256 справочника и списка панелей) и наличии таблицы пар `<root>/asset_pairs_gate.csv`.
 """
 import argparse
 import json
@@ -215,11 +217,15 @@ def main(argv=None):
     ap.add_argument("--calendar", default=None)
     ap.add_argument("--params", default=None)
     ap.add_argument("--addendum", default=None)
-    ap.add_argument("--gate-ready", default=None)
+    ap.add_argument("--gate-ready", default=None, help="k0: путь маркера; прочее: путь манифеста Gate (по умолчанию <root>/gate_ready)")
+    W.add_gate_args(ap, ready=False)
+    ap.add_argument("--verify-ex", default="", help="turn-verify: сверять только ноги этой биржи (например gate)")
+    ap.add_argument("--verify-n", type=int, default=12, help="turn-verify: число символов")
     ap.add_argument("--turn-dir", default=None)
     ap.add_argument("--raw-root", default=os.path.expanduser("~/xdl/out"))
     ap.add_argument("--probe", action="store_true", help="технический замер скорости на формировании: без K0, вывод только под <out>/probe, пишет probe_reads.log")
     a = ap.parse_args(argv)
+    W.apply_gate_args(a)
     script = os.path.abspath(__file__)
     _PROBE[0] = bool(a.probe)
     repo_params = a.params or os.path.join(G.REPO_HINT, REPO_PARAMS)
@@ -253,6 +259,9 @@ def main(argv=None):
             with open(os.path.join(G.c2_home(), "probe_reads.log"), "a", encoding="utf-8") as lf:
                 lf.write(chr(9).join([time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), a.cmd, "last_day=%d" % a.last_day]) + chr(10))
     world = W.World(root, test=bool(test_world), calendar=a.calendar, turn_dir=a.turn_dir)
+    gs = world.gate_state()
+    gate_on = bool(gs["active"])
+    print("Gate: %s (%s)" % ("в универсуме" if gate_on else "вне универсума", "манифест валиден" if gate_on else "; ".join(gs["reasons"])))
     _TURN[0] = a.turn_dir
     d0 = G.D_FORM0
     d1 = a.last_day
@@ -269,9 +278,9 @@ def main(argv=None):
         print("turn: боковых панелей оборота %d, %.1f с" % (n, time.time() - t0))
         return 0
     if a.cmd == "turn-verify":
-        n, mx, bad = W.verify_turnover(world, a.raw_root, d0, d1, pairs)
-        print("G-C2-7: проверено символов %d, максимум относительного расхождения %.3g, расхождений %d" % (n, mx, len(bad)))
-        return 0 if (n >= 10 and not bad) else 1
+        n, mx, bad = W.verify_turnover(world, a.raw_root, d0, d1, pairs, n_sym=a.verify_n, only_ex=a.verify_ex or None)
+        print("G-C2-7%s: проверено символов %d, максимум относительного расхождения %.3g, расхождений %d" % (" (%s)" % a.verify_ex if a.verify_ex else "", n, mx, len(bad)))
+        return 0 if (n >= (a.verify_n if a.verify_ex else 10) and not bad) else 1
     if a.cmd == "measure":
         return cmd_measure(a, world, pairs, cfgd, initargs, d0, d1, p0day)
     if a.cmd == "series":
@@ -281,7 +290,7 @@ def main(argv=None):
         tasks = sorted(cells.items())
         res = pool_map(_series_task, tasks, a.threads, initargs)
         npairs = sum(len(v) for _, v in tasks)
-        json.dump({"cells": len(tasks), "pairs": npairs, "seconds": round(time.time() - t0, 1), "last_day": d1, "L": a.L}, open(os.path.join(a.out, "series_summary.json"), "w"))
+        json.dump({"cells": len(tasks), "pairs": npairs, "seconds": round(time.time() - t0, 1), "last_day": d1, "L": a.L, "gate": gate_on}, open(os.path.join(a.out, "series_summary.json"), "w"))
         print("series: ячеек %d, пар %d, %.1f с (%.2f пар/с)" % (len(tasks), npairs, time.time() - t0, npairs / max(time.time() - t0, 1e-9)))
         return 0
     # grid
@@ -344,7 +353,7 @@ def main(argv=None):
         if st["tf"] is not None:
             st["tf"].close()
     json.dump([list(c) for c in combos], open(os.path.join(odir, "combos.json"), "w"))
-    json.dump({"fields": GR.DF, "d0": d0, "d1": d1, "first_sig_day": p0day, "cfg": cfgd, "pairs": len(pairs), "components": len(tasks),
+    json.dump({"fields": GR.DF, "d0": d0, "d1": d1, "first_sig_day": p0day, "cfg": cfgd, "pairs": len(pairs), "components": len(tasks), "gate": gate_on,
                "seconds": round(time.time() - t0, 1)}, open(os.path.join(odir, "meta.json"), "w"), sort_keys=True)
     print("grid: пар %d, компонент %d, комбинаций %d, %.1f с" % (len(pairs), len(tasks), len(combos), time.time() - t0))
     return 0

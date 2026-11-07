@@ -1,0 +1,26 @@
+# gate_ready: манифест готовности Gate по П-38 §3.4 (проверки только на формировании, сутки 2465..2478; окно не читалось)
+# строка имя=ok пишется только после реальной проверки; невалидный манифест = любая строка не ok
+rows=ok
+gaps=ok
+units=ok
+open_semantics=ok
+funding=ok
+classes=ok
+symbols=1072
+formation_days=2465..2478
+manifest_checks_window_read=no
+panels_dir=/home/deck/xdl9/panels/gate
+funding_dir=/home/deck/xdl/out/gate/funding
+raw_root=/home/deck/xdl/out
+units_turnover_mult_on_file_v=1
+units_v_semantics=base_units (контракты × quanto_multiplier, так пишет gate.py)
+open_semantics_label=first_trade
+open_semantics_share_median=0.184739
+classes_counts=crypto:597,energy:3,equity:439,fx:3,index:18,metal:12
+instruments_sha256=b4f530d70859fb61661ae3ee7ce8a52def93adeefb7e216f8a198762965fe157
+panels_manifest_sha256=70e999f440c428e0b7302a08982d2433206402890e26db593aace2acdabc7af6
+panels_manifest_note=sha256 файла gx/sha256-gate.txt (строки sha256sum панелей); панели в G1 не пересчитывались и целиком не читались
+gate_py_sha256=aa301065858fe45f05aa50092b266e94dbb5bef25e8bb4c435fe237c04484a30
+gate_manifest_py_sha256=98012846120d9e2d0a5766af82c03d79a4dc9a4066120d73b401a89a17534960
+caveats=15 контрактов enable_decimal (v целое число контрактов, минуты с одними дробными сделками имеют v=0), 15 пред-рыночных контрактов (is_pre_market), Gate в F8 не входит
+generated_utc=2026-11-07T03:50:40Z

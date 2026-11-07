@@ -38,7 +38,9 @@ futures/usdt (крипта, акции/ETF, индексы, металлы, не
 usage: gate.py --out DIR [--start 2026-10-01] [--end 2026-11-05] [--rate 8] [--arch-rate 10] [--workers 6] [--symbols BTC_USDT,ETH_USDT]
                [--limit-symbols N] [--list-only] [--force] [--mode download|check|finalize|audit|align|trades] [--check-sample N] [--check-seed S]
 Режимы: download — закачка (по умолчанию); check — сверка с REST и архивом фандинга; trades --symbols A,B — пересборка минут из архива сделок;
-        finalize — delisted_ms снятых по последней минуте; audit — сводка качества (F1); align — выравнивание времени с другими биржами."""
+        finalize — delisted_ms снятых по последней минуте; audit — сводка качества (F1); align — выравнивание времени с другими биржами;
+        manifest — манифест готовности П-38 §3.4 (rows/gaps/units/open_semantics/funding/classes, только формирование, окно не читается; код — gate_manifest.py):
+        gate.py --mode manifest --out ~/xdl/out --xdl9 ~/xdl9 [--write-manifest]."""
 import os, sys, io, csv, gzip, json, time, random, threading, collections, datetime, urllib.request, urllib.parse, urllib.error
 import xml.etree.ElementTree as ET
 from decimal import Decimal, InvalidOperation
@@ -998,7 +1000,10 @@ def trades_check(a, start, end, log):
 def main():
     ap = common_args("Gate USDT-перпетуалы: минутные свечи (архив + REST) и фандинг за окно", default_rate=8.0, default_workers=6)
     ap.add_argument("--arch-rate", type=float, default=10.0, help="запросов/с к архиву/листингу (отдельно от REST)")
-    ap.add_argument("--mode", choices=("download", "check", "finalize", "audit", "align", "trades"), default="download")
+    ap.add_argument("--mode", choices=("download", "check", "finalize", "audit", "align", "trades", "manifest"), default="download")
+    ap.add_argument("--xdl9", default=os.path.expanduser("~/xdl9"), help="--mode manifest: корень данных xdl9 (панели, inst_gate, asset, gx)")
+    ap.add_argument("--procs", type=int, default=3, help="--mode manifest: процессов разбора контрактов")
+    ap.add_argument("--write-manifest", action="store_true", help="--mode manifest: записать <xdl9>/gate_ready (иначе только черновик и подробности)")
     ap.add_argument("--ref-root", default="", help="--mode align: корень выгрузок других бирж (<корень>/<биржа>/candles); по умолчанию --out")
     ap.add_argument("--align-k", type=int, default=15, help="--mode align: число самых больших минутных движений эталона на символ")
     ap.add_argument("--check-sample", type=int, default=5, help="контрактов для поминутной сверки с REST (--mode check)")
@@ -1009,6 +1014,9 @@ def main():
         sys.exit("end <= start")
     ensure_dirs(a.out, EX)
     log = make_logger(a.out, EX, ("list" if a.list_only else a.mode))
+    if a.mode == "manifest":                                   # манифест П-38 §3.4: только формирование 01.10-14.10, окно не читается (gate_manifest.py)
+        import gate_manifest
+        sys.exit(0 if gate_manifest.run(a, log) else 1)
     if a.mode in ("finalize", "audit", "align", "trades"):
         {"finalize": lambda: finalize(a, log), "audit": lambda: audit(a, start, end, log), "align": lambda: align(a, start, end, log),
          "trades": lambda: trades_check(a, start, end, log)}[a.mode]()

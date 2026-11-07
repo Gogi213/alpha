@@ -1,0 +1,89 @@
+hint,asset,ex1,sym1,ex2,sym2,verdict,n_ret,S,c1d2,big1,in_universe_c2,market
+H2,BRETT,binance,BRETTUSDT,gate,BRETT_USDT,одно,2863,0.02182,1,крипта,1,24x7
+H2,BRETT,bingx,BRETT-USDT,gate,BRETT_USDT,одно,2866,0.02169,1,крипта,1,24x7
+H2,BRETT,bitget,BRETTUSDT,gate,BRETT_USDT,одно,1548,0.02538,1,крипта,1,24x7
+H2,BRETT,bybit,BRETTUSDT,gate,BRETT_USDT,одно,2629,0.02336,1,крипта,1,24x7
+H2,BRETT,gate,BRETT_USDT,kraken,PF_BRETTUSD,нет данных (мало общих доходностей),81,0.05211,0,крипта,0,вне (c1d2=0)
+H2,BRETT,okx,BRETT-USDT-SWAP,gate,BRETT_USDT,одно,2403,0.02398,1,крипта,1,24x7
+H3,LAB,binance,LABUSDT,gate,LAB_USDT,одно,20151,0.01385,1,крипта,1,24x7
+H3,LAB,bybit,LABUSDT,gate,LAB_USDT,одно,15533,0.02380,1,крипта,1,24x7
+H3,LAB,gate,LAB_USDT,aster,LABUSDT,одно,2017,0.02286,1,крипта,1,24x7
+H3,LAB,gate,LAB_USDT,bingx,LAB-USDT,одно,20146,0.01272,1,крипта,1,24x7
+H3,LAB,gate,LAB_USDT,bitget,LABUSDT,одно,10610,0.01722,1,крипта,1,24x7
+H3,LAB,okx,LAB-USDT-SWAP,gate,LAB_USDT,одно,19881,0.01322,1,крипта,1,24x7
+H4,TA,binance,TAUSDT,gate,TA_USDT,одно,2744,0.03154,1,крипта,1,24x7
+H4,TA,bingx,TA-USDT,gate,TA_USDT,одно,2747,0.03024,1,крипта,1,24x7
+H4,TA,bybit,TAUSDT,gate,TA_USDT,одно,2192,0.02804,1,крипта,1,24x7
+H4,TA,gate,TA_USDT,aster,TAUSDT,нет данных (мало общих доходностей),192,0.04121,0,крипта,0,вне (c1d2=0)
+H6,LPT,binance,LPTUSDT,gate,LPT_USDT,одно,19962,0.02834,1,крипта,1,24x7
+H6,LPT,bingx,LPT-USDT,gate,LPT_USDT,одно,20109,0.03574,1,крипта,1,24x7
+H6,LPT,bybit,LPTUSDT,gate,LPT_USDT,одно,18383,0.03341,1,крипта,1,24x7
+H6,LPT,gate,LPT_USDT,aster,LPTUSDT,нет данных (мало общих доходностей),207,0.05064,0,крипта,0,вне (c1d2=0)
+H6,LPT,gate,LPT_USDT,bitget,LPTUSDT,одно,5530,0.03872,1,крипта,1,24x7
+H6,LPT,gate,LPT_USDT,kraken,PF_LPTUSD,одно,371,0.05175,1,крипта,1,24x7
+H6,LPT,okx,LPT-USDT-SWAP,gate,LPT_USDT,одно,18554,0.03148,1,крипта,1,24x7
+H1,MINIMAX,aster,MINIMAXUSDT,gate,MINIMAXHKD_USDT,нет данных (мало общих доходностей),5,0.11485,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,binance,MINIMAXUSDT,gate,MINIMAXHKD_USDT,нет данных (мало общих доходностей),96,0.11873,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,binance,MINIMAXUSDT,gate,MINIMAX_USDT,одно,13204,0.00772,1,акции+ETF,0,gate_tradfi
+H1,MINIMAX,bitget,MINIMAXHKDUSDT,gate,MINIMAXHKD_USDT,нет данных (мало общих доходностей),67,0.11641,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,bitget,MINIMAXUSDT,gate,MINIMAXHKD_USDT,нет данных (мало общих доходностей),86,0.12237,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,bitget,MINIMAXUSDT,gate,MINIMAX_USDT,одно,6747,0.01059,1,акции+ETF,0,gate_tradfi
+H1,MINIMAX,bybit,MINIMAXUSDT,gate,MINIMAXHKD_USDT,нет данных (мало общих доходностей),67,0.11646,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,gate,MINIMAX_USDT,aster,MINIMAXUSDT,нет данных (мало общих доходностей),66,0.04638,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,gate,MINIMAX_USDT,bitget,MINIMAXHKDUSDT,одно,2083,0.02911,1,акции+ETF,0,gate_tradfi
+H1,MINIMAX,gate,MINIMAX_USDT,bybit,MINIMAXUSDT,одно,3968,0.01165,1,акции+ETF,0,gate_tradfi
+H1,MINIMAX,gate,MINIMAX_USDT,lighter,MINIMAX,нет данных (мало общих доходностей),59,0.03124,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,lighter,MINIMAX,gate,MINIMAXHKD_USDT,нет данных (мало общих доходностей),4,0.09905,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,okx,MINIMAX-USDT-SWAP,gate,MINIMAXHKD_USDT,нет данных (мало общих доходностей),89,0.12073,0,акции+ETF,0,вне (c1d2=0)
+H1,MINIMAX,okx,MINIMAX-USDT-SWAP,gate,MINIMAX_USDT,одно,9386,0.00906,1,акции+ETF,0,gate_tradfi
+H1,ZHIPU,aster,ZHIPUUSDT,gate,ZHIPUHKD_USDT,нет данных (мало общих доходностей),46,0.08282,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,binance,ZHIPUUSDT,gate,ZHIPUHKD_USDT,нет данных (мало общих доходностей),288,0.08531,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,binance,ZHIPUUSDT,gate,ZHIPU_USDT,одно,15278,0.00888,1,акции+ETF,0,gate_tradfi
+H1,ZHIPU,bitget,ZHIPUHKDUSDT,gate,ZHIPUHKD_USDT,нет данных (мало общих доходностей),214,0.07653,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,bitget,ZHIPUUSDT,gate,ZHIPUHKD_USDT,нет данных (мало общих доходностей),262,0.08268,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,bitget,ZHIPUUSDT,gate,ZHIPU_USDT,одно,8106,0.01388,1,акции+ETF,0,gate_tradfi
+H1,ZHIPU,bybit,ZHIPUUSDT,gate,ZHIPUHKD_USDT,нет данных (мало общих доходностей),260,0.08130,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,bybit,ZHIPUUSDT,gate,ZHIPU_USDT,одно,7506,0.00960,1,акции+ETF,0,gate_tradfi
+H1,ZHIPU,gate,ZHIPU_USDT,aster,ZHIPUUSDT,нет данных (мало общих доходностей),168,0.03432,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,gate,ZHIPU_USDT,bitget,ZHIPUHKDUSDT,одно,2101,0.03624,1,акции+ETF,0,gate_tradfi
+H1,ZHIPU,gate,ZHIPUHKD_USDT,lighter,ZHIPU,нет данных (мало общих доходностей),11,0.08427,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,gate,ZHIPU_USDT,lighter,ZHIPU,нет данных (мало общих доходностей),60,0.03742,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,okx,ZHIPU-USDT-SWAP,gate,ZHIPUHKD_USDT,нет данных (мало общих доходностей),286,0.08553,0,акции+ETF,0,вне (c1d2=0)
+H1,ZHIPU,okx,ZHIPU-USDT-SWAP,gate,ZHIPU_USDT,одно,13418,0.00864,1,акции+ETF,0,gate_tradfi
+H1,TENCENT,binance,HK0700USDT,gate,TENCENTHKD_USDT,нет данных (мало общих доходностей),171,0.30674,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,binance,HK0700USDT,gate,TENCENT_USDT,разное,6096,0.11827,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,binance,TENCENTUSDT,gate,TENCENTHKD_USDT,нет данных (мало общих доходностей),143,0.32734,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,binance,TENCENTUSDT,gate,TENCENT_USDT,пограничное (S между серединой и лучшим «разное»),7195,0.07417,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,bitget,TENCENTHKDUSDT,gate,TENCENTHKD_USDT,нет данных (мало общих доходностей),57,0.31434,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,bitget,TENCENTUSDT,gate,TENCENTHKD_USDT,нет данных (мало общих доходностей),58,0.36447,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,gate,TENCENTHKD_USDT,aster,TENCENTUSDT,нет данных (мало общих доходностей),4,0.37535,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,gate,TENCENT_USDT,aster,TENCENTUSDT,нет данных (мало общих доходностей),32,0.25372,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,gate,TENCENT_USDT,bitget,TENCENTHKDUSDT,разное,1604,0.12905,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,gate,TENCENT_USDT,bitget,TENCENTUSDT,разное,1741,0.10379,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,gate,TENCENTHKD_USDT,bybit,TENCENTUSDT,нет данных (мало общих доходностей),28,0.32664,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,gate,TENCENT_USDT,bybit,TENCENTUSDT,разное,591,0.10793,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,gate,TENCENT_USDT,lighter,TENCENT,разное,1554,0.37029,0,акции+ETF,0,вне (c1d2=0)
+H1,TENCENT,lighter,TENCENT,gate,TENCENTHKD_USDT,нет данных (мало общих доходностей),27,0.44916,0,акции+ETF,0,вне (c1d2=0)
+H1,LENOVO,binance,HK0992USDT,gate,LENOVO_USDT,нет данных (мало общих доходностей),104,0.10837,0,акции+ETF,0,вне (c1d2=0)
+H1,LENOVO,bitget,LENOVOHKDUSDT,gate,LENOVO_USDT,нет данных (мало общих доходностей),35,0.11285,0,акции+ETF,0,вне (c1d2=0)
+H1,LENOVO,bybit,LENOVOUSDT,gate,LENOVO_USDT,нет данных (мало общих доходностей),75,0.11568,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,binance,HK1810USDT,gate,XIAOMIHKD_USDT,одно,11990,0.04679,1,акции+ETF,0,gate_tradfi
+H1,XIAOMI,binance,HK1810USDT,gate,XIAOMI_USDT,пограничное (S между серединой и лучшим «разное»),11691,0.08607,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,bitget,XIAOMIHKDUSDT,gate,XIAOMIHKD_USDT,пограничное (S между серединой и лучшим «разное»),4890,0.06276,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,bitget,XIAOMIHKDUSDT,gate,XIAOMI_USDT,пограничное (S между серединой и лучшим «разное»),4835,0.08667,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,bitget,XIAOMIUSDT,gate,XIAOMIHKD_USDT,пограничное (S между серединой и лучшим «разное»),3743,0.07928,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,gate,XIAOMIHKD_USDT,aster,XIAOMIUSDT,нет данных (мало общих доходностей),62,0.17887,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,gate,XIAOMI_USDT,aster,XIAOMIUSDT,нет данных (мало общих доходностей),65,0.15616,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,gate,XIAOMI_USDT,bitget,XIAOMIUSDT,одно,3708,0.05837,1,акции+ETF,0,gate_tradfi
+H1,XIAOMI,gate,XIAOMIHKD_USDT,bybit,XIAOMIUSDT,разное,1859,0.10466,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,gate,XIAOMI_USDT,bybit,XIAOMIUSDT,одно,1847,0.04917,1,акции+ETF,0,gate_tradfi
+H1,XIAOMI,gate,XIAOMI_USDT,lighter,XIAOMI,пограничное (S между серединой и лучшим «разное»),1544,0.08254,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,lighter,XIAOMI,gate,XIAOMIHKD_USDT,пограничное (S между серединой и лучшим «разное»),1570,0.08005,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,okx,XIAOMI-USDT-SWAP,gate,XIAOMIHKD_USDT,пограничное (S между серединой и лучшим «разное»),9403,0.07195,0,акции+ETF,0,вне (c1d2=0)
+H1,XIAOMI,okx,XIAOMI-USDT-SWAP,gate,XIAOMI_USDT,одно,9153,0.05691,1,акции+ETF,0,gate_tradfi
+H1,SHEIN,binance,HK0625USDT,gate,SHEIN_USDT,нет данных (мало общих доходностей),199,0.07133,0,акции+ETF,0,вне (c1d2=0)
+H1,SHEIN,bitget,SHEINHKDUSDT,gate,SHEIN_USDT,нет данных (мало общих доходностей),106,0.09114,0,акции+ETF,0,вне (c1d2=0)
+H1,SHEIN,bitget,SHEINUSDT,gate,SHEIN_USDT,нет данных (мало общих доходностей),187,0.07169,0,акции+ETF,0,вне (c1d2=0)
+H1,SHEIN,bybit,SHEINUSDT,gate,SHEIN_USDT,нет данных (мало общих доходностей),157,0.07886,0,акции+ETF,0,вне (c1d2=0)
+H1,SHEIN,lighter,SHEIN,gate,SHEIN_USDT,нет данных (мало общих доходностей),44,0.08717,0,акции+ETF,0,вне (c1d2=0)
+H1,SHEIN,okx,SHEIN-USDT-SWAP,gate,SHEIN_USDT,нет данных (мало общих доходностей),186,0.06850,0,акции+ETF,0,вне (c1d2=0)

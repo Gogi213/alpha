@@ -1,0 +1,10 @@
+gate_class,c2_class,contracts,in_test,out_pre_listing,out_private_base,out_class_undefined,role_main,role_dup,role_excluded,enable_decimal,c1d2_pairs,market,in_main_series
+crypto,крипта,594,594,0,0,0,589,0,5,14,2460,24x7,1
+energy,металлы+энергия,3,3,0,0,0,3,0,0,0,21,gate_tradfi,0
+equity,акции+ETF,429,429,0,0,0,400,4,25,1,571,gate_tradfi,0
+fx,фиат,3,3,0,0,0,3,0,0,0,0,gate_tradfi,0
+index,индексы,16,16,0,0,0,16,0,0,0,0,gate_tradfi,0
+metal,металлы+энергия,12,12,0,0,0,12,0,0,0,35,gate_tradfi,0
+crypto,вне теста,3,0,0,3,0,0,0,3,0,0,,0
+equity,вне теста,10,0,5,5,0,0,0,10,0,0,,0
+index,вне теста,2,0,2,0,0,0,0,2,0,0,,0

@@ -341,7 +341,9 @@ def main(argv=None):
     ap.add_argument("--perm", type=int, default=0)
     ap.add_argument("--L-full", type=int, default=1440, dest="L_full")
     ap.add_argument("--last-day", type=int, default=2478)
+    W.add_gate_args(ap)
     a = ap.parse_args(argv)
+    W.apply_gate_args(a)
     return dict(halves=cmd_halves, pick=cmd_pick, final=cmd_final, universe=cmd_universe)[a.cmd](a)
 
 
