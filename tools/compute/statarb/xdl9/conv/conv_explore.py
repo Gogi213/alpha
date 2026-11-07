@@ -62,6 +62,7 @@ FROZEN = {                                          # замороженные �
 FROZEN["eq"] = {"B1": FROZEN["main"]["B1"], "B2": FROZEN["main"]["B1"]}          # класс eq: строки E-eq имеют q5=on - замороженные числа набора с Q5
 PARAMS_REL = "docs/research/P-39-params-2026-11-07.csv"
 PROTO_REL = "docs/research/P-39-convergence-explore-2026-11-07.md"
+SUPPL_REL = "docs/research/P-39-params-suppl-2026-11-07.csv"      # добавочное семейство Cu (Инженер, до поиска)
 CX = {}
 
 
@@ -84,9 +85,11 @@ def make_variant(d):
     if d["ffilt"] != "none":
         kv = dict(x.split(":", 1) for x in d["ffilt"].split("/"))
         v["ffilt"] = (float(kv["phi"]), kv["h"])
+    v["sgap_u"] = False
     if d["sgap"] != "none":
         kv = dict(x.split(":", 1) for x in d["sgap"].split("/"))
         v["sgap"] = (int(kv["n"]), float(kv["q"]))
+        v["sgap_u"] = kv.get("u", "0") == "1"                # u:1 - S_n после снятия сдвига единиц кратного ln10 (добавлено Инженером сверх протокола, семейство Cu)
     if d["out"] != "none":
         v["out"] = ("OX", float(d["out"].split(":")[1])) if d["out"].startswith("OX") else (d["out"],)
     v["univ"] = "eq" if v["cls"] == "eq" else ("gate" if v["gate"] != "no" else "main")
@@ -110,12 +113,14 @@ def den_mode(v):
 
 def read_calib(path):
     """Addendum П-39: calib_beta_sgap = JSON {"n|q": β}, calib_gamma_outlier = JSON {"q": γ}."""
-    out = dict(beta={}, gamma={})
+    out = dict(beta={}, beta_u={}, gamma={})
     if not path or not os.path.isfile(path):
         return out
     for r in csv.reader(open(path, encoding="utf-8", newline="")):
         if len(r) > 1 and r[0] == "calib_beta_sgap" and r[1].strip():
             out["beta"] = {tuple(float(x) for x in k.split("|")): float(val) for k, val in json.loads(r[1]).items()}
+        if len(r) > 1 and r[0] == "calib_beta_sgap_unit" and r[1].strip():
+            out["beta_u"] = {tuple(float(x) for x in k.split("|")): float(val) for k, val in json.loads(r[1]).items()}
         if len(r) > 1 and r[0] == "calib_gamma_outlier" and r[1].strip():
             out["gamma"] = {float(k): float(val) for k, val in json.loads(r[1]).items()}
     return out
@@ -149,7 +154,7 @@ def n_payments(mlast, I, f, h):
     ok = (mlast >= 0) & np.isfinite(I) & (I > 0)
     with np.errstate(invalid="ignore", divide="ignore"):
         a = np.floor((f + h - 1 - mlast) / I)
-        b = np.floor((f - mlast) / I)
+        b = np.maximum(np.floor((f - mlast) / I), 0.0)           # f > t >= mlast всегда; max(.,0) - определение «k >= 1» при тестовых состояниях mlast > f
     n = np.where(ok, np.maximum(a - b, 0.0), 0.0)
     return n, ok
 
@@ -162,11 +167,19 @@ def ehat_array(sgn, fa, fb, t_idx, h, delay):
     return 1e4 * sgn[t_idx] * (fa[1][t_idx] * nA - fb[1][t_idx] * nB), (okA & okB)
 
 
-def sn_at(s, t5, L_, nmin=240):
-    """|медиана s| по валидным минутам [max(t5-L, 0), t5); nan, если < nmin наблюдений."""
+UNIT_BPS = math.log(10.0) * 1e4         # сдвиг спреда у пар с ногами в разных единицах (контракт x10^k): ln(10^k)·1e4 bps - постоянная масштаба, не подбираемое число
+
+
+def sn_at(s, t5, L_, nmin=240, unit_fix=False):
+    """|медиана s| по валидным минутам [max(t5-L, 0), t5); nan, если < nmin наблюдений. unit_fix: перед модулем снимается ближайшее кратное ln(10)·1e4 (пары 1000PEPE/PEPE и т. п.: сдвиг единиц - не структурный разрыв)."""
     w = s[max(t5 - L_, 0):t5]
     w = w[np.isfinite(w)]
-    return float(abs(np.median(w))) if len(w) >= nmin else float("nan")
+    if len(w) < nmin:
+        return float("nan")
+    m = float(np.median(w))
+    if unit_fix:
+        m -= round(m / UNIT_BPS) * UNIT_BPS
+    return abs(m)
 
 
 def r60_bps(c, lc):
@@ -195,16 +208,16 @@ class PairCtx:
     def short_leg_is_a(self):
         return self.ps.sgn > 0
 
-    def sgap_allowed(self, Cb, n, beta):
+    def sgap_allowed(self, Cb, n, beta, unit_fix=False):
         idx = np.flatnonzero(Cb)
         ok = np.ones(self.ps.N, bool)
         if not len(idx):
             return ok, 0
         t5 = idx - idx % 5
-        cache = self._sn.setdefault(n, {})
+        cache = self._sn.setdefault((n, unit_fix), {})
         for t in np.unique(t5):
             if int(t) not in cache:
-                cache[int(t)] = sn_at(self.ps.s, int(t), n * MIN_DAY)
+                cache[int(t)] = sn_at(self.ps.s, int(t), n * MIN_DAY, unit_fix=unit_fix)
         vals = np.array([cache[int(t)] for t in t5])
         with np.errstate(invalid="ignore"):
             ok[idx] = vals <= beta
@@ -240,8 +253,8 @@ def build_extra(v, pc, Cb, cfg, cx, cnt):
         comb(m, "drop_Q8")
     if v["sgap"] is not None:
         n, q = v["sgap"]
-        beta = cx["calib"]["beta"][(float(n), float(q))]
-        m, nund = pc.sgap_allowed(Cb, n, beta)
+        beta = cx["calib"]["beta_u" if v["sgap_u"] else "beta"][(float(n), float(q))]
+        m, nund = pc.sgap_allowed(Cb, n, beta, v["sgap_u"])
         comb(m, "drop_Q9", nund, "sgap_undef")
     if v["shortban"] is not None:
         ex = v["shortban"]
@@ -558,8 +571,11 @@ def cmd_run(a):
     XG.configure(script_path=os.path.abspath(__file__), out_root=out_root)
     code_root = os.path.abspath(a.code_root)
     params_path = os.path.join(code_root, PARAMS_REL)
-    commit, shas = XG.ensure_protocol_frozen(code_root, [PARAMS_REL, PROTO_REL] + ([a.addendum_rel] if a.addendum_rel else []))
+    suppl = os.path.join(code_root, SUPPL_REL)
+    commit, shas = XG.ensure_protocol_frozen(code_root, [PARAMS_REL, PROTO_REL] + ([SUPPL_REL] if os.path.isfile(suppl) else []) + ([a.addendum_rel] if a.addendum_rel else []))
     variants = [v for v in parse_variants(params_path) if v["univ"] == a.univ]
+    if os.path.isfile(suppl) and not a.no_suppl:
+        variants += [v for v in parse_variants(suppl) if v["univ"] == a.univ]
     if a.extra_params:
         variants += [v for v in parse_variants(a.extra_params) if v["univ"] == a.univ]
     if a.ids:
@@ -618,6 +634,7 @@ def cmd_run(a):
         for ci in range(len(comps)):
             cnt.update(results[ci][v["id"]]["cnt"])
         counters[v["id"]] = dict(cnt)
+        XG.write_csv(os.path.join(out_root, "out", a.tag, "den", v["id"] + ".csv"), ["day", "den"], [[d0 + j, int(x)] for j, x in enumerate(act.sum(axis=0))])
         np.savez(os.path.join(arr_dir, v["id"] + ".npz"), rows=R, pidx=P_, act=act)
         if a.strict_format:
             write_trades_strict(os.path.join(out_root, "repro", a.tag, v["id"] + "_trades.csv"), R, P_, all_pairs)
@@ -658,6 +675,7 @@ def main(argv=None):
             s.add_argument("--strict-format", action="store_true", help="trades.csv в формате раннера окна, без баннера (только сверка G-X-1)")
             s.add_argument("--addendum-rel", default=None, help="docs/research/P-39-params-calib-<дата>.csv (относительно code-root)")
             s.add_argument("--extra-params", default=None, help="доп. файл строк v_* (стадия 2)")
+            s.add_argument("--no-suppl", action="store_true", help="не добавлять семейство Cu (для воспроизведения G-X-1)")
     a = ap.parse_args(argv)
     {"prep": cmd_prep, "run": cmd_run}[a.cmd](a)
 
