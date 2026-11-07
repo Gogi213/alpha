@@ -121,9 +121,9 @@ def portfolio():
     raise FileNotFoundError("portfolio.py")
 
 
-def mde_table(sd, n, power=0.80, alpha_two=0.10):
+def mde_table(sd, n, power=0.80, q=0.95):
     """Минимально обнаружимый эффект суточного ряда y_d из n суток при блоке ⌈n^{1/3}⌉: n_eff = ⌈n/блок⌉, df = n_eff - 1.
-    -> dict: n_eff, df, se_mean = sd/sqrt(n_eff) (блочная оценка), mde50 = t_{0,95,df}·se (медиана нижней границы = 0), mde_power = (t_{0,95,df} + z_power)·se, mre_protocol = 2,8·sd/sqrt(n_eff),
+    -> dict: n_eff, df, se_mean = sd/sqrt(n_eff) (блочная оценка), mde50 = t_{q,df}·se (при истинном эффекте = mde50 нижняя граница интервала в среднем = 0), mde_power = (t_{q,df} + z_power)·se (q = 0,95: 90 %-интервал; q = 0,975: 95 %, как у Холма при M = 2), mre_protocol = 2,8·sd/sqrt(n_eff),
     mre_consistent = (z_0,95 + z_power)·sd/sqrt(n_eff)."""
     P = portfolio()
     b = P.block_len(n)
@@ -131,6 +131,6 @@ def mde_table(sd, n, power=0.80, alpha_two=0.10):
     df = ne - 1
     nd = __import__("statistics").NormalDist()
     zp = nd.inv_cdf(power)
-    t95 = P.t_ppf(0.95, df) if df >= 1 else float("inf")
+    t95 = P.t_ppf(q, df) if df >= 1 else float("inf")
     se = sd / math.sqrt(ne)
-    return dict(n=n, block=b, n_eff=ne, df=df, se=se, mde50=t95 * se, mde_power=(t95 + zp) * se, mre_protocol=2.8 * se, mre_consistent=(nd.inv_cdf(0.95) + zp) * se)
+    return dict(n=n, block=b, n_eff=ne, df=df, se=se, mde50=t95 * se, mde_power=(t95 + zp) * se, mre_protocol=2.8 * se, mre_consistent=(nd.inv_cdf(q) + zp) * se)
