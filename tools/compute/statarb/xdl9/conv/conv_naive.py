@@ -14,7 +14,7 @@ THETA_COST = 25.2
 
 
 def naive_pair(oA, cA, oB, cB, c, b, sig, r6, cp, cfg, combo, period0, admit=True, border=None, admitted_q5=True, turnA=None, turnB=None,
-               turn_floor=1000.0, fcA=None, fcB=None):
+               turn_floor=1000.0, fcA=None, fcB=None, extra_mask=None):
     """-> (trades, counters). trade = (t, f, u, f_out, dir, code, gross, net)."""
     N = len(cA)
     vA = [isf(x) for x in cA]
@@ -82,10 +82,10 @@ def naive_pair(oA, cA, oB, cB, c, b, sig, r6, cp, cfg, combo, period0, admit=Tru
         if not cfg.ceiling:
             return True
         a = a90_of(g[i])
-        return (cp.gmax - g[i] >= a) and (g[i] / sig[i] < cp.gsig_max)
+        return (cp.ge() - g[i] >= a) and (g[i] / sig[i] < cp.gsig_max)
 
     def C(i):
-        return R(i) and q1(i) and q3(i) and q6(i) and q7(i) and rng(i)
+        return R(i) and q1(i) and q3(i) and q6(i) and q7(i) and rng(i) and (extra_mask is None or bool(extra_mask[i]))
 
     def normal(i):
         return q4[i] and g[i] < cfg.rearm_frac * gent(i)
@@ -157,7 +157,7 @@ def naive_pair(oA, cA, oB, cB, c, b, sig, r6, cp, cfg, combo, period0, admit=Tru
                 code = "S3"
             elif max(runs(vA, u), runs(vB, u)) >= cp.kstale:
                 code = "S2"
-            elif cfg.ceiling and valid[u] and isf(cp.gmax) and x >= cp.gmax:
+            elif cfg.ceiling and valid[u] and isf(cp.gs()) and x >= cp.gs():
                 code = "S1"
             elif combo.s_stop is not None and valid[u] and x >= combo.s_stop * g_in:
                 code = "S0"

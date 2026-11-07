@@ -83,6 +83,14 @@ class ClassParams:
     m_r: int = 5
     q_stale: float = 0.9
     session: bool = False
+    gmax_entry: object = None      # П-39: потолок ВХОДА (диапазон входа, A90); None = gmax (поведение П-38 побайтно прежнее)
+    gmax_stop: object = None       # П-39: уровень S1; None = gmax; math.inf выключает S1, не трогая диапазон входа
+
+    def ge(self):
+        return self.gmax if self.gmax_entry is None else self.gmax_entry
+
+    def gs(self):
+        return self.gmax if self.gmax_stop is None else self.gmax_stop
 
 
 # ------------------------------------------------------------------ служебные
@@ -367,12 +375,17 @@ class Feats:
         self.qcs = np.concatenate([[0], np.cumsum(self.qbase.astype(np.int64))])
         a90 = a90_lookup(cp, ps.g) if cfg.ceiling else np.zeros(N)
         with np.errstate(invalid="ignore"):
-            self.rng = ((cp.gmax - ps.g >= a90) & (ps.g / ps.sig < cp.gsig_max)) if cfg.ceiling else np.ones(N, bool)
+            self.rng = ((cp.ge() - ps.g >= a90) & (ps.g / ps.sig < cp.gsig_max)) if cfg.ceiling else np.ones(N, bool)
         self._cand = {}
         self._arm = {}
         self.counts = Counter()
 
-    def cand(self, theta, k, p):
+    def cand(self, theta, k, p, extra=None):
+        """Кандидаты входа. extra (П-39) - булева маска (N) дополнительного ex-ante фильтра, накладывается на C; результат с маской НЕ кэшируется (по умолчанию extra=None - прежнее поведение)."""
+        if extra is not None:
+            C0, _, cn0 = self.cand(theta, k, p)
+            C = C0 & extra
+            return C, next_true(C), cn0
         key = (theta, k, p)
         if key in self._cand:
             return self._cand[key]
@@ -434,6 +447,7 @@ class PairSim:
         self.cnt = Counter()
         self.armed = []
         self.arm_min = None
+        self.extra = None                  # П-39: маска кандидатов (np.bool_ [N]) или None
         self.stop_codes = Counter()
         if not admitted:
             self.cnt["drop_Q5"] += 1
@@ -457,7 +471,7 @@ class PairSim:
         if a >= len(vi):
             return None
         a_min = int(vi[a])
-        C, nc, _ = self.f.cand(th, k, p)
+        C, nc, _ = self.f.cand(th, k, p, self.extra)
         t = int(nc[a_min + 1])
         self.arm_min = a_min
         if t >= N:
@@ -638,8 +652,8 @@ class PairSim:
             i = first(np.maximum(ps.runA[sl], ps.runB[sl]) >= cp.kstale)
             if i is not None:
                 cands.append((i, PRIO["S2"], "S2"))
-            if cfg.ceiling and math.isfinite(cp.gmax):
-                i = first(v & (x >= cp.gmax))
+            if cfg.ceiling and math.isfinite(cp.gs()):
+                i = first(v & (x >= cp.gs()))
                 if i is not None:
                     cands.append((i, PRIO["S1"], "S1"))
             if cb.s_stop is not None:
@@ -678,10 +692,13 @@ class PairSim:
         return days
 
 
-def simulate_component(pairs, cp, cfg, combo, feats_list, period0, admitted=None):
+def simulate_component(pairs, cp, cfg, combo, feats_list, period0, admitted=None, extras=None):
     """Одна компонента (пары с общими ногами) на одной комбинации. Дедупликация события ноги: в минуту t сигналы пар с общей ногой - одно событие,
     остаётся пара с наименьшим ключом. -> список PairSim в порядке pairs."""
     sims = [PairSim(ps, cp, cfg, combo, ft, period0, True if admitted is None else bool(admitted[i])) for i, (ps, ft) in enumerate(zip(pairs, feats_list))]
+    if extras is not None:
+        for sm, ex in zip(sims, extras):
+            sm.extra = ex
     heap = []
     for i, sm in enumerate(sims):
         t = sm.next_signal()
