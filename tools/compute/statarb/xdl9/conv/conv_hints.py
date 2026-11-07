@@ -77,14 +77,21 @@ def simulate_rule(ci, sc, dc, bc, cA, cB, oA, oB, theta):
     return rows
 
 
-def pair_table(oA, cA, oB, cB, k, thetas=THETAS):
-    """Таблица правила для одной пары: по варианту (rel/abs) и theta - эпизоды и сделки (суммы по заполнениям). -> список dict."""
+def pair_table(oA, cA, oB, cB, k, thetas=THETAS, t_start=0):
+    """Таблица правила для одной пары: по варианту (rel/abs) и theta - эпизоды и сделки (суммы по заполнениям). -> список dict.
+    t_start (минуты от начала массивов; по умолчанию 0 - как раньше): старт «с нуля» (П-38 §9.1, дельта 07.11). База считается по всей истории, а отклонение до t_start
+    скрыто (NaN): эпизод и сделка не переносятся через границу; вход возможен только по пересечению порога ВНУТРИ окна (две подряд валидные минуты внутри окна: ниже порога, затем не ниже).
+    Сделка, открытая в окне, закрывается по правилу (возврат к базе на входе, таймаут, конец данных по последней цене).
+    """
     s, valid = L.spread_series(cA, cB)
     base, _, _ = L.basis_sigma(s, 1440, 5, 240, None)
     ci = np.flatnonzero(valid)
     out = []
     s_adj = s - k * math.log(10) * 1e4
     for var, sv, dv, bs in (("rel", s, s - base, base), ("abs", s_adj, s_adj, np.where(valid, 0.0, np.nan))):
+        if t_start:
+            dv = dv.copy()
+            dv[:t_start] = np.nan
         for th in thetas:
             st, dur = run_lengths(dv, th)
             row = dict(var=var, theta=th, n_ep=len(dur), n_d1=int((dur == 1).sum()), n_d2=int((dur == 2).sum()), n_d3p=int((dur >= 3).sum()))

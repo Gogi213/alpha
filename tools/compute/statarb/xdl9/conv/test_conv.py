@@ -394,7 +394,7 @@ def t19_window_guard_red():
             raise AssertionError("окно прочитано без --go-window")
         except SystemExit as e:
             assert e.code == 3
-        G.configure(mode="window", go_window=True, params_paths=(pf, None), script_path=sf)
+        G.configure(mode="window", go_window=True, params_paths=(pf, None), script_path=sf, runner=G.RUNNER)
         try:
             G.check_days(2479)
             raise AssertionError("окно прочитано без токена")
@@ -412,7 +412,7 @@ def t19_window_guard_red():
             raise AssertionError("токен с неверным sha скрипта принят")
         except SystemExit as e:
             assert e.code == 3
-        open(os.path.join(d, "go_window.token"), "w").write(G.params_sha_line() + "\n" + G.sha256_file(sf) + "\nGO 07.11, CEO\n")
+        open(os.path.join(d, "go_window.token"), "w").write(G.token_text("GO 07.11, CEO"))            # токен v2: манифест всего кода и входных файлов (дельта 07.11)
         G.STATE.git_checked = True                       # git-проверка params проверяется отдельно; здесь проверяем токен и журнал
         G.check_days(2479)
         assert os.path.isfile(os.path.join(d, "window_reads.log")), "журнал чтений окна не записан"

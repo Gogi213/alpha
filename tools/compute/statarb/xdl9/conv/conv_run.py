@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """TK-493, П-38 r2: запуск счёта C2 («c2_run»). Все чтения данных идут через conv_guard (защита окна §12.2). sha256 ЭТОГО файла входит в токен окна.
 
-  python conv_run.py git-token [--addendum REL]            (на ПК, в git) записать c2_git_ok для копии на Deck (params/протокол закоммичены и чисты)
+  python conv_run.py git-token [--addendum REL] [--params-r3 REL]   (на ПК, в git) записать c2_git_ok для копии на Deck (params, протокол, addendum, r3 закоммичены и чисты)
   python conv_run.py k0 [--gate-ready PATH]                 K0: записать $C2_HOME/calib_start.json (правило Gate) ДО чтения панелей формирования
   python conv_run.py series --out DIR --last-day 2478 [--L 1440] [--classes crypto,eq,metal] [--limit-pairs N] [--threads 8]
                                                             K1-K3: ряды s, b, sigma, r6, общий фактор c ячеек, мета пар -> кэш <out>/cache/L<L>/
   python conv_run.py grid --out DIR --tag TAG --last-day 2478 [--classpar F.json] [--q5 F.json] [--combos F.json|all] [--limit-pairs N] [--trades-out]
                                                             сетка комбинаций по компонентам -> <out>/grid_<tag>/<класс>/*.npy (+ json)
-Режимы защиты: --mode calib (по умолчанию; last_day <= 2478), train (Pi_train, last_day <= 2471), window (только с --go-window и токеном CEO).
+Режимы защиты: --mode calib (по умолчанию; last_day <= 2478), train (Pi_train, last_day <= 2471); window отключён: окно читает только conv_window.py (токен CEO).
 --test-world DIR: синтетический мир (каталог не внутри ~/xdl9); боевые пути в этом режиме недоступны.
 Gate (G1, П-38 §3.4): --with-gate (нужен валидный манифест gate_ready и таблица пар Gate, иначе отказ) / --no-gate (универсум 8 бирж, побайтно как раньше); без флага Gate входит в универсум
 только при валидном манифесте (gate_ready: шесть строк ok, sha256 справочника и списка панелей) и наличии таблицы пар `<root>/asset_pairs_gate.csv`.
@@ -217,6 +217,7 @@ def main(argv=None):
     ap.add_argument("--calendar", default=None)
     ap.add_argument("--params", default=None)
     ap.add_argument("--addendum", default=None)
+    ap.add_argument("--params-r3", default=None, help="путь (в git: относительный) params r3 для git-token")
     ap.add_argument("--gate-ready", default=None, help="k0: путь маркера; прочее: путь манифеста Gate (по умолчанию <root>/gate_ready)")
     W.add_gate_args(ap, ready=False)
     ap.add_argument("--verify-ex", default="", help="turn-verify: сверять только ноги этой биржи (например gate)")
@@ -226,6 +227,9 @@ def main(argv=None):
     ap.add_argument("--probe", action="store_true", help="технический замер скорости на формировании: без K0, вывод только под <out>/probe, пишет probe_reads.log")
     a = ap.parse_args(argv)
     W.apply_gate_args(a)
+    if a.mode == "window":
+        # дельта 07.11 (закрытие B1): окно читает ЕДИНСТВЕННЫЙ раннер conv_window.py; через conv_run режим window отключён (токен покрывает весь код одним путём)
+        raise G.Refused("окно читает только conv_window.py (conv_run.py --mode window отключён)")
     script = os.path.abspath(__file__)
     _PROBE[0] = bool(a.probe)
     repo_params = a.params or os.path.join(G.REPO_HINT, REPO_PARAMS)
@@ -239,7 +243,7 @@ def main(argv=None):
     G.configure(go_window=a.go_window, script_path=script, params_paths=pparams, mode=("window" if (a.mode == "window" and not test_world) else (mode)),
                 require_k0=not (test_world or a.probe), test_root=root if test_world else None)
     if a.cmd == "git-token":
-        print(json.dumps(G.write_git_token(a.addendum), indent=1))
+        print(json.dumps(G.write_git_token(a.addendum, a.params_r3), indent=1))
         return 0
     if a.cmd == "k0":
         G.configure(mode="calib", params_paths=pparams, script_path=script)
