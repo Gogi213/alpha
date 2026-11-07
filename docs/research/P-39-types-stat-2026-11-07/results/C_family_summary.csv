@@ -1,0 +1,7 @@
+uni;set;types_tested;types_gt0_raw;types_p_raw_lt05;types_p_maxt_lt05;max_net;max_net_type;max_z
+B1;F;571;2;2;0;10.0749;AGE1&ONE;3.66438
+B1;W;595;0;0;0;4.30237;DEP4&M1lo;0.57475
+B1;F+W;605;1;1;0;4.25217;AGE1&ONE;1.85532
+B3;F;449;59;79;17;16.1482;BYL&F3hi;7.44172
+B3;W;499;0;0;0;12.1125;DEP4&DR7hi;1.24526
+B3;F+W;505;15;25;2;11.3977;DEP4&DUMP;4.84679

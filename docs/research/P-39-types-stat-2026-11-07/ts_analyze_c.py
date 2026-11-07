@@ -117,6 +117,47 @@ def holm(p):
     return adj
 
 
+CONTRASTS = [("M1hi", "M1lo"), ("M3hi", "M3lo"), ("M7hi", "M7lo"), ("V3hi", "V3lo"), ("F3hi", "F3lo"), ("DR7hi", "DR7lo"), ("BYS", "BYL"), ("BY", "~BY"), ("ONE", "BAL"), ("PUMP", "DUMP"),
+             ("FA", "FF"), ("FAS", "FFS"), ("ST", "~ST"), ("LQlo", "LQhi"), ("DEP3|DEP4|DEP5", "DEP1|DEP2"), ("C_STRUCT", "~C_STRUCT"), ("C_PRESS", "~C_PRESS"), ("C_NOISE", "~C_NOISE"), ("DBY", "~DBY"),
+             ("AGE1", "AGE0")]
+
+
+def resolve(expr, at, comps, d):
+    if expr.startswith("~"):
+        return ~resolve(expr[1:], at, comps, d)
+    out = None
+    for part in expr.split("|"):
+        m = at[part] if part in at else comps[part]
+        out = m if out is None else (out | m)
+    return out
+
+
+def contrasts(c, at, comps, un, nA, d, B=S.B_BOOT, seed=S.SEED):
+    """Разность типов А - Б: доли К (п.п.) и средней net (bps), 90 % интервал - бутстреп по активам (общие веса для обоих типов и обеих половин)."""
+    rows = []
+    for hv in (0, 1, 2):
+        sel = np.ones(len(c["net"]), bool) if hv == 2 else (c["half"] == hv)
+        for ea, eb in CONTRASTS:
+            ma, mb = resolve(ea, at, comps, d) & sel, resolve(eb, at, comps, d) & sel
+            if ma.sum() < TY.MIN_TRADES or mb.sum() < TY.MIN_TRADES:
+                continue
+            sa, sb = asset_sums(c, ma, nA), asset_sums(c, mb, nA)
+            if (sa["n"] > 0).sum() < TY.MIN_ASSETS or (sb["n"] > 0).sum() < TY.MIN_ASSETS:
+                continue
+            pa_k, pb_k = sa["K"].sum() / sa["n"].sum(), sb["K"].sum() / sb["n"].sum()
+            pa_n, pb_n = sa["net"].sum() / sa["n"].sum(), sb["net"].sum() / sb["n"].sum()
+            dk, dn = [], []
+            for w in S.boot_weights(nA, B, seed):
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    dk.append((w @ sa["K"]) / (w @ sa["n"]) - (w @ sb["K"]) / (w @ sb["n"]))
+                    dn.append((w @ sa["net"]) / (w @ sa["n"]) - (w @ sb["net"]) / (w @ sb["n"]))
+            dk, dn = np.concatenate(dk), np.concatenate(dn)
+            rows.append(dict(uni=un, set=HALFN[hv], A=ea, B=eb, nA=int(sa["n"].sum()), nB=int(sb["n"].sum()), assetsA=int((sa["n"] > 0).sum()), assetsB=int((sb["n"] > 0).sum()),
+                             qK_A=pa_k, qK_B=pb_k, dqK=pa_k - pb_k, dqK_lo=float(np.nanquantile(dk, 0.05)), dqK_hi=float(np.nanquantile(dk, 0.95)), net_A=pa_n, net_B=pb_n, dnet=pa_n - pb_n,
+                             dnet_lo=float(np.nanquantile(dn, 0.05)), dnet_hi=float(np.nanquantile(dn, 0.95))))
+    return rows
+
+
 def write(path, rows, cols):
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, delimiter=";")
@@ -148,7 +189,7 @@ def main():
     tr, ep, hints, act, meta = S.load_tables(a.tables)
     cuts = json.load(open(a.cuts, encoding="utf-8"))
     nA = len(meta["assets"])
-    allrows, sel_rows, summ = [], [], []
+    allrows, sel_rows, summ, cons, contr_rows, sigrows = [], [], [], [], [], []
     for un, ui in UNI.items():
         c = prep(tr, ui)
         d = TY.derive(c)
@@ -156,6 +197,7 @@ def main():
         comps = TY.composites(at, d)
         fam = TY.family(at, comps)
         simple = {k: v for k, v in fam.items() if "&" not in k}
+        contr_rows += contrasts(c, at, comps, un, nA, d)
         res = {}
         for hv in (0, 1, 2):
             # одиночные и составные типы: полные строки; все пары: только для поиска
@@ -171,9 +213,45 @@ def main():
                              max_net=float(np.nanmax(ptf["net"])), max_net_type=names_f[int(np.nanargmax(ptf["net"]))], max_z=float(np.nanmax(z))))
             if hv != 2:
                 allrows += [dict(r, type="FAM:" + r["type"]) for r in rows_for(un, hv, names_f, ptf, bnf, bdf) if "&" in r["type"] and r["net_lo"] > -5]    # пары с нижней границей > -5 bps
+        # --- все типы, значимые после max-t: на F, на F+W; их результаты на каждой половине
+        nA_, pA_, bA_, dA_ = res[2]
+        zA, prA, padjA, seA = maxt_p(pA_["net"], bA_)
+        nF0, pF0, bF0, dF0 = res[0]
+        nW0, pW0, bW0, dW0 = res[1]
+        zF0, prF0, padjF0, seF0 = maxt_p(pF0["net"], bF0)
+        iF0 = {nm: j for j, nm in enumerate(nF0)}
+        iW0 = {nm: j for j, nm in enumerate(nW0)}
+        for src, names_s, padj_s, pt_s, bt_s in (("F", nF0, padjF0, pF0, bF0), ("F+W", nA_, padjA, pA_, bA_)):
+            for j, nm in enumerate(names_s):
+                if padj_s[j] < 0.05:
+                    r = dict(uni=un, found_on=src, type=nm, p_maxt=padj_s[j], n=int(pt_s["n"][j]), assets=int(pt_s["assets"][j]), net=pt_s["net"][j], net_lo=float(np.nanquantile(bt_s[:, j], 0.05)),
+                             qK=pt_s["qK"][j], qK_star=pt_s["qK_star"][j])
+                    for hn, ii, pp, bb in (("F", iF0, pF0, bF0), ("W", iW0, pW0, bW0)):
+                        if nm in ii:
+                            jj = ii[nm]
+                            r.update({"n_" + hn: int(pp["n"][jj]), "assets_" + hn: int(pp["assets"][jj]), "net_" + hn: pp["net"][jj], "lo_" + hn: float(np.nanquantile(bb[:, jj], 0.05)),
+                                      "hi_" + hn: float(np.nanquantile(bb[:, jj], 0.95))})
+                    sigrows.append(r)
         # --- отбор на F -> проверка на W
         nF, pF, bF, dF = res[0]
         nW, pW, bW, dW = res[1]
+        # согласие половин по всем типам: ранговая корреляция и наклон net_W на net_F; судьба типов, значимых на F после max-t
+        idxW0 = {nm: j for j, nm in enumerate(nW)}
+        common = [(j, idxW0[nm]) for j, nm in enumerate(nF) if nm in idxW0]
+        zF, praw, padjF, seF = maxt_p(pF["net"], bF)
+        if common:
+            xf = np.array([pF["net"][j] for j, _ in common])
+            xw = np.array([pW["net"][jw] for _, jw in common])
+            rk = lambda v: np.argsort(np.argsort(v)).astype(float)
+            spear = float(np.corrcoef(rk(xf), rk(xw))[0, 1])
+            slope = float(np.cov(xf, xw)[0, 1] / np.var(xf, ddof=1))
+            fs = [(j, jw) for (j, jw) in common if padjF[j] < 0.05]
+            fpos = [(j, jw) for (j, jw) in common if np.nanquantile(bF[:, j], 0.05) > 0]
+            fw_sig = [(j, jw) for (j, jw) in fpos if np.nanquantile(bW[:, jw], 0.05) > 0]
+            cons.append(dict(uni=un, types_common=len(common), spearman_FW=spear, slope_FW=slope, F_lcb_gt0=len(fpos), F_maxt_sig=len(fs),
+                             F_maxt_sig_mean_netF=float(np.mean([pF["net"][j] for j, _ in fs])) if fs else None, F_maxt_sig_mean_netW=float(np.mean([pW["net"][jw] for _, jw in fs])) if fs else None,
+                             F_maxt_sig_W_net_gt0=int(sum(pW["net"][jw] > 0 for _, jw in fs)) if fs else None, F_lcb_gt0_W_lcb_gt0=len(fw_sig),
+                             F_lcb_gt0_mean_netF=float(np.mean([pF["net"][j] for j, _ in fpos])) if fpos else None, F_lcb_gt0_mean_netW=float(np.mean([pW["net"][jw] for _, jw in fpos])) if fpos else None))
         lcbF = np.nanquantile(bF, 0.05, axis=0)
         order = np.argsort(-np.where(np.isfinite(lcbF), lcbF, -1e18))[:TOP_K]
         idxW = {nm: j for j, nm in enumerate(nW)}
@@ -195,6 +273,8 @@ def main():
         for (nm, j, jw, p1), ad in zip(tmp, adj):
             r = dict(uni=un, type=nm, n_F=int(pF["n"][j]), assets_F=int(pF["assets"][j]), net_F=pF["net"][j], net_F_lo=float(lcbF[j]), qK_F=pF["qK"][j], qK_star_F=pF["qK_star"][j])
             if jw is not None:
+                dfw = bF[:, j] - bW[:, jw]               # одни и те же ресэмплы активов (одинаковый seed): парная разность формирование - окно
+                r.update(diffFW=pF["net"][j] - pW["net"][jw], diffFW_lo=float(np.nanquantile(dfw, 0.05)), diffFW_hi=float(np.nanquantile(dfw, 0.95)))
                 r.update(n_W=int(pW["n"][jw]), assets_W=int(pW["assets"][jw]), net_W=pW["net"][jw], net_W_lo=float(np.nanquantile(bW[:, jw], 0.05)), net_W_hi=float(np.nanquantile(bW[:, jw], 0.95)),
                          qK_W=pW["qK"][jw], qK_star_W=pW["qK_star"][jw], diff_W=pW["diff"][jw], p_W=p1, p_W_holm=ad)
             else:
@@ -203,7 +283,11 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     write(os.path.join(a.out, "C_types.csv"), allrows, COLS)
     write(os.path.join(a.out, "C_select_F_to_W.csv"), sel_rows, ["uni", "type", "n_F", "assets_F", "net_F", "net_F_lo", "qK_F", "qK_star_F", "n_W", "assets_W", "net_W", "net_W_lo", "net_W_hi", "qK_W", "qK_star_W",
-                                                                  "diff_W", "p_W", "p_W_holm"])
+                                                                  "diff_W", "p_W", "p_W_holm", "diffFW", "diffFW_lo", "diffFW_hi"])
+    write(os.path.join(a.out, "C_consistency_F_W.csv"), cons, ["uni", "types_common", "spearman_FW", "slope_FW", "F_lcb_gt0", "F_maxt_sig", "F_maxt_sig_mean_netF", "F_maxt_sig_mean_netW", "F_maxt_sig_W_net_gt0",
+                                                           "F_lcb_gt0_W_lcb_gt0", "F_lcb_gt0_mean_netF", "F_lcb_gt0_mean_netW"])
+    write(os.path.join(a.out, "C_family_sig.csv"), sigrows, ["uni", "found_on", "type", "p_maxt", "n", "assets", "net", "net_lo", "qK", "qK_star", "n_F", "assets_F", "net_F", "lo_F", "hi_F", "n_W", "assets_W", "net_W", "lo_W", "hi_W"])
+    write(os.path.join(a.out, "C_contrasts.csv"), contr_rows, ["uni", "set", "A", "B", "nA", "nB", "assetsA", "assetsB", "qK_A", "qK_B", "dqK", "dqK_lo", "dqK_hi", "net_A", "net_B", "dnet", "dnet_lo", "dnet_hi"])
     write(os.path.join(a.out, "C_family_summary.csv"), summ, ["uni", "set", "types_tested", "types_gt0_raw", "types_p_raw_lt05", "types_p_maxt_lt05", "max_net", "max_net_type", "max_z"])
 
 

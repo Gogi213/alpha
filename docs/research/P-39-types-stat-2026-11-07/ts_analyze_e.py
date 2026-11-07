@@ -29,27 +29,36 @@ def log_comb(n, k):
     return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
 
 
-def stratified_bybit_test(tr, ui, hv, stop_codes):
-    """Все ли стопы на парах с Bybit? p = Π_активов C(m_B, s)/C(m, s) - вероятность, что при случайном размещении стопов среди сделок ТОГО ЖЕ актива все s стопов лежат на Bybit-сделках."""
+def hyper_pmf(m, mB, s):
+    """P(j стопов на Bybit-сделках среди s стопов, размещённых случайно среди m сделок актива, из которых mB Bybit), j = 0..s."""
+    return np.array([math.exp(log_comb(mB, j) + log_comb(m - mB, s - j) - log_comb(m, s)) if (0 <= j <= mB and 0 <= s - j <= m - mB) else 0.0 for j in range(s + 1)])
+
+
+def stratified_bybit_test(tr, ui, hv, stop_codes, flag="byb"):
+    """Сосредоточены ли стопы на сделках с признаком flag (нога Bybit)? Нулевая гипотеза: внутри КАЖДОГО актива стопы размещены случайно среди его сделок (учёт гетерогенности активов).
+    Число стопов на Bybit = сумма независимых гипергеометрических по активам; p = P(сумма >= факт) - точная свёртка."""
     m = (tr["uni"] == ui) & (tr["half"] == hv) & (tr["code"] != CODE["END"])
-    ai, byb, code = tr["ai"][m].astype(int), tr["byb"][m] == 1, tr["code"][m]
+    ai, byb, code = tr["ai"][m].astype(int), tr[flag][m] == 1, tr["code"][m]
     stop = np.isin(code, stop_codes)
-    logp = 0.0
+    pmf = np.array([1.0])
+    mean = var = 0.0
     n_stop_assets = 0
-    stop_on_byb = int((stop & byb).sum())
     for a in np.unique(ai[stop]):
         mm = ai == a
         s = int((stop & mm).sum())
         mB = int((byb & mm).sum())
         mt = int(mm.sum())
         n_stop_assets += 1
-        # P(число стопов на Bybit >= фактического sB) для этого актива, фактическое sB:
-        sB = int((stop & byb & mm).sum())
-        # вероятность >= sB при гипергеометрическом: суммируем
-        pa = sum(math.exp(log_comb(mB, j) + log_comb(mt - mB, s - j) - log_comb(mt, s)) for j in range(sB, min(s, mB) + 1))
-        logp += math.log(max(pa, 1e-300))
-    return dict(uni=ui, half=hv, trades=int(m.sum()), byb_trades=int(byb.sum()), stops=int(stop.sum()), stops_on_byb=stop_on_byb, stop_assets=n_stop_assets, p_strat=math.exp(logp),
-                rate_byb=float((stop & byb).sum() / max(byb.sum(), 1)), rate_nobyb=float((stop & ~byb).sum() / max((~byb).sum(), 1)))
+        p = hyper_pmf(mt, mB, s)
+        pmf = np.convolve(pmf, p)
+        js = np.arange(s + 1)
+        e1 = float((p * js).sum())
+        mean += e1
+        var += float((p * js * js).sum()) - e1 * e1
+    obs = int((stop & byb).sum())
+    p_up = float(pmf[obs:].sum()) if obs < len(pmf) else 0.0
+    return dict(uni=ui, half=hv, flag=flag, trades=int(m.sum()), flag_trades=int(byb.sum()), stops=int(stop.sum()), stops_on_flag=obs, stops_expected=mean, stops_sd=math.sqrt(max(var, 0.0)), stop_assets=n_stop_assets,
+                p_strat=p_up, rate_flag=float((stop & byb).sum() / max(byb.sum(), 1)), rate_noflag=float((stop & ~byb).sum() / max((~byb).sum(), 1)))
 
 
 def independent_episodes(tr, ui, hv, stop_codes, gap=1440):
@@ -239,13 +248,21 @@ def main():
     cuts = json.load(open(a.cuts, encoding="utf-8"))
     os.makedirs(a.out, exist_ok=True)
     rows = []
-    for un, ui, codes in (("V1", 2, [2, 3, 4]), ("V2", 3, [2, 3, 4]), ("B1", 0, [1, 3, 4]), ("B3", 1, [1, 3, 4])):
-        for hv in (0, 1):
-            r = stratified_bybit_test(tr, ui, hv, codes)
-            r["name"] = un
-            ns, na, ne = independent_episodes(tr, ui, hv, codes)
-            r.update(stop_trades=ns, stop_assets_n=na, stop_episodes=ne)
-            rows.append(r)
+    tr = dict(tr)
+    # признак «шорт-нога на Bybit» (дорогая нога на Bybit)
+    dd = TY.derive({k: v for k, v in tr.items()})
+    tr["byb_short_f"] = dd["byb_short"].astype(float)
+    for un, ui, csets in (("V1", 2, (("S1+S2+S3", [2, 3, 4]), ("S1", [2]), ("S3", [4]))), ("V2", 3, (("S1+S2+S3", [2, 3, 4]), ("S1", [2]), ("TO", [6]))),
+                           ("B1", 0, (("S0+S2+S3", [1, 3, 4]),)), ("B3", 1, (("S0+S2+S3", [1, 3, 4]), ("S0", [1])))):
+        for cname, codes in csets:
+            for hv in (0, 1):
+                for flag in ("byb", "byb_short_f"):
+                    r = stratified_bybit_test(tr, ui, hv, codes, flag)
+                    r["name"] = un
+                    r["cset"] = cname
+                    ns, na, ne = independent_episodes(tr, ui, hv, codes)
+                    r.update(stop_trades=ns, stop_assets_n=na, stop_episodes=ne)
+                    rows.append(r)
     write_rows(os.path.join(a.out, "E_bybit_stops.csv"), rows)
     allp, coefs = [], {}
     for un, ui in (("B1", 0), ("B3", 1)):
