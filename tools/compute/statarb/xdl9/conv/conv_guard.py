@@ -9,8 +9,11 @@
       params G0.1, params r3 и addendum (`docs/research/<имя>`), все `P-38-params-calib-*.csv` рядом с addendum, spec окна и входные файлы раннера (classpar_*.json и q5_*.json
       рядом с указанными, jobs_w2.csv, эталон k; путь вида `~/...`). Любое расхождение (изменён файл, лишний или недостающий файл, лишняя или недостающая строка) - отказ (код 3).
       Хэши считаются по LF-содержимому (CRLF -> LF), чтобы копия на Deck равнялась коммиту;
-  (3) токен ОДНОРАЗОВЫЙ: первое чтение окна в процессе переименовывает его атомарно (os.replace) в `go_window.token.used.<pid>.<ns>`; раннер удаляет этот файл в конце
-      (`finish_window`, в том числе при падении) и пишет записи в `window_reads.log`; однократность - по файлу (второй вызов не находит токена), а не по журналу;
+  (3) токен ОДНОРАЗОВЫЙ: проверка перед первым чтением окна переименовывает его атомарно (os.replace) в `go_window.token.used.<pid>.<ns>`; раннер удаляет этот файл в конце
+      (`finish_window`, в том числе при падении) и пишет записи в `window_reads.log`; однократность - по файлу (второй вызов не находит токена), а не по журналу.
+      ИСКЛЮЧЕНИЕ (GW, B1 07.11): сбой раннера ДО ПЕРВОГО открытия файла данных окна (`mark_window_read`: ни одной панели, ни оборота, ни фандинга суток >= 2479 не открыто)
+      не сжигает токен - `finish_window("failed")` переименовывает `.used` обратно и пишет `event=aborted_before_read` (журнал сбалансирован: незавершённого прогона нет);
+      после первого открытия файла окна токен сгорает окончательно (`event=run_end`);
   (4) калибровочные проходы: last_day >= 2479 не принимаются вообще (даже с токеном), Pi_train - last_day > 2471 (G-C2-9); режим testb (проверка раннера на формировании с
       искусственной границей D <= 2478) не читает сутки >= 2479 никогда, токен и --go-window ему недоступны;
   (5) params, addendum и params r3 закоммичены и не изменены: в git-дереве - `git log` по каждому файлу непуст, `git status --porcelain` чист, содержимое по LF равно blob HEAD;
@@ -23,6 +26,7 @@
 import datetime
 import hashlib
 import json
+import multiprocessing as mp
 import os
 import struct
 import subprocess
@@ -110,6 +114,7 @@ class _State:
     window_cleared = False        # токен проверен и забран в этом процессе (наследуется потомками fork)
     window_logged = False
     token_claimed = None          # путь забранного токена (удаляется в finish_window)
+    read_flag = None              # разделяемый (fork) флаг «файл данных окна уже открыт» (mark_window_read); потомки fork видят его
 
 
 STATE = _State()
@@ -143,6 +148,7 @@ def configure(*, go_window=False, script_path=None, params_paths=(), mode="calib
     STATE.window_cleared = False
     STATE.window_logged = False
     STATE.token_claimed = None
+    STATE.read_flag = mp.RawValue("b", 0)
 
 
 def check_path(path):
@@ -271,7 +277,8 @@ def log_window_event(kind, text=""):
 
 
 def log_unfinished_runs():
-    """Число прогонов окна в window_reads.log, начатых (event=token_claimed) и не завершённых (нет event=run_end). Снимается только записью CEO строки event=run_end (r3 R3.8 п. 2)."""
+    """Число прогонов окна в window_reads.log, начатых (event=token_claimed) и не завершённых (нет event=run_end и нет event=aborted_before_read - сбой до первого чтения, токен возвращён).
+    Снимается только записью CEO строки event=run_end (r3 R3.8 п. 2)."""
     p = os.path.join(c2_home(), "window_reads.log")
     if not os.path.isfile(p):
         return 0
@@ -282,7 +289,7 @@ def log_unfinished_runs():
             ev = [x for x in parts if x.startswith("event=")]
             if ev and ev[0] == "event=token_claimed":
                 started += 1
-            elif ev and ev[0] == "event=run_end":
+            elif ev and ev[0] in ("event=run_end", "event=aborted_before_read"):
                 ended += 1
     return max(0, started - ended)
 
@@ -308,19 +315,53 @@ def _claim_window_token():
     log_window_event("token_claimed", "token_sha256=%s manifest_files=%d" % (sha256_lf(dst), len(manifest_lines())))
 
 
-def finish_window(outcome="done"):
-    """Конец прогона окна: удалить забранный токен (токен одноразовый) и записать итог в журнал. Вызывается в finally раннера."""
+def window_was_read():
+    """Открыт ли хотя бы один файл данных окна в этом прогоне (флаг общий для потомков fork)."""
+    return bool(STATE.read_flag is not None and STATE.read_flag.value)
+
+
+def mark_window_read(last_day, what):
+    """Вызывается читателями (load_panel_range, load_turnover_raw, load_funding_range) ПОСЛЕ всех проверок и ДО открытия файла: с этого момента токен восстановить нельзя."""
+    if STATE.mode != "window" or last_day is None or last_day < D_WIN0 or STATE.read_flag is None or STATE.read_flag.value:
+        return
+    STATE.read_flag.value = 1
+    log_window_event("first_window_read", what)
+
+
+def finish_window(outcome="done", reason=""):
+    """Конец прогона окна: удалить забранный токен (токен одноразовый) и записать итог в журнал. Вызывается в finally раннера. -> True, если токен возвращён.
+    Сбой (outcome == 'failed') ДО первого открытия файла данных окна: токен возвращается переименованием `.used` обратно, в журнал - `event=aborted_before_read` и причина
+    (если на месте токена уже лежит другой файл - не затирается, запись о том же и `.used` удаляется)."""
     p = STATE.token_claimed
     if p is None:
-        return
+        return False
+    restored = False
+    why = (" reason=" + str(reason)[:300].replace(chr(10), " ").replace(chr(9), " ")) if reason else ""
     try:
-        log_window_event("run_end", "outcome=%s" % outcome)
+        if outcome == "failed" and not window_was_read():
+            tp = token_path()
+            if os.path.exists(tp):
+                log_window_event("aborted_before_read", "token_restored=no (на месте токена уже лежит другой файл: не затёрт)" + why)
+            else:
+                try:
+                    os.replace(p, tp)
+                    restored = True
+                    log_window_event("aborted_before_read", "token_restored=yes (ни один файл данных окна не открывался)" + why)
+                except OSError as e:
+                    log_window_event("run_end", "outcome=failed_before_read_token_not_restored (%s)%s" % (e, why))
+        else:
+            log_window_event("run_end", "outcome=%s%s" % (outcome, why))
     finally:
         STATE.token_claimed = None
-        try:
-            os.remove(p)
-        except OSError:
-            pass
+        if restored:
+            STATE.window_cleared = False
+            STATE.window_logged = False
+        else:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+    return restored
 
 
 def check_days(last_day, *, what="данные"):
@@ -512,6 +553,7 @@ def load_panel_range(path, d0, d1, *, what="panel"):
         ensure_params_committed()
     m0, m1 = d0 * MIN_DAY, (d1 + 1) * MIN_DAY
     nf = m1 - m0
+    mark_window_read(d1, what + " " + os.path.basename(path))
     first, n = read_sap_header(path)
     lo, hi = max(m0, first), min(m1, first + n)
     o = np.full(nf, np.nan)
@@ -535,6 +577,7 @@ def load_turnover_raw(path, d0, d1, *, exchange="", mult=1.0):
         ensure_params_committed()
     m0, m1 = d0 * MIN_DAY, (d1 + 1) * MIN_DAY
     out = np.zeros(m1 - m0, dtype=np.float64)
+    mark_window_read(d1, "turnover " + os.path.basename(path))
     t_end_ms = GRID0_MS + m1 * 60_000
     t_beg_ms = GRID0_MS + m0 * 60_000
     with gzip.open(path, "rt", encoding="utf-8", newline="") as f:
@@ -570,6 +613,7 @@ def load_funding_range(path, d0, d1):
         return np.zeros(0, np.int64), np.zeros(0)
     m0, m1 = d0 * MIN_DAY, (d1 + 1) * MIN_DAY
     ts, rs = [], []
+    mark_window_read(d1, "funding " + os.path.basename(path))
     with gzip.open(path, "rt", encoding="utf-8", newline="") as f:
         next(f, None)
         for line in f:

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """TK-493, П-38: тесты раннера окна и защиты (закрытие B1, m1, m2 ревизии 07.11): красные тесты защиты (CLI и API), токен v2 (манифест всего кода), одноразовость,
 test-boundary, m1 (тестовый мир - предок ~/xdl9), git-токен по LF, старт окна «с нуля» в срезе W2, Холм, сверка раннера с conv_run на синтетике (G-C2-9w в миниатюре).
+Дельта GW 07.11 (закрытие B1 ревизии: ресурсы, токен): w14 (токен возвращается при сбое до первого открытия файла окна и сгорает после), w15 (префлайт: код 75, токен не тронут),
+w16 (блок «с Gate»: основной набор побайтно не зависит от блока; G-C2-9wg в миниатюре; сбой блока не теряет основной набор), w17 (окно «в процессе» на синтетике: отказ до чтения -> токен
+возвращён -> повтор -> успех; сбой после чтения - токен сгорел), w18 (читатели помечают первое открытие файла окна), w19 (токен покрывает Gate-файлы, c2_git_ok, протокол), w20 (каталог выходов).
 Запуск на Deck (в каталоге кода):  ~/xdl9/venv/bin/python test_conv_window.py [имя_теста ...]
-Данные реальных панелей и окна не читаются (синтетика во временных каталогах)."""
+Зависит от соседних модулей дерева (xdl9/asset_*.py, tools/xdl) через test_conv_gate: запускать из развёрнутого дерева `git archive` (tools/compute/statarb + tools/xdl).
+Данные реальных панелей и окна не читаются (синтетика во временных каталогах; окно «в процессе» - на синтетическом мире, спец-режим window с подменой sha универсума и git-проверки)."""
 import hashlib
 import json
 import math
@@ -20,6 +24,7 @@ import conv_guard as G            # noqa: E402
 import conv_hints as HI           # noqa: E402
 import conv_lib as L              # noqa: E402
 import test_conv as TC            # noqa: E402  (write_world, run_cli)
+import test_conv_gate as TG       # noqa: E402  (add_gate, write_manifest: синтетический Gate)
 
 OK = []
 
@@ -192,10 +197,12 @@ def w03_token_is_single_use_and_logged():
         # второй вызов: токена нет - отказ (однократность по файлу)
         e.cfg()
         refused(G.check_days, 2479)
-        # токен выдан заново (вторым решением CEO) - снова принимается один раз
+        # токен выдан заново (вторым решением CEO) - снова принимается один раз; сбой ПОСЛЕ первого открытия файла окна сжигает его (до открытия - возвращает: w14)
         e.token()
         G.check_days(2480)
+        G.mark_window_read(2480, "panel X.sap")
         G.finish_window("failed")
+        assert "event=first_window_read" in open(os.path.join(e.home, "window_reads.log"), encoding="utf-8").read()
         e.cfg()
         refused(G.check_days, 2480)
         # прогон оборван без finally (kill): в журнале нет run_end - новый токен не принимается, пока CEO не запишет строку run_end
@@ -353,14 +360,21 @@ def cli(args, env=None):
     return subprocess.run([sys.executable, os.path.join(HERE, "conv_window.py")] + args, capture_output=True, text=True, env=e)
 
 
-def write_spec(d, variants, extra=None):
+def _variant_json(v, cp):
+    return dict(id=v["id"], cls="crypto", combo=v["combo"], classpar=cp, q5=v.get("q5"), sigma_form=5.0, a3b=v.get("a3b"), formation_labels=v.get("formation_labels"))
+
+
+def write_spec(d, variants, extra=None, gate=None, name="spec.json"):
+    """spec для тестов; gate - словарь блока spec[gate] (manifest, pairs, w2_jobs, addendum) + variants (по умолчанию те же варианты)."""
     cp = os.path.join(d, "classpar_full.json")
     json.dump({"crypto": {"kstale": 30, "m_r": 5, "q_stale": 0.9}}, open(cp, "w"))
-    spec = dict(name="тест", root=d, params=None, addendum=None, params_r3=None, w2_jobs=None, w2_k_ref=None, variants=[])
-    for v in variants:
-        spec["variants"].append(dict(id=v["id"], cls="crypto", combo=v["combo"], classpar=cp, q5=v.get("q5"), sigma_form=5.0, a3b=v.get("a3b"), formation_labels=v.get("formation_labels")))
+    spec = dict(name="тест", root=d, params=None, addendum=None, params_r3=None, w2_jobs=None, w2_k_ref=None, variants=[_variant_json(v, cp) for v in variants])
     spec.update(extra or {})
-    p = os.path.join(d, "spec.json")
+    if gate is not None:
+        g = dict(gate)
+        g["variants"] = [_variant_json(v, cp) for v in (g.pop("variants_src", None) or variants)]
+        spec["gate"] = g
+    p = os.path.join(d, name)
     json.dump(spec, open(p, "w"), ensure_ascii=False)
     return p
 
@@ -689,6 +703,503 @@ def w13_cli_token_covers_every_file_kind():
         w(tp, text)
         r2 = run(["run", "--spec", spec, "--go-window", "--out", os.path.join(d, "out_never")])
         assert r2.returncode == 3 and open(tp, encoding="utf-8").read() == text and not os.path.exists(os.path.join(home, "window_reads.log")), label
+
+
+def log_events(home, skip=("run_start",)):
+    """Последовательность значений event=... в window_reads.log (служебное run_start пропускается)."""
+    p = os.path.join(home, "window_reads.log")
+    if not os.path.isfile(p):
+        return []
+    out = []
+    for ln in open(p, encoding="utf-8"):
+        ev = [x for x in ln.rstrip(chr(10)).split(chr(9)) if x.startswith("event=")]
+        if ev and ev[0][6:] not in skip:
+            out.append(ev[0][6:])
+    return out
+
+
+@test
+def w14_token_restored_before_first_read_and_burned_after():
+    """GW, B1: сбой раннера ДО первого открытия файла данных окна возвращает токен (event=aborted_before_read, журнал сбалансирован, повтор возможен);
+    после первого открытия (mark_window_read) токен сгорает; успех токен удаляет; чужой файл на месте токена не затирается."""
+    e = Env()
+    try:
+        tp = os.path.join(e.home, "go_window.token")
+        e.cfg()
+        e.token()
+        good = open(tp, encoding="utf-8").read()
+        for rnd in range(2):                                           # два сбоя подряд: токен каждый раз возвращается
+            e.cfg()
+            G.check_days(2479, what="старт")                           # захват
+            assert not os.path.exists(tp) and G.log_unfinished_runs() == 1 and not G.window_was_read()
+            assert G.finish_window("failed", "RuntimeError: тест") is True
+            assert open(tp, encoding="utf-8").read() == good and not [f for f in os.listdir(e.home) if ".used." in f], "токен не возвращён"
+            assert G.log_unfinished_runs() == 0
+        ev = log_events(e.home)
+        assert ev.count("aborted_before_read") == 2 and ev.count("token_claimed") == 2 and "run_end" not in ev and "first_window_read" not in ev, ev
+        assert "reason=RuntimeError: тест" in open(os.path.join(e.home, "window_reads.log"), encoding="utf-8").read()
+        # успех без чтения (outcome не failed) токен не возвращает
+        e.cfg()
+        G.check_days(2479)
+        assert G.finish_window("done") is False and not os.path.exists(tp)
+        # сбой ПОСЛЕ первого открытия файла окна: токен сгорает (повторные пометки в журнал не пишутся)
+        e.token()
+        e.cfg()
+        G.check_days(2479)
+        G.mark_window_read(2478, "формирование: не окно")             # чтение суток < 2479 не считается чтением окна
+        assert not G.window_was_read()
+        G.mark_window_read(2479, "turnover X.csv.gz")
+        G.mark_window_read(2499, "panel Y.sap")
+        assert G.window_was_read()
+        assert G.finish_window("failed", "MemoryError") is False
+        assert not os.path.exists(tp) and not [f for f in os.listdir(e.home) if ".used." in f]
+        ev = log_events(e.home)
+        assert ev.count("first_window_read") == 1 and ev[-1] == "run_end" and G.log_unfinished_runs() == 0, ev
+        e.cfg()
+        refused(G.check_days, 2479)                                    # токена нет
+        # на месте токена уже лежит другой файл (CEO выдал новый): не затирается, прежний .used удалён
+        e.token()
+        e.cfg()
+        G.check_days(2479)
+        w(tp, "новый токен CEO" + chr(10))
+        assert G.finish_window("failed") is False
+        assert open(tp, encoding="utf-8").read() == "новый токен CEO" + chr(10) and not [f for f in os.listdir(e.home) if ".used." in f]
+        assert log_events(e.home)[-1] == "aborted_before_read" and "token_restored=no" in open(os.path.join(e.home, "window_reads.log"), encoding="utf-8").read()
+        assert G.log_unfinished_runs() == 0
+    finally:
+        e.clean()
+
+
+def _preflight_dirs():
+    d = tempfile.mkdtemp()
+    return d, os.path.join(d, "c2")
+
+
+@test
+def w15_preflight_refuses_with_code_75_before_token_and_logs_snapshot():
+    import conv_window as WN
+    d, home = _preflight_dirs()
+    os.environ["C2_HOME"] = home
+    try:
+        lp = os.path.join(home, "window_preflight.log")
+        snap = WN.preflight(os.path.join(d, "out"), 1, 0.0, "window", log_path=lp)
+        assert snap["ok"] and snap["disks"] and snap["threads"] == 1 and "free_gb" in snap["disks"][0]
+        rec = json.loads(open(lp, encoding="utf-8").read().strip().split(chr(10))[-1])
+        assert rec["ok"] is True and rec["mode"] == "window" and rec["min_free_gb"] == 0.0 and "mem_mb" in rec and "loadavg" in rec
+
+        def refused75(fn, frag):
+            try:
+                fn()
+            except SystemExit as ex:
+                assert ex.code == 75 and frag in ex.msg, (ex.code, ex.msg)
+                return
+            raise AssertionError("отказа нет")
+        refused75(lambda: WN.preflight(os.path.join(d, "out"), 1, 1e9, "window", log_path=lp), "свободно")
+        rec = json.loads(open(lp, encoding="utf-8").read().strip().split(chr(10))[-1])
+        assert rec["ok"] is False and rec["problems"], rec
+        refused75(lambda: WN.preflight(os.path.join(d, "out"), 0, 0.0, "window", log_path=lp), "потоков")
+        refused75(lambda: WN.preflight(os.path.join(d, "out"), (os.cpu_count() or 1) + 1, 0.0, "window", log_path=lp), "потоков")
+        if WN._meminfo_mb().get("MemAvailable"):
+            old = WN.MEM_PER_THREAD_MB
+            WN.MEM_PER_THREAD_MB = 10 ** 9
+            try:
+                refused75(lambda: WN.preflight(os.path.join(d, "out"), 1, 0.0, "window", log_path=lp), "памяти")
+            finally:
+                WN.MEM_PER_THREAD_MB = old
+        # несуществующий каталог выходов: проверяется ближайший существующий предок
+        assert WN.preflight(os.path.join(d, "a", "b", "c"), 1, 0.0, "testb")["ok"]
+    finally:
+        os.environ.pop("C2_HOME", None)
+        G.configure(mode="calib")
+
+
+class WinEnv:
+    """Окно «в процессе» на синтетическом мире (35 суток: формирование и «окно»): корень данных - синтетика, sha универсума и git-проверка params подменены (w07 проверяет git отдельно),
+    токен выпускается тем же кодом, что `token-body`. Боевые данные не читаются."""
+
+    def __init__(self, gate=True, n_assets=6, days=35):
+        import conv_world as Wm
+        self.W, self.tw = Wm, tempfile.mkdtemp()
+        TC.write_world(self.tw, n_assets=n_assets, days=days)
+        if gate:
+            TG.add_gate(self.tw, n_assets=4, days=days)
+        self.d = tempfile.mkdtemp()
+        self.home = os.path.join(self.d, "c2")
+        os.makedirs(self.home)
+        w(os.path.join(self.home, "calib_start.json"), "{}")
+        self.pf, self.af, self.r3 = (os.path.join(self.d, n) for n in ("P-38-params-2026-11-07.csv", "P-38-params-calib-2026-11-07.csv", "P-38-params-r3-2026-11-07.csv"))
+        for p_ in (self.pf, self.af, self.r3):
+            w(p_, "key,value\nk,%s\n" % os.path.basename(p_))
+        V, self.cph, self.q5p = mk_variants(self.d, self.tw)
+        gate_cfg = dict(manifest=os.path.join(self.tw, "gate_ready"), pairs=os.path.join(self.tw, "asset_pairs_gate.csv")) if gate else None
+        self.spec = write_spec(self.d, V, extra=dict(root=self.tw, raw_root=os.path.join(self.d, "raw"), params=self.pf, addendum=self.af, params_r3=self.r3), gate=gate_cfg)
+        self.out = os.path.join(self.d, "window")
+        self.tp = os.path.join(self.home, "go_window.token")
+        self._saved = (Wm.UNIVERSE_SHA_PREFIX, G.ensure_params_committed)
+        Wm.UNIVERSE_SHA_PREFIX = G.sha256_file(os.path.join(self.tw, "asset_pairs.csv"))[:8]
+        G.ensure_params_committed = lambda: None
+        os.environ["C2_HOME"] = self.home
+
+    def write_token(self):
+        import conv_window as WN
+        WN._cfg_for_token(type("A", (), dict(spec=self.spec))())
+        w(self.tp, G.token_text("GO test, CEO"))
+        G.configure(mode="calib")
+        return open(self.tp, encoding="utf-8").read()
+
+    def run(self, extra=()):
+        import conv_window as WN
+        return WN.main(["run", "--spec", self.spec, "--go-window", "--threads", "1", "--out", self.out, "--min-free-gb", "0"] + list(extra))
+
+    def close(self):
+        self.W.UNIVERSE_SHA_PREFIX, G.ensure_params_committed = self._saved
+        os.environ.pop("C2_HOME", None)
+        G.configure(mode="calib")
+
+
+def mk_variants(d, tw):
+    """V1 (Q5 включён, A3b окна, слабое формирование) и V2 - как в w09; q5 покрывает все пары мира (с Gate, если манифест валиден)."""
+    pids = pids_of(tw)
+    q5 = {p: (20.0 if i % 4 else None) for i, p in enumerate(pids)}
+    q5p = os.path.join(d, "q5_full.json")
+    json.dump(q5, open(q5p, "w"))
+    cph = os.path.join(d, "classpar_H0.json")
+    json.dump({"crypto": {"kstale": 25, "m_r": 4, "q_stale": 0.9}}, open(cph, "w"))
+    a3b1 = {"h1on0": {"combo": [25.2, 3, 1, 120, 2.0], "classpar": cph}, "h0on1": {"combo": [40.0, 3, 1, 360, 2.0], "classpar": cph}}
+    ok_fl = {k: {"ok": True, "text": "формирование: %s пройдено" % k} for k in ("a3b", "a3_cells", "a8")}
+    weak_fl = dict(ok_fl, a3b={"ok": False, "text": "формирование: a3b не пройдено"})
+    V = [dict(id="V1", combo=[25.2, 3, 1, 120, 2.0], q5=q5p, a3b=a3b1, formation_labels=weak_fl), dict(id="V2", combo=[40.0, 3, 3, 360, None], formation_labels=ok_fl)]
+    return V, cph, q5p
+
+
+MAIN_FILES = ("variants.json", "class_status.csv", "daily_y.csv", "slices.csv", "cells_table.csv", "a8.csv", "a3b_window.csv", "formation_labels.json", "trials_total.json", "summary_main.txt")
+
+
+def read_bytes(p):
+    return open(p, "rb").read()
+
+
+def assert_main_equal(o1, o2, label):
+    for fn in MAIN_FILES:
+        assert read_bytes(os.path.join(o1, fn)) == read_bytes(os.path.join(o2, fn)), "%s: различается %s" % (label, fn)
+    for vid in ("V1", "V2"):
+        for root_, _, fs in os.walk(os.path.join(o1, "grid_" + vid)):
+            for f in fs:
+                if f == "meta.json":
+                    continue                                           # время счёта
+                p1 = os.path.join(root_, f)
+                p2 = os.path.join(o2, os.path.relpath(p1, o1))
+                assert read_bytes(p1) == read_bytes(p2), "%s: различается %s" % (label, os.path.relpath(p1, o1))
+
+
+@test
+def w16_gate_block_is_independent_and_equals_conv_run_with_gate():
+    """GW: блок «с Gate» (spec[gate]) - описательные строки вне M_окно. Основной набор (без Gate) побайтно одинаков при наличии и при отсутствии блока; строки Gate равны
+    `conv_run grid --with-gate` до бита (G-C2-9wg в миниатюре); пары с ногой Gate отдельно от пар 8 бирж; сводка: группа «описательные, вне M»; сбой блока не теряет основной набор."""
+    tw = tempfile.mkdtemp()
+    TC.write_world(tw, n_assets=8)
+    TG.add_gate(tw, n_assets=6)
+    d = tempfile.mkdtemp()
+    V, cph, q5p = mk_variants(d, tw)
+    gate_cfg = dict(manifest=os.path.join(tw, "gate_ready"), pairs=os.path.join(tw, "asset_pairs_gate.csv"))
+    spec_n = write_spec(d, V, name="spec_nogate_only.json")
+    spec_g = write_spec(d, V, gate=gate_cfg, name="spec_with_gate.json")
+    D = 2468
+    outs = {}
+    for label, sp in (("N", spec_n), ("G", spec_g)):
+        outs[label] = os.path.join(d, "out" + label)
+        r = cli(["run", "--spec", sp, "--test-world", tw, "--test-boundary", str(D), "--out", outs[label], "--threads", "2"])
+        assert r.returncode == 0, label + ": " + r.stderr[-1500:] + r.stdout[-500:]
+    oN, oG = outs["N"], outs["G"]
+    assert_main_equal(oG, oN, "основной набор с блоком Gate и без")
+    assert read_bytes(os.path.join(oN, "summary.txt")) == read_bytes(os.path.join(oN, "summary_main.txt")), "без блока Gate summary.txt = summary_main.txt"
+    sg = open(os.path.join(oG, "summary.txt"), encoding="utf-8").read()
+    assert sg.startswith(open(os.path.join(oG, "summary_main.txt"), encoding="utf-8").read()) and "[с Gate, ОПИСАТЕЛЬНО" in sg and "описательных, вне M" in sg, sg[-600:]
+    assert not os.path.exists(os.path.join(oN, "gate")) and not os.path.exists(os.path.join(oN, "trials_grand.json"))
+    # выходы Gate: нет Холма и статусов; пары Gate / 8 бирж
+    resG = json.load(open(os.path.join(oG, "gate", "variants.json"), encoding="utf-8"))
+    resN = json.load(open(os.path.join(oG, "variants.json"), encoding="utf-8"))
+    assert [r["id"] for r in resG] == ["V1", "V2"] and all("holm" not in r and "status" not in r and "split_gate" in r for r in resG)
+    assert all("holm" in r and "status" in r and "split_gate" not in r for r in resN)
+    for r in resG:
+        sp_ = r["split_gate"]
+        assert sp_["gate_leg"]["pairs"] == 18 and sp_["gate_leg"]["pairs"] + sp_["exch8"]["pairs"] == r["pairs"], sp_
+        assert sp_["gate_leg"]["trades"] + sp_["exch8"]["trades"] == r["trades"]["all"]
+        assert "gate" in r["a8"] and len(r["a8"]) == 4, list(r["a8"])        # aex, bex, cex, gate
+    assert sum(r["split_gate"]["gate_leg"]["trades"] for r in resG) > 0, "в синтетике нет сделок с ногой Gate - сверка пуста"
+    tg = json.load(open(os.path.join(oG, "gate", "trials_gate.json"), encoding="utf-8"))
+    tot = json.load(open(os.path.join(oG, "trials_total.json"), encoding="utf-8"))
+    grand = json.load(open(os.path.join(oG, "trials_grand.json"), encoding="utf-8"))
+    assert grand["main"] == tot and grand["gate_descriptive"] == tg and grand["total_tests_all"] == tot["total_tests_on_window"] + tg["total_tests_gate"], grand
+    assert tg["total_tests_gate"] == sum(g_["count"] for g_ in tg["groups"]) and tg["M_gate_variants"] == 2 and tot["M_window"] == 2, tg
+    for fn in ("gate_lines.csv", "split_gate.csv", "daily_y.csv", "a8.csv", "a3b_window.csv", "summary_gate.txt", "trials_gate.json", "formation_labels_gate.json"):
+        assert os.path.isfile(os.path.join(oG, "gate", fn)), fn
+    # промежуточные массивы освобождены, итоговые таблицы и сделки остались
+    meta = json.load(open(os.path.join(oG, "run_meta.json"), encoding="utf-8"))
+    assert not os.path.isdir(os.path.join(oG, "work")) and not os.path.isdir(os.path.join(oG, "turn")) and meta["released_bytes"]["work"] > 0, meta["released_bytes"]
+    assert os.path.isfile(os.path.join(oG, "gate", "grid_V1", "crypto", "trades.csv")) and isinstance(meta["gate_block"], dict) and meta["gate_block"]["pairs_gate_only"] == 18
+    # G-C2-9wg: conv_run grid --with-gate на тех же сутках и числах
+    cp = os.path.join(d, "classpar_full.json")
+    base = os.path.join(d, "base_gate")
+    bdirs = {}
+    for v in V:
+        cf = os.path.join(d, "combos_%s.json" % v["id"])
+        json.dump([v["combo"]], open(cf, "w"))
+        o = os.path.join(base, v["id"])
+        common = ["--test-world", tw, "--out", o, "--last-day", "2478", "--threads", "2", "--first-sig-day", str(D), "--with-gate"]
+        assert TC.run_cli(["series"] + common).returncode == 0
+        r = TC.run_cli(["grid"] + common + ["--tag", "b", "--combos", cf, "--classpar", cp, "--trades-out"] + (["--q5", v["q5"]] if v.get("q5") else []))
+        assert r.returncode == 0, r.stderr[-800:]
+        bdirs[v["id"]] = os.path.join(o, "calib", "grid_b")
+    r = cli(["gate9w", "--run", os.path.join(oG, "gate")] + sum([["--base", "%s=%s" % (k, v)] for k, v in sorted(bdirs.items())], []))
+    assert r.returncode == 0 and "G-C2-9wg итог: PASS" in r.stdout, r.stdout[-1500:] + r.stderr[-500:]
+    rep = json.load(open(os.path.join(oG, "gate", "g_c2_9wg.json"), encoding="utf-8"))
+    assert rep["ok"] and rep["gate"] == "G-C2-9wg" and all(v["ok"] for v in rep["variants"].values()) and rep["variants"]["V1"]["trades_n"] > 0
+    # сбой блока Gate (нет файла classpar) не теряет основной набор: код 4, FAILED.txt, основные файлы те же
+    sj = json.load(open(spec_g, encoding="utf-8"))
+    sj["gate"]["variants"][0]["classpar"] = os.path.join(d, "нет_такого_classpar.json")
+    spec_b = os.path.join(d, "spec_gate_broken.json")
+    json.dump(sj, open(spec_b, "w"), ensure_ascii=False)
+    oB = os.path.join(d, "outB")
+    r = cli(["run", "--spec", spec_b, "--test-world", tw, "--test-boundary", str(D), "--out", oB, "--threads", "2"])
+    assert r.returncode == 4, (r.returncode, r.stderr[-600:])
+    assert os.path.isfile(os.path.join(oB, "gate", "FAILED.txt")) and "БЛОК НЕ ПОСЧИТАН" in open(os.path.join(oB, "summary.txt"), encoding="utf-8").read()
+    assert_main_equal(oB, oN, "основной набор при сбое блока Gate")
+    # release_intermediate: --keep-work оставляет, иначе work/ и turn/ уходят, grid_* остаётся
+    import conv_window as WN
+    t = tempfile.mkdtemp()
+    for sub in ("work", "turn", "grid_V1"):
+        os.makedirs(os.path.join(t, sub))
+        w(os.path.join(t, sub, "x.bin"), "12345")
+    assert WN.release_intermediate(t, True) == {"kept": True} and os.path.isdir(os.path.join(t, "work"))
+    fr = WN.release_intermediate(t, False)
+    assert fr == {"work": 5, "turn": 5} and not os.path.isdir(os.path.join(t, "work")) and os.path.isfile(os.path.join(t, "grid_V1", "x.bin"))
+    print("   основной набор с блоком Gate и без - побайтно; G-C2-9wg в миниатюре PASS (сделок Gate V1 %d); сбой блока - код 4, основной набор цел" % rep["variants"]["V1"]["trades_n"])
+
+
+def events_after(home, n0):
+    return log_events(home)[n0:]
+
+
+@test
+def w17_window_in_process_restore_retry_success_and_burn():
+    """GW, B1: режим окна «в процессе» на синтетике. (1) валидный токен, но Gate невалиден (дрейф вне токена: справочник gate.csv) - SystemExit ДО чтения: токен возвращён, журнал
+    сбалансирован, каталог выходов пуст; (2) префлайт 75 - токен не тронут; (3) повтор с тем же токеном - полный прогон: основной набор + блок Gate, токен удалён, run_end done, массивы
+    освобождены; (4) сбой ПОСЛЕ первого чтения (подмена stage_grid) - токен сгорел, run_end failed с причиной, повторный запуск отказан (код 3)."""
+    import conv_window as WN
+    we = WinEnv(gate=True)
+    try:
+        good = we.write_token()
+        # (2) префлайт: токен не тронут
+        try:
+            we.run(["--min-free-gb", "1e9"])
+            raise AssertionError("префлайт не отказал")
+        except SystemExit as ex:
+            assert ex.code == 75, ex.code
+        assert open(we.tp, encoding="utf-8").read() == good and not os.path.exists(os.path.join(we.home, "window_reads.log")) and not os.path.exists(we.out)
+        pre = json.loads(open(os.path.join(we.home, "window_preflight.log"), encoding="utf-8").read().strip().split(chr(10))[-1])
+        assert pre["ok"] is False and pre["mode"] == "window"
+        # (1) Gate невалиден после выпуска токена (справочник вне токена, sha256 в манифесте не совпадёт)
+        gp = os.path.join(we.tw, "inst_gate", "gate.csv")
+        orig = read_bytes(gp)
+        w(gp, orig + b"G9_USDT,junk\n", binary=True)
+        try:
+            we.run()
+            raise AssertionError("прогон с невалидным Gate не отказал")
+        except SystemExit as ex:
+            assert isinstance(ex.code, str) and "Gate невалиден" in ex.code, ex.code
+        assert open(we.tp, encoding="utf-8").read() == good, "токен не возвращён"
+        assert log_events(we.home) == ["token_claimed", "aborted_before_read"], log_events(we.home)
+        assert G.log_unfinished_runs() == 0 and not [f for f in os.listdir(we.home) if ".used." in f]
+        assert not os.path.isdir(we.out) or not os.listdir(we.out), "каталог выходов не очищен после возврата токена"
+        # (3) исправлено - повтор тем же токеном: полный прогон
+        w(gp, orig, binary=True)
+        rc = we.run()
+        assert rc == 0
+        assert not os.path.exists(we.tp) and not [f for f in os.listdir(we.home) if ".used." in f], "токен не удалён после прогона"
+        ev = log_events(we.home)
+        assert ev == ["token_claimed", "aborted_before_read", "token_claimed", "first_window_read", "run_end"], ev
+        assert "outcome=done" in open(os.path.join(we.home, "window_reads.log"), encoding="utf-8").read().strip().split(chr(10))[-1]
+        assert G.log_unfinished_runs() == 0
+        for fn in ("summary.txt", "summary_main.txt", "variants.json", "trials_total.json", "trials_grand.json", "class_status.csv", "SHA256.txt", "preflight.json", "run_meta.json"):
+            assert os.path.isfile(os.path.join(we.out, fn)), fn
+        assert os.path.isfile(os.path.join(we.out, "gate", "gate_lines.csv"))
+        assert not os.path.isdir(os.path.join(we.out, "work")) and not os.path.isdir(os.path.join(we.out, "turn")) and os.path.isdir(os.path.join(we.out, "grid_V1"))
+        meta = json.load(open(os.path.join(we.out, "run_meta.json"), encoding="utf-8"))
+        assert meta["mode"] == "window" and meta["window_days"] == 21 and meta["d1"] == 2499 and meta["boundary"] == 2479 and meta["gate_block"]["pairs_gate_only"] == 12, meta["gate_block"]
+        res = json.load(open(os.path.join(we.out, "variants.json"), encoding="utf-8"))
+        assert [r["first_sig"] for r in res] == [2479, 2479] and [r["d1"] for r in res] == [2499, 2499] and all(r["status"]["label"] in WN.RANK for r in res)
+        # повторный запуск: токена нет (код 3) - даже с новым каталогом выходов
+        we.out = os.path.join(we.d, "window2")
+        try:
+            we.run()
+            raise AssertionError("повторный запуск без токена не отказан")
+        except SystemExit as ex:
+            assert ex.code == 3, ex.code
+        # (4) сбой после первого чтения сжигает токен: новый токен, подмена stage_grid
+        n0 = len(log_events(we.home))
+        we.write_token()
+        we.out = os.path.join(we.d, "window3")
+        orig_sg = WN.stage_grid
+
+        def boom(*a, **k):
+            raise RuntimeError("тестовый сбой после чтения")
+        WN.stage_grid = boom
+        try:
+            we.run()
+            raise AssertionError("сбой не проброшен")
+        except RuntimeError as ex:
+            assert "тестовый сбой" in str(ex)
+        finally:
+            WN.stage_grid = orig_sg
+        assert not os.path.exists(we.tp) and not [f for f in os.listdir(we.home) if ".used." in f], "токен не сгорел после чтения"
+        assert events_after(we.home, n0) == ["token_claimed", "first_window_read", "run_end"], events_after(we.home, n0)
+        assert "reason=RuntimeError: тестовый сбой после чтения" in open(os.path.join(we.home, "window_reads.log"), encoding="utf-8").read()
+        assert os.path.isfile(os.path.join(we.out, "preflight.json")), "каталог выходов после чтения не очищается"
+        assert G.log_unfinished_runs() == 0
+        we.out = os.path.join(we.d, "window4")
+        try:
+            we.run()
+            raise AssertionError("после сгоревшего токена запуск не отказан")
+        except SystemExit as ex:
+            assert ex.code == 3, ex.code
+    finally:
+        we.close()
+
+
+@test
+def w18_readers_mark_first_window_read():
+    """Читатели панелей, оборота и фандинга помечают первое открытие файла данных окна; чтения формирования, claim и отсутствующий файл фандинга - нет."""
+    e = Env()
+    try:
+        e.cfg()
+        w(os.path.join(e.home, "calib_start.json"), "{}")
+        e.token()
+        sap = os.path.join(e.d, "P.sap")
+        TG.write_sap(sap, np.full(35 * 1440, 100.0), np.full(35 * 1440, 100.0))
+        gz = os.path.join(e.d, "t.csv.gz")
+        import gzip
+        with gzip.open(gz, "wt", encoding="utf-8", newline="") as f:
+            f.write("t_open_ms,o,h,l,c,v,quote_v\n")
+        fund = os.path.join(e.d, "f.csv.gz")
+        with gzip.open(fund, "wt", encoding="utf-8", newline="") as f:
+            f.write("time_ms,rate\n")
+        G.load_panel_range(sap, 2465, 2478, what="формирование")                     # claim не нужен, окно не читается
+        assert not G.window_was_read() and not os.path.exists(os.path.join(e.home, "window_reads.log"))
+        G.check_days(2499, what="claim")                                              # claim - ещё не чтение
+        assert not G.window_was_read() and log_events(e.home) == ["token_claimed"]
+        G.load_funding_range(os.path.join(e.d, "нет_такого.csv.gz"), 2465, 2499)      # нет файла - не чтение
+        assert not G.window_was_read()
+        assert G.finish_window("failed") is True and os.path.exists(os.path.join(e.home, "go_window.token"))      # сбой без чтения - токен возвращён
+        for kind, fn in (("panel", lambda: G.load_panel_range(sap, 2465, 2499, what="w")), ("turnover", lambda: G.load_turnover_raw(gz, 2465, 2499)),
+                         ("funding", lambda: G.load_funding_range(fund, 2465, 2499))):
+            e.token()
+            e.cfg()
+            G.check_days(2499, what="claim")
+            assert not G.window_was_read(), kind
+            fn()
+            assert G.window_was_read() and log_events(e.home)[-1] == "first_window_read", kind
+            assert G.finish_window("failed") is False and not os.path.exists(os.path.join(e.home, "go_window.token")), kind
+        # режимы не window (калибровка/тест) флаг не ставят
+        e.cfg(mode="calib", go=False, runner=None)
+        G.load_panel_range(sap, 2465, 2478, what="calib")
+        assert not G.window_was_read()
+    finally:
+        e.clean()
+
+
+@test
+def w19_token_covers_gate_files_protocol_and_git_token():
+    """Токен v2 покрывает файлы блока Gate (манифест gate_ready, таблица пар Gate и её .meta.json, jobs_w2 Gate, classpar/q5 набора с Gate и соседи), addendum набора окна («без Gate»),
+    протокол и c2_git_ok каталога кода; любое изменение - отказ (код 3), токен не забирается."""
+    import shutil
+    d = tempfile.mkdtemp()
+    code = os.path.join(d, "conv")
+    shutil.copytree(HERE, code, ignore=shutil.ignore_patterns("__pycache__", "c2_git_ok", "*.pyc"))
+    w(os.path.join(code, "c2_git_ok"), "params_sha256=aa\nhead=x\n")
+    sa = G.statarb_dir()
+    assert sa
+    home = os.path.join(d, "c2")
+    os.makedirs(home)
+    gdir = os.path.join(d, "c2g_out", "calib")
+    for fn, txt in (("classpar_full.json", "{}\n"), ("classpar_H0.json", "{}\n"), ("classpar_H1.json", "{}\n"), ("q5_full.json", "{}\n"), ("q5_detail_full.json", "{}\n")):
+        w(os.path.join(gdir, fn), txt)
+    ng = os.path.join(d, "ng_out", "calib")
+    for fn in ("classpar_full.json", "q5_full.json"):
+        w(os.path.join(ng, fn), "{}\n")
+    files = {k: os.path.join(d, k) for k in ("gate_ready", "asset_pairs_gate.csv", "asset_pairs_gate.meta.json", "jobs_w2_gate.csv", "jobs_w2_nogate.csv", "pairs_all.csv", "P-38-convergence-xdl9.md",
+                                              "P-38-params-2026-11-07.csv", "P-38-params-calib-gate-2026-11-07.csv", "P-38-params-calib-2026-11-07.csv", "P-38-params-r3-2026-11-07.csv")}
+    for k, p_ in files.items():
+        w(p_, "key,value\nk,%s\n" % k)
+    cp_ng, q5_ng = os.path.join(ng, "classpar_full.json"), os.path.join(ng, "q5_full.json")
+    cp_g, q5_g = os.path.join(gdir, "classpar_full.json"), os.path.join(gdir, "q5_full.json")
+    spec_d = dict(name="тест", root=d, raw_root=d, params=files["P-38-params-2026-11-07.csv"], addendum=files["P-38-params-calib-gate-2026-11-07.csv"],
+                  addendum_nogate=files["P-38-params-calib-2026-11-07.csv"], params_r3=files["P-38-params-r3-2026-11-07.csv"], protocol=files["P-38-convergence-xdl9.md"],
+                  w2_jobs=files["jobs_w2_nogate.csv"], w2_k_ref=files["pairs_all.csv"],
+                  variants=[dict(id="V1", cls="crypto", combo=[25.2, 3, 1, 120, 2.0], classpar=cp_ng, q5=q5_ng, sigma_form=5.0)],
+                  gate=dict(addendum=files["P-38-params-calib-gate-2026-11-07.csv"], manifest=files["gate_ready"], pairs=files["asset_pairs_gate.csv"], w2_jobs=files["jobs_w2_gate.csv"],
+                            variants=[dict(id="V1", cls="crypto", combo=[25.2, 3, 1, 120, 2.0], classpar=cp_g, q5=q5_g, sigma_form=5.0,
+                                           a3b={"h1on0": dict(combo=[25.2, 3, 1, 120, 2.0], classpar=os.path.join(gdir, "classpar_H0.json")),
+                                                "h0on1": dict(combo=[25.2, 3, 1, 120, 2.0], classpar=os.path.join(gdir, "classpar_H1.json"))})]))
+    spec = os.path.join(d, "spec.json")
+    json.dump(spec_d, open(spec, "w"), ensure_ascii=False)
+    env = dict(os.environ, C2_HOME=home, C2_STATARB=sa)
+
+    def run(args):
+        return subprocess.run([sys.executable, os.path.join(code, "conv_window.py")] + args, capture_output=True, text=True, env=env)
+    r = run(["token-body", "--spec", spec, "--label", "GO 07.11, CEO"])
+    assert r.returncode == 0, r.stderr[-600:]
+    body = r.stdout
+    labels = [ln.split("  ", 1)[1] for ln in body.strip().split(chr(10))[:-1]]
+    for frag in ("gate_ready", "asset_pairs_gate.csv", "asset_pairs_gate.meta.json", "jobs_w2_gate.csv", "jobs_w2_nogate.csv", "pairs_all.csv", "c2g_out/calib/classpar_full.json", "c2g_out/calib/classpar_H0.json",
+                 "c2g_out/calib/classpar_H1.json", "c2g_out/calib/q5_full.json", "c2g_out/calib/q5_detail_full.json", "ng_out/calib/classpar_full.json", "ng_out/calib/q5_full.json",
+                 "docs/research/P-38-params-calib-gate-2026-11-07.csv", "docs/research/P-38-params-calib-2026-11-07.csv", "docs/research/P-38-convergence-xdl9.md",
+                 "tools/compute/statarb/xdl9/conv/c2_git_ok", "tools/compute/statarb/xdl9/conv/run_window.sh"):
+        assert any(l.replace(chr(92), "/").endswith(frag) for l in labels), frag
+    tp = os.path.join(home, "go_window.token")
+    w(tp, body)
+    assert run(["token-check", "--spec", spec]).returncode == 0
+
+    def refuse_case(label, path):
+        old = read_bytes(path)
+        w(path, old + bytes([10]), binary=True)
+        try:
+            r1 = run(["token-check", "--spec", spec])
+            r2 = run(["run", "--spec", spec, "--go-window", "--out", os.path.join(d, "out_never")])
+            assert r1.returncode == 3 and r2.returncode == 3, (label, r1.returncode, r2.returncode, r2.stderr[-300:])
+            assert open(tp, encoding="utf-8").read() == body and not [f for f in os.listdir(home) if ".used." in f], "токен забран/изменён: " + label
+            assert not os.path.exists(os.path.join(d, "out_never")) and not os.path.exists(os.path.join(home, "window_reads.log")), label
+        finally:
+            w(path, old, binary=True)
+        assert run(["token-check", "--spec", spec]).returncode == 0, "после восстановления токен снова принимается: " + label
+    for lbl, path in (("манифест gate_ready", files["gate_ready"]), ("таблица пар Gate", files["asset_pairs_gate.csv"]), ("meta таблицы пар Gate", files["asset_pairs_gate.meta.json"]),
+                      ("jobs_w2 Gate", files["jobs_w2_gate.csv"]), ("jobs_w2 основного набора", files["jobs_w2_nogate.csv"]), ("classpar набора с Gate", cp_g), ("q5 набора с Gate", q5_g),
+                      ("соседний classpar_H1 набора с Gate", os.path.join(gdir, "classpar_H1.json")), ("соседний q5_detail набора с Gate", os.path.join(gdir, "q5_detail_full.json")),
+                      ("classpar основного набора", cp_ng), ("addendum основного набора", files["P-38-params-calib-2026-11-07.csv"]),
+                      ("addendum (слот git-токена)", files["P-38-params-calib-gate-2026-11-07.csv"]), ("протокол", files["P-38-convergence-xdl9.md"]), ("c2_git_ok", os.path.join(code, "c2_git_ok")),
+                      ("run_window.sh", os.path.join(code, "run_window.sh"))):
+        refuse_case(lbl, path)
+
+
+@test
+def w20_out_dir_allows_only_preexisting_token_draft():
+    import conv_window as WN
+    d = tempfile.mkdtemp()
+    WN.check_out_dir(os.path.join(d, "нет"))                            # не существует - можно
+    o = os.path.join(d, "window")
+    os.makedirs(o)
+    WN.check_out_dir(o)                                                 # пуст - можно
+    w(os.path.join(o, "token_body.txt.pre"), "x")
+    w(os.path.join(o, "token_body.txt.pre.sha256"), "y")
+    WN.check_out_dir(o)                                                 # заготовка токена - можно
+    w(os.path.join(o, "summary.txt"), "z")
+    refused(WN.check_out_dir, o)                                        # любой другой файл - отказ
+    WN.clean_out_dir(o)                                                 # очистка после возврата токена оставляет только заготовку
+    assert sorted(os.listdir(o)) == ["token_body.txt.pre", "token_body.txt.pre.sha256"]
+    os.makedirs(os.path.join(o, "work"))
+    w(os.path.join(o, "work", "a"), "1")
+    WN.clean_out_dir(o)
+    assert sorted(os.listdir(o)) == ["token_body.txt.pre", "token_body.txt.pre.sha256"]
 
 
 def AG_ALPHA():
