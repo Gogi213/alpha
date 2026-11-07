@@ -1,0 +1,20 @@
+{
+ "gate_checks": [
+  "rows",
+  "gaps",
+  "units",
+  "open_semantics",
+  "funding",
+  "classes"
+ ],
+ "gate_mtime": 1794023440.1369815,
+ "gate_nsym": "1072",
+ "gate_ready_exists": true,
+ "gate_ready_valid": true,
+ "gate_sha256": "3332128d3129a276c5ff7c405ce32cac46a1fef7dfd79cecc268e80762147528",
+ "params_sha256": [
+  "7f77ab91a7e27a51a2849272f5a33cc489da8a5469c324780ded8df6becc0443",
+  null
+ ],
+ "time_utc": "2026-11-07T04:14:27Z"
+}

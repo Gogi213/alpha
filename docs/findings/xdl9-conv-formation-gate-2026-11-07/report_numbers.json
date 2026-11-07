@@ -1,0 +1,5521 @@
+[
+{
+"id": 0,
+"spec": [
+"x",
+"add",
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/window_not_read.json",
+"grid_meta_d1_counts.2478"
+],
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/window_not_read.json",
+"grid_meta_d1_counts.2471"
+]
+],
+"code": "i",
+"text": "78",
+"line": 5
+},
+{
+"id": 1,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/window_not_read.json",
+"grid_meta_d1_counts.2478"
+],
+"code": "i",
+"text": "72",
+"line": 5
+},
+{
+"id": 2,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/window_not_read.json",
+"grid_meta_d1_counts.2471"
+],
+"code": "i",
+"text": "6",
+"line": 5
+},
+{
+"id": 3,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/window_not_read.json",
+"npy_files"
+],
+"code": "i",
+"text": "45802",
+"line": 5
+},
+{
+"id": 4,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/calib_start.json",
+"gate_nsym"
+],
+"code": "s",
+"text": "1072",
+"line": 8
+},
+{
+"id": 5,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "8290",
+"line": 8
+},
+{
+"id": 6,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs_gate"
+],
+"code": "i",
+"text": "2460",
+"line": 8
+},
+{
+"id": 7,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cells"
+],
+"code": "i",
+"text": "36",
+"line": 8
+},
+{
+"id": 8,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 8
+},
+{
+"id": 9,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 8
+},
+{
+"id": 10,
+"spec": [
+"cf",
+"g1",
+"trades"
+],
+"code": "i",
+"text": "426",
+"line": 9
+},
+{
+"id": 11,
+"spec": [
+"cf",
+"n1",
+"trades"
+],
+"code": "i",
+"text": "356",
+"line": 9
+},
+{
+"id": 12,
+"spec": [
+"cf",
+"g1",
+"assets"
+],
+"code": "i",
+"text": "107",
+"line": 9
+},
+{
+"id": 13,
+"spec": [
+"cf",
+"n1",
+"assets"
+],
+"code": "i",
+"text": "95",
+"line": 9
+},
+{
+"id": 14,
+"spec": [
+"cf",
+"g1",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+11,6",
+"line": 9
+},
+{
+"id": 15,
+"spec": [
+"cf",
+"n1",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+12,4",
+"line": 9
+},
+{
+"id": 16,
+"spec": [
+"cf",
+"g1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,063",
+"line": 9
+},
+{
+"id": 17,
+"spec": [
+"cf",
+"n1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,076",
+"line": 9
+},
+{
+"id": 18,
+"spec": [
+"cf",
+"g1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,026",
+"line": 9
+},
+{
+"id": 19,
+"spec": [
+"cf",
+"n1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,021",
+"line": 9
+},
+{
+"id": 20,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.trades"
+],
+"code": "i",
+"text": "74",
+"line": 9
+},
+{
+"id": 21,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.net"
+],
+"code": "sf1",
+"text": "+4,5",
+"line": 9
+},
+{
+"id": 22,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,018",
+"line": 9
+},
+{
+"id": 23,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.lo"
+],
+"code": "sf3",
+"text": "−0,042",
+"line": 9
+},
+{
+"id": 24,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.step_distance"
+],
+"code": "i",
+"text": "2",
+"line": 10
+},
+{
+"id": 25,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 10
+},
+{
+"id": 26,
+"spec": [
+"cf",
+"n1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,021",
+"line": 10
+},
+{
+"id": 27,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 10
+},
+{
+"id": 28,
+"spec": [
+"cf",
+"n2",
+"lo"
+],
+"code": "sf3",
+"text": "+0,024",
+"line": 10
+},
+{
+"id": 29,
+"spec": [
+"cf",
+"g1",
+"n_eff"
+],
+"code": "i",
+"text": "5",
+"line": 14
+},
+{
+"id": 30,
+"spec": [
+"g8",
+180,
+"min"
+],
+"code": "f1",
+"text": "56,7",
+"line": 14
+},
+{
+"id": 31,
+"spec": [
+"g8",
+180,
+"max"
+],
+"code": "f1",
+"text": "98,5",
+"line": 14
+},
+{
+"id": 32,
+"spec": [
+"g8",
+12,
+"min"
+],
+"code": "f1",
+"text": "6,8",
+"line": 14
+},
+{
+"id": 33,
+"spec": [
+"g8",
+12,
+"max"
+],
+"code": "f1",
+"text": "39,8",
+"line": 14
+},
+{
+"id": 34,
+"spec": [
+"cells",
+"g1",
+99
+],
+"code": "i",
+"text": "0",
+"line": 15
+},
+{
+"id": 35,
+"spec": [
+"cells",
+"g1",
+0
+],
+"code": "i",
+"text": "36",
+"line": 15
+},
+{
+"id": 36,
+"spec": [
+"j",
+"g1",
+"classes.eq.cells"
+],
+"code": "i",
+"text": "28",
+"line": 15
+},
+{
+"id": 37,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "8290",
+"line": 16
+},
+{
+"id": 38,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs_gate"
+],
+"code": "i",
+"text": "2460",
+"line": 16
+},
+{
+"id": 39,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cells"
+],
+"code": "i",
+"text": "36",
+"line": 16
+},
+{
+"id": 40,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cells_gate"
+],
+"code": "i",
+"text": "8",
+"line": 16
+},
+{
+"id": 41,
+"spec": [
+"j",
+"g1",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "563",
+"line": 16
+},
+{
+"id": 42,
+"spec": [
+"j",
+"g1",
+"classes.eq.pairs"
+],
+"code": "i",
+"text": "1971",
+"line": 16
+},
+{
+"id": 43,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"pairs_by_class_market.eq|gate_tradfi.pairs"
+],
+"code": "i",
+"text": "571",
+"line": 16
+},
+{
+"id": 44,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"pairs_by_class_market.metal|gate_tradfi.pairs"
+],
+"code": "i",
+"text": "56",
+"line": 16
+},
+{
+"id": 45,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"pairs_by_class_market.metal|no_calendar.pairs"
+],
+"code": "i",
+"text": "146",
+"line": 16
+},
+{
+"id": 46,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"pairs_by_class_market.eq|other_tradfi.pairs"
+],
+"code": "i",
+"text": "117",
+"line": 16
+},
+{
+"id": 47,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"pairs_by_class_market.idx|US.pairs"
+],
+"code": "i",
+"text": "4",
+"line": 16
+},
+{
+"id": 48,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"pairs_by_class_market.fx|other_tradfi.pairs"
+],
+"code": "i",
+"text": "1",
+"line": 16
+},
+{
+"id": 49,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"open_semantics_by_exchange.gate.chain_share_median"
+],
+"code": "f3",
+"text": "0,152",
+"line": 20
+},
+{
+"id": 50,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_universe.json",
+"open_semantics_by_exchange.gate.valid_share_median"
+],
+"code": "f3",
+"text": "0,412",
+"line": 20
+},
+{
+"id": 51,
+"spec": [
+"logre",
+"logs/turn_verify_gate.log",
+"проверено символов (\\d+)",
+1,
+0
+],
+"code": "i",
+"text": "40",
+"line": 20
+},
+{
+"id": 52,
+"spec": [
+"logre",
+"logs/turn_verify_gate.log",
+"расхождения ([0-9.e+-]+)",
+1,
+0
+],
+"code": "e2",
+"text": "5,95·10⁻⁸",
+"line": 20
+},
+{
+"id": 53,
+"spec": [
+"logre",
+"logs/tests1.log",
+"итог: (\\d+) из (\\d+) тестов",
+1,
+0
+],
+"code": "i",
+"text": "0",
+"line": 25
+},
+{
+"id": 54,
+"spec": [
+"logre",
+"logs/tests1.log",
+"итог: (\\d+) из (\\d+) тестов",
+2,
+0
+],
+"code": "i",
+"text": "27",
+"line": 25
+},
+{
+"id": 55,
+"spec": [
+"logre",
+"logs/tests2.log",
+"итог: (\\d+) из (\\d+) тестов",
+1,
+0
+],
+"code": "i",
+"text": "0",
+"line": 25
+},
+{
+"id": 56,
+"spec": [
+"logre",
+"logs/tests2.log",
+"итог: (\\d+) из (\\d+) тестов",
+2,
+0
+],
+"code": "i",
+"text": "9",
+"line": 25
+},
+{
+"id": 57,
+"spec": [
+"logre",
+"logs/tests2.log",
+"итог: (\\d+) из (\\d+) тестов",
+1,
+1
+],
+"code": "i",
+"text": "0",
+"line": 25
+},
+{
+"id": 58,
+"spec": [
+"logre",
+"logs/tests2.log",
+"итог: (\\d+) из (\\d+) тестов",
+2,
+1
+],
+"code": "i",
+"text": "13",
+"line": 25
+},
+{
+"id": 59,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/nogate_vs_old_counts.json",
+"eq"
+],
+"code": "i",
+"text": "147",
+"line": 25
+},
+{
+"id": 60,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/nogate_vs_old_counts.json",
+"total"
+],
+"code": "i",
+"text": "147",
+"line": 25
+},
+{
+"id": 61,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/nogate_vs_old_counts.json",
+"diff"
+],
+"code": "i",
+"text": "0",
+"line": 25
+},
+{
+"id": 62,
+"spec": [
+"cnt",
+"g1",
+"pos"
+],
+"code": "i",
+"text": "87",
+"line": 28
+},
+{
+"id": 63,
+"spec": [
+"cnt",
+"n1",
+"pos"
+],
+"code": "i",
+"text": "84",
+"line": 28
+},
+{
+"id": 64,
+"spec": [
+"cnt",
+"g1",
+"pos_p3"
+],
+"code": "i",
+"text": "71",
+"line": 28
+},
+{
+"id": 65,
+"spec": [
+"cnt",
+"g1",
+"p3"
+],
+"code": "i",
+"text": "90",
+"line": 28
+},
+{
+"id": 66,
+"spec": [
+"cnt",
+"n1",
+"pos_p3"
+],
+"code": "i",
+"text": "66",
+"line": 28
+},
+{
+"id": 67,
+"spec": [
+"cnt",
+"g1",
+"ok"
+],
+"code": "i",
+"text": "124",
+"line": 28
+},
+{
+"id": 68,
+"spec": [
+"cnt",
+"n1",
+"ok"
+],
+"code": "i",
+"text": "120",
+"line": 28
+},
+{
+"id": 69,
+"spec": [
+"cnt",
+"g1",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "37",
+"line": 28
+},
+{
+"id": 70,
+"spec": [
+"cnt",
+"n1",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "7",
+"line": 28
+},
+{
+"id": 71,
+"spec": [
+"j",
+"n1",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "5830",
+"line": 32
+},
+{
+"id": 72,
+"spec": [
+"j",
+"n1",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "550",
+"line": 32
+},
+{
+"id": 73,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cells"
+],
+"code": "i",
+"text": "28",
+"line": 32
+},
+{
+"id": 74,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "8290",
+"line": 32
+},
+{
+"id": 75,
+"spec": [
+"j",
+"g1",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "563",
+"line": 32
+},
+{
+"id": 76,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cells"
+],
+"code": "i",
+"text": "36",
+"line": 32
+},
+{
+"id": 77,
+"spec": [
+"j",
+"n2",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "5830",
+"line": 32
+},
+{
+"id": 78,
+"spec": [
+"j",
+"n2",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "550",
+"line": 32
+},
+{
+"id": 79,
+"spec": [
+"j",
+"n2",
+"classes.crypto.cells"
+],
+"code": "i",
+"text": "28",
+"line": 32
+},
+{
+"id": 80,
+"spec": [
+"j",
+"g2",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "8290",
+"line": 32
+},
+{
+"id": 81,
+"spec": [
+"j",
+"g2",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "563",
+"line": 32
+},
+{
+"id": 82,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cells"
+],
+"code": "i",
+"text": "36",
+"line": 32
+},
+{
+"id": 83,
+"spec": [
+"j",
+"n1",
+"classes.crypto.pairs_gate"
+],
+"code": "i",
+"text": "0",
+"line": 33
+},
+{
+"id": 84,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs_gate"
+],
+"code": "i",
+"text": "2460",
+"line": 33
+},
+{
+"id": 85,
+"spec": [
+"j",
+"n2",
+"classes.crypto.pairs_gate"
+],
+"code": "i",
+"text": "0",
+"line": 33
+},
+{
+"id": 86,
+"spec": [
+"j",
+"g2",
+"classes.crypto.pairs_gate"
+],
+"code": "i",
+"text": "2460",
+"line": 33
+},
+{
+"id": 87,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 34
+},
+{
+"id": 88,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 34
+},
+{
+"id": 89,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 34
+},
+{
+"id": 90,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 34
+},
+{
+"id": 91,
+"spec": [
+"cf",
+"n1",
+"trades"
+],
+"code": "i",
+"text": "356",
+"line": 35
+},
+{
+"id": 92,
+"spec": [
+"cf",
+"n1",
+"assets"
+],
+"code": "i",
+"text": "95",
+"line": 35
+},
+{
+"id": 93,
+"spec": [
+"cf",
+"n1",
+"days"
+],
+"code": "i",
+"text": "13",
+"line": 35
+},
+{
+"id": 94,
+"spec": [
+"cf",
+"g1",
+"trades"
+],
+"code": "i",
+"text": "426",
+"line": 35
+},
+{
+"id": 95,
+"spec": [
+"cf",
+"g1",
+"assets"
+],
+"code": "i",
+"text": "107",
+"line": 35
+},
+{
+"id": 96,
+"spec": [
+"cf",
+"g1",
+"days"
+],
+"code": "i",
+"text": "13",
+"line": 35
+},
+{
+"id": 97,
+"spec": [
+"cf",
+"n2",
+"trades"
+],
+"code": "i",
+"text": "359",
+"line": 35
+},
+{
+"id": 98,
+"spec": [
+"cf",
+"n2",
+"assets"
+],
+"code": "i",
+"text": "95",
+"line": 35
+},
+{
+"id": 99,
+"spec": [
+"cf",
+"n2",
+"days"
+],
+"code": "i",
+"text": "13",
+"line": 35
+},
+{
+"id": 100,
+"spec": [
+"cf",
+"g2",
+"trades"
+],
+"code": "i",
+"text": "430",
+"line": 35
+},
+{
+"id": 101,
+"spec": [
+"cf",
+"g2",
+"assets"
+],
+"code": "i",
+"text": "107",
+"line": 35
+},
+{
+"id": 102,
+"spec": [
+"cf",
+"g2",
+"days"
+],
+"code": "i",
+"text": "13",
+"line": 35
+},
+{
+"id": 103,
+"spec": [
+"cf",
+"n1",
+"gross_trade"
+],
+"code": "sf1",
+"text": "+30,2",
+"line": 36
+},
+{
+"id": 104,
+"spec": [
+"cf",
+"g1",
+"gross_trade"
+],
+"code": "sf1",
+"text": "+29,9",
+"line": 36
+},
+{
+"id": 105,
+"spec": [
+"cf",
+"n2",
+"gross_trade"
+],
+"code": "sf1",
+"text": "+25,9",
+"line": 36
+},
+{
+"id": 106,
+"spec": [
+"cf",
+"g2",
+"gross_trade"
+],
+"code": "sf1",
+"text": "+25,5",
+"line": 36
+},
+{
+"id": 107,
+"spec": [
+"cf",
+"n1",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+12,4",
+"line": 37
+},
+{
+"id": 108,
+"spec": [
+"cf",
+"g1",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+11,6",
+"line": 37
+},
+{
+"id": 109,
+"spec": [
+"cf",
+"n2",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+10,6",
+"line": 37
+},
+{
+"id": 110,
+"spec": [
+"cf",
+"g2",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+10,5",
+"line": 37
+},
+{
+"id": 111,
+"spec": [
+"cf",
+"n1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,076",
+"line": 38
+},
+{
+"id": 112,
+"spec": [
+"cf",
+"n1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,021",
+"line": 38
+},
+{
+"id": 113,
+"spec": [
+"cf",
+"n1",
+"hi"
+],
+"code": "sf3",
+"text": "+0,130",
+"line": 38
+},
+{
+"id": 114,
+"spec": [
+"cf",
+"g1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,063",
+"line": 38
+},
+{
+"id": 115,
+"spec": [
+"cf",
+"g1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,026",
+"line": 38
+},
+{
+"id": 116,
+"spec": [
+"cf",
+"g1",
+"hi"
+],
+"code": "sf3",
+"text": "+0,101",
+"line": 38
+},
+{
+"id": 117,
+"spec": [
+"cf",
+"n2",
+"mean"
+],
+"code": "sf3",
+"text": "+0,065",
+"line": 38
+},
+{
+"id": 118,
+"spec": [
+"cf",
+"n2",
+"lo"
+],
+"code": "sf3",
+"text": "+0,024",
+"line": 38
+},
+{
+"id": 119,
+"spec": [
+"cf",
+"n2",
+"hi"
+],
+"code": "sf3",
+"text": "+0,106",
+"line": 38
+},
+{
+"id": 120,
+"spec": [
+"cf",
+"g2",
+"mean"
+],
+"code": "sf3",
+"text": "+0,057",
+"line": 38
+},
+{
+"id": 121,
+"spec": [
+"cf",
+"g2",
+"lo"
+],
+"code": "sf3",
+"text": "+0,027",
+"line": 38
+},
+{
+"id": 122,
+"spec": [
+"cf",
+"g2",
+"hi"
+],
+"code": "sf3",
+"text": "+0,086",
+"line": 38
+},
+{
+"id": 123,
+"spec": [
+"cf",
+"n1",
+"n_eff"
+],
+"code": "i",
+"text": "5",
+"line": 39
+},
+{
+"id": 124,
+"spec": [
+"cf",
+"n1",
+"df"
+],
+"code": "i",
+"text": "4",
+"line": 39
+},
+{
+"id": 125,
+"spec": [
+"cf",
+"g1",
+"n_eff"
+],
+"code": "i",
+"text": "5",
+"line": 39
+},
+{
+"id": 126,
+"spec": [
+"cf",
+"g1",
+"df"
+],
+"code": "i",
+"text": "4",
+"line": 39
+},
+{
+"id": 127,
+"spec": [
+"cf",
+"n2",
+"n_eff"
+],
+"code": "i",
+"text": "5",
+"line": 39
+},
+{
+"id": 128,
+"spec": [
+"cf",
+"n2",
+"df"
+],
+"code": "i",
+"text": "4",
+"line": 39
+},
+{
+"id": 129,
+"spec": [
+"cf",
+"g2",
+"n_eff"
+],
+"code": "i",
+"text": "5",
+"line": 39
+},
+{
+"id": 130,
+"spec": [
+"cf",
+"g2",
+"df"
+],
+"code": "i",
+"text": "4",
+"line": 39
+},
+{
+"id": 131,
+"spec": [
+"cf",
+"n1",
+"win_rate"
+],
+"code": "pcf1",
+"text": "67,7 %",
+"line": 40
+},
+{
+"id": 132,
+"spec": [
+"cf",
+"n1",
+"win_loss_ratio"
+],
+"code": "f2",
+"text": "1,07",
+"line": 40
+},
+{
+"id": 133,
+"spec": [
+"cf",
+"g1",
+"win_rate"
+],
+"code": "pcf1",
+"text": "66,7 %",
+"line": 40
+},
+{
+"id": 134,
+"spec": [
+"cf",
+"g1",
+"win_loss_ratio"
+],
+"code": "f2",
+"text": "1,04",
+"line": 40
+},
+{
+"id": 135,
+"spec": [
+"cf",
+"n2",
+"win_rate"
+],
+"code": "pcf1",
+"text": "66,6 %",
+"line": 40
+},
+{
+"id": 136,
+"spec": [
+"cf",
+"n2",
+"win_loss_ratio"
+],
+"code": "f2",
+"text": "0,98",
+"line": 40
+},
+{
+"id": 137,
+"spec": [
+"cf",
+"g2",
+"win_rate"
+],
+"code": "pcf1",
+"text": "66,3 %",
+"line": 40
+},
+{
+"id": 138,
+"spec": [
+"cf",
+"g2",
+"win_loss_ratio"
+],
+"code": "f2",
+"text": "0,96",
+"line": 40
+},
+{
+"id": 139,
+"spec": [
+"cf",
+"n1",
+"share_le2"
+],
+"code": "pcf1",
+"text": "13,5 %",
+"line": 41
+},
+{
+"id": 140,
+"spec": [
+"cf",
+"g1",
+"share_le2"
+],
+"code": "pcf1",
+"text": "13,8 %",
+"line": 41
+},
+{
+"id": 141,
+"spec": [
+"cf",
+"n2",
+"share_le2"
+],
+"code": "pcf1",
+"text": "13,4 %",
+"line": 41
+},
+{
+"id": 142,
+"spec": [
+"cf",
+"g2",
+"share_le2"
+],
+"code": "pcf1",
+"text": "13,7 %",
+"line": 41
+},
+{
+"id": 143,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.CV.n"
+],
+"code": "i",
+"text": "402",
+"line": 43
+},
+{
+"id": 144,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.CV.net_mean"
+],
+"code": "sf1",
+"text": "+15,0",
+"line": 43
+},
+{
+"id": 145,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.S3.n"
+],
+"code": "i",
+"text": "17",
+"line": 43
+},
+{
+"id": 146,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.S3.net_mean"
+],
+"code": "sf1",
+"text": "−12,0",
+"line": 43
+},
+{
+"id": 147,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.S1.n"
+],
+"code": "i",
+"text": "4",
+"line": 43
+},
+{
+"id": 148,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.S1.net_mean"
+],
+"code": "sf1",
+"text": "−161,8",
+"line": 43
+},
+{
+"id": 149,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.S2.n"
+],
+"code": "i",
+"text": "1",
+"line": 43
+},
+{
+"id": 150,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.TO.n"
+],
+"code": "i",
+"text": "2",
+"line": 43
+},
+{
+"id": 151,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.by_code.TO.net_mean"
+],
+"code": "sf1",
+"text": "−107,2",
+"line": 43
+},
+{
+"id": 152,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.deferred"
+],
+"code": "i",
+"text": "9",
+"line": 43
+},
+{
+"id": 153,
+"spec": [
+"j",
+"g1",
+"classes.crypto.exits.ffill"
+],
+"code": "i",
+"text": "14",
+"line": 43
+},
+{
+"id": 154,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.by_code.CV.n"
+],
+"code": "i",
+"text": "338",
+"line": 43
+},
+{
+"id": 155,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.by_code.CV.net_mean"
+],
+"code": "sf1",
+"text": "+15,0",
+"line": 43
+},
+{
+"id": 156,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.by_code.S3.n"
+],
+"code": "i",
+"text": "15",
+"line": 43
+},
+{
+"id": 157,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.by_code.S3.net_mean"
+],
+"code": "sf1",
+"text": "−29,5",
+"line": 43
+},
+{
+"id": 158,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.by_code.TO.n"
+],
+"code": "i",
+"text": "2",
+"line": 43
+},
+{
+"id": 159,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.by_code.S2.n"
+],
+"code": "i",
+"text": "1",
+"line": 43
+},
+{
+"id": 160,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.deferred"
+],
+"code": "i",
+"text": "8",
+"line": 43
+},
+{
+"id": 161,
+"spec": [
+"j",
+"n1",
+"classes.crypto.exits.ffill"
+],
+"code": "i",
+"text": "14",
+"line": 43
+},
+{
+"id": 162,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"k8_reversed_mean_yd"
+],
+"code": "sf3",
+"text": "−0,200",
+"line": 45
+},
+{
+"id": 163,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"k8_reversed_mean_yd"
+],
+"code": "sf3",
+"text": "−0,231",
+"line": 45
+},
+{
+"id": 164,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.5.trades_done"
+],
+"code": "i",
+"text": "83",
+"line": 45
+},
+{
+"id": 165,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.15.trades_done"
+],
+"code": "i",
+"text": "40",
+"line": 45
+},
+{
+"id": 166,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.-5.trades_done"
+],
+"code": "i",
+"text": "4",
+"line": 45
+},
+{
+"id": 167,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.-15.trades_done"
+],
+"code": "i",
+"text": "3",
+"line": 45
+},
+{
+"id": 168,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.real_closed_trades"
+],
+"code": "i",
+"text": "426",
+"line": 45
+},
+{
+"id": 169,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.5.mean_yd"
+],
+"code": "f3",
+"text": "0,022",
+"line": 45
+},
+{
+"id": 170,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.15.mean_yd"
+],
+"code": "f3",
+"text": "0,014",
+"line": 45
+},
+{
+"id": 171,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.-5.mean_yd"
+],
+"code": "f3",
+"text": "0,005",
+"line": 45
+},
+{
+"id": 172,
+"spec": [
+"j",
+"g1",
+"classes.crypto.k8_shift.shifts.-15.mean_yd"
+],
+"code": "f3",
+"text": "0,005",
+"line": 45
+},
+{
+"id": 173,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.5.trades_done"
+],
+"code": "i",
+"text": "71",
+"line": 45
+},
+{
+"id": 174,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.15.trades_done"
+],
+"code": "i",
+"text": "33",
+"line": 45
+},
+{
+"id": 175,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.-5.trades_done"
+],
+"code": "i",
+"text": "3",
+"line": 45
+},
+{
+"id": 176,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.-15.trades_done"
+],
+"code": "i",
+"text": "3",
+"line": 45
+},
+{
+"id": 177,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.real_closed_trades"
+],
+"code": "i",
+"text": "356",
+"line": 45
+},
+{
+"id": 178,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.5.mean_yd"
+],
+"code": "f3",
+"text": "0,035",
+"line": 45
+},
+{
+"id": 179,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.15.mean_yd"
+],
+"code": "f3",
+"text": "0,015",
+"line": 45
+},
+{
+"id": 180,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.-5.mean_yd"
+],
+"code": "f3",
+"text": "0,005",
+"line": 45
+},
+{
+"id": 181,
+"spec": [
+"j",
+"n1",
+"classes.crypto.k8_shift.shifts.-15.mean_yd"
+],
+"code": "f3",
+"text": "0,007",
+"line": 45
+},
+{
+"id": 182,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"p_win.p_win"
+],
+"code": "f3",
+"text": "0,001",
+"line": 45
+},
+{
+"id": 183,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"p_win.obs_best"
+],
+"code": "f3",
+"text": "0,026",
+"line": 45
+},
+{
+"id": 184,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"p_win.p_win"
+],
+"code": "f3",
+"text": "0,001",
+"line": 45
+},
+{
+"id": 185,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_H0.trades"
+],
+"code": "i",
+"text": "236",
+"line": 46
+},
+{
+"id": 186,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_H0.mean_yd"
+],
+"code": "sf3",
+"text": "+0,086",
+"line": 46
+},
+{
+"id": 187,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_H0.lo"
+],
+"code": "sf3",
+"text": "+0,052",
+"line": 46
+},
+{
+"id": 188,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_H1.trades"
+],
+"code": "i",
+"text": "190",
+"line": 46
+},
+{
+"id": 189,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_H1.mean_yd"
+],
+"code": "sf3",
+"text": "+0,034",
+"line": 46
+},
+{
+"id": 190,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_H1.lo"
+],
+"code": "sf3",
+"text": "−0,029",
+"line": 46
+},
+{
+"id": 191,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_H0.trades"
+],
+"code": "i",
+"text": "198",
+"line": 46
+},
+{
+"id": 192,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_H0.mean_yd"
+],
+"code": "sf3",
+"text": "+0,101",
+"line": 46
+},
+{
+"id": 193,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_H0.lo"
+],
+"code": "sf3",
+"text": "+0,058",
+"line": 46
+},
+{
+"id": 194,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_H1.trades"
+],
+"code": "i",
+"text": "158",
+"line": 46
+},
+{
+"id": 195,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_H1.mean_yd"
+],
+"code": "sf3",
+"text": "+0,045",
+"line": 46
+},
+{
+"id": 196,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_H1.lo"
+],
+"code": "sf3",
+"text": "−0,049",
+"line": 46
+},
+{
+"id": 197,
+"spec": [
+"j",
+"n1",
+"classes.crypto.classpar_full.kstale"
+],
+"code": "i",
+"text": "32",
+"line": 47
+},
+{
+"id": 198,
+"spec": [
+"j",
+"g1",
+"classes.crypto.classpar_full.kstale"
+],
+"code": "i",
+"text": "32",
+"line": 47
+},
+{
+"id": 199,
+"spec": [
+"j",
+"n1",
+"classes.crypto.classpar_full.q_stale"
+],
+"code": "f3",
+"text": "0,833",
+"line": 47
+},
+{
+"id": 200,
+"spec": [
+"j",
+"g1",
+"classes.crypto.classpar_full.q_stale"
+],
+"code": "f3",
+"text": "0,850",
+"line": 47
+},
+{
+"id": 201,
+"spec": [
+"j",
+"n1",
+"classes.crypto.classpar_full.q_c"
+],
+"code": "f2",
+"text": "7,33",
+"line": 47
+},
+{
+"id": 202,
+"spec": [
+"j",
+"g1",
+"classes.crypto.classpar_full.q_c"
+],
+"code": "f2",
+"text": "7,03",
+"line": 47
+},
+{
+"id": 203,
+"spec": [
+"j",
+"n1",
+"classes.crypto.classpar_full.m_shift"
+],
+"code": "f3",
+"text": "1,568",
+"line": 47
+},
+{
+"id": 204,
+"spec": [
+"j",
+"g1",
+"classes.crypto.classpar_full.m_shift"
+],
+"code": "f3",
+"text": "1,549",
+"line": 47
+},
+{
+"id": 205,
+"spec": [
+"j",
+"n1",
+"classes.crypto.classpar_full.gmax"
+],
+"code": "f0",
+"text": "320",
+"line": 47
+},
+{
+"id": 206,
+"spec": [
+"j",
+"g1",
+"classes.crypto.classpar_full.gmax"
+],
+"code": "f0",
+"text": "320",
+"line": 47
+},
+{
+"id": 207,
+"spec": [
+"j",
+"n1",
+"classes.crypto.classpar_full.gsig_max"
+],
+"code": "f0",
+"text": "34",
+"line": 47
+},
+{
+"id": 208,
+"spec": [
+"j",
+"g1",
+"classes.crypto.classpar_full.gsig_max"
+],
+"code": "f0",
+"text": "34",
+"line": 47
+},
+{
+"id": 209,
+"spec": [
+"j",
+"n1",
+"classes.crypto.structural_full.gmax_rule.t_struct"
+],
+"code": "f0",
+"text": "59",
+"line": 47
+},
+{
+"id": 210,
+"spec": [
+"j",
+"g1",
+"classes.crypto.structural_full.gmax_rule.t_struct"
+],
+"code": "f0",
+"text": "56",
+"line": 47
+},
+{
+"id": 211,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/nogate_k2_calib.json",
+"by_class.crypto.median"
+],
+"code": "f4",
+"text": "1,0185",
+"line": 47
+},
+{
+"id": 212,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/gate_k2_calib.json",
+"by_class.crypto.median"
+],
+"code": "f4",
+"text": "1,0192",
+"line": 47
+},
+{
+"id": 213,
+"spec": [
+"j",
+"g1",
+"classes.eq.pairs"
+],
+"code": "i",
+"text": "1971",
+"line": 48
+},
+{
+"id": 214,
+"spec": [
+"j",
+"g1",
+"classes.eq.sel.c_full"
+],
+"code": "combo",
+"text": "θ 40; k 5; p 1; T 2 ч; S0 = 2",
+"line": 48
+},
+{
+"id": 215,
+"spec": [
+"j",
+"g1",
+"classes.eq.at_cfull.trades"
+],
+"code": "i",
+"text": "21",
+"line": 48
+},
+{
+"id": 216,
+"spec": [
+"j",
+"g1",
+"classes.eq.at_cfull.mean_trade"
+],
+"code": "sf1",
+"text": "−18,9",
+"line": 48
+},
+{
+"id": 217,
+"spec": [
+"j",
+"g1",
+"classes.eq.at_cfull.mean"
+],
+"code": "sf3",
+"text": "−0,054",
+"line": 48
+},
+{
+"id": 218,
+"spec": [
+"j",
+"g1",
+"classes.eq.at_cfull.lo"
+],
+"code": "sf3",
+"text": "−0,134",
+"line": 48
+},
+{
+"id": 219,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 55
+},
+{
+"id": 220,
+"spec": [
+"cf",
+"n1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,021",
+"line": 55
+},
+{
+"id": 221,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"plateau"
+],
+"code": "yn",
+"text": "да",
+"line": 55
+},
+{
+"id": 222,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "да",
+"line": 55
+},
+{
+"id": 223,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 80; k 5; p 3; T 24 ч; только S1",
+"line": 55
+},
+{
+"id": 224,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_nogate_q5.json",
+"crypto.step_distance"
+],
+"code": "i",
+"text": "1",
+"line": 55
+},
+{
+"id": 225,
+"spec": [
+"r31",
+"n1"
+],
+"code": "yn",
+"text": "да",
+"line": 55
+},
+{
+"id": 226,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "−0,011",
+"line": 55
+},
+{
+"id": 227,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "375",
+"line": 55
+},
+{
+"id": 228,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,075",
+"line": 55
+},
+{
+"id": 229,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "192",
+"line": 55
+},
+{
+"id": 230,
+"spec": [
+"cells",
+"n1",
+3
+],
+"code": "i",
+"text": "0",
+"line": 55
+},
+{
+"id": 231,
+"spec": [
+"cells",
+"n1",
+0
+],
+"code": "i",
+"text": "28",
+"line": 55
+},
+{
+"id": 232,
+"spec": [
+"a8",
+"n1",
+"true"
+],
+"code": "i",
+"text": "8",
+"line": 55
+},
+{
+"id": 233,
+"spec": [
+"a8",
+"n1",
+"len"
+],
+"code": "i",
+"text": "8",
+"line": 55
+},
+{
+"id": 234,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 56
+},
+{
+"id": 235,
+"spec": [
+"cf",
+"n2",
+"lo"
+],
+"code": "sf3",
+"text": "+0,024",
+"line": 56
+},
+{
+"id": 236,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"plateau"
+],
+"code": "yn",
+"text": "да",
+"line": 56
+},
+{
+"id": 237,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "да",
+"line": 56
+},
+{
+"id": 238,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 80; k 5; p 3; T 6 ч; только S1",
+"line": 56
+},
+{
+"id": 239,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_nogate_noq5.json",
+"crypto.step_distance"
+],
+"code": "i",
+"text": "1",
+"line": 56
+},
+{
+"id": 240,
+"spec": [
+"r31",
+"n2"
+],
+"code": "yn",
+"text": "да",
+"line": 56
+},
+{
+"id": 241,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "+0,027",
+"line": 56
+},
+{
+"id": 242,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "156",
+"line": 56
+},
+{
+"id": 243,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,073",
+"line": 56
+},
+{
+"id": 244,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "206",
+"line": 56
+},
+{
+"id": 245,
+"spec": [
+"cells",
+"n2",
+3
+],
+"code": "i",
+"text": "0",
+"line": 56
+},
+{
+"id": 246,
+"spec": [
+"cells",
+"n2",
+0
+],
+"code": "i",
+"text": "28",
+"line": 56
+},
+{
+"id": 247,
+"spec": [
+"a8",
+"n2",
+"true"
+],
+"code": "i",
+"text": "8",
+"line": 56
+},
+{
+"id": 248,
+"spec": [
+"a8",
+"n2",
+"len"
+],
+"code": "i",
+"text": "8",
+"line": 56
+},
+{
+"id": 249,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 57
+},
+{
+"id": 250,
+"spec": [
+"cf",
+"g1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,026",
+"line": 57
+},
+{
+"id": 251,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"plateau"
+],
+"code": "yn",
+"text": "да",
+"line": 57
+},
+{
+"id": 252,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "нет",
+"line": 57
+},
+{
+"id": 253,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; S0 = 2",
+"line": 57
+},
+{
+"id": 254,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.step_distance"
+],
+"code": "i",
+"text": "2",
+"line": 57
+},
+{
+"id": 255,
+"spec": [
+"r31",
+"g1"
+],
+"code": "yn",
+"text": "нет",
+"line": 57
+},
+{
+"id": 256,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "−0,027",
+"line": 57
+},
+{
+"id": 257,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "446",
+"line": 57
+},
+{
+"id": 258,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,042",
+"line": 57
+},
+{
+"id": 259,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "144",
+"line": 57
+},
+{
+"id": 260,
+"spec": [
+"cells",
+"g1",
+3
+],
+"code": "i",
+"text": "5",
+"line": 57
+},
+{
+"id": 261,
+"spec": [
+"cells",
+"g1",
+0
+],
+"code": "i",
+"text": "36",
+"line": 57
+},
+{
+"id": 262,
+"spec": [
+"a8",
+"g1",
+"true"
+],
+"code": "i",
+"text": "9",
+"line": 57
+},
+{
+"id": 263,
+"spec": [
+"a8",
+"g1",
+"len"
+],
+"code": "i",
+"text": "9",
+"line": 57
+},
+{
+"id": 264,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 58
+},
+{
+"id": 265,
+"spec": [
+"cf",
+"g2",
+"lo"
+],
+"code": "sf3",
+"text": "+0,027",
+"line": 58
+},
+{
+"id": 266,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"plateau"
+],
+"code": "yn",
+"text": "да",
+"line": 58
+},
+{
+"id": 267,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "нет",
+"line": 58
+},
+{
+"id": 268,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 58
+},
+{
+"id": 269,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_noq5.json",
+"crypto.step_distance"
+],
+"code": "i",
+"text": "2",
+"line": 58
+},
+{
+"id": 270,
+"spec": [
+"r31",
+"g2"
+],
+"code": "yn",
+"text": "нет",
+"line": 58
+},
+{
+"id": 271,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "+0,003",
+"line": 58
+},
+{
+"id": 272,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "196",
+"line": 58
+},
+{
+"id": 273,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,039",
+"line": 58
+},
+{
+"id": 274,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "70",
+"line": 58
+},
+{
+"id": 275,
+"spec": [
+"cells",
+"g2",
+3
+],
+"code": "i",
+"text": "5",
+"line": 58
+},
+{
+"id": 276,
+"spec": [
+"cells",
+"g2",
+0
+],
+"code": "i",
+"text": "36",
+"line": 58
+},
+{
+"id": 277,
+"spec": [
+"a8",
+"g2",
+"true"
+],
+"code": "i",
+"text": "9",
+"line": 58
+},
+{
+"id": 278,
+"spec": [
+"a8",
+"g2",
+"len"
+],
+"code": "i",
+"text": "9",
+"line": 58
+},
+{
+"id": 279,
+"spec": [
+"cells",
+"g1",
+3
+],
+"code": "i",
+"text": "5",
+"line": 60
+},
+{
+"id": 280,
+"spec": [
+"cells",
+"g2",
+3
+],
+"code": "i",
+"text": "5",
+"line": 60
+},
+{
+"id": 281,
+"spec": [
+"cells",
+"g1",
+99
+],
+"code": "i",
+"text": "0",
+"line": 60
+},
+{
+"id": 282,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 62
+},
+{
+"id": 283,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; S0 = 2",
+"line": 62
+},
+{
+"id": 284,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 62
+},
+{
+"id": 285,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 62
+},
+{
+"id": 286,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.c_full_on_train.trades"
+],
+"code": "i",
+"text": "194",
+"line": 63
+},
+{
+"id": 287,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.c_full_on_train.mean_yd"
+],
+"code": "sf3",
+"text": "+0,075",
+"line": 63
+},
+{
+"id": 288,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.c_full_on_train.lo"
+],
+"code": "sf3",
+"text": "+0,010",
+"line": 63
+},
+{
+"id": 289,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.c_train_on_full.trades"
+],
+"code": "i",
+"text": "311",
+"line": 63
+},
+{
+"id": 290,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.c_train_on_full.mean_yd"
+],
+"code": "sf3",
+"text": "+0,040",
+"line": 63
+},
+{
+"id": 291,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_q5.json",
+"crypto.c_train_on_full.lo"
+],
+"code": "sf3",
+"text": "+0,019",
+"line": 63
+},
+{
+"id": 292,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_noq5.json",
+"crypto.c_full_on_train.mean_yd"
+],
+"code": "sf3",
+"text": "+0,056",
+"line": 63
+},
+{
+"id": 293,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_noq5.json",
+"crypto.c_full_on_train.lo"
+],
+"code": "sf3",
+"text": "−0,037",
+"line": 63
+},
+{
+"id": 294,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_noq5.json",
+"crypto.c_train_on_full.mean_yd"
+],
+"code": "sf3",
+"text": "+0,064",
+"line": 63
+},
+{
+"id": 295,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/extra_gate_noq5.json",
+"crypto.c_train_on_full.lo"
+],
+"code": "sf3",
+"text": "+0,027",
+"line": 63
+},
+{
+"id": 296,
+"spec": [
+"cells",
+"g1",
+0
+],
+"code": "i",
+"text": "36",
+"line": 65
+},
+{
+"id": 297,
+"spec": [
+"cells",
+"n1",
+0
+],
+"code": "i",
+"text": "28",
+"line": 65
+},
+{
+"id": 298,
+"spec": [
+"cells",
+"g1",
+1
+],
+"code": "i",
+"text": "8",
+"line": 65
+},
+{
+"id": 299,
+"spec": [
+"cells",
+"g1",
+2
+],
+"code": "i",
+"text": "4",
+"line": 65
+},
+{
+"id": 300,
+"spec": [
+"cells",
+"g1",
+3
+],
+"code": "i",
+"text": "5",
+"line": 65
+},
+{
+"id": 301,
+"spec": [
+"cells",
+"g1",
+4
+],
+"code": "i",
+"text": "8",
+"line": 65
+},
+{
+"id": 302,
+"spec": [
+"cells",
+"g1",
+5
+],
+"code": "i",
+"text": "9",
+"line": 65
+},
+{
+"id": 303,
+"spec": [
+"cells",
+"g1",
+6
+],
+"code": "i",
+"text": "36",
+"line": 65
+},
+{
+"id": 304,
+"spec": [
+"cells",
+"g1",
+7
+],
+"code": "i",
+"text": "23",
+"line": 65
+},
+{
+"id": 305,
+"spec": [
+"cells",
+"n1",
+1
+],
+"code": "i",
+"text": "6",
+"line": 65
+},
+{
+"id": 306,
+"spec": [
+"cells",
+"n1",
+2
+],
+"code": "i",
+"text": "3",
+"line": 65
+},
+{
+"id": 307,
+"spec": [
+"cells",
+"n1",
+3
+],
+"code": "i",
+"text": "0",
+"line": 65
+},
+{
+"id": 308,
+"spec": [
+"cells",
+"n1",
+4
+],
+"code": "i",
+"text": "5",
+"line": 65
+},
+{
+"id": 309,
+"spec": [
+"cells",
+"n1",
+5
+],
+"code": "i",
+"text": "7",
+"line": 65
+},
+{
+"id": 310,
+"spec": [
+"cells",
+"n1",
+6
+],
+"code": "i",
+"text": "28",
+"line": 65
+},
+{
+"id": 311,
+"spec": [
+"cells",
+"n1",
+7
+],
+"code": "i",
+"text": "18",
+"line": 65
+},
+{
+"id": 312,
+"spec": [
+"j",
+"n1",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "5830",
+"line": 71
+},
+{
+"id": 313,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "8290",
+"line": 71
+},
+{
+"id": 314,
+"spec": [
+"j",
+"n2",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "5830",
+"line": 71
+},
+{
+"id": 315,
+"spec": [
+"j",
+"g2",
+"classes.crypto.pairs"
+],
+"code": "i",
+"text": "8290",
+"line": 71
+},
+{
+"id": 316,
+"spec": [
+"j",
+"n1",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "550",
+"line": 72
+},
+{
+"id": 317,
+"spec": [
+"j",
+"g1",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "563",
+"line": 72
+},
+{
+"id": 318,
+"spec": [
+"j",
+"n2",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "550",
+"line": 72
+},
+{
+"id": 319,
+"spec": [
+"j",
+"g2",
+"classes.crypto.assets"
+],
+"code": "i",
+"text": "563",
+"line": 72
+},
+{
+"id": 320,
+"spec": [
+"eqc",
+"n1",
+"g1"
+],
+"code": "yn",
+"text": "да",
+"line": 73
+},
+{
+"id": 321,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 73
+},
+{
+"id": 322,
+"spec": [
+"eqc",
+"n2",
+"g2"
+],
+"code": "yn",
+"text": "да",
+"line": 73
+},
+{
+"id": 323,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 73
+},
+{
+"id": 324,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 80; k 5; p 3; T 24 ч; только S1",
+"line": 74
+},
+{
+"id": 325,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; S0 = 2",
+"line": 74
+},
+{
+"id": 326,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 80; k 5; p 3; T 6 ч; только S1",
+"line": 74
+},
+{
+"id": 327,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_train"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 74
+},
+{
+"id": 328,
+"spec": [
+"cf",
+"n1",
+"trades"
+],
+"code": "i",
+"text": "356",
+"line": 75
+},
+{
+"id": 329,
+"spec": [
+"cf",
+"g1",
+"trades"
+],
+"code": "i",
+"text": "426",
+"line": 75
+},
+{
+"id": 330,
+"spec": [
+"cf",
+"n2",
+"trades"
+],
+"code": "i",
+"text": "359",
+"line": 75
+},
+{
+"id": 331,
+"spec": [
+"cf",
+"g2",
+"trades"
+],
+"code": "i",
+"text": "430",
+"line": 75
+},
+{
+"id": 332,
+"spec": [
+"cf",
+"n1",
+"assets"
+],
+"code": "i",
+"text": "95",
+"line": 76
+},
+{
+"id": 333,
+"spec": [
+"cf",
+"g1",
+"assets"
+],
+"code": "i",
+"text": "107",
+"line": 76
+},
+{
+"id": 334,
+"spec": [
+"cf",
+"n2",
+"assets"
+],
+"code": "i",
+"text": "95",
+"line": 76
+},
+{
+"id": 335,
+"spec": [
+"cf",
+"g2",
+"assets"
+],
+"code": "i",
+"text": "107",
+"line": 76
+},
+{
+"id": 336,
+"spec": [
+"cf",
+"n1",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+12,4",
+"line": 77
+},
+{
+"id": 337,
+"spec": [
+"cf",
+"g1",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+11,6",
+"line": 77
+},
+{
+"id": 338,
+"spec": [
+"cf",
+"n2",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+10,6",
+"line": 77
+},
+{
+"id": 339,
+"spec": [
+"cf",
+"g2",
+"mean_trade"
+],
+"code": "sf1",
+"text": "+10,5",
+"line": 77
+},
+{
+"id": 340,
+"spec": [
+"cf",
+"n1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,076",
+"line": 78
+},
+{
+"id": 341,
+"spec": [
+"cf",
+"g1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,063",
+"line": 78
+},
+{
+"id": 342,
+"spec": [
+"cf",
+"n2",
+"mean"
+],
+"code": "sf3",
+"text": "+0,065",
+"line": 78
+},
+{
+"id": 343,
+"spec": [
+"cf",
+"g2",
+"mean"
+],
+"code": "sf3",
+"text": "+0,057",
+"line": 78
+},
+{
+"id": 344,
+"spec": [
+"cf",
+"n1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,021",
+"line": 79
+},
+{
+"id": 345,
+"spec": [
+"cf",
+"g1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,026",
+"line": 79
+},
+{
+"id": 346,
+"spec": [
+"cf",
+"n2",
+"lo"
+],
+"code": "sf3",
+"text": "+0,024",
+"line": 79
+},
+{
+"id": 347,
+"spec": [
+"cf",
+"g2",
+"lo"
+],
+"code": "sf3",
+"text": "+0,027",
+"line": 79
+},
+{
+"id": 348,
+"spec": [
+"cf",
+"n1",
+"hi"
+],
+"code": "sf3",
+"text": "+0,130",
+"line": 80
+},
+{
+"id": 349,
+"spec": [
+"cf",
+"g1",
+"hi"
+],
+"code": "sf3",
+"text": "+0,101",
+"line": 80
+},
+{
+"id": 350,
+"spec": [
+"cf",
+"n2",
+"hi"
+],
+"code": "sf3",
+"text": "+0,106",
+"line": 80
+},
+{
+"id": 351,
+"spec": [
+"cf",
+"g2",
+"hi"
+],
+"code": "sf3",
+"text": "+0,086",
+"line": 80
+},
+{
+"id": 352,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.trades"
+],
+"code": "i",
+"text": "74",
+"line": 81
+},
+{
+"id": 353,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.net"
+],
+"code": "sf1",
+"text": "+4,5",
+"line": 81
+},
+{
+"id": 354,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,018",
+"line": 81
+},
+{
+"id": 355,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.lo"
+],
+"code": "sf3",
+"text": "−0,042",
+"line": 81
+},
+{
+"id": 356,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_gate_pairs.trades"
+],
+"code": "i",
+"text": "75",
+"line": 81
+},
+{
+"id": 357,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_gate_pairs.net"
+],
+"code": "sf1",
+"text": "+4,0",
+"line": 81
+},
+{
+"id": 358,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_gate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,015",
+"line": 81
+},
+{
+"id": 359,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_gate_pairs.lo"
+],
+"code": "sf3",
+"text": "−0,036",
+"line": 81
+},
+{
+"id": 360,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_nongate_pairs.trades"
+],
+"code": "i",
+"text": "352",
+"line": 82
+},
+{
+"id": 361,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_nongate_pairs.net"
+],
+"code": "sf1",
+"text": "+13,1",
+"line": 82
+},
+{
+"id": 362,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_nongate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,080",
+"line": 82
+},
+{
+"id": 363,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_nongate_pairs.lo"
+],
+"code": "sf3",
+"text": "+0,046",
+"line": 82
+},
+{
+"id": 364,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_nongate_pairs.trades"
+],
+"code": "i",
+"text": "356",
+"line": 82
+},
+{
+"id": 365,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_nongate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,076",
+"line": 82
+},
+{
+"id": 366,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_nongate_pairs.trades"
+],
+"code": "i",
+"text": "355",
+"line": 82
+},
+{
+"id": 367,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_nongate_pairs.net"
+],
+"code": "sf1",
+"text": "+11,9",
+"line": 82
+},
+{
+"id": 368,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_nongate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,072",
+"line": 82
+},
+{
+"id": 369,
+"spec": [
+"j",
+"g2",
+"classes.crypto.cfull_nongate_pairs.lo"
+],
+"code": "sf3",
+"text": "+0,047",
+"line": 82
+},
+{
+"id": 370,
+"spec": [
+"j",
+"n2",
+"classes.crypto.cfull_nongate_pairs.trades"
+],
+"code": "i",
+"text": "359",
+"line": 82
+},
+{
+"id": 371,
+"spec": [
+"j",
+"n2",
+"classes.crypto.cfull_nongate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,065",
+"line": 82
+},
+{
+"id": 372,
+"spec": [
+"cnt",
+"n1",
+"pos"
+],
+"code": "i",
+"text": "84",
+"line": 83
+},
+{
+"id": 373,
+"spec": [
+"cnt",
+"g1",
+"pos"
+],
+"code": "i",
+"text": "87",
+"line": 83
+},
+{
+"id": 374,
+"spec": [
+"cnt",
+"n1",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "7",
+"line": 83
+},
+{
+"id": 375,
+"spec": [
+"cnt",
+"g1",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "37",
+"line": 83
+},
+{
+"id": 376,
+"spec": [
+"cnt",
+"n2",
+"pos"
+],
+"code": "i",
+"text": "90",
+"line": 83
+},
+{
+"id": 377,
+"spec": [
+"cnt",
+"g2",
+"pos"
+],
+"code": "i",
+"text": "89",
+"line": 83
+},
+{
+"id": 378,
+"spec": [
+"cnt",
+"n2",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "9",
+"line": 83
+},
+{
+"id": 379,
+"spec": [
+"cnt",
+"g2",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "38",
+"line": 83
+},
+{
+"id": 380,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "да",
+"line": 84
+},
+{
+"id": 381,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "нет",
+"line": 84
+},
+{
+"id": 382,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "да",
+"line": 84
+},
+{
+"id": 383,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"agree"
+],
+"code": "yn",
+"text": "нет",
+"line": 84
+},
+{
+"id": 384,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "−0,011",
+"line": 85
+},
+{
+"id": 385,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "375",
+"line": 85
+},
+{
+"id": 386,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,075",
+"line": 85
+},
+{
+"id": 387,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "192",
+"line": 85
+},
+{
+"id": 388,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "−0,027",
+"line": 85
+},
+{
+"id": 389,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "446",
+"line": 85
+},
+{
+"id": 390,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,042",
+"line": 85
+},
+{
+"id": 391,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "144",
+"line": 85
+},
+{
+"id": 392,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "+0,027",
+"line": 85
+},
+{
+"id": 393,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "156",
+"line": 85
+},
+{
+"id": 394,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,073",
+"line": 85
+},
+{
+"id": 395,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "206",
+"line": 85
+},
+{
+"id": 396,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "+0,003",
+"line": 85
+},
+{
+"id": 397,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "196",
+"line": 85
+},
+{
+"id": 398,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,039",
+"line": 85
+},
+{
+"id": 399,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.trades"
+],
+"code": "i",
+"text": "70",
+"line": 85
+},
+{
+"id": 400,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b.0"
+],
+"code": "yn",
+"text": "нет",
+"line": 86
+},
+{
+"id": 401,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b.1"
+],
+"code": "yn",
+"text": "да",
+"line": 86
+},
+{
+"id": 402,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b.0"
+],
+"code": "yn",
+"text": "нет",
+"line": 86
+},
+{
+"id": 403,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"a3b.1"
+],
+"code": "yn",
+"text": "да",
+"line": 86
+},
+{
+"id": 404,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b.0"
+],
+"code": "yn",
+"text": "да",
+"line": 86
+},
+{
+"id": 405,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b.1"
+],
+"code": "yn",
+"text": "да",
+"line": 86
+},
+{
+"id": 406,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b.0"
+],
+"code": "yn",
+"text": "да",
+"line": 86
+},
+{
+"id": 407,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"a3b.1"
+],
+"code": "yn",
+"text": "да",
+"line": 86
+},
+{
+"id": 408,
+"spec": [
+"j",
+"g1",
+"classes.crypto.pairs_gate"
+],
+"code": "i",
+"text": "2460",
+"line": 88
+},
+{
+"id": 409,
+"spec": [
+"j",
+"g1",
+"classes.crypto.assets_gate"
+],
+"code": "i",
+"text": "521",
+"line": 88
+},
+{
+"id": 410,
+"spec": [
+"x",
+"sub",
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/summary_gate_q5.json",
+"classes.crypto.assets"
+],
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/summary_nogate_q5.json",
+"classes.crypto.assets"
+]
+],
+"code": "i",
+"text": "13",
+"line": 88
+},
+{
+"id": 411,
+"spec": [
+"cf",
+"n1",
+"trades"
+],
+"code": "i",
+"text": "356",
+"line": 88
+},
+{
+"id": 412,
+"spec": [
+"cf",
+"g1",
+"trades"
+],
+"code": "i",
+"text": "426",
+"line": 88
+},
+{
+"id": 413,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.trades"
+],
+"code": "i",
+"text": "74",
+"line": 88
+},
+{
+"id": 414,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_nongate_pairs.trades"
+],
+"code": "i",
+"text": "352",
+"line": 88
+},
+{
+"id": 415,
+"spec": [
+"j",
+"n1",
+"classes.crypto.cfull_nongate_pairs.trades"
+],
+"code": "i",
+"text": "356",
+"line": 88
+},
+{
+"id": 416,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.net"
+],
+"code": "sf1",
+"text": "+4,5",
+"line": 88
+},
+{
+"id": 417,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_nongate_pairs.net"
+],
+"code": "sf1",
+"text": "+13,1",
+"line": 88
+},
+{
+"id": 418,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.mean_yd"
+],
+"code": "sf3",
+"text": "+0,018",
+"line": 88
+},
+{
+"id": 419,
+"spec": [
+"j",
+"g1",
+"classes.crypto.cfull_gate_pairs.lo"
+],
+"code": "sf3",
+"text": "−0,042",
+"line": 88
+},
+{
+"id": 420,
+"spec": [
+"cf",
+"n1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,021",
+"line": 88
+},
+{
+"id": 421,
+"spec": [
+"cf",
+"g1",
+"lo"
+],
+"code": "sf3",
+"text": "+0,026",
+"line": 88
+},
+{
+"id": 422,
+"spec": [
+"cf",
+"n1",
+"hi"
+],
+"code": "sf3",
+"text": "+0,130",
+"line": 88
+},
+{
+"id": 423,
+"spec": [
+"cf",
+"g1",
+"hi"
+],
+"code": "sf3",
+"text": "+0,101",
+"line": 88
+},
+{
+"id": 424,
+"spec": [
+"cf",
+"n1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,076",
+"line": 88
+},
+{
+"id": 425,
+"spec": [
+"cf",
+"g1",
+"mean"
+],
+"code": "sf3",
+"text": "+0,063",
+"line": 88
+},
+{
+"id": 426,
+"spec": [
+"cnt",
+"n1",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "7",
+"line": 88
+},
+{
+"id": 427,
+"spec": [
+"cnt",
+"g1",
+"pos_lo_ok"
+],
+"code": "i",
+"text": "37",
+"line": 88
+},
+{
+"id": 428,
+"spec": [
+"cnt",
+"g1",
+"ok"
+],
+"code": "i",
+"text": "124",
+"line": 88
+},
+{
+"id": 429,
+"spec": [
+"hx",
+"gate_all"
+],
+"code": "i",
+"text": "34",
+"line": 91
+},
+{
+"id": 430,
+"spec": [
+"hx",
+"gate_in_universe"
+],
+"code": "i",
+"text": "34",
+"line": 91
+},
+{
+"id": 431,
+"spec": [
+"hx",
+"gate_crypto"
+],
+"code": "i",
+"text": "20",
+"line": 91
+},
+{
+"id": 432,
+"spec": [
+"hx",
+"gate_crypto_main"
+],
+"code": "i",
+"text": "20",
+"line": 91
+},
+{
+"id": 433,
+"spec": [
+"hx",
+"gate_hk_tradfi"
+],
+"code": "i",
+"text": "14",
+"line": 91
+},
+{
+"id": 434,
+"spec": [
+"hx",
+"gate_crypto_main_sel_trades"
+],
+"code": "i",
+"text": "0",
+"line": 92
+},
+{
+"id": 435,
+"spec": [
+"hx",
+"gate_crypto_main_grid_pos"
+],
+"code": "i",
+"text": "14",
+"line": 92
+},
+{
+"id": 436,
+"spec": [
+"hx",
+"gate_crypto_main"
+],
+"code": "i",
+"text": "20",
+"line": 92
+},
+{
+"id": 437,
+"spec": [
+"hx",
+"gate_crypto_main_grid_trades"
+],
+"code": "i",
+"text": "586",
+"line": 92
+},
+{
+"id": 438,
+"spec": [
+"hxn",
+"H4c TA Binance x Gate",
+"dev_abs_max_bps"
+],
+"code": "f0",
+"text": "67",
+"line": 92
+},
+{
+"id": 439,
+"spec": [
+"hxn",
+"H4c TA Binance x Gate",
+"valid_share"
+],
+"code": "f2",
+"text": "0,26",
+"line": 92
+},
+{
+"id": 440,
+"spec": [
+"hxn",
+"H4 TA bingx_TA-USDT x gate_TA_USDT",
+"dev_abs_max_bps"
+],
+"code": "f0",
+"text": "393",
+"line": 92
+},
+{
+"id": 441,
+"spec": [
+"hxn",
+"H4 TA bingx_TA-USDT x gate_TA_USDT",
+"valid_share"
+],
+"code": "f2",
+"text": "0,26",
+"line": 92
+},
+{
+"id": 442,
+"spec": [
+"w2",
+"crypto_rel20_pairs"
+],
+"code": "i",
+"text": "20",
+"line": 93
+},
+{
+"id": 443,
+"spec": [
+"w2",
+"crypto_rel20_trades"
+],
+"code": "i",
+"text": "5563",
+"line": 93
+},
+{
+"id": 444,
+"spec": [
+"w2",
+"crypto_rel20_net"
+],
+"code": "sf1",
+"text": "−11,3",
+"line": 93
+},
+{
+"id": 445,
+"spec": [
+"w2",
+"crypto_rel20_net_min"
+],
+"code": "sf1",
+"text": "−14,6",
+"line": 93
+},
+{
+"id": 446,
+"spec": [
+"w2",
+"crypto_rel20_net_max"
+],
+"code": "sf1",
+"text": "−2,4",
+"line": 93
+},
+{
+"id": 447,
+"spec": [
+"w2",
+"crypto_le80_pos"
+],
+"code": "i",
+"text": "2",
+"line": 93
+},
+{
+"id": 448,
+"spec": [
+"w2",
+"crypto_le80_rows"
+],
+"code": "i",
+"text": "134",
+"line": 93
+},
+{
+"id": 449,
+"spec": [
+"w2",
+"crypto_le80_pos_trades_max"
+],
+"code": "i",
+"text": "1",
+"line": 93
+},
+{
+"id": 450,
+"spec": [
+"w2",
+"hk_le80_pos"
+],
+"code": "i",
+"text": "4",
+"line": 93
+},
+{
+"id": 451,
+"spec": [
+"w2",
+"hk_le80_rows"
+],
+"code": "i",
+"text": "73",
+"line": 93
+},
+{
+"id": 452,
+"spec": [
+"w2",
+"hk_le80_pos_ge20"
+],
+"code": "i",
+"text": "2",
+"line": 93
+},
+{
+"id": 453,
+"spec": [
+"w2row",
+"H1 XIAOMI gate_XIAOMI_USDT x bitget_XIAOMIUSDT",
+"abs",
+40.0,
+"trades_p1"
+],
+"code": "i",
+"text": "52",
+"line": 93
+},
+{
+"id": 454,
+"spec": [
+"w2row",
+"H1 XIAOMI gate_XIAOMI_USDT x bitget_XIAOMIUSDT",
+"abs",
+40.0,
+"net_taker_p1_mean"
+],
+"code": "sf1",
+"text": "+1,8",
+"line": 93
+},
+{
+"id": 455,
+"spec": [
+"w2row",
+"H1 XIAOMI okx_XIAOMI-USDT-SWAP x gate_XIAOMI_USDT",
+"rel",
+40.0,
+"trades_p1"
+],
+"code": "i",
+"text": "28",
+"line": 93
+},
+{
+"id": 456,
+"spec": [
+"w2row",
+"H1 XIAOMI okx_XIAOMI-USDT-SWAP x gate_XIAOMI_USDT",
+"rel",
+40.0,
+"net_taker_p1_mean"
+],
+"code": "sf1",
+"text": "+3,9",
+"line": 93
+},
+{
+"id": 457,
+"spec": [
+"cells",
+"g1",
+0
+],
+"code": "i",
+"text": "36",
+"line": 96
+},
+{
+"id": 458,
+"spec": [
+"x",
+"mul21div13",
+[
+"cf",
+"n1",
+"trades"
+],
+[
+"const",
+1
+]
+],
+"code": "i",
+"text": "575",
+"line": 96
+},
+{
+"id": 459,
+"spec": [
+"x",
+"mul21div13",
+[
+"cf",
+"n2",
+"trades"
+],
+[
+"const",
+1
+]
+],
+"code": "i",
+"text": "580",
+"line": 96
+},
+{
+"id": 460,
+"spec": [
+"x",
+"mul21div13",
+[
+"cf",
+"g1",
+"trades"
+],
+[
+"const",
+1
+]
+],
+"code": "i",
+"text": "688",
+"line": 96
+},
+{
+"id": 461,
+"spec": [
+"x",
+"mul21div13",
+[
+"cf",
+"g2",
+"trades"
+],
+[
+"const",
+1
+]
+],
+"code": "i",
+"text": "695",
+"line": 96
+},
+{
+"id": 462,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 100
+},
+{
+"id": 463,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "−0,011",
+"line": 100
+},
+{
+"id": 464,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_selection_crypto.json",
+"a3b_detail.detail.H0.trades"
+],
+"code": "i",
+"text": "375",
+"line": 100
+},
+{
+"id": 465,
+"spec": [
+"cells",
+"n1",
+3
+],
+"code": "i",
+"text": "0",
+"line": 100
+},
+{
+"id": 466,
+"spec": [
+"cells",
+"n1",
+0
+],
+"code": "i",
+"text": "28",
+"line": 100
+},
+{
+"id": 467,
+"spec": [
+"a8",
+"n1",
+"true"
+],
+"code": "i",
+"text": "8",
+"line": 100
+},
+{
+"id": 468,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 101
+},
+{
+"id": 469,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H0.mean"
+],
+"code": "sf3",
+"text": "+0,027",
+"line": 101
+},
+{
+"id": 470,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_nogate_noq5_selection_crypto.json",
+"a3b_detail.detail.H1.mean"
+],
+"code": "sf3",
+"text": "+0,073",
+"line": 101
+},
+{
+"id": 471,
+"spec": [
+"cells",
+"n2",
+3
+],
+"code": "i",
+"text": "0",
+"line": 101
+},
+{
+"id": 472,
+"spec": [
+"cells",
+"n2",
+0
+],
+"code": "i",
+"text": "28",
+"line": 101
+},
+{
+"id": 473,
+"spec": [
+"a8",
+"n2",
+"true"
+],
+"code": "i",
+"text": "8",
+"line": 101
+},
+{
+"id": 474,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 24 ч; только S1",
+"line": 102
+},
+{
+"id": 475,
+"spec": [
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/k7_gate_noq5_selection_crypto.json",
+"c_full"
+],
+"code": "combo",
+"text": "θ 40; k 3; p 3; T 2 ч; только S1",
+"line": 103
+},
+{
+"id": 476,
+"spec": [
+"j",
+"n1",
+"classes.eq.sel.c_full"
+],
+"code": "combo",
+"text": "θ 40; k 5; p 1; T 2 ч; S0 = 2",
+"line": 104
+},
+{
+"id": 477,
+"spec": [
+"j",
+"n1",
+"classes.eq.at_cfull.lo"
+],
+"code": "sf3",
+"text": "−0,134",
+"line": 104
+},
+{
+"id": 478,
+"spec": [
+"j",
+"docs/research/P-38-calib-gate-2026-11-07/window_spec_nogate.json",
+"variants.0.sigma_form"
+],
+"code": "f4",
+"text": "0,0646",
+"line": 106
+},
+{
+"id": 479,
+"spec": [
+"j",
+"docs/research/P-38-calib-gate-2026-11-07/window_spec_nogate.json",
+"variants.1.sigma_form"
+],
+"code": "f4",
+"text": "0,0576",
+"line": 106
+},
+{
+"id": 480,
+"spec": [
+"j",
+"docs/research/P-38-calib-gate-2026-11-07/window_spec_gate.json",
+"variants.0.sigma_form"
+],
+"code": "f4",
+"text": "0,0490",
+"line": 106
+},
+{
+"id": 481,
+"spec": [
+"j",
+"docs/research/P-38-calib-gate-2026-11-07/window_spec_gate.json",
+"variants.1.sigma_form"
+],
+"code": "f4",
+"text": "0,0402",
+"line": 106
+},
+{
+"id": 482,
+"spec": [
+"turn"
+],
+"code": "i",
+"text": "4262",
+"line": 109
+},
+{
+"id": 483,
+"spec": [
+"logre",
+"logs/turn_verify.log",
+"проверено символов (\\d+)",
+1,
+0
+],
+"code": "i",
+"text": "12",
+"line": 109
+},
+{
+"id": 484,
+"spec": [
+"logre",
+"logs/turn_verify_gate.log",
+"проверено символов (\\d+)",
+1,
+0
+],
+"code": "i",
+"text": "40",
+"line": 109
+},
+{
+"id": 485,
+"spec": [
+"logre",
+"logs/turn_verify.log",
+"расхождения ([0-9.e+-]+)",
+1,
+0
+],
+"code": "e2",
+"text": "5,94·10⁻⁸",
+"line": 109
+},
+{
+"id": 486,
+"spec": [
+"logre",
+"logs/turn_verify_gate.log",
+"расхождения ([0-9.e+-]+)",
+1,
+0
+],
+"code": "e2",
+"text": "5,95·10⁻⁸",
+"line": 109
+},
+{
+"id": 487,
+"spec": [
+"x",
+"add",
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/summary_gate_q5.json",
+"classes.crypto.pairs"
+],
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/summary_gate_q5.json",
+"classes.eq.pairs"
+]
+],
+"code": "i",
+"text": "10261",
+"line": 109
+},
+{
+"id": 488,
+"spec": [
+"x",
+"add",
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/summary_gate_q5.json",
+"classes.crypto.cells"
+],
+[
+"j",
+"docs/findings/xdl9-conv-formation-gate-2026-11-07/data/summary_gate_q5.json",
+"classes.eq.cells"
+]
+],
+"code": "i",
+"text": "64",
+"line": 109
+},
+{
+"id": 489,
+"spec": [
+"dur",
+"k0 rc",
+"DONE_G"
+],
+"code": "f0",
+"text": "42",
+"line": 109
+},
+{
+"id": 490,
+"spec": [
+"dur",
+"k0 rc",
+"L_full"
+],
+"code": "f0",
+"text": "33",
+"line": 109
+},
+{
+"id": 491,
+"spec": [
+"dur",
+"DONE_G",
+"DONE_Q out_noq5"
+],
+"code": "f0",
+"text": "5",
+"line": 109
+},
+{
+"id": 492,
+"spec": [
+"dur",
+"DONE_Q out_noq5",
+"DONE_N"
+],
+"code": "f0",
+"text": "7",
+"line": 109
+},
+{
+"id": 493,
+"spec": [
+"dur",
+"DONE_N",
+"DONE_Q out_nogate_noq5"
+],
+"code": "f0",
+"text": "4",
+"line": 109
+},
+{
+"id": 494,
+"spec": [
+"dur",
+"k0 rc",
+"ALLDONE"
+],
+"code": "f0",
+"text": "58",
+"line": 109
+}
+]

@@ -1,0 +1,38 @@
+START 2026-11-07T04:56:29Z
+{
+ "cls": "eq",
+ "combo": [
+  40.0,
+  5,
+  1,
+  120,
+  2.0
+ ],
+ "days_with_active_pairs": 9,
+ "pairs_with_trades": 17,
+ "real_closed_trades": 21,
+ "real_mean_yd_closed": -0.053660475382193575,
+ "shifts": {
+  "-15": {
+   "trades_done": 0,
+   "skipped": 21,
+   "mean_yd": 0.0
+  },
+  "-5": {
+   "trades_done": 0,
+   "skipped": 21,
+   "mean_yd": 0.0
+  },
+  "5": {
+   "trades_done": 0,
+   "skipped": 21,
+   "mean_yd": 0.0
+  },
+  "15": {
+   "trades_done": 0,
+   "skipped": 21,
+   "mean_yd": 0.0
+  }
+ }
+}
+EXIT=0 2026-11-07T04:56:30Z

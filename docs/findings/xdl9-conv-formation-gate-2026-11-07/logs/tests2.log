@@ -1,0 +1,113 @@
+START 2026-11-07T04:12:16Z
+PASS g01_manifest_valid_and_red
+PASS g02_universe_toggle_and_markets
+   --no-gate = мир без Gate (48 файлов побайтно); Gate включён: потоки 1/4 равны, пар Gate 18
+PASS g03_nogate_byte_identical_and_gate_deterministic
+PASS g04_cli_flags
+   G-C2-7 (Gate): 12 символов, макс. расхождение 5.9e-08; красные: множитель 10 -> 12 расхождений, v без quanto -> 10
+PASS g05_turnover_multiplier_and_gc2_7_gate
+PASS g06_gate_funding_dir_and_open_label
+{
+ "gate_contracts": 9,
+ "gate_by_class": {
+  "crypto": 7,
+  "equity": 1,
+  "commodity": 1
+ },
+ "gate_big": {
+  "крипта": 6,
+  "акции+ETF": 1,
+  "вне теста": 2
+ },
+ "gate_roles": {
+  "main": 6,
+  "excluded": 2,
+  "dup": 1
+ },
+ "gate_out_kinds": {
+  "pre_listing": 1,
+  "class_undefined": 1
+ },
+ "pairs_rows": 15,
+ "c1d2_pairs_by_class": {
+  "акции+ETF": 2,
+  "крипта": 2
+ },
+ "c1d2_pairs_total": 4
+}
+   пар Gate 15; c1d2 {'акции+ETF': 2, 'крипта': 2}
+PASS g07_pairs_table_known_answers
+{'hint': 'H4', 'asset': 'TA', 'ex1': 'binance', 'sym1': 'TAUSDT', 'ex2': 'gate', 'sym2': 'TA_USDT', 'verdict': 'одно', 'n_ret': '2000', 'S': '0.03', 'c1d2': '1', 'big1': 'крипта', 'in_universe_c2': 1, 'market': '24x7'}
+{'hint': 'H4', 'asset': 'TA', 'ex1': 'bingx', 'sym1': 'TA-USDT', 'ex2': 'gate', 'sym2': 'TA_USDT', 'verdict': 'одно', 'n_ret': '2000', 'S': '0.03', 'c1d2': '1', 'big1': 'крипта', 'in_universe_c2': 1, 'market': '24x7'}
+{'hint': 'H4', 'asset': 'TA', 'ex1': 'aster', 'sym1': 'TAUSDT', 'ex2': 'gate', 'sym2': 'TA_USDT', 'verdict': 'нет данных (мало общих доходностей)', 'n_ret': '2000', 'S': '0.03', 'c1d2': '0', 'big1': 'крипта', 'in_universe_c2': 0, 'market': 'вне (c1d2=0)'}
+PASS g08_hints_membership_h4
+PASS g09_manifest_contract_checks_and_window_not_read
+итог: 0 из 9 тестов не прошли
+--- gate rc=0
+ОТКАЗ (защита окна П-38 §12.2): манифест: нет файла docs/research/params_r3.csv (/tmp/tmpl9hcncwj/params_r3.csv)
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: tools/compute/statarb/xdl9/conv/a.py
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: tools/compute/statarb/xdl9/conv/run.sh
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: tools/compute/statarb/cell_status.py
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: tools/compute/statarb/portfolio.py
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: docs/research/params.csv
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: docs/research/addendum.csv
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: docs/research/params_r3.csv
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 9); расходятся: input:/tmp/tmpt68en38b/classpar_full.json
+ОТКАЗ (защита окна П-38 §12.2): манифест токена не равен фактическому (файлов: токен 9, факт 10); расходятся: tools/compute/statarb/xdl9/conv/extra.py
+ОТКАЗ (защита окна П-38 §12.2): нет файла-токена /tmp/tmp6tkra4g9/c2/go_window.token (его выдаёт только CEO)
+ОТКАЗ (защита окна П-38 §12.2): нет файла-токена /tmp/tmp6tkra4g9/c2/go_window.token (его выдаёт только CEO)
+ОТКАЗ (защита окна П-38 §12.2): в window_reads.log есть незавершённый прогон окна (нет event=run_end): отказ до нового решения CEO и записи в «Отступления» (r3 R3.8 п. 2)
+ОТКАЗ (защита окна П-38 §12.2): токен уже забран другим вызовом (однократность по файлу): /tmp/tmp6tkra4g9/c2/go_window.token
+ОТКАЗ (защита окна П-38 §12.2): сутки >= 2479 (запрошено 2479) без флага --go-window
+ОТКАЗ (защита окна П-38 §12.2): окно читает только раннер conv_window.py (запрошено из другого пути)
+ОТКАЗ (защита окна П-38 §12.2): окно читает только раннер conv_window.py (запрошено из другого пути)
+ОТКАЗ (защита окна П-38 §12.2): калибровочные проходы не принимают last_day >= 2479 вообще (запрошено 2479)
+ОТКАЗ (защита окна П-38 §12.2): калибровочные проходы не принимают last_day >= 2479 вообще (запрошено 2499)
+ОТКАЗ (защита окна П-38 §12.2): Pi_train не читает сутки > 2471 (запрошено 2479): G-C2-9
+ОТКАЗ (защита окна П-38 §12.2): Pi_train не читает сутки > 2471 (запрошено 2499): G-C2-9
+ОТКАЗ (защита окна П-38 §12.2): Pi_train не читает сутки > 2471 (запрошено 2472): G-C2-9
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary не читает сутки >= 2479 (запрошено 2479, данные)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary не читает сутки >= 2479 (запрошено 2480, данные)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary не читает сутки >= 2479 (запрошено 2499, данные)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary не читает сутки >= 2479 (запрошено 2479, panel X.sap)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary не читает сутки >= 2479 (запрошено 2499, panel X.sap)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary не читает сутки >= 2479 (запрошено 2479, turnover X.sap)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary не читает сутки >= 2479 (запрошено 2480, funding X.sap)
+ОТКАЗ (защита окна П-38 §12.2): не задан last_day для чтения: данные
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary: граница D должна быть в 2466..2478 (задано 2479)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary: граница D должна быть в 2466..2478 (задано 2499)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary: граница D должна быть в 2466..2478 (задано 2465)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary: граница D должна быть в 2466..2478 (задано 0)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary: граница D должна быть в 2466..2478 (задано None)
+ОТКАЗ (защита окна П-38 §12.2): режим test-boundary несовместим с --go-window
+ОТКАЗ (защита окна П-38 §12.2): тестовый мир не может быть предком /home/deck/xdl9 (корень /home/deck)
+ОТКАЗ (защита окна П-38 §12.2): тестовый мир не может быть предком /home/deck/xdl9 (корень /home)
+ОТКАЗ (защита окна П-38 §12.2): тестовый мир не может лежать внутри /home/deck/xdl9
+ОТКАЗ (защита окна П-38 §12.2): тестовый мир не может лежать внутри /home/deck/xdl9
+ОТКАЗ (защита окна П-38 §12.2): тестовый мир не может лежать внутри /home/deck/xdl9
+ОТКАЗ (защита окна П-38 §12.2): режим test: путь вне тестового мира: /home/deck/xdl9/panels/bybit/BTCUSDT.sap
+ОТКАЗ (защита окна П-38 §12.2): режим test: путь вне тестового мира: /tmp/tmppu2u9zhe2/x.sap
+ОТКАЗ (защита окна П-38 §12.2): режим test: путь вне тестового мира: /etc/passwd
+ОТКАЗ (защита окна П-38 §12.2): тестовый мир не может лежать внутри /home/deck/xdl9
+ОТКАЗ (защита окна П-38 §12.2): sha256 (LF) копии addendum не равен записанному в c2_git_ok
+ОТКАЗ (защита окна П-38 §12.2): sha256 (LF) копии r3 не равен записанному в c2_git_ok
+ОТКАЗ (защита окна П-38 §12.2): в c2_git_ok нет r3_sha256 (записать `conv_run.py git-token` с этим файлом)
+ОТКАЗ (защита окна П-38 §12.2): нет git и нет токена /tmp/tmplidw2hd8/code/c2_git_ok: сначала `conv_run.py git-token` на ПК
+ОТКАЗ (защита окна П-38 §12.2): окно: в конфигурации защиты нет params G0.1 и addendum
+PASS w01_manifest_covers_all_code_and_inputs
+PASS w02_token_accepts_exact_manifest_and_refuses_tamper
+PASS w03_token_is_single_use_and_logged
+PASS w04_window_requires_flag_mode_and_the_one_runner
+PASS w05_test_boundary_never_reads_the_window
+PASS w06_test_world_may_not_be_ancestor_of_home
+PASS w07_git_token_checks_params_addendum_and_r3_by_lf
+PASS w08_cli_red_tests
+   сделок V1/V2: {'V1': 167, 'V2': 196}; сверка с conv_run - до бита; потоки 1/3 равны
+PASS w09_runner_equals_conv_run_on_synthetic_world
+PASS w10_pair_table_starts_from_zero_at_boundary
+PASS w11_holm_r3_rule_by_interval
+PASS w12_r3_status_ladder_and_thresholds
+PASS w13_cli_token_covers_every_file_kind
+итог: 0 из 13 тестов не прошли
+--- window rc=0
+EXIT=0 2026-11-07T04:12:59Z

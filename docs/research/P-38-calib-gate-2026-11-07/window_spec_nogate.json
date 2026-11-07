@@ -1,0 +1,115 @@
+{
+ "addendum": "/home/deck/xdl9/c2g/repo/docs/research/P-38-params-calib-gate-2026-11-07.csv",
+ "name": "P-38 r3, окно: класс crypto, варианты V1 (с Q5) и V2 (без Q5)",
+ "note": "spec по §17 r3 (07.11); числа из выходов калибровки (формирование)",
+ "params": "/home/deck/xdl9/c2g/repo/docs/research/P-38-params-2026-11-07.csv",
+ "params_r3": "/home/deck/xdl9/c2g/repo/docs/research/P-38-params-r3-2026-11-07.csv",
+ "raw_root": "/home/deck/xdl/out",
+ "root": "/home/deck/xdl9",
+ "variants": [
+  {
+   "a3b": {
+    "h0on1": {
+     "classpar": "/home/deck/xdl9/c2g/ng/out/calib/classpar_H1.json",
+     "combo": [
+      25.2,
+      5,
+      3,
+      360,
+      null
+     ]
+    },
+    "h1on0": {
+     "classpar": "/home/deck/xdl9/c2g/ng/out/calib/classpar_H0.json",
+     "combo": [
+      25.2,
+      3,
+      3,
+      120,
+      null
+     ]
+    }
+   },
+   "classpar": "/home/deck/xdl9/c2g/ng/out/calib/classpar_full.json",
+   "cls": "crypto",
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "formation_labels": {
+    "a3_cells": {
+     "ok": false,
+     "text": "формирование: A3 по клеткам не пройдено (0 из 28)"
+    },
+    "a3b": {
+     "ok": false,
+     "text": "формирование: A3b не пройдено (H0->H1 -0.011 (375 сделок); H1->H0 +0.075 (192))"
+    },
+    "a8": {
+     "ok": true,
+     "text": "формирование: A8 пройдено (8 бирж из 8)"
+    }
+   },
+   "id": "V1",
+   "q5": "/home/deck/xdl9/c2g/ng/out/calib/q5_full.json",
+   "sigma_form": 0.06458778413053327,
+   "sigma_form_src": "std суточного ряда y_d (закрытые + MTM) по суткам 2472..2478 (n=7) из /home/deck/xdl9/c2g/ng/out/calib/grid_full"
+  },
+  {
+   "a3b": {
+    "h0on1": {
+     "classpar": "/home/deck/xdl9/c2g/ng/out_noq5/calib/classpar_H1.json",
+     "combo": [
+      25.2,
+      5,
+      3,
+      360,
+      null
+     ]
+    },
+    "h1on0": {
+     "classpar": "/home/deck/xdl9/c2g/ng/out_noq5/calib/classpar_H0.json",
+     "combo": [
+      40.0,
+      3,
+      3,
+      1440,
+      null
+     ]
+    }
+   },
+   "classpar": "/home/deck/xdl9/c2g/ng/out_noq5/calib/classpar_full.json",
+   "cls": "crypto",
+   "combo": [
+    40.0,
+    3,
+    3,
+    120,
+    null
+   ],
+   "formation_labels": {
+    "a3_cells": {
+     "ok": false,
+     "text": "формирование: A3 по клеткам не пройдено (0 из 28)"
+    },
+    "a3b": {
+     "ok": true,
+     "text": "формирование: A3b пройдено (H0->H1 +0.027 (156 сделок); H1->H0 +0.073 (206))"
+    },
+    "a8": {
+     "ok": true,
+     "text": "формирование: A8 пройдено (8 бирж из 8)"
+    }
+   },
+   "id": "V2",
+   "q5": null,
+   "sigma_form": 0.05762034947061348,
+   "sigma_form_src": "std суточного ряда y_d (закрытые + MTM) по суткам 2472..2478 (n=7) из /home/deck/xdl9/c2g/ng/out_noq5/calib/grid_full"
+  }
+ ],
+ "w2_jobs": "/home/deck/xdl9/c2g/addendum_run/P-38-calib-gate-2026-11-07/jobs_w2.csv",
+ "w2_k_ref": "/home/deck/xdl9/audit3/hints/crypto/pairs_all.csv"
+}

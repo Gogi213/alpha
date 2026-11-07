@@ -1,0 +1,151 @@
+# сверка out_nogate (новый код, --no-gate) с прежним ~/xdl9/c2/out (код f47dff41)
+## out_nogate против c2/out
+grid_full crypto/act.npy eq
+grid_full crypto/counters.json eq
+grid_full crypto/hist.npy eq
+grid_full crypto/minnet.npy eq
+grid_full crypto/pairmeta.json eq
+grid_full crypto/pids.json eq
+grid_full crypto/tab.npy eq
+grid_full eq/act.npy eq
+grid_full eq/counters.json eq
+grid_full eq/hist.npy eq
+grid_full eq/minnet.npy eq
+grid_full eq/pairmeta.json eq
+grid_full eq/pids.json eq
+grid_full eq/tab.npy eq
+grid_train crypto/act.npy eq
+grid_train crypto/counters.json eq
+grid_train crypto/hist.npy eq
+grid_train crypto/minnet.npy eq
+grid_train crypto/pairmeta.json eq
+grid_train crypto/pids.json eq
+grid_train crypto/tab.npy eq
+grid_train eq/act.npy eq
+grid_train eq/counters.json eq
+grid_train eq/hist.npy eq
+grid_train eq/minnet.npy eq
+grid_train eq/pairmeta.json eq
+grid_train eq/pids.json eq
+grid_train eq/tab.npy eq
+grid_H0 crypto/act.npy eq
+grid_H0 crypto/counters.json eq
+grid_H0 crypto/hist.npy eq
+grid_H0 crypto/minnet.npy eq
+grid_H0 crypto/pairmeta.json eq
+grid_H0 crypto/pids.json eq
+grid_H0 crypto/tab.npy eq
+grid_H0 eq/act.npy eq
+grid_H0 eq/counters.json eq
+grid_H0 eq/hist.npy eq
+grid_H0 eq/minnet.npy eq
+grid_H0 eq/pairmeta.json eq
+grid_H0 eq/pids.json eq
+grid_H0 eq/tab.npy eq
+grid_H1 crypto/act.npy eq
+grid_H1 crypto/counters.json eq
+grid_H1 crypto/hist.npy eq
+grid_H1 crypto/minnet.npy eq
+grid_H1 crypto/pairmeta.json eq
+grid_H1 crypto/pids.json eq
+grid_H1 crypto/tab.npy eq
+grid_H1 eq/act.npy eq
+grid_H1 eq/counters.json eq
+grid_H1 eq/hist.npy eq
+grid_H1 eq/minnet.npy eq
+grid_H1 eq/pairmeta.json eq
+grid_H1 eq/pids.json eq
+grid_H1 eq/tab.npy eq
+grid_k8_crypto crypto/act.npy eq
+grid_k8_crypto crypto/counters.json eq
+grid_k8_crypto crypto/hist.npy eq
+grid_k8_crypto crypto/minnet.npy eq
+grid_k8_crypto crypto/pairmeta.json eq
+grid_k8_crypto crypto/pids.json eq
+grid_k8_crypto crypto/tab.npy eq
+grid_k8_crypto crypto/trades.csv eq
+k7/selection_crypto.json eq
+k7/selection_eq.json eq
+k7/cells_crypto.csv eq
+k7/cells_eq.csv eq
+k7/grid_class_crypto.csv eq
+k7/grid_class_eq.csv eq
+k7/grid_cells_crypto.csv eq
+k7/grid_cells_eq.csv eq
+k7/summary.json eq
+calib/classpar_full.json eq
+calib/q5_full.json eq
+calib/classpar_H0.json eq
+calib/classpar_H1.json eq
+train/classpar_train.json eq
+## out_nogate_noq5 против c2/out_noq5
+grid_full crypto/act.npy eq
+grid_full crypto/counters.json eq
+grid_full crypto/hist.npy eq
+grid_full crypto/minnet.npy eq
+grid_full crypto/pairmeta.json eq
+grid_full crypto/pids.json eq
+grid_full crypto/tab.npy eq
+grid_full eq/act.npy eq
+grid_full eq/counters.json eq
+grid_full eq/hist.npy eq
+grid_full eq/minnet.npy eq
+grid_full eq/pairmeta.json eq
+grid_full eq/pids.json eq
+grid_full eq/tab.npy eq
+grid_train crypto/act.npy eq
+grid_train crypto/counters.json eq
+grid_train crypto/hist.npy eq
+grid_train crypto/minnet.npy eq
+grid_train crypto/pairmeta.json eq
+grid_train crypto/pids.json eq
+grid_train crypto/tab.npy eq
+grid_train eq/act.npy eq
+grid_train eq/counters.json eq
+grid_train eq/hist.npy eq
+grid_train eq/minnet.npy eq
+grid_train eq/pairmeta.json eq
+grid_train eq/pids.json eq
+grid_train eq/tab.npy eq
+grid_H0 crypto/act.npy eq
+grid_H0 crypto/counters.json eq
+grid_H0 crypto/hist.npy eq
+grid_H0 crypto/minnet.npy eq
+grid_H0 crypto/pairmeta.json eq
+grid_H0 crypto/pids.json eq
+grid_H0 crypto/tab.npy eq
+grid_H0 eq/act.npy eq
+grid_H0 eq/counters.json eq
+grid_H0 eq/hist.npy eq
+grid_H0 eq/minnet.npy eq
+grid_H0 eq/pairmeta.json eq
+grid_H0 eq/pids.json eq
+grid_H0 eq/tab.npy eq
+grid_H1 crypto/act.npy eq
+grid_H1 crypto/counters.json eq
+grid_H1 crypto/hist.npy eq
+grid_H1 crypto/minnet.npy eq
+grid_H1 crypto/pairmeta.json eq
+grid_H1 crypto/pids.json eq
+grid_H1 crypto/tab.npy eq
+grid_H1 eq/act.npy eq
+grid_H1 eq/counters.json eq
+grid_H1 eq/hist.npy eq
+grid_H1 eq/minnet.npy eq
+grid_H1 eq/pairmeta.json eq
+grid_H1 eq/pids.json eq
+grid_H1 eq/tab.npy eq
+k7/selection_crypto.json eq
+k7/selection_eq.json eq
+k7/cells_crypto.csv eq
+k7/cells_eq.csv eq
+k7/grid_class_crypto.csv eq
+k7/grid_class_eq.csv eq
+k7/grid_cells_crypto.csv eq
+k7/grid_cells_eq.csv eq
+k7/summary.json eq
+calib/classpar_full.json eq
+calib/q5_full.json отсутствует в новом
+calib/classpar_H0.json eq
+calib/classpar_H1.json eq
+train/classpar_train.json eq

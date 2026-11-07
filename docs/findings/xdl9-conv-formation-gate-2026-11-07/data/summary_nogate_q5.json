@@ -1,0 +1,2138 @@
+{
+ "classes": {
+  "crypto": {
+   "assets": 550,
+   "assets_gate": 0,
+   "at_cfull": {
+    "T": 1440,
+    "assets": 95,
+    "block": 3,
+    "days": 13,
+    "df": 4,
+    "fund_trade": -5.198710961049133,
+    "gross_trade": 30.16236003226097,
+    "hi": 0.13049313246457545,
+    "k": 3,
+    "lo": 0.021133020430742208,
+    "lo_pos": true,
+    "maker_mean_trade": 19.923649071211834,
+    "mean": 0.07581307644765882,
+    "mean_trade": 12.363649071211833,
+    "n_days": 13,
+    "n_eff": 5,
+    "p": 3,
+    "s_stop": null,
+    "share_def": 0.02247191011235955,
+    "share_ff": 0.03932584269662921,
+    "share_le2": 0.1348314606741573,
+    "theta": 40.0,
+    "trades": 356,
+    "win_loss_ratio": 1.0681856933377665,
+    "win_rate": 0.6769662921348315
+   },
+   "cells": 28,
+   "cells_admitted_n": 0,
+   "cells_gate": 0,
+   "cells_n": 28,
+   "cells_pass_A": [
+    6,
+    3,
+    0,
+    5,
+    7,
+    28,
+    18
+   ],
+   "cfull_H0": {
+    "assets": 41,
+    "days": 13,
+    "df": 4,
+    "fund": -8.80369588960906,
+    "gross": 37.853753428000815,
+    "hi": 0.14490806358405578,
+    "le2": 0.09090909090909091,
+    "lo": 0.05786730852931429,
+    "mean_yd": 0.10138768605668504,
+    "n_days": 13,
+    "n_eff": 5,
+    "net": 16.450057538391754,
+    "pairs": 3201,
+    "trades": 198
+   },
+   "cfull_H1": {
+    "assets": 54,
+    "days": 13,
+    "df": 4,
+    "fund": -0.6810716201955531,
+    "gross": 20.523778435068,
+    "hi": 0.13884014776206918,
+    "le2": 0.189873417721519,
+    "lo": -0.04949176961711274,
+    "mean_yd": 0.04467418907247822,
+    "n_days": 13,
+    "n_eff": 5,
+    "net": 7.242706814872447,
+    "pairs": 2629,
+    "trades": 158
+   },
+   "cfull_by_cell": {
+    "aster~binance/crypto": {
+     "assets": 4,
+     "days": 4,
+     "lo": -0.13054979878954595,
+     "mean_yd": 0.05658457808292842,
+     "net": 7.152123905486846,
+     "pairs": 213,
+     "trades": 7
+    },
+    "aster~bingx/crypto": {
+     "assets": 3,
+     "days": 3,
+     "lo": -0.17343865549849763,
+     "mean_yd": 0.0020935111580146415,
+     "net": -0.2577581666466564,
+     "pairs": 212,
+     "trades": 6
+    },
+    "aster~bitget/crypto": {
+     "assets": 5,
+     "days": 7,
+     "lo": -0.10129320940201875,
+     "mean_yd": 0.10805568517043182,
+     "net": 13.254241073622655,
+     "pairs": 163,
+     "trades": 8
+    },
+    "aster~bybit/crypto": {
+     "assets": 7,
+     "days": 7,
+     "lo": -0.11316627204810212,
+     "mean_yd": 0.01067888236927034,
+     "net": 1.3762693922306082,
+     "pairs": 192,
+     "trades": 9
+    },
+    "aster~kraken/crypto": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 69,
+     "trades": 0
+    },
+    "aster~lighter/crypto": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 60,
+     "trades": 0
+    },
+    "aster~okx/crypto": {
+     "assets": 6,
+     "days": 7,
+     "lo": -0.11027364841879571,
+     "mean_yd": 0.11413835391690148,
+     "net": 14.429765120191332,
+     "pairs": 142,
+     "trades": 7
+    },
+    "binance~bingx/crypto": {
+     "assets": 24,
+     "days": 12,
+     "lo": 0.1759273774667824,
+     "mean_yd": 0.310869422355751,
+     "net": 21.0687719034234,
+     "pairs": 488,
+     "trades": 93
+    },
+    "binance~bitget/crypto": {
+     "assets": 5,
+     "days": 4,
+     "lo": -0.07070982302886188,
+     "mean_yd": -0.012239388212225881,
+     "net": -10.29762156133205,
+     "pairs": 447,
+     "trades": 6
+    },
+    "binance~bybit/crypto": {
+     "assets": 27,
+     "days": 12,
+     "lo": -0.023100699031847444,
+     "mean_yd": 0.06688460445331683,
+     "net": 10.393779931179964,
+     "pairs": 469,
+     "trades": 39
+    },
+    "binance~kraken/crypto": {
+     "assets": 2,
+     "days": 1,
+     "lo": -0.4261019891506441,
+     "mean_yd": -0.13860107565236826,
+     "net": -56.757140479644804,
+     "pairs": 105,
+     "trades": 2
+    },
+    "binance~lighter/crypto": {
+     "assets": 2,
+     "days": 3,
+     "lo": -0.2482041697524275,
+     "mean_yd": 0.20169792024065028,
+     "net": 33.34523629231184,
+     "pairs": 82,
+     "trades": 4
+    },
+    "binance~okx/crypto": {
+     "assets": 7,
+     "days": 7,
+     "lo": 0.021953130263219683,
+     "mean_yd": 0.06351796958406987,
+     "net": 19.856684690331686,
+     "pairs": 265,
+     "trades": 11
+    },
+    "bingx~bitget/crypto": {
+     "assets": 14,
+     "days": 7,
+     "lo": -0.09193059356503586,
+     "mean_yd": 0.04297956509752222,
+     "net": 9.297620175994162,
+     "pairs": 439,
+     "trades": 22
+    },
+    "bingx~bybit/crypto": {
+     "assets": 35,
+     "days": 13,
+     "lo": 0.014048874359294306,
+     "mean_yd": 0.14210583004372054,
+     "net": 13.1926893425913,
+     "pairs": 472,
+     "trades": 65
+    },
+    "bingx~kraken/crypto": {
+     "assets": 2,
+     "days": 2,
+     "lo": -0.19540649639427038,
+     "mean_yd": 0.04358868099185672,
+     "net": 18.10836101370744,
+     "pairs": 107,
+     "trades": 2
+    },
+    "bingx~lighter/crypto": {
+     "assets": 2,
+     "days": 2,
+     "lo": -0.20189200010165723,
+     "mean_yd": 0.07427463855639713,
+     "net": 23.78861079298568,
+     "pairs": 85,
+     "trades": 2
+    },
+    "bingx~okx/crypto": {
+     "assets": 17,
+     "days": 10,
+     "lo": -0.061069009235526966,
+     "mean_yd": 0.009988132496697496,
+     "net": 1.4791438343054386,
+     "pairs": 275,
+     "trades": 24
+    },
+    "bitget~bybit/crypto": {
+     "assets": 20,
+     "days": 10,
+     "lo": -0.283432798921638,
+     "mean_yd": -0.006663184021379389,
+     "net": -2.0713672053628516,
+     "pairs": 426,
+     "trades": 23
+    },
+    "bitget~kraken/crypto": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.12498184116705033,
+     "mean_yd": 0.11633738406547706,
+     "net": 89.2307735782209,
+     "pairs": 96,
+     "trades": 1
+    },
+    "bitget~lighter/crypto": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.041847783667768215,
+     "mean_yd": 0.038953352226096444,
+     "net": 25.31967894696269,
+     "pairs": 76,
+     "trades": 1
+    },
+    "bitget~okx/crypto": {
+     "assets": 7,
+     "days": 4,
+     "lo": -0.11037577283937991,
+     "mean_yd": -0.040988156451159045,
+     "net": -11.543498898089556,
+     "pairs": 263,
+     "trades": 10
+    },
+    "bybit~kraken/crypto": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 104,
+     "trades": 0
+    },
+    "bybit~lighter/crypto": {
+     "assets": 2,
+     "days": 2,
+     "lo": -0.05093230696223511,
+     "mean_yd": 0.05553169665317202,
+     "net": 19.343463763008383,
+     "pairs": 85,
+     "trades": 2
+    },
+    "bybit~okx/crypto": {
+     "assets": 9,
+     "days": 7,
+     "lo": -0.029590842413947507,
+     "mean_yd": 0.12055343951708321,
+     "net": 35.06063159654156,
+     "pairs": 271,
+     "trades": 12
+    },
+    "kraken~lighter/crypto": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 49,
+     "trades": 0
+    },
+    "kraken~okx/crypto": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 95,
+     "trades": 0
+    },
+    "lighter~okx/crypto": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 80,
+     "trades": 0
+    }
+   },
+   "cfull_by_exch_involved": {
+    "aster": {
+     "assets": 13,
+     "lo": -0.006730018912432918,
+     "mean_yd": 0.047870468190380475,
+     "net": 7.2418115486195695,
+     "pairs": 1051,
+     "trades": 37
+    },
+    "binance": {
+     "assets": 60,
+     "lo": 0.06477021010738795,
+     "mean_yd": 0.11340796599573635,
+     "net": 15.995818136471705,
+     "pairs": 2069,
+     "trades": 162
+    },
+    "bingx": {
+     "assets": 63,
+     "lo": 0.0476982043909194,
+     "mean_yd": 0.13677826645612992,
+     "net": 14.66922936820336,
+     "pairs": 2078,
+     "trades": 214
+    },
+    "bitget": {
+     "assets": 42,
+     "lo": -0.09815965912344922,
+     "mean_yd": 0.011041908955509624,
+     "net": 2.8207022663915895,
+     "pairs": 1910,
+     "trades": 71
+    },
+    "bybit": {
+     "assets": 64,
+     "lo": 0.0011295277142882865,
+     "mean_yd": 0.07692377835808843,
+     "net": 11.246944733837989,
+     "pairs": 2019,
+     "trades": 150
+    },
+    "kraken": {
+     "assets": 5,
+     "lo": -0.09871264014227643,
+     "mean_yd": 0.0023831675941217104,
+     "net": 2.3866429292692373,
+     "pairs": 625,
+     "trades": 5
+    },
+    "lighter": {
+     "assets": 5,
+     "lo": -0.05917643947946257,
+     "mean_yd": 0.06110100253528667,
+     "net": 27.21830813646646,
+     "pairs": 517,
+     "trades": 9
+    },
+    "okx": {
+     "assets": 26,
+     "lo": 0.004785399345549682,
+     "mean_yd": 0.042149335121174775,
+     "net": 10.315998900561274,
+     "pairs": 1391,
+     "trades": 64
+    }
+   },
+   "cfull_gate_pairs": {
+    "pairs": 0,
+    "trades": 0
+   },
+   "cfull_nongate_pairs": {
+    "assets": 95,
+    "days": 13,
+    "df": 4,
+    "fund": -5.198710961049133,
+    "gross": 30.16236003226097,
+    "hi": 0.13049313246457545,
+    "le2": 0.1348314606741573,
+    "lo": 0.021133020430742208,
+    "mean_yd": 0.07581307644765882,
+    "n_days": 13,
+    "n_eff": 5,
+    "net": 12.363649071211833,
+    "pairs": 5830,
+    "trades": 356
+   },
+   "classpar_full": {
+    "a90_edges": [
+     25.2,
+     40.0,
+     80.0,
+     160.0,
+     320.0,
+     640.0,
+     1280.0,
+     2560.0,
+     5120.0,
+     10240.0
+    ],
+    "a90_vals": [
+     0.0,
+     0.0,
+     0.531893418123988,
+     0.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "gmax": 320.0,
+    "gsig_max": 34.0,
+    "kstale": 32,
+    "m_r": 1,
+    "m_shift": 1.568,
+    "q_c": 7.327515268325806,
+    "q_stale": 0.8333333333333334
+   },
+   "classpar_train": {
+    "a90_edges": [
+     25.2,
+     40.0,
+     80.0,
+     160.0,
+     320.0,
+     640.0,
+     1280.0,
+     2560.0,
+     5120.0,
+     10240.0
+    ],
+    "a90_vals": [
+     0.02807529257009529,
+     1.716768186921236,
+     8.960324536650973,
+     0.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "gmax": 320.0,
+    "gsig_max": 21.0,
+    "kstale": 32,
+    "m_r": 1,
+    "m_shift": 1.587,
+    "q_c": 6.598419342935083,
+    "q_stale": 0.8333333333333334
+   },
+   "exch": [
+    "aster",
+    "binance",
+    "bingx",
+    "bitget",
+    "bybit",
+    "kraken",
+    "lighter",
+    "okx"
+   ],
+   "exits": {
+    "by_code": {
+     "CV": {
+      "gross_mean": 32.68939992223283,
+      "n": 338,
+      "net_mean": 14.9865829401286
+     },
+     "S2": {
+      "gross_mean": 5.37752483,
+      "n": 1,
+      "net_mean": -7.22247517
+     },
+     "S3": {
+      "gross_mean": -17.0687522184,
+      "n": 15,
+      "net_mean": -29.492852436666663
+     },
+     "TO": {
+      "gross_mean": -30.281623283,
+      "n": 2,
+      "net_mean": -107.1953517
+     }
+    },
+    "deferred": 8,
+    "ffill": 14,
+    "mtm": 0,
+    "total": 356,
+    "wins": 241
+   },
+   "grid_ok_rows": 120,
+   "grid_p3_rows": 90,
+   "grid_pos_lo": 13,
+   "grid_pos_lo_ok": 7,
+   "grid_pos_mean": 84,
+   "grid_pos_mean_p3": 66,
+   "grid_rows": 180,
+   "k8_shift": {
+    "cls": "crypto",
+    "combo": [
+     40.0,
+     3,
+     3,
+     1440,
+     null
+    ],
+    "days_with_active_pairs": 13,
+    "pairs_with_trades": 202,
+    "real_closed_trades": 356,
+    "real_mean_yd_closed": 0.0758130764351402,
+    "shifts": {
+     "-15": {
+      "mean_yd": 0.007042534517892966,
+      "skipped": 353,
+      "trades_done": 3
+     },
+     "-5": {
+      "mean_yd": 0.0048030038830278714,
+      "skipped": 353,
+      "trades_done": 3
+     },
+     "15": {
+      "mean_yd": 0.015485111259949584,
+      "skipped": 323,
+      "trades_done": 33
+     },
+     "5": {
+      "mean_yd": 0.03477558759808827,
+      "skipped": 285,
+      "trades_done": 71
+     }
+    }
+   },
+   "pairs": 5830,
+   "pairs_gate": 0,
+   "sel": {
+    "a3b": [
+     false,
+     true
+    ],
+    "a3b_detail": {
+     "detail": {
+      "H0": {
+       "combo": [
+        25.2,
+        3,
+        3,
+        120,
+        null
+       ],
+       "days": 13,
+       "mean": -0.010655112535439373,
+       "trades": 375
+      },
+      "H1": {
+       "combo": [
+        25.2,
+        5,
+        3,
+        360,
+        null
+       ],
+       "days": 13,
+       "mean": 0.07476559800407478,
+       "trades": 192
+      }
+     },
+     "ok": [
+      false,
+      true
+     ]
+    },
+    "a8": {
+     "aster": true,
+     "binance": true,
+     "bingx": true,
+     "bitget": true,
+     "bybit": true,
+     "kraken": true,
+     "lighter": true,
+     "okx": true
+    },
+    "agree": true,
+    "c_full": [
+     40.0,
+     3,
+     3,
+     1440,
+     null
+    ],
+    "c_train": [
+     80.0,
+     5,
+     3,
+     1440,
+     null
+    ],
+    "cells_admitted": [],
+    "counters_selected": {
+     "dedup_dropped": 63,
+     "drop_Q5": 719,
+     "entry_deferred": 8,
+     "exit_CV": 338,
+     "exit_S2": 1,
+     "exit_S3": 15,
+     "exit_TO": 2,
+     "exit_ffill": 14,
+     "jump_trades": 1,
+     "signal_total": 356
+    },
+    "distinct_behaviours": 122,
+    "formed": false,
+    "grid_positive_mean_share": 0.4666666666666667,
+    "k8_reversed_mean_yd": -0.2308663098090334,
+    "k8_selected_mean_yd": 0.07581307644765882,
+    "katok_bounds": {
+     "ratio_q25": 0.8290398265085966,
+     "win_rate_q75": 0.7088815789473685
+    },
+    "p_win": {
+     "obs_best": 0.021133020430742208,
+     "p_win": 0.000999000999000999
+    },
+    "plateau": true,
+    "reasons": [
+     "A3b: комбинация одной половины активов не даёт плюс на другой"
+    ],
+    "roll_fallback_a": 3.0572666170102636,
+    "tail_selected": {
+     "mean": 12.363649071211833,
+     "trades": 356.0,
+     "win_loss_ratio": 1.0681856933377665,
+     "win_rate": 0.6769662921348315
+    }
+   },
+   "structural_full": {
+    "gmax_rule": {
+     "a90": [],
+     "a90_edges": [
+      25.2,
+      40.0,
+      80.0,
+      160.0,
+      320.0,
+      640.0,
+      1280.0,
+      2560.0,
+      5120.0,
+      10240.0
+     ],
+     "a90_vals": [
+      0.0,
+      0.0,
+      0.531893418123988,
+      0.0,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "bins": [
+      {
+       "basis": "bps",
+       "episodes": 25516,
+       "hi": 40.0,
+       "lo": 25.2,
+       "p_conv": 0.9903978052126201,
+       "p_conv_hi": 0.9922273944023784,
+       "p_conv_lo": 0.9885216634762098,
+       "p_stop": 0.009523809523809526,
+       "p_stop_hi": 0.011395948316103842,
+       "p_stop_lo": 0.007690505952009284,
+       "race_lost": false,
+       "support": true,
+       "units": 4579
+      },
+      {
+       "basis": "bps",
+       "episodes": 6894,
+       "hi": 80.0,
+       "lo": 40.0,
+       "p_conv": 0.9911517261386712,
+       "p_conv_hi": 0.9934670605953523,
+       "p_conv_lo": 0.9885637746124771,
+       "p_stop": 0.008268059181897306,
+       "p_stop_hi": 0.010889359885177502,
+       "p_stop_lo": 0.006016329140408514,
+       "race_lost": false,
+       "support": true,
+       "units": 1957
+      },
+      {
+       "basis": "bps",
+       "episodes": 573,
+       "hi": 160.0,
+       "lo": 80.0,
+       "p_conv": 0.9842931937172774,
+       "p_conv_hi": 0.9933333333333336,
+       "p_conv_lo": 0.9744056941056084,
+       "p_stop": 0.015706806282722526,
+       "p_stop_hi": 0.02559430589439137,
+       "p_stop_lo": 0.006666666666666668,
+       "race_lost": false,
+       "support": true,
+       "units": 301
+      },
+      {
+       "basis": "bps",
+       "episodes": 82,
+       "hi": 320.0,
+       "lo": 160.0,
+       "p_conv": 0.9878048780487805,
+       "p_conv_hi": 1.0000000000000002,
+       "p_conv_lo": 0.9642857142857142,
+       "p_stop": 0.012195121951219513,
+       "p_stop_hi": 0.03571428571428571,
+       "p_stop_lo": 0.0,
+       "race_lost": false,
+       "support": true,
+       "units": 49
+      },
+      {
+       "basis": "bps",
+       "episodes": 4,
+       "hi": 640.0,
+       "lo": 320.0,
+       "support": false,
+       "units": 4
+      },
+      {
+       "basis": "bps",
+       "episodes": 2,
+       "hi": 1280.0,
+       "lo": 640.0,
+       "support": false,
+       "units": 2
+      },
+      {
+       "basis": "sigma",
+       "episodes": 25752,
+       "hi": 5.0,
+       "lo": 3.0,
+       "p_conv": 0.9902916391596444,
+       "p_conv_hi": 0.9920393154517655,
+       "p_conv_lo": 0.9884632640342592,
+       "p_stop": 0.009475360180187178,
+       "p_stop_hi": 0.011321380088447849,
+       "p_stop_lo": 0.007711500001961929,
+       "race_lost": false,
+       "support": true,
+       "units": 4239
+      },
+      {
+       "basis": "sigma",
+       "episodes": 6023,
+       "hi": 8.0,
+       "lo": 5.0,
+       "p_conv": 0.9905362776025237,
+       "p_conv_hi": 0.993270559730709,
+       "p_conv_lo": 0.9875441886199118,
+       "p_stop": 0.00946372239747634,
+       "p_stop_hi": 0.012455811380086617,
+       "p_stop_lo": 0.0067294402692904655,
+       "race_lost": false,
+       "support": true,
+       "units": 2496
+      },
+      {
+       "basis": "sigma",
+       "episodes": 1055,
+       "hi": 13.0,
+       "lo": 8.0,
+       "p_conv": 0.9933649289099528,
+       "p_conv_hi": 0.9972249201037585,
+       "p_conv_lo": 0.9887005649717518,
+       "p_stop": 0.006635071090047394,
+       "p_stop_hi": 0.011299435028248586,
+       "p_stop_lo": 0.0027750798962417555,
+       "race_lost": false,
+       "support": true,
+       "units": 732
+      },
+      {
+       "basis": "sigma",
+       "episodes": 193,
+       "hi": 21.0,
+       "lo": 13.0,
+       "p_conv": 0.9948186528497409,
+       "p_conv_hi": 1.0,
+       "p_conv_lo": 0.9846938775510203,
+       "p_stop": 0.005181347150259066,
+       "p_stop_hi": 0.015306122448979586,
+       "p_stop_lo": 0.0,
+       "race_lost": false,
+       "support": true,
+       "units": 164
+      },
+      {
+       "basis": "sigma",
+       "episodes": 38,
+       "hi": 34.0,
+       "lo": 21.0,
+       "p_conv": 0.9736842105263157,
+       "p_conv_hi": 1.0,
+       "p_conv_lo": 0.9230769230769231,
+       "p_stop": 0.026315789473684223,
+       "p_stop_hi": 0.07692307692307693,
+       "p_stop_lo": 0.0,
+       "race_lost": false,
+       "support": true,
+       "units": 34
+      },
+      {
+       "basis": "sigma",
+       "episodes": 9,
+       "hi": 55.0,
+       "lo": 34.0,
+       "support": false,
+       "units": 9
+      },
+      {
+       "basis": "sigma",
+       "episodes": 1,
+       "hi": 89.0,
+       "lo": 55.0,
+       "support": false,
+       "units": 1
+      }
+     ],
+     "episodes_total": 33071,
+     "gmax": 320.0,
+     "gmax_kind": "граница опоры данных, не измеренный разрыв",
+     "gsig_max": 34.0,
+     "k6_stop_was_right": [
+      {
+       "T": 120,
+       "ext_q50": 2.311801163611552,
+       "ext_q90": 4.9900306288808345,
+       "ext_q99": 18.448284106559182,
+       "share_converged": 0.8258064516129032,
+       "stops": 310
+      },
+      {
+       "T": 360,
+       "ext_q50": 2.4453898124391893,
+       "ext_q90": 5.372665862013677,
+       "ext_q99": 18.448284106559182,
+       "share_converged": 0.9419354838709677,
+       "stops": 310
+      },
+      {
+       "T": 1440,
+       "ext_q50": 2.5973193342976044,
+       "ext_q90": 5.861402241786969,
+       "ext_q99": 18.448284106559182,
+       "share_converged": 0.9774193548387097,
+       "stops": 310
+      }
+     ],
+     "t_struct": 59.0,
+     "t_struct_truncated": false
+    },
+    "k_stale": 32,
+    "m_r": 1,
+    "m_shift": 1.568,
+    "pairs": 5830,
+    "pass_tag": "full",
+    "q_c": 7.327515268325806,
+    "q_stale": 0.8333333333333334
+   },
+   "top5_lcb": [
+    {
+     "T": 1440,
+     "assets": 95,
+     "days": 13,
+     "gross_trade": 30.16236003226097,
+     "hi": 0.13049313246457545,
+     "k": 3,
+     "lo": 0.021133020430742208,
+     "mean": 0.07581307644765882,
+     "mean_trade": 12.363649071211833,
+     "n_eff": 5,
+     "p": 3,
+     "s_stop": null,
+     "theta": 40.0,
+     "trades": 356
+    },
+    {
+     "T": 360,
+     "assets": 93,
+     "days": 13,
+     "gross_trade": 29.444140501048086,
+     "hi": 0.1388642154606778,
+     "k": 3,
+     "lo": 0.01867886206468726,
+     "mean": 0.07877153876268252,
+     "mean_trade": 13.459983309602267,
+     "n_eff": 5,
+     "p": 3,
+     "s_stop": null,
+     "theta": 40.0,
+     "trades": 338
+    },
+    {
+     "T": 360,
+     "assets": 93,
+     "days": 13,
+     "gross_trade": 21.37677600983788,
+     "hi": 0.08285424085206056,
+     "k": 3,
+     "lo": 0.0036065188099534753,
+     "mean": 0.04323037983100701,
+     "mean_trade": 7.613825365844882,
+     "n_eff": 5,
+     "p": 3,
+     "s_stop": 2.0,
+     "theta": 40.0,
+     "trades": 331
+    },
+    {
+     "T": 120,
+     "assets": 96,
+     "days": 13,
+     "gross_trade": 22.002988731459595,
+     "hi": 0.085446866288681,
+     "k": 5,
+     "lo": 0.0034881485404447687,
+     "mean": 0.04446750741456289,
+     "mean_trade": 9.406267220082755,
+     "n_eff": 5,
+     "p": 3,
+     "s_stop": null,
+     "theta": 25.2,
+     "trades": 268
+    },
+    {
+     "T": 1440,
+     "assets": 95,
+     "days": 13,
+     "gross_trade": 20.923445603058425,
+     "hi": 0.06928309474081612,
+     "k": 3,
+     "lo": 0.0033454266314108527,
+     "mean": 0.036314260686113486,
+     "mean_trade": 6.328085619297573,
+     "n_eff": 5,
+     "p": 3,
+     "s_stop": 2.0,
+     "theta": 40.0,
+     "trades": 337
+    }
+   ]
+  },
+  "eq": {
+   "assets": 242,
+   "assets_gate": 0,
+   "at_cfull": {
+    "T": 120,
+    "assets": 13,
+    "block": 3,
+    "days": 6,
+    "df": 2,
+    "fund_trade": 0.0,
+    "gross_trade": -6.254271366705491,
+    "hi": 0.026821662902201934,
+    "k": 5,
+    "lo": -0.13414261369644503,
+    "lo_pos": false,
+    "maker_mean_trade": -11.294271366705491,
+    "mean": -0.05366047539712154,
+    "mean_trade": -18.85427136670549,
+    "n_days": 9,
+    "n_eff": 3,
+    "p": 1,
+    "s_stop": 2.0,
+    "share_def": 0.09523809523809523,
+    "share_ff": 0.14285714285714285,
+    "share_le2": 0.8095238095238095,
+    "theta": 40.0,
+    "trades": 21,
+    "win_loss_ratio": 0.44730589501596446,
+    "win_rate": 0.09523809523809523
+   },
+   "cells": 28,
+   "cells_admitted_n": 0,
+   "cells_gate": 0,
+   "cells_n": 28,
+   "cells_pass_A": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    15,
+    0
+   ],
+   "cfull_H0": {
+    "assets": 6,
+    "days": 4,
+    "df": 2,
+    "fund": 0.0,
+    "gross": -8.73356947296422,
+    "hi": 0.08998952333059972,
+    "le2": 0.8,
+    "lo": -0.2090626067420312,
+    "mean_yd": -0.05953654170571575,
+    "n_days": 9,
+    "n_eff": 3,
+    "net": -21.333569472964218,
+    "pairs": 980,
+    "trades": 10
+   },
+   "cfull_H1": {
+    "assets": 7,
+    "days": 6,
+    "df": 2,
+    "fund": 0.0,
+    "gross": -4.000363997379373,
+    "hi": 0.053350901125645805,
+    "le2": 0.8181818181818182,
+    "lo": -0.1498616467127488,
+    "mean_yd": -0.04825537279355149,
+    "n_days": 9,
+    "n_eff": 3,
+    "net": -16.600363997379375,
+    "pairs": 991,
+    "trades": 11
+   },
+   "cfull_by_cell": {
+    "aster~binance/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 30,
+     "trades": 0
+    },
+    "aster~bingx/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 29,
+     "trades": 0
+    },
+    "aster~bitget/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 27,
+     "trades": 0
+    },
+    "aster~bybit/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 28,
+     "trades": 0
+    },
+    "aster~kraken/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 5,
+     "trades": 0
+    },
+    "aster~lighter/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 21,
+     "trades": 0
+    },
+    "aster~okx/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 27,
+     "trades": 0
+    },
+    "binance~bingx/eq": {
+     "assets": 4,
+     "days": 5,
+     "lo": -0.10304906183957888,
+     "mean_yd": -0.05671027183348094,
+     "net": -11.302311294348055,
+     "pairs": 172,
+     "trades": 5
+    },
+    "binance~bitget/eq": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.07866224395853542,
+     "mean_yd": -0.02006697278499634,
+     "net": -11.377973569092925,
+     "pairs": 159,
+     "trades": 1
+    },
+    "binance~bybit/eq": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.005516001143039006,
+     "mean_yd": -0.001407148324903104,
+     "net": -0.8485104399165717,
+     "pairs": 158,
+     "trades": 1
+    },
+    "binance~kraken/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 18,
+     "trades": 0
+    },
+    "binance~lighter/eq": {
+     "assets": 1,
+     "days": 2,
+     "lo": -0.99020058817279,
+     "mean_yd": -0.2526031200562347,
+     "net": -21.079129217519032,
+     "pairs": 29,
+     "trades": 2
+    },
+    "binance~okx/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 142,
+     "trades": 0
+    },
+    "bingx~bitget/eq": {
+     "assets": 2,
+     "days": 3,
+     "lo": -0.6046827539889879,
+     "mean_yd": -0.11722581439286096,
+     "net": -21.800211904285543,
+     "pairs": 182,
+     "trades": 3
+    },
+    "bingx~bybit/eq": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.008925170645060402,
+     "mean_yd": -0.0022768376214932725,
+     "net": -1.8647300120029904,
+     "pairs": 179,
+     "trades": 1
+    },
+    "bingx~kraken/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 18,
+     "trades": 0
+    },
+    "bingx~lighter/eq": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.7645220105992689,
+     "mean_yd": -0.1950318425738417,
+     "net": -35.10573166329151,
+     "pairs": 30,
+     "trades": 1
+    },
+    "bingx~okx/eq": {
+     "assets": 4,
+     "days": 3,
+     "lo": -0.6095548037753831,
+     "mean_yd": -0.17426203149923575,
+     "net": -25.967957021605873,
+     "pairs": 152,
+     "trades": 5
+    },
+    "bitget~bybit/eq": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.36319870861140324,
+     "mean_yd": -0.09265307261120934,
+     "net": -41.6938826750442,
+     "pairs": 139,
+     "trades": 1
+    },
+    "bitget~kraken/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 16,
+     "trades": 0
+    },
+    "bitget~lighter/eq": {
+     "assets": 1,
+     "days": 1,
+     "lo": -0.25534086006394885,
+     "mean_yd": -0.06513821411580566,
+     "net": -11.138634613802767,
+     "pairs": 31,
+     "trades": 1
+    },
+    "bitget~okx/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 132,
+     "trades": 0
+    },
+    "bybit~kraken/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 17,
+     "trades": 0
+    },
+    "bybit~lighter/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 31,
+     "trades": 0
+    },
+    "bybit~okx/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 142,
+     "trades": 0
+    },
+    "kraken~lighter/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 12,
+     "trades": 0
+    },
+    "kraken~okx/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 16,
+     "trades": 0
+    },
+    "lighter~okx/eq": {
+     "assets": 0,
+     "days": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 29,
+     "trades": 0
+    }
+   },
+   "cfull_by_exch_involved": {
+    "aster": {
+     "assets": 0,
+     "lo": 0.0,
+     "mean_yd": 0.0,
+     "net": null,
+     "pairs": 167,
+     "trades": 0
+    },
+    "binance": {
+     "assets": 7,
+     "lo": -0.09098125851307863,
+     "mean_yd": -0.03576471607700879,
+     "net": -12.321810990643092,
+     "pairs": 708,
+     "trades": 9
+    },
+    "bingx": {
+     "assets": 10,
+     "lo": -0.27842205580574453,
+     "mean_yd": -0.09069507890867093,
+     "net": -19.248162597861384,
+     "pairs": 762,
+     "trades": 15
+    },
+    "bitget": {
+     "assets": 5,
+     "lo": -0.16066231312384138,
+     "mean_yd": -0.057541212843289946,
+     "net": -21.601854428466087,
+     "pairs": 686,
+     "trades": 6
+    },
+    "bybit": {
+     "assets": 3,
+     "lo": -0.06164424341849304,
+     "mean_yd": -0.016119402305722147,
+     "net": -14.802374375654587,
+     "pairs": 694,
+     "trades": 3
+    },
+    "kraken": {
+     "assets": 0,
+     "lo": null,
+     "mean_yd": null,
+     "net": null,
+     "pairs": 102,
+     "trades": 0
+    },
+    "lighter": {
+     "assets": 1,
+     "lo": -0.38158201680459236,
+     "mean_yd": -0.09734270929898778,
+     "net": -22.100656178033084,
+     "pairs": 183,
+     "trades": 4
+    },
+    "okx": {
+     "assets": 4,
+     "lo": -0.17840525791551298,
+     "mean_yd": -0.050867568416892835,
+     "net": -25.967957021605873,
+     "pairs": 640,
+     "trades": 5
+    }
+   },
+   "cfull_gate_pairs": {
+    "pairs": 0,
+    "trades": 0
+   },
+   "cfull_nongate_pairs": {
+    "assets": 13,
+    "days": 6,
+    "df": 2,
+    "fund": 0.0,
+    "gross": -6.254271366705491,
+    "hi": 0.026821662902201934,
+    "le2": 0.8095238095238095,
+    "lo": -0.13414261369644503,
+    "mean_yd": -0.05366047539712154,
+    "n_days": 9,
+    "n_eff": 3,
+    "net": -18.85427136670549,
+    "pairs": 1971,
+    "trades": 21
+   },
+   "classpar_full": {
+    "a90_edges": [
+     25.2,
+     40.0,
+     80.0,
+     160.0,
+     320.0,
+     640.0,
+     1280.0,
+     2560.0,
+     5120.0,
+     10240.0
+    ],
+    "a90_vals": [
+     0.0,
+     5.002610365454352,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "gmax": 80.0,
+    "gsig_max": 8.0,
+    "kstale": 22,
+    "m_r": 1,
+    "m_shift": 1.349,
+    "q_c": 4.774508677721015,
+    "q_stale": 0.7666666666666667
+   },
+   "classpar_train": {
+    "a90_edges": [
+     25.2,
+     40.0,
+     80.0,
+     160.0,
+     320.0,
+     640.0,
+     1280.0,
+     2560.0,
+     5120.0,
+     10240.0
+    ],
+    "a90_vals": [
+     2.3610141165342213,
+     7.2873691459940275,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "gmax": 80.0,
+    "gsig_max": 5.0,
+    "kstale": 23,
+    "m_r": 1,
+    "m_shift": 1.366,
+    "q_c": 4.810904239639649,
+    "q_stale": 0.7833333333333333
+   },
+   "exch": [
+    "aster",
+    "binance",
+    "bingx",
+    "bitget",
+    "bybit",
+    "kraken",
+    "lighter",
+    "okx"
+   ],
+   "exits": {
+    "by_code": {
+     "CV": {
+      "gross_mean": -6.254271365614287,
+      "n": 21,
+      "net_mean": -18.85427136238095
+     }
+    },
+    "deferred": 2,
+    "ffill": 3,
+    "mtm": 0,
+    "total": 21,
+    "wins": 2
+   },
+   "grid_ok_rows": 24,
+   "grid_p3_rows": 90,
+   "grid_pos_lo": 0,
+   "grid_pos_lo_ok": 0,
+   "grid_pos_mean": 12,
+   "grid_pos_mean_p3": 12,
+   "grid_rows": 180,
+   "k8_shift": {
+    "cls": "eq",
+    "combo": [
+     40.0,
+     5,
+     1,
+     120,
+     2.0
+    ],
+    "days_with_active_pairs": 9,
+    "pairs_with_trades": 17,
+    "real_closed_trades": 21,
+    "real_mean_yd_closed": -0.053660475382193575,
+    "shifts": {
+     "-15": {
+      "mean_yd": 0.0,
+      "skipped": 21,
+      "trades_done": 0
+     },
+     "-5": {
+      "mean_yd": 0.0,
+      "skipped": 21,
+      "trades_done": 0
+     },
+     "15": {
+      "mean_yd": 0.0,
+      "skipped": 21,
+      "trades_done": 0
+     },
+     "5": {
+      "mean_yd": 0.0,
+      "skipped": 21,
+      "trades_done": 0
+     }
+    }
+   },
+   "pairs": 1971,
+   "pairs_gate": 0,
+   "sel": {
+    "a3b": [
+     false,
+     false
+    ],
+    "a3b_detail": {
+     "detail": {
+      "H0": {
+       "combo": [
+        40.0,
+        3,
+        1,
+        120,
+        2.0
+       ],
+       "days": 9,
+       "mean": -0.09119012411737078,
+       "trades": 25
+      },
+      "H1": {
+       "combo": [
+        40.0,
+        3,
+        1,
+        120,
+        2.0
+       ],
+       "days": 9,
+       "mean": -0.1227561242743895,
+       "trades": 38
+      }
+     },
+     "ok": [
+      false,
+      false
+     ]
+    },
+    "a8": {
+     "aster": false,
+     "binance": false,
+     "bingx": false,
+     "bitget": false,
+     "bybit": false,
+     "kraken": false,
+     "lighter": false,
+     "okx": false
+    },
+    "agree": false,
+    "c_full": [
+     40.0,
+     5,
+     1,
+     120,
+     2.0
+    ],
+    "c_train": null,
+    "cells_admitted": [],
+    "counters_selected": {
+     "R": 859,
+     "dedup_dropped": 13,
+     "drop_Q1": 80,
+     "drop_Q3": 525,
+     "drop_Q5": 1017,
+     "drop_Q6": 487,
+     "drop_Q7": 600,
+     "drop_range": 310,
+     "entry_deferred": 2,
+     "exit_CV": 21,
+     "exit_ffill": 3,
+     "signal_total": 21
+    },
+    "distinct_behaviours": 13,
+    "formed": false,
+    "grid_positive_mean_share": 0.06666666666666667,
+    "k8_reversed_mean_yd": -0.018071773789381004,
+    "k8_selected_mean_yd": -0.05366047539712154,
+    "katok_bounds": {
+     "ratio_q25": 0.552596122419367,
+     "win_rate_q75": 0.6666666666666666
+    },
+    "p_win": {
+     "obs_best": 0.0,
+     "p_win": 1.0
+    },
+    "plateau": false,
+    "reasons": [
+     "плато: у соседей c_полн среднее y_d <= 0",
+     "согласие: c_обуч и c_полн отличаются больше чем на шаг",
+     "A3b: комбинация одной половины активов не даёт плюс на другой",
+     "A8: без биржи(ей) aster,binance,bingx,bitget,bybit,kraken,lighter,okx среднее y_d <= 0"
+    ],
+    "roll_fallback_a": 3.071189687297759,
+    "tail_selected": {
+     "mean": -18.85427136670549,
+     "trades": 21.0,
+     "win_loss_ratio": 0.44730589501596446,
+     "win_rate": 0.09523809523809523
+    }
+   },
+   "structural_full": {
+    "gmax_rule": {
+     "a90": [],
+     "a90_edges": [
+      25.2,
+      40.0,
+      80.0,
+      160.0,
+      320.0,
+      640.0,
+      1280.0,
+      2560.0,
+      5120.0,
+      10240.0
+     ],
+     "a90_vals": [
+      0.0,
+      5.002610365454352,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "bins": [
+      {
+       "basis": "bps",
+       "episodes": 236,
+       "hi": 40.0,
+       "lo": 25.2,
+       "p_conv": 0.9872881355932204,
+       "p_conv_hi": 0.9999999999999997,
+       "p_conv_lo": 0.9742489270386266,
+       "p_stop": 0.008474576271186442,
+       "p_stop_hi": 0.019013217454282087,
+       "p_stop_lo": 0.0,
+       "race_lost": false,
+       "support": true,
+       "units": 133
+      },
+      {
+       "basis": "bps",
+       "episodes": 76,
+       "hi": 80.0,
+       "lo": 40.0,
+       "p_conv": 0.9868421052631581,
+       "p_conv_hi": 1.0000000000000002,
+       "p_conv_lo": 0.9629629629629636,
+       "p_stop": 0.0,
+       "p_stop_hi": 0.0,
+       "p_stop_lo": 0.0,
+       "race_lost": false,
+       "support": true,
+       "units": 54
+      },
+      {
+       "basis": "bps",
+       "episodes": 6,
+       "hi": 160.0,
+       "lo": 80.0,
+       "support": false,
+       "units": 6
+      },
+      {
+       "basis": "bps",
+       "episodes": 1,
+       "hi": 320.0,
+       "lo": 160.0,
+       "support": false,
+       "units": 1
+      },
+      {
+       "basis": "sigma",
+       "episodes": 229,
+       "hi": 5.0,
+       "lo": 3.0,
+       "p_conv": 0.982532751091703,
+       "p_conv_hi": 0.9956140350877195,
+       "p_conv_lo": 0.9676103988603989,
+       "p_stop": 0.008733624454148471,
+       "p_stop_hi": 0.020165371555439446,
+       "p_stop_lo": 0.0,
+       "race_lost": false,
+       "support": true,
+       "units": 133
+      },
+      {
+       "basis": "sigma",
+       "episodes": 59,
+       "hi": 8.0,
+       "lo": 5.0,
+       "p_conv": 0.9999999999999998,
+       "p_conv_hi": 1.0000000000000002,
+       "p_conv_lo": 0.9999999999999999,
+       "p_stop": 0.0,
+       "p_stop_hi": 0.0,
+       "p_stop_lo": 0.0,
+       "race_lost": false,
+       "support": true,
+       "units": 44
+      },
+      {
+       "basis": "sigma",
+       "episodes": 27,
+       "hi": 13.0,
+       "lo": 8.0,
+       "support": false,
+       "units": 16
+      },
+      {
+       "basis": "sigma",
+       "episodes": 4,
+       "hi": 21.0,
+       "lo": 13.0,
+       "support": false,
+       "units": 4
+      }
+     ],
+     "episodes_total": 319,
+     "gmax": 80.0,
+     "gmax_kind": "граница опоры данных, не измеренный разрыв",
+     "gsig_max": 8.0,
+     "k6_stop_was_right": [
+      {
+       "T": 120,
+       "ext_q50": 1.6675059052935568,
+       "ext_q90": 2.1066925980750297,
+       "ext_q99": 2.205509603950861,
+       "share_converged": 1.0,
+       "stops": 2
+      },
+      {
+       "T": 360,
+       "ext_q50": 1.6675059052935568,
+       "ext_q90": 2.1066925980750297,
+       "ext_q99": 2.205509603950861,
+       "share_converged": 1.0,
+       "stops": 2
+      },
+      {
+       "T": 1440,
+       "ext_q50": 1.8270218087234746,
+       "ext_q90": 2.138595778761013,
+       "ext_q99": 2.208699922019459,
+       "share_converged": 1.0,
+       "stops": 2
+      }
+     ],
+     "t_struct": 1381.0,
+     "t_struct_truncated": false
+    },
+    "k_stale": 22,
+    "m_r": 1,
+    "m_shift": 1.349,
+    "pairs": 1971,
+    "pass_tag": "full",
+    "q_c": 4.774508677721015,
+    "q_stale": 0.7666666666666667
+   },
+   "top5_lcb": [
+    {
+     "T": 120,
+     "assets": 13,
+     "days": 6,
+     "gross_trade": -6.254271366705491,
+     "hi": 0.026821662902201934,
+     "k": 5,
+     "lo": -0.13414261369644503,
+     "mean": -0.05366047539712154,
+     "mean_trade": -18.85427136670549,
+     "n_eff": 3,
+     "p": 1,
+     "s_stop": 2.0,
+     "theta": 40.0,
+     "trades": 21
+    },
+    {
+     "T": 120,
+     "assets": 13,
+     "days": 6,
+     "gross_trade": -6.254271366705491,
+     "hi": 0.026821662902201934,
+     "k": 5,
+     "lo": -0.13414261369644503,
+     "mean": -0.05366047539712154,
+     "mean_trade": -18.85427136670549,
+     "n_eff": 3,
+     "p": 1,
+     "s_stop": null,
+     "theta": 40.0,
+     "trades": 21
+    },
+    {
+     "T": 120,
+     "assets": 21,
+     "days": 8,
+     "gross_trade": -0.11476967796781536,
+     "hi": -0.07309887098292422,
+     "k": 3,
+     "lo": -0.13978367267410513,
+     "mean": -0.10644127182851468,
+     "mean_trade": -12.714769677967814,
+     "n_eff": 3,
+     "p": 1,
+     "s_stop": 2.0,
+     "theta": 40.0,
+     "trades": 63
+    },
+    {
+     "T": 120,
+     "assets": 21,
+     "days": 8,
+     "gross_trade": -0.11476967796781536,
+     "hi": -0.07309887098292422,
+     "k": 3,
+     "lo": -0.13978367267410513,
+     "mean": -0.10644127182851468,
+     "mean_trade": -12.714769677967814,
+     "n_eff": 3,
+     "p": 1,
+     "s_stop": null,
+     "theta": 40.0,
+     "trades": 63
+    },
+    {
+     "T": 360,
+     "assets": 15,
+     "days": 6,
+     "gross_trade": -5.313685519422075,
+     "hi": 0.03241930520516924,
+     "k": 5,
+     "lo": -0.141969671478673,
+     "mean": -0.05477518313675189,
+     "mean_trade": -17.913685519422074,
+     "n_eff": 3,
+     "p": 1,
+     "s_stop": 2.0,
+     "theta": 40.0,
+     "trades": 23
+    }
+   ]
+  }
+ },
+ "k2": {
+  "k2_calib": {
+   "L": 1440,
+   "by_class": {
+    "crypto": {
+     "median": 1.0185420898508357,
+     "pairs_in": 5493,
+     "pairs_total": 5830,
+     "q25": 1.0003713990122716,
+     "q75": 1.063895198111853,
+     "share_below_1": 0.23666484616785
+    },
+    "eq": {
+     "median": 1.0113446689140204,
+     "pairs_in": 1108,
+     "pairs_total": 1971,
+     "q25": 0.9982041742632334,
+     "q75": 1.0571254487539934,
+     "share_below_1": 0.2996389891696751
+    }
+   },
+   "first_full_day": 2468,
+   "last_day": 2478,
+   "mode": "calib",
+   "rule": "L = 4320 только если медиана отношения MAD(d_4320)/MAD(d_1440) < 1 одновременно в крипте и акциях+ETF, иначе 1440"
+  },
+  "k2_train": {
+   "L": 1440,
+   "by_class": {
+    "crypto": {
+     "median": 1.0066854261168778,
+     "pairs_in": 5054,
+     "pairs_total": 5830,
+     "q25": 0.9930767113438801,
+     "q75": 1.0433898300813265,
+     "share_below_1": 0.36762960031658093
+    },
+    "eq": {
+     "median": 1.0,
+     "pairs_in": 862,
+     "pairs_total": 1971,
+     "q25": 0.9872980093200967,
+     "q75": 1.019732921078019,
+     "share_below_1": 0.4431554524361949
+    }
+   },
+   "first_full_day": 2468,
+   "last_day": 2471,
+   "mode": "train",
+   "rule": "L = 4320 только если медиана отношения MAD(d_4320)/MAD(d_1440) < 1 одновременно в крипте и акциях+ETF, иначе 1440"
+  }
+ },
+ "name": "nogate_q5",
+ "out": "/home/deck/xdl9/c2g/out_nogate",
+ "summary": {
+  "_all": {
+   "M": 0,
+   "M_eff_formation_estimate": 0.0,
+   "M_grid": 360,
+   "classes": 2,
+   "grid_combos_per_class": 180
+  },
+  "crypto": {
+   "a3b": [
+    false,
+    true
+   ],
+   "a8": {
+    "aster": true,
+    "binance": true,
+    "bingx": true,
+    "bitget": true,
+    "bybit": true,
+    "kraken": true,
+    "lighter": true,
+    "okx": true
+   },
+   "agree": true,
+   "c_full": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "c_train": [
+    80.0,
+    5,
+    3,
+    1440,
+    null
+   ],
+   "cells_admitted": [],
+   "distinct": 122,
+   "formed": false,
+   "k8_reversed": -0.2308663098090334,
+   "k8_selected": 0.07581307644765882,
+   "n_cells": 28,
+   "p_win": {
+    "obs_best": 0.021133020430742208,
+    "p_win": 0.000999000999000999
+   },
+   "plateau": true,
+   "reasons": [
+    "A3b: комбинация одной половины активов не даёт плюс на другой"
+   ]
+  },
+  "eq": {
+   "a3b": [
+    false,
+    false
+   ],
+   "a8": {
+    "aster": false,
+    "binance": false,
+    "bingx": false,
+    "bitget": false,
+    "bybit": false,
+    "kraken": false,
+    "lighter": false,
+    "okx": false
+   },
+   "agree": false,
+   "c_full": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "c_train": null,
+   "cells_admitted": [],
+   "distinct": 13,
+   "formed": false,
+   "k8_reversed": -0.018071773789381004,
+   "k8_selected": -0.05366047539712154,
+   "n_cells": 28,
+   "p_win": {
+    "obs_best": 0.0,
+    "p_win": 1.0
+   },
+   "plateau": false,
+   "reasons": [
+    "плато: у соседей c_полн среднее y_d <= 0",
+    "согласие: c_обуч и c_полн отличаются больше чем на шаг",
+    "A3b: комбинация одной половины активов не даёт плюс на другой",
+    "A8: без биржи(ей) aster,binance,bingx,bitget,bybit,kraken,lighter,okx среднее y_d <= 0"
+   ]
+  }
+ },
+ "universe": {
+  "main_by_class": {
+   "crypto": {
+    "floor_defined": 5096,
+    "mad0_share_mean": 0.23443131925598276,
+    "pairs": 5830,
+    "valid_share_median": 0.5660714285714286,
+    "valid_share_q10": 0.12294146825396825
+   },
+   "eq": {
+    "floor_defined": 1501,
+    "mad0_share_mean": 0.4786533294935026,
+    "pairs": 1971,
+    "valid_share_median": 0.10669642857142857,
+    "valid_share_q10": 0.03953373015873016
+   }
+  },
+  "open_semantics_by_exchange": {
+   "aster": {
+    "chain_share_median": 0.060907117100193954,
+    "legs": 252,
+    "valid_share_ge50": 0.13095238095238096,
+    "valid_share_median": 0.14811507936507937
+   },
+   "binance": {
+    "chain_share_median": 0.3540108595430796,
+    "legs": 701,
+    "valid_share_ge50": 0.746077032810271,
+    "valid_share_median": 0.9935515873015873
+   },
+   "bingx": {
+    "chain_share_median": 1.0,
+    "legs": 747,
+    "valid_share_ge50": 0.6894243641231593,
+    "valid_share_median": 1.0
+   },
+   "bitget": {
+    "chain_share_median": 1.0,
+    "legs": 656,
+    "valid_share_ge50": 0.23932926829268292,
+    "valid_share_median": 0.278249007936508
+   },
+   "bybit": {
+    "chain_share_median": 1.0,
+    "legs": 685,
+    "valid_share_ge50": 0.6496350364963503,
+    "valid_share_median": 0.6886904761904762
+   },
+   "kraken": {
+    "chain_share_median": 1.0,
+    "legs": 125,
+    "valid_share_ge50": 0.224,
+    "valid_share_median": 0.24905753968253969
+   },
+   "lighter": {
+    "chain_share_median": 1.0,
+    "legs": 118,
+    "valid_share_ge50": 0.3220338983050847,
+    "valid_share_median": 0.1985863095238095
+   },
+   "okx": {
+    "chain_share_median": 0.19658108719470313,
+    "legs": 444,
+    "valid_share_ge50": 0.6216216216216216,
+    "valid_share_median": 0.8435019841269842
+   }
+  },
+  "pairs_by_class_market": {
+   "crypto|24x7": {
+    "assets": 550,
+    "cells": 28,
+    "pairs": 5830
+   },
+   "eq|HK": {
+    "assets": 6,
+    "cells": 8,
+    "pairs": 47
+   },
+   "eq|US": {
+    "assets": 236,
+    "cells": 28,
+    "pairs": 1924
+   },
+   "eq|other_tradfi": {
+    "assets": 20,
+    "cells": 27,
+    "pairs": 117
+   },
+   "fx|other_tradfi": {
+    "assets": 1,
+    "cells": 1,
+    "pairs": 1
+   },
+   "idx|US": {
+    "assets": 3,
+    "cells": 3,
+    "pairs": 4
+   },
+   "metal|no_calendar": {
+    "assets": 10,
+    "cells": 28,
+    "pairs": 146
+   }
+  }
+ }
+}

@@ -1,0 +1,18 @@
+name,ex1,sym1,ex2,sym2,in_universe,market,pid
+H2 BRETT BingX x Bitget,bingx,BRETT-USDT,bitget,BRETTUSDT,True,24x7,bingx~bitget|BRETT-USDT|BRETTUSDT
+H3 LAB Binance x Aster,binance,LABUSDT,aster,LABUSDT,True,24x7,aster~binance|LABUSDT|LABUSDT
+H4a TA Binance x Aster,binance,TAUSDT,aster,TAUSDT,False,,
+H4b TA Binance x BingX,binance,TAUSDT,bingx,TA-USDT,True,24x7,binance~bingx|TAUSDT|TA-USDT
+H4c TA Binance x Gate,binance,TAUSDT,gate,TA_USDT,True,24x7,binance~gate|TAUSDT|TA_USDT
+H6 LPT Binance x BingX,binance,LPTUSDT,bingx,LPT-USDT,True,24x7,binance~bingx|LPTUSDT|LPT-USDT
+H1 MINIMAX Binance x Bitget HKD,binance,MINIMAXUSDT,bitget,MINIMAXHKDUSDT,True,HK,binance~bitget|MINIMAXUSDT|MINIMAXHKDUSDT
+H1 MINIMAX Binance x Bitget USDT,binance,MINIMAXUSDT,bitget,MINIMAXUSDT,True,HK,binance~bitget|MINIMAXUSDT|MINIMAXUSDT
+H1 ZHIPU Binance x Bitget HKD,binance,ZHIPUUSDT,bitget,ZHIPUHKDUSDT,True,HK,binance~bitget|ZHIPUUSDT|ZHIPUHKDUSDT
+H1 ZHIPU Binance x Bitget USDT,binance,ZHIPUUSDT,bitget,ZHIPUUSDT,True,HK,binance~bitget|ZHIPUUSDT|ZHIPUUSDT
+H1 TENCENT HK0700 x Bitget HKD,binance,HK0700USDT,bitget,TENCENTHKDUSDT,False,,
+H1 TENCENT HK0700 x Bitget USDT,binance,HK0700USDT,bitget,TENCENTUSDT,False,,
+H1 LENOVO HK0992 x Bitget HKD,binance,HK0992USDT,bitget,LENOVOHKDUSDT,False,,
+H1 XIAOMI HK1810 x Bitget HKD,binance,HK1810USDT,bitget,XIAOMIHKDUSDT,True,HK,binance~bitget|HK1810USDT|XIAOMIHKDUSDT
+H1 XIAOMI HK1810 x Bitget USDT,binance,HK1810USDT,bitget,XIAOMIUSDT,True,HK,binance~bitget|HK1810USDT|XIAOMIUSDT
+H1 SHEIN HK0625 x Bitget HKD,binance,HK0625USDT,bitget,SHEINHKDUSDT,True,HK,binance~bitget|HK0625USDT|SHEINHKDUSDT
+H1 SHEIN HK0625 x Bitget USDT,binance,HK0625USDT,bitget,SHEINUSDT,True,HK,binance~bitget|HK0625USDT|SHEINUSDT

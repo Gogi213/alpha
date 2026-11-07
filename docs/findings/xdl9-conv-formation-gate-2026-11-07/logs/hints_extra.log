@@ -1,0 +1,51 @@
+подсказок всего 50 (из них добавлено связок Gate: 33)
+H2 BRETT BingX x Bitget | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB Binance x Aster | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H4a TA Binance x Aster | универсум: False | рынок: None | основной ряд: False | вердикт: нет данных (мало общих доходностей)
+H4b TA Binance x BingX | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H4c TA Binance x Gate | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H6 LPT Binance x BingX | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H1 MINIMAX Binance x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 MINIMAX Binance x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 ZHIPU Binance x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 ZHIPU Binance x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 TENCENT HK0700 x Bitget HKD | универсум: False | рынок: None | основной ряд: False | вердикт: пограничное (S между серединой и лучшим «разное»)
+H1 TENCENT HK0700 x Bitget USDT | универсум: False | рынок: None | основной ряд: False | вердикт: разное
+H1 LENOVO HK0992 x Bitget HKD | универсум: False | рынок: None | основной ряд: False | вердикт: пограничное (S между серединой и лучшим «разное»)
+H1 XIAOMI HK1810 x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 XIAOMI HK1810 x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 SHEIN HK0625 x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 SHEIN HK0625 x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H2 BRETT binance_BRETTUSDT x gate_BRETT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H2 BRETT bingx_BRETT-USDT x gate_BRETT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H2 BRETT bitget_BRETTUSDT x gate_BRETT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H2 BRETT bybit_BRETTUSDT x gate_BRETT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H2 BRETT okx_BRETT-USDT-SWAP x gate_BRETT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB binance_LABUSDT x gate_LAB_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB bybit_LABUSDT x gate_LAB_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB gate_LAB_USDT x aster_LABUSDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB gate_LAB_USDT x bingx_LAB-USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB gate_LAB_USDT x bitget_LABUSDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB okx_LAB-USDT-SWAP x gate_LAB_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H4 TA bingx_TA-USDT x gate_TA_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H4 TA bybit_TAUSDT x gate_TA_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H6 LPT binance_LPTUSDT x gate_LPT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H6 LPT bingx_LPT-USDT x gate_LPT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H6 LPT bybit_LPTUSDT x gate_LPT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H6 LPT gate_LPT_USDT x bitget_LPTUSDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H6 LPT gate_LPT_USDT x kraken_PF_LPTUSD | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H6 LPT okx_LPT-USDT-SWAP x gate_LPT_USDT | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H1 MINIMAX binance_MINIMAXUSDT x gate_MINIMAX_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 MINIMAX bitget_MINIMAXUSDT x gate_MINIMAX_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 MINIMAX gate_MINIMAX_USDT x bitget_MINIMAXHKDUSDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 MINIMAX gate_MINIMAX_USDT x bybit_MINIMAXUSDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 MINIMAX okx_MINIMAX-USDT-SWAP x gate_MINIMAX_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 ZHIPU binance_ZHIPUUSDT x gate_ZHIPU_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 ZHIPU bitget_ZHIPUUSDT x gate_ZHIPU_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 ZHIPU bybit_ZHIPUUSDT x gate_ZHIPU_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 ZHIPU gate_ZHIPU_USDT x bitget_ZHIPUHKDUSDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 ZHIPU okx_ZHIPU-USDT-SWAP x gate_ZHIPU_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 XIAOMI binance_HK1810USDT x gate_XIAOMIHKD_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 XIAOMI gate_XIAOMI_USDT x bitget_XIAOMIUSDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 XIAOMI gate_XIAOMI_USDT x bybit_XIAOMIUSDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно
+H1 XIAOMI okx_XIAOMI-USDT-SWAP x gate_XIAOMI_USDT | универсум: True | рынок: gate_tradfi | основной ряд: False | вердикт: одно

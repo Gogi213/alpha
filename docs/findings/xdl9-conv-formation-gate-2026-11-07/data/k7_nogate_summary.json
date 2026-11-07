@@ -1,0 +1,96 @@
+{
+ "_all": {
+  "M": 0,
+  "M_eff_formation_estimate": 0.0,
+  "M_grid": 360,
+  "classes": 2,
+  "grid_combos_per_class": 180
+ },
+ "crypto": {
+  "a3b": [
+   false,
+   true
+  ],
+  "a8": {
+   "aster": true,
+   "binance": true,
+   "bingx": true,
+   "bitget": true,
+   "bybit": true,
+   "kraken": true,
+   "lighter": true,
+   "okx": true
+  },
+  "agree": true,
+  "c_full": [
+   40.0,
+   3,
+   3,
+   1440,
+   null
+  ],
+  "c_train": [
+   80.0,
+   5,
+   3,
+   1440,
+   null
+  ],
+  "cells_admitted": [],
+  "distinct": 122,
+  "formed": false,
+  "k8_reversed": -0.2308663098090334,
+  "k8_selected": 0.07581307644765882,
+  "n_cells": 28,
+  "p_win": {
+   "obs_best": 0.021133020430742208,
+   "p_win": 0.000999000999000999
+  },
+  "plateau": true,
+  "reasons": [
+   "A3b: комбинация одной половины активов не даёт плюс на другой"
+  ]
+ },
+ "eq": {
+  "a3b": [
+   false,
+   false
+  ],
+  "a8": {
+   "aster": false,
+   "binance": false,
+   "bingx": false,
+   "bitget": false,
+   "bybit": false,
+   "kraken": false,
+   "lighter": false,
+   "okx": false
+  },
+  "agree": false,
+  "c_full": [
+   40.0,
+   5,
+   1,
+   120,
+   2.0
+  ],
+  "c_train": null,
+  "cells_admitted": [],
+  "distinct": 13,
+  "formed": false,
+  "k8_reversed": -0.018071773789381004,
+  "k8_selected": -0.05366047539712154,
+  "n_cells": 28,
+  "p_win": {
+   "obs_best": 0.0,
+   "p_win": 1.0
+  },
+  "plateau": false,
+  "reasons": [
+   "плато: у соседей c_полн среднее y_d <= 0",
+   "согласие: c_обуч и c_полн отличаются больше чем на шаг",
+   "A3b: комбинация одной половины активов не даёт плюс на другой",
+   "A8: без биржи(ей) aster,binance,bingx,bitget,bybit,kraken,lighter,okx среднее y_d <= 0"
+  ]
+ }
+}

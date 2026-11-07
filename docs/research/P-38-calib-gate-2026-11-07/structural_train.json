@@ -1,0 +1,379 @@
+{
+ "crypto": {
+  "gmax_rule": {
+   "a90": [],
+   "a90_edges": [
+    25.2,
+    40.0,
+    80.0,
+    160.0,
+    320.0,
+    640.0,
+    1280.0,
+    2560.0,
+    5120.0,
+    10240.0
+   ],
+   "a90_vals": [
+    0.0,
+    0.5697812284586538,
+    2.399624515818651,
+    0.0,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "bins": [
+    {
+     "basis": "bps",
+     "episodes": 13816,
+     "hi": 40.0,
+     "lo": 25.2,
+     "p_conv": 0.9912252876217966,
+     "p_conv_hi": 0.9938139859168275,
+     "p_conv_lo": 0.9880913376852997,
+     "p_stop": 0.008701319428643939,
+     "p_stop_hi": 0.011838970271878737,
+     "p_stop_lo": 0.006104070513578187,
+     "race_lost": false,
+     "support": true,
+     "units": 2179
+    },
+    {
+     "basis": "bps",
+     "episodes": 4074,
+     "hi": 80.0,
+     "lo": 40.0,
+     "p_conv": 0.991161306162534,
+     "p_conv_hi": 0.9944904271007073,
+     "p_conv_lo": 0.9876326068814075,
+     "p_stop": 0.008838693837466244,
+     "p_stop_hi": 0.012367393118591554,
+     "p_stop_lo": 0.005509572899293845,
+     "race_lost": false,
+     "support": true,
+     "units": 1007
+    },
+    {
+     "basis": "bps",
+     "episodes": 326,
+     "hi": 160.0,
+     "lo": 80.0,
+     "p_conv": 0.9846625766871164,
+     "p_conv_hi": 0.9965870307167239,
+     "p_conv_lo": 0.9712439154943717,
+     "p_stop": 0.015337423312883436,
+     "p_stop_hi": 0.02875608450562868,
+     "p_stop_lo": 0.003412969283276452,
+     "race_lost": false,
+     "support": true,
+     "units": 162
+    },
+    {
+     "basis": "bps",
+     "episodes": 61,
+     "hi": 320.0,
+     "lo": 160.0,
+     "p_conv": 1.0,
+     "p_conv_hi": 1.0000000000000002,
+     "p_conv_lo": 0.9999999999999998,
+     "p_stop": 0.0,
+     "p_stop_hi": 0.0,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 30
+    },
+    {
+     "basis": "bps",
+     "episodes": 5,
+     "hi": 640.0,
+     "lo": 320.0,
+     "support": false,
+     "units": 5
+    },
+    {
+     "basis": "sigma",
+     "episodes": 14667,
+     "hi": 5.0,
+     "lo": 3.0,
+     "p_conv": 0.9913235721255497,
+     "p_conv_hi": 0.993806781222934,
+     "p_conv_lo": 0.9885327720144986,
+     "p_stop": 0.008607503957463817,
+     "p_stop_hi": 0.011385398116777856,
+     "p_stop_lo": 0.006148146860178253,
+     "race_lost": false,
+     "support": true,
+     "units": 2074
+    },
+    {
+     "basis": "sigma",
+     "episodes": 3047,
+     "hi": 8.0,
+     "lo": 5.0,
+     "p_conv": 0.9904824417459795,
+     "p_conv_hi": 0.994398682042834,
+     "p_conv_lo": 0.9861836816720247,
+     "p_stop": 0.009517558254020349,
+     "p_stop_hi": 0.013816318327974272,
+     "p_stop_lo": 0.005601317957166393,
+     "race_lost": false,
+     "support": true,
+     "units": 1267
+    },
+    {
+     "basis": "sigma",
+     "episodes": 474,
+     "hi": 13.0,
+     "lo": 8.0,
+     "p_conv": 0.989451476793249,
+     "p_conv_hi": 0.9978213507625269,
+     "p_conv_lo": 0.9803921568627447,
+     "p_stop": 0.010548523206751058,
+     "p_stop_hi": 0.0196078431372549,
+     "p_stop_lo": 0.0021786492374727675,
+     "race_lost": false,
+     "support": true,
+     "units": 328
+    },
+    {
+     "basis": "sigma",
+     "episodes": 80,
+     "hi": 21.0,
+     "lo": 13.0,
+     "p_conv": 0.9875,
+     "p_conv_hi": 1.0,
+     "p_conv_lo": 0.9642857142857142,
+     "p_stop": 0.0125,
+     "p_stop_hi": 0.03571428571428572,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 71
+    },
+    {
+     "basis": "sigma",
+     "episodes": 10,
+     "hi": 34.0,
+     "lo": 21.0,
+     "support": false,
+     "units": 9
+    },
+    {
+     "basis": "sigma",
+     "episodes": 3,
+     "hi": 55.0,
+     "lo": 34.0,
+     "support": false,
+     "units": 3
+    },
+    {
+     "basis": "sigma",
+     "episodes": 1,
+     "hi": 89.0,
+     "lo": 55.0,
+     "support": false,
+     "units": 1
+    }
+   ],
+   "episodes_total": 18282,
+   "gmax": 320.0,
+   "gmax_kind": "граница опоры данных, не измеренный разрыв",
+   "gsig_max": 21.0,
+   "k6_stop_was_right": [
+    {
+     "T": 120,
+     "ext_q50": 2.464336043686205,
+     "ext_q90": 5.07563014995905,
+     "ext_q99": 8.620008956733306,
+     "share_converged": 0.8012422360248447,
+     "stops": 161
+    },
+    {
+     "T": 360,
+     "ext_q50": 2.61506843441295,
+     "ext_q90": 5.487021327152034,
+     "ext_q99": 10.518415446669229,
+     "share_converged": 0.9503105590062112,
+     "stops": 161
+    },
+    {
+     "T": 1440,
+     "ext_q50": 2.625387096531488,
+     "ext_q90": 6.183372030537959,
+     "ext_q99": 10.518415446669229,
+     "share_converged": 0.9875776397515528,
+     "stops": 161
+    }
+   ],
+   "t_struct": 58.0,
+   "t_struct_truncated": false
+  },
+  "k_stale": 33,
+  "m_r": 1,
+  "m_shift": 1.569,
+  "pairs": 8290,
+  "pass_tag": "train",
+  "q_c": 6.34844496846199,
+  "q_stale": 0.85
+ },
+ "eq": {
+  "gmax_rule": {
+   "a90": [],
+   "a90_edges": [
+    25.2,
+    40.0,
+    80.0,
+    160.0,
+    320.0,
+    640.0,
+    1280.0,
+    2560.0,
+    5120.0,
+    10240.0
+   ],
+   "a90_vals": [
+    2.3610141165342213,
+    7.2873691459940275,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "bins": [
+    {
+     "basis": "bps",
+     "episodes": 71,
+     "hi": 40.0,
+     "lo": 25.2,
+     "p_conv": 0.9859154929577465,
+     "p_conv_hi": 1.0000000000000002,
+     "p_conv_lo": 0.9558823529411763,
+     "p_stop": 0.014084507042253528,
+     "p_stop_hi": 0.04411764705882354,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 46
+    },
+    {
+     "basis": "bps",
+     "episodes": 36,
+     "hi": 80.0,
+     "lo": 40.0,
+     "p_conv": 0.9722222222222223,
+     "p_conv_hi": 1.0000000000000002,
+     "p_conv_lo": 0.9268292682926831,
+     "p_stop": 0.0,
+     "p_stop_hi": 0.0,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 24
+    },
+    {
+     "basis": "bps",
+     "episodes": 4,
+     "hi": 160.0,
+     "lo": 80.0,
+     "support": false,
+     "units": 4
+    },
+    {
+     "basis": "bps",
+     "episodes": 1,
+     "hi": 320.0,
+     "lo": 160.0,
+     "support": false,
+     "units": 1
+    },
+    {
+     "basis": "sigma",
+     "episodes": 80,
+     "hi": 5.0,
+     "lo": 3.0,
+     "p_conv": 0.9749999999999999,
+     "p_conv_hi": 1.0,
+     "p_conv_lo": 0.9452054794520551,
+     "p_stop": 0.0125,
+     "p_stop_hi": 0.03703703703703704,
+     "p_stop_lo": 0.0,
+     "race_lost": false,
+     "support": true,
+     "units": 50
+    },
+    {
+     "basis": "sigma",
+     "episodes": 24,
+     "hi": 8.0,
+     "lo": 5.0,
+     "support": false,
+     "units": 17
+    },
+    {
+     "basis": "sigma",
+     "episodes": 7,
+     "hi": 13.0,
+     "lo": 8.0,
+     "support": false,
+     "units": 6
+    },
+    {
+     "basis": "sigma",
+     "episodes": 1,
+     "hi": 21.0,
+     "lo": 13.0,
+     "support": false,
+     "units": 1
+    }
+   ],
+   "episodes_total": 112,
+   "gmax": 80.0,
+   "gmax_kind": "граница опоры данных, не измеренный разрыв",
+   "gsig_max": 5.0,
+   "k6_stop_was_right": [
+    {
+     "T": 120,
+     "ext_q50": 2.216489271270398,
+     "ext_q90": 2.216489271270398,
+     "ext_q99": 2.216489271270398,
+     "share_converged": 1.0,
+     "stops": 1
+    },
+    {
+     "T": 360,
+     "ext_q50": 2.216489271270398,
+     "ext_q90": 2.216489271270398,
+     "ext_q99": 2.216489271270398,
+     "share_converged": 1.0,
+     "stops": 1
+    },
+    {
+     "T": 1440,
+     "ext_q50": 2.216489271270398,
+     "ext_q90": 2.216489271270398,
+     "ext_q99": 2.216489271270398,
+     "share_converged": 1.0,
+     "stops": 1
+    }
+   ],
+   "t_struct": 1440,
+   "t_struct_truncated": true
+  },
+  "k_stale": 23,
+  "m_r": 1,
+  "m_shift": 1.366,
+  "pairs": 1971,
+  "pass_tag": "train",
+  "q_c": 4.810904239639649,
+  "q_stale": 0.7833333333333333
+ }
+}

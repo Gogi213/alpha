@@ -1,0 +1,105 @@
+{
+ "main_by_class": {
+  "crypto": {
+   "floor_defined": 5096,
+   "mad0_share_mean": 0.23443131925598276,
+   "pairs": 5830,
+   "valid_share_median": 0.5660714285714286,
+   "valid_share_q10": 0.12294146825396825
+  },
+  "eq": {
+   "floor_defined": 1501,
+   "mad0_share_mean": 0.4786533294935026,
+   "pairs": 1971,
+   "valid_share_median": 0.10669642857142857,
+   "valid_share_q10": 0.03953373015873016
+  }
+ },
+ "open_semantics_by_exchange": {
+  "aster": {
+   "chain_share_median": 0.060907117100193954,
+   "legs": 252,
+   "valid_share_ge50": 0.13095238095238096,
+   "valid_share_median": 0.14811507936507937
+  },
+  "binance": {
+   "chain_share_median": 0.3540108595430796,
+   "legs": 701,
+   "valid_share_ge50": 0.746077032810271,
+   "valid_share_median": 0.9935515873015873
+  },
+  "bingx": {
+   "chain_share_median": 1.0,
+   "legs": 747,
+   "valid_share_ge50": 0.6894243641231593,
+   "valid_share_median": 1.0
+  },
+  "bitget": {
+   "chain_share_median": 1.0,
+   "legs": 656,
+   "valid_share_ge50": 0.23932926829268292,
+   "valid_share_median": 0.278249007936508
+  },
+  "bybit": {
+   "chain_share_median": 1.0,
+   "legs": 685,
+   "valid_share_ge50": 0.6496350364963503,
+   "valid_share_median": 0.6886904761904762
+  },
+  "kraken": {
+   "chain_share_median": 1.0,
+   "legs": 125,
+   "valid_share_ge50": 0.224,
+   "valid_share_median": 0.24905753968253969
+  },
+  "lighter": {
+   "chain_share_median": 1.0,
+   "legs": 118,
+   "valid_share_ge50": 0.3220338983050847,
+   "valid_share_median": 0.1985863095238095
+  },
+  "okx": {
+   "chain_share_median": 0.19658108719470313,
+   "legs": 444,
+   "valid_share_ge50": 0.6216216216216216,
+   "valid_share_median": 0.8435019841269842
+  }
+ },
+ "pairs_by_class_market": {
+  "crypto|24x7": {
+   "assets": 550,
+   "cells": 28,
+   "pairs": 5830
+  },
+  "eq|HK": {
+   "assets": 6,
+   "cells": 8,
+   "pairs": 47
+  },
+  "eq|US": {
+   "assets": 236,
+   "cells": 28,
+   "pairs": 1924
+  },
+  "eq|other_tradfi": {
+   "assets": 20,
+   "cells": 27,
+   "pairs": 117
+  },
+  "fx|other_tradfi": {
+   "assets": 1,
+   "cells": 1,
+   "pairs": 1
+  },
+  "idx|US": {
+   "assets": 3,
+   "cells": 3,
+   "pairs": 4
+  },
+  "metal|no_calendar": {
+   "assets": 10,
+   "cells": 28,
+   "pairs": 146
+  }
+ }
+}

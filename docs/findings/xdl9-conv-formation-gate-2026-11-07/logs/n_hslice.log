@@ -1,0 +1,19 @@
+START 2026-11-07T05:08:27Z
+H2 BRETT BingX x Bitget | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H3 LAB Binance x Aster | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H4a TA Binance x Aster | универсум: False | рынок: None | основной ряд: False | вердикт: нет данных (мало общих доходностей)
+H4b TA Binance x BingX | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H4c TA Binance x Gate | универсум: False | рынок: None | основной ряд: False | вердикт: не в asset_pairs
+H6 LPT Binance x BingX | универсум: True | рынок: 24x7 | основной ряд: True | вердикт: одно
+H1 MINIMAX Binance x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 MINIMAX Binance x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 ZHIPU Binance x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 ZHIPU Binance x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 TENCENT HK0700 x Bitget HKD | универсум: False | рынок: None | основной ряд: False | вердикт: пограничное (S между серединой и лучшим «разное»)
+H1 TENCENT HK0700 x Bitget USDT | универсум: False | рынок: None | основной ряд: False | вердикт: разное
+H1 LENOVO HK0992 x Bitget HKD | универсум: False | рынок: None | основной ряд: False | вердикт: пограничное (S между серединой и лучшим «разное»)
+H1 XIAOMI HK1810 x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 XIAOMI HK1810 x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 SHEIN HK0625 x Bitget HKD | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+H1 SHEIN HK0625 x Bitget USDT | универсум: True | рынок: HK | основной ряд: True | вердикт: одно
+EXIT=0 2026-11-07T05:08:30Z

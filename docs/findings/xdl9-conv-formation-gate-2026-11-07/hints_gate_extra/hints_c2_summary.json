@@ -1,0 +1,3914 @@
+[
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bingx~bitget/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 74.7593487774445,
+  "dev_abs_p99_bps": 32.14779707887638,
+  "ex1": "bingx",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 36,
+  "hl15_hi": 6.727717448940872,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H2 BRETT BingX x Bitget",
+  "pid": "bingx~bitget|BRETT-USDT|BRETTUSDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 14.103063735608027,
+    "le2": 0.6666666666666666,
+    "net": 1.503063735608028,
+    "trades": 3
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -1.7802163454860853,
+    "le2": 1.0,
+    "net": -14.380216345486085,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 9.352963535780788,
+  "sym1": "BRETT-USDT",
+  "sym2": "BRETTUSDT",
+  "valid_minutes": 7775,
+  "valid_share": 0.38566468253968256,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "aster~binance/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 73.47648141124984,
+  "dev_abs_p99_bps": 39.62540903693257,
+  "ex1": "binance",
+  "ex2": "aster",
+  "grid_trades_total_all_combos": 12,
+  "hl15_hi": 4.117867063815651,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H3 LAB Binance x Aster",
+  "pid": "aster~binance|LABUSDT|LABUSDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 24.426721298053124,
+    "le2": 1.0,
+    "net": 11.826721298053124,
+    "trades": 1
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 24.426721298053124,
+    "le2": 1.0,
+    "net": 11.826721298053124,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 8.992145287286965,
+  "sym1": "LABUSDT",
+  "sym2": "LABUSDT",
+  "valid_minutes": 5143,
+  "valid_share": 0.25510912698412697,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "0",
+  "cell": null,
+  "cls": null,
+  "dev_abs_max_bps": 91.09546698437664,
+  "dev_abs_p99_bps": 55.90616212496966,
+  "ex1": "binance",
+  "ex2": "aster",
+  "in_main_series": false,
+  "in_universe": false,
+  "market": null,
+  "name": "H4a TA Binance x Aster",
+  "pid": null,
+  "sigma_rob_median_bps": 20.75193626141502,
+  "sym1": "TAUSDT",
+  "sym2": "TAUSDT",
+  "valid_minutes": 690,
+  "valid_share": 0.03422619047619048,
+  "verdict": "нет данных (мало общих доходностей)"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bingx/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 445.11398837076223,
+  "dev_abs_p99_bps": 21.518108778226797,
+  "ex1": "binance",
+  "ex2": "bingx",
+  "grid_trades_total_all_combos": 288,
+  "hl15_hi": 9.677606958201835,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H4b TA Binance x BingX",
+  "pid": "binance~bingx|TAUSDT|TA-USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": -3.4646719956252994e-05,
+    "gross": -6.481172033821342,
+    "le2": 0.4375,
+    "net": -19.0812066805413,
+    "trades": 16
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -6.031917326360721,
+    "le2": 0.4444444444444444,
+    "net": -18.63191732636072,
+    "trades": 9
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -14.95229028435907,
+    "le2": 1.0,
+    "net": -27.55229028435907,
+    "trades": 2
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 5.834849581148128,
+  "sym1": "TAUSDT",
+  "sym2": "TA-USDT",
+  "valid_minutes": 20053,
+  "valid_share": 0.9946924603174603,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 67.48826461105972,
+  "dev_abs_p99_bps": 41.14897524486682,
+  "ex1": "binance",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 60,
+  "hl15_hi": 8.835352453342738,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H4c TA Binance x Gate",
+  "pid": "binance~gate|TAUSDT|TA_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -8.787100445507013,
+    "le2": 0.8333333333333334,
+    "net": -21.387100445507013,
+    "trades": 6
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -6.578612156978581,
+    "le2": 1.0,
+    "net": -19.17861215697858,
+    "trades": 4
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 12.286683077232881,
+  "sym1": "TAUSDT",
+  "sym2": "TA_USDT",
+  "valid_minutes": 5237,
+  "valid_share": 0.2597718253968254,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bingx/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 54.672829675824765,
+  "dev_abs_p99_bps": 17.49496640439885,
+  "ex1": "binance",
+  "ex2": "bingx",
+  "grid_trades_total_all_combos": 90,
+  "hl15_hi": 5.397519087288425,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H6 LPT Binance x BingX",
+  "pid": "binance~bingx|LPTUSDT|LPT-USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -4.804246588318018,
+    "le2": 0.5,
+    "net": -17.404246588318017,
+    "trades": 12
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 5.431377371230006,
+    "le2": 1.0,
+    "net": -7.1686226287699935,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 8.480388563471084,
+  "sym1": "LPTUSDT",
+  "sym2": "LPT-USDT",
+  "valid_minutes": 20086,
+  "valid_share": 0.9963293650793651,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 144.6188526224796,
+  "dev_abs_p99_bps": 60.26616914081375,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": null,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 MINIMAX Binance x Bitget HKD",
+  "pid": "binance~bitget|MINIMAXUSDT|MINIMAXHKDUSDT",
+  "q5_T120": false,
+  "q5_T1440": false,
+  "q5_T360": false,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 21.46034616719762,
+  "sym1": "MINIMAXUSDT",
+  "sym2": "MINIMAXHKDUSDT",
+  "valid_minutes": 4114,
+  "valid_share": 0.20406746031746031,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 33.688583478108654,
+  "dev_abs_p99_bps": 15.052307304892919,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 5.886961784969465,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 MINIMAX Binance x Bitget USDT",
+  "pid": "binance~bitget|MINIMAXUSDT|MINIMAXUSDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 5.146788800725215,
+  "sym1": "MINIMAXUSDT",
+  "sym2": "MINIMAXUSDT",
+  "valid_minutes": 9221,
+  "valid_share": 0.457390873015873,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 109.87446513093164,
+  "dev_abs_p99_bps": 56.154439786431986,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": null,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 ZHIPU Binance x Bitget HKD",
+  "pid": "binance~bitget|ZHIPUUSDT|ZHIPUHKDUSDT",
+  "q5_T120": false,
+  "q5_T1440": false,
+  "q5_T360": false,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 20.159378357883444,
+  "sym1": "ZHIPUUSDT",
+  "sym2": "ZHIPUHKDUSDT",
+  "valid_minutes": 4322,
+  "valid_share": 0.21438492063492062,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 22.8782381062409,
+  "dev_abs_p99_bps": 12.211631375164611,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 7.36560737156119,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 ZHIPU Binance x Bitget USDT",
+  "pid": "binance~bitget|ZHIPUUSDT|ZHIPUUSDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 3.830763776692961,
+  "sym1": "ZHIPUUSDT",
+  "sym2": "ZHIPUUSDT",
+  "valid_minutes": 10628,
+  "valid_share": 0.5271825396825397,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "0",
+  "cell": null,
+  "cls": null,
+  "dev_abs_max_bps": 43.075838008102,
+  "dev_abs_p99_bps": 25.64150065358709,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "in_main_series": false,
+  "in_universe": false,
+  "market": null,
+  "name": "H1 TENCENT HK0700 x Bitget HKD",
+  "pid": null,
+  "sigma_rob_median_bps": 6.262047330326933,
+  "sym1": "HK0700USDT",
+  "sym2": "TENCENTHKDUSDT",
+  "valid_minutes": 3452,
+  "valid_share": 0.17123015873015873,
+  "verdict": "пограничное (S между серединой и лучшим «разное»)"
+ },
+ {
+  "c1d2": "0",
+  "cell": null,
+  "cls": null,
+  "dev_abs_max_bps": 36.340943436491216,
+  "dev_abs_p99_bps": 26.72071223303996,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "in_main_series": false,
+  "in_universe": false,
+  "market": null,
+  "name": "H1 TENCENT HK0700 x Bitget USDT",
+  "pid": null,
+  "sigma_rob_median_bps": 9.445926262697617,
+  "sym1": "HK0700USDT",
+  "sym2": "TENCENTUSDT",
+  "valid_minutes": 2948,
+  "valid_share": 0.14623015873015874,
+  "verdict": "разное"
+ },
+ {
+  "c1d2": "0",
+  "cell": null,
+  "cls": null,
+  "dev_abs_max_bps": 73.17632244203898,
+  "dev_abs_p99_bps": 73.14275120649172,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "in_main_series": false,
+  "in_universe": false,
+  "market": null,
+  "name": "H1 LENOVO HK0992 x Bitget HKD",
+  "pid": null,
+  "sigma_rob_median_bps": 24.506831568428765,
+  "sym1": "HK0992USDT",
+  "sym2": "LENOVOHKDUSDT",
+  "valid_minutes": 1618,
+  "valid_share": 0.08025793650793651,
+  "verdict": "пограничное (S между серединой и лучшим «разное»)"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 69.4978835328497,
+  "dev_abs_p99_bps": 39.96978307889456,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 14.643638635368664,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 XIAOMI HK1810 x Bitget HKD",
+  "pid": "binance~bitget|HK1810USDT|XIAOMIHKDUSDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 7.369891362245041,
+  "sym1": "HK1810USDT",
+  "sym2": "XIAOMIHKDUSDT",
+  "valid_minutes": 7163,
+  "valid_share": 0.3553075396825397,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 64.88570938136036,
+  "dev_abs_p99_bps": 41.21360336742484,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 40.83582510909683,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 XIAOMI HK1810 x Bitget USDT",
+  "pid": "binance~bitget|HK1810USDT|XIAOMIUSDT",
+  "q5_T120": false,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 10.258268254504513,
+  "sym1": "HK1810USDT",
+  "sym2": "XIAOMIUSDT",
+  "valid_minutes": 5647,
+  "valid_share": 0.280109126984127,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 104.2533447922489,
+  "dev_abs_p99_bps": 76.20130102688644,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": null,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 SHEIN HK0625 x Bitget HKD",
+  "pid": "binance~bitget|HK0625USDT|SHEINHKDUSDT",
+  "q5_T120": false,
+  "q5_T1440": false,
+  "q5_T360": false,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 26.103900569078064,
+  "sym1": "HK0625USDT",
+  "sym2": "SHEINHKDUSDT",
+  "valid_minutes": 2101,
+  "valid_share": 0.10421626984126985,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    5,
+    1,
+    120,
+    2.0
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~bitget/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 86.86618844724944,
+  "dev_abs_p99_bps": 64.22566516864556,
+  "ex1": "binance",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": null,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "HK",
+  "name": "H1 SHEIN HK0625 x Bitget USDT",
+  "pid": "binance~bitget|HK0625USDT|SHEINUSDT",
+  "q5_T120": false,
+  "q5_T1440": false,
+  "q5_T360": false,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 24.1764315483774,
+  "sym1": "HK0625USDT",
+  "sym2": "SHEINUSDT",
+  "valid_minutes": 2971,
+  "valid_share": 0.14737103174603175,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 65.93424808349901,
+  "dev_abs_p99_bps": 33.44835270718222,
+  "ex1": "binance",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 30,
+  "hl15_hi": 6.151874778033792,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H2 BRETT binance_BRETTUSDT x gate_BRETT_USDT",
+  "pid": "binance~gate|BRETTUSDT|BRETT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0004669568228567639,
+    "gross": 22.465471337798636,
+    "le2": 1.0,
+    "net": 9.865938294621493,
+    "trades": 2
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0004669568228567639,
+    "gross": -16.77218820937132,
+    "le2": 1.0,
+    "net": -29.37172125254846,
+    "trades": 2
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 11.830036939775361,
+  "sym1": "BRETTUSDT",
+  "sym2": "BRETT_USDT",
+  "valid_minutes": 5831,
+  "valid_share": 0.28923611111111114,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bingx~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 73.42806826057036,
+  "dev_abs_p99_bps": 33.01350461591452,
+  "ex1": "bingx",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 6,
+  "hl15_hi": 6.852149137412091,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H2 BRETT bingx_BRETT-USDT x gate_BRETT_USDT",
+  "pid": "bingx~gate|BRETT-USDT|BRETT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -40.56047906778715,
+    "le2": 1.0,
+    "net": -53.16047906778715,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 11.196237533412276,
+  "sym1": "BRETT-USDT",
+  "sym2": "BRETT_USDT",
+  "valid_minutes": 5836,
+  "valid_share": 0.289484126984127,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bitget~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 78.60086856116499,
+  "dev_abs_p99_bps": 41.26469635161368,
+  "ex1": "bitget",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 7.069363196967835,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H2 BRETT bitget_BRETTUSDT x gate_BRETT_USDT",
+  "pid": "bitget~gate|BRETTUSDT|BRETT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 12.657122313544464,
+  "sym1": "BRETTUSDT",
+  "sym2": "BRETT_USDT",
+  "valid_minutes": 3598,
+  "valid_share": 0.17847222222222223,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bybit~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 65.94730484521527,
+  "dev_abs_p99_bps": 36.9320157973793,
+  "ex1": "bybit",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 6,
+  "hl15_hi": 6.473247678815192,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H2 BRETT bybit_BRETTUSDT x gate_BRETT_USDT",
+  "pid": "bybit~gate|BRETTUSDT|BRETT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -39.00312325588074,
+    "le2": 1.0,
+    "net": -51.60312325588074,
+    "trades": 1
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 12.677213256366066,
+  "sym1": "BRETTUSDT",
+  "sym2": "BRETT_USDT",
+  "valid_minutes": 5427,
+  "valid_share": 0.26919642857142856,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "gate~okx/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 76.74133506633929,
+  "dev_abs_p99_bps": 35.93726925840205,
+  "ex1": "okx",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 36,
+  "hl15_hi": 6.810521353307836,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H2 BRETT okx_BRETT-USDT-SWAP x gate_BRETT_USDT",
+  "pid": "gate~okx|BRETT_USDT|BRETT-USDT-SWAP",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 29.220779220778816,
+    "le2": 1.0,
+    "net": 16.620779220778815,
+    "trades": 1
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 23.76123155529375,
+    "le2": 1.0,
+    "net": 11.161231555293748,
+    "trades": 3
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 11.95204038160234,
+  "sym1": "BRETT-USDT-SWAP",
+  "sym2": "BRETT_USDT",
+  "valid_minutes": 5050,
+  "valid_share": 0.25049603174603174,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 25.36085089051232,
+  "dev_abs_p99_bps": 13.030530623809877,
+  "ex1": "binance",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 15.509307296458848,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H3 LAB binance_LABUSDT x gate_LAB_USDT",
+  "pid": "binance~gate|LABUSDT|LAB_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 4.392407476605702,
+  "sym1": "LABUSDT",
+  "sym2": "LAB_USDT",
+  "valid_minutes": 20156,
+  "valid_share": 0.9998015873015873,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bybit~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 45.24479400739967,
+  "dev_abs_p99_bps": 25.735314621893174,
+  "ex1": "bybit",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 6.314694486187635,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H3 LAB bybit_LABUSDT x gate_LAB_USDT",
+  "pid": "bybit~gate|LABUSDT|LAB_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 11.47891254210222,
+  "sym1": "LABUSDT",
+  "sym2": "LAB_USDT",
+  "valid_minutes": 17448,
+  "valid_share": 0.8654761904761905,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "aster~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 69.16027000872127,
+  "dev_abs_p99_bps": 40.50645426039074,
+  "ex1": "gate",
+  "ex2": "aster",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 4.31559732341985,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H3 LAB gate_LAB_USDT x aster_LABUSDT",
+  "pid": "aster~gate|LABUSDT|LAB_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 10.229645991646628,
+  "sym1": "LAB_USDT",
+  "sym2": "LABUSDT",
+  "valid_minutes": 5143,
+  "valid_share": 0.25510912698412697,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bingx~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 77.0931783953399,
+  "dev_abs_p99_bps": 14.916167661375594,
+  "ex1": "gate",
+  "ex2": "bingx",
+  "grid_trades_total_all_combos": 30,
+  "hl15_hi": 8.354903792189882,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H3 LAB gate_LAB_USDT x bingx_LAB-USDT",
+  "pid": "bingx~gate|LAB-USDT|LAB_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 1.0476351630411829,
+    "le2": 0.5,
+    "net": -11.552364836958816,
+    "trades": 2
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 5.25275837449821,
+  "sym1": "LAB_USDT",
+  "sym2": "LAB-USDT",
+  "valid_minutes": 20152,
+  "valid_share": 0.9996031746031746,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bitget~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 67.799198390317,
+  "dev_abs_p99_bps": 27.636788052476852,
+  "ex1": "gate",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 88,
+  "hl15_hi": 5.5021376543360585,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H3 LAB gate_LAB_USDT x bitget_LABUSDT",
+  "pid": "bitget~gate|LABUSDT|LAB_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 18.076190215519805,
+    "le2": 0.7272727272727273,
+    "net": 5.476190215519801,
+    "trades": 11
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 1.9737124710283993,
+    "le2": 0.5,
+    "net": -10.6262875289716,
+    "trades": 2
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 6.939417233844425,
+  "sym1": "LAB_USDT",
+  "sym2": "LABUSDT",
+  "valid_minutes": 13792,
+  "valid_share": 0.6841269841269841,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "gate~okx/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 44.781403558800115,
+  "dev_abs_p99_bps": 14.650207203294622,
+  "ex1": "okx",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 12,
+  "hl15_hi": 14.718749625531226,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H3 LAB okx_LAB-USDT-SWAP x gate_LAB_USDT",
+  "pid": "gate~okx|LAB_USDT|LAB-USDT-SWAP",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 5.645261912783968,
+  "sym1": "LAB-USDT-SWAP",
+  "sym2": "LAB_USDT",
+  "valid_minutes": 20018,
+  "valid_share": 0.9929563492063492,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bingx~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 392.5333709751056,
+  "dev_abs_p99_bps": 41.15814097104554,
+  "ex1": "bingx",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 72,
+  "hl15_hi": 7.0986057896560375,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H4 TA bingx_TA-USDT x gate_TA_USDT",
+  "pid": "bingx~gate|TA-USDT|TA_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 16.721453154747486,
+    "le2": 0.6,
+    "net": 4.121453154747489,
+    "trades": 5
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 12.492684923886221,
+    "le2": 0.6,
+    "net": -0.10731507611377963,
+    "trades": 5
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 11.623248733528628,
+  "sym1": "TA-USDT",
+  "sym2": "TA_USDT",
+  "valid_minutes": 5244,
+  "valid_share": 0.26011904761904764,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bybit~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 66.14551870470552,
+  "dev_abs_p99_bps": 40.72265632258479,
+  "ex1": "bybit",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 24,
+  "hl15_hi": 5.5317201341695945,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H4 TA bybit_TAUSDT x gate_TA_USDT",
+  "pid": "bybit~gate|TAUSDT|TA_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -9.700932633318061,
+    "le2": 1.0,
+    "net": -22.300932633318062,
+    "trades": 2
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -9.700932633318061,
+    "le2": 1.0,
+    "net": -22.300932633318062,
+    "trades": 2
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 11.714723512290767,
+  "sym1": "TAUSDT",
+  "sym2": "TA_USDT",
+  "valid_minutes": 4270,
+  "valid_share": 0.21180555555555555,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "binance~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 80.04616782613883,
+  "dev_abs_p99_bps": 17.922339021779305,
+  "ex1": "binance",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 60,
+  "hl15_hi": 7.793242080928241,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H6 LPT binance_LPTUSDT x gate_LPT_USDT",
+  "pid": "binance~gate|LPTUSDT|LPT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -2.795446189081489,
+    "le2": 0.4444444444444444,
+    "net": -15.395446189081488,
+    "trades": 9
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 6.0709132409608735,
+    "le2": 1.0,
+    "net": -6.529086759039126,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 8.488978187832522,
+  "sym1": "LPTUSDT",
+  "sym2": "LPT_USDT",
+  "valid_minutes": 20061,
+  "valid_share": 0.9950892857142857,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bingx~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 80.04616782613883,
+  "dev_abs_p99_bps": 23.17498140362528,
+  "ex1": "bingx",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 66,
+  "hl15_hi": 6.400930050465559,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H6 LPT bingx_LPT-USDT x gate_LPT_USDT",
+  "pid": "bingx~gate|LPT-USDT|LPT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 5.971474647799985,
+    "le2": 0.375,
+    "net": -6.6285253522000165,
+    "trades": 8
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 0.0,
+    "le2": 0.0,
+    "net": -12.6,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 8.562518285934447,
+  "sym1": "LPT-USDT",
+  "sym2": "LPT_USDT",
+  "valid_minutes": 20135,
+  "valid_share": 0.9987599206349206,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bybit~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 86.83121055726106,
+  "dev_abs_p99_bps": 22.598547711384477,
+  "ex1": "bybit",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 48,
+  "hl15_hi": 10.588496201712546,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H6 LPT bybit_LPTUSDT x gate_LPT_USDT",
+  "pid": "bybit~gate|LPTUSDT|LPT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 1.0417302755849622,
+    "le2": 0.4,
+    "net": -11.558269724415037,
+    "trades": 5
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 14.755148167321375,
+    "le2": 0.0,
+    "net": 2.155148167321375,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 8.04187494282222,
+  "sym1": "LPTUSDT",
+  "sym2": "LPT_USDT",
+  "valid_minutes": 19219,
+  "valid_share": 0.9533234126984127,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "bitget~gate/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 91.61302304018014,
+  "dev_abs_p99_bps": 34.190069759003876,
+  "ex1": "gate",
+  "ex2": "bitget",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": 6.20345499287944,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H6 LPT gate_LPT_USDT x bitget_LPTUSDT",
+  "pid": "bitget~gate|LPTUSDT|LPT_USDT",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 8.642378560079553,
+  "sym1": "LPT_USDT",
+  "sym2": "LPTUSDT",
+  "valid_minutes": 8999,
+  "valid_share": 0.4463789682539683,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "gate~kraken/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 55.52989537575881,
+  "dev_abs_p99_bps": 40.15670433440264,
+  "ex1": "gate",
+  "ex2": "kraken",
+  "grid_trades_total_all_combos": 0,
+  "hl15_hi": null,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H6 LPT gate_LPT_USDT x kraken_PF_LPTUSD",
+  "pid": "gate~kraken|LPT_USDT|PF_LPTUSD",
+  "q5_T120": false,
+  "q5_T1440": false,
+  "q5_T360": false,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 18.542113559426497,
+  "sym1": "LPT_USDT",
+  "sym2": "PF_LPTUSD",
+  "valid_minutes": 1465,
+  "valid_share": 0.0726686507936508,
+  "verdict": "одно"
+ },
+ {
+  "at_selected": {
+   "combo": [
+    40.0,
+    3,
+    3,
+    1440,
+    null
+   ],
+   "fund": null,
+   "gross": null,
+   "le2": null,
+   "net": null,
+   "trades": 0
+  },
+  "c1d2": "1",
+  "cell": "gate~okx/crypto",
+  "cls": "crypto",
+  "dev_abs_max_bps": 91.42920832674206,
+  "dev_abs_p99_bps": 23.07189858239245,
+  "ex1": "okx",
+  "ex2": "gate",
+  "grid_trades_total_all_combos": 48,
+  "hl15_hi": 12.786660920716596,
+  "in_main_series": true,
+  "in_universe": true,
+  "market": "24x7",
+  "name": "H6 LPT okx_LPT-USDT-SWAP x gate_LPT_USDT",
+  "pid": "gate~okx|LPT_USDT|LPT-USDT-SWAP",
+  "q5_T120": true,
+  "q5_T1440": true,
+  "q5_T360": true,
+  "ref_points": [
+   {
+    "combo": [
+     25.2,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": 5.350257422726656,
+    "le2": 0.6,
+    "net": -7.249742577273342,
+    "trades": 5
+   },
+   {
+    "combo": [
+     40.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": 0.0,
+    "gross": -0.014770183333068232,
+    "le2": 0.0,
+    "net": -12.614770183333068,
+    "trades": 1
+   },
+   {
+    "combo": [
+     80.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     160.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   },
+   {
+    "combo": [
+     320.0,
+     3,
+     1,
+     360,
+     2.0
+    ],
+    "fund": null,
+    "gross": null,
+    "le2": null,
+    "net": null,
+    "trades": 0
+   }
+  ],
+  "sigma_rob_median_bps": 8.479268175077161,
+  "sym1": "LPT-USDT-SWAP",
+  "sym2": "LPT_USDT",
+  "valid_minutes": 19300,
+  "valid_share": 0.9573412698412699,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "binance~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 32.927260569755035,
+  "dev_abs_p99_bps": 16.702617158077647,
+  "ex1": "binance",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 MINIMAX binance_MINIMAXUSDT x gate_MINIMAX_USDT",
+  "pid": "binance~gate|MINIMAXUSDT|MINIMAX_USDT",
+  "sigma_rob_median_bps": 4.926399779504161,
+  "sym1": "MINIMAXUSDT",
+  "sym2": "MINIMAX_USDT",
+  "valid_minutes": 15387,
+  "valid_share": 0.7632440476190476,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bitget~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 38.598027302727544,
+  "dev_abs_p99_bps": 21.551687668539763,
+  "ex1": "bitget",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 MINIMAX bitget_MINIMAXUSDT x gate_MINIMAX_USDT",
+  "pid": "bitget~gate|MINIMAXUSDT|MINIMAX_USDT",
+  "sigma_rob_median_bps": 6.631639192732363,
+  "sym1": "MINIMAXUSDT",
+  "sym2": "MINIMAX_USDT",
+  "valid_minutes": 9672,
+  "valid_share": 0.4797619047619048,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bitget~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 152.62755917648974,
+  "dev_abs_p99_bps": 62.77461409909958,
+  "ex1": "gate",
+  "ex2": "bitget",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 MINIMAX gate_MINIMAX_USDT x bitget_MINIMAXHKDUSDT",
+  "pid": "bitget~gate|MINIMAXHKDUSDT|MINIMAX_USDT",
+  "sigma_rob_median_bps": 20.458042281963156,
+  "sym1": "MINIMAX_USDT",
+  "sym2": "MINIMAXHKDUSDT",
+  "valid_minutes": 4503,
+  "valid_share": 0.22336309523809525,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bybit~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 43.95811658578719,
+  "dev_abs_p99_bps": 24.51480365985227,
+  "ex1": "gate",
+  "ex2": "bybit",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 MINIMAX gate_MINIMAX_USDT x bybit_MINIMAXUSDT",
+  "pid": "bybit~gate|MINIMAXUSDT|MINIMAX_USDT",
+  "sigma_rob_median_bps": 5.9137374365814,
+  "sym1": "MINIMAX_USDT",
+  "sym2": "MINIMAXUSDT",
+  "valid_minutes": 5818,
+  "valid_share": 0.2885912698412698,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "gate~okx/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 37.495357014791786,
+  "dev_abs_p99_bps": 18.68118472629754,
+  "ex1": "okx",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 MINIMAX okx_MINIMAX-USDT-SWAP x gate_MINIMAX_USDT",
+  "pid": "gate~okx|MINIMAX_USDT|MINIMAX-USDT-SWAP",
+  "sigma_rob_median_bps": 5.345592269911375,
+  "sym1": "MINIMAX-USDT-SWAP",
+  "sym2": "MINIMAX_USDT",
+  "valid_minutes": 12239,
+  "valid_share": 0.607093253968254,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "binance~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 25.35487411900572,
+  "dev_abs_p99_bps": 13.898015051692534,
+  "ex1": "binance",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 ZHIPU binance_ZHIPUUSDT x gate_ZHIPU_USDT",
+  "pid": "binance~gate|ZHIPUUSDT|ZHIPU_USDT",
+  "sigma_rob_median_bps": 3.6826532758881445,
+  "sym1": "ZHIPUUSDT",
+  "sym2": "ZHIPU_USDT",
+  "valid_minutes": 17025,
+  "valid_share": 0.8444940476190477,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bitget~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 25.431928525634362,
+  "dev_abs_p99_bps": 17.926883062962954,
+  "ex1": "bitget",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 ZHIPU bitget_ZHIPUUSDT x gate_ZHIPU_USDT",
+  "pid": "bitget~gate|ZHIPUUSDT|ZHIPU_USDT",
+  "sigma_rob_median_bps": 5.4325236905714025,
+  "sym1": "ZHIPUUSDT",
+  "sym2": "ZHIPU_USDT",
+  "valid_minutes": 10906,
+  "valid_share": 0.5409722222222222,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bybit~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 45.2622432115124,
+  "dev_abs_p99_bps": 17.912415819546776,
+  "ex1": "bybit",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 ZHIPU bybit_ZHIPUUSDT x gate_ZHIPU_USDT",
+  "pid": "bybit~gate|ZHIPUUSDT|ZHIPU_USDT",
+  "sigma_rob_median_bps": 5.457429266488121,
+  "sym1": "ZHIPUUSDT",
+  "sym2": "ZHIPU_USDT",
+  "valid_minutes": 9863,
+  "valid_share": 0.4892361111111111,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bitget~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 102.193742830681,
+  "dev_abs_p99_bps": 56.7512094721745,
+  "ex1": "gate",
+  "ex2": "bitget",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 ZHIPU gate_ZHIPU_USDT x bitget_ZHIPUHKDUSDT",
+  "pid": "bitget~gate|ZHIPUHKDUSDT|ZHIPU_USDT",
+  "sigma_rob_median_bps": 20.747363415875842,
+  "sym1": "ZHIPU_USDT",
+  "sym2": "ZHIPUHKDUSDT",
+  "valid_minutes": 4565,
+  "valid_share": 0.22643849206349206,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "gate~okx/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 26.202522945926177,
+  "dev_abs_p99_bps": 13.705243982330021,
+  "ex1": "okx",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 ZHIPU okx_ZHIPU-USDT-SWAP x gate_ZHIPU_USDT",
+  "pid": "gate~okx|ZHIPU_USDT|ZHIPU-USDT-SWAP",
+  "sigma_rob_median_bps": 3.844914388714029,
+  "sym1": "ZHIPU-USDT-SWAP",
+  "sym2": "ZHIPU_USDT",
+  "valid_minutes": 15441,
+  "valid_share": 0.765922619047619,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "binance~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 112.02907110567928,
+  "dev_abs_p99_bps": 41.895400758478196,
+  "ex1": "binance",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 XIAOMI binance_HK1810USDT x gate_XIAOMIHKD_USDT",
+  "pid": "binance~gate|HK1810USDT|XIAOMIHKD_USDT",
+  "sigma_rob_median_bps": 12.454761940772622,
+  "sym1": "HK1810USDT",
+  "sym2": "XIAOMIHKD_USDT",
+  "valid_minutes": 14704,
+  "valid_share": 0.7293650793650793,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bitget~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 80.54583333307885,
+  "dev_abs_p99_bps": 37.35425879172539,
+  "ex1": "gate",
+  "ex2": "bitget",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 XIAOMI gate_XIAOMI_USDT x bitget_XIAOMIUSDT",
+  "pid": "bitget~gate|XIAOMIUSDT|XIAOMI_USDT",
+  "sigma_rob_median_bps": 13.32460287267658,
+  "sym1": "XIAOMI_USDT",
+  "sym2": "XIAOMIUSDT",
+  "valid_minutes": 6230,
+  "valid_share": 0.3090277777777778,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "bybit~gate/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 66.54156329101157,
+  "dev_abs_p99_bps": 38.87603019044134,
+  "ex1": "gate",
+  "ex2": "bybit",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 XIAOMI gate_XIAOMI_USDT x bybit_XIAOMIUSDT",
+  "pid": "bybit~gate|XIAOMIUSDT|XIAOMI_USDT",
+  "sigma_rob_median_bps": 14.331472473543336,
+  "sym1": "XIAOMI_USDT",
+  "sym2": "XIAOMIUSDT",
+  "valid_minutes": 3254,
+  "valid_share": 0.16140873015873017,
+  "verdict": "одно"
+ },
+ {
+  "c1d2": "1",
+  "cell": "gate~okx/eq",
+  "cls": "eq",
+  "dev_abs_max_bps": 77.08201479244448,
+  "dev_abs_p99_bps": 36.12837852709198,
+  "ex1": "okx",
+  "ex2": "gate",
+  "in_main_series": false,
+  "in_universe": true,
+  "market": "gate_tradfi",
+  "name": "H1 XIAOMI okx_XIAOMI-USDT-SWAP x gate_XIAOMI_USDT",
+  "pid": "gate~okx|XIAOMI_USDT|XIAOMI-USDT-SWAP",
+  "sigma_rob_median_bps": 13.594222083818085,
+  "sym1": "XIAOMI-USDT-SWAP",
+  "sym2": "XIAOMI_USDT",
+  "valid_minutes": 12196,
+  "valid_share": 0.6049603174603174,
+  "verdict": "одно"
+ }
+]

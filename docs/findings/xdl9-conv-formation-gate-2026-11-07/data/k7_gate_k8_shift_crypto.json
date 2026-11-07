@@ -1,0 +1,36 @@
+{
+ "cls": "crypto",
+ "combo": [
+  40.0,
+  3,
+  3,
+  1440,
+  null
+ ],
+ "days_with_active_pairs": 13,
+ "pairs_with_trades": 262,
+ "real_closed_trades": 426,
+ "real_mean_yd_closed": 0.06307380136743385,
+ "shifts": {
+  "-15": {
+   "mean_yd": 0.005235692472022809,
+   "skipped": 423,
+   "trades_done": 3
+  },
+  "-5": {
+   "mean_yd": 0.0053697006614970896,
+   "skipped": 422,
+   "trades_done": 4
+  },
+  "15": {
+   "mean_yd": 0.014040635944469797,
+   "skipped": 386,
+   "trades_done": 40
+  },
+  "5": {
+   "mean_yd": 0.02208893256940558,
+   "skipped": 343,
+   "trades_done": 83
+  }
+ }
+}

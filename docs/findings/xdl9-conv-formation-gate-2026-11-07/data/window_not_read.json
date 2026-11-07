@@ -1,0 +1,16 @@
+{
+ "window_reads_log": false,
+ "token": false,
+ "token_used": 0,
+ "old_window_reads_log": false,
+ "npy_files": 45802,
+ "max_1d_len": {
+  "train": 180,
+  "calib_or_other": 20160
+ },
+ "bad": [],
+ "grid_meta_d1_counts": {
+  "2478": 72,
+  "2471": 6
+ }
+}

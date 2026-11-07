@@ -1,0 +1,123 @@
+START 2026-11-07T04:55:39Z
+{
+ "pairs_by_class_market": {
+  "crypto|24x7": {
+   "pairs": 8290,
+   "cells": 36,
+   "assets": 563
+  },
+  "eq|US": {
+   "pairs": 1924,
+   "cells": 28,
+   "assets": 236
+  },
+  "metal|no_calendar": {
+   "pairs": 146,
+   "cells": 28,
+   "assets": 10
+  },
+  "eq|other_tradfi": {
+   "pairs": 117,
+   "cells": 27,
+   "assets": 20
+  },
+  "eq|gate_tradfi": {
+   "pairs": 571,
+   "cells": 8,
+   "assets": 114
+  },
+  "metal|gate_tradfi": {
+   "pairs": 56,
+   "cells": 8,
+   "assets": 10
+  },
+  "fx|other_tradfi": {
+   "pairs": 1,
+   "cells": 1,
+   "assets": 1
+  },
+  "eq|HK": {
+   "pairs": 47,
+   "cells": 8,
+   "assets": 6
+  },
+  "idx|US": {
+   "pairs": 4,
+   "cells": 3,
+   "assets": 3
+  }
+ },
+ "main_by_class": {
+  "crypto": {
+   "pairs": 8290,
+   "floor_defined": 7223,
+   "valid_share_median": 0.49236111111111114,
+   "valid_share_q10": 0.11746031746031746,
+   "mad0_share_mean": 0.22336246522947284
+  },
+  "eq": {
+   "pairs": 1971,
+   "floor_defined": 1501,
+   "valid_share_median": 0.10669642857142857,
+   "valid_share_q10": 0.03953373015873016,
+   "mad0_share_mean": 0.4786533294935026
+  }
+ },
+ "open_semantics_by_exchange": {
+  "aster": {
+   "legs": 257,
+   "valid_share_median": 0.14692460317460318,
+   "valid_share_ge50": 0.12840466926070038,
+   "chain_share_median": 0.06172839506172839
+  },
+  "binance": {
+   "legs": 702,
+   "valid_share_median": 0.9935515873015873,
+   "valid_share_ge50": 0.7464387464387464,
+   "chain_share_median": 0.3541606923787798
+  },
+  "bingx": {
+   "legs": 749,
+   "valid_share_median": 1.0,
+   "valid_share_ge50": 0.6889185580774366,
+   "chain_share_median": 1.0
+  },
+  "bitget": {
+   "legs": 656,
+   "valid_share_median": 0.278249007936508,
+   "valid_share_ge50": 0.23932926829268292,
+   "chain_share_median": 1.0
+  },
+  "bybit": {
+   "legs": 690,
+   "valid_share_median": 0.6891865079365079,
+   "valid_share_ge50": 0.6521739130434783,
+   "chain_share_median": 1.0
+  },
+  "gate": {
+   "legs": 521,
+   "valid_share_median": 0.41200396825396823,
+   "valid_share_ge50": 0.42034548944337813,
+   "chain_share_median": 0.15150901357099453
+  },
+  "kraken": {
+   "legs": 125,
+   "valid_share_median": 0.24905753968253969,
+   "valid_share_ge50": 0.224,
+   "chain_share_median": 1.0
+  },
+  "lighter": {
+   "legs": 118,
+   "valid_share_median": 0.1985863095238095,
+   "valid_share_ge50": 0.3220338983050847,
+   "chain_share_median": 1.0
+  },
+  "okx": {
+   "legs": 444,
+   "valid_share_median": 0.8435019841269842,
+   "valid_share_ge50": 0.6216216216216216,
+   "chain_share_median": 0.19658108719470313
+  }
+ }
+}
+EXIT=0 2026-11-07T04:55:47Z

@@ -1,0 +1,38 @@
+START 2026-11-07T05:08:30Z
+{
+ "cls": "crypto",
+ "combo": [
+  40.0,
+  3,
+  3,
+  1440,
+  null
+ ],
+ "days_with_active_pairs": 13,
+ "pairs_with_trades": 202,
+ "real_closed_trades": 356,
+ "real_mean_yd_closed": 0.0758130764351402,
+ "shifts": {
+  "-15": {
+   "trades_done": 3,
+   "skipped": 353,
+   "mean_yd": 0.007042534517892966
+  },
+  "-5": {
+   "trades_done": 3,
+   "skipped": 353,
+   "mean_yd": 0.0048030038830278714
+  },
+  "5": {
+   "trades_done": 71,
+   "skipped": 285,
+   "mean_yd": 0.03477558759808827
+  },
+  "15": {
+   "trades_done": 33,
+   "skipped": 323,
+   "mean_yd": 0.015485111259949584
+  }
+ }
+}
+EXIT=0 2026-11-07T05:08:31Z
