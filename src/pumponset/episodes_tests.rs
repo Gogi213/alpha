@@ -438,15 +438,15 @@ fn acc_two_pass(cs: &[Contract], p: &Params, fit: [i64; 2], chunk: usize) -> XdT
         for c in part {
             a.add(c, p, fit);
         }
-        master.merge(a);
+        master.merge(a).unwrap();
     }
-    master.begin_pass2();
+    master.begin_pass2().unwrap();
     for part in cs.chunks(chunk) {
         let mut w = master.pass2_worker();
         for c in part {
             w.add(c, p, fit);
         }
-        master.merge(w);
+        master.merge(w).unwrap();
     }
     master.finish().unwrap()
 }
@@ -512,7 +512,7 @@ fn xd_acc_counts_and_misuse() {
     acc.add(&c, &p, fit);
     // Концы j ∈ [90, 600) (окно старта непусто, close есть) — по D = 90 и 180 одинаково, оба знака.
     assert_eq!(acc.counts(), vec![[510, 510], [510, 510]]);
-    acc.begin_pass2();
+    acc.begin_pass2().unwrap();
     assert_eq!(acc.counts(), vec![[510, 510], [510, 510]]);
     // Проход 2 без значений: счётчики не сошлись — ошибка, а не молчаливый ответ.
     assert!(acc.finish().is_err());
@@ -520,9 +520,28 @@ fn xd_acc_counts_and_misuse() {
     assert!(XdAcc::new(&p).finish().is_err());
     // Пустой накопитель: NaN-порог.
     let mut e = XdAcc::new(&p);
-    e.begin_pass2();
+    e.begin_pass2().unwrap();
     let t = e.finish().unwrap();
     assert!(t.x.iter().all(|r| r[0].is_nan() && r[1].is_nan()));
+}
+
+/// Ошибки порядка проходов — `Err` (раньше `panic!`, E-линт `clippy::panic`), а не падение и не молчаливый ответ.
+#[test]
+fn xd_acc_phase_misuse_is_err() {
+    let p = params("[90,180]", "0.99");
+    let mut master = XdAcc::new(&p);
+    // Работник до begin_pass2 — накопитель прохода 1: в мастер прохода 1 сливается, в мастер прохода 2 — нет.
+    let early = master.pass2_worker();
+    master.begin_pass2().unwrap();
+    assert!(master.merge(early).is_err());
+    // begin_pass2 дважды.
+    assert!(master.begin_pass2().is_err());
+    // Мастер прохода 1 не принимает накопитель прохода 2.
+    let mut m1 = XdAcc::new(&p);
+    assert!(m1.merge(master.pass2_worker()).is_err());
+    // Разное число D.
+    let q = params("[90,180,360]", "0.99");
+    assert!(XdAcc::new(&p).merge(XdAcc::new(&q)).is_err());
 }
 
 fn ep(di: u8, sign: i8, t0: i64, t_end: i64) -> Episode {

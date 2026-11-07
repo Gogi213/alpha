@@ -772,12 +772,12 @@ pub(super) fn xd_passes_for(
     };
     let mut master = XdAcc::new(p);
     for a in par_map(threads, files.len(), |_| XdAcc::new(p), feed)? {
-        master.merge(a);
+        master.merge(a)?;
     }
     let counts = master.counts();
-    master.begin_pass2();
+    master.begin_pass2()?;
     for a in par_map(threads, files.len(), |_| master.pass2_worker(), feed)? {
-        master.merge(a);
+        master.merge(a)?;
     }
     Ok((master.finish()?, counts))
 }

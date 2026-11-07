@@ -1238,15 +1238,15 @@ fn xd_masked_equals_naive_masked() {
                 for c in part {
                     a.add_masked(c, &p, fit, mask);
                 }
-                master.merge(a);
+                master.merge(a).unwrap();
             }
-            master.begin_pass2();
+            master.begin_pass2().unwrap();
             for part in cs.chunks(chunk) {
                 let mut w = master.pass2_worker();
                 for c in part {
                     w.add_masked(c, &p, fit, mask);
                 }
-                master.merge(w);
+                master.merge(w).unwrap();
             }
             let got = master.finish().unwrap();
             for (g, w) in got.x.iter().zip(&want.x) {

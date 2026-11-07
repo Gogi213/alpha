@@ -558,9 +558,11 @@ impl XdAcc {
         }
     }
 
-    /// Слить результат другого накопителя той же фазы (проход 2 — с теми же целями).
-    pub fn merge(&mut self, other: XdAcc) {
-        assert_eq!(self.nd, other.nd, "XdAcc::merge: разное число D");
+    /// Слить результат другого накопителя той же фазы (проход 2 — с теми же целями). Другая фаза, число D или цели — ошибка.
+    pub fn merge(&mut self, other: XdAcc) -> Result<()> {
+        if self.nd != other.nd {
+            bail!("XdAcc::merge: разное число D");
+        }
         match (&mut self.phase, other.phase) {
             (Phase::Hist(a), Phase::Hist(b)) => {
                 for (x, y) in a.iter_mut().zip(b) {
@@ -569,12 +571,15 @@ impl XdAcc {
             }
             (Phase::Collect(a), Phase::Collect(b)) => {
                 for (x, y) in a.iter_mut().zip(b) {
-                    assert!(x.same_goal(&y), "XdAcc::merge: разные цели прохода 2");
+                    if !x.same_goal(&y) {
+                        bail!("XdAcc::merge: разные цели прохода 2");
+                    }
                     x.vals.extend(y.vals);
                 }
             }
-            _ => panic!("XdAcc::merge: накопители в разных фазах"),
+            _ => bail!("XdAcc::merge: накопители в разных фазах"),
         }
+        Ok(())
     }
 
     /// Число значений прохода 1 по `[di][вверх|вниз]` (после `begin_pass2` — те же числа).
@@ -593,33 +598,36 @@ impl XdAcc {
     }
 
     /// Конец прохода 1: по гистограмме найти корзины рангов `⌊h⌋` и `⌊h⌋ + 1`; дальше `add` собирает значения.
-    pub fn begin_pass2(&mut self) {
+    pub fn begin_pass2(&mut self) -> Result<()> {
         let Phase::Hist(h) = &self.phase else {
-            panic!("XdAcc::begin_pass2: нужна фаза прохода 1");
+            bail!("XdAcc::begin_pass2: нужна фаза прохода 1");
         };
         let ts: Vec<Target> = (0..self.nd * 2)
             .map(|k| Target::from_hist(&h[k * BINS..(k + 1) * BINS], self.q))
             .collect();
         self.phase = Phase::Collect(ts);
+        Ok(())
     }
 
-    /// Пустой накопитель прохода 2 с теми же целями (на поток); слить обратно через `merge`.
+    /// Пустой накопитель прохода 2 с теми же целями (на поток); слить обратно через `merge`. До `begin_pass2` выдаёт
+    /// пустой накопитель прохода 1: `merge` в мастер вернёт ошибку фаз, молчаливого ответа нет.
     pub fn pass2_worker(&self) -> XdAcc {
-        let Phase::Collect(ts) = &self.phase else {
-            panic!("XdAcc::pass2_worker: сначала begin_pass2");
+        let phase = match &self.phase {
+            Phase::Collect(ts) => Phase::Collect(
+                ts.iter()
+                    .map(|t| {
+                        let mut t = t.clone();
+                        t.vals.clear();
+                        t
+                    })
+                    .collect(),
+            ),
+            Phase::Hist(h) => Phase::Hist(vec![0; h.len()]),
         };
-        let ts = ts
-            .iter()
-            .map(|t| {
-                let mut t = t.clone();
-                t.vals.clear();
-                t
-            })
-            .collect();
         XdAcc {
             nd: self.nd,
             q: self.q,
-            phase: Phase::Collect(ts),
+            phase,
             sc: Scratch::default(),
         }
     }
