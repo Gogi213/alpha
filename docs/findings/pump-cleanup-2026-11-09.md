@@ -61,3 +61,15 @@ TK-490 (engineer, blocked), TK-491 (researcher, waiting), TK-492 (engineer, bloc
 `git grep -E "tk440-cube|tk442-forward|tk447-features"` по коду (`*.rs *.sh *.py *.toml *.yml *.json`, вне `docs/` и `.claude/`) — ноль.
 
 **Оставшееся:** `~/alpha-pump/` и юниты `pump-*` на Steam Deck не тронуты (В-104, Deck не включаем); ссылки в тикетах/доках — история.
+
+## 7. Дописка TK-506 (хвост: неотслеживаемые файлы пампов)
+
+Три пути были в рабочем дереве `tk479-statarb` как `??`, ни в одном теге: `tools/compute/tk440-exam.py`,
+`docs/findings/pump-onset-binance-2026-11-05.md` (отчёт TK-492 «пампы Binance»), папка `docs/findings/pump-onset-binance-tables-2026-11-05/`
+(172 файла, 23 МБ). Закоммичены одним коммитом `391884e6` (174 файла, только эти три пути), на нём тег `archive/pump-g017-2026-11-untracked`
+(локально, в origin не пушили); удалены отдельным коммитом `86f96d75` (−156 004 строки). Читать: `git show archive/pump-g017-2026-11-untracked:<путь>`.
+`git grep -E "tk440-exam|pump-onset-binance"` по коду (`*.rs *.sh *.py *.toml *.yml *.json`) — ноль.
+
+**Для CEO:** `CLAUDE.md` «СОСТОЯНИЕ 05.11» ссылается на `docs/findings/pump-onset-binance-2026-11-05.md` (строка «читать … §0») и
+`docs/findings/pump-onset-binance-tables-2026-11-05/` — пути теперь только в теге; ссылку не правил (пишет CEO). Остальные упоминания
+(`docs/research/JOURNAL.md`, тикеты TK-440/TK-491, блокноты) — история.
