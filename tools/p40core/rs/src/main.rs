@@ -1,6 +1,6 @@
 //! TK-500 П-40 §3.1–3.2: ядро эпизодов схождения (v0): книга двух бирж -> уровень -> эпизоды. Определения — в шапке tools/p40core/ref_episodes.py;
 //! вход — плоские бинарники tools/p40core/to_bin.py (<dirA>/<ЧЧ>.bin, <dirB>/<ЧЧ>.bin), выход — csv построчно как у эталона.
-//! Запуск: p40core <out.csv> <dirA> <dirB> [<trA> <trB> <lotA> <lotB> [<L_ms=500>]] — с сделками дополнительно <out.csv>.fills.csv (заявки входа §3.3, проход 2).
+//! Запуск: p40core <out.csv> <dirA> <dirB> [<trA> <trB> <lotA> <lotB> [<L_ms=500> [<stepA> <stepB>]]] — с сделками дополнительно <out.csv>.fills.csv (заявки входа §3.3, проход 2).
 mod book;
 mod feats;
 mod fills;
@@ -23,6 +23,8 @@ struct Ctx<'a> {
     dirs: [&'a str; 2],
     tr: [Vec<book::Tr>; 2],
     lot: [f64; 2],
+    /// шаг количества инструмента для `is_filled` (в hftbacktest — `depth.lot_size()`, не размер заявки); умолчание ≈0 = «полное исполнение при front < 0» эталона TK-501
+    step: [f64; 2],
     l_ms: i64,
     lev: &'a [f64],
     s0: i64,
@@ -243,7 +245,6 @@ fn cancel_at(e: &Ep, l_ms: i64) -> i64 {
 /// Проход 2 (аргументы: trA trB lotA lotB): заявки входа обеих ног каждого эпизода; таблица `<out>.fills.csv`.
 fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
     let (la, lb, l_ms, dirs) = (c.leg[0], c.leg[1], c.l_ms, c.dirs);
-    let (lot_a, lot_b) = (c.lot[0], c.lot[1]);
     // индексы заданий: ноги A и B; продаёт дорогая нога (dir=+1 — A), покупает дешёвая
     let mut ja: Vec<fills::Job> = vec![];
     let mut jb: Vec<fills::Job> = vec![];
@@ -263,11 +264,11 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
         let mut s = [None, None];
         if oka {
             s[0] = Some(ja.len());
-            ja.push(fills::Job::new(buy_a, tp, tc, pa, lot_a));
+            ja.push(fills::Job::new(buy_a, tp, tc, pa, c.step[0]));
         }
         if okb {
             s[1] = Some(jb.len());
-            jb.push(fills::Job::new(buy_b, tp, tc, pb, lot_b));
+            jb.push(fills::Job::new(buy_b, tp, tc, pb, c.step[1]));
         }
         slot.push(s);
     }
@@ -327,8 +328,8 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             let t_x = c.tu[k];
             let xs = c.leg[si].bbo(t_x).unwrap().0;
             let xb = c.leg[bi].bbo(t_x).unwrap().1;
-            x[si].push(fills::Job::new(true, t_x + c.l_ms, NEVER, xs, c.lot[si]));
-            x[bi].push(fills::Job::new(false, t_x + c.l_ms, NEVER, xb, c.lot[bi]));
+            x[si].push(fills::Job::new(true, t_x + c.l_ms, NEVER, xs, c.step[si]));
+            x[bi].push(fills::Job::new(false, t_x + c.l_ms, NEVER, xb, c.step[bi]));
             plans.push(Plan::Exit { js: x[si].len() - 1, jb: x[bi].len() - 1, xs, xb });
         } else {
             let sell_done = fs >= 0;
@@ -336,7 +337,7 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             let (li, buy) = if sell_done { (si, true) } else { (bi, false) };
             let (b, a) = c.leg[li].bbo(t_c).unwrap();
             let xp = if sell_done { b } else { a };
-            x[li].push(fills::Job::new(buy, t_c + c.l_ms, t_c + T_LIFE_MS + c.l_ms, xp, c.lot[li]));
+            x[li].push(fills::Job::new(buy, t_c + c.l_ms, t_c + T_LIFE_MS + c.l_ms, xp, c.step[li]));
             plans.push(Plan::Insure { sell_done, t_c, xp, j: x[li].len() - 1 });
         }
     }
@@ -416,6 +417,7 @@ fn main() {
             dirs: [&a[2], &a[3]],
             tr: [load_trades(&a[4]), load_trades(&a[5])],
             lot: [a[6].parse().unwrap(), a[7].parse().unwrap()],
+            step: [a.get(9).map_or(1e-9, |v| v.parse().unwrap()), a.get(10).map_or(1e-9, |v| v.parse().unwrap())],
             l_ms: a.get(8).map_or(500, |v| v.parse().unwrap()),
             lev: &lev,
             s0: t0,
