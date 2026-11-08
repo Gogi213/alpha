@@ -53,6 +53,16 @@ impl Ctx<'_> {
     fn drain_leg(&self, i: usize) -> bool {
         self.drain && self.no_tr[i]
     }
+    /// Момент вступления отмены заявок входа эпизода; при усечении (`P40_TRUNC`) — не позже последней годной мс его интервала (`vend − 1`, §2.2):
+    /// исполнение входа на негодных данных (дыра, после конца данных) — не исполнение.
+    fn entry_cancel(&self, e: &Ep) -> i64 {
+        let tc = cancel_at(e, self.l_ms, self.t_life);
+        if self.valid.on {
+            tc.min(self.valid.end_after(e.t0).0 - 1)
+        } else {
+            tc
+        }
+    }
 }
 
 /// `P40_THETAS=5.04,12.6` — список порогов θ за проход (умолчание — `THETAS`).
@@ -428,7 +438,7 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
     let mut slot: Vec<[Option<usize>; 2]> = vec![];
     for e in eps {
         let tp = e.t0 + l_ms;
-        let tc = cancel_at(e, l_ms, c.t_life);
+        let tc = c.entry_cancel(e);
         let (buy_a, buy_b) = (e.dir < 0, e.dir > 0);
         let (pa, oka) = at(la, buy_a, e.t0, tp, tc);
         let (pb, okb) = at(lb, buy_b, e.t0, tp, tc);
@@ -455,7 +465,7 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
         let (fs, ts, is) = f(sell);
         let (fb, tb, ib) = f(buy);
         o += &format!("{:?},{},{},{},{},{},{},{},{},{},{},{}
-", e.theta, e.t0, e.dir, rel(e.t_th2), cancel_at(e, l_ms, c.t_life) - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, is, fb, tb, ib);
+", e.theta, e.t0, e.dir, rel(e.t_th2), c.entry_cancel(e) - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, is, fb, tb, ib);
     }
     std::fs::File::create(format!("{out}.fills.csv")).unwrap().write_all(o.as_bytes()).unwrap();
     closing(out, c, eps, [ja, jb], &slot);
@@ -512,7 +522,7 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             plans.push(Plan::Exit { js: x[si].len() - 1, jb: x[bi].len() - 1, xs, xb });
         } else {
             let sell_done = fs >= 0;
-            let t_c = if sell_done { fs } else { fb }.max(cancel_at(e, c.l_ms, c.t_life));
+            let t_c = if sell_done { fs } else { fb }.max(c.entry_cancel(e));
             let (li, buy) = if sell_done { (si, true) } else { (bi, false) };
             let (b, a) = c.leg[li].bbo(t_c).unwrap();
             let xp = if sell_done { b } else { a };
@@ -538,6 +548,8 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             ("both", vend, "trunc_taker", ((ps - a_s) / ps + (b_b - pb) / pb) * 1e4 - fee, fee, why)
         };
         let (outcome, exit_t, kind, pnl, fees, tr) = match *plan {
+            // окно входа обрезано концом годного интервала (`entry_cancel` < срока по T_life/θ/2): без позиции, исход неизвестен — причина усечения, P&L нет
+            Plan::Skip if c.valid.on && cancel_at(e, c.l_ms, c.t_life) >= c.valid.end_after(e.t0).0 => ("none", -1, "trunc_no_entry", f64::NAN, f64::NAN, c.valid.end_after(e.t0).1),
             Plan::Skip => ("none", -1, "", f64::NAN, f64::NAN, 0),
             Plan::OffMaker => ("off_maker", -1, "no_trades_leg", f64::NAN, f64::NAN, 0),
             Plan::NoSignal if why > 0 => trunc_close(2.0 * MAKER_BPS + 2.0 * TAKER_BPS),
@@ -775,6 +787,63 @@ mod tests {
         // другой seed — другие моменты
         let r3 = k2_episodes(&tu, &ds, 12.6, &la, &lb, &real, &valid, 600_000, 8);
         assert_ne!(r1.iter().map(|e| e.t0).collect::<Vec<_>>(), r3.iter().map(|e| e.t0).collect::<Vec<_>>());
+    }
+
+    /// Каталог ноги с одним снимком в t=0 (бид 10 ×100, аск 11 ×50): строки `00.bin` формата `to_bin` (33 Б).
+    fn flat_book_dir(tag: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("p40core-trunc-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut raw = vec![];
+        for (px, qt, fl) in [(10.0f64, 100.0f64, 3u8), (11.0, 50.0, 1)] {
+            raw.extend_from_slice(&0i64.to_le_bytes());
+            raw.extend_from_slice(&1i64.to_le_bytes());
+            raw.extend_from_slice(&px.to_le_bytes());
+            raw.extend_from_slice(&qt.to_le_bytes());
+            raw.push(fl);
+        }
+        std::fs::write(dir.join("00.bin"), raw).unwrap();
+        dir.to_str().unwrap().to_string()
+    }
+
+    /// Строка `<out>.exits.csv` единственного эпизода: (outcome, exit_kind, pnl_bps, trunc) при `valid` и сделке продажи на ноге A в `t_trade`.
+    fn exits_row(tag: &str, valid: &Valid, t_trade: i64) -> (String, String, f64, String) {
+        let (da, db) = (flat_book_dir(&format!("{tag}a")), flat_book_dir(&format!("{tag}b")));
+        let la = leg(&[0], &[10.0], &[11.0]);
+        let tr = [
+            vec![book::Tr { t: t_trade, px: 11.0, qty: 51.0, buyer_maker: false }],
+            vec![book::Tr { t: 100, px: 10.5, qty: 0.001, buyer_maker: true }],
+        ];
+        let c = Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: [&da, &db], tr, lot: [1.0; 2], step: [1e-9; 2], no_tr: [false; 2], drain: false, l_ms: 500, t_life: T_LIFE_MS, lev: &[], s0: 0, valid };
+        // A дороже: продаёт A (аск 11), покупает B (бид 10); заявки встают в t0+L = 1500, живут до 61 500
+        let eps = [Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false)];
+        let out = std::env::temp_dir().join(format!("p40core-trunc-out-{tag}-{}", std::process::id())).to_str().unwrap().to_string();
+        fills_pass(&out, &c, &eps);
+        let txt = std::fs::read_to_string(format!("{out}.exits.csv")).unwrap();
+        let f: Vec<&str> = txt.lines().nth(1).unwrap().split(',').collect();
+        (f[2].to_string(), f[4].to_string(), f[5].parse().unwrap(), f.get(7).map_or(String::new(), |s| s.to_string()))
+    }
+
+    #[test]
+    fn entry_filled_after_hole_start_is_no_position() {
+        let hole = Valid { on: true, end: i64::MAX, holes: vec![(20_000, 25_000)] };
+        // продажа исполняется сделкой в 30 000 — уже внутри/после дыры, начавшейся в 20 000 (после постановки в 1 500): позиции нет, P&L нет
+        let (outcome, kind, pnl, trunc) = exits_row("h1", &hole, 30_000);
+        assert_eq!((outcome.as_str(), kind.as_str(), trunc.as_str()), ("none", "trunc_no_entry", "2"));
+        assert!(pnl.is_nan());
+        // конец данных — то же, причина 1
+        let end = Valid { on: true, end: 20_000, holes: vec![] };
+        let (outcome, kind, pnl, trunc) = exits_row("h2", &end, 30_000);
+        assert_eq!((outcome.as_str(), kind.as_str(), trunc.as_str()), ("none", "trunc_no_entry", "1"));
+        assert!(pnl.is_nan());
+        // вход исполнен до дыры (10 000): позиция есть, закрыта на последней годной книге
+        let (outcome, kind, pnl, trunc) = exits_row("h3", &hole, 10_000);
+        assert_eq!((outcome.as_str(), kind.as_str(), trunc.as_str()), ("one", "trunc_taker", "2"));
+        assert!(pnl.is_finite());
+        // без P40_TRUNC прежнее поведение: сделка в 30 000 исполняет вход (позиция на одной ноге, страховка), колонки trunc нет
+        let off = Valid { on: false, end: i64::MAX, holes: vec![] };
+        let (outcome, kind, _, trunc) = exits_row("h4", &off, 30_000);
+        assert_eq!((outcome.as_str(), trunc.as_str()), ("one", ""));
+        assert_ne!(kind, "trunc_no_entry");
     }
 
     #[test]
