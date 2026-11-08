@@ -1,0 +1,110 @@
+{
+  "btc_missing": false,
+  "c2b_moments": 2975116,
+  "contracts": 640,
+  "contracts_without_funding": 0,
+  "episodes": 221317,
+  "files": 642,
+  "funding_coverage": {
+    "contracts_with_uncovered": 68,
+    "trades": 1295652,
+    "trades_uncovered": 624,
+    "trades_uncovered_by_h": {
+      "1440": 410,
+      "360": 154,
+      "90": 60
+    }
+  },
+  "git_head": null,
+  "l_post_min": {
+    "all": 92,
+    "market": 90,
+    "nonmarket": 93,
+    "outlier": 90,
+    "wick": 90
+  },
+  "lag_observability": {
+    "c2b": {
+      "all": {
+        "pairs": 12415130,
+        "unobserved": 77110
+      },
+      "market": {
+        "pairs": 144740,
+        "unobserved": 424
+      },
+      "nonmarket": {
+        "pairs": 12270390,
+        "unobserved": 76686
+      },
+      "outlier": {
+        "pairs": 2762130,
+        "unobserved": 14690
+      },
+      "wick": {
+        "pairs": 2158770,
+        "unobserved": 13620
+      }
+    },
+    "ep": {
+      "all": {
+        "pairs": 1597320,
+        "unobserved": 40805
+      },
+      "market": {
+        "pairs": 16130,
+        "unobserved": 77
+      },
+      "nonmarket": {
+        "pairs": 1581190,
+        "unobserved": 40728
+      },
+      "outlier": {
+        "pairs": 334220,
+        "unobserved": 6022
+      },
+      "wick": {
+        "pairs": 281630,
+        "unobserved": 6047
+      }
+    }
+  },
+  "limit": null,
+  "oi_lag_slots": 1,
+  "params_sha256": "6a80f91a8e5035418f4688d9fccf0c9d3f60a8e8541483a69ddf9ca76846f228",
+  "peak_rss_mb": 994.015625,
+  "rules": 10,
+  "secs_by_phase": {
+    "controls": 217.45253717500003,
+    "cube": 900.40183412,
+    "episodes": 100.66369983200002,
+    "parse": 25.450744201000003,
+    "write": 0.3029209,
+    "xd": 0.000037471
+  },
+  "secs_total": 156.566940145,
+  "seed": 34,
+  "skipped": {
+    "leverage": 2,
+    "no_candles": 0,
+    "no_oi": 0
+  },
+  "stage": "test",
+  "symbol_days": 136746,
+  "threads": 8,
+  "triggers": 438085,
+  "triggers_no_sign": 5993,
+  "universe": {
+    "contracts_delisted": 4,
+    "contracts_eligible": 640,
+    "data_end_day": "2026-11-03",
+    "episodes_gained_by_lag": 677,
+    "episodes_lost_by_lag": 12571,
+    "episodes_member": 221317,
+    "episodes_member_same_day": 233211,
+    "episodes_period": 235075,
+    "min_quote_turnover_usd_per_day": 1000000.0,
+    "turnover_lag_days": 1
+  },
+  "xd_source": "file"
+}

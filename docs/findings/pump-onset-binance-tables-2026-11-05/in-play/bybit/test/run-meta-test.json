@@ -1,0 +1,165 @@
+{
+  "btc_missing": false,
+  "c2b_moments": 13488,
+  "contracts": 513,
+  "contracts_without_funding": 0,
+  "episodes": 34644,
+  "exits": {
+    "atr_trades_by_cap": {
+      "1440": 5992,
+      "360": 5992
+    },
+    "atr_undefined": 0,
+    "atr_undefined_by_cap": {
+      "1440": 0,
+      "360": 0
+    },
+    "atr_unit": "sigma_h_bps: sigma 1m ln-returns close_ff (7 d) * sqrt(60) * 1e4; close-to-close proxy of ATR",
+    "caps": [
+      360,
+      1440
+    ],
+    "configs": 140,
+    "configs_atr": 56,
+    "configs_bps": 84,
+    "nodata_by_cap": {
+      "1440": 0,
+      "360": 0
+    },
+    "rules": 5,
+    "secs": 0.05733489599999998,
+    "trades_by_cap": {
+      "1440": 5992,
+      "360": 5992
+    },
+    "triggers": 5992,
+    "uncovered_by_cap": {
+      "1440": 0,
+      "360": 0
+    }
+  },
+  "files": 515,
+  "funding_coverage": {
+    "contracts_with_uncovered": 0,
+    "trades": 17976,
+    "trades_uncovered": 0,
+    "trades_uncovered_by_h": {
+      "1440": 0,
+      "360": 0,
+      "90": 0
+    }
+  },
+  "git_head": null,
+  "l_post_min": {
+    "all": 149,
+    "market": 90,
+    "nonmarket": 150,
+    "outlier": 97,
+    "wick": 90
+  },
+  "lag_observability": {
+    "c2b": {
+      "all": {
+        "pairs": 28870,
+        "unobserved": 190
+      },
+      "market": {
+        "pairs": 90,
+        "unobserved": 0
+      },
+      "nonmarket": {
+        "pairs": 28780,
+        "unobserved": 190
+      },
+      "outlier": {
+        "pairs": 2720,
+        "unobserved": 10
+      },
+      "wick": {
+        "pairs": 6980,
+        "unobserved": 21
+      }
+    },
+    "ep": {
+      "all": {
+        "pairs": 133905,
+        "unobserved": 7278
+      },
+      "market": {
+        "pairs": 575,
+        "unobserved": 21
+      },
+      "nonmarket": {
+        "pairs": 133330,
+        "unobserved": 7257
+      },
+      "outlier": {
+        "pairs": 12045,
+        "unobserved": 551
+      },
+      "wick": {
+        "pairs": 27270,
+        "unobserved": 1227
+      }
+    }
+  },
+  "limit": null,
+  "oi_lag_slots": 1,
+  "params_sha256": "6a80f91a8e5035418f4688d9fccf0c9d3f60a8e8541483a69ddf9ca76846f228",
+  "peak_rss_mb": 1062.6796875,
+  "rules": 5,
+  "sample_filter": {
+    "contracts_eligible": 513,
+    "contracts_with_hv": 497,
+    "episode_hv": "по факту: хотя бы одна минута [t0, t_end]",
+    "episodes_before_filter": 132042,
+    "episodes_dropped_hv": 65427,
+    "episodes_dropped_reversal": 31971,
+    "first_phase": false,
+    "hv_minutes_share": 0.013391801259686123,
+    "hv_n": 30,
+    "hv_natr_pct": 1.0,
+    "no_reversal": true,
+    "reversal_d_min": 360,
+    "triggers_before": 192292,
+    "triggers_dropped_first_phase": 0,
+    "triggers_dropped_hv": 185723,
+    "triggers_dropped_reversal": 573,
+    "x360_down": 0.12752721836432485,
+    "x360_up": 0.1328604301564429,
+    "x_d_scope": "по вселенной фита без фильтра выборки (фильтр порогов не меняет)"
+  },
+  "secs_by_phase": {
+    "controls": 153.115304647,
+    "cube": 502.8276783879999,
+    "episodes": 107.70422344300002,
+    "parse": 60.445955201,
+    "write": 0.298564966,
+    "xd": 0.00002426
+  },
+  "secs_total": 104.291314824,
+  "seed": 34,
+  "skipped": {
+    "leverage": 2,
+    "no_candles": 0,
+    "no_oi": 0
+  },
+  "stage": "test",
+  "symbol_days": 68024,
+  "threads": 8,
+  "triggers": 5996,
+  "triggers_no_sign": 4,
+  "universe": {
+    "contracts_delisted": 0,
+    "contracts_eligible": 513,
+    "data_end_day": "2026-11-03",
+    "episodes_gained_by_lag": 2433,
+    "episodes_lost_by_lag": 27051,
+    "episodes_member": 132042,
+    "episodes_member_same_day": 156660,
+    "episodes_period": 177198,
+    "min_quote_turnover_usd_per_day": 1000000.0,
+    "turnover_lag_days": 1
+  },
+  "xd_source": "file"
+}
