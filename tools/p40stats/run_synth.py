@@ -3,6 +3,7 @@
 Этап 2 (stage2 <схема>): семейство BH (час по χ²), правило кандидата §3.5, H-Bybit — на выбранной схеме.
 Запуск: python run_synth.py stage1 out1.json [n_sim] ; python run_synth.py stage2 out2.json <схема> [n_sim]  (процессов: 8)"""
 import json
+import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -21,7 +22,7 @@ SCEN = {  # tau_a, tau_d, tau_ad (логит-sd исхода), sh_a, sh_d (до�
 }
 METHODS = [("iid", None, "pct"), ("cluster", "cluster", "t"), ("day/t", "day", "t"), ("asset/t", "asset", "t"),
            ("twoway/t", "twoway", "t"), ("cgm", "cgm", "t"), ("twoway_sub", "twoway_sub", "t")]
-WORKERS = 8
+WORKERS = int(os.environ.get("P40_WORKERS", "8"))
 
 
 def gen(rng, A=100, D=14, lam=3.0, p0=0.5, scen="both", delta=0.0, hdelta=0.0):
@@ -276,8 +277,23 @@ def stage1(n_sim, out):
     print(json.dumps(res, indent=1, ensure_ascii=False))
 
 
+USAGE = "использование: run_synth.py stage1 <out.json> [n_sim] | run_synth.py stage2 <out.json> <схема> [n_sim]"
+
+
+def main(argv):
+    try:
+        if len(argv) >= 3 and argv[1] == "stage1" and len(argv) <= 4:
+            return stage1(int(argv[3]) if len(argv) > 3 else 400, argv[2]) or 0
+        if len(argv) >= 4 and argv[1] == "stage2" and len(argv) <= 5:
+            if argv[3] not in [m[0] for m in METHODS]:
+                raise ValueError("схема %r: ожидается одна из %s" % (argv[3], [m[0] for m in METHODS]))
+            return stage2(argv[3], int(argv[4]) if len(argv) > 4 else 200, argv[2]) or 0
+    except ValueError as e:
+        print("ошибка: %s\n%s" % (e, USAGE), file=sys.stderr)
+        return 2
+    print(USAGE, file=sys.stderr)
+    return 2
+
+
 if __name__ == "__main__":
-    if sys.argv[1] == "stage1":
-        stage1(int(sys.argv[3]) if len(sys.argv) > 3 else 400, sys.argv[2])
-    else:
-        stage2(sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 200, sys.argv[2])
+    sys.exit(main(sys.argv))
