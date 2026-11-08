@@ -6,7 +6,7 @@ pairs.csv: asset,pair,exA,symA,multA,lotA,stepA,exB,symB,multB,lotB,stepB   (п�
   lot пусто/auto -> lot = N/(mid_open*ct): N = --n-usdt (умолч. 1000, П-40 §8), mid_open = середина первого снимка книги ноги в сутках, ct = монет в единице количества книги (колонки ctA/ctB в конце, пусто = 1; OKX = ctVal))
 Выход: <out>/<asset>/<day>/<pair>{,.fills.csv,.exits.csv,.features.csv,.path.csv,.aux.csv}, <out>/specs.txt (строки для assemble.py), <out>/orch.csv (замеры по актив-суткам), метка DONE (повтор пропускает).
 Флаги ядра P40_* (NOTRADE, THETAS, VARIANTS, TRUNC, K2, SHIFT_B_MS ...) передаются средой как есть. Binance-стакан читается с локального диска (BINANCE_BOOK), остальное — rsync --files-from с бокса в P постоянных соединениях."""
-import argparse, concurrent.futures as cf, csv, os, shutil, subprocess, sys, threading, time
+import argparse, calendar, concurrent.futures as cf, csv, gzip, os, shutil, subprocess, sys, threading, time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -106,6 +106,37 @@ def mid_open(path):
     return float(np.median(r["px"][:20000]))
 
 
+VEX = {"okx": "okx_futures", "bitget": "bitget_futures", "aster": "aster_futures", "hyperliquid": "hyperliquid_futures", "binance": "binance_futures"}
+
+
+def load_validity(paths):
+    """validity.csv.gz G0 (ex,contract,date,hour,status,...) -> {(ex,contract,date): {негодные часы}}; статус не ok = негодный час, 'day' не ok = все 24 часа; строки, которых нет в таблице, негодными не считаются"""
+    bad = {}
+    for p in paths:
+        for r in csv.reader(gzip.open(p, "rt")):
+            if r[4] == "ok" or r[3] == "hour":
+                continue
+            bad.setdefault((r[0], r[1], r[2]), set()).update(range(24) if r[3] == "day" else [int(r[3])])
+    return bad
+
+
+def write_holes(path, bad, legs, days):
+    """дыры пары = объединение негодных часов обеих ног по суткам чанка -> строки `начало_мс,конец_мс` (P40_HOLES), склеены"""
+    iv = []
+    for i, day in enumerate(days):
+        t0 = calendar.timegm(time.strptime(day, "%Y-%m-%d")) * 1000
+        for ex, sym in legs:
+            iv += [(t0 + h * 3600000, t0 + (h + 1) * 3600000) for h in bad.get((VEX.get(ex, ex), sym, day), ())]
+    out = []
+    for a, b in sorted(iv):
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    open(path, "w").write("".join(f"{a},{b}" + chr(10) for a, b in out))
+    return len(out)
+
+
 def drop_heavy(raw):
     """после конвертации сырьё книги/сделок не нужно (aux читает только mark/OI/ликвидации CHFT); Bybit/Gate — целиком"""
     for d, _, fs in os.walk(raw):
@@ -170,7 +201,11 @@ def job(args, asset, days, pairs, outlog):
             with LOG_LOCK, open(f"{args.out}/lots.csv", "a") as f:
                 f.write(f"{asset},{cid},{p['pair']},{lots[0]},{lots[1]}" + chr(10))
             cmd = [CORE, base, f"{a}/B", f"{b}/B", f"{a}/T", f"{b}/T", lots[0], lots[1], str(args.l_ms), p["stepA"] or "1e-9", p["stepB"] or "1e-9"]
-            rc, w, c = run(cmd, env=env, log=log)
+            penv = env
+            if args.validity:
+                nh = write_holes(f"{base}.holes", args.bad, [(p["exA"], p["symA"]), (p["exB"], p["symB"])], days)
+                penv = dict(env, P40_TRUNC="1", P40_HOLES=f"{base}.holes", **({"P40_END_MS": str(args.end_ms)} if args.end_ms else {}))
+            rc, w, c = run(cmd, env=penv, log=log)
             if rc != 0:
                 raise RuntimeError(f"ядро rc {rc} пара {p['pair']}")
             t_core, c_core = t_core + w, c_core + c
@@ -202,9 +237,12 @@ def main():
     ap.add_argument("--assets", default="")
     ap.add_argument("--l-ms", type=int, default=500)
     ap.add_argument("--n-usdt", type=float, default=1000.0)
+    ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
+    ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    args.bad = load_validity(args.validity.split(",")) if args.validity else {}
     outlog = f"{args.out}/orch.csv"
     if not os.path.exists(outlog):
         open(outlog, "w").write("asset,day,pairs,legs,bytes,fetch_s,convert_s,convert_cpu_s,core_s,core_cpu_s,aux_cpu_s,total_s\n")
