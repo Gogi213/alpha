@@ -3,6 +3,11 @@
 //! События с одним временем: сделка раньше строки книги (иначе `cum_trade` не вычитается из изменения объёма).
 use crate::book::{Book, Rows, Tr};
 use crate::queue::QueueOrder;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Отладочный режим сверки с эталоном TK-501: не исполнять заявки, когда противоположная лучшая цена дошла до цены заявки уже после постановки
+/// (в hftbacktest это исполнение есть, в `sim.py` эталона — нет). Умолчание — выкл. (как hftbacktest).
+pub static NO_CROSS: AtomicBool = AtomicBool::new(false);
 
 pub struct Job {
     pub buy: bool,
@@ -103,7 +108,7 @@ impl Sim<'_> {
                 job.q.as_mut().unwrap().on_depth(prev, rows.qt(i));
             }
         }
-        if !rows.snap(i) && rows.group_end(i) && !self.active.is_empty() {
+        if !NO_CROSS.load(Ordering::Relaxed) && !rows.snap(i) && rows.group_end(i) && !self.active.is_empty() {
             if let Some((b, a)) = self.book.best() {
                 if b < a {
                     let mut k = 0;

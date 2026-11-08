@@ -405,6 +405,7 @@ fn main() {
     }
     std::fs::File::create(&a[1]).unwrap().write_all(o.as_bytes()).unwrap();
     if a.len() >= 8 {
+        fills::NO_CROSS.store(std::env::var_os("P40_NO_CROSS").is_some(), std::sync::atomic::Ordering::Relaxed);
         let c = Ctx {
             leg: [&la, &lb],
             tu: &tu,
