@@ -1,7 +1,0 @@
-check,side,value,p_perm,note
-D_hour_fit_vs_test_spearman,1,0.902609,4.99975e-05,"24 часов, лифты концентрации фит vs тест"
-D_hour_fit_vs_test_spearman,-1,0.429565,0.020199,"24 часов, лифты концентрации фит vs тест"
-D_minute_edge_net_of_funding_fit,1,0.0330605,0.29705,"lift=0.033 CI[-0.031,0.093] n_in=886"
-D_minute_edge_net_of_funding_fit,-1,0.104881,0.591677,"lift=0.105 CI[-0.208,0.518] n_in=514"
-D_minute_edge_net_of_funding_test,1,0.0183462,0.54172,"lift=0.018 CI[-0.038,0.079] n_in=976"
-D_minute_edge_net_of_funding_test,-1,-0.0559785,0.314656,"lift=-0.056 CI[-0.162,0.053] n_in=527"
