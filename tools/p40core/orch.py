@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """TK-500: оркестратор по (актив, сутки) для ядра П-40 (сервер 5.231.25.224, Linux). Один проход сырья бокса -> таблицы эпизодов; `.bin` и сырьё живут только в /dev/shm и удаляются после суток.
-Запуск: orch.py <pairs.csv> <out> --days 2026-09-17,2026-09-18 [--jobs 2] [--fetch-p 10] [--shm /dev/shm/p40o] [--assets 1,2]
+Запуск: orch.py <pairs.csv> <out> --days 2026-09-17,2026-09-18 [--jobs 2] [--fetch-p 10] [--shm /dev/shm/p40o] [--assets 1,2] [--chunk K] [--n-usdt 1000]
 pairs.csv: asset,pair,exA,symA,multA,lotA,stepA,exB,symB,multB,lotB,stepB   (по строке на пару; ноги с одним (биржа,символ) в актив-сутки читаются и конвертируются ОДИН раз;
-  mult — множитель размера Gate (quanto_multiplier), step — шаг количества очереди, пусто = 1 и 1e-9; биржи: binance okx bitget aster hyperliquid bybit gate)
+  mult — множитель размера Gate (quanto_multiplier), step — шаг количества очереди, пусто = 1 и 1e-9; биржи: binance okx bitget aster hyperliquid bybit gate;
+  lot пусто/auto -> lot = N/(mid_open*ct): N = --n-usdt (умолч. 1000, П-40 §8), mid_open = середина первого снимка книги ноги в сутках, ct = монет в единице количества книги (колонки ctA/ctB в конце, пусто = 1; OKX = ctVal))
 Выход: <out>/<asset>/<day>/<pair>{,.fills.csv,.exits.csv,.features.csv,.path.csv,.aux.csv}, <out>/specs.txt (строки для assemble.py), <out>/orch.csv (замеры по актив-суткам), метка DONE (повтор пропускает).
 Флаги ядра P40_* (NOTRADE, THETAS, VARIANTS, TRUNC, K2, SHIFT_B_MS ...) передаются средой как есть. Binance-стакан читается с локального диска (BINANCE_BOOK), остальное — rsync --files-from с бокса в P постоянных соединениях."""
 import argparse, concurrent.futures as cf, csv, os, shutil, subprocess, sys, threading, time
+import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHFT = {"binance", "okx", "bitget", "aster", "hyperliquid"}
@@ -87,50 +89,104 @@ def convert(ex, sym, day, raw, bins, mult, log):
     return r[1], r[2]
 
 
-def job(args, asset, day, pairs, outlog):
+REC = np.dtype([("et", "<i8"), ("fu", "<i8"), ("px", "<f8"), ("qt", "<f8"), ("fl", "u1")])
+
+
+def mid_open(path):
+    """середина первого снимка книги ноги (первый <ЧЧ>.bin каталога; .bin 33 Б/запись: бит0 = снимок, бит1 = bid); нет снимка в начале -> медиана цен первых 20000 записей"""
+    hs = sorted(f for f in os.listdir(path) if f.endswith(".bin"))
+    r = np.fromfile(f"{path}/{hs[0]}", dtype=REC, count=400000) if hs else np.empty(0, REC)
+    if len(r) == 0:
+        raise RuntimeError(f"пустая книга {path}")
+    n = int(np.argmin(r["fl"] & 1)) if (r["fl"][0] & 1) and (r["fl"] & 1 == 0).any() else (len(r) if r["fl"][0] & 1 else 0)
+    g = r[:n]
+    if n and (g["fl"] & 2).any() and (~g["fl"] & 2).any():
+        bid, ask = g["px"][(g["fl"] & 2) > 0], g["px"][(g["fl"] & 2) == 0]
+        return (bid.max() + ask.min()) / 2
+    return float(np.median(r["px"][:20000]))
+
+
+def drop_heavy(raw):
+    """после конвертации сырьё книги/сделок не нужно (aux читает только mark/OI/ликвидации CHFT); Bybit/Gate — целиком"""
+    for d, _, fs in os.walk(raw):
+        for f in fs:
+            if f.endswith(("_orderbook.parquet", "_trades.parquet", ".zip", ".csv.gz")):
+                os.remove(os.path.join(d, f))
+
+
+def merge(srcs, dst, sub):
+    """часовые .bin суток подряд -> <dst>/<sub>/<idx>.bin симлинками (idx = 24*номер суток + час; ядро читает 0..P40_HOURS-1)"""
+    os.makedirs(f"{dst}/{sub}", exist_ok=True)
+    for di, src in enumerate(srcs):
+        for h in range(24):
+            f = f"{src}/{sub}/{h:02d}.bin"
+            if os.path.exists(f):
+                os.symlink(f, f"{dst}/{sub}/{24 * di + h:02d}.bin")
+
+
+def job(args, asset, days, pairs, outlog):
     t_all = time.time()
-    out_d = f"{args.out}/{asset}/{day}"
+    cid = days[0] if len(days) == 1 else f"{days[0]}+{len(days)}"
+    out_d = f"{args.out}/{asset}/{cid}"
     if os.path.exists(f"{out_d}/DONE"):
         return
     os.makedirs(out_d, exist_ok=True)
-    wd = f"{args.shm}/{asset}_{day}"
+    wd = f"{args.shm}/{asset}_{cid}"
     shutil.rmtree(wd, ignore_errors=True)
-    raw, log = f"{wd}/raw", f"{out_d}/orch.log"
+    log = f"{out_d}/orch.log"
     try:
         legs = {}
         for p in pairs:
             for s in "AB":
                 legs.setdefault((p["ex" + s], p["sym" + s]), float(p["mult" + s] or 1))
-        files = [f for (ex, sym) in legs for f in box_files(ex, sym, day)]
-        t = time.time()
-        nbytes = fetch(files, raw, args.fetch_p, log)
-        t_fetch = time.time() - t
-        t_conv = c_conv = 0.0
-        for (ex, sym), mult in legs.items():
-            w, c = convert(ex, sym, day, raw, f"{wd}/bin/{leg_key(ex, sym)}", mult, log)
-            t_conv, c_conv = t_conv + w, c_conv + c
+        nbytes = 0
+        t_fetch = t_conv = c_conv = 0.0
+        for day in days:
+            raw = f"{wd}/raw/{day}"
+            t = time.time()
+            nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day)], raw, args.fetch_p, log)
+            t_fetch += time.time() - t
+            for (ex, sym), mult in legs.items():
+                w, c = convert(ex, sym, day, raw, f"{wd}/bin/{leg_key(ex, sym)}/{day}", mult, log)
+                t_conv, c_conv = t_conv + w, c_conv + c
+            drop_heavy(raw)
+        mrg = {}
+        for (ex, sym) in legs:
+            k = leg_key(ex, sym)
+            mrg[(ex, sym)] = f"{wd}/mrg/{k}"
+            for sub in "BT":
+                merge([f"{wd}/bin/{k}/{day}" for day in days], mrg[(ex, sym)], sub)
+        env = dict(os.environ, P40_HOURS=str(24 * len(days)))
         t_core = c_core = c_aux = 0.0
         for p in pairs:
-            a, b = (f"{wd}/bin/{leg_key(p['ex' + s], p['sym' + s])}" for s in "AB")
+            a, b = (mrg[(p["ex" + s], p["sym" + s])] for s in "AB")
             base = f"{out_d}/{p['pair']}"
-            cmd = [CORE, base, f"{a}/B", f"{b}/B", f"{a}/T", f"{b}/T", p["lotA"], p["lotB"], str(args.l_ms), p["stepA"] or "1e-9", p["stepB"] or "1e-9"]
-            rc, w, c = run(cmd, log=log)
+            lots = []
+            for s_, bd in zip("AB", (a, b)):
+                lot = (p["lot" + s_] or "").strip()
+                if lot in ("", "auto"):
+                    lot = repr(float(args.n_usdt / (mid_open(f"{bd}/B") * float(p.get("ct" + s_) or 1))))
+                lots.append(lot)
+            with LOG_LOCK, open(f"{args.out}/lots.csv", "a") as f:
+                f.write(f"{asset},{cid},{p['pair']},{lots[0]},{lots[1]}" + chr(10))
+            cmd = [CORE, base, f"{a}/B", f"{b}/B", f"{a}/T", f"{b}/T", lots[0], lots[1], str(args.l_ms), p["stepA"] or "1e-9", p["stepB"] or "1e-9"]
+            rc, w, c = run(cmd, env=env, log=log)
             if rc != 0:
                 raise RuntimeError(f"ядро rc {rc} пара {p['pair']}")
             t_core, c_core = t_core + w, c_core + c
             if p["exA"] in CHFT and p["exB"] in CHFT:
-                ra, rb = (f"{raw}/chft/{p['ex' + s]}_futures/{day}" for s in "AB")
+                ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) for s in "AB")
                 rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
                 if rc != 0:
                     raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
                 c_aux += c
             with LOG_LOCK, open(f"{args.out}/specs.txt", "a") as f:
                 byb = int("bybit" in (p["exA"], p["exB"]))
-                f.write(f"{asset}:{day.replace('-', '')}:{p['pair']}:{byb}:{base}\n")
+                f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{byb}:{base}" + chr(10))
         open(f"{out_d}/DONE", "w").write("")
-        row = [asset, day, len(pairs), len(legs), nbytes, f"{t_fetch:.1f}", f"{t_conv:.1f}", f"{c_conv:.1f}", f"{t_core:.1f}", f"{c_core:.1f}", f"{c_aux:.1f}", f"{time.time() - t_all:.1f}"]
+        row = [asset, cid, len(pairs), len(legs), nbytes, f"{t_fetch:.1f}", f"{t_conv:.1f}", f"{c_conv:.1f}", f"{t_core:.1f}", f"{c_core:.1f}", f"{c_aux:.1f}", f"{time.time() - t_all:.1f}"]
         with LOG_LOCK, open(outlog, "a") as f:
-            f.write(",".join(map(str, row)) + "\n")
+            f.write(",".join(map(str, row)) + chr(10))
         print("готово", *row, flush=True)
     finally:
         shutil.rmtree(wd, ignore_errors=True)
@@ -145,6 +201,8 @@ def main():
     ap.add_argument("--shm", default="/dev/shm/p40o")
     ap.add_argument("--assets", default="")
     ap.add_argument("--l-ms", type=int, default=500)
+    ap.add_argument("--n-usdt", type=float, default=1000.0)
+    ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     outlog = f"{args.out}/orch.csv"
@@ -154,7 +212,8 @@ def main():
     for r in csv.DictReader(open(args.pairs)):
         by_asset.setdefault(r["asset"], []).append(r)
     keep = set(filter(None, args.assets.split(",")))
-    todo = [(a, d, ps) for d in args.days.split(",") for a, ps in by_asset.items() if not keep or a in keep]
+    ds = args.days.split(",")
+    todo = [(a, ds[i:i + args.chunk], ps) for i in range(0, len(ds), args.chunk) for a, ps in by_asset.items() if not keep or a in keep]
     err = 0
     with cf.ThreadPoolExecutor(args.jobs) as ex:
         futs = {ex.submit(job, args, a, d, ps, outlog): (a, d) for a, d, ps in todo}

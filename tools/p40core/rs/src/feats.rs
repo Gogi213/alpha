@@ -48,7 +48,7 @@ fn probes(dir: &str, q: &[i64], mult: f64) -> Vec<Option<Snap>> {
     let mut book = Book::default();
     let mut out = vec![None; q.len()];
     let (mut qi, mut fresh) = (0usize, true);
-    for h in 0..24 {
+    for h in 0..crate::book::hours() {
         let Some(rows) = Rows::load(dir, h) else { continue };
         for i in 0..rows.len() {
             if fresh {

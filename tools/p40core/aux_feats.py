@@ -1,5 +1,5 @@
 """TK-500: oi5m, liq5m, Φ_t эпизодов ядра из mark/funding/OI/ликвидаций двух ног -> <out>.aux.csv.
-Запуск: aux_feats.py <out ядра> <корень A> <символ A> <корень B> <символ B>   (корень = каталог с <ЧЧ>/<символ>_*.parquet за сутки)
+Запуск: aux_feats.py <out ядра> <корень A> <символ A> <корень B> <символ B>   (корень = каталог с <ЧЧ>/<символ>_*.parquet за сутки; чанк из нескольких суток — корни через запятую по порядку)
 Ряды малы (секунды/минуты), поэтому pyarrow здесь не узкое место; горячий путь (книга, очередь) в Rust.
 oi5m — среднее по ногам (v(t−)−v(t−5 мин))/v(t−5 мин), значения «строго до t»; liq5m — 1, если у любой ноги была ликвидация в [t−5 мин, t);
 phi_bps — Φ_t: ns·(rA−rB)·1e4, ns = 1, если у любой ноги расчёт фандинга в (t, t+H], H=600 с (П-40 §3.5); знак Φ — в assemble.py."""
@@ -15,9 +15,9 @@ def f64(t, name):
     return pc.cast(t[name], "float64").to_numpy(zero_copy_only=False)
 
 
-def series(root, sym):
+def series(roots, sym):
     fr_t, fr_v, fr_n, oi_t, oi_v, lq_t = [], [], [], [], [], []
-    for h in range(24):
+    for h, root in ((h, r) for r in roots.split(",") for h in range(24)):
         d = f"{root}/{h:02d}/{sym}"
         m = pq.read_table(f"{d}_mark_price.parquet", columns=["event_time", "funding_rate", "next_funding_time"])
         v = f64(m, "funding_rate"); k = ~np.isnan(v)

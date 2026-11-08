@@ -144,10 +144,15 @@ pub struct Tr {
 }
 
 /// Сделки суток из `<dir>/<ЧЧ>.bin` (25 Б: trade_time i64, price f64, qty f64, flags u8 бит0=is_buyer_maker), по порядку часов.
+/// Число часовых файлов `<ЧЧ>.bin` каталога ноги: `P40_HOURS` (умолчание 24 = сутки; для чанка из K суток — 24·K, файлы 00..23, 24.. подряд, `orch.py --chunk`).
+pub fn hours() -> usize {
+    std::env::var("P40_HOURS").ok().map_or(24, |v| v.parse().unwrap())
+}
+
 pub fn load_trades(dir: &str) -> Vec<Tr> {
     let sh = shift_of(dir);
     let mut out = vec![];
-    for h in 0..24 {
+    for h in 0..hours() {
         let Ok(raw) = std::fs::read(format!("{dir}/{h:02}.bin")) else { continue };
         for r in raw.chunks_exact(25) {
             out.push(Tr {

@@ -115,7 +115,7 @@ fn leg_series(dir: &str) -> Leg {
     let mut book = Book::default();
     let mut leg = Leg { t: vec![], b: vec![], a: vec![], crossed: 0, nonmono: 0 };
     let mut last_t = -1i64;
-    for h in 0..24 {
+    for h in 0..crate::book::hours() {
         let Some(rows) = Rows::load(dir, h) else { continue };
         for i in 0..rows.len() {
             if rows.snap_start(i) {

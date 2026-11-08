@@ -3,7 +3,7 @@
 Запуск: assemble.py <выход.npz> <bounds.json> [--fix] <asset>:<day>:<pair>:<bybit_leg 0|1>:<путь к <out>> ...
   bounds.json — границы терцилей: без --fix считаются по всей выборке и записываются (D1); с --fix читаются (D2, границы D1 не пересчитываются).
 Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. mpu_X = 1, если МПУ по исполнимой стороне (<out>.path.csv) хуже −2θ, bps."""
-import csv, json, sys
+import csv, json, sys, time
 import numpy as np
 
 THETA, H_S, T_LIFE_S = "12.6", 600.0, 60.0
@@ -42,7 +42,7 @@ def main():
             cens = not (tc >= 0 and tc / 1000.0 <= T_LIFE_S)
             pnl = float(x["pnl_bps"])
             tr = int(x["trunc"]) if "trunc" in x else int(x["outcome"] == "both" and pnl != pnl)   # 1 — конец данных, 2 — дыра книги (ядро с P40_TRUNC=1)
-            cols["asset"].append(int(asset)); cols["day"].append(int(day)); cols["pair"].append(int(pair)); cols["bybit_leg"].append(int(byb))
+            cols["asset"].append(int(asset)); cols["day"].append(int(day) if day != "t0" else int(time.strftime("%Y%m%d", time.gmtime(int(e["t0_ms"]) / 1000)))); cols["pair"].append(int(pair)); cols["bybit_leg"].append(int(byb))
             cols["conv_H"].append(int(conv)); cols["mpu_X"].append(int(-float(pa[k]["mpu_bps"]) > 2 * float(THETA)))
             cols["net_bps"].append(0.0 if x["outcome"] == "none" else pnl)
             cols["t_conv_s"].append(T_LIFE_S if cens else tc / 1000.0); cols["cens"].append(int(cens))

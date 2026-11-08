@@ -143,7 +143,7 @@ pub fn run(dir: &str, trades: &[Tr], drain: bool, jobs: &mut [Job]) {
     ord.sort_by_key(|&j| jobs[j].tp);
     let mut s = Sim { book: Book::default(), drain, jobs, ord, next: 0, active: vec![] };
     let mut ti = 0usize;
-    for h in 0..24 {
+    for h in 0..crate::book::hours() {
         let Some(rows) = Rows::load(dir, h) else { continue };
         for i in 0..rows.len() {
             let te = rows.et(i);
