@@ -24,6 +24,7 @@ impl QueueOrder {
         QueueOrder { buy, price, lot, front: level_qty, cum_trade: 0.0 }
     }
 
+    #[cfg(test)]
     pub fn front(&self) -> f64 {
         self.front
     }

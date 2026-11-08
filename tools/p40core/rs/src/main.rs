@@ -29,6 +29,8 @@ struct Ctx<'a> {
     no_tr: [bool; 2],
     drain: bool,
     l_ms: i64,
+    /// жизнь заявки входа/страховки (мс); умолчание `T_LIFE_MS`, список вариантов — `P40_VARIANTS`
+    t_life: i64,
     lev: &'a [f64],
     s0: i64,
     valid: &'a Valid,
@@ -51,6 +53,23 @@ impl Ctx<'_> {
     fn drain_leg(&self, i: usize) -> bool {
         self.drain && self.no_tr[i]
     }
+}
+
+/// `P40_THETAS=5.04,12.6` — список порогов θ за проход (умолчание — `THETAS`).
+fn parse_thetas(v: Option<&str>) -> Vec<f64> {
+    v.map_or(THETAS.to_vec(), |v| v.split(',').map(|x| x.trim().parse().unwrap()).collect())
+}
+
+/// `P40_VARIANTS=500:60000,2000:60000` — варианты (задержка L, жизнь заявки T_life) в мс за проход; умолчание — одна пара (L из аргумента, `T_LIFE_MS`).
+fn parse_variants(v: Option<&str>, base_l: i64) -> Vec<(i64, i64)> {
+    v.map_or(vec![(base_l, T_LIFE_MS)], |v| {
+        v.split(',')
+            .map(|x| {
+                let (l, t) = x.split_once(':').expect("P40_VARIANTS: L:T_life");
+                (l.trim().parse().unwrap(), t.trim().parse().unwrap())
+            })
+            .collect()
+    })
 }
 
 /// `P40_NOTRADE`: `drain` — true, `skip`/не задан — false, иное — отказ.
@@ -389,8 +408,8 @@ fn k2_episodes(tu: &[i64], ds: &[f64], theta: f64, la: &Leg, lb: &Leg, real: &[i
 }
 
 /// Момент вступления отмены заявок входа: решение min(θ/2, t0+T_life) + задержка отмены `L_ms` (как у постановки).
-fn cancel_at(e: &Ep, l_ms: i64) -> i64 {
-    let dec = if e.t_th2 >= 0 { e.t_th2.min(e.t0 + T_LIFE_MS) } else { e.t0 + T_LIFE_MS };
+fn cancel_at(e: &Ep, l_ms: i64, t_life: i64) -> i64 {
+    let dec = if e.t_th2 >= 0 { e.t_th2.min(e.t0 + t_life) } else { e.t0 + t_life };
     dec + l_ms
 }
 
@@ -409,7 +428,7 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
     let mut slot: Vec<[Option<usize>; 2]> = vec![];
     for e in eps {
         let tp = e.t0 + l_ms;
-        let tc = cancel_at(e, l_ms);
+        let tc = cancel_at(e, l_ms, c.t_life);
         let (buy_a, buy_b) = (e.dir < 0, e.dir > 0);
         let (pa, oka) = at(la, buy_a, e.t0, tp, tc);
         let (pb, okb) = at(lb, buy_b, e.t0, tp, tc);
@@ -436,7 +455,7 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
         let (fs, ts, is) = f(sell);
         let (fb, tb, ib) = f(buy);
         o += &format!("{:?},{},{},{},{},{},{},{},{},{},{},{}
-", e.theta, e.t0, e.dir, rel(e.t_th2), cancel_at(e, l_ms) - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, is, fb, tb, ib);
+", e.theta, e.t0, e.dir, rel(e.t_th2), cancel_at(e, l_ms, c.t_life) - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, is, fb, tb, ib);
     }
     std::fs::File::create(format!("{out}.fills.csv")).unwrap().write_all(o.as_bytes()).unwrap();
     closing(out, c, eps, [ja, jb], &slot);
@@ -493,11 +512,11 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             plans.push(Plan::Exit { js: x[si].len() - 1, jb: x[bi].len() - 1, xs, xb });
         } else {
             let sell_done = fs >= 0;
-            let t_c = if sell_done { fs } else { fb }.max(cancel_at(e, c.l_ms));
+            let t_c = if sell_done { fs } else { fb }.max(cancel_at(e, c.l_ms, c.t_life));
             let (li, buy) = if sell_done { (si, true) } else { (bi, false) };
             let (b, a) = c.leg[li].bbo(t_c).unwrap();
             let xp = if sell_done { b } else { a };
-            x[li].push(fills::Job::new(buy, t_c + c.l_ms, t_c + T_LIFE_MS + c.l_ms, xp, c.step[li]));
+            x[li].push(fills::Job::new(buy, t_c + c.l_ms, t_c + c.t_life + c.l_ms, xp, c.step[li]));
             plans.push(Plan::Insure { sell_done, t_c, xp, j: x[li].len() - 1 });
         }
     }
@@ -539,7 +558,7 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             Plan::Insure { sell_done, t_c, xp, j } => {
                 let li = if sell_done { si } else { bi };
                 let r = x[li][j].fill;
-                let t_t = t_c + c.l_ms + T_LIFE_MS + c.l_ms;
+                let t_t = t_c + c.l_ms + c.t_life + c.l_ms;
                 let pnl_at = |xp: f64| if sell_done { (ps - xp) / ps } else { (xp - pb) / pb } * 1e4;
                 if r >= 0 && r < vend {
                     ("one", r, "insurance_maker", pnl_at(xp) - 2.0 * MAKER_BPS, 2.0 * MAKER_BPS, 0)
@@ -580,8 +599,17 @@ fn write_tables(out: &str, eps: &[Ep]) {
 }
 
 /// Проходы 2–4 (заявки входа, выход/страховка/усечение, признаки) над таблицей эпизодов `eps`.
-fn post_passes(out: &str, c: &Ctx, eps: &[Ep]) {
-    fills_pass(out, c, eps);
+fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
+    // варианты (L, T_life) — за один проход по сырью: заявки/выходы считаются на каждый, эпизоды и признаки от них не зависят; один вариант — имена без суффикса
+    for &(l, tl) in variants {
+        c.l_ms = l;
+        c.t_life = tl;
+        if variants.len() > 1 {
+            fills_pass(&format!("{out}.v{l}_{tl}"), c, eps);
+        } else {
+            fills_pass(out, c, eps);
+        }
+    }
     feats::run(out, c, &eps.iter().map(|e| (e.theta, e.t0, e.dir, e.d0)).collect::<Vec<_>>());
 }
 
@@ -631,11 +659,14 @@ fn main() {
         Valid { on: false, end: i64::MAX, holes: vec![] }
     };
     let mut all: Vec<Ep> = vec![];
-    for th in THETAS {
+    let thetas = parse_thetas(env("P40_THETAS").as_deref());
+    for &th in &thetas {
         all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
     }
     write_tables(&a[1], &all);
-    let ctx = (a.len() >= 8).then(|| {
+    let base_l: i64 = a.get(8).map_or(500, |v| v.parse().unwrap());
+    let variants = parse_variants(env("P40_VARIANTS").as_deref(), base_l);
+    let mut ctx = (a.len() >= 8).then(|| {
         fills::NO_CROSS.store(std::env::var_os("P40_NO_CROSS").is_some(), std::sync::atomic::Ordering::Relaxed);
         let tr = [load_trades(&a[4]), load_trades(&a[5])];
         let no_tr = [tr[0].is_empty(), tr[1].is_empty()];
@@ -653,20 +684,21 @@ fn main() {
             drain,
             lot: [a[6].parse().unwrap(), a[7].parse().unwrap()],
             step: [a.get(9).map_or(1e-9, |v| v.parse().unwrap()), a.get(10).map_or(1e-9, |v| v.parse().unwrap())],
-            l_ms: a.get(8).map_or(500, |v| v.parse().unwrap()),
+            l_ms: base_l,
+            t_life: T_LIFE_MS,
             lev: &lev,
             s0: t0,
             valid: &valid,
         }
     });
-    if let Some(c) = &ctx {
-        post_passes(&a[1], c, &all);
+    if let Some(c) = ctx.as_mut() {
+        post_passes(&a[1], c, &all, &variants);
     }
     if env("P40_K2").is_some() {
         let seed: u64 = env("P40_SEED").map_or(40, |v| v.parse().unwrap());
         let gap: i64 = env("P40_K2_GAP_MS").map_or(600_000, |v| v.parse().unwrap());
         let mut k2: Vec<Ep> = vec![];
-        for (n, th) in THETAS.iter().enumerate() {
+        for (n, th) in thetas.iter().enumerate() {
             let real: Vec<i64> = all.iter().filter(|e| e.theta == *th).map(|e| e.t0).collect();
             // seed пары-суток: базовый seed, первый момент рядов и номер θ (воспроизводимо, печатается)
             let s = seed ^ (tu[0] as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ n as u64;
@@ -675,8 +707,8 @@ fn main() {
         }
         let k2out = format!("{}.k2", a[1]);
         write_tables(&k2out, &k2);
-        if let Some(c) = &ctx {
-            post_passes(&k2out, c, &k2);
+        if let Some(c) = ctx.as_mut() {
+            post_passes(&k2out, c, &k2, &variants);
         }
     }
     eprintln!("готово {:.2}s", t.elapsed().as_secs_f64());
@@ -691,10 +723,18 @@ mod tests {
     }
 
     #[test]
+    fn thetas_and_variants_lists() {
+        assert_eq!(parse_thetas(None), THETAS.to_vec());
+        assert_eq!(parse_thetas(Some("5.04, 12.6")), vec![5.04, 12.6]);
+        assert_eq!(parse_variants(None, 500), vec![(500, 60000)]);
+        assert_eq!(parse_variants(Some("500:60000,2000:30000"), 7), vec![(500, 60000), (2000, 30000)]);
+    }
+
+    #[test]
     fn notrade_mode_and_maker_off() {
         assert!(!parse_notrade(None) && !parse_notrade(Some("skip")) && parse_notrade(Some("drain")));
         let (la, valid) = (leg(&[0], &[1.0], &[2.0]), Valid { on: false, end: i64::MAX, holes: vec![] });
-        let mk = |no_tr: [bool; 2], drain: bool| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, drain, l_ms: 0, lev: &[], s0: 0, valid: &valid };
+        let mk = |no_tr: [bool; 2], drain: bool| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, drain, l_ms: 0, t_life: T_LIFE_MS, lev: &[], s0: 0, valid: &valid };
         assert!(mk([false, true], false).maker_off() && mk([true, false], false).maker_off());
         assert!(!mk([false, false], false).maker_off(), "обе ноги со сделками — прежнее поведение");
         let d = mk([false, true], true);
