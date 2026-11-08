@@ -388,8 +388,9 @@ def cmd_tables(a):
     suppl = os.path.join(a.code_root, EX.SUPPL_REL)
     if os.path.isfile(suppl):
         variants.update({v["id"]: v for v in EX.parse_variants(suppl)})
-    if a.extra_params:
-        variants.update({v["id"]: v for v in EX.parse_variants(a.extra_params)})
+    for p_ in (a.extra_params or "").split(","):
+        if p_:
+            variants.update({v["id"]: v for v in EX.parse_variants(p_)})
     data = load_all(a.out, a.tags.split(","), variants)
     tdir = os.path.join(a.out, "tables")
     order = sorted(data, key=lambda k: (data[k].v["stage"], {"REF": 0, "A": 1, "B": 2, "C": 3, "Cu": 3.5, "D": 4, "E": 5, "F": 6}.get(data[k].v["fam"], 9), k))

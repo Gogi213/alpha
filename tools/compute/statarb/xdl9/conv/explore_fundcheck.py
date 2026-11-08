@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """TK-493, П-39, G-X-4: расписание фандинга. На 20 символах каждой биржи НЕЗАВИСИМЫЙ счёт числа выплат в окнах 24 ч по сырью (список меток времени выплат файла, подсчёт циклом) сравнивается с n(h = 1440),
 которое берёт ex-ante расписание раннера (conv_explore.fund_ex_arrays + n_payments: последняя выплата <= t и интервал по двум последним). Сравнение - на моментах t каждые 360 минут;
-«до смены интервала»: если интервал между выплатами от двух последних <= t до конца окна не менялся, расхождение недопустимо (должно быть 0); случаи со сменой интервала считаются отдельно.
+«до смены интервала»: расхождение недопустимо (должно быть 0), если (а) на t известна хотя бы одна выплата, (б) все интервалы сырья от последней известной выплаты до конца окна равны предсказанному I и (в) сырьё
+не обрывается внутри окна (последняя выплата файла + I >= конец окна). Остальное считается отдельно: нога «неизвестна» на t (счётчик fund_unknown), смена интервала в окне, обрыв ряда (контракт снят / нет данных).
   python explore_fundcheck.py --out ~/xdl9/c2x [--per-exchange 20]
 """
 import argparse
@@ -27,11 +28,11 @@ def main(argv=None):
     d0, d1 = EX.D0, EX.D_LAST
     N = (d1 - d0 + 1) * EX.MIN_DAY
     rng = random.Random(37)
-    rows, bad_total = [], 0
+    rows, bad_total = [], 0                    # столбцы: биржа, символов, моментов, совпало, нога неизвестна, смена интервала, обрыв ряда, расхождение при неизменном интервале
     for ex in sorted(os.listdir(os.path.join(a.root, "funding"))):
         files = sorted(os.listdir(os.path.join(a.root, "funding", ex)))
         pick = rng.sample(files, min(a.per_exchange, len(files)))
-        n_s = n_ok = n_chg = n_bad = 0
+        n_s = n_ok = n_chg = n_bad = n_unk = n_end = 0
         for fn in pick:
             ts, rs, ih = XG.load_funding_full(os.path.join(a.root, "funding", ex, fn), d0, d1)
             if len(ts) < 3:
@@ -40,23 +41,31 @@ def main(argv=None):
             ml, rh, I = EX.fund_ex_arrays(np.array(m, np.int64), rs, ih, N)
             for t in range(600, N - 1500, 360):
                 known = [x for x in m if x <= t]
-                if not known:
-                    continue
                 f = t + 2
                 got = EX.n_payments(ml[t:t + 1], I[t:t + 1], np.array([f]), 1440)[0][0]
                 want = sum(1 for x in m if f + 1 <= x <= f + 1439)                           # независимый счёт по сырью
-                diffs = {m[i + 1] - m[i] for i in range(len(m) - 1) if m[i] >= (known[-2] if len(known) >= 2 else known[-1]) and m[i + 1] <= f + 1439}
-                stable = len(diffs) <= 1
                 n_s += 1
+                if not known:
+                    n_unk += 1
+                    continue
+                Ipred = (known[-1] - known[-2]) if len(known) >= 2 else (60.0 * ih[0] if np.isfinite(ih[0]) else None)
+                span = [x for x in m if known[-1] <= x <= f + 1439]
+                nxt = [x for x in m if x > f + 1439][:1]                                    # первая выплата после окна: пропуск выплаты в конце окна виден как увеличенный шаг
+                span = span + nxt
+                diffs = {span[i + 1] - span[i] for i in range(len(span) - 1)}
+                ended = Ipred is None or (m[-1] + Ipred < f + 1439)
+                stable = (not ended) and Ipred is not None and diffs <= {Ipred}
                 if got == want:
                     n_ok += 1
                 elif stable:
                     n_bad += 1
+                elif ended:
+                    n_end += 1
                 else:
                     n_chg += 1
-        rows.append([ex, len(pick), n_s, n_ok, n_chg, n_bad])
+        rows.append([ex, len(pick), n_s, n_ok, n_unk, n_chg, n_end, n_bad])
         bad_total += n_bad
-    XG.write_csv(os.path.join(a.out, "tables", "fund_schedule_check.csv"), ["exchange", "symbols", "samples", "match", "mismatch_interval_changed", "mismatch_stable_interval"], rows)
+    XG.write_csv(os.path.join(a.out, "tables", "fund_schedule_check.csv"), ["exchange", "symbols", "samples", "match", "leg_unknown_at_t", "mismatch_interval_changed", "mismatch_series_ended", "mismatch_stable_interval"], rows)
     for r in rows:
         print(r)
     print("G-X-4: расхождений при неизменном интервале: %d" % bad_total)

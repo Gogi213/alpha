@@ -182,7 +182,9 @@ def cmd_final(a):
         good, why = passes(r, ext.get(vid, {}))
         d2 = tab.get("S2b-%s-d2" % vid) if not vid.startswith("S2b-") else None
         n2 = fnum(d2["net"]) if d2 else None
-        if good and not vid.startswith("S2b-"):
+        if vid.startswith("S2b-"):
+            continue                                        # S2b - проверка (д) задержкой, не самостоятельный кандидат
+        if good:
             if n2 is None or not n2 > 0:
                 good, why = False, ["д"]
         rows.append([vid, v["fam"], v["base"], fnum(r["yd_lo_t"]), fnum(r["net"]), fnum(r["h1_net"]), fnum(r["h2_net"]), "да" if good else "нет", "".join(why), n2])

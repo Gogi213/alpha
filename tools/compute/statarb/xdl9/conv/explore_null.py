@@ -107,14 +107,15 @@ def cmd_null(a):
     suppl = os.path.join(a.code_root, EX.SUPPL_REL)
     if os.path.isfile(suppl):
         variants.update({v["id"]: v for v in EX.parse_variants(suppl)})
-    if a.extra_params:
-        variants.update({v["id"]: v for v in EX.parse_variants(a.extra_params)})
+    for p_ in (a.extra_params or "").split(","):
+        if p_:
+            variants.update({v["id"]: v for v in EX.parse_variants(p_)})
     data = ES.load_all(a.out, a.tags.split(","), variants)
     ids = sorted(data)
     keymap, vs = {}, []
     for vid in ids:
         vd = data[vid]
-        kidx = np.array([keymap.setdefault((vd.src.split("/")[0], vd.pairs[i][0], int(t)), len(keymap)) for i, t in zip(vd.pidx, vd.rows[:, TF["t_sig"]])], int) if len(vd.rows) else np.zeros(0, int)
+        kidx = np.array([keymap.setdefault((vd.pairs[i][0], int(t)), len(keymap)) for i, t in zip(vd.pidx, vd.rows[:, TF["t_sig"]])], int) if len(vd.rows) else np.zeros(0, int)      # ключ (pid, t_sig), общий для всех тегов
         vs.append(V(vd, kidx))
     K = max(len(keymap), 1)
     print("вариантов %d, уникальных ключей сделок %d" % (len(vs), K), flush=True)
