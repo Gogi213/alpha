@@ -193,6 +193,9 @@ def labels(c, ts, nz, ym):
     return out
 
 
+ZERO_BUCKET = {"liq_usd1h_log", "liq_to_turn1h"}
+
+
 def main(cube, ym, outd, xjson):
     os.makedirs(outd, exist_ok=True)
     sy, lo, c, h, l, q, qs, m0, m1, T = prep(cube, ym)
@@ -241,11 +244,19 @@ def main(cube, ym, outd, xjson):
             ok = valid & np.isfinite(f)
             cov = ok.sum() / nvalid
             if ok.sum() < 1000 or np.nanstd(f[ok]) == 0:
-                rows.append((ym, nm, D, 0, "", "", int(ok.sum()), 0, round(cov, 4), round(base, 5), "", "", ""))
+                rows.append((ym, nm, D, 0, "", "", int(ok.sum()), 0, round(cov, 4), round(base, 5), "", "", "", "", ""))
                 continue
-            edges = np.unique(np.quantile(f[ok], np.linspace(0, 1, 11)))
-            nb = len(edges) - 1
-            b = np.clip(np.searchsorted(edges, f, "right") - 1, 0, nb - 1)
+            if nm in ZERO_BUCKET:  # масса в нуле: корзина 1 = ровно 0, остальные — децили по ненулевым (TK-447 п.6, возврат 2)
+                nzm = ok & (f > 0)
+                eq = np.unique(np.quantile(f[nzm], np.linspace(0, 1, 11))) if nzm.sum() >= 1000 else np.array([0.0, np.inf])
+                edges = np.concatenate([[0.0], eq])
+                nb = len(edges) - 1
+                b = np.where(f > 0, np.clip(np.searchsorted(eq, f, "right") - 1, 0, len(eq) - 2) + 1, 0)
+            else:
+                edges = np.unique(np.quantile(f[ok], np.linspace(0, 1, 11)))
+                nb = len(edges) - 1
+                b = np.clip(np.searchsorted(edges, f, "right") - 1, 0, nb - 1)
+            base_ok = int((ok & lab).sum()) / max(int(ok.sum()), 1)  # база на ячейках, где признак есть
             key = cidc * nb + b
             den = np.bincount(key[ok], minlength=NC * nb).reshape(NC, nb).astype(np.float32)
             pos = np.bincount(key[ok & lab], minlength=NC * nb).reshape(NC, nb).astype(np.float32)
@@ -257,10 +268,11 @@ def main(cube, ym, outd, xjson):
                     lf = (pB[:, bi] / dB[:, bi]) / (posb / denb)
                 lo_, hi_ = np.nanpercentile(lf, [2.5, 97.5])
                 rows.append((ym, nm, D, bi + 1, round(float(edges[bi]), 5), round(float(edges[bi + 1]), 5), nbn, nbp,
-                             round(cov, 4), round(base, 5), round(rate / base, 3) if base else "", round(lo_, 3), round(hi_, 3)))
+                             round(cov, 4), round(base, 5), round(rate / base, 3) if base else "", round(lo_, 3), round(hi_, 3),
+                             round(base_ok, 5), round(rate / base_ok, 3) if base_ok else ""))
         print(ym, D, "X", round(Xu, 5), round(Xd, 5), "valid", nvalid, "base", round(base, 5), flush=True)
     with open(f"{outd}/lift-{ym}.csv", "w", newline="") as fo:
-        fo.write("месяц,признак,D,дециль,от,до,ячеек,попаданий,покрытие,база,подъём,подъём_lo,подъём_hi\n")
+        fo.write("месяц,признак,D,дециль,от,до,ячеек,попаданий,покрытие,база,подъём,подъём_lo,подъём_hi,база_есть,подъём_к_базе_есть\n")
         for rw in rows:
             fo.write(",".join(str(x) for x in rw) + "\n")
     print("features", len(names), "rows", len(rows), "n", n, "ts", len(ts))
