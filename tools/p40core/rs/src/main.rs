@@ -2,6 +2,7 @@
 //! вход — плоские бинарники tools/p40core/to_bin.py (<dirA>/<ЧЧ>.bin, <dirB>/<ЧЧ>.bin), выход — csv построчно как у эталона.
 //! Запуск: p40core <out.csv> <dirA> <dirB> [<trA> <trB> <lotA> <lotB> [<L_ms=500>]] — с сделками дополнительно <out.csv>.fills.csv (заявки входа §3.3, проход 2).
 mod book;
+mod feats;
 mod fills;
 mod queue;
 use book::{load_trades, Book, Rows};
@@ -23,6 +24,8 @@ struct Ctx<'a> {
     tr: [Vec<book::Tr>; 2],
     lot: [f64; 2],
     l_ms: i64,
+    lev: &'a [f64],
+    s0: i64,
 }
 
 struct Leg {
@@ -414,8 +417,11 @@ fn main() {
             tr: [load_trades(&a[4]), load_trades(&a[5])],
             lot: [a[6].parse().unwrap(), a[7].parse().unwrap()],
             l_ms: a.get(8).map_or(500, |v| v.parse().unwrap()),
+            lev: &lev,
+            s0: t0,
         };
         fills_pass(&a[1], &c, &all);
+        feats::run(&a[1], &c, &all.iter().map(|e| (e.theta, e.t0, e.dir, e.d0)).collect::<Vec<_>>());
     }
     eprintln!("готово {:.2}s", t.elapsed().as_secs_f64());
 }

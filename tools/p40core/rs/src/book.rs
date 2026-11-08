@@ -98,6 +98,14 @@ impl Book {
         if bid { self.bids.get(&key) } else { self.asks.get(&key) }.copied().unwrap_or(0.0)
     }
 
+    /// Уровни стороны от лучшего вглубь: (цена, количество).
+    pub fn levels(&self, bid: bool) -> Vec<(f64, f64)> {
+        let m = if bid { &self.bids } else { &self.asks };
+        let mut v: Vec<(f64, f64)> = m.iter().map(|(&k, &q)| (f64::from_bits(k), q)).collect();
+        v.sort_by(|a, b| if bid { b.0.partial_cmp(&a.0).unwrap() } else { a.0.partial_cmp(&b.0).unwrap() });
+        v
+    }
+
     pub fn best(&mut self) -> Option<(f64, f64)> {
         while let Some(&k) = self.hb.peek() {
             if self.bids.contains_key(&k) {
