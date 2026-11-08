@@ -32,6 +32,8 @@ impl Job {
 
 struct Sim<'a> {
     book: Book,
+    /// нога без сделок (Bybit ob200, Gate): убыль объёма на уровне заявки считается сделкой агрессора (верхняя граница — отмены тоже «исполняют»)
+    drain: bool,
     jobs: &'a mut [Job],
     ord: Vec<usize>,
     next: usize,
@@ -102,11 +104,19 @@ impl Sim<'_> {
         }
         let (bid, px) = (rows.is_bid(i), rows.px(i));
         let prev = self.book.set(bid, px, rows.qt(i));
-        for &j in &self.active {
-            let job = &mut self.jobs[j];
+        let mut k = 0;
+        while k < self.active.len() {
+            let job = &mut self.jobs[self.active[k]];
             if job.buy == bid && job.price == px {
-                job.q.as_mut().unwrap().on_depth(prev, rows.qt(i));
+                let q = job.q.as_mut().unwrap();
+                // убыль по цене заявки = сделка встречной стороны на объём убыли (бид исполняют продающие агрессоры -> buyer_maker)
+                if self.drain && rows.qt(i) < prev && q.on_trade(px, prev - rows.qt(i), bid) {
+                    self.fill(k, t);
+                    continue;
+                }
+                q.on_depth(prev, rows.qt(i));
             }
+            k += 1;
         }
         if !NO_CROSS.load(Ordering::Relaxed) && !rows.snap(i) && rows.group_end(i) && !self.active.is_empty() {
             if let Some((b, a)) = self.book.best() {
@@ -127,11 +137,11 @@ impl Sim<'_> {
     }
 }
 
-/// Проигрывает книгу ноги `dir` и сделки `trades` (по времени), проставляет `fill`/`front0` в `jobs`.
-pub fn run(dir: &str, trades: &[Tr], jobs: &mut [Job]) {
+/// Проигрывает книгу ноги `dir` и сделки `trades` (по времени), проставляет `fill`/`front0` в `jobs`; `drain` — режим «убыль объёма» для ноги без сделок.
+pub fn run(dir: &str, trades: &[Tr], drain: bool, jobs: &mut [Job]) {
     let mut ord: Vec<usize> = (0..jobs.len()).collect();
     ord.sort_by_key(|&j| jobs[j].tp);
-    let mut s = Sim { book: Book::default(), jobs, ord, next: 0, active: vec![] };
+    let mut s = Sim { book: Book::default(), drain, jobs, ord, next: 0, active: vec![] };
     let mut ti = 0usize;
     for h in 0..24 {
         let Some(rows) = Rows::load(dir, h) else { continue };
@@ -181,7 +191,7 @@ mod tests {
     fn buy_fills_after_queue_drained_by_trades() {
         let dir = write_rows("a", &SNAP);
         let mut jobs = [Job::new(true, 500, 10_000, 10.0, 1.0)];
-        run(&dir, &[tr(1000, 10.0, 100.0, true), tr(2000, 10.0, 1.0, true)], &mut jobs);
+        run(&dir, &[tr(1000, 10.0, 100.0, true), tr(2000, 10.0, 1.0, true)], false, &mut jobs);
         assert_eq!(jobs[0].front0, 100.0);
         assert_eq!(jobs[0].fill, 2000);
     }
@@ -190,7 +200,7 @@ mod tests {
     fn cancelled_before_fill_stays_unfilled() {
         let dir = write_rows("b", &SNAP);
         let mut jobs = [Job::new(true, 500, 1500, 10.0, 1.0)];
-        run(&dir, &[tr(1000, 10.0, 100.0, true), tr(2000, 10.0, 1.0, true)], &mut jobs);
+        run(&dir, &[tr(1000, 10.0, 100.0, true), tr(2000, 10.0, 1.0, true)], false, &mut jobs);
         assert_eq!(jobs[0].fill, -1);
     }
 
@@ -202,7 +212,7 @@ mod tests {
         rows.push((3000, 7, 10.0, 5.0, 0));
         let dir = write_rows("c", &rows);
         let mut jobs = [Job::new(true, 500, 10_000, 10.0, 1.0)];
-        run(&dir, &[], &mut jobs);
+        run(&dir, &[], false, &mut jobs);
         assert_eq!(jobs[0].fill, 3000);
     }
 
@@ -211,7 +221,7 @@ mod tests {
         let dir = write_rows("d", &SNAP);
         // tc ≤ tp: заявка не ставится; вторая — на аске 11: впереди 50
         let mut jobs = [Job::new(false, 800, 800, 11.0, 1.0), Job::new(false, 800, 5000, 11.0, 1.0)];
-        run(&dir, &[tr(1000, 11.0, 49.0, false), tr(1500, 11.0, 2.0, false)], &mut jobs);
+        run(&dir, &[tr(1000, 11.0, 49.0, false), tr(1500, 11.0, 2.0, false)], false, &mut jobs);
         assert_eq!((jobs[0].front0, jobs[0].fill), (-1.0, -1));
         assert_eq!((jobs[1].front0, jobs[1].fill), (50.0, 1500));
     }
@@ -221,9 +231,30 @@ mod tests {
         // покупка по 11 (аск 11 уже достигнут) и продажа по 10 (бид 10 уже достигнут) исполняются в момент постановки
         let dir = write_rows("e", &SNAP);
         let mut jobs = [Job::new(true, 800, 5000, 11.0, 1.0), Job::new(false, 800, 5000, 10.0, 1.0), Job::new(true, 800, 5000, 10.0, 1.0)];
-        run(&dir, &[tr(900, 10.5, 0.0001, true)], &mut jobs);
+        run(&dir, &[tr(900, 10.5, 0.0001, true)], false, &mut jobs);
         assert_eq!((jobs[0].fill, jobs[0].imm), (800, true));
         assert_eq!((jobs[1].fill, jobs[1].imm), (800, true));
         assert_eq!((jobs[2].fill, jobs[2].imm), (-1, false));
+    }
+
+    #[test]
+    fn drain_mode_fills_on_volume_decrease_only_when_enabled() {
+        // бид 10: 100 -> 30 -> 0 (front 0: не исполнена) -> +5 -> 2 (убыль 3: front -3 -> исполнена)
+        let mut rows = SNAP.to_vec();
+        rows.extend([(1000, 2, 10.0, 30.0, 2), (2000, 3, 10.0, 0.0, 2), (3000, 4, 10.0, 5.0, 2), (4000, 5, 10.0, 2.0, 2)]);
+        let dir = write_rows("f", &rows);
+        let mut on = [Job::new(true, 500, 10_000, 10.0, 1.0)];
+        run(&dir, &[], true, &mut on);
+        assert_eq!((on[0].front0, on[0].fill), (100.0, 4000));
+        let mut off = [Job::new(true, 500, 10_000, 10.0, 1.0)];
+        run(&dir, &[], false, &mut off);
+        assert_eq!(off[0].fill, -1);
+        // продажа на аске: убыль объёма аска 11 (50 -> 0) двигает очередь, но не исполняет (front 0)
+        let mut rows2 = SNAP.to_vec();
+        rows2.extend([(1000, 2, 11.0, 0.0, 0), (2000, 3, 11.0, 4.0, 0), (3000, 4, 11.0, 1.0, 0)]);
+        let dir2 = write_rows("g", &rows2);
+        let mut sell = [Job::new(false, 500, 10_000, 11.0, 1.0)];
+        run(&dir2, &[], true, &mut sell);
+        assert_eq!((sell[0].front0, sell[0].fill), (50.0, 3000));
     }
 }
