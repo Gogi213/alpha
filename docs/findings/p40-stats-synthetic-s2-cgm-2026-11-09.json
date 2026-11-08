@@ -1,0 +1,57 @@
+{
+ "scheme": "cgm",
+ "n_sim": 200,
+ "family_bh": {
+  "tests": 24,
+  "sets_with_rejection": 0.11,
+  "mean_rejections": 0.145
+ },
+ "mde_ref": 0.12189223809385873,
+ "candidate_null_depth": {
+  "planted": null,
+  "candidate_rate": 0.0,
+  "bh_pass_rate": 0.01,
+  "c1_rate": 0.01,
+  "skipped": 0
+ },
+ "candidate_null_hour": {
+  "planted": null,
+  "candidate_rate": 0.0,
+  "bh_pass_rate": 0.0,
+  "c1_rate": 0.01,
+  "skipped": 0
+ },
+ "candidate_planted_2mde_depth": {
+  "planted": 0.24378447618771745,
+  "candidate_rate": 0.585,
+  "bh_pass_rate": 1.0,
+  "c1_rate": 0.995,
+  "skipped": 0
+ },
+ "candidate_planted_3mde_depth": {
+  "planted": 0.36567671428157617,
+  "candidate_rate": 0.65,
+  "bh_pass_rate": 1.0,
+  "c1_rate": 1.0,
+  "skipped": 0
+ },
+ "hbybit_null": {
+  "n_ok": 200,
+  "ci_miss": 0.09,
+  "reject": 0.09,
+  "mean_diff_s": 0.012675233093323435
+ },
+ "hbybit_planted_ln1.5": {
+  "n_ok": 200,
+  "ci_miss": 0.515,
+  "reject": 0.515,
+  "mean_diff_s": 9.19109602092838
+ },
+ "hbybit_planted_ln2": {
+  "n_ok": 198,
+  "ci_miss": 0.9292929292929293,
+  "reject": 0.9292929292929293,
+  "mean_diff_s": 18.100843004667116
+ },
+ "seconds": 369
+}
