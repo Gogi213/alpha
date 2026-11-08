@@ -1,0 +1,13 @@
+diff --git a/src/statarb/cli.rs b/src/statarb/cli.rs
+index 518d9924..b248645b 100644
+--- a/src/statarb/cli.rs
++++ b/src/statarb/cli.rs
+@@ -422,7 +422,7 @@ fn read_funding(dir: &Path, name: &str) -> Result<Vec<(i64, f64)>> {
+         let (Some(t), Some(r)) = (it.next(), it.next()) else {
+             continue;
+         };
+-        v.push((t.parse::<i64>()? / 60_000, r.parse::<f64>()?));
++        v.push(((t.parse::<i64>()? - 1_577_836_800_000).div_euclid(60_000), r.parse::<f64>()?));
+     }
+     Ok(v)
+ }

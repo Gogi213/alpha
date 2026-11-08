@@ -1,0 +1,627 @@
+diff --git a/src/commands/lob/mod.rs b/src/commands/lob/mod.rs
+index 296b30d9..996e4e56 100644
+--- a/src/commands/lob/mod.rs
++++ b/src/commands/lob/mod.rs
+@@ -456,12 +456,14 @@ fn print_touches(args: TouchesArgs) -> anyhow::Result<()> {
+ fn print_seconds(args: SecondsArgs) -> anyhow::Result<()> {
+     let s = run_seconds(&args)?;
+     println!(
+-        "seconds: days={} trades={} dropped={} gap_secs={} bbo_rows={} out={}",
++        "seconds: days={} trades={} dropped={} gap_secs={} bbo_rows={} apply_errors={} skipped_updates={} out={}",
+         s.days,
+         s.trades,
+         s.dropped,
+         s.gap_secs,
+         s.bbo_rows,
++        s.apply_errors,
++        s.skipped_updates,
+         s.out_dir.display()
+     );
+     Ok(())
+diff --git a/src/commands/lob/parts.rs b/src/commands/lob/parts.rs
+index 65300325..66ff3183 100644
+--- a/src/commands/lob/parts.rs
++++ b/src/commands/lob/parts.rs
+@@ -42,6 +42,81 @@ pub(crate) fn read_frame_soft<R: std::io::Read>(
+     Ok(frame)
+ }
+ 
++/// Сколько первых ошибок применения печатать на файл (остальные — только счётчик).
++const APPLY_ERR_PRINT: u64 = 3;
++
++/// Применение обновлений одного файла с ресинком (TK-408, аудит TK-404 C2).
++///
++/// Раньше ошибка `Book::apply` молча обрывала остаток файла (у PEPE/BONK спота
++/// это стерло почти все сутки). Теперь ошибка считается и печатается (первые
++/// `APPLY_ERR_PRINT`), книга считается сломанной, обновления пропускаются
++/// (`skipped`) до следующего снимка (`is_snapshot` или `u = 1`) — он перезаписывает
++/// книгу целиком. Файл без ошибок идёт ровно как прежде.
++#[derive(Debug, Default, Clone, Copy)]
++pub(crate) struct ApplyGuard {
++    pub errors: u64,
++    pub skipped: u64,
++    broken: bool,
++}
++
++impl ApplyGuard {
++    /// `true` — обновление применено, книгу можно читать.
++    pub(crate) fn apply(
++        &mut self,
++        book: &mut crate::book::Book,
++        up: &crate::book::Update,
++        path: &Path,
++    ) -> bool {
++        if self.broken && !(up.is_snapshot || up.u == 1) {
++            self.skipped += 1;
++            return false;
++        }
++        match book.apply(up) {
++            Ok(()) => {
++                self.broken = false;
++                true
++            }
++            Err(e) => {
++                self.errors += 1;
++                self.skipped += 1;
++                self.broken = true;
++                if self.errors <= APPLY_ERR_PRINT {
++                    eprintln!(
++                        "{}: ошибка применения обновления u={} snap={} cts_ms={}: {e:?} —                          пропуск до следующего снимка",
++                        path.display(),
++                        up.u,
++                        up.is_snapshot,
++                        up.cts_ms
++                    );
++                }
++                false
++            }
++        }
++    }
++
++    /// Книга сейчас сломана (ждём снимок).
++    pub(crate) fn is_broken(&self) -> bool {
++        self.broken
++    }
++
++    /// Итог файла в stderr, если ошибки были (молчаливого пути нет).
++    pub(crate) fn report(&self, path: &Path) {
++        if self.errors > 0 {
++            eprintln!(
++                "{}: ошибок применения {}, пропущено обновлений {}",
++                path.display(),
++                self.errors,
++                self.skipped
++            );
++        }
++    }
++
++    pub(crate) fn add(&mut self, o: &Self) {
++        self.errors += o.errors;
++        self.skipped += o.skipped;
++    }
++}
++
+ /// Сутки из имени файла `<SYMBOL>-<день>[-pN].binlog[.zst]`: первые 10 знаков
+ /// остатка. Формат проверяет позже `watch` (`BadDay`), здесь только нарезка.
+ pub(crate) fn day_of_filename(prefix: &str, name: &str) -> Option<String> {
+diff --git a/src/commands/lob/replay.rs b/src/commands/lob/replay.rs
+index 7d2aa23c..1df6233c 100644
+--- a/src/commands/lob/replay.rs
++++ b/src/commands/lob/replay.rs
+@@ -418,7 +418,7 @@ pub(crate) fn replay_symbol_over_configs_keep(
+         let mut replayer = FileReplayer::new();
+         let mut ups = Vec::new();
+         let mut tps = Vec::new();
+-        let mut file_ok = true;
++        let mut guard = super::parts::ApplyGuard::default();
+         loop {
+             let frame = super::parts::read_frame_soft(&mut reader, path)?;
+             let Some(frame_records) = frame else { break };
+@@ -442,9 +442,8 @@ pub(crate) fn replay_symbol_over_configs_keep(
+                     "разметка сделок обязана совпадать с FileReplayer"
+                 );
+                 for up in &ups {
+-                    if book.apply(up).is_err() {
+-                        file_ok = false;
+-                        break;
++                    if !guard.apply(&mut book, up, path) {
++                        continue;
+                     }
+                     feed_frames_multi(
+                         &book,
+@@ -458,8 +457,8 @@ pub(crate) fn replay_symbol_over_configs_keep(
+                     );
+                     entry.trim(keep);
+                 }
+-                if !file_ok {
+-                    break;
++                if guard.is_broken() {
++                    continue;
+                 }
+                 if let Some(h) = hit {
+                     for tracker in &mut entry.trackers {
+@@ -467,30 +466,26 @@ pub(crate) fn replay_symbol_over_configs_keep(
+                     }
+                 }
+             }
+-            if !file_ok {
+-                break;
+-            }
+         }
+-        if file_ok {
+-            let mut tail = Vec::new();
+-            replayer.finish(&mut tail);
+-            for up in &tail {
+-                if book.apply(up).is_err() {
+-                    break;
+-                }
+-                feed_frames_multi(
+-                    &book,
+-                    &mut entry.trackers,
+-                    up.cts_ms,
+-                    &mut entry.records,
+-                    &mut entry.touches,
+-                    &mut entry.approaches,
+-                    &mut entry.mids,
+-                    &mut obs_buf,
+-                );
+-                entry.trim(keep);
++        let mut tail = Vec::new();
++        replayer.finish(&mut tail);
++        for up in &tail {
++            if !guard.apply(&mut book, up, path) {
++                continue;
+             }
++            feed_frames_multi(
++                &book,
++                &mut entry.trackers,
++                up.cts_ms,
++                &mut entry.records,
++                &mut entry.touches,
++                &mut entry.approaches,
++                &mut entry.mids,
++                &mut obs_buf,
++            );
++            entry.trim(keep);
+         }
++        guard.report(path);
+     }
+     // Раскладка по конфигурации (таск 18): `w.records[i]` — уровни i-й
+     // конфигурации за эти сутки, `w.mids` общий и клонируется в каждую
+diff --git a/src/commands/lob/seconds.rs b/src/commands/lob/seconds.rs
+index 04bdb992..f9c24a54 100644
+--- a/src/commands/lob/seconds.rs
++++ b/src/commands/lob/seconds.rs
+@@ -44,7 +44,7 @@ use crate::bybit::verify::FileReplayer;
+ use crate::lob::levels::TradeHit;
+ use crate::lob::markout::mid_double_tick;
+ 
+-use super::parts::{day_of_filename, read_frame_soft};
++use super::parts::{day_of_filename, read_frame_soft, ApplyGuard};
+ use super::replay::trade_hit_from_record;
+ 
+ #[cfg(test)]
+@@ -93,6 +93,9 @@ pub struct SecondsSummary {
+     pub gap_secs: u64,
+     /// Строк событийного BBO (`--bbo-events`), иначе 0.
+     pub bbo_rows: u64,
++    /// Ошибок `Book::apply` (ресинк по следующему снимку, TK-408) и пропущенных из-за них обновлений.
++    pub apply_errors: u64,
++    pub skipped_updates: u64,
+     pub out_dir: PathBuf,
+ }
+ 
+@@ -412,9 +415,10 @@ fn day_start_ms(day: &str) -> anyhow::Result<i64> {
+         .ok_or_else(|| anyhow::anyhow!("сутки {day:?}: полночь не строится"))
+ }
+ 
+-/// Один файл-часть суток в накопитель (реплей: новая книга на файл; разрыв
+-/// последовательности останавливает файл, как в `replay`/`verify`).
+-fn feed_file<F: Feed>(path: &Path, acc: &mut F) -> anyhow::Result<()> {
++/// Один файл-часть суток в накопитель (реплей: новая книга на файл). Ошибка
++/// применения не обрывает файл: счёт и сообщение, пропуск до следующего снимка
++/// (`ApplyGuard`, TK-408); сделки идут и пока книга сломана (в книгу они не смотрят).
++fn feed_file<F: Feed>(path: &Path, acc: &mut F) -> anyhow::Result<ApplyGuard> {
+     let data = std::fs::read(path)
+         .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
+     let mut reader = Reader::open(&data[..])
+@@ -424,8 +428,8 @@ fn feed_file<F: Feed>(path: &Path, acc: &mut F) -> anyhow::Result<()> {
+     let mut book = Book::new(tick_e9, step_e9);
+     let mut replayer = FileReplayer::new();
+     let (mut ups, mut tps) = (Vec::new(), Vec::new());
+-    let mut ok = true;
+-    'frames: while let Some(records) = read_frame_soft(&mut reader, path)? {
++    let mut guard = ApplyGuard::default();
++    while let Some(records) = read_frame_soft(&mut reader, path)? {
+         for rec in &records {
+             ups.clear();
+             tps.clear();
+@@ -437,28 +441,23 @@ fn feed_file<F: Feed>(path: &Path, acc: &mut F) -> anyhow::Result<()> {
+                 &mut tps,
+             );
+             for up in &ups {
+-                if book.apply(up).is_err() {
+-                    ok = false;
+-                    break 'frames;
++                if guard.apply(&mut book, up, path) {
++                    acc.on_book(up.cts_ms, &book, tick_e9, step_e9)?;
+                 }
+-                acc.on_book(up.cts_ms, &book, tick_e9, step_e9)?;
+             }
+             if let Some(h) = trade_hit_from_record(rec) {
+                 acc.on_trade(h, tick_e9, step_e9);
+             }
+         }
+     }
+-    if ok {
+-        let mut tail = Vec::new();
+-        replayer.finish(&mut tail);
+-        for up in &tail {
+-            if book.apply(up).is_err() {
+-                break;
+-            }
++    let mut tail = Vec::new();
++    replayer.finish(&mut tail);
++    for up in &tail {
++        if guard.apply(&mut book, up, path) {
+             acc.on_book(up.cts_ms, &book, tick_e9, step_e9)?;
+         }
+     }
+-    Ok(())
++    Ok(guard)
+ }
+ 
+ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
+@@ -494,20 +493,21 @@ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
+     });
+     std::fs::create_dir_all(&out_dir)?;
+     let (mut trades, mut dropped, mut gap_secs, mut bbo_rows) = (0u64, 0u64, 0u64, 0u64);
++    let mut loss = ApplyGuard::default();
+     for (day, parts) in &by_day {
+         if args.bbo_events {
+             let path = out_dir.join(format!("{}-{day}.csv", args.symbol));
+             let file = std::io::BufWriter::new(std::fs::File::create(&path)?);
+             let mut acc = BboAcc::new(day_start_ms(day)?, file)?;
+             for p in parts {
+-                feed_file(p, &mut acc)?;
++                loss.add(&feed_file(p, &mut acc)?);
+             }
+             bbo_rows += acc.finish()?;
+             continue;
+         }
+         let mut acc = DayAcc::new(day_start_ms(day)?);
+         for p in parts {
+-            feed_file(p, &mut acc)?;
++            loss.add(&feed_file(p, &mut acc)?);
+         }
+         trades += acc.trades;
+         dropped += acc.dropped;
+@@ -527,6 +527,8 @@ pub fn run_seconds(args: &SecondsArgs) -> anyhow::Result<SecondsSummary> {
+         dropped,
+         gap_secs,
+         bbo_rows,
++        apply_errors: loss.errors,
++        skipped_updates: loss.skipped,
+         out_dir,
+     })
+ }
+diff --git a/src/commands/lob/tests.rs b/src/commands/lob/tests.rs
+index ae0187fe..d12dcd7b 100644
+--- a/src/commands/lob/tests.rs
++++ b/src/commands/lob/tests.rs
+@@ -590,3 +590,38 @@ fn carry_age_needs_adjacent_calendar_days() {
+     assert!(!is_next_day("2026-09-21", "2026-09-21"));
+     assert!(!is_next_day("x", "2026-09-22"));
+ }
++
++fn guard_upd(snap: bool, u: u64, bids: &[(i64, i64)], asks: &[(i64, i64)]) -> crate::book::Update {
++    crate::book::Update {
++        is_snapshot: snap,
++        depth: 50,
++        u,
++        seq: u,
++        cts_ms: 1_000 + u as i64,
++        bids: bids.to_vec(),
++        asks: asks.to_vec(),
++    }
++}
++
++/// TK-408: ошибка применения не обрывает файл — счёт, пропуск до снимка, ресинк по нему.
++#[test]
++fn apply_guard_resyncs_on_next_snapshot() {
++    let mut book = crate::book::Book::new(1, 1);
++    let mut g = super::parts::ApplyGuard::default();
++    let p = Path::new("x.binlog");
++    // дельта до снимка — SequenceGap: ошибка, книга сломана
++    assert!(!g.apply(&mut book, &guard_upd(false, 2, &[(10, 1)], &[]), p));
++    assert!(g.is_broken());
++    // дельты до снимка пропускаются без новых ошибок
++    assert!(!g.apply(&mut book, &guard_upd(false, 3, &[(10, 1)], &[]), p));
++    assert_eq!((g.errors, g.skipped), (1, 2));
++    // снимок чинит книгу
++    assert!(g.apply(&mut book, &guard_upd(true, 1, &[(10, 1)], &[(11, 1)]), p));
++    assert!(!g.is_broken());
++    assert!(g.apply(&mut book, &guard_upd(false, 2, &[(9, 1)], &[]), p));
++    assert_eq!((g.errors, g.skipped), (1, 2));
++    // пересечение — ошибка, снова ресинк
++    assert!(!g.apply(&mut book, &guard_upd(false, 3, &[(12, 1)], &[]), p));
++    assert_eq!(g.errors, 2);
++    assert!(g.apply(&mut book, &guard_upd(true, 1, &[(5, 1)], &[(6, 1)]), p));
++}
+diff --git a/src/commands/lob/touches/minute_flow.rs b/src/commands/lob/touches/minute_flow.rs
+index 83e42af1..bc033cbd 100644
+--- a/src/commands/lob/touches/minute_flow.rs
++++ b/src/commands/lob/touches/minute_flow.rs
+@@ -14,7 +14,7 @@ use crate::book::{Book, Side};
+ use crate::bybit::verify::FileReplayer;
+ use crate::lob::minute_flow::{MinuteFlow, MinuteRow};
+ 
+-use super::super::parts::{day_of_filename, list_symbol_binlogs, read_frame_soft};
++use super::super::parts::{day_of_filename, list_symbol_binlogs, read_frame_soft, ApplyGuard};
+ use super::super::replay::trade_hit_from_record;
+ 
+ /// Колонки файла минутного ряда.
+@@ -68,7 +68,7 @@ pub fn write_minute_flow(
+         let mut replayer = FileReplayer::new();
+         let mut ups = Vec::new();
+         let mut tps = Vec::new();
+-        let mut file_ok = true;
++        let mut guard = ApplyGuard::default();
+         mf.reset_book();
+         while let Some(frame_records) = read_frame_soft(&mut reader, path)? {
+             for rec in &frame_records {
+@@ -82,9 +82,8 @@ pub fn write_minute_flow(
+                     &mut tps,
+                 );
+                 for up in &ups {
+-                    if book.apply(up).is_err() {
+-                        file_ok = false;
+-                        break;
++                    if !guard.apply(&mut book, up, path) {
++                        continue;
+                     }
+                     mf.observe_frame(
+                         up.cts_ms,
+@@ -94,33 +93,29 @@ pub fn write_minute_flow(
+                         &mut rows,
+                     );
+                 }
+-                if !file_ok {
+-                    break;
++                if guard.is_broken() {
++                    continue;
+                 }
+                 if let Some(h) = trade_hit_from_record(rec) {
+                     mf.observe_trade(h, &mut rows);
+                 }
+             }
+-            if !file_ok {
+-                break;
+-            }
+         }
+-        if file_ok {
+-            let mut tail = Vec::new();
+-            replayer.finish(&mut tail);
+-            for up in &tail {
+-                if book.apply(up).is_err() {
+-                    break;
+-                }
+-                mf.observe_frame(
+-                    up.cts_ms,
+-                    book.levels(Side::Bid),
+-                    book.levels(Side::Ask),
+-                    up.is_snapshot,
+-                    &mut rows,
+-                );
++        let mut tail = Vec::new();
++        replayer.finish(&mut tail);
++        for up in &tail {
++            if !guard.apply(&mut book, up, path) {
++                continue;
+             }
++            mf.observe_frame(
++                up.cts_ms,
++                book.levels(Side::Bid),
++                book.levels(Side::Ask),
++                up.is_snapshot,
++                &mut rows,
++            );
+         }
++        guard.report(path);
+     }
+     mf.finish(&mut rows);
+     if mf.pending_overflow > 0 {
+diff --git a/tools/compute/tk366w-gen.py b/tools/compute/tk366w-gen.py
+index a4337848..68a7ed6c 100644
+--- a/tools/compute/tk366w-gen.py
++++ b/tools/compute/tk366w-gen.py
+@@ -1,9 +1,10 @@
+ #!/usr/bin/env python3
+ """TK-366 (G-016), неделя 15–21.10.2026: списки «SYM DAY» для tk366-dl.sh.  tk366w-gen.py <fut-coins.csv> <spot-coins.csv> <instruments.csv> <D>
+ Все монеты снимка (оборот > $50k); фьюч — без суток до листинга (launch_day); спот — отсев по 404 при закачке."""
+-import csv, sys, datetime as dt
++import csv, os, sys, datetime as dt
+ fc, sc, ins, D = sys.argv[1:5]
+ days = [(dt.date(2026, 10, 15) + dt.timedelta(i)).isoformat() for i in range(7)]
++if os.environ.get("TK_DAYS"): days = os.environ["TK_DAYS"].split(",")   # TK-396: докачка других суток (умолч. — неделя 15–21.10)
+ launch = {r["symbol"]: r["launch_day"] for r in csv.DictReader(open(ins, encoding="utf-8"))}
+ for mk, p in (("fut", fc), ("spot", sc)):
+     n = 0
+diff --git a/tools/compute/tk387-sqd-sol.py b/tools/compute/tk387-sqd-sol.py
+index 024cfada..ee0c2f0a 100644
+--- a/tools/compute/tk387-sqd-sol.py
++++ b/tools/compute/tk387-sqd-sol.py
+@@ -63,6 +63,17 @@ def slot_at(t, n=457030000, x=1792022400):
+     return n
+ 
+ 
++def segbad(f):
++    """'' если файл цел: нет NUL, у всех строк 11 полей; иначе причина"""
++    with open(f, 'rb') as fh:
++        for i, line in enumerate(fh):
++            if b'\x00' in line:
++                return f'NUL в строке {i}'
++            if line.count(b',') != 10:
++                return f'строка {i}: {line.count(b",") + 1} полей'
++    return ''
++
++
+ def seg(a):
+     name, frm, to = a
+     f = f'{out}/seg/{name}.csv'
+@@ -120,6 +131,11 @@ def seg(a):
+             break
+         cur = last + 1
+     fh.close()
++    bad = segbad(f + '.tmp')  # TK-401: NUL / неполные строки (гонка .tmp, сбой диска) — без .done, сегмент перекачает следующий проход
++    if bad:
++        os.remove(f + '.tmp')
++        open(f'{out}/status.txt', 'a').write(f"{time.strftime('%F %T')} {name} BAD {bad}\n")
++        return name, -1, time.time() - t0
+     os.replace(f + '.tmp', f)
+     open(f + '.done', 'w').write(f'{rows}\n')
+     open(f'{out}/status.txt', 'a').write(f"{time.strftime('%F %T')} {name} rows={rows} {time.time()-t0:.0f}s\n")
+@@ -152,5 +168,5 @@ if __name__ == '__main__':
+     with Pool(NPROC) as p:
+         for name, rows, dt in p.imap_unordered(seg, jobs):
+             print(name, rows, f'{dt:.0f}s', flush=True)
+-    if not PROBE:
++    if not PROBE and all(os.path.exists(f'{out}/seg/{j[0]}.csv.done') for j in jobs):
+         open(f'{out}/sqd.rc', 'w').write('0\n')
+diff --git a/tools/compute/tk402-stage1.sh b/tools/compute/tk402-stage1.sh
+index 26d27d5f..727f025f 100644
+--- a/tools/compute/tk402-stage1.sh
++++ b/tools/compute/tk402-stage1.sh
+@@ -1,22 +1,17 @@
+ #!/usr/bin/env bash
+ # TK-402 шаг 1: Bybit по ВСЕМ общим с Gate фьючам (universe.csv TK-379, on_bybit=1; множитель 1000/1000000/10000 в имени снимается): монето-сутки 15–22.10,
+-#   (а) событийный BBO (`lob seconds --bbo-events`, tk399-prod.sh one -> /data/tk0399/bbo, готовые пропускаются);
+-#   (б) посекундные середины со флагом gap (`lob seconds`, как TK-369/359, но --allow-unverified: маркер verify=fail у большинства монет, стакан цел) -> /data/tk0402/mid/<cls>/<сутки>/.
++#   событийный BBO (`lob seconds --bbo-events`, tk399-prod.sh one -> /data/tk0399/bbo, готовые пропускаются);
++#   Посекундных агрегатов НЕТ (владелец 25.10: «удаляй нахуй секундные агрегаты») — только событийный BBO.
+ #   alsched submit --cls prod --kind work --name tk402-stage1 --cores 15 --mem 24 --est <с> --max-runtime <с> --vypiska <файл> -- bash /data/tk0402/tk402-stage1.sh
+ # Выход: /data/tk0402/stage1.tsv (охват: coin,bybit_fut,bybit_spot,reason), метка /data/tk0402/stage1.done (или stage1.failed). Единица: tk402-stage1.sh one <корень> <SYM> <сутки> <fut|spot>
+ set -uo pipefail
+-W=/data/tk0402; BIN=${BIN:-/data/tk0399/new/alpha-new}; MID=$W/mid
++W=/data/tk0402; BIN=${BIN:-/data/tk0399/new/alpha-new}
+ if [ "${1:-}" = one ]; then
+   root=$2 sym=$3 day=$4 cls=$5
+   OUT=/data/tk0399/bbo BIN=$BIN bash /data/tk0399/tk399-prod.sh one "$root" "$sym" "$day" "$cls"
+-  dst=$MID/$cls/$day; gz=$dst/$sym-$day.csv.gz; [ -s "$gz" ] && exit 0
+-  mkdir -p "$dst"; tmp=$(mktemp -d "$MID/.tmp-XXXXXX")
+-  if nice -n 5 "$BIN" lob seconds --allow-unverified --root "$root" --symbol "$sym" --day "$day" --out "$tmp" > "$tmp/log" 2>&1 \
+-     && [ -s "$tmp/$sym-$day.csv" ] && gzip -1 -c "$tmp/$sym-$day.csv" > "$gz.tmp" && mv "$gz.tmp" "$gz"; then rm -rf "$tmp"
+-  else echo "$cls $day $sym $(tail -n1 "$tmp/log" | tr '\t\n' '  ' | cut -c1-200)" >> "$MID/skip.log"; rm -rf "$tmp" "$gz.tmp"; fi
+   exit 0
+ fi
+-mkdir -p "$MID"; rm -f $W/stage1.done $W/stage1.failed
++mkdir -p "$W"; rm -f $W/stage1.done $W/stage1.failed
+ RF=/srv/alpha-sda/tk366w/bin-fut/e-2026-10; RS=/srv/alpha-sda/tk366w/bin-spot/e-2026-10
+ python3 - "$RF" "$RS" > $W/stage1-units.txt <<'PY'
+ import csv, os, sys
+@@ -38,5 +33,5 @@ PY
+ total=$(wc -l < $W/stage1-units.txt); echo "единиц $total старт $(date +%T)" > $W/stage1.log
+ export BIN
+ xargs -a $W/stage1-units.txt -P "${P:-15}" -L 1 bash $W/tk402-stage1.sh one; rc=$?
+-echo "xargs rc=$rc конец $(date +%T); mid-рядов $(find $MID -name '*.csv.gz' | wc -l); skip $(wc -l < $MID/skip.log 2>/dev/null || echo 0)" >> $W/stage1.log
++echo "xargs rc=$rc конец $(date +%T); bbo-файлов $(find /data/tk0399/bbo -name '*.gz' -o -name '*.bin' | wc -l)" >> $W/stage1.log
+ if [ "$rc" = 0 ]; then echo '{"done":1}' > $W/stage1.done; else touch $W/stage1.failed; fi
+diff --git a/tools/compute/tk410-map3.py b/tools/compute/tk410-map3.py
+index dfbb8146..af8c7b33 100644
+--- a/tools/compute/tk410-map3.py
++++ b/tools/compute/tk410-map3.py
+@@ -12,6 +12,7 @@ coin, rawf, outp = sys.argv[1:4]
+ D0 = int(os.environ.get('D0S', 1792022400)) * 1000; ND = int(os.environ.get('ND', 8)); DEND = D0 + ND * 86400000; H = 3600000; DAY = 86400000
+ GEV = os.environ.get('GEV', '/data/tk0393/tk401/gev2all')
+ VIS, L, A_IN, NET = 1000, 250, 5000, 2.6
++SYNTH = bool(os.environ.get('SYNTH'))  # проверка теста: случайные метки s -> perm_p ~ U(0,1)
+ WS = [1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 43200, 86400]
+ HFIX = [1, 10, 60, 300, 3600]
+ raw = np.genfromtxt(rawf, delimiter=',', names=True, dtype=None, encoding=None)
+@@ -93,16 +94,22 @@ for W in WS:
+                                  share=float(np.nanmean(exc_x) / ax[m].mean()), pos_days=int(sum(1 for d in dd if np.nanmean(exc_x[ev_days == d]) > 0))))
+                 rows[-1].update(exc3=np.nan, ci3_lo=np.nan, ci3_hi=np.nan, perm_p=np.nan)
+                 if m.sum() >= 30 and len(dd) >= 3:
+-                    dev = mm[m] * s[m] - np.array([dday[d] for d in ev_days]); sm = s[m]; e3 = sm * dev; ok3 = np.isfinite(e3)
+-                    if ok3.sum() >= 30:
+-                        obs = float(e3[ok3].mean()); bs3 = []
++                    # v3 (разбор Судьи 17:45): нуль — направление не несёт информации сверх дрейфа дня. Пул = события бина (up+down вместе, страта 0, ok);
++                    # метки s перемешиваются внутри монета-дня пула, статистика — среднее s_perm*dev по позициям исходной клетки.
++                    mp = (ax >= edges[b]) & (ax < edges[b + 1]) & (strat == 0) & ok
++                    ip = np.nonzero(mp)[0]; dp = day[ip]; sp0 = s[ip]; devp = mm[ip] * s[ip] - np.array([dday[d] for d in dp])
++                    if SYNTH: sp0 = rng.choice([-1.0, 1.0], len(ip))
++                    cellp = np.isin(ip, np.nonzero(m)[0]) if not SYNTH else (rng.random(len(ip)) < m.sum() / len(ip))
++                    e3p = sp0 * devp; okp = np.isfinite(devp); sel = cellp & okp
++                    if sel.sum() >= 30:
++                        obs = float(e3p[sel].mean()); bs3 = []
+                         for _ in range(500):
+-                            pk = rng.choice(dd, len(dd)); idx = np.concatenate([np.nonzero((ev_days == d) & ok3)[0] for d in pk]); bs3.append(e3[idx].mean() if len(idx) else np.nan)
+-                        grp = [np.nonzero((ev_days == d) & ok3)[0] for d in dd]; ge = 0
++                            pk = rng.choice(dd, len(dd)); idx = np.concatenate([np.nonzero((dp == d) & sel)[0] for d in pk]); bs3.append(e3p[idx].mean() if len(idx) else np.nan)
++                        grp = [np.nonzero((dp == d) & okp)[0] for d in sorted(set(dp.tolist()))]; ge = 0
+                         for _ in range(200):
+-                            sp = sm.copy()
+-                            for gi in grp: sp[gi] = rng.permutation(sm[gi])
+-                            ge += (sp[ok3] * dev[ok3]).mean() >= obs
++                            spm = sp0.copy()
++                            for gi in grp: spm[gi] = rng.permutation(sp0[gi])
++                            ge += (spm[sel] * devp[sel]).mean() >= obs
+                         rows[-1].update(exc3=obs, ci3_lo=float(np.nanpercentile(bs3, 2.5)), ci3_hi=float(np.nanpercentile(bs3, 97.5)), perm_p=(1 + ge) / 201)
+     bi = np.nonzero(ax >= 500)[0]
+     if len(bi):  # >= 5 %: путь Gate до/после (по событиям, A=5 с), время до 50/90 % догона (первое прохождение на сетке смещений)
+diff --git a/tools/compute/tk410-sum3.py b/tools/compute/tk410-sum3.py
+index a2ff53ce..55951fd4 100644
+--- a/tools/compute/tk410-sum3.py
++++ b/tools/compute/tk410-sum3.py
+@@ -1,20 +1,35 @@
+ #!/usr/bin/env python3
+-"""TK-410 rest3: сводка контроля-2 (curve3) и В2/В3/В5 (conv) по out6/out-sui. Вход: каталоги; выход: sum3-ctrl2.csv, sum3-b235.csv (cwd)."""
+-import sys, glob, os, numpy as np, pandas as pd
+-dirs = sys.argv[1:]; ctrl = []; b = []
++"""TK-410 rest3/4: сводка контроля-2 (curve3) и В2/В3/В5 (conv) по каталогам. Без pandas (в npvenv его нет). Вход: каталоги; выход: sum3-ctrl2.csv, sum3-b235.csv (cwd)."""
++import sys, glob, os, csv, numpy as np
++def rd(f):
++    with open(f, newline='') as h: return list(csv.DictReader(h))
++def fl(x):
++    try: return float(x)
++    except (TypeError, ValueError): return float('nan')
++dirs = sys.argv[1:]; ctrl = []; b = []; seen = set()
+ for d in dirs:
+     for f in sorted(glob.glob(f'{d}/*-curve3.csv')):
+-        coin = os.path.basename(f).split('-')[0]; r = pd.read_csv(f)
+-        q = r[(r.n >= 30) & (r.n_days >= 3)]; q3 = q[q.exc3.notna()]
+-        a = q3[q3.ci_lo > 2.6]; nc = len(q3)
+-        p = a[(a.ci3_lo > 2.6) & (a.perm_p * max(nc, 1) < 0.05)]
+-        ctrl.append(dict(coin=coin, rows=len(r), cells=len(q3), ci_lo_gt26=len(a), pass_ctrl2=int((a.ci3_lo > 2.6).sum()), pass_ctrl2_perm_bonf=len(p),
+-                         max_exc3=float(q3.exc3.max()) if nc else np.nan, max_ci3_lo=float(q3.ci3_lo.max()) if nc else np.nan, min_perm_p=float(q3.perm_p.min()) if nc else np.nan))
++        coin = os.path.basename(f).split('-')[0]
++        if coin in seen: continue
++        seen.add(coin); r = rd(f)
++        q3 = [x for x in r if fl(x['n']) >= 30 and fl(x['n_days']) >= 3 and not np.isnan(fl(x['exc3']))]; nc = len(q3)
++        a = [x for x in q3 if fl(x['ci_lo']) > 2.6]
++        p = [x for x in a if fl(x['ci3_lo']) > 2.6 and fl(x['perm_p']) * max(nc, 1) < 0.05]
++        ctrl.append(dict(coin=coin, rows=len(r), cells=nc, ci_lo_gt26=len(a), pass_ctrl2=sum(fl(x['ci3_lo']) > 2.6 for x in a), pass_ctrl2_perm_bonf=len(p),
++                         max_exc3=max(fl(x['exc3']) for x in q3) if nc else float('nan'), max_ci3_lo=max(fl(x['ci3_lo']) for x in q3) if nc else float('nan'),
++                         min_perm_p=min(fl(x['perm_p']) for x in q3) if nc else float('nan')))
++seenb = set()
++for d in dirs:
+     for f in sorted(glob.glob(f'{d}/*-conv.csv')):
+-        coin = os.path.basename(f).split('-')[0]; c = pd.read_csv(f)
+-        if not len(c): continue
+-        t = c.tconv_s.dropna()
+-        b.append(dict(coin=coin, episodes=len(c), conv=len(t), conv_share=len(t) / len(c), t_p50=t.quantile(.5) if len(t) else np.nan, t_p90=t.quantile(.9) if len(t) else np.nan,
+-                      share_gate_med=c.share_gate.median(), gate_first=(c['first'] == 'gate').mean(), pool_first=(c['first'] == 'pool').mean(), none=(c['first'] == 'none').mean()))
+-pd.DataFrame(ctrl).to_csv('sum3-ctrl2.csv', index=False); pd.DataFrame(b).to_csv('sum3-b235.csv', index=False)
+-print(pd.DataFrame(ctrl).to_string()); print(pd.DataFrame(b).round(3).to_string())
++        coin = os.path.basename(f).split('-')[0]
++        if coin in seenb: continue
++        seenb.add(coin); c = rd(f)
++        if not c: continue
++        t = np.array([fl(x['tconv_s']) for x in c]); t = t[~np.isnan(t)]; fs = [x['first'] for x in c]
++        b.append(dict(coin=coin, episodes=len(c), conv=len(t), conv_share=len(t) / len(c), t_p50=np.quantile(t, .5) if len(t) else float('nan'), t_p90=np.quantile(t, .9) if len(t) else float('nan'),
++                      share_gate_med=float(np.nanmedian([fl(x['share_gate']) for x in c])), gate_first=fs.count('gate') / len(c), pool_first=fs.count('pool') / len(c), none=fs.count('none') / len(c)))
++def wr(fn, rows):
++    with open(fn, 'w', newline='') as h:
++        if rows: w = csv.DictWriter(h, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
++    for x in rows: print({k: (round(v, 3) if isinstance(v, float) else v) for k, v in x.items()})
++wr('sum3-ctrl2.csv', ctrl); print(); wr('sum3-b235.csv', b)

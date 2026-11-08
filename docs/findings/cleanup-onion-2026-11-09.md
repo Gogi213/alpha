@@ -63,6 +63,35 @@ CLAUDE.md «(прежнее) СОСТОЯНИЕ» и абзацы про calc/De
 **Дальше:** локальные ветки (невлитые — тег + `-d`), грязное дерево основного каталога (ветка `tk479-statarb`, ~300 строк
 `git status`), список веток origin — CEO на согласие владельца.
 
+### Слой 3, шаг 2 (09.11 03:30–03:40)
+
+**Локальные ветки сняты (12):** `pr83`, `tk284`, `tk296`, `tk306`, `tk316`, `tk341b`, `tk347`, `tk359`, `tk363-bank-d20`,
+`tk482-e010-red`, `tk484-pipeline`, `tk487-convert` — тикеты stopped/done, ни одна не предок `tk493-xdl9`/`tk500-p40core`;
+перед `-D` голова = тег (`archive/<имя>`; для `tk347` старый тег на другом коммите — новый `archive/tk347-branch`).
+Worktree `TK-484` (чистый, TK-484 done) и `../alpha-tk482-prev2` (detached 70599685, однострочная правка `read_funding`
+— гейт E-010 снят В-111; в живых ветках код переписан в `parse_funding`) сняты; правка — `docs/archive/cleanup-2026-11-09/alpha-tk482-prev2-70599685.patch`, голова — `archive/wt-alpha-tk482-prev2`.
+
+**Оставлены:** `master`, `tk479-statarb` (основная копия, сюда пишет диспетчер), `tk493-xdl9`, `tk500-p40core` (П-40),
+`tk486-speed` (TK-486 у CEO; ветка — предок обеих веток П-40), `tk508-onion`.
+
+**Ветки origin (80):** список `docs/archive/cleanup-2026-11-09/origin-branches-2026-11-09.txt` (имя · влита в origin/master ·
+тег). 48 влиты (43 без тега — коммиты есть в master), 32 не влиты (5 с тегом). Удаление на origin — CEO с согласием
+владельца; не влитые без тега перед удалением — `git fetch` + тег `archive/<имя>`.
+
+**Грязное основное дерево (`tk479-statarb`):**
+- откатаны 11 файлов: `src/commands/lob/{mod,parts,replay,seconds,tests}.rs`, `touches/minute_flow.rs` (стены/посекундный
+  срез — закрыты В-56, «без посекундных»), `tools/compute/tk366w/tk387/tk402/tk410*` (закрытые тикеты); diff до отката —
+  `docs/archive/cleanup-2026-11-09/main-tree-src-tools-66dcefd2.patch` (627 строк);
+- 71 неотслеживаемый `tools/compute/tk2xx–tk4xx*` + `tk426-windows.csv` (пампы, В-108) упакованы в
+  `main-tree-untracked-tools.tgz` (72 файла); **удалить их хук не дал** (`git clean -f` в основной копии — только CEO);
+- оставлено: `tools/compute/statarb/calc.sh` (M, стат-арбитраж), `CLAUDE.md`, `EXPERIMENTS.md`, `JOURNAL.md` (пишет CEO),
+  `.claude/**` (живое состояние диспетчера: 119 неотслеживаемых тикетов, ошибки, цели), неотслеживаемые вердикты
+  `docs/research/reviews/tk38x–tk487*`, `docs/findings/{local-cleanup,statarb-xdl9-plan,tk481-merge}`, `P-33` — планка
+  Судьи, их закоммитить, а не удалять; `Python/` (166 МБ, Python 3.15) — чей, не выяснено, не трогал.
+
+**CEO:** (1) в основной копии `git clean -f -- tools/compute/tk* tk426-windows.csv` (архив выше); (2) закоммитить
+`.claude/tickets|errors|goals` и вердикты docs (или решить, что они живут вне git); (3) `Python/` — чей; (4) origin — список.
+
 ## П-40 не задет
 
 `git worktree list`: `TK-493 a89d2e80 [tk493-xdl9]`, `TK-500 [tk500-p40core]` на месте; статусы TK-495/496/501 waiting,
