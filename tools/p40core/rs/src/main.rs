@@ -14,12 +14,31 @@ const GAP_S: usize = 60;
 const W_MS: i64 = 60000;
 const T_LIFE_MS: i64 = 60000;
 
+/// Общее для проходов 2–3: ряды ног (A, B), книги/сделки/лоты ног, ряд d, задержка `L_ms`.
+struct Ctx<'a> {
+    leg: [&'a Leg; 2],
+    tu: &'a [i64],
+    ds: &'a [f64],
+    dirs: [&'a str; 2],
+    tr: [Vec<book::Tr>; 2],
+    lot: [f64; 2],
+    l_ms: i64,
+}
+
 struct Leg {
     t: Vec<i64>,
     b: Vec<f64>,
     a: Vec<f64>,
     crossed: u64,
     nonmono: u64,
+}
+
+impl Leg {
+    /// Лучшие (бид, аск) после всех событий со временем ≤ `t`.
+    fn bbo(&self, t: i64) -> Option<(f64, f64)> {
+        let k = self.t.partition_point(|&u| u <= t);
+        (k > 0).then(|| (self.b[k - 1], self.a[k - 1]))
+    }
 }
 
 fn leg_series(dir: &str) -> Leg {
@@ -144,16 +163,26 @@ struct Ep {
     t_end: i64,
 }
 
-fn episodes(tu: &[i64], x: &[f64], s0: i64, lev: &[f64], theta: f64) -> Vec<Ep> {
+/// Ряд d (bps) на моментах `tu`: x минус уровень на секунде момента; NaN — уровень не определён.
+fn d_series(tu: &[i64], x: &[f64], s0: i64, lev: &[f64]) -> Vec<f64> {
+    tu.iter()
+        .zip(x)
+        .map(|(&t, &xi)| {
+            let js = t / 1000 - s0;
+            let lv = if js >= 0 && (js as usize) < lev.len() { lev[js as usize] } else { f64::NAN };
+            1e4 * (xi - lv)
+        })
+        .collect()
+}
+
+fn episodes(tu: &[i64], ds: &[f64], theta: f64) -> Vec<Ep> {
     let mut out = vec![];
     let mut calm: Option<i64> = None;
     let mut prev: Option<f64> = None;
     let mut open: Option<Ep> = None;
     let th2 = theta / 2.0;
     for i in 0..tu.len() {
-        let js = tu[i] / 1000 - s0;
-        let lv = if js >= 0 && (js as usize) < lev.len() { lev[js as usize] } else { f64::NAN };
-        let di = 1e4 * (x[i] - lv);
+        let di = ds[i];
         if di != di {
             calm = None;
             prev = None;
@@ -209,9 +238,9 @@ fn cancel_at(e: &Ep, l_ms: i64) -> i64 {
 }
 
 /// Проход 2 (аргументы: trA trB lotA lotB): заявки входа обеих ног каждого эпизода; таблица `<out>.fills.csv`.
-fn fills_pass(out: &str, dirs: [&str; 2], args: &[String], l_ms: i64, la: &Leg, lb: &Leg, eps: &[Ep]) {
-    let (tra, trb) = (load_trades(&args[0]), load_trades(&args[1]));
-    let (lot_a, lot_b): (f64, f64) = (args[2].parse().unwrap(), args[3].parse().unwrap());
+fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
+    let (la, lb, l_ms, dirs) = (c.leg[0], c.leg[1], c.l_ms, c.dirs);
+    let (lot_a, lot_b) = (c.lot[0], c.lot[1]);
     // индексы заданий: ноги A и B; продаёт дорогая нога (dir=+1 — A), покупает дешёвая
     let mut ja: Vec<fills::Job> = vec![];
     let mut jb: Vec<fills::Job> = vec![];
@@ -239,8 +268,8 @@ fn fills_pass(out: &str, dirs: [&str; 2], args: &[String], l_ms: i64, la: &Leg, 
         }
         slot.push(s);
     }
-    fills::run(dirs[0], &tra, &mut ja);
-    fills::run(dirs[1], &trb, &mut jb);
+    fills::run(dirs[0], &c.tr[0], &mut ja);
+    fills::run(dirs[1], &c.tr[1], &mut jb);
     let mut o = String::from("theta,t0_ms,dir,t_th2_ms,tc_ms,sell_leg,front_sell,fill_sell_ms,imm_sell,front_buy,fill_buy_ms,imm_buy
 ");
     for (e, s) in eps.iter().zip(&slot) {
@@ -253,6 +282,100 @@ fn fills_pass(out: &str, dirs: [&str; 2], args: &[String], l_ms: i64, la: &Leg, 
 ", e.theta, e.t0, e.dir, rel(e.t_th2), cancel_at(e, l_ms) - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, is, fb, tb, ib);
     }
     std::fs::File::create(format!("{out}.fills.csv")).unwrap().write_all(o.as_bytes()).unwrap();
+    closing(out, c, eps, [ja, jb], &slot);
+}
+
+const NEVER: i64 = i64::MAX / 2;
+const MAKER_BPS: f64 = 1.26;
+const TAKER_BPS: f64 = 3.15;
+
+/// Что делаем с эпизодом после входа (§3.3): обе ноги — выход мейкером по сигналу, одна — страховка, ни одной — ничего.
+enum Plan {
+    Skip,
+    NoSignal,
+    /// выход: заявки на ногах (индексы в `x[нога]`), продажа-нога выкупается по `xs`, купленная продаётся по `xb`
+    Exit { js: usize, jb: usize, xs: f64, xb: f64 },
+    /// страховка: закрывается исполненная нога (`sell_done` — проданная), `t_c` — момент решения, `j` — индекс в `x[нога]`
+    Insure { sell_done: bool, t_c: i64, xp: f64, j: usize },
+}
+
+/// Проход 3: выход при обеих ногах (заявки на лучшей цене своей стороны при `dir·d ≤ d0/2`, без снятия) и страховка при одной
+/// (закрытие мейкером `T_life`, затем тейкер). Один эпизод — независимая симуляция. Лоты выхода — те же, что у входа (константы аргументов).
+/// Таблица `<out>.exits.csv`: theta,t0_ms,outcome,exit_ms,exit_kind,pnl_bps,fees_bps (pnl — в bps номинала ноги, комиссии мейкер 1,26 / тейкер 3,15 bps, §8).
+fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[Option<usize>; 2]]) {
+    let mut x: [Vec<fills::Job>; 2] = [vec![], vec![]];
+    let mut plans: Vec<Plan> = vec![];
+    for (e, s) in eps.iter().zip(slot) {
+        // продаёт дорогая нога: dir=+1 — A (0), иначе B (1)
+        let (si, bi) = if e.dir > 0 { (0, 1) } else { (1, 0) };
+        let sj = s[si].map(|k| &jobs[si][k]);
+        let bj = s[bi].map(|k| &jobs[bi][k]);
+        let (fs, fb) = (sj.map_or(-1, |j| j.fill), bj.map_or(-1, |j| j.fill));
+        if fs < 0 && fb < 0 {
+            plans.push(Plan::Skip);
+        } else if fs >= 0 && fb >= 0 {
+            let t_both = fs.max(fb);
+            let k0 = c.tu.partition_point(|&t| t <= t_both);
+            let hit = (k0..c.tu.len()).find(|&k| c.ds[k].is_finite() && e.dir as f64 * c.ds[k] <= 0.5 * e.d0);
+            let Some(k) = hit else {
+                plans.push(Plan::NoSignal);
+                continue;
+            };
+            let t_x = c.tu[k];
+            let xs = c.leg[si].bbo(t_x).unwrap().0;
+            let xb = c.leg[bi].bbo(t_x).unwrap().1;
+            x[si].push(fills::Job::new(true, t_x + c.l_ms, NEVER, xs, c.lot[si]));
+            x[bi].push(fills::Job::new(false, t_x + c.l_ms, NEVER, xb, c.lot[bi]));
+            plans.push(Plan::Exit { js: x[si].len() - 1, jb: x[bi].len() - 1, xs, xb });
+        } else {
+            let sell_done = fs >= 0;
+            let t_c = if sell_done { fs } else { fb }.max(cancel_at(e, c.l_ms));
+            let (li, buy) = if sell_done { (si, true) } else { (bi, false) };
+            let (b, a) = c.leg[li].bbo(t_c).unwrap();
+            let xp = if sell_done { b } else { a };
+            x[li].push(fills::Job::new(buy, t_c + c.l_ms, t_c + T_LIFE_MS + c.l_ms, xp, c.lot[li]));
+            plans.push(Plan::Insure { sell_done, t_c, xp, j: x[li].len() - 1 });
+        }
+    }
+    fills::run(c.dirs[0], &c.tr[0], &mut x[0]);
+    fills::run(c.dirs[1], &c.tr[1], &mut x[1]);
+    let mut o = String::from("theta,t0_ms,outcome,exit_ms,exit_kind,pnl_bps,fees_bps\n");
+    for ((e, s), plan) in eps.iter().zip(slot).zip(&plans) {
+        let (si, bi) = if e.dir > 0 { (0, 1) } else { (1, 0) };
+        let sj = s[si].map(|k| &jobs[si][k]);
+        let bj = s[bi].map(|k| &jobs[bi][k]);
+        let (ps, pb) = (sj.map_or(f64::NAN, |j| j.price), bj.map_or(f64::NAN, |j| j.price));
+        let (outcome, exit_t, kind, pnl, fees) = match *plan {
+            Plan::Skip => ("none", -1, "", f64::NAN, f64::NAN),
+            Plan::NoSignal => ("both", -1, "no_exit_signal", f64::NAN, f64::NAN),
+            Plan::Exit { js, jb, xs, xb } => {
+                let (rs, rb) = (x[si][js].fill, x[bi][jb].fill);
+                if rs >= 0 && rb >= 0 {
+                    let t = rs.max(rb);
+                    let kind = if e.t_end > 0 && t > e.t_end { "maker_after_mid" } else { "maker" };
+                    let pnl = ((ps - xs) / ps + (xb - pb) / pb) * 1e4;
+                    ("both", t, kind, pnl - 4.0 * MAKER_BPS, 4.0 * MAKER_BPS)
+                } else {
+                    ("both", -1, "exit_unfilled_censored", f64::NAN, f64::NAN)
+                }
+            }
+            Plan::Insure { sell_done, t_c, xp, j } => {
+                let li = if sell_done { si } else { bi };
+                let r = x[li][j].fill;
+                let (t, kind, fee, xp) = if r >= 0 {
+                    (r, "insurance_maker", 2.0 * MAKER_BPS, xp)
+                } else {
+                    let t_t = t_c + c.l_ms + T_LIFE_MS + c.l_ms;
+                    let (b2, a2) = c.leg[li].bbo(t_t).unwrap();
+                    (t_t, "insurance_taker", MAKER_BPS + TAKER_BPS, if sell_done { a2 } else { b2 })
+                };
+                let pnl = if sell_done { (ps - xp) / ps } else { (xp - pb) / pb } * 1e4;
+                ("one", t, kind, pnl - fee, fee)
+            }
+        };
+        o += &format!("{:?},{},{},{},{},{},{}\n", e.theta, e.t0, outcome, exit_t, kind, pnl, fees);
+    }
+    std::fs::File::create(format!("{out}.exits.csv")).unwrap().write_all(o.as_bytes()).unwrap();
 }
 
 fn main() {
@@ -267,10 +390,11 @@ fn main() {
     let (t0, t1) = (tu[0] / 1000, tu[tu.len() - 1] / 1000);
     let lev = level_grid(&tu, &x, t0, t1);
     eprintln!("уровень: определён на {} из {} с {:.1}s", lev.iter().filter(|v| v.is_finite()).count(), lev.len(), t.elapsed().as_secs_f64());
+    let ds = d_series(&tu, &x, t0, &lev);
     let mut o = String::from("theta,t0_ms,dir,d0_bps,peak_bps,t_peak_ms,mae_mid_bps,t_half_ms,t_quarter_ms,t_conv_ms,censored\n");
     let mut all: Vec<Ep> = vec![];
     for th in THETAS {
-        for e in episodes(&tu, &x, t0, &lev, th) {
+        for e in episodes(&tu, &ds, th) {
             let r = |v: i64| if v >= 0 { v - e.t0 } else { -1 };
             o += &format!(
                 "{:?},{},{},{:.4},{:.4},{},{:.4},{},{},{},{}\n",
@@ -281,8 +405,16 @@ fn main() {
     }
     std::fs::File::create(&a[1]).unwrap().write_all(o.as_bytes()).unwrap();
     if a.len() >= 8 {
-        let l_ms: i64 = a.get(8).map_or(500, |v| v.parse().unwrap());
-        fills_pass(&a[1], [&a[2], &a[3]], &a[4..8], l_ms, &la, &lb, &all);
+        let c = Ctx {
+            leg: [&la, &lb],
+            tu: &tu,
+            ds: &ds,
+            dirs: [&a[2], &a[3]],
+            tr: [load_trades(&a[4]), load_trades(&a[5])],
+            lot: [a[6].parse().unwrap(), a[7].parse().unwrap()],
+            l_ms: a.get(8).map_or(500, |v| v.parse().unwrap()),
+        };
+        fills_pass(&a[1], &c, &all);
     }
     eprintln!("готово {:.2}s", t.elapsed().as_secs_f64());
 }
