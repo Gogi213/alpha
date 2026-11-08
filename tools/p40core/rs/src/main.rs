@@ -28,6 +28,29 @@ struct Ctx<'a> {
     l_ms: i64,
     lev: &'a [f64],
     s0: i64,
+    valid: &'a Valid,
+}
+
+/// Усечение измерения (П-40 §2.2): конец данных и начала негодных интервалов книги (дыры G0). Выключено (конец = ∞, дыр нет), пока не задан `P40_TRUNC`.
+struct Valid {
+    on: bool,
+    end: i64,
+    /// негодные интервалы [начало, конец), мс, по возрастанию
+    holes: Vec<(i64, i64)>,
+}
+
+impl Valid {
+    /// Конец годного интервала, содержащего `t`: (момент, причина: 1 — конец данных, 2 — дыра книги).
+    fn end_after(&self, t: i64) -> (i64, u8) {
+        match self.holes.iter().find(|h| h.0 > t) {
+            Some(h) if h.0 < self.end => (h.0, 2),
+            _ => (self.end, 1),
+        }
+    }
+    /// Эпизоды создаются только в годном времени: до конца данных и вне негодных интервалов.
+    fn usable(&self, t: i64) -> bool {
+        !(self.on && t >= self.end) && !self.holes.iter().any(|h| h.0 <= t && t < h.1)
+    }
 }
 
 struct Leg {
@@ -173,6 +196,48 @@ struct Ep {
     t_mpu: i64,
     best: f64,
     pnl_end: f64,
+    /// контроль K2: случайный вход, заявки входа не снимаются по θ/2 (Р-8) — `t_th2` не заполняется
+    random: bool,
+}
+
+impl Ep {
+    fn new(theta: f64, t: i64, di: f64, (ea, eb): (f64, f64), random: bool) -> Ep {
+        let ad = di.abs();
+        Ep { theta, t0: t, dir: if di > 0.0 { 1 } else { -1 }, d0: ad, peak: ad, t_peak: t, t_half: -1, t_th2: -1, t_q: -1, t_end: -1, ea, eb, mpu: 0.0, t_mpu: t, best: 0.0, pnl_end: f64::NAN, random }
+    }
+
+    /// Один момент `t` открытого эпизода с лучшими ценами ног (ba, aa — нога A; bb, ab — нога B); true — сошёлся (`dir·d ≤ 0`).
+    fn step(&mut self, t: i64, di: f64, (ba, aa, bb, ab): (f64, f64, f64, f64)) -> bool {
+        let e = self;
+        let pnl = 1e4 * if e.dir > 0 { (e.ea - aa) / e.ea + (bb - e.eb) / e.eb } else { (e.ea - ab) / e.ea + (ba - e.eb) / e.eb };
+        if pnl < e.mpu {
+            e.mpu = pnl;
+            e.t_mpu = t;
+        }
+        if pnl > e.best {
+            e.best = pnl;
+        }
+        let s = e.dir as f64 * di;
+        if s > e.peak {
+            e.peak = s;
+            e.t_peak = t;
+        }
+        if !e.random && e.t_th2 < 0 && s <= e.theta / 2.0 {
+            e.t_th2 = t;
+        }
+        if e.t_half < 0 && s <= 0.5 * e.d0 {
+            e.t_half = t;
+        }
+        if e.t_q < 0 && s <= 0.25 * e.d0 {
+            e.t_q = t;
+        }
+        if s <= 0.0 {
+            e.t_end = t;
+            e.pnl_end = pnl;
+            return true;
+        }
+        false
+    }
 }
 
 /// Ряд d (bps) на моментах `tu`: x минус уровень на секунде момента; NaN — уровень не определён.
@@ -214,37 +279,13 @@ fn episodes(tu: &[i64], ds: &[f64], theta: f64, la: &Leg, lb: &Leg) -> Vec<Ep> {
         }
         let (ba, aa, bb, ab) = (la.b[ka - 1], la.a[ka - 1], lb.b[kb - 1], lb.a[kb - 1]);
         if let Some(e) = open.as_mut() {
-            let pnl = 1e4 * if e.dir > 0 { (e.ea - aa) / e.ea + (bb - e.eb) / e.eb } else { (e.ea - ab) / e.ea + (ba - e.eb) / e.eb };
-            if pnl < e.mpu {
-                e.mpu = pnl;
-                e.t_mpu = t;
-            }
-            if pnl > e.best {
-                e.best = pnl;
-            }
-            let s = e.dir as f64 * di;
-            if s > e.peak {
-                e.peak = s;
-                e.t_peak = t;
-            }
-            if e.t_th2 < 0 && s <= th2 {
-                e.t_th2 = t;
-            }
-            if e.t_half < 0 && s <= 0.5 * e.d0 {
-                e.t_half = t;
-            }
-            if e.t_q < 0 && s <= 0.25 * e.d0 {
-                e.t_q = t;
-            }
-            if s <= 0.0 {
-                e.t_end = t;
-                e.pnl_end = pnl;
+            if e.step(t, di, (ba, aa, bb, ab)) {
                 out.push(open.take().unwrap());
             }
         } else if let (Some(pa), Some(c)) = (prev, calm) {
             if pa < th2 && ad >= theta && t - c >= W_MS {
                 let (ea, eb) = if di > 0.0 { (aa, bb) } else { (ab, ba) };
-                open = Some(Ep { theta, t0: t, dir: if di > 0.0 { 1 } else { -1 }, d0: ad, peak: ad, t_peak: t, t_half: -1, t_th2: -1, t_q: -1, t_end: -1, ea, eb, mpu: 0.0, t_mpu: t, best: 0.0, pnl_end: f64::NAN });
+                open = Some(Ep::new(theta, t, di, (ea, eb), false));
             }
         }
         if open.is_none() {
@@ -259,6 +300,66 @@ fn episodes(tu: &[i64], ds: &[f64], theta: f64, la: &Leg, lb: &Leg) -> Vec<Ep> {
         prev = Some(ad);
     }
     if let Some(e) = open {
+        out.push(e);
+    }
+    out
+}
+
+/// splitmix64 (фиксированный seed контроля K2; зависимостей нет).
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+}
+
+/// Контроль K2 (П-40 §4.3): по одному случайному моменту на настоящий эпизод `theta` — равномерно по времени с определённым `d`, не ближе `min_gap_ms` к настоящему `t0` (`real` отсортирован),
+/// направление по знаку `d`; эпизод ведётся как настоящий, но заявки входа не снимаются по θ/2 (Р-8). Каждый момент — независимая симуляция (эпизоды могут перекрываться).
+fn k2_episodes(tu: &[i64], ds: &[f64], theta: f64, la: &Leg, lb: &Leg, real: &[i64], valid: &Valid, min_gap_ms: i64, seed: u64) -> Vec<Ep> {
+    let ok = |k: usize| ds[k].is_finite() && ds[k] != 0.0;
+    let (Some(k_lo), Some(k_hi)) = ((0..tu.len()).find(|&k| ok(k)), (0..tu.len()).rev().find(|&k| ok(k))) else { return vec![] };
+    let (t_lo, t_hi) = (tu[k_lo], tu[k_hi]);
+    let mut rng = Rng(seed);
+    let mut picked: Vec<usize> = vec![];
+    let mut tries = 0usize;
+    while picked.len() < real.len() && tries < 10_000 * (real.len() + 1) {
+        tries += 1;
+        let t = t_lo + (rng.next() % ((t_hi - t_lo + 1) as u64)) as i64;
+        let k = tu.partition_point(|&u| u <= t) - 1;
+        let p = real.partition_point(|&r| r < tu[k]);
+        let near = (p < real.len() && real[p] - tu[k] < min_gap_ms) || (p > 0 && tu[k] - real[p - 1] < min_gap_ms);
+        if ok(k) && !near && !picked.contains(&k) && valid.usable(tu[k]) {
+            picked.push(k);
+        }
+    }
+    if picked.len() < real.len() {
+        eprintln!("K2 θ={theta}: найдено {} из {} моментов", picked.len(), real.len());
+    }
+    picked.sort_unstable();
+    let bbo = |t: i64| {
+        let (ba, aa) = la.bbo(t)?;
+        let (bb, ab) = lb.bbo(t)?;
+        Some((ba, aa, bb, ab))
+    };
+    let mut out = vec![];
+    for k0 in picked {
+        let (t, di) = (tu[k0], ds[k0]);
+        let Some((ba, aa, bb, ab)) = bbo(t) else { continue };
+        let mut e = Ep::new(theta, t, di, if di > 0.0 { (aa, bb) } else { (ab, ba) }, true);
+        for k in k0 + 1..tu.len() {
+            if ds[k].is_finite() {
+                if let Some(q) = bbo(tu[k]) {
+                    if e.step(tu[k], ds[k], q) {
+                        break;
+                    }
+                }
+            }
+        }
         out.push(e);
     }
     out
@@ -348,7 +449,8 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
         } else if fs >= 0 && fb >= 0 {
             let t_both = fs.max(fb);
             let k0 = c.tu.partition_point(|&t| t <= t_both);
-            let hit = (k0..c.tu.len()).find(|&k| c.ds[k].is_finite() && e.dir as f64 * c.ds[k] <= 0.5 * e.d0);
+            let vend = c.valid.end_after(e.t0).0;
+            let hit = (k0..c.tu.len()).take_while(|&k| c.tu[k] < vend).find(|&k| c.ds[k].is_finite() && e.dir as f64 * c.ds[k] <= 0.5 * e.d0);
             let Some(k) = hit else {
                 plans.push(Plan::NoSignal);
                 continue;
@@ -371,48 +473,103 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
     }
     fills::run(c.dirs[0], &c.tr[0], &mut x[0]);
     fills::run(c.dirs[1], &c.tr[1], &mut x[1]);
-    let mut o = String::from("theta,t0_ms,outcome,exit_ms,exit_kind,pnl_bps,fees_bps\n");
+    let mut o = String::from("theta,t0_ms,outcome,exit_ms,exit_kind,pnl_bps,fees_bps");
+    o += if c.valid.on { ",trunc\n" } else { "\n" };
     for ((e, s), plan) in eps.iter().zip(slot).zip(&plans) {
         let (si, bi) = if e.dir > 0 { (0, 1) } else { (1, 0) };
         let sj = s[si].map(|k| &jobs[si][k]);
         let bj = s[bi].map(|k| &jobs[bi][k]);
         let (ps, pb) = (sj.map_or(f64::NAN, |j| j.price), bj.map_or(f64::NAN, |j| j.price));
-        let (outcome, exit_t, kind, pnl, fees) = match *plan {
-            Plan::Skip => ("none", -1, "", f64::NAN, f64::NAN),
-            Plan::NoSignal => ("both", -1, "no_exit_signal", f64::NAN, f64::NAN),
+        // усечение §2.2: годный интервал книги, содержащий старт эпизода; закрытие тейкером по исполнимой стороне последней годной книги
+        let t_fill = sj.map_or(-1, |j| j.fill).max(bj.map_or(-1, |j| j.fill));
+        let (vend, why) = if c.valid.on && t_fill >= 0 { c.valid.end_after(e.t0) } else { (i64::MAX, 0) };
+        let trunc_close = |fee: f64| {
+            let a_s = c.leg[si].bbo(vend - 1).unwrap().1;
+            let b_b = c.leg[bi].bbo(vend - 1).unwrap().0;
+            ("both", vend, "trunc_taker", ((ps - a_s) / ps + (b_b - pb) / pb) * 1e4 - fee, fee, why)
+        };
+        let (outcome, exit_t, kind, pnl, fees, tr) = match *plan {
+            Plan::Skip => ("none", -1, "", f64::NAN, f64::NAN, 0),
+            Plan::NoSignal if why > 0 => trunc_close(2.0 * MAKER_BPS + 2.0 * TAKER_BPS),
+            Plan::NoSignal => ("both", -1, "no_exit_signal", f64::NAN, f64::NAN, 0),
             Plan::Exit { js, jb, xs, xb } => {
                 let (rs, rb) = (x[si][js].fill, x[bi][jb].fill);
-                if rs >= 0 && rb >= 0 {
+                if rs >= 0 && rb >= 0 && rs.max(rb) < vend {
                     let t = rs.max(rb);
                     let kind = if e.t_end > 0 && t > e.t_end { "maker_after_mid" } else { "maker" };
                     let pnl = ((ps - xs) / ps + (xb - pb) / pb) * 1e4;
-                    ("both", t, kind, pnl - 4.0 * MAKER_BPS, 4.0 * MAKER_BPS)
+                    ("both", t, kind, pnl - 4.0 * MAKER_BPS, 4.0 * MAKER_BPS, 0)
+                } else if why > 0 {
+                    trunc_close(2.0 * MAKER_BPS + 2.0 * TAKER_BPS)
                 } else {
-                    ("both", -1, "exit_unfilled_censored", f64::NAN, f64::NAN)
+                    ("both", -1, "exit_unfilled_censored", f64::NAN, f64::NAN, 0)
                 }
             }
             Plan::Insure { sell_done, t_c, xp, j } => {
                 let li = if sell_done { si } else { bi };
                 let r = x[li][j].fill;
-                let (t, kind, fee, xp) = if r >= 0 {
-                    (r, "insurance_maker", 2.0 * MAKER_BPS, xp)
-                } else {
-                    let t_t = t_c + c.l_ms + T_LIFE_MS + c.l_ms;
+                let t_t = t_c + c.l_ms + T_LIFE_MS + c.l_ms;
+                let pnl_at = |xp: f64| if sell_done { (ps - xp) / ps } else { (xp - pb) / pb } * 1e4;
+                if r >= 0 && r < vend {
+                    ("one", r, "insurance_maker", pnl_at(xp) - 2.0 * MAKER_BPS, 2.0 * MAKER_BPS, 0)
+                } else if t_t < vend {
                     let (b2, a2) = c.leg[li].bbo(t_t).unwrap();
-                    (t_t, "insurance_taker", MAKER_BPS + TAKER_BPS, if sell_done { a2 } else { b2 })
-                };
-                let pnl = if sell_done { (ps - xp) / ps } else { (xp - pb) / pb } * 1e4;
-                ("one", t, kind, pnl - fee, fee)
+                    let fee = MAKER_BPS + TAKER_BPS;
+                    ("one", t_t, "insurance_taker", pnl_at(if sell_done { a2 } else { b2 }) - fee, fee, 0)
+                } else {
+                    let (b2, a2) = c.leg[li].bbo(vend - 1).unwrap();
+                    let fee = MAKER_BPS + TAKER_BPS;
+                    ("one", vend, "trunc_taker", pnl_at(if sell_done { a2 } else { b2 }) - fee, fee, why)
+                }
             }
         };
-        o += &format!("{:?},{},{},{},{},{},{}\n", e.theta, e.t0, outcome, exit_t, kind, pnl, fees);
+        o += &format!("{:?},{},{},{},{},{},{}", e.theta, e.t0, outcome, exit_t, kind, pnl, fees);
+        if c.valid.on {
+            o += &format!(",{tr}");
+        }
+        o.push('\n');
     }
     std::fs::File::create(format!("{out}.exits.csv")).unwrap().write_all(o.as_bytes()).unwrap();
 }
 
+/// Таблицы эпизодов: `<out>` (описание пути) и `<out>.path.csv` (МПУ).
+fn write_tables(out: &str, eps: &[Ep]) {
+    let mut o = String::from("theta,t0_ms,dir,d0_bps,peak_bps,t_peak_ms,mae_mid_bps,t_half_ms,t_quarter_ms,t_conv_ms,censored\n");
+    let mut path = String::from("theta,t0_ms,mpu_bps,t_mpu_ms,best_bps,pnl_end_bps\n");
+    for e in eps {
+        path += &format!("{:?},{},{:.4},{},{:.4},{:.4}\n", e.theta, e.t0, e.mpu, e.t_mpu - e.t0, e.best, e.pnl_end);
+        let r = |v: i64| if v >= 0 { v - e.t0 } else { -1 };
+        o += &format!(
+            "{:?},{},{},{:.4},{:.4},{},{:.4},{},{},{},{}\n",
+            e.theta, e.t0, e.dir, e.d0, e.peak, e.t_peak - e.t0, e.peak - e.d0, r(e.t_half), r(e.t_q), r(e.t_end), if e.t_end >= 0 { 0 } else { 1 }
+        );
+    }
+    std::fs::File::create(out).unwrap().write_all(o.as_bytes()).unwrap();
+    std::fs::File::create(format!("{out}.path.csv")).unwrap().write_all(path.as_bytes()).unwrap();
+}
+
+/// Проходы 2–4 (заявки входа, выход/страховка/усечение, признаки) над таблицей эпизодов `eps`.
+fn post_passes(out: &str, c: &Ctx, eps: &[Ep]) {
+    fills_pass(out, c, eps);
+    feats::run(out, c, &eps.iter().map(|e| (e.theta, e.t0, e.dir, e.d0)).collect::<Vec<_>>());
+}
+
+/// Контроли и усечение — только по флагам среды (умолчание = прежнее поведение):
+/// `P40_SHIFT_B_MS=<мс>` — K1, сдвиг времени ноги B (книга и сделки); `P40_K2=1` — K2, таблицы `<out>.k2*` (seed `P40_SEED`, умолчание 40; зазор `P40_K2_GAP_MS`, умолчание 600000 = П-40 §4.3);
+/// `P40_TRUNC=1` — усечение §2.2 (+ колонка `trunc` в exits: 1 — конец данных, 2 — дыра), конец данных `P40_END_MS` (умолчание — последний момент рядов), дыры — файл `P40_HOLES` со строками `начало_мс,конец_мс`.
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let t = Instant::now();
+    let env = |k: &str| std::env::var(k).ok();
+    if let Some(v) = env("P40_SHIFT_B_MS") {
+        let sh: i64 = v.parse().unwrap();
+        let mut g = book::SHIFTS.lock().unwrap();
+        g.push((a[3].clone(), sh));
+        if a.len() > 5 {
+            g.push((a[5].clone(), sh));
+        }
+        eprintln!("K1: сдвиг ноги B {sh} мс");
+    }
     let la = leg_series(&a[2]);
     eprintln!("A {} состояний crossed {} nonmono {} {:.1}s", la.t.len(), la.crossed, la.nonmono, t.elapsed().as_secs_f64());
     let lb = leg_series(&a[3]);
@@ -423,27 +580,32 @@ fn main() {
     let lev = level_grid(&tu, &x, t0, t1);
     eprintln!("уровень: определён на {} из {} с {:.1}s", lev.iter().filter(|v| v.is_finite()).count(), lev.len(), t.elapsed().as_secs_f64());
     let ds = d_series(&tu, &x, t0, &lev);
-    let mut o = String::from("theta,t0_ms,dir,d0_bps,peak_bps,t_peak_ms,mae_mid_bps,t_half_ms,t_quarter_ms,t_conv_ms,censored\n");
+    let valid = if env("P40_TRUNC").is_some() {
+        let holes = env("P40_HOLES").map_or(vec![], |f| {
+            let mut h: Vec<(i64, i64)> = std::fs::read_to_string(f)
+                .unwrap()
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| {
+                    let (s, e) = l.split_once(',').unwrap();
+                    (s.trim().parse().unwrap(), e.trim().parse().unwrap())
+                })
+                .collect();
+            h.sort_unstable();
+            h
+        });
+        Valid { on: true, end: env("P40_END_MS").map_or(tu[tu.len() - 1] + 1, |v| v.parse().unwrap()), holes }
+    } else {
+        Valid { on: false, end: i64::MAX, holes: vec![] }
+    };
     let mut all: Vec<Ep> = vec![];
-    let mut path = String::from("theta,t0_ms,mpu_bps,t_mpu_ms,best_bps,pnl_end_bps
-");
     for th in THETAS {
-        for e in episodes(&tu, &ds, th, &la, &lb) {
-            path += &format!("{:?},{},{:.4},{},{:.4},{:.4}
-", e.theta, e.t0, e.mpu, e.t_mpu - e.t0, e.best, e.pnl_end);
-            let r = |v: i64| if v >= 0 { v - e.t0 } else { -1 };
-            o += &format!(
-                "{:?},{},{},{:.4},{:.4},{},{:.4},{},{},{},{}\n",
-                e.theta, e.t0, e.dir, e.d0, e.peak, e.t_peak - e.t0, e.peak - e.d0, r(e.t_half), r(e.t_q), r(e.t_end), if e.t_end >= 0 { 0 } else { 1 }
-            );
-            all.push(e);
-        }
+        all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
     }
-    std::fs::File::create(&a[1]).unwrap().write_all(o.as_bytes()).unwrap();
-    std::fs::File::create(format!("{}.path.csv", a[1])).unwrap().write_all(path.as_bytes()).unwrap();
-    if a.len() >= 8 {
+    write_tables(&a[1], &all);
+    let ctx = (a.len() >= 8).then(|| {
         fills::NO_CROSS.store(std::env::var_os("P40_NO_CROSS").is_some(), std::sync::atomic::Ordering::Relaxed);
-        let c = Ctx {
+        Ctx {
             leg: [&la, &lb],
             tu: &tu,
             ds: &ds,
@@ -454,9 +616,84 @@ fn main() {
             l_ms: a.get(8).map_or(500, |v| v.parse().unwrap()),
             lev: &lev,
             s0: t0,
-        };
-        fills_pass(&a[1], &c, &all);
-        feats::run(&a[1], &c, &all.iter().map(|e| (e.theta, e.t0, e.dir, e.d0)).collect::<Vec<_>>());
+            valid: &valid,
+        }
+    });
+    if let Some(c) = &ctx {
+        post_passes(&a[1], c, &all);
+    }
+    if env("P40_K2").is_some() {
+        let seed: u64 = env("P40_SEED").map_or(40, |v| v.parse().unwrap());
+        let gap: i64 = env("P40_K2_GAP_MS").map_or(600_000, |v| v.parse().unwrap());
+        let mut k2: Vec<Ep> = vec![];
+        for (n, th) in THETAS.iter().enumerate() {
+            let real: Vec<i64> = all.iter().filter(|e| e.theta == *th).map(|e| e.t0).collect();
+            // seed пары-суток: базовый seed, первый момент рядов и номер θ (воспроизводимо, печатается)
+            let s = seed ^ (tu[0] as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ n as u64;
+            eprintln!("K2 θ={th}: настоящих {}, seed {s}", real.len());
+            k2.extend(k2_episodes(&tu, &ds, *th, &la, &lb, &real, &valid, gap, s));
+        }
+        let k2out = format!("{}.k2", a[1]);
+        write_tables(&k2out, &k2);
+        if let Some(c) = &ctx {
+            post_passes(&k2out, c, &k2);
+        }
     }
     eprintln!("готово {:.2}s", t.elapsed().as_secs_f64());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leg(t: &[i64], b: &[f64], a: &[f64]) -> Leg {
+        Leg { t: t.to_vec(), b: b.to_vec(), a: a.to_vec(), crossed: 0, nonmono: 0 }
+    }
+
+    #[test]
+    fn valid_end_hole_and_data_end() {
+        let v = Valid { on: true, end: 10_000, holes: vec![(3_000, 4_000), (6_000, 7_000)] };
+        assert_eq!(v.end_after(1_000), (3_000, 2));
+        assert_eq!(v.end_after(4_500), (6_000, 2));
+        assert_eq!(v.end_after(8_000), (10_000, 1));
+        assert!(!v.usable(3_000) && !v.usable(3_999) && v.usable(4_000) && !v.usable(10_000));
+        // дыра за концом данных не считается
+        let w = Valid { on: true, end: 5_000, holes: vec![(6_000, 7_000)] };
+        assert_eq!(w.end_after(1_000), (5_000, 1));
+    }
+
+    #[test]
+    fn k2_is_deterministic_apart_and_independent_of_theta_stop() {
+        // d: 0 -> растёт до 20 (сошлось не раньше конца), ряд 1 момент в 1 с
+        let tu: Vec<i64> = (0..4000).map(|i| i * 1000).collect();
+        let ds: Vec<f64> = (0..4000).map(|i| if i < 100 { f64::NAN } else { 10.0 + (i % 7) as f64 }).collect();
+        let b: Vec<f64> = vec![100.0; 4000];
+        let a: Vec<f64> = vec![100.1; 4000];
+        let (la, lb) = (leg(&tu, &b, &a), leg(&tu, &b, &a));
+        let valid = Valid { on: true, end: i64::MAX, holes: vec![] };
+        let real = vec![1_000_000i64, 3_000_000];
+        let r1 = k2_episodes(&tu, &ds, 12.6, &la, &lb, &real, &valid, 600_000, 7);
+        let r2 = k2_episodes(&tu, &ds, 12.6, &la, &lb, &real, &valid, 600_000, 7);
+        assert_eq!(r1.len(), 2);
+        assert_eq!(r1.iter().map(|e| e.t0).collect::<Vec<_>>(), r2.iter().map(|e| e.t0).collect::<Vec<_>>());
+        for e in &r1 {
+            assert!(e.random && e.t_th2 < 0, "K2 не снимается по θ/2 (Р-8)");
+            assert!(real.iter().all(|&t| (e.t0 - t).abs() >= 600_000), "не ближе 600 с к настоящему");
+            assert!(e.t0 >= 100_000 && e.dir == 1);
+        }
+        // другой seed — другие моменты
+        let r3 = k2_episodes(&tu, &ds, 12.6, &la, &lb, &real, &valid, 600_000, 8);
+        assert_ne!(r1.iter().map(|e| e.t0).collect::<Vec<_>>(), r3.iter().map(|e| e.t0).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn k2_skips_hole() {
+        let tu: Vec<i64> = (0..2000).map(|i| i * 1000).collect();
+        let ds: Vec<f64> = vec![15.0; 2000];
+        let (b, a) = (vec![100.0; 2000], vec![100.1; 2000]);
+        let (la, lb) = (leg(&tu, &b, &a), leg(&tu, &b, &a));
+        let valid = Valid { on: true, end: i64::MAX, holes: vec![(0, 1_900_000)] };
+        let out = k2_episodes(&tu, &ds, 12.6, &la, &lb, &[10_000_000], &valid, 600_000, 1);
+        assert!(out.iter().all(|e| e.t0 >= 1_900_000));
+    }
 }

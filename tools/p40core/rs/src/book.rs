@@ -3,17 +3,26 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
-pub struct Rows(pub Vec<u8>);
+/// Сдвиг времени каталога (контроль K1, П-40 §4: сдвиг ноги B на ±1/10/60 с, ±1 ч): `(каталог, мс)`, задаётся до первого чтения.
+pub static SHIFTS: std::sync::Mutex<Vec<(String, i64)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn shift_of(dir: &str) -> i64 {
+    SHIFTS.lock().unwrap().iter().find(|(d, _)| d == dir).map_or(0, |s| s.1)
+}
+
+/// Строки часа и сдвиг времени каталога (прибавляется к `et`).
+pub struct Rows(pub Vec<u8>, pub i64);
 
 impl Rows {
     pub fn load(dir: &str, h: usize) -> Option<Rows> {
-        std::fs::read(format!("{dir}/{h:02}.bin")).ok().map(Rows)
+        let sh = shift_of(dir);
+        std::fs::read(format!("{dir}/{h:02}.bin")).ok().map(|b| Rows(b, sh))
     }
     pub fn len(&self) -> usize {
         self.0.len() / 33
     }
     pub fn et(&self, i: usize) -> i64 {
-        i64::from_le_bytes(self.0[i * 33..i * 33 + 8].try_into().unwrap())
+        i64::from_le_bytes(self.0[i * 33..i * 33 + 8].try_into().unwrap()) + self.1
     }
     pub fn fu(&self, i: usize) -> i64 {
         i64::from_le_bytes(self.0[i * 33 + 8..i * 33 + 16].try_into().unwrap())
@@ -136,12 +145,13 @@ pub struct Tr {
 
 /// Сделки суток из `<dir>/<ЧЧ>.bin` (25 Б: trade_time i64, price f64, qty f64, flags u8 бит0=is_buyer_maker), по порядку часов.
 pub fn load_trades(dir: &str) -> Vec<Tr> {
+    let sh = shift_of(dir);
     let mut out = vec![];
     for h in 0..24 {
         let Ok(raw) = std::fs::read(format!("{dir}/{h:02}.bin")) else { continue };
         for r in raw.chunks_exact(25) {
             out.push(Tr {
-                t: i64::from_le_bytes(r[0..8].try_into().unwrap()),
+                t: i64::from_le_bytes(r[0..8].try_into().unwrap()) + sh,
                 px: f64::from_le_bytes(r[8..16].try_into().unwrap()),
                 qty: f64::from_le_bytes(r[16..24].try_into().unwrap()),
                 buyer_maker: r[24] & 1 != 0,

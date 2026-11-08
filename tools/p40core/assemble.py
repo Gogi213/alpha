@@ -19,6 +19,9 @@ def rows(path):
 def main():
     a = sys.argv[1:]
     fix = "--fix" in a
+    ctl = a[a.index("--ctl") + 1] if "--ctl" in a else "real"        # метка контроля: real | K2 | K1+60000 ... (ядро: P40_K2, P40_SHIFT_B_MS)
+    if "--ctl" in a:
+        del a[a.index("--ctl"):a.index("--ctl") + 2]
     a = [x for x in a if x != "--fix"]
     out, bpath, specs = a[0], a[1], a[2:]
     cols = {k: [] for k in SCHEMA + ["armed", "trunc"]}
@@ -38,12 +41,12 @@ def main():
             conv = tc >= 0 and tc / 1000.0 <= H_S
             cens = not (tc >= 0 and tc / 1000.0 <= T_LIFE_S)
             pnl = float(x["pnl_bps"])
-            tr = x["outcome"] == "both" and pnl != pnl          # обе исполнены, выход не определён (усечение §2.2 — отдельная работа)
+            tr = int(x["trunc"]) if "trunc" in x else int(x["outcome"] == "both" and pnl != pnl)   # 1 — конец данных, 2 — дыра книги (ядро с P40_TRUNC=1)
             cols["asset"].append(int(asset)); cols["day"].append(int(day)); cols["pair"].append(int(pair)); cols["bybit_leg"].append(int(byb))
             cols["conv_H"].append(int(conv)); cols["mpu_X"].append(int(-float(pa[k]["mpu_bps"]) > 2 * float(THETA)))
             cols["net_bps"].append(0.0 if x["outcome"] == "none" else pnl)
             cols["t_conv_s"].append(T_LIFE_S if cens else tc / 1000.0); cols["cens"].append(int(cens))
-            cols["armed"].append(1); cols["trunc"].append(int(tr))
+            cols["armed"].append(1); cols["trunc"].append(tr)
             a = ax[(e["theta"], f["t_start"])]
             for v in raw:
                 raw[v].append(float(a[v] if v == "oi5m" else f[v]))
@@ -64,8 +67,9 @@ def main():
         cols[fk] = np.where(np.isfinite(v), np.where(v <= b[0], 0, np.where(v <= b[1], 1, 2)), -1)
     cols["f_hour"] = np.array(hour); cols["f_leader"] = np.array(leader)
     t = {k: np.asarray(cols[k]) for k in SCHEMA + ["armed", "trunc"]}
+    t["ctl"] = np.array([ctl] * n)
     np.savez_compressed(out, **t)
-    print("строк", n, "усечённых", int(t["trunc"].sum()), "сошлось за H", int(t["conv_H"].sum()), "границы", bpath)
+    print("строк", n, "усечённых", int((t["trunc"] > 0).sum()), "контроль", ctl, "сошлось за H", int(t["conv_H"].sum()), "границы", bpath)
 
 
 main()
