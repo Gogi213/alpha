@@ -2,7 +2,7 @@
 Главные параметры: θ=12,6, T_life=60 с, L=500 мс (те, с которыми запущено ядро). Одна строка = взведённый эпизод (ITT: нет исполнения -> net_bps = 0).
 Запуск: assemble.py <выход.npz> <bounds.json> [--fix] <asset>:<day>:<pair>:<bybit_leg 0|1>:<путь к <out>> ...
   bounds.json — границы терцилей: без --fix считаются по всей выборке и записываются (D1); с --fix читаются (D2, границы D1 не пересчитываются).
-Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. Столбец, которого ядро ещё не выдаёт (mpu_X), = -1."""
+Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. mpu_X = 1, если МПУ по исполнимой стороне (<out>.path.csv) хуже −2θ, bps."""
 import csv, json, sys
 import numpy as np
 
@@ -29,6 +29,7 @@ def main():
         ep = [r for r in rows(base) if r["theta"] == THETA]
         ex = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".exits.csv")}
         ft = {(r["theta"], r["t_start"]): r for r in rows(base + ".features.csv")}
+        pa = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".path.csv")}
         ax = {(r["theta"], r["t_start"]): r for r in rows(base + ".aux.csv")}
         for e in ep:
             k = (e["theta"], e["t0_ms"])
@@ -39,7 +40,7 @@ def main():
             pnl = float(x["pnl_bps"])
             tr = x["outcome"] == "both" and pnl != pnl          # обе исполнены, выход не определён (усечение §2.2 — отдельная работа)
             cols["asset"].append(int(asset)); cols["day"].append(int(day)); cols["pair"].append(int(pair)); cols["bybit_leg"].append(int(byb))
-            cols["conv_H"].append(int(conv)); cols["mpu_X"].append(-1)
+            cols["conv_H"].append(int(conv)); cols["mpu_X"].append(int(-float(pa[k]["mpu_bps"]) > 2 * float(THETA)))
             cols["net_bps"].append(0.0 if x["outcome"] == "none" else pnl)
             cols["t_conv_s"].append(T_LIFE_S if cens else tc / 1000.0); cols["cens"].append(int(cens))
             cols["armed"].append(1); cols["trunc"].append(int(tr))

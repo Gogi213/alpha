@@ -166,6 +166,13 @@ struct Ep {
     t_th2: i64,
     t_q: i64,
     t_end: i64,
+    /// гипотетический вход на старте мейкером (продажа на аске дорогой ноги, покупка на бид дешёвой), оценка по исполнимой стороне (закрытие шорта — аск, лонга — бид), bps номинала ноги, без комиссий
+    ea: f64,
+    eb: f64,
+    mpu: f64,
+    t_mpu: i64,
+    best: f64,
+    pnl_end: f64,
 }
 
 /// Ряд d (bps) на моментах `tu`: x минус уровень на секунде момента; NaN — уровень не определён.
@@ -180,13 +187,21 @@ fn d_series(tu: &[i64], x: &[f64], s0: i64, lev: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-fn episodes(tu: &[i64], ds: &[f64], theta: f64) -> Vec<Ep> {
+fn episodes(tu: &[i64], ds: &[f64], theta: f64, la: &Leg, lb: &Leg) -> Vec<Ep> {
     let mut out = vec![];
     let mut calm: Option<i64> = None;
     let mut prev: Option<f64> = None;
     let mut open: Option<Ep> = None;
     let th2 = theta / 2.0;
+    let (mut ka, mut kb) = (0usize, 0usize);
     for i in 0..tu.len() {
+        let t = tu[i];
+        while ka < la.t.len() && la.t[ka] <= t {
+            ka += 1;
+        }
+        while kb < lb.t.len() && lb.t[kb] <= t {
+            kb += 1;
+        }
         let di = ds[i];
         if di != di {
             calm = None;
@@ -194,8 +209,19 @@ fn episodes(tu: &[i64], ds: &[f64], theta: f64) -> Vec<Ep> {
             continue;
         }
         let ad = di.abs();
-        let t = tu[i];
+        if ka == 0 || kb == 0 {
+            continue;
+        }
+        let (ba, aa, bb, ab) = (la.b[ka - 1], la.a[ka - 1], lb.b[kb - 1], lb.a[kb - 1]);
         if let Some(e) = open.as_mut() {
+            let pnl = 1e4 * if e.dir > 0 { (e.ea - aa) / e.ea + (bb - e.eb) / e.eb } else { (e.ea - ab) / e.ea + (ba - e.eb) / e.eb };
+            if pnl < e.mpu {
+                e.mpu = pnl;
+                e.t_mpu = t;
+            }
+            if pnl > e.best {
+                e.best = pnl;
+            }
             let s = e.dir as f64 * di;
             if s > e.peak {
                 e.peak = s;
@@ -212,11 +238,13 @@ fn episodes(tu: &[i64], ds: &[f64], theta: f64) -> Vec<Ep> {
             }
             if s <= 0.0 {
                 e.t_end = t;
+                e.pnl_end = pnl;
                 out.push(open.take().unwrap());
             }
         } else if let (Some(pa), Some(c)) = (prev, calm) {
             if pa < th2 && ad >= theta && t - c >= W_MS {
-                open = Some(Ep { theta, t0: t, dir: if di > 0.0 { 1 } else { -1 }, d0: ad, peak: ad, t_peak: t, t_half: -1, t_th2: -1, t_q: -1, t_end: -1 });
+                let (ea, eb) = if di > 0.0 { (aa, bb) } else { (ab, ba) };
+                open = Some(Ep { theta, t0: t, dir: if di > 0.0 { 1 } else { -1 }, d0: ad, peak: ad, t_peak: t, t_half: -1, t_th2: -1, t_q: -1, t_end: -1, ea, eb, mpu: 0.0, t_mpu: t, best: 0.0, pnl_end: f64::NAN });
             }
         }
         if open.is_none() {
@@ -397,8 +425,12 @@ fn main() {
     let ds = d_series(&tu, &x, t0, &lev);
     let mut o = String::from("theta,t0_ms,dir,d0_bps,peak_bps,t_peak_ms,mae_mid_bps,t_half_ms,t_quarter_ms,t_conv_ms,censored\n");
     let mut all: Vec<Ep> = vec![];
+    let mut path = String::from("theta,t0_ms,mpu_bps,t_mpu_ms,best_bps,pnl_end_bps
+");
     for th in THETAS {
-        for e in episodes(&tu, &ds, th) {
+        for e in episodes(&tu, &ds, th, &la, &lb) {
+            path += &format!("{:?},{},{:.4},{},{:.4},{:.4}
+", e.theta, e.t0, e.mpu, e.t_mpu - e.t0, e.best, e.pnl_end);
             let r = |v: i64| if v >= 0 { v - e.t0 } else { -1 };
             o += &format!(
                 "{:?},{},{},{:.4},{:.4},{},{:.4},{},{},{},{}\n",
@@ -408,6 +440,7 @@ fn main() {
         }
     }
     std::fs::File::create(&a[1]).unwrap().write_all(o.as_bytes()).unwrap();
+    std::fs::File::create(format!("{}.path.csv", a[1])).unwrap().write_all(path.as_bytes()).unwrap();
     if a.len() >= 8 {
         fills::NO_CROSS.store(std::env::var_os("P40_NO_CROSS").is_some(), std::sync::atomic::Ordering::Relaxed);
         let c = Ctx {
