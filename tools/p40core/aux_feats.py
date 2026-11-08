@@ -1,5 +1,6 @@
 """TK-500: oi5m, liq5m, Φ_t эпизодов ядра из mark/funding/OI/ликвидаций двух ног -> <out>.aux.csv.
-Запуск: aux_feats.py <out ядра> <корень A> <символ A> <корень B> <символ B>   (корень = каталог с <ЧЧ>/<символ>_*.parquet за сутки; чанк из нескольких суток — корни через запятую по порядку)
+Запуск: aux_feats.py <out ядра> <корень A> <символ A> <корень B> <символ B>   (корень = каталог с <ЧЧ>/<символ>_*.parquet за сутки; чанк из нескольких суток — корни через запятую по порядку;
+корень «-» — у ноги нет рядов mark/OI/ликвидаций (Bybit ob200, Gate: на боксе только стакан): ряд пуст, srcX = 0; oi5m — по ногам с источником, liq5m — только их ликвидации, Φ_t = NaN (ставка одной ноги неизвестна))
 Ряды малы (секунды/минуты), поэтому pyarrow здесь не узкое место; горячий путь (книга, очередь) в Rust.
 oi5m — среднее по ногам (v(t−)−v(t−5 мин))/v(t−5 мин), значения «строго до t»; liq5m — 1, если у любой ноги была ликвидация в [t−5 мин, t);
 phi_bps — Φ_t: ns·(rA−rB)·1e4, ns = 1, если у любой ноги расчёт фандинга в (t, t+H], H=600 с (П-40 §3.5); знак Φ — в assemble.py."""
@@ -16,6 +17,9 @@ def f64(t, name):
 
 
 def series(roots, sym):
+    if roots == "-":
+        e, z = np.zeros(0, dtype=np.int64), np.zeros(0)
+        return dict(ft=e, fv=z, fn=z, ot=e, ov=z, lq=e, src=0)
     fr_t, fr_v, fr_n, oi_t, oi_v, lq_t = [], [], [], [], [], []
     for h, root in ((h, r) for r in roots.split(",") for h in range(24)):
         d = f"{root}/{h:02d}/{sym}"
@@ -32,7 +36,7 @@ def series(roots, sym):
     ft, fv, fn = cat(fr_t), cat(fr_v), cat(fr_n)
     oi_t, oi_v = cat(oi_t), cat(oi_v)
     a, b = np.argsort(ft, kind="stable"), np.argsort(oi_t, kind="stable")
-    return dict(ft=ft[a], fv=fv[a], fn=fn[a], ot=oi_t[b], ov=oi_v[b], lq=np.sort(cat(lq_t)))
+    return dict(ft=ft[a], fv=fv[a], fn=fn[a], ot=oi_t[b], ov=oi_v[b], lq=np.sort(cat(lq_t)), src=1)
 
 
 def before(arr, t):
@@ -64,7 +68,7 @@ def main():
     A, B = series(ra, sa), series(rb, sb)
     rows = list(csv.DictReader(open(out + ".features.csv")))
     w = csv.writer(open(out + ".aux.csv", "w", newline=""))
-    w.writerow(["theta", "t_start", "oi5m", "liq5m", "phi_bps", "n_s", "rA", "rB"])
+    w.writerow(["theta", "t_start", "oi5m", "liq5m", "phi_bps", "n_s", "rA", "rB", "srcA", "srcB"])
     for r in rows:
         t = int(float(r["t_start"]))
         with np.errstate(all="ignore"):
@@ -73,7 +77,7 @@ def main():
         fa, fb = rate(A, t), rate(B, t)
         ns = int(settles(A, t) or settles(B, t))
         phi = ns * (fa - fb) * 1e4 if not (np.isnan(fa) or np.isnan(fb)) else np.nan
-        w.writerow([r.get("theta", ""), r["t_start"], float(oi), liq, float(phi), ns, float(fa), float(fb)])
+        w.writerow([r.get("theta", ""), r["t_start"], float(oi), liq, float(phi), ns, float(fa), float(fb), A["src"], B["src"]])
     print("строк", len(rows), "->", out + ".aux.csv")
 
 

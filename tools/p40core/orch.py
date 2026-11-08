@@ -138,7 +138,7 @@ def write_holes(path, bad, legs, days):
 
 
 def drop_heavy(raw):
-    """после конвертации сырьё книги/сделок не нужно (aux читает только mark/OI/ликвидации CHFT); Bybit/Gate — целиком"""
+    """после конвертации сырьё книги/сделок не нужно (aux читает только mark/OI/ликвидации CHFT; у ног Bybit/Gate таких рядов нет); Bybit/Gate — целиком"""
     for d, _, fs in os.walk(raw):
         for f in fs:
             if f.endswith(("_orderbook.parquet", "_trades.parquet", ".zip", ".csv.gz")):
@@ -209,8 +209,8 @@ def job(args, asset, days, pairs, outlog):
             if rc != 0:
                 raise RuntimeError(f"ядро rc {rc} пара {p['pair']}")
             t_core, c_core = t_core + w, c_core + c
-            if p["exA"] in CHFT and p["exB"] in CHFT:
-                ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) for s in "AB")
+            if p["exA"] in CHFT or p["exB"] in CHFT:
+                ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
                 rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
                 if rc != 0:
                     raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
