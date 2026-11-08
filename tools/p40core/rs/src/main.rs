@@ -1,5 +1,7 @@
 //! TK-500 П-40 §3.1–3.2: ядро эпизодов схождения (v0): книга двух бирж -> уровень -> эпизоды. Определения — в шапке tools/p40core/ref_episodes.py;
 //! вход — плоские бинарники tools/p40core/to_bin.py (<dirA>/<ЧЧ>.bin, <dirB>/<ЧЧ>.bin), выход — csv построчно как у эталона.
+#[allow(dead_code)]
+mod queue;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::io::Write;
