@@ -67,6 +67,11 @@ def run(et, fid, snap, bid, px, q, notional, scale, nmax):
     ba = nmax        # лучший аск
     out_t = np.empty(n, np.int64)
     out = np.empty((n, 8))   # bid, ask, bid_q1, ask_q1, bid_vwapN, ask_vwapN, bid_top5, ask_top5
+    lt = np.empty(n, np.int64)     # журнал уровней: время, сторона (0 bid / 1 ask), тик, количество после строки
+    ls = np.empty(n, np.int8)
+    lp = np.empty(n, np.int64)
+    lq = np.empty(n)
+    nl = 0
     k = 0
     i = 0
     ncross = 0
@@ -81,6 +86,7 @@ def run(et, fid, snap, bid, px, q, notional, scale, nmax):
             ba = nmax
             while j < n and snap[j]:
                 p = px[j]
+                lt[nl] = et[j]; ls[nl] = 0 if bid[j] else 1; lp[nl] = p; lq[nl] = q[j]; nl += 1
                 if bid[j]:
                     bq[p] = q[j]
                     if q[j] > 0 and p > bb:
@@ -94,6 +100,8 @@ def run(et, fid, snap, bid, px, q, notional, scale, nmax):
             f = fid[i]
             while j < n and (not snap[j]) and fid[j] == f and et[j] == et[i]:
                 p = px[j]
+                if (bid[j] and p >= bb - 50) or ((not bid[j]) and p <= ba + 50):
+                    lt[nl] = et[j]; ls[nl] = 0 if bid[j] else 1; lp[nl] = p; lq[nl] = q[j]; nl += 1
                 if bid[j]:
                     bq[p] = q[j]
                     if q[j] > 0:
@@ -136,21 +144,23 @@ def run(et, fid, snap, bid, px, q, notional, scale, nmax):
             k += 1
         i = j
         nrow += 1
-    return out_t[:k], out[:k], ncross
+    return out_t[:k], out[:k], ncross, (lt[:nl], ls[:nl], lp[:nl], lq[:nl])
 
 
 def main(root, sym, ctval, outp, hours=range(24)):
-    parts_t, parts_o = [], []
+    parts_t, parts_o, parts_l = [], [], []
     for h in hours:
         p = f"{root}/{h:02d}/{sym}_orderbook.parquet"
         et, fid, snap, bid, px, q, types = load_hour(p, ctval)
-        ot, oo, ncross = run(et, fid, snap, bid, px, q, 1000.0, float(SC), NMAX)
+        ot, oo, ncross, lg = run(et, fid, snap, bid, px, q, 1000.0, float(SC), NMAX)
         mono = bool(np.all(np.diff(ot) >= 0))
         print(f"h{h:02d} rows={len(et)} events={len(ot)} types={sorted(types)} crossed={ncross} t_monotone={mono} "
               f"t0={ot[0]} t1={ot[-1]}", flush=True)
         parts_t.append(ot)
         parts_o.append(oo)
-    np.savez_compressed(outp, t=np.concatenate(parts_t), o=np.vstack(parts_o))
+        parts_l.append(lg)
+    np.savez_compressed(outp, t=np.concatenate(parts_t), o=np.vstack(parts_o), lt=np.concatenate([x[0] for x in parts_l]),
+                        ls=np.concatenate([x[1] for x in parts_l]), lp=np.concatenate([x[2] for x in parts_l]), lq=np.concatenate([x[3] for x in parts_l]))
 
 
 if __name__ == "__main__":
