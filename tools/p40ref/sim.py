@@ -11,6 +11,8 @@ MAKER_BPS = 1.26
 TAKER_BPS = 3.15
 T_LIFE_MS = 60_000
 L_MS = 500
+CROSS = True      # исполнение при пересечении (prob:3 = hftbacktest, Судья TK-500 §7 а); False — прежний эталон e1c30813
+TRACE = None      # список для трассы front: (t, 0=журнал|1=сделка, front до события, prev)
 
 
 class Leg:
@@ -51,7 +53,6 @@ def simulate_order(leg, side, tick, qty, t_arr, t_cancel, t_end):
         return t_arr, tick, 1.0, True
     prev = leg.level_qty(side, tick, t_arr)
     front = prev
-    leaves = qty
     # события после t_arr: строки журнала уровня, сделки, BBO-сквозное
     i0 = np.searchsorted(leg.lt, t_arr, side="right")
     i1 = np.searchsorted(leg.lt, t_cancel, side="right")
@@ -62,41 +63,56 @@ def simulate_order(leg, side, tick, qty, t_arr, t_cancel, t_end):
     # хронология: объединение (время, источник 0 = журнал, 1 = сделка), стабильно
     ev = [(leg.lt[i], 0, i) for i in lm] + [(leg.tt[j], 1, j) for j in tm]
     ev.sort(key=lambda e: (e[0], e[1]))
+    # пересечение (hftbacktest, В-: Судья TK-500 §7 а): заявка исполняется по своей цене, когда противоположная лучшая цена
+    # после постановки дошла до неё; первое такое событие BBO в (t_arr, t_cancel]
+    t_cross = -1
+    if CROSS:
+        b0 = np.searchsorted(leg.t, t_arr, side="right")
+        b1 = np.searchsorted(leg.t, t_cancel, side="right")
+        opp = leg.o[b0:b1, 1] <= tick if side == 0 else leg.o[b0:b1, 0] >= tick
+        hit = np.flatnonzero(opp)
+        if len(hit):
+            t_cross = int(leg.t[b0 + hit[0]])
+    cum = 0.0      # объём сделок на уровне с прошлого изменения глубины (QueuePos.cum_trade_qty)
     for (t, kind, idx) in ev:
+        if t_cross >= 0 and t > t_cross:
+            break
+        if TRACE is not None:
+            TRACE.append((int(t), kind, float(front), float(prev)))
         if kind == 0:
             new = leg.lq[idx]
-            if new < prev:
-                chg = prev - new
-                back = prev - front
-                if front <= 0 and back <= 0:
-                    p = 1.0
-                else:
-                    ff, bf = f3(max(front, 0.0)), f3(max(back, 0.0))
-                    p = ff / (ff + bf) if ff + bf > 0 else 1.0
-                est = front - (1.0 - p) * chg + min(back - p * chg, 0.0)
-                front = min(est, new)
-            else:
+            chg = prev - cum - new     # vendor/hftbacktest queue.rs ProbQueueModel::depth: минус сделки с прошлого изменения
+            cum = 0.0
+            if chg < 0:
                 front = min(front, new)
+            else:
+                back = prev - front
+                ff, bf = f3(front), f3(back)
+                if ff + bf == 0:
+                    est = float("nan")
+                else:
+                    pr = bf / (ff + bf)    # prob = f(back) / (f(back) + f(front))
+                    est = front - (1.0 - pr) * chg + min(back - pr * chg, 0.0)
+                front = new if est != est else min(est, new)
             prev = new
         else:
             tp, tq, ts = leg.tp[idx], leg.tq[idx], leg.ts[idx]
             # покупка заполняется продавцами-тейкерами по цене <= нашей; продажа — покупателями по цене >= нашей
             if side == 0 and ts and tp <= tick:
-                if tp < tick:
-                    front = min(front, 0.0)
-                front -= tq
+                better = tp < tick
             elif side == 1 and (not ts) and tp >= tick:
-                if tp > tick:
-                    front = min(front, 0.0)
-                front -= tq
+                better = tp > tick
             else:
                 continue
-            if front < 0:
-                leaves -= min(leaves, -front)
-                front = 0.0
-                if leaves <= 1e-9:
-                    return t, tick, 1.0, False
-    return -1, tick, 1.0 - leaves / qty, False
+            if better:
+                return t, tick, 1.0, False
+            front -= tq
+            cum += tq
+            if front < 0:      # NoPartialFill: полное исполнение
+                return t, tick, 1.0, False
+    if t_cross >= 0:
+        return t_cross, tick, 1.0, False
+    return -1, tick, 0.0, False
 
 
 def run_episode(A, B, g, row, theta):
@@ -187,6 +203,9 @@ def run_episode(A, B, g, row, theta):
 
 
 def main(outdir, theta):
+    global CROSS
+    import os
+    CROSS = os.environ.get("P40_NO_CROSS") != "1"
     A = Leg(f"{outdir}/book2_binance.npz", f"{outdir}/trades_binance.npz")
     B = Leg(f"{outdir}/book2_okx.npz", f"{outdir}/trades_okx.npz")
     g = np.load(f"{outdir}/ep/grid.npz")
