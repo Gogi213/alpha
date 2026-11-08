@@ -30,11 +30,13 @@ if [ -e "$B/res/$KEY.rc" ] && awk -v s="$(cat "$B/res/$KEY.start")" -v t="$T0" '
   echo "rbuild: результат сборки того же содержимого ($KEY), начатой после прихода запроса"
   cat "$B/res/$KEY.out"; exit "$(cat "$B/res/$KEY.rc")"
 fi
-if systemctl list-units 'p40-*' --state=active --no-legend 2>/dev/null | grep -q .; then JOBS=2; else JOBS=${SRV_CORES:-6}; fi
-export JOBS SLOT_TGT=$B/target-srv
+export SLOT_TGT=$B/target-srv
 exec 9>"$B/build.lock"
 W=0; until flock -w 10 9; do gone && { echo "rbuild: клиент ушёл — запрос $KEY снят"; exit 74; }; W=$((W + 10)); [ $W -ge 7200 ] && { echo "rbuild: замок $B/build.lock занят > 2 ч"; exit 75; }; done
 gone && { echo "rbuild: клиент ушёл — запрос $KEY снят"; exit 74; }
+# ядра — после замка (ожидание до 2 ч): p40-* могли стартовать, пока запрос стоял в очереди
+if systemctl list-units 'p40-*' --state=active --no-legend 2>/dev/null | grep -q .; then JOBS=2; else JOBS=${SRV_CORES:-6}; fi
+export JOBS
 FREE=$(df --output=avail -BG "$B" | tail -1 | tr -dc 0-9)
 [ "$FREE" -lt 25 ] && { echo "rbuild: свободно ${FREE}G < 25G — target сброшен"; rm -rf "$SLOT_TGT" "$SLOT_TGT-dbg" "$SLOT_TGT-lint"; }
 SRC=$B/src-srv
