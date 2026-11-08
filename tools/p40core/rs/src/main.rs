@@ -1,9 +1,10 @@
 //! TK-500 П-40 §3.1–3.2: ядро эпизодов схождения (v0): книга двух бирж -> уровень -> эпизоды. Определения — в шапке tools/p40core/ref_episodes.py;
 //! вход — плоские бинарники tools/p40core/to_bin.py (<dirA>/<ЧЧ>.bin, <dirB>/<ЧЧ>.bin), выход — csv построчно как у эталона.
-#[allow(dead_code)]
+//! Запуск: p40core <out.csv> <dirA> <dirB> [<trA> <trB> <lotA> <lotB> [<L_ms=500>]] — с сделками дополнительно <out.csv>.fills.csv (заявки входа §3.3, проход 2).
+mod book;
+mod fills;
 mod queue;
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use book::{load_trades, Book, Rows};
 use std::io::Write;
 use std::time::Instant;
 
@@ -11,6 +12,7 @@ const THETAS: [f64; 5] = [5.04, 12.6, 25.2, 50.0, 100.0];
 const L_S: usize = 21600;
 const GAP_S: usize = 60;
 const W_MS: i64 = 60000;
+const T_LIFE_MS: i64 = 60000;
 
 struct Leg {
     t: Vec<i64>,
@@ -21,77 +23,25 @@ struct Leg {
 }
 
 fn leg_series(dir: &str) -> Leg {
-    let mut bids: HashMap<u64, f64> = HashMap::new();
-    let mut asks: HashMap<u64, f64> = HashMap::new();
-    let mut hb: BinaryHeap<u64> = BinaryHeap::new();
-    let mut ha: BinaryHeap<Reverse<u64>> = BinaryHeap::new();
+    let mut book = Book::default();
     let mut leg = Leg { t: vec![], b: vec![], a: vec![], crossed: 0, nonmono: 0 };
     let mut last_t = -1i64;
     for h in 0..24 {
-        let path = format!("{dir}/{h:02}.bin");
-        let Ok(raw) = std::fs::read(&path) else { continue };
-        let n = raw.len() / 33;
-        let et = |i: usize| i64::from_le_bytes(raw[i * 33..i * 33 + 8].try_into().unwrap());
-        let fu = |i: usize| i64::from_le_bytes(raw[i * 33 + 8..i * 33 + 16].try_into().unwrap());
-        let px = |i: usize| f64::from_le_bytes(raw[i * 33 + 16..i * 33 + 24].try_into().unwrap());
-        let qt = |i: usize| f64::from_le_bytes(raw[i * 33 + 24..i * 33 + 32].try_into().unwrap());
-        let fl = |i: usize| raw[i * 33 + 32];
-        for i in 0..n {
-            let snap = fl(i) & 1 != 0;
-            if snap && (i == 0 || fl(i - 1) & 1 == 0) {
-                bids.clear();
-                asks.clear();
-                hb.clear();
-                ha.clear();
+        let Some(rows) = Rows::load(dir, h) else { continue };
+        for i in 0..rows.len() {
+            if rows.snap_start(i) {
+                book.clear();
             }
-            let key = px(i).to_bits();
-            let q = qt(i);
-            if fl(i) & 2 != 0 {
-                if q == 0.0 {
-                    bids.remove(&key);
-                } else {
-                    if !bids.contains_key(&key) {
-                        hb.push(key);
-                    }
-                    bids.insert(key, q);
-                }
-            } else if q == 0.0 {
-                asks.remove(&key);
-            } else {
-                if !asks.contains_key(&key) {
-                    ha.push(Reverse(key));
-                }
-                asks.insert(key, q);
+            book.set(rows.is_bid(i), rows.px(i), rows.qt(i));
+            if !rows.group_end(i) {
+                continue;
             }
-            let last = i == n - 1;
-            if !last {
-                let nsnap = fl(i + 1) & 1 != 0;
-                if snap == nsnap && fu(i) == fu(i + 1) && et(i) == et(i + 1) {
-                    continue;
-                }
-                if snap && nsnap {
-                    continue;
-                }
-            }
-            while let Some(&k) = hb.peek() {
-                if bids.contains_key(&k) {
-                    break;
-                }
-                hb.pop();
-            }
-            while let Some(&Reverse(k)) = ha.peek() {
-                if asks.contains_key(&k) {
-                    break;
-                }
-                ha.pop();
-            }
-            if let (Some(&kb), Some(&Reverse(ka))) = (hb.peek(), ha.peek()) {
-                let (bb, aa) = (f64::from_bits(kb), f64::from_bits(ka));
+            if let Some((bb, aa)) = book.best() {
                 if bb >= aa {
                     leg.crossed += 1;
                     continue;
                 }
-                let mut te = et(i);
+                let mut te = rows.et(i);
                 if te < last_t {
                     leg.nonmono += 1;
                     te = last_t;
@@ -189,6 +139,7 @@ struct Ep {
     peak: f64,
     t_peak: i64,
     t_half: i64,
+    t_th2: i64,
     t_q: i64,
     t_end: i64,
 }
@@ -216,6 +167,9 @@ fn episodes(tu: &[i64], x: &[f64], s0: i64, lev: &[f64], theta: f64) -> Vec<Ep> 
                 e.peak = s;
                 e.t_peak = t;
             }
+            if e.t_th2 < 0 && s <= th2 {
+                e.t_th2 = t;
+            }
             if e.t_half < 0 && s <= 0.5 * e.d0 {
                 e.t_half = t;
             }
@@ -228,7 +182,7 @@ fn episodes(tu: &[i64], x: &[f64], s0: i64, lev: &[f64], theta: f64) -> Vec<Ep> 
             }
         } else if let (Some(pa), Some(c)) = (prev, calm) {
             if pa < th2 && ad >= theta && t - c >= W_MS {
-                open = Some(Ep { theta, t0: t, dir: if di > 0.0 { 1 } else { -1 }, d0: ad, peak: ad, t_peak: t, t_half: -1, t_q: -1, t_end: -1 });
+                open = Some(Ep { theta, t0: t, dir: if di > 0.0 { 1 } else { -1 }, d0: ad, peak: ad, t_peak: t, t_half: -1, t_th2: -1, t_q: -1, t_end: -1 });
             }
         }
         if open.is_none() {
@@ -248,6 +202,53 @@ fn episodes(tu: &[i64], x: &[f64], s0: i64, lev: &[f64], theta: f64) -> Vec<Ep> 
     out
 }
 
+/// Проход 2 (аргументы: trA trB lotA lotB): заявки входа обеих ног каждого эпизода; таблица `<out>.fills.csv`.
+fn fills_pass(out: &str, dirs: [&str; 2], args: &[String], l_ms: i64, la: &Leg, lb: &Leg, eps: &[Ep]) {
+    let (tra, trb) = (load_trades(&args[0]), load_trades(&args[1]));
+    let (lot_a, lot_b): (f64, f64) = (args[2].parse().unwrap(), args[3].parse().unwrap());
+    // индексы заданий: ноги A и B; продаёт дорогая нога (dir=+1 — A), покупает дешёвая
+    let mut ja: Vec<fills::Job> = vec![];
+    let mut jb: Vec<fills::Job> = vec![];
+    let at = |leg: &Leg, buy: bool, tp: i64, tc: i64| {
+        let k = leg.t.partition_point(|&t| t < tp);
+        let price = if k == 0 { f64::NAN } else if buy { leg.b[k - 1] } else { leg.a[k - 1] };
+        (price, tc > tp && price.is_finite())
+    };
+    let mut slot: Vec<[Option<usize>; 2]> = vec![];
+    for e in eps {
+        let tp = e.t0 + l_ms;
+        let tc = if e.t_th2 >= 0 { e.t_th2.min(tp + T_LIFE_MS) } else { tp + T_LIFE_MS };
+        let (buy_a, buy_b) = (e.dir < 0, e.dir > 0);
+        let (pa, oka) = at(la, buy_a, tp, tc);
+        let (pb, okb) = at(lb, buy_b, tp, tc);
+        let mut s = [None, None];
+        if oka {
+            s[0] = Some(ja.len());
+            ja.push(fills::Job::new(buy_a, tp, tc, pa, lot_a));
+        }
+        if okb {
+            s[1] = Some(jb.len());
+            jb.push(fills::Job::new(buy_b, tp, tc, pb, lot_b));
+        }
+        slot.push(s);
+    }
+    fills::run(dirs[0], &tra, &mut ja);
+    fills::run(dirs[1], &trb, &mut jb);
+    let mut o = String::from("theta,t0_ms,dir,t_th2_ms,tc_ms,sell_leg,front_sell,fill_sell_ms,front_buy,fill_buy_ms
+");
+    for (e, s) in eps.iter().zip(&slot) {
+        let rel = |v: i64| if v >= 0 { v - e.t0 } else { -1 };
+        let (sell, buy) = if e.dir > 0 { (s[0].map(|k| &ja[k]), s[1].map(|k| &jb[k])) } else { (s[1].map(|k| &jb[k]), s[0].map(|k| &ja[k])) };
+        let f = |j: Option<&fills::Job>| j.map_or((-1.0, -1), |j| (j.front0, rel(j.fill)));
+        let (fs, ts) = f(sell);
+        let (fb, tb) = f(buy);
+        let tcr = if e.t_th2 >= 0 { e.t_th2.min(e.t0 + l_ms + T_LIFE_MS) } else { e.t0 + l_ms + T_LIFE_MS };
+        o += &format!("{:?},{},{},{},{},{},{},{},{},{}
+", e.theta, e.t0, e.dir, rel(e.t_th2), tcr - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, fb, tb);
+    }
+    std::fs::File::create(format!("{out}.fills.csv")).unwrap().write_all(o.as_bytes()).unwrap();
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let t = Instant::now();
@@ -261,6 +262,7 @@ fn main() {
     let lev = level_grid(&tu, &x, t0, t1);
     eprintln!("уровень: определён на {} из {} с {:.1}s", lev.iter().filter(|v| v.is_finite()).count(), lev.len(), t.elapsed().as_secs_f64());
     let mut o = String::from("theta,t0_ms,dir,d0_bps,peak_bps,t_peak_ms,mae_mid_bps,t_half_ms,t_quarter_ms,t_conv_ms,censored\n");
+    let mut all: Vec<Ep> = vec![];
     for th in THETAS {
         for e in episodes(&tu, &x, t0, &lev, th) {
             let r = |v: i64| if v >= 0 { v - e.t0 } else { -1 };
@@ -268,8 +270,13 @@ fn main() {
                 "{:?},{},{},{:.4},{:.4},{},{:.4},{},{},{},{}\n",
                 e.theta, e.t0, e.dir, e.d0, e.peak, e.t_peak - e.t0, e.peak - e.d0, r(e.t_half), r(e.t_q), r(e.t_end), if e.t_end >= 0 { 0 } else { 1 }
             );
+            all.push(e);
         }
     }
     std::fs::File::create(&a[1]).unwrap().write_all(o.as_bytes()).unwrap();
+    if a.len() >= 8 {
+        let l_ms: i64 = a.get(8).map_or(500, |v| v.parse().unwrap());
+        fills_pass(&a[1], [&a[2], &a[3]], &a[4..8], l_ms, &la, &lb, &all);
+    }
     eprintln!("готово {:.2}s", t.elapsed().as_secs_f64());
 }
