@@ -1,0 +1,13 @@
+[package]
+name = "pq2bin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parquet = { version = "55", default-features = false, features = ["arrow", "zstd", "snap"] }
+arrow-array = "55"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
