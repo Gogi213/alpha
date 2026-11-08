@@ -14,12 +14,14 @@ pub struct Job {
     pub front0: f64,
     /// время исполнения (мс) или -1
     pub fill: i64,
+    /// исполнена сразу при постановке: противоположная лучшая цена уже дошла до цены заявки (цена выбрана в момент решения, заявка пришла на `L_ms` позже)
+    pub imm: bool,
     q: Option<QueueOrder>,
 }
 
 impl Job {
     pub fn new(buy: bool, tp: i64, tc: i64, price: f64, lot: f64) -> Job {
-        Job { buy, tp, tc, price, lot, front0: -1.0, fill: -1, q: None }
+        Job { buy, tp, tc, price, lot, front0: -1.0, fill: -1, imm: false, q: None }
     }
 }
 
@@ -32,12 +34,12 @@ struct Sim<'a> {
 }
 
 impl Sim<'_> {
-    /// Сдвиг часов до `t`: снять просроченные, поставить подошедшие.
+    /// Сдвиг часов до `t` (события в момент `t` ещё не применены): снять просроченные (tc < t), поставить пришедшие (tp < t).
     fn advance(&mut self, t: i64) {
         if !self.active.is_empty() {
             let jobs = &mut *self.jobs;
             self.active.retain(|&j| {
-                if jobs[j].tc <= t {
+                if jobs[j].tc < t {
                     jobs[j].q = None;
                     false
                 } else {
@@ -45,11 +47,19 @@ impl Sim<'_> {
                 }
             });
         }
-        while self.next < self.ord.len() && self.jobs[self.ord[self.next]].tp <= t {
+        // заявка встаёт после всех событий со временем ≤ tp (как BBO/уровень «на момент прихода»); события в момент tc ей ещё видны
+        while self.next < self.ord.len() && self.jobs[self.ord[self.next]].tp < t {
             let j = self.ord[self.next];
             self.next += 1;
             let job = &mut self.jobs[j];
-            if job.tc <= t {
+            if let Some((b, a)) = self.book.best() {
+                if (job.buy && a <= job.price) || (!job.buy && b >= job.price) {
+                    job.fill = job.tp;
+                    job.imm = true;
+                    continue;
+                }
+            }
+            if job.tc < t {
                 continue;
             }
             let lq = self.book.qty(job.buy, job.price);
@@ -199,5 +209,16 @@ mod tests {
         run(&dir, &[tr(1000, 11.0, 49.0, false), tr(1500, 11.0, 2.0, false)], &mut jobs);
         assert_eq!((jobs[0].front0, jobs[0].fill), (-1.0, -1));
         assert_eq!((jobs[1].front0, jobs[1].fill), (50.0, 1500));
+    }
+
+    #[test]
+    fn stale_price_fills_immediately_on_arrival() {
+        // покупка по 11 (аск 11 уже достигнут) и продажа по 10 (бид 10 уже достигнут) исполняются в момент постановки
+        let dir = write_rows("e", &SNAP);
+        let mut jobs = [Job::new(true, 800, 5000, 11.0, 1.0), Job::new(false, 800, 5000, 10.0, 1.0), Job::new(true, 800, 5000, 10.0, 1.0)];
+        run(&dir, &[tr(900, 10.5, 0.0001, true)], &mut jobs);
+        assert_eq!((jobs[0].fill, jobs[0].imm), (800, true));
+        assert_eq!((jobs[1].fill, jobs[1].imm), (800, true));
+        assert_eq!((jobs[2].fill, jobs[2].imm), (-1, false));
     }
 }

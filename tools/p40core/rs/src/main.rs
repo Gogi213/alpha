@@ -202,6 +202,12 @@ fn episodes(tu: &[i64], x: &[f64], s0: i64, lev: &[f64], theta: f64) -> Vec<Ep> 
     out
 }
 
+/// Момент вступления отмены заявок входа: решение min(θ/2, t0+T_life) + задержка отмены `L_ms` (как у постановки).
+fn cancel_at(e: &Ep, l_ms: i64) -> i64 {
+    let dec = if e.t_th2 >= 0 { e.t_th2.min(e.t0 + T_LIFE_MS) } else { e.t0 + T_LIFE_MS };
+    dec + l_ms
+}
+
 /// Проход 2 (аргументы: trA trB lotA lotB): заявки входа обеих ног каждого эпизода; таблица `<out>.fills.csv`.
 fn fills_pass(out: &str, dirs: [&str; 2], args: &[String], l_ms: i64, la: &Leg, lb: &Leg, eps: &[Ep]) {
     let (tra, trb) = (load_trades(&args[0]), load_trades(&args[1]));
@@ -209,18 +215,19 @@ fn fills_pass(out: &str, dirs: [&str; 2], args: &[String], l_ms: i64, la: &Leg, 
     // индексы заданий: ноги A и B; продаёт дорогая нога (dir=+1 — A), покупает дешёвая
     let mut ja: Vec<fills::Job> = vec![];
     let mut jb: Vec<fills::Job> = vec![];
-    let at = |leg: &Leg, buy: bool, tp: i64, tc: i64| {
-        let k = leg.t.partition_point(|&t| t < tp);
+    // цена — лучшая своей стороны в момент решения t0 (состояние после всех событий ≤ t0); заявка приходит в t0+L, снимается решением (θ/2 или T_life от t0) + L
+    let at = |leg: &Leg, buy: bool, t0: i64, tp: i64, tc: i64| {
+        let k = leg.t.partition_point(|&t| t <= t0);
         let price = if k == 0 { f64::NAN } else if buy { leg.b[k - 1] } else { leg.a[k - 1] };
         (price, tc > tp && price.is_finite())
     };
     let mut slot: Vec<[Option<usize>; 2]> = vec![];
     for e in eps {
         let tp = e.t0 + l_ms;
-        let tc = if e.t_th2 >= 0 { e.t_th2.min(tp + T_LIFE_MS) } else { tp + T_LIFE_MS };
+        let tc = cancel_at(e, l_ms);
         let (buy_a, buy_b) = (e.dir < 0, e.dir > 0);
-        let (pa, oka) = at(la, buy_a, tp, tc);
-        let (pb, okb) = at(lb, buy_b, tp, tc);
+        let (pa, oka) = at(la, buy_a, e.t0, tp, tc);
+        let (pb, okb) = at(lb, buy_b, e.t0, tp, tc);
         let mut s = [None, None];
         if oka {
             s[0] = Some(ja.len());
@@ -234,17 +241,16 @@ fn fills_pass(out: &str, dirs: [&str; 2], args: &[String], l_ms: i64, la: &Leg, 
     }
     fills::run(dirs[0], &tra, &mut ja);
     fills::run(dirs[1], &trb, &mut jb);
-    let mut o = String::from("theta,t0_ms,dir,t_th2_ms,tc_ms,sell_leg,front_sell,fill_sell_ms,front_buy,fill_buy_ms
+    let mut o = String::from("theta,t0_ms,dir,t_th2_ms,tc_ms,sell_leg,front_sell,fill_sell_ms,imm_sell,front_buy,fill_buy_ms,imm_buy
 ");
     for (e, s) in eps.iter().zip(&slot) {
         let rel = |v: i64| if v >= 0 { v - e.t0 } else { -1 };
         let (sell, buy) = if e.dir > 0 { (s[0].map(|k| &ja[k]), s[1].map(|k| &jb[k])) } else { (s[1].map(|k| &jb[k]), s[0].map(|k| &ja[k])) };
-        let f = |j: Option<&fills::Job>| j.map_or((-1.0, -1), |j| (j.front0, rel(j.fill)));
-        let (fs, ts) = f(sell);
-        let (fb, tb) = f(buy);
-        let tcr = if e.t_th2 >= 0 { e.t_th2.min(e.t0 + l_ms + T_LIFE_MS) } else { e.t0 + l_ms + T_LIFE_MS };
-        o += &format!("{:?},{},{},{},{},{},{},{},{},{}
-", e.theta, e.t0, e.dir, rel(e.t_th2), tcr - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, fb, tb);
+        let f = |j: Option<&fills::Job>| j.map_or((-1.0, -1, 0), |j| (j.front0, rel(j.fill), j.imm as u8));
+        let (fs, ts, is) = f(sell);
+        let (fb, tb, ib) = f(buy);
+        o += &format!("{:?},{},{},{},{},{},{},{},{},{},{},{}
+", e.theta, e.t0, e.dir, rel(e.t_th2), cancel_at(e, l_ms) - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, is, fb, tb, ib);
     }
     std::fs::File::create(format!("{out}.fills.csv")).unwrap().write_all(o.as_bytes()).unwrap();
 }
