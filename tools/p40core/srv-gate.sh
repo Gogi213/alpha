@@ -13,6 +13,10 @@ echo "$out" | tail -12
 n_eq=$(echo "$out" | grep -c "байт в байт")
 n_ok=$(echo "$out" | grep -c "test result: ok")
 if [ "$n_eq" != 5 ] || [ "$n_ok" -lt 1 ] || echo "$out" | grep -q "FAILED\|error\["; then echo "ГЕЙТ: тесты/байт в байт — отказ ($n_eq/5, ok=$n_ok)"; fail=1; fi
+# TK-510: тесты aux_feats (час без mark/OI) и бюджета shm orch (без pytest: python3 <файл>)
+for t in test_aux_feats.py test_orch_shm.py; do
+  python3 $P/$t > /tmp/gate_$t.log 2>&1 || { tail -5 /tmp/gate_$t.log; echo "ГЕЙТ: $t — отказ"; fail=1; }
+done
 cd $EP || exit 1
 m=$(nice -n 19 python3 $P/cmp_maker.py /tmp/new.csv.fills.csv maker_5.04.csv maker_12.6.csv /tmp/new.csv.exits.csv 2>&1 | tail -2)
 echo "$m"

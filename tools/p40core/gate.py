@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-500: гейт приёмки ядра эпизодов П-40 одной командой без оболочки и WSL: `python tools/p40core/gate.py [база=old]`.
 
-1) заливает на 5.231.25.224 (/root/p40core) srv-gate.sh, srv-test.sh и cmp_*.py из ветки (LF);
+1) заливает на 5.231.25.224 (/root/p40core) srv-gate.sh, srv-test.sh, aux_feats.py, orch.py, test_*.py и cmp_*.py из ветки (LF);
 2) сверяет md5 исходников ядра (rs/Cargo.toml, rs/src/*.rs) на сервере с веткой — расхождение = отказ (код 3);
 3) запускает srv-gate.sh на сервере (тесты, 5 таблиц байт в байт с базой /tmp/<база>.csv*, сверка с эталоном TK-501).
 Код выхода = код удалённого гейта (0 — ок, 1 — отказ гейта); 2 — не залилось, 3 — исходники на сервере ≠ ветке.
@@ -31,7 +31,7 @@ def ssh(cmd: str, data: bytes | None = None) -> subprocess.CompletedProcess:
 def push_scripts() -> bool:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as t:
-        for p in [D / "srv-gate.sh", D / "srv-test.sh", *sorted(D.glob("cmp_*.py"))]:
+        for p in [D / "srv-gate.sh", D / "srv-test.sh", D / "aux_feats.py", D / "orch.py", *sorted(D.glob("cmp_*.py")), *sorted(D.glob("test_*.py"))]:
             b = lf(p)
             ti = tarfile.TarInfo(p.name)
             ti.size = len(b)
