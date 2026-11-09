@@ -159,12 +159,15 @@ fn bybit_l1(zip_path: &str, outdir: &str) {
 
 /// Строки часа Gate futures (<dir>/<контракт>-<ГГГГММДД><ЧЧ>.csv.gz): `emit(et, fu, price, qty, flags)`.
 fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)) {
-    let rd = BufReader::with_capacity(1 << 20, flate2::read::MultiGzDecoder::new(std::fs::File::open(path).unwrap()));
-    let mut lv: HashMap<u64, f64> = HashMap::new();
+    let mut rd = BufReader::with_capacity(1 << 20, flate2::read::MultiGzDecoder::new(std::fs::File::open(path).unwrap()));
+    let mut lv: HashMap<u64, f64, std::hash::BuildHasherDefault<l1::Fx>> = HashMap::default();
     let (mut grp, mut last_ts) = (-1i64, f64::NAN);
-    for l in rd.lines() {
-        let l = l.unwrap();
-        let mut f = l.split(',');
+    let mut l = String::new();
+    while {
+        l.clear();
+        rd.read_line(&mut l).unwrap() > 0
+    } {
+        let mut f = l.trim_end_matches(['\n', '\r']).split(',');
         let ts: f64 = f.next().unwrap().parse().unwrap();
         let ev = f.next().unwrap();
         let px: f64 = f.next().unwrap().parse().unwrap();
