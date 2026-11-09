@@ -32,6 +32,9 @@ impl Hasher for Fx {
 
 type Map = HashMap<u64, f64, BuildHasherDefault<Fx>>;
 
+/// Куча лучших цен прореживается (пересборка из карты), когда в ней больше 4×уровней + запас: удалённые уровни иначе копятся до конца часа.
+const HEAP_SLACK: usize = 4096;
+
 /// Книга как rs/src/book.rs: абсолютные количества, qty=0 удаляет уровень, лучшие цены — кучи с ленивым удалением по `price.to_bits()`.
 #[derive(Default)]
 pub struct Book {
@@ -57,8 +60,14 @@ impl Book {
         } else if m.insert(key, q).is_none() {
             if bid {
                 self.hb.push(key);
+                if self.hb.len() > 4 * self.bids.len() + HEAP_SLACK {
+                    self.hb = self.bids.keys().copied().collect();
+                }
             } else {
                 self.ha.push(Reverse(key));
+                if self.ha.len() > 4 * self.asks.len() + HEAP_SLACK {
+                    self.ha = self.asks.keys().map(|&k| Reverse(k)).collect();
+                }
             }
         }
     }
@@ -68,23 +77,23 @@ impl Book {
         if bid { self.bids.get(&key) } else { self.asks.get(&key) }.copied().unwrap_or(0.0)
     }
 
-    pub fn best(&mut self) -> Option<(f64, f64)> {
-        while let Some(&k) = self.hb.peek() {
-            if self.bids.contains_key(&k) {
-                break;
+    /// Лучшая пара `(бид, кол-во, аск, кол-во)`; устаревшие вершины куч выбрасываются (поиск уровня в карте — один на сторону).
+    pub fn best(&mut self) -> Option<(f64, f64, f64, f64)> {
+        let (kb, bq) = loop {
+            let &k = self.hb.peek()?;
+            if let Some(&q) = self.bids.get(&k) {
+                break (k, q);
             }
             self.hb.pop();
-        }
-        while let Some(&Reverse(k)) = self.ha.peek() {
-            if self.asks.contains_key(&k) {
-                break;
+        };
+        let (ka, aq) = loop {
+            let &Reverse(k) = self.ha.peek()?;
+            if let Some(&q) = self.asks.get(&k) {
+                break (k, q);
             }
             self.ha.pop();
-        }
-        match (self.hb.peek(), self.ha.peek()) {
-            (Some(&kb), Some(&Reverse(ka))) => Some((f64::from_bits(kb), f64::from_bits(ka))),
-            _ => None,
-        }
+        };
+        Some((f64::from_bits(kb), bq, f64::from_bits(ka), aq))
     }
 }
 
@@ -161,11 +170,11 @@ impl L1Enc {
     }
 
     fn publish(&mut self, out: &mut Vec<u8>, et: i64, fu: i64) {
-        let Some((bb, aa)) = self.book.best() else { return };
+        let Some((bb, bq, aa, aq)) = self.book.best() else { return };
         if bb >= aa {
             return;
         }
-        let cur = L1 { bid: bb, bq: self.book.qty(true, bb), ask: aa, aq: self.book.qty(false, aa) };
+        let cur = L1 { bid: bb, bq, ask: aa, aq };
         let old = match (self.need_snap, self.last) {
             (false, Some(o)) => o,
             _ => {
@@ -368,9 +377,9 @@ mod tests {
                 full.set(bid, px, q);
                 e.row(&mut o, i, i, px, q, (bid as u8) << 1);
             }
-            if let Some((b, a)) = full.best() {
+            if let Some((b, bq, a, aq)) = full.best() {
                 if b < a {
-                    let l = [b, full.qty(true, b), a, full.qty(false, a)];
+                    let l = [b, bq, a, aq];
                     if lastl1 != Some(l) {
                         exp.push((i, l));
                         lastl1 = Some(l);
@@ -390,8 +399,8 @@ mod tests {
                 rb.set(r[k].4 & 2 != 0, r[k].2, r[k].3);
                 k += 1;
             }
-            let (b, a) = rb.best().unwrap();
-            got.push((et, [b, rb.qty(true, b), a, rb.qty(false, a)]));
+            let (b, bq, a, aq) = rb.best().unwrap();
+            got.push((et, [b, bq, a, aq]));
         }
         assert!(!exp.is_empty());
         // первая запись — снимок часа: et первой строки часа (0), далее время концов групп

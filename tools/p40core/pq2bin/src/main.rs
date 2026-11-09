@@ -9,34 +9,18 @@
 //!   fu = номер группы (одна метка ts = одно событие), event_time = round(ts·1000). Каждый час независим (в начале часа — снимок).
 //! TK-515: l1 book <root> <файл> <outdir> [потоков=4] | l1 bybit <zip> <outdir> | l1 gate <dir> <контракт> <ГГГГММДД> <outdir> [множитель=1] [потоков=4] —
 //!   те же разборщики, но выход — L1-файл `<ЧЧ>.l1.bin.zst` (zstd, уровень `P40_ZSTD`, умолч. 3; при `P40_L1_RAW=1` ещё и несжатый `<ЧЧ>.l1.bin`), формат и правила — `l1.rs`.
+mod bybit;
 mod l1;
+mod num;
 
 use arrow_array::{cast::AsArray, types::Int64Type, Array, RecordBatch};
 use l1::L1Enc;
+use num::parse_f64;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ProjectionMask;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-#[derive(Deserialize)]
-struct BybitData<'a> {
-    #[serde(borrow)]
-    b: Vec<(&'a str, &'a str)>,
-    #[serde(borrow)]
-    a: Vec<(&'a str, &'a str)>,
-    u: Option<i64>,
-}
-
-#[derive(Deserialize)]
-struct BybitMsg<'a> {
-    ts: i64,
-    #[serde(rename = "type")]
-    ty: &'a str,
-    #[serde(borrow)]
-    data: BybitData<'a>,
-}
 
 fn push_row(out: &mut Vec<u8>, et: i64, fu: i64, px: f64, qt: f64, fl: u8) {
     out.extend_from_slice(&et.to_le_bytes());
@@ -74,46 +58,11 @@ impl L1Out {
     }
 }
 
-/// Сутки Bybit: для каждого сообщения внутри суток — `f(час, сообщение)`; возвращает число сообщений вне суток.
-fn bybit_scan(zip_path: &str, mut f: impl FnMut(usize, &BybitMsg)) -> usize {
-    let mut za = zip::ZipArchive::new(std::fs::File::open(zip_path).unwrap()).unwrap();
-    let mut rd = BufReader::with_capacity(1 << 20, za.by_index(0).unwrap());
-    let (mut line, mut day0, mut dropped) = (String::new(), None::<i64>, 0usize);
-    while {
-        line.clear();
-        rd.read_line(&mut line).unwrap() > 0
-    } {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let m: BybitMsg = serde_json::from_str(&line).unwrap();
-        let d0 = *day0.get_or_insert(m.ts - m.ts.rem_euclid(86_400_000));
-        let h = (m.ts - d0).div_euclid(3_600_000);
-        if !(0..24).contains(&h) {
-            dropped += 1;
-            continue;
-        }
-        f(h as usize, &m);
-    }
-    dropped
-}
-
-/// Строки книги одного сообщения Bybit: сначала бид (сторона 2), потом аск; снимок fu=-1 и бит0, дельта fu=u.
-fn bybit_rows(m: &BybitMsg, mut emit: impl FnMut(i64, i64, f64, f64, u8)) {
-    let snap = m.ty == "snapshot";
-    let fu = if snap { -1 } else { m.data.u.unwrap() };
-    for (side, lv) in [(2u8, &m.data.b), (0u8, &m.data.a)] {
-        for (p, q) in lv {
-            emit(m.ts, fu, f64_of(p), f64_of(q), snap as u8 | side);
-        }
-    }
-}
-
 fn bybit(zip_path: &str, outdir: &str) {
     let mut hours: Vec<Vec<u8>> = (0..24).map(|_| Vec::new()).collect();
-    let dropped = bybit_scan(zip_path, |h, m| {
+    let dropped = bybit::scan(zip_path, |h, m| {
         let out = &mut hours[h];
-        bybit_rows(m, |et, fu, px, qt, fl| push_row(out, et, fu, px, qt, fl));
+        bybit::rows(m, |et, fu, px, qt, fl| push_row(out, et, fu, px, qt, fl));
     });
     std::fs::create_dir_all(outdir).unwrap();
     let mut n = 0;
@@ -132,7 +81,7 @@ fn bybit_l1(zip_path: &str, outdir: &str) {
     let cfg = L1Out::from_env();
     let (mut enc, mut out) = (L1Enc::new(), Vec::new());
     let (mut cur, mut files, mut back) = (None::<usize>, 0usize, 0usize);
-    let dropped = bybit_scan(zip_path, |h, m| {
+    let dropped = bybit::scan(zip_path, |h, m| {
         // сообщение с часом раньше текущего (инверсия ts на границе часа) остаётся в текущем часу
         let h = match cur {
             Some(c) if h < c => {
@@ -148,7 +97,7 @@ fn bybit_l1(zip_path: &str, outdir: &str) {
             }
             cur = Some(h);
         }
-        bybit_rows(m, |et, fu, px, qt, fl| enc.row(&mut out, et, fu, px, qt, fl));
+        bybit::rows(m, |et, fu, px, qt, fl| enc.row(&mut out, et, fu, px, qt, fl));
     });
     if let Some(c) = cur {
         enc.end_hour(&mut out);
@@ -168,10 +117,10 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
         rd.read_line(&mut l).unwrap() > 0
     } {
         let mut f = l.trim_end_matches(['\n', '\r']).split(',');
-        let ts: f64 = f.next().unwrap().parse().unwrap();
+        let ts = parse_f64(f.next().unwrap());
         let ev = f.next().unwrap();
-        let px: f64 = f.next().unwrap().parse().unwrap();
-        let sz: f64 = f.next().unwrap().parse().unwrap();
+        let px = parse_f64(f.next().unwrap());
+        let sz = parse_f64(f.next().unwrap());
         let et = (ts * 1000.0).round() as i64;
         let key = px.to_bits();
         if ev == "set" {
@@ -257,10 +206,6 @@ fn read(path: &str, names: &[&str]) -> Vec<RecordBatch> {
     read_iter(path, names).collect()
 }
 
-fn f64_of(s: &str) -> f64 {
-    s.parse().unwrap()
-}
-
 /// Строки книги часа CHFT parquet: `emit(et, fu, price, qty, flags)`, порядок как в файле.
 fn book_rows(path: &str, mut emit: impl FnMut(i64, i64, f64, f64, u8)) {
     for rb in read_iter(path, &["event_time", "event_type", "final_update_id", "side", "price", "quantity"]) {
@@ -273,7 +218,7 @@ fn book_rows(path: &str, mut emit: impl FnMut(i64, i64, f64, f64, u8)) {
         for i in 0..rb.num_rows() {
             let f = if fu.is_null(i) { -1 } else { fu.value(i) };
             let fl = (ev.value(i) == "snapshot") as u8 | (((sd.value(i) == "bid") as u8) << 1);
-            emit(et.value(i), f, f64_of(px.value(i)), f64_of(qt.value(i)), fl);
+            emit(et.value(i), f, parse_f64(px.value(i)), parse_f64(qt.value(i)), fl);
         }
     }
 }
@@ -299,7 +244,7 @@ fn trades(path: &str) -> Vec<u8> {
         let qt = rb.column_by_name("quantity").unwrap().as_string::<i32>();
         let bm = rb.column_by_name("is_buyer_maker").unwrap().as_boolean();
         for i in 0..rb.num_rows() {
-            rows.push((et.value(i), f64_of(px.value(i)), f64_of(qt.value(i)), bm.value(i) as u8));
+            rows.push((et.value(i), parse_f64(px.value(i)), parse_f64(qt.value(i)), bm.value(i) as u8));
         }
     }
     rows.sort_by_key(|r| r.0);
