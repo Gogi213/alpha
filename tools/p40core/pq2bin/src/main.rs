@@ -20,6 +20,7 @@ use num::{parse_f64, parse_f64_b};
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::ProjectionMask;
 use parquet::basic::{Encoding, PageType};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
@@ -135,7 +136,12 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
             grp += 1;
             last_ts = ts;
         }
-        let old = lv.get(&key).copied().unwrap_or(0.0);
+        // один поиск по ключу вместо get + insert/remove
+        let slot = lv.entry(key);
+        let old = match &slot {
+            Entry::Occupied(e) => *e.get(),
+            Entry::Vacant(_) => 0.0,
+        };
         let mut new = if ev == b"make" { old + sz } else { old - sz };
         if new.abs() < 1e-12 {
             new = 0.0;
@@ -144,12 +150,21 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
             emit(et, grp, px, 0.0, ((old > 0.0) as u8) << 1);
         }
         if new == 0.0 {
-            lv.remove(&key);
+            if let Entry::Occupied(e) = slot {
+                e.remove();
+            }
             if old != 0.0 {
                 emit(et, grp, px, 0.0, ((old > 0.0) as u8) << 1);
             }
         } else {
-            lv.insert(key, new);
+            match slot {
+                Entry::Occupied(mut e) => {
+                    e.insert(new);
+                }
+                Entry::Vacant(v) => {
+                    v.insert(new);
+                }
+            }
             emit(et, grp, px, new.abs() * mult, ((new > 0.0) as u8) << 1);
         }
     });
@@ -252,7 +267,9 @@ fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = 
         let meta = ArrowReaderMetadata::try_new(b0.metadata().clone(), ArrowReaderOptions::new().with_schema(Arc::new(Schema::new(fields)))).unwrap();
         ParquetRecordBatchReaderBuilder::new_with_metadata(std::fs::File::open(path).unwrap(), meta)
     };
-    b.with_projection(mask).with_batch_size(65536).build().unwrap().map(|r| r.unwrap())
+    // P40_BATCH: строк в пачке arrow (умолчание 65536, как раньше); меньше — пачка влезает в кэш L2
+    let batch = std::env::var("P40_BATCH").ok().and_then(|v| v.parse::<usize>().ok()).filter(|&v| v > 0).unwrap_or(65536);
+    b.with_projection(mask).with_batch_size(batch).build().unwrap().map(|r| r.unwrap())
 }
 
 fn read(path: &str, names: &[&str]) -> Vec<RecordBatch> {

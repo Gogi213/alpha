@@ -72,6 +72,44 @@ prof) # perf record cycles:u по источнику, self % по символа
   pr bybit $N l1 bybit $Z $T/prof/bybit.out
   pr gate $N l1 gate $S/gate DOGE_USDT 20260917 $T/prof/gate.out 1 1
   rm -rf $T/prof/*.out; wc -l $T/prof/*.txt ;;
-*) echo "build|test|ab|bench|ins|zl|prof"; fail=2 ;;
+ins5) # TK-516 круг 4: cycles:u на одном ядре (taskset $CPU), base/new/pgo попеременно, медиана $REP (по умолчанию 5)
+  PG=$T/pgo/puse/release/pq2bin; V="base new"; [ -x $PG ] && V="base new pgo"
+  rm -rf $T/ins5; mkdir -p $T/ins5; : > $T/ins5/raw.txt
+  st() { local n=$1 b=$2; shift 2
+    taskset -c ${CPU:-7} env P40_L1_RAW=0 perf stat -x, -e cycles:u "$@" 2>&1 >/dev/null | awk -F, -v n=$n -v b=$b '/cycles/{printf "%s %s %.3f\n", n, b, $1/1e9}' >> $T/ins5/raw.txt; }
+  for r in $(seq 1 ${REP:-5}); do for v in $V; do bin=$B; [ $v = new ] && bin=$N; [ $v = pgo ] && bin=$PG; D=$T/ins5/$v
+    st bn $v $bin l1 book $BN DOGEUSDT_orderbook.parquet $D/bn 1
+    st okx $v $bin l1 book $OK DOGE-USDT-SWAP_orderbook.parquet $D/okx 1
+    st bybit $v $bin l1 bybit $Z $D/bybit
+    st gate $v $bin l1 gate $S/gate DOGE_USDT 20260917 $D/gate 1 1
+  done; done
+  for n in bn okx bybit gate; do for v in $V; do
+    m=$(awk -v n=$n -v b=$v '$1==n&&$2==b{print $3}' $T/ins5/raw.txt | sort -n | awk '{a[NR]=$1} END{printf "%.2f", a[int((NR+1)/2)]}')
+    all=$(awk -v n=$n -v b=$v '$1==n&&$2==b{printf "%s ", $3}' $T/ins5/raw.txt)
+    echo "$n $v med $m G  [ $all]"
+  done; done ;;
+pgo) # PGO только pq2bin (В-32): профиль на runs(), гейт pgo = не-pgo (после распаковки .zst), бинарь $T/pgo/puse/release/pq2bin
+  export PATH=$PATH:/root/.cargo/bin; W=$T/pgo; LP=/root/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-profdata
+  rm -rf $W; mkdir -p $W/pd; cd $Q/pq2bin || exit 1
+  RUSTFLAGS="-Cprofile-generate=$W/pd" nice -n 5 cargo build --release --target-dir $W/pgen 2>&1 | tail -1
+  runs $W/pgen/release/pq2bin $W/train 2
+  $LP merge -o $W/m.profdata $W/pd/*.profraw || exit 1
+  RUSTFLAGS="-Cprofile-use=$W/m.profdata" nice -n 5 cargo build --release --target-dir $W/puse 2>&1 | tail -1
+  rm -rf $W/o; runs $N $W/o/new 2; runs $W/puse/release/pq2bin $W/o/pgo 2
+  n=0; bad=0; for f in $(cd $W/o/new && find . -type f | sort); do n=$((n+1))
+    case $f in *.zst) zstd -dc $W/o/new/$f | cmp -s - <(zstd -dc $W/o/pgo/$f) || bad=$((bad+1));; *) cmp -s $W/o/new/$f $W/o/pgo/$f || bad=$((bad+1));; esac; done
+  echo "PGO: файлов $n, различий pgo/не-pgo $bad"; [ $bad = 0 ] && [ $n -gt 100 ] || fail=1 ;;
+bt) # TK-516 круг 4: P40_BATCH (строк в пачке arrow) для bn/okx, cycles:u на одном ядре, попеременно, медиана ${REP:-3}
+  rm -rf $T/bt; mkdir -p $T/bt; : > $T/bt/raw.txt
+  for r in $(seq 1 ${REP:-3}); do for bs in ${BS:-4096 16384 65536 262144}; do
+    for src in bn okx; do D=$T/bt/$bs/$src; rm -rf $D
+      case $src in bn) a="book $BN DOGEUSDT_orderbook.parquet $D 1" ;; okx) a="book $OK DOGE-USDT-SWAP_orderbook.parquet $D 1" ;; esac
+      taskset -c ${CPU:-7} env P40_BATCH=$bs P40_L1_RAW=0 perf stat -x, -e cycles:u $N l1 $a 2>&1 >/dev/null | awk -F, -v n=$src -v b=$bs '/cycles/{printf "%s %s %.3f\n", n, b, $1/1e9}' >> $T/bt/raw.txt
+  done; done; done
+  for src in bn okx; do for bs in ${BS:-4096 16384 65536 262144}; do
+    m=$(awk -v n=$src -v b=$bs '$1==n&&$2==b{print $3}' $T/bt/raw.txt | sort -n | awk '{a[NR]=$1} END{printf "%.2f", a[int((NR+1)/2)]}')
+    echo "$src batch=$bs med $m G"
+  done; done ;;
+*) echo "build|test|ab|bench|ins|zl|prof|ins5|pgo|bt"; fail=2 ;;
 esac
 exit $fail
