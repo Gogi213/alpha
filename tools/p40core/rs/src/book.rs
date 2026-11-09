@@ -16,7 +16,8 @@ pub struct Rows(pub Vec<u8>, pub i64);
 impl Rows {
     pub fn load(dir: &str, h: usize) -> Option<Rows> {
         let sh = shift_of(dir);
-        std::fs::read(format!("{dir}/{h:02}.bin")).ok().map(|b| Rows(b, sh))
+        // L1-файл несжатый (`pq2bin l1`, P40_L1_RAW=1) лежит как `<ЧЧ>.l1.bin`; обычный `<ЧЧ>.bin` приоритетнее
+        std::fs::read(format!("{dir}/{h:02}.bin")).or_else(|_| std::fs::read(format!("{dir}/{h:02}.l1.bin"))).ok().map(|b| Rows(b, sh))
     }
     pub fn len(&self) -> usize {
         self.0.len() / 33
@@ -38,6 +39,10 @@ impl Rows {
     }
     pub fn snap(&self, i: usize) -> bool {
         self.fl(i) & 1 != 0
+    }
+    /// Бит2 (L1-файл, TK-515): уровень вышел из L1, но не удалён (qty = 0 в строке — «не виден», а не «снят»).
+    pub fn leaves_l1(&self, i: usize) -> bool {
+        self.fl(i) & 4 != 0
     }
     pub fn is_bid(&self, i: usize) -> bool {
         self.fl(i) & 2 != 0
@@ -65,6 +70,9 @@ pub struct Book {
     asks: HashMap<u64, f64>,
     hb: BinaryHeap<u64>,
     ha: BinaryHeap<Reverse<u64>>,
+    /// Последний видимый размер уровней, вышедших из L1 (бит2): цена -> размер; только для заморозки очереди заявок (fills.rs).
+    hid_b: HashMap<u64, f64>,
+    hid_a: HashMap<u64, f64>,
 }
 
 impl Book {
@@ -73,6 +81,31 @@ impl Book {
         self.asks.clear();
         self.hb.clear();
         self.ha.clear();
+        self.hid_b.clear();
+        self.hid_a.clear();
+    }
+
+    /// Уровень вышел из L1 (бит2) с последним видимым размером `q0` (0 — не было видно: не запоминать).
+    pub fn hide(&mut self, bid: bool, price: f64, q0: f64) {
+        if q0 > 0.0 {
+            if bid { &mut self.hid_b } else { &mut self.hid_a }.insert(price.to_bits(), q0);
+        }
+    }
+
+    /// Последний видимый размер уровня, ушедшего из L1 и не вернувшегося.
+    pub fn hidden_qty(&self, bid: bool, price: f64) -> Option<f64> {
+        if bid { self.hid_b.get(&price.to_bits()) } else { self.hid_a.get(&price.to_bits()) }.copied()
+    }
+
+    /// Уровень вернулся в L1 (или реально удалён): забыть скрытый размер.
+    pub fn unhide(&mut self, bid: bool, price: f64) {
+        if bid { &mut self.hid_b } else { &mut self.hid_a }.remove(&price.to_bits());
+    }
+
+    /// Лучшие цены с размерами: (bid, bq, ask, aq).
+    pub fn best_q(&mut self) -> Option<(f64, f64, f64, f64)> {
+        let (b, a) = self.best()?;
+        Some((b, self.qty(true, b), a, self.qty(false, a)))
     }
 
     /// Абсолютное количество на уровне (0 — убрать). Возвращает прежнее количество (0, если уровня не было).
@@ -133,6 +166,31 @@ impl Book {
             _ => None,
         }
     }
+}
+
+/// Ряд L1 каталога `dir` (G-L1a, TK-515): состояние `(t, bid, bq, ask, aq)` в конце каждой группы по правилам ядра (внутри снимка не публикуется, `bid ≥ ask` не публикуется),
+/// запись только при изменении `(bid, bq, ask, aq)`. Полная книга и её L1-файл дают один ряд.
+pub fn l1_series(dir: &str) -> Vec<(i64, f64, f64, f64, f64)> {
+    let mut book = Book::default();
+    let mut out: Vec<(i64, f64, f64, f64, f64)> = vec![];
+    for h in 0..hours() {
+        let Some(rows) = Rows::load(dir, h) else { continue };
+        for i in 0..rows.len() {
+            if rows.snap_start(i) {
+                book.clear();
+            }
+            book.set(rows.is_bid(i), rows.px(i), rows.qt(i));
+            if !rows.group_end(i) {
+                continue;
+            }
+            if let Some((b, bq, a, aq)) = book.best_q() {
+                if b < a && out.last().map_or(true, |l| (l.1, l.2, l.3, l.4) != (b, bq, a, aq)) {
+                    out.push((rows.et(i), b, bq, a, aq));
+                }
+            }
+        }
+    }
+    out
 }
 
 #[derive(Clone, Copy)]

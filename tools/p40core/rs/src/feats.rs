@@ -1,3 +1,5 @@
+//! TK-515: `P40_L1=1` — признаки без глубины (В-115): `depth_slip` -> `l1_notional` (min по ногам USDT-номинала лучшей цены на стороне нашей заявки), `bookimb` -> `bookimb1` = (bq − aq)/(bq + aq) по лучшим ценам;
+//! считаются по лучшим ценам с размерами, поэтому полная книга и её L1-файл дают один `features.csv` байт в байт. Умолчание (без `P40_L1`) — прежние `depth_slip`/`bookimb`.
 //! TK-500 П-40 §3.5: признаки эпизода из книги и сделок (проход 4): depth_slip, spread, vol5m, plevel, flow1m, bookimb, leader, hour, d_in.
 //! Не сделано: oi5m, liq5m, Φ_t (нужны ряды mark/OI/ликвидаций, конвертеров нет). Терцили — стадия статистики (границы D1 фиксируются для D2).
 //! Определения и знаки — как в эталоне TK-501 (tools/p40ref/features.py): книга на t0 — последнее состояние ≤ t0; сделки, средняя цена, вол — строго до t0.
@@ -15,6 +17,14 @@ pub struct Snap {
     vw_ask: f64,
     t5_bid: f64,
     t5_ask: f64,
+    /// лучшие размеры (в единицах базового актива, `mult` применён)
+    bq: f64,
+    aq: f64,
+}
+
+fn l1_mode() -> bool {
+    static L1: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *L1.get_or_init(|| std::env::var_os("P40_L1").is_some())
 }
 
 /// VWAP набора `NOTIONAL` USDT вглубь от лучшей цены; -1 — глубины не хватает.
@@ -38,9 +48,13 @@ fn top5(lv: &[(f64, f64)]) -> f64 {
 
 fn snap(book: &mut Book, mult: f64) -> Option<Snap> {
     let (bid, ask) = book.best()?;
+    let (bq, aq) = (book.qty(true, bid) * mult, book.qty(false, ask) * mult);
+    if l1_mode() {
+        return Some(Snap { bid, ask, vw_bid: f64::NAN, vw_ask: f64::NAN, t5_bid: f64::NAN, t5_ask: f64::NAN, bq, aq });
+    }
     let sc = |v: Vec<(f64, f64)>| v.into_iter().map(|(p, q)| (p, q * mult)).collect::<Vec<_>>();
     let (b, a) = (sc(book.levels(true)), sc(book.levels(false)));
-    Some(Snap { bid, ask, vw_bid: sweep(&b), vw_ask: sweep(&a), t5_bid: top5(&b), t5_ask: top5(&a) })
+    Some(Snap { bid, ask, vw_bid: sweep(&b), vw_ask: sweep(&a), t5_bid: top5(&b), t5_ask: top5(&a), bq, aq })
 }
 
 /// Состояние книги ноги в моменты `q` (по возрастанию): последнее состояние со временем ≤ q (группа с временем > q ещё не применена).
@@ -110,6 +124,10 @@ fn nanmean(v: &[f64]) -> f64 {
     if f.is_empty() { f64::NAN } else { f.iter().sum::<f64>() / f.len() as f64 }
 }
 
+fn nanmin(v: &[f64]) -> f64 {
+    v.iter().copied().filter(|x| x.is_finite()).fold(f64::NAN, f64::min)
+}
+
 fn nanmax(v: &[f64]) -> f64 {
     v.iter().copied().filter(|x| x.is_finite()).fold(f64::NAN, f64::max)
 }
@@ -127,17 +145,24 @@ pub fn run(out: &str, c: &Ctx, eps: &[(f64, i64, i64, f64)]) {
         sa[i] = pa[k];
         sb[i] = pb[k];
     }
-    let mut o = String::from("theta,t_start,dir,d_in,depth_slip,spread,vol5m,plevel,flow1m,bookimb,leader,hour\n");
+    let mut o = String::from(if l1_mode() {
+        "theta,t_start,dir,d_in,l1_notional,spread,vol5m,plevel,flow1m,bookimb1,leader,hour\n"
+    } else {
+        "theta,t_start,dir,d_in,depth_slip,spread,vol5m,plevel,flow1m,bookimb,leader,hour\n"
+    });
     for (i, &(theta, t, dr, d0)) in eps.iter().enumerate() {
         let (a, b) = (sa[i], sb[i]);
         let (mut slip, mut spread, mut bimb) = (f64::NAN, f64::NAN, f64::NAN);
         if let (Some(a), Some(b)) = (a, b) {
             let ((sell, buy), _) = if dr > 0 { ((a, b), 0) } else { ((b, a), 0) };
             let sl = |vw: f64, best: f64| if vw > 0.0 { (vw - best).abs() / best * 1e4 } else { f64::NAN };
-            slip = nanmax(&[sl(sell.vw_bid, sell.bid), sl(buy.vw_ask, buy.ask)]);
+            slip = if l1_mode() { nanmin(&[sell.bid * sell.bq, buy.ask * buy.aq]) } else { nanmax(&[sl(sell.vw_bid, sell.bid), sl(buy.vw_ask, buy.ask)]) };
             let sp = |s: &Snap| (s.ask - s.bid) / ((s.ask + s.bid) / 2.0) * 1e4;
             spread = sp(&a).max(sp(&b));
-            let im = |s: &Snap| if s.t5_bid + s.t5_ask > 0.0 { (s.t5_bid - s.t5_ask) / (s.t5_bid + s.t5_ask) } else { f64::NAN };
+            let im = |s: &Snap| {
+                let (x, y) = if l1_mode() { (s.bq, s.aq) } else { (s.t5_bid, s.t5_ask) };
+                if x + y > 0.0 { (x - y) / (x + y) } else { f64::NAN }
+            };
             bimb = nanmean(&[im(&a) * dr as f64, im(&b) * -(dr as f64)]);
         }
         let vol = nanmean(&[vol5m(c.leg[0], t), vol5m(c.leg[1], t)]);

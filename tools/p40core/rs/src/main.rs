@@ -468,6 +468,18 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
 ", e.theta, e.t0, e.dir, rel(e.t_th2), c.entry_cancel(e) - e.t0, if e.dir > 0 { "A" } else { "B" }, fs, ts, is, fb, tb, ib);
     }
     std::fs::File::create(format!("{out}.fills.csv")).unwrap().write_all(o.as_bytes()).unwrap();
+    if fills::L1_STAT.load(std::sync::atomic::Ordering::Relaxed) {
+        // TK-515: цена заявки входа уходила из L1 за время жизни (1 — да, -1 — заявки нет); по строкам `fills.csv`
+        let mut l = String::from("theta,t0_ms,dir,left_sell,left_buy
+");
+        for (e, s) in eps.iter().zip(&slot) {
+            let (sell, buy) = if e.dir > 0 { (s[0].map(|k| &ja[k]), s[1].map(|k| &jb[k])) } else { (s[1].map(|k| &jb[k]), s[0].map(|k| &ja[k])) };
+            let f = |j: Option<&fills::Job>| j.map_or(-1, |j| j.left_l1 as i32);
+            l += &format!("{:?},{},{},{},{}
+", e.theta, e.t0, e.dir, f(sell), f(buy));
+        }
+        std::fs::File::create(format!("{out}.l1leave.csv")).unwrap().write_all(l.as_bytes()).unwrap();
+    }
     closing(out, c, eps, [ja, jb], &slot);
 }
 
@@ -631,6 +643,14 @@ fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
 /// `P40_TRUNC=1` — усечение §2.2 (+ колонка `trunc` в exits: 1 — конец данных, 2 — дыра), конец данных `P40_END_MS` (умолчание — последний момент рядов), дыры — файл `P40_HOLES` со строками `начало_мс,конец_мс`.
 fn main() {
     let a: Vec<String> = std::env::args().collect();
+    // G-L1a (TK-515): ряд L1 каталога — печать `(t, bid, bq, ask, aq)`; полная книга и её L1-файл дают одинаковый вывод (sha256 в гейте)
+    if a.get(1).map(String::as_str) == Some("l1series") {
+        let mut o = std::io::BufWriter::new(std::io::stdout().lock());
+        for (t, b, bq, ak, aq) in book::l1_series(&a[2]) {
+            writeln!(o, "{t} {b:?} {bq:?} {ak:?} {aq:?}").unwrap();
+        }
+        return;
+    }
     let t = Instant::now();
     let env = |k: &str| std::env::var(k).ok();
     if let Some(v) = env("P40_SHIFT_B_MS") {
@@ -680,6 +700,7 @@ fn main() {
     let variants = parse_variants(env("P40_VARIANTS").as_deref(), base_l);
     let mut ctx = (a.len() >= 8).then(|| {
         fills::NO_CROSS.store(std::env::var_os("P40_NO_CROSS").is_some(), std::sync::atomic::Ordering::Relaxed);
+        fills::L1_STAT.store(std::env::var_os("P40_L1_STAT").is_some(), std::sync::atomic::Ordering::Relaxed);
         let tr = [load_trades(&a[4]), load_trades(&a[5])];
         let no_tr = [tr[0].is_empty(), tr[1].is_empty()];
         let drain = parse_notrade(env("P40_NOTRADE").as_deref());
