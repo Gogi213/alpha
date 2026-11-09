@@ -518,7 +518,6 @@ mod tests {
             }
             // правка после загрузки идёт напрямую и сохраняет порядок
             b.set(true, 0.51, 7.0);
-            ra.remove(&0.51f64.to_bits());
             rb.insert(0.51f64.to_bits(), 7.0);
             assert_eq!(b.qty(true, 0.51), 7.0);
             let want = match (rb.keys().max(), ra.keys().min()) {
