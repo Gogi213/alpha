@@ -7,12 +7,12 @@ from pathlib import Path
 
 # порядок важен: первое совпадение
 BUCKETS = [
-    ("распаковка входа", r"ZSTD_decompress|ZSTD_buildFSE|HUF_read|HUF_decompress|FSE_decompress|zlib_rs.*(inflate|crc32|adler)|flate2|Decompress"),
+    ("чтение строк (read_until)", r"read_until|buf_read"),
+    ("распаковка входа", r"ZSTD_decompress|ZSTD_buildFSE|HUF_read|HUF_decompress|FSE_decompress|zlib_rs.*(inflate|crc32|adler)"),
     ("сжим выхода", r"ZSTD_compress|ZSTD_encode|ZSTD_seqToCodes|HIST_|HUF_compress|FSE_|ZSTD_entropy|ZSTD_buildCTable|ZSTD_count|ZSTD_"),
     ("декод parquet/arrow", r"parquet|arrow|byte_array|offset_buffer|RleDecoder|BitReader|bit_pack|ColhE3get|ColdE3get|Col.*get"),
-    ("разбор чисел/строк", r"parse_f64|fastjson|from_utf8|parse_line|Cur|round$"),
-    ("чтение строк (read_until)", r"read_until|buf_read|BufReader|memchr"),
-    ("Book (книга)", r"Side|Book|set_side|hashbrown|BTree|select_nth|sort_unstable"),
+    ("разбор чисел/строк", r"parse_f64|fastjson|from_utf8|parse_line|round$"),
+    ("Book (книга) и хеши", r"Side|Book|set_side|hashbrown|BTree|select_nth|sort_unstable"),
     ("L1Enc (кодировщик)", r"L1Enc|push_row|publish"),
     ("инлайн-цикл строк (разбор+emit)", r"rust_begin_short_backtrace"),
     ("libc/ядро (без символов)", r"^0x[0-9a-f]+$|malloc|memcpy|memmove|\[k\]"),
