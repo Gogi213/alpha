@@ -34,6 +34,10 @@ impl Hasher for Fx {
 pub struct Book {
     bids: Vec<(u64, f64)>,
     asks: Vec<(u64, f64)>,
+    /// После `clear` (начало снимка) строки копятся в порядке прихода, книга собирается разом при первом чтении или правке не из снимка.
+    loading: bool,
+    pb: Vec<(u64, f64)>,
+    pa: Vec<(u64, f64)>,
 }
 
 /// Позиция ключа в стороне: первый индекс, где уровень не «хуже» ключа (бид: ключ уровня < key; аск: > key), и найден ли ключ.
@@ -42,35 +46,83 @@ fn find(v: &[(u64, f64)], bid: bool, key: u64) -> (usize, bool) {
     (i, i < v.len() && v[i].0 == key)
 }
 
+fn set_side(v: &mut Vec<(u64, f64)>, bid: bool, key: u64, q: f64) {
+    let (i, hit) = find(v, bid, key);
+    if q == 0.0 {
+        if hit {
+            v.remove(i);
+        }
+    } else if hit {
+        v[i].1 = q;
+    } else {
+        v.insert(i, (key, q));
+    }
+}
+
+/// Накопленные строки стороны -> в книгу: последняя строка ключа побеждает, qty=0 удаляет. Пустая сторона — сортировка и разовая сборка, иначе по одной.
+fn merge_side(v: &mut Vec<(u64, f64)>, p: &mut Vec<(u64, f64)>, bid: bool) {
+    if !v.is_empty() {
+        for &(k, q) in p.iter() {
+            set_side(v, bid, k, q);
+        }
+    } else if !p.is_empty() {
+        if bid {
+            p.sort_by(|a, b| a.0.cmp(&b.0));
+        } else {
+            p.sort_by(|a, b| b.0.cmp(&a.0));
+        }
+        let mut i = 0;
+        while i < p.len() {
+            let mut j = i;
+            while j + 1 < p.len() && p[j + 1].0 == p[i].0 {
+                j += 1;
+            }
+            if p[j].1 != 0.0 {
+                v.push(p[j]);
+            }
+            i = j + 1;
+        }
+    }
+    p.clear();
+}
+
 impl Book {
     pub fn clear(&mut self) {
         self.bids.clear();
         self.asks.clear();
+        self.pb.clear();
+        self.pa.clear();
+        self.loading = true;
     }
 
     pub fn set(&mut self, bid: bool, price: f64, q: f64) {
         let key = price.to_bits();
-        let v = if bid { &mut self.bids } else { &mut self.asks };
-        let (i, hit) = find(v, bid, key);
-        if q == 0.0 {
-            if hit {
-                v.remove(i);
-            }
-        } else if hit {
-            v[i].1 = q;
-        } else {
-            v.insert(i, (key, q));
+        if self.loading {
+            if bid { self.pb.push((key, q)) } else { self.pa.push((key, q)) }
+            return;
+        }
+        set_side(if bid { &mut self.bids } else { &mut self.asks }, bid, key, q);
+    }
+
+    /// Закончить накопление снимка: собрать книгу.
+    pub fn flush(&mut self) {
+        if self.loading {
+            merge_side(&mut self.bids, &mut self.pb, true);
+            merge_side(&mut self.asks, &mut self.pa, false);
+            self.loading = false;
         }
     }
 
-    pub fn qty(&self, bid: bool, price: f64) -> f64 {
+    pub fn qty(&mut self, bid: bool, price: f64) -> f64 {
+        self.flush();
         let v = if bid { &self.bids } else { &self.asks };
         let (i, hit) = find(v, bid, price.to_bits());
         if hit { v[i].1 } else { 0.0 }
     }
 
     /// Лучшая пара `(бид, кол-во, аск, кол-во)`.
-    pub fn best(&self) -> Option<(f64, f64, f64, f64)> {
+    pub fn best(&mut self) -> Option<(f64, f64, f64, f64)> {
+        self.flush();
         let &(kb, bq) = self.bids.last()?;
         let &(ka, aq) = self.asks.last()?;
         Some((f64::from_bits(kb), bq, f64::from_bits(ka), aq))
@@ -419,6 +471,56 @@ mod tests {
             let probe = 0.5 + rnd(300) as f64 * 0.001;
             assert_eq!(b.qty(true, probe), rb.get(&probe.to_bits()).copied().unwrap_or(0.0));
             assert_eq!(b.qty(false, probe), ra.get(&probe.to_bits()).copied().unwrap_or(0.0));
+            let want = match (rb.keys().max(), ra.keys().min()) {
+                (Some(&kb), Some(&ka)) => Some((f64::from_bits(kb), rb[&kb], f64::from_bits(ka), ra[&ka])),
+                _ => None,
+            };
+            assert_eq!(b.best(), want);
+        }
+    }
+
+    /// Пакетная загрузка после clear (без чтений между строками, с повторами ключа и qty=0) == построчное применение к эталону.
+    #[test]
+    fn book_batch_load_matches_reference() {
+        use std::collections::HashMap;
+        let mut s = 4242u64;
+        let mut rnd = |n: u64| {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 33) % n
+        };
+        let mut b = Book::default();
+        for round in 0..2000u32 {
+            b.clear();
+            let (mut rb, mut ra): (HashMap<u64, f64>, HashMap<u64, f64>) = (HashMap::new(), HashMap::new());
+            for _ in 0..rnd(60) {
+                let bid = rnd(2) == 0;
+                let px = 0.5 + rnd(40) as f64 * 0.001;
+                let q = if rnd(4) == 0 { 0.0 } else { 0.25 + rnd(9) as f64 };
+                b.set(bid, px, q);
+                let m = if bid { &mut rb } else { &mut ra };
+                if q == 0.0 {
+                    m.remove(&px.to_bits());
+                } else {
+                    m.insert(px.to_bits(), q);
+                }
+            }
+            if round % 3 == 0 {
+                let want = match (rb.keys().max(), ra.keys().min()) {
+                    (Some(&kb), Some(&ka)) => Some((f64::from_bits(kb), rb[&kb], f64::from_bits(ka), ra[&ka])),
+                    _ => None,
+                };
+                assert_eq!(b.best(), want);
+            }
+            for k in 0..45 {
+                let probe = 0.5 + k as f64 * 0.001;
+                assert_eq!(b.qty(true, probe), rb.get(&probe.to_bits()).copied().unwrap_or(0.0));
+                assert_eq!(b.qty(false, probe), ra.get(&probe.to_bits()).copied().unwrap_or(0.0));
+            }
+            // правка после загрузки идёт напрямую и сохраняет порядок
+            b.set(true, 0.51, 7.0);
+            ra.remove(&0.51f64.to_bits());
+            rb.insert(0.51f64.to_bits(), 7.0);
+            assert_eq!(b.qty(true, 0.51), 7.0);
             let want = match (rb.keys().max(), ra.keys().min()) {
                 (Some(&kb), Some(&ka)) => Some((f64::from_bits(kb), rb[&kb], f64::from_bits(ka), ra[&ka])),
                 _ => None,
