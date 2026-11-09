@@ -8,6 +8,7 @@
 На ПК только ssh (ключ и алиас srv — ~/.ssh/config)."""
 import hashlib
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,7 @@ import tarfile
 from pathlib import Path
 
 HOST = "srv"
-REMOTE = "/root/p40core"
+REMOTE = os.environ.get("P40_DIR", "/root/p40core")  # TK-515: другое дерево на srv; боевой /root/p40core по умолчанию
 D = Path(__file__).resolve().parent
 SSH = [shutil.which("ssh") or "ssh", "-o", "BatchMode=yes", HOST]
 
@@ -68,7 +69,7 @@ def main() -> int:
     if not sources_match():
         return 3
     # вывод удалённого гейта — построчно, код = код ssh
-    p = subprocess.Popen(SSH + [f"bash {REMOTE}/srv-gate.sh {base}"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    p = subprocess.Popen(SSH + [f"P40_DIR={REMOTE} P40_NEW={os.environ.get('P40_NEW', '/tmp/new.csv')} bash {REMOTE}/srv-gate.sh {base}"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     for line in p.stdout:
         sys.stdout.buffer.write(line)
         sys.stdout.buffer.flush()
