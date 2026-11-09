@@ -15,8 +15,8 @@ def hms(h, m):
     return T0 + h * 3600000 + m * 60000
 
 
-def make_root(tmp, no_mark=(), no_oi=()):
-    root = os.path.join(tmp, "chft", "bitget_futures", DAY)
+def make_root(tmp, no_mark=(), no_oi=(), ex="bitget"):
+    root = os.path.join(tmp, "chft", f"{ex}_futures", DAY)
     for h in range(24):
         d = os.path.join(root, f"{h:02d}")
         os.makedirs(d, exist_ok=True)
@@ -28,13 +28,13 @@ def make_root(tmp, no_mark=(), no_oi=()):
     return root
 
 
-def run_aux(tmp, root, times):
+def run_aux(tmp, root, times, root_b="-"):
     out = os.path.join(tmp, "o")
     with open(out + ".features.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["theta", "t_start"])
         w.writerows([["5.04", t] for t in times])
-    r = subprocess.run([sys.executable, os.path.join(HERE, "aux_feats.py"), out, root, SYM, "-", "-"], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, os.path.join(HERE, "aux_feats.py"), out, root, SYM, root_b, SYM if root_b != "-" else "-"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     aux = {int(float(x["t_start"])): x for x in csv.DictReader(open(out + ".aux.csv"))}
     holes = [tuple(x.values()) for x in csv.DictReader(open(out + ".auxholes.csv"))]
@@ -69,12 +69,26 @@ def test_no_holes_unchanged_columns(tmp_path):
     aux, holes = run_aux(str(tmp_path), root, [hms(6, 30)])
     assert holes == []
     a = aux[hms(6, 30)]
-    assert float(a["oi5m"]) > 0 and a["liq5m"] == "0" and a["srcA"] == "1" and a["srcB"] == "0"
+    assert float(a["oi5m"]) > 0 and a["liq5m"] == "0" and a["srcA"] == "1" and a["srcB"] == "0" and a["srcOIA"] == "1" and a["srcOIB"] == "0"
+
+
+def test_aster_no_oi_source_not_hole(tmp_path):
+    """TK-512: у Aster OI нет вовсе — не дыра (auxholes без OI), srcOIA = 0; oi5m — по второй ноге с рядом OI; без OI на обеих ногах — NaN"""
+    ra = make_root(str(tmp_path), no_oi=range(24), ex="aster")
+    rb = make_root(str(tmp_path), ex="bitget")
+    ts = [hms(6, 30)]
+    aux, holes = run_aux(str(tmp_path), ra, ts, root_b=rb)
+    assert not any(h[0] == "aster" for h in holes) and holes == []
+    a = aux[ts[0]]
+    assert a["srcA"] == "1" and a["srcB"] == "1" and a["srcOIA"] == "0" and a["srcOIB"] == "1"
+    assert not nan(a["oi5m"]) and not nan(a["rA"]) and not nan(a["rB"]) and a["liq5m"] == "0"  # OI по Bitget, mark Aster читается
+    solo, holes = run_aux(str(tmp_path), ra, ts)  # Aster × нога без рядов: OI ни у кого
+    assert holes == [] and nan(solo[ts[0]]["oi5m"]) and solo[ts[0]]["srcOIA"] == "0" and solo[ts[0]]["srcOIB"] == "0" and not nan(solo[ts[0]]["rA"])
 
 
 if __name__ == "__main__":  # без pytest (сервер счёта): python3 test_aux_feats.py
     import pathlib, tempfile
-    for fn in (test_missing_hour_files_nan_not_zero, test_no_holes_unchanged_columns):
+    for fn in (test_missing_hour_files_nan_not_zero, test_no_holes_unchanged_columns, test_aster_no_oi_source_not_hole):
         with tempfile.TemporaryDirectory() as d:
             fn(pathlib.Path(d))
         print("ok", fn.__name__)

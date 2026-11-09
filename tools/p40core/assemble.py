@@ -1,7 +1,8 @@
 """TK-500: таблицы ядра (<out>, <out>.exits.csv, <out>.features.csv) нескольких пар×суток -> таблица эпизодов схемы TK-502 (p40stats.SCHEMA + armed, trunc).
 Главные параметры: θ=12,6, T_life=60 с, L=500 мс (те, с которыми запущено ядро). Одна строка = взведённый эпизод (ITT: нет исполнения -> net_bps = 0).
 Запуск: assemble.py <выход.npz> <bounds.json> [--fix] [--aux-strict] <asset>:<day>:<pair>:<bybit_leg 0|1>:<путь к <out>> ...
-  --aux-strict — oi5m/liq5m только если у обеих ног есть ряды (srcA+srcB=2, aux_feats.py), иначе oi5m = нет значения (-1), f_liq = -1; умолчание — по ногам с источником (Bybit/Gate рядов не имеют).
+  --aux-strict — liq5m только если у обеих ног есть ряды (srcA+srcB=2, aux_feats.py), иначе f_liq = -1; oi5m = нет значения (-1), если рядов OI нет хотя бы у одной ноги (srcOIA+srcOIB<2; Aster, Bybit, Gate OI не имеют);
+    умолчание — по ногам с источником (oi5m по ногам с рядом OI; у Aster × Bybit/Gate значения нет).
   bounds.json — границы терцилей: без --fix считаются по всей выборке и записываются (D1); с --fix читаются (D2, границы D1 не пересчитываются).
 Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. mpu_X = 1, если МПУ по исполнимой стороне (<out>.path.csv) хуже −2θ, bps."""
 import csv, json, sys, time
@@ -51,8 +52,9 @@ def main():
             cols["armed"].append(1); cols["trunc"].append(tr)
             a = ax[(e["theta"], f["t_start"])]
             part = strict and int(a.get("srcA", 1)) + int(a.get("srcB", 1)) < 2
+            part_oi = strict and int(a.get("srcOIA", a.get("srcA", 1))) + int(a.get("srcOIB", a.get("srcB", 1))) < 2   # aux.csv до TK-512 без srcOI: OI-источник = mark-источник
             for v in raw:
-                raw[v].append(float("nan") if part and v == "oi5m" else float(a[v] if v == "oi5m" else f[v]))
+                raw[v].append(float("nan") if part_oi and v == "oi5m" else float(a[v] if v == "oi5m" else f[v]))
             phi = float(a["phi_bps"])
             cols["f_liq"].append(-1 if part else int(a["liq5m"])); cols["f_phi_sign"].append(-1 if phi != phi else int(phi > 0))
             hour.append(int(f["hour"])); leader.append(int(f["leader"]))
