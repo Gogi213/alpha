@@ -1,0 +1,110 @@
+{
+ "okx_futures": {
+  "units": 64239,
+  "ok_before": 57192,
+  "ok_before_share": 0.8903,
+  "to_gap": 0,
+  "ok_after": 57192,
+  "ok_after_share": 0.8903,
+  "gap_share_of_ok_before": 0.0,
+  "ok_without_gap_value": 0,
+  "status_after": {
+   "ok": 57192,
+   "gap_prev_id": 7028,
+   "missing_unit": 19,
+   "gap": 0
+  }
+ },
+ "bitget_futures": {
+  "units": 78144,
+  "ok_before": 72586,
+  "ok_before_share": 0.9289,
+  "to_gap": 187,
+  "ok_after": 72399,
+  "ok_after_share": 0.9265,
+  "gap_share_of_ok_before": 0.0026,
+  "ok_without_gap_value": 0,
+  "status_after": {
+   "ok": 72399,
+   "missing_unit": 24,
+   "gap_prev_id": 5534,
+   "gap": 187
+  }
+ },
+ "aster_futures": {
+  "units": 74378,
+  "ok_before": 62641,
+  "ok_before_share": 0.8422,
+  "to_gap": 513,
+  "ok_after": 62128,
+  "ok_after_share": 0.8353,
+  "gap_share_of_ok_before": 0.0082,
+  "ok_without_gap_value": 0,
+  "status_after": {
+   "ok": 62128,
+   "gap_prev_id": 11718,
+   "missing_unit": 19,
+   "gap": 513
+  }
+ },
+ "hyperliquid_futures": {
+  "units": 41414,
+  "ok_before": 41395,
+  "ok_before_share": 0.9995,
+  "to_gap": 0,
+  "ok_after": 41395,
+  "ok_after_share": 0.9995,
+  "gap_share_of_ok_before": 0.0,
+  "ok_without_gap_value": 41395,
+  "status_after": {
+   "ok": 41395,
+   "missing_unit": 19,
+   "gap": 0
+  }
+ },
+ "binance_futures": {
+  "units": 79430,
+  "ok_before": 75572,
+  "ok_before_share": 0.9514,
+  "to_gap": 0,
+  "ok_after": 75572,
+  "ok_after_share": 0.9514,
+  "gap_share_of_ok_before": 0.0,
+  "ok_without_gap_value": 0,
+  "status_after": {
+   "ok": 75572,
+   "gap_prev_id": 3858,
+   "gap": 0
+  }
+ },
+ "bybit": {
+  "units": 3600,
+  "ok_before": 3600,
+  "ok_before_share": 1.0,
+  "to_gap": 0,
+  "ok_after": 3600,
+  "ok_after_share": 1.0,
+  "gap_share_of_ok_before": 0.0,
+  "ok_without_gap_value": 0,
+  "status_after": {
+   "ok": 3600,
+   "gap": 0
+  }
+ },
+ "gate": {
+  "units": 81024,
+  "ok_before": 54596,
+  "ok_before_share": 0.6738,
+  "to_gap": 2048,
+  "ok_after": 52548,
+  "ok_after_share": 0.6485,
+  "gap_share_of_ok_before": 0.0375,
+  "ok_without_gap_value": 0,
+  "status_after": {
+   "ok": 52548,
+   "no_diffs": 25267,
+   "crossed>1%": 1161,
+   "gap": 2048
+  }
+ }
+}
