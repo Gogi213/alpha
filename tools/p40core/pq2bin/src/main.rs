@@ -23,7 +23,6 @@ use parquet::arrow::ProjectionMask;
 use parquet::basic::{Encoding, PageType};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
