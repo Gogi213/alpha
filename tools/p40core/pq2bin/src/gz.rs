@@ -40,7 +40,8 @@ pub fn gunzip_all(data: &[u8]) -> Vec<u8> {
                     pos += in_n;
                     break;
                 } else if r == INSUFFICIENT_SPACE {
-                    out.reserve(out.capacity().max(1 << 20));
+                    // reserve считает от len, а не от capacity: прежнее `reserve(capacity.max(1<<20))` при len = 0 и cap ≥ 1 МБ не росло (вечный цикл)
+                    out.reserve(out.capacity() + (1 << 20));
                 } else {
                     libdeflate_free_decompressor(d);
                     panic!("libdeflate: gzip, код {r}");

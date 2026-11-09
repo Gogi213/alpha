@@ -18,7 +18,7 @@ runs() { # бинарь, каталог, потоков book/gate
 fail=0
 case $1 in
 build) cd $Q/pq2bin && touch src/*.rs Cargo.toml && nice -n 5 cargo build --release 2>&1 | tail -15; [ -x $N ] || fail=1 ;;
-test) cd $Q/pq2bin && touch src/*.rs Cargo.toml && nice -n 5 cargo test --release 2>&1 | tail -30 | tee /tmp/tk516-test.out; grep -q "test result: ok" /tmp/tk516-test.out && ! grep -q "FAILED\|error" /tmp/tk516-test.out || fail=1 ;;
+test) cd $Q/pq2bin && touch src/*.rs Cargo.toml && nice -n 5 timeout 900 cargo test --release 2>&1 | tail -30 | tee /tmp/tk516-test.out; grep -q "test result: ok" /tmp/tk516-test.out && ! grep -q "FAILED\|error" /tmp/tk516-test.out || fail=1 ;;
 ab)
   rm -rf $T/ab; mkdir -p $T/ab/base $T/ab/new
   runs $B $T/ab/base 2; runs $N $T/ab/new 2
