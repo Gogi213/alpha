@@ -116,11 +116,9 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
     let mut l = Vec::new();
     while {
         l.clear();
-        rd.read_until(b'
-', &mut l).unwrap() > 0
+        rd.read_until(b'\n', &mut l).unwrap() > 0
     } {
-        while matches!(l.last(), Some(b'
-' | b'')) {
+        while matches!(l.last(), Some(b'\n' | b'\r')) {
             l.pop();
         }
         let mut f = l.split(|&c| c == b',');
