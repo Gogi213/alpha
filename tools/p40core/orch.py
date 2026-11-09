@@ -5,6 +5,9 @@ pairs.csv: asset,pair,exA,symA,multA,lotA,stepA,exB,symB,multB,lotB,stepB   (п�
   mult — множитель размера Gate (quanto_multiplier), step — шаг количества очереди, пусто = 1 и 1e-9; биржи: binance okx bitget aster hyperliquid bybit gate;
   lot пусто/auto -> lot = N/(mid_open*ct): N = --n-usdt (умолч. 1000, П-40 §8), mid_open = середина первого снимка книги ноги в сутках, ct = монет в единице количества книги (колонки ctA/ctB в конце, пусто = 1; OKX = ctVal))
 Выход: <out>/<asset>/<day>/<pair>{,.fills.csv,.exits.csv,.features.csv,.path.csv,.aux.csv}, <out>/specs.txt (строки для assemble.py), <out>/orch.csv (замеры по актив-суткам), метка DONE (повтор пропускает).
+TK-510: бюджет /dev/shm. Пик актива×чанка = все .bin чанка (они в 2–37 раз больше сырья: 0,07–0,38 ГБ на ногу×сутки) + сырьё одних суток. Задание берёт «пилот» (PILOT_LEG_B на ногу), считает первые сутки,
+  меряет du(wd) и бронирует оценку пика ((оставшееся + .bin K суток) × SHM_MARGIN); сумма броней ≤ SHM_FRAC (0,8) от размера shm минус чужое на старте, иначе ждёт; оценка одного задания > бюджета -> отказ сразу.
+  Сбой ENOSPC (rsync rc 11, pq2bin/ядро с «No space left») — отдельное исключение ShmFull, строка «СБОЙ ENOSPC», код выхода 28 (умолч. сбой = 1); mark/OI-дыры поставщика (aux_feats) копятся в <out>/auxholes.csv.
 Флаги ядра P40_* (NOTRADE, THETAS, VARIANTS, TRUNC, K2, SHIFT_B_MS ...) передаются средой как есть. Binance-стакан читается с локального диска (BINANCE_BOOK), остальное — rsync --files-from с бокса в P постоянных соединениях."""
 import argparse, calendar, concurrent.futures as cf, csv, gzip, os, shutil, subprocess, sys, threading, time
 import numpy as np
@@ -17,6 +20,71 @@ CORE = os.environ.get("P40_CORE", "/root/p40core/rs/target/release/p40core")
 PQ2BIN = os.environ.get("P40_PQ2BIN", "/root/p40core/pq2bin/target/release/pq2bin")
 SSH = "ssh -c aes128-gcm@openssh.com -o Compression=no"
 LOG_LOCK = threading.Lock()
+EXIT_SHM = 28                  # errno ENOSPC: хотя бы одно задание упало или отказано по месту в /dev/shm
+SHM_FRAC = 0.8                 # доля shm под брони
+SHM_MARGIN = 1.25              # запас оценки пика на разброс суток (оценка и факт пишутся в orch.log: «shm: …»)
+PILOT_LEG_B = 600 * 1024 ** 2  # бронь на ногу в первые сутки: замер 09.11 (AAVE 17.09) — .bin+сырьё ≤ 0,43 ГБ на ногу×сутки
+SEEN_AUXH = set()
+
+
+class ShmFull(RuntimeError):
+    """/dev/shm не хватило (факт ENOSPC или оценка пика больше бюджета) — не «обычный» сбой"""
+
+
+class ShmBudget:
+    """брони /dev/shm: сумма ≤ cap = frac·размер − чужое на старте; set() ждёт, пока влезет; оценка > cap -> ShmFull сразу.
+    Без взаимной блокировки: если ни у кого другого нет полной брони (все в пилоте), задание идёт, пока оно само ≤ cap."""
+
+    def __init__(self, shm, frac=SHM_FRAC, total=None, foreign=None):
+        os.makedirs(shm, exist_ok=True)
+        st = os.statvfs(shm)
+        total = st.f_blocks * st.f_frsize if total is None else total
+        foreign = total - st.f_bavail * st.f_frsize if foreign is None else foreign
+        self.cap = int(total * frac) - foreign
+        self.res, self.full, self.cv = {}, set(), threading.Condition()
+
+    def set(self, key, need, full=False, wait=60.0):
+        if need > self.cap:
+            raise ShmFull(f"оценка пика {need / 2**30:.1f} ГБ > бюджета shm {self.cap / 2**30:.1f} ГБ ({SHM_FRAC:.0%} размера минус чужое): уменьшите --chunk")
+        with self.cv:
+            while sum(v for k, v in self.res.items() if k != key) + need > self.cap and (self.full - {key}):
+                self.cv.wait(wait)
+            self.res[key] = need
+            if full:
+                self.full.add(key)
+            self.cv.notify_all()
+
+    def release(self, key):
+        with self.cv:
+            self.res.pop(key, None)
+            self.full.discard(key)
+            self.cv.notify_all()
+
+
+def peak_estimate(peak1, kept1, k_days):
+    """peak1 = du(wd) первых суток до drop_heavy, kept1 = после (≈ .bin суток + малое сырьё); пик K суток = K·kept1 + тяжёлое сырьё одних суток"""
+    return int((k_days * kept1 + (peak1 - kept1)) * SHM_MARGIN)
+
+
+def du(path):
+    return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs if os.path.exists(os.path.join(d, f)))
+
+
+def nospace(log, shm=None):
+    """упал ли шаг из-за места: «No space left»/StorageFull в хвосте лога или shm почти полон"""
+    try:
+        with open(log, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 16384))
+            tail = f.read().decode("utf-8", "replace")
+        if "No space left" in tail or "StorageFull" in tail:
+            return True
+    except OSError:
+        pass
+    if shm:
+        st = os.statvfs(shm)
+        return st.f_bavail * st.f_frsize < 64 * 1024 ** 2
+    return False
 
 
 def run(cmd, env=None, log=None):
@@ -62,8 +130,16 @@ def fetch(files, raw, p, log):
         if os.path.exists(f"{lst}{i}"):
             os.remove(f"{lst}{i}")
     if any(rc not in (0, 23, 24) for rc in bad):
+        if 11 in bad and nospace(log, os.path.dirname(raw)):
+            raise ShmFull(f"ENOSPC /dev/shm при rsync rc {bad}")
         raise RuntimeError(f"rsync rc {bad}")
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(raw) for f in fs)
+
+
+def fail(msg, log, shm_path):
+    if nospace(log, os.path.dirname(shm_path)):
+        raise ShmFull("ENOSPC /dev/shm: " + msg)
+    raise RuntimeError(msg)
 
 
 def convert(ex, sym, day, raw, bins, mult, log):
@@ -81,11 +157,11 @@ def convert(ex, sym, day, raw, bins, mult, log):
         r = run([PQ2BIN, "book", book_root, f"{sym}_orderbook.parquet", f"{bins}/B", "2"], log=log)
         w, c = r[1], r[2]
         if r[0] != 0:
-            raise RuntimeError(f"pq2bin book {ex} {sym} rc {r[0]}")
+            fail(f"pq2bin book {ex} {sym} rc {r[0]}", log, bins)
         r2 = run([PQ2BIN, "trades", root, f"{sym}_trades.parquet", f"{bins}/T", "2"], log=log)
         r = (r2[0], w + r2[1], c + r2[2])
     if r[0] != 0:
-        raise RuntimeError(f"pq2bin {ex} {sym} rc {r[0]}")
+        fail(f"pq2bin {ex} {sym} rc {r[0]}", log, bins)
     return r[1], r[2]
 
 
@@ -155,6 +231,20 @@ def merge(srcs, dst, sub):
                 os.symlink(f, f"{dst}/{sub}/{24 * di + h:02d}.bin")
 
 
+def collect_auxholes(out, path):
+    """дыры mark/OI/ликвидаций поставщика по ногам пары -> <out>/auxholes.csv без повторов (ноги общие для пар актива)"""
+    with LOG_LOCK:
+        new = [r for r in csv.reader(open(path)) if r and r[0] != "exchange" and tuple(r) not in SEEN_AUXH]
+        SEEN_AUXH.update(map(tuple, new))
+        dst = f"{out}/auxholes.csv"
+        head = not os.path.exists(dst)
+        with open(dst, "a", newline="") as f:
+            w = csv.writer(f)
+            if head:
+                w.writerow(["exchange", "contract", "date", "hour", "kind"])
+            w.writerows(new)
+
+
 def job(args, asset, days, pairs, outlog):
     t_all = time.time()
     cid = days[0] if len(days) == 1 else f"{days[0]}+{len(days)}"
@@ -172,7 +262,10 @@ def job(args, asset, days, pairs, outlog):
                 legs.setdefault((p["ex" + s], p["sym" + s]), float(p["mult" + s] or 1))
         nbytes = 0
         t_fetch = t_conv = c_conv = 0.0
-        for day in days:
+        key = f"{asset}_{cid}"
+        args.budget.set(key, PILOT_LEG_B * len(legs))
+        est = peak = 0
+        for di, day in enumerate(days):
             raw = f"{wd}/raw/{day}"
             t = time.time()
             nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day)], raw, args.fetch_p, log)
@@ -180,7 +273,17 @@ def job(args, asset, days, pairs, outlog):
             for (ex, sym), mult in legs.items():
                 w, c = convert(ex, sym, day, raw, f"{wd}/bin/{leg_key(ex, sym)}/{day}", mult, log)
                 t_conv, c_conv = t_conv + w, c_conv + c
+            peak = max(peak, du(wd))
+            if di == 0:
+                p1 = peak
             drop_heavy(raw)
+            if di == 0 and len(days) > 1:
+                est = peak_estimate(p1, du(wd), len(days))
+                args.budget.set(key, est, full=True)
+            elif di == 0:
+                est = int(p1 * SHM_MARGIN)
+        with open(log, "a") as f:
+            f.write(f"shm: оценка пика {est} Б, факт {peak} Б, бюджет {args.budget.cap} Б" + chr(10))
         mrg = {}
         for (ex, sym) in legs:
             k = leg_key(ex, sym)
@@ -215,6 +318,7 @@ def job(args, asset, days, pairs, outlog):
                 if rc != 0:
                     raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
                 c_aux += c
+                collect_auxholes(args.out, f"{base}.auxholes.csv")
             with LOG_LOCK, open(f"{args.out}/specs.txt", "a") as f:
                 byb = int("bybit" in (p["exA"], p["exB"]))
                 f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{byb}:{base}" + chr(10))
@@ -225,6 +329,7 @@ def job(args, asset, days, pairs, outlog):
         print("готово", *row, flush=True)
     finally:
         shutil.rmtree(wd, ignore_errors=True)
+        args.budget.release(f"{asset}_{cid}")
 
 
 def main():
@@ -252,16 +357,22 @@ def main():
     keep = set(filter(None, args.assets.split(",")))
     ds = args.days.split(",")
     todo = [(a, ds[i:i + args.chunk], ps) for i in range(0, len(ds), args.chunk) for a, ps in by_asset.items() if not keep or a in keep]
-    err = 0
+    err = shm_err = 0
+    args.budget = ShmBudget(args.shm)
     with cf.ThreadPoolExecutor(args.jobs) as ex:
         futs = {ex.submit(job, args, a, d, ps, outlog): (a, d) for a, d, ps in todo}
         for f in cf.as_completed(futs):
             try:
                 f.result()
+            except ShmFull as e:
+                err += 1
+                shm_err += 1
+                print("СБОЙ ENOSPC", futs[f][0], futs[f][1][0], e, file=sys.stderr, flush=True)
             except Exception as e:  # noqa: BLE001
                 err += 1
                 print("СБОЙ", futs[f], e, file=sys.stderr, flush=True)
-    sys.exit(1 if err else 0)
+    sys.exit(EXIT_SHM if shm_err else 1 if err else 0)
 
 
-main()
+if __name__ == "__main__":
+    main()
