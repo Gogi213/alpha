@@ -73,11 +73,11 @@ prof) # perf record cycles:u по источнику, self % по символа
   pr gate $N l1 gate $S/gate DOGE_USDT 20260917 $T/prof/gate.out 1 1
   rm -rf $T/prof/*.out; wc -l $T/prof/*.txt ;;
 ins5) # TK-516 круг 4: cycles:u на одном ядре (taskset $CPU), base/new/pgo попеременно, медиана $REP (по умолчанию 5)
-  PG=$T/pgo/puse/release/pq2bin; V="base new"; [ -x $PG ] && V="base new pgo"
+  PG=$T/pgo/puse/release/pq2bin; V="base new"; [ -x $PG ] && V="base new pgo"; [ -n "$NV" ] && V="base new nv"
   rm -rf $T/ins5; mkdir -p $T/ins5; : > $T/ins5/raw.txt
-  st() { local n=$1 b=$2; shift 2
-    taskset -c ${CPU:-7} env P40_L1_RAW=0 perf stat -x, -e cycles:u "$@" 2>&1 >/dev/null | awk -F, -v n=$n -v b=$b '/cycles/{printf "%s %s %.3f\n", n, b, $1/1e9}' >> $T/ins5/raw.txt; }
-  for r in $(seq 1 ${REP:-5}); do for v in $V; do bin=$B; [ $v = new ] && bin=$N; [ $v = pgo ] && bin=$PG; D=$T/ins5/$v
+  st() { local n=$1 b=$2; shift 2; local ev=""; [ $b = nv ] && ev=P40_NOVIEW=1
+    taskset -c ${CPU:-7} env P40_L1_RAW=0 $ev perf stat -x, -e cycles:u "$@" 2>&1 >/dev/null | awk -F, -v n=$n -v b=$b '/cycles/{printf "%s %s %.3f\n", n, b, $1/1e9}' >> $T/ins5/raw.txt; }
+  for r in $(seq 1 ${REP:-5}); do for v in $V; do bin=$B; [ $v = new ] && bin=$N; [ $v = nv ] && bin=$N; [ $v = pgo ] && bin=$PG; D=$T/ins5/$v
     st bn $v $bin l1 book $BN DOGEUSDT_orderbook.parquet $D/bn 1
     st okx $v $bin l1 book $OK DOGE-USDT-SWAP_orderbook.parquet $D/okx 1
     st bybit $v $bin l1 bybit $Z $D/bybit

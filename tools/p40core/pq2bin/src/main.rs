@@ -13,7 +13,7 @@ mod bybit;
 mod l1;
 mod num;
 
-use arrow_array::{cast::AsArray, types::{Int32Type, Int64Type}, Array, ArrayRef, GenericStringArray, PrimitiveArray, RecordBatch};
+use arrow_array::{cast::AsArray, types::{Int32Type, Int64Type}, Array, ArrayRef, GenericStringArray, PrimitiveArray, RecordBatch, StringViewArray};
 use arrow_schema::{DataType, Field, Schema};
 use l1::L1Enc;
 use num::{parse_f64, parse_f64_b};
@@ -247,8 +247,11 @@ fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = 
             }
         })
         .collect();
+    // остальные колонки списка `dict` (plain / откат писателя) — Utf8View: строки ≤ 12 байт лежат в самом представлении, без словаря и без копии (P40_NOVIEW=1 — как раньше)
+    let no_view = std::env::var_os("P40_NOVIEW").is_some();
+    let view: Vec<&str> = if no_view { Vec::new() } else { dict.iter().copied().filter(|n| !encoded.contains(n) && b0.parquet_schema().columns().iter().any(|c| c.name() == *n)).collect() };
     let dict = &encoded[..];
-    let b = if dict.is_empty() {
+    let b = if dict.is_empty() && view.is_empty() {
         b0
     } else {
         let fields: Vec<Arc<Field>> = b0
@@ -259,6 +262,8 @@ fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = 
                 if dict.contains(&f.name().as_str()) {
                     let t = DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8));
                     Arc::new(Field::new(f.name(), t, f.is_nullable()).with_metadata(f.metadata().clone()))
+                } else if view.contains(&f.name().as_str()) {
+                    Arc::new(Field::new(f.name(), DataType::Utf8View, f.is_nullable()).with_metadata(f.metadata().clone()))
                 } else {
                     f.clone()
                 }
@@ -288,6 +293,7 @@ fn is_bid(s: &str) -> u8 {
 enum Col<'a, T> {
     Dict(&'a PrimitiveArray<Int32Type>, Vec<T>),
     Str(&'a GenericStringArray<i32>, fn(&str) -> T),
+    View(&'a StringViewArray, fn(&str) -> T),
 }
 
 impl<T: Copy> Col<'_, T> {
@@ -307,6 +313,13 @@ impl<T: Copy> Col<'_, T> {
                     f(s.value(i))
                 }
             }
+            Col::View(s, f) => {
+                if s.is_null(i) {
+                    nul
+                } else {
+                    f(s.value(i))
+                }
+            }
         }
     }
 
@@ -314,6 +327,7 @@ impl<T: Copy> Col<'_, T> {
         match self {
             Col::Dict(k, _) => k.null_count(),
             Col::Str(s, _) => s.null_count(),
+            Col::View(s, _) => s.null_count(),
         }
     }
 }
@@ -322,6 +336,8 @@ fn col<T: Copy>(a: &ArrayRef, f: fn(&str) -> T) -> Col<'_, T> {
     if matches!(a.data_type(), DataType::Dictionary(..)) {
         let d = a.as_dictionary::<Int32Type>();
         Col::Dict(d.keys(), d.values().as_string::<i32>().iter().map(|v| f(v.unwrap_or(""))).collect())
+    } else if matches!(a.data_type(), DataType::Utf8View) {
+        Col::View(a.as_string_view(), f)
     } else {
         Col::Str(a.as_string::<i32>(), f)
     }
