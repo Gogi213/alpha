@@ -78,6 +78,25 @@
   ],
   "smax_gt60s": 1
  },
+ "binance_futures": {
+  "units": 79430,
+  "status": {
+   "ok": 75572,
+   "gap_prev_id": 3858
+  },
+  "good_share": 0.9514289311343321,
+  "n_contracts": 94,
+  "smax_s_q_0_10_25_50_75_90_100": [
+   2.0,
+   6.8,
+   11.4,
+   16.5,
+   36.3,
+   63.9,
+   246.8
+  ],
+  "smax_gt60s": 12
+ },
  "bybit": {
   "units": 3600,
   "status": {
