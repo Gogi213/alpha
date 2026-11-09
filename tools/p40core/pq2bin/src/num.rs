@@ -17,6 +17,15 @@ pub fn parse_f64(s: &str) -> f64 {
     }
 }
 
+/// То же из байтов (токен строки без проверки UTF-8 всей строки; не-UTF-8 токен вне быстрого пути — паника, как у `str::parse`).
+#[inline]
+pub fn parse_f64_b(b: &[u8]) -> f64 {
+    match fast(b) {
+        Some(v) => v,
+        None => std::str::from_utf8(b).unwrap().parse().unwrap(),
+    }
+}
+
 #[inline]
 fn fast(b: &[u8]) -> Option<f64> {
     let (neg, b) = match b.first() {

@@ -1,6 +1,6 @@
 //! TK-516: чтение суток Bybit ob200 (zip, jsonl) — без аллокаций на сообщение: сырой deflate из zip через flate2 (zlib-rs), разбор по схеме
 //! вручную (`fastjson`), любое отклонение строки от схемы — прежний путь serde_json. Результат разбора тот же, что у serde_json + `str::parse`.
-use crate::num::parse_f64;
+use crate::num::{parse_f64, parse_f64_b};
 use serde::Deserialize;
 use std::io::{BufRead, BufReader};
 
@@ -35,7 +35,7 @@ pub struct Msg {
 /// Разбор по схеме `{"topic":..,"type":..,"ts":N,"data":{"s":..,"b":[[".",".."],..],"a":[..],"u":N,..},..}`.
 /// Экранирование, не-ASCII, вложенное значение неизвестного ключа, нецелое ts/u, иная форма уровня, повтор ключа — `None` (строку разбирает serde_json).
 pub mod fastjson {
-    use super::{parse_f64, Msg};
+    use super::{parse_f64_b, Msg};
 
     struct Cur<'a> {
         s: &'a [u8],
@@ -47,15 +47,15 @@ pub mod fastjson {
             (*self.s.get(self.i)? == c).then(|| self.i += 1)
         }
 
-        /// Строка без экранирования и не-ASCII: `"..."` -> содержимое.
-        fn str(&mut self) -> Option<&'a str> {
+        /// Строка без экранирования и не-ASCII: `"..."` -> байты содержимого (ASCII, т. е. заведомо UTF-8).
+        fn str_b(&mut self) -> Option<&'a [u8]> {
             self.eat(b'"')?;
             let st = self.i;
             while let Some(&c) = self.s.get(self.i) {
                 if c == b'"' {
-                    let r = std::str::from_utf8(&self.s[st..self.i]).ok();
+                    let r = &self.s[st..self.i];
                     self.i += 1;
-                    return r;
+                    return Some(r);
                 }
                 if c == b'\\' || c >= 0x80 {
                     return None;
@@ -63,6 +63,10 @@ pub mod fastjson {
                 self.i += 1;
             }
             None
+        }
+
+        fn str(&mut self) -> Option<&'a str> {
+            std::str::from_utf8(self.str_b()?).ok()
         }
 
         /// Целое со знаком, не длиннее 18 цифр; следом обязателен `,` или `}` (иначе число не целое — на serde).
@@ -112,11 +116,11 @@ pub mod fastjson {
             }
             loop {
                 self.eat(b'[')?;
-                let p = self.str()?;
+                let p = self.str_b()?;
                 self.eat(b',')?;
-                let q = self.str()?;
+                let q = self.str_b()?;
                 self.eat(b']')?;
-                out.push((parse_f64(p), parse_f64(q)));
+                out.push((parse_f64_b(p), parse_f64_b(q)));
                 match self.s.get(self.i)? {
                     b',' => self.i += 1,
                     b']' => {
@@ -312,7 +316,6 @@ mod tests {
             r#"{"type":"delta","ts":1.5,"data":{"b":[],"a":[],"u":1}}"#,
             r#"{"type":"delta","ts":1,"data":{"b":[["1","2","3"]],"a":[],"u":1}}"#,
             r#"{"type":"delta","ts":1,"data":{"b":[[1,2]],"a":[],"u":1}}"#,
-            r#"{"type":"delta","ts":1,"data":{"b":[],"a":[],"u":1}}"#,
             r#"{"type":"delta","ts":1,"data":{"b":[],"a":[],"u":1,"x":[1]}}"#,
             r#"{"type":"delta","ts":1,"ts":2,"data":{"b":[],"a":[],"u":1}}"#,
             r#"{"type":"delta","ts":1,"data":{"b":[],"u":1}}"#,

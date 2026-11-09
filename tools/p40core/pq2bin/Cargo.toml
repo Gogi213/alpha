@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 parquet = { version = "55", default-features = false, features = ["arrow", "zstd", "snap"] }
 arrow-array = "55"
+arrow-schema = "55"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 serde = { version = "1", features = ["derive"] }

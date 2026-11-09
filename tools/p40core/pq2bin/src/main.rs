@@ -13,13 +13,15 @@ mod bybit;
 mod l1;
 mod num;
 
-use arrow_array::{cast::AsArray, types::Int64Type, Array, RecordBatch};
+use arrow_array::{cast::AsArray, types::{Int32Type, Int64Type}, Array, RecordBatch};
+use arrow_schema::{DataType, Field, Schema};
 use l1::L1Enc;
-use num::parse_f64;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use num::{parse_f64, parse_f64_b};
+use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::ProjectionMask;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn push_row(out: &mut Vec<u8>, et: i64, fu: i64, px: f64, qt: f64, fl: u8) {
@@ -111,19 +113,24 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
     let mut rd = BufReader::with_capacity(1 << 20, flate2::read::MultiGzDecoder::new(std::fs::File::open(path).unwrap()));
     let mut lv: HashMap<u64, f64, std::hash::BuildHasherDefault<l1::Fx>> = HashMap::default();
     let (mut grp, mut last_ts) = (-1i64, f64::NAN);
-    let mut l = String::new();
+    let mut l = Vec::new();
     while {
         l.clear();
-        rd.read_line(&mut l).unwrap() > 0
+        rd.read_until(b'
+', &mut l).unwrap() > 0
     } {
-        let mut f = l.trim_end_matches(['\n', '\r']).split(',');
-        let ts = parse_f64(f.next().unwrap());
+        while matches!(l.last(), Some(b'
+' | b'')) {
+            l.pop();
+        }
+        let mut f = l.split(|&c| c == b',');
+        let ts = parse_f64_b(f.next().unwrap());
         let ev = f.next().unwrap();
-        let px = parse_f64(f.next().unwrap());
-        let sz = parse_f64(f.next().unwrap());
+        let px = parse_f64_b(f.next().unwrap());
+        let sz = parse_f64_b(f.next().unwrap());
         let et = (ts * 1000.0).round() as i64;
         let key = px.to_bits();
-        if ev == "set" {
+        if ev == b"set" {
             lv.insert(key, sz);
             emit(et, -1, px, sz.abs() * mult, 1 | (((sz > 0.0) as u8) << 1));
             continue;
@@ -133,7 +140,7 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
             last_ts = ts;
         }
         let old = lv.get(&key).copied().unwrap_or(0.0);
-        let mut new = if ev == "make" { old + sz } else { old - sz };
+        let mut new = if ev == b"make" { old + sz } else { old - sz };
         if new.abs() < 1e-12 {
             new = 0.0;
         }
@@ -195,30 +202,55 @@ fn gate(dir: &str, contract: &str, day: &str, outdir: &str, mult: f64, nth: usiz
     eprintln!("pq2bin {}gate: часов {}", if l1 { "l1 " } else { "" }, done.load(Ordering::Relaxed));
 }
 
-fn read_iter(path: &str, names: &[&str]) -> impl Iterator<Item = RecordBatch> {
-    let b = ParquetRecordBatchReaderBuilder::try_new(std::fs::File::open(path).unwrap()).unwrap();
-    let idx: Vec<usize> = names.iter().map(|n| b.parquet_schema().columns().iter().position(|c| c.name() == *n).unwrap()).collect();
-    let mask = ProjectionMask::roots(b.parquet_schema(), idx);
+/// Колонки `dict` читаются словарём (Dictionary(Int32, Utf8)): строки значений не раскрываются на каждую строку, разбор — по записи словаря.
+fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = RecordBatch> {
+    let b0 = ParquetRecordBatchReaderBuilder::try_new(std::fs::File::open(path).unwrap()).unwrap();
+    let idx: Vec<usize> = names.iter().map(|n| b0.parquet_schema().columns().iter().position(|c| c.name() == *n).unwrap()).collect();
+    let mask = ProjectionMask::roots(b0.parquet_schema(), idx);
+    let b = if dict.is_empty() {
+        b0
+    } else {
+        let fields: Vec<Arc<Field>> = b0
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| {
+                if dict.contains(&f.name().as_str()) {
+                    let t = DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8));
+                    Arc::new(Field::new(f.name(), t, f.is_nullable()).with_metadata(f.metadata().clone()))
+                } else {
+                    f.clone()
+                }
+            })
+            .collect();
+        let meta = ArrowReaderMetadata::try_new(b0.metadata().clone(), ArrowReaderOptions::new().with_schema(Arc::new(Schema::new(fields)))).unwrap();
+        ParquetRecordBatchReaderBuilder::new_with_metadata(std::fs::File::open(path).unwrap(), meta)
+    };
     b.with_projection(mask).with_batch_size(65536).build().unwrap().map(|r| r.unwrap())
 }
 
 fn read(path: &str, names: &[&str]) -> Vec<RecordBatch> {
-    read_iter(path, names).collect()
+    read_iter(path, names, &[]).collect()
 }
 
 /// Строки книги часа CHFT parquet: `emit(et, fu, price, qty, flags)`, порядок как в файле.
 fn book_rows(path: &str, mut emit: impl FnMut(i64, i64, f64, f64, u8)) {
-    for rb in read_iter(path, &["event_time", "event_type", "final_update_id", "side", "price", "quantity"]) {
+    for rb in read_iter(path, &["event_time", "event_type", "final_update_id", "side", "price", "quantity"], &["event_type", "side", "price", "quantity"]) {
         let et = rb.column_by_name("event_time").unwrap().as_primitive::<Int64Type>();
         let fu = rb.column_by_name("final_update_id").unwrap().as_primitive::<Int64Type>();
-        let ev = rb.column_by_name("event_type").unwrap().as_string::<i32>();
-        let sd = rb.column_by_name("side").unwrap().as_string::<i32>();
-        let px = rb.column_by_name("price").unwrap().as_string::<i32>();
-        let qt = rb.column_by_name("quantity").unwrap().as_string::<i32>();
+        let (ev, sd) = (rb.column_by_name("event_type").unwrap().as_dictionary::<Int32Type>(), rb.column_by_name("side").unwrap().as_dictionary::<Int32Type>());
+        let (px, qt) = (rb.column_by_name("price").unwrap().as_dictionary::<Int32Type>(), rb.column_by_name("quantity").unwrap().as_dictionary::<Int32Type>());
+        // по записи словаря: флаг события/стороны и число
+        let flag = |d: &arrow_array::DictionaryArray<Int32Type>, want: &str| -> Vec<u8> { d.values().as_string::<i32>().iter().map(|v| (v == Some(want)) as u8).collect() };
+        let num = |d: &arrow_array::DictionaryArray<Int32Type>| -> Vec<f64> { d.values().as_string::<i32>().iter().map(|v| parse_f64(v.unwrap_or(""))).collect() };
+        let (evf, sdf, pxv, qtv) = (flag(ev, "snapshot"), flag(sd, "bid"), num(px), num(qt));
+        assert!(px.null_count() == 0 && qt.null_count() == 0, "price/quantity null");
+        let (evk, sdk, pxk, qtk) = (ev.keys(), sd.keys(), px.keys(), qt.keys());
         for i in 0..rb.num_rows() {
             let f = if fu.is_null(i) { -1 } else { fu.value(i) };
-            let fl = (ev.value(i) == "snapshot") as u8 | (((sd.value(i) == "bid") as u8) << 1);
-            emit(et.value(i), f, parse_f64(px.value(i)), parse_f64(qt.value(i)), fl);
+            let s = if evk.is_null(i) { 0 } else { evf[evk.value(i) as usize] };
+            let b = if sdk.is_null(i) { 0 } else { sdf[sdk.value(i) as usize] };
+            emit(et.value(i), f, pxv[pxk.value(i) as usize], qtv[qtk.value(i) as usize], s | (b << 1));
         }
     }
 }
