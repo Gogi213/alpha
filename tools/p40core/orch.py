@@ -21,6 +21,7 @@ BINANCE_BOOK = os.environ.get("BINANCE_BOOK", "/data/stakan/chft/binance_futures
 CORE = os.environ.get("P40_CORE", "/root/p40core/rs/target/release/p40core")
 PQ2BIN = os.environ.get("P40_PQ2BIN", "/root/p40core/pq2bin/target/release/pq2bin")
 SSH = "ssh -c aes128-gcm@openssh.com -o Compression=no"
+L1_SRC = os.environ.get("P40_L1_SRC", "box:alpha/stakan")   # TK-522: откуда брать p40l1/...; для гейта до выкладки L1 на бокс — локальный /data (L1 раздела srv)
 LOG_LOCK = threading.Lock()
 EXIT_SHM = 28                  # errno ENOSPC: хотя бы одно задание упало или отказано по месту в /dev/shm
 SHM_FRAC = 0.8                 # доля shm под брони
@@ -159,7 +160,7 @@ def fetch_l1(ex, sym, day, raw, log):
     rel = l1_rel(ex, sym, day)
     dst = f"{raw}/{rel}"
     os.makedirs(dst, exist_ok=True)
-    rc = subprocess.call(["rsync", "-q", "-a", "-e", SSH, f"box:alpha/stakan/{rel}/", dst + "/"], stdout=subprocess.DEVNULL, stderr=open(log, "ab"))
+    rc = subprocess.call(["rsync", "-q", "-a", "-e", SSH, f"{L1_SRC}/{rel}/", dst + "/"], stdout=subprocess.DEVNULL, stderr=open(log, "ab"))
     if rc != 0:
         if rc == 11 and nospace(log, os.path.dirname(raw)):
             raise ShmFull(f"ENOSPC /dev/shm при rsync L1 {rel}")
