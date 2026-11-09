@@ -27,7 +27,7 @@ SHM_FRAC = 0.8                 # доля shm под брони
 SHM_MARGIN = 1.25              # запас оценки пика на разброс суток (оценка и факт пишутся в orch.log: «shm: …»)
 PILOT_LEG_B = 600 * 1024 ** 2  # бронь на ногу в первые сутки: замер 09.11 (AAVE 17.09) — .bin+сырьё ≤ 0,43 ГБ на ногу×сутки
 SEEN_AUXH = set()
-L1_EX = {"bybit": "bybit_futures", "gate": "gate_futures"}   # TK-518/В-116: сырьё этих бирж на боксе удаляется reaper'ом -> вход ног = L1 бокса alpha/stakan/p40l1/<биржа>_futures/<символ>/<сутки>/
+L1_EX = {ex: f"{ex}_futures" for ex in sorted(CHFT | {"bybit", "gate"})}   # TK-518/TK-522 (В-116): вход ВСЕХ ног = L1 бокса alpha/stakan/p40l1/<биржа>_futures/<символ>/<сутки>/ ({ЧЧ}.l1.bin.zst + {ЧЧ}.tr.zst сделки CHFT + .ok)
 
 
 class ShmFull(RuntimeError):
@@ -106,8 +106,10 @@ def leg_key(ex, sym):
     return f"{ex}_{sym}"
 
 
-def box_files(ex, sym, day):
-    """пути на боксе от alpha/stakan/ (то, что нужно ядру и aux_feats)"""
+def box_files(ex, sym, day, aux_only=False):
+    """пути на боксе от alpha/stakan/ (то, что нужно ядру и aux_feats); aux_only (TK-522, нога из L1) — только mark/OI/ликвидации CHFT для aux_feats, стакан и сделки идут из L1"""
+    if aux_only:
+        return [f"chft/{ex}_futures/{day}/{h:02d}/{sym}_{k}.parquet" for h in range(24) for k in KINDS[2:]] if ex in CHFT else []
     if ex == "bybit":
         return [f"bybit-linear-ob200/{day}/{sym}_{day}_ob200.data.zip"]
     if ex == "gate":
@@ -160,25 +162,33 @@ def fetch_l1(ex, sym, day, raw, log):
         raise RuntimeError(f"L1 {rel}: rsync rc {rc} (нет суток на боксе?)")
     try:
         kv = dict(x.split("=", 1) for x in open(f"{dst}/.ok").read().split() if "=" in x)
-        nf, size = int(kv["files"]), int(kv["l1"])
+        nf, size = int(kv["files"].split("/")[0]), int(kv["l1"])   # CHFT: files=48/48 (l1+tr), 404=<число часов без файла поставщика>; Bybit/Gate: files=<число l1>
+        tsize = int(kv.get("tr", 0))
     except (OSError, KeyError, ValueError) as e:
         raise RuntimeError(f"L1 {rel}: нет метки .ok или она не разобрана ({e})") from e
-    fs = sorted(f for f in os.listdir(dst) if f.endswith(".l1.bin.zst"))
-    if nf <= 0 or len(fs) != nf or sum(os.path.getsize(f"{dst}/{f}") for f in fs) != size:
-        raise RuntimeError(f"L1 {rel}: по метке файлов {nf}, байт {size}; на диске файлов {len(fs)}")
+    fs = sorted(f for f in os.listdir(dst) if f.endswith((".l1.bin.zst", ".tr.zst")))
+    l1 = [f for f in fs if f.endswith(".l1.bin.zst")]
+    tr = [f for f in fs if f.endswith(".tr.zst")]
+    if nf <= 0 or not l1 or len(fs) != nf or sum(os.path.getsize(f"{dst}/{f}") for f in l1) != size or sum(os.path.getsize(f"{dst}/{f}") for f in tr) != tsize:
+        raise RuntimeError(f"L1 {rel}: по метке файлов {nf}, байт l1 {size}, tr {tsize}; на диске файлов {len(fs)} (l1 {len(l1)}, tr {len(tr)})")
     return [f"{dst}/{f}" for f in fs]
 
 
 def unpack_l1(ex, sym, day, raw, bins, log):
-    """-> (fetch_s, байт L1, wall, cpu распаковки): `<ЧЧ>.l1.bin.zst` -> `<bins>/B/<ЧЧ>.l1.bin` (ядро читает `.l1.bin`, merge() линкует как `<idx>.bin`); сделок у Bybit/Gate нет — `T` пуст, как у прежнего конвертера"""
+    """-> (fetch_s, байт L1, wall, cpu распаковки): `<ЧЧ>.l1.bin.zst` -> `<bins>/B/<ЧЧ>.l1.bin`, `<ЧЧ>.tr.zst` (сделки CHFT, формат `pq2bin trades` 25 Б) -> `<bins>/T/<ЧЧ>.tr`; merge() линкует обоих как `<idx>.bin`"""
     t = time.time()
     fs = fetch_l1(ex, sym, day, raw, log)
     tf, nb = time.time() - t, sum(os.path.getsize(f) for f in fs)
     os.makedirs(f"{bins}/B", exist_ok=True)
     os.makedirs(f"{bins}/T", exist_ok=True)
-    rc, w, c = run(["zstd", "-d", "-q", "-f", "--output-dir-flat", f"{bins}/B", *fs], log=log)
-    if rc != 0:
-        fail(f"zstd -d L1 {l1_rel(ex, sym, day)} rc {rc}", log, bins)
+    w = c = 0.0
+    for sub, suf in (("B", ".l1.bin.zst"), ("T", ".tr.zst")):   # сделок у Bybit/Gate нет — `T` пуст, как у прежнего конвертера
+        part = [f for f in fs if f.endswith(suf)]
+        if part:
+            rc, w1, c1 = run(["zstd", "-d", "-q", "-f", "--output-dir-flat", f"{bins}/{sub}", *part], log=log)
+            if rc != 0:
+                fail(f"zstd -d L1 {l1_rel(ex, sym, day)} rc {rc}", log, bins)
+            w, c = w + w1, c + c1
     return tf, nb, w, c
 
 
@@ -263,7 +273,7 @@ def drop_heavy(raw):
     """после конвертации сырьё книги/сделок не нужно (aux читает только mark/OI/ликвидации CHFT; у ног Bybit/Gate таких рядов нет); Bybit/Gate — целиком"""
     for d, _, fs in os.walk(raw):
         for f in fs:
-            if f.endswith(("_orderbook.parquet", "_trades.parquet", ".zip", ".csv.gz", ".l1.bin.zst")):
+            if f.endswith(("_orderbook.parquet", "_trades.parquet", ".zip", ".csv.gz", ".l1.bin.zst", ".tr.zst")):
                 os.remove(os.path.join(d, f))
 
 
@@ -274,7 +284,7 @@ def merge(srcs, dst, sub):
         for h in range(24):
             f = f"{src}/{sub}/{h:02d}.bin"
             if not os.path.exists(f):
-                f = f"{src}/{sub}/{h:02d}.l1.bin"   # L1-файл (TK-518): имя другое, содержимое — те же 33-байтные строки
+                f = f"{src}/{sub}/{h:02d}.l1.bin" if sub == "B" else f"{src}/{sub}/{h:02d}.tr"   # L1 (TK-518/522): имя другое, содержимое то же (33-байтные строки книги / 25-байтные сделки)
             if os.path.exists(f):
                 os.symlink(f, f"{dst}/{sub}/{24 * di + h:02d}.bin")
 
@@ -316,7 +326,7 @@ def job(args, asset, days, pairs, outlog):
         for di, day in enumerate(days):
             raw = f"{wd}/raw/{day}"
             t = time.time()
-            nbytes += fetch([f for (ex, sym) in legs if not l1_leg(args, ex) for f in box_files(ex, sym, day)], raw, args.fetch_p, log)
+            nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=l1_leg(args, ex))], raw, args.fetch_p, log)
             t_fetch += time.time() - t
             for (ex, sym), mult in legs.items():
                 bins = f"{wd}/bin/{leg_key(ex, sym)}/{day}"
@@ -397,7 +407,7 @@ def main():
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
     ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")
-    ap.add_argument("--raw-legs", action="store_true", help="TK-518: ноги Bybit/Gate читать из сырья бокса (прежний путь; сырьё удаляется reaper'ом, В-116 — для сверок и смоков). Умолчание — L1 бокса p40l1 (строго: нет суток = сбой)")
+    ap.add_argument("--raw-legs", action="store_true", help="TK-518/522: ВСЕ ноги читать из сырья бокса (прежний путь; для сверок и смоков, Bybit/Gate сырья на боксе уже нет). Умолчание — L1 бокса p40l1 (строго: нет суток = сбой)")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
@@ -410,7 +420,7 @@ def main():
         by_asset.setdefault(r["asset"], []).append(r)
     keep = set(filter(None, args.assets.split(",")))
     if not args.raw_legs and "P40_L1" not in os.environ and any(r[f"ex{s}"] in L1_EX for r in sum(by_asset.values(), []) for s in "AB"):
-        sys.exit("TK-518: ноги Bybit/Gate идут из L1 (без глубины) -> признаки depth_slip/bookimb невозможны; задайте P40_L1=1 на весь прогон (ядро берёт l1_notional/bookimb1 по лучшим ценам) или --raw-legs, пока сырьё на боксе есть")
+        sys.exit("TK-522: ноги идут из L1 (без глубины) -> признаки depth_slip/bookimb невозможны; задайте P40_L1=1 на весь прогон (ядро берёт l1_notional/bookimb1 по лучшим ценам) или --raw-legs")
     ds = args.days.split(",")
     todo = [(a, ds[i:i + args.chunk], ps) for i in range(0, len(ds), args.chunk) for a, ps in by_asset.items() if not keep or a in keep]
     if "P40_L1" in os.environ and b"P40_L1" not in open(CORE, "rb").read():

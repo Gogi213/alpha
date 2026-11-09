@@ -77,9 +77,31 @@ def test_strict_refusal_files0(tmp):
     refused(tmp, "files=0")
 
 
+def test_chft_leg_with_trades(tmp):
+    """TK-522: нога CHFT — l1 + сделки (.tr.zst -> T/<ЧЧ>.tr -> merge линкует как <idx>.bin); метка «files=a/b 404=k»; aux-файлы сырья — только mark/OI/ликвидации"""
+    d = make_box(tmp, ex="okx", sym="X-USDT-SWAP", hours=(0, 7))
+    tsize = 0
+    for h in (0, 7):
+        raw = tmp / f"{h:02d}.tr"
+        raw.write_bytes(bytes([h + 1]) * 50)
+        subprocess.run(["zstd", "-q", "-f", "-o", str(d / f"{h:02d}.tr.zst"), str(raw)], check=True)
+        tsize += os.path.getsize(d / f"{h:02d}.tr.zst")
+    l1 = sum(os.path.getsize(d / f"{h:02d}.l1.bin.zst") for h in (0, 7))
+    (d / ".ok").write_text("raw=1 l1=%d tr=%d files=4/48 404=22\n" % (l1, tsize))
+    raw, bins, log = str(tmp / "raw"), str(tmp / "bins"), str(tmp / "log")
+    orch.unpack_l1("okx", "X-USDT-SWAP", "2026-10-05", raw, bins, log)
+    assert sorted(os.listdir(f"{bins}/B")) == ["00.l1.bin", "07.l1.bin"] and sorted(os.listdir(f"{bins}/T")) == ["00.tr", "07.tr"]
+    orch.merge([bins], str(tmp / "mrg"), "T")
+    assert open(tmp / "mrg" / "T" / "07.bin", "rb").read() == bytes([8]) * 50
+    orch.drop_heavy(raw)
+    assert not [f for _, _, fs in os.walk(raw) for f in fs if f.endswith(".zst")]
+    fs = orch.box_files("okx", "X-USDT-SWAP", "2026-10-05", aux_only=True)
+    assert len(fs) == 72 and not [f for f in fs if "orderbook" in f or "trades" in f] and orch.box_files("bybit", "X", "2026-10-05", aux_only=True) == []
+
+
 def test_l1_leg_flags():
     a = types.SimpleNamespace(raw_legs=False)
-    assert orch.l1_leg(a, "bybit") and orch.l1_leg(a, "gate") and not orch.l1_leg(a, "okx") and not orch.l1_leg(a, "binance")
+    assert all(orch.l1_leg(a, ex) for ex in ("bybit", "gate", "okx", "binance", "bitget", "aster", "hyperliquid"))   # TK-522: все биржи
     assert not orch.l1_leg(types.SimpleNamespace(raw_legs=True), "bybit")
 
 
