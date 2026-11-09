@@ -66,7 +66,8 @@ pub mod fastjson {
         }
 
         fn str(&mut self) -> Option<&'a str> {
-            std::str::from_utf8(self.str_b()?).ok()
+            // SAFETY: `str_b` пропускает только байты < 0x80 (ASCII), т. е. заведомо валидный UTF-8 — повторная проверка (5,6 % циклов bybit) не нужна.
+            Some(unsafe { std::str::from_utf8_unchecked(self.str_b()?) })
         }
 
         /// Целое со знаком, не длиннее 18 цифр; следом обязателен `,` или `}` (иначе число не целое — на serde).
