@@ -13,12 +13,13 @@ mod bybit;
 mod l1;
 mod num;
 
-use arrow_array::{cast::AsArray, types::{Int32Type, Int64Type}, Array, RecordBatch};
+use arrow_array::{cast::AsArray, types::{Int32Type, Int64Type}, Array, ArrayRef, GenericStringArray, PrimitiveArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use l1::L1Enc;
 use num::{parse_f64, parse_f64_b};
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::ProjectionMask;
+use parquet::basic::Encoding;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
@@ -200,11 +201,22 @@ fn gate(dir: &str, contract: &str, day: &str, outdir: &str, mult: f64, nth: usiz
     eprintln!("pq2bin {}gate: часов {}", if l1 { "l1 " } else { "" }, done.load(Ordering::Relaxed));
 }
 
-/// Колонки `dict` читаются словарём (Dictionary(Int32, Utf8)): строки значений не раскрываются на каждую строку, разбор — по записи словаря.
+/// Колонки `dict`, закодированные в файле словарём (первая группа строк: RLE_DICTIONARY/PLAIN_DICTIONARY), читаются как Dictionary(Int32, Utf8):
+/// строки значений не раскрываются на каждую строку, разбор — по записи словаря. Простая (plain) колонка словарём не читается: arrow строил бы словарь заново (≈30 % кадров).
 fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = RecordBatch> {
     let b0 = ParquetRecordBatchReaderBuilder::try_new(std::fs::File::open(path).unwrap()).unwrap();
     let idx: Vec<usize> = names.iter().map(|n| b0.parquet_schema().columns().iter().position(|c| c.name() == *n).unwrap()).collect();
     let mask = ProjectionMask::roots(b0.parquet_schema(), idx);
+    let encoded: Vec<&str> = dict
+        .iter()
+        .copied()
+        .filter(|n| {
+            let Some(i) = b0.parquet_schema().columns().iter().position(|c| c.name() == *n) else { return false };
+            b0.metadata().num_row_groups() > 0
+                && b0.metadata().row_group(0).column(i).encodings().iter().any(|e| matches!(e, Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY))
+        })
+        .collect();
+    let dict = &encoded[..];
     let b = if dict.is_empty() {
         b0
     } else {
@@ -231,24 +243,69 @@ fn read(path: &str, names: &[&str]) -> Vec<RecordBatch> {
     read_iter(path, names, &[]).collect()
 }
 
+fn is_snapshot(s: &str) -> u8 {
+    (s == "snapshot") as u8
+}
+
+fn is_bid(s: &str) -> u8 {
+    (s == "bid") as u8
+}
+
+/// Строковая колонка батча: Dictionary(Int32, Utf8) — значения словаря разобраны заранее; Utf8 — разбор на строке. Null -> значение `nul`.
+enum Col<'a, T> {
+    Dict(&'a PrimitiveArray<Int32Type>, Vec<T>),
+    Str(&'a GenericStringArray<i32>, fn(&str) -> T),
+}
+
+impl<T: Copy> Col<'_, T> {
+    fn get(&self, i: usize, nul: T) -> T {
+        match self {
+            Col::Dict(k, v) => {
+                if k.is_null(i) {
+                    nul
+                } else {
+                    v[k.value(i) as usize]
+                }
+            }
+            Col::Str(s, f) => {
+                if s.is_null(i) {
+                    nul
+                } else {
+                    f(s.value(i))
+                }
+            }
+        }
+    }
+
+    fn null_count(&self) -> usize {
+        match self {
+            Col::Dict(k, _) => k.null_count(),
+            Col::Str(s, _) => s.null_count(),
+        }
+    }
+}
+
+fn col<T: Copy>(a: &ArrayRef, f: fn(&str) -> T) -> Col<'_, T> {
+    if matches!(a.data_type(), DataType::Dictionary(..)) {
+        let d = a.as_dictionary::<Int32Type>();
+        Col::Dict(d.keys(), d.values().as_string::<i32>().iter().map(|v| f(v.unwrap_or(""))).collect())
+    } else {
+        Col::Str(a.as_string::<i32>(), f)
+    }
+}
+
 /// Строки книги часа CHFT parquet: `emit(et, fu, price, qty, flags)`, порядок как в файле.
 fn book_rows(path: &str, mut emit: impl FnMut(i64, i64, f64, f64, u8)) {
     for rb in read_iter(path, &["event_time", "event_type", "final_update_id", "side", "price", "quantity"], &["event_type", "side", "price", "quantity"]) {
         let et = rb.column_by_name("event_time").unwrap().as_primitive::<Int64Type>();
         let fu = rb.column_by_name("final_update_id").unwrap().as_primitive::<Int64Type>();
-        let (ev, sd) = (rb.column_by_name("event_type").unwrap().as_dictionary::<Int32Type>(), rb.column_by_name("side").unwrap().as_dictionary::<Int32Type>());
-        let (px, qt) = (rb.column_by_name("price").unwrap().as_dictionary::<Int32Type>(), rb.column_by_name("quantity").unwrap().as_dictionary::<Int32Type>());
-        // по записи словаря: флаг события/стороны и число
-        let flag = |d: &arrow_array::DictionaryArray<Int32Type>, want: &str| -> Vec<u8> { d.values().as_string::<i32>().iter().map(|v| (v == Some(want)) as u8).collect() };
-        let num = |d: &arrow_array::DictionaryArray<Int32Type>| -> Vec<f64> { d.values().as_string::<i32>().iter().map(|v| parse_f64(v.unwrap_or(""))).collect() };
-        let (evf, sdf, pxv, qtv) = (flag(ev, "snapshot"), flag(sd, "bid"), num(px), num(qt));
+        // колонка — словарь (значение разбирается по записи словаря) или обычные строки (разбор на каждую строку)
+        let (ev, sd) = (col(rb.column_by_name("event_type").unwrap(), is_snapshot), col(rb.column_by_name("side").unwrap(), is_bid));
+        let (px, qt) = (col(rb.column_by_name("price").unwrap(), parse_f64), col(rb.column_by_name("quantity").unwrap(), parse_f64));
         assert!(px.null_count() == 0 && qt.null_count() == 0, "price/quantity null");
-        let (evk, sdk, pxk, qtk) = (ev.keys(), sd.keys(), px.keys(), qt.keys());
         for i in 0..rb.num_rows() {
             let f = if fu.is_null(i) { -1 } else { fu.value(i) };
-            let s = if evk.is_null(i) { 0 } else { evf[evk.value(i) as usize] };
-            let b = if sdk.is_null(i) { 0 } else { sdf[sdk.value(i) as usize] };
-            emit(et.value(i), f, pxv[pxk.value(i) as usize], qtv[qtk.value(i) as usize], s | (b << 1));
+            emit(et.value(i), f, px.get(i, 0.0), qt.get(i, 0.0), ev.get(i, 0) | (sd.get(i, 0) << 1));
         }
     }
 }
