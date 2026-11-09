@@ -8,7 +8,7 @@
 //!   set = уровень снимка (размер>0 бид, <0 аск); make: L+=размер, take: L-=размер (гипотеза B из G0); строка книги = абсолютное |L|·множитель, знак L = сторона;
 //!   fu = номер группы (одна метка ts = одно событие), event_time = round(ts·1000). Каждый час независим (в начале часа — снимок).
 //! TK-515: l1 book <root> <файл> <outdir> [потоков=4] | l1 bybit <zip> <outdir> | l1 gate <dir> <контракт> <ГГГГММДД> <outdir> [множитель=1] [потоков=4] —
-//!   те же разборщики, но выход — L1-файл `<ЧЧ>.l1.bin.zst` (zstd, уровень `P40_ZSTD`, умолч. 3; при `P40_L1_RAW=1` ещё и несжатый `<ЧЧ>.l1.bin`), формат и правила — `l1.rs`.
+//!   те же разборщики, но выход — L1-файл `<ЧЧ>.l1.bin.zst` (zstd, уровень `P40_ZSTD`, умолч. 2; при `P40_L1_RAW=1` ещё и несжатый `<ЧЧ>.l1.bin`), формат и правила — `l1.rs`.
 mod bybit;
 mod l1;
 mod num;
@@ -33,7 +33,7 @@ fn push_row(out: &mut Vec<u8>, et: i64, fu: i64, px: f64, qt: f64, fl: u8) {
     out.push(fl);
 }
 
-/// Выход L1-режима: `<outdir>/<ЧЧ>.l1.bin.zst` (zstd, уровень `P40_ZSTD`, умолч. 3) и при `P40_L1_RAW=1` — несжатый `<ЧЧ>.l1.bin`.
+/// Выход L1-режима: `<outdir>/<ЧЧ>.l1.bin.zst` (zstd, уровень `P40_ZSTD`, умолч. 2) и при `P40_L1_RAW=1` — несжатый `<ЧЧ>.l1.bin`.
 struct L1Out {
     zstd_level: i32,
     raw: bool,
@@ -42,7 +42,7 @@ struct L1Out {
 impl L1Out {
     fn from_env() -> Self {
         L1Out {
-            zstd_level: std::env::var("P40_ZSTD").ok().map_or(3, |v| v.parse().unwrap()),
+            zstd_level: std::env::var("P40_ZSTD").ok().map_or(2, |v| v.parse().unwrap()),
             raw: std::env::var("P40_L1_RAW").is_ok_and(|v| v == "1"),
         }
     }
