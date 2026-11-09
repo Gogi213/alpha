@@ -7,9 +7,7 @@
 //! Сначала бид, потом аск; et/fu — последней строки группы, бит0 сброшен. Начало часа: снимок текущего L1 (две строки fu=-1, бит0; бид|бит1),
 //! et = et первой строки часа; нет L1 к началу часа — снимок нового L1 при первой публикации часа.
 use crate::push_row;
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
-use std::hash::{BuildHasherDefault, Hasher};
+use std::hash::Hasher;
 
 /// Хеш цены (биты f64): умножение + свёртка старших бит вниз (круглые цены имеют нулевой хвост мантиссы).
 #[derive(Default)]
@@ -30,69 +28,51 @@ impl Hasher for Fx {
     }
 }
 
-type Map = HashMap<u64, f64, BuildHasherDefault<Fx>>;
-
-/// Куча лучших цен прореживается (пересборка из карты), когда в ней больше 4×уровней + запас: удалённые уровни иначе копятся до конца часа.
-const HEAP_SLACK: usize = 4096;
-
-/// Книга как rs/src/book.rs: абсолютные количества, qty=0 удаляет уровень, лучшие цены — кучи с ленивым удалением по `price.to_bits()`.
+/// Книга как rs/src/book.rs: абсолютные количества, qty=0 удаляет уровень. Сторона — массив `(price.to_bits(), qty)`, отсортированный так, что лучший
+/// уровень последний (бид — по возрастанию ключа, аск — по убыванию): лучшая цена за O(1), правки у вершины — короткий сдвиг, без куч и хешей.
 #[derive(Default)]
 pub struct Book {
-    bids: Map,
-    asks: Map,
-    hb: BinaryHeap<u64>,
-    ha: BinaryHeap<Reverse<u64>>,
+    bids: Vec<(u64, f64)>,
+    asks: Vec<(u64, f64)>,
+}
+
+/// Позиция ключа в стороне: первый индекс, где уровень не «хуже» ключа (бид: ключ уровня < key; аск: > key), и найден ли ключ.
+fn find(v: &[(u64, f64)], bid: bool, key: u64) -> (usize, bool) {
+    let i = if bid { v.partition_point(|l| l.0 < key) } else { v.partition_point(|l| l.0 > key) };
+    (i, i < v.len() && v[i].0 == key)
 }
 
 impl Book {
     pub fn clear(&mut self) {
         self.bids.clear();
         self.asks.clear();
-        self.hb.clear();
-        self.ha.clear();
     }
 
     pub fn set(&mut self, bid: bool, price: f64, q: f64) {
         let key = price.to_bits();
-        let m = if bid { &mut self.bids } else { &mut self.asks };
+        let v = if bid { &mut self.bids } else { &mut self.asks };
+        let (i, hit) = find(v, bid, key);
         if q == 0.0 {
-            m.remove(&key);
-        } else if m.insert(key, q).is_none() {
-            if bid {
-                self.hb.push(key);
-                if self.hb.len() > 4 * self.bids.len() + HEAP_SLACK {
-                    self.hb = self.bids.keys().copied().collect();
-                }
-            } else {
-                self.ha.push(Reverse(key));
-                if self.ha.len() > 4 * self.asks.len() + HEAP_SLACK {
-                    self.ha = self.asks.keys().map(|&k| Reverse(k)).collect();
-                }
+            if hit {
+                v.remove(i);
             }
+        } else if hit {
+            v[i].1 = q;
+        } else {
+            v.insert(i, (key, q));
         }
     }
 
     pub fn qty(&self, bid: bool, price: f64) -> f64 {
-        let key = price.to_bits();
-        if bid { self.bids.get(&key) } else { self.asks.get(&key) }.copied().unwrap_or(0.0)
+        let v = if bid { &self.bids } else { &self.asks };
+        let (i, hit) = find(v, bid, price.to_bits());
+        if hit { v[i].1 } else { 0.0 }
     }
 
-    /// Лучшая пара `(бид, кол-во, аск, кол-во)`; устаревшие вершины куч выбрасываются (поиск уровня в карте — один на сторону).
-    pub fn best(&mut self) -> Option<(f64, f64, f64, f64)> {
-        let (kb, bq) = loop {
-            let &k = self.hb.peek()?;
-            if let Some(&q) = self.bids.get(&k) {
-                break (k, q);
-            }
-            self.hb.pop();
-        };
-        let (ka, aq) = loop {
-            let &Reverse(k) = self.ha.peek()?;
-            if let Some(&q) = self.asks.get(&k) {
-                break (k, q);
-            }
-            self.ha.pop();
-        };
+    /// Лучшая пара `(бид, кол-во, аск, кол-во)`.
+    pub fn best(&self) -> Option<(f64, f64, f64, f64)> {
+        let &(kb, bq) = self.bids.last()?;
+        let &(ka, aq) = self.asks.last()?;
         Some((f64::from_bits(kb), bq, f64::from_bits(ka), aq))
     }
 }
@@ -407,5 +387,43 @@ mod tests {
         assert_eq!(got.iter().map(|x| x.1).collect::<Vec<_>>(), exp.iter().map(|x| x.1).collect::<Vec<_>>());
         assert_eq!(got[0].0, 0);
         assert_eq!(got[1..].iter().map(|x| x.0).collect::<Vec<_>>(), exp[1..].iter().map(|x| x.0).collect::<Vec<_>>());
+    }
+
+    /// Массив уровней == эталон (карта + перебор): best и qty после случайных set, включая удаление отсутствующего, пустую сторону и clear.
+    #[test]
+    fn book_matches_map_reference() {
+        use std::collections::HashMap;
+        let mut s = 777u64;
+        let mut rnd = |n: u64| {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 33) % n
+        };
+        let mut b = Book::default();
+        let (mut rb, mut ra): (HashMap<u64, f64>, HashMap<u64, f64>) = (HashMap::new(), HashMap::new());
+        for i in 0..200_000u32 {
+            if i % 50_000 == 49_999 {
+                b.clear();
+                rb.clear();
+                ra.clear();
+            }
+            let bid = rnd(2) == 0;
+            let px = 0.5 + rnd(300) as f64 * 0.001; // плотная сетка: много попаданий в существующие уровни
+            let q = if rnd(3) == 0 { 0.0 } else { 0.25 + rnd(9) as f64 };
+            b.set(bid, px, q);
+            let m = if bid { &mut rb } else { &mut ra };
+            if q == 0.0 {
+                m.remove(&px.to_bits());
+            } else {
+                m.insert(px.to_bits(), q);
+            }
+            let probe = 0.5 + rnd(300) as f64 * 0.001;
+            assert_eq!(b.qty(true, probe), rb.get(&probe.to_bits()).copied().unwrap_or(0.0));
+            assert_eq!(b.qty(false, probe), ra.get(&probe.to_bits()).copied().unwrap_or(0.0));
+            let want = match (rb.keys().max(), ra.keys().min()) {
+                (Some(&kb), Some(&ka)) => Some((f64::from_bits(kb), rb[&kb], f64::from_bits(ka), ra[&ka])),
+                _ => None,
+            };
+            assert_eq!(b.best(), want);
+        }
     }
 }

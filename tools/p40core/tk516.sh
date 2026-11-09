@@ -18,7 +18,7 @@ runs() { # бинарь, каталог, потоков book/gate
 fail=0
 case $1 in
 build) cd $Q/pq2bin && touch src/*.rs Cargo.toml && nice -n 5 cargo build --release 2>&1 | tail -15; [ -x $N ] || fail=1 ;;
-test) cd $Q/pq2bin && nice -n 5 cargo test --release 2>&1 | tail -30 | tee /tmp/tk516-test.out; grep -q "test result: ok" /tmp/tk516-test.out && ! grep -q "FAILED\|error" /tmp/tk516-test.out || fail=1 ;;
+test) cd $Q/pq2bin && touch src/*.rs Cargo.toml && nice -n 5 cargo test --release 2>&1 | tail -30 | tee /tmp/tk516-test.out; grep -q "test result: ok" /tmp/tk516-test.out && ! grep -q "FAILED\|error" /tmp/tk516-test.out || fail=1 ;;
 ab)
   rm -rf $T/ab; mkdir -p $T/ab/base $T/ab/new
   runs $B $T/ab/base 2; runs $N $T/ab/new 2
@@ -43,13 +43,25 @@ bench)
 ins) # instructions:u и task-clock (не зависят от загрузки srv): base против new, один поток
   rm -rf $T/ins; mkdir -p $T/ins
   st() { local n=$1 b=$2; shift 2
-    P40_L1_RAW=0 perf stat -x, -e instructions:u,task-clock "$@" 2>&1 >/dev/null | awk -F, -v n=$n -v b=$b '/instructions/{i=$1} /task-clock/{t=$1} END{printf "%-6s %-5s instr %8.2f G  task %7.2f s\n", n, b, i/1e9, t/1e3}'; }
+    P40_L1_RAW=0 perf stat -x, -e instructions:u,cycles:u,task-clock "$@" 2>&1 >/dev/null | awk -F, -v n=$n -v b=$b '/instructions/{i=$1} /cycles/{c=$1} /task-clock/{t=$1} END{printf "%-6s %-5s instr %8.2f G  cycles %8.2f G  task %7.2f s\n", n, b, i/1e9, c/1e9, t/1e3}'; }
   for v in base new; do bin=$B; [ $v = new ] && bin=$N; D=$T/ins/$v
     st bn $v $bin l1 book $BN DOGEUSDT_orderbook.parquet $D/bn 1
     st okx $v $bin l1 book $OK DOGE-USDT-SWAP_orderbook.parquet $D/okx 1
     st bybit $v $bin l1 bybit $Z $D/bybit
     st gate $v $bin l1 gate $S/gate DOGE_USDT 20260917 $D/gate 1 1
   done ;;
-*) echo "build|test|ab|bench|ins"; fail=2 ;;
+zl) # уровни zstd выхода l1 (после ab: эталон — несжатые .l1.bin из $T/ab/new): циклы, размер .zst, равенство после распаковки
+  for L in ${LV:--3 1 2 3}; do for src in bn okx bybit gate; do D=$T/zl/$L/$src; rm -rf $D; mkdir -p $T/zl/$L
+    case $src in
+      bn) a="book $BN DOGEUSDT_orderbook.parquet $D 1" ;;
+      okx) a="book $OK DOGE-USDT-SWAP_orderbook.parquet $D 1" ;;
+      bybit) a="bybit $Z $D" ;;
+      gate) a="gate $S/gate DOGE_USDT 20260917 $D 1 1" ;;
+    esac
+    c=$(P40_ZSTD=$L P40_L1_RAW=0 perf stat -x, -e cycles:u $N l1 $a 2>&1 >/dev/null | awk -F, '/cycles/{printf "%.2f", $1/1e9}')
+    bad=0; sz=0; for f in $D/*.l1.bin.zst; do r=$T/ab/new/$src/$(basename $f .zst); zstd -dc $f | cmp -s - $r || bad=$((bad+1)); sz=$((sz+$(stat -c %s $f))); done
+    echo "zstd=$L $src cycles ${c}G  zst-байт $sz  расхождений-после-распаковки $bad"
+  done; done ;;
+*) echo "build|test|ab|bench|ins|zl"; fail=2 ;;
 esac
 exit $fail
