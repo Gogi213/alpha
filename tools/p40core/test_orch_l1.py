@@ -99,6 +99,27 @@ def test_chft_leg_with_trades(tmp):
     assert len(fs) == 72 and not [f for f in fs if "orderbook" in f or "trades" in f] and orch.box_files("bybit", "X", "2026-10-05", aux_only=True) == []
 
 
+def test_chft_l1_missing_for_fallback(tmp):
+    """TK-522 --l1-fallback: нет суток / нет метки / у CHFT нет сделок (Binance TK-521: tr=0) -> L1Missing (нога идёт из сырья); несовпадение размера по метке — по-прежнему RuntimeError без отката"""
+    args = ("okx", "X-USDT-SWAP", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))
+    for why in ("нет суток", "tr=0"):
+        if why == "tr=0":
+            make_box(tmp, ex="okx", sym="X-USDT-SWAP", hours=(0,))
+        try:
+            orch.fetch_l1(*args)
+        except orch.L1Missing:
+            pass
+        else:
+            raise AssertionError(f"{why}: ожидался L1Missing")
+    d = make_box(tmp, ex="okx", sym="X-USDT-SWAP", day="2026-10-06", hours=(0, 1), skew=1)
+    try:
+        orch.fetch_l1("okx", "X-USDT-SWAP", "2026-10-06", str(tmp / "raw"), str(tmp / "log"))
+    except orch.L1Missing:
+        raise AssertionError("размер не по метке не должен быть откатом на сырьё")
+    except RuntimeError:
+        pass
+
+
 def test_l1_leg_flags():
     a = types.SimpleNamespace(raw_legs=False)
     assert all(orch.l1_leg(a, ex) for ex in ("bybit", "gate", "okx", "binance", "bitget", "aster", "hyperliquid"))   # TK-522: все биржи
