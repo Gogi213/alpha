@@ -8,7 +8,9 @@ pairs.csv: asset,pair,exA,symA,multA,lotA,stepA,exB,symB,multB,lotB,stepB   (п�
 TK-510: бюджет /dev/shm. Пик актива×чанка = все .bin чанка (они в 2–37 раз больше сырья: 0,07–0,38 ГБ на ногу×сутки) + сырьё одних суток. Задание берёт «пилот» (PILOT_LEG_B на ногу), считает первые сутки,
   меряет du(wd) и бронирует оценку пика ((оставшееся + .bin K суток) × SHM_MARGIN); сумма броней ≤ SHM_FRAC (0,8) от размера shm минус чужое на старте, иначе ждёт; оценка одного задания > бюджета -> отказ сразу.
   Сбой ENOSPC (rsync rc 11, pq2bin/ядро с «No space left») — отдельное исключение ShmFull, строка «СБОЙ ENOSPC», код выхода 28 (умолч. сбой = 1); mark/OI-дыры поставщика (aux_feats) копятся в <out>/auxholes.csv.
-Флаги ядра P40_* (NOTRADE, THETAS, VARIANTS, TRUNC, K2, SHIFT_B_MS ...) передаются средой как есть. Binance-стакан читается с локального диска (BINANCE_BOOK), остальное — rsync --files-from с бокса в P постоянных соединениях."""
+Флаги ядра P40_* (NOTRADE, THETAS, VARIANTS, TRUNC, K2, SHIFT_B_MS ...) передаются средой как есть. Binance-стакан читается с локального диска (BINANCE_BOOK), остальное — rsync --files-from с бокса в P постоянных соединениях.
+TK-518 (В-116): ноги Bybit/Gate — НЕ сырьё (его на боксе убирает reaper), а L1 бокса `p40l1/<биржа>_futures/<символ>/<сутки>/` (`<ЧЧ>.l1.bin.zst` + `.ok`), распаковка zstd -> `<ЧЧ>.l1.bin`; нет суток/метки/файлов по метке = сбой задания.
+  Нужен P40_L1=1 на весь прогон (признаки без глубины, В-115) и ядро TK-515+ (P40_CORE; старое ядро с P40_L1 — отказ при старте). `--raw-legs` — прежний путь из сырья. Хвост суток после 00:00:00 не берётся: прежний конвертер (bybit::scan) его тоже отбрасывал — разбор в тикете TK-518."""
 import argparse, calendar, concurrent.futures as cf, csv, gzip, os, shutil, subprocess, sys, threading, time
 import numpy as np
 
@@ -25,6 +27,7 @@ SHM_FRAC = 0.8                 # доля shm под брони
 SHM_MARGIN = 1.25              # запас оценки пика на разброс суток (оценка и факт пишутся в orch.log: «shm: …»)
 PILOT_LEG_B = 600 * 1024 ** 2  # бронь на ногу в первые сутки: замер 09.11 (AAVE 17.09) — .bin+сырьё ≤ 0,43 ГБ на ногу×сутки
 SEEN_AUXH = set()
+L1_EX = {"bybit": "bybit_futures", "gate": "gate_futures"}   # TK-518/В-116: сырьё этих бирж на боксе удаляется reaper'ом -> вход ног = L1 бокса alpha/stakan/p40l1/<биржа>_futures/<символ>/<сутки>/
 
 
 class ShmFull(RuntimeError):
@@ -136,6 +139,49 @@ def fetch(files, raw, p, log):
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(raw) for f in fs)
 
 
+def l1_rel(ex, sym, day):
+    return f"p40l1/{L1_EX[ex]}/{sym}/{day}"
+
+
+def l1_leg(args, ex):
+    return ex in L1_EX and not args.raw_legs
+
+
+def fetch_l1(ex, sym, day, raw, log):
+    """L1-сутки ноги с бокса (каталог целиком, несколько малых файлов) -> список `<ЧЧ>.l1.bin.zst`. СТРОГО (TK-518): нет каталога, метки .ok, `files=0`,
+    число файлов или их размер не по метке -> RuntimeError (нога не пропускается молча: rsync --ignore-missing-args здесь не используется)"""
+    rel = l1_rel(ex, sym, day)
+    dst = f"{raw}/{rel}"
+    os.makedirs(dst, exist_ok=True)
+    rc = subprocess.call(["rsync", "-q", "-a", "-e", SSH, f"box:alpha/stakan/{rel}/", dst + "/"], stdout=subprocess.DEVNULL, stderr=open(log, "ab"))
+    if rc != 0:
+        if rc == 11 and nospace(log, os.path.dirname(raw)):
+            raise ShmFull(f"ENOSPC /dev/shm при rsync L1 {rel}")
+        raise RuntimeError(f"L1 {rel}: rsync rc {rc} (нет суток на боксе?)")
+    try:
+        kv = dict(x.split("=", 1) for x in open(f"{dst}/.ok").read().split() if "=" in x)
+        nf, size = int(kv["files"]), int(kv["l1"])
+    except (OSError, KeyError, ValueError) as e:
+        raise RuntimeError(f"L1 {rel}: нет метки .ok или она не разобрана ({e})") from e
+    fs = sorted(f for f in os.listdir(dst) if f.endswith(".l1.bin.zst"))
+    if nf <= 0 or len(fs) != nf or sum(os.path.getsize(f"{dst}/{f}") for f in fs) != size:
+        raise RuntimeError(f"L1 {rel}: по метке файлов {nf}, байт {size}; на диске файлов {len(fs)}")
+    return [f"{dst}/{f}" for f in fs]
+
+
+def unpack_l1(ex, sym, day, raw, bins, log):
+    """-> (fetch_s, байт L1, wall, cpu распаковки): `<ЧЧ>.l1.bin.zst` -> `<bins>/B/<ЧЧ>.l1.bin` (ядро читает `.l1.bin`, merge() линкует как `<idx>.bin`); сделок у Bybit/Gate нет — `T` пуст, как у прежнего конвертера"""
+    t = time.time()
+    fs = fetch_l1(ex, sym, day, raw, log)
+    tf, nb = time.time() - t, sum(os.path.getsize(f) for f in fs)
+    os.makedirs(f"{bins}/B", exist_ok=True)
+    os.makedirs(f"{bins}/T", exist_ok=True)
+    rc, w, c = run(["zstd", "-d", "-q", "-f", "--output-dir-flat", f"{bins}/B", *fs], log=log)
+    if rc != 0:
+        fail(f"zstd -d L1 {l1_rel(ex, sym, day)} rc {rc}", log, bins)
+    return tf, nb, w, c
+
+
 def fail(msg, log, shm_path):
     if nospace(log, os.path.dirname(shm_path)):
         raise ShmFull("ENOSPC /dev/shm: " + msg)
@@ -217,7 +263,7 @@ def drop_heavy(raw):
     """после конвертации сырьё книги/сделок не нужно (aux читает только mark/OI/ликвидации CHFT; у ног Bybit/Gate таких рядов нет); Bybit/Gate — целиком"""
     for d, _, fs in os.walk(raw):
         for f in fs:
-            if f.endswith(("_orderbook.parquet", "_trades.parquet", ".zip", ".csv.gz")):
+            if f.endswith(("_orderbook.parquet", "_trades.parquet", ".zip", ".csv.gz", ".l1.bin.zst")):
                 os.remove(os.path.join(d, f))
 
 
@@ -227,6 +273,8 @@ def merge(srcs, dst, sub):
     for di, src in enumerate(srcs):
         for h in range(24):
             f = f"{src}/{sub}/{h:02d}.bin"
+            if not os.path.exists(f):
+                f = f"{src}/{sub}/{h:02d}.l1.bin"   # L1-файл (TK-518): имя другое, содержимое — те же 33-байтные строки
             if os.path.exists(f):
                 os.symlink(f, f"{dst}/{sub}/{24 * di + h:02d}.bin")
 
@@ -268,10 +316,15 @@ def job(args, asset, days, pairs, outlog):
         for di, day in enumerate(days):
             raw = f"{wd}/raw/{day}"
             t = time.time()
-            nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day)], raw, args.fetch_p, log)
+            nbytes += fetch([f for (ex, sym) in legs if not l1_leg(args, ex) for f in box_files(ex, sym, day)], raw, args.fetch_p, log)
             t_fetch += time.time() - t
             for (ex, sym), mult in legs.items():
-                w, c = convert(ex, sym, day, raw, f"{wd}/bin/{leg_key(ex, sym)}/{day}", mult, log)
+                bins = f"{wd}/bin/{leg_key(ex, sym)}/{day}"
+                if l1_leg(args, ex):
+                    tf, nb, w, c = unpack_l1(ex, sym, day, raw, bins, log)   # fetch внутри: L1-сутки малы; нет суток -> сбой задания, не пропуск ноги
+                    t_fetch, nbytes = t_fetch + tf, nbytes + nb
+                else:
+                    w, c = convert(ex, sym, day, raw, bins, mult, log)
                 t_conv, c_conv = t_conv + w, c_conv + c
             peak = max(peak, du(wd))
             if di == 0:
@@ -344,6 +397,7 @@ def main():
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
     ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")
+    ap.add_argument("--raw-legs", action="store_true", help="TK-518: ноги Bybit/Gate читать из сырья бокса (прежний путь; сырьё удаляется reaper'ом, В-116 — для сверок и смоков). Умолчание — L1 бокса p40l1 (строго: нет суток = сбой)")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
@@ -355,8 +409,12 @@ def main():
     for r in csv.DictReader(open(args.pairs)):
         by_asset.setdefault(r["asset"], []).append(r)
     keep = set(filter(None, args.assets.split(",")))
+    if not args.raw_legs and "P40_L1" not in os.environ and any(r[f"ex{s}"] in L1_EX for r in sum(by_asset.values(), []) for s in "AB"):
+        sys.exit("TK-518: ноги Bybit/Gate идут из L1 (без глубины) -> признаки depth_slip/bookimb невозможны; задайте P40_L1=1 на весь прогон (ядро берёт l1_notional/bookimb1 по лучшим ценам) или --raw-legs, пока сырьё на боксе есть")
     ds = args.days.split(",")
     todo = [(a, ds[i:i + args.chunk], ps) for i in range(0, len(ds), args.chunk) for a, ps in by_asset.items() if not keep or a in keep]
+    if "P40_L1" in os.environ and b"P40_L1" not in open(CORE, "rb").read():
+        sys.exit(f"TK-518: P40_L1 задан, но ядро {CORE} его не знает (сборка до TK-515: бит2 L1 и признаки без глубины не поддержаны) — задайте P40_CORE на сборку TK-515+")
     err = shm_err = 0
     args.budget = ShmBudget(args.shm)
     with cf.ThreadPoolExecutor(args.jobs) as ex:
