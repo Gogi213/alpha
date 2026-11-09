@@ -10,6 +10,7 @@
 //! TK-515: l1 book <root> <файл> <outdir> [потоков=4] | l1 bybit <zip> <outdir> | l1 gate <dir> <контракт> <ГГГГММДД> <outdir> [множитель=1] [потоков=4] —
 //!   те же разборщики, но выход — L1-файл `<ЧЧ>.l1.bin.zst` (zstd, уровень `P40_ZSTD`, умолч. 2; при `P40_L1_RAW=1` ещё и несжатый `<ЧЧ>.l1.bin`), формат и правила — `l1.rs`.
 mod bybit;
+mod gz;
 mod l1;
 mod num;
 
@@ -112,7 +113,7 @@ fn bybit_l1(zip_path: &str, outdir: &str) {
 
 /// Строки часа Gate futures (<dir>/<контракт>-<ГГГГММДД><ЧЧ>.csv.gz): `emit(et, fu, price, qty, flags)`.
 fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)) {
-    let mut rd = BufReader::with_capacity(1 << 20, flate2::read::MultiGzDecoder::new(std::fs::File::open(path).unwrap()));
+    let mut rd = std::io::Cursor::new(gz::gunzip_all(&std::fs::read(path).unwrap()));
     let mut lv: HashMap<u64, f64, std::hash::BuildHasherDefault<l1::Fx>> = HashMap::default();
     let (mut grp, mut last_ts) = (-1i64, f64::NAN);
     num::each_line(&mut rd, |l| {
@@ -434,7 +435,27 @@ fn day_par(root: &str, file: &str, outdir: &str, nth: usize, mode: Mode, tag: &s
     eprintln!("pq2bin {tag}: часов {}", done.load(Ordering::Relaxed));
 }
 
+/// TK-516 R7: glibc по умолчанию возвращает память ядру на каждом освобождении крупных буферов (trim/brk) и снова обнуляет страницы —
+/// на bn/okx это ≈ 7 % циклов в ядре; не отдаём хвост кучи (`P40_MALLOC=0` — прежнее поведение).
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn tune_malloc() {
+    extern "C" {
+        fn mallopt(param: i32, value: i32) -> i32;
+    }
+    if std::env::var("P40_MALLOC").is_ok_and(|v| v == "0") {
+        return;
+    }
+    // SAFETY: mallopt вызывается один раз в начале main до потоков; M_TRIM_THRESHOLD = -1, M_TOP_PAD = -2.
+    unsafe {
+        mallopt(-1, i32::MAX);
+        mallopt(-2, 256 << 20);
+    }
+}
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn tune_malloc() {}
+
 fn main() {
+    tune_malloc();
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(String::as_str) {
         Some("bybit") if a.len() == 4 => return bybit(&a[2], &a[3]),
