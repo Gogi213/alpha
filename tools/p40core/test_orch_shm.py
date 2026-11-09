@@ -1,5 +1,5 @@
 """TK-510: бюджет /dev/shm в orch.py — брони, отказ по оценке, ENOSPC как отдельный сбой.
-Запуск: python -m pytest tools/p40core/test_orch_shm.py   (или python3 test_orch_shm.py)"""
+Запуск — на сервере счёта (Linux: orch.py берёт os.statvfs/wait4, на Windows их нет): python3 test_orch_shm.py"""
 import importlib.util, os, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
