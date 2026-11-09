@@ -7,6 +7,7 @@
 //! Сначала бид, потом аск; et/fu — последней строки группы, бит0 сброшен. Начало часа: снимок текущего L1 (две строки fu=-1, бит0; бид|бит1),
 //! et = et первой строки часа; нет L1 к началу часа — снимок нового L1 при первой публикации часа.
 use crate::push_row;
+use std::collections::BTreeMap;
 use std::hash::Hasher;
 
 /// Хеш цены (биты f64): умножение + свёртка старших бит вниз (круглые цены имеют нулевой хвост мантиссы).
@@ -28,49 +29,36 @@ impl Hasher for Fx {
     }
 }
 
-/// Книга как rs/src/book.rs: абсолютные количества, qty=0 удаляет уровень. Сторона — массив `(price.to_bits(), qty)`, отсортированный так, что лучший
-/// уровень последний (бид — по возрастанию ключа, аск — по убыванию): лучшая цена за O(1), правки у вершины — короткий сдвиг, без куч и хешей.
+/// Книга как rs/src/book.rs: абсолютные количества, qty=0 удаляет уровень. Сторона — `BTreeMap<биты цены, qty>` (цены > 0: порядок бит = порядок цен):
+/// лучший уровень за O(log n) без хешей и без сдвигов массива (отсортированный Vec давал memmove на глубоких правках, TK-516).
 #[derive(Default)]
 pub struct Book {
-    bids: Vec<(u64, f64)>,
-    asks: Vec<(u64, f64)>,
+    bids: BTreeMap<u64, f64>,
+    asks: BTreeMap<u64, f64>,
     /// После `clear` (начало снимка) строки копятся в порядке прихода, книга собирается разом при первом чтении или правке не из снимка.
     loading: bool,
     pb: Vec<(u64, f64)>,
     pa: Vec<(u64, f64)>,
 }
 
-/// Позиция ключа в стороне: первый индекс, где уровень не «хуже» ключа (бид: ключ уровня < key; аск: > key), и найден ли ключ.
-fn find(v: &[(u64, f64)], bid: bool, key: u64) -> (usize, bool) {
-    let i = if bid { v.partition_point(|l| l.0 < key) } else { v.partition_point(|l| l.0 > key) };
-    (i, i < v.len() && v[i].0 == key)
-}
-
-fn set_side(v: &mut Vec<(u64, f64)>, bid: bool, key: u64, q: f64) {
-    let (i, hit) = find(v, bid, key);
+fn set_side(m: &mut BTreeMap<u64, f64>, key: u64, q: f64) {
     if q == 0.0 {
-        if hit {
-            v.remove(i);
-        }
-    } else if hit {
-        v[i].1 = q;
+        m.remove(&key);
     } else {
-        v.insert(i, (key, q));
+        m.insert(key, q);
     }
 }
 
 /// Накопленные строки стороны -> в книгу: последняя строка ключа побеждает, qty=0 удаляет. Пустая сторона — сортировка и разовая сборка, иначе по одной.
-fn merge_side(v: &mut Vec<(u64, f64)>, p: &mut Vec<(u64, f64)>, bid: bool) {
-    if !v.is_empty() {
+fn merge_side(m: &mut BTreeMap<u64, f64>, p: &mut Vec<(u64, f64)>) {
+    if !m.is_empty() {
         for &(k, q) in p.iter() {
-            set_side(v, bid, k, q);
+            set_side(m, k, q);
         }
+        p.clear();
     } else if !p.is_empty() {
-        if bid {
-            p.sort_by(|a, b| a.0.cmp(&b.0));
-        } else {
-            p.sort_by(|a, b| b.0.cmp(&a.0));
-        }
+        p.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut w = 0;
         let mut i = 0;
         while i < p.len() {
             let mut j = i;
@@ -78,12 +66,14 @@ fn merge_side(v: &mut Vec<(u64, f64)>, p: &mut Vec<(u64, f64)>, bid: bool) {
                 j += 1;
             }
             if p[j].1 != 0.0 {
-                v.push(p[j]);
+                p[w] = p[j];
+                w += 1;
             }
             i = j + 1;
         }
+        p.truncate(w);
+        *m = p.drain(..).collect();
     }
-    p.clear();
 }
 
 impl Book {
@@ -101,30 +91,29 @@ impl Book {
             if bid { self.pb.push((key, q)) } else { self.pa.push((key, q)) }
             return;
         }
-        set_side(if bid { &mut self.bids } else { &mut self.asks }, bid, key, q);
+        set_side(if bid { &mut self.bids } else { &mut self.asks }, key, q);
     }
 
     /// Закончить накопление снимка: собрать книгу.
     pub fn flush(&mut self) {
         if self.loading {
-            merge_side(&mut self.bids, &mut self.pb, true);
-            merge_side(&mut self.asks, &mut self.pa, false);
+            merge_side(&mut self.bids, &mut self.pb);
+            merge_side(&mut self.asks, &mut self.pa);
             self.loading = false;
         }
     }
 
     pub fn qty(&mut self, bid: bool, price: f64) -> f64 {
         self.flush();
-        let v = if bid { &self.bids } else { &self.asks };
-        let (i, hit) = find(v, bid, price.to_bits());
-        if hit { v[i].1 } else { 0.0 }
+        let m = if bid { &self.bids } else { &self.asks };
+        m.get(&price.to_bits()).copied().unwrap_or(0.0)
     }
 
     /// Лучшая пара `(бид, кол-во, аск, кол-во)`.
     pub fn best(&mut self) -> Option<(f64, f64, f64, f64)> {
         self.flush();
-        let &(kb, bq) = self.bids.last()?;
-        let &(ka, aq) = self.asks.last()?;
+        let (&kb, &bq) = self.bids.last_key_value()?;
+        let (&ka, &aq) = self.asks.first_key_value()?;
         Some((f64::from_bits(kb), bq, f64::from_bits(ka), aq))
     }
 }
