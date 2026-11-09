@@ -546,6 +546,8 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
     fills::run(c.dirs[1], &c.tr[1], c.drain_leg(1), &mut x[1]);
     let mut o = String::from("theta,t0_ms,outcome,exit_ms,exit_kind,pnl_bps,fees_bps");
     o += if c.valid.on { ",trunc\n" } else { "\n" };
+    let stat = fills::L1_STAT.load(std::sync::atomic::Ordering::Relaxed);
+    let mut lv = String::from("theta,t0_ms,left_exit\n");
     for ((e, s), plan) in eps.iter().zip(slot).zip(&plans) {
         let (si, bi) = if e.dir > 0 { (0, 1) } else { (1, 0) };
         let sj = s[si].map(|k| &jobs[si][k]);
@@ -602,8 +604,20 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             o += &format!(",{tr}");
         }
         o.push('\n');
+        if stat {
+            // TK-515: заявка выхода/страховки уходила из L1 (1/0), -1 — выхода нет
+            let lx = match *plan {
+                Plan::Exit { js, jb, .. } => (x[si][js].left_l1 || x[bi][jb].left_l1) as i32,
+                Plan::Insure { sell_done, j, .. } => x[if sell_done { si } else { bi }][j].left_l1 as i32,
+                _ => -1,
+            };
+            lv += &format!("{:?},{},{}\n", e.theta, e.t0, lx);
+        }
     }
     std::fs::File::create(format!("{out}.exits.csv")).unwrap().write_all(o.as_bytes()).unwrap();
+    if stat {
+        std::fs::File::create(format!("{out}.l1leave_exits.csv")).unwrap().write_all(lv.as_bytes()).unwrap();
+    }
 }
 
 /// Таблицы эпизодов: `<out>` (описание пути) и `<out>.path.csv` (МПУ).
