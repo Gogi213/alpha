@@ -7,8 +7,8 @@
 //! Сначала бид, потом аск; et/fu — последней строки группы, бит0 сброшен. Начало часа: снимок текущего L1 (две строки fu=-1, бит0; бид|бит1),
 //! et = et первой строки часа; нет L1 к началу часа — снимок нового L1 при первой публикации часа.
 use crate::push_row;
-use std::collections::BTreeMap;
-use std::hash::Hasher;
+use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 /// Хеш цены (биты f64): умножение + свёртка старших бит вниз (круглые цены имеют нулевой хвост мантиссы).
 #[derive(Default)]
@@ -29,50 +29,133 @@ impl Hasher for Fx {
     }
 }
 
-/// Книга как rs/src/book.rs: абсолютные количества, qty=0 удаляет уровень. Сторона — `BTreeMap<биты цены, qty>` (цены > 0: порядок бит = порядок цен):
-/// лучший уровень за O(log n) без хешей и без сдвигов массива (отсортированный Vec давал memmove на глубоких правках, TK-516).
-#[derive(Default)]
+/// Сторона книги: хеш «биты цены -> qty» (все уровни, правка за O(1)) + `top` — лучшие уровни по порядку (лучший первым). `top` — всегда точный префикс
+/// стороны (лучшие `top.len()` уровней), пуст только при пустой стороне; глубокие правки (хуже `top.last()`) идут в хеш и не двигают массив.
+/// Опустел `top` при живых уровнях — добор из хеша (отбор TOP лучших). Порядок: у бидов лучше больший ключ (цены > 0: порядок бит = порядок цен), у асков меньший.
+const TOP: usize = 32;
+
+struct Side {
+    bid: bool,
+    map: HashMap<u64, f64, BuildHasherDefault<Fx>>,
+    top: Vec<u64>,
+}
+
+impl Side {
+    fn new(bid: bool) -> Self {
+        Side { bid, map: HashMap::default(), top: Vec::with_capacity(TOP + 1) }
+    }
+
+    /// Порядок: меньше = лучше.
+    fn ord(&self, k: u64) -> u64 {
+        if self.bid { !k } else { k }
+    }
+
+    fn clear(&mut self) {
+        self.map.clear();
+        self.top.clear();
+    }
+
+    fn set(&mut self, key: u64, q: f64) {
+        if q == 0.0 {
+            if self.map.remove(&key).is_some() {
+                let (o, bid) = (self.ord(key), self.bid);
+                if let Ok(i) = self.top.binary_search_by_key(&o, |&k| if bid { !k } else { k }) {
+                    self.top.remove(i);
+                    if self.top.is_empty() && !self.map.is_empty() {
+                        self.refill();
+                    }
+                }
+            }
+            return;
+        }
+        if self.map.insert(key, q).is_some() {
+            return;
+        }
+        let Some(&last) = self.top.last() else {
+            self.top.push(key);
+            return;
+        };
+        let o = self.ord(key);
+        if o < self.ord(last) {
+            let bid = self.bid;
+            let pos = self.top.partition_point(|&k| (if bid { !k } else { k }) < o);
+            self.top.insert(pos, key);
+            self.top.truncate(TOP);
+        } else if self.top.len() + 1 == self.map.len() && self.top.len() < TOP {
+            self.top.push(key);
+        }
+    }
+
+    /// `top` := TOP лучших уровней хеша по порядку.
+    fn refill(&mut self) {
+        let bid = self.bid;
+        let o = move |k: &u64| if bid { !*k } else { *k };
+        self.top.clear();
+        self.top.extend(self.map.keys().copied());
+        if self.top.len() > TOP {
+            self.top.select_nth_unstable_by_key(TOP - 1, o);
+            self.top.truncate(TOP);
+        }
+        self.top.sort_unstable_by_key(o);
+    }
+
+    fn qty(&self, key: u64) -> f64 {
+        self.map.get(&key).copied().unwrap_or(0.0)
+    }
+
+    fn best(&self) -> Option<(u64, f64)> {
+        let &k = self.top.first()?;
+        Some((k, self.map[&k]))
+    }
+
+    /// Накопленные строки (порядок прихода) -> в сторону: последняя строка ключа побеждает, qty=0 удаляет. Пустая сторона — сортировка и разовая сборка, иначе по одной.
+    fn merge(&mut self, p: &mut Vec<(u64, f64)>) {
+        if !self.map.is_empty() {
+            for &(k, q) in p.iter() {
+                self.set(k, q);
+            }
+            p.clear();
+        } else if !p.is_empty() {
+            p.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut w = 0;
+            let mut i = 0;
+            while i < p.len() {
+                let mut j = i;
+                while j + 1 < p.len() && p[j + 1].0 == p[i].0 {
+                    j += 1;
+                }
+                if p[j].1 != 0.0 {
+                    p[w] = p[j];
+                    w += 1;
+                }
+                i = j + 1;
+            }
+            p.truncate(w);
+            self.map.extend(p.iter().copied());
+            self.top.clear();
+            if self.bid {
+                self.top.extend(p.iter().rev().take(TOP).map(|x| x.0));
+            } else {
+                self.top.extend(p.iter().take(TOP).map(|x| x.0));
+            }
+            p.clear();
+        }
+    }
+}
+
+/// Книга как rs/src/book.rs: абсолютные количества, qty=0 удаляет уровень.
 pub struct Book {
-    bids: BTreeMap<u64, f64>,
-    asks: BTreeMap<u64, f64>,
+    bids: Side,
+    asks: Side,
     /// После `clear` (начало снимка) строки копятся в порядке прихода, книга собирается разом при первом чтении или правке не из снимка.
     loading: bool,
     pb: Vec<(u64, f64)>,
     pa: Vec<(u64, f64)>,
 }
 
-fn set_side(m: &mut BTreeMap<u64, f64>, key: u64, q: f64) {
-    if q == 0.0 {
-        m.remove(&key);
-    } else {
-        m.insert(key, q);
-    }
-}
-
-/// Накопленные строки стороны -> в книгу: последняя строка ключа побеждает, qty=0 удаляет. Пустая сторона — сортировка и разовая сборка, иначе по одной.
-fn merge_side(m: &mut BTreeMap<u64, f64>, p: &mut Vec<(u64, f64)>) {
-    if !m.is_empty() {
-        for &(k, q) in p.iter() {
-            set_side(m, k, q);
-        }
-        p.clear();
-    } else if !p.is_empty() {
-        p.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut w = 0;
-        let mut i = 0;
-        while i < p.len() {
-            let mut j = i;
-            while j + 1 < p.len() && p[j + 1].0 == p[i].0 {
-                j += 1;
-            }
-            if p[j].1 != 0.0 {
-                p[w] = p[j];
-                w += 1;
-            }
-            i = j + 1;
-        }
-        p.truncate(w);
-        *m = p.drain(..).collect();
+impl Default for Book {
+    fn default() -> Self {
+        Book { bids: Side::new(true), asks: Side::new(false), loading: false, pb: Vec::new(), pa: Vec::new() }
     }
 }
 
@@ -91,29 +174,28 @@ impl Book {
             if bid { self.pb.push((key, q)) } else { self.pa.push((key, q)) }
             return;
         }
-        set_side(if bid { &mut self.bids } else { &mut self.asks }, key, q);
+        if bid { self.bids.set(key, q) } else { self.asks.set(key, q) }
     }
 
     /// Закончить накопление снимка: собрать книгу.
     pub fn flush(&mut self) {
         if self.loading {
-            merge_side(&mut self.bids, &mut self.pb);
-            merge_side(&mut self.asks, &mut self.pa);
+            self.bids.merge(&mut self.pb);
+            self.asks.merge(&mut self.pa);
             self.loading = false;
         }
     }
 
     pub fn qty(&mut self, bid: bool, price: f64) -> f64 {
         self.flush();
-        let m = if bid { &self.bids } else { &self.asks };
-        m.get(&price.to_bits()).copied().unwrap_or(0.0)
+        (if bid { &self.bids } else { &self.asks }).qty(price.to_bits())
     }
 
     /// Лучшая пара `(бид, кол-во, аск, кол-во)`.
     pub fn best(&mut self) -> Option<(f64, f64, f64, f64)> {
         self.flush();
-        let (&kb, &bq) = self.bids.last_key_value()?;
-        let (&ka, &aq) = self.asks.first_key_value()?;
+        let (kb, bq) = self.bids.best()?;
+        let (ka, aq) = self.asks.best()?;
         Some((f64::from_bits(kb), bq, f64::from_bits(ka), aq))
     }
 }
@@ -466,6 +548,35 @@ mod tests {
             };
             assert_eq!(b.best(), want);
         }
+    }
+
+    /// Глубокая книга (> TOP уровней): снятие лучших по одному до пустоты, вставка лучше/хуже границы `top` — best == эталон (добор из хеша).
+    #[test]
+    fn book_deep_sweep_matches_reference() {
+        let mut b = Book::default();
+        let n = 3 * TOP as u64 + 7;
+        for i in 0..n {
+            b.set(true, 1.0 + i as f64 * 0.01, 1.0 + i as f64);
+            b.set(false, 100.0 + i as f64 * 0.01, 2.0 + i as f64);
+        }
+        for step in 0..n {
+            // бид: лучший — самый дорогой из оставшихся; аск — самый дешёвый
+            let (eb, ea) = (1.0 + (n - 1 - step) as f64 * 0.01, 100.0 + step as f64 * 0.01);
+            let got = b.best().unwrap();
+            assert_eq!((got.0, got.2), (eb, ea), "шаг {step}");
+            assert_eq!((got.1, got.3), (n as f64 - step as f64, 2.0 + step as f64));
+            b.set(true, eb, 0.0);
+            b.set(false, ea, 0.0);
+            if step % 5 == 0 {
+                // вставка глубоко и вплотную к границе: не должна менять best
+                b.set(true, 0.5 + step as f64 * 0.001, 9.0);
+                b.set(false, 200.0 + step as f64 * 0.001, 9.0);
+            }
+        }
+        // остались только глубокие вставки
+        let got = b.best().unwrap();
+        let smax = ((n - 1) / 5) * 5;
+        assert_eq!((got.0, got.1, got.2, got.3), (0.5 + smax as f64 * 0.001, 9.0, 200.0, 9.0));
     }
 
     /// Пакетная загрузка после clear (без чтений между строками, с повторами ключа и qty=0) == построчное применение к эталону.

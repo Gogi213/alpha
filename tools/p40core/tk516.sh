@@ -62,6 +62,16 @@ zl) # уровни zstd выхода l1 (после ab: эталон — нес�
     bad=0; sz=0; for f in $D/*.l1.bin.zst; do r=$T/ab/new/$src/$(basename $f .zst); zstd -dc $f | cmp -s - $r || bad=$((bad+1)); sz=$((sz+$(stat -c %s $f))); done
     echo "zstd=$L $src cycles ${c}G  zst-байт $sz  расхождений-после-распаковки $bad"
   done; done ;;
-*) echo "build|test|ab|bench|ins|zl"; fail=2 ;;
+prof) # perf record cycles:u по источнику, self % по символам -> $T/prof/<src>.txt (корзины считает tk516_buckets.py); R=повторов не нужен: разбивка, не скорость
+  rm -rf $T/prof; mkdir -p $T/prof
+  pr() { local n=$1; shift; local D=$T/prof/$n.out
+    P40_ZSTD=${P40_ZSTD:-3} P40_L1_RAW=0 perf record -q -F 4000 -e cycles:u -o $T/prof/$n.data "$@" >/dev/null 2>&1
+    perf report -i $T/prof/$n.data --stdio --no-children --sort symbol -n --percent-limit 0.2 2>/dev/null | grep -v '^#' | grep -v '^$' > $T/prof/$n.txt; }
+  pr bn $N l1 book $BN DOGEUSDT_orderbook.parquet $T/prof/bn.out 1
+  pr okx $N l1 book $OK DOGE-USDT-SWAP_orderbook.parquet $T/prof/okx.out 1
+  pr bybit $N l1 bybit $Z $T/prof/bybit.out
+  pr gate $N l1 gate $S/gate DOGE_USDT 20260917 $T/prof/gate.out 1 1
+  rm -rf $T/prof/*.out; wc -l $T/prof/*.txt ;;
+*) echo "build|test|ab|bench|ins|zl|prof"; fail=2 ;;
 esac
 exit $fail
