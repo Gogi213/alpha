@@ -23,7 +23,7 @@ for c in same:
     if [r[i] for r in o] != [r[j] for r in n]:
         bad.append(c)
 print("общие колонки:", same); print("различаются со старой (без флага):", bad)
-sys.exit(0)
+sys.exit(1 if bad else 0)
 PY
 python3 $Q/l1_diff.py $W/full.csv $W/l1.csv || fail=1
 exit $fail
