@@ -201,6 +201,9 @@ fn gate(dir: &str, contract: &str, day: &str, outdir: &str, mult: f64, nth: usiz
     eprintln!("pq2bin {}gate: часов {}", if l1 { "l1 " } else { "" }, done.load(Ordering::Relaxed));
 }
 
+/// Сжатая страница словаря колонки не больше этого размера — колонка читается как Dictionary (граница между price ≤ 6 КБ и quantity ≈ 400 КБ у CHFT).
+const DICT_PAGE_MAX: i64 = 64 * 1024;
+
 /// Колонки `dict`, закодированные в файле словарём (первая группа строк: RLE_DICTIONARY/PLAIN_DICTIONARY), читаются как Dictionary(Int32, Utf8):
 /// строки значений не раскрываются на каждую строку, разбор — по записи словаря. Простая (plain) колонка словарём не читается: arrow строил бы словарь заново (≈30 % кадров).
 fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = RecordBatch> {
@@ -217,6 +220,11 @@ fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = 
             }
             let c = b0.metadata().row_group(0).column(i);
             let is_dict = |e: &Encoding| matches!(e, Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY);
+            // страница словаря у предела писателя (≈1 МиБ) = колонка с большим числом значений: дальше писатель откатывается на plain, и arrow строил бы словарь заново
+            // (CHFT: quantity ≈ 400 КБ сжатой страницы словаря, price ≤ 6 КБ, event_type/side < 100 Б)
+            if !c.dictionary_page_offset().is_some_and(|d| c.data_page_offset() - d < DICT_PAGE_MAX) {
+                return false;
+            }
             match c.page_encoding_stats() {
                 // есть статистика страниц: словарь, только если все страницы данных словарные (при откате на plain arrow строил бы словарь заново)
                 Some(st) => {
