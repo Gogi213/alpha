@@ -19,7 +19,7 @@ use l1::L1Enc;
 use num::{parse_f64, parse_f64_b};
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::ProjectionMask;
-use parquet::basic::Encoding;
+use parquet::basic::{Encoding, PageType};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
@@ -212,8 +212,19 @@ fn read_iter(path: &str, names: &[&str], dict: &[&str]) -> impl Iterator<Item = 
         .copied()
         .filter(|n| {
             let Some(i) = b0.parquet_schema().columns().iter().position(|c| c.name() == *n) else { return false };
-            b0.metadata().num_row_groups() > 0
-                && b0.metadata().row_group(0).column(i).encodings().iter().any(|e| matches!(e, Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY))
+            if b0.metadata().num_row_groups() == 0 {
+                return false;
+            }
+            let c = b0.metadata().row_group(0).column(i);
+            let is_dict = |e: &Encoding| matches!(e, Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY);
+            match c.page_encoding_stats() {
+                // есть статистика страниц: словарь, только если все страницы данных словарные (при откате на plain arrow строил бы словарь заново)
+                Some(st) => {
+                    let data = || st.iter().filter(|s| matches!(s.page_type, PageType::DATA_PAGE | PageType::DATA_PAGE_V2));
+                    data().any(|s| is_dict(&s.encoding)) && data().all(|s| is_dict(&s.encoding))
+                }
+                None => c.encodings().iter().any(is_dict),
+            }
         })
         .collect();
     let dict = &encoded[..];

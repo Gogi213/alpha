@@ -17,7 +17,7 @@ runs() { # бинарь, каталог, потоков book/gate
 }
 fail=0
 case $1 in
-build) cd $Q/pq2bin && nice -n 5 cargo build --release 2>&1 | tail -15; [ -x $N ] || fail=1 ;;
+build) cd $Q/pq2bin && touch src/*.rs Cargo.toml && nice -n 5 cargo build --release 2>&1 | tail -15; [ -x $N ] || fail=1 ;;
 test) cd $Q/pq2bin && nice -n 5 cargo test --release 2>&1 | tail -30 | tee /tmp/tk516-test.out; grep -q "test result: ok" /tmp/tk516-test.out && ! grep -q "FAILED\|error" /tmp/tk516-test.out || fail=1 ;;
 ab)
   rm -rf $T/ab; mkdir -p $T/ab/base $T/ab/new
@@ -43,8 +43,7 @@ bench)
 ins) # instructions:u и task-clock (не зависят от загрузки srv): base против new, один поток
   rm -rf $T/ins; mkdir -p $T/ins
   st() { local n=$1 b=$2; shift 2
-    P40_L1_RAW=0 perf stat -x, -e instructions:u,task-clock "$@" 2>&1 >/dev/null | awk -F, -v n=$n -v b=$b '/instructions/{i=$1} /task-clock/{t=$1} END{printf "%-6s %-5s instr %8.2f G  task %7.2f s
-", n, b, i/1e9, t/1e3}'; }
+    P40_L1_RAW=0 perf stat -x, -e instructions:u,task-clock "$@" 2>&1 >/dev/null | awk -F, -v n=$n -v b=$b '/instructions/{i=$1} /task-clock/{t=$1} END{printf "%-6s %-5s instr %8.2f G  task %7.2f s\n", n, b, i/1e9, t/1e3}'; }
   for v in base new; do bin=$B; [ $v = new ] && bin=$N; D=$T/ins/$v
     st bn $v $bin l1 book $BN DOGEUSDT_orderbook.parquet $D/bn 1
     st okx $v $bin l1 book $OK DOGE-USDT-SWAP_orderbook.parquet $D/okx 1
