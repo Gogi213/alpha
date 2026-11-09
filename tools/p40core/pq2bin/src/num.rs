@@ -9,6 +9,36 @@ const P10: [f64; 23] = [
 ];
 const MAX_EXACT: u64 = 1 << 53;
 
+/// Строки потока по `\n` без копии в буфер вызывающего: срез прямо из `fill_buf`, копия только для строки на стыке буферов.
+/// Последняя строка без `\n` отдаётся; `\r` остаётся в строке (как у `read_until`, кроме самого `\n`).
+pub fn each_line<R: std::io::BufRead + ?Sized>(rd: &mut R, mut f: impl FnMut(&[u8])) {
+    let mut carry: Vec<u8> = Vec::new();
+    loop {
+        let buf = rd.fill_buf().unwrap();
+        let n = buf.len();
+        if n == 0 {
+            break;
+        }
+        let mut start = 0;
+        while let Some(i) = memchr::memchr(b'\n', &buf[start..]) {
+            let end = start + i;
+            if carry.is_empty() {
+                f(&buf[start..end]);
+            } else {
+                carry.extend_from_slice(&buf[start..end]);
+                f(&carry);
+                carry.clear();
+            }
+            start = end + 1;
+        }
+        carry.extend_from_slice(&buf[start..]);
+        rd.consume(n);
+    }
+    if !carry.is_empty() {
+        f(&carry);
+    }
+}
+
 #[inline]
 pub fn parse_f64(s: &str) -> f64 {
     match fast(s.as_bytes()) {
@@ -147,6 +177,29 @@ mod tests {
                     t.insert(t.len() - k, '.');
                 }
                 same(&t);
+            }
+        }
+    }
+
+    #[test]
+    fn each_line_equals_read_until() {
+        for cap in [1usize, 2, 3, 7, 64] {
+            for data in ["", "\n", "a", "a\n", "a\nb", "a\nb\n", "\n\nab\r\ncd\n", "xxxxxxxxxxxxxxxxxxxxxxxxxxxx\nyy\nzzzzzzzzzzzzzzzzzz"] {
+                let mut want: Vec<Vec<u8>> = Vec::new();
+                let mut r = std::io::BufReader::with_capacity(cap, data.as_bytes());
+                let mut l = Vec::new();
+                while {
+                    l.clear();
+                    std::io::BufRead::read_until(&mut r, b'\n', &mut l).unwrap() > 0
+                } {
+                    if l.last() == Some(&b'\n') {
+                        l.pop();
+                    }
+                    want.push(l.clone());
+                }
+                let mut got: Vec<Vec<u8>> = Vec::new();
+                each_line(&mut std::io::BufReader::with_capacity(cap, data.as_bytes()), |x| got.push(x.to_vec()));
+                assert_eq!(got, want, "cap {cap} {data:?}");
             }
         }
     }

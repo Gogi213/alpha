@@ -249,24 +249,21 @@ fn reader(zip_path: &str) -> Box<dyn BufRead> {
 /// Сутки Bybit: для каждого сообщения внутри суток — `f(час, сообщение)`; возвращает число сообщений вне суток.
 pub fn scan(zip_path: &str, mut f: impl FnMut(usize, &Msg)) -> usize {
     let mut rd = reader(zip_path);
-    let (mut line, mut day0, mut dropped, mut m) = (Vec::new(), None::<i64>, 0usize, Msg::default());
-    while {
-        line.clear();
-        rd.read_until(b'\n', &mut line).unwrap() > 0
-    } {
+    let (mut day0, mut dropped, mut m) = (None::<i64>, 0usize, Msg::default());
+    crate::num::each_line(&mut rd, |line| {
         let t = line.trim_ascii();
         if t.is_empty() {
-            continue;
+            return;
         }
         parse_line(t, &mut m);
         let d0 = *day0.get_or_insert(m.ts - m.ts.rem_euclid(86_400_000));
         let h = (m.ts - d0).div_euclid(3_600_000);
         if !(0..24).contains(&h) {
             dropped += 1;
-            continue;
+            return;
         }
         f(h as usize, &m);
-    }
+    });
     dropped
 }
 

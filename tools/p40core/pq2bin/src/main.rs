@@ -114,13 +114,10 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
     let mut rd = BufReader::with_capacity(1 << 20, flate2::read::MultiGzDecoder::new(std::fs::File::open(path).unwrap()));
     let mut lv: HashMap<u64, f64, std::hash::BuildHasherDefault<l1::Fx>> = HashMap::default();
     let (mut grp, mut last_ts) = (-1i64, f64::NAN);
-    let mut l = Vec::new();
-    while {
-        l.clear();
-        rd.read_until(b'\n', &mut l).unwrap() > 0
-    } {
-        while matches!(l.last(), Some(b'\n' | b'\r')) {
-            l.pop();
+    num::each_line(&mut rd, |l| {
+        let mut l = l;
+        while let [rest @ .., b'\r'] = l {
+            l = rest;
         }
         let mut f = l.split(|&c| c == b',');
         let ts = parse_f64_b(f.next().unwrap());
@@ -132,7 +129,7 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
         if ev == b"set" {
             lv.insert(key, sz);
             emit(et, -1, px, sz.abs() * mult, 1 | (((sz > 0.0) as u8) << 1));
-            continue;
+            return;
         }
         if ts != last_ts {
             grp += 1;
@@ -155,7 +152,7 @@ fn gate_rows(path: &str, mult: f64, mut emit: impl FnMut(i64, i64, f64, f64, u8)
             lv.insert(key, new);
             emit(et, grp, px, new.abs() * mult, ((new > 0.0) as u8) << 1);
         }
-    }
+    });
 }
 
 fn gate_hour(path: &str, mult: f64) -> Vec<u8> {
