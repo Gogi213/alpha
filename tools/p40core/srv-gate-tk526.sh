@@ -19,7 +19,7 @@ mkdir -p $O
 for v in old new; do
   core=$OLD; [ $v = new ] && core=$NEW
   rm -rf $O/$v
-  P40_CORE=$core P40_L1=1 P40_NOTRADE=through P40_SHM_FRAC=0.3 P40_L1_CACHE=/data/p40l1c nice -n 19 \
+  P40_CORE=$core P40_L1=1 P40_NOTRADE=through P40_SHM_FRAC=${SHM_FRAC:-0.3} P40_L1_CACHE=/data/p40l1c nice -n 19 \
     python3 $D/orch.py $PAIRS $O/$v --days $DAYS --chunk 2 --jobs 3 --l1-p 2 --box-conn 4 --assets $ASSETS --age --l1-trades-raw --shm /dev/shm/p40g-$v > $O/$v.log 2>&1
   echo "$v rc=$?"
 done
