@@ -188,6 +188,7 @@ fn gate(dir: &str, contract: &str, day: &str, outdir: &str, mult: f64, nth: usiz
     let cfg = L1Out::from_env();
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
+    let present = AtomicUsize::new(0);
     std::thread::scope(|s| {
         for _ in 0..nth {
             s.spawn(|| loop {
@@ -426,11 +427,13 @@ fn day_chain(root: &str, file: &str, outdir: &str, tag: &str) {
             eprintln!("pq2bin {tag}: посев {p} не найден");
         }
     }
+    let mut present = 0usize;
     for h in 0..24 {
         let p = format!("{root}/{h:02}/{file}");
         if !std::path::Path::new(&p).exists() {
             continue;
         }
+        present += 1;
         book_rows(&p, |et, fu, px, qt, fl| enc.row(&mut out, et, fu, px, qt, fl));
         enc.end_hour(&mut out);
         if cfg.write(outdir, h, &mut out) {
@@ -438,6 +441,15 @@ fn day_chain(root: &str, file: &str, outdir: &str, tag: &str) {
         }
     }
     eprintln!("pq2bin {tag}: часов {done}");
+    strict_zero(tag, present, done);
+}
+
+/// TK-525: `P40_L1_STRICT=1` — вход есть (`present` часовых файлов), а L1-часов 0 (например, книга Hyperliquid из одних снимков без `P40_L1_SNAPSEQ`) — rc=3, а не молчаливый «пусто».
+fn strict_zero(tag: &str, present: usize, done: usize) {
+    if present > 0 && done == 0 && std::env::var("P40_L1_STRICT").is_ok_and(|v| v == "1") {
+        eprintln!("pq2bin {tag}: вход {present} ч, L1-часов 0 — rc=3 (P40_L1_STRICT)");
+        std::process::exit(3);
+    }
 }
 
 /// Сутки CHFT: 24 часовых файла `<root>/<ЧЧ>/<файл>` на `nth` потоках -> `<outdir>/<ЧЧ>.bin` (или `.l1.bin.zst` для `l1 book`).
@@ -449,6 +461,7 @@ fn day_par(root: &str, file: &str, outdir: &str, nth: usize, mode: Mode, tag: &s
     let cfg = L1Out::from_env();
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
+    let present = AtomicUsize::new(0);
     std::thread::scope(|s| {
         for _ in 0..nth {
             s.spawn(|| loop {
@@ -460,6 +473,7 @@ fn day_par(root: &str, file: &str, outdir: &str, nth: usize, mode: Mode, tag: &s
                 if !std::path::Path::new(&p).exists() {
                     continue;
                 }
+                present.fetch_add(1, Ordering::Relaxed);
                 match mode {
                     Mode::Book => std::fs::write(format!("{outdir}/{h:02}.bin"), book(&p)).unwrap(),
                     Mode::Trades => std::fs::write(format!("{outdir}/{h:02}.bin"), trades(&p)).unwrap(),
@@ -474,6 +488,9 @@ fn day_par(root: &str, file: &str, outdir: &str, nth: usize, mode: Mode, tag: &s
         }
     });
     eprintln!("pq2bin {tag}: часов {}", done.load(Ordering::Relaxed));
+    if matches!(mode, Mode::BookL1) {
+        strict_zero(tag, present.load(Ordering::Relaxed), done.load(Ordering::Relaxed));
+    }
 }
 
 /// TK-516 R7: glibc по умолчанию возвращает память ядру на каждом освобождении крупных буферов (trim/brk) и снова обнуляет страницы —
