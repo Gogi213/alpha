@@ -272,6 +272,20 @@ def test_supplier_empty_day_is_gap_not_error(tmp):
     assert len(rows) == 3 and rows[1].startswith("okx,XUSDT,2026-10-05,24,404,") and rows[2].startswith("bybit,YUSDT,2026-10-06,2,gap_hours,3 4"), rows
 
 
+def test_bare_404_label_is_gap_not_error(tmp):
+    """TK-522 (класс 3): Bybit/Gate метка "raw=0 l1=0 tr=0 404" (голый 404, без files=) -> [] (дыра на 24 часа); пустые сутки без 404 и без файлов — прежняя ошибка"""
+    d = tmp / "box" / "alpha" / "stakan" / orch.l1_rel("bybit", "DNAUSDT", "2026-09-17")
+    d.mkdir(parents=True)
+    (d / ".ok").write_text("raw=0 l1=0 tr=0 404" + chr(10))
+    assert orch.fetch_l1("bybit", "DNAUSDT", "2026-09-17", str(tmp / "raw"), str(tmp / "log")) == []
+    (d / ".ok").write_text("raw=0 l1=0 tr=0" + chr(10))
+    try:
+        orch.fetch_l1("bybit", "DNAUSDT", "2026-09-17", str(tmp / "raw"), str(tmp / "log"))
+        raise AssertionError("ждали RuntimeError")
+    except RuntimeError:
+        pass
+
+
 def test_gap_hours_become_merged_holes(tmp):
     """дыры L1 -> P40_HOLES: пустые сутки одной ноги, часть часов другой; склейка в интервалы"""
     bad = {("okx_futures", "XUSDT", "2026-10-06"): set(range(24)), ("bybit", "YUSDT", "2026-10-05"): {23}, ("bybit", "YUSDT", "2026-10-06"): {0, 7}}

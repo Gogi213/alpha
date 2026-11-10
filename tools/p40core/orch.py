@@ -215,7 +215,8 @@ def fetch_l1(ex, sym, day, raw, log, trades_raw=False):
     fs = sorted(f for f in os.listdir(dst) if f.endswith((".l1.bin.zst", ".tr.zst")))
     l1 = [f for f in fs if f.endswith(".l1.bin.zst")]
     tr = [f for f in fs if f.endswith(".tr.zst")]
-    if not fs and size == 0 and tsize == 0 and kv.get("files", "").split("/")[0] == "0" and int(kv.get("404", 0)) > 0:
+    bare404 = "files" not in kv and "404" in open(f"{dst}/.ok").read().split()   # Bybit/Gate: метка «raw=0 l1=0 tr=0 404» (голый 404, без files=) — у поставщика на сутки нет данных контракта
+    if not fs and size == 0 and tsize == 0 and (bare404 or kv.get("files", "").split("/")[0] == "0" and int(kv.get("404", 0)) > 0):
         return []   # TK-522 (Судья 10.11, класс 3): у поставщика на сутки нет ни одного файла (метка files=0 404=N) -> дыра на все 24 часа, не RuntimeError; часы дыры негодны (job() пишет их в P40_HOLES и в l1_gaps.csv)
     if nf == -1:
         nf = len(fs)
