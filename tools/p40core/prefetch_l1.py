@@ -3,8 +3,10 @@
 Запуск: prefetch_l1.py <pairs.csv> <out боя> <кэш> --days d1,d2,.. [--threads 16] [--skip-first 14] [--order asset|day] [--min-free-gb 35]
 Берёт активы без out/<актив>/<cid>/DONE в порядке pairs.csv (= порядок очереди боя), ноги×сутки без записи в кэше. Сутки качаются в <кэш>/<rel>.part и переименовываются в <кэш>/<rel> целиком
 (есть `.ok` -> каталог полный); нет суток на боксе (rsync rc 23) — не кэшируется, бой возьмёт свой путь и сам решит (L1Missing). rc 12/255 (бокс закрыл соединение) — повтор с паузой.
-Кэш не чистится: после D1 L1 нужны D2 и K-прогонам; стоп по месту — свободно < --min-free-gb на разделе кэша."""
-import argparse, concurrent.futures as cf, csv, os, shutil, subprocess, sys, threading, time
+--aux: к каждым суткам ноги CHFT ещё и parquet бокса, что бой тянет сам (mark/OI/ликвидации для aux_feats, у Binance ещё сделки): <кэш>/raw/chft/..., метка <кэш>/raw/.aux/<биржа>_<символ>_<сутки>;
+orch.fetch берёт такие файлы с диска, а после DONE актива стирает (parquet ≈2/3 байт актива Binance — в кэше держать нельзя, места не хватит).
+L1 в кэше не чистится: после D1 нужны D2 и K-прогонам; стоп по месту — свободно < --min-free-gb на разделе кэша."""
+import argparse, concurrent.futures as cf, csv, importlib.util, os, shutil, subprocess, sys, threading, time
 
 SSH = "ssh -c aes128-gcm@openssh.com -o Compression=no"
 SRC = os.environ.get("P40_L1_SRC", "box:alpha/stakan")
@@ -57,6 +59,41 @@ def fetch_one(cache, ex, sym, day, stat):
     return rc
 
 
+_ORCH = []
+
+
+def orch_module():
+    if not _ORCH:
+        spec = importlib.util.spec_from_file_location("orch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "orch.py"))
+        _ORCH.append(importlib.util.module_from_spec(spec))
+        spec.loader.exec_module(_ORCH[0])
+    return _ORCH[0]
+
+
+def fetch_aux(cache, ex, sym, day):
+    mark = f"{cache}/raw/.aux/{ex}_{sym}_{day}"
+    if os.path.exists(mark):
+        return 0
+    orch = orch_module()
+    files = orch.box_files(ex, sym, day, aux_only=True, trades=(ex == "binance"))   # как у боя: у Binance L1 без сделок -> сделки из parquet
+    if not files:
+        return 0
+    os.makedirs(f"{cache}/raw/.aux", exist_ok=True)
+    lst = f"{cache}/raw/.aux/{ex}_{sym}_{day}.list"
+    open(lst, "w").write(chr(10).join(files) + chr(10))
+    rc = 255
+    for k in range(4):
+        rc = subprocess.call(["rsync", "-q", "-R", "--ignore-missing-args", f"--files-from={lst}", "-e", SSH, SRC + "/", f"{cache}/raw/"])
+        if rc not in RETRY_RC:
+            break
+        time.sleep(5 * (k + 1))
+    os.remove(lst)
+    if rc in (0, 23, 24):
+        open(mark, "w").write("")
+        return 0
+    return rc
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pairs"), ap.add_argument("out"), ap.add_argument("cache")
@@ -65,6 +102,7 @@ def main():
     ap.add_argument("--skip-first", type=int, default=14, help="первые N невыполненных активов бой берёт сам (в работе на старте)")
     ap.add_argument("--order", choices=("asset", "day"), default="asset")
     ap.add_argument("--min-free-gb", type=float, default=35.0)
+    ap.add_argument("--aux", action="store_true", help="и parquet бокса (mark/OI/ликвидации, у Binance сделки) CHFT-ног — бой берёт их из <кэш>/raw")
     ap.add_argument("--limit", type=int, default=0, help="не больше N суток ноги (для замера)")
     a = ap.parse_args()
     days = a.days.split(",")
@@ -75,6 +113,8 @@ def main():
         q = sorted(q, key=lambda t: t[3])   # устойчивая: внутри суток порядок очереди боя
     if a.limit:
         q = q[:a.limit]
+    if a.aux:
+        orch_module()   # до потоков: загрузка orch.py не потокобезопасна
     stat = {"ok": 0, "miss": 0, "fail": 0, "bytes": 0}
     t0, lock = time.time(), threading.Lock()
     print(f"задач {len(q)}, потоков {a.threads}, порядок {a.order}", flush=True)
@@ -84,6 +124,8 @@ def main():
         while shutil.disk_usage(a.cache).free < a.min_free_gb * 2**30:
             time.sleep(30)
         fetch_one(a.cache, ex, sym, day, stat)
+        if a.aux and ex in ("binance", "okx", "bitget", "aster", "hyperliquid") and fetch_aux(a.cache, ex, sym, day):
+            stat["fail"] += 1
         with lock:
             n = stat["ok"] + stat["miss"] + stat["fail"]
             if n % 50 == 0:

@@ -345,6 +345,32 @@ def test_l1_cache_replaces_box(tmp):   # TK-522: P40_L1_CACHE (prefetch_l1.py) -
         del os.environ["P40_L1_CACHE"]
 
 
+def test_fetch_aux_cache_and_purge(tmp):   # TK-522: parquet из <кэш>/raw берётся с диска, с бокса просят только недостающее; после DONE файлы стираются
+    cache = tmp / "cache" / "raw"
+    fs = orch.box_files("binance", "XUSDT", "2026-10-05", aux_only=True, trades=True)
+    assert len(fs) == 24 * 4
+    for f in fs[:3]:
+        (cache / f).parent.mkdir(parents=True, exist_ok=True)
+        (cache / f).write_bytes(b"x" * 7)
+    real, asked = subprocess.call, []
+
+    def call(cmd, **kw):
+        if any("box:" in str(c) for c in cmd):   # бокс: запомнить, что просили
+            asked.extend(open(next(c for c in cmd if c.startswith("--files-from=")).split("=", 1)[1]).read().split())
+            return 0
+        return real(cmd, **kw)
+    orch.subprocess = types.SimpleNamespace(**dict({k: getattr(subprocess, k) for k in dir(subprocess) if not k.startswith("__")}, call=call))
+    os.environ["P40_L1_CACHE"] = str(tmp / "cache")
+    try:
+        n = orch.fetch(fs, str(tmp / "raw"), 2, str(tmp / "log"))
+        assert n == 21 and all((tmp / "raw" / f).exists() for f in fs[:3])
+        assert sorted(asked) == sorted(fs[3:])
+        orch.purge_aux_cache({("binance", "XUSDT"): 1}, ["2026-10-05"])
+        assert not any((cache / f).exists() for f in fs)
+    finally:
+        del os.environ["P40_L1_CACHE"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

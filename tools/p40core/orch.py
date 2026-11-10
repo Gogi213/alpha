@@ -150,6 +150,15 @@ def box_rsync(cmd, log):
 
 def fetch(files, raw, p, log):
     os.makedirs(raw, exist_ok=True)
+    cache = os.environ.get("P40_L1_CACHE")
+    if cache:   # TK-522: prefetch_l1.py --aux положил parquet бокса в <кэш>/raw (rsync кладёт файл целиком, через rename) -> копия с диска, с бокса только недостающее
+        hit = [f for f in files if os.path.exists(f"{cache}/raw/{f}")]
+        if hit:
+            open(f"{raw}.hit", "w").write(chr(10).join(hit) + chr(10))
+            subprocess.call(["rsync", "-q", "-a", "-R", f"--files-from={raw}.hit", f"{cache}/raw/", raw + "/"])
+            os.remove(f"{raw}.hit")
+            hs = set(hit)
+            files = [f for f in files if f not in hs]
     lst = f"{raw}.list"
     chunks = [c for c in (files[i::p] for i in range(p)) if c]
     cmds = []
@@ -476,6 +485,18 @@ def collect_auxholes(out, path):
             w.writerows(new)
 
 
+def purge_aux_cache(legs, days):
+    """TK-522: после DONE актива parquet его ног из <кэш>/raw стирается (метки .aux остаются — повторно не качать); L1 в кэше остаётся"""
+    cache = os.environ.get("P40_L1_CACHE")
+    for (ex, sym) in legs if cache else ():
+        for day in days:
+            for f in box_files(ex, sym, day, aux_only=True, trades=True):
+                try:
+                    os.remove(f"{cache}/raw/{f}")
+                except OSError:
+                    pass
+
+
 def job(args, asset, days, pairs, outlog):
     t_all = time.time()
     cid = days[0] if len(days) == 1 else f"{days[0]}+{len(days)}"
@@ -634,6 +655,7 @@ def job(args, asset, days, pairs, outlog):
         if args.age:
             open(f"{out_d}/AGE", "w").write("")
         open(f"{out_d}/DONE", "w").write("")
+        purge_aux_cache(legs, days)
         row = [asset, cid, len(pairs), len(legs), nbytes, f"{t_fetch:.1f}", f"{t_conv:.1f}", f"{c_conv:.1f}", f"{t_core:.1f}", f"{c_core:.1f}", f"{c_aux:.1f}", f"{time.time() - t_all:.1f}", f"{t_wait:.1f}", f"{t_merge:.1f}", f"{t_aux:.1f}"]
         with LOG_LOCK, open(outlog, "a") as f:
             f.write(",".join(map(str, row)) + chr(10))
