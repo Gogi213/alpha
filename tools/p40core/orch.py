@@ -676,14 +676,16 @@ def job(args, asset, days, pairs, outlog):
                 continue
             if True:   # TK-522: aux.csv нужен assemble у КАЖДОЙ пары, в т.ч. Bybit×Gate (оба корня «-» -> пустые признаки, srcA=srcB=0); раньше aux не писали -> assemble падал на FileNotFoundError
                 ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in rd) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
-                rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
+                cellv = [f"{base}.{v}" for v in vruns if v.startswith("c_")]   # клетки правила θ_t: у каждой свои t_start -> aux по их features.csv (не копия базового; ряды читаются один раз)
+                rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"], *cellv], log=log)
                 if rc != 0:
                     raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
                 c_aux += c
                 t_aux += w
                 collect_auxholes(args.out, f"{base}.auxholes.csv")
-                for vname in vruns:   # assemble читает `<base>.aux.csv`; aux не зависит от варианта ядра (ряды рынка, не заявки)
-                    shutil.copy(f"{base}.aux.csv", f"{base}.{vname}.aux.csv")
+                for vname in vruns:   # assemble читает `<base>.aux.csv`; aux не зависит от варианта ядра (ряды рынка, не заявки) — кроме клеток правила (выше)
+                    if not vname.startswith("c_"):
+                        shutil.copy(f"{base}.aux.csv", f"{base}.{vname}.aux.csv")
             if args.age:   # Судья 10.11 §2 п. 2: возраст лучших цен на t0 обеих ног — для assemble --stale-smax (L1 ног ещё в shm)
                 write_age(CORE, base, vruns, a, b, env, dict(args.variants))
             with LOG_LOCK, open(f"{args.out}/specs.txt", "a") as f:

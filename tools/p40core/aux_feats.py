@@ -101,33 +101,34 @@ def settles(s, t):
 
 
 def main():
-    out, ra, sa, rb, sb = sys.argv[1:6]
+    out, ra, sa, rb, sb, *more = sys.argv[1:]   # TK-526: доп. выходы (клетки правила θ_t: у каждой свои t_start) — ряды читаются один раз; auxholes — только у первого выхода
     A, B = series(ra, sa), series(rb, sb)
     with open(out + ".auxholes.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["exchange", "contract", "date", "hour", "kind"])
         w.writerows(A["rec"] + B["rec"])
-    rows = list(csv.DictReader(open(out + ".features.csv")))
-    w = csv.writer(open(out + ".aux.csv", "w", newline=""))
-    w.writerow(["theta", "t_start", "oi5m", "liq5m", "phi_bps", "n_s", "rA", "rB", "srcA", "srcB", "srcOIA", "srcOIB"])
-    for r in rows:
-        t = int(float(r["t_start"]))
-        oa, ob = oi_chg(A, t), oi_chg(B, t)
-        with np.errstate(all="ignore"):
-            oi = np.nanmean([oa, ob]) if not (np.isnan(oa) and np.isnan(ob)) else np.nan
-        if any(in_hole(s["h_oi"], t - W5_MS, t) for s in (A, B)):
-            oi = np.nan
-        liq = int(sum(int(((s["lq"] >= t - W5_MS) & (s["lq"] < t)).sum()) for s in (A, B)) > 0)
-        if any(in_hole(s["h_lq"], t - W5_MS, t) for s in (A, B)):
-            liq = -1
-        fa, fb = rate(A, t), rate(B, t)
-        ns = int(settles(A, t) or settles(B, t))
-        phi = ns * (fa - fb) * 1e4 if not (np.isnan(fa) or np.isnan(fb)) else np.nan
-        if any(in_hole(s["h_mk"], t, t + 1) for s in (A, B)):
-            fa = fb = phi = np.nan
-            ns = -1
-        w.writerow([r.get("theta", ""), r["t_start"], float(oi), liq, float(phi), ns, float(fa), float(fb), A["src"], B["src"], A["soi"], B["soi"]])
-    print("строк", len(rows), "->", out + ".aux.csv", "дыр", len(A["rec"]) + len(B["rec"]))
+    for o in [out] + more:
+        rows = list(csv.DictReader(open(o + ".features.csv")))
+        w = csv.writer(open(o + ".aux.csv", "w", newline=""))
+        w.writerow(["theta", "t_start", "oi5m", "liq5m", "phi_bps", "n_s", "rA", "rB", "srcA", "srcB", "srcOIA", "srcOIB"])
+        for r in rows:
+            t = int(float(r["t_start"]))
+            oa, ob = oi_chg(A, t), oi_chg(B, t)
+            with np.errstate(all="ignore"):
+                oi = np.nanmean([oa, ob]) if not (np.isnan(oa) and np.isnan(ob)) else np.nan
+            if any(in_hole(s["h_oi"], t - W5_MS, t) for s in (A, B)):
+                oi = np.nan
+            liq = int(sum(int(((s["lq"] >= t - W5_MS) & (s["lq"] < t)).sum()) for s in (A, B)) > 0)
+            if any(in_hole(s["h_lq"], t - W5_MS, t) for s in (A, B)):
+                liq = -1
+            fa, fb = rate(A, t), rate(B, t)
+            ns = int(settles(A, t) or settles(B, t))
+            phi = ns * (fa - fb) * 1e4 if not (np.isnan(fa) or np.isnan(fb)) else np.nan
+            if any(in_hole(s["h_mk"], t, t + 1) for s in (A, B)):
+                fa = fb = phi = np.nan
+                ns = -1
+            w.writerow([r.get("theta", ""), r["t_start"], float(oi), liq, float(phi), ns, float(fa), float(fb), A["src"], B["src"], A["soi"], B["soi"]])
+        print("строк", len(rows), "->", o + ".aux.csv", "дыр", len(A["rec"]) + len(B["rec"]))
 
 
 if __name__ == "__main__":
