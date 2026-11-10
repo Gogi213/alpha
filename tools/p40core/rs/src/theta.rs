@@ -2,6 +2,7 @@
 //! S_t берётся по событиям с `tu[j] ≤ t_i − 1 с` (раз в секунду, как `level_grid`), событие `i` и будущее в θ_t[i] не входят.
 //! Φ_t = max(Φ, K_t), K_t = C_fee + (spr_A + spr_B)/2 (bps, L1 на t). Мусор (П-41 §3): спред любой ноги ≥ X_s — тик не входит в окно и θ_t = NaN (эпизод не открывается).
 //! NaN = «нормы нет»: нет истории окна (`warm`), пустое окно, мусорный тик — сравнения с NaN ложны, эпизод не открывается и «спокойствие» не копится.
+//! Мусор по возрасту (П-41 §3 п. 2–3, пороги `smax`/`u` выводит G0 до чтения net, здесь — параметры, умолчание ∞ = флага нет): нога стоит дольше S_max, либо дольше u при сдвиге mid другой ноги ≥ 1 bps с её последней смены.
 //! Без `P40_RULE` ядро считает постоянный θ как прежде (байт в байт).
 use crate::Leg;
 
@@ -14,6 +15,8 @@ pub enum Stat {
     Quantile(f64),
     /// A3: med(d) + k·1,4826·MAD(d); MAD — k-й (с 0, k = n/2) по порядку |d − med|
     MadK(f64),
+    /// A4: EWMA-квантиль |d| (стохастическая аппроксимация, O(1) на событие): q += α·sc·(p − 1{x ≤ q}), sc — EWMA |x − q|, α = 1 − 2^(−Δt/hl), Δt ≥ 1 мс
+    Ewma(f64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -27,14 +30,21 @@ pub struct Rule {
     pub warm_ms: i64,
     /// порог мусора по спреду ноги, bps (умолчание ∞ = флага нет)
     pub xs: f64,
+    /// S_max: возраст лучших цен ноги, мс (умолчание i64::MAX = флага нет)
+    pub smax_ms: i64,
+    /// u: возраст ноги при сдвиге mid другой ноги ≥ 1 bps, мс (умолчание i64::MAX = флага нет)
+    pub u_ms: i64,
+    /// полураспад A4, мс
+    pub hl_ms: i64,
 }
 
 impl Rule {
-    /// `P40_RULE=a0|a2|a3,phi=20,w=21600,p=0.95,k=3,fee=8.82,xs=50,warm=21600` (w, warm — секунды; q — отдельно `P40_Q`).
+    /// `P40_RULE=a0|a2|a3|a4,phi=20,w=21600,p=0.95,k=3,hl=21600,fee=8.82,xs=50,smax=120,u=30,warm=21600` (w, hl, warm, smax, u — секунды; q — отдельно `P40_Q`; warm по умолчанию = w, у a4 = hl).
     pub fn parse(s: &str, q: f64) -> Rule {
         let mut it = s.split(',').map(str::trim);
         let kind = it.next().unwrap();
         let (mut phi, mut w, mut p, mut k, mut fee, mut xs, mut warm) = (f64::NAN, 21600.0, f64::NAN, f64::NAN, 8.82, f64::INFINITY, f64::NAN);
+        let (mut hl, mut smax, mut u) = (f64::NAN, f64::INFINITY, f64::INFINITY);
         for kv in it {
             let (key, v) = kv.split_once('=').unwrap_or_else(|| panic!("P40_RULE: ожидалось ключ=значение, получено {kv}"));
             let v: f64 = v.parse().unwrap_or_else(|_| panic!("P40_RULE: число {kv}"));
@@ -46,6 +56,9 @@ impl Rule {
                 "fee" => fee = v,
                 "xs" => xs = v,
                 "warm" => warm = v,
+                "hl" => hl = v,
+                "smax" => smax = v,
+                "u" => u = v,
                 o => panic!("P40_RULE: неизвестный ключ {o}"),
             }
         }
@@ -60,10 +73,16 @@ impl Rule {
                 assert!(k.is_finite() && k > 0.0, "P40_RULE a3: нужен k > 0");
                 Stat::MadK(k)
             }
-            o => panic!("P40_RULE: ожидалось a0|a2|a3, получено {o}"),
+            "a4" => {
+                assert!(p > 0.0 && p < 1.0 && hl > 0.0, "P40_RULE a4: нужны p в (0;1) и hl > 0");
+                Stat::Ewma(p)
+            }
+            o => panic!("P40_RULE: ожидалось a0|a2|a3|a4, получено {o}"),
         };
-        let w_ms = (w * 1000.0) as i64;
-        Rule { phi, q, c_fee: fee, stat, w_ms, warm_ms: if warm.is_nan() { w_ms } else { (warm * 1000.0) as i64 }, xs }
+        let ms = |x: f64| if x.is_finite() { (x * 1000.0) as i64 } else { i64::MAX };
+        let (w_ms, hl_ms) = (ms(w), if hl.is_nan() { 0 } else { ms(hl) });
+        let warm_ms = if !warm.is_nan() { ms(warm) } else if matches!(stat, Stat::Ewma(_)) { hl_ms } else { w_ms };
+        Rule { phi, q, c_fee: fee, stat, w_ms, warm_ms, xs, smax_ms: ms(smax), u_ms: ms(u), hl_ms }
     }
 }
 
@@ -145,11 +164,67 @@ fn spr_bps(b: f64, a: f64) -> f64 {
     2e4 * (a - b) / (a + b)
 }
 
+fn mid_at(l: &Leg, t: i64) -> Option<f64> {
+    l.bbo(t).map(|(b, a)| (b + a) / 2.0)
+}
+
+/// Нога стоит (П-41 §3 п. 2–3): возраст `x_age` её лучших цен > S_max, либо > u при том, что mid другой ноги `y` с момента последней смены этой ноги сдвинулся ≥ 1 bps.
+fn stale(x_age: i64, y: &Leg, t: i64, rule: &Rule) -> bool {
+    if x_age > rule.smax_ms {
+        return true;
+    }
+    if x_age > rule.u_ms {
+        if let (Some(m0), Some(m1)) = (mid_at(y, t - x_age), mid_at(y, t)) {
+            return 1e4 * (m1 - m0).abs() / m0 >= 1.0;
+        }
+    }
+    false
+}
+
+/// A4: тот же ход по секундам, что у окна (события ≤ t − 1 с), но S_t — EWMA-квантиль `|d|` без хранения окна. Мусор и неопределённый d в оценку не входят.
+fn ewma_theta(tu: &[i64], ds: &[f64], bad: &[bool], floor: &[f64], p: f64, rule: &Rule) -> Vec<f64> {
+    let n = tu.len();
+    let mut th = vec![f64::NAN; n];
+    let (mut q, mut sc, mut last, mut init) = (0.0f64, 0.0f64, 0i64, false);
+    let (mut pin, mut cur_s, mut cur) = (0usize, i64::MIN, f64::NAN);
+    for i in 0..n {
+        if bad[i] || floor[i].is_nan() {
+            continue;
+        }
+        let s = tu[i].div_euclid(1000);
+        if s != cur_s {
+            cur_s = s;
+            let hi = s * 1000 - 1000;
+            while pin < n && tu[pin] <= hi {
+                if !bad[pin] && ds[pin].is_finite() {
+                    let x = ds[pin].abs();
+                    if init {
+                        let a = -(-std::f64::consts::LN_2 * ((tu[pin] - last).max(1) as f64) / rule.hl_ms as f64).exp_m1();
+                        sc += a * ((x - q).abs() - sc);
+                        q += a * sc * (p - if x <= q { 1.0 } else { 0.0 });
+                    } else {
+                        (q, sc, init) = (x, x, true);
+                    }
+                    last = tu[pin];
+                }
+                pin += 1;
+            }
+            cur = if !init || hi - tu[0] < rule.warm_ms { f64::NAN } else { q };
+        }
+        if !cur.is_nan() {
+            th[i] = floor[i].max(cur);
+        }
+    }
+    th
+}
+
 /// θ_t[i] для моментов `tu` (см. шапку). Длина = `tu.len()`.
 pub fn theta_series(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, rule: &Rule) -> Vec<f64> {
     let n = tu.len();
     let (mut floor, mut bad) = (vec![f64::NAN; n], vec![false; n]);
     let (mut ka, mut kb) = (0usize, 0usize);
+    let aged = rule.smax_ms != i64::MAX || rule.u_ms != i64::MAX;
+    let (age_a, age_b) = if aged { (la.age_at(tu), lb.age_at(tu)) } else { (vec![], vec![]) };
     for i in 0..n {
         while ka < la.t.len() && la.t[ka] <= tu[i] {
             ka += 1;
@@ -161,7 +236,7 @@ pub fn theta_series(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, rule: &Rule) -> 
             continue;
         }
         let (sa, sb) = (spr_bps(la.b[ka - 1], la.a[ka - 1]), spr_bps(lb.b[kb - 1], lb.a[kb - 1]));
-        bad[i] = sa >= rule.xs || sb >= rule.xs;
+        bad[i] = sa >= rule.xs || sb >= rule.xs || (aged && (stale(age_a[i], lb, tu[i], rule) || stale(age_b[i], la, tu[i], rule)));
         floor[i] = rule.phi.max(rule.c_fee + (sa + sb) / 2.0) / (1.0 - rule.q);
     }
     let mut th = vec![f64::NAN; n];
@@ -176,6 +251,7 @@ pub fn theta_series(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, rule: &Rule) -> 
         }
         Stat::Quantile(_) => false,
         Stat::MadK(_) => true,
+        Stat::Ewma(p) => return ewma_theta(tu, ds, &bad, &floor, p, rule),
     };
     // значение тика в окне; мусор и неопределённый d в окно не входят
     let v = |i: usize| if bad[i] || !ds[i].is_finite() { f64::NAN } else if signed { ds[i] } else { ds[i].abs() };
@@ -228,7 +304,7 @@ pub fn theta_series(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, rule: &Rule) -> 
                         let med = win.median();
                         med + k * 1.4826 * win.mad(med)
                     }
-                    Stat::Floor => unreachable!(),
+                    Stat::Floor | Stat::Ewma(_) => unreachable!(),
                 }
             };
         }
@@ -288,7 +364,7 @@ mod tests {
                 dev.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 med + k * 1.4826 * dev[m / 2]
             }
-            Stat::Floor => unreachable!(),
+            Stat::Floor | Stat::Ewma(_) => unreachable!(),
         }
     }
 
@@ -320,7 +396,7 @@ mod tests {
         let (tu, ds) = series(4000, 12345);
         let lg = leg(&tu, 100.0, 100.01);
         let k = 2500;
-        for stat in ["a2,phi=1,w=300,p=0.9,warm=0", "a3,phi=1,w=300,k=3,warm=0"] {
+        for stat in ["a2,phi=1,w=300,p=0.9,warm=0", "a3,phi=1,w=300,k=3,warm=0", "a4,phi=1,hl=120,p=0.9,warm=0"] {
             let rule = Rule::parse(stat, 0.5);
             let a = theta_series(&tu, &ds, &lg, &lg, &rule);
             // будущее со `k`-го события — другое (и ноги тоже не нужны: спред постоянный)
@@ -376,6 +452,57 @@ mod tests {
         // без флага тот же тик раздувает квантиль
         let t2 = theta_series(&tu, &ds, &la, &lb, &Rule::parse("a2,phi=1,w=1000,p=0.999,warm=0", 0.5));
         assert!(t2[150] > 1000.0, "{}", t2[150]);
+    }
+
+    /// A4: на стационарном ряду |d| ~ U[0;20) оценка 0,9-квантиля сходится к 18; мусорный тик с огромным d её не двигает (флаг xs), а без флага двигает.
+    #[test]
+    fn ewma_quantile_converges_and_skips_garbage() {
+        let n = 60_000usize;
+        let (mut st, mut tu, mut ds) = (0x2545F4914F6CDD1Du64, vec![], vec![]);
+        for i in 0..n {
+            st ^= st << 13;
+            st ^= st >> 7;
+            st ^= st << 17;
+            tu.push(i as i64 * 100); // 10 событий/с
+            ds.push(((st >> 11) % 2000) as f64 / 100.0 * if st & 1 == 0 { 1.0 } else { -1.0 });
+        }
+        let lg = leg(&tu, 100.0, 100.001);
+        let t = theta_series(&tu, &ds, &lg, &lg, &Rule::parse("a4,phi=1,hl=600,p=0.9,warm=600", 0.5));
+        let tail: Vec<f64> = t[n - 20_000..].iter().copied().filter(|x| x.is_finite()).collect();
+        let mean = tail.iter().sum::<f64>() / tail.len() as f64;
+        assert!((mean - 18.0).abs() < 1.0, "среднее оценки {mean} против 18");
+        assert!(t[..5000].iter().all(|x| x.is_nan()), "до warm θ_t = NaN");
+        let mut ds2 = ds.clone();
+        let mut lb = leg(&tu, 100.0, 100.001);
+        for i in (10_000..n).step_by(50) {
+            ds2[i] = 9000.0;
+            lb.a[i] = 100.9; // спред ≥ xs
+        }
+        let flagged = theta_series(&tu, &ds2, &lg, &lb, &Rule::parse("a4,phi=1,hl=600,p=0.9,warm=600,xs=50", 0.5));
+        let tail: Vec<f64> = flagged[n - 20_000..].iter().copied().filter(|x| x.is_finite()).collect();
+        let mean2 = tail.iter().sum::<f64>() / tail.len() as f64;
+        assert!((mean2 - 18.0).abs() < 1.0, "мусор раздул норму: {mean2}");
+    }
+
+    /// Флаги возраста (П-41 §3 п. 2–3): нога A стоит, mid ноги B уходит на 1 bps за секунду.
+    #[test]
+    fn stale_leg_flags() {
+        let tu: Vec<i64> = (0..200).map(|i| i * 1000).collect();
+        let la = leg(&tu, 100.0, 100.01);
+        let mut lb = leg(&tu, 100.0, 100.01);
+        for i in 0..200 {
+            lb.b[i] = 100.0 + 0.01 * i as f64;
+            lb.a[i] = lb.b[i] + 0.01;
+        }
+        let t = theta_series(&tu, &vec![1.0; 200], &la, &lb, &Rule::parse("a0,phi=1,smax=50", 0.5));
+        assert!(t[50].is_finite() && t[51].is_nan() && t[199].is_nan(), "S_max: возраст A > 50 с — с i = 51");
+        let t = theta_series(&tu, &vec![1.0; 200], &la, &lb, &Rule::parse("a0,phi=1,u=10", 0.5));
+        assert!(t[10].is_finite() && t[11].is_nan(), "u: возраст A > 10 с при сдвиге B");
+        // обе ноги стоят: «одиночной котировки» нет (сдвига другой ноги нет), S_max не задан
+        let t = theta_series(&tu, &vec![1.0; 200], &la, &la, &Rule::parse("a0,phi=1,u=10", 0.5));
+        assert!(t.iter().all(|x| x.is_finite()));
+        let t = theta_series(&tu, &vec![1.0; 200], &la, &la, &Rule::parse("a0,phi=1,smax=10", 0.5));
+        assert!(t[10].is_finite() && t[11].is_nan());
     }
 
     /// Замер В-170 (`cargo test --release bench_window -- --ignored --nocapture`, на srv): сутки событий (~1,3 млн, ≈15 событий/с), статистика раз в секунду.
