@@ -451,7 +451,7 @@ def job(args, asset, days, pairs, outlog):
                     raise RuntimeError(f"ядро (вариант {vname}) rc {rc} пара {p['pair']}")
                 t_core, c_core = t_core + w, c_core + c
                 vruns.append(vname)
-            if p["exA"] in CHFT or p["exB"] in CHFT:
+            if True:   # TK-522: aux.csv нужен assemble у КАЖДОЙ пары, в т.ч. Bybit×Gate (оба корня «-» -> пустые признаки, srcA=srcB=0); раньше aux не писали -> assemble падал на FileNotFoundError
                 ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
                 rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
                 if rc != 0:
