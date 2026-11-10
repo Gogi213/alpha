@@ -341,19 +341,30 @@ def job(args, asset, days, pairs, outlog):
         args.budget.set(key, PILOT_LEG_B * len(legs))
         t_wait += time.time() - tw
         est = peak = 0
+        t = time.time()
+        l1res = {}   # (день, ex, sym) -> файлы L1 или L1Missing; TK-522 v2: все ноги×сутки одним пулом (--l1-p), а не по одной ноге подряд (rsync-латентность: 52 из 65 с куска)
+        with cf.ThreadPoolExecutor(args.l1_p) as tp:
+            fl = {tp.submit(fetch_l1, ex, sym, day, f"{wd}/raw/{day}", log, args.l1_trades_raw): (day, ex, sym) for day in days for (ex, sym) in legs if l1_leg(args, ex)}
+            for f in cf.as_completed(fl):
+                try:
+                    l1res[fl[f]] = f.result()
+                except L1Missing as e:
+                    l1res[fl[f]] = e
+        t_fetch += time.time() - t
         for di, day in enumerate(days):
             raw = f"{wd}/raw/{day}"
             t = time.time()
             l1fs = {}   # (ex, sym) -> файлы L1 суток; нет L1: с --l1-fallback нога CHFT -> сырьё (convert), иначе сбой задания, не пропуск ноги
             for (ex, sym) in legs:
                 if l1_leg(args, ex):
-                    try:
-                        l1fs[(ex, sym)] = fetch_l1(ex, sym, day, raw, log, trades_raw=args.l1_trades_raw)
-                    except L1Missing as e:
+                    r = l1res[(day, ex, sym)]
+                    if isinstance(r, L1Missing):
                         if not (args.l1_fallback and ex in CHFT):
-                            raise
+                            raise r
                         with open(log, "a") as f:
-                            f.write(f"L1 нет -> сырьё: {e}" + chr(10))
+                            f.write(f"L1 нет -> сырьё: {r}" + chr(10))
+                    else:
+                        l1fs[(ex, sym)] = r
             trraw = {k for k, fs in l1fs.items() if k[0] in CHFT and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
             nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs, trades=(ex, sym) in trraw)], raw, args.fetch_p, log)
             t_fetch += time.time() - t
@@ -414,6 +425,14 @@ def job(args, asset, days, pairs, outlog):
             if rc != 0:
                 raise RuntimeError(f"ядро rc {rc} пара {p['pair']}")
             t_core, c_core = t_core + w, c_core + c
+            vruns = []   # TK-522 v2: варианты (K1 сдвиг, K2, NOTRADE) тем же слиянием рядов — без нового fetch/распаковки; выход `<base>.<имя>`, спецы в specs_<имя>.txt
+            for vname, venv in args.variants:
+                vcmd = [cmd[0], f"{base}.{vname}"] + cmd[2:]
+                rc, w, c = run(vcmd, env=dict(penv, **venv), log=log)
+                if rc != 0:
+                    raise RuntimeError(f"ядро (вариант {vname}) rc {rc} пара {p['pair']}")
+                t_core, c_core = t_core + w, c_core + c
+                vruns.append(vname)
             if p["exA"] in CHFT or p["exB"] in CHFT:
                 ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
                 rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
@@ -422,9 +441,14 @@ def job(args, asset, days, pairs, outlog):
                 c_aux += c
                 t_aux += w
                 collect_auxholes(args.out, f"{base}.auxholes.csv")
+                for vname in vruns:   # assemble читает `<base>.aux.csv`; aux не зависит от варианта ядра (ряды рынка, не заявки)
+                    shutil.copy(f"{base}.aux.csv", f"{base}.{vname}.aux.csv")
             with LOG_LOCK, open(f"{args.out}/specs.txt", "a") as f:
                 byb = int("bybit" in (p["exA"], p["exB"]))
                 f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{byb}:{base}" + chr(10))
+            for vname in vruns:
+                with LOG_LOCK, open(f"{args.out}/specs_{vname}.txt", "a") as f:
+                    f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{int('bybit' in (p['exA'], p['exB']))}:{base}.{vname}" + chr(10))
         open(f"{out_d}/DONE", "w").write("")
         row = [asset, cid, len(pairs), len(legs), nbytes, f"{t_fetch:.1f}", f"{t_conv:.1f}", f"{c_conv:.1f}", f"{t_core:.1f}", f"{c_core:.1f}", f"{c_aux:.1f}", f"{time.time() - t_all:.1f}", f"{t_wait:.1f}", f"{t_merge:.1f}", f"{t_aux:.1f}"]
         with LOG_LOCK, open(outlog, "a") as f:
@@ -451,9 +475,17 @@ def main():
     ap.add_argument("--l1-trades-raw", action="store_true", help="TK-522: у ноги CHFT L1 без сделок (Binance: tr=0) — книга из L1, сделки pq2bin trades из parquet бокса (вместо всей ноги из сырья)")
     ap.add_argument("--raw-ex", default="", help="TK-522: биржи (через запятую), ноги которых читать из сырья, а не из L1 бокса (L1 биржи ещё неверен: Bitget до P40_L1_CARRY=1, E-17); остальные — L1")
     ap.add_argument("--raw-legs", action="store_true", help="TK-518/522: ВСЕ ноги читать из сырья бокса (прежний путь; для сверок и смоков, Bybit/Gate сырья на боксе уже нет). Умолчание — L1 бокса p40l1 (строго: нет суток = сбой)")
+    ap.add_argument("--l1-p", type=int, default=1, help="TK-522 v2: параллельных rsync L1 на задание (ноги×сутки одним пулом; умолч. 1 = последовательно, как прежде)")
+    ap.add_argument("--variant", action="append", default=[], metavar="ИМЯ:К=З,К=З", help="TK-522 v2: доп. прогон ядра на тех же рядах с добавочным окружением, напр. k2:P40_K2=1 | k1p60:P40_SHIFT_B_MS=60000 | drain:P40_NOTRADE=drain; повторяемый; выход <пара>.<имя>")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
     args.raw_ex = {x for x in args.raw_ex.split(",") if x}
+    args.variants = []
+    for v in args.variant:
+        name, _, kv = v.partition(":")
+        if not name or not kv or not name.replace("_", "").isalnum():
+            sys.exit(f"--variant {v!r}: ожидалось ИМЯ:К=З[,К=З]")
+        args.variants.append((name, dict(x.split("=", 1) for x in kv.split(","))))
     os.makedirs(args.out, exist_ok=True)
     args.bad = load_validity(args.validity.split(",")) if args.validity else {}
     outlog = f"{args.out}/orch.csv"
