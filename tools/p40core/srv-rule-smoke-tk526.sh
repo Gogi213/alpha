@@ -12,20 +12,19 @@ n = collections.Counter(r["asset"] for r in csv.DictReader(open(sys.argv[1])))
 print(",".join([a for a, c in n.items() if c <= 2][:8]))
 PY
 )
-mkdir -p $O; : > $O/summary.txt
+mkdir -p $O; [ -n "$ONLY" ] || : > $O/summary.txt
 run() {  # имя, окружение...
   v=$1; shift
   rm -rf $O/$v; s=$(date +%s)
-  env "$@" P40_CORE=$NEW P40_L1=1 P40_NOTRADE=through P40_SHM_FRAC=0.3 P40_L1_CACHE=/data/p40l1c nice -n 19 \
+  env "$@" P40_CORE=$NEW P40_L1=1 P40_NOTRADE=through P40_SHM_FRAC=${SHM_FRAC:-0.3} P40_L1_CACHE=/data/p40l1c nice -n 19 \
     python3 $D/orch.py $PAIRS $O/$v --days $DAYS --chunk 2 --jobs 3 --l1-p 2 --box-conn 4 --assets $ASSETS --shm /dev/shm/p40r-$v > $O/$v.log 2>&1
   rc=$?; e=$(date +%s)
   n=$(find $O/$v -type f -regex '.*/[0-9]+$' -exec cat {} + | grep -vc '^theta')
   x=$(find $O/$v -type f -name '*.exits.csv' -exec cat {} + | grep -vc '^theta')
   echo "$v: rc=$rc эпизодов=$n выходов=$x orch=$((e-s)) с" >> $O/summary.txt
 }
-run A P40_THETAS=40
-run B P40_RULE=a0,phi=20
+[ -n "$ONLY" ] || { run A P40_THETAS=40; run B P40_RULE=a0,phi=20; }
 run C P40_RULE=a3,phi=20,w=86400,k=3,xs=50,warm=3600
 run D P40_RULE=a2,phi=20,w=86400,p=0.95,xs=50,warm=3600
 run E P40_RULE=a3,phi=20,w=86400,k=3,xs=50,warm=3600 P40_Q=0.25
-date > $O/RULE526_DONE
+date > $O/RULE526_DONE$ONLY
