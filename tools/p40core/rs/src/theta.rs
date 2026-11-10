@@ -377,4 +377,60 @@ mod tests {
         let t2 = theta_series(&tu, &ds, &la, &lb, &Rule::parse("a2,phi=1,w=1000,p=0.999,warm=0", 0.5));
         assert!(t2[150] > 1000.0, "{}", t2[150]);
     }
+
+    /// Замер В-170 (`cargo test --release bench_window -- --ignored --nocapture`, на srv): сутки событий (~1,3 млн, ≈15 событий/с), статистика раз в секунду.
+    /// Варианты: Fenwick по рангам (`theta_series`, A2 и A3) против отсортированного `Vec` со сдвигом (`insert`/`remove`, как прежний `window_levels` до TK-522); окно 1 ч и 24 ч.
+    #[test]
+    #[ignore]
+    fn bench_window() {
+        let n = 1_300_000usize;
+        let (mut st, mut t, mut tu, mut ds) = (88172645463325252u64, 0i64, Vec::with_capacity(n), Vec::with_capacity(n));
+        for _ in 0..n {
+            st ^= st << 13;
+            st ^= st >> 7;
+            st ^= st << 17;
+            t += 1 + (st % 130) as i64;
+            tu.push(t);
+            ds.push(((st >> 20) % 6000) as f64 / 100.0 - 30.0);
+        }
+        let lg = leg(&tu, 100.0, 100.01);
+        for w in [3600.0f64, 86400.0] {
+            for (name, kind) in [("a2", "a2,phi=1,p=0.95,warm=0"), ("a3", "a3,phi=1,k=3,warm=0")] {
+                let rule = Rule::parse(&format!("{kind},w={w}"), 0.5);
+                let t0 = std::time::Instant::now();
+                let th = theta_series(&tu, &ds, &lg, &lg, &rule);
+                println!("Fenwick {name} W={}ч: {:.2} с (θ определён на {})", w / 3600.0, t0.elapsed().as_secs_f64(), th.iter().filter(|x| x.is_finite()).count());
+            }
+            if w > 3600.0 {
+                continue; // отсортированный Vec на 24 ч — ~10 МБ сдвига на событие, не ждём
+            }
+            let t0 = std::time::Instant::now();
+            let (mut win, mut pin, mut pout, mut acc) = (Vec::<f64>::new(), 0usize, 0usize, 0.0f64);
+            let mut s_prev = i64::MIN;
+            for i in 0..n {
+                let s = tu[i].div_euclid(1000);
+                if s == s_prev {
+                    continue;
+                }
+                s_prev = s;
+                let hi = s * 1000 - 1000;
+                while pin < n && tu[pin] <= hi {
+                    let v = ds[pin].abs();
+                    let k = win.partition_point(|&x| x < v);
+                    win.insert(k, v);
+                    pin += 1;
+                }
+                while pout < pin && tu[pout] <= hi - (w * 1000.0) as i64 {
+                    let v = ds[pout].abs();
+                    let k = win.partition_point(|&x| x < v);
+                    win.remove(k);
+                    pout += 1;
+                }
+                if !win.is_empty() {
+                    acc += win[(((0.95 * win.len() as f64).ceil() as usize).max(1) - 1).min(win.len() - 1)];
+                }
+            }
+            println!("sorted Vec a2 W=1ч: {:.2} с (контрольная сумма {acc:.1})", t0.elapsed().as_secs_f64());
+        }
+    }
 }
