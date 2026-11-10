@@ -336,7 +336,10 @@ def job(args, asset, days, pairs, outlog):
         nbytes = 0
         t_fetch = t_conv = c_conv = 0.0
         key = f"{asset}_{cid}"
+        t_wait = t_merge = t_aux = 0.0
+        tw = time.time()
         args.budget.set(key, PILOT_LEG_B * len(legs))
+        t_wait += time.time() - tw
         est = peak = 0
         for di, day in enumerate(days):
             raw = f"{wd}/raw/{day}"
@@ -374,17 +377,21 @@ def job(args, asset, days, pairs, outlog):
             drop_heavy(raw)
             if di == 0 and len(days) > 1:
                 est = peak_estimate(p1, du(wd), len(days))
+                tw = time.time()
                 args.budget.set(key, est, full=True)
+                t_wait += time.time() - tw
             elif di == 0:
                 est = int(p1 * SHM_MARGIN)
         with open(log, "a") as f:
             f.write(f"shm: оценка пика {est} Б, факт {peak} Б, бюджет {args.budget.cap} Б" + chr(10))
+        tm = time.time()
         mrg = {}
         for (ex, sym) in legs:
             k = leg_key(ex, sym)
             mrg[(ex, sym)] = f"{wd}/mrg/{k}"
             for sub in "BT":
                 merge([f"{wd}/bin/{k}/{day}" for day in days], mrg[(ex, sym)], sub)
+        t_merge = time.time() - tm
         env = dict(os.environ, P40_HOURS=str(24 * len(days)))
         t_core = c_core = c_aux = 0.0
         for p in pairs:
@@ -413,12 +420,13 @@ def job(args, asset, days, pairs, outlog):
                 if rc != 0:
                     raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
                 c_aux += c
+                t_aux += w
                 collect_auxholes(args.out, f"{base}.auxholes.csv")
             with LOG_LOCK, open(f"{args.out}/specs.txt", "a") as f:
                 byb = int("bybit" in (p["exA"], p["exB"]))
                 f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{byb}:{base}" + chr(10))
         open(f"{out_d}/DONE", "w").write("")
-        row = [asset, cid, len(pairs), len(legs), nbytes, f"{t_fetch:.1f}", f"{t_conv:.1f}", f"{c_conv:.1f}", f"{t_core:.1f}", f"{c_core:.1f}", f"{c_aux:.1f}", f"{time.time() - t_all:.1f}"]
+        row = [asset, cid, len(pairs), len(legs), nbytes, f"{t_fetch:.1f}", f"{t_conv:.1f}", f"{c_conv:.1f}", f"{t_core:.1f}", f"{c_core:.1f}", f"{c_aux:.1f}", f"{time.time() - t_all:.1f}", f"{t_wait:.1f}", f"{t_merge:.1f}", f"{t_aux:.1f}"]
         with LOG_LOCK, open(outlog, "a") as f:
             f.write(",".join(map(str, row)) + chr(10))
         print("готово", *row, flush=True)
@@ -450,7 +458,7 @@ def main():
     args.bad = load_validity(args.validity.split(",")) if args.validity else {}
     outlog = f"{args.out}/orch.csv"
     if not os.path.exists(outlog):
-        open(outlog, "w").write("asset,day,pairs,legs,bytes,fetch_s,convert_s,convert_cpu_s,core_s,core_cpu_s,aux_cpu_s,total_s\n")
+        open(outlog, "w").write("asset,day,pairs,legs,bytes,fetch_s,convert_s,convert_cpu_s,core_s,core_cpu_s,aux_cpu_s,total_s,wait_s,merge_s,aux_s\n")
     by_asset = {}
     for r in csv.DictReader(open(args.pairs)):
         by_asset.setdefault(r["asset"], []).append(r)
