@@ -70,3 +70,20 @@ def _mark_rows_case():
         pq.write_table(pa.table({"event_time": t, "funding_rate": [1e-4 * (h + 1)] * 2, "next_funding_time": [d0 + 2 * H] * 2}), os.path.join(p, "X-USDT-SWAP_mark_price.parquet"))
     rows = F.mark_rows("okx", "X-USDT-SWAP", base, d0 // 86_400_000, d0 // 86_400_000)
     assert rows == [(d0 + 2 * H, 2e-4)], rows         # ставка — последняя строго до метки 02:00 (час 01, вторая строка 01:30)
+
+
+def test_universe_legs_by_exchange_and_fail_isolation(tmp_path, monkeypatch, capsys):
+    p = tmp_path / "pairs.csv"
+    p.write_text("asset,pair,exA,symA,exB,symB\n1,1,bybit,AUSDT,gate,A_USDT\n1,2,bybit,AUSDT,okx,A-USDT-SWAP\n1,3,bybit,BADUSDT,gate,A_USDT\n")
+
+    def fake(sym, s, e):
+        if sym == "BADUSDT":
+            raise RuntimeError("нет контракта")
+        return [(s + 1, 0.0001), (s + 2, -0.0002)]
+    monkeypatch.setitem(F.FETCH, "bybit", fake)
+    monkeypatch.setitem(F.FETCH, "gate", fake)
+    bad = F.universe(str(p), 1000, 2000, {"bybit", "gate"}, 2)
+    out, err = capsys.readouterr()
+    rows = [l.split(",") for l in out.strip().splitlines()]
+    assert bad == 1 and len(rows) == 4 and {r[0] for r in rows} == {"bybit", "gate"}   # okx не запрошен, BAD изолирован
+    assert "FAIL bybit BADUSDT RuntimeError: нет контракта" in err and "legs=3 fail=1" in err

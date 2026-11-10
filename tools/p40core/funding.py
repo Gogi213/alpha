@@ -4,12 +4,16 @@
   mark   — из рядов mark_price CHFT (бокс): метка = next_funding_time, ставка = последний funding_rate строго до метки (метка, за которой ряд не продолжается, не берётся);
   bybit  — публичный GET /v5/market/funding/history (fundingRateTimestamp, fundingRate), страницы назад по endTime;
   gate   — публичный GET /api/v4/futures/usdt/funding_rate (t с, r); метка Gate = расчёт + 1 с (как отдаёт API), не округляется.
+  binance — публичный GET /fapi/v1/fundingRate (fundingTime мс = расчёт + 1 мс, fundingRate); okx — GET /api/v5/public/funding-rate-history (fundingTime, realizedRate; история ~3 мес.).
+  universe <pairs.csv> <с> <по> <биржи через запятую> [потоки] — таблица по всем ногам плана в CSV на stdout, сбои ног — в stderr строкой `FAIL биржа символ причина` (код 1, если были).
 Запуск: funding.py fetch bybit|gate <символ> <с ГГГГ-ММ-ДД> <по ГГГГ-ММ-ДД> >> funding.csv   (по утверждённым символам вселенной, 17.09–22.10)
         funding.py mark <биржа> <символ> <каталог с <биржа>_futures/> <с ГГГГ-ММ-ДД> <по ГГГГ-ММ-ДД> >> funding.csv   (CHFT: <каталог>/<биржа>_futures/<сутки>/<ЧЧ>/<символ>_mark_price.parquet; часы без файла пропускаются — дыру покажет покрытие assemble)."""
 import calendar, csv, json, sys, time, urllib.request
 import numpy as np
 
 BYBIT = "https://api.bybit.com/v5/market/funding/history"
+BINANCE = "https://fapi.binance.com/fapi/v1/fundingRate"
+OKX = "https://www.okx.com/api/v5/public/funding-rate-history"
 GATE = "https://api.gateio.ws/api/v4/futures/usdt/funding_rate"
 
 
@@ -93,6 +97,64 @@ def fetch_gate(contract, s_ms, e_ms):
     return sorted((int(x["t"]) * 1000, float(x["r"])) for x in d)
 
 
+def fetch_binance(sym, s_ms, e_ms):
+    out, start = {}, s_ms
+    while start <= e_ms:
+        d = _get(f"{BINANCE}?symbol={sym}&startTime={start}&endTime={e_ms}&limit=1000")
+        if isinstance(d, dict):
+            raise RuntimeError(f"binance {sym}: {d.get('msg')}")
+        for x in d:
+            out[int(x["fundingTime"])] = float(x["fundingRate"])
+        if len(d) < 1000:
+            break
+        start = max(int(x["fundingTime"]) for x in d) + 1
+    return sorted(out.items())
+
+
+def fetch_okx(inst, s_ms, e_ms):
+    """страницы назад по after (записи строго раньше метки); realizedRate — фактически начисленная ставка"""
+    out, after = {}, e_ms + 1
+    while True:
+        d = _get(f"{OKX}?instId={inst}&after={after}&limit=100")
+        if d.get("code") != "0":
+            raise RuntimeError(f"okx {inst}: {d.get('msg')}")
+        lst = d["data"]
+        for x in lst:
+            if int(x["fundingTime"]) >= s_ms:
+                out[int(x["fundingTime"])] = float(x["realizedRate"] or x["fundingRate"])
+        if len(lst) < 100 or min(int(x["fundingTime"]) for x in lst) < s_ms:
+            break
+        after = min(int(x["fundingTime"]) for x in lst)
+        time.sleep(0.25)
+    return sorted(out.items())
+
+
+FETCH = {"bybit": fetch_bybit, "gate": fetch_gate, "binance": fetch_binance, "okx": fetch_okx}
+
+
+def universe(pairs_csv, s_ms, e_ms, exs, workers):
+    """ноги плана (биржа, символ) по exA/symA и exB/symB -> {(биржа, символ): строки}; сбой ноги не обрывает остальные"""
+    import concurrent.futures as cf
+    legs = sorted({(r["ex" + k], r["sym" + k]) for r in csv.DictReader(open(pairs_csv)) for k in "AB"})
+    legs = [l for l in legs if l[0] in exs]
+
+    def one(leg):
+        try:
+            return leg, FETCH[leg[0]](leg[1], s_ms, e_ms), ""
+        except Exception as ex:
+            return leg, [], f"{type(ex).__name__}: {ex}"
+    bad, w = 0, csv.writer(sys.stdout)
+    with cf.ThreadPoolExecutor(workers) as pool:
+        for (ex, sym), rows, err in pool.map(one, legs):
+            if err or not rows:
+                bad += 1
+                print(f"FAIL {ex} {sym} {err or 'пусто'}", file=sys.stderr)
+            for t, r in rows:
+                w.writerow([ex, sym, t, r])
+    print(f"legs={len(legs)} fail={bad}", file=sys.stderr)
+    return bad
+
+
 def mark_rows(ex, sym, base, d0, d1):
     import pyarrow.parquet as pq
     ts, rs, ns = [], [], []
@@ -118,10 +180,13 @@ def main():
         for t, r in mark_rows(a[1], a[2], a[3], d0, d1):
             w.writerow([a[1], a[2], t, r])
         return
-    if len(a) != 5 or a[0] != "fetch" or a[1] not in ("bybit", "gate"):
+    if a and a[0] == "universe" and len(a) in (5, 6):
+        s, e = (calendar.timegm(time.strptime(x, "%Y-%m-%d")) * 1000 for x in a[2:4])
+        sys.exit(1 if universe(a[1], s, e + 86_399_999, set(a[4].split(",")), int(a[5]) if len(a) == 6 else 4) else 0)
+    if len(a) != 5 or a[0] != "fetch" or a[1] not in FETCH:
         sys.exit(__doc__)
     s, e = (calendar.timegm(time.strptime(x, "%Y-%m-%d")) * 1000 for x in a[3:5])
-    rows = (fetch_bybit if a[1] == "bybit" else fetch_gate)(a[2], s, e + 86_399_999)
+    rows = FETCH[a[1]](a[2], s, e + 86_399_999)
     w = csv.writer(sys.stdout)
     for t, r in rows:
         w.writerow([a[1], a[2], t, r])
