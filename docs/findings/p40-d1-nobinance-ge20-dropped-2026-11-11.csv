@@ -1,0 +1,44 @@
+pair,exA,symA,exB,reason
+1363,okx,ABBV-USDT-SWAP,gate,нет файла в out_d1naive2
+1378,okx,ACN-USDT-SWAP,gate,нет файла в out_d1naive2
+1524,okx,AMGN-USDT-SWAP,gate,нет файла в out_d1naive2
+1772,okx,AXIS-USDT-SWAP,bybit,нет файла в out_d1naive2
+2109,bybit,BTCUSDT,gate,"нет эпизодов θ=12,6"
+2118,okx,BTW-USDT-SWAP,bybit,нет файла в out_d1naive2
+2119,okx,BTW-USDT-SWAP,gate,нет файла в out_d1naive2
+2129,okx,BWET-USDT-SWAP,gate,нет файла в out_d1naive2
+2369,okx,CRML-USDT-SWAP,gate,нет файла в out_d1naive2
+2417,okx,CT-USDT-SWAP,bybit,нет файла в out_d1naive2
+2418,okx,CT-USDT-SWAP,gate,нет файла в out_d1naive2
+2421,bybit,CTUSDT,gate,нет файла в out_d1naive2
+2430,okx,CVNA-USDT-SWAP,gate,нет файла в out_d1naive2
+2522,okx,DNA-USDT-SWAP,bybit,нет файла в out_d1naive2
+2744,okx,EWY-USDT-SWAP,bybit,"нет эпизодов θ=12,6"
+2881,okx,GE-USDT-SWAP,gate,нет файла в out_d1naive2
+2947,okx,XAU-USDT-SWAP,gate,"нет эпизодов θ=12,6"
+2950,bybit,XAUUSDT,gate,"нет эпизодов θ=12,6"
+3018,okx,GS-USDT-SWAP,gate,нет файла в out_d1naive2
+3297,okx,JPM-USDT-SWAP,gate,нет файла в out_d1naive2
+3646,okx,MCD-USDT-SWAP,gate,нет файла в out_d1naive2
+3806,okx,MP-USDT-SWAP,gate,нет файла в out_d1naive2
+3975,okx,NKE-USDT-SWAP,gate,нет файла в out_d1naive2
+4028,okx,NVO-USDT-SWAP,gate,нет файла в out_d1naive2
+4075,okx,ONE-USDT-SWAP,gate,"нет эпизодов θ=12,6"
+4177,okx,PANW-USDT-SWAP,gate,нет файла в out_d1naive2
+4195,bybit,PAXGUSDT,gate,"нет эпизодов θ=12,6"
+4436,okx,QQQ-USDT-SWAP,gate,"нет эпизодов θ=12,6"
+4439,bybit,QQQUSDT,gate,"нет эпизодов θ=12,6"
+4583,okx,RUM-USDT-SWAP,gate,нет файла в out_d1naive2
+4660,okx,SECZ-USDT-SWAP,gate,нет файла в out_d1naive2
+4847,okx,SOFI-USDT-SWAP,gate,нет файла в out_d1naive2
+4963,okx,SPY-USDT-SWAP,bybit,"нет эпизодов θ=12,6"
+4964,okx,SPY-USDT-SWAP,gate,"нет эпизодов θ=12,6"
+4967,bybit,SPYUSDT,gate,"нет эпизодов θ=12,6"
+5149,okx,TLT-USDT-SWAP,gate,нет файла в out_d1naive2
+5274,okx,TWST-USDT-SWAP,gate,нет файла в out_d1naive2
+5280,okx,TXN-USDT-SWAP,gate,нет файла в out_d1naive2
+5342,okx,USDC-USDT-SWAP,gate,пустой файл
+5368,okx,V-USDT-SWAP,gate,нет файла в out_d1naive2
+5412,okx,VST-USDT-SWAP,gate,нет файла в out_d1naive2
+5551,okx,XDP-USDT-SWAP,gate,пустой файл
+5552,bybit,XDPUSDT,gate,пустой файл
