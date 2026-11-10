@@ -283,6 +283,17 @@ def test_gap_hours_become_merged_holes(tmp):
     assert n == 1 and got == [(t0 + 23 * H, t0 + 48 * H)], (n, got)   # 23:00 д1 + сутки д2 (0 ч и 7 ч другой ноги внутри) склеены в один интервал; д3 годен
 
 
+def test_smax_l1_is_descriptive_not_a_status():   # Судья 10.11 §2 п.1: S_max = max(1 с, медиана почасовых p99) по контракту (G0 :73); часы no_data/no_diffs возраста не дают; статус часа не меняется
+    import smax_l1
+    mk = lambda ex, c, h, st, n, p, m: {"ex": ex, "contract": c, "date": "2026-10-05", "hour": f"{h:02d}", "status": st, "checked": str(n), "age_p99_ms": str(p), "age_max_ms": str(m)}
+    rows = [mk("okx_futures", "XUSDT", 0, "ok", 100, 2000, 5000), mk("okx_futures", "XUSDT", 1, "ok", 100, 4000, 400000), mk("okx_futures", "XUSDT", 2, "ok", 100, 9000, 6000),
+            mk("okx_futures", "XUSDT", 3, "no_data", 0, 0, 0), mk("okx_futures", "XUSDT", 4, "no_diffs", 1, 0, 0), mk("bybit", "YUSDT", 0, "ok", 50, 300, 800)]
+    got = {(e, c): (s, n, b) for e, c, s, n, b in smax_l1.smax_rows(rows)}
+    assert got[("okx_futures", "XUSDT")] == (4.0, 3, 1), got   # медиана 2/4/9 с = 4 с; 3 часа с возрастом; один час age_max > 300 с — только счётчик
+    assert got[("bybit", "YUSDT")] == (1.0, 1, 0), got   # нижняя граница 1 с
+    assert smax_l1.quantiles([1.0, 2.0, 3.0, 4.0, 5.0]) == [1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.0]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
