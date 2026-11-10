@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""TK-522 (В-125…В-127): сборка `<база>[.k2.k2|.k1p60].naive.csv` выхода `orch.py --naive-only` в один файл (csv.gz).
-Запуск: naive_collect.py <out_orch> <выход.csv.gz> [pairs.csv]. Строки: ctl (real | K2 | K1+60000), asset, chunk, pair + колонки write_naive (ядро, main.rs); `<база>.k2.naive.csv` (настоящие эпизоды прогона варианта K2) пропускается как дубль real.
+"""TK-522 (В-125…В-127): сборка `<база>[.k2.k2|.k1p60|.k1m60].naive.csv` выхода `orch.py --naive-only` в один файл (csv.gz).
+Запуск: naive_collect.py <out_orch> <выход.csv.gz> [pairs.csv]. Строки: ctl (real | K2 | K1+60000 | K1-60000), asset, chunk, pair + колонки write_naive (ядро, main.rs); `<база>.k2.naive.csv` (настоящие эпизоды прогона варианта K2) пропускается как дубль real.
 Ключ к `<база>` и `<база>.path.csv` — (pair, theta, t0_ms); возвращает число строк по ctl."""
 import collections, csv, gzip, os, sys
 
@@ -23,7 +23,7 @@ def extra(info, pair, cols, line):
     spr = lambda b, a: f"{2e4 * (g(a) - g(b)) / (g(a) + g(b)):.4f}"
     return ",".join([*ex, str(int(v[cols["t0_ms"]]) // 1000 % 3600), spr("a_bid0", "a_ask0"), spr("b_bid0", "b_ask0")])
 
-CTL = (("k2.k2", "K2"), ("k1p60", "K1+60000"), ("k2", None), ("drain", None))
+CTL = (("k2.k2", "K2"), ("k1p60", "K1+60000"), ("k1m60", "K1-60000"), ("k2", None), ("drain", None))
 
 
 def main(out, dst, pairs=None):

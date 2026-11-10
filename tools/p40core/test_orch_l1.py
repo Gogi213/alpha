@@ -395,10 +395,14 @@ def test_naive_collect_pair_extras(tmp):   # CEO 10.11: pairs.csv -> биржи 
     head = "theta,t0_ms,dir,a_bid0,a_ask0,b_bid0,b_ask0"
     (d / "5.naive.csv").write_text(head + chr(10) + "5.04,1789628893593,1,99.0,101.0,100.0,100.0" + chr(10))
     (tmp / "pairs.csv").write_text("asset,pair,exA,symA,multA,lotA,stepA,exB,symB,multB,lotB,stepB,ctA,ctB" + chr(10) + "7,5,okx,X-USDT-SWAP,,,,gate,X_USDT,,,,0.01,1" + chr(10))
+    d8 = tmp / "out" / "8" / "2026-09-17+14"   # отдельный актив: сортировка не ставит K1−60 перед real
+    d8.mkdir(parents=True)
+    (d8 / "5.k1m60.naive.csv").write_text(head + chr(10) + "5.04,1789628833593,1,99.0,101.0,100.0,100.0" + chr(10))   # K1 −60 с: ctl K1-60000
     nc.main(str(tmp / "out"), str(tmp / "a.csv.gz"), str(tmp / "pairs.csv"))
     nc.main(str(tmp / "out"), str(tmp / "b.csv.gz"))
     a = gzip.open(tmp / "a.csv.gz", "rt").read().splitlines()
     b = gzip.open(tmp / "b.csv.gz", "rt").read().splitlines()
+    assert any(l.startswith("K1-60000,8,") for l in b), b
     assert a[0].endswith(",exA,exB,ctA,ctB,sec_in_hour,spr_a0_bps,spr_b0_bps") and b[0] == "ctl,asset,chunk,pair," + head
     t0 = 1789628893593 // 1000 % 3600
     assert a[1].endswith(f",okx,gate,0.01,1,{t0},200.0000,0.0000") and b[1] == "real,7,2026-09-17+14,5,5.04,1789628893593,1,99.0,101.0,100.0,100.0"
