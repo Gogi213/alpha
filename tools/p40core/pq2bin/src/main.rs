@@ -365,8 +365,17 @@ fn book(path: &str) -> Vec<u8> {
     out
 }
 
+/// Энкодер книги CHFT: `P40_L1_SNAPSEQ=1` — источник шлёт полные снимки подряд (Hyperliquid), каждый заменяет книгу (TK-522).
+fn book_enc(enc: L1Enc) -> L1Enc {
+    if std::env::var("P40_L1_SNAPSEQ").is_ok_and(|v| v == "1") {
+        enc.snap_seq()
+    } else {
+        enc
+    }
+}
+
 fn book_l1(path: &str, cfg: &L1Out, outdir: &str, h: usize) -> bool {
-    let (mut enc, mut out) = (L1Enc::new(), Vec::new());
+    let (mut enc, mut out) = (book_enc(L1Enc::new()), Vec::new());
     book_rows(path, |et, fu, px, qt, fl| enc.row(&mut out, et, fu, px, qt, fl));
     enc.end_hour(&mut out);
     cfg.write(outdir, h, &mut out)
@@ -406,7 +415,7 @@ enum Mode {
 fn day_chain(root: &str, file: &str, outdir: &str, tag: &str) {
     std::fs::create_dir_all(outdir).unwrap();
     let cfg = L1Out::from_env();
-    let (mut enc, mut out, mut done) = (L1Enc::carry(), Vec::new(), 0usize);
+    let (mut enc, mut out, mut done) = (book_enc(L1Enc::carry()), Vec::new(), 0usize);
     for h in 0..24 {
         let p = format!("{root}/{h:02}/{file}");
         if !std::path::Path::new(&p).exists() {

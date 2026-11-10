@@ -209,11 +209,12 @@ struct L1 {
 }
 
 /// Строка после `i` — конец группы (Rows::group_end при известной следующей строке): `(snap, fu, et)` текущей и следующей.
-fn group_end(cur: (bool, i64, i64), next: (bool, i64, i64)) -> bool {
+/// `seq` (TK-522, Hyperliquid): подряд идущие снимки с разными `(fu, et)` — разные группы, каждый заменяет книгу целиком.
+fn group_end(cur: (bool, i64, i64), next: (bool, i64, i64), seq: bool) -> bool {
     if cur == next {
         return false;
     }
-    !(cur.0 && next.0)
+    seq || !(cur.0 && next.0)
 }
 
 pub struct L1Enc {
@@ -225,6 +226,8 @@ pub struct L1Enc {
     need_snap: bool,
     /// TK-522: первый снимок суток метится временем публикации, а не первой строки часа (источник без снимка в начале: книга набирается позже).
     pub_stamp: bool,
+    /// TK-522: источник шлёт полные снимки подряд (Hyperliquid, 20+20 уровней раз в 2–5 с): каждый снимок очищает книгу (`P40_L1_SNAPSEQ=1`).
+    snap_seq: bool,
 }
 
 impl Default for L1Enc {
@@ -235,7 +238,13 @@ impl Default for L1Enc {
 
 impl L1Enc {
     pub fn new() -> Self {
-        L1Enc { book: Book::default(), last: None, prev: None, hour_et: 0, need_snap: true, pub_stamp: false }
+        L1Enc { book: Book::default(), last: None, prev: None, hour_et: 0, need_snap: true, pub_stamp: false, snap_seq: false }
+    }
+
+    /// Энкодер с полными снимками подряд: каждый новый снимок (смена `(fu, et)`) начинает книгу заново.
+    pub fn snap_seq(mut self) -> Self {
+        self.snap_seq = true;
+        self
     }
 
     /// Энкодер суток с переходом книги через часы (`P40_L1_CARRY=1`): `new` + метка первого снимка по публикации.
@@ -248,10 +257,10 @@ impl L1Enc {
         let snap = fl & 1 != 0;
         let snap_start = match self.prev {
             Some((pe, pf, ps)) => {
-                if group_end((ps, pf, pe), (snap, fu, et)) {
+                if group_end((ps, pf, pe), (snap, fu, et), self.snap_seq) {
                     self.publish(out, pe, pf);
                 }
-                snap && !ps
+                snap && (!ps || (self.snap_seq && (pe, pf) != (et, fu)))
             }
             None => {
                 self.hour_et = et;
@@ -463,6 +472,30 @@ mod tests {
             ]
         );
         assert!(r[3..].iter().all(|x| x.4 & 1 == 0));
+    }
+
+    /// TK-522 (Hyperliquid): снимки подряд с разными (fu, et) — каждый заменяет книгу; без флага стоящий уровень прежнего снимка даёт crossed.
+    #[test]
+    fn snapshot_series_with_snap_seq_replaces_book() {
+        let feed = |e: &mut L1Enc, o: &mut Vec<u8>| {
+            // снимок 1: бид 100, аск 101; снимок 2 (другой et/fu): бид 97, аск 98 (рынок ушёл вниз)
+            e.row(o, 10, 1, 100.0, 5.0, SB);
+            e.row(o, 10, 1, 101.0, 4.0, SA);
+            e.row(o, 20, 2, 97.0, 3.0, SB);
+            e.row(o, 20, 2, 98.0, 2.0, SA);
+            e.end_hour(o);
+        };
+        let (mut e, mut o) = (L1Enc::new().snap_seq(), Vec::new());
+        feed(&mut e, &mut o);
+        let r = rows(&o);
+        assert_eq!(r[..2], [(10, -1, 100.0, 5.0, 3), (10, -1, 101.0, 4.0, 1)]);
+        // второй снимок: 100/101 заменены 97/98 (старые убраны, qty=0), новая пара пришла
+        assert!(r.iter().any(|x| x.2 == 97.0 && x.3 == 3.0 && x.4 & 2 != 0));
+        assert!(r.iter().any(|x| x.2 == 98.0 && x.3 == 2.0 && x.4 & 2 == 0));
+        // без флага снимки склеены в одну группу: книга 100/97 бид, 98/101 аск -> crossed (100 >= 98), второго L1 нет
+        let (mut e, mut o) = (L1Enc::new(), Vec::new());
+        feed(&mut e, &mut o);
+        assert_eq!(rows(&o).len(), 0);
     }
 
     /// Свойство: воспроизведение L1-файла (qty=0 — убрать, бит2 игнорируется) на концах групп даёт то же L1, что полная книга.
