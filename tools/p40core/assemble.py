@@ -8,6 +8,7 @@
     умолчание — по ногам с источником (oi5m по ногам с рядом OI; у Aster × Bybit/Gate значения нет).
   --funding (TK-522, П-40 §16.7) — фандинг в net_bps: net = pnl + fund_bps, fund_bps отдельной колонкой (funding.py: метки расчёта в (вход ноги, выход эпизода], лонг платит, шорт получает); обе ноги держатся до exit_ms, вход ноги — fill_*_ms из <out>.fills.csv, неисполненная нога — 0.
     Ставки по (биржа, символ) из pairs.csv; нет таблицы ноги, дыра между метками > 8 ч + 2 с или метки не покрывают эпизод (края — по эпизоду, не по окну: контракт, выпущенный внутри окна, допустим) -> отказ до счёта (дыру докачать); эпизод вне --funding-window -> отказ. Без флага колонки fund_bps нет, net_bps прежний.
+  --cell КЛЕТКА (TK-526, П-41 §5): прогон ядра с P40_RULE — θ_t у каждого эпизода своё (колонка theta справочная), строки не фильтруются по θ = 12,6, mpu_X — против −2·θ_t эпизода; в npz колонка `cell` = ключ клетки `<правило>|q=<q>` (оркестратор: --cells), одна клетка = один прогон ядра.
   --aux-miss-unknown — эпизод без строки в <out>.aux.csv: oi5m/liq/Φ_t = «неизвестно» (-1), счётчик в выводе («aux нет»), не отказ. Для K1 со сдвигом ноги (P40_SHIFT_B_MS): t_start эпизодов сдвинутого прогона не совпадают с реальным, aux.csv у него копия реального (≈80 % эпизодов d1v4 без строки). Без флага — отказ с понятным текстом.
   bounds.json — границы терцилей: без --fix считаются по всей выборке и записываются (D1); с --fix читаются (D2, границы D1 не пересчитываются).
 Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. mpu_X = 1, если МПУ по исполнимой стороне (<out>.path.csv) хуже −2θ, bps."""
@@ -68,6 +69,9 @@ def main():
     ctl = a[a.index("--ctl") + 1] if "--ctl" in a else "real"        # метка контроля: real | K2 | K1+60000 ... (ядро: P40_K2, P40_SHIFT_B_MS)
     if "--ctl" in a:
         del a[a.index("--ctl"):a.index("--ctl") + 2]
+    cell = a[a.index("--cell") + 1] if "--cell" in a else ""   # TK-526 (П-41): ключ клетки правила `<правило>|q=<q>`; без него — прежний режим (эпизоды θ = THETA)
+    if "--cell" in a:
+        del a[a.index("--cell"):a.index("--cell") + 2]
     day0 = a[a.index("--day0") + 1] if "--day0" in a else ""
     if "--day0" in a:
         del a[a.index("--day0"):a.index("--day0") + 2]
@@ -109,7 +113,7 @@ def main():
     hour, leader = [], []
     for sp in specs:
         asset, day, pair, byb, base = sp.split(":", 4)
-        ep = [r for r in rows(base) if r["theta"] == THETA]
+        ep = rows(base) if cell else [r for r in rows(base) if r["theta"] == THETA]   # клетка правила: θ_t — на каждый эпизод своё (справочно), все строки прогона — одна клетка
         ex = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".exits.csv")}
         ft = {(r["theta"], r["t_start"]): r for r in rows(base + ".features.csv")}
         pa = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".path.csv")}
@@ -131,7 +135,7 @@ def main():
             pnl = float(x["pnl_bps"])
             tr = int(x["trunc"]) if "trunc" in x else int(x["outcome"] == "both" and pnl != pnl)   # 1 — конец данных, 2 — дыра книги (ядро с P40_TRUNC=1)
             cols["asset"].append(int(asset)); cols["day"].append(day_index(e["t0_ms"]) - d0 if d0 is not None else int(day) if day != "t0" else int(time.strftime("%Y%m%d", time.gmtime(int(e["t0_ms"]) / 1000)))); cols["pair"].append(int(pair)); cols["bybit_leg"].append(int(byb))
-            cols["conv_H"].append(int(conv)); cols["mpu_X"].append(int(-float(pa[k]["mpu_bps"]) > 2 * float(THETA)))
+            cols["conv_H"].append(int(conv)); cols["mpu_X"].append(int(-float(pa[k]["mpu_bps"]) > 2 * float(e["theta"] if cell else THETA)))
             fund = 0.0
             if ftab and x["outcome"] != "none":
                 fr = fl[k]
@@ -192,6 +196,8 @@ def main():
     cols["f_hour"] = np.array(hour); cols["f_leader"] = np.array(leader)
     t = {k: np.asarray(cols[k]) for k in schema + ["armed", "trunc"] + (["stale"] if smax_csv else [])}
     t["ctl"] = np.array([ctl] * n)
+    if cell:
+        t["cell"] = np.array([cell] * n)
     t["depth_kind"] = np.array([next(iter(kinds)) if kinds else 0] * n)
     np.savez_compressed(out, **t)
     print("строк", n, "усечённых", int((t["trunc"] > 0).sum()), "контроль", ctl, "сошлось за H", int(t["conv_H"].sum()), "границы", bpath, *(["aux нет", naux] if auxmiss else []), *(["stale", nstale[0], "возраст неизвестен", nstale[1]] if smax_csv else []))

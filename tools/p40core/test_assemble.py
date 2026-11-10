@@ -21,15 +21,17 @@ def write(path, head, rows):
         w.writerows(rows)
 
 
-def make_core(base, eps, l1):
-    """eps: (t0_ms, t_conv_ms, outcome, pnl) — один эпизод = строка во всех пяти таблицах ядра"""
+def make_core(base, eps, l1, thetas=None, mpus=None):
+    """eps: (t0_ms, t_conv_ms, outcome, pnl) — один эпизод = строка во всех пяти таблицах ядра; thetas — θ эпизода (правило θ_t: у каждого своё; умолч. 12,6), mpus — МПУ эпизода"""
+    th = [str(x) for x in thetas] if thetas else ["12.6"] * len(eps)
+    mp = mpus or [-1.0] * len(eps)
     depth = ["l1_notional", "bookimb1"] if l1 else ["depth_slip", "bookimb"]
-    write(base, ["theta", "t0_ms", "t_conv_ms"], [["12.6", t0, tc] for t0, tc, _, _ in eps])
-    write(str(base) + ".exits.csv", ["theta", "t0_ms", "pnl_bps", "outcome"], [["12.6", t0, p, o] for t0, _, o, p in eps])
+    write(base, ["theta", "t0_ms", "t_conv_ms"], [[th[i], t0, tc] for i, (t0, tc, _, _) in enumerate(eps)])
+    write(str(base) + ".exits.csv", ["theta", "t0_ms", "pnl_bps", "outcome"], [[th[i], t0, p, o] for i, (t0, _, o, p) in enumerate(eps)])
     write(str(base) + ".features.csv", ["theta", "t_start", "hour", "leader", *depth, "spread", "vol5m", "plevel", "flow1m", "d_in"],
-          [["12.6", t0, 3, 1, 5.0 + i, 1.0 + i, 2.0, 3.0, 4.0, 5.0, 6.0] for i, (t0, _, _, _) in enumerate(eps)])
-    write(str(base) + ".path.csv", ["theta", "t0_ms", "mpu_bps"], [["12.6", t0, -1.0] for t0, _, _, _ in eps])
-    write(str(base) + ".aux.csv", ["theta", "t_start", "phi_bps", "liq5m", "oi5m"], [["12.6", t0, 0.5, 0, 0.1] for t0, _, _, _ in eps])
+          [[th[i], t0, 3, 1, 5.0 + i, 1.0 + i, 2.0, 3.0, 4.0, 5.0, 6.0] for i, (t0, _, _, _) in enumerate(eps)])
+    write(str(base) + ".path.csv", ["theta", "t0_ms", "mpu_bps"], [[th[i], t0, mp[i]] for i, (t0, _, _, _) in enumerate(eps)])
+    write(str(base) + ".aux.csv", ["theta", "t_start", "phi_bps", "liq5m", "oi5m"], [[th[i], t0, 0.5, 0, 0.1] for i, (t0, _, _, _) in enumerate(eps)])
 
 
 def load(path):
@@ -58,6 +60,22 @@ class AssembleTests(unittest.TestCase):
             self.assertEqual(t["t_conv_s"].tolist(), [30.0, 200.0, 600.0], "цензурированному — порог цензуры")
             r60, out60 = run_asm(d, base, ["--day0", "2025-09-17"])
             self.assertEqual(load(out60)["cens"].tolist(), [0, 1, 1], "умолчание 60 с — прежнее поведение")
+
+    def test_cell_keeps_episodes_with_different_theta_t_as_one_cell(self):
+        """TK-526 (Судья 11.11 п. 1): два эпизода одной клетки с разным θ_t — одна клетка в сводке; без --cell они отфильтрованы как «не θ = 12,6»; mpu_X — против −2·θ_t эпизода"""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d) / "core"
+            make_core(base, [(T0 + 5_000, 30_000, "both", 4.0), (T0 + 9_000, 30_000, "both", 1.0)], l1=False, thetas=[21.3, 40.7], mpus=[-50.0, -50.0])
+            r0, out0 = run_asm(d, base, ["--day0", "2025-09-17"])
+            self.assertEqual(r0.returncode, 0, r0.stderr)
+            self.assertEqual(len(load(out0)["day"]), 0, "прежний режим: строки θ ≠ 12,6 не берутся")
+            cell = "a3,phi=20,w=21600,k=3|q=0.5"
+            r, out = run_asm(d, base, ["--day0", "2025-09-17", "--cell", cell])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            t = load(out)
+            self.assertEqual(t["cell"].tolist(), [cell, cell], "одна клетка на оба эпизода")
+            self.assertEqual(t["mpu_X"].tolist(), [1, 0], "50 > 2·21,3, но 50 < 2·40,7")
+            self.assertEqual(t["net_bps"].tolist(), [4.0, 1.0])
 
     def test_without_day0_day_is_yyyymmdd_as_before(self):
         with tempfile.TemporaryDirectory() as d:

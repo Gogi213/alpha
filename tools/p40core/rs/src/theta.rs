@@ -39,6 +39,8 @@ pub struct Rule {
     pub u_ms: i64,
     /// полураспад A4, мс
     pub hl_ms: i64,
+    /// начало истории для `warm` (мс UTC): прогрев считается от него, а не от первого события куска — окно S_t питается историей сквозь границы кусков (`orch.py --pre-days`, `P40_WARM_FROM_MS`); `i64::MIN` = первое событие ряда
+    pub anchor_ms: i64,
 }
 
 impl Rule {
@@ -89,7 +91,11 @@ impl Rule {
         let ms = |x: f64| if x.is_finite() { (x * 1000.0) as i64 } else { i64::MAX };
         let (w_ms, hl_ms) = (ms(w), if hl.is_nan() { 0 } else { ms(hl) });
         let warm_ms = if !warm.is_nan() { ms(warm) } else if matches!(stat, Stat::Ewma(_)) { hl_ms } else { w_ms };
-        Rule { phi, q, c_fee: fee, stat, w_ms, warm_ms, xs, smax_ms: ms(smax), u_ms: ms(u), hl_ms }
+        Rule { phi, q, c_fee: fee, stat, w_ms, warm_ms, xs, smax_ms: ms(smax), u_ms: ms(u), hl_ms, anchor_ms: i64::MIN }
+    }
+    /// момент, от которого считается прогрев `warm`
+    fn start(&self, tu: &[i64]) -> i64 {
+        if self.anchor_ms == i64::MIN { tu[0] } else { self.anchor_ms }
     }
 }
 
@@ -290,7 +296,7 @@ fn a5_theta(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, bad: &[bool], floor: &[f
             }
             expire(&mut pout, pin, &mut wins, &mut wv, &reg);
             let w = &wins[rg(last_v5) as usize];
-            cur = if last_v5.is_nan() || w.n == 0 || hi - tu[0] < rule.warm_ms {
+            cur = if last_v5.is_nan() || w.n == 0 || hi - rule.start(tu) < rule.warm_ms {
                 f64::NAN
             } else {
                 let med = w.median();
@@ -349,7 +355,7 @@ fn ewma_theta(tu: &[i64], ds: &[f64], bad: &[bool], floor: &[f64], p: f64, rule:
                 }
                 pin += 1;
             }
-            cur = if !init || hi - tu[0] < rule.warm_ms { f64::NAN } else { q };
+            cur = if !init || hi - rule.start(tu) < rule.warm_ms { f64::NAN } else { q };
         }
         if !cur.is_nan() {
             th[i] = floor[i].max(cur);
@@ -423,7 +429,7 @@ pub fn theta_series(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, rule: &Rule) -> 
                 }
                 pout += 1;
             }
-            cur = if win.n == 0 || hi - tu[0] < rule.warm_ms {
+            cur = if win.n == 0 || hi - rule.start(tu) < rule.warm_ms {
                 f64::NAN
             } else {
                 match rule.stat {
@@ -493,6 +499,34 @@ mod tests {
                 med + k * 1.4826 * dev[m / 2]
             }
             Stat::Floor | Stat::Ewma(_) | Stat::MadReg(_) => unreachable!(),
+        }
+    }
+
+    /// Судья 11.11 п. 2: кусок, читающий предысторию ≥ W до своего начала, даёт θ_t[i] как непрерывный прогон (прогрев — от общего начала данных `anchor_ms`, не от первого события куска)
+    #[test]
+    fn chunk_with_prehistory_equals_continuous_run() {
+        let (tu, ds) = series(9000, 0x9E3779B97F4A7C15);
+        let lg = leg(&tu, 100.0, 100.01);
+        let c = tu.partition_point(|&t| t < tu[tu.len() - 1] / 2);   // начало куска — середина ряда
+        let j0 = tu.partition_point(|&t| t < tu[c] - 700_000);        // предыстория 700 с ≥ W = 600 с
+        let (tc, dc) = (&tu[j0..], &ds[j0..]);
+        let lc = leg(tc, 100.0, 100.01);
+        for (stat, exact) in [("a2,phi=1,w=600,p=0.95,warm=600", true), ("a3,phi=1,w=600,k=3,warm=600", true), ("a5,phi=1,w=600,k=3,warm=600", true), ("a4,phi=1,hl=60,p=0.9,warm=600", false)] {
+            let mut rule = Rule::parse(stat, 0.5);
+            rule.anchor_ms = tu[0];
+            let (full, cut) = (theta_series(&tu, &ds, &lg, &lg, &rule), theta_series(tc, dc, &lc, &lc, &rule));
+            let (mut def, mut tail_nan) = (0, 0);
+            for i in c..tu.len() {
+                let (a, b) = (full[i], cut[i - j0]);
+                if a.is_nan() || b.is_nan() {
+                    assert!(a.is_nan() && b.is_nan(), "{stat} i={i}: {a} против {b}");
+                    tail_nan += 1;
+                } else {
+                    def += 1;
+                    assert!(if exact { a.to_bits() == b.to_bits() } else { (a - b).abs() <= 0.02 * a.abs().max(1.0) }, "{stat} i={i}: непрерывный {a} кусок {b}");
+                }
+            }
+            assert!(def > 1000, "{stat}: определённых моментов {def} (NaN {tail_nan})");
         }
     }
 

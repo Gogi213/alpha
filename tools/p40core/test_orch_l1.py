@@ -371,6 +371,28 @@ def test_fetch_aux_cache_and_purge(tmp):   # TK-522: parquet из <кэш>/raw �
         del os.environ["P40_L1_CACHE"]
 
 
+NL = chr(10)
+
+
+def test_pre_days_and_cells_file(tmp):
+    """TK-526 (Судья 11.11): предыстория куска — n суток перед ним, не раньше первых суток прогона; файл клеток -> варианты c_<имя> с P40_RULE/P40_Q и ключом клетки"""
+    assert orch.pre_days("2026-09-17", "2026-09-17", 1) == []                       # первый кусок: истории нет
+    assert orch.pre_days("2026-09-17", "2026-09-19", 1) == ["2026-09-18"]
+    assert orch.pre_days("2026-09-17", "2026-09-18", 2) == ["2026-09-17"]           # не раньше начала прогона
+    assert orch.pre_days("2026-09-01", "2026-10-01", 2) == ["2026-09-29", "2026-09-30"]   # через границу месяца
+    f = tmp / "cells.txt"
+    f.write_text(NL.join(["# клетки", "", "a3w6k3q05 a3,phi=20,w=21600,k=3 0.5   # A3", "A2_p95q0 a2,phi=29,w=3600,p=0.95 0", ""]))
+    cells = orch.read_cells(str(f))
+    assert cells == [("c_a3w6k3q05", {"P40_RULE": "a3,phi=20,w=21600,k=3", "P40_Q": "0.5"}, "a3,phi=20,w=21600,k=3|q=0.5"),
+                     ("c_A2_p95q0", {"P40_RULE": "a2,phi=29,w=3600,p=0.95", "P40_Q": "0"}, "a2,phi=29,w=3600,p=0.95|q=0")], cells
+    f.write_text(NL.join(["x a3,phi=20,k=3 0.5", "x a2,phi=20,p=0.9 0", ""]))
+    try:
+        orch.read_cells(str(f))
+        raise AssertionError("повтор имени клетки принят")
+    except SystemExit:
+        pass
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

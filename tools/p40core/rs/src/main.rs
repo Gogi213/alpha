@@ -848,6 +848,7 @@ fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
 /// Контроли и усечение — только по флагам среды (умолчание = прежнее поведение):
 /// `P40_SHIFT_B_MS=<мс>` — K1, сдвиг времени ноги B (книга и сделки); `P40_K2=1` — K2, таблицы `<out>.k2*` (seed `P40_SEED`, умолчание 40; зазор `P40_K2_GAP_MS`, умолчание 600000 = П-40 §4.3);
 /// `P40_NOTRADE=drain|through|skip` — нога без файлов сделок (П-40 §2, §16.2): `drain` — убыль объёма на уровне заявки = сделка (верхняя граница исполнений), `through` — исполнение только при проходе цены сквозь уровень (нижняя), `skip` (умолчание) — заявки на ноге не ставятся, исход `off_maker`;
+/// `P40_EP_FROM_MS` — эпизоды только с этого t0 (предыстория куска питает окна), `P40_WARM_FROM_MS` — начало истории для `warm` правила (общее начало данных, не первое событие куска; `orch.py --pre-days`);
 /// `P40_Q=<доля>` (умолчание 0,5) — выход при `dir·d ≤ q·d_вход`; `P40_RULE=a0|a2|a3,phi=..,w=..,p=..|k=..,fee=..,xs=..,warm=..` — порог θ_t по прошлому окну вместо `P40_THETAS` (TK-526, П-41, `theta.rs`);
 /// `P40_TRUNC=1` — усечение §2.2 (+ колонка `trunc` в exits: 1 — конец данных, 2 — дыра), конец данных `P40_END_MS` (умолчание — последний момент рядов), дыры — файл `P40_HOLES` со строками `начало_мс,конец_мс`.
 fn main() {
@@ -914,14 +915,20 @@ fn main() {
     // TK-526 (П-41): `P40_Q` — доля входного разрыва выхода (умолчание ½); `P40_RULE` — переменный порог θ_t по прошлому окну (`theta.rs`), вместо списка `P40_THETAS`; нет — прежний счёт
     let q: f64 = env("P40_Q").map_or(0.5, |v| v.parse().unwrap());
     let rule = env("P40_RULE");
+    // `P40_EP_FROM_MS` — предыстория куска (orch `--pre-days`): эпизоды только с этого момента (мс UTC), раньше — только питают окно θ_t и уровень; не задан — все (как прежде)
+    let ep_from: i64 = env("P40_EP_FROM_MS").map_or(i64::MIN, |v| v.parse().unwrap());
     if let Some(r) = rule.as_deref() {
         assert!(env("P40_K2").is_none(), "P40_RULE: контроль K2 с переменным порогом не поддержан");
-        let th_t = theta::theta_series(&tu, &ds, &la, &lb, &theta::Rule::parse(r, q));
+        let mut rl = theta::Rule::parse(r, q);
+        if let Some(v) = env("P40_WARM_FROM_MS") {
+            rl.anchor_ms = v.parse().unwrap();
+        }
+        let th_t = theta::theta_series(&tu, &ds, &la, &lb, &rl);
         eprintln!("правило {r} q={q}: θ_t определён на {} из {} моментов {:.1}s", th_t.iter().filter(|v| v.is_finite()).count(), th_t.len(), t.elapsed().as_secs_f64());
-        all.extend(episodes_with(&tu, &ds, |i| th_t[i], &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
+        all.extend(episodes_with(&tu, &ds, |i| th_t[i], &la, &lb).into_iter().filter(|e| valid.usable(e.t0) && e.t0 >= ep_from));
     } else {
         for &th in &thetas {
-            all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
+            all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0) && e.t0 >= ep_from));
         }
     }
     write_tables(&a[1], &all);

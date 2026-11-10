@@ -497,9 +497,39 @@ def purge_aux_cache(legs, days):
                     pass
 
 
+def day_ms(day):
+    return calendar.timegm(time.strptime(day, "%Y-%m-%d")) * 1000
+
+
+def pre_days(first, day0, n):
+    """TK-526 (Судья 11.11 п. 2): сутки предыстории куска — n суток перед `day0`, не раньше первых суток прогона `first`; окно S_t питается историей сквозь границу кусков"""
+    d0 = day_ms(day0) // 86_400_000
+    out = [time.strftime("%Y-%m-%d", time.gmtime((d0 - k) * 86400)) for k in range(n, 0, -1)]
+    return [d for d in out if d >= first]
+
+
+def read_cells(path):
+    """TK-526 (П-41 §5): файл клеток — строки `имя правило q` (правило как P40_RULE, без пробелов; пустые и `#` пропускаются) -> [(имя варианта `c_<имя>`, {P40_RULE, P40_Q}, ключ клетки `<правило>|q=<q>`)];
+    клетка = один прогон ядра на тех же рядах (механизм --variant), выход `<база>.c_<имя>`, спецы specs_c_<имя>.txt; ключ клетки идёт в assemble.py --cell"""
+    out, seen = [], set()
+    for ln in open(path):
+        w = ln.split("#")[0].split()
+        if not w:
+            continue
+        if len(w) != 3 or not w[0].replace("_", "").isalnum() or w[0] in seen:
+            sys.exit(f"--cells {path}: ожидалось `имя правило q` с неповторным именем, получено {ln.strip()!r}")
+        float(w[2])
+        seen.add(w[0])
+        out.append((f"c_{w[0]}", {"P40_RULE": w[1], "P40_Q": w[2]}, f"{w[1]}|q={w[2]}"))
+    return out
+
+
 def job(args, asset, days, pairs, outlog):
     t_all = time.time()
-    cid = days[0] if len(days) == 1 else f"{days[0]}+{len(days)}"
+    rd = days   # сутки куска (эпизоды, имена, aux); days ниже = предыстория + сутки куска (чтение L1, слияние, дыры)
+    pre = pre_days(args.first_day, rd[0], args.pre_days)
+    days = pre + rd
+    cid = rd[0] if len(rd) == 1 else f"{rd[0]}+{len(rd)}"
     out_d = f"{args.out}/{asset}/{cid}"
     if os.path.exists(f"{out_d}/DONE") and (not args.age or os.path.exists(f"{out_d}/AGE")):   # с --age задание, готовое без возрастов (до TK-522 п. 2), пересчитывается: L1 ног нужен для возраста на t0
         return
@@ -545,8 +575,8 @@ def job(args, asset, days, pairs, outlog):
                             f.write(f"L1 нет -> сырьё: {r}" + chr(10))
                     else:
                         l1fs[(ex, sym)] = r
-            trraw = set() if args.naive_only else {k for k, fs in l1fs.items() if k[0] in CHFT and fs and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
-            nbytes += fetch([] if args.naive_only else [f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs, trades=(ex, sym) in trraw)], raw, args.fetch_p, log)   # --naive-only: ни сделок, ни mark/OI/ликвидаций — только книга L1
+            trraw = set() if args.naive_only or day in pre else {k for k, fs in l1fs.items() if k[0] in CHFT and fs and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
+            nbytes += fetch([] if args.naive_only or day in pre else [f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs, trades=(ex, sym) in trraw)], raw, args.fetch_p, log)   # --naive-only: ни сделок, ни mark/OI/ликвидаций — только книга L1
             t_fetch += time.time() - t
             for (ex, sym), mult in legs.items():
                 bins = f"{wd}/bin/{leg_key(ex, sym)}/{day}"
@@ -589,6 +619,11 @@ def job(args, asset, days, pairs, outlog):
                 merge([f"{wd}/bin/{k}/{day}" for day in days], mrg[(ex, sym)], sub)
         t_merge = time.time() - tm
         env = dict(os.environ, P40_HOURS=str(24 * len(days)), **({"P40_NAIVE": "1"} if args.naive_only else {}))
+        if args.pre_days:   # TK-526: прогрев правила — от начала данных прогона (одинаков у всех кусков, не от первого события куска); эпизоды — только в сутках куска и не раньше --ep-from (общее множество моментов для всех клеток)
+            env["P40_WARM_FROM_MS"] = str(day_ms(args.first_day))
+        ep_from = max(day_ms(rd[0]) if pre else 0, day_ms(args.ep_from) if args.ep_from else 0)
+        if ep_from:
+            env["P40_EP_FROM_MS"] = str(ep_from)
         if args.validity_l1:   # TK-522 (Судья 10.11 §2): validity по L1 всех ног плана ДО эпизодов пар; негодные часы (no_data, crossed>1%) -> к дырам; покрытие (нога, час) = 100 % по построению (строка на каждый час плана)
             for (ex, sym) in legs:
                 if not l1_leg(args, ex):
@@ -640,7 +675,7 @@ def job(args, asset, days, pairs, outlog):
             if args.naive_only:
                 continue
             if True:   # TK-522: aux.csv нужен assemble у КАЖДОЙ пары, в т.ч. Bybit×Gate (оба корня «-» -> пустые признаки, srcA=srcB=0); раньше aux не писали -> assemble падал на FileNotFoundError
-                ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
+                ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in rd) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
                 rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
                 if rc != 0:
                     raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
@@ -653,10 +688,10 @@ def job(args, asset, days, pairs, outlog):
                 write_age(CORE, base, vruns, a, b, env, dict(args.variants))
             with LOG_LOCK, open(f"{args.out}/specs.txt", "a") as f:
                 byb = int("bybit" in (p["exA"], p["exB"]))
-                f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{byb}:{base}" + chr(10))
+                f.write(f"{asset}:{rd[0].replace('-', '') if len(rd) == 1 else 't0'}:{p['pair']}:{byb}:{base}" + chr(10))
             for vname in vruns:
                 with LOG_LOCK, open(f"{args.out}/specs_{vname}.txt", "a") as f:
-                    f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{int('bybit' in (p['exA'], p['exB']))}:{base}.{vname}" + chr(10))
+                    f.write(f"{asset}:{rd[0].replace('-', '') if len(rd) == 1 else 't0'}:{p['pair']}:{int('bybit' in (p['exA'], p['exB']))}:{base}.{vname}" + chr(10))
         if args.age:
             open(f"{out_d}/AGE", "w").write("")
         open(f"{out_d}/DONE", "w").write("")
@@ -693,6 +728,9 @@ def main():
     ap.add_argument("--l1-p", type=int, default=1, help="TK-522 v2: параллельных rsync L1 на задание (ноги×сутки одним пулом; умолч. 1 = последовательно, как прежде)")
     ap.add_argument("--box-conn", type=int, default=0, help="TK-522: потолок одновременных rsync к боксу на весь процесс (jobs × l1-p × fetch-p; бокс закрывает соединения при перегрузе, rc 12); 0 = без предела, как прежде")
     ap.add_argument("--variant", action="append", default=[], metavar="ИМЯ:К=З,К=З", help="TK-522 v2: доп. прогон ядра на тех же рядах с добавочным окружением, напр. k2:P40_K2=1 | k1p60:P40_SHIFT_B_MS=60000 | drain:P40_NOTRADE=drain; повторяемый; выход <пара>.<имя>")
+    ap.add_argument("--cells", default="", help="TK-526 (П-41 §5): файл клеток `имя правило q` — переменный порог θ_t; клетка = прогон ядра с P40_RULE и P40_Q на тех же рядах (как --variant c_<имя>), ключ клетки `<правило>|q=<q>` пишется в <out>/cells.csv и в assemble.py --cell; базовый прогон (постоянный θ) остаётся")
+    ap.add_argument("--pre-days", type=int, default=0, help="TK-526 (Судья 11.11 п. 2): сутки предыстории перед каждым куском (≥ ⌈наибольшее W/24 ч⌉): читаются только L1 (без сделок и aux), питают окно θ_t и уровень, эпизодов в них нет; прогрев правила — от начала данных прогона (P40_WARM_FROM_MS). 0 = как раньше (прогрев — от первого события куска)")
+    ap.add_argument("--ep-from", default="", help="TK-526: эпизоды только с этих суток UTC (ГГГГ-ММ-ДД, P40_EP_FROM_MS) — общее множество моментов для клеток с разным W (П-41: 2026-09-18)")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
     args.raw_ex = {x for x in args.raw_ex.split(",") if x}
@@ -702,7 +740,16 @@ def main():
         if not name or not kv or not name.replace("_", "").isalnum():
             sys.exit(f"--variant {v!r}: ожидалось ИМЯ:К=З[,К=З]")
         args.variants.append((name, dict(x.split("=", 1) for x in kv.split(","))))
+    ds = args.days.split(",")
+    args.first_day = min(ds)
+    args.cells = read_cells(args.cells) if args.cells else []
+    args.variants += [(n, e) for n, e, _ in args.cells]
     os.makedirs(args.out, exist_ok=True)
+    if args.cells:
+        with open(f"{args.out}/cells.csv", "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["variant", "rule", "q", "cell"])
+            w.writerows([n, e["P40_RULE"], e["P40_Q"], k] for n, e, k in args.cells)
     if args.validity_strict and not args.validity:
         sys.exit("--validity-strict требует --validity")
     seen = {}
@@ -723,7 +770,6 @@ def main():
     keep = set(filter(None, args.assets.split(",")))
     if not args.raw_legs and "P40_L1" not in os.environ and any(r[f"ex{s}"] in L1_EX for r in sum(by_asset.values(), []) for s in "AB"):
         sys.exit("TK-522: ноги идут из L1 (без глубины) -> признаки depth_slip/bookimb невозможны; задайте P40_L1=1 на весь прогон (ядро берёт l1_notional/bookimb1 по лучшим ценам) или --raw-legs")
-    ds = args.days.split(",")
     todo = [(a, ds[i:i + args.chunk], ps) for i in range(0, len(ds), args.chunk) for a, ps in by_asset.items() if not keep or a in keep]
     if "P40_L1" in os.environ and b"P40_L1" not in open(CORE, "rb").read():
         sys.exit(f"TK-518: P40_L1 задан, но ядро {CORE} его не знает (сборка до TK-515: бит2 L1 и признаки без глубины не поддержаны) — задайте P40_CORE на сборку TK-515+")
