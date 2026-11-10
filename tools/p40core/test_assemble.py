@@ -140,6 +140,21 @@ class AssembleTests(unittest.TestCase):
             self.assertNotIn("fund_bps", t)
             self.assertEqual(t["net_bps"].tolist(), [4.0])
 
+    def test_stale_flag_from_age_and_smax(self):   # Судья 10.11 §2 п. 2: stale = возраст лучших цен любой ноги на t0 > S_max контракта; нет возраста/S_max -> -1; без --stale-smax столбца нет
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d) / "core"
+            ts = [T0 + 1_000, T0 + 2_000, T0 + 3_000, T0 + 4_000, T0 + 5_000]
+            make_core(base, [(t, 30_000, "both", 1.0) for t in ts], l1=True)
+            write(str(base) + ".age.csv", ["t0_ms", "ageA_ms", "ageB_ms"], [[ts[0], 900, 1900], [ts[1], 1100, 100], [ts[2], 100, 2100], [ts[4], -1, 5]])   # ts[3] без строки
+            write(Path(d) / "pairs.csv", ["pair", "exA", "symA", "exB", "symB"], [[1, "binance", "XUSDT", "okx", "X-USDT-SWAP"]])
+            write(Path(d) / "smax.csv", ["ex", "contract", "s_max_s"], [["binance_futures", "XUSDT", 1.0], ["okx_futures", "X-USDT-SWAP", 2.0]])
+            r, out = run_asm(d, base, ["--stale-smax", str(Path(d) / "smax.csv"), "--pairs", str(Path(d) / "pairs.csv")])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(load(out)["stale"].tolist(), [0, 1, 1, -1, -1])
+            self.assertIn("stale 2 возраст неизвестен 2", r.stdout)
+            r2, out2 = run_asm(d, base, [])
+            self.assertNotIn("stale", load(out2))
+
 
 if __name__ == "__main__":
     unittest.main()

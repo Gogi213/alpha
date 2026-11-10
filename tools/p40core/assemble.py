@@ -19,6 +19,7 @@ import funding as FD
 MAX_FUND_STEP_MS = 8 * 3_600_000 + 2000
 
 THETA, H_S, T_LIFE_S = "12.6", 600.0, 60.0
+VEX = {"okx": "okx_futures", "bitget": "bitget_futures", "aster": "aster_futures", "hyperliquid": "hyperliquid_futures", "binance": "binance_futures"}   # биржа пар -> имя в validity_l1/smax_l1 (как orch.VEX)
 ORD = {"f_depth": "depth_slip", "f_spread": "spread", "f_vol5m": "vol5m", "f_plevel": "plevel", "f_flow1m": "flow1m", "f_bookimb": "bookimb", "f_d_arm": "d_in", "f_oi5m": "oi5m"}
 FEATS = ["depth", "spread", "hour", "vol5m", "plevel", "phi_sign", "oi5m", "liq", "flow1m", "bookimb", "d_arm", "leader"]
 SCHEMA = ["asset", "day", "pair", "conv_H", "mpu_X", "net_bps", "bybit_leg", "t_conv_s", "cens"] + ["f_" + k for k in FEATS]
@@ -78,12 +79,18 @@ def main():
     pairs_csv = a[a.index("--pairs") + 1] if "--pairs" in a else ""
     if "--pairs" in a:
         del a[a.index("--pairs"):a.index("--pairs") + 2]
+    smax_csv = a[a.index("--stale-smax") + 1] if "--stale-smax" in a else ""   # TK-522 (Судья 10.11 §2 п. 2): столбец stale — возраст лучших цен любой ноги на t0 > S_max контракта (smax_l1.csv); нужны <база>.age.csv и --pairs
+    if "--stale-smax" in a:
+        del a[a.index("--stale-smax"):a.index("--stale-smax") + 2]
     fwin = a[a.index("--funding-window") + 1] if "--funding-window" in a else ""
     if "--funding-window" in a:
         del a[a.index("--funding-window"):a.index("--funding-window") + 2]
-    if bool(fund_csv) != bool(pairs_csv) or bool(fund_csv) != bool(fwin):
+    if bool(fund_csv) != bool(fwin) or (fund_csv and not pairs_csv) or (pairs_csv and not (fund_csv or smax_csv)):
         sys.exit("TK-522: --funding, --pairs и --funding-window — только вместе")
+    if smax_csv and not pairs_csv:
+        sys.exit("TK-522: --stale-smax требует --pairs (биржи и символы ног)")
     ftab = FD.load_csv(fund_csv) if fund_csv else {}
+    smax = {(r["ex"], r["contract"]): float(r["s_max_s"]) * 1000 for r in csv.DictReader(open(smax_csv))} if smax_csv else {}
     pairs = {int(r["pair"]): r for r in csv.DictReader(open(pairs_csv))} if pairs_csv else {}
     if fwin:
         w0, w1 = (calendar.timegm(time.strptime(x, "%Y-%m-%d")) * 1000 for x in fwin.split(":"))
@@ -93,7 +100,8 @@ def main():
     kinds = set()
     d0 = int(calendar.timegm(time.strptime(day0, "%Y-%m-%d")) // 86400) if day0 else None
     schema = SCHEMA + (["fund_bps"] if ftab else [])
-    cols = {k: [] for k in schema + ["armed", "trunc"]}
+    cols = {k: [] for k in schema + ["armed", "trunc"] + (["stale"] if smax_csv else [])}
+    nstale = [0, 0]   # stale = 1, неизвестно (нет возраста или S_max) = -1
     raw = {k: [] for k in ORD.values()}
     hour, leader = [], []
     for sp in specs:
@@ -107,6 +115,10 @@ def main():
             pr = pairs[int(pair)]
             legs = [fund_leg(ftab, pr["ex" + c], pr["sym" + c]) for c in "AB"]
         ax = {(r["theta"], r["t_start"]): r for r in rows(base + ".aux.csv")}
+        if smax_csv:
+            ages = {r["t0_ms"]: (int(r["ageA_ms"]), int(r["ageB_ms"])) for r in rows(base + ".age.csv")} if os.path.exists(base + ".age.csv") else {}
+            pr_ = pairs[int(pair)]
+            lim = [smax.get((VEX.get(pr_["ex" + c], pr_["ex" + c]), pr_["sym" + c])) for c in "AB"]
         for e in ep:
             k = (e["theta"], e["t0_ms"])
             x, f = ex[k], ft[k]
@@ -134,6 +146,12 @@ def main():
                 cols["fund_bps"].append(fund)
             cols["t_conv_s"].append(cens_s if cens else tc / 1000.0); cols["cens"].append(int(cens))
             cols["armed"].append(1); cols["trunc"].append(tr)
+            if smax_csv:
+                ag = ages.get(e["t0_ms"])
+                st = -1 if ag is None or min(ag) < 0 or None in lim else int(any(g > m for g, m in zip(ag, lim)))
+                cols["stale"].append(st)
+                nstale[0] += st == 1
+                nstale[1] += st == -1
             a = ax[(e["theta"], f["t_start"])]
             part = strict and int(a.get("srcA", 1)) + int(a.get("srcB", 1)) < 2
             part_oi = strict and int(a.get("srcOIA", a.get("srcA", 1))) + int(a.get("srcOIB", a.get("srcB", 1))) < 2   # aux.csv до TK-512 без srcOI: OI-источник = mark-источник
@@ -163,11 +181,11 @@ def main():
         v = np.array(raw[src]); b = bounds[fk]
         cols[fk] = np.where(np.isfinite(v), np.where(v <= b[0], 0, np.where(v <= b[1], 1, 2)), -1)
     cols["f_hour"] = np.array(hour); cols["f_leader"] = np.array(leader)
-    t = {k: np.asarray(cols[k]) for k in schema + ["armed", "trunc"]}
+    t = {k: np.asarray(cols[k]) for k in schema + ["armed", "trunc"] + (["stale"] if smax_csv else [])}
     t["ctl"] = np.array([ctl] * n)
     t["depth_kind"] = np.array([next(iter(kinds)) if kinds else 0] * n)
     np.savez_compressed(out, **t)
-    print("строк", n, "усечённых", int((t["trunc"] > 0).sum()), "контроль", ctl, "сошлось за H", int(t["conv_H"].sum()), "границы", bpath)
+    print("строк", n, "усечённых", int((t["trunc"] > 0).sum()), "контроль", ctl, "сошлось за H", int(t["conv_H"].sum()), "границы", bpath, *(["stale", nstale[0], "возраст неизвестен", nstale[1]] if smax_csv else []))
 
 
 main()

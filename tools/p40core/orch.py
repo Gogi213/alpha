@@ -11,7 +11,7 @@ TK-510: бюджет /dev/shm. Пик актива×чанка = все .bin ч�
 Флаги ядра P40_* (NOTRADE, THETAS, VARIANTS, TRUNC, K2, SHIFT_B_MS ...) передаются средой как есть. Binance-стакан читается с локального диска (BINANCE_BOOK), остальное — rsync --files-from с бокса в P постоянных соединениях.
 TK-518 (В-116): ноги Bybit/Gate — НЕ сырьё (его на боксе убирает reaper), а L1 бокса `p40l1/<биржа>_futures/<символ>/<сутки>/` (`<ЧЧ>.l1.bin.zst` + `.ok`), распаковка zstd -> `<ЧЧ>.l1.bin`; нет суток/метки/файлов по метке = сбой задания.
   Нужен P40_L1=1 на весь прогон (признаки без глубины, В-115) и ядро TK-515+ (P40_CORE; старое ядро с P40_L1 — отказ при старте). `--raw-legs` — прежний путь из сырья. Хвост суток после 00:00:00 не берётся: прежний конвертер (bybit::scan) его тоже отбрасывал — разбор в тикете TK-518."""
-import argparse, calendar, concurrent.futures as cf, csv, gzip, os, shutil, subprocess, sys, threading, time
+import argparse, calendar, concurrent.futures as cf, csv, gzip, os, shutil, subprocess, sys, tempfile, threading, time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -334,6 +334,46 @@ def run_l1_validity(core, mdir, env, log):
     return {int(x[0]): tuple(map(int, x[1:])) for x in (ln.split() for ln in r.stdout.splitlines()) if len(x) == 5}
 
 
+def run_l1_age(core, legdir, t0s, env, shift_b=False):
+    """`p40core age <каталог>/B <t0>` -> {t0_мс: возраст лучших цен, мс; -1 = нет состояний до t0}; shift_b — нога B варианта K1 (env с P40_SHIFT_B_MS)"""
+    with tempfile.NamedTemporaryFile("w", suffix=".t0", delete=False) as f:
+        f.write(chr(10).join(map(str, t0s)) + chr(10))
+    try:
+        r = subprocess.run([core, "age", f"{legdir}/B", f.name] + (["B"] if shift_b else []), env=env, capture_output=True, text=True)
+    finally:
+        os.unlink(f.name)
+    if r.returncode != 0:
+        raise RuntimeError(f"p40core age {legdir}: rc {r.returncode} {r.stderr[-300:]}")
+    return {int(x[0]): int(x[1]) for x in (ln.split() for ln in r.stdout.splitlines()) if len(x) == 2}
+
+
+def write_age(core, base, vnames, a, b, env, venvs):
+    """TK-522 (Судья 10.11 §2 п. 2): `<base>[.<вариант>].age.csv` (t0_ms,ageA_ms,ageB_ms) — возраст лучших цен обеих ног на каждом t0 эпизода (t_start в features.csv), по тому же ряду, что считает ядро. Ноги читаются один раз на все варианты; K1 (сдвиг B) — отдельный ряд B со сдвигом.
+    assemble --stale-smax сверяет с S_max контракта (smax_l1.csv, после прогона)"""
+    def t0s(names):
+        out = set()
+        for n in names:
+            pth = f"{base}{'.' + n if n else ''}.features.csv"
+            if os.path.exists(pth):
+                with open(pth) as f:
+                    out.update(int(r["t_start"]) for r in csv.DictReader(f))
+        return sorted(out)
+
+    shifted = [n for n in vnames if "P40_SHIFT_B_MS" in venvs[n]]
+    plain = [""] + [n for n in vnames if n not in shifted]
+    tp = t0s(plain)
+    agea = run_l1_age(core, a, tp, env)
+    groups = [(plain, tp, run_l1_age(core, b, tp, env), agea)]
+    for n in shifted:
+        tk = t0s([n])
+        groups.append(([n], tk, run_l1_age(core, b, tk, dict(env, **venvs[n]), shift_b=True), run_l1_age(core, a, tk, env)))
+    for names, ts, ab, aa in groups:
+        for n in names:
+            with open(f"{base}{'.' + n if n else ''}.age.csv", "w") as f:
+                f.write("t0_ms,ageA_ms,ageB_ms" + chr(10))
+                f.writelines(f"{t},{aa.get(t, -1)},{ab.get(t, -1)}" + chr(10) for t in ts)
+
+
 def record_validity(out, rows):
     """validity_l1.csv: строки validity по L1 (ноги общие для пар актива -> без повторов по (биржа, контракт, сутки))"""
     with LOG_LOCK:
@@ -436,7 +476,7 @@ def job(args, asset, days, pairs, outlog):
     t_all = time.time()
     cid = days[0] if len(days) == 1 else f"{days[0]}+{len(days)}"
     out_d = f"{args.out}/{asset}/{cid}"
-    if os.path.exists(f"{out_d}/DONE"):
+    if os.path.exists(f"{out_d}/DONE") and (not args.age or os.path.exists(f"{out_d}/AGE")):   # с --age задание, готовое без возрастов (до TK-522 п. 2), пересчитывается: L1 ног нужен для возраста на t0
         return
     os.makedirs(out_d, exist_ok=True)
     wd = f"{args.shm}/{asset}_{cid}"
@@ -579,12 +619,16 @@ def job(args, asset, days, pairs, outlog):
                 collect_auxholes(args.out, f"{base}.auxholes.csv")
                 for vname in vruns:   # assemble читает `<base>.aux.csv`; aux не зависит от варианта ядра (ряды рынка, не заявки)
                     shutil.copy(f"{base}.aux.csv", f"{base}.{vname}.aux.csv")
+            if args.age:   # Судья 10.11 §2 п. 2: возраст лучших цен на t0 обеих ног — для assemble --stale-smax (L1 ног ещё в shm)
+                write_age(CORE, base, vruns, a, b, env, dict(args.variants))
             with LOG_LOCK, open(f"{args.out}/specs.txt", "a") as f:
                 byb = int("bybit" in (p["exA"], p["exB"]))
                 f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{byb}:{base}" + chr(10))
             for vname in vruns:
                 with LOG_LOCK, open(f"{args.out}/specs_{vname}.txt", "a") as f:
                     f.write(f"{asset}:{days[0].replace('-', '') if len(days) == 1 else 't0'}:{p['pair']}:{int('bybit' in (p['exA'], p['exB']))}:{base}.{vname}" + chr(10))
+        if args.age:
+            open(f"{out_d}/AGE", "w").write("")
         open(f"{out_d}/DONE", "w").write("")
         row = [asset, cid, len(pairs), len(legs), nbytes, f"{t_fetch:.1f}", f"{t_conv:.1f}", f"{c_conv:.1f}", f"{t_core:.1f}", f"{c_core:.1f}", f"{c_aux:.1f}", f"{time.time() - t_all:.1f}", f"{t_wait:.1f}", f"{t_merge:.1f}", f"{t_aux:.1f}"]
         with LOG_LOCK, open(outlog, "a") as f:
@@ -606,6 +650,7 @@ def main():
     ap.add_argument("--l-ms", type=int, default=500)
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
+    ap.add_argument("--age", action="store_true", help="TK-522 (Судья 10.11 §2 п. 2): возраст лучших цен обеих ног на t0 эпизодов -> <база>[.<вариант>].age.csv (p40core age); assemble --stale-smax помечает эпизоды stale")
     ap.add_argument("--validity-l1", action="store_true", help="TK-522 (Судья 10.11 §2): validity по L1 каждой ноги задания (p40core validity) -> <out>/validity_l1.csv; негодные часы -> P40_HOLES; заменяет G0-таблицу и --validity-strict (покрытие 100 % по построению)")
     ap.add_argument("--validity-strict", action="store_true", help="П-40 §16.5: покрытие validity 100 % (нога, час) плана — иначе отказ до счёта (код 3, список в <out>/validity_gaps.csv); требует --validity")
     ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")

@@ -308,6 +308,20 @@ def test_gap_e2e_check():   # Судья 10.11 §7 п.7: пара с дырой 
     assert g.check([row(100, 200, "")], [])[0] == []
 
 
+def test_write_age_files_and_k1_shift(tmp):   # Судья 10.11 §2 п. 2: <база>.age.csv на объединении t0 вариантов без сдвига; K1 — отдельный ряд B со сдвигом; ядро подменено скриптом `age <dir> <t0> [B]`
+    core = tmp / "core.sh"
+    core.write_text("\n".join(['#!/bin/sh', 's=0; [ "$4" = B ] && s=${P40_SHIFT_B_MS:-0}', 'while read t; do echo "$t $((t % 1000 + s))"; done < "$3"', ""]))
+    core.chmod(0o755)
+    base = str(tmp / "p")
+    for name, ts in (("", (1500, 2750)), (".k2", (2750, 3100)), (".k1p60", (4200,))):
+        pathlib.Path(f"{base}{name}.features.csv").write_text("\n".join(["theta,t_start"] + [f"5.04,{t}" for t in ts]) + "\n")
+    orch.write_age(str(core), base, ["k2", "k1p60"], "A", "B", dict(os.environ), {"k2": {"P40_K2": "1"}, "k1p60": {"P40_SHIFT_B_MS": "60000"}})
+    rd = lambda n: pathlib.Path(f"{base}{n}.age.csv").read_text().split()
+    assert rd("") == ["t0_ms,ageA_ms,ageB_ms", "1500,500,500", "2750,750,750", "3100,100,100"], rd("")
+    assert rd(".k2") == rd(""), "варианты без сдвига делят ряд базы"
+    assert rd(".k1p60") == ["t0_ms,ageA_ms,ageB_ms", "4200,200,60200"], rd(".k1p60")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

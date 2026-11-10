@@ -147,6 +147,17 @@ struct Leg {
 }
 
 impl Leg {
+    /// Возраст лучших цен в момент `t` (TK-522, Судья 10.11 §2 п. 2): `t` − время последней смены `(bid, ask)` среди событий ≤ `t`, мс; нет событий ≤ `t` → −1. Тот же ряд, что считает ядро (`leg_series`).
+    fn age_at(&self, ts: &[i64]) -> Vec<i64> {
+        let chg: Vec<usize> = (0..self.t.len()).filter(|&i| i == 0 || (self.b[i], self.a[i]) != (self.b[i - 1], self.a[i - 1])).collect();
+        ts.iter()
+            .map(|&t| {
+                let k = chg.partition_point(|&i| self.t[i] <= t);
+                if k == 0 { -1 } else { t - self.t[chg[k - 1]] }
+            })
+            .collect()
+    }
+
     /// Лучшие (бид, аск) после всех событий со временем ≤ `t`.
     fn bbo(&self, t: i64) -> Option<(f64, f64)> {
         let k = self.t.partition_point(|&u| u <= t);
@@ -754,6 +765,18 @@ fn main() {
         }
         return;
     }
+    // возраст лучших цен на моментах входа (TK-522, Судья 10.11 §2 п. 2): `p40core age <dir> <файл t0_мс по строке> [B]` (B + P40_SHIFT_B_MS — нога K1 со сдвигом) — строки `t0 возраст_мс` (−1 = нет состояний до t0)
+    if a.get(1).map(String::as_str) == Some("age") {
+        let ts: Vec<i64> = std::fs::read_to_string(&a[3]).unwrap().lines().filter_map(|l| l.trim().parse().ok()).collect();
+        if let (Some(v), Some("B")) = (std::env::var("P40_SHIFT_B_MS").ok(), a.get(4).map(String::as_str)) {   // K1: нога B со сдвигом, как в основном пути
+            book::SHIFTS.lock().unwrap().push((a[2].clone(), v.parse().unwrap()));
+        }
+        let mut o = std::io::BufWriter::new(std::io::stdout().lock());
+        for (t, g) in ts.iter().zip(leg_series(&a[2]).age_at(&ts)) {
+            writeln!(o, "{t} {g}").unwrap();
+        }
+        return;
+    }
     let t = Instant::now();
     let env = |k: &str| std::env::var(k).ok();
     if let Some(v) = env("P40_SHIFT_B_MS") {
@@ -850,6 +873,13 @@ mod tests {
 
     fn leg(t: &[i64], b: &[f64], a: &[f64]) -> Leg {
         Leg { t: t.to_vec(), b: b.to_vec(), a: a.to_vec(), crossed: 0, nonmono: 0 }
+    }
+
+    #[test]
+    fn age_at_counts_from_last_change() {
+        // смены (bid, ask) в 100 и 400 мс; события в 200 и 300 мс цен не меняют — возраст идёт от последней смены
+        let l = leg(&[100, 200, 300, 400, 500], &[1.0, 1.0, 1.0, 2.0, 2.0], &[3.0, 3.0, 3.0, 3.0, 3.0]);
+        assert_eq!(l.age_at(&[50, 100, 250, 399, 400, 450, 9_000]), vec![-1, 0, 150, 299, 0, 50, 8_600]);
     }
 
     #[test]
