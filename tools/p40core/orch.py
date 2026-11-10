@@ -626,10 +626,11 @@ def job(args, asset, days, pairs, outlog):
                     jbad.setdefault(k, set()).update(v)
                 nh = write_holes(f"{base}.holes", jbad, pleg, days)
                 penv = dict(env, P40_TRUNC="1", P40_HOLES=f"{base}.holes", P40_HOLE_WARM="1", **({"P40_END_MS": str(args.end_ms)} if args.end_ms else {}))
-            rc, w, c = run(cmd, env=penv, log=log)
-            if rc != 0:
-                raise RuntimeError(f"ядро rc {rc} пара {p['pair']}")
-            t_core, c_core = t_core + w, c_core + c
+            if not args.no_base:   # --no-base (TK-522, Судья 11.11): досчёт одного варианта без повторного базового прохода
+                rc, w, c = run(cmd, env=penv, log=log)
+                if rc != 0:
+                    raise RuntimeError(f"ядро rc {rc} пара {p['pair']}")
+                t_core, c_core = t_core + w, c_core + c
             vruns = []   # TK-522 v2: варианты (K1 сдвиг, K2, NOTRADE) тем же слиянием рядов — без нового fetch/распаковки; выход `<base>.<имя>`, спецы в specs_<имя>.txt
             for vname, venv in args.variants:
                 vcmd = [cmd[0], f"{base}.{vname}"] + cmd[2:]
@@ -683,6 +684,7 @@ def main():
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
     ap.add_argument("--naive-only", action="store_true", help="TK-522 (В-125…В-127): ядро без проходов 2–4 (4 аргумента) и с P40_NAIVE=1 — выход <база>[.k2.k2|.k1p60].naive.csv (цены/размеры сторон ног на входе, выходе, пике; pnl на t0+600 с и на конец данных); без lots/aux/age/specs; сборка — naive_collect.py")
+    ap.add_argument("--no-base", action="store_true", help="TK-522 (Судья 11.11): только --naive-only и с --variant — базовый проход ядра пропустить (досчёт варианта, напр. K1 −60 с: k1m60:P40_SHIFT_B_MS=-60000); без --variant — отказ")
     ap.add_argument("--age", action="store_true", help="TK-522 (Судья 10.11 §2 п. 2): возраст лучших цен обеих ног на t0 эпизодов -> <база>[.<вариант>].age.csv (p40core age); assemble --stale-smax помечает эпизоды stale")
     ap.add_argument("--validity-l1", action="store_true", help="TK-522 (Судья 10.11 §2): validity по L1 каждой ноги задания (p40core validity) -> <out>/validity_l1.csv; негодные часы -> P40_HOLES; заменяет G0-таблицу и --validity-strict (покрытие 100 % по построению)")
     ap.add_argument("--validity-strict", action="store_true", help="П-40 §16.5: покрытие validity 100 % (нога, час) плана — иначе отказ до счёта (код 3, список в <out>/validity_gaps.csv); требует --validity")
@@ -703,6 +705,8 @@ def main():
         if not name or not kv or not name.replace("_", "").isalnum():
             sys.exit(f"--variant {v!r}: ожидалось ИМЯ:К=З[,К=З]")
         args.variants.append((name, dict(x.split("=", 1) for x in kv.split(","))))
+    if args.no_base and not (args.naive_only and args.variants):
+        sys.exit("--no-base: нужны --naive-only и хотя бы один --variant")
     os.makedirs(args.out, exist_ok=True)
     if args.validity_strict and not args.validity:
         sys.exit("--validity-strict требует --validity")
