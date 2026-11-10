@@ -111,10 +111,10 @@ def leg_key(ex, sym):
     return f"{ex}_{sym}"
 
 
-def box_files(ex, sym, day, aux_only=False):
-    """пути на боксе от alpha/stakan/ (то, что нужно ядру и aux_feats); aux_only (TK-522, нога из L1) — только mark/OI/ликвидации CHFT для aux_feats, стакан и сделки идут из L1"""
+def box_files(ex, sym, day, aux_only=False, trades=False):
+    """пути на боксе от alpha/stakan/ (то, что нужно ядру и aux_feats); aux_only (TK-522, нога из L1) — только mark/OI/ликвидации CHFT для aux_feats, стакан и сделки идут из L1; trades (L1 без .tr.zst, --l1-trades-raw) — ещё и parquet сделок для pq2bin trades"""
     if aux_only:
-        return [f"chft/{ex}_futures/{day}/{h:02d}/{sym}_{k}.parquet" for h in range(24) for k in KINDS[2:]] if ex in CHFT else []
+        return [f"chft/{ex}_futures/{day}/{h:02d}/{sym}_{k}.parquet" for h in range(24) for k in (KINDS[1:] if trades else KINDS[2:])] if ex in CHFT else []
     if ex == "bybit":
         return [f"bybit-linear-ob200/{day}/{sym}_{day}_ob200.data.zip"]
     if ex == "gate":
@@ -154,7 +154,7 @@ def l1_leg(args, ex):
     return ex in L1_EX and not args.raw_legs and ex not in args.raw_ex
 
 
-def fetch_l1(ex, sym, day, raw, log):
+def fetch_l1(ex, sym, day, raw, log, trades_raw=False):
     """L1-сутки ноги с бокса (каталог целиком, несколько малых файлов) -> список `<ЧЧ>.l1.bin.zst`. СТРОГО (TK-518): нет каталога, метки .ok, `files=0`,
     число файлов или их размер не по метке -> RuntimeError (нога не пропускается молча: rsync --ignore-missing-args здесь не используется)"""
     rel = l1_rel(ex, sym, day)
@@ -179,7 +179,7 @@ def fetch_l1(ex, sym, day, raw, log):
         nf = len(fs)
     if nf <= 0 or not l1 or len(fs) != nf or sum(os.path.getsize(f"{dst}/{f}") for f in l1) != size or sum(os.path.getsize(f"{dst}/{f}") for f in tr) != tsize:
         raise RuntimeError(f"L1 {rel}: по метке файлов {nf}, байт l1 {size}, tr {tsize}; на диске файлов {len(fs)} (l1 {len(l1)}, tr {len(tr)})")
-    if ex in CHFT and not tr:   # у CHFT сутки без сделок = L1 собран без них (Binance TK-521: tr=0) -> ядру нужны сделки, берём сырьё
+    if ex in CHFT and not tr and not trades_raw:   # у CHFT сутки без сделок = L1 собран без них (Binance TK-521: tr=0) -> ядру нужны сделки: сырьё ноги или (--l1-trades-raw) сделки из parquet бокса при книге из L1
         raise L1Missing(f"L1 {rel}: у CHFT нет .tr.zst (tr={tsize})")
     return [f"{dst}/{f}" for f in fs]
 
@@ -340,19 +340,26 @@ def job(args, asset, days, pairs, outlog):
             for (ex, sym) in legs:
                 if l1_leg(args, ex):
                     try:
-                        l1fs[(ex, sym)] = fetch_l1(ex, sym, day, raw, log)
+                        l1fs[(ex, sym)] = fetch_l1(ex, sym, day, raw, log, trades_raw=args.l1_trades_raw)
                     except L1Missing as e:
                         if not (args.l1_fallback and ex in CHFT):
                             raise
                         with open(log, "a") as f:
                             f.write(f"L1 нет -> сырьё: {e}" + chr(10))
-            nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs)], raw, args.fetch_p, log)
+            trraw = {k for k, fs in l1fs.items() if k[0] in CHFT and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
+            nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs, trades=(ex, sym) in trraw)], raw, args.fetch_p, log)
             t_fetch += time.time() - t
             for (ex, sym), mult in legs.items():
                 bins = f"{wd}/bin/{leg_key(ex, sym)}/{day}"
                 if (ex, sym) in l1fs:
                     tf, nb, w, c = unpack_l1(ex, sym, day, raw, bins, log, fs=l1fs[(ex, sym)])
                     t_fetch, nbytes = t_fetch + tf, nb + nbytes
+                    if (ex, sym) in trraw:   # сделки той же сутки — тем же pq2bin trades, что в сырьевом пути convert()
+                        os.makedirs(f"{bins}/T", exist_ok=True)
+                        r2 = run([PQ2BIN, "trades", f"{raw}/chft/{ex}_futures/{day}", f"{sym}_trades.parquet", f"{bins}/T", "2"], log=log)
+                        if r2[0] != 0:
+                            fail(f"pq2bin trades {ex} {sym} rc {r2[0]}", log, bins)
+                        w, c = w + r2[1], c + r2[2]
                 else:
                     w, c = convert(ex, sym, day, raw, bins, mult, log)
                 t_conv, c_conv = t_conv + w, c_conv + c
@@ -428,6 +435,7 @@ def main():
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
     ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")
     ap.add_argument("--l1-fallback", action="store_true", help="TK-522: нет L1 суток у ноги CHFT на боксе (или L1 без сделок) -> эта нога из сырья (pq2bin book/trades), а не сбой задания; Bybit/Gate без сырья — по-прежнему сбой")
+    ap.add_argument("--l1-trades-raw", action="store_true", help="TK-522: у ноги CHFT L1 без сделок (Binance: tr=0) — книга из L1, сделки pq2bin trades из parquet бокса (вместо всей ноги из сырья)")
     ap.add_argument("--raw-ex", default="", help="TK-522: биржи (через запятую), ноги которых читать из сырья, а не из L1 бокса (L1 биржи ещё неверен: Bitget до P40_L1_CARRY=1, E-17); остальные — L1")
     ap.add_argument("--raw-legs", action="store_true", help="TK-518/522: ВСЕ ноги читать из сырья бокса (прежний путь; для сверок и смоков, Bybit/Gate сырья на боксе уже нет). Умолчание — L1 бокса p40l1 (строго: нет суток = сбой)")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")

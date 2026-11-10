@@ -120,6 +120,15 @@ def test_chft_l1_missing_for_fallback(tmp):
         pass
 
 
+def test_binance_book_l1_trades_raw(tmp):   # --l1-trades-raw: L1 CHFT без сделок (tr=0) -> книга из L1, не L1Missing; сделки — из parquet бокса (box_files trades=True)
+    make_box(tmp, ex="binance", sym="X", hours=(0, 1))
+    fs = orch.fetch_l1("binance", "X", "2026-10-05", str(tmp / "raw"), str(tmp / "log"), trades_raw=True)
+    assert len(fs) == 2 and not any(f.endswith(".tr.zst") for f in fs)
+    aux = orch.box_files("binance", "X", "2026-10-05", aux_only=True)
+    trd = orch.box_files("binance", "X", "2026-10-05", aux_only=True, trades=True)
+    assert not any("trades" in f for f in aux) and sum("X_trades.parquet" in f for f in trd) == 24 and len(trd) == len(aux) + 24
+
+
 def test_l1_leg_flags():
     a = types.SimpleNamespace(raw_legs=False, raw_ex=set())
     assert all(orch.l1_leg(a, ex) for ex in ("bybit", "gate", "okx", "binance", "bitget", "aster", "hyperliquid"))   # TK-522: все биржи
