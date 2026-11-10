@@ -5,6 +5,7 @@
 //! Мусор по возрасту (П-41 §3 п. 2–3, пороги `smax`/`u` выводит G0 до чтения net, здесь — параметры, умолчание ∞ = флага нет): нога стоит дольше S_max, либо дольше u при сдвиге mid другой ноги ≥ 1 bps с её последней смены.
 //! Без `P40_RULE` ядро считает постоянный θ как прежде (байт в байт).
 use crate::Leg;
+use std::collections::VecDeque;
 
 /// Масштаб «нормального» разрыва S_t.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -17,6 +18,8 @@ pub enum Stat {
     MadK(f64),
     /// A4: EWMA-квантиль |d| (стохастическая аппроксимация, O(1) на событие): q += α·sc·(p − 1{x ≤ q}), sc — EWMA |x − q|, α = 1 − 2^(−Δt/hl), Δt ≥ 1 мс
     Ewma(f64),
+    /// A5: A3 по режиму — то же окно, события разнесены по терцилям 5-минутной подвижности пары (`vol5`), S_t — по терцилю текущего момента; границы терцилей — по окну до t − 1 с, терциль события фиксируется при входе в окно
+    MadReg(f64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -39,7 +42,7 @@ pub struct Rule {
 }
 
 impl Rule {
-    /// `P40_RULE=a0|a2|a3|a4,phi=20,w=21600,p=0.95,k=3,hl=21600,fee=8.82,xs=50,smax=120,u=30,warm=21600` (w, hl, warm, smax, u — секунды; q — отдельно `P40_Q`; warm по умолчанию = w, у a4 = hl).
+    /// `P40_RULE=a0|a2|a3|a4|a5,phi=20,w=21600,p=0.95,k=3,hl=21600,fee=8.82,xs=50,smax=120,u=30,warm=21600` (w, hl, warm, smax, u — секунды; q — отдельно `P40_Q`; warm по умолчанию = w, у a4 = hl).
     pub fn parse(s: &str, q: f64) -> Rule {
         let mut it = s.split(',').map(str::trim);
         let kind = it.next().unwrap();
@@ -73,11 +76,15 @@ impl Rule {
                 assert!(k.is_finite() && k > 0.0, "P40_RULE a3: нужен k > 0");
                 Stat::MadK(k)
             }
+            "a5" => {
+                assert!(k.is_finite() && k > 0.0, "P40_RULE a5: нужен k > 0");
+                Stat::MadReg(k)
+            }
             "a4" => {
                 assert!(p > 0.0 && p < 1.0 && hl > 0.0, "P40_RULE a4: нужны p в (0;1) и hl > 0");
                 Stat::Ewma(p)
             }
-            o => panic!("P40_RULE: ожидалось a0|a2|a3|a4, получено {o}"),
+            o => panic!("P40_RULE: ожидалось a0|a2|a3|a4|a5, получено {o}"),
         };
         let ms = |x: f64| if x.is_finite() { (x * 1000.0) as i64 } else { i64::MAX };
         let (w_ms, hl_ms) = (ms(w), if hl.is_nan() { 0 } else { ms(hl) });
@@ -162,6 +169,139 @@ impl Win<'_> {
 
 fn spr_bps(b: f64, a: f64) -> f64 {
     2e4 * (a - b) / (a + b)
+}
+
+/// Пространство рангов: отсортированные уникальные конечные значения `f(i)` и ранг каждого `i` (u32::MAX — значения нет).
+fn rank_space(n: usize, f: impl Fn(usize) -> f64) -> (Vec<f64>, Vec<u32>) {
+    let mut vals: Vec<f64> = (0..n).map(&f).filter(|x| x.is_finite()).collect();
+    vals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    vals.dedup();
+    let mut rk = vec![u32::MAX; n];
+    let mut prev = (f64::NAN, u32::MAX);
+    for (i, r) in rk.iter_mut().enumerate() {
+        let x = f(i);
+        if x.is_finite() {
+            if x != prev.0 {
+                prev = (x, vals.partition_point(|&w| w < x) as u32);
+            }
+            *r = prev.1;
+        }
+    }
+    (vals, rk)
+}
+
+/// Размах mid ноги за (t − 300 с; t] (монотонные очереди), bps от текущего mid.
+struct Rng {
+    mx: VecDeque<(i64, f64)>,
+    mn: VecDeque<(i64, f64)>,
+    k: usize,
+    last: f64,
+}
+
+impl Rng {
+    fn new() -> Rng {
+        Rng { mx: VecDeque::new(), mn: VecDeque::new(), k: 0, last: f64::NAN }
+    }
+    fn at(&mut self, l: &Leg, t: i64) -> f64 {
+        while self.k < l.t.len() && l.t[self.k] <= t {
+            let (te, m) = (l.t[self.k], (l.b[self.k] + l.a[self.k]) / 2.0);
+            while self.mx.back().is_some_and(|x| x.1 <= m) {
+                self.mx.pop_back();
+            }
+            self.mx.push_back((te, m));
+            while self.mn.back().is_some_and(|x| x.1 >= m) {
+                self.mn.pop_back();
+            }
+            self.mn.push_back((te, m));
+            (self.last, self.k) = (m, self.k + 1);
+        }
+        while self.mx.front().is_some_and(|x| x.0 <= t - 300_000) {
+            self.mx.pop_front();
+        }
+        while self.mn.front().is_some_and(|x| x.0 <= t - 300_000) {
+            self.mn.pop_front();
+        }
+        match (self.mx.front(), self.mn.front()) {
+            _ if self.k == 0 => f64::NAN,
+            (Some(h), Some(l)) => 1e4 * (h.1 - l.1) / self.last,
+            _ => 0.0, // нога не обновлялась 5 мин — подвижности нет
+        }
+    }
+}
+
+/// 5-минутная подвижность пары на момент каждого события: большая из двух ног («подвижная нога»); NaN, пока нет событий обеих.
+fn vol5(tu: &[i64], la: &Leg, lb: &Leg) -> Vec<f64> {
+    let (mut ra, mut rb) = (Rng::new(), Rng::new());
+    tu.iter().map(|&t| ra.at(la, t).max(rb.at(lb, t))).collect()
+}
+
+/// A5: A3 по терцилю подвижности (см. `Stat::MadReg`). Три окна по рангам d (по одному на терциль) + окно рангов подвижности для границ терцилей.
+#[allow(clippy::too_many_arguments)]
+fn a5_theta(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, bad: &[bool], floor: &[f64], k: f64, rule: &Rule) -> Vec<f64> {
+    let n = tu.len();
+    let v5 = vol5(tu, la, lb);
+    let ok = |i: usize| !bad[i] && ds[i].is_finite() && v5[i].is_finite();
+    let (vals_d, rk_d) = rank_space(n, |i| if ok(i) { ds[i] } else { f64::NAN });
+    let (vals_v, rk_v) = rank_space(n, |i| if ok(i) { v5[i] } else { f64::NAN });
+    let mut wins = [0; 3].map(|_| Win { vals: &vals_d, fen: Fen::new(vals_d.len()), n: 0 });
+    let mut wv = Win { vals: &vals_v, fen: Fen::new(vals_v.len()), n: 0 };
+    let mut reg = vec![u8::MAX; n];
+    let mut th = vec![f64::NAN; n];
+    let (mut pin, mut pout) = (0usize, 0usize);
+    let (mut cur_s, mut cur, mut last_v5) = (i64::MIN, f64::NAN, f64::NAN);
+    for i in 0..n {
+        if bad[i] || floor[i].is_nan() {
+            continue;
+        }
+        let s = tu[i].div_euclid(1000);
+        if s != cur_s {
+            cur_s = s;
+            let hi = s * 1000 - 1000;
+            let lo = hi - rule.w_ms;
+            let expire = |pout: &mut usize, pin: usize, wins: &mut [Win; 3], wv: &mut Win, reg: &[u8]| {
+                while *pout < pin && tu[*pout] <= lo {
+                    let j = *pout;
+                    if reg[j] != u8::MAX {
+                        wins[reg[j] as usize].fen.add(rk_d[j] as usize, -1);
+                        wins[reg[j] as usize].n -= 1;
+                        wv.fen.add(rk_v[j] as usize, -1);
+                        wv.n -= 1;
+                    }
+                    *pout += 1;
+                }
+            };
+            expire(&mut pout, pin, &mut wins, &mut wv, &reg);
+            // границы терцилей — по окну до этой секунды (прошлое)
+            let cut = (wv.n >= 3).then(|| (wv.quantile(1.0 / 3.0), wv.quantile(2.0 / 3.0)));
+            let rg = |x: f64| cut.map_or(0u8, |(c1, c2)| if x <= c1 { 0 } else if x <= c2 { 1 } else { 2 });
+            while pin < n && tu[pin] <= hi {
+                if v5[pin].is_finite() {
+                    last_v5 = v5[pin];
+                }
+                if ok(pin) {
+                    let r = rg(v5[pin]);
+                    reg[pin] = r;
+                    wins[r as usize].fen.add(rk_d[pin] as usize, 1);
+                    wins[r as usize].n += 1;
+                    wv.fen.add(rk_v[pin] as usize, 1);
+                    wv.n += 1;
+                }
+                pin += 1;
+            }
+            expire(&mut pout, pin, &mut wins, &mut wv, &reg);
+            let w = &wins[rg(last_v5) as usize];
+            cur = if last_v5.is_nan() || w.n == 0 || hi - tu[0] < rule.warm_ms {
+                f64::NAN
+            } else {
+                let med = w.median();
+                med + k * 1.4826 * w.mad(med)
+            };
+        }
+        if !cur.is_nan() {
+            th[i] = floor[i].max(cur);
+        }
+    }
+    th
 }
 
 fn mid_at(l: &Leg, t: i64) -> Option<f64> {
@@ -251,24 +391,12 @@ pub fn theta_series(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, rule: &Rule) -> 
         }
         Stat::Quantile(_) => false,
         Stat::MadK(_) => true,
+        Stat::MadReg(k) => return a5_theta(tu, ds, la, lb, &bad, &floor, k, rule),
         Stat::Ewma(p) => return ewma_theta(tu, ds, &bad, &floor, p, rule),
     };
     // значение тика в окне; мусор и неопределённый d в окно не входят
     let v = |i: usize| if bad[i] || !ds[i].is_finite() { f64::NAN } else if signed { ds[i] } else { ds[i].abs() };
-    let mut vals: Vec<f64> = (0..n).map(v).filter(|x| x.is_finite()).collect();
-    vals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-    vals.dedup();
-    let mut rk = vec![u32::MAX; n];
-    let mut prev = (f64::NAN, u32::MAX);
-    for (i, r) in rk.iter_mut().enumerate() {
-        let x = v(i);
-        if x.is_finite() {
-            if x != prev.0 {
-                prev = (x, vals.partition_point(|&w| w < x) as u32);
-            }
-            *r = prev.1;
-        }
-    }
+    let (vals, rk) = rank_space(n, v);
     let mut win = Win { vals: &vals, fen: Fen::new(vals.len()), n: 0 };
     let (mut pin, mut pout) = (0usize, 0usize);
     let (mut cur_s, mut cur) = (i64::MIN, f64::NAN);
@@ -304,7 +432,7 @@ pub fn theta_series(tu: &[i64], ds: &[f64], la: &Leg, lb: &Leg, rule: &Rule) -> 
                         let med = win.median();
                         med + k * 1.4826 * win.mad(med)
                     }
-                    Stat::Floor | Stat::Ewma(_) => unreachable!(),
+                    Stat::Floor | Stat::Ewma(_) | Stat::MadReg(_) => unreachable!(),
                 }
             };
         }
@@ -364,7 +492,7 @@ mod tests {
                 dev.sort_by(|a, b| a.partial_cmp(b).unwrap());
                 med + k * 1.4826 * dev[m / 2]
             }
-            Stat::Floor | Stat::Ewma(_) => unreachable!(),
+            Stat::Floor | Stat::Ewma(_) | Stat::MadReg(_) => unreachable!(),
         }
     }
 
@@ -452,6 +580,36 @@ mod tests {
         // без флага тот же тик раздувает квантиль
         let t2 = theta_series(&tu, &ds, &la, &lb, &Rule::parse("a2,phi=1,w=1000,p=0.999,warm=0", 0.5));
         assert!(t2[150] > 1000.0, "{}", t2[150]);
+    }
+
+    /// A5: на постоянных ногах подвижность 0 во всех тиках — один терциль, результат = A3 побитово; при чередовании спокойных и подвижных блоков S_t подвижного режима на порядок выше спокойного и общей A3.
+    #[test]
+    fn regime_split_a5() {
+        let (tu, ds) = series(4000, 777);
+        let lg = leg(&tu, 100.0, 100.01);
+        let a3 = theta_series(&tu, &ds, &lg, &lg, &Rule::parse("a3,phi=1,w=300,k=3,warm=0", 0.5));
+        let a5 = theta_series(&tu, &ds, &lg, &lg, &Rule::parse("a5,phi=1,w=300,k=3,warm=0", 0.5));
+        assert!(a3.iter().zip(&a5).all(|(x, y)| x.to_bits() == y.to_bits()), "без подвижности A5 ≡ A3");
+        // цикл 2400 с: первые 1000 с mid ноги B прыгает на ±5 bps, d ∈ ±63; остальные 1400 с ноги стоят, d ∈ ±1,2 (подвижность за 5 мин падает до 0 через 300 с после последнего прыжка)
+        let n = 7200usize;
+        let tu: Vec<i64> = (0..n).map(|i| i as i64 * 1000).collect();
+        let (mut ds, la, mut lb) = (vec![0.0; n], leg(&tu, 100.0, 100.0001), leg(&tu, 100.0, 100.0001));
+        for i in 0..n {
+            let busy = i % 2400 < 1000;
+            let sgn = if i % 2 == 0 { 1.0 } else { -1.0 };
+            ds[i] = (((i * 7919) % 1000) as f64 / 500.0 - 1.0) * if busy { 63.0 } else { 1.2 }; // равномерно на [−масштаб; масштаб), медиана ≈ 0
+            if busy {
+                lb.b[i] += sgn * 0.05;
+                lb.a[i] += sgn * 0.05;
+            }
+        }
+        let rule = |k: &str| Rule::parse(&format!("{k},phi=0.001,fee=0,w=3000,k=3,warm=1200"), 0.0);
+        let (t3, t5) = (theta_series(&tu, &ds, &la, &lb, &rule("a3")), theta_series(&tu, &ds, &la, &lb, &rule("a5")));
+        // спокойное окно 4500 (нули подвижности 3700..4800) и подвижное 5000 (прыжки с 4800): в окне W 40 % подвижных, поэтому MAD общей A3 — по спокойному кластеру и мала везде
+        let (calm, busy) = (4500usize, 5000usize);
+        assert!(t5[calm].is_finite() && t5[busy].is_finite() && t3[busy].is_finite());
+        assert!(t5[busy] > 20.0 * t5[calm], "режимы не разделены: подвижный {} спокойный {}", t5[busy], t5[calm]);
+        assert!(t5[busy] > 10.0 * t3[busy], "подвижный: A5 {} против A3 {}", t5[busy], t3[busy]);
     }
 
     /// A4: на стационарном ряду |d| ~ U[0;20) оценка 0,9-квантиля сходится к 18; мусорный тик с огромным d её не двигает (флаг xs), а без флага двигает.
