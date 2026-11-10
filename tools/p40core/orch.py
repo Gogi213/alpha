@@ -256,15 +256,32 @@ def mid_open(path):
 VEX = {"okx": "okx_futures", "bitget": "bitget_futures", "aster": "aster_futures", "hyperliquid": "hyperliquid_futures", "binance": "binance_futures"}
 
 
-def load_validity(paths):
-    """validity.csv.gz G0 (ex,contract,date,hour,status,...) -> {(ex,contract,date): {негодные часы}}; статус не ok = негодный час, 'day' не ok = все 24 часа; строки, которых нет в таблице, негодными не считаются"""
+def load_validity(paths, seen=None):
+    """validity.csv.gz G0 (ex,contract,date,hour,status,...) -> {(ex,contract,date): {негодные часы}}; статус не ok = негодный час, 'day' не ok = все 24 часа; строки, которых нет в таблице, негодными не считаются.
+    `seen` (dict) — П-40 §16.5: заполняется {(ex,contract,date): {часы, у которых есть строка}} ('day' — любая строка суток = все 24 часа), для проверки покрытия"""
     bad = {}
     for p in paths:
         for r in csv.reader(gzip.open(p, "rt")):
-            if r[4] == "ok" or r[3] == "hour":
+            if r[3] == "hour":
                 continue
-            bad.setdefault((r[0], r[1], r[2]), set()).update(range(24) if r[3] == "day" else [int(r[3])])
+            if seen is not None:
+                seen.setdefault((r[0], r[1], r[2]), set()).update(range(24) if r[3] == "day" else [int(r[3])])
+            if r[4] != "ok":
+                bad.setdefault((r[0], r[1], r[2]), set()).update(range(24) if r[3] == "day" else [int(r[3])])
     return bad
+
+
+def validity_gaps(seen, pairs, days):
+    """П-40 §16.5: (биржа, контракт, сутки) плана -> число часов без строки validity (час без строки негоден; счёт при непустом результате не запускается); пусто = покрытие 100 %"""
+    gaps = {}
+    for p in pairs:
+        for s_ in "AB":
+            ex, sym = VEX.get(p["ex" + s_], p["ex" + s_]), p["sym" + s_]
+            for day in days:
+                n = 24 - len(seen.get((ex, sym, day), ()))
+                if n:
+                    gaps[(ex, sym, day)] = n
+    return gaps
 
 
 def write_holes(path, bad, legs, days):
@@ -470,6 +487,7 @@ def main():
     ap.add_argument("--l-ms", type=int, default=500)
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
+    ap.add_argument("--validity-strict", action="store_true", help="П-40 §16.5: покрытие validity 100 % (нога, час) плана — иначе отказ до счёта (код 3, список в <out>/validity_gaps.csv); требует --validity")
     ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")
     ap.add_argument("--l1-fallback", action="store_true", help="TK-522: нет L1 суток у ноги CHFT на боксе (или L1 без сделок) -> эта нога из сырья (pq2bin book/trades), а не сбой задания; Bybit/Gate без сырья — по-прежнему сбой")
     ap.add_argument("--l1-trades-raw", action="store_true", help="TK-522: у ноги CHFT L1 без сделок (Binance: tr=0) — книга из L1, сделки pq2bin trades из parquet бокса (вместо всей ноги из сырья)")
@@ -487,7 +505,17 @@ def main():
             sys.exit(f"--variant {v!r}: ожидалось ИМЯ:К=З[,К=З]")
         args.variants.append((name, dict(x.split("=", 1) for x in kv.split(","))))
     os.makedirs(args.out, exist_ok=True)
-    args.bad = load_validity(args.validity.split(",")) if args.validity else {}
+    if args.validity_strict and not args.validity:
+        sys.exit("--validity-strict требует --validity")
+    seen = {}
+    args.bad = load_validity(args.validity.split(","), seen) if args.validity else {}
+    if args.validity_strict:
+        plan = [r for r in csv.DictReader(open(args.pairs)) if not args.assets or r["asset"] in args.assets.split(",")]
+        gaps = validity_gaps(seen, plan, args.days.split(","))
+        if gaps:
+            with open(f"{args.out}/validity_gaps.csv", "w") as f:
+                f.write("ex,contract,day,hours_without_row" + chr(10) + "".join(f"{k[0]},{k[1]},{k[2]},{n}" + chr(10) for k, n in sorted(gaps.items())))
+            sys.exit(f"П-40 §16.5: у {len(gaps)} (нога, сутки) плана нет строк validity (часов без строки {sum(gaps.values())}) — счёт не запущен, список {args.out}/validity_gaps.csv")
     outlog = f"{args.out}/orch.csv"
     if not os.path.exists(outlog):
         open(outlog, "w").write("asset,day,pairs,legs,bytes,fetch_s,convert_s,convert_cpu_s,core_s,core_cpu_s,aux_cpu_s,total_s,wait_s,merge_s,aux_s\n")

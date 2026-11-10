@@ -164,6 +164,24 @@ def test_old_label_without_files(tmp):   # метки Bybit/Gate старого 
         pass
 
 
+def test_validity_coverage_gaps(tmp):   # П-40 §16.5: час без строки validity = дыра покрытия; 'day' (любой статус) покрывает все 24 часа; seen не меняет bad
+    import gzip
+    vp = str(tmp / "v.csv.gz")
+    rows = ["ex,contract,date,hour,status"] + [f"binance_futures,AUSDT,2026-09-17,{h},ok" for h in range(24)]
+    rows += [f"binance_futures,AUSDT,2026-09-18,{h},{'gap' if h == 3 else 'ok'}" for h in range(23)]   # 23 часа: нет часа 23
+    rows += ["okx_futures,AUSDT,2026-09-17,day,missing"]
+    with gzip.open(vp, "wt") as f:
+        f.write(chr(10).join(rows) + chr(10))
+    seen = {}
+    bad = orch.load_validity([vp], seen)
+    assert bad == {("binance_futures", "AUSDT", "2026-09-18"): {3}, ("okx_futures", "AUSDT", "2026-09-17"): set(range(24))}
+    assert orch.load_validity([vp]) == bad
+    pairs = [{"exA": "binance", "symA": "AUSDT", "exB": "okx", "symB": "AUSDT"}]
+    assert orch.validity_gaps(seen, pairs, ["2026-09-17"]) == {}
+    assert orch.validity_gaps(seen, pairs, ["2026-09-17", "2026-09-18"]) == {("binance_futures", "AUSDT", "2026-09-18"): 1, ("okx_futures", "AUSDT", "2026-09-18"): 24}
+    assert orch.validity_gaps(seen, [{"exA": "gate", "symA": "BUSDT", "exB": "okx", "symB": "AUSDT"}], ["2026-09-17"]) == {("gate", "BUSDT", "2026-09-17"): 24}, "нога без строк — 24 часа дыры"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
