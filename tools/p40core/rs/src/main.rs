@@ -292,31 +292,74 @@ fn level_grid(tu: &[i64], x: &[f64], t0: i64, t1: i64, holes: &[(i64, i64)]) -> 
             }
         }
     }
+    window_levels(&g)
+}
+
+/// Скользящая медиана окна `g[j-L_S-1+1 ..= j-GAP_S]` (TK-522, В-170): отсортированный `Vec` со сдвигом на каждую секунду (`insert`/`remove` по ~85 КБ, memmove = 65 % времени ядра на паре) заменён счётчиками по рангам значений (Fenwick: сложение/удаление и k-я порядковая статистика за O(log n)).
+/// Медиана — тот же элемент окна (то же значение, то же среднее двух средних), результат побитово прежний (тест `window_levels_matches_sorted_vec`).
+fn window_levels(g: &[f64]) -> Vec<f64> {
+    let ns = g.len();
+    let mut vals: Vec<f64> = g.iter().copied().filter(|v| v == v).collect();
+    vals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    vals.dedup();
+    let nv = vals.len();
+    // ранг каждого значения сетки (u32::MAX — NaN); соседние равные значения не ищутся заново
+    let mut rk = vec![u32::MAX; ns];
+    let mut prev = (f64::NAN, u32::MAX);
+    for (j, &v) in g.iter().enumerate() {
+        if v == v {
+            if v != prev.0 {
+                prev = (v, vals.partition_point(|&w| w < v) as u32);
+            }
+            rk[j] = prev.1;
+        }
+    }
+    let mut tree = vec![0i32; nv + 1];
+    let top = if nv == 0 { 0 } else { 1usize << (usize::BITS - 1 - nv.leading_zeros()) };
+    let add = |tree: &mut Vec<i32>, r: u32, d: i32| {
+        let mut i = r as usize + 1;
+        while i <= nv {
+            tree[i] += d;
+            i += i & i.wrapping_neg();
+        }
+    };
+    // k-й (с 0) по порядку элемент окна -> индекс в `vals`
+    let kth = |tree: &Vec<i32>, mut k: i32| -> usize {
+        let (mut pos, mut pw) = (0usize, top);
+        while pw > 0 {
+            if pos + pw <= nv && tree[pos + pw] <= k {
+                pos += pw;
+                k -= tree[pos];
+            }
+            pw >>= 1;
+        }
+        pos
+    };
     let mut lev = vec![f64::NAN; ns];
-    let mut win: Vec<f64> = Vec::with_capacity(L_S);
+    let mut wlen = 0usize;
     let mut nnan = 0i64;
     for j in 0..ns {
         if j >= GAP_S {
-            let v = g[j - GAP_S];
-            if v == v {
-                let k = win.partition_point(|&w| w < v);
-                win.insert(k, v);
+            let r = rk[j - GAP_S];
+            if r != u32::MAX {
+                add(&mut tree, r, 1);
+                wlen += 1;
             } else {
                 nnan += 1;
             }
         }
         if j > L_S {
-            let v = g[j - L_S - 1];
-            if v == v {
-                let k = win.partition_point(|&w| w < v);
-                win.remove(k);
+            let r = rk[j - L_S - 1];
+            if r != u32::MAX {
+                add(&mut tree, r, -1);
+                wlen -= 1;
             } else {
                 nnan -= 1;
             }
         }
-        if j >= L_S && nnan == 0 && win.len() == L_S - GAP_S + 1 {
-            let m = win.len();
-            lev[j] = if m % 2 == 1 { win[m / 2] } else { (win[m / 2 - 1] + win[m / 2]) / 2.0 };
+        if j >= L_S && nnan == 0 && wlen == L_S - GAP_S + 1 {
+            let m = wlen;
+            lev[j] = if m % 2 == 1 { vals[kth(&tree, (m / 2) as i32)] } else { (vals[kth(&tree, (m / 2 - 1) as i32)] + vals[kth(&tree, (m / 2) as i32)]) / 2.0 };
         }
     }
     lev
@@ -902,6 +945,79 @@ mod tests {
         assert!(!d.maker_off() && d.drain_leg(1) && !d.drain_leg(0) && !d.through_leg(1));
         let t = mk([false, true], NoTrade::Through);
         assert!(!t.maker_off() && t.through_leg(1) && !t.through_leg(0) && !t.drain_leg(1));
+    }
+
+    /// Прежняя реализация окна (отсортированный Vec со сдвигами) — эталон для `window_levels` (TK-522).
+    fn window_levels_ref(g: &[f64]) -> Vec<f64> {
+        let ns = g.len();
+        let mut lev = vec![f64::NAN; ns];
+        let mut win: Vec<f64> = Vec::with_capacity(L_S);
+        let mut nnan = 0i64;
+        for j in 0..ns {
+            if j >= GAP_S {
+                let v = g[j - GAP_S];
+                if v == v {
+                    let k = win.partition_point(|&w| w < v);
+                    win.insert(k, v);
+                } else {
+                    nnan += 1;
+                }
+            }
+            if j > L_S {
+                let v = g[j - L_S - 1];
+                if v == v {
+                    let k = win.partition_point(|&w| w < v);
+                    win.remove(k);
+                } else {
+                    nnan -= 1;
+                }
+            }
+            if j >= L_S && nnan == 0 && win.len() == L_S - GAP_S + 1 {
+                let m = win.len();
+                lev[j] = if m % 2 == 1 { win[m / 2] } else { (win[m / 2 - 1] + win[m / 2]) / 2.0 };
+            }
+        }
+        lev
+    }
+
+    #[test]
+    fn window_levels_matches_sorted_vec() {
+        // псевдослучайный ряд: повторы (шаговая функция), редкие значения, NaN-куски; результат побитово равен прежнему
+        let ns = 70_000usize;
+        let mut st = 0x9E3779B97F4A7C15u64;
+        let mut rnd = || {
+            st ^= st << 13;
+            st ^= st >> 7;
+            st ^= st << 17;
+            st
+        };
+        let mut g = Vec::with_capacity(ns);
+        let (mut cur, mut nan_left) = (0.0f64, 0usize);
+        for _ in 0..ns {
+            let r = rnd();
+            if nan_left > 0 {
+                nan_left -= 1;
+                g.push(f64::NAN);
+                continue;
+            }
+            if r % 30000 == 0 {
+                nan_left = (r >> 20) as usize % 3000;
+            }
+            if r % 7 == 0 {
+                cur = ((r >> 16) % 40) as f64 * 1e-4 - 2e-3 + if r % 3 == 0 { 0.0 } else { ((r >> 40) % 1000) as f64 * 1e-7 };
+            }
+            g.push(cur);
+        }
+        let (a, b) = (window_levels(&g), window_levels_ref(&g));
+        assert_eq!(a.len(), b.len());
+        let defined = b.iter().filter(|v| v.is_finite()).count();
+        assert!(defined > 5000, "в тесте должны быть определённые уровни: {defined}");
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+        // без NaN
+        let g2: Vec<f64> = g.iter().map(|&v| if v == v { v } else { 0.001 }).collect();
+        let (a, b) = (window_levels(&g2), window_levels_ref(&g2));
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+        assert!(window_levels(&[f64::NAN; 30]).iter().all(|v| v.is_nan()));
     }
 
     #[test]
