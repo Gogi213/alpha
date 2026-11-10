@@ -294,6 +294,20 @@ def test_smax_l1_is_descriptive_not_a_status():   # Судья 10.11 §2 п.1: S
     assert smax_l1.quantiles([1.0, 2.0, 3.0, 4.0, 5.0]) == [1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 5.0]
 
 
+def test_gap_e2e_check():   # Судья 10.11 §7 п.7: пара с дырой посередине — эпизоды до и после, у дыры trunc=2; позиция trunc=0 через дыру и старт в дыре — нарушение
+    import gap_e2e_check as g
+    holes = [(1000, 2000), (5000, 6000)]
+    row = lambda t0, ex, tr, kind="x": {"t0_ms": str(t0), "exit_ms": str(ex), "exit_kind": kind, "trunc": tr}
+    ok = [row(100, 200, "0"), row(900, -1, "2", "trunc_no_entry"), row(950, 1000, "2", "trunc_taker"), row(2500, 2600, "0"), row(6500, 6700, "0")]
+    bad, s = g.check(ok, holes, need_both=True)
+    assert not bad and (s["bracketed"], s["trunc2"]) == (2, 2), (bad, s)
+    assert len(g.check([row(900, 1100, "0")], holes)[0]) == 1, "позиция trunc=0 через дыру"
+    assert len(g.check([row(1500, 1600, "0")], holes)[0]) == 1 and len(g.check([row(1500, 1600, "2")], holes)[0]) == 1, "старт в дыре"
+    assert len(g.check([row(7000, 7001, "2")], holes)[0]) == 1, "trunc=2 без дыры после t0"
+    assert len(g.check([row(100, 200, "0")], holes, need_both=True)[0]) == 1, "нет эпизодов после дыр: ни одна дыра не обрамлена"
+    assert g.check([row(100, 200, "")], [])[0] == []
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
