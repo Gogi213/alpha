@@ -187,7 +187,11 @@ def fetch_l1(ex, sym, day, raw, log, trades_raw=False):
     rel = l1_rel(ex, sym, day)
     dst = f"{raw}/{rel}"
     os.makedirs(dst, exist_ok=True)
-    rc = box_rsync(["rsync", "-q", "-a", "-e", SSH, f"{l1_src(ex)}/{rel}/", dst + "/"], log)
+    cache = os.environ.get("P40_L1_CACHE")
+    if cache and os.path.exists(f"{cache}/{rel}/.ok"):   # TK-522: prefetch_l1.py положил сутки ноги на диск srv целиком (rename из .part) -> с бокса не тянем; дальше те же проверки метки
+        rc = subprocess.call(["rsync", "-q", "-a", f"{cache}/{rel}/", dst + "/"])
+    else:
+        rc = box_rsync(["rsync", "-q", "-a", "-e", SSH, f"{l1_src(ex)}/{rel}/", dst + "/"], log)
     if rc != 0:
         if rc == 11 and nospace(log, os.path.dirname(raw)):
             raise ShmFull(f"ENOSPC /dev/shm при rsync L1 {rel}")

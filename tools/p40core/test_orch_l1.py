@@ -322,6 +322,29 @@ def test_write_age_files_and_k1_shift(tmp):   # Судья 10.11 §2 п. 2: <б�
     assert rd(".k1p60") == ["t0_ms,ageA_ms,ageB_ms", "4200,200,60200"], rd(".k1p60")
 
 
+def test_l1_cache_replaces_box(tmp):   # TK-522: P40_L1_CACHE (prefetch_l1.py) -> сутки с диска srv без бокса; метка и размеры сверяются как всегда; без .ok в кэше — путь через бокс
+    import shutil
+    d = make_box(tmp)
+    cache = tmp / "cache" / orch.l1_rel("bybit", "XUSDT", "2026-10-05")
+    shutil.copytree(d, cache)
+    shutil.rmtree(tmp / "box")
+    orch.subprocess = subprocess
+    os.environ["P40_L1_CACHE"] = str(tmp / "cache")
+    try:
+        fs = orch.fetch_l1("bybit", "XUSDT", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))
+        assert [os.path.basename(f) for f in fs] == ["00.l1.bin.zst", "01.l1.bin.zst", "05.l1.bin.zst"]
+        (cache / ".ok").unlink()
+        fake_rsync(tmp)
+        try:
+            orch.fetch_l1("bybit", "XUSDT", "2026-10-05", str(tmp / "raw2"), str(tmp / "log"))
+        except Exception as e:
+            assert "XUSDT" in str(e)
+        else:
+            raise AssertionError("без .ok в кэше и без бокса ожидался отказ")
+    finally:
+        del os.environ["P40_L1_CACHE"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
@@ -329,3 +352,4 @@ if __name__ == "__main__":
                 fake_rsync(pathlib.Path(d))
                 fn(pathlib.Path(d)) if fn.__code__.co_argcount else fn()
             print("ok", name)
+
