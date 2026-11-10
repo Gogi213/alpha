@@ -29,6 +29,7 @@ SHM_MARGIN = 1.25              # запас оценки пика на разб�
 PILOT_LEG_B = 600 * 1024 ** 2  # бронь на ногу в первые сутки: замер 09.11 (AAVE 17.09) — .bin+сырьё ≤ 0,43 ГБ на ногу×сутки
 SEEN_AUXH = set()
 SEEN_GAPS = set()
+SEEN_VAL = set()
 L1_EX = {ex: f"{ex}_futures" for ex in sorted(CHFT | {"bybit", "gate"})}   # TK-518/TK-522 (В-116): вход ВСЕХ ног = L1 бокса alpha/stakan/p40l1/<биржа>_futures/<символ>/<сутки>/ ({ЧЧ}.l1.bin.zst + {ЧЧ}.tr.zst сделки CHFT + .ok)
 
 
@@ -308,6 +309,46 @@ def validity_gaps(seen, pairs, days):
     return gaps
 
 
+CROSSED_MAX = 0.01   # G0 r2 §2.3: доля кроссированных состояний в часе > 1 % -> час негоден (как в validity.csv.gz G0: статус `crossed>1%`)
+VAL_HEAD = ["ex", "contract", "date", "hour", "status", "crossed_share", "prev_gaps", "checked", "age_p99_ms", "age_max_ms"]
+
+
+def l1_validity_rows(ex, sym, days, stats):
+    """TK-522, Судья 10.11 §2: validity по L1 — той же книге, что считается (§16.1). `stats` — вывод `p40core validity` слитого каталога ноги: {номер часа чанка: (состояний, кроссированных, age_p99_мс, age_max_мс)}.
+    Строка на (сутки, час) КАЖДОГО часа плана: нет файла/нет состояний -> `no_data` (дыра поставщика, `404`/gap_hours), одно состояние -> `no_diffs`, кросс > 1 % -> `crossed>1%`, иначе `ok`; `prev_gaps` = `NA` (непрерывности update_id в L1 нет — не бракует час, В-115)"""
+    rows = []
+    for di, day in enumerate(days):
+        for h in range(24):
+            n, c, p99, mx = stats.get(24 * di + h, (0, 0, 0, 0))
+            share = c / n if n else 0.0
+            st = "no_data" if n == 0 else ("no_diffs" if n == 1 else ("crossed>1%" if share > CROSSED_MAX else "ok"))   # n == 1: в часе одно состояние = только снимок без изменений (Gate 29.09 вечер–08.10: часовые снимки; в G0 `no_diffs`), по умолчанию негоден (§16.5)
+            rows.append([VEX.get(ex, ex), sym, day, f"{h:02d}", st, round(share, 6), "NA", n, p99, mx])
+    return rows
+
+
+def run_l1_validity(core, mdir, env, log):
+    """`p40core validity <mdir>/B` -> {час чанка: (состояний, кроссированных, age_p99_мс, age_max_мс)}"""
+    r = subprocess.run([core, "validity", f"{mdir}/B"], env=env, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"p40core validity {mdir}: rc {r.returncode} {r.stderr[-300:]}")
+    return {int(x[0]): tuple(map(int, x[1:])) for x in (ln.split() for ln in r.stdout.splitlines()) if len(x) == 5}
+
+
+def record_validity(out, rows):
+    """validity_l1.csv: строки validity по L1 (ноги общие для пар актива -> без повторов по (биржа, контракт, сутки))"""
+    with LOG_LOCK:
+        dst = f"{out}/validity_l1.csv"
+        head = not os.path.exists(dst)
+        with open(dst, "a", newline="") as f:
+            w = csv.writer(f)
+            if head:
+                w.writerow(VAL_HEAD)
+            for r in rows:
+                if (r[0], r[1], r[2]) not in SEEN_VAL:
+                    w.writerow(r)
+            SEEN_VAL.update((r[0], r[1], r[2]) for r in rows)
+
+
 def write_holes(path, bad, legs, days):
     """дыры пары = объединение негодных часов обеих ног по суткам чанка -> строки `начало_мс,конец_мс` (P40_HOLES), склеены"""
     iv = []
@@ -483,6 +524,15 @@ def job(args, asset, days, pairs, outlog):
                 merge([f"{wd}/bin/{k}/{day}" for day in days], mrg[(ex, sym)], sub)
         t_merge = time.time() - tm
         env = dict(os.environ, P40_HOURS=str(24 * len(days)))
+        if args.validity_l1:   # TK-522 (Судья 10.11 §2): validity по L1 всех ног плана ДО эпизодов пар; негодные часы (no_data, crossed>1%) -> к дырам; покрытие (нога, час) = 100 % по построению (строка на каждый час плана)
+            for (ex, sym) in legs:
+                if not l1_leg(args, ex):
+                    raise RuntimeError(f"--validity-l1: нога {ex} {sym} не из L1 (§16.1 одна книга)")
+                st = l1_validity_rows(ex, sym, days, run_l1_validity(CORE, mrg[(ex, sym)], env, log))
+                record_validity(args.out, st)
+                for r in st:
+                    if r[4] != "ok":
+                        gapbad.setdefault((r[0], r[1], r[2]), set()).add(int(r[3]))
         t_core = c_core = c_aux = 0.0
         for p in pairs:
             a, b = (mrg[(p["ex" + s], p["sym" + s])] for s in "AB")
@@ -501,7 +551,7 @@ def job(args, asset, days, pairs, outlog):
             cmd = [CORE, base, f"{a}/B", f"{b}/B", f"{a}/T", f"{b}/T", lots[0], lots[1], str(args.l_ms), p["stepA"] or "1e-9", p["stepB"] or "1e-9"]
             penv = env
             pleg = [(p["exA"], p["symA"]), (p["exB"], p["symB"])]
-            if args.validity or any((VEX.get(ex, ex), sym, day) in gapbad for ex, sym in pleg for day in days):
+            if args.validity or args.validity_l1 or any((VEX.get(ex, ex), sym, day) in gapbad for ex, sym in pleg for day in days):
                 jbad = {k: set(v) for k, v in args.bad.items()}
                 for k, v in gapbad.items():
                     jbad.setdefault(k, set()).update(v)
@@ -556,6 +606,7 @@ def main():
     ap.add_argument("--l-ms", type=int, default=500)
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
+    ap.add_argument("--validity-l1", action="store_true", help="TK-522 (Судья 10.11 §2): validity по L1 каждой ноги задания (p40core validity) -> <out>/validity_l1.csv; негодные часы -> P40_HOLES; заменяет G0-таблицу и --validity-strict (покрытие 100 % по построению)")
     ap.add_argument("--validity-strict", action="store_true", help="П-40 §16.5: покрытие validity 100 % (нога, час) плана — иначе отказ до счёта (код 3, список в <out>/validity_gaps.csv); требует --validity")
     ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")
     ap.add_argument("--l1-fallback", action="store_true", help="TK-522: нет L1 суток у ноги CHFT на боксе (или L1 без сделок) -> эта нога из сырья (pq2bin book/trades), а не сбой задания; Bybit/Gate без сырья — по-прежнему сбой")

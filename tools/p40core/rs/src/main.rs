@@ -154,6 +154,47 @@ impl Leg {
     }
 }
 
+/// П-40 §2.3/§16.5 (TK-522): годность часов ноги по L1 — той же книге, что считается (§16.1). По каждому часовому файлу `<ЧЧ>.l1.bin` каталога: число состояний (конец группы с лучшими ценами),
+/// из них кроссированных (`bid ≥ ask`, исключаются как в `leg_series`), возраст лучших цен — интервалы между сменами `(bid, ask)` по `event_time`: p99 и максимум, мс. Часа без файла в выводе нет.
+fn l1_validity(dir: &str) -> Vec<(usize, usize, usize, i64, i64)> {
+    let mut out = vec![];
+    for h in 0..crate::book::hours() {
+        let Some(rows) = Rows::load(dir, h) else { continue };
+        let mut book = Book::default();
+        let (mut n, mut crossed) = (0usize, 0usize);
+        let (mut last_px, mut last_t) = ((f64::NAN, f64::NAN), -1i64);
+        let mut ages: Vec<i64> = vec![];
+        for i in 0..rows.len() {
+            if rows.snap_start(i) {
+                book.clear();
+            }
+            book.set(rows.is_bid(i), rows.px(i), rows.qt(i));
+            if !rows.group_end(i) {
+                continue;
+            }
+            if let Some((bb, aa)) = book.best() {
+                n += 1;
+                if bb >= aa {
+                    crossed += 1;
+                    continue;
+                }
+                if (bb, aa) != last_px {
+                    let te = rows.et(i);
+                    if last_t >= 0 && te >= last_t {
+                        ages.push(te - last_t);
+                    }
+                    last_px = (bb, aa);
+                    last_t = te;
+                }
+            }
+        }
+        ages.sort_unstable();
+        let p99 = ages.get(((ages.len() as f64) * 0.99) as usize).or(ages.last()).copied().unwrap_or(0);
+        out.push((h, n, crossed, p99, ages.last().copied().unwrap_or(0)));
+    }
+    out
+}
+
 fn leg_series(dir: &str) -> Leg {
     let mut book = Book::default();
     let mut leg = Leg { t: vec![], b: vec![], a: vec![], crossed: 0, nonmono: 0 };
@@ -702,6 +743,14 @@ fn main() {
         let mut o = std::io::BufWriter::new(std::io::stdout().lock());
         for (t, b, bq, ak, aq) in book::l1_series(&a[2]) {
             writeln!(o, "{t} {b:?} {bq:?} {ak:?} {aq:?}").unwrap();
+        }
+        return;
+    }
+    // validity по L1 (TK-522, П-40 §16.5): `p40core validity <dir>` — строки `час состояний кроссированных age_p99_мс age_max_мс`
+    if a.get(1).map(String::as_str) == Some("validity") {
+        let mut o = std::io::BufWriter::new(std::io::stdout().lock());
+        for (h, n, c, p99, mx) in l1_validity(&a[2]) {
+            writeln!(o, "{h} {n} {c} {p99} {mx}").unwrap();
         }
         return;
     }

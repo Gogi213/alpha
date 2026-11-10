@@ -203,6 +203,19 @@ def test_validity_coverage_gaps(tmp):   # П-40 §16.5: час без строк
     assert orch.validity_gaps(seen, [{"exA": "gate", "symA": "BUSDT", "exB": "okx", "symB": "AUSDT"}], ["2026-09-17"]) == {("gate", "BUSDT", "2026-09-17"): 24}, "нога без строк — 24 часа дыры"
 
 
+def test_l1_validity_rows():   # Судья 10.11 §2: строка validity на КАЖДЫЙ час плана; нет состояний -> no_data, кросс > 1 % -> crossed>1%, иначе ok; prev_gaps = NA
+    stats = {0: (1000, 0, 500, 900), 1: (1000, 10, 400, 800), 2: (1000, 11, 400, 800), 5: (0, 0, 0, 0), 6: (1, 0, 0, 0), 24 + 3: (10, 0, 7, 7)}   # часы чанка из двух суток; 1: ровно 1 % — годен; 2: 1,1 % — негоден
+    rows = orch.l1_validity_rows("okx", "AUSDT", ["2026-09-17", "2026-09-18"], stats)
+    assert len(rows) == 48 and {r[0] for r in rows} == {"okx_futures"}
+    by = {(r[2], r[3]): r for r in rows}
+    assert by[("2026-09-17", "00")][4] == "ok" and by[("2026-09-17", "00")][6] == "NA"
+    assert by[("2026-09-17", "01")][4] == "ok" and by[("2026-09-17", "02")][4] == "crossed>1%"
+    assert by[("2026-09-17", "05")][4] == "no_data" and by[("2026-09-17", "23")][4] == "no_data", "часа без файла в stats нет -> no_data, не пропуск"
+    assert by[("2026-09-17", "06")][4] == "no_diffs", "одно состояние в часе = только снимок"
+    assert by[("2026-09-18", "03")][4] == "ok" and by[("2026-09-18", "03")][8] == 7
+    assert sum(r[4] == "ok" for r in rows) == 3
+
+
 def test_box_rsync_retry_and_cap(tmp):   # 10.11: rc 12 (бокс закрыл соединение при 48 rsync) -> повтор, а не сбой актива; потолок --box-conn; 23/11 повторяться не должны
     import threading
     calls, live, peak = [], [0], [0]
