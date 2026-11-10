@@ -55,7 +55,7 @@ RUSTFLAGS="-Cprofile-use=$W/m.profdata" cargo build --release --target-dir $W/cu
 # (2) гейт PGO против не-PGO
 for v in norule rule; do
   if [ $v = rule ]; then export P40_RULE=a3,phi=20,w=21600,k=3; else unset P40_RULE; fi
-  OLD=$O/p40core-nopgo NEW=$O/p40core-pgo O=$O/gate_$v SHM_FRAC=0.3 bash $D/srv-gate-tk526.sh > $O/gate_$v.out 2>&1
+  OLD=$O/p40core-nopgo NEW=$O/p40core-pgo O=$O/gate_$v SHM_FRAC=0.8 bash $D/srv-gate-tk526.sh > $O/gate_$v.out 2>&1
   n=$(grep -v -E 'orch\.csv|log$' $O/gate_$v/diff.txt | wc -l)
   echo "гейт PGO против не-PGO ($v): различий вне orch.csv: $n; $(grep 'файлов old' $O/gate_$v.out)" >> $O/summary.txt
 done
