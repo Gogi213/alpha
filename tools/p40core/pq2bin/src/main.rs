@@ -401,9 +401,32 @@ enum Mode {
     BookL1,
 }
 
+/// TK-522 (E-17): источник без снимка в начале часа (Bitget режет файлы по received_time, час начинается с дельты) — один энкодер на сутки:
+/// книга и L1 переходят через часы, час начинается снимком текущего L1. Часы идут по порядку (один поток на сутки), `P40_L1_CARRY=1`.
+fn day_chain(root: &str, file: &str, outdir: &str, tag: &str) {
+    std::fs::create_dir_all(outdir).unwrap();
+    let cfg = L1Out::from_env();
+    let (mut enc, mut out, mut done) = (L1Enc::carry(), Vec::new(), 0usize);
+    for h in 0..24 {
+        let p = format!("{root}/{h:02}/{file}");
+        if !std::path::Path::new(&p).exists() {
+            continue;
+        }
+        book_rows(&p, |et, fu, px, qt, fl| enc.row(&mut out, et, fu, px, qt, fl));
+        enc.end_hour(&mut out);
+        if cfg.write(outdir, h, &mut out) {
+            done += 1;
+        }
+    }
+    eprintln!("pq2bin {tag}: часов {done}");
+}
+
 /// Сутки CHFT: 24 часовых файла `<root>/<ЧЧ>/<файл>` на `nth` потоках -> `<outdir>/<ЧЧ>.bin` (или `.l1.bin.zst` для `l1 book`).
 fn day_par(root: &str, file: &str, outdir: &str, nth: usize, mode: Mode, tag: &str) {
     std::fs::create_dir_all(outdir).unwrap();
+    if matches!(mode, Mode::BookL1) && std::env::var("P40_L1_CARRY").is_ok_and(|v| v == "1") {
+        return day_chain(root, file, outdir, tag);
+    }
     let cfg = L1Out::from_env();
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);

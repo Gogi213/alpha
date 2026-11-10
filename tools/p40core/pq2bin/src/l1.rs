@@ -223,6 +223,8 @@ pub struct L1Enc {
     prev: Option<(i64, i64, bool)>,
     hour_et: i64,
     need_snap: bool,
+    /// TK-522: первый снимок суток метится временем публикации, а не первой строки часа (источник без снимка в начале: книга набирается позже).
+    pub_stamp: bool,
 }
 
 impl Default for L1Enc {
@@ -233,7 +235,12 @@ impl Default for L1Enc {
 
 impl L1Enc {
     pub fn new() -> Self {
-        L1Enc { book: Book::default(), last: None, prev: None, hour_et: 0, need_snap: true }
+        L1Enc { book: Book::default(), last: None, prev: None, hour_et: 0, need_snap: true, pub_stamp: false }
+    }
+
+    /// Энкодер суток с переходом книги через часы (`P40_L1_CARRY=1`): `new` + метка первого снимка по публикации.
+    pub fn carry() -> Self {
+        L1Enc { pub_stamp: true, ..Self::new() }
     }
 
     /// Следующая строка источника в порядке файла; `fl`: бит0 снимок, бит1 бид (как в 33-байтном формате ядра).
@@ -281,7 +288,7 @@ impl L1Enc {
         let old = match (self.need_snap, self.last) {
             (false, Some(o)) => o,
             _ => {
-                write_snapshot(out, self.hour_et, cur);
+                write_snapshot(out, if self.pub_stamp { et } else { self.hour_et }, cur);
                 self.need_snap = false;
                 self.last = Some(cur);
                 return;
