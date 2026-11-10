@@ -99,6 +99,27 @@ def test_chft_leg_with_trades(tmp):
     assert len(fs) == 72 and not [f for f in fs if "orderbook" in f or "trades" in f] and orch.box_files("bybit", "X", "2026-10-05", aux_only=True) == []
 
 
+def test_rawcopy_label_counts_l1_only(tmp):   # src=rawcopy (raw-conv): files= — число l1-файлов, .tr.zst рядом; байты сверяются, число l1 — по метке; не-rawcopy метка files=2 при 4 файлах — по-прежнему отказ
+    d = make_box(tmp, ex="okx", sym="X-USDT-SWAP", hours=(0, 7))
+    tsize = 0
+    for h in (0, 7):
+        raw = tmp / f"{h:02d}.tr"
+        raw.write_bytes(bytes([h + 1]) * 50)
+        subprocess.run(["zstd", "-q", "-f", "-o", str(d / f"{h:02d}.tr.zst"), str(raw)], check=True)
+        tsize += os.path.getsize(d / f"{h:02d}.tr.zst")
+    l1 = sum(os.path.getsize(d / f"{h:02d}.l1.bin.zst") for h in (0, 7))
+    args = ("okx", "X-USDT-SWAP", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))
+    (d / ".ok").write_text("raw=1 l1=%d tr=%d files=2 src=rawcopy\n" % (l1, tsize))
+    assert len(orch.fetch_l1(*args)) == 4
+    for body in ("raw=1 l1=%d tr=%d files=3 src=rawcopy\n", "raw=1 l1=%d tr=%d files=2 src=box\n"):
+        (d / ".ok").write_text(body % (l1, tsize))
+        try:
+            orch.fetch_l1("okx", "X-USDT-SWAP", "2026-10-05", str(tmp / "raw2"), str(tmp / "log"))
+            raise AssertionError(f"{body!r}: ожидался отказ")
+        except RuntimeError:
+            pass
+
+
 def test_chft_l1_missing_for_fallback(tmp):
     """TK-522 --l1-fallback: нет суток / нет метки / у CHFT нет сделок (Binance TK-521: tr=0) -> L1Missing (нога идёт из сырья); несовпадение размера по метке — по-прежнему RuntimeError без отката"""
     args = ("okx", "X-USDT-SWAP", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))

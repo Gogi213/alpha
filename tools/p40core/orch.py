@@ -182,7 +182,8 @@ def fetch_l1(ex, sym, day, raw, log, trades_raw=False):
     tr = [f for f in fs if f.endswith(".tr.zst")]
     if nf == -1:
         nf = len(fs)
-    if nf <= 0 or not l1 or len(fs) != nf or sum(os.path.getsize(f"{dst}/{f}") for f in l1) != size or sum(os.path.getsize(f"{dst}/{f}") for f in tr) != tsize:
+    nd = len(l1) if kv.get("src") == "rawcopy" else len(fs)   # метка src=rawcopy (raw-conv, копия srv->бокс): files= — число l1-файлов, а .tr.zst лежат рядом (BTC/ETH/AAVE OKX 17.09: files=24, на диске 48); байты l1 и tr сверяются как всегда
+    if nf <= 0 or not l1 or nd != nf or sum(os.path.getsize(f"{dst}/{f}") for f in l1) != size or sum(os.path.getsize(f"{dst}/{f}") for f in tr) != tsize:
         raise RuntimeError(f"L1 {rel}: по метке файлов {nf}, байт l1 {size}, tr {tsize}; на диске файлов {len(fs)} (l1 {len(l1)}, tr {len(tr)})")
     if ex in CHFT and not tr and not trades_raw:   # у CHFT сутки без сделок = L1 собран без них (Binance TK-521: tr=0) -> ядру нужны сделки: сырьё ноги или (--l1-trades-raw) сделки из parquet бокса при книге из L1
         raise L1Missing(f"L1 {rel}: у CHFT нет .tr.zst (tr={tsize})")
