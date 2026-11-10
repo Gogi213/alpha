@@ -8,6 +8,7 @@
     умолчание — по ногам с источником (oi5m по ногам с рядом OI; у Aster × Bybit/Gate значения нет).
   --funding (TK-522, П-40 §16.7) — фандинг в net_bps: net = pnl + fund_bps, fund_bps отдельной колонкой (funding.py: метки расчёта в (вход ноги, выход эпизода], лонг платит, шорт получает); обе ноги держатся до exit_ms, вход ноги — fill_*_ms из <out>.fills.csv, неисполненная нога — 0.
     Ставки по (биржа, символ) из pairs.csv; нет таблицы ноги, дыра между метками > 8 ч + 2 с или метки не покрывают эпизод (края — по эпизоду, не по окну: контракт, выпущенный внутри окна, допустим) -> отказ до счёта (дыру докачать); эпизод вне --funding-window -> отказ. Без флага колонки fund_bps нет, net_bps прежний.
+  --aux-miss-unknown — эпизод без строки в <out>.aux.csv: oi5m/liq/Φ_t = «неизвестно» (-1), счётчик в выводе («aux нет»), не отказ. Для K1 со сдвигом ноги (P40_SHIFT_B_MS): t_start эпизодов сдвинутого прогона не совпадают с реальным, aux.csv у него копия реального (≈80 % эпизодов d1v4 без строки). Без флага — отказ с понятным текстом.
   bounds.json — границы терцилей: без --fix считаются по всей выборке и записываются (D1); с --fix читаются (D2, границы D1 не пересчитываются).
 Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. mpu_X = 1, если МПУ по исполнимой стороне (<out>.path.csv) хуже −2θ, bps."""
 import calendar, csv, json, os, sys, time
@@ -95,13 +96,15 @@ def main():
     if fwin:
         w0, w1 = (calendar.timegm(time.strptime(x, "%Y-%m-%d")) * 1000 for x in fwin.split(":"))
         w1 += 86_400_000
-    a = [x for x in a if x not in ("--fix", "--aux-strict")]
+    auxmiss = "--aux-miss-unknown" in a
+    a = [x for x in a if x not in ("--fix", "--aux-strict", "--aux-miss-unknown")]
     out, bpath, specs = a[0], a[1], a[2:]
     kinds = set()
     d0 = int(calendar.timegm(time.strptime(day0, "%Y-%m-%d")) // 86400) if day0 else None
     schema = SCHEMA + (["fund_bps"] if ftab else [])
     cols = {k: [] for k in schema + ["armed", "trunc"] + (["stale"] if smax_csv else [])}
     nstale = [0, 0]   # stale = 1, неизвестно (нет возраста или S_max) = -1
+    naux = 0          # эпизоды без строки aux.csv (--aux-miss-unknown)
     raw = {k: [] for k in ORD.values()}
     hour, leader = [], []
     for sp in specs:
@@ -152,9 +155,15 @@ def main():
                 cols["stale"].append(st)
                 nstale[0] += st == 1
                 nstale[1] += st == -1
-            a = ax[(e["theta"], f["t_start"])]
-            part = strict and int(a.get("srcA", 1)) + int(a.get("srcB", 1)) < 2
-            part_oi = strict and int(a.get("srcOIA", a.get("srcA", 1))) + int(a.get("srcOIB", a.get("srcB", 1))) < 2   # aux.csv до TK-512 без srcOI: OI-источник = mark-источник
+            a = ax.get((e["theta"], f["t_start"]))
+            miss = a is None
+            if miss and not auxmiss:
+                sys.exit(f"TK-522: в {base}.aux.csv нет строки эпизода t_start={f['t_start']} — aux считан на другом наборе эпизодов (сдвинутый контроль K1: флаг --aux-miss-unknown)")
+            naux += miss
+            if miss:
+                a = {}
+            part = miss or (strict and int(a.get("srcA", 1)) + int(a.get("srcB", 1)) < 2)
+            part_oi = miss or (strict and int(a.get("srcOIA", a.get("srcA", 1))) + int(a.get("srcOIB", a.get("srcB", 1))) < 2)   # aux.csv до TK-512 без srcOI: OI-источник = mark-источник
             for v in raw:
                 if v == "oi5m":
                     raw[v].append(float("nan") if part_oi else float(a[v]))
@@ -163,7 +172,7 @@ def main():
                     raw[v].append(x_)
                     if v == "depth_slip":
                         kinds.add(kd)
-            phi = float(a["phi_bps"])
+            phi = float("nan") if miss else float(a["phi_bps"])
             cols["f_liq"].append(-1 if part else int(a["liq5m"])); cols["f_phi_sign"].append(-1 if phi != phi else int(phi > 0))
             hour.append(int(f["hour"])); leader.append(int(f["leader"]))
     n = len(cols["asset"])
@@ -185,7 +194,7 @@ def main():
     t["ctl"] = np.array([ctl] * n)
     t["depth_kind"] = np.array([next(iter(kinds)) if kinds else 0] * n)
     np.savez_compressed(out, **t)
-    print("строк", n, "усечённых", int((t["trunc"] > 0).sum()), "контроль", ctl, "сошлось за H", int(t["conv_H"].sum()), "границы", bpath, *(["stale", nstale[0], "возраст неизвестен", nstale[1]] if smax_csv else []))
+    print("строк", n, "усечённых", int((t["trunc"] > 0).sum()), "контроль", ctl, "сошлось за H", int(t["conv_H"].sum()), "границы", bpath, *(["aux нет", naux] if auxmiss else []), *(["stale", nstale[0], "возраст неизвестен", nstale[1]] if smax_csv else []))
 
 
 main()

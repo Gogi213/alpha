@@ -77,6 +77,23 @@ class AssembleTests(unittest.TestCase):
             self.assertEqual(set(t["depth_kind"].tolist()), {1})
             self.assertEqual(sorted(set(t["f_depth"].tolist())), [0, 1, 2], "терцили по l1_notional")
 
+    def test_aux_missing_row_k1_shifted(self):
+        """сдвинутый K1+60: t_start эпизодов не совпадают с aux.csv (копия реального) — KeyError до TK-522 (d1v4 18:14); с флагом строка «неизвестно», счётчик; без флага — отказ с текстом"""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d) / "core"
+            make_core(base, [(T0 + 5_000 + i, 30_000, "both", 1.0) for i in range(3)], l1=False)
+            write(str(base) + ".aux.csv", ["theta", "t_start", "phi_bps", "liq5m", "oi5m"], [["12.6", T0 + 5_000, 0.5, 1, 0.1], ["12.6", T0 + 5_002, -0.5, 1, 0.3]])   # эпизода +1 нет
+            r0, _ = run_asm(d, base, ["--day0", "2025-09-17"])
+            self.assertNotEqual(r0.returncode, 0)
+            self.assertIn("нет строки эпизода", r0.stderr + r0.stdout)
+            r, out = run_asm(d, base, ["--day0", "2025-09-17", "--aux-miss-unknown"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("aux нет 1", r.stdout)
+            t = load(out)
+            self.assertEqual(t["f_liq"].tolist(), [1, -1, 1])
+            self.assertEqual(t["f_phi_sign"].tolist(), [1, -1, 0])
+            self.assertEqual(t["f_oi5m"].tolist()[1], -1)
+
     def _funding_case(self, d, ftext, win="2025-09-17:2025-09-17"):
         base = Path(d) / "core"
         t0 = T0 + 1 * 3_600_000                     # 01:00 UTC
