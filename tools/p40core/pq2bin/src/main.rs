@@ -416,6 +416,16 @@ fn day_chain(root: &str, file: &str, outdir: &str, tag: &str) {
     std::fs::create_dir_all(outdir).unwrap();
     let cfg = L1Out::from_env();
     let (mut enc, mut out, mut done) = (book_enc(L1Enc::carry()), Vec::new(), 0usize);
+    // E-21: сутки начинаются часом без снимка — книгу и L1 сеем часами прошлых суток (`P40_L1_SEED=файл,файл,…` по порядку), вывод посева отбрасывается
+    for p in std::env::var("P40_L1_SEED").unwrap_or_default().split(',').filter(|p| !p.is_empty()) {
+        if std::path::Path::new(p).exists() {
+            let mut sink = Vec::new();
+            book_rows(p, |et, fu, px, qt, fl| enc.row(&mut sink, et, fu, px, qt, fl));
+            enc.end_hour(&mut sink);
+        } else {
+            eprintln!("pq2bin {tag}: посев {p} не найден");
+        }
+    }
     for h in 0..24 {
         let p = format!("{root}/{h:02}/{file}");
         if !std::path::Path::new(&p).exists() {
