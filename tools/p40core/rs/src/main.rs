@@ -5,6 +5,7 @@ mod book;
 mod feats;
 mod fills;
 mod queue;
+mod theta;
 use book::{load_trades, Book, Rows};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +36,8 @@ struct Ctx<'a> {
     l_ms: i64,
     /// жизнь заявки входа/страховки (мс); умолчание `T_LIFE_MS`, список вариантов — `P40_VARIANTS`
     t_life: i64,
+    /// доля входного разрыва, при которой выход (TK-526, П-41 §1: dir·d ≤ q·d_вход); `P40_Q`, умолчание ½ (П-40)
+    q: f64,
     lev: &'a [f64],
     s0: i64,
     valid: &'a Valid,
@@ -456,15 +459,23 @@ fn d_series(tu: &[i64], x: &[f64], s0: i64, lev: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// Постоянный порог θ (прежний счёт, без `P40_RULE`).
 fn episodes(tu: &[i64], ds: &[f64], theta: f64, la: &Leg, lb: &Leg) -> Vec<Ep> {
+    episodes_with(tu, ds, |_| theta, la, lb)
+}
+
+/// Эпизоды П-40 §3 с порогом `th(i)` на каждом моменте `i` (TK-526, П-41): вход при `pa < θ_i/2` и `|d| ≥ θ_i` после ≥ `W_MS` «спокойствия» (`|d| < θ_i/2` подряд — по θ текущего шага,
+/// не по θ в начале спокойствия); NaN-порог = нормы нет: вход и накопление спокойствия невозможны. `Ep.theta` = θ на `t0`. Постоянный `th` даёт прежний результат байт в байт.
+fn episodes_with<F: Fn(usize) -> f64>(tu: &[i64], ds: &[f64], th: F, la: &Leg, lb: &Leg) -> Vec<Ep> {
     let mut out = vec![];
     let mut calm: Option<i64> = None;
     let mut prev: Option<f64> = None;
     let mut open: Option<Ep> = None;
-    let th2 = theta / 2.0;
     let (mut ka, mut kb) = (0usize, 0usize);
     for i in 0..tu.len() {
         let t = tu[i];
+        let theta = th(i);
+        let th2 = theta / 2.0;
         while ka < la.t.len() && la.t[ka] <= t {
             ka += 1;
         }
@@ -673,7 +684,7 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             let t_both = fs.max(fb);
             let k0 = c.tu.partition_point(|&t| t <= t_both);
             let vend = c.valid.end_after(e.t0).0;
-            let hit = (k0..c.tu.len()).take_while(|&k| c.tu[k] < vend).find(|&k| c.ds[k].is_finite() && e.dir as f64 * c.ds[k] <= 0.5 * e.d0);
+            let hit = (k0..c.tu.len()).take_while(|&k| c.tu[k] < vend).find(|&k| c.ds[k].is_finite() && e.dir as f64 * c.ds[k] <= c.q * e.d0);
             let Some(k) = hit else {
                 plans.push(Plan::NoSignal);
                 continue;
@@ -837,6 +848,7 @@ fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
 /// Контроли и усечение — только по флагам среды (умолчание = прежнее поведение):
 /// `P40_SHIFT_B_MS=<мс>` — K1, сдвиг времени ноги B (книга и сделки); `P40_K2=1` — K2, таблицы `<out>.k2*` (seed `P40_SEED`, умолчание 40; зазор `P40_K2_GAP_MS`, умолчание 600000 = П-40 §4.3);
 /// `P40_NOTRADE=drain|through|skip` — нога без файлов сделок (П-40 §2, §16.2): `drain` — убыль объёма на уровне заявки = сделка (верхняя граница исполнений), `through` — исполнение только при проходе цены сквозь уровень (нижняя), `skip` (умолчание) — заявки на ноге не ставятся, исход `off_maker`;
+/// `P40_Q=<доля>` (умолчание 0,5) — выход при `dir·d ≤ q·d_вход`; `P40_RULE=a0|a2|a3,phi=..,w=..,p=..|k=..,fee=..,xs=..,warm=..` — порог θ_t по прошлому окну вместо `P40_THETAS` (TK-526, П-41, `theta.rs`);
 /// `P40_TRUNC=1` — усечение §2.2 (+ колонка `trunc` в exits: 1 — конец данных, 2 — дыра), конец данных `P40_END_MS` (умолчание — последний момент рядов), дыры — файл `P40_HOLES` со строками `начало_мс,конец_мс`.
 fn main() {
     let a: Vec<String> = std::env::args().collect();
@@ -899,8 +911,18 @@ fn main() {
     };
     let mut all: Vec<Ep> = vec![];
     let thetas = parse_thetas(env("P40_THETAS").as_deref());
-    for &th in &thetas {
-        all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
+    // TK-526 (П-41): `P40_Q` — доля входного разрыва выхода (умолчание ½); `P40_RULE` — переменный порог θ_t по прошлому окну (`theta.rs`), вместо списка `P40_THETAS`; нет — прежний счёт
+    let q: f64 = env("P40_Q").map_or(0.5, |v| v.parse().unwrap());
+    let rule = env("P40_RULE");
+    if let Some(r) = rule.as_deref() {
+        assert!(env("P40_K2").is_none(), "P40_RULE: контроль K2 с переменным порогом не поддержан");
+        let th_t = theta::theta_series(&tu, &ds, &la, &lb, &theta::Rule::parse(r, q));
+        eprintln!("правило {r} q={q}: θ_t определён на {} из {} моментов {:.1}s", th_t.iter().filter(|v| v.is_finite()).count(), th_t.len(), t.elapsed().as_secs_f64());
+        all.extend(episodes_with(&tu, &ds, |i| th_t[i], &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
+    } else {
+        for &th in &thetas {
+            all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
+        }
     }
     write_tables(&a[1], &all);
     if NAIVE.load(Ordering::Relaxed) {
@@ -934,6 +956,7 @@ fn main() {
             step: [a.get(9).map_or(1e-9, |v| v.parse().unwrap()), a.get(10).map_or(1e-9, |v| v.parse().unwrap())],
             l_ms: base_l,
             t_life: T_LIFE_MS,
+            q,
             lev: &lev,
             s0: t0,
             valid: &valid,
@@ -993,7 +1016,7 @@ mod tests {
         assert!(parse_notrade(None) == NoTrade::Skip && parse_notrade(Some("skip")) == NoTrade::Skip);
         assert!(parse_notrade(Some("drain")) == NoTrade::Drain && parse_notrade(Some("through")) == NoTrade::Through);
         let (la, valid) = (leg(&[0], &[1.0], &[2.0]), Valid { on: false, end: i64::MAX, holes: vec![] });
-        let mk = |no_tr: [bool; 2], nt: NoTrade| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, nt, l_ms: 0, t_life: T_LIFE_MS, lev: &[], s0: 0, valid: &valid };
+        let mk = |no_tr: [bool; 2], nt: NoTrade| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, nt, l_ms: 0, t_life: T_LIFE_MS, q: 0.5, lev: &[], s0: 0, valid: &valid };
         assert!(mk([false, true], NoTrade::Skip).maker_off() && mk([true, false], NoTrade::Skip).maker_off());
         assert!(!mk([false, false], NoTrade::Skip).maker_off(), "обе ноги со сделками — прежнее поведение");
         let d = mk([false, true], NoTrade::Drain);
@@ -1152,7 +1175,7 @@ mod tests {
             vec![book::Tr { t: t_trade, px: 11.0, qty: 51.0, buyer_maker: false }],
             vec![book::Tr { t: 100, px: 10.5, qty: 0.001, buyer_maker: true }],
         ];
-        let c = Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: [&da, &db], tr, lot: [1.0; 2], step: [1e-9; 2], no_tr: [false; 2], nt: NoTrade::Skip, l_ms: 500, t_life: T_LIFE_MS, lev: &[], s0: 0, valid };
+        let c = Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: [&da, &db], tr, lot: [1.0; 2], step: [1e-9; 2], no_tr: [false; 2], nt: NoTrade::Skip, l_ms: 500, t_life: T_LIFE_MS, q: 0.5, lev: &[], s0: 0, valid };
         // A дороже: продаёт A (аск 11), покупает B (бид 10); заявки встают в t0+L = 1500, живут до 61 500
         let eps = [Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false)];
         let out = std::env::temp_dir().join(format!("p40core-trunc-out-{tag}-{}", std::process::id())).to_str().unwrap().to_string();
@@ -1183,6 +1206,26 @@ mod tests {
         let (outcome, kind, _, trunc) = exits_row("h4", &off, 30_000);
         assert_eq!((outcome.as_str(), trunc.as_str()), ("one", ""));
         assert_ne!(kind, "trunc_no_entry");
+    }
+
+    #[test]
+    fn variable_theta_gates_entry_and_calm_per_step() {
+        // 70 с покоя (|d| = 1), затем d = 15: при θ=12,6 вход; при θ_t = 20 на шаге скачка — нет; при θ_t = 40 в покое (θ/2 = 20) покой есть, вход при 25 есть
+        let tu: Vec<i64> = (0..100).map(|i| i * 1000).collect();
+        let (b, a) = (vec![100.0; 100], vec![100.1; 100]);
+        let (la, lb) = (leg(&tu, &b, &a), leg(&tu, &b, &a));
+        let ds: Vec<f64> = (0..100).map(|i| if i < 70 { 1.0 } else { 15.0 }).collect();
+        assert_eq!(episodes(&tu, &ds, 12.6, &la, &lb).len(), 1);
+        assert_eq!(episodes_with(&tu, &ds, |_| 12.6, &la, &lb).iter().map(|e| (e.t0, e.theta.to_bits())).collect::<Vec<_>>(), episodes(&tu, &ds, 12.6, &la, &lb).iter().map(|e| (e.t0, e.theta.to_bits())).collect::<Vec<_>>());
+        assert!(episodes_with(&tu, &ds, |i| if i == 70 { 20.0 } else { 12.6 }, &la, &lb).is_empty(), "порог текущего шага 20 > |d| = 15");
+        // θ_t вырос в покое до 100 (θ/2 = 50 > 1 — покой остаётся), вход при 15 < 100 нет
+        assert!(episodes_with(&tu, &ds, |_| 100.0, &la, &lb).is_empty());
+        // покой считается по θ текущего шага: θ_t = 1,5 (θ/2 = 0,75 < 1) в покое — покоя нет, вход блокирован; NaN — то же
+        assert!(episodes_with(&tu, &ds, |i| if i < 70 { 1.5 } else { 12.6 }, &la, &lb).is_empty());
+        assert!(episodes_with(&tu, &ds, |i| if i < 70 { f64::NAN } else { 12.6 }, &la, &lb).is_empty());
+        // Ep.theta = θ_t на t0
+        let e = episodes_with(&tu, &ds, |i| if i < 70 { 12.6 } else { 14.0 }, &la, &lb);
+        assert_eq!((e.len(), e[0].theta, e[0].t0), (1, 14.0, 70_000));
     }
 
     #[test]
