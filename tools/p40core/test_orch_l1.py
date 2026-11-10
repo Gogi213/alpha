@@ -241,6 +241,36 @@ def test_box_rsync_retry_and_cap(tmp):   # 10.11: rc 12 (бокс закрыл �
         orch.time.sleep = sl
 
 
+def test_supplier_empty_day_is_gap_not_error(tmp):
+    """Судья 10.11 класс 3: метка files=0/48 404=48 -> [] (дыра на 24 часа), не RuntimeError; частичные сутки -> недостающие часы; l1_gaps.csv без повторов"""
+    d = tmp / "box" / "alpha" / "stakan" / orch.l1_rel("okx", "XUSDT", "2026-10-05")
+    d.mkdir(parents=True)
+    (d / ".ok").write_text("raw=0 l1=0 tr=0 files=0/48 404=48 src=box" + chr(10))
+    assert orch.fetch_l1("okx", "XUSDT", "2026-10-05", str(tmp / "raw"), str(tmp / "log")) == []
+    tf, nb, w, c = orch.unpack_l1("okx", "XUSDT", "2026-10-05", str(tmp / "raw"), str(tmp / "bins"), str(tmp / "log"), fs=[])
+    assert os.path.isdir(f"{tmp}/bins/B") and not os.listdir(f"{tmp}/bins/B")
+    assert orch.gap_hours([]) == list(range(24))
+    assert orch.gap_hours([f"/x/{h:02d}.l1.bin.zst" for h in (0, 1, 5)] + ["/x/05.tr.zst"]) == [h for h in range(24) if h not in (0, 1, 5)]
+    orch.SEEN_GAPS.clear()
+    orch.record_gap(str(tmp), "okx", "XUSDT", "2026-10-05", orch.gap_hours([]))
+    orch.record_gap(str(tmp), "okx", "XUSDT", "2026-10-05", orch.gap_hours([]))
+    orch.record_gap(str(tmp), "bybit", "YUSDT", "2026-10-06", [3, 4])
+    rows = open(tmp / "l1_gaps.csv").read().splitlines()
+    assert len(rows) == 3 and rows[1].startswith("okx,XUSDT,2026-10-05,24,404,") and rows[2].startswith("bybit,YUSDT,2026-10-06,2,gap_hours,3 4"), rows
+
+
+def test_gap_hours_become_merged_holes(tmp):
+    """дыры L1 -> P40_HOLES: пустые сутки одной ноги, часть часов другой; склейка в интервалы"""
+    bad = {("okx_futures", "XUSDT", "2026-10-06"): set(range(24)), ("bybit", "YUSDT", "2026-10-05"): {23}, ("bybit", "YUSDT", "2026-10-06"): {0, 7}}
+    days = ["2026-10-05", "2026-10-06", "2026-10-07"]
+    n = orch.write_holes(str(tmp / "h"), bad, [("okx", "XUSDT"), ("bybit", "YUSDT")], days)
+    t0 = orch.calendar.timegm(orch.time.strptime("2026-10-05", "%Y-%m-%d")) * 1000
+    H = 3600000
+    got = [tuple(map(int, l.split(","))) for l in open(tmp / "h").read().splitlines()]
+    assert n == 2 and got == [(t0 + 23 * H, t0 + 48 * H), (t0 + 55 * H, t0 + 56 * H)] or got == [(t0 + 23 * H, t0 + 48 * H)] + [(t0 + 55 * H, t0 + 56 * H)], got
+    assert got[0] == (t0 + 23 * H, t0 + 48 * H), "23:00 д1 + сутки д2 (0 ч и 7 ч другой ноги внутри) склеены"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

@@ -28,6 +28,7 @@ SHM_FRAC = float(os.environ.get("P40_SHM_FRAC", "0.8"))  # доля shm под �
 SHM_MARGIN = 1.25              # запас оценки пика на разброс суток (оценка и факт пишутся в orch.log: «shm: …»)
 PILOT_LEG_B = 600 * 1024 ** 2  # бронь на ногу в первые сутки: замер 09.11 (AAVE 17.09) — .bin+сырьё ≤ 0,43 ГБ на ногу×сутки
 SEEN_AUXH = set()
+SEEN_GAPS = set()
 L1_EX = {ex: f"{ex}_futures" for ex in sorted(CHFT | {"bybit", "gate"})}   # TK-518/TK-522 (В-116): вход ВСЕХ ног = L1 бокса alpha/stakan/p40l1/<биржа>_futures/<символ>/<сутки>/ ({ЧЧ}.l1.bin.zst + {ЧЧ}.tr.zst сделки CHFT + .ok)
 
 
@@ -200,6 +201,8 @@ def fetch_l1(ex, sym, day, raw, log, trades_raw=False):
     fs = sorted(f for f in os.listdir(dst) if f.endswith((".l1.bin.zst", ".tr.zst")))
     l1 = [f for f in fs if f.endswith(".l1.bin.zst")]
     tr = [f for f in fs if f.endswith(".tr.zst")]
+    if not fs and size == 0 and tsize == 0 and kv.get("files", "").split("/")[0] == "0" and int(kv.get("404", 0)) > 0:
+        return []   # TK-522 (Судья 10.11, класс 3): у поставщика на сутки нет ни одного файла (метка files=0 404=N) -> дыра на все 24 часа, не RuntimeError; часы дыры негодны (job() пишет их в P40_HOLES и в l1_gaps.csv)
     if nf == -1:
         nf = len(fs)
     nd = len(l1) if kv.get("src") == "rawcopy" else len(fs)   # метка src=rawcopy (raw-conv, копия srv->бокс): files= — число l1-файлов, а .tr.zst лежат рядом (BTC/ETH/AAVE OKX 17.09: files=24, на диске 48); байты l1 и tr сверяются как всегда
@@ -322,6 +325,38 @@ def write_holes(path, bad, legs, days):
     return len(out)
 
 
+def gap_hours(fs):
+    """часы суток без файла `<ЧЧ>.l1.bin.zst` среди файлов L1 ноги (пустые сутки поставщика, fs=[], — все 24)"""
+    return sorted(set(range(24)) - {int(os.path.basename(f)[:2]) for f in fs if f.endswith(".l1.bin.zst")})
+
+
+def record_gap(out, ex, sym, day, miss):
+    """l1_gaps.csv (Судья 10.11): биржа, контракт, сутки, часы без L1, причина (404 — у поставщика на сутки нет файлов; gap_hours — часть часов)"""
+    with LOG_LOCK:
+        if (ex, sym, day) in SEEN_GAPS:
+            return
+        SEEN_GAPS.add((ex, sym, day))
+        dst = f"{out}/l1_gaps.csv"
+        head = not os.path.exists(dst)
+        with open(dst, "a", newline="") as f:
+            w = csv.writer(f)
+            if head:
+                w.writerow(["exchange", "contract", "date", "hours_missing", "reason", "hours"])
+            w.writerow([ex, sym, day, len(miss), "404" if len(miss) == 24 else "gap_hours", " ".join(map(str, miss))])
+
+
+def record_nodata(out, asset, cid, p):
+    """l1_nodata.csv: пара, у ноги которой за чанк нет ни одного часа L1 (нет данных поставщика) — в таблицу «план / посчитано» (§16.9), не упавшая"""
+    with LOG_LOCK:
+        dst = f"{out}/l1_nodata.csv"
+        head = not os.path.exists(dst)
+        with open(dst, "a", newline="") as f:
+            w = csv.writer(f)
+            if head:
+                w.writerow(["asset", "chunk", "pair", "exA", "symA", "exB", "symB"])
+            w.writerow([asset, cid, p["pair"], p["exA"], p["symA"], p["exB"], p["symB"]])
+
+
 def drop_heavy(raw):
     """после конвертации сырьё книги/сделок не нужно (aux читает только mark/OI/ликвидации CHFT; у ног Bybit/Gate таких рядов нет); Bybit/Gate — целиком"""
     for d, _, fs in os.walk(raw):
@@ -380,6 +415,7 @@ def job(args, asset, days, pairs, outlog):
         t_wait += time.time() - tw
         est = peak = 0
         t = time.time()
+        gapbad = {}   # (VEX-биржа, контракт, сутки) -> часы без L1 (дыры поставщика); к G0-негодным часам args.bad
         l1res = {}   # (день, ex, sym) -> файлы L1 или L1Missing; TK-522 v2: все ноги×сутки одним пулом (--l1-p), а не по одной ноге подряд (rsync-латентность: 52 из 65 с куска)
         with cf.ThreadPoolExecutor(args.l1_p) as tp:
             fl = {tp.submit(fetch_l1, ex, sym, day, f"{wd}/raw/{day}", log, args.l1_trades_raw): (day, ex, sym) for day in days for (ex, sym) in legs if l1_leg(args, ex)}
@@ -403,7 +439,7 @@ def job(args, asset, days, pairs, outlog):
                             f.write(f"L1 нет -> сырьё: {r}" + chr(10))
                     else:
                         l1fs[(ex, sym)] = r
-            trraw = {k for k, fs in l1fs.items() if k[0] in CHFT and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
+            trraw = {k for k, fs in l1fs.items() if k[0] in CHFT and fs and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
             nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs, trades=(ex, sym) in trraw)], raw, args.fetch_p, log)
             t_fetch += time.time() - t
             for (ex, sym), mult in legs.items():
@@ -420,6 +456,11 @@ def job(args, asset, days, pairs, outlog):
                 else:
                     w, c = convert(ex, sym, day, raw, bins, mult, log)
                 t_conv, c_conv = t_conv + w, c_conv + c
+            for (ex, sym), fs in l1fs.items():   # часы дыры = часы суток без файла L1 (пустые сутки поставщика — все 24; частичные — недостающие); негодны, эпизоды в них не создаются, позиция усекается (§2.2)
+                miss = gap_hours(fs)
+                if miss:
+                    gapbad[(VEX.get(ex, ex), sym, day)] = set(miss)
+                    record_gap(args.out, ex, sym, day, miss)
             peak = max(peak, du(wd))
             if di == 0:
                 p1 = peak
@@ -445,6 +486,9 @@ def job(args, asset, days, pairs, outlog):
         t_core = c_core = c_aux = 0.0
         for p in pairs:
             a, b = (mrg[(p["ex" + s], p["sym" + s])] for s in "AB")
+            if not all(os.path.isdir(f"{x}/B") and os.listdir(f"{x}/B") for x in (a, b)):   # нога без единого годного часа за чанк = «нет данных поставщика» (Судья 10.11): не упавшая пара и не молчаливое выпадение — строка в l1_nodata.csv
+                record_nodata(args.out, asset, cid, p)
+                continue
             base = f"{out_d}/{p['pair']}"
             lots = []
             for s_, bd in zip("AB", (a, b)):
@@ -456,9 +500,13 @@ def job(args, asset, days, pairs, outlog):
                 f.write(f"{asset},{cid},{p['pair']},{lots[0]},{lots[1]}" + chr(10))
             cmd = [CORE, base, f"{a}/B", f"{b}/B", f"{a}/T", f"{b}/T", lots[0], lots[1], str(args.l_ms), p["stepA"] or "1e-9", p["stepB"] or "1e-9"]
             penv = env
-            if args.validity:
-                nh = write_holes(f"{base}.holes", args.bad, [(p["exA"], p["symA"]), (p["exB"], p["symB"])], days)
-                penv = dict(env, P40_TRUNC="1", P40_HOLES=f"{base}.holes", **({"P40_END_MS": str(args.end_ms)} if args.end_ms else {}))
+            pleg = [(p["exA"], p["symA"]), (p["exB"], p["symB"])]
+            if args.validity or any((VEX.get(ex, ex), sym, day) in gapbad for ex, sym in pleg for day in days):
+                jbad = {k: set(v) for k, v in args.bad.items()}
+                for k, v in gapbad.items():
+                    jbad.setdefault(k, set()).update(v)
+                nh = write_holes(f"{base}.holes", jbad, pleg, days)
+                penv = dict(env, P40_TRUNC="1", P40_HOLES=f"{base}.holes", P40_HOLE_WARM="1", **({"P40_END_MS": str(args.end_ms)} if args.end_ms else {}))
             rc, w, c = run(cmd, env=penv, log=log)
             if rc != 0:
                 raise RuntimeError(f"ядро rc {rc} пара {p['pair']}")

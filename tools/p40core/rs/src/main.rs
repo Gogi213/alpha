@@ -121,6 +121,23 @@ impl Valid {
     }
 }
 
+/// Файл `P40_HOLES` (строки `начало_мс,конец_мс`) -> негодные интервалы по возрастанию.
+fn read_holes(f: Option<String>) -> Vec<(i64, i64)> {
+    f.map_or(vec![], |f| {
+        let mut h: Vec<(i64, i64)> = std::fs::read_to_string(f)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let (s, e) = l.split_once(',').unwrap();
+                (s.trim().parse().unwrap(), e.trim().parse().unwrap())
+            })
+            .collect();
+        h.sort_unstable();
+        h
+    })
+}
+
 struct Leg {
     t: Vec<i64>,
     b: Vec<f64>,
@@ -203,17 +220,24 @@ fn x_series(a: &Leg, b: &Leg) -> (Vec<i64>, Vec<f64>) {
     (tu, x)
 }
 
-fn level_grid(tu: &[i64], x: &[f64], t0: i64, t1: i64) -> Vec<f64> {
+fn level_grid(tu: &[i64], x: &[f64], t0: i64, t1: i64, holes: &[(i64, i64)]) -> Vec<f64> {
     let ns = (t1 - t0 + 1) as usize;
     let mut g = vec![f64::NAN; ns];
-    let mut p = 0usize;
+    let (mut p, mut hi) = (0usize, 0usize);
     for (j, gj) in g.iter_mut().enumerate() {
         let ts = (t0 + j as i64) * 1000;
         while p < tu.len() && tu[p] <= ts {
             p += 1;
         }
+        while hi < holes.len() && holes[hi].0 <= ts {
+            hi += 1;
+        }
         if p > 0 {
-            *gj = x[p - 1];
+            // прогрев после дыры (TK-522, П-40 §2.2): в негодном интервале и до первого события после его конца ряд не определён -> уровень L считается заново, пока 6-часовое окно не покрыто годными данными целиком
+            let stale = hi > 0 && tu[p - 1] < holes[hi - 1].1;
+            if !stale {
+                *gj = x[p - 1];
+            }
         }
     }
     let mut lev = vec![f64::NAN; ns];
@@ -699,23 +723,12 @@ fn main() {
     let (tu, x) = x_series(&la, &lb);
     eprintln!("объединённых моментов {} {:.1}s", tu.len(), t.elapsed().as_secs_f64());
     let (t0, t1) = (tu[0] / 1000, tu[tu.len() - 1] / 1000);
-    let lev = level_grid(&tu, &x, t0, t1);
+    let holes_in = if env("P40_TRUNC").is_some() { read_holes(env("P40_HOLES")) } else { vec![] };
+    let lev = level_grid(&tu, &x, t0, t1, if env("P40_HOLE_WARM").is_some() { &holes_in } else { &[] });
     eprintln!("уровень: определён на {} из {} с {:.1}s", lev.iter().filter(|v| v.is_finite()).count(), lev.len(), t.elapsed().as_secs_f64());
     let ds = d_series(&tu, &x, t0, &lev);
     let valid = if env("P40_TRUNC").is_some() {
-        let holes = env("P40_HOLES").map_or(vec![], |f| {
-            let mut h: Vec<(i64, i64)> = std::fs::read_to_string(f)
-                .unwrap()
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| {
-                    let (s, e) = l.split_once(',').unwrap();
-                    (s.trim().parse().unwrap(), e.trim().parse().unwrap())
-                })
-                .collect();
-            h.sort_unstable();
-            h
-        });
+        let holes = holes_in;
         Valid { on: true, end: env("P40_END_MS").map_or(tu[tu.len() - 1] + 1, |v| v.parse().unwrap()), holes }
     } else {
         Valid { on: false, end: i64::MAX, holes: vec![] }
@@ -810,6 +823,22 @@ mod tests {
         assert!(!d.maker_off() && d.drain_leg(1) && !d.drain_leg(0) && !d.through_leg(1));
         let t = mk([false, true], NoTrade::Through);
         assert!(!t.maker_off() && t.through_leg(1) && !t.through_leg(0) && !t.drain_leg(1));
+    }
+
+    #[test]
+    fn level_rewarms_after_hole() {
+        // события каждую секунду, x = 1; дыра [22000 с, 22100 с): без флага уровень определён, с дырой — NaN до конца дыры + окно 6 ч
+        let ns = 50_000usize;
+        let tu: Vec<i64> = (0..ns as i64).map(|i| i * 1000).collect();
+        let x = vec![1.0; ns];
+        let base = level_grid(&tu, &x, 0, ns as i64 - 1, &[]);
+        let warm = level_grid(&tu, &x, 0, ns as i64 - 1, &[(22_000_000, 22_100_000)]);
+        assert!(base[23_000].is_finite() && base[30_000].is_finite());
+        assert!(warm[21_900].is_finite(), "до дыры уровень прежний");
+        assert!(warm[22_050].is_nan() && warm[23_000].is_nan() && warm[22_100 + L_S - 10].is_nan());
+        assert!(warm[22_100 + L_S + 10].is_finite(), "окно покрыто годными данными целиком");
+        assert_eq!(warm[21_000], base[21_000]);
+        assert_eq!(warm[49_000], base[49_000]);
     }
 
     #[test]
