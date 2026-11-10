@@ -794,9 +794,25 @@ fn write_tables(out: &str, eps: &[Ep]) {
 fn write_naive(out: &str, eps: &[Ep], la: &Leg, lb: &Leg, t_last: i64) {
     const H_MS: i64 = 600_000;
     let mut o = String::from(
-        "theta,t0_ms,dir,s_px0,s_q0,l_px0,l_q0,s_px1,s_q1,l_px1,l_q1,s_pxpk,s_qpk,l_pxpk,l_qpk,pnl_h600_bps,pnl_last_bps,t_last_ms\n",
+        "theta,t0_ms,dir,s_px0,s_q0,l_px0,l_q0,s_px1,s_q1,l_px1,l_q1,s_pxpk,s_qpk,l_pxpk,l_qpk,pnl_h600_bps,pnl_last_bps,t_last_ms,\
+         a_bid0,a_bidq0,a_ask0,a_askq0,b_bid0,b_bidq0,b_ask0,b_askq0,a_bid1,a_bidq1,a_ask1,a_askq1,b_bid1,b_bidq1,b_ask1,b_askq1,\
+         dma1_bps,dma5_bps,dma30_bps,dmb1_bps,dmb5_bps,dmb30_bps,age_a_ms,age_b_ms\n",
     );
-    for e in eps {
+    let t0s: Vec<i64> = eps.iter().map(|e| e.t0).collect();
+    let (age_a, age_b) = (la.age_at(&t0s), lb.age_at(&t0s));
+    // bid, размер bid, ask, размер ask ноги на последнем состоянии ≤ t (CEO 10.11: обе стороны обеих ног на t0 и t_end); нет состояния или рядов размеров — NaN
+    let quote = |l: &Leg, t: i64| -> [f64; 4] {
+        let k = l.t.partition_point(|&u| u <= t);
+        if k == 0 || l.aq.len() != l.t.len() { [f64::NAN; 4] } else { [l.b[k - 1], l.bq[k - 1], l.a[k - 1], l.aq[k - 1]] }
+    };
+    // сдвиг mid ноги за `dt` мс до t0, бпс: mid(≤ t0) против mid(≤ t0 − dt); нет состояния до t0 − dt — NaN
+    let dmid = |l: &Leg, t0: i64, dt: i64| -> f64 {
+        match (l.bbo(t0), l.bbo(t0 - dt)) {
+            (Some((b1, a1)), Some((b0, a0))) => 1e4 * ((b1 + a1) / (b0 + a0) - 1.0),
+            _ => f64::NAN,
+        }
+    };
+    for (i, e) in eps.iter().enumerate() {
         // (цена S, размер S, цена L, размер L) на последнем состоянии каждой ноги ≤ t
         let st = |t: i64| -> [f64; 4] {
             let (ka, kb) = (la.t.partition_point(|&u| u <= t), lb.t.partition_point(|&u| u <= t));
@@ -812,9 +828,21 @@ fn write_naive(out: &str, eps: &[Ep], la: &Leg, lb: &Leg, t_last: i64) {
         let p600 = if late && e.t0 + H_MS <= t_last { pnl(st(e.t0 + H_MS)) } else { f64::NAN };
         let plast = if e.t_end < 0 { pnl(st(t_last)) } else { f64::NAN };
         o += &format!(
-            "{:?},{},{},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:.4},{:.4},{}\n",
+            "{:?},{},{},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:.4},{:.4},{}",
             e.theta, e.t0, e.dir, e.ea, s0[1], e.eb, s0[3], s1[0], s1[1], s1[2], s1[3], sp[0], sp[1], sp[2], sp[3], p600, plast, t_last
         );
+        let tx = if e.t_end >= 0 { e.t_end } else { i64::MIN };   // нет выхода — NaN во всех колонках «1»
+        for (l, t) in [(la, e.t0), (lb, e.t0), (la, tx), (lb, tx)] {
+            for v in if t == i64::MIN { [f64::NAN; 4] } else { quote(l, t) } {
+                o += &format!(",{v:?}");
+            }
+        }
+        for l in [la, lb] {
+            for dt in [1_000, 5_000, 30_000] {
+                o += &format!(",{:.4}", dmid(l, e.t0, dt));
+            }
+        }
+        o += &format!(",{},{}\n", age_a[i], age_b[i]);
     }
     std::fs::File::create(format!("{out}.naive.csv")).unwrap().write_all(o.as_bytes()).unwrap();
 }
@@ -1221,5 +1249,13 @@ mod tests {
         let want = 1e4 * ((11.0 - 10.1) / 11.0 + (10.05 - 10.0) / 10.0);
         assert!((rows[1][16].parse::<f64>().unwrap() - want).abs() < 1e-3);
         assert_eq!(rows[1][7], "NaN");
+        // CEO 10.11: обе стороны обеих ног на t0 и t_end (A на t0: bid 10.9/1, ask 11.0/6; B на t0: 10.0/3, 10.1/4; на выходе A 10.0/1, 10.1/7, B 10.05/8, 10.2/9)
+        let n = 18;
+        assert_eq!(&rows[0][n..n + 16], ["10.9", "1.0", "11.0", "6.0", "10.0", "3.0", "10.1", "4.0", "10.0", "1.0", "10.1", "7.0", "10.05", "8.0", "10.2", "9.0"]);
+        assert!(rows[1][n + 8..n + 16].iter().all(|v| *v == "NaN"));   // выхода нет — колонки «1» пусты
+        // до t0 − 1 с состояний нет (первое на 0 мс, t0 = 1000 мс: на −0 мс уже есть -> dma1 считается); dma5/dma30 — NaN
+        assert_eq!(rows[0][n + 16], "0.0000");
+        assert!(rows[0][n + 17..n + 19].iter().all(|v| *v == "NaN"));
+        assert_eq!(rows[0].len(), n + 24);
     }
 }
