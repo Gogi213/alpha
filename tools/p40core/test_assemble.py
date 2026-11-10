@@ -115,6 +115,22 @@ class AssembleTests(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("дыры", r.stderr + r.stdout)
 
+    def test_funding_edges_by_episode_not_window(self):
+        h = lambda x: T0 + x * 3_600_000
+        gate = [["gate", "X_USDT", h(x), 1e-4] for x in (0, 8, 16)]
+        with tempfile.TemporaryDirectory() as d:     # контракт выпущен внутри окна: таблица начинается в 08:00, вход ноги в 01:00 (<= 8 ч до метки) — допустимо
+            r, out = self._funding_case(d, [["bybit", "XUSDT", h(x), 1e-4] for x in (8, 16)] + gate)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertAlmostEqual(load(out)["fund_bps"][0], 0.0, places=9, msg="метка 08:00: лонг Bybit платит 1 bps, шорт Gate получает 1 bps -> 0")
+        with tempfile.TemporaryDirectory() as d:     # таблица начинается за 15 ч после входа: метки внутри эпизода потеряны -> отказ
+            r, _ = self._funding_case(d, [["bybit", "XUSDT", h(x), 1e-4] for x in (16, 24)] + gate)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("не покрывает эпизод", r.stderr + r.stdout)
+        with tempfile.TemporaryDirectory() as d:     # таблица кончается за 9 ч до выхода (09:00): последняя метка 00:00 -> отказ
+            r, _ = self._funding_case(d, [["bybit", "XUSDT", h(x), 1e-4] for x in (-8, 0)] + gate)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("не покрывает эпизод", r.stderr + r.stdout)
+
     def test_without_funding_no_column_net_unchanged(self):
         with tempfile.TemporaryDirectory() as d:
             base = Path(d) / "core"

@@ -7,7 +7,7 @@
   --aux-strict — liq5m только если у обеих ног есть ряды (srcA+srcB=2, aux_feats.py), иначе f_liq = -1; oi5m = нет значения (-1), если рядов OI нет хотя бы у одной ноги (srcOIA+srcOIB<2; Aster, Bybit, Gate OI не имеют);
     умолчание — по ногам с источником (oi5m по ногам с рядом OI; у Aster × Bybit/Gate значения нет).
   --funding (TK-522, П-40 §16.7) — фандинг в net_bps: net = pnl + fund_bps, fund_bps отдельной колонкой (funding.py: метки расчёта в (вход ноги, выход эпизода], лонг платит, шорт получает); обе ноги держатся до exit_ms, вход ноги — fill_*_ms из <out>.fills.csv, неисполненная нога — 0.
-    Ставки по (биржа, символ) из pairs.csv; нет таблицы ноги, дыра между метками > 8 ч + 2 с или таблица не покрывает окно -> отказ до счёта (дыру докачать). Без флага колонки fund_bps нет, net_bps прежний.
+    Ставки по (биржа, символ) из pairs.csv; нет таблицы ноги, дыра между метками > 8 ч + 2 с или метки не покрывают эпизод (края — по эпизоду, не по окну: контракт, выпущенный внутри окна, допустим) -> отказ до счёта (дыру докачать); эпизод вне --funding-window -> отказ. Без флага колонки fund_bps нет, net_bps прежний.
   bounds.json — границы терцилей: без --fix считаются по всей выборке и записываются (D1); с --fix читаются (D2, границы D1 не пересчитываются).
 Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. mpu_X = 1, если МПУ по исполнимой стороне (<out>.path.csv) хуже −2θ, bps."""
 import calendar, csv, json, os, sys, time
@@ -38,15 +38,21 @@ def feat(f, name):
     raise KeyError(f"features.csv: нет колонки {name} (и {alt}) — прогон ядра без признаков?")
 
 
-def fund_leg(ftab, ex, sym, w0, w1):
-    """таблица ставок ноги (T, r) с проверкой покрытия окна [w0, w1) мс: нет таблицы / дыра > 8 ч / края дальше 8 ч от окна -> отказ"""
+def fund_leg(ftab, ex, sym):
+    """таблица ставок ноги (T, r): нет таблицы / дыра между метками > 8 ч + 2 с -> отказ. Края проверяются по эпизодам (fund_edges): контракт, выпущенный внутри окна, начинается позже окна"""
     if (ex, sym) not in ftab:
         sys.exit(f"TK-522: нет ставок фандинга для ноги {ex} {sym} — докачать (funding.py fetch / из mark), счёт с дырой не запускается")
     T, r = ftab[(ex, sym)]
     g = FD.gaps(T, T[0], T[-1], MAX_FUND_STEP_MS)
-    if g or T[0] > w0 + MAX_FUND_STEP_MS or T[-1] < w1 - MAX_FUND_STEP_MS:
-        sys.exit(f"TK-522: фандинг {ex} {sym}: покрытие {T[0]:.0f}…{T[-1]:.0f} не охватывает окно {w0}…{w1} или дыры {g[:3]}")
+    if g:
+        sys.exit(f"TK-522: фандинг {ex} {sym}: дыры между метками {g[:3]}")
     return T, r
+
+
+def fund_edges(T, ex, sym, t_in, t_out):
+    """покрытие эпизода ноги: первая метка не позже t_in + 8 ч, последняя не раньше t_out − 8 ч (иначе метки внутри эпизода потеряны) -> отказ"""
+    if t_in == t_in and (T[0] > t_in + MAX_FUND_STEP_MS or T[-1] < t_out - MAX_FUND_STEP_MS):
+        sys.exit(f"TK-522: фандинг {ex} {sym}: таблица {T[0]:.0f}…{T[-1]:.0f} не покрывает эпизод {t_in:.0f}…{t_out:.0f}")
 
 
 def day_index(t0_ms):
@@ -99,7 +105,7 @@ def main():
         if ftab:
             fl = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".fills.csv")}
             pr = pairs[int(pair)]
-            legs = [fund_leg(ftab, pr["ex" + c], pr["sym" + c], w0, w1) for c in "AB"]
+            legs = [fund_leg(ftab, pr["ex" + c], pr["sym" + c]) for c in "AB"]
         ax = {(r["theta"], r["t_start"]): r for r in rows(base + ".aux.csv")}
         for e in ep:
             k = (e["theta"], e["t0_ms"])
@@ -118,6 +124,10 @@ def main():
                 tin = [float("nan")] * 2
                 sl = 0 if fr["sell_leg"] == "A" else 1
                 tin[sl], tin[1 - sl] = rel(fr["fill_sell_ms"]), rel(fr["fill_buy_ms"])
+                if not w0 <= float(e["t0_ms"]) < w1:
+                    sys.exit(f"TK-522: эпизод t0={e['t0_ms']} вне окна фандинга {fwin} — таблица докачана не на то окно")
+                for c, (T_, _) in zip("AB", legs):
+                    fund_edges(T_, pr["ex" + c], pr["sym" + c], tin["AB".index(c)], float(x["exit_ms"]))
                 fund = FD.episode_bps(legs, sl, tin, float(x["exit_ms"]))[0]
             cols["net_bps"].append(0.0 if x["outcome"] == "none" else pnl + fund)
             if ftab:
