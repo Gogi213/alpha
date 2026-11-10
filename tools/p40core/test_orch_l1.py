@@ -141,6 +141,15 @@ def test_raw_ex_per_exchange():   # --raw-ex: L1 биржи ещё невере�
     assert orch.l1_leg(a, "okx") and orch.l1_leg(a, "binance") and orch.l1_leg(a, "bybit")
 
 
+def test_l1_src_per_exchange():   # P40_L1_SRC_<БИРЖА>: HL на srv (/data/p40l1-hl), остальные — общий источник
+    os.environ["P40_L1_SRC_HYPERLIQUID"] = "/data/p40l1-hl"
+    try:
+        assert orch.l1_src("hyperliquid") == "/data/p40l1-hl" and orch.l1_src("okx") == orch.L1_SRC
+    finally:
+        del os.environ["P40_L1_SRC_HYPERLIQUID"]
+    assert orch.l1_src("hyperliquid") == orch.L1_SRC
+
+
 def test_old_label_without_files(tmp):   # метки Bybit/Gate старого вида (raw= l1= tr=) без files=: число файлов — с диска, размер сверяется
     d = make_box(tmp, hours=(0, 1, 5))
     kv = dict(x.split("=", 1) for x in (d / ".ok").read_text().split())

@@ -146,6 +146,11 @@ def fetch(files, raw, p, log):
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(raw) for f in fs)
 
 
+def l1_src(ex):
+    """источник L1 биржи: P40_L1_SRC_<БИРЖА> (TK-522: HL пересчитан на srv, на боксе его L1 нет — P40_L1_SRC_HYPERLIQUID=/data/p40l1-hl) либо общий L1_SRC"""
+    return os.environ.get(f"P40_L1_SRC_{ex.upper()}", L1_SRC)
+
+
 def l1_rel(ex, sym, day):
     return f"p40l1/{L1_EX[ex]}/{sym}/{day}"
 
@@ -160,7 +165,7 @@ def fetch_l1(ex, sym, day, raw, log, trades_raw=False):
     rel = l1_rel(ex, sym, day)
     dst = f"{raw}/{rel}"
     os.makedirs(dst, exist_ok=True)
-    rc = subprocess.call(["rsync", "-q", "-a", "-e", SSH, f"{L1_SRC}/{rel}/", dst + "/"], stdout=subprocess.DEVNULL, stderr=open(log, "ab"))
+    rc = subprocess.call(["rsync", "-q", "-a", "-e", SSH, f"{l1_src(ex)}/{rel}/", dst + "/"], stdout=subprocess.DEVNULL, stderr=open(log, "ab"))
     if rc != 0:
         if rc == 11 and nospace(log, os.path.dirname(raw)):
             raise ShmFull(f"ENOSPC /dev/shm при rsync L1 {rel}")
