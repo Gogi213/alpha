@@ -121,9 +121,29 @@ def test_chft_l1_missing_for_fallback(tmp):
 
 
 def test_l1_leg_flags():
-    a = types.SimpleNamespace(raw_legs=False)
+    a = types.SimpleNamespace(raw_legs=False, raw_ex=set())
     assert all(orch.l1_leg(a, ex) for ex in ("bybit", "gate", "okx", "binance", "bitget", "aster", "hyperliquid"))   # TK-522: все биржи
-    assert not orch.l1_leg(types.SimpleNamespace(raw_legs=True), "bybit")
+    assert not orch.l1_leg(types.SimpleNamespace(raw_legs=True, raw_ex=set()), "bybit")
+
+
+def test_raw_ex_per_exchange():   # --raw-ex: L1 биржи ещё неверен (Bitget до CARRY, E-17) -> нога из сырья, остальные — L1
+    a = types.SimpleNamespace(raw_legs=False, raw_ex={"bitget", "hyperliquid"})
+    assert not orch.l1_leg(a, "bitget") and not orch.l1_leg(a, "hyperliquid")
+    assert orch.l1_leg(a, "okx") and orch.l1_leg(a, "binance") and orch.l1_leg(a, "bybit")
+
+
+def test_old_label_without_files(tmp):   # метки Bybit/Gate старого вида (raw= l1= tr=) без files=: число файлов — с диска, размер сверяется
+    d = make_box(tmp, hours=(0, 1, 5))
+    kv = dict(x.split("=", 1) for x in (d / ".ok").read_text().split())
+    (d / ".ok").write_text("raw=1 l1=%s tr=0 src=box\n" % kv["l1"])
+    fs = orch.fetch_l1("bybit", "XUSDT", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))
+    assert len(fs) == 3
+    (d / ".ok").write_text("raw=1 l1=%d tr=0 src=box\n" % (int(kv["l1"]) + 1))
+    try:
+        orch.fetch_l1("bybit", "XUSDT", "2026-10-05", str(tmp / "raw2"), str(tmp / "log"))
+        raise AssertionError("размер не по метке без files= должен быть сбоем")
+    except RuntimeError:
+        pass
 
 
 if __name__ == "__main__":

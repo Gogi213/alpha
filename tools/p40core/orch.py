@@ -24,7 +24,7 @@ SSH = "ssh -c aes128-gcm@openssh.com -o Compression=no"
 L1_SRC = os.environ.get("P40_L1_SRC", "box:alpha/stakan")   # TK-522: откуда брать p40l1/...; для гейта до выкладки L1 на бокс — локальный /data (L1 раздела srv)
 LOG_LOCK = threading.Lock()
 EXIT_SHM = 28                  # errno ENOSPC: хотя бы одно задание упало или отказано по месту в /dev/shm
-SHM_FRAC = 0.8                 # доля shm под брони
+SHM_FRAC = float(os.environ.get("P40_SHM_FRAC", "0.8"))  # доля shm под брони (D1c: 0.3 — shm это память, OOM 10.11)
 SHM_MARGIN = 1.25              # запас оценки пика на разброс суток (оценка и факт пишутся в orch.log: «shm: …»)
 PILOT_LEG_B = 600 * 1024 ** 2  # бронь на ногу в первые сутки: замер 09.11 (AAVE 17.09) — .bin+сырьё ≤ 0,43 ГБ на ногу×сутки
 SEEN_AUXH = set()
@@ -151,7 +151,7 @@ def l1_rel(ex, sym, day):
 
 
 def l1_leg(args, ex):
-    return ex in L1_EX and not args.raw_legs
+    return ex in L1_EX and not args.raw_legs and ex not in args.raw_ex
 
 
 def fetch_l1(ex, sym, day, raw, log):
@@ -167,13 +167,16 @@ def fetch_l1(ex, sym, day, raw, log):
         raise (L1Missing if rc == 23 else RuntimeError)(f"L1 {rel}: rsync rc {rc} (нет суток на боксе?)")
     try:
         kv = dict(x.split("=", 1) for x in open(f"{dst}/.ok").read().split() if "=" in x)
-        nf, size = int(kv["files"].split("/")[0]), int(kv["l1"])   # CHFT: files=48/48 (l1+tr), 404=<число часов без файла поставщика>; Bybit/Gate: files=<число l1>
+        size = int(kv["l1"])
+        nf = int(kv["files"].split("/")[0]) if "files" in kv else -1   # CHFT: files=48/48 (l1+tr), 404=<число часов без файла поставщика>; Bybit/Gate: files=<число l1>, метки старого вида (raw= l1= tr=) без files= — число файлов берём с диска, размер сверяем
         tsize = int(kv.get("tr", 0))
     except (OSError, KeyError, ValueError) as e:
         raise (L1Missing if isinstance(e, OSError) else RuntimeError)(f"L1 {rel}: нет метки .ok или она не разобрана ({e})") from e
     fs = sorted(f for f in os.listdir(dst) if f.endswith((".l1.bin.zst", ".tr.zst")))
     l1 = [f for f in fs if f.endswith(".l1.bin.zst")]
     tr = [f for f in fs if f.endswith(".tr.zst")]
+    if nf == -1:
+        nf = len(fs)
     if nf <= 0 or not l1 or len(fs) != nf or sum(os.path.getsize(f"{dst}/{f}") for f in l1) != size or sum(os.path.getsize(f"{dst}/{f}") for f in tr) != tsize:
         raise RuntimeError(f"L1 {rel}: по метке файлов {nf}, байт l1 {size}, tr {tsize}; на диске файлов {len(fs)} (l1 {len(l1)}, tr {len(tr)})")
     if ex in CHFT and not tr:   # у CHFT сутки без сделок = L1 собран без них (Binance TK-521: tr=0) -> ядру нужны сделки, берём сырьё
@@ -425,9 +428,11 @@ def main():
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
     ap.add_argument("--end-ms", type=int, default=0, help="конец данных для усечения (P40_END_MS, мс UTC; умолч. — последний момент рядов чанка)")
     ap.add_argument("--l1-fallback", action="store_true", help="TK-522: нет L1 суток у ноги CHFT на боксе (или L1 без сделок) -> эта нога из сырья (pq2bin book/trades), а не сбой задания; Bybit/Gate без сырья — по-прежнему сбой")
+    ap.add_argument("--raw-ex", default="", help="TK-522: биржи (через запятую), ноги которых читать из сырья, а не из L1 бокса (L1 биржи ещё неверен: Bitget до P40_L1_CARRY=1, E-17); остальные — L1")
     ap.add_argument("--raw-legs", action="store_true", help="TK-518/522: ВСЕ ноги читать из сырья бокса (прежний путь; для сверок и смоков, Bybit/Gate сырья на боксе уже нет). Умолчание — L1 бокса p40l1 (строго: нет суток = сбой)")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
+    args.raw_ex = {x for x in args.raw_ex.split(",") if x}
     os.makedirs(args.out, exist_ok=True)
     args.bad = load_validity(args.validity.split(",")) if args.validity else {}
     outlog = f"{args.out}/orch.csv"
