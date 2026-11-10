@@ -1,15 +1,22 @@
 """TK-500: таблицы ядра (<out>, <out>.exits.csv, <out>.features.csv) нескольких пар×суток -> таблица эпизодов схемы TK-502 (p40stats.SCHEMA + armed, trunc).
 Главные параметры: θ=12,6, T_life=60 с, L=500 мс (те, с которыми запущено ядро). Одна строка = взведённый эпизод (ITT: нет исполнения -> net_bps = 0).
-Запуск: assemble.py <выход.npz> <bounds.json> [--fix] [--aux-strict] [--day0 ГГГГ-ММ-ДД] [--cens-s с] <asset>:<day>:<pair>:<bybit_leg 0|1>:<путь к <out>> ...
+Запуск: assemble.py <выход.npz> <bounds.json> [--fix] [--aux-strict] [--day0 ГГГГ-ММ-ДД] [--cens-s с] [--funding ставки.csv --pairs pairs.csv --funding-window ГГГГ-ММ-ДД:ГГГГ-ММ-ДД] <asset>:<day>:<pair>:<bybit_leg 0|1>:<путь к <out>> ...
   --day0 — день 0 для колонки day (TK-522: p40stats берёт day как номер суток 0…n−1, n_d = max+1; у кусков `t0` было ГГГГММДД -> n_d ≈ 2·10⁷); без флага day = ГГГГММДД (как прежде); с флагом — номер суток UTC от day0 по t0 эпизода.
   --cens-s — порог цензуры t_conv_s (умолч. 60 = T_life, как прежде; критик 10.11: H = 600 — решение Судьи TK-523, флагом, не молча).
   Прогон ядра с P40_L1=1 (признаки без глубины, TK-515): в features.csv вместо depth_slip/bookimb колонки l1_notional/bookimb1 -> f_depth/f_bookimb считаются по ним (в npz depth_kind=1; смешивать kind в одной выборке нельзя — отказ).
   --aux-strict — liq5m только если у обеих ног есть ряды (srcA+srcB=2, aux_feats.py), иначе f_liq = -1; oi5m = нет значения (-1), если рядов OI нет хотя бы у одной ноги (srcOIA+srcOIB<2; Aster, Bybit, Gate OI не имеют);
     умолчание — по ногам с источником (oi5m по ногам с рядом OI; у Aster × Bybit/Gate значения нет).
+  --funding (TK-522, П-40 §16.7) — фандинг в net_bps: net = pnl + fund_bps, fund_bps отдельной колонкой (funding.py: метки расчёта в (вход ноги, выход эпизода], лонг платит, шорт получает); обе ноги держатся до exit_ms, вход ноги — fill_*_ms из <out>.fills.csv, неисполненная нога — 0.
+    Ставки по (биржа, символ) из pairs.csv; нет таблицы ноги, дыра между метками > 8 ч + 2 с или таблица не покрывает окно -> отказ до счёта (дыру докачать). Без флага колонки fund_bps нет, net_bps прежний.
   bounds.json — границы терцилей: без --fix считаются по всей выборке и записываются (D1); с --fix читаются (D2, границы D1 не пересчитываются).
 Нужен <out>.aux.csv (aux_feats.py): oi5m, liq5m, Φ_t. mpu_X = 1, если МПУ по исполнимой стороне (<out>.path.csv) хуже −2θ, bps."""
-import calendar, csv, json, sys, time
+import calendar, csv, json, os, sys, time
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import funding as FD
+
+MAX_FUND_STEP_MS = 8 * 3_600_000 + 2000
 
 THETA, H_S, T_LIFE_S = "12.6", 600.0, 60.0
 ORD = {"f_depth": "depth_slip", "f_spread": "spread", "f_vol5m": "vol5m", "f_plevel": "plevel", "f_flow1m": "flow1m", "f_bookimb": "bookimb", "f_d_arm": "d_in", "f_oi5m": "oi5m"}
@@ -31,6 +38,17 @@ def feat(f, name):
     raise KeyError(f"features.csv: нет колонки {name} (и {alt}) — прогон ядра без признаков?")
 
 
+def fund_leg(ftab, ex, sym, w0, w1):
+    """таблица ставок ноги (T, r) с проверкой покрытия окна [w0, w1) мс: нет таблицы / дыра > 8 ч / края дальше 8 ч от окна -> отказ"""
+    if (ex, sym) not in ftab:
+        sys.exit(f"TK-522: нет ставок фандинга для ноги {ex} {sym} — докачать (funding.py fetch / из mark), счёт с дырой не запускается")
+    T, r = ftab[(ex, sym)]
+    g = FD.gaps(T, T[0], T[-1], MAX_FUND_STEP_MS)
+    if g or T[0] > w0 + MAX_FUND_STEP_MS or T[-1] < w1 - MAX_FUND_STEP_MS:
+        sys.exit(f"TK-522: фандинг {ex} {sym}: покрытие {T[0]:.0f}…{T[-1]:.0f} не охватывает окно {w0}…{w1} или дыры {g[:3]}")
+    return T, r
+
+
 def day_index(t0_ms):
     return int(t0_ms) // 86_400_000
 
@@ -48,11 +66,28 @@ def main():
     cens_s = float(a[a.index("--cens-s") + 1]) if "--cens-s" in a else T_LIFE_S
     if "--cens-s" in a:
         del a[a.index("--cens-s"):a.index("--cens-s") + 2]
+    fund_csv = a[a.index("--funding") + 1] if "--funding" in a else ""
+    if "--funding" in a:
+        del a[a.index("--funding"):a.index("--funding") + 2]
+    pairs_csv = a[a.index("--pairs") + 1] if "--pairs" in a else ""
+    if "--pairs" in a:
+        del a[a.index("--pairs"):a.index("--pairs") + 2]
+    fwin = a[a.index("--funding-window") + 1] if "--funding-window" in a else ""
+    if "--funding-window" in a:
+        del a[a.index("--funding-window"):a.index("--funding-window") + 2]
+    if bool(fund_csv) != bool(pairs_csv) or bool(fund_csv) != bool(fwin):
+        sys.exit("TK-522: --funding, --pairs и --funding-window — только вместе")
+    ftab = FD.load_csv(fund_csv) if fund_csv else {}
+    pairs = {int(r["pair"]): r for r in csv.DictReader(open(pairs_csv))} if pairs_csv else {}
+    if fwin:
+        w0, w1 = (calendar.timegm(time.strptime(x, "%Y-%m-%d")) * 1000 for x in fwin.split(":"))
+        w1 += 86_400_000
     a = [x for x in a if x not in ("--fix", "--aux-strict")]
     out, bpath, specs = a[0], a[1], a[2:]
     kinds = set()
     d0 = int(calendar.timegm(time.strptime(day0, "%Y-%m-%d")) // 86400) if day0 else None
-    cols = {k: [] for k in SCHEMA + ["armed", "trunc"]}
+    schema = SCHEMA + (["fund_bps"] if ftab else [])
+    cols = {k: [] for k in schema + ["armed", "trunc"]}
     raw = {k: [] for k in ORD.values()}
     hour, leader = [], []
     for sp in specs:
@@ -61,6 +96,10 @@ def main():
         ex = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".exits.csv")}
         ft = {(r["theta"], r["t_start"]): r for r in rows(base + ".features.csv")}
         pa = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".path.csv")}
+        if ftab:
+            fl = {(r["theta"], r["t0_ms"]): r for r in rows(base + ".fills.csv")}
+            pr = pairs[int(pair)]
+            legs = [fund_leg(ftab, pr["ex" + c], pr["sym" + c], w0, w1) for c in "AB"]
         ax = {(r["theta"], r["t_start"]): r for r in rows(base + ".aux.csv")}
         for e in ep:
             k = (e["theta"], e["t0_ms"])
@@ -72,7 +111,17 @@ def main():
             tr = int(x["trunc"]) if "trunc" in x else int(x["outcome"] == "both" and pnl != pnl)   # 1 — конец данных, 2 — дыра книги (ядро с P40_TRUNC=1)
             cols["asset"].append(int(asset)); cols["day"].append(day_index(e["t0_ms"]) - d0 if d0 is not None else int(day) if day != "t0" else int(time.strftime("%Y%m%d", time.gmtime(int(e["t0_ms"]) / 1000)))); cols["pair"].append(int(pair)); cols["bybit_leg"].append(int(byb))
             cols["conv_H"].append(int(conv)); cols["mpu_X"].append(int(-float(pa[k]["mpu_bps"]) > 2 * float(THETA)))
-            cols["net_bps"].append(0.0 if x["outcome"] == "none" else pnl)
+            fund = 0.0
+            if ftab and x["outcome"] != "none":
+                fr = fl[k]
+                rel = lambda v: float(e["t0_ms"]) + float(v) if float(v) >= 0 else float("nan")
+                tin = [float("nan")] * 2
+                sl = 0 if fr["sell_leg"] == "A" else 1
+                tin[sl], tin[1 - sl] = rel(fr["fill_sell_ms"]), rel(fr["fill_buy_ms"])
+                fund = FD.episode_bps(legs, sl, tin, float(x["exit_ms"]))[0]
+            cols["net_bps"].append(0.0 if x["outcome"] == "none" else pnl + fund)
+            if ftab:
+                cols["fund_bps"].append(fund)
             cols["t_conv_s"].append(cens_s if cens else tc / 1000.0); cols["cens"].append(int(cens))
             cols["armed"].append(1); cols["trunc"].append(tr)
             a = ax[(e["theta"], f["t_start"])]
@@ -104,7 +153,7 @@ def main():
         v = np.array(raw[src]); b = bounds[fk]
         cols[fk] = np.where(np.isfinite(v), np.where(v <= b[0], 0, np.where(v <= b[1], 1, 2)), -1)
     cols["f_hour"] = np.array(hour); cols["f_leader"] = np.array(leader)
-    t = {k: np.asarray(cols[k]) for k in SCHEMA + ["armed", "trunc"]}
+    t = {k: np.asarray(cols[k]) for k in schema + ["armed", "trunc"]}
     t["ctl"] = np.array([ctl] * n)
     t["depth_kind"] = np.array([next(iter(kinds)) if kinds else 0] * n)
     np.savez_compressed(out, **t)

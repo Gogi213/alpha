@@ -77,6 +77,53 @@ class AssembleTests(unittest.TestCase):
             self.assertEqual(set(t["depth_kind"].tolist()), {1})
             self.assertEqual(sorted(set(t["f_depth"].tolist())), [0, 1, 2], "терцили по l1_notional")
 
+    def _funding_case(self, d, ftext, win="2025-09-17:2025-09-17"):
+        base = Path(d) / "core"
+        t0 = T0 + 1 * 3_600_000                     # 01:00 UTC
+        make_core(base, [(t0, 30_000, "both", 4.0), (t0 + 60_000, -1, "none", 0.0)], l1=False)
+        # exit_ms: эпизод 1 держится с входа до 09:00 (метка расчёта 08:00 внутри), эпизод 2 — не исполнен
+        write(str(base) + ".exits.csv", ["theta", "t0_ms", "pnl_bps", "outcome", "exit_ms"], [["12.6", t0, 4.0, "both", T0 + 9 * 3_600_000], ["12.6", t0 + 60_000, 0.0, "none", -1]])
+        # sell_leg B: нога B (шорт) исполнена через 10 с, A (лонг) через 20 с
+        write(str(base) + ".fills.csv", ["theta", "t0_ms", "sell_leg", "fill_sell_ms", "fill_buy_ms"], [["12.6", t0, "B", 10_000, 20_000], ["12.6", t0 + 60_000, "B", -1, -1]])
+        write(Path(d) / "pairs.csv", ["asset", "pair", "exA", "symA", "exB", "symB"], [[7, 1, "bybit", "XUSDT", "gate", "X_USDT"]])
+        write(Path(d) / "f.csv", ["exchange", "symbol", "ts_ms", "rate"], ftext)
+        return run_asm(d, base, ["--funding", str(Path(d) / "f.csv"), "--pairs", str(Path(d) / "pairs.csv"), "--funding-window", win])
+
+    def test_funding_in_net_signs_and_column(self):
+        D = "2025-09-17:2025-09-17"
+        h = lambda x: T0 + x * 3_600_000
+        rows = [["bybit", "XUSDT", h(x), 1e-4] for x in (0, 8, 16)] + [["gate", "X_USDT", h(x) + 1000, 3e-4] for x in (0, 8, 16)]
+        with tempfile.TemporaryDirectory() as d:
+            r, out = self._funding_case(d, rows, D)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            t = load(out)
+            # метка 08:00: A (лонг) платит 1 bps, B (шорт) получает 3 bps -> +2; метки 00:00 до входа и 16:00 после выхода не в счёте
+            self.assertAlmostEqual(t["fund_bps"][0], 2.0, places=9)
+            self.assertAlmostEqual(t["net_bps"][0], 4.0 + 2.0, places=9)
+            self.assertEqual(t["fund_bps"][1], 0.0, "не исполнен — фандинга нет")
+            self.assertEqual(t["net_bps"][1], 0.0)
+
+    def test_funding_hole_or_missing_leg_refuses(self):
+        h = lambda x: T0 + x * 3_600_000
+        with tempfile.TemporaryDirectory() as d:
+            r, _ = self._funding_case(d, [["bybit", "XUSDT", h(0), 1e-4], ["bybit", "XUSDT", h(8), 1e-4], ["bybit", "XUSDT", h(16), 1e-4]])
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("нет ставок", r.stderr + r.stdout)
+        with tempfile.TemporaryDirectory() as d:
+            rows = [["bybit", "XUSDT", h(x), 1e-4] for x in (0, 8, 24)] + [["gate", "X_USDT", h(x), 1e-4] for x in (0, 8, 16)]
+            r, _ = self._funding_case(d, rows, "2025-09-17:2025-09-18")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("дыры", r.stderr + r.stdout)
+
+    def test_without_funding_no_column_net_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d) / "core"
+            make_core(base, [(T0 + 5_000, 30_000, "both", 4.0)], l1=False)
+            r, out = run_asm(d, base, [])
+            t = load(out)
+            self.assertNotIn("fund_bps", t)
+            self.assertEqual(t["net_bps"].tolist(), [4.0])
+
 
 if __name__ == "__main__":
     unittest.main()
