@@ -7,7 +7,11 @@ mod fills;
 mod queue;
 use book::{load_trades, Book, Rows};
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+
+/// `P40_NAIVE` (TK-522, В-125…В-127): ряды ног несут размеры лучших цен, рядом с таблицами пишется `<out>.naive.csv`; не задан — выходы прежние байт в байт.
+static NAIVE: AtomicBool = AtomicBool::new(false);
 
 const THETAS: [f64; 5] = [5.04, 12.6, 25.2, 50.0, 100.0];
 const L_S: usize = 21600;
@@ -142,6 +146,9 @@ struct Leg {
     t: Vec<i64>,
     b: Vec<f64>,
     a: Vec<f64>,
+    /// количество на лучшем bid / ask (единицы файла L1, без множителя контракта); заполняются только при `P40_NAIVE`
+    bq: Vec<f64>,
+    aq: Vec<f64>,
     crossed: u64,
     nonmono: u64,
 }
@@ -208,7 +215,8 @@ fn l1_validity(dir: &str) -> Vec<(usize, usize, usize, i64, i64)> {
 
 fn leg_series(dir: &str) -> Leg {
     let mut book = Book::default();
-    let mut leg = Leg { t: vec![], b: vec![], a: vec![], crossed: 0, nonmono: 0 };
+    let mut leg = Leg { t: vec![], b: vec![], a: vec![], bq: vec![], aq: vec![], crossed: 0, nonmono: 0 };
+    let naive = NAIVE.load(Ordering::Relaxed);
     let mut last_t = -1i64;
     for h in 0..crate::book::hours() {
         let Some(rows) = Rows::load(dir, h) else { continue };
@@ -231,13 +239,22 @@ fn leg_series(dir: &str) -> Leg {
                     te = last_t;
                 }
                 last_t = te;
+                let (bq, aq) = if naive { (book.qty(true, bb), book.qty(false, aa)) } else { (0.0, 0.0) };
                 if leg.t.last() == Some(&te) {
                     *leg.b.last_mut().unwrap() = bb;
                     *leg.a.last_mut().unwrap() = aa;
+                    if naive {
+                        *leg.bq.last_mut().unwrap() = bq;
+                        *leg.aq.last_mut().unwrap() = aq;
+                    }
                 } else {
                     leg.t.push(te);
                     leg.b.push(bb);
                     leg.a.push(aa);
+                    if naive {
+                        leg.bq.push(bq);
+                        leg.aq.push(aq);
+                    }
                 }
             }
         }
@@ -771,6 +788,37 @@ fn write_tables(out: &str, eps: &[Ep]) {
     std::fs::File::create(format!("{out}.path.csv")).unwrap().write_all(path.as_bytes()).unwrap();
 }
 
+/// `<out>.naive.csv` (TK-522, В-125…В-127; только при `P40_NAIVE`): по эпизоду — цены и размеры (единицы L1, без множителя контракта) тех сторон ног, на которых считается `pnl_end`
+/// (короткая нога S — аск, длинная L — бид, как в `Ep::step`), на входе t0, на выходе t_end и в t_peak; pnl на t0+600 с для не сошедшихся к H (закрывающая сторона на последнем состоянии ≤ t0+600 с)
+/// и на конец данных `t_last` для не сошедшихся вовсе. Нет значения — NaN. Ключ строки к `<out>` и `<out>.path.csv` — (theta, t0_ms).
+fn write_naive(out: &str, eps: &[Ep], la: &Leg, lb: &Leg, t_last: i64) {
+    const H_MS: i64 = 600_000;
+    let mut o = String::from(
+        "theta,t0_ms,dir,s_px0,s_q0,l_px0,l_q0,s_px1,s_q1,l_px1,l_q1,s_pxpk,s_qpk,l_pxpk,l_qpk,pnl_h600_bps,pnl_last_bps,t_last_ms\n",
+    );
+    for e in eps {
+        // (цена S, размер S, цена L, размер L) на последнем состоянии каждой ноги ≤ t
+        let st = |t: i64| -> [f64; 4] {
+            let (ka, kb) = (la.t.partition_point(|&u| u <= t), lb.t.partition_point(|&u| u <= t));
+            if ka == 0 || kb == 0 || la.aq.len() != la.t.len() || lb.aq.len() != lb.t.len() {
+                return [f64::NAN; 4];
+            }
+            let (ia, ib) = (ka - 1, kb - 1);
+            if e.dir > 0 { [la.a[ia], la.aq[ia], lb.b[ib], lb.bq[ib]] } else { [lb.a[ib], lb.aq[ib], la.b[ia], la.bq[ia]] }
+        };
+        let pnl = |s: [f64; 4]| 1e4 * ((e.ea - s[0]) / e.ea + (s[2] - e.eb) / e.eb);
+        let (s0, s1, sp) = (st(e.t0), if e.t_end >= 0 { st(e.t_end) } else { [f64::NAN; 4] }, st(e.t_peak));
+        let late = e.t_end < 0 || e.t_end > e.t0 + H_MS;
+        let p600 = if late && e.t0 + H_MS <= t_last { pnl(st(e.t0 + H_MS)) } else { f64::NAN };
+        let plast = if e.t_end < 0 { pnl(st(t_last)) } else { f64::NAN };
+        o += &format!(
+            "{:?},{},{},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:.4},{:.4},{}\n",
+            e.theta, e.t0, e.dir, e.ea, s0[1], e.eb, s0[3], s1[0], s1[1], s1[2], s1[3], sp[0], sp[1], sp[2], sp[3], p600, plast, t_last
+        );
+    }
+    std::fs::File::create(format!("{out}.naive.csv")).unwrap().write_all(o.as_bytes()).unwrap();
+}
+
 /// Проходы 2–4 (заявки входа, выход/страховка/усечение, признаки) над таблицей эпизодов `eps`.
 fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
     // варианты (L, T_life) — за один проход по сырью: заявки/выходы считаются на каждый, эпизоды и признаки от них не зависят; один вариант — имена без суффикса
@@ -831,6 +879,7 @@ fn main() {
         }
         eprintln!("K1: сдвиг ноги B {sh} мс");
     }
+    NAIVE.store(env("P40_NAIVE").is_some(), Ordering::Relaxed);
     let la = leg_series(&a[2]);
     eprintln!("A {} состояний crossed {} nonmono {} {:.1}s", la.t.len(), la.crossed, la.nonmono, t.elapsed().as_secs_f64());
     let lb = leg_series(&a[3]);
@@ -854,6 +903,9 @@ fn main() {
         all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
     }
     write_tables(&a[1], &all);
+    if NAIVE.load(Ordering::Relaxed) {
+        write_naive(&a[1], &all, &la, &lb, tu[tu.len() - 1]);
+    }
     let base_l: i64 = a.get(8).map_or(500, |v| v.parse().unwrap());
     let variants = parse_variants(env("P40_VARIANTS").as_deref(), base_l);
     let mut ctx = (a.len() >= 8).then(|| {
@@ -903,6 +955,9 @@ fn main() {
         }
         let k2out = format!("{}.k2", a[1]);
         write_tables(&k2out, &k2);
+        if NAIVE.load(Ordering::Relaxed) {
+            write_naive(&k2out, &k2, &la, &lb, tu[tu.len() - 1]);
+        }
         if let Some(c) = ctx.as_mut() {
             post_passes(&k2out, c, &k2, &variants);
         }
@@ -915,7 +970,7 @@ mod tests {
     use super::*;
 
     fn leg(t: &[i64], b: &[f64], a: &[f64]) -> Leg {
-        Leg { t: t.to_vec(), b: b.to_vec(), a: a.to_vec(), crossed: 0, nonmono: 0 }
+        Leg { t: t.to_vec(), b: b.to_vec(), a: a.to_vec(), bq: vec![], aq: vec![], crossed: 0, nonmono: 0 }
     }
 
     #[test]
@@ -1139,5 +1194,32 @@ mod tests {
         let valid = Valid { on: true, end: i64::MAX, holes: vec![(0, 1_900_000)] };
         let out = k2_episodes(&tu, &ds, 12.6, &la, &lb, &[10_000_000], &valid, 600_000, 1);
         assert!(out.iter().all(|e| e.t0 >= 1_900_000));
+    }
+
+    /// `<out>.naive.csv` (В-125…В-127): стороны S=ask A / L=bid B на входе, выходе, пике и pnl на t0+600 с — по рядам с размерами.
+    #[test]
+    fn naive_csv_prices_sizes_and_h600() {
+        let mut la = leg(&[0, 1_000, 700_000], &[10.9, 10.9, 10.0], &[11.0, 11.0, 10.1]);
+        la.bq = vec![1.0, 1.0, 1.0];
+        la.aq = vec![5.0, 6.0, 7.0];
+        let mut lb = leg(&[0, 700_000], &[10.0, 10.05], &[10.1, 10.2]);
+        lb.bq = vec![3.0, 8.0];
+        lb.aq = vec![4.0, 9.0];
+        let mut conv = Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false);
+        conv.t_end = 700_000;
+        let open = Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false);
+        let p = std::env::temp_dir().join("p40_naive_test");
+        let out = p.to_str().unwrap();
+        write_naive(out, &[conv, open], &la, &lb, 800_000);
+        let s = std::fs::read_to_string(format!("{out}.naive.csv")).unwrap();
+        let rows: Vec<Vec<&str>> = s.lines().skip(1).map(|l| l.split(',').collect()).collect();
+        // сошедшийся: вход S=aa(1000)=11 (размер 6), L=bb(1000)=10 (размер 3); выход S=10.1 (7), L=10.05 (8); pnl на 601 с — состояние 1000 мс -> 0
+        assert_eq!(&rows[0][3..11], ["11.0", "6.0", "10.0", "3.0", "10.1", "7.0", "10.05", "8.0"]);
+        assert_eq!(rows[0][15], "0.0000");
+        assert_eq!(rows[0][16], "NaN");
+        // не сошедшийся: pnl на конец данных 800 с по состояниям 700 с: 1e4·((11−10.1)/11 + (10.05−10)/10)
+        let want = 1e4 * ((11.0 - 10.1) / 11.0 + (10.05 - 10.0) / 10.0);
+        assert!((rows[1][16].parse::<f64>().unwrap() - want).abs() < 1e-3);
+        assert_eq!(rows[1][7], "NaN");
     }
 }

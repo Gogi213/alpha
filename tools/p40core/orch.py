@@ -524,7 +524,7 @@ def job(args, asset, days, pairs, outlog):
         gapbad = {}   # (VEX-биржа, контракт, сутки) -> часы без L1 (дыры поставщика); к G0-негодным часам args.bad
         l1res = {}   # (день, ex, sym) -> файлы L1 или L1Missing; TK-522 v2: все ноги×сутки одним пулом (--l1-p), а не по одной ноге подряд (rsync-латентность: 52 из 65 с куска)
         with cf.ThreadPoolExecutor(args.l1_p) as tp:
-            fl = {tp.submit(fetch_l1, ex, sym, day, f"{wd}/raw/{day}", log, args.l1_trades_raw): (day, ex, sym) for day in days for (ex, sym) in legs if l1_leg(args, ex)}
+            fl = {tp.submit(fetch_l1, ex, sym, day, f"{wd}/raw/{day}", log, args.l1_trades_raw or args.naive_only): (day, ex, sym) for day in days for (ex, sym) in legs if l1_leg(args, ex)}
             for f in cf.as_completed(fl):
                 try:
                     l1res[fl[f]] = f.result()
@@ -545,8 +545,8 @@ def job(args, asset, days, pairs, outlog):
                             f.write(f"L1 нет -> сырьё: {r}" + chr(10))
                     else:
                         l1fs[(ex, sym)] = r
-            trraw = {k for k, fs in l1fs.items() if k[0] in CHFT and fs and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
-            nbytes += fetch([f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs, trades=(ex, sym) in trraw)], raw, args.fetch_p, log)
+            trraw = set() if args.naive_only else {k for k, fs in l1fs.items() if k[0] in CHFT and fs and not any(f.endswith(".tr.zst") for f in fs)}   # книга из L1, сделок в L1 нет (Binance TK-521)
+            nbytes += fetch([] if args.naive_only else [f for (ex, sym) in legs for f in box_files(ex, sym, day, aux_only=(ex, sym) in l1fs, trades=(ex, sym) in trraw)], raw, args.fetch_p, log)   # --naive-only: ни сделок, ни mark/OI/ликвидаций — только книга L1
             t_fetch += time.time() - t
             for (ex, sym), mult in legs.items():
                 bins = f"{wd}/bin/{leg_key(ex, sym)}/{day}"
@@ -588,7 +588,7 @@ def job(args, asset, days, pairs, outlog):
             for sub in "BT":
                 merge([f"{wd}/bin/{k}/{day}" for day in days], mrg[(ex, sym)], sub)
         t_merge = time.time() - tm
-        env = dict(os.environ, P40_HOURS=str(24 * len(days)))
+        env = dict(os.environ, P40_HOURS=str(24 * len(days)), **({"P40_NAIVE": "1"} if args.naive_only else {}))
         if args.validity_l1:   # TK-522 (Судья 10.11 §2): validity по L1 всех ног плана ДО эпизодов пар; негодные часы (no_data, crossed>1%) -> к дырам; покрытие (нога, час) = 100 % по построению (строка на каждый час плана)
             for (ex, sym) in legs:
                 if not l1_leg(args, ex):
@@ -611,9 +611,12 @@ def job(args, asset, days, pairs, outlog):
                 if lot in ("", "auto"):
                     lot = repr(float(args.n_usdt / (mid_open(f"{bd}/B") * float(p.get("ct" + s_) or 1))))
                 lots.append(lot)
-            with LOG_LOCK, open(f"{args.out}/lots.csv", "a") as f:
-                f.write(f"{asset},{cid},{p['pair']},{lots[0]},{lots[1]}" + chr(10))
-            cmd = [CORE, base, f"{a}/B", f"{b}/B", f"{a}/T", f"{b}/T", lots[0], lots[1], str(args.l_ms), p["stepA"] or "1e-9", p["stepB"] or "1e-9"]
+            if args.naive_only:   # TK-522 (В-125…В-127): только эпизоды + <база>.naive.csv — без заявок/сделок/признаков (ядро с 3 аргументами = без проходов 2–4)
+                cmd = [CORE, base, f"{a}/B", f"{b}/B"]
+            else:
+                with LOG_LOCK, open(f"{args.out}/lots.csv", "a") as f:
+                    f.write(f"{asset},{cid},{p['pair']},{lots[0]},{lots[1]}" + chr(10))
+                cmd = [CORE, base, f"{a}/B", f"{b}/B", f"{a}/T", f"{b}/T", lots[0], lots[1], str(args.l_ms), p["stepA"] or "1e-9", p["stepB"] or "1e-9"]
             penv = env
             pleg = [(p["exA"], p["symA"]), (p["exB"], p["symB"])]
             if args.validity or args.validity_l1 or any((VEX.get(ex, ex), sym, day) in gapbad for ex, sym in pleg for day in days):
@@ -634,6 +637,8 @@ def job(args, asset, days, pairs, outlog):
                     raise RuntimeError(f"ядро (вариант {vname}) rc {rc} пара {p['pair']}")
                 t_core, c_core = t_core + w, c_core + c
                 vruns.append(vname)
+            if args.naive_only:
+                continue
             if True:   # TK-522: aux.csv нужен assemble у КАЖДОЙ пары, в т.ч. Bybit×Gate (оба корня «-» -> пустые признаки, srcA=srcB=0); раньше aux не писали -> assemble падал на FileNotFoundError
                 ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
                 rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
@@ -676,6 +681,7 @@ def main():
     ap.add_argument("--l-ms", type=int, default=500)
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
+    ap.add_argument("--naive-only", action="store_true", help="TK-522 (В-125…В-127): ядро без проходов 2–4 (4 аргумента) и с P40_NAIVE=1 — выход <база>[.k2.k2|.k1p60].naive.csv (цены/размеры сторон ног на входе, выходе, пике; pnl на t0+600 с и на конец данных); без lots/aux/age/specs; сборка — naive_collect.py")
     ap.add_argument("--age", action="store_true", help="TK-522 (Судья 10.11 §2 п. 2): возраст лучших цен обеих ног на t0 эпизодов -> <база>[.<вариант>].age.csv (p40core age); assemble --stale-smax помечает эпизоды stale")
     ap.add_argument("--validity-l1", action="store_true", help="TK-522 (Судья 10.11 §2): validity по L1 каждой ноги задания (p40core validity) -> <out>/validity_l1.csv; негодные часы -> P40_HOLES; заменяет G0-таблицу и --validity-strict (покрытие 100 % по построению)")
     ap.add_argument("--validity-strict", action="store_true", help="П-40 §16.5: покрытие validity 100 % (нога, час) плана — иначе отказ до счёта (код 3, список в <out>/validity_gaps.csv); требует --validity")
