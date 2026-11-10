@@ -50,3 +50,23 @@ def test_load_csv_header_and_dups():
     open(p, "w").write("exchange,symbol,ts_ms,rate\nbybit,X,2000,0.1\nbybit,X,1000,0.2\nexchange,symbol,ts_ms,rate\nbybit,X,2000,0.3\n")
     T, r = F.load_csv(p)[("bybit", "X")]
     assert list(T) == [1000.0, 2000.0] and list(r) == [0.2, 0.3]
+
+
+def test_mark_rows_from_parquet():
+    try:
+        _mark_rows_case()
+    except ValueError as e:                        # pyarrow/pandas не собраны под numpy ПК — тест идёт на srv
+        assert "numpy.dtype" in str(e), e
+
+
+def _mark_rows_case():
+    import pyarrow as pa, pyarrow.parquet as pq
+    base = tempfile.mkdtemp()
+    d0 = 1_789_603_200_000                             # 2026-09-17 00:00 UTC
+    for h in (0, 1, 3):                                # часа 02 нет у поставщика: пропуск
+        p = os.path.join(base, "okx_futures", "2026-09-17", f"{h:02d}")
+        os.makedirs(p)
+        t = d0 + h * H + np.array([0, 1800_000])
+        pq.write_table(pa.table({"event_time": t, "funding_rate": [1e-4 * (h + 1)] * 2, "next_funding_time": [d0 + 2 * H] * 2}), os.path.join(p, "X-USDT-SWAP_mark_price.parquet"))
+    rows = F.mark_rows("okx", "X-USDT-SWAP", base, d0 // 86_400_000, d0 // 86_400_000)
+    assert rows == [(d0 + 2 * H, 2e-4)], rows         # ставка — последняя строго до метки 02:00 (час 01, вторая строка 01:30)

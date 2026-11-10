@@ -4,7 +4,8 @@
   mark   — из рядов mark_price CHFT (бокс): метка = next_funding_time, ставка = последний funding_rate строго до метки (метка, за которой ряд не продолжается, не берётся);
   bybit  — публичный GET /v5/market/funding/history (fundingRateTimestamp, fundingRate), страницы назад по endTime;
   gate   — публичный GET /api/v4/futures/usdt/funding_rate (t с, r); метка Gate = расчёт + 1 с (как отдаёт API), не округляется.
-Запуск: funding.py fetch bybit|gate <символ> <с ГГГГ-ММ-ДД> <по ГГГГ-ММ-ДД> >> funding.csv   (по утверждённым символам вселенной, 17.09–22.10)."""
+Запуск: funding.py fetch bybit|gate <символ> <с ГГГГ-ММ-ДД> <по ГГГГ-ММ-ДД> >> funding.csv   (по утверждённым символам вселенной, 17.09–22.10)
+        funding.py mark <биржа> <символ> <каталог с <биржа>_futures/> <с ГГГГ-ММ-ДД> <по ГГГГ-ММ-ДД> >> funding.csv   (CHFT: <каталог>/<биржа>_futures/<сутки>/<ЧЧ>/<символ>_mark_price.parquet; часы без файла пропускаются — дыру покажет покрытие assemble)."""
 import calendar, csv, json, sys, time, urllib.request
 import numpy as np
 
@@ -92,8 +93,31 @@ def fetch_gate(contract, s_ms, e_ms):
     return sorted((int(x["t"]) * 1000, float(x["r"])) for x in d)
 
 
+def mark_rows(ex, sym, base, d0, d1):
+    import pyarrow.parquet as pq
+    ts, rs, ns = [], [], []
+    for day in range(d0, d1 + 1):
+        dd = time.strftime("%Y-%m-%d", time.gmtime(day * 86400))
+        for h in range(24):
+            try:
+                m = pq.read_table(f"{base}/{ex}_futures/{dd}/{h:02d}/{sym}_mark_price.parquet", columns=["event_time", "funding_rate", "next_funding_time"])
+            except FileNotFoundError:
+                continue
+            ts.append(m["event_time"].to_numpy()); rs.append(m["funding_rate"].cast("float64").to_numpy(zero_copy_only=False)); ns.append(m["next_funding_time"].cast("float64").to_numpy(zero_copy_only=False))
+    if not ts:
+        return []
+    T, r = from_mark(np.concatenate(ts), np.concatenate(rs), np.concatenate(ns))
+    return [(int(t), float(x)) for t, x in zip(T, r)]
+
+
 def main():
     a = sys.argv[1:]
+    if a and a[0] == "mark" and len(a) == 6:
+        d0, d1 = (calendar.timegm(time.strptime(x, "%Y-%m-%d")) // 86400 for x in a[4:6])
+        w = csv.writer(sys.stdout)
+        for t, r in mark_rows(a[1], a[2], a[3], d0, d1):
+            w.writerow([a[1], a[2], t, r])
+        return
     if len(a) != 5 or a[0] != "fetch" or a[1] not in ("bybit", "gate"):
         sys.exit(__doc__)
     s, e = (calendar.timegm(time.strptime(x, "%Y-%m-%d")) * 1000 for x in a[3:5])
