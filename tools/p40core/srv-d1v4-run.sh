@@ -6,7 +6,7 @@
 set -e
 OUT=${1:?out}; ASSETS=${2:-}
 JOBS=${JOBS:-8}; L1P=${L1P:-6}; BOXCONN=${BOXCONN:-16}; NDAYS=${NDAYS:-14}; UNIT=${UNIT:-p40-d1v4}
-W=/root/p40core-tk522v2; P=/root/p40core/pairs_d1_v3_nobitget.csv
+W=/root/p40core-tk522g; P=/root/p40core/pairs_d1_v3_nobitget.csv
 FUND=/root/p40core-tk522f/fund_d1_v3.csv
 DAYS=$(for i in $(seq 0 $((NDAYS - 1))); do date -u -d "2026-09-17 +$i day" +%F; done | paste -sd,)
 case "$OUT" in /*) ;; *) OUT=/root/p40core/$OUT;; esac
@@ -16,7 +16,7 @@ cat > "$OUT.run.sh" <<EOF
 #!/bin/bash
 set -e
 cd $W
-python3 orch_d1v4.py $ARGS
+python3 orch.py $ARGS
 for v in "" _k2 _k1p60 _drain; do
   case \$v in "") ctl=real;; _k2) ctl=K2;; _k1p60) ctl=K1+60000;; _drain) ctl=drain;; esac
   python3 assemble.py $OUT/d1\$v.npz $OUT/d1\$v.json --ctl \$ctl --day0 2026-09-17 --cens-s 600 \\
@@ -26,6 +26,6 @@ touch $OUT/D1V4_DONE
 EOF
 systemd-run --unit="$UNIT" --working-directory=$W \
   --setenv=P40_L1=1 --setenv=P40_NOTRADE=through --setenv=P40_SHM_FRAC=0.9 \
-  --setenv=P40_CORE=/root/p40core/bin/p40core-nopgo-d4b5cc5c \
+  --setenv=P40_CORE=/root/p40core/bin/p40core-nopgo-g87097f2c \
   bash "$OUT.run.sh"
 echo "запущен $UNIT; готово = $OUT/D1V4_DONE; orch.csv — замеры"
