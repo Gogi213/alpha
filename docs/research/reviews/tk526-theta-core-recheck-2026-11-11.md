@@ -18,3 +18,18 @@
 - `smax`/`u` — из G0 (П-41 §3), умолчание ∞ верно; K2 с правилом — отказ допустим (П-41 §7 п. 8).
 
 Решения: В-32 (PGO), В-53 (условие счёта назначено Судьёй), В-103 (сборка на srv). Хвостов нет. Чисел владельцу нет.
+
+## Тесты (перезапуск Судьёй на srv, 20:26 UTC)
+
+`cargo test --release` в `/root/p40core-tk526/rs` — `39 passed; 0 failed; 1 ignored`; `test_assemble.py` — OK; `test_orch_l1.py` — ok (вкл. `test_write_age_files_and_k1_shift`). Ярлык договора `[тест: bash tools/p40core/srv-test.sh]` — скрипт для srv; локальный прогон диспетчером упал на WSL (не код) — E-022.
+
+## Числа (справочно, владельцу не идут)
+
+| число | файл:строка |
+|---|---|
+| ядро BTC 17.09 не-PGO 11,5 с | srv `/root/p40pgo526/summary.txt:5` |
+| ядро BTC 17.09 PGO 10,6 с | srv `/root/p40pgo526/summary.txt:6` |
+| ядро BTC 17.09 PGO + 6 клеток 79,5 с | srv `/root/p40pgo526/summary.txt:7` |
+| гейт 117/117 csv (без правила и с a3) | srv `/root/p40pgo526/summary.txt:3–4` |
+| 6 клеток, 98–196 θ_t на клетку, 0 эпизодов до границы | srv `/root/p40pgo526/summary.txt:2` |
+| 39 тестов ядра | srv `cargo test --release` 20:26 UTC (выше) |
