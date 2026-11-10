@@ -6,7 +6,7 @@ import csv,json,os,collections,datetime
 OUT="/data/p40l1"; D0=datetime.date(2026,9,17); DAYS=[(D0+datetime.timedelta(i)).isoformat() for i in range(36)]
 rows=[r for r in csv.DictReader(open("/root/p40t/out/contract_median.csv",encoding="utf-8")) if r["in_set"]=="1" and r["downloaded"]=="1"]
 fails=set()
-for f in ("fail_raw.tsv","fail_raw525.tsv"):
+for f in sorted(x for x in os.listdir(OUT) if x.startswith("fail_raw") and x.endswith(".tsv")):
     if os.path.exists(OUT+"/"+f): fails|={tuple(l.rstrip("\n").split("\t")) for l in open(OUT+"/"+f) if l.strip()}
 res={}; flist=[]
 for ex in ("okx_futures","bitget_futures","hyperliquid_futures","binance_futures"):
@@ -30,7 +30,8 @@ for ex in ("okx_futures","bitget_futures","hyperliquid_futures","binance_futures
                 if n: c["l1_24"]+=(n==24); c["tr_eq_l1"]+=(t==n); c["tr_any"]+=(t>0); c["aux"]+=("aux" in fs)
                 if n and not t and ex!="binance_futures": nt.append("%s %s"%(r["sym"],d))
             elif k in fails: c["fail"]+=1; flist.append("\t".join(k)+"\t"+(loc or "нет каталога"))
-            else: c["nodir" if not fs else "partial_no_ok"]+=1
+            else:
+                cl="nodir" if not fs else "partial_no_ok"; c[cl]+=1; flist.append("\t".join(k)+"\t"+cl+"\t"+",".join(sorted(fs)[:3]))
     assert c["exp"]==c["ok_l1"]+c["ok_empty"]+c["fail"]+c["nodir"]+c["partial_no_ok"]
     res[ex]=dict(c); open("%s/audit525_ok_no_tr_%s.txt"%(OUT,ex),"w").write("\n".join(nt))
 open(OUT+"/audit525_fail.txt","w").write("\n".join(flist)+"\n"); json.dump(res,open(OUT+"/audit_rc525.json","w"),indent=1); print(json.dumps(res,indent=1))

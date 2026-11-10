@@ -1,9 +1,10 @@
 #!/usr/bin/python3
+# TAG (умолч. 525) — суффикс progress_raw<TAG>.json / RAWDONE<TAG> / fail_raw<TAG>.tsv / err_raw<TAG>.log, чтобы параллельные юниты не делили файлы.
 # TK-525 (правка p40-raw-conv.py TK-521): pq2bin tk525; HL — P40_L1_SNAPSEQ=1, Bitget — P40_L1_CARRY=1, везде P40_L1_STRICT=1 (0 часов при непустом входе = fail); REDO=1 (нужен EXF) — пересобрать сутки мимо .ok и uploaded_keys; прогресс progress_raw525.json, метка RAWDONE525, сбои fail_raw525.tsv.
 # TK-521: L1+сделки из УЖЕ скачанного сырья CHFT (downloaded=1): okx/bitget/aster/hyperliquid — с бокса alpha/stakan/chft, binance — /data/stakan/chft/binance_futures (только стакан).
 # Выход /data/p40l1/<ex>/<sym>/<день>/{ЧЧ.l1.bin.zst, ЧЧ.tr.zst, aux/*.parquet, .ok}. Сырьё НЕ удаляется. Идемпотентно по .ok. Прогресс /data/p40l1/progress_raw525.json, конец RAWDONE.
 import csv,os,subprocess,threading,time,json,shutil,datetime,sys
-OUT="/data/p40l1"; ST=os.environ.get("ST","/data/p40rc-stage"); PQ=os.environ.get("PQ","/root/pq2bin-tk525/target/release/pq2bin"); REDO=os.environ.get("REDO")=="1"; JOBS=int(os.environ.get("JOBS","4")); MINFREE=float(os.environ.get("MIN_FREE_GB","10")); LIMIT=int(os.environ.get("LIMIT","0"))
+OUT="/data/p40l1"; ST=os.environ.get("ST","/data/p40rc-stage"); PQ=os.environ.get("PQ","/root/pq2bin-tk525/target/release/pq2bin"); REDO=os.environ.get("REDO")=="1"; JOBS=int(os.environ.get("JOBS","4")); MINFREE=float(os.environ.get("MIN_FREE_GB","10")); LIMIT=int(os.environ.get("LIMIT","0")); TAG=os.environ.get("TAG","525")
 BX="alpha/stakan/chft"; SB="/data/stakan/chft/binance_futures"
 RS=["rsync","-a","-e","ssh -c aes128-gcm@openssh.com -o Compression=no"]
 D0=datetime.date(2026,9,17); DAYS=[(D0+datetime.timedelta(i)).isoformat() for i in range(36)]
@@ -11,6 +12,8 @@ rows=[r for r in csv.DictReader(open("/root/p40t/out/contract_median.csv",encodi
 jobs=[(r["ex"],r["sym"],d) for r in rows for d in DAYS]
 EXF=os.environ.get("EXF")
 if EXF: jobs=[j for j in jobs if j[0]==EXF]
+ONLY=os.environ.get("ONLY")  # "SYM/ДЕНЬ,SYM/ДЕНЬ" — только эти сутки (проба)
+if ONLY: jobs=[j for j in jobs if j[1]+"/"+j[2] in ONLY.split(",")]
 if LIMIT: jobs=jobs[:LIMIT]
 UPK=set(l.strip() for l in open(OUT+"/uploaded_keys.txt")) if os.path.exists(OUT+"/uploaded_keys.txt") else set()
 if REDO and not EXF: sys.exit("REDO требует EXF")
@@ -20,7 +23,7 @@ total=len(jobs); lock=threading.Lock(); st=dict(done=0,skip=0,fail=0,empty=0,raw
 def free(): s=os.statvfs("/data"); return s.f_bavail*s.f_frsize/1e9
 def prog():
     d=dict(st,total=total,pct=round(100*(st["done"]+st["skip"]+st["empty"])/max(total,1),2),free_gb=round(free(),1),t=time.strftime("%H:%M:%S"))
-    json.dump(d,open(OUT+"/progress_raw525.json.tmp","w")); os.replace(OUT+"/progress_raw525.json.tmp",OUT+"/progress_raw525.json")
+    json.dump(d,open(OUT+"/progress_raw%s.json.tmp"%TAG,"w")); os.replace(OUT+"/progress_raw%s.json.tmp"%TAG,OUT+"/progress_raw%s.json"%TAG)
 def job(ex,sym,day):
     od="%s/%s/%s/%s"%(OUT,ex,sym,day)
     if REDO: shutil.rmtree(od,ignore_errors=True)
@@ -65,11 +68,11 @@ def worker():
         with il: j=next(it,None)
         if j is None: return
         try: r,raw,l1=job(*j)
-        except Exception as e: r,raw,l1="fail",0,0; open(OUT+"/err_raw525.log","a").write("%s %s\n"%(j,e))
+        except Exception as e: r,raw,l1="fail",0,0; open(OUT+"/err_raw%s.log"%TAG,"a").write("%s %s\n"%(j,e))
         with lock:
             st[r]+=1; st["raw"]+=raw; st["l1"]+=l1
-            if r=="fail": open(OUT+"/fail_raw525.tsv","a").write("%s\t%s\t%s\n"%j)
+            if r=="fail": open(OUT+"/fail_raw%s.tsv"%TAG,"a").write("%s\t%s\t%s\n"%j)
             if sum(st[k] for k in("done","skip","fail","empty"))%10==0 or r=="fail": prog()
 os.makedirs(ST,exist_ok=True); prog()
 ts=[threading.Thread(target=worker) for _ in range(JOBS)]; [t.start() for t in ts]; [t.join() for t in ts]
-prog(); open(OUT+"/RAWDONE525","w").write(time.strftime("%F %T")+"\n")
+prog(); open(OUT+"/RAWDONE%s"%TAG,"w").write(time.strftime("%F %T")+"\n")
