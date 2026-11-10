@@ -25,9 +25,9 @@ struct Ctx<'a> {
     lot: [f64; 2],
     /// шаг количества инструмента для `is_filled` (в hftbacktest — `depth.lot_size()`, не размер заявки); умолчание ≈0 = «полное исполнение при front < 0» эталона TK-501
     step: [f64; 2],
-    /// у ноги нет файлов сделок (Bybit ob200, Gate): П-40 §2 — очередь по убыли объёма (`drain`) либо вне мейкер-анализа (`maker_off`, умолчание), `P40_NOTRADE=drain|skip`
+    /// у ноги нет файлов сделок (Bybit ob200, Gate): П-40 §2 / §16.2 — очередь по убыли объёма (`drain`, верхняя граница), по проходу цены сквозь уровень (`through`, нижняя) либо вне мейкер-анализа (`maker_off`, умолчание), `P40_NOTRADE=drain|through|skip`
     no_tr: [bool; 2],
-    drain: bool,
+    nt: NoTrade,
     l_ms: i64,
     /// жизнь заявки входа/страховки (мс); умолчание `T_LIFE_MS`, список вариантов — `P40_VARIANTS`
     t_life: i64,
@@ -47,11 +47,15 @@ struct Valid {
 impl Ctx<'_> {
     /// Мейкер-анализ выключен: у одной из ног нет сделок и выбран режим `skip` — заявки на такой ноге не ставятся, исход эпизода `off_maker` (net не считается).
     fn maker_off(&self) -> bool {
-        !self.drain && (self.no_tr[0] || self.no_tr[1])
+        self.nt == NoTrade::Skip && (self.no_tr[0] || self.no_tr[1])
     }
     /// Режим `убыль объёма` для ноги `i`.
     fn drain_leg(&self, i: usize) -> bool {
-        self.drain && self.no_tr[i]
+        self.nt == NoTrade::Drain && self.no_tr[i]
+    }
+    /// Режим `проход цены сквозь уровень` для ноги `i`.
+    fn through_leg(&self, i: usize) -> bool {
+        self.nt == NoTrade::Through && self.no_tr[i]
     }
     /// Момент вступления отмены заявок входа эпизода; при усечении (`P40_TRUNC`) — не позже последней годной мс его интервала (`vend − 1`, §2.2):
     /// исполнение входа на негодных данных (дыра, после конца данных) — не исполнение.
@@ -82,12 +86,24 @@ fn parse_variants(v: Option<&str>, base_l: i64) -> Vec<(i64, i64)> {
     })
 }
 
-/// `P40_NOTRADE`: `drain` — true, `skip`/не задан — false, иное — отказ.
-fn parse_notrade(v: Option<&str>) -> bool {
+/// Исполнение мейкера на ноге без сделок (П-40 §2, §16.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum NoTrade {
+    /// заявки на ноге не ставятся, исход эпизода `off_maker`
+    Skip,
+    /// убыль объёма на уровне заявки = сделка (верхняя граница: отмены тоже «исполняют»)
+    Drain,
+    /// исполнение только при проходе цены сквозь уровень заявки (нижняя граница)
+    Through,
+}
+
+/// `P40_NOTRADE`: `drain` / `through` / `skip` (не задан = `skip`), иное — отказ.
+fn parse_notrade(v: Option<&str>) -> NoTrade {
     match v {
-        None | Some("skip") => false,
-        Some("drain") => true,
-        Some(o) => panic!("P40_NOTRADE: ожидалось skip|drain, получено {o}"),
+        None | Some("skip") => NoTrade::Skip,
+        Some("drain") => NoTrade::Drain,
+        Some("through") => NoTrade::Through,
+        Some(o) => panic!("P40_NOTRADE: ожидалось skip|drain|through, получено {o}"),
     }
 }
 
@@ -454,8 +470,8 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
         }
         slot.push(s);
     }
-    fills::run(dirs[0], &c.tr[0], c.drain_leg(0), &mut ja);
-    fills::run(dirs[1], &c.tr[1], c.drain_leg(1), &mut jb);
+    fills::run_mode(dirs[0], &c.tr[0], c.drain_leg(0), c.through_leg(0), &mut ja);
+    fills::run_mode(dirs[1], &c.tr[1], c.drain_leg(1), c.through_leg(1), &mut jb);
     let mut o = String::from("theta,t0_ms,dir,t_th2_ms,tc_ms,sell_leg,front_sell,fill_sell_ms,imm_sell,front_buy,fill_buy_ms,imm_buy
 ");
     for (e, s) in eps.iter().zip(&slot) {
@@ -542,8 +558,8 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             plans.push(Plan::Insure { sell_done, t_c, xp, j: x[li].len() - 1 });
         }
     }
-    fills::run(c.dirs[0], &c.tr[0], c.drain_leg(0), &mut x[0]);
-    fills::run(c.dirs[1], &c.tr[1], c.drain_leg(1), &mut x[1]);
+    fills::run_mode(c.dirs[0], &c.tr[0], c.drain_leg(0), c.through_leg(0), &mut x[0]);
+    fills::run_mode(c.dirs[1], &c.tr[1], c.drain_leg(1), c.through_leg(1), &mut x[1]);
     let mut o = String::from("theta,t0_ms,outcome,exit_ms,exit_kind,pnl_bps,fees_bps");
     o += if c.valid.on { ",trunc\n" } else { "\n" };
     let stat = fills::L1_STAT.load(std::sync::atomic::Ordering::Relaxed);
@@ -653,7 +669,7 @@ fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
 
 /// Контроли и усечение — только по флагам среды (умолчание = прежнее поведение):
 /// `P40_SHIFT_B_MS=<мс>` — K1, сдвиг времени ноги B (книга и сделки); `P40_K2=1` — K2, таблицы `<out>.k2*` (seed `P40_SEED`, умолчание 40; зазор `P40_K2_GAP_MS`, умолчание 600000 = П-40 §4.3);
-/// `P40_NOTRADE=drain|skip` — нога без файлов сделок (П-40 §2): `drain` — убыль объёма на уровне заявки = сделка (верхняя граница исполнений), `skip` (умолчание) — заявки на ноге не ставятся, исход `off_maker`;
+/// `P40_NOTRADE=drain|through|skip` — нога без файлов сделок (П-40 §2, §16.2): `drain` — убыль объёма на уровне заявки = сделка (верхняя граница исполнений), `through` — исполнение только при проходе цены сквозь уровень (нижняя), `skip` (умолчание) — заявки на ноге не ставятся, исход `off_maker`;
 /// `P40_TRUNC=1` — усечение §2.2 (+ колонка `trunc` в exits: 1 — конец данных, 2 — дыра), конец данных `P40_END_MS` (умолчание — последний момент рядов), дыры — файл `P40_HOLES` со строками `начало_мс,конец_мс`.
 fn main() {
     let a: Vec<String> = std::env::args().collect();
@@ -717,9 +733,14 @@ fn main() {
         fills::L1_STAT.store(std::env::var_os("P40_L1_STAT").is_some(), std::sync::atomic::Ordering::Relaxed);
         let tr = [load_trades(&a[4]), load_trades(&a[5])];
         let no_tr = [tr[0].is_empty(), tr[1].is_empty()];
-        let drain = parse_notrade(env("P40_NOTRADE").as_deref());
+        let nt = parse_notrade(env("P40_NOTRADE").as_deref());
         if no_tr[0] || no_tr[1] {
-            eprintln!("нога без сделок A={} B={}: режим {}", no_tr[0], no_tr[1], if drain { "убыль объёма" } else { "вне мейкер-анализа" });
+            let mode = match nt {
+                NoTrade::Drain => "убыль объёма",
+                NoTrade::Through => "проход цены сквозь уровень",
+                NoTrade::Skip => "вне мейкер-анализа",
+            };
+            eprintln!("нога без сделок A={} B={}: режим {mode}", no_tr[0], no_tr[1]);
         }
         Ctx {
             leg: [&la, &lb],
@@ -728,7 +749,7 @@ fn main() {
             dirs: [&a[2], &a[3]],
             tr,
             no_tr,
-            drain,
+            nt,
             lot: [a[6].parse().unwrap(), a[7].parse().unwrap()],
             step: [a.get(9).map_or(1e-9, |v| v.parse().unwrap()), a.get(10).map_or(1e-9, |v| v.parse().unwrap())],
             l_ms: base_l,
@@ -779,13 +800,16 @@ mod tests {
 
     #[test]
     fn notrade_mode_and_maker_off() {
-        assert!(!parse_notrade(None) && !parse_notrade(Some("skip")) && parse_notrade(Some("drain")));
+        assert!(parse_notrade(None) == NoTrade::Skip && parse_notrade(Some("skip")) == NoTrade::Skip);
+        assert!(parse_notrade(Some("drain")) == NoTrade::Drain && parse_notrade(Some("through")) == NoTrade::Through);
         let (la, valid) = (leg(&[0], &[1.0], &[2.0]), Valid { on: false, end: i64::MAX, holes: vec![] });
-        let mk = |no_tr: [bool; 2], drain: bool| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, drain, l_ms: 0, t_life: T_LIFE_MS, lev: &[], s0: 0, valid: &valid };
-        assert!(mk([false, true], false).maker_off() && mk([true, false], false).maker_off());
-        assert!(!mk([false, false], false).maker_off(), "обе ноги со сделками — прежнее поведение");
-        let d = mk([false, true], true);
-        assert!(!d.maker_off() && d.drain_leg(1) && !d.drain_leg(0));
+        let mk = |no_tr: [bool; 2], nt: NoTrade| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, nt, l_ms: 0, t_life: T_LIFE_MS, lev: &[], s0: 0, valid: &valid };
+        assert!(mk([false, true], NoTrade::Skip).maker_off() && mk([true, false], NoTrade::Skip).maker_off());
+        assert!(!mk([false, false], NoTrade::Skip).maker_off(), "обе ноги со сделками — прежнее поведение");
+        let d = mk([false, true], NoTrade::Drain);
+        assert!(!d.maker_off() && d.drain_leg(1) && !d.drain_leg(0) && !d.through_leg(1));
+        let t = mk([false, true], NoTrade::Through);
+        assert!(!t.maker_off() && t.through_leg(1) && !t.through_leg(0) && !t.drain_leg(1));
     }
 
     #[test]
@@ -848,7 +872,7 @@ mod tests {
             vec![book::Tr { t: t_trade, px: 11.0, qty: 51.0, buyer_maker: false }],
             vec![book::Tr { t: 100, px: 10.5, qty: 0.001, buyer_maker: true }],
         ];
-        let c = Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: [&da, &db], tr, lot: [1.0; 2], step: [1e-9; 2], no_tr: [false; 2], drain: false, l_ms: 500, t_life: T_LIFE_MS, lev: &[], s0: 0, valid };
+        let c = Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: [&da, &db], tr, lot: [1.0; 2], step: [1e-9; 2], no_tr: [false; 2], nt: NoTrade::Skip, l_ms: 500, t_life: T_LIFE_MS, lev: &[], s0: 0, valid };
         // A дороже: продаёт A (аск 11), покупает B (бид 10); заявки встают в t0+L = 1500, живут до 61 500
         let eps = [Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false)];
         let out = std::env::temp_dir().join(format!("p40core-trunc-out-{tag}-{}", std::process::id())).to_str().unwrap().to_string();
