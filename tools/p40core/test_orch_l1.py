@@ -203,6 +203,44 @@ def test_validity_coverage_gaps(tmp):   # П-40 §16.5: час без строк
     assert orch.validity_gaps(seen, [{"exA": "gate", "symA": "BUSDT", "exB": "okx", "symB": "AUSDT"}], ["2026-09-17"]) == {("gate", "BUSDT", "2026-09-17"): 24}, "нога без строк — 24 часа дыры"
 
 
+def test_box_rsync_retry_and_cap(tmp):   # 10.11: rc 12 (бокс закрыл соединение при 48 rsync) -> повтор, а не сбой актива; потолок --box-conn; 23/11 повторяться не должны
+    import threading
+    calls, live, peak = [], [0], [0]
+    seq = {"a": [12, 255, 0], "b": [23], "c": [12, 12, 12, 12], "d": [11]}
+    lock = threading.Lock()
+
+    def call(cmd, **kw):
+        k = cmd[-2]
+        with lock:
+            calls.append(k)
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        import time
+        time.sleep(0.02)
+        with lock:
+            live[0] -= 1
+        return seq[k].pop(0) if k in seq else 0
+    sl = orch.time.sleep
+    orch.time.sleep = lambda s: None
+    orch.subprocess = types.SimpleNamespace(**dict({k: getattr(subprocess, k) for k in dir(subprocess) if not k.startswith("__")}, call=call))
+    log = str(tmp / "log")
+    try:
+        assert orch.box_rsync(["x", "a", "dst"], log) == 0 and calls.count("a") == 3, "12, 255 -> повтор до успеха"
+        assert orch.box_rsync(["x", "b", "dst"], log) == 23 and calls.count("b") == 1, "23 без повтора"
+        assert orch.box_rsync(["x", "d", "dst"], log) == 11 and calls.count("d") == 1, "11 без повтора"
+        assert orch.box_rsync(["x", "c", "dst"], log) == 12 and calls.count("c") == orch.BOX_TRIES, "после BOX_TRIES попыток rc отдаётся вызывающему"
+        assert "повтор 1/" in open(log).read()
+        calls.clear()
+        orch.BOX_SEM = threading.BoundedSemaphore(3)
+        ts = [threading.Thread(target=orch.box_rsync, args=(["x", f"e{i}", "dst"], log)) for i in range(12)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        assert len(calls) == 12 and peak[0] <= 3, (len(calls), peak[0])
+    finally:
+        orch.BOX_SEM = None
+        orch.time.sleep = sl
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

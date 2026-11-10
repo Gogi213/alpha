@@ -124,18 +124,38 @@ def box_files(ex, sym, day, aux_only=False, trades=False):
     return [f"chft/{ex}_futures/{day}/{h:02d}/{sym}_{k}.parquet" for h in range(24) for k in kinds]
 
 
+BOX_SEM = None          # --box-conn N: не более N rsync к боксу разом на весь процесс (jobs × l1-p × fetch-p); None = без предела
+BOX_RETRY_RC = (12, 255)   # rsync «protocol data stream» / ssh: бокс закрыл соединение при перегрузе (24 rsync шли, 48 — рвались: 08:18 10.11, 8 из 10 заданий)
+BOX_TRIES = 4
+
+
+def box_rsync(cmd, log):
+    """rsync к боксу: слот BOX_SEM, при rc 12/255 (соединение закрыто) до BOX_TRIES попыток с паузой 5·k с; остальные коды (23 — нет файла, 11 — ENOSPC) сразу вызывающему"""
+    for k in range(BOX_TRIES):
+        if BOX_SEM:
+            BOX_SEM.acquire()
+        try:
+            rc = subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=open(log, "ab"))
+        finally:
+            if BOX_SEM:
+                BOX_SEM.release()
+        if rc not in BOX_RETRY_RC or k == BOX_TRIES - 1:
+            return rc
+        with open(log, "a") as f:
+            f.write(f"rsync rc {rc}, повтор {k + 1}/{BOX_TRIES - 1}: {cmd[-2]}" + chr(10))
+        time.sleep(5 * (k + 1))
+
+
 def fetch(files, raw, p, log):
     os.makedirs(raw, exist_ok=True)
     lst = f"{raw}.list"
-    chunks = [files[i::p] for i in range(p)]
-    procs = []
+    chunks = [c for c in (files[i::p] for i in range(p)) if c]
+    cmds = []
     for i, c in enumerate(chunks):
-        if not c:
-            continue
-        open(f"{lst}{i}", "w").write("\n".join(c) + "\n")
-        procs.append(subprocess.Popen(["rsync", "-q", "-R", "--ignore-missing-args", f"--files-from={lst}{i}", "-e", SSH, "box:alpha/stakan/", raw + "/"],
-                                      stdout=subprocess.DEVNULL, stderr=open(log, "ab")))
-    bad = [q.wait() for q in procs]
+        open(f"{lst}{i}", "w").write(chr(10).join(c) + chr(10))
+        cmds.append(["rsync", "-q", "-R", "--ignore-missing-args", f"--files-from={lst}{i}", "-e", SSH, "box:alpha/stakan/", raw + "/"])
+    with cf.ThreadPoolExecutor(max(1, len(cmds))) as tp:
+        bad = list(tp.map(lambda cmd: box_rsync(cmd, log), cmds))
     for i in range(len(chunks)):
         if os.path.exists(f"{lst}{i}"):
             os.remove(f"{lst}{i}")
@@ -165,7 +185,7 @@ def fetch_l1(ex, sym, day, raw, log, trades_raw=False):
     rel = l1_rel(ex, sym, day)
     dst = f"{raw}/{rel}"
     os.makedirs(dst, exist_ok=True)
-    rc = subprocess.call(["rsync", "-q", "-a", "-e", SSH, f"{l1_src(ex)}/{rel}/", dst + "/"], stdout=subprocess.DEVNULL, stderr=open(log, "ab"))
+    rc = box_rsync(["rsync", "-q", "-a", "-e", SSH, f"{l1_src(ex)}/{rel}/", dst + "/"], log)
     if rc != 0:
         if rc == 11 and nospace(log, os.path.dirname(raw)):
             raise ShmFull(f"ENOSPC /dev/shm при rsync L1 {rel}")
@@ -495,6 +515,7 @@ def main():
     ap.add_argument("--raw-ex", default="", help="TK-522: биржи (через запятую), ноги которых читать из сырья, а не из L1 бокса (L1 биржи ещё неверен: Bitget до P40_L1_CARRY=1, E-17); остальные — L1")
     ap.add_argument("--raw-legs", action="store_true", help="TK-518/522: ВСЕ ноги читать из сырья бокса (прежний путь; для сверок и смоков, Bybit/Gate сырья на боксе уже нет). Умолчание — L1 бокса p40l1 (строго: нет суток = сбой)")
     ap.add_argument("--l1-p", type=int, default=1, help="TK-522 v2: параллельных rsync L1 на задание (ноги×сутки одним пулом; умолч. 1 = последовательно, как прежде)")
+    ap.add_argument("--box-conn", type=int, default=0, help="TK-522: потолок одновременных rsync к боксу на весь процесс (jobs × l1-p × fetch-p; бокс закрывает соединения при перегрузе, rc 12); 0 = без предела, как прежде")
     ap.add_argument("--variant", action="append", default=[], metavar="ИМЯ:К=З,К=З", help="TK-522 v2: доп. прогон ядра на тех же рядах с добавочным окружением, напр. k2:P40_K2=1 | k1p60:P40_SHIFT_B_MS=60000 | drain:P40_NOTRADE=drain; повторяемый; выход <пара>.<имя>")
     ap.add_argument("--chunk", type=int, default=1, help="сутки подряд в одном прогоне ядра (умолч. 1 = как раньше); K>1: уровень P̄_L и эпизоды идут сквозь полночь, колонка day в assemble — по t0 (spec day=t0)")
     args = ap.parse_args()
@@ -532,6 +553,8 @@ def main():
         sys.exit(f"TK-518: P40_L1 задан, но ядро {CORE} его не знает (сборка до TK-515: бит2 L1 и признаки без глубины не поддержаны) — задайте P40_CORE на сборку TK-515+")
     err = shm_err = 0
     args.budget = ShmBudget(args.shm)
+    global BOX_SEM
+    BOX_SEM = threading.BoundedSemaphore(args.box_conn) if args.box_conn > 0 else None
     with cf.ThreadPoolExecutor(args.jobs) as ex:
         futs = {ex.submit(job, args, a, d, ps, outlog): (a, d) for a, d, ps in todo}
         for f in cf.as_completed(futs):
