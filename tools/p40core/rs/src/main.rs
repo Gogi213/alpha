@@ -835,9 +835,10 @@ mod tests {
         let warm = level_grid(&tu, &x, 0, ns as i64 - 1, &[(22_000_000, 22_100_000)]);
         assert!(base[23_000].is_finite() && base[30_000].is_finite());
         assert!(warm[21_900].is_finite(), "до дыры уровень прежний");
-        assert!(warm[22_050].is_nan() && warm[23_000].is_nan() && warm[22_100 + L_S - 10].is_nan());
+        assert!(warm[22_059].is_finite(), "уровень отстаёт на GAP_S: первые 60 с дыры ещё по годным данным");
+        assert!(warm[22_060].is_nan() && warm[23_000].is_nan() && warm[22_100 + L_S - 10].is_nan());
         assert!(warm[22_100 + L_S + 10].is_finite(), "окно покрыто годными данными целиком");
-        assert_eq!(warm[21_000], base[21_000]);
+        assert_eq!(warm[21_700], base[21_700]);
         assert_eq!(warm[49_000], base[49_000]);
     }
 

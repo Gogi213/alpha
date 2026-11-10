@@ -267,8 +267,7 @@ def test_gap_hours_become_merged_holes(tmp):
     t0 = orch.calendar.timegm(orch.time.strptime("2026-10-05", "%Y-%m-%d")) * 1000
     H = 3600000
     got = [tuple(map(int, l.split(","))) for l in open(tmp / "h").read().splitlines()]
-    assert n == 2 and got == [(t0 + 23 * H, t0 + 48 * H), (t0 + 55 * H, t0 + 56 * H)] or got == [(t0 + 23 * H, t0 + 48 * H)] + [(t0 + 55 * H, t0 + 56 * H)], got
-    assert got[0] == (t0 + 23 * H, t0 + 48 * H), "23:00 д1 + сутки д2 (0 ч и 7 ч другой ноги внутри) склеены"
+    assert n == 1 and got == [(t0 + 23 * H, t0 + 48 * H)], (n, got)   # 23:00 д1 + сутки д2 (0 ч и 7 ч другой ноги внутри) склеены в один интервал; д3 годен
 
 
 if __name__ == "__main__":

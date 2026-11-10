@@ -10,7 +10,7 @@ W=/root/p40core-tk522v2; P=/root/p40core/pairs_d1_v3_nobitget.csv
 FUND=/root/p40core-tk522f/fund_d1_v3.csv; VALID=/root/p40core/validity.csv.gz
 DAYS=$(for i in $(seq 0 $((NDAYS - 1))); do date -u -d "2026-09-17 +$i day" +%F; done | paste -sd,)
 case "$OUT" in /*) ;; *) OUT=/root/p40core/$OUT;; esac
-ARGS="$P $OUT --days $DAYS --chunk $NDAYS --jobs $JOBS --l1-p $L1P --box-conn $BOXCONN --l1-fallback --l1-trades-raw --raw-ex bitget --validity $VALID --validity-strict --variant k2:P40_K2=1 --variant k1p60:P40_SHIFT_B_MS=60000 --variant drain:P40_NOTRADE=drain"
+ARGS="$P $OUT --days $DAYS --chunk $NDAYS --jobs $JOBS --l1-p $L1P --box-conn $BOXCONN --l1-trades-raw --raw-ex bitget --validity $VALID --validity-strict --variant k2:P40_K2=1 --variant k1p60:P40_SHIFT_B_MS=60000 --variant drain:P40_NOTRADE=drain"
 [ -n "$ASSETS" ] && ARGS="$ARGS --assets $ASSETS"
 cat > "$OUT.run.sh" <<EOF
 #!/bin/bash
