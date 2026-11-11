@@ -23,6 +23,14 @@ def kernel_rtt_ms(sock):
         return None
 
 
+def peer_ip(sock):
+    """Адрес удалённой стороны сокета (в событие connected: обрыв группы соединений объясняется общим узлом CDN); None — не получилось."""
+    try:
+        return sock.getpeername()[0]
+    except (AttributeError, OSError, IndexError):
+        return None
+
+
 async def dial(url, max_rtt_ms=CONNECT_RTT_MAX_MS):
     """Открытый TCP-сокет до хоста url и его RTT, мс; (None, rtt) — путь отбракован (max_rtt_ms=None — не отбраковывать)."""
     u = urlsplit(url)

@@ -13,7 +13,7 @@
 import asyncio
 import time
 
-from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname
+from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname, peer_ip
 from wscore.path import PathProbe
 
 PING_PERIOD_S = 5.0
@@ -79,7 +79,7 @@ class Session:
         helpers = []
         try:
             async with websockets.connect(url, sock=sock, server_hostname=hostname(url), max_size=None, ping_interval=None, compression=None, close_timeout=1) as ws:
-                self.event(ev="connected", session=seq, url=url, rtt_ms=round(rtt))
+                self.event(ev="connected", session=seq, url=url, rtt_ms=round(rtt), ip=peer_ip(sock))
                 self.m.connected += 1
                 self.writer.control(time.time_ns(), "connected", f"{seq} {url}")
                 self.watch.open(seq)

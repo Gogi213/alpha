@@ -536,3 +536,13 @@ def test_error_event_names_the_cause_of_a_close_without_frame(tmp_path, monkeypa
     ev = [json.loads(ln) for ln in (tmp_path / "events-book00.jsonl").read_text().splitlines()]
     err = [e for e in ev if e["ev"] == "error"]
     assert len(err) == 1 and err[0]["cause"] == "ConnectionResetError('rst')"
+
+
+def test_peer_ip_returns_remote_address_or_none():
+    from wscore import dial as dial_mod
+
+    class S:
+        def getpeername(self):
+            return ("2600:9000::1", 443, 0, 0)
+
+    assert dial_mod.peer_ip(S()) == "2600:9000::1" and dial_mod.peer_ip(object()) is None
