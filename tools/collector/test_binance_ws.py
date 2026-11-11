@@ -255,3 +255,75 @@ def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypat
     assert log[:4] == [("open", s1), ("open", s1 + 1), ("accepted", s1 + 1), ("closed", s1)]  # старая закрыта только после приёма новой
     evs = [json.loads(ln) for ln in open(shard.events_path)]
     assert [(e["ev"], e["old_session"], e["new_session"]) for e in evs if e["ev"] == "path_switch"] == [("path_switch", s1, s1 + 1)]
+
+
+def test_reconnect_writes_separate_file_per_attempt(tmp_path, monkeypatch):
+    """E-024: переподключение шарда (отбраковка пути, сбой, ping) не дописывает в файл прежней попытки — иначе дельта-состояние сбрасывается, и приём/u/a файла декодируются неверно."""
+    import asyncio
+    import time
+    import types
+
+    zstandard = pytest.importorskip("zstandard")
+    monkeypatch.setattr(bw, "SUB_PERIOD_S", 0)
+    monkeypatch.setattr(bw, "PING_PERIOD_S", 3600)
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(s, *a):
+        await real_sleep(0 if s <= 5 else s)
+
+    monkeypatch.setattr(asyncio, "sleep", fast_sleep)
+    shard = bw.Shard(str(tmp_path), "book00", "public", ["avaxusdt@bookTicker"])
+
+    async def idle(seq):
+        await real_sleep(3600)
+
+    monkeypatch.setattr(shard, "gap_watch", idle)
+    calls = []
+
+    class FakeWs:
+        transport = None
+
+        async def send(self, msg):
+            pass
+
+        async def ping(self):
+            fut = asyncio.get_running_loop().create_future()
+            fut.set_result(None)
+            return fut
+
+        def __aiter__(self):
+            async def gen():
+                for i in range(3):
+                    yield frame("avaxusdt@bookTicker", dict(BOOK, u=BOOK["u"] + i))
+                    await real_sleep(0.002)
+
+            return gen()
+
+    class Conn:
+        async def __aenter__(self):
+            return FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    def connect(url, **kw):
+        calls.append(url)
+        if len(calls) == 3:
+            raise asyncio.CancelledError  # третья попытка — остановка теста
+        return Conn()
+
+    monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
+    t0 = time.time_ns()
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(shard.run_session_forever(7, None))
+    t1 = time.time_ns()
+    files = sorted(tmp_path.rglob("book00-7-*.tsv.zst"))
+    assert [f.name for f in files] == ["book00-7-0.tsv.zst", "book00-7-1.tsv.zst"]  # попытка — свой файл и свой .ok
+    for f in files:
+        assert (f.parent / (f.name + ".ok")).exists()
+        text = zstandard.ZstdDecompressor().stream_reader(f.open("rb"), read_across_frames=True).read().decode()
+        recs = list(bw.decode(text))
+        books = [r for r in recs if r["t"] == "b"]
+        assert [r["u"] for r in books] == [BOOK["u"], BOOK["u"] + 1, BOOK["u"] + 2]  # u первой записи файла абсолютный
+        assert all(t0 <= r["rx_ns"] <= t1 for r in recs)  # приём не «уплывает» от склейки двух кодировок
+
