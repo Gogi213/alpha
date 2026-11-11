@@ -10,6 +10,7 @@ import serve  # noqa: E402
 
 NOW = 1_762_885_000_000
 EXPECTED = [{"id": "binance", "name": "Binance"}, {"id": "bybit", "name": "Bybit"}]
+THR = {"stale_s": 30}
 
 
 def doc(**kw):
@@ -36,7 +37,7 @@ def by_ex(rows):
 
 def test_parse_fresh_file(tmp_path):
     put(tmp_path, "binance", doc())
-    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, None))["binance"]
+    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["binance"]
     assert r["state"] == "ok" and r["age_s"] == 3 and r["name"] == "Binance"
     assert r["lag_in_ms"]["p99"] == 310 and r["symbols"]["with_data_1m"] == 412
 
@@ -60,11 +61,19 @@ def test_missing_fields_and_wrong_schema(tmp_path):
     assert rows["binance"]["state"] == "bad" and rows["bybit"]["state"] == "bad"
 
 
-def test_stale_ts_needs_threshold(tmp_path):
+def test_stale_file(tmp_path):
+    put(tmp_path, "binance", doc(ts_ms=NOW - 31_000))
+    put(tmp_path, "bybit", doc(ts_ms=NOW - 30_000))
+    rows = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))
+    assert rows["binance"]["state"] == "bad" and rows["binance"]["age_s"] == 31
+    assert rows["binance"]["note"] == "файл не обновлялся 31 с"
+    assert rows["bybit"]["state"] == "ok"
+
+
+def test_stale_file_without_thresholds_not_fresh(tmp_path):
     put(tmp_path, "binance", doc(ts_ms=NOW - 600_000))
-    assert by_ex(serve.collect(tmp_path, NOW, EXPECTED, None))["binance"]["state"] == "ok"
-    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, {"stale_s": 60}))["binance"]
-    assert r["state"] == "bad" and r["age_s"] == 600
+    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, None))["binance"]
+    assert r["state"] == "warn" and "свежий" not in r["note"]
 
 
 def test_states(tmp_path):
@@ -72,13 +81,20 @@ def test_states(tmp_path):
     d["ws"]["timeouts_1h"] = 1
     put(tmp_path, "binance", d)
     put(tmp_path, "bybit", doc(symbols={"subscribed": 10, "with_data_1m": 9}))
-    rows = by_ex(serve.collect(tmp_path, NOW, EXPECTED, None))
+    rows = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))
+    assert rows["binance"]["state"] == "warn" and rows["bybit"]["state"] == "warn"
+
+
+def test_symbols_508_of_509_warn_0_of_509_bad(tmp_path):
+    put(tmp_path, "binance", doc(symbols={"subscribed": 509, "with_data_1m": 508}))
+    put(tmp_path, "bybit", doc(symbols={"subscribed": 509, "with_data_1m": 0}))
+    rows = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))
     assert rows["binance"]["state"] == "warn" and rows["bybit"]["state"] == "bad"
 
 
 def test_new_exchange_without_code_change(tmp_path):
     put(tmp_path, "okx", doc(exchange="okx"))
-    rows = serve.collect(tmp_path, NOW, EXPECTED, None)
+    rows = serve.collect(tmp_path, NOW, EXPECTED, THR)
     assert [r["exchange"] for r in rows] == ["binance", "bybit", "okx"]
     assert rows[2]["name"] == "okx" and rows[2]["state"] == "ok"
 
@@ -91,7 +107,7 @@ def test_foreign_kind_skipped(tmp_path):
 
 def test_null_lag_passes_through(tmp_path):
     put(tmp_path, "binance", doc(lag_in_ms={"p50": None, "p99": None, "window_s": 60}))
-    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, None))["binance"]
+    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["binance"]
     assert r["state"] == "ok" and r["lag_in_ms"]["p50"] is None
 
 
@@ -101,7 +117,7 @@ def test_http_api_and_page(tmp_path):
     class H(serve.Handler):
         health_dir = tmp_path
         expected = EXPECTED
-        thresholds = None
+        thresholds = THR
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

@@ -2,7 +2,7 @@
 
 Читает /data/health/<биржа>.json (формат — docs/findings/collector-health-format-2026-11-11.md),
 отдаёт page.html и /api/health. Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
-пороги — thresholds.json (числа назначает Судья; нет файла — устаревание файла не проверяется).
+пороги — thresholds.json (числа назначает Судья; нет файла — строка жёлтая «порог не задан»).
 Новая биржа = новый файл в каталоге: строка появляется без правки страницы. Файлы с "kind" ≠ "collector" пропускаются.
 """
 import argparse
@@ -23,13 +23,21 @@ def load_json(path):
 
 
 def row_state(doc, age_s, thr):
-    """off — файла нет, bad — красная, warn — жёлтая, ok — зелёная."""
+    """off — файла нет, bad — красная, warn — жёлтая, ok — зелёная.
+
+    Красная: файл старше stale_s или with_data_1m == 0; жёлтая: часть символов молчит, таймауты/переподключения
+    за час, порог устаревания не задан (свежесть не проверить — «свежий» не пишем).
+    """
     stale_s = (thr or {}).get("stale_s")
     if stale_s is not None and age_s > stale_s:
-        return "bad", "файл не обновлялся дольше порога"
+        return "bad", f"файл не обновлялся {age_s} с"
     sym = doc["symbols"]
+    if sym["with_data_1m"] == 0:
+        return "bad", "данные за минуту не пришли ни по одному символу"
+    if stale_s is None:
+        return "warn", "порог устаревания файла не задан"
     if sym["with_data_1m"] < sym["subscribed"]:
-        return "bad", "данные за минуту пришли не по всем символам"
+        return "warn", "данные за минуту пришли не по всем символам"
     ws = doc["ws"]
     if ws["timeouts_1h"] or ws["reconnects_1h"]:
         return "warn", "за час были таймауты или переподключения"
