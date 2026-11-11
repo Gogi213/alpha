@@ -1,5 +1,5 @@
 """Одно WS-соединение: подключение, подписка, чтение кадров, пинг, сторож паузы.
-Делает: Session.run — от connect до закрытия; кадр -> parse адаптера -> писатель, счётчики, выборка лага, окно проверки пути (PathProbe).
+Делает: Session.run — от connect до закрытия (место в бюджете подключений — до TCP connect); кадр -> parse адаптера -> писатель, счётчики, выборка лага, окно проверки пути (PathProbe).
 Не решает, когда менять путь и переподключаться, — это shard; не знает формат записи (писатель) и биржу (адаптер). Нет pong — сессия degraded, не обрыв (E-025).
 
 Контракт адаптера (Adapter, `<биржа>_ws.py`):
@@ -22,9 +22,10 @@ LAG_SAMPLE = 64  # каждый N-й кадр идёт в выборки лаг�
 
 
 class Session:
-    def __init__(self, adapter, endpoint, streams, writer, metrics, watch, event):
+    def __init__(self, adapter, endpoint, streams, writer, metrics, watch, event, budget=None):
         self.ad, self.endpoint, self.streams = adapter, endpoint, streams
         self.writer, self.m, self.watch, self.event = writer, metrics, watch, event
+        self.budget = budget  # общий бюджет подключений процесса (budget.ConnectBudget); None — без ограничителя
 
     def timeout(self, what, seq):
         self.m.timeout()
@@ -67,6 +68,10 @@ class Session:
         import websockets
 
         url = self.ad.url(self.endpoint)
+        if self.budget is not None:
+            waited = await self.budget.acquire()  # единственный путь к TCP connect: подключений за окно ≤ LIMIT при любых отбраковках и заменах
+            if waited >= 1.0:
+                self.event(ev="connect_wait", session=seq, waited_s=round(waited, 1))
         sock, rtt = await dial(url, CONNECT_RTT_MAX_MS if probe else None)
         if sock is None:
             self.event(ev="path_rejected_rtt", session=seq, rtt_ms=round(rtt))

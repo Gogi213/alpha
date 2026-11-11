@@ -21,7 +21,7 @@ LANE_SEQ_STEP = 1_000_000  # номера сессий линий не пере�
 
 
 class Shard:
-    def __init__(self, adapter, root, name, endpoint, streams, run_id=None, lanes=1):
+    def __init__(self, adapter, root, name, endpoint, streams, run_id=None, lanes=1, budget=None):
         self.root, self.name, self.lanes = root, name, lanes
         self.run_id = run_id if run_id is not None else int(time.time())  # номер запуска = время старта процесса (с); он же имя файла писателя
         self.stats_path = os.path.join(root, f"stats-{name}.jsonl")
@@ -29,7 +29,7 @@ class Shard:
         self.writer = DayWriter(root, name, self.run_id)
         self.m = Metrics()
         self.watch = PathWatch()
-        self.session = Session(adapter, endpoint, streams, self.writer, self.m, self.watch, self.event)
+        self.session = Session(adapter, endpoint, streams, self.writer, self.m, self.watch, self.event, budget)
 
     def event(self, **kw):
         kw.update(ts_ms=int(time.time() * 1000), shard=self.name)
@@ -100,8 +100,8 @@ class Shard:
             self.writer.close()
 
 
-def shard_main(adapter, root, name, endpoint, streams, lanes=1):
-    sh = Shard(adapter, root, name, endpoint, streams, lanes=lanes)
+def shard_main(adapter, root, name, endpoint, streams, lanes=1, budget=None):
+    sh = Shard(adapter, root, name, endpoint, streams, lanes=lanes, budget=budget)
 
     async def amain():
         task = asyncio.current_task()

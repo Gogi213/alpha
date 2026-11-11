@@ -1,5 +1,5 @@
 """Процесс коллектора: пул биржи, раскладка по шардам, запуск шардов процессами, health.json раз в STATS_PERIOD_S.
-Делает: collector_main(adapter) — точка входа адаптера `<биржа>_ws.py`. Не знает биржу (всё через адаптер) и внутренности шарда.
+Делает: collector_main(adapter) — точка входа адаптера `<биржа>_ws.py`; один общий бюджет подключений (budget) на все шарды. Не знает биржу (всё через адаптер) и внутренности шарда.
 """
 import argparse
 import json
@@ -9,6 +9,7 @@ import signal
 import time
 
 from wscore import stats
+from wscore.budget import LIMIT, WINDOW_S, ConnectBudget
 from wscore.health import write_health
 from wscore.shard import shard_main
 from wscore.writer import day_of
@@ -23,6 +24,7 @@ def parse_args(adapter):
     ap.add_argument("--top-exclude", type=int, default=adapter.top_exclude)
     ap.add_argument("--kinds", default=",".join(adapter.kinds))
     ap.add_argument("--lanes", type=int, default=1, help="путей на шард: 2 = тёплый запас, поток идёт по двум путям сразу (В-140)")
+    ap.add_argument("--connect-budget", type=int, default=LIMIT, help=f"TCP-подключений к бирже за {WINDOW_S:.0f} с на весь процесс (общий для шардов; лимит биржи Binance 300)")
     ap.add_argument("--pool-only", action="store_true")
     return ap.parse_args()
 
@@ -37,7 +39,8 @@ def collector_main(adapter):
     if a.pool_only:
         return
     shards = adapter.plan(pool, a.kinds.split(","), a.streams_per_conn)
-    procs = [mp.Process(target=shard_main, args=(adapter, a.root, n, e, s, a.lanes), name=n) for n, e, s in shards]
+    budget = ConnectBudget(a.connect_budget)
+    procs = [mp.Process(target=shard_main, args=(adapter, a.root, n, e, s, a.lanes, budget), name=n) for n, e, s in shards]
     for p in procs:
         p.start()
     print(f"shards {len(procs)}: " + ", ".join(f"{n}={len(s)}" for n, _, s in shards), flush=True)

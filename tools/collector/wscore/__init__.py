@@ -6,11 +6,12 @@
   writer   суточный файл шарда, снятие дублей                         (codec, stats)
   path     качество пути: окно проверки нового пути, сторож лага      (stats)
   dial     TCP connect с замером RTT: плохой путь отбракован до TLS    (ни от чего)
+  budget   общий бюджет TCP-подключений процесса за 5 мин (лимит биржи) (ни от чего)
   metrics  счётчики шарда -> строка статистики и фрагмент health      (stats)
   health   фрагменты шардов -> health.json                            (stats)
-  session  одно соединение: подключение, подписка, пинг, чтение       (writer, path, dial, metrics)
+  session  одно соединение: подключение, подписка, пинг, чтение       (writer, path, dial, budget, metrics)
   shard    шард: писатель + сессии, переподключение, смена пути       (session, writer, path, metrics, health)
-  runner   процесс: пул, раскладка, запуск шардов, health             (shard, health, writer)
+  runner   процесс: пул, раскладка, запуск шардов, бюджет, health       (shard, budget, health, writer)
 
 Поток данных: биржа --кадр--> session (parse адаптера) --записи--> writer (дедуп, Encoder, zstd) --> <root>/<день>/<шард>-<запуск>.tsv.zst;
 session --счётчики--> metrics --> health (frag/<шард>.json) --> runner --> health.json. Формат записи — в начале `codec.py`.

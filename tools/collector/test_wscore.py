@@ -9,6 +9,7 @@ import types
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
+from wscore import budget as budget_mod  # noqa: E402
 from wscore import codec, health, path, stats  # noqa: E402
 from wscore import session as sess  # noqa: E402
 from wscore import shard as shard_mod  # noqa: E402
@@ -398,6 +399,49 @@ def test_rtt_reject_before_websocket_then_accept_after_max_rejects(tmp_path, mon
     assert dials == [sess.CONNECT_RTT_MAX_MS] * n + [None] and len(connects) == 1  # n отбраковок на connect, затем приём без порога
     evs = [json.loads(ln) for ln in open(shard.events_path)]
     assert [e["ev"] for e in evs].count("path_rejected_rtt") == n and evs[0]["rtt_ms"] == 360
+
+
+def test_connect_budget_never_exceeds_limit_in_any_window():
+    """Граница из кода: сколько бы ни просили (худший старт 34 линии x 13 попыток = 442 и повторы), в любом окне WINDOW_S выдано не больше LIMIT мест."""
+    now = [1000.0]
+    b = budget_mod.ConnectBudget(limit=5, window_s=300.0, clock=lambda: now[0])
+    grants = []
+    for _ in range(442):
+        while (w := b.try_take()) > 0:
+            now[0] += w
+        grants.append(now[0])
+    assert len(grants) == 442 and grants[4] == 1000.0 and grants[5] == 1300.0  # первые LIMIT сразу, шестое — через окно после первого
+    assert all(grants[i + 5] - grants[i] >= 300.0 for i in range(len(grants) - 5))  # любые LIMIT+1 подряд выданных — не короче окна
+    assert b.used() <= 5
+
+
+def test_connect_budget_starts_empty_after_boot():
+    """Часы monotonic после загрузки могут быть меньше окна: пустое кольцо не должно блокировать."""
+    b = budget_mod.ConnectBudget(limit=3, window_s=300.0, clock=lambda: 5.0)
+    assert [b.try_take() for _ in range(3)] == [0.0, 0.0, 0.0] and b.try_take() == pytest.approx(300.0)
+
+
+def test_session_takes_a_budget_slot_before_every_dial(tmp_path, monkeypatch):
+    """Каждый TCP connect (в т.ч. отбракованный по RTT) идёт через бюджет; ожидание — событие connect_wait."""
+    monkeypatch.setattr(sess, "PING_PERIOD_S", 3600)
+    order = []
+
+    class FakeBudget:
+        async def acquire(self):
+            order.append("take")
+            return 2.5
+
+    async def fake_dial(url, max_rtt_ms=None):
+        order.append("dial")
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(sess, "dial", fake_dial)
+    shard = shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", ["a"], run_id=7, budget=FakeBudget())
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(shard.session.run(7, probe=True))
+    shard.writer.close()
+    assert order == ["take", "dial"]
+    assert [json.loads(ln)["ev"] for ln in open(shard.events_path)] == ["connect_wait"]
 
 
 def test_accept_streaming_summary_equals_list_based_definition():

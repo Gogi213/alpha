@@ -117,7 +117,9 @@ def main():
                     last_a[r["s"]] = max(r["a"], x or 0)
     disk = {t: v.summary() for t, v in stream.items()}
     health = json.load(open(os.environ.get("HEALTH", ad.health_default)))
-    out = {"window_ms": [a.since_ms, a.until_ms], "events": {k: len(v) for k, v in ev.items()}, "events_detail": {k: v[:20] for k, v in ev.items() if k != "connected" and k != "subscribed"},
+    dials = sorted(e["ts_ms"] for k in ("connected", "path_rejected_rtt") for e in ev.get(k, []))  # каждый TCP connect = connected или path_rejected_rtt
+    dials_5min = max((sum(1 for t in dials if t0 <= t < t0 + 300_000) for t0 in dials), default=0)  # максимум подключений в любом окне 5 мин (лимит биржи 300)
+    out = {"window_ms": [a.since_ms, a.until_ms], "dials": len(dials), "dials_5min_max": dials_5min, "events": {k: len(v) for k, v in ev.items()}, "events_detail": {k: v[:20] for k, v in ev.items() if k != "connected" and k != "subscribed"},
            "disk_stream": disk, "shards": st, "records": rec, "sequence_checks": gaps, "ping_ms": {"n": len(pings), "p50": stats.percentile(pings, 0.5), "p99": stats.percentile(pings, 0.99), "max": max(pings, default=None)},
            "raw_samples": raw_samples, "disk_bytes": size, "health": health}
     with open(a.out, "w") as f:
