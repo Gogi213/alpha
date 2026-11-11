@@ -23,6 +23,17 @@ def kernel_rtt_ms(sock):
         return None
 
 
+# struct tcp_info (Linux, 104 байта): байты 2/4 — retransmits/backoff (ступень RTO), u32 по смещениям: 8 rto, 24 unacked, 32 lost, 36 retrans, 52 last_data_recv, 68 rtt, 100 total_retrans
+def tcp_state(sock):
+    """Состояние TCP сокета для события таймаута (чем объяснить паузу: потери пути — retransmits/backoff/rto растут, last_data_recv большой; биржа молчит при чистом TCP — они нули); None — не Linux."""
+    try:
+        b = sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_INFO, 104)
+    except (AttributeError, OSError):
+        return None
+    u = lambda o: struct.unpack_from("I", b, o)[0]  # noqa: E731
+    return {"retransmits": b[2], "backoff": b[4], "rto_ms": u(8) // 1000, "unacked": u(24), "lost": u(32), "retrans": u(36), "last_data_recv_ms": u(52), "rtt_ms": u(68) // 1000, "total_retrans": u(100)}
+
+
 def peer_ip(sock):
     """Адрес удалённой стороны сокета (в событие connected: обрыв группы соединений объясняется общим узлом CDN); None — не получилось."""
     try:

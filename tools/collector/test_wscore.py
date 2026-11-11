@@ -504,6 +504,30 @@ def test_dial_measures_rtt_and_rejects_above_threshold():
     asyncio.run(go())
 
 
+def test_timeout_event_carries_tcp_state_of_live_sessions(tmp_path):
+    """TK-532 (В-140): событие таймаута несёт состояние TCP живых сессий шарда (retransmits/backoff/rto/last_data_recv) — паузу можно отнести к потерям пути или к молчанию биржи."""
+    from wscore import dial as dial_mod
+
+    if dial_mod.tcp_state(__import__("socket").socket()) is None:
+        pytest.skip("TCP_INFO только на Linux")
+
+    async def go():
+        srv = await asyncio.start_server(lambda r, w: None, "127.0.0.1", 0)
+        sock, _ = await dial_mod.dial(f"ws://127.0.0.1:{srv.sockets[0].getsockname()[1]}/x", None)
+        shard = shard_for(tmp_path)
+        shard.session.timeout("gap", 1)  # без живых сессий поля tcp нет
+        shard.session.socks[7] = sock
+        shard.session.timeout("gap", 7)
+        sock.close()
+        srv.close()
+        return [json.loads(ln) for ln in open(shard.events_path)]
+
+    first, second = asyncio.run(go())
+    assert "tcp" not in first
+    st = second["tcp"]["7"]
+    assert set(st) == {"retransmits", "backoff", "rto_ms", "unacked", "lost", "retrans", "last_data_recv_ms", "rtt_ms", "total_retrans"} and st["retransmits"] == 0 and st["rto_ms"] >= 0
+
+
 def test_error_event_names_the_cause_of_a_close_without_frame(tmp_path, monkeypatch):
     """TK-532 (В-140): обрыв без close-кадра пишет в событие первопричину (FIN/RST), а не только ConnectionClosedError(None, None, None)."""
     real_sleep = asyncio.sleep

@@ -13,7 +13,7 @@
 import asyncio
 import time
 
-from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname, peer_ip
+from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname, peer_ip, tcp_state
 from wscore.path import PathProbe
 
 PING_PERIOD_S = 5.0
@@ -26,10 +26,12 @@ class Session:
         self.ad, self.endpoint, self.streams = adapter, endpoint, streams
         self.writer, self.m, self.watch, self.event = writer, metrics, watch, event
         self.budget = budget  # общий бюджет подключений процесса (budget.ConnectBudget); None — без ограничителя
+        self.socks = {}  # номер живой сессии -> её сокет (для tcp_state в событии таймаута)
 
     def timeout(self, what, seq):
         self.m.timeout()
-        self.event(ev="timeout", what=what, session=seq)
+        tcp = {k: tcp_state(s) for k, s in self.socks.items()}  # состояние TCP всех живых сессий шарда: потери пути или тишина биржи при чистом TCP (В-140: причина замером)
+        self.event(ev="timeout", what=what, session=seq, **({"tcp": tcp} if tcp else {}))
 
     async def pinger(self, ws, seq):
         while True:
@@ -77,6 +79,7 @@ class Session:
             self.event(ev="path_rejected_rtt", session=seq, rtt_ms=round(rtt))
             return True
         helpers = []
+        self.socks[seq] = sock
         try:
             async with websockets.connect(url, sock=sock, server_hostname=hostname(url), max_size=None, ping_interval=None, compression=None, close_timeout=1) as ws:
                 self.event(ev="connected", session=seq, url=url, rtt_ms=round(rtt), ip=peer_ip(sock))
@@ -89,6 +92,7 @@ class Session:
                     accepted.set()
                 return await self._read(ws, seq, PathProbe(time.monotonic()) if probe else None, accepted)
         finally:
+            self.socks.pop(seq, None)
             for h in helpers:
                 h.cancel()
             self.m.connected = max(0, self.m.connected - 1)
