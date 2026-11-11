@@ -244,13 +244,14 @@ def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypat
     async def go():
         task = asyncio.create_task(shard.run())
         await asyncio.sleep(1.2)  # run() опрашивает раз в секунду
-        shard.degraded.add(1)
+        shard.degraded.add(log[0][1])
         await asyncio.sleep(2.5)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
 
     asyncio.run(go())
-    assert log[:4] == [("open", 1), ("open", 2), ("accepted", 2), ("closed", 1)]  # старая закрыта только после приёма новой
+    s1 = log[0][1]  # номер первой сессии — время старта (с)
+    assert log[:4] == [("open", s1), ("open", s1 + 1), ("accepted", s1 + 1), ("closed", s1)]  # старая закрыта только после приёма новой
     evs = [json.loads(ln) for ln in open(shard.events_path)]
-    assert [(e["ev"], e["old_session"], e["new_session"]) for e in evs if e["ev"] == "path_switch"] == [("path_switch", 1, 2)]
+    assert [(e["ev"], e["old_session"], e["new_session"]) for e in evs if e["ev"] == "path_switch"] == [("path_switch", s1, s1 + 1)]

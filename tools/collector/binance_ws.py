@@ -506,7 +506,7 @@ class Shard:
     async def run(self):
         """Смена сессии без разрыва: замена открывается и принимается (окно проверки пути) до закрытия старой; на перекрытии оба файла пишут кадры (читатель убирает дубли по u/a). Причины: возраст MAX_AGE_S (rotated) или путь испортился (path_switch)."""
         stats = asyncio.create_task(self.stats_loop())
-        seq = cur_seq = 1
+        seq = cur_seq = int(time.time())  # номер сессии = время старта процесса (с): файл прежнего запуска не дописывается (E-023: старый .ok и обрыв строки)
         cur = asyncio.create_task(self.run_session_forever(seq, None))
         born = time.monotonic()
         try:

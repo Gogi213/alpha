@@ -18,7 +18,7 @@ def read_file(path):
     """Закрытый файл (есть .ok) — целиком; открытый — без последней строки (запись могла оборваться на середине)."""
     with open(path, "rb") as f:
         text = zstandard.ZstdDecompressor().stream_reader(f, read_across_frames=True).read().decode(errors="replace")
-    return text if os.path.exists(path + ".ok") else text[: text.rfind("\n") + 1]
+    return text if text.endswith("\n") else text[: text.rfind("\n") + 1]  # открытый файл (или обрыв записи) — без неполной последней строки
 
 
 def main():
