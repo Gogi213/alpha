@@ -170,7 +170,8 @@ def test_percentile():
     assert bw.percentile(list(range(100)), 0.99) == 99
 
 
-def test_pinger_aborts_dead_connection(tmp_path, monkeypatch):
+def test_pinger_marks_session_degraded_instead_of_aborting(tmp_path, monkeypatch):
+    """E-025: нет pong — сессия помечается degraded (run() откроет замену без разрыва), соединение не обрывается."""
     import asyncio
 
     monkeypatch.setattr(bw, "PING_PERIOD_S", 0.01)
@@ -185,10 +186,11 @@ def test_pinger_aborts_dead_connection(tmp_path, monkeypatch):
             return asyncio.get_running_loop().create_future()  # pong не придёт
 
     asyncio.run(asyncio.wait_for(shard.pinger(FakeWs(), None, 1), 2))
-    assert aborted == [1]
+    assert aborted == []
+    assert shard.degraded == {1}
     assert len(shard.timeouts) == 1
     kinds = [json.loads(ln)["ev"] for ln in open(shard.events_path)]
-    assert kinds == ["timeout", "ping_reconnect"]
+    assert kinds == ["timeout", "ping_degraded"]
 
 
 def test_frame_lag_and_path_verdict():
