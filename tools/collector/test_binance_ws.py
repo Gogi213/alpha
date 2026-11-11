@@ -202,4 +202,4 @@ def test_frame_lag_and_path_verdict():
     assert bw.path_verdict([250.0] * 100)
     assert not bw.path_verdict([600.0] * 100)  # p50 выше порога
     assert not bw.path_verdict([250.0] * 90 + [2000.0] * 10)  # p99 выше порога
-    assert bw.path_verdict([250.0] * 99 + [2000.0])  # одиночный всплеск (1 %) — путь чистый
+    assert bw.path_verdict([250.0] * 199 + [2000.0])  # одиночный всплеск (0,5 %) — путь чистый
