@@ -9,7 +9,10 @@ import types
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
-import wscore as wc  # noqa: E402
+from wscore import codec, health, path, stats  # noqa: E402
+from wscore import session as sess  # noqa: E402
+from wscore import shard as shard_mod  # noqa: E402
+from wscore.writer import DayWriter  # noqa: E402
 
 B = ("b", "AVAXUSDT", 1794418695171, 1794418695170, 12081389761850, "8.6790", "42", "8.6800", "285")
 T = ("t", "AIOTUSDT", 1794418694042, 1794418693917, 92150638, "0.1742400", "410", 180333636, 180333637, True, "410")
@@ -45,21 +48,21 @@ class FakeAdapter:
 
 
 def shard_for(tmp_path, streams=("avaxusdt@x",)):
-    return wc.Shard(FakeAdapter(), str(tmp_path), "book00", "public", list(streams))
+    return shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", list(streams), run_id=7)
 
 
 def read(path):
     zstandard = pytest.importorskip("zstandard")
-    return list(wc.decode(zstandard.ZstdDecompressor().stream_reader(path.open("rb"), read_across_frames=True).read().decode()))
+    return list(codec.decode(zstandard.ZstdDecompressor().stream_reader(path.open("rb"), read_across_frames=True).read().decode()))
 
 
 def test_roundtrip_records_exact():
-    e = wc.Encoder()
+    e = codec.Encoder()
     b2 = with_u(B[4] + 66)[:6] + ("47",) + B[7:]
     t2 = T[:4] + (T[4] + 1,) + T[5:7] + (T[8] + 1, T[8] + 3, False, "410")
     rxs = [RX0, RX0 + 43_000, RX0 + 50_000, RX0 + 51_000, RX0 + 999_999_999, RX0 + 999_999_999]
     recs = [B, b2, T, t2, M, ("m", "AIOTUSDT") + M[2:]]
-    out = list(wc.decode("".join(e.record(rx, r) for rx, r in zip(rxs, recs))))
+    out = list(codec.decode("".join(e.record(rx, r) for rx, r in zip(rxs, recs))))
     assert out[0] == {"t": "b", "rx_ns": RX0, "E": B[2], "T": B[3], "s": "AVAXUSDT", "u": B[4], "b": "8.6790", "B": "42", "a": "8.6800", "A": "285"}
     assert out[1]["u"] == b2[4] and out[1]["rx_ns"] == rxs[1] and out[1]["B"] == "47"
     assert (out[2]["a"], out[2]["f"], out[2]["l"], out[2]["m"]) == (T[4], T[7], T[8], True)
@@ -68,16 +71,16 @@ def test_roundtrip_records_exact():
 
 
 def test_trade_nq_kept_only_when_differs_from_q():
-    e = wc.Encoder()
+    e = codec.Encoder()
     rpi = T[:4] + (T[4] + 1,) + T[5:6] + ("410",) + T[7:9] + (True, "999")
-    out = list(wc.decode(e.record(RX0, T) + e.record(RX0 + 1, rpi)))
+    out = list(codec.decode(e.record(RX0, T) + e.record(RX0 + 1, rpi)))
     assert (out[0]["q"], out[0]["nq"]) == ("410", "410") and (out[1]["q"], out[1]["nq"]) == ("410", "999")
 
 
 def test_raw_ping_control_records():
-    e = wc.Encoder()
+    e = codec.Encoder()
     text = e.control(100, "connected", "7 wss://x") + e.ping(5_000_100, 351_234) + e.raw(6_000_000_000, '{"result":null,"id":1}') + e.control(9_000_000_000, "closed", "7")
-    assert list(wc.decode(text)) == [
+    assert list(codec.decode(text)) == [
         {"t": "c", "rx_ns": 100, "what": "connected", "detail": "7 wss://x"},
         {"t": "g", "rx_ns": 5_000_100, "rtt_us": 351_234},
         {"t": "r", "rx_ns": 6_000_000_000, "frame": '{"result":null,"id":1}'},
@@ -85,7 +88,7 @@ def test_raw_ping_control_records():
 
 
 def test_day_writer_cuts_days_and_marks_ok(tmp_path):
-    w = wc.DayWriter(str(tmp_path), "book00", 1)
+    w = DayWriter(str(tmp_path), "book00", 1)
     d1, d2 = 1794441599_900_000_000, 1794441600_100_000_000  # 2026-11-11 23:59:59.9 и 2026-11-12 00:00:00.1 UTC
     w.records(d1, [B], sample=True)
     w.records(d2, [with_u(B[4] + 1)])
@@ -97,7 +100,7 @@ def test_day_writer_cuts_days_and_marks_ok(tmp_path):
 
 
 def test_flush_makes_data_readable_midfile(tmp_path):
-    w = wc.DayWriter(str(tmp_path), "trade00", 2)
+    w = DayWriter(str(tmp_path), "trade00", 2)
     w.records(RX0, [T], sample=True)
     w.flush()  # кадр на диске, файл ещё открыт (A8)
     assert [r["t"] for r in read(next(tmp_path.rglob("trade00-2.tsv.zst")))] == ["t"]
@@ -107,7 +110,7 @@ def test_flush_makes_data_readable_midfile(tmp_path):
 
 def test_writer_drops_overlap_duplicates_and_keeps_order(tmp_path):
     """В-142: два соединения шарда (перекрытие смены пути) несут одни кадры — в файле одна упорядоченная запись на ключ."""
-    w = wc.DayWriter(str(tmp_path), "book00", 3)
+    w = DayWriter(str(tmp_path), "book00", 3)
     seq = [with_u(B[4] + i) for i in range(5)]
     marks = [M[:2] + (M[2] + 1000 * i,) + M[3:] for i in range(3)]
     for i, r in enumerate(seq):  # соединение A — все кадры
@@ -124,7 +127,7 @@ def test_writer_drops_overlap_duplicates_and_keeps_order(tmp_path):
 
 
 def test_dedupe_survives_day_change(tmp_path):
-    w = wc.DayWriter(str(tmp_path), "book00", 4)
+    w = DayWriter(str(tmp_path), "book00", 4)
     d1, d2 = 1794441599_900_000_000, 1794441600_100_000_000
     w.records(d1, [B])
     w.records(d2, [B])  # тот же u приходит с другого соединения уже после полуночи — дубль
@@ -138,28 +141,28 @@ def test_aggregate_health_schema_and_pool_filter():
     now = 1_794_500_000_000
     f = {"shard": "book00", "ts_ms": now, "started_ms": now - 5000, "with_data": ["avaxusdt", "btcusdt"], "connected": 1, "ping_ms": [300.0, 340.0],
          "lag_in": [200.0, 230.0], "lag_out": [400.0], "timeouts": [now - 10, now - 2 * 3600_000], "reconnects": [], "last_frame_ms": now - 5, "last_write_ms": now - 500}
-    h = wc.aggregate([f], now, ["AVAXUSDT", "ETHUSDT"], "fake")
+    h = health.aggregate([f], now, ["AVAXUSDT", "ETHUSDT"], "fake")
     assert h["schema"] == 1 and h["exchange"] == "fake"
     assert h["symbols"] == {"subscribed": 2, "with_data_1m": 1}  # btcusdt вне пула не считается
     assert h["ws"]["timeouts_1h"] == 1 and h["ws"]["timeouts_24h"] == 2 and h["ws"]["reconnects_1h"] == 0
     assert h["ws"]["ping_ms"]["max"] == 340.0 and h["lag_in_ms"]["window_s"] == 60 and h["lag_out_ms"]["p50"] == 400.0
-    h0 = wc.aggregate([], now, ["AVAXUSDT"], "fake")
+    h0 = health.aggregate([], now, ["AVAXUSDT"], "fake")
     assert h0["lag_in_ms"]["p50"] is None and h0["ws"]["ping_ms"]["max"] is None and h0["symbols"]["with_data_1m"] == 0
 
 
 def test_percentile_and_path_verdict():
-    assert wc.percentile([], 0.5) is None and wc.percentile([5], 0.99) == 5 and wc.percentile(list(range(100)), 0.99) == 99
-    assert wc.path_verdict([]) and wc.path_verdict([9e9] * (wc.PROBE_MIN_SAMPLES - 1))  # мало выборок — не отбраковываем
-    assert wc.path_verdict([250.0] * 100)
-    assert not wc.path_verdict([wc.PROBE_P50_MS + 100.0] * 100)  # p50 выше порога
-    assert not wc.path_verdict([250.0] * 90 + [2000.0] * 10)  # p99 выше порога
-    assert wc.path_verdict([250.0] * 199 + [2000.0])  # одиночный всплеск (0,5 %) — путь чистый
+    assert stats.percentile([], 0.5) is None and stats.percentile([5], 0.99) == 5 and stats.percentile(list(range(100)), 0.99) == 99
+    assert path.path_verdict([]) and path.path_verdict([9e9] * (path.PROBE_MIN_SAMPLES - 1))  # мало выборок — не отбраковываем
+    assert path.path_verdict([250.0] * 100)
+    assert not path.path_verdict([path.PROBE_P50_MS + 100.0] * 100)  # p50 выше порога
+    assert not path.path_verdict([250.0] * 90 + [2000.0] * 10)  # p99 выше порога
+    assert path.path_verdict([250.0] * 199 + [2000.0])  # одиночный всплеск (0,5 %) — путь чистый
 
 
 def test_pinger_marks_session_degraded_instead_of_aborting(tmp_path, monkeypatch):
     """E-025: нет pong — сессия помечается degraded (run() откроет замену без разрыва), соединение не обрывается."""
-    monkeypatch.setattr(wc, "PING_PERIOD_S", 0.01)
-    monkeypatch.setattr(wc, "PING_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(sess, "PING_PERIOD_S", 0.01)
+    monkeypatch.setattr(sess, "PING_TIMEOUT_S", 0.05)
     shard = shard_for(tmp_path)
     aborted = []
 
@@ -169,27 +172,27 @@ def test_pinger_marks_session_degraded_instead_of_aborting(tmp_path, monkeypatch
         async def ping(self):
             return asyncio.get_running_loop().create_future()  # pong не придёт
 
-    asyncio.run(asyncio.wait_for(shard.pinger(FakeWs(), 1), 2))
-    assert aborted == [] and shard.degraded == {1} and len(shard.timeouts) == 1
+    asyncio.run(asyncio.wait_for(shard.session.pinger(FakeWs(), 1), 2))
+    assert aborted == [] and shard.watch.degraded == {1} and len(shard.m.timeouts) == 1
     assert [json.loads(ln)["ev"] for ln in open(shard.events_path)] == ["timeout", "ping_degraded"]
 
 
 def test_judge_lags_marks_degraded_session_after_two_bad_windows(tmp_path):
     shard = shard_for(tmp_path)
-    shard.lags = {1: [100.0] * 20, 2: [100.0] * 20}
-    shard.age = {1: wc.LAG_SKIP_WINDOWS, 2: wc.LAG_SKIP_WINDOWS}  # окна пропуска после подключения прошли
-    shard.judge_lags()
-    assert not shard.degraded
-    for _ in range(wc.LAG_BAD_WINDOWS):  # сессия 1 — путь испортился, сессия 2 — в норме
-        shard.lags[1] = [wc.LAG_LIMIT_MS + 500.0] * 20
-        shard.lags[2] = [100.0] * 20
-        shard.judge_lags()
-    assert shard.degraded == {1} and shard.lags == {1: [], 2: []}
+    shard.watch.lags = {1: [100.0] * 20, 2: [100.0] * 20}
+    shard.watch.age = {1: path.LAG_SKIP_WINDOWS, 2: path.LAG_SKIP_WINDOWS}  # окна пропуска после подключения прошли
+    shard.watch.judge()
+    assert not shard.watch.degraded
+    for _ in range(path.LAG_BAD_WINDOWS):  # сессия 1 — путь испортился, сессия 2 — в норме
+        shard.watch.lags[1] = [path.LAG_LIMIT_MS + 500.0] * 20
+        shard.watch.lags[2] = [100.0] * 20
+        shard.watch.judge()
+    assert shard.watch.degraded == {1} and shard.watch.lags == {1: [], 2: []}
 
 
 def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypatch):
-    monkeypatch.setattr(wc, "OVERLAP_S", 0.05)
-    monkeypatch.setattr(wc, "STATS_PERIOD_S", 3600)  # stats_loop не мешает
+    monkeypatch.setattr(shard_mod, "OVERLAP_S", 0.05)
+    monkeypatch.setattr(stats, "STATS_PERIOD_S", 3600)  # stats_loop не мешает
     shard = shard_for(tmp_path)
     log = []
 
@@ -210,7 +213,7 @@ def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypat
     async def go():
         task = asyncio.create_task(shard.run())
         await asyncio.sleep(1.2)  # run() опрашивает раз в секунду
-        shard.degraded.add(log[0][1])
+        shard.watch.degraded.add(log[0][1])
         await asyncio.sleep(2.5)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -225,7 +228,7 @@ def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypat
 
 def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
     """E-024 в новой форме (В-142): шард пишет один файл на запуск и сутки при любом числе попыток и соединений; повторённые соединением кадры — дубли, не пишутся."""
-    monkeypatch.setattr(wc, "PING_PERIOD_S", 3600)
+    monkeypatch.setattr(sess, "PING_PERIOD_S", 3600)
     real_sleep = asyncio.sleep
 
     async def fast_sleep(s, *a):
@@ -233,12 +236,11 @@ def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
 
     monkeypatch.setattr(asyncio, "sleep", fast_sleep)
     shard = shard_for(tmp_path)
-    shard.writer = wc.DayWriter(str(tmp_path), "book00", 7)
 
     async def idle(seq):
         await real_sleep(3600)
 
-    monkeypatch.setattr(shard, "gap_watch", idle)
+    monkeypatch.setattr(shard.session, "gap_watch", idle)
     calls = []
 
     class FakeWs:

@@ -2,7 +2,7 @@
 """TK-527 (G-022, шаг 1): адаптер Binance USD-M для общего ядра `wscore` (В-142): только специфика биржи — адреса, подписка, пул, разбор кадра.
 
 Виды: bookTicker (эндпоинт /public), aggTrade и markPrice `!markPrice@arr@1s` (эндпоинт /market); L1 + сделки + mark/фандинг, без глубины (В-115).
-Формат записи, соединения, пинг, путь, писатель, health — в `wscore.py`. Запуск: binance_ws.py --root /data/bnws [--health /data/health/binance.json]
+Формат записи, соединения, пинг, путь, писатель, health — в пакете `wscore/` (карта модулей — `wscore/__init__.py`, контракт адаптера — `wscore/session.py`). Запуск: binance_ws.py --root /data/bnws [--health /data/health/binance.json]
 """
 import json
 import sys
@@ -10,7 +10,7 @@ import urllib.request
 
 import orjson
 
-import wscore
+from wscore.runner import collector_main
 
 REST = "https://fapi.binance.com"
 WS = "wss://fstream.binance.com"
@@ -116,7 +116,7 @@ class Adapter:
 
 
 def main():
-    wscore.collector_main(Adapter())
+    collector_main(Adapter())
 
 
 if __name__ == "__main__":

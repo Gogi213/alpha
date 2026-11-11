@@ -12,7 +12,7 @@ import sys
 import zstandard
 
 sys.path.insert(0, os.path.dirname(__file__))
-import wscore as bw  # noqa: E402
+from wscore import codec, stats  # noqa: E402
 
 
 def read_file(path):
@@ -43,7 +43,7 @@ def main():
         rows = [r for r in rows if a.since_ms <= r["ts_ms"] <= a.until_ms]
         lag50 = [r["lag_p50_ms"] for r in rows if r["lag_p50_ms"] is not None]
         st[shard] = {"windows": len(rows), "msgs": sum(r["msgs"] for r in rows), "max_gap_ms": max((r["max_gap_ms"] for r in rows), default=None),
-                     "lag_p50_ms_median": bw.percentile(lag50, 0.5), "lag_p50_ms_max": max(lag50, default=None),
+                     "lag_p50_ms_median": stats.percentile(lag50, 0.5), "lag_p50_ms_max": max(lag50, default=None),
                      "lag_p99_ms_max": max((r["lag_p99_ms"] for r in rows if r["lag_p99_ms"] is not None), default=None),
                      "cpu_frac_max": max((r["cpu_frac"] for r in rows), default=None)}
     ad = importlib.import_module(f"{a.exchange}_ws").Adapter()
@@ -54,7 +54,7 @@ def main():
             continue  # файл закончен до окна (прежний запуск, возможно прежнего формата): записей окна в нём нет
         size += os.path.getsize(p)
         last = {}  # (тип, символ) -> ключ порядка: писатель снимает дубли, поток символа строго растёт (В-142)
-        for r in bw.decode(read_file(p)):
+        for r in codec.decode(read_file(p)):
             if not (a.since_ms * 1_000_000 <= r["rx_ns"] <= a.until_ms * 1_000_000):
                 continue
             rec[r["t"]] += 1
@@ -79,7 +79,7 @@ def main():
                     gaps["trade_a_gap_ids"] += y - x - 1
     health = json.load(open(os.environ.get("HEALTH", ad.health_default)))
     out = {"window_ms": [a.since_ms, a.until_ms], "events": {k: len(v) for k, v in ev.items()}, "events_detail": {k: v[:20] for k, v in ev.items() if k != "connected" and k != "subscribed"},
-           "shards": st, "records": rec, "sequence_checks": gaps, "ping_ms": {"n": len(pings), "p50": bw.percentile(pings, 0.5), "p99": bw.percentile(pings, 0.99), "max": max(pings, default=None)},
+           "shards": st, "records": rec, "sequence_checks": gaps, "ping_ms": {"n": len(pings), "p50": stats.percentile(pings, 0.5), "p99": stats.percentile(pings, 0.99), "max": max(pings, default=None)},
            "raw_samples": raw_samples, "disk_bytes": size, "health": health}
     with open(a.out, "w") as f:
         json.dump(out, f, indent=1)
