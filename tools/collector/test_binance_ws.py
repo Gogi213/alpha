@@ -189,3 +189,17 @@ def test_pinger_aborts_dead_connection(tmp_path, monkeypatch):
     assert len(shard.timeouts) == 1
     kinds = [json.loads(ln)["ev"] for ln in open(shard.events_path)]
     assert kinds == ["timeout", "ping_reconnect"]
+
+
+def test_frame_lag_and_path_verdict():
+    rx_ns = 1_000_000_000_000 * 1_000_000
+    frame = json.dumps({"stream": "btcusdt@bookTicker", "data": {"E": 1_000_000_000_000 - 250}})
+    assert bw.frame_lag(frame, rx_ns) == pytest.approx(250)
+    assert bw.frame_lag(json.dumps({"data": [{"E": 1_000_000_000_000 - 40}]}), rx_ns) == pytest.approx(40)
+    for bad in ("", "не json", "{}", '{"data": []}', '{"data": {"x": 1}}'):
+        assert bw.frame_lag(bad, rx_ns) is None
+    assert bw.path_verdict([]) and bw.path_verdict([9e9] * (bw.PROBE_MIN_SAMPLES - 1))  # мало выборок — не отбраковываем
+    assert bw.path_verdict([250.0] * 100)
+    assert not bw.path_verdict([600.0] * 100)  # p50 выше порога
+    assert not bw.path_verdict([250.0] * 90 + [2000.0] * 10)  # p99 выше порога
+    assert bw.path_verdict([250.0] * 99 + [2000.0])  # одиночный всплеск (1 %) — путь чистый

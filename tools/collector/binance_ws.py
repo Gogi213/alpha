@@ -44,6 +44,12 @@ LAG_SAMPLE = 64  # каждый N-й кадр идёт в выборки лаг�
 LAG_LIMIT_MS = 2000  # назначаемое (подтвердить): p50 отставания выше — соединение пересоздаётся (замер: норма ≈ RTT/2 ≈ 230 мс)
 LAG_BAD_WINDOWS = 2  # подряд окон STATS_PERIOD_S выше LAG_LIMIT_MS
 LAG_SKIP_WINDOWS = 2  # окна после подключения не считаются: снапшот подписки несёт старый E
+PROBE_S = 15  # выбор пути: после подписки окно проверки лага; плохой путь (потери Токио->srv) отбрасывается до записи в «живые»
+PROBE_SKIP_S = 4  # снапшот подписки несёт старый E
+PROBE_P50_MS = 500  # назначаемое: замер 11.11 (24 соед.) — чистый путь p50 250–265, p99 636–945; плохой p50 2,6–20 с
+PROBE_P99_MS = 1500
+PROBE_MIN_SAMPLES = 5
+PROBE_MAX_REJECTS = 8  # подряд отбракованных путей; дальше соединение принимается (сторож лага остаётся)
 PING_PERIOD_S = 5.0
 PING_TIMEOUT_S = 10.0  # документация Binance: ответ на ping ≤ 10 мин; здесь — порог «таймаут» страницы здоровья, назначаемое
 GAP_TIMEOUT_S = 3.0  # пауза без кадров на соединении; замер: макс. окно 1,55 с (book) / 1,22 с (trade) за 984 окна — порог ≈ 2× (назначаемое)
@@ -89,6 +95,26 @@ def shard_streams(pool, kind, per_conn):
 def day_path(root, shard, session, t_s):
     d = time.strftime("%Y-%m-%d", time.gmtime(t_s))
     return os.path.join(root, d, f"{shard}-{session}.tsv.zst"), d
+
+
+def frame_lag(frame, rx_ns):
+    """Лаг прихода кадра, мс (время приёма − E биржи); None — в кадре нет E."""
+    try:
+        d = orjson.loads(frame).get("data")
+        if type(d) is list:
+            d = d[0] if d else None
+        if d and "E" in d:
+            return rx_ns / 1e6 - d["E"]
+    except (ValueError, AttributeError, TypeError):
+        pass
+    return None
+
+
+def path_verdict(lags):
+    """Чистый ли путь по лагам прихода окна проверки: None — мало выборок (не отбраковываем)."""
+    if len(lags) < PROBE_MIN_SAMPLES:
+        return True
+    return percentile(lags, 0.5) <= PROBE_P50_MS and percentile(lags, 0.99) <= PROBE_P99_MS
 
 
 def percentile(xs, p):
@@ -272,6 +298,7 @@ class Shard:
         self.age_windows = 0
         self.lag_bad = 0
         self.kick = False
+        self.path_rejects = 0
         self.writers = {}  # сессия -> DayWriter (для lag_out/last_write)
 
     def event(self, **kw):
@@ -313,7 +340,8 @@ class Shard:
             elif gap <= GAP_TIMEOUT_S:
                 self.in_gap = False
 
-    async def session(self, seq):
+    async def session(self, seq, probe=False):
+        """Сессия до закрытия; True — путь отбракован окном проверки (probe), соединение закрыто до приёма в «живые»."""
         import websockets
 
         w = DayWriter(self.root, self.name, seq)
@@ -333,6 +361,8 @@ class Shard:
                 self.event(ev="subscribed", session=seq, streams=len(self.streams))
                 w.write(time.time_ns(), lambda e, rx: e.control(rx, "subscribed", str(len(self.streams))))
                 n = 0
+                t_sub = time.monotonic()
+                probe_lags = []
                 async for frame in ws:
                     rx = time.time_ns()
                     sample = n % LAG_SAMPLE == 0
@@ -352,6 +382,17 @@ class Shard:
                     if self.kick:
                         self.event(ev="lag_reconnect", session=seq, limit_ms=self.lag_limit_ms)
                         break
+                    if probe:
+                        if mono - t_sub >= PROBE_SKIP_S:
+                            lag = frame_lag(frame, rx)
+                            if lag is not None:
+                                probe_lags.append(lag)
+                        if mono - t_sub >= PROBE_S:
+                            probe = False
+                            if not path_verdict(probe_lags):
+                                self.event(ev="path_rejected", session=seq, n=len(probe_lags), p50_ms=round(percentile(probe_lags, 0.5)), p99_ms=round(percentile(probe_lags, 0.99)))
+                                return True
+                            self.event(ev="path_ok", session=seq, n=len(probe_lags), p50_ms=round(percentile(probe_lags, 0.5)), p99_ms=round(percentile(probe_lags, 0.99)))
         finally:
             for h in helpers:
                 h.cancel()
@@ -362,24 +403,25 @@ class Shard:
             self.writers.pop(seq, None)
 
     def sample_lag(self, frame, rx_ns, mono):
-        try:
-            d = orjson.loads(frame).get("data")
-            if type(d) is list:
-                d = d[0] if d else None
-            if d and "E" in d:
-                lag = rx_ns / 1e6 - d["E"]
-                self.lags.append(lag)
-                self.in_lags.append((mono, lag))
-        except (ValueError, AttributeError, TypeError):
-            pass
+        lag = frame_lag(frame, rx_ns)
+        if lag is not None:
+            self.lags.append(lag)
+            self.in_lags.append((mono, lag))
 
     async def run_session_forever(self, seq, stop_at):
         """Одна сессия с переподключением при сбое до stop_at (монотонное время), None — без предела."""
         backoff = 1.0
+        rejects = 0
         while stop_at is None or time.monotonic() < stop_at:
             t0 = time.monotonic()
             try:
-                await self.session(seq)
+                if await self.session(seq, probe=rejects < PROBE_MAX_REJECTS):
+                    rejects += 1
+                    self.path_rejects += 1
+                    await asyncio.sleep(0.5)
+                    self.last_rx = None
+                    continue
+                rejects = 0
                 self.event(ev="closed", session=seq)
             except asyncio.CancelledError:
                 raise
