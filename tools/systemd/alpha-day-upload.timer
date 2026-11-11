@@ -1,0 +1,9 @@
+[Unit]
+Description=TK-530 раз в час: выгрузить закрытые сутки (не обязательно сразу после перехода, В-135)
+
+[Timer]
+OnCalendar=*:17
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=TK-530 выгрузка закрытых суток коллектора Binance на Storage Box
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/bin/python3 /root/day-upload/day_upload.py --exchange binance --src /data/bnws --quiet-s 600 --bwlimit 20000
