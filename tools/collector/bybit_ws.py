@@ -76,7 +76,7 @@ class Adapter:
     top_exclude = 10
     kinds = ("book", "trade", "mark")
     trade_ids_consecutive = False  # a = seq*TRADE_SLOT + номер в пачке: растёт, но не подряд
-    sub_period_s = 0.1
+    sub_period_s = 0.2  # <= 5 подписок/с на соединение (лимит Bybit по документации 10 /с; как у Binance)
 
     def __init__(self):
         self.mark = {}  # символ -> {поле: значение, "ts": ts последнего применённого кадра}: tickers шлёт дельты, запись m — полное состояние
