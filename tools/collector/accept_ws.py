@@ -22,6 +22,18 @@ def read_file(path):
     return text if text.endswith("\n") else text[: text.rfind("\n") + 1]  # открытый файл (или обрыв записи) — без неполной последней строки
 
 
+def disk_stream(rows):
+    """Поток типа на диске по всем символам и шардам: лаг записи (приём − время биржи), лаг по 10-с корзинам (p50 корзины), пауза между соседними записями."""
+    rows.sort()
+    lags = [lg for _, lg in rows]
+    buckets = {}
+    for rx, lg in rows:
+        buckets.setdefault(rx // 10_000, []).append(lg)
+    p50s = [stats.percentile(v, 0.5) for v in buckets.values()]
+    return {"n": len(rows), "lag_ms": {"p50": stats.percentile(lags, 0.5), "p99": stats.percentile(lags, 0.99), "max": max(lags, default=None)},
+            "lag_p50_10s_max": max(p50s, default=None), "max_pause_ms": max((b[0] - a[0] for a, b in zip(rows, rows[1:])), default=None)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exchange", required=True)
@@ -49,6 +61,7 @@ def main():
     ad = importlib.import_module(f"{a.exchange}_ws").Adapter()
     rec, gaps, size = {"b": 0, "t": 0, "m": 0, "g": 0, "c": 0, "r": 0}, {"book_u_not_increasing": 0, "trade_a_not_increasing": 0, "trade_a_gaps": 0, "trade_a_gap_ids": 0, "mark_E_not_increasing": 0}, 0
     pings, raw_samples, ids = [], [], {}
+    stream = {"b": [], "t": [], "m": []}  # тип -> (приём мс, лаг мс): поток на диске после слияния путей (что получит читатель)
     for p in sorted(glob.glob(os.path.join(a.root, "20*", "*.tsv.zst"))):
         if os.path.getmtime(p) * 1000 < a.since_ms:
             continue  # файл закончен до окна (прежний запуск, возможно прежнего формата): записей окна в нём нет
@@ -64,6 +77,7 @@ def main():
                 if len(raw_samples) < 5:
                     raw_samples.append(r["frame"][:200])
             elif r["t"] in ("b", "t", "m"):
+                stream[r["t"]].append((r["rx_ns"] // 1_000_000, r["rx_ns"] // 1_000_000 - r["E"]))
                 key, name = (r["u"], "book_u_not_increasing") if r["t"] == "b" else (r["a"], "trade_a_not_increasing") if r["t"] == "t" else (r["E"], "mark_E_not_increasing")
                 if (r["t"], r["s"]) in last and key <= last[(r["t"], r["s"])]:
                     gaps[name] += 1
@@ -77,9 +91,10 @@ def main():
                 if y != x + 1:
                     gaps["trade_a_gaps"] += 1
                     gaps["trade_a_gap_ids"] += y - x - 1
+    disk = {t: disk_stream(v) for t, v in stream.items()}
     health = json.load(open(os.environ.get("HEALTH", ad.health_default)))
     out = {"window_ms": [a.since_ms, a.until_ms], "events": {k: len(v) for k, v in ev.items()}, "events_detail": {k: v[:20] for k, v in ev.items() if k != "connected" and k != "subscribed"},
-           "shards": st, "records": rec, "sequence_checks": gaps, "ping_ms": {"n": len(pings), "p50": stats.percentile(pings, 0.5), "p99": stats.percentile(pings, 0.99), "max": max(pings, default=None)},
+           "disk_stream": disk, "shards": st, "records": rec, "sequence_checks": gaps, "ping_ms": {"n": len(pings), "p50": stats.percentile(pings, 0.5), "p99": stats.percentile(pings, 0.99), "max": max(pings, default=None)},
            "raw_samples": raw_samples, "disk_bytes": size, "health": health}
     with open(a.out, "w") as f:
         json.dump(out, f, indent=1)

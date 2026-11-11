@@ -226,6 +226,43 @@ def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypat
     assert [(e["ev"], e["old_session"], e["new_session"]) for e in evs if e["ev"] == "path_switch"] == [("path_switch", s1, s1 + 1)]
 
 
+def test_two_lanes_keep_a_warm_spare_and_replace_only_the_degraded_one(tmp_path, monkeypatch):
+    """В-140: lanes=2 — два пути сразу; испортился путь одной линии -> заменяется только она, вторая живёт, поток не прерывается."""
+    monkeypatch.setattr(shard_mod, "OVERLAP_S", 0.05)
+    monkeypatch.setattr(stats, "STATS_PERIOD_S", 3600)
+    shard = shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", ["a"], run_id=7, lanes=2)
+    log = []
+
+    async def fake_forever(seq, accepted=None):
+        log.append(("open", seq))
+        try:
+            if accepted is not None:
+                await asyncio.sleep(0.1)
+                accepted.set()
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            log.append(("closed", seq))
+            raise
+
+    monkeypatch.setattr(shard, "run_session_forever", fake_forever)
+
+    async def go():
+        task = asyncio.create_task(shard.run())
+        await asyncio.sleep(1.2)
+        assert log == [("open", 7), ("open", 7 + shard_mod.LANE_SEQ_STEP)]  # обе линии открыты сразу, номера не пересекаются
+        shard.watch.degraded.add(7)
+        await asyncio.sleep(2.5)
+        before_stop.extend(log)  # дальше — закрытие всего при остановке
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    before_stop = []
+    asyncio.run(go())
+    assert ("open", 8) in before_stop and ("closed", 7) in before_stop
+    assert ("closed", 7 + shard_mod.LANE_SEQ_STEP) not in before_stop  # вторая линия не тронута
+
+
 def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
     """E-024 в новой форме (В-142): шард пишет один файл на запуск и сутки при любом числе попыток и соединений; повторённые соединением кадры — дубли, не пишутся."""
     monkeypatch.setattr(sess, "PING_PERIOD_S", 3600)
