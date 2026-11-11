@@ -50,6 +50,8 @@ def main():
     rec, gaps, size = {"b": 0, "t": 0, "m": 0, "g": 0, "c": 0, "r": 0}, {"book_u_not_increasing": 0, "trade_a_not_increasing": 0, "trade_a_gaps": 0, "trade_a_gap_ids": 0, "mark_E_not_increasing": 0}, 0
     pings, raw_samples, ids = [], [], {}
     for p in sorted(glob.glob(os.path.join(a.root, "20*", "*.tsv.zst"))):
+        if os.path.getmtime(p) * 1000 < a.since_ms:
+            continue  # файл закончен до окна (прежний запуск, возможно прежнего формата): записей окна в нём нет
         size += os.path.getsize(p)
         last = {}  # (тип, символ) -> ключ порядка: писатель снимает дубли, поток символа строго растёт (В-142)
         for r in bw.decode(read_file(p)):
