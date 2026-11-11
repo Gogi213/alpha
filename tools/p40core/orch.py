@@ -376,8 +376,7 @@ def write_age(core, base, vnames, a, b, env, venvs):
     shifted = [n for n in vnames if "P40_SHIFT_B_MS" in venvs[n]]
     plain = [""] + [n for n in vnames if n not in shifted]
     tp = t0s(plain)
-    agea = run_l1_age(core, a, tp, env)
-    groups = [(plain, tp, run_l1_age(core, b, tp, env), agea)]
+    groups = [(plain, tp, run_l1_age(core, b, tp, env), run_l1_age(core, a, tp, env))] if tp else []   # --no-base: features.csv базы нет, t0 пусты
     for n in shifted:
         tk = t0s([n])
         groups.append(([n], tk, run_l1_age(core, b, tk, dict(env, **venvs[n]), shift_b=True), run_l1_age(core, a, tk, env)))
@@ -643,13 +642,14 @@ def job(args, asset, days, pairs, outlog):
                 continue
             if True:   # TK-522: aux.csv нужен assemble у КАЖДОЙ пары, в т.ч. Bybit×Gate (оба корня «-» -> пустые признаки, srcA=srcB=0); раньше aux не писали -> assemble падал на FileNotFoundError
                 ra, rb = (",".join(f"{wd}/raw/{day}/chft/{p['ex' + s]}_futures/{day}" for day in days) if p["ex" + s] in CHFT else "-" for s in "AB")   # Bybit/Gate: рядов mark/OI/ликвидаций на боксе нет -> «-»
-                rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", base, ra, p["symA"], rb, p["symB"]], log=log)
-                if rc != 0:
-                    raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
-                c_aux += c
-                t_aux += w
-                collect_auxholes(args.out, f"{base}.auxholes.csv")
-                for vname in vruns:   # assemble читает `<base>.aux.csv`; aux не зависит от варианта ядра (ряды рынка, не заявки)
+                for ab in ([f"{base}.{v}" for v in vruns] if args.no_base else [base]):   # --no-base: базового features.csv нет — aux по t_start каждого варианта (у сдвинутого K1 они свои)
+                    rc, w, c = run([sys.executable, f"{HERE}/aux_feats.py", ab, ra, p["symA"], rb, p["symB"]], log=log)
+                    if rc != 0:
+                        raise RuntimeError(f"aux rc {rc} пара {p['pair']}")
+                    c_aux += c
+                    t_aux += w
+                    collect_auxholes(args.out, f"{ab}.auxholes.csv")
+                for vname in ([] if args.no_base else vruns):   # assemble читает `<base>.<вариант>.aux.csv`; без --no-base aux реального — копия (ряды рынка, но t_start у варианта свои: aux_variant.py пересчитывает)
                     shutil.copy(f"{base}.aux.csv", f"{base}.{vname}.aux.csv")
             if args.age:   # Судья 10.11 §2 п. 2: возраст лучших цен на t0 обеих ног — для assemble --stale-smax (L1 ног ещё в shm)
                 write_age(CORE, base, vruns, a, b, env, dict(args.variants))
@@ -684,7 +684,7 @@ def main():
     ap.add_argument("--n-usdt", type=float, default=1000.0)
     ap.add_argument("--validity", default="", help="validity.csv.gz G0 (через запятую): негодные часы ног -> P40_HOLES пары + P40_TRUNC=1 (усечение §2.2); без флага усечения нет")
     ap.add_argument("--naive-only", action="store_true", help="TK-522 (В-125…В-127): ядро без проходов 2–4 (4 аргумента) и с P40_NAIVE=1 — выход <база>[.k2.k2|.k1p60].naive.csv (цены/размеры сторон ног на входе, выходе, пике; pnl на t0+600 с и на конец данных); без lots/aux/age/specs; сборка — naive_collect.py")
-    ap.add_argument("--no-base", action="store_true", help="TK-522 (Судья 11.11): только --naive-only и с --variant — базовый проход ядра пропустить (досчёт варианта, напр. K1 −60 с: k1m60:P40_SHIFT_B_MS=-60000); без --variant — отказ")
+    ap.add_argument("--no-base", action="store_true", help="TK-522 (Судья 11.11): с --variant — базовый проход ядра пропустить (досчёт варианта, напр. K1 −60 с: k1m60:P40_SHIFT_B_MS=-60000; с --naive-only — только naive.csv, иначе форма d1v4 с aux по t_start варианта); без --variant — отказ")
     ap.add_argument("--age", action="store_true", help="TK-522 (Судья 10.11 §2 п. 2): возраст лучших цен обеих ног на t0 эпизодов -> <база>[.<вариант>].age.csv (p40core age); assemble --stale-smax помечает эпизоды stale")
     ap.add_argument("--validity-l1", action="store_true", help="TK-522 (Судья 10.11 §2): validity по L1 каждой ноги задания (p40core validity) -> <out>/validity_l1.csv; негодные часы -> P40_HOLES; заменяет G0-таблицу и --validity-strict (покрытие 100 % по построению)")
     ap.add_argument("--validity-strict", action="store_true", help="П-40 §16.5: покрытие validity 100 % (нога, час) плана — иначе отказ до счёта (код 3, список в <out>/validity_gaps.csv); требует --validity")
@@ -705,8 +705,8 @@ def main():
         if not name or not kv or not name.replace("_", "").isalnum():
             sys.exit(f"--variant {v!r}: ожидалось ИМЯ:К=З[,К=З]")
         args.variants.append((name, dict(x.split("=", 1) for x in kv.split(","))))
-    if args.no_base and not (args.naive_only and args.variants):
-        sys.exit("--no-base: нужны --naive-only и хотя бы один --variant")
+    if args.no_base and not args.variants:
+        sys.exit("--no-base: нужен хотя бы один --variant")
     os.makedirs(args.out, exist_ok=True)
     if args.validity_strict and not args.validity:
         sys.exit("--validity-strict требует --validity")
