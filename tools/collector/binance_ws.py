@@ -11,6 +11,7 @@ import asyncio
 import json
 import multiprocessing as mp
 import os
+import signal
 import sys
 import time
 import urllib.request
@@ -27,6 +28,9 @@ OVERLAP_S = 20
 STATS_PERIOD_S = 10
 FLUSH_PERIOD_S = 10  # кадр на диске не реже 10 с
 LAG_SAMPLE = 64  # разбирать каждый N-й кадр для отставания
+LAG_LIMIT_MS = 2000  # назначаемое (подтвердить): p50 отставания выше — соединение пересоздаётся (замер: норма ≈ RTT/2 ≈ 230 мс)
+LAG_BAD_WINDOWS = 2  # подряд окон STATS_PERIOD_S выше LAG_LIMIT_MS
+LAG_SKIP_WINDOWS = 2  # окна после подключения не считаются: снапшот подписки несёт старый E
 
 
 def select_pool(symbols, tickers, min_qv=MIN_QUOTE_VOLUME, top_exclude=TOP_EXCLUDE):
@@ -127,6 +131,10 @@ class Shard:
         self.last_rx = None
         self.lags = []
         self.cpu0 = time.process_time()
+        self.lag_limit_ms = LAG_LIMIT_MS
+        self.age_windows = 0
+        self.lag_bad = 0
+        self.kick = False
 
     def event(self, **kw):
         kw.update(ts_ms=int(time.time() * 1000), shard=self.name)
@@ -141,6 +149,7 @@ class Shard:
         try:
             async with websockets.connect(url, max_size=None, ping_interval=None, compression=None) as ws:
                 self.event(ev="connected", session=seq, url=url)
+                self.age_windows, self.lag_bad, self.kick = 0, 0, False
                 for i in range(0, len(self.streams), SUB_BATCH):
                     await ws.send(json.dumps({"method": "SUBSCRIBE", "params": self.streams[i : i + SUB_BATCH], "id": i + 1}))
                     await asyncio.sleep(SUB_PERIOD_S)
@@ -158,6 +167,9 @@ class Shard:
                     n += 1
                     if n % LAG_SAMPLE == 0:
                         self.sample_lag(frame, rx)
+                    if self.kick:
+                        self.event(ev="lag_reconnect", session=seq, limit_ms=self.lag_limit_ms)
+                        break
         finally:
             w.close()
 
@@ -202,6 +214,14 @@ class Shard:
             }
             with open(self.stats_path, "a") as f:
                 f.write(json.dumps(line) + "\n")
+            self.age_windows += 1
+            p50 = line["lag_p50_ms"]
+            if self.age_windows > LAG_SKIP_WINDOWS and p50 is not None and p50 > self.lag_limit_ms:
+                self.lag_bad += 1
+            else:
+                self.lag_bad = 0
+            if self.lag_bad >= LAG_BAD_WINDOWS:
+                self.kick = True
             self.msgs = self.bytes = 0
             self.max_gap = 0.0
             self.lags = []
@@ -232,7 +252,16 @@ def fetch_json(path):
 
 def shard_main(root, name, endpoint, streams):
     sh = Shard(root, name, endpoint, streams)
-    asyncio.run(sh.run())
+
+    async def amain():
+        task = asyncio.current_task()
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)  # остановка: закрыть часовые файлы
+        try:
+            await sh.run()
+        except asyncio.CancelledError:
+            sh.event(ev="stopped")
+
+    asyncio.run(amain())
 
 
 def main():
