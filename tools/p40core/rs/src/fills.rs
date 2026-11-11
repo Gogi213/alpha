@@ -41,6 +41,9 @@ struct Sim<'a> {
     book: Book,
     /// нога без сделок (Bybit ob200, Gate): убыль объёма на уровне заявки считается сделкой агрессора (верхняя граница — отмены тоже «исполняют»)
     drain: bool,
+    /// нога без сделок, нижняя граница (П-40 §16.2): исполнение только при проходе цены сквозь уровень заявки (лучший bid ниже цены покупки / лучший ask выше цены продажи);
+    /// уход уровня из L1 «вверх» (бит2) и заявка с замороженной очередью исполнением не считаются
+    through: bool,
     jobs: &'a mut [Job],
     ord: Vec<usize>,
     next: usize,
@@ -164,6 +167,20 @@ impl Sim<'_> {
                 }
             }
         }
+        if self.through && !rows.snap(i) && rows.group_end(i) && !self.active.is_empty() {
+            if let Some((b, a)) = self.book.best() {
+                let mut k = 0;
+                while k < self.active.len() {
+                    let job = &self.jobs[self.active[k]];
+                    let passed = if job.buy { b < job.price } else { a > job.price };
+                    if passed && job.froz.is_none() {
+                        self.fill(k, t);
+                    } else {
+                        k += 1;
+                    }
+                }
+            }
+        }
         if !NO_CROSS.load(Ordering::Relaxed) && !rows.snap(i) && rows.group_end(i) && !self.active.is_empty() {
             if let Some((b, a)) = self.book.best() {
                 if b < a {
@@ -185,9 +202,15 @@ impl Sim<'_> {
 
 /// Проигрывает книгу ноги `dir` и сделки `trades` (по времени), проставляет `fill`/`front0` в `jobs`; `drain` — режим «убыль объёма» для ноги без сделок.
 pub fn run(dir: &str, trades: &[Tr], drain: bool, jobs: &mut [Job]) {
+    run_mode(dir, trades, drain, false, jobs)
+}
+
+/// То же, что `run`, плюс `through` — режим «проход цены сквозь уровень» для ноги без сделок (нижняя граница, §16.2); `drain` и `through` вместе не задаются.
+pub fn run_mode(dir: &str, trades: &[Tr], drain: bool, through: bool, jobs: &mut [Job]) {
+    assert!(!(drain && through), "drain и through взаимоисключающие");
     let mut ord: Vec<usize> = (0..jobs.len()).collect();
     ord.sort_by_key(|&j| jobs[j].tp);
-    let mut s = Sim { book: Book::default(), drain, jobs, ord, next: 0, active: vec![] };
+    let mut s = Sim { book: Book::default(), drain, through, jobs, ord, next: 0, active: vec![] };
     let mut ti = 0usize;
     for h in 0..crate::book::hours() {
         let Some(rows) = Rows::load(dir, h) else { continue };
@@ -302,6 +325,45 @@ mod tests {
         let mut sell = [Job::new(false, 500, 10_000, 11.0, 1.0)];
         run(&dir2, &[], true, &mut sell);
         assert_eq!((sell[0].front0, sell[0].fill), (50.0, 3000));
+    }
+
+    #[test]
+    fn through_mode_fills_only_when_price_passes_the_level() {
+        // 1. покупка на 10: убыль объёма 100 -> 30 -> 5 без ухода цены — не исполнение; уровень снят, бид 9.9 лучший -> проход, исполнение в t=3000
+        let mut rows = SNAP.to_vec();
+        rows.extend([(1000, 2, 10.0, 30.0, 2), (2000, 3, 10.0, 5.0, 2), (3000, 4, 10.0, 0.0, 2)]);
+        let dir = write_rows("th1", &rows);
+        let mut j = [Job::new(true, 500, 10_000, 10.0, 1.0)];
+        run_mode(&dir, &[], false, true, &mut j);
+        assert_eq!((j[0].front0, j[0].fill), (100.0, 3000));
+        let mut j = [Job::new(true, 500, 2500, 10.0, 1.0)];
+        run_mode(&dir, &[], false, true, &mut j);
+        assert_eq!(j[0].fill, -1, "до снятия уровня исполнения нет");
+        // 2. цена ушла «вверх»: новый бид 10.1 лучше нашего, бид 10 остался — не проход, исполнения нет
+        let mut up = SNAP.to_vec();
+        up.extend([(1000, 2, 10.1, 5.0, 2), (2000, 3, 10.1, 0.0, 2)]);
+        let dir_up = write_rows("th2", &up);
+        let mut j = [Job::new(true, 500, 10_000, 10.0, 1.0)];
+        run_mode(&dir_up, &[], false, true, &mut j);
+        assert_eq!(j[0].fill, -1);
+        // 3. продажа на 11: аск 11 снят, ближайший аск 11.2 выше -> проход, исполнение; ask 10.9 (внутрь) — нет
+        let mut sell = SNAP.to_vec();
+        sell.extend([(500, 2, 11.2, 7.0, 0), (1000, 3, 11.0, 0.0, 0)]);
+        let dir_s = write_rows("th3", &sell);
+        let mut j = [Job::new(false, 100, 10_000, 11.0, 1.0)];
+        run_mode(&dir_s, &[], false, true, &mut j);
+        assert_eq!(j[0].fill, 1000);
+        let mut inside = SNAP.to_vec();
+        inside.extend([(500, 2, 10.9, 7.0, 0)]);
+        let dir_i = write_rows("th4", &inside);
+        let mut j = [Job::new(false, 100, 10_000, 11.0, 1.0)];
+        run_mode(&dir_i, &[], false, true, &mut j);
+        assert_eq!(j[0].fill, -1);
+        // 4. L1: уход уровня из L1 «вверх» (бит2) и возврат — не исполнение; замороженная очередь проходом не исполняется
+        let dir_l1 = write_rows("th5", &l1_rows(100.0));
+        let mut j = [Job::new(true, 500, 10_000, 10.0, 1.0)];
+        run_mode(&dir_l1, &[], false, true, &mut j);
+        assert_eq!(j[0].fill, -1);
     }
 
     // --- L1-файл (TK-515 §2.3): бит2 (flags 4) = уровень вышел из L1, не удалён ---

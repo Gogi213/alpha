@@ -7,7 +7,11 @@ mod fills;
 mod queue;
 use book::{load_trades, Book, Rows};
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+
+/// `P40_NAIVE` (TK-522, В-125…В-127): ряды ног несут размеры лучших цен, рядом с таблицами пишется `<out>.naive.csv`; не задан — выходы прежние байт в байт.
+static NAIVE: AtomicBool = AtomicBool::new(false);
 
 const THETAS: [f64; 5] = [5.04, 12.6, 25.2, 50.0, 100.0];
 const L_S: usize = 21600;
@@ -25,9 +29,9 @@ struct Ctx<'a> {
     lot: [f64; 2],
     /// шаг количества инструмента для `is_filled` (в hftbacktest — `depth.lot_size()`, не размер заявки); умолчание ≈0 = «полное исполнение при front < 0» эталона TK-501
     step: [f64; 2],
-    /// у ноги нет файлов сделок (Bybit ob200, Gate): П-40 §2 — очередь по убыли объёма (`drain`) либо вне мейкер-анализа (`maker_off`, умолчание), `P40_NOTRADE=drain|skip`
+    /// у ноги нет файлов сделок (Bybit ob200, Gate): П-40 §2 / §16.2 — очередь по убыли объёма (`drain`, верхняя граница), по проходу цены сквозь уровень (`through`, нижняя) либо вне мейкер-анализа (`maker_off`, умолчание), `P40_NOTRADE=drain|through|skip`
     no_tr: [bool; 2],
-    drain: bool,
+    nt: NoTrade,
     l_ms: i64,
     /// жизнь заявки входа/страховки (мс); умолчание `T_LIFE_MS`, список вариантов — `P40_VARIANTS`
     t_life: i64,
@@ -47,11 +51,15 @@ struct Valid {
 impl Ctx<'_> {
     /// Мейкер-анализ выключен: у одной из ног нет сделок и выбран режим `skip` — заявки на такой ноге не ставятся, исход эпизода `off_maker` (net не считается).
     fn maker_off(&self) -> bool {
-        !self.drain && (self.no_tr[0] || self.no_tr[1])
+        self.nt == NoTrade::Skip && (self.no_tr[0] || self.no_tr[1])
     }
     /// Режим `убыль объёма` для ноги `i`.
     fn drain_leg(&self, i: usize) -> bool {
-        self.drain && self.no_tr[i]
+        self.nt == NoTrade::Drain && self.no_tr[i]
+    }
+    /// Режим `проход цены сквозь уровень` для ноги `i`.
+    fn through_leg(&self, i: usize) -> bool {
+        self.nt == NoTrade::Through && self.no_tr[i]
     }
     /// Момент вступления отмены заявок входа эпизода; при усечении (`P40_TRUNC`) — не позже последней годной мс его интервала (`vend − 1`, §2.2):
     /// исполнение входа на негодных данных (дыра, после конца данных) — не исполнение.
@@ -82,12 +90,24 @@ fn parse_variants(v: Option<&str>, base_l: i64) -> Vec<(i64, i64)> {
     })
 }
 
-/// `P40_NOTRADE`: `drain` — true, `skip`/не задан — false, иное — отказ.
-fn parse_notrade(v: Option<&str>) -> bool {
+/// Исполнение мейкера на ноге без сделок (П-40 §2, §16.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum NoTrade {
+    /// заявки на ноге не ставятся, исход эпизода `off_maker`
+    Skip,
+    /// убыль объёма на уровне заявки = сделка (верхняя граница: отмены тоже «исполняют»)
+    Drain,
+    /// исполнение только при проходе цены сквозь уровень заявки (нижняя граница)
+    Through,
+}
+
+/// `P40_NOTRADE`: `drain` / `through` / `skip` (не задан = `skip`), иное — отказ.
+fn parse_notrade(v: Option<&str>) -> NoTrade {
     match v {
-        None | Some("skip") => false,
-        Some("drain") => true,
-        Some(o) => panic!("P40_NOTRADE: ожидалось skip|drain, получено {o}"),
+        None | Some("skip") => NoTrade::Skip,
+        Some("drain") => NoTrade::Drain,
+        Some("through") => NoTrade::Through,
+        Some(o) => panic!("P40_NOTRADE: ожидалось skip|drain|through, получено {o}"),
     }
 }
 
@@ -105,15 +125,46 @@ impl Valid {
     }
 }
 
+/// Файл `P40_HOLES` (строки `начало_мс,конец_мс`) -> негодные интервалы по возрастанию.
+fn read_holes(f: Option<String>) -> Vec<(i64, i64)> {
+    f.map_or(vec![], |f| {
+        let mut h: Vec<(i64, i64)> = std::fs::read_to_string(f)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let (s, e) = l.split_once(',').unwrap();
+                (s.trim().parse().unwrap(), e.trim().parse().unwrap())
+            })
+            .collect();
+        h.sort_unstable();
+        h
+    })
+}
+
 struct Leg {
     t: Vec<i64>,
     b: Vec<f64>,
     a: Vec<f64>,
+    /// количество на лучшем bid / ask (единицы файла L1, без множителя контракта); заполняются только при `P40_NAIVE`
+    bq: Vec<f64>,
+    aq: Vec<f64>,
     crossed: u64,
     nonmono: u64,
 }
 
 impl Leg {
+    /// Возраст лучших цен в момент `t` (TK-522, Судья 10.11 §2 п. 2): `t` − время последней смены `(bid, ask)` среди событий ≤ `t`, мс; нет событий ≤ `t` → −1. Тот же ряд, что считает ядро (`leg_series`).
+    fn age_at(&self, ts: &[i64]) -> Vec<i64> {
+        let chg: Vec<usize> = (0..self.t.len()).filter(|&i| i == 0 || (self.b[i], self.a[i]) != (self.b[i - 1], self.a[i - 1])).collect();
+        ts.iter()
+            .map(|&t| {
+                let k = chg.partition_point(|&i| self.t[i] <= t);
+                if k == 0 { -1 } else { t - self.t[chg[k - 1]] }
+            })
+            .collect()
+    }
+
     /// Лучшие (бид, аск) после всех событий со временем ≤ `t`.
     fn bbo(&self, t: i64) -> Option<(f64, f64)> {
         let k = self.t.partition_point(|&u| u <= t);
@@ -121,9 +172,51 @@ impl Leg {
     }
 }
 
+/// П-40 §2.3/§16.5 (TK-522): годность часов ноги по L1 — той же книге, что считается (§16.1). По каждому часовому файлу `<ЧЧ>.l1.bin` каталога: число состояний (конец группы с лучшими ценами),
+/// из них кроссированных (`bid ≥ ask`, исключаются как в `leg_series`), возраст лучших цен — интервалы между сменами `(bid, ask)` по `event_time`: p99 и максимум, мс. Часа без файла в выводе нет.
+fn l1_validity(dir: &str) -> Vec<(usize, usize, usize, i64, i64)> {
+    let mut out = vec![];
+    for h in 0..crate::book::hours() {
+        let Some(rows) = Rows::load(dir, h) else { continue };
+        let mut book = Book::default();
+        let (mut n, mut crossed) = (0usize, 0usize);
+        let (mut last_px, mut last_t) = ((f64::NAN, f64::NAN), -1i64);
+        let mut ages: Vec<i64> = vec![];
+        for i in 0..rows.len() {
+            if rows.snap_start(i) {
+                book.clear();
+            }
+            book.set(rows.is_bid(i), rows.px(i), rows.qt(i));
+            if !rows.group_end(i) {
+                continue;
+            }
+            if let Some((bb, aa)) = book.best() {
+                n += 1;
+                if bb >= aa {
+                    crossed += 1;
+                    continue;
+                }
+                if (bb, aa) != last_px {
+                    let te = rows.et(i);
+                    if last_t >= 0 && te >= last_t {
+                        ages.push(te - last_t);
+                    }
+                    last_px = (bb, aa);
+                    last_t = te;
+                }
+            }
+        }
+        ages.sort_unstable();
+        let p99 = ages.get(((ages.len() as f64) * 0.99) as usize).or(ages.last()).copied().unwrap_or(0);
+        out.push((h, n, crossed, p99, ages.last().copied().unwrap_or(0)));
+    }
+    out
+}
+
 fn leg_series(dir: &str) -> Leg {
     let mut book = Book::default();
-    let mut leg = Leg { t: vec![], b: vec![], a: vec![], crossed: 0, nonmono: 0 };
+    let mut leg = Leg { t: vec![], b: vec![], a: vec![], bq: vec![], aq: vec![], crossed: 0, nonmono: 0 };
+    let naive = NAIVE.load(Ordering::Relaxed);
     let mut last_t = -1i64;
     for h in 0..crate::book::hours() {
         let Some(rows) = Rows::load(dir, h) else { continue };
@@ -146,13 +239,22 @@ fn leg_series(dir: &str) -> Leg {
                     te = last_t;
                 }
                 last_t = te;
+                let (bq, aq) = if naive { (book.qty(true, bb), book.qty(false, aa)) } else { (0.0, 0.0) };
                 if leg.t.last() == Some(&te) {
                     *leg.b.last_mut().unwrap() = bb;
                     *leg.a.last_mut().unwrap() = aa;
+                    if naive {
+                        *leg.bq.last_mut().unwrap() = bq;
+                        *leg.aq.last_mut().unwrap() = aq;
+                    }
                 } else {
                     leg.t.push(te);
                     leg.b.push(bb);
                     leg.a.push(aa);
+                    if naive {
+                        leg.bq.push(bq);
+                        leg.aq.push(aq);
+                    }
                 }
             }
         }
@@ -187,44 +289,94 @@ fn x_series(a: &Leg, b: &Leg) -> (Vec<i64>, Vec<f64>) {
     (tu, x)
 }
 
-fn level_grid(tu: &[i64], x: &[f64], t0: i64, t1: i64) -> Vec<f64> {
+fn level_grid(tu: &[i64], x: &[f64], t0: i64, t1: i64, holes: &[(i64, i64)]) -> Vec<f64> {
     let ns = (t1 - t0 + 1) as usize;
     let mut g = vec![f64::NAN; ns];
-    let mut p = 0usize;
+    let (mut p, mut hi) = (0usize, 0usize);
     for (j, gj) in g.iter_mut().enumerate() {
         let ts = (t0 + j as i64) * 1000;
         while p < tu.len() && tu[p] <= ts {
             p += 1;
         }
+        while hi < holes.len() && holes[hi].0 <= ts {
+            hi += 1;
+        }
         if p > 0 {
-            *gj = x[p - 1];
+            // прогрев после дыры (TK-522, П-40 §2.2): в негодном интервале и до первого события после его конца ряд не определён -> уровень L считается заново, пока 6-часовое окно не покрыто годными данными целиком
+            let stale = hi > 0 && tu[p - 1] < holes[hi - 1].1;
+            if !stale {
+                *gj = x[p - 1];
+            }
         }
     }
+    window_levels(&g)
+}
+
+/// Скользящая медиана окна `g[j-L_S-1+1 ..= j-GAP_S]` (TK-522, В-170): отсортированный `Vec` со сдвигом на каждую секунду (`insert`/`remove` по ~85 КБ, memmove = 65 % времени ядра на паре) заменён счётчиками по рангам значений (Fenwick: сложение/удаление и k-я порядковая статистика за O(log n)).
+/// Медиана — тот же элемент окна (то же значение, то же среднее двух средних), результат побитово прежний (тест `window_levels_matches_sorted_vec`).
+fn window_levels(g: &[f64]) -> Vec<f64> {
+    let ns = g.len();
+    let mut vals: Vec<f64> = g.iter().copied().filter(|v| v == v).collect();
+    vals.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    vals.dedup();
+    let nv = vals.len();
+    // ранг каждого значения сетки (u32::MAX — NaN); соседние равные значения не ищутся заново
+    let mut rk = vec![u32::MAX; ns];
+    let mut prev = (f64::NAN, u32::MAX);
+    for (j, &v) in g.iter().enumerate() {
+        if v == v {
+            if v != prev.0 {
+                prev = (v, vals.partition_point(|&w| w < v) as u32);
+            }
+            rk[j] = prev.1;
+        }
+    }
+    let mut tree = vec![0i32; nv + 1];
+    let top = if nv == 0 { 0 } else { 1usize << (usize::BITS - 1 - nv.leading_zeros()) };
+    let add = |tree: &mut Vec<i32>, r: u32, d: i32| {
+        let mut i = r as usize + 1;
+        while i <= nv {
+            tree[i] += d;
+            i += i & i.wrapping_neg();
+        }
+    };
+    // k-й (с 0) по порядку элемент окна -> индекс в `vals`
+    let kth = |tree: &Vec<i32>, mut k: i32| -> usize {
+        let (mut pos, mut pw) = (0usize, top);
+        while pw > 0 {
+            if pos + pw <= nv && tree[pos + pw] <= k {
+                pos += pw;
+                k -= tree[pos];
+            }
+            pw >>= 1;
+        }
+        pos
+    };
     let mut lev = vec![f64::NAN; ns];
-    let mut win: Vec<f64> = Vec::with_capacity(L_S);
+    let mut wlen = 0usize;
     let mut nnan = 0i64;
     for j in 0..ns {
         if j >= GAP_S {
-            let v = g[j - GAP_S];
-            if v == v {
-                let k = win.partition_point(|&w| w < v);
-                win.insert(k, v);
+            let r = rk[j - GAP_S];
+            if r != u32::MAX {
+                add(&mut tree, r, 1);
+                wlen += 1;
             } else {
                 nnan += 1;
             }
         }
         if j > L_S {
-            let v = g[j - L_S - 1];
-            if v == v {
-                let k = win.partition_point(|&w| w < v);
-                win.remove(k);
+            let r = rk[j - L_S - 1];
+            if r != u32::MAX {
+                add(&mut tree, r, -1);
+                wlen -= 1;
             } else {
                 nnan -= 1;
             }
         }
-        if j >= L_S && nnan == 0 && win.len() == L_S - GAP_S + 1 {
-            let m = win.len();
-            lev[j] = if m % 2 == 1 { win[m / 2] } else { (win[m / 2 - 1] + win[m / 2]) / 2.0 };
+        if j >= L_S && nnan == 0 && wlen == L_S - GAP_S + 1 {
+            let m = wlen;
+            lev[j] = if m % 2 == 1 { vals[kth(&tree, (m / 2) as i32)] } else { (vals[kth(&tree, (m / 2 - 1) as i32)] + vals[kth(&tree, (m / 2) as i32)]) / 2.0 };
         }
     }
     lev
@@ -454,8 +606,8 @@ fn fills_pass(out: &str, c: &Ctx, eps: &[Ep]) {
         }
         slot.push(s);
     }
-    fills::run(dirs[0], &c.tr[0], c.drain_leg(0), &mut ja);
-    fills::run(dirs[1], &c.tr[1], c.drain_leg(1), &mut jb);
+    fills::run_mode(dirs[0], &c.tr[0], c.drain_leg(0), c.through_leg(0), &mut ja);
+    fills::run_mode(dirs[1], &c.tr[1], c.drain_leg(1), c.through_leg(1), &mut jb);
     let mut o = String::from("theta,t0_ms,dir,t_th2_ms,tc_ms,sell_leg,front_sell,fill_sell_ms,imm_sell,front_buy,fill_buy_ms,imm_buy
 ");
     for (e, s) in eps.iter().zip(&slot) {
@@ -542,8 +694,8 @@ fn closing(out: &str, c: &Ctx, eps: &[Ep], jobs: [Vec<fills::Job>; 2], slot: &[[
             plans.push(Plan::Insure { sell_done, t_c, xp, j: x[li].len() - 1 });
         }
     }
-    fills::run(c.dirs[0], &c.tr[0], c.drain_leg(0), &mut x[0]);
-    fills::run(c.dirs[1], &c.tr[1], c.drain_leg(1), &mut x[1]);
+    fills::run_mode(c.dirs[0], &c.tr[0], c.drain_leg(0), c.through_leg(0), &mut x[0]);
+    fills::run_mode(c.dirs[1], &c.tr[1], c.drain_leg(1), c.through_leg(1), &mut x[1]);
     let mut o = String::from("theta,t0_ms,outcome,exit_ms,exit_kind,pnl_bps,fees_bps");
     o += if c.valid.on { ",trunc\n" } else { "\n" };
     let stat = fills::L1_STAT.load(std::sync::atomic::Ordering::Relaxed);
@@ -636,6 +788,65 @@ fn write_tables(out: &str, eps: &[Ep]) {
     std::fs::File::create(format!("{out}.path.csv")).unwrap().write_all(path.as_bytes()).unwrap();
 }
 
+/// `<out>.naive.csv` (TK-522, В-125…В-127; только при `P40_NAIVE`): по эпизоду — цены и размеры (единицы L1, без множителя контракта) тех сторон ног, на которых считается `pnl_end`
+/// (короткая нога S — аск, длинная L — бид, как в `Ep::step`), на входе t0, на выходе t_end и в t_peak; pnl на t0+600 с для не сошедшихся к H (закрывающая сторона на последнем состоянии ≤ t0+600 с)
+/// и на конец данных `t_last` для не сошедшихся вовсе. Нет значения — NaN. Ключ строки к `<out>` и `<out>.path.csv` — (theta, t0_ms).
+fn write_naive(out: &str, eps: &[Ep], la: &Leg, lb: &Leg, t_last: i64) {
+    const H_MS: i64 = 600_000;
+    let mut o = String::from(
+        "theta,t0_ms,dir,s_px0,s_q0,l_px0,l_q0,s_px1,s_q1,l_px1,l_q1,s_pxpk,s_qpk,l_pxpk,l_qpk,pnl_h600_bps,pnl_last_bps,t_last_ms,\
+         a_bid0,a_bidq0,a_ask0,a_askq0,b_bid0,b_bidq0,b_ask0,b_askq0,a_bid1,a_bidq1,a_ask1,a_askq1,b_bid1,b_bidq1,b_ask1,b_askq1,\
+         dma1_bps,dma5_bps,dma30_bps,dmb1_bps,dmb5_bps,dmb30_bps,age_a_ms,age_b_ms\n",
+    );
+    let t0s: Vec<i64> = eps.iter().map(|e| e.t0).collect();
+    let (age_a, age_b) = (la.age_at(&t0s), lb.age_at(&t0s));
+    // bid, размер bid, ask, размер ask ноги на последнем состоянии ≤ t (CEO 10.11: обе стороны обеих ног на t0 и t_end); нет состояния или рядов размеров — NaN
+    let quote = |l: &Leg, t: i64| -> [f64; 4] {
+        let k = l.t.partition_point(|&u| u <= t);
+        if k == 0 || l.aq.len() != l.t.len() { [f64::NAN; 4] } else { [l.b[k - 1], l.bq[k - 1], l.a[k - 1], l.aq[k - 1]] }
+    };
+    // сдвиг mid ноги за `dt` мс до t0, бпс: mid(≤ t0) против mid(≤ t0 − dt); нет состояния до t0 − dt — NaN
+    let dmid = |l: &Leg, t0: i64, dt: i64| -> f64 {
+        match (l.bbo(t0), l.bbo(t0 - dt)) {
+            (Some((b1, a1)), Some((b0, a0))) => 1e4 * ((b1 + a1) / (b0 + a0) - 1.0),
+            _ => f64::NAN,
+        }
+    };
+    for (i, e) in eps.iter().enumerate() {
+        // (цена S, размер S, цена L, размер L) на последнем состоянии каждой ноги ≤ t
+        let st = |t: i64| -> [f64; 4] {
+            let (ka, kb) = (la.t.partition_point(|&u| u <= t), lb.t.partition_point(|&u| u <= t));
+            if ka == 0 || kb == 0 || la.aq.len() != la.t.len() || lb.aq.len() != lb.t.len() {
+                return [f64::NAN; 4];
+            }
+            let (ia, ib) = (ka - 1, kb - 1);
+            if e.dir > 0 { [la.a[ia], la.aq[ia], lb.b[ib], lb.bq[ib]] } else { [lb.a[ib], lb.aq[ib], la.b[ia], la.bq[ia]] }
+        };
+        let pnl = |s: [f64; 4]| 1e4 * ((e.ea - s[0]) / e.ea + (s[2] - e.eb) / e.eb);
+        let (s0, s1, sp) = (st(e.t0), if e.t_end >= 0 { st(e.t_end) } else { [f64::NAN; 4] }, st(e.t_peak));
+        let late = e.t_end < 0 || e.t_end > e.t0 + H_MS;
+        let p600 = if late && e.t0 + H_MS <= t_last { pnl(st(e.t0 + H_MS)) } else { f64::NAN };
+        let plast = if e.t_end < 0 { pnl(st(t_last)) } else { f64::NAN };
+        o += &format!(
+            "{:?},{},{},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:.4},{:.4},{}",
+            e.theta, e.t0, e.dir, e.ea, s0[1], e.eb, s0[3], s1[0], s1[1], s1[2], s1[3], sp[0], sp[1], sp[2], sp[3], p600, plast, t_last
+        );
+        let tx = if e.t_end >= 0 { e.t_end } else { i64::MIN };   // нет выхода — NaN во всех колонках «1»
+        for (l, t) in [(la, e.t0), (lb, e.t0), (la, tx), (lb, tx)] {
+            for v in if t == i64::MIN { [f64::NAN; 4] } else { quote(l, t) } {
+                o += &format!(",{v:?}");
+            }
+        }
+        for l in [la, lb] {
+            for dt in [1_000, 5_000, 30_000] {
+                o += &format!(",{:.4}", dmid(l, e.t0, dt));
+            }
+        }
+        o += &format!(",{},{}\n", age_a[i], age_b[i]);
+    }
+    std::fs::File::create(format!("{out}.naive.csv")).unwrap().write_all(o.as_bytes()).unwrap();
+}
+
 /// Проходы 2–4 (заявки входа, выход/страховка/усечение, признаки) над таблицей эпизодов `eps`.
 fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
     // варианты (L, T_life) — за один проход по сырью: заявки/выходы считаются на каждый, эпизоды и признаки от них не зависят; один вариант — имена без суффикса
@@ -653,7 +864,7 @@ fn post_passes(out: &str, c: &mut Ctx, eps: &[Ep], variants: &[(i64, i64)]) {
 
 /// Контроли и усечение — только по флагам среды (умолчание = прежнее поведение):
 /// `P40_SHIFT_B_MS=<мс>` — K1, сдвиг времени ноги B (книга и сделки); `P40_K2=1` — K2, таблицы `<out>.k2*` (seed `P40_SEED`, умолчание 40; зазор `P40_K2_GAP_MS`, умолчание 600000 = П-40 §4.3);
-/// `P40_NOTRADE=drain|skip` — нога без файлов сделок (П-40 §2): `drain` — убыль объёма на уровне заявки = сделка (верхняя граница исполнений), `skip` (умолчание) — заявки на ноге не ставятся, исход `off_maker`;
+/// `P40_NOTRADE=drain|through|skip` — нога без файлов сделок (П-40 §2, §16.2): `drain` — убыль объёма на уровне заявки = сделка (верхняя граница исполнений), `through` — исполнение только при проходе цены сквозь уровень (нижняя), `skip` (умолчание) — заявки на ноге не ставятся, исход `off_maker`;
 /// `P40_TRUNC=1` — усечение §2.2 (+ колонка `trunc` в exits: 1 — конец данных, 2 — дыра), конец данных `P40_END_MS` (умолчание — последний момент рядов), дыры — файл `P40_HOLES` со строками `начало_мс,конец_мс`.
 fn main() {
     let a: Vec<String> = std::env::args().collect();
@@ -662,6 +873,26 @@ fn main() {
         let mut o = std::io::BufWriter::new(std::io::stdout().lock());
         for (t, b, bq, ak, aq) in book::l1_series(&a[2]) {
             writeln!(o, "{t} {b:?} {bq:?} {ak:?} {aq:?}").unwrap();
+        }
+        return;
+    }
+    // validity по L1 (TK-522, П-40 §16.5): `p40core validity <dir>` — строки `час состояний кроссированных age_p99_мс age_max_мс`
+    if a.get(1).map(String::as_str) == Some("validity") {
+        let mut o = std::io::BufWriter::new(std::io::stdout().lock());
+        for (h, n, c, p99, mx) in l1_validity(&a[2]) {
+            writeln!(o, "{h} {n} {c} {p99} {mx}").unwrap();
+        }
+        return;
+    }
+    // возраст лучших цен на моментах входа (TK-522, Судья 10.11 §2 п. 2): `p40core age <dir> <файл t0_мс по строке> [B]` (B + P40_SHIFT_B_MS — нога K1 со сдвигом) — строки `t0 возраст_мс` (−1 = нет состояний до t0)
+    if a.get(1).map(String::as_str) == Some("age") {
+        let ts: Vec<i64> = std::fs::read_to_string(&a[3]).unwrap().lines().filter_map(|l| l.trim().parse().ok()).collect();
+        if let (Some(v), Some("B")) = (std::env::var("P40_SHIFT_B_MS").ok(), a.get(4).map(String::as_str)) {   // K1: нога B со сдвигом, как в основном пути
+            book::SHIFTS.lock().unwrap().push((a[2].clone(), v.parse().unwrap()));
+        }
+        let mut o = std::io::BufWriter::new(std::io::stdout().lock());
+        for (t, g) in ts.iter().zip(leg_series(&a[2]).age_at(&ts)) {
+            writeln!(o, "{t} {g}").unwrap();
         }
         return;
     }
@@ -676,6 +907,7 @@ fn main() {
         }
         eprintln!("K1: сдвиг ноги B {sh} мс");
     }
+    NAIVE.store(env("P40_NAIVE").is_some(), Ordering::Relaxed);
     let la = leg_series(&a[2]);
     eprintln!("A {} состояний crossed {} nonmono {} {:.1}s", la.t.len(), la.crossed, la.nonmono, t.elapsed().as_secs_f64());
     let lb = leg_series(&a[3]);
@@ -683,23 +915,12 @@ fn main() {
     let (tu, x) = x_series(&la, &lb);
     eprintln!("объединённых моментов {} {:.1}s", tu.len(), t.elapsed().as_secs_f64());
     let (t0, t1) = (tu[0] / 1000, tu[tu.len() - 1] / 1000);
-    let lev = level_grid(&tu, &x, t0, t1);
+    let holes_in = if env("P40_TRUNC").is_some() { read_holes(env("P40_HOLES")) } else { vec![] };
+    let lev = level_grid(&tu, &x, t0, t1, if env("P40_HOLE_WARM").is_some() { &holes_in } else { &[] });
     eprintln!("уровень: определён на {} из {} с {:.1}s", lev.iter().filter(|v| v.is_finite()).count(), lev.len(), t.elapsed().as_secs_f64());
     let ds = d_series(&tu, &x, t0, &lev);
     let valid = if env("P40_TRUNC").is_some() {
-        let holes = env("P40_HOLES").map_or(vec![], |f| {
-            let mut h: Vec<(i64, i64)> = std::fs::read_to_string(f)
-                .unwrap()
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| {
-                    let (s, e) = l.split_once(',').unwrap();
-                    (s.trim().parse().unwrap(), e.trim().parse().unwrap())
-                })
-                .collect();
-            h.sort_unstable();
-            h
-        });
+        let holes = holes_in;
         Valid { on: true, end: env("P40_END_MS").map_or(tu[tu.len() - 1] + 1, |v| v.parse().unwrap()), holes }
     } else {
         Valid { on: false, end: i64::MAX, holes: vec![] }
@@ -710,6 +931,9 @@ fn main() {
         all.extend(episodes(&tu, &ds, th, &la, &lb).into_iter().filter(|e| valid.usable(e.t0)));
     }
     write_tables(&a[1], &all);
+    if NAIVE.load(Ordering::Relaxed) {
+        write_naive(&a[1], &all, &la, &lb, tu[tu.len() - 1]);
+    }
     let base_l: i64 = a.get(8).map_or(500, |v| v.parse().unwrap());
     let variants = parse_variants(env("P40_VARIANTS").as_deref(), base_l);
     let mut ctx = (a.len() >= 8).then(|| {
@@ -717,9 +941,14 @@ fn main() {
         fills::L1_STAT.store(std::env::var_os("P40_L1_STAT").is_some(), std::sync::atomic::Ordering::Relaxed);
         let tr = [load_trades(&a[4]), load_trades(&a[5])];
         let no_tr = [tr[0].is_empty(), tr[1].is_empty()];
-        let drain = parse_notrade(env("P40_NOTRADE").as_deref());
+        let nt = parse_notrade(env("P40_NOTRADE").as_deref());
         if no_tr[0] || no_tr[1] {
-            eprintln!("нога без сделок A={} B={}: режим {}", no_tr[0], no_tr[1], if drain { "убыль объёма" } else { "вне мейкер-анализа" });
+            let mode = match nt {
+                NoTrade::Drain => "убыль объёма",
+                NoTrade::Through => "проход цены сквозь уровень",
+                NoTrade::Skip => "вне мейкер-анализа",
+            };
+            eprintln!("нога без сделок A={} B={}: режим {mode}", no_tr[0], no_tr[1]);
         }
         Ctx {
             leg: [&la, &lb],
@@ -728,7 +957,7 @@ fn main() {
             dirs: [&a[2], &a[3]],
             tr,
             no_tr,
-            drain,
+            nt,
             lot: [a[6].parse().unwrap(), a[7].parse().unwrap()],
             step: [a.get(9).map_or(1e-9, |v| v.parse().unwrap()), a.get(10).map_or(1e-9, |v| v.parse().unwrap())],
             l_ms: base_l,
@@ -754,6 +983,9 @@ fn main() {
         }
         let k2out = format!("{}.k2", a[1]);
         write_tables(&k2out, &k2);
+        if NAIVE.load(Ordering::Relaxed) {
+            write_naive(&k2out, &k2, &la, &lb, tu[tu.len() - 1]);
+        }
         if let Some(c) = ctx.as_mut() {
             post_passes(&k2out, c, &k2, &variants);
         }
@@ -766,7 +998,14 @@ mod tests {
     use super::*;
 
     fn leg(t: &[i64], b: &[f64], a: &[f64]) -> Leg {
-        Leg { t: t.to_vec(), b: b.to_vec(), a: a.to_vec(), crossed: 0, nonmono: 0 }
+        Leg { t: t.to_vec(), b: b.to_vec(), a: a.to_vec(), bq: vec![], aq: vec![], crossed: 0, nonmono: 0 }
+    }
+
+    #[test]
+    fn age_at_counts_from_last_change() {
+        // смены (bid, ask) в 100 и 400 мс; события в 200 и 300 мс цен не меняют — возраст идёт от последней смены
+        let l = leg(&[100, 200, 300, 400, 500], &[1.0, 1.0, 1.0, 2.0, 2.0], &[3.0, 3.0, 3.0, 3.0, 3.0]);
+        assert_eq!(l.age_at(&[50, 100, 250, 399, 400, 450, 9_000]), vec![-1, 0, 150, 299, 0, 50, 8_600]);
     }
 
     #[test]
@@ -779,13 +1018,106 @@ mod tests {
 
     #[test]
     fn notrade_mode_and_maker_off() {
-        assert!(!parse_notrade(None) && !parse_notrade(Some("skip")) && parse_notrade(Some("drain")));
+        assert!(parse_notrade(None) == NoTrade::Skip && parse_notrade(Some("skip")) == NoTrade::Skip);
+        assert!(parse_notrade(Some("drain")) == NoTrade::Drain && parse_notrade(Some("through")) == NoTrade::Through);
         let (la, valid) = (leg(&[0], &[1.0], &[2.0]), Valid { on: false, end: i64::MAX, holes: vec![] });
-        let mk = |no_tr: [bool; 2], drain: bool| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, drain, l_ms: 0, t_life: T_LIFE_MS, lev: &[], s0: 0, valid: &valid };
-        assert!(mk([false, true], false).maker_off() && mk([true, false], false).maker_off());
-        assert!(!mk([false, false], false).maker_off(), "обе ноги со сделками — прежнее поведение");
-        let d = mk([false, true], true);
-        assert!(!d.maker_off() && d.drain_leg(1) && !d.drain_leg(0));
+        let mk = |no_tr: [bool; 2], nt: NoTrade| Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: ["", ""], tr: [vec![], vec![]], lot: [1.0; 2], step: [1.0; 2], no_tr, nt, l_ms: 0, t_life: T_LIFE_MS, lev: &[], s0: 0, valid: &valid };
+        assert!(mk([false, true], NoTrade::Skip).maker_off() && mk([true, false], NoTrade::Skip).maker_off());
+        assert!(!mk([false, false], NoTrade::Skip).maker_off(), "обе ноги со сделками — прежнее поведение");
+        let d = mk([false, true], NoTrade::Drain);
+        assert!(!d.maker_off() && d.drain_leg(1) && !d.drain_leg(0) && !d.through_leg(1));
+        let t = mk([false, true], NoTrade::Through);
+        assert!(!t.maker_off() && t.through_leg(1) && !t.through_leg(0) && !t.drain_leg(1));
+    }
+
+    /// Прежняя реализация окна (отсортированный Vec со сдвигами) — эталон для `window_levels` (TK-522).
+    fn window_levels_ref(g: &[f64]) -> Vec<f64> {
+        let ns = g.len();
+        let mut lev = vec![f64::NAN; ns];
+        let mut win: Vec<f64> = Vec::with_capacity(L_S);
+        let mut nnan = 0i64;
+        for j in 0..ns {
+            if j >= GAP_S {
+                let v = g[j - GAP_S];
+                if v == v {
+                    let k = win.partition_point(|&w| w < v);
+                    win.insert(k, v);
+                } else {
+                    nnan += 1;
+                }
+            }
+            if j > L_S {
+                let v = g[j - L_S - 1];
+                if v == v {
+                    let k = win.partition_point(|&w| w < v);
+                    win.remove(k);
+                } else {
+                    nnan -= 1;
+                }
+            }
+            if j >= L_S && nnan == 0 && win.len() == L_S - GAP_S + 1 {
+                let m = win.len();
+                lev[j] = if m % 2 == 1 { win[m / 2] } else { (win[m / 2 - 1] + win[m / 2]) / 2.0 };
+            }
+        }
+        lev
+    }
+
+    #[test]
+    fn window_levels_matches_sorted_vec() {
+        // псевдослучайный ряд: повторы (шаговая функция), редкие значения, NaN-куски; результат побитово равен прежнему
+        let ns = 70_000usize;
+        let mut st = 0x9E3779B97F4A7C15u64;
+        let mut rnd = || {
+            st ^= st << 13;
+            st ^= st >> 7;
+            st ^= st << 17;
+            st
+        };
+        let mut g = Vec::with_capacity(ns);
+        let (mut cur, mut nan_left) = (0.0f64, 0usize);
+        for _ in 0..ns {
+            let r = rnd();
+            if nan_left > 0 {
+                nan_left -= 1;
+                g.push(f64::NAN);
+                continue;
+            }
+            if r % 30000 == 0 {
+                nan_left = (r >> 20) as usize % 3000;
+            }
+            if r % 7 == 0 {
+                cur = ((r >> 16) % 40) as f64 * 1e-4 - 2e-3 + if r % 3 == 0 { 0.0 } else { ((r >> 40) % 1000) as f64 * 1e-7 };
+            }
+            g.push(cur);
+        }
+        let (a, b) = (window_levels(&g), window_levels_ref(&g));
+        assert_eq!(a.len(), b.len());
+        let defined = b.iter().filter(|v| v.is_finite()).count();
+        assert!(defined > 5000, "в тесте должны быть определённые уровни: {defined}");
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+        // без NaN
+        let g2: Vec<f64> = g.iter().map(|&v| if v == v { v } else { 0.001 }).collect();
+        let (a, b) = (window_levels(&g2), window_levels_ref(&g2));
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+        assert!(window_levels(&[f64::NAN; 30]).iter().all(|v| v.is_nan()));
+    }
+
+    #[test]
+    fn level_rewarms_after_hole() {
+        // события каждую секунду, x = 1; дыра [22000 с, 22100 с): без флага уровень определён, с дырой — NaN до конца дыры + окно 6 ч
+        let ns = 50_000usize;
+        let tu: Vec<i64> = (0..ns as i64).map(|i| i * 1000).collect();
+        let x = vec![1.0; ns];
+        let base = level_grid(&tu, &x, 0, ns as i64 - 1, &[]);
+        let warm = level_grid(&tu, &x, 0, ns as i64 - 1, &[(22_000_000, 22_100_000)]);
+        assert!(base[23_000].is_finite() && base[30_000].is_finite());
+        assert!(warm[21_900].is_finite(), "до дыры уровень прежний");
+        assert!(warm[22_059].is_finite(), "уровень отстаёт на GAP_S: первые 60 с дыры ещё по годным данным");
+        assert!(warm[22_060].is_nan() && warm[23_000].is_nan() && warm[22_100 + L_S - 10].is_nan());
+        assert!(warm[22_100 + L_S + 10].is_finite(), "окно покрыто годными данными целиком");
+        assert_eq!(warm[21_700], base[21_700]);
+        assert_eq!(warm[49_000], base[49_000]);
     }
 
     #[test]
@@ -848,7 +1180,7 @@ mod tests {
             vec![book::Tr { t: t_trade, px: 11.0, qty: 51.0, buyer_maker: false }],
             vec![book::Tr { t: 100, px: 10.5, qty: 0.001, buyer_maker: true }],
         ];
-        let c = Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: [&da, &db], tr, lot: [1.0; 2], step: [1e-9; 2], no_tr: [false; 2], drain: false, l_ms: 500, t_life: T_LIFE_MS, lev: &[], s0: 0, valid };
+        let c = Ctx { leg: [&la, &la], tu: &[], ds: &[], dirs: [&da, &db], tr, lot: [1.0; 2], step: [1e-9; 2], no_tr: [false; 2], nt: NoTrade::Skip, l_ms: 500, t_life: T_LIFE_MS, lev: &[], s0: 0, valid };
         // A дороже: продаёт A (аск 11), покупает B (бид 10); заявки встают в t0+L = 1500, живут до 61 500
         let eps = [Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false)];
         let out = std::env::temp_dir().join(format!("p40core-trunc-out-{tag}-{}", std::process::id())).to_str().unwrap().to_string();
@@ -890,5 +1222,40 @@ mod tests {
         let valid = Valid { on: true, end: i64::MAX, holes: vec![(0, 1_900_000)] };
         let out = k2_episodes(&tu, &ds, 12.6, &la, &lb, &[10_000_000], &valid, 600_000, 1);
         assert!(out.iter().all(|e| e.t0 >= 1_900_000));
+    }
+
+    /// `<out>.naive.csv` (В-125…В-127): стороны S=ask A / L=bid B на входе, выходе, пике и pnl на t0+600 с — по рядам с размерами.
+    #[test]
+    fn naive_csv_prices_sizes_and_h600() {
+        let mut la = leg(&[0, 1_000, 700_000], &[10.9, 10.9, 10.0], &[11.0, 11.0, 10.1]);
+        la.bq = vec![1.0, 1.0, 1.0];
+        la.aq = vec![5.0, 6.0, 7.0];
+        let mut lb = leg(&[0, 700_000], &[10.0, 10.05], &[10.1, 10.2]);
+        lb.bq = vec![3.0, 8.0];
+        lb.aq = vec![4.0, 9.0];
+        let mut conv = Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false);
+        conv.t_end = 700_000;
+        let open = Ep::new(5.04, 1_000, 12.0, (11.0, 10.0), false);
+        let p = std::env::temp_dir().join("p40_naive_test");
+        let out = p.to_str().unwrap();
+        write_naive(out, &[conv, open], &la, &lb, 800_000);
+        let s = std::fs::read_to_string(format!("{out}.naive.csv")).unwrap();
+        let rows: Vec<Vec<&str>> = s.lines().skip(1).map(|l| l.split(',').collect()).collect();
+        // сошедшийся: вход S=aa(1000)=11 (размер 6), L=bb(1000)=10 (размер 3); выход S=10.1 (7), L=10.05 (8); pnl на 601 с — состояние 1000 мс -> 0
+        assert_eq!(&rows[0][3..11], ["11.0", "6.0", "10.0", "3.0", "10.1", "7.0", "10.05", "8.0"]);
+        assert_eq!(rows[0][15], "0.0000");
+        assert_eq!(rows[0][16], "NaN");
+        // не сошедшийся: pnl на конец данных 800 с по состояниям 700 с: 1e4·((11−10.1)/11 + (10.05−10)/10)
+        let want = 1e4 * ((11.0 - 10.1) / 11.0 + (10.05 - 10.0) / 10.0);
+        assert!((rows[1][16].parse::<f64>().unwrap() - want).abs() < 1e-3);
+        assert_eq!(rows[1][7], "NaN");
+        // CEO 10.11: обе стороны обеих ног на t0 и t_end (A на t0: bid 10.9/1, ask 11.0/6; B на t0: 10.0/3, 10.1/4; на выходе A 10.0/1, 10.1/7, B 10.05/8, 10.2/9)
+        let n = 18;
+        assert_eq!(&rows[0][n..n + 16], ["10.9", "1.0", "11.0", "6.0", "10.0", "3.0", "10.1", "4.0", "10.0", "1.0", "10.1", "7.0", "10.05", "8.0", "10.2", "9.0"]);
+        assert!(rows[1][n + 8..n + 16].iter().all(|v| *v == "NaN"));   // выхода нет — колонки «1» пусты
+        // до t0 − 1 с состояний нет (первое на 0 мс, t0 = 1000 мс: на −0 мс уже есть -> dma1 считается); dma5/dma30 — NaN
+        assert_eq!(rows[0][n + 16], "0.0000");
+        assert!(rows[0][n + 17..n + 19].iter().all(|v| *v == "NaN"));
+        assert_eq!(rows[0].len(), n + 24);
     }
 }
