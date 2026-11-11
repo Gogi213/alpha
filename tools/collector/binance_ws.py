@@ -320,9 +320,10 @@ class Shard:
                 await asyncio.wait_for(waiter, PING_TIMEOUT_S)
             except asyncio.TimeoutError:
                 self.timeout("ping", seq)
-                # без ответа на ping соединение мертво (замер ss: исходящий сегмент в бэкоффе RTO до 120 с) — обрыв сразу, без рукопожатия закрытия
-                self.event(ev="ping_reconnect", session=seq)
-                ws.transport.abort()
+                # без ответа на ping путь испортился (замер ss: исходящий сегмент в бэкоффе RTO до 120 с): не рвём, а помечаем — run() откроет замену,
+                # примет её окном проверки пути и закроет эту сессию после перекрытия (E-025: ping_reconnect на живом, но деградировавшем пути давал разрыв)
+                self.event(ev="ping_degraded", session=seq)
+                self.degraded.add(seq)
                 return
             rtt = time.monotonic() - t0
             self.pings.append((time.monotonic(), rtt * 1000))
