@@ -150,6 +150,59 @@ def test_binance_book_l1_trades_raw(tmp):   # --l1-trades-raw: L1 CHFT без с
     assert not any("trades" in f for f in aux) and sum("X_trades.parquet" in f for f in trd) == 24 and len(trd) == len(aux) + 24
 
 
+def add_tr_aux(d, hours, trok=True, aux=True):   # то, что кладёт srv-bn-tr525.py: ЧЧ.tr.zst, aux/<ЧЧ>.<вид>.parquet, .tr.ok (метка L1 .ok остаётся с tr=0)
+    ok = (d / ".ok").read_text().replace("src=box", "src=rawcopy")   # как у Binance на боксе: files=<число l1> src=rawcopy, tr=0
+    (d / ".ok").write_text(ok)
+    for h in hours:
+        (d / f"{h:02d}.tr.zst").write_bytes(b"tr%d" % h)
+    if aux:
+        (d / "aux").mkdir()
+        for h in hours:
+            for k in ("mark_price", "open_interest"):
+                (d / "aux" / f"{h:02d}.{k}.parquet").write_bytes(b"pq%d" % h)
+    if trok:
+        (d / ".tr.ok").write_text("tr_files=%d aux_files=%d bytes=1 src=chft_box" % (len(hours), 2 * len(hours) if aux else 0) + chr(10))
+
+
+def test_binance_tr_ok_without_trades_raw(tmp):   # TK-525: tr=0 в .ok + .tr.ok с tr_files=N -> L1 берётся со сделками БЕЗ --l1-trades-raw; число .tr.zst не по .tr.ok -> отказ
+    d = make_box(tmp, ex="binance", sym="X", hours=(0, 1))
+    add_tr_aux(d, (0, 1))
+    fs = orch.fetch_l1("binance", "X", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))
+    assert [os.path.basename(f) for f in fs] == ["00.l1.bin.zst", "00.tr.zst", "01.l1.bin.zst", "01.tr.zst"]
+    (d / "01.tr.zst").unlink()
+    (tmp / "raw").rename(tmp / "raw0")
+    try:
+        orch.fetch_l1("binance", "X", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))
+    except RuntimeError as e:
+        assert ".tr.ok" in str(e), str(e)
+    else:
+        raise AssertionError("ожидался отказ: .tr.ok говорит о 2 файлах сделок, на боксе 1")
+
+
+def test_binance_no_tr_ok_still_refused(tmp):   # без .tr.ok и без --l1-trades-raw — как прежде: L1Missing
+    make_box(tmp, ex="binance", sym="X", hours=(0, 1))
+    try:
+        orch.fetch_l1("binance", "X", "2026-10-05", str(tmp / "raw"), str(tmp / "log"))
+    except orch.L1Missing:
+        pass
+    else:
+        raise AssertionError("ожидался L1Missing")
+
+
+def test_link_l1_aux(tmp):   # --l1-aux: aux/<ЧЧ>.<вид>.parquet -> chft/<биржа>_futures/<день>/<ЧЧ>/<символ>_<вид>.parquet (раскладка aux_feats); нет aux/ -> 0
+    d = make_box(tmp, ex="binance", sym="X", hours=(0, 1))
+    add_tr_aux(d, (0, 1))
+    raw = str(tmp / "raw")
+    orch.fetch_l1("binance", "X", "2026-10-05", raw, str(tmp / "log"))
+    assert orch.link_l1_aux("binance", "X", "2026-10-05", raw) == 4
+    r = f"{raw}/chft/binance_futures/2026-10-05"
+    assert sorted(os.listdir(r)) == ["00", "01"] and sorted(os.listdir(f"{r}/01")) == ["X_mark_price.parquet", "X_open_interest.parquet"]
+    assert open(f"{r}/01/X_mark_price.parquet", "rb").read() == b"pq1"
+    assert orch.link_l1_aux("binance", "X", "2026-10-06", raw) == 0
+    d2 = make_box(tmp, ex="okx", sym="Y", hours=(0,))
+    assert orch.link_l1_aux("okx", "Y", "2026-10-05", raw) == 0   # у L1 без aux/ — 0
+
+
 def test_l1_leg_flags():
     a = types.SimpleNamespace(raw_legs=False, raw_ex=set())
     assert all(orch.l1_leg(a, ex) for ex in ("bybit", "gate", "okx", "binance", "bitget", "aster", "hyperliquid"))   # TK-522: все биржи
