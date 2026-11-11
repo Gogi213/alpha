@@ -203,3 +203,54 @@ def test_frame_lag_and_path_verdict():
     assert not bw.path_verdict([600.0] * 100)  # p50 выше порога
     assert not bw.path_verdict([250.0] * 90 + [2000.0] * 10)  # p99 выше порога
     assert bw.path_verdict([250.0] * 199 + [2000.0])  # одиночный всплеск (0,5 %) — путь чистый
+
+
+def test_judge_lags_marks_degraded_session_after_two_bad_windows(tmp_path):
+    shard = bw.Shard(str(tmp_path), "book00", "public", ["btcusdt@bookTicker"])
+    shard.lags = {1: [100.0] * 20, 2: [100.0] * 20}
+    shard.age = {1: bw.LAG_SKIP_WINDOWS, 2: bw.LAG_SKIP_WINDOWS}  # окна пропуска после подключения прошли
+    shard.judge_lags()
+    assert not shard.degraded
+    for _ in range(bw.LAG_BAD_WINDOWS):  # сессия 1 — путь испортился, сессия 2 — в норме
+        shard.lags[1] = [bw.LAG_LIMIT_MS + 500.0] * 20
+        shard.lags[2] = [100.0] * 20
+        shard.judge_lags()
+    assert shard.degraded == {1}
+    assert shard.lags == {1: [], 2: []}  # выборки окна сброшены
+
+
+def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(bw, "OVERLAP_S", 0.05)
+    monkeypatch.setattr(bw, "STATS_PERIOD_S", 3600)  # stats_loop не мешает
+    shard = bw.Shard(str(tmp_path), "book00", "public", ["btcusdt@bookTicker"])
+    log = []
+
+    async def fake_forever(seq, stop_at, accepted=None):
+        log.append(("open", seq))
+        try:
+            if accepted is not None:
+                await asyncio.sleep(0.1)  # окно проверки пути
+                log.append(("accepted", seq))
+                accepted.set()
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            log.append(("closed", seq))
+            raise
+
+    monkeypatch.setattr(shard, "run_session_forever", fake_forever)
+
+    async def go():
+        task = asyncio.create_task(shard.run())
+        await asyncio.sleep(1.2)  # run() опрашивает раз в секунду
+        shard.degraded.add(1)
+        await asyncio.sleep(2.5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(go())
+    assert log[:4] == [("open", 1), ("open", 2), ("accepted", 2), ("closed", 1)]  # старая закрыта только после приёма новой
+    evs = [json.loads(ln) for ln in open(shard.events_path)]
+    assert [(e["ev"], e["old_session"], e["new_session"]) for e in evs if e["ev"] == "path_switch"] == [("path_switch", 1, 2)]

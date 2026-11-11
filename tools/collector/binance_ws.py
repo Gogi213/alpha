@@ -37,6 +37,7 @@ SUB_BATCH = 100  # потоков в одном SUBSCRIBE
 SUB_PERIOD_S = 0.2  # лимит 10 входящих сообщений/с на соединение -> 5/с
 MAX_AGE_S = 23 * 3600  # соединение живёт 24 ч: новое открывается заранее, старое закрывается после перекрытия
 OVERLAP_S = 20
+SWITCH_WAIT_S = 120  # смена пути без разрыва: ждём приёма новой сессии (окно проверки), затем перекрытие OVERLAP_S
 STATS_PERIOD_S = 10
 FLUSH_PERIOD_S = 1.0  # кадр на диске не реже 10 с (A8); 1 с — лаг отдачи ≈ 0,5 с, размер +1 % (замер)
 ZSTD_LEVEL = 1  # замер: на этих данных уровень 1 и меньше, и быстрее уровня 3
@@ -285,7 +286,7 @@ class Shard:
         self.max_gap = 0.0
         self.last_rx = None
         self.last_frame_ms = 0
-        self.lags = []  # окно STATS_PERIOD_S для сторожа
+        self.lags = {}  # сессия -> лаги окна STATS_PERIOD_S для сторожа
         self.in_lags = deque()  # (monotonic, лаг прихода мс) за WINDOW_S
         self.pings = deque()  # (monotonic, rtt мс)
         self.sym_seen = {}  # символ -> monotonic последнего кадра
@@ -295,9 +296,9 @@ class Shard:
         self.connected = 0
         self.cpu0 = time.process_time()
         self.lag_limit_ms = LAG_LIMIT_MS
-        self.age_windows = 0
-        self.lag_bad = 0
-        self.kick = False
+        self.age = {}  # сессия -> окон с подключения
+        self.lag_bad = {}  # сессия -> подряд окон с лагом выше LAG_LIMIT_MS
+        self.degraded = set()  # сессии, чей путь испортился посреди жизни: run() открывает замену до закрытия
         self.path_rejects = 0
         self.writers = {}  # сессия -> DayWriter (для lag_out/last_write)
 
@@ -340,8 +341,8 @@ class Shard:
             elif gap <= GAP_TIMEOUT_S:
                 self.in_gap = False
 
-    async def session(self, seq, probe=False):
-        """Сессия до закрытия; True — путь отбракован окном проверки (probe), соединение закрыто до приёма в «живые»."""
+    async def session(self, seq, probe=False, accepted=None):
+        """Сессия до закрытия; True — путь отбракован окном проверки (probe), соединение закрыто до приёма в «живые». accepted — Event: путь принят."""
         import websockets
 
         w = DayWriter(self.root, self.name, seq)
@@ -353,7 +354,7 @@ class Shard:
                 self.event(ev="connected", session=seq, url=url)
                 self.connected += 1
                 w.write(time.time_ns(), lambda e, rx: e.control(rx, "connected", url))
-                self.age_windows, self.lag_bad, self.kick = 0, 0, False
+                self.lags[seq], self.age[seq], self.lag_bad[seq] = [], 0, 0
                 helpers = [asyncio.create_task(self.pinger(ws, w, seq)), asyncio.create_task(self.gap_watch(seq))]
                 for i in range(0, len(self.streams), SUB_BATCH):
                     await ws.send(json.dumps({"method": "SUBSCRIBE", "params": self.streams[i : i + SUB_BATCH], "id": i + 1}))
@@ -362,6 +363,8 @@ class Shard:
                 w.write(time.time_ns(), lambda e, rx: e.control(rx, "subscribed", str(len(self.streams))))
                 n = 0
                 t_sub = time.monotonic()
+                if not probe and accepted is not None:
+                    accepted.set()
                 probe_lags = []
                 async for frame in ws:
                     rx = time.time_ns()
@@ -378,10 +381,7 @@ class Shard:
                     if frame.startswith('{"stream":"') and frame[11] != "!":
                         self.sym_seen[frame[11 : frame.find("@", 11)]] = mono
                     if sample:
-                        self.sample_lag(frame, rx, mono)
-                    if self.kick:
-                        self.event(ev="lag_reconnect", session=seq, limit_ms=self.lag_limit_ms)
-                        break
+                        self.sample_lag(frame, rx, mono, seq)
                     if probe:
                         if mono - t_sub >= PROBE_SKIP_S:
                             lag = frame_lag(frame, rx)
@@ -393,6 +393,8 @@ class Shard:
                                 self.event(ev="path_rejected", session=seq, n=len(probe_lags), p50_ms=round(percentile(probe_lags, 0.5)), p99_ms=round(percentile(probe_lags, 0.99)))
                                 return True
                             self.event(ev="path_ok", session=seq, n=len(probe_lags), p50_ms=round(percentile(probe_lags, 0.5)), p99_ms=round(percentile(probe_lags, 0.99)))
+                            if accepted is not None:
+                                accepted.set()
         finally:
             for h in helpers:
                 h.cancel()
@@ -401,21 +403,24 @@ class Shard:
                 w.write(time.time_ns(), lambda e, rx: e.control(rx, "closed"))
             w.close()
             self.writers.pop(seq, None)
+            for d in (self.lags, self.age, self.lag_bad):
+                d.pop(seq, None)
+            self.degraded.discard(seq)
 
-    def sample_lag(self, frame, rx_ns, mono):
+    def sample_lag(self, frame, rx_ns, mono, seq):
         lag = frame_lag(frame, rx_ns)
         if lag is not None:
-            self.lags.append(lag)
+            self.lags.setdefault(seq, []).append(lag)
             self.in_lags.append((mono, lag))
 
-    async def run_session_forever(self, seq, stop_at):
+    async def run_session_forever(self, seq, stop_at, accepted=None):
         """Одна сессия с переподключением при сбое до stop_at (монотонное время), None — без предела."""
         backoff = 1.0
         rejects = 0
         while stop_at is None or time.monotonic() < stop_at:
             t0 = time.monotonic()
             try:
-                if await self.session(seq, probe=rejects < PROBE_MAX_REJECTS):
+                if await self.session(seq, probe=rejects < PROBE_MAX_REJECTS, accepted=accepted):
                     rejects += 1
                     self.path_rejects += 1
                     await asyncio.sleep(0.5)
@@ -461,51 +466,66 @@ class Shard:
             json.dump(self.fragment(), f)
         os.replace(tmp, self.frag_path)
 
+    def judge_lags(self):
+        """Конец окна: сессия с p50 лага выше LAG_LIMIT_MS LAG_BAD_WINDOWS окон подряд — в degraded (путь испортился), выборки окна сбрасываются."""
+        for seq, xs in list(self.lags.items()):
+            p50 = percentile(xs, 0.5)
+            self.age[seq] = self.age.get(seq, 0) + 1
+            if self.age[seq] > LAG_SKIP_WINDOWS and p50 is not None and p50 > self.lag_limit_ms:
+                self.lag_bad[seq] = self.lag_bad.get(seq, 0) + 1
+            else:
+                self.lag_bad[seq] = 0
+            if self.lag_bad[seq] >= LAG_BAD_WINDOWS:
+                self.degraded.add(seq)
+            self.lags[seq] = []
+
     async def stats_loop(self):
         t_prev = time.monotonic()
         while True:
             await asyncio.sleep(STATS_PERIOD_S)
             now = time.monotonic()
             cpu = time.process_time()
+            all_lags = [v for xs in self.lags.values() for v in xs]
             line = {
                 "ts_ms": int(time.time() * 1000),
                 "msgs": self.msgs,
                 "bytes": self.bytes,
                 "max_gap_ms": round(self.max_gap * 1000),
-                "lag_p50_ms": percentile(self.lags, 0.5),
-                "lag_p99_ms": percentile(self.lags, 0.99),
+                "lag_p50_ms": percentile(all_lags, 0.5),
+                "lag_p99_ms": percentile(all_lags, 0.99),
                 "cpu_frac": round((cpu - self.cpu0) / (now - t_prev), 3),
             }
             with open(self.stats_path, "a") as f:
                 f.write(json.dumps(line) + "\n")
-            self.age_windows += 1
-            p50 = line["lag_p50_ms"]
-            if self.age_windows > LAG_SKIP_WINDOWS and p50 is not None and p50 > self.lag_limit_ms:
-                self.lag_bad += 1
-            else:
-                self.lag_bad = 0
-            if self.lag_bad >= LAG_BAD_WINDOWS:
-                self.kick = True
+            self.judge_lags()
             self.msgs = self.bytes = 0
             self.max_gap = 0.0
-            self.lags = []
             self.cpu0, t_prev = cpu, now
             self.write_fragment()
 
     async def run(self):
+        """Смена сессии без разрыва: замена открывается и принимается (окно проверки пути) до закрытия старой; на перекрытии оба файла пишут кадры (читатель убирает дубли по u/a). Причины: возраст MAX_AGE_S (rotated) или путь испортился (path_switch)."""
         stats = asyncio.create_task(self.stats_loop())
-        seq = 1
+        seq = cur_seq = 1
         cur = asyncio.create_task(self.run_session_forever(seq, None))
+        born = time.monotonic()
         try:
             while True:
-                await asyncio.sleep(MAX_AGE_S)
-                # перекрытие: новая сессия работает вместе со старой OVERLAP_S, потом старая закрывается
+                await asyncio.sleep(1.0)
+                bad = cur_seq in self.degraded
+                if not bad and time.monotonic() - born < MAX_AGE_S:
+                    continue
                 seq += 1
-                nxt = asyncio.create_task(self.run_session_forever(seq, None))
+                accepted = asyncio.Event()
+                nxt = asyncio.create_task(self.run_session_forever(seq, None, accepted))
+                try:
+                    await asyncio.wait_for(accepted.wait(), SWITCH_WAIT_S)
+                except asyncio.TimeoutError:
+                    self.event(ev="switch_timeout", session=seq)
                 await asyncio.sleep(OVERLAP_S)
                 cur.cancel()
-                self.event(ev="rotated", new_session=seq)
-                cur = nxt
+                self.event(ev="path_switch" if bad else "rotated", old_session=cur_seq, new_session=seq)
+                cur, cur_seq, born = nxt, seq, time.monotonic()
         finally:
             stats.cancel()
 
