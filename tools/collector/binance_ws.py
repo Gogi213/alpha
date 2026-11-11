@@ -10,6 +10,7 @@ import urllib.request
 
 import orjson
 
+from wscore.pool import rank_pool
 from wscore.runner import collector_main
 
 REST = "https://fapi.binance.com"
@@ -31,18 +32,15 @@ def select_pool(symbols, tickers, min_qv, top_exclude):
             continue
         if v >= 0:
             qv[t["symbol"]] = v
-    ok = [
-        s["symbol"]
+    ok = {
+        s["symbol"]: qv[s["symbol"]]
         for s in symbols
         if s.get("status") == "TRADING"
         and s.get("contractType") == "PERPETUAL"
         and s.get("quoteAsset") == "USDT"
         and s["symbol"] in qv
-    ]
-    ranked = sorted(ok, key=lambda x: (-qv[x], x))
-    top = ranked[:top_exclude]
-    pool = sorted(x for x in ranked[top_exclude:] if qv[x] >= min_qv)
-    return pool, top
+    }
+    return rank_pool(ok, min_qv, top_exclude)
 
 
 def shard_streams(pool, kind, per_conn):
