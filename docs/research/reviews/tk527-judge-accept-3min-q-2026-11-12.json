@@ -1,0 +1,259 @@
+{
+ "window_ms": [
+  1794432480000,
+  1794432660000
+ ],
+ "dials": 0,
+ "dials_5min_max": 0,
+ "events": {},
+ "events_detail": {},
+ "disk_stream": {
+  "b": {
+   "n": 426461,
+   "lag_ms": {
+    "p50": 115,
+    "p99": 400,
+    "max": 454
+   },
+   "lag_p50_10s_max": 117,
+   "max_pause_ms": 271
+  },
+  "t": {
+   "n": 37285,
+   "lag_ms": {
+    "p50": 115,
+    "p99": 175,
+    "max": 450
+   },
+   "lag_p50_10s_max": 116,
+   "max_pause_ms": 112
+  },
+  "m": {
+   "n": 42660,
+   "lag_ms": {
+    "p50": 158,
+    "p99": 189,
+    "max": 206
+   },
+   "lag_p50_10s_max": 171,
+   "max_pause_ms": 1027
+  }
+ },
+ "shards": {
+  "trade01": {
+   "windows": 18,
+   "msgs": 7608,
+   "max_gap_ms": 835,
+   "lag_p50_ms_median": 115.271484375,
+   "lag_p50_ms_max": 118.117431640625,
+   "lag_p99_ms_max": 167.218505859375,
+   "cpu_frac_max": 0.044
+  },
+  "trade02": {
+   "windows": 18,
+   "msgs": 6478,
+   "max_gap_ms": 1087,
+   "lag_p50_ms_median": 116.52587890625,
+   "lag_p50_ms_max": 138.835693359375,
+   "lag_p99_ms_max": 344.800537109375,
+   "cpu_frac_max": 0.036
+  },
+  "mark00": {
+   "windows": 18,
+   "msgs": 720,
+   "max_gap_ms": 841,
+   "lag_p50_ms_median": 169.17529296875,
+   "lag_p50_ms_max": 182.42529296875,
+   "lag_p99_ms_max": 182.42529296875,
+   "cpu_frac_max": 0.036
+  },
+  "book05": {
+   "windows": 18,
+   "msgs": 97948,
+   "max_gap_ms": 277,
+   "lag_p50_ms_median": 115.856689453125,
+   "lag_p50_ms_max": 117.820556640625,
+   "lag_p99_ms_max": 428.741455078125,
+   "cpu_frac_max": 0.238
+  },
+  "trade05": {
+   "windows": 18,
+   "msgs": 7646,
+   "max_gap_ms": 576,
+   "lag_p50_ms_median": 184.647216796875,
+   "lag_p50_ms_max": 247.189697265625,
+   "lag_p99_ms_max": 424.845458984375,
+   "cpu_frac_max": 0.046
+  },
+  "book01": {
+   "windows": 18,
+   "msgs": 70488,
+   "max_gap_ms": 314,
+   "lag_p50_ms_median": 116.577392578125,
+   "lag_p50_ms_max": 138.093994140625,
+   "lag_p99_ms_max": 465.796630859375,
+   "cpu_frac_max": 0.175
+  },
+  "book03": {
+   "windows": 18,
+   "msgs": 117880,
+   "max_gap_ms": 315,
+   "lag_p50_ms_median": 115.3369140625,
+   "lag_p50_ms_max": 116.8798828125,
+   "lag_p99_ms_max": 433.842529296875,
+   "cpu_frac_max": 0.267
+  },
+  "book02": {
+   "windows": 18,
+   "msgs": 109533,
+   "max_gap_ms": 276,
+   "lag_p50_ms_median": 116.611328125,
+   "lag_p50_ms_max": 142.328857421875,
+   "lag_p99_ms_max": 563.3740234375,
+   "cpu_frac_max": 0.237
+  },
+  "trade04": {
+   "windows": 18,
+   "msgs": 9128,
+   "max_gap_ms": 1178,
+   "lag_p50_ms_median": 115.444580078125,
+   "lag_p50_ms_max": 118.035400390625,
+   "lag_p99_ms_max": 408.38525390625,
+   "cpu_frac_max": 0.049
+  },
+  "book00": {
+   "windows": 18,
+   "msgs": 141608,
+   "max_gap_ms": 278,
+   "lag_p50_ms_median": 116.30322265625,
+   "lag_p50_ms_max": 119.700439453125,
+   "lag_p99_ms_max": 460.78173828125,
+   "cpu_frac_max": 0.397
+  },
+  "trade00": {
+   "windows": 18,
+   "msgs": 14448,
+   "max_gap_ms": 737,
+   "lag_p50_ms_median": 116.520263671875,
+   "lag_p50_ms_max": 118.999267578125,
+   "lag_p99_ms_max": 214.849365234375,
+   "cpu_frac_max": 0.054
+  },
+  "book06": {
+   "windows": 18,
+   "msgs": 79178,
+   "max_gap_ms": 292,
+   "lag_p50_ms_median": 116.105224609375,
+   "lag_p50_ms_max": 119.17626953125,
+   "lag_p99_ms_max": 433.5771484375,
+   "cpu_frac_max": 0.271
+  },
+  "book07": {
+   "windows": 18,
+   "msgs": 109324,
+   "max_gap_ms": 284,
+   "lag_p50_ms_median": 116.39306640625,
+   "lag_p50_ms_max": 122.30078125,
+   "lag_p99_ms_max": 441.01171875,
+   "cpu_frac_max": 0.264
+  },
+  "book04": {
+   "windows": 18,
+   "msgs": 124715,
+   "max_gap_ms": 274,
+   "lag_p50_ms_median": 115.932373046875,
+   "lag_p50_ms_max": 118.98583984375,
+   "lag_p99_ms_max": 429.02294921875,
+   "cpu_frac_max": 0.276
+  },
+  "trade06": {
+   "windows": 18,
+   "msgs": 5219,
+   "max_gap_ms": 1303,
+   "lag_p50_ms_median": 183.752197265625,
+   "lag_p50_ms_max": 209.073974609375,
+   "lag_p99_ms_max": 517.273193359375,
+   "cpu_frac_max": 0.036
+  },
+  "trade03": {
+   "windows": 18,
+   "msgs": 14965,
+   "max_gap_ms": 467,
+   "lag_p50_ms_median": 173.48046875,
+   "lag_p50_ms_max": 216.984619140625,
+   "lag_p99_ms_max": 608.5703125,
+   "cpu_frac_max": 0.066
+  },
+  "trade07": {
+   "windows": 18,
+   "msgs": 9139,
+   "max_gap_ms": 746,
+   "lag_p50_ms_median": 180.927734375,
+   "lag_p50_ms_max": 206.939208984375,
+   "lag_p99_ms_max": 341.778076171875,
+   "cpu_frac_max": 0.057
+  }
+ },
+ "records": {
+  "b": 426461,
+  "t": 37285,
+  "m": 42660,
+  "g": 1153,
+  "c": 0,
+  "r": 360
+ },
+ "sequence_checks": {
+  "book_u_not_increasing": 0,
+  "trade_a_not_increasing": 0,
+  "trade_a_gaps": 0,
+  "trade_a_gap_ids": 0,
+  "mark_E_not_increasing": 0
+ },
+ "ping_ms": {
+  "n": 1153,
+  "p50": 305.911,
+  "p99": 430.451,
+  "max": 794.454
+ },
+ "raw_samples": [
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794432480000,\"s\":\"BTCUSDT\",\"p\":\"74663.77007971\",\"ap\":\"74663.77007971\",\"P\":\"74666.03209340\",\"i\":\"74697.32782609\",\"r\":\"0.00003227\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794432480000,\"s\":\"BTCUSDT\",\"p\":\"74663.77007971\",\"ap\":\"74663.77007971\",\"P\":\"74666.03209340\",\"i\":\"74697.32782609\",\"r\":\"0.00003227\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794432481000,\"s\":\"BTCUSDT\",\"p\":\"74664.02225362\",\"ap\":\"74664.02225362\",\"P\":\"74666.02392632\",\"i\":\"74697.58000000\",\"r\":\"0.00003209\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794432481000,\"s\":\"BTCUSDT\",\"p\":\"74664.02225362\",\"ap\":\"74664.02225362\",\"P\":\"74666.02392632\",\"i\":\"74697.58000000\",\"r\":\"0.00003209\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794432482000,\"s\":\"BTCUSDT\",\"p\":\"74664.01790580\",\"ap\":\"74664.01790580\",\"P\":\"74666.01575683\",\"i\":\"74697.57565217\",\"r\":\"0.00003209\",\"T\":1"
+ ],
+ "disk_bytes": 20302282,
+ "health": {
+  "schema": 1,
+  "exchange": "binance",
+  "ts_ms": 1794432731954,
+  "started_ms": 1794432290964,
+  "symbols": {
+   "subscribed": 509,
+   "with_data_1m": 508
+  },
+  "ws": {
+   "connections": 34,
+   "ping_ms": {
+    "p50": 305.9,
+    "max": 438.9
+   },
+   "timeouts_1h": 0,
+   "timeouts_24h": 0,
+   "reconnects_1h": 0,
+   "reconnects_24h": 0
+  },
+  "lag_in_ms": {
+   "p50": 116.0,
+   "p99": 407.4,
+   "window_s": 60
+  },
+  "lag_out_ms": {
+   "p50": 527.5,
+   "p99": 1004.8,
+   "window_s": 60
+  },
+  "last_frame_ms": 1794432731515,
+  "last_write_ms": 1794432731439
+ }
+}
