@@ -351,6 +351,11 @@ def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
         return Conn()
 
     monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
+
+    async def fake_dial(url, max_rtt_ms=None):
+        return object(), 250.0
+
+    monkeypatch.setattr(sess, "dial", fake_dial)
     t0 = time.time_ns()
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(shard.run_session_forever(7))
@@ -362,6 +367,37 @@ def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
     assert [r["u"] for r in recs if r["t"] == "b"] == [B[4], B[4] + 1, B[4] + 2]  # вторая попытка — те же u — дубли сняты писателем
     assert [r["what"] for r in recs if r["t"] == "c"].count("connected") == 2 and shard.writer.dups == 3
     assert all(t0 <= r["rx_ns"] <= t1 for r in recs)  # приём не «уплывает»
+
+
+def test_rtt_reject_before_websocket_then_accept_after_max_rejects(tmp_path, monkeypatch):
+    """Путь с RTT выше порога отбраковывается на TCP connect (до TLS и upgrade, websockets не вызывается); после PROBE_MAX_REJECTS подряд соединение принимается."""
+    monkeypatch.setattr(sess, "PING_PERIOD_S", 3600)
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(s, *a):
+        await real_sleep(0 if s <= 5 else s)
+
+    monkeypatch.setattr(asyncio, "sleep", fast_sleep)
+    shard = shard_for(tmp_path)
+    dials, connects = [], []
+
+    async def fake_dial(url, max_rtt_ms=None):
+        dials.append(max_rtt_ms)
+        return (None, 360.0) if max_rtt_ms is not None else (object(), 360.0)
+
+    def connect(url, **kw):
+        connects.append(kw["sock"])
+        raise asyncio.CancelledError  # принятое соединение — конец теста
+
+    monkeypatch.setattr(sess, "dial", fake_dial)
+    monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(shard.run_session_forever(7))
+    shard.writer.close()
+    n = shard_mod.PROBE_MAX_REJECTS
+    assert dials == [sess.CONNECT_RTT_MAX_MS] * n + [None] and len(connects) == 1  # n отбраковок на connect, затем приём без порога
+    evs = [json.loads(ln) for ln in open(shard.events_path)]
+    assert [e["ev"] for e in evs].count("path_rejected_rtt") == n and evs[0]["rtt_ms"] == 360
 
 
 def test_accept_streaming_summary_equals_list_based_definition():
@@ -404,3 +440,21 @@ def test_read_lines_streams_and_drops_unfinished_tail(tmp_path):
     text = e.record(RX0, B) + e.record(RX0 + 5, with_u(B[4] + 1))
     p.write_bytes(zstandard.ZstdCompressor().compress(text.encode()))
     assert list(codec.decode(accept_ws.read_lines(str(p)))) == list(codec.decode(text)) and len(list(codec.decode(text))) == 2
+
+
+def test_dial_measures_rtt_and_rejects_above_threshold():
+    """dial: локальный сервер — сокет и RTT возвращаются; порог ниже RTT — (None, rtt), сокет закрыт."""
+    from wscore import dial as dial_mod
+
+    async def go():
+        srv = await asyncio.start_server(lambda r, w: None, "127.0.0.1", 0)
+        port = srv.sockets[0].getsockname()[1]
+        url = f"ws://127.0.0.1:{port}/x"
+        sock, rtt = await dial_mod.dial(url, None)
+        assert sock is not None and rtt >= 0
+        sock.close()
+        none, rtt2 = await dial_mod.dial(url, -1.0)
+        assert none is None and rtt2 >= 0
+        srv.close()
+
+    asyncio.run(go())

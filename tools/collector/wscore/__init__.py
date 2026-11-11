@@ -5,9 +5,10 @@
   codec    формат записи: Encoder, decode, ключ дедупа                (ни от чего)
   writer   суточный файл шарда, снятие дублей                         (codec, stats)
   path     качество пути: окно проверки нового пути, сторож лага      (stats)
+  dial     TCP connect с замером RTT: плохой путь отбракован до TLS    (ни от чего)
   metrics  счётчики шарда -> строка статистики и фрагмент health      (stats)
   health   фрагменты шардов -> health.json                            (stats)
-  session  одно соединение: подключение, подписка, пинг, чтение       (writer, path, metrics)
+  session  одно соединение: подключение, подписка, пинг, чтение       (writer, path, dial, metrics)
   shard    шард: писатель + сессии, переподключение, смена пути       (session, writer, path, metrics, health)
   runner   процесс: пул, раскладка, запуск шардов, health             (shard, health, writer)
 

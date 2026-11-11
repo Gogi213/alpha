@@ -13,6 +13,7 @@
 import asyncio
 import time
 
+from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname
 from wscore.path import PathProbe
 
 PING_PERIOD_S = 5.0
@@ -62,14 +63,18 @@ class Session:
         self.writer.control(time.time_ns(), "subscribed", f"{seq} {len(self.streams)}")
 
     async def run(self, seq, probe=False, accepted=None):
-        """Сессия до закрытия; True — путь отбракован окном проверки (probe), соединение закрыто до приёма в «живые». accepted — Event: путь принят."""
+        """Сессия до закрытия; True — путь отбракован (RTT рукопожатия или окно проверки лага; probe), соединение закрыто до приёма в «живые». accepted — Event: путь принят."""
         import websockets
 
         url = self.ad.url(self.endpoint)
+        sock, rtt = await dial(url, CONNECT_RTT_MAX_MS if probe else None)
+        if sock is None:
+            self.event(ev="path_rejected_rtt", session=seq, rtt_ms=round(rtt))
+            return True
         helpers = []
         try:
-            async with websockets.connect(url, max_size=None, ping_interval=None, compression=None, close_timeout=1) as ws:
-                self.event(ev="connected", session=seq, url=url)
+            async with websockets.connect(url, sock=sock, server_hostname=hostname(url), max_size=None, ping_interval=None, compression=None, close_timeout=1) as ws:
+                self.event(ev="connected", session=seq, url=url, rtt_ms=round(rtt))
                 self.m.connected += 1
                 self.writer.control(time.time_ns(), "connected", f"{seq} {url}")
                 self.watch.open(seq)
