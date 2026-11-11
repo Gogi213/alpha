@@ -362,3 +362,45 @@ def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
     assert [r["u"] for r in recs if r["t"] == "b"] == [B[4], B[4] + 1, B[4] + 2]  # вторая попытка — те же u — дубли сняты писателем
     assert [r["what"] for r in recs if r["t"] == "c"].count("connected") == 2 and shard.writer.dups == 3
     assert all(t0 <= r["rx_ns"] <= t1 for r in recs)  # приём не «уплывает»
+
+
+def test_accept_streaming_summary_equals_list_based_definition():
+    """Сутки не помещаются в списки: приёмка считает перцентили по счётчику и паузу по занятым мс — те же числа, что по спискам (stats.percentile, соседние записи)."""
+    pytest.importorskip("zstandard")
+    import random
+    from collections import Counter
+
+    import accept_ws
+
+    rnd = random.Random(5)
+    for n in (1, 2, 7, 100, 1001):
+        xs = [rnd.randint(-5, 400) for _ in range(n)]
+        for p in (0.5, 0.99):
+            assert accept_ws.count_percentile(Counter(xs), p) == stats.percentile(xs, p)
+    assert accept_ws.count_percentile(Counter(), 0.5) is None
+    since = 1_000_000
+    rows = sorted((since + rnd.randint(0, 5000), rnd.randint(0, 900)) for _ in range(300))
+    st = accept_ws.Stream(since, since + 5000)
+    for rx, lg in rows:
+        st.add(rx, lg)
+    out = st.summary()
+    assert out["n"] == 300 and out["max_pause_ms"] == max(b[0] - a[0] for a, b in zip(rows, rows[1:]))
+    assert out["lag_ms"] == {"p50": stats.percentile([lg for _, lg in rows], 0.5), "p99": stats.percentile([lg for _, lg in rows], 0.99), "max": max(lg for _, lg in rows)}
+    buckets = {}
+    for rx, lg in rows:
+        buckets.setdefault(rx // 10_000, []).append(lg)
+    assert out["lag_p50_10s_max"] == max(stats.percentile(v, 0.5) for v in buckets.values())
+    assert accept_ws.Stream(0, 10).summary()["max_pause_ms"] is None
+
+
+def test_read_lines_streams_and_drops_unfinished_tail(tmp_path):
+    zstandard = pytest.importorskip("zstandard")
+    import accept_ws
+
+    p = tmp_path / "x.tsv.zst"
+    p.write_bytes(zstandard.ZstdCompressor().compress("a\nb\nc".encode()))  # последняя строка без \n — запись оборвалась
+    assert list(accept_ws.read_lines(str(p))) == ["a\n", "b\n"]
+    e = codec.Encoder()
+    text = e.record(RX0, B) + e.record(RX0 + 5, with_u(B[4] + 1))
+    p.write_bytes(zstandard.ZstdCompressor().compress(text.encode()))
+    assert list(codec.decode(accept_ws.read_lines(str(p)))) == list(codec.decode(text)) and len(list(codec.decode(text))) == 2

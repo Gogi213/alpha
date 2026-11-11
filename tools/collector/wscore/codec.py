@@ -59,7 +59,8 @@ class Encoder:
 def decode(text):
     """Строки формата -> записи (dict); обратное к Encoder (проверка без потерь, читатель П-40 делает то же)."""
     prev_ns, last_u, last_a, last_l = 0, {}, {}, {}
-    for ln in text.split("\n"):
+    for ln in (text.split("\n") if isinstance(text, str) else text):  # строка целиком или поток строк с "\n" на конце (сутки не помещаем в память)
+        ln = ln.rstrip("\n")
         if not ln:
             continue
         f = ln.split("\t", 2) if ln[0] == "r" else ln.split("\t")
