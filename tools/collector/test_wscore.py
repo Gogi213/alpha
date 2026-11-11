@@ -263,6 +263,44 @@ def test_two_lanes_keep_a_warm_spare_and_replace_only_the_degraded_one(tmp_path,
     assert ("closed", 7 + shard_mod.LANE_SEQ_STEP) not in before_stop  # вторая линия не тронута
 
 
+def test_rotation_by_age_replaces_before_closing_and_lanes_age_apart(tmp_path, monkeypatch):
+    """Сутки без разрыва: по возрасту MAX_AGE_S линия открывает замену, закрывает старую после приёма и перекрытия (ev=rotated, не path_switch); линии стареют вразнобой — обе сразу не меняются."""
+    monkeypatch.setattr(shard_mod, "MAX_AGE_S", 4)  # линия 1 сдвинута на половину возраста: стареет на 2 с, линия 0 — на 4 с
+    monkeypatch.setattr(shard_mod, "OVERLAP_S", 0.05)
+    monkeypatch.setattr(stats, "STATS_PERIOD_S", 3600)
+    shard = shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", ["a"], run_id=7, lanes=2)
+    log = []
+
+    async def fake_forever(seq, accepted=None):
+        log.append(("open", seq))
+        try:
+            if accepted is not None:
+                await asyncio.sleep(0.1)
+                log.append(("accepted", seq))
+                accepted.set()
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            log.append(("closed", seq))
+            raise
+
+    monkeypatch.setattr(shard, "run_session_forever", fake_forever)
+
+    async def go():
+        task = asyncio.create_task(shard.run())
+        await asyncio.sleep(3.5)  # линия 1 уже сменилась (2-3 с), линия 0 ещё нет (4+ с)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(go())
+    spare = 7 + shard_mod.LANE_SEQ_STEP
+    assert log[:2] == [("open", 7), ("open", spare)]
+    assert log[2:5] == [("open", spare + 1), ("accepted", spare + 1), ("closed", spare)]  # старая закрыта после приёма новой
+    assert sorted(log[5:]) == [("closed", 7), ("closed", spare + 1)]  # дальше — остановка
+    evs = [json.loads(ln) for ln in open(shard.events_path)]
+    assert [(e["ev"], e["old_session"], e["new_session"]) for e in evs] == [("rotated", spare, spare + 1)]
+
+
 def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
     """E-024 в новой форме (В-142): шард пишет один файл на запуск и сутки при любом числе попыток и соединений; повторённые соединением кадры — дубли, не пишутся."""
     monkeypatch.setattr(sess, "PING_PERIOD_S", 3600)
