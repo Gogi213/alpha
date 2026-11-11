@@ -341,11 +341,12 @@ class Shard:
             elif gap <= GAP_TIMEOUT_S:
                 self.in_gap = False
 
-    async def session(self, seq, probe=False, accepted=None):
-        """Сессия до закрытия; True — путь отбракован окном проверки (probe), соединение закрыто до приёма в «живые». accepted — Event: путь принят."""
+    async def session(self, seq, probe=False, accepted=None, attempt=0):
+        """Сессия до закрытия; True — путь отбракован окном проверки (probe), соединение закрыто до приёма в «живые». accepted — Event: путь принят.
+        Файл — на каждую попытку соединения свой (<seq>-<attempt>): Encoder начинает файл с нуля, дописывание в прежний файл ломало бы дельта-состояние (E-024)."""
         import websockets
 
-        w = DayWriter(self.root, self.name, seq)
+        w = DayWriter(self.root, self.name, f"{seq}-{attempt}")
         self.writers[seq] = w
         url = f"{WS}/{self.endpoint}/stream"
         helpers = []
@@ -417,10 +418,12 @@ class Shard:
         """Одна сессия с переподключением при сбое до stop_at (монотонное время), None — без предела."""
         backoff = 1.0
         rejects = 0
+        attempt = -1
         while stop_at is None or time.monotonic() < stop_at:
             t0 = time.monotonic()
+            attempt += 1
             try:
-                if await self.session(seq, probe=rejects < PROBE_MAX_REJECTS, accepted=accepted):
+                if await self.session(seq, probe=rejects < PROBE_MAX_REJECTS, accepted=accepted, attempt=attempt):
                     rejects += 1
                     self.path_rejects += 1
                     await asyncio.sleep(0.5)

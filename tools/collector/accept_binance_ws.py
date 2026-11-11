@@ -44,7 +44,7 @@ def main():
                      "lag_p50_ms_median": bw.percentile(lag50, 0.5), "lag_p50_ms_max": max(lag50, default=None),
                      "lag_p99_ms_max": max((r["lag_p99_ms"] for r in rows if r["lag_p99_ms"] is not None), default=None),
                      "cpu_frac_max": max((r["cpu_frac"] for r in rows), default=None)}
-    rec, gaps, size = {"b": 0, "t": 0, "m": 0, "g": 0, "c": 0, "r": 0}, {"book_u_not_increasing": 0, "trade_a_gaps": 0, "trade_a_gap_ids": 0, "trade_dups_across_sessions": 0}, 0
+    rec, gaps, size = {"b": 0, "t": 0, "m": 0, "g": 0, "c": 0, "r": 0}, {"book_u_not_increasing": 0, "trade_a_gaps": 0, "trade_a_gap_ids": 0, "trade_dups_across_sessions": 0, "trade_raw_nq": 0}, 0
     pings, raw_samples, ids = [], [], {}
     for p in sorted(glob.glob(os.path.join(a.root, "20*", "*.tsv.zst"))):
         size += os.path.getsize(p)
@@ -55,8 +55,19 @@ def main():
             rec[r["t"]] += 1
             if r["t"] == "g":
                 pings.append(r["rtt_us"] / 1000)
-            elif r["t"] == "r" and len(raw_samples) < 5:
-                raw_samples.append(r["frame"][:200])
+            elif r["t"] == "r":
+                if len(raw_samples) < 5:
+                    raw_samples.append(r["frame"][:200])
+                if '@aggTrade"' in r["frame"][:60]:  # aggTrade с nq != q (RPI) хранится сырым кадром — тоже сделка потока a
+                    try:
+                        d = json.loads(r["frame"])["data"]
+                        seen = ids.setdefault(d["s"], set())
+                        if d["a"] in seen:
+                            gaps["trade_dups_across_sessions"] += 1
+                        seen.add(d["a"])
+                        gaps["trade_raw_nq"] += 1
+                    except (ValueError, KeyError, TypeError):
+                        pass
             elif r["t"] == "b":
                 if r["s"] in lastu and r["u"] <= lastu[r["s"]]:
                     gaps["book_u_not_increasing"] += 1
