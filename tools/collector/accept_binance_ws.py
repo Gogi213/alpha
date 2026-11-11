@@ -44,10 +44,11 @@ def main():
                      "lag_p50_ms_median": bw.percentile(lag50, 0.5), "lag_p50_ms_max": max(lag50, default=None),
                      "lag_p99_ms_max": max((r["lag_p99_ms"] for r in rows if r["lag_p99_ms"] is not None), default=None),
                      "cpu_frac_max": max((r["cpu_frac"] for r in rows), default=None)}
-    rec, gaps, size = {"b": 0, "t": 0, "m": 0, "g": 0, "c": 0, "r": 0}, {"book_u_not_increasing": 0, "trade_a_gaps": 0, "trade_a_gap_ids": 0}, 0
-    pings, raw_samples, lastu, lasta = [], [], {}, {}
+    rec, gaps, size = {"b": 0, "t": 0, "m": 0, "g": 0, "c": 0, "r": 0}, {"book_u_not_increasing": 0, "trade_a_gaps": 0, "trade_a_gap_ids": 0, "trade_dups_across_sessions": 0}, 0
+    pings, raw_samples, ids = [], [], {}
     for p in sorted(glob.glob(os.path.join(a.root, "20*", "*.tsv.zst"))):
         size += os.path.getsize(p)
+        lastu = {}  # u строго растёт внутри файла (одна сессия); файлы соседних сессий на перекрытии пишут одни и те же кадры
         for r in bw.decode(read_file(p)):
             if not (a.since_ms * 1_000_000 <= r["rx_ns"] <= a.until_ms * 1_000_000):
                 continue
@@ -61,10 +62,16 @@ def main():
                     gaps["book_u_not_increasing"] += 1
                 lastu[r["s"]] = r["u"]
             elif r["t"] == "t":
-                if r["s"] in lasta and r["a"] != lasta[r["s"]] + 1:
-                    gaps["trade_a_gaps"] += 1
-                    gaps["trade_a_gap_ids"] += abs(r["a"] - lasta[r["s"]] - 1)
-                lasta[r["s"]] = r["a"]
+                seen = ids.setdefault(r["s"], set())
+                if r["a"] in seen:
+                    gaps["trade_dups_across_sessions"] += 1
+                seen.add(r["a"])
+    for seen in ids.values():  # полнота aggTrade по a (подряд идущие id на символ) — по объединению всех файлов сессий
+        xs = sorted(seen)
+        for x, y in zip(xs, xs[1:]):
+            if y != x + 1:
+                gaps["trade_a_gaps"] += 1
+                gaps["trade_a_gap_ids"] += y - x - 1
     health = json.load(open(os.environ.get("HEALTH", "/data/health/binance.json")))
     out = {"window_ms": [a.since_ms, a.until_ms], "events": {k: len(v) for k, v in ev.items()}, "events_detail": {k: v[:20] for k, v in ev.items() if k != "connected" and k != "subscribed"},
            "shards": st, "records": rec, "sequence_checks": gaps, "ping_ms": {"n": len(pings), "p50": bw.percentile(pings, 0.5), "p99": bw.percentile(pings, 0.99), "max": max(pings, default=None)},
