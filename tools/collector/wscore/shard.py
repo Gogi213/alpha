@@ -53,7 +53,8 @@ class Shard:
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001 — любой сбой сети: запись события и повтор
-                self.event(ev="error", session=seq, err=repr(e)[:200])
+                # cause — первопричина обрыва без close-кадра (EOFError — FIN от биржи/CDN, ConnectionResetError — RST): по одному repr(e) «ConnectionClosedError(None, None, None)» их не отличить
+                self.event(ev="error", session=seq, err=repr(e)[:200], cause=repr(e.__cause__)[:120] if e.__cause__ is not None else None)
             self.m.reconnect()
             backoff = 1.0 if time.monotonic() - t0 > 60 else min(backoff * 2, 30.0)
             await asyncio.sleep(backoff)

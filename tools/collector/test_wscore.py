@@ -502,3 +502,37 @@ def test_dial_measures_rtt_and_rejects_above_threshold():
         srv.close()
 
     asyncio.run(go())
+
+
+def test_error_event_names_the_cause_of_a_close_without_frame(tmp_path, monkeypatch):
+    """TK-532 (В-140): обрыв без close-кадра пишет в событие первопричину (FIN/RST), а не только ConnectionClosedError(None, None, None)."""
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(s, *a):
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", fast_sleep)
+    shard = shard_for(tmp_path)
+    calls = []
+
+    def connect(url, **kw):
+        calls.append(url)
+        if len(calls) == 2:
+            raise asyncio.CancelledError
+        try:
+            raise ConnectionResetError("rst")
+        except ConnectionResetError as c:
+            raise OSError("closed") from c
+
+    monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
+
+    async def fake_dial(url, max_rtt_ms=None):
+        return object(), 250.0
+
+    monkeypatch.setattr(sess, "dial", fake_dial)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(shard.run_session_forever(7))
+    shard.writer.close()
+    ev = [json.loads(ln) for ln in (tmp_path / "events-book00.jsonl").read_text().splitlines()]
+    err = [e for e in ev if e["ev"] == "error"]
+    assert len(err) == 1 and err[0]["cause"] == "ConnectionResetError('rst')"
