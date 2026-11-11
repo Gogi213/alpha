@@ -27,8 +27,8 @@ for ex in ("okx_futures","bitget_futures","hyperliquid_futures","binance_futures
             if ".ok" in fs:
                 n=sum(f.endswith(".l1.bin.zst") for f in fs); t=sum(f.endswith(".tr.zst") for f in fs)
                 c["ok_l1" if n else "ok_empty"]+=1; c["loc_"+loc.replace("+","_")]+=1
-                if n: c["l1_24"]+=(n==24); c["tr_eq_l1"]+=(t==n); c["tr_any"]+=(t>0); c["aux"]+=("aux" in fs)
-                if n and not t and ex!="binance_futures": nt.append("%s %s"%(r["sym"],d))
+                if n: c["l1_24"]+=(n==24); c["tr_eq_l1"]+=(t==n); c["tr_any"]+=(t>0); c["aux"]+=("aux" in fs); c["tr_ok"]+=(".tr.ok" in fs)
+                if n and not t: nt.append("%s %s"%(r["sym"],d))
             elif k in fails: c["fail"]+=1; flist.append("\t".join(k)+"\t"+(loc or "нет каталога"))
             else:
                 cl="nodir" if not fs else "partial_no_ok"; c[cl]+=1; flist.append("\t".join(k)+"\t"+cl+"\t"+",".join(sorted(fs)[:3]))
