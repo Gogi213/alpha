@@ -24,6 +24,9 @@ def free(): s=os.statvfs("/data"); return s.f_bavail*s.f_frsize/1e9
 def prog():
     d=dict(st,total=total,pct=round(100*(st["done"]+st["skip"]+st["empty"])/max(total,1),2),free_gb=round(free(),1),t=time.strftime("%H:%M:%S"))
     json.dump(d,open(OUT+"/progress_raw%s.json.tmp"%TAG,"w")); os.replace(OUT+"/progress_raw%s.json.tmp"%TAG,OUT+"/progress_raw%s.json"%TAG)
+def er(ex,sym,day,what,rr):  # причина сбоя в err_raw<TAG>.log: шаг, код, хвост stderr (TK-525: прежний сбой OKX ETH 21,22.10 причины не оставил)
+    t=(rr.stderr or b"")[-300:].decode(errors="replace") if hasattr(rr,"stderr") else ""
+    open(OUT+"/err_raw%s.log"%TAG,"a").write("%s/%s/%s %s rc=%s %s"%(ex,sym,day,what,getattr(rr,"returncode",rr),t.replace(chr(10)," | "))+chr(10))
 def job(ex,sym,day):
     od="%s/%s/%s/%s"%(OUT,ex,sym,day)
     if REDO: shutil.rmtree(od,ignore_errors=True)
@@ -34,7 +37,7 @@ def job(ex,sym,day):
         src="%s/%s"%(SB,day)
         if not os.path.isdir(src): shutil.rmtree(sd,ignore_errors=True); return "empty",0,0
         rr=subprocess.run([PQ,"l1","book",src,"%s_orderbook.parquet"%sym,od,"1"],capture_output=True,env=PE)
-        if rr.returncode: return "fail",0,0
+        if rr.returncode: er(ex,sym,day,"l1 book",rr); return "fail",0,0
         for h in sorted(os.listdir(src)):
             f="%s/%s/%s_orderbook.parquet"%(src,h,sym)
             if os.path.exists(f): raw+=os.path.getsize(f)
@@ -42,13 +45,13 @@ def job(ex,sym,day):
     else:
         rc=subprocess.run(RS+["--include=*/","--include=*_%s.parquet"%"*","--exclude=*","--prune-empty-dirs","--include=*/%s_*.parquet"%sym,"box:%s/%s/%s/"%(BX,ex,day),sd+"/"],capture_output=True,stdin=subprocess.DEVNULL).returncode if False else None
         rc=subprocess.run(RS+["--include=*/","--include=%s_*.parquet"%sym,"--exclude=*","--prune-empty-dirs","box:%s/%s/%s/"%(BX,ex,day),sd+"/"],capture_output=True,stdin=subprocess.DEVNULL).returncode
-        if rc: shutil.rmtree(sd,ignore_errors=True); return "fail",0,0
+        if rc: er(ex,sym,day,"rsync с бокса",rc); shutil.rmtree(sd,ignore_errors=True); return "fail",0,0
         for h in os.listdir(sd):
             for f in os.listdir(sd+"/"+h): raw+=os.path.getsize("%s/%s/%s"%(sd,h,f))
         rr=subprocess.run([PQ,"l1","book",sd,"%s_orderbook.parquet"%sym,od,"1"],capture_output=True,env=PE)
-        if rr.returncode: shutil.rmtree(sd,ignore_errors=True); return "fail",raw,0
+        if rr.returncode: er(ex,sym,day,"l1 book",rr); shutil.rmtree(sd,ignore_errors=True); return "fail",raw,0
         td=od+"/_tr"; rt=subprocess.run([PQ,"trades",sd,"%s_trades.parquet"%sym,td,"1"],capture_output=True)
-        if rt.returncode: shutil.rmtree(sd,ignore_errors=True); shutil.rmtree(td,ignore_errors=True); return "fail",raw,0
+        if rt.returncode: er(ex,sym,day,"trades",rt); shutil.rmtree(sd,ignore_errors=True); shutil.rmtree(td,ignore_errors=True); return "fail",raw,0
         if os.path.isdir(td):
             for f in os.listdir(td): subprocess.run(["zstd","-q","-3","--rm","-o",od+"/"+f.replace(".bin",".tr.zst"),td+"/"+f])
             shutil.rmtree(td,ignore_errors=True)
