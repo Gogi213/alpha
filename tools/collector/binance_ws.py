@@ -292,7 +292,10 @@ class Shard:
                 await asyncio.wait_for(waiter, PING_TIMEOUT_S)
             except asyncio.TimeoutError:
                 self.timeout("ping", seq)
-                continue
+                # без ответа на ping соединение мертво (замер ss: исходящий сегмент в бэкоффе RTO до 120 с) — обрыв сразу, без рукопожатия закрытия
+                self.event(ev="ping_reconnect", session=seq)
+                ws.transport.abort()
+                return
             rtt = time.monotonic() - t0
             self.pings.append((time.monotonic(), rtt * 1000))
             w.write(time.time_ns(), lambda e, rx: e.ping(rx, round(rtt * 1e6)))
@@ -318,7 +321,7 @@ class Shard:
         url = f"{WS}/{self.endpoint}/stream"
         helpers = []
         try:
-            async with websockets.connect(url, max_size=None, ping_interval=None, compression=None) as ws:
+            async with websockets.connect(url, max_size=None, ping_interval=None, compression=None, close_timeout=1) as ws:
                 self.event(ev="connected", session=seq, url=url)
                 self.connected += 1
                 w.write(time.time_ns(), lambda e, rx: e.control(rx, "connected", url))

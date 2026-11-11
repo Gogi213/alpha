@@ -168,3 +168,24 @@ def test_percentile():
     assert bw.percentile([], 0.5) is None
     assert bw.percentile([5], 0.99) == 5
     assert bw.percentile(list(range(100)), 0.99) == 99
+
+
+def test_pinger_aborts_dead_connection(tmp_path, monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(bw, "PING_PERIOD_S", 0.01)
+    monkeypatch.setattr(bw, "PING_TIMEOUT_S", 0.05)
+    shard = bw.Shard(str(tmp_path), "book00", "public", ["btcusdt@bookTicker"])
+    aborted = []
+
+    class FakeWs:
+        transport = type("T", (), {"abort": lambda self: aborted.append(1)})()
+
+        async def ping(self):
+            return asyncio.get_running_loop().create_future()  # pong не придёт
+
+    asyncio.run(asyncio.wait_for(shard.pinger(FakeWs(), None, 1), 2))
+    assert aborted == [1]
+    assert len(shard.timeouts) == 1
+    kinds = [json.loads(ln)["ev"] for ln in open(shard.events_path)]
+    assert kinds == ["timeout", "ping_reconnect"]
