@@ -31,25 +31,41 @@ TAIL_MS = 10_000
 
 def events(root, t0, t1):
     ev = Counter()
-    dials = fast = acc = acc_fast = 0
+    dials = fast = acc = acc_fast = drops = connect_errors = 0
     for p in glob.glob(os.path.join(root, "events-*.jsonl")):
+        evs = []
         for ln in open(p):
             try:
-                e = json.loads(ln)
+                evs.append(json.loads(ln))
             except ValueError:
+                pass
+        evs.sort(key=lambda e: e["ts_ms"])
+        live = set()  # sessions with a connection (a reconnect keeps the session number): `error` of a live one is a drop, otherwise a failed connect
+        for e in evs:
+            name = e["ev"]
+            if name == "connected":
+                live.add(e["session"])
+            in_window = t0 <= e["ts_ms"] < t1
+            if name == "error":
+                if e.get("session") in live:
+                    live.discard(e["session"])
+                    drops += in_window
+                else:
+                    connect_errors += in_window
+            elif name in ("closed", "path_rejected"):
+                live.discard(e.get("session"))
+            if not in_window:
                 continue
-            if not t0 <= e["ts_ms"] < t1:
-                continue
-            ev[e["ev"]] += 1
-            if e["ev"] in ("connected", "path_rejected_rtt"):
+            ev[name] += 1
+            if name in ("connected", "path_rejected_rtt"):
                 dials += 1
                 f = e.get("rtt_ms", 1e9) <= FAST_RTT_MS
                 fast += f
-                if e["ev"] == "connected":
+                if name == "connected":
                     acc += 1
                     acc_fast += f
     return {"dials": dials, "fast_dials": fast, "fast_share": round(fast / dials, 3) if dials else None, "accepted": acc, "accepted_fast": acc_fast,
-            "accepted_fast_share": round(acc_fast / acc, 3) if acc else None, "events": dict(ev)}
+            "accepted_fast_share": round(acc_fast / acc, 3) if acc else None, "drops": drops, "connect_errors": connect_errors, "events": dict(ev)}
 
 
 def mark_gaps(marks, pool, covered, t1):
