@@ -90,4 +90,54 @@ Fix: arrays are parsed **per element** — valid USDⓈ-M elements become `m` re
 | gate «byte for byte» | dropped by the owner; replaced by exchange-side checks (§3) |
 | OKX not excluded | design hooks only: multi-window budget; tail-column format extension; key reset on seqId reset and `notice 64008` replacement not implemented (listed §8) |
 
-## 5. Measurements (steps 3–4) — placeholder, filled below
+## 5. Measurements (steps 3–4)
+
+All on srv. «Quiet» = no other collectors/benchmarks running, load average ≈ 1.5 (Python units were stopped 14:05).
+
+### 5.1 Live windows (3 min) — Rust only, soak units, binary 6 (`w1-*`; first 3 min after a restart, so they include warm-up)
+
+| | Binance (50 connections, 511 symbols) | Bybit (36 connections, 413 symbols) |
+|---|---|---|
+| records in 180 s (b / t / m) | 745 514 / 73 145 / **172 674** | 176 094 / 41 678 / 25 196 |
+| lag rx−E on disk p50 / p99 / max, ms (book) | 115 / 379 / 828 | 108 / 160 / 357 |
+| lag trade p50 / p99 / max, ms | 114 / 165 / 466 | 107 / 120 / 210 |
+| lag mark p50 / p99 / max, ms | 194 / 231 / 236 | 108 / 120 / 210 |
+| rx→disk lag (`lag_out`) p50 / p99, ms | 99 / 110 | 101 / 106 |
+| records late > 2 s (health `fresh`, 1 h) | 0 | 0 |
+| unit CPU, cores mean / p95 / max | 0.84 / 1.17 / 1.72 | 0.57 / 0.79 / 0.96 |
+| kernel Recv-Q non-empty samples; max | 2.2 %; 41 KB | 1.6 %; 4.2 KB |
+| receive-queue depth max (cap 32 768); overflows; blocked | 236; 0; 0 ms | 79; 0; 0 ms |
+| frame wait in queue before the writer p99 | 2.5 ms | 2.1 ms |
+| reader busy outside `read` max | 6.8 ms | 18.1 ms |
+| disk block write max | 14.9 ms | 16.3 ms |
+| events | 4 path rejects by RTT, 1 ping timeout → 1 path switch | none |
+| sequence checks (`accept_ws.py`: u/a/E not increasing, trade id gaps) | 0 | 0 |
+| REST oracle (25 symbols) | 36 826 / 36 826 trades identical | — |
+
+Mark records: 172 674 in 180 s ≈ 960/s (all USDⓈ-M symbols); the Python/first-Rust layout gave 238/s (§3a).
+
+### 5.2 Earlier 3-min windows next to the running Python collector (same srv, loaded; binary 1; `bn1/`, `by1/`, tables in `*/table.md`)
+Binance — CPU 2.03 (Python) vs 0.73 cores (Rust); book lag p99 342 vs 209 ms; Recv-Q non-empty 10.5 % vs 2.65 %; `lag_out` p50/p99 526/1 024 vs 178/219 ms. Bybit — CPU 1.46 vs 0.50; book lag p99 108 vs 92 ms; `lag_out` 514/1 100 vs 199/207 ms; Recv-Q non-empty 7.1 % vs 2.0 %.
+(That Rust build lost Bybit mark records — all `tickers` frames with more than 16 fields went raw; found by this very comparison, fixed with `scan::pick`, regression test `bybit_tickers_with_many_fields_still_parse`.)
+
+### 5.3 Load ladder — ONE connection, synthetic Binance book frames (190 B, 64 symbols, plain ws), quiet srv, binary 6 (`r6/`)
+| frames/s on the connection | achieved rows/s | gaps / dups in `u` | lag rx−E p50 / p99 / max, ms | collector CPU, cores | CPU µs/frame | ring depth max | overflows | wait in queue p99, ms |
+|---|---|---|---|---|---|---|---|---|
+| 10 000 | 10 000 | 0 / 0 | 0 / 1 / 12 | 0.26 | 25.5 | 970 | 0 | 2.8 |
+| 50 000 | 50 000 | 0 / 0 | 0 / 2 / 35 | 0.46 | 9.3 | 7 030 | 0 | 20 |
+| 100 000 | 99 999 | 0 / 0 | 0 / 2 / 22 | 0.72 | 7.2 | 28 756 | 0 | 128 |
+| 150 000 | 150 001 | 0 / 0 | 0 / 623 / 867 | 1.05 | 7.0 | 32 770 (full) | 13 814 | 141 |
+| 200 000 | 196 152 | 0 / 0 | 1 / 702 / 767 | 1.34 | 6.8 | full | 12 190 | 162 |
+| 300 000 | 137 319 | 0 / 0 | 2 / 544 / 609 | 1.51 | 11.0 | full | 30 085 | 274 |
+**Ceiling of one shard ≈ 100–110 k frames/s** (the writer thread, 100 % of one core; `perf`: JSON scan ≈ 25 %, identity set ≈ 8 %, encoder ≈ 4 %). Above it the ring fills and the reader blocks — backpressure is visible and counted, `u` stays gapless. Exchanges deliver 0.8–5 k frames/s per Binance connection and up to 10–25 k for Bybit deep views (TK-533): **margin ×4…×100**. The Python core measured 0.81 core at 10.4 k msg/s (TK-531) and CPU-bound deep views (TK-533); Rust at 10 k = 0.26 core all-in.
+At low rates CPU per frame is dominated by wake-ups, not work: 100 frames/s cost 0.027 core (270 µs/frame), 2 k → 0.22 core, 120 k → 1.0 core (8.5 µs/frame) — batching happens by itself as the rate rises (**measured**, `idle1/`). Real Binance feed: 6.7 k frames/s over 50 connections = 0.73–0.84 core.
+
+### 5.4 Micro-benchmarks (`alpha collect bench`, quiet srv, 2 M frames; `bench-4.txt`)
+Parse: own scanner 1 231 ns, `serde_json` typed 1 182 ns, `serde_json::Value` 3 297 ns; writer path (parse + identity + encode + zstd-1) 1 043 ns/frame (≈ 960 k frames/s/core); zstd level 1 ×7.3 vs level 3 ×5.4 on these rows; block size cost (200 ms ≈ 0 %, 50 ms +3 %, 10 ms +12 %).
+
+### 5.5 Replacement and rotation on the live exchange (`rot1/`)
+Binance, 560 s, every connection replaced every 180 s (`--max-age-s 180`; real value 23 h), 2 lines: 109 `rotated`, 15 `path_switch`, 28 `switch_failed` (replacement not accepted ⇒ old session kept), 25/25 files closed (`zstd -t`, `.ok`, `closed` last). **REST: 101 638 / 101 638 trades identical across three rotations**; 0 duplicates, 0 trade-id gaps. (This run was deliberately abusive — 100 connections, churn, budget waits — and ran while another build/PGO job loaded srv, so its lag figures are not representative: book rows late > 2 s were 0.47 %.)
+
+### 5.6 Stop / restart (live)
+`soak.sh start` restarts the soak with one SIGTERM: 25 + 18 files closed in 1.3 s, every file `zstd -t` ok with `.ok`; `check_files.py` on closed segments: 0 bad files, 0 duplicates, 0 trade-id gaps (`soak-*/check1.json`).
+

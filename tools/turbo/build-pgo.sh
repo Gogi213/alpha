@@ -7,6 +7,8 @@ set -euo pipefail
 SRC="$1"; OUT="$2"; SYN="${3:-}"
 B=/opt/rbuild; export RUSTUP_HOME=$B/rustup CARGO_HOME=$B/cargo PATH=$B/cargo/bin:$PATH
 PROF=/data/turbo-probe/pgo-prof; GEN=$B/pgo-gen; USE=$B/pgo-use
+# rustc 1.93 (LLVM 21) segfaults in thin-LTO codegen with -Cprofile-generate (dmesg: "lto cgu ... libLLVM"): LTO off in both PGO builds; a non-PGO LTO-off build is made for a fair A/B
+export CARGO_PROFILE_RELEASE_LTO=off
 PD=$(dirname "$(find "$RUSTUP_HOME/toolchains" -name llvm-profdata | head -1)")
 rm -rf "$PROF"; mkdir -p "$PROF"
 cd "$SRC"
@@ -27,4 +29,6 @@ wait
 "$PD/llvm-profdata" merge -o "$PROF/merged.profdata" "$PROF"/*.profraw
 RUSTFLAGS="-Cprofile-use=$PROF/merged.profdata" cargo build --release --target-dir "$USE" -j 6 2>&1 | tail -2
 install -D "$USE/release/alpha" "$OUT"
+RUSTFLAGS="" cargo build --release --target-dir "$B/pgo-base" -j 6 2>&1 | tail -2
+install -D "$B/pgo-base/release/alpha" "$OUT-nopgo"
 md5sum "$OUT"

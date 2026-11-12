@@ -105,6 +105,8 @@ struct Lane {
     fails: AtomicU32,
     /// С какого момента линия идёт через запасной вход (`None` — через основной).
     spare_since: Mutex<Option<Instant>>,
+    /// Сдвиг возраста первой сессии: линии стареют вразнобой (k/число линий · max_age) — не обе замены в один час.
+    stagger: Duration,
 }
 
 impl Lane {
@@ -282,6 +284,9 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
     let Some(mut cur) = spawn_session(sh, lane, seq, None) else {
         return;
     };
+    cur.born = Instant::now()
+        .checked_sub(lane.stagger)
+        .unwrap_or_else(Instant::now);
     // возвраты на основной вход подряд (интервал растёт вдвое, чтобы не молотить по плохому входу) и когда линия последний раз стала на основной
     let (mut returns, mut primary_since, mut retry_at) = (0u32, Instant::now(), Instant::now());
     while !sh.stop.load(Relaxed) {
@@ -402,6 +407,10 @@ pub fn spawn_shard(
                 idx: AtomicUsize::new(0),
                 fails: AtomicU32::new(0),
                 spare_since: Mutex::new(None),
+                stagger: opts.max_age.mul_f64(
+                    f64::from(u32::try_from(k).unwrap_or(0))
+                        / f64::from(u32::try_from(entrances.len().max(1)).unwrap_or(1)),
+                ),
             })
         })
         .collect();

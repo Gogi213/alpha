@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """G-022 turbo: acceptance of recorded files for the identity-dedup format (arrival order; keys may be out of order, duplicates may not).
 
+Duplicates, order and gaps are judged per run (process start): a restart leaves a gap of a few seconds and may repeat the last state.
 Per file: closed files must pass `zstd -t` and match their `.ok` row count; every stream record kind is checked per symbol:
   duplicates   — the same key twice in one symbol (b: u [Bybit: seq], t: a, m: E) = the de-duplication failed (must be 0);
   out of order — key lower than the previous record of the symbol (informational: expected between two lines; readers sort by key);
@@ -44,11 +45,12 @@ def main():
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     files, tot = [], defaultdict(int)
-    keys = defaultdict(list)  # (kind, symbol) -> keys in file order
+    keys = defaultdict(list)  # (run, kind, symbol) -> keys in file order; a process restart is a boundary (a few seconds are not recorded, the last state may repeat)
     for p in sorted(glob.glob(os.path.join(a.root, "20*", "*.tsv.zst"))):
         ok_path = p + ".ok"
         closed = os.path.exists(ok_path)
         info = {"file": os.path.relpath(p, a.root), "closed": closed}
+        run = os.path.basename(p).rsplit("-", 1)[-1].split(".")[0]
         rows, prev_rx, rx_back, last_ctl = 0, 0, 0, None
         for r in codec.decode(read_lines(p)):
             rows += 1
@@ -59,7 +61,7 @@ def main():
                 last_ctl = r["what"]
             if r["t"] in ("b", "t", "m") and a.since_ms * 1_000_000 <= r["rx_ns"] <= a.until_ms * 1_000_000:
                 k = r["u"] if r["t"] == "b" else r["a"] if r["t"] == "t" else r["E"]
-                keys[(r["t"], r["s"])].append(k)
+                keys[(run, r["t"], r["s"])].append(k)
         info["rows"], info["rx_decreases"] = rows, rx_back
         if closed:
             info["ok_rows"] = int(open(ok_path).read().strip())
@@ -68,9 +70,9 @@ def main():
             info["last_control"] = last_ctl
         files.append(info)
     per = defaultdict(lambda: defaultdict(int))
-    for (kind, sym), ks in keys.items():
+    for (run, kind, sym), ks in keys.items():
         g = per[kind]
-        g["symbols"] += 1
+        g["symbol_runs"] += 1
         g["records"] += len(ks)
         g["duplicates"] += len(ks) - len(set(ks))
         g["out_of_order"] += sum(1 for x, y in zip(ks, ks[1:]) if y < x)
