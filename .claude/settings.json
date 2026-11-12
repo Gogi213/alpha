@@ -29,7 +29,7 @@
     "claude-api": "off"
   },
   "enabledPlugins": {
-    "role-play-vibing@role-play-vibing": true
+    "role-play-vibing@role-play-vibing": false
   },
   "hooks": {
     "PreToolUse": [
