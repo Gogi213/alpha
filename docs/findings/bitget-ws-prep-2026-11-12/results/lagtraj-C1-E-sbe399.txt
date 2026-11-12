@@ -1,0 +1,2 @@
+t=   0.0s recs/s=    1932 lag p50=  764 max=  922
+end: {'closed': None, 'reason': None, 'sent': None, 'rx_ns': 1794489040264808626, 'after_s': 2.27}

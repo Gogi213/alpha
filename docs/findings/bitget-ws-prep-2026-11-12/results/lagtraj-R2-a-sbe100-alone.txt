@@ -1,0 +1,16 @@
+t=   0.0s recs/s=    4672 lag p50=  360 max=  679
+t=   2.0s recs/s=    7406 lag p50=  160 max=  272
+t=   4.0s recs/s=    7010 lag p50=  151 max=  259
+t=   6.0s recs/s=    7058 lag p50=  142 max=  209
+t=   8.0s recs/s=    6461 lag p50=  147 max=  227
+t=  10.0s recs/s=    8239 lag p50=  162 max=  241
+t=  12.0s recs/s=    6180 lag p50=  136 max=  247
+t=  14.0s recs/s=    9170 lag p50=  217 max=  315
+t=  16.0s recs/s=    9396 lag p50=  158 max=  322
+t=  18.0s recs/s=    7710 lag p50=  194 max=  337
+t=  20.0s recs/s=   10462 lag p50=  179 max=  283
+t=  22.0s recs/s=    8294 lag p50=  163 max=  230
+t=  24.0s recs/s=   10410 lag p50=  172 max=  241
+t=  26.0s recs/s=    9856 lag p50=  200 max=  358
+t=  28.0s recs/s=    2660 lag p50=  181 max=  214
+end: {'closed': None, 'reason': None, 'sent': None, 'rx_ns': 1794488985636167678, 'after_s': 29.57}

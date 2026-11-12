@@ -1,0 +1,10 @@
+t=   0.0s recs/s=    3255 lag p50=  704 max=  853
+t=   2.0s recs/s=    7312 lag p50=  341 max=  648
+t=   4.0s recs/s=    5994 lag p50=  140 max=  214
+t=   6.0s recs/s=    5676 lag p50=  134 max=  202
+t=   8.0s recs/s=    5398 lag p50=  133 max=  257
+t=  10.0s recs/s=    5704 lag p50=  135 max=  219
+t=  12.0s recs/s=    5860 lag p50=  138 max=  283
+t=  14.0s recs/s=    6142 lag p50=  135 max=  192
+t=  16.0s recs/s=    6642 lag p50=  163 max=  367
+end: {'closed': None, 'reason': None, 'sent': None, 'rx_ns': 1794489056356054407, 'after_s': 18.41}
