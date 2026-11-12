@@ -33,6 +33,8 @@ const GAP_TIMEOUT_MS: u64 = 3000;
 const GAP_TICK: Duration = Duration::from_millis(500);
 /// Пауза перед новой попыткой улучшить путь сессии, принятой без проверки, после неудачной.
 const UPGRADE_RETRY: Duration = Duration::from_secs(60);
+/// Замена, которая не принимает медленный путь (`never_slow`): после стольких отбраковок подряд пауза, чтобы не съесть бюджет подключений.
+pub const STRICT_PAUSE: Duration = Duration::from_secs(10);
 const STACK: usize = 1 << 20;
 
 fn start() -> Instant {
@@ -71,6 +73,10 @@ pub struct ShardOpts {
     pub ping: (Duration, Duration),
     /// Порог отбраковки пути по RTT рукопожатия, мс.
     pub rtt_max_ms: f64,
+    /// Замена испорченного (или принятого медленным) пути никогда не принимает медленный путь «как есть»: старая сессия остаётся, пока не найден быстрый.
+    pub never_slow: bool,
+    /// Пауза строгой замены после каждых `PROBE_MAX_REJECTS` отбраковок подряд.
+    pub strict_pause: Duration,
 }
 
 impl ShardOpts {
@@ -90,6 +96,8 @@ impl ShardOpts {
             probe_window: (PROBE_SKIP_S, PROBE_S),
             ping: (PING_PERIOD, PING_TIMEOUT),
             rtt_max_ms: CONNECT_RTT_MAX_MS,
+            never_slow: false,
+            strict_pause: STRICT_PAUSE,
         }
     }
 }
@@ -154,6 +162,7 @@ fn session_forever(
     seq: u32,
     accepted: Option<&AtomicBool>,
     cancel: &AtomicBool,
+    strict: Option<Duration>,
 ) {
     let mut backoff = 1.0f64;
     let mut rejects = 0u32;
@@ -163,10 +172,20 @@ fn session_forever(
         }
         let t0 = Instant::now();
         let ent = lane.current();
-        match session::run(sh, seq, &ent, rejects < PROBE_MAX_REJECTS, accepted, cancel) {
+        match session::run(
+            sh,
+            seq,
+            &ent,
+            strict.is_some() || rejects < PROBE_MAX_REJECTS,
+            accepted,
+            cancel,
+        ) {
             Outcome::PathRejected => {
                 rejects += 1;
                 sleep_stop(sh, Duration::from_millis(500));
+                if let Some(pause) = strict.filter(|_| rejects % PROBE_MAX_REJECTS == 0) {
+                    sleep_stop(sh, pause);
+                }
                 continue;
             }
             Outcome::Closed => {
@@ -207,6 +226,7 @@ fn spawn_session(
     lane: &Arc<Lane>,
     seq: u32,
     accepted: Option<Arc<AtomicBool>>,
+    strict: Option<Duration>,
 ) -> Option<SessionThread> {
     let cancel = Arc::new(AtomicBool::new(false));
     let (shc, lanec, cc) = (Arc::clone(sh), Arc::clone(lane), Arc::clone(&cancel));
@@ -215,7 +235,7 @@ fn spawn_session(
         .stack_size(STACK)
         .spawn(move || {
             shc.metrics.register_thread();
-            session_forever(&shc, &lanec, seq, accepted.as_deref(), &cc);
+            session_forever(&shc, &lanec, seq, accepted.as_deref(), &cc, strict);
         })
         .ok()?;
     Some(SessionThread {
@@ -234,7 +254,7 @@ fn finish(s: SessionThread) {
 /// Линия: живая сессия и смена без разрыва (возраст `max_age` или путь испортился).
 fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
     let mut seq = seq0;
-    let Some(mut cur) = spawn_session(sh, lane, seq, None) else {
+    let Some(mut cur) = spawn_session(sh, lane, seq, None, None) else {
         return;
     };
     cur.born = Instant::now()
@@ -250,18 +270,25 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         if !(bad || slow || old) {
             continue;
         }
+        // замена, не принимающая медленный путь: для испорченного и медленного пути, не для возрастной пересменки (её старую сессию биржа всё равно рвёт)
+        let strict = (opts.never_slow && !old).then_some(opts.strict_pause);
         seq = seq.wrapping_add(1);
         let prev_idx = lane.idx.load(Relaxed);
         if bad {
             lane.switch(sh, "late_delivery", seq);
         }
         let accepted = Arc::new(AtomicBool::new(false));
-        let Some(nxt) = spawn_session(sh, lane, seq, Some(Arc::clone(&accepted))) else {
+        let Some(nxt) = spawn_session(sh, lane, seq, Some(Arc::clone(&accepted)), strict) else {
             lane.idx.store(prev_idx, Relaxed);
             continue;
         };
         let t0 = Instant::now();
-        while !accepted.load(Relaxed) && !sh.stop.load(Relaxed) && t0.elapsed() < opts.switch_wait {
+        // строгая замена испорченного пути ждёт быстрый путь сколько нужно: старая сессия остаётся (медленная лучше разрыва)
+        let patient = strict.is_some() && bad;
+        while !accepted.load(Relaxed)
+            && !sh.stop.load(Relaxed)
+            && (patient || t0.elapsed() < opts.switch_wait)
+        {
             thread::sleep(Duration::from_millis(100));
         }
         if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) {

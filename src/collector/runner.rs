@@ -88,6 +88,9 @@ pub struct RunArgs {
     /// Остановиться через столько секунд (0 — до сигнала).
     #[arg(long, default_value_t = 0)]
     pub duration_s: u64,
+    /// Замена испорченного пути не принимает медленный путь «как есть» после 12 отбраковок: старая сессия остаётся, пока не найден быстрый путь.
+    #[arg(long)]
+    pub never_slow: bool,
     /// Открытый `ws://host:port` вместо биржи (синтетический источник `collect synth`): хост и порт для всех входов.
     #[arg(long)]
     pub plain_ws: Option<String>,
@@ -219,6 +222,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let mut opts = ShardOpts::new(args.root.clone(), run_id);
     opts.flush = Duration::from_millis(args.flush_ms.max(1));
     opts.max_age = Duration::from_secs(args.max_age_s.max(30));
+    opts.never_slow = args.never_slow;
     let mut lines = lines;
     if let Some(plain) = &args.plain_ws {
         let (host, port) = plain

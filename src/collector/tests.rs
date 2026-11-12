@@ -2053,6 +2053,64 @@ fn uncovered_shard_accepts_a_slow_path_at_once_and_upgrades_later() {
     assert_u_contiguous(dir.path());
 }
 
+/// `never_slow`: замена, которая не находит быстрый путь, не принимает медленный «как есть» после 12 отбраковок — продолжает пробовать, старая сессия
+/// остаётся и несёт поток (без `path_upgrade` / `path_switch` / `rotated`).
+#[test]
+fn never_slow_replacement_keeps_the_old_session_until_a_fast_path_exists() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.rtt_max_ms = 1e-6; // любой путь «медленный»
+    opts.never_slow = true;
+    opts.strict_pause = Duration::from_millis(100);
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(200, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while count_events(dir.path(), "path_rejected_rtt") < 14
+        && t0.elapsed() < Duration::from_secs(40)
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let before = metrics.writer().records;
+    std::thread::sleep(Duration::from_millis(400));
+    let after = metrics.writer().records;
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        count_events(dir.path(), "path_rejected_rtt") >= 14,
+        "строгая замена отбраковывает и после 12-й"
+    );
+    assert!(count_events(dir.path(), "path_slow_accepted") >= 1);
+    for ev in ["path_upgrade", "path_switch", "rotated", "switch_timeout"] {
+        assert_eq!(
+            count_events(dir.path(), ev),
+            0,
+            "{ev}: медленный путь принят"
+        );
+    }
+    assert!(after > before, "старая сессия несёт поток");
+    assert_u_contiguous(dir.path());
+}
+
 /// Шард без соединения берёт место в бюджете раньше уже покрытого: в очереди за одним местом первой пришла замена покрытого шарда,
 /// второй — шард без соединения; место достаётся второму.
 #[test]
