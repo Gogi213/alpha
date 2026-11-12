@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""G-022 турбо: что теряет снятие дублей «ключ не больше записанного» при двух линиях — по полному захвату кадров (ALPHA_COLLECT_CAPTURE=1).
-Читает `capture-<шард>.tsv` (сессия, приём нс, кадр — всё, что пришло, до дедупа), считает по (вид, символ):
-  внутри сессии: ключи растут? (нарушения порядка самой биржи/пути);
-  объединение ключей всех сессий и покрытие каждой сессии;
-  что даёт дедуп по последнему ключу в порядке прихода (как писатель) против «набора виденных ключей» (дубль — только точный повтор).
-Запуск: lanecmp.py <binance|bybit> <каталог с capture-*.tsv> --out lanecmp.json
+"""G-022 turbo: what the two lines deliver and what de-duplication should do — from a full frame capture (ALPHA_COLLECT_CAPTURE=1).
+
+Reads `capture-<shard>.tsv` (session, receive ns, frame: everything that arrived, before de-duplication) and, per (kind, symbol):
+  identities    — exchange identity of each record (Binance: u / a / E; Bybit: book `seq`, trade UUID `i`, mark ts);
+  coverage      — identities delivered by both lines / by one line only;
+  skew          — |receive time difference| between the lines for identities seen on both (sizes the de-duplication window);
+  old policy    — "key not greater than the last written" in arrival order (what Python and the first Rust version did): how many identities it lost;
+  new policy    — exact identity within a window: duplicates dropped, everything else kept (loses nothing that arrived).
+Usage: lanecmp.py <binance|bybit> <dir with capture-*.tsv> --out lanecmp.json [--window-s 60]
 """
 import argparse
 import glob
@@ -15,8 +18,8 @@ from collections import defaultdict
 TRADE_SLOT = 1000
 
 
-def keys_of(ex, frame):
-    """[(вид, символ, ключ, личность)] кадра; личность — настоящий id сделки (Bybit: UUID `i`), иначе None; пусто — кадр не данные."""
+def records(ex, frame):
+    """[(kind, symbol, key, identity)] of a frame; key = what the old policy ordered by (u/a/E), identity = what the new one dedups by."""
     try:
         d = json.loads(frame)
     except ValueError:
@@ -25,19 +28,26 @@ def keys_of(ex, frame):
         x = d.get("data") if isinstance(d, dict) else None
         if isinstance(x, dict):
             if x.get("e") == "bookTicker":
-                return [("b", x["s"], x["u"], None)]
+                return [("b", x["s"], x["u"], x["u"])]
             if x.get("e") == "aggTrade":
-                return [("t", x["s"], x["a"], None)]
+                return [("t", x["s"], x["a"], x["a"])]
         elif isinstance(x, list):
-            return [("m", y["s"], y["E"], None) for y in x if y.get("e") == "markPriceUpdate"]
+            return [("m", y["s"], y["E"], y["E"]) for y in x if y.get("e") == "markPriceUpdate"]
         return []
     topic = d.get("topic", "") if isinstance(d, dict) else ""
     if topic.startswith("orderbook.1."):
         x = d["data"]
-        return [("b", x["s"], x["u"], None)]
+        return [("b", x["s"], x["u"], x["seq"])]  # old policy ordered by the connection-local u; the identity is the cross sequence
     if topic.startswith("publicTrade."):
-        return [("t", x["s"], x["seq"] * TRADE_SLOT + i, x["i"]) for i, x in enumerate(d["data"])]
+        return [("t", x["s"], d["data"][i]["seq"] * TRADE_SLOT + i, x["i"]) for i, x in enumerate(d["data"])]
+    if topic.startswith("tickers.") and d.get("type") == "delta" and any(k in d["data"] for k in ("markPrice", "indexPrice", "fundingRate", "nextFundingTime")):
+        return [("m", d["data"]["symbol"], d["ts"], d["ts"])]
     return []
+
+
+def pct(xs, p):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(len(xs) * p))] if xs else None
 
 
 def main():
@@ -45,11 +55,12 @@ def main():
     ap.add_argument("ex")
     ap.add_argument("dir")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--skip-s", type=float, default=15.0, help="отбросить первые секунды (подписка, снимки)")
+    ap.add_argument("--skip-s", type=float, default=15.0, help="drop the first seconds (subscription snapshots)")
+    ap.add_argument("--window-s", type=float, default=60.0)
     a = ap.parse_args()
-    res = {}
+    tot = defaultdict(lambda: defaultdict(int))
+    skews = defaultdict(list)
     for p in sorted(glob.glob(os.path.join(a.dir, "capture-*.tsv"))):
-        shard = os.path.basename(p)[8:-4]
         rows = []
         with open(p, encoding="utf-8", errors="replace") as f:
             for ln in f:
@@ -59,58 +70,53 @@ def main():
         if not rows:
             continue
         t_lo = rows[0][1] + int(a.skip_s * 1e9)
-        per = defaultdict(lambda: {"order": [], "by_sender": defaultdict(list), "ident": defaultdict(dict)})
+        order = defaultdict(list)  # (kind, sym) -> [(sender, rx, key, identity)] in arrival order
         for sender, rx, frame in rows:
             if rx < t_lo:
                 continue
-            for kind, sym, key, ident in keys_of(a.ex, frame):
-                e = per[(kind, sym)]
-                e["order"].append((sender, key))
-                e["by_sender"][sender].append(key)
-                if ident is not None:
-                    e["ident"][ident].setdefault(sender, key)
-        agg = defaultdict(lambda: defaultdict(int))
-        for (kind, sym), e in per.items():
-            g = agg[kind]
-            allk = {k for _, k in e["order"]}
+            for kind, sym, key, ident in records(a.ex, frame):
+                order[(kind, sym)].append((sender, rx, key, ident))
+        for (kind, sym), seq in order.items():
+            g = tot[kind]
+            senders = sorted({s for s, *_ in seq})
             g["symbols"] += 1
-            g["frames_keys"] += len(e["order"])
-            g["union"] += len(allk)
-            # внутри сессии: ключ не больше предыдущего (повтор или обратный ход)
-            for s, ks in e["by_sender"].items():
-                for x, y in zip(ks, ks[1:]):
-                    if y < x:
-                        g["in_session_reorder"] += 1
-                    elif y == x:
-                        g["in_session_repeat"] += 1
-            # дедуп «ключ не больше записанного» в порядке прихода
-            last, kept = -1, set()
-            for _, k in e["order"]:
-                if k > last:
-                    last = k
-                    kept.add(k)
-            g["kept_monotone"] += len(kept)
-            g["lost_by_monotone"] += len(allk - kept)
-            # покрытие сессиями
-            for s, ks in e["by_sender"].items():
-                g[f"sender_missing_{len(e['by_sender'])}way"] += len(allk - set(ks))
-            g["senders_max"] = max(g["senders_max"], len(e["by_sender"]))
-            nsend = len(e["by_sender"])
-            for ident, by in e["ident"].items():
-                g["fills"] += 1
-                if len(by) < nsend:
-                    g["fill_seen_by_fewer_senders"] += 1  # сделка пришла не по всем сессиям символа
-                if len(set(by.values())) > 1:
-                    g["fill_key_differs_between_senders"] += 1  # одна сделка — разные ключи a у сессий (разная нарезка пачек)
-        res[shard] = {k: dict(v) for k, v in agg.items()}
-    tot = defaultdict(lambda: defaultdict(int))
-    for sh in res.values():
-        for kind, g in sh.items():
-            for k, v in g.items():
-                tot[kind][k] = max(tot[kind][k], v) if k == "senders_max" else tot[kind][k] + v
-    out = {"total": {k: dict(v) for k, v in tot.items()}, "shards": res}
+            g["deliveries"] += len(seq)
+            # old policy: key greater than the last written key
+            last, kept_old, kept_ids = None, 0, set()
+            for _, _, key, ident in seq:
+                if last is None or key > last:
+                    last, kept_old = key, kept_old + 1
+                    kept_ids.add(ident)
+            # new policy: identity not seen within the window
+            seen, kept_new, lost_new = {}, 0, 0
+            by_id = defaultdict(dict)
+            for s, rx, key, ident in seq:
+                by_id[ident].setdefault(s, rx)
+                t = seen.get(ident)
+                if t is None or rx - t > a.window_s * 1e9:
+                    seen[ident] = rx
+                    kept_new += 1
+            ids = set(by_id)
+            g["identities"] += len(ids)
+            g["written_old_policy"] += kept_old
+            g["identities_lost_old_policy"] += len(ids - kept_ids)
+            g["written_new_policy"] += kept_new
+            g["identities_lost_new_policy"] += len(ids) - len({i for i in seen})
+            g["duplicate_writes_new_policy"] += kept_new - len(ids)
+            for ident, by in by_id.items():
+                if len(by) >= 2:
+                    g["on_both_lines"] += 1
+                    v = sorted(by.values())
+                    skews[kind].append((v[-1] - v[0]) / 1e6)
+                else:
+                    g["on_one_line_only"] += 1
+            g["senders_max"] = max(g["senders_max"], len(senders))
+    out = {"window_s": a.window_s, "kinds": {}}
+    for kind, g in tot.items():
+        sk = skews.get(kind, [])
+        out["kinds"][kind] = dict(g) | {"skew_ms": {"n": len(sk), "p50": pct(sk, 0.5), "p99": pct(sk, 0.99), "p999": pct(sk, 0.999), "max": max(sk, default=None)}}
     json.dump(out, open(a.out, "w"), indent=1)
-    print(json.dumps(out["total"]))
+    print(json.dumps(out["kinds"]))
 
 
 if __name__ == "__main__":

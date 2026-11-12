@@ -1769,14 +1769,65 @@ fn bybit_trade_identity_is_uuid_not_synthetic_key() {
 }
 
 #[test]
-fn writer_seen_window_forgets_after_a_minute() {
+fn writer_seen_window_forgets_after_two_minutes() {
     let r = rig(Arc::new(Binance), 20);
     let t = 20_000 * NS_PER_DAY + 4_000_000_000;
     r.frame(t, 1, &bn_book(10, 1_000));
-    r.frame(t + 30_000_000_000, 2, &bn_book(10, 1_000)); // через 30 с — ещё дубль
-    r.frame(t + 70_000_000_000, 2, &bn_book(10, 1_000)); // через 70 с — личность забыта: пишется
+    r.frame(t + 100_000_000_000, 2, &bn_book(10, 1_000)); // через 100 с — ещё дубль
+    r.frame(t + 130_000_000_000, 2, &bn_book(10, 1_000)); // через 130 с — личность забыта: пишется
     let (dir, m) = r.finish();
     let rows = &read_days(dir.path())[0].1;
     assert_eq!(rows.len(), 2);
     assert_eq!(m.writer().dups, 1);
+}
+
+/// Линия ушла на запасной вход, потом пробует вернуться на основной (мёртвый): замена не принимает путь — поток не рвётся, линия остаётся на запасном.
+#[test]
+fn failed_return_to_primary_keeps_the_stream() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    (opts.return_after, opts.switch_wait) = (Duration::from_secs(2), Duration::from_secs(3));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(100, Duration::from_secs(300)));
+    let dead = Entrance {
+        host: "127.0.0.1".into(),
+        ip: Some("127.0.0.2".parse().unwrap()),
+        family: Family::V4,
+    };
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![dead, Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while (count_events(dir.path(), "switch_failed") < 1 || metrics.writer().records < 100)
+        && t0.elapsed() < Duration::from_secs(60)
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // ещё немного данных после неудачной замены — поток по-прежнему идёт через запасной вход
+    let before = metrics.writer().records;
+    std::thread::sleep(Duration::from_millis(500));
+    let after = metrics.writer().records;
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(count_events(dir.path(), "switch_failed") >= 1);
+    assert!(count_events(dir.path(), "entrance_return") >= 1);
+    assert!(after > before, "поток идёт после неудачной замены");
+    assert_u_contiguous(dir.path());
 }

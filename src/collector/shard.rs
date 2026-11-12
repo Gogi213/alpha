@@ -31,6 +31,11 @@ pub const SHORT_SESSION: Duration = Duration::from_secs(60);
 pub const FAIL_LIMIT: u32 = 3;
 const GAP_TIMEOUT_MS: u64 = 3000;
 const GAP_TICK: Duration = Duration::from_millis(500);
+/// Пауза перед новой попыткой замены после неудачной.
+const SWITCH_RETRY: Duration = Duration::from_secs(30);
+/// Потолок интервала возврата на основной вход и срок, после которого счёт неудачных возвратов обнуляется.
+const RETURN_MAX: Duration = Duration::from_secs(7200);
+const RETURNS_FORGOTTEN: Duration = Duration::from_secs(3600);
 const STACK: usize = 1 << 20;
 
 pub fn mono_ms() -> u64 {
@@ -56,6 +61,8 @@ pub struct ShardOpts {
     pub port: u16,
     /// Окно проверки нового пути: (пропуск, конец), секунды.
     pub probe_window: (f64, f64),
+    /// Через сколько линия на запасном входе пробует вернуться на основной (дальше — вдвое дольше после каждой неудачи).
+    pub return_after: Duration,
 }
 
 impl ShardOpts {
@@ -73,6 +80,7 @@ impl ShardOpts {
             tls: true,
             port: 443,
             probe_window: (PROBE_SKIP_S, PROBE_S),
+            return_after: Duration::from_secs(600),
         }
     }
 }
@@ -83,6 +91,8 @@ struct Lane {
     ents: Vec<Entrance>,
     idx: AtomicUsize,
     fails: AtomicU32,
+    /// С какого момента линия идёт через запасной вход (`None` — через основной).
+    spare_since: Mutex<Option<Instant>>,
 }
 
 impl Lane {
@@ -103,8 +113,50 @@ impl Lane {
         self.idx
             .store((self.idx.load(Relaxed) + 1) % self.ents.len(), Relaxed);
         let to = self.current();
+        {
+            let mut since = self
+                .spare_since
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *since = if self.idx.load(Relaxed) == 0 {
+                None
+            } else {
+                since.or(Some(Instant::now()))
+            };
+        }
         sh.metrics.lists().entrance_switches.push_back(now_ms());
         sh.events.emit("entrance_switch", json!({"line": self.k, "reason": reason, "session": seq, "from": from.host, "to": to.host, "fails": fails}));
+    }
+
+    /// Как долго линия идёт через запасной вход; `None` — через основной.
+    fn spare_for(&self) -> Option<Duration> {
+        let since = self
+            .spare_since
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        since.map(|t| t.elapsed())
+    }
+
+    /// Вернуть основной вход (попытка возврата после запасного); событие.
+    fn restore_primary(&self, sh: &Shared, seq: u32, returns: u32) {
+        let from = self.current();
+        self.idx.store(0, Relaxed);
+        *self
+            .spare_since
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        let to = self.current();
+        sh.events.emit("entrance_return", json!({"line": self.k, "session": seq, "from": from.host, "to": to.host, "returns": returns}));
+    }
+
+    /// Откат входа, если замена не принята: линия остаётся там, где работала.
+    fn set_idx(&self, idx: usize) {
+        self.idx.store(idx, Relaxed);
+        *self
+            .spare_since
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            if idx == 0 { None } else { Some(Instant::now()) };
     }
 
     /// Итог закрытой сессии: короткая — счёт, длинная — сброс; на пределе — смена входа.
@@ -218,18 +270,37 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
     let Some(mut cur) = spawn_session(sh, lane, seq, None) else {
         return;
     };
+    // возвраты на основной вход подряд (интервал растёт вдвое, чтобы не молотить по плохому входу) и когда линия последний раз стала на основной
+    let (mut returns, mut primary_since, mut retry_at) = (0u32, Instant::now(), Instant::now());
     while !sh.stop.load(Relaxed) {
         thread::sleep(Duration::from_millis(250));
+        let spare = lane.spare_for();
+        if spare.is_some() {
+            primary_since = Instant::now();
+        } else if primary_since.elapsed() >= RETURNS_FORGOTTEN {
+            returns = 0;
+        }
         let bad = sh.watch().is_degraded(cur.seq);
-        if !bad && cur.born.elapsed() < opts.max_age {
+        let old = cur.born.elapsed() >= opts.max_age;
+        let wait = opts
+            .return_after
+            .saturating_mul(1 << returns.min(4))
+            .min(RETURN_MAX);
+        let want_return = !bad && spare.is_some_and(|d| d >= wait);
+        if !(bad || old || want_return) || Instant::now() < retry_at {
             continue;
         }
         seq = seq.wrapping_add(1);
-        if bad {
+        let prev_idx = lane.idx.load(Relaxed);
+        if want_return {
+            returns += 1;
+            lane.restore_primary(sh, seq, returns);
+        } else if bad {
             lane.switch(sh, "late_delivery", seq);
         }
         let accepted = Arc::new(AtomicBool::new(false));
         let Some(nxt) = spawn_session(sh, lane, seq, Some(Arc::clone(&accepted))) else {
+            lane.set_idx(prev_idx);
             continue;
         };
         let t0 = Instant::now();
@@ -237,7 +308,15 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             thread::sleep(Duration::from_millis(100));
         }
         if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) {
-            sh.events.emit("switch_timeout", json!({"session": seq}));
+            // замена не приняла путь (нет соединения, проверка лага не пройдена): поток не рвём — остаёмся на прежней сессии и входе
+            sh.events.emit(
+                "switch_failed",
+                json!({"session": seq, "kept_session": cur.seq, "entrance": lane.current().host}),
+            );
+            finish(nxt);
+            lane.set_idx(prev_idx);
+            retry_at = Instant::now() + SWITCH_RETRY;
+            continue;
         }
         sleep_stop(sh, opts.overlap);
         let old_seq = cur.seq;
@@ -309,6 +388,7 @@ pub fn spawn_shard(
                 ents: ents.clone(),
                 idx: AtomicUsize::new(0),
                 fails: AtomicU32::new(0),
+                spare_since: Mutex::new(None),
             })
         })
         .collect();
