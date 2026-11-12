@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # Сборка и проверки рабочего дерева на VPS (13.140.29.171) — вторая дорожка работ, пока на этой машине идёт
 # своя сборка (владелец 24.09: «одна сборка здесь, вторая на VPS»; две сборки на одной машине — нельзя).
-#   tools/vps-check.sh <рабочее дерево> [test|testdbg|clippy|fmt|build|all|gate|complexity] [фильтр тестов]
+#   tools/vps-check.sh <рабочее дерево> [check|test|testdbg|clippy|fmt|build|all|gate|complexity] [фильтр тестов]
 # Переносит отслеживаемые и новые файлы дерева (без target*/data/) архивом с сохранением времени изменения —
 # неизменённые файлы cargo не пересобирает; сборка — в отдельном target-wave2, не в каталоге сборок для дека.
 # Сборки на VPS идут по очереди: замок /opt/alpha-compute/.build.lock (его же берёт сборка бинарника для дека).
-# TK-170 (В-223): хост по умолчанию — сервер счёта (CHECK_HOST=calc): сборка под `alsched submit`, N слотов параллельно
-# (раннер tools/calc-build-run.sh = /opt/rbuild/run.sh), у слота постоянный тёплый target; красное — все ^error/^warning.
-# CHECK_HOST=vps — запасной прежний путь (очередь под замком VPS).
+# TK-499 (В-102, В-103): хост по умолчанию — сервер 5.231.25.224 (CHECK_HOST=srv): раннер tools/srv-build-run.sh
+# (= /opt/rbuild/run-srv.sh), одна сборка за раз, общий тёплый target-srv, пока идёт счёт G0 П-40 (p40-*) — 2 ядра,
+# nice 19; красное — все ^error/^warning. CHECK_HOST=vps — запасной (София: сторож места режет сборки при свободном < 23 ГБ,
+# отказ rc 76 при свободном < VPS_MIN_GB=28). calc (89.163.242.211) больше не наш — CHECK_HOST=calc отказывает.
 set -euo pipefail
 TREE="${1:?рабочее дерево}"
 WHAT="${2:-all}"
 FILTER="${3:-}"
 KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o ConnectTimeout=15 -o ServerAliveInterval=30)
-CHECK_HOST="${CHECK_HOST:-calc}"
-case "$CHECK_HOST" in calc) HOST=root@89.163.242.211 ;; vps) HOST=root@13.140.29.171 ;; *) echo "CHECK_HOST: calc|vps"; exit 2 ;; esac
+CHECK_HOST="${CHECK_HOST:-srv}"
+case "$CHECK_HOST" in srv) HOST=root@5.231.25.224 ;; vps) HOST=root@13.140.29.171 ;; *) echo "CHECK_HOST: srv|vps (calc больше не наш, В-102)"; exit 2 ;; esac
 TAG="${VPS_TAG:-}"   # непустой тег — свой каталог исходников и target: параллельные вызовы не затирают друг друга
 SRC=/opt/alpha-compute/wave2-src$TAG-$$   # TK-169: свой каталог на вызов — ожидающий замка не теряет исходники из-за чужого rm -rf
 # TK-169: общий постоянный target (сборки идут по очереди под замком — гонки нет): зависимости из реестра не
@@ -27,7 +28,7 @@ ERRS='L=$(mktemp); tee $L | tail -N; grep -A2 -e ^error -e ^warning $L | head -1
 tl() { echo "| { ${ERRS/N/$1}; }"; }
 J=3; TL10="$(tl 10)"; TL15="$(tl 15)"; TL25="$(tl 25)"; TL5="| tail -5"
 GREP_T="| grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40"
-if [ "$CHECK_HOST" = calc ]; then   # фильтры на раннере (при красном — все error/warning), target слота и ядра — из его окружения
+if [ "$CHECK_HOST" = srv ]; then   # фильтры на раннере (при красном — все error/warning), target и ядра — из его окружения
   TGT='$SLOT_TGT'; J='$JOBS'; TL10=; TL15=; TL25=; TL5=; GREP_T=
   ARCR=/opt/rbuild/in/wave2$TAG-$$.tgz
 fi
@@ -39,10 +40,10 @@ case "$WHAT" in all|gate) python "$(dirname "$0")/check-sprawl.py" . master || e
 # метка задачи в командной строке замка (видна в `ps` на VPS — экран хода работ по ней находит задачу сборки):
 # RPV_TICKET (прежнее ALPHA_TICKET) сессии роли (его ставит диспетчер), иначе имя рабочего дерева; на поведение сборки не влияет
 LABEL="$(printf '%s' "${RPV_TICKET:-${ALPHA_TICKET:-$(basename "$PWD")}}" | tr -c 'A-Za-z0-9._-' '_')"
-# TK-170: живая сборка этой метки на calc (queued/running) — отказ с её id (повтор после смерти сессии не плодит дублей); CALC_FORCE=1 — обход
-if [ "$CHECK_HOST" = calc ] && [ -z "${CALC_FORCE:-}" ]; then
-  LIVE=$(ssh "${KEY[@]}" "$HOST" "python3 /data/sched/alsched.py ps" 2>/dev/null | grep -E "^[0-9]+ +(queued|running) .* build-$LABEL +" | head -1 | cut -d" " -f1) || true
-  [ -n "$LIVE" ] && { echo "build-$LABEL уже идёт: id $LIVE — ждать: host:calc:/data/sched/rc/$LIVE (лог /data/sched/logs/$LIVE.log); CALC_FORCE=1 — подать ещё"; exit 75; }
+# Софию бережёт сторож места (режет сборки при свободном < 23 ГБ): без запаса сюда не собираем
+if [ "$CHECK_HOST" = vps ]; then
+  FREE=$(ssh "${KEY[@]}" "$HOST" "df --output=avail -BG /opt/alpha-compute | tail -1 | tr -dc 0-9")
+  [ "${FREE:-0}" -ge "${VPS_MIN_GB:-28}" ] || { echo "vps: свободно ${FREE:-?}G < ${VPS_MIN_GB:-28}G (сторож места < 23G) — сборку не ставим"; exit 76; }
 fi
 git ls-files -z --cached --others --exclude-standard | tar --force-local --null -T - -czf "$ARC"
 ssh "${KEY[@]}" "$HOST" "mkdir -p $(dirname "$ARCR")"
@@ -58,6 +59,8 @@ case "$WHAT" in
   test)  CMD="cargo test --release $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
   # TK-211: как CI (GC/Quality) — debug: overflow-checks и debug_assert включены; release их прячет
   testdbg) CMD="cargo test $FEAT --target-dir $TGT -j $J $FILTER 2>&1 $GREP_T" ;;
+  # G-022: быстрая проверка типов (без кодогенерации) — цикл правки; тесты, clippy и сборку не заменяет
+  check)  CMD="cargo check --all-targets $FEAT --target-dir $TGT-chk -j $J 2>&1 $TL25" ;;
   clippy) CMD="cargo clippy --release $FEAT --target-dir $TGT --all-targets -j $J -- -D warnings 2>&1 $TL25" ;;
   fmt)    CMD="cargo fmt --check 2>&1 $TL25" ;;
   lint)   CMD="bash tools/lint-gate.sh $TGT-lint 2>&1 $TL15" ;;   # TK-279: только бюджет линтов (строгие линты + счёт срабатываний), без тестов   # TK-279: только бюджет линтов (строгие линты + счёт срабатываний), без тестов
@@ -78,21 +81,16 @@ case "$WHAT" in
 esac
 # shellcheck disable=SC2029
 set +e
-if [ "$CHECK_HOST" = calc ]; then
-  # TK-170: ядра слота (CALC_CORES, по умолчанию 1 = 16-е ядро резерва, TK-300/В-40: -j совпадает с выданным ядром) и память — заявка планировщику; submit возвращает id, дальше ждём rc/<id>
-  CORES="${CALC_CORES:-1}"; MEMG="${CALC_MEM:-12}"
-  ssh "${KEY[@]}" "$HOST" "mkdir -p /opt/rbuild/in && cat > /opt/rbuild/run.sh.$$ && mv /opt/rbuild/run.sh.$$ /opt/rbuild/run.sh" < "$(dirname "$0")/calc-build-run.sh"   # раннер выкладывается с деревом: версий не расходится
-  ID=$(ssh "${KEY[@]}" "$HOST" "mkdir -p /opt/rbuild/in && cat > /opt/rbuild/in/cmd-$$.sh <<'EOS'
+if [ "$CHECK_HOST" = srv ]; then
+  # раннер выкладывается с деревом (версии не расходятся); команда — файлом: без кавычек bash -c; ядра и target даёт раннер
+  ssh "${KEY[@]}" "$HOST" "mkdir -p /opt/rbuild/in && cat > /opt/rbuild/run-srv.sh.$$ && mv /opt/rbuild/run-srv.sh.$$ /opt/rbuild/run-srv.sh" < "$(dirname "$0")/srv-build-run.sh"
+  ssh "${KEY[@]}" "$HOST" "cat > /opt/rbuild/in/cmd-$$.sh" <<EOS
 export PATH=/opt/rbuild/cargo/bin:\$PATH RUSTUP_HOME=/opt/rbuild/rustup CARGO_HOME=/opt/rbuild/cargo
 set -o pipefail
 $CMD
 EOS
-cd /opt/rbuild && SCHED_MANIFEST=0 python3 /data/sched/alsched.py submit --name build-$LABEL --max-runtime ${CALC_MAX:-15m} --cls prod --kind build --cores $CORES --mem $MEMG --prio 3 -- bash /opt/rbuild/run.sh $ARCR /opt/rbuild/in/cmd-$$.sh $CORES" | tail -1)
-  case "$ID" in ''|*[!0-9]*) echo "alsched submit: id не получен ($ID)"; RC=75 ;; *)
-    echo "alsched id $ID — wait_for: host:calc:/data/sched/rc/$ID (лог /data/sched/logs/$ID.log)"
-    ssh "${KEY[@]}" "$HOST" "while [ ! -e /data/sched/rc/$ID ]; do sleep 2; done; cat /data/sched/logs/$ID.log; exit \$(cat /data/sched/rc/$ID)"
-    RC=$? ;;
-  esac
+  ssh "${KEY[@]}" "$HOST" "bash /opt/rbuild/run-srv.sh $ARCR /opt/rbuild/in/cmd-$$.sh"
+  RC=$?
 else
 ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf $ARCR -C $SRC   && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock env ALPHA_TICKET=$LABEL nice -n 5 /opt/alpha-compute/sweep.sh run $TGT bash -c '$CMD'"
 RC=$?

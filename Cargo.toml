@@ -20,6 +20,12 @@ chrono = "0.4"
 zstd = { version = "0.14", features = ["zdict_builder"] }
 # live тянет iceoryx2 и tokio крейта; он понадобится на шаге живого бота, не сейчас.
 hftbacktest = { version = "0.9.4", default-features = false, features = ["backtest"] }
+# G-022 (турбо-коллектор): свой путь connect→TLS→WebSocket поверх нашего сокета (RTT рукопожатия, Recv-Q); версии те же, что у tokio-tungstenite.
+tungstenite = "0.30"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+bytes = "1"
+libc = "0.2"
 # Decision 12: подпись приватных запросов Bybit. Ключи только из переменных окружения.
 hmac = "0.13"
 sha2 = "0.11"
