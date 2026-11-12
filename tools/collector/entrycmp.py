@@ -117,7 +117,9 @@ def cmd_episodes(d, a):
             for r in read_recs(d, n, w0, w1):
                 data[n][(r[1], r[2], r[3])].append(r)
         lag = {n: {k: min(r[0] - r[4] for r in v) for k, v in data[n].items()} for n in names}  # лаг первой пришедшей копии ключа на входе
-        late_keys = {n: {k for k, v in lag[n].items() if v > LATE_MS} for n in names}
+        # «поздняя» — по файлам late-*.jsonl пробы (там не считаются первые GRACE_S после подписки: начальные снимки tickers несут устаревший ts), лаг первой копии ключа — по логу записей
+        flagged = {n: {(x["kind"], x["sym"], x["key"]) for x in jl(os.path.join(d, f"late-{n}.jsonl")) if w0 <= x["rx_ms"] <= w1} for n in names}
+        late_keys = {n: {k for k, v in lag[n].items() if v > LATE_MS and k in flagged[n]} for n in names}
         allk = set().union(*late_keys.values())
         rescued = {n: sum(1 for k in late_keys[n] if any(m != n and lag[m].get(k, 10**9) <= ON_TIME_MS for m in names)) for n in names}
         all_late = sum(1 for k in allk if all(k not in lag[n] or lag[n][k] > LATE_MS for n in names) and sum(k in lag[n] for n in names) >= 2)
