@@ -23,7 +23,7 @@ use super::sink::{SinkMsg, SinkTx};
 
 /// Сколько помнить сырые кадры для снятия копий между линиями (линии одного шарда расходятся по приходу на секунды).
 pub const RAW_SEEN_MS: i64 = 60_000;
-/// Сколько помнить личности записей для снятия дублей между линиями: перекрытие замены 20 с, расхождение линий — секунды (замер 12.11: до 4,8 с;
+/// Сколько минимум помнить личности записей для снятия дублей между линиями (помнится от этого срока до удвоенного): перекрытие замены 20 с, расхождение линий — секунды (замер 12.11: до 4,8 с;
 /// TK-532: застрявшая линия до 15 с, деградировавший вход до 120 с, пока шард не откроет замену). 120 с ≈ 50 МБ на процесс при ≈ 3,5 тыс. записей/с.
 pub const SEEN_MS: i64 = 120_000;
 const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
@@ -66,30 +66,39 @@ struct IdKey {
     id: i64,
 }
 
-/// Доставки записей, уже виденные за `SEEN_MS`: запись — дубль, если её личность уже была (другая линия, замена при перекрытии,
-/// повтор кадра той же сессией). Не требует порядка: запись, пришедшая позже более новой, но ещё не виденная, — новая и пишется.
+/// Личности записей, уже виденные: запись — дубль, если её личность уже была (другая линия, замена при перекрытии, повтор кадра той же
+/// сессией). Не требует порядка: запись, пришедшая позже более новой, но ещё не виденная, — новая и пишется.
+/// Два поколения множества вместо очереди устаревания: личность помнится от `SEEN_MS` до `2·SEEN_MS`, ничего не удаляется поэлементно,
+/// а новое поколение создаётся сразу нужного размера — без перестройки таблицы посреди потока (она давала паузу писателя ≈ 100 мс на миллионах записей).
 #[derive(Default)]
 struct Seen {
-    set: HashSet<IdKey, FnvBuild>,
-    order: VecDeque<(i64, IdKey)>,
+    cur: HashSet<IdKey, FnvBuild>,
+    prev: HashSet<IdKey, FnvBuild>,
+    cur_since_ms: i64,
 }
 
 impl Seen {
     /// `true` — личность новая (писать), `false` — дубль. `now_ms` — приём записи (неубывающий).
     fn first_time(&mut self, now_ms: i64, k: IdKey) -> bool {
-        while let Some(&(t, old)) = self.order.front() {
-            if now_ms - t <= SEEN_MS {
-                break;
-            }
-            self.order.pop_front();
-            self.set.remove(&old);
+        let age = now_ms - self.cur_since_ms;
+        if self.cur_since_ms == 0 || age >= 2 * SEEN_MS {
+            // первая запись или долгая тишина: помнить нечего
+            self.prev = HashSet::default();
+            self.cur = HashSet::default();
+            self.cur_since_ms = now_ms;
+        } else if age >= SEEN_MS {
+            let n = self.cur.len();
+            self.prev = std::mem::replace(
+                &mut self.cur,
+                HashSet::with_capacity_and_hasher(n + n / 4, FnvBuild::default()),
+            );
+            self.cur_since_ms = now_ms;
         }
-        if self.set.insert(k) {
-            self.order.push_back((now_ms, k));
-            true
-        } else {
-            false
+        if self.cur.contains(&k) || self.prev.contains(&k) {
+            return false;
         }
+        self.cur.insert(k);
+        true
     }
 }
 

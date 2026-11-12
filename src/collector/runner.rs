@@ -57,7 +57,7 @@ pub struct RunArgs {
     #[arg(long, default_value_t = LIMIT)]
     pub connect_budget: usize,
     /// Период сброса блока на диск, мс.
-    #[arg(long, default_value_t = 200)]
+    #[arg(long, default_value_t = 100)]
     pub flush_ms: u64,
     /// Пул из файла `pool-*.json` (поле `pool`) вместо REST — тот же набор символов для сравнения.
     #[arg(long)]

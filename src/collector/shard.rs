@@ -70,7 +70,7 @@ impl ShardOpts {
         Self {
             root,
             run_id,
-            flush: Duration::from_millis(200),
+            flush: Duration::from_millis(100),
             block_max: 256 * 1024,
             ring_cap: 1 << 15,
             sink_cap: 64,

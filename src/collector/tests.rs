@@ -1769,12 +1769,12 @@ fn bybit_trade_identity_is_uuid_not_synthetic_key() {
 }
 
 #[test]
-fn writer_seen_window_forgets_after_two_minutes() {
+fn writer_seen_window_forgets_after_two_to_four_minutes() {
     let r = rig(Arc::new(Binance), 20);
     let t = 20_000 * NS_PER_DAY + 4_000_000_000;
     r.frame(t, 1, &bn_book(10, 1_000));
     r.frame(t + 100_000_000_000, 2, &bn_book(10, 1_000)); // через 100 с — ещё дубль
-    r.frame(t + 130_000_000_000, 2, &bn_book(10, 1_000)); // через 130 с — личность забыта: пишется
+    r.frame(t + 250_000_000_000, 2, &bn_book(10, 1_000)); // через 250 с — личность забыта: пишется
     let (dir, m) = r.finish();
     let rows = &read_days(dir.path())[0].1;
     assert_eq!(rows.len(), 2);
