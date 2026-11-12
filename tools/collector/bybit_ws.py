@@ -11,7 +11,7 @@ import urllib.request
 
 import orjson
 
-from wscore.pool import rank_pool
+from wscore.pool import balanced_chunks, rank_pool
 from wscore.runner import collector_main
 
 REST = "https://api.bybit.com"
@@ -47,9 +47,9 @@ def select_pool(instruments, tickers, min_qv, top_exclude):
 
 
 def shard_streams(pool, kind, per_conn):
-    """Топики вида kind по per_conn штук на соединение: [(шард, [topic,...]), ...]."""
+    """Топики вида kind не больше per_conn на соединение, куски равного размера: [(шард, [topic,...]), ...]."""
     topics = [TOPICS[kind].format(s) for s in pool]
-    return [(f"{kind}{i // per_conn:02d}", topics[i : i + per_conn]) for i in range(0, len(topics), per_conn)]
+    return [(f"{kind}{i:02d}", t) for i, t in enumerate(balanced_chunks(topics, per_conn))]
 
 
 def fetch_json(path):

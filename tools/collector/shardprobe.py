@@ -12,7 +12,7 @@ import time
 import orjson
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bybit_ws import TOPICS, WS_URL, shard_streams  # noqa: E402
+from bybit_ws import TOPICS, WS_URL  # noqa: E402
 from wscore.dial import peer_ip, tcp_state  # noqa: E402
 
 HOST = "stream.bybit.com"
@@ -117,8 +117,9 @@ async def main():
 
     shards = {}
     for kind in ("trade", "mark"):
-        for name, topics in shard_streams(pool, kind, 100):
-            shards[name] = topics
+        tp = [TOPICS[kind].format(x) for x in pool]  # раскладка боевого коллектора 12.11 до 03:10 UTC: подряд по 100 (после — равные куски, wscore.pool.balanced_chunks)
+        for i in range(0, len(tp), 100):
+            shards[f"{kind}{i // 100:02d}"] = tp[i : i + 100]
     jobs = []
     names = sys.argv[4].split(",") if len(sys.argv) > 4 else ("trade02", "mark02", "trade01", "mark01")
     for name in names:

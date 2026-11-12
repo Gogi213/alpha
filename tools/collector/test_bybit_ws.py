@@ -34,7 +34,7 @@ def test_plan_subscribe():
     ad = bw.Adapter()
     pool = [f"S{i:03d}USDT" for i in range(250)]
     plan = ad.plan(pool, ad.kinds, 100)
-    assert [(n, len(t)) for n, _, t in plan] == [("book00", 100), ("book01", 100), ("book02", 50), ("trade00", 100), ("trade01", 100), ("trade02", 50), ("mark00", 100), ("mark01", 100), ("mark02", 50)]
+    assert [(n, len(t)) for n, _, t in plan] == [("book00", 84), ("book01", 84), ("book02", 82), ("trade00", 84), ("trade01", 84), ("trade02", 82), ("mark00", 84), ("mark01", 84), ("mark02", 82)]  # равные куски, не больше 100
     assert plan[0][2][0] == "orderbook.1.S000USDT" and plan[3][2][0] == "publicTrade.S000USDT" and plan[6][2][0] == "tickers.S000USDT"
     msgs = ad.subscribe_messages(plan[0][2])
     assert len(msgs) == 1 and json.loads(msgs[0]) == {"op": "subscribe", "args": plan[0][2]}
@@ -95,4 +95,7 @@ def test_streams_per_conn_stays_under_documented_limit():
     assert ad.streams_per_conn <= 80 < 100
     plan = ad.plan([f"S{i}USDT" for i in range(389)], ad.kinds, ad.streams_per_conn)
     assert max(len(t) for _, _, t in plan) <= ad.streams_per_conn and len(plan) == 15  # 5 шардов на вид × 3 вида
+    assert min(len(t) for _, _, t in plan) >= 77  # без хвоста из нескольких символов (TK-532: 8 символов — 26 событий gap за 6 мин)
+    tail = ad.plan([f"S{i}USDT" for i in range(408)], ad.kinds, ad.streams_per_conn)
+    assert sorted({len(t) for _, _, t in tail}) == [68] and len(tail) == 18
     assert all(len(m) < 21_000 for _, _, t in plan for m in ad.subscribe_messages(t))
