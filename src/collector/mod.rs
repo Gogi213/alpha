@@ -27,6 +27,7 @@ pub mod exchange;
 pub mod fresh;
 pub mod hash;
 pub mod health;
+pub mod ladder;
 pub mod metrics;
 pub mod net;
 pub mod path;
