@@ -6,7 +6,7 @@ msgs.json — список сообщений подписки (строка —
 Строка 0 — заголовок (connect_s, ip пира, время), далее {"rx_ns": приём (нс UTC), "f": кадр (текст; для --gz — распакованный)};
 для двоичных кадров добавляется "z": размер сжатого, у первых 30 — "b64": сжатый кадр как пришёл (сырьё для тестов разбора).
 Последняя строка при обрыве — {"closed": код, "reason": причина, "rx_ns": …}. Долгое — только systemd-run."""
-import argparse, asyncio, base64, json, socket, time, zlib
+import argparse, asyncio, base64, json, socket, sys, time, zlib
 import websockets, zstandard
 
 
@@ -26,10 +26,16 @@ async def main(a):
     port = int(hp.split(":")[1]) if ":" in hp else 443
     kw = {}
     t0 = time.monotonic()
-    if a.ip:
-        s = socket.socket(socket.AF_INET6 if ":" in a.ip else socket.AF_INET, socket.SOCK_STREAM)
+    tcp_ms = None
+    ip = a.ip
+    if not ip and a.tcp_probe:
+        ip = (await asyncio.get_running_loop().getaddrinfo(host, port, family=socket.AF_INET, type=socket.SOCK_STREAM))[0][4][0]
+    if ip:
+        s = socket.socket(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM)
         s.setblocking(False)
-        await asyncio.get_running_loop().sock_connect(s, (a.ip, port))
+        t1 = time.monotonic()
+        await asyncio.get_running_loop().sock_connect(s, (ip, port))
+        tcp_ms = round((time.monotonic() - t1) * 1000, 2)
         kw = {"sock": s, "server_hostname": host}
     f = open(a.out, "wb")
     c = zstandard.ZstdCompressor(level=3).compressobj()
@@ -38,10 +44,11 @@ async def main(a):
         f.write(c.compress((json.dumps(o, ensure_ascii=False) + "\n").encode()))
 
     n = nb = 0
+    slow_lags, t_first, slow = [], None, False
     try:
         async with websockets.connect(a.url, max_size=None, ping_interval=None, compression=None, **kw) as ws:
             peer = ws.transport.get_extra_info("peername")
-            w({"hdr": 1, "rx_ns": time.time_ns(), "url": a.url, "ip_arg": a.ip, "peer": peer[0] if peer else None, "connect_s": round(time.monotonic() - t0, 3), "msgs": len(msgs)})
+            w({"hdr": 1, "rx_ns": time.time_ns(), "url": a.url, "ip_arg": a.ip, "peer": peer[0] if peer else None, "local": ws.transport.get_extra_info("sockname")[1], "peer_port": peer[1] if peer else None, "connect_s": round(time.monotonic() - t0, 3), "tcp_connect_ms": tcp_ms, "msgs": len(msgs)})
 
             async def subscriber():
                 for m in msgs:
@@ -83,6 +90,18 @@ async def main(a):
                     rec["f"] = fr
                     w(rec)
                     n += 1
+                    if a.abort_slow_ms and fr.startswith('{"ch"'):
+                        t_first = t_first or time.monotonic()
+                        el = time.monotonic() - t_first
+                        j = json.loads(fr)
+                        if 5 <= el < 15:
+                            slow_lags.append(rx // 1_000_000 - (j.get("tick", {}).get("ts") or j["ts"]))
+                        elif el >= 15 and slow_lags:
+                            slow = sorted(slow_lags)[len(slow_lags) // 2] > a.abort_slow_ms
+                            slow_lags = []
+                            if slow:
+                                w({"slow_abort": True, "after_s": round(time.monotonic() - t0, 2), "rx_ns": time.time_ns()})
+                                break
                     if a.htx_pong and fr.startswith('{"ping"'):
                         await ws.send(json.dumps({"pong": json.loads(fr)["ping"]}))
                     elif a.htx_pong and fr.startswith('{"op":"ping"'):
@@ -100,6 +119,9 @@ async def main(a):
         print("error", repr(e))
     f.write(c.flush())
     f.close()
+    if slow:
+        print("slow-abort frames", n)
+        sys.exit(3)
     print("frames", n, "cpu_s", round(time.process_time(), 1), "wall_s", round(time.monotonic() - t0, 1))
 
 
@@ -110,6 +132,8 @@ if __name__ == "__main__":
     ap.add_argument("--url", required=True)
     ap.add_argument("--msgs-file", required=True)
     ap.add_argument("--ip")
+    ap.add_argument("--abort-slow-ms", type=float, default=0, help="HTX: если медиана лага (rx − ts записи) за 5–15 с после первого кадра выше порога — выйти с кодом 3 (медленный маршрут), обёртка откроет новое соединение")
+    ap.add_argument("--tcp-probe", action="store_true", help="сначала TCP-connect вручную (время SYN→SYN/ACK в заголовок tcp_connect_ms), потом WS по этому сокету")
     ap.add_argument("--sub-pause", type=float, default=0.2)
     ap.add_argument("--ping", default="none", choices=["none", "text", "proto"])
     ap.add_argument("--ping-every", type=float, default=30)

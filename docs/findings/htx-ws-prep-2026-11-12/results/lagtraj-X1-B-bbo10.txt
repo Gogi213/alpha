@@ -1,0 +1,7 @@
+t=   0.0s recs/s=     328 lag p50=  138 max= 7242
+t=  10.0s recs/s=     430 lag p50=  158 max=  258
+t=  20.0s recs/s=     331 lag p50=  148 max=  529
+t=  30.0s recs/s=     300 lag p50=  130 max=  299
+t=  40.0s recs/s=     542 lag p50=  244 max= 1296
+t=  50.0s recs/s=     919 lag p50=  253 max= 1024
+end: None

@@ -103,7 +103,30 @@ def parse_htx(j):
     return out
 
 
-PARSE = {"htx": _json_frame(parse_htx), "bitget": _json_frame(parse_bitget), "bitget3": _json_frame(parse_bitget3), "bitget-sbe": lambda fr: parse_bitget_sbe(fr) if fr.startswith("hex:") else []}
+def parse_bingx(j):
+    """BingX USDT-M swap-market: {"code":0,"dataType":"SYM@kind[@…]","data":…}. -> [(вид, символ, E_мс, ключ, метка, T_мс)]; для сравнения «время записи» E = data.E (событие), T = data.T (матчинг).
+    bookTicker {e,u,E,T,s,b,B,a,A}: ключ u; trade [{t,q,p,T,m,s}]: E = T, ключ t (id сделки), метка m; markPrice/lastPrice/ticker {…,E,s,p|c}: ключ E; incrDepth {action,lastUpdateId,time}: ключ lastUpdateId; depthN@…: E = ts кадра."""
+    out = []
+    dt, d = j.get("dataType", ""), j.get("data")
+    if not dt or d is None:
+        return out
+    sym, _, kind = dt.partition("@")
+    k0 = kind.split("@")[0]
+    if k0 == "bookTicker":
+        out.append((k0, sym, d["E"], d["u"], "bt", d.get("T")))
+    elif k0 == "trade":
+        for x in sorted(d, key=lambda x: int(x["t"])):
+            out.append((k0, sym, x["T"], int(x["t"]), "taker-sell" if x["m"] else "taker-buy", x["T"]))
+    elif k0 in ("markPrice", "lastPrice", "ticker"):
+        out.append((k0, sym, d["E"], d["E"], k0, d.get("T") or d.get("C")))
+    elif k0 == "incrDepth":
+        out.append((k0, sym, d["time"], d["lastUpdateId"], d["action"], d["time"]))
+    elif k0.startswith("depth"):
+        out.append((kind, sym, j.get("ts"), None, "snap", j.get("ts")))
+    return out
+
+
+PARSE = {"bingx": _json_frame(parse_bingx), "htx": _json_frame(parse_htx), "bitget": _json_frame(parse_bitget), "bitget3": _json_frame(parse_bitget3), "bitget-sbe": lambda fr: parse_bitget_sbe(fr) if fr.startswith("hex:") else []}
 
 
 def one(ex, path):
