@@ -57,9 +57,34 @@ def file_trades(root, t0, t1):
     return out
 
 
+def pick(counts, n, spread):
+    """Symbols to check: the n busiest, or (spread) n evenly spaced over the ranking by trade count, so every shard is represented
+    (a shard that never connected would otherwise hide among symbols nobody checks)."""
+    ranked = [s for s, c in sorted(counts.items(), key=lambda x: -x[1]) if c >= 5]
+    if not spread or len(ranked) <= n:
+        return ranked[:n]
+    step = len(ranked) / n
+    return [ranked[int(i * step)] for i in range(n)]
+
+
+def file_trades_bybit(root, t0, t1):
+    """symbol -> {execId: (price, size, side, T, block, rpi)} from recorded files: execId is the trailing column `i` of `t` rows (since 12.11 build)."""
+    out = defaultdict(dict)
+    for p in sorted(glob.glob(os.path.join(root, "20*", "*.tsv.zst"))):
+        lines = [ln for ln in read_lines(p) if ln.strip()]
+        for ln, r in zip(lines, codec.decode(iter(lines))):
+            if r["t"] != "t" or not t0 <= r["T"] <= t1:
+                continue
+            f = ln.rstrip("\n").split("\t")
+            if len(f) > 13 and f[13]:
+                x = f[12]
+                out[r["s"]][f[13]] = (r["p"], r["q"], "Sell" if r["m"] else "Buy", r["T"], "B" in x, "R" in x)
+    return out
+
+
 def binance(a, t0, t1):
     rec = file_trades(a.root, t0, t1)
-    syms = [s for s, _ in sorted(((s, len(v)) for s, v in rec.items()), key=lambda x: -x[1])[: a.symbols]]
+    syms = pick({s: len(v) for s, v in rec.items()}, a.symbols, a.spread)
     res = {}
     for s in syms:
         rest, start = {}, t0
@@ -77,7 +102,9 @@ def binance(a, t0, t1):
         missing = sorted(set(rest) - set(mine))
         extra = sorted(set(mine) - set(rest))
         mism = [k for k in set(rest) & set(mine) if rest[k][:5] != mine[k][:5]]
+        late = [k for k in missing if rest[k][5] >= a.covered_ms]
         res[s] = {"rest": len(rest), "file": len(mine), "missing_in_file": len(missing), "extra_in_file": len(extra), "mismatch": len(mism),
+                  "rest_after_covered": sum(1 for v in rest.values() if v[5] >= a.covered_ms), "missing_after_covered": len(late),
                   "missing_examples": missing[:5], "extra_examples": extra[:5], "mismatch_examples": [(k, rest[k], mine[k]) for k in mism[:3]]}
         time.sleep(0.4)
     return res
@@ -85,6 +112,8 @@ def binance(a, t0, t1):
 
 def bybit(a, t0, t1):
     cap = defaultdict(dict)  # symbol -> {execId: (price, size, side, time)}
+    if not glob.glob(os.path.join(a.root, "capture-*.tsv")):
+        cap = file_trades_bybit(a.root, t0, t1)  # no capture: execId comes from the recorded files themselves
     for p in sorted(glob.glob(os.path.join(a.root, "capture-*.tsv"))):
         with open(p, encoding="utf-8", errors="replace") as f:
             for ln in f:
@@ -97,7 +126,7 @@ def bybit(a, t0, t1):
                     continue
                 for x in d["data"]:
                     cap[x["s"]][x["i"]] = (x["p"], x["v"], x["S"], x["T"], bool(x.get("BT")), bool(x.get("RPI")))
-    syms = [s for s, _ in sorted(((s, len(v)) for s, v in cap.items()), key=lambda x: -x[1])[: a.symbols]]
+    syms = pick({s: len(v) for s, v in cap.items()}, a.symbols, a.spread)
     res = {}
     for s in syms:
         r = get(f"https://api.bybit.com/v5/market/recent-trade?category=linear&symbol={s}&limit=1000")["result"]["list"]
@@ -111,7 +140,9 @@ def bybit(a, t0, t1):
         missing = sorted(set(rs) - set(cs))
         extra = sorted(set(cs) - set(rs))
         mism = [k for k in set(rs) & set(cs) if rs[k][:3] != cs[k][:3]]
+        late = [k for k in missing if rs[k][3] >= a.covered_ms]
         res[s] = {"rest": len(rs), "capture": len(cs), "span_ms": [lo, hi], "missing_in_capture": len(missing), "extra_in_capture": len(extra), "mismatch": len(mism),
+                  "rest_after_covered": sum(1 for v in rs.values() if v[3] >= a.covered_ms), "missing_after_covered": len(late),
                   "missing_examples": [(k, rs[k]) for k in missing[:3]], "extra_examples": [(k, cs[k]) for k in extra[:3]], "mismatch_examples": [(k, rs[k], cs[k]) for k in mism[:3]]}
         time.sleep(0.3)
     return res
@@ -124,6 +155,8 @@ def main():
     ap.add_argument("t0", type=int)
     ap.add_argument("t1", type=int)
     ap.add_argument("--symbols", type=int, default=25)
+    ap.add_argument("--covered-ms", type=int, default=0, help="from when every shard had a live session (cold start): missing_after_covered counts only trades from then on")
+    ap.add_argument("--spread", action="store_true", help="symbols evenly spaced over the trade-count ranking instead of the busiest")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     res = (binance if a.exchange == "binance" else bybit)(a, a.t0, a.t1)

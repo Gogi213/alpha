@@ -361,8 +361,9 @@ impl Exchange for Bybit {
             .map(|k| {
                 lines
                     .get(k)
+                    .or_else(|| lines.get(k % 2))
                     .cloned()
-                    .unwrap_or_else(|| lines[k % 2].clone())
+                    .unwrap_or_default()
             })
             .collect()
     }
