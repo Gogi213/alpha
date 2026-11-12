@@ -1,0 +1,5 @@
+interface:
+  display_name: "ketchup"
+  short_description: "Catch the user up on what changed in this chat since their last message, in"
+policy:
+  allow_implicit_invocation: false

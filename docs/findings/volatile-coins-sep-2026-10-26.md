@@ -1,6 +1,6 @@
 # Волатильные монеты сентября 2026 по свечам 1 м + дневной оборот (TK-412, 2026-10-26)
 
-Вход: свечи 1 м сентября (TK-411, calc `/srv/alpha-sda/candles-1m`), окно 01.09–30.09 UTC; 35 закрытых Bybit linear и инструменты без данных исключены (делисты — слово владельца). Счёт: `tools/compute/tk412-volatility.py` (alsched prod, 15 яд., 1 мин), отчёт `tools/compute/tk412-report.py`. Полная таблица: `docs/findings/volatile-coins-sep-2026-10-26.csv` (все инструменты со свечами, сорт. по медианному дневному диапазону).
+Вход: свечи 1 м сентября (TK-411, calc `/srv/alpha-sda/candles-1m`), окно 01.09–30.09 UTC; 35 закрытых Bybit linear и инструменты без данных исключены (делисты — слово владельца). Счёт: `tools/compute/archive/tk412-volatility.py` (alsched prod, 15 яд., 1 мин), отчёт `tools/compute/archive/tk412-report.py`. Полная таблица: `docs/findings/volatile-coins-sep-2026-10-26.csv` (все инструменты со свечами, сорт. по медианному дневному диапазону).
 
 ## Что посчитано (на инструмент = биржа × рынок)
 

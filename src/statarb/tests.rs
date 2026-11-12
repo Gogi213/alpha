@@ -1,3 +1,4 @@
+use super::cli::{funding_min, parse_funding};
 use super::kernel::*;
 use super::panel::*;
 use super::reference;
@@ -75,6 +76,8 @@ fn params(beta: BetaMode, yk: LegKind, xk: LegKind) -> Params {
         x_kind: xk,
         taker_in: true,
         taker_out: false,
+        delay_x: 0,
+        rule: Rule::Z,
     }
 }
 
@@ -89,8 +92,8 @@ fn both(inp: &PairInput, p: &Params) -> (Vec<Trade>, Counters) {
     for (x, y) in a.iter().zip(&b) {
         // Целые — побайтно.
         assert_eq!(
-            (x.dir, x.sig_in, x.fill_in, x.sig_out, x.fill_out),
-            (y.dir, y.sig_in, y.fill_in, y.sig_out, y.fill_out)
+            (x.dir, x.sig_in, x.fill_in, x.fill_x, x.sig_out, x.fill_out),
+            (y.dir, y.sig_in, y.fill_in, y.fill_x, y.sig_out, y.fill_out)
         );
         for (u, v) in [
             (x.gross_bps, y.gross_bps),
@@ -323,6 +326,8 @@ fn flat_x_params() -> Params {
         x_kind: LegKind::Spot,
         taker_in: true,
         taker_out: true,
+        delay_x: 0,
+        rule: Rule::Z,
     }
 }
 
@@ -438,4 +443,338 @@ fn overlap_of_spans() {
     };
     assert_eq!(mk(10, 10).overlap(&mk(15, 10)), Some((5, 0, 5)));
     assert_eq!(mk(10, 3).overlap(&mk(13, 3)), None);
+}
+
+/// Данные для проверок задержки: пара с OU-спредом, пропуски в open обеих ног, длинная дыра у ноги X,
+/// фандинг обеих ног-перпов.
+struct DelayCase {
+    ly: Vec<f64>,
+    lx: Vec<f64>,
+    oy: Vec<f64>,
+    ox: Vec<f64>,
+    fy: Vec<(i64, f64)>,
+    fx: Vec<(i64, f64)>,
+}
+
+fn delay_case() -> DelayCase {
+    let mut r = Lcg(11);
+    let x = walk(N, &mut r, 1e-3, 4.0);
+    let y = ou_on(&x, 1.0, &mut r, 5e-4);
+    let (ox, cx) = with_gaps(&x, &mut r, Some((2000, 2030)));
+    let (oy, cy) = with_gaps(&y, &mut r, None);
+    DelayCase {
+        ly: lns(&cy),
+        lx: lns(&cx),
+        oy,
+        ox,
+        fy: funding_events(100, N, 480, 3, 1.0),
+        fx: funding_events(100, N, 480, 3, -1.0),
+    }
+}
+
+#[test]
+fn delay_x_matches_reference_and_shifts_second_leg() {
+    let d = delay_case();
+    let fxs: [&[(i64, f64)]; 1] = [&d.fx];
+    let inp = PairInput {
+        first_min: 100,
+        ly: &d.ly,
+        lx: &d.lx,
+        oy: &d.oy,
+        ox: &[&d.ox],
+        wx: &[1.0],
+        fund_y: &d.fy,
+        fund_x: &fxs,
+    };
+    let base = params(BetaMode::Fixed(1.0), LegKind::Perp, LegKind::Perp);
+    let (t0, c0) = both(&inp, &base);
+    assert!(t0.iter().all(|t| t.fill_x == t.fill_in) && c0.x_deferred == 0);
+    for delay in [1usize, 2, 5, 30] {
+        let p = Params {
+            delay_x: delay,
+            ..base
+        };
+        let (tr, c) = both(&inp, &p);
+        assert!(tr.iter().all(|t| t.fill_x >= t.fill_in + delay as i64));
+        assert!(tr.iter().any(|t| t.fill_x == t.fill_in + delay as i64));
+        assert!(
+            tr.iter().any(|t| t.funding_bps != 0.0),
+            "фандинг не выплачен"
+        );
+        // Позиция набрана с входа X: сигнал выхода не раньше входа X.
+        assert!(tr.iter().all(|t| t.sig_out >= t.fill_x));
+        assert_eq!(c.entries, c.trades + c.open_at_end);
+    }
+}
+
+#[test]
+fn delay_x_waits_for_open_of_second_leg() {
+    // Дыра только в open ноги X (закрытия целы, z тот же) сразу после входа первой сделки: срок ноги X попадает
+    // в дыру, нога ждёт первой минуты с open; первая сделка от дыры не зависит, пока вход не позже её начала.
+    let d = delay_case();
+    let mut inp = PairInput {
+        first_min: 0,
+        ly: &d.ly,
+        lx: &d.lx,
+        oy: &d.oy,
+        ox: &[&d.ox],
+        wx: &[1.0],
+        fund_y: &[],
+        fund_x: &[],
+    };
+    let base = params(BetaMode::Fixed(1.0), LegKind::Perp, LegKind::Perp);
+    let (t0, _) = both(&inp, &base);
+    let f = t0[0].fill_in as usize;
+    let mut ox = d.ox.clone();
+    for v in &mut ox[f + 1..f + 12] {
+        *v = f64::NAN;
+    }
+    let oxs: [&[f64]; 1] = [&ox];
+    inp.ox = &oxs;
+    let delay = 3usize;
+    let p = Params {
+        delay_x: delay,
+        ..base
+    };
+    let (tr, c) = both(&inp, &p);
+    let want = (f + delay..).find(|&i| ox[i].is_finite()).unwrap();
+    assert!(want >= f + 12, "срок ноги X не попал в дыру");
+    assert_eq!((tr[0].fill_in as usize, tr[0].fill_x as usize), (f, want));
+    assert!(c.x_deferred >= 9);
+}
+
+#[test]
+fn delay_x_closed_form_single_trade() {
+    // Сценарий single_trade_gross_fees_by_leg_closed_form с задержкой 1: Y в 47 (open 98), X в 48 (open 100, плоская),
+    // позиция набрана в 48, z там ≈ +0,9 ≥ −0,5 — сигнал выхода 48, исполнение 49 (open 100).
+    let mut cy = vec![100.0; 6];
+    cy.extend([98.0, 99.0, 100.0, 100.0, 100.0, 100.0, 100.0]);
+    let n = cy.len();
+    let oy: Vec<f64> = (0..n).map(|t| cy[t.saturating_sub(1)]).collect();
+    let cx = vec![100.0; n];
+    let (lx, ly) = (lns(&cx), lns(&cy));
+    let inp = PairInput {
+        first_min: 40,
+        ly: &ly,
+        lx: &lx,
+        oy: &oy,
+        ox: &[&cx],
+        wx: &[1.0],
+        fund_y: &[],
+        fund_x: &[],
+    };
+    let p = Params {
+        min_obs: 4,
+        delay_x: 1,
+        ..flat_x_params()
+    };
+    let mut tr: Vec<Trade> = Vec::new();
+    let c = run_pair(&inp, &p, &mut tr);
+    assert_eq!((c.trades, c.entries, c.x_deferred), (1, 1, 0));
+    let t = tr[0];
+    assert_eq!(
+        (t.dir, t.sig_in, t.fill_in, t.fill_x, t.sig_out, t.fill_out),
+        (1, 46, 47, 48, 48, 49)
+    );
+    assert!(close(t.gross_bps, 1e4 * (100.0 / 98.0 - 1.0)));
+    let (fp, fs) = (leg_fee_bps(true), spot_leg_fee_bps(true));
+    let fee = (1.0 + 100.0 / 98.0) * fp + 2.0 * fs;
+    assert!(close(t.fee_bps, fee), "{} против {fee}", t.fee_bps);
+    assert!(close(t.net_bps, t.gross_bps - fee));
+}
+
+/// Ставки ноги Y раз в `every` минут: `amp·sin(j/4)` — знак и величина меняются, вход и выход идут по уровню.
+fn swinging_funding(first: i64, n: usize, every: i64, amp: f64) -> Vec<(i64, f64)> {
+    (0..n as i64 / every)
+        .map(|j| (first + j * every, amp * (j as f64 / 4.0).sin()))
+        .collect()
+}
+
+fn funding_params(delay_x: usize, k: usize, hold_payments: usize) -> Params {
+    Params {
+        max_hold: 3000,
+        taker_out: true,
+        delay_x,
+        rule: Rule::Funding { k, hold_payments },
+        ..params(BetaMode::Fixed(1.0), LegKind::Perp, LegKind::Spot)
+    }
+}
+
+/// Трейлинг-среднее последних `k` выплат с минутой ≤ `ft` независимым подсчётом по списку.
+fn mean_at(ev: &[(i64, f64)], ft: i64, k: usize) -> f64 {
+    let v: Vec<f64> = ev.iter().filter(|e| e.0 <= ft).map(|e| e.1).collect();
+    if v.len() < k {
+        return f64::NAN;
+    }
+    v[v.len() - k..].iter().sum::<f64>() / k as f64
+}
+
+/// Файл ставок как у биржи: `time_ms,rate,interval_h`, время выплаты в мс unix с дрожанием в мс.
+fn funding_csv(t0_ms: i64, ev: &[(i64, f64)], first: i64) -> String {
+    let mut s = String::from("time_ms,rate,interval_h\n");
+    for (m, r) in ev {
+        s.push_str(&format!("{},{r},8\n", t0_ms + (m - first) * MINUTE_MS + 3));
+    }
+    s
+}
+
+#[test]
+fn funding_minutes_share_the_epoch_of_panels() {
+    // E-010: ставки читались как `time_ms / 60000` (unix), панели — минуты от GRID0_MS: выплата не попадала в ряд.
+    let t0 = 1_585_152_000_000; // первая выплата BTCUSDT Binance, 2020-03-25 16:00 UTC
+    assert_eq!(funding_min(t0), 121_920);
+    assert_eq!(funding_min(GRID0_MS), 0);
+    assert_eq!(funding_min(GRID0_MS + 10 * MINUTE_MS + 3), 10);
+    assert_eq!(funding_min(GRID0_MS - 1), -1);
+    let csv = format!("t_open_ms,o,h,l,c\n{t0},1,1,1,1\n");
+    let s = convert_csv(csv.as_bytes()).unwrap().unwrap();
+    let f = parse_funding(&format!("time_ms,rate,interval_h\n{},0.0001,8\n", t0 + 7)).unwrap();
+    assert_eq!(f, vec![(s.first_min, 1e-4)]);
+    assert!(parse_funding("time_ms,rate,interval_h\nx,1,8\n").is_err());
+}
+
+#[test]
+fn funding_from_exchange_files_lands_in_panel_minutes() {
+    // Ряд в эпохе панелей, ставки — через загрузчик из текста биржи: выплаты начисляются (D2), вход по ставке (D3)
+    // даёт сделки, ядро == референс.
+    let t0 = 1_585_152_000_000 + 25 * 60 * MINUTE_MS;
+    // Начало ряда — по правилу конвертера панелей, независимо от загрузчика ставок.
+    let first = convert_csv(format!("t_open_ms,o,h,l,c\n{t0},1,1,1,1\n").as_bytes())
+        .unwrap()
+        .unwrap()
+        .first_min;
+    let mut r = Lcg(31);
+    let x = walk(N, &mut r, 1e-3, 4.0);
+    let y = ou_on(&x, 1.0, &mut r, 3e-4);
+    let (ox, cx) = with_gaps(&x, &mut r, None);
+    let (oy, cy) = with_gaps(&y, &mut r, None);
+    let (lx, ly) = (lns(&cx), lns(&cy));
+    let ev = swinging_funding(first + 50, N, 60, 6e-4);
+    let fy = parse_funding(&funding_csv(t0, &ev, first)).unwrap();
+    assert_eq!(fy.len(), ev.len());
+    assert!(fy.iter().zip(&ev).all(|(a, b)| a.0 == b.0 && a.1 == b.1));
+    let inp = PairInput {
+        first_min: first,
+        ly: &ly,
+        lx: &lx,
+        oy: &oy,
+        ox: &[&ox],
+        wx: &[1.0],
+        fund_y: &fy,
+        fund_x: &[],
+    };
+    let (d3, _) = both(&inp, &funding_params(0, 2, 5));
+    assert!(d3.iter().any(|t| t.funding_bps != 0.0));
+    let (d2, _) = both(
+        &inp,
+        &params(BetaMode::Fixed(1.0), LegKind::Perp, LegKind::Spot),
+    );
+    assert!(d2.iter().any(|t| t.funding_bps != 0.0), "D2: фандинг ноль");
+}
+
+#[test]
+fn funding_rule_matches_reference_and_rule_holds() {
+    let mut r = Lcg(21);
+    let x = walk(N, &mut r, 1e-3, 4.0);
+    let y = ou_on(&x, 1.0, &mut r, 3e-4);
+    let (ox, cx) = with_gaps(&x, &mut r, None);
+    let (oy, cy) = with_gaps(&y, &mut r, None);
+    let (lx, ly) = (lns(&cx), lns(&cy));
+    let first = 50;
+    let fy = swinging_funding(first, N, 60, 6e-4);
+    let inp = PairInput {
+        first_min: first,
+        ly: &ly,
+        lx: &lx,
+        oy: &oy,
+        ox: &[&ox],
+        wx: &[1.0],
+        fund_y: &fy,
+        fund_x: &[],
+    };
+    let (k, h) = (2usize, 5usize);
+    let p = funding_params(0, k, h);
+    let (tr, _) = both(&inp, &p);
+    assert!(tr.iter().any(|t| t.dir == 1) && tr.iter().any(|t| t.dir == -1));
+    assert!(tr.iter().any(|t| t.funding_bps != 0.0));
+    let cost = round_trip_cost_bps(&p, 1.0, 1.0);
+    let edge = |dir: i8, ft: i64| -f64::from(dir) * mean_at(&fy, ft, k) * 1e4 * h as f64;
+    for t in &tr {
+        // Вход: на сигнальной минуте доход ожидаемого удержания выше круга издержек, сторона — получающая фандинг.
+        let m = mean_at(&fy, t.sig_in, k);
+        assert!(
+            m.is_finite() && m.abs() * 1e4 * h as f64 > cost,
+            "вход {t:?}"
+        );
+        assert_eq!(t.dir, if m > 0.0 { -1 } else { 1 });
+        // Позиция держится, пока доход выше круга; выход — когда перестал (если не закрыта по времени).
+        for ft in t.fill_x..t.sig_out {
+            assert!(
+                edge(t.dir, ft) > cost,
+                "держали при доходе ниже круга: {t:?}"
+            );
+        }
+        if t.sig_out - t.fill_x < 3000 {
+            assert!(edge(t.dir, t.sig_out) <= cost, "выход {t:?}");
+        }
+    }
+}
+
+#[test]
+fn funding_rule_with_delay_gaps_and_two_funding_legs_matches_reference() {
+    let d = delay_case();
+    let fy = swinging_funding(100, N, 60, 6e-4);
+    let fxs: [&[(i64, f64)]; 1] = [&d.fx];
+    let inp = PairInput {
+        first_min: 100,
+        ly: &d.ly,
+        lx: &d.lx,
+        oy: &d.oy,
+        ox: &[&d.ox],
+        wx: &[1.0],
+        fund_y: &fy,
+        fund_x: &fxs,
+    };
+    for delay in [0usize, 3, 40] {
+        let p = Params {
+            x_kind: LegKind::Perp,
+            ..funding_params(delay, 3, 4)
+        };
+        let (tr, _) = both(&inp, &p);
+        assert!(tr.iter().all(|t| t.fill_x >= t.fill_in + delay as i64));
+    }
+}
+
+#[test]
+fn funding_rule_without_payments_does_not_trade() {
+    let d = delay_case();
+    let inp = PairInput {
+        first_min: 0,
+        ly: &d.ly,
+        lx: &d.lx,
+        oy: &d.oy,
+        ox: &[&d.ox],
+        wx: &[1.0],
+        fund_y: &[],
+        fund_x: &[],
+    };
+    let mut tr: Vec<Trade> = Vec::new();
+    let c = run_pair(&inp, &funding_params(0, 2, 5), &mut tr);
+    assert_eq!((tr.len(), c.entries), (0, 0));
+}
+
+#[test]
+#[should_panic(expected = "k ≥ 1")]
+fn funding_rule_requires_positive_k() {
+    let inp = PairInput {
+        first_min: 0,
+        ly: &[0.0],
+        lx: &[0.0],
+        oy: &[1.0],
+        ox: &[&[1.0]],
+        wx: &[1.0],
+        fund_y: &[],
+        fund_x: &[],
+    };
+    run_pair(&inp, &funding_params(0, 0, 5), &mut ());
 }

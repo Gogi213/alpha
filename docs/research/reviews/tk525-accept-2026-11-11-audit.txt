@@ -1,0 +1,5 @@
+okx_futures {'exp': 3204, 'ok_l1': 3204, 'loc_box_srv': 3204, 'l1_24': 3128, 'tr_eq_l1': 3190, 'tr_any': 3204, 'aux': 3204, 'tr_ok': 0}
+bitget_futures {'exp': 4032, 'ok_l1': 4032, 'loc_box_srv': 4032, 'l1_24': 3827, 'tr_eq_l1': 3988, 'tr_any': 4032, 'aux': 4032, 'tr_ok': 0}
+hyperliquid_futures {'exp': 2052, 'ok_l1': 2052, 'loc_box_srv': 2052, 'l1_24': 1993, 'tr_eq_l1': 1964, 'tr_any': 2052, 'aux': 2052, 'tr_ok': 0}
+binance_futures {'exp': 3384, 'ok_l1': 3384, 'loc_box': 3384, 'l1_24': 3290, 'tr_eq_l1': 3384, 'tr_any': 3384, 'aux': 3384, 'tr_ok': 3384}
+audit525_fail.txt bytes: 1

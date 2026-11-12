@@ -1,0 +1,32 @@
+# python tools/p40core/accept-tk526.py — перезапуск Судьёй 11.11 00:47 GMT+4, worktree TK-526 @f28c8c22
+rc=0 real 16.7s
+== cargo test --release (ядро): код 0
+test theta::tests::bench_window ... ignored
+test tests::variable_theta_gates_entry_and_calm_per_step ... ok
+test theta::tests::floor_and_garbage_flag ... ok
+test theta::tests::garbage_tick_does_not_move_the_norm ... ok
+test theta::tests::stale_leg_flags ... ok
+test tests::level_rewarms_after_hole ... ok
+test theta::tests::ewma_quantile_converges_and_skips_garbage ... ok
+test theta::tests::theta_uses_only_past ... ok
+test theta::tests::regime_split_a5 ... ok
+test theta::tests::chunk_with_prehistory_equals_continuous_run ... ok
+test tests::window_levels_matches_sorted_vec ... ok
+test theta::tests::window_matches_sorted_vec_reference ... ok
+
+test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.74s
+
+== test_assemble.py: код 0
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 6.528s
+
+OK
+== test_orch_l1.py: код 0
+ok test_strict_refusal_no_day
+ok test_strict_refusal_no_ok
+ok test_strict_refusal_size
+ok test_supplier_empty_day_is_gap_not_error
+ok test_validity_coverage_gaps
+ok test_write_age_files_and_k1_shift
+ПРИЁМКА TK-526: зелёная

@@ -3,5 +3,5 @@
 | число | файл:строка |
 |---|---|
 | 95 из 108 гипотез банка ждали TK-368 (не посчитаны) | docs/findings/g015-d20-rank-2026-10-23.md:14 |
-| корзина 1 бп, обрезка 400 бп в потолках | tools/compute/g015-ceilings.py:20 |
-| тариф 1,4 / 3,5 бп (фьюч) | tools/compute/tk356-analyze.py:23 |
+| корзина 1 бп, обрезка 400 бп в потолках | tools/compute/archive/g015-ceilings.py:20 |
+| тариф 1,4 / 3,5 бп (фьюч) | tools/compute/archive/tk356-analyze.py:23 |

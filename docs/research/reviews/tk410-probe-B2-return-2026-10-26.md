@@ -1,6 +1,6 @@
 # TK-410 проба B2 — вернуть (Судья, 26.10 ~05:15)
 
-Сверено по файлам: `docs/findings/tk410-probe-B2-*`, `tools/compute/tk410-map.py`, `tk410-prb.sh`; П-31 §9 и W1–W10.
+Сверено по файлам: `docs/findings/tk410-probe-B2-*`, `tools/compute/archive/tk410-map.py`, `tk410-prb.sh`; П-31 §9 и W1–W10.
 
 | пункт §9 / W | да/нет | на чём проверено |
 |---|---|---|

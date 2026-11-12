@@ -1,0 +1,43 @@
+== test_orch_l1.py: код 0
+ok test_strict_refusal_files
+ok test_strict_refusal_files0
+ok test_strict_refusal_no_day
+ok test_strict_refusal_no_ok
+ok test_strict_refusal_size
+ok test_supplier_empty_day_is_gap_not_error
+ok test_validity_coverage_gaps
+ok test_write_age_files_and_k1_shift
+== п.1 HL STRICT/SNAPSEQ: код 0
+pq2bin l1 book: часов 0
+pq2bin l1 book: вход 24 ч, L1-часов 0 — rc=3 (P40_L1_STRICT)
+без SNAPSEQ rc=3 часов=0
+pq2bin l1 book: часов 24
+SNAPSEQ rc=0 часов=24
+pq2bin l1 book: часов 0
+pq2bin l1 book: вход 24 ч, L1-часов 0 — rc=3 (P40_L1_STRICT)
+CARRY без SNAPSEQ rc=3
+pq2bin l1 book: часов 0
+пустой вход rc=0 (ожидаем 0)
+HL: ок
+== аудит (audit_rc525.json): ок
+== смоук L1=сырьё: код 0
+5.exits.csv
+5.features.csv
+5.fills.csv
+5.holes
+5.path.csv
+DONE
+orch.log
+/tmp/tk525acc/1/2026-09-28/5.aux.csv: 5 строк
+/tmp/tk525acc/1/2026-09-28/5.exits.csv: 5 строк
+/tmp/tk525acc/1/2026-09-28/5.fills.csv: 5 строк
+theta,t_start,oi5m,liq5m,phi_bps,n_s,rA,rB,srcA,srcB,srcOIA,srcOIB
+5.04,1790596923077,0.0023157967330692223,0,nan,0,2.834e-05,nan,1,0,1,0
+5.04,1790597047781,0.0023157967330692223,0,nan,0,2.791e-05,nan,1,0,1,0
+0
+== файлы смоука: на месте
+ПРИЁМКА TK-525: зелёная
+
+real	0m16.974s
+user	0m0.015s
+sys	0m0.077s

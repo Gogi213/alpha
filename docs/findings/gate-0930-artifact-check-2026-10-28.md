@@ -47,7 +47,7 @@ Gate REST `GET /futures/usdt/liq_orders?contract=…&from=T-300&to=T+300` отд
 
 ## 3. Наша свеча == сырьё
 
-`tools/compute/tk411-gate-candles.py` на сыром ACE → минуты 07:58–08:02 совпадают с calc `candles-1m/gate-futures_usdt/ACE_USDT.csv.gz` по o/h/l/c/n_trades;
+`tools/compute/archive/tk411-gate-candles.py` на сыром ACE → минуты 07:58–08:02 совпадают с calc `candles-1m/gate-futures_usdt/ACE_USDT.csv.gz` по o/h/l/c/n_trades;
 08:00: `1790755200000,0.1816,0.3776,0.0001,0.1815,…,35`; минут 43 188 и сделок 1 611 618 — равны. Для всех 10 контрактов h/l/n минуты 08:00 из сырья == свеча calc
 (таблица §1). Баг сборки исключён: код берёт min/max по строкам файла.
 

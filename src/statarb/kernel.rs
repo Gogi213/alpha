@@ -31,6 +31,27 @@ pub enum BetaMode {
     Fixed(f64),
 }
 
+/// Правило входа и выхода.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Rule {
+    /// По z-скору спреда: `entry_z`, `exit_z`, `stop_z`.
+    Z,
+    /// D3, по уровню ставки ноги Y: трейлинг-среднее `k` последних выплат (выплаты с минутой ≤ закрытию
+    /// сигнальной минуты) × ожидаемое удержание `hold_payments` (в выплатах) в bps номинала Y против круга
+    /// издержек (`round_trip_cost_bps`). Вход, когда доход выше круга; сторона — та, где нога Y получает
+    /// фандинг (ставка > 0 → шорт Y). Выход, когда доход позиции перестал быть выше круга. `entry_z`, `exit_z`
+    /// и `stop_z` не используются; `max_hold` действует. Нужны `k ≥ 1` и фандинг ноги Y (`fund_y`).
+    Funding { k: usize, hold_payments: usize },
+}
+
+/// Круг издержек, bps номинала Y: комиссии входа и выхода по обеим ногам при цене выхода = цене входа;
+/// номинал X = `|β|·Σw` (замораживается при входе). Ставки — только `lob::costs` через `LegKind::fee_bps`.
+pub fn round_trip_cost_bps(p: &Params, beta: f64, wsum: f64) -> f64 {
+    p.y_kind.fee_bps(p.taker_in)
+        + p.y_kind.fee_bps(p.taker_out)
+        + beta.abs() * wsum * (p.x_kind.fee_bps(p.taker_in) + p.x_kind.fee_bps(p.taker_out))
+}
+
 /// Параметры прогона. Значений по умолчанию нет: пороги и окна — параметры бэктеста.
 #[derive(Debug, Clone, Copy)]
 pub struct Params {
@@ -51,6 +72,12 @@ pub struct Params {
     pub x_kind: LegKind,
     pub taker_in: bool,
     pub taker_out: bool,
+    /// Задержка входа ног X после исполнения ноги Y, минут (C1); 0 — обе ноги на одном open `t+1`. Нога X идёт
+    /// по open минуты `fill_in + delay_x`, а если там нет open — ждёт ближайшей минуты с open у всех компонент
+    /// (`Counters::x_deferred`). Позиция (выход, `max_hold`) считается набранной с входа ноги X; фандинг
+    /// ноги Y платится с её собственного входа. На выходе обе ноги по одному open, как раньше.
+    pub delay_x: usize,
+    pub rule: Rule,
 }
 
 /// Вход для одной пары: ряды выровнены по общей сетке, индекс `i` ↔ минута `first_min + i`.
@@ -82,13 +109,35 @@ impl PairInput<'_> {
         }
         Ok(())
     }
+
+    /// Условие прогона: ряды не короче `ly`, весов не меньше, чем компонент X. Без него прогон падал на
+    /// индексе; теперь падает здесь, а чтение ряда по минуте (`at`) не промахивается.
+    pub(crate) fn assert_aligned(&self) {
+        let n = self.ly.len();
+        assert!(
+            self.lx.len() >= n
+                && self.oy.len() >= n
+                && self.ox.iter().all(|o| o.len() >= n)
+                && self.wx.len() >= self.ox.len(),
+            "PairInput: ряды короче ly или весов меньше компонент X"
+        );
+    }
+}
+
+/// Значение ряда в минуте `t`; `NaN` недостижим — длины сверены в `PairInput::assert_aligned`.
+#[inline]
+fn at(s: &[f64], t: usize) -> f64 {
+    s.get(t).copied().unwrap_or(f64::NAN)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Trade {
     pub dir: i8,
     pub sig_in: i64,
+    /// Исполнение ноги Y.
     pub fill_in: i64,
+    /// Исполнение ноги X: `fill_in + delay_x`, а при пропуске open — позже; без задержки равно `fill_in`.
+    pub fill_x: i64,
     pub sig_out: i64,
     pub fill_out: i64,
     pub gross_bps: f64,
@@ -126,6 +175,8 @@ pub struct Counters {
     pub entry_deferred: u64,
     /// Минуты ожидания выхода из-за нет open.
     pub exit_deferred: u64,
+    /// Минуты ожидания входа ноги X после срока `delay_x` из-за нет open у какой-то компоненты.
+    pub x_deferred: u64,
     pub trades: u64,
     pub minutes_in_pos: u64,
     /// Позиция, оставшаяся открытой на конце данных (не закрывается и не считается).
@@ -177,9 +228,11 @@ impl Sums {
     /// Точный пересчёт по окну `[lo, hi]` с новым якорем.
     fn rebuild(lx: &[f64], ly: &[f64], lo: usize, hi: usize) -> Sums {
         let mut s = Sums::default();
-        for i in lo..=hi {
-            if lx[i].is_finite() && ly[i].is_finite() {
-                s.add(lx[i], ly[i]);
+        if let (Some(xs), Some(ys)) = (lx.get(lo..=hi), ly.get(lo..=hi)) {
+            for (&x, &y) in xs.iter().zip(ys) {
+                if x.is_finite() && y.is_finite() {
+                    s.add(x, y);
+                }
             }
         }
         s
@@ -218,6 +271,9 @@ pub(crate) fn beta_z(s: &Sums, mode: BetaMode, x: f64, y: f64, min_obs: usize) -
     (beta, r / sigma)
 }
 
+/// `x_due` при отсутствии ожидающей ноги X.
+const NO_DUE: usize = usize::MAX;
+
 #[derive(Clone, Copy)]
 enum Pend {
     None,
@@ -227,62 +283,119 @@ enum Pend {
 
 /// Цена для выплаты фандинга: open минуты, а если там нет сделок — последний известный open.
 fn price_at(open: &[f64], t: usize) -> f64 {
-    let mut i = t;
-    loop {
-        if open[i].is_finite() {
-            return open[i];
-        }
-        i -= 1; // позиция открыта по конечному open, поиск назад кончается на входе
-    }
+    // позиция открыта по конечному open, поиск назад кончается на входе: `NaN` недостижим
+    open.get(..=t)
+        .and_then(|h| h.iter().rev().copied().find(|v| v.is_finite()))
+        .unwrap_or(f64::NAN)
 }
 
 /// Ставки с минутой ровно `ft`; курсор проходит и более ранние (они не относятся к держанию).
 #[inline]
 fn rates_at(ev: &[(i64, f64)], cur: &mut usize, ft: i64) -> f64 {
     let mut r = 0.0;
-    while *cur < ev.len() && ev[*cur].0 <= ft {
-        if ev[*cur].0 == ft {
-            r += ev[*cur].1;
+    while let Some(&(m, rate)) = ev.get(*cur) {
+        if m > ft {
+            break;
+        }
+        if m == ft {
+            r += rate;
         }
         *cur += 1;
     }
     r
 }
 
+/// Вход ноги X по open минуты `t`: цены и количества компонент (знак против направления Y).
+#[inline]
+fn fill_x_legs(
+    inp: &PairInput,
+    t: usize,
+    dir: i8,
+    beta: f64,
+    pin_x: &mut [f64],
+    qty_x: &mut [f64],
+) {
+    for (((pin, qty), o), &w) in pin_x.iter_mut().zip(qty_x).zip(inp.ox).zip(inp.wx) {
+        let open = at(o, t);
+        *pin = open;
+        *qty = -f64::from(dir) * beta * w / open;
+    }
+}
+
 /// Прогон одной пары по всему спану. Память на минуту не выделяется: векторы размера `K` — до цикла.
+/// Режимы `delay_x > 0` и `Rule::Funding` — отдельные мономорфизации цикла: умолчание (без задержки, правило z)
+/// не несёт их состояния в регистрах горячего цикла (замер TK-482: общий цикл был на ~10 % медленнее прежнего).
 pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters {
+    inp.assert_aligned();
+    let funding = matches!(p.rule, Rule::Funding { .. });
+    match (p.delay_x > 0, funding) {
+        (false, false) => run_pair_impl::<S, false, false>(inp, p, sink),
+        (true, false) => run_pair_impl::<S, true, false>(inp, p, sink),
+        (false, true) => run_pair_impl::<S, false, true>(inp, p, sink),
+        (true, true) => run_pair_impl::<S, true, true>(inp, p, sink),
+    }
+}
+
+/// `DELAY` — нога X входит позже ноги Y (`delay_x > 0`); `FUND` — правило `Rule::Funding`.
+fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
+    inp: &PairInput,
+    p: &Params,
+    sink: &mut S,
+) -> Counters {
     let n = inp.ly.len();
     let k = inp.ox.len();
     let refresh = if p.refresh == 0 { p.window } else { p.refresh };
     let mut c = Counters::default();
     let mut s = Sums::default();
     let mut pend = Pend::None;
-    // Позиция: направление, β, шаг входа (сигнал, исполнение), количества и цены входа по ногам (0 = Y).
+    // Позиция: направление, шаг входа (сигнал, исполнение Y, исполнение X), количества и цены входа по ногам (0 = Y).
     let mut dir = 0i8;
     let mut sig_in = 0usize;
     let mut fill_in = 0usize;
-    let mut qty = vec![0.0f64; k + 1];
-    let mut pin = vec![0.0f64; k + 1];
+    let mut fill_x = 0usize;
+    // Нога X ждёт входа с минуты `x_due`; β заморожена на сигнале.
+    let mut x_due = NO_DUE;
+    let mut x_beta = 0.0f64;
+    let mut qty_y = 0.0f64;
+    let mut pin_y = 0.0f64;
+    let mut qty_x = vec![0.0f64; k];
+    let mut pin_x = vec![0.0f64; k];
     let mut fund = 0.0f64;
     let mut cur_y = 0usize;
     let mut cur_x = vec![0usize; k];
     let no_fund: &[(i64, f64)] = &[];
+    // D3: кольцо `fk` последних выплат ноги Y, трейлинг-среднее, курсор по выплатам.
+    #[allow(clippy::cast_precision_loss)] // число выплат в среднем и в удержании мало
+    let (fk, fh, fk_f) = match p.rule {
+        Rule::Funding { k, hold_payments } if FUND => (k, hold_payments as f64, k as f64),
+        _ => (0, 0.0, 0.0),
+    };
+    assert!(!FUND || fk > 0, "Rule::Funding: нужно k ≥ 1");
+    let mut ring = Vec::<f64>::with_capacity(fk);
+    let (mut ring_head, mut cur_k) = (0usize, 0usize);
+    let mut r_mean = f64::NAN;
+    let wsum = inp.wx.iter().sum::<f64>();
     for t in 0..n {
         let ft = inp.first_min + t as i64;
-        let opens_ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
+        let oy_t = at(inp.oy, t);
+        let opens_ok = oy_t.is_finite() && inp.ox.iter().all(|o| at(o, t).is_finite());
         let mut filled_now = false;
         match pend {
             Pend::Enter(d, beta, sig) => {
                 pend = Pend::None;
-                if opens_ok {
+                // Без задержки нужны open всех ног в эту минуту; с задержкой — только у Y, нога X идёт в свой срок.
+                if (!DELAY && opens_ok) || (DELAY && oy_t.is_finite()) {
                     dir = d;
                     sig_in = sig;
                     fill_in = t;
-                    qty[0] = f64::from(d) / inp.oy[t];
-                    pin[0] = inp.oy[t];
-                    for i in 0..k {
-                        pin[i + 1] = inp.ox[i][t];
-                        qty[i + 1] = -f64::from(d) * beta * inp.wx[i] / inp.ox[i][t];
+                    qty_y = f64::from(d) / oy_t;
+                    pin_y = oy_t;
+                    x_beta = beta;
+                    if DELAY {
+                        x_due = t.saturating_add(p.delay_x);
+                    } else {
+                        fill_x_legs(inp, t, d, beta, &mut pin_x, &mut qty_x);
+                        fill_x = t;
                     }
                     fund = 0.0;
                     c.entries += 1;
@@ -293,15 +406,16 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             }
             Pend::Exit(sig) => {
                 if opens_ok {
-                    let mut gross = qty[0] * (inp.oy[t] - pin[0]);
-                    let mut fee = qty[0].abs()
-                        * (pin[0] * p.y_kind.fee_bps(p.taker_in)
-                            + inp.oy[t] * p.y_kind.fee_bps(p.taker_out));
-                    for i in 0..k {
-                        gross += qty[i + 1] * (inp.ox[i][t] - pin[i + 1]);
-                        fee += qty[i + 1].abs()
-                            * (pin[i + 1] * p.x_kind.fee_bps(p.taker_in)
-                                + inp.ox[i][t] * p.x_kind.fee_bps(p.taker_out));
+                    let mut gross = qty_y * (oy_t - pin_y);
+                    let mut fee = qty_y.abs()
+                        * (pin_y * p.y_kind.fee_bps(p.taker_in)
+                            + oy_t * p.y_kind.fee_bps(p.taker_out));
+                    for ((&q, &pin), o) in qty_x.iter().zip(&pin_x).zip(inp.ox) {
+                        let open = at(o, t);
+                        gross += q * (open - pin);
+                        fee += q.abs()
+                            * (pin * p.x_kind.fee_bps(p.taker_in)
+                                + open * p.x_kind.fee_bps(p.taker_out));
                     }
                     let (gross_bps, funding_bps) = (gross * 1e4, fund * 1e4);
                     let net = gross_bps - fee + funding_bps;
@@ -309,6 +423,7 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
                         dir,
                         sig_in: inp.first_min + sig_in as i64,
                         fill_in: inp.first_min + fill_in as i64,
+                        fill_x: inp.first_min + fill_x as i64,
                         sig_out: inp.first_min + sig as i64,
                         fill_out: ft,
                         gross_bps,
@@ -326,8 +441,22 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             }
             Pend::None => {}
         }
-        // Фандинг: позиция, державшаяся строго через момент выплаты.
+        // Нога X: вход в свой срок по open минуты, где он есть у всех компонент.
+        // Без задержки нога X вошла вместе с Y (`x_filled_now == filled_now`).
+        let mut x_filled_now = filled_now;
+        if DELAY && x_due <= t && dir != 0 {
+            if inp.ox.iter().all(|o| at(o, t).is_finite()) {
+                fill_x_legs(inp, t, dir, x_beta, &mut pin_x, &mut qty_x);
+                fill_x = t;
+                x_due = NO_DUE;
+                x_filled_now = true;
+            } else {
+                c.x_deferred += 1;
+            }
+        }
+        // Фандинг: нога, державшаяся строго через момент выплаты (Y — с входа Y, X — с входа X).
         let hold = dir != 0 && !filled_now;
+        let hold_x = dir != 0 && x_due == NO_DUE && !x_filled_now;
         let ry = rates_at(
             if inp.fund_y.is_empty() {
                 no_fund
@@ -338,20 +467,20 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             ft,
         );
         if hold && ry != 0.0 {
-            fund -= qty[0] * price_at(inp.oy, t) * ry;
+            fund -= qty_y * price_at(inp.oy, t) * ry;
         }
-        for i in 0..k {
+        for (i, ((cur, &q), o)) in cur_x.iter_mut().zip(&qty_x).zip(inp.ox).enumerate() {
             let ev = inp.fund_x.get(i).copied().unwrap_or(no_fund);
-            let rx = rates_at(ev, &mut cur_x[i], ft);
-            if hold && rx != 0.0 {
-                fund -= qty[i + 1] * price_at(inp.ox[i], t) * rx;
+            let rx = rates_at(ev, cur, ft);
+            if hold_x && rx != 0.0 {
+                fund -= q * price_at(o, t) * rx;
             }
         }
         if dir != 0 {
             c.minutes_in_pos += 1;
         }
         // Окно: добавить минуту t, убрать t−W, раз в `refresh` — точный пересчёт.
-        let (xt, yt) = (inp.lx[t], inp.ly[t]);
+        let (xt, yt) = (at(inp.lx, t), at(inp.ly, t));
         let obs = xt.is_finite() && yt.is_finite();
         if obs {
             s.add(xt, yt);
@@ -361,8 +490,9 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
         }
         if t >= p.window {
             let j = t - p.window;
-            if inp.lx[j].is_finite() && inp.ly[j].is_finite() {
-                s.sub(inp.lx[j], inp.ly[j]);
+            let (xj, yj) = (at(inp.lx, j), at(inp.ly, j));
+            if xj.is_finite() && yj.is_finite() {
+                s.sub(xj, yj);
             }
         }
         if (t + 1) % refresh == 0 {
@@ -375,20 +505,75 @@ pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters 
             (f64::NAN, f64::NAN)
         };
         sink.z(t, z);
-        // Сигнал по закрытию минуты t; исполнение — следующая минута.
+        // D3: выплаты ноги Y с минутой ≤ t входят в трейлинг-среднее (известны на закрытии минуты t).
+        if FUND {
+            let ev = if inp.fund_y.is_empty() {
+                no_fund
+            } else {
+                inp.fund_y
+            };
+            let mut got = false;
+            while let Some(&(m, rate)) = ev.get(cur_k) {
+                if m > ft {
+                    break;
+                }
+                if ring.len() < fk {
+                    ring.push(rate);
+                } else if let Some(slot) = ring.get_mut(ring_head) {
+                    *slot = rate;
+                    ring_head = (ring_head + 1) % fk;
+                }
+                cur_k += 1;
+                got = true;
+            }
+            if got && ring.len() == fk {
+                // от самой давней выплаты: `ring[head..]`, затем `ring[..head]`
+                let mut acc = 0.0;
+                for v in ring
+                    .iter()
+                    .skip(ring_head)
+                    .chain(ring.iter().take(ring_head))
+                {
+                    acc += v;
+                }
+                r_mean = acc / fk_f;
+            }
+        }
+        // Сигнал по закрытию минуты t; исполнение — следующая минута. Выход — когда позиция набрана.
         if matches!(pend, Pend::None) {
             if dir == 0 {
-                if z.is_finite() && beta.is_finite() {
-                    if z <= -p.entry_z {
-                        pend = Pend::Enter(1, beta, t);
-                    } else if z >= p.entry_z {
-                        pend = Pend::Enter(-1, beta, t);
+                if !FUND {
+                    if z.is_finite() && beta.is_finite() {
+                        if z <= -p.entry_z {
+                            pend = Pend::Enter(1, beta, t);
+                        } else if z >= p.entry_z {
+                            pend = Pend::Enter(-1, beta, t);
+                        }
+                    }
+                } else {
+                    let b = match p.beta {
+                        BetaMode::Fixed(b) => b,
+                        BetaMode::Ols => beta,
+                    };
+                    if r_mean.is_finite() && b.is_finite() {
+                        let edge = r_mean.abs() * 1e4 * fh;
+                        if edge > round_trip_cost_bps(p, b, wsum) {
+                            pend = Pend::Enter(if r_mean > 0.0 { -1 } else { 1 }, b, t);
+                        }
                     }
                 }
-            } else {
-                let dz = f64::from(dir) * z;
-                let timed = p.max_hold > 0 && t - fill_in >= p.max_hold;
-                if (z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z)) || timed {
+            } else if !DELAY || x_due == NO_DUE {
+                let timed = p.max_hold > 0 && t - fill_x >= p.max_hold;
+                let by_rule = if !FUND {
+                    let dz = f64::from(dir) * z;
+                    z.is_finite() && (dz >= -p.exit_z || dz <= -p.stop_z)
+                } else {
+                    let edge = -f64::from(dir) * r_mean * 1e4 * fh;
+                    // не «выше круга», в том числе когда ставки ещё нет (NaN)
+                    edge.partial_cmp(&round_trip_cost_bps(p, x_beta, wsum))
+                        != Some(std::cmp::Ordering::Greater)
+                };
+                if by_rule || timed {
                     pend = Pend::Exit(t);
                 }
             }

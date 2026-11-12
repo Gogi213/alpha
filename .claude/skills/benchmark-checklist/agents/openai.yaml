@@ -1,0 +1,5 @@
+interface:
+  display_name: "benchmark-checklist"
+  short_description: "Vet a perf measurement (limiter, tuning, limits, errors, repeatability,"
+policy:
+  allow_implicit_invocation: false

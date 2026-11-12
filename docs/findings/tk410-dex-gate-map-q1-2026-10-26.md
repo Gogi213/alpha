@@ -1,6 +1,6 @@
 # TK-410 · П-31 · бой Q1 (15–22.10), 222 EVM-монеты — промежуточная сводка (вопросы 1 и 5)
 
-Источник: `/data/tk0393/tk410/out/*` (222 из 222 монет ok, 0 SKIP), сводка `tools/compute/tk410-agg.py` → `tk410-q1-curve-2026-10-26.csv`, `tk410-q1-episodes-2026-10-26.csv`.
+Источник: `/data/tk0393/tk410/out/*` (222 из 222 монет ok, 0 SKIP), сводка `tools/compute/archive/tk410-agg.py` → `tk410-q1-curve-2026-10-26.csv`, `tk410-q1-episodes-2026-10-26.csv`.
 Данные событийные: середина пула (v3/v4 sqrtPriceX96, v2 Sync), Gate-фьюч gev2, видимость +1 с, A=5 с, нетто 2,6 бп, страта P<25 % X.
 
 ## Числа

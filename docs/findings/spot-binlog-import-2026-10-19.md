@@ -2,7 +2,7 @@
 
 Источник: `/srv/alpha-sda/tk305/spot/{ob,tr}` (TK-305: ob200 + сделки). Выход: `/srv/alpha-sda/binlog-spot/e-YYYY-MM/SYM-DAY.binlog`
 (на sda, не на /data), корни по месяцам как у фьючерса. Код: ветка `tk312` (`lob import-archive --spot --steps-from-day`,
-`tools/compute/spot-import.sh`); умолчание фьючерса не менялось (тест на байт).
+`tools/compute/archive/spot-import.sh`); умолчание фьючерса не менялось (тест на байт).
 
 ## Итог
 
