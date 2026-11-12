@@ -250,7 +250,7 @@ Order of 17:10 GMT+4: port the proven Python behaviour; every difference reverte
 
 | | Rust, Binance |
 |---|---|
-| connections alive | **50 / 50** |
+| connections alive | 50 / 50 **at the end of the window; the window opened during the ramp** (see below) |
 | lag book p50 / p99 / max | 123 / 419 / 825 ms |
 | lag trade p50 / p99 / max | 120 / 332 / 640 ms |
 | lag mark p50 / p99 / max | 205 / 335 / 1 494 ms |
@@ -261,8 +261,9 @@ Order of 17:10 GMT+4: port the proven Python behaviour; every difference reverte
 | accepted handshake RTT, since start 14:21 (n = 74) | p10 / p50 / p90 / max **236 / 239 / 280 / 296 ms**; 304 rejected (p50 374 ms) ⇒ 20 % fast; none slow accepted |
 | unit CPU mean / p95 / max, cores | 0.69 / 1.50 / 1.79 |
 | sequence checks | trade `a` 0 gaps; book `u` not increasing 10 (two lines, arrival order) |
+| **REST oracle, 25 symbols** | **58 470 of 69 365 trades, 10 895 missing (15.7 %), 0 extra, 0 mismatch** — all missing in 5 symbols (IDOLUSDT 6 232, KGENUSDT 1 937, BNBUSDT 1 560, JCTUSDT 967, BULLAUSDT 199) |
 
-The window is clean and comparable with the Python reference (late > 2 s: Rust 112 book records at the start of the process against 0; lag p99 419 vs 816 ms). **What it does not show:** that the code changes caused it — the route was in a better phase in this minute than at 13:23–13:45 (fast share of dials 61 % in this window, 20 % over the 8.5 min of this soak), and one window is one sample. Over the whole 8.5 min of this soak: 13 timeouts, 10 path switches, i.e. stalls still occur and are masked by the second line.
+**Correction (found when the REST oracle finished): this window is NOT a steady state.** The window opened 168 s after the process start, but six shards (`trade01`, `trade02`, `trade03`, `trade05`, `trade06`, `book03`) got their first connection only at +306 s, i.e. 138 s into the window — the connection ramp is bound by the dial budget (280 / 5 min) at a fast share of 20–61 %. The recorded rows are on time (lag numbers above), but **the data of those shards before +306 s does not exist: 10 895 of 69 365 trades missing, exactly the symbols of the late shards**. Lag and `late` counters cannot show a missing connection; the REST oracle did. Consequence: from a cold start the full pool is not recorded for the first ≈ 5 min in this route state (the earlier 13:19 start got 50 connections in 4 min at a 50 % fast share). A steady-state window follows (`w8-binance`, same soak, ramp finished). One window is one sample, and the route was in a better phase (61 % fast) than before; the code changes cannot be credited for it. Over the whole first 8.5 min: 13 timeouts, 10 path switches, i.e. stalls still occur and are masked by the second line.
 
 ## 6. Cut-over plan (production) and what is needed
 
