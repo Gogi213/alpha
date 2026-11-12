@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Здоровье коллекторов — МАКЕТ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f1216; --card:#171c22; --line:#262d36; --fg:#e6e9ed; --dim:#8b95a1; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --off:#4b5563; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px 24px; background:var(--bg); color:var(--fg);
+         font: 15px/1.4 system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; font-weight:600; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:16px; }
+  .banner { background:#3a2f12; border:1px solid #6b5416; color:#f0d58a; padding:8px 12px; border-radius:6px; margin-bottom:16px; font-size:13px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  th, td { padding:10px 12px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--dim); font-weight:500; font-size:12px; text-transform:none; background:#13181d; }
+  th:first-child, td:first-child { text-align:left; }
+  tr:last-child td { border-bottom:0; }
+  td.ex { font-weight:600; font-size:16px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:8px; vertical-align:baseline; }
+  .ok { background:var(--ok); } .warn { background:var(--warn); } .bad { background:var(--bad); } .off { background:var(--off); }
+  .num { font-variant-numeric: tabular-nums; font-size:16px; }
+  .small { display:block; color:var(--dim); font-size:12px; }
+  .yes { color:var(--bad); font-weight:600; } .no { color:var(--ok); }
+  tr.offrow td { color:var(--off); }
+  tr.offrow td.ex { color:var(--dim); }
+  .legend { margin-top:14px; color:var(--dim); font-size:12px; line-height:1.6; }
+  .legend b { color:var(--fg); font-weight:500; }
+</style>
+</head>
+<body>
+<h1>Здоровье коллекторов <span style="color:var(--dim);font-weight:400">· G-022</span></h1>
+<div class="sub">Обновляется само каждые 10 с · время GMT+4 · данные — из /data/health/&lt;биржа&gt;.json, которые пишут сами коллекторы</div>
+<div class="banner">МАКЕТ. Числа в строке Binance условные — для показа раскладки; настоящие появятся, когда коллектор TK-527 начнёт писать health.json.</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Биржа</th>
+      <th>Символов<span class="small">в подписке / с данными за 1 мин</span></th>
+      <th>Пинг WS<span class="small">мс, медиана / макс</span></th>
+      <th>Таймауты<span class="small">за час / за сутки</span></th>
+      <th>Переподключения<span class="small">за час / за сутки</span></th>
+      <th>Лаг прихода<span class="small">приём − биржа, мс, p50 / p99</span></th>
+      <th>Лаг отдачи<span class="small">приём → диск, мс, p50 / p99</span></th>
+      <th>Обновлено<span class="small">сек назад</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="ex"><span class="dot ok"></span>Binance</td>
+      <td class="num">412 / 409</td>
+      <td class="num">38 / 71</td>
+      <td class="num"><span class="no">нет</span> / <span class="no">нет</span></td>
+      <td class="num"><span class="no">0</span> / 2</td>
+      <td class="num">45 / 310</td>
+      <td class="num">6 / 22</td>
+      <td class="num">3</td>
+    </tr>
+    <tr class="offrow"><td class="ex"><span class="dot off"></span>Bybit</td><td colspan="7" style="text-align:left">коллектор не подключён (шаг 2 из 6)</td></tr>
+    <tr class="offrow"><td class="ex"><span class="dot off"></span>OKX</td><td colspan="7" style="text-align:left">коллектор не подключён (шаг 3 из 6)</td></tr>
+    <tr class="offrow"><td class="ex"><span class="dot off"></span>Bitget</td><td colspan="7" style="text-align:left">коллектор не подключён (шаг 4 из 6)</td></tr>
+    <tr class="offrow"><td class="ex"><span class="dot off"></span>Huobi (HTX)</td><td colspan="7" style="text-align:left">коллектор не подключён (шаг 5 из 6)</td></tr>
+    <tr class="offrow"><td class="ex"><span class="dot off"></span>BingX</td><td colspan="7" style="text-align:left">коллектор не подключён (шаг 6 из 6)</td></tr>
+  </tbody>
+</table>
+
+<div class="legend">
+  <b>Точка у биржи:</b> зелёная — файл свежий и в нём нет таймаутов за час; жёлтая — таймауты или переподключения за час; красная — файл не обновлялся дольше порога, или с данными за минуту меньше символов, чем в подписке (порог — число, его назначает Судья по замеру TK-527); серая — коллектор не подключён.<br>
+  <b>Таймаут</b> — на соединении нет кадров дольше порога паузы; <b>переподключение</b> — соединение закрыто и открыто заново.<br>
+  <b>Новая биржа</b> появляется строкой сама, как только её коллектор положит файл в /data/health/. Страницу править не нужно.
+</div>
+</body>
+</html>

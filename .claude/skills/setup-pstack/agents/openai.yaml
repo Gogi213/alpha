@@ -1,0 +1,5 @@
+interface:
+  display_name: "setup-pstack"
+  short_description: "Configure which bb model and reasoning effort each pstack role uses"
+policy:
+  allow_implicit_invocation: true

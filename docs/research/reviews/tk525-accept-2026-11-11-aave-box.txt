@@ -1,0 +1,3 @@
+# sftp с ПК: alpha/stakan/p40l1/binance_futures/AAVEUSDT/2026-10-05 (11.11 ~12:35 GMT+4)
+l1.bin.zst: 24; tr.zst: 24; aux parquet: 68
+.ok: raw=114272728 l1=7223929 tr=0 files=24 src=rawcopy

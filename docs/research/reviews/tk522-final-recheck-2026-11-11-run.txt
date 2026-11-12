@@ -1,0 +1,15 @@
+/root/p40core/out_d1v4m60/d1_k1m60.npz 199017 ['asset', 'day', 'pair', 'conv_H', 'mpu_X', 'net_bps', 'bybit_leg', 't_conv_s', 'cens', 'f_depth', 'f_spread', 'f_hour', 'f_vol5m', 'f_plevel', 'f_phi_sign', 'f_oi5m', 'f_liq', 'f_flow1m', 'f_bookimb', 'f_d_arm', 'f_leader', 'fund_bps', 'armed', 'trunc', 'stale', 'ctl', 'depth_kind']
+ctl [('K1-60000', 199017)]
+asset 697
+net_bps 2.048326521949705
+f_liq 0.8112925026505273
+f_oi5m 0.9533758422647312
+day 14
+/root/p40core/out_d1v4/d1_k1p60_auxown.npz 169791 ['asset', 'day', 'pair', 'conv_H', 'mpu_X', 'net_bps', 'bybit_leg', 't_conv_s', 'cens', 'f_depth', 'f_spread', 'f_hour', 'f_vol5m', 'f_plevel', 'f_phi_sign', 'f_oi5m', 'f_liq', 'f_flow1m', 'f_bookimb', 'f_d_arm', 'f_leader', 'fund_bps', 'armed', 'trunc', 'stale', 'ctl', 'depth_kind']
+ctl [('K1+60000', 169791)]
+asset 696
+net_bps 0.75349530039033
+f_liq 0.8171045579565466
+f_oi5m 0.9526241084627571
+day 15
+naive2m {'K1-60000': 540314} 699 53
