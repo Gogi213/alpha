@@ -50,7 +50,7 @@ Work within the owner's task. Reversible local changes: do them and verify. Stop
 ## Subagents and threads
 
 - Launch workers and verifiers as bb child threads (`references/bb-runtime.md`). For a short in-session helper the Agent tool with `subagent_type: "poteto-agent"` is fine.
-- Model per role from `references/models.md`. A unit's verifier is always on a different model family from its worker.
+- Model per role from `references/models.md`. A unit's verifier is always a different model from its worker (all threads are Claude; Codex is not used).
 - You own every worker's result. Read the diff and the gate output yourself; a worker's "done" is not evidence.
 - Fresh thread for new work, with consolidated scope (original brief, later directives, prior report and branch). Resume an existing thread only when the work needs state that lives there (uncommitted changes, a running process).
 
@@ -65,7 +65,7 @@ VERIFY       exact commands (tools/vps-check.sh, gate, test window) and known go
 TIMEBOX      cap; on expiry return partial findings and stop
 FORBIDDEN    no merge to master, no force-push, no deleting data, nothing outside scope
 REPORT       status, branch, head SHA, what you ran and its result, deviations
-STANDING     .claude/preferences.md (path for Claude threads; pasted for Codex threads)
+STANDING     .claude/preferences.md (pointer; threads read it)
 ```
 
 Size the brief to the unit. A one-command unit gets a paragraph that still names goal, scope, verify command and report shape.

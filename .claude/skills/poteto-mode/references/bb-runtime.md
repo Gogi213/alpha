@@ -10,14 +10,13 @@
    bb thread spawn --parent-self --project "$BB_PROJECT_ID" \
      --new-environment worktree --base-branch <ветка>   # пишущий исполнитель: свой worktree
      # или --environment "$BB_ENVIRONMENT_ID"           # только чтение / непересекающиеся файлы
-     --provider <codex|claude-code> --model <модель> --reasoning-level <уровень> \
+     --provider claude-code --model <модель> --reasoning-level <уровень> \
      --title "<короткое имя>" --prompt-file <бриф>
    ```
    Провайдер, модель и уровень — строка роли из `models.md`. Режим разрешений не расширять.
 3. Завершение придёт уведомлением родителю. Результат: `bb thread output <id>`; сверить с файлами, diff и выводом проверки. Отчёт исполнителя сам по себе не доказательство.
 4. Учесть каждый запущенный тред до отчёта владельцу. Список: `bb thread list --parent-thread "$BB_THREAD_ID"`.
 
-Codex не читает `CLAUDE.md`: ему нужны `AGENTS.md` и бриф (он читает `AGENTS.md` сам). Для Codex-треда текст `.claude/preferences.md` вставлять в бриф целиком.
 
 ## Машины
 
