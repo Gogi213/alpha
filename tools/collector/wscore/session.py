@@ -32,6 +32,8 @@ class Session:
         self.event(ev="timeout", what=what, session=seq)
 
     async def pinger(self, ws, seq):
+        # пинг WS = RTT пути + ≈65 мс обработки pong у Binance (TK-531, tcpdump: ACK пинга через 234 мс, pong через 300 мс), поэтому p50 ≈ 305 мс выше порога dial.CONNECT_RTT_MAX_MS (RTT рукопожатия)
+        # и не зависит от нагрузки; на замену пути он не влияет — её решают лаг (path.PathWatch) и отсутствие pong ниже
         while True:
             await asyncio.sleep(PING_PERIOD_S)
             t0 = time.monotonic()
