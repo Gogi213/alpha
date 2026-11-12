@@ -1,0 +1,19 @@
+{
+ "started": 1794493431.6720734,
+ "seconds": 180,
+ "units": {
+  "soak-binance.service": {
+   "cpu_cores_mean": 0.694,
+   "cpu_cores_p95": 1.5,
+   "cpu_cores_max": 1.792,
+   "cpu_wait_some_frac_mean": 0.0681,
+   "cpu_wait_some_frac_max": 0.2993,
+   "recvq_max_bytes": 41237,
+   "recvq_samples": 3590,
+   "recvq_nonzero_samples": 134,
+   "recvq_nonzero_pct": 3.733,
+   "recvq_mean_bytes": 49.9,
+   "conns_max": 50
+  }
+ }
+}

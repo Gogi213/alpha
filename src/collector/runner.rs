@@ -29,6 +29,9 @@ pub enum ExchangeName {
     Bybit,
 }
 
+/// Назначаемое (по заданию координатора 12.11): до ~280 из лимита Binance 300 подключений / 5 мин на IP.
+const BINANCE_LIMIT: usize = 280;
+
 #[derive(Debug, Args)]
 pub struct RunArgs {
     #[arg(long, value_enum)]
@@ -54,8 +57,10 @@ pub struct RunArgs {
     pub min_quote_volume: f64,
     #[arg(long, default_value_t = 10)]
     pub top_exclude: usize,
-    #[arg(long, default_value_t = LIMIT)]
-    pub connect_budget: usize,
+    /// Подключений к бирже за 5 мин на процесс (по умолчанию: Binance — 280 из лимита биржи 300 на IP, замер маршрута 12.11: отбраковка медленных
+    /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`). Отбракованные подключения считаются.
+    #[arg(long)]
+    pub connect_budget: Option<usize>,
     /// Новых TCP-подключений в секунду на процесс (разгон при старте: пачка из 36–50 одновременных рукопожатий давала у Bybit 502 Bad Gateway, замер 12.11).
     #[arg(long, default_value_t = 10)]
     pub connect_rate: usize,
@@ -215,8 +220,12 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     }
     let stop = Arc::new(AtomicBool::new(false));
     watch_signals(&stop);
+    let limit = args.connect_budget.unwrap_or(match args.exchange {
+        ExchangeName::Binance => BINANCE_LIMIT,
+        ExchangeName::Bybit => LIMIT,
+    });
     let budget = Arc::new(Budget::with_rules(&[
-        (args.connect_budget, WINDOW),
+        (limit, WINDOW),
         (args.connect_rate, Duration::from_secs(1)),
     ]));
     budget.set_reserve(args.reject_reserve);

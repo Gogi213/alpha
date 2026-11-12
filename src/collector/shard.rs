@@ -325,15 +325,23 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             thread::sleep(Duration::from_millis(100));
         }
         if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) {
-            // замена не приняла путь (нет соединения, проверка лага не пройдена): поток не рвём — остаёмся на прежней сессии и входе
+            if want_return {
+                // возврат на основной вход необязателен: не принят — поток не рвём, остаёмся на прежней сессии и входе
+                sh.events.emit(
+                    "switch_failed",
+                    json!({"session": seq, "kept_session": cur.seq, "entrance": lane.current().host}),
+                );
+                finish(nxt);
+                lane.set_idx(prev_idx);
+                retry_at = Instant::now() + SWITCH_RETRY;
+                continue;
+            }
+            // замена из-за испорченного пути или возраста — как в Python (`Shard.lane`): событие `switch_timeout`, старая сессия всё равно закрывается
+            // после перекрытия, а замена продолжает подключаться; повторных замен каждые 30 с (сжигали бюджет подключений: 48 `switch_failed` за 10 мин) нет
             sh.events.emit(
-                "switch_failed",
-                json!({"session": seq, "kept_session": cur.seq, "entrance": lane.current().host}),
+                "switch_timeout",
+                json!({"session": seq, "old_session": cur.seq}),
             );
-            finish(nxt);
-            lane.set_idx(prev_idx);
-            retry_at = Instant::now() + SWITCH_RETRY;
-            continue;
         }
         sleep_stop(sh, opts.overlap);
         let old_seq = cur.seq;
