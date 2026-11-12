@@ -77,6 +77,8 @@ pub struct ShardOpts {
     pub never_slow: bool,
     /// Линия не заменяется, пока её партнёр по шарду здоров (его сессия открыта, не испорчена и не медленная); возрастная пересменка не откладывается.
     pub lazy: bool,
+    /// Шард без соединения проверяет путь, как Python (`Shared::cold_probe`).
+    pub cold_probe: bool,
     /// Пауза строгой замены после каждых `PROBE_MAX_REJECTS` отбраковок подряд.
     pub strict_pause: Duration,
 }
@@ -100,6 +102,7 @@ impl ShardOpts {
             rtt_max_ms: CONNECT_RTT_MAX_MS,
             never_slow: false,
             lazy: false,
+            cold_probe: false,
             strict_pause: STRICT_PAUSE,
         }
     }
@@ -411,6 +414,7 @@ pub fn spawn_shard(
         probe_window: opts.probe_window,
         ping: opts.ping,
         rtt_max_ms: opts.rtt_max_ms,
+        cold_probe: opts.cold_probe,
     });
     let health: Arc<Vec<AtomicBool>> = Arc::new(
         (0..entrances.len())

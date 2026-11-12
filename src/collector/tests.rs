@@ -2111,6 +2111,51 @@ fn never_slow_replacement_keeps_the_old_session_until_a_fast_path_exists() {
     assert_u_contiguous(dir.path());
 }
 
+/// `cold_probe`: шард без соединения проверяет путь, как Python, — медленный RTT отбраковывается до 12 раз, данных до приёма нет.
+#[test]
+fn cold_probe_rejects_a_slow_path_before_the_first_data() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.rtt_max_ms = 1e-6; // любой путь «медленный»
+    opts.cold_probe = true;
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(200, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 100 && t0.elapsed() < Duration::from_secs(30) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let first_data = t0.elapsed();
+    let rejected = count_events(dir.path(), "path_rejected_rtt");
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(rejected >= 12, "12 отбраковок до приёма: {rejected}");
+    assert!(
+        first_data > Duration::from_secs(5),
+        "данные не раньше приёма: {first_data:?}"
+    );
+    assert_u_contiguous(dir.path());
+}
+
 /// Шард без соединения берёт место в бюджете раньше уже покрытого: в очереди за одним местом первой пришла замена покрытого шарда,
 /// второй — шард без соединения; место достаётся второму.
 #[test]

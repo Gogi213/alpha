@@ -57,6 +57,8 @@ pub struct Shared {
     pub ping: (Duration, Duration),
     /// Порог отбраковки пути по RTT рукопожатия, мс (`CONNECT_RTT_MAX_MS`; в проверках занижается).
     pub rtt_max_ms: f64,
+    /// Шард без соединения проверяет путь, как Python: отбраковка по RTT и окно лага до приёма (по умолчанию — принимает сразу, даже медленный).
+    pub cold_probe: bool,
 }
 
 impl Shared {
@@ -141,7 +143,7 @@ pub fn run(
         Err(e) => return Outcome::Failed(format!("connect {}: {e}", ent.host)),
     };
     // шард без соединения: путь принимается как есть сразу — данные пишутся, разрыва нет; медленный путь потом заменяется проверенным (`path_upgrade`)
-    let lone = probe && uncovered();
+    let lone = probe && !sh.cold_probe && uncovered();
     let slow_lone = lone && rtt > sh.rtt_max_ms;
     if slow_lone {
         sh.events.emit(

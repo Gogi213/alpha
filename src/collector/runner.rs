@@ -94,6 +94,9 @@ pub struct RunArgs {
     /// Ленивая замена: линия не заменяется, пока партнёр по шарду здоров; возрастная пересменка не откладывается.
     #[arg(long)]
     pub lazy: bool,
+    /// Шард без соединения проверяет путь, как Python: отбраковка по RTT (до 12 раз) и окно лага до приёма, вместо приёма сразу.
+    #[arg(long)]
+    pub cold_probe: bool,
     /// Открытый `ws://host:port` вместо биржи (синтетический источник `collect synth`): хост и порт для всех входов.
     #[arg(long)]
     pub plain_ws: Option<String>,
@@ -227,6 +230,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     opts.max_age = Duration::from_secs(args.max_age_s.max(30));
     opts.never_slow = args.never_slow;
     opts.lazy = args.lazy;
+    opts.cold_probe = args.cold_probe;
     let mut lines = lines;
     if let Some(plain) = &args.plain_ws {
         let (host, port) = plain
