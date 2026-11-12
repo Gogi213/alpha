@@ -9,17 +9,15 @@ Rust + Python. Исследование и инфраструктура данн
 
 **Child threads (исп / пров / чит): English only, no chatter.** Everything you write — progress lines, messages, commit-free notes, the final report — is in English. Quote the owner's words verbatim in Russian. Do not narrate: no "now I will…", no restating the brief, no summaries between steps. Write a one-line progress note only when the state changes (step done, blocker found). Final report: status, branch + SHA, results with numbers, deviations — nothing else. Repo docs (`docs/**`) stay in Russian.
 
-## Сейчас (12.11.2026)
+## Сейчас (13.11.2026)
 
-- **Цель G-022 — свои датасеты коллекторами по вебсокету:** Binance → Bybit → OKX → Bitget → Huobi → BingX, по одной;
-  пул от 300 тыс. $/сутки, на Binance и Bybit без топ-10 по объёму. План, правила и где мы —
-  `docs/plan/G-022-collectors-plan-2026-11-12.md` (§4 шаги, §7 что осталось).
-- Binance принят (509 символов, пишет), дашборд здоровья принят: http://5.231.25.224:8088/.
-  Bybit пишет 389 символов, не принят (таймауты). Лестницы нагрузки Binance/Bybit — без отчёта.
-  Код — ветки `tk527-binance-ws`, `tk532-bybit-ws` (`tools/collector/`, ядро `wscore/` + адаптер на биржу), в `master` не слиты.
-- Удаление старых скачанных датасетов на сервере и Storage Box (В-131, В-132) — идёт, отчёта нет.
-- Исследование схождений П-40 (`docs/research/P-40-*`) — на паузе.
-- Прошлые состояния и история — `docs/archive/claude-md-history-*.md` (грепом); архив команды rpv — тег `archive/rpv-2026-11-12`.
+- **G-022 — коллекторы бирж по вебсокету на Rust** (В-149..В-152): Binance → Bybit → OKX → Bitget → Huobi → BingX; цель — хороший коллектор,
+  не непрерывный сбор (В-152). Передача дел: `docs/plan/G-022-handoff-2026-11-13.md` (читать первым).
+- Rust-коллектор Binance + Bybit — ветка `g022-turbo` (`src/collector/`), в `master` не слит; работает фоном на srv (`soak-binance`, `soak-bybit`,
+  данные `/data/turbo-probe/`), страница здоровья http://5.231.25.224:8088/. Python-коллекторы остановлены.
+- Binance: маршрут srv → Токио двухрежимный, задержки не лечатся кодом — `docs/findings/binance-route-problem-2026-11-13.md`; вопрос владельцу про Софию открыт.
+- Подготовка OKX, Bitget, HTX, BingX готова (ветки `okx-ws-prep`, `g022-prep-3`, отчёты `docs/findings/*-ws-prep-2026-11-12.md`).
+- П-40 — на паузе. История — `docs/archive/claude-md-history-*.md`; архив rpv — тег `archive/rpv-2026-11-12`.
 
 ## Где что
 
