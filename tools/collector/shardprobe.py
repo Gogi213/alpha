@@ -1,4 +1,4 @@
-"""shardprobe POOL OUT SEC — TK-532: паузы прод-шардов trade02/mark02 привязаны к набору подписок (символы шарда) или к соединению/узлу? Свежие соединения (новые узлы биржи) с ТЕМ ЖЕ набором топиков,
+"""shardprobe POOL OUT SEC [ШАРДЫ] — TK-532: паузы прод-шардов trade02/mark02 привязаны к набору подписок (символы шарда) или к соединению/узлу? Свежие соединения (новые узлы биржи) с ТЕМ ЖЕ набором топиков,
 что у шардов trade02/mark02 боевого коллектора, и контрольные trade01/mark01: по одному соединению IPv6 и IPv4 на шард. Пауза кадров > STALL_MS пишется строкой jsonl сразу:
 время конца, длина, лаг (приём − ts биржи) первых кадров после паузы, состояние TCP внутри паузы. Раз в минуту строка hb. Наблюдение, не проверочный прогон (паузы редки: раз в десятки минут).
 POOL — pool-<день>.json боевого коллектора (тот же набор символов, что у прода). Боевые соединения не трогает."""
@@ -120,7 +120,8 @@ async def main():
         for name, topics in shard_streams(pool, kind, 100):
             shards[name] = topics
     jobs = []
-    for name in ("trade02", "mark02", "trade01", "mark01"):
+    names = sys.argv[4].split(",") if len(sys.argv) > 4 else ("trade02", "mark02", "trade01", "mark01")
+    for name in names:
         for lab, fam in (("v6", socket.AF_INET6), ("v4", socket.AF_INET)):
             jobs.append(one(f"{name}-{lab}", fam, shards[name], end, log))
             await asyncio.sleep(0.5)

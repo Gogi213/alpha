@@ -141,11 +141,14 @@ def test_dedupe_survives_day_change(tmp_path):
 def test_aggregate_health_schema_and_pool_filter():
     now = 1_794_500_000_000
     f = {"shard": "book00", "ts_ms": now, "started_ms": now - 5000, "with_data": ["avaxusdt", "btcusdt"], "connected": 1, "ping_ms": [300.0, 340.0],
-         "lag_in": [200.0, 230.0], "lag_out": [400.0], "timeouts": [now - 10, now - 2 * 3600_000], "reconnects": [], "last_frame_ms": now - 5, "last_write_ms": now - 500}
+         "lag_in": [200.0, 230.0], "lag_out": [400.0], "timeouts": [now - 10, now - 2 * 3600_000], "gaps": [now - 20, now - 3 * 3600_000, now - 30 * 3600_000], "reconnects": [], "last_frame_ms": now - 5, "last_write_ms": now - 500}
     h = health.aggregate([f], now, ["AVAXUSDT", "ETHUSDT"], "fake")
     assert h["schema"] == 1 and h["exchange"] == "fake"
     assert h["symbols"] == {"subscribed": 2, "with_data_1m": 1}  # btcusdt вне пула не считается
     assert h["ws"]["timeouts_1h"] == 1 and h["ws"]["timeouts_24h"] == 2 and h["ws"]["reconnects_1h"] == 0
+    assert h["ws"]["gaps_1h"] == 1 and h["ws"]["gaps_24h"] == 2  # TK-532: пауза данных — отдельный счётчик, не таймаут
+    f.pop("gaps")
+    assert health.aggregate([f], now, ["AVAXUSDT"], "fake")["ws"]["gaps_1h"] == 0  # фрагмент прежнего кода (без gaps) читается
     assert h["ws"]["ping_ms"]["max"] == 340.0 and h["lag_in_ms"]["window_s"] == 60 and h["lag_out_ms"]["p50"] == 400.0
     h0 = health.aggregate([], now, ["AVAXUSDT"], "fake")
     assert h0["lag_in_ms"]["p50"] is None and h0["ws"]["ping_ms"]["max"] is None and h0["symbols"]["with_data_1m"] == 0
@@ -570,3 +573,30 @@ def test_peer_ip_returns_remote_address_or_none():
             return ("2600:9000::1", 443, 0, 0)
 
     assert dial_mod.peer_ip(S()) == "2600:9000::1" and dial_mod.peer_ip(object()) is None
+
+
+def test_gap_is_its_own_event_and_counter_not_a_timeout(tmp_path):
+    """TK-532 (В-140): пауза данных шарда при живом цикле — событие gap со счётчиком gaps, таймаутом считается только мёртвое соединение (нет pong)."""
+    shard = shard_for(tmp_path)
+    shard.session.gap(3, 120)
+    ev = [json.loads(ln) for ln in open(shard.events_path)]
+    assert [e["ev"] for e in ev] == ["gap"] and ev[0]["loop_late_ms"] == 120 and ev[0]["tcp_clean"] is True and ev[0]["session"] == 3
+    assert len(shard.m.gaps) == 1 and len(shard.m.timeouts) == 0
+    assert shard.m.fragment("book00", shard.writer)["gaps"] == list(shard.m.gaps)
+
+
+def test_gap_watch_emits_one_gap_per_pause_with_loop_lateness(tmp_path, monkeypatch):
+    monkeypatch.setattr(sess, "GAP_TICK_S", 0.02)
+    shard = shard_for(tmp_path)
+    shard.m.last_rx = time.monotonic() - 10  # кадров нет дольше GAP_TIMEOUT_S
+
+    async def go():
+        try:
+            await asyncio.wait_for(shard.session.gap_watch(5), 0.3)
+        except asyncio.TimeoutError:
+            pass
+
+    asyncio.run(go())
+    ev = [json.loads(ln) for ln in open(shard.events_path)]
+    assert [e["ev"] for e in ev] == ["gap"]  # одна пауза — одно событие
+    assert ev[0]["loop_late_ms"] >= 0 and len(shard.m.timeouts) == 0

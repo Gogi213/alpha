@@ -31,6 +31,7 @@ def aggregate(frags, now_ms, pool, exchange):
     with_data = {s for f in frags for s in f["with_data"]} & {x.lower() for x in pool}
     hour, day = now_ms - 3600_000, now_ms - 24 * 3600_000
     tos = [t for f in frags for t in f["timeouts"]]
+    gps = [t for f in frags for t in f.get("gaps", [])]
     rcs = [t for f in frags for t in f["reconnects"]]
     return {
         "schema": 1, "exchange": exchange, "ts_ms": now_ms,
@@ -40,6 +41,7 @@ def aggregate(frags, now_ms, pool, exchange):
             "connections": sum(f["connected"] for f in frags),
             "ping_ms": {"p50": percentile(pings, 0.5), "max": max(pings) if pings else None},
             "timeouts_1h": sum(t > hour for t in tos), "timeouts_24h": sum(t > day for t in tos),
+            "gaps_1h": sum(t > hour for t in gps), "gaps_24h": sum(t > day for t in gps),
             "reconnects_1h": sum(t > hour for t in rcs), "reconnects_24h": sum(t > day for t in rcs),
         },
         "lag_in_ms": pct([v for f in frags for v in f["lag_in"]]),

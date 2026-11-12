@@ -87,3 +87,12 @@ def test_roundtrip_codec():
     got = list(codec.decode(text))
     assert [(g["t"], g["s"]) for g in got] == [(r[0], r[1]) for r in recs]
     assert got[1]["a"] == 272596956733000 and got[2]["a"] == 272596956733001 and got[2]["m"] is False and got[3]["r"] == "0.00006514"
+
+
+def test_streams_per_conn_stays_under_documented_limit():
+    """TK-533: документация Bybit (v5/ws/connect) — linear до 100 args на соединение (TBD); раскладка боевого набора с запасом и подписка одним сообщением в пределах 21 000 знаков."""
+    ad = bw.Adapter()
+    assert ad.streams_per_conn <= 80 < 100
+    plan = ad.plan([f"S{i}USDT" for i in range(389)], ad.kinds, ad.streams_per_conn)
+    assert max(len(t) for _, _, t in plan) <= ad.streams_per_conn and len(plan) == 15  # 5 шардов на вид × 3 вида
+    assert all(len(m) < 21_000 for _, _, t in plan for m in ad.subscribe_messages(t))

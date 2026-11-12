@@ -71,7 +71,7 @@ def fetch_instruments():
 class Adapter:
     name = "bybit"
     health_default = "/data/health/bybit.json"
-    streams_per_conn = 100  # старт: замер лагов и обрывов по окнам 3 мин (В-141, В-144) подберёт число
+    streams_per_conn = 80  # TK-533 (В-144): лестница до конца пула без излома; документация Bybit для linear — «up to 100 args for a single connection (TBD)» (connect): 80 = запас 20 % до 100, ступень 80 — 3 повтора, 0 обрывов
     min_quote_volume = 300_000.0
     top_exclude = 10
     kinds = ("book", "trade", "mark")

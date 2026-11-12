@@ -1,4 +1,4 @@
-"""Счётчики одного шарда за окно: приход кадров, пауза, лаги, пинг, таймауты, переподключения.
+"""Счётчики одного шарда за окно: приход кадров, пауза, лаги, пинг, таймауты, паузы данных, переподключения.
 Делает: накапливает; `take_line` — строка статистики окна (со сбросом), `fragment` — вклад шарда в health. Не пишет файлов и не знает соединений.
 Время окон — монотонное (`mono`), время событий — стенное (мс).
 """
@@ -7,7 +7,7 @@ from collections import deque
 
 from wscore import stats
 
-GAP_TIMEOUT_S = 3.0  # пауза без кадров на соединении; замер: макс. окно 1,55 с (book) / 1,22 с (trade) за 984 окна — порог ≈ 2× (назначаемое)
+GAP_TIMEOUT_S = 3.0  # пауза данных шарда (событие gap, не timeout: TK-532); замер: макс. окно 1,55 с (book) / 1,22 с (trade) за 984 окна — порог ≈ 2× (назначаемое)
 DAY_MS = 24 * 3600 * 1000
 
 
@@ -24,7 +24,8 @@ class Metrics:
         self.in_lags = deque()  # (monotonic, лаг прихода мс) за WINDOW_S
         self.pings = deque()  # (monotonic, rtt мс)
         self.sym_seen = {}  # символ -> monotonic последнего кадра
-        self.timeouts = deque()  # ts_ms
+        self.timeouts = deque()  # ts_ms: соединение мертво (нет pong за PING_TIMEOUT_S)
+        self.gaps = deque()  # ts_ms: пауза данных шарда дольше GAP_TIMEOUT_S при живом цикле событий (TK-532: доставка задержана пиром, потерь нет)
         self.reconnects = deque()  # ts_ms
         self.cpu0 = time.process_time()
         self.t_prev = time.monotonic()
@@ -47,6 +48,9 @@ class Metrics:
 
     def timeout(self):
         self.timeouts.append(int(time.time() * 1000))
+
+    def gap(self):
+        self.gaps.append(int(time.time() * 1000))
 
     def reconnect(self):
         self.reconnects.append(int(time.time() * 1000))
@@ -85,7 +89,7 @@ class Metrics:
             while dq and now - dq[0][0] > stats.WINDOW_S:
                 dq.popleft()
         cut = int(time.time() * 1000) - DAY_MS
-        for dq in (self.timeouts, self.reconnects):
+        for dq in (self.timeouts, self.gaps, self.reconnects):
             while dq and dq[0] < cut:
                 dq.popleft()
 
@@ -97,6 +101,6 @@ class Metrics:
             "with_data": sorted(s for s, t in self.sym_seen.items() if now - t <= stats.WINDOW_S),
             "connected": self.connected, "ping_ms": [round(v, 1) for _, v in self.pings],
             "lag_in": [round(v, 1) for _, v in self.in_lags], "lag_out": [round(v, 1) for _, v in writer.out_lags],
-            "timeouts": list(self.timeouts), "reconnects": list(self.reconnects),
+            "timeouts": list(self.timeouts), "gaps": list(self.gaps), "reconnects": list(self.reconnects),
             "last_frame_ms": self.last_frame_ms, "last_write_ms": writer.last_write_ms,
         }
