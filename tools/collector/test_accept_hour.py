@@ -58,8 +58,8 @@ def test_late_records_timeouts_entrance_switch_and_missing_symbols_fail(tmp_path
     rc, r = run(tmp_path, root, now)
     assert rc == 1 and r["verdict"] == "fail"
     why = " | ".join(r["fail_reasons"])
-    assert "timeouts_1h: 1" in why and "entrance_switches_1h: 2" in why and "fresh book" in why and "нет книги по 1 символам" in why
-    assert r["files"]["pool_without_book_in_files"] == ["ETHUSDT"]
+    assert "timeouts_1h: 1" in why and "entrance_switches_1h: 2" in why and "fresh book" in why
+    assert r["files"]["pool_without_book_in_files"] == ["ETHUSDT"] and "нет книги" not in why  # тихий символ — диагностика, не причина провала
     assert r["files"]["late"]["book"]["late_all"] == 1 and r["files"]["late"]["book"]["late_after_grace"] == 1 and r["files"]["late"]["book"]["max_ms"] == 3000
 
 

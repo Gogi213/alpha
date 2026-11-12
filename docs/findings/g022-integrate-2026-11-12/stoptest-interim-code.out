@@ -1,0 +1,11 @@
+stop at 08:23:30 UTC
+== bb
+book00-1794471723.tsv.zst zstd-t=FAIL rows=1291 ok=none last=[b	1737026430	89	41	ETHUSDT	1	2048.58	21.19	2048.59	0.9]
+mark00-1794471723.tsv.zst zstd-t=FAIL rows=232 ok=none last=[m	1085868033	81	BTCUSDT	73543.10			73576.94	0.00004995	17944]
+trade00-1794471723.tsv.zst zstd-t=ok rows=607 ok=607 last=[c	82507455	closed	1795471723]
+stopped events: 3
+== bn
+book00-1794471719.tsv.zst zstd-t=ok rows=28315 ok=28315 last=[c	724619	closed	1795471719]
+mark00-1794471719.tsv.zst zstd-t=ok rows=21462 ok=21462 last=[c	712136	closed	1795471719]
+trade00-1794471719.tsv.zst zstd-t=ok rows=863 ok=863 last=[c	268776	closed	1795471719]
+stopped events: 3
