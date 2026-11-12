@@ -9,6 +9,8 @@ Wants=network-online.target
 Restart=always
 RestartSec=10s
 TimeoutStopSec=40s
+# Остановка: SIGTERM только главному процессу; он сам один раз останавливает шарды-детей (они закрывают файлы суток), и только потом выходит. KillMode по умолчанию (control-group) слал бы детям SIGTERM второй раз.
+KillMode=mixed
 ExecStart=/root/bnws-venv/bin/python /root/bbws/bybit_ws.py --root /data/bbws --health /data/health/bybit.json --lanes 2
 
 [Install]
