@@ -62,7 +62,7 @@ SCOPE        paths it may write; paths it may not; its branch/worktree
 CONTEXT      file pointers; upstream reports it depends on
 ACCEPTANCE   checkable criteria, one per line
 VERIFY       exact commands (tools/vps-check.sh, gate, test window) and known gotchas
-TIMEBOX      cap; on expiry return partial findings and stop
+DEADLINE     the shortest realistic time (Claude Code pace), as a clock time GMT+4; at the deadline report the state (done or not, what remains) — not a generous cap
 FORBIDDEN    no merge to master, no force-push, no deleting data, nothing outside scope
 REPORT       status, branch, head SHA, what you ran and its result, deviations
 STANDING     .claude/preferences.md (pointer; threads read it)
