@@ -2091,6 +2091,11 @@ fn never_slow_replacement_keeps_the_old_session_until_a_fast_path_exists() {
     let before = metrics.writer().records;
     std::thread::sleep(Duration::from_millis(400));
     let after = metrics.writer().records;
+    // события до остановки: при остановке ждущая замена оставляет «смену пути» в журнале
+    let swaps: Vec<(&str, usize)> = ["path_upgrade", "path_switch", "rotated", "switch_timeout"]
+        .into_iter()
+        .map(|ev| (ev, count_events(dir.path(), ev)))
+        .collect();
     stop.store(true, Relaxed);
     h.join();
     stop_src.store(true, Relaxed);
@@ -2100,12 +2105,8 @@ fn never_slow_replacement_keeps_the_old_session_until_a_fast_path_exists() {
         "строгая замена отбраковывает и после 12-й"
     );
     assert!(count_events(dir.path(), "path_slow_accepted") >= 1);
-    for ev in ["path_upgrade", "path_switch", "rotated", "switch_timeout"] {
-        assert_eq!(
-            count_events(dir.path(), ev),
-            0,
-            "{ev}: медленный путь принят"
-        );
+    for (ev, n) in swaps {
+        assert_eq!(n, 0, "{ev}: медленный путь принят");
     }
     assert!(after > before, "старая сессия несёт поток");
     assert_u_contiguous(dir.path());
