@@ -810,6 +810,7 @@ def test_stop_closes_sessions_before_writer_so_the_file_is_complete(tmp_path, mo
             return FakeWs()
 
         async def __aexit__(self, *a):
+            await asyncio.sleep(0.2)  # закрытие соединения (close_timeout) — повторный сигнал приходит внутри очистки
             return False
 
     monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=lambda url, **kw: Conn()))
@@ -822,7 +823,10 @@ def test_stop_closes_sessions_before_writer_so_the_file_is_complete(tmp_path, mo
     async def go():
         task = asyncio.create_task(shard.run())
         await asyncio.sleep(0.3)
-        task.cancel()
+        stop = shard_mod.cancel_once(task)
+        stop()
+        await asyncio.sleep(0.05)  # очистка идёт (закрытие соединения занимает 0,2 с)
+        stop()  # второй SIGTERM (systemd + terminate родителя) очистку не прерывает
         with pytest.raises(asyncio.CancelledError):
             await task
 

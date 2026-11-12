@@ -137,12 +137,25 @@ class Shard:
             self.writer.close(final=True)
 
 
+def cancel_once(task):
+    """Обработчик остановки: первый сигнал отменяет задачу шарда, повторные игнорируются. Шард получает SIGTERM дважды — от systemd (каждому процессу группы) и от родителя (terminate); второй cancel
+    прерывал бы очистку (сессии пишут `closed`, писатель закрывает файл): файл оставался без `.ok` с незавершённым кадром zstd (замер на живом Bybit 12.11)."""
+    stopped = []
+
+    def stop():
+        if not stopped:
+            stopped.append(True)
+            task.cancel()
+
+    return stop
+
+
 def shard_main(adapter, root, name, endpoint, streams, lanes=1, budget=None, entrances=None):
     sh = Shard(adapter, root, name, endpoint, streams, lanes=lanes, budget=budget, entrances=entrances)
 
     async def amain():
         task = asyncio.current_task()
-        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)  # остановка: закрыть файлы суток
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, cancel_once(task))  # остановка: закрыть файлы суток
         try:
             await sh.run()
         except asyncio.CancelledError:

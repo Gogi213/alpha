@@ -161,3 +161,11 @@ def test_entrance_switch_in_hour_is_warn_and_passes_through(tmp_path):
     assert by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["bybit"]["state"] == "ok"
     page = (Path(serve.__file__).resolve().parent / "page.html").read_text(encoding="utf-8")
     assert "Смена входа" in page and "entrance_switches_1h" in page and page.count('colspan="9"') == 2
+
+
+def test_hour_acceptance_file_in_health_dir_is_not_a_row(tmp_path):
+    """accept-<биржа>-<UTC>.json (kind=accept_hour) лежит в /data/health рядом с health.json — строкой страницы не становится."""
+    put(tmp_path, "binance", doc())
+    put(tmp_path, "accept-binance-20261112T092100Z", {"schema": 1, "kind": "accept_hour", "exchange": "binance", "ts_ms": NOW, "verdict": "ok"})
+    rows = serve.collect(tmp_path, NOW, EXPECTED, THR)
+    assert [r["exchange"] for r in rows] == ["binance", "bybit"]
