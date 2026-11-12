@@ -1,6 +1,6 @@
 # Судья: TK-356 (G-015) оборот и шаг, сдача 2 — вернуть
 
-Проверено 22.10 ~13:05 по `docs/findings/tk356-turnover-tick-2026-10-22.md` (346b5455), `tools/compute/tk356-analyze.py`.
+Проверено 22.10 ~13:05 по `docs/findings/tk356-turnover-tick-2026-10-22.md` (346b5455), `tools/compute/archive/tk356-analyze.py`.
 
 | пункт | да/нет | на чём проверено |
 |---|---|---|

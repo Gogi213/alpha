@@ -1,6 +1,6 @@
 # Судья: TK-357 — апрель, фьюч, w20 ≥ 1000 %, первое касание — принято (22.10)
 
-Проверено: `python tools/compute/tk357-analyze.py docs/findings/tk357-april-days-2026-10-22.csv` (локально, stdlib, сид 357).
+Проверено: `python tools/compute/archive/tk357-analyze.py docs/findings/tk357-april-days-2026-10-22.csv` (локально, stdlib, сид 357).
 
 | пункт заказа | да/нет | на чём проверено |
 |---|---|---|

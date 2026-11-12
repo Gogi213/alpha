@@ -26,7 +26,7 @@
 ## Шаг 2 (23.10 ~19:00): выгрузка закончена, свопы НЕ восстанавливаются
 - Выгрузка: `/data/tk0378/sol-transfers.csv`, 433 520 строк, fetch.rc=0. Повторных сканов нет; потрачено по тикету 115,75 ГБ.
 - **Главное:** в `Token Transfers` у ≥ 95 % tx с нашим mint нет ни одного перевода quote (WSOL/USDC/USDT) и нет native-SOL. Свопы идут через инструкции/inner-инструкции, которых таблица не содержит. Доля tx с quote-ногой: KIMCHI 330/20955, DJT 110/40657, JUP 113/14717, STONK 59/12625, BONK 191/12571 … TQQQX 187/492, USELESS 2101/4343 (лучшие). Вся таблица охвата — `tk378-sol-cov-2026-10-23.csv`.
-- Восстановление (`tools/compute/tk378-sol-swaps.py`, vault = аккаунт с ≥ 20 tx и входом, и выходом; парный quote-vault ≥ 50 % tx) дало **369 свопов** — только TQQQX (155) и KIMCHI (213), по остальным 16 монетам 0. Это выборка с уклоном (видны лишь tx с quote-ногой), для вывода о цене/отрывах не годна. Файл свопов: `tk378-sol-swaps-2026-10-23.csv`.
+- Восстановление (`tools/compute/archive/tk378-sol-swaps.py`, vault = аккаунт с ≥ 20 tx и входом, и выходом; парный quote-vault ≥ 50 % tx) дало **369 свопов** — только TQQQX (155) и KIMCHI (213), по остальным 16 монетам 0. Это выборка с уклоном (видны лишь tx с quote-ногой), для вывода о цене/отрывах не годна. Файл свопов: `tk378-sol-swaps-2026-10-23.csv`.
 - Для настоящего восстановления нужны `pre/post_token_balances` (Transactions) или Instructions. dry_run (бесплатно): Transactions `signature,fee` за 1 сутки — **50,1 ГБ**; с `pre/post_token_balances` за 1 сутки — **245,5 ГБ** (неделя ≈ 1,7 ТБ — не влезает). Priority fee за неделю ≈ 350 ГБ (по подписи фильтра нет — сканируется всё).
 - Вариант: balances за 1–2 суток (245–490 ГБ) вместо недели; остаток лимита месяца ≈ 880 ГБ минус то, что списал TK-364 (не учтено).
 - Не сделано: п.2 (priority fee, подписант), п.3 (ETH), USD-слой, дозапуск TK-377 — упираются в решение по бюджету.
@@ -34,7 +34,7 @@
 ## Шаг 3 (23.10 ~19:00): balances за 17.10 и 20.10 (по слову CEO 18:36)
 - Расход за месяц до шага: 115,9 ГБ (`list_jobs`, 2 запроса) — остаток ≈ 884 ГБ.
 - dry_run 1 суток (17.10), варианты: post (mint,owner,amount) 113,8 ГБ · pre+post (mint,owner,amount) 187,2 · pre+post полностью 206,3 · только mint 67,3 · balance_changes 358,9 · fee+signers 237,9. Нужны pre и post (дельта vault'а) → вариант pre+post без account_index/decimals.
-- Боевой запрос: сутки 17.10 + 20.10 одним проходом, фильтр EXISTS(mint ∈ наши 18) в pre/post, колонки signature, ts, slot, index, fee, pre, post: dry_run **430,6 ГБ** (≤ 250/сутки; остаток после ≈ 450 > резерва 150). Скрипт `tools/compute/tk378-sol-bal.py`, юнит `tk378-bal` на calc, выход `/data/tk0378/bal.jsonl`, метка `bal.rc`.
+- Боевой запрос: сутки 17.10 + 20.10 одним проходом, фильтр EXISTS(mint ∈ наши 18) в pre/post, колонки signature, ts, slot, index, fee, pre, post: dry_run **430,6 ГБ** (≤ 250/сутки; остаток после ≈ 450 > резерва 150). Скрипт `tools/compute/archive/tk378-sol-bal.py`, юнит `tk378-bal` на calc, выход `/data/tk0378/bal.jsonl`, метка `bal.rc`.
 
 ## Helius: замер расхода (23.10 ~19:00)
 
@@ -48,11 +48,11 @@
 
 - Helius getSignaturesForAddress по 137 пулам готово: `/data/tk0378/hel/sigcounts.csv` — всего ≈ 3,04 млн подписей за 15–22.10 (по суткам 539к/294к/211к/176к/340к/388к/454к/636к; 12 пулов обрезаны, HOOKED забит чужими tx). Переводить на getTransactionsForAddress — дальше после SQD.
 - SQD Portal solana-mainnet работает без ключа (нужен User-Agent браузера — иначе Cloudflare 1010). Слот ≈ 0,18 с (не 0,4), 15.10 00:00 UTC ≈ слот 457,03 млн. Фильтр `tokenBalances` по preMint/postMint + `transaction: true` отдаёт tx целиком (feePayer, fee, CU, transactionIndex, pre/post балансы). Портал отвечает 529 «overloaded» вперемешку — нужны повторы.
-- Выгрузка по mint-ам Gate (STAMP, SI, FONE, CLAUDIA), сутки 15–22.10: `tools/compute/tk378-sqd.py`, юнит `tk378-sqd` на calc, выход `/data/tk0378/sqd/`, метка `sqd/sqd.rc`.
+- Выгрузка по mint-ам Gate (STAMP, SI, FONE, CLAUDIA), сутки 15–22.10: `tools/compute/archive/tk378-sqd.py`, юнит `tk378-sqd` на calc, выход `/data/tk0378/sqd/`, метка `sqd/sqd.rc`.
 
 ## Итог (23.10 ~23:50): свопы Gate-монет Solana из SQD Portal — восстановлены
 
-- Источник — SQD Portal (не BigQuery; BigQuery после 430,6 ГБ balances закрыт по слову CEO 19:50). Дельты балансов по tx (7,5 млн строк, 15 файлов) → `tools/compute/tk378-sol-swaps2.py` (vault монеты = аккаунты с дельтами обоих знаков в ≥ 30 tx; своп = дельта vault'ов M и quote-vault'ов одного quote-mint противоположных знаков). Файл: `/data/tk0378/sqd-swaps.csv` на calc (820 859 свопов, 191 МБ, в git не кладётся); колонки ts, slot, txidx (позиция в блоке), sig, coin, side, qty_m, quote, qty_q, price_q, payer, fee (лампорты), cu. Охват — `tk378-sqd-cov-2026-10-23.csv`.
+- Источник — SQD Portal (не BigQuery; BigQuery после 430,6 ГБ balances закрыт по слову CEO 19:50). Дельты балансов по tx (7,5 млн строк, 15 файлов) → `tools/compute/archive/tk378-sol-swaps2.py` (vault монеты = аккаунты с дельтами обоих знаков в ≥ 30 tx; своп = дельта vault'ов M и quote-vault'ов одного quote-mint противоположных знаков). Файл: `/data/tk0378/sqd-swaps.csv` на calc (820 859 свопов, 191 МБ, в git не кладётся); колонки ts, slot, txidx (позиция в блоке), sig, coin, side, qty_m, quote, qty_q, price_q, payer, fee (лампорты), cu. Охват — `tk378-sqd-cov-2026-10-23.csv`.
 - Окно 15.10 00:00 – 22.10 23:59 UTC. Расход Solana-данных: BigQuery 115,9 + 430,6 ГБ (квота месяца), SQD — без платы.
 
 | монета | свопов | кошельков | дней | объём USDC-ноги, $ | fee мед / p90, лампорт | CU мед |
@@ -72,7 +72,7 @@
 
 ## Дополнение 24.10 (USD-слой, ответ на пункт 1 ревью Судьи)
 
-- `tools/compute/tk378-sqd-usd.py`: WSOL-нога → $ по close минуты свопа SOLUSDT 1м (Bybit spot API, 14.10 20:00–23.10 00:00 UTC, 11 761 свеча); USDC/USDT-нога = $. Свопов без цены: 0.
+- `tools/compute/archive/tk378-sqd-usd.py`: WSOL-нога → $ по close минуты свопа SOLUSDT 1м (Bybit spot API, 14.10 20:00–23.10 00:00 UTC, 11 761 свеча); USDC/USDT-нога = $. Свопов без цены: 0.
 - Файл `/data/tk0378/sqd-swaps-usd.csv` (calc; + колонки `usd`, `price_usd` = $ за монету), сводка по монета×сутки (UTC) — `docs/findings/tk378-sqd-usd-2026-10-23.csv`.
 - Объём 15–22.10, $ млн: CLAUDIA 14,5 · SI 17,3 · FONE 3,1 · HOOKED 3,3 · KIMCHI 62,7 (только 20–22.10) · STAMP 0,015 · TQQQX 0,15. Доля WSOL-свопов 55–95 % (кроме TQQQX/STAMP) — без пересчёта объём занижался бы в разы.
 - Пункт 6 ревью: 820 859 в md = строки файла с заголовком; свопов 820 858 — расхождения нет. `m_vaults = 8` — это потолок «топ 8» в скрипте свопов2 (не проверялось, обрезка ли) — остаётся.
