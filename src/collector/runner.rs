@@ -59,6 +59,11 @@ pub struct RunArgs {
     /// Новых TCP-подключений в секунду на процесс (разгон при старте: пачка из 36–50 одновременных рукопожатий давала у Bybit 502 Bad Gateway, замер 12.11).
     #[arg(long, default_value_t = 10)]
     pub connect_rate: usize,
+    /// Места бюджета подключений, которые отбраковка пути по RTT не трогает. По умолчанию 0 — как в Python (отбраковка до исчерпания бюджета,
+    /// дальше подключение ждёт места): запас 2 × соединений при замере 12.11 13:23 UTC (маршрут до Binance 350–380 мс) после старта оставил
+    /// отбраковку выключенной, и 164 из 200 новых подключений приняли медленный путь (лаг книги p99 66 с).
+    #[arg(long, default_value_t = 0)]
+    pub reject_reserve: usize,
     /// Период сброса блока на диск, мс.
     #[arg(long, default_value_t = 100)]
     pub flush_ms: u64,
@@ -214,6 +219,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         (args.connect_budget, WINDOW),
         (args.connect_rate, Duration::from_secs(1)),
     ]));
+    budget.set_reserve(args.reject_reserve);
     let mut handles: Vec<ShardHandle> = Vec::new();
     for plan in &plans {
         if let Some(h) = spawn_shard(&exch, plan, &lines, &opts, &budget, &stop) {

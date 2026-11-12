@@ -805,9 +805,14 @@ fn bybit_plan_entrances_and_subscribe() {
         ("stream.bybit.com", Family::V4)
     );
     assert_eq!(
+        (lines[0][1].host.as_str(), lines[0][1].family),
+        ("stream.bybit.com", Family::V6),
+        "запасной линии 0 — IPv6 того же имени (Python)"
+    );
+    assert_eq!(
         (lines[1][0].host.as_str(), lines[1][1].host.as_str()),
-        ("stream.bybit.kz", "stream.bybit.com"),
-        "запасной вход — основной другой линии"
+        ("stream.bybit.kz", "stream.bybitgeorgia.ge"),
+        "линия 1 — kz, запасной georgia (Python)"
     );
     let e = Entrance::parse("stream.bybit.com@13.226.244.52", Family::Any).unwrap();
     assert_eq!(
@@ -1997,9 +2002,9 @@ fn spawn_mute(
     })
 }
 
-/// pong запаздывает (здесь — вовсе нет), а кадры идут: таймаут считается, но путь не считается испорченным — замены нет.
+/// Нет pong за PING_TIMEOUT — таймаут и `degraded`, даже когда кадры идут (как в Python `Session.pinger`); `data_alive` в событии — диагностика.
 #[test]
-fn missing_pong_with_live_data_is_a_timeout_but_not_degraded() {
+fn missing_pong_is_a_timeout_and_degraded_even_with_live_data() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let stop_src = Arc::new(AtomicBool::new(false));
@@ -2021,7 +2026,7 @@ fn missing_pong_with_live_data_is_a_timeout_but_not_degraded() {
     .unwrap();
     let metrics = Arc::clone(&h.metrics);
     let t0 = Instant::now();
-    while count_events(dir.path(), "timeout") < 2 && t0.elapsed() < Duration::from_secs(20) {
+    while count_events(dir.path(), "ping_degraded") < 1 && t0.elapsed() < Duration::from_secs(20) {
         std::thread::sleep(Duration::from_millis(100));
     }
     stop.store(true, Relaxed);
@@ -2029,17 +2034,16 @@ fn missing_pong_with_live_data_is_a_timeout_but_not_degraded() {
     stop_src.store(true, Relaxed);
     src.join().unwrap();
     assert!(
-        count_events(dir.path(), "timeout") >= 2,
+        count_events(dir.path(), "timeout") >= 1,
         "таймауты ping считаются"
     );
     let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
     assert!(ev.contains("\"data_alive\":true"), "{ev}");
-    assert_eq!(
-        count_events(dir.path(), "ping_degraded"),
-        0,
-        "кадры идут — путь не испорчен"
+    assert!(
+        count_events(dir.path(), "ping_degraded") >= 1,
+        "нет pong — путь испорчен, как в Python"
     );
-    assert!(metrics.lists().timeouts.len() >= 2);
+    assert!(!metrics.lists().timeouts.is_empty());
     assert!(metrics.writer().records > 100, "поток шёл");
 }
 
@@ -2081,23 +2085,25 @@ fn silence_without_pong_marks_the_session_degraded() {
     assert!(ev.contains("\"data_alive\":false"), "{ev}");
 }
 
-/// Отбраковка по RTT — не ниже 300 мс и относительно соседей: при общем замедлении (все подключения 345–385 мс) путь не бракуется, бюджет не сгорает.
+/// Отбраковка пути по RTT абсолютная (300 мс), но не выедает бюджет: пока в основном правиле больше запаса — `can_reject`; иначе путь принимается.
 #[test]
-fn rtt_limit_follows_the_peers_when_the_whole_route_slows_down() {
-    use super::session::{rtt_limit, CONNECT_RTT_MAX_MS};
-    assert_eq!(rtt_limit(None), CONNECT_RTT_MAX_MS);
-    assert_eq!(rtt_limit(Some(200.0)), CONNECT_RTT_MAX_MS);
-    assert!((rtt_limit(Some(270.0)) - 310.5).abs() < 1e-9);
-    assert!(
-        rtt_limit(Some(380.0)) > 430.0,
-        "соседи 380 мс — 385 не отбраковывается"
-    );
+fn path_rejection_stops_at_the_budget_reserve() {
     let b = Budget::new(10, Duration::from_secs(300));
-    assert_eq!(b.rtt_median(), None, "мало данных");
-    for r in [
-        250.0, 260.0, 270.0, 280.0, 290.0, 300.0, 310.0, 320.0, 330.0,
-    ] {
-        b.note_rtt(r);
+    b.set_reserve(4);
+    let now = Instant::now();
+    for i in 0..6 {
+        assert!(b.can_reject(now), "занято {i} из 10, запас 4 — можно");
+        assert!(b.try_take(now).is_none());
     }
-    assert_eq!(b.rtt_median(), Some(290.0));
+    assert!(!b.can_reject(now), "занято 6, запас 4 — отбраковка стоп");
+    assert!(b.try_take(now).is_none(), "подключаться по-прежнему можно");
+    b.set_reserve(0);
+    for _ in 0..3 {
+        assert!(b.try_take(now).is_none());
+    }
+    assert!(b.try_take(now).is_some(), "бюджет исчерпан — ждать");
+    assert!(
+        b.can_reject(now),
+        "запас 0 (Python): отбраковка не зависит от бюджета"
+    );
 }

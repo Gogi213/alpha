@@ -5,7 +5,7 @@
 //! делали отбраковка пути, замены и переподключения. Лимиты бирж и запас — назначаемое.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -21,13 +21,9 @@ struct Rule {
 
 pub struct Budget {
     rules: Mutex<Vec<Rule>>,
-    /// RTT рукопожатия последних подключений процесса, мс: «как сейчас до биржи» (порог отбраковки пути — относительно соседей).
-    rtts: Mutex<VecDeque<f64>>,
+    /// Места основного правила, которые отбраковка пути не трогает: на подключения и замены (сколько соединений в процессе ×2).
+    reserve: AtomicUsize,
 }
-
-/// Сколько последних RTT помнить и сколько нужно для медианы.
-const RTT_KEEP: usize = 64;
-const RTT_MIN_SAMPLES: usize = 8;
 
 impl Budget {
     pub fn new(limit: usize, window: Duration) -> Self {
@@ -46,7 +42,7 @@ impl Budget {
             .collect();
         Self {
             rules: Mutex::new(rules),
-            rtts: Mutex::new(VecDeque::new()),
+            reserve: AtomicUsize::new(0),
         }
     }
 
@@ -81,30 +77,25 @@ impl Budget {
         wait
     }
 
-    /// Записать RTT рукопожатия очередного подключения.
-    pub fn note_rtt(&self, rtt_ms: f64) {
-        let mut q = self
-            .rtts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if q.len() >= RTT_KEEP {
-            q.pop_front();
-        }
-        q.push_back(rtt_ms);
+    /// Запас мест основного правила, недоступный отбраковке пути (см. `can_reject`).
+    pub fn set_reserve(&self, n: usize) {
+        self.reserve.store(n, Relaxed);
     }
 
-    /// Медиана RTT последних подключений; `None` — мало данных.
-    pub fn rtt_median(&self) -> Option<f64> {
-        let q = self
-            .rtts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if q.len() < RTT_MIN_SAMPLES {
-            return None;
+    /// Можно ли потратить подключение на отбракованный путь: основное правило должно оставаться с запасом на подключения и замены.
+    /// Если весь маршрут медленный, отбраковка съедает бюджет до запаса, после чего пути принимаются как есть (сторож лага остаётся).
+    pub fn can_reject(&self, now: Instant) -> bool {
+        let reserve = self.reserve.load(Relaxed);
+        if reserve == 0 {
+            return true; // как в Python: отбраковка не зависит от бюджета, нехватка места — ожидание в `acquire`
         }
-        let mut v: Vec<f64> = q.iter().copied().collect();
-        v.sort_by(f64::total_cmp);
-        v.get(v.len() / 2).copied()
+        let limit = self
+            .rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .first()
+            .map_or(0, |r| r.limit);
+        self.used(now) + reserve < limit
     }
 
     /// Занято мест в окне первого (основного) правила сейчас.

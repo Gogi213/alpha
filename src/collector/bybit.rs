@@ -20,6 +20,7 @@ const REST: &str = "https://api.bybit.com";
 const PATH: &str = "/v5/public/linear";
 const HOST_COM: &str = "stream.bybit.com";
 const HOST_KZ: &str = "stream.bybit.kz";
+const HOST_GE: &str = "stream.bybitgeorgia.ge";
 const SUB_BATCH: usize = 100;
 /// Место сделки в пачке с общим seq; пачка Bybit — до сотен сделок, 1000 с запасом (больше — кадр пишется сырым).
 const TRADE_SLOT: i64 = 1000;
@@ -341,20 +342,25 @@ impl Exchange for Bybit {
         format!("wss://{host}{PATH}")
     }
 
-    /// Линия 0 — `stream.bybit.com` по IPv4, линия 1 — `stream.bybit.kz`; запасной вход линии — основной другой линии
-    /// (оба измерены в TK-532: 0 ошибок за 2 ч 53 мин).
+    /// Как в Python (`bybit_ws.entrances`, g022-integrate): линия 0 — com по IPv4, запасной — com по IPv6; линия 1 — kz, запасной — georgia
+    /// (другая сеть, не CloudFront); линии не делят вход.
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
-        let (com, kz) = (
-            Entrance::new(HOST_COM, Family::V4),
-            Entrance::new(HOST_KZ, Family::V4),
-        );
+        let lines = [
+            vec![
+                Entrance::new(HOST_COM, Family::V4),
+                Entrance::new(HOST_COM, Family::V6),
+            ],
+            vec![
+                Entrance::new(HOST_KZ, Family::Any),
+                Entrance::new(HOST_GE, Family::Any),
+            ],
+        ];
         (0..lanes)
             .map(|k| {
-                if k % 2 == 0 {
-                    vec![com.clone(), kz.clone()]
-                } else {
-                    vec![kz.clone(), com.clone()]
-                }
+                lines
+                    .get(k)
+                    .cloned()
+                    .unwrap_or_else(|| lines[k % 2].clone())
             })
             .collect()
     }

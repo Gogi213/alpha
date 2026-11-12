@@ -23,27 +23,18 @@ use super::net::{self, Conn};
 use super::path::{PathProbe, PathWatch};
 use super::ring::{Item, Payload, RingTx};
 
-/// Назначаемое (Судье): замер 12.11 (30 соед. srv→Токио): RTT ≤ 276 мс — лаг p99 ≤ 1,5 с, ≥ 320 мс — p99 ≥ 1,9 с.
+/// Абсолютный порог отбраковки пути по RTT рукопожатия, назначаемое (TK-527, замер: два маршрута, выбираются портом источника;
+/// быстрый ≤ ~293 мс — чисто, медленный ≥ ~347 мс — лаг 1–14 с и ретрансмиты; у Python такой же порог 300 мс → 0 поздних).
+/// Путь ≥ порога отбраковывается новым подключением (другой порт источника), пока в бюджете есть запас (`Budget::can_reject`).
 pub const CONNECT_RTT_MAX_MS: f64 = 300.0;
-/// Путь хуже соседей: RTT выше медианы последних подключений ×1,15 (назначаемое). Без этого при общем замедлении (12.11: RTT до Binance 345–385 мс у ВСЕХ
-/// подключений) отбраковка по 300 мс съедала весь бюджет подключений за две минуты, и коллектор не мог подключиться.
-pub const RTT_PEER_FACTOR: f64 = 1.15;
-
-/// Порог отбраковки по RTT рукопожатия: не ниже `CONNECT_RTT_MAX_MS`, при общем замедлении — относительно соседей.
-pub fn rtt_limit(median: Option<f64>) -> f64 {
-    median.map_or(CONNECT_RTT_MAX_MS, |m| {
-        CONNECT_RTT_MAX_MS.max(m * RTT_PEER_FACTOR)
-    })
-}
 pub const PING_PERIOD: Duration = Duration::from_secs(5);
 /// Порог «таймаут» страницы здоровья (нет pong), назначаемое.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(10);
 /// Тик чтения: период, с которым поток просыпается без кадров (пинг, остановка, проверка пути).
 pub const READ_TICK: Duration = Duration::from_millis(200);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Каждый N-й кадр идёт в выборку лага для сторожа пути; плюс не реже раза в `SAMPLE_EVERY_MS`.
-const LAG_SAMPLE: u64 = 32;
-const SAMPLE_EVERY: Duration = Duration::from_millis(250);
+/// Каждый N-й кадр (с первого) идёт в выборку лага для сторожа пути — как `LAG_SAMPLE` в Python `wscore/session.py`.
+const LAG_SAMPLE: u64 = 64;
 const RECVQ_EVERY: u64 = 16;
 const BUSY_EVERY: u64 = 4;
 
@@ -145,14 +136,19 @@ pub fn run(
         Ok(x) => x,
         Err(e) => return Outcome::Failed(format!("connect {}: {e}", ent.host)),
     };
-    let limit = rtt_limit(sh.budget.rtt_median());
-    sh.budget.note_rtt(rtt);
-    if probe && rtt > limit {
+    if probe && rtt > CONNECT_RTT_MAX_MS {
+        if sh.budget.can_reject(Instant::now()) {
+            sh.events.emit(
+                "path_rejected_rtt",
+                json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": CONNECT_RTT_MAX_MS, "entrance": ent.host}),
+            );
+            return Outcome::PathRejected;
+        }
+        // бюджет выбран до запаса (весь маршрут медленный): принимаем, сторож лага и замена при деградации остаются
         sh.events.emit(
-            "path_rejected_rtt",
-            json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": limit.round(), "entrance": ent.host}),
+            "path_slow_accepted",
+            json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": CONNECT_RTT_MAX_MS, "entrance": ent.host}),
         );
-        return Outcome::PathRejected;
     }
     let url = sh.url(&ent.host);
     let (mut ws, _) = match net::ws_connect(tcp, &url, &ent.host, sh.tls) {
@@ -233,7 +229,6 @@ fn read_loop(
     let mut ping_sent: Option<(Instant, [u8; 8])> = None;
     let mut pings_on = true;
     let mut ping_no: u64 = 0;
-    let mut last_sample = t_loop;
     let mut last_frame = t_loop;
     loop {
         if cancel.load(Relaxed) || sh.stop.load(Relaxed) {
@@ -256,7 +251,6 @@ fn read_loop(
                     t_read,
                     settle_at,
                     &mut n,
-                    &mut last_sample,
                     &mut probe,
                     Bytes::from(t),
                 ) {
@@ -264,18 +258,7 @@ fn read_loop(
                 }
             }
             Ok(Message::Binary(b)) => {
-                if !frame(
-                    sh,
-                    ws,
-                    seq,
-                    rx,
-                    t_read,
-                    settle_at,
-                    &mut n,
-                    &mut last_sample,
-                    &mut probe,
-                    b,
-                ) {
+                if !frame(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut probe, b) {
                     return Outcome::Failed("писатель шарда ушёл".to_string());
                 }
             }
@@ -317,17 +300,14 @@ fn read_loop(
                     last_ping = now;
                 }
                 Some((t0, _)) if now.duration_since(t0) >= sh.ping.1 => {
-                    // нет pong за PING_TIMEOUT — таймаут (счётчик health, событие). Путь испорчен, только если и кадры данных не идут
-                    // (замер 12.11: у Binance pong запаздывал до 9,4 с при потоке без задержек — запись шла вовремя, замена не нужна)
+                    // как в Python (`Session.pinger`): нет pong за PING_TIMEOUT — таймаут (счётчик health, событие) и путь испорчен: не рвём, а помечаем,
+                    // шард откроет замену, примет её окном проверки пути и закроет эту сессию после перекрытия. `data_alive` — только диагностика события
                     m.lists().timeouts.push_back(now_ms());
-                    let stalled = now.duration_since(last_frame) >= sh.ping.1;
-                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": !stalled, "tcp": tcp_json(ws.get_ref().tcp())}));
-                    if stalled {
-                        // не рвём, а помечаем: шард откроет замену и закроет эту сессию после перекрытия
-                        sh.events.emit("ping_degraded", json!({"session": seq}));
-                        sh.watch().mark_degraded(seq);
-                        pings_on = false;
-                    }
+                    let alive = now.duration_since(last_frame) < sh.ping.1;
+                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "tcp": tcp_json(ws.get_ref().tcp())}));
+                    sh.events.emit("ping_degraded", json!({"session": seq}));
+                    sh.watch().mark_degraded(seq);
+                    pings_on = false;
                     ping_sent = None;
                 }
                 _ => {}
@@ -359,7 +339,6 @@ fn frame(
     t_read: Instant,
     settle_at: Instant,
     n: &mut u64,
-    last_sample: &mut Instant,
     probe: &mut Option<PathProbe>,
     data: Bytes,
 ) -> bool {
@@ -385,8 +364,7 @@ fn frame(
             p.add(sh.exch.lag_ms(&data, rx));
         }
     }
-    if n.is_multiple_of(LAG_SAMPLE) || t_read.duration_since(*last_sample) >= SAMPLE_EVERY {
-        *last_sample = t_read;
+    if (*n - 1).is_multiple_of(LAG_SAMPLE) {
         if let Some(lag) = sh.exch.lag_ms(&data, rx) {
             sh.watch().sample(seq, lag);
         }
