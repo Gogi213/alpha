@@ -14,7 +14,7 @@ import asyncio
 import time
 from collections import deque
 
-from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname, peer_ip, tcp_state
+from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname, peer_ip, tcp_state, with_host
 from wscore.fresh import GRACE_S
 from wscore.path import PathProbe
 
@@ -86,16 +86,20 @@ class Session:
         self.event(ev="subscribed", session=seq, streams=len(self.streams))
         self.writer.control(time.time_ns(), "subscribed", f"{seq} {len(self.streams)}")
 
-    async def run(self, seq, probe=False, accepted=None):
-        """Сессия до закрытия; True — путь отбракован (RTT рукопожатия или окно проверки лага; probe), соединение закрыто до приёма в «живые». accepted — Event: путь принят."""
+    async def run(self, seq, probe=False, accepted=None, entrance=None):
+        """Сессия до закрытия; True — путь отбракован (RTT рукопожатия или окно проверки лага; probe), соединение закрыто до приёма в «живые». accepted — Event: путь принят.
+        entrance — (хост, ip или None): вход линии вместо входа адаптера (TK-532: независимый вход — другая точка присутствия CDN или другое имя биржи)."""
         import websockets
 
         url = self.ad.url(self.endpoint)
+        ip = None
+        if entrance is not None:
+            url, ip = with_host(url, entrance[0]), entrance[1]
         if self.budget is not None:
             waited = await self.budget.acquire()  # единственный путь к TCP connect: подключений за окно ≤ LIMIT при любых отбраковках и заменах
             if waited >= 1.0:
                 self.event(ev="connect_wait", session=seq, waited_s=round(waited, 1))
-        sock, rtt = await dial(url, CONNECT_RTT_MAX_MS if probe else None)
+        sock, rtt = await dial(url, CONNECT_RTT_MAX_MS if probe else None, ip)
         if sock is None:
             self.event(ev="path_rejected_rtt", session=seq, rtt_ms=round(rtt))
             return True
@@ -131,11 +135,7 @@ class Session:
             sample = n % LAG_SAMPLE == 0
             recs = ad.parse(frame)
             if recs is None:
-                w.raw(rx, frame, sample)
-                if mono >= settle:
-                    lag = ad.lag_ms(frame, rx)  # кадр без ts (ответ на подписку, pong) — не данные, свежесть не считается
-                    if lag is not None:
-                        w.fresh.add("r", rx // 1_000_000, round(lag))
+                w.raw(rx, frame, sample, ad.lag_ms(frame, rx) if mono >= settle else None)  # кадр без ts (ответ на подписку, pong) — не данные: lag None, свежесть не считается
             else:
                 w.records(rx, recs, sample, mono >= settle)
             m.frame(len(frame), rx, mono, ad.symbol(frame))

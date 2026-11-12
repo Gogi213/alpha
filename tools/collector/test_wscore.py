@@ -356,7 +356,7 @@ def test_reconnects_and_overlap_write_one_decodable_file(tmp_path, monkeypatch):
 
     monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
 
-    async def fake_dial(url, max_rtt_ms=None):
+    async def fake_dial(url, max_rtt_ms=None, ip=None):
         return object(), 250.0
 
     monkeypatch.setattr(sess, "dial", fake_dial)
@@ -385,7 +385,7 @@ def test_rtt_reject_before_websocket_then_accept_after_max_rejects(tmp_path, mon
     shard = shard_for(tmp_path)
     dials, connects = [], []
 
-    async def fake_dial(url, max_rtt_ms=None):
+    async def fake_dial(url, max_rtt_ms=None, ip=None):
         dials.append(max_rtt_ms)
         return (None, 360.0) if max_rtt_ms is not None else (object(), 360.0)
 
@@ -434,7 +434,7 @@ def test_session_takes_a_budget_slot_before_every_dial(tmp_path, monkeypatch):
             order.append("take")
             return 2.5
 
-    async def fake_dial(url, max_rtt_ms=None):
+    async def fake_dial(url, max_rtt_ms=None, ip=None):
         order.append("dial")
         raise asyncio.CancelledError
 
@@ -553,7 +553,7 @@ def test_error_event_names_the_cause_of_a_close_without_frame(tmp_path, monkeypa
 
     monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=connect))
 
-    async def fake_dial(url, max_rtt_ms=None):
+    async def fake_dial(url, max_rtt_ms=None, ip=None):
         return object(), 250.0
 
     monkeypatch.setattr(sess, "dial", fake_dial)
@@ -701,15 +701,64 @@ def test_session_read_counts_unparsed_data_frames_in_fresh_as_raw(tmp_path, monk
     """Кадр данных, который адаптер не разобрал (пишется сырым), попадает в свежесть видом raw; кадр без ts (lag_ms = None) — нет."""
     monkeypatch.setattr(sess, "GRACE_S", 0.0)
     shard = shard_for(tmp_path)
-    lags = iter([4200.0, 90.0, None, 90.0])  # кадр 0: raw-свежесть, затем выборка лага (каждый 64-й кадр); кадр 1 без ts; кадр 2 вовремя
+    lags = iter([4200.0, 90.0, None, 90.0, 50.0, 60.0])  # кадр 0: raw-свежесть, затем выборка лага (каждый 64-й кадр); кадр 1 без ts; кадр 2 вовремя; кадр 3 — копия кадра 0
     monkeypatch.setattr(shard.session.ad, "lag_ms", lambda frame, rx: next(lags, 90.0))
+    monkeypatch.setattr(shard.session.ad, "parse", lambda frame: None)  # все кадры — не разобраны
 
     class Ws:
         async def __aiter__(self):  # noqa: D105
-            for _ in range(3):
-                yield "x"
+            for f in ("x", "x1", "x2", "x"):  # «x» — кадр 0 и его копия с другой линии (копия не считается второй доставкой)
+                yield f
 
     asyncio.run(shard.session._read(Ws(), 1, None, None))
     fr = shard.writer.fresh.fragment(int(time.time() * 1000))
-    assert fr["raw"]["late_24h"] == 1 and fr["raw"]["max_24h_ms"] == 4200
+    assert fr["raw"]["late_24h"] == 1 and fr["raw"]["max_24h_ms"] == 4200  # копия кадра 0 (лаг 50, поздняя или нет) в счёт не вошла
     shard.writer.close()
+
+
+def test_with_host_and_parse_entrance():
+    from wscore import dial as d
+
+    assert d.with_host("wss://stream.bybit.com/v5/public/linear", "stream.bybit.kz") == "wss://stream.bybit.kz/v5/public/linear"
+    assert d.with_host("wss://h:9443/x", "y.z") == "wss://y.z:9443/x"
+    assert d.parse_entrance("stream.bybit.com@13.226.244.52") == ("stream.bybit.com", "13.226.244.52")
+    assert d.parse_entrance("stream.bybit.kz") == ("stream.bybit.kz", None)
+
+
+def test_session_run_with_entrance_dials_its_host_and_pinned_ip(tmp_path, monkeypatch):
+    """TK-532: линия с входом идёт на другое имя хоста и, если задан ip, на этот адрес; без входа — как прежде (вход адаптера, DNS)."""
+    seen = []
+
+    async def fake_dial(url, max_rtt_ms=None, ip=None):
+        seen.append((url, ip))
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(sess, "dial", fake_dial)
+    shard = shard_for(tmp_path)
+    for kw in ({"entrance": ("stream.example.kz", "203.0.113.5")}, {"entrance": ("stream.example.ge", None)}, {}):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(shard.session.run(7, probe=True, **kw))
+    shard.writer.close()
+    assert seen == [("wss://stream.example.kz/public", "203.0.113.5"), ("wss://stream.example.ge/public", None), ("wss://fake/public", None)]
+
+
+def test_lanes_use_their_own_entrance_and_unset_lane_keeps_adapter_entrance(tmp_path, monkeypatch):
+    monkeypatch.setattr(stats, "STATS_PERIOD_S", 3600)
+    shard = shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", ["a"], run_id=7, lanes=2, entrances=[None, ("stream.example.kz", None)])
+    got = {}
+
+    async def fake_forever(seq, accepted=None, entrance=None):
+        got[seq] = entrance
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(shard, "run_session_forever", fake_forever)
+
+    async def go():
+        task = asyncio.create_task(shard.run())
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(go())
+    assert got == {7: None, 7 + shard_mod.LANE_SEQ_STEP: ("stream.example.kz", None)}

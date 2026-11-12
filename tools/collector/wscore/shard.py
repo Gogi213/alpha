@@ -21,8 +21,9 @@ LANE_SEQ_STEP = 1_000_000  # номера сессий линий не пере�
 
 
 class Shard:
-    def __init__(self, adapter, root, name, endpoint, streams, run_id=None, lanes=1, budget=None):
+    def __init__(self, adapter, root, name, endpoint, streams, run_id=None, lanes=1, budget=None, entrances=None):
         self.root, self.name, self.lanes = root, name, lanes
+        self.entrances = entrances or []  # вход линии k — entrances[k] = (хост, ip или None); нет записи — вход адаптера
         self.run_id = run_id if run_id is not None else int(time.time())  # номер запуска = время старта процесса (с); он же имя файла писателя
         self.stats_path = os.path.join(root, f"stats-{name}.jsonl")
         self.events_path = os.path.join(root, f"events-{name}.jsonl")
@@ -36,14 +37,15 @@ class Shard:
         with open(self.events_path, "a") as f:
             f.write(json.dumps(kw) + "\n")
 
-    async def run_session_forever(self, seq, accepted=None):
+    async def run_session_forever(self, seq, accepted=None, entrance=None):
         """Одна сессия с переподключением при сбое; отбракованный путь — новое соединение сразу (до PROBE_MAX_REJECTS подряд), не переподключение."""
         backoff = 1.0
         rejects = 0
+        kw = {"entrance": entrance} if entrance is not None else {}
         while True:
             t0 = time.monotonic()
             try:
-                if await self.session.run(seq, probe=rejects < PROBE_MAX_REJECTS, accepted=accepted):
+                if await self.session.run(seq, probe=rejects < PROBE_MAX_REJECTS, accepted=accepted, **kw):
                     rejects += 1
                     await asyncio.sleep(0.5)
                     self.m.pause()
@@ -69,10 +71,11 @@ class Shard:
             self.watch.judge()
             health.write_fragment(self.root, self.name, self.m.fragment(self.name, self.writer))
 
-    async def lane(self, seq, age_shift_s=0.0):
-        """Одна линия: живая сессия и смена без разрыва. Причины: возраст MAX_AGE_S (rotated) или путь испортился (path_switch: лаг или нет pong)."""
+    async def lane(self, seq, age_shift_s=0.0, k=0):
+        """Одна линия: живая сессия и смена без разрыва. Причины: возраст MAX_AGE_S (rotated) или путь испортился (path_switch: лаг или нет pong). Вход линии — entrances[k]."""
+        ent = {"entrance": self.entrances[k]} if k < len(self.entrances) and self.entrances[k] is not None else {}
         cur_seq = seq
-        cur = asyncio.create_task(self.run_session_forever(seq))
+        cur = asyncio.create_task(self.run_session_forever(seq, **ent))
         born = time.monotonic() - age_shift_s
         while True:
             await asyncio.sleep(1.0)
@@ -81,7 +84,7 @@ class Shard:
                 continue
             seq += 1
             accepted = asyncio.Event()
-            nxt = asyncio.create_task(self.run_session_forever(seq, accepted))
+            nxt = asyncio.create_task(self.run_session_forever(seq, accepted, **ent))
             try:
                 await asyncio.wait_for(accepted.wait(), SWITCH_WAIT_S)
             except asyncio.TimeoutError:
@@ -95,14 +98,14 @@ class Shard:
         """Линии шарда пишут в одного писателя; при `lanes=2` поток идёт с двух путей сразу, дубли снимает писатель, смена возраста — вразнобой."""
         stats_task = asyncio.create_task(self.stats_loop())
         try:
-            await asyncio.gather(*(self.lane(self.run_id + k * LANE_SEQ_STEP, k * MAX_AGE_S / self.lanes) for k in range(self.lanes)))
+            await asyncio.gather(*(self.lane(self.run_id + k * LANE_SEQ_STEP, k * MAX_AGE_S / self.lanes, k) for k in range(self.lanes)))
         finally:
             stats_task.cancel()
             self.writer.close()
 
 
-def shard_main(adapter, root, name, endpoint, streams, lanes=1, budget=None):
-    sh = Shard(adapter, root, name, endpoint, streams, lanes=lanes, budget=budget)
+def shard_main(adapter, root, name, endpoint, streams, lanes=1, budget=None, entrances=None):
+    sh = Shard(adapter, root, name, endpoint, streams, lanes=lanes, budget=budget, entrances=entrances)
 
     async def amain():
         task = asyncio.current_task()

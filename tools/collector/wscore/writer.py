@@ -12,6 +12,7 @@ from wscore.codec import Encoder, dedup_key
 from wscore.fresh import Fresh
 
 FLUSH_PERIOD_S = 1.0  # кадр на диске не реже 10 с (A8); 1 с — лаг отдачи ≈ 0,5 с, размер +1 % (замер)
+RAW_SEEN_MS = 60_000  # сколько помнить кадры raw для снятия копий в учёте свежести (линии одного шарда расходятся по приходу на секунды)
 ZSTD_LEVEL = 1  # замер: на этих данных уровень 1 и меньше, и быстрее уровня 3
 
 
@@ -39,6 +40,8 @@ class DayWriter:
         self.last_flush = time.monotonic()
         self.samples = []  # recv_ns выбранных кадров, ещё не сброшенных на диск
         self.out_lags = deque()  # (monotonic, мс приём -> диск)
+        self.raw_seen = set()  # кадры raw за RAW_SEEN_MS (учёт свежести: копия с другой линии — не вторая доставка)
+        self.raw_order = deque()  # (rx_ms, кадр) в порядке прихода
         self.fresh = Fresh()  # свежесть записанных записей: поздних (rx − E > LATE_MS) и макс. лаг по видам (TK-532)
         self.last_write_ms = 0
 
@@ -79,8 +82,21 @@ class DayWriter:
             self._emit(rx_ns, lambda e, r, rec=rec: e.record(r, rec), sample)
             sample = False
 
-    def raw(self, rx_ns, frame, sample=False):
+    def raw(self, rx_ns, frame, sample=False, lag_ms=None):
+        """Кадр, не разобранный адаптером, пишется как пришёл (копии с другой линии не снимаются — формат кадра не известен). lag_ms — лаг кадра для свежести (None — не считать): копия кадра,
+        уже виденного за RAW_SEEN_MS, второй доставкой не считается — иначе поздняя копия застрявшей линии считалась бы поздней при доставке вовремя по другой."""
+        if lag_ms is not None:
+            self._raw_fresh(rx_ns // 1_000_000, frame, lag_ms)
         self._emit(rx_ns, lambda e, r: e.raw(r, frame), sample)
+
+    def _raw_fresh(self, rx_ms, frame, lag_ms):
+        while self.raw_order and rx_ms - self.raw_order[0][0] > RAW_SEEN_MS:
+            self.raw_seen.discard(self.raw_order.popleft()[1])
+        if frame in self.raw_seen:
+            return
+        self.raw_seen.add(frame)
+        self.raw_order.append((rx_ms, frame))
+        self.fresh.add("r", rx_ms, round(lag_ms))
 
     def control(self, rx_ns, what, detail=""):
         self._emit(rx_ns, lambda e, r: e.control(r, what, detail), False)

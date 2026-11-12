@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TK-532: разбор пробы входов (файлы entryprobe.py). Режимы:
   entrycmp.py summary DIR                    — по входам: соединения, POP/адрес, записей, поздних (lag > 2 с), макс. лаг, опоздание цикла событий
-  entrycmp.py same DIR [--ref com] [--sec 60] — тот же рынок: совпадение записей входа с опорным по ключу, цене, E, T (первые sec секунд общего интервала)
+  entrycmp.py same DIR [--ref com] [--sec 60] [--from-ms T] — тот же рынок: совпадение записей входа с опорным по ключу, цене, E, T (первые sec секунд общего интервала)
   entrycmp.py episodes DIR [--gap 30] [--ref com] — эпизоды (поздние записи любого входа, разрыв > gap с) и по входам: кто опоздал, у кого та же запись пришла вовремя
 Лаг записи = rx_ms − E (E — время биржи в кадре); «вовремя» — не более ON_TIME_MS.
 """
@@ -74,7 +74,7 @@ def cmd_same(d, a):
     names = entrances(d)
     ref = a.ref
     starts = {n: next((r[0] for r in read_recs(d, n)), None) for n in names}
-    t0 = max(v for v in starts.values() if v is not None)
+    t0 = a.from_ms or max(v for v in starts.values() if v is not None)
     t1 = t0 + a.sec * 1000
     data = {n: {(r[1], r[2], r[3]): r for r in read_recs(d, n, t0, t1)} for n in names}
     print(f"интервал rx_ms {t0}..{t1}, опорный вход {ref}: {len(data[ref])} записей")
@@ -124,7 +124,13 @@ def cmd_episodes(d, a):
         print(f"\n# эпизод {i}: rx_ms {t0}..{t1} ({(t1 - t0) / 1000:.1f} с), окно записей ±15 с")
         for n in names:
             lm = max(lag[n].values(), default=None)
-            print(f"  {n:6s} ключей в окне {len(lag[n]):6d}  поздних {len(late_keys[n]):5d}  макс. лаг {lm} мс  вовремя на другом входе: {rescued[n]}")
+            lk = [data[n][k][0] for k in late_keys[n]]
+            span = f"  E поздних {min(r[4] for r in lk)}..{max(r[4] for r in lk)}, символов {len({r[2] for r in lk})}, соединений {len({r[7] for r in lk})}, приём {min(r[0] for r in lk)}..{max(r[0] for r in lk)}" if lk else ""
+            print(f"  {n:6s} ключей в окне {len(lag[n]):6d}  поздних {len(late_keys[n]):5d}  макс. лаг {lm} мс  вовремя на другом входе: {rescued[n]}{span}")
+        for n in names:
+            if late_keys[n]:
+                by = {m: sum(1 for k in late_keys[n] if lag[m].get(k, 10**9) <= ON_TIME_MS) for m in names if m != n and lag[m]}
+                print(f"  поздних на {n} {len(late_keys[n])}: вовремя (≤ {ON_TIME_MS} мс) на входе: " + ", ".join(f"{m} {v}" for m, v in by.items()))
         print(f"  ключей поздних на всех входах, где они есть (>=2 входов): {all_late} из {len(allk)} поздних ключей")
 
 
@@ -134,6 +140,7 @@ def main():
     ap.add_argument("dir")
     ap.add_argument("--ref", default="com")
     ap.add_argument("--sec", type=int, default=60)
+    ap.add_argument("--from-ms", type=int, help="same: начало интервала сравнения (rx_ms); по умолчанию — общее начало всех входов")
     ap.add_argument("--gap", type=int, default=30)
     a = ap.parse_args()
     {"summary": cmd_summary, "same": cmd_same, "episodes": cmd_episodes}[a.mode](a.dir, a)

@@ -16,6 +16,18 @@ def hostname(url):
     return urlsplit(url).hostname
 
 
+def parse_entrance(spec):
+    """«хост[@ip]» -> (хост, ip или None): вход биржи по имени (SNI/Host) и, если задан, по этому адресу (проба входов, линии с разными входами)."""
+    host, _, ip = spec.partition("@")
+    return host, ip or None
+
+
+def with_host(url, host):
+    """url с другим именем хоста; порт и путь сохраняются."""
+    u = urlsplit(url)
+    return u._replace(netloc=host + (f":{u.port}" if u.port else "")).geturl()
+
+
 def kernel_rtt_ms(sock):
     try:
         return struct.unpack_from("I", sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_INFO, 104), TCP_INFO_RTT_OFFSET)[0] / 1000
