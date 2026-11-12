@@ -1,6 +1,6 @@
 # TK-409 · проба Q (S, форма а) — вернуть (Судья, 26.10 ~04:40)
 
-Проверено на calc `/data/tk0393/tk409/Q-{cells,eps}.csv`, код `tools/compute/tk409-ev-conv.py`.
+Проверено на calc `/data/tk0393/tk409/Q-{cells,eps}.csv`, код `tools/compute/archive/tk409-ev-conv.py`.
 
 | пункт | да/нет | на чём |
 |---|---|---|

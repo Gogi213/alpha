@@ -1,6 +1,6 @@
 # Псевдотест, банк G-015, D20 часть 1 (7 строк) — 22.10
 
-Движок `tools/compute/pseudotest.py`, конфиг `tools/compute/pseudotest-bank-d20-part1.json` (H01-01, 02, 06, 07, 09, 10, 16), job calc 1022191053757
+Движок `tools/compute/archive/pseudotest.py`, конфиг `tools/compute/archive/pseudotest-bank-d20-part1.json` (H01-01, 02, 06, 07, 09, 10, 16), job calc 1022191053757
 (15 ядер, 1283 с, 49885 файлов касаний D20, rc 0). Клетки: `docs/findings/pseudotest-bank-d20p1-2026-10-22.csv` (131 клетка = гипотеза × рынок × месяц,
 популяция `event`, h_src=tick). Контроля C3 в этой части нет (путь к кэшу контроля на calc не найден).
 

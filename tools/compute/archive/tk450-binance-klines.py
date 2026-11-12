@@ -78,7 +78,7 @@ def cmd_map():
 
 
 def progress(done, total, step):
-    subprocess.run(['bash', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'progress.sh'), 'tk450', 'TK-450', step, str(done), str(total), 'файлов'],
+    subprocess.run(['bash', max((os.path.join(os.path.dirname(os.path.abspath(__file__)), p) for p in ('progress.sh', '../progress.sh')), key=os.path.exists), 'tk450', 'TK-450', step, str(done), str(total), 'файлов'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 

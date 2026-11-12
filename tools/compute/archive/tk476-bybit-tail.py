@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 os.environ.setdefault("K_END", "1793491200000")
 here = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("hist", os.path.join(here, "tk476-bybit-hist.py"))
+spec = importlib.util.spec_from_file_location("hist", max((os.path.join(here, "tk476-bybit-hist.py"), os.path.join(here, "..", "tk476-bybit-hist.py")), key=os.path.exists))
 hist = importlib.util.module_from_spec(spec); spec.loader.exec_module(hist)
 CLAIMS = "/data/tk0476/claims"
 out = sys.argv[1]

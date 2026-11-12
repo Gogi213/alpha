@@ -1,7 +1,7 @@
 # Судья: TK-378 v3 — отрывы Gate-сделки vs DEX Solana, спред Gate-ноги вычтен (24.10 01:20)
 
 Сдача: `docs/findings/tk378-sol-lag-trades-v3-2026-10-24.md`, `…-v3-boot-2026-10-24.json`, спред `tk378-gate-spread-2026-10-24.csv`,
-код `tools/compute/tk378_gate_spread.py`, `tk378_sol_lag_trades3_summ.py` (коммит 142c3123).
+код `tools/compute/archive/tk378_gate_spread.py`, `tk378_sol_lag_trades3_summ.py` (коммит 142c3123).
 
 Пересчёт: `tk378_sol_lag_trades3_summ.py v2-episodes.csv gate-spread.csv` локально — вывод совпал с md построчно:
 CH2 X=100 2228 эп./13 монето-суток, gross 54,7, S 66,6, net −26,9 [−40,3; −14,1], полспреда +6,4 [−1,5; +15,2];

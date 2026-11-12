@@ -1,6 +1,6 @@
 # TK-384 — аудит метода «схождение Gate к DEX» (TK-377/380/382), 24.10.2026
 
-Судья. Прочитано: `tools/compute/tk380-bsc-lag3.py`, `tk380-evm-lag3.py` (копия BSC с таблицей сетей), `tk380-sol-lag3.py`,
+Судья. Прочитано: `tools/compute/archive/tk380-bsc-lag3.py`, `tk380-evm-lag3.py` (копия BSC с таблицей сетей), `tk380-sol-lag3.py`,
 `tk382-biggap.py`, отчёты `tk380-gate-dex-2026-10-23.md`, `tk382-big-gaps-2026-10-24.md`, `practitioners-dex-spread-2026-10-23.md`,
 `tk380-participating-coins-2026-10-24.csv`. Своя проверка — одна (Д2, ниже), скрипт `/tmp/tk384chk.py` на calc.
 

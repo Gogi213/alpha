@@ -68,14 +68,14 @@
 - Для хайкапов дешёвая проба: пулы ETH L1 (UNI, LINK, AAVE, ONDO) — основной ончейн-рынок, Dune/Bitquery те же; ключ не нужен до решения по Dune (см. ask-owner Судьи 23:48).
 
 ## v4 (23.10 00:22, возврат Судьи по v3): группа high исправлена + проба RPC BSC
-**high v4** — `tools/compute/tk364-universe4.py`, csv `docs/findings/tk364-universe-v4-high-2026-10-23.csv` (47 строк: high 45 + gold 2), списки `tk364-groups-2026-10-23.json`. v3-csv/раздел v3 выше заменены этим (числа в отчёте = фильтр csv).
+**high v4** — `tools/compute/archive/tk364-universe4.py`, csv `docs/findings/tk364-universe-v4-high-2026-10-23.csv` (47 строк: high 45 + gold 2), списки `tk364-groups-2026-10-23.json`. v3-csv/раздел v3 выше заменены этим (числа в отчёте = фильтр csv).
 - Ранги 6–50 берутся из нестейблов: исключены стейблы, токенизированные фонды/казначейки (USDG, USYC, RLUSD, USDY, BUIDL, EURSAFO, USDGO), обёртки/ликвидный стейкинг; золото XAUT/PAXG — `group=gold`, вне рангов, пометкой.
 - Перп Bybit — по тикеру с префиксами 1000/10000/1000000 и алиасам SHIB→SHIB1000USDT, PUMP→PUMPFUNUSDT. Из 45 high перп есть у 39; без перпа: FIGR_HELOC, WBT, LEO, RAIN, HTX, BGB (в csv — с пустым `perp`, все 45 строк на месте).
 - Токены — только каноническими адресами CoinGecko `platforms` по id (копии: DOGE-0x4206…, PEPE-BSC-peg, XMR-Solana-WXMR больше не засчитываются). Пул ≥ $50 тыс. ликвидности + перп: **21 из 45** (LINK, UNI, GRAM, SHIB, CRO, QNT, ENA, BTW, AAVE, PUMP, ONDO, WLD, PEPE, MNT, ASTER, WLFI, SKY, MORPHO, ICP, VVV, ARB); у нативных монет своих сетей (ZEC, HYPE, DOGE, XMR, ADA, NEAR, XLM, SUI, AVAX, DOT, TAO, TRX, LTC, BCH, HBAR) канонического EVM/Solana-контракта нет — «пул есть» = нет. PEPE/SHIB — у каноники ETH-пул $1,3 / $0,04 млн против CEX-десятков млн → контроль. **PUMP** (Solana, DEX $26 млн, перп PUMPFUN) и VVV (Base) — реальные кандидаты внутри high.
 - Dune из плана убрана (владелец, ключ платный).
 
 ## Проба публичных RPC BSC (23.10 00:20, без регистрации и трат)
-Пул: AKE/WBNB PancakeV3 `0x4D3bF29Ba30f8Bfe4624e7678709afA195689c5D` (DexScreener: $12,8 млн за 24 ч, ликвидность $2,6 млн, создан 20.08.2025 — янв–сен 2026 покрыт). Скрипт `tools/compute/tk364-bsc-probe.py` (поиск блока по времени, eth_getLogs Swap, время блока).
+Пул: AKE/WBNB PancakeV3 `0x4D3bF29Ba30f8Bfe4624e7678709afA195689c5D` (DexScreener: $12,8 млн за 24 ч, ликвидность $2,6 млн, создан 20.08.2025 — янв–сен 2026 покрыт). Скрипт `tools/compute/archive/tk364-bsc-probe.py` (поиск блока по времени, eth_getLogs Swap, время блока).
 | RPC | eth_getLogs | история |
 |---|---|---|
 | bsc-dataseed.bnbchain.org, dataseed3.ninicoin.io, defibit | «limit exceeded» даже на 50 блоках (после 1–2 запросов) | — |

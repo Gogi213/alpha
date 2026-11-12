@@ -12,7 +12,7 @@ PLAN=${PLAN:-f1}
 lab=$1; MON=$2; d=$3
 BIN=${BIN:?BIN обязателен: pgo/r2-pgo бинарь из MANIFEST (build-pgo.sh)}; TP=${TP:-4}; GT=${GT:-2}; P=${P:-/data/tk0196/plan}; OUT=${O:-/data/tk0196/out}; RG=${RG:-/data/tk0196/regime}
 H=/data/tk046/$MON/home; E=${EPOCH:-$H/alpha/epochs/e-$MON}; O=$OUT/$lab; V=${VERDICT:-/data/tk044/final3/verdict.csv}; B1=${B1:-/data/tk0115/delta/b1-symdays.csv}
-MF=$(dirname "$0")/manifest.py; [ -f "$MF" ] || MF=/data/sched/manifest.py; python3 "$MF" fastbin "$BIN" >&2 || { echo "day-cells: $BIN не на быстром пути (pgo/r2-pgo); обход — REASON=причина" >&2; exit 3; }   # В-229 п.8
+MF=$(dirname "$0")/manifest.py; [ -f "$MF" ] || MF=$(dirname "$0")/../manifest.py; [ -f "$MF" ] || MF=/data/sched/manifest.py; python3 "$MF" fastbin "$BIN" >&2 || { echo "day-cells: $BIN не на быстром пути (pgo/r2-pgo); обход — REASON=причина" >&2; exit 3; }   # В-229 п.8
 mkdir -p "$O"; if [ -e "$O/done" ] || ! mkdir "$O/claim" 2>/dev/null; then exit 0; fi
 mkdir -p "$O/log" "$O/out"; : > "$O/fail.txt"
 export HOME=$H BIN O TP
@@ -60,6 +60,6 @@ for pk in std tape; do
   (cd "$W" && nice -n 5 "$BIN" lob bounce-grid --verdict-csv "$O/verdict-b1.csv" --root "study/root-$d" --touches-from wt/sub/D20 "${common[@]}" --r1-cols --exit-form none --early-exit-secs off "${args[@]}"     "${tl[@]}" "${bs[@]}" "${cs[@]}" --cells "$O/cells-$pk.txt" --out-dir "b5/out-$d-$pk" > "$O/log/$d.grid-$pk.log" 2>&1) || echo "$d GRID_FAIL $pk" >> "$O/fail.txt"
 done
 t2=$(date +%s)
-mkdir -p "$O/out/$d"; python3 "$(dirname "$0")/merge-packs.py" "$W/b5/out-$d-std" "$W/b5/out-$d-tape" "$O/out/$d" || echo "$d MERGE_FAIL" >> "$O/fail.txt"
+mkdir -p "$O/out/$d"; python3 "$(dirname "$0")/$([ -f "$(dirname "$0")/merge-packs.py" ] || echo ../)merge-packs.py" "$W/b5/out-$d-std" "$W/b5/out-$d-tape" "$O/out/$d" || echo "$d MERGE_FAIL" >> "$O/fail.txt"
 echo "$d syms_b1=$(echo "$syms"|grep -c .) grid_s=$((t2-t1))" >> "$OUT/units.txt"
 rm -rf "$W"; touch "$O/done"
