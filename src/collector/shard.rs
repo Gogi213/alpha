@@ -201,7 +201,7 @@ fn session_forever(
             Outcome::PathRejected => {
                 rejects += 1;
                 sleep_stop(sh, Duration::from_millis(500));
-                if let Some(pause) = strict.filter(|_| rejects % PROBE_MAX_REJECTS == 0) {
+                if let Some(pause) = strict.filter(|_| rejects.is_multiple_of(PROBE_MAX_REJECTS)) {
                     sleep_stop(sh, pause);
                 }
                 continue;
