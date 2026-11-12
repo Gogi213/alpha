@@ -92,6 +92,7 @@ fn trade(data: &[u8]) -> Option<Trade<'_>> {
         m: m.boolean()?,
         nq: nq.str()?,
         x: b"",
+        i: b"",
     })
 }
 

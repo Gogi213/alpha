@@ -62,7 +62,8 @@ pub struct Book<'a> {
 }
 
 /// Сделка: `a` — ключ порядка, `f`/`l` — первый/последний id в агрегате, `m` — покупатель мейкер, `nq` — размер без RPI;
-/// `id` — личность сделки для снятия дублей (Binance — `a`, Bybit — хеш UUID; в файл не пишется).
+/// `id` — личность сделки для снятия дублей (Binance — `a`, Bybit — хеш UUID; в файл не пишется); `i` — id исполнения биржи строкой
+/// (Bybit — UUID, пишется хвостовым столбцом; у Binance пусто — его id это `a`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Trade<'a> {
     pub sym: &'a [u8],
@@ -78,6 +79,7 @@ pub struct Trade<'a> {
     pub nq: &'a [u8],
     /// Признаки сделки одним словом: пусто — обычная; Bybit: `R` — RPI (улучшение цены розничного ордера), `B` — блок-сделка, `BR` — оба.
     pub x: &'a [u8],
+    pub i: &'a [u8],
 }
 
 /// Mark/индекс/фандинг: `ap`, `pp` (P) — если есть у биржи, иначе пусто; `t` — время следующего начисления.
@@ -238,6 +240,9 @@ impl Encoder {
                     out.extend_from_slice(t.nq);
                 }
                 field(out, t.x);
+                if !t.i.is_empty() {
+                    field(out, t.i);
+                }
             }
             Rec::Mark(m) => {
                 out.push(b'm');
@@ -308,6 +313,7 @@ pub enum Decoded {
         m: bool,
         nq: String,
         x: String,
+        i: String,
     },
     Mark {
         rx_ns: i64,
@@ -417,6 +423,7 @@ impl Decoder {
                     m: f.get(10) == Some(&"1"),
                     nq,
                     x: f.get(12).map_or_else(String::new, |s| (*s).to_string()),
+                    i: f.get(13).map_or_else(String::new, |s| (*s).to_string()),
                 })
             }
             b'm' => Ok(Decoded::Mark {

@@ -24,7 +24,7 @@ use super::pool::{balanced_chunks, rank_pool};
 use super::ring::{ring, Item, Payload};
 use super::scan::{each_elem, parse_i64, parse_object, single_pair, Val};
 use super::shard::{spawn_shard, ShardOpts};
-use super::sink::{run_sink, sink_channel};
+use super::sink::{run_sink, run_sink_with, sink_channel, SinkMsg};
 use super::writer::{day_string, ShardWriter, WriterCfg};
 
 const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
@@ -142,6 +142,7 @@ fn codec_roundtrip_exact() {
         m: true,
         nq: b"0.5",
         x: b"",
+        i: b"",
     });
     let t2 = Rec::Trade(Trade {
         sym: b"BTCUSDT",
@@ -156,6 +157,7 @@ fn codec_roundtrip_exact() {
         m: false,
         nq: b"0.4",
         x: b"R",
+        i: b"0b2a7f1e-3c44-4a3b-9d0e-1f6a2c4d5e6f",
     });
     let m1 = Rec::Mark(Mark {
         sym: b"BTCUSDT",
@@ -206,12 +208,14 @@ fn codec_roundtrip_exact() {
         }
     );
     assert!(
-        matches!(&got[1], Decoded::Trade { a: 10, f: 100, l: 102, m: true, nq, .. } if nq == "0.5")
+        matches!(&got[1], Decoded::Trade { a: 10, f: 100, l: 102, m: true, nq, i, .. } if nq == "0.5" && i.is_empty())
     );
     assert!(matches!(&got[2], Decoded::Book { u: 503, .. }));
     assert!(
-        matches!(&got[3], Decoded::Trade { a: 11, f: 103, l: 103, m: false, q, nq, .. } if q == "0.7" && nq == "0.4")
+        matches!(&got[3], Decoded::Trade { a: 11, f: 103, l: 103, m: false, q, nq, x, i, .. } if q == "0.7" && nq == "0.4" && x == "R" && i == "0b2a7f1e-3c44-4a3b-9d0e-1f6a2c4d5e6f")
     );
+    // без `i` строка сделки кончается на `x`: файлы Binance не меняются побайтно
+    assert!(text.lines().nth(1).unwrap().ends_with("\t1\t\t"), "{text}");
     assert!(matches!(&got[4], Decoded::Mark { t: 1_000_000_500_000, r, .. } if r == "0.0001"));
     assert_eq!(
         got[5],
@@ -674,6 +678,17 @@ fn bybit_trades_batch_keys_and_raw_cases() {
         })
         .collect();
     assert_eq!(xs, ["B", "R", ""]);
+    let ids: Vec<&str> = recs
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Trade { i, .. } = d {
+                Some(i.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(ids, ["u-1", "u-2", "u-3"], "id исполнения биржи — в файл");
     // одна годная и одна с неизвестной стороной: годная — запись (номер в пачке по исходной позиции), негодная — один raw в кадре той же формы
     let mixed = bb_trade(&[
         bb_fill("Sell", "1", "ok-1", "false"),
@@ -923,7 +938,7 @@ fn budget_never_exceeds_limit_in_window() {
     let stop = AtomicBool::new(true);
     assert!(
         Budget::new(1, Duration::from_secs(300))
-            .acquire(&stop)
+            .acquire(&[&stop], &|| false)
             .is_none(),
         "остановка прерывает ожидание"
     );
@@ -1281,6 +1296,84 @@ fn writer_closes_ended_day_by_clock_without_new_records() {
     }
     let days = read_days(dir.path());
     assert_eq!((days.len(), days[0].1.len(), days[0].2), (1, 1, Some(1)));
+}
+
+/// Запись ушедших суток, пришедшая в очередь после закрытия файла по часам (обратное давление дольше 5 с), не открывает закрытый файл:
+/// файл ушедших суток остаётся с `.ok` = 1, запись уходит в файл новых суток (приём поднят до полуночи).
+#[test]
+fn writer_late_previous_day_record_does_not_reopen_the_closed_day() {
+    use std::sync::atomic::AtomicI64;
+    static NOW: AtomicI64 = AtomicI64::new(0);
+    fn clock() -> i64 {
+        NOW.load(Relaxed)
+    }
+    let day = 20_000 * NS_PER_DAY;
+    NOW.store(day + 10_000_000_000, Relaxed);
+    let dir = tempfile::tempdir().unwrap();
+    let metrics = ShardMetrics::new("book00", 0, 64, 16);
+    let (tx, rx) = ring(&metrics.ring);
+    let (stx, srx) = sink_channel(&metrics.sink_q);
+    let cfg = WriterCfg {
+        root: dir.path().to_path_buf(),
+        shard: "book00".into(),
+        run_id: 1,
+        flush: Duration::from_millis(20),
+        block_max: 4096,
+        clock,
+    };
+    let w = ShardWriter::new(cfg, Arc::new(Binance), Arc::clone(&metrics), stx, rx);
+    let (m2, d2) = (Arc::clone(&metrics), Arc::clone(&metrics.sink_q));
+    let threads = [
+        std::thread::spawn(move || w.run()),
+        std::thread::spawn(move || run_sink(&srx, &d2, &m2)),
+    ];
+    let push = |rx_ns: i64, u: i64| {
+        tx.push(Item {
+            rx_ns,
+            sender: 1,
+            settled: true,
+            payload: Payload::Frame(Bytes::from(bn_book(u, 1_000))),
+        })
+        .unwrap();
+    };
+    push(day + 5_000_000_000, 1);
+    std::thread::sleep(Duration::from_millis(300));
+    NOW.store(day + NS_PER_DAY + 10_000_000_000, Relaxed);
+    let started = Instant::now();
+    while !any_ok(dir.path()) {
+        assert!(started.elapsed() < Duration::from_secs(5), "не закрыт");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // запоздавшая запись с приёмом в ушедших сутках (простояла в очереди дольше 5 с после полуночи)
+    push(day + NS_PER_DAY - 1_000_000_000, 2);
+    tx.push(Item {
+        rx_ns: 0,
+        sender: 0,
+        settled: true,
+        payload: Payload::Shutdown,
+    })
+    .unwrap();
+    for t in threads {
+        t.join().unwrap();
+    }
+    let days = read_days(dir.path());
+    assert_eq!(days.len(), 2, "два файла: ушедшие и новые сутки");
+    assert_eq!(
+        (days[0].1.len(), days[0].2),
+        (1, Some(1)),
+        "закрытые сутки не тронуты: одна запись, .ok = 1"
+    );
+    assert_eq!(
+        (days[1].1.len(), days[1].2),
+        (1, Some(1)),
+        "запоздавшая запись — в новых сутках"
+    );
+    assert!(
+        matches!(&days[1].1[0], Decoded::Book { rx_ns, u: 2, .. } if *rx_ns >= day + NS_PER_DAY),
+        "приём поднят до полуночи: {:?}",
+        days[1].1[0]
+    );
+    assert_eq!(metrics.writer().clamped, 1);
 }
 
 #[test]
@@ -1846,9 +1939,10 @@ fn writer_seen_window_forgets_after_two_to_four_minutes() {
     assert_eq!(m.writer().dups, 1);
 }
 
-/// Линия ушла на запасной вход, потом пробует вернуться на основной (мёртвый): замена не принимает путь — поток не рвётся, линия остаётся на запасном.
+/// Замена не принимает путь за `switch_wait` (окно проверки длиннее): как в Python — событие `switch_timeout`, старая сессия всё равно закрывается
+/// после перекрытия (`rotated`), замена остаётся и несёт поток; повторных замен каждые 30 с (и событий `switch_failed`) нет.
 #[test]
-fn failed_return_to_primary_keeps_the_stream() {
+fn switch_timeout_closes_the_old_session_and_the_replacement_carries_on() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let (head, stop_src) = (
@@ -1857,20 +1951,20 @@ fn failed_return_to_primary_keeps_the_stream() {
     );
     let src = spawn_tape(listener, head, Arc::clone(&stop_src));
     let dir = tempfile::tempdir().unwrap();
-    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
-    (opts.return_after, opts.switch_wait) = (Duration::from_secs(2), Duration::from_secs(3));
+    // окно проверки пути 60 с: замена не будет принята за `switch_wait`
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 60.0));
+    (opts.max_age, opts.overlap, opts.switch_wait) = (
+        Duration::from_millis(1200),
+        Duration::from_millis(500),
+        Duration::from_millis(1000),
+    );
     let exch: Arc<dyn Exchange> = Arc::new(Binance);
     let stop = Arc::new(AtomicBool::new(false));
     let budget = Arc::new(Budget::new(100, Duration::from_secs(300)));
-    let dead = Entrance {
-        host: "127.0.0.1".into(),
-        ip: Some("127.0.0.2".parse().unwrap()),
-        family: Family::V4,
-    };
     let h = spawn_shard(
         &exch,
         &plan,
-        &[vec![dead, Entrance::new("127.0.0.1", Family::V4)]],
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
         &opts,
         &budget,
         &stop,
@@ -1878,12 +1972,9 @@ fn failed_return_to_primary_keeps_the_stream() {
     .unwrap();
     let metrics = Arc::clone(&h.metrics);
     let t0 = Instant::now();
-    while (count_events(dir.path(), "switch_failed") < 1 || metrics.writer().records < 100)
-        && t0.elapsed() < Duration::from_secs(60)
-    {
+    while count_events(dir.path(), "switch_timeout") < 2 && t0.elapsed() < Duration::from_secs(30) {
         std::thread::sleep(Duration::from_millis(100));
     }
-    // ещё немного данных после неудачной замены — поток по-прежнему идёт через запасной вход
     let before = metrics.writer().records;
     std::thread::sleep(Duration::from_millis(500));
     let after = metrics.writer().records;
@@ -1891,10 +1982,120 @@ fn failed_return_to_primary_keeps_the_stream() {
     h.join();
     stop_src.store(true, Relaxed);
     src.join().unwrap();
-    assert!(count_events(dir.path(), "switch_failed") >= 1);
-    assert!(count_events(dir.path(), "entrance_return") >= 1);
-    assert!(after > before, "поток идёт после неудачной замены");
+    let timeouts = count_events(dir.path(), "switch_timeout");
+    assert!(timeouts >= 2, "замена не принята дважды подряд: {timeouts}");
+    assert!(
+        count_events(dir.path(), "rotated") >= timeouts,
+        "после каждого `switch_timeout` старая сессия закрыта (`rotated`)"
+    );
+    assert_eq!(count_events(dir.path(), "switch_failed"), 0);
+    assert!(after > before, "замена несёт поток после таймаута");
     assert_u_contiguous(dir.path());
+}
+
+/// Холодный старт: шард без соединения принимает путь сразу, даже медленный (порог RTT здесь занижен, чтобы петля считалась медленной) —
+/// данные пишутся с первой секунды, без отбраковки; улучшение пути — позже заменой (замена проверяется и отбраковывается по RTT).
+#[test]
+fn uncovered_shard_accepts_a_slow_path_at_once_and_upgrades_later() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = spawn_tape(listener, head, Arc::clone(&stop_src));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.rtt_max_ms = 1e-6; // любой путь «медленный»
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(100, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 100 && t0.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let first_data = t0.elapsed();
+    let rejected_at_first_data = count_events(dir.path(), "path_rejected_rtt");
+    // дальше линия пробует улучшить путь: замена идёт через проверку и отбраковывается по RTT
+    while count_events(dir.path(), "path_rejected_rtt") < 2
+        && t0.elapsed() < Duration::from_secs(20)
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let before = metrics.writer().records;
+    std::thread::sleep(Duration::from_millis(300));
+    let after = metrics.writer().records;
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        first_data < Duration::from_secs(3),
+        "данные пошли сразу: {first_data:?}"
+    );
+    assert_eq!(rejected_at_first_data, 0, "первая сессия не отбракована");
+    assert!(count_events(dir.path(), "path_slow_accepted") >= 1);
+    assert!(
+        count_events(dir.path(), "path_rejected_rtt") >= 2,
+        "замена пробует лучший путь"
+    );
+    assert!(after > before, "поток не прерывался попытками улучшения");
+    assert_u_contiguous(dir.path());
+}
+
+/// Шард без соединения берёт место в бюджете раньше уже покрытого: в очереди за одним местом первой пришла замена покрытого шарда,
+/// второй — шард без соединения; место достаётся второму.
+#[test]
+fn budget_serves_an_uncovered_shard_before_a_covered_one() {
+    let b = Arc::new(Budget::new(1, Duration::from_millis(400)));
+    assert!(b.try_take(Instant::now()).is_none());
+    let order = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let spawn = |name: &'static str, urgent: bool| {
+        let (b, order, stop) = (Arc::clone(&b), Arc::clone(&order), Arc::clone(&stop));
+        std::thread::spawn(move || {
+            b.acquire(&[&stop], &move || urgent).unwrap();
+            order.lock().unwrap().push(name);
+        })
+    };
+    let covered = spawn("covered", false);
+    std::thread::sleep(Duration::from_millis(80));
+    let uncovered = spawn("uncovered", true);
+    uncovered.join().unwrap();
+    covered.join().unwrap();
+    assert_eq!(*order.lock().unwrap(), ["uncovered", "covered"]);
+    // остановка прерывает ожидание, место не занимается
+    stop.store(true, Relaxed);
+    assert!(b.acquire(&[&stop], &|| true).is_none());
+}
+
+/// Лимит основного правила меняется на ходу (передача между процессами: сумма лимитов ≤ лимита биржи): занятые места не снимаются.
+#[test]
+fn budget_limit_can_be_lowered_and_raised_at_runtime() {
+    let b = Budget::new(5, Duration::from_secs(300));
+    let now = Instant::now();
+    for _ in 0..4 {
+        assert!(b.try_take(now).is_none());
+    }
+    b.set_limit(3);
+    assert!(
+        b.try_take(now).is_some(),
+        "занято 4 при лимите 3 — места нет"
+    );
+    b.set_limit(6);
+    assert!(b.try_take(now).is_none());
+    assert!(b.try_take(now).is_none());
+    assert!(b.try_take(now).is_some(), "шесть из шести");
 }
 
 /// Замер 12.11: `!markPrice@arr@1s` Binance приходит двумя массивами в секунду (237 и 747 элементов), во втором ≈ 30 элементов COIN-M
@@ -2106,4 +2307,94 @@ fn path_rejection_stops_at_the_budget_reserve() {
         b.can_reject(now),
         "запас 0 (Python): отбраковка не зависит от бюджета"
     );
+}
+
+// ---- диск: сбой записи ----
+
+/// Приёмник с отказами: `fail_calls` — номера вызовов `write` (с 1), которые отказывают; остальные принимают не больше 7 байт за раз.
+struct Flaky {
+    out: Arc<std::sync::Mutex<Vec<u8>>>,
+    calls: usize,
+    fail_calls: Vec<usize>,
+}
+
+impl std::io::Write for Flaky {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.calls += 1;
+        if self.fail_calls.contains(&self.calls) {
+            return Err(std::io::Error::other("диск отказал"));
+        }
+        let n = buf.len().min(7);
+        self.out.lock().unwrap().extend_from_slice(&buf[..n]);
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Сбой записи посреди блока не рвёт кадр zstd и не сбрасывает счёт строк: после отказов и частичных записей файл читается целиком
+/// одним кадром (`zstd -t`), все блоки на месте по одному разу, `.ok` = все строки.
+#[test]
+fn sink_write_failure_keeps_one_valid_frame_and_the_row_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("2026-11-12").join("book00-1.tsv.zst");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let out = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let m = ShardMetrics::new("book00", 0, 64, 16);
+    let (tx, rx) = sink_channel(&m.sink_q);
+    let (m2, d2) = (Arc::clone(&m), Arc::clone(&m.sink_q));
+    let out2 = Arc::clone(&out);
+    let t = std::thread::spawn(move || {
+        let open = move |_: &Path| -> std::io::Result<super::sink::Dest> {
+            Ok(Box::new(Flaky {
+                out: Arc::clone(&out2),
+                calls: 0,
+                fail_calls: vec![1, 2, 4, 7],
+            }))
+        };
+        run_sink_with(&rx, &d2, &m2, &open, Duration::from_millis(5));
+    });
+    let mut expect = String::new();
+    assert!(tx.send(SinkMsg::Open { path: path.clone() }));
+    for blk in 0..6 {
+        let mut data = String::new();
+        for r in 0..40 {
+            data += &format!(
+                "b\t1\t2\t3\tBTCUSDT\t{}\t74600\t8.4\t74600.1\t7.4\n",
+                blk * 40 + r
+            );
+        }
+        expect += &data;
+        assert!(tx.send(SinkMsg::Block {
+            data: data.into_bytes(),
+            rows: 40,
+            samples: vec![],
+        }));
+    }
+    assert!(tx.send(SinkMsg::Close));
+    assert!(tx.send(SinkMsg::Quit));
+    t.join().unwrap();
+    let bytes = out.lock().unwrap().clone();
+    let mut got = String::new();
+    std::io::Read::read_to_string(
+        &mut zstd::stream::read::Decoder::new(&bytes[..]).unwrap(),
+        &mut got,
+    )
+    .expect("один целый кадр zstd");
+    assert_eq!(got, expect, "каждый блок по разу, без потерь и повторов");
+    assert_eq!(
+        std::fs::read_to_string(format!("{}.ok", path.display()))
+            .unwrap()
+            .trim(),
+        "240",
+        ".ok = все строки"
+    );
+    assert!(
+        m.sink().errors >= 4,
+        "отказы посчитаны: {}",
+        m.sink().errors
+    );
+    assert_eq!(m.sink().blocks_dropped, 0);
 }

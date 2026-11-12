@@ -106,6 +106,8 @@ pub struct PathWatch {
     age: HashMap<u32, u32>,
     bad: HashMap<u32, u32>,
     degraded: HashSet<u32>,
+    /// Сессии, принятые без проверки пути (шард был без соединения) при медленном рукопожатии: путь улучшается позже заменой.
+    slow: HashSet<u32>,
 }
 
 impl PathWatch {
@@ -120,6 +122,7 @@ impl PathWatch {
         self.age.remove(&seq);
         self.bad.remove(&seq);
         self.degraded.remove(&seq);
+        self.slow.remove(&seq);
     }
 
     pub fn sample(&mut self, seq: u32, lag: f64) {
@@ -128,6 +131,14 @@ impl PathWatch {
 
     pub fn mark_degraded(&mut self, seq: u32) {
         self.degraded.insert(seq);
+    }
+
+    pub fn mark_slow(&mut self, seq: u32) {
+        self.slow.insert(seq);
+    }
+
+    pub fn is_slow(&self, seq: u32) -> bool {
+        self.slow.contains(&seq)
     }
 
     pub fn is_degraded(&self, seq: u32) -> bool {

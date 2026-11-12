@@ -55,6 +55,8 @@ pub struct Shared {
     pub probe_window: (f64, f64),
     /// Период пинга и срок ожидания pong.
     pub ping: (Duration, Duration),
+    /// Порог отбраковки пути по RTT рукопожатия, мс (`CONNECT_RTT_MAX_MS`; в проверках занижается).
+    pub rtt_max_ms: f64,
 }
 
 impl Shared {
@@ -123,7 +125,9 @@ pub fn run(
     accepted: Option<&AtomicBool>,
     cancel: &AtomicBool,
 ) -> Outcome {
-    let Some(waited) = sh.budget.acquire(&sh.stop) else {
+    // шард без соединения берёт место в бюджете раньше второй линии и замен покрытых шардов
+    let uncovered = || sh.metrics.connected.load(Relaxed) <= 0;
+    let Some(waited) = sh.budget.acquire(&[&sh.stop, cancel], &uncovered) else {
         return Outcome::Closed;
     };
     if waited >= Duration::from_secs(1) {
@@ -136,18 +140,28 @@ pub fn run(
         Ok(x) => x,
         Err(e) => return Outcome::Failed(format!("connect {}: {e}", ent.host)),
     };
-    if probe && rtt > CONNECT_RTT_MAX_MS {
+    // шард без соединения: путь принимается как есть сразу — данные пишутся, разрыва нет; медленный путь потом заменяется проверенным (`path_upgrade`)
+    let lone = probe && uncovered();
+    let slow_lone = lone && rtt > sh.rtt_max_ms;
+    if slow_lone {
+        sh.events.emit(
+            "path_slow_accepted",
+            json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": sh.rtt_max_ms, "entrance": ent.host, "why": "uncovered"}),
+        );
+    }
+    let probe = probe && !lone;
+    if probe && rtt > sh.rtt_max_ms {
         if sh.budget.can_reject(Instant::now()) {
             sh.events.emit(
                 "path_rejected_rtt",
-                json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": CONNECT_RTT_MAX_MS, "entrance": ent.host}),
+                json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": sh.rtt_max_ms, "entrance": ent.host}),
             );
             return Outcome::PathRejected;
         }
         // бюджет выбран до запаса (весь маршрут медленный): принимаем, сторож лага и замена при деградации остаются
         sh.events.emit(
             "path_slow_accepted",
-            json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": CONNECT_RTT_MAX_MS, "entrance": ent.host}),
+            json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": sh.rtt_max_ms, "entrance": ent.host}),
         );
     }
     let url = sh.url(&ent.host);
@@ -166,7 +180,13 @@ pub fn run(
     }
     sh.events.emit("connected", json!({"session": seq, "url": url, "rtt_ms": rtt.round(), "ip": ip.to_string(), "entrance": ent.host}));
     sh.metrics.connected.fetch_add(1, Relaxed);
-    sh.watch().open(seq);
+    {
+        let mut w = sh.watch();
+        w.open(seq);
+        if slow_lone {
+            w.mark_slow(seq);
+        }
+    }
     ctl(sh, seq, "connected", format!("{seq} {url}"));
     let out = body(sh, &mut ws, seq, probe, accepted, cancel);
     if !matches!(out, Outcome::Failed(_)) || !sh.stop.load(Relaxed) {
@@ -370,17 +390,23 @@ fn frame(
         }
     }
     let settled = t_read >= settle_at;
+    // занятость потока приёма вне чтения и передача кадра в очередь — по каждому BUSY_EVERY-му кадру (чтение часов дороже самого кадра)
+    let sampled = n.is_multiple_of(BUSY_EVERY);
+    let t_push = sampled.then(Instant::now);
     let pushed = sh.ring.push(Item {
         rx_ns: rx,
         sender: seq,
         settled,
         payload: Payload::Frame(data),
     });
-    // занятость потока приёма вне чтения — по каждому BUSY_EVERY-му кадру (чтение часов дороже самого кадра)
-    if n.is_multiple_of(BUSY_EVERY) {
-        let work_us = u64::try_from(t_read.elapsed().as_micros()).unwrap_or(u64::MAX);
-        m.busy_max_us.fetch_max(work_us, Relaxed);
-        m.handoff_max_us.fetch_max(work_us, Relaxed);
+    if let Some(tp) = t_push {
+        let now = Instant::now();
+        let us = |a: Instant, b: Instant| {
+            u64::try_from(b.saturating_duration_since(a).as_micros()).unwrap_or(u64::MAX)
+        };
+        m.busy_max_us.fetch_max(us(t_read, now), Relaxed);
+        // передача — только `push` (в том числе ожидание места в полной очереди), отдельно от остальной работы кадра
+        m.handoff_max_us.fetch_max(us(tp, now), Relaxed);
     }
     pushed.is_ok()
 }

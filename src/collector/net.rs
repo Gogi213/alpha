@@ -3,7 +3,7 @@
 //! Зачем свой путь, а не `connect_async`: RTT рукопожатия (SYN→SYN-ACK по `TCP_INFO` ядра) нужен до TLS — плохой путь
 //! отбраковывается за один RTT; порт источника задаёт класс пути, новый connect даёт другой порт (замер TK-527). Сокет
 //! остаётся нашим: таймаут чтения будит поток для пинга и остановки, `FIONREAD` показывает очередь ядра (Recv-Q).
-//! Единственное `unsafe` — два системных вызова ниже (с описанием безопасности).
+//! Единственное `unsafe` — три системных вызова ниже (`getsockopt(TCP_INFO)`, `gettid`, `ioctl(FIONREAD)`; у каждого описание безопасности).
 
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
@@ -37,7 +37,8 @@ pub struct TcpState {
 mod sys {
     use std::os::fd::AsRawFd;
 
-    /// `getsockopt(TCP_INFO)`: первые 104 байта `struct tcp_info`.
+    /// `getsockopt(TCP_INFO)`: первые 104 байта `struct tcp_info`; ядро вернуло меньше (старое ядро) — `None`, а не нули в полях
+    /// (RTT 0 выглядел бы «быстрым путём»).
     pub fn tcp_info(s: &impl AsRawFd) -> Option<[u8; 104]> {
         let mut buf = [0u8; 104];
         let mut len: libc::socklen_t = 104;
@@ -51,7 +52,7 @@ mod sys {
                 &mut len,
             )
         };
-        (rc == 0).then_some(buf)
+        (rc == 0 && len >= 104).then_some(buf)
     }
 
     /// Номер текущего потока ядра (tid).

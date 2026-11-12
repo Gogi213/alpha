@@ -442,6 +442,9 @@ impl ShardWriter {
             if now_ns - (day + 1) * NS_PER_DAY > ROTATE_GRACE_NS {
                 self.core.cut_block();
                 self.core.close_day();
+                // запись ушедших суток, пришедшая в очередь позже (обратное давление), не откроет закрытый файл заново: приём поднимается
+                // до полуночи — тем же ограничением `rx ≥ приём предыдущей записи`, что держит `dns` ≥ 0 (счётчик `rx_clamped`)
+                self.core.prev_rx = self.core.prev_rx.max((day + 1) * NS_PER_DAY);
             }
         }
     }

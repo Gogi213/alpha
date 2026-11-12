@@ -22,7 +22,7 @@ use super::exchange::{Entrance, Exchange, Family, ShardPlan};
 use super::metrics::{us_to_ms, Hist, ShardMetrics, WindowSnap, STATS_PERIOD_S};
 use super::path::{PathWatch, PROBE_MAX_REJECTS, PROBE_S, PROBE_SKIP_S};
 use super::ring::{ring, Item, Payload};
-use super::session::{self, Outcome, Shared, PING_PERIOD, PING_TIMEOUT};
+use super::session::{self, Outcome, Shared, CONNECT_RTT_MAX_MS, PING_PERIOD, PING_TIMEOUT};
 use super::sink::{run_sink, sink_channel};
 use super::writer::{ShardWriter, WriterCfg};
 
@@ -31,11 +31,8 @@ pub const SHORT_SESSION: Duration = Duration::from_secs(60);
 pub const FAIL_LIMIT: u32 = 3;
 const GAP_TIMEOUT_MS: u64 = 3000;
 const GAP_TICK: Duration = Duration::from_millis(500);
-/// Пауза перед новой попыткой замены после неудачной.
-const SWITCH_RETRY: Duration = Duration::from_secs(30);
-/// Потолок интервала возврата на основной вход и срок, после которого счёт неудачных возвратов обнуляется.
-const RETURN_MAX: Duration = Duration::from_secs(7200);
-const RETURNS_FORGOTTEN: Duration = Duration::from_secs(3600);
+/// Пауза перед новой попыткой улучшить путь сессии, принятой без проверки, после неудачной.
+const UPGRADE_RETRY: Duration = Duration::from_secs(60);
 const STACK: usize = 1 << 20;
 
 fn start() -> Instant {
@@ -70,10 +67,10 @@ pub struct ShardOpts {
     pub port: u16,
     /// Окно проверки нового пути: (пропуск, конец), секунды.
     pub probe_window: (f64, f64),
-    /// Через сколько линия на запасном входе пробует вернуться на основной (дальше — вдвое дольше после каждой неудачи).
-    pub return_after: Duration,
     /// Период пинга и срок ожидания pong.
     pub ping: (Duration, Duration),
+    /// Порог отбраковки пути по RTT рукопожатия, мс.
+    pub rtt_max_ms: f64,
 }
 
 impl ShardOpts {
@@ -91,8 +88,8 @@ impl ShardOpts {
             tls: true,
             port: 443,
             probe_window: (PROBE_SKIP_S, PROBE_S),
-            return_after: Duration::from_secs(600),
             ping: (PING_PERIOD, PING_TIMEOUT),
+            rtt_max_ms: CONNECT_RTT_MAX_MS,
         }
     }
 }
@@ -103,8 +100,6 @@ struct Lane {
     ents: Vec<Entrance>,
     idx: AtomicUsize,
     fails: AtomicU32,
-    /// С какого момента линия идёт через запасной вход (`None` — через основной).
-    spare_since: Mutex<Option<Instant>>,
     /// Сдвиг возраста первой сессии: линии стареют вразнобой (k/число линий · max_age) — не обе замены в один час.
     stagger: Duration,
 }
@@ -127,50 +122,8 @@ impl Lane {
         self.idx
             .store((self.idx.load(Relaxed) + 1) % self.ents.len(), Relaxed);
         let to = self.current();
-        {
-            let mut since = self
-                .spare_since
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *since = if self.idx.load(Relaxed) == 0 {
-                None
-            } else {
-                since.or(Some(Instant::now()))
-            };
-        }
         sh.metrics.lists().entrance_switches.push_back(now_ms());
         sh.events.emit("entrance_switch", json!({"line": self.k, "reason": reason, "session": seq, "from": from.host, "to": to.host, "fails": fails}));
-    }
-
-    /// Как долго линия идёт через запасной вход; `None` — через основной.
-    fn spare_for(&self) -> Option<Duration> {
-        let since = self
-            .spare_since
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        since.map(|t| t.elapsed())
-    }
-
-    /// Вернуть основной вход (попытка возврата после запасного); событие.
-    fn restore_primary(&self, sh: &Shared, seq: u32, returns: u32) {
-        let from = self.current();
-        self.idx.store(0, Relaxed);
-        *self
-            .spare_since
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-        let to = self.current();
-        sh.events.emit("entrance_return", json!({"line": self.k, "session": seq, "from": from.host, "to": to.host, "returns": returns}));
-    }
-
-    /// Откат входа, если замена не принята: линия остаётся там, где работала.
-    fn set_idx(&self, idx: usize) {
-        self.idx.store(idx, Relaxed);
-        *self
-            .spare_since
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            if idx == 0 { None } else { Some(Instant::now()) };
     }
 
     /// Итог закрытой сессии: короткая — счёт, длинная — сброс; на пределе — смена входа.
@@ -287,37 +240,24 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
     cur.born = Instant::now()
         .checked_sub(lane.stagger)
         .unwrap_or_else(Instant::now);
-    // возвраты на основной вход подряд (интервал растёт вдвое, чтобы не молотить по плохому входу) и когда линия последний раз стала на основной
-    let (mut returns, mut primary_since, mut retry_at) = (0u32, Instant::now(), Instant::now());
+    let mut upgrade_retry = Instant::now();
     while !sh.stop.load(Relaxed) {
         thread::sleep(Duration::from_millis(250));
-        let spare = lane.spare_for();
-        if spare.is_some() {
-            primary_since = Instant::now();
-        } else if primary_since.elapsed() >= RETURNS_FORGOTTEN {
-            returns = 0;
-        }
         let bad = sh.watch().is_degraded(cur.seq);
         let old = cur.born.elapsed() >= opts.max_age;
-        let wait = opts
-            .return_after
-            .saturating_mul(1 << returns.min(4))
-            .min(RETURN_MAX);
-        let want_return = !bad && spare.is_some_and(|d| d >= wait);
-        if !(bad || old || want_return) || Instant::now() < retry_at {
+        // сессия принята без проверки пути, потому что шард был без соединения (холодный старт): путь меняется на проверенный позже, без смены входа
+        let slow = !bad && !old && Instant::now() >= upgrade_retry && sh.watch().is_slow(cur.seq);
+        if !(bad || slow || old) {
             continue;
         }
         seq = seq.wrapping_add(1);
         let prev_idx = lane.idx.load(Relaxed);
-        if want_return {
-            returns += 1;
-            lane.restore_primary(sh, seq, returns);
-        } else if bad {
+        if bad {
             lane.switch(sh, "late_delivery", seq);
         }
         let accepted = Arc::new(AtomicBool::new(false));
         let Some(nxt) = spawn_session(sh, lane, seq, Some(Arc::clone(&accepted))) else {
-            lane.set_idx(prev_idx);
+            lane.idx.store(prev_idx, Relaxed);
             continue;
         };
         let t0 = Instant::now();
@@ -325,19 +265,17 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             thread::sleep(Duration::from_millis(100));
         }
         if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) {
-            if want_return {
-                // возврат на основной вход необязателен: не принят — поток не рвём, остаёмся на прежней сессии и входе
+            if slow {
+                // улучшение пути необязательно: прежняя сессия несёт данные, её не рвём (разрыв был бы хуже медленного пути), новая попытка позже
                 sh.events.emit(
-                    "switch_failed",
-                    json!({"session": seq, "kept_session": cur.seq, "entrance": lane.current().host}),
+                    "upgrade_timeout",
+                    json!({"session": seq, "kept_session": cur.seq}),
                 );
                 finish(nxt);
-                lane.set_idx(prev_idx);
-                retry_at = Instant::now() + SWITCH_RETRY;
+                upgrade_retry = Instant::now() + UPGRADE_RETRY;
                 continue;
             }
-            // замена из-за испорченного пути или возраста — как в Python (`Shard.lane`): событие `switch_timeout`, старая сессия всё равно закрывается
-            // после перекрытия, а замена продолжает подключаться; повторных замен каждые 30 с (сжигали бюджет подключений: 48 `switch_failed` за 10 мин) нет
+            // как в Python (`Shard.lane`): событие `switch_timeout`, старая сессия всё равно закрывается после перекрытия, а замена продолжает подключаться
             sh.events.emit(
                 "switch_timeout",
                 json!({"session": seq, "old_session": cur.seq}),
@@ -347,7 +285,11 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         let old_seq = cur.seq;
         finish(cur);
         sh.events.emit(
-            if bad { "path_switch" } else { "rotated" },
+            match (bad, slow) {
+                (true, _) => "path_switch",
+                (false, true) => "path_upgrade",
+                _ => "rotated",
+            },
             json!({"old_session": old_seq, "new_session": seq}),
         );
         if bad {
@@ -404,6 +346,7 @@ pub fn spawn_shard(
         port: opts.port,
         probe_window: opts.probe_window,
         ping: opts.ping,
+        rtt_max_ms: opts.rtt_max_ms,
     });
     let lanes: Vec<Arc<Lane>> = entrances
         .iter()
@@ -414,7 +357,6 @@ pub fn spawn_shard(
                 ents: ents.clone(),
                 idx: AtomicUsize::new(0),
                 fails: AtomicU32::new(0),
-                spare_since: Mutex::new(None),
                 stagger: opts.max_age.mul_f64(
                     f64::from(u32::try_from(k).unwrap_or(0))
                         / f64::from(u32::try_from(entrances.len().max(1)).unwrap_or(1)),

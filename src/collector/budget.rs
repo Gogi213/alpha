@@ -23,6 +23,8 @@ pub struct Budget {
     rules: Mutex<Vec<Rule>>,
     /// Места основного правила, которые отбраковка пути не трогает: на подключения и замены (сколько соединений в процессе ×2).
     reserve: AtomicUsize,
+    /// Сколько подключений сейчас ждут места, а их шард без единого соединения: пока такие есть, остальные уступают (см. `acquire`).
+    urgent: AtomicUsize,
 }
 
 impl Budget {
@@ -43,6 +45,7 @@ impl Budget {
         Self {
             rules: Mutex::new(rules),
             reserve: AtomicUsize::new(0),
+            urgent: AtomicUsize::new(0),
         }
     }
 
@@ -112,19 +115,53 @@ impl Budget {
         })
     }
 
-    /// Ждёт места и занимает его; возвращает, сколько ждали. `None` — остановка (`stop`) пришла раньше.
-    pub fn acquire(&self, stop: &AtomicBool) -> Option<Duration> {
+    /// Новый лимит основного правила (передача между процессами: сумма лимитов двух процессов на одном IP не больше лимита биржи).
+    /// Уже занятые места не снимаются: подключения ждут, пока окно не освободит место под новый лимит.
+    pub fn set_limit(&self, limit: usize) {
+        if let Some(r) = self
+            .rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .first_mut()
+        {
+            r.limit = limit.max(1);
+        }
+    }
+
+    /// Ждёт места и занимает его; возвращает, сколько ждали. `None` — остановка (любой флаг из `stops`) пришла раньше.
+    /// `uncovered` — у шарда сейчас нет ни одного соединения (проверяется на каждом круге): такие подключения идут первыми,
+    /// остальные (вторая линия, замена, уже покрытый шард) не берут место, пока хоть одно из первых ждёт.
+    pub fn acquire(&self, stops: &[&AtomicBool], uncovered: &dyn Fn() -> bool) -> Option<Duration> {
         let t0 = Instant::now();
-        loop {
-            if stop.load(Relaxed) {
-                return None;
+        let mut counted = false;
+        let out = loop {
+            if stops.iter().any(|s| s.load(Relaxed)) {
+                break None;
             }
-            match self.try_take(Instant::now()) {
-                None => return Some(t0.elapsed()),
+            let first = uncovered();
+            if first != counted {
+                if first {
+                    self.urgent.fetch_add(1, Relaxed);
+                } else {
+                    self.urgent.fetch_sub(1, Relaxed);
+                }
+                counted = first;
+            }
+            let wait = if !first && self.urgent.load(Relaxed) > 0 {
+                Some(Duration::from_millis(40))
+            } else {
+                self.try_take(Instant::now())
+            };
+            match wait {
+                None => break Some(t0.elapsed()),
                 Some(w) => std::thread::sleep(
                     w.min(Duration::from_millis(500)) + Duration::from_millis(10),
                 ),
             }
+        };
+        if counted {
+            self.urgent.fetch_sub(1, Relaxed);
         }
+        out
     }
 }

@@ -168,6 +168,7 @@ impl BybitParser {
             _ => return None,
         };
         let a = seq.int()?.checked_mul(TRADE_SLOT)?.checked_add(seq_idx)?;
+        let uuid = uuid.str()?;
         // m: покупатель — мейкер, т.е. тейкер продаёт
         Some(Trade {
             sym: s.str()?,
@@ -175,7 +176,7 @@ impl BybitParser {
             t: t.int()?,
             a,
             // `a = seq·1000 + номер в пачке` у входов может различаться для одной сделки (нарезка пачек): личность — UUID сделки
-            id: i64::from_ne_bytes(fnv(uuid.str()?).to_ne_bytes()),
+            id: i64::from_ne_bytes(fnv(uuid).to_ne_bytes()),
             p: p.str()?,
             q: v.str()?,
             f: a,
@@ -183,6 +184,7 @@ impl BybitParser {
             m: sell,
             nq: v.str()?,
             x,
+            i: uuid,
         })
     }
 

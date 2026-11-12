@@ -61,9 +61,11 @@ pub struct RunArgs {
     /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`). Отбракованные подключения считаются.
     #[arg(long)]
     pub connect_budget: Option<usize>,
-    /// Новых TCP-подключений в секунду на процесс (разгон при старте: пачка из 36–50 одновременных рукопожатий давала у Bybit 502 Bad Gateway, замер 12.11).
-    #[arg(long, default_value_t = 10)]
-    pub connect_rate: usize,
+    /// Файл с лимитом подключений за 5 мин (одно число), перечитывается раз в 2 с и заменяет `--connect-budget`. Передача между двумя процессами
+    /// одной биржи на одном IP: сумма их лимитов не больше лимита биржи (Binance 300) — напр. 140 + 140 на время перекрытия, после остановки
+    /// старого — 280 новому; каждый процесс считает свои подключения, поэтому вместе они в любом окне в пределах суммы.
+    #[arg(long)]
+    pub budget_file: Option<PathBuf>,
     /// Места бюджета подключений, которые отбраковка пути по RTT не трогает. По умолчанию 0 — как в Python (отбраковка до исчерпания бюджета,
     /// дальше подключение ждёт места): запас 2 × соединений при замере 12.11 13:23 UTC (маршрут до Binance 350–380 мс) после старта оставил
     /// отбраковку выключенной, и 164 из 200 новых подключений приняли медленный путь (лаг книги p99 66 с).
@@ -160,6 +162,16 @@ fn watch_signals(stop: &Arc<AtomicBool>) {
         });
 }
 
+/// Лимит из файла: одно положительное число; нет файла или не число — `None` (лимит прежний).
+fn read_limit(path: &std::path::Path) -> Option<usize> {
+    std::fs::read_to_string(path)
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|n| *n > 0)
+}
+
 fn load_pool_file(path: &std::path::Path) -> Result<Vec<String>, String> {
     let v: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
@@ -224,10 +236,12 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         ExchangeName::Binance => BINANCE_LIMIT,
         ExchangeName::Bybit => LIMIT,
     });
-    let budget = Arc::new(Budget::with_rules(&[
-        (limit, WINDOW),
-        (args.connect_rate, Duration::from_secs(1)),
-    ]));
+    let limit = args
+        .budget_file
+        .as_deref()
+        .and_then(read_limit)
+        .unwrap_or(limit);
+    let budget = Arc::new(Budget::new(limit, WINDOW));
     budget.set_reserve(args.reject_reserve);
     let mut handles: Vec<ShardHandle> = Vec::new();
     for plan in &plans {
@@ -260,8 +274,17 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         (args.duration_s > 0).then(|| Duration::from_secs(args.duration_s)),
     );
     let mut next = Instant::now() + Duration::from_secs(STATS_PERIOD_S);
+    let (mut next_limit, mut applied) = (Instant::now(), limit);
     while !stop.load(Relaxed) {
         std::thread::sleep(Duration::from_millis(200));
+        if let (Some(f), true) = (&args.budget_file, Instant::now() >= next_limit) {
+            next_limit = Instant::now() + Duration::from_secs(2);
+            if let Some(n) = read_limit(f).filter(|n| *n != applied) {
+                budget.set_limit(n);
+                println!("connect budget {applied} -> {n}");
+                applied = n;
+            }
+        }
         if deadline.is_some_and(|d| t0.elapsed() >= d) {
             stop.store(true, Relaxed);
         }
