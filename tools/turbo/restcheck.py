@@ -50,10 +50,25 @@ def read_lines(path):
 def file_trades(root, t0, t1):
     """symbol -> {a: (p, q, f, l, m, T)} from recorded files, trade time T in [t0, t1]."""
     out = defaultdict(dict)
-    for p in sorted(glob.glob(os.path.join(root, "20*", "*.tsv.zst"))):
+    for p in run_files(root):
         for r in codec.decode(read_lines(p)):
             if r["t"] == "t" and t0 <= r["T"] <= t1:
                 out[r["s"]][r["a"]] = (r["p"], r["q"], r["f"], r["l"], r["m"], r["T"])
+    return out
+
+
+MIN_RUN = 0  # --min-run: only files of runs started at/after this epoch second (a soak root holds hours of earlier runs)
+
+
+def run_files(root):
+    out = []
+    for p in sorted(glob.glob(os.path.join(root, "20*", "*.tsv.zst"))):
+        try:
+            run = int(os.path.basename(p).rsplit("-", 1)[1].split(".")[0])
+        except (IndexError, ValueError):
+            run = 0
+        if run >= MIN_RUN:
+            out.append(p)
     return out
 
 
@@ -70,7 +85,7 @@ def pick(counts, n, spread):
 def file_trades_bybit(root, t0, t1):
     """symbol -> {execId: (price, size, side, T, block, rpi)} from recorded files: execId is the trailing column `i` of `t` rows (since 12.11 build)."""
     out = defaultdict(dict)
-    for p in sorted(glob.glob(os.path.join(root, "20*", "*.tsv.zst"))):
+    for p in run_files(root):
         lines = [ln for ln in read_lines(p) if ln.strip()]
         for ln, r in zip(lines, codec.decode(iter(lines))):
             if r["t"] != "t" or not t0 <= r["T"] <= t1:
@@ -156,9 +171,12 @@ def main():
     ap.add_argument("t1", type=int)
     ap.add_argument("--symbols", type=int, default=25)
     ap.add_argument("--covered-ms", type=int, default=0, help="from when every shard had a live session (cold start): missing_after_covered counts only trades from then on")
+    ap.add_argument("--min-run", type=int, default=0, help="only files of runs started at/after this epoch second")
     ap.add_argument("--spread", action="store_true", help="symbols evenly spaced over the trade-count ranking instead of the busiest")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    global MIN_RUN
+    MIN_RUN = a.min_run
     res = (binance if a.exchange == "binance" else bybit)(a, a.t0, a.t1)
     tot = Counter()
     for v in res.values():

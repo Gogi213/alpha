@@ -42,6 +42,8 @@ def main():
         live, first, down_ms, last_t, cnt = set(), None, 0, None, Counter()
         for e in evs:
             ts = e["ts_ms"]
+            if ts < t0:
+                continue  # an earlier run of the same root (a soak keeps appending to its event files)
             if ts > t1:
                 break
             ev = e["ev"]
