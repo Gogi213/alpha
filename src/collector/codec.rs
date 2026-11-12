@@ -76,6 +76,8 @@ pub struct Trade<'a> {
     pub l: i64,
     pub m: bool,
     pub nq: &'a [u8],
+    /// Признаки сделки одним словом: пусто — обычная; Bybit: `R` — RPI (улучшение цены розничного ордера), `B` — блок-сделка, `BR` — оба.
+    pub x: &'a [u8],
 }
 
 /// Mark/индекс/фандинг: `ap`, `pp` (P) — если есть у биржи, иначе пусто; `t` — время следующего начисления.
@@ -235,6 +237,7 @@ impl Encoder {
                 if t.nq != t.q {
                     out.extend_from_slice(t.nq);
                 }
+                field(out, t.x);
             }
             Rec::Mark(m) => {
                 out.push(b'm');
@@ -304,6 +307,7 @@ pub enum Decoded {
         l: i64,
         m: bool,
         nq: String,
+        x: String,
     },
     Mark {
         rx_ns: i64,
@@ -412,6 +416,7 @@ impl Decoder {
                     l: last,
                     m: f.get(10) == Some(&"1"),
                     nq,
+                    x: f.get(12).map_or_else(String::new, |s| (*s).to_string()),
                 })
             }
             b'm' => Ok(Decoded::Mark {

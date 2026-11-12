@@ -69,6 +69,12 @@ Method: `ALPHA_COLLECT_CAPTURE=1` writes every frame of every session before de-
 - **Exchange-side oracle** (`tools/turbo/restcheck.py`): Binance, 25 most active symbols, 5-min windows — runs 2 and 3: 47 816 and 74 967 aggregate trades in REST, 47 816 and 74 967 in files, **missing 0 / extra 0 / mismatched 0** (price, quantity, first/last id, side). Bybit recent-trade (last 1 000 per symbol, 30 symbols): 20 278 REST trades, all present in the capture (0 missing, 0 mismatched); 157 captured trades are absent from REST (RPI trades and several fills in one millisecond — REST list does not carry them; WS ⊇ REST).
 - **Two independent receivers** (`keycmp.py`, exchange-time window ±5 s, Python and Rust on the same streams): Binance book 484 743 = 484 743 keys, trades 62 109 = 62 109, mark 40 527 = 40 527 — 0 differences. (Bybit differs by design: §3 first bullet.)
 
+### 3a. Second finding (Python too): Binance `!markPrice@arr@1s` was stored raw for most symbols
+
+Capture of `mark00` (run 3): each second two arrays arrive — 237 elements (all `st`=1) and **747 elements of which 30 are COIN-M contracts (`BTCUSD_PERP`, `st`=2)**. The rule «parse the whole array or write it raw»
+(Python and my first Rust version) turned the 747-element array into one raw frame per second: **structured `m` records existed for 237 symbols only; the marks of ≈ 700 symbols (most of the pool) were in raw JSON blobs** (data present, but not in the record format — measured: 237 symbols with `m` rows in `bn3`, 340 raw rows/340 s).
+Fix: arrays are parsed **per element** — valid USDⓈ-M elements become `m` records, the remaining elements are written as one `r` row in a frame of the same shape (nothing lost, nothing duplicated, copies from the other line removed). Same treatment for Bybit trade batches (a block/RPI fill no longer turns the whole batch raw; the fill's position in the batch — hence its key `a` — is unchanged). A malformed array is still raw as a whole.
+
 ## 4. Requirements coverage (coordinator's list)
 
 | requirement | status |

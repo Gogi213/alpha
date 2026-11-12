@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
-use super::exchange::{lag_ms, Entrance, Exchange, Family, Parsed, Parser, ShardPlan};
+use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
 use super::hash::fnv;
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, single_pair, Obj, Val};
@@ -97,25 +97,25 @@ impl MarkState {
 }
 
 impl Parser for BybitParser {
-    fn parse(&mut self, frame: &[u8], emit: &mut dyn FnMut(&Rec<'_>)) -> Parsed {
-        self.parse_frame(frame, emit)
+    fn parse(&mut self, frame: &[u8], out: &mut dyn Out) -> Parsed {
+        self.parse_frame(frame, out)
             .map_or(Parsed::Raw, Parsed::Recs)
     }
 }
 
 impl BybitParser {
-    fn parse_frame(&mut self, frame: &[u8], emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
+    fn parse_frame(&mut self, frame: &[u8], out: &mut dyn Out) -> Option<usize> {
         let top = parse_object(frame)?;
         let topic = top.get(b"topic")?.str()?;
         let kind = topic.split(|&c| c == b'.').next()?;
         match kind {
             b"orderbook" => {
                 let b = Self::book_of(&top)?;
-                emit(&Rec::Book(b));
+                out.rec(&Rec::Book(b));
                 Some(1)
             }
-            b"publicTrade" => Self::trades(&top, emit),
-            b"tickers" => self.tickers(&top, emit),
+            b"publicTrade" => Self::trades(&top, out),
+            b"tickers" => self.tickers(&top, out),
             _ => None,
         }
     }
@@ -145,7 +145,7 @@ impl BybitParser {
         })
     }
 
-    /// Одна сделка пачки: ключи ровно как ожидается, `BT`/`RPI` ложны, сторона Buy/Sell.
+    /// Одна сделка пачки: ключи ровно как ожидается, `BT`/`RPI` — булевы (в столбец `x`), сторона Buy/Sell.
     fn fill<'a>(elem: &'a [u8], ts: i64, seq_idx: i64) -> Option<Trade<'a>> {
         let o = parse_object(elem)?;
         let [t, s, side, v, p, _l, uuid, bt, rpi, seq] = slots(
@@ -154,9 +154,13 @@ impl BybitParser {
                 b"T", b"s", b"S", b"v", b"p", b"L", b"i", b"BT", b"RPI", b"seq",
             ],
         )?;
-        if bt.boolean()? || rpi.boolean()? {
-            return None;
-        }
+        // BT — блок-сделка, RPI — улучшение цены розничного ордера: сделки настоящие, помечаются в столбце `x`
+        let x: &[u8] = match (bt.boolean()?, rpi.boolean()?) {
+            (false, false) => b"",
+            (true, false) => b"B",
+            (false, true) => b"R",
+            (true, true) => b"BR",
+        };
         let sell = match side.str()? {
             b"Sell" => true,
             b"Buy" => false,
@@ -177,34 +181,59 @@ impl BybitParser {
             l: a,
             m: sell,
             nq: v.str()?,
+            x,
         })
     }
 
-    fn trades(top: &Obj<'_>, emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
+    /// Пачка сделок поэлементно: годные (в том числе блок-сделки и RPI — с признаком в `x`) — записи; неизвестная сторона, новые поля и т. п. — один `raw` в кадре той же формы
+    /// (номер в пачке — по исходной позиции, ключ `a` не сдвигается).
+    fn trades(top: &Obj<'_>, out: &mut dyn Out) -> Option<usize> {
         if top.get(b"type")?.str()? != b"snapshot" {
             return None;
         }
         let ts = top.get(b"ts")?.int()?;
         let data = top.get(b"data")?.raw()?;
-        // проверка пачки целиком, затем выдача: частично разобранная пачка не пишется
-        let mut idx = 0i64;
-        let n = each_elem(data, |e| {
-            let ok = Self::fill(e, ts, idx).is_some();
-            idx += 1;
-            ok
-        })?;
+        let n = each_elem(data, |_| true)?;
         if n == 0 || i64::try_from(n).ok()? >= TRADE_SLOT {
             return None;
         }
-        idx = 0;
+        let (mut idx, mut good) = (0i64, 0usize);
         each_elem(data, |e| {
-            let rec = Self::fill(e, ts, idx);
+            good += usize::from(Self::fill(e, ts, idx).is_some());
             idx += 1;
-            rec.map(|t| emit(&Rec::Trade(t))).is_some()
-        })
+            true
+        })?;
+        if good == 0 {
+            return None;
+        }
+        let (mut idx, mut bad): (i64, Vec<u8>) = (0, Vec::new());
+        each_elem(data, |e| {
+            match Self::fill(e, ts, idx) {
+                Some(t) => out.rec(&Rec::Trade(t)),
+                None => {
+                    bad.push(if bad.is_empty() { b'[' } else { b',' });
+                    bad.extend_from_slice(e);
+                }
+            }
+            idx += 1;
+            true
+        })?;
+        if !bad.is_empty() {
+            bad.push(b']');
+            let mut w = Vec::with_capacity(bad.len() + 96);
+            w.extend_from_slice(b"{\"topic\":\"");
+            w.extend_from_slice(top.get(b"topic")?.str()?);
+            w.extend_from_slice(b"\",\"type\":\"snapshot\",\"ts\":");
+            w.extend_from_slice(ts.to_string().as_bytes());
+            w.extend_from_slice(b",\"data\":");
+            w.extend_from_slice(&bad);
+            w.push(b'}');
+            out.raw(&w);
+        }
+        Some(good)
     }
 
-    fn tickers(&mut self, top: &Obj<'_>, emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
+    fn tickers(&mut self, top: &Obj<'_>, out: &mut dyn Out) -> Option<usize> {
         let ts = top.get(b"ts")?.int()?;
         let ty = top.get(b"type")?.str()?;
         // в `data` десятки полей (цены, объёмы, стакан): нужны символ и четыре поля mark
@@ -255,7 +284,7 @@ impl BybitParser {
             [] => 0,
             s => parse_i64(s)?,
         };
-        emit(&Rec::Mark(Mark {
+        out.rec(&Rec::Mark(Mark {
             sym,
             e: ts,
             p: st.mark.get(),

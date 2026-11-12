@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
-use super::exchange::{lag_ms, Entrance, Exchange, Family, Parsed, Parser, ShardPlan};
+use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
 use super::scan::{each_elem, parse_object, Obj, Val};
 
@@ -91,6 +91,7 @@ fn trade(data: &[u8]) -> Option<Trade<'_>> {
         l: l.int()?,
         m: m.boolean()?,
         nq: nq.str()?,
+        x: b"",
     })
 }
 
@@ -118,36 +119,89 @@ fn mark(elem: &[u8]) -> Option<Mark<'_>> {
 struct BinanceParser;
 
 impl Parser for BinanceParser {
-    fn parse(&mut self, frame: &[u8], emit: &mut dyn FnMut(&Rec<'_>)) -> Parsed {
-        parse_frame(frame, emit).map_or(Parsed::Raw, Parsed::Recs)
+    fn parse(&mut self, frame: &[u8], out: &mut dyn Out) -> Parsed {
+        parse_frame(frame, out).map_or(Parsed::Raw, Parsed::Recs)
     }
 }
 
-fn parse_frame(frame: &[u8], emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
-    let top = parse_object(frame)?;
-    let data = top.get(b"data")?.raw()?;
+/// `{"stream":"<имя>","data":<json>}` без разбора вложенного значения: имя потока и срез `data`. Другая форма (ответ подписки, лишние ключи) — `None`:
+/// тогда обычный разбор верхнего объекта.
+fn envelope(frame: &[u8]) -> Option<(&[u8], &[u8])> {
+    const MID: &[u8] = b"\",\"data\":";
+    let rest = frame.strip_prefix(b"{\"stream\":\"")?;
+    let at = rest.windows(MID.len()).position(|w| w == MID)?;
+    let stream = rest.get(..at)?;
+    let data = rest.get(at + MID.len()..)?.strip_suffix(b"}")?;
+    (!stream.contains(&b'"')).then_some((stream, data))
+}
+
+fn parse_frame(frame: &[u8], out: &mut dyn Out) -> Option<usize> {
+    let (stream, data) = match envelope(frame) {
+        Some((s, d)) => (Some(s), d),
+        None => {
+            let top = parse_object(frame)?;
+            (
+                top.get(b"stream").and_then(|v| v.str()),
+                top.get(b"data")?.raw()?,
+            )
+        }
+    };
     match data.first()? {
         b'{' => {
             // тип события — по набору ключей: у книги и сделки они разные
             if let Some(b) = book(data) {
-                emit(&Rec::Book(b));
-                Some(1)
+                out.rec(&Rec::Book(b));
             } else {
-                let t = trade(data)?;
-                emit(&Rec::Trade(t));
-                Some(1)
+                out.rec(&Rec::Trade(trade(data)?));
             }
+            Some(1)
         }
         b'[' => {
-            // массив mark: целиком или никак (в первом проходе — проверка, во втором — выдача)
-            let n = each_elem(data, |e| mark(e).is_some())?;
-            if n == 0 {
+            // массив mark поэлементно: USDⓈ-M (`st` = 1) — записи; прочие (COIN-M `st` = 2, новые поля) — один `raw` в кадре той же формы.
+            // Прежняя схема «целиком или никак» писала сырым весь кадр на ≈ 750 элементов из-за ≈ 30 элементов с `st` = 2 (замер 12.11).
+            let n = each_elem(data, |_| true)?;
+            let mut good = 0usize;
+            each_elem(data, |e| {
+                good += usize::from(mark(e).is_some());
+                true
+            })?;
+            if n == 0 || good == 0 {
                 return None;
             }
-            each_elem(data, |e| mark(e).map(|m| emit(&Rec::Mark(m))).is_some())
+            let mut bad: Vec<u8> = Vec::new();
+            each_elem(data, |e| {
+                match mark(e) {
+                    Some(m) => out.rec(&Rec::Mark(m)),
+                    None => {
+                        bad.push(if bad.is_empty() { b'[' } else { b',' });
+                        bad.extend_from_slice(e);
+                    }
+                }
+                true
+            })?;
+            if !bad.is_empty() {
+                bad.push(b']');
+                out.raw(&wrap(stream, &bad));
+            }
+            Some(good)
         }
         _ => None,
     }
+}
+
+/// Кадр той же формы, что исходный (`{"stream":…,"data":[…]}`), но только с неразобранными элементами.
+fn wrap(stream: Option<&[u8]>, elems: &[u8]) -> Vec<u8> {
+    let mut w = Vec::with_capacity(elems.len() + 64);
+    w.push(b'{');
+    if let Some(s) = stream {
+        w.extend_from_slice(b"\"stream\":\"");
+        w.extend_from_slice(s);
+        w.extend_from_slice(b"\",");
+    }
+    w.extend_from_slice(b"\"data\":");
+    w.extend_from_slice(elems);
+    w.push(b'}');
+    w
 }
 
 impl Exchange for Binance {

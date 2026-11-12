@@ -35,7 +35,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const LAG_SAMPLE: u64 = 32;
 const SAMPLE_EVERY: Duration = Duration::from_millis(250);
 const RECVQ_EVERY: u64 = 16;
-const HANDOFF_EVERY: u64 = 8;
+const BUSY_EVERY: u64 = 4;
 
 /// Общее состояние шарда для его сессий.
 pub struct Shared {
@@ -227,6 +227,7 @@ fn read_loop(
         let got = ws.read();
         let rx = wall_ns();
         let t_read = Instant::now();
+        let had_frame = matches!(got, Ok(Message::Text(_) | Message::Binary(_)));
         match got {
             Ok(Message::Text(t)) => {
                 if !frame(
@@ -284,7 +285,8 @@ fn read_loop(
             Err(WsError::ConnectionClosed | WsError::AlreadyClosed) => return Outcome::Closed,
             Err(e) => return Outcome::Failed(format!("чтение: {e}")),
         }
-        let now = Instant::now();
+        // после кадра отдельное чтение часов не нужно: тик пинга и окна проверки грубее микросекунд
+        let now = if had_frame { t_read } else { Instant::now() };
         if pings_on {
             match ping_sent {
                 None if now.duration_since(last_ping) >= PING_PERIOD => {
@@ -344,7 +346,8 @@ fn frame(
     m.bytes
         .fetch_add(u64::try_from(data.len()).unwrap_or(0), Relaxed);
     m.last_frame_ms.store(rx.div_euclid(1_000_000), Relaxed);
-    m.last_frame_mono_ms.store(super::shard::mono_ms(), Relaxed);
+    m.last_frame_mono_ms
+        .store(super::shard::mono_ms_at(t_read), Relaxed);
     if n.is_multiple_of(RECVQ_EVERY) {
         if let Some(q) = net::recv_q(ws.get_ref().tcp()) {
             m.recvq_samples.fetch_add(1, Relaxed);
@@ -372,9 +375,10 @@ fn frame(
         settled,
         payload: Payload::Frame(data),
     });
-    let work_us = u64::try_from(t_read.elapsed().as_micros()).unwrap_or(u64::MAX);
-    m.busy_max_us.fetch_max(work_us, Relaxed);
-    if n.is_multiple_of(HANDOFF_EVERY) {
+    // занятость потока приёма вне чтения — по каждому BUSY_EVERY-му кадру (чтение часов дороже самого кадра)
+    if n.is_multiple_of(BUSY_EVERY) {
+        let work_us = u64::try_from(t_read.elapsed().as_micros()).unwrap_or(u64::MAX);
+        m.busy_max_us.fetch_max(work_us, Relaxed);
         m.handoff_max_us.fetch_max(work_us, Relaxed);
     }
     pushed.is_ok()

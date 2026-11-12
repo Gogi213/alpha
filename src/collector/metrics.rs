@@ -254,6 +254,8 @@ pub struct SinkStats {
     /// самая долгая запись блока на диск за окно статистики, мкс (сбрасывается чтением)
     pub write_max_us: u64,
     pub errors: u64,
+    /// блоков, от которых отказались после `BLOCK_RETRIES` неудачных записей (данные потеряны)
+    pub blocks_dropped: u64,
     pub last_write_ms: i64,
     pub files_closed: u64,
 }

@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 use super::binance::Binance;
 use super::codec::{Encoder, Rec, SymEnc};
-use super::exchange::Exchange;
+use super::exchange::{Exchange, Recs};
 use super::scan::parse_object;
 
 #[derive(Debug, Args)]
@@ -102,9 +102,10 @@ pub fn run(args: &BenchArgs) {
     let mut p = Binance.new_parser();
     let (mut sink, t) = (0i64, Instant::now());
     for i in 0..n {
-        p.parse(cyc(i), &mut |r: &Rec<'_>| {
-            sink = sink.wrapping_add(r.ident())
-        });
+        p.parse(
+            cyc(i),
+            &mut Recs(|r: &Rec<'_>| sink = sink.wrapping_add(r.ident())),
+        );
     }
     row(
         "разбор: свой сканер + проверка набора ключей (выбран)",
@@ -161,16 +162,19 @@ pub fn run(args: &BenchArgs) {
     let t = Instant::now();
     for i in 0..n {
         let k = i % 64;
-        p.parse(cyc(i), &mut |r: &Rec<'_>| {
-            if let Some(s) = st.get_mut(k) {
-                enc.record(
-                    &mut out,
-                    1_794_418_700_000_000_000 + i64::try_from(i).unwrap_or(0) * 300_000,
-                    s,
-                    r,
-                );
-            }
-        });
+        p.parse(
+            cyc(i),
+            &mut Recs(|r: &Rec<'_>| {
+                if let Some(s) = st.get_mut(k) {
+                    enc.record(
+                        &mut out,
+                        1_794_418_700_000_000_000 + i64::try_from(i).unwrap_or(0) * 300_000,
+                        s,
+                        r,
+                    );
+                }
+            }),
+        );
         if out.len() > 1 << 19 {
             out.clear();
         }
@@ -190,22 +194,25 @@ pub fn run(args: &BenchArgs) {
     let (mut rows, mut written) = (0usize, 0usize);
     for i in 0..n {
         let k = i % 64;
-        p.parse(cyc(i), &mut |r: &Rec<'_>| {
-            let (Some(l), Some(s)) = (last.get_mut(k), st.get_mut(k)) else {
-                return;
-            };
-            if r.ident() <= *l {
-                return;
-            }
-            *l = r.ident();
-            enc.record(
-                &mut block,
-                1_794_418_700_000_000_000 + i64::try_from(i).unwrap_or(0) * 300_000,
-                s,
-                r,
-            );
-            rows += 1;
-        });
+        p.parse(
+            cyc(i),
+            &mut Recs(|r: &Rec<'_>| {
+                let (Some(l), Some(s)) = (last.get_mut(k), st.get_mut(k)) else {
+                    return;
+                };
+                if r.ident() <= *l {
+                    return;
+                }
+                *l = r.ident();
+                enc.record(
+                    &mut block,
+                    1_794_418_700_000_000_000 + i64::try_from(i).unwrap_or(0) * 300_000,
+                    s,
+                    r,
+                );
+                rows += 1;
+            }),
+        );
         if rows >= 300 {
             if let Some(z) = z.as_mut() {
                 let _ = z.write_all(&block);
@@ -256,16 +263,19 @@ pub fn run(args: &BenchArgs) {
         let mut p = Binance.new_parser();
         for i in 0..400_000usize {
             let k = i % 64;
-            p.parse(cyc(i), &mut |r: &Rec<'_>| {
-                if let Some(s) = st.get_mut(k) {
-                    enc.record(
-                        &mut text,
-                        1_794_418_700_000_000_000 + i64::try_from(i).unwrap_or(0) * 300_000,
-                        s,
-                        r,
-                    );
-                }
-            });
+            p.parse(
+                cyc(i),
+                &mut Recs(|r: &Rec<'_>| {
+                    if let Some(s) = st.get_mut(k) {
+                        enc.record(
+                            &mut text,
+                            1_794_418_700_000_000_000 + i64::try_from(i).unwrap_or(0) * 300_000,
+                            s,
+                            r,
+                        );
+                    }
+                }),
+            );
         }
     }
     let lines: Vec<&[u8]> = text.split_inclusive(|&c| c == b'\n').collect();

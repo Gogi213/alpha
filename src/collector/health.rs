@@ -158,7 +158,7 @@ pub fn build(
         ([0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2]);
     let (mut last_frame, mut last_write, mut started) = (0i64, 0i64, i64::MAX);
     let mut totals = [0u64; 6];
-    let (mut sink_errors, mut files_closed) = (0u64, 0u64);
+    let (mut sink_errors, mut files_closed, mut blocks_dropped) = (0u64, 0u64, 0u64);
     let (mut depth_max, mut sink_depth_max, mut ring_cap, mut sink_cap) =
         (0i64, 0i64, 0usize, 0usize);
     let (mut full_total, mut blocked_ms_total, mut full_win) = (0u64, 0u64, 0u64);
@@ -231,6 +231,7 @@ pub fn build(
             lag_out.merge(&s.lag_out.snapshot(now_ms));
             last_write = last_write.max(s.last_write_ms);
             sink_errors += s.errors;
+            blocks_dropped += s.blocks_dropped;
             files_closed += s.files_closed;
         }
         let w = m
@@ -313,7 +314,7 @@ pub fn build(
         },
         "totals": {
             "records": t_rec, "dups": t_dup, "raw": t_raw, "raw_copies": t_rawc, "rows": t_rows, "rx_clamped": t_clamp,
-            "sink_errors": sink_errors, "files_closed": files_closed,
+            "sink_errors": sink_errors, "sink_blocks_dropped": blocks_dropped, "files_closed": files_closed,
         },
         "shards": per_shard,
     })

@@ -10,11 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::metrics::{Depth, ShardMetrics};
 
 pub const ZSTD_LEVEL: i32 = 1;
+/// Сколько раз (по секунде) повторять запись блока при сбое, прежде чем отказаться от блока.
+const BLOCK_RETRIES: u32 = 60;
 
 pub enum SinkMsg {
     Open {
@@ -153,42 +155,53 @@ pub fn run_sink(rx: &Receiver<SinkMsg>, depth: &Depth, m: &ShardMetrics) {
                 rows,
                 samples,
             } => {
-                if cur.is_none() {
-                    if let Some(p) = retry.take() {
-                        match open_file(&p) {
-                            Ok(f) => cur = Some(f),
-                            Err(_) => {
-                                m.sink().errors += 1;
-                                retry = Some(p);
+                // сбой записи (диск, место): тот же блок повторяется раз в секунду до BLOCK_RETRIES, очередь и приём копят данные —
+                // потеря блока только после этого срока и считается (`blocks_dropped`)
+                let mut attempts = 0u32;
+                loop {
+                    if cur.is_none() {
+                        if let Some(p) = retry.as_ref() {
+                            cur = open_file(p).ok();
+                        }
+                    }
+                    let failed = match cur.as_mut() {
+                        Some(f) => {
+                            let t0 = Instant::now();
+                            let before = f.enc.get_ref().n;
+                            let res = f.enc.write_all(&data).and_then(|()| f.enc.flush());
+                            let dt_us = u64::try_from(t0.elapsed().as_micros()).unwrap_or(u64::MAX);
+                            if res.is_ok() {
+                                f.rows += rows;
+                                let now = now_ns();
+                                let now_ms = now.div_euclid(1_000_000);
+                                let wrote = f.enc.get_ref().n - before;
+                                let mut s = m.sink();
+                                s.flushes += 1;
+                                s.bytes_out += wrote;
+                                s.write_max_us = s.write_max_us.max(dt_us);
+                                s.last_write_ms = now_ms;
+                                for rx in &samples {
+                                    s.lag_out.add(
+                                        now_ms,
+                                        u64::try_from((now - rx).max(0) / 1000).unwrap_or(0),
+                                    );
+                                }
+                                break;
                             }
+                            retry = cur.take().map(|f| f.path);
+                            true
                         }
-                    }
-                }
-                let Some(f) = cur.as_mut() else { continue };
-                let t0 = Instant::now();
-                let before = f.enc.get_ref().n;
-                let res = f.enc.write_all(&data).and_then(|()| f.enc.flush());
-                let dt_us = u64::try_from(t0.elapsed().as_micros()).unwrap_or(u64::MAX);
-                match res {
-                    Ok(()) => {
-                        f.rows += rows;
-                        let now = now_ns();
-                        let now_ms = now.div_euclid(1_000_000);
-                        let wrote = f.enc.get_ref().n - before;
-                        let mut s = m.sink();
-                        s.flushes += 1;
-                        s.bytes_out += wrote;
-                        s.write_max_us = s.write_max_us.max(dt_us);
-                        s.last_write_ms = now_ms;
-                        for rx in samples {
-                            s.lag_out
-                                .add(now_ms, u64::try_from((now - rx).max(0) / 1000).unwrap_or(0));
-                        }
-                    }
-                    Err(_) => {
+                        None => true,
+                    };
+                    if failed {
                         m.sink().errors += 1;
-                        retry = cur.take().map(|f| f.path);
                     }
+                    attempts += 1;
+                    if attempts >= BLOCK_RETRIES {
+                        m.sink().blocks_dropped += 1;
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
                 }
             }
             SinkMsg::Close => finish(&mut cur, m),

@@ -66,14 +66,30 @@ fn parse_all(exch: &dyn Exchange, frames: &[&str]) -> Vec<(Parsed, Vec<Decoded>)
     for (i, f) in frames.iter().enumerate() {
         let mut text = Vec::new();
         let rx = 1_794_433_300_000_000_000 + i64::try_from(i).unwrap() * 1000;
-        let parsed = parser.parse(f.as_bytes(), &mut |rec: &Rec<'_>| {
-            enc.record(
-                &mut text,
+        struct Cap<'a> {
+            enc: &'a mut Encoder,
+            st: &'a mut std::collections::HashMap<Vec<u8>, SymEnc>,
+            text: &'a mut Vec<u8>,
+            rx: i64,
+        }
+        impl super::exchange::Out for Cap<'_> {
+            fn rec(&mut self, r: &Rec<'_>) {
+                let s = self.st.entry(r.sym().to_vec()).or_default();
+                self.enc.record(self.text, self.rx, s, r);
+            }
+            fn raw(&mut self, frame: &[u8]) {
+                self.enc.raw(self.text, self.rx, frame);
+            }
+        }
+        let parsed = parser.parse(
+            f.as_bytes(),
+            &mut Cap {
+                enc: &mut enc,
+                st: &mut st,
+                text: &mut text,
                 rx,
-                st.entry(rec.sym().to_vec()).or_default(),
-                rec,
-            )
-        });
+            },
+        );
         let recs = String::from_utf8(text)
             .unwrap()
             .lines()
@@ -125,6 +141,7 @@ fn codec_roundtrip_exact() {
         l: 102,
         m: true,
         nq: b"0.5",
+        x: b"",
     });
     let t2 = Rec::Trade(Trade {
         sym: b"BTCUSDT",
@@ -138,6 +155,7 @@ fn codec_roundtrip_exact() {
         l: 103,
         m: false,
         nq: b"0.4",
+        x: b"R",
     });
     let m1 = Rec::Mark(Mark {
         sym: b"BTCUSDT",
@@ -328,7 +346,7 @@ fn scan_rejects_bad_input_without_panic() {
             let _ = parse_object(&b[..cut]);
             for ex in [&Binance as &dyn Exchange, &Bybit] {
                 let mut p = ex.new_parser();
-                let _ = p.parse(&b[..cut], &mut |_| {});
+                let _ = p.parse(&b[..cut], &mut super::exchange::Recs(|_: &Rec<'_>| {}));
                 let _ = ex.lag_ms(&b[..cut], 1);
                 let _ = ex.symbol(&b[..cut]);
             }
@@ -340,7 +358,7 @@ fn scan_rejects_bad_input_without_panic() {
             let _ = parse_object(&c);
             for ex in [&Binance as &dyn Exchange, &Bybit] {
                 let mut p = ex.new_parser();
-                let _ = p.parse(&c, &mut |_| {});
+                let _ = p.parse(&c, &mut super::exchange::Recs(|_: &Rec<'_>| {}));
             }
         }
     }
@@ -382,7 +400,6 @@ fn binance_unexpected_frames_stay_raw() {
     let bad_st = BN_BOOK.replace(r#""st":1"#, r#""st":2"#);
     let ps_diff = BN_BOOK.replace(r#""ps":"AVAXUSDT""#, r#""ps":"OTHER""#);
     let esc = BN_BOOK.replace("8.6790", "8.\\u0036790");
-    let partial_mark = BN_MARK.replace(r#""i":"74634.68""#, r#""i2":"74634.68""#);
     let empty_arr = r#"{"stream":"!markPrice@arr@1s","data":[]}"#;
     let ack = r#"{"result":null,"id":1}"#;
     let frames = [
@@ -390,7 +407,6 @@ fn binance_unexpected_frames_stay_raw() {
         bad_st.as_str(),
         ps_diff.as_str(),
         esc.as_str(),
-        partial_mark.as_str(),
         empty_arr,
         ack,
         "not json",
@@ -629,21 +645,62 @@ fn bybit_trades_batch_keys_and_raw_cases() {
         "тейкер Buy → покупатель не мейкер"
     );
     for bad in [
-        bb_trade(&[bb_fill("Sell", "1", "i", "true")]),
         bb_trade(&[bb_fill("Hold", "1", "i", "false")]),
         bb_trade(&[]),
-        bb_trade(&[
-            bb_fill("Sell", "1", "i", "false"),
-            bb_fill("Sell", "1", "i", "true"),
-        ]),
     ] {
         let (p, recs) = parse_all(&Bybit, &[&bad]).remove(0);
         assert_eq!(
             (p, recs.len()),
             (Parsed::Raw, 0),
-            "{bad}: пачка целиком или никак"
+            "{bad}: ни одной годной сделки — кадр сырым целиком"
         );
     }
+    // блок-сделка и RPI — записи с признаком в `x`
+    let flagged = bb_trade(&[
+        bb_fill("Sell", "1", "u-1", "true"),
+        bb_fill("Buy", "2", "u-2", "false").replace(r#""RPI":false"#, r#""RPI":true"#),
+        bb_fill("Buy", "3", "u-3", "false"),
+    ]);
+    let (p, recs) = parse_all(&Bybit, &[&flagged]).remove(0);
+    assert_eq!(p, Parsed::Recs(3));
+    let xs: Vec<&str> = recs
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Trade { x, .. } = d {
+                Some(x.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(xs, ["B", "R", ""]);
+    // одна годная и одна с неизвестной стороной: годная — запись (номер в пачке по исходной позиции), негодная — один raw в кадре той же формы
+    let mixed = bb_trade(&[
+        bb_fill("Sell", "1", "ok-1", "false"),
+        bb_fill("Hold", "2", "block-1", "false"),
+        bb_fill("Buy", "3", "ok-2", "false"),
+    ]);
+    let (p, recs) = parse_all(&Bybit, &[&mixed]).remove(0);
+    assert_eq!(p, Parsed::Recs(2));
+    let keys: Vec<i64> = recs
+        .iter()
+        .filter_map(|d| {
+            if let Decoded::Trade { a, .. } = d {
+                Some(*a)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        vec![272_596_956_733_000, 272_596_956_733_002],
+        "ключи по позиции в пачке"
+    );
+    assert!(
+        matches!(recs.last(), Some(Decoded::Raw { frame, .. }) if frame.contains("block-1") && !frame.contains("ok-1") && frame.starts_with(r#"{"topic":"publicTrade.XRPUSDT","type":"snapshot","ts":1794433203184,"data":[{"#)),
+        "{recs:?}"
+    );
     let huge = bb_trade(&vec![bb_fill("Sell", "1", "i", "false"); 1000]);
     assert_eq!(
         parse_all(&Bybit, &[&huge])[0].0,
@@ -1525,7 +1582,7 @@ fn book_shard(dir: &Path, port: u16, probe: (f64, f64)) -> (ShardOpts, super::ex
     (opts, plan)
 }
 
-/// u книги по файлам суток: строго подряд (+1), без дублей и пропусков.
+/// u книги по файлам суток: после сортировки строго подряд (+1), без дублей и пропусков.
 fn assert_u_contiguous(root: &Path) -> usize {
     let days = read_days(root);
     let us: Vec<i64> = days
@@ -1540,7 +1597,10 @@ fn assert_u_contiguous(root: &Path) -> usize {
         })
         .collect();
     assert!(us.len() > 50, "записей мало: {}", us.len());
-    for w in us.windows(2) {
+    // порядок в файле — порядок прихода (у двух линий он не обязан совпадать с порядком u); после сортировки — без пропусков и повторов
+    let mut sorted = us.clone();
+    sorted.sort_unstable();
+    for w in sorted.windows(2) {
         assert_eq!(w[1], w[0] + 1, "u подряд: {} → {}", w[0], w[1]);
     }
     us.len()
@@ -1830,4 +1890,58 @@ fn failed_return_to_primary_keeps_the_stream() {
     assert!(count_events(dir.path(), "entrance_return") >= 1);
     assert!(after > before, "поток идёт после неудачной замены");
     assert_u_contiguous(dir.path());
+}
+
+/// Замер 12.11: `!markPrice@arr@1s` Binance приходит двумя массивами в секунду (237 и 747 элементов), во втором ≈ 30 элементов COIN-M
+/// (`BTCUSD_PERP`, `st` = 2). Целиком-или-никак писало сырым весь массив — mark большинства символов не попадал в структурные записи.
+#[test]
+fn binance_mark_array_is_parsed_per_element() {
+    let coin_m = r#"{"e":"markPriceUpdate","E":1794418695000,"s":"BTCUSD_PERP","p":"73468.8","ap":"73468.8","P":"73398.9","i":"73491.1","r":"0.0001","st":2,"T":1794499200000}"#;
+    let frame = BN_MARK.replace("]}", &format!(",{coin_m}]}}"));
+    let r = parse_all(&Binance, &[&frame]);
+    assert_eq!(r[0].0, Parsed::Recs(2), "два элемента USDⓈ-M — записи");
+    assert_eq!(r[0].1.len(), 3);
+    assert!(matches!(&r[0].1[0], Decoded::Mark { sym, .. } if sym == "AVAXUSDT"));
+    assert!(matches!(&r[0].1[1], Decoded::Mark { sym, .. } if sym == "BTCUSDT"));
+    assert!(
+        matches!(&r[0].1[2], Decoded::Raw { frame, .. } if frame.starts_with(r#"{"stream":"!markPrice@arr@1s","data":[{"e":"markPriceUpdate""#) && frame.contains("BTCUSD_PERP") && !frame.contains("AVAXUSDT")),
+        "{:?}",
+        r[0].1
+    );
+    // все элементы негодные (или массив пуст) — кадр как есть
+    let all_bad = format!(r#"{{"stream":"!markPrice@arr@1s","data":[{coin_m}]}}"#);
+    assert_eq!(parse_all(&Binance, &[&all_bad])[0].0, Parsed::Raw);
+    // повреждённый массив не даёт частичного результата
+    let broken = frame.replace("]}", "");
+    let (p, recs) = parse_all(&Binance, &[&broken]).remove(0);
+    assert_eq!((p, recs.len()), (Parsed::Raw, 0));
+}
+
+/// Хвост массива пишется как сырой кадр: копия с другой линии снимается так же, как у целого кадра с временем биржи.
+#[test]
+fn writer_partial_raw_tail_is_deduplicated_between_lines() {
+    let r = rig(Arc::new(Binance), 20);
+    let t = 20_000 * NS_PER_DAY + 6_000_000_000;
+    let coin_m = r#"{"e":"markPriceUpdate","E":1794418695000,"s":"BTCUSD_PERP","p":"73468.8","ap":"73468.8","P":"73398.9","i":"73491.1","r":"0.0001","st":2,"T":1794499200000}"#;
+    let frame = BN_MARK.replace("]}", &format!(",{coin_m}]}}"));
+    r.frame(t, 1, &frame);
+    r.frame(t + 1_000_000, 2, &frame);
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    assert_eq!(
+        rows.iter()
+            .filter(|d| matches!(d, Decoded::Mark { .. }))
+            .count(),
+        2,
+        "записи mark — по одной"
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|d| matches!(d, Decoded::Raw { .. }))
+            .count(),
+        1,
+        "хвост — один раз"
+    );
+    let w = m.writer();
+    assert_eq!((w.raw, w.raw_copies), (1, 1));
 }

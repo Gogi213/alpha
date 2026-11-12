@@ -38,9 +38,18 @@ const RETURN_MAX: Duration = Duration::from_secs(7200);
 const RETURNS_FORGOTTEN: Duration = Duration::from_secs(3600);
 const STACK: usize = 1 << 20;
 
-pub fn mono_ms() -> u64 {
+fn start() -> Instant {
     static START: OnceLock<Instant> = OnceLock::new();
-    u64::try_from(START.get_or_init(Instant::now).elapsed().as_millis()).unwrap_or(0)
+    *START.get_or_init(Instant::now)
+}
+
+pub fn mono_ms() -> u64 {
+    mono_ms_at(Instant::now())
+}
+
+/// Монотонное время в мс от первого обращения, для уже снятого `Instant` (без лишнего чтения часов на кадр).
+pub fn mono_ms_at(t: Instant) -> u64 {
+    u64::try_from(t.saturating_duration_since(start()).as_millis()).unwrap_or(0)
 }
 
 #[derive(Clone, Debug)]

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::codec::{Encoder, Rec, SymEnc, NS_PER_MS};
-use super::exchange::{Exchange, Parsed, Parser};
+use super::exchange::{Exchange, Out, Parsed, Parser};
 use super::fresh::RAW;
 use super::hash::{fnv, FnvBuild};
 use super::metrics::{ShardMetrics, WriterStats};
@@ -84,7 +84,7 @@ impl Seen {
         if self.cur_since_ms == 0 || age >= 2 * SEEN_MS {
             // первая запись или долгая тишина: помнить нечего
             self.prev = HashSet::default();
-            self.cur = HashSet::default();
+            self.cur = HashSet::with_capacity_and_hasher(1 << 14, FnvBuild::default());
             self.cur_since_ms = now_ms;
         } else if age >= SEEN_MS {
             let n = self.cur.len();
@@ -94,11 +94,10 @@ impl Seen {
             );
             self.cur_since_ms = now_ms;
         }
-        if self.cur.contains(&k) || self.prev.contains(&k) {
+        if self.prev.contains(&k) {
             return false;
         }
-        self.cur.insert(k);
-        true
+        self.cur.insert(k)
     }
 }
 
@@ -283,6 +282,41 @@ impl Core {
     }
 }
 
+/// Приёмник результата разбора одного кадра: записи — в писатель шарда, хвост — сырой записью (с учётом копий между линиями).
+struct Sink<'a> {
+    core: &'a mut Core,
+    st: &'a mut WriterStats,
+    exch: &'a dyn Exchange,
+    rx: i64,
+    sender: u32,
+    settled: bool,
+}
+
+impl Out for Sink<'_> {
+    fn rec(&mut self, r: &Rec<'_>) {
+        self.core.on_record(self.st, self.rx, self.settled, r);
+    }
+
+    fn raw(&mut self, frame: &[u8]) {
+        let rx_ms = self.rx.div_euclid(NS_PER_MS);
+        let lag = self.exch.lag_ms(frame, self.rx);
+        if lag.is_some() && !self.core.raw.deliver(self.sender, fnv(frame), rx_ms) {
+            self.st.raw_copies += 1;
+            self.st.dups += 1;
+            return;
+        }
+        self.core.ensure_file(self.rx);
+        self.core.enc.raw(&mut self.core.block, self.rx, frame);
+        self.core.after_line(self.rx);
+        self.st.raw += 1;
+        self.st.rows += 1;
+        if let (true, Some(l)) = (self.settled, lag) {
+            #[allow(clippy::cast_possible_truncation)]
+            self.st.fresh.add(RAW, rx_ms, l.round() as i64);
+        }
+    }
+}
+
 pub struct ShardWriter {
     core: Core,
     exch: Arc<dyn Exchange>,
@@ -363,12 +397,16 @@ impl ShardWriter {
                 if let Some(sym) = self.exch.symbol(&bytes) {
                     touch_seen(st, sym, rx_ms);
                 }
-                let (core, settled) = (&mut self.core, item.settled);
-                let parsed = self
-                    .parser
-                    .parse(&bytes, &mut |rec| core.on_record(st, rx, settled, rec));
-                if parsed == Parsed::Raw {
-                    self.raw(st, rx, item.sender, item.settled, &bytes);
+                let mut out = Sink {
+                    core: &mut self.core,
+                    st,
+                    exch: &*self.exch,
+                    rx,
+                    sender: item.sender,
+                    settled: item.settled,
+                };
+                if self.parser.parse(&bytes, &mut out) == Parsed::Raw {
+                    out.raw(&bytes);
                 }
             }
             Payload::Control { what, detail } => {
@@ -388,25 +426,6 @@ impl ShardWriter {
             Payload::Shutdown => {}
         }
         false
-    }
-
-    fn raw(&mut self, st: &mut WriterStats, rx: i64, sender: u32, settled: bool, frame: &[u8]) {
-        let rx_ms = rx.div_euclid(NS_PER_MS);
-        let lag = self.exch.lag_ms(frame, rx);
-        if lag.is_some() && !self.core.raw.deliver(sender, fnv(frame), rx_ms) {
-            st.raw_copies += 1;
-            st.dups += 1;
-            return;
-        }
-        self.core.ensure_file(rx);
-        self.core.enc.raw(&mut self.core.block, rx, frame);
-        self.core.after_line(rx);
-        st.raw += 1;
-        st.rows += 1;
-        if let (true, Some(l)) = (settled, lag) {
-            #[allow(clippy::cast_possible_truncation)]
-            st.fresh.add(RAW, rx_ms, l.round() as i64);
-        }
     }
 
     fn send_out(&mut self) {
