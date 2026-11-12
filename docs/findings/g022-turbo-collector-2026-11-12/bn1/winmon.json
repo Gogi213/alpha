@@ -1,0 +1,32 @@
+{
+ "started": 1794475569.6053436,
+ "seconds": 180,
+ "units": {
+  "bnws-prod.service": {
+   "cpu_cores_mean": 2.025,
+   "cpu_cores_p95": 2.447,
+   "cpu_cores_max": 2.669,
+   "cpu_wait_some_frac_mean": 0.2913,
+   "cpu_wait_some_frac_max": 0.6062,
+   "recvq_max_bytes": 41225,
+   "recvq_samples": 8000,
+   "recvq_nonzero_samples": 837,
+   "recvq_nonzero_pct": 10.463,
+   "recvq_mean_bytes": 116.5,
+   "conns_max": 50
+  },
+  "turbo-bn1.service": {
+   "cpu_cores_mean": 0.732,
+   "cpu_cores_p95": 0.938,
+   "cpu_cores_max": 1.071,
+   "cpu_wait_some_frac_mean": 0.1954,
+   "cpu_wait_some_frac_max": 0.3614,
+   "recvq_max_bytes": 28960,
+   "recvq_samples": 8000,
+   "recvq_nonzero_samples": 212,
+   "recvq_nonzero_pct": 2.65,
+   "recvq_mean_bytes": 16.1,
+   "conns_max": 50
+  }
+ }
+}

@@ -5,7 +5,9 @@
 //! Размер очереди — секунды запаса при пиковой нагрузке; по `ring_depth_max` в health видно, что запас не тронут.
 
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError};
+use std::sync::mpsc::{
+    sync_channel, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -51,7 +53,16 @@ pub struct RingRx {
 
 pub fn ring(depth: &Arc<Depth>) -> (RingTx, RingRx) {
     let (tx, rx) = sync_channel(depth.cap);
-    (RingTx { tx, depth: Arc::clone(depth) }, RingRx { rx, depth: Arc::clone(depth) })
+    (
+        RingTx {
+            tx,
+            depth: Arc::clone(depth),
+        },
+        RingRx {
+            rx,
+            depth: Arc::clone(depth),
+        },
+    )
 }
 
 impl RingTx {
@@ -64,7 +75,10 @@ impl RingTx {
                 self.depth.full.fetch_add(1, Relaxed);
                 let t0 = Instant::now();
                 let r = self.tx.send(item);
-                self.depth.blocked_ns.fetch_add(u64::try_from(t0.elapsed().as_nanos()).unwrap_or(u64::MAX), Relaxed);
+                self.depth.blocked_ns.fetch_add(
+                    u64::try_from(t0.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                    Relaxed,
+                );
                 if r.is_err() {
                     self.depth.dec();
                 }

@@ -20,7 +20,7 @@ use super::budget::Budget;
 use super::events::{now_ms, EventLog};
 use super::exchange::{Entrance, Exchange, Family, ShardPlan};
 use super::metrics::{us_to_ms, Hist, ShardMetrics, WindowSnap, STATS_PERIOD_S};
-use super::path::{PathWatch, PROBE_MAX_REJECTS};
+use super::path::{PathWatch, PROBE_MAX_REJECTS, PROBE_S, PROBE_SKIP_S};
 use super::ring::{ring, Item, Payload};
 use super::session::{self, Outcome, Shared};
 use super::sink::{run_sink, sink_channel};
@@ -54,6 +54,8 @@ pub struct ShardOpts {
     pub switch_wait: Duration,
     pub tls: bool,
     pub port: u16,
+    /// Окно проверки нового пути: (пропуск, конец), секунды.
+    pub probe_window: (f64, f64),
 }
 
 impl ShardOpts {
@@ -70,6 +72,7 @@ impl ShardOpts {
             switch_wait: Duration::from_secs(120),
             tls: true,
             port: 443,
+            probe_window: (PROBE_SKIP_S, PROBE_S),
         }
     }
 }
@@ -84,7 +87,10 @@ struct Lane {
 
 impl Lane {
     fn current(&self) -> Entrance {
-        self.ents.get(self.idx.load(Relaxed) % self.ents.len().max(1)).cloned().unwrap_or_else(|| Entrance::new("", Family::Any))
+        self.ents
+            .get(self.idx.load(Relaxed) % self.ents.len().max(1))
+            .cloned()
+            .unwrap_or_else(|| Entrance::new("", Family::Any))
     }
 
     /// Следующий вход по кругу; событие и счётчик. Один вход — менять некуда.
@@ -94,7 +100,8 @@ impl Lane {
         }
         let from = self.current();
         let fails = self.fails.swap(0, Relaxed);
-        self.idx.store((self.idx.load(Relaxed) + 1) % self.ents.len(), Relaxed);
+        self.idx
+            .store((self.idx.load(Relaxed) + 1) % self.ents.len(), Relaxed);
         let to = self.current();
         sh.metrics.lists().entrance_switches.push_back(now_ms());
         sh.events.emit("entrance_switch", json!({"line": self.k, "reason": reason, "session": seq, "from": from.host, "to": to.host, "fails": fails}));
@@ -122,7 +129,13 @@ fn sleep_stop(sh: &Shared, d: Duration) {
 }
 
 /// Одна сессия с переподключением при сбое; отбракованный путь — новое соединение сразу (до `PROBE_MAX_REJECTS` подряд).
-fn session_forever(sh: &Shared, lane: &Lane, seq: u32, accepted: Option<&AtomicBool>, cancel: &AtomicBool) {
+fn session_forever(
+    sh: &Shared,
+    lane: &Lane,
+    seq: u32,
+    accepted: Option<&AtomicBool>,
+    cancel: &AtomicBool,
+) {
     let mut backoff = 1.0f64;
     let mut rejects = 0u32;
     loop {
@@ -154,7 +167,11 @@ fn session_forever(sh: &Shared, lane: &Lane, seq: u32, accepted: Option<&AtomicB
         sh.metrics.lists().reconnects.push_back(now_ms());
         let ran = t0.elapsed();
         lane.note_end(sh, seq, ran);
-        backoff = if ran > SHORT_SESSION { 1.0 } else { (backoff * 2.0).min(30.0) };
+        backoff = if ran > SHORT_SESSION {
+            1.0
+        } else {
+            (backoff * 2.0).min(30.0)
+        };
         sleep_stop(sh, Duration::from_secs_f64(backoff));
     }
 }
@@ -166,15 +183,28 @@ struct SessionThread {
     join: JoinHandle<()>,
 }
 
-fn spawn_session(sh: &Arc<Shared>, lane: &Arc<Lane>, seq: u32, accepted: Option<Arc<AtomicBool>>) -> Option<SessionThread> {
+fn spawn_session(
+    sh: &Arc<Shared>,
+    lane: &Arc<Lane>,
+    seq: u32,
+    accepted: Option<Arc<AtomicBool>>,
+) -> Option<SessionThread> {
     let cancel = Arc::new(AtomicBool::new(false));
     let (shc, lanec, cc) = (Arc::clone(sh), Arc::clone(lane), Arc::clone(&cancel));
-    let join = thread::Builder::new().name(format!("rx-{}-{seq}", sh.plan.name)).stack_size(STACK).spawn(move || {
+    let join = thread::Builder::new()
+        .name(format!("rx-{}-{seq}", sh.plan.name))
+        .stack_size(STACK)
+        .spawn(move || {
             shc.metrics.register_thread();
             session_forever(&shc, &lanec, seq, accepted.as_deref(), &cc);
         })
         .ok()?;
-    Some(SessionThread { seq, cancel, born: Instant::now(), join })
+    Some(SessionThread {
+        seq,
+        cancel,
+        born: Instant::now(),
+        join,
+    })
 }
 
 fn finish(s: SessionThread) {
@@ -185,7 +215,9 @@ fn finish(s: SessionThread) {
 /// Линия: живая сессия и смена без разрыва (возраст `max_age` или путь испортился).
 fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
     let mut seq = seq0;
-    let Some(mut cur) = spawn_session(sh, lane, seq, None) else { return };
+    let Some(mut cur) = spawn_session(sh, lane, seq, None) else {
+        return;
+    };
     while !sh.stop.load(Relaxed) {
         thread::sleep(Duration::from_millis(250));
         let bad = sh.watch().is_degraded(cur.seq);
@@ -197,7 +229,9 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             lane.switch(sh, "late_delivery", seq);
         }
         let accepted = Arc::new(AtomicBool::new(false));
-        let Some(nxt) = spawn_session(sh, lane, seq, Some(Arc::clone(&accepted))) else { continue };
+        let Some(nxt) = spawn_session(sh, lane, seq, Some(Arc::clone(&accepted))) else {
+            continue;
+        };
         let t0 = Instant::now();
         while !accepted.load(Relaxed) && !sh.stop.load(Relaxed) && t0.elapsed() < opts.switch_wait {
             thread::sleep(Duration::from_millis(100));
@@ -208,7 +242,10 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         sleep_stop(sh, opts.overlap);
         let old_seq = cur.seq;
         finish(cur);
-        sh.events.emit(if bad { "path_switch" } else { "rotated" }, json!({"old_session": old_seq, "new_session": seq}));
+        sh.events.emit(
+            if bad { "path_switch" } else { "rotated" },
+            json!({"old_session": old_seq, "new_session": seq}),
+        );
         if bad {
             sh.metrics.lists().path_switches.push_back(now_ms());
         }
@@ -241,7 +278,14 @@ pub fn spawn_shard(
     let metrics = ShardMetrics::new(&plan.name, now_ms(), opts.ring_cap, opts.sink_cap);
     let (rtx, rrx) = ring(&metrics.ring);
     let (stx, srx) = sink_channel(&metrics.sink_q);
-    let cfg = WriterCfg { root: opts.root.clone(), shard: plan.name.clone(), run_id: opts.run_id, flush: opts.flush, block_max: opts.block_max, clock: session::wall_ns };
+    let cfg = WriterCfg {
+        root: opts.root.clone(),
+        shard: plan.name.clone(),
+        run_id: opts.run_id,
+        flush: opts.flush,
+        block_max: opts.block_max,
+        clock: session::wall_ns,
+    };
     let writer = ShardWriter::new(cfg, Arc::clone(exch), Arc::clone(&metrics), stx, rrx);
     let sh = Arc::new(Shared {
         exch: Arc::clone(exch),
@@ -254,11 +298,19 @@ pub fn spawn_shard(
         stop: Arc::clone(stop),
         tls: opts.tls,
         port: opts.port,
+        probe_window: opts.probe_window,
     });
     let lanes: Vec<Arc<Lane>> = entrances
         .iter()
         .enumerate()
-        .map(|(k, ents)| Arc::new(Lane { k, ents: ents.clone(), idx: AtomicUsize::new(0), fails: AtomicU32::new(0) }))
+        .map(|(k, ents)| {
+            Arc::new(Lane {
+                k,
+                ents: ents.clone(),
+                idx: AtomicUsize::new(0),
+                fails: AtomicU32::new(0),
+            })
+        })
         .collect();
     let (name, opts) = (plan.name.clone(), opts.clone());
     let m2 = Arc::clone(&metrics);
@@ -291,7 +343,11 @@ pub fn spawn_shard(
                 .filter_map(|(k, lane)| {
                     let (shc, lc, oc) = (Arc::clone(&sh), Arc::clone(lane), opts.clone());
                     let seq0 = base.wrapping_add(u32::try_from(k).unwrap_or(0) * 1_000_000);
-                    thread::Builder::new().name(format!("ln-{}-{k}", sh.plan.name)).stack_size(STACK).spawn(move || lane_main(&shc, &lc, &oc, seq0)).ok()
+                    thread::Builder::new()
+                        .name(format!("ln-{}-{k}", sh.plan.name))
+                        .stack_size(STACK)
+                        .spawn(move || lane_main(&shc, &lc, &oc, seq0))
+                        .ok()
                 })
                 .collect();
             sh.metrics.register_thread();
@@ -301,7 +357,12 @@ pub fn spawn_shard(
             }
             sh.events.emit("stopped", serde_json::Value::Null);
             // все сессии закрыты и написали `closed`: писатель дочитывает очередь, закрывает файл суток
-            let _ = rtx.push(Item { rx_ns: session::wall_ns(), sender: 0, settled: true, payload: Payload::Shutdown });
+            let _ = rtx.push(Item {
+                rx_ns: session::wall_ns(),
+                sender: 0,
+                settled: true,
+                payload: Payload::Shutdown,
+            });
             if let Some(w) = wr {
                 let _ = w.join();
             }
@@ -310,7 +371,11 @@ pub fn spawn_shard(
             }
         })
         .ok()?;
-    Some(ShardHandle { name, metrics: m2, join })
+    Some(ShardHandle {
+        name,
+        metrics: m2,
+        join,
+    })
 }
 
 /// Надзор шарда до остановки: пауза данных (gap — только диагностика), строка статистики и сторож пути раз в период.
@@ -340,7 +405,10 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                 in_gap = true;
                 m.lists().gaps.push_back(now_ms());
                 let loop_late = late.iter().copied().fold(0.0, f64::max);
-                sh.events.emit("gap", json!({"loop_late_ms": (loop_late * 1000.0).round(), "gap_ms": gap}));
+                sh.events.emit(
+                    "gap",
+                    json!({"loop_late_ms": (loop_late * 1000.0).round(), "gap_ms": gap}),
+                );
             } else if gap <= GAP_TIMEOUT_MS {
                 in_gap = false;
             }
@@ -353,9 +421,14 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
             let w = m.take_window(now_ms(), max_gap);
             max_gap = 0;
             let cpu = m.cpu_seconds();
-            let cpu_frac = (cpu - cpu_prev.1).max(0.0) / cpu_prev.0.elapsed().as_secs_f64().max(1e-3);
+            let cpu_frac =
+                (cpu - cpu_prev.1).max(0.0) / cpu_prev.0.elapsed().as_secs_f64().max(1e-3);
             cpu_prev = (Instant::now(), cpu);
-            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&stats_path) {
+            if let Ok(mut f) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&stats_path)
+            {
                 let _ = writeln!(f, "{}", stats_line(m, &w, cpu_frac));
             }
             m.lists().trim(now_ms());

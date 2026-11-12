@@ -12,8 +12,9 @@ use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{lag_ms, Entrance, Exchange, Family, Parsed, Parser, ShardPlan};
+use super::hash::fnv;
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
-use super::scan::{each_elem, parse_i64, parse_object, single_pair, Obj, Val};
+use super::scan::{each_elem, parse_i64, parse_object, pick, single_pair, Obj, Val};
 
 const REST: &str = "https://api.bybit.com";
 const PATH: &str = "/v5/public/linear";
@@ -53,7 +54,10 @@ struct Small {
 }
 
 impl Small {
-    const EMPTY: Small = Small { b: [0; MARK_CAP], n: 0 };
+    const EMPTY: Small = Small {
+        b: [0; MARK_CAP],
+        n: 0,
+    };
 
     fn set(&mut self, s: &[u8]) -> Option<()> {
         let dst = self.b.get_mut(..s.len())?;
@@ -77,8 +81,6 @@ struct MarkState {
     next: Small,
 }
 
-const MARK_KEYS: [&[u8]; 4] = [b"markPrice", b"indexPrice", b"fundingRate", b"nextFundingTime"];
-
 struct BybitParser {
     marks: HashMap<Box<[u8]>, MarkState>,
 }
@@ -96,7 +98,8 @@ impl MarkState {
 
 impl Parser for BybitParser {
     fn parse(&mut self, frame: &[u8], emit: &mut dyn FnMut(&Rec<'_>)) -> Parsed {
-        self.parse_frame(frame, emit).map_or(Parsed::Raw, Parsed::Recs)
+        self.parse_frame(frame, emit)
+            .map_or(Parsed::Raw, Parsed::Recs)
     }
 }
 
@@ -123,16 +126,34 @@ impl BybitParser {
             return None;
         }
         let x = parse_object(data.raw()?)?;
-        let [s, b, a, u, _seq] = slots(&x, [b"s", b"b", b"a", b"u", b"seq"])?;
+        let [s, b, a, u, seq] = slots(&x, [b"s", b"b", b"a", b"u", b"seq"])?;
         let (bid, bsz) = single_pair(b.raw()?)?;
         let (ask, asz) = single_pair(a.raw()?)?;
-        Some(Book { sym: s.str()?, e: ts.int()?, t: cts.int()?, u: u.int()?, bid, bsz, ask, asz })
+        // `u` Bybit у каждого входа (com, kz, …) считается своим счётчиком: одно и то же состояние книги приходит с разными `u`
+        // и одинаковым сквозным `seq` (замер 12.11, захват кадров двух линий) — в файл и в личность идёт `seq`; `u` только проверяется
+        u.int()?;
+        Some(Book {
+            sym: s.str()?,
+            e: ts.int()?,
+            t: cts.int()?,
+            u: seq.int()?,
+            id: seq.int()?,
+            bid,
+            bsz,
+            ask,
+            asz,
+        })
     }
 
     /// Одна сделка пачки: ключи ровно как ожидается, `BT`/`RPI` ложны, сторона Buy/Sell.
     fn fill<'a>(elem: &'a [u8], ts: i64, seq_idx: i64) -> Option<Trade<'a>> {
         let o = parse_object(elem)?;
-        let [t, s, side, v, p, _l, _i, bt, rpi, seq] = slots(&o, [b"T", b"s", b"S", b"v", b"p", b"L", b"i", b"BT", b"RPI", b"seq"])?;
+        let [t, s, side, v, p, _l, uuid, bt, rpi, seq] = slots(
+            &o,
+            [
+                b"T", b"s", b"S", b"v", b"p", b"L", b"i", b"BT", b"RPI", b"seq",
+            ],
+        )?;
         if bt.boolean()? || rpi.boolean()? {
             return None;
         }
@@ -143,7 +164,20 @@ impl BybitParser {
         };
         let a = seq.int()?.checked_mul(TRADE_SLOT)?.checked_add(seq_idx)?;
         // m: покупатель — мейкер, т.е. тейкер продаёт
-        Some(Trade { sym: s.str()?, e: ts, t: t.int()?, a, p: p.str()?, q: v.str()?, f: a, l: a, m: sell, nq: v.str()? })
+        Some(Trade {
+            sym: s.str()?,
+            e: ts,
+            t: t.int()?,
+            a,
+            // `a = seq·1000 + номер в пачке` у входов может различаться для одной сделки (нарезка пачек): личность — UUID сделки
+            id: i64::from_ne_bytes(fnv(uuid.str()?).to_ne_bytes()),
+            p: p.str()?,
+            q: v.str()?,
+            f: a,
+            l: a,
+            m: sell,
+            nq: v.str()?,
+        })
     }
 
     fn trades(top: &Obj<'_>, emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
@@ -173,24 +207,43 @@ impl BybitParser {
     fn tickers(&mut self, top: &Obj<'_>, emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
         let ts = top.get(b"ts")?.int()?;
         let ty = top.get(b"type")?.str()?;
-        let x = parse_object(top.get(b"data")?.raw()?)?;
-        let sym = x.get(b"symbol")?.str()?;
+        // в `data` десятки полей (цены, объёмы, стакан): нужны символ и четыре поля mark
+        let [sym, mark, index, funding, next] = pick(
+            top.get(b"data")?.raw()?,
+            [
+                b"symbol",
+                b"markPrice",
+                b"indexPrice",
+                b"fundingRate",
+                b"nextFundingTime",
+            ],
+        )?;
+        let sym = sym?.str()?;
+        let vals = [mark, index, funding, next];
         let st = if ty == b"snapshot" {
-            let mut st = MarkState { ts, mark: Small::EMPTY, index: Small::EMPTY, funding: Small::EMPTY, next: Small::EMPTY };
-            for (i, k) in MARK_KEYS.iter().enumerate() {
-                st.slot(i).set(x.get(k)?.str()?)?;
+            let mut st = MarkState {
+                ts,
+                mark: Small::EMPTY,
+                index: Small::EMPTY,
+                funding: Small::EMPTY,
+                next: Small::EMPTY,
+            };
+            for (i, v) in vals.iter().enumerate() {
+                st.slot(i).set(v.as_ref()?.str()?)?;
             }
             self.marks.insert(sym.into(), st);
             self.marks.get(sym)?
         } else if ty == b"delta" {
             // дельта до снапшота или запоздавшая с другого пути: состояние не портим, писать нечего
-            let Some(st) = self.marks.get_mut(sym) else { return Some(0) };
-            if ts < st.ts || !MARK_KEYS.iter().any(|k| x.get(k).is_some()) {
+            let Some(st) = self.marks.get_mut(sym) else {
+                return Some(0);
+            };
+            if ts < st.ts || vals.iter().all(Option::is_none) {
                 return Some(0);
             }
             st.ts = ts;
-            for (i, k) in MARK_KEYS.iter().enumerate() {
-                if let Some(v) = x.get(k) {
+            for (i, v) in vals.iter().enumerate() {
+                if let Some(v) = v {
                     st.slot(i).set(v.str()?)?;
                 }
             }
@@ -202,7 +255,16 @@ impl BybitParser {
             [] => 0,
             s => parse_i64(s)?,
         };
-        emit(&Rec::Mark(Mark { sym, e: ts, p: st.mark.get(), ap: b"", pp: b"", i: st.index.get(), r: st.funding.get(), t: next }));
+        emit(&Rec::Mark(Mark {
+            sym,
+            e: ts,
+            p: st.mark.get(),
+            ap: b"",
+            pp: b"",
+            i: st.index.get(),
+            r: st.funding.get(),
+            t: next,
+        }));
         Some(1)
     }
 }
@@ -229,10 +291,18 @@ impl Exchange for Bybit {
                 "mark" => "tickers.",
                 _ => continue,
             };
-            let per = if per_conn == 0 { self.per_conn(kind) } else { per_conn };
+            let per = if per_conn == 0 {
+                self.per_conn(kind)
+            } else {
+                per_conn
+            };
             let topics: Vec<String> = pool.iter().map(|s| format!("{prefix}{s}")).collect();
             for (i, chunk) in balanced_chunks(&topics, per).into_iter().enumerate() {
-                out.push(ShardPlan { name: format!("{kind}{i:02}"), endpoint: "linear".into(), streams: chunk });
+                out.push(ShardPlan {
+                    name: format!("{kind}{i:02}"),
+                    endpoint: "linear".into(),
+                    streams: chunk,
+                });
             }
         }
         out
@@ -245,12 +315,26 @@ impl Exchange for Bybit {
     /// Линия 0 — `stream.bybit.com` по IPv4, линия 1 — `stream.bybit.kz`; запасной вход линии — основной другой линии
     /// (оба измерены в TK-532: 0 ошибок за 2 ч 53 мин).
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
-        let (com, kz) = (Entrance::new(HOST_COM, Family::V4), Entrance::new(HOST_KZ, Family::V4));
-        (0..lanes).map(|k| if k % 2 == 0 { vec![com.clone(), kz.clone()] } else { vec![kz.clone(), com.clone()] }).collect()
+        let (com, kz) = (
+            Entrance::new(HOST_COM, Family::V4),
+            Entrance::new(HOST_KZ, Family::V4),
+        );
+        (0..lanes)
+            .map(|k| {
+                if k % 2 == 0 {
+                    vec![com.clone(), kz.clone()]
+                } else {
+                    vec![kz.clone(), com.clone()]
+                }
+            })
+            .collect()
     }
 
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
-        streams.chunks(SUB_BATCH).map(|c| json!({"op": "subscribe", "args": c}).to_string()).collect()
+        streams
+            .chunks(SUB_BATCH)
+            .map(|c| json!({"op": "subscribe", "args": c}).to_string())
+            .collect()
     }
 
     fn sub_period(&self) -> Duration {
@@ -258,7 +342,9 @@ impl Exchange for Bybit {
     }
 
     fn new_parser(&self) -> Box<dyn Parser> {
-        Box::new(BybitParser { marks: HashMap::new() })
+        Box::new(BybitParser {
+            marks: HashMap::new(),
+        })
     }
 
     fn lag_ms(&self, frame: &[u8], rx_ns: i64) -> Option<f64> {
@@ -272,30 +358,62 @@ impl Exchange for Bybit {
         rest.get(..end)?.rsplit(|&c| c == b'.').next()
     }
 
-    fn load_pool(&self, min_qv: f64, top_exclude: usize) -> Result<(Vec<String>, Vec<String>), String> {
+    fn load_pool(
+        &self,
+        min_qv: f64,
+        top_exclude: usize,
+    ) -> Result<(Vec<String>, Vec<String>), String> {
         let mut instruments = Vec::new();
         let mut cursor = String::new();
         loop {
-            let suffix = if cursor.is_empty() { String::new() } else { format!("&cursor={cursor}") };
-            let page = http_get_json(&format!("{REST}/v5/market/instruments-info?category=linear&limit=1000{suffix}"))?;
+            let suffix = if cursor.is_empty() {
+                String::new()
+            } else {
+                format!("&cursor={cursor}")
+            };
+            let page = http_get_json(&format!(
+                "{REST}/v5/market/instruments-info?category=linear&limit=1000{suffix}"
+            ))?;
             let result = page.get("result").ok_or("instruments-info: нет result")?;
-            instruments.extend(result.get("list").and_then(|x| x.as_array()).cloned().unwrap_or_default());
-            cursor = result.get("nextPageCursor").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            instruments.extend(
+                result
+                    .get("list")
+                    .and_then(|x| x.as_array())
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            cursor = result
+                .get("nextPageCursor")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             if cursor.is_empty() {
                 break;
             }
         }
         let tickers = http_get_json(&format!("{REST}/v5/market/tickers?category=linear"))?;
-        let list = tickers.get("result").and_then(|r| r.get("list")).cloned().unwrap_or_default();
+        let list = tickers
+            .get("result")
+            .and_then(|r| r.get("list"))
+            .cloned()
+            .unwrap_or_default();
         Ok(select_pool(&instruments, &list, min_qv, top_exclude))
     }
 }
 
 /// `instruments` — instruments-info['list'], `tickers` — tickers['list'] (turnover24h, $).
-pub fn select_pool(instruments: &[serde_json::Value], tickers: &serde_json::Value, min_qv: f64, top_exclude: usize) -> (Vec<String>, Vec<String>) {
+pub fn select_pool(
+    instruments: &[serde_json::Value],
+    tickers: &serde_json::Value,
+    min_qv: f64,
+    top_exclude: usize,
+) -> (Vec<String>, Vec<String>) {
     let mut qv: BTreeMap<String, f64> = BTreeMap::new();
     for t in tickers.as_array().into_iter().flatten() {
-        let v = t.get("turnover24h").and_then(|x| x.as_str()).and_then(|x| x.parse::<f64>().ok());
+        let v = t
+            .get("turnover24h")
+            .and_then(|x| x.as_str())
+            .and_then(|x| x.parse::<f64>().ok());
         if let (Some(sym), Some(v)) = (t.get("symbol").and_then(|x| x.as_str()), v) {
             if v >= 0.0 {
                 qv.insert(sym.to_string(), v);

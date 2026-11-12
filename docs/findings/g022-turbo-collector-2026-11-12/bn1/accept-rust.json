@@ -1,0 +1,669 @@
+{
+ "window_ms": [
+  1794475569455,
+  1794475750680
+ ],
+ "dials": 0,
+ "dials_5min_max": 0,
+ "events": {},
+ "events_detail": {},
+ "disk_stream": {
+  "b": {
+   "n": 512223,
+   "lag_ms": {
+    "p50": 115,
+    "p99": 209,
+    "max": 598
+   },
+   "lag_p50_10s_max": 115,
+   "max_pause_ms": 23
+  },
+  "t": {
+   "n": 66029,
+   "lag_ms": {
+    "p50": 114,
+    "p99": 208,
+    "max": 262
+   },
+   "lag_p50_10s_max": 115,
+   "max_pause_ms": 60
+  },
+  "m": {
+   "n": 42897,
+   "lag_ms": {
+    "p50": 159,
+    "p99": 191,
+    "max": 197
+   },
+   "lag_p50_10s_max": 171,
+   "max_pause_ms": 1044
+  }
+ },
+ "shards": {
+  "trade01": {
+   "windows": 18,
+   "msgs": 8192,
+   "max_gap_ms": 594,
+   "lag_p50_ms_median": 113.7,
+   "lag_p50_ms_max": 113.7,
+   "lag_p99_ms_max": 137.2,
+   "cpu_frac_max": 0.014
+  },
+  "book12": {
+   "windows": 18,
+   "msgs": 18600,
+   "max_gap_ms": 363,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 141.3,
+   "cpu_frac_max": 0.025
+  },
+  "book15": {
+   "windows": 18,
+   "msgs": 54468,
+   "max_gap_ms": 153,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 323.6,
+   "cpu_frac_max": 0.061
+  },
+  "trade02": {
+   "windows": 18,
+   "msgs": 14702,
+   "max_gap_ms": 405,
+   "lag_p50_ms_median": 113.7,
+   "lag_p50_ms_max": 113.7,
+   "lag_p99_ms_max": 130.0,
+   "cpu_frac_max": 0.02
+  },
+  "mark00": {
+   "windows": 18,
+   "msgs": 720,
+   "max_gap_ms": 847,
+   "lag_p50_ms_median": 157.7,
+   "lag_p50_ms_max": 161.8,
+   "lag_p99_ms_max": 198.7,
+   "cpu_frac_max": 0.021
+  },
+  "book05": {
+   "windows": 18,
+   "msgs": 91602,
+   "max_gap_ms": 102,
+   "lag_p50_ms_median": 113.7,
+   "lag_p50_ms_max": 113.7,
+   "lag_p99_ms_max": 141.3,
+   "cpu_frac_max": 0.071
+  },
+  "trade05": {
+   "windows": 18,
+   "msgs": 11204,
+   "max_gap_ms": 442,
+   "lag_p50_ms_median": 113.7,
+   "lag_p50_ms_max": 113.7,
+   "lag_p99_ms_max": 133.1,
+   "cpu_frac_max": 0.013
+  },
+  "book01": {
+   "windows": 18,
+   "msgs": 74779,
+   "max_gap_ms": 241,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 161.8,
+   "lag_p99_ms_max": 630.8,
+   "cpu_frac_max": 0.049
+  },
+  "book13": {
+   "windows": 18,
+   "msgs": 58722,
+   "max_gap_ms": 168,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 137.2,
+   "cpu_frac_max": 0.056
+  },
+  "book09": {
+   "windows": 18,
+   "msgs": 54356,
+   "max_gap_ms": 192,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 219.1,
+   "cpu_frac_max": 0.054
+  },
+  "book08": {
+   "windows": 18,
+   "msgs": 58729,
+   "max_gap_ms": 167,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 145.4,
+   "cpu_frac_max": 0.052
+  },
+  "book03": {
+   "windows": 18,
+   "msgs": 24818,
+   "max_gap_ms": 252,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 153.6,
+   "cpu_frac_max": 0.027
+  },
+  "book10": {
+   "windows": 18,
+   "msgs": 77416,
+   "max_gap_ms": 123,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 141.3,
+   "cpu_frac_max": 0.051
+  },
+  "book02": {
+   "windows": 18,
+   "msgs": 64849,
+   "max_gap_ms": 151,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 141.3,
+   "cpu_frac_max": 0.049
+  },
+  "trade04": {
+   "windows": 18,
+   "msgs": 18714,
+   "max_gap_ms": 448,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 170.0,
+   "lag_p99_ms_max": 581.6,
+   "cpu_frac_max": 0.018
+  },
+  "book00": {
+   "windows": 18,
+   "msgs": 98369,
+   "max_gap_ms": 54,
+   "lag_p50_ms_median": 113.7,
+   "lag_p50_ms_max": 113.7,
+   "lag_p99_ms_max": 202.8,
+   "cpu_frac_max": 0.076
+  },
+  "trade00": {
+   "windows": 18,
+   "msgs": 16068,
+   "max_gap_ms": 298,
+   "lag_p50_ms_median": 153.6,
+   "lag_p50_ms_max": 165.9,
+   "lag_p99_ms_max": 223.2,
+   "cpu_frac_max": 0.019
+  },
+  "book06": {
+   "windows": 18,
+   "msgs": 27902,
+   "max_gap_ms": 306,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 174.1,
+   "lag_p99_ms_max": 565.2,
+   "cpu_frac_max": 0.028
+  },
+  "book07": {
+   "windows": 18,
+   "msgs": 186546,
+   "max_gap_ms": 91,
+   "lag_p50_ms_median": 149.5,
+   "lag_p50_ms_max": 170.0,
+   "lag_p99_ms_max": 282.6,
+   "cpu_frac_max": 0.131
+  },
+  "book04": {
+   "windows": 18,
+   "msgs": 61160,
+   "max_gap_ms": 95,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 307.2,
+   "cpu_frac_max": 0.048
+  },
+  "trade06": {
+   "windows": 18,
+   "msgs": 6844,
+   "max_gap_ms": 699,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 133.1,
+   "cpu_frac_max": 0.01
+  },
+  "book11": {
+   "windows": 18,
+   "msgs": 47442,
+   "max_gap_ms": 131,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 137.2,
+   "cpu_frac_max": 0.043
+  },
+  "book14": {
+   "windows": 18,
+   "msgs": 60616,
+   "max_gap_ms": 150,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 331.8,
+   "cpu_frac_max": 0.05
+  },
+  "trade03": {
+   "windows": 18,
+   "msgs": 50514,
+   "max_gap_ms": 61,
+   "lag_p50_ms_median": 115.7,
+   "lag_p50_ms_max": 115.7,
+   "lag_p99_ms_max": 130.0,
+   "cpu_frac_max": 0.058
+  },
+  "trade07": {
+   "windows": 18,
+   "msgs": 11036,
+   "max_gap_ms": 539,
+   "lag_p50_ms_median": 113.7,
+   "lag_p50_ms_max": 113.7,
+   "lag_p99_ms_max": 182.3,
+   "cpu_frac_max": 0.016
+  }
+ },
+ "records": {
+  "b": 512223,
+  "t": 66029,
+  "m": 42897,
+  "g": 1809,
+  "c": 0,
+  "r": 181
+ },
+ "sequence_checks": {
+  "book_u_not_increasing": 0,
+  "trade_a_not_increasing": 0,
+  "trade_a_gaps": 0,
+  "trade_a_gap_ids": 0,
+  "mark_E_not_increasing": 0
+ },
+ "ping_ms": {
+  "n": 1809,
+  "p50": 301.454,
+  "p99": 426.191,
+  "max": 780.279
+ },
+ "raw_samples": [
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794475570000,\"s\":\"BTCUSDT\",\"p\":\"73398.48970290\",\"ap\":\"73398.48970290\",\"P\":\"73430.05150810\",\"i\":\"73421.51913043\",\"r\":\"0.00004012\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794475571001,\"s\":\"BTCUSDT\",\"p\":\"73393.32013768\",\"ap\":\"73393.32013768\",\"P\":\"73429.76043068\",\"i\":\"73416.34956522\",\"r\":\"0.00004012\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794475572000,\"s\":\"BTCUSDT\",\"p\":\"73393.76492029\",\"ap\":\"73393.76492029\",\"P\":\"73429.74082054\",\"i\":\"73416.79434783\",\"r\":\"0.00004012\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794475573000,\"s\":\"BTCUSDT\",\"p\":\"73393.76492029\",\"ap\":\"73393.76492029\",\"P\":\"73429.60015991\",\"i\":\"73416.79434783\",\"r\":\"0.00004012\",\"T\":1",
+  "{\"stream\":\"!markPrice@arr@1s\",\"data\":[{\"e\":\"markPriceUpdate\",\"E\":1794475574000,\"s\":\"BTCUSDT\",\"p\":\"73393.76274638\",\"ap\":\"73393.76274638\",\"P\":\"73429.45007516\",\"i\":\"73416.79217391\",\"r\":\"0.00004012\",\"T\":1"
+ ],
+ "disk_bytes": 18093603,
+ "health": {
+  "backpressure": {
+   "queue_lag_ms": {
+    "p50": 0.1,
+    "p99": 3.1,
+    "window_s": 60
+   },
+   "reader": {
+    "busy_max_us": 12388,
+    "handoff_max_us": 9528
+   },
+   "recv_q": {
+    "behind_pct": 3.39,
+    "max_bytes": 12632,
+    "samples": 3363
+   },
+   "ring": {
+    "blocked_ms_total": 0,
+    "cap": 32768,
+    "depth_max": 74,
+    "full_events_total": 0,
+    "full_events_window": 0
+   },
+   "sink": {
+    "cap": 64,
+    "depth_max": 1,
+    "write_max_ms": 8.7
+   },
+   "window_s": 10
+  },
+  "exchange": "binance",
+  "fresh": {
+   "kinds": {
+    "book": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 676,
+     "max_24h_ms": 676
+    },
+    "mark": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 197,
+     "max_24h_ms": 197
+    },
+    "raw": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 218,
+     "max_24h_ms": 218
+    },
+    "trade": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 614,
+     "max_24h_ms": 614
+    }
+   },
+   "late_ms": 2000
+  },
+  "lag_in_by_kind_ms": {
+   "book": {
+    "p50": 115.7,
+    "p99": 202.8,
+    "window_s": 60
+   },
+   "mark": {
+    "p50": 161.8,
+    "p99": 182.3,
+    "window_s": 60
+   },
+   "trade": {
+    "p50": 115.7,
+    "p99": 190.5,
+    "window_s": 60
+   }
+  },
+  "lag_in_ms": {
+   "p50": 115.7,
+   "p99": 202.8,
+   "window_s": 60
+  },
+  "lag_out_ms": {
+   "p50": 178.2,
+   "p99": 219.1,
+   "window_s": 60
+  },
+  "last_frame_ms": 1794475793342,
+  "last_write_ms": 1794475793322,
+  "process": {
+   "cpu_by_class": {
+    "alpha": 1.42,
+    "ln": 0.0,
+    "rx": 0.0,
+    "sh": 0.0,
+    "signals": 0.0,
+    "sk": 0.0,
+    "wr": 0.0
+   },
+   "cpu_cores": 2.367,
+   "hot_thread": {
+    "cores": 1.42,
+    "name": "alpha-turbo-1"
+   },
+   "rss_mb": 123.539,
+   "sched_wait_cores": -6918.408,
+   "threads": 126,
+   "version": "unknown"
+  },
+  "schema": 2,
+  "shards": [
+   {
+    "busy_max_us": 5003,
+    "connected": 0,
+    "lag_in_p99_ms": 128.0,
+    "msgs_10s": 5064,
+    "recvq_max": 1916,
+    "ring_depth_max": 27,
+    "shard": "book00"
+   },
+   {
+    "busy_max_us": 3002,
+    "connected": 0,
+    "lag_in_p99_ms": 128.0,
+    "msgs_10s": 3478,
+    "recvq_max": 2800,
+    "ring_depth_max": 32,
+    "shard": "book01"
+   },
+   {
+    "busy_max_us": 4621,
+    "connected": 0,
+    "lag_in_p99_ms": 133.1,
+    "msgs_10s": 1632,
+    "recvq_max": 1286,
+    "ring_depth_max": 36,
+    "shard": "book02"
+   },
+   {
+    "busy_max_us": 2313,
+    "connected": 0,
+    "lag_in_p99_ms": 133.1,
+    "msgs_10s": 852,
+    "recvq_max": 0,
+    "ring_depth_max": 7,
+    "shard": "book03"
+   },
+   {
+    "busy_max_us": 4669,
+    "connected": 0,
+    "lag_in_p99_ms": 215.0,
+    "msgs_10s": 3307,
+    "recvq_max": 12632,
+    "ring_depth_max": 74,
+    "shard": "book04"
+   },
+   {
+    "busy_max_us": 12388,
+    "connected": 0,
+    "lag_in_p99_ms": 126.0,
+    "msgs_10s": 5058,
+    "recvq_max": 1336,
+    "ring_depth_max": 32,
+    "shard": "book05"
+   },
+   {
+    "busy_max_us": 6037,
+    "connected": 0,
+    "lag_in_p99_ms": 282.6,
+    "msgs_10s": 1192,
+    "recvq_max": 0,
+    "ring_depth_max": 20,
+    "shard": "book06"
+   },
+   {
+    "busy_max_us": 6131,
+    "connected": 0,
+    "lag_in_p99_ms": 141.3,
+    "msgs_10s": 9564,
+    "recvq_max": 7536,
+    "ring_depth_max": 54,
+    "shard": "book07"
+   },
+   {
+    "busy_max_us": 5040,
+    "connected": 0,
+    "lag_in_p99_ms": 133.1,
+    "msgs_10s": 3253,
+    "recvq_max": 1396,
+    "ring_depth_max": 26,
+    "shard": "book08"
+   },
+   {
+    "busy_max_us": 4127,
+    "connected": 0,
+    "lag_in_p99_ms": 223.2,
+    "msgs_10s": 2069,
+    "recvq_max": 1815,
+    "ring_depth_max": 35,
+    "shard": "book09"
+   },
+   {
+    "busy_max_us": 5969,
+    "connected": 0,
+    "lag_in_p99_ms": 123.9,
+    "msgs_10s": 2390,
+    "recvq_max": 654,
+    "ring_depth_max": 43,
+    "shard": "book10"
+   },
+   {
+    "busy_max_us": 4399,
+    "connected": 0,
+    "lag_in_p99_ms": 128.0,
+    "msgs_10s": 2276,
+    "recvq_max": 840,
+    "ring_depth_max": 32,
+    "shard": "book11"
+   },
+   {
+    "busy_max_us": 4601,
+    "connected": 1,
+    "lag_in_p99_ms": 123.9,
+    "msgs_10s": 850,
+    "recvq_max": 0,
+    "ring_depth_max": 9,
+    "shard": "book12"
+   },
+   {
+    "busy_max_us": 9528,
+    "connected": 0,
+    "lag_in_p99_ms": 145.4,
+    "msgs_10s": 1835,
+    "recvq_max": 1553,
+    "ring_depth_max": 21,
+    "shard": "book13"
+   },
+   {
+    "busy_max_us": 4793,
+    "connected": 0,
+    "lag_in_p99_ms": 126.0,
+    "msgs_10s": 3174,
+    "recvq_max": 3604,
+    "ring_depth_max": 32,
+    "shard": "book14"
+   },
+   {
+    "busy_max_us": 5712,
+    "connected": 1,
+    "lag_in_p99_ms": 133.1,
+    "msgs_10s": 1811,
+    "recvq_max": 5700,
+    "ring_depth_max": 46,
+    "shard": "book15"
+   },
+   {
+    "busy_max_us": 5101,
+    "connected": 0,
+    "lag_in_p99_ms": 153.6,
+    "msgs_10s": 851,
+    "recvq_max": 1155,
+    "ring_depth_max": 24,
+    "shard": "trade00"
+   },
+   {
+    "busy_max_us": 5156,
+    "connected": 0,
+    "lag_in_p99_ms": 133.1,
+    "msgs_10s": 371,
+    "recvq_max": 0,
+    "ring_depth_max": 7,
+    "shard": "trade01"
+   },
+   {
+    "busy_max_us": 2521,
+    "connected": 0,
+    "lag_in_p99_ms": 121.9,
+    "msgs_10s": 778,
+    "recvq_max": 0,
+    "ring_depth_max": 23,
+    "shard": "trade02"
+   },
+   {
+    "busy_max_us": 3584,
+    "connected": 0,
+    "lag_in_p99_ms": 123.9,
+    "msgs_10s": 1879,
+    "recvq_max": 3795,
+    "ring_depth_max": 27,
+    "shard": "trade03"
+   },
+   {
+    "busy_max_us": 3766,
+    "connected": 0,
+    "lag_in_p99_ms": 206.8,
+    "msgs_10s": 614,
+    "recvq_max": 0,
+    "ring_depth_max": 21,
+    "shard": "trade04"
+   },
+   {
+    "busy_max_us": 1881,
+    "connected": 2,
+    "lag_in_p99_ms": 121.9,
+    "msgs_10s": 542,
+    "recvq_max": 1278,
+    "ring_depth_max": 21,
+    "shard": "trade05"
+   },
+   {
+    "busy_max_us": 1706,
+    "connected": 2,
+    "lag_in_p99_ms": 121.9,
+    "msgs_10s": 288,
+    "recvq_max": 0,
+    "ring_depth_max": 6,
+    "shard": "trade06"
+   },
+   {
+    "busy_max_us": 1734,
+    "connected": 1,
+    "lag_in_p99_ms": 123.9,
+    "msgs_10s": 586,
+    "recvq_max": 0,
+    "ring_depth_max": 17,
+    "shard": "trade07"
+   },
+   {
+    "busy_max_us": 2328,
+    "connected": 2,
+    "lag_in_p99_ms": 182.3,
+    "msgs_10s": 40,
+    "recvq_max": 0,
+    "ring_depth_max": 2,
+    "shard": "mark00"
+   }
+  ],
+  "started_ms": 1794475502977,
+  "symbols": {
+   "subscribed": 511,
+   "with_data_1m": 509
+  },
+  "totals": {
+   "dups": 1033239,
+   "files_closed": 0,
+   "raw": 339,
+   "raw_copies": 288,
+   "records": 1036884,
+   "rows": 1040209,
+   "rx_clamped": 1925,
+   "sink_errors": 0
+  },
+  "ts_ms": 1794475793348,
+  "ws": {
+   "connections": 9,
+   "entrance_switches_1h": 0,
+   "entrance_switches_24h": 0,
+   "gaps_1h": 0,
+   "gaps_24h": 0,
+   "path_switches_1h": 0,
+   "path_switches_24h": 0,
+   "ping_ms": {
+    "max": 620.6,
+    "p50": 308.7
+   },
+   "reconnects_1h": 0,
+   "reconnects_24h": 0,
+   "timeouts_1h": 0,
+   "timeouts_24h": 0
+  }
+ }
+}

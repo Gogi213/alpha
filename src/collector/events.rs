@@ -11,7 +11,9 @@ use std::sync::Mutex;
 use serde_json::{json, Map, Value};
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 pub struct EventLog {
@@ -21,8 +23,17 @@ pub struct EventLog {
 
 impl EventLog {
     pub fn open(root: &Path, shard: &str) -> Self {
-        let file = std::fs::create_dir_all(root).ok().and_then(|()| OpenOptions::new().create(true).append(true).open(root.join(format!("events-{shard}.jsonl"))).ok());
-        Self { shard: shard.to_string(), file: Mutex::new(file) }
+        let file = std::fs::create_dir_all(root).ok().and_then(|()| {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(root.join(format!("events-{shard}.jsonl")))
+                .ok()
+        });
+        Self {
+            shard: shard.to_string(),
+            file: Mutex::new(file),
+        }
     }
 
     /// Событие `ev` с дополнительными полями (`fields` — объект JSON или `Null`).
@@ -36,7 +47,12 @@ impl EventLog {
         m.insert("shard".into(), json!(self.shard));
         let mut line = Value::Object(m).to_string();
         line.push('\n');
-        if let Some(f) = self.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
+        if let Some(f) = self
+            .file
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_mut()
+        {
             let _ = f.write_all(line.as_bytes());
         }
     }

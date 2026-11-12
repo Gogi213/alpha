@@ -53,7 +53,9 @@ impl Fresh {
     pub fn add(&mut self, kind: usize, rx_ms: i64, lag_ms: i64) {
         let minute = rx_ms.div_euclid(BUCKET_MS);
         let late = u64::from(lag_ms > LATE_MS);
-        let (Some(cur), Some(done)) = (self.cur.get_mut(kind), self.done.get_mut(kind)) else { return };
+        let (Some(cur), Some(done)) = (self.cur.get_mut(kind), self.done.get_mut(kind)) else {
+            return;
+        };
         match cur {
             Some(b) if b.minute == minute => {
                 b.late += late;
@@ -61,9 +63,19 @@ impl Fresh {
             }
             Some(b) => {
                 done.push_back(*b);
-                *b = Bucket { minute, late, max_lag: lag_ms };
+                *b = Bucket {
+                    minute,
+                    late,
+                    max_lag: lag_ms,
+                };
             }
-            None => *cur = Some(Bucket { minute, late, max_lag: lag_ms }),
+            None => {
+                *cur = Some(Bucket {
+                    minute,
+                    late,
+                    max_lag: lag_ms,
+                })
+            }
         }
     }
 
@@ -71,7 +83,10 @@ impl Fresh {
     pub fn fragment(&mut self, kind: usize, now_ms: i64) -> Option<KindFresh> {
         let (hour, day) = (now_ms - HOUR_MS, now_ms - DAY_MS);
         let done = self.done.get_mut(kind)?;
-        while done.front().is_some_and(|b| (b.minute + 1) * BUCKET_MS <= day) {
+        while done
+            .front()
+            .is_some_and(|b| (b.minute + 1) * BUCKET_MS <= day)
+        {
             done.pop_front();
         }
         let cur = self.cur.get(kind).copied().flatten();

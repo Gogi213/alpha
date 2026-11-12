@@ -1,7 +1,8 @@
-//! Общий для всех шардов процесса бюджет подключений: не больше `limit` TCP-подключений к бирже за скользящие `window`.
+//! Общий для всех шардов процесса бюджет подключений: не больше `limit` TCP-подключений к бирже за скользящее `window` — по каждому
+//! правилу из набора (Binance: 300 за 5 мин на IP; OKX: ещё и 3 в секунду — второе правило тем же механизмом).
 //!
-//! Ровно один `acquire` перед каждым TCP connect; граница из кода — подключений в любом окне ≤ `limit`, что бы ни делали
-//! отбраковка пути, замены и переподключения. Лимит биржи (Binance USD-M: 300 за 5 мин на IP) и запас — назначаемое.
+//! Ровно один `acquire` перед каждым TCP connect; граница из кода — подключений в любом окне каждого правила ≤ его лимита, что бы ни
+//! делали отбраковка пути, замены и переподключения. Лимиты бирж и запас — назначаемое.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
@@ -12,35 +13,79 @@ pub const WINDOW: Duration = Duration::from_secs(300);
 /// Назначаемое (Судье): 2/3 лимита биржи 300; запас 100 — на неучтённое (другие клиенты с этого IP, граница окна, ручные пробы).
 pub const LIMIT: usize = 200;
 
-pub struct Budget {
+struct Rule {
     limit: usize,
     window: Duration,
-    taken: Mutex<VecDeque<Instant>>,
+    taken: VecDeque<Instant>,
+}
+
+pub struct Budget {
+    rules: Mutex<Vec<Rule>>,
 }
 
 impl Budget {
     pub fn new(limit: usize, window: Duration) -> Self {
-        Self { limit: limit.max(1), window, taken: Mutex::new(VecDeque::new()) }
+        Self::with_rules(&[(limit, window)])
     }
 
-    /// `None` — место занято (отметка «сейчас» записана); иначе — через сколько освободится самое старое место.
+    /// Несколько окон сразу: подключение разрешено, если место есть во всех.
+    pub fn with_rules(rules: &[(usize, Duration)]) -> Self {
+        let rules = rules
+            .iter()
+            .map(|&(limit, window)| Rule {
+                limit: limit.max(1),
+                window,
+                taken: VecDeque::new(),
+            })
+            .collect();
+        Self {
+            rules: Mutex::new(rules),
+        }
+    }
+
+    /// `None` — место занято (отметка «сейчас» записана во всех правилах); иначе — через сколько можно пробовать снова
+    /// (по самому долгому из правил, где места нет).
     pub fn try_take(&self, now: Instant) -> Option<Duration> {
-        let mut q = self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        while q.front().is_some_and(|t| now.saturating_duration_since(*t) >= self.window) {
-            q.pop_front();
+        let mut rules = self
+            .rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut wait: Option<Duration> = None;
+        for r in rules.iter_mut() {
+            while r
+                .taken
+                .front()
+                .is_some_and(|t| now.saturating_duration_since(*t) >= r.window)
+            {
+                r.taken.pop_front();
+            }
+            if r.taken.len() >= r.limit {
+                let w = r.taken.front().map_or(Duration::ZERO, |t| {
+                    (*t + r.window).saturating_duration_since(now)
+                });
+                wait = Some(wait.map_or(w, |x| x.max(w)));
+            }
         }
-        if q.len() < self.limit {
-            q.push_back(now);
-            None
-        } else {
-            q.front().map(|t| (*t + self.window).saturating_duration_since(now))
+        if wait.is_none() {
+            for r in rules.iter_mut() {
+                r.taken.push_back(now);
+            }
         }
+        wait
     }
 
-    /// Занято мест в окне сейчас.
+    /// Занято мест в окне первого (основного) правила сейчас.
     pub fn used(&self, now: Instant) -> usize {
-        let q = self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        q.iter().filter(|t| now.saturating_duration_since(**t) < self.window).count()
+        let rules = self
+            .rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        rules.first().map_or(0, |r| {
+            r.taken
+                .iter()
+                .filter(|t| now.saturating_duration_since(**t) < r.window)
+                .count()
+        })
     }
 
     /// Ждёт места и занимает его; возвращает, сколько ждали. `None` — остановка (`stop`) пришла раньше.
@@ -52,7 +97,9 @@ impl Budget {
             }
             match self.try_take(Instant::now()) {
                 None => return Some(t0.elapsed()),
-                Some(w) => std::thread::sleep(w.min(Duration::from_millis(500)) + Duration::from_millis(10)),
+                Some(w) => std::thread::sleep(
+                    w.min(Duration::from_millis(500)) + Duration::from_millis(10),
+                ),
             }
         }
     }

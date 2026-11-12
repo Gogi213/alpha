@@ -17,8 +17,14 @@ use super::metrics::{Depth, ShardMetrics};
 pub const ZSTD_LEVEL: i32 = 1;
 
 pub enum SinkMsg {
-    Open { path: PathBuf },
-    Block { data: Vec<u8>, rows: u64, samples: Vec<i64> },
+    Open {
+        path: PathBuf,
+    },
+    Block {
+        data: Vec<u8>,
+        rows: u64,
+        samples: Vec<i64>,
+    },
     Close,
     Quit,
 }
@@ -31,7 +37,13 @@ pub struct SinkTx {
 
 pub fn sink_channel(depth: &Arc<Depth>) -> (SinkTx, Receiver<SinkMsg>) {
     let (tx, rx) = sync_channel(depth.cap);
-    (SinkTx { tx, depth: Arc::clone(depth) }, rx)
+    (
+        SinkTx {
+            tx,
+            depth: Arc::clone(depth),
+        },
+        rx,
+    )
 }
 
 impl SinkTx {
@@ -45,7 +57,10 @@ impl SinkTx {
                 self.depth.full.fetch_add(1, Relaxed);
                 let t0 = Instant::now();
                 let ok = self.tx.send(msg).is_ok();
-                self.depth.blocked_ns.fetch_add(u64::try_from(t0.elapsed().as_nanos()).unwrap_or(u64::MAX), Relaxed);
+                self.depth.blocked_ns.fetch_add(
+                    u64::try_from(t0.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                    Relaxed,
+                );
                 if !ok {
                     self.depth.dec();
                 }
@@ -94,7 +109,11 @@ fn open_file(path: &Path) -> io::Result<OpenFile> {
     }
     let f = OpenOptions::new().create(true).append(true).open(path)?;
     let enc = zstd::stream::write::Encoder::new(CountW { inner: f, n: 0 }, ZSTD_LEVEL)?;
-    Ok(OpenFile { enc, path: path.to_path_buf(), rows: 0 })
+    Ok(OpenFile {
+        enc,
+        path: path.to_path_buf(),
+        rows: 0,
+    })
 }
 
 /// Конец файла: кадр zstd закрыт, `.ok` = число строк (закрытые сутки неизменяемы).
@@ -106,7 +125,9 @@ fn close_file(f: OpenFile) -> io::Result<()> {
 }
 
 fn now_ns() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
 }
 
 /// Поток диска шарда: до `Quit` или закрытия канала.
@@ -127,7 +148,11 @@ pub fn run_sink(rx: &Receiver<SinkMsg>, depth: &Depth, m: &ShardMetrics) {
                     }
                 }
             }
-            SinkMsg::Block { data, rows, samples } => {
+            SinkMsg::Block {
+                data,
+                rows,
+                samples,
+            } => {
                 if cur.is_none() {
                     if let Some(p) = retry.take() {
                         match open_file(&p) {
@@ -156,7 +181,8 @@ pub fn run_sink(rx: &Receiver<SinkMsg>, depth: &Depth, m: &ShardMetrics) {
                         s.write_max_us = s.write_max_us.max(dt_us);
                         s.last_write_ms = now_ms;
                         for rx in samples {
-                            s.lag_out.add(now_ms, u64::try_from((now - rx).max(0) / 1000).unwrap_or(0));
+                            s.lag_out
+                                .add(now_ms, u64::try_from((now - rx).max(0) / 1000).unwrap_or(0));
                         }
                     }
                     Err(_) => {

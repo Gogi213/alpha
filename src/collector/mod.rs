@@ -25,6 +25,7 @@ pub mod codec;
 pub mod events;
 pub mod exchange;
 pub mod fresh;
+pub mod hash;
 pub mod health;
 pub mod metrics;
 pub mod net;

@@ -1,13 +1,13 @@
 //! Писатель шарда: единственный на шард потребитель очереди приёма — разбор, снятие дублей, кодировщик, блоки на диск.
 //!
-//! Делает: кадр → `Parser` адаптера → записи → дубль? (ключ u/a/E по символу не больше записанного) → строка формата →
+//! Делает: кадр → `Parser` адаптера → записи → дубль? (личность записи уже была за `SEEN_MS`) → строка формата →
 //! блок; блок уходит потоку диска каждые `flush` или при `block_max` байт. Сырые кадры с временем биржи снимаются как
 //! копии, если их уже принесла другая сессия (линия) за `RAW_SEEN_MS`; служебные кадры (ответ подписки, pong) пишутся все.
 //! Смена суток UTC — по приёму записи: старый файл закрывается, новый начинается с нуля (кодировщик сбрасывается).
 //! Не знает сокетов; не держит блокировку метрик во время ожидания диска.
 
-use std::collections::{HashMap, VecDeque};
-use std::hash::{BuildHasherDefault, Hasher};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
@@ -16,12 +16,15 @@ use std::time::{Duration, Instant};
 use super::codec::{Encoder, Rec, SymEnc, NS_PER_MS};
 use super::exchange::{Exchange, Parsed, Parser};
 use super::fresh::RAW;
+use super::hash::{fnv, FnvBuild};
 use super::metrics::{ShardMetrics, WriterStats};
 use super::ring::{Item, Payload, RingRx};
 use super::sink::{SinkMsg, SinkTx};
 
 /// Сколько помнить сырые кадры для снятия копий между линиями (линии одного шарда расходятся по приходу на секунды).
 pub const RAW_SEEN_MS: i64 = 60_000;
+/// Сколько помнить личности записей для снятия дублей между линиями: перекрытие замены 20 с, расхождение линий — секунды (TK-532: до 15 с).
+pub const SEEN_MS: i64 = 60_000;
 const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
 /// Закрыть файл ушедших суток по часам не раньше, чем через столько после полуночи (запись из очереди не может быть старше).
 const ROTATE_GRACE_NS: i64 = 5_000_000_000;
@@ -29,54 +32,43 @@ const IDLE_TICK: Duration = Duration::from_millis(100);
 const BATCH: usize = 256;
 const LAG_SAMPLE_EVERY: u32 = 16;
 
-/// FNV-1a: ключи — короткие имена символов и хеши кадров.
-#[derive(Default, Clone, Copy)]
-pub struct Fnv(u64);
-
-impl Hasher for Fnv {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        let mut h = if self.0 == 0 { 0xcbf2_9ce4_8422_2325 } else { self.0 };
-        for &b in bytes {
-            h ^= u64::from(b);
-            h = h.wrapping_mul(0x0100_0000_01b3);
-        }
-        self.0 = h;
-    }
-}
-
-pub type FnvBuild = BuildHasherDefault<Fnv>;
-
-pub fn fnv(bytes: &[u8]) -> u64 {
-    let mut h = Fnv::default();
-    h.write(bytes);
-    h.finish()
-}
-
-/// UTC-сутки (YYYY-MM-DD) по индексу суток от эпохи.
-pub fn day_string(day: i64) -> String {
-    chrono::DateTime::from_timestamp(day * 86_400, 0).map_or_else(|| "1970-01-01".to_string(), |d| d.format("%Y-%m-%d").to_string())
-}
-
-#[derive(Clone, Debug)]
-pub struct WriterCfg {
-    pub root: PathBuf,
-    pub shard: String,
-    /// Номер запуска = время старта процесса (с); он же в имени файла.
-    pub run_id: i64,
-    /// Период сброса блока на диск.
-    pub flush: Duration,
-    pub block_max: usize,
-    /// Часы писателя (нс UTC): очередь кадров и закрытие суток по часам; в проде — стенные, в тестах подменяются.
-    pub clock: fn() -> i64,
-}
-
 struct SymState {
-    last_key: [i64; 3],
     enc: SymEnc,
+}
+
+/// Личность записи: символ, вид, личность по бирже.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct IdKey {
+    sid: u32,
+    kind: u8,
+    id: i64,
+}
+
+/// Доставки записей, уже виденные за `SEEN_MS`: запись — дубль, если её личность уже была (другая линия, замена при перекрытии,
+/// повтор кадра той же сессией). Не требует порядка: запись, пришедшая позже более новой, но ещё не виденная, — новая и пишется.
+#[derive(Default)]
+struct Seen {
+    set: HashSet<IdKey, FnvBuild>,
+    order: VecDeque<(i64, IdKey)>,
+}
+
+impl Seen {
+    /// `true` — личность новая (писать), `false` — дубль. `now_ms` — приём записи (неубывающий).
+    fn first_time(&mut self, now_ms: i64, k: IdKey) -> bool {
+        while let Some(&(t, old)) = self.order.front() {
+            if now_ms - t <= SEEN_MS {
+                break;
+            }
+            self.order.pop_front();
+            self.set.remove(&old);
+        }
+        if self.set.insert(k) {
+            self.order.push_back((now_ms, k));
+            true
+        } else {
+            false
+        }
+    }
 }
 
 struct RawEnt {
@@ -105,9 +97,18 @@ impl RawSeen {
             }
         }
         self.order.push_back((now_ms, h));
-        let e = self.map.entry(h).or_insert_with(|| RawEnt { last_ms: now_ms, counts: Vec::new() });
+        let e = self.map.entry(h).or_insert_with(|| RawEnt {
+            last_ms: now_ms,
+            counts: Vec::new(),
+        });
         e.last_ms = now_ms;
-        let other = e.counts.iter().filter(|(s, _)| *s != sender).map(|&(_, c)| c).max().unwrap_or(0);
+        let other = e
+            .counts
+            .iter()
+            .filter(|(s, _)| *s != sender)
+            .map(|&(_, c)| c)
+            .max()
+            .unwrap_or(0);
         let mine = match e.counts.iter_mut().find(|(s, _)| *s == sender) {
             Some(c) => {
                 c.1 += 1;
@@ -135,6 +136,7 @@ struct Core {
     day: Option<i64>,
     prev_rx: i64,
     raw: RawSeen,
+    seen: Seen,
     /// Сообщения диску, ещё не отправленные: уходят после пачки, вне блокировки метрик.
     out: Vec<SinkMsg>,
 }
@@ -145,7 +147,9 @@ impl Core {
             return i;
         }
         let i = self.syms.len();
-        self.syms.push(SymState { last_key: [-1; 3], enc: SymEnc::default() });
+        self.syms.push(SymState {
+            enc: SymEnc::default(),
+        });
         self.index.insert(sym.into(), i);
         i
     }
@@ -157,7 +161,11 @@ impl Core {
         }
         self.cut_block();
         self.close_day();
-        let path = self.cfg.root.join(day_string(day)).join(format!("{}-{}.tsv.zst", self.cfg.shard, self.cfg.run_id));
+        let path = self
+            .cfg
+            .root
+            .join(day_string(day))
+            .join(format!("{}-{}.tsv.zst", self.cfg.shard, self.cfg.run_id));
         self.out.push(SinkMsg::Open { path });
         self.enc.reset();
         for s in &mut self.syms {
@@ -177,8 +185,15 @@ impl Core {
         if self.block.is_empty() {
             return;
         }
-        let data = std::mem::replace(&mut self.block, Vec::with_capacity(self.cfg.block_max + 4096));
-        self.out.push(SinkMsg::Block { data, rows: std::mem::take(&mut self.block_rows), samples: std::mem::take(&mut self.samples) });
+        let data = std::mem::replace(
+            &mut self.block,
+            Vec::with_capacity(self.cfg.block_max + 4096),
+        );
+        self.out.push(SinkMsg::Block {
+            data,
+            rows: std::mem::take(&mut self.block_rows),
+            samples: std::mem::take(&mut self.samples),
+        });
         self.block_started = None;
     }
 
@@ -203,13 +218,14 @@ impl Core {
     fn on_record(&mut self, st: &mut WriterStats, rx: i64, settled: bool, rec: &Rec<'_>) {
         let ki = rec.kind().idx();
         let sid = self.sym_id(rec.sym());
-        let key = rec.key();
-        match self.syms.get_mut(sid).and_then(|s| s.last_key.get_mut(ki)) {
-            Some(last) if key > *last => *last = key,
-            _ => {
-                st.dups += 1;
-                return;
-            }
+        let id = IdKey {
+            sid: u32::try_from(sid).unwrap_or(u32::MAX),
+            kind: u8::try_from(ki).unwrap_or(u8::MAX),
+            id: rec.ident(),
+        };
+        if !self.seen.first_time(rx.div_euclid(NS_PER_MS), id) {
+            st.dups += 1;
+            return;
         }
         self.ensure_file(rx);
         if let Some(s) = self.syms.get_mut(sid) {
@@ -222,13 +238,17 @@ impl Core {
             let rx_ms = rx.div_euclid(NS_PER_MS);
             st.fresh.add(ki, rx_ms, rx_ms - rec.e());
             if let Some(h) = st.lag_in.get_mut(ki) {
-                h.add(rx_ms, u64::try_from((rx - rec.e() * NS_PER_MS).max(0) / 1000).unwrap_or(0));
+                h.add(
+                    rx_ms,
+                    u64::try_from((rx - rec.e() * NS_PER_MS).max(0) / 1000).unwrap_or(0),
+                );
             }
         }
     }
 
     fn until_flush(&self, flush: Duration) -> Option<Duration> {
-        self.block_started.map(|t| (t + flush).saturating_duration_since(Instant::now()))
+        self.block_started
+            .map(|t| (t + flush).saturating_duration_since(Instant::now()))
     }
 }
 
@@ -239,11 +259,25 @@ pub struct ShardWriter {
     metrics: Arc<ShardMetrics>,
     sink: SinkTx,
     ring: RingRx,
+    /// Диагностика: `ALPHA_COLLECT_CAPTURE=1` — все кадры всех сессий (до снятия дублей) в `capture-<шард>.tsv`: «сессия, приём нс, кадр».
+    capture: Option<std::io::BufWriter<std::fs::File>>,
 }
 
 impl ShardWriter {
-    pub fn new(cfg: WriterCfg, exch: Arc<dyn Exchange>, metrics: Arc<ShardMetrics>, sink: SinkTx, ring: RingRx) -> Self {
+    pub fn new(
+        cfg: WriterCfg,
+        exch: Arc<dyn Exchange>,
+        metrics: Arc<ShardMetrics>,
+        sink: SinkTx,
+        ring: RingRx,
+    ) -> Self {
         let parser = exch.new_parser();
+        let capture = std::env::var_os("ALPHA_COLLECT_CAPTURE").and_then(|_| {
+            std::fs::create_dir_all(&cfg.root).ok()?;
+            std::fs::File::create(cfg.root.join(format!("capture-{}.tsv", cfg.shard)))
+                .ok()
+                .map(std::io::BufWriter::new)
+        });
         let core = Core {
             block: Vec::with_capacity(cfg.block_max + 4096),
             cfg,
@@ -257,9 +291,18 @@ impl ShardWriter {
             day: None,
             prev_rx: 0,
             raw: RawSeen::default(),
+            seen: Seen::default(),
             out: Vec::new(),
         };
-        Self { core, exch, parser, metrics, sink, ring }
+        Self {
+            core,
+            exch,
+            parser,
+            metrics,
+            sink,
+            ring,
+            capture,
+        }
     }
 
     /// Один элемент очереди; `true` — это `Shutdown`.
@@ -274,19 +317,34 @@ impl ShardWriter {
         let rx_ms = rx.div_euclid(NS_PER_MS);
         match item.payload {
             Payload::Frame(bytes) => {
-                st.queue_lag.add(rx_ms, u64::try_from((now_ns - item.rx_ns).max(0) / 1000).unwrap_or(0));
+                if let Some(w) = self.capture.as_mut() {
+                    let _ = write!(w, "{}	{}	", item.sender, item.rx_ns);
+                    let _ = w.write_all(&bytes);
+                    let _ = w.write_all(
+                        b"
+",
+                    );
+                }
+                st.queue_lag.add(
+                    rx_ms,
+                    u64::try_from((now_ns - item.rx_ns).max(0) / 1000).unwrap_or(0),
+                );
                 if let Some(sym) = self.exch.symbol(&bytes) {
                     touch_seen(st, sym, rx_ms);
                 }
                 let (core, settled) = (&mut self.core, item.settled);
-                let parsed = self.parser.parse(&bytes, &mut |rec| core.on_record(st, rx, settled, rec));
+                let parsed = self
+                    .parser
+                    .parse(&bytes, &mut |rec| core.on_record(st, rx, settled, rec));
                 if parsed == Parsed::Raw {
                     self.raw(st, rx, item.sender, item.settled, &bytes);
                 }
             }
             Payload::Control { what, detail } => {
                 self.core.ensure_file(rx);
-                self.core.enc.control(&mut self.core.block, rx, what, &detail);
+                self.core
+                    .enc
+                    .control(&mut self.core.block, rx, what, &detail);
                 self.core.after_line(rx);
                 st.rows += 1;
             }
@@ -344,7 +402,10 @@ impl ShardWriter {
         let flush = self.core.cfg.flush;
         let mut done = false;
         while !done {
-            let wait = self.core.until_flush(flush).map_or(IDLE_TICK, |d| d.min(IDLE_TICK));
+            let wait = self
+                .core
+                .until_flush(flush)
+                .map_or(IDLE_TICK, |d| d.min(IDLE_TICK));
             let first = match self.ring.recv_timeout(wait) {
                 Ok(it) => Some(it),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -383,6 +444,9 @@ fn touch_seen(st: &mut WriterStats, sym: &[u8], rx_ms: i64) {
     if let Some(e) = st.seen.get_mut(sym) {
         e.1 = rx_ms;
     } else {
-        st.seen.insert(sym.into(), (String::from_utf8_lossy(sym).to_lowercase(), rx_ms));
+        st.seen.insert(
+            sym.into(),
+            (String::from_utf8_lossy(sym).to_lowercase(), rx_ms),
+        );
     }
 }

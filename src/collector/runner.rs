@@ -84,12 +84,18 @@ pub fn exchange_of(n: ExchangeName) -> Arc<dyn Exchange> {
 
 fn lines_of(exch: &dyn Exchange, args: &RunArgs) -> Result<Vec<Vec<Entrance>>, String> {
     let mut lines = exch.default_entrances(args.lanes);
-    let default_family = lines.first().and_then(|l| l.first()).map_or(Family::Any, |e| e.family);
+    let default_family = lines
+        .first()
+        .and_then(|l| l.first())
+        .map_or(Family::Any, |e| e.family);
     for (k, spec) in args.entrance.iter().enumerate() {
         if spec == "-" {
             continue;
         }
-        let list = spec.split(',').map(|x| Entrance::parse(x, default_family)).collect::<Result<Vec<_>, _>>()?;
+        let list = spec
+            .split(',')
+            .map(|x| Entrance::parse(x, default_family))
+            .collect::<Result<Vec<_>, _>>()?;
         if let Some(l) = lines.get_mut(k) {
             *l = list;
         }
@@ -100,35 +106,57 @@ fn lines_of(exch: &dyn Exchange, args: &RunArgs) -> Result<Vec<Vec<Entrance>>, S
 /// Остановка по сигналу: поток слушает SIGTERM/SIGINT и ставит флаг; повторные сигналы флаг не меняют и процесс не рвут.
 fn watch_signals(stop: &Arc<AtomicBool>) {
     let stop = Arc::clone(stop);
-    let _ = std::thread::Builder::new().name("signals".into()).spawn(move || {
-        let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
-        rt.block_on(async {
-            #[cfg(unix)]
-            {
-                use tokio::signal::unix::{signal, SignalKind};
-                let (Ok(mut term), Ok(mut int)) = (signal(SignalKind::terminate()), signal(SignalKind::interrupt())) else { return };
-                loop {
-                    tokio::select! {
-                        _ = term.recv() => {}
-                        _ = int.recv() => {}
+    let _ = std::thread::Builder::new()
+        .name("signals".into())
+        .spawn(move || {
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            rt.block_on(async {
+                #[cfg(unix)]
+                {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let (Ok(mut term), Ok(mut int)) = (
+                        signal(SignalKind::terminate()),
+                        signal(SignalKind::interrupt()),
+                    ) else {
+                        return;
+                    };
+                    loop {
+                        tokio::select! {
+                            _ = term.recv() => {}
+                            _ = int.recv() => {}
+                        }
+                        stop.store(true, Relaxed);
                     }
-                    stop.store(true, Relaxed);
                 }
-            }
-            #[cfg(not(unix))]
-            {
-                loop {
-                    let _ = tokio::signal::ctrl_c().await;
-                    stop.store(true, Relaxed);
+                #[cfg(not(unix))]
+                {
+                    loop {
+                        let _ = tokio::signal::ctrl_c().await;
+                        stop.store(true, Relaxed);
+                    }
                 }
-            }
+            });
         });
-    });
 }
 
 fn load_pool_file(path: &std::path::Path) -> Result<Vec<String>, String> {
-    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?).map_err(|e| e.to_string())?;
-    v.get("pool").and_then(|p| p.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).ok_or_else(|| "в файле нет поля pool".to_string())
+    let v: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
+    )
+    .map_err(|e| e.to_string())?;
+    v.get("pool")
+        .and_then(|p| p.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .ok_or_else(|| "в файле нет поля pool".to_string())
 }
 
 pub fn run(args: &RunArgs) -> anyhow::Result<()> {
@@ -136,11 +164,19 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.root)?;
     let (pool, top) = match &args.pool_file {
         Some(p) => (load_pool_file(p).map_err(anyhow::Error::msg)?, Vec::new()),
-        None => exch.load_pool(args.min_quote_volume, args.top_exclude).map_err(anyhow::Error::msg)?,
+        None => exch
+            .load_pool(args.min_quote_volume, args.top_exclude)
+            .map_err(anyhow::Error::msg)?,
     };
     let run_id = now_ms().div_euclid(1000);
     let pool_json = json!({"ts_ms": now_ms(), "min_quote_volume": args.min_quote_volume, "top_excluded": top, "pool": pool});
-    std::fs::write(args.root.join(format!("pool-{}.json", day_string(run_id.div_euclid(86_400)))), pool_json.to_string())?;
+    std::fs::write(
+        args.root.join(format!(
+            "pool-{}.json",
+            day_string(run_id.div_euclid(86_400))
+        )),
+        pool_json.to_string(),
+    )?;
     println!("pool {} top_excluded {:?}", pool.len(), top);
     if args.pool_only {
         return Ok(());
@@ -156,10 +192,14 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     opts.flush = Duration::from_millis(args.flush_ms.max(1));
     let mut lines = lines;
     if let Some(plain) = &args.plain_ws {
-        let (host, port) = plain.rsplit_once(':').ok_or_else(|| anyhow::anyhow!("--plain-ws host:port"))?;
+        let (host, port) = plain
+            .rsplit_once(':')
+            .ok_or_else(|| anyhow::anyhow!("--plain-ws host:port"))?;
         opts.tls = false;
         opts.port = port.parse()?;
-        lines = (0..args.lanes).map(|_| vec![Entrance::new(host, Family::V4)]).collect();
+        lines = (0..args.lanes)
+            .map(|_| vec![Entrance::new(host, Family::V4)])
+            .collect();
     }
     let stop = Arc::new(AtomicBool::new(false));
     watch_signals(&stop);
@@ -170,12 +210,30 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
             handles.push(h);
         }
     }
-    println!("shards {}: {}", handles.len(), plans.iter().map(|p| format!("{}={}", p.name, p.streams.len())).collect::<Vec<_>>().join(", "));
-    let health_path = args.health.clone().unwrap_or_else(|| PathBuf::from(format!("/data/health/{}.json", exch.name())));
-    let ctx = HealthCtx { exchange: exch.name(), pool: pool.iter().map(|s| s.to_lowercase()).collect(), version: option_env!("ALPHA_COMMIT").unwrap_or("unknown").to_string() };
+    println!(
+        "shards {}: {}",
+        handles.len(),
+        plans
+            .iter()
+            .map(|p| format!("{}={}", p.name, p.streams.len()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let health_path = args
+        .health
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("/data/health/{}.json", exch.name())));
+    let ctx = HealthCtx {
+        exchange: exch.name(),
+        pool: pool.iter().map(|s| s.to_lowercase()).collect(),
+        version: option_env!("ALPHA_COMMIT").unwrap_or("unknown").to_string(),
+    };
     let metrics: Vec<_> = handles.iter().map(|h| Arc::clone(&h.metrics)).collect();
     let mut sampler = ProcSampler::default();
-    let (t0, deadline) = (Instant::now(), (args.duration_s > 0).then(|| Duration::from_secs(args.duration_s)));
+    let (t0, deadline) = (
+        Instant::now(),
+        (args.duration_s > 0).then(|| Duration::from_secs(args.duration_s)),
+    );
     let mut next = Instant::now() + Duration::from_secs(STATS_PERIOD_S);
     while !stop.load(Relaxed) {
         std::thread::sleep(Duration::from_millis(200));

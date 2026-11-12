@@ -42,7 +42,15 @@ mod sys {
         let mut buf = [0u8; 104];
         let mut len: libc::socklen_t = 104;
         // SAFETY: fd живой (заимствован у `s`), буфер — 104 записываемых байта, `len` — его размер; ядро пишет не больше `len`.
-        let rc = unsafe { libc::getsockopt(s.as_raw_fd(), libc::IPPROTO_TCP, libc::TCP_INFO, buf.as_mut_ptr().cast(), &mut len) };
+        let rc = unsafe {
+            libc::getsockopt(
+                s.as_raw_fd(),
+                libc::IPPROTO_TCP,
+                libc::TCP_INFO,
+                buf.as_mut_ptr().cast(),
+                &mut len,
+            )
+        };
         (rc == 0).then_some(buf)
     }
 
@@ -87,12 +95,17 @@ pub fn thread_cpu_s(tid: u32) -> Option<f64> {
     let stat = std::fs::read_to_string(format!("/proc/self/task/{tid}/stat")).ok()?;
     let rest = stat.get(stat.rfind(')')? + 2..)?;
     let f: Vec<&str> = rest.split_whitespace().collect();
-    let (u, s) = (f.get(11)?.parse::<f64>().ok()?, f.get(12)?.parse::<f64>().ok()?);
+    let (u, s) = (
+        f.get(11)?.parse::<f64>().ok()?,
+        f.get(12)?.parse::<f64>().ok()?,
+    );
     Some((u + s) / 100.0) // CLK_TCK Linux
 }
 
 fn u32_at(b: &[u8; 104], off: usize) -> u32 {
-    b.get(off..off + 4).and_then(|s| s.try_into().ok()).map_or(0, u32::from_ne_bytes)
+    b.get(off..off + 4)
+        .and_then(|s| s.try_into().ok())
+        .map_or(0, u32::from_ne_bytes)
 }
 
 pub fn tcp_state(s: &TcpStream) -> Option<TcpState> {
@@ -134,13 +147,21 @@ pub fn dial(entrance: &Entrance, port: u16) -> io::Result<(TcpStream, f64, IpAdd
         match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
             Ok(s) => {
                 s.set_nodelay(true)?;
-                let rtt = tcp_state(&s).map(|t| f64::from(t.rtt_ms)).filter(|r| *r > 0.0).unwrap_or_else(|| t0.elapsed().as_secs_f64() * 1000.0);
+                let rtt = tcp_state(&s)
+                    .map(|t| f64::from(t.rtt_ms))
+                    .filter(|r| *r > 0.0)
+                    .unwrap_or_else(|| t0.elapsed().as_secs_f64() * 1000.0);
                 return Ok((s, rtt, addr.ip()));
             }
             Err(e) => last = Some(e),
         }
     }
-    Err(last.unwrap_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("нет адресов для {}", entrance.host))))
+    Err(last.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("нет адресов для {}", entrance.host),
+        )
+    }))
 }
 
 type TlsStream = rustls::StreamOwned<rustls::ClientConnection, TcpStream>;
@@ -188,7 +209,8 @@ impl Write for Conn {
 fn tls_config() -> Result<Arc<rustls::ClientConfig>, String> {
     static CFG: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
     CFG.get_or_init(|| {
-        let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let roots =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let cfg = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
@@ -201,17 +223,28 @@ fn tls_config() -> Result<Arc<rustls::ClientConfig>, String> {
 }
 
 /// WebSocket поверх уже открытого сокета: TLS (для `wss`), upgrade; таймауты рукопожатия на сокете.
-pub fn ws_connect(tcp: TcpStream, url: &str, host: &str, tls: bool) -> Result<(WebSocket<Conn>, Response), String> {
-    tcp.set_read_timeout(Some(HANDSHAKE_TIMEOUT)).map_err(|e| e.to_string())?;
-    tcp.set_write_timeout(Some(HANDSHAKE_TIMEOUT)).map_err(|e| e.to_string())?;
+pub fn ws_connect(
+    tcp: TcpStream,
+    url: &str,
+    host: &str,
+    tls: bool,
+) -> Result<(WebSocket<Conn>, Response), String> {
+    tcp.set_read_timeout(Some(HANDSHAKE_TIMEOUT))
+        .map_err(|e| e.to_string())?;
+    tcp.set_write_timeout(Some(HANDSHAKE_TIMEOUT))
+        .map_err(|e| e.to_string())?;
     let conn = if tls {
-        let name = rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|e| format!("имя {host}: {e}"))?;
-        let cc = rustls::ClientConnection::new(tls_config()?, name).map_err(|e| format!("tls: {e}"))?;
+        let name = rustls::pki_types::ServerName::try_from(host.to_string())
+            .map_err(|e| format!("имя {host}: {e}"))?;
+        let cc =
+            rustls::ClientConnection::new(tls_config()?, name).map_err(|e| format!("tls: {e}"))?;
         Conn::Tls(Box::new(rustls::StreamOwned::new(cc, tcp)))
     } else {
         Conn::Plain(tcp)
     };
-    let req = url.into_client_request().map_err(|e| format!("запрос {url}: {e}"))?;
+    let req = url
+        .into_client_request()
+        .map_err(|e| format!("запрос {url}: {e}"))?;
     match tungstenite::client(req, conn) {
         Ok(ok) => Ok(ok),
         Err(HandshakeError::Failure(e)) => Err(format!("рукопожатие: {e}")),

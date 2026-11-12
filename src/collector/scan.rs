@@ -55,7 +55,10 @@ pub struct Field<'a> {
     pub val: Val<'a>,
 }
 
-const EMPTY: Field<'static> = Field { key: &[], val: Val::Null };
+const EMPTY: Field<'static> = Field {
+    key: &[],
+    val: Val::Null,
+};
 
 /// Поля одного объекта в порядке кадра.
 #[derive(Clone, Copy, Debug)]
@@ -141,32 +144,36 @@ impl<'a> Cur<'a> {
     /// От `[` или `{`: срез до парной скобки (строки внутри могут быть с экранированием).
     fn nested(&mut self) -> Option<&'a [u8]> {
         let start = self.i;
+        let rest = self.s.get(start..)?;
         let mut depth = 0usize;
-        let mut in_str = false;
-        let mut esc = false;
-        while let Some(c) = self.peek() {
-            self.i += 1;
-            if in_str {
-                if esc {
-                    esc = false;
-                } else if c == b'\\' {
-                    esc = true;
-                } else if c == b'"' {
-                    in_str = false;
-                }
-                continue;
-            }
+        let mut off = 0usize;
+        while let Some(&c) = rest.get(off) {
             match c {
-                b'"' => in_str = true,
+                b'"' => {
+                    // строка до закрывающей кавычки; обратная косая черта экранирует следующий байт
+                    off += 1;
+                    loop {
+                        off += rest
+                            .get(off..)?
+                            .iter()
+                            .position(|&b| b == b'"' || b == b'\\')?;
+                        if rest.get(off) == Some(&b'"') {
+                            break;
+                        }
+                        off += 2;
+                    }
+                }
                 b'[' | b'{' => depth += 1,
                 b']' | b'}' => {
                     depth = depth.checked_sub(1)?;
                     if depth == 0 {
-                        return self.s.get(start..self.i);
+                        self.i = start + off + 1;
+                        return rest.get(..=off);
                     }
                 }
                 _ => {}
             }
+            off += 1;
         }
         None
     }
@@ -194,7 +201,10 @@ impl<'a> Cur<'a> {
             }
             _ => {
                 let start = self.i;
-                while matches!(self.peek(), Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')) {
+                while matches!(
+                    self.peek(),
+                    Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')
+                ) {
                     self.i += 1;
                 }
                 if self.i == start {
@@ -214,7 +224,10 @@ pub fn parse_object(s: &[u8]) -> Option<Obj<'_>> {
     if !c.eat(b'{') {
         return None;
     }
-    let mut obj = Obj { fields: [EMPTY; MAX_FIELDS], len: 0 };
+    let mut obj = Obj {
+        fields: [EMPTY; MAX_FIELDS],
+        len: 0,
+    };
     c.ws();
     if !c.eat(b'}') {
         loop {
@@ -248,6 +261,48 @@ pub fn parse_object(s: &[u8]) -> Option<Obj<'_>> {
     } else {
         None
     }
+}
+
+/// Объект целиком (синтаксис проверяется до конца), но сохраняются только значения ключей `keys`; остальные поля пропускаются — для кадров
+/// с десятками полей (Bybit `tickers`), где нужны несколько. Повтор нужного ключа — `None`.
+pub fn pick<'a, const N: usize>(s: &'a [u8], keys: [&[u8]; N]) -> Option<[Option<Val<'a>>; N]> {
+    let mut c = Cur { s, i: 0 };
+    c.ws();
+    if !c.eat(b'{') {
+        return None;
+    }
+    let mut out: [Option<Val<'a>>; N] = [None; N];
+    c.ws();
+    if !c.eat(b'}') {
+        loop {
+            c.ws();
+            if !c.eat(b'"') {
+                return None;
+            }
+            let key = c.string()?;
+            c.ws();
+            if !c.eat(b':') {
+                return None;
+            }
+            c.ws();
+            let val = c.value()?;
+            if let Some(i) = keys.iter().position(|k| *k == key) {
+                if out.get_mut(i)?.replace(val).is_some() {
+                    return None;
+                }
+            }
+            c.ws();
+            if c.eat(b',') {
+                continue;
+            }
+            if c.eat(b'}') {
+                break;
+            }
+            return None;
+        }
+    }
+    c.ws();
+    (c.i == s.len()).then_some(out)
 }
 
 /// Элементы массива верхнего уровня: `f` получает срез элемента; `false` от `f` или нарушенная форма — `None`.

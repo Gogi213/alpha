@@ -27,7 +27,11 @@ pub fn percentile(xs: &mut [f64], p: f64) -> Option<f64> {
         return None;
     }
     xs.sort_by(f64::total_cmp);
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     let i = ((xs.len() as f64 * p) as usize).min(xs.len() - 1);
     xs.get(i).copied()
 }
@@ -37,21 +41,34 @@ pub fn path_verdict(lags: &mut [f64]) -> bool {
     if lags.len() < PROBE_MIN_SAMPLES {
         return true;
     }
-    percentile(lags, 0.5).is_some_and(|v| v <= PROBE_P50_MS) && percentile(lags, 0.99).is_some_and(|v| v <= PROBE_P99_MS)
+    percentile(lags, 0.5).is_some_and(|v| v <= PROBE_P50_MS)
+        && percentile(lags, 0.99).is_some_and(|v| v <= PROBE_P99_MS)
 }
 
 pub struct PathProbe {
     t0: Instant,
+    skip_s: f64,
+    total_s: f64,
     lags: Vec<f64>,
 }
 
 impl PathProbe {
     pub fn new(t0: Instant) -> Self {
-        Self { t0, lags: Vec::new() }
+        Self::with_window(t0, PROBE_SKIP_S, PROBE_S)
+    }
+
+    /// Окно проверки `skip_s`…`total_s` секунд от `t0` (в тестах — короче боевого).
+    pub fn with_window(t0: Instant, skip_s: f64, total_s: f64) -> Self {
+        Self {
+            t0,
+            skip_s,
+            total_s,
+            lags: Vec::new(),
+        }
     }
 
     pub fn collecting(&self, now: Instant) -> bool {
-        now.duration_since(self.t0).as_secs_f64() >= PROBE_SKIP_S
+        now.duration_since(self.t0).as_secs_f64() >= self.skip_s
     }
 
     pub fn add(&mut self, lag: Option<f64>) {
@@ -63,7 +80,7 @@ impl PathProbe {
     }
 
     pub fn finished(&self, now: Instant) -> bool {
-        now.duration_since(self.t0).as_secs_f64() >= PROBE_S
+        now.duration_since(self.t0).as_secs_f64() >= self.total_s
     }
 
     pub fn clean(&mut self) -> bool {
@@ -73,7 +90,11 @@ impl PathProbe {
     /// (число выборок, p50, p99) для события.
     pub fn summary(&mut self) -> (usize, Option<f64>, Option<f64>) {
         let n = self.lags.len();
-        (n, percentile(&mut self.lags, 0.5), percentile(&mut self.lags, 0.99))
+        (
+            n,
+            percentile(&mut self.lags, 0.5),
+            percentile(&mut self.lags, 0.99),
+        )
     }
 }
 

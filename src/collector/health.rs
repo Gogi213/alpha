@@ -31,8 +31,11 @@ pub fn write_atomic(path: &Path, v: &Value) -> std::io::Result<()> {
 /// Процесс: CPU по классам потоков (rx — приём, wr — писатель, sk — диск, sh/ln — надзор), самый горячий поток, память.
 #[derive(Default)]
 pub struct ProcSampler {
-    last: Option<(Instant, f64, f64, HashMap<u32, (String, f64)>)>,
+    last: Option<(Instant, f64, ThreadMap)>,
 }
+
+/// tid → (имя, CPU потока в секундах, ожидание CPU потока в секундах)
+type ThreadMap = HashMap<u32, (String, f64, f64)>;
 
 #[derive(Default)]
 struct ProcSnap {
@@ -46,46 +49,67 @@ struct ProcSnap {
 }
 
 #[cfg(target_os = "linux")]
-fn read_proc() -> Option<(f64, f64, HashMap<u32, (String, f64)>, f64)> {
+fn read_proc() -> Option<(f64, ThreadMap, f64)> {
     const TICKS: f64 = 100.0; // CLK_TCK Linux
     fn parse(stat: &str) -> Option<(String, f64)> {
         let (a, b) = (stat.find('(')?, stat.rfind(')')?);
         let comm = stat.get(a + 1..b)?.to_string();
         let f: Vec<&str> = stat.get(b + 2..)?.split_whitespace().collect();
-        let (u, s) = (f.get(11)?.parse::<f64>().ok()?, f.get(12)?.parse::<f64>().ok()?);
+        let (u, s) = (
+            f.get(11)?.parse::<f64>().ok()?,
+            f.get(12)?.parse::<f64>().ok()?,
+        );
         Some((comm, (u + s) / TICKS))
     }
     let total = parse(&std::fs::read_to_string("/proc/self/stat").ok()?)?.1;
-    let mut threads = HashMap::new();
-    let mut run_delay_ns = 0.0;
+    let mut threads = ThreadMap::new();
     for e in std::fs::read_dir("/proc/self/task").ok()?.flatten() {
         let tid = e.file_name().to_string_lossy().parse::<u32>().ok()?;
-        if let Some(t) = std::fs::read_to_string(e.path().join("stat")).ok().and_then(|s| parse(&s)) {
-            threads.insert(tid, t);
+        if let Some((name, cpu)) = std::fs::read_to_string(e.path().join("stat"))
+            .ok()
+            .and_then(|s| parse(&s))
+        {
+            // schedstat: «время на CPU, нс; время в очереди на CPU, нс; число слотов»
+            let delay = std::fs::read_to_string(e.path().join("schedstat"))
+                .ok()
+                .and_then(|s| s.split_whitespace().nth(1)?.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            threads.insert(tid, (name, cpu, delay / 1e9));
         }
-        // schedstat: «время на CPU, нс; время в очереди на CPU, нс; число слотов»
-        run_delay_ns += std::fs::read_to_string(e.path().join("schedstat")).ok().and_then(|s| s.split_whitespace().nth(1)?.parse::<f64>().ok()).unwrap_or(0.0);
     }
-    let rss_pages = std::fs::read_to_string("/proc/self/statm").ok()?.split_whitespace().nth(1)?.parse::<f64>().ok()?;
-    Some((total, run_delay_ns / 1e9, threads, rss_pages * 4096.0 / 1_048_576.0))
+    let rss_pages = std::fs::read_to_string("/proc/self/statm")
+        .ok()?
+        .split_whitespace()
+        .nth(1)?
+        .parse::<f64>()
+        .ok()?;
+    Some((total, threads, rss_pages * 4096.0 / 1_048_576.0))
 }
 
 #[cfg(not(target_os = "linux"))]
-fn read_proc() -> Option<(f64, f64, HashMap<u32, (String, f64)>, f64)> {
+fn read_proc() -> Option<(f64, ThreadMap, f64)> {
     None
 }
 
 impl ProcSampler {
     fn sample(&mut self) -> ProcSnap {
-        let Some((total, delay, threads, rss_mb)) = read_proc() else { return ProcSnap::default() };
+        let Some((total, threads, rss_mb)) = read_proc() else {
+            return ProcSnap::default();
+        };
         let now = Instant::now();
-        let mut snap = ProcSnap { rss_mb, threads: threads.len(), ..ProcSnap::default() };
-        if let Some((t0, total0, delay0, prev)) = &self.last {
+        let mut snap = ProcSnap {
+            rss_mb,
+            threads: threads.len(),
+            ..ProcSnap::default()
+        };
+        if let Some((t0, total0, prev)) = &self.last {
             let dt = now.duration_since(*t0).as_secs_f64().max(1e-3);
             snap.cores = (total - total0) / dt;
-            snap.sched_wait = (delay - delay0) / dt;
-            for (tid, (name, cpu)) in &threads {
-                let d = (cpu - prev.get(tid).map_or(0.0, |p| p.1)) / dt;
+            for (tid, (name, cpu, delay)) in &threads {
+                // поток появился между замерами: считаем с нуля; ушедшие потоки в сумму не входят
+                let (cpu0, delay0) = prev.get(tid).map_or((0.0, 0.0), |p| (p.1, p.2));
+                snap.sched_wait += (delay - delay0) / dt;
+                let d = (cpu - cpu0) / dt;
                 let class = name.split('-').next().unwrap_or(name).to_string();
                 *snap.by_class.entry(class).or_insert(0.0) += d;
                 if snap.hot.as_ref().is_none_or(|h| d > h.1) {
@@ -93,7 +117,7 @@ impl ProcSampler {
                 }
             }
         }
-        self.last = Some((now, total, delay, threads));
+        self.last = Some((now, total, threads));
         snap
     }
 }
@@ -115,7 +139,12 @@ pub struct HealthCtx {
 
 /// Сводка по шардам на `now_ms`.
 #[allow(clippy::too_many_lines)]
-pub fn build(shards: &[Arc<ShardMetrics>], ctx: &HealthCtx, now_ms: i64, proc: &mut ProcSampler) -> Value {
+pub fn build(
+    shards: &[Arc<ShardMetrics>],
+    ctx: &HealthCtx,
+    now_ms: i64,
+    proc: &mut ProcSampler,
+) -> Value {
     let (hour, day) = (now_ms - HOUR_MS, now_ms - DAY_MS);
     let mut with_data: HashSet<String> = HashSet::new();
     let mut lag_in = Hist::new();
@@ -125,13 +154,16 @@ pub fn build(shards: &[Arc<ShardMetrics>], ctx: &HealthCtx, now_ms: i64, proc: &
     let mut fresh = [KindFresh::default(); 4];
     let mut fresh_seen = [false; 4];
     let (mut pings, mut connections) = (Vec::new(), 0i64);
-    let (mut to, mut gp, mut rc, mut es, mut ps) = ([0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2]);
+    let (mut to, mut gp, mut rc, mut es, mut ps) =
+        ([0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2]);
     let (mut last_frame, mut last_write, mut started) = (0i64, 0i64, i64::MAX);
     let mut totals = [0u64; 6];
     let (mut sink_errors, mut files_closed) = (0u64, 0u64);
-    let (mut depth_max, mut sink_depth_max, mut ring_cap, mut sink_cap) = (0i64, 0i64, 0usize, 0usize);
+    let (mut depth_max, mut sink_depth_max, mut ring_cap, mut sink_cap) =
+        (0i64, 0i64, 0usize, 0usize);
     let (mut full_total, mut blocked_ms_total, mut full_win) = (0u64, 0u64, 0u64);
-    let (mut recvq_max, mut recvq_s, mut recvq_b, mut busy_max, mut handoff_max, mut write_max) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    let (mut recvq_max, mut recvq_s, mut recvq_b, mut busy_max, mut handoff_max, mut write_max) =
+        (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
     let mut per_shard = Vec::new();
     for m in shards {
         started = started.min(m.started_ms);
@@ -140,8 +172,16 @@ pub fn build(shards: &[Arc<ShardMetrics>], ctx: &HealthCtx, now_ms: i64, proc: &
         {
             let mut l = m.lists();
             for (i, cut) in [hour, day].into_iter().enumerate() {
-                let c = |dq: &std::collections::VecDeque<i64>| u64::try_from(dq.iter().filter(|&&t| t > cut).count()).unwrap_or(0);
-                for (acc, dq) in [(&mut to, &l.timeouts), (&mut gp, &l.gaps), (&mut rc, &l.reconnects), (&mut es, &l.entrance_switches), (&mut ps, &l.path_switches)] {
+                let c = |dq: &std::collections::VecDeque<i64>| {
+                    u64::try_from(dq.iter().filter(|&&t| t > cut).count()).unwrap_or(0)
+                };
+                for (acc, dq) in [
+                    (&mut to, &l.timeouts),
+                    (&mut gp, &l.gaps),
+                    (&mut rc, &l.reconnects),
+                    (&mut es, &l.entrance_switches),
+                    (&mut ps, &l.path_switches),
+                ] {
                     if let Some(a) = acc.get_mut(i) {
                         *a += c(dq);
                     }
@@ -152,7 +192,7 @@ pub fn build(shards: &[Arc<ShardMetrics>], ctx: &HealthCtx, now_ms: i64, proc: &
         }
         let shard_lag = {
             let mut w = m.writer();
-            for (_, (low, last)) in &w.seen {
+            for (low, last) in w.seen.values() {
                 if now_ms - last <= WINDOW_S * 1000 && ctx.pool.contains(low) {
                     with_data.insert(low.clone());
                 }
@@ -168,12 +208,20 @@ pub fn build(shards: &[Arc<ShardMetrics>], ctx: &HealthCtx, now_ms: i64, proc: &
             lag_in.merge(&sl);
             queue_lag.merge(&w.queue_lag.snapshot(now_ms));
             for k in 0..4 {
-                if let (Some(f), Some(acc), Some(seen)) = (w.fresh.fragment(k, now_ms), fresh.get_mut(k), fresh_seen.get_mut(k)) {
+                if let (Some(f), Some(acc), Some(seen)) = (
+                    w.fresh.fragment(k, now_ms),
+                    fresh.get_mut(k),
+                    fresh_seen.get_mut(k),
+                ) {
                     acc.merge(&f);
                     *seen = true;
                 }
             }
-            for (t, v) in totals.iter_mut().zip([w.records, w.dups, w.raw, w.raw_copies, w.rows, w.clamped]) {
+            for (t, v) in
+                totals
+                    .iter_mut()
+                    .zip([w.records, w.dups, w.raw, w.raw_copies, w.rows, w.clamped])
+            {
                 *t += v;
             }
             sl
@@ -185,12 +233,17 @@ pub fn build(shards: &[Arc<ShardMetrics>], ctx: &HealthCtx, now_ms: i64, proc: &
             sink_errors += s.errors;
             files_closed += s.files_closed;
         }
-        let w = m.window.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let w = m
+            .window
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         depth_max = depth_max.max(w.ring_depth_max);
         sink_depth_max = sink_depth_max.max(w.sink_depth_max);
         (ring_cap, sink_cap) = (m.ring.cap, m.sink_q.cap);
         full_total += m.ring.full.load(std::sync::atomic::Ordering::Relaxed);
-        blocked_ms_total += m.ring.blocked_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
+        blocked_ms_total +=
+            m.ring.blocked_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
         full_win += w.ring_full;
         recvq_max = recvq_max.max(w.recvq_max);
         recvq_s += w.recvq_samples;
@@ -222,9 +275,17 @@ pub fn build(shards: &[Arc<ShardMetrics>], ctx: &HealthCtx, now_ms: i64, proc: &
     let [es1, es24] = es;
     let [ps1, ps24] = ps;
     let [t_rec, t_dup, t_raw, t_rawc, t_rows, t_clamp] = totals;
-    let by_class: serde_json::Map<String, Value> = p.by_class.iter().map(|(k, v)| (k.clone(), json!(r3(*v)))).collect();
+    let by_class: serde_json::Map<String, Value> = p
+        .by_class
+        .iter()
+        .map(|(k, v)| (k.clone(), json!(r3(*v))))
+        .collect();
     #[allow(clippy::cast_precision_loss)]
-    let behind_pct = if recvq_s == 0 { 0.0 } else { recvq_b as f64 * 100.0 / recvq_s as f64 };
+    let behind_pct = if recvq_s == 0 {
+        0.0
+    } else {
+        recvq_b as f64 * 100.0 / recvq_s as f64
+    };
     json!({
         "schema": 2, "exchange": ctx.exchange, "ts_ms": now_ms, "started_ms": if started == i64::MAX { now_ms } else { started },
         "symbols": {"subscribed": ctx.pool.len(), "with_data_1m": with_data.len()},

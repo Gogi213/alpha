@@ -5,6 +5,9 @@
 //! время биржи E — момент отправки, поэтому лаг «приём − E» показывает отставание приёмника. Источник тоже меряется: сколько
 //! кадров ушло и отстаёт ли он от заданного темпа (клиент не успевает читать — буфер сокета полон — источник не добирает).
 
+// Диагностические инструменты (не горячий путь): счётчики кадров и времени в f64 для печати.
+#![allow(clippy::cast_precision_loss)]
+
 use std::io::Write as _;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -77,7 +80,9 @@ fn trade_frame(out: &mut Vec<u8>, sym: &str, lower: &str, a: i64, e: i64, px: i6
 
 /// Одно соединение: читает подписку, отвечает на неё, шлёт кадры в темпе `rate`, раз в секунду печатает счёт.
 fn serve(stream: TcpStream, args: &SynthArgs, t_end: Option<Instant>) {
-    let Ok(mut ws) = tungstenite::accept(stream) else { return };
+    let Ok(mut ws) = tungstenite::accept(stream) else {
+        return;
+    };
     match ws.read() {
         Ok(m) if m.is_text() => {}
         _ => return,
@@ -86,7 +91,9 @@ fn serve(stream: TcpStream, args: &SynthArgs, t_end: Option<Instant>) {
     if ws.get_ref().set_nonblocking(true).is_err() {
         return;
     }
-    let names: Vec<(String, String)> = (0..args.symbols.max(1)).map(|i| (sym_name(i), sym_name(i).to_lowercase())).collect();
+    let names: Vec<(String, String)> = (0..args.symbols.max(1))
+        .map(|i| (sym_name(i), sym_name(i).to_lowercase()))
+        .collect();
     let mut seq = vec![1_000_000i64; names.len()];
     let mut buf = Vec::with_capacity(512);
     let (t0, per_tick) = (Instant::now(), args.rate);
@@ -104,7 +111,9 @@ fn serve(stream: TcpStream, args: &SynthArgs, t_end: Option<Instant>) {
         let mut owed = due.saturating_sub(sent);
         let mut batch = 0u64;
         while owed > 0 && !pending && batch < 2_000 {
-            let (sym, lower) = names.get(idx).map_or(("S000USDT", "s000usdt"), |(a, b)| (a.as_str(), b.as_str()));
+            let (sym, lower) = names
+                .get(idx)
+                .map_or(("S000USDT", "s000usdt"), |(a, b)| (a.as_str(), b.as_str()));
             let slot = seq.get_mut(idx);
             let n = slot.map_or(0, |s| {
                 *s += 1;
@@ -116,7 +125,10 @@ fn serve(stream: TcpStream, args: &SynthArgs, t_end: Option<Instant>) {
             } else {
                 book_frame(&mut buf, sym, lower, n, now_ms(), px);
             }
-            if ws.write(Message::text(String::from_utf8_lossy(&buf).into_owned())).is_err() {
+            if ws
+                .write(Message::text(String::from_utf8_lossy(&buf).into_owned()))
+                .is_err()
+            {
                 return;
             }
             idx = (idx + 1) % names.len();
@@ -131,14 +143,23 @@ fn serve(stream: TcpStream, args: &SynthArgs, t_end: Option<Instant>) {
         }
         // клиентские кадры (ping) — прочитать, чтобы pong ушёл
         match ws.read() {
-            Ok(Message::Close(_)) | Err(WsError::ConnectionClosed | WsError::AlreadyClosed) => return,
+            Ok(Message::Close(_)) | Err(WsError::ConnectionClosed | WsError::AlreadyClosed) => {
+                return
+            }
             Ok(_) => {}
             Err(WsError::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}
             Err(_) => return,
         }
         if last_print.elapsed() >= Duration::from_secs(1) {
             let secs = last_print.elapsed().as_secs_f64();
-            println!("synth t={:.0}s sent={} rate={:.0}/s due_behind={} pending={}", t0.elapsed().as_secs_f64(), sent, (sent - printed_at) as f64 / secs, due.saturating_sub(sent), pending);
+            println!(
+                "synth t={:.0}s sent={} rate={:.0}/s due_behind={} pending={}",
+                t0.elapsed().as_secs_f64(),
+                sent,
+                (sent - printed_at) as f64 / secs,
+                due.saturating_sub(sent),
+                pending
+            );
             (last_print, printed_at) = (Instant::now(), sent);
         }
         let spent = tick_start.elapsed();
@@ -154,9 +175,20 @@ pub fn run(args: &SynthArgs) -> anyhow::Result<()> {
         std::fs::write(p, serde_json::json!({"pool": pool}).to_string())?;
     }
     let listener = TcpListener::bind(&args.listen)?;
-    println!("synth listening {} symbols={} rate={}/s kind={}", args.listen, args.symbols, args.rate, args.kind);
-    let t_end = (args.duration_s > 0).then(|| Instant::now() + Duration::from_secs(args.duration_s));
-    let args = std::sync::Arc::new(SynthArgs { listen: args.listen.clone(), symbols: args.symbols, rate: args.rate, kind: args.kind.clone(), duration_s: args.duration_s, write_pool: None });
+    println!(
+        "synth listening {} symbols={} rate={}/s kind={}",
+        args.listen, args.symbols, args.rate, args.kind
+    );
+    let t_end =
+        (args.duration_s > 0).then(|| Instant::now() + Duration::from_secs(args.duration_s));
+    let args = std::sync::Arc::new(SynthArgs {
+        listen: args.listen.clone(),
+        symbols: args.symbols,
+        rate: args.rate,
+        kind: args.kind.clone(),
+        duration_s: args.duration_s,
+        write_pool: None,
+    });
     listener.set_nonblocking(true)?;
     loop {
         if t_end.is_some_and(|t| Instant::now() >= t) {
@@ -169,7 +201,9 @@ pub fn run(args: &SynthArgs) -> anyhow::Result<()> {
                 let a = std::sync::Arc::clone(&args);
                 std::thread::spawn(move || serve(s, &a, t_end));
             }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(20))
+            }
             Err(e) => return Err(e.into()),
         }
     }

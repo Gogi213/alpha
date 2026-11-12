@@ -52,7 +52,10 @@ fn bucket_mid(i: usize) -> u64 {
 
 impl Hist {
     pub fn new() -> Self {
-        Self { c: vec![0; BUCKETS], n: 0 }
+        Self {
+            c: vec![0; BUCKETS],
+            n: 0,
+        }
     }
 
     pub fn add(&mut self, v: u64) {
@@ -83,7 +86,11 @@ impl Hist {
         if self.n == 0 {
             return None;
         }
-        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
         let rank = ((self.n as f64 * p) as u64).min(self.n - 1);
         let mut seen = 0u64;
         for (i, &c) in self.c.iter().enumerate() {
@@ -105,7 +112,10 @@ pub struct Rolling {
 
 impl Default for Rolling {
     fn default() -> Self {
-        Self { slots: vec![Hist::new(); SLOTS], epoch: vec![i64::MIN; SLOTS] }
+        Self {
+            slots: vec![Hist::new(); SLOTS],
+            epoch: vec![i64::MIN; SLOTS],
+        }
     }
 }
 
@@ -155,7 +165,13 @@ pub struct Depth {
 
 impl Depth {
     pub fn new(cap: usize) -> Arc<Self> {
-        Arc::new(Self { cap, cur: AtomicI64::new(0), max: AtomicI64::new(0), full: AtomicU64::new(0), blocked_ns: AtomicU64::new(0) })
+        Arc::new(Self {
+            cap,
+            cur: AtomicI64::new(0),
+            max: AtomicI64::new(0),
+            full: AtomicU64::new(0),
+            blocked_ns: AtomicU64::new(0),
+        })
     }
 
     pub fn inc(&self) {
@@ -189,12 +205,22 @@ const DAY_MS: i64 = 24 * 3600 * 1000;
 impl Lists {
     pub fn trim(&mut self, now_ms: i64) {
         let cut = now_ms - DAY_MS;
-        for dq in [&mut self.timeouts, &mut self.gaps, &mut self.reconnects, &mut self.path_switches, &mut self.entrance_switches] {
+        for dq in [
+            &mut self.timeouts,
+            &mut self.gaps,
+            &mut self.reconnects,
+            &mut self.path_switches,
+            &mut self.entrance_switches,
+        ] {
             while dq.front().is_some_and(|&t| t < cut) {
                 dq.pop_front();
             }
         }
-        while self.pings.front().is_some_and(|&(t, _)| now_ms - t > WINDOW_S * 1000) {
+        while self
+            .pings
+            .front()
+            .is_some_and(|&(t, _)| now_ms - t > WINDOW_S * 1000)
+        {
             self.pings.pop_front();
         }
     }
@@ -320,23 +346,40 @@ impl ShardMetrics {
 
     /// Поток шарда о себе: его CPU идёт в `cpu_seconds`.
     pub fn register_thread(&self) {
-        self.tids.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(super::net::gettid());
+        self.tids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(super::net::gettid());
     }
 
     /// Суммарный CPU потоков шарда, секунды (ушедшие потоки учитывать нечем — их `cpu_seconds` уже не видит).
     pub fn cpu_seconds(&self) -> f64 {
-        let mut t = self.tids.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut t = self
+            .tids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         t.retain(|&id| super::net::thread_cpu_s(id).is_some());
-        t.iter().filter_map(|&id| super::net::thread_cpu_s(id)).sum()
+        t.iter()
+            .filter_map(|&id| super::net::thread_cpu_s(id))
+            .sum()
     }
 
     /// Конец окна статистики: максимумы сбрасываются, приращения считаются от прошлого окна; итог доступен в `window`.
     /// Зовёт один поток (надзор шарда).
     pub fn take_window(&self, now_ms: i64, max_gap_ms: u64) -> WindowSnap {
-        let mut p = self.prev.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut p = self
+            .prev
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let (frames, bytes) = (self.frames.load(Relaxed), self.bytes.load(Relaxed));
-        let (full, blocked) = (self.ring.full.load(Relaxed), self.ring.blocked_ns.load(Relaxed));
-        let (qs, qb) = (self.recvq_samples.load(Relaxed), self.recvq_behind.load(Relaxed));
+        let (full, blocked) = (
+            self.ring.full.load(Relaxed),
+            self.ring.blocked_ns.load(Relaxed),
+        );
+        let (qs, qb) = (
+            self.recvq_samples.load(Relaxed),
+            self.recvq_behind.load(Relaxed),
+        );
         let write_max_us = std::mem::take(&mut self.sink().write_max_us);
         let w = WindowSnap {
             ts_ms: now_ms,
@@ -354,20 +397,36 @@ impl ShardMetrics {
             sink_depth_max: self.sink_q.take_max(),
             write_max_us,
         };
-        *p = Prev { frames, bytes, ring_full: full, ring_blocked_ns: blocked, recvq_samples: qs, recvq_behind: qb };
-        *self.window.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = w.clone();
+        *p = Prev {
+            frames,
+            bytes,
+            ring_full: full,
+            ring_blocked_ns: blocked,
+            recvq_samples: qs,
+            recvq_behind: qb,
+        };
+        *self
+            .window
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = w.clone();
         w
     }
 
     pub fn lists(&self) -> MutexGuard<'_, Lists> {
-        self.lists.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.lists
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub fn writer(&self) -> MutexGuard<'_, WriterStats> {
-        self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub fn sink(&self) -> MutexGuard<'_, SinkStats> {
-        self.sink.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.sink
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }

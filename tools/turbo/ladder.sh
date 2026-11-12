@@ -21,6 +21,7 @@ for R in "$@"; do
   systemctl stop "col-$TAG-$R.service" 2>/dev/null; sleep 3
   journalctl -u "synth-$TAG-$R.service" --no-pager -n 4 > "$S/synth-tail.txt" 2>&1
   systemctl stop "synth-$TAG-$R.service" 2>/dev/null
+  "$PY" "$SRC/turbo/chk_synth.py" "$S" "$R" --out "$S/summary.json" >> "$D/summary.txt" 2>&1
   echo "ступень $R: готово" >> "$D/progress.txt"
 done
 echo done > "$D/DONE"

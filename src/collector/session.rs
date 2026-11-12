@@ -50,15 +50,24 @@ pub struct Shared {
     /// `false` — открытый `ws://` (локальные проверки и синтетический источник).
     pub tls: bool,
     pub port: u16,
+    /// Окно проверки нового пути: (пропуск, конец), секунды от начала чтения.
+    pub probe_window: (f64, f64),
 }
 
 impl Shared {
     pub fn watch(&self) -> MutexGuard<'_, PathWatch> {
-        self.watch.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.watch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn url(&self, host: &str) -> String {
-        let u = if self.port == 443 { self.exch.url(&self.plan.endpoint, host) } else { self.exch.url(&self.plan.endpoint, &format!("{host}:{}", self.port)) };
+        let u = if self.port == 443 {
+            self.exch.url(&self.plan.endpoint, host)
+        } else {
+            self.exch
+                .url(&self.plan.endpoint, &format!("{host}:{}", self.port))
+        };
         if self.tls {
             u
         } else {
@@ -78,11 +87,18 @@ pub enum Outcome {
 }
 
 fn ctl(sh: &Shared, seq: u32, what: &'static str, detail: String) {
-    let _ = sh.ring.push(Item { rx_ns: wall_ns(), sender: seq, settled: true, payload: Payload::Control { what, detail } });
+    let _ = sh.ring.push(Item {
+        rx_ns: wall_ns(),
+        sender: seq,
+        settled: true,
+        payload: Payload::Control { what, detail },
+    });
 }
 
 pub fn wall_ns() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
 }
 
 fn tcp_json(s: &std::net::TcpStream) -> serde_json::Value {
@@ -96,17 +112,32 @@ fn tcp_json(s: &std::net::TcpStream) -> serde_json::Value {
 }
 
 /// Сессия до закрытия. `probe` — путь проверяется (RTT и окно лага); `accepted` — флаг «путь принят» для шарда.
-pub fn run(sh: &Shared, seq: u32, ent: &Entrance, probe: bool, accepted: Option<&AtomicBool>, cancel: &AtomicBool) -> Outcome {
-    let Some(waited) = sh.budget.acquire(&sh.stop) else { return Outcome::Closed };
+pub fn run(
+    sh: &Shared,
+    seq: u32,
+    ent: &Entrance,
+    probe: bool,
+    accepted: Option<&AtomicBool>,
+    cancel: &AtomicBool,
+) -> Outcome {
+    let Some(waited) = sh.budget.acquire(&sh.stop) else {
+        return Outcome::Closed;
+    };
     if waited >= Duration::from_secs(1) {
-        sh.events.emit("connect_wait", json!({"session": seq, "waited_s": (waited.as_secs_f64() * 10.0).round() / 10.0}));
+        sh.events.emit(
+            "connect_wait",
+            json!({"session": seq, "waited_s": (waited.as_secs_f64() * 10.0).round() / 10.0}),
+        );
     }
     let (tcp, rtt, ip) = match net::dial(ent, sh.port) {
         Ok(x) => x,
         Err(e) => return Outcome::Failed(format!("connect {}: {e}", ent.host)),
     };
     if probe && rtt > CONNECT_RTT_MAX_MS {
-        sh.events.emit("path_rejected_rtt", json!({"session": seq, "rtt_ms": rtt.round(), "entrance": ent.host}));
+        sh.events.emit(
+            "path_rejected_rtt",
+            json!({"session": seq, "rtt_ms": rtt.round(), "entrance": ent.host}),
+        );
         return Outcome::PathRejected;
     }
     let url = sh.url(&ent.host);
@@ -116,7 +147,9 @@ pub fn run(sh: &Shared, seq: u32, ent: &Entrance, probe: bool, accepted: Option<
     };
     let tcp_ok = {
         let t = ws.get_ref().tcp();
-        t.set_read_timeout(Some(READ_TICK)).and(t.set_write_timeout(Some(WRITE_TIMEOUT))).is_ok()
+        t.set_read_timeout(Some(READ_TICK))
+            .and(t.set_write_timeout(Some(WRITE_TIMEOUT)))
+            .is_ok()
     };
     if !tcp_ok {
         return Outcome::Failed("таймауты сокета".to_string());
@@ -135,15 +168,30 @@ pub fn run(sh: &Shared, seq: u32, ent: &Entrance, probe: bool, accepted: Option<
     out
 }
 
-fn body(sh: &Shared, ws: &mut tungstenite::WebSocket<Conn>, seq: u32, probe: bool, accepted: Option<&AtomicBool>, cancel: &AtomicBool) -> Outcome {
+fn body(
+    sh: &Shared,
+    ws: &mut tungstenite::WebSocket<Conn>,
+    seq: u32,
+    probe: bool,
+    accepted: Option<&AtomicBool>,
+    cancel: &AtomicBool,
+) -> Outcome {
     for msg in sh.exch.subscribe_messages(&sh.plan.streams) {
         if let Err(e) = ws.send(Message::text(msg)) {
             return Outcome::Failed(format!("подписка: {e}"));
         }
         std::thread::sleep(sh.exch.sub_period());
     }
-    sh.events.emit("subscribed", json!({"session": seq, "streams": sh.plan.streams.len()}));
-    ctl(sh, seq, "subscribed", format!("{seq} {}", sh.plan.streams.len()));
+    sh.events.emit(
+        "subscribed",
+        json!({"session": seq, "streams": sh.plan.streams.len()}),
+    );
+    ctl(
+        sh,
+        seq,
+        "subscribed",
+        format!("{seq} {}", sh.plan.streams.len()),
+    );
     if !probe {
         if let Some(a) = accepted {
             a.store(true, Relaxed);
@@ -153,11 +201,19 @@ fn body(sh: &Shared, ws: &mut tungstenite::WebSocket<Conn>, seq: u32, probe: boo
 }
 
 #[allow(clippy::too_many_lines)]
-fn read_loop(sh: &Shared, ws: &mut tungstenite::WebSocket<Conn>, seq: u32, probe: bool, accepted: Option<&AtomicBool>, cancel: &AtomicBool) -> Outcome {
+fn read_loop(
+    sh: &Shared,
+    ws: &mut tungstenite::WebSocket<Conn>,
+    seq: u32,
+    probe: bool,
+    accepted: Option<&AtomicBool>,
+    cancel: &AtomicBool,
+) -> Outcome {
     let m = &sh.metrics;
     let t_loop = Instant::now();
     let settle_at = t_loop + Duration::from_secs_f64(GRACE_S);
-    let mut probe = probe.then(|| PathProbe::new(t_loop));
+    let mut probe =
+        probe.then(|| PathProbe::with_window(t_loop, sh.probe_window.0, sh.probe_window.1));
     let mut n: u64 = 0;
     let mut last_ping = t_loop;
     let mut ping_sent: Option<(Instant, [u8; 8])> = None;
@@ -173,12 +229,34 @@ fn read_loop(sh: &Shared, ws: &mut tungstenite::WebSocket<Conn>, seq: u32, probe
         let t_read = Instant::now();
         match got {
             Ok(Message::Text(t)) => {
-                if !frame(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut last_sample, &mut probe, Bytes::from(t)) {
+                if !frame(
+                    sh,
+                    ws,
+                    seq,
+                    rx,
+                    t_read,
+                    settle_at,
+                    &mut n,
+                    &mut last_sample,
+                    &mut probe,
+                    Bytes::from(t),
+                ) {
                     return Outcome::Failed("писатель шарда ушёл".to_string());
                 }
             }
             Ok(Message::Binary(b)) => {
-                if !frame(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut last_sample, &mut probe, b) {
+                if !frame(
+                    sh,
+                    ws,
+                    seq,
+                    rx,
+                    t_read,
+                    settle_at,
+                    &mut n,
+                    &mut last_sample,
+                    &mut probe,
+                    b,
+                ) {
                     return Outcome::Failed("писатель шарда ушёл".to_string());
                 }
             }
@@ -186,15 +264,23 @@ fn read_loop(sh: &Shared, ws: &mut tungstenite::WebSocket<Conn>, seq: u32, probe
                 if let Some((t0, tag)) = ping_sent {
                     if p.as_ref() == tag.as_slice() {
                         let rtt = t_read.duration_since(t0);
-                        m.lists().pings.push_back((now_ms(), rtt.as_secs_f64() * 1000.0));
-                        let _ = sh.ring.push(Item { rx_ns: rx, sender: seq, settled: true, payload: Payload::Ping(i64::try_from(rtt.as_micros()).unwrap_or(0)) });
+                        m.lists()
+                            .pings
+                            .push_back((now_ms(), rtt.as_secs_f64() * 1000.0));
+                        let _ = sh.ring.push(Item {
+                            rx_ns: rx,
+                            sender: seq,
+                            settled: true,
+                            payload: Payload::Ping(i64::try_from(rtt.as_micros()).unwrap_or(0)),
+                        });
                         ping_sent = None;
                     }
                 }
             }
             Ok(Message::Close(_)) => return Outcome::Closed,
             Ok(_) => {}
-            Err(WsError::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+            Err(WsError::Io(e))
+                if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
             Err(WsError::ConnectionClosed | WsError::AlreadyClosed) => return Outcome::Closed,
             Err(e) => return Outcome::Failed(format!("чтение: {e}")),
         }
@@ -255,10 +341,11 @@ fn frame(
     let m = &sh.metrics;
     *n += 1;
     m.frames.fetch_add(1, Relaxed);
-    m.bytes.fetch_add(u64::try_from(data.len()).unwrap_or(0), Relaxed);
+    m.bytes
+        .fetch_add(u64::try_from(data.len()).unwrap_or(0), Relaxed);
     m.last_frame_ms.store(rx.div_euclid(1_000_000), Relaxed);
     m.last_frame_mono_ms.store(super::shard::mono_ms(), Relaxed);
-    if *n % RECVQ_EVERY == 0 {
+    if n.is_multiple_of(RECVQ_EVERY) {
         if let Some(q) = net::recv_q(ws.get_ref().tcp()) {
             m.recvq_samples.fetch_add(1, Relaxed);
             m.recvq_max.fetch_max(q, Relaxed);
@@ -272,17 +359,22 @@ fn frame(
             p.add(sh.exch.lag_ms(&data, rx));
         }
     }
-    if *n % LAG_SAMPLE == 0 || t_read.duration_since(*last_sample) >= SAMPLE_EVERY {
+    if n.is_multiple_of(LAG_SAMPLE) || t_read.duration_since(*last_sample) >= SAMPLE_EVERY {
         *last_sample = t_read;
         if let Some(lag) = sh.exch.lag_ms(&data, rx) {
             sh.watch().sample(seq, lag);
         }
     }
     let settled = t_read >= settle_at;
-    let pushed = sh.ring.push(Item { rx_ns: rx, sender: seq, settled, payload: Payload::Frame(data) });
+    let pushed = sh.ring.push(Item {
+        rx_ns: rx,
+        sender: seq,
+        settled,
+        payload: Payload::Frame(data),
+    });
     let work_us = u64::try_from(t_read.elapsed().as_micros()).unwrap_or(u64::MAX);
     m.busy_max_us.fetch_max(work_us, Relaxed);
-    if *n % HANDOFF_EVERY == 0 {
+    if n.is_multiple_of(HANDOFF_EVERY) {
         m.handoff_max_us.fetch_max(work_us, Relaxed);
     }
     pushed.is_ok()

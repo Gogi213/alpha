@@ -46,26 +46,30 @@ impl Kind {
     }
 }
 
-/// Лучшие bid/ask: `u` — номер обновления биржи.
+/// Лучшие bid/ask: `u` — номер обновления биржи (Bybit: сквозной `seq` — номер `u` у входов Bybit свой, см. `bybit.rs`);
+/// `id` — личность записи для снятия дублей (в файл не пишется).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Book<'a> {
     pub sym: &'a [u8],
     pub e: i64,
     pub t: i64,
     pub u: i64,
+    pub id: i64,
     pub bid: &'a [u8],
     pub bsz: &'a [u8],
     pub ask: &'a [u8],
     pub asz: &'a [u8],
 }
 
-/// Сделка: `a` — ключ порядка, `f`/`l` — первый/последний id в агрегате, `m` — покупатель мейкер, `nq` — размер без RPI.
+/// Сделка: `a` — ключ порядка, `f`/`l` — первый/последний id в агрегате, `m` — покупатель мейкер, `nq` — размер без RPI;
+/// `id` — личность сделки для снятия дублей (Binance — `a`, Bybit — хеш UUID; в файл не пишется).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Trade<'a> {
     pub sym: &'a [u8],
     pub e: i64,
     pub t: i64,
     pub a: i64,
+    pub id: i64,
     pub p: &'a [u8],
     pub q: &'a [u8],
     pub f: i64,
@@ -120,12 +124,12 @@ impl<'a> Rec<'a> {
         }
     }
 
-    /// Ключ порядка записи символа: book — u, trade — a, mark — E; у каждой биржи по символу растёт. Повтор (ключ не больше
-    /// записанного) — дубль перекрытия соединений или линий.
-    pub fn key(&self) -> i64 {
+    /// Личность записи по символу: две доставки одной записи (линии, перекрытие замены) имеют одну личность и пишутся один раз.
+    /// Book — u (Bybit: `seq`), trade — a (Bybit: хеш UUID), mark — E. Порядок в файле — порядок прихода первой доставки.
+    pub fn ident(&self) -> i64 {
         match self {
-            Rec::Book(b) => b.u,
-            Rec::Trade(t) => t.a,
+            Rec::Book(b) => b.id,
+            Rec::Trade(t) => t.id,
             Rec::Mark(m) => m.e,
         }
     }
@@ -277,12 +281,54 @@ impl Encoder {
 /// Запись файла, восстановленная читателем.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decoded {
-    Book { rx_ns: i64, e: i64, t: i64, sym: String, u: i64, bid: String, bsz: String, ask: String, asz: String },
-    Trade { rx_ns: i64, e: i64, t: i64, sym: String, a: i64, p: String, q: String, f: i64, l: i64, m: bool, nq: String },
-    Mark { rx_ns: i64, e: i64, sym: String, p: String, ap: String, pp: String, i: String, r: String, t: i64 },
-    Ping { rx_ns: i64, rtt_us: i64 },
-    Control { rx_ns: i64, what: String, detail: String },
-    Raw { rx_ns: i64, frame: String },
+    Book {
+        rx_ns: i64,
+        e: i64,
+        t: i64,
+        sym: String,
+        u: i64,
+        bid: String,
+        bsz: String,
+        ask: String,
+        asz: String,
+    },
+    Trade {
+        rx_ns: i64,
+        e: i64,
+        t: i64,
+        sym: String,
+        a: i64,
+        p: String,
+        q: String,
+        f: i64,
+        l: i64,
+        m: bool,
+        nq: String,
+    },
+    Mark {
+        rx_ns: i64,
+        e: i64,
+        sym: String,
+        p: String,
+        ap: String,
+        pp: String,
+        i: String,
+        r: String,
+        t: i64,
+    },
+    Ping {
+        rx_ns: i64,
+        rtt_us: i64,
+    },
+    Control {
+        rx_ns: i64,
+        what: String,
+        detail: String,
+    },
+    Raw {
+        rx_ns: i64,
+        frame: String,
+    },
 }
 
 /// Обратное к `Encoder`: состояние (предыдущие u/a/l, приём) — на файл.
@@ -295,11 +341,16 @@ pub struct Decoder {
 }
 
 fn int(f: &[&str], i: usize) -> Result<i64, String> {
-    f.get(i).ok_or_else(|| format!("нет столбца {i}"))?.parse::<i64>().map_err(|e| format!("столбец {i}: {e}"))
+    f.get(i)
+        .ok_or_else(|| format!("нет столбца {i}"))?
+        .parse::<i64>()
+        .map_err(|e| format!("столбец {i}: {e}"))
 }
 
 fn text(f: &[&str], i: usize) -> Result<String, String> {
-    f.get(i).map(|s| (*s).to_string()).ok_or_else(|| format!("нет столбца {i}"))
+    f.get(i)
+        .map(|s| (*s).to_string())
+        .ok_or_else(|| format!("нет столбца {i}"))
 }
 
 impl Decoder {
@@ -310,7 +361,11 @@ impl Decoder {
     /// Строка файла (без перевода строки) → запись. Пустая строка — ошибка.
     pub fn line(&mut self, line: &str) -> Result<Decoded, String> {
         let kind = line.as_bytes().first().copied().ok_or("пустая строка")?;
-        let f: Vec<&str> = if kind == b'r' { line.splitn(3, '\t').collect() } else { line.split('\t').collect() };
+        let f: Vec<&str> = if kind == b'r' {
+            line.splitn(3, '\t').collect()
+        } else {
+            line.split('\t').collect()
+        };
         self.prev_ns += int(&f, 1)?;
         let rx_ns = self.prev_ns;
         let rms = rx_ns.div_euclid(NS_PER_MS);
@@ -320,7 +375,17 @@ impl Decoder {
                 let sym = text(&f, 4)?;
                 let u = self.last_u.get(&sym).copied().unwrap_or(0) + int(&f, 5)?;
                 self.last_u.insert(sym.clone(), u);
-                Ok(Decoded::Book { rx_ns, e, t: e - int(&f, 3)?, sym, u, bid: text(&f, 6)?, bsz: text(&f, 7)?, ask: text(&f, 8)?, asz: text(&f, 9)? })
+                Ok(Decoded::Book {
+                    rx_ns,
+                    e,
+                    t: e - int(&f, 3)?,
+                    sym,
+                    u,
+                    bid: text(&f, 6)?,
+                    bsz: text(&f, 7)?,
+                    ask: text(&f, 8)?,
+                    asz: text(&f, 9)?,
+                })
             }
             b't' => {
                 let e = rms - int(&f, 2)?;
@@ -331,8 +396,23 @@ impl Decoder {
                 self.last_a.insert(sym.clone(), a + 1);
                 self.last_l.insert(sym.clone(), last + 1);
                 let q = text(&f, 7)?;
-                let nq = f.get(11).filter(|s| !s.is_empty()).map_or_else(|| q.clone(), |s| (*s).to_string());
-                Ok(Decoded::Trade { rx_ns, e, t: e - int(&f, 3)?, sym, a, p: text(&f, 6)?, q, f: first, l: last, m: f.get(10) == Some(&"1"), nq })
+                let nq = f
+                    .get(11)
+                    .filter(|s| !s.is_empty())
+                    .map_or_else(|| q.clone(), |s| (*s).to_string());
+                Ok(Decoded::Trade {
+                    rx_ns,
+                    e,
+                    t: e - int(&f, 3)?,
+                    sym,
+                    a,
+                    p: text(&f, 6)?,
+                    q,
+                    f: first,
+                    l: last,
+                    m: f.get(10) == Some(&"1"),
+                    nq,
+                })
             }
             b'm' => Ok(Decoded::Mark {
                 rx_ns,
@@ -345,9 +425,19 @@ impl Decoder {
                 r: text(&f, 8)?,
                 t: int(&f, 9)?,
             }),
-            b'g' => Ok(Decoded::Ping { rx_ns, rtt_us: int(&f, 2)? }),
-            b'c' => Ok(Decoded::Control { rx_ns, what: text(&f, 2)?, detail: f.get(3).map_or_else(String::new, |s| (*s).to_string()) }),
-            b'r' => Ok(Decoded::Raw { rx_ns, frame: text(&f, 2)? }),
+            b'g' => Ok(Decoded::Ping {
+                rx_ns,
+                rtt_us: int(&f, 2)?,
+            }),
+            b'c' => Ok(Decoded::Control {
+                rx_ns,
+                what: text(&f, 2)?,
+                detail: f.get(3).map_or_else(String::new, |s| (*s).to_string()),
+            }),
+            b'r' => Ok(Decoded::Raw {
+                rx_ns,
+                frame: text(&f, 2)?,
+            }),
             other => Err(format!("неизвестный тип записи {:?}", char::from(other))),
         }
     }

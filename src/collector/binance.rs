@@ -45,30 +45,74 @@ fn is_one(v: Val<'_>) -> bool {
 
 fn book(data: &[u8]) -> Option<Book<'_>> {
     let o = parse_object(data)?;
-    let [e, u, s, ps, b, bq, a, aq, t, ev, st] = slots(&o, [b"e", b"u", b"s", b"ps", b"b", b"B", b"a", b"A", b"T", b"E", b"st"])?;
+    let [e, u, s, ps, b, bq, a, aq, t, ev, st] = slots(
+        &o,
+        [
+            b"e", b"u", b"s", b"ps", b"b", b"B", b"a", b"A", b"T", b"E", b"st",
+        ],
+    )?;
     let sym = s.str()?;
     if e.str()? != b"bookTicker" || ps.str()? != sym || !is_one(st) {
         return None;
     }
-    Some(Book { sym, e: ev.int()?, t: t.int()?, u: u.int()?, bid: b.str()?, bsz: bq.str()?, ask: a.str()?, asz: aq.str()? })
+    Some(Book {
+        sym,
+        e: ev.int()?,
+        t: t.int()?,
+        u: u.int()?,
+        id: u.int()?,
+        bid: b.str()?,
+        bsz: bq.str()?,
+        ask: a.str()?,
+        asz: aq.str()?,
+    })
 }
 
 fn trade(data: &[u8]) -> Option<Trade<'_>> {
     let o = parse_object(data)?;
-    let [e, ev, a, s, p, q, nq, f, l, t, m, st] = slots(&o, [b"e", b"E", b"a", b"s", b"p", b"q", b"nq", b"f", b"l", b"T", b"m", b"st"])?;
+    let [e, ev, a, s, p, q, nq, f, l, t, m, st] = slots(
+        &o,
+        [
+            b"e", b"E", b"a", b"s", b"p", b"q", b"nq", b"f", b"l", b"T", b"m", b"st",
+        ],
+    )?;
     if e.str()? != b"aggTrade" || !is_one(st) {
         return None;
     }
-    Some(Trade { sym: s.str()?, e: ev.int()?, t: t.int()?, a: a.int()?, p: p.str()?, q: q.str()?, f: f.int()?, l: l.int()?, m: m.boolean()?, nq: nq.str()? })
+    Some(Trade {
+        sym: s.str()?,
+        e: ev.int()?,
+        t: t.int()?,
+        a: a.int()?,
+        id: a.int()?,
+        p: p.str()?,
+        q: q.str()?,
+        f: f.int()?,
+        l: l.int()?,
+        m: m.boolean()?,
+        nq: nq.str()?,
+    })
 }
 
 fn mark(elem: &[u8]) -> Option<Mark<'_>> {
     let o = parse_object(elem)?;
-    let [e, ev, s, p, ap, pp, i, r, t, st] = slots(&o, [b"e", b"E", b"s", b"p", b"ap", b"P", b"i", b"r", b"T", b"st"])?;
+    let [e, ev, s, p, ap, pp, i, r, t, st] = slots(
+        &o,
+        [b"e", b"E", b"s", b"p", b"ap", b"P", b"i", b"r", b"T", b"st"],
+    )?;
     if e.str()? != b"markPriceUpdate" || !is_one(st) {
         return None;
     }
-    Some(Mark { sym: s.str()?, e: ev.int()?, p: p.str()?, ap: ap.str()?, pp: pp.str()?, i: i.str()?, r: r.str()?, t: t.int()? })
+    Some(Mark {
+        sym: s.str()?,
+        e: ev.int()?,
+        p: p.str()?,
+        ap: ap.str()?,
+        pp: pp.str()?,
+        i: i.str()?,
+        r: r.str()?,
+        t: t.int()?,
+    })
 }
 
 struct BinanceParser;
@@ -127,7 +171,11 @@ impl Exchange for Binance {
         let mut out = Vec::new();
         for kind in kinds {
             if kind == "mark" {
-                out.push(ShardPlan { name: "mark00".into(), endpoint: "market".into(), streams: vec![MARK_STREAM.into()] });
+                out.push(ShardPlan {
+                    name: "mark00".into(),
+                    endpoint: "market".into(),
+                    streams: vec![MARK_STREAM.into()],
+                });
                 continue;
             }
             let (suffix, endpoint) = match kind.as_str() {
@@ -135,10 +183,21 @@ impl Exchange for Binance {
                 "trade" => ("aggTrade", "market"),
                 _ => continue,
             };
-            let per = if per_conn == 0 { self.per_conn(kind) } else { per_conn };
-            let streams: Vec<String> = pool.iter().map(|s| format!("{}@{suffix}", s.to_lowercase())).collect();
+            let per = if per_conn == 0 {
+                self.per_conn(kind)
+            } else {
+                per_conn
+            };
+            let streams: Vec<String> = pool
+                .iter()
+                .map(|s| format!("{}@{suffix}", s.to_lowercase()))
+                .collect();
             for (i, chunk) in balanced_chunks(&streams, per).into_iter().enumerate() {
-                out.push(ShardPlan { name: format!("{kind}{i:02}"), endpoint: endpoint.into(), streams: chunk });
+                out.push(ShardPlan {
+                    name: format!("{kind}{i:02}"),
+                    endpoint: endpoint.into(),
+                    streams: chunk,
+                });
             }
         }
         out
@@ -149,11 +208,19 @@ impl Exchange for Binance {
     }
 
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
-        (0..lanes).map(|_| vec![Entrance::new(HOST, Family::Any)]).collect()
+        (0..lanes)
+            .map(|_| vec![Entrance::new(HOST, Family::Any)])
+            .collect()
     }
 
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
-        streams.chunks(SUB_BATCH).enumerate().map(|(k, c)| json!({"method": "SUBSCRIBE", "params": c, "id": k * SUB_BATCH + 1}).to_string()).collect()
+        streams
+            .chunks(SUB_BATCH)
+            .enumerate()
+            .map(|(k, c)| {
+                json!({"method": "SUBSCRIBE", "params": c, "id": k * SUB_BATCH + 1}).to_string()
+            })
+            .collect()
     }
 
     fn sub_period(&self) -> Duration {
@@ -171,7 +238,9 @@ impl Exchange for Binance {
             b'[' => {
                 let mut first: Option<i64> = None;
                 each_elem(data, |el| {
-                    first = parse_object(el).and_then(|o| o.get(b"E")).and_then(Val::int);
+                    first = parse_object(el)
+                        .and_then(|o| o.get(b"E"))
+                        .and_then(Val::int);
                     false
                 });
                 first?
@@ -190,7 +259,11 @@ impl Exchange for Binance {
         rest.get(..end)
     }
 
-    fn load_pool(&self, min_qv: f64, top_exclude: usize) -> Result<(Vec<String>, Vec<String>), String> {
+    fn load_pool(
+        &self,
+        min_qv: f64,
+        top_exclude: usize,
+    ) -> Result<(Vec<String>, Vec<String>), String> {
         let info = http_get_json(&format!("{REST}/fapi/v1/exchangeInfo"))?;
         let tickers = http_get_json(&format!("{REST}/fapi/v1/ticker/24hr"))?;
         Ok(select_pool(&info, &tickers, min_qv, top_exclude))
@@ -198,10 +271,18 @@ impl Exchange for Binance {
 }
 
 /// `info` — ответ exchangeInfo, `tickers` — ticker/24hr: торгуемые бессрочные USDT-контракты с оборотом.
-pub fn select_pool(info: &serde_json::Value, tickers: &serde_json::Value, min_qv: f64, top_exclude: usize) -> (Vec<String>, Vec<String>) {
+pub fn select_pool(
+    info: &serde_json::Value,
+    tickers: &serde_json::Value,
+    min_qv: f64,
+    top_exclude: usize,
+) -> (Vec<String>, Vec<String>) {
     let mut qv: BTreeMap<String, f64> = BTreeMap::new();
     for t in tickers.as_array().into_iter().flatten() {
-        let v = t.get("quoteVolume").and_then(|x| x.as_str()).and_then(|x| x.parse::<f64>().ok());
+        let v = t
+            .get("quoteVolume")
+            .and_then(|x| x.as_str())
+            .and_then(|x| x.parse::<f64>().ok());
         if let (Some(sym), Some(v)) = (t.get("symbol").and_then(|x| x.as_str()), v) {
             if v >= 0.0 {
                 qv.insert(sym.to_string(), v);

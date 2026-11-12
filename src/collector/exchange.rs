@@ -46,7 +46,11 @@ pub struct Entrance {
 
 impl Entrance {
     pub fn new(host: &str, family: Family) -> Self {
-        Self { host: host.to_string(), ip: None, family }
+        Self {
+            host: host.to_string(),
+            ip: None,
+            family,
+        }
     }
 
     /// `host[@ip|@v4|@v6]`; без суффикса — семейство `default`.
@@ -60,11 +64,17 @@ impl Entrance {
             Some("v4") => (None, Family::V4),
             Some("v6") => (None, Family::V6),
             Some(t) => {
-                let ip = t.parse::<IpAddr>().map_err(|e| format!("адрес входа {t:?}: {e}"))?;
+                let ip = t
+                    .parse::<IpAddr>()
+                    .map_err(|e| format!("адрес входа {t:?}: {e}"))?;
                 (Some(ip), if ip.is_ipv4() { Family::V4 } else { Family::V6 })
             }
         };
-        Ok(Self { host: host.to_string(), ip, family })
+        Ok(Self {
+            host: host.to_string(),
+            ip,
+            family,
+        })
     }
 }
 
@@ -95,5 +105,9 @@ pub trait Exchange: Send + Sync {
     /// Ключ символа кадра для «с данными за минуту» (как в кадре; сравнение без учёта регистра — на стороне ядра).
     fn symbol<'a>(&self, frame: &'a [u8]) -> Option<&'a [u8]>;
     /// Пул по правилу G-022 (оборот за сутки ≥ `min_qv`, без `top_exclude` крупнейших): (пул, исключённый топ).
-    fn load_pool(&self, min_qv: f64, top_exclude: usize) -> Result<(Vec<String>, Vec<String>), String>;
+    fn load_pool(
+        &self,
+        min_qv: f64,
+        top_exclude: usize,
+    ) -> Result<(Vec<String>, Vec<String>), String>;
 }
