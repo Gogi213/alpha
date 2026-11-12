@@ -15,7 +15,7 @@ Rust + Python. Исследование и инфраструктура данн
   не непрерывный сбор (В-152). Передача дел: `docs/plan/G-022-handoff-2026-11-13.md` (читать первым).
 - Rust-коллектор Binance + Bybit — ветка `g022-turbo` (`src/collector/`), в `master` не слит; работает фоном на srv (`soak-binance`, `soak-bybit`,
   данные `/data/turbo-probe/`), страница здоровья http://5.231.25.224:8088/. Python-коллекторы остановлены.
-- Binance: маршрут srv → Токио двухрежимный, задержки не лечатся кодом — `docs/findings/binance-route-problem-2026-11-13.md`; вопрос владельцу про Софию открыт.
+- Binance: маршрут srv → Токио двухрежимный, задержки не лечатся кодом — `docs/findings/binance-route-problem-2026-11-13.md`; через Софию не подключаем (В-153).
 - Подготовка OKX, Bitget, HTX, BingX готова (ветки `okx-ws-prep`, `g022-prep-3`, отчёты `docs/findings/*-ws-prep-2026-11-12.md`).
 - П-40 — на паузе. История — `docs/archive/claude-md-history-*.md`; архив rpv — тег `archive/rpv-2026-11-12`.
 
