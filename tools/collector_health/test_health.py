@@ -56,7 +56,7 @@ def test_broken_json(tmp_path):
 
 def test_missing_fields_and_wrong_schema(tmp_path):
     put(tmp_path, "binance", {"schema": 1, "ts_ms": NOW})
-    put(tmp_path, "bybit", doc(schema=2))
+    put(tmp_path, "bybit", doc(schema=99))
     rows = by_ex(serve.collect(tmp_path, NOW, EXPECTED, None))
     assert rows["binance"]["state"] == "bad" and rows["bybit"]["state"] == "bad"
 
@@ -160,7 +160,7 @@ def test_entrance_switch_in_hour_is_warn_and_passes_through(tmp_path):
     put(tmp_path, "bybit", doc())
     assert by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["bybit"]["state"] == "ok"
     page = (Path(serve.__file__).resolve().parent / "page.html").read_text(encoding="utf-8")
-    assert "Смена входа" in page and "entrance_switches_1h" in page and page.count('colspan="9"') == 2
+    assert "Смена входа" in page and "entrance_switches_1h" in page and page.count('colspan="12"') == 2
 
 
 def test_hour_acceptance_file_in_health_dir_is_not_a_row(tmp_path):
@@ -169,3 +169,14 @@ def test_hour_acceptance_file_in_health_dir_is_not_a_row(tmp_path):
     put(tmp_path, "accept-binance-20261112T092100Z", {"schema": 1, "kind": "accept_hour", "exchange": "binance", "ts_ms": NOW, "verdict": "ok"})
     rows = serve.collect(tmp_path, NOW, EXPECTED, THR)
     assert [r["exchange"] for r in rows] == ["binance", "bybit"]
+
+
+def test_rust_collector_schema_2_passes_backpressure_and_warns_on_overflow(tmp_path):
+    bp = {"ring": {"cap": 32768, "depth_max": 12, "full_events_window": 0}, "recv_q": {"max_bytes": 0}, "queue_lag_ms": {"p50": 0.1, "p99": 0.4}}
+    put(tmp_path, "binance", doc(schema=2, backpressure=bp, process={"cpu_cores": 0.4}))
+    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["binance"]
+    assert r["state"] == "ok" and r["backpressure"]["ring"]["depth_max"] == 12 and r["process"]["cpu_cores"] == 0.4
+    bp["ring"]["full_events_window"] = 3
+    put(tmp_path, "binance", doc(schema=2, backpressure=bp))
+    r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["binance"]
+    assert r["state"] == "warn" and "переполнялась" in r["note"]

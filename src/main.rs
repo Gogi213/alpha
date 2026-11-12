@@ -17,6 +17,11 @@ enum TopCommand {
         #[command(subcommand)]
         cmd: LobCommand,
     },
+    /// Коллекторы рынка по WebSocket (G-022): приём, запись, health.
+    Collect {
+        #[command(subcommand)]
+        cmd: alpha::collector::cli::CollectCommand,
+    },
     /// Стат-арбитраж: конвертер панелей и замер ядра (TK-479).
     Statarb {
         #[command(subcommand)]
@@ -28,6 +33,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         TopCommand::Lob { cmd } => dispatch(cmd),
+        TopCommand::Collect { cmd } => alpha::collector::cli::dispatch(cmd),
         TopCommand::Statarb { cmd } => alpha::statarb::cli::dispatch(cmd),
     }
 }

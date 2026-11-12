@@ -1,0 +1,318 @@
+//! Адаптер Bybit v5 public linear (USDT-бессрочные) для ядра коллектора: адреса, подписка, пул, разбор кадра.
+//!
+//! Виды: orderbook.1 (L1), publicTrade (сделки), tickers (mark/index/фандинг; дельты сливаются в состояние символа).
+//! Глубины нет (В-115). Один эндпоинт на все виды. Отличия от Binance (замер TK-532): сделки пачкой на один ордер тейкера
+//! с общим `seq` и `T`, id сделки — UUID без порядка (ключ порядка `a = seq·1000 + номер в пачке`); L1 всегда
+//! `type=snapshot`, повтор кадра с тем же `u`. Входы: `stream.bybit.com` (IPv4) и `stream.bybit.kz` (TK-532/g022-integrate).
+
+use std::collections::{BTreeMap, HashMap};
+use std::time::Duration;
+
+use serde_json::json;
+
+use super::codec::{Book, Mark, Rec, Trade};
+use super::exchange::{lag_ms, Entrance, Exchange, Family, Parsed, Parser, ShardPlan};
+use super::pool::{balanced_chunks, http_get_json, rank_pool};
+use super::scan::{each_elem, parse_i64, parse_object, single_pair, Obj, Val};
+
+const REST: &str = "https://api.bybit.com";
+const PATH: &str = "/v5/public/linear";
+const HOST_COM: &str = "stream.bybit.com";
+const HOST_KZ: &str = "stream.bybit.kz";
+const SUB_BATCH: usize = 100;
+/// Место сделки в пачке с общим seq; пачка Bybit — до сотен сделок, 1000 с запасом (больше — кадр пишется сырым).
+const TRADE_SLOT: i64 = 1000;
+
+pub struct Bybit;
+
+fn slots<'a, const N: usize>(o: &Obj<'a>, names: [&[u8]; N]) -> Option<[Val<'a>; N]> {
+    if o.len() != N {
+        return None;
+    }
+    let mut out: [Option<Val<'a>>; N] = [None; N];
+    for f in o.iter() {
+        let i = names.iter().position(|n| *n == f.key)?;
+        if out.get_mut(i)?.replace(f.val).is_some() {
+            return None;
+        }
+    }
+    let mut res = [Val::Null; N];
+    for (r, v) in res.iter_mut().zip(out) {
+        *r = v?;
+    }
+    Some(res)
+}
+
+/// Значение до `MARK_CAP` байт без выделения: состояние mark символа.
+const MARK_CAP: usize = 40;
+
+#[derive(Clone, Copy)]
+struct Small {
+    b: [u8; MARK_CAP],
+    n: usize,
+}
+
+impl Small {
+    const EMPTY: Small = Small { b: [0; MARK_CAP], n: 0 };
+
+    fn set(&mut self, s: &[u8]) -> Option<()> {
+        let dst = self.b.get_mut(..s.len())?;
+        dst.copy_from_slice(s);
+        self.n = s.len();
+        Some(())
+    }
+
+    fn get(&self) -> &[u8] {
+        self.b.get(..self.n).unwrap_or(&[])
+    }
+}
+
+/// Полное состояние mark символа: `tickers` шлёт дельты, запись `m` — всегда полное состояние.
+#[derive(Clone, Copy)]
+struct MarkState {
+    ts: i64,
+    mark: Small,
+    index: Small,
+    funding: Small,
+    next: Small,
+}
+
+const MARK_KEYS: [&[u8]; 4] = [b"markPrice", b"indexPrice", b"fundingRate", b"nextFundingTime"];
+
+struct BybitParser {
+    marks: HashMap<Box<[u8]>, MarkState>,
+}
+
+impl MarkState {
+    fn slot(&mut self, i: usize) -> &mut Small {
+        match i {
+            0 => &mut self.mark,
+            1 => &mut self.index,
+            2 => &mut self.funding,
+            _ => &mut self.next,
+        }
+    }
+}
+
+impl Parser for BybitParser {
+    fn parse(&mut self, frame: &[u8], emit: &mut dyn FnMut(&Rec<'_>)) -> Parsed {
+        self.parse_frame(frame, emit).map_or(Parsed::Raw, Parsed::Recs)
+    }
+}
+
+impl BybitParser {
+    fn parse_frame(&mut self, frame: &[u8], emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
+        let top = parse_object(frame)?;
+        let topic = top.get(b"topic")?.str()?;
+        let kind = topic.split(|&c| c == b'.').next()?;
+        match kind {
+            b"orderbook" => {
+                let b = Self::book_of(&top)?;
+                emit(&Rec::Book(b));
+                Some(1)
+            }
+            b"publicTrade" => Self::trades(&top, emit),
+            b"tickers" => self.tickers(&top, emit),
+            _ => None,
+        }
+    }
+
+    fn book_of<'a>(top: &Obj<'a>) -> Option<Book<'a>> {
+        let [_, ts, ty, data, cts] = slots(top, [b"topic", b"ts", b"type", b"data", b"cts"])?;
+        if ty.str()? != b"snapshot" {
+            return None;
+        }
+        let x = parse_object(data.raw()?)?;
+        let [s, b, a, u, _seq] = slots(&x, [b"s", b"b", b"a", b"u", b"seq"])?;
+        let (bid, bsz) = single_pair(b.raw()?)?;
+        let (ask, asz) = single_pair(a.raw()?)?;
+        Some(Book { sym: s.str()?, e: ts.int()?, t: cts.int()?, u: u.int()?, bid, bsz, ask, asz })
+    }
+
+    /// Одна сделка пачки: ключи ровно как ожидается, `BT`/`RPI` ложны, сторона Buy/Sell.
+    fn fill<'a>(elem: &'a [u8], ts: i64, seq_idx: i64) -> Option<Trade<'a>> {
+        let o = parse_object(elem)?;
+        let [t, s, side, v, p, _l, _i, bt, rpi, seq] = slots(&o, [b"T", b"s", b"S", b"v", b"p", b"L", b"i", b"BT", b"RPI", b"seq"])?;
+        if bt.boolean()? || rpi.boolean()? {
+            return None;
+        }
+        let sell = match side.str()? {
+            b"Sell" => true,
+            b"Buy" => false,
+            _ => return None,
+        };
+        let a = seq.int()?.checked_mul(TRADE_SLOT)?.checked_add(seq_idx)?;
+        // m: покупатель — мейкер, т.е. тейкер продаёт
+        Some(Trade { sym: s.str()?, e: ts, t: t.int()?, a, p: p.str()?, q: v.str()?, f: a, l: a, m: sell, nq: v.str()? })
+    }
+
+    fn trades(top: &Obj<'_>, emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
+        if top.get(b"type")?.str()? != b"snapshot" {
+            return None;
+        }
+        let ts = top.get(b"ts")?.int()?;
+        let data = top.get(b"data")?.raw()?;
+        // проверка пачки целиком, затем выдача: частично разобранная пачка не пишется
+        let mut idx = 0i64;
+        let n = each_elem(data, |e| {
+            let ok = Self::fill(e, ts, idx).is_some();
+            idx += 1;
+            ok
+        })?;
+        if n == 0 || i64::try_from(n).ok()? >= TRADE_SLOT {
+            return None;
+        }
+        idx = 0;
+        each_elem(data, |e| {
+            let rec = Self::fill(e, ts, idx);
+            idx += 1;
+            rec.map(|t| emit(&Rec::Trade(t))).is_some()
+        })
+    }
+
+    fn tickers(&mut self, top: &Obj<'_>, emit: &mut dyn FnMut(&Rec<'_>)) -> Option<usize> {
+        let ts = top.get(b"ts")?.int()?;
+        let ty = top.get(b"type")?.str()?;
+        let x = parse_object(top.get(b"data")?.raw()?)?;
+        let sym = x.get(b"symbol")?.str()?;
+        let st = if ty == b"snapshot" {
+            let mut st = MarkState { ts, mark: Small::EMPTY, index: Small::EMPTY, funding: Small::EMPTY, next: Small::EMPTY };
+            for (i, k) in MARK_KEYS.iter().enumerate() {
+                st.slot(i).set(x.get(k)?.str()?)?;
+            }
+            self.marks.insert(sym.into(), st);
+            self.marks.get(sym)?
+        } else if ty == b"delta" {
+            // дельта до снапшота или запоздавшая с другого пути: состояние не портим, писать нечего
+            let Some(st) = self.marks.get_mut(sym) else { return Some(0) };
+            if ts < st.ts || !MARK_KEYS.iter().any(|k| x.get(k).is_some()) {
+                return Some(0);
+            }
+            st.ts = ts;
+            for (i, k) in MARK_KEYS.iter().enumerate() {
+                if let Some(v) = x.get(k) {
+                    st.slot(i).set(v.str()?)?;
+                }
+            }
+            &*st
+        } else {
+            return None;
+        };
+        let next = match st.next.get() {
+            [] => 0,
+            s => parse_i64(s)?,
+        };
+        emit(&Rec::Mark(Mark { sym, e: ts, p: st.mark.get(), ap: b"", pp: b"", i: st.index.get(), r: st.funding.get(), t: next }));
+        Some(1)
+    }
+}
+
+impl Exchange for Bybit {
+    fn name(&self) -> &'static str {
+        "bybit"
+    }
+
+    fn kinds(&self) -> &'static [&'static str] {
+        &["book", "trade", "mark"]
+    }
+
+    fn per_conn(&self, _kind: &str) -> usize {
+        80
+    }
+
+    fn plan(&self, pool: &[String], kinds: &[String], per_conn: usize) -> Vec<ShardPlan> {
+        let mut out = Vec::new();
+        for kind in kinds {
+            let prefix = match kind.as_str() {
+                "book" => "orderbook.1.",
+                "trade" => "publicTrade.",
+                "mark" => "tickers.",
+                _ => continue,
+            };
+            let per = if per_conn == 0 { self.per_conn(kind) } else { per_conn };
+            let topics: Vec<String> = pool.iter().map(|s| format!("{prefix}{s}")).collect();
+            for (i, chunk) in balanced_chunks(&topics, per).into_iter().enumerate() {
+                out.push(ShardPlan { name: format!("{kind}{i:02}"), endpoint: "linear".into(), streams: chunk });
+            }
+        }
+        out
+    }
+
+    fn url(&self, _endpoint: &str, host: &str) -> String {
+        format!("wss://{host}{PATH}")
+    }
+
+    /// Линия 0 — `stream.bybit.com` по IPv4, линия 1 — `stream.bybit.kz`; запасной вход линии — основной другой линии
+    /// (оба измерены в TK-532: 0 ошибок за 2 ч 53 мин).
+    fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
+        let (com, kz) = (Entrance::new(HOST_COM, Family::V4), Entrance::new(HOST_KZ, Family::V4));
+        (0..lanes).map(|k| if k % 2 == 0 { vec![com.clone(), kz.clone()] } else { vec![kz.clone(), com.clone()] }).collect()
+    }
+
+    fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
+        streams.chunks(SUB_BATCH).map(|c| json!({"op": "subscribe", "args": c}).to_string()).collect()
+    }
+
+    fn sub_period(&self) -> Duration {
+        Duration::from_millis(200)
+    }
+
+    fn new_parser(&self) -> Box<dyn Parser> {
+        Box::new(BybitParser { marks: HashMap::new() })
+    }
+
+    fn lag_ms(&self, frame: &[u8], rx_ns: i64) -> Option<f64> {
+        let ts = parse_object(frame)?.get(b"ts")?.int()?;
+        Some(lag_ms(rx_ns, ts))
+    }
+
+    fn symbol<'a>(&self, frame: &'a [u8]) -> Option<&'a [u8]> {
+        let rest = frame.strip_prefix(b"{\"topic\":\"")?;
+        let end = rest.iter().position(|&c| c == b'"')?;
+        rest.get(..end)?.rsplit(|&c| c == b'.').next()
+    }
+
+    fn load_pool(&self, min_qv: f64, top_exclude: usize) -> Result<(Vec<String>, Vec<String>), String> {
+        let mut instruments = Vec::new();
+        let mut cursor = String::new();
+        loop {
+            let suffix = if cursor.is_empty() { String::new() } else { format!("&cursor={cursor}") };
+            let page = http_get_json(&format!("{REST}/v5/market/instruments-info?category=linear&limit=1000{suffix}"))?;
+            let result = page.get("result").ok_or("instruments-info: нет result")?;
+            instruments.extend(result.get("list").and_then(|x| x.as_array()).cloned().unwrap_or_default());
+            cursor = result.get("nextPageCursor").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            if cursor.is_empty() {
+                break;
+            }
+        }
+        let tickers = http_get_json(&format!("{REST}/v5/market/tickers?category=linear"))?;
+        let list = tickers.get("result").and_then(|r| r.get("list")).cloned().unwrap_or_default();
+        Ok(select_pool(&instruments, &list, min_qv, top_exclude))
+    }
+}
+
+/// `instruments` — instruments-info['list'], `tickers` — tickers['list'] (turnover24h, $).
+pub fn select_pool(instruments: &[serde_json::Value], tickers: &serde_json::Value, min_qv: f64, top_exclude: usize) -> (Vec<String>, Vec<String>) {
+    let mut qv: BTreeMap<String, f64> = BTreeMap::new();
+    for t in tickers.as_array().into_iter().flatten() {
+        let v = t.get("turnover24h").and_then(|x| x.as_str()).and_then(|x| x.parse::<f64>().ok());
+        if let (Some(sym), Some(v)) = (t.get("symbol").and_then(|x| x.as_str()), v) {
+            if v >= 0.0 {
+                qv.insert(sym.to_string(), v);
+            }
+        }
+    }
+    let ok: BTreeMap<String, f64> = instruments
+        .iter()
+        .filter(|s| {
+            s.get("status").and_then(|x| x.as_str()) == Some("Trading")
+                && s.get("contractType").and_then(|x| x.as_str()) == Some("LinearPerpetual")
+                && s.get("quoteCoin").and_then(|x| x.as_str()) == Some("USDT")
+        })
+        .filter_map(|s| {
+            let name = s.get("symbol")?.as_str()?;
+            Some((name.to_string(), *qv.get(name)?))
+        })
+        .collect();
+    rank_pool(&ok, min_qv, top_exclude)
+}
