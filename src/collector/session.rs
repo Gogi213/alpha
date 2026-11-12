@@ -52,6 +52,8 @@ pub struct Shared {
     pub port: u16,
     /// Окно проверки нового пути: (пропуск, конец), секунды от начала чтения.
     pub probe_window: (f64, f64),
+    /// Период пинга и срок ожидания pong.
+    pub ping: (Duration, Duration),
 }
 
 impl Shared {
@@ -220,6 +222,7 @@ fn read_loop(
     let mut pings_on = true;
     let mut ping_no: u64 = 0;
     let mut last_sample = t_loop;
+    let mut last_frame = t_loop;
     loop {
         if cancel.load(Relaxed) || sh.stop.load(Relaxed) {
             return Outcome::Closed;
@@ -228,6 +231,9 @@ fn read_loop(
         let rx = wall_ns();
         let t_read = Instant::now();
         let had_frame = matches!(got, Ok(Message::Text(_) | Message::Binary(_)));
+        if had_frame {
+            last_frame = t_read;
+        }
         match got {
             Ok(Message::Text(t)) => {
                 if !frame(
@@ -289,7 +295,7 @@ fn read_loop(
         let now = if had_frame { t_read } else { Instant::now() };
         if pings_on {
             match ping_sent {
-                None if now.duration_since(last_ping) >= PING_PERIOD => {
+                None if now.duration_since(last_ping) >= sh.ping.0 => {
                     ping_no += 1;
                     let tag = ping_no.to_be_bytes();
                     if let Err(e) = ws.send(Message::Ping(Bytes::copy_from_slice(&tag))) {
@@ -298,13 +304,18 @@ fn read_loop(
                     ping_sent = Some((now, tag));
                     last_ping = now;
                 }
-                Some((t0, _)) if now.duration_since(t0) >= PING_TIMEOUT => {
-                    // нет pong: путь испортился — не рвём, а помечаем: шард откроет замену и закроет эту сессию после перекрытия
+                Some((t0, _)) if now.duration_since(t0) >= sh.ping.1 => {
+                    // нет pong за PING_TIMEOUT — таймаут (счётчик health, событие). Путь испорчен, только если и кадры данных не идут
+                    // (замер 12.11: у Binance pong запаздывал до 9,4 с при потоке без задержек — запись шла вовремя, замена не нужна)
                     m.lists().timeouts.push_back(now_ms());
-                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "tcp": tcp_json(ws.get_ref().tcp())}));
-                    sh.events.emit("ping_degraded", json!({"session": seq}));
-                    sh.watch().mark_degraded(seq);
-                    pings_on = false;
+                    let stalled = now.duration_since(last_frame) >= sh.ping.1;
+                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": !stalled, "tcp": tcp_json(ws.get_ref().tcp())}));
+                    if stalled {
+                        // не рвём, а помечаем: шард откроет замену и закроет эту сессию после перекрытия
+                        sh.events.emit("ping_degraded", json!({"session": seq}));
+                        sh.watch().mark_degraded(seq);
+                        pings_on = false;
+                    }
                     ping_sent = None;
                 }
                 _ => {}

@@ -1945,3 +1945,138 @@ fn writer_partial_raw_tail_is_deduplicated_between_lines() {
     let w = m.writer();
     assert_eq!((w.raw, w.raw_copies), (1, 1));
 }
+
+/// Источник, который не отвечает на ping (после подписки не читает): шлёт кадры книги каждые 2 мс, `frames` штук (None — без конца), потом молчит.
+fn spawn_mute(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    frames: Option<usize>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let mut conns = Vec::new();
+        while !stop.load(Relaxed) {
+            match listener.accept() {
+                Ok((s, _)) => {
+                    s.set_nonblocking(false).unwrap();
+                    let stop = Arc::clone(&stop);
+                    conns.push(std::thread::spawn(move || {
+                        let Ok(mut ws) = tungstenite::accept(s) else {
+                            return;
+                        };
+                        if ws.read().is_err() {
+                            return;
+                        }
+                        let mut u = 0i64;
+                        while !stop.load(Relaxed) {
+                            if frames.is_none_or(|n| usize::try_from(u).unwrap_or(0) < n) {
+                                u += 1;
+                                if ws
+                                    .send(tungstenite::Message::text(bn_book(
+                                        u,
+                                        super::events::now_ms(),
+                                    )))
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                    }));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5))
+                }
+                Err(_) => break,
+            }
+        }
+        for c in conns {
+            let _ = c.join();
+        }
+    })
+}
+
+/// pong запаздывает (здесь — вовсе нет), а кадры идут: таймаут считается, но путь не считается испорченным — замены нет.
+#[test]
+fn missing_pong_with_live_data_is_a_timeout_but_not_degraded() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_mute(listener, Arc::clone(&stop_src), None);
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(1));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while count_events(dir.path(), "timeout") < 2 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        count_events(dir.path(), "timeout") >= 2,
+        "таймауты ping считаются"
+    );
+    let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
+    assert!(ev.contains("\"data_alive\":true"), "{ev}");
+    assert_eq!(
+        count_events(dir.path(), "ping_degraded"),
+        0,
+        "кадры идут — путь не испорчен"
+    );
+    assert!(metrics.lists().timeouts.len() >= 2);
+    assert!(metrics.writer().records > 100, "поток шёл");
+}
+
+/// Ни pong, ни кадров — путь испорчен: помечается `degraded` (шард откроет замену).
+#[test]
+fn silence_without_pong_marks_the_session_degraded() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_mute(listener, Arc::clone(&stop_src), Some(50));
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(1));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "ping_degraded") < 1 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        count_events(dir.path(), "ping_degraded") >= 1,
+        "молчание без pong — degraded"
+    );
+    let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
+    assert!(ev.contains("\"data_alive\":false"), "{ev}");
+}

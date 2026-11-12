@@ -67,6 +67,9 @@ pub struct RunArgs {
     pub only_shards: Option<String>,
     #[arg(long)]
     pub pool_only: bool,
+    /// Возраст соединения, после которого линия открывает замену (по умолчанию 23 ч: биржа рвёт сутки). Короткий — для проверки замены вживую.
+    #[arg(long, default_value_t = 23 * 3600)]
+    pub max_age_s: u64,
     /// Остановиться через столько секунд (0 — до сигнала).
     #[arg(long, default_value_t = 0)]
     pub duration_s: u64,
@@ -190,6 +193,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let lines = lines_of(exch.as_ref(), args).map_err(anyhow::Error::msg)?;
     let mut opts = ShardOpts::new(args.root.clone(), run_id);
     opts.flush = Duration::from_millis(args.flush_ms.max(1));
+    opts.max_age = Duration::from_secs(args.max_age_s.max(30));
     let mut lines = lines;
     if let Some(plain) = &args.plain_ws {
         let (host, port) = plain

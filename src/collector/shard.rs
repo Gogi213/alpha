@@ -22,7 +22,7 @@ use super::exchange::{Entrance, Exchange, Family, ShardPlan};
 use super::metrics::{us_to_ms, Hist, ShardMetrics, WindowSnap, STATS_PERIOD_S};
 use super::path::{PathWatch, PROBE_MAX_REJECTS, PROBE_S, PROBE_SKIP_S};
 use super::ring::{ring, Item, Payload};
-use super::session::{self, Outcome, Shared};
+use super::session::{self, Outcome, Shared, PING_PERIOD, PING_TIMEOUT};
 use super::sink::{run_sink, sink_channel};
 use super::writer::{ShardWriter, WriterCfg};
 
@@ -72,6 +72,8 @@ pub struct ShardOpts {
     pub probe_window: (f64, f64),
     /// Через сколько линия на запасном входе пробует вернуться на основной (дальше — вдвое дольше после каждой неудачи).
     pub return_after: Duration,
+    /// Период пинга и срок ожидания pong.
+    pub ping: (Duration, Duration),
 }
 
 impl ShardOpts {
@@ -90,6 +92,7 @@ impl ShardOpts {
             port: 443,
             probe_window: (PROBE_SKIP_S, PROBE_S),
             return_after: Duration::from_secs(600),
+            ping: (PING_PERIOD, PING_TIMEOUT),
         }
     }
 }
@@ -387,6 +390,7 @@ pub fn spawn_shard(
         tls: opts.tls,
         port: opts.port,
         probe_window: opts.probe_window,
+        ping: opts.ping,
     });
     let lanes: Vec<Arc<Lane>> = entrances
         .iter()
