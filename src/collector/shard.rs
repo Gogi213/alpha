@@ -75,6 +75,8 @@ pub struct ShardOpts {
     pub rtt_max_ms: f64,
     /// Замена испорченного (или принятого медленным) пути никогда не принимает медленный путь «как есть»: старая сессия остаётся, пока не найден быстрый.
     pub never_slow: bool,
+    /// Линия не заменяется, пока её партнёр по шарду здоров (его сессия открыта, не испорчена и не медленная); возрастная пересменка не откладывается.
+    pub lazy: bool,
     /// Пауза строгой замены после каждых `PROBE_MAX_REJECTS` отбраковок подряд.
     pub strict_pause: Duration,
 }
@@ -97,6 +99,7 @@ impl ShardOpts {
             ping: (PING_PERIOD, PING_TIMEOUT),
             rtt_max_ms: CONNECT_RTT_MAX_MS,
             never_slow: false,
+            lazy: false,
             strict_pause: STRICT_PAUSE,
         }
     }
@@ -110,6 +113,18 @@ struct Lane {
     fails: AtomicU32,
     /// Сдвиг возраста первой сессии: линии стареют вразнобой (k/число линий · max_age) — не обе замены в один час.
     stagger: Duration,
+    /// Здоровье линий шарда (по индексу линии): сессия открыта, не испорчена и не медленная. Нужно ленивой замене (`ShardOpts::lazy`).
+    health: Arc<Vec<AtomicBool>>,
+}
+
+impl Lane {
+    /// Здорова ли хоть одна другая линия шарда.
+    fn partner_healthy(&self) -> bool {
+        self.health
+            .iter()
+            .enumerate()
+            .any(|(j, h)| j != self.k && h.load(Relaxed))
+    }
 }
 
 impl Lane {
@@ -261,13 +276,35 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         .checked_sub(lane.stagger)
         .unwrap_or_else(Instant::now);
     let mut upgrade_retry = Instant::now();
+    let mut deferred: Option<u32> = None;
     while !sh.stop.load(Relaxed) {
         thread::sleep(Duration::from_millis(250));
-        let bad = sh.watch().is_degraded(cur.seq);
+        let (bad, slow_raw, open) = {
+            let w = sh.watch();
+            (
+                w.is_degraded(cur.seq),
+                w.is_slow(cur.seq),
+                w.is_open(cur.seq),
+            )
+        };
+        if let Some(h) = lane.health.get(lane.k) {
+            h.store(open && !bad && !slow_raw, Relaxed);
+        }
         let old = cur.born.elapsed() >= opts.max_age;
         // сессия принята без проверки пути, потому что шард был без соединения (холодный старт): путь меняется на проверенный позже, без смены входа
-        let slow = !bad && !old && Instant::now() >= upgrade_retry && sh.watch().is_slow(cur.seq);
+        let slow = !bad && !old && Instant::now() >= upgrade_retry && slow_raw;
         if !(bad || slow || old) {
+            continue;
+        }
+        // ленивая замена: пока партнёр по шарду здоров, поток идёт по нему, а эта линия не тратит подключения (возрастная пересменка не откладывается)
+        if opts.lazy && !old && lane.partner_healthy() {
+            if deferred != Some(cur.seq) {
+                deferred = Some(cur.seq);
+                sh.events.emit(
+                    "replace_deferred",
+                    json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
+                );
+            }
             continue;
         }
         // замена, не принимающая медленный путь: для испорченного и медленного пути, не для возрастной пересменки (её старую сессию биржа всё равно рвёт)
@@ -375,6 +412,11 @@ pub fn spawn_shard(
         ping: opts.ping,
         rtt_max_ms: opts.rtt_max_ms,
     });
+    let health: Arc<Vec<AtomicBool>> = Arc::new(
+        (0..entrances.len())
+            .map(|_| AtomicBool::new(false))
+            .collect(),
+    );
     let lanes: Vec<Arc<Lane>> = entrances
         .iter()
         .enumerate()
@@ -388,6 +430,7 @@ pub fn spawn_shard(
                     f64::from(u32::try_from(k).unwrap_or(0))
                         / f64::from(u32::try_from(entrances.len().max(1)).unwrap_or(1)),
                 ),
+                health: Arc::clone(&health),
             })
         })
         .collect();

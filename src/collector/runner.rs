@@ -91,6 +91,9 @@ pub struct RunArgs {
     /// Замена испорченного пути не принимает медленный путь «как есть» после 12 отбраковок: старая сессия остаётся, пока не найден быстрый путь.
     #[arg(long)]
     pub never_slow: bool,
+    /// Ленивая замена: линия не заменяется, пока партнёр по шарду здоров; возрастная пересменка не откладывается.
+    #[arg(long)]
+    pub lazy: bool,
     /// Открытый `ws://host:port` вместо биржи (синтетический источник `collect synth`): хост и порт для всех входов.
     #[arg(long)]
     pub plain_ws: Option<String>,
@@ -223,6 +226,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     opts.flush = Duration::from_millis(args.flush_ms.max(1));
     opts.max_age = Duration::from_secs(args.max_age_s.max(30));
     opts.never_slow = args.never_slow;
+    opts.lazy = args.lazy;
     let mut lines = lines;
     if let Some(plain) = &args.plain_ws {
         let (host, port) = plain

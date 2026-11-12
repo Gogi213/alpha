@@ -137,6 +137,11 @@ impl PathWatch {
         self.slow.insert(seq);
     }
 
+    /// Сессия открыта (соединение есть, сторож её ведёт).
+    pub fn is_open(&self, seq: u32) -> bool {
+        self.lags.contains_key(&seq)
+    }
+
     pub fn is_slow(&self, seq: u32) -> bool {
         self.slow.contains(&seq)
     }
