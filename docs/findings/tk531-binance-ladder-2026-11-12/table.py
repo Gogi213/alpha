@@ -24,7 +24,7 @@ for f in sorted(glob.glob(os.path.join(src, "*.json"))):
     t = datetime.datetime.fromtimestamp(r["t_start"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     rows.append([kind, group, n, rep, t, r["dur"], r.get("rtt_ms"), r.get("msgs"), r.get("msg_s"), r.get("kb_s"), r.get("peak_msg_s"), r.get("lag_p50"), r.get("lag_p90"), r.get("lag_p99"), r.get("lag_max"),
                  r.get("disconnects"), r.get("silent_s"), r.get("cpu_s"), os.path.basename(f)])
-with open(out, "w", newline="") as fh:
+with open(out, "w", newline="", encoding="utf-8") as fh:
     w = csv.writer(fh)
     w.writerow(["kind", "group", "streams", "repeat", "t_start_utc", "dur_s", "rtt_connect_ms", "msgs", "msg_s", "kb_s", "peak_msg_s", "lag_p50_ms", "lag_p90_ms", "lag_p99_ms", "lag_max_ms", "disconnects", "silent_s", "cpu_s", "file"])
     for r in sorted(rows, key=lambda x: (x[0], x[1], int(x[2]), x[3], x[4])):
