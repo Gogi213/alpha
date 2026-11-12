@@ -68,6 +68,8 @@ REPORT       status, branch, head SHA, what you ran and its result, deviations
 STANDING     .claude/preferences.md (pointer; threads read it)
 ```
 
+Write briefs and inter-thread messages in English; ask workers to report in English. Quote the owner's words verbatim in Russian. Repo docs stay Russian (В-151).
+
 Size the brief to the unit. A one-command unit gets a paragraph that still names goal, scope, verify command and report shape.
 
 ## Writing the reply
