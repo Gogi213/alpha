@@ -5,7 +5,7 @@ import json
 import os
 import time
 
-from wscore import stats
+from wscore import fresh, stats
 from wscore.stats import percentile
 
 
@@ -44,6 +44,7 @@ def aggregate(frags, now_ms, pool, exchange):
             "gaps_1h": sum(t > hour for t in gps), "gaps_24h": sum(t > day for t in gps),
             "reconnects_1h": sum(t > hour for t in rcs), "reconnects_24h": sum(t > day for t in rcs),
         },
+        "fresh": {"late_ms": fresh.LATE_MS, "kinds": fresh.merge([f["fresh"] for f in frags if "fresh" in f])},  # TK-532: мера приёмки — записи с rx − E > late_ms и макс. лаг по видам
         "lag_in_ms": pct([v for f in frags for v in f["lag_in"]]),
         "lag_out_ms": pct([v for f in frags for v in f["lag_out"]]),
         "last_frame_ms": max((f["last_frame_ms"] for f in frags), default=0),

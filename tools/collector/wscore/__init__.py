@@ -3,13 +3,15 @@
 
   stats    окно, период статистики, перцентиль                       (ни от чего)
   codec    формат записи: Encoder, decode, ключ дедупа                (ни от чего)
-  writer   суточный файл шарда, снятие дублей                         (codec, stats)
+  fresh    свежесть записей: поздние (rx − E > 2 с) и макс. лаг по видам (ни от чего)
+  writer   суточный файл шарда, снятие дублей, свежесть записанных    (codec, stats, fresh)
   path     качество пути: окно проверки нового пути, сторож лага      (stats)
   dial     TCP connect с замером RTT: плохой путь отбракован до TLS    (ни от чего)
   budget   общий бюджет TCP-подключений процесса за 5 мин (лимит биржи) (ни от чего)
   metrics  счётчики шарда -> строка статистики и фрагмент health      (stats)
-  health   фрагменты шардов -> health.json                            (stats)
-  session  одно соединение: подключение, подписка, пинг, чтение       (writer, path, dial, budget, metrics)
+  health   фрагменты шардов -> health.json                            (stats, fresh)
+  entry    проба входов: те же подписки через независимые входы биржи (codec, dial, fresh; entryprobe.py / entrycmp.py — снаружи ядра)
+  session  одно соединение: подключение, подписка, пинг, чтение       (writer, path, dial, budget, metrics, fresh)
   shard    шард: писатель + сессии, переподключение, смена пути       (session, writer, path, metrics, health)
   runner   процесс: пул, раскладка, запуск шардов, бюджет, health       (shard, budget, health, writer)
 

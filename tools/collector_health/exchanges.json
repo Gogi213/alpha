@@ -1,0 +1,8 @@
+[
+  {"id": "binance", "name": "Binance"},
+  {"id": "bybit", "name": "Bybit"},
+  {"id": "okx", "name": "OKX"},
+  {"id": "bitget", "name": "Bitget"},
+  {"id": "huobi", "name": "Huobi (HTX)"},
+  {"id": "bingx", "name": "BingX"}
+]

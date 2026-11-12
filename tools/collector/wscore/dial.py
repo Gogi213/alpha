@@ -42,11 +42,12 @@ def peer_ip(sock):
         return None
 
 
-async def dial(url, max_rtt_ms=CONNECT_RTT_MAX_MS):
-    """Открытый TCP-сокет до хоста url и его RTT, мс; (None, rtt) — путь отбракован (max_rtt_ms=None — не отбраковывать)."""
+async def dial(url, max_rtt_ms=CONNECT_RTT_MAX_MS, ip=None):
+    """Открытый TCP-сокет до хоста url и его RTT, мс; (None, rtt) — путь отбракован (max_rtt_ms=None — не отбраковывать).
+    ip — подключиться к этому адресу, а не к тому, что отдаёт DNS (проба входов: другая точка присутствия CDN при том же имени/SNI)."""
     u = urlsplit(url)
     loop = asyncio.get_running_loop()
-    fam, typ, proto, _, addr = (await loop.getaddrinfo(u.hostname, u.port or (443 if u.scheme == "wss" else 80), type=socket.SOCK_STREAM))[0]
+    fam, typ, proto, _, addr = (await loop.getaddrinfo(ip or u.hostname, u.port or (443 if u.scheme == "wss" else 80), type=socket.SOCK_STREAM))[0]
     sock = socket.socket(fam, typ, proto)
     sock.setblocking(False)
     t0 = time.monotonic()

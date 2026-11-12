@@ -600,3 +600,116 @@ def test_gap_watch_emits_one_gap_per_pause_with_loop_lateness(tmp_path, monkeypa
     ev = [json.loads(ln) for ln in open(shard.events_path)]
     assert [e["ev"] for e in ev] == ["gap"]  # одна пауза — одно событие
     assert ev[0]["loop_late_ms"] >= 0 and len(shard.m.timeouts) == 0
+
+
+def trade_at(E, a):
+    return ("t", "AIOTUSDT", E, E - 100, a, "0.1742400", "410", a, a, True, "410")
+
+
+def test_fresh_counts_written_late_records_per_kind_without_duplicates_and_snapshots(tmp_path):
+    """TK-532: мера приёмки — записанные записи с rx − E > 2 с и макс. лаг по видам; дубль второй линии, начальные снимки подписки (settled=False) и запись вовремя не считаются поздними."""
+    from wscore import fresh
+
+    now_ms = 1_794_500_000_000
+    rx = now_ms * 1_000_000
+    w = DayWriter(str(tmp_path), "trade00", 7)
+    w.records(rx, [trade_at(now_ms - 3000, 1)])
+    w.records(rx + 5_000_000, [trade_at(now_ms - 3000, 1)])  # тот же a с другой линии — дубль
+    w.records(rx, [trade_at(now_ms - 100, 2)])
+    w.records(rx, [trade_at(now_ms - 9000, 3)], settled=False)  # снимок при подписке с устаревшим ts
+    w.records(rx, [("b", "AVAXUSDT", now_ms - 80, now_ms - 90, 5, "8.6", "4", "8.7", "2")])
+    fr = w.fresh.fragment(now_ms)
+    assert fr["trade"] == {"late_1h": 1, "late_24h": 1, "max_1h_ms": 3000, "max_24h_ms": 3000}
+    assert fr["book"] == {"late_1h": 0, "late_24h": 0, "max_1h_ms": 80, "max_24h_ms": 80}
+    assert fresh.LATE_MS == 2000 and "mark" not in fr
+    w.close()
+
+
+def test_fresh_windows_hour_day_and_expiry():
+    from wscore.fresh import Fresh
+
+    now = 1_794_500_000_000
+    f = Fresh()
+    f.add("t", now - 26 * 3600_000, 7000)  # старше суток — выбрасывается
+    f.add("t", now - 2 * 3600_000, 5000)  # в сутках, вне часа
+    f.add("t", now - 600_000, 2500)  # в часе
+    f.add("t", now - 1000, 90)
+    f.add("m", now - 1000, 40)
+    fr = f.fragment(now)
+    assert fr["trade"] == {"late_1h": 1, "late_24h": 2, "max_1h_ms": 2500, "max_24h_ms": 5000}
+    assert fr["mark"] == {"late_1h": 0, "late_24h": 0, "max_1h_ms": 40, "max_24h_ms": 40}
+    assert Fresh().fragment(now) == {}
+
+
+def test_health_aggregate_merges_fresh_across_shards_and_reads_old_fragments():
+    from wscore import fresh
+
+    now = 1_794_500_000_000
+    base = {"ts_ms": now, "started_ms": now - 5000, "with_data": [], "connected": 1, "ping_ms": [], "lag_in": [], "lag_out": [], "timeouts": [], "reconnects": [], "last_frame_ms": now, "last_write_ms": now}
+    a = dict(base, shard="trade00", fresh={"trade": {"late_1h": 3, "late_24h": 5, "max_1h_ms": 4100, "max_24h_ms": 6400}})
+    b = dict(base, shard="trade01", fresh={"trade": {"late_1h": 1, "late_24h": 1, "max_1h_ms": 2200, "max_24h_ms": 2200}, "mark": {"late_1h": 0, "late_24h": 0, "max_1h_ms": 90, "max_24h_ms": 120}})
+    old = dict(base, shard="book00")  # фрагмент прежнего кода — без fresh
+    h = health.aggregate([a, b, old], now, [], "fake")
+    assert h["fresh"]["late_ms"] == fresh.LATE_MS
+    assert h["fresh"]["kinds"]["trade"] == {"late_1h": 4, "late_24h": 6, "max_1h_ms": 4100, "max_24h_ms": 6400}
+    assert h["fresh"]["kinds"]["mark"]["max_24h_ms"] == 120
+    assert health.aggregate([], now, [], "fake")["fresh"]["kinds"] == {}
+
+
+def test_session_read_skips_subscription_snapshots_in_fresh(tmp_path, monkeypatch):
+    """Первые GRACE_S после подписки записи не идут в свежесть, дальше — идут."""
+    monkeypatch.setattr(sess, "GRACE_S", 0.1)
+    shard = shard_for(tmp_path)
+    ms = lambda: int(time.time() * 1000)  # noqa: E731
+
+    class Ws:
+        async def __aiter__(self):  # noqa: D105
+            yield json.dumps([trade_at(ms() - 5000, 1)])  # снимок сразу после подписки
+            await asyncio.sleep(0.25)
+            yield json.dumps([trade_at(ms() - 4000, 2)])  # после окна — настоящая задержка
+
+    async def go():
+        await shard.session._read(Ws(), 1, None, None)
+
+    asyncio.run(go())
+    fr = shard.writer.fresh.fragment(ms())
+    assert fr["trade"]["late_24h"] == 1 and 3900 <= fr["trade"]["max_24h_ms"] < 4500
+    shard.writer.close()
+
+
+def test_entry_sink_logs_every_record_and_flags_late_ones_outside_grace(tmp_path):
+    """Проба входов: лог всех записей (читается entrycmp), поздние — отдельным файлом; запись в окне после подписки в late не идёт."""
+    import entrycmp
+    from wscore.entry import Sink
+
+    now_ms = 1_794_500_000_000
+    rx = now_ms * 1_000_000
+    s = Sink(str(tmp_path), "com")
+    s.frame("trade00", rx, [trade_at(now_ms - 3000, 1), trade_at(now_ms - 50, 2)])
+    s.frame("trade00", rx, [trade_at(now_ms - 6000, 3)], settled=False)
+    s.take_stats()
+    s.close()
+    late = [json.loads(ln) for ln in open(tmp_path / "late-com.jsonl")]
+    assert [(x["key"], x["lag_ms"]) for x in late] == [(1, 3000)]
+    recs = list(entrycmp.read_recs(str(tmp_path), "com"))
+    assert [(r[1], r[3], r[0] - r[4]) for r in recs] == [("t", 1, 3000), ("t", 2, 50), ("t", 3, 6000)]
+    st = [json.loads(ln) for ln in open(tmp_path / "stats-com.jsonl")]
+    assert st[0]["recs"] == 3 and st[0]["late"] == 1 and st[0]["lag_max_ms"] == 6000
+
+
+def test_session_read_counts_unparsed_data_frames_in_fresh_as_raw(tmp_path, monkeypatch):
+    """Кадр данных, который адаптер не разобрал (пишется сырым), попадает в свежесть видом raw; кадр без ts (lag_ms = None) — нет."""
+    monkeypatch.setattr(sess, "GRACE_S", 0.0)
+    shard = shard_for(tmp_path)
+    lags = iter([4200.0, 90.0, None, 90.0])  # кадр 0: raw-свежесть, затем выборка лага (каждый 64-й кадр); кадр 1 без ts; кадр 2 вовремя
+    monkeypatch.setattr(shard.session.ad, "lag_ms", lambda frame, rx: next(lags, 90.0))
+
+    class Ws:
+        async def __aiter__(self):  # noqa: D105
+            for _ in range(3):
+                yield "x"
+
+    asyncio.run(shard.session._read(Ws(), 1, None, None))
+    fr = shard.writer.fresh.fragment(int(time.time() * 1000))
+    assert fr["raw"]["late_24h"] == 1 and fr["raw"]["max_24h_ms"] == 4200
+    shard.writer.close()

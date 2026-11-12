@@ -9,6 +9,7 @@ from collections import deque
 
 from wscore import stats
 from wscore.codec import Encoder, dedup_key
+from wscore.fresh import Fresh
 
 FLUSH_PERIOD_S = 1.0  # кадр на диске не реже 10 с (A8); 1 с — лаг отдачи ≈ 0,5 с, размер +1 % (замер)
 ZSTD_LEVEL = 1  # замер: на этих данных уровень 1 и меньше, и быстрее уровня 3
@@ -38,6 +39,7 @@ class DayWriter:
         self.last_flush = time.monotonic()
         self.samples = []  # recv_ns выбранных кадров, ещё не сброшенных на диск
         self.out_lags = deque()  # (monotonic, мс приём -> диск)
+        self.fresh = Fresh()  # свежесть записанных записей: поздних (rx − E > LATE_MS) и макс. лаг по видам (TK-532)
         self.last_write_ms = 0
 
     def _open(self, rx_ns):
@@ -62,8 +64,9 @@ class DayWriter:
         if time.monotonic() - self.last_flush >= FLUSH_PERIOD_S:
             self.flush()
 
-    def records(self, rx_ns, recs, sample=False):
-        """Разобранные записи кадра; запись, ключ которой не больше записанного по символу, — дубль и не пишется."""
+    def records(self, rx_ns, recs, sample=False, settled=True):
+        """Разобранные записи кадра; запись, ключ которой не больше записанного по символу, — дубль и не пишется. settled=False — начальные снимки после подписки: в свежесть не идут."""
+        rx_ms = rx_ns // 1_000_000
         for rec in recs:
             key = (rec[0], rec[1])
             k = dedup_key(rec)
@@ -71,6 +74,8 @@ class DayWriter:
                 self.dups += 1
                 continue
             self.last_key[key] = k
+            if settled:
+                self.fresh.add(rec[0], rx_ms, rx_ms - rec[2])
             self._emit(rx_ns, lambda e, r, rec=rec: e.record(r, rec), sample)
             sample = False
 

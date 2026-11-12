@@ -15,6 +15,7 @@ import time
 from collections import deque
 
 from wscore.dial import CONNECT_RTT_MAX_MS, dial, hostname, peer_ip, tcp_state
+from wscore.fresh import GRACE_S
 from wscore.path import PathProbe
 
 PING_PERIOD_S = 5.0
@@ -123,15 +124,20 @@ class Session:
         """Чтение кадров; probe — PathProbe, пока путь проверяется (None — не проверяется). Возвращает True, если путь отбракован."""
         ad, w, m = self.ad, self.writer, self.m
         n = 0
+        settle = time.monotonic() + GRACE_S  # до этого момента записи не идут в свежесть (начальные снимки подписки)
         async for frame in ws:
             rx = time.time_ns()
+            mono = time.monotonic()
             sample = n % LAG_SAMPLE == 0
             recs = ad.parse(frame)
             if recs is None:
                 w.raw(rx, frame, sample)
+                if mono >= settle:
+                    lag = ad.lag_ms(frame, rx)  # кадр без ts (ответ на подписку, pong) — не данные, свежесть не считается
+                    if lag is not None:
+                        w.fresh.add("r", rx // 1_000_000, round(lag))
             else:
-                w.records(rx, recs, sample)
-            mono = time.monotonic()
+                w.records(rx, recs, sample, mono >= settle)
             m.frame(len(frame), rx, mono, ad.symbol(frame))
             n += 1
             if sample:

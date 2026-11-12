@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Здоровье коллекторов</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f1216; --card:#171c22; --line:#262d36; --fg:#e6e9ed; --dim:#8b95a1; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --off:#4b5563; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px 24px; background:var(--bg); color:var(--fg); font: 15px/1.4 system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  h1 { font-size:18px; margin:0 0 16px; font-weight:600; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  th, td { padding:10px 12px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--dim); font-weight:500; font-size:12px; background:#13181d;  }
+  th:first-child, td:first-child { text-align:left; }
+  tr:last-child td { border-bottom:0; }
+  td.ex { font-weight:600; font-size:16px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:8px; }
+  .dot.ok { background:var(--ok); } .dot.warn { background:var(--warn); } .dot.bad { background:var(--bad); } .dot.off { background:var(--off); }
+  .num { font-variant-numeric: tabular-nums; font-size:16px; }
+  .yes { color:var(--bad); font-weight:600; } .no { color:var(--ok); }
+  tr.off td { color:var(--off); }
+  tr.off td.ex { color:var(--dim); }
+  td.msg { text-align:left; color:var(--bad); }
+  #stamp { color:var(--dim); font-size:12px; margin-top:10px; }
+  #stamp.err { color:var(--bad); }
+</style>
+</head>
+<body>
+<h1>Здоровье коллекторов</h1>
+<table>
+  <thead><tr>
+    <th>Биржа</th>
+    <th title="В подписке / по скольким пришёл хоть один кадр за последнюю минуту">Символов, подп. / дан.</th>
+    <th title="Время между ping и pong по соединениям: медиана и максимум за окно">Пинг WS, мс p50 / макс</th>
+    <th title="Паузы без кадров на соединении дольше порога: за час / за сутки">Таймауты 1ч / 24ч</th>
+    <th title="Соединение закрыто и открыто заново: за час / за сутки">Переподкл. 1ч / 24ч</th>
+    <th title="Время приёма минус время биржи в кадре; включает расхождение часов">Лаг прихода, мс p50 / p99</th>
+    <th title="По каждой записанной записи (не выборкой): сколько записей пришло с лагом больше 2 с — за час / за сутки; максимальный лаг записи — за час / за сутки. По видам потоков">Свежесть: записей &gt; 2 с, 1ч / 24ч · макс. лаг, с</th>
+    <th title="От приёма кадра до записи на диск">Лаг отдачи, мс p50 / p99</th>
+    <th title="Секунд с момента записи файла health.json коллектором">Обновлено, с</th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<div id="stamp"></div>
+<script>
+const rows = document.getElementById('rows'), stamp = document.getElementById('stamp');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const n = v => v == null ? '—' : Math.round(v);
+const pair = (a, b) => n(a) + ' / ' + n(b);
+const cnt = v => v ? '<span class="yes">' + v + '</span>' : '<span class="no">нет</span>';
+const cnt0 = v => v ? '<span class="yes">' + v + '</span>' : '<span class="no">0</span>';
+const sec = v => v == null ? '—' : (v / 1000).toFixed(1);
+function fresh(f) {
+  const ks = f && f.kinds ? Object.keys(f.kinds) : [];
+  if (!ks.length) return '—';
+  return ks.map(k => { const v = f.kinds[k];
+    return '<div>' + esc(k) + ' ' + cnt0(v.late_1h) + ' / ' + cnt0(v.late_24h) + ' · ' + sec(v.max_1h_ms) + ' / ' + sec(v.max_24h_ms) + '</div>'; }).join('');
+}
+
+function render(r) {
+  const head = '<td class="ex"><span class="dot ' + r.state + '" title="' + esc(r.note || '') + '"></span>' + esc(r.name) + '</td>';
+  if (r.state === 'off') return '<tr class="off">' + head + '<td colspan="8" style="text-align:left">—</td></tr>';
+  if (!r.symbols) return '<tr>' + head + '<td colspan="8" class="msg">' + esc(r.note) + '</td></tr>';
+  const w = r.ws, s = r.symbols;
+  return '<tr>' + head +
+    '<td class="num">' + n(s.subscribed) + ' / ' + n(s.with_data_1m) + '</td>' +
+    '<td class="num">' + pair(w.ping_ms && w.ping_ms.p50, w.ping_ms && w.ping_ms.max) + '</td>' +
+    '<td class="num">' + cnt(w.timeouts_1h) + ' / ' + cnt(w.timeouts_24h) + '</td>' +
+    '<td class="num">' + cnt0(w.reconnects_1h) + ' / ' + n(w.reconnects_24h) + '</td>' +
+    '<td class="num">' + pair(r.lag_in_ms && r.lag_in_ms.p50, r.lag_in_ms && r.lag_in_ms.p99) + '</td>' +
+    '<td class="num">' + fresh(r.fresh) + '</td>' +
+    '<td class="num">' + pair(r.lag_out_ms && r.lag_out_ms.p50, r.lag_out_ms && r.lag_out_ms.p99) + '</td>' +
+    '<td class="num">' + n(r.age_s) + '</td></tr>';
+}
+
+async function tick() {
+  try {
+    const d = await (await fetch('/api/health', {cache: 'no-store'})).json();
+    rows.innerHTML = d.rows.map(render).join('');
+    stamp.className = '';
+    stamp.textContent = new Date().toLocaleTimeString('ru-RU', {timeZone: 'Asia/Dubai'}) + ' GMT+4';
+  } catch (e) {
+    stamp.className = 'err';
+    stamp.textContent = 'нет связи со страницей';
+  }
+}
+tick(); setInterval(tick, 10000);
+</script>
+</body>
+</html>

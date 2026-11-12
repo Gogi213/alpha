@@ -1,0 +1,6 @@
+run symbols with any record: 408  with record in window: 407
+no record in window: ['FUTUUSDT'] [{'b': 1479, 'm': 255, 't': 456}]
+b symbols in window: 407 all: 408
+t symbols in window: 382 all: 408
+m symbols in window: 406 all: 408
+symbols with a kind missing in window: {'AALUSDT': ['t', 'm'], 'AIOUSDT': ['t'], 'ALABUSDT': ['t'], 'AMATUSDT': ['t'], 'ANETUSDT': ['t'], 'APPSTOCKUSDT': ['t'], 'CIENUSDT': ['t'], 'CSCOUSDT': ['t'], 'DDOGUSDT': ['t'], 'EWTUSDT': ['t'], 'FLEXUSDT': ['t'], 'GLWUSDT': ['t'], 'LGELECTRONICSUSDT': ['t'], 'ONUSDT': ['t'], 'PANWUSDT': ['t'], 'SMCIUSDT': ['t'], 'SNTUSDT': ['t'], 'SOXXUSDT': ['t'], 'SPCHUSDT': ['t'], 'STXXUSDT': ['t']}

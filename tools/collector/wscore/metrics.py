@@ -103,4 +103,5 @@ class Metrics:
             "lag_in": [round(v, 1) for _, v in self.in_lags], "lag_out": [round(v, 1) for _, v in writer.out_lags],
             "timeouts": list(self.timeouts), "gaps": list(self.gaps), "reconnects": list(self.reconnects),
             "last_frame_ms": self.last_frame_ms, "last_write_ms": writer.last_write_ms,
+            "fresh": writer.fresh.fragment(int(time.time() * 1000)),
         }
