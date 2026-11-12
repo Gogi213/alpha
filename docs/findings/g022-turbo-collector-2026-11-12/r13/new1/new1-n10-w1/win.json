@@ -1,0 +1,35 @@
+{
+ "t0": 1794525292989,
+ "t1": 1794525472989,
+ "runs": {
+  "X": {
+   "dials": 6,
+   "fast_dials": 6,
+   "fast_share": 1.0,
+   "accepted": 6,
+   "accepted_fast": 6,
+   "accepted_fast_share": 1.0,
+   "events": {
+    "connected": 6,
+    "subscribed": 6
+   },
+   "book_n": 79486,
+   "lag_p50": 116,
+   "lag_p99": 122,
+   "lag_max": 219,
+   "late": 0,
+   "late_share": 0.0,
+   "mark_symbols": 10,
+   "mark_missing_s": 0.0,
+   "mark_symbols_without_records": 0,
+   "mark_symbols_with_gap": 0,
+   "mark_cov": 1.0,
+   "book_given_trade": 0.997,
+   "book_given_trade_timely": 0.997,
+   "trade_cells": 1351,
+   "cells_union": 1732,
+   "cov_any": 1.0,
+   "cov_timely": 1.0
+  }
+ }
+}

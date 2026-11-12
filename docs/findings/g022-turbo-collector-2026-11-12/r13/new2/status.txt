@@ -1,0 +1,5 @@
+new2-nfull-w1 ok shards=25 fast=100% (50/50) lag p50/p99/max=116/129/347 ms late=0 drops=0 connect_errors=0 mark_cov=100.000% rest_missing_after_covered=0/6800 uncovered=0.0 shard-s cpu=94% core switch/upgrade/deferred=0/0/0
+new2-nfull-w2 ok shards=25 fast=100% (50/50) lag p50/p99/max=116/137/321 ms late=0 drops=0 connect_errors=0 mark_cov=100.000% rest_missing_after_covered=0/9979 uncovered=0.0 shard-s cpu=96% core switch/upgrade/deferred=0/0/0
+new2-nfull-w3 ok shards=25 fast=100% (50/50) lag p50/p99/max=116/132/378 ms late=0 drops=0 connect_errors=0 mark_cov=100.000% rest_missing_after_covered=0/6732 uncovered=0.0 shard-s cpu=95% core switch/upgrade/deferred=0/0/0
+STEP full OK
+ALLDONE

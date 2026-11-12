@@ -1,0 +1,343 @@
+{
+ "exchange": "binance",
+ "window_ms": [
+  1794526649252,
+  1794526829252
+ ],
+ "symbols": 25,
+ "total": {
+  "rest": 6888,
+  "file": 6862,
+  "missing_in_file": 26,
+  "extra_in_file": 0,
+  "mismatch": 0,
+  "rest_after_covered": 6732,
+  "missing_after_covered": 0
+ },
+ "per_symbol": {
+  "PLAYUSDT": {
+   "rest": 5503,
+   "file": 5489,
+   "missing_in_file": 14,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 5376,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    72070206,
+    72070207,
+    72070208,
+    72070209,
+    72070210
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "CYBERUSDT": {
+   "rest": 280,
+   "file": 279,
+   "missing_in_file": 1,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 277,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    85669435
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "TRUMPUSDT": {
+   "rest": 168,
+   "file": 168,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 167,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "RUNEUSDT": {
+   "rest": 135,
+   "file": 135,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 135,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "TRUTHUSDT": {
+   "rest": 112,
+   "file": 112,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 105,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "TSTUSDT": {
+   "rest": 92,
+   "file": 92,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 89,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "GMXUSDT": {
+   "rest": 77,
+   "file": 73,
+   "missing_in_file": 4,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 71,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    70464327,
+    70464328,
+    70464329,
+    70464330
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "XNYUSDT": {
+   "rest": 61,
+   "file": 61,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 61,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "COOKIEUSDT": {
+   "rest": 55,
+   "file": 53,
+   "missing_in_file": 2,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 52,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    33281248,
+    33281249
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ZBTUSDT": {
+   "rest": 51,
+   "file": 50,
+   "missing_in_file": 1,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 49,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    60925899
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "GALAUSDT": {
+   "rest": 42,
+   "file": 42,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 42,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "IRYSUSDT": {
+   "rest": 38,
+   "file": 38,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 38,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "APRUSDT": {
+   "rest": 34,
+   "file": 34,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 34,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "FLOCKUSDT": {
+   "rest": 31,
+   "file": 31,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 31,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "RLCUSDT": {
+   "rest": 32,
+   "file": 29,
+   "missing_in_file": 3,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 29,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    241763225,
+    241763226,
+    241763227
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "THEUSDT": {
+   "rest": 26,
+   "file": 26,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 26,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "POWERUSDT": {
+   "rest": 24,
+   "file": 24,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 24,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "COMPUSDT": {
+   "rest": 22,
+   "file": 22,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 22,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ARKMUSDT": {
+   "rest": 20,
+   "file": 20,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 20,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "TWTUSDT": {
+   "rest": 19,
+   "file": 19,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 19,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "MIRAUSDT": {
+   "rest": 17,
+   "file": 17,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 17,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "KNCUSDT": {
+   "rest": 15,
+   "file": 15,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 15,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AZTECUSDT": {
+   "rest": 13,
+   "file": 13,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 13,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "NEOUSDT": {
+   "rest": 12,
+   "file": 11,
+   "missing_in_file": 1,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 11,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    228263600
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "COAIUSDT": {
+   "rest": 9,
+   "file": 9,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 9,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  }
+ }
+}

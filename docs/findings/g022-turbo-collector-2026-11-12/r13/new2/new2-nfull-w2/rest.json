@@ -1,0 +1,330 @@
+{
+ "exchange": "binance",
+ "window_ms": [
+  1794526410253,
+  1794526590253
+ ],
+ "symbols": 25,
+ "total": {
+  "rest": 10186,
+  "file": 10164,
+  "missing_in_file": 22,
+  "extra_in_file": 0,
+  "mismatch": 0,
+  "rest_after_covered": 9979,
+  "missing_after_covered": 0
+ },
+ "per_symbol": {
+  "ARIAUSDT": {
+   "rest": 8758,
+   "file": 8739,
+   "missing_in_file": 19,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 8575,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    95449073,
+    95449074,
+    95449075,
+    95449076,
+    95449077
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "USELESSUSDT": {
+   "rest": 323,
+   "file": 323,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 322,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "USUSDT": {
+   "rest": 181,
+   "file": 180,
+   "missing_in_file": 1,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 178,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    98430090
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "PIXELUSDT": {
+   "rest": 136,
+   "file": 134,
+   "missing_in_file": 2,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 133,
+   "missing_after_covered": 0,
+   "missing_examples": [
+    79753458,
+    79753459
+   ],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AVAXUSDT": {
+   "rest": 104,
+   "file": 104,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 103,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "CHIPUSDT": {
+   "rest": 85,
+   "file": 85,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 84,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "HOMEUSDT": {
+   "rest": 75,
+   "file": 75,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 70,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "LTCUSDT": {
+   "rest": 64,
+   "file": 64,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 63,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "CKBUSDT": {
+   "rest": 55,
+   "file": 55,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 54,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "CYSUSDT": {
+   "rest": 48,
+   "file": 48,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 47,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "DUSKUSDT": {
+   "rest": 41,
+   "file": 41,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 41,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "SCRUSDT": {
+   "rest": 38,
+   "file": 38,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 38,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "1INCHUSDT": {
+   "rest": 34,
+   "file": 34,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 34,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ENSUSDT": {
+   "rest": 32,
+   "file": 32,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 31,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ZENUSDT": {
+   "rest": 30,
+   "file": 30,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 29,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "EIGENUSDT": {
+   "rest": 27,
+   "file": 27,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 27,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "DOLOUSDT": {
+   "rest": 25,
+   "file": 25,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 24,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "QTUMUSDT": {
+   "rest": 23,
+   "file": 23,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 21,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "INXUSDT": {
+   "rest": 21,
+   "file": 21,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 21,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ARKMUSDT": {
+   "rest": 19,
+   "file": 19,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 19,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "HOLOUSDT": {
+   "rest": 18,
+   "file": 18,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 18,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "BANANAUSDT": {
+   "rest": 15,
+   "file": 15,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 13,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "SUSHIUSDT": {
+   "rest": 14,
+   "file": 14,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 14,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AIXBTUSDT": {
+   "rest": 11,
+   "file": 11,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 11,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "NOMUSDT": {
+   "rest": 9,
+   "file": 9,
+   "missing_in_file": 0,
+   "extra_in_file": 0,
+   "mismatch": 0,
+   "rest_after_covered": 9,
+   "missing_after_covered": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  }
+ }
+}

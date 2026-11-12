@@ -1,0 +1,4 @@
+new1-n10-w1 ok shards=3 fast=100% (6/6) lag p50/p99/max=116/122/219 ms late=0 drops=0 mark_cov=100.000% rest_missing_after_covered=0/10683 uncovered=0.0 shard-s cpu=16% core switch/upgrade/deferred=0/0/0
+new1-n10-w2 ok shards=3 fast=100% (6/6) lag p50/p99/max=116/148/308 ms late=0 drops=0 connect_errors=0 mark_cov=100.000% rest_missing_after_covered=0/7478 uncovered=0.0 shard-s cpu=13% core switch/upgrade/deferred=0/0/0
+new1-n10-w3 ok shards=3 fast=100% (6/6) lag p50/p99/max=116/135/349 ms late=0 drops=0 connect_errors=0 mark_cov=100.000% rest_missing_after_covered=0/7678 uncovered=0.0 shard-s cpu=14% core switch/upgrade/deferred=0/0/0
+STEP 10 OK

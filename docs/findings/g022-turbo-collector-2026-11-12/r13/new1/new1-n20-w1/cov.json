@@ -1,0 +1,54 @@
+{
+ "root": "/data/turbo-probe/new1/new1-n20-w1/data",
+ "t0_ms": 1794525959374,
+ "window_s": 180.0,
+ "shards": 3,
+ "shards_connected": 3,
+ "first_connected_s": {
+  "min": 0.7,
+  "median": 0.7,
+  "max": 0.7
+ },
+ "covered_by_s": {
+  "2": 3,
+  "5": 3,
+  "10": 3,
+  "15": 3,
+  "30": 3,
+  "60": 3,
+  "120": 3,
+  "180": 3
+ },
+ "uncovered_after_first_s_total": 0.0,
+ "uncovered_after_first_s_max": 0.0,
+ "events_total": {
+  "connected": 6,
+  "subscribed": 6
+ },
+ "per_shard": {
+  "book00": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "mark00": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  },
+  "trade00": {
+   "first_connected_s": 0.7,
+   "uncovered_after_first_s": 0.0,
+   "events": {
+    "connected": 2,
+    "subscribed": 2
+   }
+  }
+ }
+}
