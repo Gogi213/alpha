@@ -95,6 +95,39 @@ def vol_table(datas):
     return res
 
 
+def tails(path, lanes, kind, since_ms, until_ms):
+    """Хвосты и события процесса за период: доли окон шард-10 с с p50 > ELEVATED_MS / SPIKE_MS и p99 > 1 с, события пути на соединение-час."""
+    n = e300 = e1000 = p99_1s = 0
+    shards = set()
+    for f in sorted(glob.glob(os.path.join(path, f"stats-{kind}*.jsonl"))):
+        shards.add(os.path.basename(f)[6:-6])
+        for line in open(f):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if not since_ms <= d["ts_ms"] < until_ms or d.get("lag_p50_ms") is None:
+                continue
+            n += 1
+            e300 += d["lag_p50_ms"] > ELEVATED_MS
+            e1000 += d["lag_p50_ms"] > SPIKE_MS
+            p99_1s += d["lag_p99_ms"] > 1000
+    ev = {}
+    for f in sorted(glob.glob(os.path.join(path, f"events-{kind}*.jsonl"))):
+        for line in open(f):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if since_ms <= d["ts_ms"] < until_ms and d["ev"] in ("timeout", "ping_degraded", "path_switch", "path_rejected", "path_rejected_rtt", "error", "rotated", "closed"):
+                ev[d["ev"]] = ev.get(d["ev"], 0) + 1
+    conn_h = len(shards) * lanes * (until_ms - since_ms) / 3.6e6
+    return {"шардов": len(shards), "соединений": len(shards) * lanes, "окон шард-10 с": n,
+            f"доля окон p50 > {ELEVATED_MS} мс, %": round(100 * e300 / max(n, 1), 3), f"доля окон p50 > {SPIKE_MS} мс, %": round(100 * e1000 / max(n, 1), 3),
+            "доля окон p99 > 1 с, %": round(100 * p99_1s / max(n, 1), 2), "события": ev,
+            "событий пути (ping_degraded) на соединение-час": round(ev.get("ping_degraded", 0) / conn_h, 3)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prod", required=True, help="каталог:линий боевого")
@@ -104,6 +137,7 @@ def main():
     ap.add_argument("--kind", default="book")
     ap.add_argument("--table", action="store_true")
     ap.add_argument("--json", help="сохранить результат")
+    ap.add_argument("--tails", action="store_true", help="доли окон с лагом выше порогов и события пути на соединение-час за период")
     ap.add_argument("--brief", action="store_true", help="одна строка: всплески, повышенный лаг, покрытие и медианы за период")
     a = ap.parse_args()
     _, prod = load(a.prod, a.kind, a.since_ms)
@@ -124,6 +158,12 @@ def main():
             res[key].append(ep)
     if a.table:
         res["лаг по нагрузке"] = vol_table({"prod": prod, **shadows})
+    if a.tails:
+        res["хвосты"] = {}
+        for spec in [a.prod] + [s.partition("=")[2] for s in a.shadow]:
+            path, _, lanes = spec.rpartition(":")
+            name = "prod" if spec == a.prod else next(s.partition("=")[0] for s in a.shadow if s.partition("=")[2] == spec)
+            res["хвосты"][name] = tails(path, int(lanes), a.kind, a.since_ms or span[0], min(a.until_ms, span[1] + BUCKET_MS))
     for name, data in shadows.items():
         res.setdefault("покрытие", {})[name] = f"{len(data)} корзин из {len(prod)} боевого"
     txt = json.dumps(res, ensure_ascii=False, indent=1)
