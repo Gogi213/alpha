@@ -1,0 +1,6 @@
+Running as unit: tk531-fault.service; invocation ID: 86cb4de9f9c34d30b245b8de5334cd34
+ports: 46042
+46052
+drop port 46042 at 1794444703.627966254
+remove at 1794444778.733196124
+-P OUTPUT ACCEPT

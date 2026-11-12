@@ -56,6 +56,29 @@ def test_shards_limit_and_lowercase():
     assert sum(len(s) for _, s in tr) == 512
 
 
+def test_balanced_layout_covers_pool_evenly():
+    pool = [f"S{i:03d}USDT" for i in range(130)]
+    w = {s: (1000.0 if i % 13 == 0 else 10.0 + i) for i, s in enumerate(pool)}  # несколько тяжёлых символов
+    sh = bw.shard_streams(pool, "book", 64, w)
+    assert [n for n, _ in sh] == ["book00", "book01", "book02"]
+    flat = [x for _, g in sh for x in g]
+    assert sorted(flat) == sorted(f"{s.lower()}@bookTicker" for s in pool)  # каждый символ ровно один раз
+    assert all(len(g) <= 64 for _, g in sh)
+    load = [sum(w[x.split("@")[0].upper()] for x in g) for _, g in sh]
+    plain = [sum(w[s] for s in pool[i : i + 64]) for i in range(0, 130, 64)]
+    assert max(load) - min(load) < max(plain) - min(plain)
+    assert sh == bw.shard_streams(pool, "book", 64, dict(reversed(list(w.items()))))  # порядок словаря не важен
+
+
+def test_balanced_layout_unknown_symbol_gets_median_and_kinds_ignore_weights():
+    pool = ["AUSDT", "BUSDT", "CUSDT", "NEWUSDT"]
+    g = bw.balanced_groups(pool, {"AUSDT": 100.0, "BUSDT": 10.0, "CUSDT": 30.0}, 2)
+    assert g == [["AUSDT", "BUSDT"], ["CUSDT", "NEWUSDT"]]  # NEW = медиана (30): тяжёлый A с лёгким B, C с новым
+    tr = bw.shard_streams(pool, "trade", 2, {"AUSDT": 1.0})
+    assert [x for _, grp in tr for x in grp] == [f"{s.lower()}@aggTrade" for s in pool]  # сделки — по алфавиту, веса книги к ним не относятся
+    assert bw.shard_streams(pool, "book", 2, None) == bw.shard_streams(pool, "book", 2)
+
+
 def test_mark_shard_single_stream():
     assert bw.shard_streams(["AUSDT"], "mark", 64) == [("mark00", ["!markPrice@arr@1s"])]
 

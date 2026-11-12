@@ -50,6 +50,8 @@ class Session:
         self.event(ev="gap", session=seq, loop_late_ms=loop_late_ms, tcp_clean=clean, **({"tcp": tcp} if tcp else {}))
 
     async def pinger(self, ws, seq):
+        # пинг WS = RTT пути + переменная серверная добавка +7…≈+100 мс, медиана 65 (TK-531, tcpdump: ACK пинга через 234 мс, pong через ≈300 мс; чья добавка — Binance или участок за балансировщиком — неизвестно), поэтому p50 ≈ 305 мс выше порога dial.CONNECT_RTT_MAX_MS;
+        # та же добавка в SYN-ACK рукопожатия, от нагрузки пинг не зависит; на замену пути он не влияет — её решают лаг (path.PathWatch) и отсутствие pong ниже
         while True:
             await asyncio.sleep(PING_PERIOD_S)
             t0 = time.monotonic()

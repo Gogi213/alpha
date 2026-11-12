@@ -1,5 +1,8 @@
 """TK-531/TK-533: одно соединение WS биржи (binance|bybit), n потоков одного типа, окно DUR с; лаг/обрывы/нагрузка -> json.
-Путь до биржи — общий wscore.dial (без копии): тот же адрес, что у боевого коллектора. kind=all (Bybit): n потоков поровну book/trade/tick на n/3 символов."""
+Запуск: ladder.py <вид> <n> <top|mid> <dur_с> <out.json> [binance|bybit] [endpoint]; биржа по умолчанию binance; endpoint (Binance: ws | public/ws | market/ws)
+можно дать и вместо биржи (прежний вызов TK-531). Binance: book — /ws, agg/mark — /market/ws.
+Путь до биржи — общий wscore.dial (без копии): тот же адрес, что у боевого коллектора. kind=all (Bybit): n потоков поровну book/trade/tick на n/3 символов.
+Первые 5 с после подписки (снапшот) не считаются; ответы биржи на подписку (не данные) сохраняются в `ctl` — чтобы «0 сообщений» не оставалось без причины."""
 import asyncio, json, sys, time, os, socket, ssl, resource, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import websockets
@@ -41,15 +44,15 @@ async def pinger(ws):
         await asyncio.sleep(20)
         await ws.send('{"op":"ping"}')
 
-async def run(kind, n, group, dur, out, ex="binance"):
-    cfg = EXCH[ex]; url = cfg["url"][kind]
+async def run(kind, n, group, dur, out, ex="binance", endpoint=None):
+    cfg = EXCH[ex]; url = f"wss://{cfg['host']}/{endpoint}" if endpoint else cfg["url"][kind]
     syms = symbols(ex)
     per = n // 3 if kind == "all" else n  # all: n потоков = n/3 символов × 3 вида
     start = 0 if group == "top" else min(150, max(0, len(syms) - per))
     chosen = syms[start:start + per]
     kinds = ("book", "trade", "tick") if kind == "all" else (kind,)
     streams = [cfg["topic"][k].format(s=s.lower(), S=s) for s in chosen for k in kinds]
-    res = {"exch": ex, "kind": kind, "n": n, "group": group, "dur": dur, "t_start": time.time(), "streams": len(streams), "pool": len(syms), "disconnects": 0, "events": []}
+    res = {"exch": ex, "kind": kind, "n": n, "group": group, "dur": dur, "t_start": time.time(), "streams": len(streams), "pool": len(syms), "url": url, "disconnects": 0, "events": [], "ctl": []}
     lags, cnt, nbytes = [], 0, 0
     per_sec = {}
     cpu0 = time.process_time(); w0 = time.monotonic()
@@ -76,14 +79,13 @@ async def run(kind, n, group, dur, out, ex="binance"):
                 except asyncio.TimeoutError:
                     break
                 now = time.time(); mono = time.monotonic()
-                if mono - t0 < 5: continue  # снапшот подписки
                 try: d = json.loads(m)
                 except Exception: continue
-                if ex == "bybit":
-                    if "topic" not in d: continue  # pong/ответы подписки
-                    E = d.get("ts")
-                else:
-                    E = d.get("E")
+                if ("topic" not in d) if ex == "bybit" else ("result" in d or "error" in d or "code" in d):  # pong/ответ на подписку, не данные
+                    if len(res["ctl"]) < 20: res["ctl"].append(m[:200])
+                    continue
+                if mono - t0 < 5: continue  # снапшот подписки
+                E = d.get("ts") if ex == "bybit" else d.get("E")
                 nbytes += len(m); cnt += 1
                 sec = int(mono - t0); a = per_sec.setdefault(sec, [0, 0]); a[0] += 1; a[1] += len(m)
                 if E: lags.append(now * 1000 - E)
@@ -100,4 +102,6 @@ async def run(kind, n, group, dur, out, ex="binance"):
 
 if __name__ == "__main__":
     k, n, g, dur, out = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5]
-    asyncio.run(run(k, n, g, dur, out, sys.argv[6] if len(sys.argv) > 6 else "binance"))
+    a6 = sys.argv[6] if len(sys.argv) > 6 else "binance"
+    ex, ep = (a6, sys.argv[7] if len(sys.argv) > 7 else None) if a6 in EXCH else ("binance", a6)
+    asyncio.run(run(k, n, g, dur, out, ex, ep))

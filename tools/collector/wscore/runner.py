@@ -27,6 +27,7 @@ def parse_args(adapter):
     ap.add_argument("--lanes", type=int, default=1, help="путей на шард: 2 = тёплый запас, поток идёт по двум путям сразу (В-140)")
     ap.add_argument("--entrance", action="append", default=[], help="вход линии «хост[@ip]», по одному на линию по порядку (--lanes); не заданные линии идут через вход адаптера (TK-532: независимые входы)")
     ap.add_argument("--connect-budget", type=int, default=LIMIT, help=f"TCP-подключений к бирже за {WINDOW_S:.0f} с на весь процесс (общий для шардов; лимит биржи Binance 300)")
+    ap.add_argument("--weights", help="JSON {символ: активность}: раскладка по соединениям по активности, а не по алфавиту (TK-531; адаптер использует, если умеет)")
     ap.add_argument("--pool-only", action="store_true")
     return ap.parse_args()
 
@@ -40,6 +41,9 @@ def collector_main(adapter):
     print(f"pool {len(pool)} top_excluded {top}", flush=True)
     if a.pool_only:
         return
+    if a.weights:
+        with open(a.weights) as f:
+            adapter.weights = json.load(f)
     shards = adapter.plan(pool, a.kinds.split(","), a.streams_per_conn)
     budget = ConnectBudget(a.connect_budget)
     entrances = [parse_entrance(x) if x != "-" else None for x in a.entrance]  # «-» — вход адаптера для этой линии
