@@ -56,6 +56,9 @@ pub struct RunArgs {
     pub top_exclude: usize,
     #[arg(long, default_value_t = LIMIT)]
     pub connect_budget: usize,
+    /// Новых TCP-подключений в секунду на процесс (разгон при старте: пачка из 36–50 одновременных рукопожатий давала у Bybit 502 Bad Gateway, замер 12.11).
+    #[arg(long, default_value_t = 10)]
+    pub connect_rate: usize,
     /// Период сброса блока на диск, мс.
     #[arg(long, default_value_t = 100)]
     pub flush_ms: u64,
@@ -207,7 +210,10 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     }
     let stop = Arc::new(AtomicBool::new(false));
     watch_signals(&stop);
-    let budget = Arc::new(Budget::new(args.connect_budget, WINDOW));
+    let budget = Arc::new(Budget::with_rules(&[
+        (args.connect_budget, WINDOW),
+        (args.connect_rate, Duration::from_secs(1)),
+    ]));
     let mut handles: Vec<ShardHandle> = Vec::new();
     for plan in &plans {
         if let Some(h) = spawn_shard(&exch, plan, &lines, &opts, &budget, &stop) {
