@@ -150,7 +150,9 @@ impl Sink for DriftSink {
         self.tr.push(*t);
     }
     fn z(&mut self, t: usize, z: f64) {
-        self.z[t] = z;
+        if let Some(slot) = self.z.get_mut(t) {
+            *slot = z;
+        }
     }
 }
 
@@ -377,11 +379,12 @@ fn convert(src: &Path, out: &Path, threads: usize) -> Result<()> {
                 let Some(f) = files.get(i) else { break };
                 let sym = f
                     .file_name()
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_string_lossy()
                     .replace(".csv.gz", "");
                 let r = convert_one(f, &out.join(format!("{sym}.sap")));
-                let mut a = acc.lock().unwrap();
+                // Отравленный замок — другой поток упал, `scope` поднимет его панику.
+                let Ok(mut a) = acc.lock() else { break };
                 match r {
                     Ok((st, n, wrote)) => {
                         a.0.rows += st.rows;
@@ -395,11 +398,15 @@ fn convert(src: &Path, out: &Path, threads: usize) -> Result<()> {
             });
         }
     });
-    let a = acc.into_inner().unwrap();
+    let a = acc
+        .into_inner()
+        .map_err(|e| anyhow::anyhow!("замок результатов отравлен: {e}"))?;
     let wall = t0.elapsed().as_secs_f64();
+    #[allow(clippy::cast_precision_loss)] // отчётная скорость: счётчик строк ≪ 2^53
+    let rows_per_s = a.0.rows as f64 / wall;
     println!(
         "convert: файлов {} (панелей {}, пустых {}, ошибок {}), строк csv {}, с объёмом 0 → NaN {}, минут в панелях {}, {:.1} с, {:.0} строк/с",
-        files.len(), a.2, a.3, a.4.len(), a.0.rows, a.0.zero_volume, a.1, wall, a.0.rows as f64 / wall
+        files.len(), a.2, a.3, a.4.len(), a.0.rows, a.0.zero_volume, a.1, wall, rows_per_s
     );
     for e in a.4.iter().take(10) {
         println!("ошибка {e}");
@@ -475,7 +482,11 @@ fn load(dir: &Path, n: usize, fund: Option<&Path>) -> Result<Vec<Loaded>> {
     for f in sorted(dir, ".sap")?.into_iter().take(n) {
         let s = read_series(&mut BufReader::with_capacity(1 << 20, File::open(&f)?))
             .with_context(|| f.display().to_string())?;
-        let name = f.file_stem().unwrap().to_string_lossy().into_owned();
+        let name = f
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let ln = s.ln_close();
         let fund = match fund {
             Some(d) => read_funding(d, &name)?,
@@ -499,11 +510,16 @@ fn common(ser: &[&Series]) -> Option<(i64, Vec<usize>, usize)> {
     if hi < lo {
         return None;
     }
-    Some((
-        lo,
-        ser.iter().map(|s| (lo - s.first_min) as usize).collect(),
-        (hi - lo + 1) as usize,
-    ))
+    let off = ser
+        .iter()
+        .map(|s| usize::try_from(lo - s.first_min).ok())
+        .collect::<Option<Vec<usize>>>()?;
+    Some((lo, off, usize::try_from(hi - lo + 1).ok()?))
+}
+
+/// Окно `[off, off+len)` ряда; `None` — не помещается.
+fn win<T>(v: &[T], off: usize, len: usize) -> Option<&[T]> {
+    v.get(off..off.checked_add(len)?)
 }
 
 fn run_job(
@@ -512,35 +528,49 @@ fn run_job(
     xs: &[Loaded],
     j: &Job,
 ) -> Option<(Counters, usize, Drift, u64)> {
-    let y = &ys[j.y];
-    let xv: Vec<&Loaded> = j.x.iter().map(|&i| &xs[i]).collect();
+    let y = ys.get(j.y)?;
+    let xv: Vec<&Loaded> = j.x.iter().map(|&i| xs.get(i)).collect::<Option<_>>()?;
     let mut all: Vec<&Series> = vec![&y.s];
     all.extend(xv.iter().map(|x| &x.s));
     let (first, off, len) = common(&all)?;
     if len < a.min_span {
         return None;
     }
+    let (&y_off, x_off) = off.split_first()?;
     let k = xv.len();
+    #[allow(clippy::cast_precision_loss)] // K — число компонент корзины, мало
     let w = 1.0 / k as f64;
+    let x_ln: Vec<&[f64]> = xv
+        .iter()
+        .zip(x_off)
+        .map(|(x, &o)| win(&x.ln, o, len))
+        .collect::<Option<_>>()?;
     let lx_owned: Vec<f64>;
-    let lx: &[f64] = if k == 1 {
-        &xv[0].ln[off[1]..off[1] + len]
+    let lx: &[f64] = if let [only] = x_ln.as_slice() {
+        only
     } else {
+        // окна одной длины `len`: `get` не промахивается
         lx_owned = (0..len)
-            .map(|t| (0..k).map(|i| w * xv[i].ln[off[i + 1] + t]).sum())
+            .map(|t| {
+                x_ln.iter()
+                    .map(|c| c.get(t).map_or(f64::NAN, |&v| w * v))
+                    .sum()
+            })
             .collect();
         &lx_owned
     };
-    let ox: Vec<&[f64]> = (0..k)
-        .map(|i| &xv[i].s.open[off[i + 1]..off[i + 1] + len])
-        .collect();
+    let ox: Vec<&[f64]> = xv
+        .iter()
+        .zip(x_off)
+        .map(|(x, &o)| win(&x.s.open, o, len))
+        .collect::<Option<_>>()?;
     let wx = vec![w; k];
     let fx: Vec<&[(i64, f64)]> = xv.iter().map(|x| x.fund.as_slice()).collect();
     let inp = PairInput {
         first_min: first,
-        ly: &y.ln[off[0]..off[0] + len],
+        ly: win(&y.ln, y_off, len)?,
         lx,
-        oy: &y.s.open[off[0]..off[0] + len],
+        oy: win(&y.s.open, y_off, len)?,
         ox: &ox,
         wx: &wx,
         fund_y: &y.fund,
@@ -647,29 +677,37 @@ fn bench(a: &BenchArgs) -> Result<()> {
                         gaps += c.gap_minutes;
                     }
                 }
-                let mut g = acc.lock().unwrap();
-                g.0 += n;
-                g.1 += rows;
-                g.2 += tr;
-                g.3 += gaps;
-                dacc.lock().unwrap().add(&dr);
+                // Отравленный замок — другой поток упал, `scope` поднимет его панику.
+                if let (Ok(mut g), Ok(mut d)) = (acc.lock(), dacc.lock()) {
+                    g.0 += n;
+                    g.1 += rows;
+                    g.2 += tr;
+                    g.3 += gaps;
+                    d.add(&dr);
+                }
             });
         }
     });
-    let (n, rows, tr, gaps) = acc.into_inner().unwrap();
+    let (n, rows, tr, gaps) = acc
+        .into_inner()
+        .map_err(|e| anyhow::anyhow!("замок итогов отравлен: {e}"))?;
     let wall = t0.elapsed().as_secs_f64();
     if matches!(a.engine, Engine::Drift) {
-        let d = dacc.into_inner().unwrap();
+        let d = dacc
+            .into_inner()
+            .map_err(|e| anyhow::anyhow!("замок дрейфа отравлен: {e}"))?;
         println!(
             "drift kind={:?} window={} refresh={}: заданий {} из {}, минут z сравнено {}, минут с разной конечностью z {}, max|Δz| {:.3e}, сделок ядро {} / референс {}, разошлось сделок {}, max|Δnet_bps| по совпавшим {:.3e}, {:.1} с",
             a.kind, a.p.window, a.p.refresh, n, jobs.len(), d.z_cmp, d.z_nan_diff, d.max_dz, d.trades_k, d.trades_r, d.trades_diff, d.max_dnet, wall
         );
         return Ok(());
     }
+    #[allow(clippy::cast_precision_loss)] // отчётные скорости: счётчики ≪ 2^53
+    let (rows_per_s, pairs_per_s) = (rows as f64 / wall, n as f64 / wall);
     println!(
         "bench kind={:?} engine={:?} threads={} window={} refresh={}: заданий {} из {}, минут {}, пропусков {}, сделок {}, счёт {:.3} с (загрузка {:.1} с, ставок фандинга {}), {:.3e} строк/с, {:.1} пар/с",
         a.kind, a.engine, a.threads, a.p.window, a.p.refresh, n, jobs.len(), rows, gaps, tr, wall, load_s, fund_rows,
-        rows as f64 / wall, n as f64 / wall
+        rows_per_s, pairs_per_s
     );
     if a.digest {
         println!("digest {:016x}", hacc.load(Ordering::Relaxed));
