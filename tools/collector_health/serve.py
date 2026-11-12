@@ -26,7 +26,7 @@ def row_state(doc, age_s, thr):
     """off — файла нет, bad — красная, warn — жёлтая, ok — зелёная.
 
     Красная: файл старше stale_s или with_data_1m == 0; жёлтая: часть символов молчит, таймауты/переподключения
-    за час, записи старше fresh.late_ms за час (TK-532), порог устаревания не задан (свежесть не проверить — «свежий» не пишем).
+    за час, переход линии на запасной вход за час (G-022), записи старше fresh.late_ms за час (TK-532), порог устаревания не задан (свежесть не проверить — «свежий» не пишем).
     """
     stale_s = (thr or {}).get("stale_s")
     if stale_s is not None and age_s > stale_s:
@@ -41,6 +41,8 @@ def row_state(doc, age_s, thr):
     ws = doc["ws"]
     if ws["timeouts_1h"] or ws["reconnects_1h"]:
         return "warn", "за час были таймауты или переподключения"
+    if ws.get("entrance_switches_1h"):
+        return "warn", f"за час линии переходили на запасной вход: {ws['entrance_switches_1h']}"
     late = sum(k.get("late_1h", 0) for k in ((doc.get("fresh") or {}).get("kinds") or {}).values())
     if late:
         return "warn", f"за час записей старше {(doc['fresh'].get('late_ms') or 0) // 1000} с: {late}"

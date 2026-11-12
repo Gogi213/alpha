@@ -35,6 +35,7 @@
     <th title="Время между ping и pong по соединениям: медиана и максимум за окно">Пинг WS, мс p50 / макс</th>
     <th title="Паузы без кадров на соединении дольше порога: за час / за сутки">Таймауты 1ч / 24ч</th>
     <th title="Соединение закрыто и открыто заново: за час / за сутки">Переподкл. 1ч / 24ч</th>
+    <th title="Линия перешла на запасной вход биржи (повторные неудачи подключения или задержка доставки): за час / за сутки">Смена входа 1ч / 24ч</th>
     <th title="Время приёма минус время биржи в кадре; включает расхождение часов">Лаг прихода, мс p50 / p99</th>
     <th title="По каждой записанной записи (не выборкой): сколько записей пришло с лагом больше 2 с — за час / за сутки; максимальный лаг записи — за час / за сутки. По видам потоков">Свежесть: записей &gt; 2 с, 1ч / 24ч · макс. лаг, с</th>
     <th title="От приёма кадра до записи на диск">Лаг отдачи, мс p50 / p99</th>
@@ -60,14 +61,15 @@ function fresh(f) {
 
 function render(r) {
   const head = '<td class="ex"><span class="dot ' + r.state + '" title="' + esc(r.note || '') + '"></span>' + esc(r.name) + '</td>';
-  if (r.state === 'off') return '<tr class="off">' + head + '<td colspan="8" style="text-align:left">—</td></tr>';
-  if (!r.symbols) return '<tr>' + head + '<td colspan="8" class="msg">' + esc(r.note) + '</td></tr>';
+  if (r.state === 'off') return '<tr class="off">' + head + '<td colspan="9" style="text-align:left">—</td></tr>';
+  if (!r.symbols) return '<tr>' + head + '<td colspan="9" class="msg">' + esc(r.note) + '</td></tr>';
   const w = r.ws, s = r.symbols;
   return '<tr>' + head +
     '<td class="num">' + n(s.subscribed) + ' / ' + n(s.with_data_1m) + '</td>' +
     '<td class="num">' + pair(w.ping_ms && w.ping_ms.p50, w.ping_ms && w.ping_ms.max) + '</td>' +
     '<td class="num">' + cnt(w.timeouts_1h) + ' / ' + cnt(w.timeouts_24h) + '</td>' +
     '<td class="num">' + cnt0(w.reconnects_1h) + ' / ' + n(w.reconnects_24h) + '</td>' +
+    '<td class="num">' + (w.entrance_switches_1h == null ? '—' : cnt0(w.entrance_switches_1h) + ' / ' + n(w.entrance_switches_24h)) + '</td>' +
     '<td class="num">' + pair(r.lag_in_ms && r.lag_in_ms.p50, r.lag_in_ms && r.lag_in_ms.p99) + '</td>' +
     '<td class="num">' + fresh(r.fresh) + '</td>' +
     '<td class="num">' + pair(r.lag_out_ms && r.lag_out_ms.p50, r.lag_out_ms && r.lag_out_ms.p99) + '</td>' +

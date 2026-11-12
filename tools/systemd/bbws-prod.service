@@ -1,0 +1,15 @@
+[Unit]
+Description=TK-532 Bybit WS collector (G-022)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Те же пользователь (root), каталоги и аргументы, что у прежнего временного юнита systemd-run, кроме --entrance: входы линий (основной и запасные) — в конфиге адаптера (Adapter.entrances);
+# Restart=always — поднимется и после перезагрузки сервера. Код — /root/bbws (копия tools/collector ветки), данные — /data/bbws, health — /data/health/bybit.json.
+Restart=always
+RestartSec=10s
+TimeoutStopSec=40s
+ExecStart=/root/bnws-venv/bin/python /root/bbws/bybit_ws.py --root /data/bbws --health /data/health/bybit.json --lanes 2
+
+[Install]
+WantedBy=multi-user.target

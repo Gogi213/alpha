@@ -27,6 +27,7 @@ class Metrics:
         self.timeouts = deque()  # ts_ms: соединение мертво (нет pong за PING_TIMEOUT_S)
         self.gaps = deque()  # ts_ms: пауза данных шарда дольше GAP_TIMEOUT_S при живом цикле событий (TK-532: доставка задержана пиром, потерь нет)
         self.reconnects = deque()  # ts_ms
+        self.entrance_switches = deque()  # ts_ms: линия перешла на запасной вход (повторные неудачи подключения или задержка доставки)
         self.cpu0 = time.process_time()
         self.t_prev = time.monotonic()
 
@@ -54,6 +55,9 @@ class Metrics:
 
     def reconnect(self):
         self.reconnects.append(int(time.time() * 1000))
+
+    def entrance_switch(self):
+        self.entrance_switches.append(int(time.time() * 1000))
 
     def pause(self):
         """Пауза переподключения — в разрыв считается событием, не max_gap."""
@@ -89,7 +93,7 @@ class Metrics:
             while dq and now - dq[0][0] > stats.WINDOW_S:
                 dq.popleft()
         cut = int(time.time() * 1000) - DAY_MS
-        for dq in (self.timeouts, self.gaps, self.reconnects):
+        for dq in (self.timeouts, self.gaps, self.reconnects, self.entrance_switches):
             while dq and dq[0] < cut:
                 dq.popleft()
 
@@ -101,7 +105,7 @@ class Metrics:
             "with_data": sorted(s for s, t in self.sym_seen.items() if now - t <= stats.WINDOW_S),
             "connected": self.connected, "ping_ms": [round(v, 1) for _, v in self.pings],
             "lag_in": [round(v, 1) for _, v in self.in_lags], "lag_out": [round(v, 1) for _, v in writer.out_lags],
-            "timeouts": list(self.timeouts), "gaps": list(self.gaps), "reconnects": list(self.reconnects),
+            "timeouts": list(self.timeouts), "gaps": list(self.gaps), "reconnects": list(self.reconnects), "entrance_switches": list(self.entrance_switches),
             "last_frame_ms": self.last_frame_ms, "last_write_ms": writer.last_write_ms,
             "fresh": writer.fresh.fragment(int(time.time() * 1000)),
         }

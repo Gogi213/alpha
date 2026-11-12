@@ -200,7 +200,7 @@ def test_run_switches_path_without_closing_old_session_first(tmp_path, monkeypat
     shard = shard_for(tmp_path)
     log = []
 
-    async def fake_forever(seq, accepted=None):
+    async def fake_forever(seq, accepted=None, ent=None):
         log.append(("open", seq))
         try:
             if accepted is not None:
@@ -237,7 +237,7 @@ def test_two_lanes_keep_a_warm_spare_and_replace_only_the_degraded_one(tmp_path,
     shard = shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", ["a"], run_id=7, lanes=2)
     log = []
 
-    async def fake_forever(seq, accepted=None):
+    async def fake_forever(seq, accepted=None, ent=None):
         log.append(("open", seq))
         try:
             if accepted is not None:
@@ -275,7 +275,7 @@ def test_rotation_by_age_replaces_before_closing_and_lanes_age_apart(tmp_path, m
     shard = shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", ["a"], run_id=7, lanes=2)
     log = []
 
-    async def fake_forever(seq, accepted=None):
+    async def fake_forever(seq, accepted=None, ent=None):
         log.append(("open", seq))
         try:
             if accepted is not None:
@@ -747,8 +747,8 @@ def test_lanes_use_their_own_entrance_and_unset_lane_keeps_adapter_entrance(tmp_
     shard = shard_mod.Shard(FakeAdapter(), str(tmp_path), "book00", "public", ["a"], run_id=7, lanes=2, entrances=[None, ("stream.example.kz", None)])
     got = {}
 
-    async def fake_forever(seq, accepted=None, entrance=None):
-        got[seq] = entrance
+    async def fake_forever(seq, accepted=None, ent=None):
+        got[seq] = ent.current()
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(shard, "run_session_forever", fake_forever)
@@ -762,3 +762,282 @@ def test_lanes_use_their_own_entrance_and_unset_lane_keeps_adapter_entrance(tmp_
 
     asyncio.run(go())
     assert got == {7: None, 7 + shard_mod.LANE_SEQ_STEP: ("stream.example.kz", None)}
+
+
+def zstd_complete(path):
+    """Как `zstd -t`: каждый кадр файла завершён (файл из нескольких кадров — все)."""
+    zstandard = pytest.importorskip("zstandard")
+    data = path.read_bytes()
+    while data:
+        d = zstandard.ZstdDecompressor().decompressobj()
+        d.decompress(data)
+        if not d.eof:
+            return False
+        data = d.unused_data
+    return True
+
+
+def test_stop_closes_sessions_before_writer_so_the_file_is_complete(tmp_path, monkeypatch):
+    """TK-527 (дефект ядра): остановка (SIGTERM = отмена шарда) — сессии пишут `closed` ДО закрытия писателя; иначе `closed` открывал файл заново и оставлял кадр zstd незакрытым
+    (`zstd -t` падал, `.ok` на строку меньше, приём последней строки считался от нуля). Файл завершён, `.ok` = число строк, последняя строка — closed, время приёма последней строки верное."""
+    monkeypatch.setattr(sess, "PING_PERIOD_S", 3600)
+    monkeypatch.setattr(stats, "STATS_PERIOD_S", 3600)
+    shard = shard_for(tmp_path)
+
+    async def idle(seq):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(shard.session, "gap_watch", idle)
+
+    class FakeWs:
+        async def send(self, msg):
+            pass
+
+        async def ping(self):
+            fut = asyncio.get_running_loop().create_future()
+            fut.set_result(None)
+            return fut
+
+        def __aiter__(self):
+            async def gen():
+                yield json.dumps([with_u(B[4])])
+                await asyncio.sleep(3600)  # соединение живо до остановки
+
+            return gen()
+
+    class Conn:
+        async def __aenter__(self):
+            return FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setitem(sys.modules, "websockets", types.SimpleNamespace(connect=lambda url, **kw: Conn()))
+
+    async def fake_dial(url, max_rtt_ms=None, ip=None):
+        return object(), 250.0
+
+    monkeypatch.setattr(sess, "dial", fake_dial)
+
+    async def go():
+        task = asyncio.create_task(shard.run())
+        await asyncio.sleep(0.3)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    t0 = time.time_ns()
+    asyncio.run(go())
+    t1 = time.time_ns()
+    f = next(tmp_path.rglob("book00-7.tsv.zst"))
+    assert zstd_complete(f)
+    recs = read(f)
+    assert [r["what"] for r in recs if r["t"] == "c"] == ["connected", "subscribed", "closed"] and recs[-1]["t"] == "c" and recs[-1]["what"] == "closed"
+    assert int((f.parent / (f.name + ".ok")).read_text()) == len(recs)  # `.ok` — число строк, включая closed
+    assert t0 <= recs[-1]["rx_ns"] <= t1  # приём последней строки — настоящее время, а не «от нуля нового кадра»
+    shard.writer.control(time.time_ns(), "late", "после остановки")  # запись после остановки не открывает файл заново
+    assert zstd_complete(f) and len(read(f)) == len(recs)
+
+
+def test_writer_ignores_writes_after_final_close(tmp_path):
+    w = DayWriter(str(tmp_path), "book00", 5)
+    w.records(RX0, [B])
+    w.close(final=True)
+    w.records(RX0 + 1, [with_u(B[4] + 1)])
+    w.control(RX0 + 2, "closed", "1")
+    f = next(tmp_path.rglob("book00-5.tsv.zst"))
+    assert zstd_complete(f) and [r["t"] for r in read(f)] == ["b"] and (f.parent / (f.name + ".ok")).read_text() == "1\n"
+
+
+def test_raw_data_frame_copies_from_the_other_line_are_dropped_control_frames_are_kept(tmp_path):
+    """Кадр данных (с временем биржи), который адаптер не разобрал (сделки RPI), с двух линий пишется один раз; ответы на подписку и pong (без времени) — все, как пришли.
+    Копия вне окна RAW_SEEN_MS — новая доставка. Начальный снимок (settled=False) в свежесть не идёт, но дубли снимает."""
+    from wscore import writer
+
+    now_ms = 1_794_500_000_000
+    rx = now_ms * 1_000_000
+    frame = '{"topic":"publicTrade.X","ts":%d,"data":[{"RPI":true}]}' % (now_ms - 3000)
+    ack = '{"success":true,"op":"subscribe"}'
+    w = DayWriter(str(tmp_path), "trade00", 6)
+    w.raw(rx, frame, lag_ms=3000.0)  # линия 1
+    w.raw(rx + 4_000_000, frame, lag_ms=3004.0)  # линия 2: тот же кадр
+    w.raw(rx + 5_000_000, ack)
+    w.raw(rx + 6_000_000, ack)  # ответ на подписку второй линии — тот же текст, но не данные
+    w.raw(rx + 7_000_000, frame + " ", lag_ms=10.0, settled=False)  # другой текст — другой кадр
+    w.raw(rx + 8_000_000, frame + " ", lag_ms=10.0, settled=False)
+    w.raw(rx + (writer.RAW_SEEN_MS + 1000) * 1_000_000, frame, lag_ms=3000.0)  # та же строка через минуту — новая доставка
+    w.close()
+    recs = read(next(tmp_path.rglob("trade00-6.tsv.zst")))
+    assert [r["frame"] for r in recs if r["t"] == "r"] == [frame, ack, ack, frame + " ", frame]
+    assert w.dups == 2
+    assert w.fresh.fragment(now_ms + 70_000)["raw"]["late_24h"] == 2  # копия не считается второй доставкой; снимок (settled=False) — вне свежести
+
+
+def test_dial_family_marker_takes_the_name_but_only_that_family():
+    """Вход «хост@v4»/«хост@v6» — разрешить имя, но взять адрес этого семейства (общий выбор семейства в dial, не закреплённый адрес); «хост@ip» — как прежде этот адрес."""
+    import socket
+
+    from wscore import dial as d
+
+    assert d.parse_entrance("stream.bybit.com@v4") == ("stream.bybit.com", "v4") and d.parse_entrance("stream.bybit.com@v6") == ("stream.bybit.com", "v6")
+
+    async def go():
+        srv = await asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
+        port = srv.sockets[0].getsockname()[1]
+        loop, seen = asyncio.get_running_loop(), []
+        orig = loop.getaddrinfo
+
+        async def spy(host, p, **kw):
+            seen.append((host, kw.get("family", 0)))
+            return await orig("127.0.0.1", p, type=kw["type"])  # слушатель один, v4: проверяем, что и с чем спросили
+
+        loop.getaddrinfo = spy
+        out = []
+        for ip in ("v4", "v6", "203.0.113.5", None):
+            sock, _ = await d.dial(f"wss://stream.example.com:{port}/x", None, ip)
+            assert sock.family == socket.AF_INET
+            sock.close()
+        srv.close()
+        return seen
+
+    assert asyncio.run(go()) == [("stream.example.com", socket.AF_INET), ("stream.example.com", socket.AF_INET6), ("203.0.113.5", 0), ("stream.example.com", 0)]
+
+
+def test_build_lines_cli_overrides_adapter_config_and_dash_is_adapter_entrance():
+    from wscore.entrances import build_lines
+
+    cfg = [["stream.a.com@v4", "stream.a.com@v6"], ["stream.b.kz", "stream.b.ge"]]
+    assert build_lines([], cfg, 2) == [[("stream.a.com", "v4"), ("stream.a.com", "v6")], [("stream.b.kz", None), ("stream.b.ge", None)]]
+    assert build_lines(["-", "stream.c.io,stream.c.ru@1.2.3.4"], cfg, 2) == [[None], [("stream.c.io", None), ("stream.c.ru", "1.2.3.4")]]
+    assert build_lines(["stream.d.com"], [], 2) == [[("stream.d.com", None)], [None]]  # нет конфига — вход адаптера
+
+
+def test_bybit_adapter_lines_have_backups_and_no_entrance_is_shared_between_lines():
+    import bybit_ws
+    from wscore.entrances import build_lines
+
+    lines = build_lines([], bybit_ws.Adapter.entrances, 2)
+    assert all(len(x) >= 2 for x in lines)  # у каждой линии есть запасной вход
+    assert not set(lines[0]) & set(lines[1])  # линии не делят вход: независимые пути
+
+
+def test_line_switches_entrance_after_repeated_connect_failures_and_not_after_a_long_session(tmp_path, monkeypatch):
+    """Переход на запасной вход: FAIL_LIMIT коротких сессий подряд -> следующий вход по кругу (event entrance_switch, счётчик health); сессия дольше SHORT_SESSION_S счёт сбрасывает; один вход — перехода нет."""
+    from wscore.entrances import FAIL_LIMIT, Entrances
+
+    real_sleep = asyncio.sleep
+
+    async def zero_sleep(s, *a):
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", zero_sleep)
+    A, B = ("stream.a.example", None), ("stream.b.example", "v4")
+    shard = shard_for(tmp_path)
+    calls = []
+
+    async def failing_run(seq, probe=False, accepted=None, entrance=None):
+        calls.append(entrance)
+        if len(calls) == 2 * FAIL_LIMIT + 2:
+            raise asyncio.CancelledError  # остановка теста
+        raise OSError("refused")
+
+    monkeypatch.setattr(shard.session, "run", failing_run)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(shard.run_session_forever(7, ent=Entrances([A, B], 1)))
+    assert calls == [A] * FAIL_LIMIT + [B] * FAIL_LIMIT + [A, A]
+    evs = [e for e in map(json.loads, open(shard.events_path)) if e["ev"] == "entrance_switch"]
+    assert [(e["line"], e["reason"], e["from"], e["to"], e["fails"]) for e in evs] == [(1, "connect_fail", "stream.a.example", "stream.b.example@v4", FAIL_LIMIT), (1, "connect_fail", "stream.b.example@v4", "stream.a.example", FAIL_LIMIT)]
+    assert len(shard.m.entrance_switches) == 2
+
+    calls.clear()  # сессии живут дольше порога: счёт неудач каждый раз с нуля
+    monkeypatch.setattr(shard_mod, "SHORT_SESSION_S", 0.05)
+
+    async def long_then_fail(seq, probe=False, accepted=None, entrance=None):
+        calls.append(entrance)
+        if len(calls) == 3 * FAIL_LIMIT:
+            raise asyncio.CancelledError
+        await real_sleep(0.06)
+        raise OSError("reset")
+
+    monkeypatch.setattr(shard.session, "run", long_then_fail)
+    n_events = len(shard.m.entrance_switches)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(shard.run_session_forever(8, ent=Entrances([A, B], 1)))
+    assert set(calls) == {A} and len(shard.m.entrance_switches) == n_events
+
+    calls.clear()  # линия с одним входом не переходит никуда
+    monkeypatch.setattr(shard_mod, "SHORT_SESSION_S", 60.0)
+    monkeypatch.setattr(shard.session, "run", failing_run)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(shard.run_session_forever(9, ent=Entrances([A], 0)))
+    assert set(calls) == {A} and len(shard.m.entrance_switches) == n_events
+
+
+def test_degraded_session_is_replaced_through_the_next_entrance_but_rotation_keeps_the_entrance(tmp_path, monkeypatch):
+    """Задержка доставки (сессия degraded: лаг или нет pong) — замена идёт через следующий вход, событие entrance_switch раньше path_switch; плановая смена по возрасту вход не меняет."""
+    from wscore.entrances import FAIL_LIMIT  # noqa: F401
+
+    monkeypatch.setattr(shard_mod, "OVERLAP_S", 0.05)
+    monkeypatch.setattr(stats, "STATS_PERIOD_S", 3600)
+    A, B = ("stream.a.example", None), ("stream.b.example", None)
+    log = []
+
+    def make(name):
+        sh = shard_mod.Shard(FakeAdapter(), str(tmp_path), name, "public", ["a"], run_id=7, entrances=[[A, B]])
+
+        async def fake_forever(seq, accepted=None, ent=None):
+            log.append((seq, ent.current()))
+            if accepted is not None:
+                await asyncio.sleep(0.05)
+                accepted.set()
+            await asyncio.sleep(3600)
+
+        monkeypatch.setattr(sh, "run_session_forever", fake_forever)
+        return sh
+
+    async def go(sh, degrade):
+        task = asyncio.create_task(sh.run())
+        await asyncio.sleep(1.2)
+        if degrade:
+            sh.watch.degraded.add(log[0][0])
+        await asyncio.sleep(2.2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    shard = make("book00")
+    asyncio.run(go(shard, True))
+    s1 = log[0][0]
+    assert log[:2] == [(s1, A), (s1 + 1, B)]  # замена испорченной — через запасной вход
+    evs = [json.loads(ln) for ln in open(shard.events_path)]
+    names = [e["ev"] for e in evs if e["ev"] in ("entrance_switch", "path_switch")]
+    assert names == ["entrance_switch", "path_switch"]
+    sw = next(e for e in evs if e["ev"] == "entrance_switch")
+    assert (sw["reason"], sw["from"], sw["to"], sw["old_session" if "old_session" in sw else "session"]) == ("late_delivery", "stream.a.example", "stream.b.example", s1)
+    assert len(shard.m.entrance_switches) == 1
+
+    log.clear()
+    monkeypatch.setattr(shard_mod, "MAX_AGE_S", 0.5)  # плановая смена по возрасту
+    shard2 = make("book01")
+    asyncio.run(go(shard2, False))
+    assert len(log) >= 2 and {e for _, e in log} == {A}
+    assert not any(json.loads(ln)["ev"] == "entrance_switch" for ln in open(shard2.events_path))
+
+
+def test_health_counts_entrance_switches_per_hour_and_day_and_reads_old_fragments():
+    now = 1_794_500_000_000
+    f = {"shard": "book00", "ts_ms": now, "started_ms": now - 5000, "with_data": [], "connected": 1, "ping_ms": [], "lag_in": [], "lag_out": [], "timeouts": [], "reconnects": [],
+         "entrance_switches": [now - 10, now - 2 * 3600_000, now - 30 * 3600_000], "last_frame_ms": now, "last_write_ms": now}
+    h = health.aggregate([f, dict(f, entrance_switches=[now - 5])], now, ["AVAXUSDT"], "fake")
+    assert h["ws"]["entrance_switches_1h"] == 2 and h["ws"]["entrance_switches_24h"] == 3
+    f.pop("entrance_switches")
+    assert health.aggregate([f], now, ["AVAXUSDT"], "fake")["ws"]["entrance_switches_1h"] == 0  # фрагмент прежнего кода читается
+
+
+def test_metrics_fragment_carries_entrance_switches(tmp_path):
+    from wscore.metrics import Metrics
+
+    m = Metrics()
+    m.entrance_switch()
+    frag = m.fragment("book00", DayWriter(str(tmp_path), "book00", 1))
+    assert len(frag["entrance_switches"]) == 1

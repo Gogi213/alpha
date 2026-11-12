@@ -1,6 +1,7 @@
 """Суточный писатель шарда: единственный на шард, файл за сутки UTC, снятие дублей.
 Делает: DayWriter — записи кадра, служебные записи, flush не реже FLUSH_PERIOD_S (A8), закрытие суток с `.ok` (число записей).
-Не знает биржу и соединения: дубли соединений-перекрытий снимает здесь (ключ — codec.dedup_key); закрытый день неизменяем.
+Не знает биржу и соединения: дубли соединений-перекрытий и линий снимает здесь (разобранные записи — ключ codec.dedup_key, кадры данных raw — те же байты за RAW_SEEN_MS); закрытый день неизменяем.
+Остановка — close(final=True) после того, как все сессии записали `closed`: после него записи не принимаются (иначе файл открывался бы заново и кадр zstd оставался незакрытым — TK-527).
 Файл: `<root>/<день UTC>/<шард>-<запуск>.tsv.zst` (запуск = время старта процесса, с).
 """
 import os
@@ -12,7 +13,7 @@ from wscore.codec import Encoder, dedup_key
 from wscore.fresh import Fresh
 
 FLUSH_PERIOD_S = 1.0  # кадр на диске не реже 10 с (A8); 1 с — лаг отдачи ≈ 0,5 с, размер +1 % (замер)
-RAW_SEEN_MS = 60_000  # сколько помнить кадры raw для снятия копий в учёте свежести (линии одного шарда расходятся по приходу на секунды)
+RAW_SEEN_MS = 60_000  # сколько помнить кадры данных raw для снятия копий с другой линии (линии одного шарда расходятся по приходу на секунды)
 ZSTD_LEVEL = 1  # замер: на этих данных уровень 1 и меньше, и быстрее уровня 3
 
 
@@ -40,7 +41,8 @@ class DayWriter:
         self.last_flush = time.monotonic()
         self.samples = []  # recv_ns выбранных кадров, ещё не сброшенных на диск
         self.out_lags = deque()  # (monotonic, мс приём -> диск)
-        self.raw_seen = set()  # кадры raw за RAW_SEEN_MS (учёт свежести: копия с другой линии — не вторая доставка)
+        self.raw_seen = set()  # кадры данных raw за RAW_SEEN_MS (копия с другой линии — дубль: не пишется, в свежесть не идёт)
+        self.dead = False  # после close(final=True) записи не принимаются
         self.raw_order = deque()  # (rx_ms, кадр) в порядке прихода
         self.fresh = Fresh()  # свежесть записанных записей: поздних (rx − E > LATE_MS) и макс. лаг по видам (TK-532)
         self.last_write_ms = 0
@@ -55,6 +57,8 @@ class DayWriter:
         self.path, self.day, self.enc, self.rows = path, day, Encoder(), 0
 
     def _emit(self, rx_ns, make, sample):
+        if self.dead:
+            return
         if self.f is None or day_of(rx_ns / 1e9) != self.day:
             self._open(rx_ns)
         line = make(self.enc, rx_ns)
@@ -82,21 +86,22 @@ class DayWriter:
             self._emit(rx_ns, lambda e, r, rec=rec: e.record(r, rec), sample)
             sample = False
 
-    def raw(self, rx_ns, frame, sample=False, lag_ms=None):
-        """Кадр, не разобранный адаптером, пишется как пришёл (копии с другой линии не снимаются — формат кадра не известен). lag_ms — лаг кадра для свежести (None — не считать): копия кадра,
-        уже виденного за RAW_SEEN_MS, второй доставкой не считается — иначе поздняя копия застрявшей линии считалась бы поздней при доставке вовремя по другой."""
+    def raw(self, rx_ns, frame, sample=False, lag_ms=None, settled=True):
+        """Кадр, не разобранный адаптером, пишется как пришёл. lag_ms — лаг кадра данных (в кадре есть время биржи; None — не данные: ответ на подписку, pong — пишутся все, как пришли).
+        Кадр данных, байт в байт виденный за RAW_SEEN_MS (копия с другой линии или перекрытия), — дубль: не пишется (dups), второй доставкой не считается — иначе поздняя копия застрявшей линии
+        считалась бы поздней при доставке вовремя по другой. settled=False — начальные снимки после подписки: в свежесть не идут."""
         if lag_ms is not None:
-            self._raw_fresh(rx_ns // 1_000_000, frame, lag_ms)
+            rx_ms = rx_ns // 1_000_000
+            while self.raw_order and rx_ms - self.raw_order[0][0] > RAW_SEEN_MS:
+                self.raw_seen.discard(self.raw_order.popleft()[1])
+            if frame in self.raw_seen:
+                self.dups += 1
+                return
+            self.raw_seen.add(frame)
+            self.raw_order.append((rx_ms, frame))
+            if settled:
+                self.fresh.add("r", rx_ms, round(lag_ms))
         self._emit(rx_ns, lambda e, r: e.raw(r, frame), sample)
-
-    def _raw_fresh(self, rx_ms, frame, lag_ms):
-        while self.raw_order and rx_ms - self.raw_order[0][0] > RAW_SEEN_MS:
-            self.raw_seen.discard(self.raw_order.popleft()[1])
-        if frame in self.raw_seen:
-            return
-        self.raw_seen.add(frame)
-        self.raw_order.append((rx_ms, frame))
-        self.fresh.add("r", rx_ms, round(lag_ms))
 
     def control(self, rx_ns, what, detail=""):
         self._emit(rx_ns, lambda e, r: e.control(r, what, detail), False)
@@ -118,7 +123,9 @@ class DayWriter:
             self.out_lags.popleft()
         self.last_flush = now
 
-    def close(self):
+    def close(self, final=False):
+        """Закрыть файл суток (кадр zstd завершён, `.ok` — число записей). final — остановка: дальше записи не принимаются."""
+        self.dead = self.dead or final
         if self.f is not None:
             self.f.write(self.c.flush())
             self.f.close()

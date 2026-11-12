@@ -8,6 +8,7 @@ import struct
 import time
 from urllib.parse import urlsplit
 
+FAMILY = {"v4": socket.AF_INET, "v6": socket.AF_INET6}  # вход «хост@v4» / «хост@v6»: адрес по имени, но из этого семейства (общий выбор семейства — не закреплённый адрес: закреплённый распался, TK-532)
 CONNECT_RTT_MAX_MS = 300  # назначаемое (Судье): замер 12.11 (30 соед. srv→Токио): RTT ≤ 276 мс — лаг p99 ≤ 1,5 с, ≥ 320 мс — p99 ≥ 1,9 с, без исключений
 TCP_INFO_RTT_OFFSET = 68  # struct tcp_info: tcpi_rtt, мкс (Linux; сразу после connect — замер SYN→SYN-ACK, без задержки цикла событий)
 
@@ -17,7 +18,8 @@ def hostname(url):
 
 
 def parse_entrance(spec):
-    """«хост[@ip]» -> (хост, ip или None): вход биржи по имени (SNI/Host) и, если задан, по этому адресу (проба входов, линии с разными входами)."""
+    """«хост[@ip|@v4|@v6]» -> (хост, адрес или None): вход биржи по имени (SNI/Host) и, если задан, по этому адресу (проба входов, линии с разными входами);
+    «v4»/«v6» — не адрес, а семейство адресов при разрешении имени (см. dial)."""
     host, _, ip = spec.partition("@")
     return host, ip or None
 
@@ -56,10 +58,11 @@ def peer_ip(sock):
 
 async def dial(url, max_rtt_ms=CONNECT_RTT_MAX_MS, ip=None):
     """Открытый TCP-сокет до хоста url и его RTT, мс; (None, rtt) — путь отбракован (max_rtt_ms=None — не отбраковывать).
-    ip — подключиться к этому адресу, а не к тому, что отдаёт DNS (проба входов: другая точка присутствия CDN при том же имени/SNI)."""
+    ip — подключиться к этому адресу, а не к тому, что отдаёт DNS (проба входов: другая точка присутствия CDN при том же имени/SNI); «v4»/«v6» — разрешить имя url, но взять адрес только этого семейства (при отказе DNS — исключение)."""
     u = urlsplit(url)
     loop = asyncio.get_running_loop()
-    fam, typ, proto, _, addr = (await loop.getaddrinfo(ip or u.hostname, u.port or (443 if u.scheme == "wss" else 80), type=socket.SOCK_STREAM))[0]
+    want = FAMILY.get(ip, 0)
+    fam, typ, proto, _, addr = (await loop.getaddrinfo(u.hostname if want else ip or u.hostname, u.port or (443 if u.scheme == "wss" else 80), family=want, type=socket.SOCK_STREAM))[0]
     sock = socket.socket(fam, typ, proto)
     sock.setblocking(False)
     t0 = time.monotonic()

@@ -11,6 +11,7 @@
   metrics  счётчики шарда -> строка статистики и фрагмент health      (stats)
   health   фрагменты шардов -> health.json                            (stats, fresh)
   entry    проба входов: те же подписки через независимые входы биржи (codec, dial, fresh; entryprobe.py / entrycmp.py — снаружи ядра)
+  entrances  входы линии: список по порядку предпочтения, текущий, переход     (dial)
   session  одно соединение: подключение, подписка, пинг, чтение       (writer, path, dial, budget, metrics, fresh)
   shard    шард: писатель + сессии, переподключение, смена пути       (session, writer, path, metrics, health)
   runner   процесс: пул, раскладка, запуск шардов, бюджет, health       (shard, budget, health, writer)

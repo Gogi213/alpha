@@ -147,3 +147,17 @@ def test_row_without_fresh_field_is_ok_and_empty(tmp_path):
     put(tmp_path, "binance", doc())  # health старого ядра (Binance до перевода) — поля нет
     r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["binance"]
     assert r["state"] == "ok" and r["fresh"] is None
+
+
+def test_entrance_switch_in_hour_is_warn_and_passes_through(tmp_path):
+    """G-022: линия перешла на запасной вход за час — строка жёлтая; за сутки были, за час нет — зелёная; поле старого health.json отсутствует — не ошибка. Столбец есть на странице."""
+    ws = dict(doc()["ws"], entrance_switches_1h=2, entrance_switches_24h=3)
+    put(tmp_path, "binance", doc(ws=ws))
+    put(tmp_path, "bybit", doc(ws=dict(ws, entrance_switches_1h=0)))
+    rows = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))
+    assert rows["binance"]["state"] == "warn" and "запасной вход: 2" in rows["binance"]["note"] and rows["binance"]["ws"]["entrance_switches_24h"] == 3
+    assert rows["bybit"]["state"] == "ok"
+    put(tmp_path, "bybit", doc())
+    assert by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["bybit"]["state"] == "ok"
+    page = (Path(serve.__file__).resolve().parent / "page.html").read_text(encoding="utf-8")
+    assert "Смена входа" in page and "entrance_switches_1h" in page and page.count('colspan="9"') == 2

@@ -79,6 +79,7 @@ class Adapter:
     name = "binance"
     health_default = "/data/health/binance.json"
     streams_per_conn = 64  # замер TK-527: 256/128 потоков — хроническое отставание и разрывы, 64 — у 1 из 8
+    kind_per_conn = {"book": 32}  # раскладка А (решение координатора 12.11 по теневому замеру TK-531 §7): книга по 32 потока на соединение — нагрузка на соединение вдвое ниже, p99 лага окна 223 против 263 мс (≈ 50 соединений вместо 34)
     min_quote_volume = 300_000.0
     top_exclude = 10
     kinds = ("book", "trade", "mark")
@@ -89,8 +90,12 @@ class Adapter:
     def load_pool(self, min_qv, top_exclude):
         return select_pool(fetch_json("/fapi/v1/exchangeInfo")["symbols"], fetch_json("/fapi/v1/ticker/24hr"), min_qv, top_exclude)
 
+    def per_conn_for(self, kind, per_conn):
+        """Потоков на соединение для вида: по умолчанию (--streams-per-conn не менялся) — kind_per_conn, иначе явное число для всех видов."""
+        return self.kind_per_conn.get(kind, per_conn) if per_conn == self.streams_per_conn else per_conn
+
     def plan(self, pool, kinds, per_conn):
-        return [(name, KINDS[k][0], streams) for k in kinds for name, streams in shard_streams(pool, k, per_conn, self.weights)]
+        return [(name, KINDS[k][0], streams) for k in kinds for name, streams in shard_streams(pool, k, self.per_conn_for(k, per_conn), self.weights)]
 
     def url(self, endpoint):
         return f"{WS}/{endpoint}/stream"

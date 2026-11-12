@@ -33,6 +33,7 @@ def aggregate(frags, now_ms, pool, exchange):
     tos = [t for f in frags for t in f["timeouts"]]
     gps = [t for f in frags for t in f.get("gaps", [])]
     rcs = [t for f in frags for t in f["reconnects"]]
+    sws = [t for f in frags for t in f.get("entrance_switches", [])]
     return {
         "schema": 1, "exchange": exchange, "ts_ms": now_ms,
         "started_ms": min((f["started_ms"] for f in frags), default=now_ms),
@@ -43,6 +44,7 @@ def aggregate(frags, now_ms, pool, exchange):
             "timeouts_1h": sum(t > hour for t in tos), "timeouts_24h": sum(t > day for t in tos),
             "gaps_1h": sum(t > hour for t in gps), "gaps_24h": sum(t > day for t in gps),
             "reconnects_1h": sum(t > hour for t in rcs), "reconnects_24h": sum(t > day for t in rcs),
+            "entrance_switches_1h": sum(t > hour for t in sws), "entrance_switches_24h": sum(t > day for t in sws),  # переходы линий на запасной вход
         },
         "fresh": {"late_ms": fresh.LATE_MS, "kinds": fresh.merge([f["fresh"] for f in frags if "fresh" in f])},  # TK-532: мера приёмки — записи с rx − E > late_ms и макс. лаг по видам
         "lag_in_ms": pct([v for f in frags for v in f["lag_in"]]),

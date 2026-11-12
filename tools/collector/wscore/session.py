@@ -9,6 +9,7 @@
   url(endpoint) -> str; subscribe_messages(streams) -> [str]; sub_period_s (пауза между сообщениями подписки — лимит входящих сообщений биржи)
   parse(frame) -> [запись] | None   запись — кортеж ('b', s, E, T, u, bid, bsz, ask, asz) | ('t', s, E, T, a, p, q, f, l, m, nq) | ('m', s, E, p, ap, P, i, r, T)
   symbol(frame) -> str | None (ключ символа для «с данными за минуту», нижний регистр); lag_ms(frame, rx_ns) -> float | None (приём − время биржи)
+  entrances (необязательно) -> [[вход, запасной…], …]            входы по линиям (--lanes) по порядку предпочтения «хост[@ip|@v4|@v6]»; переход на запасной — shard (entrances.py)
 """
 import asyncio
 import time
@@ -137,7 +138,7 @@ class Session:
             sample = n % LAG_SAMPLE == 0
             recs = ad.parse(frame)
             if recs is None:
-                w.raw(rx, frame, sample, ad.lag_ms(frame, rx) if mono >= settle else None)  # кадр без ts (ответ на подписку, pong) — не данные: lag None, свежесть не считается
+                w.raw(rx, frame, sample, ad.lag_ms(frame, rx), mono >= settle)  # кадр без ts (ответ на подписку, pong) — не данные: lag None, без снятия дублей и без свежести
             else:
                 w.records(rx, recs, sample, mono >= settle)
             m.frame(len(frame), rx, mono, ad.symbol(frame))

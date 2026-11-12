@@ -100,10 +100,22 @@ def frame(stream, data):
 def test_plan_subscribe_and_endpoints():
     pool = [f"S{i:03d}USDT" for i in range(130)]
     plan = AD.plan(pool, ["book", "trade", "mark"], 64)
-    assert [(n, e) for n, e, _ in plan] == [("book00", "public"), ("book01", "public"), ("book02", "public"), ("trade00", "market"), ("trade01", "market"), ("trade02", "market"), ("mark00", "market")]
+    assert [(n, e) for n, e, _ in plan] == [(f"book{i:02d}", "public") for i in range(5)] + [("trade00", "market"), ("trade01", "market"), ("trade02", "market"), ("mark00", "market")]  # книга по 32 (раскладка А): 130 -> 5 соединений
     assert AD.url("public") == "wss://fstream.binance.com/public/stream"
-    msgs = AD.subscribe_messages(plan[0][2] + plan[1][2])  # 128 потоков -> 2 сообщения по SUB_BATCH
+    msgs = AD.subscribe_messages(plan[5][2] + plan[6][2])  # trade00 + trade01: 128 потоков -> 2 сообщения по SUB_BATCH
     assert [len(json.loads(m)["params"]) for m in msgs] == [100, 28] and json.loads(msgs[0])["method"] == "SUBSCRIBE"
+
+
+def test_layout_a_book_32_per_connection_and_explicit_per_conn_wins():
+    """Раскладка А (TK-531 §7): книга по 32 потока на соединение, сделки по 64, mark один; 509 символов = 16 + 8 + 1 шардов, при двух линиях 50 соединений. Явное --streams-per-conn (не 64) — для всех видов."""
+    pool = [f"S{i:03d}USDT" for i in range(509)]
+    plan = AD.plan(pool, ["book", "trade", "mark"], AD.streams_per_conn)
+    sizes = {k: [len(s) for n, _, s in plan if n.startswith(k)] for k in ("book", "trade", "mark")}
+    assert len(sizes["book"]) == 16 and max(sizes["book"]) == 32 and sum(sizes["book"]) == 509
+    assert len(sizes["trade"]) == 8 and max(sizes["trade"]) == 64 and sum(sizes["trade"]) == 509 and sizes["mark"] == [1]
+    assert 2 * len(plan) == 50
+    explicit = AD.plan(pool, ["book", "trade"], 128)
+    assert max(len(s) for n, _, s in explicit if n.startswith("book")) == 128 and sum(1 for n, _, _ in explicit if n.startswith("book")) == 4
 
 
 def test_parse_maps_frames_to_core_records():

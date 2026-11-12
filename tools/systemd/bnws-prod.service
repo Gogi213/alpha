@@ -1,0 +1,15 @@
+[Unit]
+Description=TK-527 Binance WS collector (G-022)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Те же пользователь (root), каталоги и аргументы, что у прежнего временного юнита systemd-run; Restart=always — поднимется и после перезагрузки сервера.
+# Код — /root/bnws (копия tools/collector ветки), данные — /data/bnws, health — /data/health/binance.json.
+Restart=always
+RestartSec=10s
+TimeoutStopSec=40s
+ExecStart=/root/bnws-venv/bin/python /root/bnws/binance_ws.py --root /data/bnws --health /data/health/binance.json --lanes 2
+
+[Install]
+WantedBy=multi-user.target
