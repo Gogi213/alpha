@@ -109,6 +109,25 @@ impl PairInput<'_> {
         }
         Ok(())
     }
+
+    /// Условие прогона: ряды не короче `ly`, весов не меньше, чем компонент X. Без него прогон падал на
+    /// индексе; теперь падает здесь, а чтение ряда по минуте (`at`) не промахивается.
+    pub(crate) fn assert_aligned(&self) {
+        let n = self.ly.len();
+        assert!(
+            self.lx.len() >= n
+                && self.oy.len() >= n
+                && self.ox.iter().all(|o| o.len() >= n)
+                && self.wx.len() >= self.ox.len(),
+            "PairInput: ряды короче ly или весов меньше компонент X"
+        );
+    }
+}
+
+/// Значение ряда в минуте `t`; `NaN` недостижим — длины сверены в `PairInput::assert_aligned`.
+#[inline]
+fn at(s: &[f64], t: usize) -> f64 {
+    s.get(t).copied().unwrap_or(f64::NAN)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -209,9 +228,11 @@ impl Sums {
     /// Точный пересчёт по окну `[lo, hi]` с новым якорем.
     fn rebuild(lx: &[f64], ly: &[f64], lo: usize, hi: usize) -> Sums {
         let mut s = Sums::default();
-        for i in lo..=hi {
-            if lx[i].is_finite() && ly[i].is_finite() {
-                s.add(lx[i], ly[i]);
+        if let (Some(xs), Some(ys)) = (lx.get(lo..=hi), ly.get(lo..=hi)) {
+            for (&x, &y) in xs.iter().zip(ys) {
+                if x.is_finite() && y.is_finite() {
+                    s.add(x, y);
+                }
             }
         }
         s
@@ -262,32 +283,50 @@ enum Pend {
 
 /// Цена для выплаты фандинга: open минуты, а если там нет сделок — последний известный open.
 fn price_at(open: &[f64], t: usize) -> f64 {
-    let mut i = t;
-    loop {
-        if open[i].is_finite() {
-            return open[i];
-        }
-        i -= 1; // позиция открыта по конечному open, поиск назад кончается на входе
-    }
+    // позиция открыта по конечному open, поиск назад кончается на входе: `NaN` недостижим
+    open.get(..=t)
+        .and_then(|h| h.iter().rev().copied().find(|v| v.is_finite()))
+        .unwrap_or(f64::NAN)
 }
 
 /// Ставки с минутой ровно `ft`; курсор проходит и более ранние (они не относятся к держанию).
 #[inline]
 fn rates_at(ev: &[(i64, f64)], cur: &mut usize, ft: i64) -> f64 {
     let mut r = 0.0;
-    while *cur < ev.len() && ev[*cur].0 <= ft {
-        if ev[*cur].0 == ft {
-            r += ev[*cur].1;
+    while let Some(&(m, rate)) = ev.get(*cur) {
+        if m > ft {
+            break;
+        }
+        if m == ft {
+            r += rate;
         }
         *cur += 1;
     }
     r
 }
 
+/// Вход ноги X по open минуты `t`: цены и количества компонент (знак против направления Y).
+#[inline]
+fn fill_x_legs(
+    inp: &PairInput,
+    t: usize,
+    dir: i8,
+    beta: f64,
+    pin_x: &mut [f64],
+    qty_x: &mut [f64],
+) {
+    for (((pin, qty), o), &w) in pin_x.iter_mut().zip(qty_x).zip(inp.ox).zip(inp.wx) {
+        let open = at(o, t);
+        *pin = open;
+        *qty = -f64::from(dir) * beta * w / open;
+    }
+}
+
 /// Прогон одной пары по всему спану. Память на минуту не выделяется: векторы размера `K` — до цикла.
 /// Режимы `delay_x > 0` и `Rule::Funding` — отдельные мономорфизации цикла: умолчание (без задержки, правило z)
 /// не несёт их состояния в регистрах горячего цикла (замер TK-482: общий цикл был на ~10 % медленнее прежнего).
 pub fn run_pair<S: Sink>(inp: &PairInput, p: &Params, sink: &mut S) -> Counters {
+    inp.assert_aligned();
     let funding = matches!(p.rule, Rule::Funding { .. });
     match (p.delay_x > 0, funding) {
         (false, false) => run_pair_impl::<S, false, false>(inp, p, sink),
@@ -317,44 +356,45 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
     // Нога X ждёт входа с минуты `x_due`; β заморожена на сигнале.
     let mut x_due = NO_DUE;
     let mut x_beta = 0.0f64;
-    let mut qty = vec![0.0f64; k + 1];
-    let mut pin = vec![0.0f64; k + 1];
+    let mut qty_y = 0.0f64;
+    let mut pin_y = 0.0f64;
+    let mut qty_x = vec![0.0f64; k];
+    let mut pin_x = vec![0.0f64; k];
     let mut fund = 0.0f64;
     let mut cur_y = 0usize;
     let mut cur_x = vec![0usize; k];
     let no_fund: &[(i64, f64)] = &[];
     // D3: кольцо `fk` последних выплат ноги Y, трейлинг-среднее, курсор по выплатам.
-    let (fk, fh) = match p.rule {
-        Rule::Funding { k, hold_payments } if FUND => (k, hold_payments as f64),
-        _ => (0, 0.0),
+    #[allow(clippy::cast_precision_loss)] // число выплат в среднем и в удержании мало
+    let (fk, fh, fk_f) = match p.rule {
+        Rule::Funding { k, hold_payments } if FUND => (k, hold_payments as f64, k as f64),
+        _ => (0, 0.0, 0.0),
     };
     assert!(!FUND || fk > 0, "Rule::Funding: нужно k ≥ 1");
-    let mut ring = vec![0.0f64; fk];
-    let (mut ring_len, mut ring_head, mut cur_k) = (0usize, 0usize, 0usize);
+    let mut ring = Vec::<f64>::with_capacity(fk);
+    let (mut ring_head, mut cur_k) = (0usize, 0usize);
     let mut r_mean = f64::NAN;
     let wsum = inp.wx.iter().sum::<f64>();
     for t in 0..n {
         let ft = inp.first_min + t as i64;
-        let opens_ok = inp.oy[t].is_finite() && inp.ox.iter().all(|o| o[t].is_finite());
+        let oy_t = at(inp.oy, t);
+        let opens_ok = oy_t.is_finite() && inp.ox.iter().all(|o| at(o, t).is_finite());
         let mut filled_now = false;
         match pend {
             Pend::Enter(d, beta, sig) => {
                 pend = Pend::None;
                 // Без задержки нужны open всех ног в эту минуту; с задержкой — только у Y, нога X идёт в свой срок.
-                if (!DELAY && opens_ok) || (DELAY && inp.oy[t].is_finite()) {
+                if (!DELAY && opens_ok) || (DELAY && oy_t.is_finite()) {
                     dir = d;
                     sig_in = sig;
                     fill_in = t;
-                    qty[0] = f64::from(d) / inp.oy[t];
-                    pin[0] = inp.oy[t];
+                    qty_y = f64::from(d) / oy_t;
+                    pin_y = oy_t;
                     x_beta = beta;
                     if DELAY {
                         x_due = t.saturating_add(p.delay_x);
                     } else {
-                        for i in 0..k {
-                            pin[i + 1] = inp.ox[i][t];
-                            qty[i + 1] = -f64::from(d) * beta * inp.wx[i] / inp.ox[i][t];
-                        }
+                        fill_x_legs(inp, t, d, beta, &mut pin_x, &mut qty_x);
                         fill_x = t;
                     }
                     fund = 0.0;
@@ -366,15 +406,16 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
             }
             Pend::Exit(sig) => {
                 if opens_ok {
-                    let mut gross = qty[0] * (inp.oy[t] - pin[0]);
-                    let mut fee = qty[0].abs()
-                        * (pin[0] * p.y_kind.fee_bps(p.taker_in)
-                            + inp.oy[t] * p.y_kind.fee_bps(p.taker_out));
-                    for i in 0..k {
-                        gross += qty[i + 1] * (inp.ox[i][t] - pin[i + 1]);
-                        fee += qty[i + 1].abs()
-                            * (pin[i + 1] * p.x_kind.fee_bps(p.taker_in)
-                                + inp.ox[i][t] * p.x_kind.fee_bps(p.taker_out));
+                    let mut gross = qty_y * (oy_t - pin_y);
+                    let mut fee = qty_y.abs()
+                        * (pin_y * p.y_kind.fee_bps(p.taker_in)
+                            + oy_t * p.y_kind.fee_bps(p.taker_out));
+                    for ((&q, &pin), o) in qty_x.iter().zip(&pin_x).zip(inp.ox) {
+                        let open = at(o, t);
+                        gross += q * (open - pin);
+                        fee += q.abs()
+                            * (pin * p.x_kind.fee_bps(p.taker_in)
+                                + open * p.x_kind.fee_bps(p.taker_out));
                     }
                     let (gross_bps, funding_bps) = (gross * 1e4, fund * 1e4);
                     let net = gross_bps - fee + funding_bps;
@@ -404,11 +445,8 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
         // Без задержки нога X вошла вместе с Y (`x_filled_now == filled_now`).
         let mut x_filled_now = filled_now;
         if DELAY && x_due <= t && dir != 0 {
-            if inp.ox.iter().all(|o| o[t].is_finite()) {
-                for i in 0..k {
-                    pin[i + 1] = inp.ox[i][t];
-                    qty[i + 1] = -f64::from(dir) * x_beta * inp.wx[i] / inp.ox[i][t];
-                }
+            if inp.ox.iter().all(|o| at(o, t).is_finite()) {
+                fill_x_legs(inp, t, dir, x_beta, &mut pin_x, &mut qty_x);
                 fill_x = t;
                 x_due = NO_DUE;
                 x_filled_now = true;
@@ -429,20 +467,20 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
             ft,
         );
         if hold && ry != 0.0 {
-            fund -= qty[0] * price_at(inp.oy, t) * ry;
+            fund -= qty_y * price_at(inp.oy, t) * ry;
         }
-        for i in 0..k {
+        for (i, ((cur, &q), o)) in cur_x.iter_mut().zip(&qty_x).zip(inp.ox).enumerate() {
             let ev = inp.fund_x.get(i).copied().unwrap_or(no_fund);
-            let rx = rates_at(ev, &mut cur_x[i], ft);
+            let rx = rates_at(ev, cur, ft);
             if hold_x && rx != 0.0 {
-                fund -= qty[i + 1] * price_at(inp.ox[i], t) * rx;
+                fund -= q * price_at(o, t) * rx;
             }
         }
         if dir != 0 {
             c.minutes_in_pos += 1;
         }
         // Окно: добавить минуту t, убрать t−W, раз в `refresh` — точный пересчёт.
-        let (xt, yt) = (inp.lx[t], inp.ly[t]);
+        let (xt, yt) = (at(inp.lx, t), at(inp.ly, t));
         let obs = xt.is_finite() && yt.is_finite();
         if obs {
             s.add(xt, yt);
@@ -452,8 +490,9 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
         }
         if t >= p.window {
             let j = t - p.window;
-            if inp.lx[j].is_finite() && inp.ly[j].is_finite() {
-                s.sub(inp.lx[j], inp.ly[j]);
+            let (xj, yj) = (at(inp.lx, j), at(inp.ly, j));
+            if xj.is_finite() && yj.is_finite() {
+                s.sub(xj, yj);
             }
         }
         if (t + 1) % refresh == 0 {
@@ -474,23 +513,30 @@ fn run_pair_impl<S: Sink, const DELAY: bool, const FUND: bool>(
                 inp.fund_y
             };
             let mut got = false;
-            while cur_k < ev.len() && ev[cur_k].0 <= ft {
-                if ring_len < fk {
-                    ring[ring_len] = ev[cur_k].1;
-                    ring_len += 1;
-                } else {
-                    ring[ring_head] = ev[cur_k].1;
+            while let Some(&(m, rate)) = ev.get(cur_k) {
+                if m > ft {
+                    break;
+                }
+                if ring.len() < fk {
+                    ring.push(rate);
+                } else if let Some(slot) = ring.get_mut(ring_head) {
+                    *slot = rate;
                     ring_head = (ring_head + 1) % fk;
                 }
                 cur_k += 1;
                 got = true;
             }
-            if got && ring_len == fk {
+            if got && ring.len() == fk {
+                // от самой давней выплаты: `ring[head..]`, затем `ring[..head]`
                 let mut acc = 0.0;
-                for j in 0..fk {
-                    acc += ring[(ring_head + j) % fk];
+                for v in ring
+                    .iter()
+                    .skip(ring_head)
+                    .chain(ring.iter().take(ring_head))
+                {
+                    acc += v;
                 }
-                r_mean = acc / fk as f64;
+                r_mean = acc / fk_f;
             }
         }
         // Сигнал по закрытию минуты t; исполнение — следующая минута. Выход — когда позиция набрана.

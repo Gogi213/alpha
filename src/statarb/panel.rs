@@ -42,9 +42,9 @@ impl Series {
             return None;
         }
         Some((
-            (lo - self.first_min) as usize,
-            (lo - other.first_min) as usize,
-            (hi - lo + 1) as usize,
+            usize::try_from(lo - self.first_min).ok()?,
+            usize::try_from(lo - other.first_min).ok()?,
+            usize::try_from(hi - lo + 1).ok()?,
         ))
     }
 
@@ -78,11 +78,15 @@ fn read_col<R: Read>(r: &mut R, n: usize) -> io::Result<Vec<f64>> {
     let mut left = n;
     while left > 0 {
         let take = left.min(1 << 16);
-        r.read_exact(&mut buf[..take * 8])?;
+        let win = buf
+            .get_mut(..take * 8)
+            .ok_or_else(|| bad("окно чтения больше буфера".into()))?;
+        r.read_exact(win)?;
         out.extend(
-            buf[..take * 8]
-                .chunks_exact(8)
-                .map(|b| f64::from_le_bytes(b.try_into().expect("8 байт"))),
+            win.as_chunks::<8>()
+                .0
+                .iter()
+                .map(|b| f64::from_le_bytes(*b)),
         );
         left -= take;
     }
@@ -90,13 +94,20 @@ fn read_col<R: Read>(r: &mut R, n: usize) -> io::Result<Vec<f64>> {
 }
 
 pub fn read_series<R: Read>(r: &mut R) -> io::Result<Series> {
-    let mut h = [0u8; 24];
-    r.read_exact(&mut h)?;
-    if h[..4] != MAGIC {
+    let mut magic = [0u8; 4];
+    r.read_exact(&mut magic)?;
+    let mut reserved = [0u8; 4];
+    r.read_exact(&mut reserved)?;
+    let mut first = [0u8; 8];
+    r.read_exact(&mut first)?;
+    let mut count = [0u8; 8];
+    r.read_exact(&mut count)?;
+    if magic != MAGIC {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "не панель SAP1"));
     }
-    let first_min = i64::from_le_bytes(h[8..16].try_into().expect("8 байт"));
-    let n = u64::from_le_bytes(h[16..24].try_into().expect("8 байт")) as usize;
+    let first_min = i64::from_le_bytes(first);
+    let n = usize::try_from(u64::from_le_bytes(count))
+        .map_err(|_| bad("число минут не помещается в usize".into()))?;
     let open = read_col(r, n)?;
     let close = read_col(r, n)?;
     Ok(Series {
@@ -181,7 +192,8 @@ pub fn convert_csv_stats<R: BufRead>(csv: R) -> io::Result<(Option<Series>, Conv
             open: Vec::new(),
             close: Vec::new(),
         });
-        let at = (idx - ser.first_min) as usize;
+        let at = usize::try_from(idx - ser.first_min)
+            .map_err(|_| bad(format!("строка {}: минута раньше начала панели", i + 1)))?;
         ser.open.resize(at, f64::NAN);
         ser.close.resize(at, f64::NAN);
         ser.open.push(o);
