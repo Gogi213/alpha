@@ -2080,3 +2080,24 @@ fn silence_without_pong_marks_the_session_degraded() {
     let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
     assert!(ev.contains("\"data_alive\":false"), "{ev}");
 }
+
+/// Отбраковка по RTT — не ниже 300 мс и относительно соседей: при общем замедлении (все подключения 345–385 мс) путь не бракуется, бюджет не сгорает.
+#[test]
+fn rtt_limit_follows_the_peers_when_the_whole_route_slows_down() {
+    use super::session::{rtt_limit, CONNECT_RTT_MAX_MS};
+    assert_eq!(rtt_limit(None), CONNECT_RTT_MAX_MS);
+    assert_eq!(rtt_limit(Some(200.0)), CONNECT_RTT_MAX_MS);
+    assert!((rtt_limit(Some(270.0)) - 310.5).abs() < 1e-9);
+    assert!(
+        rtt_limit(Some(380.0)) > 430.0,
+        "соседи 380 мс — 385 не отбраковывается"
+    );
+    let b = Budget::new(10, Duration::from_secs(300));
+    assert_eq!(b.rtt_median(), None, "мало данных");
+    for r in [
+        250.0, 260.0, 270.0, 280.0, 290.0, 300.0, 310.0, 320.0, 330.0,
+    ] {
+        b.note_rtt(r);
+    }
+    assert_eq!(b.rtt_median(), Some(290.0));
+}

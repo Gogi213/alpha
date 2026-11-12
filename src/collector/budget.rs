@@ -21,7 +21,13 @@ struct Rule {
 
 pub struct Budget {
     rules: Mutex<Vec<Rule>>,
+    /// RTT рукопожатия последних подключений процесса, мс: «как сейчас до биржи» (порог отбраковки пути — относительно соседей).
+    rtts: Mutex<VecDeque<f64>>,
 }
+
+/// Сколько последних RTT помнить и сколько нужно для медианы.
+const RTT_KEEP: usize = 64;
+const RTT_MIN_SAMPLES: usize = 8;
 
 impl Budget {
     pub fn new(limit: usize, window: Duration) -> Self {
@@ -40,6 +46,7 @@ impl Budget {
             .collect();
         Self {
             rules: Mutex::new(rules),
+            rtts: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -72,6 +79,32 @@ impl Budget {
             }
         }
         wait
+    }
+
+    /// Записать RTT рукопожатия очередного подключения.
+    pub fn note_rtt(&self, rtt_ms: f64) {
+        let mut q = self
+            .rtts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if q.len() >= RTT_KEEP {
+            q.pop_front();
+        }
+        q.push_back(rtt_ms);
+    }
+
+    /// Медиана RTT последних подключений; `None` — мало данных.
+    pub fn rtt_median(&self) -> Option<f64> {
+        let q = self
+            .rtts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if q.len() < RTT_MIN_SAMPLES {
+            return None;
+        }
+        let mut v: Vec<f64> = q.iter().copied().collect();
+        v.sort_by(f64::total_cmp);
+        v.get(v.len() / 2).copied()
     }
 
     /// Занято мест в окне первого (основного) правила сейчас.

@@ -25,6 +25,16 @@ use super::ring::{Item, Payload, RingTx};
 
 /// Назначаемое (Судье): замер 12.11 (30 соед. srv→Токио): RTT ≤ 276 мс — лаг p99 ≤ 1,5 с, ≥ 320 мс — p99 ≥ 1,9 с.
 pub const CONNECT_RTT_MAX_MS: f64 = 300.0;
+/// Путь хуже соседей: RTT выше медианы последних подключений ×1,15 (назначаемое). Без этого при общем замедлении (12.11: RTT до Binance 345–385 мс у ВСЕХ
+/// подключений) отбраковка по 300 мс съедала весь бюджет подключений за две минуты, и коллектор не мог подключиться.
+pub const RTT_PEER_FACTOR: f64 = 1.15;
+
+/// Порог отбраковки по RTT рукопожатия: не ниже `CONNECT_RTT_MAX_MS`, при общем замедлении — относительно соседей.
+pub fn rtt_limit(median: Option<f64>) -> f64 {
+    median.map_or(CONNECT_RTT_MAX_MS, |m| {
+        CONNECT_RTT_MAX_MS.max(m * RTT_PEER_FACTOR)
+    })
+}
 pub const PING_PERIOD: Duration = Duration::from_secs(5);
 /// Порог «таймаут» страницы здоровья (нет pong), назначаемое.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(10);
@@ -135,10 +145,12 @@ pub fn run(
         Ok(x) => x,
         Err(e) => return Outcome::Failed(format!("connect {}: {e}", ent.host)),
     };
-    if probe && rtt > CONNECT_RTT_MAX_MS {
+    let limit = rtt_limit(sh.budget.rtt_median());
+    sh.budget.note_rtt(rtt);
+    if probe && rtt > limit {
         sh.events.emit(
             "path_rejected_rtt",
-            json!({"session": seq, "rtt_ms": rtt.round(), "entrance": ent.host}),
+            json!({"session": seq, "rtt_ms": rtt.round(), "limit_ms": limit.round(), "entrance": ent.host}),
         );
         return Outcome::PathRejected;
     }
