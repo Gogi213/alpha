@@ -79,3 +79,96 @@
 - Исполнители/проверяющие в `docs/research/reviews` на ветках не пересчитаны построчно; число «кругов» взято по числу тредов и коммитов возврата.
 - Не открывал `docs/plan/SETTLED.md` по номерам; дубли В-146…В-150 взяты из проверки `50b4568b`.
 - Время аудита: ~25 мин из 45.
+
+## Закрытие 13.11
+
+Исполнено по приказу владельца: «убери все что не относится к аудиту и сделай пункты из аудита». Время — 13.11 ~01:10–02:00 GMT+4. Вне задачи (не делалось): Н-4 слияние, Н-5, Н-8 удаление данных, Н-12, Н-13, Н-14, Н-15, Н-16 (архивация тредов bb — координатор).
+
+| Пункт | Статус | Доказательство |
+|---|---|---|
+| Н-3 | **сделано** | `git push origin okx-ws-prep g022-prep-3` → `[new branch]` обе; перед пушем grep диффа на `api_key/secret/token/пароль/приват.ключ/32+ символов` — совпадений нет, кроме образца SBE-кадра (hex, не секрет). Ветки сохранены (`okx-ws-prep` @ `a37997dd`, `g022-prep-3` @ `28bf91f6`). |
+| Н-2 | **сделано** | `g022-turbo` local = origin = `a32ef34f` (`git merge --ff-only`). 3 грязных файла: `.claude/dispatcher/guard.log` + 2 файла `tk525-*-run.txt` (разница только в окончаниях строк) → копия в `data/audit-2026-11-13-saved/g022-turbo-worktree/` (+`dirty-tracked.diff`), `.claude/dispatcher/` удалён. Остаток: 2 tracked-файла `tk525-*-run.txt` в worktree показываются как `M` (смешанные CRLF/LF в блобе + `eol=lf` — git сам не снимает; содержимое = HEAD с точностью до EOL). Дубли `bb/g-022-rust-collector-v2-thr_{5bc3a4v4az,bjufupu9yg,bzj47264ji}` @ `a32ef34f` — `merge-base --is-ancestor … origin/g022-turbo` = да → удалены без тега, 2 их worktree убраны. `bb/g-022-rust-collector-v1-thr_pgx62pdrqp` @ `b3635a1d` — **не** содержится (там отчёт проверки v1) → тег `archive/bb-g-022-rust-collector-v1-thr_pgx62pdrqp`, ветка удалена локально и на origin. |
+| Н-1 + Н-11 | **сделано** | Все локальные и удалённые ветки вне `master`/`g022-turbo`/`okx-ws-prep`/`g022-prep-3`, не слитые в `master`: 35 локальных + 32 удалённых (31 только на origin + `bb/g-022-rust-collector-v1-…` с обеих сторон). Теги: 55 новых на ветки + 3 на stash; ещё 8 веток уже имели `archive/*`, чей коммит содержит кончик ветки (6 из этих 8 тегов не было на origin — запушены). После: `git branch -r --no-merged master` = `g022-prep-3`, `g022-turbo`, `okx-ws-prep` + `bb/none-audit-merges-v1-thr_cs2q5hznx5` (создана другим тредом уже во время работы — не трогал). `git ls-remote --tags origin 'refs/tags/archive/*'` = 161 (было 97; +58 новых +6 существовавших локально). 16 worktree-ов убраны (`git worktree remove`, без `--force`; `git worktree list` = 7). `tk493-xdl9`: 6 неотслеженных файлов (4 × `tools/compute/statarb/xdl9/census/*.py`, `conv/c2_git_ok`, `f8_git_ok`) → коммит `7c2e86fa` «WIP: сохранено при архивации (аудит 13.11)»; секретов в них нет (grep). Игнорируемые данные worktree (`data/xdl9` 1,5 ГБ, `data/p40ref`, `data/pairs_run.log`) **не удалены** — перенесены в `data/audit-2026-11-13-saved/TK-493-data/`. Слитые в `master` ветки `bb/*` (5) и их worktree-ы не трогал (вне приказа). Освобождено на ПК: ≈ 3,5 ГБ (`du` убранных worktree-ов = 3525 МБ; `df C:` свободно 85 → 89 ГБ). Stash: 3 → 0, каждый — тег (таблица ниже). Секретов в ранее не запушенных коммитах нет: `git log --branches --not master --remotes=origin -G<regex>` пуст; blob > 20 МБ нет (59 МБ всего). |
+| Н-6 | **сделано** | `systemctl --failed` было 15 юнитов → `reset-failed` → 0. `p40-ready.service` (transient, с 10.11 16:49 UTC) остановлен: `inactive`, процесса `p40-ready.py` нет. Живые не тронуты: `soak-binance soak-bybit health-page-8088 health-soak-page` = `active ×4` после операций. `tail -F /data/bbws-entry/watch.log` (сессия ssh `session-10424.scope`, не юнит) — **не трогал**, не в приказе. |
+| Н-7 | **сделано** | `alpha-day-upload.timer`: `systemctl stop` + `disable` → `Removed … timers.target.wants/alpha-day-upload.timer`; `is-enabled` = `disabled`, `is-active` = `inactive`; сервис `alpha-day-upload.service` = `inactive`. `p40-reap-timer.timer` (transient) остановлен вместе с `.service` → `not-found`; `disable` не применим (`Unit … does not exist`). |
+| О-12 | **сделано** | `p40-ready.py` остановлен, `p40-reap-timer` остановлен, юнит `p40-reap-timer.service` убран из failed (`reset-failed`). Цикл `until ! pgrep -f t522.py` в списке процессов не найден (уже завершён). |
+| О-13 | **сделано** | `df -h /dev/shm /tmp` до: `/dev/shm 11G` (24 %), `/tmp 4,3G` (14 %); после: `/dev/shm 0` (0 %), `/tmp 54M` (1 %). Удалено 2 251 верхнеуровневых объекта (15 495 МБ): ни один не открыт процессом (скан `/proc/*/fd,cwd,exe,maps,cmdline`; `lsof` на srv нет), нет файлов моложе 2026-11-11 21:30 UTC, не в списке «оставить» (`systemd-private-*`, `soak*`, `health*`, `g022*`, `turbo*`, `pgo-master-prof`, `pgo-try-prof` и др.). Крупное: `/dev/shm/p40o` 4,2 ГБ, `/dev/shm/p40d1hl` 3,9 ГБ, `/tmp/pgo_l1` 3,9 ГБ (выходные CSV прогонов PGO-гейта L1 09.11), `/dev/shm/p40` 1,1 ГБ, `/dev/shm/p40g` 0,5 ГБ (копии скачанных датасетов — В-131/В-132), `g_py/g_rs/b_py/b_rs` ~1 ГБ, `p40by`. Оставлено: 21 по имени, 30 моложе порога. Страховка: 2 241 объект < 100 МБ упакован в `/root/audit-shm-tmp-2026-11-13.tar.zst` (232 МБ, на диске srv, `/data` не трогал); список — `/root/audit-shmclean/cand.txt`. `free -g`: shared 15 → 0. |
+| Н-9 | **сделано** | София: `rpv-pulse.service` `active/enabled` → `stop` + `disable` → `Removed …multi-user.target.wants/rpv-pulse.service`; `is-active` = `inactive`, `is-enabled` = `disabled`. Solta/docker/watcher/massedit/tg-reports/screenshot не тронуты (В-154). |
+| Н-10 | **сделано** | см. коммит master ниже. `Python/` (166 МБ) — переносной интерпретатор `pythoncore-3.15-64` + `pip.exe`; хуки (`~/.claude/settings.json:34`, `.claude/settings.json:41,51,62`) вызывают `python` из PATH, а не `Python/` → добавлено `/Python/` в `.gitignore`, ничего не удалено. `tk426-windows.csv` (432 КБ) → `data/tk426-windows.csv`. `tools/compute`: 71 неотслеженный скрипт → 61 перенесён в `tools/compute/archive/`, 7 побайтово совпали с уже отслеживаемыми копиями в `archive/` (дубли убраны), 3 отличались (в `archive/` более поздняя версия) → старые версии в `data/audit-2026-11-13-saved/tools-compute-older/` (`tk265-table.py`, `tk319-gate.sh`, `tk319-spot-roots.py`). Ссылок на эти скрипты в коммитимых `docs/**` нет (0 замен). Документы `docs/research/reviews/*` (25), `P-33-statarb-v4.md`, `docs/findings/*`, `p40-d1-plan` — как есть. |
+
+### Ветки и теги (Н-1, Н-11, Н-2)
+
+| Где | Ветка | SHA | Тег | Итог |
+|---|---|---|---|---|
+| локально | `bb/g-022-binance-bybit-thr_ki49k6g54p` | `f6e00fc7` | `archive/bb-g-022-binance-bybit-thr_ki49k6g54p` | тег создан и запушен; ветка удалена |
+| локально | `bb/g-022-rust-collector-v1-thr_pgx62pdrqp` | `b3635a1d` | `archive/bb-g-022-rust-collector-v1-thr_pgx62pdrqp` | тег создан и запушен; ветка удалена |
+| локально | `bb/g-022-rust-collector-v2-thr_5bc3a4v4az` | `a32ef34f` | — | содержится в `origin/g022-turbo` (`merge-base --is-ancestor`), тег не нужен; ветка и worktree удалены |
+| локально | `bb/g-022-rust-collector-v2-thr_bjufupu9yg` | `a32ef34f` | — | содержится в `origin/g022-turbo` (`merge-base --is-ancestor`), тег не нужен; ветка и worktree удалены |
+| локально | `bb/g-022-rust-collector-v2-thr_bzj47264ji` | `a32ef34f` | — | содержится в `origin/g022-turbo` (`merge-base --is-ancestor`), тег не нужен; ветка и worktree удалены |
+| локально | `bb/g-022-thr_i42yzre75q` | `f6e00fc7` | `archive/bb-g-022-thr_i42yzre75q` | тег создан и запушен; ветка удалена |
+| локально | `bb/master-thr_ssija84pzt` | `50b4568b` | `archive/bb-master-thr_ssija84pzt` | тег создан и запушен; ветка удалена |
+| локально | `bb/okx-thr_mtp79ffj9f` | `f6e00fc7` | `archive/bb-okx-thr_mtp79ffj9f` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-531-binance-2-thr_upjqwagznd` | `f67900f0` | `archive/bb-tk-531-binance-2-thr_upjqwagznd` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-531-binance-thr_yidkdm8xur` | `f67900f0` | `archive/bb-tk-531-binance-thr_yidkdm8xur` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-531-thr_3748xfhbvs` | `f90baeeb` | `archive/bb-tk-531-thr_3748xfhbvs` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-531-thr_hn92g23fjy` | `a0bbf202` | `archive/bb-tk-531-thr_hn92g23fjy` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-532-533-bybit-thr_jw4tqpx26g` | `3b579781` | `archive/bb-tk-532-533-bybit-thr_jw4tqpx26g` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-532-533-thr_n2ufrnbd7n` | `2bb70977` | `archive/bb-tk-532-533-thr_n2ufrnbd7n` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-532-bybit-thr_tdywiip4wk` | `f6e00fc7` | `archive/bb-tk-532-bybit-thr_tdywiip4wk` | тег создан и запушен; ветка удалена |
+| локально | `bb/tk-532-v2-thr_p87tqmpwed` | `abbe7dd9` | `archive/bb-tk-532-v2-thr_p87tqmpwed` | тег создан и запушен; ветка удалена |
+| локально | `g022-integrate` | `3f8e1ce6` | `archive/g022-integrate` | тег создан и запушен; ветка удалена |
+| локально | `tk479-statarb` | `bd97d079` | `archive/tk479-statarb-bd97d079` | тег создан и запушен; ветка удалена |
+| локально | `tk486-speed` | `79ad96ff` | `archive/tk486-speed` | тег создан и запушен; ветка удалена |
+| локально | `tk493-xdl9` | `7c2e86fa` | `archive/tk493-xdl9` | тег создан и запушен; ветка удалена |
+| локально | `tk500-p40core` | `95f7436c` | `archive/tk500-p40core` | тег создан и запушен; ветка удалена |
+| локально | `tk508-onion` | `59ea4260` | `archive/tk508-onion` | тег создан и запушен; ветка удалена |
+| локально | `tk515-l1` | `05978863` | `archive/tk515-l1` | тег создан и запушен; ветка удалена |
+| локально | `tk516-pq2bin` | `14048c9a` | `archive/tk516-pq2bin` | тег создан и запушен; ветка удалена |
+| локально | `tk518-orch-l1` | `7bec4c02` | `archive/tk518-orch-l1` | тег создан и запушен; ветка удалена |
+| локально | `tk522-orch-l1all` | `a4e8c8cb` | `archive/tk522-orch-l1all` | тег создан и запушен; ветка удалена |
+| локально | `tk522-pq2bin-carry` | `6c8ede68` | `archive/tk522-pq2bin-carry` | тег создан и запушен; ветка удалена |
+| локально | `tk525-l1-tail` | `37a5a162` | `archive/tk525-l1-tail` | тег создан и запушен; ветка удалена |
+| локально | `tk526-theta-t` | `f28c8c22` | `archive/tk526-theta-t` | тег создан и запушен; ветка удалена |
+| локально | `tk527-binance-ws` | `f67900f0` | `archive/tk527-binance-ws` | тег создан и запушен; ветка удалена |
+| локально | `tk528-datasets-removed` | `f9a2bf82` | `archive/tk528-datasets-removed` | тег создан и запушен; ветка удалена |
+| локально | `tk530-day-upload` | `90e53c1f` | `archive/tk530-day-upload` | тег создан и запушен; ветка удалена |
+| локально | `tk531-binance-ladder` | `93cbb48f` | `archive/tk531-binance-ladder` | тег создан и запушен; ветка удалена |
+| локально | `tk532-bybit-accept` | `5e51f765` | `archive/tk532-bybit-accept` | тег создан и запушен; ветка удалена |
+| локально | `tk532-bybit-ws` | `3b579781` | `archive/tk532-bybit-ws` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/cargo/clap-4.6.7` | `3d9e73e3` | `archive/dependabot-cargo-clap-4.6.7` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/cargo/serde_json-1.0.154` | `84fcd378` | `archive/dependabot-cargo-serde_json-1.0.154` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/cargo/sha2-0.11.1` | `c53461ba` | `archive/dependabot-cargo-sha2-0.11.1` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/cargo/tokio-1.53.3` | `8b2598c0` | `archive/dependabot-cargo-tokio-1.53.3` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/cargo/zstd-0.14.3` | `373dbd2c` | `archive/dependabot-cargo-zstd-0.14.3` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/github_actions/actions/cache-6` | `90f09e89` | `archive/dependabot-github_actions-actions-cache-6` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/github_actions/actions/checkout-7` | `be0f4862` | `archive/dependabot-github_actions-actions-checkout-7` | тег создан и запушен; ветка удалена |
+| origin | `dependabot/github_actions/actions/upload-artifact-6` | `1f27c4f2` | `archive/dependabot-github_actions-actions-upload-artifact-6` | тег создан и запушен; ветка удалена |
+| origin | `feat/hypothesis-backtest-storagebox-report-15933323708583137623` | `48482984` | `archive/feat-hypothesis-backtest-storagebox-report-15933323708583137623` | тег создан и запушен; ветка удалена |
+| origin | `tk201-a2` | `5fc73624` | `archive/tk201-a2` | тег создан и запушен; ветка удалена |
+| origin | `tk207-gate-r2` | `5fc73624` | `archive/tk207-gate-r2` | тег создан и запушен; ветка удалена |
+| origin | `tk210-rebased` | `c7cfabc9` | `archive/tk210-rebased` | тег создан и запушен; ветка удалена |
+| origin | `tk211` | `c8ee131e` | `archive/tk211` | тег создан и запушен; ветка удалена |
+| origin | `tk222` | `93758ded` | `archive/tk222` | тег создан и запушен; ветка удалена |
+| origin | `tk222-r` | `9dbb8de8` | `archive/tk222-r` | тег создан и запушен; ветка удалена |
+| origin | `tk223-leftover` | `209ab5d0` | `archive/tk223-leftover` | тег создан и запушен; ветка удалена |
+| origin | `tk223b` | `6630517a` | `archive/tk223b` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+| origin | `tk223c` | `66d60668` | `archive/tk223c` | тег создан и запушен; ветка удалена |
+| origin | `tk223stand` | `e8e10fe7` | `archive/tk223stand` | тег создан и запушен; ветка удалена |
+| origin | `tk257` | `eb80b20b` | `archive/tk257` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+| origin | `tk258-deploy` | `59b150f9` | `archive/tk258-deploy` | тег создан и запушен; ветка удалена |
+| origin | `tk261` | `d1263105` | `archive/tk261` | тег создан и запушен; ветка удалена |
+| origin | `tk265` | `213bff33` | `archive/tk265` | тег создан и запушен; ветка удалена |
+| origin | `tk284` | `c7adb63d` | `archive/tk284` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+| origin | `tk294` | `146fbe61` | `archive/tk294` | тег создан и запушен; ветка удалена |
+| origin | `tk296` | `6a759298` | `archive/tk296` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+| origin | `tk306` | `d567ee2f` | `archive/tk306` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+| origin | `tk312-held-net` | `a4558fce` | `archive/tk312-held-net` | тег создан и запушен; ветка удалена |
+| origin | `tk316` | `67543dc6` | `archive/tk316` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+| origin | `tk341b` | `f2094a3a` | `archive/tk341b` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+| origin | `tk363-bank-d20` | `c4dca598` | `archive/tk363-bank-d20` | тег уже был и содержит кончик ветки (тег запушен); удалённая ветка удалена |
+
+| Stash | SHA | Тег |
+|---|---|---|
+| `stash@{0}` | `1f8d43b2` | `archive/stash-0-tk359-seconds-leftover` |
+| `stash@{1}` | `1779d88e` | `archive/stash-1-audit-design-fixes-wip-0510` |
+| `stash@{2}` | `91aae80d` | `archive/stash-2-tk057-dirty-src-maintree-0510` |
