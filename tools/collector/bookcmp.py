@@ -99,14 +99,16 @@ def compare(ref, other, lo_ms, hi_ms):
         out["keys_common"] += 1
         out["frame_text_equal"] += a[2] == b[2]
         out["first_payload_equal"] += a[1][0] == b[1][0]
-        eq = set(a[1]) == set(b[1])
+        # повторы кадра с тем же u (тихий символ: биржа шлёт тот же L1 раз в ≈ 3 с с новым ts) — только до конца окна: после него входы останавливаются по очереди, и повтор мог дойти лишь до одного
+        pa, pb = [x for x in a[1] if x[0] <= hi_ms], [x for x in b[1] if x[0] <= hi_ms]
+        eq = set(pa) == set(pb)
         out["all_payloads_equal"] += eq
         if not eq or a[1][0] != b[1][0]:
             for i, f in enumerate(FIELDS):
-                if {p[i] for p in a[1]} != {p[i] for p in b[1]}:
+                if {x[i] for x in pa} != {x[i] for x in pb}:
                     out["mismatch_by_field"][f] += 1
             if len(out["examples"]) < 8:
-                out["examples"].append({"sym": k[0], "u": k[1], "ref": a[1], "other": b[1]})
+                out["examples"].append({"sym": k[0], "u": k[1], "ref": pa, "other": pb})
     return out
 
 

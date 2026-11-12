@@ -1,0 +1,114 @@
+{
+ "pool": 411,
+ "shards_per_entrance": 6,
+ "ref": "com4",
+ "window_ms": [
+  1794471180056,
+  1794471517546
+ ],
+ "window_s": 337,
+ "pool_symbols_seen": {
+  "com4": 411,
+  "kz": 411,
+  "com6": 411,
+  "ge": 411
+ },
+ "entrances": {
+  "com4": {
+   "frames": 195643,
+   "keys": 173810,
+   "unparsed_book_frames": 0,
+   "errors": 0,
+   "ips": [
+    "54.230.172.108",
+    "54.230.172.2",
+    "54.230.172.42",
+    "54.230.172.83"
+   ]
+  },
+  "kz": {
+   "frames": 195018,
+   "keys": 173244,
+   "unparsed_book_frames": 0,
+   "errors": 0,
+   "ips": [
+    "43.174.196.245"
+   ]
+  },
+  "com6": {
+   "frames": 195019,
+   "keys": 173252,
+   "unparsed_book_frames": 0,
+   "errors": 0,
+   "ips": [
+    "2600:9000:201c:a000:17:57ca:2ec0:93a1",
+    "2600:9000:201c:a600:17:57ca:2ec0:93a1",
+    "2600:9000:201c:f600:17:57ca:2ec0:93a1",
+    "2600:9000:201c:fa00:17:57ca:2ec0:93a1"
+   ]
+  },
+  "ge": {
+   "frames": 194775,
+   "keys": 173052,
+   "unparsed_book_frames": 0,
+   "errors": 0,
+   "ips": [
+    "2.19.120.78",
+    "2.19.120.87"
+   ]
+  }
+ },
+ "vs_ref": {
+  "kz": {
+   "keys_common": 162970,
+   "first_payload_equal": 162970,
+   "all_payloads_equal": 162970,
+   "frame_text_equal": 162970,
+   "only_ref": 0,
+   "only_other": 0,
+   "mismatch_by_field": {
+    "ts": 0,
+    "cts": 0,
+    "bid": 0,
+    "bsz": 0,
+    "ask": 0,
+    "asz": 0
+   },
+   "examples": []
+  },
+  "com6": {
+   "keys_common": 162970,
+   "first_payload_equal": 162970,
+   "all_payloads_equal": 162970,
+   "frame_text_equal": 162970,
+   "only_ref": 0,
+   "only_other": 0,
+   "mismatch_by_field": {
+    "ts": 0,
+    "cts": 0,
+    "bid": 0,
+    "bsz": 0,
+    "ask": 0,
+    "asz": 0
+   },
+   "examples": []
+  },
+  "ge": {
+   "keys_common": 162971,
+   "first_payload_equal": 162971,
+   "all_payloads_equal": 162971,
+   "frame_text_equal": 162971,
+   "only_ref": 0,
+   "only_other": 0,
+   "mismatch_by_field": {
+    "ts": 0,
+    "cts": 0,
+    "bid": 0,
+    "bsz": 0,
+    "ask": 0,
+    "asz": 0
+   },
+   "examples": []
+  }
+ }
+}
