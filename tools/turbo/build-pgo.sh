@@ -7,12 +7,13 @@ set -euo pipefail
 SRC="$1"; OUT="$2"; SYN="${3:-}"
 B=/opt/rbuild; export RUSTUP_HOME=$B/rustup CARGO_HOME=$B/cargo PATH=$B/cargo/bin:$PATH
 PROF=/data/turbo-probe/pgo-prof; GEN=$B/pgo-gen; USE=$B/pgo-use
-# rustc 1.93 (LLVM 21) segfaults in thin-LTO codegen with -Cprofile-generate (dmesg: "lto cgu ... libLLVM"): LTO off in both PGO builds; a non-PGO LTO-off build is made for a fair A/B
+# rustc 1.93 (LLVM 21) segfaults in libLLVM with -Cprofile-generate on this crate (dmesg: "lto cgu"/"opt cgu"); value profiling is disabled (-disable-vp) and LTO is off in both PGO builds;
+# a non-PGO LTO-off build is made for a fair A/B
 export CARGO_PROFILE_RELEASE_LTO=off
 PD=$(dirname "$(find "$RUSTUP_HOME/toolchains" -name llvm-profdata | head -1)")
 rm -rf "$PROF"; mkdir -p "$PROF"
 cd "$SRC"
-RUSTFLAGS="-Cprofile-generate=$PROF" cargo build --release --target-dir "$GEN" -j 6 2>&1 | tail -2
+RUSTFLAGS="-Cprofile-generate=$PROF -Cllvm-args=-disable-vp" cargo build --release --target-dir "$GEN" -j 6 2>&1 | tail -2
 BIN="$GEN/release/alpha"; SYN="${SYN:-$BIN}"
 W=/data/turbo-probe/pgo-work; rm -rf "$W"; mkdir -p "$W"
 "$SYN" collect synth --listen 127.0.0.1:1 --symbols 64 --duration-s 1 --write-pool "$W/pool.json" >/dev/null 2>&1 || true

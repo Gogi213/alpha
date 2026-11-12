@@ -141,3 +141,55 @@ Binance, 560 s, every connection replaced every 180 s (`--max-age-s 180`; real v
 ### 5.6 Stop / restart (live)
 `soak.sh start` restarts the soak with one SIGTERM: 25 + 18 files closed in 1.3 s, every file `zstd -t` ok with `.ok`; `check_files.py` on closed segments: 0 bad files, 0 duplicates, 0 trade-id gaps (`soak-*/check1.json`).
 
+### 5.7 Steady-state windows on the soak, binary 8 (`w2-*`, 16:14–16:17) — and an upstream stall
+
+| | Binance | Bybit |
+|---|---|---|
+| lag book p50 / p99 / max, ms | 123 / **2 476 / 23 044** | 107 / 118 / 151 |
+| lag trade p50 / p99 / max, ms | 126 / 326 / 833 | 107 / 118 / 136 |
+| lag mark p50 / p99 / max, ms | 199 / 260 / 271 | 107 / 118 / 178 |
+| unit CPU mean / p95 / max, cores; CPU wait | 0.80 / 1.12 / 1.60; 0.11 | 0.62 / 0.88 / 1.12; 0.085 |
+| Recv-Q non-empty; max | 1.4 %; 41 KB | 1.7 %; 3 KB |
+| ring depth max; overflows; wait in queue p99 | 123; 0; 2.1 ms | 25; 0; 2.3 ms |
+| `lag_out` p50 / p99 | 99 / 108 ms | 99 / 106 ms |
+| records late > 2 s | **5 136 (book only)** | 0 |
+| events | 29 `timeout` (all with live data), 4 `path_switch`, 17 RTT rejects | none |
+| REST oracle (25 symbols) | 46 108 / 46 108 trades identical | — |
+
+**The Binance book lateness is upstream, not local** (**measured**, `stats-*.jsonl`, `events-*.jsonl` of the window): from second 130 of the window three of 25 book shards (`book00`, `book01`, `book14`) show lag p99 growing linearly 4.5 → 35 s while p50 stays 120–190 ms (most updates on time, the updates behind the stalled streams arrive late); their message rate dips to 1.4–2 k/10 s and then bursts to 8–9 k/10 s; **both lines of each shard stall at the same moment** (ping timeouts on both sessions) while the host side is idle: kernel Recv-Q ≤ 66 KB, ring depth ≤ 240, reader busy ≤ 20 ms, TCP `retrans` 0–1, `rtt` 310–340 ms (normal 234–300), `last_data_recv_ms` 0–208 (data flowing). Trade and mark shards were unaffected in the same minute. This is the failure class TK-531 recorded at 23:12 on 11.11 («лаг канала книги растёт при всплеске, на всех соединениях сразу»), not a collector defect; every row is still recorded (REST check above, sequence checks 0).
+Consequence for the design: two lines to the **same** host do not protect against it (Bybit's two entrances do carry different gateways). Not done: (a) activity-weighted shard layout (Python-integrate `--weights`; 3 hot shards would be spread), (b) a second Binance entrance for the book channel (legacy `/stream` vs `/public/stream`) — candidates for the next step, each needs a measurement.
+A second finding of the same window: **pong delays up to 9.4 s while data flows** (`ping_ms` max 9 403). The first rule (no pong ⇒ replace the session) replaced healthy connections; it was changed to «no pong **and** no frames for 10 s ⇒ degraded» (`timeout` events carry `data_alive`); tests `missing_pong_with_live_data_is_a_timeout_but_not_degraded`, `silence_without_pong_marks_the_session_degraded`.
+
+## 6. Cut-over plan (production) and what is needed
+
+1. **Review** of branch `g022-turbo` by Opus (coordinator). Gate on the merged tree: `bash tools/vps-check.sh <tree> all` (fmt, clippy `-D warnings`, lint budget, full tests) — last run result in §9.
+2. **Binary:** PGO build per В-32 — `tools/turbo/build-pgo.sh` (srv has `llvm-profdata`; rustc 1.93 crashes in thin-LTO with `-Cprofile-generate`, so the PGO pair is built with `LTO=off`; result and A/B in §9). The profile is tied to the source tree: rebuild after any hot-path change. Install as `/opt/alpha-turbo/alpha` (+ md5).
+3. **Units:** `tools/systemd/bnws-turbo.service`, `bbws-turbo.service` (same roots and health files as the Python units; `KillMode=mixed`, one SIGTERM). Python units stay disabled; rollback = swap them back.
+4. **Hand-over without a hole:** a restart loses a few seconds (measured: 1 279 trade ids over 299 symbols at a soak restart) and may repeat the last state. To avoid the hole start the new process first, wait ≈ 30 s, then stop the old one: both write their own `<shard>-<run>.tsv.zst` (readers drop duplicates by identity — trade `a`, book `u`/`seq`, mark `E`).
+5. **Acceptance:** 3-min window (`probe_rust.sh` / `accept_ws.py`: 0 events, 0 `*_not_increasing` except Bybit book, 0 trade-id gaps), `check_files.py`, `restcheck.py` against the exchange; hour check `accept_hour.py` (compatible).
+6. **Health page:** `tools/collector_health` reads schema 1 and 2 (3 new columns; yellow row on ring overflow). A copy runs on srv `:8089` against the soak (`/data/turbo-probe/health-soak`); production page `:8088` needs the updated `serve.py/page.html` (they are in this branch on top of g022-integrate).
+7. **Readers:** book rows of Bybit are in arrival order and carry `seq` in the `u` column; trade rows have a new trailing column `x`; Binance mark now has structured rows for all USDⓈ-M symbols. Python readers (`wscore.codec.decode`) read these files unchanged (extra column ignored). Anything that assumed «per-symbol keys strictly increase» must sort by key (`docs/collector-ws-format.md`).
+
+## 7. What is NOT verified (honest list)
+
+- **A full day on the exchange:** day rollover at 00:00 UTC and Binance's 24 h disconnect have not happened yet on a live run (the soak started 15:37 and will cross midnight UTC at 04:00 GMT+4 and 23 h at 14:37); rollover by clock and rotation are covered by unit tests (`writer_closes_ended_day_by_clock…`, `writer_rotates_days…`, replacement tests) and the live short-age run (§5.5).
+- **Order book fidelity** beyond key/identity: there is no REST history for L1; fidelity of `b` rows (bid/ask strings) is checked only by unit tests with real frames and by the parser's exact-key-set rule.
+- **Bybit trade completeness** is against REST `recent-trade` (last 1 000 per symbol) and the capture, not against a full history; Bybit has no equivalent of Binance's `aggTrades` window.
+- **TLS handshake cost / CPU at the real feed with PGO** — see §9.
+- **Disk-full behavior:** write errors are retried for 60 s per block then the block is dropped and counted (`sink_blocks_dropped`); not exercised on a real full disk.
+- **Python comparison under equal load** exists only for the 3-min windows at 13:26–13:35 (§1, §5.2); after the owner stopped the Python units no A/B is possible.
+
+## 8. Deviations from the brief
+
+- Step 3 «byte-for-byte gate» dropped by the owner (13:12); replaced by exchange-side checks (§3).
+- Architecture variants were compared at micro level only (parser ×3, hand-off, zstd level/flush); an async tokio variant was **not built** (reasons in §2; **inference**, not measured).
+- `tools/collector/` (Python) untouched; `tools/collector_health` changed (schema 2) on top of g022-integrate.
+- Branch is not based only on `bb/tk-532-…`: fast-forwarded to `g022-integrate` (3f8e1ce6) and merged with `origin/master` (74ba6fcd) at the coordinator's request.
+- Report language: this findings file is English per the owner's order; repo reference docs (`collector-ws-format.md`, `COMMANDS.md`) are Russian.
+
+## 9. State at report time
+
+- **Branch** `g022-turbo`, merged with `origin/master` 74ba6fcd; head — see the report message.
+- **Gate** `bash tools/vps-check.sh <tree> all` on the merged tree: **rc 0** — `cargo fmt --check`, clippy `-D warnings`, lint budget **832 of 836** (the branch adds 0), 1 246 tests passed (36–40 of them in `collector::tests`, incl. local-WebSocket integration tests of rotation, two lines, entrance fallback, failed return, ping/pong rules). `check-sprawl` accepted the tree.
+- **Soak** (В-147): `soak-binance`, `soak-bybit` (full pools, 2 lines, data `/data/turbo-probe/soak-*/data`, health `…/health.json`, page `http://5.231.25.224:8089/`), restarted on every build with `tools/turbo/soak.sh start <binary>`; started 15:37, current build alpha-88cb00cd (binary 8). Day rollover at 04:00 GMT+4 and the Binance 23 h rotation at ≈ 14:37 will land in this data; analyse with `check_files.py`, `restcheck.py`, `accept_ws.py`, health.
+- **PGO (В-32): blocked by the toolchain.** `-Cprofile-generate` makes rustc 1.93.1 (LLVM 21) segfault in libLLVM (`opt cgu` / `lto cgu`, same address, dmesg) — reproducible with LTO off, with value profiling off, and **on the unmodified `origin/master` tree** (so not caused by this branch). `tools/turbo/build-pgo.sh` is ready (works once the instrumented build compiles); options for the coordinator: another toolchain for the instrumented build, or accept a non-PGO release (the collector uses 0.6–0.8 core of 8 and ≥ 4× rate margin, so the gain would be CPU only).

@@ -1,0 +1,834 @@
+{
+ "exchange": "bybit",
+ "window_ms": [
+  1794479405419,
+  1794479755562
+ ],
+ "symbols": 30,
+ "total": {
+  "rest": 20278,
+  "capture": 20435,
+  "missing_in_capture": 0,
+  "extra_in_capture": 157,
+  "mismatch": 0
+ },
+ "per_symbol": {
+  "JCTUSDT": {
+   "rest": 595,
+   "capture": 604,
+   "span_ms": [
+    1794479734082,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 9,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "299fc193-8c01-5aa1-94f3-e4dd33162f40",
+     [
+      "0.0032770",
+      "100",
+      "Buy",
+      1794479734082,
+      false,
+      false
+     ]
+    ],
+    [
+     "29dd4593-e2b5-55d1-80fb-2910b42941ef",
+     [
+      "0.0032770",
+      "100",
+      "Buy",
+      1794479734082,
+      false,
+      false
+     ]
+    ],
+    [
+     "5e5b06ad-b8e6-5eed-a65e-4b9d63cf4be6",
+     [
+      "0.0032760",
+      "1700",
+      "Buy",
+      1794479734082,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "ARIAUSDT": {
+   "rest": 806,
+   "capture": 834,
+   "span_ms": [
+    1794479680255,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 28,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "068c2e60-e919-5f24-9e0a-db81a9b9aade",
+     [
+      "0.19524",
+      "536",
+      "Sell",
+      1794479680255,
+      false,
+      true
+     ]
+    ],
+    [
+     "0bc804ab-216b-56ce-8b1c-8cf6027b3e4c",
+     [
+      "0.19519",
+      "536",
+      "Sell",
+      1794479680255,
+      false,
+      true
+     ]
+    ],
+    [
+     "1884b92c-f2f6-5ffb-96be-fafdb582a0fe",
+     [
+      "0.19522",
+      "28",
+      "Sell",
+      1794479680255,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "INITUSDT": {
+   "rest": 838,
+   "capture": 858,
+   "span_ms": [
+    1794479628249,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 20,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "06a27a8e-7173-5b9a-b708-40c9114ad0d6",
+     [
+      "0.13045",
+      "105",
+      "Buy",
+      1794479628249,
+      false,
+      false
+     ]
+    ],
+    [
+     "11198a3c-8285-5be1-a524-c381da77f997",
+     [
+      "0.13044",
+      "42",
+      "Buy",
+      1794479628249,
+      false,
+      false
+     ]
+    ],
+    [
+     "113d5080-ec60-5e5d-969a-b0dea6d4f824",
+     [
+      "0.13045",
+      "2335",
+      "Buy",
+      1794479628249,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "ERAUSDT": {
+   "rest": 854,
+   "capture": 856,
+   "span_ms": [
+    1794479615552,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 2,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "1f89aa59-b39b-570a-ab2a-41283cf41947",
+     [
+      "0.09591",
+      "220",
+      "Buy",
+      1794479615552,
+      false,
+      false
+     ]
+    ],
+    [
+     "33a2d4f4-bed8-5643-9e3e-0da9f914c436",
+     [
+      "0.09592",
+      "658",
+      "Buy",
+      1794479615552,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "MAGMAUSDT": {
+   "rest": 584,
+   "capture": 595,
+   "span_ms": [
+    1794479635721,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 11,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "09c334a1-6a51-5f18-8e42-d1d4ba7935d5",
+     [
+      "0.29430",
+      "204",
+      "Buy",
+      1794479635721,
+      false,
+      false
+     ]
+    ],
+    [
+     "0ab4db7e-4bbc-55e4-94b1-6bd84ff102fa",
+     [
+      "0.29440",
+      "430",
+      "Buy",
+      1794479635721,
+      false,
+      false
+     ]
+    ],
+    [
+     "1221b78e-1669-5fba-bd28-49f7b4b155a5",
+     [
+      "0.29440",
+      "266",
+      "Buy",
+      1794479635721,
+      false,
+      true
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "AKEUSDT": {
+   "rest": 860,
+   "capture": 864,
+   "span_ms": [
+    1794479595849,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 4,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "1c348894-9915-5479-b2c5-fffe00b512ef",
+     [
+      "0.0026240",
+      "3900",
+      "Sell",
+      1794479595849,
+      false,
+      false
+     ]
+    ],
+    [
+     "4e2e1cbe-3df5-5001-96c2-0e18de64c9ab",
+     [
+      "0.0026240",
+      "8800",
+      "Sell",
+      1794479595849,
+      false,
+      false
+     ]
+    ],
+    [
+     "d763b6b9-1731-5a80-be35-b3be4429f855",
+     [
+      "0.0026240",
+      "11500",
+      "Sell",
+      1794479595849,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "KGENUSDT": {
+   "rest": 788,
+   "capture": 792,
+   "span_ms": [
+    1794479544424,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 4,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "975d207b-6ae9-52f5-9f1b-3ddda8d9c5e5",
+     [
+      "0.07830",
+      "233",
+      "Sell",
+      1794479544424,
+      false,
+      false
+     ]
+    ],
+    [
+     "976807d3-00dd-57d7-b269-1ae9289f4a7e",
+     [
+      "0.07830",
+      "1",
+      "Sell",
+      1794479544424,
+      false,
+      false
+     ]
+    ],
+    [
+     "9c900bee-e26b-52ee-acbd-97a9eb053e2f",
+     [
+      "0.07830",
+      "355",
+      "Sell",
+      1794479544424,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "MXLUSDT": {
+   "rest": 778,
+   "capture": 778,
+   "span_ms": [
+    1794479687963,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "GRAMUSDT": {
+   "rest": 959,
+   "capture": 980,
+   "span_ms": [
+    1794479581706,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 21,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "03dec581-f8ab-5569-9614-511eb7e96fdb",
+     [
+      "1.2480",
+      "6.1",
+      "Sell",
+      1794479581706,
+      false,
+      false
+     ]
+    ],
+    [
+     "0cf7e1d8-fdb4-5dca-9eb4-1202250278d0",
+     [
+      "1.2480",
+      "6.1",
+      "Sell",
+      1794479581706,
+      false,
+      false
+     ]
+    ],
+    [
+     "231e4785-4468-5751-af90-686a86dad69e",
+     [
+      "1.2480",
+      "0.3",
+      "Sell",
+      1794479581706,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "GRALUSDT": {
+   "rest": 989,
+   "capture": 989,
+   "span_ms": [
+    1794479414650,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AAVEUSDT": {
+   "rest": 921,
+   "capture": 954,
+   "span_ms": [
+    1794479586440,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 33,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "04f4611c-8809-537e-9b20-9dcfa050daee",
+     [
+      "115.95",
+      "1.99",
+      "Sell",
+      1794479586440,
+      false,
+      false
+     ]
+    ],
+    [
+     "0ff32779-20d8-5d8c-8607-f67582762717",
+     [
+      "115.96",
+      "0.15",
+      "Sell",
+      1794479586440,
+      false,
+      false
+     ]
+    ],
+    [
+     "115a0dc9-71b3-5db2-9c13-773e5e938894",
+     [
+      "115.93",
+      "7.07",
+      "Sell",
+      1794479586440,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "ENAUSDT": {
+   "rest": 917,
+   "capture": 920,
+   "span_ms": [
+    1794479558979,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 3,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "64c0b314-fbbc-5975-abb4-ccaa456f328b",
+     [
+      "0.14195",
+      "54",
+      "Sell",
+      1794479558979,
+      false,
+      false
+     ]
+    ],
+    [
+     "6fabea09-4d01-56c9-be7e-95ab2f40a496",
+     [
+      "0.14195",
+      "54",
+      "Sell",
+      1794479558979,
+      false,
+      false
+     ]
+    ],
+    [
+     "9104a75e-1635-5333-b0de-b577c7d1ae34",
+     [
+      "0.14195",
+      "27",
+      "Sell",
+      1794479558979,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "AVAXUSDT": {
+   "rest": 903,
+   "capture": 920,
+   "span_ms": [
+    1794479474868,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 17,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "0b6b31ec-02dc-585a-93b5-b8f6113ceab5",
+     [
+      "8.574",
+      "0.7",
+      "Sell",
+      1794479474868,
+      false,
+      false
+     ]
+    ],
+    [
+     "142f8ee7-9b0a-5d37-b306-41ba3bc50e2d",
+     [
+      "8.574",
+      "0.3",
+      "Sell",
+      1794479474868,
+      false,
+      false
+     ]
+    ],
+    [
+     "1c71cf46-be58-5e58-9bf3-921a89d13ddf",
+     [
+      "8.574",
+      "36.3",
+      "Sell",
+      1794479474868,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "SXTUSDT": {
+   "rest": 890,
+   "capture": 895,
+   "span_ms": [
+    1794479539476,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 5,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [
+    [
+     "3baa06b0-ba53-5ecc-8aeb-cdacc4ec136c",
+     [
+      "0.009951",
+      "3399",
+      "Sell",
+      1794479539476,
+      false,
+      false
+     ]
+    ],
+    [
+     "674a9146-57c1-591b-8763-9b4e9eb32bb3",
+     [
+      "0.009953",
+      "189",
+      "Sell",
+      1794479539476,
+      false,
+      false
+     ]
+    ],
+    [
+     "7856fb67-dfe7-5e40-a542-591bc8fa935c",
+     [
+      "0.009951",
+      "3399",
+      "Sell",
+      1794479539476,
+      false,
+      false
+     ]
+    ]
+   ],
+   "mismatch_examples": []
+  },
+  "XMRUSDT": {
+   "rest": 730,
+   "capture": 730,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AXPUSDT": {
+   "rest": 677,
+   "capture": 677,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "INJUSDT": {
+   "rest": 718,
+   "capture": 718,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "1000PEPEUSDT": {
+   "rest": 772,
+   "capture": 772,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "AMDSTOCKUSDT": {
+   "rest": 625,
+   "capture": 625,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "APEUSDT": {
+   "rest": 334,
+   "capture": 334,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "LITUSDT": {
+   "rest": 573,
+   "capture": 573,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "HUMAUSDT": {
+   "rest": 519,
+   "capture": 519,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "HUSDT": {
+   "rest": 488,
+   "capture": 488,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "USELESSUSDT": {
+   "rest": 502,
+   "capture": 502,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "MUUSDT": {
+   "rest": 519,
+   "capture": 519,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "DOGEUSDT": {
+   "rest": 469,
+   "capture": 469,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ZROUSDT": {
+   "rest": 373,
+   "capture": 373,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "DGAIUSDT": {
+   "rest": 422,
+   "capture": 422,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ICNTUSDT": {
+   "rest": 461,
+   "capture": 461,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  },
+  "ARBUSDT": {
+   "rest": 414,
+   "capture": 414,
+   "span_ms": [
+    1794479405419,
+    1794479755562
+   ],
+   "missing_in_capture": 0,
+   "extra_in_capture": 0,
+   "mismatch": 0,
+   "missing_examples": [],
+   "extra_examples": [],
+   "mismatch_examples": []
+  }
+ }
+}

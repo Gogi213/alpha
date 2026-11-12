@@ -1,0 +1,65 @@
+{
+ "window_s": 60.0,
+ "kinds": {
+  "b": {
+   "symbols": 415,
+   "deliveries": 606625,
+   "identities": 429829,
+   "written_old_policy": 260967,
+   "identities_lost_old_policy": 169046,
+   "written_new_policy": 429829,
+   "identities_lost_new_policy": 0,
+   "duplicate_writes_new_policy": 0,
+   "on_both_lines": 170800,
+   "on_one_line_only": 259029,
+   "senders_max": 3,
+   "skew_ms": {
+    "n": 170800,
+    "p50": 15.832704,
+    "p99": 7960.832662,
+    "p999": 11394.017439,
+    "max": 13287.070759
+   }
+  },
+  "m": {
+   "symbols": 415,
+   "deliveries": 93226,
+   "identities": 46251,
+   "written_old_policy": 46251,
+   "identities_lost_old_policy": 0,
+   "written_new_policy": 46251,
+   "identities_lost_new_policy": 0,
+   "duplicate_writes_new_policy": 0,
+   "on_both_lines": 46228,
+   "senders_max": 3,
+   "on_one_line_only": 23,
+   "skew_ms": {
+    "n": 46228,
+    "p50": 11.331524,
+    "p99": 5555.764065,
+    "p999": 9043.395192,
+    "max": 9610.389197
+   }
+  },
+  "t": {
+   "symbols": 400,
+   "deliveries": 163254,
+   "identities": 81656,
+   "written_old_policy": 81741,
+   "identities_lost_old_policy": 9,
+   "written_new_policy": 81656,
+   "identities_lost_new_policy": 0,
+   "duplicate_writes_new_policy": 0,
+   "on_both_lines": 81598,
+   "senders_max": 2,
+   "on_one_line_only": 58,
+   "skew_ms": {
+    "n": 81598,
+    "p50": 104.700808,
+    "p99": 2268.638425,
+    "p999": 2976.470185,
+    "max": 3369.23089
+   }
+  }
+ }
+}

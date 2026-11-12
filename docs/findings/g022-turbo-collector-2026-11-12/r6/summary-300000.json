@@ -1,0 +1,197 @@
+{
+ "rate_target": 300000,
+ "rows": 5623615,
+ "symbols": 64,
+ "span_s": 41.0,
+ "rows_per_s": 137319,
+ "u_gaps": 0,
+ "u_dups_or_reorder": 0,
+ "lag_ms": {
+  "p50": 2,
+  "p99": 544,
+  "p999": 602,
+  "max": 609
+ },
+ "max_pause_ms": 16539,
+ "stats": {
+  "windows": 6,
+  "msgs_per_s_mean": 224833,
+  "cpu_frac_max": 1.904,
+  "lag_p99_ms_max": 532.5,
+  "ring_depth_max": 32770,
+  "ring_full": 30085,
+  "recvq_max": 4615452,
+  "busy_max_us": 11879,
+  "queue_lag_p99_ms_max": 274.4,
+  "max_gap_ms": 4123
+ },
+ "winmon": {
+  "started": 1794483333.6571965,
+  "seconds": 30,
+  "units": {
+   "col-r6-300000.service": {
+    "cpu_cores_mean": 1.509,
+    "cpu_cores_p95": 2.02,
+    "cpu_cores_max": 2.112,
+    "cpu_wait_some_frac_mean": 0.0037,
+    "cpu_wait_some_frac_max": 0.0088,
+    "recvq_max_bytes": 0,
+    "recvq_samples": 0,
+    "recvq_nonzero_samples": 0,
+    "recvq_nonzero_pct": null,
+    "recvq_mean_bytes": null,
+    "conns_max": 0
+   },
+   "synth-r6-300000.service": {
+    "cpu_cores_mean": 0.754,
+    "cpu_cores_p95": 0.957,
+    "cpu_cores_max": 0.959,
+    "cpu_wait_some_frac_mean": 0.0048,
+    "cpu_wait_some_frac_max": 0.0116,
+    "recvq_max_bytes": 0,
+    "recvq_samples": 0,
+    "recvq_nonzero_samples": 0,
+    "recvq_nonzero_pct": null,
+    "recvq_mean_bytes": null,
+    "conns_max": 0
+   }
+  }
+ },
+ "health": {
+  "backpressure": {
+   "queue_lag_ms": {
+    "p50": 3.9,
+    "p99": 137.2,
+    "window_s": 60
+   },
+   "reader": {
+    "busy_max_us": 10891,
+    "handoff_max_us": 10891
+   },
+   "recv_q": {
+    "behind_pct": 97.766,
+    "max_bytes": 4610647,
+    "samples": 186862
+   },
+   "ring": {
+    "blocked_ms_total": 1596,
+    "cap": 32768,
+    "depth_max": 32769,
+    "full_events_total": 37393,
+    "full_events_window": 1
+   },
+   "sink": {
+    "cap": 64,
+    "depth_max": 1,
+    "write_max_ms": 9.1
+   },
+   "window_s": 10
+  },
+  "exchange": "binance",
+  "fresh": {
+   "kinds": {
+    "book": {
+     "late_1h": 0,
+     "late_24h": 0,
+     "max_1h_ms": 609,
+     "max_24h_ms": 609
+    }
+   },
+   "late_ms": 2000
+  },
+  "lag_in_by_kind_ms": {
+   "book": {
+    "p50": 3.5,
+    "p99": 532.5,
+    "window_s": 60
+   },
+   "mark": {
+    "p50": null,
+    "p99": null,
+    "window_s": 60
+   },
+   "trade": {
+    "p50": null,
+    "p99": null,
+    "window_s": 60
+   }
+  },
+  "lag_in_ms": {
+   "p50": 3.5,
+   "p99": 532.5,
+   "window_s": 60
+  },
+  "lag_out_ms": {
+   "p50": 23.8,
+   "p99": 438.3,
+   "window_s": 60
+  },
+  "last_frame_ms": 1794483368717,
+  "last_write_ms": 1794483368086,
+  "process": {
+   "cpu_by_class": {
+    "alpha": 0.0,
+    "ln": 0.0,
+    "sh": 0.0,
+    "signals": 0.0,
+    "sk": 0.0,
+    "wr": 0.0
+   },
+   "cpu_cores": 0.0,
+   "hot_thread": {
+    "cores": 0.0,
+    "name": "sk-book00"
+   },
+   "rss_mb": 299.477,
+   "sched_wait_cores": 0.0,
+   "threads": 6,
+   "version": "unknown"
+  },
+  "schema": 2,
+  "shards": [
+   {
+    "busy_max_us": 10891,
+    "connected": 0,
+    "lag_in_p99_ms": 532.5,
+    "msgs_10s": 2989795,
+    "recvq_max": 4610647,
+    "ring_depth_max": 32769,
+    "shard": "book00"
+   }
+  ],
+  "started_ms": 1794483308589,
+  "symbols": {
+   "subscribed": 64,
+   "with_data_1m": 64
+  },
+  "totals": {
+   "dups": 5949426,
+   "files_closed": 0,
+   "raw": 4,
+   "raw_copies": 0,
+   "records": 7540562,
+   "rows": 7540586,
+   "rx_clamped": 0,
+   "sink_blocks_dropped": 0,
+   "sink_errors": 0
+  },
+  "ts_ms": 1794483368727,
+  "ws": {
+   "connections": 0,
+   "entrance_switches_1h": 0,
+   "entrance_switches_24h": 0,
+   "gaps_1h": 1,
+   "gaps_24h": 1,
+   "path_switches_1h": 0,
+   "path_switches_24h": 0,
+   "ping_ms": {
+    "max": 181.2,
+    "p50": 46.4
+   },
+   "reconnects_1h": 3,
+   "reconnects_24h": 3,
+   "timeouts_1h": 0,
+   "timeouts_24h": 0
+  }
+ }
+}
