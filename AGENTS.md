@@ -7,6 +7,8 @@ Rust + Python. Исследование и инфраструктура данн
 (`.claude/skills/poteto-mode/SKILL.md`, модели — `.claude/skills/poteto-mode/references/models.md`).
 Постоянные приказы владельца — `.claude/preferences.md` (обязательны для всех тредов).
 
+**Child threads (исп / пров / чит): English only, no chatter.** Everything you write — progress lines, messages, commit-free notes, the final report — is in English. Quote the owner's words verbatim in Russian. Do not narrate: no "now I will…", no restating the brief, no summaries between steps. Write a one-line progress note only when the state changes (step done, blocker found). Final report: status, branch + SHA, results with numbers, deviations — nothing else. Repo docs (`docs/**`) stay in Russian.
+
 ## Сейчас (12.11.2026)
 
 - **Цель G-022 — свои датасеты коллекторами по вебсокету:** Binance → Bybit → OKX → Bitget → Huobi → BingX, по одной;
