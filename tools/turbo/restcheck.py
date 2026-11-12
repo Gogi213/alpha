@@ -28,7 +28,7 @@ from wscore import codec  # noqa: E402
 def get(url, retries=3):
     for i in range(retries):
         try:
-            with urllib.request.urlopen(url, timeout=20) as r:
+            with urllib.request.urlopen(urllib.parse.quote(url, safe=":/?&=%"), timeout=20) as r:  # symbols with non-ASCII names exist (Binance)
                 return json.load(r)
         except Exception as e:  # noqa: BLE001
             if i == retries - 1:
