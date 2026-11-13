@@ -1,14 +1,13 @@
-//! Очередь от потоков приёма к писателю шарда: ограниченная, с глубиной и сигналом переполнения.
+//! Очередь от потоков приёма к писателю шарда: ограниченная, пачками, с глубиной и сигналом переполнения.
 //!
-//! Потоки приёма кладут кадры и служебные записи; писатель шарда — единственный потребитель. Данные не теряются:
-//! при полной очереди приём ждёт места (это обратное давление), и каждое ожидание считается (`Depth.full`, `blocked_ns`).
+//! Потоки приёма кладут кадры и служебные записи под коротким замком (две-три линии на шард — столкновения редки); писатель забирает
+//! накопленное целиком раз в такт (`take`), никто никого не будит на каждый кадр (замер collector-perf 13.11: передача кадра
+//! через `sync_channel` стоила ≈ 1,07 `futex` и ≈ 0,6 переключения контекста на кадр). Данные не теряются: при полной очереди приём
+//! ждёт места (обратное давление), и каждое ожидание считается (`Depth.full`, `blocked_ns`).
 //! Размер очереди — секунды запаса при пиковой нагрузке; по `ring_depth_max` в health видно, что запас не тронут.
 
-use std::sync::atomic::Ordering::Relaxed;
-use std::sync::mpsc::{
-    sync_channel, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
-};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -40,72 +39,115 @@ pub struct Item {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Closed;
 
-#[derive(Clone)]
+struct Inner {
+    q: Mutex<Vec<Item>>,
+    space: Condvar,
+    /// Писатель ушёл (`RingRx` снят).
+    closed: AtomicBool,
+    /// Живых `RingTx`: ноль и пустая очередь — писателю больше ждать нечего.
+    senders: AtomicUsize,
+}
+
 pub struct RingTx {
-    tx: SyncSender<Item>,
+    inner: Arc<Inner>,
     depth: Arc<Depth>,
 }
 
 pub struct RingRx {
-    rx: Receiver<Item>,
+    inner: Arc<Inner>,
     depth: Arc<Depth>,
 }
 
 pub fn ring(depth: &Arc<Depth>) -> (RingTx, RingRx) {
-    let (tx, rx) = sync_channel(depth.cap);
+    let inner = Arc::new(Inner {
+        q: Mutex::new(Vec::with_capacity(1024)),
+        space: Condvar::new(),
+        closed: AtomicBool::new(false),
+        senders: AtomicUsize::new(1),
+    });
     (
         RingTx {
-            tx,
+            inner: Arc::clone(&inner),
             depth: Arc::clone(depth),
         },
         RingRx {
-            rx,
+            inner,
             depth: Arc::clone(depth),
         },
     )
 }
 
-impl RingTx {
-    /// Положить; при полной очереди — ждать места (и посчитать). `Err` — писатель ушёл.
-    pub fn push(&self, item: Item) -> Result<(), Closed> {
-        self.depth.inc();
-        match self.tx.try_send(item) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(item)) => {
-                self.depth.full.fetch_add(1, Relaxed);
-                let t0 = Instant::now();
-                let r = self.tx.send(item);
-                self.depth.blocked_ns.fetch_add(
-                    u64::try_from(t0.elapsed().as_nanos()).unwrap_or(u64::MAX),
-                    Relaxed,
-                );
-                if r.is_err() {
-                    self.depth.dec();
-                }
-                r.map_err(|_| Closed)
-            }
-            Err(TrySendError::Disconnected(_)) => {
-                self.depth.dec();
-                Err(Closed)
-            }
+impl Clone for RingTx {
+    fn clone(&self) -> Self {
+        self.inner.senders.fetch_add(1, Relaxed);
+        Self {
+            inner: Arc::clone(&self.inner),
+            depth: Arc::clone(&self.depth),
         }
     }
 }
 
-impl RingRx {
-    pub fn recv_timeout(&self, d: Duration) -> Result<Item, RecvTimeoutError> {
-        let r = self.rx.recv_timeout(d);
-        if r.is_ok() {
-            self.depth.dec();
-        }
-        r
+impl Drop for RingTx {
+    fn drop(&mut self) {
+        self.inner.senders.fetch_sub(1, Relaxed);
     }
+}
 
-    pub fn try_recv(&self) -> Result<Item, TryRecvError> {
-        let r = self.rx.try_recv();
-        if r.is_ok() {
-            self.depth.dec();
+impl Drop for RingRx {
+    fn drop(&mut self) {
+        self.inner.closed.store(true, Relaxed);
+        self.inner.space.notify_all();
+    }
+}
+
+fn lock(m: &Mutex<Vec<Item>>) -> MutexGuard<'_, Vec<Item>> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl RingTx {
+    /// Положить; при полной очереди — ждать места (и посчитать). `Err` — писатель ушёл.
+    pub fn push(&self, item: Item) -> Result<(), Closed> {
+        let mut q = lock(&self.inner.q);
+        if q.len() >= self.depth.cap {
+            self.depth.full.fetch_add(1, Relaxed);
+            let t0 = Instant::now();
+            while q.len() >= self.depth.cap {
+                if self.inner.closed.load(Relaxed) {
+                    return Err(Closed);
+                }
+                q = self
+                    .inner
+                    .space
+                    .wait_timeout(q, Duration::from_millis(100))
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .0;
+            }
+            self.depth.blocked_ns.fetch_add(
+                u64::try_from(t0.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                Relaxed,
+            );
         }
-        r
+        if self.inner.closed.load(Relaxed) {
+            return Err(Closed);
+        }
+        q.push(item);
+        drop(q);
+        self.depth.inc();
+        Ok(())
+    }
+}
+
+impl RingRx {
+    /// Забрать накопленное целиком в `out` (он должен быть пуст; его ёмкость переиспользуется). `false` — все отправители ушли и очередь пуста.
+    pub fn take(&self, out: &mut Vec<Item>) -> bool {
+        let mut q = lock(&self.inner.q);
+        if q.is_empty() {
+            return self.inner.senders.load(Relaxed) > 0;
+        }
+        std::mem::swap(&mut *q, out);
+        drop(q);
+        self.depth.dec_n(out.len());
+        self.inner.space.notify_all();
+        true
     }
 }

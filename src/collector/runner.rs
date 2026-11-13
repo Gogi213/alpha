@@ -23,8 +23,10 @@ use super::health::{build, write_atomic, HealthCtx, ProcSampler};
 use super::metrics::STATS_PERIOD_S;
 use super::net;
 use super::okx::Okx;
+use super::reactor::{spawn_reactor, ReactorCfg};
 use super::series::SeriesWriter;
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
+use super::worker::spawn_worker;
 use super::writer::day_string;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -115,6 +117,18 @@ pub struct RunArgs {
     /// Разрешить IPv6 во входах (по умолчанию IPv6 не используется нигде: ни основным, ни запасным входом; 13.11, таймауты на IPv6-путях).
     #[arg(long)]
     pub allow_ipv6: bool,
+    /// Период пробуждений рабочего процесса, мкс: кадры не будят писателей, рабочий раз в такт забирает очереди всех шардов (collector-perf: 1 мс).
+    #[arg(long, default_value_t = 1000)]
+    pub worker_tick_us: u64,
+    /// Реактор приёма: один поток читает все соединения процесса (epoll), вместо потока на соединение (collector-perf).
+    #[arg(long)]
+    pub reactor: bool,
+    /// Окно пакетирования реактора, мкс: реактор просыпается не чаще раза за окно.
+    #[arg(long, default_value_t = 1000)]
+    pub reactor_window_us: u64,
+    /// Метка `rx` в файле: `user` — после пробуждения потока (как раньше), `kernel` — ядерная метка приёма (нужен `--reactor`).
+    #[arg(long, default_value = "user")]
+    pub rx_stamp: String,
     /// Открытый `ws://host:port` вместо биржи (синтетический источник `collect synth`): хост и порт для всех входов.
     #[arg(long)]
     pub plain_ws: Option<String>,
@@ -238,6 +252,20 @@ fn load_pool_file(path: &std::path::Path) -> Result<(Vec<String>, serde_json::Va
     Ok((pool, serde_json::Value::Object(extra)))
 }
 
+/// health.json процесса: раздел шардов + (если есть реактор) раздел `reactor`.
+fn health_json(
+    metrics: &[Arc<super::metrics::ShardMetrics>],
+    ctx: &HealthCtx,
+    sampler: &mut ProcSampler,
+    reactor: Option<&(super::reactor::ReactorHandle, std::thread::JoinHandle<()>)>,
+) -> serde_json::Value {
+    let mut v = build(metrics, ctx, now_ms(), sampler);
+    if let (Some((r, _)), Some(o)) = (reactor, v.as_object_mut()) {
+        o.insert("reactor".to_string(), r.stats.json());
+    }
+    v
+}
+
 pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     net::set_allow_ipv6(args.allow_ipv6);
     let exch = exchange_of(args.exchange);
@@ -315,6 +343,21 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     };
     let budget = Arc::new(Budget::new(limit, window));
     budget.set_reserve(args.reject_reserve);
+    let tick = Duration::from_micros(args.worker_tick_us.clamp(100, 100_000));
+    let (worker, worker_join) = spawn_worker(tick);
+    opts.worker = Some(worker.clone());
+    opts.worker_tick = tick;
+    let kernel_stamp = args.reactor && args.rx_stamp == "kernel";
+    opts.kernel_stamp = kernel_stamp;
+    let reactor = if args.reactor {
+        spawn_reactor(ReactorCfg {
+            window: Duration::from_micros(args.reactor_window_us.min(100_000)),
+            kernel_stamp,
+        })
+    } else {
+        None
+    };
+    opts.reactor = reactor.as_ref().map(|(h, _)| h.clone());
     let mut handles: Vec<ShardHandle> = Vec::new();
     for plan in &plans {
         if let Some(h) = spawn_shard(&exch, plan, &lines, &opts, &budget, &stop) {
@@ -363,16 +406,28 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         }
         if Instant::now() >= next {
             next += Duration::from_secs(STATS_PERIOD_S);
-            let _ = write_atomic(&health_path, &build(&metrics, &ctx, now_ms(), &mut sampler));
+            let _ = write_atomic(
+                &health_path,
+                &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref()),
+            );
             series.flush(&metrics, now_ms());
         }
     }
     println!("stopping");
-    let _ = write_atomic(&health_path, &build(&metrics, &ctx, now_ms(), &mut sampler));
+    let _ = write_atomic(
+        &health_path,
+        &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref()),
+    );
     series.flush(&metrics, now_ms());
     for h in handles {
         h.join();
     }
+    if let Some((r, j)) = reactor {
+        r.quit();
+        let _ = j.join();
+    }
+    worker.quit();
+    let _ = worker_join.join();
     println!("stopped");
     Ok(())
 }

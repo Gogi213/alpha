@@ -1,0 +1,4 @@
+handshake: HTTP/1.1 101 Switching Protocols
+busy_poll=0us streams=32 wall 170.0s recv calls 192208 (1131/s) bytes 1082 kB/s; kernel-stamp deltas n=192208
+user - kernel rx stamp, us: p50 122.8 p90 293.7 p99 989.9 p99.9 5745.3 max 306997.1
+thread CPU 43.63 s over 170.0 s = 25.7 %  (user 27.54 sys 16.09) ; vol ctx sw 142359 invol 18292

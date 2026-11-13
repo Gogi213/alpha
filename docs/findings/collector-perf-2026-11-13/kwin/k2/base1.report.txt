@@ -1,0 +1,14 @@
+=== base1 window 180 s
+collectors (cgroup cpu.stat): 4.69 cores = user 2.11 + sys 2.59; frames 49,482/s
+machine (cores of 8): user 2.01, nice 0.00, system 1.74, idle 2.50, iowait 0.00, irq 0.00, softirq 1.09, steal 0.67
+machine softirq+irq 1.09 cores; busy (user+nice+sys+irq+softirq, no steal) 4.84; steal 0.67; PSI cpu some 41.9 %
+BASIS collectors + machine softirq+irq = 5.78 cores (≈0.32 softirq counted twice, constant); 116.9 core-us/frame
+net: rx 32,225 pkt/s, tx 19,595 pkt/s (tx/rx 0.61); rx IRQ 22,085/s; NET_RX softirq 37,403/s => 0.86 pkt per NAPI run; ctx switches 76,388/s
+tcp: DelayedACKs 22.8/s, TCPRcvCoalesce 7619/s, RetransSegs 0.2/s, TCPTimeouts 0.27/s, TCPRcvQDrop 0.00/s, TCPBacklogDrop 0.00/s, TCPOFODrop 0.00/s
+  binance  lag_in p50/p99 117.8/219.1 ms; queue_lag p50/p99 0.1/17.2 ms; lag_out p50/p99 80.9/137.2 ms; recvq behind 17.946 %, max 39446 B; ring full 0; cpu 1.573, sched_wait 6.783
+  bybit    lag_in p50/p99 115.7/141.3 ms; queue_lag p50/p99 0.1/7.9 ms; lag_out p50/p99 91.1/119.8 ms; recvq behind 11.964 %, max 21365 B; ring full 0; cpu 1.284, sched_wait 4.139
+  okx      lag_in p50/p99 128.0/149.5 ms; queue_lag p50/p99 0.1/7.5 ms; lag_out p50/p99 72.7/113.7 ms; recvq behind 8.423 %, max 42070 B; ring full 0; cpu 1.013, sched_wait 3.267
+  bingx    lag_in p50/p99 85.0/348.2 ms; queue_lag p50/p99 0.2/7.5 ms; lag_out p50/p99 80.9/113.7 ms; recvq behind 23.068 %, max 18317 B; ring full 0; cpu 1.146, sched_wait 3.339
+busy_poll=0us streams=32 wall 170.0s connections 1 recv calls 226640 (1333/s) bytes 1323 kB/s; kernel-stamp deltas n=226640
+user - kernel rx stamp, us: p50 112.1 p90 259.9 p99 693.2 p99.9 2372.2 max 27210.0
+thread CPU 49.65 s over 170.0 s = 29.2 %  (user 29.48 sys 20.17); vol ctx sw 155692 invol 27023

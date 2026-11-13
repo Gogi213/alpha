@@ -1,0 +1,10 @@
+[package]
+name = "uring_ts_probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+io-uring = "0.7"
+libc = "0.2"
+
+[workspace]

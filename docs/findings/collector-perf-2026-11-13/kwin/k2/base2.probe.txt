@@ -1,0 +1,3 @@
+busy_poll=0us streams=32 wall 170.0s connections 3 recv calls 200241 (1178/s) bytes 1076 kB/s; kernel-stamp deltas n=200241
+user - kernel rx stamp, us: p50 112.0 p90 252.6 p99 681.2 p99.9 2590.3 max 51512.5
+thread CPU 43.50 s over 170.0 s = 25.6 %  (user 27.17 sys 16.33); vol ctx sw 147522 invol 20382

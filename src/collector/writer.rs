@@ -9,7 +9,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -29,7 +28,8 @@ pub const SEEN_MS: i64 = 120_000;
 const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
 /// Закрыть файл ушедших суток по часам не раньше, чем через столько после полуночи (запись из очереди не может быть старше).
 const ROTATE_GRACE_NS: i64 = 5_000_000_000;
-const IDLE_TICK: Duration = Duration::from_millis(100);
+/// Такт писателя в одиночном запуске (`run`); у процесса такт задаёт `worker`.
+const TICK: Duration = Duration::from_millis(1);
 const BATCH: usize = 256;
 const LAG_SAMPLE_EVERY: u32 = 16;
 
@@ -169,6 +169,8 @@ struct Core {
     seen: Seen,
     /// Сообщения диску, ещё не отправленные: уходят после пачки, вне блокировки метрик.
     out: Vec<SinkMsg>,
+    /// Пачка сортируется по приёму (ядерные метки реактора): дубль двух линий несёт минимум метки, а не метку обработанного первым.
+    sort_batch: bool,
 }
 
 impl Core {
@@ -358,6 +360,7 @@ impl ShardWriter {
             raw: RawSeen::default(),
             seen: Seen::default(),
             out: Vec::new(),
+            sort_batch: false,
         };
         Self {
             core,
@@ -449,47 +452,64 @@ impl ShardWriter {
         }
     }
 
-    /// Поток писателя: до `Shutdown` или закрытия очереди; в конце файл закрыт, поток диска остановлен.
-    pub fn run(mut self) {
+    /// Сортировать пачку такта по `rx` (стабильно): при ядерных метках запись из двух линий в одной пачке берётся с меньшей меткой.
+    pub fn set_sort_batch(&mut self, on: bool) {
+        self.core.sort_batch = on;
+    }
+
+    /// Один такт писателя: пачка из очереди → записи; блок по сроку; закрытие суток по часам; блоки — диску. `scratch` — пустой буфер для пачки
+    /// (его ёмкость переиспользуется). `true` — писатель закончил (`Shutdown` или все отправители ушли): файл закрыт, поток диска остановлен.
+    pub fn step(&mut self, scratch: &mut Vec<Item>) -> bool {
+        let alive = self.ring.take(scratch);
         let metrics = Arc::clone(&self.metrics);
         let flush = self.core.cfg.flush;
-        let mut done = false;
-        while !done {
-            let wait = self
-                .core
-                .until_flush(flush)
-                .map_or(IDLE_TICK, |d| d.min(IDLE_TICK));
-            let first = match self.ring.recv_timeout(wait) {
-                Ok(it) => Some(it),
-                Err(RecvTimeoutError::Timeout) => None,
-                Err(RecvTimeoutError::Disconnected) => {
-                    done = true;
-                    None
-                }
-            };
-            let now_ns = (self.core.cfg.clock)();
-            {
-                let mut st = metrics.writer();
-                if let Some(it) = first {
-                    done = self.handle(it, &mut st, now_ns);
-                    let mut n = 1;
-                    while !done && n < BATCH {
-                        let Ok(it) = self.ring.try_recv() else { break };
-                        done = self.handle(it, &mut st, now_ns);
-                        n += 1;
-                    }
-                }
-                if self.core.until_flush(flush).is_some_and(|d| d.is_zero()) {
-                    self.core.cut_block();
-                }
-                self.rotate_by_clock(now_ns);
-            }
-            self.send_out();
+        let now_ns = (self.core.cfg.clock)();
+        let mut done = !alive;
+        if self.core.sort_batch {
+            // `Shutdown` — всегда последним (его метка не имеет значения)
+            scratch.sort_by_key(|i| match i.payload {
+                Payload::Shutdown => i64::MAX,
+                _ => i.rx_ns,
+            });
         }
-        self.core.cut_block();
-        self.core.close_day();
-        self.core.out.push(SinkMsg::Quit);
+        while !scratch.is_empty() {
+            let n = scratch.len().min(BATCH);
+            let mut st = metrics.writer();
+            for it in scratch.drain(..n) {
+                if !done {
+                    done = self.handle(it, &mut st, now_ns);
+                }
+            }
+        }
+        {
+            let _st = metrics.writer();
+            if self.core.until_flush(flush).is_some_and(|d| d.is_zero()) {
+                self.core.cut_block();
+            }
+            self.rotate_by_clock(now_ns);
+        }
+        if done {
+            self.core.cut_block();
+            self.core.close_day();
+            self.core.out.push(SinkMsg::Quit);
+        }
         self.send_out();
+        done
+    }
+
+    /// Когда писателю нужно проснуться по сроку блока (не позже такта).
+    pub fn next_wake(&self) -> Duration {
+        self.core
+            .until_flush(self.core.cfg.flush)
+            .map_or(TICK, |d| d.min(TICK))
+    }
+
+    /// Поток одного писателя (проверки): такты до `Shutdown` или ухода отправителей; в конце файл закрыт, поток диска остановлен.
+    pub fn run(mut self) {
+        let mut scratch = Vec::new();
+        while !self.step(&mut scratch) {
+            std::thread::sleep(self.next_wake());
+        }
     }
 }
 

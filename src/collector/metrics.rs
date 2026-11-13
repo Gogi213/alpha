@@ -183,6 +183,12 @@ impl Depth {
         self.cur.fetch_sub(1, Relaxed);
     }
 
+    /// Забрано пачкой из `n` элементов.
+    pub fn dec_n(&self, n: usize) {
+        self.cur
+            .fetch_sub(i64::try_from(n).unwrap_or(i64::MAX), Relaxed);
+    }
+
     pub fn take_max(&self) -> i64 {
         self.max.swap(self.cur.load(Relaxed), Relaxed)
     }

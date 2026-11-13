@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use serde_json::json;
-use tungstenite::{Error as WsError, Message};
+use tungstenite::{Error as WsError, Message, WebSocket};
 
 use super::budget::Budget;
 use super::events::{now_ms, EventLog};
@@ -22,6 +22,7 @@ use super::gzip::Gunzip;
 use super::metrics::ShardMetrics;
 use super::net::{self, Conn};
 use super::path::{PathProbe, PathWatch};
+use super::reactor::ReactorHandle;
 use super::ring::{Item, Payload, RingTx};
 
 /// Абсолютный порог отбраковки пути по RTT рукопожатия, назначаемое (TK-527, замер: два маршрута, выбираются портом источника;
@@ -64,6 +65,8 @@ pub struct Shared {
     pub rtt_max_ms: f64,
     /// Шард без соединения проверяет путь, как Python: отбраковка по RTT и окно лага до приёма (по умолчанию — принимает сразу, даже медленный).
     pub cold_probe: bool,
+    /// Реактор процесса: готовые соединения читает он (один поток на все сокеты), а не поток сессии; `None` — поток на соединение.
+    pub reactor: Option<ReactorHandle>,
 }
 
 impl Shared {
@@ -125,12 +128,12 @@ fn tcp_json(s: &std::net::TcpStream) -> serde_json::Value {
 
 /// Сессия до закрытия. `probe` — путь проверяется (RTT и окно лага); `accepted` — флаг «путь принят» для шарда.
 pub fn run(
-    sh: &Shared,
+    sh: &Arc<Shared>,
     seq: u32,
     ent: &Entrance,
     probe: bool,
-    accepted: Option<&AtomicBool>,
-    cancel: &AtomicBool,
+    accepted: Option<&Arc<AtomicBool>>,
+    cancel: &Arc<AtomicBool>,
 ) -> Outcome {
     // шард без соединения берёт место в бюджете раньше второй линии и замен покрытых шардов
     let uncovered = || sh.metrics.connected.load(Relaxed) <= 0;
@@ -172,7 +175,7 @@ pub fn run(
         );
     }
     let url = sh.url(&ent.host);
-    let (mut ws, _) = match net::ws_connect(tcp, &url, &ent.host, sh.tls) {
+    let (ws, _) = match net::ws_connect(tcp, &url, &ent.host, sh.tls) {
         Ok(x) => x,
         Err(e) => return Outcome::Failed(e),
     };
@@ -195,10 +198,7 @@ pub fn run(
         }
     }
     ctl(sh, seq, "connected", format!("{seq} {url}"));
-    let out = body(sh, &mut ws, seq, probe, accepted, cancel);
-    if !matches!(out, Outcome::Failed(_)) || !sh.stop.load(Relaxed) {
-        let _ = ws.close(None);
-    }
+    let out = body(sh, ws, seq, probe, accepted, cancel);
     sh.metrics.connected.fetch_sub(1, Relaxed);
     sh.watch().close(seq);
     ctl(sh, seq, "closed", seq.to_string());
@@ -206,13 +206,14 @@ pub fn run(
 }
 
 fn body(
-    sh: &Shared,
-    ws: &mut tungstenite::WebSocket<Conn>,
+    sh: &Arc<Shared>,
+    ws: WebSocket<Conn>,
     seq: u32,
     probe: bool,
-    accepted: Option<&AtomicBool>,
-    cancel: &AtomicBool,
+    accepted: Option<&Arc<AtomicBool>>,
+    cancel: &Arc<AtomicBool>,
 ) -> Outcome {
+    let mut ws = ws;
     for msg in sh.exch.subscribe_messages(&sh.plan.streams) {
         if let Err(e) = ws.send(Message::text(msg)) {
             return Outcome::Failed(format!("подписка: {e}"));
@@ -234,61 +235,104 @@ fn body(
             a.store(true, Relaxed);
         }
     }
-    read_loop(sh, ws, seq, probe, accepted, cancel)
+    let rx = Rx::new(sh, probe, accepted.map(Arc::clone));
+    match sh.reactor.as_ref() {
+        Some(r) => r.run_conn(sh, ws, seq, rx, Arc::clone(cancel)),
+        None => {
+            let out = read_loop(sh, &mut ws, seq, rx, cancel);
+            if !matches!(out, Outcome::Failed(_)) || !sh.stop.load(Relaxed) {
+                let _ = ws.close(None);
+            }
+            out
+        }
+    }
 }
 
-#[allow(clippy::too_many_lines)]
-fn read_loop(
-    sh: &Shared,
-    ws: &mut tungstenite::WebSocket<Conn>,
-    seq: u32,
-    probe: bool,
-    accepted: Option<&AtomicBool>,
-    cancel: &AtomicBool,
-) -> Outcome {
-    let m = &sh.metrics;
-    let t_loop = Instant::now();
-    let settle_at = t_loop + Duration::from_secs_f64(GRACE_S);
-    let mut probe =
-        probe.then(|| PathProbe::with_window(t_loop, sh.probe_window.0, sh.probe_window.1));
-    let mut n: u64 = 0;
-    let mut last_ping = t_loop;
-    let mut ping_sent: Option<(Instant, [u8; 8])> = None;
-    let mut pings_on = true;
-    let mut ping_no: u64 = 0;
-    let mut last_frame = t_loop;
-    let mut gunzip = sh.exch.gzip_frames().then(Gunzip::new);
-    let mut bad_gzip: u32 = 0;
-    loop {
-        if cancel.load(Relaxed) || sh.stop.load(Relaxed) {
-            return Outcome::Closed;
+/// Состояние чтения одной сессии: общее для потока приёма (`read_loop`) и реактора. Кадры, метки, пинг/pong, окно проверки пути — те же правила.
+pub struct Rx {
+    settle_at: Instant,
+    probe: Option<PathProbe>,
+    accepted: Option<Arc<AtomicBool>>,
+    n: u64,
+    last_ping: Instant,
+    ping_sent: Option<(Instant, [u8; 8])>,
+    pings_on: bool,
+    ping_no: u64,
+    last_frame: Instant,
+    gunzip: Option<Gunzip>,
+    bad_gzip: u32,
+    /// Запись из `ws.send` не ушла целиком (неблокирующий сокет): нужен `flush`, когда сокет станет записываемым.
+    pub need_flush: bool,
+}
+
+impl Rx {
+    fn new(sh: &Shared, probe: bool, accepted: Option<Arc<AtomicBool>>) -> Self {
+        let t_loop = Instant::now();
+        Self {
+            settle_at: t_loop + Duration::from_secs_f64(GRACE_S),
+            probe: probe
+                .then(|| PathProbe::with_window(t_loop, sh.probe_window.0, sh.probe_window.1)),
+            accepted,
+            n: 0,
+            last_ping: t_loop,
+            ping_sent: None,
+            pings_on: true,
+            ping_no: 0,
+            last_frame: t_loop,
+            gunzip: sh.exch.gzip_frames().then(Gunzip::new),
+            bad_gzip: 0,
+            need_flush: false,
         }
-        let got = ws.read();
-        let rx = wall_ns();
-        let t_read = Instant::now();
-        let had_frame = matches!(got, Ok(Message::Text(_) | Message::Binary(_)));
-        if had_frame {
-            last_frame = t_read;
+    }
+
+    /// Отправка в сокет: на неблокирующем сокете «не влезло» (`WouldBlock`) — запись в очереди rustls/tungstenite, дослать `flush`.
+    fn send(&mut self, ws: &mut WebSocket<Conn>, msg: Message) -> Result<(), WsError> {
+        match ws.send(msg) {
+            Err(WsError::Io(e)) if e.kind() == ErrorKind::WouldBlock => {
+                self.need_flush = true;
+                Ok(())
+            }
+            r => r,
+        }
+    }
+
+    /// Дослать недосланное (реактор: сокет стал записываемым или очередной такт). `Err` — сбой записи.
+    pub fn flush(&mut self, ws: &mut WebSocket<Conn>) -> Result<(), String> {
+        if !self.need_flush {
+            return Ok(());
+        }
+        match ws.flush() {
+            Ok(()) => {
+                self.need_flush = false;
+                Ok(())
+            }
+            Err(WsError::Io(e)) if e.kind() == ErrorKind::WouldBlock => Ok(()),
+            Err(e) => Err(format!("запись: {e}")),
+        }
+    }
+
+    /// Одно сообщение WS после чтения: `rx` — приём (нс UTC), `t_read` — монотонные часы чтения. `Some` — сессия кончилась.
+    pub fn message(
+        &mut self,
+        sh: &Shared,
+        ws: &mut WebSocket<Conn>,
+        seq: u32,
+        got: Message,
+        rx: i64,
+        t_read: Instant,
+    ) -> Option<Outcome> {
+        let m = &sh.metrics;
+        if matches!(got, Message::Text(_) | Message::Binary(_)) {
+            self.last_frame = t_read;
         }
         match got {
-            Ok(Message::Text(t)) => {
-                let data = Bytes::from(t);
-                if let Some(out) =
-                    deliver(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut probe, data)
-                {
-                    return out;
-                }
+            Message::Text(t) => self.deliver(sh, ws, seq, rx, t_read, Bytes::from(t)),
+            Message::Binary(b) => {
+                let data = unpack(sh, seq, &mut self.gunzip, &mut self.bad_gzip, b);
+                self.deliver(sh, ws, seq, rx, t_read, data)
             }
-            Ok(Message::Binary(b)) => {
-                let data = unpack(sh, seq, &mut gunzip, &mut bad_gzip, b);
-                if let Some(out) =
-                    deliver(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut probe, data)
-                {
-                    return out;
-                }
-            }
-            Ok(Message::Pong(p)) => {
-                if let Some((t0, tag)) = ping_sent {
+            Message::Pong(p) => {
+                if let Some((t0, tag)) = self.ping_sent {
                     if p.as_ref() == tag.as_slice() {
                         let rtt = t_read.duration_since(t0);
                         if rtt >= SLOW_PONG {
@@ -304,34 +348,51 @@ fn read_loop(
                             settled: true,
                             payload: Payload::Ping(i64::try_from(rtt.as_micros()).unwrap_or(0)),
                         });
-                        ping_sent = None;
+                        self.ping_sent = None;
                     }
                 }
+                None
             }
-            Ok(Message::Close(_)) => return Outcome::Closed,
-            Ok(_) => {}
-            Err(WsError::Io(e))
-                if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
-            Err(WsError::ConnectionClosed | WsError::AlreadyClosed) => return Outcome::Closed,
-            Err(e) => return Outcome::Failed(format!("чтение: {e}")),
+            Message::Close(_) => Some(Outcome::Closed),
+            _ => None,
         }
-        // после кадра отдельное чтение часов не нужно: тик пинга и окна проверки грубее микросекунд
-        let now = if had_frame { t_read } else { Instant::now() };
-        if pings_on {
-            match ping_sent {
-                None if now.duration_since(last_ping) >= sh.ping.0 => {
-                    ping_no += 1;
-                    let tag = ping_no.to_be_bytes();
-                    if let Err(e) = ws.send(Message::Ping(Bytes::copy_from_slice(&tag))) {
-                        return Outcome::Failed(format!("ping: {e}"));
+    }
+
+    /// Ошибка чтения: `None` — не ошибка (нет данных на этот такт), иначе итог сессии.
+    pub fn read_error(e: WsError) -> Option<Outcome> {
+        match e {
+            WsError::Io(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                None
+            }
+            WsError::ConnectionClosed | WsError::AlreadyClosed => Some(Outcome::Closed),
+            e => Some(Outcome::Failed(format!("чтение: {e}"))),
+        }
+    }
+
+    /// Тик: пинг, сторож pong, окно проверки пути. `had_frame` — часы `now` уже сняты на чтении кадра. `Some` — сессия кончилась.
+    pub fn tick(
+        &mut self,
+        sh: &Shared,
+        ws: &mut WebSocket<Conn>,
+        seq: u32,
+        now: Instant,
+    ) -> Option<Outcome> {
+        let m = &sh.metrics;
+        if self.pings_on {
+            match self.ping_sent {
+                None if now.duration_since(self.last_ping) >= sh.ping.0 => {
+                    self.ping_no += 1;
+                    let tag = self.ping_no.to_be_bytes();
+                    if let Err(e) = self.send(ws, Message::Ping(Bytes::copy_from_slice(&tag))) {
+                        return Some(Outcome::Failed(format!("ping: {e}")));
                     }
-                    ping_sent = Some((now, tag));
-                    last_ping = now;
+                    self.ping_sent = Some((now, tag));
+                    self.last_ping = now;
                 }
                 Some((t0, _)) if now.duration_since(t0) >= sh.ping.1 => {
                     // как в Python (`Session.pinger`): нет pong за PING_TIMEOUT — таймаут (счётчик health, событие) и путь испорчен: не рвём, а помечаем,
                     // шард откроет замену, примет её окном проверки пути и закроет эту сессию после перекрытия. `data_alive` делит таймауты на «pong нет, данные живы» (`pong_only`) и «канал молчит» (`silent`)
-                    let alive = now.duration_since(last_frame) < sh.ping.1;
+                    let alive = now.duration_since(self.last_frame) < sh.ping.1;
                     {
                         let mut l = m.lists();
                         l.timeouts.push_back(now_ms());
@@ -342,25 +403,149 @@ fn read_loop(
                     sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "kind": if alive { "pong_only" } else { "silent" }, "tcp": tcp_json(ws.get_ref().tcp())}));
                     sh.events.emit("ping_degraded", json!({"session": seq}));
                     sh.watch().mark_degraded(seq);
-                    pings_on = false;
-                    ping_sent = None;
+                    self.pings_on = false;
+                    self.ping_sent = None;
                 }
                 _ => {}
             }
         }
-        if let Some(p) = probe.as_mut() {
+        if let Some(p) = self.probe.as_mut() {
             if p.finished(now) {
                 let clean = p.clean();
                 let (cnt, p50, p99) = p.summary();
                 sh.events.emit(if clean { "path_ok" } else { "path_rejected" }, json!({"session": seq, "n": cnt, "p50_ms": p50.map(f64::round), "p99_ms": p99.map(f64::round)}));
                 if !clean {
-                    return Outcome::PathRejected;
+                    return Some(Outcome::PathRejected);
                 }
-                probe = None;
-                if let Some(a) = accepted {
+                self.probe = None;
+                if let Some(a) = self.accepted.as_ref() {
                     a.store(true, Relaxed);
                 }
             }
+        }
+        None
+    }
+
+    /// Кадр после разжатия: сердцебиение биржи (`Ping` → `Pong`) отвечается сразу и дальше не идёт; остальное — в очередь писателя. `Some` — сессия кончилась.
+    fn deliver(
+        &mut self,
+        sh: &Shared,
+        ws: &mut WebSocket<Conn>,
+        seq: u32,
+        rx: i64,
+        t_read: Instant,
+        data: Bytes,
+    ) -> Option<Outcome> {
+        if let Some(reply) = sh.exch.heartbeat_reply(&data) {
+            return self
+                .send(ws, Message::text(reply))
+                .err()
+                .map(|e| Outcome::Failed(format!("heartbeat: {e}")));
+        }
+        if self.frame(sh, ws, seq, rx, t_read, data) {
+            None
+        } else {
+            Some(Outcome::Failed("писатель шарда ушёл".to_string()))
+        }
+    }
+
+    fn frame(
+        &mut self,
+        sh: &Shared,
+        ws: &WebSocket<Conn>,
+        seq: u32,
+        rx: i64,
+        t_read: Instant,
+        data: Bytes,
+    ) -> bool {
+        let m = &sh.metrics;
+        self.n += 1;
+        let n = self.n;
+        m.frames.fetch_add(1, Relaxed);
+        m.bytes
+            .fetch_add(u64::try_from(data.len()).unwrap_or(0), Relaxed);
+        m.last_frame_ms.store(rx.div_euclid(1_000_000), Relaxed);
+        m.last_frame_mono_ms
+            .store(super::shard::mono_ms_at(t_read), Relaxed);
+        if n.is_multiple_of(RECVQ_EVERY) {
+            if let Some(q) = net::recv_q(ws.get_ref().tcp()) {
+                m.recvq_samples.fetch_add(1, Relaxed);
+                m.recvq_max.fetch_max(q, Relaxed);
+                if q > 0 {
+                    m.recvq_behind.fetch_add(1, Relaxed);
+                }
+            }
+        }
+        if let Some(p) = self.probe.as_mut() {
+            if p.collecting(t_read) {
+                p.add(sh.exch.lag_ms(&data, rx));
+            }
+        }
+        if sh.exch.is_retire_notice(&data) {
+            sh.watch().mark_retire(seq);
+            sh.events
+                .emit("notice", json!({"session": seq, "retire": true}));
+        }
+        if (n - 1).is_multiple_of(LAG_SAMPLE) {
+            if let Some(lag) = sh.exch.lag_ms(&data, rx) {
+                sh.watch().sample(seq, lag);
+            }
+        }
+        let settled = t_read >= self.settle_at;
+        // занятость потока приёма вне чтения и передача кадра в очередь — по каждому BUSY_EVERY-му кадру (чтение часов дороже самого кадра)
+        let sampled = n.is_multiple_of(BUSY_EVERY);
+        let t_push = sampled.then(Instant::now);
+        let pushed = sh.ring.push(Item {
+            rx_ns: rx,
+            sender: seq,
+            settled,
+            payload: Payload::Frame(data),
+        });
+        if let Some(tp) = t_push {
+            let now = Instant::now();
+            let us = |a: Instant, b: Instant| {
+                u64::try_from(b.saturating_duration_since(a).as_micros()).unwrap_or(u64::MAX)
+            };
+            m.busy_max_us.fetch_max(us(t_read, now), Relaxed);
+            // передача — только `push` (в том числе ожидание места в полной очереди), отдельно от остальной работы кадра
+            m.handoff_max_us.fetch_max(us(tp, now), Relaxed);
+        }
+        pushed.is_ok()
+    }
+}
+
+/// Чтение потоком приёма: блокирующий сокет с таймаутом `READ_TICK`; пинг, окно проверки, остановка — на тиках.
+fn read_loop(
+    sh: &Shared,
+    ws: &mut WebSocket<Conn>,
+    seq: u32,
+    mut rx: Rx,
+    cancel: &AtomicBool,
+) -> Outcome {
+    loop {
+        if cancel.load(Relaxed) || sh.stop.load(Relaxed) {
+            return Outcome::Closed;
+        }
+        let got = ws.read();
+        let rx_ns = wall_ns();
+        let t_read = Instant::now();
+        let had_frame = matches!(got, Ok(Message::Text(_) | Message::Binary(_)));
+        match got {
+            Ok(msg) => {
+                if let Some(out) = rx.message(sh, ws, seq, msg, rx_ns, t_read) {
+                    return out;
+                }
+            }
+            Err(e) => {
+                if let Some(out) = Rx::read_error(e) {
+                    return out;
+                }
+            }
+        }
+        // после кадра отдельное чтение часов не нужно: тик пинга и окна проверки грубее микросекунд
+        let now = if had_frame { t_read } else { Instant::now() };
+        if let Some(out) = rx.tick(sh, ws, seq, now) {
+            return out;
         }
     }
 }
@@ -380,96 +565,4 @@ fn unpack(sh: &Shared, seq: u32, gz: &mut Option<Gunzip>, bad: &mut u32, b: Byte
         );
     }
     b
-}
-
-/// Кадр после разжатия: сердцебиение биржи (`Ping` → `Pong`) отвечается сразу и дальше не идёт; остальное — в очередь писателя. `Some` — сессия кончилась.
-#[allow(clippy::too_many_arguments)]
-fn deliver(
-    sh: &Shared,
-    ws: &mut tungstenite::WebSocket<Conn>,
-    seq: u32,
-    rx: i64,
-    t_read: Instant,
-    settle_at: Instant,
-    n: &mut u64,
-    probe: &mut Option<PathProbe>,
-    data: Bytes,
-) -> Option<Outcome> {
-    if let Some(reply) = sh.exch.heartbeat_reply(&data) {
-        return ws
-            .send(Message::text(reply))
-            .err()
-            .map(|e| Outcome::Failed(format!("heartbeat: {e}")));
-    }
-    if frame(sh, ws, seq, rx, t_read, settle_at, n, probe, data) {
-        None
-    } else {
-        Some(Outcome::Failed("писатель шарда ушёл".to_string()))
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn frame(
-    sh: &Shared,
-    ws: &tungstenite::WebSocket<Conn>,
-    seq: u32,
-    rx: i64,
-    t_read: Instant,
-    settle_at: Instant,
-    n: &mut u64,
-    probe: &mut Option<PathProbe>,
-    data: Bytes,
-) -> bool {
-    let m = &sh.metrics;
-    *n += 1;
-    m.frames.fetch_add(1, Relaxed);
-    m.bytes
-        .fetch_add(u64::try_from(data.len()).unwrap_or(0), Relaxed);
-    m.last_frame_ms.store(rx.div_euclid(1_000_000), Relaxed);
-    m.last_frame_mono_ms
-        .store(super::shard::mono_ms_at(t_read), Relaxed);
-    if n.is_multiple_of(RECVQ_EVERY) {
-        if let Some(q) = net::recv_q(ws.get_ref().tcp()) {
-            m.recvq_samples.fetch_add(1, Relaxed);
-            m.recvq_max.fetch_max(q, Relaxed);
-            if q > 0 {
-                m.recvq_behind.fetch_add(1, Relaxed);
-            }
-        }
-    }
-    if let Some(p) = probe.as_mut() {
-        if p.collecting(t_read) {
-            p.add(sh.exch.lag_ms(&data, rx));
-        }
-    }
-    if sh.exch.is_retire_notice(&data) {
-        sh.watch().mark_retire(seq);
-        sh.events
-            .emit("notice", json!({"session": seq, "retire": true}));
-    }
-    if (*n - 1).is_multiple_of(LAG_SAMPLE) {
-        if let Some(lag) = sh.exch.lag_ms(&data, rx) {
-            sh.watch().sample(seq, lag);
-        }
-    }
-    let settled = t_read >= settle_at;
-    // занятость потока приёма вне чтения и передача кадра в очередь — по каждому BUSY_EVERY-му кадру (чтение часов дороже самого кадра)
-    let sampled = n.is_multiple_of(BUSY_EVERY);
-    let t_push = sampled.then(Instant::now);
-    let pushed = sh.ring.push(Item {
-        rx_ns: rx,
-        sender: seq,
-        settled,
-        payload: Payload::Frame(data),
-    });
-    if let Some(tp) = t_push {
-        let now = Instant::now();
-        let us = |a: Instant, b: Instant| {
-            u64::try_from(b.saturating_duration_since(a).as_micros()).unwrap_or(u64::MAX)
-        };
-        m.busy_max_us.fetch_max(us(t_read, now), Relaxed);
-        // передача — только `push` (в том числе ожидание места в полной очереди), отдельно от остальной работы кадра
-        m.handoff_max_us.fetch_max(us(tp, now), Relaxed);
-    }
-    pushed.is_ok()
 }

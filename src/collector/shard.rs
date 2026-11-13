@@ -21,9 +21,11 @@ use super::events::{now_ms, replay_lists, EventLog};
 use super::exchange::{Entrance, Exchange, Family, ShardPlan};
 use super::metrics::{us_to_ms, Hist, ShardMetrics, WindowSnap, STATS_PERIOD_S};
 use super::path::{PathWatch, PROBE_MAX_REJECTS, PROBE_S, PROBE_SKIP_S};
+use super::reactor::ReactorHandle;
 use super::ring::{ring, Item, Payload};
 use super::session::{self, Outcome, Shared, CONNECT_RTT_MAX_MS, PING_PERIOD, PING_TIMEOUT};
 use super::sink::{run_sink, sink_channel};
+use super::worker::{spawn_worker, WorkerHandle};
 use super::writer::{ShardWriter, WriterCfg};
 
 /// Короткая сессия — не дольше этого; `FAIL_LIMIT` коротких подряд → вход меняется (назначаемое, g022-integrate).
@@ -36,6 +38,25 @@ const UPGRADE_RETRY: Duration = Duration::from_secs(60);
 /// Замена, которая не принимает медленный путь (`never_slow`): после стольких отбраковок подряд пауза, чтобы не съесть бюджет подключений.
 pub const STRICT_PAUSE: Duration = Duration::from_secs(10);
 const STACK: usize = 1 << 20;
+
+/// Реактор по умолчанию для `ShardOpts::new`: только в сборке проверок с фичей `test-reactor` (весь набор тестов шардов идёт через реактор).
+#[cfg(feature = "test-reactor")]
+fn default_reactor() -> Option<ReactorHandle> {
+    static R: OnceLock<Option<ReactorHandle>> = OnceLock::new();
+    R.get_or_init(|| {
+        super::reactor::spawn_reactor(super::reactor::ReactorCfg {
+            window: Duration::from_millis(1),
+            kernel_stamp: false,
+        })
+        .map(|(h, _)| h)
+    })
+    .clone()
+}
+
+#[cfg(not(feature = "test-reactor"))]
+fn default_reactor() -> Option<ReactorHandle> {
+    None
+}
 
 fn start() -> Instant {
     static START: OnceLock<Instant> = OnceLock::new();
@@ -81,6 +102,14 @@ pub struct ShardOpts {
     pub cold_probe: bool,
     /// Пауза строгой замены после каждых `PROBE_MAX_REJECTS` отбраковок подряд.
     pub strict_pause: Duration,
+    /// Рабочий процесса, общий для шардов (`runner`); `None` — шард заводит своего (проверки).
+    pub worker: Option<WorkerHandle>,
+    /// Период пробуждений рабочего (collector-perf: кадры не будят писателя, он просыпается по таймеру).
+    pub worker_tick: Duration,
+    /// Реактор процесса: готовые соединения читает он; `None` — поток на соединение.
+    pub reactor: Option<ReactorHandle>,
+    /// В `rx` файла — ядерная метка приёма (реактор): писатель сортирует пачку по метке, дубль несёт минимум метки по линиям.
+    pub kernel_stamp: bool,
 }
 
 impl ShardOpts {
@@ -104,6 +133,10 @@ impl ShardOpts {
             lazy: false,
             cold_probe: false,
             strict_pause: STRICT_PAUSE,
+            worker: None,
+            worker_tick: Duration::from_micros(1000),
+            reactor: default_reactor(),
+            kernel_stamp: false,
         }
     }
 }
@@ -175,11 +208,11 @@ fn sleep_stop(sh: &Shared, d: Duration) {
 
 /// Одна сессия с переподключением при сбое; отбракованный путь — новое соединение сразу (до `PROBE_MAX_REJECTS` подряд).
 fn session_forever(
-    sh: &Shared,
+    sh: &Arc<Shared>,
     lane: &Lane,
     seq: u32,
-    accepted: Option<&AtomicBool>,
-    cancel: &AtomicBool,
+    accepted: Option<&Arc<AtomicBool>>,
+    cancel: &Arc<AtomicBool>,
     strict: Option<Duration>,
 ) {
     let mut backoff = 1.0f64;
@@ -253,7 +286,7 @@ fn spawn_session(
         .stack_size(STACK)
         .spawn(move || {
             shc.metrics.register_thread();
-            session_forever(&shc, &lanec, seq, accepted.as_deref(), &cc, strict);
+            session_forever(&shc, &lanec, seq, accepted.as_ref(), &cc, strict);
         })
         .ok()?;
     Some(SessionThread {
@@ -401,7 +434,8 @@ pub fn spawn_shard(
         block_max: opts.block_max,
         clock: session::wall_ns,
     };
-    let writer = ShardWriter::new(cfg, Arc::clone(exch), Arc::clone(&metrics), stx, rrx);
+    let mut writer = ShardWriter::new(cfg, Arc::clone(exch), Arc::clone(&metrics), stx, rrx);
+    writer.set_sort_batch(opts.kernel_stamp);
     let sh = Arc::new(Shared {
         exch: Arc::clone(exch),
         plan: plan.clone(),
@@ -417,6 +451,7 @@ pub fn spawn_shard(
         ping: opts.ping,
         rtt_max_ms: opts.rtt_max_ms,
         cold_probe: opts.cold_probe,
+        reactor: opts.reactor.clone(),
     });
     let health: Arc<Vec<AtomicBool>> = Arc::new(
         (0..entrances.len())
@@ -442,13 +477,20 @@ pub fn spawn_shard(
         .collect();
     let (name, opts) = (plan.name.clone(), opts.clone());
     let m2 = Arc::clone(&metrics);
+    let (worker, own_worker) = match opts.worker.clone() {
+        Some(w) => (w, None),
+        None => {
+            let (w, j) = spawn_worker(opts.worker_tick);
+            (w, Some(j))
+        }
+    };
     let join = thread::Builder::new()
         .name(format!("sh-{name}"))
         .stack_size(STACK)
         .spawn(move || {
             let sink_m = Arc::clone(&sh.metrics);
             let sink_depth = Arc::clone(&sh.metrics.sink_q);
-            let (m_sk, m_wr) = (Arc::clone(&sh.metrics), Arc::clone(&sh.metrics));
+            let m_sk = Arc::clone(&sh.metrics);
             let sink = thread::Builder::new()
                 .name(format!("sk-{}", sh.plan.name))
                 .spawn(move || {
@@ -456,14 +498,7 @@ pub fn spawn_shard(
                     run_sink(&srx, &sink_depth, &sink_m);
                 })
                 .ok();
-            let wr = thread::Builder::new()
-                .name(format!("wr-{}", sh.plan.name))
-                .stack_size(STACK)
-                .spawn(move || {
-                    m_wr.register_thread();
-                    writer.run();
-                })
-                .ok();
+            let wr_done = worker.add(writer);
             let base = u32::try_from(opts.run_id.rem_euclid(i64::from(u32::MAX) / 2)).unwrap_or(0);
             let lane_threads: Vec<JoinHandle<()>> = lanes
                 .iter()
@@ -493,8 +528,10 @@ pub fn spawn_shard(
                 settled: true,
                 payload: Payload::Shutdown,
             });
-            if let Some(w) = wr {
-                let _ = w.join();
+            let _ = wr_done.recv();
+            if let Some(j) = own_worker {
+                worker.quit();
+                let _ = j.join();
             }
             if let Some(s) = sink {
                 let _ = s.join();

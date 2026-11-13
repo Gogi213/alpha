@@ -8,6 +8,8 @@
 //!   gzip               разжатие кадров gzip (BingX) в потоке приёма, до метки лага и разбора
 //!   metrics, fresh     гистограммы лагов, глубины очередей, свежесть записей
 //!   ring               очередь приёма → писатель (ограниченная, с глубиной и счётом ожиданий)
+//!   reactor            один поток процесса читает все соединения (epoll, окно пакетирования, ядерные метки)
+//!   worker             один поток процесса: раз в такт забирает очереди шардов и прогоняет через писателей
 //!   writer, sink       писатель шарда (разбор, дубли, строки) → поток диска (zstd, файл суток, `.ok`)
 //!   net, budget, path  connect с RTT, TLS, WebSocket; бюджет подключений; качество пути
 //!   session, shard     одно соединение (поток ОС); линии, замена пути, смена входа, надзор
@@ -25,6 +27,7 @@ pub mod budget;
 pub mod bybit;
 pub mod cli;
 pub mod codec;
+pub mod compare;
 pub mod events;
 pub mod exchange;
 pub mod fresh;
@@ -37,6 +40,7 @@ pub mod net;
 pub mod okx;
 pub mod path;
 pub mod pool;
+pub mod reactor;
 pub mod replay;
 pub mod ring;
 pub mod runner;
@@ -46,6 +50,7 @@ pub mod session;
 pub mod shard;
 pub mod sink;
 pub mod synth;
+pub mod worker;
 pub mod writer;
 
 /// Версия сборки: `ALPHA_COMMIT` на этапе сборки (хеш коммита), иначе `unknown`.
@@ -56,3 +61,5 @@ pub const VERSION: &str = match option_env!("ALPHA_COMMIT") {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_perf;
