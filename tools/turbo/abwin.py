@@ -86,7 +86,7 @@ def mark_gaps(marks, pool, covered, t1):
 
 
 def disk(root, t0, t1, pool=None, covered=0):
-    lags, late, n = Counter(), 0, 0
+    lags, late, late_cov, n = Counter(), 0, 0, 0
     cells_any, cells_timely, trade_cells = set(), set(), set()
     marks = {}
     s0, s1 = -(-t0 // 1000), t1 // 1000
@@ -110,11 +110,12 @@ def disk(root, t0, t1, pool=None, covered=0):
                 lags[lag] += 1
                 n += 1
                 late += lag > LATE_MS
+                late_cov += lag > LATE_MS and r["E"] >= covered  # late records after the cold start (the first frame of a topic carries a stale state: lag up to ~3.5 s, rarely ~10 s)
             if s0 <= sec < s1:
                 cells_any.add((r["s"], sec))
                 if lag <= LATE_MS:
                     cells_timely.add((r["s"], sec))
-    out = {"book_n": n, "lag_p50": count_percentile(lags, 0.5), "lag_p99": count_percentile(lags, 0.99), "lag_max": max(lags, default=None), "late": late,
+    out = {"book_n": n, "lag_p50": count_percentile(lags, 0.5), "lag_p99": count_percentile(lags, 0.99), "lag_max": max(lags, default=None), "late": late, "late_after_covered": late_cov,
            "late_share": round(late / n, 4) if n else None}
     if pool:
         miss_s, none, gapped = mark_gaps(marks, pool, covered, t1)

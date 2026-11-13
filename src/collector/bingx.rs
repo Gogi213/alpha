@@ -242,16 +242,16 @@ impl Exchange for Bingx {
         format!("wss://{host}{PATH}")
     }
 
-    /// Один хост за CDN (независимой точки входа у BingX нет, подготовка п. 5): линия 0 — IPv4 с запасным IPv6, линия 1 — наоборот.
+    /// Один хост за CDN (независимой точки входа у BingX нет, подготовка п. 5): обе линии — IPv4, запасной вход — IPv6. Лестница 13.11 (`docs/findings/bingx-collector-2026-11-13.md`, п. 4):
+    /// все стоянки живой линии (5 ретрансмитов TCP, 10–13 с без данных, затем `ping_degraded`) пришли на IPv6-линии одновременно у нескольких шардов (путь, не биржа); на IPv4 — ни одной.
+    /// Первая версия адаптера (линия 1 — IPv6, как у OKX) оставлена в истории ветки.
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
         (0..lanes)
-            .map(|k| {
-                let (a, b) = if k % 2 == 0 {
-                    (Family::V4, Family::V6)
-                } else {
-                    (Family::V6, Family::V4)
-                };
-                vec![Entrance::new(HOST, a), Entrance::new(HOST, b)]
+            .map(|_| {
+                vec![
+                    Entrance::new(HOST, Family::V4),
+                    Entrance::new(HOST, Family::V6),
+                ]
             })
             .collect()
     }

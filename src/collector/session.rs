@@ -29,6 +29,8 @@ use super::ring::{Item, Payload, RingTx};
 /// Путь ≥ порога отбраковывается новым подключением (другой порт источника), пока в бюджете есть запас (`Budget::can_reject`).
 pub const CONNECT_RTT_MAX_MS: f64 = 300.0;
 pub const PING_PERIOD: Duration = Duration::from_secs(5);
+/// Pong позже этого срока — событие `slow_pong` (диагностика стоянок пути короче `PING_TIMEOUT`), назначаемое.
+const SLOW_PONG: Duration = Duration::from_secs(1);
 /// Порог «таймаут» страницы здоровья (нет pong), назначаемое.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(10);
 /// Тик чтения: период, с которым поток просыпается без кадров (пинг, остановка, проверка пути).
@@ -289,6 +291,10 @@ fn read_loop(
                 if let Some((t0, tag)) = ping_sent {
                     if p.as_ref() == tag.as_slice() {
                         let rtt = t_read.duration_since(t0);
+                        if rtt >= SLOW_PONG {
+                            // стоянка пути короче порога `timeout` (10 с): pong вернулся поздно — какая сессия (линия) и что говорит сокет, пока видно по событию
+                            sh.events.emit("slow_pong", json!({"session": seq, "rtt_ms": rtt.as_millis(), "tcp": tcp_json(ws.get_ref().tcp())}));
+                        }
                         m.lists()
                             .pings
                             .push_back((now_ms(), rtt.as_secs_f64() * 1000.0));

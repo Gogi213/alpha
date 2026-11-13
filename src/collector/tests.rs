@@ -1524,7 +1524,8 @@ fn bingx_plan_subscription_url_and_exchange_traits() {
             lines[1][0].family,
             lines[1][1].family
         ),
-        (Family::V4, Family::V6, Family::V6, Family::V4)
+        (Family::V4, Family::V6, Family::V4, Family::V6),
+        "обе линии — IPv4, запасной вход — IPv6"
     );
     assert!(lines
         .iter()

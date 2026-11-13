@@ -66,7 +66,7 @@ def main():
         reasons.append(f"shards connected {cov['shards_connected']}/{cov['shards']}")
     s = {
         "label": label, "ok": not reasons, "reasons": reasons, "shards": cov["shards"], "first_connected_max_s": cov["first_connected_s"]["max"], "dials": w["dials"], "fast_share": w["fast_share"],
-        "lag_p50": w["lag_p50"], "lag_p99": w["lag_p99"], "lag_max": w["lag_max"], "late": w["late"], "book_n": w["book_n"], "drops": drops, "connect_errors": w.get("connect_errors"), "timeouts": ev.get("timeout", 0),
+        "lag_p50": w["lag_p50"], "lag_p99": w["lag_p99"], "lag_max": w["lag_max"], "late": w["late"], "late_after_covered": w.get("late_after_covered"), "stalls": ev.get("timeout", 0) + ev.get("ping_degraded", 0), "book_n": w["book_n"], "drops": drops, "connect_errors": w.get("connect_errors"), "timeouts": ev.get("timeout", 0),
         "path_switch": ev.get("path_switch", 0), "path_upgrade": ev.get("path_upgrade", 0), "replace_deferred": ev.get("replace_deferred", 0), "mark_cov": w.get("mark_cov"),
         "rest_missing_after_covered": miss, "rest": t.get("rest"), "rest_mismatch": t.get("mismatch"), "id_gaps_after_covered": (ids or {}).get("gaps_after_covered"), "uncovered_shard_s": cov["uncovered_after_first_s_total"], "cpu_pct": (cpu or {}).get("cpu_pct"),
     }
@@ -74,7 +74,7 @@ def main():
     fs = "—" if w["fast_share"] is None else f"{w['fast_share'] * 100:.0f}% ({w['fast_dials']}/{w['dials']})"
     mc = "—" if s["mark_cov"] is None else f"{s['mark_cov'] * 100:.3f}%"
     line = (f"{label} {'ok' if not reasons else 'FAIL'} shards={s['shards']} fast={fs} lag p50/p99/max={s['lag_p50']}/{s['lag_p99']}/{s['lag_max']} ms late={s['late']} "
-            f"drops={drops} connect_errors={s['connect_errors']} mark_cov={mc} {'rest=deferred' if no_rest and rest is None else f'rest_missing_after_covered={miss}/' + str(t.get('rest_after_covered'))} uncovered={s['uncovered_shard_s']} shard-s cpu={s['cpu_pct']}% core "
+            f"late_after_covered={s['late_after_covered']} stalls(timeout+ping_degraded)={s['stalls']} drops={drops} connect_errors={s['connect_errors']} mark_cov={mc} {'rest=deferred' if no_rest and rest is None else f'rest_missing_after_covered={miss}/' + str(t.get('rest_after_covered'))} uncovered={s['uncovered_shard_s']} shard-s cpu={s['cpu_pct']}% core "
             f"switch/upgrade/deferred={s['path_switch']}/{s['path_upgrade']}/{s['replace_deferred']}"
             + (f" rest_mismatch={t.get('mismatch')} id_gaps_after_covered={ids['gaps_after_covered']}/{ids['trades']}" + span_text(rest) if ids else ""))
     print(line + ("" if not reasons else " | " + "; ".join(reasons)))
