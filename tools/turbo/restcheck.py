@@ -9,7 +9,10 @@ OKX: /api/v5/market/history-trades (every individual public trade, paged back by
 f..l (`tradeId - count + 1 .. tradeId`); missing = a REST trade whose id lies in no recorded range, mismatch = a range whose price / side / summed size / ELP flag (`x` = E <=> REST source 1)
 differs from the REST trades inside it, extra = a recorded range (not at the window edges) with no REST trade at all.
 BingX: REST has no trade history (/quote/trades = the last 1000 trades of a symbol, no time/id parameters), so the oracle is a snapshot taken at the window end (`bxsnap.py`, every symbol of the pool):
-  missing = a REST trade in the window absent from the files (id), mismatch = same id, different price / size / side / time, extra = a recorded trade with an id inside the REST id range that REST lacks.
+  missing = a REST trade in the window absent from the files (id), mismatch = same id, different size or side, or a price differing by more than half a unit of the COARSER of the two decimal precisions
+  (measured 12.11: REST and WS print the same price at different precisions for ~1 % of trades, e.g. 0.051573 vs 0.05157; size and side always equal), extra = a recorded trade with an id inside the REST id range that REST lacks.
+  The trade time is NOT compared: WS `T` is 4–575 ms later than REST `time` (p50 16 ms; two clocks of one exchange), and ids are not in time order (inversions up to ~0.5 s, ids 389/390 later than 391), so the window is
+  defined by REST `time` and the file side is read WITHOUT an upper time bound (the recording runs a few seconds past the window).
   Second, exchange-intrinsic oracle over the WHOLE pool: BingX trade ids are contiguous per symbol (REST and WS share `fillId`; measured 12.11: 0 gaps in 33 385 trades), so a recorded id range with a missing id is a lost
   trade: `pool_ids.gaps_after_covered` (a gap counts when the later trade is at/after --covered-ms).
 Usage (srv): restcheck.py binance <data root> <t0_ms> <t1_ms> --symbols 25 --out restcheck.json
@@ -282,22 +285,31 @@ def file_trades_bingx(root, t0, t1):
     return out
 
 
+def price_close(a, b):
+    """Prices equal up to half a unit of the coarser decimal precision (REST and WS round the same price differently)."""
+    da, db = Decimal(a), Decimal(b)
+    dp = min(-da.as_tuple().exponent, -db.as_tuple().exponent)
+    return abs(da - db) <= Decimal(5) * Decimal(10) ** (-dp - 1)
+
+
 def bingx(a, t0, t1):
-    rec = file_trades_bingx(a.root, t0, t1)
+    rec = file_trades_bingx(a.root, t0 - 3000, 1 << 62)
     snap = json.load(gzip.open(a.snap, "rt"))
-    res = {}
+    res, tdiff = {}, []
     for sym, s in snap["symbols"].items():
-        rest = {x[0]: (x[1], x[2], x[3], x[4]) for x in s["trades"]}
+        rest_all = {x[0]: (x[1], x[2], x[3], x[4]) for x in s["trades"]}  # the window and 15 s after it
+        rest = {k: v for k, v in rest_all.items() if t0 <= v[3] <= t1}
         mine = rec.get(sym, {})
         # the REST list is the last 1000 trades: complete for the window only if it reaches back to t0 (or holds fewer than 1000 trades)
         truncated = s["n"] >= 1000 and s["oldest"] is not None and s["oldest"] > t0
         lo = (s["oldest"] if truncated else t0)
         missing = sorted(set(rest) - set(mine))
         # a recorded trade is "extra" only inside the id range REST shows in the window (REST ids are contiguous, so every id of the range must be there)
-        rmin, rmax = min(rest, default=None), max(rest, default=None)
-        extra = sorted(k for k in mine if rmin is not None and rmin <= k <= rmax and k not in rest)
-        mism = [k for k in set(rest) & set(mine)
-                if not (Decimal(rest[k][0]) == Decimal(mine[k][0]) and Decimal(rest[k][1]) == Decimal(mine[k][1]) and rest[k][2] == mine[k][2] and rest[k][3] == mine[k][3])]
+        rmin, rmax = min(rest_all, default=None), max(rest_all, default=None)
+        extra = sorted(k for k in mine if rmin is not None and rmin <= k <= rmax and k not in rest_all)
+        both = set(rest) & set(mine)
+        mism = [k for k in both if not (price_close(rest[k][0], mine[k][0]) and Decimal(rest[k][1]) == Decimal(mine[k][1]) and rest[k][2] == mine[k][2])]
+        tdiff.extend(mine[k][3] - rest[k][3] for k in both)
         late = [k for k in missing if rest[k][3] >= a.covered_ms]
         res[sym] = {"rest": len(rest), "file": len(mine), "missing_in_file": len(missing), "extra_in_file": len(extra), "mismatch": len(mism),
                     "rest_after_covered": sum(1 for v in rest.values() if v[3] >= a.covered_ms), "missing_after_covered": len(late), "truncated": int(truncated),
@@ -310,14 +322,16 @@ def bingx(a, t0, t1):
         trades += len(ordered)
         g = 0
         for (i0, _), (i1, x1) in zip(ordered, ordered[1:]):
-            if i1 - i0 > 1 and x1[3] >= a.covered_ms:
+            if i1 - i0 > 1 and a.covered_ms <= x1[3] <= t1:  # the later trade is inside the window; the missing ids were received if they exist (the file is read past the window)
                 g += i1 - i0 - 1
                 if len(examples) < 8:
                     examples.append((sym, i0, i1, x1[3]))
         gaps += g
         gap_syms += g > 0
     pool_ids = {"symbols": len(rec), "trades": trades, "gaps_after_covered": gaps, "symbols_with_gaps": gap_syms, "examples": examples}
-    return res, pool_ids, {k: snap.get(k) for k in ("fetched_ms", "took_s", "errors")}
+    tdiff.sort()
+    timing = {"n": len(tdiff), "p50": tdiff[len(tdiff) // 2] if tdiff else None, "p99": tdiff[int(len(tdiff) * 0.99)] if tdiff else None, "min": tdiff[0] if tdiff else None, "max": tdiff[-1] if tdiff else None}
+    return res, pool_ids, {**{k: snap.get(k) for k in ("fetched_ms", "took_s", "errors")}, "ws_minus_rest_time_ms": timing}
 
 
 def main():

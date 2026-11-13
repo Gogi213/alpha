@@ -5,7 +5,8 @@ BingX REST has no trade history: /openApi/swap/v2/quote/trades returns only the 
 ignores fromId without an API key). A deferred REST pass (RESTPASS=defer) cannot see a window of a busy symbol hours later, so the snapshot is taken at the window end:
 every symbol of the step pool, busiest first (their 1000 trades span the shortest time), paced under the exchange limit (500 requests / 10 s).
   bxsnap.py <pool.json> <t0_ms> <t1_ms> <out.json.gz> [--rate 40]
-Output: {"fetched_ms", "symbols": {sym: {"at": ms, "n": trades returned, "oldest": ms, "newest": ms, "trades": [[id, price, qty, buyer_is_maker, time_ms] for t0 <= time <= t1]}}, "errors": {sym: text}}.
+Output: {"fetched_ms", "symbols": {sym: {"at": ms, "n": trades returned, "oldest": ms, "newest": ms, "trades": [[id, price, qty, buyer_is_maker, time_ms] for t0 <= time <= t1 + 15 s]}}, "errors": {sym: text}}.
+The 15 s after the window are kept on purpose: ids and times are not in the same order (inversions up to ~0.5 s), so the checker needs the trades just after the window to judge ids near its end.
 """
 import argparse
 import concurrent.futures
@@ -65,10 +66,10 @@ def main():
             return
         tr = [[int(x["fillId"]), x["price"], x["qty"], bool(x["isBuyerMaker"]), int(x["time"])] for x in data]
         times = [x[4] for x in tr]
-        out[sym] = {"at": at, "n": len(tr), "oldest": min(times, default=None), "newest": max(times, default=None), "trades": [x for x in tr if a.t0 <= x[4] <= a.t1]}
+        out[sym] = {"at": at, "n": len(tr), "oldest": min(times, default=None), "newest": max(times, default=None), "trades": [x for x in tr if a.t0 <= x[4] <= a.t1 + 15_000]}
 
     t = time.time()
-    with concurrent.futures.ThreadPoolExecutor(16) as ex:
+    with concurrent.futures.ThreadPoolExecutor(32) as ex:
         list(ex.map(one, syms))
     doc = {"fetched_ms": int(t * 1000), "took_s": round(time.time() - t, 1), "symbols": out, "errors": errors}
     with gzip.open(a.out, "wt") as f:

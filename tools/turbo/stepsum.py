@@ -46,6 +46,8 @@ def main():
     if snap_errors:
         reasons.append(f"REST snapshot errors {snap_errors} symbols")
     ids = (rest or {}).get("pool_ids")  # BingX: contiguous trade ids per symbol over the whole pool (restcheck.py bingx)
+    if ids and t.get("extra_in_file"):  # BingX: a recorded trade with an id inside the REST id range that REST lacks
+        reasons.append(f"REST extra {t['extra_in_file']}")
     if ids and ids["gaps_after_covered"]:
         reasons.append(f"trade id gaps after covered {ids['gaps_after_covered']} in {ids['symbols_with_gaps']} symbols")
     if cov["uncovered_after_first_s_total"] > 0:
