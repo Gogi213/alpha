@@ -133,6 +133,10 @@ pub struct RunArgs {
     /// Метка `rx` в файле: `user` — после пробуждения потока (как раньше), `kernel` — ядерная метка приёма (нужен `--reactor`).
     #[arg(long, default_value = "user")]
     pub rx_stamp: String,
+    /// Подписка из реактора (нужен `--reactor`): сообщения подписки уходят в его цикле с паузой биржи, а соединение читается с первого кадра — нет очереди ядра на время подписки
+    /// (BingX: 179 тем × 20 мс = 3,7 с, кадры первых тем приходили к писателю с ядерной меткой давностью секунд и поднятием `rx`).
+    #[arg(long)]
+    pub sub_in_reactor: bool,
     /// Выдержка записей перед записью, мс (только при ядерных метках): пачка сортируется по `rx` и выпускается, когда метка старше выдержки, — запись, опоздавшая в писатель
     /// не больше чем на неё, сохраняет настоящую метку вместо поднятия до метки предыдущей (`rx_clamped`). 0 — выключено.
     #[arg(long, default_value_t = 0)]
@@ -394,6 +398,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let rcfg = ReactorCfg {
         window: Duration::from_micros(args.reactor_window_us.min(100_000)),
         kernel_stamp,
+        pace_sub: args.sub_in_reactor,
     };
     let mut worker_pair = None;
     let reactor = if args.reactor && args.worker_inline {

@@ -555,6 +555,7 @@ fn frame_boundaries(inline: bool) {
     let cfg = ReactorCfg {
         window: Duration::from_millis(1),
         kernel_stamp: true,
+        pace_sub: true,
     };
     let (reactor, rj, inline_worker) = if inline {
         let (r, w, j) = spawn_reactor_inline(cfg).unwrap();

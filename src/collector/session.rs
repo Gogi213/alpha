@@ -217,6 +217,12 @@ fn body(
     lane: u8,
 ) -> Outcome {
     let mut ws = ws;
+    if let Some(r) = sh.reactor.as_ref().filter(|r| r.paces_subscription()) {
+        // подписка из реактора: см. `Rx::begin_sub`; событие `subscribed` и признак «принят» — по её окончании
+        let mut rx = Rx::new(sh, probe, accepted.map(Arc::clone), lane);
+        rx.begin_sub(sh, Instant::now());
+        return r.run_conn(sh, ws, seq, rx, Arc::clone(cancel));
+    }
     for msg in sh.exch.subscribe_messages(&sh.plan.streams) {
         if let Err(e) = ws.send(Message::text(msg)) {
             return Outcome::Failed(format!("подписка: {e}"));
@@ -270,6 +276,19 @@ pub struct Rx {
     bad_gzip: u32,
     /// Запись из `ws.send` не ушла целиком (неблокирующий сокет): нужен `flush`, когда сокет станет записываемым.
     pub need_flush: bool,
+    /// Подписка из реактора: сообщения уходят с паузой биржи прямо в его цикле, а соединение читается с первого кадра (иначе кадры первых тем стояли бы в очереди ядра
+    /// всю подписку — у BingX 3,7 с — и приходили к писателю с ядерной меткой давностью секунд).
+    sub: Option<SubPlan>,
+    /// Окно проверки пути (RTT-лаг) начинается с конца подписки, как раньше: проверка пути заводится в `finish_sub`.
+    probe_wanted: bool,
+}
+
+/// Недосланная подписка сессии: сообщения, пауза между ними, срок следующего, число тем.
+struct SubPlan {
+    msgs: std::collections::VecDeque<String>,
+    period: Duration,
+    next: Instant,
+    streams: usize,
 }
 
 impl Rx {
@@ -292,7 +311,69 @@ impl Rx {
             gunzip: sh.exch.gzip_frames().then(Gunzip::new),
             bad_gzip: 0,
             need_flush: false,
+            sub: None,
+            probe_wanted: false,
         }
+    }
+
+    /// Подписку ведёт реактор (`tick`): сообщения по одному с паузой биржи; проверка пути и «принят» — после последнего.
+    fn begin_sub(&mut self, sh: &Shared, now: Instant) {
+        let msgs: std::collections::VecDeque<String> =
+            sh.exch.subscribe_messages(&sh.plan.streams).into();
+        self.probe_wanted = self.probe.take().is_some();
+        self.sub = Some(SubPlan {
+            msgs,
+            period: sh.exch.sub_period(),
+            next: now,
+            streams: sh.plan.streams.len(),
+        });
+    }
+
+    /// Срок следующего сообщения подписки (`None` — подписки нет или она кончилась): реактор просыпается к нему.
+    pub fn sub_due(&self) -> Option<Instant> {
+        self.sub.as_ref().map(|s| s.next)
+    }
+
+    /// Следующее сообщение подписки, если срок пришёл; после последнего — событие `subscribed`, часы окна проверки пути и признак «принят».
+    fn pump_sub(
+        &mut self,
+        sh: &Shared,
+        ws: &mut WebSocket<Conn>,
+        seq: u32,
+        now: Instant,
+    ) -> Option<Outcome> {
+        let sp = self.sub.as_mut()?;
+        if now < sp.next {
+            return None;
+        }
+        if let Some(msg) = sp.msgs.pop_front() {
+            sp.next = now + sp.period;
+            if let Err(e) = self.send(ws, Message::text(msg)) {
+                return Some(Outcome::Failed(format!("подписка: {e}")));
+            }
+        }
+        let sp = self.sub.as_ref()?;
+        if sp.msgs.is_empty() {
+            let streams = sp.streams;
+            self.sub = None;
+            sh.events
+                .emit("subscribed", json!({"session": seq, "streams": streams}));
+            ctl(sh, seq, "subscribed", format!("{seq} {streams}"));
+            let t = Instant::now();
+            self.settle_at = t + Duration::from_secs_f64(GRACE_S);
+            self.last_ping = t;
+            self.last_frame = t;
+            if self.probe_wanted {
+                self.probe = Some(PathProbe::with_window(
+                    t,
+                    sh.probe_window.0,
+                    sh.probe_window.1,
+                ));
+            } else if let Some(a) = self.accepted.as_ref() {
+                a.store(true, Relaxed);
+            }
+        }
+        None
     }
 
     /// Отправка в сокет: на неблокирующем сокете «не влезло» (`WouldBlock`) — запись в очереди rustls/tungstenite, дослать `flush`.
@@ -415,7 +496,12 @@ impl Rx {
         now: Instant,
     ) -> Option<Outcome> {
         let m = &sh.metrics;
-        if self.pings_on {
+        if self.sub.is_some() {
+            if let Some(out) = self.pump_sub(sh, ws, seq, now) {
+                return Some(out);
+            }
+        }
+        if self.pings_on && self.sub.is_none() {
             match self.ping_sent {
                 None if now.duration_since(self.last_ping) >= sh.ping.0 => {
                     self.ping_no += 1;

@@ -139,6 +139,8 @@ pub struct ReactorCfg {
     pub window: Duration,
     /// В `rx` файла — ядерная метка приёма (если есть), иначе пользовательская.
     pub kernel_stamp: bool,
+    /// Подписка идёт из реактора (сообщения с паузой биржи в его цикле), а не блокирующим потоком сессии: соединение читается с первого кадра.
+    pub pace_sub: bool,
 }
 
 enum Cmd {
@@ -151,6 +153,7 @@ enum Cmd {
 pub struct ReactorHandle {
     /// Читать TLS-сокеты по записям с меткой у записи (`RxSock` точной метки): нужен при `kernel_stamp`.
     exact: bool,
+    pace_sub: bool,
     tx: Sender<Cmd>,
     wake: Arc<OwnedFd>,
     pub stats: Arc<ReactorStats>,
@@ -182,6 +185,11 @@ fn raw_fd(w: &WebSocket<Conn>) -> RawFd {
 }
 
 impl ReactorHandle {
+    /// Подписку сессии ведёт реактор (`ReactorCfg::pace_sub`).
+    pub fn paces_subscription(&self) -> bool {
+        self.pace_sub
+    }
+
     fn poke(&self) {
         use std::os::fd::AsRawFd;
         let one = 1u64.to_ne_bytes();
@@ -262,6 +270,7 @@ fn spawn(
     let stats = Arc::new(ReactorStats::default());
     let handle = ReactorHandle {
         exact: cfg.kernel_stamp,
+        pace_sub: cfg.pace_sub,
         tx,
         wake: Arc::clone(&wake),
         stats: Arc::clone(&stats),
@@ -364,9 +373,13 @@ fn run(
     let mut next_pass = Instant::now() + PASS;
     let mut live = 0usize;
     let mut worker_due: Option<Instant> = None;
+    let mut sub_due: Option<Instant> = None;
     loop {
-        // до срока обхода или срока блока рабочего, миллисекунды вверх (иначе у срока менее 1 мс вышел бы холостой оборот)
-        let deadline = worker_due.map_or(next_pass, |d| d.min(next_pass));
+        // до срока обхода, срока блока рабочего или следующего сообщения подписки, миллисекунды вверх (иначе у срока менее 1 мс вышел бы холостой оборот)
+        let deadline = [worker_due, sub_due]
+            .into_iter()
+            .flatten()
+            .fold(next_pass, Instant::min);
         let timeout = i32::try_from(
             deadline
                 .saturating_duration_since(Instant::now())
@@ -444,12 +457,25 @@ fn run(
                 None => worker = None,
             }
         }
-        // завершённые и обновление интереса к записи
+        // завершённые и обновление интереса к записи; сообщения подписки, чей срок пришёл
+        sub_due = None;
+        let t_sub = Instant::now();
         for i in 0..slab.v.len() {
             let key = slab.key(i);
             let Some(Some(e)) = slab.v.get_mut(i) else {
                 continue;
             };
+            if e.outcome.is_none() && e.rx.sub_due().is_some_and(|d| d <= t_sub) {
+                if let Some(out) = e.rx.tick(&e.sh, &mut e.ws, e.seq, t_sub) {
+                    e.outcome = Some(out);
+                }
+                if let Some(msg) = e.rx.flush(&mut e.ws).err() {
+                    e.outcome = Some(Outcome::Failed(msg));
+                }
+            }
+            if let Some(d) = e.rx.sub_due().filter(|_| e.outcome.is_none()) {
+                sub_due = Some(sub_due.map_or(d, |x: Instant| x.min(d)));
+            }
             if let Some(out) = e.outcome.take() {
                 if !matches!(out, Outcome::Failed(_)) || !e.sh.stop.load(Relaxed) {
                     let _ = e.ws.close(None);

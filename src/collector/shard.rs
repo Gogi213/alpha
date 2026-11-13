@@ -47,6 +47,7 @@ fn default_reactor() -> Option<ReactorHandle> {
         super::reactor::spawn_reactor(super::reactor::ReactorCfg {
             window: Duration::from_millis(1),
             kernel_stamp: false,
+            pace_sub: true,
         })
         .map(|(h, _)| h)
     })
