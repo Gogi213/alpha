@@ -5,7 +5,7 @@
 # Шаги: (1) итоговые аргументы собираются так, что доп. аргументы ЗАМЕНЯЮТ одноимённые уже стоящие в юните (повторный накат не дублирует флаги); новый бинарь с ними
 # проверяется разбором (`--help` в конце: clap отвергает дубли и неизвестные флаги до остановки боевого процесса); (2) прежний бинарь — копия `<путь>.prev-<md5>`, новый
 # кладётся атомарно (mv); (3) юнит останавливается SIGTERM и пересоздаётся `systemd-run` с теми же свойствами; (4) 30 с проверки: active, NRestarts=0, health свежий,
-# кадры свежие; иначе автоматический откат `rollback.sh` и код 1. Прежние аргументы и свойства — /data/perf/rollout-<юнит>.env.
+# кадры свежие и записи пошли (totals.records > 0); иначе автоматический откат `rollback.sh` и код 1. Прежние аргументы и свойства — /data/perf/rollout-<юнит>.env.
 set -eu
 UNIT=$1; NEW=$2; shift 2
 EXTRA="$*"
@@ -78,7 +78,7 @@ for i in $(seq 1 30); do
 import json, sys, time
 h = json.load(open(sys.argv[1]))
 now = time.time() * 1000
-ok = h["ts_ms"] > float(sys.argv[2]) * 1000 and now - h["ts_ms"] < 15000 and now - h["last_frame_ms"] < 10000
+ok = h["ts_ms"] > float(sys.argv[2]) * 1000 and now - h["ts_ms"] < 15000 and now - h["last_frame_ms"] < 10000 and h["totals"]["records"] > 0
 sys.exit(0 if ok else 1)
 PY
   then OK=1; break; fi

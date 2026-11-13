@@ -316,6 +316,78 @@ fn writer_hold_puts_late_arrivals_in_order_instead_of_clamping_rx() {
     );
 }
 
+/// G5: остановка диска на 30 с (поток диска засыпает), приём идёт 40 с по 3 000 кадров/с: писатель и очередь не блокируются, ничего не потеряно.
+/// Запуск вручную (≈ 50 с): `cargo test --release g5_disk_pause -- --ignored --nocapture`.
+#[test]
+#[ignore = "G5: 30 с паузы диска, ≈ 50 с; запускать вручную на машине сборки"]
+fn g5_disk_pause_30s_loses_nothing_and_never_blocks_the_writer() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let dir = tempfile::tempdir().unwrap();
+    let metrics = ShardMetrics::new("book00", 0, 1 << 15, 600);
+    let (tx, rx) = ring(&metrics.ring);
+    let (stx, srx) = sink_channel(&metrics.sink_q);
+    let cfg = WriterCfg {
+        root: dir.path().to_path_buf(),
+        shard: "book00".into(),
+        run_id: 1_794_000_000,
+        flush: Duration::from_millis(100),
+        block_max: 256 * 1024,
+        clock: super::session::wall_ns,
+    };
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let mut w = ShardWriter::new(cfg, exch, Arc::clone(&metrics), stx, rx);
+    w.set_sort_batch(true);
+    let writer = std::thread::spawn(move || w.run());
+    let (m2, d2) = (Arc::clone(&metrics), Arc::clone(&metrics.sink_q));
+    let sink = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(30));
+        run_sink(&srx, &d2, &m2);
+    });
+    let t0 = std::time::Instant::now();
+    let mut pushed = 0i64;
+    let mut worst_push = Duration::ZERO;
+    while t0.elapsed() < Duration::from_secs(40) {
+        for _ in 0..3 {
+            pushed += 1;
+            let s = std::time::Instant::now();
+            tx.push(item(super::session::wall_ns(), 1, &bn_book(pushed)))
+                .unwrap();
+            worst_push = worst_push.max(s.elapsed());
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    tx.push(Item {
+        rx_ns: 0,
+        sender: 0,
+        lane: 0,
+        settled: true,
+        payload: Payload::Shutdown,
+    })
+    .unwrap();
+    writer.join().unwrap();
+    let depth_max = metrics.sink_q.max.load(Relaxed);
+    let (ring_full, sink_full) = (
+        metrics.ring.full.load(Relaxed),
+        metrics.sink_q.full.load(Relaxed),
+    );
+    sink.join().unwrap();
+    let books = rows(dir.path())
+        .iter()
+        .filter(|d| matches!(d, Decoded::Book { .. }))
+        .count();
+    let line = format!("G5: кадров {pushed}, записей {books}, глубина очереди диска макс {depth_max} из 600, полных очередей ring {ring_full} sink {sink_full}, худший push {worst_push:?}");
+    eprintln!("{line}");
+    let _ = std::fs::write(std::env::temp_dir().join("g5-result.txt"), &line);
+    assert_eq!(i64::try_from(books).unwrap(), pushed, "ни одной потери");
+    assert_eq!(sink_full, 0, "очередь диска не переполнялась");
+    assert_eq!(ring_full, 0);
+    assert!(depth_max < 600, "запас очереди диска остался: {depth_max}");
+    assert!(
+        worst_push < Duration::from_millis(50),
+        "приём не блокировался: {worst_push:?}"
+    );
+}
+
 #[test]
 fn worker_serves_two_shards_by_timer_and_closes_them() {
     let (worker, join) = spawn_worker(Duration::from_millis(1));

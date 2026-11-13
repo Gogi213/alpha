@@ -122,7 +122,8 @@ impl ShardOpts {
             flush: Duration::from_millis(100),
             block_max: 256 * 1024,
             ring_cap: 1 << 15,
-            sink_cap: 64,
+            // 600 блоков по 100 мс = 60 с остановки диска без блокировки писателя (при рабочем внутри реактора полная очередь диска остановила бы чтение всех сокетов процесса)
+            sink_cap: 600,
             max_age: Duration::from_secs(23 * 3600),
             overlap: Duration::from_secs(20),
             switch_wait: Duration::from_secs(120),
