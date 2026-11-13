@@ -1,0 +1,14 @@
+[Unit]
+Description=G-022: выгрузка закрытых суток коллекторов (Binance, OKX, BingX, Bybit) на Storage Box; ничего не удаляет
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+# Файловая система только на чтение, кроме state и health: удалить данные коллектора юнит физически не может.
+ProtectSystem=strict
+ReadWritePaths=/data/upload-state /data/health
+PrivateTmp=yes
+ExecStart=/usr/bin/python3 /opt/day-upload/day_upload.py --source binance=/data/collect/binance/data --source okx=/data/collect/okx/data --source bingx=/data/collect/bingx/data --source bybit=/data/turbo-probe/soak-bybit/data --quiet-s 300 --bwlimit 20000

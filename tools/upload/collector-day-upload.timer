@@ -1,0 +1,9 @@
+[Unit]
+Description=G-022: раз в час выгрузить закрытые сутки коллекторов на Storage Box
+
+[Timer]
+OnCalendar=*:17
+Persistent=true
+
+[Install]
+WantedBy=timers.target
