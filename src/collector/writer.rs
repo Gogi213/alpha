@@ -218,6 +218,11 @@ struct Core {
     sort_batch: bool,
     /// На сколько нс `rx` обрабатываемого элемента поднят до приёма предыдущей записи (0 — не поднят); считается только для записанных строк, не для снятых дублей.
     clamp_ns: i64,
+    /// Кто пишется сейчас (соединение, линия; `None` — служебная строка) и кто записал предыдущую строку; возраст элемента на входе в писатель, нс.
+    cur: (u32, u8, bool),
+    prev: (u32, u8),
+    cmp_prev: (u32, u8),
+    cur_age_ns: i64,
 }
 
 impl Core {
@@ -279,10 +284,28 @@ impl Core {
     /// Записанная строка с поднятой меткой: счёт `rx_clamped` и размер поднятия (мкс) в гистограмму 60 с.
     fn note_clamp(&self, st: &mut WriterStats, rx: i64) {
         if self.clamp_ns > 0 {
-            st.clamped += 1;
-            st.clamp_us.add(
+            let (ms, us) = (
                 rx.div_euclid(NS_PER_MS),
                 u64::try_from(self.clamp_ns / 1000).unwrap_or(0),
+            );
+            st.clamped += 1;
+            st.clamp_us.add(ms, us);
+            let (sender, lane, frame) = self.cur;
+            let class = if !frame {
+                3
+            } else if sender == self.cmp_prev.0 {
+                0
+            } else if lane == self.cmp_prev.1 {
+                1
+            } else {
+                2
+            };
+            if let Some(r) = st.clamp_class.get_mut(class) {
+                r.add(ms, us);
+            }
+            st.clamp_age_us.add(
+                ms,
+                u64::try_from(self.cur_age_ns.max(0) / 1000).unwrap_or(0),
             );
         }
     }
@@ -290,6 +313,7 @@ impl Core {
     /// После каждой записанной строки: счёт, метка приёма для `lag_out`, граница блока.
     fn after_line(&mut self, rx: i64) {
         self.prev_rx = rx;
+        self.prev = (self.cur.0, self.cur.1);
         self.block_rows += 1;
         if self.block_started.is_none() {
             self.block_started = Some(Instant::now());
@@ -427,6 +451,10 @@ impl ShardWriter {
             out: Vec::new(),
             sort_batch: false,
             clamp_ns: 0,
+            cur: (0, 0, false),
+            prev: (0, 0),
+            cmp_prev: (0, 0),
+            cur_age_ns: 0,
         };
         Self {
             core,
@@ -448,6 +476,13 @@ impl ShardWriter {
         }
         let rx = item.rx_ns.max(self.core.prev_rx);
         self.core.clamp_ns = rx - item.rx_ns;
+        self.core.cmp_prev = self.core.prev;
+        self.core.cur = (
+            item.sender,
+            item.lane,
+            matches!(item.payload, Payload::Frame(_)),
+        );
+        self.core.cur_age_ns = now_ns - item.rx_ns;
         let rx_ms = rx.div_euclid(NS_PER_MS);
         match item.payload {
             Payload::Frame(bytes) => {

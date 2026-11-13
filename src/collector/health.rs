@@ -137,6 +137,11 @@ pub struct HealthCtx {
     pub version: String,
 }
 
+/// Размеры поднятия `rx` (мкс): число, p50, p99, max.
+fn clamp_json(h: &Hist) -> Value {
+    json!({"n": h.count(), "p50": h.percentile(0.5), "p99": h.percentile(0.99), "max": h.percentile(1.0)})
+}
+
 /// Сводка по шардам на `now_ms`.
 #[allow(clippy::too_many_lines)]
 pub fn build(
@@ -152,6 +157,8 @@ pub fn build(
     let mut lag_out = Hist::new();
     let mut queue_lag = Hist::new();
     let mut clamp = Hist::new();
+    let mut clamp_class = [Hist::new(), Hist::new(), Hist::new(), Hist::new()];
+    let mut clamp_age = Hist::new();
     let mut fresh = [KindFresh::default(); 4];
     let mut fresh_seen = [false; 4];
     let (mut pings, mut connections) = (Vec::new(), 0i64);
@@ -212,6 +219,10 @@ pub fn build(
             queue_lag.merge(&w.queue_lag.snapshot(now_ms));
             let shard_clamp = w.clamp_us.snapshot(now_ms);
             clamp.merge(&shard_clamp);
+            for (a, r) in clamp_class.iter_mut().zip(&w.clamp_class) {
+                a.merge(&r.snapshot(now_ms));
+            }
+            clamp_age.merge(&w.clamp_age_us.snapshot(now_ms));
             for k in 0..4 {
                 if let (Some(f), Some(acc), Some(seen)) = (
                     w.fresh.fragment(k, now_ms),
@@ -312,7 +323,9 @@ pub fn build(
         "lag_out_ms": pct_json(&lag_out),
         "last_frame_ms": last_frame, "last_write_ms": last_write,
         // на сколько мкс `rx` записи поднят до приёма предыдущей записи шарда (`totals.rx_clamped` — сколько записей), 60 с по всем шардам
-        "rx_clamp_us": {"n": clamp.count(), "p50": clamp.percentile(0.5), "p99": clamp.percentile(0.99), "p99_9": clamp.percentile(0.999), "max": clamp.percentile(1.0)},
+        "rx_clamp_us": {"n": clamp.count(), "p50": clamp.percentile(0.5), "p99": clamp.percentile(0.99), "p99_9": clamp.percentile(0.999), "max": clamp.percentile(1.0),
+            "by_class": {"same_socket": clamp_json(&clamp_class[0]), "same_lane_other_conn": clamp_json(&clamp_class[1]), "other_lane": clamp_json(&clamp_class[2]), "control": clamp_json(&clamp_class[3])},
+            "age_at_writer": clamp_json(&clamp_age)},
         "backpressure": {
             "window_s": 10,
             "ring": {"cap": ring_cap, "depth_max": depth_max, "full_events_total": full_total, "full_events_window": full_win, "blocked_ms_total": blocked_ms_total},
