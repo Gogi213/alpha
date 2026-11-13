@@ -14,7 +14,7 @@ use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
 use super::hash::fnv;
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
-use super::scan::{each_elem, parse_i64, parse_object, pick, single_pair, Obj, Val};
+use super::scan::{each_elem, parse_i64, parse_object, pick, single_pair, slots, Obj, Small};
 
 const REST: &str = "https://api.bybit.com";
 const PATH: &str = "/v5/public/linear";
@@ -26,51 +26,6 @@ const SUB_BATCH: usize = 100;
 const TRADE_SLOT: i64 = 1000;
 
 pub struct Bybit;
-
-fn slots<'a, const N: usize>(o: &Obj<'a>, names: [&[u8]; N]) -> Option<[Val<'a>; N]> {
-    if o.len() != N {
-        return None;
-    }
-    let mut out: [Option<Val<'a>>; N] = [None; N];
-    for f in o.iter() {
-        let i = names.iter().position(|n| *n == f.key)?;
-        if out.get_mut(i)?.replace(f.val).is_some() {
-            return None;
-        }
-    }
-    let mut res = [Val::Null; N];
-    for (r, v) in res.iter_mut().zip(out) {
-        *r = v?;
-    }
-    Some(res)
-}
-
-/// Значение до `MARK_CAP` байт без выделения: состояние mark символа.
-const MARK_CAP: usize = 40;
-
-#[derive(Clone, Copy)]
-struct Small {
-    b: [u8; MARK_CAP],
-    n: usize,
-}
-
-impl Small {
-    const EMPTY: Small = Small {
-        b: [0; MARK_CAP],
-        n: 0,
-    };
-
-    fn set(&mut self, s: &[u8]) -> Option<()> {
-        let dst = self.b.get_mut(..s.len())?;
-        dst.copy_from_slice(s);
-        self.n = s.len();
-        Some(())
-    }
-
-    fn get(&self) -> &[u8] {
-        self.b.get(..self.n).unwrap_or(&[])
-    }
-}
 
 /// Полное состояние mark символа: `tickers` шлёт дельты, запись `m` — всегда полное состояние.
 #[derive(Clone, Copy)]
@@ -143,6 +98,8 @@ impl BybitParser {
             bsz,
             ask,
             asz,
+            bn: b"",
+            an: b"",
         })
     }
 

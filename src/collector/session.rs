@@ -386,6 +386,11 @@ fn frame(
             p.add(sh.exch.lag_ms(&data, rx));
         }
     }
+    if sh.exch.is_retire_notice(&data) {
+        sh.watch().mark_retire(seq);
+        sh.events
+            .emit("notice", json!({"session": seq, "retire": true}));
+    }
     if (*n - 1).is_multiple_of(LAG_SAMPLE) {
         if let Some(lag) = sh.exch.lag_ms(&data, rx) {
             sh.watch().sample(seq, lag);

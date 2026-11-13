@@ -4,7 +4,7 @@
 //!
 //! ```text
 //!   scan, codec        разбор плоского JSON без аллокаций; формат записи (Encoder/Decoder)
-//!   exchange           контракт адаптера биржи; binance, bybit — адреса, подписка, пул, разбор кадра
+//!   exchange           контракт адаптера биржи; binance, bybit, okx — адреса, подписка, пул, разбор кадра
 //!   metrics, fresh     гистограммы лагов, глубины очередей, свежесть записей
 //!   ring               очередь приёма → писатель (ограниченная, с глубиной и счётом ожиданий)
 //!   writer, sink       писатель шарда (разбор, дубли, строки) → поток диска (zstd, файл суток, `.ok`)
@@ -30,6 +30,7 @@ pub mod health;
 pub mod ladder;
 pub mod metrics;
 pub mod net;
+pub mod okx;
 pub mod path;
 pub mod pool;
 pub mod ring;

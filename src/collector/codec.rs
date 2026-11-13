@@ -47,7 +47,8 @@ impl Kind {
 }
 
 /// Лучшие bid/ask: `u` — номер обновления биржи (Bybit: сквозной `seq` — номер `u` у входов Bybit свой, см. `bybit.rs`);
-/// `id` — личность записи для снятия дублей (в файл не пишется).
+/// `id` — личность записи для снятия дублей (в файл не пишется); `bn`/`an` — число ордеров на лучшем уровне, если биржа его шлёт
+/// (OKX `bbo-tbt`), иначе пусто — тогда хвостовые столбцы строки не пишутся.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Book<'a> {
     pub sym: &'a [u8],
@@ -59,6 +60,8 @@ pub struct Book<'a> {
     pub bsz: &'a [u8],
     pub ask: &'a [u8],
     pub asz: &'a [u8],
+    pub bn: &'a [u8],
+    pub an: &'a [u8],
 }
 
 /// Сделка: `a` — ключ порядка, `f`/`l` — первый/последний id в агрегате, `m` — покупатель мейкер, `nq` — размер без RPI;
@@ -220,6 +223,10 @@ impl Encoder {
                 field(out, b.bsz);
                 field(out, b.ask);
                 field(out, b.asz);
+                if !b.bn.is_empty() || !b.an.is_empty() {
+                    field(out, b.bn);
+                    field(out, b.an);
+                }
             }
             Rec::Trade(t) => {
                 out.push(b't');
@@ -299,6 +306,8 @@ pub enum Decoded {
         bsz: String,
         ask: String,
         asz: String,
+        bn: String,
+        an: String,
     },
     Trade {
         rx_ns: i64,
@@ -395,6 +404,8 @@ impl Decoder {
                     bsz: text(&f, 7)?,
                     ask: text(&f, 8)?,
                     asz: text(&f, 9)?,
+                    bn: f.get(10).map_or_else(String::new, |s| (*s).to_string()),
+                    an: f.get(11).map_or_else(String::new, |s| (*s).to_string()),
                 })
             }
             b't' => {

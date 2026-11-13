@@ -43,15 +43,21 @@ pub fn balanced_chunks<T: Clone>(items: &[T], per_conn: usize) -> Vec<Vec<T>> {
 
 /// GET → JSON на момент старта (пул): короткая среда выполнения, не горячий путь.
 pub fn http_get_json(url: &str) -> Result<serde_json::Value, String> {
+    http_get_json_ua(url, None)
+}
+
+/// То же со своим `User-Agent`: OKX за Cloudflare отвечает `403 error code: 1010` на запрос без него (замер 12.11).
+pub fn http_get_json_ua(url: &str, user_agent: Option<&str>) -> Result<serde_json::Value, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|e| e.to_string())?;
+        let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
+        if let Some(ua) = user_agent {
+            builder = builder.user_agent(ua);
+        }
+        let client = builder.build().map_err(|e| e.to_string())?;
         let resp = client
             .get(url)
             .send()

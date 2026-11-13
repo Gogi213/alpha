@@ -5,10 +5,15 @@ Binance: for chosen symbols fetch /fapi/v1/aggTrades for the window and compare 
   missing = REST id absent from the files, extra = recorded id absent from REST, mismatch = same id, different field.
 Bybit: /v5/market/recent-trade (last 1000 per symbol, UUID execId) against `capture-*.tsv` (ALPHA_COLLECT_CAPTURE=1): missing/extra by execId within the
 time span both cover; mismatch on price/size/side. The recorded Bybit key `a` (seq*1000+i) carries no UUID, so identity comes from the capture.
+OKX: /api/v5/market/history-trades (every individual public trade, paged back by tradeId, `source` included) against the recorded aggregates: a recorded `t` row covers the id range
+f..l (`tradeId - count + 1 .. tradeId`); missing = a REST trade whose id lies in no recorded range, mismatch = a range whose price / side / summed size / ELP flag (`x` = E <=> REST source 1)
+differs from the REST trades inside it, extra = a recorded range (not at the window edges) with no REST trade at all.
 Usage (srv): restcheck.py binance <data root> <t0_ms> <t1_ms> --symbols 25 --out restcheck.json
              restcheck.py bybit <data root with capture-*.tsv> <t0_ms> <t1_ms> --symbols 25 --out restcheck.json
+             restcheck.py okx <data root> <t0_ms> <t1_ms> --symbols 25 --spread --covered-ms <ms> --out restcheck.json
 """
 import argparse
+import bisect
 import glob
 import io
 import json
@@ -18,6 +23,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections import Counter, defaultdict
+from decimal import Decimal
 
 import zstandard
 
@@ -163,9 +169,88 @@ def bybit(a, t0, t1):
     return res
 
 
+OKX_UA = {"User-Agent": "alpha-collector/okx-check"}  # without it Cloudflare answers 403 error code 1010
+
+
+def get_okx(url, retries=4):
+    for i in range(retries):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=OKX_UA), timeout=20) as r:
+                j = json.load(r)
+            if j.get("code") != "0":
+                raise RuntimeError(f"okx code {j.get('code')} {j.get('msg')}")
+            return j["data"]
+        except Exception:  # noqa: BLE001
+            if i == retries - 1:
+                raise
+            time.sleep(1.5 * (i + 1))
+
+
+def file_trades_okx(root, t0, t1):
+    """symbol -> [(f, l, price, size, taker sells, T, x)] of recorded `t` rows with trade time T in [t0, t1]; x = the trailing flag column (E = ELP)."""
+    out = defaultdict(dict)
+    for p in run_files(root):
+        lines = [ln for ln in read_lines(p) if ln.strip()]
+        for ln, r in zip(lines, codec.decode(iter(lines))):
+            if r["t"] == "t" and t0 <= r["T"] <= t1:
+                f = ln.rstrip("\n").split("\t")
+                out[r["s"]][r["l"]] = (r["f"], r["l"], r["p"], r["q"], r["m"], r["T"], f[12] if len(f) > 12 else "")
+    return {s: sorted(v.values()) for s, v in out.items()}
+
+
+def okx_rest_trades(inst, t0, t1):
+    """tradeId -> (price, size, side, ts, source) of every public trade of inst with ts in [t0, t1]: history-trades pages (100, newest first) walked back by tradeId."""
+    rows, after = {}, None
+    while True:
+        page = get_okx(f"https://www.okx.com/api/v5/market/history-trades?instId={inst}&type=1&limit=100" + (f"&after={after}" if after else ""))
+        if not page:
+            break
+        for x in page:
+            rows[int(x["tradeId"])] = (x["px"], x["sz"], x["side"], int(x["ts"]), x["source"])
+        oldest = min(page, key=lambda x: int(x["tradeId"]))
+        if int(oldest["ts"]) < t0 or len(page) < 100:
+            break
+        after = oldest["tradeId"]
+        time.sleep(0.12)  # 20 requests / 2 s per IP
+    return {k: v for k, v in rows.items() if t0 <= v[3] <= t1}
+
+
+def okx(a, t0, t1):
+    rec = file_trades_okx(a.root, t0, t1)
+    syms = pick({s: len(v) for s, v in rec.items()}, a.symbols, a.spread)
+    res = {}
+    for s in syms:
+        rest = okx_rest_trades(s, t0, t1)
+        ranges = rec[s]
+        starts = [x[0] for x in ranges]
+        inside, missing = defaultdict(list), []
+        for tid, v in rest.items():
+            i = bisect.bisect_right(starts, tid) - 1
+            if i >= 0 and ranges[i][1] >= tid:
+                inside[i].append((tid, v))
+            else:
+                missing.append(tid)
+        mism = []
+        for i, items in inside.items():
+            f, l, p, q, m, _, x = ranges[i]
+            ok = all(v[0] == p and (v[2] == "sell") == m and (v[4] == "1") == (x == "E") for _, v in items)
+            if len(items) == l - f + 1:  # the REST page holds the whole range: summed size must match too
+                ok = ok and Decimal(q) == sum(Decimal(v[1]) for _, v in items)
+            if not ok:
+                mism.append((f, l, p, q, m, x, sorted(items)[:3]))
+        edge = 5000  # a range cut by the window edge has REST trades outside the checked span
+        extra = [r for i, r in enumerate(ranges) if i not in inside and t0 + edge <= r[5] <= t1 - edge]
+        late = [k for k in missing if rest[k][3] >= a.covered_ms]
+        res[s] = {"rest": len(rest), "file": len(ranges), "missing_in_file": len(missing), "extra_in_file": len(extra), "mismatch": len(mism),
+                  "rest_after_covered": sum(1 for v in rest.values() if v[3] >= a.covered_ms), "missing_after_covered": len(late),
+                  "missing_examples": [(k, rest[k]) for k in sorted(missing)[:5]], "extra_examples": extra[:3], "mismatch_examples": mism[:3]}
+        time.sleep(0.2)
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("exchange", choices=["binance", "bybit"])
+    ap.add_argument("exchange", choices=["binance", "bybit", "okx"])
     ap.add_argument("root")
     ap.add_argument("t0", type=int)
     ap.add_argument("t1", type=int)
@@ -177,7 +262,7 @@ def main():
     a = ap.parse_args()
     global MIN_RUN
     MIN_RUN = a.min_run
-    res = (binance if a.exchange == "binance" else bybit)(a, a.t0, a.t1)
+    res = {"binance": binance, "bybit": bybit, "okx": okx}[a.exchange](a, a.t0, a.t1)
     tot = Counter()
     for v in res.values():
         for k, x in v.items():

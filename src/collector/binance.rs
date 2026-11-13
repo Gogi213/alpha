@@ -11,7 +11,7 @@ use serde_json::json;
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
-use super::scan::{each_elem, parse_object, Obj, Val};
+use super::scan::{each_elem, parse_object, slots, Val};
 
 const REST: &str = "https://fapi.binance.com";
 const HOST: &str = "fstream.binance.com";
@@ -19,25 +19,6 @@ const SUB_BATCH: usize = 100;
 const MARK_STREAM: &str = "!markPrice@arr@1s";
 
 pub struct Binance;
-
-/// Ключи объекта: каждый ровно раз, все `N` — иначе `None`. Значения — в слотах по порядку `names`.
-fn slots<'a, const N: usize>(o: &Obj<'a>, names: [&[u8]; N]) -> Option<[Val<'a>; N]> {
-    if o.len() != N {
-        return None;
-    }
-    let mut out: [Option<Val<'a>>; N] = [None; N];
-    for f in o.iter() {
-        let i = names.iter().position(|n| *n == f.key)?;
-        if out.get_mut(i)?.replace(f.val).is_some() {
-            return None;
-        }
-    }
-    let mut res = [Val::Null; N];
-    for (r, v) in res.iter_mut().zip(out) {
-        *r = v?;
-    }
-    Some(res)
-}
 
 fn is_one(v: Val<'_>) -> bool {
     v.int() == Some(1)
@@ -65,6 +46,8 @@ fn book(data: &[u8]) -> Option<Book<'_>> {
         bsz: bq.str()?,
         ask: a.str()?,
         asz: aq.str()?,
+        bn: b"",
+        an: b"",
     })
 }
 

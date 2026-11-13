@@ -20,6 +20,7 @@ use super::events::now_ms;
 use super::exchange::{Entrance, Exchange, Family};
 use super::health::{build, write_atomic, HealthCtx, ProcSampler};
 use super::metrics::STATS_PERIOD_S;
+use super::okx::Okx;
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
 use super::writer::day_string;
 
@@ -27,10 +28,15 @@ use super::writer::day_string;
 pub enum ExchangeName {
     Binance,
     Bybit,
+    Okx,
 }
 
 /// Назначаемое (по заданию координатора 12.11): до ~280 из лимита Binance 300 подключений / 5 мин на IP.
 const BINANCE_LIMIT: usize = 280;
+/// OKX: лимит биржи — 3 подключения в секунду на IP (документация, «Connection limit: 3 requests per second (based on IP)»); 5-минутного окна нет.
+/// Назначаемое: 2 в секунду (запас 1 на неточность счёта биржи и ручные пробы с этого IP).
+const OKX_LIMIT: usize = 2;
+const OKX_WINDOW: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Args)]
 pub struct RunArgs {
@@ -55,10 +61,11 @@ pub struct RunArgs {
     pub streams_per_conn: usize,
     #[arg(long, default_value_t = 300_000.0)]
     pub min_quote_volume: f64,
-    #[arg(long, default_value_t = 10)]
-    pub top_exclude: usize,
+    /// Сколько крупнейших по обороту не брать в пул (по умолчанию — правило биржи G-022: Binance и Bybit 10, OKX 0).
+    #[arg(long)]
+    pub top_exclude: Option<usize>,
     /// Подключений к бирже за 5 мин на процесс (по умолчанию: Binance — 280 из лимита биржи 300 на IP, замер маршрута 12.11: отбраковка медленных
-    /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`). Отбракованные подключения считаются.
+    /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`; OKX — за 1 с, `OKX_LIMIT`). Отбракованные подключения считаются.
     #[arg(long)]
     pub connect_budget: Option<usize>,
     /// Файл с лимитом подключений за 5 мин (одно число), перечитывается раз в 2 с и заменяет `--connect-budget`. Передача между двумя процессами
@@ -106,6 +113,7 @@ pub fn exchange_of(n: ExchangeName) -> Arc<dyn Exchange> {
     match n {
         ExchangeName::Binance => Arc::new(Binance),
         ExchangeName::Bybit => Arc::new(Bybit),
+        ExchangeName::Okx => Arc::new(Okx::default()),
     }
 }
 
@@ -181,32 +189,49 @@ fn read_limit(path: &std::path::Path) -> Option<usize> {
         .filter(|n| *n > 0)
 }
 
-fn load_pool_file(path: &std::path::Path) -> Result<Vec<String>, String> {
+/// Пул из файла и его `meta`/`qv` (если есть) — они переходят в `pool-<день>.json` процесса.
+fn load_pool_file(path: &std::path::Path) -> Result<(Vec<String>, serde_json::Value), String> {
     let v: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
     )
     .map_err(|e| e.to_string())?;
-    v.get("pool")
+    let pool = v
+        .get("pool")
         .and_then(|p| p.as_array())
         .map(|a| {
             a.iter()
                 .filter_map(|x| x.as_str().map(str::to_string))
                 .collect()
         })
-        .ok_or_else(|| "в файле нет поля pool".to_string())
+        .ok_or_else(|| "в файле нет поля pool".to_string())?;
+    let extra: serde_json::Map<String, serde_json::Value> = ["meta", "qv"]
+        .iter()
+        .filter_map(|k| Some(((*k).to_string(), v.get(*k)?.clone())))
+        .collect();
+    Ok((pool, serde_json::Value::Object(extra)))
 }
 
 pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let exch = exchange_of(args.exchange);
     std::fs::create_dir_all(&args.root)?;
-    let (pool, top) = match &args.pool_file {
-        Some(p) => (load_pool_file(p).map_err(anyhow::Error::msg)?, Vec::new()),
-        None => exch
-            .load_pool(args.min_quote_volume, args.top_exclude)
-            .map_err(anyhow::Error::msg)?,
+    let (pool, top, extra) = match &args.pool_file {
+        Some(p) => {
+            let (pool, extra) = load_pool_file(p).map_err(anyhow::Error::msg)?;
+            (pool, Vec::new(), Some(extra))
+        }
+        None => {
+            let top_exclude = args.top_exclude.unwrap_or(exch.default_top_exclude());
+            let (pool, top) = exch
+                .load_pool(args.min_quote_volume, top_exclude)
+                .map_err(anyhow::Error::msg)?;
+            (pool, top, exch.pool_meta())
+        }
     };
     let run_id = now_ms().div_euclid(1000);
-    let pool_json = json!({"ts_ms": now_ms(), "min_quote_volume": args.min_quote_volume, "top_excluded": top, "pool": pool});
+    let mut pool_json = json!({"ts_ms": now_ms(), "min_quote_volume": args.min_quote_volume, "top_excluded": top, "pool": pool});
+    if let (Some(serde_json::Value::Object(extra)), Some(o)) = (extra, pool_json.as_object_mut()) {
+        o.extend(extra);
+    }
     std::fs::write(
         args.root.join(format!(
             "pool-{}.json",
@@ -247,13 +272,18 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let limit = args.connect_budget.unwrap_or(match args.exchange {
         ExchangeName::Binance => BINANCE_LIMIT,
         ExchangeName::Bybit => LIMIT,
+        ExchangeName::Okx => OKX_LIMIT,
     });
     let limit = args
         .budget_file
         .as_deref()
         .and_then(read_limit)
         .unwrap_or(limit);
-    let budget = Arc::new(Budget::new(limit, WINDOW));
+    let window = match args.exchange {
+        ExchangeName::Okx => OKX_WINDOW,
+        _ => WINDOW,
+    };
+    let budget = Arc::new(Budget::new(limit, window));
     budget.set_reserve(args.reject_reserve);
     let mut handles: Vec<ShardHandle> = Vec::new();
     for plan in &plans {

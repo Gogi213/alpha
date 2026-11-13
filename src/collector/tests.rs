@@ -19,6 +19,7 @@ use super::exchange::{Entrance, Exchange, Family, Parsed};
 use super::fresh::{Fresh, KindFresh, LATE_MS};
 use super::health::{build, HealthCtx, ProcSampler};
 use super::metrics::{Hist, Rolling, ShardMetrics};
+use super::okx::{self, Okx};
 use super::path::{path_verdict, percentile, PathProbe, PathWatch};
 use super::pool::{balanced_chunks, rank_pool};
 use super::ring::{ring, Item, Payload};
@@ -117,6 +118,8 @@ fn codec_roundtrip_exact() {
         bsz: b"8.454",
         ask: b"74600.10",
         asz: b"7.416",
+        bn: b"",
+        an: b"",
     });
     let b2 = Rec::Book(Book {
         sym: b"BTCUSDT",
@@ -128,6 +131,8 @@ fn codec_roundtrip_exact() {
         bsz: b"1",
         ask: b"74600.10",
         asz: b"2",
+        bn: b"",
+        an: b"",
     });
     let t1 = Rec::Trade(Trade {
         sym: b"BTCUSDT",
@@ -204,7 +209,9 @@ fn codec_roundtrip_exact() {
             bid: "74600".into(),
             bsz: "8.454".into(),
             ask: "74600.10".into(),
-            asz: "7.416".into()
+            asz: "7.416".into(),
+            bn: String::new(),
+            an: String::new(),
         }
     );
     assert!(
@@ -270,6 +277,8 @@ fn encoder_reset_makes_next_record_absolute() {
         bsz: b"1",
         ask: b"2",
         asz: b"2",
+        bn: b"",
+        an: b"",
     });
     let mut a = Vec::new();
     enc.record(&mut a, 1_000, &mut st, &r);
@@ -385,7 +394,9 @@ fn binance_parses_book_trade_mark_exactly() {
             bid: "8.6790".into(),
             bsz: "42".into(),
             ask: "8.6800".into(),
-            asz: "285".into()
+            asz: "285".into(),
+            bn: String::new(),
+            an: String::new(),
         }
     );
     assert_eq!(r[1].0, Parsed::Recs(1));
@@ -590,7 +601,9 @@ fn bybit_book_and_lag() {
             bid: "74600".into(),
             bsz: "8.454".into(),
             ask: "74600.1".into(),
-            asz: "7.416".into()
+            asz: "7.416".into(),
+            bn: String::new(),
+            an: String::new(),
         }
     );
     assert_eq!(
@@ -843,6 +856,423 @@ fn bybit_plan_entrances_and_subscribe() {
         Entrance::parse("@1.2.3.4", Family::Any).is_err()
             && Entrance::parse("h@nope", Family::Any).is_err()
     );
+}
+
+// ---- OKX ----
+
+const OK_BOOK: &str = r#"{"arg":{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"},"data":[{"asks":[["73525.1","410.62","0","32"]],"bids":[["73525","607.92","0","47"]],"ts":"1794471872705","seqId":352851720643}]}"#;
+const OK_TRADE: &str = r#"{"arg":{"channel":"trades","instId":"BTC-USDT-SWAP"},"data":[{"instId":"BTC-USDT-SWAP","tradeId":"3065992813","px":"73525.1","sz":"10.28","side":"buy","ts":"1794471876286","count":"6","source":"0","seqId":352851722116}]}"#;
+const OK_MARK: &str = r#"{"arg":{"channel":"mark-price","instId":"BTC-USDT-SWAP"},"data":[{"instId":"BTC-USDT-SWAP","instType":"SWAP","markPx":"73525.0","ts":"1794471872430"}]}"#;
+const OK_INDEX: &str = r#"{"arg":{"channel":"index-tickers","instId":"BTC-USDT"},"data":[{"instId":"BTC-USDT","idxPx":"73557.7","open24h":"73678.4","high24h":"74789","low24h":"73355","sodUtc0":"73980","sodUtc8":"73967.6","ts":"1794471872500"}]}"#;
+const OK_FUND: &str = r#"{"arg":{"channel":"funding-rate","instId":"BTC-USDT-SWAP"},"data":[{"formulaType":"withRate","fundingRate":"0.0000871484324502","fundingTime":"1794499200000","impactValue":"20000.0000000000000000","instId":"BTC-USDT-SWAP","instType":"SWAP","interestRate":"0.0001000000000000","maxFundingRate":"0.00375","method":"current_period","minFundingRate":"-0.00375","nextFundingRate":"","nextFundingTime":"1794528000000","premium":"0.0001","prevFundingTime":"1794470400000","settFundingRate":"","settState":"settled","ts":"1794471872600"}]}"#;
+const OK_NOTICE: &str = r#"{"event":"notice","code":"64008","msg":"The connection will soon be closed for a service upgrade. Please reconnect.","connId":"7adac232"}"#;
+
+fn ok_trade(elems: &[&str]) -> String {
+    format!(
+        r#"{{"arg":{{"channel":"trades","instId":"BTC-USDT-SWAP"}},"data":[{}]}}"#,
+        elems.join(",")
+    )
+}
+
+fn ok_fill(id: &str, side: &str, count: &str, source: &str) -> String {
+    format!(
+        r#"{{"instId":"BTC-USDT-SWAP","tradeId":"{id}","px":"73525.1","sz":"10.28","side":"{side}","ts":"1794471876286","count":"{count}","source":"{source}","seqId":352851722116}}"#
+    )
+}
+
+#[test]
+fn okx_book_keeps_order_counts_and_goes_raw_on_unknown_shapes() {
+    let r = parse_all(&Okx::default(), &[OK_BOOK]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_471_872_705,
+            t: 1_794_471_872_705,
+            sym: "BTC-USDT-SWAP".into(),
+            u: 352_851_720_643,
+            bid: "73525".into(),
+            bsz: "607.92".into(),
+            ask: "73525.1".into(),
+            asz: "410.62".into(),
+            bn: "47".into(),
+            an: "32".into(),
+        }
+    );
+    let okx = Okx::default();
+    assert_eq!(
+        okx.lag_ms(OK_BOOK.as_bytes(), 1_794_471_872_805_000_000),
+        Some(100.0)
+    );
+    assert_eq!(okx.symbol(OK_BOOK.as_bytes()), Some(&b"BTC-USDT-SWAP"[..]));
+    assert_eq!(
+        okx.symbol(OK_INDEX.as_bytes()),
+        None,
+        "индекс — не контракт пула"
+    );
+    let others = [
+        OK_BOOK.replace(r#""0","32""#, r#""1","32""#),
+        OK_BOOK.replace(r#""seqId""#, r#""newfield":1,"seqId""#),
+        OK_BOOK.replace(r#"[["73525.1","410.62","0","32"]]"#, "[]"),
+        OK_BOOK.replace(
+            r#"[["73525","607.92","0","47"]]"#,
+            r#"[["73525","607.92","0","47"],["73524","1","0","1"]]"#,
+        ),
+        OK_BOOK.replace(
+            r#""instId":"BTC-USDT-SWAP"},"data""#,
+            r#""instId":"BTC-USDT-SWAP","x":1},"data""#,
+        ),
+        r#"{"event":"subscribe","arg":{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"},"connId":"7adac232"}"#.to_string(),
+        r#"{"event":"error","code":"60018","msg":"Wrong URL or channel:trades-all,instId:BTC-USDT-SWAP doesn't exist.","connId":"x"}"#.to_string(),
+        OK_NOTICE.to_string(),
+    ];
+    let refs: Vec<&str> = others.iter().map(String::as_str).collect();
+    for (i, (p, recs)) in parse_all(&okx, &refs).iter().enumerate() {
+        assert!(*p == Parsed::Raw && recs.is_empty(), "кадр {i}: {p:?}");
+    }
+    assert_eq!(okx.lag_ms(OK_NOTICE.as_bytes(), 1), None);
+}
+
+#[test]
+fn okx_trade_aggregate_ranges_side_and_source() {
+    let r = parse_all(&Okx::default(), &[OK_TRADE]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Trade {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_471_876_286,
+            t: 1_794_471_876_286,
+            sym: "BTC-USDT-SWAP".into(),
+            a: 3_065_992_813,
+            p: "73525.1".into(),
+            q: "10.28".into(),
+            f: 3_065_992_808,
+            l: 3_065_992_813,
+            m: false,
+            nq: "10.28".into(),
+            x: String::new(),
+            i: String::new(),
+        }
+    );
+    let sell_elp = ok_trade(&[&ok_fill("3065992805", "sell", "1", "1")]);
+    let r = parse_all(&Okx::default(), &[&sell_elp]);
+    let Decoded::Trade { a, f, l, m, x, .. } = &r[0].1[0] else {
+        panic!("{:?}", r[0].1);
+    };
+    assert_eq!(
+        (*a, *f, *l, *m, x.as_str()),
+        (3_065_992_805, 3_065_992_805, 3_065_992_805, true, "E")
+    );
+    // элемент с неизвестным источником/стороной/счётчиком — raw, годный рядом — запись
+    let mixed = ok_trade(&[
+        &ok_fill("10", "buy", "1", "0"),
+        &ok_fill("11", "buy", "1", "2"),
+        &ok_fill("12", "hold", "1", "0"),
+        &ok_fill("13", "buy", "0", "0"),
+    ]);
+    let r = parse_all(&Okx::default(), &[&mixed]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    let raws: Vec<&Decoded> = r[0]
+        .1
+        .iter()
+        .filter(|d| matches!(d, Decoded::Raw { .. }))
+        .collect();
+    assert_eq!(raws.len(), 1, "негодные элементы — одним raw");
+    let Decoded::Raw { frame, .. } = raws[0] else {
+        unreachable!()
+    };
+    assert!(frame.starts_with(r#"{"arg":{"channel":"trades","instId":"BTC-USDT-SWAP"},"data":[{"#));
+    assert_eq!(frame.matches("tradeId").count(), 3);
+    let all_bad = ok_trade(&[&ok_fill("11", "buy", "1", "2")]);
+    assert_eq!(parse_all(&Okx::default(), &[&all_bad])[0].0, Parsed::Raw);
+}
+
+#[test]
+fn okx_mark_needs_index_and_funding_state_then_writes_every_frame() {
+    let newer_idx = OK_INDEX
+        .replace("73557.7", "73560.1")
+        .replace("872500", "872700");
+    let stale_idx = OK_INDEX
+        .replace("73557.7", "70000")
+        .replace("872500", "872000");
+    let later_mark = OK_MARK
+        .replace("73525.0", "73525.5")
+        .replace("872430", "872630");
+    let last_mark = later_mark.replace("872630", "872830");
+    let r = parse_all(
+        &Okx::default(),
+        &[
+            OK_MARK,
+            OK_INDEX,
+            OK_MARK,
+            OK_FUND,
+            OK_MARK,
+            &stale_idx,
+            &later_mark,
+            &newer_idx,
+            &last_mark,
+        ],
+    );
+    assert_eq!(
+        r[0].0,
+        Parsed::Raw,
+        "до индекса и ставки запись m неполная — кадр сырым"
+    );
+    assert_eq!(r[1].0, Parsed::Recs(0), "индекс — состояние, не запись");
+    assert_eq!(r[2].0, Parsed::Raw, "ставки ещё нет");
+    assert_eq!(r[3].0, Parsed::Recs(0));
+    let mark = |d: &Decoded| match d {
+        Decoded::Mark {
+            e,
+            p,
+            i,
+            r,
+            t,
+            ap,
+            pp,
+            ..
+        } => (
+            *e,
+            p.clone(),
+            i.clone(),
+            r.clone(),
+            *t,
+            ap.clone(),
+            pp.clone(),
+        ),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        mark(&r[4].1[0]),
+        (
+            1_794_471_872_430,
+            "73525.0".into(),
+            "73557.7".into(),
+            "0.0000871484324502".into(),
+            1_794_499_200_000,
+            String::new(),
+            String::new()
+        )
+    );
+    assert_eq!(
+        mark(&r[6].1[0]).2,
+        "73557.7",
+        "запоздавший индекс состояние не портит"
+    );
+    assert_eq!(mark(&r[6].1[0]).1, "73525.5");
+    assert_eq!(
+        mark(&r[8].1[0]).2,
+        "73560.1",
+        "новый индекс виден в следующей записи"
+    );
+}
+
+#[test]
+fn okx_plan_keeps_a_symbol_in_one_shard_and_subscribes_by_hundreds() {
+    let okx = Okx::default();
+    let pool: Vec<String> = (0..346).map(|i| format!("S{i:03}-USDT-SWAP")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = okx.plan(&pool, &kinds, 0);
+    let sizes = |p: &str| -> Vec<usize> {
+        plan.iter()
+            .filter(|x| x.name.starts_with(p))
+            .map(|x| x.streams.len())
+            .collect()
+    };
+    assert_eq!(sizes("book"), vec![87, 87, 87, 85]);
+    assert_eq!(sizes("trade"), vec![87, 87, 87, 85]);
+    assert_eq!(
+        sizes("mark"),
+        vec![261, 261, 261, 255],
+        "87 символов × 3 канала"
+    );
+    assert_eq!(plan[0].streams[0], "bbo-tbt:S000-USDT-SWAP");
+    assert_eq!(plan[4].streams[0], "trades:S000-USDT-SWAP");
+    let mark0 = &plan[8].streams;
+    assert_eq!(
+        (mark0[0].as_str(), mark0[1].as_str(), mark0[2].as_str()),
+        (
+            "mark-price:S000-USDT-SWAP",
+            "index-tickers:S000-USDT",
+            "funding-rate:S000-USDT-SWAP"
+        )
+    );
+    let mut all: Vec<&String> = plan
+        .iter()
+        .filter(|x| x.name.starts_with("mark"))
+        .flat_map(|x| x.streams.iter())
+        .collect();
+    all.sort();
+    all.dedup();
+    assert_eq!(all.len(), 346 * 3, "каждый символ ровно в одном шарде");
+    assert_eq!(
+        okx.plan(&pool, &["mark".to_string()], 30).len(),
+        35,
+        "30 аргументов — 10 символов на шард"
+    );
+    let msgs = okx.subscribe_messages(&plan[8].streams);
+    assert_eq!(msgs.len(), 3);
+    let m: serde_json::Value = serde_json::from_str(&msgs[0]).unwrap();
+    assert_eq!(
+        (
+            m["op"].as_str(),
+            m["args"].as_array().map(Vec::len),
+            m["args"][1]["channel"].as_str(),
+            m["args"][1]["instId"].as_str()
+        ),
+        (
+            Some("subscribe"),
+            Some(100),
+            Some("index-tickers"),
+            Some("S000-USDT")
+        )
+    );
+    assert_eq!(
+        okx.url("public", "ws.okx.com"),
+        "wss://ws.okx.com/ws/v5/public"
+    );
+    let lines = okx.default_entrances(2);
+    assert_eq!(
+        (
+            lines[0][0].family,
+            lines[0][1].family,
+            lines[1][0].family,
+            lines[1][1].family
+        ),
+        (Family::V4, Family::V6, Family::V6, Family::V4)
+    );
+    assert!(lines.iter().flatten().all(|e| e.host == "ws.okx.com"));
+    assert_eq!(okx.default_top_exclude(), 0);
+    assert_eq!(Bybit.default_top_exclude(), 10);
+}
+
+#[test]
+fn okx_pool_rule_turnover_filters_and_meta() {
+    let inst = |id: &str, ct: &str, settle: &str, state: &str| {
+        json!({"instId": id, "ctType": ct, "settleCcy": settle, "state": state, "ctVal": "0.01", "ctMult": "1", "ctValCcy": "BTC", "lotSz": "1",
+               "tickSz": "0.1", "minSz": "1", "instFamily": "BTC-USDT", "instCategory": "1", "listTime": "1"})
+    };
+    let tick =
+        |id: &str, vol: &str, last: &str| json!({"instId": id, "volCcy24h": vol, "last": last});
+    let instruments = vec![
+        inst("BTC-USDT-SWAP", "linear", "USDT", "live"),
+        inst("ETH-USDT-SWAP", "linear", "USDT", "live"),
+        inst("DEAD-USDT-SWAP", "linear", "USDT", "suspend"),
+        inst("BTC-USD-SWAP", "inverse", "BTC", "live"),
+        inst("BTC-USDC-SWAP", "linear", "USDC", "live"),
+        inst("THIN-USDT-SWAP", "linear", "USDT", "live"),
+        inst("NOTICK-USDT-SWAP", "linear", "USDT", "live"),
+    ];
+    let tickers = vec![
+        tick("BTC-USDT-SWAP", "1000", "70000"),
+        tick("ETH-USDT-SWAP", "1000", "2000"),
+        tick("DEAD-USDT-SWAP", "1000000", "1"),
+        tick("BTC-USD-SWAP", "1000000", "1"),
+        tick("BTC-USDC-SWAP", "1000000", "1"),
+        tick("THIN-USDT-SWAP", "1", "100000"),
+    ];
+    let (pool, top, extra) = okx::select_pool(&instruments, &tickers, 300_000.0, 0);
+    assert_eq!(
+        (pool, top),
+        (
+            vec!["BTC-USDT-SWAP".to_string(), "ETH-USDT-SWAP".to_string()],
+            vec![]
+        )
+    );
+    assert_eq!(extra["meta"]["ETH-USDT-SWAP"]["ctVal"], "0.01");
+    assert_eq!(extra["qv"]["BTC-USDT-SWAP"], 70_000_000.0);
+    assert!(extra["meta"].get("THIN-USDT-SWAP").is_none());
+    let (pool, top, _) = okx::select_pool(&instruments, &tickers, 300_000.0, 1);
+    assert_eq!(
+        (pool, top),
+        (
+            vec!["ETH-USDT-SWAP".to_string()],
+            vec!["BTC-USDT-SWAP".to_string()]
+        )
+    );
+}
+
+#[test]
+fn okx_retire_notice_only_for_64008() {
+    let okx = Okx::default();
+    assert!(okx.is_retire_notice(OK_NOTICE.as_bytes()));
+    assert!(!okx.is_retire_notice(OK_NOTICE.replace("64008", "64010").as_bytes()));
+    assert!(!okx.is_retire_notice(OK_BOOK.as_bytes()));
+    assert!(!Bybit.is_retire_notice(OK_NOTICE.as_bytes()));
+}
+
+fn okx_book_frame(u: i64, e: i64) -> String {
+    format!(
+        r#"{{"arg":{{"channel":"bbo-tbt","instId":"BTC-USDT-SWAP"}},"data":[{{"asks":[["1.1","3","0","2"]],"bids":[["1.0","2","0","1"]],"ts":"{e}","seqId":{u}}}]}}"#
+    )
+}
+
+#[test]
+fn okx_service_upgrade_notice_opens_a_replacement_without_a_gap() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (head, stop_src) = (
+        Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let once = Arc::new(AtomicBool::new(false));
+    let src = spawn_tape_with(
+        listener,
+        head,
+        Arc::clone(&stop_src),
+        okx_book_frame,
+        Some((once, OK_NOTICE)),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, mut plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    plan.streams = vec!["bbo-tbt:BTC-USDT-SWAP".into()];
+    (opts.overlap, opts.switch_wait) = (Duration::from_millis(800), Duration::from_secs(5));
+    let exch: Arc<dyn Exchange> = Arc::new(Okx::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "rotated") < 1 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    std::thread::sleep(Duration::from_millis(600));
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert_eq!(
+        count_events(dir.path(), "notice"),
+        1,
+        "предупреждение принято один раз"
+    );
+    assert_eq!(
+        count_events(dir.path(), "rotated"),
+        1,
+        "замена по предупреждению, возраст до 23 ч далеко"
+    );
+    assert_eq!(
+        count_events(dir.path(), "entrance_switch"),
+        0,
+        "вход не меняется"
+    );
+    assert_eq!(count_events(dir.path(), "connected"), 2);
+    assert_u_contiguous(dir.path());
+    let raws = read_days(dir.path())
+        .iter()
+        .flat_map(|d| d.1.iter())
+        .filter(|d| matches!(d, Decoded::Raw { frame, .. } if frame.contains("64008")))
+        .count();
+    assert_eq!(raws, 1, "само предупреждение записано как пришло");
 }
 
 // ---- метрики ----
@@ -1598,6 +2028,17 @@ fn spawn_tape(
     head: Arc<std::sync::atomic::AtomicI64>,
     stop: Arc<AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
+    spawn_tape_with(listener, head, stop, bn_book, None)
+}
+
+/// То же с кадром биржи на событие и (необязательно) одноразовым кадром-предупреждением: первое соединение шлёт его сразу после подписки.
+fn spawn_tape_with(
+    listener: TcpListener,
+    head: Arc<std::sync::atomic::AtomicI64>,
+    stop: Arc<AtomicBool>,
+    make: fn(i64, i64) -> String,
+    notice: Option<(Arc<AtomicBool>, &'static str)>,
+) -> std::thread::JoinHandle<()> {
     let h2 = Arc::clone(&head);
     let s2 = Arc::clone(&stop);
     std::thread::spawn(move || {
@@ -1614,12 +2055,20 @@ fn spawn_tape(
                 Ok((s, _)) => {
                     s.set_nonblocking(false).unwrap();
                     let (head, stop) = (Arc::clone(&head), Arc::clone(&stop));
+                    let notice = notice.clone();
                     conns.push(std::thread::spawn(move || {
                         let Ok(mut ws) = tungstenite::accept(s) else {
                             return;
                         };
                         if ws.read().is_err() {
                             return;
+                        }
+                        if let Some((once, frame)) = notice {
+                            if !once.swap(true, Relaxed)
+                                && ws.send(tungstenite::Message::text(frame)).is_err()
+                            {
+                                return;
+                            }
                         }
                         ws.get_ref()
                             .set_read_timeout(Some(Duration::from_millis(1)))
@@ -1629,7 +2078,7 @@ fn spawn_tape(
                             while sent < head.load(Relaxed) {
                                 sent += 1;
                                 if ws
-                                    .send(tungstenite::Message::text(bn_book(
+                                    .send(tungstenite::Message::text(make(
                                         sent,
                                         super::events::now_ms(),
                                     )))

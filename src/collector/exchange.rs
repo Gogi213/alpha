@@ -1,6 +1,6 @@
 //! Контракт адаптера биржи для ядра коллектора: только специфика биржи — адреса, подписка, пул, разбор кадра.
 //!
-//! Ядро (`session`, `shard`, `writer`) биржу не знает; адаптеры — `binance.rs`, `bybit.rs`.
+//! Ядро (`session`, `shard`, `writer`) биржу не знает; адаптеры — `binance.rs`, `bybit.rs`, `okx.rs`.
 
 use std::net::IpAddr;
 use std::time::Duration;
@@ -131,4 +131,16 @@ pub trait Exchange: Send + Sync {
         min_qv: f64,
         top_exclude: usize,
     ) -> Result<(Vec<String>, Vec<String>), String>;
+    /// Сколько крупнейших по обороту не брать в пул, если не задано: правило G-022 — Binance и Bybit без топ-10, остальные биржи — весь пул.
+    fn default_top_exclude(&self) -> usize {
+        10
+    }
+    /// Метаданные символов пула (размер контракта и т. п.) — в `pool-<день>.json` рядом с пулом; заполняется `load_pool`.
+    fn pool_meta(&self) -> Option<serde_json::Value> {
+        None
+    }
+    /// Кадр — предупреждение биржи о плановом разрыве соединения (OKX `notice` 64008): сессия открывает замену и закрывается после перекрытия.
+    fn is_retire_notice(&self, _frame: &[u8]) -> bool {
+        false
+    }
 }

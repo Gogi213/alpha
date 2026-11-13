@@ -293,7 +293,7 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         if let Some(h) = lane.health.get(lane.k) {
             h.store(open && !bad && !slow_raw, Relaxed);
         }
-        let old = cur.born.elapsed() >= opts.max_age;
+        let old = cur.born.elapsed() >= opts.max_age || sh.watch().is_retiring(cur.seq);
         // сессия принята без проверки пути, потому что шард был без соединения (холодный старт): путь меняется на проверенный позже, без смены входа
         let slow = !bad && !old && Instant::now() >= upgrade_retry && slow_raw;
         if !(bad || slow || old) {

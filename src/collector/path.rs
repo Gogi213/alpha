@@ -108,6 +108,8 @@ pub struct PathWatch {
     degraded: HashSet<u32>,
     /// Сессии, принятые без проверки пути (шард был без соединения) при медленном рукопожатии: путь улучшается позже заменой.
     slow: HashSet<u32>,
+    /// Сессии, которым биржа объявила плановый разрыв: линия открывает замену как по возрасту (`rotated`), вход не меняется.
+    retire: HashSet<u32>,
 }
 
 impl PathWatch {
@@ -123,6 +125,7 @@ impl PathWatch {
         self.bad.remove(&seq);
         self.degraded.remove(&seq);
         self.slow.remove(&seq);
+        self.retire.remove(&seq);
     }
 
     pub fn sample(&mut self, seq: u32, lag: f64) {
@@ -135,6 +138,14 @@ impl PathWatch {
 
     pub fn mark_slow(&mut self, seq: u32) {
         self.slow.insert(seq);
+    }
+
+    pub fn mark_retire(&mut self, seq: u32) {
+        self.retire.insert(seq);
+    }
+
+    pub fn is_retiring(&self, seq: u32) -> bool {
+        self.retire.contains(&seq)
     }
 
     /// Сессия открыта (соединение есть, сторож её ведёт).

@@ -375,3 +375,51 @@ pub fn single_pair(arr: &[u8]) -> Option<(&[u8], &[u8])> {
     let [price, size] = strs;
     (m == 2).then_some((price, size))
 }
+
+/// Ключи объекта: каждый ровно раз, все `N` — иначе `None`. Значения — в слотах по порядку `names` (строгий разбор: лишний, повторный или
+/// пропавший ключ — кадр пишется как пришёл).
+pub fn slots<'a, const N: usize>(o: &Obj<'a>, names: [&[u8]; N]) -> Option<[Val<'a>; N]> {
+    if o.len() != N {
+        return None;
+    }
+    let mut out: [Option<Val<'a>>; N] = [None; N];
+    for f in o.iter() {
+        let i = names.iter().position(|n| *n == f.key)?;
+        if out.get_mut(i)?.replace(f.val).is_some() {
+            return None;
+        }
+    }
+    let mut res = [Val::Null; N];
+    for (r, v) in res.iter_mut().zip(out) {
+        *r = v?;
+    }
+    Some(res)
+}
+
+/// Значение до `SMALL_CAP` байт без выделения: состояние символа в адаптерах с дельтами (Bybit tickers, OKX index/funding).
+pub const SMALL_CAP: usize = 40;
+
+#[derive(Clone, Copy)]
+pub struct Small {
+    b: [u8; SMALL_CAP],
+    n: usize,
+}
+
+impl Small {
+    pub const EMPTY: Small = Small {
+        b: [0; SMALL_CAP],
+        n: 0,
+    };
+
+    /// Длиннее `SMALL_CAP` — `None`, прежнее значение не тронуто.
+    pub fn set(&mut self, s: &[u8]) -> Option<()> {
+        let dst = self.b.get_mut(..s.len())?;
+        dst.copy_from_slice(s);
+        self.n = s.len();
+        Some(())
+    }
+
+    pub fn get(&self) -> &[u8] {
+        self.b.get(..self.n).unwrap_or(&[])
+    }
+}
