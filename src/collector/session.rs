@@ -260,6 +260,9 @@ pub struct Rx {
     n: u64,
     last_ping: Instant,
     ping_sent: Option<(Instant, [u8; 8])>,
+    /// Диагностика пинга: сколько мкс занял `ws.send(Ping)` и ушёл ли он в сокет сразу (`false`) или остался в очереди записи (`true`).
+    ping_send_us: u64,
+    ping_blocked: bool,
     pings_on: bool,
     ping_no: u64,
     last_frame: Instant,
@@ -281,6 +284,8 @@ impl Rx {
             n: 0,
             last_ping: t_loop,
             ping_sent: None,
+            ping_send_us: 0,
+            ping_blocked: false,
             pings_on: true,
             ping_no: 0,
             last_frame: t_loop,
@@ -341,8 +346,11 @@ impl Rx {
                     if p.as_ref() == tag.as_slice() {
                         let rtt = t_read.duration_since(t0);
                         if rtt >= SLOW_PONG {
-                            // стоянка пути короче порога `timeout` (10 с): pong вернулся поздно — какая сессия (линия) и что говорит сокет, пока видно по событию
-                            sh.events.emit("slow_pong", json!({"session": seq, "rtt_ms": rtt.as_millis(), "tcp": tcp_json(ws.get_ref().tcp())}));
+                            // стоянка пути короче порога `timeout` (10 с): pong вернулся поздно — какая сессия (линия) и что говорит сокет, пока видно по событию;
+                            // разбор по стадиям: `send_us`/`send_blocked` — запись пинга на нашей стороне, `k2r_us` — ожидание pong в нашем ядре и очереди чтения (ядерная метка → чтение);
+                            // остаток `rtt_ms` — сеть и биржа
+                            sh.events.emit("slow_pong", json!({"session": seq, "rtt_ms": rtt.as_millis(), "send_us": self.ping_send_us, "send_blocked": self.ping_blocked,
+                                "k2r_us": (wall_ns() - rx).max(0) / 1000, "tcp": tcp_json(ws.get_ref().tcp())}));
                         }
                         m.lists()
                             .pings
@@ -359,13 +367,36 @@ impl Rx {
                 }
                 None
             }
-            Message::Close(_) => Some(Outcome::Closed),
+            Message::Close(cf) => {
+                // кто и с каким кодом закрыл (1000 штатно, 1001 уходит, 1006 обрыв, 1008/1011 …): BingX закрывает обе линии подряд — причина должна быть в журнале
+                sh.events.emit("ws_close", json!({"session": seq, "by": "peer", "code": cf.as_ref().map(|c| u16::from(c.code)), "reason": cf.as_ref().map(|c| c.reason.to_string()),
+                    "tcp": tcp_json(ws.get_ref().tcp())}));
+                Some(Outcome::Closed)
+            }
             _ => None,
         }
     }
 
+    /// Конец чтения не по таймауту: журнал `ws_end` (как закончилось: FIN без закрывающего рукопожатия, RST, другая ошибка) вместе с состоянием сокета.
+    pub fn report_end(sh: &Shared, ws: &WebSocket<Conn>, seq: u32, e: &WsError) {
+        let how = match e {
+            WsError::ConnectionClosed | WsError::AlreadyClosed => {
+                "closed_after_handshake".to_string()
+            }
+            WsError::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake) => {
+                "fin_without_close_frame".to_string()
+            }
+            WsError::Io(io) if matches!(io.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                return
+            }
+            WsError::Io(io) => format!("io:{:?}", io.kind()),
+            _ => "error".to_string(),
+        };
+        sh.events.emit("ws_end", json!({"session": seq, "how": how, "detail": e.to_string(), "tcp": tcp_json(ws.get_ref().tcp())}));
+    }
+
     /// Ошибка чтения: `None` — не ошибка (нет данных на этот такт), иначе итог сессии.
-    pub fn read_error(e: WsError) -> Option<Outcome> {
+    pub fn read_error(e: &WsError) -> Option<Outcome> {
         match e {
             WsError::Io(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                 None
@@ -389,9 +420,14 @@ impl Rx {
                 None if now.duration_since(self.last_ping) >= sh.ping.0 => {
                     self.ping_no += 1;
                     let tag = self.ping_no.to_be_bytes();
+                    let t_send = Instant::now();
+                    let was_blocked = self.need_flush;
                     if let Err(e) = self.send(ws, Message::Ping(Bytes::copy_from_slice(&tag))) {
                         return Some(Outcome::Failed(format!("ping: {e}")));
                     }
+                    self.ping_send_us =
+                        u64::try_from(t_send.elapsed().as_micros()).unwrap_or(u64::MAX);
+                    self.ping_blocked = self.need_flush || was_blocked;
                     self.ping_sent = Some((now, tag));
                     self.last_ping = now;
                 }
@@ -544,7 +580,11 @@ fn read_loop(
                 }
             }
             Err(e) => {
-                if let Some(out) = Rx::read_error(e) {
+                let out = Rx::read_error(&e);
+                if out.is_some() {
+                    Rx::report_end(sh, ws, seq, &e);
+                }
+                if let Some(out) = out {
                     return out;
                 }
             }

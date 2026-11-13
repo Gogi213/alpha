@@ -536,9 +536,12 @@ fn on_ready(e: &mut Box<Entry>, stats: &ReactorStats, cfg: ReactorCfg) -> bool {
                 }
             }
             Err(err) => {
-                match Rx::read_error(err) {
+                match Rx::read_error(&err) {
                     None => {}
-                    Some(out) => e.outcome = Some(out),
+                    Some(out) => {
+                        Rx::report_end(&e.sh, &e.ws, e.seq, &err);
+                        e.outcome = Some(out);
+                    }
                 }
                 break;
             }
