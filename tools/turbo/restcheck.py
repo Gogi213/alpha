@@ -216,10 +216,12 @@ def file_trades_okx(root, t0, t1):
 
 
 def okx_rest_trades(inst, t0, t1):
-    """tradeId -> (price, size, side, ts, source) of every public trade of inst with ts in [t0, t1]: history-trades pages (100, newest first) walked back by tradeId."""
+    """tradeId -> (price, size, side, ts, source) of every public trade of inst with ts in [t0, t1]: history-trades pages (100, newest first), the first by time just after t1, the rest walked back by tradeId."""
     rows, after = {}, None
     while True:
-        page = get_okx(f"https://www.okx.com/api/v5/market/history-trades?instId={inst}&type=1&limit=100" + (f"&after={after}" if after else ""))
+        # first page: jump to the window end by time (type 2, so the walk does not start at "now": a pass hours later would page through hours of trades);
+        # then by tradeId (type 1, exact: ids are contiguous, no same-millisecond loss)
+        page = get_okx(f"https://www.okx.com/api/v5/market/history-trades?instId={inst}&limit=100" + (f"&type=1&after={after}" if after else f"&type=2&after={t1 + 3000}"))
         if not page:
             break
         for x in page:
