@@ -1,0 +1,8 @@
+binance  gaps    7  minutes with a gap    1  total gap       97 s  biggest 16 s  shards 7
+bybit    gaps    7  minutes with a gap    1  total gap       98 s  biggest 15 s  shards 7
+okx      gaps    1  minutes with a gap    1  total gap       14 s  biggest 14 s  shards 1
+bingx    gaps    3  minutes with a gap    1  total gap       53 s  biggest 20 s  shards 3
+srv-wide (union of exchanges): minutes with >= 1 gap 1 of 1440 (0.1 %)
+   minutes where >= 2 exchanges had a gap: 1
+   minutes where >= 3 exchanges had a gap: 1
+   minutes where >= 4 exchanges had a gap: 1

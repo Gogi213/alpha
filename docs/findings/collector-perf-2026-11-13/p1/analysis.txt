@@ -1,0 +1,248 @@
+samples 222062; capacity per core 29940; 8 cores = 239520
+
+## whole machine, cores by class
+  user             2.76 cores   37.2%
+  syscall          2.37 cores   32.0%
+  idle             1.44 cores   19.4%
+  softirq          0.50 cores    6.7%
+  kernel-other     0.34 cores    4.6%
+
+## per owner: cores total | user syscall softirq kernel-other
+  bingx                      1.74 | user=0.98 syscall=0.53 softirq=0.14 kernel-other=0.09
+  binance                    1.62 | user=0.59 syscall=0.81 softirq=0.13 kernel-other=0.09
+  bybit                      1.19 | user=0.46 syscall=0.58 softirq=0.10 kernel-other=0.06
+  okx                        1.04 | user=0.49 syscall=0.42 softirq=0.08 kernel-other=0.05
+  other:python3              0.22 | user=0.20 syscall=0.01 softirq=0.01 kernel-other=0.01
+  ksoftirqd                  0.06 | user=0.00 syscall=0.00 softirq=0.04 kernel-other=0.02
+  other:zstd                 0.06 | user=0.04 syscall=0.01 softirq=0.00 kernel-other=0.00
+  other:pgrep                0.01 | user=0.00 syscall=0.01 softirq=0.00 kernel-other=0.00
+  other:kworker              0.00 | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  other:perf                 0.00 | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  other:sshd-session         0.00 | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  other:bash                 0.00 | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  other:sleep                0.00 | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  other:rcu_preempt          0.00 | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+
+## binance pid 2579670: 1.62 cores total
+  rx        1.03 cores (63.5%) | user=0.31 syscall=0.57 softirq=0.09 kernel-other=0.06
+  wr        0.49 cores (30.2%) | user=0.23 syscall=0.19 softirq=0.04 kernel-other=0.03
+  sk        0.07 cores ( 4.6%) | user=0.04 syscall=0.02 softirq=0.01 kernel-other=0.00
+  ln        0.01 cores ( 0.7%) | user=0.00 syscall=0.01 softirq=0.00 kernel-other=0.00
+  sh        0.01 cores ( 0.7%) | user=0.00 syscall=0.01 softirq=0.00 kernel-other=0.00
+  main      0.00 cores ( 0.2%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  top user symbols in rx (of 0.31 cores user):
+      12.7%  [unknown]
+       5.3%  alpha::collector::session::body
+       3.8%  alpha::collector::session::deliver
+       3.6%  tungstenite::protocol::frame::FrameCodec::read_frame
+       3.4%  tungstenite::protocol::WebSocketContext::read
+       3.4%  _ZN3std4sync4mpmc5waker9SyncWaker6notify17h02db7d5273c39e3fE.llvm.7905889562987794608
+       3.4%  malloc
+       3.1%  rustls::conn::ConnectionCore<Data>::process_new_packets
+       2.8%  <rustls::crypto::ring::tls13::Tls13MessageDecrypter
+       2.7%  rustls::conn::ConnectionCommon<Data>::complete_io
+       2.7%  _aesni_ctr32_ghash_6x
+       2.5%  <std::net::tcp::TcpStream
+       2.3%  _ZN3std4sync4mpmc5array16Channel$LT$T$GT$10start_send17h326c79bfe57fb788E.llvm.7905889562987794608
+       2.1%  __vdso_clock_gettime
+  top user symbols in wr (of 0.23 cores user):
+      10.7%  <alpha::collector::binance::BinanceParser
+       9.2%  alpha::collector::scan::parse_object
+       8.4%  <alpha::collector::writer::Sink
+       8.0%  [unknown]
+       7.1%  alpha::collector::scan::Cur::value
+       4.7%  std::thread::thread::Thread::park_timeout
+       4.4%  alpha::collector::codec::Encoder::record
+       4.3%  alpha::collector::writer::ShardWriter::handle
+       4.2%  alpha::collector::writer::ShardWriter::run
+       3.4%  __vdso_clock_gettime
+       3.2%  std::sync::mpmc::array::Channel<T>::recv
+       3.2%  _ZN3std4sync4mpmc5array16Channel$LT$T$GT$10start_recv17h3a277d5484be3787E.llvm.7905889562987794608
+       2.6%  alpha::collector::scan::Val::int
+       2.5%  <alpha::collector::binance::Binance
+  top user symbols in sk (of 0.04 cores user):
+      47.7%  ZSTD_compressBlock_fast_extDict_generic.constprop.0
+       5.0%  ZSTD_encodeSequences_bmi2
+       4.6%  FSE_buildCTable_wksp
+       3.6%  [unknown]
+       2.7%  HUF_buildCTable_wksp
+       2.4%  alpha::collector::sink::run_sink_with
+       2.0%  HIST_countFast_wksp
+       2.0%  HUF_compress1X_usingCTable_internal_bmi2
+       1.8%  ZSTD_compressStream
+       1.7%  HIST_count_wksp
+       1.4%  ZSTD_seqToCodes
+       1.4%  ZSTD_compressLiterals
+       1.3%  FSE_normalizeCount
+       1.2%  ZSTD_compressContinue_internal
+  syscalls by kernel time (0.81 cores): recvfrom=47%, futex=33%, ?=18%, clock_nanosleep=1%, ioctl=1%, openat=0%, close=0%, statx=0%
+  top kernel leaf symbols (1.03 cores): entry_SYSRETQ_unsafe_stack=2%, __pv_queued_spin_lock_slowpath=2%, __schedule=2%, timerqueue_add=2%, update_curr=2%, update_load_avg=1%, perf_tp_event=1%, entry_SYSCALL_64=1%, __get_user_8=1%, syscall_return_via_sysret=1%
+
+## bybit pid 2579146: 1.19 cores total
+  rx        0.72 cores (60.2%) | user=0.23 syscall=0.39 softirq=0.06 kernel-other=0.04
+  wr        0.40 cores (33.7%) | user=0.19 syscall=0.16 softirq=0.03 kernel-other=0.02
+  sk        0.05 cores ( 4.1%) | user=0.03 syscall=0.02 softirq=0.00 kernel-other=0.00
+  ln        0.01 cores ( 0.9%) | user=0.00 syscall=0.01 softirq=0.00 kernel-other=0.00
+  sh        0.01 cores ( 0.8%) | user=0.00 syscall=0.01 softirq=0.00 kernel-other=0.00
+  main      0.00 cores ( 0.2%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  top user symbols in rx (of 0.23 cores user):
+      11.8%  [unknown]
+       5.7%  alpha::collector::session::body
+       3.8%  _ZN3std4sync4mpmc5waker9SyncWaker6notify17h02db7d5273c39e3fE.llvm.7905889562987794608
+       3.7%  malloc
+       3.7%  alpha::collector::session::deliver
+       3.2%  rustls::conn::ConnectionCore<Data>::process_new_packets
+       3.2%  tungstenite::protocol::frame::FrameCodec::read_frame
+       2.8%  tungstenite::protocol::WebSocketContext::read
+       2.8%  rustls::conn::ConnectionCommon<Data>::complete_io
+       2.6%  <rustls::crypto::ring::tls13::Tls13MessageDecrypter
+       2.5%  _aesni_ctr32_ghash_6x
+       2.4%  rustls::msgs::deframer::buffers::DeframerVecBuffer::read
+       2.3%  <std::net::tcp::TcpStream
+       2.2%  rustls::msgs::message::outbound::read_opaque_message_header
+  top user symbols in wr (of 0.19 cores user):
+      11.0%  [unknown]
+       7.0%  alpha::collector::scan::Cur::nested
+       6.5%  alpha::collector::scan::parse_object
+       5.5%  alpha::collector::scan::single_pair
+       5.1%  <alpha::collector::writer::Sink
+       5.0%  alpha::collector::scan::Cur::value
+       4.7%  alpha::collector::writer::ShardWriter::handle
+       4.4%  std::thread::thread::Thread::park_timeout
+       4.1%  alpha::collector::writer::ShardWriter::run
+       3.1%  std::sync::mpmc::array::Channel<T>::recv
+       3.1%  alpha::collector::scan::slots
+       3.0%  _ZN3std4sync4mpmc5array16Channel$LT$T$GT$10start_recv17h3a277d5484be3787E.llvm.7905889562987794608
+       2.9%  __vdso_clock_gettime
+       2.8%  alpha::collector::bybit::BybitParser::tickers
+  top user symbols in sk (of 0.03 cores user):
+      42.2%  ZSTD_compressBlock_fast_extDict_generic.constprop.0
+       5.6%  [unknown]
+       5.2%  FSE_buildCTable_wksp
+       3.3%  ZSTD_encodeSequences_bmi2
+       3.2%  HUF_buildCTable_wksp
+       2.8%  alpha::collector::sink::run_sink_with
+       2.0%  ZSTD_compressStream
+       1.9%  ZSTD_compressLiterals
+       1.8%  std::sync::mpmc::array::Channel<T>::recv
+       1.6%  FSE_writeNCount_generic
+       1.5%  HUF_compress_internal
+       1.5%  HIST_count_wksp
+       1.3%  ZSTD_compress_frameChunk
+       1.3%  HUF_compress1X_usingCTable_internal_bmi2
+  syscalls by kernel time (0.58 cores): recvfrom=44%, futex=35%, ?=19%, clock_nanosleep=1%, ioctl=1%, openat=0%, statx=0%, close=0%
+  top kernel leaf symbols (0.74 cores): __schedule=2%, entry_SYSRETQ_unsafe_stack=2%, __pv_queued_spin_lock_slowpath=2%, timerqueue_add=2%, __get_user_8=2%, update_curr=2%, update_load_avg=1%, perf_tp_event=1%, entry_SYSCALL_64=1%, dequeue_entities=1%
+
+## okx pid 2579373: 1.04 cores total
+  rx        0.55 cores (53.3%) | user=0.20 syscall=0.28 softirq=0.04 kernel-other=0.03
+  wr        0.43 cores (41.2%) | user=0.26 syscall=0.11 softirq=0.03 kernel-other=0.02
+  sk        0.04 cores ( 4.2%) | user=0.03 syscall=0.01 softirq=0.00 kernel-other=0.00
+  ln        0.01 cores ( 0.6%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  sh        0.01 cores ( 0.5%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  main      0.00 cores ( 0.2%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  top user symbols in rx (of 0.20 cores user):
+      12.1%  [unknown]
+       5.3%  alpha::collector::session::body
+       4.2%  alpha::collector::session::deliver
+       3.7%  tungstenite::protocol::frame::FrameCodec::read_frame
+       3.6%  malloc
+       3.4%  _ZN3std4sync4mpmc5waker9SyncWaker6notify17h02db7d5273c39e3fE.llvm.7905889562987794608
+       3.1%  tungstenite::protocol::WebSocketContext::read
+       3.0%  _aesni_ctr32_ghash_6x
+       2.7%  core::str::converts::from_utf8
+       2.7%  __vdso_clock_gettime
+       2.5%  <std::net::tcp::TcpStream
+       2.3%  rustls::conn::ConnectionCore<Data>::process_new_packets
+       2.2%  rustls::conn::ConnectionCommon<Data>::complete_io
+       2.2%  _ZN3std4sync4mpmc5array16Channel$LT$T$GT$10start_send17h326c79bfe57fb788E.llvm.7905889562987794608
+  top user symbols in wr (of 0.26 cores user):
+      16.9%  alpha::collector::okx::OkxParser::elems
+      10.8%  [unknown]
+       9.4%  alpha::collector::scan::Cur::nested
+       8.5%  alpha::collector::scan::parse_object
+       6.9%  alpha::collector::okx::level
+       6.7%  <alpha::collector::writer::Sink
+       4.1%  alpha::collector::scan::Cur::value
+       3.6%  alpha::collector::writer::ShardWriter::handle
+       3.0%  alpha::collector::scan::slots
+       2.9%  alpha::collector::writer::ShardWriter::run
+       2.4%  alpha::collector::codec::Encoder::record
+       2.2%  std::thread::thread::Thread::park_timeout
+       1.8%  _ZN3std4sync4mpmc5array16Channel$LT$T$GT$10start_recv17h3a277d5484be3787E.llvm.7905889562987794608
+       1.8%  std::sync::mpmc::array::Channel<T>::recv
+  top user symbols in sk (of 0.03 cores user):
+      52.7%  ZSTD_compressBlock_fast_extDict_generic.constprop.0
+       4.1%  HUF_buildCTable_wksp
+       4.1%  ZSTD_encodeSequences_bmi2
+       3.7%  FSE_buildCTable_wksp
+       3.3%  [unknown]
+       2.2%  alpha::collector::sink::run_sink_with
+       1.9%  HIST_countFast_wksp
+       1.4%  std::thread::thread::Thread::park
+       1.4%  FSE_normalizeCount
+       1.4%  HUF_compress1X_usingCTable_internal_bmi2
+       1.3%  ZSTD_compressStream
+       1.2%  ZSTD_compressBlock_internal
+       1.2%  ZSTD_seqToCodes
+       1.2%  ZSTD_compressContinue_internal
+  syscalls by kernel time (0.42 cores): recvfrom=43%, futex=36%, ?=19%, ioctl=1%, clock_nanosleep=1%, openat=0%, statx=0%, close=0%
+  top kernel leaf symbols (0.55 cores): entry_SYSRETQ_unsafe_stack=2%, __schedule=2%, __pv_queued_spin_lock_slowpath=2%, timerqueue_add=2%, update_curr=2%, update_load_avg=2%, perf_tp_event=1%, dequeue_entities=1%, __get_user_8=1%, psi_group_change=1%
+
+## bingx pid 2579511: 1.74 cores total
+  rx        1.29 cores (74.0%) | user=0.75 syscall=0.36 softirq=0.10 kernel-other=0.07
+  wr        0.39 cores (22.4%) | user=0.20 syscall=0.15 softirq=0.03 kernel-other=0.02
+  sk        0.05 cores ( 2.6%) | user=0.03 syscall=0.01 softirq=0.00 kernel-other=0.00
+  ln        0.01 cores ( 0.5%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  sh        0.01 cores ( 0.4%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  main      0.00 cores ( 0.1%) | user=0.00 syscall=0.00 softirq=0.00 kernel-other=0.00
+  top user symbols in rx (of 0.75 cores user):
+      33.8%  miniz_oxide::inflate::core::init_tree
+      27.8%  [unknown]
+       9.9%  miniz_oxide::inflate::core::decompress_with_limit
+       1.8%  alpha::collector::session::body
+       1.3%  malloc
+       1.2%  _ZN3std4sync4mpmc5waker9SyncWaker6notify17h02db7d5273c39e3fE.llvm.7905889562987794608
+       1.1%  alpha::collector::session::deliver
+       1.0%  tungstenite::protocol::frame::FrameCodec::read_frame
+       0.9%  tungstenite::protocol::WebSocketContext::read
+       0.8%  rustls::conn::ConnectionCommon<Data>::complete_io
+       0.7%  rustls::conn::ConnectionCore<Data>::process_new_packets
+       0.7%  <rustls::crypto::ring::tls13::Tls13MessageDecrypter
+       0.7%  _ZN3std4sync4mpmc5array16Channel$LT$T$GT$10start_send17h326c79bfe57fb788E.llvm.7905889562987794608
+       0.7%  __vdso_clock_gettime
+  top user symbols in wr (of 0.20 cores user):
+      12.5%  [unknown]
+       9.6%  <alpha::collector::writer::Sink
+       7.6%  alpha::collector::scan::parse_object
+       6.6%  alpha::collector::scan::Cur::nested
+       5.4%  alpha::collector::scan::Cur::value
+       4.4%  alpha::collector::writer::ShardWriter::handle
+       4.3%  alpha::collector::codec::Encoder::record
+       4.0%  alpha::collector::writer::ShardWriter::run
+       3.8%  std::thread::thread::Thread::park_timeout
+       3.4%  alpha::collector::scan::slots
+       2.8%  __vdso_clock_gettime
+       2.8%  <alpha::collector::bingx::BingxParser
+       2.8%  _ZN3std4sync4mpmc5array16Channel$LT$T$GT$10start_recv17h3a277d5484be3787E.llvm.7905889562987794608
+       2.6%  std::sync::mpmc::array::Channel<T>::recv
+  top user symbols in sk (of 0.03 cores user):
+      53.5%  ZSTD_compressBlock_fast_extDict_generic.constprop.0
+       4.9%  FSE_buildCTable_wksp
+       4.4%  ZSTD_encodeSequences_bmi2
+       3.0%  [unknown]
+       2.6%  HUF_buildCTable_wksp
+       2.0%  HIST_count_wksp
+       2.0%  alpha::collector::sink::run_sink_with
+       1.7%  HIST_countFast_wksp
+       1.7%  HUF_compress1X_usingCTable_internal_bmi2
+       1.5%  ZSTD_compressLiterals
+       1.5%  ZSTD_seqToCodes
+       1.3%  ZSTD_compressBlock_internal
+       1.3%  FSE_writeNCount_generic
+       1.2%  ZSTD_buildSeqStore
+  syscalls by kernel time (0.53 cores): recvfrom=44%, futex=35%, ?=19%, clock_nanosleep=1%, ioctl=1%, openat=0%, close=0%, statx=0%
+  top kernel leaf symbols (0.76 cores): entry_SYSRETQ_unsafe_stack=2%, __pv_queued_spin_lock_slowpath=2%, __schedule=2%, timerqueue_add=2%, update_curr=1%, entry_SYSCALL_64=1%, update_load_avg=1%, psi_group_change=1%, syscall_return_via_sysret=1%, select_task_rq_fair=1%
+
+## ksoftirqd threads: 0.06 cores; top leaf: __schedule=4%, switch_mm_irqs_off=3%, clear_page_erms=2%, psi_task_switch=2%, __inet_lookup_established=2%, update_load_avg=2%, __pv_queued_spin_lock_slowpath=2%, dequeue_entities=2%, update_curr=2%, __switch_to_asm=2%
+
+## all softirq-context samples: 0.50 cores; top leaf: net_rx_action=3%, virtqueue_get_buf_ctx_split=2%, clear_page_erms=2%, virtnet_poll=2%, __inet_lookup_established=2%, select_task_rq_fair=2%, __netif_receive_skb_core.constprop.0=2%, kfree=2%, handle_softirqs=1%, receive_buf=1%, pvclock_clocksource_read_nowd=1%, tcp_v4_rcv=1%, __pv_queued_spin_lock_slowpath=1%, tcp_rcv_established=1%

@@ -4,6 +4,7 @@ use clap::Subcommand;
 
 use super::bench::{run as bench_run, BenchArgs};
 use super::ladder::{run as ladder_run, LadderArgs};
+use super::replay::{run as replay_run, ReplayArgs};
 use super::runner::{run, RunArgs};
 use super::synth::{run as synth_run, SynthArgs};
 
@@ -17,6 +18,8 @@ pub enum CollectCommand {
     Ladder(LadderArgs),
     /// Замеры на малом: разбор, кодировщик, очередь, zstd (выбор архитектуры).
     Bench(BenchArgs),
+    /// Повтор записанных кадров (`capture-<шард>.tsv`) через настоящий писатель: CPU на миллион кадров, хеш содержимого (G-022 collector-perf).
+    Replay(ReplayArgs),
 }
 
 pub fn dispatch(cmd: CollectCommand) -> anyhow::Result<()> {
@@ -24,6 +27,7 @@ pub fn dispatch(cmd: CollectCommand) -> anyhow::Result<()> {
         CollectCommand::Run(a) => run(&a),
         CollectCommand::Synth(a) => synth_run(&a),
         CollectCommand::Ladder(a) => ladder_run(&a),
+        CollectCommand::Replay(a) => replay_run(&a),
         CollectCommand::Bench(a) => {
             bench_run(&a);
             Ok(())

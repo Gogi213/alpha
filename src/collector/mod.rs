@@ -37,6 +37,7 @@ pub mod net;
 pub mod okx;
 pub mod path;
 pub mod pool;
+pub mod replay;
 pub mod ring;
 pub mod runner;
 pub mod scan;
