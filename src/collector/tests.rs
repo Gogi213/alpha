@@ -16,14 +16,17 @@ use super::bingx::{self, Bingx};
 use super::budget::Budget;
 use super::bybit::{self, Bybit};
 use super::codec::{Book, Decoded, Decoder, Encoder, Mark, Rec, SymEnc, Trade};
+use super::events::replay_lists;
 use super::exchange::{Entrance, Exchange, Family, Parsed};
 use super::fresh::{Fresh, KindFresh, LATE_MS};
 use super::health::{build, HealthCtx, ProcSampler};
 use super::metrics::{Hist, Rolling, ShardMetrics};
+use super::net::select_addrs;
 use super::okx::{self, Okx};
 use super::path::{path_verdict, percentile, PathProbe, PathWatch};
 use super::pool::{balanced_chunks, rank_pool};
 use super::ring::{ring, Item, Payload};
+use super::runner::{lines_of, RunArgs};
 use super::scan::{each_elem, parse_i64, parse_object, single_pair, Val};
 use super::shard::{spawn_shard, ShardOpts};
 use super::sink::{run_sink, run_sink_with, sink_channel, SinkMsg};
@@ -2401,6 +2404,10 @@ fn health_keys_ok(v: &serde_json::Value) {
         "ping_ms",
         "timeouts_1h",
         "timeouts_24h",
+        "timeouts_alive_1h",
+        "timeouts_alive_24h",
+        "timeouts_silent_1h",
+        "timeouts_silent_24h",
         "gaps_1h",
         "gaps_24h",
         "reconnects_1h",
@@ -3278,11 +3285,16 @@ fn missing_pong_is_a_timeout_and_degraded_even_with_live_data() {
     );
     let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
     assert!(ev.contains("\"data_alive\":true"), "{ev}");
+    assert!(ev.contains("\"kind\":\"pong_only\""), "{ev}");
     assert!(
         count_events(dir.path(), "ping_degraded") >= 1,
         "нет pong — путь испорчен, как в Python"
     );
     assert!(!metrics.lists().timeouts.is_empty());
+    assert!(
+        metrics.lists().timeouts_silent.is_empty(),
+        "данные шли — не «канал молчит»"
+    );
     assert!(metrics.writer().records > 100, "поток шёл");
 }
 
@@ -3322,6 +3334,7 @@ fn silence_without_pong_marks_the_session_degraded() {
     );
     let ev = std::fs::read_to_string(dir.path().join("events-book00.jsonl")).unwrap();
     assert!(ev.contains("\"data_alive\":false"), "{ev}");
+    assert!(ev.contains("\"kind\":\"silent\""), "{ev}");
 }
 
 /// Отбраковка пути по RTT абсолютная (300 мс), но не выедает бюджет: пока в основном правиле больше запаса — `can_reject`; иначе путь принимается.
@@ -3435,4 +3448,171 @@ fn sink_write_failure_keeps_one_valid_frame_and_the_row_count() {
         m.sink().errors
     );
     assert_eq!(m.sink().blocks_dropped, 0);
+}
+
+/// IPv6 нигде по умолчанию: ни адресом имени, ни закреплённым адресом, ни входом `V6`, ни `Any`; с флагом — как прежде.
+#[test]
+fn dial_never_picks_ipv6_by_default() {
+    use std::net::SocketAddr;
+    let a: Vec<SocketAddr> = ["[2a06:98c1:3103::1]:443", "104.18.43.174:443", "[::1]:443"]
+        .iter()
+        .map(|x| x.parse().unwrap())
+        .collect();
+    for fam in [Family::Any, Family::V4, Family::V6] {
+        assert!(
+            select_addrs(a.clone(), fam, false)
+                .iter()
+                .all(SocketAddr::is_ipv4),
+            "{fam:?}: IPv6 выбран без --allow-ipv6"
+        );
+    }
+    assert!(select_addrs(a.clone(), Family::V6, false).is_empty());
+    assert_eq!(select_addrs(a.clone(), Family::Any, false).len(), 1);
+    assert_eq!(select_addrs(a.clone(), Family::Any, true).len(), 3);
+    assert_eq!(select_addrs(a.clone(), Family::V6, true).len(), 2);
+    assert!(!super::net::allow_ipv6(), "флаг по умолчанию выключен");
+    let e = Entrance::parse("localhost@::1", Family::Any).unwrap();
+    assert!(
+        super::net::dial(&e, 9).is_err(),
+        "закреплённый IPv6-адрес без флага не набирается"
+    );
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let (_s, _rtt, ip) = super::net::dial(&Entrance::new("localhost", Family::Any), port).unwrap();
+    assert!(ip.is_ipv4(), "localhost → IPv4, не ::1: {ip}");
+}
+
+fn run_args(extra: &[&str], exchange: &str) -> RunArgs {
+    use clap::Parser;
+    #[derive(Parser)]
+    struct W {
+        #[command(flatten)]
+        a: RunArgs,
+    }
+    let mut v = vec!["x", "--exchange", exchange, "--root", "/tmp/x"];
+    v.extend_from_slice(extra);
+    W::parse_from(v).a
+}
+
+/// Входы линий по умолчанию у всех бирж без IPv6 (и запасного), с `--allow-ipv6` запасные IPv6 возвращаются; только-IPv6 линия без флага — ошибка.
+#[test]
+fn default_lines_have_no_ipv6_entrance_without_the_flag() {
+    for (name, exch) in [
+        ("binance", Arc::new(Binance) as Arc<dyn Exchange>),
+        ("bybit", Arc::new(Bybit)),
+        ("okx", Arc::new(Okx::default())),
+        ("bingx", Arc::new(Bingx::default())),
+    ] {
+        let off = lines_of(exch.as_ref(), &run_args(&[], name)).unwrap();
+        assert!(
+            off.iter()
+                .flatten()
+                .all(|e| e.family != Family::V6 && e.ip.is_none_or(|i| i.is_ipv4())),
+            "{name}: вход IPv6 без --allow-ipv6: {off:?}"
+        );
+        assert!(off.iter().all(|l| !l.is_empty()), "{name}");
+        let on = lines_of(exch.as_ref(), &run_args(&["--allow-ipv6"], name)).unwrap();
+        assert_eq!(
+            on.iter().flatten().any(|e| e.family == Family::V6),
+            name != "binance",
+            "{name}: с флагом запасной IPv6 возвращается (Binance IPv6-входа нет)"
+        );
+    }
+    let bn = Binance;
+    assert!(lines_of(
+        &bn,
+        &run_args(&["--entrance", "fstream.binance.com@v6"], "binance")
+    )
+    .is_err());
+    assert!(lines_of(
+        &bn,
+        &run_args(&["--entrance", "fstream.binance.com@::1"], "binance")
+    )
+    .is_err());
+    assert!(lines_of(
+        &bn,
+        &run_args(
+            &["--allow-ipv6", "--entrance", "fstream.binance.com@v6"],
+            "binance"
+        )
+    )
+    .is_ok());
+}
+
+/// Рестарт не обнуляет счётчики: события последних суток читаются из `events-<шард>.jsonl`, старше суток и чужие — нет.
+#[test]
+fn restart_replays_counters_from_the_event_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let now = super::events::now_ms();
+    let h = 3_600_000;
+    let lines = [
+        json!({"ev": "timeout", "ts_ms": now - 25 * h, "data_alive": true}),
+        json!({"ev": "timeout", "ts_ms": now - 5 * h, "data_alive": true}),
+        json!({"ev": "timeout", "ts_ms": now - 2 * h, "data_alive": false}),
+        json!({"ev": "timeout", "ts_ms": now - h / 2, "data_alive": false, "kind": "silent"}),
+        json!({"ev": "path_switch", "ts_ms": now - 3 * h}),
+        json!({"ev": "entrance_switch", "ts_ms": now - 3 * h}),
+        json!({"ev": "entrance_switch", "ts_ms": now - 30 * h}),
+        json!({"ev": "error", "ts_ms": now - 3 * h}),
+        json!({"ev": "closed", "ts_ms": now - 3 * h}),
+        json!({"ev": "gap", "ts_ms": now - 3 * h}),
+        json!({"ev": "connected", "ts_ms": now - 3 * h}),
+    ];
+    let mut text: String = lines
+        .iter()
+        .map(|l| {
+            format!(
+                "{l}
+"
+            )
+        })
+        .collect();
+    text.push_str(
+        "не json {\"ev\":\"timeout\"
+",
+    );
+    std::fs::write(dir.path().join("events-book00.jsonl"), text).unwrap();
+    let l = replay_lists(dir.path(), "book00", now);
+    assert_eq!(
+        (
+            l.timeouts.len(),
+            l.timeouts_silent.len(),
+            l.path_switches.len(),
+            l.entrance_switches.len(),
+            l.reconnects.len(),
+            l.gaps.len()
+        ),
+        (3, 2, 1, 1, 2, 1)
+    );
+    assert!(replay_lists(dir.path(), "nope", now).timeouts.is_empty());
+    // health видит возвращённые счётчики и делит таймауты
+    let m = ShardMetrics::new("book00", now, 64, 16);
+    *m.lists() = l;
+    let ctx = HealthCtx {
+        exchange: "binance",
+        pool: HashSet::new(),
+        version: "t".into(),
+    };
+    let v = build(&[m], &ctx, now, &mut ProcSampler::default());
+    let w = &v["ws"];
+    assert_eq!(
+        (
+            w["timeouts_1h"].as_u64(),
+            w["timeouts_24h"].as_u64(),
+            w["timeouts_alive_24h"].as_u64(),
+            w["timeouts_silent_1h"].as_u64(),
+            w["timeouts_silent_24h"].as_u64(),
+            w["path_switches_24h"].as_u64(),
+            w["entrance_switches_24h"].as_u64(),
+        ),
+        (
+            Some(1),
+            Some(3),
+            Some(1),
+            Some(1),
+            Some(2),
+            Some(1),
+            Some(1)
+        )
+    );
 }

@@ -1,0 +1,6 @@
+[Unit]
+Description=alpha sysstat: restart sadc at the day change (new saDD file)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart alpha-sysstat.service

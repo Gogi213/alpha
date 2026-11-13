@@ -1,0 +1,12 @@
+[Unit]
+Description=alpha sysstat: sadc every 10 s (sar -u -q -n DEV,TCP,ETCP,SOCK) (G-022)
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/libexec/sysstat/sadc -F -L -S SNMP,DISK,INT 10 /var/log/sysstat/
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

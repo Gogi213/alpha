@@ -21,6 +21,7 @@ use super::events::now_ms;
 use super::exchange::{Entrance, Exchange, Family};
 use super::health::{build, write_atomic, HealthCtx, ProcSampler};
 use super::metrics::STATS_PERIOD_S;
+use super::net;
 use super::okx::Okx;
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
 use super::writer::day_string;
@@ -110,6 +111,9 @@ pub struct RunArgs {
     /// Шард без соединения проверяет путь, как Python: отбраковка по RTT (до 12 раз) и окно лага до приёма, вместо приёма сразу.
     #[arg(long)]
     pub cold_probe: bool,
+    /// Разрешить IPv6 во входах (по умолчанию IPv6 не используется нигде: ни основным, ни запасным входом; 13.11, таймауты на IPv6-путях).
+    #[arg(long)]
+    pub allow_ipv6: bool,
     /// Открытый `ws://host:port` вместо биржи (синтетический источник `collect synth`): хост и порт для всех входов.
     #[arg(long)]
     pub plain_ws: Option<String>,
@@ -124,7 +128,12 @@ pub fn exchange_of(n: ExchangeName) -> Arc<dyn Exchange> {
     }
 }
 
-fn lines_of(exch: &dyn Exchange, args: &RunArgs) -> Result<Vec<Vec<Entrance>>, String> {
+/// Вход IPv6: семейство `V6` или закреплённый адрес IPv6.
+fn is_v6(e: &Entrance) -> bool {
+    e.family == Family::V6 || e.ip.is_some_and(|ip| ip.is_ipv6())
+}
+
+pub(super) fn lines_of(exch: &dyn Exchange, args: &RunArgs) -> Result<Vec<Vec<Entrance>>, String> {
     let mut lines = exch.default_entrances(args.lanes);
     let default_family = lines
         .first()
@@ -140,6 +149,16 @@ fn lines_of(exch: &dyn Exchange, args: &RunArgs) -> Result<Vec<Vec<Entrance>>, S
             .collect::<Result<Vec<_>, _>>()?;
         if let Some(l) = lines.get_mut(k) {
             *l = list;
+        }
+    }
+    if !args.allow_ipv6 {
+        for (k, l) in lines.iter_mut().enumerate() {
+            l.retain(|e| !is_v6(e));
+            if l.is_empty() {
+                return Err(format!(
+                    "линия {k}: остались только входы IPv6 — нужен --allow-ipv6"
+                ));
+            }
         }
     }
     Ok(lines)
@@ -219,6 +238,7 @@ fn load_pool_file(path: &std::path::Path) -> Result<(Vec<String>, serde_json::Va
 }
 
 pub fn run(args: &RunArgs) -> anyhow::Result<()> {
+    net::set_allow_ipv6(args.allow_ipv6);
     let exch = exchange_of(args.exchange);
     std::fs::create_dir_all(&args.root)?;
     let (pool, top, extra) = match &args.pool_file {

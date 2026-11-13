@@ -301,7 +301,7 @@ impl Exchange for Bybit {
         format!("wss://{host}{PATH}")
     }
 
-    /// Как в Python (`bybit_ws.entrances`, g022-integrate): линия 0 — com по IPv4, запасной — com по IPv6; линия 1 — kz, запасной — georgia
+    /// Как в Python (`bybit_ws.entrances`, g022-integrate): линия 0 — com по IPv4, запасной — com по IPv6 (только с `--allow-ipv6`; без флага IPv6 нет нигде, kz/georgia — только IPv4-адреса имён); линия 1 — kz, запасной — georgia
     /// (другая сеть, не CloudFront); линии не делят вход.
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
         let lines = [

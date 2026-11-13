@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 
 use super::budget::Budget;
-use super::events::{now_ms, EventLog};
+use super::events::{now_ms, replay_lists, EventLog};
 use super::exchange::{Entrance, Exchange, Family, ShardPlan};
 use super::metrics::{us_to_ms, Hist, ShardMetrics, WindowSnap, STATS_PERIOD_S};
 use super::path::{PathWatch, PROBE_MAX_REJECTS, PROBE_S, PROBE_SKIP_S};
@@ -389,6 +389,8 @@ pub fn spawn_shard(
     stop: &Arc<AtomicBool>,
 ) -> Option<ShardHandle> {
     let metrics = ShardMetrics::new(&plan.name, now_ms(), opts.ring_cap, opts.sink_cap);
+    // счётчики health за сутки возвращаются из журнала прежних запусков: рестарт их не обнуляет
+    *metrics.lists() = replay_lists(&opts.root, &plan.name, now_ms());
     let (rtx, rrx) = ring(&metrics.ring);
     let (stx, srx) = sink_channel(&metrics.sink_q);
     let cfg = WriterCfg {

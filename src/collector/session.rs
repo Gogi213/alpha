@@ -330,10 +330,16 @@ fn read_loop(
                 }
                 Some((t0, _)) if now.duration_since(t0) >= sh.ping.1 => {
                     // как в Python (`Session.pinger`): нет pong за PING_TIMEOUT — таймаут (счётчик health, событие) и путь испорчен: не рвём, а помечаем,
-                    // шард откроет замену, примет её окном проверки пути и закроет эту сессию после перекрытия. `data_alive` — только диагностика события
-                    m.lists().timeouts.push_back(now_ms());
+                    // шард откроет замену, примет её окном проверки пути и закроет эту сессию после перекрытия. `data_alive` делит таймауты на «pong нет, данные живы» (`pong_only`) и «канал молчит» (`silent`)
                     let alive = now.duration_since(last_frame) < sh.ping.1;
-                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "tcp": tcp_json(ws.get_ref().tcp())}));
+                    {
+                        let mut l = m.lists();
+                        l.timeouts.push_back(now_ms());
+                        if !alive {
+                            l.timeouts_silent.push_back(now_ms());
+                        }
+                    }
+                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "kind": if alive { "pong_only" } else { "silent" }, "tcp": tcp_json(ws.get_ref().tcp())}));
                     sh.events.emit("ping_degraded", json!({"session": seq}));
                     sh.watch().mark_degraded(seq);
                     pings_on = false;

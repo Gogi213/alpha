@@ -7,6 +7,7 @@
 
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -129,18 +130,39 @@ pub fn recv_q(s: &TcpStream) -> Option<u64> {
     sys::fionread(s)
 }
 
-/// TCP connect: адреса имени (только IPv4, если вход так задан) по порядку, первый, что ответил; RTT рукопожатия, мс.
+static ALLOW_IPV6: AtomicBool = AtomicBool::new(false);
+
+/// IPv6 для всех входов всех линий разрешён только флагом `--allow-ipv6` (13.11: таймауты на IPv6-путях, без запасного IPv6 по умолчанию).
+pub fn set_allow_ipv6(on: bool) {
+    ALLOW_IPV6.store(on, Relaxed);
+}
+
+pub fn allow_ipv6() -> bool {
+    ALLOW_IPV6.load(Relaxed)
+}
+
+/// Адреса для connect: без `allow_v6` — только IPv4 (вход `V6` и закреплённый IPv6-адрес остаются без адресов), порядок разрешения имени сохраняется.
+pub fn select_addrs(addrs: Vec<SocketAddr>, family: Family, allow_v6: bool) -> Vec<SocketAddr> {
+    addrs
+        .into_iter()
+        .filter(|a| match family {
+            Family::V4 => a.is_ipv4(),
+            Family::V6 => allow_v6 && a.is_ipv6(),
+            Family::Any => allow_v6 || a.is_ipv4(),
+        })
+        .collect()
+}
+
+/// TCP connect: адреса имени (IPv4; IPv6 — только при `--allow-ipv6`) по порядку, первый, что ответил; RTT рукопожатия, мс.
 pub fn dial(entrance: &Entrance, port: u16) -> io::Result<(TcpStream, f64, IpAddr)> {
-    let addrs: Vec<SocketAddr> = match entrance.ip {
-        Some(ip) => vec![SocketAddr::new(ip, port)],
-        None => (entrance.host.as_str(), port)
-            .to_socket_addrs()?
-            .filter(|a| match entrance.family {
-                Family::Any => true,
-                Family::V4 => a.is_ipv4(),
-                Family::V6 => a.is_ipv6(),
-            })
-            .collect(),
+    let allow_v6 = allow_ipv6();
+    let addrs = match entrance.ip {
+        Some(ip) => select_addrs(vec![SocketAddr::new(ip, port)], entrance.family, allow_v6),
+        None => select_addrs(
+            (entrance.host.as_str(), port).to_socket_addrs()?.collect(),
+            entrance.family,
+            allow_v6,
+        ),
     };
     let mut last: Option<io::Error> = None;
     for addr in addrs {
@@ -160,7 +182,7 @@ pub fn dial(entrance: &Entrance, port: u16) -> io::Result<(TcpStream, f64, IpAdd
     Err(last.unwrap_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            format!("нет адресов для {}", entrance.host),
+            format!("нет адресов для {} (IPv6 выключен)", entrance.host),
         )
     }))
 }

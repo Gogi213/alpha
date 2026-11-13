@@ -154,8 +154,9 @@ pub fn build(
     let mut fresh = [KindFresh::default(); 4];
     let mut fresh_seen = [false; 4];
     let (mut pings, mut connections) = (Vec::new(), 0i64);
-    let (mut to, mut gp, mut rc, mut es, mut ps) =
-        ([0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2]);
+    let (mut to, mut ts, mut gp, mut rc, mut es, mut ps) = (
+        [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2],
+    );
     let (mut last_frame, mut last_write, mut started) = (0i64, 0i64, i64::MAX);
     let mut totals = [0u64; 6];
     let (mut sink_errors, mut files_closed, mut blocks_dropped) = (0u64, 0u64, 0u64);
@@ -177,6 +178,7 @@ pub fn build(
                 };
                 for (acc, dq) in [
                     (&mut to, &l.timeouts),
+                    (&mut ts, &l.timeouts_silent),
                     (&mut gp, &l.gaps),
                     (&mut rc, &l.reconnects),
                     (&mut es, &l.entrance_switches),
@@ -271,6 +273,7 @@ pub fn build(
     let p = proc.sample();
     let [lag_book, lag_trade, lag_mark] = &lag_in_kind;
     let [to1, to24] = to;
+    let [ts1, ts24] = ts;
     let [gp1, gp24] = gp;
     let [rc1, rc24] = rc;
     let [es1, es24] = es;
@@ -292,7 +295,10 @@ pub fn build(
         "symbols": {"subscribed": ctx.pool.len(), "with_data_1m": with_data.len()},
         "ws": {
             "connections": connections, "ping_ms": ping,
-            "timeouts_1h": to1, "timeouts_24h": to24, "gaps_1h": gp1, "gaps_24h": gp24, "reconnects_1h": rc1, "reconnects_24h": rc24,
+            "timeouts_1h": to1, "timeouts_24h": to24,
+            // таймаут = ping без pong ≥ 10 с; «канал молчит» — и данных за те же 10 с нет, «pong нет, данные живы» — остальные
+            "timeouts_alive_1h": to1.saturating_sub(ts1), "timeouts_alive_24h": to24.saturating_sub(ts24), "timeouts_silent_1h": ts1, "timeouts_silent_24h": ts24,
+            "gaps_1h": gp1, "gaps_24h": gp24, "reconnects_1h": rc1, "reconnects_24h": rc24,
             "entrance_switches_1h": es1, "entrance_switches_24h": es24, "path_switches_1h": ps1, "path_switches_24h": ps24,
         },
         "fresh": {"late_ms": LATE_MS, "kinds": kinds},

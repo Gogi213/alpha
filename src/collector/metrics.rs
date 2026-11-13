@@ -191,7 +191,10 @@ impl Depth {
 /// События и пинги шарда (метки мс; чистятся по возрасту).
 #[derive(Debug, Default)]
 pub struct Lists {
+    /// Все таймауты (ping без pong ≥ 10 с); из них «канал молчит» — `timeouts_silent`, остальные — pong не пришёл при живых данных.
     pub timeouts: VecDeque<i64>,
+    /// Таймауты, при которых за те же 10 с не пришло и данных (канал молчит в обе стороны).
+    pub timeouts_silent: VecDeque<i64>,
     pub gaps: VecDeque<i64>,
     pub reconnects: VecDeque<i64>,
     pub path_switches: VecDeque<i64>,
@@ -207,6 +210,7 @@ impl Lists {
         let cut = now_ms - DAY_MS;
         for dq in [
             &mut self.timeouts,
+            &mut self.timeouts_silent,
             &mut self.gaps,
             &mut self.reconnects,
             &mut self.path_switches,

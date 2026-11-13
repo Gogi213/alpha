@@ -387,7 +387,7 @@ impl Exchange for Okx {
         format!("wss://{host}{PATH}")
     }
 
-    /// Один хост `ws.okx.com` (независимой точки входа у OKX нет, подготовка п. 5): обе линии — IPv4, запасной вход — IPv6. Линия 1 на IPv6 теряла путь
+    /// Один хост `ws.okx.com` (независимой точки входа у OKX нет, подготовка п. 5): обе линии — IPv4; запасной IPv6 — только с `--allow-ipv6` (13.11: по умолчанию IPv6 нет нигде). Линия 1 на IPv6 теряла путь
     /// (5 ретрансмитов TCP, 10–13 с без данных: OKX n80-w1, BingX n20-w2/n320-w2, `bingx-collector-2026-11-13.md` п. 5), на IPv4 стоянок не было.
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
         (0..lanes)

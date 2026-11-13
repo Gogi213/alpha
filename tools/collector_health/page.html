@@ -33,7 +33,7 @@
     <th>Биржа</th>
     <th title="В подписке / по скольким пришёл хоть один кадр за последнюю минуту">Символов, подп. / дан.</th>
     <th title="Время между ping и pong по соединениям: медиана и максимум за окно">Пинг WS, мс p50 / макс</th>
-    <th title="Паузы без кадров на соединении дольше порога: за час / за сутки">Таймауты 1ч / 24ч</th>
+    <th title="Ping без pong 10 с на соединении: всего за час / за сутки. Ниже: «данные живы» — pong не пришёл, кадры шли; «молчит» — за те же 10 с не пришло ни pong, ни данных (канал стоял)">Таймауты 1ч / 24ч<br><span style="font-weight:400">данные живы · молчит</span></th>
     <th title="Соединение закрыто и открыто заново: за час / за сутки">Переподкл. 1ч / 24ч</th>
     <th title="Линия перешла на запасной вход биржи (повторные неудачи подключения или задержка доставки): за час / за сутки">Смена входа 1ч / 24ч</th>
     <th title="Время приёма минус время биржи в кадре; включает расхождение часов">Лаг прихода, мс p50 / p99</th>
@@ -54,6 +54,8 @@ const n = v => v == null ? '—' : Math.round(v);
 const pair = (a, b) => n(a) + ' / ' + n(b);
 const cnt = v => v ? '<span class="yes">' + v + '</span>' : '<span class="no">нет</span>';
 const cnt0 = v => v ? '<span class="yes">' + v + '</span>' : '<span class="no">0</span>';
+const split = w => w.timeouts_alive_24h == null ? '' :
+  '<div style="color:var(--dim);font-size:12px">' + cnt0(w.timeouts_alive_1h) + ' / ' + cnt0(w.timeouts_alive_24h) + ' · ' + cnt0(w.timeouts_silent_1h) + ' / ' + cnt0(w.timeouts_silent_24h) + '</div>';
 const pct = v => v == null ? '—' : (v * 100).toFixed(v >= 0.1 ? 0 : 1) + '%';
 function queue(b) {
   if (!b || !b.ring) return '—';
@@ -81,7 +83,7 @@ function render(r) {
   return '<tr>' + head +
     '<td class="num">' + n(s.subscribed) + ' / ' + n(s.with_data_1m) + '</td>' +
     '<td class="num">' + pair(w.ping_ms && w.ping_ms.p50, w.ping_ms && w.ping_ms.max) + '</td>' +
-    '<td class="num">' + cnt(w.timeouts_1h) + ' / ' + cnt(w.timeouts_24h) + '</td>' +
+    '<td class="num">' + cnt(w.timeouts_1h) + ' / ' + cnt(w.timeouts_24h) + split(w) + '</td>' +
     '<td class="num">' + cnt0(w.reconnects_1h) + ' / ' + n(w.reconnects_24h) + '</td>' +
     '<td class="num">' + (w.entrance_switches_1h == null ? '—' : cnt0(w.entrance_switches_1h) + ' / ' + n(w.entrance_switches_24h)) + '</td>' +
     '<td class="num">' + pair(r.lag_in_ms && r.lag_in_ms.p50, r.lag_in_ms && r.lag_in_ms.p99) + '</td>' +
