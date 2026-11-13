@@ -34,7 +34,7 @@ dt{font-size:12px;color:var(--mut)}dd{margin:2px 0 0;font-size:14px}
 .detail td{padding:4px 8px;text-align:right;font-size:14px}.detail td:first-child,.detail th:first-child{text-align:left;padding-left:0}
 .b{cursor:pointer}.b:hover{opacity:.7}
 .wrap{position:relative}
-#tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;white-space:nowrap;opacity:0;transform:translate(-50%,-100%);z-index:5}
+#tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;white-space:nowrap;opacity:0;transform:translate(-50%,0);z-index:5}
 #tip b{font-weight:600}#tip .a{color:#ffb39e}#tip .m{color:#b9b7ae}
 </style>
 </head>
@@ -84,7 +84,10 @@ function detailNet(n){
   return '<table><thead><tr><th></th><th>потери, час</th><th>серий ≥ 3 подряд</th><th>отклик p50 / p99</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 function block(r){
-  const val='<span class="v'+(r.ok?'':' bad')+'">'+(r.lost_1h_s?f1(r.lost_1h_s):'0')+'</span><span class="u">с</span>';
+  const late=r.detail.late_1h||0,lost=r.lost_1h_s||0;
+  const big=lost>0?f1(lost):(late>0?late.toLocaleString('ru'):'0'),unit=lost>0||!late?'с':'опозд.';
+  const extra=lost>0&&late>0?'<span class="u" style="color:var(--acc)">+ '+late.toLocaleString('ru')+' опозд.</span>':'';
+  const val='<span class="v'+(r.ok?'':' bad')+'">'+big+'</span><span class="u"'+(r.ok||lost>0?'':' style="color:var(--acc)"')+'>'+unit+'</span>'+extra;
   return '<section class="row'+(open.has(r.id)?' open':'')+'" id="'+r.id+'" tabindex="0"><div class="hd">'+(r.ok?ok_mark:bad_mark)+'<span class="nm">'+esc(r.name)+'</span><span class="val">'+val+'</span><span class="chev">›</span></div><div class="st">'+bars(r.id,r.bars)+'</div><div class="detail">'+detailEx(r)+'</div></section>';
 }
 function axis(){
@@ -106,6 +109,7 @@ function render(){
     r.addEventListener('click',e=>{if(e.target.closest('.detail'))return;r.classList.toggle('open');r.classList.contains('open')?open.add(r.id):open.delete(r.id)});
     r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();r.click()}})});
   rowsEl.querySelectorAll('.b').forEach(e=>{e.addEventListener('mouseenter',()=>show(e));e.addEventListener('mouseleave',()=>tip.style.opacity=0)});
+  const m=location.hash.match(/tip=(\w+)-(\d+)/);if(m){const el=rowsEl.querySelector('.b[data-r="'+m[1]+'"][data-i="'+m[2]+'"]');if(el)show(el)}
 }
 function show(el){
   const id=el.dataset.r,i=+el.dataset.i,arr=id==='net'?D.net.bars:D.rows.find(r=>r.id===id).bars,d=arr[i],a=D.s0+i*D.slot;
@@ -120,7 +124,8 @@ function show(el){
     if(d[5])h+='<br><span class="m">перезапуск сборки</span>';
   }
   tip.innerHTML=h;const b=el.getBoundingClientRect(),w=wrap.getBoundingClientRect();
-  tip.style.left=(b.left-w.left+b.width/2)+'px';tip.style.top=(b.top-w.top-8)+'px';tip.style.opacity=1;
+  tip.style.opacity=1;const half=tip.offsetWidth/2,cx=Math.min(Math.max(b.left-w.left+b.width/2,half),w.width-half);
+  tip.style.left=cx+'px';tip.style.top=(b.bottom-w.top+8)+'px';
 }
 async function load(){
   try{const r=await fetch('/api/v3',{cache:'no-store'});const d=await r.json();if(d.error)throw new Error(d.error);D=d;render();document.title='Сбор данных'}
