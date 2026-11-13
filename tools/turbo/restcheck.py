@@ -14,11 +14,13 @@ Usage (srv): restcheck.py binance <data root> <t0_ms> <t1_ms> --symbols 25 --out
 """
 import argparse
 import bisect
+import concurrent.futures
 import glob
 import io
 import json
 import os
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -172,9 +174,24 @@ def bybit(a, t0, t1):
 OKX_UA = {"User-Agent": "alpha-collector/okx-check"}  # without it Cloudflare answers 403 error code 1010
 
 
+_RATE = threading.Lock()
+_NEXT = [0.0]
+
+
+def _pace(gap=0.115):
+    """Global request pacing (OKX: 20 requests / 2 s per IP): one request start per `gap` s over all threads."""
+    with _RATE:
+        now = time.monotonic()
+        at = max(now, _NEXT[0])
+        _NEXT[0] = at + gap
+    if at > now:
+        time.sleep(at - now)
+
+
 def get_okx(url, retries=4):
     for i in range(retries):
         try:
+            _pace()
             with urllib.request.urlopen(urllib.request.Request(url, headers=OKX_UA), timeout=20) as r:
                 j = json.load(r)
             if j.get("code") != "0":
@@ -211,15 +228,13 @@ def okx_rest_trades(inst, t0, t1):
         if int(oldest["ts"]) < t0 or len(page) < 100:
             break
         after = oldest["tradeId"]
-        time.sleep(0.12)  # 20 requests / 2 s per IP
     return {k: v for k, v in rows.items() if t0 <= v[3] <= t1}
 
 
 def okx(a, t0, t1):
     rec = file_trades_okx(a.root, t0, t1)
     syms = pick({s: len(v) for s, v in rec.items()}, a.symbols, a.spread)
-    res = {}
-    for s in syms:
+    def one(s):
         rest = okx_rest_trades(s, t0, t1)
         ranges = rec[s]
         starts = [x[0] for x in ranges]
@@ -241,10 +256,11 @@ def okx(a, t0, t1):
         edge = 5000  # a range cut by the window edge has REST trades outside the checked span
         extra = [r for i, r in enumerate(ranges) if i not in inside and t0 + edge <= r[5] <= t1 - edge]
         late = [k for k in missing if rest[k][3] >= a.covered_ms]
-        res[s] = {"rest": len(rest), "file": len(ranges), "missing_in_file": len(missing), "extra_in_file": len(extra), "mismatch": len(mism),
+        return {"rest": len(rest), "file": len(ranges), "missing_in_file": len(missing), "extra_in_file": len(extra), "mismatch": len(mism),
                   "rest_after_covered": sum(1 for v in rest.values() if v[3] >= a.covered_ms), "missing_after_covered": len(late),
                   "missing_examples": [(k, rest[k]) for k in sorted(missing)[:5]], "extra_examples": extra[:3], "mismatch_examples": mism[:3]}
-        time.sleep(0.2)
+    with concurrent.futures.ThreadPoolExecutor(4) as ex:  # REST latency ~0.3 s: four in flight keep the pacing at the limit
+        res = dict(zip(syms, ex.map(one, syms)))
     return res
 
 

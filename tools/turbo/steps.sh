@@ -5,6 +5,8 @@
 # 300 / 5 min, OKX: the built-in 2 connects per second), 20 s pause between windows. Per window: coverage.py, abwin.py (events, book lag, late, mark coverage), restcheck.py (REST trades), CPU (cgroup)
 # -> stepsum.py verdict line. status.txt: one line per window and `STEP <N> OK|FAIL`; stops at the first not clean window (STOPPED line, exit 1).
 # Pool: Binance — /data/turbo-probe/l1/symbols.json (quoteVolume ranking) and /data/turbo-probe/ab1/pool.json; other exchanges — the binary's own `--pool-only` run (pool-full.json with `qv`).
+# RESTPASS=defer (preferences п. 23: nothing extraneous on srv during collection windows): the REST pass is NOT run between windows; the window line is posted without the REST field
+# (stepsum.py --no-rest) and `restpass.sh` runs the REST checks of all windows after the ladder.
 # Background unit (systemd-run), never in the ssh session (В-147); nothing else of the same exchange may run on srv meanwhile.
 set -u -o pipefail
 EXCH="${EXCH:-binance}"
@@ -53,8 +55,13 @@ window() {  # label npool
   TC=$($PY -c "import json; c=json.load(open('$W/cov.json')); m=c['first_connected_s']['max']; print($T0 + int(((m if m is not None else 180) + 3) * 1000))")
   $PY "$S/abwin.py" --run "X=$W/data" --t0 "$T0" --t1 "$T1" --pool "$D/pool-$NP.json" --covered-ms "$TC" --out "$W/win.json" > "$W/win.log" 2>&1
   NS=25; [ "$NP" != full ] && [ "$NP" -lt 25 ] && NS="$NP"
-  $PY "$S/restcheck.py" "$EXCH" "$W/data" "$T0" "$T1" --symbols "$NS" --spread --covered-ms "$TC" --out "$W/rest.json" > "$W/rest.log" 2>&1
-  $PY "$S/stepsum.py" "$W" "$L" | tee -a "$ST"
+  if [ "${RESTPASS:-inline}" = defer ]; then
+    echo "$TC $NS" > "$W/rest-args.txt"
+    $PY "$S/stepsum.py" "$W" "$L" --no-rest | tee -a "$ST"
+  else
+    $PY "$S/restcheck.py" "$EXCH" "$W/data" "$T0" "$T1" --symbols "$NS" --spread --covered-ms "$TC" --out "$W/rest.json" > "$W/rest.log" 2>&1
+    $PY "$S/stepsum.py" "$W" "$L" | tee -a "$ST"
+  fi
 }
 for NP in $STEPS; do
   for K in $(seq 1 "$NWIN"); do
