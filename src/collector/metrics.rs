@@ -256,6 +256,8 @@ pub struct WriterStats {
     pub raw: u64,
     pub raw_copies: u64,
     pub clamped: u64,
+    /// Размер поднятия `rx` до приёма предыдущей записи (мкс), 60 с: на сколько записанная метка позже настоящей у записей из `rx_clamped`.
+    pub clamp_us: Rolling,
     pub rows: u64,
     /// Вклад линий шарда (collector-perf, S6).
     pub lanes: super::writer::LaneCounters,

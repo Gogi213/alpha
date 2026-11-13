@@ -426,10 +426,12 @@ impl ShardWriter {
             return true;
         }
         let rx = item.rx_ns.max(self.core.prev_rx);
+        let rx_ms = rx.div_euclid(NS_PER_MS);
         if rx > item.rx_ns {
             st.clamped += 1;
+            st.clamp_us
+                .add(rx_ms, u64::try_from((rx - item.rx_ns) / 1000).unwrap_or(0));
         }
-        let rx_ms = rx.div_euclid(NS_PER_MS);
         match item.payload {
             Payload::Frame(bytes) => {
                 if let Some(w) = self.capture.as_mut() {

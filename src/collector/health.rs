@@ -151,6 +151,7 @@ pub fn build(
     let mut lag_in_kind = [Hist::new(), Hist::new(), Hist::new()];
     let mut lag_out = Hist::new();
     let mut queue_lag = Hist::new();
+    let mut clamp = Hist::new();
     let mut fresh = [KindFresh::default(); 4];
     let mut fresh_seen = [false; 4];
     let (mut pings, mut connections) = (Vec::new(), 0i64);
@@ -192,7 +193,7 @@ pub fn build(
             pings.extend(l.pings.iter().map(|p| p.1));
             l.trim(now_ms);
         }
-        let shard_lag = {
+        let (shard_lag, shard_clamp_p99) = {
             let mut w = m.writer();
             for (low, last) in w.seen.values() {
                 if now_ms - last <= WINDOW_S * 1000 && ctx.pool.contains(low) {
@@ -209,6 +210,8 @@ pub fn build(
             }
             lag_in.merge(&sl);
             queue_lag.merge(&w.queue_lag.snapshot(now_ms));
+            let shard_clamp = w.clamp_us.snapshot(now_ms);
+            clamp.merge(&shard_clamp);
             for k in 0..4 {
                 if let (Some(f), Some(acc), Some(seen)) = (
                     w.fresh.fragment(k, now_ms),
@@ -226,7 +229,7 @@ pub fn build(
             {
                 *t += v;
             }
-            sl
+            (sl, shard_clamp.percentile(0.99))
         };
         {
             let s = m.sink();
@@ -258,7 +261,7 @@ pub fn build(
         per_shard.push(json!({
             "lanes": {"first": lanes.first, "delivered": lanes.delivered, "unique": lanes.unique},
             "shard": m.name, "connected": m.connected.load(std::sync::atomic::Ordering::Relaxed), "msgs_10s": w.frames,
-            "lag_in_p99_ms": shard_lag.percentile(0.99).map(us_to_ms), "ring_depth_max": w.ring_depth_max, "recvq_max": w.recvq_max, "busy_max_us": w.busy_max_us,
+            "lag_in_p99_ms": shard_lag.percentile(0.99).map(us_to_ms), "rx_clamp_p99_us": shard_clamp_p99, "ring_depth_max": w.ring_depth_max, "recvq_max": w.recvq_max, "busy_max_us": w.busy_max_us,
         }));
     }
     let ping_n = pings.len();
@@ -308,6 +311,8 @@ pub fn build(
         "lag_in_by_kind_ms": {"book": pct_json(lag_book), "trade": pct_json(lag_trade), "mark": pct_json(lag_mark)},
         "lag_out_ms": pct_json(&lag_out),
         "last_frame_ms": last_frame, "last_write_ms": last_write,
+        // на сколько мкс `rx` записи поднят до приёма предыдущей записи шарда (`totals.rx_clamped` — сколько записей), 60 с по всем шардам
+        "rx_clamp_us": {"n": clamp.count(), "p50": clamp.percentile(0.5), "p99": clamp.percentile(0.99), "p99_9": clamp.percentile(0.999), "max": clamp.percentile(1.0)},
         "backpressure": {
             "window_s": 10,
             "ring": {"cap": ring_cap, "depth_max": depth_max, "full_events_total": full_total, "full_events_window": full_win, "blocked_ms_total": blocked_ms_total},
