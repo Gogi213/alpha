@@ -326,7 +326,10 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
             f,
             "{}",
             json!({"ts_ms": now_ms(), "version": super::VERSION, "rx_stamp": if args.reactor && args.rx_stamp == "kernel" { "kernel" } else { "user" },
-                   "reactor": args.reactor, "worker_inline": args.worker_inline, "window_us": args.reactor_window_us})
+                   // режим ядерной метки: `exact` — метка у каждой записи TLS (`MSG_PEEK` + `recvmsg` на запись, так работает `--rx-stamp kernel`), иначе `none` (пользовательская метка)
+                   "mode": if args.reactor && args.rx_stamp == "kernel" { "exact" } else { "none" },
+                   "reactor": args.reactor, "worker_inline": args.worker_inline, "window_us": args.reactor_window_us,
+                   "sub_in_reactor": args.sub_in_reactor, "rx_hold_ms": args.rx_hold_ms})
         );
     }
     println!("pool {} top_excluded {:?}", pool.len(), top);
