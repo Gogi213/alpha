@@ -13,9 +13,10 @@ Rust + Python. Исследование и инфраструктура данн
 
 - **G-022 — коллекторы бирж по вебсокету на Rust** (В-149..В-152): Binance → Bybit → OKX → Bitget → Huobi → BingX; цель — хороший коллектор,
   не непрерывный сбор (В-152). Передача дел: `docs/plan/G-022-handoff-2026-11-13.md` (читать первым).
-- Rust-коллектор Binance + Bybit — ветка `g022-turbo` (`src/collector/`), в `master` не слит; работает фоном на srv (`soak-binance`, `soak-bybit`,
-  данные `/data/turbo-probe/`), страница здоровья http://5.231.25.224:8088/. Python-коллекторы остановлены.
-- Binance: маршрут srv → Токио двухрежимный, задержки не лечатся кодом — `docs/findings/binance-route-problem-2026-11-13.md`; через Софию не подключаем (В-153).
+- Постоянный сбор на srv (В-155): `collect-binance` (новая сборка `--never-slow --lazy`, данные `/data/collect/binance/`), `soak-bybit`
+  (`/data/turbo-probe/soak-bybit/`), `collect-okx` (принят 13.11, `docs/findings/okx-collector-2026-11-13.md`); страница здоровья http://5.231.25.224:8088/.
+  Код — ветки `bb/g-022-rust-collector-v3-*` (Binance, §5.13 отчёта g022-turbo) и `bb/g-022-okx-collector-v1-*`; в `master` не слиты. Python-коллекторы остановлены.
+- Дальше BingX той же методикой (лестница окнами по 3 мин, REST-сверка после лестницы, сборки в Софии).
 - Подготовка OKX, Bitget, HTX, BingX готова (ветки `okx-ws-prep`, `g022-prep-3`, отчёты `docs/findings/*-ws-prep-2026-11-12.md`).
 - П-40 — на паузе. История — `docs/archive/claude-md-history-*.md`; архив rpv — тег `archive/rpv-2026-11-12`.
 
