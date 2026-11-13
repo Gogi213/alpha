@@ -1,0 +1,5 @@
+A-old|/data/perf/alpha-base3|
+W1|/data/perf/alpha-new4|--reactor --worker-inline --reactor-window-us 1000 --rx-stamp kernel
+W2|/data/perf/alpha-new4|--reactor --worker-inline --reactor-window-us 2000 --rx-stamp kernel
+W5|/data/perf/alpha-new4|--reactor --worker-inline --reactor-window-us 5000 --rx-stamp kernel
+W10|/data/perf/alpha-new4|--reactor --worker-inline --reactor-window-us 10000 --rx-stamp kernel

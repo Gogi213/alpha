@@ -1,0 +1,4 @@
+A-old|/data/perf/alpha-base3|
+F2|/data/perf/alpha-final1|--reactor --worker-inline --reactor-window-us 2000 --rx-stamp kernel
+F5|/data/perf/alpha-final1|--reactor --worker-inline --reactor-window-us 5000 --rx-stamp kernel
+F10|/data/perf/alpha-final1|--reactor --worker-inline --reactor-window-us 10000 --rx-stamp kernel

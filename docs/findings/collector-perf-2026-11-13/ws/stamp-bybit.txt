@@ -1,0 +1,21 @@
+== thr
+записей книги 34413: rx − отправка, мкс: p0.1 47 p1 79 p10 147 p50 302 p90 1253 p99 7172 p99.9 197080 max 202104
+  reactor null
+  cpu 0.05 queue_lag {'p50': 0.6, 'p99': 6.5, 'p99_9': 17.2, 'window_s': 60}
+== b5
+записей книги 34413: rx − отправка, мкс: p0.1 16 p1 23 p10 59 p50 186 p90 2542 p99 7923 p99.9 123404 max 185473
+  reactor {"frames": 68921, "heartbeat_age_ms": 77, "kernel_stamps": 32959, "loop_max_us": 60, "loops": 23347, "read_syscalls": 32959, "reads": 32959, "ready_events": 32961, "stamp_error_bound_us": {"p50": 8192, "p99": 65536, "p99_9": 131072}, "user_minus_kernel_us": {"p50": 2048, "p99": 8192, "p99_9": 32768}}
+  cpu 0.008 queue_lag {'p50': 1.7, 'p99': 6.7, 'p99_9': 17.2, 'window_s': 60}
+== x2
+записей книги 34413: rx − отправка, мкс: p0.1 13 p1 18 p10 36 p50 110 p90 341 p99 3510 p99.9 127879 max 190764
+  reactor {"frames": 68921, "heartbeat_age_ms": 107, "kernel_stamps": 43014, "loop_max_us": 123, "loops": 37852, "read_syscalls": 111993, "reads": 43014, "ready_events": 43016, "stamp_error_bound_us": {"p50": 4096, "p99": 65536, "p99_9": 65536}, "user_minus_kernel_us": {"p50": 1024, "p99": 8192, "p99_9": 32768}}
+  cpu 0.004 queue_lag {'p50': 1.0, 'p99': 9.1, 'p99_9': 25.3, 'window_s': 60}
+== x5
+записей книги 34413: rx − отправка, мкс: p0.1 13 p1 18 p10 35 p50 112 p90 416 p99 4696 p99.9 50695 max 183960
+  reactor {"frames": 68921, "heartbeat_age_ms": 192, "kernel_stamps": 32954, "loop_max_us": 242, "loops": 24321, "read_syscalls": 101933, "reads": 32954, "ready_events": 32956, "stamp_error_bound_us": {"p50": 4096, "p99": 65536, "p99_9": 131072}, "user_minus_kernel_us": {"p50": 4096, "p99": 16384, "p99_9": 32768}}
+  cpu 0.006 queue_lag {'p50': 2.8, 'p99': 11.4, 'p99_9': 24.3, 'window_s': 60}
+== x10
+записей книги 34413: rx − отправка, мкс: p0.1 13 p1 19 p10 38 p50 112 p90 371 p99 5882 p99.9 130604 max 190436
+  reactor {"frames": 68921, "heartbeat_age_ms": 119, "kernel_stamps": 22768, "loop_max_us": 268, "loops": 13695, "read_syscalls": 91747, "reads": 22768, "ready_events": 22770, "stamp_error_bound_us": {"p50": 4096, "p99": 65536, "p99_9": 131072}, "user_minus_kernel_us": {"p50": 8192, "p99": 32768, "p99_9": 65536}}
+  cpu 0.004 queue_lag {'p50': 5.4, 'p99': 17.7, 'p99_9': 43.5, 'window_s': 60}
+каталог: /data/perf/st/164847-*

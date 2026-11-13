@@ -17,9 +17,10 @@ done
 nohup python3 g6b-mon.py 300 > /dev/null 2>&1 &
 sleep 300
 [ -f g6b.done ] && exit 1
-./shadow.sh binance $W book00,mark00 arms-g6b-binance.txt > g6b-binance.txt 2>&1 &
-./shadow.sh bybit $W book00,trade00 arms-g6b-bybit.txt > g6b-bybit.txt 2>&1 &
-./shadow.sh okx $W book00,trade00 arms-g6b-okx.txt > g6b-okx.txt 2>&1 &
-./shadow.sh bingx $W book00,trade00 arms-g6b-bingx.txt > g6b-bingx.txt 2>&1 &
-wait
+PIDS=()
+./shadow.sh binance $W book00,mark00 arms-g6b-binance.txt > g6b-binance.txt 2>&1 & PIDS+=($!)
+./shadow.sh bybit $W book00,trade00 arms-g6b-bybit.txt > g6b-bybit.txt 2>&1 & PIDS+=($!)
+./shadow.sh okx $W book00,trade00 arms-g6b-okx.txt > g6b-okx.txt 2>&1 & PIDS+=($!)
+./shadow.sh bingx $W book00,trade00 arms-g6b-bingx.txt > g6b-bingx.txt 2>&1 & PIDS+=($!)
+wait "${PIDS[@]}"   # только шадоу-прогоны: монитор (фон) ждёт g6b.done и сам бы не дал wait вернуться
 [ -f g6b.done ] || echo DONE > g6b.done

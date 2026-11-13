@@ -1,0 +1,9 @@
+--- bingx: A-old vs NEW
+A: 1576362 личностей (book/trade/mark строк [1441543, 134819, 0]), B: 1598675 ([1466900, 134836, 0]); окно сравнения 2078 с
+общих 709949, только A 849682, только B 871921, различное содержимое среди общих 132980 (book/trade/mark [2103, 130877, 0])
+  пример различия: t:BANK-USDT:486790624 A[1794595402010	1794595402010	0.02191	2102.8	486790624	486790624	true	2102.8		] B[1794595402012	1794595402012	0.02191	2102.8	486790624	486790624	true	2102.8		]
+  пример различия: t:BTC-USDT:760550010 A[1794595769754	1794595769754	68879.5	0.0009	760550010	760550010	false	0.0009		] B[1794595769740	1794595769740	68879.5	0.0009	760550010	760550010	false	0.0009		]
+  пример различия: t:CFG-USDT:33536797 A[1794596214522	1794596214522	0.0809	86.79	33536797	33536797	true	86.79		] B[1794596214422	1794596214422	0.0809	86.79	33536797	33536797	true	86.79		]
+rx_b − rx_a, мкс: p0.1 -98201263 p1 -125480 p10 -1687 p50 2204 p90 8216 p99 81617 p99.9 229509; хвост > +1 мс: 430098 (60.582 %), < −1 мс: 86078
+A-old totals {'dups': 579778, 'files_closed': 0, 'raw': 1074, 'raw_copies': 0, 'records': 1576362, 'rows': 1579121, 'rx_clamped': 17273, 'sink_blocks_dropped': 0, 'sink_errors': 0} | ws {'gaps_24h': 0, 'reconnects_24h': 2, 'timeouts_24h': 0} | ring {'blocked_ms_total': 0, 'cap': 32768, 'depth_max': 42, 'full_events_total': 0, 'full_events_window': 0} | sink {'cap': 64, 'depth_max': 1, 'write_max_ms': 1.9} | queue_lag {'p50': 0.1, 'p99': 5.4, 'window_s': 60}
+NEW totals {'dups': 555687, 'files_closed': 0, 'raw': 895, 'raw_copies': 0, 'records': 1601624, 'rows': 1604199, 'rx_clamped': 3887, 'sink_blocks_dropped': 0, 'sink_errors': 0} | ws {'gaps_24h': 0, 'reconnects_24h': 1, 'timeouts_24h': 0} | ring {'blocked_ms_total': 0, 'cap': 32768, 'depth_max': 45, 'full_events_total': 0, 'full_events_window': 0} | sink {'cap': 64, 'depth_max': 1, 'write_max_ms': 1.2} | queue_lag {'p50': 1.8, 'p99': 10.6, 'p99_9': 24.3, 'window_s': 60}

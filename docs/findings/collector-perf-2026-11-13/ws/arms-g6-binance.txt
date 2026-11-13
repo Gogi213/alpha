@@ -1,0 +1,3 @@
+A-old|/data/perf/alpha-base3|--never-slow --lazy
+N2|/data/perf/alpha-new4|--never-slow --lazy --reactor --worker-inline --reactor-window-us 2000 --rx-stamp kernel
+N5|/data/perf/alpha-new4|--never-slow --lazy --reactor --worker-inline --reactor-window-us 5000 --rx-stamp kernel

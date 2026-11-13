@@ -1,0 +1,4 @@
+A-old|/data/perf/alpha-base3|--never-slow --lazy
+F10|/data/perf/alpha-final3|--never-slow --lazy --reactor --worker-inline --reactor-window-us 10000 --rx-stamp kernel
+F10n|/data/perf/alpha-final3|--never-slow --lazy --reactor --worker-inline --reactor-window-us 10000 --rx-stamp kernel|-p Nice=-10 -p CPUWeight=400
+F5n|/data/perf/alpha-final3|--never-slow --lazy --reactor --worker-inline --reactor-window-us 5000 --rx-stamp kernel|-p Nice=-10 -p CPUWeight=400
