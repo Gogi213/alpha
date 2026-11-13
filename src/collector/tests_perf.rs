@@ -240,6 +240,82 @@ fn writer_sorted_batch_keeps_the_minimum_receive_stamp_of_a_duplicate() {
     assert_eq!(books, 2, "дубль снят");
 }
 
+static HOLD_NOW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+fn hold_clock() -> i64 {
+    HOLD_NOW.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Три записи двумя тактами: в первом приходит запись с меткой +30 мс (сокет, прочитанный в обороте позже), во втором — записи с метками +10 и +20 мс (сокет, прочитанный раньше,
+/// но доставивший их в следующем такте). Возвращает (метки `rx` в файле, сколько записей поднято до метки предыдущей).
+fn run_two_ticks(hold_ms: u64) -> (Vec<i64>, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let t = 20_000 * 86_400 * 1_000_000_000_i64;
+    let dir = tempfile::tempdir().unwrap();
+    let metrics = ShardMetrics::new("book00", 0, 1024, 16);
+    let (tx, rx) = ring(&metrics.ring);
+    let (stx, srx) = sink_channel(&metrics.sink_q);
+    let cfg = WriterCfg {
+        root: dir.path().to_path_buf(),
+        shard: "book00".into(),
+        run_id: 1_794_000_000,
+        flush: Duration::from_secs(3600),
+        block_max: 64 * 1024,
+        clock: hold_clock,
+    };
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let mut w = ShardWriter::new(cfg, exch, Arc::clone(&metrics), stx, rx);
+    w.set_sort_batch(true);
+    w.set_hold(Duration::from_millis(hold_ms));
+    let (m2, d2) = (Arc::clone(&metrics), Arc::clone(&metrics.sink_q));
+    let sink = std::thread::spawn(move || run_sink(&srx, &d2, &m2));
+    let mut scratch = Vec::new();
+    HOLD_NOW.store(t + 40_000_000, Relaxed);
+    tx.push(item(t + 30_000_000, 1, &bn_book(1))).unwrap();
+    assert!(!w.step(&mut scratch));
+    HOLD_NOW.store(t + 45_000_000, Relaxed);
+    tx.push(item(t + 10_000_000, 2, &bn_book(2))).unwrap();
+    tx.push(item(t + 20_000_000, 2, &bn_book(3))).unwrap();
+    assert!(!w.step(&mut scratch));
+    HOLD_NOW.store(t + 500_000_000, Relaxed);
+    tx.push(Item {
+        rx_ns: 0,
+        sender: 0,
+        lane: 0,
+        settled: true,
+        payload: Payload::Shutdown,
+    })
+    .unwrap();
+    assert!(
+        w.step(&mut scratch),
+        "Shutdown выпускает всё и закрывает писателя"
+    );
+    sink.join().unwrap();
+    let stamps = rows(dir.path())
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Book { rx_ns, .. } => Some(*rx_ns - t),
+            _ => None,
+        })
+        .collect();
+    let clamped = metrics.writer().clamped;
+    (stamps, clamped)
+}
+
+#[test]
+fn writer_hold_puts_late_arrivals_in_order_instead_of_clamping_rx() {
+    let (off, clamped_off) = run_two_ticks(0);
+    assert_eq!(clamped_off, 2, "без выдержки обе поздние записи подняты");
+    assert_eq!(off, vec![30_000_000, 30_000_000, 30_000_000]);
+    let (on, clamped_on) = run_two_ticks(50);
+    assert_eq!(clamped_on, 0, "с выдержкой подъёма нет");
+    assert_eq!(
+        on,
+        vec![10_000_000, 20_000_000, 30_000_000],
+        "настоящие метки по порядку"
+    );
+}
+
 #[test]
 fn worker_serves_two_shards_by_timer_and_closes_them() {
     let (worker, join) = spawn_worker(Duration::from_millis(1));

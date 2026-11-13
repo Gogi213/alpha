@@ -110,6 +110,8 @@ pub struct ShardOpts {
     pub reactor: Option<ReactorHandle>,
     /// В `rx` файла — ядерная метка приёма (реактор): писатель сортирует пачку по метке, дубль несёт минимум метки по линиям.
     pub kernel_stamp: bool,
+    /// Выдержка записей перед записью при ядерных метках (`--rx-hold-ms`): сортировка с запаздыванием вместо поднятия `rx`.
+    pub rx_hold: Duration,
 }
 
 impl ShardOpts {
@@ -137,6 +139,7 @@ impl ShardOpts {
             worker_tick: Duration::from_micros(1000),
             reactor: default_reactor(),
             kernel_stamp: false,
+            rx_hold: Duration::ZERO,
         }
     }
 }
@@ -437,6 +440,7 @@ pub fn spawn_shard(
     };
     let mut writer = ShardWriter::new(cfg, Arc::clone(exch), Arc::clone(&metrics), stx, rrx);
     writer.set_sort_batch(opts.kernel_stamp);
+    writer.set_hold(opts.rx_hold);
     let sh = Arc::new(Shared {
         exch: Arc::clone(exch),
         plan: plan.clone(),

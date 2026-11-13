@@ -133,6 +133,10 @@ pub struct RunArgs {
     /// Метка `rx` в файле: `user` — после пробуждения потока (как раньше), `kernel` — ядерная метка приёма (нужен `--reactor`).
     #[arg(long, default_value = "user")]
     pub rx_stamp: String,
+    /// Выдержка записей перед записью, мс (только при ядерных метках): пачка сортируется по `rx` и выпускается, когда метка старше выдержки, — запись, опоздавшая в писатель
+    /// не больше чем на неё, сохраняет настоящую метку вместо поднятия до метки предыдущей (`rx_clamped`). 0 — выключено.
+    #[arg(long, default_value_t = 0)]
+    pub rx_hold_ms: u64,
     /// Локальный TLS-источник `wss://host:port` вместо биржи (замер ошибки метки приёма; корень — `ALPHA_TLS_EXTRA_ROOT`): хост и порт для всех входов.
     #[arg(long)]
     pub tls_ws: Option<String>,
@@ -382,6 +386,11 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     opts.worker_tick = tick;
     let kernel_stamp = args.reactor && args.rx_stamp == "kernel";
     opts.kernel_stamp = kernel_stamp;
+    opts.rx_hold = if kernel_stamp {
+        Duration::from_millis(args.rx_hold_ms.min(5_000))
+    } else {
+        Duration::ZERO
+    };
     let rcfg = ReactorCfg {
         window: Duration::from_micros(args.reactor_window_us.min(100_000)),
         kernel_stamp,

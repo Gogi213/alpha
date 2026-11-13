@@ -216,6 +216,8 @@ struct Core {
     out: Vec<SinkMsg>,
     /// Пачка сортируется по приёму (ядерные метки реактора): дубль двух линий несёт минимум метки, а не метку обработанного первым.
     sort_batch: bool,
+    /// На сколько нс `rx` обрабатываемого элемента поднят до приёма предыдущей записи (0 — не поднят); считается только для записанных строк, не для снятых дублей.
+    clamp_ns: i64,
 }
 
 impl Core {
@@ -274,6 +276,17 @@ impl Core {
         self.block_started = None;
     }
 
+    /// Записанная строка с поднятой меткой: счёт `rx_clamped` и размер поднятия (мкс) в гистограмму 60 с.
+    fn note_clamp(&self, st: &mut WriterStats, rx: i64) {
+        if self.clamp_ns > 0 {
+            st.clamped += 1;
+            st.clamp_us.add(
+                rx.div_euclid(NS_PER_MS),
+                u64::try_from(self.clamp_ns / 1000).unwrap_or(0),
+            );
+        }
+    }
+
     /// После каждой записанной строки: счёт, метка приёма для `lag_out`, граница блока.
     fn after_line(&mut self, rx: i64) {
         self.prev_rx = rx;
@@ -309,6 +322,7 @@ impl Core {
             self.enc.record(&mut self.block, rx, &mut s.enc, rec);
         }
         self.after_line(rx);
+        self.note_clamp(st, rx);
         st.records += 1;
         st.rows += 1;
         if settled {
@@ -357,6 +371,7 @@ impl Out for Sink<'_> {
         self.core.ensure_file(self.rx);
         self.core.enc.raw(&mut self.core.block, self.rx, frame);
         self.core.after_line(self.rx);
+        self.core.note_clamp(self.st, self.rx);
         self.st.raw += 1;
         self.st.rows += 1;
         if let (true, Some(l)) = (self.settled, lag) {
@@ -373,6 +388,9 @@ pub struct ShardWriter {
     metrics: Arc<ShardMetrics>,
     sink: SinkTx,
     ring: RingRx,
+    /// Выдержка записей (нс) при ядерных метках: пачка сортируется по `rx` вместе с ещё не выпущенными и выпускается, когда метка старше выдержки.
+    hold_ns: i64,
+    held: Vec<Item>,
     /// Диагностика: `ALPHA_COLLECT_CAPTURE=1` — все кадры всех сессий (до снятия дублей) в `capture-<шард>.tsv`: «сессия, приём нс, кадр».
     capture: Option<std::io::BufWriter<std::fs::File>>,
 }
@@ -408,6 +426,7 @@ impl ShardWriter {
             seen: Seen::default(),
             out: Vec::new(),
             sort_batch: false,
+            clamp_ns: 0,
         };
         Self {
             core,
@@ -416,6 +435,8 @@ impl ShardWriter {
             metrics,
             sink,
             ring,
+            hold_ns: 0,
+            held: Vec::new(),
             capture,
         }
     }
@@ -426,12 +447,8 @@ impl ShardWriter {
             return true;
         }
         let rx = item.rx_ns.max(self.core.prev_rx);
+        self.core.clamp_ns = rx - item.rx_ns;
         let rx_ms = rx.div_euclid(NS_PER_MS);
-        if rx > item.rx_ns {
-            st.clamped += 1;
-            st.clamp_us
-                .add(rx_ms, u64::try_from((rx - item.rx_ns) / 1000).unwrap_or(0));
-        }
         match item.payload {
             Payload::Frame(bytes) => {
                 if let Some(w) = self.capture.as_mut() {
@@ -442,10 +459,12 @@ impl ShardWriter {
 ",
                     );
                 }
-                st.queue_lag.add(
-                    rx_ms,
-                    u64::try_from((now_ns - item.rx_ns).max(0) / 1000).unwrap_or(0),
-                );
+                if self.hold_ns == 0 {
+                    st.queue_lag.add(
+                        rx_ms,
+                        u64::try_from((now_ns - item.rx_ns).max(0) / 1000).unwrap_or(0),
+                    );
+                }
                 if let Some(sym) = self.exch.symbol(&bytes) {
                     touch_seen(st, sym, rx_ms);
                 }
@@ -468,12 +487,14 @@ impl ShardWriter {
                     .enc
                     .control(&mut self.core.block, rx, what, &detail);
                 self.core.after_line(rx);
+                self.core.note_clamp(st, rx);
                 st.rows += 1;
             }
             Payload::Ping(rtt_us) => {
                 self.core.ensure_file(rx);
                 self.core.enc.ping(&mut self.core.block, rx, rtt_us);
                 self.core.after_line(rx);
+                self.core.note_clamp(st, rx);
                 st.rows += 1;
             }
             Payload::Shutdown => {}
@@ -516,11 +537,11 @@ impl ShardWriter {
         let now_ns = (self.core.cfg.clock)();
         let mut done = !alive;
         if self.core.sort_batch {
-            // `Shutdown` — всегда последним (его метка не имеет значения)
-            scratch.sort_by_key(|i| match i.payload {
-                Payload::Shutdown => i64::MAX,
-                _ => i.rx_ns,
-            });
+            if self.hold_ns > 0 {
+                self.hold_batch(scratch, now_ns, done, &metrics);
+            } else {
+                scratch.sort_by_key(sort_key);
+            }
         }
         while !scratch.is_empty() {
             let n = scratch.len().min(BATCH);
@@ -548,16 +569,64 @@ impl ShardWriter {
         done
     }
 
-    /// Через сколько срок блока (`None` — блок не открыт).
-    pub fn flush_in(&self) -> Option<Duration> {
-        self.core.until_flush(self.core.cfg.flush)
+    /// Выдержка записей при ядерных метках: `0` — без выдержки (пачка сортируется и пишется сразу).
+    pub fn set_hold(&mut self, hold: Duration) {
+        self.hold_ns = i64::try_from(hold.as_nanos()).unwrap_or(0);
     }
 
-    /// Когда писателю нужно проснуться по сроку блока (не позже такта).
+    /// Выдержка: забранная пачка вливается в ещё не выпущенные, сортируется по `rx`, выпускается часть с меткой старше выдержки; остальное ждёт следующего такта.
+    /// Опоздавшая в писатель запись (другой сокет читался в том же обороте реактора позже, залп после провала) встаёт на своё место по метке, а не поднимается до метки
+    /// уже записанной; `queue_lag` считается при входе (ядро → писатель), до выдержки. `Shutdown` или уход отправителей выпускают всё.
+    fn hold_batch(
+        &mut self,
+        scratch: &mut Vec<Item>,
+        now_ns: i64,
+        closing: bool,
+        metrics: &Arc<ShardMetrics>,
+    ) {
+        if !scratch.is_empty() {
+            let mut st = metrics.writer();
+            for it in scratch.iter() {
+                if matches!(it.payload, Payload::Frame(_)) {
+                    st.queue_lag.add(
+                        it.rx_ns.div_euclid(NS_PER_MS),
+                        u64::try_from((now_ns - it.rx_ns).max(0) / 1000).unwrap_or(0),
+                    );
+                }
+            }
+        }
+        scratch.append(&mut self.held);
+        scratch.sort_by_key(sort_key);
+        let release = if closing
+            || scratch
+                .last()
+                .is_some_and(|i| matches!(i.payload, Payload::Shutdown))
+        {
+            scratch.len()
+        } else {
+            let cut = now_ns - self.hold_ns;
+            scratch.partition_point(|i| sort_key(i) <= cut)
+        };
+        self.held.extend(scratch.drain(release..));
+    }
+
+    /// Через сколько срок блока или срок выпуска самой старой выдержанной записи (`None` — нечего ждать).
+    pub fn flush_in(&self) -> Option<Duration> {
+        let block = self.core.until_flush(self.core.cfg.flush);
+        let held = self.held.first().map(|i| {
+            let due = i.rx_ns.saturating_add(self.hold_ns) - (self.core.cfg.clock)();
+            Duration::from_nanos(u64::try_from(due).unwrap_or(0))
+        });
+        match (block, held) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, None) => a,
+            (None, b) => b,
+        }
+    }
+
+    /// Когда писателю нужно проснуться по сроку блока или выпуска (не позже такта).
     pub fn next_wake(&self) -> Duration {
-        self.core
-            .until_flush(self.core.cfg.flush)
-            .map_or(TICK, |d| d.min(TICK))
+        self.flush_in().map_or(TICK, |d| d.min(TICK))
     }
 
     /// Поток одного писателя (проверки): такты до `Shutdown` или ухода отправителей; в конце файл закрыт, поток диска остановлен.
@@ -566,6 +635,14 @@ impl ShardWriter {
         while !self.step(&mut scratch) {
             std::thread::sleep(self.next_wake());
         }
+    }
+}
+
+/// Ключ сортировки пачки по приёму: `Shutdown` — всегда последним (его метка не имеет значения).
+fn sort_key(i: &Item) -> i64 {
+    match i.payload {
+        Payload::Shutdown => i64::MAX,
+        _ => i.rx_ns,
     }
 }
 
