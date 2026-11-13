@@ -1142,7 +1142,7 @@ fn okx_plan_keeps_a_symbol_in_one_shard_and_subscribes_by_hundreds() {
             lines[1][0].family,
             lines[1][1].family
         ),
-        (Family::V4, Family::V6, Family::V6, Family::V4)
+        (Family::V4, Family::V6, Family::V4, Family::V6)
     );
     assert!(lines.iter().flatten().all(|e| e.host == "ws.okx.com"));
     assert_eq!(okx.default_top_exclude(), 0);

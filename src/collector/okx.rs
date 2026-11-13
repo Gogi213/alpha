@@ -387,16 +387,15 @@ impl Exchange for Okx {
         format!("wss://{host}{PATH}")
     }
 
-    /// Один хост `ws.okx.com` (независимой точки входа у OKX нет, подготовка п. 5): линия 0 — IPv4 с запасным IPv6, линия 1 — наоборот.
+    /// Один хост `ws.okx.com` (независимой точки входа у OKX нет, подготовка п. 5): обе линии — IPv4, запасной вход — IPv6. Линия 1 на IPv6 теряла путь
+    /// (5 ретрансмитов TCP, 10–13 с без данных: OKX n80-w1, BingX n20-w2/n320-w2, `bingx-collector-2026-11-13.md` п. 5), на IPv4 стоянок не было.
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>> {
         (0..lanes)
-            .map(|k| {
-                let (a, b) = if k % 2 == 0 {
-                    (Family::V4, Family::V6)
-                } else {
-                    (Family::V6, Family::V4)
-                };
-                vec![Entrance::new(HOST, a), Entrance::new(HOST, b)]
+            .map(|_| {
+                vec![
+                    Entrance::new(HOST, Family::V4),
+                    Entrance::new(HOST, Family::V6),
+                ]
             })
             .collect()
     }
