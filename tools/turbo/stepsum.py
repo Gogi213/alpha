@@ -17,6 +17,16 @@ def load(p):
         return None
 
 
+def span_text(rest):
+    """BingX: what the REST snapshot covered — its duration and, per symbol, how much of the window the last 1000 trades reach back (busy coins: only the last seconds)."""
+    sp, sn = (rest.get("snapshot") or {}).get("rest_span"), (rest.get("snapshot") or {}).get("took_s")
+    if not sp:
+        return ""
+    cut = "" if not sp["truncated"] else f" (the last {sp['truncated_min_s']}..{sp['truncated_median_s']} s of the window, min/median)"
+    share = "—" if sp["checked_share"] is None else f"{sp['checked_share'] * 100:.0f}%"
+    return f" rest_span=full window {sp['full_window']}/{sp['symbols']} symbols, truncated {sp['truncated']}{cut}, trades checked {sp['checked_trades']}/{sp['window_trades']} ({share}) snapshot={sn}s"
+
+
 def main():
     d, label = sys.argv[1], sys.argv[2]
     no_rest = "--no-rest" in sys.argv[3:]
@@ -66,7 +76,7 @@ def main():
     line = (f"{label} {'ok' if not reasons else 'FAIL'} shards={s['shards']} fast={fs} lag p50/p99/max={s['lag_p50']}/{s['lag_p99']}/{s['lag_max']} ms late={s['late']} "
             f"drops={drops} connect_errors={s['connect_errors']} mark_cov={mc} {'rest=deferred' if no_rest and rest is None else f'rest_missing_after_covered={miss}/' + str(t.get('rest_after_covered'))} uncovered={s['uncovered_shard_s']} shard-s cpu={s['cpu_pct']}% core "
             f"switch/upgrade/deferred={s['path_switch']}/{s['path_upgrade']}/{s['replace_deferred']}"
-            + (f" rest_mismatch={t.get('mismatch')} id_gaps_after_covered={ids['gaps_after_covered']}/{ids['trades']}" if ids else ""))
+            + (f" rest_mismatch={t.get('mismatch')} id_gaps_after_covered={ids['gaps_after_covered']}/{ids['trades']}" + span_text(rest) if ids else ""))
     print(line + ("" if not reasons else " | " + "; ".join(reasons)))
     sys.exit(1 if reasons else 0)
 

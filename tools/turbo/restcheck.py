@@ -306,7 +306,10 @@ def bingx(a, t0, t1):
         missing = sorted(set(rest) - set(mine))
         # a recorded trade is "extra" only inside the id range REST shows in the window (REST ids are contiguous, so every id of the range must be there)
         rmin, rmax = min(rest_all, default=None), max(rest_all, default=None)
-        extra = sorted(k for k in mine if rmin is not None and rmin <= k <= rmax and k not in rest_all)
+        # both ends of a REST list are not judged (50 ids each): at the oldest end of a full (1000) list REST cuts by time while ids are not in time order (ETH: id rmin+1 absent from REST, present in WS with
+        # the same price/time); at the newest end REST lags (BTC: id rmax-3 absent while its neighbours on both sides are listed)
+        lo_id = None if rmin is None else rmin + (50 if s["n"] >= 1000 else 0)
+        extra = sorted(k for k in mine if lo_id is not None and lo_id <= k <= rmax - 50 and k not in rest_all)
         both = set(rest) & set(mine)
         mism = [k for k in both if not (price_close(rest[k][0], mine[k][0]) and Decimal(rest[k][1]) == Decimal(mine[k][1]) and rest[k][2] == mine[k][2])]
         tdiff.extend(mine[k][3] - rest[k][3] for k in both)
@@ -329,9 +332,16 @@ def bingx(a, t0, t1):
         gaps += g
         gap_syms += g > 0
     pool_ids = {"symbols": len(rec), "trades": trades, "gaps_after_covered": gaps, "symbols_with_gaps": gap_syms, "examples": examples}
+    # how much of the window the REST oracle saw: a symbol whose last 1000 trades start inside the window is checked only from there (busy coins: the last seconds)
+    cut = sorted((t1 - r["checked_from_ms"]) / 1000 for r in res.values() if r["truncated"])
+    in_win = sum(1 for v in rec.values() for x in v.values() if t0 <= x[3] <= t1)
+    rest_span = {"symbols": len(res), "full_window": sum(1 for r in res.values() if not r["truncated"]), "truncated": len(cut),
+                 "truncated_min_s": round(cut[0], 1) if cut else None, "truncated_median_s": round(cut[len(cut) // 2], 1) if cut else None,
+                 "checked_trades": sum(r["rest"] for r in res.values()), "window_trades": in_win,
+                 "checked_share": round(sum(r["rest"] for r in res.values()) / in_win, 4) if in_win else None}
     tdiff.sort()
     timing = {"n": len(tdiff), "p50": tdiff[len(tdiff) // 2] if tdiff else None, "p99": tdiff[int(len(tdiff) * 0.99)] if tdiff else None, "min": tdiff[0] if tdiff else None, "max": tdiff[-1] if tdiff else None}
-    return res, pool_ids, {**{k: snap.get(k) for k in ("fetched_ms", "took_s", "errors")}, "ws_minus_rest_time_ms": timing}
+    return res, pool_ids, {**{k: snap.get(k) for k in ("fetched_ms", "took_s", "errors")}, "ws_minus_rest_time_ms": timing, "rest_span": rest_span}
 
 
 def main():
