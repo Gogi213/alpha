@@ -215,8 +215,8 @@ def test_service_is_read_only_for_collector_data():
     assert re.search(r"^ProtectSystem=strict$", unit, re.M)
     rw = re.search(r"^ReadWritePaths=(.*)$", unit, re.M).group(1).split()
     assert sorted(rw) == ["/data/health", "/data/upload-state"]
-    srcs = re.findall(r"--source \w+=(\S+)", unit)
-    assert len(srcs) == 4
+    srcs = re.findall(r"--source [\w-]+=(\S+)", unit)
+    assert len(srcs) == 5
     for s in srcs:
         assert not any(s == w or s.startswith(w + "/") or w.startswith(s + "/") for w in rw)
     assert re.search(r"^Nice=19$", unit, re.M) and re.search(r"^IOSchedulingClass=idle$", unit, re.M)

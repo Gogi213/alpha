@@ -1,5 +1,5 @@
 [Unit]
-Description=G-022: выгрузка закрытых суток коллекторов (Binance, OKX, BingX, Bybit) на Storage Box; ничего не удаляет
+Description=G-022: выгрузка закрытых суток коллекторов (Binance, OKX, BingX, Bybit, soak-Binance) на Storage Box; ничего не удаляет
 After=network-online.target
 
 [Service]
@@ -11,4 +11,4 @@ CPUSchedulingPolicy=idle
 ProtectSystem=strict
 ReadWritePaths=/data/upload-state /data/health
 PrivateTmp=yes
-ExecStart=/usr/bin/python3 /opt/day-upload/day_upload.py --source binance=/data/collect/binance/data --source okx=/data/collect/okx/data --source bingx=/data/collect/bingx/data --source bybit=/data/turbo-probe/soak-bybit/data --quiet-s 300 --bwlimit 20000
+ExecStart=/usr/bin/python3 /opt/day-upload/day_upload.py --source binance=/data/collect/binance/data --source okx=/data/collect/okx/data --source bingx=/data/collect/bingx/data --source bybit=/data/turbo-probe/soak-bybit/data --source binance-soak=/data/turbo-probe/soak-binance/data --quiet-s 300 --bwlimit 20000
