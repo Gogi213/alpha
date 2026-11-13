@@ -80,7 +80,11 @@ mod sys {
     }
 
     /// Одно неблокирующее `recvmsg` в `buf`; `(прочитано, ядерная метка нс UTC или 0)`; ошибки — как у `recv`.
-    pub fn recv_stamped(s: &impl AsRawFd, buf: &mut [u8]) -> std::io::Result<(usize, i64)> {
+    pub fn recv_stamped(
+        s: &impl AsRawFd,
+        buf: &mut [u8],
+        peek: bool,
+    ) -> std::io::Result<(usize, i64)> {
         let mut iov = libc::iovec {
             iov_base: buf.as_mut_ptr().cast(),
             iov_len: buf.len(),
@@ -93,7 +97,8 @@ mod sys {
         msg.msg_control = ctl.as_mut_ptr().cast();
         msg.msg_controllen = std::mem::size_of_val(&ctl) as _;
         // SAFETY: fd живой; `msg` ссылается на живые `iov` (буфер `buf` и его длина) и `ctl` (64 записываемых байта); ядро пишет не больше этих длин.
-        let n = unsafe { libc::recvmsg(s.as_raw_fd(), &mut msg, libc::MSG_DONTWAIT) };
+        let flags = libc::MSG_DONTWAIT | if peek { libc::MSG_PEEK } else { 0 };
+        let n = unsafe { libc::recvmsg(s.as_raw_fd(), &mut msg, flags) };
         if n < 0 {
             return Err(std::io::Error::last_os_error());
         }
@@ -110,6 +115,50 @@ mod sys {
             }
         }
         Ok((usize::try_from(n).unwrap_or(0), stamp))
+    }
+
+    /// Снять из очереди `n` байт без копирования (`MSG_TRUNC` у TCP) и вернуть `(снято, ядерная метка пакета, завершившего снятые байты)`; `scratch` — допустимая
+    /// область памяти длиной не меньше `n` (ядро в неё не пишет, но проверяет адрес).
+    pub fn skip_stamped(
+        s: &impl AsRawFd,
+        scratch: &mut [u8],
+        n: usize,
+    ) -> std::io::Result<(usize, i64)> {
+        let mut iov = libc::iovec {
+            iov_base: scratch.as_mut_ptr().cast(),
+            iov_len: n.min(scratch.len()),
+        };
+        let mut ctl = [0u64; 8];
+        // SAFETY: нулевая msghdr — допустимое начальное значение.
+        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = ctl.as_mut_ptr().cast();
+        msg.msg_controllen = std::mem::size_of_val(&ctl) as _;
+        // SAFETY: как в `recv_stamped`; с `MSG_TRUNC` ядро байты не копирует, только снимает их из очереди.
+        let k = unsafe {
+            libc::recvmsg(
+                s.as_raw_fd(),
+                &mut msg,
+                libc::MSG_DONTWAIT | libc::MSG_TRUNC,
+            )
+        };
+        if k < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut stamp = 0i64;
+        // SAFETY: обход cmsg по правилам libc над буфером `ctl`, заполненным ядром.
+        unsafe {
+            let mut c = libc::CMSG_FIRSTHDR(&msg);
+            while !c.is_null() {
+                if (*c).cmsg_level == libc::SOL_SOCKET && (*c).cmsg_type == libc::SCM_TIMESTAMPNS {
+                    let ts: libc::timespec = std::ptr::read_unaligned(libc::CMSG_DATA(c).cast());
+                    stamp = i64::from(ts.tv_sec) * 1_000_000_000 + i64::from(ts.tv_nsec);
+                }
+                c = libc::CMSG_NXTHDR(&msg, c);
+            }
+        }
+        Ok((usize::try_from(k).unwrap_or(0), stamp))
     }
 
     /// Байт в очереди приёма сокета (Recv-Q).
@@ -139,7 +188,11 @@ mod sys {
         false
     }
 
-    pub fn recv_stamped<T>(_: &T, _: &mut [u8]) -> std::io::Result<(usize, i64)> {
+    pub fn recv_stamped<T>(_: &T, _: &mut [u8], _: bool) -> std::io::Result<(usize, i64)> {
+        Err(std::io::ErrorKind::Unsupported.into())
+    }
+
+    pub fn skip_stamped<T>(_: &T, _: &mut [u8], _: usize) -> std::io::Result<(usize, i64)> {
         Err(std::io::ErrorKind::Unsupported.into())
     }
 }
@@ -253,13 +306,20 @@ pub const RX_BUF: usize = 64 * 1024;
 pub struct RxSock {
     sock: TcpStream,
     tick: bool,
+    /// Режим точной метки (TLS): сокет читается по одной записи TLS за вызов (`MSG_PEEK` находит границы целых записей, затем каждая запись снимается без копирования
+    /// своим `recvmsg`), метка — у записи, а не у пачки. Без TLS (`ws://` проверок) — одно чтение на такт.
+    exact: bool,
     buf: Vec<u8>,
     pos: usize,
     len: usize,
+    /// Концы записей TLS в `buf` и ядерные метки приёма их последних байт (режим точной метки).
+    recs: Vec<(usize, i64)>,
+    rec: usize,
     armed: bool,
     eof: bool,
     stamp_ns: i64,
     fills: u64,
+    syscalls: u64,
 }
 
 impl RxSock {
@@ -267,22 +327,27 @@ impl RxSock {
         Self {
             sock,
             tick: false,
+            exact: false,
             buf: Vec::new(),
             pos: 0,
             len: 0,
+            recs: Vec::new(),
+            rec: 0,
             armed: false,
             eof: false,
             stamp_ns: 0,
             fills: 0,
+            syscalls: 0,
         }
     }
 
-    /// Перейти на режим такта: сокет неблокирующий, ядерные метки включены, буфер выделен.
-    pub fn into_tick_mode(&mut self) -> io::Result<()> {
+    /// Перейти на режим такта: сокет неблокирующий, ядерные метки включены, буфер выделен. `exact` — метка по записи TLS (нужен TLS-поток).
+    pub fn into_tick_mode(&mut self, exact: bool) -> io::Result<()> {
         self.sock.set_nonblocking(true)?;
         sys::enable_rx_timestamps(&self.sock);
         self.buf = vec![0u8; RX_BUF];
         self.tick = true;
+        self.exact = exact;
         Ok(())
     }
 
@@ -291,7 +356,8 @@ impl RxSock {
         self.armed = true;
     }
 
-    /// Ядерная метка последнего чтения (нс UTC; 0 — нет).
+    /// Ядерная метка приёма последних переданных читателю данных (нс UTC; 0 — нет): в режиме записи — у последней целиком переданной записи TLS,
+    /// иначе — у самого нового пакета последнего чтения.
     pub fn stamp_ns(&self) -> i64 {
         self.stamp_ns
     }
@@ -301,6 +367,11 @@ impl RxSock {
         self.fills
     }
 
+    /// Сколько системных вызовов чтения сделано (в режиме записи — на пачку: один просмотр и по вызову на запись).
+    pub fn syscalls(&self) -> u64 {
+        self.syscalls
+    }
+
     /// Сколько байт последнего чтения ещё не передано читателям.
     pub fn buffered(&self) -> usize {
         self.len - self.pos
@@ -308,6 +379,74 @@ impl RxSock {
 
     pub fn tcp(&self) -> &TcpStream {
         &self.sock
+    }
+
+    /// Одно чтение из ядра на такт: пачка байт с меткой самого нового пакета.
+    fn fill_batch(&mut self) -> io::Result<()> {
+        let (n, stamp) = sys::recv_stamped(&self.sock, &mut self.buf, false)?;
+        self.syscalls += 1;
+        self.fills += 1;
+        if n == 0 {
+            self.eof = true;
+            return Ok(());
+        }
+        (self.pos, self.len, self.stamp_ns) = (0, n, stamp);
+        self.recs.clear();
+        Ok(())
+    }
+
+    /// Чтение по записям TLS: просмотр без снятия (`MSG_PEEK`) → границы целых записей → каждая запись снимается без копирования (`MSG_TRUNC`),
+    /// метка — у пакета, завершившего запись. Неполная запись остаётся в ядре до следующего такта.
+    fn fill_records(&mut self) -> io::Result<()> {
+        let (n, _) = sys::recv_stamped(&self.sock, &mut self.buf, true)?;
+        self.syscalls += 1;
+        self.fills += 1;
+        if n == 0 {
+            self.eof = true;
+            return Ok(());
+        }
+        let mut ends: Vec<usize> = Vec::new();
+        let mut off = 0usize;
+        while n - off >= 5 {
+            let (Some(&hi), Some(&lo)) = (self.buf.get(off + 3), self.buf.get(off + 4)) else {
+                break;
+            };
+            let total = 5 + (usize::from(hi) << 8 | usize::from(lo));
+            if n - off < total {
+                break;
+            }
+            off += total;
+            ends.push(off);
+        }
+        if ends.is_empty() {
+            // нет ни одной целой записи: ждём следующего такта (данные остаются в ядре)
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        self.recs.clear();
+        let mut start = 0usize;
+        for end in ends {
+            let want = end - start;
+            let mut got = 0usize;
+            let mut stamp = 0i64;
+            while got < want {
+                let (k, s) = sys::skip_stamped(&self.sock, &mut self.buf, want - got)?;
+                self.syscalls += 1;
+                if k == 0 {
+                    break;
+                }
+                got += k;
+                stamp = s;
+            }
+            if got < want {
+                // запись исчезла из очереди (не должно быть после просмотра): отдаём то, что сняли
+                self.recs.push((start + got, stamp));
+                break;
+            }
+            self.recs.push((end, stamp));
+            start = end;
+        }
+        (self.pos, self.len, self.rec) = (0, self.recs.last().map_or(0, |r| r.0), 0);
+        Ok(())
     }
 }
 
@@ -324,19 +463,32 @@ impl Read for RxSock {
                 return Err(io::ErrorKind::WouldBlock.into());
             }
             self.armed = false;
-            let (n, stamp) = sys::recv_stamped(&self.sock, &mut self.buf)?;
-            self.fills += 1;
-            if n == 0 {
-                self.eof = true;
+            if self.exact {
+                self.fill_records()?;
+            } else {
+                self.fill_batch()?;
+            }
+            if self.eof {
                 return Ok(0);
             }
-            (self.pos, self.len, self.stamp_ns) = (0, n, stamp);
         }
-        let k = out.len().min(self.len - self.pos);
+        // режим записи: за вызов — не дальше конца текущей записи (читатель получает запись целиком и ничего сверх неё), метка — по завершению записи
+        let limit = if self.exact {
+            self.recs.get(self.rec).map_or(self.len, |r| r.0)
+        } else {
+            self.len
+        };
+        let k = out.len().min(limit - self.pos);
         if let (Some(dst), Some(src)) = (out.get_mut(..k), self.buf.get(self.pos..self.pos + k)) {
             dst.copy_from_slice(src);
         }
         self.pos += k;
+        if self.exact && self.pos == limit {
+            if let Some(r) = self.recs.get(self.rec) {
+                self.stamp_ns = r.1;
+            }
+            self.rec += 1;
+        }
         Ok(k)
     }
 }
@@ -410,8 +562,15 @@ impl Write for Conn {
 fn tls_config() -> Result<Arc<rustls::ClientConfig>, String> {
     static CFG: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
     CFG.get_or_init(|| {
-        let roots =
+        let mut roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        // диагностика: свой корневой сертификат (локальный TLS-источник для замера ошибки метки приёма); без переменной — только корни webpki
+        if let Some(p) = std::env::var_os("ALPHA_TLS_EXTRA_ROOT") {
+            use rustls::pki_types::{pem::PemObject, CertificateDer};
+            if let Ok(c) = CertificateDer::from_pem_file(&p) {
+                let _ = roots.add(c);
+            }
+        }
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let cfg = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()

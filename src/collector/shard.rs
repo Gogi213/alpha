@@ -230,6 +230,7 @@ fn session_forever(
             strict.is_some() || rejects < PROBE_MAX_REJECTS,
             accepted,
             cancel,
+            u8::try_from(lane.k).unwrap_or(u8::MAX),
         ) {
             Outcome::PathRejected => {
                 rejects += 1;
@@ -525,6 +526,7 @@ pub fn spawn_shard(
             let _ = rtx.push(Item {
                 rx_ns: session::wall_ns(),
                 sender: 0,
+                lane: 0,
                 settled: true,
                 payload: Payload::Shutdown,
             });
@@ -628,13 +630,18 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
 /// Строка статистики окна (формат Python-ядра + поля обратного давления).
 fn stats_line(m: &ShardMetrics, w: &WindowSnap, cpu_frac: f64) -> serde_json::Value {
     let now = now_ms();
-    let (lag, dups, q_p99) = {
+    let (lag, dups, q_p99, lanes) = {
         let st = m.writer();
         let mut h = Hist::new();
         for r in &st.lag_in {
             h.merge(&r.snapshot(now));
         }
-        (h, st.dups, st.queue_lag.snapshot(now).percentile(0.99))
+        (
+            h,
+            st.dups,
+            st.queue_lag.snapshot(now).percentile(0.99),
+            st.lanes,
+        )
     };
     json!({
         "ts_ms": now, "msgs": w.frames, "bytes": w.bytes, "max_gap_ms": w.max_gap_ms,
@@ -642,5 +649,6 @@ fn stats_line(m: &ShardMetrics, w: &WindowSnap, cpu_frac: f64) -> serde_json::Va
         "ring_depth_max": w.ring_depth_max, "ring_full": w.ring_full, "ring_blocked_ms": w.ring_blocked_ms,
         "queue_lag_p99_ms": q_p99.map(us_to_ms), "recvq_max": w.recvq_max, "recvq_behind": w.recvq_behind, "busy_max_us": w.busy_max_us,
         "handoff_max_us": w.handoff_max_us, "sink_depth_max": w.sink_depth_max, "disk_write_max_us": w.write_max_us,
+        "lane_first": lanes.first, "lane_delivered": lanes.delivered, "lane_unique": lanes.unique,
     })
 }

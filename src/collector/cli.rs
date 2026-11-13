@@ -3,7 +3,7 @@
 use clap::Subcommand;
 
 use super::bench::{run as bench_run, BenchArgs};
-use super::compare::{run as compare_run, CompareArgs};
+use super::compare::{run as compare_run, stamp_err, CompareArgs, StampErrArgs};
 use super::ladder::{run as ladder_run, LadderArgs};
 use super::replay::{run as replay_run, ReplayArgs};
 use super::runner::{run, RunArgs};
@@ -23,6 +23,8 @@ pub enum CollectCommand {
     Replay(ReplayArgs),
     /// Сравнение двух каталогов вывода (бок о бок): записи без rx, содержимое, распределение rx_b − rx_a.
     Compare(CompareArgs),
+    /// Ошибка метки приёма по книге локального источника (`tlsws_replay.py`): rx − время отправки, процентили.
+    Stamperr(StampErrArgs),
 }
 
 pub fn dispatch(cmd: CollectCommand) -> anyhow::Result<()> {
@@ -31,6 +33,10 @@ pub fn dispatch(cmd: CollectCommand) -> anyhow::Result<()> {
         CollectCommand::Synth(a) => synth_run(&a),
         CollectCommand::Ladder(a) => ladder_run(&a),
         CollectCommand::Replay(a) => replay_run(&a),
+        CollectCommand::Stamperr(a) => {
+            stamp_err(&a);
+            Ok(())
+        }
         CollectCommand::Compare(a) => {
             compare_run(&a);
             Ok(())

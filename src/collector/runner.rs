@@ -20,10 +20,11 @@ use super::bybit::Bybit;
 use super::events::now_ms;
 use super::exchange::{Entrance, Exchange, Family};
 use super::health::{build, write_atomic, HealthCtx, ProcSampler};
+use super::hostinfo::HostInfo;
 use super::metrics::STATS_PERIOD_S;
 use super::net;
 use super::okx::Okx;
-use super::reactor::{spawn_reactor, ReactorCfg};
+use super::reactor::{spawn_reactor, spawn_reactor_inline, ReactorCfg};
 use super::series::SeriesWriter;
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
 use super::worker::spawn_worker;
@@ -126,9 +127,15 @@ pub struct RunArgs {
     /// Окно пакетирования реактора, мкс: реактор просыпается не чаще раза за окно.
     #[arg(long, default_value_t = 1000)]
     pub reactor_window_us: u64,
+    /// Рабочий (разбор, дубли, кодировщик) идёт внутри реактора, в его потоке, а не в отдельном (нужен `--reactor`): нет передачи между потоками и пробуждений рабочего.
+    #[arg(long)]
+    pub worker_inline: bool,
     /// Метка `rx` в файле: `user` — после пробуждения потока (как раньше), `kernel` — ядерная метка приёма (нужен `--reactor`).
     #[arg(long, default_value = "user")]
     pub rx_stamp: String,
+    /// Локальный TLS-источник `wss://host:port` вместо биржи (замер ошибки метки приёма; корень — `ALPHA_TLS_EXTRA_ROOT`): хост и порт для всех входов.
+    #[arg(long)]
+    pub tls_ws: Option<String>,
     /// Открытый `ws://host:port` вместо биржи (синтетический источник `collect synth`): хост и порт для всех входов.
     #[arg(long)]
     pub plain_ws: Option<String>,
@@ -258,8 +265,13 @@ fn health_json(
     ctx: &HealthCtx,
     sampler: &mut ProcSampler,
     reactor: Option<&(super::reactor::ReactorHandle, std::thread::JoinHandle<()>)>,
+    host: &mut HostInfo,
 ) -> serde_json::Value {
+    host.refresh();
     let mut v = build(metrics, ctx, now_ms(), sampler);
+    if let Some(o) = v.as_object_mut() {
+        o.insert("host".to_string(), host.json());
+    }
     if let (Some((r, _)), Some(o)) = (reactor, v.as_object_mut()) {
         o.insert("reactor".to_string(), r.stats.json());
     }
@@ -295,6 +307,20 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         )),
         pool_json.to_string(),
     )?;
+    // источник метки приёма `rx` — по запускам (дописывается): разрыв семантики в непрерывном наборе данных виден по датам (docs/collector-ws-format.md)
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(args.root.join("rx-stamp.jsonl"))
+    {
+        use std::io::Write as _;
+        let _ = writeln!(
+            f,
+            "{}",
+            json!({"ts_ms": now_ms(), "version": super::VERSION, "rx_stamp": if args.reactor && args.rx_stamp == "kernel" { "kernel" } else { "user" },
+                   "reactor": args.reactor, "worker_inline": args.worker_inline, "window_us": args.reactor_window_us})
+        );
+    }
     println!("pool {} top_excluded {:?}", pool.len(), top);
     if args.pool_only {
         return Ok(());
@@ -323,6 +349,15 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
             .map(|_| vec![Entrance::new(host, Family::V4)])
             .collect();
     }
+    if let Some(t) = &args.tls_ws {
+        let (host, port) = t
+            .rsplit_once(':')
+            .ok_or_else(|| anyhow::anyhow!("--tls-ws host:port"))?;
+        opts.port = port.parse()?;
+        lines = (0..args.lanes)
+            .map(|_| vec![Entrance::new(host, Family::V4)])
+            .collect();
+    }
     let stop = Arc::new(AtomicBool::new(false));
     watch_signals(&stop);
     let limit = args.connect_budget.unwrap_or(match args.exchange {
@@ -344,23 +379,48 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let budget = Arc::new(Budget::new(limit, window));
     budget.set_reserve(args.reject_reserve);
     let tick = Duration::from_micros(args.worker_tick_us.clamp(100, 100_000));
-    let (worker, worker_join) = spawn_worker(tick);
-    opts.worker = Some(worker.clone());
     opts.worker_tick = tick;
     let kernel_stamp = args.reactor && args.rx_stamp == "kernel";
     opts.kernel_stamp = kernel_stamp;
-    let reactor = if args.reactor {
-        spawn_reactor(ReactorCfg {
-            window: Duration::from_micros(args.reactor_window_us.min(100_000)),
-            kernel_stamp,
+    let rcfg = ReactorCfg {
+        window: Duration::from_micros(args.reactor_window_us.min(100_000)),
+        kernel_stamp,
+    };
+    let mut worker_pair = None;
+    let reactor = if args.reactor && args.worker_inline {
+        spawn_reactor_inline(rcfg).map(|(r, w, j)| {
+            opts.worker = Some(w.clone());
+            worker_pair = Some((w, None));
+            (r, j)
         })
+    } else if args.reactor {
+        spawn_reactor(rcfg)
     } else {
         None
     };
+    if worker_pair.is_none() {
+        let (w, j) = spawn_worker(tick);
+        opts.worker = Some(w.clone());
+        worker_pair = Some((w, Some(j)));
+    }
     opts.reactor = reactor.as_ref().map(|(h, _)| h.clone());
+    // Binance: кадр mark — массив ≈ 1000 элементов (82 КБ, разбор ≈ 2 мс на горячем ядре, 2 раза в секунду): в потоке реактора он задерживал бы разбор кадров всех
+    // остальных шардов (голова очереди, `queue_lag` p99 26–34 мс против 8 мс у прежней сборки), поэтому шарды mark идут через отдельный поток рабочего
+    let mark_worker =
+        (args.reactor && args.worker_inline && matches!(args.exchange, ExchangeName::Binance))
+            .then(|| {
+                spawn_worker(Duration::from_micros(
+                    args.reactor_window_us.clamp(2_000, 100_000),
+                ))
+            });
     let mut handles: Vec<ShardHandle> = Vec::new();
     for plan in &plans {
-        if let Some(h) = spawn_shard(&exch, plan, &lines, &opts, &budget, &stop) {
+        let mut o = opts.clone();
+        if let (true, Some((w, _))) = (plan.name.starts_with("mark"), mark_worker.as_ref()) {
+            o.worker = Some(w.clone());
+            o.worker_tick = Duration::from_micros(args.reactor_window_us.clamp(2_000, 100_000));
+        }
+        if let Some(h) = spawn_shard(&exch, plan, &lines, &o, &budget, &stop) {
             handles.push(h);
         }
     }
@@ -384,6 +444,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     };
     let metrics: Vec<_> = handles.iter().map(|h| Arc::clone(&h.metrics)).collect();
     let mut sampler = ProcSampler::default();
+    let mut host = HostInfo::new();
     let mut series = SeriesWriter::open(&args.root, now_ms(), super::VERSION);
     let (t0, deadline) = (
         Instant::now(),
@@ -408,7 +469,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
             next += Duration::from_secs(STATS_PERIOD_S);
             let _ = write_atomic(
                 &health_path,
-                &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref()),
+                &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref(), &mut host),
             );
             series.flush(&metrics, now_ms());
         }
@@ -416,18 +477,27 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     println!("stopping");
     let _ = write_atomic(
         &health_path,
-        &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref()),
+        &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref(), &mut host),
     );
     series.flush(&metrics, now_ms());
     for h in handles {
         h.join();
     }
+    if let Some((w, j)) = mark_worker {
+        w.quit();
+        let _ = j.join();
+    }
+    // рабочий в своём потоке — остановить и дождаться; рабочий в реакторе — команда остановки доходит вместе с остановкой реактора
+    if let Some((w, join)) = worker_pair {
+        w.quit();
+        if let Some(j) = join {
+            let _ = j.join();
+        }
+    }
     if let Some((r, j)) = reactor {
         r.quit();
         let _ = j.join();
     }
-    worker.quit();
-    let _ = worker_join.join();
     println!("stopped");
     Ok(())
 }

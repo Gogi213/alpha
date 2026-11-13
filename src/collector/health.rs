@@ -127,7 +127,7 @@ fn r3(x: f64) -> f64 {
 }
 
 fn pct_json(h: &Hist) -> Value {
-    json!({"p50": h.percentile(0.5).map(us_to_ms), "p99": h.percentile(0.99).map(us_to_ms), "window_s": WINDOW_S})
+    json!({"p50": h.percentile(0.5).map(us_to_ms), "p99": h.percentile(0.99).map(us_to_ms), "p99_9": h.percentile(0.999).map(us_to_ms), "window_s": WINDOW_S})
 }
 
 pub struct HealthCtx {
@@ -254,7 +254,9 @@ pub fn build(
         busy_max = busy_max.max(w.busy_max_us);
         handoff_max = handoff_max.max(w.handoff_max_us);
         write_max = write_max.max(w.write_max_us);
+        let lanes = m.writer().lanes;
         per_shard.push(json!({
+            "lanes": {"first": lanes.first, "delivered": lanes.delivered, "unique": lanes.unique},
             "shard": m.name, "connected": m.connected.load(std::sync::atomic::Ordering::Relaxed), "msgs_10s": w.frames,
             "lag_in_p99_ms": shard_lag.percentile(0.99).map(us_to_ms), "ring_depth_max": w.ring_depth_max, "recvq_max": w.recvq_max, "busy_max_us": w.busy_max_us,
         }));

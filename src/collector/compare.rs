@@ -8,14 +8,12 @@
 #![allow(clippy::cast_precision_loss)]
 
 use std::collections::HashMap;
-use std::hash::Hasher as _;
 use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
 
 use clap::Args;
 
 use super::codec::{Decoded, Decoder};
-use super::hash::Fnv;
 
 #[derive(Debug, Args)]
 pub struct CompareArgs {
@@ -28,7 +26,7 @@ pub struct CompareArgs {
 }
 
 type Key = (u8, String, i64);
-type Map = HashMap<Key, (i64, u64)>;
+type Map = HashMap<Key, (i64, String)>;
 
 fn files(root: &Path) -> Vec<PathBuf> {
     let mut v = Vec::new();
@@ -47,13 +45,8 @@ fn files(root: &Path) -> Vec<PathBuf> {
     v
 }
 
-fn h(parts: &[&str]) -> u64 {
-    let mut f = Fnv::default();
-    for p in parts {
-        f.write(p.as_bytes());
-        f.write(b"\t");
-    }
-    f.finish()
+fn h(parts: &[&str]) -> String {
+    parts.join("\t")
 }
 
 fn load(root: &Path) -> (Map, [u64; 3], i64, i64) {
@@ -190,23 +183,37 @@ pub fn run(a: &CompareArgs) {
     );
     let inside = |rx: i64| rx >= lo && rx <= hi;
     let (mut common, mut only_a, mut only_b, mut mism) = (0u64, 0u64, 0u64, 0u64);
+    let mut mism_kind = [0u64; 3];
+    let mut examples: Vec<String> = Vec::new();
     let mut diffs: Vec<i64> = Vec::new();
-    for (k, &(rxa, pha)) in &ma {
+    for (k, (rxa, pha)) in &ma {
+        let rxa = *rxa;
         if !inside(rxa) {
             continue;
         }
         match mb.get(k) {
-            Some(&(rxb, phb)) => {
+            Some((rxb, phb)) => {
                 common += 1;
                 if pha != phb {
                     mism += 1;
+                    if let Some(c) = mism_kind.get_mut(match k.0 {
+                        b'b' => 0,
+                        b't' => 1,
+                        _ => 2,
+                    }) {
+                        *c += 1;
+                    }
+                    if examples.len() < 3 {
+                        examples.push(format!("{}:{}:{} A[{pha}] B[{phb}]", k.0 as char, k.1, k.2));
+                    }
                 }
-                diffs.push(rxb - rxa);
+                diffs.push(*rxb - rxa);
             }
             None => only_a += 1,
         }
     }
-    for (k, &(rxb, _)) in &mb {
+    for (k, (rxb, _)) in &mb {
+        let rxb = *rxb;
         if inside(rxb) && !ma.contains_key(k) {
             only_b += 1;
         }
@@ -219,7 +226,10 @@ pub fn run(a: &CompareArgs) {
             .unwrap_or(0) as f64
             / 1000.0
     };
-    println!("общих {common}, только A {only_a}, только B {only_b}, различное содержимое среди общих {mism}");
+    println!("общих {common}, только A {only_a}, только B {only_b}, различное содержимое среди общих {mism} (book/trade/mark {mism_kind:?})");
+    for e in &examples {
+        println!("  пример различия: {e}");
+    }
     println!(
         "rx_b − rx_a, мкс: p0.1 {:.0} p1 {:.0} p10 {:.0} p50 {:.0} p90 {:.0} p99 {:.0} p99.9 {:.0}; хвост > +1 мс: {} ({:.3} %), < −1 мс: {}",
         pct(0.001),
@@ -232,5 +242,72 @@ pub fn run(a: &CompareArgs) {
         diffs.iter().filter(|&&d| d > 1_000_000).count(),
         100.0 * diffs.iter().filter(|&&d| d > 1_000_000).count() as f64 / diffs.len().max(1) as f64,
         diffs.iter().filter(|&&d| d < -1_000_000).count()
+    );
+}
+
+#[derive(Debug, Args)]
+pub struct StampErrArgs {
+    /// Каталог вывода коллектора, питавшегося `tools/collector-perf/tlsws_replay.py` (в поле `B` книги — время отправки, мкс по модулю 10^10).
+    #[arg(long)]
+    pub dir: PathBuf,
+}
+
+/// Ошибка метки приёма: `rx − время отправки` по книге из локального источника (мкс): процентили. Время отправки зашито в `bsz` источником.
+pub fn stamp_err(a: &StampErrArgs) {
+    let mut errs: Vec<i64> = Vec::new();
+    for f in files(&a.dir) {
+        let Ok(file) = std::fs::File::open(&f) else {
+            continue;
+        };
+        let Ok(dec) = zstd::stream::read::Decoder::new(file) else {
+            continue;
+        };
+        let mut rd = BufReader::new(dec);
+        let mut d = Decoder::new();
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match rd.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            if line.last() != Some(&b'\n') {
+                break;
+            }
+            let Ok(text) = std::str::from_utf8(line.get(..line.len() - 1).unwrap_or(&[])) else {
+                continue;
+            };
+            let Ok(Decoded::Book { rx_ns, bsz, .. }) = d.line(text) else {
+                continue;
+            };
+            if bsz.len() != 10 {
+                continue;
+            }
+            let Ok(low) = bsz.parse::<i64>() else {
+                continue;
+            };
+            let rx_us = rx_ns / 1000;
+            let send_us = rx_us - (rx_us - low).rem_euclid(10_000_000_000);
+            errs.push(rx_ns - send_us * 1000);
+        }
+    }
+    errs.sort_unstable();
+    let pct = |q: f64| {
+        errs.get(((errs.len() as f64 * q) as usize).min(errs.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(0) as f64
+            / 1000.0
+    };
+    println!(
+        "записей книги {}: rx − отправка, мкс: p0.1 {:.0} p1 {:.0} p10 {:.0} p50 {:.0} p90 {:.0} p99 {:.0} p99.9 {:.0} max {:.0}",
+        errs.len(),
+        pct(0.001),
+        pct(0.01),
+        pct(0.1),
+        pct(0.5),
+        pct(0.9),
+        pct(0.99),
+        pct(0.999),
+        errs.last().copied().unwrap_or(0) as f64 / 1000.0
     );
 }

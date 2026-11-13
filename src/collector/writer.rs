@@ -6,7 +6,7 @@
 //! Смена суток UTC — по приёму записи: старый файл закрывается, новый начинается с нуля (кодировщик сбрасывается).
 //! Не знает сокетов; не держит блокировку метрик во время ожидания диска.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,34 +70,79 @@ struct IdKey {
 /// сессией). Не требует порядка: запись, пришедшая позже более новой, но ещё не виденная, — новая и пишется.
 /// Два поколения множества вместо очереди устаревания: личность помнится от `SEEN_MS` до `2·SEEN_MS`, ничего не удаляется поэлементно,
 /// а новое поколение создаётся сразу нужного размера — без перестройки таблицы посреди потока (она давала паузу писателя ≈ 100 мс на миллионах записей).
+/// С личностью хранится маска линий, принёсших её (collector-perf, S6): вклад линий считается по ней.
 #[derive(Default)]
 struct Seen {
-    cur: HashSet<IdKey, FnvBuild>,
-    prev: HashSet<IdKey, FnvBuild>,
+    cur: HashMap<IdKey, u8, FnvBuild>,
+    prev: HashMap<IdKey, u8, FnvBuild>,
     cur_since_ms: i64,
+    counters: LaneCounters,
+}
+
+/// Линий в счётчиках вклада (остальные считаются в последней).
+pub const MAX_LANES: usize = 4;
+
+/// Вклад линий шарда: `first` — личность впервые принесла линия; `delivered` — линия принесла запись (с дублями); `unique` — личность принесла ТОЛЬКО эта линия
+/// (считается, когда поколение личностей истекает, через 2–4 мин после прихода).
+#[derive(Clone, Copy, Default, Debug)]
+pub struct LaneCounters {
+    pub first: [u64; MAX_LANES],
+    pub delivered: [u64; MAX_LANES],
+    pub unique: [u64; MAX_LANES],
+}
+
+fn expire(m: &HashMap<IdKey, u8, FnvBuild>, c: &mut LaneCounters) {
+    for &mask in m.values() {
+        if mask.count_ones() == 1 {
+            if let Some(u) = c.unique.get_mut(mask.trailing_zeros() as usize) {
+                *u += 1;
+            }
+        }
+    }
 }
 
 impl Seen {
-    /// `true` — личность новая (писать), `false` — дубль. `now_ms` — приём записи (неубывающий).
-    fn first_time(&mut self, now_ms: i64, k: IdKey) -> bool {
+    /// `true` — личность новая (писать), `false` — дубль. `now_ms` — приём записи (неубывающий); `lane` — линия, принёсшая запись.
+    fn first_time(&mut self, now_ms: i64, k: IdKey, lane: u8) -> bool {
+        let lane = usize::from(lane).min(MAX_LANES - 1);
+        let bit = 1u8 << lane;
         let age = now_ms - self.cur_since_ms;
         if self.cur_since_ms == 0 || age >= 2 * SEEN_MS {
             // первая запись или долгая тишина: помнить нечего
-            self.prev = HashSet::default();
-            self.cur = HashSet::with_capacity_and_hasher(1 << 14, FnvBuild::default());
+            expire(&self.prev, &mut self.counters);
+            expire(&self.cur, &mut self.counters);
+            self.prev = HashMap::default();
+            self.cur = HashMap::with_capacity_and_hasher(1 << 14, FnvBuild::default());
             self.cur_since_ms = now_ms;
         } else if age >= SEEN_MS {
             let n = self.cur.len();
+            expire(&self.prev, &mut self.counters);
             self.prev = std::mem::replace(
                 &mut self.cur,
-                HashSet::with_capacity_and_hasher(n + n / 4, FnvBuild::default()),
+                HashMap::with_capacity_and_hasher(n + n / 4, FnvBuild::default()),
             );
             self.cur_since_ms = now_ms;
         }
-        if self.prev.contains(&k) {
+        if let Some(d) = self.counters.delivered.get_mut(lane) {
+            *d += 1;
+        }
+        if let Some(m) = self.prev.get_mut(&k) {
+            *m |= bit;
             return false;
         }
-        self.cur.insert(k)
+        match self.cur.entry(k) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                *e.get_mut() |= bit;
+                false
+            }
+            std::collections::hash_map::Entry::Vacant(v) => {
+                v.insert(bit);
+                if let Some(f) = self.counters.first.get_mut(lane) {
+                    *f += 1;
+                }
+                true
+            }
+        }
     }
 }
 
@@ -247,7 +292,7 @@ impl Core {
         }
     }
 
-    fn on_record(&mut self, st: &mut WriterStats, rx: i64, settled: bool, rec: &Rec<'_>) {
+    fn on_record(&mut self, st: &mut WriterStats, rx: i64, lane: u8, settled: bool, rec: &Rec<'_>) {
         let ki = rec.kind().idx();
         let sid = self.sym_id(rec.sym());
         let id = IdKey {
@@ -255,7 +300,7 @@ impl Core {
             kind: u8::try_from(ki).unwrap_or(u8::MAX),
             id: rec.ident(),
         };
-        if !self.seen.first_time(rx.div_euclid(NS_PER_MS), id) {
+        if !self.seen.first_time(rx.div_euclid(NS_PER_MS), id, lane) {
             st.dups += 1;
             return;
         }
@@ -291,12 +336,14 @@ struct Sink<'a> {
     exch: &'a dyn Exchange,
     rx: i64,
     sender: u32,
+    lane: u8,
     settled: bool,
 }
 
 impl Out for Sink<'_> {
     fn rec(&mut self, r: &Rec<'_>) {
-        self.core.on_record(self.st, self.rx, self.settled, r);
+        self.core
+            .on_record(self.st, self.rx, self.lane, self.settled, r);
     }
 
     fn raw(&mut self, frame: &[u8]) {
@@ -406,6 +453,7 @@ impl ShardWriter {
                     exch: &*self.exch,
                     rx,
                     sender: item.sender,
+                    lane: item.lane,
                     settled: item.settled,
                 };
                 if self.parser.parse(&bytes, &mut out) == Parsed::Raw {
@@ -482,7 +530,8 @@ impl ShardWriter {
             }
         }
         {
-            let _st = metrics.writer();
+            let mut st = metrics.writer();
+            st.lanes = self.core.seen.counters;
             if self.core.until_flush(flush).is_some_and(|d| d.is_zero()) {
                 self.core.cut_block();
             }
@@ -495,6 +544,11 @@ impl ShardWriter {
         }
         self.send_out();
         done
+    }
+
+    /// Через сколько срок блока (`None` — блок не открыт).
+    pub fn flush_in(&self) -> Option<Duration> {
+        self.core.until_flush(self.core.cfg.flush)
     }
 
     /// Когда писателю нужно проснуться по сроку блока (не позже такта).

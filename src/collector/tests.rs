@@ -1966,6 +1966,7 @@ impl Rig {
             .push(Item {
                 rx_ns,
                 sender,
+                lane: 0,
                 settled: true,
                 payload: Payload::Frame(Bytes::from(f.to_string())),
             })
@@ -1977,6 +1978,7 @@ impl Rig {
             .push(Item {
                 rx_ns,
                 sender,
+                lane: 0,
                 settled: true,
                 payload: Payload::Control {
                     what,
@@ -1991,6 +1993,7 @@ impl Rig {
             .push(Item {
                 rx_ns: 0,
                 sender: 0,
+                lane: 0,
                 settled: true,
                 payload: Payload::Shutdown,
             })
@@ -2187,6 +2190,7 @@ fn writer_closes_ended_day_by_clock_without_new_records() {
     tx.push(Item {
         rx_ns: day + 5_000_000_000,
         sender: 1,
+        lane: 0,
         settled: true,
         payload: Payload::Frame(Bytes::from(bn_book(1, 1_000))),
     })
@@ -2205,6 +2209,7 @@ fn writer_closes_ended_day_by_clock_without_new_records() {
     tx.push(Item {
         rx_ns: 0,
         sender: 0,
+        lane: 0,
         settled: true,
         payload: Payload::Shutdown,
     })
@@ -2249,6 +2254,7 @@ fn writer_late_previous_day_record_does_not_reopen_the_closed_day() {
         tx.push(Item {
             rx_ns,
             sender: 1,
+            lane: 0,
             settled: true,
             payload: Payload::Frame(Bytes::from(bn_book(u, 1_000))),
         })
@@ -2267,6 +2273,7 @@ fn writer_late_previous_day_record_does_not_reopen_the_closed_day() {
     tx.push(Item {
         rx_ns: 0,
         sender: 0,
+        lane: 0,
         settled: true,
         payload: Payload::Shutdown,
     })

@@ -257,6 +257,8 @@ pub struct WriterStats {
     pub raw_copies: u64,
     pub clamped: u64,
     pub rows: u64,
+    /// Вклад линий шарда (collector-perf, S6).
+    pub lanes: super::writer::LaneCounters,
 }
 
 /// Состояние диска шарда.

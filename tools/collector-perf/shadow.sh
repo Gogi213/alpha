@@ -16,11 +16,11 @@ esac
 TAG=$(date -u +%H%M%S)
 R=$O/$EX-$TAG; mkdir -p $R
 LABELS=(); BINS=()
-while IFS='|' read -r label bin flags; do
+while IFS='|' read -r label bin flags props; do
   [ -z "$label" ] && continue
   LABELS+=("$label"); BINS+=("$bin")
   mkdir -p $R/$label/data
-  systemd-run --unit=shadow-$EX-$label-$TAG --collect -p CPUAccounting=yes $bin collect run --exchange $EX --root $R/$label/data --health $R/$label/health.json \
+  systemd-run --unit=shadow-$EX-$label-$TAG --collect -p CPUAccounting=yes $props $bin collect run --exchange $EX --root $R/$label/data --health $R/$label/health.json \
     --pool-file $POOL --only-shards $SHARDS --lanes 2 --duration-s $((WIN + 25)) --connect-budget 40 $flags > $R/$label/unit.txt 2>&1
 done < $ARMS
 sleep 20
@@ -63,3 +63,10 @@ for i in "${!LABELS[@]}"; do
   ${BINS[$i]} collect compare --a $R/${LABELS[0]}/data --b $R/${LABELS[$i]}/data
 done
 echo "каталог: $R"
+for l in "${LABELS[@]}"; do
+  python3 -c "
+import json
+h = json.load(open('$R/$l/health.json'))
+print('$l', 'reactor', json.dumps(h.get('reactor')), '| queue_lag', h['backpressure']['queue_lag_ms'], '| lag_out', h['lag_out_ms'])
+"
+done

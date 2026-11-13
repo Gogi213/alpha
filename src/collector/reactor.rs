@@ -19,6 +19,7 @@ use tungstenite::{Message, WebSocket};
 
 use super::net::Conn;
 use super::session::{wall_ns, Outcome, Rx, Shared};
+use super::worker::{WorkerCore, WorkerHandle};
 
 /// Период обхода всех соединений (пинг, сторож pong, окно проверки пути, остановка, досылка записи).
 const PASS: Duration = Duration::from_millis(200);
@@ -32,10 +33,14 @@ pub struct ReactorStats {
     loops: AtomicU64,
     ready: AtomicU64,
     fills: AtomicU64,
+    read_syscalls: AtomicU64,
     frames: AtomicU64,
     loop_max_us: AtomicU64,
     beat_ms: AtomicU64,
     kdelta: [AtomicU64; HB],
+    /// Длительность оборота реактора (обработка сокетов + рабочий), мкс, и отдельно такта рабочего внутри него.
+    loop_us: [AtomicU64; HB],
+    tick_us: [AtomicU64; HB],
     stamped: AtomicU64,
 }
 
@@ -45,10 +50,13 @@ impl Default for ReactorStats {
             loops: AtomicU64::new(0),
             ready: AtomicU64::new(0),
             fills: AtomicU64::new(0),
+            read_syscalls: AtomicU64::new(0),
             frames: AtomicU64::new(0),
             loop_max_us: AtomicU64::new(0),
             beat_ms: AtomicU64::new(0),
             kdelta: std::array::from_fn(|_| AtomicU64::new(0)),
+            loop_us: std::array::from_fn(|_| AtomicU64::new(0)),
+            tick_us: std::array::from_fn(|_| AtomicU64::new(0)),
             stamped: AtomicU64::new(0),
         }
     }
@@ -61,6 +69,12 @@ fn log2_bucket(us: u64) -> usize {
 }
 
 impl ReactorStats {
+    fn hist_add(h: &[AtomicU64; HB], us: u64) {
+        if let Some(b) = h.get(log2_bucket(us)) {
+            b.fetch_add(1, Relaxed);
+        }
+    }
+
     fn kdelta_add(&self, us: i64) {
         if let Some(b) = self
             .kdelta
@@ -72,7 +86,11 @@ impl ReactorStats {
 
     /// Процентиль «пользователь − ядро», мкс (верхняя граница корзины степени двойки).
     fn kdelta_pct(&self, p: f64) -> Option<u64> {
-        let v: Vec<u64> = self.kdelta.iter().map(|b| b.load(Relaxed)).collect();
+        Self::pct(&self.kdelta, p)
+    }
+
+    fn pct(h: &[AtomicU64; HB], p: f64) -> Option<u64> {
+        let v: Vec<u64> = h.iter().map(|b| b.load(Relaxed)).collect();
         let n: u64 = v.iter().sum();
         if n == 0 {
             return None;
@@ -97,10 +115,12 @@ impl ReactorStats {
     pub fn json(&self) -> serde_json::Value {
         let now = super::shard::mono_ms();
         serde_json::json!({
-            "loops": self.loops.load(Relaxed), "ready_events": self.ready.load(Relaxed), "reads": self.fills.load(Relaxed),
+            "loops": self.loops.load(Relaxed), "ready_events": self.ready.load(Relaxed), "reads": self.fills.load(Relaxed), "read_syscalls": self.read_syscalls.load(Relaxed),
             "frames": self.frames.load(Relaxed), "loop_max_us": self.loop_max_us.swap(0, Relaxed),
             "heartbeat_age_ms": now.saturating_sub(self.beat_ms.load(Relaxed)),
             "kernel_stamps": self.stamped.load(Relaxed),
+            "loop_us": {"p50": Self::pct(&self.loop_us, 0.5), "p99": Self::pct(&self.loop_us, 0.99), "p99_9": Self::pct(&self.loop_us, 0.999)},
+            "worker_tick_us": {"p50": Self::pct(&self.tick_us, 0.5), "p99": Self::pct(&self.tick_us, 0.99), "p99_9": Self::pct(&self.tick_us, 0.999)},
             "user_minus_kernel_us": {"p50": self.kdelta_pct(0.5), "p99": self.kdelta_pct(0.99), "p99_9": self.kdelta_pct(0.999)},
         })
     }
@@ -123,6 +143,8 @@ enum Cmd {
 /// Ручка реактора: передача соединений, остановка, счётчики.
 #[derive(Clone)]
 pub struct ReactorHandle {
+    /// Читать TLS-сокеты по записям с меткой у записи (`RxSock` точной метки): нужен при `kernel_stamp`.
+    exact: bool,
     tx: Sender<Cmd>,
     wake: Arc<OwnedFd>,
     pub stats: Arc<ReactorStats>,
@@ -143,6 +165,7 @@ struct Entry {
     done: SyncSender<Outcome>,
     fd: RawFd,
     last_fills: u64,
+    last_sys: u64,
     out_interest: bool,
     outcome: Option<Outcome>,
 }
@@ -171,7 +194,8 @@ impl ReactorHandle {
         rx: Rx,
         cancel: Arc<std::sync::atomic::AtomicBool>,
     ) -> Outcome {
-        if let Err(e) = ws.get_mut().rx_mut().into_tick_mode() {
+        let exact = self.exact && matches!(ws.get_ref(), Conn::Tls(_));
+        if let Err(e) = ws.get_mut().rx_mut().into_tick_mode(exact) {
             return Outcome::Failed(format!("режим такта: {e}"));
         }
         let (done, done_rx) = sync_channel(1);
@@ -185,6 +209,7 @@ impl ReactorHandle {
             done,
             fd,
             last_fills: 0,
+            last_sys: 0,
             out_interest: false,
             outcome: None,
         });
@@ -206,6 +231,20 @@ impl ReactorHandle {
 
 /// Запуск реактора: ручка и поток.
 pub fn spawn_reactor(cfg: ReactorCfg) -> Option<(ReactorHandle, JoinHandle<()>)> {
+    spawn(cfg, false).map(|(h, _, j)| (h, j))
+}
+
+/// Запуск реактора с рабочим внутри: разбор, дубли и кодировщик идут в потоке реактора после обработки сокетов такта (нет отдельного потока и передачи между ними).
+pub fn spawn_reactor_inline(
+    cfg: ReactorCfg,
+) -> Option<(ReactorHandle, WorkerHandle, JoinHandle<()>)> {
+    spawn(cfg, true).and_then(|(h, w, j)| w.map(|w| (h, w, j)))
+}
+
+fn spawn(
+    cfg: ReactorCfg,
+    inline: bool,
+) -> Option<(ReactorHandle, Option<WorkerHandle>, JoinHandle<()>)> {
     // SAFETY: eventfd без указателей.
     let efd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
     if efd < 0 {
@@ -216,16 +255,23 @@ pub fn spawn_reactor(cfg: ReactorCfg) -> Option<(ReactorHandle, JoinHandle<()>)>
     let (tx, rx) = channel();
     let stats = Arc::new(ReactorStats::default());
     let handle = ReactorHandle {
+        exact: cfg.kernel_stamp,
         tx,
         wake: Arc::clone(&wake),
         stats: Arc::clone(&stats),
     };
+    let (worker_handle, core) = if inline {
+        let (wh, wrx) = WorkerHandle::channel(Some(Arc::clone(&wake)));
+        (Some(wh), Some(WorkerCore::new(wrx)))
+    } else {
+        (None, None)
+    };
     let join = thread::Builder::new()
         .name("rx-reactor".to_string())
         .stack_size(1 << 20)
-        .spawn(move || run(&rx, &wake, &stats, cfg))
+        .spawn(move || run(&rx, &wake, &stats, cfg, core))
         .ok()?;
-    Some((handle, join))
+    Some((handle, worker_handle, join))
 }
 
 fn ep_ctl(ep: RawFd, op: libc::c_int, fd: RawFd, events: u32, data: u64) {
@@ -268,7 +314,13 @@ impl Slab {
     }
 }
 
-fn run(rx: &Receiver<Cmd>, wake: &Arc<OwnedFd>, stats: &Arc<ReactorStats>, cfg: ReactorCfg) {
+fn run(
+    rx: &Receiver<Cmd>,
+    wake: &Arc<OwnedFd>,
+    stats: &Arc<ReactorStats>,
+    cfg: ReactorCfg,
+    mut worker: Option<WorkerCore>,
+) {
     use std::os::fd::AsRawFd;
     // SAFETY: epoll_create1 без указателей.
     let ep = unsafe { libc::epoll_create1(libc::EPOLL_CLOEXEC) };
@@ -292,9 +344,11 @@ fn run(rx: &Receiver<Cmd>, wake: &Arc<OwnedFd>, stats: &Arc<ReactorStats>, cfg: 
     let mut quit = false;
     let mut next_pass = Instant::now() + PASS;
     let mut live = 0usize;
+    let mut worker_due: Option<Instant> = None;
     loop {
-        // до срока обхода, миллисекунды вверх (иначе у срока менее 1 мс вышел бы холостой оборот)
-        let timeout = next_pass
+        // до срока обхода или срока блока рабочего, миллисекунды вверх (иначе у срока менее 1 мс вышел бы холостой оборот)
+        let deadline = worker_due.map_or(next_pass, |d| d.min(next_pass));
+        let timeout = deadline
             .saturating_duration_since(Instant::now())
             .as_micros()
             .div_ceil(1000)
@@ -353,6 +407,19 @@ fn run(rx: &Receiver<Cmd>, wake: &Arc<OwnedFd>, stats: &Arc<ReactorStats>, cfg: 
                 }
             }
         }
+        // рабочий внутри реактора: пачка кадров этого такта и срок ближайшего блока
+        if let Some(core) = worker.as_mut() {
+            let t_tick = Instant::now();
+            let r = core.tick();
+            ReactorStats::hist_add(
+                &stats.tick_us,
+                u64::try_from(t_tick.elapsed().as_micros()).unwrap_or(u64::MAX),
+            );
+            match r {
+                Some(d) => worker_due = d.map(|d| Instant::now() + d),
+                None => worker = None,
+            }
+        }
         // завершённые и обновление интереса к записи
         for i in 0..slab.v.len() {
             let key = slab.key(i);
@@ -384,11 +451,15 @@ fn run(rx: &Receiver<Cmd>, wake: &Arc<OwnedFd>, stats: &Arc<ReactorStats>, cfg: 
         stats.loops.fetch_add(1, Relaxed);
         stats.beat_ms.store(super::shard::mono_ms(), Relaxed);
         let spent = t0.elapsed();
+        ReactorStats::hist_add(
+            &stats.loop_us,
+            u64::try_from(spent.as_micros()).unwrap_or(u64::MAX),
+        );
         stats.loop_max_us.fetch_max(
             u64::try_from(spent.as_micros()).unwrap_or(u64::MAX),
             Relaxed,
         );
-        if quit && live == 0 {
+        if quit && live == 0 && worker.as_ref().is_none_or(WorkerCore::is_idle) {
             // SAFETY: ep — наш дескриптор.
             unsafe {
                 libc::close(ep);
@@ -412,10 +483,14 @@ fn on_ready(e: &mut Box<Entry>, stats: &ReactorStats, cfg: ReactorCfg) {
             Ok(msg) => {
                 let user = wall_ns();
                 let t_read = Instant::now();
-                let (fills, stamp) = {
+                let (fills, stamp, sys) = {
                     let r = e.ws.get_ref().rx();
-                    (r.fills(), r.stamp_ns())
+                    (r.fills(), r.stamp_ns(), r.syscalls())
                 };
+                if sys != e.last_sys {
+                    stats.read_syscalls.fetch_add(sys - e.last_sys, Relaxed);
+                    e.last_sys = sys;
+                }
                 if fills != e.last_fills {
                     e.last_fills = fills;
                     stats.fills.fetch_add(1, Relaxed);
@@ -427,6 +502,7 @@ fn on_ready(e: &mut Box<Entry>, stats: &ReactorStats, cfg: ReactorCfg) {
                 if matches!(msg, Message::Text(_) | Message::Binary(_)) {
                     stats.frames.fetch_add(1, Relaxed);
                 }
+                // метка записи TLS у пакета, завершившего её (читаем по записям: `RxSock` точной метки), нет метки — пользовательская
                 let rx_ns = if cfg.kernel_stamp && stamp > 0 {
                     stamp
                 } else {

@@ -24,7 +24,7 @@ fn rxsock_tick_mode_reads_once_per_arm_and_reports_kernel_stamp() {
     let mut peer = TcpStream::connect(addr).unwrap();
     let (srv, _) = listener.accept().unwrap();
     let mut s = RxSock::new(srv);
-    s.into_tick_mode().unwrap();
+    s.into_tick_mode(false).unwrap();
     let mut buf = [0u8; 16];
     // не взведён — вызова ядра нет, WouldBlock
     assert_eq!(
@@ -78,6 +78,7 @@ fn item(rx_ns: i64, sender: u32, f: &str) -> Item {
     Item {
         rx_ns,
         sender,
+        lane: 0,
         settled: true,
         payload: Payload::Frame(Bytes::from(f.to_string())),
     }
@@ -132,6 +133,7 @@ fn run_batch(sort: bool, items: Vec<Item>) -> Vec<Decoded> {
     tx.push(Item {
         rx_ns: 0,
         sender: 0,
+        lane: 0,
         settled: true,
         payload: Payload::Shutdown,
     })
@@ -213,6 +215,7 @@ fn worker_serves_two_shards_by_timer_and_closes_them() {
         tx.push(Item {
             rx_ns: 0,
             sender: 0,
+            lane: 0,
             settled: true,
             payload: Payload::Shutdown,
         })
@@ -295,9 +298,18 @@ fn raw_source(listener: TcpListener, chunks: Vec<(Vec<u8>, u64)>) -> std::thread
 
 #[test]
 fn reactor_handles_frame_boundaries_on_a_nonblocking_socket() {
+    frame_boundaries(false);
+}
+
+#[test]
+fn reactor_with_inline_worker_handles_frame_boundaries() {
+    frame_boundaries(true);
+}
+
+fn frame_boundaries(inline: bool) {
     use super::budget::Budget;
     use super::exchange::{Entrance, Family, ShardPlan};
-    use super::reactor::{spawn_reactor, ReactorCfg};
+    use super::reactor::{spawn_reactor, spawn_reactor_inline, ReactorCfg};
     use super::shard::{spawn_shard, ShardOpts};
     use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -337,11 +349,18 @@ fn reactor_handles_frame_boundaries_on_a_nonblocking_socket() {
     };
     let mut opts = ShardOpts::new(dir.path().to_path_buf(), 1_794_000_000);
     (opts.tls, opts.port, opts.flush) = (false, port, Duration::from_millis(30));
-    let (reactor, rj) = spawn_reactor(ReactorCfg {
+    let cfg = ReactorCfg {
         window: Duration::from_millis(1),
         kernel_stamp: true,
-    })
-    .unwrap();
+    };
+    let (reactor, rj, inline_worker) = if inline {
+        let (r, w, j) = spawn_reactor_inline(cfg).unwrap();
+        opts.worker = Some(w.clone());
+        (r, j, Some(w))
+    } else {
+        let (r, j) = spawn_reactor(cfg).unwrap();
+        (r, j, None)
+    };
     opts.reactor = Some(reactor.clone());
     opts.kernel_stamp = true;
     let exch: Arc<dyn Exchange> = Arc::new(Binance);
@@ -371,6 +390,9 @@ fn reactor_handles_frame_boundaries_on_a_nonblocking_socket() {
     }
     stop.store(true, Relaxed);
     h.join();
+    if let Some(w) = inline_worker {
+        w.quit();
+    }
     reactor.quit();
     rj.join().unwrap();
     src.join().unwrap();
@@ -409,4 +431,66 @@ fn reactor_handles_frame_boundaries_on_a_nonblocking_socket() {
         })
         .collect();
     assert!(rxs.windows(2).all(|w| w[0] <= w[1]), "rx не убывает");
+}
+
+fn tls_record(len: usize, fill: u8) -> Vec<u8> {
+    let mut r = vec![
+        0x17,
+        0x03,
+        0x03,
+        u8::try_from(len >> 8).unwrap(),
+        u8::try_from(len & 255).unwrap(),
+    ];
+    r.extend(std::iter::repeat(fill).take(len));
+    r
+}
+
+#[test]
+fn rxsock_exact_mode_hands_out_one_tls_record_per_read() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    peer.set_nodelay(true).unwrap();
+    let (srv, _) = listener.accept().unwrap();
+    let mut s = RxSock::new(srv);
+    s.into_tick_mode(true).unwrap();
+    // три записи в разных пакетах (паузы), затем неполная запись
+    for (len, fill) in [(10usize, 1u8), (20, 2), (5, 3)] {
+        peer.write_all(&tls_record(len, fill)).unwrap();
+        std::thread::sleep(Duration::from_millis(8));
+    }
+    let partial = tls_record(30, 4);
+    peer.write_all(&partial[..12]).unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    s.arm();
+    let mut buf = [0u8; 200];
+    let mut stamps = Vec::new();
+    for (len, fill) in [(10usize, 1u8), (20, 2), (5, 3)] {
+        let n = s.read(&mut buf).unwrap();
+        assert_eq!(n, 5 + len, "ровно одна запись за вызов");
+        assert_eq!(buf[5], fill);
+        stamps.push(s.stamp_ns());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        assert!(stamps.iter().all(|&t| t > 0), "метки пришли: {stamps:?}");
+        // пакеты, накопившиеся в очереди нечитанными, ядро склеивает в один skb с меткой самого нового (`tcp_try_coalesce`): метки записей не убывают,
+        // но у склеенных совпадают — точность метки ограничена этим (collector-perf, отчёт §4)
+        assert!(
+            stamps.windows(2).all(|w| w[0] <= w[1]),
+            "метки не убывают: {stamps:?}"
+        );
+    }
+    // неполная запись остаётся в ядре, до следующего такта
+    assert_eq!(
+        s.read(&mut buf).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    peer.write_all(&partial[12..]).unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    s.arm();
+    let n = s.read(&mut buf).unwrap();
+    assert_eq!(n, 35);
+    assert_eq!(buf[5], 4);
+    // одним чтением из ядра не считается: просмотр + снятие каждой записи
+    assert!(s.syscalls() >= 6, "системных вызовов: {}", s.syscalls());
 }

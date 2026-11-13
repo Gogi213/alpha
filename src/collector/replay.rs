@@ -181,11 +181,13 @@ fn pass(exch: &Arc<dyn Exchange>, cap: &Capture, shard: &str, root: &Path, a: &R
         (thread_cpu_s(gettid()).unwrap_or(0.0), c.allocations)
     });
     let t0 = Instant::now();
+    let first_sender = cap.idx.first().map_or(0, |x| x.0);
     for (sender, rx_ns, data) in cap.frames() {
         VCLOCK.store(rx_ns, Relaxed);
         let _ = rtx.push(Item {
             rx_ns,
             sender,
+            lane: u8::from(sender != first_sender),
             settled: true,
             payload: Payload::Frame(Bytes::copy_from_slice(data)),
         });
@@ -193,6 +195,7 @@ fn pass(exch: &Arc<dyn Exchange>, cap: &Capture, shard: &str, root: &Path, a: &R
     let _ = rtx.push(Item {
         rx_ns: cap.idx.last().map_or(0, |x| x.1),
         sender: 0,
+        lane: 0,
         settled: true,
         payload: Payload::Shutdown,
     });

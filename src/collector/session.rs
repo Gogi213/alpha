@@ -105,6 +105,7 @@ fn ctl(sh: &Shared, seq: u32, what: &'static str, detail: String) {
     let _ = sh.ring.push(Item {
         rx_ns: wall_ns(),
         sender: seq,
+        lane: 0,
         settled: true,
         payload: Payload::Control { what, detail },
     });
@@ -134,6 +135,7 @@ pub fn run(
     probe: bool,
     accepted: Option<&Arc<AtomicBool>>,
     cancel: &Arc<AtomicBool>,
+    lane: u8,
 ) -> Outcome {
     // шард без соединения берёт место в бюджете раньше второй линии и замен покрытых шардов
     let uncovered = || sh.metrics.connected.load(Relaxed) <= 0;
@@ -198,7 +200,7 @@ pub fn run(
         }
     }
     ctl(sh, seq, "connected", format!("{seq} {url}"));
-    let out = body(sh, ws, seq, probe, accepted, cancel);
+    let out = body(sh, ws, seq, probe, accepted, cancel, lane);
     sh.metrics.connected.fetch_sub(1, Relaxed);
     sh.watch().close(seq);
     ctl(sh, seq, "closed", seq.to_string());
@@ -212,6 +214,7 @@ fn body(
     probe: bool,
     accepted: Option<&Arc<AtomicBool>>,
     cancel: &Arc<AtomicBool>,
+    lane: u8,
 ) -> Outcome {
     let mut ws = ws;
     for msg in sh.exch.subscribe_messages(&sh.plan.streams) {
@@ -235,7 +238,7 @@ fn body(
             a.store(true, Relaxed);
         }
     }
-    let rx = Rx::new(sh, probe, accepted.map(Arc::clone));
+    let rx = Rx::new(sh, probe, accepted.map(Arc::clone), lane);
     match sh.reactor.as_ref() {
         Some(r) => r.run_conn(sh, ws, seq, rx, Arc::clone(cancel)),
         None => {
@@ -250,6 +253,7 @@ fn body(
 
 /// Состояние чтения одной сессии: общее для потока приёма (`read_loop`) и реактора. Кадры, метки, пинг/pong, окно проверки пути — те же правила.
 pub struct Rx {
+    lane: u8,
     settle_at: Instant,
     probe: Option<PathProbe>,
     accepted: Option<Arc<AtomicBool>>,
@@ -266,9 +270,10 @@ pub struct Rx {
 }
 
 impl Rx {
-    fn new(sh: &Shared, probe: bool, accepted: Option<Arc<AtomicBool>>) -> Self {
+    fn new(sh: &Shared, probe: bool, accepted: Option<Arc<AtomicBool>>, lane: u8) -> Self {
         let t_loop = Instant::now();
         Self {
+            lane,
             settle_at: t_loop + Duration::from_secs_f64(GRACE_S),
             probe: probe
                 .then(|| PathProbe::with_window(t_loop, sh.probe_window.0, sh.probe_window.1)),
@@ -345,6 +350,7 @@ impl Rx {
                         let _ = sh.ring.push(Item {
                             rx_ns: rx,
                             sender: seq,
+                            lane: self.lane,
                             settled: true,
                             payload: Payload::Ping(i64::try_from(rtt.as_micros()).unwrap_or(0)),
                         });
@@ -498,6 +504,7 @@ impl Rx {
         let pushed = sh.ring.push(Item {
             rx_ns: rx,
             sender: seq,
+            lane: self.lane,
             settled,
             payload: Payload::Frame(data),
         });
