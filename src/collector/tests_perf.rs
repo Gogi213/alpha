@@ -441,7 +441,7 @@ fn tls_record(len: usize, fill: u8) -> Vec<u8> {
         u8::try_from(len >> 8).unwrap(),
         u8::try_from(len & 255).unwrap(),
     ];
-    r.extend(std::iter::repeat(fill).take(len));
+    r.extend(std::iter::repeat_n(fill, len));
     r
 }
 

@@ -109,7 +109,7 @@ mod sys {
             while !c.is_null() {
                 if (*c).cmsg_level == libc::SOL_SOCKET && (*c).cmsg_type == libc::SCM_TIMESTAMPNS {
                     let ts: libc::timespec = std::ptr::read_unaligned(libc::CMSG_DATA(c).cast());
-                    stamp = i64::from(ts.tv_sec) * 1_000_000_000 + i64::from(ts.tv_nsec);
+                    stamp = ts.tv_sec * 1_000_000_000 + ts.tv_nsec;
                 }
                 c = libc::CMSG_NXTHDR(&msg, c);
             }
@@ -153,7 +153,7 @@ mod sys {
             while !c.is_null() {
                 if (*c).cmsg_level == libc::SOL_SOCKET && (*c).cmsg_type == libc::SCM_TIMESTAMPNS {
                     let ts: libc::timespec = std::ptr::read_unaligned(libc::CMSG_DATA(c).cast());
-                    stamp = i64::from(ts.tv_sec) * 1_000_000_000 + i64::from(ts.tv_nsec);
+                    stamp = ts.tv_sec * 1_000_000_000 + ts.tv_nsec;
                 }
                 c = libc::CMSG_NXTHDR(&msg, c);
             }

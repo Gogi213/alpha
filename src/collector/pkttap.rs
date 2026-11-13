@@ -8,6 +8,9 @@
 //! Кольцо читает поток реактора раз в такт; расходы — копирование заголовков (`SNAP` байт) ядром при приёме пакета и разбор в реакторе (замер: ≈ 0,02 ядра на 58 тыс. пак./с).
 //! Нет CAP_NET_RAW, нет кольца или пакет потерян — метки нет (`None`): реактор берёт метку чтения (`SO_TIMESTAMPNS`).
 
+// Размеры кольца и поля `ETH_P_ALL` — константы, умещаются в u32/u16 (проверено при разработке: BLOCK 1 МБ, BLOCKS 8, FRAME 2 КБ).
+#![allow(clippy::cast_possible_truncation)]
+
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};

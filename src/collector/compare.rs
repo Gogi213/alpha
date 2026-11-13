@@ -219,6 +219,7 @@ pub fn run(a: &CompareArgs) {
         }
     }
     diffs.sort_unstable();
+    #[allow(clippy::cast_possible_truncation)] // q ∈ [0, 1]: индекс не выходит за длину
     let pct = |q: f64| {
         diffs
             .get(((diffs.len() as f64 * q) as usize).min(diffs.len().saturating_sub(1)))
@@ -292,6 +293,7 @@ pub fn stamp_err(a: &StampErrArgs) {
         }
     }
     errs.sort_unstable();
+    #[allow(clippy::cast_possible_truncation)] // q ∈ [0, 1]: индекс не выходит за длину
     let pct = |q: f64| {
         errs.get(((errs.len() as f64 * q) as usize).min(errs.len().saturating_sub(1)))
             .copied()

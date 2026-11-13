@@ -24,6 +24,8 @@ use super::worker::{WorkerCore, WorkerHandle};
 /// Период обхода всех соединений (пинг, сторож pong, окно проверки пути, остановка, досылка записи).
 const PASS: Duration = Duration::from_millis(200);
 const MAX_EVENTS: usize = 512;
+const MAX_EVENTS_C: i32 = 512;
+const _: () = assert!(MAX_EVENTS == MAX_EVENTS_C as usize);
 const WAKE: u64 = u64::MAX;
 /// Корзин гистограммы «пользователь − ядро» (степени двойки мкс).
 const HB: usize = 40;
@@ -291,18 +293,31 @@ struct Slab {
 impl Slab {
     fn insert(&mut self, e: Box<Entry>) -> u64 {
         let i = if let Some(i) = self.free.pop() {
-            self.v[i] = Some(e);
+            if let Some(slot) = self.v.get_mut(i) {
+                *slot = Some(e);
+            }
             i
         } else {
             self.v.push(Some(e));
             self.gen.push(0);
             self.v.len() - 1
         };
-        (u64::from(self.gen[i]) << 32) | i as u64
+        self.key(i)
     }
 
     fn key(&self, i: usize) -> u64 {
-        (u64::from(self.gen[i]) << 32) | i as u64
+        (u64::from(self.gen.get(i).copied().unwrap_or(0)) << 32) | i as u64
+    }
+
+    /// Освободить место `i`: поколение растёт, старые ключи перестают совпадать.
+    fn release(&mut self, i: usize) {
+        if let Some(slot) = self.v.get_mut(i) {
+            *slot = None;
+        }
+        if let Some(g) = self.gen.get_mut(i) {
+            *g = g.wrapping_add(1);
+        }
+        self.free.push(i);
     }
 
     fn get(&mut self, key: u64) -> Option<&mut Box<Entry>> {
@@ -348,14 +363,15 @@ fn run(
     loop {
         // до срока обхода или срока блока рабочего, миллисекунды вверх (иначе у срока менее 1 мс вышел бы холостой оборот)
         let deadline = worker_due.map_or(next_pass, |d| d.min(next_pass));
-        let timeout = deadline
-            .saturating_duration_since(Instant::now())
-            .as_micros()
-            .div_ceil(1000)
-            .min(i32::MAX as u128) as i32;
+        let timeout = i32::try_from(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .as_micros()
+                .div_ceil(1000),
+        )
+        .unwrap_or(i32::MAX);
         // SAFETY: `evs` — живой буфер на MAX_EVENTS записей; ядро пишет не больше.
-        let n =
-            unsafe { libc::epoll_wait(ep, evs.as_mut_ptr(), MAX_EVENTS as i32, timeout.max(0)) };
+        let n = unsafe { libc::epoll_wait(ep, evs.as_mut_ptr(), MAX_EVENTS_C, timeout.max(0)) };
         let t0 = Instant::now();
         ready.clear();
         let mut woke = false;
@@ -432,9 +448,7 @@ fn run(
                 }
                 ep_ctl(ep, libc::EPOLL_CTL_DEL, e.fd, 0, 0);
                 let done = e.done.clone();
-                slab.v[i] = None;
-                slab.gen[i] = slab.gen[i].wrapping_add(1);
-                slab.free.push(i);
+                slab.release(i);
                 let _ = done.send(out);
                 live = live.saturating_sub(1);
             } else if e.rx.need_flush != e.out_interest {

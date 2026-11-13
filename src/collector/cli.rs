@@ -12,7 +12,7 @@ use super::synth::{run as synth_run, SynthArgs};
 #[derive(Debug, Subcommand)]
 pub enum CollectCommand {
     /// Коллектор биржи: приём по WebSocket, запись суточных файлов, health.
-    Run(RunArgs),
+    Run(Box<RunArgs>),
     /// Синтетический источник кадров Binance (локальный ws://) для лестницы нагрузки.
     Synth(SynthArgs),
     /// Лестница нагрузки Binance на Rust: одно соединение, n потоков одного вида, окно (как `tools/collector/ladder.py`).
