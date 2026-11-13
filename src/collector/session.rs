@@ -18,6 +18,7 @@ use super::budget::Budget;
 use super::events::{now_ms, EventLog};
 use super::exchange::{Entrance, Exchange, ShardPlan};
 use super::fresh::GRACE_S;
+use super::gzip::Gunzip;
 use super::metrics::ShardMetrics;
 use super::net::{self, Conn};
 use super::path::{PathProbe, PathWatch};
@@ -37,6 +38,8 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const LAG_SAMPLE: u64 = 64;
 const RECVQ_EVERY: u64 = 16;
 const BUSY_EVERY: u64 = 4;
+/// Сколько событий `bad_frame` писать на сессию (кадр, не разжавшийся как gzip, идёт дальше «как пришёл»; поток таких кадров журнал не затопит).
+const BAD_FRAME_EVENTS: u32 = 5;
 
 /// Общее состояние шарда для его сессий.
 pub struct Shared {
@@ -252,6 +255,8 @@ fn read_loop(
     let mut pings_on = true;
     let mut ping_no: u64 = 0;
     let mut last_frame = t_loop;
+    let mut gunzip = sh.exch.gzip_frames().then(Gunzip::new);
+    let mut bad_gzip: u32 = 0;
     loop {
         if cancel.load(Relaxed) || sh.stop.load(Relaxed) {
             return Outcome::Closed;
@@ -265,23 +270,19 @@ fn read_loop(
         }
         match got {
             Ok(Message::Text(t)) => {
-                if !frame(
-                    sh,
-                    ws,
-                    seq,
-                    rx,
-                    t_read,
-                    settle_at,
-                    &mut n,
-                    &mut probe,
-                    Bytes::from(t),
-                ) {
-                    return Outcome::Failed("писатель шарда ушёл".to_string());
+                let data = Bytes::from(t);
+                if let Some(out) =
+                    deliver(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut probe, data)
+                {
+                    return out;
                 }
             }
             Ok(Message::Binary(b)) => {
-                if !frame(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut probe, b) {
-                    return Outcome::Failed("писатель шарда ушёл".to_string());
+                let data = unpack(sh, seq, &mut gunzip, &mut bad_gzip, b);
+                if let Some(out) =
+                    deliver(sh, ws, seq, rx, t_read, settle_at, &mut n, &mut probe, data)
+                {
+                    return out;
                 }
             }
             Ok(Message::Pong(p)) => {
@@ -349,6 +350,49 @@ fn read_loop(
                 }
             }
         }
+    }
+}
+
+/// Двоичный кадр биржи → текст кадра: gzip-кадры (BingX) разжимаются здесь, до метки лага, разбора и записи. Не разжался (не gzip, обрыв, CRC) —
+/// кадр идёт дальше как пришёл (адаптер его не разберёт, писатель запишет сырым) и пишется событие `bad_frame`.
+fn unpack(sh: &Shared, seq: u32, gz: &mut Option<Gunzip>, bad: &mut u32, b: Bytes) -> Bytes {
+    let Some(g) = gz.as_mut() else { return b };
+    if let Some(plain) = g.unpack(&b) {
+        return Bytes::copy_from_slice(plain);
+    }
+    *bad += 1;
+    if *bad <= BAD_FRAME_EVENTS {
+        sh.events.emit(
+            "bad_frame",
+            json!({"session": seq, "what": "gzip", "len": b.len(), "n": *bad}),
+        );
+    }
+    b
+}
+
+/// Кадр после разжатия: сердцебиение биржи (`Ping` → `Pong`) отвечается сразу и дальше не идёт; остальное — в очередь писателя. `Some` — сессия кончилась.
+#[allow(clippy::too_many_arguments)]
+fn deliver(
+    sh: &Shared,
+    ws: &mut tungstenite::WebSocket<Conn>,
+    seq: u32,
+    rx: i64,
+    t_read: Instant,
+    settle_at: Instant,
+    n: &mut u64,
+    probe: &mut Option<PathProbe>,
+    data: Bytes,
+) -> Option<Outcome> {
+    if let Some(reply) = sh.exch.heartbeat_reply(&data) {
+        return ws
+            .send(Message::text(reply))
+            .err()
+            .map(|e| Outcome::Failed(format!("heartbeat: {e}")));
+    }
+    if frame(sh, ws, seq, rx, t_read, settle_at, n, probe, data) {
+        None
+    } else {
+        Some(Outcome::Failed("писатель шарда ушёл".to_string()))
     }
 }
 

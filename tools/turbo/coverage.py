@@ -39,7 +39,7 @@ def main():
             except ValueError:
                 pass
         evs.sort(key=lambda e: e["ts_ms"])
-        live, first, down_ms, last_t, cnt = set(), None, 0, None, Counter()
+        live, first, subscribed, down_ms, last_t, cnt = set(), None, None, 0, None, Counter()
         for e in evs:
             ts = e["ts_ms"]
             if ts < t0:
@@ -51,6 +51,8 @@ def main():
             if ev == "error" and "502" in str(e.get("err", "")):
                 cnt["error_502"] += 1
             before = len(live)
+            if ev == "subscribed" and subscribed is None:
+                subscribed = ts  # BingX: one subscribe message per topic (200 x 20 ms = 4 s after the connection)
             if ev == "connected":
                 live.add(e["session"])
                 if first is None:
@@ -65,14 +67,17 @@ def main():
                 last_t = ts
         if first is not None and last_t is not None and not live:
             down_ms += t1 - last_t
-        shards[name] = {"first_connected_s": None if first is None else round((first - t0) / 1000, 1), "uncovered_after_first_s": round(down_ms / 1000, 1),
+        shards[name] = {"first_connected_s": None if first is None else round((first - t0) / 1000, 1), "first_subscribed_s": None if subscribed is None else round((subscribed - t0) / 1000, 1),
+                        "uncovered_after_first_s": round(down_ms / 1000, 1),
                         "events": dict(cnt)}
         total.update(cnt)
     firsts = sorted(v["first_connected_s"] for v in shards.values() if v["first_connected_s"] is not None)
+    subs = sorted(v["first_subscribed_s"] for v in shards.values() if v["first_subscribed_s"] is not None)
     n = len(shards)
     out = {
         "root": a.root, "t0_ms": t0, "window_s": a.window_s, "shards": n, "shards_connected": len(firsts),
         "first_connected_s": {"min": firsts[0] if firsts else None, "median": statistics.median(firsts) if firsts else None, "max": firsts[-1] if firsts else None},
+        "first_subscribed_s": {"min": subs[0] if subs else None, "median": statistics.median(subs) if subs else None, "max": subs[-1] if subs else None},
         "covered_by_s": {str(s): sum(1 for f in firsts if f <= s) for s in (2, 5, 10, 15, 30, 60, 120, 180)},
         "uncovered_after_first_s_total": round(sum(v["uncovered_after_first_s"] for v in shards.values()), 1),
         "uncovered_after_first_s_max": max((v["uncovered_after_first_s"] for v in shards.values()), default=0),

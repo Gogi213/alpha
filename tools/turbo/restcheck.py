@@ -8,14 +8,20 @@ time span both cover; mismatch on price/size/side. The recorded Bybit key `a` (s
 OKX: /api/v5/market/history-trades (every individual public trade, paged back by tradeId, `source` included) against the recorded aggregates: a recorded `t` row covers the id range
 f..l (`tradeId - count + 1 .. tradeId`); missing = a REST trade whose id lies in no recorded range, mismatch = a range whose price / side / summed size / ELP flag (`x` = E <=> REST source 1)
 differs from the REST trades inside it, extra = a recorded range (not at the window edges) with no REST trade at all.
+BingX: REST has no trade history (/quote/trades = the last 1000 trades of a symbol, no time/id parameters), so the oracle is a snapshot taken at the window end (`bxsnap.py`, every symbol of the pool):
+  missing = a REST trade in the window absent from the files (id), mismatch = same id, different price / size / side / time, extra = a recorded trade with an id inside the REST id range that REST lacks.
+  Second, exchange-intrinsic oracle over the WHOLE pool: BingX trade ids are contiguous per symbol (REST and WS share `fillId`; measured 12.11: 0 gaps in 33 385 trades), so a recorded id range with a missing id is a lost
+  trade: `pool_ids.gaps_after_covered` (a gap counts when the later trade is at/after --covered-ms).
 Usage (srv): restcheck.py binance <data root> <t0_ms> <t1_ms> --symbols 25 --out restcheck.json
              restcheck.py bybit <data root with capture-*.tsv> <t0_ms> <t1_ms> --symbols 25 --out restcheck.json
              restcheck.py okx <data root> <t0_ms> <t1_ms> --symbols 25 --spread --covered-ms <ms> --out restcheck.json
+             restcheck.py bingx <data root> <t0_ms> <t1_ms> --snap <rest-snap.json.gz> --covered-ms <ms> --out restcheck.json
 """
 import argparse
 import bisect
 import concurrent.futures
 import glob
+import gzip
 import io
 import json
 import os
@@ -266,9 +272,57 @@ def okx(a, t0, t1):
     return res
 
 
+def file_trades_bingx(root, t0, t1):
+    """symbol -> {id: (price, size, buyer is maker, T)} of recorded `t` rows with trade time T in [t0, t1]; the id is the column `a` (= f = l)."""
+    out = defaultdict(dict)
+    for p in run_files(root):
+        for r in codec.decode(read_lines(p)):
+            if r["t"] == "t" and t0 <= r["T"] <= t1:
+                out[r["s"]][r["a"]] = (r["p"], r["q"], bool(r["m"]), r["T"])
+    return out
+
+
+def bingx(a, t0, t1):
+    rec = file_trades_bingx(a.root, t0, t1)
+    snap = json.load(gzip.open(a.snap, "rt"))
+    res = {}
+    for sym, s in snap["symbols"].items():
+        rest = {x[0]: (x[1], x[2], x[3], x[4]) for x in s["trades"]}
+        mine = rec.get(sym, {})
+        # the REST list is the last 1000 trades: complete for the window only if it reaches back to t0 (or holds fewer than 1000 trades)
+        truncated = s["n"] >= 1000 and s["oldest"] is not None and s["oldest"] > t0
+        lo = (s["oldest"] if truncated else t0)
+        missing = sorted(set(rest) - set(mine))
+        # a recorded trade is "extra" only inside the id range REST shows in the window (REST ids are contiguous, so every id of the range must be there)
+        rmin, rmax = min(rest, default=None), max(rest, default=None)
+        extra = sorted(k for k in mine if rmin is not None and rmin <= k <= rmax and k not in rest)
+        mism = [k for k in set(rest) & set(mine)
+                if not (Decimal(rest[k][0]) == Decimal(mine[k][0]) and Decimal(rest[k][1]) == Decimal(mine[k][1]) and rest[k][2] == mine[k][2] and rest[k][3] == mine[k][3])]
+        late = [k for k in missing if rest[k][3] >= a.covered_ms]
+        res[sym] = {"rest": len(rest), "file": len(mine), "missing_in_file": len(missing), "extra_in_file": len(extra), "mismatch": len(mism),
+                    "rest_after_covered": sum(1 for v in rest.values() if v[3] >= a.covered_ms), "missing_after_covered": len(late), "truncated": int(truncated),
+                    "checked_from_ms": float(lo), "missing_examples": [(k, rest[k]) for k in missing[:5]], "extra_examples": [(k, mine[k]) for k in extra[:5]],
+                    "mismatch_examples": [(k, rest[k], mine[k]) for k in mism[:3]]}
+    # ids are contiguous per symbol: every missing id between two recorded ids is a lost trade (whole pool, not only the REST symbols)
+    gaps, gap_syms, examples, trades = 0, 0, [], 0
+    for sym, v in rec.items():
+        ordered = sorted(v.items())
+        trades += len(ordered)
+        g = 0
+        for (i0, _), (i1, x1) in zip(ordered, ordered[1:]):
+            if i1 - i0 > 1 and x1[3] >= a.covered_ms:
+                g += i1 - i0 - 1
+                if len(examples) < 8:
+                    examples.append((sym, i0, i1, x1[3]))
+        gaps += g
+        gap_syms += g > 0
+    pool_ids = {"symbols": len(rec), "trades": trades, "gaps_after_covered": gaps, "symbols_with_gaps": gap_syms, "examples": examples}
+    return res, pool_ids, {k: snap.get(k) for k in ("fetched_ms", "took_s", "errors")}
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("exchange", choices=["binance", "bybit", "okx"])
+    ap.add_argument("exchange", choices=["binance", "bybit", "okx", "bingx"])
     ap.add_argument("root")
     ap.add_argument("t0", type=int)
     ap.add_argument("t1", type=int)
@@ -276,19 +330,25 @@ def main():
     ap.add_argument("--covered-ms", type=int, default=0, help="from when every shard had a live session (cold start): missing_after_covered counts only trades from then on")
     ap.add_argument("--min-run", type=int, default=0, help="only files of runs started at/after this epoch second")
     ap.add_argument("--spread", action="store_true", help="symbols evenly spaced over the trade-count ranking instead of the busiest")
+    ap.add_argument("--snap", help="bingx: REST snapshot of the window (bxsnap.py)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     global MIN_RUN
     MIN_RUN = a.min_run
-    res = {"binance": binance, "bybit": bybit, "okx": okx}[a.exchange](a, a.t0, a.t1)
+    extra = {}
+    if a.exchange == "bingx":
+        res, pool_ids, snap_info = bingx(a, a.t0, a.t1)
+        extra = {"pool_ids": pool_ids, "snapshot": snap_info}
+    else:
+        res = {"binance": binance, "bybit": bybit, "okx": okx}[a.exchange](a, a.t0, a.t1)
     tot = Counter()
     for v in res.values():
         for k, x in v.items():
             if isinstance(x, int):
                 tot[k] += x
-    out = {"exchange": a.exchange, "window_ms": [a.t0, a.t1], "symbols": len(res), "total": dict(tot), "per_symbol": res}
+    out = {"exchange": a.exchange, "window_ms": [a.t0, a.t1], "symbols": len(res), "total": dict(tot), "per_symbol": res, **extra}
     json.dump(out, open(a.out, "w"), indent=1)
-    print(json.dumps(out["total"]))
+    print(json.dumps({**out["total"], **({"id_gaps_after_covered": extra["pool_ids"]["gaps_after_covered"]} if extra else {})}))
 
 
 if __name__ == "__main__":

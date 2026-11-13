@@ -40,6 +40,14 @@ def main():
         reasons.append("REST check missing")
     elif miss:
         reasons.append(f"REST missing after covered {miss} of {t.get('rest_after_covered')}")
+    if t.get("mismatch"):
+        reasons.append(f"REST mismatches {t['mismatch']}")
+    snap_errors = len(((rest or {}).get("snapshot") or {}).get("errors") or {})  # BingX: pool symbols the REST snapshot could not fetch = not checked
+    if snap_errors:
+        reasons.append(f"REST snapshot errors {snap_errors} symbols")
+    ids = (rest or {}).get("pool_ids")  # BingX: contiguous trade ids per symbol over the whole pool (restcheck.py bingx)
+    if ids and ids["gaps_after_covered"]:
+        reasons.append(f"trade id gaps after covered {ids['gaps_after_covered']} in {ids['symbols_with_gaps']} symbols")
     if cov["uncovered_after_first_s_total"] > 0:
         reasons.append(f"no live session {cov['uncovered_after_first_s_total']} shard-s")
     if cov["shards_connected"] < cov["shards"]:
@@ -48,14 +56,15 @@ def main():
         "label": label, "ok": not reasons, "reasons": reasons, "shards": cov["shards"], "first_connected_max_s": cov["first_connected_s"]["max"], "dials": w["dials"], "fast_share": w["fast_share"],
         "lag_p50": w["lag_p50"], "lag_p99": w["lag_p99"], "lag_max": w["lag_max"], "late": w["late"], "book_n": w["book_n"], "drops": drops, "connect_errors": w.get("connect_errors"), "timeouts": ev.get("timeout", 0),
         "path_switch": ev.get("path_switch", 0), "path_upgrade": ev.get("path_upgrade", 0), "replace_deferred": ev.get("replace_deferred", 0), "mark_cov": w.get("mark_cov"),
-        "rest_missing_after_covered": miss, "rest": t.get("rest"), "uncovered_shard_s": cov["uncovered_after_first_s_total"], "cpu_pct": (cpu or {}).get("cpu_pct"),
+        "rest_missing_after_covered": miss, "rest": t.get("rest"), "rest_mismatch": t.get("mismatch"), "id_gaps_after_covered": (ids or {}).get("gaps_after_covered"), "uncovered_shard_s": cov["uncovered_after_first_s_total"], "cpu_pct": (cpu or {}).get("cpu_pct"),
     }
     json.dump(s, open(os.path.join(d, "sum.json"), "w"), indent=1)
     fs = "—" if w["fast_share"] is None else f"{w['fast_share'] * 100:.0f}% ({w['fast_dials']}/{w['dials']})"
     mc = "—" if s["mark_cov"] is None else f"{s['mark_cov'] * 100:.3f}%"
     line = (f"{label} {'ok' if not reasons else 'FAIL'} shards={s['shards']} fast={fs} lag p50/p99/max={s['lag_p50']}/{s['lag_p99']}/{s['lag_max']} ms late={s['late']} "
             f"drops={drops} connect_errors={s['connect_errors']} mark_cov={mc} {'rest=deferred' if no_rest and rest is None else f'rest_missing_after_covered={miss}/' + str(t.get('rest_after_covered'))} uncovered={s['uncovered_shard_s']} shard-s cpu={s['cpu_pct']}% core "
-            f"switch/upgrade/deferred={s['path_switch']}/{s['path_upgrade']}/{s['replace_deferred']}")
+            f"switch/upgrade/deferred={s['path_switch']}/{s['path_upgrade']}/{s['replace_deferred']}"
+            + (f" rest_mismatch={t.get('mismatch')} id_gaps_after_covered={ids['gaps_after_covered']}/{ids['trades']}" if ids else ""))
     print(line + ("" if not reasons else " | " + "; ".join(reasons)))
     sys.exit(1 if reasons else 0)
 

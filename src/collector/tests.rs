@@ -12,6 +12,7 @@ use bytes::Bytes;
 use serde_json::json;
 
 use super::binance::{self, Binance};
+use super::bingx::{self, Bingx};
 use super::budget::Budget;
 use super::bybit::{self, Bybit};
 use super::codec::{Book, Decoded, Decoder, Encoder, Mark, Rec, SymEnc, Trade};
@@ -1273,6 +1274,489 @@ fn okx_service_upgrade_notice_opens_a_replacement_without_a_gap() {
         .filter(|d| matches!(d, Decoded::Raw { frame, .. } if frame.contains("64008")))
         .count();
     assert_eq!(raws, 1, "само предупреждение записано как пришло");
+}
+
+// ---- BingX ----
+
+const BX_BOOK: &str = r#"{"code":0,"dataType":"NCCOGOLD2USD-USDT@bookTicker","data":{"e":"bookTicker","u":290557857,"E":1794490576218,"T":1794490576115,"s":"NCCOGOLD2USD-USDT","b":"3912.21","B":"59.6554","a":"3912.22","A":"93.3727"}}"#;
+const BX_TRADE: &str = r#"{"code":0,"dataType":"NCCOGOLD2USD-USDT@trade","data":[{"t":"198076694","q":"0.0044","p":"3912.21","T":1794490576035,"m":true,"s":"NCCOGOLD2USD-USDT"},{"t":"198076695","q":"0.0014","p":"3912.21","T":1794490576035,"m":true,"s":"NCCOGOLD2USD-USDT"}]}"#;
+const BX_MARK: &str = r#"{"code":0,"dataType":"ETH-USDT@markPrice","data":{"e":"markPriceUpdate","E":1794490576785,"s":"ETH-USDT","p":"2009.84"}}"#;
+const BX_ACK: &str = r#"{"id":"BTC-USDT@bookTicker","code":0,"msg":"","dataType":"","data":null}"#;
+const BX_OVER: &str = r#"{"id":"bt-ELSA-USDT","code":80403,"msg":"your topic num over max 200","dataType":"","data":null}"#;
+
+fn bx_fill(id: &str, m: &str) -> String {
+    format!(r#"{{"t":"{id}","q":"0.5","p":"70000.1","T":1794490576035,"m":{m},"s":"BTC-USDT"}}"#)
+}
+
+fn bx_trade(elems: &[&str]) -> String {
+    format!(
+        r#"{{"code":0,"dataType":"BTC-USDT@trade","data":[{}]}}"#,
+        elems.join(",")
+    )
+}
+
+fn bx_book(u: i64, t: i64, e: i64) -> String {
+    format!(
+        r#"{{"code":0,"dataType":"BTC-USDT@bookTicker","data":{{"e":"bookTicker","u":{u},"E":{e},"T":{t},"s":"BTC-USDT","b":"1.0","B":"2","a":"1.1","A":"3"}}}}"#
+    )
+}
+
+#[test]
+fn bingx_frames_parse_exactly_and_unknown_shapes_go_raw() {
+    let bx = Bingx::default();
+    let r = parse_all(&bx, &[BX_BOOK, BX_TRADE, BX_MARK]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_490_576_218,
+            t: 1_794_490_576_115,
+            sym: "NCCOGOLD2USD-USDT".into(),
+            u: 290_557_857,
+            bid: "3912.21".into(),
+            bsz: "59.6554".into(),
+            ask: "3912.22".into(),
+            asz: "93.3727".into(),
+            bn: String::new(),
+            an: String::new(),
+        }
+    );
+    assert_eq!(r[1].0, Parsed::Recs(2), "пачка сделок — запись на сделку");
+    for (d, (id, q)) in r[1]
+        .1
+        .iter()
+        .zip([(198_076_694, "0.0044"), (198_076_695, "0.0014")])
+    {
+        assert_eq!(
+            *d,
+            Decoded::Trade {
+                rx_ns: 1_794_433_300_000_001_000,
+                e: 1_794_490_576_035,
+                t: 1_794_490_576_035,
+                sym: "NCCOGOLD2USD-USDT".into(),
+                a: id,
+                p: "3912.21".into(),
+                q: q.into(),
+                f: id,
+                l: id,
+                m: true,
+                nq: q.into(),
+                x: String::new(),
+                i: String::new(),
+            }
+        );
+    }
+    assert_eq!(
+        r[2].1[0],
+        Decoded::Mark {
+            rx_ns: 1_794_433_300_000_002_000,
+            e: 1_794_490_576_785,
+            sym: "ETH-USDT".into(),
+            p: "2009.84".into(),
+            ap: String::new(),
+            pp: String::new(),
+            i: String::new(),
+            r: String::new(),
+            t: 0,
+        },
+        "индекс и ставка в потоке BingX не приходят — столбцы пусты"
+    );
+    assert_eq!(
+        bx.lag_ms(BX_BOOK.as_bytes(), 1_794_490_576_318_000_000),
+        Some(100.0)
+    );
+    assert_eq!(
+        bx.lag_ms(BX_TRADE.as_bytes(), 1_794_490_576_135_000_000),
+        Some(100.0),
+        "сделка — T первой в пачке"
+    );
+    assert_eq!(
+        bx.lag_ms(BX_MARK.as_bytes(), 1_794_490_576_885_000_000),
+        Some(100.0)
+    );
+    assert_eq!(bx.lag_ms(BX_ACK.as_bytes(), 1), None);
+    assert_eq!(
+        bx.symbol(BX_BOOK.as_bytes()),
+        Some(&b"NCCOGOLD2USD-USDT"[..])
+    );
+    assert_eq!(bx.symbol(BX_MARK.as_bytes()), Some(&b"ETH-USDT"[..]));
+    assert_eq!(
+        bx.symbol(BX_ACK.as_bytes()),
+        None,
+        "ответ подписки — не символ"
+    );
+    let others = [
+        BX_ACK.to_string(),
+        BX_OVER.to_string(),
+        BX_BOOK.replace(r#""code":0"#, r#""code":1"#),
+        BX_BOOK.replace(r#""A":"93.3727""#, r#""A":"93.3727","zz":1"#),
+        BX_BOOK.replace(r#""e":"bookTicker""#, r#""e":"bookTickerX""#),
+        BX_BOOK.replace(r#""s":"NCCOGOLD2USD-USDT""#, r#""s":"OTHER-USDT""#),
+        BX_BOOK.replace(r#""u":290557857"#, r#""u":"290557857""#),
+        BX_BOOK.replace("@bookTicker", "@depth5@200ms"),
+        BX_MARK.replace(r#""p":"2009.84""#, r#""p":"2009.84","i":"1""#),
+        bx_trade(&[]),
+        bx_trade(&[&bx_fill("1", "\"true\"")]),
+        r#"{"code":0,"dataType":"BTC-USDT@trade","data":null}"#.to_string(),
+    ];
+    let refs: Vec<&str> = others.iter().map(String::as_str).collect();
+    for (i, (p, recs)) in parse_all(&bx, &refs).iter().enumerate() {
+        assert!(*p == Parsed::Raw && recs.is_empty(), "кадр {i}: {p:?}");
+    }
+    // годные элементы пачки — записи, негодные — один raw в кадре той же формы
+    let mixed = bx_trade(&[
+        &bx_fill("10", "false"),
+        &bx_fill("11", "\"x\""),
+        &bx_fill("12", "true"),
+        &bx_fill("13", "1"),
+    ]);
+    let r = parse_all(&bx, &[&mixed]);
+    assert_eq!(r[0].0, Parsed::Recs(2));
+    let raws: Vec<&Decoded> = r[0]
+        .1
+        .iter()
+        .filter(|d| matches!(d, Decoded::Raw { .. }))
+        .collect();
+    assert_eq!(raws.len(), 1);
+    let Decoded::Raw { frame, .. } = raws[0] else {
+        unreachable!()
+    };
+    assert!(frame.starts_with(r#"{"code":0,"dataType":"BTC-USDT@trade","data":[{"#));
+    assert_eq!(frame.matches(r#""t":""#).count(), 2);
+}
+
+#[test]
+fn bingx_trade_ids_out_of_order_are_kept_and_identity_dedups_across_lines() {
+    let r = rig(Arc::new(Bingx::default()), 20);
+    let t = 20_000 * NS_PER_DAY + 1_000_000_000;
+    let ms = |m: i64| t + m * 1_000_000;
+    // id сделок BingX приходят не по порядку у 1–6 % (подготовка п. 3): меньший id после большего — новая сделка, не дубль
+    let fill = |id: &str| bx_trade(&[&bx_fill(id, "false")]);
+    r.frame(ms(1), 1, &fill("100"));
+    r.frame(ms(2), 1, &fill("102"));
+    r.frame(ms(3), 1, &fill("101"));
+    r.frame(ms(4), 2, &fill("102")); // та же сделка с другой линии
+    r.frame(ms(5), 2, &fill("99"));
+    // книга: у каждого соединения свой u, личность — T
+    r.frame(ms(6), 1, &bx_book(317_924_135, 5_000, 5_006));
+    r.frame(ms(7), 2, &bx_book(759_670_106, 5_000, 5_006)); // то же состояние, другой u
+    r.frame(ms(8), 2, &bx_book(759_670_107, 5_385, 5_391));
+    r.frame(ms(9), 1, BX_MARK);
+    r.frame(ms(10), 2, BX_MARK); // тот же E с другой линии
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    let trades: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Trade { a, .. } => Some(*a),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(trades, [100, 102, 101, 99]);
+    let books: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Book { u, .. } => Some(*u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(books, [317_924_135, 759_670_107]);
+    let marks = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Mark { .. }))
+        .count();
+    assert_eq!(marks, 1);
+    let w = m.writer();
+    assert_eq!((w.records, w.dups), (7, 3));
+}
+
+#[test]
+fn bingx_plan_subscription_url_and_exchange_traits() {
+    let bx = Bingx::default();
+    let pool: Vec<String> = (0..892).map(|i| format!("S{i:03}-USDT")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = bx.plan(&pool, &kinds, 0);
+    let sizes = |p: &str| -> Vec<usize> {
+        plan.iter()
+            .filter(|x| x.name.starts_with(p))
+            .map(|x| x.streams.len())
+            .collect()
+    };
+    assert_eq!(sizes("book"), vec![179, 179, 179, 179, 176]);
+    assert_eq!(sizes("trade"), vec![179, 179, 179, 179, 176]);
+    assert_eq!(sizes("mark"), vec![179, 179, 179, 179, 176]);
+    assert!(plan.iter().all(|p| p.streams.len() <= bingx::MAX_TOPICS));
+    assert_eq!(plan[0].name, "book00");
+    assert_eq!(plan[0].streams[0], "S000-USDT@bookTicker");
+    assert_eq!(plan[5].streams[0], "S000-USDT@trade");
+    assert_eq!(plan[10].streams[0], "S000-USDT@markPrice");
+    assert_eq!(
+        bx.plan(&pool, &["book".to_string()], 500).len(),
+        5,
+        "число тем на соединение не больше 200 даже по флагу"
+    );
+    assert_eq!(bx.plan(&pool, &["mark".to_string()], 30).len(), 30);
+    let msgs = bx.subscribe_messages(&plan[0].streams);
+    assert_eq!(msgs.len(), 179, "одна тема в сообщении");
+    let m: serde_json::Value = serde_json::from_str(&msgs[1]).unwrap();
+    assert_eq!(
+        (
+            m["id"].as_str(),
+            m["reqType"].as_str(),
+            m["dataType"].as_str()
+        ),
+        (
+            Some("S001-USDT@bookTicker"),
+            Some("sub"),
+            Some("S001-USDT@bookTicker")
+        )
+    );
+    assert_eq!(
+        bx.url("swap", "open-api-swap.bingx.com"),
+        "wss://open-api-swap.bingx.com/swap-market"
+    );
+    let lines = bx.default_entrances(2);
+    assert_eq!(
+        (
+            lines[0][0].family,
+            lines[0][1].family,
+            lines[1][0].family,
+            lines[1][1].family
+        ),
+        (Family::V4, Family::V6, Family::V6, Family::V4)
+    );
+    assert!(lines
+        .iter()
+        .flatten()
+        .all(|e| e.host == "open-api-swap.bingx.com"));
+    assert_eq!(bx.default_top_exclude(), 0);
+    assert!(bx.gzip_frames() && !Okx::default().gzip_frames());
+    assert_eq!(bx.heartbeat_reply(b"Ping"), Some("Pong"));
+    assert_eq!(bx.heartbeat_reply(b"ping"), Some("Pong"));
+    assert_eq!(bx.heartbeat_reply(BX_ACK.as_bytes()), None);
+    assert_eq!(Okx::default().heartbeat_reply(b"Ping"), None);
+}
+
+#[test]
+fn bingx_pool_rule_status_currency_turnover_and_meta() {
+    let con = |sym: &str, cur: &str, status: i64| {
+        json!({"symbol": sym, "currency": cur, "status": status, "size": "0.001", "quantityPrecision": 3, "pricePrecision": 4,
+               "tradeMinQuantity": 1.5, "tradeMinUSDT": 2, "apiStateOpen": "true", "apiStateClose": "true", "launchTime": 1, "displayName": sym, "asset": "X"})
+    };
+    let tick = |sym: &str, qv: &str| json!({"symbol": sym, "quoteVolume": qv});
+    let contracts = vec![
+        con("BTC-USDT", "USDT", 1),
+        con("ETH-USDT", "USDT", 1),
+        con("HALT-USDT", "USDT", 25),
+        con("BTC-USDC", "USDC", 1),
+        con("THIN-USDT", "USDT", 1),
+        con("NOTICK-USDT", "USDT", 1),
+    ];
+    let tickers = vec![
+        tick("BTC-USDT", "1080000000.5"),
+        tick("ETH-USDT", "440000000"),
+        tick("HALT-USDT", "9999999999"),
+        tick("BTC-USDC", "9999999999"),
+        tick("THIN-USDT", "299999.99"),
+    ];
+    let (pool, top, extra) = bingx::select_pool(&contracts, &tickers, 300_000.0, 0);
+    assert_eq!(
+        (pool, top),
+        (vec!["BTC-USDT".to_string(), "ETH-USDT".to_string()], vec![])
+    );
+    assert_eq!(extra["qv"]["BTC-USDT"], 1_080_000_000.5);
+    assert_eq!(extra["meta"]["ETH-USDT"]["size"], "0.001");
+    assert_eq!(extra["meta"]["ETH-USDT"]["apiStateOpen"], "true");
+    assert!(extra["meta"].get("THIN-USDT").is_none());
+    let (pool, top, _) = bingx::select_pool(&contracts, &tickers, 300_000.0, 1);
+    assert_eq!(
+        (pool, top),
+        (vec!["ETH-USDT".to_string()], vec!["BTC-USDT".to_string()])
+    );
+}
+
+fn gz_bytes(data: &[u8]) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    e.write_all(data).unwrap();
+    e.finish().unwrap()
+}
+
+#[test]
+fn gunzip_roundtrips_reuses_state_and_rejects_damaged_frames() {
+    use super::gzip::Gunzip;
+    use std::io::Write as _;
+    let mut g = Gunzip::new();
+    let big = "x".repeat(100_000);
+    for s in [BX_BOOK, "Ping", "", BX_TRADE, big.as_str(), BX_MARK] {
+        let z = gz_bytes(s.as_bytes());
+        assert_eq!(g.unpack(&z), Some(s.as_bytes()), "кадр {} байт", s.len());
+    }
+    // заголовок с именем файла, комментарием и дополнительным полем (RFC 1952)
+    let mut b = flate2::GzBuilder::new()
+        .filename("a.json")
+        .comment("c")
+        .extra(vec![1, 2, 3])
+        .write(Vec::new(), flate2::Compression::fast());
+    b.write_all(BX_BOOK.as_bytes()).unwrap();
+    assert_eq!(g.unpack(&b.finish().unwrap()), Some(BX_BOOK.as_bytes()));
+    let good = gz_bytes(BX_BOOK.as_bytes());
+    let n = good.len();
+    let mut bad_crc = good.clone();
+    bad_crc[n - 8] ^= 1;
+    let mut bad_len = good.clone();
+    bad_len[n - 4] ^= 1;
+    let mut bad_body = good.clone();
+    bad_body[n / 2] ^= 0x55;
+    let mut tail = good.clone();
+    tail.insert(n - 8, 0);
+    let cases: [(&str, Vec<u8>); 8] = [
+        ("CRC", bad_crc),
+        ("длина", bad_len),
+        ("тело", bad_body),
+        ("лишний байт после deflate", tail),
+        ("обрыв", good[..n - 12].to_vec()),
+        ("не gzip", BX_BOOK.as_bytes().to_vec()),
+        ("пусто", Vec::new()),
+        ("заголовок без тела", good[..8].to_vec()),
+    ];
+    for (name, f) in &cases {
+        assert_eq!(g.unpack(f), None, "{name}");
+    }
+    // после отказов состояние чистое
+    assert_eq!(g.unpack(&good), Some(BX_BOOK.as_bytes()));
+}
+
+/// Источник «BingX»: двоичные gzip-кадры, `Ping` раз в 100 мс (текст, gzip), ответ подписки и один кадр не gzip. Считает ответы `Pong`, запоминает подписку.
+fn spawn_bingx_source(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    ponged: Arc<std::sync::atomic::AtomicUsize>,
+    sub: Arc<std::sync::Mutex<String>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let Ok((s, _)) = listener.accept() else {
+            return;
+        };
+        let Ok(mut ws) = tungstenite::accept(s) else {
+            return;
+        };
+        let Ok(tungstenite::Message::Text(t)) = ws.read() else {
+            return;
+        };
+        *sub.lock().unwrap() = t.to_string();
+        let ack = r#"{"id":"x","code":0,"msg":"","dataType":"","data":null}"#;
+        for b in [gz_bytes(ack.as_bytes()), b"not gzip at all".to_vec()] {
+            if ws.send(tungstenite::Message::binary(b)).is_err() {
+                return;
+            }
+        }
+        ws.get_ref()
+            .set_read_timeout(Some(Duration::from_millis(1)))
+            .unwrap();
+        let (mut n, mut last_ping) = (0i64, Instant::now() - Duration::from_secs(1));
+        while !stop.load(Relaxed) {
+            n += 1;
+            let mut out = vec![gz_bytes(
+                bx_book(n, 1_794_000_000_000 + n, super::events::now_ms()).as_bytes(),
+            )];
+            if last_ping.elapsed() >= Duration::from_millis(100) {
+                last_ping = Instant::now();
+                out.push(gz_bytes(b"Ping"));
+            }
+            for b in out {
+                if ws.send(tungstenite::Message::binary(b)).is_err() {
+                    return;
+                }
+            }
+            match ws.read() {
+                Ok(tungstenite::Message::Text(t)) if t.as_str() == "Pong" => {
+                    ponged.fetch_add(1, Relaxed);
+                }
+                Ok(tungstenite::Message::Close(_)) => return,
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(e))
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return,
+            }
+            std::thread::sleep(Duration::from_millis(4));
+        }
+    })
+}
+
+#[test]
+fn bingx_session_unpacks_gzip_answers_ping_and_does_not_write_heartbeats() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (stop_src, ponged, sub) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        Arc::new(std::sync::Mutex::new(String::new())),
+    );
+    let src = spawn_bingx_source(
+        listener,
+        Arc::clone(&stop_src),
+        Arc::clone(&ponged),
+        Arc::clone(&sub),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (opts, mut plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    plan.streams = vec!["BTC-USDT@bookTicker".into()];
+    let exch: Arc<dyn Exchange> = Arc::new(Bingx::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while ponged.load(Relaxed) < 3 && t0.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(ponged.load(Relaxed) >= 3, "на каждый Ping — текст Pong");
+    let m: serde_json::Value = serde_json::from_str(&sub.lock().unwrap()).unwrap();
+    assert_eq!(m["dataType"], "BTC-USDT@bookTicker");
+    let rows: Vec<Decoded> = read_days(dir.path())
+        .into_iter()
+        .flat_map(|d| d.1)
+        .collect();
+    let books = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Book { sym, .. } if sym == "BTC-USDT"))
+        .count();
+    assert!(books > 20, "записей книги из gzip-кадров: {books}");
+    let raws: Vec<&str> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Raw { frame, .. } => Some(frame.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        raws.len(),
+        2,
+        "ответ подписки и один не-gzip кадр: {raws:?}"
+    );
+    assert!(raws.iter().any(|f| f.contains(r#""dataType":"""#)));
+    assert!(raws.contains(&"not gzip at all"));
+    assert!(
+        !raws.iter().any(|f| f.eq_ignore_ascii_case("ping")),
+        "сердцебиение биржи не пишется"
+    );
+    assert_eq!(count_events(dir.path(), "bad_frame"), 1);
 }
 
 // ---- метрики ----

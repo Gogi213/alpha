@@ -14,6 +14,7 @@ use clap::{Args, ValueEnum};
 use serde_json::json;
 
 use super::binance::Binance;
+use super::bingx::Bingx;
 use super::budget::{Budget, LIMIT, WINDOW};
 use super::bybit::Bybit;
 use super::events::now_ms;
@@ -29,6 +30,7 @@ pub enum ExchangeName {
     Binance,
     Bybit,
     Okx,
+    Bingx,
 }
 
 /// Назначаемое (по заданию координатора 12.11): до ~280 из лимита Binance 300 подключений / 5 мин на IP.
@@ -37,6 +39,10 @@ const BINANCE_LIMIT: usize = 280;
 /// Назначаемое: 2 в секунду (запас 1 на неточность счёта биржи и ручные пробы с этого IP).
 const OKX_LIMIT: usize = 2;
 const OKX_WINDOW: Duration = Duration::from_secs(1);
+/// BingX: числа подключений в секунду/минуту в документации нет (лимит только 60 одновременных соединений с IP); проба 12.11 открывала по 5 сразу без ошибок.
+/// Назначаемое: 2 в секунду, как у OKX (полный пул — 30 соединений за ≈ 15 с).
+const BINGX_LIMIT: usize = 2;
+const BINGX_WINDOW: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Args)]
 pub struct RunArgs {
@@ -61,11 +67,11 @@ pub struct RunArgs {
     pub streams_per_conn: usize,
     #[arg(long, default_value_t = 300_000.0)]
     pub min_quote_volume: f64,
-    /// Сколько крупнейших по обороту не брать в пул (по умолчанию — правило биржи G-022: Binance и Bybit 10, OKX 0).
+    /// Сколько крупнейших по обороту не брать в пул (по умолчанию — правило биржи G-022: Binance и Bybit 10, OKX и BingX 0).
     #[arg(long)]
     pub top_exclude: Option<usize>,
     /// Подключений к бирже за 5 мин на процесс (по умолчанию: Binance — 280 из лимита биржи 300 на IP, замер маршрута 12.11: отбраковка медленных
-    /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`; OKX — за 1 с, `OKX_LIMIT`). Отбракованные подключения считаются.
+    /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`; OKX — за 1 с, `OKX_LIMIT`; BingX — за 1 с, `BINGX_LIMIT`). Отбракованные подключения считаются.
     #[arg(long)]
     pub connect_budget: Option<usize>,
     /// Файл с лимитом подключений за 5 мин (одно число), перечитывается раз в 2 с и заменяет `--connect-budget`. Передача между двумя процессами
@@ -114,6 +120,7 @@ pub fn exchange_of(n: ExchangeName) -> Arc<dyn Exchange> {
         ExchangeName::Binance => Arc::new(Binance),
         ExchangeName::Bybit => Arc::new(Bybit),
         ExchangeName::Okx => Arc::new(Okx::default()),
+        ExchangeName::Bingx => Arc::new(Bingx::default()),
     }
 }
 
@@ -273,6 +280,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         ExchangeName::Binance => BINANCE_LIMIT,
         ExchangeName::Bybit => LIMIT,
         ExchangeName::Okx => OKX_LIMIT,
+        ExchangeName::Bingx => BINGX_LIMIT,
     });
     let limit = args
         .budget_file
@@ -281,6 +289,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         .unwrap_or(limit);
     let window = match args.exchange {
         ExchangeName::Okx => OKX_WINDOW,
+        ExchangeName::Bingx => BINGX_WINDOW,
         _ => WINDOW,
     };
     let budget = Arc::new(Budget::new(limit, window));

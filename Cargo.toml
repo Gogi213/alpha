@@ -26,6 +26,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "1"
 bytes = "1"
 libc = "0.2"
+# G-022 BingX: все кадры биржи — двоичные gzip; свой разбор заголовка + разжатие «сырым» deflate с переиспользуемым состоянием (collector/gzip.rs).
+flate2 = "1"
 # Decision 12: подпись приватных запросов Bybit. Ключи только из переменных окружения.
 hmac = "0.13"
 sha2 = "0.11"

@@ -4,7 +4,8 @@
 //!
 //! ```text
 //!   scan, codec        разбор плоского JSON без аллокаций; формат записи (Encoder/Decoder)
-//!   exchange           контракт адаптера биржи; binance, bybit, okx — адреса, подписка, пул, разбор кадра
+//!   exchange           контракт адаптера биржи; binance, bybit, okx, bingx — адреса, подписка, пул, разбор кадра
+//!   gzip               разжатие кадров gzip (BingX) в потоке приёма, до метки лага и разбора
 //!   metrics, fresh     гистограммы лагов, глубины очередей, свежесть записей
 //!   ring               очередь приёма → писатель (ограниченная, с глубиной и счётом ожиданий)
 //!   writer, sink       писатель шарда (разбор, дубли, строки) → поток диска (zstd, файл суток, `.ok`)
@@ -18,6 +19,7 @@
 
 pub mod bench;
 pub mod binance;
+pub mod bingx;
 pub mod budget;
 pub mod bybit;
 pub mod cli;
@@ -25,6 +27,7 @@ pub mod codec;
 pub mod events;
 pub mod exchange;
 pub mod fresh;
+pub mod gzip;
 pub mod hash;
 pub mod health;
 pub mod ladder;
