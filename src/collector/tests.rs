@@ -3616,3 +3616,72 @@ fn restart_replays_counters_from_the_event_log() {
         )
     );
 }
+
+/// Строка минуты: паузы по началу, поздние по минуте прихода, таймауты по виду; соседние минуты не мешаются.
+#[test]
+fn series_minute_row_counts_lost_late_and_timeouts() {
+    let min = 60_000i64;
+    let m0 = ShardMetrics::new("book00", 0, 64, 16);
+    let m1 = ShardMetrics::new("book01", 0, 64, 16);
+    let base = 5_000 * min;
+    {
+        let mut l = m0.lists();
+        l.gap_spans.push_back((base + 10_000, 3_500));
+        l.gap_spans.push_back((base + min + 1, 4_000));
+        l.timeouts.push_back(base + 20_000);
+        l.timeouts.push_back(base + 30_000);
+        l.timeouts_silent.push_back(base + 30_000);
+    }
+    m1.lists().gap_spans.push_back((base + 40_000, 3_000));
+    {
+        let mut w = m0.writer();
+        w.fresh.add(0, base + 1_000, 2_500);
+        w.fresh.add(0, base + 2_000, 100);
+        w.fresh.add(1, base + 3_000, 9_000);
+        w.fresh.add(0, base + min + 5, 5_000);
+    }
+    m1.writer().fresh.add(2, base + 59_000, 2_001);
+    let r = super::series::minute_row(&[Arc::clone(&m0), Arc::clone(&m1)], 5_000);
+    assert_eq!(
+        r,
+        super::series::MinuteRow {
+            lost_ms: 6_500,
+            gaps: 2,
+            late: [1, 1, 1, 0],
+            to_alive: 1,
+            to_silent: 1
+        }
+    );
+    let next = super::series::minute_row(&[m0, m1], 5_001);
+    assert_eq!(
+        (next.lost_ms, next.gaps, next.late),
+        (4_000, 1, [1, 0, 0, 0])
+    );
+}
+
+/// Ряд на диске: пишутся только завершённые минуты, метка запуска с версией, рестарт не перезаписывает прежнее.
+#[test]
+fn series_writer_writes_completed_minutes_and_survives_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let min = 60_000i64;
+    let m = ShardMetrics::new("book00", 0, 64, 16);
+    m.lists().gap_spans.push_back((101 * min + 1_000, 3_500));
+    let mut w = super::series::SeriesWriter::open(dir.path(), 100 * min + 5_000, "abc1234");
+    w.flush(std::slice::from_ref(&m), 103 * min + 10_000);
+    w.flush(std::slice::from_ref(&m), 103 * min + 20_000);
+    let mut w2 = super::series::SeriesWriter::open(dir.path(), 104 * min + 30_000, "def5678");
+    w2.flush(std::slice::from_ref(&m), 106 * min + 1_000);
+    let text = std::fs::read_to_string(w2.path()).unwrap();
+    let v: Vec<serde_json::Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(v[0]["version"], "abc1234");
+    let ts: Vec<i64> = v.iter().filter_map(|x| x["t"].as_i64()).collect();
+    assert_eq!(ts, vec![101 * 60, 102 * 60, 105 * 60]);
+    assert_eq!(v[1]["lost_ms"], 3_500);
+    assert_eq!(v[1]["gaps"], 1);
+    assert_eq!(v[2]["lost_ms"], 0);
+    assert_eq!(v[3]["version"], "def5678");
+    assert_eq!(v[3]["start"], 104 * 60 + 30);
+}

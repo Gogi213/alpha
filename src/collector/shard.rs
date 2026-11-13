@@ -479,6 +479,8 @@ pub fn spawn_shard(
                 })
                 .collect();
             sh.metrics.register_thread();
+            sh.events
+                .emit("started", json!({"version": super::VERSION}));
             supervise(&sh, &opts);
             for t in lane_threads {
                 let _ = t.join();
@@ -506,10 +508,22 @@ pub fn spawn_shard(
     })
 }
 
+/// Пауза данных закончилась: длительность — в поминутный ряд (`gap_spans`) и в журнал (`gap_end`).
+fn end_gap(sh: &Arc<Shared>, start_ms: i64, total_ms: u64) {
+    let total = i64::try_from(total_ms).unwrap_or(i64::MAX);
+    sh.metrics.lists().gap_spans.push_back((start_ms, total));
+    sh.events.emit(
+        "gap_end",
+        json!({"gap_total_ms": total, "gap_start_ms": start_ms}),
+    );
+}
+
 /// Надзор шарда до остановки: пауза данных (gap — только диагностика), строка статистики и сторож пути раз в период.
 fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
     let stats_path = opts.root.join(format!("stats-{}.jsonl", sh.plan.name));
     let mut in_gap = false;
+    // пауза данных: начало (мс) и наибольшее наблюдаемое молчание (мс) — длительность пишется при возврате кадров
+    let (mut gap_start, mut gap_peak) = (0i64, 0u64);
     let mut late = std::collections::VecDeque::<f64>::with_capacity(8);
     let mut prev = Instant::now();
     let mut last_stats = Instant::now();
@@ -529,18 +543,28 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
         if last > 0 && m.connected.load(Relaxed) > 0 {
             let gap = mono_ms().saturating_sub(last);
             max_gap = max_gap.max(gap);
-            if gap > GAP_TIMEOUT_MS && !in_gap {
+            if gap > GAP_TIMEOUT_MS && in_gap {
+                gap_peak = gap_peak.max(gap);
+            } else if gap > GAP_TIMEOUT_MS {
                 in_gap = true;
+                gap_start = now_ms() - i64::try_from(gap).unwrap_or(0);
+                gap_peak = gap;
                 m.lists().gaps.push_back(now_ms());
                 let loop_late = late.iter().copied().fold(0.0, f64::max);
                 sh.events.emit(
                     "gap",
                     json!({"loop_late_ms": (loop_late * 1000.0).round(), "gap_ms": gap}),
                 );
-            } else if gap <= GAP_TIMEOUT_MS {
+            } else {
+                if in_gap {
+                    end_gap(sh, gap_start, gap_peak);
+                }
                 in_gap = false;
             }
         } else {
+            if in_gap {
+                end_gap(sh, gap_start, gap_peak);
+            }
             in_gap = false;
         }
         if last_stats.elapsed() >= Duration::from_secs(STATS_PERIOD_S) {

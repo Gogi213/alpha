@@ -23,6 +23,7 @@ use super::health::{build, write_atomic, HealthCtx, ProcSampler};
 use super::metrics::STATS_PERIOD_S;
 use super::net;
 use super::okx::Okx;
+use super::series::SeriesWriter;
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
 use super::writer::day_string;
 
@@ -336,10 +337,11 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let ctx = HealthCtx {
         exchange: exch.name(),
         pool: pool.iter().map(|s| s.to_lowercase()).collect(),
-        version: option_env!("ALPHA_COMMIT").unwrap_or("unknown").to_string(),
+        version: super::VERSION.to_string(),
     };
     let metrics: Vec<_> = handles.iter().map(|h| Arc::clone(&h.metrics)).collect();
     let mut sampler = ProcSampler::default();
+    let mut series = SeriesWriter::open(&args.root, now_ms(), super::VERSION);
     let (t0, deadline) = (
         Instant::now(),
         (args.duration_s > 0).then(|| Duration::from_secs(args.duration_s)),
@@ -362,10 +364,12 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         if Instant::now() >= next {
             next += Duration::from_secs(STATS_PERIOD_S);
             let _ = write_atomic(&health_path, &build(&metrics, &ctx, now_ms(), &mut sampler));
+            series.flush(&metrics, now_ms());
         }
     }
     println!("stopping");
     let _ = write_atomic(&health_path, &build(&metrics, &ctx, now_ms(), &mut sampler));
+    series.flush(&metrics, now_ms());
     for h in handles {
         h.join();
     }

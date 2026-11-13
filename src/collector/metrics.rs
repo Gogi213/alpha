@@ -196,6 +196,8 @@ pub struct Lists {
     /// Таймауты, при которых за те же 10 с не пришло и данных (канал молчит в обе стороны).
     pub timeouts_silent: VecDeque<i64>,
     pub gaps: VecDeque<i64>,
+    /// Завершённые паузы данных шарда: (начало, мс); длительность — от обнаружения до первого кадра после (шаг надзора `GAP_TICK`).
+    pub gap_spans: VecDeque<(i64, i64)>,
     pub reconnects: VecDeque<i64>,
     pub path_switches: VecDeque<i64>,
     pub entrance_switches: VecDeque<i64>,
@@ -219,6 +221,9 @@ impl Lists {
             while dq.front().is_some_and(|&t| t < cut) {
                 dq.pop_front();
             }
+        }
+        while self.gap_spans.front().is_some_and(|&(t, _)| t < cut) {
+            self.gap_spans.pop_front();
         }
         while self
             .pings

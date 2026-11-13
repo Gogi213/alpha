@@ -79,6 +79,20 @@ impl Fresh {
         }
     }
 
+    /// Поздние записи вида в минутной корзине `minute` (минуты с начала эпохи); не меняет состояние.
+    pub fn late_in_minute(&self, kind: usize, minute: i64) -> u64 {
+        let Some(done) = self.done.get(kind) else {
+            return 0;
+        };
+        let cur = self.cur.get(kind).copied().flatten();
+        done.iter()
+            .rev()
+            .copied()
+            .chain(cur)
+            .find(|b| b.minute == minute)
+            .map_or(0, |b| b.late)
+    }
+
     /// Вклад вида на момент `now_ms`; устаревшее за сутки выбрасывается. `None` — записей этого вида не было.
     pub fn fragment(&mut self, kind: usize, now_ms: i64) -> Option<KindFresh> {
         let (hour, day) = (now_ms - HOUR_MS, now_ms - DAY_MS);
