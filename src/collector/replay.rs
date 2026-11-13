@@ -63,6 +63,9 @@ pub struct ReplayArgs {
     /// Замер разжатия: каждый кадр сжимается gzip (уровень 6), время — `Gunzip::unpack`.
     #[arg(long)]
     pub gunzip: bool,
+    /// Вклад линий: сколько записей принесла только одна линия, у скольких вторая линия пришла раньше на > 1 мс, сколько секунд одна линия молчала при живой другой.
+    #[arg(long)]
+    pub lane_stats: bool,
 }
 
 /// Кадры в одном буфере: (сессия, приём нс, начало, длина).
@@ -243,6 +246,96 @@ fn parse_only(exch: &Arc<dyn Exchange>, cap: &Capture) {
     );
 }
 
+/// Вклад линий по записанным кадрам (две сессии шарда): личность записи (символ, вид, id биржи) → кто и когда принёс.
+fn lane_stats(exch: &Arc<dyn Exchange>, cap: &Capture, shard: &str) {
+    use std::collections::{BTreeMap, HashMap};
+    let senders: Vec<u32> = cap
+        .idx
+        .iter()
+        .map(|x| x.0)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let lane_of = |s: u32| senders.iter().position(|&x| x == s).unwrap_or(0).min(1);
+    let (t_first, t_last) = (
+        cap.idx.first().map_or(0, |x| x.1),
+        cap.idx.last().map_or(0, |x| x.1),
+    );
+    let trim = 5_000_000_000i64;
+    let mut p = exch.new_parser();
+    // личность → (приём первой доставки на линии 0, на линии 1)
+    let mut seen: HashMap<(u64, usize, i64), [i64; 2]> = HashMap::new();
+    let mut secs: [BTreeMap<i64, u32>; 2] = [BTreeMap::new(), BTreeMap::new()];
+    for (sender, rx, data) in cap.frames() {
+        let lane = lane_of(sender);
+        p.parse(
+            data,
+            &mut Recs(|r: &Rec<'_>| {
+                let key = (super::hash::fnv(r.sym()), r.kind().idx(), r.ident());
+                let e = seen.entry(key).or_insert([i64::MAX; 2]);
+                if let Some(slot) = e.get_mut(lane) {
+                    *slot = (*slot).min(rx);
+                }
+                if let Some(m) = secs.get_mut(lane) {
+                    *m.entry(rx.div_euclid(1_000_000_000)).or_insert(0) += 1;
+                }
+            }),
+        );
+    }
+    let (mut both, mut only, mut first_by, mut total) = ([0u64; 2], [0u64; 2], [0u64; 2], 0u64);
+    for v in seen.values() {
+        let edge = |t: i64| t < t_first + trim || t > t_last - trim;
+        let t = v[0].min(v[1]);
+        if edge(t) {
+            continue;
+        }
+        total += 1;
+        match (v[0] != i64::MAX, v[1] != i64::MAX) {
+            (true, true) => {
+                both[0] += 1;
+                if v[1] + 1_000_000 < v[0] {
+                    first_by[1] += 1;
+                }
+                if v[0] + 1_000_000 < v[1] {
+                    first_by[0] += 1;
+                }
+            }
+            (true, false) => only[0] += 1,
+            (false, true) => only[1] += 1,
+            _ => {}
+        }
+    }
+    let silent = |a: usize, b: usize| -> u64 {
+        let (lo, hi) = (
+            (t_first + trim).div_euclid(1_000_000_000),
+            (t_last - trim).div_euclid(1_000_000_000),
+        );
+        let (Some(ma), Some(mb)) = (secs.get(a), secs.get(b)) else {
+            return 0;
+        };
+        (lo..=hi)
+            .filter(|s| !ma.contains_key(s) && mb.contains_key(s))
+            .count() as u64
+    };
+    let pct = |x: u64| 100.0 * x as f64 / total.max(1) as f64;
+    println!(
+        "  lanes {shard}: identities {total}; both {} ({:.1} %); only lane0 {} ({:.1} %), only lane1 {} ({:.1} %); lane0 first by >1 ms {} ({:.1} %), lane1 first by >1 ms {} ({:.1} %); seconds lane0 silent while lane1 alive {}, lane1 silent while lane0 alive {} (window {} s)",
+        both[0],
+        pct(both[0]),
+        only[0],
+        pct(only[0]),
+        only[1],
+        pct(only[1]),
+        first_by[0],
+        pct(first_by[0]),
+        first_by[1],
+        pct(first_by[1]),
+        silent(0, 1),
+        silent(1, 0),
+        (t_last - t_first) / 1_000_000_000
+    );
+}
+
 fn gunzip_bench(cap: &Capture) {
     let gz: Vec<Vec<u8>> = cap
         .frames()
@@ -303,6 +396,10 @@ pub fn run(a: &ReplayArgs) -> anyhow::Result<()> {
         for _ in 0..a.repeat {
             gunzip_bench(&cap);
         }
+    }
+    if a.lane_stats {
+        lane_stats(&exch, &cap, &shard);
+        return Ok(());
     }
     let mut per_m = Vec::new();
     for k in 0..a.repeat {
