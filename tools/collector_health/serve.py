@@ -1,7 +1,7 @@
 """Страница здоровья коллекторов G-022 (TK-529, В-134).
 
 Читает /data/health/<биржа>.json (формат — docs/findings/collector-health-format-2026-11-11.md),
-отдаёт page.html и /api/health. Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
+отдаёт page.html, /api/health (прежняя страница, page.html.prev-v3) и /api/v3 (столбики по 15 минут, v3.py). Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
 пороги — thresholds.json (числа назначает Судья; нет файла — строка жёлтая «порог не задан»).
 Новая биржа = новый файл в каталоге: строка появляется без правки страницы. Файлы с "kind" ≠ "collector" пропускаются.
 """
@@ -10,6 +10,8 @@ import json
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import v3
 
 HERE = Path(__file__).resolve().parent
 SCHEMAS = (1, 2)  # 2 — Rust-коллектор (alpha collect): схема 1 + backpressure, process, totals, shards
@@ -93,6 +95,8 @@ class Handler(BaseHTTPRequestHandler):
     health_dir = Path("/data/health")
     expected = []
     thresholds = None
+    roots = {}
+    net = None
 
     def _send(self, code, body, ctype):
         self.send_response(code)
@@ -107,6 +111,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             rows = collect(self.health_dir, int(time.time() * 1000), self.expected, self.thresholds)
             self._send(200, json.dumps({"rows": rows}, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        elif path == "/api/v3":
+            try:
+                body = v3.payload(self.health_dir, self.expected, self.roots, self.net)
+            except Exception as e:  # страница не должна падать от одного кривого файла
+                body = {"error": repr(e)}
+            self._send(200, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")
         elif path in ("/", "/index.html"):
             self._send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
         else:
@@ -123,10 +133,14 @@ def main():
     ap.add_argument("--port", type=int, default=8088)
     ap.add_argument("--exchanges", default=str(HERE / "exchanges.json"))
     ap.add_argument("--thresholds", default=str(HERE / "thresholds.json"))
+    ap.add_argument("--roots", default=str(HERE / "roots.json"))
+    ap.add_argument("--netwatch", default="/data/netwatch")
     a = ap.parse_args()
     Handler.health_dir = Path(a.health_dir)
     Handler.expected = load_json(a.exchanges) or []
     Handler.thresholds = load_json(a.thresholds)
+    Handler.roots = load_json(a.roots) or {}
+    Handler.net = v3.Net(a.netwatch)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 
 
