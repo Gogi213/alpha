@@ -45,7 +45,7 @@ def window(wdir, late_ms):
     t0 = int(open(os.path.join(wdir, "t0-ms.txt")).read())
     sess = sessions(root)
     res = {"t0_ms": t0, "shards": {}}
-    late = collections.defaultdict(lambda: collections.defaultdict(lambda: {"n": 0, "syms": set(), "first": None, "last": None, "worst_ms": 0}))
+    late = collections.defaultdict(lambda: collections.defaultdict(lambda: {"n": 0, "n_after_30s": 0, "syms": set(), "first": None, "last": None, "worst_ms": 0}))
     pings = collections.defaultdict(list)
     for p in sorted(glob.glob(os.path.join(root, "20*", "*.tsv.zst"))):
         shard = os.path.basename(p).rsplit("-", 1)[0]
@@ -59,6 +59,7 @@ def window(wdir, late_ms):
                 if lag > late_ms:
                     d = late[shard][r["t"]]
                     d["n"] += 1
+                    d["n_after_30s"] += (r["E"] - t0) >= 30_000  # steady state: both lines have been subscribed for a while (cold start = the stale first frame of each topic)
                     d["syms"].add(r["s"])
                     e = (r["E"] - t0) / 1000
                     d["first"] = e if d["first"] is None else min(d["first"], e)
@@ -71,7 +72,7 @@ def window(wdir, late_ms):
         if os.path.exists(evp):
             for ln in open(evp, encoding="utf-8"):
                 e = json.loads(ln)
-                if e["ev"] in ("timeout", "ping_degraded", "entrance_switch", "path_switch", "path_upgrade", "rotated", "error", "path_rejected", "path_rejected_rtt", "notice", "bad_frame"):
+                if e["ev"] in ("slow_pong", "timeout", "ping_degraded", "entrance_switch", "path_switch", "path_upgrade", "rotated", "error", "path_rejected", "path_rejected_rtt", "notice", "bad_frame"):
                     s = e.get("session", e.get("old_session"))
                     ev.append({"t": round((e["ts_ms"] - t0) / 1000, 1), **{k: v for k, v in e.items() if k not in ("ts_ms", "shard")}, "session_info": sess[shard].get(s)})
         st = []
@@ -82,7 +83,7 @@ def window(wdir, late_ms):
                 if (r.get("lag_p99_ms") or 0) > late_ms:
                     st.append([round((r["ts_ms"] - t0) / 1000), r.get("lag_p50_ms"), r.get("lag_p99_ms"), r.get("max_gap_ms")])
         if late.get(shard) or pings.get(shard) or ev or st:
-            res["shards"][shard] = {"late": {k: {"n": v["n"], "symbols": len(v["syms"]), "first_E_s": round(v["first"], 1), "last_E_s": round(v["last"], 1), "worst_ms": v["worst_ms"]} for k, v in late.get(shard, {}).items()},
+            res["shards"][shard] = {"late": {k: {"n": v["n"], "after_30s": v["n_after_30s"], "symbols": len(v["syms"]), "first_E_s": round(v["first"], 1), "last_E_s": round(v["last"], 1), "worst_ms": v["worst_ms"]} for k, v in late.get(shard, {}).items()},
                                     "events": ev, "ping_over_1s": pings.get(shard, [])[:20], "stats_lag_p99_over": st[:20]}
     return res
 
