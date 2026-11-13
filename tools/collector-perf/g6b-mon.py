@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Монитор G6b: раз в 30 с queue_lag боевых коллекторов и теневых рук, PSI cpu.
-Первые BASE_S секунд — фон: пороги боя на биржу = max(10 мс, 2 × медиана фона). Затем два замера подряд выше порога на любой бирже —
-стоп всех теневых процессов (shadow-*), g6b.done = ABORTED. Руки пишутся в g6b-arms.tsv (время, биржа, рука, p50, p99, p99_9, lag_out p99)."""
+Первые BASE_S секунд — фон: пороги боя на биржу = max(10 мс, 2 × медиана фона). Затем STOP_N замеров подряд (по 30 с; окно queue_lag — 60 с, одиночный
+сетевой провал на 20 с держится 2–3 замера) выше порога на любой бирже — стоп всех теневых процессов (shadow-*), g6b.done = ABORTED.
+Руки пишутся в g6b-arms.tsv (время, биржа, рука, p50, p99, p99_9, lag_out p99 + у реактора: user−kernel p99, цикл p99/p99.9/max, такт рабочего p99)."""
 import glob, json, os, statistics, subprocess, sys, time
 
 BASE_S = int(sys.argv[1]) if len(sys.argv) > 1 else 300
+STOP_N = 4
 PROD = {
     "binance": "/data/turbo-probe/soak-binance/health.json",
     "bybit": "/data/turbo-probe/soak-bybit/health.json",
@@ -37,7 +39,7 @@ t0 = time.time()
 base = {e: [] for e in PROD}
 thr = None
 bad = 0
-open(ARMS, "w").write("t\texchange\tarm\tp50\tp99\tp99_9\tlag_out_p99\n")
+open(ARMS, "w").write("t\texchange\tarm\tp50\tp99\tp99_9\tlag_out_p99\tumk_p99_us\tloop_p99_us\tloop_p99_9_us\ttick_p99_us\tloop_max_us\n")
 while not os.path.exists(DONE):
     now = time.time()
     cur = {}
@@ -68,12 +70,21 @@ while not os.path.exists(DONE):
                     continue
                 try:
                     q = h["backpressure"]["queue_lag_ms"]
+                    rc = h.get("reactor") or {}
+
+                    def hp(k, p):
+                        v = rc.get(k)
+                        return v.get(p, "") if isinstance(v, dict) else ""
+
                     with open(ARMS, "a") as f:
-                        f.write(f"{int(now)}\t{e}\t{arm}\t{q.get('p50')}\t{q.get('p99')}\t{q.get('p99_9')}\t{h['lag_out_ms'].get('p99')}\n")
+                        f.write(
+                            f"{int(now)}\t{e}\t{arm}\t{q.get('p50')}\t{q.get('p99')}\t{q.get('p99_9')}\t{h['lag_out_ms'].get('p99')}"
+                            f"\t{hp('user_minus_kernel_us', 'p99')}\t{hp('loop_us', 'p99')}\t{hp('loop_us', 'p99_9')}\t{hp('worker_tick_us', 'p99')}\t{rc.get('loop_max_us', '')}\n"
+                        )
                 except Exception:
                     pass
-    if bad >= 2:
-        log(f"СТОП: боевой queue_lag p99 выше порога два замера подряд ({', '.join(f'{e}={cur[e]}>{thr[e]:.1f}' for e in over)})")
+    if bad >= STOP_N:
+        log(f"СТОП: боевой queue_lag p99 выше порога {STOP_N} замера подряд ({', '.join(f'{e}={cur[e]}>{thr[e]:.1f}' for e in over)})")
         units = subprocess.run("systemctl list-units 'shadow-*' --no-legend | awk '{print $1}'", shell=True, capture_output=True, text=True).stdout.split()
         for u in units:
             subprocess.run(["systemctl", "stop", u])
