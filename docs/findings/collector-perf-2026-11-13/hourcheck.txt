@@ -1,0 +1,64 @@
+== netwatch: аномалии (потеря пинга шлюза/нейтрального; RTT бирж > 0,5 с, Binance > 1,5 с) за 24.0 ч; по часам: минута :00 / остальные 59 минут
+  11-13 09:00  :00 →   0   остальные →   4
+  11-13 11:00  :00 →   0   остальные → 802
+  11-13 12:00  :00 →  25   остальные → 935
+  11-13 13:00  :00 →  15   остальные → 825
+  11-13 14:00  :00 →   8   остальные → 205
+  11-13 15:00  :00 →   7   остальные → 499
+  11-13 16:00  :00 →  22   остальные → 989
+  11-13 17:00  :00 →  22   остальные → 1001
+  11-13 18:00  :00 →  21   остальные → 1055
+  11-13 19:00  :00 →  23   остальные → 1047
+  11-13 20:00  :00 →  22   остальные → 1023
+  11-13 21:00  :00 →  24   остальные → 466
+  по минуте часа (всего): 20:207 10:193 1:191 8:190 0:189 21:185 30:182 11:180
+
+== события коллекторов за 24.0 ч
+binance: gap_end 7 (сумма 97 с); по минуте часа: {43: 7}
+     потеря 11-13 13:43:35 15.7 с  book10
+     потеря 11-13 13:43:35 11.2 с  book02
+     потеря 11-13 13:43:35 12.3 с  trade02
+     потеря 11-13 13:43:35 15.4 с  book14
+     потеря 11-13 13:43:35 15.5 с  book05
+     потеря 11-13 13:43:35 15.7 с  book07
+     потеря 11-13 13:43:35 10.8 с  book03
+     прочие события: {'timeout': 67, 'path_rejected_rtt': 10} | из них в минуте :00: {'timeout': 0, 'path_rejected_rtt': 0}
+bybit: gap_end 8 (сумма 102 с); по минуте часа: {43: 7, 57: 1}
+     потеря 11-13 13:43:35 14.9 с  mark06
+     потеря 11-13 13:43:35 13.7 с  mark05
+     потеря 11-13 13:43:35 13.2 с  trade05
+     потеря 11-13 13:43:35 14.0 с  book03
+     потеря 11-13 13:43:35 14.0 с  book02
+     потеря 11-13 13:43:35 14.6 с  book05
+     потеря 11-13 13:43:35 13.7 с  mark03
+     потеря 11-13 19:57:08 3.9 с  trade06
+     прочие события: {'timeout': 67, 'entrance_switch': 54, 'path_rejected_rtt': 10} | из них в минуте :00: {'timeout': 2, 'entrance_switch': 2, 'path_rejected_rtt': 0}
+okx: gap_end 1 (сумма 14 с); по минуте часа: {43: 1}
+     потеря 11-13 13:43:35 13.9 с  trade03
+     прочие события: {'timeout': 25, 'entrance_switch': 14, 'path_rejected_rtt': 7} | из них в минуте :00: {'timeout': 1, 'entrance_switch': 1, 'path_rejected_rtt': 0}
+bingx: gap_end 4 (сумма 58 с); по минуте часа: {23: 1, 43: 3}
+     потеря 11-13 13:43:34 16.1 с  mark03
+     потеря 11-13 13:43:35 19.5 с  book02
+     потеря 11-13 13:43:35 17.1 с  trade02
+     потеря 11-13 21:23:31 4.9 с  book01
+     прочие события: {'timeout': 50, 'entrance_switch': 36, 'path_rejected_rtt': 8, 'closed': 17} | из них в минуте :00: {'timeout': 0, 'entrance_switch': 0, 'path_rejected_rtt': 0, 'closed': 1}
+
+== события 20:57:00–21:03:00 UTC (сегодня)
+-- binance: 14 событий
+    20:59:14 {"ev": "slow_pong", "rtt_ms": 5865, "session": 1794602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 0, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 452, "rtt_ms": 248, "total_retrans": 0, "unacked": 0}
+    20:59:14 {"ev": "slow_pong", "rtt_ms": 6397, "session": 1795602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 4, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 456, "rtt_ms": 252, "total_retrans": 0, "unacked": 0}
+    20:59:20 {"ev": "slow_pong", "rtt_ms": 6118, "session": 1794602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 4, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 448, "rtt_ms": 246, "total_retrans": 0, "unacked": 0}
+    20:59:22 {"degraded": true, "ev": "replace_deferred", "line": 0, "session": 1794602522, "shard": "book03", "ts_ms": 1794603562961}
+    20:59:24 {"data_alive": true, "ev": "timeout", "kind": "pong_only", "session": 1795602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 92, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 460, "rtt_ms": 256, "total_re
+    20:59:24 {"ev": "ping_degraded", "session": 1795602522, "shard": "book03", "ts_ms": 1794603564272}
+    20:59:29 {"ev": "slow_pong", "rtt_ms": 9073, "session": 1794602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 0, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 452, "rtt_ms": 251, "total_retrans": 0, "unacked": 0}
+    20:59:30 {"ev": "slow_pong", "rtt_ms": 1092, "session": 1795602523, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 4, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 576, "rtt_ms": 246, "total_retrans": 0, "unacked": 0}
+    20:59:36 {"ev": "slow_pong", "rtt_ms": 6776, "session": 1794602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 0, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 452, "rtt_ms": 248, "total_retrans": 0, "unacked": 0}
+    20:59:38 {"ev": "path_rejected", "n": 3931, "p50_ms": 349.0, "p99_ms": 1924.0, "session": 1795602523, "shard": "book03", "ts_ms": 1794603578944}
+    20:59:42 {"ev": "slow_pong", "rtt_ms": 5949, "session": 1794602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 4, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 456, "rtt_ms": 252, "total_retrans": 0, "unacked": 0}
+    20:59:44 {"ev": "slow_pong", "rtt_ms": 2970, "session": 1794602522, "shard": "book03", "tcp": {"backoff": 0, "last_data_recv_ms": 8, "lost": 0, "retrans": 0, "retransmits": 0, "rto_ms": 456, "rtt_ms": 253, "total_retrans": 0, "unacked": 0}
+    20:59:59 {"ev": "path_switch", "new_session": 1794602523, "old_session": 1794602522, "shard": "book03", "ts_ms": 1794603599193}
+    21:00:15 {"ev": "path_switch", "new_session": 1795602523, "old_session": 1795602522, "shard": "book03", "ts_ms": 1794603615630}
+-- bybit: 0 событий
+-- okx: 0 событий
+-- bingx: 0 событий
