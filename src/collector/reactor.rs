@@ -44,6 +44,8 @@ pub struct ReactorStats {
     loop_us: [AtomicU64; HB],
     tick_us: [AtomicU64; HB],
     stamped: AtomicU64,
+    /// Обороты без сна окна: на каком-то сокете чтение заполнило буфер (разбор залпа, например снимков после подписки).
+    catchup: AtomicU64,
 }
 
 impl Default for ReactorStats {
@@ -60,6 +62,7 @@ impl Default for ReactorStats {
             loop_us: std::array::from_fn(|_| AtomicU64::new(0)),
             tick_us: std::array::from_fn(|_| AtomicU64::new(0)),
             stamped: AtomicU64::new(0),
+            catchup: AtomicU64::new(0),
         }
     }
 }
@@ -121,6 +124,7 @@ impl ReactorStats {
             "frames": self.frames.load(Relaxed), "loop_max_us": self.loop_max_us.swap(0, Relaxed),
             "heartbeat_age_ms": now.saturating_sub(self.beat_ms.load(Relaxed)),
             "kernel_stamps": self.stamped.load(Relaxed),
+            "catchup_loops": self.catchup.load(Relaxed),
             "loop_us": {"p50": Self::pct(&self.loop_us, 0.5), "p99": Self::pct(&self.loop_us, 0.99), "p99_9": Self::pct(&self.loop_us, 0.999)},
             "worker_tick_us": {"p50": Self::pct(&self.tick_us, 0.5), "p99": Self::pct(&self.tick_us, 0.99), "p99_9": Self::pct(&self.tick_us, 0.999)},
             "user_minus_kernel_us": {"p50": self.kdelta_pct(0.5), "p99": self.kdelta_pct(0.99), "p99_9": self.kdelta_pct(0.999)},
@@ -409,10 +413,14 @@ fn run(
             }
         }
         stats.ready.fetch_add(ready.len() as u64, Relaxed);
+        let mut more = false;
         for &key in &ready {
             if let Some(e) = slab.get(key) {
-                on_ready(e, stats, cfg);
+                more |= on_ready(e, stats, cfg);
             }
+        }
+        if more {
+            stats.catchup.fetch_add(1, Relaxed);
         }
         let now = Instant::now();
         if now >= next_pass {
@@ -480,16 +488,16 @@ fn run(
             }
             return;
         }
-        if spent < cfg.window {
+        if spent < cfg.window && !more {
             thread::sleep(cfg.window - spent);
         }
     }
 }
 
-/// Готовый сокет: одно чтение за такт, все полные кадры из буфера, ответы, тик.
-fn on_ready(e: &mut Box<Entry>, stats: &ReactorStats, cfg: ReactorCfg) {
+/// Готовый сокет: одно чтение за такт, все полные кадры из буфера, ответы, тик. `true` — чтение заполнило буфер, в очереди ядра может быть ещё: оборот без сна.
+fn on_ready(e: &mut Box<Entry>, stats: &ReactorStats, cfg: ReactorCfg) -> bool {
     if e.outcome.is_some() {
-        return;
+        return false;
     }
     e.ws.get_mut().rx_mut().arm();
     loop {
@@ -524,7 +532,7 @@ fn on_ready(e: &mut Box<Entry>, stats: &ReactorStats, cfg: ReactorCfg) {
                 };
                 if let Some(out) = e.rx.message(&e.sh, &mut e.ws, e.seq, msg, rx_ns, t_read) {
                     e.outcome = Some(out);
-                    return;
+                    return false;
                 }
             }
             Err(err) => {
@@ -538,13 +546,14 @@ fn on_ready(e: &mut Box<Entry>, stats: &ReactorStats, cfg: ReactorCfg) {
     }
     if let Some(out) = e.rx.flush(&mut e.ws).err() {
         e.outcome = Some(Outcome::Failed(out));
-        return;
+        return false;
     }
     if e.outcome.is_none() {
         if let Some(out) = e.rx.tick(&e.sh, &mut e.ws, e.seq, Instant::now()) {
             e.outcome = Some(out);
         }
     }
+    e.outcome.is_none() && e.ws.get_ref().rx().saturated()
 }
 
 /// Периодический обход: остановка/отмена, досылка записи, тик пинга и окна проверки пути.

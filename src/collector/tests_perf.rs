@@ -17,6 +17,23 @@ use super::sink::{run_sink, sink_channel};
 use super::worker::spawn_worker;
 use super::writer::{ShardWriter, WriterCfg};
 
+/// Ядро включает метки приёма отложенно (общий ключ netstamp, рабочая очередь): первые пакеты после включения могут прийти без метки.
+/// Прогрев: по байту, пока метка не появится; прочитанные байты отбрасываются.
+#[cfg(target_os = "linux")]
+fn warm_kernel_stamps(peer: &mut TcpStream, s: &mut RxSock) {
+    let mut b = [0u8; 8];
+    for _ in 0..200 {
+        peer.write_all(b"w").unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+        s.arm();
+        assert_eq!(s.read(&mut b).unwrap(), 1);
+        if s.stamp_ns() > 0 {
+            return;
+        }
+    }
+    panic!("ядро не отдаёт метки приёма");
+}
+
 #[test]
 fn rxsock_tick_mode_reads_once_per_arm_and_reports_kernel_stamp() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -25,6 +42,9 @@ fn rxsock_tick_mode_reads_once_per_arm_and_reports_kernel_stamp() {
     let (srv, _) = listener.accept().unwrap();
     let mut s = RxSock::new(srv);
     s.into_tick_mode(false).unwrap();
+    #[cfg(target_os = "linux")]
+    warm_kernel_stamps(&mut peer, &mut s);
+    let base = s.fills();
     let mut buf = [0u8; 16];
     // не взведён — вызова ядра нет, WouldBlock
     assert_eq!(
@@ -36,7 +56,7 @@ fn rxsock_tick_mode_reads_once_per_arm_and_reports_kernel_stamp() {
     s.arm();
     let n = s.read(&mut buf).unwrap();
     assert_eq!(&buf[..n], b"hello");
-    assert_eq!(s.fills(), 1);
+    assert_eq!(s.fills(), base + 1);
     #[cfg(target_os = "linux")]
     assert!(s.stamp_ns() > 0, "ядерная метка приёма пришла");
     // буфер пуст, повторное чтение без нового arm — без вызова ядра
@@ -46,11 +66,11 @@ fn rxsock_tick_mode_reads_once_per_arm_and_reports_kernel_stamp() {
         s.read(&mut buf).unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
     );
-    assert_eq!(s.fills(), 1, "без arm ядро не трогали");
+    assert_eq!(s.fills(), base + 1, "без arm ядро не трогали");
     s.arm();
     let n = s.read(&mut buf).unwrap();
     assert_eq!(&buf[..n], b"more");
-    assert_eq!(s.fills(), 2);
+    assert_eq!(s.fills(), base + 2);
     // чтение маленькими кусками из одного буфера — одно обращение к ядру
     peer.write_all(b"abcdef").unwrap();
     std::thread::sleep(Duration::from_millis(50));
@@ -60,12 +80,47 @@ fn rxsock_tick_mode_reads_once_per_arm_and_reports_kernel_stamp() {
         assert_eq!(s.read(&mut two).unwrap(), 2);
         assert_eq!(&two, want);
     }
-    assert_eq!(s.fills(), 3);
+    assert_eq!(s.fills(), base + 3);
     // закрытие пира — EOF после взведения
     drop(peer);
     std::thread::sleep(Duration::from_millis(50));
     s.arm();
     assert_eq!(s.read(&mut buf).unwrap(), 0);
+}
+
+#[test]
+fn rxsock_reports_saturated_read_when_queue_is_deeper_than_buffer() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mut peer = TcpStream::connect(addr).unwrap();
+    let (srv, _) = listener.accept().unwrap();
+    let mut s = RxSock::new(srv);
+    s.into_tick_mode(false).unwrap();
+    assert!(!s.saturated());
+    let total = super::net::RX_BUF * 2 + 100;
+    peer.write_all(&vec![7u8; total]).unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let mut sink = vec![0u8; super::net::RX_BUF];
+    let mut got = 0usize;
+    let mut saturated_reads = 0usize;
+    while got < total {
+        s.arm();
+        loop {
+            match s.read(&mut sink) {
+                Ok(n) if n > 0 => got += n,
+                _ => break,
+            }
+        }
+        if s.saturated() {
+            saturated_reads += 1;
+        }
+    }
+    assert_eq!(got, total);
+    assert!(
+        saturated_reads >= 1,
+        "полный буфер помечен насыщенным: {saturated_reads}"
+    );
+    assert!(!s.saturated(), "последнее чтение неполное — признак снят");
 }
 
 fn bn_book(u: i64) -> String {
@@ -453,6 +508,17 @@ fn rxsock_exact_mode_hands_out_one_tls_record_per_read() {
     let (srv, _) = listener.accept().unwrap();
     let mut s = RxSock::new(srv);
     s.into_tick_mode(true).unwrap();
+    // ключ меток ядра включается отложенно: прогреваем отдельным сокетом, живущим до конца проверки
+    #[cfg(target_os = "linux")]
+    let _warm = {
+        let wl = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut wpeer = TcpStream::connect(wl.local_addr().unwrap()).unwrap();
+        let (wsrv, _) = wl.accept().unwrap();
+        let mut ws = RxSock::new(wsrv);
+        ws.into_tick_mode(false).unwrap();
+        warm_kernel_stamps(&mut wpeer, &mut ws);
+        (wpeer, ws)
+    };
     // три записи в разных пакетах (паузы), затем неполная запись
     for (len, fill) in [(10usize, 1u8), (20, 2), (5, 3)] {
         peer.write_all(&tls_record(len, fill)).unwrap();

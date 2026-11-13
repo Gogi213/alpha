@@ -317,6 +317,8 @@ pub struct RxSock {
     rec: usize,
     armed: bool,
     eof: bool,
+    /// Последнее чтение заполнило буфер целиком: в очереди ядра, возможно, ещё есть данные (реактор не спит окно, а читает дальше).
+    saturated: bool,
     stamp_ns: i64,
     fills: u64,
     syscalls: u64,
@@ -335,6 +337,7 @@ impl RxSock {
             rec: 0,
             armed: false,
             eof: false,
+            saturated: false,
             stamp_ns: 0,
             fills: 0,
             syscalls: 0,
@@ -372,6 +375,11 @@ impl RxSock {
         self.syscalls
     }
 
+    /// Последнее чтение заполнило буфер (в очереди ядра может быть ещё).
+    pub fn saturated(&self) -> bool {
+        self.saturated
+    }
+
     /// Сколько байт последнего чтения ещё не передано читателям.
     pub fn buffered(&self) -> usize {
         self.len - self.pos
@@ -383,9 +391,11 @@ impl RxSock {
 
     /// Одно чтение из ядра на такт: пачка байт с меткой самого нового пакета.
     fn fill_batch(&mut self) -> io::Result<()> {
+        self.saturated = false;
         let (n, stamp) = sys::recv_stamped(&self.sock, &mut self.buf, false)?;
         self.syscalls += 1;
         self.fills += 1;
+        self.saturated = n >= self.buf.len();
         if n == 0 {
             self.eof = true;
             return Ok(());
@@ -398,9 +408,11 @@ impl RxSock {
     /// Чтение по записям TLS: просмотр без снятия (`MSG_PEEK`) → границы целых записей → каждая запись снимается без копирования (`MSG_TRUNC`),
     /// метка — у пакета, завершившего запись. Неполная запись остаётся в ядре до следующего такта.
     fn fill_records(&mut self) -> io::Result<()> {
+        self.saturated = false;
         let (n, _) = sys::recv_stamped(&self.sock, &mut self.buf, true)?;
         self.syscalls += 1;
         self.fills += 1;
+        self.saturated = n >= self.buf.len();
         if n == 0 {
             self.eof = true;
             return Ok(());
