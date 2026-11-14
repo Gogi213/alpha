@@ -6,8 +6,8 @@ use super::levels::build_levels;
 use super::params::Params;
 use super::tests::{flat, level_world, lv_params, px, run_scan, set, sym, BORN};
 use super::tick::{
-    candidates, first_signal, minute_range, parse_trades, run_tick, settle_tick, signals_for_coin,
-    sim_stream, LoadStat, TLeg, Tick, TickCtr, TickOut, TradeSrc, DAY_MS,
+    candidates, first_signal, minute_range, parse_px, parse_trades, run_tick, settle_tick,
+    signals_for_coin, sim_stream, LoadStat, TLeg, TSig, Tick, TickCtr, TickOut, TradeSrc, DAY_MS,
 };
 use super::trade::{ExitKind, NOTIONAL_U};
 use super::Side;
@@ -51,6 +51,36 @@ fn csv_parse_header_fields_and_out_of_day() {
     assert_eq!(v.iter().map(|t| t.off).collect::<Vec<_>>(), vec![3, 5, 20]);
     assert_eq!(v[0].px, px(78549.5));
     assert!(v[0].bm && !v[1].bm);
+}
+
+#[test]
+fn csv_parse_java_exponent_prices() {
+    // Binance пишет цены < 0,001 как `9.16E-4`: раньше такие строки отбрасывались как «плохие»
+    assert_eq!(parse_px(b"9.16E-4"), Some(91_600));
+    assert_eq!(parse_px(b"5.996E-5"), Some(5_996));
+    assert_eq!(parse_px(b"1.3E-4"), Some(13_000));
+    assert_eq!(parse_px(b"1E-5"), Some(1_000));
+    assert_eq!(parse_px(b"7.0E-5"), Some(7_000));
+    assert_eq!(parse_px(b"1.2345E+2"), Some(12_345_000_000));
+    assert_eq!(parse_px(b"78549.6"), Some(px(78549.6)));
+    assert_eq!(parse_px(b"0.00091600"), Some(91_600));
+    assert_eq!(parse_px(b"9.16E"), None);
+    assert_eq!(parse_px(b"abc"), None);
+    let day = START_DAY;
+    let base = super::data::T0_MS + day as i64 * DAY_MS;
+    let csv = format!(
+        "1,9.16E-4,5,1,1,{},false\n2,0.000917,5,2,2,{},true\n3,xx,5,3,3,{},true\n",
+        base + 1,
+        base + 2,
+        base + 3
+    );
+    let mut st = LoadStat::default();
+    let v = parse_trades(Cursor::new(csv.as_bytes()), day, &mut st).expect("разбор");
+    assert_eq!(
+        v.iter().map(|t| t.px).collect::<Vec<_>>(),
+        vec![91_600, 91_700]
+    );
+    assert_eq!(st.bad_rows, 1);
 }
 
 #[test]
@@ -447,4 +477,72 @@ fn end_to_end_trade_entered_before_the_break_inside_the_crossing_minute() {
     assert_eq!(tr.entry_ms % DAY_MS, (t1 as i64 % 1440) * MIN_MS + 30_000);
     assert_eq!(tr.kind, ExitKind::HardStop);
     assert!(tr.net < 0.0);
+}
+
+#[test]
+fn reentry_modes_consume_level_per_protocol() {
+    // §13.5: без `reentry` любой выход расходует уровень; с `reentry` — только жёсткий стоп
+    let mut p = lv_params();
+    let t1 = BORN + 100;
+    let (t2, t3) = (t1 + 60, t1 + 120);
+    let mut c = level_world();
+    for t in [t1, t2, t3] {
+        for m in t - 5..t {
+            set(&mut c, m, 99.5, 99.6, 99.4, 99.5); // NATR выхода > 0
+        }
+    }
+    let s = Sym::from_cols("TEST", c, Vec::new());
+    let mut ticks = Vec::new();
+    let mut sigs = Vec::new();
+    for (t, good) in [(t1, true), (t2, false), (t3, false)] {
+        sigs.push(TSig {
+            ms: (t as i64 / 1440) * DAY_MS + (t as i64 % 1440) * MIN_MS + 10_000,
+            sym: 0,
+            level: 0,
+            dist: 0,
+            t: t as u32,
+            day: (t / 1440) as u16,
+            idx: ticks.len() as u32 + 1,
+        });
+        ticks.push(tk(t, 0, 99.6, false));
+        ticks.push(tk(t, 10_000, 99.8, false)); // сигнал
+        ticks.push(tk(t, 20_000, 100.0, false)); // вход
+        if good {
+            ticks.push(tk(t, 30_000, 105.0, false)); // тейки, трейл взведён
+            ticks.push(tk(t, 40_000, 104.0, true)); // выход по трейлу
+        } else {
+            ticks.push(tk(t, 30_000, 90.0, true)); // жёсткий стоп 5 %
+        }
+    }
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), t1 / 1440), Arc::new(ticks));
+    let src = MemSrc(m);
+    let syms = [s];
+    let kinds = |r: &super::tick::TickResult| r.trades.iter().map(|t| t.kind).collect::<Vec<_>>();
+    let r = run_tick(&syms, &sigs, Side::Long, &p.exit, &p.port, &src);
+    assert_eq!(kinds(&r), vec![ExitKind::Trail], "отказы: {:?}", r.rej);
+    assert_eq!(
+        r.rej[0], 2,
+        "второй и третий сигналы — уровень израсходован"
+    );
+    p.port.reentry = 1;
+    let r = run_tick(&syms, &sigs, Side::Long, &p.exit, &p.port, &src);
+    assert_eq!(
+        kinds(&r),
+        vec![ExitKind::Trail, ExitKind::HardStop],
+        "отказы: {:?}",
+        r.rej
+    );
+    assert_eq!(r.rej[0], 1, "после жёсткого стопа уровень расходуется");
+    p.port.reentry = 2;
+    let r = run_tick(&syms, &sigs, Side::Long, &p.exit, &p.port, &src);
+    assert_eq!(
+        kinds(&r),
+        vec![ExitKind::Trail, ExitKind::HardStop, ExitKind::HardStop],
+        "отказы: {:?}",
+        r.rej
+    );
+    assert_eq!(r.rej[0], 0, "reentry=2: выходы уровень не расходуют");
+    p.port.reentry = 3;
+    assert!(p.validate().is_err());
 }

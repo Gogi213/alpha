@@ -249,7 +249,11 @@ fn run(
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        vs.push(parse_variant(line).with_context(|| line.to_string())?);
+        let v = parse_variant(line).with_context(|| line.to_string())?;
+        if v.1.port.reentry > 0 {
+            bail!("reentry считает только `breakout tick`: {line}");
+        }
+        vs.push(v);
     }
     if vs.is_empty() {
         bail!("нет вариантов");

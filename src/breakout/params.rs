@@ -59,6 +59,10 @@ pub struct PortCfg {
     pub w_min: usize,
     pub ww_min: usize,
     pub p: usize,
+    /// §13.5: 0 — одна сделка на уровень (любой выход расходует уровень); 1 — повторный вход после тейков/безубытка/
+    /// трейла, уровень расходует только жёсткий стоп; 2 — выходы уровень не расходуют вовсе (ложный и истинный пробой —
+    /// как и раньше). Только `breakout tick`.
+    pub reentry: u8,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -118,6 +122,7 @@ impl Params {
                 w_min: 10,
                 ww_min: 60,
                 p: 3,
+                reentry: 0,
             },
         }
     }
@@ -163,6 +168,7 @@ impl Params {
             "w" => self.port.w_min = u,
             "ww" => self.port.ww_min = u,
             "p" => self.port.p = u,
+            "reentry" => self.port.reentry = u.min(255) as u8,
             _ => bail!("неизвестный ключ {key}"),
         }
         Ok(())
@@ -177,6 +183,9 @@ impl Params {
         }
         if self.exit.t_low_m >= self.exit.t_high_m {
             bail!("t_low должен быть меньше t_high (лестница тейков идёт вверх)");
+        }
+        if self.port.reentry > 2 {
+            bail!("reentry ∈ {{0, 1, 2}}");
         }
         if self.exit.n_tp < 2 || self.port.p == 0 || self.sig.lv.k == 0 || self.sig.lv.n == 0 {
             bail!("n_tp ≥ 2, p ≥ 1, k ≥ 1, n_bounce ≥ 1");

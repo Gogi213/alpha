@@ -63,6 +63,52 @@ impl LoadStat {
     }
 }
 
+/// Цена aggTrades ×1e8: обычная десятичная строка или запись Java `9.16E-4` (так Binance пишет цены < 0,001).
+pub fn parse_px(b: &[u8]) -> Option<i64> {
+    let Some(k) = b.iter().position(|&c| c == b'E' || c == b'e') else {
+        return parse_dec(b, 8);
+    };
+    let (m, e) = (&b[..k], &b[k + 1..]);
+    let (eneg, e) = match e.first()? {
+        b'-' => (true, &e[1..]),
+        b'+' => (false, &e[1..]),
+        _ => (false, e),
+    };
+    if e.is_empty() || e.len() > 3 {
+        return None;
+    }
+    let mut exp = 0i32;
+    for &c in e {
+        let d = c.wrapping_sub(b'0');
+        if d > 9 {
+            return None;
+        }
+        exp = exp * 10 + i32::from(d);
+    }
+    if eneg {
+        exp = -exp;
+    }
+    let (mut mant, mut fd, mut dot) = (0i64, 0i32, false);
+    for &c in m {
+        if c == b'.' && !dot {
+            dot = true;
+            continue;
+        }
+        let d = c.wrapping_sub(b'0');
+        if d > 9 {
+            return None;
+        }
+        mant = mant.checked_mul(10)?.checked_add(i64::from(d))?;
+        fd += i32::from(dot);
+    }
+    let shift = exp - fd + 8;
+    if shift >= 0 {
+        mant.checked_mul(10i64.checked_pow(shift as u32)?)
+    } else {
+        Some(10i64.checked_pow((-shift) as u32).map_or(0, |p| mant / p))
+    }
+}
+
 /// CSV суток (`agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker`) → сделки.
 pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Result<Vec<Tick>> {
     let base = T0_MS + day as i64 * DAY_MS;
@@ -97,7 +143,7 @@ pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Resu
             }
             continue;
         };
-        let (Some(px), Some(ts)) = (parse_dec(p, 8), parse_dec(t, 0)) else {
+        let (Some(px), Some(ts)) = (parse_px(p), parse_dec(t, 0)) else {
             st.bad_rows += 1;
             if st.bad_rows == 1 {
                 eprintln!(
@@ -767,6 +813,7 @@ pub struct TickResult {
 struct Open {
     exit_ms: i64,
     sym: usize,
+    key: u64,
     kind: ExitKind,
 }
 
@@ -802,6 +849,9 @@ pub fn run_tick(
             busy[o.sym] = false;
             cool_until[o.sym] = o.exit_ms + min(pc.cool_min);
             if o.kind == ExitKind::HardStop {
+                if pc.reentry == 1 {
+                    consumed.insert(o.key);
+                }
                 streak[o.sym] += 1;
                 if streak[o.sym] >= pc.m_stops {
                     cpause_until[o.sym] = o.exit_ms + min(pc.mm_min);
@@ -860,11 +910,14 @@ pub fn run_tick(
             res.rej[5] += 1;
             continue;
         };
-        consumed.insert(key);
+        if pc.reentry == 0 {
+            consumed.insert(key);
+        }
         busy[si] = true;
         open.push(Open {
             exit_ms: tr.exit_ms,
             sym: si,
+            key,
             kind: tr.kind,
         });
         open.sort_by_key(|o| o.exit_ms);

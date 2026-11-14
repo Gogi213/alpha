@@ -2,6 +2,7 @@
 Описательно, без новых испытаний. По стороне, движку (1m / tick) и монете: сколько «клеток» (вариантов) с её сделками и в скольких из них P&L монеты < 0.
 
   P42_ROOT=data/p42v2 python tools/p42/outsiders.py lists   → outsiders-{long,short}.csv, outsiders-summary.json, excl-*.txt (списки символов для проверки исключением)
+  P42_ROOT=data/p42v2 python tools/p42/outsiders.py excl    → outsiders-excl.{csv,json}: база без выбранных на одной половине монет, на другой половине (1м — точный пересчёт `runexcl.sh`; тик — вычитание P&L монет, приближённо)
 Клетки 1m: все варианты stage1/ext/joint/final; клетки tick: все варианты каталога tick-tickfull. Минимум клеток с сделками монеты — MINC.
 Аутсайдер-100 = в минусе во всех своих клетках; аутсайдер-90 = в минусе в ≥ 90 % (но не в 100 %).
 Устойчивость (найдено на этих данных): выбор по половине A — те же определения по сделкам половины A; те же монеты смотрим в половине B (и наоборот).
@@ -14,10 +15,14 @@ import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(__file__))
-from lib import ROOT, SIDES, read_trades  # noqa: E402
+import numpy as np  # noqa: E402
+
+from lib import A, B, ROOT, SIDES, read_coinday, read_trades, stat  # noqa: E402
+from phase import rng  # noqa: E402
 
 MINC = 5
-ENGINES = {"1m": ["stage1", "ext", "joint", "final"], "tick": ["tick-tickfull"]}
+TICK = os.environ.get("P42_TICK", "tick-tickfull")  # каталог клеток тика
+ENGINES = {"1m": ["stage1", "ext", "joint", "final"], "tick": [TICK]}
 
 
 def cells(engine, side):
@@ -64,7 +69,7 @@ def klass(r):
 
 
 def base_of(engine, side):
-    sub = "stage1" if engine == "1m" else "tick-tickfull"
+    sub = "stage1" if engine == "1m" else TICK
     vdir = os.path.join(ROOT, sub, "b0")
     d = defaultdict(lambda: [0, 0.0])
     if os.path.exists(os.path.join(vdir, side + "-trades.csv")):
@@ -132,7 +137,7 @@ def cmd_lists():
             w.writeheader()
             w.writerows(rows)
     out = {"|".join(map(str, k)): v for k, v in summ.items()}
-    json.dump(out, open(os.path.join(ROOT, "outsiders-summary.json"), "w"), indent=1, ensure_ascii=False)
+    json.dump(out, open(os.path.join(ROOT, "outsiders-summary.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     for k, v in out.items():
         print(k, {kk: vv for kk, vv in v.items() if kk != "syms"})
     for key, v in out.items():
@@ -144,5 +149,64 @@ def cmd_lists():
                 f.write(",".join(s for s in allc if s not in ex))
 
 
+def daily(vdir, side):
+    return np.array([float(r["pnl"]) for r in csv.DictReader(open(os.path.join(vdir, side + "-daily.csv")))])
+
+
+def cmd_excl():
+    """База стороны без монет, выбранных на половине X, — на половине Y (и на X для справки): среднее $/сут. и парная разница с базой."""
+    summ = json.load(open(os.path.join(ROOT, "outsiders-summary.json"), encoding="utf-8"))
+    r = rng()
+    rows = []
+    for side in SIDES:
+        for eng in ENGINES:
+            bdir = os.path.join(ROOT, "stage1" if eng == "1m" else TICK, "b0")
+            if not os.path.exists(os.path.join(bdir, side + "-daily.csv")):
+                continue
+            xb = daily(bdir, side)
+            coin = read_coinday(bdir, side) or {}
+            tb = read_trades(bdir, side)
+            for sel in ("A->B", "B->A"):
+                hx, hy = sel.split("->")
+                for tag in ("100", "90"):
+                    key = "|".join([side, eng, sel, tag])
+                    if key not in summ:
+                        continue
+                    syms = set(summ[key]["syms"])
+                    if eng == "1m":
+                        edir = os.path.join(ROOT, "excl", "excl-%s-%s-%s-%s" % (side, hx, hy, tag), "b0")
+                        xe = daily(edir, side)
+                        te = read_trades(edir, side)
+                        method = "точно (пересчёт без монет)"
+                    else:
+                        xe = xb - sum((coin[c] for c in syms if c in coin), np.zeros(60))
+                        te = [t for t in tb if t["sym"] not in syms]
+                        method = "приближённо (вычитание P&L монет, слоты не освобождаются)"
+                    row = {"side": side, "engine": eng, "selected_on": hx, "evaluated_on": hy, "class": tag, "n_coins": len(syms),
+                           "method": method}
+                    for lab, h in (("eval", hy), ("sel", hx)):
+                        sl = A if h == "A" else B
+                        d = stat(xe[sl] - xb[sl], r)
+                        nb = sum(1 for t in tb if (int(t["entry_day"]) < 30) == (h == "A"))
+                        ne = sum(1 for t in te if (int(t["entry_day"]) < 30) == (h == "A"))
+                        out = sum(float(t["net"]) for t in tb if t["sym"] in syms and (int(t["entry_day"]) < 30) == (h == "A"))
+                        row.update({lab + "_half": h, lab + "_base_mean": round(float(xb[sl].mean()), 3),
+                                    lab + "_excl_mean": round(float(xe[sl].mean()), 3), lab + "_delta": round(d["mean"], 3),
+                                    lab + "_delta_lo": round(d["lo"], 3), lab + "_delta_hi": round(d["hi"], 3),
+                                    lab + "_trades_base": nb, lab + "_trades_excl": ne,
+                                    lab + "_outsiders_net_in_base": round(out, 2)})
+                    rows.append(row)
+    with open(os.path.join(ROOT, "outsiders-excl.csv"), "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    json.dump(rows, open(os.path.join(ROOT, "outsiders-excl.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    for x in rows:
+        print("%-5s %-4s %s→%s %-3s монет=%2d | на %s: база %+.2f → без %+.2f, Δ %+.2f [%.2f; %.2f], сделок %d→%d | (на %s, где выбраны: Δ %+.2f)  [%s]" % (
+            x["side"], x["engine"], x["selected_on"], x["evaluated_on"], x["class"], x["n_coins"], x["eval_half"], x["eval_base_mean"],
+            x["eval_excl_mean"], x["eval_delta"], x["eval_delta_lo"], x["eval_delta_hi"], x["eval_trades_base"], x["eval_trades_excl"],
+            x["sel_half"], x["sel_delta"], x["method"][:7]))
+
+
 if __name__ == "__main__":
-    {"lists": cmd_lists}[sys.argv[1]]()
+    {"lists": cmd_lists, "excl": cmd_excl}[sys.argv[1]]()

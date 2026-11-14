@@ -131,7 +131,12 @@ def main():
                     va, vb = "cB_%s_%s" % (side, tag), "cA_%s_%s" % (side, tag)
                 if va in D[side] and vb in D[side]:
                     xa, xb = D[side][va][A], D[side][vb][B]
-                    sens[base_id + "_" + tag] = {"A": float(xa.mean()), "B": float(xb.mean())}
+                    e = {"A": float(xa.mean()), "B": float(xb.mean())}
+                    for h, vid, x in (("A", va, xa), ("B", vb, xb)):
+                        st = stat(x, r)
+                        tr = [t for t in read_trades(P[(side, vid)], side) if (int(t["entry_day"]) < 30) == (h == "A")]
+                        e["stat" + h] = {"lo": st["lo"], "hi": st["hi"], "trades": len(tr), "trades_per_day": len(tr) / 30}
+                    sens[base_id + "_" + tag] = e
         res["sens"] = sens
         out[side] = res
         print("== %s: m=%d (шаг A %d + шаг B %d), z=%.2f" % (side, m, m_a, n_b, z_h))
@@ -142,7 +147,9 @@ def main():
                 b["mean"], b["lo"], b["hi"], b["trades"], b["trades_per_day"], b["low_holm"], a["stop_share"] * 100, b["stop_share"] * 100,
                 a["bps_per_trade"], b["bps_per_trade"]))
         for k, v in sens.items():
-            print("   sens %s: A %+.2f B %+.2f" % (k, v["A"], v["B"]))
+            print("   sens %s: A %+.2f [%.2f; %.2f] n=%d (%.2f/сут) | B %+.2f [%.2f; %.2f] n=%d (%.2f/сут)" % (
+                k, v["A"], v["statA"]["lo"], v["statA"]["hi"], v["statA"]["trades"], v["statA"]["trades_per_day"],
+                v["B"], v["statB"]["lo"], v["statB"]["hi"], v["statB"]["trades"], v["statB"]["trades_per_day"]))
     json.dump(out, open(os.path.join(ROOT, "report-%s.json" % name), "w"), indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o))
 
 
