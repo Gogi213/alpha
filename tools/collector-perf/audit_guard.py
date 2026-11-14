@@ -32,6 +32,8 @@ def refuse(msg):
 if EX not in LIMITS or LANES <= 0:
     refuse("использование: audit_guard.py <binance|bybit|okx|bingx> <линий> [--dry]")
 sock_lim, (win_n, win_s) = LIMITS[EX]
+if EX == "okx" and os.environ.get("ALPHA_ALLOW_OKX_COPY") != "1":   # решение координатора 14.11: копий на OKX нет, пока нет общего замка с боевым процессом, кроме случаев, когда этого требует задача
+    refuse("okx: копии запрещены до общего замка подключений (ALPHA_ALLOW_OKX_COPY=1 — только если задача требует и координатор разрешил)")
 
 # живые процессы коллектора этой биржи: pid, корень данных, боевой ли
 procs = []
