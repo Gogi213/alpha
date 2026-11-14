@@ -594,6 +594,11 @@ fn tls_config() -> Result<Arc<rustls::ClientConfig>, String> {
     .clone()
 }
 
+/// Размер буфера чтения tungstenite. По умолчанию 128 КиБ, и `FrameCodec::read_in` перед КАЖДЫМ чтением из потока обнуляет весь свободный хвост буфера (`BytesMut::resize`
+/// → `rep stosb`): при чтении по записи TLS (`RxSock`, режим `exact`) это 128 КиБ на запись — у BingX (крошечные кадры) 16 % времени процесса в бою (замер perf с DWARF 14.11).
+/// 8 КиБ: обнуление ≈ 0,2 мкс на чтение; большой кадр растит буфер сам (`reserve(len)`), число чтений на кадр от этого не меняется (запись отдаётся целиком).
+const WS_READ_BUFFER: usize = 8 * 1024;
+
 /// WebSocket поверх уже открытого сокета: TLS (для `wss`), upgrade; таймауты рукопожатия на сокете.
 pub fn ws_connect(
     tcp: TcpStream,
@@ -617,7 +622,8 @@ pub fn ws_connect(
     let req = url
         .into_client_request()
         .map_err(|e| format!("запрос {url}: {e}"))?;
-    match tungstenite::client(req, conn) {
+    let cfg = tungstenite::protocol::WebSocketConfig::default().read_buffer_size(WS_READ_BUFFER);
+    match tungstenite::client::client_with_config(req, conn, Some(cfg)) {
         Ok(ok) => Ok(ok),
         Err(HandshakeError::Failure(e)) => Err(format!("рукопожатие: {e}")),
         Err(HandshakeError::Interrupted(_)) => Err("рукопожатие: таймаут".to_string()),
