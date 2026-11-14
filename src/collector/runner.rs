@@ -133,6 +133,12 @@ pub struct RunArgs {
     /// Метка `rx` в файле: `user` — после пробуждения потока (как раньше), `kernel` — ядерная метка приёма (нужен `--reactor`).
     #[arg(long, default_value = "user")]
     pub rx_stamp: String,
+    /// Нет pong на наш пинг при живых данных не портит линию (см. `Shared::pong_only_degrades`); по умолчанию портит, как раньше.
+    #[arg(long)]
+    pub no_pong_only_degrade: bool,
+    /// Не слать наш протокольный пинг (опыт; боевое поведение — пинг раз в 5 с).
+    #[arg(long)]
+    pub no_ping: bool,
     /// Подписка из реактора (нужен `--reactor`): сообщения подписки уходят в его цикле с паузой биржи, а соединение читается с первого кадра — нет очереди ядра на время подписки
     /// (BingX: 179 тем × 20 мс = 3,7 с, кадры первых тем приходили к писателю с ядерной меткой давностью секунд и поднятием `rx`).
     #[arg(long)]
@@ -348,6 +354,8 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     opts.max_age = Duration::from_secs(args.max_age_s.max(30));
     opts.never_slow = args.never_slow;
     opts.lazy = args.lazy;
+    opts.pong_only_degrades = !args.no_pong_only_degrade;
+    opts.no_ping = args.no_ping;
     opts.cold_probe = args.cold_probe;
     let mut lines = lines;
     if let Some(plain) = &args.plain_ws {

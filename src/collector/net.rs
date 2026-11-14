@@ -32,6 +32,9 @@ pub struct TcpState {
     pub last_data_recv_ms: u32,
     pub rtt_ms: u32,
     pub total_retrans: u32,
+    /// Сколько мс назад ушли последние данные / пришло последнее подтверждение нашим данным (диагностика закрытий).
+    pub last_data_sent_ms: u32,
+    pub last_ack_recv_ms: u32,
 }
 
 #[cfg(target_os = "linux")]
@@ -232,6 +235,30 @@ pub fn tcp_state(s: &TcpStream) -> Option<TcpState> {
         last_data_recv_ms: u32_at(&b, 52),
         rtt_ms: u32_at(&b, 68) / 1000,
         total_retrans: u32_at(&b, 100),
+        last_data_sent_ms: u32_at(&b, 44),
+        last_ack_recv_ms: u32_at(&b, 56),
+    })
+}
+
+/// Сведения о рукопожатии для события `connected`: версия TLS, ALPN, набор шифров, заголовки ответа upgrade (`Server`, `Sec-WebSocket-Extensions`).
+pub fn handshake_info(ws: &WebSocket<Conn>, resp: &Response) -> serde_json::Value {
+    let hdr = |k: &str| {
+        resp.headers()
+            .get(k)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let tls = match ws.get_ref() {
+        Conn::Tls(t) => serde_json::json!({
+            "version": t.conn.protocol_version().map(|v| format!("{v:?}")),
+            "alpn": t.conn.alpn_protocol().map(|a| String::from_utf8_lossy(a).to_string()),
+            "cipher": t.conn.negotiated_cipher_suite().map(|c| format!("{:?}", c.suite())),
+        }),
+        Conn::Plain(_) => serde_json::Value::Null,
+    };
+    serde_json::json!({
+        "tls": tls, "status": resp.status().as_u16(), "server": hdr("server"), "ws_ext": hdr("sec-websocket-extensions"),
+        "via": hdr("via"), "x_cache": hdr("x-cache"),
     })
 }
 

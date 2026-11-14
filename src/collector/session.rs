@@ -61,6 +61,11 @@ pub struct Shared {
     pub probe_window: (f64, f64),
     /// Период пинга и срок ожидания pong.
     pub ping: (Duration, Duration),
+    /// `false` (`--no-pong-only-degrade`): нет pong на НАШ пинг при живых данных не портит линию (событие `timeout` пишется, пинг продолжается); портят линию только молчание
+    /// (нет ни pong, ни данных за срок) и лаг доставки. Наш пинг — не требование биржи, а наш способ следить за путём.
+    pub pong_only_degrades: bool,
+    /// `--no-ping`: наш протокольный пинг не шлётся вовсе (опыт «не наш ли пинг провоцирует закрытия»; без пинга сторож пути не видит нет-pong, только лаг и обрывы чтения).
+    pub no_ping: bool,
     /// Порог отбраковки пути по RTT рукопожатия, мс (`CONNECT_RTT_MAX_MS`; в проверках занижается).
     pub rtt_max_ms: f64,
     /// Шард без соединения проверяет путь, как Python: отбраковка по RTT и окно лага до приёма (по умолчанию — принимает сразу, даже медленный).
@@ -122,6 +127,7 @@ fn tcp_json(s: &std::net::TcpStream) -> serde_json::Value {
         Some(t) => json!({
             "retransmits": t.retransmits, "backoff": t.backoff, "rto_ms": t.rto_ms, "unacked": t.unacked, "lost": t.lost,
             "retrans": t.retrans, "last_data_recv_ms": t.last_data_recv_ms, "rtt_ms": t.rtt_ms, "total_retrans": t.total_retrans,
+            "last_data_sent_ms": t.last_data_sent_ms, "last_ack_recv_ms": t.last_ack_recv_ms, "recvq": net::recv_q(s),
         }),
         None => serde_json::Value::Null,
     }
@@ -177,10 +183,11 @@ pub fn run(
         );
     }
     let url = sh.url(&ent.host);
-    let (ws, _) = match net::ws_connect(tcp, &url, &ent.host, sh.tls) {
+    let (ws, resp) = match net::ws_connect(tcp, &url, &ent.host, sh.tls) {
         Ok(x) => x,
         Err(e) => return Outcome::Failed(e),
     };
+    let hs = net::handshake_info(&ws, &resp);
     let tcp_ok = {
         let t = ws.get_ref().tcp();
         t.set_read_timeout(Some(READ_TICK))
@@ -190,7 +197,7 @@ pub fn run(
     if !tcp_ok {
         return Outcome::Failed("таймауты сокета".to_string());
     }
-    sh.events.emit("connected", json!({"session": seq, "url": url, "rtt_ms": rtt.round(), "ip": ip.to_string(), "entrance": ent.host}));
+    sh.events.emit("connected", json!({"session": seq, "url": url, "rtt_ms": rtt.round(), "ip": ip.to_string(), "entrance": ent.host, "hs": hs}));
     sh.metrics.connected.fetch_add(1, Relaxed);
     {
         let mut w = sh.watch();
@@ -271,6 +278,18 @@ pub struct Rx {
     ping_blocked: bool,
     pings_on: bool,
     ping_no: u64,
+    /// Диагностика закрытий (collector-perf, 14.11): время жизни сессии, сердцебиения сервера и наши ответы, наши пинги и pong — попадают в `diag` событий `ws_close`/`ws_end`/`timeout`/`slow_pong`.
+    born: Instant,
+    srv_pings: u64,
+    last_srv_ping: Option<Instant>,
+    srv_ping_rx: i64,
+    pending_srv_pong: bool,
+    pongs_sent: u64,
+    last_pong_sent: Option<Instant>,
+    pong_lat_max_us: u64,
+    pong_late: u64,
+    our_pongs: u64,
+    last_our_pong: Option<Instant>,
     last_frame: Instant,
     gunzip: Option<Gunzip>,
     bad_gzip: u32,
@@ -305,8 +324,19 @@ impl Rx {
             ping_sent: None,
             ping_send_us: 0,
             ping_blocked: false,
-            pings_on: true,
+            pings_on: !sh.no_ping,
             ping_no: 0,
+            born: t_loop,
+            srv_pings: 0,
+            last_srv_ping: None,
+            srv_ping_rx: 0,
+            pending_srv_pong: false,
+            pongs_sent: 0,
+            last_pong_sent: None,
+            pong_lat_max_us: 0,
+            pong_late: 0,
+            our_pongs: 0,
+            last_our_pong: None,
             last_frame: t_loop,
             gunzip: sh.exch.gzip_frames().then(Gunzip::new),
             bad_gzip: 0,
@@ -376,6 +406,35 @@ impl Rx {
         None
     }
 
+    /// Состояние сессии для событий закрытия: возраст, молчание в обе стороны, сердцебиения сервера и наши ответы, наши пинги, недосланная запись.
+    pub fn diag_json(&self) -> serde_json::Value {
+        let now = Instant::now();
+        let ms = |t: Option<Instant>| {
+            t.map(|t| {
+                u64::try_from(now.saturating_duration_since(t).as_millis()).unwrap_or(u64::MAX)
+            })
+        };
+        json!({
+            "age_s": now.saturating_duration_since(self.born).as_secs(),
+            "since_frame_ms": ms(Some(self.last_frame)),
+            "srv_pings": self.srv_pings, "since_srv_ping_ms": ms(self.last_srv_ping),
+            "pongs_sent": self.pongs_sent, "since_pong_sent_ms": ms(self.last_pong_sent), "pong_lat_max_us": self.pong_lat_max_us, "pong_late": self.pong_late,
+            "our_pings": self.ping_no, "since_our_ping_ms": ms(Some(self.last_ping)), "our_pongs": self.our_pongs, "since_our_pong_ms": ms(self.last_our_pong),
+            "need_flush": self.need_flush,
+        })
+    }
+
+    /// Задержка ответа на сердцебиение сервера: от ядерной метки приёма запроса до записи ответа, мкс; позднее секунды — счётчик `pong_late`.
+    fn note_reply(&mut self, rx: i64) {
+        let lat = u64::try_from((wall_ns() - rx).max(0) / 1000).unwrap_or(0);
+        self.pongs_sent += 1;
+        self.last_pong_sent = Some(Instant::now());
+        self.pong_lat_max_us = self.pong_lat_max_us.max(lat);
+        if lat >= 1_000_000 {
+            self.pong_late += 1;
+        }
+    }
+
     /// Отправка в сокет: на неблокирующем сокете «не влезло» (`WouldBlock`) — запись в очереди rustls/tungstenite, дослать `flush`.
     fn send(&mut self, ws: &mut WebSocket<Conn>, msg: Message) -> Result<(), WsError> {
         match ws.send(msg) {
@@ -422,7 +481,17 @@ impl Rx {
                 let data = unpack(sh, seq, &mut self.gunzip, &mut self.bad_gzip, b);
                 self.deliver(sh, ws, seq, rx, t_read, data)
             }
+            Message::Ping(_) => {
+                // протокольный ping сервера: pong отправит tungstenite при следующем чтении; задержку берём в `tick` (после дочитывания и досылки)
+                self.srv_pings += 1;
+                self.last_srv_ping = Some(t_read);
+                self.srv_ping_rx = rx;
+                self.pending_srv_pong = true;
+                None
+            }
             Message::Pong(p) => {
+                self.our_pongs += 1;
+                self.last_our_pong = Some(t_read);
                 if let Some((t0, tag)) = self.ping_sent {
                     if p.as_ref() == tag.as_slice() {
                         let rtt = t_read.duration_since(t0);
@@ -431,7 +500,7 @@ impl Rx {
                             // разбор по стадиям: `send_us`/`send_blocked` — запись пинга на нашей стороне, `k2r_us` — ожидание pong в нашем ядре и очереди чтения (ядерная метка → чтение);
                             // остаток `rtt_ms` — сеть и биржа
                             sh.events.emit("slow_pong", json!({"session": seq, "rtt_ms": rtt.as_millis(), "send_us": self.ping_send_us, "send_blocked": self.ping_blocked,
-                                "k2r_us": (wall_ns() - rx).max(0) / 1000, "tcp": tcp_json(ws.get_ref().tcp())}));
+                                "k2r_us": (wall_ns() - rx).max(0) / 1000, "tcp": tcp_json(ws.get_ref().tcp()), "diag": self.diag_json()}));
                         }
                         m.lists()
                             .pings
@@ -451,7 +520,7 @@ impl Rx {
             Message::Close(cf) => {
                 // кто и с каким кодом закрыл (1000 штатно, 1001 уходит, 1006 обрыв, 1008/1011 …): BingX закрывает обе линии подряд — причина должна быть в журнале
                 sh.events.emit("ws_close", json!({"session": seq, "by": "peer", "code": cf.as_ref().map(|c| u16::from(c.code)), "reason": cf.as_ref().map(|c| c.reason.to_string()),
-                    "tcp": tcp_json(ws.get_ref().tcp())}));
+                    "tcp": tcp_json(ws.get_ref().tcp()), "diag": self.diag_json()}));
                 Some(Outcome::Closed)
             }
             _ => None,
@@ -459,7 +528,7 @@ impl Rx {
     }
 
     /// Конец чтения не по таймауту: журнал `ws_end` (как закончилось: FIN без закрывающего рукопожатия, RST, другая ошибка) вместе с состоянием сокета.
-    pub fn report_end(sh: &Shared, ws: &WebSocket<Conn>, seq: u32, e: &WsError) {
+    pub fn report_end(&self, sh: &Shared, ws: &WebSocket<Conn>, seq: u32, e: &WsError) {
         let how = match e {
             WsError::ConnectionClosed | WsError::AlreadyClosed => {
                 "closed_after_handshake".to_string()
@@ -473,7 +542,7 @@ impl Rx {
             WsError::Io(io) => format!("io:{:?}", io.kind()),
             _ => "error".to_string(),
         };
-        sh.events.emit("ws_end", json!({"session": seq, "how": how, "detail": e.to_string(), "tcp": tcp_json(ws.get_ref().tcp())}));
+        sh.events.emit("ws_end", json!({"session": seq, "how": how, "detail": e.to_string(), "tcp": tcp_json(ws.get_ref().tcp()), "diag": self.diag_json()}));
     }
 
     /// Ошибка чтения: `None` — не ошибка (нет данных на этот такт), иначе итог сессии.
@@ -496,6 +565,10 @@ impl Rx {
         now: Instant,
     ) -> Option<Outcome> {
         let m = &sh.metrics;
+        if self.pending_srv_pong {
+            self.pending_srv_pong = false;
+            self.note_reply(self.srv_ping_rx);
+        }
         if self.sub.is_some() {
             if let Some(out) = self.pump_sub(sh, ws, seq, now) {
                 return Some(out);
@@ -528,11 +601,17 @@ impl Rx {
                             l.timeouts_silent.push_back(now_ms());
                         }
                     }
-                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "kind": if alive { "pong_only" } else { "silent" }, "tcp": tcp_json(ws.get_ref().tcp())}));
-                    sh.events.emit("ping_degraded", json!({"session": seq}));
-                    sh.watch().mark_degraded(seq);
-                    self.pings_on = false;
-                    self.ping_sent = None;
+                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "kind": if alive { "pong_only" } else { "silent" }, "tcp": tcp_json(ws.get_ref().tcp()), "diag": self.diag_json()}));
+                    if alive && !sh.pong_only_degrades {
+                        // данные живы: линию не трогаем, пинг продолжается (следующий — по периоду)
+                        self.ping_sent = None;
+                        self.last_ping = now;
+                    } else {
+                        sh.events.emit("ping_degraded", json!({"session": seq}));
+                        sh.watch().mark_degraded(seq);
+                        self.pings_on = false;
+                        self.ping_sent = None;
+                    }
                 }
                 _ => {}
             }
@@ -565,8 +644,15 @@ impl Rx {
         data: Bytes,
     ) -> Option<Outcome> {
         if let Some(reply) = sh.exch.heartbeat_reply(&data) {
-            return self
-                .send(ws, Message::text(reply))
+            self.srv_pings += 1;
+            self.last_srv_ping = Some(t_read);
+            let sent = self.send(ws, Message::text(reply));
+            if sent.is_ok() {
+                self.note_reply(rx);
+            } else if let Err(e) = &sent {
+                sh.events.emit("ws_end", json!({"session": seq, "how": "write_error:heartbeat", "detail": e.to_string(), "tcp": tcp_json(ws.get_ref().tcp()), "diag": self.diag_json()}));
+            }
+            return sent
                 .err()
                 .map(|e| Outcome::Failed(format!("heartbeat: {e}")));
         }
@@ -671,7 +757,7 @@ fn read_loop(
             Err(e) => {
                 let out = Rx::read_error(&e);
                 if out.is_some() {
-                    Rx::report_end(sh, ws, seq, &e);
+                    rx.report_end(sh, ws, seq, &e);
                 }
                 if let Some(out) = out {
                     return out;

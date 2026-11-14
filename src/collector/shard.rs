@@ -96,6 +96,10 @@ pub struct ShardOpts {
     pub probe_window: (f64, f64),
     /// Период пинга и срок ожидания pong.
     pub ping: (Duration, Duration),
+    /// См. `Shared::pong_only_degrades`.
+    pub pong_only_degrades: bool,
+    /// См. `Shared::no_ping`.
+    pub no_ping: bool,
     /// Порог отбраковки пути по RTT рукопожатия, мс.
     pub rtt_max_ms: f64,
     /// Замена испорченного (или принятого медленным) пути никогда не принимает медленный путь «как есть»: старая сессия остаётся, пока не найден быстрый.
@@ -135,6 +139,8 @@ impl ShardOpts {
             port: 443,
             probe_window: (PROBE_SKIP_S, PROBE_S),
             ping: (PING_PERIOD, PING_TIMEOUT),
+            pong_only_degrades: true,
+            no_ping: false,
             rtt_max_ms: CONNECT_RTT_MAX_MS,
             never_slow: false,
             lazy: false,
@@ -506,6 +512,8 @@ pub fn spawn_shard(
         port: opts.port,
         probe_window: opts.probe_window,
         ping: opts.ping,
+        pong_only_degrades: opts.pong_only_degrades,
+        no_ping: opts.no_ping,
         rtt_max_ms: opts.rtt_max_ms,
         cold_probe: opts.cold_probe,
         reactor: opts.reactor.clone(),
