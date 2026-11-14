@@ -87,11 +87,16 @@ def summary(wb, pdata):
     ws = wb.active
     ws.title = "Сводка"
     lg, sh = pdata[("long", "tick", "ALL")], pdata[("short", "tick", "ALL")]
+    import json
+    LT = json.load(open(os.path.join(ms.ROOT, "report-lat.json"), encoding="utf-8"))
+    LV = {k: LT[k]["база|" + ms.TAGMAIN]["verdict"] for k in ("long", "short")}
+    LH = {h: LT["short"]["база|" + ms.TAGMAIN]["halves"][h]["mean"] for h in ("A", "B")}
     notes = [
-        "Что это: статистика бота «пробой часового уровня» (П-42) по сделкам Binance за 60 дней (15.09–13.11.2026): правила бота как есть, исполнение по тикам с задержкой 200 мс, 566 монет; лонг и шорт — отдельно.",
+        "Что это: статистика бота «пробой часового уровня» (П-42) по сделкам Binance за 60 дней (15.09–13.11.2026): правила бота как есть, исполнение по тикам с задержкой 4 мс на вход и выход, 566 монет; лонг и шорт — отдельно.",
         "Счёт $2 500, позиция $500 на сделку, без плеча; проценты — от счёта $2 500, просадка — от пика счёта; сентябрь (15–30) и ноябрь (1–13) — неполные месяцы. Всё — на данных этого окна, не прогноз.",
-        "Вердикт: ЛОНГ — «не ясно»: около нуля (%s $ за 60 дней, %s %% счёта), плюс или минус на этих данных не доказать; ШОРТ — «опровергнуто»: %s $ за 60 дней (%s %% счёта), минус в обеих половинах окна."
-        % (ms.f(lg["total"], 0), ms.f(lg["total"] / ACCT * 100, 1), ms.f(sh["total"], 0), ms.f(sh["total"] / ACCT * 100, 1)),
+        "Вердикт (по правилу проверки, задержка 4 мс): ЛОНГ — «%s»: около нуля (%s $ за 60 дней, %s %% счёта), плюс или минус на этих данных не доказать; ШОРТ — «%s»: %s $ за 60 дней (%s %% счёта), первая половина окна %s (%s $ в сутки), вторая %s (%s $ в сутки)."
+        % (LV["long"], ms.f(lg["total"], 0, True), ms.f(lg["total"] / ACCT * 100, 1, True), LV["short"], ms.f(sh["total"], 0), ms.f(sh["total"] / ACCT * 100, 1),
+           "в плюсе" if LH["A"] > 0 else "в минусе", ms.f(LH["A"], 0, True), "в плюсе" if LH["B"] > 0 else "в минусе", ms.f(LH["B"], 0, True)),
     ]
     for i, t in enumerate(notes, 1):
         ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=10)
@@ -195,7 +200,7 @@ def coin_sheet(wb, side, cm):
 
 def outsiders_sheet(wb):
     ws = wb.create_sheet("Аутсайдеры")
-    notes = ["Аутсайдер — монета, у которой во всех вариантах правил бота («клетках»), где она торговалась, итог отрицательный (минус на всех клетках). Здесь — тики, класс «100 %», только монеты с ≥ 5 клетками.",
+    notes = ["Аутсайдер — монета, у которой во всех вариантах правил бота («клетках»), где она торговалась, итог отрицательный (минус на всех клетках). Здесь — тики: 9 вариантов правил (основа, два перекрёстных, шесть из топ-3) при задержке 4 мс на вход и выход; класс «100 %», только монеты с ≥ 5 клетками.",
              "Сделки и итог — суммы по клеткам: одна и та же сделка, попавшая в несколько вариантов, считается в каждом. Найдено на этих данных (15.09–13.11): в другой половине окна список не воспроизводится, это не фильтр для бота."]
     for i, t in enumerate(notes, 1):
         ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=6)
@@ -204,7 +209,7 @@ def outsiders_sheet(wb):
         ws.row_dimensions[i].height = 44
     r = 4
     for side in ms.SIDES:
-        rows = [x for x in csv.DictReader(open(os.path.join(ms.ROOT, "outsiders-%s.csv" % side), encoding="utf-8")) if x["engine"] == "tick" and x["class"] == "100"]
+        rows = [x for x in csv.DictReader(open(os.path.join(ms.OUTS, "outsiders-%s.csv" % side), encoding="utf-8")) if x["engine"] == "tick" and x["class"] == "100"]
         rows.sort(key=lambda x: float(x["net_sum_cells"]))
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
         t = ws.cell(row=r, column=1, value="%s: %d монет в минусе на всех клетках (тики)" % (SIDE_TITLE[side], len(rows)))

@@ -11,6 +11,7 @@ import csv
 import glob
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -22,6 +23,9 @@ from phase import rng  # noqa: E402
 
 MINC = 5
 TICK = os.environ.get("P42_TICK", "tick-tickfull")  # каталог клеток тика
+TICK_RE = os.environ.get("P42_TICK_RE")  # regex имён вариантов-клеток тика (по умолчанию — все)
+TICK_BASE = os.environ.get("P42_TICK_BASE", "b0")  # вариант-база тика
+OUT = os.environ.get("P42_OUT") or ROOT  # куда писать результаты (читаем клетки всегда из ROOT)
 ENGINES = {"1m": ["stage1", "ext", "joint", "final"], "tick": [TICK]}
 
 
@@ -31,6 +35,8 @@ def cells(engine, side):
     for sub in ENGINES[engine]:
         for vdir in sorted(glob.glob(os.path.join(ROOT, sub, "*"))):
             if not os.path.exists(os.path.join(vdir, side + "-trades.csv")):
+                continue
+            if engine == "tick" and TICK_RE and not re.search(TICK_RE, os.path.basename(vdir)):
                 continue
             d = defaultdict(lambda: [0, 0.0, 0, 0.0])
             for t in read_trades(vdir, side):
@@ -70,7 +76,7 @@ def klass(r):
 
 def base_of(engine, side):
     sub = "stage1" if engine == "1m" else TICK
-    vdir = os.path.join(ROOT, sub, "b0")
+    vdir = os.path.join(ROOT, sub, "b0" if engine == "1m" else TICK_BASE)
     d = defaultdict(lambda: [0, 0.0])
     if os.path.exists(os.path.join(vdir, side + "-trades.csv")):
         for t in read_trades(vdir, side):
@@ -130,14 +136,15 @@ def cmd_lists():
                     summ[(side, eng, hsel + "->" + hev, tag)] = {
                         "selected": len(sel), "with_trades_other_half": len(with_ev), "other_outsider90plus": len(ev_out),
                         "other_net_neg": len(ev_neg), "syms": sel,
+                        "base_share_neg_other_half": round(sum(1 for r in tev.values() if r[0] >= 1 and r[3] < 0) / max(1, sum(1 for r in tev.values() if r[0] >= 1)), 4),
                         "net_other_half_sum_over_cells": round(sum(tev[s][3] for s in with_ev), 2)}
         rows.sort(key=lambda x: (x["engine"], -x["neg_share"], x["mean_net_cell"]))
-        with open(os.path.join(ROOT, "outsiders-%s.csv" % side), "w", newline="", encoding="utf-8") as f:
+        with open(os.path.join(OUT, "outsiders-%s.csv" % side), "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             w.writeheader()
             w.writerows(rows)
     out = {"|".join(map(str, k)): v for k, v in summ.items()}
-    json.dump(out, open(os.path.join(ROOT, "outsiders-summary.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    json.dump(out, open(os.path.join(OUT, "outsiders-summary.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     for k, v in out.items():
         print(k, {kk: vv for kk, vv in v.items() if kk != "syms"})
     for key, v in out.items():
@@ -145,7 +152,7 @@ def cmd_lists():
         if len(parts) == 4 and parts[1] == "1m":
             ex = set(v["syms"])
             name = "excl-%s-%s-%s.txt" % (parts[0], parts[2].replace(">", ""), parts[3])
-            with open(os.path.join(ROOT, name), "w", encoding="utf-8") as f:
+            with open(os.path.join(OUT, name), "w", encoding="utf-8") as f:
                 f.write(",".join(s for s in allc if s not in ex))
 
 
@@ -155,12 +162,12 @@ def daily(vdir, side):
 
 def cmd_excl():
     """База стороны без монет, выбранных на половине X, — на половине Y (и на X для справки): среднее $/сут. и парная разница с базой."""
-    summ = json.load(open(os.path.join(ROOT, "outsiders-summary.json"), encoding="utf-8"))
+    summ = json.load(open(os.path.join(OUT, "outsiders-summary.json"), encoding="utf-8"))
     r = rng()
     rows = []
     for side in SIDES:
         for eng in ENGINES:
-            bdir = os.path.join(ROOT, "stage1" if eng == "1m" else TICK, "b0")
+            bdir = os.path.join(ROOT, "stage1" if eng == "1m" else TICK, "b0" if eng == "1m" else TICK_BASE)
             if not os.path.exists(os.path.join(bdir, side + "-daily.csv")):
                 continue
             xb = daily(bdir, side)
@@ -196,11 +203,11 @@ def cmd_excl():
                                     lab + "_trades_base": nb, lab + "_trades_excl": ne,
                                     lab + "_outsiders_net_in_base": round(out, 2)})
                     rows.append(row)
-    with open(os.path.join(ROOT, "outsiders-excl.csv"), "w", newline="", encoding="utf-8") as f:
+    with open(os.path.join(OUT, "outsiders-excl.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
-    json.dump(rows, open(os.path.join(ROOT, "outsiders-excl.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    json.dump(rows, open(os.path.join(OUT, "outsiders-excl.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     for x in rows:
         print("%-5s %-4s %s→%s %-3s монет=%2d | на %s: база %+.2f → без %+.2f, Δ %+.2f [%.2f; %.2f], сделок %d→%d | (на %s, где выбраны: Δ %+.2f)  [%s]" % (
             x["side"], x["engine"], x["selected_on"], x["evaluated_on"], x["class"], x["n_coins"], x["eval_half"], x["eval_base_mean"],
