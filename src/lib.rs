@@ -5,6 +5,7 @@
 pub mod alloc_count;
 pub mod binlog;
 pub mod book;
+pub mod breakout;
 pub mod bybit;
 pub mod commands;
 pub mod feed;

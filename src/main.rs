@@ -22,6 +22,11 @@ enum TopCommand {
         #[command(subcommand)]
         cmd: alpha::statarb::cli::StatarbCommand,
     },
+    /// П-42: пробой часового уровня на минутках Binance (convert / run / hand).
+    Breakout {
+        #[command(subcommand)]
+        cmd: alpha::breakout::cli::BreakoutCommand,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -29,5 +34,6 @@ fn main() -> anyhow::Result<()> {
     match cli.cmd {
         TopCommand::Lob { cmd } => dispatch(cmd),
         TopCommand::Statarb { cmd } => alpha::statarb::cli::dispatch(cmd),
+        TopCommand::Breakout { cmd } => alpha::breakout::cli::dispatch(cmd),
     }
 }
