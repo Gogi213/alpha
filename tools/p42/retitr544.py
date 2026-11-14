@@ -17,6 +17,9 @@ from lib import A, B, ND, SIDES, load_all, read_trades  # noqa: E402
 from phase import rng  # noqa: E402
 from report import fq_days  # noqa: E402
 from report_tick import halves_stats, verdict  # noqa: E402
+import detstat  # noqa: E402
+import report_tick  # noqa: E402
+detstat.patch(report_tick)  # одинаковый ряд — одинаковый интервал во всех таблицах
 
 R566, R544 = "data/p42v2", "data/p42v2-544"
 M = json.loads(os.environ.get("P42_M", '{"long":331,"short":319}'))

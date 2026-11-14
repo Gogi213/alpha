@@ -18,6 +18,32 @@ def ci(s):
     return "%s [%s; %s]" % (ms.f(s["mean"], 2, True), ms.f(s["lo"], 2, True), ms.f(s["hi"], 2, True))
 
 
+def rob(h):
+    """«без 2 худших суток / без 2 худших монет» (среднее $/сут. половины)."""
+    return "%s / %s" % (ms.f(h["no_worst2_days"]["mean"], 2, True), ms.f(h["no_worst2_coins"]["mean"], 2, True))
+
+
+def vtxt(ver, a, b):
+    """Вердикт; «опровергнуто» с пометкой «пограничное», если в опровергающей половине среднее без 2 худших суток или монет почти у нуля (> −0,10 $/сут.)."""
+    if ver != "опровергнуто":
+        return ver
+    worst = None
+    for h in (a, b):
+        neg = h["mean"] < 0 or h["hi"] < 0
+        if neg and h["mean"] < 0 and h["no_worst2_days"]["mean"] < 0 and h["no_worst2_coins"]["mean"] < 0:
+            v = max(h["no_worst2_days"]["mean"], h["no_worst2_coins"]["mean"])
+            worst = v if worst is None else max(worst, v)
+    return ver + (" (пограничное)" if worst is not None and worst > -0.10 else "")
+
+
+HDR_T = "| движок | кандидат | вселенная | A $/сут. [95 % интервал] | A: без 2 худших суток / монет | B $/сут. [95 % интервал] | B: без 2 худших суток / монет | всего за 60 сут., $ | сделок | вердикт §10 |"
+SEP_T = "|---|---|---|---|---|---|---|---|---|---|"
+
+
+def trow(eng, name, uni, a, b, tot, ntr, ver):
+    return "| %s | %s | %s | %s | %s | %s | %s | %s | %d | %s |" % (eng, name, uni, ci(a), rob(a), ci(b), rob(b), ms.f(tot, 2, True), ntr, vtxt(ver, a, b))
+
+
 def load_excl22():
     return json.load(open(os.path.join(ROOT, "report-excl22.json"), encoding="utf-8"))
 
@@ -46,14 +72,13 @@ def section_excl22():
     rows = rows_excl22()
     for side in ("long", "short"):
         W += ["### %s" % SIDE_RU[side], ""]
-        W += ["| движок | кандидат | вселенная | A $/сут. [95 % интервал] | B $/сут. [95 % интервал] | всего за 60 сут., $ | сделок | вердикт §10 |", "|---|---|---|---|---|---|---|---|"]
+        W += [HDR_T, SEP_T]
         for eng in ("tick", "1m"):
             for r in rows:
                 if r[0] != side or r[1] != eng:
                     continue
                 _, _, name, uni, a, b, tot, ntr, ver = r
-                W.append("| %s | %s | %s | %s | %s | %s | %d | %s |" % (
-                    ENG_RU[eng], name, "полная 566" if uni == "full" else "**без 22 (544)**", ci(a), ci(b), ms.f(tot, 2, True), ntr, ver))
+                W.append(trow(ENG_RU[eng], name, "полная 566" if uni == "full" else "**без 22 (544)**", a, b, tot, ntr, ver))
         W.append("")
     W += ["### Приближённое исключение против точного (справочно, не испытание)", "",
           "База, вычитание P&L 22 монет из полного ряда против точного пересчёта без них — для оценки смещения приближения §13.7 (слоты P не освобождаются).", "",
@@ -195,12 +220,12 @@ def section_retitr():
     rows = rows_retitr()
     for side in ("long", "short"):
         W += ["### %s: кандидаты 566 → 544 (Холм m = %d)" % (SIDE_RU[side], m[side]), ""]
-        W += ["| движок | кандидат | вселенная | A $/сут. [95 % интервал] | B $/сут. [95 % интервал] | всего за 60 сут., $ | сделок | вердикт §10 |", "|---|---|---|---|---|---|---|---|"]
+        W += [HDR_T, SEP_T]
         for tag in ("1m", "lx4", "lat0", "lx200"):
             for (sd, tg, name, uni, a, b, tot, ntr, ver) in rows:
                 if sd != side or tg != tag:
                     continue
-                W.append("| %s | %s | %s | %s | %s | %s | %d | %s |" % (TAG_RU[tag], name, "полная 566" if uni == "full" else "**перетитровка 544**", ci(a), ci(b), ms.f(tot, 2, True), ntr, ver))
+                W.append(trow(TAG_RU[tag], name, "полная 566" if uni == "full" else "**перетитровка 544**", a, b, tot, ntr, ver))
         W.append("")
     return W
 
@@ -220,3 +245,84 @@ def retitr_bullet():
         parts.append("%s — конфигураций > 0 в обеих половинах: %d → **%d** из %d (с ≥ 10 сделок: %d → %d); вердикт базы 566 → 544: %s" % (
             SIDE_RU[side].lower(), c6["positive_both"], c5["positive_both"], c5["configs"], c6["positive_both_ge10"], c5["positive_both_ge10"], "; ".join(seg)))
     return ["- **Перетитровка без 22 монет (§13.8; весь шаг A и шаг B заново на 544; найдено на этих данных):** " + "; ".join(parts) + ". Перевыбор дал те же топ-3 и те же перекрёстные значения (кроме `t1h` в B у лонга, кандидат по-прежнему без сделок). Подробно — раздел 8."]
+
+
+# ---------------- §13.9: тики — основной движок отбора (вся сетка шага A на тиках 4 мс)
+RT = {"544": os.path.join(ROOT, "..", "p42v2-t544"), "566": os.path.join(ROOT, "..", "p42v2-t566")}
+
+
+def load_tgrid(u):
+    p = os.path.join(RT[u], "report-tgrid.json")
+    return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else None
+
+
+def cfg_txt(c):
+    from axes import BASE
+    z = ["%s = %s" % (k, ms.f(v, 2).replace(",00", "").replace(",", ",") if isinstance(v, float) else v) for k, v in c.items() if BASE.get(k) != v]
+    return ", ".join(z) if z else "как база"
+
+
+def section_tgrid():
+    R5, R6 = load_tgrid("544"), load_tgrid("566")
+    if R5 is None:
+        return []
+    W = ["## 9. Шаг A на тиках 4 мс — основной (§13.9; найдено на этих данных)", ""]
+    W += ["Слова владельца (через координатора, дословно): «а нахуй тебе минутки». Вся сетка шага A (stage1 → расширения → совместные клетки → кандидаты) посчитана **напрямую на тиках с задержкой 4 мс на входы и выходы**; перекрёстный кандидат и топ-3 выбраны заново на тиковых рядах теми же правилами §9/§12/§13.1. Вселенная 544 (основная) и 566 (сравнение). Минутки (разделы 6 и 8, шаг A) — справочно, на выбор не влияют.",
+          "**Найдено на этих данных: список 22 монет и перевыбранные кандидаты выбраны по тем же 60 суткам, числа оптимистичны. Прирост базы «566 → 544» — это P&L убранных 22 монет, отобранных как убыточные на этих же сделках: по построению, не находка.**", ""]
+    m = R5["sides"]
+    W += ["**Испытания:** сетка на 544 — лонг %d, шорт %d; на 566 — лонг %s, шорт %s (оси 70 + расширения + совместные клетки + перекрёстный + «по букве»); отдельного шага B нет. Холм — по накопленному: после §13.8 лонг 331 / шорт 319, плюс обе тиковые сетки → **m = %d / %d** (одно m для всех вердиктов этого раздела; z = %s / %s)." % (
+        m["long"]["trials"], m["short"]["trials"], R6["sides"]["long"]["trials"] if R6 else "—", R6["sides"]["short"]["trials"] if R6 else "—", m["long"]["m"], m["short"]["m"],
+        ms.f(m["long"]["z_holm"], 2), ms.f(m["short"]["z_holm"], 2)), ""]
+    W += ["### Сколько конфигураций сетки положительны в обеих половинах (тики 4 мс; сетка = stage1 + расширения + совместные клетки, включая базу; описательно)", "",
+          "| сторона | вселенная | конфигураций | с торговлей в A и в B | $/сут. > 0 в A | > 0 в B | **> 0 в обеих** | > 0 в обеих и ≥ 10 сделок в каждой |", "|---|---|---|---|---|---|---|---|"]
+    for side in ("long", "short"):
+        for lab, R in (("544", R5), ("566", R6)):
+            if R is None:
+                continue
+            c = R["sides"][side]["counts"]
+            W.append("| %s | %s | %d | %d | %d | %d | **%d** | %d |" % (SIDE_RU[side], "**без 22 (544)**" if lab == "544" else "полная 566", c["configs"], c["trading_both_halves"], c["positive_A"], c["positive_B"], c["positive_both"], c["positive_both_ge10"]))
+    W += ["", "Положительность — по знаку среднего $/сут., без интервалов: на сетке из ~107 конфигураций часть положительных появляется и при нулевом краю (шум), число сопоставляется с вердиктами §10 ниже, а не заменяет их. Для сравнения, на минутках (справочно, раздел 8): лонг 3 → 2, шорт 67 → 66 (566 → 544).", ""]
+    W += ["### Что выбрал алгоритм на тиках", "", "| сторона | вселенная | перекрёстный: значения из B для суток A (`cB_`) | перекрёстный: значения из A для суток B (`cA_`) | совместная сетка | топ-3 |", "|---|---|---|---|---|---|"]
+    for side in ("long", "short"):
+        for lab, R in (("544", R5), ("566", R6)):
+            if R is None:
+                continue
+            x = R["sides"][side]
+            j = x["joint"]
+            jt = "не принята" if not j or not j.get("accepted") else "принята (%s)" % "×".join(j["pair"])
+            top = ", ".join(k.replace("топ-3 ", "") for k in x["cand"] if k.startswith("топ-3"))
+            W.append("| %s | %s | %s | %s | %s | %s |" % (SIDE_RU[side], "544" if lab == "544" else "566", cfg_txt(x["cfg"]["B"]), cfg_txt(x["cfg"]["A"]), jt, top))
+    W.append("")
+    for side in ("long", "short"):
+        W += ["### %s: кандидаты на тиках 4 мс (Холм m = %d)" % (SIDE_RU[side], m[side]["m"]), ""]
+        W += [HDR_T, SEP_T]
+        names = list(R5["sides"][side]["cand"])
+        for lab, R in (("544", R5), ("566", R6)):
+            if R is None:
+                continue
+            for name in names + [n for n in R["sides"][side]["cand"] if n not in names]:
+                c = R["sides"][side]["cand"].get(name)
+                if c is None:
+                    continue
+                W.append(trow("тики, 4 мс", name, "**без 22 (544)**" if lab == "544" else "полная 566", c["halves"]["A"], c["halves"]["B"], c["total"], c["trades"], c["verdict"]))
+        W.append("")
+    return W
+
+
+def tgrid_bullet():
+    R5, R6 = load_tgrid("544"), load_tgrid("566")
+    if R5 is None:
+        return []
+    parts = []
+    for side in ("long", "short"):
+        x, y = R5["sides"][side], (R6["sides"][side] if R6 else None)
+        b = x["cand"]["база"]
+        c = x["cand"].get("перекрёстный")
+        t = "; ".join("%s" % v["verdict"] for k, v in x["cand"].items() if k.startswith("топ-3"))
+        s = "%s: конфигураций > 0 в обеих половинах %d из %d (с ≥ 10 сделок: %d)%s; база A %s / B %s, всего %s $, «%s»; перекрёстный «%s»; топ-3 «%s»" % (
+            SIDE_RU[side].lower(), x["counts"]["positive_both"], x["counts"]["configs"], x["counts"]["positive_both_ge10"],
+            (" (566: %d, ≥ 10 сделок: %d)" % (y["counts"]["positive_both"], y["counts"]["positive_both_ge10"])) if y else "",
+            ms.f(b["halves"]["A"]["mean"], 2, True), ms.f(b["halves"]["B"]["mean"], 2, True), ms.f(b["total"], 2, True), vtxt(b["verdict"], b["halves"]["A"], b["halves"]["B"]),
+            vtxt(c["verdict"], c["halves"]["A"], c["halves"]["B"]) if c else "—", t)
+        parts.append(s)
+    return ["- **Тики 4 мс — основной движок отбора (§13.9, слова владельца «а нахуй тебе минутки»; вся сетка шага A на тиках, 544 монеты; найдено на этих данных, оптимистично):** " + "; ".join(parts) + ". Минутки — справочно (разделы 6, 8). Подробно — раздел 9."]

@@ -18,6 +18,9 @@ from lib import A, B, ND, ROOT, SIDES, load_all, read_coinday, read_trades  # no
 from phase import rng  # noqa: E402
 from report import fq_days  # noqa: E402
 from report_tick import halves_stats, verdict  # noqa: E402
+import detstat  # noqa: E402
+import report_tick  # noqa: E402
+detstat.patch(report_tick)  # одинаковый ряд — одинаковый интервал во всех таблицах
 
 M = {"long": 219, "short": 211}
 EX = [x.strip() for x in open(os.path.join(ROOT, "excl22.txt"), encoding="utf-8") if x.strip()]
