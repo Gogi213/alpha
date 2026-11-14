@@ -1,7 +1,8 @@
 """Страница здоровья коллекторов G-022 (TK-529, В-134).
 
 Читает /data/health/<биржа>.json (формат — docs/findings/collector-health-format-2026-11-11.md),
-отдаёт page.html, /api/health (прежняя страница, page.html.prev-v3) и /api/v3 (столбики по 15 минут, v3.py). Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
+отдаёт page.html, /api/health (прежняя страница, page.html.prev-v3), /api/v3 (столбики по 15 минут, v3.py) и вкладку «Арбитраж»:
+/api/arb (таблица) и /api/arb/chart?c=&a=&b= (график пары) — из каталога --arb-dir, который пишет tools/arb_stats/arb_live.py (arb_api.py). Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
 пороги — thresholds.json (числа назначает Судья; нет файла — строка жёлтая «порог не задан»).
 Новая биржа = новый файл в каталоге: строка появляется без правки страницы. Файлы с "kind" ≠ "collector" пропускаются.
 """
@@ -11,6 +12,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import arb_api
 import v3
 
 HERE = Path(__file__).resolve().parent
@@ -97,6 +99,7 @@ class Handler(BaseHTTPRequestHandler):
     thresholds = None
     roots = {}
     net = None
+    arb = None
 
     def _send(self, code, body, ctype):
         self.send_response(code)
@@ -117,6 +120,14 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:  # страница не должна падать от одного кривого файла
                 body = {"error": repr(e)}
             self._send(200, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        elif path == "/api/arb":
+            self._send(200, self.arb.table(), "application/json; charset=utf-8")
+        elif path == "/api/arb/chart":
+            body = self.arb.chart(self.path.split("?", 1)[1] if "?" in self.path else "")
+            if body is None:
+                self._send(404, b'{"error":"no such pair"}', "application/json; charset=utf-8")
+            else:
+                self._send(200, body, "application/json; charset=utf-8")
         elif path in ("/", "/index.html"):
             self._send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
         else:
@@ -135,12 +146,14 @@ def main():
     ap.add_argument("--thresholds", default=str(HERE / "thresholds.json"))
     ap.add_argument("--roots", default=str(HERE / "roots.json"))
     ap.add_argument("--netwatch", default="/data/netwatch")
+    ap.add_argument("--arb-dir", default="/data/arb-tab/live")
     a = ap.parse_args()
     Handler.health_dir = Path(a.health_dir)
     Handler.expected = load_json(a.exchanges) or []
     Handler.thresholds = load_json(a.thresholds)
     Handler.roots = load_json(a.roots) or {}
     Handler.net = v3.Net(a.netwatch)
+    Handler.arb = arb_api.Arb(a.arb_dir)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 
 

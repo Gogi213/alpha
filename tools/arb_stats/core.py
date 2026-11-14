@@ -16,6 +16,7 @@ CAP_MS = 60_000                                  # вес интервала н�
 WIN_MIN = 60                                     # окно центра, мин (viking: авто-центр по умолчанию 60)
 NEED_BARS = 30                                   # viking: need = max(3, окно // 2)
 HIST_LO, HIST_STEP, HIST_N = -300.0, 0.1, 6000   # гистограмма с шагом 0,1 bps на [−300; +300]
+SLOT_MIN = 3                                     # слот графика пары, мин
 TAU_EDGES_MS = [100, 500, 1000, 5000, 10000, 30000, 60000, 300000, 900000, 3600000]   # границы корзин времени схождения
 EDGE_X = [0.0, 0.5, 1, 2, 3, 5, 7.5, 10, 12.6, 15, 20, 30, 50, 100, 200]               # пороги «запас ≥ x bps» (доля времени)
 
@@ -199,6 +200,22 @@ def ep_table_stats(rows, fee=FEE_RT_BPS):
     return {"n": len(rows), "pk": [float(np.median(pk)), float(np.percentile(pk, 95)), float(pk.max())],
             "tau": [float(np.median(tau)), float(np.percentile(tau, 95))] if len(tau) else None,
             "net": [float(np.median(gr)), float(np.percentile(gr, 95))] if len(gr) else None}
+
+
+def chart_slots(b, tmin0, n):
+    """Максимум Sell, минимум Buy и центр (последний) по слотам SLOT_MIN минут (значения ×10, целые; None — нет данных)."""
+    mins = b["m0"] + b["mins"]
+    sl = (mins - tmin0) // SLOT_MIN
+    ok = (sl >= 0) & (sl < n)
+    mins, sl = mins[ok], sl[ok]
+    hi, lo, cen = np.full(n, -np.inf), np.full(n, np.inf), np.full(n, np.nan)
+    np.maximum.at(hi, sl, b["S"][1][ok])
+    np.minimum.at(lo, sl, b["B"][2][ok])
+    c = b["centre"]
+    cen[sl] = c[np.clip(mins - b["centre_m0"], 0, len(c) - 1)]   # бары идут по возрастанию — в слоте остаётся последний
+    has = np.isfinite(hi)
+    q = lambda v: [int(round(x * 10)) if f else None for x, f in zip(v, np.isfinite(v))]  # noqa: E731
+    return q(np.where(has, hi, np.nan)), q(np.where(has, lo, np.nan)), q(cen)
 
 
 def _wq(x, w, q):

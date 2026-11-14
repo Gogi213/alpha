@@ -16,23 +16,6 @@ sys.path.insert(0, __import__("pathlib").Path(__file__).parent.as_posix())
 import core  # noqa: E402
 
 NAMES = {"binance": "Binance", "bybit": "Bybit", "okx": "OKX", "bingx": "BingX"}
-SLOT_MIN = 3
-
-
-def slots(b, tmin0, n):
-    """Максимум Sell, минимум Buy и центр (последний) по слотам SLOT_MIN минут (значения ×10, целые; None — нет данных)."""
-    mins = b["m0"] + b["mins"]
-    sl = (mins - tmin0) // SLOT_MIN
-    ok = (sl >= 0) & (sl < n)
-    mins, sl = mins[ok], sl[ok]
-    hi, lo, cen = np.full(n, -np.inf), np.full(n, np.inf), np.full(n, np.nan)
-    np.maximum.at(hi, sl, b["S"][1][ok])
-    np.minimum.at(lo, sl, b["B"][2][ok])
-    c = b["centre"]
-    cen[sl] = c[np.clip(mins - b["centre_m0"], 0, len(c) - 1)]   # бары идут по возрастанию — в слоте остаётся последний
-    has = np.isfinite(hi)
-    q = lambda v: [int(round(x * 10)) if f else None for x, f in zip(v, np.isfinite(v))]  # noqa: E731
-    return q(np.where(has, hi, np.nan)), q(np.where(has, lo, np.nan)), q(cen)
 
 
 def r1(v):
@@ -47,7 +30,7 @@ def main(res_p, det_p, v3_p, page_p, tmpl_p, out_p):
     tmpl = open(tmpl_p, encoding="utf-8").read()
     t0, t1 = res["t0"], res["t1"]
     tmin0 = t0 // 60000
-    n = int(np.ceil((t1 - t0) / (SLOT_MIN * 60000)))
+    n = int(np.ceil((t1 - t0) / (core.SLOT_MIN * 60000)))
     rows = sorted((r for r in res["rows"] if "eps" in r), key=lambda r: (r["coin"], r["A"], r["B"]))
     out, detail = [], {}
     for i, r in enumerate(rows):
@@ -56,9 +39,9 @@ def main(res_p, det_p, v3_p, page_p, tmpl_p, out_p):
         out.append({"i": i, "c": r["coin"], "a": r["A"], "b": r["B"], "n": s["n"], "h": round(s["n"] / (r["cover_s"] / 3600), 3),
                     "pk": s["pk"] and [r1(x) for x in s["pk"]], "tau": s["tau"] and [round(x, 3) for x in s["tau"]],
                     "net": s["net"] and [r1(x) for x in s["net"]]})
-        S, B, C = slots(d["bars"], tmin0, n)
+        S, B, C = core.chart_slots(d["bars"], tmin0, n)
         detail[i] = {"S": S, "B": B, "C": C}
-    arb = {"t0": t0, "t1": t1, "slot": SLOT_MIN * 60, "fee": core.FEE_RT_BPS, "names": NAMES, "rows": out, "detail": detail}
+    arb = {"t0": t0, "t1": t1, "slot": core.SLOT_MIN * 60, "fee": core.FEE_RT_BPS, "names": NAMES, "rows": out, "detail": detail}
     css = re.search(r"<style>(.*?)</style>", page, re.S).group(1)
     js = re.search(r"<script>(.*?)</script>", page, re.S).group(1)
     js = re.sub(r"async function load\(\)\{.*?\n\}\n", "function load(){D=SNAP;render()}\n", js, flags=re.S)

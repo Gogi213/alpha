@@ -67,11 +67,13 @@ def work_coin(coin):
             row, bars, eps, hist = r
             row.update({"coin": coin, "A": ea, "B": eb})
             rows.append(row)
-            det[(coin, ea, eb)] = {"bars": bars, "eps": eps, "hist": hist}
+            det[(coin, ea, eb)] = g["hook"](row, bars, eps, hist) if g.get("hook") else {"bars": bars, "eps": eps, "hist": hist}
     return coin, rows, det, mism, {ex: {k: v for k, v in i.items()} for ex, i in info.items()}
 
 
-def main(work, day, t0, t1, out, clock):
+def compute(work, day, t0, t1, clock, hook=None, par=3):
+    """Счёт по всем парам: (строки, детали, несовпадения, сведения по монетам, число монет).
+    hook(row, bars, eps, hist) — если задан, подменяет тяжёлые детали пары на то, что вернёт (живая вкладка)."""
     symmap = build_symmap(day)
     meta = {ex: load_pool(ex, day)[1] for ex in EXCHANGES}
     coins = {}
@@ -81,8 +83,8 @@ def main(work, day, t0, t1, out, clock):
             exact = norm(ex, sym)[0] == coin   # две записи одной монеты на бирже (MASK / NULLMASK): берётся та, чьё имя совпадает
             if cur is None or (exact and not cur[2]):
                 coins[coin][ex] = (sym, mult, exact)
-    G.update({"work": work, "t0": t0, "t1": t1, "clock": clock, "coins": coins, "meta": meta})
-    with Pool(int(__import__("os").environ.get("PAR", "3"))) as p:
+    G.update({"work": work, "t0": t0, "t1": t1, "clock": clock, "coins": coins, "meta": meta, "hook": hook})
+    with Pool(par) as p:
         res = p.map(work_coin, sorted(coins), chunksize=4)
     rows, det, mism, info = [], {}, [], {}
     for coin, r, d, m, i in res:
@@ -90,6 +92,11 @@ def main(work, day, t0, t1, out, clock):
         det.update(d)
         mism += m
         info[coin] = i
+    return rows, det, mism, info, coins
+
+
+def main(work, day, t0, t1, out, clock):
+    rows, det, mism, info, coins = compute(work, day, t0, t1, clock, par=int(__import__("os").environ.get("PAR", "3")))
     lag = {}
     for ex in EXCHANGES:
         v = np.concatenate([np.array(i[ex]["lag"]) for i in info.values() if ex in i and i[ex]["lag"]] or [np.array([0])])
