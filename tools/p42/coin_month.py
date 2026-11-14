@@ -123,6 +123,7 @@ def run():
     pdata = {}
     diff = [0.0, 0.0]  # наибольшее |сумма P&L сделок − суточная сумма|: по портфелю×месяцу / по монете×месяцу
     coins = {}
+    cm = {}
     for side in ms.SIDES:
         for eng, rel, _ in ENG:
             v = ms.load(rel, side)
@@ -149,6 +150,7 @@ def run():
                     if tr:
                         diff[1] = max(diff[1], abs(r["trade_sum"] - r["total"]))
                     rows[side].append(csv_row(side, eng, coin, lab, part, r))
+                    cm[(side, eng, coin, lab)] = r
                     if lab == "ALL":
                         coins[(side, eng, coin)] = r
     for name, data in (("long", rows["long"]), ("short", rows["short"]), ("portfolio", port)):
@@ -156,7 +158,7 @@ def run():
             w = csv.writer(fh)
             w.writerow(COLS)
             w.writerows(data)
-    return pdata, coins, diff, {k: len(v) for k, v in rows.items()}
+    return pdata, coins, diff, {k: len(v) for k, v in rows.items()}, cm
 
 
 def table(cols):
@@ -182,7 +184,7 @@ def top_tables(coins, side, eng):
 
 
 def section():
-    pdata, coins, diff, counts = run()
+    pdata, coins, diff, counts, _ = run()
     W = ["## 5. По месяцам, монетам и в процентах (счёт $2 500, позиция $500)", ""]
     W += ["Владелец (14.11): «нужно вот это сделать для каждой монеты, каждой стороны и каждого месяца и сделять это еще и в процентных соотношениях тк мне нужно знать просалку в процентах и приросты в процентах».", ""]
     W += ["**Допущение: счёт $2 500, позиция $500, без плеча** (В-89, `docs/plan/SETTLED.md`: «позиция $500 „полная“, депозит $2 500, без плеча»; В-90 — лимит числа позиций не вводится). Проценты — пересчёт $ на счёт $2 500; сам счёт в расчёте не моделируется (позиция всегда $500, без реинвестирования). Основа = правила бота; тики — задержка 200 мс на вход и выход (основной блок), минутки — второй блок.", "",
