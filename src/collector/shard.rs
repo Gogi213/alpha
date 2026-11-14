@@ -35,6 +35,9 @@ const GAP_TIMEOUT_MS: u64 = 3000;
 const GAP_TICK: Duration = Duration::from_millis(500);
 /// Пауза перед новой попыткой улучшить путь сессии, принятой без проверки, после неудачной.
 const UPGRADE_RETRY: Duration = Duration::from_secs(60);
+/// Ленивая замена откладывается не дольше: испорченная линия (pong не вернулся) при здоровом партнёре заменяется через это время, иначе она остаётся мёртвой до возрастной
+/// пересмены (23 ч) и шард тихо работает на одной линии (14.11: Binance book05/book10 ≈ 55 мин). Здоровый партнёр несёт поток; линии заменяются по одной.
+const LAZY_BAD_MAX: Duration = Duration::from_secs(180);
 /// Замена, которая не принимает медленный путь (`never_slow`): после стольких отбраковок подряд пауза, чтобы не съесть бюджет подключений.
 pub const STRICT_PAUSE: Duration = Duration::from_secs(10);
 const STACK: usize = 1 << 20;
@@ -308,6 +311,33 @@ fn finish(s: SessionThread) {
     let _ = s.join.join();
 }
 
+/// Что делать с линией, которой нужна замена (испорчена, медленная или стара), при ленивой замене.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LazyDecision {
+    /// Откладываем: партнёр здоров и несёт поток.
+    Defer,
+    /// Заменяем, потому что испорченная линия ждала дольше `LAZY_BAD_MAX` при здоровом партнёре (иначе избыточность терялась бы до возрастной пересмены).
+    Forced,
+    /// Заменяем как обычно.
+    Replace,
+}
+
+pub(crate) fn lazy_decision(
+    lazy: bool,
+    old: bool,
+    partner_healthy: bool,
+    bad: bool,
+    bad_for: Option<Duration>,
+) -> LazyDecision {
+    if !lazy || old || !partner_healthy {
+        return LazyDecision::Replace;
+    }
+    if bad && bad_for.is_some_and(|d| d >= LAZY_BAD_MAX) {
+        return LazyDecision::Forced;
+    }
+    LazyDecision::Defer
+}
+
 /// Линия: живая сессия и смена без разрыва (возраст `max_age` или путь испортился).
 fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
     let mut seq = seq0;
@@ -319,6 +349,7 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         .unwrap_or_else(Instant::now);
     let mut upgrade_retry = Instant::now();
     let mut deferred: Option<u32> = None;
+    let mut bad_since: Option<(u32, Instant)> = None;
     while !sh.stop.load(Relaxed) {
         thread::sleep(Duration::from_millis(250));
         let (bad, slow_raw, open) = {
@@ -332,22 +363,41 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         if let Some(h) = lane.health.get(lane.k) {
             h.store(open && !bad && !slow_raw, Relaxed);
         }
+        if let Some(a) = sh.metrics.lane_ok.get(lane.k) {
+            a.store(open && !bad && !slow_raw, Relaxed);
+        }
+        if !bad {
+            bad_since = None;
+        } else if bad_since.is_none_or(|(s, _)| s != cur.seq) {
+            bad_since = Some((cur.seq, Instant::now()));
+        }
         let old = cur.born.elapsed() >= opts.max_age || sh.watch().is_retiring(cur.seq);
         // сессия принята без проверки пути, потому что шард был без соединения (холодный старт): путь меняется на проверенный позже, без смены входа
         let slow = !bad && !old && Instant::now() >= upgrade_retry && slow_raw;
         if !(bad || slow || old) {
             continue;
         }
-        // ленивая замена: пока партнёр по шарду здоров, поток идёт по нему, а эта линия не тратит подключения (возрастная пересменка не откладывается)
-        if opts.lazy && !old && lane.partner_healthy() {
-            if deferred != Some(cur.seq) {
-                deferred = Some(cur.seq);
-                sh.events.emit(
-                    "replace_deferred",
-                    json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
-                );
+        // ленивая замена: пока партнёр по шарду здоров, поток идёт по нему, а эта линия не тратит подключения (возрастная пересменка не откладывается);
+        // испорченная линия откладывается не дольше `LAZY_BAD_MAX` — иначе избыточность теряется до возрастной пересмены
+        let bad_for = bad_since
+            .filter(|(s, _)| *s == cur.seq)
+            .map(|(_, t)| t.elapsed());
+        match lazy_decision(opts.lazy, old, lane.partner_healthy(), bad, bad_for) {
+            LazyDecision::Defer => {
+                if deferred != Some(cur.seq) {
+                    deferred = Some(cur.seq);
+                    sh.events.emit(
+                        "replace_deferred",
+                        json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
+                    );
+                }
+                continue;
             }
-            continue;
+            LazyDecision::Forced => sh.events.emit(
+                "replace_forced",
+                json!({"line": lane.k, "session": cur.seq, "bad_s": bad_for.map(|d| d.as_secs())}),
+            ),
+            LazyDecision::Replace => {}
         }
         // замена, не принимающая медленный путь: для испорченного и медленного пути, не для возрастной пересменки (её старую сессию биржа всё равно рвёт)
         let strict = (opts.never_slow && !old).then_some(opts.strict_pause);

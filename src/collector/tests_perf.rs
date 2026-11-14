@@ -709,3 +709,19 @@ fn rxsock_exact_mode_hands_out_one_tls_record_per_read() {
     // одним чтением из ядра не считается: просмотр + снятие каждой записи
     assert!(s.syscalls() >= 6, "системных вызовов: {}", s.syscalls());
 }
+
+#[test]
+fn lazy_replacement_is_bounded_for_a_degraded_lane_with_a_healthy_partner() {
+    use super::shard::{lazy_decision as d, LazyDecision as D};
+    let sec = Duration::from_secs;
+    // испорченная линия, партнёр здоров: откладывается до 180 с, затем замена принудительная
+    assert_eq!(d(true, false, true, true, Some(sec(0))), D::Defer);
+    assert_eq!(d(true, false, true, true, Some(sec(179))), D::Defer);
+    assert_eq!(d(true, false, true, true, Some(sec(180))), D::Forced);
+    // не испорчена, только медленная: ленивость остаётся (улучшение пути необязательно)
+    assert_eq!(d(true, false, true, false, None), D::Defer);
+    // партнёр нездоров, линия стара или режим не ленивый — заменяем сразу, как раньше
+    assert_eq!(d(true, false, false, true, Some(sec(0))), D::Replace);
+    assert_eq!(d(true, true, true, true, Some(sec(0))), D::Replace);
+    assert_eq!(d(false, false, true, true, Some(sec(0))), D::Replace);
+}

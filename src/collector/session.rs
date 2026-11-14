@@ -593,6 +593,9 @@ impl Rx {
         m.bytes
             .fetch_add(u64::try_from(data.len()).unwrap_or(0), Relaxed);
         m.last_frame_ms.store(rx.div_euclid(1_000_000), Relaxed);
+        if let Some(l) = m.lane_last_ms.get(usize::from(self.lane)) {
+            l.store(rx.div_euclid(1_000_000), Relaxed);
+        }
         m.last_frame_mono_ms
             .store(super::shard::mono_ms_at(t_read), Relaxed);
         if n.is_multiple_of(RECVQ_EVERY) {

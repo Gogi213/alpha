@@ -271,6 +271,9 @@ pub fn build(
         let lanes = m.writer().lanes;
         per_shard.push(json!({
             "lanes": {"first": lanes.first, "delivered": lanes.delivered, "unique": lanes.unique},
+            // живость линий: здорова ли сессия и сколько секунд линия молчит (null — кадров ещё не было); тихая линия при живом партнёре — потерянная избыточность
+            "lane_ok": m.lane_ok.iter().take(2).map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect::<Vec<_>>(),
+            "lane_silent_s": m.lane_last_ms.iter().take(2).map(|a| { let t = a.load(std::sync::atomic::Ordering::Relaxed); (t > 0).then(|| (now_ms - t).max(0) / 1000) }).collect::<Vec<_>>(),
             "shard": m.name, "connected": m.connected.load(std::sync::atomic::Ordering::Relaxed), "msgs_10s": w.frames,
             "lag_in_p99_ms": shard_lag.percentile(0.99).map(us_to_ms), "rx_clamp_p99_us": shard_clamp_p99, "ring_depth_max": w.ring_depth_max, "recvq_max": w.recvq_max, "busy_max_us": w.busy_max_us,
         }));

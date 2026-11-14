@@ -5,7 +5,7 @@
 //! health). Не знает биржу и формат файлов; пишут в него потоки шарда, читает только health и строка статистики.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::fresh::Fresh;
@@ -322,6 +322,9 @@ pub struct ShardMetrics {
     pub bytes: AtomicU64,
     pub last_frame_ms: AtomicI64,
     pub last_frame_mono_ms: AtomicU64,
+    /// По линиям (до `MAX_LANES`): время последнего кадра линии, мс UTC (0 — кадров не было), и здорова ли сессия линии (открыта, не испорчена, не медленная).
+    pub lane_last_ms: [AtomicI64; super::writer::MAX_LANES],
+    pub lane_ok: [AtomicBool; super::writer::MAX_LANES],
     pub connected: AtomicI64,
     /// Recv-Q ядра (FIONREAD) в моменты чтения: максимум за окно статистики, байт
     pub recvq_max: AtomicU64,
@@ -352,6 +355,8 @@ impl ShardMetrics {
             bytes: AtomicU64::new(0),
             last_frame_ms: AtomicI64::new(0),
             last_frame_mono_ms: AtomicU64::new(0),
+            lane_last_ms: std::array::from_fn(|_| AtomicI64::new(0)),
+            lane_ok: std::array::from_fn(|_| AtomicBool::new(false)),
             connected: AtomicI64::new(0),
             recvq_max: AtomicU64::new(0),
             recvq_samples: AtomicU64::new(0),
