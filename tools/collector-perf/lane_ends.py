@@ -63,15 +63,15 @@ for ex, root in ROOTS.items():
             ev = j.get("ev")
             s = j.get("session")
             if ev == "connected" and s is not None:
-                conns[s] = ts
+                conns[(shard, s)] = ts   # номер сессии общий для шардов — ключ с шардом
             elif ev == "subscribed" and s is not None:
                 subs[(shard, lane_of(s))].append(ts)
             elif ev == "timeout" and s is not None:
-                timeouts[s] = (ts, j.get("kind"), j.get("data_alive"), j.get("tcp") or {})
+                timeouts[(shard, s)] = (ts, j.get("kind"), j.get("data_alive"), j.get("tcp") or {})
             elif ev in ("ws_close", "ws_end") and s is not None:
-                ws_info.setdefault(s, []).append((ts, ev, j))
+                ws_info.setdefault((shard, s), []).append((ts, ev, j))
             elif ev == "replace_forced" and s is not None:
-                forced.add(s)
+                forced.add((shard, s))
             elif ev == "stopped":
                 stopped[shard].append(ts)
             elif ev == "started":
@@ -80,7 +80,7 @@ for ex, root in ROOTS.items():
                 continue
             if ev in ("path_switch", "path_upgrade", "rotated"):
                 old = j.get("old_session")
-                to = timeouts.get(old)
+                to = timeouts.get((shard, old))
                 if ev == "path_switch":
                     if to and to[1] == "pong_only" and to[2]:
                         cls = "МЫ/замена по pong-таймауту при живых данных"
@@ -94,12 +94,12 @@ for ex, root in ROOTS.items():
                     cls = "МЫ/смена на лучший путь (был принят медленный)"
                 else:
                     cls = "МЫ/возрастная пересмена"
-                ends.append((ts, shard, lane_of(old), old, cls, {"deg_s": (ts - to[0]) if to else None, "forced": old in forced, "timeout": to}))
+                ends.append((ts, shard, lane_of(old), old, cls, {"deg_s": (ts - to[0]) if to else None, "forced": (shard, old) in forced, "timeout": to}))
             elif ev == "error" and s is not None:
-                info = ws_info.get(s)
+                info = ws_info.get((shard, s))
                 ends.append((ts, shard, lane_of(s), s, classify_error(j.get("err")), {"err": j.get("err"), "entrance": j.get("entrance")}))
             elif ev == "closed" and s is not None:
-                ends.append((ts, shard, lane_of(s), s, "PEER/кадр Close", {"info": ws_info.get(s)}))
+                ends.append((ts, shard, lane_of(s), s, "PEER/кадр Close", {"info": ws_info.get((shard, s))}))
     # перезапуски (накат): по одному на шард и запуск
     roll = []
     for shard, st in stopped.items():
@@ -118,7 +118,10 @@ for ex, root in ROOTS.items():
         nxt = [x for x in subs.get((shard, lane), []) if x > ts]
         overlap = cls.startswith("МЫ/") or cls.startswith("СЕТЬ/молчание")
         down = 0.0 if overlap else ((nxt[0] - ts) if nxt else None)
-        age = (ts - conns[s]) if s in conns else None
+        age = (ts - conns[(shard, s)]) if (shard, s) in conns else None
+        for _t, _e, _j in ws_info.get((shard, s), []):   # возраст по собственному счётчику сессии (`diag.age_s`) надёжнее: номер сессии может повторяться у линии
+            if (_j.get("diag") or {}).get("age_s") is not None:
+                age = _j["diag"]["age_s"]
         by_class[cls].append({"ts": ts, "shard": shard, "lane": lane, "session": s, "down_s": down, "age_s": age, "info": info, "mass": mass(ts)})
     summary[ex] = by_class
     n_roll = len(roll)

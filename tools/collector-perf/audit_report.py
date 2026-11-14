@@ -15,6 +15,13 @@ ROOT = sys.argv[sys.argv.index("--root") + 1] if "--root" in sys.argv else "/dat
 JSON_OUT = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else None
 EXCH = ("binance", "bybit", "okx", "bingx")
 ARMS = ("D", "R", "N")
+# боевой режим (--prod): одна «рука» P — боевой каталог биржи; окно — с последнего запуска текущей версии (событие `started` с той же `version`), либо с --since <epoch>
+PROD = "--prod" in sys.argv
+PROD_DIR = {"binance": "/data/collect/binance/data", "bybit": "/data/turbo-probe/soak-bybit/data", "okx": "/data/collect/okx/data", "bingx": "/data/collect/bingx/data"}
+PROD_HEALTH = {"binance": "/data/turbo-probe/soak-binance/health.json", "bybit": "/data/turbo-probe/soak-bybit/health.json", "okx": "/data/collect/okx/health.json", "bingx": "/data/collect/bingx/health.json"}
+SINCE_ARG = float(sys.argv[sys.argv.index("--since") + 1]) if "--since" in sys.argv else None
+if PROD:
+    ARMS = ("P",)
 # Лимиты биржи на тишину входящих, мс (по документации): сверх — наш heartbeat дефектен. Bybit — рекомендация пинга ≤ 20 с, OKX — разрыв при 30 с без данных, BingX — Pong в ответ на Ping (≈ 5 с).
 IDLE_LIMIT_MS = {"binance": 600_000, "bybit": 20_000, "okx": 30_000, "bingx": 30_000}
 # Задержка нашего pong на пинг биржи, сверх которой считаем ответ поздним.
@@ -31,7 +38,7 @@ def fmt(x, nd=0):
 
 
 def load(ex, arm):
-    d = f"{ROOT}/{ex}-{arm}/data"
+    d = PROD_DIR[ex] if PROD else f"{ROOT}/{ex}-{arm}/data"
     ev = []
     for f in glob.glob(d + "/events-*.jsonl"):
         shard = f.split("events-")[1][:-6]
@@ -43,6 +50,13 @@ def load(ex, arm):
             j["_shard"] = shard
             ev.append(j)
     ev.sort(key=lambda j: j.get("ts_ms", 0))
+    if PROD:
+        since = SINCE_ARG * 1000 if SINCE_ARG else None
+        if since is None:   # с первого запуска той же версии, что и последний `started`
+            st = [j for j in ev if j.get("ev") == "started"]
+            ver = st[-1].get("version") if st else None
+            since = min((j["ts_ms"] for j in st if j.get("version") == ver), default=0)
+        ev = [j for j in ev if j.get("ts_ms", 0) >= since]
     return ev
 
 
@@ -80,7 +94,7 @@ for ex in EXCH:
         t0 = min((j["ts_ms"] for j in ev if j.get("ev") == "started"), default=ev[0]["ts_ms"]) / 1000
         t1 = ev[-1]["ts_ms"] / 1000
         try:   # события редки: конец окна — по последней записи health
-            t1 = max(t1, json.load(open(f"{ROOT}/{ex}-{arm}/health.json"))["ts_ms"] / 1000)
+            t1 = max(t1, json.load(open(PROD_HEALTH[ex] if PROD else f"{ROOT}/{ex}-{arm}/health.json"))["ts_ms"] / 1000)
         except Exception:
             pass
         conns = {(j["_shard"], j["session"]): j["ts_ms"] / 1000 for j in ev if j.get("ev") == "connected"}   # номер сессии общий для шардов
@@ -127,7 +141,7 @@ for ex in EXCH:
             print(f"   наш pong на пинг биржи (ядерная метка → после записи), мкс: p50/p90/max {pct(pong_us, .5):.0f}/{pct(pong_us, .9):.0f}/{max(pong_us)}")
         if n_end:
             print(f"   дефекты нашей стороны при закрытиях: " + (", ".join(f"{k} — {v} из {n_end}" for k, v in fl.most_common()) or "нет"))
-        for ts, shard, lane, kind, j, fs in detail[:40]:
+        for ts, shard, lane, kind, j, fs in detail[: (400 if PROD else 40)]:
             d = j.get("diag") or {}
             t = j.get("tcp") or {}
             print(f"     {time.strftime('%H:%M:%S', time.gmtime(ts))} {shard:7s} л{lane} {kind[:26]:26s} возраст {d.get('age_s', 0) / 60:5.1f} мин | с кадра {d.get('since_frame_ms')} мс, "
