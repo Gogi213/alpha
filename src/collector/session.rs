@@ -34,6 +34,8 @@ pub const PING_PERIOD: Duration = Duration::from_secs(5);
 const SLOW_PONG: Duration = Duration::from_secs(1);
 /// Порог «таймаут» страницы здоровья (нет pong), назначаемое.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(10);
+/// Данные свежие, если последний кадр линии моложе этого срока; при `--no-pong-only-degrade` нет pong при свежих данных линию не портит (журнал `timeout` и счётчики health остаются).
+pub const FRESH_DATA: Duration = Duration::from_secs(2);
 /// Тик чтения: период, с которым поток просыпается без кадров (пинг, остановка, проверка пути).
 pub const READ_TICK: Duration = Duration::from_millis(200);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -61,8 +63,8 @@ pub struct Shared {
     pub probe_window: (f64, f64),
     /// Период пинга и срок ожидания pong.
     pub ping: (Duration, Duration),
-    /// `false` (`--no-pong-only-degrade`): нет pong на НАШ пинг при живых данных не портит линию (событие `timeout` пишется, пинг продолжается); портят линию только молчание
-    /// (нет ни pong, ни данных за срок) и лаг доставки. Наш пинг — не требование биржи, а наш способ следить за путём.
+    /// `false` (`--no-pong-only-degrade`): нет pong на НАШ пинг при свежих данных (последний кадр моложе `FRESH_DATA`, 2 с) не портит линию (событие `timeout` пишется, счётчики health растут, пинг
+    /// продолжается); портят линию молчание (нет ни pong, ни данных за срок), данные старше `FRESH_DATA` и лаг доставки. Наш пинг — не требование биржи, а наш способ следить за путём.
     pub pong_only_degrades: bool,
     /// `--no-ping`: наш протокольный пинг не шлётся вовсе (опыт «не наш ли пинг провоцирует закрытия»; без пинга сторож пути не видит нет-pong, только лаг и обрывы чтения).
     pub no_ping: bool,
@@ -593,7 +595,10 @@ impl Rx {
                 Some((t0, _)) if now.duration_since(t0) >= sh.ping.1 => {
                     // как в Python (`Session.pinger`): нет pong за PING_TIMEOUT — таймаут (счётчик health, событие) и путь испорчен: не рвём, а помечаем,
                     // шард откроет замену, примет её окном проверки пути и закроет эту сессию после перекрытия. `data_alive` делит таймауты на «pong нет, данные живы» (`pong_only`) и «канал молчит» (`silent`)
-                    let alive = now.duration_since(self.last_frame) < sh.ping.1;
+                    let since_frame = now.duration_since(self.last_frame);
+                    let alive = since_frame < sh.ping.1;
+                    // «свежие данные»: последний кадр моложе `FRESH_DATA` (решение координатора 14.11 после происшествия Binance 20:50 UTC: у всей биржи разом пропали pong при идущих данных)
+                    let fresh = since_frame < FRESH_DATA.min(sh.ping.1);
                     {
                         let mut l = m.lists();
                         l.timeouts.push_back(now_ms());
@@ -601,9 +606,9 @@ impl Rx {
                             l.timeouts_silent.push_back(now_ms());
                         }
                     }
-                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "kind": if alive { "pong_only" } else { "silent" }, "tcp": tcp_json(ws.get_ref().tcp()), "diag": self.diag_json()}));
-                    if alive && !sh.pong_only_degrades {
-                        // данные живы: линию не трогаем, пинг продолжается (следующий — по периоду)
+                    sh.events.emit("timeout", json!({"what": "ping", "session": seq, "data_alive": alive, "fresh_data": fresh, "kind": if alive { "pong_only" } else { "silent" }, "tcp": tcp_json(ws.get_ref().tcp()), "diag": self.diag_json()}));
+                    if fresh && !sh.pong_only_degrades {
+                        // данные свежие (последний кадр моложе `FRESH_DATA`): журнал и счётчик, линию не трогаем, пинг продолжается (следующий — по периоду); тишина и данные старше — как раньше
                         self.ping_sent = None;
                         self.last_ping = now;
                     } else {

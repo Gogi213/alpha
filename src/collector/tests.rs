@@ -3210,6 +3210,16 @@ fn spawn_mute(
     stop: Arc<AtomicBool>,
     frames: Option<usize>,
 ) -> std::thread::JoinHandle<()> {
+    spawn_mute_paced(listener, stop, frames, Duration::from_millis(2))
+}
+
+/// То же с заданным интервалом между кадрами (`period`): редкие кадры — данные «живы», но не «свежие».
+fn spawn_mute_paced(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    frames: Option<usize>,
+    period: Duration,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         listener.set_nonblocking(true).unwrap();
         let mut conns = Vec::new();
@@ -3239,7 +3249,7 @@ fn spawn_mute(
                                     return;
                                 }
                             }
-                            std::thread::sleep(Duration::from_millis(2));
+                            std::thread::sleep(period);
                         }
                     }));
                 }
@@ -3297,6 +3307,49 @@ fn missing_pong_with_live_data_does_not_degrade_when_the_rule_is_off() {
         "линия не испорчена"
     );
     assert!(metrics.writer().records > 100, "поток шёл");
+}
+
+/// `--no-pong-only-degrade` не покрывает данные старше `FRESH_DATA` (2 с): кадры идут раз в 3 с (живые, но не свежие) — нет pong за 5 с портит линию (`ping_degraded`), как и без флага.
+#[test]
+fn missing_pong_with_stale_but_alive_data_still_degrades_when_the_rule_is_off() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    let src = spawn_mute_paced(
+        listener,
+        Arc::clone(&stop_src),
+        None,
+        Duration::from_secs(3),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (4.0, 15.0));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(5));
+    opts.pong_only_degrades = false;
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "ping_degraded") < 1 && t0.elapsed() < Duration::from_secs(25) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(count_events(dir.path(), "timeout") >= 1, "таймаут записан");
+    assert!(
+        count_events(dir.path(), "ping_degraded") >= 1,
+        "данные старше 2 с — линия портится, флаг не применяется"
+    );
 }
 
 /// Нет pong за PING_TIMEOUT — таймаут и `degraded`, даже когда кадры идут (как в Python `Session.pinger`); `data_alive` в событии — диагностика.
