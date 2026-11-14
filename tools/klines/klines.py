@@ -9,6 +9,10 @@ Steps (resumable; every file is written atomically, a finished symbol gets <SYMB
   partial  the day after the window, up to the last closed minute -> <YYYY-MM-DD>.partial.csv
   verify   rows/gaps per symbol-day, 1d vs sum(1m), random REST spot-check -> <root>/<exchange>/manifest.json
 Groups: prep = symbols+daily+overlap, download = fetch+partial+verify, all = both. Launch under systemd-run: launch.sh.
+Warmup (same symbols as the main run, earlier window, state files get a tag): warmup --start 2026-09-01 --days 14 --tag .warmup
+  = daily+fetch+verify -> same <SYMBOL>/<day>.csv layout, daily.warmup.json, filter.warmup.json, manifest.warmup.json.
+funding  funding-rate history of the same symbols from --funding-from to now -> <SYMBOL>/funding.csv + funding_manifest.json
+  (Binance /fapi/v1/fundingRate, paced to 48 % of its 500/5min/IP limit; Bybit /v5/market/funding/history).
 
 Values are kept exactly as the exchange sends them (strings), nothing is filled or rounded.
 Binance 1m: data.binance.vision zips (sha256 against .CHECKSUM), monthly where published, else daily, REST only for
@@ -76,7 +80,14 @@ class Cfg:
         self.workers = a.workers
         self.only = set(filter(None, a.only.split(",")))
         self.force = a.force
+        self.tag = a.tag
+        self.funding_from = a.funding_from
         self.progress_lock = threading.Lock()
+
+    def name(self, base):
+        """State file name of this run: daily.json -> daily.warmup.json when --tag .warmup."""
+        stem, ext = os.path.splitext(base)
+        return stem + self.tag + ext
 
     def path(self, ex, *p):
         return os.path.join(self.root, ex, *p)
@@ -145,8 +156,9 @@ class Binance:
         self.minute = -1
         self.used = 0
         self.bans = 0
+        self.last_spaced = 0.0
 
-    def get(self, path, cost):
+    def get(self, path, cost, spacing=0.0):
         with self.lock:
             while True:
                 m = int(time.time() // 60)
@@ -155,6 +167,9 @@ class Binance:
                 if self.used + cost > self.cap:
                     time.sleep(60 - time.time() % 60 + 0.5)
                     continue
+                if spacing:                     # endpoints with their own limit (fundingRate: 500/5min/IP, no usage header)
+                    time.sleep(max(0.0, self.last_spaced + spacing - time.time()))
+                    self.last_spaced = time.time()
                 st, h, body = self.http.get(path)
                 self.used += cost
                 if "x-mbx-used-weight-1m" in h and int(time.time() // 60) == self.minute:
@@ -208,6 +223,9 @@ class Bybit:
             if d["retCode"] in (10006, 10018):
                 self._pause(10, f"retCode {d['retCode']}")
                 continue
+            if d["retCode"] in (10000, 10016):              # transient server error
+                time.sleep(2)
+                continue
             if d["retCode"] != 0:
                 raise ApiError(f"bybit {path}: {d['retCode']} {d['retMsg']}")
             return d["result"]
@@ -218,6 +236,15 @@ BN = Binance()
 BB = Bybit()
 VISION = Http("data.binance.vision")
 S3H = Http(S3)
+
+
+def selected(cfg, ex):
+    """Symbols of the main run to download: Binance qualifying, Bybit overlap.json bybit_download."""
+    if ex == "bybit":
+        syms = cfg.jload(ex, "overlap.json")["bybit_download"]
+    else:
+        syms = sorted(s for s, f in cfg.jload(ex, "filter.json").items() if f["qualifies"])
+    return [s for s in syms if not cfg.only or s in cfg.only]
 
 
 # ---------------------------------------------------------------- symbols
@@ -319,6 +346,9 @@ def bb_daily(sym, cfg):
 
 def daily_step(cfg, ex):
     cand = cfg.jload(ex, "symbols.json")["candidates"]
+    if cfg.tag:                                     # warmup: only the symbols the main run downloads
+        sel = set(selected(cfg, ex))
+        cand = [c for c in cand if c["symbol"] in sel]
     if cfg.only:
         cand = [c for c in cand if c["symbol"] in cfg.only]
     fetch = bn_daily if ex == "binance" else bb_daily
@@ -342,9 +372,9 @@ def daily_step(cfg, ex):
                         median_daily_turnover=dec(statistics.median(act.values())) if act else None,
                         max_daily_turnover=dec(max(qv.values())) if qv else None,
                         first_day_ge=ge[0] if ge else None, qualifies=bool(ge))
-    cfg.jsave(ex, "daily.json", daily)
-    cfg.jsave(ex, "filter.json", flt)
-    write_atomic(cfg.path(ex, "daily_turnover.csv"), "\n".join(lines) + "\n")
+    cfg.jsave(ex, cfg.name("daily.json"), daily)
+    cfg.jsave(ex, cfg.name("filter.json"), flt)
+    write_atomic(cfg.path(ex, cfg.name("daily_turnover.csv")), "\n".join(lines) + "\n")
     cfg.progress(ex, "daily", len(cand), len(cand))
     log(f"{ex} daily: {len(cand)} candidates, qualifying {sum(v['qualifies'] for v in flt.values())}")
 
@@ -507,6 +537,8 @@ def bn_fetch_symbol(cfg, sym, drows):
 
 
 def bb_fetch_symbol(cfg, sym, drows):
+    if not drows:
+        return {}, 0, {"rest": []}
     first, last = day_ms(min(drows)), day_ms(max(drows)) + DAY
     lines = bb_rest_lines(sym, first, last - MIN)
     rows, dupes = write_days(cfg, "bybit", sym, bucket(lines, cfg))
@@ -514,21 +546,16 @@ def bb_fetch_symbol(cfg, sym, drows):
 
 
 def fetch_step(cfg, ex):
-    flt, daily = cfg.jload(ex, "filter.json"), cfg.jload(ex, "daily.json")
-    if ex == "bybit":
-        syms = cfg.jload(ex, "overlap.json")["bybit_download"]
-    else:
-        syms = sorted(s for s, f in flt.items() if f["qualifies"])
-    if cfg.only:
-        syms = [s for s in syms if s in cfg.only]
-    todo = [s for s in syms if cfg.force or not os.path.exists(cfg.path(ex, s, "_done.json"))]
+    daily = cfg.jload(ex, cfg.name("daily.json"))
+    syms = selected(cfg, ex)
+    todo = [s for s in syms if cfg.force or not os.path.exists(cfg.path(ex, s, cfg.name("_done.json")))]
     log(f"{ex} fetch: {len(syms)} symbols, {len(todo)} to do")
     fn = bn_fetch_symbol if ex == "binance" else bb_fetch_symbol
     done = [len(syms) - len(todo)]
 
     def one(sym):
         rows, dupes, src = fn(cfg, sym, daily[sym])
-        write_atomic(cfg.path(ex, sym, "_done.json"), json.dumps(dict(symbol=sym, days=len(rows), rows=sum(rows.values()), dupes=dupes,
+        write_atomic(cfg.path(ex, sym, cfg.name("_done.json")), json.dumps(dict(symbol=sym, days=len(rows), rows=sum(rows.values()), dupes=dupes,
                                                                    sources=src, finished=iso(int(time.time() * 1000)))) + "\n")
         done[0] += 1
         if done[0] % 10 == 0 or done[0] == len(syms):
@@ -543,11 +570,10 @@ def fetch_step(cfg, ex):
 
 
 def partial_step(cfg, ex):
-    syms = cfg.jload(ex, "overlap.json")["bybit_download"] if ex == "bybit" else sorted(
-        s for s, f in cfg.jload(ex, "filter.json").items() if f["qualifies"])
+    if cfg.tag:
+        return
+    syms = selected(cfg, ex)
     sc = {c["symbol"]: c for c in cfg.jload(ex, "symbols.json")["candidates"]}
-    if cfg.only:
-        syms = [s for s in syms if s in cfg.only]
     d0 = cfg.end
     until = min(int(time.time() // 60) * MIN, d0 + DAY)          # exclusive: last closed minute + 1
     suffix = ".partial.csv" if until < d0 + DAY else ".csv"
@@ -624,8 +650,9 @@ def scan_symbol(cfg, ex, sym, drows, meta):
     for a, b in zip(ots, ots[1:]):
         if b - a > MIN:
             gaps.append([a + MIN, b - MIN, (b - a) // MIN - 1])
-    if ots and expected and expected[0] == cfg.day_list[0] and ots[0] > cfg.start:
-        gaps.insert(0, [cfg.start, ots[0] - MIN, (ots[0] - cfg.start) // MIN])
+    exp_start = max(cfg.start, meta["onboard_ms"] // MIN * MIN)      # nothing is expected before the listing minute
+    if ots and expected and ots[0] > exp_start:
+        gaps.insert(0, [exp_start, ots[0] - MIN, (ots[0] - exp_start) // MIN])
     alive = not meta["delivery_ms"] or meta["delivery_ms"] >= cfg.end
     if ots and alive and ots[-1] < cfg.end - MIN:
         gaps.append([ots[-1] + MIN, cfg.end - MIN, (cfg.end - ots[-1]) // MIN - 1])
@@ -641,14 +668,15 @@ def rest_day_lines(ex, sym, day):
 
 def verify_step(cfg, ex):
     meta = {c["symbol"]: c for c in cfg.jload(ex, "symbols.json")["candidates"]}
-    flt, daily = cfg.jload(ex, "filter.json"), cfg.jload(ex, "daily.json")
-    part = cfg.jload(ex, "partial.json", {})
-    syms = sorted(s for s in flt if os.path.exists(cfg.path(ex, s, "_done.json")))
+    flt, daily = cfg.jload(ex, cfg.name("filter.json")), cfg.jload(ex, cfg.name("daily.json"))
+    part = {} if cfg.tag else cfg.jload(ex, "partial.json", {})
+    done_name = cfg.name("_done.json")
+    syms = sorted(s for s in flt if os.path.exists(cfg.path(ex, s, done_name)))
     log(f"{ex} verify: {len(syms)} downloaded symbols")
     out, done = {}, 0
     with ThreadPoolExecutor(2) as pool:
         for s, r in zip(syms, pool.map(lambda s: scan_symbol(cfg, ex, s, daily[s], meta[s]), syms)):
-            r["sources"] = json.load(open(cfg.path(ex, s, "_done.json")))["sources"]
+            r["sources"] = json.load(open(cfg.path(ex, s, done_name)))["sources"]
             out[s] = r
             done += 1
             if done % 25 == 0:
@@ -664,7 +692,7 @@ def verify_step(cfg, ex):
         spot.append(dict(symbol=s, day=d, rows_file=len(got), rows_rest=len(exp), identical=(got == exp), first_diff_row=diff))
         log(f"{ex} spot-check {s} {d}: identical={got == exp} file={len(got)} rest={len(exp)}")
     mism = sum(len(r["mismatches_1d_vs_1m"]) for r in out.values())
-    ov = cfg.jload(ex, "overlap.json")
+    ov = None if cfg.tag else cfg.jload(ex, "overlap.json")
     skipped = {b: [r["binance"] for r in ov["overlap"] if r["bybit"] == b][0] for b in ov["skipped"]} if ov else {}
     manifest = dict(
         exchange=ex, market="USDT-margined perpetuals" + (" (Binance USD-M; incl. TRADIFI_PERPETUAL)" if ex == "binance" else " (Bybit v5 linear, LinearPerpetual)"),
@@ -682,10 +710,106 @@ def verify_step(cfg, ex):
         skipped_as_on_binance=skipped,
         symbols={s: dict(meta[s], **flt[s], downloaded=(s in out), **out.get(s, {})) for s in sorted(flt)},
         written=iso(int(time.time() * 1000)))
-    cfg.jsave(ex, "manifest.json", manifest)
+    cfg.jsave(ex, cfg.name("manifest.json"), manifest)
     t = manifest["totals"]
     log(f"{ex} manifest: symbols {len(syms)}, rows {t['rows']}, gap minutes {t['gap_minutes']}, not-1440 days {t['symbol_days_not_1440']}, "
         f"1d-vs-1m mismatches {t['mismatches_1d_vs_1m']}, spot-check {sum(s['identical'] for s in spot)}/{len(spot)} identical")
+
+
+# ---------------------------------------------------------------- funding
+
+FUNDING_HEADER = {"binance": "funding_time,funding_rate,mark_price,rate_type", "bybit": "funding_time,funding_rate"}
+
+
+def bn_funding_lines(sym, start, until):
+    out, t = [], start
+    while True:
+        rows = BN.get(f"/fapi/v1/fundingRate?symbol={sym}&startTime={t}&endTime={until}&limit=1000", 1, spacing=1.25)
+        out += [f"{r['fundingTime']},{r['fundingRate']},{r['markPrice']},{r.get('rateType', '')}" for r in rows]
+        if len(rows) < 1000:
+            return out
+        t = rows[-1]["fundingTime"] + 1
+
+
+def bb_funding_lines(sym, start, until):
+    rows, end = {}, until
+    while True:
+        r = BB.get(f"/v5/market/funding/history?category=linear&symbol={sym}&startTime={start}&endTime={end}&limit=200")["list"]
+        for x in r:
+            rows[int(x["fundingRateTimestamp"])] = f"{x['fundingRateTimestamp']},{x['fundingRate']}"
+        if len(r) < 200:
+            return [rows[k] for k in sorted(rows)]
+        end = min(int(x["fundingRateTimestamp"]) for x in r) - 1
+
+
+def funding_step(cfg, ex):
+    syms = selected(cfg, ex)
+    start = day_ms(cfg.funding_from)
+    fn = bn_funding_lines if ex == "binance" else bb_funding_lines
+    todo = [s for s in syms if cfg.force or not os.path.exists(cfg.path(ex, s, "funding.csv"))]
+    run = cfg.jload(ex, "funding_run.json")
+    if run and len(todo) < len(syms):                  # resumed or already done: keep the recorded cut-off
+        until = run["until_ms"]
+    else:
+        until = int(time.time() * 1000)
+        cfg.jsave(ex, "funding_run.json", dict(from_ms=start, until_ms=until, until_utc=iso(until)))
+    log(f"{ex} funding: {len(syms)} symbols, {len(todo)} to do, {cfg.funding_from} .. {iso(until)}")
+    done = [len(syms) - len(todo)]
+
+    def one(sym):
+        lines = fn(sym, start, until)
+        write_atomic(cfg.path(ex, sym, "funding.csv"), FUNDING_HEADER[ex] + "\n" + "".join(l + "\n" for l in lines))
+        done[0] += 1
+        if done[0] % 25 == 0 or done[0] == len(syms):
+            log(f"{ex} funding {done[0]}/{len(syms)}")
+            cfg.progress(ex, "funding", done[0], len(syms))
+
+    with ThreadPoolExecutor(1 if ex == "binance" else 3) as pool:
+        for f in [pool.submit(one, s) for s in todo]:
+            f.result()
+    stats, anomalies = {}, []
+    for s in syms:
+        with open(cfg.path(ex, s, "funding.csv"), newline="") as f:
+            lines = f.read().split("\n")
+        if lines[0] != FUNDING_HEADER[ex] or lines[-1] != "":
+            anomalies.append(f"{s}: bad header/trailer")
+        ts = [int(l.split(",", 1)[0]) for l in lines[1:-1]]
+        if ts != sorted(set(ts)) or (ts and (ts[0] < start or ts[-1] > until)):
+            anomalies.append(f"{s}: not strictly ascending or outside [from, until]")
+        hrs = [round((b - a) / 3_600_000, 2) for a, b in zip(ts, ts[1:])]
+        mode = max(set(hrs), key=hrs.count) if hrs else None
+        stats[s] = dict(rows=len(ts), first=iso(ts[0]) if ts else None, last=iso(ts[-1]) if ts else None,
+                        interval_hours_mode=mode, interval_hours_other={str(h): hrs.count(h) for h in sorted(set(hrs)) if h != mode},
+                        hours_since_last=round((until - ts[-1]) / 3_600_000, 2) if ts else None)
+    rng = random.Random(14112026)
+    spot = []
+    for s in rng.sample(syms, min(5, len(syms))):
+        exp = fn(s, start, until)
+        with open(cfg.path(ex, s, "funding.csv"), newline="") as f:
+            got = f.read().split("\n")[1:-1]
+        spot.append(dict(symbol=s, rows_file=len(got), rows_rest=len(exp), identical=(got == exp)))
+        log(f"{ex} funding spot-check {s}: identical={got == exp} file={len(got)} rest={len(exp)}")
+    manifest = dict(exchange=ex, source=("api: fapi.binance.com /fapi/v1/fundingRate, 1000 per request, paced 1.25 s (500/5min/IP shared limit)" if ex == "binance"
+                                          else "api.bybit.com /v5/market/funding/history, 200 per request"),
+                    header=FUNDING_HEADER[ex], from_utc=iso(start), until_utc=iso(until), symbols=stats, anomalies=anomalies,
+                    totals=dict(symbols=len(syms), rows=sum(v["rows"] for v in stats.values()), symbols_without_rows=sum(1 for v in stats.values() if not v["rows"])),
+                    spot_check=spot, written=iso(int(time.time() * 1000)))
+    cfg.jsave(ex, "funding_manifest.json", manifest)
+    t = manifest["totals"]
+    log(f"{ex} funding manifest: symbols {t['symbols']}, rows {t['rows']}, no-row symbols {t['symbols_without_rows']}, anomalies {len(anomalies)}, "
+        f"spot-check {sum(x['identical'] for x in spot)}/{len(spot)} identical")
+
+
+def firstday_step(cfg, ex):
+    """First UTC day with quote turnover >= threshold, over the main window and over the warmup window (needs filter.warmup.json)."""
+    main, warm = cfg.jload(ex, "filter.json"), cfg.jload(ex, "filter.warmup.json", {})
+    lines = ["symbol,first_day_ge_warmup_window,first_day_ge_main_window,first_day_ge_overall"]
+    for sym in selected(cfg, ex):
+        w = warm.get(sym, {}).get("first_day_ge")
+        m = main[sym]["first_day_ge"]
+        lines.append(f"{sym},{w or ''},{m or ''},{w or m or ''}")
+    write_atomic(cfg.path(ex, "first_qualifying_day.csv"), "\n".join(lines) + "\n")
+    log(f"{ex} first_qualifying_day.csv: {len(lines) - 1} symbols")
 
 
 # ---------------------------------------------------------------- main
@@ -698,7 +822,7 @@ def per_exchange(fn, cfg, exs):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("step", choices=["symbols", "daily", "overlap", "fetch", "partial", "verify", "prep", "download", "all"])
+    p.add_argument("step", choices=["symbols", "daily", "overlap", "fetch", "partial", "verify", "funding", "firstday", "prep", "download", "warmup", "all"])
     p.add_argument("--root", default="/data/klines")
     p.add_argument("--start", default="2026-09-15")
     p.add_argument("--days", type=int, default=60)
@@ -707,12 +831,16 @@ def main():
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--only", default="", help="comma list of symbols (tests)")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--tag", default="", help="suffix of the state files, e.g. .warmup (symbols still come from the main run)")
+    p.add_argument("--funding-from", default="2026-09-01")
     a = p.parse_args()
     cfg = Cfg(a)
     exs = a.exchanges.split(",")
     sym_fn = {"binance": symbols_binance, "bybit": symbols_bybit}
     groups = {"prep": ["symbols", "daily", "overlap"], "download": ["fetch", "partial", "verify"],
-              "all": ["symbols", "daily", "overlap", "fetch", "partial", "verify"]}
+              "warmup": ["daily", "fetch", "verify"], "all": ["symbols", "daily", "overlap", "fetch", "partial", "verify"]}
+    if a.step == "warmup" and not a.tag:
+        raise SystemExit("warmup needs --tag .warmup (and --start/--days of the warmup window)")
     steps = groups.get(a.step, [a.step])
     for step in steps:
         log(f"step {step} start")
@@ -728,6 +856,10 @@ def main():
             per_exchange(partial_step, cfg, exs)
         elif step == "verify":
             per_exchange(verify_step, cfg, exs)
+        elif step == "funding":
+            per_exchange(funding_step, cfg, exs)
+        elif step == "firstday":
+            per_exchange(firstday_step, cfg, exs)
         log(f"step {step} done")
 
 
