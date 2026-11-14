@@ -87,7 +87,7 @@ for side in SIDES:
     res = R[side]
     w("### %s" % SIDE_RU[side].capitalize())
     w("Испытаний на сторону: **%d** (шаг 1: 70 небазовых значений; расширения на краю: %d; вторая итерация: %d совместных клеток; кандидаты: %d). PBO по таблице шага 1 (%d конфигураций, 60 суток, 10 частей): **%s**.\n" % (
-        res["trials"], json.load(open(os.path.join(ROOT, "plan-ext.json")))[side],
+        res["trials"], len(json.load(open(os.path.join(ROOT, "plan-ext.json")))[side]),
         len(json.load(open(os.path.join(ROOT, "plan-joint.json")))[side]["new_trials"]),
         len([k for k in res["cand"] if k != "base"]), res["pbo_n_configs"], n(res["pbo"]["pbo"])))
     w("| кандидат | половина | сделок | $/сут. [95 %] | p (двуст.) / Холм | нижняя граница после Холма | DSR (дневной Шарп / замещённый) | $/сделку (bps) | доля стопов | худшие сутки | KPI В-120: дольше всего без перехая / p90, сут. |")

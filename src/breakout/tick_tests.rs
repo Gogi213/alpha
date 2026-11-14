@@ -1,0 +1,450 @@
+//! Тесты шага B П-42 (§13.2): сигнал по сделкам без заглядывания, вход до пробоя, вход по агрессивной сделке стороны,
+//! тейки только строго через цену, стоп по цене сделки, фандинг и суточная переоценка по сделкам.
+
+use super::data::{Fund, Sym, MIN_MS, START_DAY};
+use super::levels::build_levels;
+use super::params::Params;
+use super::tests::{flat, level_world, lv_params, px, run_scan, set, sym, BORN};
+use super::tick::{
+    candidates, first_signal, minute_range, parse_trades, run_tick, settle_tick, signals_for_coin,
+    sim_stream, LoadStat, TLeg, Tick, TickCtr, TickOut, TradeSrc, DAY_MS,
+};
+use super::trade::{ExitKind, NOTIONAL_U};
+use super::Side;
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::sync::Arc;
+
+fn tk(m: usize, ms: u32, price: f64, bm: bool) -> Tick {
+    Tick {
+        px: px(price),
+        off: (m % 1440) as u32 * 60_000 + ms,
+        bm,
+    }
+}
+
+const E_E8: i64 = 300_000; // 0,3 %
+
+#[test]
+fn csv_parse_header_fields_and_out_of_day() {
+    let day = START_DAY;
+    let base = super::data::T0_MS + day as i64 * DAY_MS;
+    let csv = format!(
+        "agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker\n\
+         1,78549.6,0.025,10,11,{},false\n\
+         2,78549.5,0.016,12,16,{},true\n\
+         3,78549.0,0.003,17,17,{},true\n\
+         4,1.0,1,18,18,{},false\n",
+        base + 5,
+        base + 3, // время назад — файл будет отсортирован
+        base + 20,
+        base + DAY_MS + 1, // вне суток — отброшена
+    );
+    let mut st = LoadStat::default();
+    let v = parse_trades(Cursor::new(csv.as_bytes()), day, &mut st).expect("разбор");
+    assert_eq!(v.len(), 3);
+    assert_eq!(st.out_of_day, 1);
+    assert_eq!(
+        st.unsorted_files, 1,
+        "убывание времени замечено и сделки отсортированы"
+    );
+    assert_eq!(v.iter().map(|t| t.off).collect::<Vec<_>>(), vec![3, 5, 20]);
+    assert_eq!(v[0].px, px(78549.5));
+    assert!(v[0].bm && !v[1].bm);
+}
+
+#[test]
+fn signal_on_approach_before_the_break_in_the_crossing_minute() {
+    // 1м-версия: минутка пересекла уровень → сделки нет; по сделкам сигнал стоит на подходе, до пересечения
+    let p = lv_params();
+    let t1 = BORN + 100;
+    let mut c = level_world();
+    set(&mut c, t1, 99.0, 100.10, 98.9, 100.00);
+    let (sigs, _) = run_scan(c.clone(), &p);
+    assert!(
+        sigs.iter().all(|s| s.t as usize != t1),
+        "1м: минутка с пересечением сигнала не даёт"
+    );
+    let s = sym(c);
+    let lv = build_levels(&s, &p.sig.lv, Side::Long);
+    let mut cs = Vec::new();
+    candidates(&s, &lv, &p.sig, Side::Long, &mut cs);
+    let c1 = cs
+        .iter()
+        .find(|c| c.t as usize == t1)
+        .expect("кандидат в минуте пересечения");
+    let ticks = vec![
+        tk(t1, 0, 99.0, false),
+        tk(t1, 10_000, 99.5, false), // дальше 0,3 %
+        tk(t1, 20_000, 99.8, false), // 0,22 % ниже уровня, выше открытия минуты → сигнал
+        tk(t1, 30_000, 100.10, false),
+        tk(t1, 40_000, 99.9, true),
+    ];
+    let (from, to) = minute_range(&ticks, t1);
+    assert_eq!((from, to), (0, 5));
+    let r = first_signal(&ticks, from, to, 1, c1.lp, E_E8, true).expect("сигнал");
+    assert_eq!(r.0, 2);
+}
+
+#[test]
+fn no_signal_after_level_reached_in_same_minute() {
+    let lp = px(100.025);
+    let ticks = vec![
+        tk(10, 0, 99.0, false),
+        tk(10, 5_000, 100.025, false), // дошла до уровня (касание = дошла)
+        tk(10, 9_000, 99.9, false),
+    ];
+    assert!(first_signal(&ticks, 0, 3, 1, lp, E_E8, true).is_none());
+}
+
+#[test]
+fn colour_uses_forming_minute_and_signal_ignores_later_trades() {
+    let lp = px(100.025);
+    let mut ticks = vec![
+        tk(10, 0, 99.9, false), // первая сделка минуты: открытие, сигналом быть не может
+        tk(10, 1_000, 99.85, true), // ниже открытия — красная
+        tk(10, 2_000, 99.95, false), // выше открытия — зелёная, в зоне → сигнал
+    ];
+    let a = first_signal(&ticks, 0, 3, 1, lp, E_E8, true).expect("сигнал");
+    assert_eq!(a.0, 2);
+    // без цвета сигнал стоит на сделке, подошедшей к зоне (99,9 — первая в зоне, но она первая: открытие, не сигнал по цвету; без цвета — сигнал)
+    assert_eq!(
+        first_signal(&ticks, 0, 3, 1, lp, E_E8, false).map(|x| x.0),
+        Some(0)
+    );
+    // заглядывания вперёд нет: сделки после сигнала сигнал не меняют
+    ticks.push(tk(10, 3_000, 150.0, false));
+    ticks.push(tk(10, 4_000, 1.0, true));
+    assert_eq!(
+        first_signal(&ticks, 0, 5, 1, lp, E_E8, true).map(|x| x.0),
+        Some(2)
+    );
+    assert_eq!(
+        first_signal(&ticks, 0, 3, 1, lp, E_E8, true).map(|x| x.0),
+        Some(2)
+    );
+}
+
+#[test]
+fn short_side_mirrors_signal() {
+    // шорт: уровень-пол 100, цена подходит сверху; в длинной раме цены с обратным знаком
+    let lp = -px(100.0);
+    let ticks = vec![
+        tk(10, 0, 101.0, true),
+        tk(10, 1_000, 100.20, true), // 0,2 % над полом, ниже открытия минуты (красная для шорта = зелёная в раме) → сигнал
+        tk(10, 2_000, 99.9, true),
+    ];
+    let r = first_signal(&ticks, 0, 3, -1, lp, E_E8, true).expect("сигнал шорта");
+    assert_eq!(r.0, 1);
+}
+
+#[test]
+fn candidates_use_closed_minutes_for_pool() {
+    // оборот минуты t1 в оборот часа на сигнале минуты t1 не входит (только закрытые минуты ≤ t1−1); с t1+1 — входит
+    let mut p = lv_params();
+    p.sig.t1h_u = 1;
+    let t1 = BORN + 100;
+    let mut c = level_world();
+    c.qv[t1] = 1_000_000_000_000;
+    set(&mut c, t1, 99.85, 99.95, 99.84, 99.90);
+    set(&mut c, t1 + 1, 99.85, 99.95, 99.84, 99.90);
+    let (sigs, _) = run_scan(c.clone(), &p);
+    assert_eq!(
+        sigs.iter().map(|s| s.t as usize).collect::<Vec<_>>(),
+        vec![t1, t1 + 1],
+        "1м: пул по закрытию t"
+    );
+    let s = sym(c);
+    let lv = build_levels(&s, &p.sig.lv, Side::Long);
+    let mut cs = Vec::new();
+    candidates(&s, &lv, &p.sig, Side::Long, &mut cs);
+    assert_eq!(
+        cs.iter().map(|c| c.t as usize).collect::<Vec<_>>(),
+        vec![t1 + 1]
+    );
+}
+
+#[test]
+fn false_breakout_ban_applies_from_next_minute() {
+    let p = lv_params();
+    let mut c = level_world();
+    set(&mut c, BORN + 50, 100.00, 100.20, 99.80, 99.85); // пересечение и возврат глубже f: запрет с закрытия минуты
+    set(&mut c, BORN + 51, 99.85, 99.95, 99.84, 99.90);
+    let s = sym(c);
+    let lv = build_levels(&s, &p.sig.lv, Side::Long);
+    let mut cs = Vec::new();
+    candidates(&s, &lv, &p.sig, Side::Long, &mut cs);
+    assert_eq!(
+        cs.iter().map(|c| c.t as usize).collect::<Vec<_>>(),
+        vec![BORN + 50]
+    );
+}
+
+fn ex_test() -> super::params::ExitCfg {
+    let mut e = Params::base().exit;
+    e.slip_bps = 0;
+    e.n_tp = 2;
+    e.t_low_m = 1000;
+    e.t_high_m = 2000;
+    e.q_pct = 50;
+    e.be = true;
+    e.a_m = 1_000_000; // трейл не взводится
+    e
+}
+
+const NATR: i64 = 500_000; // 0,5 %: 1 NATR = 0,5 при входе 100
+
+fn stream(ticks: Vec<(i64, f64, bool)>) -> impl FnMut() -> Option<(i64, i64, bool)> {
+    let mut it = ticks.into_iter();
+    move || it.next().map(|(ms, p, bm)| (ms, px(p), bm))
+}
+
+#[test]
+fn entry_is_next_aggressor_trade_of_side_with_slippage_and_latency() {
+    let mut ex = ex_test();
+    ex.slip_bps = 1;
+    let ticks = vec![
+        (900, 100.0, false),  // до сигнала
+        (1000, 99.0, true),   // продавец-тейкер: лонгу не подходит
+        (1200, 100.0, false), // покупатель-тейкер → вход
+        (1300, 100.0, false),
+    ];
+    let out = sim_stream(&mut stream(ticks.clone()), 1000, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(out.entry_ms, 1200);
+    assert_eq!(out.entry_px, 10_001_000_000, "100,0 + 1 bp");
+    // задержка: сделки раньше 1500 мс не берутся
+    ex.lat_ms = 500;
+    let ticks2 = vec![
+        (1200, 100.0, false),
+        (1600, 101.0, false),
+        (1700, 101.0, false),
+    ];
+    let out = sim_stream(&mut stream(ticks2), 1000, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(out.entry_ms, 1600);
+    // шорт: продавец-тейкер, цена входа ниже на 1 bp; сделка в момент сигнала подходит (≥)
+    ex.lat_ms = 0;
+    let out = sim_stream(&mut stream(ticks), 1000, Side::Short, NATR, &ex).expect("исход");
+    assert_eq!(out.entry_ms, 1000);
+    assert_eq!(out.entry_px, 9_899_010_000, "99,0 − 1 bp");
+    // нет подходящей сделки — нет исхода
+    assert!(sim_stream(
+        &mut stream(vec![(1100, 100.0, true)]),
+        1000,
+        Side::Long,
+        NATR,
+        &ex
+    )
+    .is_none());
+}
+
+#[test]
+fn take_fills_only_when_trade_goes_strictly_through() {
+    let ex = ex_test();
+    let touch = vec![(10, 100.0, false), (20, 100.5, false), (30, 100.2, true)];
+    let out = sim_stream(&mut stream(touch), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(
+        out.takes, 0,
+        "сделка по цене тейка (100,5) не исполняет его"
+    );
+    let through = vec![
+        (10, 100.0, false),
+        (20, 100.5 + 1e-8, false),
+        (30, 100.2, true),
+    ];
+    let out = sim_stream(&mut stream(through), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(out.takes, 1);
+    assert_eq!(
+        out.legs[0].px,
+        px(100.5),
+        "тейк исполнен по своей цене, мейкер"
+    );
+    assert!(out.legs[0].maker);
+    assert_eq!(out.legs[0].ms, 20);
+}
+
+#[test]
+fn stop_fills_at_trade_price_that_broke_it() {
+    let ex = ex_test();
+    // касание уровня стопа (95,0) — срабатывает, цена сделки = 95
+    let t = vec![
+        (10, 100.0, false),
+        (20, 96.0, true),
+        (30, 95.0, true),
+        (40, 90.0, true),
+    ];
+    let out = sim_stream(&mut stream(t), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::HardStop, 30));
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(95.0)));
+    // гэп: следующая сделка 94,0 → исполнение по 94,0, а не по стопу
+    let g = vec![(10, 100.0, false), (20, 94.0, true)];
+    let out = sim_stream(&mut stream(g), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(94.0)));
+    // тейкер: проскальзывание хуже на 1 bp
+    let mut ex1 = ex_test();
+    ex1.slip_bps = 1;
+    let g = vec![(10, 100.0, false), (20, 94.0, true)];
+    let out = sim_stream(&mut stream(g), 0, Side::Long, NATR, &ex1).expect("исход");
+    assert_eq!(
+        out.legs.last().map(|l| l.px),
+        Some(px(94.0) - px(94.0) / 10_000)
+    );
+}
+
+#[test]
+fn breakeven_after_first_take_then_exit_on_next_trade_at_entry() {
+    let ex = ex_test();
+    let t = vec![
+        (10, 100.0, false),
+        (20, 100.6, false), // тейк 1 (100,5) исполнен → стоп переезжает на цену входа
+        (30, 100.0, true),  // сделка по цене входа → безубыток
+        (40, 90.0, true),
+    ];
+    let out = sim_stream(&mut stream(t), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::BreakEven, 30, 1)
+    );
+}
+
+#[test]
+fn trail_arms_on_trade_prices_and_exits_on_trade() {
+    let mut ex = ex_test();
+    ex.a_m = 1000; // взвод при +1 NATR (0,5)
+    ex.r_m = 1000; // откат 1 NATR
+    ex.be = false;
+    ex.n_tp = 2;
+    ex.t_low_m = 4000;
+    ex.t_high_m = 5000; // тейки далеко
+    let t = vec![
+        (10, 100.0, false),
+        (20, 100.6, false), // максимум 100,6 ≥ вход + 0,5 → трейл взведён: 100,6 − 0,5 = 100,1
+        (30, 100.3, true),  // выше трейла
+        (40, 100.1, true),  // ≤ 100,1 → выход по трейлу по цене сделки
+    ];
+    let out = sim_stream(&mut stream(t), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!((out.kind, out.exit_ms), (ExitKind::Trail, 40));
+}
+
+fn out_manual(entry_ms: i64, exit_ms: i64, exit_px: f64, marks: Vec<(usize, i64)>) -> TickOut {
+    TickOut {
+        entry_ms,
+        entry_px: px(100.0),
+        legs: vec![TLeg {
+            ms: exit_ms,
+            px: px(exit_px),
+            u: NOTIONAL_U,
+            maker: false,
+        }],
+        exit_ms,
+        kind: ExitKind::Forced,
+        takes: 0,
+        marks,
+    }
+}
+
+fn fee_taker(n: f64) -> f64 {
+    n * 3.5 * 0.9 / 1e4
+}
+
+#[test]
+fn funding_strictly_between_entry_and_exit_and_daily_mtm_sums() {
+    let day_end = (START_DAY as i64 + 1) * DAY_MS;
+    let fund = |ms: i64| Fund {
+        min: (ms / MIN_MS) as u32,
+        rate_e8: 10_000,
+        mark: px(100.0),
+    };
+    let s = Sym::from_cols(
+        "T",
+        flat(START_DAY * 1440 + 4000, 100.0),
+        vec![fund(day_end)],
+    );
+    let tr = out_manual(
+        day_end - 3_600_000,
+        day_end + 3_600_000,
+        102.0,
+        vec![(START_DAY, px(101.0))],
+    );
+    let st = settle_tick(&s, Side::Long, &tr);
+    assert!(
+        (st.funding - (-0.05)).abs() < 1e-9,
+        "лонг платит 0,05: {}",
+        st.funding
+    );
+    let total = 10.0 - fee_taker(500.0) - fee_taker(500.0 * 1.02) - 0.05;
+    assert_eq!(st.daily.len(), 2);
+    assert_eq!((st.daily[0].0, st.daily[1].0), (0, 1));
+    assert!(
+        (st.daily[0].1 - (5.0 - fee_taker(500.0))).abs() < 1e-6,
+        "день 0: переоценка по последней сделке дня"
+    );
+    assert!(
+        (st.daily[0].1 + st.daily[1].1 - total).abs() < 1e-9,
+        "сумма по суткам = итог сделки"
+    );
+    // выплата в момент входа или выхода — не «строго через»
+    let at_entry = settle_tick(
+        &s,
+        Side::Long,
+        &out_manual(day_end, day_end + 3_600_000, 100.0, vec![]),
+    );
+    assert!(at_entry.funding.abs() < 1e-12);
+    let at_exit = settle_tick(
+        &s,
+        Side::Long,
+        &out_manual(day_end - 3_600_000, day_end, 100.0, vec![]),
+    );
+    assert!(at_exit.funding.abs() < 1e-12);
+    // шорт получает
+    let sh = settle_tick(&s, Side::Short, &tr);
+    assert!((sh.funding - 0.05).abs() < 1e-9);
+}
+
+struct MemSrc(HashMap<(String, usize), Arc<Vec<Tick>>>);
+
+impl TradeSrc for MemSrc {
+    fn day(&self, sym: &str, day: usize) -> Option<Arc<Vec<Tick>>> {
+        self.0.get(&(sym.to_string(), day)).cloned()
+    }
+}
+
+#[test]
+fn end_to_end_trade_entered_before_the_break_inside_the_crossing_minute() {
+    let p = lv_params();
+    let t1 = BORN + 100;
+    let mut c = level_world();
+    for m in t1 - 5..t1 {
+        set(&mut c, m, 99.5, 99.6, 99.4, 99.5); // волатильность до сигнала: NATR выхода > 0
+    }
+    set(&mut c, t1, 99.0, 100.10, 98.9, 100.00);
+    let (sigs, _) = run_scan(c.clone(), &p);
+    assert!(
+        sigs.iter().all(|s| s.t as usize != t1),
+        "1м-версия в этой минутке не входит"
+    );
+    let s = Sym::from_cols("TEST", c, Vec::new());
+    let ticks = vec![
+        tk(t1, 0, 99.0, false),
+        tk(t1, 10_000, 99.5, false),
+        tk(t1, 20_000, 99.8, false),   // сигнал
+        tk(t1, 30_000, 100.10, false), // следующая сделка покупателя-тейкера → вход, уже выше уровня
+        tk(t1, 40_000, 99.9, true),
+        tk(t1 + 1, 0, 90.0, true), // ниже стопа 5 % → выход
+    ];
+    let mut m = HashMap::new();
+    m.insert(("TEST".to_string(), t1 / 1440), Arc::new(ticks));
+    let src = MemSrc(m);
+    let jobs = vec![(p.sig.clone(), Side::Long)];
+    let mut outs = vec![Vec::new()];
+    let mut ctrs = vec![TickCtr::default()];
+    signals_for_coin(&s, 0, &jobs, &src, &mut outs, &mut ctrs);
+    assert_eq!(outs[0].len(), 1);
+    assert_eq!(outs[0][0].t as usize, t1);
+    let syms = [s];
+    let r = run_tick(&syms, &outs[0], Side::Long, &p.exit, &p.port, &src);
+    assert_eq!(r.trades.len(), 1, "отказы: {:?}", r.rej);
+    let tr = &r.trades[0];
+    assert_eq!(tr.entry_ms % DAY_MS, (t1 as i64 % 1440) * MIN_MS + 30_000);
+    assert_eq!(tr.kind, ExitKind::HardStop);
+    assert!(tr.net < 0.0);
+}

@@ -165,7 +165,7 @@ fn parse_funding(buf: &[u8]) -> Result<Vec<Fund>> {
     Ok(v)
 }
 
-fn day_string(d: usize) -> String {
+pub fn day_string(d: usize) -> String {
     chrono::NaiveDate::from_ymd_opt(2026, 9, 1)
         .and_then(|b| b.checked_add_days(chrono::Days::new(d as u64)))
         .map(|x| x.format("%Y-%m-%d").to_string())

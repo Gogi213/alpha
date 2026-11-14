@@ -9,11 +9,11 @@ use super::signals::{scan, Sig, SigCtr};
 use super::trade::{simulate, ExitKind, Leg, TradeOut, NOTIONAL_U};
 use super::Side;
 
-fn px(x: f64) -> i64 {
+pub(super) fn px(x: f64) -> i64 {
     (x * 1e8).round() as i64
 }
 
-fn flat(upto: usize, price: f64) -> Cols {
+pub(super) fn flat(upto: usize, price: f64) -> Cols {
     let mut c = Cols::new();
     for m in 0..upto {
         c.o[m] = px(price);
@@ -24,14 +24,14 @@ fn flat(upto: usize, price: f64) -> Cols {
     c
 }
 
-fn set(c: &mut Cols, m: usize, o: f64, h: f64, l: f64, cl: f64) {
+pub(super) fn set(c: &mut Cols, m: usize, o: f64, h: f64, l: f64, cl: f64) {
     c.o[m] = px(o);
     c.h[m] = px(h);
     c.l[m] = px(l);
     c.c[m] = px(cl);
 }
 
-fn sym(c: Cols) -> Sym {
+pub(super) fn sym(c: Cols) -> Sym {
     Sym::from_cols("TEST", c, Vec::new())
 }
 
@@ -46,11 +46,11 @@ fn decimal_parse_exact() {
 
 /// Мир с уровнем: часовые бары `HB + i` с максимумами H, пивоты на барах 1 и 5 (ширина k = 1), уровень
 /// 100,025, рождён на закрытии бара 6 → минута `(HB + 7) * 60`.
-const HB: usize = 400;
-const BORN: usize = (HB + 7) * 60;
+pub(super) const HB: usize = 400;
+pub(super) const BORN: usize = (HB + 7) * 60;
 const _: () = assert!(BORN > START_MIN);
 
-fn level_world() -> Cols {
+pub(super) fn level_world() -> Cols {
     let mut c = flat(HB * 60 + 3000, 90.0);
     let hs = [99.0, 100.0, 99.0, 98.0, 99.0, 100.05, 99.0, 98.5];
     for (i, h) in hs.iter().enumerate() {
@@ -64,7 +64,7 @@ fn level_world() -> Cols {
     c
 }
 
-fn lv_params() -> Params {
+pub(super) fn lv_params() -> Params {
     let mut p = Params::base();
     p.sig.lv.k = 1;
     p.sig.lv.d_pm = 300;
@@ -120,7 +120,7 @@ fn level_killed_by_hourly_close_beyond() {
     assert_eq!(lv[0].end as usize, (HB + 10) * 60);
 }
 
-fn run_scan(c: Cols, p: &Params) -> (Vec<Sig>, SigCtr) {
+pub(super) fn run_scan(c: Cols, p: &Params) -> (Vec<Sig>, SigCtr) {
     let s = sym(c);
     let lv = build_levels(&s, &p.sig.lv, Side::Long);
     let mut out = Vec::new();

@@ -21,11 +21,15 @@ from phase import decide, rng  # noqa: E402
 DAY0 = dt.date(2026, 9, 15)
 
 
+PRIOR = json.loads(os.environ.get("P42_PRIOR_TRIALS", "{}"))  # накопленный счётчик испытаний прежних версий по сторонам (§13.1)
+OLD = set(open(os.environ["P42_OLD_COINS"]).read().split()) if os.environ.get("P42_OLD_COINS") else None  # прежние монеты (справочно)
+
+
 def fq_days():
-    """Индекс суток (от 15.09) первого дня с оборотом ≥ $100 млн; < 0 — прошла порог до окна (все сутки «после»)."""
+    """Индекс суток (от 15.09) первого дня с оборотом ≥ порога (колонка `P42_FQ_COL`); < 0 — прошла порог до окна (все сутки «после»)."""
     out = {}
     for r in csv.DictReader(open(os.path.join(ROOT, "first_qualifying_day.csv"))):
-        d = r["first_day_ge_overall"]
+        d = r[os.environ.get("P42_FQ_COL", "first_day_ge_overall")]
         if not d:
             out[r["symbol"]] = None
             continue
@@ -69,6 +73,8 @@ def funnel(D, P, side):
     """Воронка фильтров и частота сделок по половинам: счётчики `meta.json` + сделки варианта (A/B — по дню входа)."""
     out = {}
     for v, label in FUNNEL_VARIANTS:
+        if (side, v) not in P:   # в v2 выбор t1h не ушёл на нижний край — варианта 0,1 млн нет, воронка без него
+            continue
         meta = json.load(open(os.path.join(P[(side, v)], "meta.json")))[side]
         tr = read_trades(P[(side, v)], side)
         halves = {}
@@ -117,7 +123,7 @@ def main():
             x = concat(sd[vA], sd[vB])
             cand[k] = {"vA": vA, "vB": vB, "x": x, "coin": coin_concat(P, side, vA, vB)}
         # ---- число испытаний на сторону
-        n_ext = json.load(open(os.path.join(ROOT, "plan-ext.json")))[side]
+        n_ext = len(json.load(open(os.path.join(ROOT, "plan-ext.json")))[side])
         n_joint = len(json.load(open(os.path.join(ROOT, "plan-joint.json")))[side]["new_trials"])
         n_stage1 = len([v for v in AXES for x in AXES[v] if x != BASE[v]])
         trials = n_stage1 + n_ext + n_joint + (1 if have_cf else 0) + (1 if have_l else 0)
@@ -131,11 +137,14 @@ def main():
                 tests_pkg.append({"side": side, "kind": "cand", "ax": k, "dir": h, "p": st["p"]})
         # семейство Холма = все испытания стороны (счётчик): непроверенные гипотезы входят с p = 1 (замечание проверяющего, п. 4)
         m_tests = len(tests_pkg)
-        m = max(trials, m_tests)
+        prior = PRIOR.get(side, 0)
+        m = max(trials + prior, m_tests)   # Холм — по накопленному счётчику стороны (§13.1); рядом справочно по одному текущему
+        m_cur = max(trials, m_tests)
         adj = holm([t["p"] for t in tests_pkg] + [1.0] * (m - m_tests))
         for t, a in zip(tests_pkg, adj):
             t["p_holm"] = a
         z_h = ND.inv_cdf(1 - 0.05 / (2 * m))
+        z_cur = ND.inv_cdf(1 - 0.05 / (2 * m_cur))
         # ---- таблицы осей
         rows = []
         for ax, x in out.items():
@@ -152,7 +161,7 @@ def main():
             w.writeheader()
             w.writerows(rows)
         # ---- вердикт по кандидатам
-        res = {"trials": trials, "m_package": m, "m_tests": m_tests, "z_holm": z_h, "cfg": cfg, "joint": None if joint is None else {
+        res = {"trials": trials, "prior_trials": prior, "m_package": m, "m_cur": m_cur, "z_cur": z_cur, "m_tests": m_tests, "z_holm": z_h, "cfg": cfg, "joint": None if joint is None else {
             "accepted": joint["accepted"], "same_pair": joint["same_pair"], "adjacent": joint["adjacent"],
             "pair": joint["pair"], "cellA": joint["A"]["cell"], "cellB": joint["B"]["cell"]}, "cand": {}}
         for k in kinds:
@@ -162,6 +171,7 @@ def main():
                 st = cstats[(k, h)]
                 x = c["x"][HALVES[h]]
                 st["low_holm"] = st["mean"] - z_h * st["se"]
+                st["low_holm_cur"] = st["mean"] - z_cur * st["se"]
                 st["p_holm"] = [t for t in tests_pkg if t["kind"] == "cand" and t["ax"] == k and t["dir"] == h][0]["p_holm"]
                 # без 2 лучших суток / 2 лучших монет
                 xs = np.sort(x)
@@ -193,6 +203,9 @@ def main():
                 st["before_first_day"] = {"mean": float(before.mean())}
                 st["no_worst2_days"] = stat(no_worst_days, r)
                 st["no_worst2_coins"] = stat(sub_w, r)
+                if OLD is not None:
+                    st["old_coins"] = float(sum(a[HALVES[h]] for cn, a in c["coin"].items() if cn in OLD).mean()) if any(cn in OLD for cn in c["coin"]) else 0.0
+                    st["new_coins"] = float(sum(a[HALVES[h]] for cn, a in c["coin"].items() if cn not in OLD).mean()) if any(cn not in OLD for cn in c["coin"]) else 0.0
                 st["best_coins"] = best2
                 st["worst_coins"] = worst2
                 st["worst_day"] = float(x.min())
@@ -202,7 +215,7 @@ def main():
                 sr = float(x.mean() / x.std(ddof=1)) if x.std(ddof=1) > 0 else 0.0
                 se_sr = math.sqrt((1 + 0.5 * sr * sr) / len(x))
                 st["sharpe_daily"] = sr
-                st["dsr"] = sb.significance(sr, se_sr, trials)
+                st["dsr"] = sb.significance(sr, se_sr, trials + prior)
                 # сделки половины (конфиг, оценённый на этой половине)
                 v = c["vA"] if h == "A" else c["vB"]
                 tr = [t for t in read_trades(P[(side, v)], side) if (int(t["entry_day"]) < 30) == (h == "A")]

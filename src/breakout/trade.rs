@@ -55,7 +55,7 @@ pub struct TradeOut {
     pub takes: u32,
 }
 
-fn frac(x: i64, num: i64, den: i64) -> i64 {
+pub(crate) fn frac(x: i64, num: i64, den: i64) -> i64 {
     (i128::from(x) * i128::from(num) / i128::from(den)) as i64
 }
 

@@ -46,6 +46,8 @@ pub struct ExitCfg {
     pub slip_bps: i64,
     /// Лучший порядок внутри минутки (справочно, не для вердикта).
     pub best_order: bool,
+    /// Задержка входа, мс (только шаг B по сделкам; 1м-счёт её не использует).
+    pub lat_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +108,7 @@ impl Params {
                 s_pm: pm(5.0),
                 slip_bps: 1,
                 best_order: false,
+                lat_ms: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -152,6 +155,7 @@ impl Params {
             "s" => self.exit.s_pm = pm(f),
             "slip" => self.exit.slip_bps = f.round() as i64,
             "best" => self.exit.best_order = b,
+            "lat" => self.exit.lat_ms = f.round() as i64,
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
             "mm" => self.port.mm_min = u,

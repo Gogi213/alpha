@@ -22,10 +22,14 @@ pub mod levels;
 pub mod params;
 pub mod portfolio;
 pub mod signals;
+pub mod tick;
+pub mod tick_cli;
 pub mod trade;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tick_tests;
 
 use std::sync::Mutex;
 

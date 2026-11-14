@@ -13,7 +13,7 @@ import selection_bias as sb  # noqa: E402
 
 from axes import AXES, BASE, VACUOUS, fmt, vid  # noqa: E402
 
-ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "data", "p42")
+ROOT = os.environ.get("P42_ROOT") or os.path.join(os.path.dirname(__file__), "..", "..", "data", "p42")
 SIDES = ("long", "short")
 A = slice(0, 30)
 B = slice(30, 60)

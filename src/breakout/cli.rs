@@ -44,6 +44,25 @@ pub enum BreakoutCommand {
         #[arg(long)]
         symbols: Option<String>,
     },
+    /// Шаг B (§13.2): те же варианты, но сигнал, вход и выходы — по сделкам Binance aggTrades.
+    Tick {
+        #[arg(long)]
+        cache: PathBuf,
+        /// Каталог `<МОНЕТА>/<МОНЕТА>-aggTrades-<день>.zip`.
+        #[arg(long)]
+        trades: PathBuf,
+        #[arg(long)]
+        variants: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = 6)]
+        threads: usize,
+        #[arg(long)]
+        symbols: Option<String>,
+        /// Предел памяти кэша распакованных суток, ГБ.
+        #[arg(long, default_value_t = 4)]
+        cap_gb: usize,
+    },
     /// Одна сделка базы по монете со всеми шагами и арифметикой P&L.
     Hand {
         #[arg(long)]
@@ -85,6 +104,15 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
             threads,
             symbols,
         } => run(&cache, &variants, &out, threads, symbols),
+        BreakoutCommand::Tick {
+            cache,
+            trades,
+            variants,
+            out,
+            threads,
+            symbols,
+            cap_gb,
+        } => super::tick_cli::run(&cache, &trades, &variants, &out, threads, symbols, cap_gb),
         BreakoutCommand::Hand {
             cache,
             sym,
