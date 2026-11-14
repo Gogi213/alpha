@@ -134,7 +134,7 @@ def result_bullet():
                 ENG_RU[eng], ms.f(f_["halves"]["A"]["mean"], 2, True), ms.f(f_["halves"]["B"]["mean"], 2, True), ms.f(f_["total"], 2, True), f_["verdict"],
                 ms.f(e_["halves"]["A"]["mean"], 2, True), ms.f(e_["halves"]["B"]["mean"], 2, True), ms.f(e_["total"], 2, True), e_["verdict"]))
         parts.append("%s — %s" % (SIDE_RU[side].lower(), "; ".join(seg)))
-    return ["- **Без 22 монет (приказ владельца, §13.4 п. 9; список выбран на этих же 60 сутках — найдено на этих данных, числа оптимистичны), база, $/сут. A / B:** " + "; ".join(parts) + ". Подробно (все кандидаты, интервалы, точный пересчёт) — раздел 6."]
+    return ["- **Без 22 монет (приказ владельца, §13.4 п. 9; список выбран на этих же 60 сутках — найдено на этих данных, числа оптимистичны), база, $/сут. A / B:** " + "; ".join(parts) + ". Подробно (все кандидаты, интервалы, точный пересчёт) — раздел 6. " + gain_note()]
 
 
 def wf_bullet():
@@ -156,6 +156,23 @@ def wf_bullet():
         parts.append("%s — %s" % (SIDE_RU[side].lower(), "; ".join(seg)))
     reads = {v["reading"] for v in R["res"].values()}
     return ["- **Чёрный список walk-forward (§13.7; приближённое исполнение), Δ $/сут. против полной базы на сутках 15–59, окна расш. / 30 / 7 / 3 сут. [95 %]:** " + "; ".join(parts) + ". Чтение по правилу §13.7 во всех 16 клетках: %s (нижняя граница после Холма < 0 везде). Раздел 7." % ", ".join("«%s»" % x for x in sorted(reads))]
+
+
+def gain_note():
+    """Замечание проверки 14.11, п. 2: прирост базы лонг на тиках при исключении 22 монет — арифметика отбора, не находка (числа — из отчётов)."""
+    p = os.path.join(WF, "report-walkfwd.json")
+    if not os.path.exists(os.path.join(ROOT, "report-excl22.json")) or not os.path.exists(p):
+        return ""
+    R = load_excl22()
+    row = R["res"]["tick|long|база"]
+    gain = row["excl22"]["total"] - row["full"]["total"]
+    rem = R["approx"]["tick|long"]["removed_net"]
+    wf = json.load(open(p, encoding="utf-8"))["res"]
+    reads = {v["reading"] for v in wf.values()}
+    return ("Прирост базы лонга на тиках 4 мс при исключении 22 монет (%s $ за 60 сут. против %s $ на 566) — это убыток убранных 22 монет (%s $), отобранных как убыточные на этих же сделках: "
+            "по построению, не находка. Walk-forward (§13.7, список только по прошлым суткам) прироста не даёт: %s во всех %d клетках." % (
+                ms.f(row["excl22"]["total"], 0, True), ms.f(row["full"]["total"], 0, True), ms.f(rem, 0, True),
+                ", ".join("«%s»" % x for x in sorted(reads)), len(wf)))
 
 
 # ---------------- §13.8: перетитровка без 22 монет (полный шаг A и шаг B на 544 монетах)
@@ -204,8 +221,8 @@ def section_retitr():
     EQ = R.get("equal_to_excl22", {})
     W += ["**Что выбрал тот же алгоритм на 544:** перекрёстные значения осей — шорт те же, что на 566 (`cA_short`, `cB_short`); лонг: A те же, в B `t1h` = $5 млн вместо $10 млн (оба перекрёстных кандидата лонга, как и на 566, не торгуют — 0 сделок: интервалы {0,0}). Совместная сетка: лонг пары разные в A и B → не принята (как на 566), шорт `be`×`t_low` принята. Расширения на краю: лонг 19 (на 566 — 18), шорт 20. **Топ-3 — те же шесть вариантов, что на 566:** лонг `v_tf_240`, `v_n_bounce_3`, `v_e_0p1`; шорт `v_be_0`, `j_be_0__t_low_2`, `j_be_0__t_low_3` (порядок и числа другие). Поэтому числа базы, перекрёстного шорта и топ-3 совпадают с разделом 6 (те же конфигурации на тех же 544 монетах): проверено побайтово по сделкам, суткам и монето-суткам обеих сторон — {EQ_OK} из {EQ_N} вариантов (минутки и тики 4 мс) равны. Новое в перетитровке — вся сетка (счёт конфигураций, положительных в обеих половинах), подтверждённый перевыбор и накопленный счётчик Холма.", ""]
     W = [x.replace("{EQ_OK}", str(sum(EQ.values()))).replace("{EQ_N}", str(len(EQ))) for x in W]
-    W += ["**Испытания:** шаг A — лонг %d, шорт %d (по `report.py`: оси 70 + расширения + совместные клетки + перекрёстный + «по букве»); накопленный Холм m_A = **%d / %d** (227 / 219 прежних + шаг A); шаг B +6 на сторону → **m = %d / %d**, z = %s / %s (одно m для столбцов «566» и «544»; полновселенные вердикты при этом m перечислены в таблицах)." % (
-        rep["long"]["trials"], rep["short"]["trials"], rep["long"]["m_package"], rep["short"]["m_package"], m["long"], m["short"],
+    W += ["**Испытания:** шаг A — лонг %d, шорт %d (по `report.py`: оси 70 + расширения + совместные клетки + перекрёстный + «по букве»); накопленный Холм m_A = **%d / %d** (227 / 219 прежних + шаг A); шаг B +6 на сторону → m = %d / %d после §13.8; **таблицы ниже и раздела 6 посчитаны при итоговом m = %d / %d** (после §13.9; z = %s / %s; одно m для столбцов «566» и «544»)." % (
+        rep["long"]["trials"], rep["short"]["trials"], rep["long"]["m_package"], rep["short"]["m_package"], rep["long"]["m_package"] + 6, rep["short"]["m_package"] + 6, m["long"], m["short"],
         ms.f(__import__("statistics").NormalDist().inv_cdf(1 - 0.05 / (2 * m["long"])), 2), ms.f(__import__("statistics").NormalDist().inv_cdf(1 - 0.05 / (2 * m["short"])), 2)), ""]
     W += ["### Сколько конфигураций положительны в обеих половинах (минутки; сетка = stage1 + расширения + совместные клетки, включая базу; описательно)", "",
           "| сторона | вселенная | конфигураций | с торговлей в A и в B | $/сут. > 0 в A | > 0 в B | **> 0 в обеих** | > 0 в обеих и ≥ 10 сделок в каждой |", "|---|---|---|---|---|---|---|---|"]
@@ -293,6 +310,7 @@ def section_tgrid():
             top = ", ".join(k.replace("топ-3 ", "") for k in x["cand"] if k.startswith("топ-3"))
             W.append("| %s | %s | %s | %s | %s | %s |" % (SIDE_RU[side], "544" if lab == "544" else "566", cfg_txt(x["cfg"]["B"]), cfg_txt(x["cfg"]["A"]), jt, top))
     W.append("")
+    W += ["Строка «стоп 1 % (v_s_1)» в таблицах ниже — слова владельца 15.11 (дословно): «1 тоже попробуй». Вариант `s = 1` (всё остальное — база) уже входил в сетку как расширение края оси `s` (§9) на обеих вселенных, поэтому отдельного прогона и +1 испытания нет; вердикт §10 при итоговом m — описательно (протокол §13.9, дополнение 15.11).", ""]
     for side in ("long", "short"):
         W += ["### %s: кандидаты на тиках 4 мс (Холм m = %d)" % (SIDE_RU[side], m[side]["m"]), ""]
         W += [HDR_T, SEP_T]
@@ -309,6 +327,64 @@ def section_tgrid():
     return W
 
 
+def m_chain():
+    """(цепочка m, итоговое m {side: int}) — Холм по накопленному счётчику, замечание проверки 14.11, п. 4; итог — из report-tgrid.json (пустая строка, пока тиковой сетки нет)."""
+    R5 = load_tgrid("544")
+    if R5 is None:
+        return "", None
+    m = {s: R5["sides"][s]["m"] for s in ("long", "short")}
+    txt = ("207 / 199 (основной счёт отчёта v2: лонг / шорт) → 219 / 211 (+12: выборка без 22 монет, §13.4 п. 9) → 227 / 219 (+8: чёрный список walk-forward, §13.7) → "
+           "331 / 319 (+104 / +100: перетитровка на 544, §13.8: шаг A 98 / 94 и шаг B +6) → **%d / %d** (§13.9: обе тиковые сетки — 544 и 566)" % (m["long"], m["short"]))
+    return txt, m
+
+
+def m_check_text():
+    """Итог проверки «вердикты при итоговом m те же» (tools/p42/mcheck.py → <ROOT>/m-check.json); пусто, пока проверки нет."""
+    p = os.path.join(ROOT, "m-check.json")
+    if not os.path.exists(p):
+        return ""
+    d = json.load(open(p, encoding="utf-8"))
+    if d["changed"]:
+        return "При итоговом m (%d / %d) изменились вердикты (%d из %d сравнённых): %s. " % (d["m"]["long"], d["m"]["short"], len(d["changed"]), d["compared"], "; ".join(d["changed"]))
+    return "Вердикты полной вселенной (разделы 6–8: выборка без 22 монет, walk-forward, перетитровка) при итоговом m = %d / %d **не изменились** (сравнено %d вердиктов; прогон `excl22.py`, `walkfwd.py`, `retitr544.py` с `P42_M`). " % (d["m"]["long"], d["m"]["short"], d["compared"])
+
+
+def trials_line():
+    """Строка «Испытания» для §13.9 (пусто, пока нет тиковой сетки)."""
+    R5, R6 = load_tgrid("544"), load_tgrid("566")
+    if R5 is None:
+        return ""
+    t = lambda R, s: R["sides"][s]["trials"] if R else 0
+    return ("- §13.9 (тики — основной движок отбора): вся сетка шага A на тиках 4 мс на 544 и на 566 монетах — лонг %d + %d, шорт %d + %d испытаний; итоговый Холм m = **%d** / **%d** (z = %s / %s), цепочка — в шапке. "
+            "Сетки 544 и 566 — одни и те же сутки, выборки не независимы: Холм по накопленному счётчику консервативен." % (
+                t(R5, "long"), t(R6, "long"), t(R5, "short"), t(R6, "short"), R5["sides"]["long"]["m"], R5["sides"]["short"]["m"], ms.f(R5["sides"]["long"]["z_holm"], 2), ms.f(R5["sides"]["short"]["z_holm"], 2)))
+
+
+def tgrid_interp():
+    """Толкование для отчёта v2 (раздел «Вердикт стороны»): тиковая сетка §13.9 по сторонам; числа — из report-tgrid.json."""
+    R5, R6 = load_tgrid("544"), load_tgrid("566")
+    if R5 is None:
+        return []
+    out = []
+    conf = sum(1 for R in (R5, R6) if R for s in ("long", "short") for c in R["sides"][s]["cand"].values() if c["verdict"] == "подтверждено")
+
+    def ab(c):
+        return "A %s / B %s" % (ms.f(c["halves"]["A"]["mean"], 2, True), ms.f(c["halves"]["B"]["mean"], 2, True))
+
+    def vs(R, side):
+        return "; ".join("%s: %s" % (k.replace("топ-3 ", "топ-3 "), vtxt(v["verdict"], v["halves"]["A"], v["halves"]["B"])) for k, v in R["sides"][side]["cand"].items())
+    for side in ("long", "short"):
+        x5, x6 = R5["sides"][side], R6["sides"][side]
+        s = ("- **%s — тики 4 мс, шаг A (§13.9; найдено на этих данных): подтверждённых кандидатов нет (по обеим вселенным — %d).** 544: база %s, перекрёстный %s; конфигураций > 0 в обеих половинах %d из %d (566: %d из %d). Вердикты 544 — %s. 566 — %s." % (
+            SIDE_RU[side], conf, ab(x5["cand"]["база"]), ab(x5["cand"]["перекрёстный"]) if "перекрёстный" in x5["cand"] else "—",
+            x5["counts"]["positive_both"], x5["counts"]["configs"], x6["counts"]["positive_both"], x6["counts"]["configs"], vs(R5, side), vs(R6, side)))
+        out.append(s)
+    out.append("- **Почему на 544 положительных конфигураций у лонга намного больше, чем на 566 (%d против %d):** 22 убранные монеты отобраны как убыточные по этим же сделкам — прирост базы лонга (%s) равен их убытку по построению (см. «Без 22 монет»), walk-forward прироста не даёт. Это не находка; число «> 0 в обеих половинах» на сетке из ~107 конфигураций — описательное, вердикты — по §10 при m = %d / %d." % (
+        R5["sides"]["long"]["counts"]["positive_both"], R6["sides"]["long"]["counts"]["positive_both"], ms.f(R5["sides"]["long"]["cand"]["база"]["total"] - R6["sides"]["long"]["cand"]["база"]["total"], 0, True) + " $",
+        R5["sides"]["long"]["m"], R5["sides"]["short"]["m"]))
+    return out
+
+
 def tgrid_bullet():
     R5, R6 = load_tgrid("544"), load_tgrid("566")
     if R5 is None:
@@ -319,6 +395,8 @@ def tgrid_bullet():
         b = x["cand"]["база"]
         c = x["cand"].get("перекрёстный")
         t = "; ".join("%s" % v["verdict"] for k, v in x["cand"].items() if k.startswith("топ-3"))
+        s1 = x["cand"].get("стоп 1 % (v_s_1)")
+        t += ("»; стоп 1 %% (слова владельца «1 тоже попробуй»): A %s / B %s, всего %s $, «%s" % (ms.f(s1["halves"]["A"]["mean"], 2, True), ms.f(s1["halves"]["B"]["mean"], 2, True), ms.f(s1["total"], 2, True), vtxt(s1["verdict"], s1["halves"]["A"], s1["halves"]["B"]))) if s1 else ""
         s = "%s: конфигураций > 0 в обеих половинах %d из %d (с ≥ 10 сделок: %d)%s; база A %s / B %s, всего %s $, «%s»; перекрёстный «%s»; топ-3 «%s»" % (
             SIDE_RU[side].lower(), x["counts"]["positive_both"], x["counts"]["configs"], x["counts"]["positive_both_ge10"],
             (" (566: %d, ≥ 10 сделок: %d)" % (y["counts"]["positive_both"], y["counts"]["positive_both_ge10"])) if y else "",

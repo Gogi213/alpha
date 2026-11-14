@@ -22,7 +22,7 @@ import detstat  # noqa: E402
 import report_tick  # noqa: E402
 detstat.patch(report_tick)  # одинаковый ряд — одинаковый интервал во всех таблицах
 
-M = {"long": 219, "short": 211}
+M = json.loads(os.environ.get("P42_M", '{"long":219,"short":211}'))  # Холм по накопленному счётчику; итоговое m — через P42_M
 EX = [x.strip() for x in open(os.path.join(ROOT, "excl22.txt"), encoding="utf-8") if x.strip()]
 ENG = {  # движок → (каталоги полной вселенной, каталоги без 22, суффикс имён вариантов)
     "1m": ([os.path.join(ROOT, d) for d in ("stage1", "ext", "joint", "final")], [os.path.join(ROOT, "excl22-1m")], ""),

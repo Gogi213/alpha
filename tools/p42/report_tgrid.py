@@ -82,6 +82,8 @@ def main():
             cands["по букве"] = ("uB_" + side, "uA_" + side)
         for t in top[side]:
             cands["топ-3 " + t["vid"]] = (t["vid"], t["vid"])
+        if "v_s_1" in D[side]:  # слова владельца 15.11: «1 тоже попробуй» (стоп 1 %); уже в сетке как расширение края оси s — +0 испытаний (протокол §13.9, дополнение 15.11)
+            cands["стоп 1 % (v_s_1)"] = ("v_s_1", "v_s_1")
         for name, (va, vb) in cands.items():
             if va not in D[side] or vb not in D[side]:
                 continue
