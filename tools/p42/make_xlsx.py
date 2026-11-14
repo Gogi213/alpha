@@ -13,6 +13,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter as L
 
 import coin_month as cmn
+import excl22_doc as ed
 import make_stats as ms
 
 OUT = os.path.join("C:\\Users\\Георгий\\Downloads", "P-42-пробой-уровня-статистика.xlsx")
@@ -234,6 +235,78 @@ def outsiders_sheet(wb):
         ws.column_dimensions[c].width = w
 
 
+def excl22_sheet(wb):
+    """Лист «Без 22 монет»: приказ владельца (§13.4 п. 9) — полная вселенная против 544 монет, все кандидаты, оба движка; ниже — месячная сводка базы на тиках без 22 монет."""
+    ws = wb.create_sheet("Без 22 монет")
+    R = ed.load_excl22()
+    notes = ["Слова владельца: «забей сразу убирай из выборки этих» — 22 монеты (%s). Вселенная 566 → 544, обе стороны, оба движка (тики 4 мс и минутки), все кандидаты: основа, перекрёстный, топ-3. Счёт — точный пересчёт без этих монет." % ed.EX22,
+             "ВНИМАНИЕ: список выбран на этих же 60 сутках (аутсайдеры по результатам окна) — «найдено на этих данных»: числа без 22 монет оптимистичны, на новых сутках так не будет автоматически. Интервал — 95 %, блочный бутстреп по суткам. Вердикт — по правилу проверки (§10) при одинаковом числе испытаний для обеих вселенных."]
+    for i, t in enumerate(notes, 1):
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=12)
+        c = ws.cell(row=i, column=1, value=t)
+        c.alignment = Alignment(wrap_text=True, vertical="center")
+        c.font = Font(bold=(i == 2), size=11)
+        ws.row_dimensions[i].height = 48
+    hdr = ["Движок", "Кандидат", "Вселенная", "A: $ в сутки", "A: от", "A: до", "B: $ в сутки", "B: от", "B: до", "Всего за 60 сут., $", "Сделок", "Вердикт"]
+    rows = ed.rows_excl22()
+    r = 4
+    for side in ms.SIDES:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+        t = ws.cell(row=r, column=1, value=SIDE_TITLE[side])
+        t.font, t.fill = WHITE_BOLD, HDR
+        r += 1
+        for k, h in enumerate(hdr, 1):
+            c = ws.cell(row=r, column=k, value=h)
+            c.font, c.fill, c.border = Font(bold=True), SUB, BOX
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.row_dimensions[r].height = 32
+        r += 1
+        for eng in ("tick", "1m"):
+            for (sd, en, name, uni, a, b, tot, ntr, ver) in rows:
+                if sd != side or en != eng:
+                    continue
+                fill = None if uni == "full" else PatternFill("solid", fgColor="E2EFDA")
+                vals = [ed.ENG_RU[en], name, "полная (566)" if uni == "full" else "без 22 (544)", a["mean"], a["lo"], a["hi"], b["mean"], b["lo"], b["hi"], tot, ntr, ver]
+                for k, v in enumerate(vals, 1):
+                    put(ws, r, k, v, MONEY if k in (4, 5, 6, 7, 8, 9, 10) else ("0" if k == 11 else None), bold=(uni != "full" and k in (4, 7, 10)), fill=fill,
+                        align=Alignment(horizontal="left" if k in (1, 2, 3, 12) else "right"))
+                r += 1
+        r += 2
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+    t = ws.cell(row=r, column=1, value="Основа на тиках без 22 монет — по месяцам (как лист «Сводка»)")
+    t.font, t.fill = WHITE_BOLD, HDR
+    r += 1
+    pdata = {}
+    for side in ms.SIDES:
+        v = ms.load("excl22-tick/b0_lx4", side)
+        for lab, _, a, b, _p in cmn.PERIODS:
+            tr = [x for x in v["trades"] if a <= x["day"] < b]
+            pdata[(side, lab)] = cmn.row(tr, v["daily"][a:b], None, b - a)
+    ws.cell(row=r, column=1, value="Метрика").font = WHITE_BOLD
+    ws.cell(row=r, column=1).fill = HDR
+    ws.merge_cells(start_row=r, start_column=1, end_row=r + 1, end_column=1)
+    for side, c0 in (("long", 2), ("short", 7)):
+        ws.merge_cells(start_row=r, start_column=c0, end_row=r, end_column=c0 + 3)
+        t = ws.cell(row=r, column=c0, value=SIDE_TITLE[side])
+        t.font, t.fill, t.alignment = WHITE_BOLD, HDR, Alignment(horizontal="center")
+        for j, (lab, name) in enumerate(MONTHS):
+            h = ws.cell(row=r + 1, column=c0 + j, value=name)
+            h.font, h.fill, h.border = Font(bold=True), SUB, BOX
+            h.alignment = Alignment(horizontal="center", wrap_text=True)
+    r0 = r + 2
+    for i, (lab, fn, fmt, bold, shade) in enumerate(ROWS):
+        rr = r0 + i
+        put(ws, rr, 1, lab, bold=bold, fill=GREY if shade else None, align=Alignment(horizontal="left", vertical="center"))
+        for side, c0 in (("long", 2), ("short", 7)):
+            for j, (mlab, _) in enumerate(MONTHS):
+                put(ws, rr, c0 + j, fn(pdata[(side, mlab)]), fmt, bold, GREY if shade else None)
+    ws.column_dimensions["A"].width = 50
+    ws.column_dimensions["B"].width = 26
+    for c in "CDEFGHIJKL":
+        ws.column_dimensions[c].width = 16
+    ws.freeze_panes = "A4"
+
+
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else OUT
     pdata, _coins, _diff, _cnt, cm = cmn.run()
@@ -241,6 +314,7 @@ def main():
     summary(wb, pdata)
     n = {s: coin_sheet(wb, s, cm) for s in ms.SIDES}
     outsiders_sheet(wb)
+    excl22_sheet(wb)
     wb.save(out)
     print("saved", out, n, file=sys.stderr)
 

@@ -333,6 +333,8 @@ def main():
         f(sb_["halves"]["B"]["no_worst2_days"]["mean"], 2, True), f(sb_["halves"]["B"]["no_worst2_coins"]["mean"], 2, True),
         LT["short"]["перекрёстный|" + TAGMAIN]["verdict"], f(LT["short"]["перекрёстный|" + TAGMAIN]["halves"]["A"]["mean"], 2, True), f(LT["short"]["перекрёстный|" + TAGMAIN]["halves"]["B"]["mean"], 2, True),
         tops(LT, "short"), chg_txt)]
+    import excl22_doc
+    W += excl22_doc.result_bullet()
     W += ["", "## Как читать", ""]
     W += ["- Окно 15.09–13.11.2026 (60 суток), половины A = 15.09–14.10, B = 15.10–13.11; позиция $500, тариф владельца, проскальзывание 1 bp; универсум 566 бессрочных Binance USD-M. «Основа» — правила бота (витрина). «Перекрёстный» — значения параметров, подобранные на другой половине: в A — вариант, подобранный на B, в B — вариант, подобранный на A. «Топ-3» — три лучших по худшей половине кандидата шага B (отбор на тех же данных).",
           "- Тики: вход и выходы по сделкам Binance (`aggTrades`), основное чтение — задержка 4 мс на входы и выходы (В-157, «я те кажется кривую задержку сказал. не 200 мс а 4 мс»; до этого было 200 мс по слову «ну давай задержка будет 0.2»); 0 / 200 / 250 / 1000 мс — справочно. Минутки — шаг A: вход по открытию следующей минуты, стоп по low минутки (грубее: сделок в 3–4 раза меньше).",
@@ -398,10 +400,13 @@ def main():
           "- **Что не охвачено.** Новые сутки (всё — одно окно 15.09–13.11); исполнение внутри секунды (задержка 4 мс — модель; размер сделки и глубина не моделируются; проскальзывание 1 bp); монеты вне универсума ≥ $12 млн; другие биржи; плечо; демо-ожидание «после издержек», не прогноз. P&L «в сутки» — среднее по суткам окна, не прогноз дохода.", ""]
     import coin_month
     W += coin_month.section()
+    W += excl22_doc.section_excl22()
+    W += excl22_doc.section_walkfwd()
     W += ["## Артефакты", "",
           "- Генератор: `tools/p42/make_stats.py` на ветке `bb/42-stats-outsiders-v1-thr_ewewq28522` (читает `data/p42v2/` — каталог в `.gitignore`; на srv `/data/p42v2/out/`). Источники: `tick-lx4/*_lx4` (основное чтение, 4 мс), `stage1/b0`, `final/cA_*`, `final/cB_*`, `top3.json`, `report-lat.json`; аутсайдеры на тиках — `outsiders-*.csv`, `outsiders-summary.json`, `outsiders-excl.json` по клеткам `*_lx4` (`tools/p42/outsiders.py` с `P42_TICK=tick-lx4 P42_TICK_RE='^(b0|cA_|cB_|j_|v_).*lx4$' P42_TICK_BASE=b0_lx4`).",
           "- По монетам × месяцам и в процентах: `tools/p42/coin_month.py` → `docs/findings/p42-per-coin-month/{long,short,portfolio}.csv` (раздел 5).",
           "- Основной отчёт v2: `docs/findings/p42-level-breakout-v2-2026-11-14.md` и протокол `docs/research/P-42-level-breakout.md` (§13) — на ветке `bb/42-v2-finish-v1-thr_7cy3ypv2kx`; правки основного чтения — на ветке `bb/42-stats-outsiders-v1-thr_ewewq28522`.", ""]
+    W += ["- Без 22 монет (§13.4 п. 9, раздел 6): `tools/p42/runexcl22.sh` (точный пересчёт на srv: `--symbols` = 544, минутки и тики 4 мс, контроль `b0` на 566) → `tools/p42/excl22.py` → `data/p42v2/report-excl22.json`; разделы 6–7 и лист Excel «Без 22 монет» — `tools/p42/excl22_doc.py`. Чёрный список walk-forward (§13.7, раздел 7): `tools/p42/walkfwd.py` → `data/p42v2-wf/` (отчёт, списки по суткам).", ""]
     txt = "\n".join(W)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     open(OUT, "w", encoding="utf-8", newline="\n").write(txt)
