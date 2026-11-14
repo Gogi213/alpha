@@ -6,7 +6,8 @@ NATR выхода). Минутки — `/data/klines/binance/<МОНЕТА>/<д�
 
   python3 charts.py features <detail_dir> <work_dir> [--only id,id] [--workers 2]   # features.jsonl/csv + кэш тиков
   python3 charts.py render   <detail_dir> <work_dir> [--only id,id] [--out DIR]     # PNG на сделку
-  python3 charts.py index    <work_dir> <pub_dir>                                   # index.html + features.csv/jsonl
+  python3 charts.py index    <work_dir> <pub_dir>                                   # index.html + features.csv/jsonl + flagstats
+  python3 charts.py flagstats <work_dir>                                            # статистика флагов A…G → flagstats.md/json
 """
 import argparse
 import csv
@@ -212,6 +213,7 @@ def features(r, tk, a):
     f["pivot_spread_bps"] = (max(pv) - min(pv)) / (sum(pv) / len(pv)) * 1e4
     f["natr_pct"] = r["natr_e8"] / 1e8 * 100
     tch, first_m, me_ = find_touches(r, a)
+    f.update(level_flags(r, a))
     f["touches"] = len(tch)
     f["touches_pivot"] = len(r["members"])
     f["touches_other"] = len(tch) - len(r["members"])
@@ -336,6 +338,135 @@ def cmd_features(a):
     print(f"признаков {len(rows)}; ноги ≠ итог движка: {len(bad)} {bad[:5]}; вход не найден среди сделок: {len(noent)} {noent[:5]}")
 
 
+# ───────────────────────────── флаги аномалий уровня ─────────────────────────────
+
+FLAGS = "ABCDEFG"
+TAU = CFG["tau"]
+K_PIV = 2  # ширина пивота k (база b0)
+FLAG_TXT = {
+    "A": "уровень пробит до входа (high/low за уровнем > τ или закрытие минутки за уровнем, от первого пивота до входа)",
+    "B": "пивоты ближе 3 ч друг к другу (по минутам экстремумов)",
+    "C": "уровень известен < 60 мин до входа (вход − рождение уровня)",
+    "D": "диапазон минуты сигнала/входа > 2 NATR",
+    "E": "разброс цен пивотов > τ или цена уровня ≠ среднему пивотов",
+    "F": "пивот — не экстремум на минутках в окне ±120 мин (проверка движка)",
+    "G": "закрытие часового бара после первого пивота и до входа за итоговой ценой уровня (пропуск ретро-проверки при присоединении пивота)",
+}
+# метрика «силы» флага для отбора примеров: (поле, ...) — больше = сильнее; для B, C меньше = сильнее (знак −1)
+FLAG_METRIC = {"A": ("pierce_over_bps", 1), "B": ("min_pivot_gap_min", -1), "C": ("level_known_min", -1),
+               "D": ("spike_range_natr", 1), "E": ("pivot_spread_bps", 1), "F": ("pivot_exceed_bps", 1),
+               "G": ("late_close_over_bps", 1), "A_post": ("pierce_over_bps_post", 1)}
+FLAG_TXT["A_post"] = "из A: прокол/закрытие за уровнем уже после рождения уровня (когда действуют запрет ложного пробоя и проверка закрытий)"
+
+
+def hour_closes(a, b0, b1):
+    """Закрытия часовых баров b0..b1 включительно (последняя непустая минута бара); пустые бары → NaN."""
+    if b1 < b0:
+        return np.zeros(0)
+    seg = a[3, b0 * 60 : (b1 + 1) * 60].reshape(-1, 60)
+    out = np.full(len(seg), np.nan)
+    for i, row in enumerate(seg):
+        v = row[~np.isnan(row)]
+        if len(v):
+            out[i] = v[-1]
+    return out
+
+
+def ban_sim(r, a, s, L_e8):
+    """Проверка движка (tick.rs `candidates`): повторить запрет ложного пробоя на минутках от рождения уровня до минуты сигнала
+    (r = 15 мин, f = 0,1 %, цена версии на сигнале). → минута, на которой уровень запрещён, или None."""
+    lp = s * L_e8
+    hi = np.rint((a[1] if s > 0 else -a[2]) * 1e8)
+    cl = np.rint(s * a[3] * 1e8)
+    back = lp - (abs(lp) * 100) // 100_000
+    pend = None
+    for t in range(int(r["born"]), int(r["sig_min"])):
+        if not np.isfinite(hi[t]):
+            continue
+        if pend is not None and t - pend > 15:
+            pend = None
+        if hi[t] > lp and pend is None:
+            pend = t
+        if pend is not None and cl[t] < back:
+            return t
+    return None
+
+
+def level_flags(r, a):
+    """Флаги A…G аномалий уровня + метрики. Цены сравниваются в целых e8, как в движке (часовое закрытие > цены уровня)."""
+    s = 1 if r["side"] == "long" else -1
+    L_e8 = r["level_px_e8"]
+    L = L_e8 / 1e8
+    me = int((r["entry_ms"] - T0) // MIN)
+    ext = a[1] if s > 0 else a[2]
+    pv = pivot_minutes(r, a)
+    pm = sorted(m for m, _ in pv)
+    first_m = pm[0]
+    o = {}
+    # A: от минуты первого пивота до минуты входа (не включая её)
+    def pierce(m0):
+        with np.errstate(invalid="ignore"):
+            over = s * (ext[m0:me] - L) / L
+            beyond = s * (np.rint(a[3, m0:me] * 1e8) - L_e8) > 0
+        return (max(0.0, float(np.nanmax(over))) * 1e4 if np.isfinite(over).any() else 0.0), int(beyond.sum())
+
+    o["pierce_over_bps"], o["pierce_close_n"] = pierce(first_m)
+    o["flag_A"] = bool(o["pierce_over_bps"] > TAU * 1e4 or o["pierce_close_n"] > 0)
+    # то же, но только после рождения уровня (до него запрет ложного пробоя и проверка закрытий не действуют)
+    o["pierce_over_bps_post"], o["pierce_close_n_post"] = pierce(max(first_m, int(r["born"])))
+    o["flag_A_post"] = bool(o["pierce_over_bps_post"] > TAU * 1e4 or o["pierce_close_n_post"] > 0)
+    # B
+    o["min_pivot_gap_min"] = int(min(np.diff(pm))) if len(pm) > 1 else None
+    o["flag_B"] = bool(o["min_pivot_gap_min"] is not None and o["min_pivot_gap_min"] < 180)
+    # C (рождение — первая версия уровня; цена версии на сигнале могла сложиться позже: верхняя оценка её возраста ниже)
+    o["level_known_min"] = int(me - r["born"])
+    o["flag_C"] = bool(o["level_known_min"] < 60)
+    o["price_age_max_min"] = int(me - (max(b for b, _ in r["members"]) + K_PIV + 1) * 60)
+    # D
+    nat = r["natr_e8"] / 1e8
+    rng = []
+    for m in (int(r["sig_min"]), me):
+        h_, l_, c_ = a[1, m], a[2, m], a[3, m]
+        if c_ == c_:
+            rng.append((h_ - l_) / c_)
+    o["spike_range_natr"] = max(rng) / nat if rng and nat > 0 else None
+    o["flag_D"] = bool(o["spike_range_natr"] is not None and o["spike_range_natr"] > 2)
+    # E
+    pp_e8 = [x for _, x in r["members"]]
+    mean_e8 = sum(pp_e8) // len(pp_e8)
+    spread = (max(pp_e8) - min(pp_e8)) / (sum(pp_e8) / len(pp_e8))
+    o["pivot_spread_bps"] = spread * 1e4
+    o["spread_gt_2tau"] = bool(spread > 2 * TAU * (1 + 1e-6))
+    o["level_vs_mean_e8"] = int(L_e8 - mean_e8)
+    o["flag_E"] = bool(spread > TAU * (1 + 1e-9) or abs(o["level_vs_mean_e8"]) > 1)
+    # F: в окне ±120 мин от минуты пивота нет минуты с более далёким экстремумом
+    nbad, exc, nomatch = 0, 0.0, 0
+    for m, price in pv:
+        w = ext[max(m - 120, 0) : m + 121]
+        with np.errstate(invalid="ignore"):
+            d = s * (w - price) / price
+        if not np.isfinite(ext[m]) or abs(ext[m] - price) > 1e-7 * price:
+            nomatch += 1
+        if np.isfinite(d).any() and np.nanmax(d) > 1e-9:
+            nbad += 1
+            exc = max(exc, float(np.nanmax(d)) * 1e4)
+    o["pivot_not_extreme_n"], o["pivot_exceed_bps"], o["pivot_px_nomatch_n"] = nbad, exc, nomatch
+    o["flag_F"] = bool(nbad > 0 or nomatch > 0)
+    # G: закрытия часовых баров fb+1 … последнего, закрытого к минуте входа, относительно итоговой цены уровня
+    hc = hour_closes(a, r["first_bar"] + 1, me // 60 - 1)
+    with np.errstate(invalid="ignore"):
+        ov = s * (np.rint(hc * 1e8) - L_e8)
+    o["late_close_beyond_n"] = int((ov > 0).sum())
+    o["late_close_over_bps"] = float(np.nanmax(ov)) / L_e8 * 1e4 if (ov > 0).any() else 0.0
+    o["flag_G"] = bool(o["late_close_beyond_n"] > 0)
+    bt = ban_sim(r, a, s, L_e8)
+    o["chk_ban_minute"] = bt
+    o["chk_ban_violation"] = bool(bt is not None)
+    o["flags"] = "".join(c for c in FLAGS if o["flag_" + c])
+    o["n_flags"] = len(o["flags"])
+    return o
+
+
 # ───────────────────────────── рисование ─────────────────────────────
 
 
@@ -390,6 +521,19 @@ def fmt_min(m, secs=False):
 # ───────────────────────────── касания уровня ─────────────────────────────
 
 
+def pivot_minutes(r, a):
+    """Пивоты уровня на сигнале → [(минута экстремума на минутках, цена)]: ближайшая к цене пивота минута часового бара."""
+    s = 1 if r["side"] == "long" else -1
+    ext = a[1] if s > 0 else a[2]
+    pv = []
+    for bar, pp in sorted(r["members"]):
+        price = pp / 1e8
+        seg = np.abs(ext[bar * 60 : bar * 60 + 60] - price)
+        seg = np.where(np.isnan(seg), np.inf, seg)
+        pv.append((bar * 60 + int(seg.argmin()), price))
+    return pv
+
+
 def find_touches(r, a):
     """Все касания уровня до входа. Касание — минута, у которой high (лонг) / low (шорт) дошёл до нижней (верхней)
     границы полосы допуска ±τ уровня; подряд идущие минуты — одно касание (отметка на самой дальней минуте).
@@ -399,12 +543,7 @@ def find_touches(r, a):
     L = r["level_px_e8"] / 1e8
     me = int((r["entry_ms"] - T0) // MIN)
     ext = a[1] if s > 0 else a[2]
-    pv = []
-    for bar, pp in sorted(r["members"]):
-        price = pp / 1e8
-        seg = np.abs(ext[bar * 60 : bar * 60 + 60] - price)
-        seg = np.where(np.isnan(seg), np.inf, seg)
-        pv.append((bar * 60 + int(seg.argmin()), price))
+    pv = pivot_minutes(r, a)
     first_m = min(m for m, _ in pv)
     lo = first_m - 30
     band = L * (1 - CFG["tau"]) if s > 0 else L * (1 + CFG["tau"])
@@ -719,6 +858,10 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 .pos{color:var(--pos)}.neg{color:var(--neg)}
 .tag{display:inline-block;padding:0 7px;border-radius:9px;font-size:12px;border:1px solid #c9c8c2}
 .t-stop{border-color:#d03b3b;color:#a02222}.t-be{border-color:#6250d6;color:#4a3aa7}.t-trail{border-color:#1baf7a;color:#0b7a55}.t-forced{border-color:#6b6a66;color:#6b6a66}
+.fl{text-align:center;padding:5px 4px}.fl b{color:#c33}.flh{text-align:center}
+#st{padding:6px 18px 10px;border-bottom:1px solid var(--line);font-size:13px}#st summary{cursor:pointer;color:var(--ink2)}
+#st table{width:auto;margin-top:6px}#st td,#st th{position:static;cursor:default;padding:3px 9px;font-weight:400;white-space:normal;text-align:right}#st td.l,#st th.l{text-align:left}
+#st tr.fr{cursor:pointer}#st tr.fr:hover{background:#eef4fc}#st a{color:var(--acc);cursor:pointer;margin-right:8px}
 #modal{display:none;position:fixed;inset:0;background:rgba(15,15,15,.82);z-index:20}#modal.on{display:flex;flex-direction:column;align-items:center}
 #modal .top{color:#eee;padding:8px 14px;font-size:13px;display:flex;gap:16px;align-items:center;width:100%}
 #modal .top b{font-size:15px}#modal .top .sp{margin-left:auto}
@@ -735,32 +878,44 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 <label>$ от<input type="number" id="f_min" step="any"></label><label>$ до<input type="number" id="f_max" step="any"></label>
 <label>Дата с<input type="date" id="f_d1"></label><label>по<input type="date" id="f_d2"></label>
 <label>Уровень<select id="f_cross"><option value="">не важно</option><option value="1">пересёк ≤30 мин</option><option value="0">не пересёк</option></select></label>
+<label>Флаг уровня<select id="f_flag"><option value="">не важно</option><option value="any">любой</option><option value="none">нет флагов</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option><option>F</option><option>G</option><option value="A_post">A после рождения</option></select></label>
 <button id="reset">Сброс</button><span id="cnt"></span></div>
+<details id="st" open><summary>Флаги уровня A–G — статистика (клик по строке — фильтр, клик по id — три примера)</summary><div id="stb"></div></details>
 <table><thead><tr id="hdr"></tr></thead><tbody id="tb"></tbody></table>
 <div id="modal"><div class="top"><b id="m_t"></b><span id="m_s"></span><span class="sp">← → · Esc · Z масштаб · <a id="m_a" style="color:#9cf" target="_blank">открыть файл</a></span></div><div class="imgw"><img id="m_i"></div></div>
 <script>
 const D=__DATA__;
 const COLS=[["#","n",0],["Монета","sym",1],["Сторона","side_ru",1],["Вход (GMT+4)","entry_gmt4",1],["Исход","outcome",1],["Тейков","takes",0],["$ итог","net_usd",0],["бп итог","net_bps",0],
-["Держали","hold_s",0],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1]];
+["Держали","hold_s",0],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1],
+["A","flag_A",2],["B","flag_B",2],["C","flag_C",2],["D","flag_D",2],["E","flag_E",2],["F","flag_F",2],["G","flag_G",2]];
+const FT=__FLAGTXT__,ST=__FLAGS__;
 const OUTR={stop:"стоп","be":"безубыток",trail:"трейл",forced:"принуд."};
 D.forEach((d,i)=>{d.n=i+1;d.side_ru=d.side==="long"?"лонг":"шорт";d.age_h=d.level_age_min/60;d.crossed=d.crossed_30m?"да":"нет";d.date=d.entry_gmt4.slice(0,10)});
 const fmtDur=s=>{s=Math.round(s);if(s<60)return s+" с";if(s<3600)return Math.floor(s/60)+" мин "+String(s%60).padStart(2,"0")+" с";const h=Math.floor(s/3600);if(h<48)return h+" ч "+String(Math.floor(s%3600/60)).padStart(2,"0")+" мин";return Math.floor(h/24)+" сут. "+(h%24)+" ч"};
 const outs=[...new Set(D.map(d=>d.exit_kind))];const so=document.getElementById("f_out");outs.forEach(o=>{const e=document.createElement("option");e.value=o;e.textContent=OUTR[o]||o;so.appendChild(e)});
-let sk="entry_gmt4",sd=1,view=[],cur=-1;
-const hdr=document.getElementById("hdr");COLS.forEach(([t,k,l])=>{const th=document.createElement("th");th.className=l?"l":"";th.innerHTML=t+' <span class="ar"></span>';th.onclick=()=>{if(sk===k)sd=-sd;else{sk=k;sd=1}render()};th.dataset.k=k;hdr.appendChild(th)});
+let sk="entry_gmt4",sd=1,view=[],nav=[],cur=-1;
+const hdr=document.getElementById("hdr");COLS.forEach(([t,k,l])=>{const th=document.createElement("th");th.className=l===1?"l":l===2?"flh":"";if(l===2)th.title=FT[k.slice(5)];th.innerHTML=t+' <span class="ar"></span>';th.onclick=()=>{if(sk===k)sd=-sd;else{sk=k;sd=1}render()};th.dataset.k=k;hdr.appendChild(th)});
 const $=id=>document.getElementById(id);
-function filt(){const q=$("f_sym").value.trim().toUpperCase(),sd_=$("f_side").value,o=$("f_out").value,h=$("f_half").value,mn=$("f_min").value,mx=$("f_max").value,d1=$("f_d1").value,d2=$("f_d2").value,c=$("f_cross").value;
-return D.filter(d=>(!q||d.sym.includes(q))&&(!sd_||d.side===sd_)&&(!o||d.exit_kind===o)&&(!h||d.half===h)&&(mn===""||d.net_usd>=+mn)&&(mx===""||d.net_usd<=+mx)&&(!d1||d.date>=d1)&&(!d2||d.date<=d2)&&(c===""||(c==="1")===d.crossed_30m))}
-function cell(d,k){const v=d[k];switch(k){case"net_usd":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(2)}</span>`;case"net_bps":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(1)}</span>`;
+function filt(){const q=$("f_sym").value.trim().toUpperCase(),sd_=$("f_side").value,o=$("f_out").value,h=$("f_half").value,mn=$("f_min").value,mx=$("f_max").value,d1=$("f_d1").value,d2=$("f_d2").value,c=$("f_cross").value,fg=$("f_flag").value;
+return D.filter(d=>(!fg||(fg==="any"?d.n_flags>0:fg==="none"?d.n_flags===0:d["flag_"+fg]))&&(!q||d.sym.includes(q))&&(!sd_||d.side===sd_)&&(!o||d.exit_kind===o)&&(!h||d.half===h)&&(mn===""||d.net_usd>=+mn)&&(mx===""||d.net_usd<=+mx)&&(!d1||d.date>=d1)&&(!d2||d.date<=d2)&&(c===""||(c==="1")===d.crossed_30m))}
+function cell(d,k){const v=d[k];if(k.startsWith("flag_"))return v?"<b>●</b>":"";switch(k){case"net_usd":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(2)}</span>`;case"net_bps":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(1)}</span>`;
 case"outcome":return `<span class="tag t-${d.exit_kind}">${OUTR[d.exit_kind]||d.exit_kind}${d.takes>0&&d.exit_kind!=="forced"?" + тейки":""}</span>`;case"hold_s":return fmtDur(v);case"entry_gmt4":return v.slice(8,10)+"."+v.slice(5,7)+" "+v.slice(11,19);
 case"natr_pct":case"age_h":return v.toFixed(2);case"dist_entry_bps":case"mfe_30m_bps":case"mae_30m_bps":return v==null?"—":v.toFixed(1);default:return v==null?"—":v}}
 function render(){view=filt();view.sort((a,b)=>{const x=a[sk],y=b[sk];return (x<y?-1:x>y?1:0)*sd||a.n-b.n});
-document.querySelectorAll("th").forEach(th=>th.querySelector(".ar").textContent=th.dataset.k===sk?(sd>0?"▲":"▼"):"");
-$("tb").innerHTML=view.map((d,i)=>"<tr data-i='"+i+"'>"+COLS.map(([t,k,l])=>`<td class="${l?"l":""}">${cell(d,k)}</td>`).join("")+"</tr>").join("");
+document.querySelectorAll("#hdr th").forEach(th=>th.querySelector(".ar").textContent=th.dataset.k===sk?(sd>0?"▲":"▼"):"");
+$("tb").innerHTML=view.map((d,i)=>"<tr data-i='"+i+"'>"+COLS.map(([t,k,l])=>`<td class="${l===1?"l":l===2?"fl":""}">${cell(d,k)}</td>`).join("")+"</tr>").join("");
 const s=view.reduce((a,d)=>a+d.net_usd,0);$("cnt").textContent=`${view.length} из ${D.length} · сумма ${s.toFixed(2)} $ · средняя ${view.length?(s/view.length).toFixed(2):"—"} $`;}
-$("tb").onclick=e=>{const tr=e.target.closest("tr");if(tr)open(+tr.dataset.i)};
-function open(i){if(i<0||i>=view.length)return;cur=i;const d=view[i];const im=$("m_i"),iw=document.querySelector(".imgw");im.onload=()=>{iw.scrollLeft=Math.max(0,(d.ex||0)-iw.clientWidth*0.35);iw.scrollTop=0};im.src="charts/"+d.id+".png";$("m_a").href="charts/"+d.id+".png";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
-$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${view.length}`;$("modal").classList.add("on")}
+const byId=Object.fromEntries(D.map(d=>[d.id,d]));
+(function(){const rows=[...("ABCDEFG".split("")).map(c=>[c,c+" — "+FT[c]]),["A_post","A после рождения уровня (подмножество A)"],["any","любой флаг"],["none","без флагов"],["all","все сделки"]];
+let h="<table><thead><tr><th class='l'>Флаг</th><th>сделок</th><th>лонг</th><th>шорт</th><th>сумма $</th><th>средняя $</th><th>прибыльных</th><th class='l'>примеры (id · значение метрики · $)</th></tr></thead><tbody>";
+rows.forEach(([k,t])=>{const s=ST[k];h+=`<tr class="fr" data-k="${k}"><td class="l">${t}</td><td>${s.n}</td><td>${s.n_long}</td><td>${s.n_short}</td><td class="${s.sum_usd>=0?"pos":"neg"}">${s.sum_usd.toFixed(2)}</td><td>${s.mean_usd==null?"—":s.mean_usd.toFixed(3)}</td><td>${s.win==null?"—":(s.win*100).toFixed(1)+" %"}</td><td class="l">${(s.examples||[]).map((e,j)=>`<a data-k="${k}" data-j="${j}">${e.id}</a>${e.v} · ${e.net>=0?"+":""}${e.net}`).join(" &nbsp; ")}</td></tr>`});
+$("stb").innerHTML=h+"</tbody></table>";
+$("stb").onclick=e=>{const a=e.target.closest("a");if(a){e.stopPropagation();nav=ST[a.dataset.k].examples.map(x=>byId[x.id]);open(+a.dataset.j);return}
+const tr=e.target.closest("tr.fr");if(tr&&["A","B","C","D","E","F","G","A_post","any","none"].includes(tr.dataset.k)){$("f_flag").value=tr.dataset.k;render()}else if(tr){$("f_flag").value="";render()}}})();
+$("tb").onclick=e=>{const tr=e.target.closest("tr");if(tr){nav=view;open(+tr.dataset.i)}};
+function flagLine(d){if(!d.n_flags)return " · флагов уровня нет";const t=[];if(d.flag_A)t.push(`A прокол ${d.pierce_over_bps.toFixed(1)} бп, закрытий за уровнем ${d.pierce_close_n}`+(d.flag_A_post?` (после рождения: ${d.pierce_over_bps_post.toFixed(1)} бп, ${d.pierce_close_n_post})`:" (только до рождения уровня)"));if(d.flag_B)t.push(`B пивоты ${d.min_pivot_gap_min} мин друг от друга`);if(d.flag_C)t.push(`C уровень известен ${d.level_known_min} мин`);if(d.flag_D)t.push(`D диапазон ${d.spike_range_natr.toFixed(1)} NATR`);if(d.flag_E)t.push(`E разброс ${d.pivot_spread_bps.toFixed(1)} бп`+(d.level_vs_mean_e8?`, цена ≠ среднему на ${d.level_vs_mean_e8} e8`:""));if(d.flag_F)t.push(`F пивот не экстремум (${d.pivot_not_extreme_n})`);if(d.flag_G)t.push(`G закрытий за уровнем ${d.late_close_beyond_n}, до ${d.late_close_over_bps.toFixed(1)} бп`);return " · флаги: "+t.join("; ")}
+function open(i){if(i<0||i>=nav.length)return;cur=i;const d=nav[i];const im=$("m_i"),iw=document.querySelector(".imgw");im.onload=()=>{iw.scrollLeft=Math.max(0,(d.ex||0)-iw.clientWidth*0.35);iw.scrollTop=0};im.src="charts/"+d.id+".png";$("m_a").href="charts/"+d.id+".png";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
+$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${nav.length}`+flagLine(d);$("modal").classList.add("on")}
 document.addEventListener("keydown",e=>{if(!$("modal").classList.contains("on"))return;if(e.key==="Escape")$("modal").classList.remove("on");else if(e.key==="ArrowRight")open(cur+1);else if(e.key==="ArrowLeft")open(cur-1);else if(e.key==="z"||e.key==="Z")$("modal").classList.toggle("fit")});
 $("modal").onclick=e=>{if(e.target.id==="modal"||e.target.classList.contains("imgw"))$("modal").classList.remove("on")};
 document.querySelectorAll(".bar input,.bar select").forEach(el=>el.oninput=render);$("reset").onclick=()=>{document.querySelectorAll(".bar input,.bar select").forEach(el=>el.value="");render()};
@@ -769,10 +924,53 @@ document.documentElement.style.setProperty("--barh",document.getElementById("bar
 """
 
 
+def _agg(rows):
+    n = len(rows)
+    tot = sum(x["net_usd"] for x in rows)
+    return dict(n=n, n_long=sum(1 for x in rows if x["side"] == "long"), n_short=sum(1 for x in rows if x["side"] == "short"),
+                sum_usd=round(tot, 2), mean_usd=round(tot / n, 3) if n else None,
+                win=round(sum(1 for x in rows if x["net_usd"] > 0) / n, 4) if n else None)
+
+
+def flagstats(rows):
+    """По каждому флагу: сделок, $, доля прибыльных, 3 самых «сильных» примера; для сравнения — без флагов и все."""
+    out = {"all": _agg(rows), "any": _agg([x for x in rows if x["n_flags"] > 0]), "none": _agg([x for x in rows if x["n_flags"] == 0])}
+    for c in list(FLAGS) + ["A_post"]:
+        sel = [x for x in rows if x["flag_" + c]]
+        k, sg = FLAG_METRIC[c]
+        top = sorted(sel, key=lambda x: (-sg * (x[k] if x[k] is not None else 0), x["id"]))[:3]
+        d = _agg(sel)
+        d["metric"] = k
+        d["examples"] = [dict(id=x["id"], v=round(x[k], 2) if x[k] is not None else None, net=round(x["net_usd"], 2)) for x in top]
+        out[c] = d
+    return out
+
+
+def flagstats_md(st):
+    L = ["| флаг | сделок | лонг | шорт | сумма $ | средняя $ | прибыльных | метрика | примеры (id: значение, $) |", "|---|---:|---:|---:|---:|---:|---:|---|---|"]
+    for key, name in [(c, f"{c} — {FLAG_TXT[c]}") for c in list(FLAGS) + ["A_post"]] + [("any", "любой флаг"), ("none", "без флагов"), ("all", "все сделки")]:
+        d = st[key]
+        ex = "; ".join(f"{e['id']}: {e['v']}, {e['net']:+.2f}" for e in d.get("examples", []))
+        win = f"{d['win'] * 100:.1f} %" if d["win"] is not None else "—"
+        L.append(f"| {name} | {d['n']} | {d['n_long']} | {d['n_short']} | {d['sum_usd']:+.2f} | {d['mean_usd']} | {win} | {d.get('metric', '')} | {ex} |")
+    return "\n".join(L) + "\n"
+
+
+def cmd_flagstats(a):
+    rows = [json.loads(x) for x in open(os.path.join(a.work, "features.jsonl"), encoding="utf-8")]
+    st = flagstats(rows)
+    json.dump(st, open(os.path.join(a.work, "flagstats.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    md = flagstats_md(st)
+    open(os.path.join(a.work, "flagstats.md"), "w", encoding="utf-8").write(md)
+    print(md)
+
+
 def cmd_index(a):
     rows = [json.loads(x) for x in open(os.path.join(a.work, "features.jsonl"), encoding="utf-8")]
     keep = ["id", "side", "sym", "entry_gmt4", "half", "day", "exit_kind", "takes", "outcome", "net_usd", "net_bps", "hold_s",
-            "natr_pct", "dist_entry_bps", "level_age_min", "n_pivots", "touches", "mfe_30m_bps", "mae_30m_bps", "crossed_30m"]
+            "natr_pct", "dist_entry_bps", "level_age_min", "n_pivots", "touches", "mfe_30m_bps", "mae_30m_bps", "crossed_30m",
+            "flags", "n_flags", "pierce_over_bps", "pierce_close_n", "min_pivot_gap_min", "level_known_min", "spike_range_natr",
+            "pierce_over_bps_post", "pierce_close_n_post", "flag_A_post", "pivot_spread_bps", "spread_gt_2tau", "level_vs_mean_e8", "pivot_not_extreme_n", "late_close_beyond_n", "late_close_over_bps"] + ["flag_" + c for c in FLAGS]
     meta = {}
     cdir = a.charts or os.path.join(a.pub, "charts")
     for fn in os.listdir(cdir) if os.path.isdir(cdir) else []:
@@ -787,9 +985,13 @@ def cmd_index(a):
             if isinstance(v, float):
                 d[k] = round(v, 4)
     os.makedirs(a.pub, exist_ok=True)
-    html = INDEX_HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False))
+    st = flagstats(rows)
+    json.dump(st, open(os.path.join(a.work, "flagstats.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    open(os.path.join(a.work, "flagstats.md"), "w", encoding="utf-8").write(flagstats_md(st))
+    html = INDEX_HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False)).replace("__FLAGS__", json.dumps(st, ensure_ascii=False)) \
+        .replace("__FLAGTXT__", json.dumps(FLAG_TXT, ensure_ascii=False))
     open(os.path.join(a.pub, "index.html"), "w", encoding="utf-8").write(html)
-    for fn in ("features.csv", "features.jsonl"):
+    for fn in ("features.csv", "features.jsonl", "flagstats.md", "flagstats.json"):
         with open(os.path.join(a.work, fn), "rb") as fi, open(os.path.join(a.pub, fn), "wb") as fo:
             fo.write(fi.read())
     print(f"index.html: {len(data)} сделок")
@@ -804,8 +1006,10 @@ def main():
     p.add_argument("detail"); p.add_argument("work"); p.add_argument("--only"); p.add_argument("--out", required=True); p.add_argument("--tag", default="all")
     p = sub.add_parser("index")
     p.add_argument("work"); p.add_argument("pub"); p.add_argument("--charts")
+    p = sub.add_parser("flagstats")
+    p.add_argument("work")
     a = ap.parse_args()
-    {"features": cmd_features, "render": cmd_render, "index": cmd_index}[a.cmd](a)
+    {"features": cmd_features, "render": cmd_render, "index": cmd_index, "flagstats": cmd_flagstats}[a.cmd](a)
 
 
 if __name__ == "__main__":
