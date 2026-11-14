@@ -14,6 +14,8 @@ H = float(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("--")
 JSON_OUT = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else None
 DETAIL = "--peer-detail" in sys.argv
 ROOTS = {"binance": "/data/collect/binance/data", "bybit": "/data/turbo-probe/soak-bybit/data", "okx": "/data/collect/okx/data", "bingx": "/data/collect/bingx/data"}
+if "--roots" in sys.argv:   # JSON {метка: каталог данных} вместо боевых (аудит-руки)
+    ROOTS = json.load(open(sys.argv[sys.argv.index("--roots") + 1]))
 now = time.time()
 lo = now - H * 3600
 
