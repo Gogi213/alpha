@@ -321,6 +321,33 @@ fn stop_fills_at_trade_price_that_broke_it() {
 }
 
 #[test]
+fn exit_latency_fills_stop_on_first_trade_after_delay_and_takes_stay_limits() {
+    // §13.6: задержка выхода — стоп/трейл/БУ исполняются по первой сделке не раньше срабатывания + задержка; тейки — лимитки
+    let mut ex = ex_test();
+    let ticks = vec![
+        (10, 100.0, false),  // вход
+        (100, 94.0, true),   // стоп 5 % сработал
+        (120, 101.5, false), // за время задержки цена прошла оба тейка (100,5 и 101,0)
+        (160, 93.0, true),   // первая сделка ≥ 100 + 50 → исполнение выхода по её цене
+        (200, 90.0, true),
+    ];
+    let out = sim_stream(&mut stream(ticks.clone()), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::HardStop, 100, 0)
+    );
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(94.0)));
+    ex.lat_exit_ms = 50;
+    let out = sim_stream(&mut stream(ticks), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(
+        (out.kind, out.exit_ms, out.takes),
+        (ExitKind::HardStop, 160, 2)
+    );
+    assert_eq!(out.legs.last().map(|l| l.px), Some(px(93.0)));
+    assert!(out.legs[0].maker && out.legs[1].maker && !out.legs[2].maker);
+}
+
+#[test]
 fn breakeven_after_first_take_then_exit_on_next_trade_at_entry() {
     let ex = ex_test();
     let t = vec![

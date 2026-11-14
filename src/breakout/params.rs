@@ -48,6 +48,9 @@ pub struct ExitCfg {
     pub best_order: bool,
     /// Задержка входа, мс (только шаг B по сделкам; 1м-счёт её не использует).
     pub lat_ms: i64,
+    /// Задержка исполнения выхода по стопу/трейлу/безубытку, мс (§13.6, справочно): выход — по первой сделке не раньше
+    /// срабатывания + задержка; тейки остаются лимитками. 0 — выход на сделке срабатывания (как в §13.2).
+    pub lat_exit_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +116,7 @@ impl Params {
                 slip_bps: 1,
                 best_order: false,
                 lat_ms: 0,
+                lat_exit_ms: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -161,6 +165,7 @@ impl Params {
             "slip" => self.exit.slip_bps = f.round() as i64,
             "best" => self.exit.best_order = b,
             "lat" => self.exit.lat_ms = f.round() as i64,
+            "latx" => self.exit.lat_exit_ms = f.round() as i64,
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
             "mm" => self.port.mm_min = u,

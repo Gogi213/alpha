@@ -554,19 +554,8 @@ impl Pos {
         }
     }
 
-    /// Сделка с ценой `p` (рама) в момент `ms`. `Some(вид)` — стоп сработал на этой сделке (исполнение по `p`).
-    fn on_trade(&mut self, ms: i64, p: i64) -> Option<ExitKind> {
-        let trail_lvl = if self.armed { self.trail } else { i64::MIN };
-        let sp = self.stop_base.max(trail_lvl);
-        if p <= sp {
-            return Some(if trail_lvl > self.stop_base {
-                ExitKind::Trail
-            } else if self.be_on {
-                ExitKind::BreakEven
-            } else {
-                ExitKind::HardStop
-            });
-        }
+    /// Тейки-лимитки, пройденные сделкой `p` строго насквозь.
+    fn fill_takes(&mut self, ms: i64, p: i64) {
         while self.next_tp < self.tps.len() && p > self.tps[self.next_tp] {
             self.legs.push(TLeg {
                 ms,
@@ -581,6 +570,22 @@ impl Pos {
             }
             self.next_tp += 1;
         }
+    }
+
+    /// Сделка с ценой `p` (рама) в момент `ms`. `Some(вид)` — стоп сработал на этой сделке (исполнение по `p`).
+    fn on_trade(&mut self, ms: i64, p: i64) -> Option<ExitKind> {
+        let trail_lvl = if self.armed { self.trail } else { i64::MIN };
+        let sp = self.stop_base.max(trail_lvl);
+        if p <= sp {
+            return Some(if trail_lvl > self.stop_base {
+                ExitKind::Trail
+            } else if self.be_on {
+                ExitKind::BreakEven
+            } else {
+                ExitKind::HardStop
+            });
+        }
+        self.fill_takes(ms, p);
         self.maxp = self.maxp.max(p);
         if !self.armed && self.maxp - self.e >= self.a_dist {
             self.armed = true;
@@ -660,6 +665,7 @@ pub fn sim_stream(
     let mut marks: Vec<(usize, i64)> = Vec::new();
     let mut last = (entry_ms, p0);
     let mut exit: Option<(i64, i64, ExitKind)> = None;
+    let mut pending: Option<(i64, ExitKind)> = None;
     while let Some((ms, px, _)) = next() {
         let d = (ms / DAY_MS) as usize;
         while cur_day < d {
@@ -668,7 +674,19 @@ pub fn sim_stream(
         }
         let p = s * px;
         last = (ms, p);
+        if let Some((due, kind)) = pending {
+            if ms >= due {
+                exit = Some((ms, p, kind));
+                break;
+            }
+            pos.fill_takes(ms, p);
+            continue;
+        }
         if let Some(kind) = pos.on_trade(ms, p) {
+            if ex.lat_exit_ms > 0 {
+                pending = Some((ms + ex.lat_exit_ms, kind));
+                continue;
+            }
             exit = Some((ms, p, kind));
             break;
         }
