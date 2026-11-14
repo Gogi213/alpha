@@ -3,6 +3,7 @@
 //! `trades.csv` в конце добавлены `sig_ms,entry_ms,exit_ms` (мс от 01.09 00:00 UTC).
 
 use super::data::{self, Sym, HALF_DAYS, MIN_MS, START_DAY};
+use super::levels::build_levels_tracked;
 use super::params::{parse_variant, Params, SigCfg};
 use super::tick::{
     run_tick, signals_for_coin, sort_tsigs, TSig, TickCtr, TickResult, ZipSrc, DAY_MS,
@@ -60,6 +61,38 @@ fn write_outputs(dir: &Path, syms: &[Sym], side: Side, r: &TickResult) -> Result
         let _ = writeln!(cd, "{},{day},{v:.6}", syms[*si as usize].name);
     }
     fs::write(dir.join(format!("{}-coinday.csv", side.name())), cd)?;
+    Ok(())
+}
+
+/// `P42_DETAIL=1`: построчно (JSONL) всё, что нужно для графика сделки — уровень на сигнале с членами, ноги, NATR.
+fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult) -> Result<()> {
+    let mut cache: HashMap<u16, Vec<super::levels::Level>> = HashMap::new();
+    let mut t = String::new();
+    for (i, x) in r.trades.iter().enumerate() {
+        let sym = &syms[x.sym as usize];
+        let levels = cache
+            .entry(x.sym)
+            .or_insert_with(|| build_levels_tracked(sym, &p.sig.lv, side, true));
+        let lv = &levels[x.level as usize];
+        let si = lv
+            .segs
+            .iter()
+            .rposition(|(m, _)| *m <= x.sig_min)
+            .unwrap_or(0);
+        let rec = serde_json::json!({
+            "i": i, "sym": sym.name, "side": side.name(), "level": x.level,
+            "born": lv.born, "end": lv.end, "first_bar": lv.first_bar,
+            "level_px_e8": lv.segs[si].1, "members": lv.mem[si],
+            "sig_ms": x.sig_ms, "sig_min": x.sig_min, "dist_e8": x.dist,
+            "entry_ms": x.entry_ms, "entry_px_e8": x.entry_px, "exit_ms": x.exit_ms,
+            "kind": x.kind.name(), "takes": x.takes, "natr_e8": x.natr_e8,
+            "legs": x.legs.iter().map(|l| serde_json::json!([l.ms, l.px, l.u, l.maker])).collect::<Vec<_>>(),
+            "gross": x.gross, "fees": x.fees, "funding": x.funding, "net": x.net,
+        });
+        t.push_str(&rec.to_string());
+        t.push('\n');
+    }
+    fs::write(dir.join(format!("{}-detail.jsonl", side.name())), t)?;
     Ok(())
 }
 
@@ -158,6 +191,9 @@ pub fn run(
             };
             let r = run_tick(&syms, &sigs[j], side, &p.exit, &p.port, &src);
             write_outputs(&dir, &syms, side, &r)?;
+            if std::env::var_os("P42_DETAIL").is_some() {
+                write_detail(&dir, &syms, side, p, &r)?;
+            }
             let n = r.trades.len();
             let stops = r
                 .trades

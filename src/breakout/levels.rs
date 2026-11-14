@@ -25,6 +25,8 @@ pub struct Level {
     /// Версии цены: (с какой минуты, цена уровня); цена меняется, когда присоединяется пивот или выпадает член.
     pub segs: Vec<(u32, i64)>,
     pub first_bar: u32,
+    /// Только при `build_levels_tracked(.., true)`: для каждой версии цены — члены уровня (бар, цена ×1e8); иначе пусто.
+    pub mem: Vec<Vec<(u32, i64)>>,
 }
 
 #[derive(Clone, Copy)]
@@ -123,6 +125,15 @@ fn prices(m: &[Pv]) -> Vec<i64> {
 }
 
 pub fn build_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
+    build_levels_tracked(sym, cfg, side, false)
+}
+
+fn members(m: &[Pv]) -> Vec<(u32, i64)> {
+    m.iter().map(|p| (p.bar, p.p.abs())).collect()
+}
+
+/// `track` — вести журнал членов уровня (`Level::mem`); цены, рождение и конец уровней от него не зависят.
+pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) -> Vec<Level> {
     let Some(bars) = sym.bars_for(cfg.tf_min) else {
         return Vec::new();
     };
@@ -156,6 +167,9 @@ pub fn build_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
             let (_, mean) = group_ok(&prices(&live[li].members), cfg.tau_pm);
             if live[li].members.len() != before {
                 levels[id].segs.push((now as u32, mean.abs()));
+                if track {
+                    levels[id].mem.push(members(&live[li].members));
+                }
             }
             if bars.ok[b] && f.cl(b) > mean {
                 levels[id].end = now as u32;
@@ -175,6 +189,9 @@ pub fn build_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
                 if ok {
                     lv.members.push(pv);
                     levels[lv.id].segs.push((now as u32, mean.abs()));
+                    if track {
+                        levels[lv.id].mem.push(members(&lv.members));
+                    }
                     joined = true;
                     break;
                 }
@@ -212,6 +229,11 @@ pub fn build_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
                     end: u32::MAX,
                     segs: vec![(now as u32, mean.abs())],
                     first_bar,
+                    mem: if track {
+                        vec![members(&grp)]
+                    } else {
+                        Vec::new()
+                    },
                 });
                 live.push(Live {
                     id: levels.len() - 1,

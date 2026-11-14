@@ -817,6 +817,10 @@ pub struct TickTrade {
     pub fees: f64,
     pub funding: f64,
     pub net: f64,
+    /// Ноги сделки (тейки и остаток), NATR выхода (e8) и расстояние сигнала до уровня (×1e8) — для диагностики.
+    pub legs: Vec<TLeg>,
+    pub natr_e8: i64,
+    pub dist: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -958,6 +962,9 @@ pub fn run_tick(
             fees: st.fees,
             funding: st.funding,
             net: st.gross - st.fees + st.funding,
+            legs: tr.legs.clone(),
+            natr_e8: natr,
+            dist: sg.dist,
         });
     }
     res

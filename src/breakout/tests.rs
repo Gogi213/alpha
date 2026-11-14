@@ -2,7 +2,7 @@
 //! через», фандинг, суточная переоценка. Синтетические минутки на сетке кэша (минута 0 = 2026-09-01 00:00 UTC).
 
 use super::data::{parse_dec, Cols, Fund, Sym, HALF_DAYS, START_DAY, START_MIN};
-use super::levels::build_levels;
+use super::levels::{build_levels, build_levels_tracked};
 use super::params::Params;
 use super::portfolio::settle;
 use super::signals::{scan, Sig, SigCtr};
@@ -105,6 +105,31 @@ fn pivot_level_no_lookahead() {
         c.c[m] = 0;
     }
     assert!(build_levels(&sym(c), &p.sig.lv, Side::Long).is_empty());
+}
+
+#[test]
+fn tracked_levels_log_members_without_changing_levels() {
+    let p = lv_params();
+    let s = sym(level_world());
+    let plain = build_levels(&s, &p.sig.lv, Side::Long);
+    let tr = build_levels_tracked(&s, &p.sig.lv, Side::Long, true);
+    assert_eq!(plain.len(), tr.len());
+    for (a, b) in plain.iter().zip(&tr) {
+        assert_eq!((a.born, a.end, a.first_bar), (b.born, b.end, b.first_bar));
+        assert_eq!(a.segs, b.segs);
+        assert!(a.mem.is_empty());
+        assert_eq!(b.mem.len(), b.segs.len(), "журнал членов — по версии цены");
+        for (seg, m) in b.segs.iter().zip(&b.mem) {
+            let mean = m.iter().map(|x| x.1).sum::<i64>() / m.len() as i64;
+            assert_eq!(seg.1, mean, "цена уровня — среднее членов");
+        }
+    }
+    let mut m0 = tr[0].mem[0].clone();
+    m0.sort_unstable();
+    assert_eq!(
+        m0,
+        vec![(HB as u32 + 1, px(100.0)), (HB as u32 + 5, px(100.05))]
+    );
 }
 
 #[test]
