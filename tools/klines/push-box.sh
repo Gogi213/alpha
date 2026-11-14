@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run on srv (host alias `box` in /root/.ssh/config): copy /data/klines to Storage Box alpha/klines/ with rsync
 # (no --delete, nothing removed anywhere), then compare sha256 of every file computed locally and by the box itself.
-#   systemd-run --unit=klines-box --collect --nice=19 -p IOSchedulingClass=idle bash /data/klines/bin/push-box.sh
+#   systemd-run --unit=klines-box --collect --nice=19 -p IOSchedulingClass=idle -p StandardOutput=append:/data/klines-box-check/box.log bash /data/klines/bin/push-box.sh
 # Result: /data/klines-box-check/{local,remote}.sha256 and verdict.txt (last line: VERDICT OK|MISMATCH).
 set -euo pipefail
 export HOME=/root
@@ -12,9 +12,9 @@ BATCH=100
 mkdir -p "$OUT"
 ssh -o BatchMode=yes box mkdir -p alpha "$DST"
 echo "== $(date -Is) rsync"
-nice -n 19 ionice -c3 rsync -a --partial --stats --exclude bin/ -e "ssh -o BatchMode=yes" "$SRC/" "box:$DST/" | tail -6
+nice -n 19 ionice -c3 rsync -a --partial --stats --exclude bin/ --exclude box.log -e "ssh -o BatchMode=yes" "$SRC/" "box:$DST/" | tail -6
 echo "== $(date -Is) sha256 local"
-(cd "$SRC" && find . -type f ! -path './bin/*' -printf '%P\0' | sort -z | nice -n 19 ionice -c3 xargs -0 sha256sum) > "$OUT/local.sha256"
+(cd "$SRC" && find . -type f ! -path './bin/*' ! -name box.log -printf '%P\0' | sort -z | nice -n 19 ionice -c3 xargs -0 sha256sum) > "$OUT/local.sha256"
 n=$(wc -l < "$OUT/local.sha256")
 echo "== $(date -Is) sha256 remote ($n files)"
 : > "$OUT/remote.sha256"
