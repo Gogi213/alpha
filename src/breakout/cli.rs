@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::hash::Hash;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -199,9 +199,9 @@ fn mean(v: &[f64]) -> f64 {
 }
 
 fn run(
-    cache: &PathBuf,
-    variants: &PathBuf,
-    out: &PathBuf,
+    cache: &Path,
+    variants: &Path,
+    out: &Path,
     threads: usize,
     symbols: Option<String>,
 ) -> Result<()> {
@@ -293,7 +293,7 @@ fn run(
     Ok(())
 }
 
-fn hand(cache: &PathBuf, sym: &str, side: &str, nth: usize, set: &[String]) -> Result<()> {
+fn hand(cache: &Path, sym: &str, side: &str, nth: usize, set: &[String]) -> Result<()> {
     let side = match side {
         "long" => Side::Long,
         "short" => Side::Short,

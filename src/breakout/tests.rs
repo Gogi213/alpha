@@ -48,6 +48,7 @@ fn decimal_parse_exact() {
 /// 100,025, рождён на закрытии бара 6 → минута `(HB + 7) * 60`.
 const HB: usize = 400;
 const BORN: usize = (HB + 7) * 60;
+const _: () = assert!(BORN > START_MIN);
 
 fn level_world() -> Cols {
     let mut c = flat(HB * 60 + 3000, 90.0);
@@ -132,7 +133,6 @@ fn run_scan(c: Cols, p: &Params) -> (Vec<Sig>, SigCtr) {
 fn entry_before_break_only() {
     let mut p = lv_params();
     p.sig.r_min = 0; // после пересечения в тесте цена уходит на 90 (плоские минутки) — это не ложный пробой
-    assert!(BORN > START_MIN);
     let mut c = level_world();
     let t1 = BORN + 100;
     set(&mut c, t1, 99.85, 99.95, 99.84, 99.90); // зелёная, внутри 0,3 %, ниже уровня → сигнал
@@ -291,7 +291,7 @@ fn taker_slippage_and_short_mirror() {
     assert_eq!(tr.kind, ExitKind::HardStop);
     // стоп = 99,99 · 1,05 = 104,9895; тейкер покупает дороже на 1 bp: 104,9895 · 1,0001
     let stop = (px(99.99) as i128 * 105 / 100) as i64;
-    let fill = stop + (stop as i128 * 1 / 10_000) as i64;
+    let fill = stop + (stop as i128 / 10_000) as i64;
     assert_eq!(tr.legs.last().map(|l| l.px), Some(fill));
 }
 

@@ -52,6 +52,7 @@ fn half(t: usize) -> usize {
     usize::from(t / 1440 >= START_DAY + super::data::HALF_DAYS)
 }
 
+#[allow(clippy::needless_range_loop)] // t индексирует сразу несколько рядов монеты
 pub fn scan(
     sym: &Sym,
     si: u16,
