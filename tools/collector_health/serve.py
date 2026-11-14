@@ -1,7 +1,7 @@
 """Страница здоровья коллекторов G-022 (TK-529, В-134).
 
 Читает /data/health/<биржа>.json (формат — docs/findings/collector-health-format-2026-11-11.md),
-отдаёт page.html и /api/health. Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
+отдаёт page.html, /api/health (прежняя страница, page.html.prev-v3) и /api/v3 (столбики по 15 минут, v3.py). Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
 пороги — thresholds.json (числа назначает Судья; нет файла — строка жёлтая «порог не задан»).
 Новая биржа = новый файл в каталоге: строка появляется без правки страницы. Файлы с "kind" ≠ "collector" пропускаются.
 """
@@ -11,8 +11,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import v3
+
 HERE = Path(__file__).resolve().parent
-SCHEMA = 1
+SCHEMAS = (1, 2)  # 2 — Rust-коллектор (alpha collect): схема 1 + backpressure, process, totals, shards
 
 
 def load_json(path):
@@ -26,7 +28,7 @@ def row_state(doc, age_s, thr):
     """off — файла нет, bad — красная, warn — жёлтая, ok — зелёная.
 
     Красная: файл старше stale_s или with_data_1m == 0; жёлтая: часть символов молчит, таймауты/переподключения
-    за час, порог устаревания не задан (свежесть не проверить — «свежий» не пишем).
+    за час, переход линии на запасной вход за час (G-022), записи старше fresh.late_ms за час (TK-532), очередь приёма Rust-коллектора переполнялась в последнее окно, порог устаревания не задан (свежесть не проверить — «свежий» не пишем).
     """
     stale_s = (thr or {}).get("stale_s")
     if stale_s is not None and age_s > stale_s:
@@ -41,6 +43,14 @@ def row_state(doc, age_s, thr):
     ws = doc["ws"]
     if ws["timeouts_1h"] or ws["reconnects_1h"]:
         return "warn", "за час были таймауты или переподключения"
+    if ws.get("entrance_switches_1h"):
+        return "warn", f"за час линии переходили на запасной вход: {ws['entrance_switches_1h']}"
+    ring = ((doc.get("backpressure") or {}).get("ring") or {})
+    if ring.get("full_events_window"):
+        return "warn", f"очередь приёма переполнялась за последнее окно: {ring['full_events_window']} раз (приём ждал писателя)"
+    late = sum(k.get("late_1h", 0) for k in ((doc.get("fresh") or {}).get("kinds") or {}).values())
+    if late and late >= max(1, int((thr or {}).get("late_1h_flag", 1))):
+        return "warn", f"за час записей старше {(doc['fresh'].get('late_ms') or 0) // 1000} с: {late}"
     return "ok", "файл свежий, таймаутов за час нет"
 
 
@@ -48,14 +58,15 @@ def one_row(name, doc, now_ms, thr):
     if not isinstance(doc, dict):
         return {"exchange": name, "state": "bad", "note": "файл не читается"}
     try:
-        if doc["schema"] != SCHEMA:
+        if doc["schema"] not in SCHEMAS:
             return {"exchange": name, "state": "bad", "note": "неизвестный формат файла"}
         age_s = max(0, (now_ms - doc["ts_ms"]) // 1000)
         state, note = row_state(doc, age_s, thr)
         return {
             "exchange": name, "state": state, "note": note, "age_s": age_s,
             "symbols": doc["symbols"], "ws": doc["ws"],
-            "lag_in_ms": doc["lag_in_ms"], "lag_out_ms": doc["lag_out_ms"],
+            "lag_in_ms": doc["lag_in_ms"], "lag_out_ms": doc["lag_out_ms"], "fresh": doc.get("fresh"),
+            "backpressure": doc.get("backpressure"), "process": doc.get("process"),
         }
     except (KeyError, TypeError):
         return {"exchange": name, "state": "bad", "note": "в файле не хватает полей"}
@@ -84,6 +95,8 @@ class Handler(BaseHTTPRequestHandler):
     health_dir = Path("/data/health")
     expected = []
     thresholds = None
+    roots = {}
+    net = None
 
     def _send(self, code, body, ctype):
         self.send_response(code)
@@ -98,6 +111,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             rows = collect(self.health_dir, int(time.time() * 1000), self.expected, self.thresholds)
             self._send(200, json.dumps({"rows": rows}, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        elif path == "/api/v3":
+            try:
+                body = v3.payload(self.health_dir, self.expected, self.roots, self.net, thr=self.thresholds)
+            except Exception as e:  # страница не должна падать от одного кривого файла
+                body = {"error": repr(e)}
+            self._send(200, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")
         elif path in ("/", "/index.html"):
             self._send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
         else:
@@ -114,10 +133,14 @@ def main():
     ap.add_argument("--port", type=int, default=8088)
     ap.add_argument("--exchanges", default=str(HERE / "exchanges.json"))
     ap.add_argument("--thresholds", default=str(HERE / "thresholds.json"))
+    ap.add_argument("--roots", default=str(HERE / "roots.json"))
+    ap.add_argument("--netwatch", default="/data/netwatch")
     a = ap.parse_args()
     Handler.health_dir = Path(a.health_dir)
     Handler.expected = load_json(a.exchanges) or []
     Handler.thresholds = load_json(a.thresholds)
+    Handler.roots = load_json(a.roots) or {}
+    Handler.net = v3.Net(a.netwatch)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 
 

@@ -1,1 +1,1 @@
-{"stale_s": 30}
+{"stale_s": 30, "late_min_flag": 1000, "late_1h_flag": 5000}
