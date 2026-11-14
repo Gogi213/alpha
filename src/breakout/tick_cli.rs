@@ -162,6 +162,15 @@ pub fn run(
     for s in &mut sigs {
         sort_tsigs(s);
     }
+    if vs.iter().any(|(_, p)| p.sig.lv.pk) {
+        use std::sync::atomic::Ordering::Relaxed;
+        eprintln!(
+            "pk (§13.11): не родилось из-за предыстории {}, убито перепроверкой при смене версии {}, убито минутным проколом {}",
+            super::levels::PK_BIRTH_BLOCKED.load(Relaxed),
+            super::levels::PK_RETRO_KILLED.load(Relaxed),
+            super::tick::PK_MINUTE_KILLED.load(Relaxed)
+        );
+    }
     let ls = src.stat.lock().map(|g| g.clone()).unwrap_or_default();
     eprintln!(
         "фаза 1 готова за {:.1} с; файлов {}, строк {}, не по порядку {}, вне суток {}, плохих строк {}, ошибок {}",

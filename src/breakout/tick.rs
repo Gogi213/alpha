@@ -24,7 +24,11 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// Счётчик опции `pk` (§13.11, диагностика): уровни, убитые минутным проколом > τ, которых запрет ложного пробоя к этой минуте не убил.
+pub static PK_MINUTE_KILLED: AtomicU64 = AtomicU64::new(0);
 
 pub const DAY_MS: i64 = 86_400_000;
 
@@ -336,6 +340,7 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
         let mut price = lv.segs[0].1;
         let mut pend: Option<usize> = None;
         let mut forbidden = false;
+        let mut pk_dead = false;
         for t in lv.born as usize..end {
             while seg + 1 < lv.segs.len() && lv.segs[seg + 1].0 as usize <= t {
                 seg += 1;
@@ -381,6 +386,17 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                 if s * sym.c[t] < back {
                     forbidden = true;
                 }
+            }
+            // §13.11 (`pk`): прокол цены версии больше чем на τ убивает уровень навсегда, со следующей минуты
+            if cfg.lv.pk
+                && !pk_dead
+                && hi > lp + (i128::from(lp.abs()) * i128::from(cfg.lv.tau_pm) / 100_000) as i64
+            {
+                pk_dead = true;
+                if !forbidden {
+                    PK_MINUTE_KILLED.fetch_add(1, Ordering::Relaxed);
+                }
+                forbidden = true;
             }
         }
     }

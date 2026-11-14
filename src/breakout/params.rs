@@ -14,6 +14,9 @@ pub struct LevelCfg {
     pub n: usize,
     pub tau_pm: i64,
     pub l_days: usize,
+    /// §13.11: уровень умирает от прокола с первого пивота (минутный high/low за ценой > τ; предыстория и
+    /// перепроверка при смене версии цены). Только `breakout tick`.
+    pub pk: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -91,6 +94,7 @@ impl Params {
                     n: 2,
                     tau_pm: pm(0.2),
                     l_days: 7,
+                    pk: false,
                 },
                 natr_p: 30,
                 natr_min_pm: pm(0.4),
@@ -148,6 +152,7 @@ impl Params {
             "n_bounce" => self.sig.lv.n = u,
             "tau" => self.sig.lv.tau_pm = pm(f),
             "l_days" => self.sig.lv.l_days = u,
+            "pk" => self.sig.lv.pk = b,
             "track" => self.sig.track_pm = pm(f),
             "e" => self.sig.e_pm = pm(f),
             "color" => self.sig.color = b,

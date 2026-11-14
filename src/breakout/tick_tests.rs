@@ -1,10 +1,10 @@
 //! Тесты шага B П-42 (§13.2): сигнал по сделкам без заглядывания, вход до пробоя, вход по агрессивной сделке стороны,
 //! тейки только строго через цену, стоп по цене сделки, фандинг и суточная переоценка по сделкам.
 
-use super::data::{Fund, Sym, MIN_MS, START_DAY};
+use super::data::{Cols, Fund, Sym, MIN_MS, START_DAY};
 use super::levels::build_levels;
 use super::params::Params;
-use super::tests::{flat, level_world, lv_params, px, run_scan, set, sym, BORN};
+use super::tests::{flat, level_world, lv_params, mirror, px, run_scan, set, sym, BORN};
 use super::tick::{
     candidates, first_signal, minute_range, parse_px, parse_trades, run_tick, settle_tick,
     signals_for_coin, sim_stream, LoadStat, TLeg, TSig, Tick, TickCtr, TickOut, TradeSrc, DAY_MS,
@@ -572,4 +572,60 @@ fn reentry_modes_consume_level_per_protocol() {
     assert_eq!(r.rej[0], 0, "reentry=2: выходы уровень не расходуют");
     p.port.reentry = 3;
     assert!(p.validate().is_err());
+}
+
+fn cand_minutes(c: Cols, p: &Params, side: Side) -> Vec<usize> {
+    let s = sym(c);
+    let lv = build_levels(&s, &p.sig.lv, side);
+    let mut cs = Vec::new();
+    candidates(&s, &lv, &p.sig, side, &mut cs);
+    cs.iter().map(|c| c.t as usize).collect()
+}
+
+#[test]
+fn pk_minute_pierce_kills_level_from_next_minute() {
+    // минута BORN+50: high 100,30 (> предела 100,225), закрытие 100,10 выше границы запрета ложного пробоя (99,925);
+    // BORN+51 — кандидат, если уровень жив. Минута прокола остаётся кандидатом (сигнал до прокола возможен), следующая — нет.
+    let mut c = level_world();
+    set(&mut c, BORN + 50, 99.85, 100.30, 99.84, 100.10);
+    set(&mut c, BORN + 51, 99.85, 99.95, 99.84, 99.90);
+    let off = lv_params();
+    let mut on = lv_params();
+    on.sig.lv.pk = true;
+    assert_eq!(
+        cand_minutes(c.clone(), &off, Side::Long),
+        vec![BORN + 50, BORN + 51],
+        "без pk прокол без возврата глубже f уровня не убивает"
+    );
+    assert_eq!(
+        cand_minutes(c.clone(), &on, Side::Long),
+        vec![BORN + 50],
+        "pk: прокол 0,27 % > τ убивает со следующей минуты"
+    );
+    // шорт — зеркально
+    let m = mirror(&c, 200.0);
+    assert_eq!(
+        cand_minutes(m.clone(), &off, Side::Short),
+        vec![BORN + 50, BORN + 51]
+    );
+    assert_eq!(cand_minutes(m, &on, Side::Short), vec![BORN + 50]);
+    // прокол в пределах τ (100,20 < 100,225) — уровень жив и с pk
+    let mut c = level_world();
+    set(&mut c, BORN + 50, 99.85, 100.20, 99.84, 100.10);
+    set(&mut c, BORN + 51, 99.85, 99.95, 99.84, 99.90);
+    assert_eq!(cand_minutes(c, &on, Side::Long), vec![BORN + 50, BORN + 51]);
+}
+
+#[test]
+fn pk_death_is_permanent() {
+    // после прокола уровень не оживает, даже если цена вернулась и стоит в зоне входа много минут подряд
+    let mut c = level_world();
+    set(&mut c, BORN + 50, 99.85, 100.30, 99.84, 100.10);
+    for m in BORN + 51..BORN + 70 {
+        set(&mut c, m, 99.85, 99.95, 99.84, 99.95);
+    }
+    let mut on = lv_params();
+    on.sig.lv.pk = true;
+    on.sig.ban = false;
+    assert_eq!(cand_minutes(c, &on, Side::Long), vec![BORN + 50]);
 }

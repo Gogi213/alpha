@@ -408,3 +408,155 @@ fn trade_across_half_boundary_stays_in_entry_half() {
         st.daily
     );
 }
+
+// ───────────────────────────── §13.11: опция `pk` ─────────────────────────────
+
+/// Мир для `pk`: бары `HB + i` — (максимум, закрытие); минимум бара = максимум − 0,5; остальные бары — 90.
+pub(super) fn bars_world(spec: &[(f64, f64)]) -> Cols {
+    let mut c = flat(HB * 60 + 3000, 90.0);
+    for (i, (h, close)) in spec.iter().enumerate() {
+        let b = (HB + i) * 60;
+        for m in b..b + 60 {
+            set(&mut c, m, *close, *close, *close, *close);
+        }
+        set(&mut c, b, *close, *h, h - 0.5, *close);
+    }
+    c
+}
+
+pub(super) fn pk_params() -> Params {
+    let mut p = lv_params();
+    p.sig.lv.pk = true;
+    p
+}
+
+/// Зеркало мира для шорта: цена → `k − цена`, high ↔ low; дыры остаются дырами.
+pub(super) fn mirror(c: &Cols, k: f64) -> Cols {
+    let mut m = Cols::new();
+    for i in 0..c.o.len() {
+        if c.o[i] == 0 {
+            continue;
+        }
+        m.o[i] = px(k) - c.o[i];
+        m.h[i] = px(k) - c.l[i];
+        m.l[i] = px(k) - c.h[i];
+        m.c[i] = px(k) - c.c[i];
+        m.qv[i] = c.qv[i];
+    }
+    m
+}
+
+#[test]
+fn pk_blocks_birth_when_pierced_between_first_pivot_and_birth() {
+    // пивоты — бары 1 (100,00) и 7 (100,05), уровень 100,025, предел прокола 100,225; бары 3–4 — пара с равным
+    // максимумом 100,30 (не пивот), закрытия ниже уровня: без `pk` проверка закрытий прокола не видит
+    let spec = [
+        (99.0, 98.6),
+        (100.0, 99.6),
+        (99.0, 98.6),
+        (100.30, 99.9),
+        (100.30, 99.9),
+        (98.0, 97.6),
+        (98.5, 98.1),
+        (100.05, 99.65),
+        (98.0, 97.6),
+        (98.0, 97.6),
+    ];
+    let off = build_levels(&sym(bars_world(&spec)), &lv_params().sig.lv, Side::Long);
+    assert_eq!(off.len(), 1, "без pk уровень рождается");
+    assert_eq!(off[0].born as usize, (HB + 9) * 60);
+    let on = build_levels(&sym(bars_world(&spec)), &pk_params().sig.lv, Side::Long);
+    assert!(
+        on.is_empty(),
+        "pk: прокол 0,27 % > τ до рождения — уровня нет"
+    );
+    let mut ok = spec;
+    ok[3].0 = 100.22; // 0,195 % < τ
+    ok[4].0 = 100.22;
+    let on = build_levels(&sym(bars_world(&ok)), &pk_params().sig.lv, Side::Long);
+    assert_eq!(on.len(), 1, "прокол в пределах τ уровень не убивает");
+    // шорт — зеркально
+    let mc = mirror(&bars_world(&spec), 200.0);
+    assert_eq!(
+        build_levels(&sym(mc.clone()), &lv_params().sig.lv, Side::Short).len(),
+        1
+    );
+    assert!(build_levels(&sym(mc), &pk_params().sig.lv, Side::Short).is_empty());
+}
+
+#[test]
+fn pk_rechecks_history_when_pivot_joins() {
+    // пивоты 1 (100,00), 6 (100,10) → уровень 100,05 (предел 100,2501), пара баров 3–4 с максимумом 100,24 проходит;
+    // 3-й пивот (бар 9, 99,85) присоединяется, цена уровня 99,983 (предел 100,183): прокол 100,24 — нарушение
+    let spec = [
+        (99.0, 98.6),
+        (100.0, 99.6),
+        (98.5, 98.1),
+        (100.24, 99.9),
+        (100.24, 99.9),
+        (98.0, 97.6),
+        (100.10, 99.7),
+        (98.0, 97.6),
+        (98.0, 97.6),
+        (99.85, 99.45),
+        (98.0, 97.6),
+        (98.0, 97.6),
+    ];
+    // окно L = 60 сут.: до конца данных никто не выпадает
+    let mut p0 = lv_params();
+    p0.sig.lv.l_days = 60;
+    let mut p1 = pk_params();
+    p1.sig.lv.l_days = 60;
+    let off = build_levels(&sym(bars_world(&spec)), &p0.sig.lv, Side::Long);
+    assert_eq!(off.len(), 1);
+    assert_eq!(
+        off[0].segs.len(),
+        2,
+        "присоединение 3-го пивота: вторая версия цены"
+    );
+    assert_eq!(off[0].end, u32::MAX, "без pk уровень жив");
+    let on = build_levels(&sym(bars_world(&spec)), &p1.sig.lv, Side::Long);
+    assert_eq!(
+        on.len(),
+        1,
+        "при рождении (цена 100,05) прокол 100,24 допустим"
+    );
+    assert_eq!(
+        on[0].end as usize,
+        (HB + 11) * 60,
+        "присоединение пивота пересчитало предел по новой цене: уровень умер"
+    );
+}
+
+#[test]
+fn pk_rechecks_history_when_member_expires() {
+    // окно L = 1 сут.; пивоты 1 (100,30), 6 (100,10), 13 (99,95): присоединение (цена 100,117, предел 100,317) прокол
+    // 100,24 (пара баров 9–10) прощает; на баре 25 пивот 1 выпадает → цена 100,025 (предел 100,225): прокол — нарушение
+    let mut spec = vec![(98.0, 97.6); 31];
+    spec[0] = (99.0, 98.6);
+    spec[1] = (100.30, 99.9);
+    spec[2] = (98.5, 98.1);
+    spec[6] = (100.10, 99.7);
+    spec[9] = (100.24, 99.9);
+    spec[10] = (100.24, 99.9);
+    spec[13] = (99.95, 99.55);
+    let mut p = lv_params();
+    p.sig.lv.l_days = 1;
+    let off = build_levels(&sym(bars_world(&spec)), &p.sig.lv, Side::Long);
+    assert_eq!(off.len(), 1);
+    assert_eq!(off[0].segs.len(), 3, "рождение, присоединение, выпадение");
+    assert_eq!(
+        off[0].end as usize,
+        (HB + 31) * 60,
+        "без pk уровень живёт до выпадения пивота 6 (остаётся 1 < N)"
+    );
+    p.sig.lv.pk = true;
+    let on = build_levels(&sym(bars_world(&spec)), &p.sig.lv, Side::Long);
+    assert_eq!(on.len(), 1);
+    assert_eq!(on[0].segs.len(), 3);
+    assert_eq!(
+        on[0].end as usize,
+        (HB + 26) * 60,
+        "выпадение пивота 1 сдвинуло цену вниз: прокол 100,24 теперь нарушение"
+    );
+}

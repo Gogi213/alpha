@@ -15,6 +15,12 @@
 use super::data::{Bars, Sym};
 use super::params::LevelCfg;
 use super::Side;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Счётчики опции `pk` (§13.11, диагностика; считаются только в обычной сборке уровней, не в журнале членов): группы,
+/// не родившиеся из-за прокола/закрытия за ценой с первого пивота, и уровни, убитые перепроверкой при смене версии.
+pub static PK_BIRTH_BLOCKED: AtomicU64 = AtomicU64::new(0);
+pub static PK_RETRO_KILLED: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone)]
 pub struct Level {
@@ -71,6 +77,13 @@ fn group_ok(ps: &[i64], tau_pm: i64) -> (bool, i64) {
         i128::from((x - mean).abs()) * 100_000 <= i128::from(tau_pm) * i128::from(mean.abs())
     });
     (ok, mean)
+}
+
+/// `pk` (§13.11): среди закрытых баров `from..=to` есть бар с high за ценой `mean` (длинная рама) больше чем на τ или —
+/// после бара `from` — с закрытием за ценой `mean`. Часовой high — максимум минутных, поэтому равно поминутной проверке.
+fn pk_violated(f: &Frame, bars: &Bars, from: usize, to: usize, mean: i64, tau_pm: i64) -> bool {
+    let lim = mean + (i128::from(mean.abs()) * i128::from(tau_pm) / 100_000) as i64;
+    (from..=to).any(|bb| bars.ok[bb] && (f.hi(bb) > lim || (bb > from && f.cl(bb) > mean)))
 }
 
 fn find_pivots(f: &Frame, cfg: &LevelCfg) -> Vec<Pv> {
@@ -170,6 +183,17 @@ pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) 
                 if track {
                     levels[id].mem.push(members(&live[li].members));
                 }
+                if cfg.pk {
+                    let from = live[li].members.iter().map(|p| p.bar as usize).min();
+                    if from.is_some_and(|from| pk_violated(&f, bars, from, b, mean, cfg.tau_pm)) {
+                        if !track {
+                            PK_RETRO_KILLED.fetch_add(1, Ordering::Relaxed);
+                        }
+                        levels[id].end = now as u32;
+                        live.remove(li);
+                        continue;
+                    }
+                }
             }
             if bars.ok[b] && f.cl(b) > mean {
                 levels[id].end = now as u32;
@@ -182,17 +206,29 @@ pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) 
             let pv = pivs[pi];
             pi += 1;
             let mut joined = false;
-            for lv in live.iter_mut() {
-                let mut cand = prices(&lv.members);
+            for li in 0..live.len() {
+                let mut cand = prices(&live[li].members);
                 cand.push(pv.p);
                 let (ok, mean) = group_ok(&cand, cfg.tau_pm);
                 if ok {
-                    lv.members.push(pv);
-                    levels[lv.id].segs.push((now as u32, mean.abs()));
+                    let id = live[li].id;
+                    live[li].members.push(pv);
+                    levels[id].segs.push((now as u32, mean.abs()));
                     if track {
-                        levels[lv.id].mem.push(members(&lv.members));
+                        levels[id].mem.push(members(&live[li].members));
                     }
                     joined = true;
+                    if cfg.pk {
+                        let from = live[li].members.iter().map(|p| p.bar as usize).min();
+                        if from.is_some_and(|from| pk_violated(&f, bars, from, b, mean, cfg.tau_pm))
+                        {
+                            if !track {
+                                PK_RETRO_KILLED.fetch_add(1, Ordering::Relaxed);
+                            }
+                            levels[id].end = now as u32;
+                            live.remove(li);
+                        }
+                    }
                     break;
                 }
             }
@@ -222,7 +258,17 @@ pub fn build_levels_tracked(sym: &Sym, cfg: &LevelCfg, side: Side, track: bool) 
             let (_, mean) = group_ok(&prices(&grp), cfg.tau_pm);
             let first_bar = grp.iter().map(|p| p.bar).min().unwrap_or(pv.bar);
             free.retain(|p| !grp.iter().any(|q| q.bar == p.bar && q.p == p.p));
-            let dead = (first_bar as usize + 1..=b).any(|bb| bars.ok[bb] && f.cl(bb) > mean);
+            let dead = if cfg.pk {
+                let d = pk_violated(&f, bars, first_bar as usize, b, mean, cfg.tau_pm);
+                if d && !track
+                    && !(first_bar as usize + 1..=b).any(|bb| bars.ok[bb] && f.cl(bb) > mean)
+                {
+                    PK_BIRTH_BLOCKED.fetch_add(1, Ordering::Relaxed);
+                }
+                d
+            } else {
+                (first_bar as usize + 1..=b).any(|bb| bars.ok[bb] && f.cl(bb) > mean)
+            };
             if !dead {
                 levels.push(Level {
                     born: now as u32,

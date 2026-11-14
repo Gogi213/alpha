@@ -253,6 +253,9 @@ fn run(
         if v.1.port.reentry > 0 {
             bail!("reentry считает только `breakout tick`: {line}");
         }
+        if v.1.sig.lv.pk {
+            bail!("pk считает только `breakout tick`: {line}");
+        }
         vs.push(v);
     }
     if vs.is_empty() {
