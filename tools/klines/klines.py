@@ -245,6 +245,9 @@ S3H = Http(S3)
 
 
 def u12_universe(cfg, ex):
+    """Binance: symbols qualifying in filter.u12.json. Bybit: its u12 qualifying symbols that are not on Binance (overlap.u12.json)."""
+    if ex == "bybit":
+        return sorted(cfg.jload(ex, "overlap.u12.json")["bybit_download"])
     return sorted(s for s, f in cfg.jload(ex, "filter.u12.json").items() if f["qualifies"])
 
 
@@ -419,10 +422,10 @@ def norm_base(b):
 
 
 def overlap_step(cfg):
-    bn_c = {c["symbol"]: c for c in cfg.jload("binance", "symbols.json")["candidates"]}
-    bb_c = {c["symbol"]: c for c in cfg.jload("bybit", "symbols.json")["candidates"]}
-    bn_f, bb_f = cfg.jload("binance", "filter.json"), cfg.jload("bybit", "filter.json")
-    bn_d, bb_d = cfg.jload("binance", "daily.json"), cfg.jload("bybit", "daily.json")
+    bn_c = {c["symbol"]: c for c in cfg.jload("binance", cfg.name("symbols.json"))["candidates"]}
+    bb_c = {c["symbol"]: c for c in cfg.jload("bybit", cfg.name("symbols.json"))["candidates"]}
+    bn_f, bb_f = cfg.jload("binance", cfg.name("filter.json")), cfg.jload("bybit", cfg.name("filter.json"))
+    bn_d, bb_d = cfg.jload("binance", cfg.name("daily.json")), cfg.jload("bybit", cfg.name("daily.json"))
     by_norm = {}
     for s, c in bn_c.items():
         by_norm.setdefault(norm_base(c["base"])[0], []).append(s)
@@ -441,7 +444,9 @@ def overlap_step(cfg):
         ratio = None
         for d in reversed(common):
             a, b = Decimal(bn_d[bn_sym][d][4]), Decimal(bb_d[sym][d][4])
-            if a > 0 and b > 0:
+            dlv = bn_c[bn_sym]["delivery_ms"]
+            # a day Binance traded in full: after its delivery the 1d bar is flat, on the delivery day it stops mid-day
+            if a > 0 and b > 0 and bn_d[bn_sym][d][8] != "0" and (dlv >= 4_000_000_000_000 or day_ms(d) + DAY <= dlv):
                 ratio = float((b / mult) / (a / bn_mult))
                 break
         suspect = ratio is None or not (0.8 <= ratio <= 1.25)
@@ -456,7 +461,7 @@ def overlap_step(cfg):
                     "Binance equivalent below the threshold = no Binance copy -> downloaded from Bybit anyway",
                bybit_qualifying=sum(v["qualifies"] for v in bb_f.values()), overlap=rows, skipped=sorted(skipped),
                bybit_download=sorted(download))
-    cfg.jsave("bybit", "overlap.json", out)
+    cfg.jsave("bybit", cfg.name("overlap.json"), out)
     log(f"overlap: bybit qualifying {out['bybit_qualifying']}, skipped (on Binance) {len(skipped)}, to download {len(download)}")
 
 
@@ -714,7 +719,7 @@ def verify_step(cfg, ex):
         spot.append(dict(symbol=s, day=d, rows_file=len(got), rows_rest=len(exp), identical=(got == exp), first_diff_row=diff))
         log(f"{ex} spot-check {s} {d}: identical={got == exp} file={len(got)} rest={len(exp)}")
     mism = sum(len(r["mismatches_1d_vs_1m"]) for r in out.values())
-    ov = None if cfg.tag else cfg.jload(ex, "overlap.json")
+    ov = cfg.jload(ex, cfg.name("overlap.json")) if not cfg.tag or cfg.set == "new" else None
     skipped = {b: [r["binance"] for r in ov["overlap"] if r["bybit"] == b][0] for b in ov["skipped"]} if ov else {}
     manifest = dict(
         exchange=ex, market="USDT-margined perpetuals" + (" (Binance USD-M; incl. TRADIFI_PERPETUAL)" if ex == "binance" else " (Bybit v5 linear, LinearPerpetual)"),
