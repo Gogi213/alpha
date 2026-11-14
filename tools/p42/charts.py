@@ -491,6 +491,49 @@ class Placer:
         return ann
 
 
+EXIT = dict(n_tp=8, t_low=1000, t_high=5000, a=2000, rr=2000, s_pm=5000)  # база b0: NATR в тысячных, стоп в тысячных %
+
+
+def exit_lines(r, tk, kl, legs):
+    """Уровни выхода по правилам движка: жёсткий стоп (−5 %), лестница тейков, стоп в точку входа после 1-го тейка и
+    трейл (откат R·NATR от максимума с момента входа; взведён при +A·NATR). Трейл — по минутам (максимум по минуткам,
+    во входной минуте — по сделкам после входа): ступенчатая линия, действующая с конца минуты."""
+    s = 1 if r["side"] == "long" else -1
+    e8, natr = r["entry_px_e8"], r["natr_e8"]
+
+    def dist(xm):
+        return e8 * natr * xm // (10**8 * 1000)
+
+    ef = s * e8
+    nt = EXIT["n_tp"]
+    tps = [(e8 + s * dist(EXIT["t_low"] + ((EXIT["t_high"] - EXIT["t_low"]) * i) // (nt - 1))) / 1e8 for i in range(nt)]
+    hard = (e8 - s * (e8 * EXIT["s_pm"] // 100_000)) / 1e8
+    a_d, r_d = dist(EXIT["a"]), dist(EXIT["rr"])
+    em, xm = r["entry_ms"], r["exit_ms"]
+    t, p, bm = tk
+    m_e, m_x = int((em - T0) // MIN), int((xm - T0) // MIN)
+    p0 = r["entry_px_e8"] / 1e8 / (1 + s * 1e-4)
+    best = s * p0
+    inm = (t > em) & (t < T0 + (m_e + 1) * MIN)
+    if inm.any():
+        best = max(best, float((s * p[inm]).max()))
+    armed, trail, pts = False, None, []
+    for m in range(m_e, m_x + 1):
+        if m > m_e:
+            ext = kl[1, m] if s > 0 else -kl[2, m]
+            if ext == ext:
+                best = max(best, float(ext))
+        if not armed and (best - ef / 1e8) * 1e8 >= a_d:
+            armed = True
+        if armed:
+            lvl = (best * 1e8 - r_d) / 1e8
+            trail = lvl if trail is None else max(trail, lvl)
+            if trail * 1e8 > ef:
+                pts.append((m + 1.0, s * trail))
+    first_take = (legs[0]["ms"] - T0) / MIN if r["takes"] > 0 else None
+    return dict(tps=tps, hard=hard, first_take=first_take, trail=pts)
+
+
 def tick_step(px_per_min):
     for st in (5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880):
         if st * px_per_min >= 150:
@@ -498,7 +541,7 @@ def tick_step(px_per_min):
     return 2880
 
 
-def render(r, kl, out_png, plt):
+def render(r, kl, tk, out_png, plt):
     from matplotlib.ticker import FixedLocator, FuncFormatter
 
     s = 1 if r["side"] == "long" else -1
@@ -524,7 +567,8 @@ def render(r, kl, out_png, plt):
     t, o, h_, l_, c = agg_bars(kl, x0, x1, 1)
     xc = (t - T0) / MIN + 0.5
     draw_candles(ax, xc, o, h_, l_, c, 0.8, max(0.5, min(1.0, px * 0.35)))
-    pxs = [g["px"] for g in legs] + [e, L] + [d["px"] for d in touches]
+    ln = exit_lines(r, tk, kl, legs)
+    pxs = [g["px"] for g in legs] + [e, L, ln["hard"], max(ln["tps"]), min(ln["tps"])] + [d["px"] for d in touches]
     ymin, ymax = min(np.nanmin(l_), min(pxs)), max(np.nanmax(h_), max(pxs))
     pad = (ymax - ymin) * 0.10
     ax.set_ylim(ymin - pad, ymax + pad)
@@ -543,6 +587,22 @@ def render(r, kl, out_png, plt):
         col = C_TAKE if g["kind"] == "take" else KIND_COLOR[g["kind"]]
         ax.plot([ex, (g["ms"] - T0) / MIN], [e, g["px"]], color=col, lw=0.9, alpha=0.65, zorder=7)
 
+    # уровни выхода: тейки — тонкие зелёные засечки; стоп −5 % → в точку входа после 1-го тейка → трейл
+    seg_end = max(xx, ex + 14 / px)
+    for tp in ln["tps"]:
+        ax.hlines(tp, ex, seg_end, color=C_TAKE, lw=1.0, alpha=0.75, zorder=8)
+    ft = ln["first_take"]
+    hard_end = max(ft if ft is not None else xx, ex + 10 / px)
+    ax.hlines(ln["hard"], ex, hard_end, color=C_STOP, lw=2.0, ls=(0, (5, 3)), zorder=9)
+    tr = [pt for pt in ln["trail"] if pt[0] < xx]
+    be_end = min(tr[0][0], xx) if tr else xx
+    if ft is not None:
+        ax.vlines(ft, min(ln["hard"], e), max(ln["hard"], e), color=C_STOP, lw=2.0, ls=(0, (5, 3)), zorder=9)
+        ax.hlines(e, ft, max(be_end, ft + 10 / px), color=C_STOP, lw=2.0, ls=(0, (5, 3)), zorder=9)
+    if tr:
+        xs = [ft if ft is not None else ex] + [q[0] for q in tr] + [xx]
+        ys = [e] + [q[1] for q in tr] + [tr[-1][1]]
+        ax.step(xs, ys, where="post", color=C_TRAIL, lw=2.2, zorder=9)
     pl = Placer(ax)
     # вход: большая стрелка
     acol = "#0a8f3c" if s > 0 else "#d03b3b"
@@ -568,6 +628,12 @@ def render(r, kl, out_png, plt):
         pl.label(gx, g["px"], f"{g['label']} · {fmt_px(g['px'])} · {g['net']:+.2f} $", col, vert=1 if g["px"] >= e else -1,
                  side="right", fs=9.5, gap=20, ec=col)
     # касания: пивоты движка — залитые круги, остальные — полые; номер внутри
+    pl.label(ex, ln["hard"], f"стоп −5 % · {fmt_px(ln['hard'])}", C_STOP, vert=-s, side="center", fs=9.5, gap=16, ec=C_STOP)
+    if ft is not None:
+        pl.label(ft, e, f"стоп → вход · {fmt_px(e)}", C_STOP, vert=-s, side="center", fs=9, gap=16, ec=C_STOP)
+    if tr:
+        pl.label(tr[-1][0] if tr[-1][0] < xx else xx, tr[-1][1], f"трейл · {fmt_px(tr[-1][1])}", C_TRAIL, vert=-s, side="center",
+                 fs=9, gap=16, ec=C_TRAIL)
     for d in touches:
         tx = d["m"] + 0.5
         ax.plot([tx], [d["px"]], marker="o", ms=19, mfc=INK if d["pivot"] else "white", mec=INK, mew=2.2, zorder=21)
@@ -618,7 +684,7 @@ def cmd_render(a):
     for sym, rs in sorted(by_sym.items()):
         kl = klines(sym)
         for r in rs:
-            W, H, ex, nt = render(r, kl, os.path.join(a.out, f"{r['id']}.png"), plt)
+            W, H, ex, nt = render(r, kl, load_ticks(a.work, r["id"]), os.path.join(a.out, f"{r['id']}.png"), plt)
             meta[r["id"]] = [W, H, ex, nt]
             n += 1
             if n % 25 == 0:
@@ -651,10 +717,10 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 #modal .top{color:#eee;padding:8px 14px;font-size:13px;display:flex;gap:16px;align-items:center;width:100%}
 #modal .top b{font-size:15px}#modal .top .sp{margin-left:auto}
 #modal .imgw{flex:1;min-height:0;width:100%;overflow:auto;text-align:center}#modal img{max-width:100%;max-height:100%;background:#fff}
-#modal.fit img{max-height:calc(100vh - 44px)}#modal:not(.fit) img{max-width:none;max-height:none}
+#modal.fit img{max-width:100%;max-height:calc(100vh - 44px)}#modal:not(.fit) img{max-width:none;max-height:none}
 </style></head><body>
 <header><h1>П-42 · пробой уровня · сделки базы b0 (тики 4 мс, 566 монет, 15.09–13.11)</h1>
-<div class="sub">Одна сделка — одна строка. Клик по строке — график; ← → листают отфильтрованный список, Esc — закрыть, Z — масштаб. Время — GMT+4; позиция $500; комиссии по тарифу владельца.</div></header>
+<div class="sub">Одна сделка — одна строка. Клик по строке — график (откроется на входе, широкую картинку листать мышью/колесом с Shift); ← → листают отфильтрованный список, Esc — закрыть, Z — вписать в окно / полный размер. Время — GMT+4; позиция $500; комиссии по тарифу владельца.</div></header>
 <div class="bar" id="bar">
 <label>Монета<input type="text" id="f_sym" placeholder="BTC…"></label>
 <label>Сторона<select id="f_side"><option value="">все</option><option value="long">лонг</option><option value="short">шорт</option></select></label>
@@ -665,7 +731,7 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 <label>Уровень<select id="f_cross"><option value="">не важно</option><option value="1">пересёк ≤30 мин</option><option value="0">не пересёк</option></select></label>
 <button id="reset">Сброс</button><span id="cnt"></span></div>
 <table><thead><tr id="hdr"></tr></thead><tbody id="tb"></tbody></table>
-<div id="modal" class="fit"><div class="top"><b id="m_t"></b><span id="m_s"></span><span class="sp">← → · Esc · Z масштаб · <a id="m_a" style="color:#9cf" target="_blank">открыть файл</a></span></div><div class="imgw"><img id="m_i"></div></div>
+<div id="modal"><div class="top"><b id="m_t"></b><span id="m_s"></span><span class="sp">← → · Esc · Z масштаб · <a id="m_a" style="color:#9cf" target="_blank">открыть файл</a></span></div><div class="imgw"><img id="m_i"></div></div>
 <script>
 const D=__DATA__;
 const COLS=[["#","n",0],["Монета","sym",1],["Сторона","side_ru",1],["Вход (GMT+4)","entry_gmt4",1],["Исход","outcome",1],["Тейков","takes",0],["$ итог","net_usd",0],["бп итог","net_bps",0],
@@ -687,8 +753,8 @@ document.querySelectorAll("th").forEach(th=>th.querySelector(".ar").textContent=
 $("tb").innerHTML=view.map((d,i)=>"<tr data-i='"+i+"'>"+COLS.map(([t,k,l])=>`<td class="${l?"l":""}">${cell(d,k)}</td>`).join("")+"</tr>").join("");
 const s=view.reduce((a,d)=>a+d.net_usd,0);$("cnt").textContent=`${view.length} из ${D.length} · сумма ${s.toFixed(2)} $ · средняя ${view.length?(s/view.length).toFixed(2):"—"} $`;}
 $("tb").onclick=e=>{const tr=e.target.closest("tr");if(tr)open(+tr.dataset.i)};
-function open(i){if(i<0||i>=view.length)return;cur=i;const d=view[i];$("m_i").src="charts/"+d.id+".png";$("m_a").href="charts/"+d.id+".png";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
-$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · ${i+1}/${view.length}`;$("modal").classList.add("on")}
+function open(i){if(i<0||i>=view.length)return;cur=i;const d=view[i];const im=$("m_i"),iw=document.querySelector(".imgw");im.onload=()=>{iw.scrollLeft=Math.max(0,(d.ex||0)-iw.clientWidth*0.35);iw.scrollTop=0};im.src="charts/"+d.id+".png";$("m_a").href="charts/"+d.id+".png";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
+$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${view.length}`;$("modal").classList.add("on")}
 document.addEventListener("keydown",e=>{if(!$("modal").classList.contains("on"))return;if(e.key==="Escape")$("modal").classList.remove("on");else if(e.key==="ArrowRight")open(cur+1);else if(e.key==="ArrowLeft")open(cur-1);else if(e.key==="z"||e.key==="Z")$("modal").classList.toggle("fit")});
 $("modal").onclick=e=>{if(e.target.id==="modal"||e.target.classList.contains("imgw"))$("modal").classList.remove("on")};
 document.querySelectorAll(".bar input,.bar select").forEach(el=>el.oninput=render);$("reset").onclick=()=>{document.querySelectorAll(".bar input,.bar select").forEach(el=>el.value="");render()};
@@ -701,7 +767,15 @@ def cmd_index(a):
     rows = [json.loads(x) for x in open(os.path.join(a.work, "features.jsonl"), encoding="utf-8")]
     keep = ["id", "side", "sym", "entry_gmt4", "half", "day", "exit_kind", "takes", "outcome", "net_usd", "net_bps", "hold_s",
             "natr_pct", "dist_entry_bps", "level_age_min", "n_pivots", "touches", "mfe_30m_bps", "mae_30m_bps", "crossed_30m"]
+    meta = {}
+    cdir = a.charts or os.path.join(a.pub, "charts")
+    for fn in os.listdir(cdir) if os.path.isdir(cdir) else []:
+        if fn.startswith("_meta_"):
+            meta.update(json.load(open(os.path.join(cdir, fn))))
     data = [{k: r[k] for k in keep} for r in rows]
+    for d in data:
+        m = meta.get(d["id"])
+        d["ex"], d["w"] = (m[2], m[0]) if m else (0, 0)
     for d in data:
         for k, v in d.items():
             if isinstance(v, float):
@@ -723,7 +797,7 @@ def main():
     p = sub.add_parser("render")
     p.add_argument("detail"); p.add_argument("work"); p.add_argument("--only"); p.add_argument("--out", required=True); p.add_argument("--tag", default="all")
     p = sub.add_parser("index")
-    p.add_argument("work"); p.add_argument("pub")
+    p.add_argument("work"); p.add_argument("pub"); p.add_argument("--charts")
     a = ap.parse_args()
     {"features": cmd_features, "render": cmd_render, "index": cmd_index}[a.cmd](a)
 
