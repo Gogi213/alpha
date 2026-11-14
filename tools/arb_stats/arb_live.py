@@ -4,7 +4,7 @@
 2. удаляет куски старше окна (24 ч + прогрев центра);
 3. этап B (analyze.compute): статистика по всем парам за окно [max(начало сбора, t1 − 24 ч), t1);
 4. пишет <live>/arb.json (строки таблицы) и <live>/chart-<gen>.jsonl (график каждой пары: максимум Sell, минимум Buy, центр по слотам 3 мин).
-Запуск: python3 arb_live.py <каталог live> [PAR]. Начало сбора — 14.11.2026 16:30 GMT+4 (приказ владельца 15.11); числа за 1/4/6 ч/сутки —
+Запуск: python3 arb_live.py <каталог live> [PAR]. Файл /data/perf/HOLD (ARB_HOLD) — проход пропускается и пишется в <live>/skips.log. Начало сбора — 14.11.2026 16:30 GMT+4 (приказ владельца 15.11); числа за 1/4/6 ч/сутки —
 настоящие эпизоды за последние 1/4/6/24 ч (до 24 ч данных «сутки» считаются за то, что есть).
 """
 import glob
@@ -32,6 +32,7 @@ WARM_MS = 90 * 60_000        # прогрев центра (60 мин) + зап�
 PERIODS_H = (1, 4, 6, 24)
 NAMES = {"binance": "Binance", "bybit": "Bybit", "okx": "OKX", "bingx": "BingX"}
 BOOK = re.compile(r"book\d+-(\d+)\.tsv\.zst$")
+HOLD = os.environ.get("ARB_HOLD", "/data/perf/HOLD")   # есть файл — идёт замер производительности, проход пропускается
 WANT = {}                    # {(биржа, день): {имя в файле (bytes): имя}} — задаётся до Pool, наследуется потомками
 
 
@@ -127,8 +128,14 @@ def write_outputs(live, gen, t0, t1, det):
 
 
 def main(live, par=3):
-    import fcntl   # только Linux: замок от двух одновременных проходов
     Path(live).mkdir(parents=True, exist_ok=True)
+    if os.path.exists(HOLD):
+        msg = {"skipped": f"есть {HOLD} (замер производительности)", "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        print(json.dumps(msg, ensure_ascii=False))
+        with open(Path(live, "skips.log"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        return
+    import fcntl   # только Linux (поэтому здесь): замок от двух одновременных проходов
     lock = open(Path(live, "lock"), "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

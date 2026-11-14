@@ -49,3 +49,12 @@ def test_hook_counts_windows_and_skips_pair_without_centre():
     d = arb_live.hook({}, bars, eps, {})
     assert d["cnt"] == [1, 2, 3, 4] and d["st"]["n"] == 4 and len(d["S"]) == 200
     assert arb_live.hook({}, bars, {}, {}) is None
+
+
+def test_hold_file_skips_pass(tmp_path, monkeypatch, capsys):
+    hold = tmp_path / "HOLD"
+    hold.write_text("")
+    monkeypatch.setattr(arb_live, "HOLD", str(hold))
+    arb_live.main(str(tmp_path / "live"), 1)    # fcntl есть не везде: пропуск наступает до его использования
+    assert "skipped" in capsys.readouterr().out
+    assert not (tmp_path / "live" / "arb.json").exists() and "HOLD" in (tmp_path / "live" / "skips.log").read_text(encoding="utf-8")
