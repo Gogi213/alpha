@@ -251,8 +251,9 @@ pub fn convert(src: &Path, out: &Path, threads: usize) -> Result<Vec<ConvertStat
         }
     }
     names.sort();
+    // монета входит, если у неё есть хотя бы один дневной файл в торгуемом окне (15.09–13.11): листинги после 01.10 тоже
     names.retain(|n| {
-        src.join(n).join("2026-09-15.csv").exists() || src.join(n).join("2026-10-01.csv").exists()
+        (START_DAY..DAYS_TOTAL).any(|d| src.join(n).join(format!("{}.csv", day_string(d))).exists())
     });
     let res = par_map(&names, threads, |n| convert_one(src, out, n));
     res.into_iter().collect()
