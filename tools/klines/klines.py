@@ -801,13 +801,14 @@ def funding_step(cfg, ex):
 
 
 def firstday_step(cfg, ex):
-    """First UTC day with quote turnover >= threshold, over the main window and over the warmup window (needs filter.warmup.json)."""
-    main, warm = cfg.jload(ex, "filter.json"), cfg.jload(ex, "filter.warmup.json", {})
-    lines = ["symbol,first_day_ge_warmup_window,first_day_ge_main_window,first_day_ge_overall"]
+    """First UTC day with quote turnover >= threshold per window: August (filter.aug.json, daily --tag .aug), warmup (filter.warmup.json),
+    main (filter.json); overall = the earliest."""
+    main = cfg.jload(ex, "filter.json")
+    wins = [cfg.jload(ex, f"filter.{t}.json", {}) for t in ("aug", "warmup")] + [main]
+    lines = ["symbol,first_day_ge_aug_window,first_day_ge_warmup_window,first_day_ge_main_window,first_day_ge_overall"]
     for sym in selected(cfg, ex):
-        w = warm.get(sym, {}).get("first_day_ge")
-        m = main[sym]["first_day_ge"]
-        lines.append(f"{sym},{w or ''},{m or ''},{w or m or ''}")
+        d = [w.get(sym, {}).get("first_day_ge") or "" for w in wins]
+        lines.append(f"{sym},{','.join(d)},{min((x for x in d if x), default='')}")
     write_atomic(cfg.path(ex, "first_qualifying_day.csv"), "\n".join(lines) + "\n")
     log(f"{ex} first_qualifying_day.csv: {len(lines) - 1} symbols")
 
