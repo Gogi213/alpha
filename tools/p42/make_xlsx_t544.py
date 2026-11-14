@@ -51,10 +51,12 @@ def verdict_line(R5):
         a, bb = b["halves"]["A"], b["halves"]["B"]
         v = ed.vtxt(b["verdict"], a, bb)
         c = x["cand"].get("перекрёстный")
+        s1 = x["cand"].get("стоп 1 % (v_s_1)")
         cv = (ed.vtxt(c["verdict"], c["halves"]["A"], c["halves"]["B"]) if c and c["trades"] else "не торгует")
         tops = ", ".join("«%s»" % ed.vtxt(k_["verdict"], k_["halves"]["A"], k_["halves"]["B"]) for k, k_ in x["cand"].items() if k.startswith("топ-3"))
-        parts.append("%s — основа «%s»: %s $ за 60 суток (%s $ в сутки в первой половине окна, %s — во второй); перекрёстный кандидат «%s»; три лучших варианта сетки: %s" % (
-            SIDE_TITLE[side], v, ms.f(b["total"], 0, True), ms.f(a["mean"], 2, True), ms.f(bb["mean"], 2, True), cv, tops))
+        parts.append("%s — основа «%s»: %s $ за 60 суток (%s $ в сутки в первой половине окна, %s — во второй); перекрёстный кандидат «%s»; три лучших варианта сетки: %s%s" % (
+            SIDE_TITLE[side], v, ms.f(b["total"], 0, True), ms.f(a["mean"], 2, True), ms.f(bb["mean"], 2, True), cv, tops,
+            ("; стоп 1 %% (слова владельца «1 тоже попробуй»): «%s», %s $ за 60 суток" % (ed.vtxt(s1["verdict"], s1["halves"]["A"], s1["halves"]["B"]), ms.f(s1["total"], 0, True))) if s1 else ""))
     return "Вердикт по правилу проверки (тики, задержка 4 мс, 544 монеты, 60 суток). " + "; ".join(parts) + "."
 
 

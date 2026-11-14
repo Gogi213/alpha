@@ -240,18 +240,20 @@ def excl22_sheet(wb):
     ws = wb.create_sheet("Без 22 монет")
     R = ed.load_excl22()
     notes = ["Слова владельца: «забей сразу убирай из выборки этих» — 22 монеты (%s). Вселенная 566 → 544, обе стороны, оба движка (тики 4 мс и минутки), все кандидаты: основа, перекрёстный, топ-3. Счёт — точный пересчёт без этих монет." % ed.EX22,
-             "ВНИМАНИЕ: список выбран на этих же 60 сутках (аутсайдеры по результатам окна) — «найдено на этих данных»: числа без 22 монет оптимистичны, на новых сутках так не будет автоматически. Интервал — 95 %, блочный бутстреп по суткам. Вердикт — по правилу проверки (§10) при одинаковом числе испытаний для обеих вселенных."]
+             "ВНИМАНИЕ: список выбран на этих же 60 сутках (аутсайдеры по результатам окна) — «найдено на этих данных»: числа без 22 монет оптимистичны, на новых сутках так не будет автоматически. Интервал — 95 %, блочный бутстреп по суткам. Вердикт — по правилу проверки (§10) при одинаковом числе испытаний для обеих вселенных.",
+             ed.gain_note() or "—",
+             "«без 2 худших суток / монет» — среднее $/сут. половины после выброса двух худших суток / двух худших монет; «пограничное» — опровержение держится, но без 2 худших суток или монет среднее почти у нуля (> −0,10 $/сут.)."]
     for i, t in enumerate(notes, 1):
-        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=12)
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=16)
         c = ws.cell(row=i, column=1, value=t)
         c.alignment = Alignment(wrap_text=True, vertical="center")
         c.font = Font(bold=(i == 2), size=11)
         ws.row_dimensions[i].height = 48
-    hdr = ["Движок", "Кандидат", "Вселенная", "A: $ в сутки", "A: от", "A: до", "B: $ в сутки", "B: от", "B: до", "Всего за 60 сут., $", "Сделок", "Вердикт"]
+    hdr = ["Движок", "Кандидат", "Вселенная", "A: $ в сутки", "A: от", "A: до", "A: без 2 худших суток", "A: без 2 худших монет", "B: $ в сутки", "B: от", "B: до", "B: без 2 худших суток", "B: без 2 худших монет", "Всего за 60 сут., $", "Сделок", "Вердикт"]
     rows = ed.rows_excl22()
-    r = 4
+    r = len(notes) + 2
     for side in ms.SIDES:
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=16)
         t = ws.cell(row=r, column=1, value=SIDE_TITLE[side])
         t.font, t.fill = WHITE_BOLD, HDR
         r += 1
@@ -266,14 +268,14 @@ def excl22_sheet(wb):
                 if sd != side or en != eng:
                     continue
                 fill = None if uni == "full" else PatternFill("solid", fgColor="E2EFDA")
-                vals = [ed.ENG_RU[en], name, "полная (566)" if uni == "full" else "без 22 (544)", a["mean"], a["lo"], a["hi"], b["mean"], b["lo"], b["hi"], tot, ntr, ver]
+                vals = [ed.ENG_RU[en], name, "полная (566)" if uni == "full" else "без 22 (544)", a["mean"], a["lo"], a["hi"], a["no_worst2_days"]["mean"], a["no_worst2_coins"]["mean"], b["mean"], b["lo"], b["hi"], b["no_worst2_days"]["mean"], b["no_worst2_coins"]["mean"], tot, ntr, ed.vtxt(ver, a, b)]
                 for k, v in enumerate(vals, 1):
-                    put(ws, r, k, v, MONEY if k in (4, 5, 6, 7, 8, 9, 10) else ("0" if k == 11 else None), bold=(uni != "full" and k in (4, 7, 10)), fill=fill,
-                        align=Alignment(horizontal="left" if k in (1, 2, 3, 12) else "right"))
+                    put(ws, r, k, v, MONEY if k in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) else ("0" if k == 15 else None), bold=(uni != "full" and k in (4, 9, 14)), fill=fill,
+                        align=Alignment(horizontal="left" if k in (1, 2, 3, 16) else "right"))
                 r += 1
         r += 2
     if ed.load_retitr() is not None:
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=16)
         t = ws.cell(row=r, column=1, value="ПЕРЕТИТРОВКА без 22 монет: весь шаг A (минутки, вся сетка) и шаг B (тики 4 мс; справочно lat 0 и 200 мс) заново на 544 монетах; кандидаты выбраны заново тем же правилом. Найдено на этих данных — оптимистично.")
         t.font, t.fill, t.alignment = WHITE_BOLD, HDR, Alignment(wrap_text=True, vertical="center")
         ws.row_dimensions[r].height = 34
@@ -295,7 +297,7 @@ def excl22_sheet(wb):
         r += 1
         rrows = ed.rows_retitr()
         for side in ms.SIDES:
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=16)
             t = ws.cell(row=r, column=1, value="%s — перетитровка (Холм m = %d)" % (SIDE_TITLE[side], ed.load_retitr()["m"][side]))
             t.font, t.fill = WHITE_BOLD, HDR
             r += 1
@@ -309,14 +311,14 @@ def excl22_sheet(wb):
                     if sd != side or tg != tag:
                         continue
                     fill = None if uni == "full" else PatternFill("solid", fgColor="E2EFDA")
-                    vals = [ed.TAG_RU[tag], name, "полная (566)" if uni == "full" else "перетитровка (544)", a["mean"], a["lo"], a["hi"], b["mean"], b["lo"], b["hi"], tot, ntr, ver]
+                    vals = [ed.TAG_RU[tag], name, "полная (566)" if uni == "full" else "перетитровка (544)", a["mean"], a["lo"], a["hi"], a["no_worst2_days"]["mean"], a["no_worst2_coins"]["mean"], b["mean"], b["lo"], b["hi"], b["no_worst2_days"]["mean"], b["no_worst2_coins"]["mean"], tot, ntr, ed.vtxt(ver, a, b)]
                     for k, v in enumerate(vals, 1):
-                        put(ws, r, k, v, MONEY if k in (4, 5, 6, 7, 8, 9, 10) else ("0" if k == 11 else None), bold=(uni != "full" and k in (4, 7, 10)), fill=fill,
-                            align=Alignment(horizontal="left" if k in (1, 2, 3, 12) else "right"))
+                        put(ws, r, k, v, MONEY if k in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) else ("0" if k == 15 else None), bold=(uni != "full" and k in (4, 9, 14)), fill=fill,
+                            align=Alignment(horizontal="left" if k in (1, 2, 3, 16) else "right"))
                     r += 1
             r += 1
         r += 1
-    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=16)
     t = ws.cell(row=r, column=1, value="Основа на тиках без 22 монет — по месяцам (как лист «Сводка»)")
     t.font, t.fill = WHITE_BOLD, HDR
     r += 1
@@ -346,9 +348,9 @@ def excl22_sheet(wb):
                 put(ws, rr, c0 + j, fn(pdata[(side, mlab)]), fmt, bold, GREY if shade else None)
     ws.column_dimensions["A"].width = 50
     ws.column_dimensions["B"].width = 26
-    for c in "CDEFGHIJKL":
+    for c in "CDEFGHIJKLMNO":
         ws.column_dimensions[c].width = 16
-    ws.freeze_panes = "A4"
+    ws.column_dimensions["P"].width = 34
 
 
 def main():
