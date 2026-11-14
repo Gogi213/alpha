@@ -272,6 +272,50 @@ def excl22_sheet(wb):
                         align=Alignment(horizontal="left" if k in (1, 2, 3, 12) else "right"))
                 r += 1
         r += 2
+    if ed.load_retitr() is not None:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+        t = ws.cell(row=r, column=1, value="ПЕРЕТИТРОВКА без 22 монет: весь шаг A (минутки, вся сетка) и шаг B (тики 4 мс; справочно lat 0 и 200 мс) заново на 544 монетах; кандидаты выбраны заново тем же правилом. Найдено на этих данных — оптимистично.")
+        t.font, t.fill, t.alignment = WHITE_BOLD, HDR, Alignment(wrap_text=True, vertical="center")
+        ws.row_dimensions[r].height = 34
+        r += 1
+        cnt = ed.pos_counts()
+        for k, h in enumerate(["Сторона", "Вселенная", "Конфигураций в сетке", "С торговлей в A и в B", "$/сут. > 0 в A", "> 0 в B", "> 0 в обеих половинах", "> 0 в обеих и ≥ 10 сделок"], 1):
+            c = ws.cell(row=r, column=k, value=h)
+            c.font, c.fill, c.border = Font(bold=True), SUB, BOX
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.row_dimensions[r].height = 32
+        r += 1
+        for side in ms.SIDES:
+            for lab in ("566", "544"):
+                v = cnt[lab][side]
+                for k, val in enumerate([SIDE_TITLE[side], "полная (566)" if lab == "566" else "без 22 (544)", v["configs"], v["trading_both_halves"], v["positive_A"], v["positive_B"], v["positive_both"], v["positive_both_ge10"]], 1):
+                    put(ws, r, k, val, "0" if k > 2 else None, bold=(k == 7), fill=None if lab == "566" else PatternFill("solid", fgColor="E2EFDA"),
+                        align=Alignment(horizontal="left" if k <= 2 else "right"))
+                r += 1
+        r += 1
+        rrows = ed.rows_retitr()
+        for side in ms.SIDES:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+            t = ws.cell(row=r, column=1, value="%s — перетитровка (Холм m = %d)" % (SIDE_TITLE[side], ed.load_retitr()["m"][side]))
+            t.font, t.fill = WHITE_BOLD, HDR
+            r += 1
+            for k, h in enumerate(hdr, 1):
+                c = ws.cell(row=r, column=k, value=h)
+                c.font, c.fill, c.border = Font(bold=True), SUB, BOX
+                c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            r += 1
+            for tag in ("1m", "lx4", "lat0", "lx200"):
+                for (sd, tg, name, uni, a, b, tot, ntr, ver) in rrows:
+                    if sd != side or tg != tag:
+                        continue
+                    fill = None if uni == "full" else PatternFill("solid", fgColor="E2EFDA")
+                    vals = [ed.TAG_RU[tag], name, "полная (566)" if uni == "full" else "перетитровка (544)", a["mean"], a["lo"], a["hi"], b["mean"], b["lo"], b["hi"], tot, ntr, ver]
+                    for k, v in enumerate(vals, 1):
+                        put(ws, r, k, v, MONEY if k in (4, 5, 6, 7, 8, 9, 10) else ("0" if k == 11 else None), bold=(uni != "full" and k in (4, 7, 10)), fill=fill,
+                            align=Alignment(horizontal="left" if k in (1, 2, 3, 12) else "right"))
+                    r += 1
+            r += 1
+        r += 1
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
     t = ws.cell(row=r, column=1, value="Основа на тиках без 22 монет — по месяцам (как лист «Сводка»)")
     t.font, t.fill = WHITE_BOLD, HDR
