@@ -664,6 +664,8 @@ def verify_step(cfg, ex):
         spot.append(dict(symbol=s, day=d, rows_file=len(got), rows_rest=len(exp), identical=(got == exp), first_diff_row=diff))
         log(f"{ex} spot-check {s} {d}: identical={got == exp} file={len(got)} rest={len(exp)}")
     mism = sum(len(r["mismatches_1d_vs_1m"]) for r in out.values())
+    ov = cfg.jload(ex, "overlap.json")
+    skipped = {b: [r["binance"] for r in ov["overlap"] if r["bybit"] == b][0] for b in ov["skipped"]} if ov else {}
     manifest = dict(
         exchange=ex, market="USDT-margined perpetuals" + (" (Binance USD-M; incl. TRADIFI_PERPETUAL)" if ex == "binance" else " (Bybit v5 linear, LinearPerpetual)"),
         source=("data.binance.vision monthly/daily zips (sha256 vs .CHECKSUM), REST for unpublished days; filter from REST 1d klines" if ex == "binance"
@@ -677,6 +679,7 @@ def verify_step(cfg, ex):
                     missing_expected_days=sum(len(r["missing_days"]) for r in out.values()), mismatches_1d_vs_1m=mism,
                     anomalies=sum(len(r["anomalies"]) for r in out.values())),
         spot_check=spot,
+        skipped_as_on_binance=skipped,
         symbols={s: dict(meta[s], **flt[s], downloaded=(s in out), **out.get(s, {})) for s in sorted(flt)},
         written=iso(int(time.time() * 1000)))
     cfg.jsave(ex, "manifest.json", manifest)
