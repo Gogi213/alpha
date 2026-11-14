@@ -13,7 +13,14 @@
 .tabs button:hover,.flt button:hover{color:var(--ink)}
 .tabs button.on,.flt button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--acc)}
 [hidden]{display:none!important}
-.flt{display:flex;gap:22px;margin:-6px 0 18px;font-size:14px;flex-wrap:wrap}
+.flt{display:flex;gap:22px;margin:-6px 0 12px;font-size:14px;flex-wrap:wrap}
+.ctl{display:flex;gap:34px;margin:0 0 18px;font-size:14px;flex-wrap:wrap;align-items:baseline}
+.ctl .g{display:flex;gap:18px;align-items:baseline}
+.ctl .g>span{color:var(--mut);font-size:13px}
+.ctl button{all:unset;cursor:pointer;color:var(--mut);padding:4px 0;border-bottom:2px solid transparent}
+.ctl button:hover{color:var(--ink)}
+.ctl button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--acc)}
+.ctl .cnt{color:var(--mut);font-size:12px;font-weight:400}
 table.a{border-collapse:collapse;width:100%}
 table.a th{font-weight:400;font-size:12px;color:var(--mut);text-align:right;padding:0 0 8px;cursor:pointer;white-space:nowrap}
 table.a th.l,table.a td.l{text-align:left}
@@ -31,7 +38,6 @@ table.a tr.ch td{padding:6px 0 22px;height:auto;background:none!important;cursor
 .cwrap canvas{display:block;width:100%}
 .lg{display:flex;gap:22px;font-size:12px;color:var(--mut);margin:0 0 4px}
 .lg i{display:inline-block;width:18px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
-.foot{color:var(--mut);font-size:12px;margin:-4px 0 20px}
 </style>
 </head>
 <body>
@@ -44,7 +50,7 @@ table.a tr.ch td{padding:6px 0 22px;height:auto;background:none!important;cursor
 
 <section id="p-a" hidden>
 <div class="flt" id="flt"></div>
-<div class="foot" id="foot"></div>
+<div class="ctl" id="ctl"></div>
 <table class="a" id="tab"></table>
 </section>
 
@@ -64,27 +70,53 @@ const nf=(v,d=1)=>(Math.round(v*Math.pow(10,d))/Math.pow(10,d)).toLocaleString('
 const sg=v=>v==null?'—':(v>0?'+':v<0?'−':'')+nf(Math.abs(v),1);
 function dur(s){if(s==null)return '—';if(s<1)return nf(s*1000,0)+' мс';if(s<60)return nf(s,s<10?1:0)+' с';if(s<3600)return nf(s/60,s<600?1:0)+' мин';return nf(s/3600,1)+' ч'}
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-let st={pair:'all',sort:'size',dir:-1,open:-1};
-const COLS=[
- {k:'c',t:'монета',l:1,v:r=>r.c},
- {k:'p',t:'пара бирж',l:1,v:r=>N[r.a]+N[r.b]},
- {k:'size',t:'расхождение, bps',v:r=>r.size==null?-1e9:r.size},
- {k:'h',t:'раз в час',v:r=>r.h},
- {k:'tau',t:'схождение, медиана',v:r=>r.tau==null?1e12:r.tau},
-];
+let st={pair:'all',sort:'size',dir:-1,open:-1,per:1,mode:'med',hide:false};
+const PERS=[[1,'1 ч'],[4,'4 ч'],[6,'6 ч'],[24,'1 сут']];
+const kv=(a,k)=>a?a[k]:null;
+function cols(){
+  const o=st.mode==='out',per=PERS.find(p=>p[0]===st.per)[1];
+  const base=[{k:'c',t:'монета',l:1,v:r=>r.c},{k:'p',t:'пара бирж',l:1,v:r=>N[r.a]+N[r.b]}];
+  const rate={k:'h',t:'раз в '+per,v:r=>r.h*st.per,f:v=>nf(v,v<10?1:0)};
+  return base.concat(o?[
+    {k:'size',t:'расхождение p95, bps',v:r=>kv(r.pk,1),f:v=>nf(v,1)},
+    {k:'max',t:'расхождение макс, bps',v:r=>kv(r.pk,2),f:v=>nf(v,1)},
+    rate,
+    {k:'tau',t:'схождение p95',v:r=>kv(r.tau,1),f:dur,low:1},
+    {k:'net',t:'после комиссий p95, bps',v:r=>kv(r.net,1),f:sg}
+  ]:[
+    {k:'size',t:'расхождение, bps',v:r=>kv(r.pk,0),f:v=>nf(v,1)},
+    rate,
+    {k:'tau',t:'схождение, медиана',v:r=>kv(r.tau,0),f:dur,low:1},
+    {k:'net',t:'после комиссий, bps',v:r=>kv(r.net,0),f:sg}
+  ]);
+}
+const hidden=r=>st.hide&&r.h*st.per<1;
 function flt(){
   const pairs=[...new Set(A.rows.map(r=>r.a+'|'+r.b))];
   $('flt').innerHTML='<button data-p="all" class="'+(st.pair==='all'?'on':'')+'">Все</button>'+pairs.map(p=>{const[a,b]=p.split('|');return '<button data-p="'+p+'" class="'+(st.pair===p?'on':'')+'">'+N[a]+' → '+N[b]+'</button>'}).join('');
-  $('flt').querySelectorAll('button').forEach(b=>b.onclick=()=>{st.pair=b.dataset.p;st.open=-1;flt();table()});
+  $('flt').querySelectorAll('button').forEach(b=>b.onclick=()=>{st.pair=b.dataset.p;st.open=-1;flt();ctl();table()});
+}
+function ctl(){
+  const inPair=A.rows.filter(r=>st.pair==='all'||r.a+'|'+r.b===st.pair),nh=inPair.filter(r=>r.h*st.per<1).length;
+  $('ctl').innerHTML='<div class="g"><span>эпизодов за</span>'+PERS.map(p=>'<button data-per="'+p[0]+'" class="'+(st.per===p[0]?'on':'')+'">'+p[1]+'</button>').join('')+'</div>'
+    +'<div class="g"><span>счёт</span><button data-m="med" class="'+(st.mode==='med'?'on':'')+'">медиана</button><button data-m="out" class="'+(st.mode==='out'?'on':'')+'">выбросы</button></div>'
+    +'<div class="g"><button data-hide="1" class="'+(st.hide?'on':'')+'">скрыть пустые</button><span class="cnt">'+(st.hide?'скрыто ':'меньше 1 за период: ')+nh+' из '+inPair.length+'</span></div>';
+  $('ctl').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    if(b.dataset.per)st.per=+b.dataset.per;
+    else if(b.dataset.m){st.mode=b.dataset.m;if(!cols().some(c=>c.k===st.sort))st.sort='size'}
+    else st.hide=!st.hide;
+    ctl();table()});
 }
 function table(){
-  const col=COLS.find(c=>c.k===st.sort);
-  let rs=A.rows.filter(r=>st.pair==='all'||r.a+'|'+r.b===st.pair);
-  rs.sort((x,y)=>{const a=col.v(x),b=col.v(y);return (typeof a==='string'?a.localeCompare(b):a-b)*st.dir});
-  const th='<thead><tr>'+COLS.map(c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'">'+c.t+(c.k===st.sort?(st.dir<0?' ↓':' ↑'):'')+'</th>').join('')+'</tr></thead>';
+  const C=cols();let col=C.find(c=>c.k===st.sort);if(!col){st.sort='size';col=C.find(c=>c.k==='size')}
+  const rs=A.rows.filter(r=>(st.pair==='all'||r.a+'|'+r.b===st.pair)&&!hidden(r));
+  const val=(c,r)=>{const x=c.v(r);return x==null?(c.low?1e12:-1e9):x};
+  rs.sort((x,y)=>{const a=val(col,x),b=val(col,y);return (typeof a==='string'?a.localeCompare(b):a-b)*st.dir});
+  const th='<thead><tr>'+C.map(c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'">'+c.t+(c.k===st.sort?(st.dir<0?' ↓':' ↑'):'')+'</th>').join('')+'</tr></thead>';
   const body=rs.map(r=>{
-    const none=r.size==null;
-    return '<tr class="r" data-i="'+r.i+'"><td class="l c">'+esc(r.c)+'</td><td class="l p">'+N[r.a]+' → '+N[r.b]+'</td><td class="n'+(none?' none':'')+'">'+(none?'—':nf(r.size,1))+'</td><td class="n'+(none?' none':'')+'">'+(none?'—':nf(r.h,1))+'</td><td class="n'+(none?' none':'')+'">'+(none?'—':dur(r.tau))+'</td></tr>'+(r.i===st.open?'<tr class="ch"><td colspan="5"><div class="lg"><span><i style="border-color:'+ACC+'"></i>Sell</span><span><i style="border-color:'+INK+'"></i>Buy</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр</span></div><div class="cwrap"><canvas id="cv"></canvas><div id="tip2" style="position:absolute;pointer-events:none;background:#1d1d1b;color:#fff;border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;white-space:nowrap;opacity:0;z-index:5"></div></div></td></tr>':'');
+    const none=r.n===0;
+    const cells=C.slice(2).map(c=>{const x=c.v(r);return '<td class="n'+(none||x==null?' none':'')+'">'+(x==null?'—':c.f(x))+'</td>'}).join('');
+    return '<tr class="r" data-i="'+r.i+'"><td class="l c">'+esc(r.c)+'</td><td class="l p">'+N[r.a]+' → '+N[r.b]+'</td>'+cells+'</tr>'+(r.i===st.open?'<tr class="ch"><td colspan="'+C.length+'"><div class="lg"><span><i style="border-color:'+ACC+'"></i>Sell, максимум за 3 мин</span><span><i style="border-color:'+INK+'"></i>Buy, минимум за 3 мин</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр</span></div><div class="cwrap"><canvas id="cv"></canvas><div id="tip2" style="position:absolute;pointer-events:none;background:#1d1d1b;color:#fff;border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;white-space:nowrap;opacity:0;z-index:5"></div></div></td></tr>':'');
   }).join('');
   $('tab').innerHTML=th+'<tbody>'+body+'</tbody>';
   $('tab').querySelectorAll('th').forEach(h=>h.onclick=()=>{const k=h.dataset.k;if(st.sort===k)st.dir*=-1;else{st.sort=k;st.dir=(k==='c'||k==='p'||k==='tau')?1:-1}table()});
@@ -111,19 +143,18 @@ function chart(){
   const tip=$('tip2');
   cv.onmousemove=e=>{const rc=cv.getBoundingClientRect(),x=e.clientX-rc.left;let i=Math.round((x-L)/pw*(t1-t0)/step-.5);i=Math.max(0,Math.min(n-1,i));
     if(d.S[i]==null){tip.style.opacity=0;return}
-    tip.innerHTML='<b>'+hm(t0+i*step)+'</b><br>Sell '+sg(d.S[i]/10)+'<br>Buy '+sg(d.B[i]/10)+(d.C[i]==null?'':'<br>центр '+sg(d.C[i]/10));
+    tip.innerHTML='<b>'+hm(t0+i*step)+'</b><br>Sell макс '+sg(d.S[i]/10)+'<br>Buy мин '+sg(d.B[i]/10)+(d.C[i]==null?'':'<br>центр '+sg(d.C[i]/10));
     tip.style.opacity=1;const w=tip.offsetWidth,cx=Math.min(Math.max(X(i)-w/2,0),rc.width-w);tip.style.left=cx+'px';tip.style.top=(Y(d.S[i]/10)>ph/2?T+4:ph-60)+'px'};
   cv.onmouseleave=()=>tip.style.opacity=0;
 }
-$('foot').textContent='Расхождение — типичный пик (bid/ask между биржами, от обычного уровня пары); эпизод — от ≥ 12,6 bps до возврата к обычному уровню. 14.11, '+hm(A.t0/1000)+'–'+hm(A.t1/1000)+' GMT+4 («с 16 30» = сегодня).';
 function tab(a){$('p-a').hidden=!a;$('p-h').hidden=a;$('tab-a').classList.toggle('on',a);$('tab-h').classList.toggle('on',!a);location.hash=a?'arb':'';
   if(a){if(st.open>=0)chart()}else if(window.render)window.render()}
 $('tab-a').onclick=()=>tab(true);$('tab-h').onclick=()=>tab(false);
-flt();table();
+flt();ctl();table();
 window.addEventListener('resize',()=>{if(!$('p-a').hidden&&st.open>=0)chart()});
 if(location.hash==='#arb')tab(true);
 const m=location.hash.match(/arb-open=(\d+)/);if(m){tab(true);st.open=+m[1];table()}
-window._arb={st,table};
+window._arb={st,table,ctl};
 })();
 </script>
 </body>

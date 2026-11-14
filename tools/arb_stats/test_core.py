@@ -63,3 +63,16 @@ def test_analyze_pair_finds_known_episode():
     # круг: вход Sell во время всплеска ≈ 27,99 bps, выход Buy на паритете = +2,0 bps → ≈ 26 bps до комиссий
     assert abs(s["gross_med"] - (100.3 / 100.02 - 1) * 1e4 + 2.0) < 0.01 and s["gross_ge_fee"] == 1
     assert row["cross_n"] == 1 and abs(row["cross_dur_ms"][0] - 5000) < 1e-9
+
+
+def test_ep_table_stats_median_and_outliers():
+    # эпизоды: (вход, сторона, схождение мс, не вышел, пик, круг, глубина); круг у не вышедшего — None
+    rows = [(0, 1, 1000, False, 14.0, 20.0, 1.0), (0, 1, 3000, False, 16.0, 10.0, 1.0), (0, -1, 9000, False, 30.0, 40.0, 1.0),
+            (0, 1, 5000, True, 50.0, None, 1.0)]
+    s = core.ep_table_stats(rows)
+    assert s["n"] == 4
+    assert s["pk"][0] == 23.0 and s["pk"][2] == 50.0 and abs(s["pk"][1] - np.percentile([14, 16, 30, 50], 95)) < 1e-9
+    assert s["tau"][0] == 3.0 and abs(s["tau"][1] - np.percentile([1, 3, 9], 95)) < 1e-9   # время — только по вышедшим
+    assert s["net"][0] == 20.0 - core.FEE_RT_BPS and abs(s["net"][1] - (np.percentile([20, 10, 40], 95) - core.FEE_RT_BPS)) < 1e-9
+    assert core.ep_table_stats([]) == {"n": 0, "pk": None, "tau": None, "net": None}
+    assert core.ep_table_stats([(0, 1, 5000, True, 15.0, None, 1.0)])["net"] is None

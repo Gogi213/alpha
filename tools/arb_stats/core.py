@@ -187,6 +187,20 @@ def analyze_pair(A, B, t0, t1):
     return row, bars, res_eps, {"hS": hS, "hB": hB, "hM": hM, "hDev": hDev}
 
 
+def ep_table_stats(rows, fee=FEE_RT_BPS):
+    """Сводка эпизодов одной пары для таблицы вкладки: rows — эпизоды порога комиссий (как в analyze_pair).
+    -> {n, pk: [медиана, p95, макс] пика, tau: [медиана, p95] времени схождения (с, по вышедшим), net: [медиана, p95] круга минус комиссии (bps)};
+    поле None, если данных нет. Круг считается только по вышедшим эпизодам."""
+    if not rows:
+        return {"n": 0, "pk": None, "tau": None, "net": None}
+    pk = np.array([r[4] for r in rows], float)
+    tau = np.array([r[2] for r in rows if not r[3]], float) / 1000
+    gr = np.array([r[5] for r in rows if r[5] is not None], float) - fee
+    return {"n": len(rows), "pk": [float(np.median(pk)), float(np.percentile(pk, 95)), float(pk.max())],
+            "tau": [float(np.median(tau)), float(np.percentile(tau, 95))] if len(tau) else None,
+            "net": [float(np.median(gr)), float(np.percentile(gr, 95))] if len(gr) else None}
+
+
 def _wq(x, w, q):
     o = np.argsort(x)
     c = np.cumsum(w[o])
