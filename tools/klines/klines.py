@@ -81,8 +81,14 @@ class Cfg:
         self.only = set(filter(None, a.only.split(",")))
         self.force = a.force
         self.tag = a.tag
+        self.set = a.set
         self.funding_from = a.funding_from
         self.progress_lock = threading.Lock()
+
+    def symbols_name(self, ex):
+        """symbols.<tag>.json when this run has its own candidate list (universe runs), else the main symbols.json."""
+        own = self.name("symbols.json")
+        return own if os.path.exists(self.path(ex, own)) else "symbols.json"
 
     def name(self, base):
         """State file name of this run: daily.json -> daily.warmup.json when --tag .warmup."""
@@ -238,9 +244,23 @@ VISION = Http("data.binance.vision")
 S3H = Http(S3)
 
 
+def u12_universe(cfg, ex):
+    return sorted(s for s, f in cfg.jload(ex, "filter.u12.json").items() if f["qualifies"])
+
+
+def on_disk_main(cfg, ex, sym):
+    """Downloaded by the main run and the warmup run already."""
+    return os.path.exists(cfg.path(ex, sym, "_done.json")) and os.path.exists(cfg.path(ex, sym, "_done.warmup.json"))
+
+
 def selected(cfg, ex):
-    """Symbols of the main run to download: Binance qualifying, Bybit overlap.json bybit_download."""
-    if ex == "bybit":
+    """Symbols to work on. --set main (default): the main run (Binance qualifying, Bybit overlap.json bybit_download).
+    --set universe: Binance symbols qualifying in filter.u12.json; --set new: those of them not downloaded by the main + warmup runs."""
+    if cfg.set in ("universe", "new"):
+        syms = u12_universe(cfg, ex)
+        if cfg.set == "new":
+            syms = [s for s in syms if not on_disk_main(cfg, ex, s)]
+    elif ex == "bybit":
         syms = cfg.jload(ex, "overlap.json")["bybit_download"]
     else:
         syms = sorted(s for s, f in cfg.jload(ex, "filter.json").items() if f["qualifies"])
@@ -293,7 +313,7 @@ def symbols_binance(cfg):
             hits.append(s)
     if hits:
         raise SystemExit(f"bulk archive has symbols missing from exchangeInfo with files in window: {hits}")
-    cfg.jsave("binance", "symbols.json", {"listed_usdt_perps_total": len(usdt), "bulk_only_symbols_checked": len(extra), "candidates": cand})
+    cfg.jsave("binance", cfg.name("symbols.json"), {"listed_usdt_perps_total": len(usdt), "bulk_only_symbols_checked": len(extra), "candidates": cand})
     log(f"binance symbols: listed {len(usdt)}, candidates with window overlap {len(cand)}, bulk-only checked {len(extra)} (none in window)")
 
 
@@ -323,7 +343,7 @@ def symbols_bybit(cfg):
             continue
         cand.append(dict(symbol=s["symbol"], base=s["baseCoin"], status=s["status"], contract_type=s["contractType"],
                          onboard_ms=int(s["launchTime"]), delivery_ms=dlv))
-    cfg.jsave("bybit", "symbols.json", {"listed_usdt_perps_total": total, "candidates": cand})
+    cfg.jsave("bybit", cfg.name("symbols.json"), {"listed_usdt_perps_total": total, "candidates": cand})
     log(f"bybit symbols: listed {total}, candidates with window overlap {len(cand)}")
 
 
@@ -345,10 +365,12 @@ def bb_daily(sym, cfg):
 
 
 def daily_step(cfg, ex):
-    cand = cfg.jload(ex, "symbols.json")["candidates"]
-    if cfg.tag:                                     # warmup: only the symbols the main run downloads
+    cand = cfg.jload(ex, cfg.symbols_name(ex))["candidates"]
+    if cfg.set == "all" or (cfg.set is None and not cfg.tag):      # every candidate (main and universe scans)
+        pass
+    else:                                           # warmup/August: only the symbols of the chosen set
         sel = set(selected(cfg, ex))
-        cand = [c for c in cand if c["symbol"] in sel]
+        cand = [dict(symbol=sym) for sym in sorted(sel)] if cfg.set == "universe" else [c for c in cand if c["symbol"] in sel]
     if cfg.only:
         cand = [c for c in cand if c["symbol"] in cfg.only]
     fetch = bn_daily if ex == "binance" else bb_daily
@@ -570,10 +592,10 @@ def fetch_step(cfg, ex):
 
 
 def partial_step(cfg, ex):
-    if cfg.tag:
+    if cfg.tag and cfg.set != "new":
         return
     syms = selected(cfg, ex)
-    sc = {c["symbol"]: c for c in cfg.jload(ex, "symbols.json")["candidates"]}
+    sc = {c["symbol"]: c for c in cfg.jload(ex, cfg.symbols_name(ex))["candidates"]}
     d0 = cfg.end
     until = min(int(time.time() // 60) * MIN, d0 + DAY)          # exclusive: last closed minute + 1
     suffix = ".partial.csv" if until < d0 + DAY else ".csv"
@@ -591,7 +613,7 @@ def partial_step(cfg, ex):
     with ThreadPoolExecutor(1 if ex == "binance" else 3) as pool:
         for f in [pool.submit(one, s) for s in syms]:
             f.result()
-    cfg.jsave(ex, "partial.json", dict(day=day_str(d0), until_ms=until, until_utc=iso(until), file_suffix=suffix, symbols=res))
+    cfg.jsave(ex, cfg.name("partial.json"), dict(day=day_str(d0), until_ms=until, until_utc=iso(until), file_suffix=suffix, symbols=res))
     log(f"{ex} partial {day_str(d0)} until {iso(until)}: {len(res)} symbols")
 
 
@@ -667,9 +689,9 @@ def rest_day_lines(ex, sym, day):
 
 
 def verify_step(cfg, ex):
-    meta = {c["symbol"]: c for c in cfg.jload(ex, "symbols.json")["candidates"]}
+    meta = {c["symbol"]: c for c in cfg.jload(ex, cfg.symbols_name(ex))["candidates"]}
     flt, daily = cfg.jload(ex, cfg.name("filter.json")), cfg.jload(ex, cfg.name("daily.json"))
-    part = {} if cfg.tag else cfg.jload(ex, "partial.json", {})
+    part = {} if cfg.tag and cfg.set != "new" else cfg.jload(ex, cfg.name("partial.json"), {})
     done_name = cfg.name("_done.json")
     syms = sorted(s for s in flt if os.path.exists(cfg.path(ex, s, done_name)))
     log(f"{ex} verify: {len(syms)} downloaded symbols")
@@ -700,7 +722,7 @@ def verify_step(cfg, ex):
                 else "api.bybit.com /v5/market/kline (1m, 1d), 1000 per request"),
         window=dict(start=day_str(cfg.start), full_days=cfg.days, last_full_day=day_str(cfg.end - DAY)), partial_day=part,
         filter=dict(rule=f"quote turnover of one full UTC day >= {cfg.thr} USDT on at least one day of the window (1d klines)", threshold=str(cfg.thr),
-                    listed_usdt_perps_total=cfg.jload(ex, "symbols.json")["listed_usdt_perps_total"], candidates_with_window_data=len(flt),
+                    listed_usdt_perps_total=cfg.jload(ex, cfg.symbols_name(ex))["listed_usdt_perps_total"], candidates_with_window_data=len(flt),
                     qualifying=sum(f["qualifies"] for f in flt.values()), downloaded=len(syms)),
         totals=dict(rows=sum(r["rows"] for r in out.values()), symbol_days=len(days), gap_minutes=sum(r["gap_minutes"] for r in out.values()),
                     symbols_with_gaps=sum(1 for r in out.values() if r["gaps"]), symbol_days_not_1440=sum(len(r["rows_by_day_not_1440"]) for r in out.values()),
@@ -710,6 +732,14 @@ def verify_step(cfg, ex):
         skipped_as_on_binance=skipped,
         symbols={s: dict(meta[s], **flt[s], downloaded=(s in out), **out.get(s, {})) for s in sorted(flt)},
         written=iso(int(time.time() * 1000)))
+    if cfg.set == "new":                              # universe manifest: every qualifying symbol, old p42 set + new ones
+        uni = u12_universe(cfg, ex)
+        old = [s for s in uni if on_disk_main(cfg, ex, s)]
+        manifest.update(universe=f"{int(cfg.thr / 1_000_000)}M", universe_symbols=uni,
+                        universe_counts=dict(total=len(uni), downloaded_earlier_main_and_warmup=len(old), downloaded_this_run=len(out)),
+                        universe_origin={s: ("p42_main_warmup" if s in old else "u12_new") for s in uni})
+        manifest["symbols"] = {s: v for s, v in manifest["symbols"].items() if s in out}
+        manifest["filter"]["qualifying"] = len(uni)
     cfg.jsave(ex, cfg.name("manifest.json"), manifest)
     t = manifest["totals"]
     log(f"{ex} manifest: symbols {len(syms)}, rows {t['rows']}, gap minutes {t['gap_minutes']}, not-1440 days {t['symbol_days_not_1440']}, "
@@ -747,12 +777,12 @@ def funding_step(cfg, ex):
     start = day_ms(cfg.funding_from)
     fn = bn_funding_lines if ex == "binance" else bb_funding_lines
     todo = [s for s in syms if cfg.force or not os.path.exists(cfg.path(ex, s, "funding.csv"))]
-    run = cfg.jload(ex, "funding_run.json")
+    run = cfg.jload(ex, cfg.name("funding_run.json"))
     if run and len(todo) < len(syms):                  # resumed or already done: keep the recorded cut-off
         until = run["until_ms"]
     else:
         until = int(time.time() * 1000)
-        cfg.jsave(ex, "funding_run.json", dict(from_ms=start, until_ms=until, until_utc=iso(until)))
+        cfg.jsave(ex, cfg.name("funding_run.json"), dict(from_ms=start, until_ms=until, until_utc=iso(until)))
     log(f"{ex} funding: {len(syms)} symbols, {len(todo)} to do, {cfg.funding_from} .. {iso(until)}")
     done = [len(syms) - len(todo)]
 
@@ -794,15 +824,43 @@ def funding_step(cfg, ex):
                     header=FUNDING_HEADER[ex], from_utc=iso(start), until_utc=iso(until), symbols=stats, anomalies=anomalies,
                     totals=dict(symbols=len(syms), rows=sum(v["rows"] for v in stats.values()), symbols_without_rows=sum(1 for v in stats.values() if not v["rows"])),
                     spot_check=spot, written=iso(int(time.time() * 1000)))
-    cfg.jsave(ex, "funding_manifest.json", manifest)
+    cfg.jsave(ex, cfg.name("funding_manifest.json"), manifest)
     t = manifest["totals"]
     log(f"{ex} funding manifest: symbols {t['symbols']}, rows {t['rows']}, no-row symbols {t['symbols_without_rows']}, anomalies {len(anomalies)}, "
         f"spot-check {sum(x['identical'] for x in spot)}/{len(spot)} identical")
 
 
+def firstday_universe(cfg, ex):
+    """first_qualifying_day.csv for the whole u12 universe from the 1d tables (daily.aug.u12.json from 2026-08-01, daily.u12.json from 2026-09-01):
+    the first five columns keep their >= $100M meaning, the last ones are the >= $12M (cfg.thr) first day. The previous file is kept once."""
+    sep, aug = cfg.jload(ex, "daily.u12.json"), cfg.jload(ex, "daily.aug.u12.json")
+    thr100 = Decimal(100_000_000)
+
+    def first(days, thr, lo="", hi="9999"):
+        ok = sorted(d for d, r in days.items() if lo <= d < hi and Decimal(r[7]) >= thr)
+        return ok[0] if ok else ""
+
+    path, keep = cfg.path(ex, "first_qualifying_day.csv"), cfg.path(ex, "first_qualifying_day.p42-227.csv")
+    if os.path.exists(path) and not os.path.exists(keep):
+        with open(path, newline="") as f:
+            write_atomic(keep, f.read())
+    lines = ["symbol,first_day_ge_aug_window,first_day_ge_warmup_window,first_day_ge_main_window,first_day_ge_overall,"
+             "first_day_ge_12M,first_day_ge_12M_aug_window,first_day_ge_12M_sep_nov_window,origin"]
+    for sym in u12_universe(cfg, ex):
+        a, s = aug.get(sym, {}), sep.get(sym, {})
+        d100 = [first(a, thr100), first(s, thr100, "", "2026-09-15"), first(s, thr100, "2026-09-15")]
+        d12 = [first(a, cfg.thr), first(s, cfg.thr)]
+        origin = "p42_main_warmup" if on_disk_main(cfg, ex, sym) else "u12_new"
+        lines.append(",".join([sym, *d100, min((x for x in d100 if x), default=""), min((x for x in d12 if x), default=""), *d12, origin]))
+    write_atomic(path, "\n".join(lines) + "\n")
+    log(f"{ex} first_qualifying_day.csv (universe): {len(lines) - 1} symbols")
+
+
 def firstday_step(cfg, ex):
     """First UTC day with quote turnover >= threshold per window: August (filter.aug.json, daily --tag .aug), warmup (filter.warmup.json),
     main (filter.json); overall = the earliest."""
+    if cfg.set == "universe":
+        return firstday_universe(cfg, ex)
     main = cfg.jload(ex, "filter.json")
     wins = [cfg.jload(ex, f"filter.{t}.json", {}) for t in ("aug", "warmup")] + [main]
     lines = ["symbol,first_day_ge_aug_window,first_day_ge_warmup_window,first_day_ge_main_window,first_day_ge_overall"]
@@ -834,6 +892,8 @@ def main():
     p.add_argument("--force", action="store_true")
     p.add_argument("--tag", default="", help="suffix of the state files, e.g. .warmup (symbols still come from the main run)")
     p.add_argument("--funding-from", default="2026-09-01")
+    p.add_argument("--set", choices=["main", "all", "universe", "new"], default=None,
+                   help="symbols to work on: main (default), all candidates (daily), universe (filter.u12.json qualifying), new (universe minus main+warmup)")
     a = p.parse_args()
     cfg = Cfg(a)
     exs = a.exchanges.split(",")
