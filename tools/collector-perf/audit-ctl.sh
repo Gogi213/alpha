@@ -9,8 +9,9 @@ start() { # биржа каталог пула шарды бинарь базо�
   local pool=$(ls -t $pooldir/pool-*.json | head -1)
   for arm in C1 C2; do
     mkdir -p /data/perf/audit/$ex-$arm/data
+    B=$(python3 /data/perf/audit_guard.py $ex $(( $(echo $shards | awk -F, '{print NF}') * 2 ))) || exit 3   # сторож подключений (audit_guard.py): лимиты биржи на IP, 80 %, раскладка по времени
     systemd-run --unit=audit-$ex-$arm --collect -p CPUAccounting=yes $bin collect run --exchange $ex --root /data/perf/audit/$ex-$arm/data --health /data/perf/audit/$ex-$arm/health.json \
-      --pool-file $pool --only-shards $shards --lanes 2 --duration-s $DUR --connect-budget 40 $base > /data/perf/audit/$ex-$arm/unit.txt 2>&1
+      --pool-file $pool --only-shards $shards --lanes 2 --duration-s $DUR --connect-budget $B $base > /data/perf/audit/$ex-$arm/unit.txt 2>&1
   done
 }
 start binance /data/collect/binance/data book00,book01,mark00 /data/perf/alpha-final6i "--never-slow --lazy --reactor --worker-inline --reactor-window-us 5000 --rx-stamp kernel"

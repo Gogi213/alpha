@@ -10,8 +10,9 @@ start() { # биржа каталог пула шарды базовые-фла�
   for arm in D R N; do
     case $arm in D) f="" ;; R) f="--no-pong-only-degrade" ;; N) f="--no-ping" ;; esac
     mkdir -p /data/perf/audit/$ex-$arm/data
+    B=$(python3 /data/perf/audit_guard.py $ex $(( $(echo $shards | awk -F, '{print NF}') * 2 ))) || exit 3   # сторож подключений (audit_guard.py): лимиты биржи на IP, 80 %, раскладка по времени
     systemd-run --unit=audit-$ex-$arm --collect -p CPUAccounting=yes $BIN collect run --exchange $ex --root /data/perf/audit/$ex-$arm/data --health /data/perf/audit/$ex-$arm/health.json \
-      --pool-file $pool --only-shards $shards --lanes 2 --duration-s $DUR --connect-budget 40 $base $f > /data/perf/audit/$ex-$arm/unit.txt 2>&1
+      --pool-file $pool --only-shards $shards --lanes 2 --duration-s $DUR --connect-budget $B $base $f > /data/perf/audit/$ex-$arm/unit.txt 2>&1
   done
 }
 start binance /data/collect/binance/data book00,book01,mark00 "--never-slow --lazy --reactor --worker-inline --reactor-window-us 5000 --rx-stamp kernel"

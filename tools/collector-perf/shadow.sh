@@ -21,8 +21,9 @@ while IFS='|' read -r label bin flags props; do
   [ -z "$label" ] && continue
   LABELS+=("$label"); BINS+=("$bin")
   mkdir -p $R/$label/data
+  B=$(python3 /data/perf/audit_guard.py $EX $(( $(echo $SHARDS | awk -F, '{print NF}') * 2 ))) || exit 3   # сторож подключений: лимиты биржи на IP, 80 %, раскладка по времени (audit_guard.py)
   systemd-run --unit=shadow-$EX-$label-$TAG --collect -p CPUAccounting=yes $props $bin collect run --exchange $EX --root $R/$label/data --health $R/$label/health.json \
-    --pool-file $POOL --only-shards $SHARDS --lanes 2 --duration-s $((WIN + 25)) --connect-budget 40 $flags > $R/$label/unit.txt 2>&1
+    --pool-file $POOL --only-shards $SHARDS --lanes 2 --duration-s $((WIN + 25)) --connect-budget $B $flags > $R/$label/unit.txt 2>&1
 done < $ARMS
 sleep 20
 pid() { systemctl show -p MainPID --value shadow-$EX-$1-$TAG; }

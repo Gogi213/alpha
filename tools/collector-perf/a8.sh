@@ -19,8 +19,10 @@ LABELS=(); BINS=()
 while IFS='|' read -r label bin flags; do
   [ -z "$label" ] && continue
   LABELS+=("$label"); BINS+=("$bin"); mkdir -p $R/$label/data
+  SHARDS=$(echo "$flags" | grep -oP -- '--only-shards \K\S+'); [ -n "$SHARDS" ] || { echo "в аргументах руки нет --only-shards"; exit 2; }
+  B=$(python3 /data/perf/audit_guard.py $EX $(( $(echo $SHARDS | awk -F, '{print NF}') * 2 ))) || exit 3   # сторож подключений: лимиты биржи на IP, 80 %, раскладка по времени (audit_guard.py)
   systemd-run --unit=a8-$EX-$label-$TAG --collect -p CPUAccounting=yes $bin collect run --exchange $EX --root $R/$label/data --health $R/$label/health.json \
-    --pool-file $POOL --lanes 2 --duration-s $((WIN + 60)) --connect-budget 40 $flags > $R/$label/unit.txt 2>&1
+    --pool-file $POOL --lanes 2 --duration-s $((WIN + 60)) --connect-budget $B $flags > $R/$label/unit.txt 2>&1
 done < $ARMS
 sleep 25
 snap() { # тег
