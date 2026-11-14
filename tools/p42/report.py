@@ -57,6 +57,42 @@ def coin_concat(P, side, vA, vB):
     return out
 
 
+FUNNEL_VARIANTS = (  # база и три «ослабленных» фильтра (варианты уже посчитаны: шаг 1 и расширения, новых испытаний нет)
+    ("b0", "база"),
+    ("v_ban_0", "запрет ложного пробоя выключен (ban = 0)"),
+    ("v_natr_min_0p2", "NATR мин = 0,2 %"),
+    ("v_t1h_0p1", "оборот за час мин = $0,1 млн"),
+)
+
+
+def funnel(D, P, side):
+    """Воронка фильтров и частота сделок по половинам: счётчики `meta.json` + сделки варианта (A/B — по дню входа)."""
+    out = {}
+    for v, label in FUNNEL_VARIANTS:
+        meta = json.load(open(os.path.join(P[(side, v)], "meta.json")))[side]
+        tr = read_trades(P[(side, v)], side)
+        halves = {}
+        for hi, h in enumerate("AB"):
+            sub = [t for t in tr if (int(t["entry_day"]) < 30) == (h == "A")]
+            n = len(sub)
+            crossed = meta["levels_crossed_AB"][hi]
+            sig = meta["signals_AB"][hi]
+            halves[h] = {
+                "crossed": crossed,
+                "geo_pass": crossed - meta["levels_skipped_geo_AB"][hi],
+                "pool_pass": crossed - meta["levels_skipped_AB"][hi],
+                "signals": sig, "rejected": sig - n, "trades": n, "trades_per_day": n / 30,
+                "win_rate": (sum(1 for t in sub if float(t["net"]) > 0) / n) if n else 0.0,
+                "stop_share": (sum(1 for t in sub if t["kind"] == "stop") / n) if n else 0.0,
+                "usd_per_trade": (sum(float(t["net"]) for t in sub) / n) if n else 0.0,
+                "per_day": float(D[side][v][HALVES[h]].mean()),
+            }
+        out[v] = {"label": label, "halves": halves,
+                  "rej_kinds": dict(zip(("consumed", "busy", "coin_pause", "global_pause", "cap", "no_outcome"),
+                                        meta["rej_[consumed,busy,coin_pause,global_pause,cap,no_outcome]"]))}
+    return out
+
+
 def holds(x, z_h, r):
     st = stat(x, r)
     return st["mean"] > 0 and st["mean"] - z_h * st["se"] > 0, st
@@ -93,8 +129,10 @@ def main():
                 st = stat(cand[k]["x"][HALVES[h]], r)
                 cstats[(k, h)] = st
                 tests_pkg.append({"side": side, "kind": "cand", "ax": k, "dir": h, "p": st["p"]})
-        m = len(tests_pkg)
-        adj = holm([t["p"] for t in tests_pkg])
+        # семейство Холма = все испытания стороны (счётчик): непроверенные гипотезы входят с p = 1 (замечание проверяющего, п. 4)
+        m_tests = len(tests_pkg)
+        m = max(trials, m_tests)
+        adj = holm([t["p"] for t in tests_pkg] + [1.0] * (m - m_tests))
         for t, a in zip(tests_pkg, adj):
             t["p_holm"] = a
         z_h = ND.inv_cdf(1 - 0.05 / (2 * m))
@@ -114,7 +152,7 @@ def main():
             w.writeheader()
             w.writerows(rows)
         # ---- вердикт по кандидатам
-        res = {"trials": trials, "m_package": m, "z_holm": z_h, "cfg": cfg, "joint": None if joint is None else {
+        res = {"trials": trials, "m_package": m, "m_tests": m_tests, "z_holm": z_h, "cfg": cfg, "joint": None if joint is None else {
             "accepted": joint["accepted"], "same_pair": joint["same_pair"], "adjacent": joint["adjacent"],
             "pair": joint["pair"], "cellA": joint["A"]["cell"], "cellB": joint["B"]["cell"]}, "cand": {}}
         for k in kinds:
@@ -171,6 +209,8 @@ def main():
                 n = len(tr)
                 st["trades"] = n
                 st["stop_share"] = (sum(1 for t in tr if t["kind"] == "stop") / n) if n else 0.0
+                st["win_rate"] = (sum(1 for t in tr if float(t["net"]) > 0) / n) if n else 0.0
+                st["trades_per_day"] = n / 30
                 st["usd_per_trade"] = (sum(float(t["net"]) for t in tr) / n) if n else 0.0
                 st["bps_per_trade"] = st["usd_per_trade"] / 500 * 1e4
                 st["share_before_fq"] = (sum(1 for t in tr if (fq.get(t["sym"]) is not None and int(t["entry_day"]) <= fq[t["sym"]])) / n) if n else 0.0
@@ -198,6 +238,9 @@ def main():
                 return st["mean"] < 0 and st["no_worst2_days"]["mean"] < 0 and st["no_worst2_coins"]["mean"] < 0
 
             refuted = (neg(hA) and neg_robust(hA)) or (neg(hB) and neg_robust(hB))
+            # устойчивость опровержения по половинам: знак «−» (п. 10) и без 2 худших суток / монет
+            cr["refut_by_half"] = {h_: {"neg": bool(neg(st_)), "robust": bool(neg(st_) and neg_robust(st_))} for h_, st_ in (("A", hA), ("B", hB))}
+            cr["conf_applicable"] = bool(ok(hA) and ok(hB))
             zero = hA["trades"] + hB["trades"] == 0
             cr["confirmed"] = bool(conf and rob)
             cr["refuted"] = bool(refuted)
@@ -238,12 +281,13 @@ def main():
         p = sb.pbo(M, n_splits=10)
         res["pbo"] = {kk: (vv if not isinstance(vv, (np.ndarray, list)) else None) for kk, vv in p.items()}
         res["pbo_n_configs"] = len(names)
+        res["funnel"] = funnel(D, P, side)
         report[side] = res
     json.dump(report, open(os.path.join(ROOT, "report.json"), "w"), indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     # ---- краткая печать
     for side in SIDES:
         res = report[side]
-        print("== %s: испытаний %d, пакет Холма m=%d, z_Холм=%.2f, PBO=%s" % (side, res["trials"], res["m_package"], res["z_holm"], res["pbo"].get("pbo")))
+        print("== %s: испытаний %d, семейство Холма m=%d (проверок в пакете %d), z_Холм=%.2f, PBO=%s" % (side, res["trials"], res["m_package"], res["m_tests"], res["z_holm"], res["pbo"].get("pbo")))
         print("   cfg A→B:", res["cfg"]["A"], "\n   cfg B→A:", res["cfg"]["B"], "\n   joint:", res["joint"])
         for k, c in res["cand"].items():
             hA, hB = c["halves"]["A"], c["halves"]["B"]
