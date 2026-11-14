@@ -24,7 +24,7 @@ def test_outputs_roundtrip_through_api(tmp_path):
     n = arb_live.write_outputs(tmp_path, 111, 1000, 2000, det)
     assert n == 2
     api = arb_api.Arb(tmp_path)
-    doc = json.loads(api.table())
+    doc = json.loads(api.table()[0])
     assert [r["c"] for r in doc["rows"]] == ["AAA", "BBB"] and doc["rows"][0]["cnt"] == [1, 4, 6, 24] and doc["rows"][0]["pk"] == [31.0, 40.0, 41.0]
     assert doc["rows"][1]["net"][0] == 25.0 - core.FEE_RT_BPS    # круги 30 и 20 → медиана 25
     ch = json.loads(api.chart("c=BBB&a=bybit&b=okx"))
@@ -34,7 +34,7 @@ def test_outputs_roundtrip_through_api(tmp_path):
 
 
 def test_pending_without_file(tmp_path):
-    assert json.loads(arb_api.Arb(tmp_path / "nope").table()) == {"pending": True}
+    assert json.loads(arb_api.Arb(tmp_path / "nope").table()[0]) == {"pending": True}
     assert arb_api.Arb(tmp_path / "nope").chart("c=A&a=b&b=c") is None
 
 

@@ -3,6 +3,8 @@
 <dir>/arb.json — строки таблицы (одним файлом, отдаётся как есть); <dir>/chart-<gen>.jsonl — ряды графиков, по строке на пару,
 смещение и длина строки лежат в строке таблицы (o, l). Только стандартная библиотека; файлы читаются по mtime, пишутся атомарно (rename).
 """
+import gzip
+import hashlib
 import json
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -12,6 +14,7 @@ class Arb:
     def __init__(self, directory):
         self.dir = Path(directory)
         self._mt = None
+        self._tab = None            # (тело, etag, сжатое тело) — сжимается один раз на файл
         self._body = None
         self._doc = None
         self._idx = {}
@@ -21,18 +24,19 @@ class Arb:
         try:
             mt = p.stat().st_mtime_ns
         except OSError:
-            self._mt = self._body = self._doc = None
+            self._mt = self._body = self._doc = self._tab = None
             return
         if mt != self._mt:
             body = p.read_bytes()
             doc = json.loads(body)
             self._idx = {(r["c"], r["a"], r["b"]): r for r in doc["rows"]}
+            self._tab = (body, '"%s"' % hashlib.md5(body).hexdigest()[:20], gzip.compress(body, 6))
             self._mt, self._body, self._doc = mt, body, doc
 
     def table(self):
-        """Тело ответа /api/arb: arb.json как есть; пока первого счёта нет — {"pending": true}."""
+        """(тело, etag, сжатое тело) ответа /api/arb: arb.json как есть; пока первого счёта нет — {"pending": true}."""
         self._load()
-        return self._body if self._body is not None else b'{"pending":true}'
+        return self._tab or (b'{"pending":true}', '"pending"', None)
 
     def chart(self, query):
         """Тело ответа /api/arb/chart?c=<монета>&a=<биржа>&b=<биржа>; None — такой пары нет."""
