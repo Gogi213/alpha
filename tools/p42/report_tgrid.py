@@ -68,8 +68,10 @@ def main():
         have_cf = bool(cfg["A"] or cfg["B"]) and ("cA_" + side) in D[side] and ("cB_" + side) in D[side]
         have_l = ("uA_" + side) in D[side] and ("uB_" + side) in D[side]
         n_ext, n_joint = len(pe[side]), len(pj[side]["new_trials"])
-        trials = n_stage1 + n_ext + n_joint + (1 if have_cf else 0) + (1 if have_l else 0)
-        res = {"trials": trials, "n_stage1": n_stage1, "n_ext": n_ext, "n_joint": n_joint, "have_cf": have_cf, "have_letter": have_l,
+        hon = json.load(open(os.path.join(ROOT, "cfg-honest.json")))[side]["cfg"] if os.path.isdir(os.path.join(ROOT, "honest")) else None  # §13.10: честный эталон
+        have_h = hon is not None
+        trials = n_stage1 + n_ext + n_joint + (1 if have_cf else 0) + (1 if have_l else 0) + (2 if have_h else 0)
+        res = {"trials": trials, "n_stage1": n_stage1, "n_ext": n_ext, "n_joint": n_joint, "have_cf": have_cf, "have_honest": have_h, "cfg_honest": hon, "have_letter": have_l,
                "cfg": cfgf[side]["cfg"], "joint": cfgf[side]["joint"], "counts": {k: v for k, v in cnt[side].items() if not k.endswith("names")},
                "pos_names": cnt[side]["pos_names"], "pos10_names": cnt[side]["pos10_names"], "grid": grid_rows(side, D, P, T), "cand": {}}
         m = (M or {}).get(side, trials)
@@ -82,6 +84,8 @@ def main():
             cands["по букве"] = ("uB_" + side, "uA_" + side)
         for t in top[side]:
             cands["топ-3 " + t["vid"]] = (t["vid"], t["vid"])
+        if have_h:  # hB на A, hA на B (как cB/cA); пустая конфигурация = база
+            cands["честный эталон (§13.10)"] = (("hB_" + side) if hon["B"] else "b0", ("hA_" + side) if hon["A"] else "b0")
         if "v_s_1" in D[side]:  # слова владельца 15.11: «1 тоже попробуй» (стоп 1 %); уже в сетке как расширение края оси s — +0 испытаний (протокол §13.9, дополнение 15.11)
             cands["стоп 1 % (v_s_1)"] = ("v_s_1", "v_s_1")
         for name, (va, vb) in cands.items():
@@ -91,8 +95,8 @@ def main():
             tot, ntr = total_trades(side, P, D, va, vb)
             res["cand"][name] = {"halves": hs, "verdict": verdict(hs, z_h), "total": tot, "trades": ntr, "vA": va, "vB": vb}
         out["sides"][side] = res
-        print("== %s: испытаний %d (оси %d + расш. %d + совм. %d + кр. %d + буква %d), m=%d z=%.2f | конфигураций %d: >0 в обеих %d (≥10 сд. %d)" % (
-            side, trials, n_stage1, n_ext, n_joint, int(have_cf), int(have_l), m, z_h, res["counts"]["configs"], res["counts"]["positive_both"], res["counts"]["positive_both_ge10"]))
+        print("== %s: испытаний %d (оси %d + расш. %d + совм. %d + кр. %d + буква %d + эталон %d), m=%d z=%.2f | конфигураций %d: >0 в обеих %d (≥10 сд. %d)" % (
+            side, trials, n_stage1, n_ext, n_joint, int(have_cf), int(have_l), 2 * int(have_h), m, z_h, res["counts"]["configs"], res["counts"]["positive_both"], res["counts"]["positive_both_ge10"]))
         print("   cfg A→B:", cfgf[side]["cfg"]["A"], "\n   cfg B→A:", cfgf[side]["cfg"]["B"], "\n   joint:", cfgf[side]["joint"])
         for name, c in res["cand"].items():
             a, b = c["halves"]["A"], c["halves"]["B"]

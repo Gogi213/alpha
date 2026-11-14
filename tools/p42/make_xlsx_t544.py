@@ -54,9 +54,9 @@ def verdict_line(R5):
         s1 = x["cand"].get("стоп 1 % (v_s_1)")
         cv = (ed.vtxt(c["verdict"], c["halves"]["A"], c["halves"]["B"]) if c and c["trades"] else "не торгует")
         tops = ", ".join("«%s»" % ed.vtxt(k_["verdict"], k_["halves"]["A"], k_["halves"]["B"]) for k, k_ in x["cand"].items() if k.startswith("топ-3"))
-        parts.append("%s — основа «%s»: %s $ за 60 суток (%s $ в сутки в первой половине окна, %s — во второй); перекрёстный кандидат «%s»; три лучших варианта сетки: %s%s" % (
+        parts.append("%s — основа «%s»: %s $ за 60 суток (%s $ в сутки в первой половине окна, %s — во второй); перекрёстный кандидат (принятие осей по обеим половинам — в выборке) «%s»; три лучших варианта сетки: %s%s%s" % (
             SIDE_TITLE[side], v, ms.f(b["total"], 0, True), ms.f(a["mean"], 2, True), ms.f(bb["mean"], 2, True), cv, tops,
-            ("; стоп 1 %% (слова владельца «1 тоже попробуй»): «%s», %s $ за 60 суток" % (ed.vtxt(s1["verdict"], s1["halves"]["A"], s1["halves"]["B"]), ms.f(s1["total"], 0, True))) if s1 else ""))
+            ("; стоп 1 %% (слова владельца «1 тоже попробуй»): «%s», %s $ за 60 суток" % (ed.vtxt(s1["verdict"], s1["halves"]["A"], s1["halves"]["B"]), ms.f(s1["total"], 0, True))) if s1 else "", ed.hon_txt(side, R5, ed.load_tgrid("566"))))
     return "Вердикт по правилу проверки (тики, задержка 4 мс, 544 монеты, 60 суток). " + "; ".join(parts) + "."
 
 
@@ -65,7 +65,7 @@ def summary_sheet(wb, pdata, R5, R6):
     ws.title = "Сводка"
     notes = [
         "Что это: статистика бота «пробой часового уровня» (П-42) по сделкам Binance за 60 суток (15.09–13.11.2026): правила бота как есть, исполнение по тикам с задержкой 4 мс на вход и выход; 544 монеты (566 минус 22 монеты, которые владелец велел убрать); лонг и шорт — отдельно. Счёт $2 500, позиция $500 на сделку, без плеча; проценты — от счёта.",
-        "НАЙДЕНО НА ЭТИХ ДАННЫХ — числа оптимистичны: 22 монеты убраны по результатам этого же окна, а варианты (кандидаты) выбраны по этим же 60 суткам. Прирост базы относительно 566 монет — это P&L убранных монет, отобранных как убыточные на этих же сделках: по построению, не находка. Чёрный список без заглядывания вперёд (walk-forward) прироста не даёт — «в шуме» во всех 16 проверках.",
+        "НАЙДЕНО НА ЭТИХ ДАННЫХ — числа оптимистичны: 22 монеты убраны по результатам этого же окна, а варианты (кандидаты) выбраны по этим же 60 суткам. Прирост базы относительно 566 монет — это P&L убранных монет, отобранных как убыточные на этих же сделках: по построению, не находка. Чёрный список без заглядывания вперёд (walk-forward) прироста не даёт — «в шуме» во всех 16 проверках. «Перекрёстный» кандидат принимает ось по обеим половинам окна (на 566 у лонга оба конфига совпадают), поэтому его число — тоже в выборке; без заглядывания в проверочную половину — «честный эталон» (§13.10, лист «Варианты»).",
         verdict_line(R5),
     ]
     for i, t in enumerate(notes, 1):
@@ -147,7 +147,7 @@ def outsiders_sheet(wb):
 def variants_sheet(wb, R5, R6):
     ws = wb.create_sheet("Варианты")
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=12)
-    c = ws.cell(row=1, column=1, value="Кандидаты и вся сетка вариантов (тики 4 мс). Найдено на этих данных: варианты выбраны по этим же 60 суткам — оптимистично. Интервал — 95 %, блочный бутстреп по суткам; «без 2 худших» — среднее $/сут. половины без 2 худших суток / без 2 худших монет.")
+    c = ws.cell(row=1, column=1, value="Кандидаты и вся сетка вариантов (тики 4 мс). Найдено на этих данных: варианты выбраны по этим же 60 суткам — оптимистично. ВНИМАНИЕ: «перекрёстный» принимает ось, только если разница > 0 в обе стороны, т. е. по обеим половинам — его число НЕ вне выборки (читать как топ-3); вне выборки — строка «честный эталон (§13.10)»: значения и принятие осей только на половине подбора. Интервал — 95 % без поправки на число испытаний, вердикт — после Холма; «без 2 худших» — среднее $/сут. половины без 2 худших суток / без 2 худших монет.")
     c.alignment = Alignment(wrap_text=True, vertical="center")
     c.font = Font(bold=True)
     ws.row_dimensions[1].height = 48
@@ -165,9 +165,9 @@ def variants_sheet(wb, R5, R6):
                 put(ws, r, k, v, "0" if k > 2 else None, bold=(k == 7), fill=GREEN if lab == "544" else None, align=Alignment(horizontal="left" if k <= 2 else "right"))
             r += 1
     r += 2
-    heads = ["Кандидат", "Вселенная", "A: $ в сутки", "A: от", "A: до", "A: без 2 худших суток / монет", "B: $ в сутки", "B: от", "B: до", "B: без 2 худших суток / монет", "Всего за 60 сут., $", "Сделок", "Вердикт"]
+    heads = ["Кандидат", "Вселенная", "A: $ в сутки", "A: от", "A: до", "A: без 2 худших суток / монет", "B: $ в сутки", "B: от", "B: до", "B: без 2 худших суток / монет", "Всего за 60 сут., $", "Сделок", "Вердикт", "без 2 лучших суток / монет (A; B), если обе половины > 0"]
     for side in ms.SIDES:
-        title_row(ws, r, "%s — кандидаты (Холм m = %d)" % (SIDE_TITLE[side], R5["sides"][side]["m"]), 13)
+        title_row(ws, r, "%s — кандидаты (Холм m = %d)" % (SIDE_TITLE[side], R5["sides"][side]["m"]), 14)
         r += 1
         hdr_row(ws, r, heads)
         r += 1
@@ -180,18 +180,35 @@ def variants_sheet(wb, R5, R6):
                 if cd is None:
                     continue
                 a, b = cd["halves"]["A"], cd["halves"]["B"]
-                vals = [name, "без 22 (544)" if lab == "544" else "полная (566)", a["mean"], a["lo"], a["hi"], ed.rob(a), b["mean"], b["lo"], b["hi"], ed.rob(b), cd["total"], cd["trades"],
-                        ed.vtxt(cd["verdict"], a, b)]
+                vals = [("перекрёстный (в выборке)" if name == "перекрёстный" else name), "без 22 (544)" if lab == "544" else "полная (566)", a["mean"], a["lo"], a["hi"], ed.rob(a), b["mean"], b["lo"], b["hi"], ed.rob(b), cd["total"], cd["trades"],
+                        ed.vtxt(cd["verdict"], a, b), ed.best2(a, b)]
                 for k, v in enumerate(vals, 1):
                     put(ws, r, k, v, MONEY if k in (3, 4, 5, 7, 8, 9, 11) else ("0" if k == 12 else None), bold=(lab == "544" and k in (3, 7, 11)), fill=GREEN if lab == "544" else None,
-                        align=Alignment(horizontal="left" if k in (1, 2, 6, 10, 13) else "right"))
+                        align=Alignment(horizontal="left" if k in (1, 2, 6, 10, 13, 14) else "right"))
                 r += 1
         r += 1
-        x = R5["sides"][side]
-        for lab_, hh in (("перекрёстный: значения из B (для суток A)", x["cfg"]["B"]), ("перекрёстный: значения из A (для суток B)", x["cfg"]["A"])):
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=13)
-            c = ws.cell(row=r, column=1, value="544, %s: %s" % (lab_, ed.cfg_txt(hh)))
-            c.font = Font(italic=True, size=10)
+        for lab, R in (("544", R5), ("566", R6)):
+            if R is None:
+                continue
+            x = R["sides"][side]
+            rows_cfg = [("перекрёстный (в выборке): значения из B (для суток A)", x["cfg"]["B"]), ("перекрёстный (в выборке): значения из A (для суток B)", x["cfg"]["A"])]
+            if x.get("cfg_honest"):
+                rows_cfg += [("честный эталон: выбран на B (считается на A)", x["cfg_honest"]["B"]), ("честный эталон: выбран на A (считается на B)", x["cfg_honest"]["A"])]
+            for lab_, hh in rows_cfg:
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+                c = ws.cell(row=r, column=1, value="%s, %s: %s" % (lab, lab_, ed.cfg_txt(hh)))
+                c.font = Font(italic=True, size=10)
+                r += 1
+        r += 2
+    sn = ed.sig_note()
+    if sn:
+        title_row(ws, r, "Почему «не ясно», хотя 95 %-интервал выше 0 в обеих половинах (до поправки на число испытаний)", 14)
+        r += 1
+        for t in sn:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+            c = ws.cell(row=r, column=1, value=t)
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+            ws.row_dimensions[r].height = 46
             r += 1
         r += 2
     for side in ms.SIDES:
@@ -209,6 +226,7 @@ def variants_sheet(wb, R5, R6):
     ws.column_dimensions["B"].width = 34
     for c in "CDEFGHIJKLM":
         ws.column_dimensions[c].width = 15
+    ws.column_dimensions["N"].width = 34
     ws.freeze_panes = "A3"
 
 
