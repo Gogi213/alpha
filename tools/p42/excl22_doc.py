@@ -110,3 +110,24 @@ def result_bullet():
                 ms.f(e_["halves"]["A"]["mean"], 2, True), ms.f(e_["halves"]["B"]["mean"], 2, True), ms.f(e_["total"], 2, True), e_["verdict"]))
         parts.append("%s — %s" % (SIDE_RU[side].lower(), "; ".join(seg)))
     return ["- **Без 22 монет (приказ владельца, §13.4 п. 9; список выбран на этих же 60 сутках — найдено на этих данных, числа оптимистичны), база, $/сут. A / B:** " + "; ".join(parts) + ". Подробно (все кандидаты, интервалы, точный пересчёт) — раздел 6."]
+
+
+def wf_bullet():
+    """Строка для раздела «Результат»: чёрный список walk-forward (§13.7), Δ с 15-х суток по окнам."""
+    p = os.path.join(WF, "report-walkfwd.json")
+    if not os.path.exists(p):
+        return []
+    R = json.load(open(p, encoding="utf-8"))
+    parts = []
+    for side in ("long", "short"):
+        seg = []
+        for eng in ("tick", "1m"):
+            ws = []
+            for w in ("expanding", "30", "7", "3"):
+                v = R["res"]["%s|%s|%s" % (eng, side, w)]
+                d = v["seg"]["Δ 15-59"]
+                ws.append("%s %s [%s; %s]" % ("расш." if w == "expanding" else w, ms.f(d["mean"], 2, True), ms.f(d["lo"], 2, True), ms.f(d["hi"], 2, True)))
+            seg.append("%s: %s" % (ENG_RU[eng], ", ".join(ws)))
+        parts.append("%s — %s" % (SIDE_RU[side].lower(), "; ".join(seg)))
+    reads = {v["reading"] for v in R["res"].values()}
+    return ["- **Чёрный список walk-forward (§13.7; приближённое исполнение), Δ $/сут. против полной базы на сутках 15–59, окна расш. / 30 / 7 / 3 сут. [95 %]:** " + "; ".join(parts) + ". Чтение по правилу §13.7 во всех 16 клетках: %s (нижняя граница после Холма < 0 везде). Раздел 7." % ", ".join("«%s»" % x for x in sorted(reads))]
