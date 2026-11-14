@@ -49,7 +49,7 @@ def row_state(doc, age_s, thr):
     if ring.get("full_events_window"):
         return "warn", f"очередь приёма переполнялась за последнее окно: {ring['full_events_window']} раз (приём ждал писателя)"
     late = sum(k.get("late_1h", 0) for k in ((doc.get("fresh") or {}).get("kinds") or {}).values())
-    if late:
+    if late and late >= max(1, int((thr or {}).get("late_1h_flag", 1))):
         return "warn", f"за час записей старше {(doc['fresh'].get('late_ms') or 0) // 1000} с: {late}"
     return "ok", "файл свежий, таймаутов за час нет"
 
@@ -113,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"rows": rows}, ensure_ascii=False).encode(), "application/json; charset=utf-8")
         elif path == "/api/v3":
             try:
-                body = v3.payload(self.health_dir, self.expected, self.roots, self.net)
+                body = v3.payload(self.health_dir, self.expected, self.roots, self.net, thr=self.thresholds)
             except Exception as e:  # страница не должна падать от одного кривого файла
                 body = {"error": repr(e)}
             self._send(200, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")

@@ -180,3 +180,35 @@ def test_rust_collector_schema_2_passes_backpressure_and_warns_on_overflow(tmp_p
     put(tmp_path, "binance", doc(schema=2, backpressure=bp))
     r = by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["binance"]
     assert r["state"] == "warn" and "переполнялась" in r["note"]
+
+
+def test_late_below_hour_threshold_keeps_row_green_and_at_threshold_is_warn(tmp_path):
+    """14.11 (BingX): ≈ 0,014 % записей приходят ≈ 9,6 с позже (всплески задержки биржи) — ниже порога `late_1h_flag` строка зелёная, на пороге — жёлтая; без порога — как раньше (любая поздняя)."""
+    thr = {"stale_s": 30, "late_1h_flag": 5000}
+    few = {"late_ms": 2000, "kinds": {"book": {"late_1h": 2596, "late_24h": 2596, "max_1h_ms": 10361, "max_24h_ms": 10361}}}
+    put(tmp_path, "binance", doc(fresh=few))
+    put(tmp_path, "bybit", doc(fresh={"late_ms": 2000, "kinds": {"book": dict(few["kinds"]["book"], late_1h=5000)}}))
+    rows = by_ex(serve.collect(tmp_path, NOW, EXPECTED, thr))
+    assert rows["binance"]["state"] == "ok" and rows["bybit"]["state"] == "warn" and "записей старше 2 с: 5000" in rows["bybit"]["note"]
+    assert by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["binance"]["state"] == "warn"
+
+
+def test_v3_bar_is_flagged_by_minute_late_threshold_and_row_by_hour_threshold(tmp_path):
+    import time
+    import v3
+    s0 = 900 * 10
+    full = {m: [0, 0, 0, 0, "ser"] for m in range(s0 // 60, (s0 + 900) // 60)}
+    mins = dict(full)
+    mins[s0 // 60 + 3] = [0, 999, 0, 0, "ser"]
+    bars = v3.bars_from_minutes(mins, s0, [], 1000)
+    assert bars[0][0] == 0 and bars[0][2] == 999 and bars[0][6] == 0   # ниже порога минуты: столбик не красный, число в подсказке
+    mins[s0 // 60 + 3] = [0, 1000, 0, 0, "ser"]
+    bars = v3.bars_from_minutes(mins, s0, [], 1000)
+    assert bars[0][0] == 1 and bars[0][2] == 1000 and bars[0][6] == 1
+    mins[s0 // 60 + 3] = [0, 1, 0, 0, "ser"]
+    assert v3.bars_from_minutes(mins, s0, [], 1)[0][0] == 1             # порог 1 (по умолчанию) — как раньше
+    # строка: late_1h по порогу часа
+    h = {"ts_ms": int(time.time() * 1000), "symbols": {"subscribed": 3, "with_data_1m": 3}, "ws": {}, "fresh": {"kinds": {"book": {"late_1h": 2596}}}}
+    root = str(tmp_path)
+    assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, {"late_1h_flag": 5000})["ok"] is True
+    assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, None)["ok"] is False

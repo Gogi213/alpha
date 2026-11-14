@@ -123,19 +123,22 @@ def minutes_for(root, now):
     return out, merged, s0
 
 
-def bars_from_minutes(mins, s0, restarts):
+def bars_from_minutes(mins, s0, restarts, late_min=1):
+    """Столбик (15 мин): [флаг, потеряно мс, поздних, таймаутов «пинг пропал», «молчала», перезапуск, флаг поздних]. Поздние красят столбик, только если в какой-то минуте их ≥ late_min
+    (порог thresholds.json `late_min_flag`: BingX даёт всплески ≈ 9,6 с по ≈ 0,014 % записей — не провал; число ниже порога видно в подсказке)."""
     bars = []
     for k in range(NS):
         a = s0 + k * SLOT
         cov = [mins[m] for m in range(a // MIN, (a + SLOT) // MIN) if m in mins]
         if not cov:
-            bars.append([2, 0, None, 0, 0, 0])
+            bars.append([2, 0, None, 0, 0, 0, 0])
             continue
         lost = sum(c[0] for c in cov)
         ser = [c for c in cov if c[4] == "ser"]
         late = sum(c[1] for c in ser) if ser else None
         r = 1 if any(a <= t < a + SLOT for t in restarts) else 0
-        bars.append([1 if (lost > 0 or (late or 0) > 0) else 0, lost, late, sum(c[2] for c in cov), sum(c[3] for c in cov), r])
+        late_flag = 1 if any(c[1] >= late_min for c in ser) else 0
+        bars.append([1 if (lost > 0 or late_flag) else 0, lost, late, sum(c[2] for c in cov), sum(c[3] for c in cov), r, late_flag])
     return bars
 
 
@@ -216,9 +219,10 @@ class Net:
         return {"bars": bars, "detail": det, "since": min((s for s, c in self.slots.items() if c[0] >= NET_MIN_N), default=None)}
 
 
-def exchange_row(ex, name, health, root, now, s0_shared):
+def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
+    thr = thr or {}
     mins, restarts, s0 = minutes_for(root, now)
-    bars = bars_from_minutes(mins, s0, restarts)
+    bars = bars_from_minutes(mins, s0, restarts, max(1, int(thr.get("late_min_flag", 1))))
     h = health or {}
     ws = h.get("ws", {})
     fresh = h.get("fresh", {}).get("kinds", {})
@@ -230,12 +234,13 @@ def exchange_row(ex, name, health, root, now, s0_shared):
     age = (now * 1000 - h.get("ts_ms", 0)) / 1000 if h else 1e9
     sym = h.get("symbols", {})
     live_bad = age > 30 or (sym.get("with_data_1m", 1) < sym.get("subscribed", 0))
-    ok = not live_bad and lost_1h == 0 and late_1h == 0 and not ws.get("gaps_1h")
+    late_bad = late_1h > 0 and late_1h >= max(1, int(thr.get("late_1h_flag", 1)))   # порог за час: поздние ниже него — только число
+    ok = not live_bad and lost_1h == 0 and not late_bad and not ws.get("gaps_1h")
     gaps = sorted(((m, c[0]) for m, c in mins.items() if c[0] > 0), reverse=True)[:6]
     shards = h.get("shards") or []
     proc = h.get("process") or {}
     return {
-        "id": ex, "name": name, "ok": ok, "live_bad": live_bad, "lost_1h_s": round(lost_1h, 1), "bars": bars, "restarts": restarts,
+        "id": ex, "name": name, "ok": ok, "live_bad": live_bad, "late_bad": late_bad, "lost_1h_s": round(lost_1h, 1), "bars": bars, "restarts": restarts,
         "detail": {
             "lost_24h_s": round(lost_24h, 1), "gaps": [[m * MIN, ms] for m, ms in gaps], "late_1h": late_1h, "late_24h": late_24h,
             "late_max_1h_s": max([k.get("max_1h_ms") or 0 for k in fresh.values()] or [0]) / 1000,
@@ -248,7 +253,7 @@ def exchange_row(ex, name, health, root, now, s0_shared):
     }
 
 
-def payload(health_dir, exchanges, roots, net, now=None):
+def payload(health_dir, exchanges, roots, net, now=None, thr=None):
     now = time.time() if now is None else now
     s0 = -(-int(now) // SLOT) * SLOT - NS * SLOT
     rows, all_restarts = [], []
@@ -258,7 +263,7 @@ def payload(health_dir, exchanges, roots, net, now=None):
         root = roots.get(ex)
         if h is None or not root:
             continue
-        r = exchange_row(ex, e.get("name", ex), h, root, now, s0)
+        r = exchange_row(ex, e.get("name", ex), h, root, now, s0, thr)
         rows.append(r)
         all_restarts += r["restarts"]
     ticks = []
