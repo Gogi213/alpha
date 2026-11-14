@@ -6,13 +6,14 @@
 set -u
 EX=$1; WIN=$2; SHARDS=$3; ARMS=$4
 O=/data/perf/sh; mkdir -p $O
-case $EX in
-  binance) POOL=/data/collect/binance/data/pool-$(date -u +%F).json ;;
-  bybit)   POOL=/data/turbo-probe/soak-bybit/data/pool-$(date -u +%F).json ;;
-  okx)     POOL=/data/collect/okx/data/pool-$(date -u +%F).json ;;
-  bingx)   POOL=/data/collect/bingx/data/pool-$(date -u +%F).json ;;
+case $EX in   # свежий файл пула: после полуночи UTC файла нового дня может ещё не быть (его пишет запуск боевого процесса) — берётся последний
+  binance) D=/data/collect/binance/data ;;
+  bybit)   D=/data/turbo-probe/soak-bybit/data ;;
+  okx)     D=/data/collect/okx/data ;;
+  bingx)   D=/data/collect/bingx/data ;;
   *) echo "биржа?"; exit 2 ;;
 esac
+POOL=$(ls -t $D/pool-*.json | head -1)
 TAG=$(date -u +%H%M%S)
 R=$O/$EX-$TAG; mkdir -p $R
 LABELS=(); BINS=()
