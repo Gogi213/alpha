@@ -89,10 +89,22 @@ pub fn parse_trades(mut rd: impl BufRead, day: usize, st: &mut LoadStat) -> Resu
             f.next(),
         ) else {
             st.bad_rows += 1;
+            if st.bad_rows == 1 {
+                eprintln!(
+                    "плохая строка (день {day}): {}",
+                    String::from_utf8_lossy(&line).trim_end()
+                );
+            }
             continue;
         };
         let (Some(px), Some(ts)) = (parse_dec(p, 8), parse_dec(t, 0)) else {
             st.bad_rows += 1;
+            if st.bad_rows == 1 {
+                eprintln!(
+                    "плохая строка (день {day}): {}",
+                    String::from_utf8_lossy(&line).trim_end()
+                );
+            }
             continue;
         };
         let off = ts - base;

@@ -60,7 +60,7 @@ pub enum BreakoutCommand {
         #[arg(long)]
         symbols: Option<String>,
         /// Предел памяти кэша распакованных суток, ГБ.
-        #[arg(long, default_value_t = 4)]
+        #[arg(long, default_value_t = 24)]
         cap_gb: usize,
     },
     /// Одна сделка базы по монете со всеми шагами и арифметикой P&L.

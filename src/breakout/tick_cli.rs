@@ -140,18 +140,19 @@ pub fn run(
         ls.bad_rows,
         ls.errors
     );
-    // фаза 2: портфель и исходы
-    let outer = threads.min(vs.len()).max(1);
+    // фаза 2: портфель и исходы — задания (вариант, сторона) параллельно
+    let tasks: Vec<(usize, Side)> = (0..vs.len())
+        .flat_map(|i| [(i, Side::Long), (i, Side::Short)])
+        .collect();
     let done = std::sync::atomic::AtomicUsize::new(0);
-    let total = vs.len();
-    let rows = par_map(&vs, outer, |(id, p)| -> Result<Vec<String>> {
-        let dir = out.join(id);
-        fs::create_dir_all(&dir)?;
-        let mut rows = Vec::new();
-        let mut meta = serde_json::Map::new();
-        meta.insert("id".into(), id.clone().into());
-        meta.insert("params".into(), format!("{p:?}").into());
-        for side in [Side::Long, Side::Short] {
+    let total = tasks.len();
+    let parts = par_map(
+        &tasks,
+        threads,
+        |&(vi, side)| -> Result<(usize, Side, String, serde_json::Value)> {
+            let (id, p) = &vs[vi];
+            let dir = out.join(id);
+            fs::create_dir_all(&dir)?;
             let Some(&j) = job_idx.get(&(p.sig.clone(), side)) else {
                 bail!("{id}: нет задания сигналов");
             };
@@ -166,36 +167,56 @@ pub fn run(
             let total_net: f64 = r.daily.iter().sum();
             let ma = mean(&r.daily[..HALF_DAYS]);
             let mb = mean(&r.daily[HALF_DAYS..]);
-            rows.push(format!(
+            let row = format!(
                 "{id},{},{n},{:.3},{:.4},{:.4},{:.4}",
                 side.name(),
                 total_net,
                 ma,
                 mb,
                 if n > 0 { stops as f64 / n as f64 } else { 0.0 }
-            ));
-            meta.insert(
-                side.name().into(),
-                serde_json::json!({
-                    "trades": n, "hard_stops": stops, "net_total": total_net,
-                    "rej_[consumed,busy,coin_pause,global_pause,cap,no_outcome]": r.rej,
-                    "signals_AB": ctr[j].signals, "cand_minutes": ctr[j].cands,
-                    "missing_days": ctr[j].missing_days, "signals_total": sigs[j].len(),
-                }),
             );
-        }
-        fs::write(dir.join("meta.json"), serde_json::to_string_pretty(&meta)?)?;
-        let k = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        eprintln!("[{k}/{total}] {id}  {:.0} с", t0.elapsed().as_secs_f64());
-        Ok(rows)
-    });
+            let meta = serde_json::json!({
+                "trades": n, "hard_stops": stops, "net_total": total_net,
+                "rej_[consumed,busy,coin_pause,global_pause,cap,no_outcome]": r.rej,
+                "signals_AB": ctr[j].signals, "cand_minutes": ctr[j].cands,
+                "missing_days": ctr[j].missing_days, "signals_total": sigs[j].len(),
+            });
+            let k = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            eprintln!(
+                "[{k}/{total}] {id} {}  {:.0} с",
+                side.name(),
+                t0.elapsed().as_secs_f64()
+            );
+            Ok((vi, side, row, meta))
+        },
+    );
+    let mut metas: Vec<serde_json::Map<String, serde_json::Value>> = vs
+        .iter()
+        .map(|(id, p)| {
+            let mut m = serde_json::Map::new();
+            m.insert("id".into(), id.clone().into());
+            m.insert("params".into(), format!("{p:?}").into());
+            m
+        })
+        .collect();
+    let mut rows: Vec<String> = Vec::new();
+    for part in parts {
+        let (vi, side, row, meta) = part?;
+        rows.push(row);
+        metas[vi].insert(side.name().into(), meta);
+    }
+    for ((id, _), m) in vs.iter().zip(metas) {
+        fs::write(
+            out.join(id).join("meta.json"),
+            serde_json::to_string_pretty(&m)?,
+        )?;
+    }
+    let total = vs.len();
     let mut summary =
         String::from("variant,side,trades,net_total,mean_day_A,mean_day_B,stop_share\n");
-    for r in rows {
-        for line in r? {
-            summary.push_str(&line);
-            summary.push('\n');
-        }
+    for line in rows {
+        summary.push_str(&line);
+        summary.push('\n');
     }
     fs::write(out.join("summary.csv"), summary)?;
     let ls = src.stat.lock().map(|g| g.clone()).unwrap_or_default();
