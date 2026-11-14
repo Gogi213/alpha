@@ -42,9 +42,8 @@ SIDE_RU = {"long": "лонг", "short": "шорт"}
 
 UP, DOWN = "#b3c1d3", "#5a626d"
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
-C_TAKE, C_BE, C_TRAIL, C_STOP, C_FORCED = "#008300", "#6250d6", "#1baf7a", "#d03b3b", "#6b6a66"
+C_TAKE, C_BE, C_TRAIL, C_STOP, C_FORCED = "#008300", "#6250d6", "#0f9fb0", "#d03b3b", "#6b6a66"
 KIND_COLOR = {"stop": C_STOP, "be": C_BE, "trail": C_TRAIL, "forced": C_FORCED}
-KIND_MARK = {"stop": "X", "be": "s", "trail": "D", "forced": "P"}
 
 
 def fmt_ts(ms, tz=GMT4, secs=True, ms_=False):
@@ -575,67 +574,6 @@ def find_touches(r, a):
 # ───────────────────────────── рисование ─────────────────────────────
 
 
-class Placer:
-    """Раскладка подписей без наложений в пикселях экрана; подпись соединена тонкой линией с точкой."""
-
-    def __init__(self, ax):
-        from matplotlib.text import Text
-
-        self.ax, self.Text = ax, Text
-        self.rend = ax.figure.canvas.get_renderer()
-        bb = ax.get_window_extent(self.rend)
-        self.bounds = (bb.x0 + 3, bb.y0 + 3, bb.x1 - 3, bb.y1 - 3)
-        self.rects = []
-
-    def disp(self, x, y):
-        return self.ax.transData.transform((x, y))
-
-    def obstacle(self, x, y, half=12):
-        px, py = self.disp(x, y)
-        self.rects.append((px - half, py - half, px + half, py + half))
-
-    def _free(self, rc):
-        b = self.bounds
-        if rc[0] < b[0] or rc[2] > b[2] or rc[1] < b[1] or rc[3] > b[3]:
-            return False
-        return all(rc[2] <= q[0] or rc[0] >= q[2] or rc[3] <= q[1] or rc[1] >= q[3] for q in self.rects)
-
-    def label(self, x, y, text, color, vert=1, side="center", fs=9, weight="bold", gap=22, ec=None, lw=1.2):
-        """vert: +1 — искать выше точки, −1 — ниже; side: center — над/под точкой, right — справа от точки."""
-        ann = self.ax.annotate(
-            text, (x, y), xytext=(0, 0), textcoords="offset pixels", ha="center", va="center", fontsize=fs,
-            fontweight=weight, color=color, zorder=30, annotation_clip=False,
-            bbox=dict(boxstyle="round,pad=0.28", fc="white", ec=ec or color, lw=lw, alpha=0.96),
-            arrowprops=dict(arrowstyle="-", color=color, lw=0.9, alpha=0.85, shrinkA=0, shrinkB=8))
-        bb = self.Text.get_window_extent(ann, self.rend)
-        w, h = bb.width + 10, bb.height + 8
-        ax_, ay_ = self.disp(x, y)
-        step = h + 3
-        best = None
-        for d in (vert, -vert):
-            for k in range(0, 60):
-                if side == "right":
-                    cx = ax_ + gap + w / 2
-                    cy = ay_ + d * k * step
-                else:
-                    cx = ax_
-                    cy = ay_ + d * (gap + h / 2 + k * step)
-                cx = min(max(cx, self.bounds[0] + w / 2), self.bounds[2] - w / 2)
-                rc = (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
-                if best is None:
-                    best = (cx, cy, rc)
-                if self._free(rc):
-                    best = (cx, cy, rc)
-                    break
-            else:
-                continue
-            break
-        cx, cy, rc = best
-        ann.xyann = (cx - ax_, cy - ay_)
-        self.rects.append(rc)
-        return ann
-
-
 EXIT = dict(n_tp=8, t_low=1000, t_high=5000, a=2000, rr=2000, s_pm=5000)  # база b0: NATR в тысячных, стоп в тысячных %
 
 
@@ -650,8 +588,6 @@ def exit_lines(r, tk, kl, legs):
         return e8 * natr * xm // (10**8 * 1000)
 
     ef = s * e8
-    nt = EXIT["n_tp"]
-    tps = [(e8 + s * dist(EXIT["t_low"] + ((EXIT["t_high"] - EXIT["t_low"]) * i) // (nt - 1))) / 1e8 for i in range(nt)]
     hard = (e8 - s * (e8 * EXIT["s_pm"] // 100_000)) / 1e8
     a_d, r_d = dist(EXIT["a"]), dist(EXIT["rr"])
     em, xm = r["entry_ms"], r["exit_ms"]
@@ -676,7 +612,7 @@ def exit_lines(r, tk, kl, legs):
             if trail * 1e8 > ef:
                 pts.append((m + 1.0, s * trail))
     first_take = (legs[0]["ms"] - T0) / MIN if r["takes"] > 0 else None
-    return dict(tps=tps, hard=hard, first_take=first_take, trail=pts)
+    return dict(hard=hard, first_take=first_take, trail=pts)
 
 
 def tick_step(px_per_min):
@@ -686,7 +622,70 @@ def tick_step(px_per_min):
     return 2880
 
 
+LH = 15  # высота строки подписи в правом поле, px
+PXW = 72 / 80  # толщина 1 px в пунктах при dpi 80
+
+
+def text_w(txt, fs, weight="normal"):
+    """Ширина строки в px при dpi 80 (по ней считается ширина правого поля)."""
+    from matplotlib.backends.backend_agg import RendererAgg
+    from matplotlib.font_manager import FontProperties
+
+    w, _, _ = RendererAgg(10, 10, 80).get_text_width_height_descent(
+        txt, FontProperties(family="DejaVu Sans", size=fs, weight=weight), False)
+    return w
+
+
+def usd(v):
+    return f"{'+' if v >= 0 else '−'}${abs(v):.2f}"
+
+
+def dodge(ds, lo, hi, gap=LH):
+    """Желаемые y центров подписей ds (px, снизу вверх) → разведённые по вертикали в [lo, hi], порядок сохраняется."""
+    order = sorted(range(len(ds)), key=lambda i: -ds[i])  # сверху вниз
+    ys, prev = [0.0] * len(ds), None
+    for i in order:
+        y = min(ds[i], hi - gap / 2) if prev is None else min(ds[i], prev - gap)
+        ys[i] = prev = y
+    nxt = None
+    for i in reversed(order):  # поджать снизу вверх, если ушли ниже поля
+        y = max(ys[i], lo + gap / 2 if nxt is None else nxt + gap)
+        ys[i] = nxt = y
+    return ys
+
+
+def field_items(r, legs, ln, touches, e, L, ft):
+    """Подписи правого поля: items — линии графика [{ys: [цены], text, color, bold}], rows — список касаний."""
+    s = 1 if r["side"] == "long" else -1
+    acol = "#0a8f3c" if s > 0 else "#d03b3b"
+    it = [dict(ys=[L], text=f"уровень {fmt_px(L)}", color=INK, bold=True),
+          dict(ys=[e], text=f"вход {fmt_px(e)} · {fmt_hms(r['entry_ms'], r['entry_ms'])}", color=acol, bold=True)]
+    last = legs[-1]
+    stop_txt = f"стоп −5 % {fmt_px(ln['hard'])}"
+    if r["kind"] == "stop":
+        stop_txt += f" {usd(last['net'])}"
+    elif ft is not None:
+        stop_txt += ", после тейка 1 → вход"
+    it.append(dict(ys=[ln["hard"]], text=stop_txt, color=C_STOP, bold=False))
+    tk = [g for g in legs if g["kind"] == "take"]
+    if len(tk) > 3:
+        it.append(dict(ys=[g["px"] for g in tk], bold=False, color=C_TAKE,
+                       text=f"тейк 1–{len(tk)} {fmt_px(tk[0]['px'])}…{fmt_px(tk[-1]['px'])} {usd(sum(g['net'] for g in tk))}"))
+    else:
+        it += [dict(ys=[g["px"]], text=f"{g['label']} {fmt_px(g['px'])} {usd(g['net'])}", color=C_TAKE, bold=False) for g in tk]
+    if r["kind"] != "stop":
+        name = "принуд." if r["kind"] == "forced" else KIND_RU[r["kind"]]
+        it.append(dict(ys=[last["px"]], text=f"{name} {fmt_px(last['px'])} {usd(last['net'])}", color=KIND_COLOR[r["kind"]], bold=False))
+    rows = []
+    for d in touches:
+        kind = "пивот" if d["pivot"] else "касание"
+        over = f" · за уровнем +{d['over'] * 100:.1f} %" if d["over"] > CFG["tau"] else ""
+        rows.append(dict(text=f"{d['n']}. {kind} {fmt_min(d['m'])} {fmt_px(d['px'])}{over}", bold=d["pivot"]))
+    return it, rows
+
+
 def render(r, kl, tk, out_png, plt):
+    from matplotlib.lines import Line2D
     from matplotlib.ticker import FixedLocator, FuncFormatter
 
     s = 1 if r["side"] == "long" else -1
@@ -699,12 +698,19 @@ def render(r, kl, tk, out_png, plt):
     x0 = first_m - 30
     x1 = int((xm - T0) // MIN) + 1 + 30
     n = x1 - x0
-    px = max(1.2, min(6.0, max(3.0, 1120.0 / n), (24000 - 300) / n))
-    PADR = 300
+    ln = exit_lines(r, tk, kl, legs)
+    ft = ln["first_take"]
+    items, rows = field_items(r, legs, ln, touches, e, L, ft)
+    # правое поле вне графика: ширина — по самой длинной подписи
+    GAP = 34  # от графика до текста: место под выноски
+    FIELD = int(GAP + max([text_w(i["text"], 9.5, "bold" if i["bold"] else "normal") for i in items] +
+                          [text_w(i["text"], 8.5, "bold" if i["bold"] else "normal") for i in rows] + [150]) + 18)
+    PADR = 60
+    LEFT, TOP, BOT = 95, 78, 62
+    px = max(1.2, min(6.0, max(3.0, 1120.0 / n), (24000 - LEFT - FIELD - PADR) / n))
     axw = max(n * px + PADR, 1500)
-    LEFT, RIGHT, TOP, BOT = 95, 95, 78, 62
-    axh = 700
-    W, H = int(axw + LEFT + RIGHT), axh + TOP + BOT
+    axh = max(700, (len(items) + len(rows) + 3) * LH + 20)
+    W, H = int(LEFT + axw + FIELD), axh + TOP + BOT
     fig = plt.figure(figsize=(W / 80, H / 80), dpi=80)
     ax = fig.add_axes([LEFT / W, BOT / H, axw / W, axh / H])
     xr = axw / px
@@ -712,8 +718,7 @@ def render(r, kl, tk, out_png, plt):
     t, o, h_, l_, c = agg_bars(kl, x0, x1, 1)
     xc = (t - T0) / MIN + 0.5
     draw_candles(ax, xc, o, h_, l_, c, px, max(0.5, min(1.0, px * 0.35)))
-    ln = exit_lines(r, tk, kl, legs)
-    pxs = [g["px"] for g in legs] + [e, L, ln["hard"], max(ln["tps"]), min(ln["tps"])] + [d["px"] for d in touches]
+    pxs = [g["px"] for g in legs] + [e, L, ln["hard"]] + [d["px"] for d in touches]
     ymin, ymax = min(np.nanmin(l_), min(pxs)), max(np.nanmax(h_), max(pxs))
     pad = (ymax - ymin) * 0.10
     ax.set_ylim(ymin - pad, ymax + pad)
@@ -721,91 +726,94 @@ def render(r, kl, tk, out_png, plt):
     ex = (em - T0) / MIN
     xx = (xm - T0) / MIN
     fx = first_m + 0.5
+    xend = x0 + xr
 
     # полоса допуска (тонкая), уровень: жирная линия от первого касания до входа, дальше тонко
     ax.axhspan(L * (1 - CFG["tau"]), L * (1 + CFG["tau"]), xmin=(fx - x0) / xr, color="#9a998f", alpha=0.20, lw=0, zorder=1)
     ax.hlines(L, fx, ex, color=INK, lw=3.0, zorder=6)
-    ax.hlines(L, ex, x0 + xr, color=INK, lw=1.0, ls=(0, (4, 3)), zorder=5)
-    # сделка: удержание — заливка, нити от входа к каждому выходу
+    ax.hlines(L, ex, xend, color=INK, lw=1.0, ls=(0, (4, 3)), zorder=5)
     ax.axvspan(ex, max(xx, ex + 1.0), color="#6b6a66", alpha=0.13, lw=0, zorder=2)
-    for g in legs:
-        col = C_TAKE if g["kind"] == "take" else KIND_COLOR[g["kind"]]
-        ax.plot([ex, (g["ms"] - T0) / MIN], [e, g["px"]], color=col, lw=0.9, alpha=0.65, zorder=7)
 
-    # уровни выхода: тейки — тонкие зелёные засечки; стоп −5 % → в точку входа после 1-го тейка → трейл
-    seg_end = max(xx, ex + 14 / px)
-    for tp in ln["tps"]:
-        ax.hlines(tp, ex, seg_end, color=C_TAKE, lw=1.0, alpha=0.75, zorder=8)
-    ft = ln["first_take"]
-    hard_end = max(ft if ft is not None else xx, ex + 10 / px)
-    ax.hlines(ln["hard"], ex, hard_end, color=C_STOP, lw=2.0, ls=(0, (5, 3)), zorder=9)
-    tr = [pt for pt in ln["trail"] if pt[0] < xx]
-    be_end = min(tr[0][0], xx) if tr else xx
-    if ft is not None:
-        ax.vlines(ft, min(ln["hard"], e), max(ln["hard"], e), color=C_STOP, lw=2.0, ls=(0, (5, 3)), zorder=9)
-        ax.hlines(e, ft, max(be_end, ft + 10 / px), color=C_STOP, lw=2.0, ls=(0, (5, 3)), zorder=9)
-    if tr:
-        xs = [ft if ft is not None else ex] + [q[0] for q in tr] + [xx]
-        ys = [e] + [q[1] for q in tr] + [tr[-1][1]]
-        ax.step(xs, ys, where="post", color=C_TRAIL, lw=2.2, zorder=9)
-    pl = Placer(ax)
-    # вход: большая стрелка
+    def vis(xe):  # отрезок короче 12 px не рисуем: время исполнения — засечкой на конце
+        return max(xe, ex + 12 / px)
+
+    def seg(y, xe, col, lw_px, z, ls="-", tick=True):
+        ax.hlines(y, ex, xe, color=col, lw=lw_px * PXW, ls=ls, zorder=z)
+        if tick:
+            ax.plot([xe], [y], marker="|", ms=9, mew=lw_px * PXW, color=col, ls="none", zorder=z + 1)
+        ax.hlines(y, xe, xend, color=col, lw=0.7, ls=(0, (1, 3)), alpha=0.55, zorder=z - 1)  # бледное продолжение к выноске
+
     acol = "#0a8f3c" if s > 0 else "#d03b3b"
-    ARROW = 78
-    ax.annotate("", xy=(ex, e), xytext=(0, -s * ARROW), textcoords="offset pixels", zorder=25, annotation_clip=False,
-                xycoords="data", arrowprops=dict(arrowstyle="simple,head_width=1.7,head_length=1.4,tail_width=0.7",
-                                                 fc=acol, ec="white", lw=1.3, shrinkA=0, shrinkB=0, mutation_scale=22))
-    p_e = pl.disp(ex, e)
-    pl.rects.append((p_e[0] - 14, p_e[1] - (ARROW if s > 0 else 0) - 4, p_e[0] + 14, p_e[1] + (0 if s > 0 else ARROW) + 4))
-    ent = pl.label(ex, e, f"ВХОД {fmt_px(e)} · {fmt_hms(em, em)}", acol, vert=-s, gap=ARROW + 6, fs=11, ec=acol, lw=2.0)
-    ent.arrow_patch.set_visible(False)
-    # выходы
-    for g in sorted(legs, key=lambda g: g["ms"]):
-        take = g["kind"] == "take"
-        mk, col = ("o", C_TAKE) if take else (KIND_MARK[g["kind"]], KIND_COLOR[g["kind"]])
-        gx = (g["ms"] - T0) / MIN
-        ax.plot([gx], [g["px"]], marker=mk, ms=14, mfc=col, mec="white", mew=1.6, zorder=22)
-        pl.obstacle(gx, g["px"], 11)
-    for g in sorted(legs, key=lambda g: abs(g["px"] - e)):  # от ближних к входу: подписи не пересекают нити
-        take = g["kind"] == "take"
-        col = C_TAKE if take else KIND_COLOR[g["kind"]]
-        gx = (g["ms"] - T0) / MIN
-        pl.label(gx, g["px"], f"{g['label']} · {fmt_px(g['px'])} · {g['net']:+.2f} $", col, vert=1 if g["px"] >= e else -1,
-                 side="right", fs=9.5, gap=20, ec=col)
-    # касания: пивоты движка — залитые круги, остальные — полые; номер внутри
-    pl.label(ex, ln["hard"], f"стоп −5 % · {fmt_px(ln['hard'])}", C_STOP, vert=-s, side="center", fs=9.5, gap=16, ec=C_STOP)
+    for g in legs:
+        if g["kind"] == "take":
+            seg(g["px"], vis((g["ms"] - T0) / MIN), C_TAKE, 1.0, 8)
+        elif g["kind"] in ("trail", "forced"):
+            seg(g["px"], vis(xx), KIND_COLOR[g["kind"]], 1.0, 8)
+    # стоп: −5 % до 1-го тейка (или до выхода), дальше ступенька в точку входа
+    ds = (0, (5, 3))
+    seg(ln["hard"], vis(ft if ft is not None else xx), C_STOP, 1.2, 9, ls=ds, tick=r["kind"] == "stop" and ft is None)
     if ft is not None:
-        pl.label(ft, e, f"стоп → вход · {fmt_px(e)}", C_STOP, vert=-s, side="center", fs=9, gap=16, ec=C_STOP)
-    if tr:
-        pl.label(tr[-1][0] if tr[-1][0] < xx else xx, tr[-1][1], f"трейл · {fmt_px(tr[-1][1])}", C_TRAIL, vert=-s, side="center",
-                 fs=9, gap=16, ec=C_TRAIL)
+        tr = [pt for pt in ln["trail"] if pt[0] < xx]
+        be_end = vis(min(tr[0][0], xx) if tr else xx)
+        ax.vlines(ft, min(ln["hard"], e), max(ln["hard"], e), color=C_STOP, lw=1.2 * PXW, ls=ds, zorder=9)
+        ax.hlines(e, ft, max(be_end, ft + 12 / px), color=C_STOP, lw=1.2 * PXW, ls=ds, zorder=9)
+        if r["kind"] == "be":
+            ax.plot([be_end], [legs[-1]["px"]], marker="|", ms=9, mew=1.2 * PXW, color=C_BE, ls="none", zorder=10)
+    seg(e, vis(xx), acol, 1.5, 24)  # вход: от времени входа до времени выхода; поверх маркеров касаний
+
+    # касания — маленькие маркеры с номерами (пивоты движка залиты)
     for d in touches:
         tx = d["m"] + 0.5
-        ax.plot([tx], [d["px"]], marker="o", ms=19, mfc=INK if d["pivot"] else "white", mec=INK, mew=2.2, zorder=21)
-        ax.annotate(str(d["n"]), (tx, d["px"]), ha="center", va="center", fontsize=9 if d["n"] < 10 else 7.5, fontweight="bold",
-                    color="white" if d["pivot"] else INK, zorder=23, annotation_clip=False)
-        pl.obstacle(tx, d["px"], 12)
-    for d in touches:
-        tx = d["m"] + 0.5
-        kind = "пивот" if d["pivot"] else "касание"
-        over = f" · за уровнем +{d['over'] * 100:.1f} %" if d["over"] > CFG["tau"] else ""
-        pl.label(tx, d["px"], f"{d['n']}. {kind} · {fmt_min(d['m'])} · {fmt_px(d['px'])}{over}", INK, vert=s,
-                 side="center", fs=9 if d["pivot"] else 8.3, weight="bold" if d["pivot"] else "normal", gap=20, ec="#9a998f")
-    lab = ax.annotate(f"уровень {fmt_px(L)}", (x0 + xr, L), xytext=(-6, 0), textcoords="offset pixels", ha="right", va="center",
-                      fontsize=9.5, fontweight="bold", color=INK, zorder=26,
-                      bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=INK, lw=1.0, alpha=0.96))
+        ax.plot([tx], [d["px"]], marker="o", ms=13, mfc=INK if d["pivot"] else "white", mec=INK, mew=1.3, ls="none", zorder=21)
+        ax.text(tx, d["px"], str(d["n"]), ha="center", va="center", fontsize=6.5 if d["n"] < 10 else 5.5, fontweight="bold",
+                color="white" if d["pivot"] else INK, zorder=23)
+
     # оси
     step = tick_step(px)
     base = (T0 // MIN + 240)  # минут от эпохи до 01.09 00:00 по GMT+4
     first_tick = -(-(x0 + base) // step) * step - base
-    ticks = list(range(first_tick, int(x0 + xr), step))
+    ticks = list(range(first_tick, int(xend), step))
     ax.xaxis.set_major_locator(FixedLocator(ticks))
     fmt = "%d.%m" if step >= 1440 else "%d.%m %H:%M"
     ax.xaxis.set_major_formatter(FuncFormatter(
         lambda v, _: datetime.fromtimestamp((T0 + v * MIN + GMT4) / 1000, tz=timezone.utc).strftime(fmt)))
     price_axis(ax)
-    ax.tick_params(labelright=True, right=True, labelsize=9)
+    ax.tick_params(labelsize=9)
     ax.set_xlabel("минутные свечи, время GMT+4", loc="left", fontsize=9)
+
+    # правое поле: подписи по цене, разведены по вертикали; список касаний — блок сверху или снизу (где меньше сдвигов)
+    xr_px = LEFT + axw
+    lo, hi = float(BOT), float(BOT + axh)
+    yd = [[ax.transData.transform((0, y))[1] for y in it["ys"]] for it in items]
+    want = [(min(v) + max(v)) / 2 for v in yd]
+    hb = (len(rows) + 1) * LH + 8 if rows else 0
+    best = None
+    for where in ("top", "bottom"):
+        a, b = (lo, hi - hb) if where == "top" else (lo + hb, hi)
+        ys = dodge(want, a, b)
+        cost = sum(abs(y - w) for y, w in zip(ys, want))
+        if best is None or cost < best[0]:
+            best = (cost, where, ys)
+    _, where, ys = best
+    tx_ = xr_px + GAP
+    for it, v, y in zip(items, yd, ys):
+        col = it["color"]
+
+        def line(xs, yv):
+            fig.add_artist(Line2D([q / W for q in xs], [q / H for q in yv], color=col, lw=0.8, alpha=0.6, transform=fig.transFigure))
+
+        for yy in v:
+            line([xr_px, xr_px + 10], [yy, yy])
+        if len(v) > 1:
+            line([xr_px + 10] * 2, [min(v), max(v)])
+        line([xr_px + 10, xr_px + GAP - 8, xr_px + GAP - 3], [(min(v) + max(v)) / 2, y, y])
+        fig.text(tx_ / W, y / H, it["text"], fontsize=9.5, fontweight="bold" if it["bold"] else "normal", color=col, va="center", ha="left")
+    if rows:
+        top_y = hi if where == "top" else lo + hb
+        fig.text(tx_ / W, (top_y - LH / 2) / H, f"касания ({len(rows)}):", fontsize=8.5, fontweight="bold", color=INK2, va="center", ha="left")
+        for k, row in enumerate(rows, 1):
+            fig.text(tx_ / W, (top_y - LH / 2 - k * LH) / H, row["text"], fontsize=8.5, fontweight="bold" if row["bold"] else "normal",
+                     color=INK, va="center", ha="left")
 
     net_usd, net_bps = r["net"], r["net"] / NOTIONAL * 1e4
     day = datetime.fromtimestamp((em + GMT4) / 1000, tz=timezone.utc).strftime("%d.%m.%Y")
