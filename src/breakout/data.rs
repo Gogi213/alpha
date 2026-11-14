@@ -59,7 +59,9 @@ pub fn parse_dec(b: &[u8], digits: usize) -> Option<i64> {
         frac *= 10;
         nd += 1;
     }
-    let v = ip.checked_mul(10i64.pow(digits as u32))?.checked_add(frac)?;
+    let v = ip
+        .checked_mul(10i64.pow(digits as u32))?
+        .checked_add(frac)?;
     Some(if neg { -v } else { v })
 }
 
@@ -249,7 +251,9 @@ pub fn convert(src: &Path, out: &Path, threads: usize) -> Result<Vec<ConvertStat
         }
     }
     names.sort();
-    names.retain(|n| src.join(n).join("2026-09-15.csv").exists() || src.join(n).join("2026-10-01.csv").exists());
+    names.retain(|n| {
+        src.join(n).join("2026-09-15.csv").exists() || src.join(n).join("2026-10-01.csv").exists()
+    });
     let res = par_map(&names, threads, |n| convert_one(src, out, n));
     res.into_iter().collect()
 }
@@ -306,7 +310,9 @@ pub fn natr_series(cols: &Cols, p: usize) -> Vec<i32> {
         if cols.o[t] != 0 {
             tr = cols.h[t] - cols.l[t];
             if prevc != 0 {
-                tr = tr.max((cols.h[t] - prevc).abs()).max((cols.l[t] - prevc).abs());
+                tr = tr
+                    .max((cols.h[t] - prevc).abs())
+                    .max((cols.l[t] - prevc).abs());
             }
             prevc = cols.c[t];
             c = 1;
@@ -379,11 +385,17 @@ impl Sym {
     }
 
     pub fn natr_for(&self, period: usize) -> Option<&[i32]> {
-        NATR_PERIODS.iter().position(|&p| p == period).map(|i| self.natr[i].as_slice())
+        NATR_PERIODS
+            .iter()
+            .position(|&p| p == period)
+            .map(|i| self.natr[i].as_slice())
     }
 
     pub fn bars_for(&self, tf: usize) -> Option<&Bars> {
-        TF_MINUTES.iter().position(|&p| p == tf).map(|i| &self.bars[i])
+        TF_MINUTES
+            .iter()
+            .position(|&p| p == tf)
+            .map(|i| &self.bars[i])
     }
 }
 
@@ -416,7 +428,18 @@ fn read_cache(path: &Path) -> Result<(Cols, Vec<Fund>)> {
     pos += 4;
     let mut fund = Vec::with_capacity(nf);
     for _ in 0..nf {
-        let r = |o: usize| i64::from_le_bytes([buf[pos + o], buf[pos + o + 1], buf[pos + o + 2], buf[pos + o + 3], buf[pos + o + 4], buf[pos + o + 5], buf[pos + o + 6], buf[pos + o + 7]]);
+        let r = |o: usize| {
+            i64::from_le_bytes([
+                buf[pos + o],
+                buf[pos + o + 1],
+                buf[pos + o + 2],
+                buf[pos + o + 3],
+                buf[pos + o + 4],
+                buf[pos + o + 5],
+                buf[pos + o + 6],
+                buf[pos + o + 7],
+            ])
+        };
         fund.push(Fund {
             min: r(0) as u32,
             rate_e8: r(8),

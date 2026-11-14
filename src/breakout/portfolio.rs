@@ -36,6 +36,8 @@ pub struct PortResult {
     pub trades: Vec<TradeRec>,
     /// $ за сутки, 60 суток с 15.09; сделка, пересекающая границу A/B, целиком в половине входа.
     pub daily: [f64; COUNT_DAYS],
+    /// $ по монете и суткам (для проверки «без 2 лучших монет» и деления до/после первого дня ≥ $100 млн).
+    pub coinday: std::collections::BTreeMap<(u16, usize), f64>,
     /// Отказы по причинам: уровень израсходован, монета занята, пауза монеты, общая пауза, потолок P, нет исхода.
     pub rej: [u64; 6],
 }
@@ -118,7 +120,11 @@ pub fn settle(sym: &Sym, side: Side, tr: &TradeOut) -> Settled {
         };
         let cum = realized + unreal;
         let d = g - START_DAY;
-        let attr = if d_entry < HALF_DAYS { d.min(HALF_DAYS - 1) } else { d };
+        let attr = if d_entry < HALF_DAYS {
+            d.min(HALF_DAYS - 1)
+        } else {
+            d
+        };
         daily.push((attr, cum - prev));
         prev = cum;
     }
@@ -141,6 +147,7 @@ pub fn run(syms: &[Sym], sigs: &[Sig], side: Side, ex: &ExitCfg, pc: &PortCfg) -
     let mut res = PortResult {
         trades: Vec::new(),
         daily: [0.0; COUNT_DAYS],
+        coinday: std::collections::BTreeMap::new(),
         rej: [0; 6],
     };
     let mut busy = vec![false; ns];
@@ -225,6 +232,7 @@ pub fn run(syms: &[Sym], sigs: &[Sig], side: Side, ex: &ExitCfg, pc: &PortCfg) -
         let st = settle(sym, side, &tr);
         for (d, v) in &st.daily {
             res.daily[*d] += v;
+            *res.coinday.entry((sg.sym, *d)).or_insert(0.0) += v;
         }
         res.trades.push(TradeRec {
             sym: sg.sym,

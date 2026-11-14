@@ -66,9 +66,9 @@ pub fn dispatch(cmd: BreakoutCommand) -> Result<()> {
             let t0 = Instant::now();
             let stats = data::convert(&src, &out, threads)?;
             let rows: usize = stats.iter().map(|s| s.rows).sum();
-            let (hw, ha, hb): (usize, usize, usize) = stats
-                .iter()
-                .fold((0, 0, 0), |a, s| (a.0 + s.holes_warm, a.1 + s.holes_a, a.2 + s.holes_b));
+            let (hw, ha, hb): (usize, usize, usize) = stats.iter().fold((0, 0, 0), |a, s| {
+                (a.0 + s.holes_warm, a.1 + s.holes_a, a.2 + s.holes_b)
+            });
             let nf: usize = stats.iter().map(|s| s.funding_rows).sum();
             let nofund = stats.iter().filter(|s| s.funding_rows == 0).count();
             println!(
@@ -111,7 +111,13 @@ fn cached<K: Hash + Eq + Clone, V>(c: &Cache<K, V>, k: &K, f: impl FnOnce() -> V
 type Levels = Vec<Vec<Level>>;
 type SigSet = (Vec<Sig>, SigCtr);
 
-fn get_levels(c: &Cache<(LevelCfg, Side), Levels>, syms: &[Sym], lv: &LevelCfg, side: Side, inner: usize) -> Arc<Levels> {
+fn get_levels(
+    c: &Cache<(LevelCfg, Side), Levels>,
+    syms: &[Sym],
+    lv: &LevelCfg,
+    side: Side,
+    inner: usize,
+) -> Arc<Levels> {
     cached(c, &(lv.clone(), side), || {
         let idx: Vec<usize> = (0..syms.len()).collect();
         par_map(&idx, inner, |&i| build_levels(&syms[i], lv, side))
@@ -173,6 +179,14 @@ fn write_outputs(dir: &std::path::Path, syms: &[Sym], side: Side, r: &PortResult
         let _ = writeln!(d, "{i},{v:.6}");
     }
     fs::write(dir.join(format!("{}-daily.csv", side.name())), d)?;
+    let mut cd = String::from(
+        "sym,day,pnl
+",
+    );
+    for ((si, day), v) in &r.coinday {
+        let _ = writeln!(cd, "{},{day},{v:.6}", syms[*si as usize].name);
+    }
+    fs::write(dir.join(format!("{}-coinday.csv", side.name())), cd)?;
     Ok(())
 }
 
@@ -184,7 +198,13 @@ fn mean(v: &[f64]) -> f64 {
     }
 }
 
-fn run(cache: &PathBuf, variants: &PathBuf, out: &PathBuf, threads: usize, symbols: Option<String>) -> Result<()> {
+fn run(
+    cache: &PathBuf,
+    variants: &PathBuf,
+    out: &PathBuf,
+    threads: usize,
+    symbols: Option<String>,
+) -> Result<()> {
     let t0 = Instant::now();
     let only: Option<Vec<String>> = symbols.map(|s| s.split(',').map(str::to_string).collect());
     let syms = data::load_all(cache, threads, only.as_deref())?;
@@ -225,7 +245,11 @@ fn run(cache: &PathBuf, variants: &PathBuf, out: &PathBuf, threads: usize, symbo
             let r = portfolio::run(&syms, &sg.0, side, &p.exit, &p.port);
             write_outputs(&dir, &syms, side, &r)?;
             let n = r.trades.len();
-            let stops = r.trades.iter().filter(|x| x.kind == super::trade::ExitKind::HardStop).count();
+            let stops = r
+                .trades
+                .iter()
+                .filter(|x| x.kind == super::trade::ExitKind::HardStop)
+                .count();
             let total_net: f64 = r.daily.iter().sum();
             let ma = mean(&r.daily[..HALF_DAYS]);
             let mb = mean(&r.daily[HALF_DAYS..]);
@@ -244,6 +268,7 @@ fn run(cache: &PathBuf, variants: &PathBuf, out: &PathBuf, threads: usize, symbo
                     "rej_[consumed,busy,coin_pause,global_pause,cap,no_outcome]": r.rej,
                     "signals_AB": sg.1.signals, "levels_total": sg.1.levels_total,
                     "levels_crossed_AB": sg.1.levels_crossed, "levels_skipped_AB": sg.1.levels_skipped,
+                    "levels_skipped_geo_AB": sg.1.levels_skipped_geo,
                 }),
             );
         }
@@ -252,7 +277,8 @@ fn run(cache: &PathBuf, variants: &PathBuf, out: &PathBuf, threads: usize, symbo
         eprintln!("[{k}/{total}] {id}  {:.0} с", t0.elapsed().as_secs_f64());
         Ok(rows)
     });
-    let mut summary = String::from("variant,side,trades,net_total,mean_day_A,mean_day_B,stop_share\n");
+    let mut summary =
+        String::from("variant,side,trades,net_total,mean_day_A,mean_day_B,stop_share\n");
     for r in rows {
         for line in r? {
             summary.push_str(&line);
@@ -260,7 +286,10 @@ fn run(cache: &PathBuf, variants: &PathBuf, out: &PathBuf, threads: usize, symbo
         }
     }
     fs::write(out.join("summary.csv"), summary)?;
-    eprintln!("готово: {total} вариантов, {:.1} с", t0.elapsed().as_secs_f64());
+    eprintln!(
+        "готово: {total} вариантов, {:.1} с",
+        t0.elapsed().as_secs_f64()
+    );
     Ok(())
 }
 
@@ -302,13 +331,24 @@ fn hand(cache: &PathBuf, sym: &str, side: &str, nth: usize, set: &[String]) -> R
         "сделка №{nth}: сигнал t={}, уровень #{} (рождён m={}, версии цены {:?}), расстояние до уровня по сигналу — см. строку входа",
         tr.sig_min, tr.level, lv.born, lv.segs
     );
-    let natr = s.natr_for(p.exit.natr_p).map_or(0, |v| i64::from(v[tr.sig_min as usize]));
+    let natr = s
+        .natr_for(p.exit.natr_p)
+        .map_or(0, |v| i64::from(v[tr.sig_min as usize]));
     let mut trace = Vec::new();
-    let out = simulate(s, side, tr.sig_min as usize, natr, &p.exit, Some(&mut trace));
+    let out = simulate(
+        s,
+        side,
+        tr.sig_min as usize,
+        natr,
+        &p.exit,
+        Some(&mut trace),
+    );
     for line in &trace {
         println!("{line}");
     }
-    let Some(out) = out else { bail!("исход не получен") };
+    let Some(out) = out else {
+        bail!("исход не получен")
+    };
     let st = settle(s, side, &out);
     println!("— арифметика P&L ($500, комиссии 3,5/1,4 bps −10 %):");
     for leg in &out.legs {
@@ -317,7 +357,11 @@ fn hand(cache: &PathBuf, sym: &str, side: &str, nth: usize, set: &[String]) -> R
             leg.min,
             leg.px,
             leg.u as f64 / 1e6,
-            if leg.maker { "мейкер" } else { "тейкер" }
+            if leg.maker {
+                "мейкер"
+            } else {
+                "тейкер"
+            }
         );
     }
     println!(

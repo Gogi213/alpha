@@ -30,6 +30,9 @@ pub struct SigCtr {
     pub levels_crossed: [u64; 2],
     /// Первое пересечение уровня без единого предшествующего сигнала по нему («вошла в зону и пересекла»).
     pub levels_skipped: [u64; 2],
+    /// То же, но «был ли сигнал» — по геометрии (зона входа и цвет), без фильтра пула: чистая доля пропусков
+    /// «вошла в зону и пересекла в одной минутке».
+    pub levels_skipped_geo: [u64; 2],
     pub levels_total: u64,
 }
 
@@ -39,6 +42,7 @@ impl SigCtr {
             self.signals[h] += o.signals[h];
             self.levels_crossed[h] += o.levels_crossed[h];
             self.levels_skipped[h] += o.levels_skipped[h];
+            self.levels_skipped_geo[h] += o.levels_skipped_geo[h];
         }
         self.levels_total += o.levels_total;
     }
@@ -48,7 +52,15 @@ fn half(t: usize) -> usize {
     usize::from(t / 1440 >= START_DAY + super::data::HALF_DAYS)
 }
 
-pub fn scan(sym: &Sym, si: u16, levels: &[Level], cfg: &SigCfg, side: Side, out: &mut Vec<Sig>, ctr: &mut SigCtr) {
+pub fn scan(
+    sym: &Sym,
+    si: u16,
+    levels: &[Level],
+    cfg: &SigCfg,
+    side: Side,
+    out: &mut Vec<Sig>,
+    ctr: &mut SigCtr,
+) {
     let s = side.s();
     let Some(natr) = sym.natr_for(cfg.natr_p) else {
         return;
@@ -65,6 +77,7 @@ pub fn scan(sym: &Sym, si: u16, levels: &[Level], cfg: &SigCfg, side: Side, out:
         let mut forbidden = false;
         let mut crossed = false;
         let mut had = false;
+        let mut had_geo = false;
         for t in lv.born as usize..end {
             while seg + 1 < lv.segs.len() && lv.segs[seg + 1].0 as usize <= t {
                 seg += 1;
@@ -91,6 +104,9 @@ pub fn scan(sym: &Sym, si: u16, levels: &[Level], cfg: &SigCfg, side: Side, out:
                         if !had {
                             ctr.levels_skipped[h] += 1;
                         }
+                        if !had_geo {
+                            ctr.levels_skipped_geo[h] += 1;
+                        }
                     }
                 }
                 if pend.is_none() {
@@ -113,6 +129,7 @@ pub fn scan(sym: &Sym, si: u16, levels: &[Level], cfg: &SigCfg, side: Side, out:
             if cfg.color && cl <= op {
                 continue;
             }
+            had_geo = true;
             let nv = i64::from(natr[t]);
             if nv < 0 || nv < natr_min {
                 continue;

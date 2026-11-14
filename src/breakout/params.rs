@@ -171,6 +171,9 @@ impl Params {
         if !super::data::TF_MINUTES.contains(&self.sig.lv.tf_min) {
             bail!("tf должен быть из {:?}", super::data::TF_MINUTES);
         }
+        if self.exit.t_low_m >= self.exit.t_high_m {
+            bail!("t_low должен быть меньше t_high (лестница тейков идёт вверх)");
+        }
         if self.exit.n_tp < 2 || self.port.p == 0 || self.sig.lv.k == 0 || self.sig.lv.n == 0 {
             bail!("n_tp ≥ 2, p ≥ 1, k ≥ 1, n_bounce ≥ 1");
         }

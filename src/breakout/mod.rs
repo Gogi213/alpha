@@ -54,7 +54,11 @@ impl Side {
 }
 
 /// Параллельное отображение: задания раздаются потокам по атомарному счётчику, порядок результатов — как у входа.
-pub fn par_map<T: Sync, R: Send>(items: &[T], threads: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub fn par_map<T: Sync, R: Send>(
+    items: &[T],
+    threads: usize,
+    f: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let slots: Vec<Mutex<Option<R>>> = items.iter().map(|_| Mutex::new(None)).collect();
     let next = AtomicUsize::new(0);

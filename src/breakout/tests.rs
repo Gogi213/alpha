@@ -78,8 +78,15 @@ fn pivot_level_no_lookahead() {
     let s = sym(level_world());
     let lv = build_levels(&s, &p.sig.lv, Side::Long);
     assert_eq!(lv.len(), 1, "один уровень из двух пивотов");
-    assert_eq!(lv[0].born as usize, BORN, "известен только после закрытия бара k=1 справа от 2-го пивота");
-    assert_eq!(lv[0].segs[0].1, px(100.025), "цена уровня — среднее пивотов");
+    assert_eq!(
+        lv[0].born as usize, BORN,
+        "известен только после закрытия бара k=1 справа от 2-го пивота"
+    );
+    assert_eq!(
+        lv[0].segs[0].1,
+        px(100.025),
+        "цена уровня — среднее пивотов"
+    );
     // всё после минуты рождения заменено мусором: рождение и цена не меняются (будущее не читается)
     let mut c = level_world();
     for m in BORN..BORN + 2000 {
@@ -136,7 +143,11 @@ fn entry_before_break_only() {
     let (sigs, ctr) = run_scan(c, &p);
     let ts: Vec<u32> = sigs.iter().map(|s| s.t).collect();
     assert_eq!(ts, vec![t1 as u32, (t1 + 60) as u32]);
-    assert_eq!(ctr.levels_crossed, [1, 0], "пересечение засчитано, пропуска нет: сигнал до него был");
+    assert_eq!(
+        ctr.levels_crossed,
+        [1, 0],
+        "пересечение засчитано, пропуска нет: сигнал до него был"
+    );
     assert_eq!(ctr.levels_skipped, [0, 0]);
 }
 
@@ -164,7 +175,11 @@ fn false_breakout_forbids_level_forever() {
     };
     assert!(run_scan(mk(), &p).0.is_empty());
     p.sig.ban = false;
-    assert_eq!(run_scan(mk(), &p).0.len(), 1, "без запрета тот же уровень торгуется");
+    assert_eq!(
+        run_scan(mk(), &p).0.len(),
+        1,
+        "без запрета тот же уровень торгуется"
+    );
 }
 
 fn ex_nos() -> super::params::ExitCfg {
@@ -218,7 +233,11 @@ fn take_and_breakeven_same_minute_breakeven_wins() {
     set(&mut c, T + 2, 100.2, 100.6, 99.9, 100.0); // первый тейк (100,5) и касание входа в одной минутке
     let tr = sim(c, Side::Long, &ex_nos());
     assert_eq!(tr.takes, 1, "тейк исполнен");
-    assert_eq!(tr.kind, ExitKind::BreakEven, "остаток ушёл по безубытку в той же минутке");
+    assert_eq!(
+        tr.kind,
+        ExitKind::BreakEven,
+        "остаток ушёл по безубытку в той же минутке"
+    );
     assert_eq!(tr.exit_min as usize, T + 2);
     assert_eq!(tr.legs.last().map(|l| l.px), Some(px(100.0)));
 }
@@ -231,7 +250,10 @@ fn breakeven_uses_previous_minute_state() {
     set(&mut c, T + 3, 100.1, 100.2, 99.5, 99.8); // стоп = вход (состояние прошлой минутки), цена прошла вниз
     let tr = sim(c, Side::Long, &ex_nos());
     assert_eq!(tr.takes, 1);
-    assert_eq!((tr.kind, tr.exit_min as usize), (ExitKind::BreakEven, T + 3));
+    assert_eq!(
+        (tr.kind, tr.exit_min as usize),
+        (ExitKind::BreakEven, T + 3)
+    );
     assert_eq!(tr.legs.last().map(|l| l.px), Some(px(100.0)));
 }
 
@@ -304,11 +326,18 @@ fn funding_only_when_held_strictly_through() {
     let tr = mk_trade(base, base + 100, 100.0, false);
     // выплата в минуте входа — не «строго через»; в минуте выхода (не по гэпу) — платится
     let long = settle(&s, Side::Long, &tr);
-    assert!((long.funding - (-0.05 * 2.0)).abs() < 1e-9, "лонг платит 2 выплаты по 0,05: {}", long.funding);
+    assert!(
+        (long.funding - (-0.05 * 2.0)).abs() < 1e-9,
+        "лонг платит 2 выплаты по 0,05: {}",
+        long.funding
+    );
     let short = settle(&s, Side::Short, &tr);
     assert!((short.funding - 0.10).abs() < 1e-9, "шорт получает");
     let gap = settle(&s, Side::Long, &mk_trade(base, base + 100, 100.0, true));
-    assert!((gap.funding - (-0.05)).abs() < 1e-9, "выход гэпом по открытию минуты выплаты — выплаты нет");
+    assert!(
+        (gap.funding - (-0.05)).abs() < 1e-9,
+        "выход гэпом по открытию минуты выплаты — выплаты нет"
+    );
 }
 
 fn fee_taker(n: f64) -> f64 {
@@ -329,8 +358,14 @@ fn daily_mtm_splits_and_sums_to_total() {
     let exit_fee = fee_taker(500.0 * 1.02);
     let total = 10.0 - entry_fee - exit_fee;
     assert_eq!(st.daily.len(), 2);
-    assert!((st.daily[0].1 - (5.0 - entry_fee)).abs() < 1e-6, "день 0: переоценка 500·1 % и комиссия входа");
-    assert!((st.daily[0].1 + st.daily[1].1 - total).abs() < 1e-9, "сумма по суткам = итог сделки");
+    assert!(
+        (st.daily[0].1 - (5.0 - entry_fee)).abs() < 1e-6,
+        "день 0: переоценка 500·1 % и комиссия входа"
+    );
+    assert!(
+        (st.daily[0].1 + st.daily[1].1 - total).abs() < 1e-9,
+        "сумма по суткам = итог сделки"
+    );
     assert_eq!((st.daily[0].0, st.daily[1].0), (0, 1));
 }
 
@@ -342,5 +377,9 @@ fn trade_across_half_boundary_stays_in_entry_half() {
     let c = flat((last_a + 3) * 1440, 100.0);
     let s = sym(c);
     let st = settle(&s, Side::Long, &mk_trade(e, x, 100.0, false));
-    assert!(st.daily.iter().all(|(d, _)| *d == HALF_DAYS - 1), "всё в последних сутках A: {:?}", st.daily);
+    assert!(
+        st.daily.iter().all(|(d, _)| *d == HALF_DAYS - 1),
+        "всё в последних сутках A: {:?}",
+        st.daily
+    );
 }

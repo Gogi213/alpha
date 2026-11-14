@@ -65,9 +65,9 @@ fn group_ok(ps: &[i64], tau_pm: i64) -> (bool, i64) {
     let n = ps.len() as i128;
     let sum: i128 = ps.iter().map(|&x| i128::from(x)).sum();
     let mean = (sum / n) as i64;
-    let ok = ps
-        .iter()
-        .all(|&x| i128::from((x - mean).abs()) * 100_000 <= i128::from(tau_pm) * i128::from(mean.abs()));
+    let ok = ps.iter().all(|&x| {
+        i128::from((x - mean).abs()) * 100_000 <= i128::from(tau_pm) * i128::from(mean.abs())
+    });
     (ok, mean)
 }
 
@@ -126,7 +126,10 @@ pub fn build_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
     let Some(bars) = sym.bars_for(cfg.tf_min) else {
         return Vec::new();
     };
-    let f = Frame { b: bars, s: side.s() };
+    let f = Frame {
+        b: bars,
+        s: side.s(),
+    };
     let pivs = find_pivots(&f, cfg);
     let nb = bars.ok.len();
     let tfm = cfg.tf_min as i64;
@@ -141,7 +144,9 @@ pub fn build_levels(sym: &Sym, cfg: &LevelCfg, side: Side) -> Vec<Level> {
         let mut li = 0;
         while li < live.len() {
             let before = live[li].members.len();
-            live[li].members.retain(|p| i64::from(p.bar) * tfm >= now - lwin);
+            live[li]
+                .members
+                .retain(|p| i64::from(p.bar) * tfm >= now - lwin);
             let id = live[li].id;
             if live[li].members.len() < cfg.n {
                 levels[id].end = now as u32;
