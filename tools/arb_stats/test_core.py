@@ -1,0 +1,65 @@
+import sys
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).parent))
+import core  # noqa: E402
+
+
+def mk(t, bid, ask):
+    t = np.array(t, dtype=np.int64)
+    n = len(t)
+    return {"e": t, "rx": t.copy(), "lag": np.zeros(n, np.int32), "bid": np.array(bid, float), "ask": np.array(ask, float), "dep": np.ones(n)}
+
+
+def test_pair_series_union_and_formulas():
+    A = mk([0, 1000, 3000], [100, 101, 99], [100.1, 101.1, 99.1])
+    B = mk([500, 2000], [100, 100], [100.1, 100.2])
+    T, S, Bu, ia, ib = core.pair_series(A, B, 10_000)
+    assert T.tolist() == [500, 1000, 2000, 3000]          # до 500 у B нет цены — точки нет
+    assert ia.tolist() == [0, 1, 1, 2] and ib.tolist() == [0, 0, 1, 1]
+    # Sell = bid_A/ask_B − 1; Buy = ask_A/bid_B − 1 (bps)
+    assert abs(S[1] - (101 / 100.1 - 1) * 1e4) < 1e-9
+    assert abs(Bu[3] - (99.1 / 100 - 1) * 1e4) < 1e-9
+
+
+def test_clean_sorts_and_drops_repeats_and_crossed():
+    a = mk([30, 10, 20, 40], [1, 1, 1, 2], [1.1, 1.1, 1.1, 1.0])   # последняя — bid > ask
+    c = core.clean(a)
+    assert c["e"].tolist() == [10]
+
+
+def test_episodes_enter_exit_and_censored():
+    T = np.arange(10) * 1000
+    entry = np.array([0, 1, 1, 0, 0, 1, 0, 0, 1, 0], bool)
+    exit_ = np.array([0, 0, 0, 0, 1, 0, 0, 0, 0, 0], bool)
+    eps = core.episodes(T, entry, exit_)
+    assert eps == [(1, 4), (5, -1)]     # второй вход (5) не закрыт до конца; вход 8 внутри него
+
+
+def test_rolling_centre_needs_30_bars():
+    mins = np.arange(100)
+    sb = np.stack([np.zeros(100)] * 4)
+    bb = np.stack([np.full(100, 2.0)] * 4)
+    m0, c = core.rolling_centre(mins, sb, bb)
+    assert m0 == 0 and np.isnan(c[29]) and c[30] == 1.0 and c[99] == 1.0
+
+
+def test_analyze_pair_finds_known_episode():
+    # 100 минут: B постоянна, A стоит на паритете; в минуты 70.0–70.5 A дорожает на 30 bps (5 с, затем возврат)
+    t = list(range(0, 100 * 60_000, 1000))
+    bidA, askA = [], []
+    for x in t:
+        bump = 1.003 if 70 * 60_000 <= x < 70 * 60_000 + 5000 else 1.0
+        bidA.append(100.0 * bump)
+        askA.append(100.02 * bump)
+    A, B = mk(t, bidA, askA), mk([0], [100.0], [100.02])
+    row, bars, eps, hist = core.analyze_pair(A, B, 40 * 60_000, 100 * 60_000)
+    li = core.LEVELS.index(10.0)
+    s = row["eps"][li]
+    assert s["n"] == 1 and s["conv"] == 1 and s["cens"] == 0
+    assert abs(s["tau_s"][0] - 5.0) < 1e-9
+    # круг: вход Sell во время всплеска ≈ 27,99 bps, выход Buy на паритете = +2,0 bps → ≈ 26 bps до комиссий
+    assert abs(s["gross_med"] - (100.3 / 100.02 - 1) * 1e4 + 2.0) < 0.01 and s["gross_ge_fee"] == 1
+    assert row["cross_n"] == 1 and abs(row["cross_dur_ms"][0] - 5000) < 1e-9

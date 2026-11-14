@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Сбор данных · Арбитраж</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/*HEALTH_CSS*/
+.top{align-items:center;margin-bottom:28px;gap:24px}
+.top h1{flex:none}
+.tabs{display:flex;gap:26px;margin-right:auto;margin-left:18px}
+.tabs button{all:unset;cursor:pointer;font-size:15px;color:var(--mut);padding:4px 0;border-bottom:2px solid transparent}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--acc)}
+.mocknote{background:#f3f2ed;border-radius:8px;padding:10px 16px;font-size:12.5px;color:var(--mut);margin:-10px 0 22px}
+.mocknote b{color:var(--ink);font-weight:600}
+[hidden]{display:none!important}
+/* ---- вкладка «Арбитраж» ---- */
+:root{--sell:#2563c9;--buy:#c2701a;--line:#e3e1da;--soft:#f3f2ed}
+.a-sub{color:var(--mut);font-size:13px;margin:-14px 0 24px;max-width:980px}
+.a-sub b{color:var(--ink);font-weight:500}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:28px;margin-bottom:34px}
+.kpi .l{font-size:12px;color:var(--mut)}
+.kpi .v2{font-size:30px;font-weight:300;line-height:1.15;margin-top:2px}
+.kpi .v2 small{font-size:13px;color:var(--mut);margin-left:4px;font-weight:400}
+.kpi .s{font-size:12px;color:var(--mut);margin-top:2px}
+h2.a-h{font-size:15px;font-weight:600;margin:0 0 4px;letter-spacing:.01em}
+.a-note{color:var(--mut);font-size:12.5px;margin:0 0 12px}
+.lvl{display:flex;align-items:center;gap:8px;margin:0 0 14px;flex-wrap:wrap}
+.lvl .l{font-size:12.5px;color:var(--mut);margin-right:4px}
+.chip{all:unset;cursor:pointer;font-size:12.5px;padding:3px 11px;border-radius:999px;border:1px solid var(--line);color:var(--mut);background:#fff}
+.chip:hover{border-color:var(--mut)}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip.fee{border-style:dashed}
+table.a{border-collapse:collapse;width:100%}
+table.a th{font-weight:400;font-size:12px;line-height:1.25;color:var(--mut);text-align:right;padding:6px 8px 8px;border-bottom:1px solid var(--line);vertical-align:bottom;max-width:104px}
+table.a th.sortable{cursor:pointer}table.a th.sortable:hover{color:var(--ink)}
+table.a th.sorted{color:var(--ink)}
+table.a td{padding:8px 8px;text-align:right;font-size:13.5px;border-bottom:1px solid #efeee8;white-space:nowrap}
+table.a th:first-child,table.a td:first-child,table.a th.l,table.a td.l{text-align:left}
+table.a tbody tr.r{cursor:pointer}table.a tbody tr.r:hover td{background:#f6f5f0}
+table.a tbody tr.sel td{background:#f3f2ed}
+table.a td.m{color:var(--mut)}
+table.a td .u{color:var(--mut);font-size:12px}
+.pairtag{font-size:13px}.pairtag i{font-style:normal;color:var(--mut);margin:0 3px}
+.tb{display:inline-flex;height:10px;width:120px;border-radius:3px;overflow:hidden;vertical-align:middle;background:#ecebe5}
+.tb span{display:block;height:100%}
+.tb.empty{opacity:.5}
+.bad{color:var(--acc)}
+.pos{color:var(--ink)}
+.filters{display:flex;gap:14px;align-items:center;margin:0 0 10px;flex-wrap:wrap}
+.filters input[type=text]{font:inherit;font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:7px;width:130px;background:#fff;color:var(--ink)}
+.filters .cnt{font-size:12.5px;color:var(--mut);margin-left:auto}
+.detailrow td{padding:0!important;border-bottom:1px solid var(--line)}
+.dpanel{background:var(--soft);border-radius:8px;margin:6px 0 14px;padding:18px 22px;text-align:left;white-space:normal;cursor:default}
+.dgrid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:26px}
+@media (max-width:1100px){.dgrid{grid-template-columns:1fr}}
+.dh{display:flex;align-items:baseline;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+.dh b{font-size:16px;font-weight:600}.dh span{color:var(--mut);font-size:12.5px}
+.seg{display:inline-flex;margin-left:auto}
+.seg button{all:unset;cursor:pointer;font-size:12px;padding:2px 10px;border:1px solid var(--line);color:var(--mut);background:#fff}
+.seg button:first-child{border-radius:6px 0 0 6px}.seg button:last-child{border-radius:0 6px 6px 0;margin-left:-1px}
+.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--mut);margin:2px 0 6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
+.cbox{position:relative}
+.cbox canvas{display:block;width:100%}
+.ctip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;border-radius:6px;padding:7px 10px;font-size:12px;line-height:1.5;white-space:nowrap;opacity:0;z-index:6}
+.ctip .m{color:#b9b7ae}
+.mini{font-size:12px;color:var(--mut);margin:0 0 4px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 22px;margin:14px 0 4px}
+.facts dt{font-size:12px;color:var(--mut)}.facts dd{margin:1px 0 0;font-size:14px}
+table.e{border-collapse:collapse;width:100%;margin-top:6px}
+table.e th{font-weight:400;font-size:12px;color:var(--mut);text-align:right;padding:3px 8px 5px}
+table.e td{padding:3px 8px;text-align:right;font-size:13px;white-space:nowrap}
+table.e th:first-child,table.e td:first-child{text-align:left;padding-left:0}
+.defs{margin-top:40px;border-top:1px solid #ecebe5;padding-top:18px;font-size:13px;color:var(--ink);max-width:1020px}
+.defs h3{font-size:14px;margin:0 0 8px}
+.defs ol{margin:0;padding-left:20px;line-height:1.55}
+.defs li{margin-bottom:6px}
+.defs .src{color:var(--mut);font-size:12px}
+.defs code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="top"><h1>Сбор данных</h1><nav class="tabs"><button id="tab-h" class="on">Здоровье</button><button id="tab-a">Арбитраж</button></nav><div class="t" id="clock"></div></div>
+<div class="mocknote" id="mocknote"><b>Макет.</b> Вкладка «Здоровье» — живая страница как есть (снимок данных на 14.11, 23:46 GMT+4). Вкладка «Арбитраж» — реальные числа из записанных данных, не живая: в рабочей версии обновляется по мере сбора.</div>
+
+<section id="p-h">
+<div class="cap">потеряно за час</div>
+<div class="wrap" id="wrap"><div id="tip"></div><div id="rows"></div><div class="axis" id="axis"></div></div>
+</section>
+
+<section id="p-a" hidden>
+<div class="a-sub" id="a-sub"></div>
+<div class="kpis" id="kpis"></div>
+
+<h2 class="a-h">Порог входа</h2>
+<div class="lvl" id="lvl"></div>
+<div class="dgrid" style="margin:4px 0 36px">
+ <div><div class="mini">Размер расхождения: доля времени, когда расхождение ≥ x bps (лог. шкала), по парам бирж</div><div class="legend" id="cvA-l"></div><div class="cbox"><canvas id="cvA"></canvas></div></div>
+ <div><div class="mini" id="cvB-t"></div><div class="cbox"><canvas id="cvB"></canvas></div></div>
+</div>
+
+<h2 class="a-h">По парам бирж</h2>
+<p class="a-note">Исполнимое расхождение одной и той же монеты: продать на одной бирже по биду, купить на другой по оферу. Все числа ниже — для выбранного порога входа.</p>
+<div style="overflow-x:auto"><table class="a" id="ptab"></table></div>
+
+<h2 class="a-h" style="margin-top:38px">По монетам</h2>
+<div class="filters" id="filters"></div>
+<div style="overflow-x:auto"><table class="a" id="ctab"></table></div>
+
+<div class="defs" id="defs"></div>
+</section>
+
+<script>
+/*HEALTH_JS*/
+</script>
+<script>
+const ARB=__ARB__;
+(function(){
+const SELL='#2563c9',BUY='#c2701a',MUT='#8c8a83',INK='#1d1d1b',ACC='#cf4a2b',LINE='#e3e1da';
+const A=ARB,NAMES=A.names,LV=A.levels,FEE=A.fee;
+const pad=n=>String(n).padStart(2,'0');
+const gm=t=>new Date((t+4*3600)*1000);
+const hm=t=>{const d=gm(t);return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())};
+const hms=t=>{const d=gm(t);return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())+':'+pad(d.getUTCSeconds())};
+const dm=t=>{const d=gm(t);return pad(d.getUTCDate())+'.'+pad(d.getUTCMonth()+1)};
+const nf=(v,d=1)=>v==null||!isFinite(v)?'—':(Math.round(v*Math.pow(10,d))/Math.pow(10,d)).toLocaleString('ru',{minimumFractionDigits:d,maximumFractionDigits:d});
+const ni=v=>v==null?'—':Math.round(v).toLocaleString('ru');
+const pc=(v,d=1)=>v==null?'—':nf(v*100,d)+' %';
+const sg=(v,d=1)=>v==null||!isFinite(v)?'—':(v>0?'+':v<0?'−':'')+nf(Math.abs(v),d);
+const lvName=x=>nf(x,x%1?1:0);
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function dur(s){if(s==null)return '—';if(s<1)return nf(s*1000,0)+' мс';if(s<60)return nf(s,s<10?1:0)+' с';if(s<3600)return nf(s/60,s<600?1:0)+' мин';return nf(s/3600,1)+' ч'}
+const BINL=['< 0,1 с','0,1–0,5 с','0,5–1 с','1–5 с','5–10 с','10–30 с','30–60 с','1–5 мин','5–15 мин','15–60 мин','> 1 ч'];
+const BINC=['#cfe3d6','#b6d6c2','#9cc8ac','#8fbfa0','#78ab8d','#d9c88f','#d1b26c','#cf9a55','#cf7e43','#cf4a2b','#9c2f17'];
+let st={lv:LV.indexOf(FEE),pair:'all',q:'',sort:'ep',dir:-1,open:null,tf:5,min:1};
+const $=id=>document.getElementById(id);
+const rowsAll=A.rows;
+const nEx=e=>NAMES[e];
+const tag=(a,b)=>'<span class="pairtag">'+nEx(a)+'<i>→</i>'+nEx(b)+'</span>';
+const pairKey=(a,b)=>a+'|'+b;
+
+// ---------- шапка и KPI ----------
+function head(){
+  $('a-sub').innerHTML='Одна и та же монета (USDT-перпы) на ≥ 2 биржах: <b>Binance · Bybit · OKX · BingX</b>. Данные — лучшие bid/ask книги на уровне событий (мс), без секундных свёрток. '+
+   '<b>Окно: с '+hm(A.t0/1000)+' (допущение: «с 16 30» = сегодня, 14.11, 16:30 GMT+4) до '+hm(A.t1/1000)+' GMT+4, '+nf(A.hours,1)+' ч.</b>';
+  const k=A.kpi,t=k.tau;
+  $('kpis').innerHTML=
+   kp('Общих монет, ≥ 2 бирж',ni(k.coins),'на 4 биржах '+k.by_n[4]+' · на 3 — '+k.by_n[3]+' · на 2 — '+k.by_n[2])+
+   kp('Пар «монета × биржи»',ni(k.rows),'исключено из-за несовпадения цен: '+k.mismatch)+
+   kp('Расхождение ≥ '+lvName(FEE)+' bps — доля времени',pc(k.share_fee,2),'взвешено по времени, в среднем по парам')+
+   kp('Схождение при входе ≥ '+lvName(FEE)+' bps','p50 '+dur(t.p50)+'<small>p90 '+dur(t.p90)+'</small>',ni(t.n)+' эпизодов, не сошлись к концу окна: '+ni(t.cens));
+}
+const kp=(l,v,s)=>'<div class="kpi"><div class="l">'+l+'</div><div class="v2">'+v+'</div><div class="s">'+s+'</div></div>';
+
+// ---------- пороги ----------
+function lvl(){
+  $('lvl').innerHTML='<span class="l">расхождение — на сколько исполнимая цена выгоднее обычного уровня пары; вход при расхождении ≥</span>'+LV.map((x,i)=>'<button class="chip'+(i===st.lv?' on':'')+(x===FEE?' fee':'')+'" data-i="'+i+'">'+lvName(x)+' bps'+(x===FEE?' · комиссии':'')+'</button>').join('')+
+    '<span class="l" style="margin-left:8px">12,6 = 4 тейкерские ноги × 3,5 bps × 0,9 (тариф владельца, п. 12 приказов)</span>';
+  $('lvl').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{st.lv=+b.dataset.i;lvl();tables();aggs();if(st.open!=null)detail(st.open,true)});
+}
+
+// ---------- таблица пар бирж ----------
+function tauBar(bins,conv){
+  const tot=bins.reduce((a,b)=>a+b,0);
+  if(!tot)return '<span class="tb empty"></span>';
+  return '<span class="tb" title="'+bins.map((b,i)=>BINL[i]+': '+b).join(' · ')+'">'+bins.map((b,i)=>b?'<span style="width:'+(b/tot*100)+'%;background:'+BINC[i]+'"></span>':'').join('')+'</span>';
+}
+function pairsTable(){
+  const L=st.lv;
+  const th='<thead><tr><th class="l">пара бирж</th><th>монет</th><th title="медиана по монетам |центр| раздвижки">центр, bps</th><th title="медиана суммы спредов двух бирж: сколько стоит пересечь оба стакана">зазор, bps</th><th>расхождение ≥ порога, % времени</th><th>эпизодов</th><th>на монету в час</th><th title="медиана: что стояло на лучшем уровне обеих бирж в момент входа">объём на входе, $</th><th>схождение p50</th><th>p90</th><th class="l">распределение времени схождения</th><th title="валовая раздвижка круга (вход по исполнимой цене, выход исполнимой ценой при схождении) ≥ 12,6 bps">круг ≥ 12,6, %</th></tr></thead>';
+  const body=A.pairs.map(p=>{
+    const e=p.eps[L];
+    return '<tr><td class="l">'+tag(p.a,p.b)+'</td><td>'+p.coins+'</td><td>'+nf(p.centre,1)+'</td><td>'+nf(p.gap,1)+'</td><td>'+pc(p.share[L],2)+'</td><td>'+ni(e.n)+'</td><td>'+nf(e.per_coin_h,2)+'</td><td>'+(e.size==null?'—':ni(e.size))+'</td><td>'+dur(e.tau&&e.tau[0])+'</td><td>'+dur(e.tau&&e.tau[1])+'</td><td class="l">'+tauBar(e.bins)+(e.cens?' <span class="u">+'+ni(e.cens)+' не сошлись</span>':'')+'</td><td>'+(e.conv?pc(e.ge_fee/e.conv,0):'—')+'</td></tr>';
+  }).join('');
+  $('ptab').innerHTML=th+'<tbody>'+body+'</tbody>';
+}
+
+// ---------- таблица монет ----------
+const COLS=[
+ {k:'c',t:'монета',l:1,f:r=>'<b style="font-weight:600">'+esc(r.c)+'</b>',s:r=>r.c},
+ {k:'p',t:'пара бирж',l:1,f:r=>tag(r.a,r.b),s:r=>nEx(r.a)+nEx(r.b)},
+ {k:'ce',t:'центр, bps',f:r=>sg(r.ce,1),s:r=>r.ce,h:'обычное смещение цены первой биржи относительно второй (медиана середины за предыдущий час)'},
+ {k:'w',t:'разброс p90, bps',f:r=>nf(r.w,1),s:r=>r.w,h:'p90 |середина − центр| (viking vol_tw)'},
+ {k:'g',t:'зазор, bps',f:r=>nf(r.gap[0],1),s:r=>r.gap[0],h:'медиана суммы спредов двух бирж'},
+ {k:'sh',t:'расхождение ≥ порога, % времени',f:(r,L)=>r.sh[L]==null?'—':pc(r.sh[L],2),s:(r,L)=>r.sh[L]??-1},
+ {k:'ep',t:'эпизодов',f:(r,L)=>ni(r.eps[L][0]),s:(r,L)=>r.eps[L][0]},
+ {k:'t50',t:'схождение p50',f:(r,L)=>dur(r.eps[L][3]),s:(r,L)=>r.eps[L][3]??1e9},
+ {k:'t90',t:'p90',f:(r,L)=>dur(r.eps[L][4]),s:(r,L)=>r.eps[L][4]??1e9},
+ {k:'pk',t:'пик, bps',f:(r,L)=>nf(r.eps[L][6],1),s:(r,L)=>r.eps[L][6]??-1,h:'медиана наибольшего расхождения за эпизод'},
+ {k:'gr',t:'круг до комиссий, bps',f:(r,L)=>nf(r.eps[L][7],1),s:(r,L)=>r.eps[L][7]??-1e9,h:'медиана валовой раздвижки круга: вход по исполнимой цене, выход исполнимой ценой при схождении'},
+ {k:'eq',t:'расхождение p99, bps',f:r=>sg(r.eq[1],1),s:r=>r.eq[1],h:'99 % времени расхождение (Sell − центр или центр − Buy, лучшее из двух) не больше этого числа'},
+ {k:'sz',t:'объём на входе, $',f:(r,L)=>r.eps[L][10]==null?'—':ni(r.eps[L][10]),s:(r,L)=>r.eps[L][10]??-1,h:'медиана: что стояло на лучшем уровне обеих бирж в момент входа (меньшая сторона, $)'},
+];
+function filters(){
+  const pairs=[...new Set(A.pairs.map(p=>pairKey(p.a,p.b)))];
+  $('filters').innerHTML='<button class="chip'+(st.pair==='all'?' on':'')+'" data-p="all">все пары</button>'+pairs.map(p=>{const[a,b]=p.split('|');return '<button class="chip'+(st.pair===p?' on':'')+'" data-p="'+p+'">'+nEx(a)+' → '+nEx(b)+'</button>'}).join('')+
+   '<input type="text" id="q" placeholder="монета…" value="'+esc(st.q)+'"><label style="font-size:12.5px;color:var(--mut)"><input type="checkbox" id="onlyep"'+(st.min>0?' checked':'')+'> только с эпизодами</label><span class="cnt" id="cnt"></span>';
+  $('filters').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{st.pair=b.dataset.p;filters();tables()});
+  $('q').oninput=e=>{st.q=e.target.value.trim().toUpperCase();tables();$('q').focus()};
+  $('onlyep').onchange=e=>{st.min=e.target.checked?1:0;tables()};
+}
+function coinsTable(){
+  const L=st.lv;
+  let rs=rowsAll.filter(r=>(st.pair==='all'||pairKey(r.a,r.b)===st.pair)&&(!st.q||r.c.includes(st.q))&&(!st.min||r.eps[L][0]>=st.min));
+  const col=COLS.find(c=>c.k===st.sort)||COLS[6];
+  rs=rs.slice().sort((x,y)=>{const a=col.s(x,L),b=col.s(y,L);return (typeof a==='string'?a.localeCompare(b):(a-b))*st.dir});
+  $('cnt').textContent=rs.length+' из '+rowsAll.length+' пар';
+  const th='<thead><tr>'+COLS.map(c=>'<th class="sortable'+(c.l?' l':'')+(c.k===st.sort?' sorted':'')+'" data-k="'+c.k+'"'+(c.h?' title="'+c.h+'"':'')+'>'+c.t+(c.k===st.sort?(st.dir<0?' ↓':' ↑'):'')+'</th>').join('')+'</tr></thead>';
+  const lim=300,show=rs.slice(0,lim);
+  const body=show.map(r=>'<tr class="r'+(st.open===r.i?' sel':'')+'" data-i="'+r.i+'">'+COLS.map(c=>'<td'+(c.l?' class="l"':'')+'>'+c.f(r,L)+'</td>').join('')+'</tr>'+(st.open===r.i?'<tr class="detailrow"><td colspan="'+COLS.length+'"><div class="dpanel" id="dp"></div></td></tr>':'')).join('')+
+   (rs.length>lim?'<tr><td colspan="'+COLS.length+'" class="l m" style="padding-top:10px">показаны первые '+lim+' из '+rs.length+'; остальные — фильтром или сортировкой</td></tr>':'');
+  $('ctab').innerHTML=th+'<tbody>'+body+'</tbody>';
+  $('ctab').querySelectorAll('th.sortable').forEach(h=>h.onclick=()=>{const k=h.dataset.k;if(st.sort===k)st.dir*=-1;else{st.sort=k;st.dir=(k==='c'||k==='p'||k==='t50'||k==='t90')?1:-1}coinsTable()});
+  $('ctab').querySelectorAll('tr.r').forEach(tr=>tr.onclick=()=>{const i=+tr.dataset.i;st.open=st.open===i?null:i;coinsTable();if(st.open!=null)detail(st.open)});
+}
+function tables(){pairsTable();coinsTable()}
+// ---------- сводные графики: размер расхождения по парам и время схождения по всем парам ----------
+const PC={'binance|bybit':'#2563c9','binance|okx':'#2a7d3a','binance|bingx':'#c2701a','bybit|okx':'#7a4fc7','bybit|bingx':'#cf4a2b','okx|bingx':'#1a8a8a'};
+function drawCcdf(){
+  const cv=$('cvA');if(!cv||!cv.parentNode.clientWidth)return;
+  const {c,W,H}=setup(cv,230),L=54,R=12,T=10,B=28,pw=W-L-R,ph=H-T-B,xs=A.edge_x,n=xs.length;
+  const X=i=>L+i/(n-1)*pw,ylo=-5.2,yhi=0.05,Y=v=>T+ph-(Math.max(Math.log10(Math.max(v,1e-9)),ylo)-ylo)/(yhi-ylo)*ph;
+  c.strokeStyle=LINE;c.fillStyle=MUT;c.lineWidth=1;c.textAlign='right';
+  [[0,'100 %'],[-1,'10 %'],[-2,'1 %'],[-3,'0,1 %'],[-4,'0,01 %'],[-5,'0,001 %']].forEach(([e,l])=>{const y=Y(Math.pow(10,e));c.beginPath();c.moveTo(L,y);c.lineTo(W-R,y);c.stroke();c.fillText(l,L-6,y+4)});
+  c.textAlign='center';xs.forEach((x,i)=>{if(i%2===0||x===FEE)c.fillText(nf(x,x%1?1:0),X(i),H-8)});
+  const fi=xs.indexOf(FEE);c.save();c.strokeStyle=MUT;c.setLineDash([4,4]);c.beginPath();c.moveTo(X(fi),T);c.lineTo(X(fi),T+ph);c.stroke();c.restore();
+  c.save();c.fillStyle=MUT;c.textAlign='left';c.fillText('порог комиссий',X(fi)+5,T+11);c.restore();
+  A.pairs.forEach(pr=>{const col=PC[pr.a+'|'+pr.b];c.strokeStyle=col;c.lineWidth=1.8;c.beginPath();pr.ex.forEach((v,i)=>{const x=X(i),y=Y(v);i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
+    c.fillStyle=col;pr.ex.forEach((v,i)=>{if(v>1e-5){c.beginPath();c.arc(X(i),Y(v),2.2,0,7);c.fill()}})});
+  $('cvA-l').innerHTML=A.pairs.map(pr=>'<span><i style="border-color:'+PC[pr.a+'|'+pr.b]+'"></i>'+nEx(pr.a)+' → '+nEx(pr.b)+'</span>').join('');
+}
+function aggs(){
+  if($('p-a').hidden)return;
+  drawCcdf();
+  const L=st.lv,bins=A.pairs[0].eps[L].bins.map((_,k)=>A.pairs.reduce((s,p)=>s+p.eps[L].bins[k],0)),cens=A.pairs.reduce((s,p)=>s+p.eps[L].cens,0),tot=A.pairs.reduce((s,p)=>s+p.eps[L].n,0);
+  $('cvB-t').textContent='Время схождения при входе ≥ '+lvName(LV[L])+' bps, все пары: '+ni(tot)+' эпизодов';
+  if($('cvB').parentNode.clientWidth)drawConv($('cvB'),{bins,cens});
+}
+
+// ---------- график раздвижки (как в viking: полосы min–max баров, линия закрытия, центр точками, пороги пунктиром) ----------
+function niceTicks(lo,hi,n=5){const sp=(hi-lo)||1,raw=sp/n,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p,st=(m<1.5?1:m<3?2:m<7?5:10)*p;const a=[];for(let v=Math.ceil(lo/st)*st;v<=hi+1e-9;v+=st)a.push(v);return {a,st}}
+function setup(cv,h){const dpr=window.devicePixelRatio||1,W=cv.parentNode.clientWidth;cv.style.height=h+'px';cv.width=Math.round(W*dpr);cv.height=Math.round(h*dpr);const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,h);c.font='12px system-ui,Segoe UI,Arial';return {c,W,H:h}}
+function bandset(){return 0}
+function drawSpread(cv,tipEl,r,d){
+  const b=d['tf'+st.tf]||d.tf5,{c,W,H}=setup(cv,330);
+  const L=54,R=12,T=10,B=26,pw=W-L-R,ph=H-T-B,t0=A.t0/1000,t1=A.t1/1000,X=t=>L+(t-t0)/(t1-t0)*pw;
+  const step=st.tf*60;
+  // шкала: 2–98 процентили полос, чтобы редкие выбросы не сплющивали картину; шире — только чтобы влезли центр ± порог и линии закрытия
+  const lows=[],highs=[];let cmin=1e9,cmax=-1e9,amin=1e9,amax=-1e9;
+  b.t.forEach((t,i)=>{const s=b.S[i],u=b.B[i],cc=b.c[i];lows.push(Math.min(s[2],u[2])/10);highs.push(Math.max(s[1],u[1])/10);amin=Math.min(amin,s[2]/10,u[2]/10);amax=Math.max(amax,s[1]/10,u[1]/10);if(cc!=null){cmin=Math.min(cmin,cc/10-LV[st.lv]);cmax=Math.max(cmax,cc/10+LV[st.lv])}});
+  const q=(a,p)=>{const s=a.slice().sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*s.length))]};
+  let lo=Math.min(q(lows,.02),cmin),hi=Math.max(q(highs,.98),cmax);
+  const clipped=amin<lo-1e-9||amax>hi+1e-9;
+  const pd=(hi-lo)*.05||1;lo-=pd;hi+=pd;
+  const clampY=v=>Math.max(lo,Math.min(hi,v));
+  const Y=v=>T+ph-(clampY(v)-lo)/(hi-lo)*ph;
+  c.strokeStyle=LINE;c.lineWidth=1;c.fillStyle=MUT;c.textAlign='right';
+  const tk=niceTicks(lo,hi);tk.a.forEach(v=>{const y=Y(v);c.beginPath();c.moveTo(L,y);c.lineTo(W-R,y);c.stroke();c.fillText(nf(v,tk.st<1?1:0),L-6,y+4)});
+  if(lo<0&&hi>0){c.strokeStyle=MUT;c.beginPath();c.moveTo(L,Y(0));c.lineTo(W-R,Y(0));c.stroke()}
+  c.fillStyle=MUT;for(let i=0;i<=4;i++){c.textAlign=i===0?'left':i===4?'right':'center';c.fillText(hm(t0+(t1-t0)*i/4),L+pw*i/4,H-8)}
+  // дыры — нет ни одного обновления
+  c.save();c.globalAlpha=.16;c.fillStyle=MUT;
+  for(let i=1;i<b.t.length;i++){const g=b.t[i]-b.t[i-1];if(g>step*3){c.fillRect(X(b.t[i-1]+step),T,Math.max(1,X(b.t[i])-X(b.t[i-1]+step)),ph)}}
+  c.restore();
+  const bw=Math.max(1,pw*step/(t1-t0)-0.5);
+  const band=(arr,color)=>{c.globalAlpha=.35;c.fillStyle=color;b.t.forEach((t,i)=>{const hi_=arr[i][1]/10,lo_=arr[i][2]/10;c.fillRect(X(t),Y(hi_),bw,Math.max(1,Y(lo_)-Y(hi_)))});c.globalAlpha=1;c.strokeStyle=color;c.lineWidth=1.4;c.beginPath();b.t.forEach((t,i)=>{const x=X(t)+bw/2,y=Y(arr[i][3]/10);i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()};
+  band(b.S,SELL);band(b.B,BUY);
+  // центр и границы входа (центр ± порог)
+  const poly=(off,dash,color,lw)=>{c.save();c.strokeStyle=color;c.lineWidth=lw;c.setLineDash(dash);c.beginPath();let on=false;b.t.forEach((t,i)=>{const cc=b.c[i];if(cc==null){on=false;return}const x1=X(t),x2=X(t)+bw,y=Y(cc/10+off);if(!on){c.moveTo(x1,y);on=true}else c.lineTo(x1,y);c.lineTo(x2,y)});c.stroke();c.restore()};
+  poly(0,[2,3],MUT,1);poly(LV[st.lv],[6,4],SELL,1);poly(-LV[st.lv],[6,4],BUY,1);
+  c.save();c.fillStyle=MUT;c.textAlign='left';c.fillText(clipped?'шкала обрезана: выбросы '+sg(amin,0)+' … '+sg(amax,0)+' bps за краем':'',L+6,T+12);c.restore();
+  cv._g={b,L,pw,t0,t1,X,Y,T,ph,step,H};
+}
+function hoverSpread(cv,tipEl){
+  cv.onmousemove=e=>{
+    const g=cv._g;if(!g)return;const rc=cv.getBoundingClientRect(),x=e.clientX-rc.left,t=g.t0+(x-g.L)/g.pw*(g.t1-g.t0);
+    let bi=-1,bd=1e18;g.b.t.forEach((tt,i)=>{const dd=Math.abs(tt+g.step/2-t);if(dd<bd){bd=dd;bi=i}});
+    if(bi<0||bd>g.step*1.5){tipEl.style.opacity=0;return}
+    const s=g.b.S[bi],u=g.b.B[bi],cc=g.b.c[bi];
+    tipEl.innerHTML='<b>'+hm(g.b.t[bi])+' – '+hm(g.b.t[bi]+g.step)+'</b><br><span style="color:#8fb4ff">Sell</span> '+sg(s[3]/10)+' <span class="m">(мин '+sg(s[2]/10)+' · макс '+sg(s[1]/10)+')</span><br><span style="color:#ffb066">Buy</span> '+sg(u[3]/10)+' <span class="m">(мин '+sg(u[2]/10)+' · макс '+sg(u[1]/10)+')</span><br><span class="m">центр '+(cc==null?'—':sg(cc/10))+' bps</span>';
+    tipEl.style.opacity=1;const w=tipEl.offsetWidth;tipEl.style.left=Math.min(Math.max(x-w/2,0),rc.width-w)+'px';tipEl.style.top=(g.T+4)+'px';
+  };
+  cv.onmouseleave=()=>tipEl.style.opacity=0;
+}
+// ---------- распределение отклонения середины от центра ----------
+function drawDev(cv,r,d){
+  const {c,W,H}=setup(cv,170);
+  const h=d.dev,lo=h.lo,stp=h.step,n=h.v.length,tot=h.v.reduce((a,b)=>a+b,0)+h.under+h.over||1;
+  const L=40,R=18,T=8,B=24,pw=W-L-R,ph=H-T-B;
+  const lg=v=>Math.log10(Math.max(v,1e-6)),yhi=-0.3,ylo=-5.3;   // доля времени, 10^-5 … 0,5
+  const Y=v=>T+ph-(Math.max(lg(v),ylo)-ylo)/(yhi-ylo)*ph,X=i=>L+i/n*pw;
+  c.strokeStyle=LINE;c.fillStyle=MUT;c.textAlign='right';c.lineWidth=1;
+  [[-1,'10 %'],[-2,'1 %'],[-3,'0,1 %'],[-4,'0,01 %']].forEach(([e,l])=>{const y=T+ph-(e-ylo)/(yhi-ylo)*ph;c.beginPath();c.moveTo(L,y);c.lineTo(W-R,y);c.stroke();c.fillText(l,L-5,y+4)});
+  const bw=Math.max(1,pw/n-.5);
+  h.v.forEach((v,i)=>{if(v<=0)return;const mid=lo+(i+.5)*stp;c.fillStyle=mid>0?SELL:BUY;c.globalAlpha=.75;const y=Y(v/tot);c.fillRect(X(i),y,bw,T+ph-y)});c.globalAlpha=1;
+  const x0=L+(0-lo)/(stp*n)*pw;c.strokeStyle=MUT;c.beginPath();c.moveTo(x0,T);c.lineTo(x0,T+ph);c.stroke();
+  c.fillStyle=MUT;[-1,-.5,0,.5,1].forEach(q=>{const v=lo+(0.5+q/2)*stp*n;c.textAlign=q===1?'right':q===-1?'left':'center';c.fillText((v>0?'+':v<0?'−':'')+nf(Math.abs(v),0),L+(0.5+q/2)*pw,H-6)});
+}
+// ---------- время схождения ----------
+function drawConv(cv,e){
+  const {c,W,H}=setup(cv,190);const bins=e.bins.concat([e.cens]);
+  const L=34,R=34,T=14,B=52,pw=W-L-R,ph=H-T-B;const mx=Math.max(1,...bins);
+  const lab=BINL.concat(['не сошлись']),n=bins.length,bw=pw/n;
+  c.strokeStyle=LINE;c.fillStyle=MUT;c.textAlign='right';
+  [0,.5,1].forEach(q=>{const y=T+ph-q*ph;c.beginPath();c.moveTo(L,y);c.lineTo(W-R,y);c.stroke();c.fillText(ni(mx*q),L-5,y+4)});
+  bins.forEach((v,i)=>{const h=v/mx*ph,x=L+i*bw+3;c.fillStyle=i===n-1?ACC:BINC[i];c.fillRect(x,T+ph-h,bw-6,h);if(v){c.fillStyle=INK;c.textAlign='center';c.fillText(ni(v),x+(bw-6)/2,T+ph-h-4)}
+    c.save();c.fillStyle=MUT;c.translate(x+(bw-6)/2+3,T+ph+8);c.rotate(Math.PI/4);c.textAlign='left';c.font='11px system-ui,Segoe UI,Arial';c.fillText(lab[i],0,0);c.restore()});
+}
+// ---------- панель монеты ----------
+function detail(i,keep){
+  const r=rowsAll.find(x=>x.i===i),d=A.detail[i];
+  const el=$('dp');if(!el)return;const L=st.lv,e=r.eps[L];
+  const facts='<dl class="facts">'+
+   fct('Покрытие',nf(r.h,2)+' ч · '+ni(r.n)+' изменений цены')+
+   fct('Sell p5 / p50 / p95, bps',r.S.map(v=>sg(v)).join(' / '))+
+   fct('Buy p5 / p50 / p95, bps',r.B.map(v=>sg(v)).join(' / '))+
+   fct('Центр · разброс p90 · зазор',sg(r.ce)+' · '+nf(r.w,1)+' · '+nf(r.gap[0],1)+' (p95 '+nf(r.gap[1],1)+') bps')+
+   fct('Расхождение p95 / p99 / p99.9, bps',r.eq.map(v=>sg(v)).join(' / '))+
+   fct('Sell максимум / Buy минимум за окно, bps',sg(r.mx[0])+' / '+sg(r.mx[1]))+
+   fct('Глубина лучшего уровня, $',nEx(r.a)+' '+ni(r.dep[0])+' · '+nEx(r.b)+' '+ni(r.dep[1]))+
+   fct('Схождение p50 / p90 / макс',e[3]==null?'—':dur(e[3])+' / '+dur(e[4])+' / '+dur(e[5]))+
+   fct('Круг до комиссий, медиана',e[7]==null?'—':nf(e[7],1)+' bps · ≥ '+lvName(FEE)+' bps: '+e[8]+' из '+e[1])+
+   fct('Не сошлись к концу окна',ni(e[2]))+'</dl>';
+  const head='<div class="dh"><b>'+esc(r.c)+'</b>'+tag(r.a,r.b)+'<span>Sell = продать '+nEx(r.a)+' по биду, купить '+nEx(r.b)+' по оферу · Buy = купить '+nEx(r.a)+' по оферу, продать '+nEx(r.b)+' по биду</span>'+(d?'<span class="seg" id="tfseg">'+[1,5,15].filter(x=>d['tf'+x]).map(x=>'<button data-t="'+x+'" class="'+(st.tf===x?'on':'')+'">'+x+' мин</button>').join('')+'</span>':'')+'</div>';
+  el.onclick=ev=>ev.stopPropagation();
+  if(!d){el.innerHTML=head+'<p class="a-note" style="margin:8px 0 12px">В макете графики есть не у всех пар (взято ~100 самых показательных); в рабочей версии — у любой.</p>'+facts;return}
+  if(!d['tf'+st.tf])st.tf=5;
+  el.innerHTML=head+
+   '<div class="dgrid"><div><div class="legend"><span><i style="border-color:'+SELL+'"></i>Sell, bps (полоса мин–макс, линия — закрытие)</span><span><i style="border-color:'+BUY+'"></i>Buy, bps</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр (медиана за час)</span><span><i style="border-color:'+SELL+';border-top-style:dashed"></i>центр ± '+lvName(LV[L])+' bps — граница входа</span></div>'+
+   '<div class="cbox"><canvas id="cv1"></canvas><div class="ctip" id="tip1"></div></div></div>'+
+   '<div><div class="mini">Отклонение середины от центра, bps · доля времени (лог. шкала)</div><div class="cbox"><canvas id="cv2"></canvas></div>'+
+   '<div class="mini" style="margin-top:12px">Время схождения при входе ≥ '+lvName(LV[L])+' bps: '+ni(e[0])+' эпизодов</div><div class="cbox"><canvas id="cv3"></canvas></div></div></div>'+
+   facts+topEps(r,d,L);
+  const cv1=$('cv1'),tip=$('tip1');
+  const draw=()=>{if(!$('cv1'))return;drawSpread(cv1,tip,r,d);drawDev($('cv2'),r,d);drawConv($('cv3'),{bins:r.bins[L],cens:e[2]})};
+  draw();hoverSpread(cv1,tip);
+  $('tfseg').querySelectorAll('button').forEach(b=>b.onclick=ev=>{ev.stopPropagation();st.tf=+b.dataset.t;detail(i)});
+  window._redraw=draw;
+}
+const fct=(l,v)=>'<div><dt>'+l+'</dt><dd>'+v+'</dd></div>';
+function topEps(r,d,L){
+  const ev=(d.eps&&d.eps[L])||[];if(!ev.length)return '';
+  const rows=ev.map(x=>'<tr><td>'+dm(x[0])+' '+hms(x[0])+'</td><td>'+(x[1]>0?'продать '+nEx(r.a)+' / купить '+nEx(r.b):'купить '+nEx(r.a)+' / продать '+nEx(r.b))+'</td><td>'+sg(x[3])+'</td><td>'+(x[2]<0?'<span class="bad">не сошлись</span>':dur(x[2]/1000))+'</td><td>'+(x[4]==null?'—':sg(x[4]))+'</td></tr>').join('');
+  return '<div class="mini" style="margin-top:14px">Самые крупные эпизоды при пороге '+lvName(LV[L])+' bps (по пику расхождения)</div><table class="e"><thead><tr><th>начало, GMT+4</th><th>направление</th><th>пик расхождения, bps</th><th>схождение</th><th>круг до комиссий, bps</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+// ---------- определения ----------
+function defs(){
+  $('defs').innerHTML='<h3>Как считается</h3><ol>'+
+  '<li><b>Раздвижка пары (A → B)</b> — формулы viking для режима «Relative spread»: <code>Sell = (bid<sub>A</sub> / ask<sub>B</sub> − 1)·10⁴</code>, <code>Buy = (ask<sub>A</sub> / bid<sub>B</sub> − 1)·10⁴</code>, bps. Sell — продать A по биду и купить B по оферу сразу; Buy — наоборот. Цены обеих бирж берутся на одну и ту же миллисекунду по времени события биржи (E); стаканы объединены по моментам изменения любой из сторон.</li>'+
+  '<li><b>Центр</b> — медиана середины (Sell+Buy)/2 по минутным барам закрытия за предыдущие 60 мин (авто-центр viking; нужно ≥ 30 баров, поэтому статистика начинается там, где центр уже известен). <b>Расхождение</b> (запас входа): Sell − центр (или центр − Buy) — на сколько исполнимая цена лучше обычного уровня пары.</li>'+
+  '<li><b>Эпизод порога θ:</b> вход — первый момент, когда расхождение ≥ θ; <b>схождение</b> — первый момент, когда середина вернулась к центру. Время схождения = выход − вход; незавершённые к концу окна считаются отдельно («не сошлись»). Уровни θ — 5/10/15/20/30 bps (LEVELS viking) и 12,6 bps.</li>'+
+  '<li><b>Круг до комиссий</b> — справочно: валовая раздвижка, если войти по исполнимой цене в момент входа и выйти исполнимой ценой в момент схождения (Sell на входе − Buy на выходе). Комиссии и размер заявок не учтены.</li>'+
+  '<li><b>Порог 12,6 bps</b> — не измерение, а решение владельца по тарифу (п. 12 приказов; В-47/71/88): 4 тейкерские ноги × 3,5 bps × (1 − 10 %).</li>'+
+  '<li><b>Время</b> — по времени события биржи; часы бирж и хоста расходятся на единицы–десятки мс, поэтому эпизоды короче ~0,1 с — на пределе точности. Задержка прихода на srv (медиана / p99, мс): '+Object.keys(A.lag).map(k=>nEx(k)+' '+nf(A.lag[k].p50,0)+' / '+nf(A.lag[k].p99,0)).join(' · ')+'.</li>'+
+  '<li><b>Доли времени</b> — с весом интервала не больше 60 с (viking spread_stats); минутные бары на графике — только для показа, все числа в таблицах считаны по событиям.</li>'+
+  '<li><b>Какие монеты</b> — пул коллектора за сутки: оборот ≥ $'+ni(A.minqv/1000)+' тыс./сут; Binance и Bybit не пишут 10 самых оборотных монет (Binance: '+A.excl.binance.join(', ')+'; Bybit: '+A.excl.bybit.join(', ')+'), поэтому пар с ними по этим монетам нет.</li>'+
+  '<li><b>BingX</b> отдаёт книгу снимками, склеенными биржей по времени (≈ 2,6 записи/с на монету), у остальных — каждое изменение: в парах с BingX часть расхождений — устаревший снимок, а не рынок; ≈ 7 раз в час на соединение BingX придерживает данные ≈ 9,5 с (docs/collector-ws-format.md).</li>'+
+  '<li>Описательная статистика по записанным данным за окно; не торговый вывод.</li></ol>'+rxcmp()+
+  '<div class="src">Источники формул и вида: viking <code>strategies/xarb_base.md</code> §2, <code>tools/dashboard.py</code> (spread_stats, center_tw, vol_tw, bar_stats, авто-центр), <code>tools/dashboard.html</code> (график, цвета Sell/Buy); viking-docs: <code>p.calc_method</code>, <code>p.sell</code>.</div>';
+}
+function rxcmp(){
+  if(!A.rxcmp)return '';
+  const rows=A.rxcmp.map(x=>'<tr><td>'+tag(x.a,x.b)+'</td><td>'+nf(x.e.per_h,1)+'</td><td>'+nf(x.rx.per_h,1)+'</td><td>'+dur(x.e.p50)+'</td><td>'+dur(x.rx.p50)+'</td><td>'+dur(x.e.p90)+'</td><td>'+dur(x.rx.p90)+'</td><td>'+pc(x.e.share,2)+'</td><td>'+pc(x.rx.share,2)+'</td></tr>').join('');
+  return '<h3 style="margin-top:20px">Сверка: время события биржи и время приёма на srv (порог '+lvName(FEE)+' bps)</h3><div class="src" style="margin-bottom:6px">«Приём» — то, что увидел бы бот на этой машине: записи старше 2 с и устаревшие по E отброшены, часы одни — srv.</div>'+
+   '<table class="e" style="max-width:820px"><thead><tr><th>пара</th><th>эпизодов на монету в час: событие</th><th>приём</th><th>схождение p50: событие</th><th>приём</th><th>p90: событие</th><th>приём</th><th>расхождение ≥ порога, % времени: событие</th><th>приём</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+// ---------- вкладки ----------
+function tab(a){
+  $('p-a').hidden=!a;$('p-h').hidden=a;$('tab-a').classList.toggle('on',a);$('tab-h').classList.toggle('on',!a);
+  location.hash=a?'arb':'';
+  if(a){aggs();if(window._redraw)window._redraw()}else if(window.render)window.render();
+}
+$('tab-a').onclick=()=>tab(true);$('tab-h').onclick=()=>tab(false);
+head();lvl();filters();tables();defs();
+window.addEventListener('resize',()=>{if(!$('p-a').hidden){aggs();if(window._redraw)window._redraw()}});
+if(location.hash==='#arb')tab(true);
+// для проверки: открыть монету из адресной строки (#arb=<i>)
+const m=location.hash.match(/arb-open=(\d+)/);if(m){tab(true);st.open=+m[1];coinsTable();detail(st.open)}
+window._arb={st,detail,coinsTable,tables};
+})();
+</script>
+</body>
+</html>
