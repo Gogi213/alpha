@@ -354,14 +354,20 @@ def setup_mpl():
     return plt
 
 
-def draw_candles(ax, x, o, h, l, c, width, lw):
+def draw_candles(ax, x, o, h, l, c, px_per_min, lw):
+    """Свечи двумя LineCollection (тени и тела): на 10–20 тыс. свечей в разы быстрее ax.bar."""
+    from matplotlib.collections import LineCollection
+
     ok = ~np.isnan(o)
     x, o, h, l, c = x[ok], o[ok], h[ok], l[ok], c[ok]
     col = np.where(c >= o, UP, DOWN)
-    ax.vlines(x, l, h, colors=col, linewidth=lw, zorder=3)
     span = (h.max() - l.min()) if len(h) else 1.0
-    body = np.maximum(np.abs(c - o), span * 0.0012)
-    ax.bar(x, body, bottom=np.minimum(o, c), width=width, color=col, linewidth=0, zorder=3)
+    lo = np.minimum(o, c)
+    hi = np.maximum(np.maximum(o, c), lo + span * 0.0012)
+    wick = np.stack([np.stack([x, l], 1), np.stack([x, h], 1)], 1)
+    body = np.stack([np.stack([x, lo], 1), np.stack([x, hi], 1)], 1)
+    ax.add_collection(LineCollection(wick, colors=col, linewidths=lw, zorder=3))
+    ax.add_collection(LineCollection(body, colors=col, linewidths=0.8 * px_per_min * 72 / 80, capstyle="butt", zorder=3))
 
 
 def price_axis(ax):
@@ -566,7 +572,7 @@ def render(r, kl, tk, out_png, plt):
 
     t, o, h_, l_, c = agg_bars(kl, x0, x1, 1)
     xc = (t - T0) / MIN + 0.5
-    draw_candles(ax, xc, o, h_, l_, c, 0.8, max(0.5, min(1.0, px * 0.35)))
+    draw_candles(ax, xc, o, h_, l_, c, px, max(0.5, min(1.0, px * 0.35)))
     ln = exit_lines(r, tk, kl, legs)
     pxs = [g["px"] for g in legs] + [e, L, ln["hard"], max(ln["tps"]), min(ln["tps"])] + [d["px"] for d in touches]
     ymin, ymax = min(np.nanmin(l_), min(pxs)), max(np.nanmax(h_), max(pxs))
