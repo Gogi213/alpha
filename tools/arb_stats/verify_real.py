@@ -35,6 +35,7 @@ def main(live, par=3):
     _, inc = arb_daemon.results(W, t_b)
     t0 = max(arb_live.START_MS, t_b - arb_live.WINDOW_MS)
     day = datetime.fromtimestamp(t_b / 1000, timezone.utc).date().isoformat()
+    _, day = arb_live.symmap_for(day)      # пула текущих суток может не быть — берётся ближайший прошлый (как в arb_live.main)
     _, det, _, _, _ = analyze.compute(str(Path(live, "parsed")), day, t0, t_b, "e", hook=arb_live.hook, par=par)
     ref = {k: v for k, v in det.items() if v}
     only_inc, only_ref = sorted(set(inc) - set(ref)), sorted(set(ref) - set(inc))
