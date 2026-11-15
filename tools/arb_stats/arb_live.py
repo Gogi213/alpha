@@ -114,7 +114,7 @@ def write_outputs(live, gen, t0, t1, det, period=3600):
             s = d["st"]
             rows.append({"c": k[0], "a": k[1], "b": k[2], "cnt": d["cnt"], "big": d["big"],
                          "pk": s["pk"] and [r1(x) for x in s["pk"]], "tau": s["tau"] and [round(x, 3) for x in s["tau"]],
-                         "net": s["net"] and [r1(x) for x in s["net"]], "o": off, "l": len(line)})
+                         "net": s["net"] and [r1(x) for x in s["net"]], "net250": s["net250"] and [r1(x) for x in s["net250"]], "o": off, "l": len(line)})
             off += len(line)
     os.replace(Path(live, chart + ".tmp"), Path(live, chart))
     doc = {"gen": gen, "t0": t0, "t1": t1, "start": START_MS, "slot": core.SLOT_MIN * 60, "fee": core.FEE_RT_BPS, "chart": chart,
@@ -151,7 +151,7 @@ def main(live, par=3):
     t_parse = time.time()
     removed = sum(parse_inc.prune(str(Path(live, "state")), str(Path(live, "parsed")), ex, t1 - WINDOW_MS - WARM_MS) for ex in EXCHANGES)
     _, day = symmap_for(days_between(now, now)[0])
-    _, det, _, _, coins = analyze.compute(str(Path(live, "parsed")), day, t0, t1, "e", hook=hook, par=par)
+    _, det, _, _, coins = analyze.compute(str(Path(live, "parsed")), day, t0, t1, "e", hook=hook, par=par, hold_ms=core.DELAY_MS)
     det = {k: v for k, v in det.items() if v}
     n = write_outputs(live, now, t0, t1, det)
     print(json.dumps({"files": files, "kept": kept, "removed": removed, "coins": len(coins), "pairs": n, "t0": t0, "t1": t1,

@@ -14,6 +14,9 @@
 Состояние пары (всё, что нужно для продолжения): плотные ряды минут окна (закрытие середины, максимум Sell, минимум Buy, центр, число строк
 с центром), последнее состояние Sell/Buy, закрытые эпизоды порога комиссий, открытый эпизод по каждому направлению (вход, пик на сейчас,
 цены входа). Состояние символа: последняя принятая запись до границы (carry) и ещё не обработанные записи (pend).
+Круг с исполнением через core.DELAY_MS («после комиссий через 250 мс», 8-е поле эпизода): цены сторон берутся по состоянию пары на T_вход + 250 мс и T_выход + 250 мс.
+Чтобы эти цены были известны точно (запись следующего прохода может прийти раньше T + 250 мс), автомат идёт по строкам раньше границы прохода − 250 мс, а строки последних
+250 мс (все, и без центра) держатся в хвосте пары (tail) до следующего прохода — как у core.analyze_pair(hold_ms=DELAY_MS), так таблица остаётся равной полному счёту.
 """
 import warnings
 
@@ -22,6 +25,7 @@ import numpy as np
 import core
 
 TH = core.FEE_RT_BPS
+MIN_MS = 60_000
 NEED_EVENTS = 20            # как в analyze.work_coin: символ с меньшим числом событий пропускается
 EMPTY = np.empty(0)
 
@@ -143,7 +147,7 @@ class Alive:
 
 
 class Pair:
-    __slots__ = ("m0", "mid", "hi", "lo", "cen", "nv", "sc", "bc", "closed", "open", "cache")
+    __slots__ = ("m0", "mid", "hi", "lo", "cen", "nv", "sc", "bc", "closed", "open", "cache", "tail")
 
     def __init__(self):
         self.m0 = None                          # минута начала плотных рядов (None — рядов ещё нет); ряды идут подряд, минута за минутой
@@ -153,9 +157,10 @@ class Pair:
         self.cen = EMPTY                        # центр минуты (NaN — нет), считается для каждой минуты
         self.nv = np.empty(0, np.int64)         # строк с известным центром и T ≥ START в минуте
         self.sc = self.bc = None                # Sell/Buy на конец последней минуты (состояние переходит в следующую)
-        self.closed = []                        # закрытые эпизоды: (T_вход, напр., τ мс, False, пик, круг, глубина)
-        self.open = {1: None, -1: None}         # открытый эпизод: [T_вход, S_вход, B_вход, пик, глубина]
+        self.closed = []                        # закрытые эпизоды: (T_вход, напр., τ мс, False, пик, круг, глубина, круг через 250 мс)
+        self.open = {1: None, -1: None}         # открытый эпизод: [T_вход, S_вход, B_вход, пик, глубина, S через 250 мс после входа, B через 250 мс после входа]
         self.cache = None                       # (подпись эпизодов, сводка) — сводка пересчитывается, только когда эпизоды изменились
+        self.tail = None                        # строки последних 250 мс до границы прохода (T, S, Bu, c, dep) — их автомат пройдёт в следующий проход
 
 
 def ffill(x, init):
@@ -179,8 +184,9 @@ def centres(tail, mid_new):
     return c
 
 
-def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex):
-    """Один проход автомата входов/выходов одного направления по валидным строкам. Дописывает закрытые эпизоды в ps.closed, обновляет ps.open[d]."""
+def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex, Sd, Bd):
+    """Один проход автомата входов/выходов одного направления по валидным строкам. Дописывает закрытые эпизоды в ps.closed, обновляет ps.open[d].
+    Sd, Bd — Sell и Buy пары через DELAY_MS после каждой строки (по состоянию пары на T + DELAY_MS)."""
     k0 = 0
     st = ps.open[d]
     if st is not None:
@@ -191,7 +197,8 @@ def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex):
         j = int(xi[0])
         pk = max(st[3], float(e[: j + 1].max()))
         gross = float(st[1] - Bv[j]) if d == 1 else float(Sv[j] - st[2])
-        ps.closed.append((st[0], d, int(Tv[j] - st[0]), False, pk, gross, st[4]))
+        g250 = (float(st[5] - Bd[j]) if d == 1 else float(Sd[j] - st[6])) if len(st) > 5 else None     # состояние старого формата — без круга через 250 мс
+        ps.closed.append((st[0], d, int(Tv[j] - st[0]), False, pk, gross, st[4], g250))
         ps.open[d] = None
         k0 = j + 1
         if k0 >= len(Tv):
@@ -199,11 +206,12 @@ def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex):
     for i, j in core.episodes(Tv[k0:], ent[k0:], ex[k0:]):
         i += k0
         if j < 0:
-            ps.open[d] = [int(Tv[i]), float(Sv[i]), float(Bv[i]), float(e[i:].max()), float(depv[i])]
+            ps.open[d] = [int(Tv[i]), float(Sv[i]), float(Bv[i]), float(e[i:].max()), float(depv[i]), float(Sd[i]), float(Bd[i])]
             break
         j += k0
         gross = float(Sv[i] - Bv[j]) if d == 1 else float(Sv[j] - Bv[i])
-        ps.closed.append((int(Tv[i]), d, int(Tv[j] - Tv[i]), False, float(e[i: j + 1].max()), gross, float(depv[i])))
+        g250 = float(Sd[i] - Bd[j]) if d == 1 else float(Sd[j] - Bd[i])
+        ps.closed.append((int(Tv[i]), d, int(Tv[j] - Tv[i]), False, float(e[i: j + 1].max()), gross, float(depv[i]), g250))
 
 
 def advance_pair(ps, A, B, start_ms, k_to):
@@ -254,11 +262,35 @@ def advance_pair(ps, A, B, start_ms, k_to):
     ps.mid, ps.hi, ps.lo, ps.cen, ps.nv = (np.r_[o, n] for o, n in ((ps.mid, mid), (ps.hi, hi), (ps.lo, lo), (ps.cen, cen), (ps.nv, nv)))
     ps.sc = None if np.isnan(fs[-1]) else float(fs[-1])
     ps.bc = None if np.isnan(fb[-1]) else float(fb[-1])
-    if has_rows and v.any():
-        Tv, Sv, Bv, cv, dv = T[v], S[v], Bu[v], c[v], dep[v]
+    cut = k_to * MIN_MS - core.DELAY_MS
+    if has_rows:
+        run_machine(ps, T, S, Bu, c, dep, start_ms, cut)
+    else:
+        run_machine(ps, None, None, None, None, None, start_ms, cut)
+
+
+def run_machine(ps, T, S, Bu, c, dep, start_ms, cut):
+    """Автомат по строкам раньше cut (граница прохода − DELAY_MS): хвост прошлого прохода + новые строки (T … dep — все строки прохода, c — NaN без центра).
+    Остальные строки — в хвост пары на следующий проход."""
+    tl = getattr(ps, "tail", None)
+    if T is None:
+        if tl is None:
+            return
+        T, S, Bu, c, dep = tl
+    elif tl is not None:
+        T, S, Bu, c, dep = (np.r_[a, b] for a, b in zip(tl, (T, S, Bu, c, dep)))
+    n = int(np.searchsorted(T, cut, "left"))
+    ps.tail = tuple(x[n:] for x in (T, S, Bu, c, dep)) if n < len(T) else None
+    if not n:
+        return
+    kd = np.searchsorted(T, T[:n] + core.DELAY_MS, "right") - 1            # состояние пары на T + DELAY_MS: последняя строка не позже (строки — все моменты изменения обеих сторон)
+    Sd, Bd = S[kd], Bu[kd]
+    v = ~np.isnan(c[:n]) & (T[:n] >= start_ms)
+    if v.any():
+        Tv, Sv, Bv, cv, dv, Sdv, Bdv = T[:n][v], S[:n][v], Bu[:n][v], c[:n][v], dep[:n][v], Sd[v], Bd[v]
         Es, Eb, M = Sv - cv, cv - Bv, (Sv + Bv) / 2
-        machine(ps, 1, Tv, Sv, Bv, cv, dv, Es, Es >= TH, M <= cv)
-        machine(ps, -1, Tv, Sv, Bv, cv, dv, Eb, Eb >= TH, M >= cv)
+        machine(ps, 1, Tv, Sv, Bv, cv, dv, Es, Es >= TH, M <= cv, Sdv, Bdv)
+        machine(ps, -1, Tv, Sv, Bv, cv, dv, Eb, Eb >= TH, M >= cv, Sdv, Bdv)
 
 
 def prune(ps, t1, window_ms=24 * 3600_000):
@@ -319,7 +351,7 @@ def result(ps, t0, t1, periods_h, alive=None):
     for d in (1, -1):
         o = ps.open[d]
         if o is not None and o[0] >= t0:
-            eps.append((o[0], d, int(t1 - o[0]), True, o[3], None, o[4]))
+            eps.append((o[0], d, int(t1 - o[0]), True, o[3], None, o[4], None))
     ts = np.array([r[0] for r in eps], np.int64)
     cnt = [int((ts >= t1 - h * 3600_000).sum()) for h in periods_h]
     sig = (len(eps), ts.min() if len(ts) else None, ts.max() if len(ts) else None, tuple(ps.open[1] or ()), tuple(ps.open[-1] or ()))

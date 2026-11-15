@@ -12,6 +12,7 @@ import numpy as np
 
 FEE_RT_BPS = 12.6                                # 4 тейкерских ноги × 3,5 bps × 0,9 (preferences п.12, В-47/71/88)
 LEVELS = [5.0, 10.0, FEE_RT_BPS, 15.0, 20.0, 30.0]   # bps: уровни viking + порог комиссий
+DELAY_MS = 250                                   # «после комиссий через 250 мс»: вход и выход исполняются через 250 мс после сигнала по ценам того момента (разбор математики Д1, лаг srv ↔ биржа туда и обратно)
 CAP_MS = 60_000                                  # вес интервала не больше 60 с (viking spread_stats)
 WIN_MIN = 60                                     # окно центра, мин (viking: авто-центр по умолчанию 60)
 NEED_BARS = 30                                   # viking: need = max(3, окно // 2)
@@ -124,8 +125,10 @@ def runs(T, mask, tend):
     return [(int(T[a]), int(Tn[b + 1] - T[a]), int(a), int(b)) for a, b in zip(st, en)]
 
 
-def analyze_pair(A, B, t0, t1):
-    """Полная статистика пары за окно [t0, t1) мс. Возвращает (строка, бары, список эпизодов) или None, если данных мало."""
+def analyze_pair(A, B, t0, t1, hold_ms=0):
+    """Полная статистика пары за окно [t0, t1) мс. Возвращает (строка, бары, список эпизодов) или None, если данных мало.
+    hold_ms > 0 — круг с задержкой исполнения (8-е поле эпизода): автомат идёт по строкам раньше t1 − hold_ms (цены через hold_ms после сигнала должны быть уже известны),
+    как у arb_inc, который держит хвост строк до следующего прохода; при hold_ms = 0 — как раньше, поле None."""
     T, S, Bu, ia, ib = pair_series(A, B, t1)
     if len(T) < 50:
         return None
@@ -170,6 +173,11 @@ def analyze_pair(A, B, t0, t1):
         row["edge_q"] = wquant(whist(mx, dv), (0.95, 0.99, 0.999))
         ep_out = []
         Mv = (Sv + Bv) / 2
+        if hold_ms:                                    # строки автомата — раньше t1 − hold_ms; цены через hold_ms — по всем строкам окна (состояние пары на T + hold_ms)
+            nm = int(np.searchsorted(Tv, t1 - hold_ms, "left"))
+            kd = np.searchsorted(Tw, Tv[:nm] + hold_ms, "right") - 1
+            Sd, Bd = Sw[kd], Bw[kd]
+            Tv, Sv, Bv, cv, depv, Es, Eb, Mv = (x[:nm] for x in (Tv, Sv, Bv, cv, depv, Es, Eb, Mv))
         for li, th in enumerate(LEVELS):
             rows = []
             # вход: исполнимая цена на th bps выгоднее центра; выход (схождение): середина вернулась к центру
@@ -177,10 +185,12 @@ def analyze_pair(A, B, t0, t1):
                 for i, j in episodes(Tv, ent, ex):
                     jj = j if j >= 0 else len(Tv) - 1
                     tau = int(Tv[j] - Tv[i]) if j >= 0 else int(t1 - Tv[i])
-                    gross = None
+                    gross = g250 = None
                     if j >= 0:   # круг: вход по исполнимой цене, выход исполнимой ценой в момент схождения (до комиссий)
                         gross = float(Sv[i] - Bv[j]) if dirn == 1 else float(Sv[j] - Bv[i])
-                    rows.append((int(Tv[i]), dirn, tau, j < 0, float(e[i:jj + 1].max()), gross, float(depv[i])))
+                        if hold_ms:
+                            g250 = float(Sd[i] - Bd[j]) if dirn == 1 else float(Sd[j] - Bd[i])
+                    rows.append((int(Tv[i]), dirn, tau, j < 0, float(e[i:jj + 1].max()), gross, float(depv[i]), g250))
             ep_out.append(rows)
             res_eps[th] = rows
         row["eps"] = [_ep_summary(r) for r in ep_out]
@@ -201,16 +211,19 @@ def big_counts(rows, t1):
 
 def ep_table_stats(rows, fee=FEE_RT_BPS):
     """Сводка эпизодов одной пары для таблицы вкладки: rows — эпизоды порога комиссий (как в analyze_pair).
-    -> {n, pk: [медиана, p95, макс] пика, tau: [медиана, p95] времени схождения (с, по вышедшим), net: [медиана, p95] круга минус комиссии (bps)};
+    -> {n, pk: [медиана, p95, макс] пика, tau: [медиана, p95] времени схождения (с, по вышедшим), net: [медиана, p95] круга минус комиссии (bps),
+    net250: то же для круга с исполнением через DELAY_MS (8-е поле эпизода; эпизоды без него — старые или открытые — не входят)};
     поле None, если данных нет. Круг считается только по вышедшим эпизодам."""
     if not rows:
-        return {"n": 0, "pk": None, "tau": None, "net": None}
+        return {"n": 0, "pk": None, "tau": None, "net": None, "net250": None}
     pk = np.array([r[4] for r in rows], float)
     tau = np.array([r[2] for r in rows if not r[3]], float) / 1000
     gr = np.array([r[5] for r in rows if r[5] is not None], float) - fee
+    g2 = np.array([r[7] for r in rows if len(r) > 7 and r[7] is not None], float) - fee
     return {"n": len(rows), "pk": [float(np.median(pk)), float(np.percentile(pk, 95)), float(pk.max())],
             "tau": [float(np.median(tau)), float(np.percentile(tau, 95))] if len(tau) else None,
-            "net": [float(np.median(gr)), float(np.percentile(gr, 95))] if len(gr) else None}
+            "net": [float(np.median(gr)), float(np.percentile(gr, 95))] if len(gr) else None,
+            "net250": [float(np.median(g2)), float(np.percentile(g2, 95))] if len(g2) else None}
 
 
 def chart_slots(b, tmin0, n):

@@ -74,5 +74,9 @@ def test_ep_table_stats_median_and_outliers():
     assert s["pk"][0] == 23.0 and s["pk"][2] == 50.0 and abs(s["pk"][1] - np.percentile([14, 16, 30, 50], 95)) < 1e-9
     assert s["tau"][0] == 3.0 and abs(s["tau"][1] - np.percentile([1, 3, 9], 95)) < 1e-9   # время — только по вышедшим
     assert s["net"][0] == 20.0 - core.FEE_RT_BPS and abs(s["net"][1] - (np.percentile([20, 10, 40], 95) - core.FEE_RT_BPS)) < 1e-9
-    assert core.ep_table_stats([]) == {"n": 0, "pk": None, "tau": None, "net": None}
+    assert s["net250"] is None                                                           # у семи-польных (прежних) эпизодов круга через 250 мс нет
+    r8 = [r + (g,) for r, g in zip(rows, (5.0, None, -8.0, None))]                       # 8-е поле — круг через 250 мс; у не вышедшего и у эпизода без цен — None
+    n2 = core.ep_table_stats(r8)["net250"]
+    assert abs(n2[0] - (np.median([5.0, -8.0]) - core.FEE_RT_BPS)) < 1e-9 and abs(n2[1] - (np.percentile([5.0, -8.0], 95) - core.FEE_RT_BPS)) < 1e-9
+    assert core.ep_table_stats([]) == {"n": 0, "pk": None, "tau": None, "net": None, "net250": None}
     assert core.ep_table_stats([(0, 1, 5000, True, 15.0, None, 1.0)])["net"] is None
