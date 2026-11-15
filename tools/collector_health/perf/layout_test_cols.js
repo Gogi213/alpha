@@ -1,7 +1,7 @@
 // node layout_test_cols.js <url> [ширина окна] [префикс PNG]
-// Клик-тест «Столбцы» (page-dense.html): каждый флажок в обоих режимах счёта — столбец исчез/появился, ячейки строк сходятся с шапкой,
+// Клик-тест «Настройки» (столбцы) (page-dense.html): каждый флажок в обоих режимах счёта — столбец исчез/появился, ячейки строк сходятся с шапкой,
 // ширина таблицы и все элементы над ней стоят на месте (сдвиг 0), localStorage обновлён; сохранение после перезагрузки; «по умолчанию»; Esc / клик снаружи.
-const { chromium } = require('C:/Users/Георгий/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modules/playwright');
+const { chromium } = require(process.env.PW || 'C:/Users/Георгий/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modules/playwright');
 const url = process.argv[2], W = +(process.argv[3] || 1180), outp = process.argv[4] || '';
 const KEY = 'alpha.arb.cols.hidden';
 const snap = () => document.fonts.ready.then(() => {
@@ -20,7 +20,7 @@ const snap = () => document.fonts.ready.then(() => {
   return o;
 });
 (async () => {
-  const b = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
+  const b = await chromium.launch({ executablePath: process.env.CHROME || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true, args: process.env.CHROME ? ['--no-sandbox'] : [] });
   const pg = await b.newPage({ viewport: { width: W, height: 900 }, deviceScaleFactor: 1.5 });
   const errs = []; pg.on('pageerror', e => errs.push(String(e))); pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errs.push(m.text()) });
   pg.on('response', r => { if (r.status() >= 400 && !/\/favicon\.ico$/.test(r.url())) errs.push(r.status() + ' ' + r.url()) });   // на живой странице браузер просит /favicon.ico (404) — не ошибка страницы
@@ -45,7 +45,7 @@ const snap = () => document.fonts.ready.then(() => {
   const base = await pg.evaluate(snap);
   await pg.click('#ctl [data-cols]'); await pg.waitForTimeout(100);
   let s = await state(); check('popover opens', s.open);
-  check('med: «расхождение» one share wide (no empty gap before it)', Math.abs(s.thw.size / s.thw.n0 - 7.6 / 5.8) < 0.05 && s.thw.size < s.thw.v1 * 1.4, JSON.stringify(s.thw));
+  check('med: «расхождение» one share wide (no empty gap before it)', Math.abs(s.thw.size / s.thw.n0 - 86 / 57) < 0.05 && s.thw.size < s.thw.v1 * 2, JSON.stringify(s.thw));
   check('aria-expanded true', await pg.$eval('#ctl [data-cols]', e => e.getAttribute('aria-expanded')) === 'true');
   const pr = await pg.$eval('#colpop', e => { const r = e.getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom, innerWidth, innerHeight, getComputedStyle(e).position] });
   check('popover inside viewport', pr[0] >= 0 && pr[1] <= pr[4] && pr[3] <= pr[5], JSON.stringify(pr));

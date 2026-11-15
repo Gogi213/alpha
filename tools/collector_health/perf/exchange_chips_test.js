@@ -3,7 +3,7 @@
 // (число строк, подписи пар и счётчик «пустых: N из TOT» считаются заново по данным /api/arb), состояние чипов и localStorage, сдвиг шапки, панелей и столбцов 0, нет горизонтальной прокрутки.
 // Отдельно: минимум 2 (клик по последним двум выбранным — ничего), сохранение после перезагрузки, мусор в localStorage → выбраны все, чипы в одной строке с «Арбитраж / Здоровье», старого ряда #flt нет,
 // открытый график закрывается, вкладка «Здоровье» прячет чипы и возвращает на место, фокус остаётся на чипе. Код выхода 1 — есть сбой.
-const { chromium } = require('C:/Users/Георгий/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modules/playwright');
+const { chromium } = require(process.env.PW || 'C:/Users/Георгий/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modules/playwright');
 const url = process.argv[2], W = +(process.argv[3] || 1280), outp = process.argv[4] || '';
 const KEY = 'alpha.arb.ex.hidden';
 const snap = () => document.fonts.ready.then(() => {
@@ -23,7 +23,7 @@ const snap = () => document.fonts.ready.then(() => {
   return o;
 });
 (async () => {
-  const b = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
+  const b = await chromium.launch({ executablePath: process.env.CHROME || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true, args: process.env.CHROME ? ['--no-sandbox'] : [] });
   const pg = await b.newPage({ viewport: { width: W, height: 900 }, deviceScaleFactor: outp ? 1.5 : 1 });
   const errs = []; pg.on('pageerror', e => errs.push(String(e))); pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errs.push(m.text()) });
   pg.on('response', r => { if (r.status() >= 400 && !/\/favicon\.ico$/.test(r.url())) errs.push(r.status() + ' ' + r.url()) });   // на живой странице браузер просит /favicon.ico (404) — не ошибка страницы
@@ -31,12 +31,12 @@ const snap = () => document.fonts.ready.then(() => {
   await pg.goto(url); await load(); await pg.evaluate(k => localStorage.removeItem(k), KEY); await pg.reload(); await load();
   const fails = []; const check = (name, ok, info) => { if (!ok) fails.push(name + (info ? ' — ' + info : '')) };
   const shiftOf = (a, c) => { let mx = 0, worst = ''; for (const k of Object.keys(a)) { if (!c[k]) continue; const d = Math.max(...a[k].map((x, i) => Math.abs(x - c[k][i]))); if (d > mx) { mx = d; worst = k } } return [mx, worst] };
-  const data = await pg.evaluate(() => { const A = window._arb; return { ids: A.ids, rows: A.rows.map(r => ({ a: r.a, b: r.b, e: r.cnt[3] === 0 ? 1 : 0, pl: r.pl })) } });
+  const data = await pg.evaluate(() => { const A = window._arb; return { ids: A.ids, rows: A.rows.map(r => ({ a: r.a, b: r.b, e: r.cnt[3] === 0 ? 1 : 0, pl: r.pl.replace(/<[^>]*>/g, '').replace(/снимки/g, '') })) } });
   const ids = data.ids, n = ids.length;
   const state = () => pg.evaluate(KEY => {
     const A = window._arb, d = document.documentElement;
     const chips = [...document.querySelectorAll('#ex button')].map(x => ({ x: x.dataset.x, on: x.classList.contains('on'), pr: x.getAttribute('aria-pressed'), dis: x.getAttribute('aria-disabled') === 'true' }));
-    return { sel: A.sel.slice().sort(), chips, view: A.view.length, labels: [...document.querySelectorAll('#tab tbody tr.r td.p')].map(t => t.textContent), cnt: document.querySelector('#ctl .cnt').textContent, ls: localStorage.getItem(KEY), hide: A.st.hide, sw: d.scrollWidth, cw: d.clientWidth };
+    return { sel: A.sel.slice().sort(), chips, view: A.view.length, labels: [...document.querySelectorAll('#tab tbody tr.r td.p')].map(t => t.textContent.replace(/снимки/g, '')), cnt: document.querySelector('#ctl .cnt').textContent, ls: localStorage.getItem(KEY), hide: A.st.hide, sw: d.scrollWidth, cw: d.clientWidth };
   }, KEY);
   const expect = (S, hide) => { const rs = data.rows.filter(r => S.includes(r.a) && S.includes(r.b)); const tot = rs.length, ne = rs.reduce((s, r) => s + r.e, 0); return { view: hide ? rs.filter(r => !r.e).length : tot, tot, ne, labels: new Set(rs.map(r => r.pl)) } };
   const clickSet = async S => {   // сначала включаем недостающие, потом выключаем лишние — ниже 2 не опускаемся

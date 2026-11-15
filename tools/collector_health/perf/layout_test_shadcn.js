@@ -1,6 +1,6 @@
 // node layout_test_shadcn.js <url> [ширина окна] [префикс PNG]
 // Клик-тест вкладки «Арбитраж» (shadcn, тёмная): каждая кнопка нажимается; после действия — сдвиг элементов (px) и проверка эффекта (данные, а не только вид).
-const { chromium } = require('C:/Users/Георгий/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modules/playwright');
+const { chromium } = require(process.env.PW || 'C:/Users/Георгий/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modules/playwright');
 const url = process.argv[2], W = +(process.argv[3] || 1180), outp = process.argv[4] || '';
 const snap = () => document.fonts.ready.then(() => {
   const R = e => { const r = e.getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom].map(x => Math.round(x * 100) / 100) };
@@ -26,7 +26,7 @@ const snap = () => document.fonts.ready.then(() => {
   return o;
 });
 (async () => {
-  const b = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
+  const b = await chromium.launch({ executablePath: process.env.CHROME || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true, args: process.env.CHROME ? ['--no-sandbox'] : [] });
   const pg = await b.newPage({ viewport: { width: W, height: 800 } });
   const errs = []; pg.on('pageerror', e => errs.push(String(e))); pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errs.push(m.text()) });
   pg.on('response', r => { if (r.status() >= 400 && !/\/favicon\.ico$/.test(r.url())) errs.push(r.status() + ' ' + r.url()) });   // на живой странице браузер просит /favicon.ico (404) — не ошибка страницы
