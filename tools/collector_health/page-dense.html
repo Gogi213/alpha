@@ -56,9 +56,6 @@ table.a thead tr:first-child th:first-child,table.a td:first-child{padding-left:
 table.a thead tr:first-child th:last-child,table.a td:last-child{padding-right:12px}
 table.a th.l,table.a td.l{text-align:left}
 table.a th:hover,table.a th.on{color:var(--foreground)}
-table.a th.gh{height:24px;padding:0 8px 0 0;cursor:default;text-align:center;color:var(--muted-foreground);vertical-align:bottom;white-space:nowrap;border-bottom:0}
-table.a th.gh span{display:block;border-bottom:1px solid var(--border);padding-bottom:3px;line-height:13px}
-table.a tr.sub th{height:26px;white-space:nowrap}
 table.a td i.un{display:inline-block;width:22px;margin-left:4px;text-align:left;font-style:normal;color:var(--muted-foreground);font-family:var(--font-mono);font-size:11px}
 .hl{position:relative;display:inline-block}
 .hl .ar{position:absolute;left:100%;bottom:0;margin-left:3px;font-style:normal;font-size:10px;color:var(--foreground)}
@@ -257,7 +254,7 @@ function cols(){
   const cnt=(i,t)=>({k:'n'+i,kk:'n'+i,t:'эпизодов<br>'+t,v:r=>r.cnt[i],f:v=>nf(v,0)});
   const big=(i,t)=>({k:'b'+i,kk:'b'+i,t:'выбросов<br>≥ '+t+' %<br>за сутки',v:r=>r.big?r.big[i]:null,f:v=>nf(v,0)});
   const vol=(i,t)=>({k:'v'+i,kk:'v'+i,t:t,sub:1,v:r=>r.v?r.v[i]:null,f:mn});
-  return [{k:'c',kk:'c',t:'монета',l:1},{k:'p',kk:'p',t:'пара бирж',l:1},vol(0,'1-я биржа'),vol(1,'2-я биржа')].concat(o?[
+  return [{k:'c',kk:'c',t:'монета',l:1},{k:'p',kk:'p',t:'пара бирж',l:1},vol(0,'1-я биржа,<br>млн'),vol(1,'2-я биржа,<br>млн')].concat(o?[
     {k:'size',kk:'size|out',t:'расхождение<br>p95, %',v:r=>at(r.pk,1),f:pc},
     {k:'max',kk:'max',t:'расхождение<br>макс, %',v:r=>at(r.pk,2),f:pc}
   ]:[
@@ -303,8 +300,8 @@ function ctl(){
 function head(){
   const C=cols();
   $('cg').innerHTML=W.map(w=>'<col style="width:'+w+'%">').join('');
-  const th=c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'"'+(c.span?' colspan="'+c.span+'"':'')+(c.sub?'':' rowspan="2"')+'><span class="hl">'+c.t+'<i class="ar">'+(c.k===st.sort?(st.dir<0?'↓':'↑'):'')+'</i></span></th>';
-  $('th').innerHTML='<tr>'+C.filter(c=>!c.sub).map((c,i)=>(i===2?'<th class="gh" colspan="2"><span>оборот за сутки, $ млн</span></th>':'')+th(c)).join('')+'</tr><tr class="sub">'+C.filter(c=>c.sub).map(th).join('')+'</tr>';
+  const th=c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'"'+(c.span?' colspan="'+c.span+'"':'')+'><span class="hl">'+c.t+'<i class="ar">'+(c.k===st.sort?(st.dir<0?'↓':'↑'):'')+'</i></span></th>';
+  $('th').innerHTML='<tr>'+C.map(th).join('')+'</tr>';
 }
 /* порядок строк: фильтр пары и «скрыть пустые», сортировка по готовому массиву ключей */
 function buildView(){
