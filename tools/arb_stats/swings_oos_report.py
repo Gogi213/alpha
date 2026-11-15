@@ -152,7 +152,7 @@ def stack(O, keys):
     return pr, real, tn, obs, hist, sh
 
 
-def score(pr, y, h, tn, obs, mask, perm=None):
+def score(pr, y, h, tn, obs, mask, perm=None, mask_sp=None):
     """pr, y, tn, obs: (пар, N, t). mask — (пар, N, t) допустимые. -> (Спирмен ср. по t, NLL Пуассона, лог-оценка времени до следующей)."""
     ok = mask & np.isfinite(pr)
     pr2 = pr if perm is None else perm
@@ -164,10 +164,12 @@ def score(pr, y, h, tn, obs, mask, perm=None):
     ts = np.where(obs, np.log(R) - R * tn, -R * tn)
     tsc = float(ts[ok].mean()) if ok.any() else np.nan
     rs = []
+    vs = v if mask_sp is None else (mask_sp & np.isfinite(pr) & np.isfinite(y))
     for o in range(pr.shape[2]):
-        m = v[:, o]
-        if m.sum() >= 15 and np.ptp(pr2[m, o]) > 0 and np.ptp(yy[m, o]) > 0:
-            rs.append(spearmanr(pr2[m, o], yy[m, o])[0])
+        m = vs[:, :, o]
+        a, b = pr2[:, :, o][m], yy[:, :, o][m]
+        if m.sum() >= 15 and np.ptp(a) > 0 and np.ptp(b) > 0:
+            rs.append(spearmanr(a, b)[0])
     return (float(np.mean(rs)) if rs else np.nan), nll, tsc, int(v.sum())
 
 
@@ -196,7 +198,7 @@ def oos_tables(O, keys):
     rng = np.random.default_rng(3)
     p("### Прогноз вне выборки")
     p(f"Точки отсчёта — каждые 30 мин с 8-го часа окна ({ok.shape[2]} точек); параметры режима — только по данным до t. «Активные» — пары, у которых до t уже ≥ 3 качелей этого N (отбор по прошлому). "
-      f"Спирмен — по парам в каждой точке, среднее по точкам; ΔNLL — выигрыш по логарифмическому правдоподобию Пуассона числа качелей против предиктора glob (нат/наблюдение, > 0 — лучше); "
+      f"Спирмен — по всем парам группы в каждой точке (отбор «активных» не применяется), среднее по точкам; ΔNLL — выигрыш по логарифмическому правдоподобию Пуассона числа качелей против предиктора glob (нат/наблюдение, > 0 — лучше); "
       f"Δвремя — то же для времени до следующей качели (экспонента с этой частотой, с цензурой на конце данных). Плацебо: «пары» — прогнозы тех же точек перетасованы между парами; «время» — исход взят из другого момента той же пары (сдвиг ≥ 12 ч).")
     res = {}
     for g in ("ok", "bx"):
@@ -207,21 +209,23 @@ def oos_tables(O, keys):
                 mask = ok & gm & (hist >= 3)
                 mk = np.zeros_like(mask)
                 mk[:, iN, :] = mask[:, iN, :]
+                ms = np.zeros_like(mask)
+                ms[:, iN, :] = (ok & gm)[:, iN, :]
                 if mk.sum() < 200:
                     continue
                 rows = []
-                base = {h: score(pr["glob"], real[h], h, tn, obs, mk) for h in O["hs"]}
+                base = {h: score(pr["glob"], real[h], h, tn, obs, mk, mask_sp=ms) for h in O["hs"]}
                 for q in O["pred"]:
-                    sc = {h: score(pr[q], real[h], h, tn, obs, mk) for h in O["hs"]}
+                    sc = {h: score(pr[q], real[h], h, tn, obs, mk, mask_sp=ms) for h in O["hs"]}
                     rows.append((q, sc))
                 for tag in ("пары", "время"):
                     sc = {}
                     for h in O["hs"]:
                         if tag == "пары":
-                            sc[h] = score(pr["reg"], real[h], h, tn, obs, mk, perm=shuffle_pairs(pr["reg"], mk, rng))
+                            sc[h] = score(pr["reg"], real[h], h, tn, obs, mk, perm=shuffle_pairs(pr["reg"], ms, rng), mask_sp=ms)
                         else:
                             y2, t2, o2 = shift_time(real[h], tn, obs, rng)
-                            sc[h] = score(pr["reg"], y2, h, t2, o2, mk)
+                            sc[h] = score(pr["reg"], y2, h, t2, o2, mk, mask_sp=ms)
                     rows.append(("reg, плацебо «" + tag + "»", sc))
                 res[(g, iN)] = (rows, base, int(mk[:, iN, :].sum()), int((mk[:, iN, :].any(axis=1)).sum()))
                 p(f"**{g}, N = {N} %, активные: {res[(g, iN)][3]} пар, {res[(g, iN)][2]} наблюдений**")
@@ -368,12 +372,11 @@ def windows_side(S):
     p("Число качелей (L = 300 мс, по времени закрытия) в окнах 1 / 6 / 12 / 24 ч подряд от начала данных; Спирмен между окном k и k + 1 по парам (среднее по переходам), доля «≥ 2 → ≥ 2» среди пар с ≥ 2 в окне k; плацебо — окно k + 1 перетасовано между парами.")
     p("| группа | N, % | окно | переходов | Спирмен | ≥ 2 → ≥ 2 (доля) | базовая доля ≥ 2 в k + 1 | плацебо Спирмен |")
     p("|---|---|---|---|---|---|---|---|")
-    keys = sorted(S)
     rng = np.random.default_rng(9)
     t0, t1 = S["_t0"], S["_t1"]
     span = (t1 - t0) / swings.HOUR
     for g in ("ok", "bx"):
-        ks = [k for k in keys if k != "_t0" and k != "_t1" and grp_of(k) == g]
+        ks = sorted(k for k in S if isinstance(k, tuple) and grp_of(k) == g)
         for iN in (1, 2):
             tcs = [S[k]["sw"][(iN, 300)][0] for k in ks]
             for W in (1, 6, 12, 24):
