@@ -101,7 +101,7 @@ def r1(v):
     return None if v is None else round(v, 1)
 
 
-def write_outputs(live, gen, t0, t1, det):
+def write_outputs(live, gen, t0, t1, det, period=3600):
     keys = sorted(det)
     chart = f"chart-{gen}.jsonl"
     rows, off = [], 0
@@ -117,7 +117,7 @@ def write_outputs(live, gen, t0, t1, det):
             off += len(line)
     os.replace(Path(live, chart + ".tmp"), Path(live, chart))
     doc = {"gen": gen, "t0": t0, "t1": t1, "start": START_MS, "slot": core.SLOT_MIN * 60, "fee": core.FEE_RT_BPS, "chart": chart,
-           "names": NAMES, "rows": rows}
+           "names": NAMES, "written": int(time.time() * 1000), "period": period, "rows": rows}
     tmp = Path(live, "arb.json.tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     os.replace(tmp, Path(live, "arb.json"))

@@ -98,6 +98,8 @@ def collect(health_dir, now_ms, expected, thr):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"   # соединение не закрывается после каждого ответа: страница ходит за данными несколько раз подряд
     timeout = 30                    # висящее без запросов соединение освобождает поток
+    disable_nagle_algorithm = True  # TCP_NODELAY: без него второй write (тело) ждёт ACK первого (заголовки) — до 200 мс на Windows-клиенте
+    wbufsize = 1 << 16              # заголовки и тело уходят одним пакетом (сброс — в конце запроса, handle_one_request)
     health_dir = Path("/data/health")
     expected = []
     thresholds = None

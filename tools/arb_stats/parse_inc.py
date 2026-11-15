@@ -44,22 +44,11 @@ def save_state(state_dir, ex, tag, st):
     os.replace(tmp, p)
 
 
-def run(ex, day, path, want, state_dir, out_dir, keep_from_ms):
-    """Дочитывает один файл. want — {имя символа в файле (bytes): имя для файла}. -> число сохранённых записей."""
-    tag = tag_of(day, path)
-    st = load_state(state_dir, ex, tag)
-    if st["done"]:
-        return 0
-    closed = os.path.exists(path + ".ok")
-    p1 = subprocess.Popen([*DECOMP, path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=1 << 22)
-    if st["off"]:
-        p2 = subprocess.Popen(["tail", "-c", f"+{st['off'] + 1}"], stdin=p1.stdout, stdout=subprocess.PIPE, bufsize=1 << 22)
-        p1.stdout.close()
-        src, procs = p2.stdout, (p2, p1)
-    else:
-        src, procs = p1.stdout, (p1,)
+def consume(src, st, want, keep_from_ms, arrs):
+    """Читает целые строки из src (итератор строк с \n), двигает st (off, cum, last), дописывает записи в arrs {символ: массивы}.
+    -> (сохранено записей, наименьший и наибольший приём среди них)."""
     off, cum, last = st["off"], st["cum"], st["last"]
-    arrs, kept, rx_lo, rx_hi = {}, 0, None, 0
+    kept, rx_lo, rx_hi = 0, None, 0
     for line in src:
         if not line.endswith(b"\n"):   # недописанная строка — дочитаем в следующий раз
             break
@@ -92,6 +81,26 @@ def run(ex, day, path, want, state_dir, out_dir, keep_from_ms):
         kept += 1
         rx_lo = rx if rx_lo is None else min(rx_lo, rx)
         rx_hi = max(rx_hi, rx)
+    st["off"], st["cum"] = off, cum
+    return kept, rx_lo, rx_hi
+
+
+def run(ex, day, path, want, state_dir, out_dir, keep_from_ms):
+    """Дочитывает один файл. want — {имя символа в файле (bytes): имя для файла}. -> число сохранённых записей."""
+    tag = tag_of(day, path)
+    st = load_state(state_dir, ex, tag)
+    if st["done"]:
+        return 0
+    closed = os.path.exists(path + ".ok")
+    p1 = subprocess.Popen([*DECOMP, path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=1 << 22)
+    if st["off"]:
+        p2 = subprocess.Popen(["tail", "-c", f"+{st['off'] + 1}"], stdin=p1.stdout, stdout=subprocess.PIPE, bufsize=1 << 22)
+        p1.stdout.close()
+        src, procs = p2.stdout, (p2, p1)
+    else:
+        src, procs = p1.stdout, (p1,)
+    arrs = {}
+    kept, rx_lo, rx_hi = consume(src, st, want, keep_from_ms, arrs)
     src.close()
     for pr in procs:
         pr.wait()
@@ -104,7 +113,7 @@ def run(ex, day, path, want, state_dir, out_dir, keep_from_ms):
                      lag=np.frombuffer(a[2], "i4"), bid=np.frombuffer(a[3], "f8"), ask=np.frombuffer(a[4], "f8"),
                      bsz=np.frombuffer(a[5], "f8"), asz=np.frombuffer(a[6], "f8"))
         st["chunks"].append((st["seq"], rx_lo, rx_hi))
-    st.update(off=off, cum=cum, last=last, done=closed)
+    st["done"] = closed
     save_state(state_dir, ex, tag, st)
     return kept
 
