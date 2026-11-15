@@ -1,10 +1,13 @@
 """Счёт «только выбросы» (outlier.py, maker.py) по всем парам: сводки по паре и настройке + гистограммы для итогов.
 
 Запуск: python3 outlier_run.py <каталог книг (parsed/)> <каталог сделок (parsed/)> <t0_мс> <t1_мс> <выход.pkl> [PAR]
-Пишет pickle: {"t0", "t1", "rows": {(режим, монета, X, Y, настройка): сводка}, "hist": {(режим, настройка, группа): (net, gross, div)}, ...}.
+Переменная DEAD — json пропусков сбора (gaps_scan.py): круги, пересекающие пропуск (с запасом) любой из двух бирж пары, из счёта исключаются.
+Пишет pickle: {"t0", "t1", "days", "rows": {(режим, монета, X, Y, настройка): сводка}, "hist": {(режим, настройка, группа): (net, gross, div)}, ...}.
+Устойчивость — по суткам GMT+4 (границы суток внутри окна): n_d, net_med_d, usd_cap_d ($/сут, пересчитан на длину суток в окне).
 Режим "tt" — тейкер-тейкер, пара (A, B) в порядке бирж; "mk" — мейкер + хедж, (M, H) упорядочена. Настройка — (θ bps, L мс, закрытие).
 Группа "ok" — в рейтинге; "bingx" — вне рейтинга (tt: любая нога BingX; mk: хедж на BingX — книга-снимок ≈ 2,6/с, цена устаревшая).
 """
+import json
 import os
 import pickle
 import sys
@@ -25,6 +28,9 @@ G = {}
 H_LO, H_N = -400, 800        # гистограмма: шаг 1 bps на [−400; 400)
 SIZE_CAP = 100.0
 PERIODS_H = (1, 4, 6, 24)
+DAY_MS = 86_400_000
+TZ_MS = 4 * 3600_000        # сутки — по GMT+4 (так читает владелец)
+DEAD_MARGIN_MS = 120_000    # после пропуска книга пересинхронизируется: запас 2 мин
 
 
 def hist(x, lo=H_LO):
@@ -35,27 +41,66 @@ def q(x, p):
     return float(np.percentile(x, p)) if len(x) else None
 
 
+def day_edges(t0, t1):
+    """Границы суток GMT+4 внутри окна: [t0, b1, b2, …, t1]."""
+    first = (t0 + TZ_MS) // DAY_MS + 1
+    last = (t1 - 1 + TZ_MS) // DAY_MS
+    return [t0] + [d * DAY_MS - TZ_MS for d in range(first, last + 1)] + [t1]
+
+
+def drop_dead(arr, dead, lat, t1):
+    """Убирает круги, пересекающие пропуск сбора. dead — (начала, концы) отсортированные, мс; круг = [t, t + hold + lat] (незакрытый — до конца окна)."""
+    if dead is None or not len(arr) or not len(dead[0]):
+        return arr
+    ds, de = dead
+    ts = arr[:, 0]
+    te = np.where(np.isnan(arr[:, 6]), t1, ts + np.nan_to_num(arr[:, 6]) + lat)
+    i = np.searchsorted(de, ts, "right")              # первый пропуск, заканчивающийся после начала круга
+    hit = (i < len(ds)) & (ds[np.minimum(i, len(ds) - 1)] < te)
+    return arr[~hit]
+
+
 def pair_stats(arr, un, t0, t1):
     """Сводка кругов одной настройки (bps, $). None — кругов нет."""
     if not len(arr):
         return None
-    mid = (t0 + t1) // 2
-    win_d, half_d = (t1 - t0) / 86_400_000, (t1 - t0) / 172_800_000
+    edges = day_edges(t0, t1)
+    win_d = (t1 - t0) / 86_400_000
     t = arr[:, 0]
     k = ~np.isnan(arr[:, 5])
     cl = arr[k]
     net, size = cl[:, 5], cl[:, 4]
     cap = np.minimum(size, SIZE_CAP) * net / 1e4
     full = size * net / 1e4
-    h1, h2 = cl[:, 0] < mid, cl[:, 0] >= mid
+    dk = [(cl[:, 0] >= a) & (cl[:, 0] < b) for a, b in zip(edges[:-1], edges[1:])]
+    day_len = [(b - a) / 86_400_000 for a, b in zip(edges[:-1], edges[1:])]
     return {"n": int(len(arr)), "closed": int(len(cl)), "unclosed": int(un),
             "entries": [int((t >= t1 - h * 3600_000).sum()) for h in PERIODS_H],
             "net": [q(net, 50), q(net, 25)], "gross_med": q(cl[:, 7], 50), "div_med": q(arr[:, 8], 50), "pos": float((net > 0).mean()) if len(net) else None,
             "size_med": q(arr[:, 4], 50), "slip_med": q(arr[:, 3], 50), "hold_s": [q(cl[:, 6] / 1000, 50), q(cl[:, 6] / 1000, 95)],
             "usd_cap": float(cap.sum() / win_d), "usd_full": float(full.sum() / win_d),
-            "usd_cap_h": [float(cap[h1].sum() / half_d), float(cap[h2].sum() / half_d)],
-            "net_med_h": [q(net[h1], 50), q(net[h2], 50)], "n_h": [int(h1.sum()), int(h2.sum())],
+            "usd_cap_d": [float(cap[m].sum() / dl) for m, dl in zip(dk, day_len)],
+            "net_med_d": [q(net[m], 50) for m in dk], "n_d": [int(m.sum()) for m in dk],
             "usd_cap_trim": float((cap.sum() - (cap.max() if len(cap) else 0.0)) / win_d)}, (hist(net), hist(cl[:, 7]), hist(arr[:, 8], 0))
+
+
+def dead_of(ex_a, ex_b):
+    """Объединённые пропуски двух бирж с запасом: (начала, концы) или None."""
+    d = G.get("dead")
+    if not d:
+        return None
+    key = (ex_a, ex_b)
+    if key in G.setdefault("dead_cache", {}):
+        return G["dead_cache"][key]
+    iv = sorted([(s, e + DEAD_MARGIN_MS) for ex in (ex_a, ex_b) for s, e in d.get(ex, [])])
+    out = []
+    for s, e in iv:
+        if out and s <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], e)
+        else:
+            out.append([s, e])
+    G["dead_cache"][key] = (np.array([o[0] for o in out], np.int64), np.array([o[1] for o in out], np.int64))
+    return G["dead_cache"][key]
 
 
 def work_coin(coin):
@@ -75,6 +120,7 @@ def work_coin(coin):
     t0, t1 = g["t0"], g["t1"]
 
     def put(mode, key, cfg, arr, un, grp):
+        arr = drop_dead(arr, dead_of(key[1], key[2]), cfg[1], t1)
         r = pair_stats(arr, un, t0, t1)
         if r is None:
             return
@@ -123,8 +169,9 @@ def main(bwork, twork, t0, t1, out, par=3):
             exact = norm(ex, sym)[0] == coin
             if cur is None or (exact and not cur[2]):
                 coins[coin][ex] = (sym, mult, exact)
+    dead = json.load(open(os.environ["DEAD"])) if os.environ.get("DEAD") else None
     G.update({"bwork": str(Path(bwork, "parsed")), "twork": str(Path(twork, "parsed")), "t0": t0, "t1": t1, "coins": coins, "meta": meta,
-              "d_ms": maker.D_MS})
+              "d_ms": maker.D_MS, "dead": dead})
     only = os.environ.get("COINS")
     names = sorted(coins) if not only else only.split(",")
     t = time.time()
@@ -137,7 +184,7 @@ def main(bwork, twork, t0, t1, out, par=3):
                 for i in range(3):
                     a[i] += v[i]
     with open(out, "wb") as f:
-        pickle.dump({"t0": t0, "t1": t1, "rows": rows, "hist": hs, "thetas": outlier.THETAS, "lats_tt": outlier.LATS_TT, "lats_mk": maker.LATS,
+        pickle.dump({"t0": t0, "t1": t1, "days": day_edges(t0, t1), "dead": dead, "rows": rows, "hist": hs, "thetas": outlier.THETAS, "lats_tt": outlier.LATS_TT, "lats_mk": maker.LATS,
                      "fee_tt4": outlier.FEE_TT4, "fee_mk": {"tt": maker.FEE_TT, "mt": maker.FEE_MT}, "d_ms": maker.D_MS, "size_cap": SIZE_CAP,
                      "coins": len(names)}, f, protocol=4)
     print({"coins": len(names), "rows": len(rows), "s": round(time.time() - t, 1)})

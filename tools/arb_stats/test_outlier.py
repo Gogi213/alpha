@@ -60,3 +60,21 @@ def test_unclosed_and_one_position_at_a_time():
     P = mk_pair(JUMP)                                                           # M не возвращается
     r, un = outlier.simulate_tt(P, outlier.entries_for(P, 20.0), 0, "full")
     assert un == 1 and len(r) == 1 and np.isnan(r[0, 5])
+
+
+def test_day_edges_gmt4_and_drop_dead_and_per_day_stats():
+    import outlier_run as orun
+    d = orun.DAY_MS
+    t0, t1 = 3 * d + 6 * 3600_000, 6 * d + 2 * 3600_000                           # 06:00 UTC дня 3 … 02:00 UTC дня 6
+    e = orun.day_edges(t0, t1)
+    assert e == [t0, 3 * d + 20 * 3600_000, 4 * d + 20 * 3600_000, 5 * d + 20 * 3600_000, t1]    # полночь GMT+4 = 20:00 UTC
+    # круги: [t, side, edge, slip, size, net, hold, gross, div]; пропуск [t0 + 1000, t0 + 2000] + запас убирает пересекающий круг и круг внутри
+    arr = np.array([[t0 + 500, 1, 30, 0, 100, 5.0, 300.0, 18.0, 30], [t0 + 900, 1, 30, 0, 100, 5.0, 300.0, 18.0, 30],
+                    [t0 + 5000, 1, 30, 0, 100, -3.0, 100.0, 9.0, 30], [e[1] + 10, 1, 30, 0, 100, 4.0, 100.0, 16.0, 30]], float)
+    dead = (np.array([t0 + 1000], np.int64), np.array([t0 + 2000], np.int64))
+    kept = orun.drop_dead(arr, dead, 0, t1)
+    assert kept[:, 0].tolist() == [t0 + 500, t0 + 5000, e[1] + 10]                   # круг с t0+900 (до 1200) пересёк пропуск
+    kept = orun.drop_dead(arr, dead, 400, t1)
+    assert kept[:, 0].tolist() == [t0 + 5000, e[1] + 10]                             # с задержкой 400 мс круг t0+500 (до 1200) тоже пересёк
+    st, _ = orun.pair_stats(arr[2:], 0, t0, t1)
+    assert st["n_d"] == [1, 1, 0, 0] and st["net_med_d"][0] == -3.0 and st["net_med_d"][1] == 4.0 and st["net_med_d"][2] is None

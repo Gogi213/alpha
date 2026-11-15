@@ -41,12 +41,15 @@ const snap = () => document.fonts.ready.then(() => {
   await act('hide off', () => click('#ctl button[data-hide]'));
   await act('mode out', () => click('#ctl button[data-m="out"]'));
   await act('hide on (out)', () => click('#ctl button[data-hide]'));
+  await act('mode zero', () => click('#ctl button[data-m="zero"]'));
+  await act('hide on (zero)', () => click('#ctl button[data-hide]'));
+  await act('hide off (zero)', () => click('#ctl button[data-hide]'));
   await act('mode med', () => click('#ctl button[data-m="med"]'));
   await act('hide off', () => click('#ctl button[data-hide]'));
   const pairs = await pg.$$eval('#flt button', e => e.length);
   for (let i = 1; i < Math.min(pairs, 4); i++) await act('pair #' + i, () => pg.click('#flt button:nth-child(' + (i + 1) + ')'));
   await act('pair all', () => click('#flt button:nth-child(1)'));
-  for (const mode of ['med', 'out']) {
+  for (const mode of ['med', 'out', 'zero']) {
     await click('#ctl button[data-m="' + mode + '"]');
     const ks = await pg.$$eval('#tab th', e => e.map(x => x.dataset.k));
     for (const k of ks) { await act('sort ' + mode + ' ' + k, () => click('#tab th[data-k="' + k + '"]')); await act('sort ' + mode + ' ' + k + ' (reverse)', () => click('#tab th[data-k="' + k + '"]')); }

@@ -2,7 +2,7 @@
 
 Запуск: python3 outlier_report.py <outlier.pkl> [N=30] > отчёт.md  (таблицы markdown; текст вокруг — руками)
 Рейтинг: группа «ok» (tt: ни одна нога не BingX; mk: хедж не на BingX), кругов ≥ окно_ч / 6 (≥ 1 входа за 6 ч в среднем по окну),
-медиана чистого итога круга > 0 в обеих половинах окна. Плацебо: то же с обратным знаком (медиана < 0 в обеих половинах) — сколько пар
+в каждых сутках окна (GMT+4) есть круги и медиана чистого итога круга > 0. Плацебо: то же с обратным знаком (в каждых сутках медиана < 0) — сколько пар
 «проходят» рейтинг по шуму, если бы знак был случайным.
 """
 import pickle
@@ -36,13 +36,13 @@ def grp(k):
 
 
 def rated(v, win_h):
-    a, b = v["net_med_h"]
-    return v["n"] >= win_h / 6 and a is not None and b is not None and a > 0 and b > 0
+    m = v["net_med_d"]
+    return v["n"] >= win_h / 6 and all(x is not None and x > 0 for x in m)
 
 
 def placebo(v, win_h):
-    a, b = v["net_med_h"]
-    return v["n"] >= win_h / 6 and a is not None and b is not None and a < 0 and b < 0
+    m = v["net_med_d"]
+    return v["n"] >= win_h / 6 and all(x is not None and x < 0 for x in m)
 
 
 def cfg_name(mode, cfg):
@@ -107,8 +107,8 @@ def print_top(R, win_h, mode, cfg, n, only_rated, title, g="ok"):
     print(f"Пар в списке: {tot}; показаны первые {len(rows)}; сумма показанных = {usd(sum(v['usd_cap'] for _, v in rows))} $/сут (≤ 100 $ на круг), "
           f"без лучшего круга каждой пары = {usd(sum(v['usd_cap_trim'] for _, v in rows))}.\n")
     print("| # | монета | пара | входов 1ч/4ч/6ч/1сут | расхождение на входе, медиана, % | валовый итог, медиана, % | чистый итог, медиана / p25, % | кругов с итогом > 0 | "
-          "размер на входе, медиана, $ | удержание, медиана / p95 | не закрыто | $/сут (≤ 100 $) | $/сут (полный объём) | $/сут без лучшего круга | $/сут 1-я / 2-я половина |")
-    print("|" + "---|" * 15)
+          "размер на входе, медиана, $ | удержание, медиана / p95 | не закрыто | $/сут (≤ 100 $) | $/сут (полный объём) | $/сут без лучшего круга | $/сут по суткам | медиана итога по суткам, % |")
+    print("|" + "---|" * 16)
     for i, (k, v) in enumerate(rows, 1):
         m, coin, x, y, _ = k
         arrow = "↔" if m == "tt" else "→"
@@ -116,7 +116,7 @@ def print_top(R, win_h, mode, cfg, n, only_rated, title, g="ok"):
         hold = "—" if hs[0] is None else (f"{hs[0]:.1f} с / {hs[1]:.1f} с" if hs[1] < 120 else f"{hs[0]:.1f} с / {hs[1] / 60:.1f} мин")
         print(f"| {i} | {coin} | {x} {arrow} {y} | {'/'.join(str(e) for e in v['entries'])} | {pc(v['div_med'])} | {pc(v['gross_med'])} | "
               f"{pc(v['net'][0])} / {pc(v['net'][1])} | {v['pos'] * 100:.0f} % | {usd(v['size_med'])} | {hold} | {v['unclosed']} | {usd(v['usd_cap'])} | "
-              f"{usd(v['usd_full'])} | {usd(v['usd_cap_trim'])} | {usd(v['usd_cap_h'][0])} / {usd(v['usd_cap_h'][1])} |")
+              f"{usd(v['usd_full'])} | {usd(v['usd_cap_trim'])} | {' / '.join(usd(x) for x in v['usd_cap_d'])} | {' / '.join(pc(x) for x in v['net_med_d'])} |")
     print()
 
 
