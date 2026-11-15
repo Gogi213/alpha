@@ -44,6 +44,7 @@ const snap = () => document.fonts.ready.then(() => {
   const base = await pg.evaluate(snap);
   await pg.click('#ctl [data-cols]'); await pg.waitForTimeout(100);
   let s = await state(); check('popover opens', s.open);
+  check('med: «расхождение» one share wide (no empty gap before it)', Math.abs(s.thw.size / s.thw.n0 - 7.6 / 5.8) < 0.05 && s.thw.size < s.thw.v1 * 1.4, JSON.stringify(s.thw));
   check('aria-expanded true', await pg.$eval('#ctl [data-cols]', e => e.getAttribute('aria-expanded')) === 'true');
   const pr = await pg.$eval('#colpop', e => { const r = e.getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom, innerWidth, innerHeight, getComputedStyle(e).position] });
   check('popover inside viewport', pr[0] >= 0 && pr[1] <= pr[4] && pr[3] <= pr[5], JSON.stringify(pr));

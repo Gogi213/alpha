@@ -286,7 +286,7 @@ function cols(){
     {k:'size',kk:'size|out',t:'расхождение<br>p95, %',v:r=>at(r.pk,1),f:pc},
     {k:'max',kk:'max',t:'расхождение<br>макс, %',v:r=>at(r.pk,2),f:pc}
   ]:[
-    {k:'size',kk:'size|med',t:'расхождение, %',v:r=>at(r.pk,0),f:pc}
+    {k:'size',kk:'size|med',t:'расхождение<br>медиана, %',v:r=>at(r.pk,0),f:pc}
   ]).concat([cnt(0,'за 1 ч'),cnt(1,'за 4 ч'),cnt(2,'за 6 ч'),cnt(3,'за 1 сут'),big(0,'0,3'),big(1,'0,5'),big(2,'1')]).concat(o?[
     {k:'tau',kk:'tau|out',t:'схождение<br>p95',v:r=>at(r.tau,1),f:dur},
     {k:'net',kk:'net|out',t:'после комиссий<br>p95, %',v:r=>at(r.net,1),f:sgp}
@@ -339,15 +339,15 @@ function placePop(){const b=document.querySelector('#ctl [data-cols]'),p=$('colp
 function setPop(on){popOpen=on;const p=$('colpop');p.hidden=!on;if(on){p.innerHTML=popHtml();popFoot();placePop()}const b=document.querySelector('#ctl [data-cols]');if(b)b.setAttribute('aria-expanded',on)}
 function colsChanged(){fixSort();head();refresh();popFoot()}
 function head(){
-  const C=vis(cols()),sum=C.reduce((s,c)=>s+WT[c.k]*(c.k==='size'&&st.mode!=='out'?2:1),0),pa=$('p-a'),cs=getComputedStyle(pa),Wc=pa.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
-  /* у каждого столбца своя ширина — целые px, доля прежней сетки от ширины карточки («расхождение» в режиме «медиана» — две доли); остаток округления — столбцу «пара бирж», при любом наборе видимых. Скрытые места не раздают: карточка сжимается до суммы видимых, слева */
+  const C=vis(cols()),sum=C.reduce((s,c)=>s+WT[c.k],0),pa=$('p-a'),cs=getComputedStyle(pa),Wc=pa.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
+  /* у каждого столбца своя ширина — целые px, доля сетки от ширины карточки; столбец «расхождение» — по содержимому (одна доля в обоих режимах), сетка режима приводится к 100 %; остаток округления — столбцу «пара бирж», при любом наборе видимых. Скрытые места не раздают: карточка сжимается до суммы видимых, слева */
   if(Wc>2){
-    const Wi=Wc-2,A=cols(),m=c=>c.k==='size'&&st.mode!=='out'?2:1,w={};A.forEach(c=>w[c.k]=Math.round(WT[c.k]*Wi/100)*m(c));
+    const Wi=Wc-2,A=cols(),tot=A.reduce((s,c)=>s+WT[c.k],0),w={};A.forEach(c=>w[c.k]=Math.round(WT[c.k]*Wi/tot));
     w.p+=Wi-A.reduce((s,c)=>s+w[c.k],0);
     $('cg').innerHTML=C.map(c=>'<col style="width:'+w[c.k]+'px">').join('');
     $('tw').style.width=C.length===A.length?'':(C.reduce((s,c)=>s+w[c.k],0)+2)+'px';
   }else{
-    $('cg').innerHTML=C.map(c=>'<col style="width:'+(WT[c.k]*(c.k==='size'&&st.mode!=='out'?2:1)/sum*100).toFixed(3)+'%">').join('');
+    $('cg').innerHTML=C.map(c=>'<col style="width:'+(WT[c.k]/sum*100).toFixed(3)+'%">').join('');
     $('tw').style.width='';
   }
   const th=c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'"'+(c.span?' colspan="'+c.span+'"':'')+'><span class="hl">'+c.t+'<i class="ar">'+(c.k===st.sort?(st.dir<0?'↓':'↑'):'')+'</i></span></th>';

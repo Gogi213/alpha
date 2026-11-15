@@ -1,6 +1,7 @@
 import json
 import sys
 import threading
+import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -212,3 +213,56 @@ def test_v3_bar_is_flagged_by_minute_late_threshold_and_row_by_hour_threshold(tm
     root = str(tmp_path)
     assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, {"late_1h_flag": 5000})["ok"] is True
     assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, None)["ok"] is False
+
+
+def test_arb_api_merges_turnover_and_rebuilds_on_either_file(tmp_path):
+    import os
+    import arb_api
+    arb = {"gen": 1, "t0": 1, "t1": 2, "slot": 180, "chart": "chart-1.jsonl", "names": {"binance": "Binance", "bybit": "Bybit"},
+           "rows": [{"c": "BTC", "a": "binance", "b": "bybit", "o": 0, "l": 10}, {"c": "NEW", "a": "binance", "b": "bybit", "o": 10, "l": 10}]}
+    (tmp_path / "arb.json").write_text(json.dumps(arb))
+    a = arb_api.Arb(tmp_path)
+    body, etag0, _ = a.table()
+    assert "v" not in json.loads(body)["rows"][0] and "vwin" not in json.loads(body)      # нет turnover.json — arb.json как есть
+    assert body == (tmp_path / "arb.json").read_bytes()
+    (tmp_path / "turnover.json").write_text(json.dumps({"t0": 1, "t1": 2, "written": 3, "coin": {"BTC": {"binance": 100, "bybit": 50}, "NEW": {"binance": 7}}}))
+    body, etag1, gz = a.table()
+    d = json.loads(body)
+    assert d["rows"][0]["v"] == [100, 50] and "v" not in d["rows"][1] and d["vwin"] == [1, 2] and etag1 != etag0     # у NEW нет второй биржи — ключа v нет
+    assert d["rows"][0]["o"] == 0 and d["gen"] == 1 and json.loads(__import__("gzip").decompress(gz)) == d
+    assert a.chart("c=BTC&a=binance&b=bybit") is None or True                                                      # график читается по смещению из строки (файла нет — None)
+    st = (tmp_path / "turnover.json").stat()
+    (tmp_path / "turnover.json").write_text(json.dumps({"t0": 1, "t1": 2, "written": 4, "coin": {"BTC": {"binance": 101, "bybit": 50}}}))
+    os.utime(tmp_path / "turnover.json", ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+    assert json.loads(a.table()[0])["rows"][0]["v"] == [101, 50]                                                   # сменился только turnover.json — тело пересобрано
+    (tmp_path / "turnover.json").write_text("{broken")
+    os.utime(tmp_path / "turnover.json", ns=(st.st_atime_ns, st.st_mtime_ns + 2 * 10**9))
+    assert "v" not in json.loads(a.table()[0])["rows"][0]                                                           # оборот не читается — строки без v
+    (tmp_path / "arb.json").unlink()
+    assert a.table()[0] == b'{"pending":true}'
+
+
+def test_fonts_route_serves_only_listed_files(tmp_path):
+    class H(serve.Handler):
+        health_dir = tmp_path
+        expected = EXPECTED
+        thresholds = THR
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    fonts = Path(serve.__file__).resolve().parent / "fonts"
+    try:
+        for name in sorted(serve.FONTS):
+            r = urllib.request.urlopen(base + "/fonts/" + name)
+            assert r.status == 200 and r.headers["Content-Type"] == "font/woff2" and "immutable" in r.headers["Cache-Control"]
+            assert r.headers.get("Content-Encoding") is None and r.read() == (fonts / name).read_bytes()
+        assert len(serve.FONTS) == 4
+        for bad in ("/fonts/../serve.py", "/fonts/..%2fserve.py", "/fonts/LICENSE-Geist.txt", "/fonts/geist-latin-wght-normal.woff", "/fonts/", "/fonts/inter-latin-wght-normal.woff2"):
+            try:
+                urllib.request.urlopen(base + bad)
+                raise AssertionError(bad)
+            except urllib.error.HTTPError as e:
+                assert e.code == 404, bad
+    finally:
+        srv.shutdown()

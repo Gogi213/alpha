@@ -184,3 +184,24 @@ def test_bootstrap_from_old_chunks_then_service(tmp_path, monkeypatch):
     same(det, env.reference(t_boot), "bootstrap")
     box = [arb_daemon.Service(str(env.live), now_ms=now1)]
     ticks(env, 125, 170, box, compare_at=(125, 170))
+
+
+# середины Sym.mid живого состояния srv 15.11.2026: тикер — разные активы на биржах (ANTHROPIC, BB, ON) → пары не считаются; BARD — один актив (по минутам ratio p50 0,998)
+MIDS = {
+    "ANTHROPIC": {"okx": 102.295, "bingx": 1341.95},
+    "BB": {"binance": 0.0055185, "okx": 8.687, "bingx": 0.0054935},
+    "ON": {"binance": 0.08365, "bybit": 69.04, "bingx": 0.08405},
+    "BARD": {"binance": 0.12125, "bybit": 0.121005, "okx": 0.12045, "bingx": 0.12075},
+}
+
+
+def test_pair_ok_excludes_tickers_that_are_different_assets():
+    from types import SimpleNamespace as NS
+    kept = {}
+    for coin, mids in MIDS.items():
+        exs = [e for e in common.EXCHANGES if e in mids]
+        kept[coin] = {(a, b) for i, a in enumerate(exs) for b in exs[i + 1:] if arb_daemon.pair_ok(NS(mid=mids[a]), NS(mid=mids[b]))}
+    assert kept["ANTHROPIC"] == set()
+    assert kept["BB"] == {("binance", "bingx")}
+    assert kept["ON"] == {("binance", "bingx")}
+    assert len(kept["BARD"]) == 6

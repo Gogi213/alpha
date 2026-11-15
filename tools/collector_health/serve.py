@@ -2,7 +2,7 @@
 
 Читает /data/health/<биржа>.json (формат — docs/findings/collector-health-format-2026-11-11.md),
 отдаёт page.html, /api/health (прежняя страница, page.html.prev-v3), /api/v3 (столбики по 15 минут, v3.py) и вкладку «Арбитраж»:
-/api/arb (таблица) и /api/arb/chart?c=&a=&b= (график пары) — из каталога --arb-dir, который пишет tools/arb_stats/arb_live.py (arb_api.py). Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
+/api/arb (таблица) и /api/arb/chart?c=&a=&b= (график пары) — из каталога --arb-dir, который пишут tools/arb_stats/arb_daemon.py и arb_turnover.py (arb_api.py); /fonts/<имя>.woff2 — шрифты Geist из fonts/. Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
 пороги — thresholds.json (числа назначает Судья; нет файла — строка жёлтая «порог не задан»).
 Новая биржа = новый файл в каталоге: строка появляется без правки страницы. Файлы с "kind" ≠ "collector" пропускаются.
 """
@@ -18,6 +18,7 @@ import arb_api
 import v3
 
 HERE = Path(__file__).resolve().parent
+FONTS = frozenset(f"geist{m}-{sc}-wght-normal.woff2" for m in ("", "-mono") for sc in ("latin", "cyrillic"))   # шрифты страницы (SIL OFL), каталог fonts/ рядом с serve.py
 SCHEMAS = (1, 2)  # 2 — Rust-коллектор (alpha collect): схема 1 + backpressure, process, totals, shards
 
 
@@ -168,6 +169,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b'{"error":"no such pair"}', js)
             else:
                 self._send(200, body, js)
+        elif path.startswith("/fonts/") and path[7:] in FONTS:
+            try:
+                body = (HERE / "fonts" / path[7:]).read_bytes()
+            except OSError:
+                self._send(404, b"not found", "text/plain")
+                return
+            self.send_response(200)           # woff2 уже сжат: без gzip; имя файла не меняется — кэш на год
+            self.send_header("Content-Type", "font/woff2")
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif path in ("/", "/index.html"):
             body, etag, gz = self._page_bytes()
             self._send(200, body, "text/html; charset=utf-8", etag, gz)

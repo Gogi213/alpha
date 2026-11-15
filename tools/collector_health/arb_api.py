@@ -1,6 +1,6 @@
 """Вкладка «Арбитраж» страницы здоровья: чтение результата почасового счёта (tools/arb_stats/arb_live.py).
 
-<dir>/arb.json — строки таблицы (одним файлом, отдаётся как есть); <dir>/chart-<gen>.jsonl — ряды графиков, по строке на пару,
+<dir>/arb.json — строки таблицы (отдаётся как есть; если рядом есть turnover.json службы arb_turnover.py — к строкам добавляется оборот за сутки v = [$ первой биржи, $ второй], vwin = [t0, t1]); <dir>/chart-<gen>.jsonl — ряды графиков, по строке на пару,
 смещение и длина строки лежат в строке таблицы (o, l). Только стандартная библиотека; файлы читаются по mtime, пишутся атомарно (rename).
 """
 import gzip
@@ -14,21 +14,41 @@ class Arb:
     def __init__(self, directory):
         self.dir = Path(directory)
         self._mt = None
-        self._tab = None            # (тело, etag, сжатое тело) — сжимается один раз на файл
+        self._tab = None            # (тело, etag, сжатое тело) — сжимается один раз на смену файлов
         self._body = None
         self._doc = None
         self._idx = {}
 
-    def _load(self):
-        p = self.dir / "arb.json"
+    def _stat(self, name):
         try:
-            mt = p.stat().st_mtime_ns
+            return (self.dir / name).stat().st_mtime_ns
         except OSError:
+            return None
+
+    def _turnover(self):
+        """-> ({монета: {биржа: $}}, [t0, t1]) из turnover.json службы arb_turnover.py; нет файла или он не читается — (None, None)."""
+        try:
+            t = json.loads((self.dir / "turnover.json").read_bytes())
+            return t["coin"], [t["t0"], t["t1"]]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None, None
+
+    def _load(self):
+        mt = (self._stat("arb.json"), self._stat("turnover.json"))     # тело пересобирается при смене любого из двух файлов
+        if mt[0] is None:
             self._mt = self._body = self._doc = self._tab = None
             return
         if mt != self._mt:
-            body = p.read_bytes()
+            body = (self.dir / "arb.json").read_bytes()
             doc = json.loads(body)
+            coin, win = self._turnover()
+            if coin is not None:                # оборот за сутки: v = [$ первой биржи, $ второй]; монеты или биржи нет — ключа нет, страница рисует «—»
+                for r in doc["rows"]:
+                    c = coin.get(r["c"]) or {}
+                    if r["a"] in c and r["b"] in c:
+                        r["v"] = [c[r["a"]], c[r["b"]]]
+                doc["vwin"] = win
+                body = json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode()
             self._idx = {(r["c"], r["a"], r["b"]): r for r in doc["rows"]}
             self._tab = (body, '"%s"' % hashlib.md5(body).hexdigest()[:20], gzip.compress(body, 6))
             self._mt, self._body, self._doc = mt, body, doc

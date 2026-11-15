@@ -40,6 +40,7 @@ const snap = () => document.fonts.ready.then(() => {
     let mx = 0, worst = '';
     for (const k of Object.keys(a)) {
       if (!c[k]) continue;
+      if (/^mode /.test(name) && k.startsWith('th:')) continue;   // другой набор столбцов (режим «выбросы» добавляет «расхождение макс») — их места меняются по смыслу
       // меняют размер по смыслу: высота таблицы/обёртки, правый край «расхождения» (одна колонка ↔ две), строка графика
       const skip = (k === 'table' || k === 'tw') ? [3] : k === 'th:size' ? [1] : [];
       const d = Math.max(...a[k].map((x, i) => skip.includes(i) ? 0 : Math.abs(x - c[k][i])));

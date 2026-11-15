@@ -177,9 +177,9 @@ def bootstrap(live, t_b, par=3):
     jobs = [(ex, day, f, lo - KEEP_MIN * MIN, un[ex], m0) for ex, day, f in discover(days, lo - KEEP_MIN * MIN, t_b + MARGIN_MS)]
     jobs.sort(key=lambda j: -os.path.getsize(j[2]))
     S = new_state(m0)
-    with Pool(par) as p:
-        res = p.imap_unordered(boot_file, jobs, chunksize=1) if par > 1 else map(boot_file, jobs)
-        for key, st, bins in res:
+    pool = Pool(par) if par > 1 else None
+    try:
+        for key, st, bins in (pool.imap_unordered(boot_file, jobs, chunksize=1) if pool else map(boot_file, jobs)):
             S["parse"][key] = {"off": st["off"], "cum": st["cum"], "last": {}, "done": st["done"]}
             for k, a in bins.items():
                 t = S["bins"].get(k)
@@ -189,6 +189,9 @@ def bootstrap(live, t_b, par=3):
                     if len(t) < len(a):
                         t = S["bins"][k] = np.concatenate([t, np.zeros(len(a) - len(t))])
                     t[:len(a)] += a
+    finally:
+        if pool:
+            pool.terminate()
     save_state(live, S)
     log(event="bootstrap", files=len(jobs), keys=len(S["bins"]), seconds=round(time.time() - t0, 1))
     return S
