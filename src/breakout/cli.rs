@@ -259,6 +259,12 @@ fn run(
         if v.1.sig.ap != 0 || v.1.sig.pb {
             bail!("ap и pb считает только `breakout tick`: {line}");
         }
+        if v.1.sig.fresh_on() {
+            bail!("fh/fm (свежий уровень) считает только `breakout tick`: {line}");
+        }
+        if v.1.exit.take_grid_opts() {
+            bail!("tpg/tpk/ns считает только `breakout tick`: {line}");
+        }
         vs.push(v);
     }
     if vs.is_empty() {

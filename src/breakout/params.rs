@@ -38,6 +38,14 @@ pub struct SigCfg {
     pub ap: u8,
     /// §13.13: сделка на уровне или за ним (high ≥ цены версии) убивает уровень со следующей минуты. Только `breakout tick`.
     pub pb: bool,
+    /// §13.14 «свежий уровень», (а): H в минутах — последнее касание уровня не старше H; 0 — (а) выключено. Только `breakout tick`.
+    pub fr_h_min: usize,
+    /// §13.14, (б) «проторговка»: окно K в минутах.
+    pub fr_k: usize,
+    /// §13.14, (б): доля K в % — минимум минут закрытия в полосе подхода; 0 — (б) выключено.
+    pub fr_share: usize,
+    /// §13.14, (б): ширина полосы подхода b в тысячных процента.
+    pub fr_b_pm: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +67,14 @@ pub struct ExitCfg {
     /// Задержка исполнения выхода по стопу/трейлу/безубытку, мс (§13.6, справочно): выход — по первой сделке не раньше
     /// срабатывания + задержка; тейки остаются лимитками. 0 — выход на сделке срабатывания (как в §13.2).
     pub lat_exit_ms: i64,
+    /// §13.12: перекос цены лестницы тейков — ступень i стоит на `t_low + (t_high − t_low)·(i/(n−1))^γ` (γ ×1000; 1000 — равные шаги).
+    /// Только `breakout tick`.
+    pub tp_gamma_m: i64,
+    /// §13.12: перекос объёма — вес ступени ∝ `1 + κ·i/(n−1)` (κ ×1000; 0 — равные доли); сумма долей остаётся q. Только `breakout tick`.
+    pub tp_kappa_m: i64,
+    /// §13.12: источник NATR выхода: 0 — закрытая минутка t−1 (30 баров до сигнальной, §13.2); 1 — включая сигнальную минуту t
+    /// (заглядывание вперёд, справочно). Только `breakout tick`.
+    pub natr_src: u8,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,6 +103,20 @@ fn pm(x: f64) -> i64 {
     (x * 1000.0).round() as i64
 }
 
+impl SigCfg {
+    /// Правило §13.14 «свежий уровень» включено (хотя бы одна из ветвей (а), (б)).
+    pub fn fresh_on(&self) -> bool {
+        self.fr_h_min > 0 || self.fr_share > 0
+    }
+}
+
+impl ExitCfg {
+    /// Опции §13.12 не по умолчанию (лестница тейков с перекосом или NATR по другой минутке) — только `breakout tick`.
+    pub fn take_grid_opts(&self) -> bool {
+        self.tp_gamma_m != 1000 || self.tp_kappa_m != 0 || self.natr_src != 0
+    }
+}
+
 impl Params {
     /// База витрины (§5.2).
     pub fn base() -> Params {
@@ -113,6 +143,10 @@ impl Params {
                 ban: true,
                 ap: 0,
                 pb: false,
+                fr_h_min: 0,
+                fr_k: 120,
+                fr_share: 0,
+                fr_b_pm: pm(0.5),
             },
             exit: ExitCfg {
                 natr_p: 30,
@@ -128,6 +162,9 @@ impl Params {
                 best_order: false,
                 lat_ms: 0,
                 lat_exit_ms: 0,
+                tp_gamma_m: 1000,
+                tp_kappa_m: 0,
+                natr_src: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -168,6 +205,10 @@ impl Params {
             "ban" => self.sig.ban = b,
             "ap" => self.sig.ap = u.min(255) as u8,
             "pb" => self.sig.pb = b,
+            "fh" => self.sig.fr_h_min = (f * 60.0).round() as usize,
+            "fk" => self.sig.fr_k = u,
+            "fm" => self.sig.fr_share = u,
+            "fb" => self.sig.fr_b_pm = pm(f),
             "n_tp" => self.exit.n_tp = u,
             "t_low" => self.exit.t_low_m = pm(f),
             "t_high" => self.exit.t_high_m = pm(f),
@@ -180,6 +221,9 @@ impl Params {
             "best" => self.exit.best_order = b,
             "lat" => self.exit.lat_ms = f.round() as i64,
             "latx" => self.exit.lat_exit_ms = f.round() as i64,
+            "tpg" => self.exit.tp_gamma_m = pm(f),
+            "tpk" => self.exit.tp_kappa_m = pm(f),
+            "ns" => self.exit.natr_src = u.min(255) as u8,
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
             "mm" => self.port.mm_min = u,
@@ -205,6 +249,15 @@ impl Params {
         }
         if self.sig.ap > 2 {
             bail!("ap ∈ {{0, 1, 2}}");
+        }
+        if self.exit.tp_gamma_m <= 0 || self.exit.tp_kappa_m <= -1000 {
+            bail!("tpg > 0, tpk > −1");
+        }
+        if self.sig.fr_share > 100 || self.sig.fr_k == 0 || self.sig.fr_k > 1440 {
+            bail!("fm ≤ 100, 1 ≤ fk ≤ 1440");
+        }
+        if self.exit.natr_src > 1 {
+            bail!("ns ∈ {{0, 1}}");
         }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");
