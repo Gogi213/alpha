@@ -8,7 +8,9 @@
   3. пишет arb.json (`written`, `period` — по ним страница опрашивает раз в период) и chart-<gen>.jsonl;
   4. сохраняет состояние (state.pkl: пары, символы, позиции чтения) — перезапуск продолжает с того же места.
 Первый запуск без state.pkl: bootstrap из кусков прежнего почасового разбора (<live>/parsed и <live>/state) — полный счёт одним проходом.
-Запуск: python3 arb_daemon.py run <live> | bootstrap <live> [PAR] | once <live>. Файл /data/perf/HOLD — проход пропускается (запись в skips.log).
+Запуск: python3 arb_daemon.py run <live> | bootstrap <live> [PAR] | once <live> | rebuild <пустой каталог> [PAR]. Файл /data/perf/HOLD — проход пропускается (запись в skips.log).
+rebuild — состояние с нуля по сырым файлам (этап A по всем биржам, затем bootstrap): так подключается новая биржа (Gate — пятая), чьих символов в прежних кусках нет;
+в боевой каталог не пишется (должен быть пустым) — готовый state.pkl кладётся на место при остановленной службе, служба догоняет с него.
 Нужен пакет zstandard (на srv — /opt/arb-tab/pylib, PYTHONPATH в юните).
 """
 import glob
@@ -30,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import arb_inc  # noqa: E402
 import arb_live  # noqa: E402
 import parse_inc  # noqa: E402
-from common import EXCHANGES, load_pool, norm  # noqa: E402,F401
+from common import EXCHANGES, load_pool, norm, unit_of  # noqa: E402,F401
 
 PERIOD_S = 300               # период проходов
 TICK_OFFSET_S = 15           # проход через 15 с после границы периода: сборщики успевают дописать минуту
@@ -125,7 +127,7 @@ def coin_map(day):
     cmap = {}
     for coin, per in coins.items():
         for ex, (sym, mult, _) in per.items():
-            unit = float((meta[ex].get(sym) or {}).get("ctVal") or 1.0) if ex == "okx" else 1.0
+            unit = unit_of(ex, meta[ex].get(sym))
             cmap[(ex, sym)] = (coin, mult, unit)
     return cmap, coins
 
@@ -395,6 +397,14 @@ class Service:
 def main(cmd, live, par=3):
     Path(live).mkdir(parents=True, exist_ok=True)
     if cmd == "bootstrap":
+        bootstrap(live, par)
+        return
+    if cmd == "rebuild":
+        if any(Path(live, n).exists() for n in ("state.pkl", "state", "parsed")):
+            log(error="rebuild: каталог не пустой (есть state.pkl / state / parsed) — боевое состояние не трогаем")
+            sys.exit(2)
+        files, kept = arb_live.parse_all(live, int(time.time() * 1000), par)
+        log(event="parse", files=files, kept=kept)
         bootstrap(live, par)
         return
     import fcntl   # только Linux: замок от двух служб

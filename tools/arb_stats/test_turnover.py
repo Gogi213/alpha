@@ -21,13 +21,14 @@ MIN = 60_000
 STAMP = ti.T_BEGIN // 1000 - 600                     # метка запуска сборщика (с): файлы trade<N>-<метка>.tsv.zst
 WINDOW = 50 * MIN
 SYMS = {                                             # монета -> биржи (DDD — одна биржа: в карту монет не входит, её сделки в файлах игнорируются)
-    "AAA": ("binance", "bybit", "okx", "bingx"),
+    "AAA": ("binance", "bybit", "okx", "bingx", "gate"),
     "BBB": ("binance", "okx"),
     "CCC": ("bybit", "bingx"),
     "DDD": ("binance",),
 }
-NAME = {"binance": "{}USDT", "bybit": "{}USDT", "okx": "{}-USDT-SWAP", "bingx": "{}-USDT"}
-CTVAL = {"AAA": 0.1, "BBB": 10.0, "CCC": 1.0, "DDD": 1.0}
+NAME = {"binance": "{}USDT", "bybit": "{}USDT", "okx": "{}-USDT-SWAP", "bingx": "{}-USDT", "gate": "{}_USDT"}
+CTVAL = {"AAA": 0.1, "BBB": 10.0, "CCC": 1.0, "DDD": 1.0}      # OKX: монет в контракте (ctVal)
+QUANTO = {"AAA": 0.01, "BBB": 1.0, "CCC": 1.0, "DDD": 1.0}      # Gate: монет в контракте (quanto_multiplier, в пуле строкой)
 LANES = ("00", "01")                                 # два файла на биржу: сделки символа идут то в один, то в другой
 
 
@@ -37,8 +38,8 @@ class Env:
         self.live.mkdir()
         self.day = datetime.fromtimestamp(ti.T_BEGIN / 1000, timezone.utc).date().isoformat()
         self.start = ti.T_BEGIN + 20 * MIN
-        for obj, name, val in ((arb_live, "START_MS", self.start), (arb_live, "MINRUN", STAMP), (arb_live, "WINDOW_MS", WINDOW),
-                               (arb_turnover, "WINDOW_MS", WINDOW), (arb_live, "HOLD", str(tmp / "no-hold"))):
+        for obj, name, val in ((arb_live, "START_MS", self.start), (common, "MINRUN", STAMP), (common, "MINRUN_EX", {"gate": STAMP}), (common, "SINCE", {}),
+                               (arb_live, "WINDOW_MS", WINDOW), (arb_turnover, "WINDOW_MS", WINDOW), (arb_live, "HOLD", str(tmp / "no-hold"))):
             monkeypatch.setattr(obj, name, val)
         rng = np.random.default_rng(seed)
         self.rows = {ex: [] for ex in common.EXCHANGES}   # (rx, лаг, E−T, имя символа, цена, количество, монета)
@@ -48,11 +49,13 @@ class Env:
             monkeypatch.setitem(common.ROOTS, ex, str(root))
             (root / self.day).mkdir(parents=True)
             pool = [NAME[ex].format(c) for c, exs in SYMS.items() if ex in exs]
-            meta = {NAME[ex].format(c): {"ctVal": CTVAL[c]} for c, exs in SYMS.items() if ex in exs}
+            meta = {NAME[ex].format(c): ({"quanto_multiplier": str(QUANTO[c])} if ex == "gate" else {"ctVal": CTVAL[c]}) for c, exs in SYMS.items() if ex in exs}
             (root / f"pool-{self.day}.json").write_text(json.dumps({"pool": pool, "meta": meta}))
             self.paths[ex] = {ln: root / self.day / f"trade{ln}-{STAMP}.tsv.zst" for ln in LANES}
             for p in self.paths[ex].values():
                 p.write_bytes(b"")
+                if ex == "gate":     # пробный запуск Gate (метка раньше постоянного) — не zstd: читать его нельзя, discover обязан пропустить
+                    (p.parent / p.name.replace(str(STAMP), str(STAMP - 115))).write_bytes(b"trial run, must be skipped")
             for coin, exs in SYMS.items():
                 if ex not in exs:
                     continue
@@ -95,7 +98,7 @@ class Env:
                 Path(str(p) + ".ok").write_bytes(b"")
 
     def reference(self, now):
-        """Пересчёт в лоб по всем сделкам, пришедшим к моменту: окно — по времени сделки T = приём − лаг − (E−T); OKX × ctVal."""
+        """Пересчёт в лоб по всем сделкам, пришедшим к моменту: окно — по времени сделки T = приём − лаг − (E−T); OKX × ctVal, Gate × quanto_multiplier."""
         t1 = (now - arb_turnover.MARGIN_MS) // MIN * MIN
         t0 = max(arb_live.START_MS, t1 - WINDOW)
         out = {coin: {ex: 0.0 for ex in exs} for coin, exs in SYMS.items() if len(exs) > 1}
@@ -104,7 +107,7 @@ class Env:
                 if rx > now or coin not in out:
                     continue
                 if t0 // MIN <= (rx - lag - et) // MIN < t1 // MIN:
-                    out[coin][ex] += p * q * (CTVAL[coin] if ex == "okx" else 1.0)
+                    out[coin][ex] += p * q * (CTVAL[coin] if ex == "okx" else QUANTO[coin] if ex == "gate" else 1.0)
         return t0, t1, out
 
 

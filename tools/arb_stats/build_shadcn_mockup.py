@@ -21,13 +21,14 @@ def main(page, arb, chart, v3, turn, fonts, out, label="макет shadcn"):
     T = json.loads(Path(turn).read_text())
     coin = T["coin"]
     miss = 0
+    svc = "win" not in T                  # turnover.json службы arb_turnover.py: {"t0", "t1", "coin": {монета: {биржа: $}}}; прежний (turnover.py): {"win", "coin": {монета: {биржа: [$, монет]}}}
     for r in A["rows"]:
         c = coin.get(r["c"], {})
         va, vb = c.get(r["a"]), c.get(r["b"])
         if va is None or vb is None:
             miss += 1
-        r["v"] = [round(va[0]) if va else 0, round(vb[0]) if vb else 0]
-    A["vwin"] = T["win"]["page"]
+        r["v"] = [round(va or 0), round(vb or 0)] if svc else [round(va[0]) if va else 0, round(vb[0]) if vb else 0]
+    A["vwin"] = [T["t0"], T["t1"]] if svc else T["win"]["page"]
     html = Path(page).read_text(encoding="utf-8")
     html = re.sub(r"/fonts/([\w.-]+\.woff2)", lambda m: "data:font/woff2;base64," + b64(Path(fonts, m.group(1)).read_bytes()), html)
     cz = gzip.compress(Path(chart).read_bytes(), 9)

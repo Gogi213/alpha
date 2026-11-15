@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 import maker  # noqa: E402
 from arb_live import symmap_for  # noqa: E402
-from common import EXCHANGES, load_pool, norm  # noqa: E402
+from common import EXCHANGES, load_pool, norm, unit_of  # noqa: E402
 
 G = {}
 
@@ -51,7 +51,7 @@ def work_coin(coin):
     g = G
     books, trades, info = {}, {}, {}
     for ex, (sym, mult, _) in g["coins"][coin].items():
-        unit = float((g["meta"][ex].get(sym) or {}).get("ctVal") or 1.0) if ex == "okx" else 1.0
+        unit = unit_of(ex, g["meta"][ex].get(sym))
         a = load_book(g["bwork"], ex, sym, mult, unit)
         if a is None or len(a["e"]) < 20:
             continue

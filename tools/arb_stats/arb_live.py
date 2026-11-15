@@ -1,6 +1,6 @@
 """Живая вкладка «Арбитраж» страницы здоровья G-022: один проход раз в час (юнит arb-stats.timer).
 
-1. этап A (parse_inc): дочитывает файлы книг четырёх бирж с прошлого места, куски по символам — <live>/parsed;
+1. этап A (parse_inc): дочитывает файлы книг пяти бирж с прошлого места, куски по символам — <live>/parsed;
 2. удаляет куски старше окна (24 ч + прогрев центра);
 3. этап B (analyze.compute): статистика по всем парам за окно [max(начало сбора, t1 − 24 ч), t1);
 4. пишет <live>/arb.json (строки таблицы) и <live>/chart-<gen>.jsonl (график каждой пары: максимум Sell, минимум Buy, центр по слотам 3 мин).
@@ -23,14 +23,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 import analyze  # noqa: E402
 import core  # noqa: E402
 import parse_inc  # noqa: E402
-from common import EXCHANGES, ROOTS, build_symmap  # noqa: E402
+from common import EXCHANGES, MINRUN, ROOTS, build_symmap, minrun  # noqa: E402,F401
 
 START_MS = int(datetime(2026, 11, 14, 12, 30, tzinfo=timezone.utc).timestamp() * 1000)   # 14.11 16:30 GMT+4
-MINRUN = 1794656000          # начало последнего запуска сборщиков (final6j): записи старых запусков другого вида
 WINDOW_MS = 24 * 3600_000
 WARM_MS = 90 * 60_000        # прогрев центра (60 мин) + запас
 PERIODS_H = (1, 4, 6, 24)
-NAMES = {"binance": "Binance", "bybit": "Bybit", "okx": "OKX", "bingx": "BingX"}
+NAMES = {"binance": "Binance", "bybit": "Bybit", "okx": "OKX", "bingx": "BingX", "gate": "Gate"}
 BOOK = re.compile(r"book\d+-(\d+)\.tsv\.zst$")
 HOLD = os.environ.get("ARB_HOLD", "/data/perf/HOLD")   # есть файл — идёт замер производительности, проход пропускается
 WANT = {}                    # {(биржа, день): {имя в файле (bytes): имя}} — задаётся до Pool, наследуется потомками
@@ -61,7 +60,7 @@ def discover(days):
         for day in days:
             for f in glob.glob(f"{ROOTS[ex]}/{day}/book*.tsv.zst"):
                 m = BOOK.search(f)
-                if m and int(m.group(1)) >= MINRUN:
+                if m and int(m.group(1)) >= minrun(ex):
                     jobs.append((ex, day, f, os.path.getsize(f)))
     return sorted(jobs, key=lambda j: -j[3])
 
@@ -80,6 +79,8 @@ def parse_all(live, now_ms, par):
             WANT[(ex, day)] = {s.encode(): s for s in sm[ex]}
     Path(live, "state").mkdir(parents=True, exist_ok=True)
     args = [(ex, day, f, str(Path(live, "state")), str(Path(live, "parsed")), START_MS - WARM_MS) for ex, day, f, _ in jobs]
+    if par <= 1:
+        return len(jobs), sum(map(_parse, args))
     with Pool(par) as p:
         kept = sum(p.map(_parse, args, chunksize=1))
     return len(jobs), kept

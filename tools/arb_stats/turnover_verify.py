@@ -2,7 +2,7 @@
 
 python3 turnover_verify.py <url /api/arb> [монеты через запятую; по умолчанию BTC,SOL,ZORA] [допуск, по умолчанию 0.10]
 Берёт строки /api/arb (v = [$ первой биржи, $ второй] за окно vwin), собирает оборот монеты по биржам и сравнивает с тикером биржи (Binance/BingX — quoteVolume,
-Bybit — turnover24h; OKX отдаёт объём в монете, а не в $ — в таблице «—»). Окна тикера и страницы не совпадают на минуты, поэтому допуск ±10 % по умолчанию.
+Bybit — turnover24h, Gate — volume_24h_quote; OKX отдаёт объём в монете, а не в $ — в таблице «—»). Окна тикера и страницы не совпадают на минуты, поэтому допуск ±10 % по умолчанию.
 Код выхода 0 — у всех проверяемых (монета, биржа) отношение в допуске и у ≥ 90 % строк есть v.
 """
 import json
@@ -20,6 +20,7 @@ URLS = {
     "bybit": "https://api.bybit.com/v5/market/tickers?category=linear",
     "okx": "https://www.okx.com/api/v5/market/tickers?instType=SWAP",
     "bingx": "https://open-api.bingx.com/openApi/swap/v2/quote/ticker",
+    "gate": "https://fx-api.gateio.ws/api/v4/futures/usdt/tickers",
 }
 
 

@@ -26,7 +26,7 @@ import arb_daemon  # noqa: E402
 import arb_live  # noqa: E402
 import parse_inc  # noqa: E402
 import parse_trades  # noqa: E402
-from common import EXCHANGES, ROOTS  # noqa: E402
+from common import EXCHANGES, ROOTS, minrun, unit_of  # noqa: E402
 
 MIN = 60_000
 PERIOD_S = arb_daemon.PERIOD_S
@@ -50,11 +50,12 @@ class AllSyms:
 
 
 def units():
-    """{биржа: {символ (bytes): размер контракта}} — ctVal из всех пулов (только OKX; у остальных количество в монете)."""
+    """{биржа: {символ (bytes): размер контракта}} — по всем пулам: OKX ctVal, Gate quanto_multiplier (common.unit_of); у остальных количество в монете."""
     out = {ex: {} for ex in EXCHANGES}
-    for f in glob.glob(f"{ROOTS['okx']}/pool-*.json"):
-        for s, m in (json.loads(Path(f).read_text(encoding="utf-8")).get("meta") or {}).items():
-            out["okx"][s.encode()] = float(m.get("ctVal") or 1.0)
+    for ex in ("okx", "gate"):
+        for f in glob.glob(f"{ROOTS[ex]}/pool-*.json"):
+            for s, m in (json.loads(Path(f).read_text(encoding="utf-8")).get("meta") or {}).items():
+                out[ex][s.encode()] = unit_of(ex, m)
     return out
 
 
@@ -138,14 +139,14 @@ def file_key(ex, day, path):
 
 
 def discover(days, t_lo_ms, t_hi_ms):
-    """Файлы сделок запусков с метки MINRUN, которые могут держать записи окна: запуск начался до t_hi, следующий запуск той же полосы — не раньше t_lo."""
+    """Файлы сделок запусков с метки MINRUN биржи (common.minrun), которые могут держать записи окна: запуск начался до t_hi, следующий запуск той же полосы — не раньше t_lo."""
     jobs = []
     for ex in EXCHANGES:
         for day in days:
             lanes = {}
             for f in glob.glob(f"{ROOTS[ex]}/{day}/trade*.tsv.zst"):
                 m = TRADE.search(f)
-                if m and int(m.group(2)) >= arb_live.MINRUN:
+                if m and int(m.group(2)) >= minrun(ex):
                     lanes.setdefault(m.group(1), []).append((int(m.group(2)), f))
             for fs in lanes.values():
                 fs.sort()

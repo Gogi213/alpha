@@ -3,7 +3,7 @@
 python3 turnover_check.py win <tickers.json> <arb.json> <окна.json>   — окна для turnover.py (page — как у arb.json; chk — окно тикера: Binance/BingX — openTime…closeTime символа,
                                                                         Bybit/OKX — [время ответа − 24 ч, время ответа])
 python3 turnover_check.py cmp <tickers.json> <turnover.json> [монеты через запятую] — наш оборот против тикера: по монетам и суммой по записанным символам.
-Тикер: Binance/BingX — quoteVolume, Bybit — turnover24h ($); OKX отдаёт только объём в монете (volCcy24h) — сверка по нему.
+Тикер: Binance/BingX — quoteVolume, Bybit — turnover24h, Gate — volume_24h_quote ($); OKX отдаёт только объём в монете (volCcy24h) — сверка по нему.
 """
 import json
 import sys
@@ -32,6 +32,10 @@ def tick(ex, d):
         for x in b["data"]:
             t = int(x["ts"])
             out[x["instId"]] = (t - DAY, t, None, float(x["volCcy24h"]))
+    elif ex == "gate":                      # скользящие 24 ч на момент ответа; $ — volume_24h_quote, монеты — volume_24h_base
+        t = int(d[ex]["t_resp"])
+        for x in b:
+            out[x["contract"]] = (t - DAY, t, float(x["volume_24h_quote"]), float(x["volume_24h_base"]))
     return out
 
 
