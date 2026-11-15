@@ -25,6 +25,14 @@ from common import EXCHANGES, load_pool, norm  # noqa: E402
 G = {}
 
 
+def tick_pct(a):
+    """Шаг цены биржи, % от медианной цены: наименьшая разность между наблюдаемыми различными bid/ask (верхняя оценка шага)."""
+    p = np.unique(np.concatenate([a["bid"], a["ask"]]))
+    d = np.diff(p)
+    d = d[d > p[:-1] * 1e-9]
+    return float(d.min() / np.median(a["bid"]) * 100) if len(d) else float("nan")
+
+
 def work_coin(coin):
     g = G
     books, info = {}, {}
@@ -38,7 +46,7 @@ def work_coin(coin):
         if len(a["e"]) < 20:
             continue
         books[ex] = a
-        info[ex] = {"sym": sym, "mid": float(np.median((a["bid"] + a["ask"]) / 2)), "events": int(((a["e"] >= g["t0"]) & (a["e"] < g["t1"])).sum())}
+        info[ex] = {"sym": sym, "mid": float(np.median((a["bid"] + a["ask"]) / 2)), "events": int(((a["e"] >= g["t0"]) & (a["e"] < g["t1"])).sum()), "tick": tick_pct(a)}
     out, mism = {}, []
     exs = [e for e in EXCHANGES if e in books]
     for i, a_ in enumerate(exs):
