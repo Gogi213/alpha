@@ -256,6 +256,9 @@ fn run(
         if v.1.sig.lv.pk {
             bail!("pk считает только `breakout tick`: {line}");
         }
+        if v.1.exit.take_grid_opts() {
+            bail!("tpg/tpk/ns считает только `breakout tick`: {line}");
+        }
         vs.push(v);
     }
     if vs.is_empty() {

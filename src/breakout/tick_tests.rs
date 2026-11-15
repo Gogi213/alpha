@@ -6,8 +6,9 @@ use super::levels::build_levels;
 use super::params::Params;
 use super::tests::{flat, level_world, lv_params, mirror, px, run_scan, set, sym, BORN};
 use super::tick::{
-    candidates, first_signal, minute_range, parse_px, parse_trades, run_tick, settle_tick,
-    signals_for_coin, sim_stream, LoadStat, TLeg, TSig, Tick, TickCtr, TickOut, TradeSrc, DAY_MS,
+    candidates, exit_natr, first_signal, minute_range, parse_px, parse_trades, run_tick,
+    settle_tick, signals_for_coin, sim_stream, tp_lots, tp_mult_m, LoadStat, TLeg, TSig, Tick,
+    TickCtr, TickOut, TradeSrc, DAY_MS,
 };
 use super::trade::{ExitKind, NOTIONAL_U};
 use super::Side;
@@ -628,4 +629,137 @@ fn pk_death_is_permanent() {
     on.sig.lv.pk = true;
     on.sig.ban = false;
     assert_eq!(cand_minutes(c, &on, Side::Long), vec![BORN + 50]);
+}
+
+// ───────────── §13.12: сетка тейков — перекос цены γ, перекос объёма κ, источник NATR ns ─────────────
+
+#[test]
+fn take_grid_defaults_keep_the_old_ladder_and_lots() {
+    let ex = Params::base().exit;
+    assert_eq!((ex.tp_gamma_m, ex.tp_kappa_m, ex.natr_src), (1000, 0, 0));
+    assert!(!ex.take_grid_opts());
+    for i in 0..8 {
+        assert_eq!(tp_mult_m(&ex, i, 8), 1000 + 4000 * i / 7, "ступень {i}");
+    }
+    assert_eq!(tp_lots(&ex), vec![NOTIONAL_U * 50 / (100 * 8); 8]);
+    assert_eq!(tp_lots(&ex).iter().sum::<i64>(), NOTIONAL_U / 2);
+}
+
+#[test]
+fn take_grid_gamma_moves_inner_steps_not_the_ends() {
+    let mut ex = Params::base().exit;
+    ex.n_tp = 5;
+    ex.tp_gamma_m = 2000;
+    // (i/4)^2 · 4000 = 0, 250, 1000, 2250, 4000
+    let sq: Vec<i64> = (0..5).map(|i| tp_mult_m(&ex, i, 5)).collect();
+    assert_eq!(sq, vec![1000, 1250, 2000, 3250, 5000]);
+    ex.n_tp = 8;
+    for g in [500, 2000, 3000] {
+        ex.tp_gamma_m = g;
+        let v: Vec<i64> = (0..8).map(|i| tp_mult_m(&ex, i, 8)).collect();
+        assert_eq!((v[0], v[7]), (1000, 5000), "концы не двигаются, γ={g}");
+        assert!(v.windows(2).all(|w| w[0] < w[1]), "возрастание, γ={g}");
+        for (i, x) in v.iter().enumerate().take(7).skip(1) {
+            let lin = 1000 + 4000 * i as i64 / 7;
+            if g < 1000 {
+                assert!(*x > lin, "γ<1 — к дальнему краю: ступень {i}");
+            } else {
+                assert!(*x < lin, "γ>1 — к ближнему краю: ступень {i}");
+            }
+        }
+    }
+}
+
+#[test]
+fn take_grid_kappa_weights_sum_to_q_and_tilt_by_sign() {
+    let mut ex = Params::base().exit;
+    for k in [-750, 1000, 3000] {
+        ex.tp_kappa_m = k;
+        let l = tp_lots(&ex);
+        assert_eq!(l.len(), 8);
+        assert_eq!(l.iter().sum::<i64>(), NOTIONAL_U / 2, "сумма = q, κ={k}");
+        let w = |i: usize| 1.0 + f64::from(k as i32) / 1000.0 * i as f64 / 7.0;
+        for i in 1..8 {
+            let r = l[i] as f64 / l[0] as f64;
+            assert!((r - w(i) / w(0)).abs() < 1e-6, "вес ступени {i}, κ={k}");
+        }
+        if k < 0 {
+            assert!(l[0] > l[7], "κ<0 — больше на ближних");
+        } else {
+            assert!(l[0] < l[7], "κ>0 — больше на дальних");
+        }
+    }
+    // q = 25 %: сумма долей — q, не 50 %
+    ex.q_pct = 25;
+    ex.tp_kappa_m = 1000;
+    assert_eq!(tp_lots(&ex).iter().sum::<i64>(), NOTIONAL_U / 4);
+    // допустимость значений
+    for bad in ["tpk=-1", "tpg=0", "tpg=-1", "ns=2"] {
+        assert!(
+            super::params::parse_variant(&format!("x {bad}")).is_err(),
+            "{bad}"
+        );
+    }
+    let (_, p) = super::params::parse_variant("x tpg=0.5 tpk=-0.75 ns=1").expect("разбор");
+    assert_eq!(
+        (p.exit.tp_gamma_m, p.exit.tp_kappa_m, p.exit.natr_src),
+        (500, -750, 1)
+    );
+    assert!(p.exit.take_grid_opts());
+}
+
+#[test]
+fn take_grid_gamma_and_kappa_drive_the_simulated_takes() {
+    // γ: n = 3, 1 NATR = 0,5 → тейки 100,5 / 100,75 / 101,0 при γ = 1 и 100,5 / 100,625 / 101,0 при γ = 2
+    let mut ex = ex_test();
+    ex.n_tp = 3;
+    let t = vec![(10, 100.0, false), (20, 100.7, false), (30, 100.0, true)];
+    let out = sim_stream(&mut stream(t.clone()), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(
+        out.takes, 1,
+        "γ=1: сделка 100,7 проходит только первый тейк"
+    );
+    ex.tp_gamma_m = 2000;
+    let out = sim_stream(&mut stream(t), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(out.takes, 2, "γ=2: 100,5 и 100,625 пройдены");
+    assert_eq!(out.legs[1].px, px(100.625));
+    // κ = 1, n = 2: доли 1 : 2 от q = 50 % → 83 333 333 и 166 666 667 мкУЕ; остаток 50 % уходит выходом
+    let mut ex = ex_test();
+    ex.tp_kappa_m = 1000;
+    let t = vec![(10, 100.0, false), (20, 101.5, false), (30, 100.0, true)];
+    let out = sim_stream(&mut stream(t), 0, Side::Long, NATR, &ex).expect("исход");
+    assert_eq!(out.takes, 2);
+    let u: Vec<i64> = out.legs.iter().map(|l| l.u).collect();
+    assert_eq!(u, vec![83_333_333, 166_666_667, NOTIONAL_U / 2]);
+    assert_eq!(u.iter().sum::<i64>(), NOTIONAL_U);
+}
+
+#[test]
+fn exit_natr_is_the_closed_minute_before_the_signal_unless_ns() {
+    let mut c = flat(3000, 100.0);
+    let t = 2000;
+    set(&mut c, t, 100.0, 101.0, 99.0, 100.0); // диапазон 2 только в сигнальной минуте
+    let s = sym(c);
+    let mut ex = Params::base().exit;
+    assert_eq!(
+        exit_natr(&s, &ex, t),
+        0,
+        "ns=0: 30 баров до сигнальной минуты — плоские"
+    );
+    ex.natr_src = 1;
+    let v = s.natr_for(30).expect("кэш 30")[t];
+    assert!(v > 0);
+    assert_eq!(
+        exit_natr(&s, &ex, t),
+        i64::from(v),
+        "ns=1: включая минуту t"
+    );
+}
+
+#[test]
+fn take_grid_opts_flag_marks_non_default_keys() {
+    for line in ["x tpg=2", "x tpk=1", "x ns=1"] {
+        let (_, p) = super::params::parse_variant(line).expect("разбор");
+        assert!(p.exit.take_grid_opts(), "{line}");
+    }
 }

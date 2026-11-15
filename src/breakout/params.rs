@@ -54,6 +54,14 @@ pub struct ExitCfg {
     /// Задержка исполнения выхода по стопу/трейлу/безубытку, мс (§13.6, справочно): выход — по первой сделке не раньше
     /// срабатывания + задержка; тейки остаются лимитками. 0 — выход на сделке срабатывания (как в §13.2).
     pub lat_exit_ms: i64,
+    /// §13.12: перекос цены лестницы тейков — ступень i стоит на `t_low + (t_high − t_low)·(i/(n−1))^γ` (γ ×1000; 1000 — равные шаги).
+    /// Только `breakout tick`.
+    pub tp_gamma_m: i64,
+    /// §13.12: перекос объёма — вес ступени ∝ `1 + κ·i/(n−1)` (κ ×1000; 0 — равные доли); сумма долей остаётся q. Только `breakout tick`.
+    pub tp_kappa_m: i64,
+    /// §13.12: источник NATR выхода: 0 — закрытая минутка t−1 (30 баров до сигнальной, §13.2); 1 — включая сигнальную минуту t
+    /// (заглядывание вперёд, справочно). Только `breakout tick`.
+    pub natr_src: u8,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,6 +88,13 @@ pub struct Params {
 
 fn pm(x: f64) -> i64 {
     (x * 1000.0).round() as i64
+}
+
+impl ExitCfg {
+    /// Опции §13.12 не по умолчанию (лестница тейков с перекосом или NATR по другой минутке) — только `breakout tick`.
+    pub fn take_grid_opts(&self) -> bool {
+        self.tp_gamma_m != 1000 || self.tp_kappa_m != 0 || self.natr_src != 0
+    }
 }
 
 impl Params {
@@ -121,6 +136,9 @@ impl Params {
                 best_order: false,
                 lat_ms: 0,
                 lat_exit_ms: 0,
+                tp_gamma_m: 1000,
+                tp_kappa_m: 0,
+                natr_src: 0,
             },
             port: PortCfg {
                 cool_min: 5,
@@ -171,6 +189,9 @@ impl Params {
             "best" => self.exit.best_order = b,
             "lat" => self.exit.lat_ms = f.round() as i64,
             "latx" => self.exit.lat_exit_ms = f.round() as i64,
+            "tpg" => self.exit.tp_gamma_m = pm(f),
+            "tpk" => self.exit.tp_kappa_m = pm(f),
+            "ns" => self.exit.natr_src = u.min(255) as u8,
             "c" => self.port.cool_min = u,
             "m" => self.port.m_stops = u,
             "mm" => self.port.mm_min = u,
@@ -193,6 +214,12 @@ impl Params {
         }
         if self.exit.t_low_m >= self.exit.t_high_m {
             bail!("t_low должен быть меньше t_high (лестница тейков идёт вверх)");
+        }
+        if self.exit.tp_gamma_m <= 0 || self.exit.tp_kappa_m <= -1000 {
+            bail!("tpg > 0, tpk > −1");
+        }
+        if self.exit.natr_src > 1 {
+            bail!("ns ∈ {{0, 1}}");
         }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");
