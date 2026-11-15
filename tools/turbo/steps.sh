@@ -9,13 +9,13 @@
 # (stepsum.py --no-rest) and `restpass.sh` runs the REST checks of all windows after the ladder.
 # BingX (EXCH=bingx): REST keeps no trade history (the last 1000 trades of a symbol), so the oracle cannot be deferred: right after the window end (T0 + 181 s, the window itself is over, the process only
 # finishes its last 6 s) `bxsnap.py` takes a REST snapshot of every pool symbol (≈ 22 s for 892 symbols at 40 requests/s); `restcheck.py bingx` then compares it with the files offline (+ id continuity of the whole pool).
-# "covered" for BingX = the latest `subscribed` event + 3 s (one subscribe message per topic: a shard of 200 topics is fully subscribed 4 s after its connection).
+# "covered" for BingX and Gate = the latest `subscribed` event + 3 s (one subscribe message per topic: a BingX shard of 200 topics is fully subscribed 4 s after its connection, a Gate shard of 1 051 contracts 10–11 s).
 # Gate (EXCH=gate): REST keeps the full trade history by time -> RESTPASS=defer like OKX (`restpass.sh` after the ladder, `restcheck.py gate` over every symbol of the window + mark-price candles);
 # marks come only on change (no gap-per-second criterion): abwin.py --mark-free. Steps beyond the pool (all 1051 contracts): FLAGS "--min-quote-volume 0" and steps "320 640 full" (pool-full = every contract).
 # Background unit (systemd-run), never in the ssh session (В-147); nothing else of the same exchange may run on srv meanwhile.
 set -u -o pipefail
 EXCH="${EXCH:-binance}"
-[ "$EXCH" = bingx ] && COVERKEY=subscribed
+case "$EXCH" in bingx|gate) COVERKEY=subscribed ;; esac   # bingx: 200 topics x 20 ms = 4 s; gate: 1 051 contracts per connection = 10–11 s (reactor ticks of 10 ms; ladder4), 100 per connection ≈ 1 s
 MARKFLAG=""; [ "$EXCH" = gate ] && MARKFLAG="--mark-free"
 TAG="$1"; BIN="$2"; FLAGS="$3"; STEPS="$4"; NWIN="${5:-3}"
 D=${ROOT:-/data/turbo-probe}/$TAG; mkdir -p "$D"
