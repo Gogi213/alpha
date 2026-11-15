@@ -241,10 +241,15 @@ fn tick(e: &[u8], out: &mut dyn Out) -> Option<()> {
     Some(())
 }
 
-/// Время биржи кадра, мс: `t` книги и тикера, `create_time_ms` первой сделки (для лага и свежести сырых кадров).
+/// Время биржи кадра, мс, для лага пути и свежести сырых кадров: `t` книги, `create_time_ms` первой сделки; у тикера — `time_ms` кадра (отправка шлюзом): его `t` — время
+/// снимка, на ≈ 456 мс старше кадра (замер 15.11), и лаг по `t` (p50 ≈ 580 мс) отбраковывал бы каждый запасной путь шарда mark (проверка пути: p50 ≤ 350 мс — лестница 15.11,
+/// окна n80-w1/w2: 10 отказов подряд у `mark00`). Лаг записи `m` в файле — по её `E` = `t`, как шлёт биржа.
 fn exch_ms(frame: &[u8]) -> Option<i64> {
-    let [result] = pick(frame, [b"result"])?;
+    let [result, time_ms, channel] = pick(frame, [b"result", b"time_ms", b"channel"])?;
     let r = result?.raw()?;
+    if channel?.str()? == b"futures.tickers" {
+        return time_ms?.int();
+    }
     if r.first() == Some(&b'[') {
         let mut ts = None;
         each_elem(r, |e| {

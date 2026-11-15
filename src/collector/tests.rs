@@ -1895,7 +1895,7 @@ fn gate_frames_parse_exactly_and_unknown_shapes_go_raw() {
         Some(100.0)
     );
     assert_eq!(
-        gt.lag_ms(GT_TICK.as_bytes(), 1_794_708_074_134_000_000),
+        gt.lag_ms(GT_TICK.as_bytes(), 1_794_708_074_136_000_000), // тикер: лаг пути — по `time_ms` кадра (…036), не по `t` (…034, снимок старше кадра)
         Some(100.0)
     );
     for f in [GT_ACK, GT_FAIL, GT_PONG, GT_UPGRADE] {
