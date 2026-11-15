@@ -14,8 +14,8 @@ const snap = () => document.fonts.ready.then(() => {
   q('#ctl button', e => o['ctl:' + e.dataset.t] = R(e));
   const cnt = document.querySelector('#ctl .cnt'); if (cnt) o.cnt = R(cnt);
   const upd = document.querySelector('#ctl .upd'); if (upd) o.upd = R(upd);
-  const tw = R(document.getElementById('tw')); o['tw.left/right/top'] = [tw[0], tw[1], tw[2], 0];
-  const tb = R(document.getElementById('tab')); o['table.left/right/top'] = [tb[0], tb[1], tb[2], 0];
+  const tw = R(document.getElementById('tw')); o['tw.left/top'] = [tw[0], tw[2], 0, 0];
+  const tb = R(document.getElementById('tab')); o['table.left/top'] = [tb[0], tb[2], 0, 0];
   o.docW = [document.documentElement.clientWidth, document.documentElement.scrollWidth, 0, 0];
   return o;
 });
@@ -33,7 +33,9 @@ const snap = () => document.fonts.ready.then(() => {
     const grid = vis.reduce((s, c) => s + (c.span || 1), 0);
     const cw = [...document.querySelectorAll('#cg col')].reduce((s, c) => s + c.getBoundingClientRect().width, 0);
     const tbw = document.getElementById('tab').getBoundingClientRect().width;
-    return { ths, vis: vis.map(c => c.k), cells, grid, cw, tbw, ls: localStorage.getItem(KEY), sort: A.st.sort, mode: A.st.mode, hid: [...A.hid], n: A.view.length, open: !document.getElementById('colpop').hidden };
+    const thw = {}; document.querySelectorAll('#tab thead th').forEach(t => thw[t.dataset.k] = Math.round(t.getBoundingClientRect().width * 100) / 100);
+    const twr = document.getElementById('tw').getBoundingClientRect(), box = document.getElementById('p-a').getBoundingClientRect();
+    return { thw, twW: twr.width, boxW: box.width - 32, ths, vis: vis.map(c => c.k), cells, grid, cw, tbw, ls: localStorage.getItem(KEY), sort: A.st.sort, mode: A.st.mode, hid: [...A.hid], n: A.view.length, open: !document.getElementById('colpop').hidden };
   }, KEY);
   const openPop = async () => { if (!(await state()).open) await pg.click('#ctl [data-cols]'); await pg.waitForTimeout(80) };
 
@@ -62,6 +64,9 @@ const snap = () => document.fonts.ready.then(() => {
       check(mode + ' hide ' + k + ': th gone', !sa.ths.includes(k) && sa.ths.length === sb.ths.length - 1, JSON.stringify(sa.ths));
       check(mode + ' hide ' + k + ': cells == header', sa.cells === sa.grid && sa.cw > 0, sa.cells + '/' + sa.grid);
       check(mode + ' hide ' + k + ': columns fill table', Math.abs(sa.cw - sa.tbw) < 1, sa.cw + ' vs ' + sa.tbw);
+      const kept = Object.keys(sa.thw).filter(x => x !== k && sb.thw[x] != null);
+      check(mode + ' hide ' + k + ': other columns keep width', kept.length === sa.ths.length && kept.every(x => Math.abs(sa.thw[x] - sb.thw[x]) < .6), JSON.stringify(kept.filter(x => Math.abs(sa.thw[x] - sb.thw[x]) >= .6).map(x => x + ' ' + sb.thw[x] + '→' + sa.thw[x])));
+      check(mode + ' hide ' + k + ': card shrinks, left kept', sa.twW < sb.twW - 20 && sa.twW <= sa.boxW + .5, sb.twW + ' → ' + sa.twW);
       check(mode + ' hide ' + k + ': stored', JSON.parse(sa.ls || '[]').includes(k), String(sa.ls));
       check(mode + ' hide ' + k + ': sort column visible', sa.vis.includes(sa.sort), sa.sort + ' in ' + sa.vis);
       check(mode + ' hide ' + k + ': rows kept', sa.n === sb.n);
@@ -74,6 +79,7 @@ const snap = () => document.fonts.ready.then(() => {
       check(mode + ' show ' + k + ': th back', sr.ths.includes(k) && sr.ths.length === sb.ths.length, JSON.stringify(sr.ths));
       check(mode + ' show ' + k + ': stored', !(JSON.parse(sr.ls || '[]').includes(k)), String(sr.ls));
       check(mode + ' show ' + k + ': table width', Math.abs(sr.tbw - sb.tbw) < .01, sr.tbw + ' vs ' + sb.tbw);
+      check(mode + ' show ' + k + ': widths restored', Object.keys(sb.thw).every(x => sr.thw[x] != null && Math.abs(sr.thw[x] - sb.thw[x]) < .01));
       res.push([mode + ' show ' + k, ...shiftOf(before, back)]);
     }
   }
@@ -107,6 +113,7 @@ const snap = () => document.fonts.ready.then(() => {
   await pg.click('#colreset'); await pg.waitForTimeout(150);
   s = await state(); const all = await pg.evaluate(() => window._arb.cols().length);
   check('reset: all columns', s.ths.length === all && s.hid.length === 0 && s.ls === null, JSON.stringify(s.ths) + ' ls=' + s.ls);
+  check('reset: card back to full width', Math.abs(s.twW - s.boxW) < .6, s.twW + ' vs ' + s.boxW);
   check('reset: boxes checked', (await pg.$$eval('#colpop input[data-ck]:not(:checked)', e => e.length)) === 0);
   check('reset: button disabled', await pg.$eval('#colreset', e => e.disabled));
   res.push(['reset', ...shiftOf(b2, await pg.evaluate(snap))]);
@@ -123,6 +130,20 @@ const snap = () => document.fonts.ready.then(() => {
   // 6. переход на «Здоровье» с открытым поповером
   await pg.click('#ctl [data-cols]'); await pg.click('#tab-h'); await pg.waitForTimeout(200); check('tab health closes popover', !(await state()).open);
   await pg.click('#tab-a'); await pg.waitForTimeout(200);
+
+  // 7. изменение размера окна при скрытых столбцах: ширины пересчитываются от новой ширины, горизонтальной прокрутки нет
+  await pg.click('#ctl [data-cols]');
+  for (const k of ['n1', 'n2', 'b1', 'b2', 'tau']) await pg.click('#colpop input[data-ck="' + k + '"]');
+  await pg.keyboard.press('Escape');
+  const w0 = await state();
+  await pg.setViewportSize({ width: W === 1180 ? 1440 : 1180, height: 900 }); await pg.waitForTimeout(250);
+  const w1 = await state(); const dw = await pg.evaluate(() => [document.documentElement.clientWidth, document.documentElement.scrollWidth]);
+  check('resize: no horizontal scroll', dw[0] === dw[1], JSON.stringify(dw));
+  check('resize: card follows page width', w1.twW <= w1.boxW + .5 && (W === 1180 ? w1.twW > w0.twW : w1.twW < w0.twW), w0.twW + ' → ' + w1.twW);
+  check('resize: table fills card', Math.abs(w1.cw - w1.tbw) < 1 && Math.abs(w1.tbw - (w1.twW - 2)) < 1.5, w1.cw + ' ' + w1.tbw + ' ' + w1.twW);
+  await pg.setViewportSize({ width: W, height: 900 }); await pg.waitForTimeout(250);
+  const w2 = await state(); check('resize back: same widths', JSON.stringify(w2.thw) === JSON.stringify(w0.thw), JSON.stringify(w2.thw));
+  await pg.click('#ctl [data-cols]'); await pg.click('#colreset'); await pg.keyboard.press('Escape');
 
   let bad = 0;
   for (const [n, m, w] of res) if (m > 0.01) { bad++; console.log('SHIFT ' + n.padEnd(34) + 'max|Δ| = ' + m.toFixed(2) + ' px (' + w + ')') }
