@@ -1,0 +1,323 @@
+{
+ "exchange": "binance",
+ "window_utc": [
+  "2026-11-13T00:02",
+  "2026-11-15T20:38"
+ ],
+ "minutes": 4116,
+ "symbols_total": 954,
+ "symbols_rest_ok": 515,
+ "symbols_rest_missing": [
+  "1000000BOBUSDT",
+  "1000BONKUSDC",
+  "1000PEPEUSDC",
+  "1000SHIBUSDC",
+  "1000WHYUSDT",
+  "1000XUSDT",
+  "42USDT",
+  "A2ZUSDT",
+  "AAOIUSDT",
+  "AAPLUSDT",
+  "AAVEUSDC",
+  "ABBVUSDT",
+  "ACNUSDT",
+  "ACXUSDT",
+  "ADAUSDC",
+  "ADBEUSDT",
+  "AERGOUSDT",
+  "AGIXUSDT",
+  "AGPUUSDT",
+  "AI16ZUSDT",
+  "AIUSDT",
+  "AKAMUSDT",
+  "ALABUSDT",
+  "ALPACAUSDT",
+  "ALPHAUSDT",
+  "AMATUSDT",
+  "AMBUSDT",
+  "AMCUSDT",
+  "AMDUSDT",
+  "AMGNUSDT",
+  "AMZNUSDT",
+  "ANETUSDT",
+  "ANTHROPICUSDT",
+  "APLDUSDT",
+  "APPUSDT",
+  "ARBUSDC",
+  "ARMUSDT",
+  "ASMLUSDT",
+  "ASTSUSDT",
+  "ATAUSDT",
+  "AVAXUSDC",
+  "AVGOUSDT",
+  "AXTIUSDT",
+  "B3USDT",
+  "BABAUSDT",
+  "BACUSDT",
+  "BADGERUSDT",
+  "BAKEUSDT",
+  "BALUSDT",
+  "BBXUSDT"
+ ],
+ "traded_symbol_minutes": 2110087,
+ "book_hole_minutes": 12419,
+ "book_hole_pct": 0.5886,
+ "book_hole_soft_minutes": 12333,
+ "book_hole_soft_pct": 0.5845,
+ "trade_hole_minutes": 12516,
+ "trade_hole_pct": 0.5932,
+ "trade_hole_soft_minutes": 12333,
+ "trade_hole_soft_pct": 0.5845,
+ "runs": [
+  {
+   "start_utc": "2026-11-12T23:53",
+   "start_epoch": 1794527607
+  },
+  {
+   "start_utc": "2026-11-13T11:11",
+   "start_epoch": 1794568301
+  },
+  {
+   "start_utc": "2026-11-13T13:37",
+   "start_epoch": 1794577028
+  },
+  {
+   "start_utc": "2026-11-13T20:42",
+   "start_epoch": 1794602522
+  },
+  {
+   "start_utc": "2026-11-13T21:50",
+   "start_epoch": 1794606620
+  },
+  {
+   "start_utc": "2026-11-13T22:28",
+   "start_epoch": 1794608934
+  },
+  {
+   "start_utc": "2026-11-13T22:34",
+   "start_epoch": 1794609299
+  },
+  {
+   "start_utc": "2026-11-13T23:21",
+   "start_epoch": 1794612094
+  },
+  {
+   "start_utc": "2026-11-13T23:35",
+   "start_epoch": 1794612957
+  },
+  {
+   "start_utc": "2026-11-14T00:55",
+   "start_epoch": 1794617745
+  },
+  {
+   "start_utc": "2026-11-14T03:43",
+   "start_epoch": 1794627828
+  },
+  {
+   "start_utc": "2026-11-14T11:46",
+   "start_epoch": 1794656799
+  },
+  {
+   "start_utc": "2026-11-14T21:42",
+   "start_epoch": 1794692521
+  }
+ ],
+ "stretches_book": {
+  "count": 8,
+  "minutes": 12343,
+  "symbols": 6,
+  "by_class": {
+   "absent": {
+    "count": 8,
+    "minutes": 12343
+   },
+   "stall": {
+    "count": 0,
+    "minutes": 0
+   },
+   "mixed": {
+    "count": 0,
+    "minutes": 0
+   }
+  },
+  "len_buckets": {
+   "5-14": 0,
+   "15-59": 0,
+   "60-239": 1,
+   "240+": 7
+  },
+  "traded_minutes_inside": 12343
+ },
+ "stretches_trade": {
+  "count": 8,
+  "minutes": 12343,
+  "symbols": 6,
+  "by_class": {
+   "absent": {
+    "count": 8,
+    "minutes": 12343
+   },
+   "stall": {
+    "count": 0,
+    "minutes": 0
+   },
+   "mixed": {
+    "count": 0,
+    "minutes": 0
+   }
+  },
+  "len_buckets": {
+   "5-14": 0,
+   "15-59": 0,
+   "60-239": 1,
+   "240+": 7
+  },
+  "traded_minutes_inside": 12343
+ },
+ "book_hole_minutes_in_stretches": 12343,
+ "book_hole_minutes_short": 76,
+ "short_holes_by_hour": {
+  "2026-11-13T05": 1,
+  "2026-11-13T19": 1,
+  "2026-11-14T03": 1,
+  "2026-11-15T15": 5,
+  "2026-11-15T18": 65,
+  "2026-11-15T19": 2
+ },
+ "short_holes_soft": 0,
+ "pool_size_by_run": {
+  "2026-11-12T23:53": 512,
+  "2026-11-13T11:11": 512,
+  "2026-11-13T13:37": 512,
+  "2026-11-13T20:42": 512,
+  "2026-11-13T21:50": 512,
+  "2026-11-13T22:28": 512,
+  "2026-11-13T22:34": 512,
+  "2026-11-13T23:21": 512,
+  "2026-11-13T23:35": 512,
+  "2026-11-14T00:55": 512,
+  "2026-11-14T03:43": 512,
+  "2026-11-14T11:46": 512,
+  "2026-11-14T21:42": 512
+ },
+ "book_hole_usd": {
+  "hole_quote_usd": 4559305635,
+  "total_quote_usd": 27397869051,
+  "pct": 16.6411
+ },
+ "absent_by_run": {
+  "2026-11-12T23:53": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 2007,
+   "quote_usd": 587919248
+  },
+  "2026-11-13T11:11": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 438,
+   "quote_usd": 150844164
+  },
+  "2026-11-13T13:37": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 1275,
+   "quote_usd": 853975976
+  },
+  "2026-11-13T20:42": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 204,
+   "quote_usd": 60513947
+  },
+  "2026-11-13T21:50": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 114,
+   "quote_usd": 31642392
+  },
+  "2026-11-13T22:28": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 18,
+   "quote_usd": 2753904
+  },
+  "2026-11-13T22:34": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 141,
+   "quote_usd": 27162012
+  },
+  "2026-11-13T23:21": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 42,
+   "quote_usd": 7871372
+  },
+  "2026-11-13T23:35": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 240,
+   "quote_usd": 85647778
+  },
+  "2026-11-14T00:55": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 504,
+   "quote_usd": 189510556
+  },
+  "2026-11-14T03:43": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 1449,
+   "quote_usd": 584235230
+  },
+  "2026-11-14T11:46": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 1788,
+   "quote_usd": 826077632
+  },
+  "2026-11-14T21:42": {
+   "absent_symbols_traded": 3,
+   "traded_minutes": 4128,
+   "quote_usd": 1151457504
+  }
+ },
+ "absent_by_qv24_bucket": {
+  "<300k": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  "300k-1M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  "1M-10M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  ">=10M": {
+   "pairs": 39,
+   "traded_min": 12348,
+   "quote_usd": 4559611715
+  }
+ },
+ "absent_runs": {
+  "pairs": 39,
+  "by_verdict": {
+   "top_excluded": 39,
+   "below_threshold": 0,
+   "above_threshold": 0,
+   "unknown(no 24h history)": 0
+  },
+  "traded_min_by_verdict": {
+   "top_excluded": 12348,
+   "below_threshold": 0,
+   "above_threshold": 0,
+   "unknown(no 24h history)": 0
+  },
+  "above_threshold_within_5pct": 0
+ },
+ "shard_outages_ge50pct": {
+  "count": 0,
+  "minutes": 0
+ },
+ "simultaneous_no_book_soft_per_minute": {
+  "p50": 3.0,
+  "p90": 3.0,
+  "p99": 3.0,
+  "max": 3
+ }
+}

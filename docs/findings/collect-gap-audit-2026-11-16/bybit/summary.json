@@ -1,0 +1,225 @@
+{
+ "exchange": "bybit",
+ "window_utc": [
+  "2026-11-13T00:02",
+  "2026-11-15T20:38"
+ ],
+ "minutes": 4116,
+ "symbols_total": 551,
+ "symbols_rest_ok": 551,
+ "symbols_rest_missing": [],
+ "traded_symbol_minutes": 1744497,
+ "book_hole_minutes": 170541,
+ "book_hole_pct": 9.7759,
+ "book_hole_soft_minutes": 170436,
+ "book_hole_soft_pct": 9.7699,
+ "trade_hole_minutes": 171052,
+ "trade_hole_pct": 9.8052,
+ "trade_hole_soft_minutes": 170509,
+ "trade_hole_soft_pct": 9.7741,
+ "runs": [
+  {
+   "start_utc": "2026-11-12T15:26",
+   "start_epoch": 1794497176
+  },
+  {
+   "start_utc": "2026-11-13T11:15",
+   "start_epoch": 1794568544
+  },
+  {
+   "start_utc": "2026-11-13T13:36",
+   "start_epoch": 1794576966
+  },
+  {
+   "start_utc": "2026-11-13T20:35",
+   "start_epoch": 1794602128
+  },
+  {
+   "start_utc": "2026-11-13T22:37",
+   "start_epoch": 1794609458
+  },
+  {
+   "start_utc": "2026-11-13T23:23",
+   "start_epoch": 1794612229
+  },
+  {
+   "start_utc": "2026-11-13T23:33",
+   "start_epoch": 1794612820
+  },
+  {
+   "start_utc": "2026-11-14T00:54",
+   "start_epoch": 1794617697
+  },
+  {
+   "start_utc": "2026-11-14T11:44",
+   "start_epoch": 1794656680
+  }
+ ],
+ "stretches_book": {
+  "count": 201,
+  "minutes": 349165,
+  "symbols": 160,
+  "by_class": {
+   "absent": {
+    "count": 201,
+    "minutes": 349165
+   },
+   "stall": {
+    "count": 0,
+    "minutes": 0
+   },
+   "mixed": {
+    "count": 0,
+    "minutes": 0
+   }
+  },
+  "len_buckets": {
+   "5-14": 0,
+   "15-59": 0,
+   "60-239": 5,
+   "240+": 196
+  },
+  "traded_minutes_inside": 170541
+ },
+ "stretches_trade": {
+  "count": 231,
+  "minutes": 350901,
+  "symbols": 175,
+  "by_class": {
+   "absent": {
+    "count": 70,
+    "minutes": 142363
+   },
+   "stall": {
+    "count": 30,
+    "minutes": 346
+   },
+   "mixed": {
+    "count": 131,
+    "minutes": 208192
+   }
+  },
+  "len_buckets": {
+   "5-14": 24,
+   "15-59": 6,
+   "60-239": 5,
+   "240+": 196
+  },
+  "traded_minutes_inside": 170609
+ },
+ "book_hole_minutes_in_stretches": 170541,
+ "book_hole_minutes_short": 0,
+ "short_holes_by_hour": {},
+ "short_holes_soft": 0,
+ "pool_size_by_run": {
+  "2026-11-12T15:26": 464,
+  "2026-11-13T11:15": 500,
+  "2026-11-13T13:36": 492,
+  "2026-11-13T20:35": 477,
+  "2026-11-13T22:37": 484,
+  "2026-11-13T23:23": 485,
+  "2026-11-13T23:33": 486,
+  "2026-11-14T00:54": 484,
+  "2026-11-14T11:44": 447
+ },
+ "book_hole_usd": {
+  "hole_quote_usd": 1197683778,
+  "total_quote_usd": 9838242528,
+  "pct": 12.1738
+ },
+ "absent_by_run": {
+  "2026-11-12T15:26": {
+   "absent_symbols_traded": 87,
+   "traded_minutes": 34291,
+   "quote_usd": 96516721
+  },
+  "2026-11-13T11:15": {
+   "absent_symbols_traded": 49,
+   "traded_minutes": 3389,
+   "quote_usd": 40470645
+  },
+  "2026-11-13T13:36": {
+   "absent_symbols_traded": 57,
+   "traded_minutes": 14320,
+   "quote_usd": 255315144
+  },
+  "2026-11-13T20:35": {
+   "absent_symbols_traded": 72,
+   "traded_minutes": 4458,
+   "quote_usd": 27779171
+  },
+  "2026-11-13T22:37": {
+   "absent_symbols_traded": 61,
+   "traded_minutes": 1166,
+   "quote_usd": 8556506
+  },
+  "2026-11-13T23:23": {
+   "absent_symbols_traded": 54,
+   "traded_minutes": 273,
+   "quote_usd": 1635758
+  },
+  "2026-11-13T23:33": {
+   "absent_symbols_traded": 62,
+   "traded_minutes": 2096,
+   "quote_usd": 26122431
+  },
+  "2026-11-14T00:54": {
+   "absent_symbols_traded": 65,
+   "traded_minutes": 17686,
+   "quote_usd": 227575033
+  },
+  "2026-11-14T11:44": {
+   "absent_symbols_traded": 102,
+   "traded_minutes": 92912,
+   "quote_usd": 514392360
+  }
+ },
+ "absent_by_qv24_bucket": {
+  "<300k": {
+   "pairs": 591,
+   "traded_min": 162359,
+   "quote_usd": 105796839
+  },
+  "300k-1M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  "1M-10M": {
+   "pairs": 0,
+   "traded_min": 0,
+   "quote_usd": 0
+  },
+  ">=10M": {
+   "pairs": 18,
+   "traded_min": 8232,
+   "quote_usd": 1092566930
+  }
+ },
+ "absent_runs": {
+  "pairs": 609,
+  "by_verdict": {
+   "top_excluded": 18,
+   "below_threshold": 506,
+   "above_threshold": 0,
+   "unknown(no 24h history)": 85
+  },
+  "traded_min_by_verdict": {
+   "top_excluded": 8232,
+   "below_threshold": 129414,
+   "above_threshold": 0,
+   "unknown(no 24h history)": 32945
+  },
+  "above_threshold_within_5pct": 0
+ },
+ "shard_outages_ge50pct": {
+  "count": 0,
+  "minutes": 0
+ },
+ "simultaneous_no_book_soft_per_minute": {
+  "p50": 39.0,
+  "p90": 62.0,
+  "p99": 78.0,
+  "max": 96
+ }
+}
