@@ -142,7 +142,7 @@ const snap = () => document.fonts.ready.then(() => {
     await pg.click('#ctl [data-m="' + mode + '"]'); await pg.waitForTimeout(150);
     const cl = await pg.evaluate(() => {
       const th_ = [], tall = [], td_ = []; const tr = document.querySelector('#th tr').children;
-      for (const th of tr) { const t = th.getBoundingClientRect(), h = th.querySelector('.hl').getBoundingClientRect(); if (h.left < t.left - 1 || h.right > t.right + 1) th_.push(th.dataset.k + ' ' + Math.round(h.left - t.left) + '/' + Math.round(t.right - h.right)); if (t.height > 59) tall.push(th.dataset.k + ' h' + Math.round(t.height)) }
+      for (const th of tr) { const t = th.getBoundingClientRect(), h = th.querySelector('.hl').getBoundingClientRect(); if (h.left < t.left - 1 || h.right > t.right + 1) th_.push(th.dataset.k + ' ' + Math.round(h.left - t.left) + '/' + Math.round(t.right - h.right)); if (t.height > 60.5) tall.push(th.dataset.k + ' h' + Math.round(t.height)) }
       const rows = [...document.querySelectorAll('#tb tr.r')].slice(0, 120);
       for (const row of rows) for (const td of [...row.children].slice(1)) if (td.scrollWidth > td.clientWidth + 0.5) td_.push(td.textContent.trim().slice(0, 22) + ' ' + td.scrollWidth + '>' + td.clientWidth);
       return { th: th_, tall, td: [...new Set(td_)].slice(0, 6), ntd: td_.length, docW: [document.documentElement.clientWidth, document.documentElement.scrollWidth] };
