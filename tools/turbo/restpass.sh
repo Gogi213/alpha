@@ -11,7 +11,9 @@ for NP in $STEPS; do
     L="$TAG-n$NP-w$K"; W="$D/$L"
     [ -s "$W/rest.json" ] || {
       read -r TC NS < "$W/rest-args.txt"; T0=$(cat "$W/t0-ms.txt")
-      $PY "$S/restcheck.py" "$EXCH" "$W/data" "$T0" "$(( T0 + 180000 ))" --symbols "$NS" --spread --covered-ms "$TC" --out "$W/rest.json" > "$W/rest.log" 2>&1
+      SYMARGS="--symbols $NS --spread"; [ "$EXCH" = gate ] && SYMARGS=""   # Gate: every symbol of the window (REST keeps the full history; ~10 requests / s)
+      # shellcheck disable=SC2086
+      $PY "$S/restcheck.py" "$EXCH" "$W/data" "$T0" "$(( T0 + 180000 ))" $SYMARGS --covered-ms "$TC" --out "$W/rest.json" > "$W/rest.log" 2>&1
     }
     $PY "$S/stepsum.py" "$W" "$L" | tee -a "$D/status-final.txt" || ok=0
   done

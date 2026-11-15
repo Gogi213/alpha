@@ -56,7 +56,8 @@ window() {  # label npool
   U0=$(awk '/usage_usec/{print $2}' "$CG" 2>/dev/null || echo 0)
   while [ "$(date +%s%3N)" -lt $(( T0 + 175000 )) ]; do sleep 1; done
   U1=$(awk '/usage_usec/{print $2}' "$CG" 2>/dev/null || echo 0)
-  echo "{\"cpu_pct\": $(( (U1 - U0) / 1650000 ))}" > "$W/cpu.json"   # percent of one core over 165 s
+  # host load next to the window's numbers (preferences п. 23: results are compared only under equal conditions): load average and CPU pressure (avg10 of the last 10 s of the window), % of one core over 165 s for the process
+  echo "{\"cpu_pct\": $(( (U1 - U0) / 1650000 )), \"load1\": $(cut -d' ' -f1 /proc/loadavg), \"psi_cpu_avg10\": $(grep -o 'avg10=[0-9.]*' /proc/pressure/cpu | head -1 | cut -d= -f2)}" > "$W/cpu.json"
   if [ "$EXCH" = bingx ]; then
     while [ "$(date +%s%3N)" -lt $(( T0 + 181000 )) ]; do sleep 0.5; done
     $PY "$S/bxsnap.py" "$D/pool-$NP.json" "$T0" "$(( T0 + 180000 ))" "$W/rest-snap.json.gz" > "$W/snap.log" 2>&1

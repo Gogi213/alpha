@@ -1957,6 +1957,19 @@ fn gate_frames_parse_exactly_and_unknown_shapes_go_raw() {
     assert_eq!(frame.matches(r#""id":"#).count(), 1);
 }
 
+/// У Gate есть контракты с именами не из ASCII (`币安人生_USDT`, `龙虾_USDT`; 3 в пуле 15.11): символ проходит в запись и в `symbol()` как есть.
+#[test]
+fn gate_non_ascii_contract_names_pass_through() {
+    let gt = Gate::default();
+    let book = GT_BOOK.replace("BTC_USDT", "币安人生_USDT");
+    let tick = GT_TICK.replace("BTC_USDT", "龙虾_USDT");
+    let r = parse_all(&gt, &[&book, &tick]);
+    assert!(matches!(&r[0].1[0], Decoded::Book { sym, .. } if sym == "币安人生_USDT"));
+    assert!(matches!(&r[1].1[0], Decoded::Mark { sym, .. } if sym == "龙虾_USDT"));
+    assert_eq!(gt.symbol(book.as_bytes()), Some("币安人生_USDT".as_bytes()));
+    assert_eq!(gt.symbol(tick.as_bytes()), Some("龙虾_USDT".as_bytes()));
+}
+
 #[test]
 fn gate_identity_dedups_across_lines() {
     let r = rig(Arc::new(Gate::default()), 20);

@@ -322,7 +322,7 @@ def gate_rest_trades(sym, t0, t1):
     """id -> (price, unsigned size, taker sells, time ms) of every trade of `sym` with time in [t0, t1] ms: pages of 1000 (newest first), `to` re-reads the boundary second (ids dedup)."""
     rows, to, lo = {}, t1 // 1000 + 1, t0 // 1000
     while True:
-        page = get_gate(f"https://api.gateio.ws/api/v4/futures/usdt/trades?contract={sym}&limit=1000&from={lo}&to={to}")
+        page = get_gate(f"https://api.gateio.ws/api/v4/futures/usdt/trades?contract={urllib.parse.quote(sym)}&limit=1000&from={lo}&to={to}")
         for x in page:
             size = str(x["size"])
             rows[int(x["id"])] = (x["price"], size.lstrip("-"), size.startswith("-"), round(float(x["create_time_ms"]) * 1000))
@@ -335,40 +335,49 @@ def gate_rest_trades(sym, t0, t1):
     return {k: v for k, v in rows.items() if t0 <= v[3] <= t1}
 
 
-def gate_marks_check(sym, marks, t0, t1, covered):
-    """10-s mark candles of `sym` against the recorded marks: whole buckets inside the window, buckets that moved (high != low), moved buckets without a recorded mark, recorded marks outside [low, high]."""
+def gate_marks_check(sym, marks, t0, t1, covered, tick):
+    """10-s mark candles of `sym` against the recorded marks. Completeness: whole buckets inside the window that moved (high != low) and hold no recorded mark = a miss.
+    Values: the candle series is not the stream's series to the tick (measured 15.11 on 1 945 records: 84.6 % of the recorded marks lie in the candle of their own bucket, 99.6 % in the union of the bucket and its two
+    neighbours, the rest differ by one price step), so a recorded mark counts as out of range only outside the union of the three buckets widened by one `mark_price_round`."""
     lo, hi = t0 // 1000 // 10 * 10, t1 // 1000
-    cs = get_gate(f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract=mark_{sym}&interval=10s&from={lo}&to={hi}")
+    cs = get_gate(f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract=mark_{urllib.parse.quote(sym)}&interval=10s&from={lo - 10}&to={hi + 10}")
+    cd = {int(c["t"]): (Decimal(c["l"]), Decimal(c["h"])) for c in cs}
     by_bucket = defaultdict(list)
     for e, p in marks:
         by_bucket[e // 1000 // 10 * 10].append(p)
-    cells = moving = hit = moving_after = miss_after = out = 0
+    cells = moving = hit = moving_after = miss_after = out = own = judged = 0
     examples = []
-    for c in cs:
-        b = int(c["t"])
-        if not (t0 <= b * 1000 and (b + 10) * 1000 <= t1):
-            continue  # only whole buckets inside the window
-        cells += 1
-        low, high = Decimal(c["l"]), Decimal(c["h"])
-        got = by_bucket.get(b, [])
+    for b, got in by_bucket.items():
+        near = [cd[k] for k in (b - 10, b, b + 10) if k in cd]
+        if len(near) < 3 or not (t0 <= b * 1000 and (b + 10) * 1000 <= t1):
+            continue  # judged only inside whole buckets that have both neighbours
+        low, high = min(x[0] for x in near) - tick, max(x[1] for x in near) + tick
         for p in got:
+            judged += 1
+            own += cd[b][0] <= Decimal(p) <= cd[b][1]
             if not low <= Decimal(p) <= high:
                 out += 1
                 if len(examples) < 5:
-                    examples.append((sym, b, p, c["l"], c["h"]))
+                    examples.append((sym, b, p, [(str(x[0]), str(x[1])) for x in near]))
+    for b, (low, high) in cd.items():
+        if not (t0 <= b * 1000 and (b + 10) * 1000 <= t1):
+            continue  # only whole buckets inside the window
+        cells += 1
         if high != low:
             moving += 1
-            hit += bool(got)
+            hit += bool(by_bucket.get(b))
             if b * 1000 >= covered:
                 moving_after += 1
-                miss_after += not got
+                miss_after += not by_bucket.get(b)
     return {"mark_cells": cells, "mark_moving_cells": moving, "mark_moving_hit": hit, "mark_moving_after_covered": moving_after, "mark_missed_after_covered": miss_after,
-            "mark_out_of_range": out, "mark_records": len(marks), "mark_examples": examples}
+            "mark_judged": judged, "mark_in_own_bucket": own, "mark_out_of_range": out, "mark_records": len(marks), "mark_examples": examples}
 
 
 def gate(a, t0, t1):
     rec = file_trades_gate(a.root, t0 - 3000, t1)
     marks = file_marks_gate(a.root, t0, t1 + 10_000)
+    pools = sorted(glob.glob(os.path.join(a.root, "pool-*.json")))
+    meta = (json.load(open(pools[0], encoding="utf-8")).get("meta") or {}) if pools else {}
     syms = sorted(set(rec) | set(marks))
     if a.symbols and a.spread:
         syms = pick({s: len(rec.get(s, ())) for s in syms}, a.symbols, True)
@@ -387,7 +396,7 @@ def gate(a, t0, t1):
                "rest_after_covered": sum(1 for v in rest.values() if v[3] >= a.covered_ms), "missing_after_covered": len(late),
                "cells_rest": len(cells_rest), "cells_missing": len(cells_rest - cells_file), "cells_rest_after_covered": len(cells_after), "cells_missing_after_covered": len(cells_after - cells_file),
                "missing_examples": [(k, rest[k]) for k in missing[:5]], "extra_examples": [(k, mine[k]) for k in extra[:5]], "mismatch_examples": [(k, rest[k], mine[k]) for k in mism[:3]]}
-        res.update(gate_marks_check(s, marks.get(s, []), t0, t1, a.covered_ms))
+        res.update(gate_marks_check(s, marks.get(s, []), t0, t1, a.covered_ms, Decimal((meta.get(s) or {}).get("mark_price_round") or 0)))
         return res
 
     with concurrent.futures.ThreadPoolExecutor(16) as ex:  # REST latency ~1.7 s: sixteen in flight keep the pacing at 10 requests / s
