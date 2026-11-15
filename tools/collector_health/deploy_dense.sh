@@ -16,6 +16,7 @@
 #   4. page.html (читается по mtime — вступает в силу сразу)
 #   5. проверка: оборот 3 монет (BTC, SOL, ZORA) против тикеров бирж; при LAYOUT=1 — клик-тест страницы с этого ПК
 # Переменные: SRV (root@5.231.25.224), SSH_KEY, SSH_KNOWN_HOSTS (кириллица в HOME — ключ и known_hosts всегда явно), LAYOUT=1.
+# Репетиция без боя: PAGE, CODE, LIVE, UNIT, PAGES, PORTS, PRE_UNITS переопределяются (каталоги и юниты-двойники, порт 8090) — боевые 8088/8089 и arb-live не затрагиваются.
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,13 +24,17 @@ REPO="$(cd "$HERE/../.." && pwd)"
 SRV="${SRV:-root@5.231.25.224}"
 KEY="${SSH_KEY:-/c/Users/Георгий/.ssh/id_rsa}"
 KH="${SSH_KNOWN_HOSTS:-/c/Users/Георгий/.ssh/known_hosts}"
-PAGE=/data/turbo-probe/page
-CODE=/opt/arb-tab/tools/arb_stats
-LIVE=/data/arb-tab/live
+PAGE="${PAGE:-/data/turbo-probe/page}"
+CODE="${CODE:-/opt/arb-tab/tools/arb_stats}"
+LIVE="${LIVE:-/data/arb-tab/live}"
 TAG=prev-dense
 MAN="$PAGE/deploy-dense.manifest"
-UNIT=arb-turnover
-PAGES="health-page-8088 health-soak-page"
+UNIT="${UNIT:-arb-turnover}"
+PAGES="${PAGES:-health-page-8088 health-soak-page}"
+PORTS="${PORTS:-8088 8089}"
+PRE_UNITS="${PRE_UNITS:-arb-live}"          # должны работать до выкладки; их скрипт не трогает
+FIRST_PORT="${PORTS%% *}"
+BOOT_QUOTA="${BOOT_QUOTA:-300%}"            # на время bootstrap службе дана квота 3 ядра (в юните — 100 %, для обычных проходов)
 PAGE_FILES="serve.py arb_api.py page.html"
 CODE_BACKUP="arb_daemon.py"
 CODE_NEW="arb_turnover.py parse_trades.py turnover_check.py turnover_verify.py"
@@ -39,7 +44,7 @@ say() { echo "[$(date +%H:%M:%S)] $*"; }
 
 status() {
   sshx "set -e
-    for u in $UNIT $PAGES arb-live; do printf '%-20s %s\n' \$u \$(systemctl is-active \$u); done
+    for u in $UNIT $PAGES $PRE_UNITS; do printf '%-20s %s\n' \$u \$(systemctl is-active \$u); done
     md5sum $PAGE/page.html $PAGE/serve.py $PAGE/arb_api.py $CODE/arb_daemon.py | cut -c1-12,33-
     ls $PAGE/*.$TAG $CODE/*.$TAG 2>/dev/null || echo 'копий $TAG нет'
     ls -la $LIVE/turnover.json $LIVE/turnover-state.pkl 2>&1 | cut -c1-120
@@ -68,17 +73,17 @@ rollback() {
 
 verify() {
   say "проверка выложенного"
-  for port in 8088 8089; do
+  for port in $PORTS; do
     code="$(sshx "curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:$port/fonts/geist-latin-wght-normal.woff2")"
     [ "$code" = "200" ] || { say "FAIL: /fonts на $port → $code"; return 1; }
     sshx "curl -s --max-time 20 http://127.0.0.1:$port/ | grep -q 'Столбцы'" || { say "FAIL: на $port не плотная страница"; return 1; }
     say "порт $port: страница плотная, шрифты 200"
   done
-  sshx "cd $CODE && PYTHONPATH=/opt/arb-tab/pylib python3 turnover_verify.py http://127.0.0.1:8088/api/arb BTC,SOL,ZORA"
+  sshx "cd $CODE && PYTHONPATH=/opt/arb-tab/pylib python3 turnover_verify.py http://127.0.0.1:$FIRST_PORT/api/arb BTC,SOL,ZORA"
   if [ "${LAYOUT:-0}" = "1" ]; then
     say "клик-тест страницы с этого ПК (1280, 77 действий + «Столбцы»)"
-    node "$HERE/perf/layout_test_shadcn.js" http://5.231.25.224:8088/ 1280
-    node "$HERE/perf/layout_test_cols.js" http://5.231.25.224:8088/ 1280
+    node "$HERE/perf/layout_test_shadcn.js" "http://${SRV#*@}:$FIRST_PORT/" 1280
+    node "$HERE/perf/layout_test_cols.js" "http://${SRV#*@}:$FIRST_PORT/" 1280
   fi
 }
 
@@ -87,14 +92,14 @@ deploy() {
   for f in $PAGE_FILES; do [ -e "$HERE/$f" ] || [ "$f" = "page.html" ] || { echo "нет $HERE/$f"; exit 1; }; done
   [ -e "$HERE/page-dense.html" ] || { echo "нет page-dense.html"; exit 1; }
   ls "$HERE"/fonts/*.woff2 >/dev/null || { echo "нет шрифтов"; exit 1; }
-  [ -e "$REPO/tools/arb_stats/systemd/$UNIT.service" ] || { echo "нет юнита $UNIT"; exit 1; }
+  [ -e "$REPO/tools/arb_stats/systemd/arb-turnover.service" ] || { echo "нет юнита arb-turnover.service"; exit 1; }
   say "шаг 0: проверки"
   sshx "set -e
     [ ! -e /data/perf/HOLD ] || { echo 'есть /data/perf/HOLD — идёт замер, выкладка отложена'; exit 1; }
     for f in $PAGE_FILES; do [ ! -e $PAGE/\$f.$TAG ] || { echo \"уже есть $PAGE/\$f.$TAG — сначала rollback\"; exit 1; }; done
     [ ! -e $CODE/arb_daemon.py.$TAG ] || { echo 'уже есть arb_daemon.py.$TAG'; exit 1; }
-    for p in 8088 8089; do curl -sf --max-time 10 http://127.0.0.1:\$p/api/arb -o /dev/null || { echo \"порт \$p не отвечает\"; exit 1; }; done
-    systemctl is-active arb-live >/dev/null || { echo 'arb-live не работает'; exit 1; }"
+    for p in $PORTS; do curl -sf --max-time 10 http://127.0.0.1:\$p/api/arb -o /dev/null || { echo \"порт \$p не отвечает\"; exit 1; }; done
+    for u in $PRE_UNITS; do systemctl is-active \$u >/dev/null || { echo \"\$u не работает\"; exit 1; }; done"
   say "шаг 1: копии *.$TAG и запись прежнего состояния"
   sshx "set -e
     { echo \"at=\$(date -Is)\"; echo \"page_md5=\$(md5sum $PAGE/page.html | cut -c1-32)\"; echo \"serve_md5=\$(md5sum $PAGE/serve.py | cut -c1-32)\"
@@ -105,22 +110,22 @@ deploy() {
   say "шаг 2: служба оборота (код, юнит, bootstrap)"
   tar -cf - -C "$REPO/tools/arb_stats" arb_daemon.py $CODE_NEW | sshx "tar -xf - -C $CODE"
   sshx "cd $CODE && PYTHONPATH=/opt/arb-tab/pylib python3 -m py_compile arb_daemon.py arb_turnover.py parse_trades.py turnover_verify.py"
-  tr -d '' < "$REPO/tools/arb_stats/systemd/$UNIT.service" | sshx "cat > /etc/systemd/system/$UNIT.service"
+  tr -d '\r' < "$REPO/tools/arb_stats/systemd/arb-turnover.service" | sed "s#/opt/arb-tab/tools/arb_stats#$CODE#g; s#/data/arb-tab/live#$LIVE#g" | sshx "cat > /etc/systemd/system/$UNIT.service"
   t0="$(sshx 'date +%s')"
-  sshx "systemctl daemon-reload && systemctl enable --now $UNIT"
-  say "жду turnover.json (bootstrap, до 15 мин)"
-  for i in $(seq 1 45); do
+  sshx "systemctl daemon-reload && systemctl set-property --runtime $UNIT CPUQuota=$BOOT_QUOTA && systemctl enable --now $UNIT"
+  say "жду turnover.json (bootstrap, до 20 мин)"
+  for i in $(seq 1 60); do
     sleep 20
     ok="$(sshx "[ -s $LIVE/turnover.json ] && [ \$(stat -c %Y $LIVE/turnover.json) -ge $t0 ] && echo 1 || echo 0")"
     [ "$ok" = "1" ] && break
     sshx "systemctl is-active $UNIT >/dev/null" || { say "служба оборота упала"; sshx "journalctl -u $UNIT -n 20 --no-pager | cut -c1-240"; false; }
   done
-  [ "$ok" = "1" ] || { say "turnover.json не появился за 15 мин"; false; }
-  sshx "journalctl -u $UNIT -n 4 --no-pager | cut -c1-300"
+  [ "$ok" = "1" ] || { say "turnover.json не появился за 20 мин"; false; }
+  sshx "systemctl set-property --runtime $UNIT CPUQuota=100% && journalctl -u $UNIT -n 4 --no-pager | cut -c1-300"
   say "шаг 3: serve.py, arb_api.py, шрифты, перезапуск страниц"
   tar -cf - -C "$HERE" serve.py arb_api.py fonts | sshx "tar -xf - -C $PAGE"
   sshx "cd $PAGE && python3 -m py_compile serve.py arb_api.py && systemctl restart $PAGES && sleep 2 && for u in $PAGES; do systemctl is-active \$u; done"
-  sshx "curl -sf --max-time 20 http://127.0.0.1:8088/api/arb | python3 -c 'import json,sys; d=json.load(sys.stdin); n=len(d[\"rows\"]); v=sum(1 for r in d[\"rows\"] if \"v\" in r); print(\"строк\", n, \"с оборотом\", v, \"окно\", d.get(\"vwin\")); sys.exit(0 if v >= 0.9*n else 1)'"
+  sshx "curl -sf --max-time 20 http://127.0.0.1:$FIRST_PORT/api/arb | python3 -c 'import json,sys; d=json.load(sys.stdin); n=len(d[\"rows\"]); v=sum(1 for r in d[\"rows\"] if \"v\" in r); print(\"строк\", n, \"с оборотом\", v, \"окно\", d.get(\"vwin\")); sys.exit(0 if v >= 0.9*n else 1)'"
   say "шаг 4: page.html"
   sshx "cat > $PAGE/page.html.new && mv $PAGE/page.html.new $PAGE/page.html" < "$HERE/page-dense.html"
   say "шаг 5: проверка"
