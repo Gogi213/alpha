@@ -171,6 +171,12 @@ pub fn run(
             super::tick::PK_MINUTE_KILLED.load(Relaxed)
         );
     }
+    if vs.iter().any(|(_, p)| p.sig.fresh_on()) {
+        eprintln!(
+            "свежий уровень (§13.14): кандидатов отвергнуто {} (по всем заданиям сигналов)",
+            super::tick::FR_REJECTED.load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
     let ls = src.stat.lock().map(|g| g.clone()).unwrap_or_default();
     eprintln!(
         "фаза 1 готова за {:.1} с; файлов {}, строк {}, не по порядку {}, вне суток {}, плохих строк {}, ошибок {}",

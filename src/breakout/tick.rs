@@ -30,6 +30,9 @@ use std::sync::{Arc, Mutex};
 /// Счётчик опции `pk` (§13.11, диагностика): уровни, убитые минутным проколом > τ, которых запрет ложного пробоя к этой минуте не убил.
 pub static PK_MINUTE_KILLED: AtomicU64 = AtomicU64::new(0);
 
+/// Счётчик правила §13.14 (диагностика): кандидаты (уровень, минута), прошедшие прежние условия и отвергнутые правилом «свежий уровень».
+pub static FR_REJECTED: AtomicU64 = AtomicU64::new(0);
+
 pub const DAY_MS: i64 = 86_400_000;
 
 /// Одна агрегированная сделка: цена ×1e8, время — мс от начала суток файла, `bm` = `is_buyer_maker`
@@ -323,6 +326,48 @@ fn half_of_day(day: usize) -> usize {
     usize::from(day >= START_DAY + HALF_DAYS)
 }
 
+/// §13.14 «свежий уровень»: допуск кандидата (уровень `lv`, минута `t`), цена версии `lp` в длинной раме (`s` — сторона). По закрытым
+/// минутам ≤ `t−1`. (а) последнее касание (high/low не ниже `lp − |lp|·τ`, минутки без данных не в счёт) не старше H минут,
+/// окно — от бара первого пивота; (б) в минутах `t−K … t−1` не меньше `K·share/100` закрытий строго ниже `lp` и не дальше `b` %
+/// от него, и ни одного закрытия на уровне или за ним. Допуск — (а) или (б); правило выключено — всегда `true`.
+pub fn fresh_ok(sym: &Sym, cfg: &SigCfg, lv: &Level, s: i64, lp: i64, t: usize) -> bool {
+    if !cfg.fresh_on() {
+        return true;
+    }
+    if cfg.fr_h_min > 0 {
+        let tau = (i128::from(lp.abs()) * i128::from(cfg.lv.tau_pm) / 100_000) as i64;
+        let band = lp - tau;
+        let lo = (lv.first_bar as usize * cfg.lv.tf_min).max(t.saturating_sub(cfg.fr_h_min));
+        let touch = |m: usize| sym.o[m] != 0 && (if s > 0 { sym.h[m] } else { -sym.l[m] }) >= band;
+        if (lo..t).any(touch) {
+            return true;
+        }
+    }
+    if cfg.fr_share > 0 {
+        let lim = (i128::from(lp.abs()) * i128::from(cfg.fr_b_pm) / 100_000) as i64;
+        let need = cfg.fr_k * cfg.fr_share / 100;
+        let mut n_in = 0usize;
+        let mut beyond = false;
+        for m in t.saturating_sub(cfg.fr_k)..t {
+            if sym.o[m] == 0 {
+                continue;
+            }
+            let c = s * sym.c[m];
+            if c >= lp {
+                beyond = true;
+                break;
+            }
+            if lp - c <= lim {
+                n_in += 1;
+            }
+        }
+        if !beyond && n_in >= need {
+            return true;
+        }
+    }
+    false
+}
+
 /// Кандидаты (§13.2 п. 1): состояние уровня (запрет, ложный пробой) — по закрытиям минут ≤ `t−1`; пул — по
 /// закрытым минутам ≤ `t−1`; минутка по диапазону может дать сделку в зоне входа под уровнем. Затем состояние
 /// обновляется минуткой `t` (как в `signals::scan`).
@@ -366,11 +411,15 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                     && sym.pq[t] - sym.pq[t - 60] >= cfg.t1h_u
                     && (cfg.t24_u == 0 || sym.pq[t] - sym.pq[t - 1440] >= cfg.t24_u)
                 {
-                    out.push(Cand {
-                        t: t as u32,
-                        level: li as u32,
-                        lp,
-                    });
+                    if fresh_ok(sym, cfg, lv, s, lp, t) {
+                        out.push(Cand {
+                            t: t as u32,
+                            level: li as u32,
+                            lp,
+                        });
+                    } else {
+                        FR_REJECTED.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
             if let Some(tc) = pend {

@@ -2,11 +2,11 @@
 //! тейки только строго через цену, стоп по цене сделки, фандинг и суточная переоценка по сделкам.
 
 use super::data::{Cols, Fund, Sym, MIN_MS, START_DAY};
-use super::levels::build_levels;
+use super::levels::{build_levels, Level};
 use super::params::Params;
 use super::tests::{flat, level_world, lv_params, mirror, px, run_scan, set, sym, BORN};
 use super::tick::{
-    candidates, exit_natr, first_signal, minute_range, parse_px, parse_trades, run_tick,
+    candidates, exit_natr, first_signal, fresh_ok, minute_range, parse_px, parse_trades, run_tick,
     settle_tick, signals_for_coin, sim_stream, tp_lots, tp_mult_m, LoadStat, TLeg, TSig, Tick,
     TickCtr, TickOut, TradeSrc, DAY_MS,
 };
@@ -761,5 +761,347 @@ fn take_grid_opts_flag_marks_non_default_keys() {
     for line in ["x tpg=2", "x tpk=1", "x ns=1"] {
         let (_, p) = super::params::parse_variant(line).expect("разбор");
         assert!(p.exit.take_grid_opts(), "{line}");
+    }
+}
+
+// ───────────── §13.14: «свежий уровень» — касание в пределах H или проторговка ─────────────
+
+const FT: usize = 3000; // минута сигнала в мире `fresh_world`
+
+/// Плоский мир (все цены 100,0), уровень 101,0 с первым пивотом на баре 10 (минута 600), версия цены с минуты 1000.
+fn fresh_world() -> (Sym, Level, i64) {
+    let c = flat(5000, 100.0);
+    let lv = Level {
+        born: 1000,
+        end: u32::MAX,
+        segs: vec![(1000, px(101.0))],
+        first_bar: 10,
+        mem: Vec::new(),
+    };
+    (sym(c), lv, px(101.0))
+}
+
+fn fcfg(fh_min: usize, k: usize, share: usize, b_pm: i64) -> super::params::SigCfg {
+    let mut c = Params::base().sig;
+    c.fr_h_min = fh_min;
+    c.fr_k = k;
+    c.fr_share = share;
+    c.fr_b_pm = b_pm;
+    c
+}
+
+fn fresh_cols(f: impl Fn(&mut Cols)) -> Sym {
+    let mut c = flat(5000, 100.0);
+    f(&mut c);
+    sym(c)
+}
+
+#[test]
+fn fresh_off_always_allows() {
+    let (s, lv, lp) = fresh_world();
+    assert!(!fcfg(0, 120, 0, 500).fresh_on());
+    assert!(fresh_ok(&s, &fcfg(0, 120, 0, 500), &lv, 1, lp, FT));
+    assert!(fcfg(60, 120, 0, 500).fresh_on() && fcfg(0, 120, 50, 500).fresh_on());
+}
+
+#[test]
+fn fresh_touch_age_boundary_and_band_edge() {
+    let lp = px(101.0);
+    let lv = fresh_world().1;
+    // касание в минуте FT−100 (high 101,0): возраст 100 — допускается при H = 100, не при H = 99
+    let s = fresh_cols(|c| set(c, FT - 100, 100.0, 101.0, 100.0, 100.0));
+    assert!(fresh_ok(&s, &fcfg(100, 120, 0, 500), &lv, 1, lp, FT));
+    assert!(!fresh_ok(&s, &fcfg(99, 120, 0, 500), &lv, 1, lp, FT));
+    // граница полосы: уровень − 0,2 % = 100,798 — касание (≥), на 1e-8 ниже — нет
+    let s = fresh_cols(|c| set(c, FT - 1, 100.0, 100.798, 100.0, 100.0));
+    assert!(fresh_ok(&s, &fcfg(5, 120, 0, 500), &lv, 1, lp, FT));
+    let s = fresh_cols(|c| set(c, FT - 1, 100.0, 100.797_999_99, 100.0, 100.0));
+    assert!(!fresh_ok(&s, &fcfg(5, 120, 0, 500), &lv, 1, lp, FT));
+    // прокол (high выше уровня) — тоже касание
+    let s = fresh_cols(|c| set(c, FT - 2, 100.0, 101.5, 100.0, 100.0));
+    assert!(fresh_ok(&s, &fcfg(2, 120, 0, 500), &lv, 1, lp, FT));
+    // минутка t (сигнальная) в счёт не идёт: касание в t не освежает уровень
+    let s = fresh_cols(|c| set(c, FT, 100.0, 101.0, 100.0, 100.0));
+    assert!(!fresh_ok(&s, &fcfg(120, 120, 0, 500), &lv, 1, lp, FT));
+}
+
+#[test]
+fn fresh_touch_run_counts_from_its_last_minute_and_holes_are_ignored() {
+    let lp = px(101.0);
+    let lv = fresh_world().1;
+    // подряд минутки FT−5…FT−3 — одно касание, возраст от последней (3)
+    let s = fresh_cols(|c| {
+        for m in FT - 5..=FT - 3 {
+            set(c, m, 100.0, 100.9, 100.0, 100.0);
+        }
+    });
+    assert!(fresh_ok(&s, &fcfg(3, 120, 0, 500), &lv, 1, lp, FT));
+    assert!(!fresh_ok(&s, &fcfg(2, 120, 0, 500), &lv, 1, lp, FT));
+    // минутка без данных (o = 0) касанием не считается
+    let s = fresh_cols(|c| {
+        set(c, FT - 1, 100.0, 100.9, 100.0, 100.0);
+        c.o[FT - 1] = 0;
+    });
+    assert!(!fresh_ok(&s, &fcfg(10, 120, 0, 500), &lv, 1, lp, FT));
+}
+
+#[test]
+fn fresh_touch_window_starts_at_first_pivot_bar() {
+    let lp = px(101.0);
+    let lv = fresh_world().1; // first_bar = 10 → окно с минуты 600
+    let before = fresh_cols(|c| set(c, 599, 100.0, 101.0, 100.0, 100.0));
+    assert!(!fresh_ok(
+        &before,
+        &fcfg(10_000, 120, 0, 500),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+    let inside = fresh_cols(|c| set(c, 600, 100.0, 101.0, 100.0, 100.0));
+    assert!(fresh_ok(
+        &inside,
+        &fcfg(10_000, 120, 0, 500),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+}
+
+#[test]
+fn fresh_consolidation_counts_closes_in_band_and_forbids_closes_at_or_beyond() {
+    let lp = px(101.0);
+    let lv = fresh_world().1;
+    // закрытие 100,7: 0,297 % ниже уровня, high 100,7 < полосы касания — в полосе b = 0,5 %, не касание
+    let n_in = |n: usize| {
+        fresh_cols(move |c| {
+            for m in FT - n..FT {
+                set(c, m, 100.7, 100.7, 100.7, 100.7);
+            }
+        })
+    };
+    // K = 60, share 50 % → M = 30
+    assert!(fresh_ok(&n_in(30), &fcfg(0, 60, 50, 500), &lv, 1, lp, FT));
+    assert!(!fresh_ok(&n_in(29), &fcfg(0, 60, 50, 500), &lv, 1, lp, FT));
+    // K = 120: M = 60 — 40 минут мало, 60 хватает; окно K = 60 тех же 40 минут пропускает
+    assert!(!fresh_ok(&n_in(40), &fcfg(0, 120, 50, 500), &lv, 1, lp, FT));
+    assert!(fresh_ok(&n_in(60), &fcfg(0, 120, 50, 500), &lv, 1, lp, FT));
+    assert!(fresh_ok(&n_in(40), &fcfg(0, 60, 50, 500), &lv, 1, lp, FT));
+    // доля 25 % и 75 % при K = 60: M = 15 и 45
+    assert!(fresh_ok(&n_in(15), &fcfg(0, 60, 25, 500), &lv, 1, lp, FT));
+    assert!(!fresh_ok(&n_in(14), &fcfg(0, 60, 25, 500), &lv, 1, lp, FT));
+    assert!(!fresh_ok(&n_in(44), &fcfg(0, 60, 75, 500), &lv, 1, lp, FT));
+    assert!(fresh_ok(&n_in(45), &fcfg(0, 60, 75, 500), &lv, 1, lp, FT));
+    // одно закрытие на уровне (101,0) — отказ; вне окна K — не мешает
+    let beyond = |m: usize| {
+        fresh_cols(move |c| {
+            for x in FT - 60..FT {
+                set(c, x, 100.7, 100.7, 100.7, 100.7);
+            }
+            set(c, m, 100.9, 101.2, 100.9, 101.0);
+        })
+    };
+    assert!(!fresh_ok(
+        &beyond(FT - 7),
+        &fcfg(0, 60, 50, 500),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+    assert!(fresh_ok(
+        &beyond(FT - 61),
+        &fcfg(0, 60, 50, 500),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+    // тень выше уровня при закрытии ниже — не нарушение
+    let wick = fresh_cols(|c| {
+        for x in FT - 60..FT {
+            set(c, x, 100.7, 100.7, 100.7, 100.7);
+        }
+        set(c, FT - 7, 100.7, 101.5, 100.7, 100.7);
+    });
+    assert!(fresh_ok(&wick, &fcfg(0, 60, 50, 500), &lv, 1, lp, FT));
+    // минутки без данных пропускаются: 30 минут в полосе и 30 дыр — достаточно при M = 30
+    let holes = fresh_cols(|c| {
+        for x in FT - 60..FT {
+            if x % 2 == 0 {
+                set(c, x, 100.7, 100.7, 100.7, 100.7);
+            } else {
+                set(c, x, 100.7, 100.7, 100.7, 100.7);
+                c.o[x] = 0;
+            }
+        }
+    });
+    assert!(fresh_ok(&holes, &fcfg(0, 60, 50, 500), &lv, 1, lp, FT));
+}
+
+#[test]
+fn fresh_consolidation_band_width_edge() {
+    let lp = px(101.0);
+    let lv = fresh_world().1;
+    // b = 0,5 %: 101,0 − 0,505 = 100,495 — в полосе (включительно), 100,494 999 99 — нет
+    let at = |cl: f64| {
+        fresh_cols(move |c| {
+            for x in FT - 60..FT {
+                set(c, x, cl, cl, cl, cl);
+            }
+        })
+    };
+    assert!(fresh_ok(
+        &at(100.495),
+        &fcfg(0, 60, 100, 500),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+    assert!(!fresh_ok(
+        &at(100.494_999_99),
+        &fcfg(0, 60, 100, 500),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+    // b = 1 % и 0,3 %
+    assert!(fresh_ok(
+        &at(100.0),
+        &fcfg(0, 60, 100, 1000),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+    assert!(!fresh_ok(
+        &at(100.0),
+        &fcfg(0, 60, 100, 300),
+        &lv,
+        1,
+        lp,
+        FT
+    ));
+}
+
+#[test]
+fn fresh_branches_combine_with_or_and_each_can_be_off() {
+    let lp = px(101.0);
+    let lv = fresh_world().1;
+    let old_touch = |c: &mut Cols| set(c, FT - 1000, 100.0, 101.0, 100.0, 100.0); // касание давно
+    let consolidation = |c: &mut Cols| {
+        for x in FT - 60..FT {
+            set(c, x, 100.7, 100.7, 100.7, 100.7);
+        }
+    };
+    let recent = |c: &mut Cols| set(c, FT - 5, 100.0, 100.9, 100.0, 100.0);
+    let a = fcfg(240, 60, 0, 500); // только (а), H = 4 ч
+    let b = fcfg(0, 60, 50, 500); // только (б)
+    let ab = fcfg(240, 60, 50, 500);
+    // давнее касание, нет проторговки: везде отказ
+    let s = fresh_cols(old_touch);
+    assert!(!fresh_ok(&s, &a, &lv, 1, lp, FT));
+    assert!(!fresh_ok(&s, &b, &lv, 1, lp, FT));
+    assert!(!fresh_ok(&s, &ab, &lv, 1, lp, FT));
+    // давнее касание, проторговка: (б) и «или» — да; (а) — нет
+    let s = fresh_cols(|c| {
+        old_touch(c);
+        consolidation(c);
+    });
+    assert!(!fresh_ok(&s, &a, &lv, 1, lp, FT));
+    assert!(fresh_ok(&s, &b, &lv, 1, lp, FT));
+    assert!(fresh_ok(&s, &ab, &lv, 1, lp, FT));
+    // свежее касание, нет проторговки: (а) и «или» — да; (б) — нет
+    let s = fresh_cols(recent);
+    assert!(fresh_ok(&s, &a, &lv, 1, lp, FT));
+    assert!(!fresh_ok(&s, &b, &lv, 1, lp, FT));
+    assert!(fresh_ok(&s, &ab, &lv, 1, lp, FT));
+}
+
+#[test]
+fn fresh_short_mirrors_long() {
+    // шорт: цены в длинной раме с обратным знаком; мир 100,0 / уровень 99,0 под ценой (зеркало мира лонга около 200)
+    let lv = fresh_world().1;
+    let lp = -px(99.0);
+    let a = fcfg(100, 120, 0, 500);
+    let b = fcfg(0, 60, 50, 500);
+    // касание: low не выше 99,0 + 0,198 = 99,198
+    let s = fresh_cols(|c| set(c, FT - 100, 100.0, 100.0, 99.0, 100.0));
+    assert!(fresh_ok(&s, &a, &lv, -1, lp, FT));
+    assert!(!fresh_ok(&s, &fcfg(99, 120, 0, 500), &lv, -1, lp, FT));
+    // проторговка выше уровня: закрытия 99,3 (0,3 % над уровнем); закрытие на уровне или ниже — отказ
+    let cons = |bad: Option<f64>| {
+        fresh_cols(move |c| {
+            for x in FT - 60..FT {
+                set(c, x, 99.3, 99.3, 99.3, 99.3);
+            }
+            if let Some(v) = bad {
+                set(c, FT - 3, v, v, v, v);
+            }
+        })
+    };
+    assert!(fresh_ok(&cons(None), &b, &lv, -1, lp, FT));
+    assert!(!fresh_ok(&cons(Some(99.0)), &b, &lv, -1, lp, FT));
+    assert!(!fresh_ok(&cons(Some(98.5)), &b, &lv, -1, lp, FT));
+}
+
+#[test]
+fn fresh_rejection_does_not_consume_the_level_and_next_minute_is_rechecked() {
+    // мир уровня 100,025: последнее касание — пивот-бар 5 на минуте BORN−120 (возраст на BORN+50 — 170 минут)
+    let mut c = level_world();
+    set(&mut c, BORN + 50, 99.85, 99.95, 99.84, 99.90); // кандидат; high в полосе (≥ 99,825) — касание для следующей минуты
+    set(&mut c, BORN + 51, 99.85, 99.95, 99.84, 99.90);
+    let off = lv_params();
+    let mut on = lv_params();
+    on.sig.fr_h_min = 120;
+    assert_eq!(
+        cand_minutes(c.clone(), &off, Side::Long),
+        vec![BORN + 50, BORN + 51]
+    );
+    assert_eq!(
+        cand_minutes(c.clone(), &on, Side::Long),
+        vec![BORN + 51],
+        "BORN+50: возраст 170 > 120 — отказ; BORN+51: касание в минуте BORN+50 — допуск"
+    );
+    on.sig.fr_h_min = 170;
+    assert_eq!(
+        cand_minutes(c.clone(), &on, Side::Long),
+        vec![BORN + 50, BORN + 51],
+        "возраст ровно 170 допускается"
+    );
+    // шорт — зеркально (мир, отражённый около 200)
+    let m = mirror(&c, 200.0);
+    on.sig.fr_h_min = 120;
+    assert_eq!(cand_minutes(m, &on, Side::Short), vec![BORN + 51]);
+}
+
+#[test]
+fn fresh_keys_parse_and_validate_and_minute_engine_flag() {
+    let (_, p) = super::params::parse_variant("x fh=4 fk=60 fm=25 fb=0.3").expect("разбор");
+    assert_eq!(
+        (p.sig.fr_h_min, p.sig.fr_k, p.sig.fr_share, p.sig.fr_b_pm),
+        (240, 60, 25, 300)
+    );
+    assert!(p.sig.fresh_on());
+    let (_, p) = super::params::parse_variant("x fh=0 fm=0").expect("разбор");
+    assert!(!p.sig.fresh_on());
+    let (_, base) = super::params::parse_variant("x").expect("разбор");
+    assert_eq!(
+        (
+            base.sig.fr_h_min,
+            base.sig.fr_k,
+            base.sig.fr_share,
+            base.sig.fr_b_pm
+        ),
+        (0, 120, 0, 500)
+    );
+    for bad in ["fm=101", "fk=0", "fk=1441"] {
+        assert!(
+            super::params::parse_variant(&format!("x {bad}")).is_err(),
+            "{bad}"
+        );
     }
 }

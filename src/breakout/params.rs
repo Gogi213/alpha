@@ -33,6 +33,14 @@ pub struct SigCfg {
     pub f_pm: i64,
     pub r_min: usize,
     pub ban: bool,
+    /// §13.14 «свежий уровень», (а): H в минутах — последнее касание уровня не старше H; 0 — (а) выключено. Только `breakout tick`.
+    pub fr_h_min: usize,
+    /// §13.14, (б) «проторговка»: окно K в минутах.
+    pub fr_k: usize,
+    /// §13.14, (б): доля K в % — минимум минут закрытия в полосе подхода; 0 — (б) выключено.
+    pub fr_share: usize,
+    /// §13.14, (б): ширина полосы подхода b в тысячных процента.
+    pub fr_b_pm: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,6 +98,13 @@ fn pm(x: f64) -> i64 {
     (x * 1000.0).round() as i64
 }
 
+impl SigCfg {
+    /// Правило §13.14 «свежий уровень» включено (хотя бы одна из ветвей (а), (б)).
+    pub fn fresh_on(&self) -> bool {
+        self.fr_h_min > 0 || self.fr_share > 0
+    }
+}
+
 impl ExitCfg {
     /// Опции §13.12 не по умолчанию (лестница тейков с перекосом или NATR по другой минутке) — только `breakout tick`.
     pub fn take_grid_opts(&self) -> bool {
@@ -121,6 +136,10 @@ impl Params {
                 f_pm: pm(0.1),
                 r_min: 15,
                 ban: true,
+                fr_h_min: 0,
+                fr_k: 120,
+                fr_share: 0,
+                fr_b_pm: pm(0.5),
             },
             exit: ExitCfg {
                 natr_p: 30,
@@ -177,6 +196,10 @@ impl Params {
             "f" => self.sig.f_pm = pm(f),
             "r" => self.sig.r_min = u,
             "ban" => self.sig.ban = b,
+            "fh" => self.sig.fr_h_min = (f * 60.0).round() as usize,
+            "fk" => self.sig.fr_k = u,
+            "fm" => self.sig.fr_share = u,
+            "fb" => self.sig.fr_b_pm = pm(f),
             "n_tp" => self.exit.n_tp = u,
             "t_low" => self.exit.t_low_m = pm(f),
             "t_high" => self.exit.t_high_m = pm(f),
@@ -217,6 +240,9 @@ impl Params {
         }
         if self.exit.tp_gamma_m <= 0 || self.exit.tp_kappa_m <= -1000 {
             bail!("tpg > 0, tpk > −1");
+        }
+        if self.sig.fr_share > 100 || self.sig.fr_k == 0 || self.sig.fr_k > 1440 {
+            bail!("fm ≤ 100, 1 ≤ fk ≤ 1440");
         }
         if self.exit.natr_src > 1 {
             bail!("ns ∈ {{0, 1}}");
