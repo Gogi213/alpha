@@ -121,10 +121,10 @@ twin() {
         systemctl stop rh-page-8090 arb-live-rh arb-turnover-rh 2>/dev/null || true
         rm -rf \$R/code \$R/page \$R/live \$R/live-gate; mkdir -p \$R/code \$R/page \$R/live
         cp -p /opt/arb-tab/tools/arb_stats/*.py \$R/code/
-        for f in serve.py arb_api.py page.html exchanges.json thresholds.json roots.json; do cp -p /data/turbo-probe/page/\$f \$R/page/; done
+        cp -p /data/turbo-probe/page/*.py /data/turbo-probe/page/*.json /data/turbo-probe/page/page.html \$R/page/
         cp -p /data/arb-tab/live/state.pkl /data/arb-tab/live/arb.json \$R/live/
         cp -p /data/arb-tab/live/\$(python3 -c 'import json; print(json.load(open(\"/data/arb-tab/live/arb.json\"))[\"chart\"])') \$R/live/
-        sed \"s#/opt/arb-tab/tools/arb_stats#\$R/code#g; s#/data/arb-tab/live#\$R/live#g; s#^Description=.*#Description=репетиция: двойник arb-live (rh)#; /^\[Install\]/,\\$d\" /etc/systemd/system/arb-live.service > /etc/systemd/system/arb-live-rh.service
+        sed \"s#/opt/arb-tab/tools/arb_stats#\$R/code#g; s#/data/arb-tab/live#\$R/live#g; s#^Description=.*#Description=репетиция: двойник arb-live (rh)#\" /etc/systemd/system/arb-live.service > /etc/systemd/system/arb-live-rh.service
         systemctl daemon-reload; systemctl start arb-live-rh
         systemd-run --unit=rh-page-8090 -p Restart=always /usr/bin/python3 \$R/page/serve.py --health-dir /data/turbo-probe/health-soak --port 8090 --exchanges \$R/page/exchanges.json --thresholds \$R/page/thresholds.json --arb-dir \$R/live >/dev/null
         sleep 3; for u in rh-page-8090 arb-live-rh; do printf '%-16s %s\n' \$u \$(systemctl is-active \$u); done"

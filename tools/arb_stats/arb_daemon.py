@@ -180,9 +180,22 @@ def pair_ok(sa, sb):
     return 0.9 < sa.mid / sb.mid < 1.1      # цены одной монеты на двух биржах — одного порядка (иначе разный множитель названия)
 
 
-def step_coin(W, coin, per, carry0, batch, k_to):
+def span_ratio_ok(ba, bb):
+    """Проверка «одна монета» при пересборке: отношение медиан середин по общему отрезку времени пары, а не по собственной истории каждой стороны (у Gate история короче —
+    медианы разных промежутков дают ложные исключения: BARD, BTW, SOPH, EVAA, цена ушла на 10–40 % между медианой суток и последних часов)."""
+    if ba is None or bb is None:
+        return True
+    lo = max(int(ba["e"][0]), int(bb["e"][0]))
+    ma, mb = ba["e"] >= lo, bb["e"] >= lo
+    if not ma.any() or not mb.any():
+        return True
+    return 0.9 < float(np.median((ba["bid"][ma] + ba["ask"][ma]) / 2)) / float(np.median((bb["bid"][mb] + bb["ask"][mb]) / 2)) < 1.1
+
+
+def step_coin(W, coin, per, carry0, batch, k_to, okfn=None):
     """Дописывает проход (минуты до k_to) ко всем парам монеты (по биржам из per, порядок EXCHANGES). Существующие пары дописываются
-    каждый проход, даже без новых записей: минуты без записей получают перенесённое состояние."""
+    каждый проход, даже без новых записей: минуты без записей получают перенесённое состояние. Принятая пара остаётся (проверку «одна монета» проходит при создании:
+    okfn(ka, kb) — пересборка судит по общему отрезку времени пары; иначе pair_ok по серединам символов)."""
     exs = [ex for ex in EXCHANGES if ex in per and ready(W, ex, per[ex][0])]
     for i in range(len(exs)):
         for j in range(i + 1, len(exs)):
@@ -191,7 +204,7 @@ def step_coin(W, coin, per, carry0, batch, k_to):
             key = (coin, ea, eb)
             if key not in W.pairs and batch.get(ka) is None and batch.get(kb) is None:
                 continue
-            if not pair_ok(W.syms[ka], W.syms[kb]):
+            if key not in W.pairs and not (okfn(ka, kb) if okfn else pair_ok(W.syms[ka], W.syms[kb])):
                 continue
             A, B = arb_inc.with_carry(carry0.get(ka), batch.get(ka)), arb_inc.with_carry(carry0.get(kb), batch.get(kb))
             ps = W.pairs.get(key)
@@ -253,12 +266,12 @@ def boot_coin(arg):
     W.syms = syms
     carry0 = {k: None for k in syms}
     for k, s in syms.items():
-        b = s.take(t_boot - 10 ** 12, t_boot)
-        batch[k] = b
+        batch[k] = s.take(t_boot - 10 ** 12, t_boot)
+    for k, b in batch.items():
         if b is not None:
-            s.mid = float(np.median((b["bid"] + b["ask"]) / 2))
+            syms[k].mid = float(np.median((b["bid"] + b["ask"]) / 2))
             alive.setdefault(k[0], []).append(np.unique(b["e"] // MIN))
-    step_coin(W, coin, per, carry0, batch, t_boot // MIN)
+    step_coin(W, coin, per, carry0, batch, t_boot // MIN, okfn=lambda ka, kb: span_ratio_ok(batch.get(ka), batch.get(kb)))
     return syms, W.pairs, {ex: np.unique(np.concatenate(ms)) for ex, ms in alive.items()}
 
 

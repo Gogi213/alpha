@@ -36,7 +36,7 @@ def report(W, coins, ex="gate"):
                 if ex not in (a, b):
                     continue
                 sa, sb = W.syms[(a, per[a][0])], W.syms[(b, per[b][0])]
-                if not arb_daemon.pair_ok(sa, sb):
+                if (coin, a, b) not in W.pairs:      # обе стороны готовы, пары нет: отброшена правилом «одна монета» (при пересборке — по общему отрезку времени пары)
                     out["excluded"].append([coin, a, b, round(sa.mid / sb.mid, 6)])
     return out
 

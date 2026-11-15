@@ -4,6 +4,7 @@
 перцентили, доли времени выше уровней, центр и разброс: tools/dashboard.py spread_stats / center_tw / vol_tw / bar_stats).
 """
 import json
+import os
 from pathlib import Path
 
 # порядок бирж = порядок пар (A, B): A раньше B
@@ -56,9 +57,17 @@ def unit_of(ex, m):
 
 
 def load_pool(ex, day):
+    """Пул символов биржи на день: пул самого дня, иначе последний раньше (сборщик пишет пул при запуске: у бирж, запущенных 14.11, последний — 14.11, у Gate — 15.11).
+    До первого дня данных биржи (SINCE) — пусто; нет ни одного пула не позже дня — OSError."""
     if day < SINCE.get(ex, ""):
         return [], {}, {}
-    d = json.loads(Path(ROOTS[ex], f"pool-{day}.json").read_text(encoding="utf-8"))
+    p = Path(ROOTS[ex], f"pool-{day}.json")
+    if not p.exists():
+        older = sorted(f for f in os.listdir(ROOTS[ex]) if f.startswith("pool-") and f.endswith(".json") and f[5:-5] <= day) if Path(ROOTS[ex]).is_dir() else []
+        if not older:
+            raise FileNotFoundError(str(p))
+        p = Path(ROOTS[ex], older[-1])
+    d = json.loads(p.read_text(encoding="utf-8"))
     return d["pool"], d.get("meta") or {}, d
 
 

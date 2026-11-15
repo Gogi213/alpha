@@ -210,6 +210,11 @@ def test_gate_units_and_trial_run_skipped(tmp_path, monkeypatch):
     assert dep[0] == pytest.approx(min(10 * 2.0, 100 * 3.0) * 0.1)
     files = {Path(j[2]).name for j in arb_live.discover([env.day]) if j[0] == "gate"}
     assert files == {f"book00-{common.MINRUN_EX['gate']}.tsv.zst"}       # пробный запуск Gate (метка раньше MINRUN_EX) не читается
+    root = Path(common.ROOTS["gate"])      # пул — последний не позже дня (старые биржи: последний пул 14.11, у Gate — 15.11)
+    (root / f"pool-{env.day}.json").rename(root / "pool-2026-11-10.json")
+    assert common.load_pool("gate", "2026-11-12")[0] and common.load_pool("gate", "2026-11-10")[0]
+    with pytest.raises(OSError):
+        common.load_pool("gate", "2026-11-09")
     monkeypatch.setattr(common, "SINCE", {"gate": "2026-11-15"})
     assert common.load_pool("gate", "2026-11-14") == ([], {}, {}) and common.load_pool("gate", env.day) == ([], {}, {})      # до первого дня — биржи в счёте нет (пулов нет)
     assert common.norm("gate", "BTC_USDT") == ("BTC", 1.0) and common.norm("gate", "1000PEPE_USDT") == ("PEPE", 1000.0) and common.norm("gate", "币安人生_USDT")[0] == "币安人生"
@@ -240,8 +245,35 @@ def test_rebuild_from_raw_files_gives_all_pairs_incl_gate(tmp_path, monkeypatch)
     rep = state_report.report(W, coins)
     assert rep["coins_with_exchange"] == 2 and rep["pairs_with_exchange"] == 5 and rep["excluded"] == [] and rep["not_ready"] == []
     assert rep["pairs_by_exchange"]["gate"] == 5
-    W.syms[("gate", "EEE_USDT")].mid *= 5                      # тот же тикер, другой актив: пара отброшена и названа в сводке
+    del W.pairs[("EEE", "okx", "gate")]                         # пары нет при готовых сторонах — названа в сводке отброшенной
+    W.syms[("gate", "EEE_USDT")].mid *= 5
     assert state_report.report(W, coins)["excluded"] == [["EEE", "okx", "gate", pytest.approx(0.2, rel=0.3)]]
+
+
+def test_bootstrap_pair_ok_compares_mids_over_the_common_span(tmp_path):
+    """Gate с короткой историей: цена за сутки ушла со 100 до 60, у Gate — только последние 6 часов; медианы разных промежутков (≈ 80 против ≈ 62) дали бы ratio 1,29 и ложное исключение."""
+    parsed = tmp_path / "parsed"
+    T1 = 1794699960000       # граница bootstrap — целая минута, как в боевом
+    for ex, sym, hours in (("binance", "AAAUSDT", 24), ("gate", "AAA_USDT", 6)):
+        (parsed / ex).mkdir(parents=True)
+        e = T1 - hours * 3600_000 + np.arange(hours * 360, dtype=np.int64) * 10_000
+        px = 100.0 - 40.0 * (e - (T1 - 24 * 3600_000)) / (24 * 3600_000)
+        np.savez(parsed / ex / f"{sym}.2026-11-15-book00-1.1.npz", e=e, rx=e + 50, lag=np.full(len(e), 50, "i4"), bid=px - 0.01, ask=px + 0.01, bsz=np.ones(len(e)), asz=np.ones(len(e)))
+    per = {"binance": ("AAAUSDT", 1.0, True), "gate": ("AAA_USDT", 1.0, True)}
+    cmap = {("binance", "AAAUSDT"): ("AAA", 1.0, 1.0), ("gate", "AAA_USDT"): ("AAA", 1.0, 0.1)}
+    syms, pairs, alive = arb_daemon.boot_coin(("AAA", per, cmap, str(parsed), T1))
+    assert ("AAA", "binance", "gate") in pairs and pairs[("AAA", "binance", "gate")].m0 is not None
+    assert set(alive) == {"binance", "gate"}
+    assert not 0.9 < syms[("binance", "AAAUSDT")].mid / syms[("gate", "AAA_USDT")].mid < 1.1      # медианы собственных историй расходятся — прежнее правило исключило бы пару
+    # пара принята и остаётся: проход службы не судит существующую пару заново по серединам символов
+    W = arb_daemon.new_world()
+    W.syms, W.pairs = syms, pairs
+    arb_daemon.step_coin(W, "AAA", per, {k: s.carry for k, s in syms.items()}, {k: None for k in syms}, T1 // MIN + 1)
+    assert pairs[("AAA", "binance", "gate")].m0 is not None and len(pairs[("AAA", "binance", "gate")].mid) >= 1
+    # две монеты разных активов (общий отрезок — цена 100 против 20) по-прежнему исключаются
+    bad = {("binance", "BBBUSDT"): {"e": np.arange(100, dtype=np.int64) * 1000, "bid": np.full(100, 100.0), "ask": np.full(100, 100.1)},
+           ("gate", "BBB_USDT"): {"e": np.arange(100, dtype=np.int64) * 1000, "bid": np.full(100, 20.0), "ask": np.full(100, 20.1)}}
+    assert not arb_daemon.span_ratio_ok(bad[("binance", "BBBUSDT")], bad[("gate", "BBB_USDT")]) and arb_daemon.span_ratio_ok(None, bad[("gate", "BBB_USDT")])
 
 
 # середины Sym.mid живого состояния srv 15.11.2026: тикер — разные активы на биржах (ANTHROPIC, BB, ON) → пары не считаются; BARD — один актив (по минутам ratio p50 0,998)
