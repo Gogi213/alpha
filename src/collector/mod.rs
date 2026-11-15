@@ -13,6 +13,7 @@
 //!   writer, sink       писатель шарда (разбор, дубли, строки) → поток диска (zstd, файл суток, `.ok`)
 //!   net, budget, path  connect с RTT, TLS, WebSocket; бюджет подключений; качество пути
 //!   session, shard     одно соединение (поток ОС); линии, замена пути, смена входа, надзор
+//!   livepool           живой пул: пересмотр состава по REST без перезапуска, раскладка по шардам, файл пула запуска
 //!   health, series     health.json; поминутный ряд на диске (`series-minutes.jsonl`)
 //!   runner             процесс, сигналы, остановка
 //! ```
@@ -37,6 +38,7 @@ pub mod hash;
 pub mod health;
 pub mod hostinfo;
 pub mod ladder;
+pub mod livepool;
 pub mod metrics;
 pub mod net;
 pub mod okx;
@@ -66,3 +68,5 @@ pub const VERSION: &str = match option_env!("ALPHA_COMMIT") {
 mod tests;
 #[cfg(test)]
 mod tests_perf;
+#[cfg(test)]
+mod tests_pool;

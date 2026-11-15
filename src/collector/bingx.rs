@@ -15,7 +15,9 @@ use std::time::Duration;
 use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
-use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
+use super::exchange::{
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+};
 use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, slots};
 
@@ -258,10 +260,11 @@ impl Exchange for Bingx {
 
     /// Подписка по одной теме в сообщении: `{"id":…,"reqType":"sub","dataType":"BTC-USDT@bookTicker"}`; id = тема.
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
-        streams
-            .iter()
-            .map(|s| json!({"id": s, "reqType": "sub", "dataType": s}).to_string())
-            .collect()
+        req_messages("sub", streams)
+    }
+
+    fn unsubscribe_messages(&self, streams: &[String]) -> Vec<String> {
+        req_messages("unsub", streams)
     }
 
     /// Пауза между сообщениями подписки: 20 мс (≈ 50 сообщений/с проверено в пробе 12.11: 179 тем за 3,6 с без ошибок); лимита сообщений в документации нет.
@@ -303,9 +306,15 @@ impl Exchange for Bingx {
         Ok((pool, top))
     }
 
-    /// Правило G-022 для BingX: весь пул, топ-10 не исключается (правило «без топ-10» — только Binance и Bybit).
-    fn default_top_exclude(&self) -> usize {
-        0
+    fn load_turnover(&self) -> Result<Turnover, String> {
+        let contracts = rest_data(&format!("{REST}/contracts"))?;
+        let tickers = rest_data(&format!("{REST}/ticker"))?;
+        let (live, qv) = universe(&contracts, &tickers);
+        let (meta, _) = meta_vols(&live, &qv, &|_| true);
+        Ok(Turnover {
+            qv,
+            meta: meta.into_iter().collect(),
+        })
     }
 
     fn pool_meta(&self) -> Option<Value> {
@@ -346,15 +355,20 @@ fn number(v: &Value) -> Option<f64> {
     v.as_f64().or_else(|| v.as_str()?.parse().ok())
 }
 
+/// По одной теме в сообщении: `{"id": тема, "reqType": "sub"|"unsub", "dataType": тема}`.
+fn req_messages(req: &str, streams: &[String]) -> Vec<String> {
+    streams
+        .iter()
+        .map(|s| json!({"id": s, "reqType": req, "dataType": s}).to_string())
+        .collect()
+}
+
 /// `contracts` — `/quote/contracts`, `tickers` — `/quote/ticker`. Контракты `currency=USDT`, `status=1` («online»; 25 — запрещено открывать позиции, исключены как
-/// не торгуемые полностью); оборот за сутки — `quoteVolume` тикера (в USDT). Возвращает (пул, исключённый топ, `{meta, qv}` пула: параметры контракта и оборот для
-/// читателя и ранжирования ступеней).
-pub fn select_pool(
-    contracts: &[Value],
+/// не торгуемые полностью); оборот за сутки — `quoteVolume` тикера (в USDT). Возвращает (живые контракты, оборот по символу).
+fn universe<'a>(
+    contracts: &'a [Value],
     tickers: &[Value],
-    min_qv: f64,
-    top_exclude: usize,
-) -> (Vec<String>, Vec<String>, Value) {
+) -> (Vec<&'a Value>, BTreeMap<String, f64>) {
     let turnover: BTreeMap<&str, f64> = tickers
         .iter()
         .filter_map(|t| Some((text(t, "symbol")?, number(t.get("quoteVolume")?)?)))
@@ -374,11 +388,19 @@ pub fn select_pool(
             Some((sym.to_string(), *turnover.get(sym)?))
         })
         .collect();
-    let (pool, top) = rank_pool(&qv, min_qv, top_exclude);
+    (live, qv)
+}
+
+/// Параметры контракта (`META_KEYS`) и оборот (округлён до цента) символов, прошедших `keep`.
+fn meta_vols(
+    live: &[&Value],
+    qv: &BTreeMap<String, f64>,
+    keep: &dyn Fn(&str) -> bool,
+) -> (Map<String, Value>, Map<String, Value>) {
     let mut meta = Map::new();
     let mut vols = Map::new();
-    for c in &live {
-        let Some(sym) = text(c, "symbol").filter(|s| pool.iter().any(|p| p == s)) else {
+    for c in live {
+        let Some(sym) = text(c, "symbol").filter(|s| keep(s)) else {
             continue;
         };
         let m: Map<String, Value> = META_KEYS
@@ -390,5 +412,20 @@ pub fn select_pool(
             vols.insert(sym.to_string(), json!((v * 100.0).round() / 100.0));
         }
     }
+    (meta, vols)
+}
+
+/// `contracts` — `/quote/contracts`, `tickers` — `/quote/ticker`. Возвращает (пул, исключённый топ, `{meta, qv}` пула: параметры контракта и оборот для
+/// читателя и ранжирования ступеней).
+pub fn select_pool(
+    contracts: &[Value],
+    tickers: &[Value],
+    min_qv: f64,
+    top_exclude: usize,
+) -> (Vec<String>, Vec<String>, Value) {
+    let (live, qv) = universe(contracts, tickers);
+    let (pool, top) = rank_pool(&qv, min_qv, top_exclude);
+    let keep: std::collections::HashSet<&str> = pool.iter().map(String::as_str).collect();
+    let (meta, vols) = meta_vols(&live, &qv, &|id| keep.contains(id));
     (pool, top, json!({"meta": meta, "qv": vols}))
 }

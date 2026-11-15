@@ -40,6 +40,8 @@ def row_state(doc, age_s, thr):
         return "warn", "порог устаревания файла не задан"
     if sym["with_data_1m"] < sym["subscribed"]:
         return "warn", "данные за минуту пришли не по всем символам"
+    if sym.get("not_subscribed"):
+        return "warn", f"не подписано символов выше порога по REST: {sym['not_subscribed']}"
     ws = doc["ws"]
     if ws["timeouts_1h"] or ws["reconnects_1h"]:
         return "warn", "за час были таймауты или переподключения"

@@ -1150,7 +1150,12 @@ fn okx_plan_keeps_a_symbol_in_one_shard_and_subscribes_by_hundreds() {
     );
     assert!(lines.iter().flatten().all(|e| e.host == "ws.okx.com"));
     assert_eq!(okx.default_top_exclude(), 0);
-    assert_eq!(Bybit.default_top_exclude(), 10);
+    assert_eq!(
+        Bybit.default_top_exclude(),
+        0,
+        "топ-10 не исключается нигде (16.11)"
+    );
+    assert_eq!(Binance.default_top_exclude(), 0);
 }
 
 #[test]
@@ -2948,6 +2953,7 @@ fn shard_end_to_end_on_local_websocket() {
         exchange: "binance",
         pool: ["btcusdt".to_string()].into(),
         version: "test".into(),
+        live: None,
     };
     let health = build(
         &[Arc::clone(&metrics)],
@@ -3501,6 +3507,7 @@ fn never_slow_replacement_keeps_the_old_session_until_a_fast_path_exists() {
     opts.rtt_max_ms = 1e-6; // любой путь «медленный»
     opts.never_slow = true;
     opts.strict_pause = Duration::from_millis(100);
+    opts.reject_cap = 1_000; // потолок отбраковок на шард проверяется отдельно (tests_pool.rs)
     let exch: Arc<dyn Exchange> = Arc::new(Binance);
     let stop = Arc::new(AtomicBool::new(false));
     let budget = Arc::new(Budget::new(200, Duration::from_secs(300)));
@@ -4181,6 +4188,7 @@ fn restart_replays_counters_from_the_event_log() {
         exchange: "binance",
         pool: HashSet::new(),
         version: "t".into(),
+        live: None,
     };
     let v = build(&[m], &ctx, now, &mut ProcSampler::default());
     let w = &v["ws"];

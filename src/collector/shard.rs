@@ -16,14 +16,16 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use super::budget::Budget;
+use super::budget::{Budget, Cap};
 use super::events::{now_ms, replay_lists, EventLog};
 use super::exchange::{Entrance, Exchange, Family, ShardPlan};
 use super::metrics::{us_to_ms, Hist, ShardMetrics, WindowSnap, STATS_PERIOD_S};
 use super::path::{PathWatch, PROBE_MAX_REJECTS, PROBE_S, PROBE_SKIP_S};
 use super::reactor::ReactorHandle;
 use super::ring::{ring, Item, Payload};
-use super::session::{self, Outcome, Shared, CONNECT_RTT_MAX_MS, PING_PERIOD, PING_TIMEOUT};
+use super::session::{
+    self, Outcome, Shared, StreamSet, CONNECT_RTT_MAX_MS, PING_PERIOD, PING_TIMEOUT,
+};
 use super::sink::{run_sink, sink_channel};
 use super::worker::{spawn_worker, WorkerHandle};
 use super::writer::{ShardWriter, WriterCfg};
@@ -40,6 +42,11 @@ const UPGRADE_RETRY: Duration = Duration::from_secs(60);
 const LAZY_BAD_MAX: Duration = Duration::from_secs(180);
 /// Замена, которая не принимает медленный путь (`never_slow`): после стольких отбраковок подряд пауза, чтобы не съесть бюджет подключений.
 pub const STRICT_PAUSE: Duration = Duration::from_secs(10);
+/// Потолок замен пути (испорченный или медленный путь, не возрастная пересменка) на шард за `CAP_WINDOW` (назначаемое; аудит 16.11 §3.2 предлагал 4 за 5 мин).
+pub const REPLACE_CAP: usize = 4;
+/// Потолок отбракованных путей на шард за `CAP_WINDOW`: дальше следующая попытка ждёт, пока старейшая уйдёт из окна (назначаемое; 15.11 18:12 — по 9 отбраковок на шард за 3 мин).
+pub const REJECT_CAP: usize = 6;
+pub const CAP_WINDOW: Duration = Duration::from_secs(300);
 const STACK: usize = 1 << 20;
 
 /// Реактор по умолчанию для `ShardOpts::new`: только в сборке проверок с фичей `test-reactor` (весь набор тестов шардов идёт через реактор).
@@ -110,6 +117,10 @@ pub struct ShardOpts {
     pub cold_probe: bool,
     /// Пауза строгой замены после каждых `PROBE_MAX_REJECTS` отбраковок подряд.
     pub strict_pause: Duration,
+    /// Потолки на шард за `cap_window`: замены пути (`REPLACE_CAP`) и отбракованные пути покрытого шарда (`REJECT_CAP`); в проверках занижаются или снимаются.
+    pub replace_cap: usize,
+    pub reject_cap: usize,
+    pub cap_window: Duration,
     /// Рабочий процесса, общий для шардов (`runner`); `None` — шард заводит своего (проверки).
     pub worker: Option<WorkerHandle>,
     /// Период пробуждений рабочего (collector-perf: кадры не будят писателя, он просыпается по таймеру).
@@ -146,6 +157,9 @@ impl ShardOpts {
             lazy: false,
             cold_probe: false,
             strict_pause: STRICT_PAUSE,
+            replace_cap: REPLACE_CAP,
+            reject_cap: REJECT_CAP,
+            cap_window: CAP_WINDOW,
             worker: None,
             worker_tick: Duration::from_micros(1000),
             reactor: default_reactor(),
@@ -249,6 +263,22 @@ fn session_forever(
             Outcome::PathRejected => {
                 rejects += 1;
                 sleep_stop(sh, Duration::from_millis(500));
+                // потолок отбраковок на шард: при общей деградации сети все пути «плохие», и без него замены съедают бюджет подключений; шарду без соединения
+                // (холодная проба) потолок не мешает — он идёт первым
+                let now = Instant::now();
+                let wait = if sh.metrics.connected.load(Relaxed) > 0 {
+                    sh.reject_cap.note(now);
+                    sh.reject_cap.wait(now)
+                } else {
+                    Duration::ZERO
+                };
+                if !wait.is_zero() {
+                    sh.events.emit(
+                        "path_reject_capped",
+                        json!({"session": seq, "rejects": rejects, "wait_s": wait.as_secs()}),
+                    );
+                    sleep_stop(sh, wait);
+                }
                 if let Some(pause) = strict.filter(|_| rejects.is_multiple_of(PROBE_MAX_REJECTS)) {
                     sleep_stop(sh, pause);
                 }
@@ -355,6 +385,7 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         .unwrap_or_else(Instant::now);
     let mut upgrade_retry = Instant::now();
     let mut deferred: Option<u32> = None;
+    let mut capped: Option<u32> = None;
     let mut bad_since: Option<(u32, Instant)> = None;
     while !sh.stop.load(Relaxed) {
         thread::sleep(Duration::from_millis(250));
@@ -404,6 +435,17 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
                 json!({"line": lane.k, "session": cur.seq, "bad_s": bad_for.map(|d| d.as_secs())}),
             ),
             LazyDecision::Replace => {}
+        }
+        // потолок замен пути на шард: возрастная пересменка идёт всегда (биржа рвёт старую сессию), остальные — не чаще `REPLACE_CAP` за `CAP_WINDOW`
+        if !old && !sh.replace_cap.take(Instant::now()) {
+            if capped != Some(cur.seq) {
+                capped = Some(cur.seq);
+                sh.events.emit(
+                    "replace_capped",
+                    json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
+                );
+            }
+            continue;
         }
         // замена, не принимающая медленный путь: для испорченного и медленного пути, не для возрастной пересменки (её старую сессию биржа всё равно рвёт)
         let strict = (opts.never_slow && !old).then_some(opts.strict_pause);
@@ -465,6 +507,8 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
 pub struct ShardHandle {
     pub name: String,
     pub metrics: Arc<ShardMetrics>,
+    /// Живой набор потоков шарда: пересмотр пула меняет его, сессии дошлют разницу на своих соединениях.
+    pub streams: Arc<StreamSet>,
     join: JoinHandle<()>,
 }
 
@@ -499,9 +543,13 @@ pub fn spawn_shard(
     let mut writer = ShardWriter::new(cfg, Arc::clone(exch), Arc::clone(&metrics), stx, rrx);
     writer.set_sort_batch(opts.kernel_stamp);
     writer.set_hold(opts.rx_hold);
+    let streams = Arc::new(StreamSet::new(plan.streams.clone()));
     let sh = Arc::new(Shared {
         exch: Arc::clone(exch),
         plan: plan.clone(),
+        streams: Arc::clone(&streams),
+        replace_cap: Cap::new(opts.replace_cap, opts.cap_window),
+        reject_cap: Cap::new(opts.reject_cap, opts.cap_window),
         metrics: Arc::clone(&metrics),
         ring: rtx.clone(),
         watch: Mutex::new(PathWatch::default()),
@@ -607,6 +655,7 @@ pub fn spawn_shard(
     Some(ShardHandle {
         name,
         metrics: m2,
+        streams,
         join,
     })
 }

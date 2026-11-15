@@ -11,7 +11,9 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
-use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
+use super::exchange::{
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+};
 use super::hash::fnv;
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, single_pair, slots, Obj, Small};
@@ -326,10 +328,11 @@ impl Exchange for Bybit {
     }
 
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
-        streams
-            .chunks(SUB_BATCH)
-            .map(|c| json!({"op": "subscribe", "args": c}).to_string())
-            .collect()
+        op_messages("subscribe", streams)
+    }
+
+    fn unsubscribe_messages(&self, streams: &[String]) -> Vec<String> {
+        op_messages("unsubscribe", streams)
     }
 
     fn sub_period(&self) -> Duration {
@@ -358,51 +361,71 @@ impl Exchange for Bybit {
         min_qv: f64,
         top_exclude: usize,
     ) -> Result<(Vec<String>, Vec<String>), String> {
-        let mut instruments = Vec::new();
-        let mut cursor = String::new();
-        loop {
-            let suffix = if cursor.is_empty() {
-                String::new()
-            } else {
-                format!("&cursor={cursor}")
-            };
-            let page = http_get_json(&format!(
-                "{REST}/v5/market/instruments-info?category=linear&limit=1000{suffix}"
-            ))?;
-            let result = page.get("result").ok_or("instruments-info: нет result")?;
-            instruments.extend(
-                result
-                    .get("list")
-                    .and_then(|x| x.as_array())
-                    .cloned()
-                    .unwrap_or_default(),
-            );
-            cursor = result
-                .get("nextPageCursor")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string();
-            if cursor.is_empty() {
-                break;
-            }
-        }
-        let tickers = http_get_json(&format!("{REST}/v5/market/tickers?category=linear"))?;
-        let list = tickers
-            .get("result")
-            .and_then(|r| r.get("list"))
-            .cloned()
-            .unwrap_or_default();
+        let (instruments, list) = rest_pool_inputs()?;
         Ok(select_pool(&instruments, &list, min_qv, top_exclude))
+    }
+
+    fn load_turnover(&self) -> Result<Turnover, String> {
+        let (instruments, list) = rest_pool_inputs()?;
+        Ok(Turnover {
+            qv: turnover_of(&instruments, &list),
+            meta: BTreeMap::new(),
+        })
     }
 }
 
-/// `instruments` — instruments-info['list'], `tickers` — tickers['list'] (turnover24h, $).
-pub fn select_pool(
+/// `{"op": <операция>, "args": [...]}` пачками по `SUB_BATCH` тем.
+fn op_messages(op: &str, streams: &[String]) -> Vec<String> {
+    streams
+        .chunks(SUB_BATCH)
+        .map(|c| json!({"op": op, "args": c}).to_string())
+        .collect()
+}
+
+/// REST пула: `instruments-info` (все страницы) и `tickers` (linear).
+fn rest_pool_inputs() -> Result<(Vec<serde_json::Value>, serde_json::Value), String> {
+    let mut instruments = Vec::new();
+    let mut cursor = String::new();
+    loop {
+        let suffix = if cursor.is_empty() {
+            String::new()
+        } else {
+            format!("&cursor={cursor}")
+        };
+        let page = http_get_json(&format!(
+            "{REST}/v5/market/instruments-info?category=linear&limit=1000{suffix}"
+        ))?;
+        let result = page.get("result").ok_or("instruments-info: нет result")?;
+        instruments.extend(
+            result
+                .get("list")
+                .and_then(|x| x.as_array())
+                .cloned()
+                .unwrap_or_default(),
+        );
+        cursor = result
+            .get("nextPageCursor")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        if cursor.is_empty() {
+            break;
+        }
+    }
+    let tickers = http_get_json(&format!("{REST}/v5/market/tickers?category=linear"))?;
+    let list = tickers
+        .get("result")
+        .and_then(|r| r.get("list"))
+        .cloned()
+        .unwrap_or_default();
+    Ok((instruments, list))
+}
+
+/// `instruments` — instruments-info['list'], `tickers` — tickers['list'] (turnover24h, $): оборот торгуемых USDT-бессрочных.
+pub fn turnover_of(
     instruments: &[serde_json::Value],
     tickers: &serde_json::Value,
-    min_qv: f64,
-    top_exclude: usize,
-) -> (Vec<String>, Vec<String>) {
+) -> BTreeMap<String, f64> {
     let mut qv: BTreeMap<String, f64> = BTreeMap::new();
     for t in tickers.as_array().into_iter().flatten() {
         let v = t
@@ -415,7 +438,7 @@ pub fn select_pool(
             }
         }
     }
-    let ok: BTreeMap<String, f64> = instruments
+    instruments
         .iter()
         .filter(|s| {
             s.get("status").and_then(|x| x.as_str()) == Some("Trading")
@@ -426,6 +449,15 @@ pub fn select_pool(
             let name = s.get("symbol")?.as_str()?;
             Some((name.to_string(), *qv.get(name)?))
         })
-        .collect();
-    rank_pool(&ok, min_qv, top_exclude)
+        .collect()
+}
+
+/// `instruments` — instruments-info['list'], `tickers` — tickers['list'] (turnover24h, $).
+pub fn select_pool(
+    instruments: &[serde_json::Value],
+    tickers: &serde_json::Value,
+    min_qv: f64,
+    top_exclude: usize,
+) -> (Vec<String>, Vec<String>) {
+    rank_pool(&turnover_of(instruments, tickers), min_qv, top_exclude)
 }

@@ -135,6 +135,48 @@ pub struct HealthCtx {
     /// Пул в нижнем регистре (для «символов с данными»).
     pub pool: HashSet<String>,
     pub version: String,
+    /// Пересмотр пула без перезапуска (`livepool`): сверка REST-оборота с подпиской; `None` — пул фиксирован на старте.
+    pub live: Option<PoolHealth>,
+}
+
+/// Сверка пула с биржей (`livepool::LivePool::health`): что REST считает торгуемым выше порога против того, что подписано.
+#[derive(Clone, Debug, Default)]
+pub struct PoolHealth {
+    pub refresh_s: u64,
+    pub hold_s: u64,
+    pub last_try_ms: i64,
+    pub last_ok_ms: i64,
+    pub errors: u64,
+    pub last_error: Option<String>,
+    /// Контрактов в ответе REST и из них с оборотом ≥ порога.
+    pub rest_symbols: usize,
+    pub eligible: usize,
+    /// Выше порога по последнему REST, но не в подписке сейчас (после применения пересмотра обычно 0: сбой REST или раскладки).
+    pub not_subscribed: usize,
+    pub not_subscribed_qv_usd: f64,
+    /// Выше порога, но не в подписке на момент опроса (до применения): сколько символов состав не успел поймать за период.
+    pub missing_at_poll: usize,
+    pub missing_at_poll_qv_usd: f64,
+    pub missing_top: Vec<(String, f64)>,
+    pub added_total: u64,
+    pub removed_total: u64,
+    pub spawned_shards: u64,
+    pub remove_blocked: u64,
+    pub pool: usize,
+}
+
+impl PoolHealth {
+    fn json(&self, now_ms: i64) -> Value {
+        json!({
+            "refresh_s": self.refresh_s, "hold_s": self.hold_s, "pool": self.pool, "rest_symbols": self.rest_symbols, "rest_eligible": self.eligible,
+            "last_ok_ms": self.last_ok_ms, "last_try_ms": self.last_try_ms, "rest_age_s": (self.last_ok_ms > 0).then(|| (now_ms - self.last_ok_ms).max(0) / 1000),
+            "errors": self.errors, "last_error": self.last_error,
+            "not_subscribed": self.not_subscribed, "not_subscribed_qv_usd": self.not_subscribed_qv_usd.round(),
+            "missing_at_poll": self.missing_at_poll, "missing_at_poll_qv_usd": self.missing_at_poll_qv_usd.round(),
+            "missing_top": self.missing_top.iter().map(|(s, v)| json!([s, v.round()])).collect::<Vec<_>>(),
+            "added_total": self.added_total, "removed_total": self.removed_total, "spawned_shards": self.spawned_shards, "remove_blocked": self.remove_blocked,
+        })
+    }
 }
 
 /// Размеры поднятия `rx` (мкс): число, p50, p99, max.
@@ -298,6 +340,14 @@ pub fn build(
     let [es1, es24] = es;
     let [ps1, ps24] = ps;
     let [t_rec, t_dup, t_raw, t_rawc, t_rows, t_clamp] = totals;
+    let mut symbols = json!({"subscribed": ctx.pool.len(), "with_data_1m": with_data.len()});
+    if let (Some(l), Some(o)) = (ctx.live.as_ref(), symbols.as_object_mut()) {
+        o.insert("not_subscribed".into(), json!(l.not_subscribed));
+        o.insert(
+            "not_subscribed_qv_usd".into(),
+            json!(l.not_subscribed_qv_usd.round()),
+        );
+    }
     let by_class: serde_json::Map<String, Value> = p
         .by_class
         .iter()
@@ -311,7 +361,7 @@ pub fn build(
     };
     json!({
         "schema": 2, "exchange": ctx.exchange, "ts_ms": now_ms, "started_ms": if started == i64::MAX { now_ms } else { started },
-        "symbols": {"subscribed": ctx.pool.len(), "with_data_1m": with_data.len()},
+        "symbols": symbols,
         "ws": {
             "connections": connections, "ping_ms": ping,
             "timeouts_1h": to1, "timeouts_24h": to24,
@@ -346,5 +396,6 @@ pub fn build(
             "sink_errors": sink_errors, "sink_blocks_dropped": blocks_dropped, "files_closed": files_closed,
         },
         "shards": per_shard,
+        "pool": ctx.live.as_ref().map(|l| l.json(now_ms)),
     })
 }

@@ -9,7 +9,9 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
-use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
+use super::exchange::{
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+};
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
 use super::scan::{each_elem, parse_object, slots, Val};
 
@@ -252,13 +254,16 @@ impl Exchange for Binance {
     }
 
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
-        streams
-            .chunks(SUB_BATCH)
-            .enumerate()
-            .map(|(k, c)| {
-                json!({"method": "SUBSCRIBE", "params": c, "id": k * SUB_BATCH + 1}).to_string()
-            })
-            .collect()
+        method_messages("SUBSCRIBE", streams)
+    }
+
+    fn unsubscribe_messages(&self, streams: &[String]) -> Vec<String> {
+        method_messages("UNSUBSCRIBE", streams)
+    }
+
+    /// `mark` — один поток `!markPrice@arr@1s` на все символы: от пула не зависит.
+    fn pool_free_kinds(&self) -> &'static [&'static str] {
+        &["mark"]
     }
 
     fn sub_period(&self) -> Duration {
@@ -306,15 +311,28 @@ impl Exchange for Binance {
         let tickers = http_get_json(&format!("{REST}/fapi/v1/ticker/24hr"))?;
         Ok(select_pool(&info, &tickers, min_qv, top_exclude))
     }
+
+    fn load_turnover(&self) -> Result<Turnover, String> {
+        let info = http_get_json(&format!("{REST}/fapi/v1/exchangeInfo"))?;
+        let tickers = http_get_json(&format!("{REST}/fapi/v1/ticker/24hr"))?;
+        Ok(Turnover {
+            qv: turnover_of(&info, &tickers),
+            meta: BTreeMap::new(),
+        })
+    }
 }
 
-/// `info` — ответ exchangeInfo, `tickers` — ticker/24hr: торгуемые бессрочные USDT-контракты с оборотом.
-pub fn select_pool(
-    info: &serde_json::Value,
-    tickers: &serde_json::Value,
-    min_qv: f64,
-    top_exclude: usize,
-) -> (Vec<String>, Vec<String>) {
+/// `{"method": <метод>, "params": [...], "id": n}` пачками по `SUB_BATCH` потоков.
+fn method_messages(method: &str, streams: &[String]) -> Vec<String> {
+    streams
+        .chunks(SUB_BATCH)
+        .enumerate()
+        .map(|(k, c)| json!({"method": method, "params": c, "id": k * SUB_BATCH + 1}).to_string())
+        .collect()
+}
+
+/// `info` — ответ exchangeInfo, `tickers` — ticker/24hr: оборот за сутки торгуемых бессрочных USDT-контрактов.
+pub fn turnover_of(info: &serde_json::Value, tickers: &serde_json::Value) -> BTreeMap<String, f64> {
     let mut qv: BTreeMap<String, f64> = BTreeMap::new();
     for t in tickers.as_array().into_iter().flatten() {
         let v = t
@@ -327,8 +345,7 @@ pub fn select_pool(
             }
         }
     }
-    let ok: BTreeMap<String, f64> = info
-        .get("symbols")
+    info.get("symbols")
         .and_then(|x| x.as_array())
         .into_iter()
         .flatten()
@@ -341,6 +358,15 @@ pub fn select_pool(
             let name = s.get("symbol")?.as_str()?;
             Some((name.to_string(), *qv.get(name)?))
         })
-        .collect();
-    rank_pool(&ok, min_qv, top_exclude)
+        .collect()
+}
+
+/// `info` — ответ exchangeInfo, `tickers` — ticker/24hr: торгуемые бессрочные USDT-контракты с оборотом.
+pub fn select_pool(
+    info: &serde_json::Value,
+    tickers: &serde_json::Value,
+    min_qv: f64,
+    top_exclude: usize,
+) -> (Vec<String>, Vec<String>) {
+    rank_pool(&turnover_of(info, tickers), min_qv, top_exclude)
 }

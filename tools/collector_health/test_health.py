@@ -85,6 +85,21 @@ def test_states(tmp_path):
     assert rows["binance"]["state"] == "warn" and rows["bybit"]["state"] == "warn"
 
 
+def test_not_subscribed_from_rest_flags_the_row_and_shows_in_detail(tmp_path):
+    import time
+    import v3
+    base = {"ts_ms": int(time.time() * 1000), "symbols": {"subscribed": 3, "with_data_1m": 3}, "ws": {}, "fresh": {"kinds": {}}}
+    root = str(tmp_path)
+    r = v3.exchange_row("bybit", "Bybit", base, root, time.time(), 0, None)
+    assert r["detail"]["not_subscribed"] is None and not r["live_bad"]   # прежняя сборка: поля нет
+    h = {**base, "symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "not_subscribed_qv_usd": 0}, "pool": {"rest_age_s": 42}}
+    r = v3.exchange_row("bybit", "Bybit", h, root, time.time(), 0, None)
+    assert r["detail"]["not_subscribed"] == [0, 0, 42] and not r["live_bad"]
+    h = {**base, "symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 55, "not_subscribed_qv_usd": 12_300_000}, "pool": {"rest_age_s": 7}}
+    r = v3.exchange_row("bybit", "Bybit", h, root, time.time(), 0, None)
+    assert r["detail"]["not_subscribed"] == [55, 12_300_000, 7] and r["live_bad"] and not r["ok"]
+
+
 def test_symbols_508_of_509_warn_0_of_509_bad(tmp_path):
     put(tmp_path, "binance", doc(symbols={"subscribed": 509, "with_data_1m": 508}))
     put(tmp_path, "bybit", doc(symbols={"subscribed": 509, "with_data_1m": 0}))
@@ -195,6 +210,7 @@ def test_late_below_hour_threshold_keeps_row_green_and_at_threshold_is_warn(tmp_
 
 def test_v3_bar_is_flagged_by_minute_late_threshold_and_row_by_hour_threshold(tmp_path):
     import time
+    import v3
     import v3
     s0 = 900 * 10
     full = {m: [0, 0, 0, 0, "ser"] for m in range(s0 // 60, (s0 + 900) // 60)}

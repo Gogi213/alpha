@@ -233,7 +233,8 @@ def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
     lost_24h = sum(c[0] for c in mins.values()) / 1000
     age = (now * 1000 - h.get("ts_ms", 0)) / 1000 if h else 1e9
     sym = h.get("symbols", {})
-    live_bad = age > 30 or (sym.get("with_data_1m", 1) < sym.get("subscribed", 0))
+    not_sub = sym.get("not_subscribed")   # REST: выше порога по обороту, но не в подписке (коллектор с пересмотром пула; у прежней сборки поля нет)
+    live_bad = age > 30 or (sym.get("with_data_1m", 1) < sym.get("subscribed", 0)) or bool(not_sub)
     late_bad = late_1h > 0 and late_1h >= max(1, int(thr.get("late_1h_flag", 1)))   # порог за час: поздние ниже него — только число
     ok = not live_bad and lost_1h == 0 and not late_bad and not ws.get("gaps_1h")
     gaps = sorted(((m, c[0]) for m, c in mins.items() if c[0] > 0), reverse=True)[:6]
@@ -246,6 +247,7 @@ def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
             "late_max_1h_s": max([k.get("max_1h_ms") or 0 for k in fresh.values()] or [0]) / 1000,
             "to_alive_24h": ws.get("timeouts_alive_24h"), "to_silent_24h": ws.get("timeouts_silent_24h"), "reconnects_1h": ws.get("reconnects_1h"),
             "version": proc.get("version"), "started": (h.get("started_ms") or 0) / 1000, "symbols": [sym.get("with_data_1m"), sym.get("subscribed")],
+            "not_subscribed": None if not_sub is None else [not_sub, sym.get("not_subscribed_qv_usd"), (h.get("pool") or {}).get("rest_age_s")],
             "msgs_s": round(sum(s.get("msgs_10s", 0) for s in shards) / 10), "lag_in": [h.get("lag_in_ms", {}).get("p50"), h.get("lag_in_ms", {}).get("p99")],
             "ping": [ws.get("ping_ms", {}).get("p50"), ws.get("ping_ms", {}).get("max")], "cpu": proc.get("cpu_cores"),
             "log_from": min((m for m in mins), default=None) and min(mins) * MIN,

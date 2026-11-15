@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -18,18 +19,21 @@ use super::bingx::Bingx;
 use super::budget::{Budget, LIMIT, WINDOW};
 use super::bybit::Bybit;
 use super::events::now_ms;
-use super::exchange::{Entrance, Exchange, Family};
+use super::exchange::{Entrance, Exchange, Family, Turnover};
 use super::gate::Gate;
 use super::health::{build, write_atomic, HealthCtx, ProcSampler};
 use super::hostinfo::HostInfo;
+use super::livepool::{
+    Layout, LivePool, Op, PoolFile, PoolState, DEFAULT_HOLD_S, DEFAULT_REFRESH_S,
+};
 use super::metrics::STATS_PERIOD_S;
 use super::net;
 use super::okx::Okx;
 use super::reactor::{spawn_reactor, spawn_reactor_inline, ReactorCfg};
 use super::series::SeriesWriter;
+use super::session::StreamSet;
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
 use super::worker::spawn_worker;
-use super::writer::day_string;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum ExchangeName {
@@ -78,9 +82,17 @@ pub struct RunArgs {
     pub streams_per_conn: usize,
     #[arg(long, default_value_t = 300_000.0)]
     pub min_quote_volume: f64,
-    /// Сколько крупнейших по обороту не брать в пул (по умолчанию — правило биржи G-022: Binance и Bybit 10, OKX, BingX и Gate 0).
+    /// Сколько крупнейших по обороту не брать в пул (по умолчанию 0: собираем всё, что торгуется выше порога; до 16.11 Binance и Bybit исключали 10).
     #[arg(long)]
     pub top_exclude: Option<usize>,
+    /// Период пересмотра пула по REST-обороту, с: новые символы выше порога докладываются в подписку, ушедшие под порог снимаются через `--pool-hold-s`, без перезапуска
+    /// (по умолчанию 300; 0 — пул фиксирован на старте, как до 16.11; при `--pool-file` по умолчанию выключен — копии для сравнения идут на том же наборе, включается явным
+    /// числом; при `--only-shards` выключен всегда).
+    #[arg(long)]
+    pub pool_refresh_s: Option<u64>,
+    /// Гистерезис выхода из пула, с: символ остаётся в подписке, пока его оборот ниже порога не держится столько секунд подряд (по умолчанию сутки).
+    #[arg(long, default_value_t = DEFAULT_HOLD_S)]
+    pub pool_hold_s: u64,
     /// Подключений к бирже за 5 мин на процесс (по умолчанию: Binance — 280 из лимита биржи 300 на IP, замер маршрута 12.11: отбраковка медленных
     /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`; OKX — за 1 с, `OKX_LIMIT`; BingX — за 1 с, `BINGX_LIMIT`; Gate — за 1 с, `GATE_LIMIT`). Отбракованные подключения считаются.
     #[arg(long)]
@@ -299,17 +311,26 @@ fn health_json(
     v
 }
 
+/// Места бюджета, которые занимают только шарды без соединения: по два на шард (обе линии), не больше трети лимита. В правилах с окном в секунды резерв не нужен.
+fn urgent_reserve(limit: usize, shards: usize, window: Duration) -> usize {
+    if window < Duration::from_secs(60) {
+        0
+    } else {
+        shards.saturating_mul(2).min(limit / 3)
+    }
+}
+
 pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     net::set_allow_ipv6(args.allow_ipv6);
     let exch = exchange_of(args.exchange);
     std::fs::create_dir_all(&args.root)?;
+    let top_exclude = args.top_exclude.unwrap_or(exch.default_top_exclude());
     let (pool, top, extra) = match &args.pool_file {
         Some(p) => {
             let (pool, extra) = load_pool_file(p).map_err(anyhow::Error::msg)?;
             (pool, Vec::new(), Some(extra))
         }
         None => {
-            let top_exclude = args.top_exclude.unwrap_or(exch.default_top_exclude());
             let (pool, top) = exch
                 .load_pool(args.min_quote_volume, top_exclude)
                 .map_err(anyhow::Error::msg)?;
@@ -321,12 +342,19 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     if let (Some(serde_json::Value::Object(extra)), Some(o)) = (extra, pool_json.as_object_mut()) {
         o.extend(extra);
     }
-    std::fs::write(
-        args.root.join(format!(
-            "pool-{}.json",
-            day_string(run_id.div_euclid(86_400))
-        )),
-        pool_json.to_string(),
+    // пул запуска — свой файл `pool-<день>-<запуск>.json` с метками времени; прежний `pool-<день>.json` пишется тем же документом для читателей по имени
+    let refresh_s = args.pool_refresh_s.unwrap_or(if args.pool_file.is_some() {
+        0
+    } else {
+        DEFAULT_REFRESH_S
+    });
+    let live_on = refresh_s > 0 && args.only_shards.is_none();
+    let pool_file = PoolFile::create(
+        &args.root,
+        run_id,
+        pool_json,
+        if live_on { refresh_s } else { 0 },
+        args.pool_hold_s,
     )?;
     // источник метки приёма `rx` — по запускам (дописывается): разрыв семантики в непрерывном наборе данных виден по датам (docs/collector-ws-format.md)
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -355,6 +383,22 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         let keep: HashSet<&str> = only.split(',').collect();
         plans.retain(|p| keep.contains(p.name.as_str()));
     }
+    let mut live = live_on.then(|| {
+        LivePool::new(
+            Arc::clone(&exch),
+            PoolState::new(
+                &pool,
+                now_ms(),
+                args.min_quote_volume,
+                top_exclude,
+                args.pool_hold_s,
+            ),
+            Layout::new(exch.as_ref(), &plans, &pool, &kinds, args.streams_per_conn),
+            Some(pool_file),
+            refresh_s,
+            args.pool_hold_s,
+        )
+    });
     let lines = lines_of(exch.as_ref(), args).map_err(anyhow::Error::msg)?;
     let mut opts = ShardOpts::new(args.root.clone(), run_id);
     opts.flush = Duration::from_millis(args.flush_ms.max(1));
@@ -406,6 +450,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     };
     let budget = Arc::new(Budget::new(limit, window));
     budget.set_reserve(args.reject_reserve);
+    budget.set_urgent_reserve(urgent_reserve(limit, plans.len(), window));
     let tick = Duration::from_micros(args.worker_tick_us.clamp(100, 100_000));
     opts.worker_tick = tick;
     let kernel_stamp = args.reactor && args.rx_stamp == "kernel";
@@ -448,14 +493,20 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                 ))
             });
     let mut handles: Vec<ShardHandle> = Vec::new();
+    // живые наборы потоков по индексу шарда раскладки (`None` — шард не запустился)
+    let mut stream_sets: Vec<Option<Arc<StreamSet>>> = Vec::new();
     for plan in &plans {
         let mut o = opts.clone();
         if let (true, Some((w, _))) = (plan.name.starts_with("mark"), mark_worker.as_ref()) {
             o.worker = Some(w.clone());
             o.worker_tick = Duration::from_micros(args.reactor_window_us.clamp(2_000, 100_000));
         }
-        if let Some(h) = spawn_shard(&exch, plan, &lines, &o, &budget, &stop) {
-            handles.push(h);
+        match spawn_shard(&exch, plan, &lines, &o, &budget, &stop) {
+            Some(h) => {
+                stream_sets.push(Some(Arc::clone(&h.streams)));
+                handles.push(h);
+            }
+            None => stream_sets.push(None),
         }
     }
     println!(
@@ -471,12 +522,36 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         .health
         .clone()
         .unwrap_or_else(|| PathBuf::from(format!("/data/health/{}.json", exch.name())));
-    let ctx = HealthCtx {
+    let mut ctx = HealthCtx {
         exchange: exch.name(),
         pool: pool.iter().map(|s| s.to_lowercase()).collect(),
         version: super::VERSION.to_string(),
+        live: live.as_ref().map(LivePool::health),
     };
-    let metrics: Vec<_> = handles.iter().map(|h| Arc::clone(&h.metrics)).collect();
+    let mut metrics: Vec<_> = handles.iter().map(|h| Arc::clone(&h.metrics)).collect();
+    // REST-опрос оборота — отдельный поток (запрос блокирующий, до 30 с): основной цикл не ждёт, результат приходит по каналу
+    let (refresh_tx, refresh_rx) = channel::<Result<Turnover, String>>();
+    if live.is_some() {
+        let (exch2, stop2) = (Arc::clone(&exch), Arc::clone(&stop));
+        let period = Duration::from_secs(refresh_s);
+        let first = period.min(Duration::from_secs(60));
+        let _ = std::thread::Builder::new()
+            .name("pool-refresh".into())
+            .spawn(move || {
+                let mut next = Instant::now() + first;
+                while !stop2.load(Relaxed) {
+                    std::thread::sleep(Duration::from_millis(200));
+                    if Instant::now() < next {
+                        continue;
+                    }
+                    let r = exch2.load_turnover();
+                    next = Instant::now() + period;
+                    if refresh_tx.send(r).is_err() {
+                        return;
+                    }
+                }
+            });
+    }
     let mut sampler = ProcSampler::default();
     let mut host = HostInfo::new();
     let mut series = SeriesWriter::open(&args.root, now_ms(), super::VERSION);
@@ -486,6 +561,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     );
     let mut next = Instant::now() + Duration::from_secs(STATS_PERIOD_S);
     let (mut next_limit, mut applied) = (Instant::now(), limit);
+    let mut applied_limit = limit;
     while !stop.load(Relaxed) {
         std::thread::sleep(Duration::from_millis(200));
         if let (Some(f), true) = (&args.budget_file, Instant::now() >= next_limit) {
@@ -494,10 +570,73 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                 budget.set_limit(n);
                 println!("connect budget {applied} -> {n}");
                 applied = n;
+                applied_limit = n;
+                budget.set_urgent_reserve(urgent_reserve(n, stream_sets.len(), window));
             }
         }
         if deadline.is_some_and(|d| t0.elapsed() >= d) {
             stop.store(true, Relaxed);
+        }
+        while let Ok(msg) = refresh_rx.try_recv() {
+            let Some(lp) = live.as_mut() else { continue };
+            let now = now_ms();
+            match msg {
+                Err(e) => {
+                    lp.failed(now, &e);
+                    println!("pool refresh failed: {e}");
+                }
+                Ok(t) => {
+                    let applied = lp.apply(&t, now);
+                    for op in applied.ops {
+                        match op {
+                            Op::Append { slot, streams } => {
+                                if let Some(Some(set)) = stream_sets.get(slot) {
+                                    set.apply(&streams, &[]);
+                                }
+                            }
+                            Op::Remove { slot, streams } => {
+                                if let Some(Some(set)) = stream_sets.get(slot) {
+                                    set.apply(&[], &streams);
+                                }
+                            }
+                            Op::Spawn { slot, plan } => {
+                                if slot != stream_sets.len() {
+                                    continue;
+                                }
+                                match spawn_shard(&exch, &plan, &lines, &opts, &budget, &stop) {
+                                    Some(h) => {
+                                        println!(
+                                            "pool: new shard {} ({} streams)",
+                                            plan.name,
+                                            plan.streams.len()
+                                        );
+                                        metrics.push(Arc::clone(&h.metrics));
+                                        stream_sets.push(Some(Arc::clone(&h.streams)));
+                                        handles.push(h);
+                                    }
+                                    None => stream_sets.push(None),
+                                }
+                            }
+                        }
+                    }
+                    if !applied.changes.is_empty() {
+                        let a = applied.changes.iter().filter(|c| c.add).count();
+                        println!(
+                            "pool refresh: +{a} -{} -> {} symbols, {} shards",
+                            applied.changes.len() - a,
+                            lp.state.len(),
+                            stream_sets.len()
+                        );
+                    }
+                    ctx.pool = lp.lower_pool();
+                    budget.set_urgent_reserve(urgent_reserve(
+                        applied_limit,
+                        stream_sets.len(),
+                        window,
+                    ));
+                }
+            }
+            ctx.live = Some(lp.health());
         }
         if Instant::now() >= next {
             next += Duration::from_secs(STATS_PERIOD_S);

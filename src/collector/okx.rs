@@ -15,7 +15,9 @@ use std::time::Duration;
 use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
-use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
+use super::exchange::{
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+};
 use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, slots, Small, Val};
 
@@ -401,17 +403,11 @@ impl Exchange for Okx {
     }
 
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
-        streams
-            .chunks(SUB_BATCH)
-            .map(|c| {
-                let args: Vec<Value> = c
-                    .iter()
-                    .filter_map(|s| s.split_once(':'))
-                    .map(|(ch, inst)| json!({"channel": ch, "instId": inst}))
-                    .collect();
-                json!({"op": "subscribe", "args": args}).to_string()
-            })
-            .collect()
+        op_messages("subscribe", streams)
+    }
+
+    fn unsubscribe_messages(&self, streams: &[String]) -> Vec<String> {
+        op_messages("unsubscribe", streams)
     }
 
     /// Пауза между запросами подписки: 0,2 с — проверено в пробе (1 038 аргументов за 11 запросов, без `60014`); лимит биржи — 480 запросов/ч на соединение.
@@ -458,9 +454,15 @@ impl Exchange for Okx {
         Ok((pool, top))
     }
 
-    /// Правило G-022 для OKX: весь пул, топ-10 не исключается (решение координатора: правило «без топ-10» — только Binance и Bybit).
-    fn default_top_exclude(&self) -> usize {
-        0
+    fn load_turnover(&self) -> Result<Turnover, String> {
+        let instruments = rest_data(&format!("{REST}/api/v5/public/instruments?instType=SWAP"))?;
+        let tickers = rest_data(&format!("{REST}/api/v5/market/tickers?instType=SWAP"))?;
+        let (live, qv) = universe(&instruments, &tickers);
+        let (meta, _) = meta_vols(&live, &qv, &|_| true);
+        Ok(Turnover {
+            qv,
+            meta: meta.into_iter().collect(),
+        })
     }
 
     fn pool_meta(&self) -> Option<Value> {
@@ -492,15 +494,28 @@ fn text<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
     v.get(k)?.as_str()
 }
 
+/// `{"op": <операция>, "args": [{channel, instId}…]}` пачками по `SUB_BATCH` аргументов.
+fn op_messages(op: &str, streams: &[String]) -> Vec<String> {
+    streams
+        .chunks(SUB_BATCH)
+        .map(|c| {
+            let args: Vec<Value> = c
+                .iter()
+                .filter_map(|s| s.split_once(':'))
+                .map(|(ch, inst)| json!({"channel": ch, "instId": inst}))
+                .collect();
+            json!({"op": op, "args": args}).to_string()
+        })
+        .collect()
+}
+
 /// `instruments` — `/public/instruments?instType=SWAP`, `tickers` — `/market/tickers?instType=SWAP`. Контракты `ctType=linear`, `settleCcy=USDT`,
 /// `state=live`; оборот за сутки в долларах = `volCcy24h` (база) × `last` (в тикере OKX оборота в долларах нет — одно приближение на один запрос,
-/// подготовка OKX п. 2). Возвращает (пул, исключённый топ, `{meta, qv}` пула: размер контракта и оборот для читателя и ранжирования ступеней).
-pub fn select_pool(
-    instruments: &[Value],
+/// подготовка OKX п. 2). Возвращает (живые контракты, оборот по `instId`).
+fn universe<'a>(
+    instruments: &'a [Value],
     tickers: &[Value],
-    min_qv: f64,
-    top_exclude: usize,
-) -> (Vec<String>, Vec<String>, Value) {
+) -> (Vec<&'a Value>, BTreeMap<String, f64>) {
     let mut turnover: BTreeMap<&str, f64> = BTreeMap::new();
     for t in tickers {
         let v = text(t, "volCcy24h")
@@ -528,11 +543,19 @@ pub fn select_pool(
             Some((id.to_string(), *turnover.get(id)?))
         })
         .collect();
-    let (pool, top) = rank_pool(&qv, min_qv, top_exclude);
+    (live, qv)
+}
+
+/// Метаданные (`META_KEYS`) и оборот (округлён до цента) контрактов, прошедших `keep`.
+fn meta_vols(
+    live: &[&Value],
+    qv: &BTreeMap<String, f64>,
+    keep: &dyn Fn(&str) -> bool,
+) -> (Map<String, Value>, Map<String, Value>) {
     let mut meta = Map::new();
     let mut vols = Map::new();
-    for s in &live {
-        let Some(id) = text(s, "instId").filter(|id| pool.iter().any(|p| p == id)) else {
+    for s in live {
+        let Some(id) = text(s, "instId").filter(|id| keep(id)) else {
             continue;
         };
         let m: Map<String, Value> = META_KEYS
@@ -544,5 +567,20 @@ pub fn select_pool(
             vols.insert(id.to_string(), json!((v * 100.0).round() / 100.0));
         }
     }
+    (meta, vols)
+}
+
+/// `instruments` — `/public/instruments?instType=SWAP`, `tickers` — `/market/tickers?instType=SWAP`. Возвращает (пул, исключённый топ,
+/// `{meta, qv}` пула: размер контракта и оборот для читателя и ранжирования ступеней).
+pub fn select_pool(
+    instruments: &[Value],
+    tickers: &[Value],
+    min_qv: f64,
+    top_exclude: usize,
+) -> (Vec<String>, Vec<String>, Value) {
+    let (live, qv) = universe(instruments, tickers);
+    let (pool, top) = rank_pool(&qv, min_qv, top_exclude);
+    let keep: std::collections::HashSet<&str> = pool.iter().map(String::as_str).collect();
+    let (meta, vols) = meta_vols(&live, &qv, &|id| keep.contains(id));
     (pool, top, json!({"meta": meta, "qv": vols}))
 }

@@ -99,6 +99,14 @@ impl Entrance {
     }
 }
 
+/// Все торгуемые контракты биржи с оборотом за сутки, $ (REST) и метаданными контракта: вход для пересмотра пула без перезапуска.
+#[derive(Clone, Debug, Default)]
+pub struct Turnover {
+    pub qv: std::collections::BTreeMap<String, f64>,
+    /// Метаданные контракта по символу (размер, шаг и т. п.; пусто у Binance и Bybit).
+    pub meta: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
 /// Лаг прихода, мс: приём (нс) − время биржи (мс); разность в целых нс, затем в мс — точно (f64 не держит нс эпохи).
 #[allow(clippy::cast_precision_loss)]
 pub fn lag_ms(rx_ns: i64, e_ms: i64) -> f64 {
@@ -118,6 +126,8 @@ pub trait Exchange: Send + Sync {
     /// Входы линий по умолчанию: для каждой линии — основной вход и запасные по порядку.
     fn default_entrances(&self, lanes: usize) -> Vec<Vec<Entrance>>;
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String>;
+    /// Сообщения отписки от потоков на живом соединении (пересмотр пула без перезапуска): те же потоки, что в `subscribe_messages`.
+    fn unsubscribe_messages(&self, streams: &[String]) -> Vec<String>;
     /// Пауза между сообщениями подписки (лимит входящих сообщений биржи на соединение).
     fn sub_period(&self) -> Duration;
     fn new_parser(&self) -> Box<dyn Parser>;
@@ -131,9 +141,24 @@ pub trait Exchange: Send + Sync {
         min_qv: f64,
         top_exclude: usize,
     ) -> Result<(Vec<String>, Vec<String>), String>;
-    /// Сколько крупнейших по обороту не брать в пул, если не задано: правило G-022 — Binance и Bybit без топ-10, остальные биржи — весь пул.
+    /// Оборот за сутки всех торгуемых контрактов (REST): пул пересматривается по нему раз в период (`livepool`).
+    fn load_turnover(&self) -> Result<Turnover, String>;
+    /// Сколько крупнейших по обороту не брать в пул, если не задано: ни одного — зеркалим биржу, собираем всё, что торгуется выше порога
+    /// (до 16.11 Binance и Bybit исключали топ-10: BARD, AKE, DOGE, NEAR выпадали на сутки и дольше, `docs/findings/collect-gap-audit-2026-11-16.md`).
     fn default_top_exclude(&self) -> usize {
-        10
+        0
+    }
+    /// Потоков на шард: предел для докладки символов в живой пул (`--streams-per-conn` — переопределение, 0 — по умолчанию вида).
+    fn shard_cap(&self, kind: &str, per_conn: usize) -> usize {
+        if per_conn == 0 {
+            self.per_conn(kind)
+        } else {
+            per_conn
+        }
+    }
+    /// Виды, чьи потоки не зависят от пула (Binance `mark`: один поток на все символы): символ в них не докладывается и не снимается.
+    fn pool_free_kinds(&self) -> &'static [&'static str] {
+        &[]
     }
     /// Метаданные символов пула (размер контракта и т. п.) — в `pool-<день>.json` рядом с пулом; заполняется `load_pool`.
     fn pool_meta(&self) -> Option<serde_json::Value> {

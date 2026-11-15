@@ -5,8 +5,9 @@
 //! давление, оно считается). Пинг, сторож pong, окно проверки пути, замер Recv-Q — на тиках таймаута чтения (200 мс).
 //! Не решает, когда менять путь и переподключаться, — это шард.
 
+use std::collections::{HashSet, VecDeque};
 use std::io::ErrorKind;
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -14,7 +15,7 @@ use bytes::Bytes;
 use serde_json::json;
 use tungstenite::{Error as WsError, Message, WebSocket};
 
-use super::budget::Budget;
+use super::budget::{Budget, Cap};
 use super::events::{now_ms, EventLog};
 use super::exchange::{Entrance, Exchange, ShardPlan};
 use super::fresh::GRACE_S;
@@ -46,10 +47,78 @@ const BUSY_EVERY: u64 = 4;
 /// Сколько событий `bad_frame` писать на сессию (кадр, не разжавшийся как gzip, идёт дальше «как пришёл»; поток таких кадров журнал не затопит).
 const BAD_FRAME_EVENTS: u32 = 5;
 
+/// Живой набор потоков шарда: меняется без перезапуска (пересмотр пула, `livepool`). Версия растёт с каждым изменением; сессия сверяет её на тике и
+/// досылает разницу (подписка / отписка) на своём соединении, новая сессия подписывается на актуальный набор.
+pub struct StreamSet {
+    inner: Mutex<Vec<String>>,
+    version: AtomicU64,
+}
+
+impl StreamSet {
+    pub fn new(streams: Vec<String>) -> Self {
+        Self {
+            inner: Mutex::new(streams),
+            version: AtomicU64::new(0),
+        }
+    }
+
+    pub fn version(&self) -> u64 {
+        self.version.load(Relaxed)
+    }
+
+    /// Версия и набор вместе (под одним замком: версия описывает ровно этот набор).
+    pub fn snapshot(&self) -> (u64, Vec<String>) {
+        let g = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (self.version.load(Relaxed), g.clone())
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Добавить `add` (уже имеющиеся не дублируются) и снять `remove`; версия растёт, если набор изменился.
+    pub fn apply(&self, add: &[String], remove: &[String]) -> bool {
+        let mut g = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = g.len();
+        let gone: HashSet<&str> = remove.iter().map(String::as_str).collect();
+        g.retain(|s| !gone.contains(s.as_str()));
+        let mut changed = g.len() != before;
+        let have: HashSet<String> = g.iter().cloned().collect();
+        for a in add {
+            if !have.contains(a) {
+                g.push(a.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            self.version.fetch_add(1, Relaxed);
+        }
+        changed
+    }
+}
+
 /// Общее состояние шарда для его сессий.
 pub struct Shared {
     pub exch: Arc<dyn Exchange>,
     pub plan: ShardPlan,
+    /// Актуальный набор потоков шарда (`plan.streams` — только начальный).
+    pub streams: Arc<StreamSet>,
+    /// Потолки на шард: замены пути (`shard::REPLACE_CAP`) и отбракованные пути (`shard::REJECT_CAP`) за скользящее окно.
+    pub replace_cap: Cap,
+    pub reject_cap: Cap,
     pub metrics: Arc<ShardMetrics>,
     pub ring: RingTx,
     pub watch: Mutex<PathWatch>,
@@ -228,11 +297,18 @@ fn body(
     let mut ws = ws;
     if let Some(r) = sh.reactor.as_ref().filter(|r| r.paces_subscription()) {
         // подписка из реактора: см. `Rx::begin_sub`; событие `subscribed` и признак «принят» — по её окончании
-        let mut rx = Rx::new(sh, probe, accepted.map(Arc::clone), lane);
+        let mut rx = Rx::new(
+            sh,
+            probe,
+            accepted.map(Arc::clone),
+            lane,
+            sh.streams.snapshot(),
+        );
         rx.begin_sub(sh, Instant::now());
         return r.run_conn(sh, ws, seq, rx, Arc::clone(cancel));
     }
-    for msg in sh.exch.subscribe_messages(&sh.plan.streams) {
+    let snap = sh.streams.snapshot();
+    for msg in sh.exch.subscribe_messages(&snap.1) {
         if let Err(e) = ws.send(Message::text(msg)) {
             return Outcome::Failed(format!("подписка: {e}"));
         }
@@ -240,20 +316,15 @@ fn body(
     }
     sh.events.emit(
         "subscribed",
-        json!({"session": seq, "streams": sh.plan.streams.len()}),
+        json!({"session": seq, "streams": snap.1.len()}),
     );
-    ctl(
-        sh,
-        seq,
-        "subscribed",
-        format!("{seq} {}", sh.plan.streams.len()),
-    );
+    ctl(sh, seq, "subscribed", format!("{seq} {}", snap.1.len()));
     if !probe {
         if let Some(a) = accepted {
             a.store(true, Relaxed);
         }
     }
-    let rx = Rx::new(sh, probe, accepted.map(Arc::clone), lane);
+    let rx = Rx::new(sh, probe, accepted.map(Arc::clone), lane, snap);
     match sh.reactor.as_ref() {
         Some(r) => r.run_conn(sh, ws, seq, rx, Arc::clone(cancel)),
         None => {
@@ -302,18 +373,29 @@ pub struct Rx {
     sub: Option<SubPlan>,
     /// Окно проверки пути (RTT-лаг) начинается с конца подписки, как раньше: проверка пути заводится в `finish_sub`.
     probe_wanted: bool,
+    /// Набор потоков, на который сессия подписана (или подписывается), и его версия в `Shared::streams`: разница с живым набором шарда досылается на тике.
+    applied_ver: u64,
+    applied: Vec<String>,
 }
 
 /// Недосланная подписка сессии: сообщения, пауза между ними, срок следующего, число тем.
 struct SubPlan {
-    msgs: std::collections::VecDeque<String>,
+    msgs: VecDeque<String>,
     period: Duration,
     next: Instant,
     streams: usize,
+    /// Дозапись разницы набора на живом соединении (подписано, снято): конец — событие `pool_delta`, окно проверки пути и приём не трогаются.
+    delta: Option<(usize, usize)>,
 }
 
 impl Rx {
-    fn new(sh: &Shared, probe: bool, accepted: Option<Arc<AtomicBool>>, lane: u8) -> Self {
+    fn new(
+        sh: &Shared,
+        probe: bool,
+        accepted: Option<Arc<AtomicBool>>,
+        lane: u8,
+        snap: (u64, Vec<String>),
+    ) -> Self {
         let t_loop = Instant::now();
         Self {
             lane,
@@ -345,19 +427,56 @@ impl Rx {
             need_flush: false,
             sub: None,
             probe_wanted: false,
+            applied_ver: snap.0,
+            applied: snap.1,
         }
     }
 
     /// Подписку ведёт реактор (`tick`): сообщения по одному с паузой биржи; проверка пути и «принят» — после последнего.
     fn begin_sub(&mut self, sh: &Shared, now: Instant) {
-        let msgs: std::collections::VecDeque<String> =
-            sh.exch.subscribe_messages(&sh.plan.streams).into();
+        let msgs: VecDeque<String> = sh.exch.subscribe_messages(&self.applied).into();
         self.probe_wanted = self.probe.take().is_some();
         self.sub = Some(SubPlan {
             msgs,
             period: sh.exch.sub_period(),
             next: now,
-            streams: sh.plan.streams.len(),
+            streams: self.applied.len(),
+            delta: None,
+        });
+    }
+
+    /// Набор потоков шарда изменился (пересмотр пула): отписка от снятых и подписка на новые тем же шагом биржи, на этом соединении.
+    fn begin_delta(&mut self, sh: &Shared, now: Instant) {
+        let (ver, cur) = sh.streams.snapshot();
+        let (add, rem) = {
+            let have: HashSet<&str> = self.applied.iter().map(String::as_str).collect();
+            let want: HashSet<&str> = cur.iter().map(String::as_str).collect();
+            let add: Vec<String> = cur
+                .iter()
+                .filter(|s| !have.contains(s.as_str()))
+                .cloned()
+                .collect();
+            let rem: Vec<String> = self
+                .applied
+                .iter()
+                .filter(|s| !want.contains(s.as_str()))
+                .cloned()
+                .collect();
+            (add, rem)
+        };
+        self.applied = cur;
+        self.applied_ver = ver;
+        let mut msgs: VecDeque<String> = sh.exch.unsubscribe_messages(&rem).into();
+        msgs.extend(sh.exch.subscribe_messages(&add));
+        if msgs.is_empty() {
+            return;
+        }
+        self.sub = Some(SubPlan {
+            msgs,
+            period: sh.exch.sub_period(),
+            next: now,
+            streams: add.len(),
+            delta: Some((add.len(), rem.len())),
         });
     }
 
@@ -387,6 +506,14 @@ impl Rx {
         let sp = self.sub.as_ref()?;
         if sp.msgs.is_empty() {
             let streams = sp.streams;
+            if let Some((added, removed)) = sp.delta {
+                self.sub = None;
+                sh.events.emit(
+                    "pool_delta",
+                    json!({"session": seq, "added": added, "removed": removed, "streams": self.applied.len()}),
+                );
+                return None;
+            }
             self.sub = None;
             sh.events
                 .emit("subscribed", json!({"session": seq, "streams": streams}));
@@ -570,6 +697,9 @@ impl Rx {
         if self.pending_srv_pong {
             self.pending_srv_pong = false;
             self.note_reply(self.srv_ping_rx);
+        }
+        if self.sub.is_none() && sh.streams.version() != self.applied_ver {
+            self.begin_delta(sh, now);
         }
         if self.sub.is_some() {
             if let Some(out) = self.pump_sub(sh, ws, seq, now) {

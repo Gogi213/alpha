@@ -72,6 +72,7 @@ function detailEx(r){
     kv('переподключений за час',d.reconnects_1h??'—'),
     kv('сборка',esc((d.version||'?').slice(0,8))+' с '+hm(d.started)),
     kv('монет · сообщений/с',(d.symbols[0]??'—')+'/'+(d.symbols[1]??'—')+' · '+(d.msgs_s||0).toLocaleString('ru')),
+    ...(d.not_subscribed?[kv('не подписано (REST)',d.not_subscribed[0]+(d.not_subscribed[0]?' · оборот '+Math.round((d.not_subscribed[1]||0)/1e6*10)/10+' млн $':'')+(d.not_subscribed[2]==null?'':' · опрос '+d.not_subscribed[2]+' с назад'))]:[]),
     kv('задержка прихода p50/p99',(d.lag_in[0]??'—')+' / '+(d.lag_in[1]??'—')+' мс'),
     kv('пинг WS p50/макс',(d.ping[0]??'—')+' / '+(d.ping[1]??'—')+' мс'),
     kv('CPU, ядер',d.cpu==null?'—':String(d.cpu).replace('.',',')),

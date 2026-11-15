@@ -53,7 +53,15 @@ pub struct LadderArgs {
 
 /// `xs[min(n-1, int(q·n))]` отсортированного — как `pct` в `ladder.py`.
 fn pct(xs: &[f64], q: f64) -> Option<f64> {
-    (!xs.is_empty()).then(|| xs[((xs.len() as f64 * q) as usize).min(xs.len() - 1)])
+    xs.get(((xs.len() as f64 * q) as usize).min(xs.len().saturating_sub(1)))
+        .copied()
+}
+
+/// Поле результата `res` (объект JSON).
+fn put(res: &mut Value, key: &str, v: Value) {
+    if let Some(o) = res.as_object_mut() {
+        o.insert(key.to_string(), v);
+    }
 }
 
 /// CPU процесса (utime + stime), секунды.
@@ -126,14 +134,14 @@ pub fn run(a: &LadderArgs) -> anyhow::Result<()> {
             Err(e) => dial_errs.push(format!("dial: {e}")),
         }
     }
-    res["rtt_ms"] = json!(rtt.round());
+    put(&mut res, "rtt_ms", json!(rtt.round()));
     let Some((tcp, ip)) = fast else {
-        res["error"] = json!("no_fast_path");
-        res["events"] = json!(dial_errs);
+        put(&mut res, "error", json!("no_fast_path"));
+        put(&mut res, "events", json!(dial_errs));
         std::fs::write(&a.out, res.to_string())?;
         return Ok(());
     };
-    res["ip"] = json!(ip.to_string());
+    put(&mut res, "ip", json!(ip.to_string()));
     let (mut lags, mut cnt, mut nbytes, mut disconnects) = (Vec::<f64>::new(), 0u64, 0usize, 0u32);
     let mut per_sec = vec![0u64; usize::try_from(a.dur + SKIP_S + 2)?];
     let mut ctl: Vec<String> = Vec::new();
@@ -156,7 +164,11 @@ pub fn run(a: &LadderArgs) -> anyhow::Result<()> {
                 std::thread::sleep(SUB_PAUSE);
             }
             let t0 = Instant::now();
-            res["t_sub_done_s"] = json!(round1((t0 - w0).as_secs_f64()));
+            put(
+                &mut res,
+                "t_sub_done_s",
+                json!(round1((t0 - w0).as_secs_f64())),
+            );
             let t_end = t0 + Duration::from_secs(a.dur + SKIP_S);
             if let Some(e) = sub_err {
                 disconnects += 1;
@@ -222,22 +234,34 @@ pub fn run(a: &LadderArgs) -> anyhow::Result<()> {
                 .is_none_or(|c| *c == 0)
         })
         .count();
-    res["disconnects"] = json!(disconnects);
-    res["events"] = json!(events);
-    res["ctl"] = json!(ctl);
-    res["tcp"] = tcp_json;
-    res["msgs"] = json!(cnt);
-    res["kb"] = json!((nbytes as f64 / 1024.0).round());
-    res["msg_s"] = json!(round1(cnt as f64 / dur));
-    res["kb_s"] = json!(round1(nbytes as f64 / 1024.0 / dur));
-    res["lag_p50"] = json!(pct(&lags, 0.5));
-    res["lag_p90"] = json!(pct(&lags, 0.9));
-    res["lag_p99"] = json!(pct(&lags, 0.99));
-    res["lag_max"] = json!(lags.last());
-    res["silent_s"] = json!(silent);
-    res["peak_msg_s"] = json!(per_sec.iter().copied().max().unwrap_or(0));
-    res["cpu_s"] = json!(((proc_cpu_s() - cpu0) * 100.0).round() / 100.0);
-    res["t_end"] = json!(now_ms() as f64 / 1000.0);
+    put(&mut res, "disconnects", json!(disconnects));
+    put(&mut res, "events", json!(events));
+    put(&mut res, "ctl", json!(ctl));
+    put(&mut res, "tcp", tcp_json);
+    put(&mut res, "msgs", json!(cnt));
+    put(&mut res, "kb", json!((nbytes as f64 / 1024.0).round()));
+    put(&mut res, "msg_s", json!(round1(cnt as f64 / dur)));
+    put(
+        &mut res,
+        "kb_s",
+        json!(round1(nbytes as f64 / 1024.0 / dur)),
+    );
+    put(&mut res, "lag_p50", json!(pct(&lags, 0.5)));
+    put(&mut res, "lag_p90", json!(pct(&lags, 0.9)));
+    put(&mut res, "lag_p99", json!(pct(&lags, 0.99)));
+    put(&mut res, "lag_max", json!(lags.last()));
+    put(&mut res, "silent_s", json!(silent));
+    put(
+        &mut res,
+        "peak_msg_s",
+        json!(per_sec.iter().copied().max().unwrap_or(0)),
+    );
+    put(
+        &mut res,
+        "cpu_s",
+        json!(((proc_cpu_s() - cpu0) * 100.0).round() / 100.0),
+    );
+    put(&mut res, "t_end", json!(now_ms() as f64 / 1000.0));
     std::fs::write(&a.out, res.to_string())?;
     Ok(())
 }

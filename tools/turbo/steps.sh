@@ -46,8 +46,9 @@ window() {  # label npool
   rm -rf "$W"; mkdir -p "$W"
   BUD=$(budget)
   [ "$BUD" -gt 0 ] && BUDARG="--connect-budget $BUD"
+  # ENVARGS: например `--setenv=ALPHA_COLLECT_CAPTURE=1` (Bybit: сверка сделок по сырому захвату, restcheck.py bybit)
   # shellcheck disable=SC2086
-  systemd-run --quiet --unit="st-$TAG-$L" --collect -p KillMode=mixed -p TimeoutStopSec=60 -p LimitNOFILE=65536 \
+  systemd-run --quiet --unit="st-$TAG-$L" --collect -p KillMode=mixed -p TimeoutStopSec=60 -p LimitNOFILE=65536 ${ENVARGS:-} \
     "$BIN" collect run --exchange "$EXCH" --root "$W/data" --health "$W/health.json" --lanes 2 --pool-file "$D/pool-$NP.json" $BUDARG --duration-s 186 $FLAGS
   sleep 6
   T0=$($PY -c "import glob,json; print(json.load(open(glob.glob('$W/data/pool-*.json')[0]))['ts_ms'])")

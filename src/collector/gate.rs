@@ -17,7 +17,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
-use super::exchange::{lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan};
+use super::exchange::{
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+};
 use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
 use super::scan::{each_elem, parse_object, pick, slots, Val};
 
@@ -320,20 +322,11 @@ impl Exchange for Gate {
     /// Подписка по одному контракту в сообщении: `{"time":<с>,"id":<n>,"channel":"futures.book_ticker","event":"subscribe","payload":["BTC_USDT"]}`;
     /// один неизвестный контракт проваливает всё сообщение, поэтому — по одному (замер 15.11).
     fn subscribe_messages(&self, streams: &[String]) -> Vec<String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        streams
-            .iter()
-            .enumerate()
-            .filter_map(|(i, s)| {
-                let (ch, sym) = s.split_once(':')?;
-                Some(
-                    json!({"time": now, "id": i + 1, "channel": ch, "event": "subscribe", "payload": [sym]})
-                        .to_string(),
-                )
-            })
-            .collect()
+        event_messages("subscribe", streams)
+    }
+
+    fn unsubscribe_messages(&self, streams: &[String]) -> Vec<String> {
+        event_messages("unsubscribe", streams)
     }
 
     /// Пауза между сообщениями подписки: 1 мс — назначаемое; лимита сообщений у Gate нет (в документации «Others: No limit», замер 15.11: 1 051 сообщение подряд без пауз —
@@ -377,9 +370,15 @@ impl Exchange for Gate {
         Ok((pool, top))
     }
 
-    /// Правило G-022 для Gate: весь пул, топ-10 не исключается (правило «без топ-10» — только Binance и Bybit).
-    fn default_top_exclude(&self) -> usize {
-        0
+    fn load_turnover(&self) -> Result<Turnover, String> {
+        let contracts = rest_array(&format!("{REST}/contracts"))?;
+        let tickers = rest_array(&format!("{REST}/tickers"))?;
+        let (live, qv) = universe(&contracts, &tickers);
+        let (meta, _) = meta_vols(&live, &qv, &|_| true);
+        Ok(Turnover {
+            qv,
+            meta: meta.into_iter().collect(),
+        })
     }
 
     fn pool_meta(&self) -> Option<Value> {
@@ -417,14 +416,30 @@ fn number(v: &Value) -> Option<f64> {
     v.as_f64().or_else(|| v.as_str()?.parse().ok())
 }
 
+/// По одному контракту в сообщении: `{"time": <с>, "id": n, "channel": …, "event": "subscribe"|"unsubscribe", "payload": ["BTC_USDT"]}`.
+fn event_messages(event: &str, streams: &[String]) -> Vec<String> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    streams
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| {
+            let (ch, sym) = s.split_once(':')?;
+            Some(
+                json!({"time": now, "id": i + 1, "channel": ch, "event": event, "payload": [sym]})
+                    .to_string(),
+            )
+        })
+        .collect()
+}
+
 /// `contracts` — `/futures/usdt/contracts`, `tickers` — `/futures/usdt/tickers`. Контракты `status = "trading"`; оборот за сутки в долларах — `volume_24h_quote` тикера
-/// (USDT). Возвращает (пул, исключённый топ, `{meta, qv}` пула: параметры контракта и оборот для читателя и ранжирования ступеней).
-pub fn select_pool(
-    contracts: &[Value],
+/// (USDT). Возвращает (живые контракты, оборот по имени).
+fn universe<'a>(
+    contracts: &'a [Value],
     tickers: &[Value],
-    min_qv: f64,
-    top_exclude: usize,
-) -> (Vec<String>, Vec<String>, Value) {
+) -> (Vec<&'a Value>, BTreeMap<String, f64>) {
     let turnover: BTreeMap<&str, f64> = tickers
         .iter()
         .filter_map(|t| Some((text(t, "contract")?, number(t.get("volume_24h_quote")?)?)))
@@ -441,11 +456,19 @@ pub fn select_pool(
             Some((name.to_string(), *turnover.get(name)?))
         })
         .collect();
-    let (pool, top) = rank_pool(&qv, min_qv, top_exclude);
+    (live, qv)
+}
+
+/// Параметры контракта (`META_KEYS`) и оборот (округлён до цента) контрактов, прошедших `keep`.
+fn meta_vols(
+    live: &[&Value],
+    qv: &BTreeMap<String, f64>,
+    keep: &dyn Fn(&str) -> bool,
+) -> (Map<String, Value>, Map<String, Value>) {
     let mut meta = Map::new();
     let mut vols = Map::new();
-    for c in &live {
-        let Some(name) = text(c, "name").filter(|s| pool.iter().any(|p| p == s)) else {
+    for c in live {
+        let Some(name) = text(c, "name").filter(|s| keep(s)) else {
             continue;
         };
         let m: Map<String, Value> = META_KEYS
@@ -457,5 +480,20 @@ pub fn select_pool(
             vols.insert(name.to_string(), json!((v * 100.0).round() / 100.0));
         }
     }
+    (meta, vols)
+}
+
+/// `contracts` — `/futures/usdt/contracts`, `tickers` — `/futures/usdt/tickers`. Возвращает (пул, исключённый топ, `{meta, qv}` пула: параметры контракта и оборот для
+/// читателя и ранжирования ступеней).
+pub fn select_pool(
+    contracts: &[Value],
+    tickers: &[Value],
+    min_qv: f64,
+    top_exclude: usize,
+) -> (Vec<String>, Vec<String>, Value) {
+    let (live, qv) = universe(contracts, tickers);
+    let (pool, top) = rank_pool(&qv, min_qv, top_exclude);
+    let keep: std::collections::HashSet<&str> = pool.iter().map(String::as_str).collect();
+    let (meta, vols) = meta_vols(&live, &qv, &|id| keep.contains(id));
     (pool, top, json!({"meta": meta, "qv": vols}))
 }
