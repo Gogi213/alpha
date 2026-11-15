@@ -28,7 +28,8 @@ const snap = () => document.fonts.ready.then(() => {
 (async () => {
   const b = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
   const pg = await b.newPage({ viewport: { width: W, height: 800 } });
-  const errs = []; pg.on('pageerror', e => errs.push(String(e))); pg.on('console', m => { if (m.type() === 'error') errs.push(m.text()) });
+  const errs = []; pg.on('pageerror', e => errs.push(String(e))); pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errs.push(m.text()) });
+  pg.on('response', r => { if (r.status() >= 400 && !/\/favicon\.ico$/.test(r.url())) errs.push(r.status() + ' ' + r.url()) });   // на живой странице браузер просит /favicon.ico (404) — не ошибка страницы
   await pg.goto(url); await pg.waitForSelector('#tab tr.r');
   const res = [], fails = [];
   const check = (name, ok, info) => { if (!ok) fails.push(name + (info ? ' — ' + info : '')) };
@@ -95,7 +96,7 @@ const snap = () => document.fonts.ready.then(() => {
   await act('close row chart', () => pg.click('#tab tr.r:nth-child(3)'), () => window._arb.st.open == null && !document.getElementById('cv'));
   // вкладки страницы
   const topBefore = await pg.evaluate(snap);
-  await click('#tab-h'); await pg.waitForTimeout(400);
+  await click('#tab-h'); await pg.waitForSelector('#rows .row', { timeout: 8000 }).catch(() => {}); await pg.waitForTimeout(100);   // /api/v3 на живой странице — до 0,4 с при остывшем кэше
   const h = await pg.evaluate(() => ({ rows: document.querySelectorAll('#rows .row').length, a: document.getElementById('p-a').hidden, ph: document.getElementById('p-h').hidden, on: document.querySelector('.tabs button.on').id }));
   check('tab health', h.rows > 0 && h.a && !h.ph && h.on === 'tab-h', JSON.stringify(h));
   const topH = await pg.evaluate(snap);

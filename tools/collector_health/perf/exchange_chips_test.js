@@ -25,7 +25,8 @@ const snap = () => document.fonts.ready.then(() => {
 (async () => {
   const b = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
   const pg = await b.newPage({ viewport: { width: W, height: 900 }, deviceScaleFactor: outp ? 1.5 : 1 });
-  const errs = []; pg.on('pageerror', e => errs.push(String(e))); pg.on('console', m => { if (m.type() === 'error') errs.push(m.text()) });
+  const errs = []; pg.on('pageerror', e => errs.push(String(e))); pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errs.push(m.text()) });
+  pg.on('response', r => { if (r.status() >= 400 && !/\/favicon\.ico$/.test(r.url())) errs.push(r.status() + ' ' + r.url()) });   // на живой странице браузер просит /favicon.ico (404) — не ошибка страницы
   const load = async () => { await pg.waitForSelector('#tab tr.r'); await pg.evaluate(() => document.fonts.ready) };
   await pg.goto(url); await load(); await pg.evaluate(k => localStorage.removeItem(k), KEY); await pg.reload(); await load();
   const fails = []; const check = (name, ok, info) => { if (!ok) fails.push(name + (info ? ' — ' + info : '')) };
