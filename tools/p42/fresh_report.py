@@ -251,7 +251,7 @@ def cmd_check():
             v = fr.cid(name, pk)
             viol = n_rej = n_abs = n_pass_abs = 0
             for s in SIDES:
-                tc = {(r["sym"], r["entry_ms"]) for r in read_trades(P[(s, v)], s)}
+                tc = {(r["sym"], int(r["entry_ms"])) for r in read_trades(P[(s, v)], s)}
                 for r, f in zip(det[pk][s], feats[s]):
                     ok = rule_pass(name, f[0], f[2])
                     present = (r["sym"], r["entry_ms"]) in tc
@@ -276,15 +276,74 @@ def cmd_check():
         for pk in (0, 1):
             for name in fr.CELLS:
                 v = fr.cid(name, pk)
-                present = keyid in {(x["sym"], x["entry_ms"]) for x in read_trades(P[("short", v)], "short")}
+                present = keyid in {(x["sym"], int(x["entry_ms"])) for x in read_trades(P[("short", v)], "short")}
                 print("  %-12s правило %s; в клетке сделка %s" % (v, "пропускает" if rule_pass(name, age, win) else "отвергает", "есть" if present else "нет"))
         out["s0226"] = {"age": age, "groups": groups, "win": {"%d|%d" % k: v for k, v in win.items()}}
     json.dump(out, open(os.path.join(root, "fresh-check.json"), "w"), ensure_ascii=False, indent=1,
               default=lambda o: o.item() if hasattr(o, "item") else str(o))
 
 
+def cmd_check2():
+    """Строгая проверка по детальным файлам клеток (`runfresh.sh 566 fr1d`, `P42_DETAIL=1`): сделка опознаётся по (сторона, монета, время входа, цена уровня).
+    (1) каждая сделка клетки проходит независимое правило по своему уровню (ложных допусков 0); (2) каждая сделка `b0`, которую правило отвергает, отсутствует
+    в клетке (тот же ключ); пропущенные правилом, но отсутствующие в клетке — слот/пауза."""
+    import charts
+    from collections import defaultdict
+
+    root = "/data/p42-t566/out"
+    ids = {pk: [fr.base_id(pk)] + [fr.cid(n, pk) for n in fr.CELLS] for pk in (0, 1)}
+    det = {}
+    for pk in (0, 1):
+        for v in ids[pk]:
+            for s in SIDES:
+                det[(v, s)] = [json.loads(x) for x in open(os.path.join(root, "fr1d", v, s + "-detail.jsonl"), encoding="utf-8")]
+    need = defaultdict(set)
+    for (v, s), rows in det.items():
+        for r in rows:
+            need[r["sym"]].add((s, r["level_px_e8"], r["sig_min"], r["first_bar"]))
+    feat = {}
+    for sym, keys in need.items():
+        a = charts.klines(sym)
+        arrs = {1: int_arrays(a, 1), -1: int_arrays(a, -1)}
+        for s, lpx, sm, fb in keys:
+            sgn = 1 if s == "long" else -1
+            have, hi, cl = arrs[sgn]
+            feat[(sym, s, lpx, sm, fb)] = features_at(have, hi, cl, sgn * lpx, sm, fb)
+    out = {}
+    for pk in (0, 1):
+        base = fr.base_id(pk)
+        print("\n== строгая проверка (%s): сделки опознаются по (сторона, монета, вход, цена уровня)" % base)
+        for name in fr.CELLS:
+            v = fr.cid(name, pk)
+            false_admit = viol = n_rej = n_abs = n_pass_abs = n_cell = n_base = 0
+            for s in SIDES:
+                cell = {(r["sym"], r["entry_ms"], r["level_px_e8"]) for r in det[(v, s)]}
+                for r in det[(v, s)]:
+                    n_cell += 1
+                    f = feat[(r["sym"], s, r["level_px_e8"], r["sig_min"], r["first_bar"])]
+                    if not rule_pass(name, f[0], f[2]):
+                        false_admit += 1
+                for r in det[(base, s)]:
+                    n_base += 1
+                    f = feat[(r["sym"], s, r["level_px_e8"], r["sig_min"], r["first_bar"])]
+                    ok = rule_pass(name, f[0], f[2])
+                    present = (r["sym"], r["entry_ms"], r["level_px_e8"]) in cell
+                    n_rej += (not ok)
+                    n_abs += (not present)
+                    if (not ok) and present:
+                        viol += 1
+                    if ok and not present:
+                        n_pass_abs += 1
+            print("  %-12s сделок клетки %4d, из них не проходят правило (ложный допуск) %d; сделок %s %d: правило отвергло %3d, в клетке отсутствует %3d (правило пропускает %3d — слот/пауза); НАРУШЕНИЙ %d" % (
+                v, n_cell, false_admit, base, n_base, n_rej, n_abs, n_pass_abs, viol))
+            out[v] = dict(cell_trades=n_cell, false_admits=false_admit, base_trades=n_base, rejected=n_rej, absent=n_abs, absent_but_pass=n_pass_abs, violations=viol)
+    json.dump(out, open(os.path.join(root, "fresh-check2.json"), "w"), ensure_ascii=False, indent=1)
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "full":
         cmd_full(sys.argv[2])
+    elif sys.argv[1] == "check2":
+        cmd_check2()
     else:
         cmd_check()
