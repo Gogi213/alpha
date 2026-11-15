@@ -181,7 +181,8 @@ def main(bwork, twork, t0, t1, out, par=3):
                      "exits_tt": EXITS_TT, "exits_mk": EXITS_MK, "fee_tt4": cross.FEE_TT4, "fee_mx": cross.FEE_MX, "fee_mk": {"tt": maker.FEE_TT, "mt": maker.FEE_MT},
                      "d_ms": maker.D_MS, "size_cap": orun.SIZE_CAP, "coins": len(names), "funding_symbols": {ex: len(v) for ex, v in funding.items()}},
                     f, protocol=4)
-    print({"coins": len(names), "rows": len(rows), "s": round(time.time() - t, 1)})
+    import resource
+    print({"coins": len(names), "rows": len(rows), "s": round(time.time() - t, 1), "max_rss_child_mb": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss // 1024})
 
 
 if __name__ == "__main__":

@@ -24,12 +24,11 @@ import glob, json, sys
 import numpy as np
 sys.path.insert(0, "/opt/arb-cross/tools/arb_stats")
 from common import EXCHANGES
-from arb_live import symmap_for
+from gaps_scan import liquid
 W = "/data/arb-cross/full"
-sm, _ = symmap_for(__import__("time").strftime("%Y-%m-%d", __import__("time").gmtime()))
 last = {}
 for ex in EXCHANGES:
-    syms = [s for s, (c, m) in sm[ex].items() if c in ("BTC", "ETH", "SOL", "XRP", "DOGE") and m == 1.0]
+    syms = liquid(W + "/b/parsed", ex)
     mx = 0
     for s in syms:
         for f in glob.glob(f"{W}/b/parsed/{ex}/{s}.*.npz"):

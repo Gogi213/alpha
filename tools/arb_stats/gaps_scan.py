@@ -1,4 +1,4 @@
-"""Пропуски сбора по биржам: события книг ликвидных монет (BTC, ETH, SOL, XRP, DOGE) из <parsed>/<биржа>/ — интервалы без единой записи по всем пяти ≥ G секунд.
+"""Пропуски сбора по биржам: события книг самых активных символов биржи (K = 8 с наибольшим объёмом кусков в <parsed>/<биржа>/ — у Binance в пуле нет BTC/ETH, пул ротируется по дням) — интервалы без единой записи по всем K символам ≥ G секунд.
 
 Запуск: python3 gaps_scan.py <каталог parsed книг> <t0_мс> <t1_мс> <выход.json> [G_с=15]
 Пишет {биржа: [[начало_мс, конец_мс], …]} (время E биржи) и печатает сводку: число пропусков, суммарная длина, доля окна, самые длинные. Файл читает outlier_run.py (переменная DEAD).
@@ -13,10 +13,18 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from arb_live import symmap_for  # noqa: E402
 from common import EXCHANGES  # noqa: E402
 
-LIQ = ("BTC", "ETH", "SOL", "XRP", "DOGE")
+TOPK = 8
+
+
+def liquid(parsed, ex, k=TOPK):
+    """k самых активных символов биржи в каталоге разобранных книг (по суммарному размеру кусков)."""
+    size = {}
+    for f in glob.glob(str(Path(parsed, ex, "*.npz"))):
+        sym = Path(f).name.split(".")[0]
+        size[sym] = size.get(sym, 0) + Path(f).stat().st_size
+    return sorted(size, key=lambda s: -size[s])[:k]
 
 
 def fmt(ms):
@@ -24,16 +32,15 @@ def fmt(ms):
 
 
 def main(parsed, t0, t1, out, g_s=15):
-    sm, _ = symmap_for(datetime.fromtimestamp(t1 / 1000, timezone.utc).date().isoformat())
     res = {}
     for ex in EXCHANGES:
-        syms = [s for s, (coin, mult) in sm[ex].items() if coin in LIQ and mult == 1.0]
+        syms = liquid(parsed, ex)
         ev = []
         for s in syms:
             for f in glob.glob(str(Path(parsed, ex, s + ".*.npz"))):
                 ev.append(np.load(f)["e"])
         if not ev:
-            print(ex, "нет данных по", LIQ)
+            print(ex, "нет данных")
             res[ex] = [[t0, t1]]
             continue
         e = np.sort(np.concatenate(ev))

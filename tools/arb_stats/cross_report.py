@@ -88,6 +88,28 @@ def table(d, by, mode, lat, g, title):
     print()
 
 
+def overview(d, by, mode, g, title):
+    """Обзор «θ × выход» на одной странице: $/сут (до фандинга / после), чистый итог круга медиана и % не закрытых, рейтинг / плацебо — по каждой задержке L."""
+    order = TT_ORDER if mode == "tt" else MK_ORDER
+    lats = d["lats_tt"] if mode == "tt" else d["lats_mk"]
+    print(f"### {title}\n")
+    for lat in lats:
+        print(f"**L = {lat} мс.** Ячейка: $/сут (≤ 100 $ на круг) до фандинга / после · чистый итог круга, медиана, % · не закрыто, % входов · прошли рейтинг / плацебо\n")
+        print("| θ | " + " | ".join(NAME[e] for e in order) + " |")
+        print("|" + "---|" * (1 + len(order)))
+        for th in d["thetas"]:
+            cells = []
+            for ex in order:
+                a = by.get((mode, (th, lat, ex), g))
+                if not a:
+                    cells.append("—")
+                    continue
+                hn = d["hist"][(mode, (th, lat, ex), g)][0]
+                cells.append(f"{usd(a['usd_cap'])} / {usd(a['usd_cap'] + a['usd_fund'])} · {pc(hq(hn, .5, H_LO))} · {a['unclosed'] / max(a['n'], 1) * 100:.0f} % · {a['rated']:.0f} / {a['plac']:.0f}")
+            print(f"| {th / 100:g} % | " + " | ".join(cells) + " |")
+        print()
+
+
 def delta_table(d, by, mode, g, title):
     """Δ $/сут (≤ 100 $) выхода к прежнему «к центру» на тех же θ и L, и по суткам окна (GMT+4)."""
     order = [e for e in (TT_ORDER if mode == "tt" else MK_ORDER) if e != "c-t"]
@@ -173,7 +195,7 @@ def funding_summary(path):
     print()
 
 
-def main(path, fpath=None, n_top=20):
+def main(path, fpath=None, n_top=20, only=None):
     d = pickle.load(open(path, "rb"))
     R = d["rows"]
     win_h = (d["t1"] - d["t0"]) / 3.6e6
@@ -182,6 +204,7 @@ def main(path, fpath=None, n_top=20):
     for mode, mt in (("tt", "Тейкер-тейкер вход"), ("mk", "Мейкер + хедж вход")):
         lats = d["lats_tt"] if mode == "tt" else d["lats_mk"]
         for g, gt in (("ok", "без BingX"), ("bingx", "BingX (вне рейтинга)")):
+            overview(d, by, mode, g, f"{mt}: обзор — {gt}")
             for lat in lats:
                 table(d, by, mode, lat, g, f"{mt}, L = {lat} мс — {gt}")
             delta_table(d, by, mode, g, f"{mt}: Δ $/сут к прежнему «к центру» — {gt}")
