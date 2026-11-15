@@ -185,7 +185,7 @@ pub fn run(
         );
     }
     let url = sh.url(&ent.host);
-    let (ws, resp) = match net::ws_connect(tcp, &url, &ent.host, sh.tls) {
+    let (ws, resp) = match net::ws_connect(tcp, &url, &ent.host, sh.tls, sh.exch.ws_headers()) {
         Ok(x) => x,
         Err(e) => return Outcome::Failed(e),
     };

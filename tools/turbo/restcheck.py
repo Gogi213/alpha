@@ -15,10 +15,17 @@ BingX: REST has no trade history (/quote/trades = the last 1000 trades of a symb
   defined by REST `time` and the file side is read WITHOUT an upper time bound (the recording runs a few seconds past the window).
   Second, exchange-intrinsic oracle over the WHOLE pool: BingX trade ids are contiguous per symbol (REST and WS share `fillId`; measured 12.11: 0 gaps in 33 385 trades), so a recorded id range with a missing id is a lost
   trade: `pool_ids.gaps_after_covered` (a gap counts when the later trade is at/after --covered-ms).
+Gate: REST keeps the full trade history by time (`/futures/usdt/trades?contract=&from=&to=&limit=1000`: `to` is exclusive at second precision, newest first; requests carry `X-Gate-Size-Decimal: 1`, without it sizes
+  are truncated to integers), so the pass can run after the ladder, like OKX, over EVERY symbol of the window: missing = a REST id absent from the files, extra = a recorded id in the window that REST lacks,
+  mismatch = same id with a different price, unsigned size, side (`m` = taker sells) or time (ms); coverage «symbol x second» = share of (symbol, second) cells with a REST trade that also hold a recorded trade.
+  Gate ids are NOT contiguous (the exchange skips single ids, also in REST), so id gaps are not a loss signal; REST is the oracle.
+  Marks: Gate has no mark channel with a fixed cadence (`futures.tickers` pushes about every second, only when something changed), so a gap-per-second criterion does not apply; the oracle is the REST mark-price
+  candles (`candlesticks?contract=mark_<symbol>&interval=10s`): a recorded mark outside the candle's [low, high] is a mismatch, a 10-s cell whose candle moved (high != low) without any recorded mark is a miss.
 Usage (srv): restcheck.py binance <data root> <t0_ms> <t1_ms> --symbols 25 --out restcheck.json
              restcheck.py bybit <data root with capture-*.tsv> <t0_ms> <t1_ms> --symbols 25 --out restcheck.json
              restcheck.py okx <data root> <t0_ms> <t1_ms> --symbols 25 --spread --covered-ms <ms> --out restcheck.json
              restcheck.py bingx <data root> <t0_ms> <t1_ms> --snap <rest-snap.json.gz> --covered-ms <ms> --out restcheck.json
+             restcheck.py gate <data root> <t0_ms> <t1_ms> --covered-ms <ms> --out restcheck.json   (every symbol of the window; `--symbols N --spread` limits the set)
 """
 import argparse
 import bisect
@@ -275,6 +282,118 @@ def okx(a, t0, t1):
     return res
 
 
+GATE_UA = {"User-Agent": "alpha-collector/gate-check", "X-Gate-Size-Decimal": "1"}
+
+
+def get_gate(url, retries=4):
+    """Gate REST: 200 requests / 10 s per endpoint and IP; one request start per 0.1 s over all threads (10 / s), a request takes ~1.7 s."""
+    for i in range(retries):
+        try:
+            _pace(0.1)
+            with urllib.request.urlopen(urllib.request.Request(url, headers=GATE_UA), timeout=30) as r:
+                return json.load(r)
+        except Exception:  # noqa: BLE001
+            if i == retries - 1:
+                raise
+            time.sleep(1.5 * (i + 1))
+
+
+def file_trades_gate(root, t0, t1):
+    """symbol -> {id: (price, unsigned size, taker sells, T)} of recorded `t` rows with trade time T in [t0, t1]; the id is the column `a` (= f = l)."""
+    out = defaultdict(dict)
+    for p in run_files(root):
+        for r in codec.decode(read_lines(p)):
+            if r["t"] == "t" and t0 <= r["T"] <= t1:
+                out[r["s"]][r["a"]] = (r["p"], r["q"], bool(r["m"]), r["T"])
+    return out
+
+
+def file_marks_gate(root, t0, t1):
+    """symbol -> [(E ms, mark price)] of recorded `m` rows with E in [t0, t1]."""
+    out = defaultdict(list)
+    for p in run_files(root):
+        for r in codec.decode(read_lines(p)):
+            if r["t"] == "m" and t0 <= r["E"] <= t1:
+                out[r["s"]].append((r["E"], r["p"]))
+    return out
+
+
+def gate_rest_trades(sym, t0, t1):
+    """id -> (price, unsigned size, taker sells, time ms) of every trade of `sym` with time in [t0, t1] ms: pages of 1000 (newest first), `to` re-reads the boundary second (ids dedup)."""
+    rows, to, lo = {}, t1 // 1000 + 1, t0 // 1000
+    while True:
+        page = get_gate(f"https://api.gateio.ws/api/v4/futures/usdt/trades?contract={sym}&limit=1000&from={lo}&to={to}")
+        for x in page:
+            size = str(x["size"])
+            rows[int(x["id"])] = (x["price"], size.lstrip("-"), size.startswith("-"), round(float(x["create_time_ms"]) * 1000))
+        if len(page) < 1000:
+            break
+        nto = int(min(float(x["create_time"]) for x in page)) + 1
+        if nto >= to:  # 1000 trades inside one second: the window cannot be narrowed by seconds
+            raise RuntimeError(f"{sym}: more than 1000 trades in the second {to - 1}")
+        to = nto
+    return {k: v for k, v in rows.items() if t0 <= v[3] <= t1}
+
+
+def gate_marks_check(sym, marks, t0, t1, covered):
+    """10-s mark candles of `sym` against the recorded marks: whole buckets inside the window, buckets that moved (high != low), moved buckets without a recorded mark, recorded marks outside [low, high]."""
+    lo, hi = t0 // 1000 // 10 * 10, t1 // 1000
+    cs = get_gate(f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract=mark_{sym}&interval=10s&from={lo}&to={hi}")
+    by_bucket = defaultdict(list)
+    for e, p in marks:
+        by_bucket[e // 1000 // 10 * 10].append(p)
+    cells = moving = hit = moving_after = miss_after = out = 0
+    examples = []
+    for c in cs:
+        b = int(c["t"])
+        if not (t0 <= b * 1000 and (b + 10) * 1000 <= t1):
+            continue  # only whole buckets inside the window
+        cells += 1
+        low, high = Decimal(c["l"]), Decimal(c["h"])
+        got = by_bucket.get(b, [])
+        for p in got:
+            if not low <= Decimal(p) <= high:
+                out += 1
+                if len(examples) < 5:
+                    examples.append((sym, b, p, c["l"], c["h"]))
+        if high != low:
+            moving += 1
+            hit += bool(got)
+            if b * 1000 >= covered:
+                moving_after += 1
+                miss_after += not got
+    return {"mark_cells": cells, "mark_moving_cells": moving, "mark_moving_hit": hit, "mark_moving_after_covered": moving_after, "mark_missed_after_covered": miss_after,
+            "mark_out_of_range": out, "mark_records": len(marks), "mark_examples": examples}
+
+
+def gate(a, t0, t1):
+    rec = file_trades_gate(a.root, t0 - 3000, t1)
+    marks = file_marks_gate(a.root, t0, t1 + 10_000)
+    syms = sorted(set(rec) | set(marks))
+    if a.symbols and a.spread:
+        syms = pick({s: len(rec.get(s, ())) for s in syms}, a.symbols, True)
+
+    def one(s):
+        rest = gate_rest_trades(s, t0, t1)
+        mine = {k: v for k, v in rec.get(s, {}).items() if t0 <= v[3] <= t1}
+        missing = sorted(set(rest) - set(mine))
+        extra = sorted(set(mine) - set(rest))
+        mism = [k for k in set(rest) & set(mine) if rest[k] != mine[k]]
+        late = [k for k in missing if rest[k][3] >= a.covered_ms]
+        cells_rest = {v[3] // 1000 for v in rest.values()}
+        cells_file = {v[3] // 1000 for v in mine.values()}
+        cells_after = {c for c in cells_rest if c * 1000 >= a.covered_ms}
+        res = {"rest": len(rest), "file": len(mine), "missing_in_file": len(missing), "extra_in_file": len(extra), "mismatch": len(mism),
+               "rest_after_covered": sum(1 for v in rest.values() if v[3] >= a.covered_ms), "missing_after_covered": len(late),
+               "cells_rest": len(cells_rest), "cells_missing": len(cells_rest - cells_file), "cells_rest_after_covered": len(cells_after), "cells_missing_after_covered": len(cells_after - cells_file),
+               "missing_examples": [(k, rest[k]) for k in missing[:5]], "extra_examples": [(k, mine[k]) for k in extra[:5]], "mismatch_examples": [(k, rest[k], mine[k]) for k in mism[:3]]}
+        res.update(gate_marks_check(s, marks.get(s, []), t0, t1, a.covered_ms))
+        return res
+
+    with concurrent.futures.ThreadPoolExecutor(16) as ex:  # REST latency ~1.7 s: sixteen in flight keep the pacing at 10 requests / s
+        return dict(zip(syms, ex.map(one, syms)))
+
+
 def file_trades_bingx(root, t0, t1):
     """symbol -> {id: (price, size, buyer is maker, T)} of recorded `t` rows with trade time T in [t0, t1]; the id is the column `a` (= f = l)."""
     out = defaultdict(dict)
@@ -346,11 +465,11 @@ def bingx(a, t0, t1):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("exchange", choices=["binance", "bybit", "okx", "bingx"])
+    ap.add_argument("exchange", choices=["binance", "bybit", "okx", "bingx", "gate"])
     ap.add_argument("root")
     ap.add_argument("t0", type=int)
     ap.add_argument("t1", type=int)
-    ap.add_argument("--symbols", type=int, default=25)
+    ap.add_argument("--symbols", type=int, default=25, help="binance/bybit/okx: how many symbols; gate: only with --spread (default: every symbol of the window)")
     ap.add_argument("--covered-ms", type=int, default=0, help="from when every shard had a live session (cold start): missing_after_covered counts only trades from then on")
     ap.add_argument("--min-run", type=int, default=0, help="only files of runs started at/after this epoch second")
     ap.add_argument("--spread", action="store_true", help="symbols evenly spaced over the trade-count ranking instead of the busiest")
@@ -364,7 +483,7 @@ def main():
         res, pool_ids, snap_info = bingx(a, a.t0, a.t1)
         extra = {"pool_ids": pool_ids, "snapshot": snap_info}
     else:
-        res = {"binance": binance, "bybit": bybit, "okx": okx}[a.exchange](a, a.t0, a.t1)
+        res = {"binance": binance, "bybit": bybit, "okx": okx, "gate": gate}[a.exchange](a, a.t0, a.t1)
     tot = Counter()
     for v in res.values():
         for k, x in v.items():

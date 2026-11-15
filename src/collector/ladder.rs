@@ -139,7 +139,7 @@ pub fn run(a: &LadderArgs) -> anyhow::Result<()> {
     let mut ctl: Vec<String> = Vec::new();
     let mut events: Vec<String> = dial_errs;
     let mut tcp_json = Value::Null;
-    match net::ws_connect(tcp, &url, HOST, true) {
+    match net::ws_connect(tcp, &url, HOST, true, &[]) {
         Err(e) => {
             disconnects += 1;
             events.push(e);

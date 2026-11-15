@@ -19,6 +19,7 @@ use super::codec::{Book, Decoded, Decoder, Encoder, Mark, Rec, SymEnc, Trade};
 use super::events::replay_lists;
 use super::exchange::{Entrance, Exchange, Family, Parsed};
 use super::fresh::{Fresh, KindFresh, LATE_MS};
+use super::gate::{self, Gate};
 use super::health::{build, HealthCtx, ProcSampler};
 use super::metrics::{Hist, Rolling, ShardMetrics};
 use super::net::select_addrs;
@@ -1761,6 +1762,476 @@ fn bingx_session_unpacks_gzip_answers_ping_and_does_not_write_heartbeats() {
         "сердцебиение биржи не пишется"
     );
     assert_eq!(count_events(dir.path(), "bad_frame"), 1);
+}
+
+// ---- Gate ----
+
+const GT_BOOK: &str = r#"{"time":1794708073,"time_ms":1794708073459,"channel":"futures.book_ticker","event":"update","result":{"t":1794708073449,"u":132042281351,"s":"BTC_USDT","b":"62624.2","B":"5997","a":"62624.3","A":"601"}}"#;
+const GT_TRADE: &str = r#"{"time":1794708073,"time_ms":1794708073490,"channel":"futures.trades","event":"update","result":[{"id":880123962,"size":"4","create_time":1794708073,"create_time_ms":1794708073489,"price":"62624.3","contract":"BTC_USDT"}]}"#;
+const GT_SELL: &str = r#"{"time":1794708073,"time_ms":1794708073499,"channel":"futures.trades","event":"update","result":[{"id":880123963,"size":"-144.4","create_time":1794708073,"create_time_ms":1794708073499,"price":"1798.62","contract":"ETH_USDT"}]}"#;
+const GT_TICK: &str = r#"{"time":1794708074,"time_ms":1794708074036,"channel":"futures.tickers","event":"update","result":[{"contract":"BTC_USDT","last":"62608.0","change_percentage":"-8.3157","total_size":"564312826","volume_24h":"1315804833","volume_24h_base":"131580.4833","volume_24h_quote":"8237990904","volume_24h_settle":"8237990904","mark_price":"62612.4","funding_rate":"-0.000101","funding_rate_indicative":"-0.000101","funding_interval":28800,"funding_offset":0,"funding_next_apply":1794729600,"index_price":"62643.43","quanto_base_rate":"","low_24h":"61913.7","high_24h":"68289.9","price_type":"last","change_from":"24h","change_price":"-5678.5","t":1794708074034}]}"#;
+const GT_ACK: &str = r#"{"time":1794708073,"time_ms":1794708073457,"id":1,"conn_id":"9b8e60d7d3612af9","trace_id":"ddeb214ed1c21863ba5cc2f8d2779eaf","channel":"futures.book_ticker","event":"subscribe","payload":["BTC_USDT"],"result":{"status":"success"}}"#;
+const GT_FAIL: &str = r#"{"time":1794708325,"time_ms":1794708325317,"id":1,"conn_id":"4d97a9b404a18e5c","trace_id":"0dba2f5255f563f6c95a19c3624a6f04","channel":"futures.book_ticker","event":"subscribe","payload":["NOPE_USDT"],"error":{"code":2,"message":"unknown currency pair NOPE_USDT"},"result":{"status":"fail"}}"#;
+const GT_PONG: &str = r#"{"time":1794708289,"time_ms":1794708289043,"conn_id":"1b51ba3219a9feb6","channel":"futures.pong","event":"","result":null}"#;
+const GT_UPGRADE: &str = r#"{"time":1782378978,"time_ms":1782378978107,"channel":"futures.system","event":"update","result":{"type":"upgrade","msg":"The connection will soon be closed for a service upgrade. Please reconnect."}}"#;
+
+fn gt_book(u: i64, t: i64) -> String {
+    format!(
+        r#"{{"time":1,"time_ms":{t},"channel":"futures.book_ticker","event":"update","result":{{"t":{t},"u":{u},"s":"BTC_USDT","b":"1.0","B":"2","a":"1.1","A":"3"}}}}"#
+    )
+}
+
+fn gt_fill(id: i64, size: &str) -> String {
+    format!(
+        r#"{{"id":{id},"size":{size},"create_time":1794708073,"create_time_ms":1794708073489,"price":"62624.3","contract":"BTC_USDT"}}"#
+    )
+}
+
+fn gt_trades(elems: &[String]) -> String {
+    format!(
+        r#"{{"time":1794708073,"time_ms":1794708073490,"channel":"futures.trades","event":"update","result":[{}]}}"#,
+        elems.join(",")
+    )
+}
+
+#[test]
+fn gate_frames_parse_exactly_and_unknown_shapes_go_raw() {
+    let gt = Gate::default();
+    let r = parse_all(&gt, &[GT_BOOK, GT_TRADE, GT_SELL, GT_TICK]);
+    assert_eq!(r[0].0, Parsed::Recs(1));
+    assert_eq!(
+        r[0].1[0],
+        Decoded::Book {
+            rx_ns: 1_794_433_300_000_000_000,
+            e: 1_794_708_073_449,
+            t: 1_794_708_073_449,
+            sym: "BTC_USDT".into(),
+            u: 132_042_281_351,
+            bid: "62624.2".into(),
+            bsz: "5997".into(),
+            ask: "62624.3".into(),
+            asz: "601".into(),
+            bn: String::new(),
+            an: String::new(),
+        },
+        "у Gate одно время (t): E = T"
+    );
+    assert_eq!(
+        r[1].1[0],
+        Decoded::Trade {
+            rx_ns: 1_794_433_300_000_001_000,
+            e: 1_794_708_073_489,
+            t: 1_794_708_073_489,
+            sym: "BTC_USDT".into(),
+            a: 880_123_962,
+            p: "62624.3".into(),
+            q: "4".into(),
+            f: 880_123_962,
+            l: 880_123_962,
+            m: false,
+            nq: "4".into(),
+            x: String::new(),
+            i: String::new(),
+        },
+        "плюс — тейкер покупает: m = 0"
+    );
+    assert_eq!(
+        r[2].1[0],
+        Decoded::Trade {
+            rx_ns: 1_794_433_300_000_002_000,
+            e: 1_794_708_073_499,
+            t: 1_794_708_073_499,
+            sym: "ETH_USDT".into(),
+            a: 880_123_963,
+            p: "1798.62".into(),
+            q: "144.4".into(),
+            f: 880_123_963,
+            l: 880_123_963,
+            m: true,
+            nq: "144.4".into(),
+            x: String::new(),
+            i: String::new(),
+        },
+        "минус — тейкер продаёт: q без знака, дробь как пришла, m = 1"
+    );
+    assert_eq!(
+        r[3].1[0],
+        Decoded::Mark {
+            rx_ns: 1_794_433_300_000_003_000,
+            e: 1_794_708_074_034,
+            sym: "BTC_USDT".into(),
+            p: "62612.4".into(),
+            ap: String::new(),
+            pp: String::new(),
+            i: "62643.43".into(),
+            r: "-0.000101".into(),
+            t: 1_794_729_600_000,
+        },
+        "время начисления — секунды биржи в миллисекундах; остальные поля тикера не mark"
+    );
+    // первый кадр тикера после подписки несёт ещё `event_type` (23 поля)
+    let snap = GT_TICK.replace(
+        r#""t":1794708074034}"#,
+        r#""t":1794708074034,"event_type":"snapshot"}"#,
+    );
+    assert_eq!(parse_all(&gt, &[&snap])[0].0, Parsed::Recs(1));
+    // внутренняя сделка (страховой фонд, ADL) — признак `I`
+    let internal = gt_trades(&[gt_fill(7, r#""-3""#).replace(
+        r#""contract":"BTC_USDT""#,
+        r#""contract":"BTC_USDT","is_internal":true"#,
+    )]);
+    let ri = parse_all(&gt, &[&internal]);
+    assert!(
+        matches!(&ri[0].1[0], Decoded::Trade { x, m: true, .. } if x == "I"),
+        "{:?}",
+        ri[0]
+    );
+    assert_eq!(
+        gt.lag_ms(GT_BOOK.as_bytes(), 1_794_708_073_549_000_000),
+        Some(100.0)
+    );
+    assert_eq!(
+        gt.lag_ms(GT_TRADE.as_bytes(), 1_794_708_073_589_000_000),
+        Some(100.0)
+    );
+    assert_eq!(
+        gt.lag_ms(GT_TICK.as_bytes(), 1_794_708_074_134_000_000),
+        Some(100.0)
+    );
+    for f in [GT_ACK, GT_FAIL, GT_PONG, GT_UPGRADE] {
+        assert_eq!(gt.lag_ms(f.as_bytes(), 1), None, "{f}");
+        assert_eq!(gt.symbol(f.as_bytes()), None, "{f}");
+    }
+    assert_eq!(gt.symbol(GT_BOOK.as_bytes()), Some(&b"BTC_USDT"[..]));
+    assert_eq!(gt.symbol(GT_TRADE.as_bytes()), Some(&b"BTC_USDT"[..]));
+    assert_eq!(gt.symbol(GT_SELL.as_bytes()), Some(&b"ETH_USDT"[..]));
+    assert_eq!(gt.symbol(GT_TICK.as_bytes()), Some(&b"BTC_USDT"[..]));
+    let others = [
+        GT_ACK.to_string(),
+        GT_FAIL.to_string(),
+        GT_PONG.to_string(),
+        GT_UPGRADE.to_string(),
+        GT_BOOK.replace(r#""A":"601""#, r#""A":"601","zz":1"#),
+        GT_BOOK.replace(r#""u":132042281351"#, r#""u":"132042281351""#),
+        GT_BOOK.replace(r#""event":"update""#, r#""event":"all""#),
+        GT_BOOK.replace("futures.book_ticker", "futures.obu"),
+        GT_BOOK.replace(r#""time_ms":1794708073459"#, r#""time_ms":"1794708073459""#),
+        // размер числом: заголовок `X-Gate-Size-Decimal` не принят — усечённый размер в файл не идёт
+        gt_trades(&[gt_fill(1, "-3")]),
+        gt_trades(&[gt_fill(1, r#""-""#)]),
+        gt_trades(&[gt_fill(1, r#""4""#).replace(r#""id":1"#, r#""id":"1""#)]),
+        gt_trades(&[gt_fill(1, r#""4""#).replace(r#""price""#, r#""px""#)]),
+        gt_trades(&[]),
+        GT_TRADE.replace(r#""result":["#, r#""result":null,"x":["#),
+        GT_TICK.replace(r#""mark_price":"62612.4","#, ""),
+        GT_TICK.replace(
+            r#""funding_next_apply":1794729600"#,
+            r#""funding_next_apply":"1794729600""#,
+        ),
+        GT_TICK.replace(r#""contract":"BTC_USDT","#, ""),
+    ];
+    let refs: Vec<&str> = others.iter().map(String::as_str).collect();
+    for (i, (p, recs)) in parse_all(&gt, &refs).iter().enumerate() {
+        assert!(*p == Parsed::Raw && recs.is_empty(), "кадр {i}: {p:?}");
+    }
+    // годные элементы кадра — записи, негодные — один raw в кадре той же формы
+    let mixed = gt_trades(&[
+        gt_fill(10, r#""1""#),
+        gt_fill(11, "2"),
+        gt_fill(12, r#""-2""#),
+    ]);
+    let r = parse_all(&gt, &[&mixed]);
+    assert_eq!(r[0].0, Parsed::Recs(2));
+    let raws: Vec<&Decoded> = r[0]
+        .1
+        .iter()
+        .filter(|d| matches!(d, Decoded::Raw { .. }))
+        .collect();
+    assert_eq!(raws.len(), 1);
+    let Decoded::Raw { frame, .. } = raws[0] else {
+        unreachable!()
+    };
+    assert!(frame.starts_with(
+        r#"{"time":1794708073,"time_ms":1794708073490,"channel":"futures.trades","event":"update","result":[{"id":11,"#
+    ));
+    assert_eq!(frame.matches(r#""id":"#).count(), 1);
+}
+
+#[test]
+fn gate_identity_dedups_across_lines() {
+    let r = rig(Arc::new(Gate::default()), 20);
+    let t = 20_000 * NS_PER_DAY + 1_000_000_000;
+    let ms = |m: i64| t + m * 1_000_000;
+    // книга: u общий между соединениями — то же состояние со второй линии дубль, чужое состояние второй линии — запись
+    r.frame(ms(1), 1, &gt_book(5, 1_000));
+    r.frame(ms(2), 2, &gt_book(5, 1_000));
+    r.frame(ms(3), 2, &gt_book(6, 1_010));
+    r.frame(ms(4), 1, &gt_book(7, 1_020));
+    r.frame(ms(5), 2, &gt_book(7, 1_020));
+    // сделки: id подряд по контракту
+    r.frame(ms(6), 1, GT_TRADE);
+    r.frame(ms(7), 2, GT_TRADE);
+    // тикер: личность — t
+    r.frame(ms(8), 1, GT_TICK);
+    r.frame(ms(9), 2, GT_TICK);
+    let (dir, m) = r.finish();
+    let rows = &read_days(dir.path())[0].1;
+    let books: Vec<i64> = rows
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Book { u, .. } => Some(*u),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(books, [5, 6, 7]);
+    let count = |f: fn(&Decoded) -> bool| rows.iter().filter(|d| f(d)).count();
+    assert_eq!(count(|d| matches!(d, Decoded::Trade { .. })), 1);
+    assert_eq!(count(|d| matches!(d, Decoded::Mark { .. })), 1);
+    let w = m.writer();
+    assert_eq!((w.records, w.dups), (5, 4));
+}
+
+#[test]
+fn gate_plan_subscription_url_and_exchange_traits() {
+    let gt = Gate::default();
+    let pool: Vec<String> = (0..285).map(|i| format!("S{i:03}_USDT")).collect();
+    let kinds: Vec<String> = ["book", "trade", "mark"].map(String::from).to_vec();
+    let plan = gt.plan(&pool, &kinds, 0);
+    let sizes = |p: &str| -> Vec<usize> {
+        plan.iter()
+            .filter(|x| x.name.starts_with(p))
+            .map(|x| x.streams.len())
+            .collect()
+    };
+    for kind in ["book", "trade", "mark"] {
+        assert_eq!(sizes(kind), vec![95, 95, 95], "{kind}");
+    }
+    assert!(plan.iter().all(|p| p.streams.len() <= gate::PER_CONN));
+    assert_eq!(plan[0].name, "book00");
+    assert_eq!(plan[0].streams[0], "futures.book_ticker:S000_USDT");
+    assert_eq!(plan[3].streams[0], "futures.trades:S000_USDT");
+    assert_eq!(plan[6].streams[0], "futures.tickers:S000_USDT");
+    assert_eq!(
+        gt.plan(&pool, &["book".to_string()], 285).len(),
+        1,
+        "лимита подписок у Gate нет: число контрактов на соединение — по флагу"
+    );
+    assert_eq!(gt.plan(&pool, &["mark".to_string()], 30).len(), 10);
+    let msgs = gt.subscribe_messages(&plan[0].streams);
+    assert_eq!(msgs.len(), 95, "один контракт в сообщении");
+    let m: serde_json::Value = serde_json::from_str(&msgs[1]).unwrap();
+    assert_eq!(
+        (
+            m["channel"].as_str(),
+            m["event"].as_str(),
+            m["payload"].clone(),
+            m["id"].as_i64(),
+        ),
+        (
+            Some("futures.book_ticker"),
+            Some("subscribe"),
+            json!(["S001_USDT"]),
+            Some(2)
+        )
+    );
+    assert!(m["time"].as_i64().is_some_and(|t| t > 1_700_000_000));
+    assert_eq!(
+        gt.url("usdt", "fx-ws.gateio.ws"),
+        "wss://fx-ws.gateio.ws/v4/ws/usdt"
+    );
+    let lines = gt.default_entrances(2);
+    assert_eq!(lines.len(), 2);
+    assert!(lines
+        .iter()
+        .flatten()
+        .all(|e| e.host == "fx-ws.gateio.ws" && e.family == Family::V4));
+    assert_eq!(gt.default_top_exclude(), 0);
+    assert_eq!(
+        gt.ws_headers(),
+        &[("X-Gate-Size-Decimal", "1")],
+        "без заголовка размеры усечены до целого"
+    );
+    assert!(Okx::default().ws_headers().is_empty() && Bingx::default().ws_headers().is_empty());
+    assert!(gt.is_retire_notice(GT_UPGRADE.as_bytes()));
+    for f in [GT_BOOK, GT_ACK, GT_PONG, GT_TICK] {
+        assert!(!gt.is_retire_notice(f.as_bytes()));
+    }
+    assert!(!gt.is_retire_notice(
+        GT_UPGRADE
+            .replace(r#""type":"upgrade""#, r#""type":"outdated_sbe_schema_id""#)
+            .as_bytes()
+    ));
+    assert!(!gt.gzip_frames());
+    assert_eq!(gt.heartbeat_reply(b"Ping"), None);
+}
+
+#[test]
+fn gate_pool_rule_status_turnover_and_meta() {
+    let con = |name: &str, status: &str| {
+        json!({"name": name, "status": status, "quanto_multiplier": "0.0001", "order_size_min": 1, "order_price_round": "0.1", "mark_price_round": "0.1",
+               "enable_decimal": true, "contract_type": "stocks", "funding_interval": 28800, "leverage_max": "100", "is_pre_market": false,
+               "in_delisting": false, "mark_type": "index", "type": "direct", "launch_time": 1, "unrelated": 5})
+    };
+    let tick = |c: &str, qv: &str| json!({"contract": c, "volume_24h_quote": qv});
+    let contracts = vec![
+        con("BTC_USDT", "trading"),
+        con("ETH_USDT", "trading"),
+        con("OLD_USDT", "delisting"),
+        con("THIN_USDT", "trading"),
+        con("NOTICK_USDT", "trading"),
+    ];
+    let tickers = vec![
+        tick("BTC_USDT", "9006886116"),
+        tick("ETH_USDT", "6908890246.5"),
+        tick("OLD_USDT", "9999999999"),
+        tick("THIN_USDT", "299999.99"),
+    ];
+    let (pool, top, extra) = gate::select_pool(&contracts, &tickers, 300_000.0, 0);
+    assert_eq!(
+        (pool, top),
+        (vec!["BTC_USDT".to_string(), "ETH_USDT".to_string()], vec![])
+    );
+    assert_eq!(extra["qv"]["ETH_USDT"], 6_908_890_246.5);
+    assert_eq!(extra["meta"]["ETH_USDT"]["quanto_multiplier"], "0.0001");
+    assert_eq!(extra["meta"]["ETH_USDT"]["contract_type"], "stocks");
+    assert!(extra["meta"]["ETH_USDT"].get("unrelated").is_none());
+    assert!(extra["meta"].get("THIN_USDT").is_none());
+    let (pool, top, _) = gate::select_pool(&contracts, &tickers, 300_000.0, 1);
+    assert_eq!(
+        (pool, top),
+        (vec!["ETH_USDT".to_string()], vec!["BTC_USDT".to_string()])
+    );
+}
+
+/// Источник «Gate»: запоминает заголовки рукопожатия и сообщения подписки, на каждую отвечает `success`, затем шлёт кадры книги.
+fn spawn_gate_source(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    subs: Arc<std::sync::Mutex<Vec<String>>>,
+    headers: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    n_subs: usize,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let Ok((s, _)) = listener.accept() else {
+            return;
+        };
+        let cb = |req: &tungstenite::handshake::server::Request,
+                  resp: tungstenite::handshake::server::Response| {
+            *headers.lock().unwrap() = req
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+            Ok(resp)
+        };
+        let Ok(mut ws) = tungstenite::accept_hdr(s, cb) else {
+            return;
+        };
+        for _ in 0..n_subs {
+            let Ok(tungstenite::Message::Text(t)) = ws.read() else {
+                return;
+            };
+            subs.lock().unwrap().push(t.to_string());
+            if ws.send(tungstenite::Message::text(GT_ACK)).is_err() {
+                return;
+            }
+        }
+        ws.get_ref()
+            .set_read_timeout(Some(Duration::from_millis(1)))
+            .unwrap();
+        let mut n = 0i64;
+        while !stop.load(Relaxed) {
+            n += 1;
+            let f = gt_book(n, super::events::now_ms());
+            if ws.send(tungstenite::Message::text(f)).is_err() {
+                return;
+            }
+            match ws.read() {
+                Ok(tungstenite::Message::Close(_)) => return,
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(e))
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return,
+            }
+            std::thread::sleep(Duration::from_millis(4));
+        }
+    })
+}
+
+#[test]
+fn gate_session_sends_size_decimal_header_and_one_subscription_per_contract() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (stop_src, subs, headers) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let src = spawn_gate_source(
+        listener,
+        Arc::clone(&stop_src),
+        Arc::clone(&subs),
+        Arc::clone(&headers),
+        2,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (opts, mut plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    plan.streams = vec![
+        "futures.book_ticker:BTC_USDT".into(),
+        "futures.book_ticker:ETH_USDT".into(),
+    ];
+    let exch: Arc<dyn Exchange> = Arc::new(Gate::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_secs(2));
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert!(
+        headers
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("x-gate-size-decimal") && v == "1"),
+        "заголовок рукопожатия: {:?}",
+        headers.lock().unwrap()
+    );
+    let subs = subs.lock().unwrap();
+    assert_eq!(subs.len(), 2, "одно сообщение на контракт");
+    let payloads: Vec<serde_json::Value> = subs
+        .iter()
+        .map(|s| serde_json::from_str::<serde_json::Value>(s).unwrap()["payload"].clone())
+        .collect();
+    assert_eq!(payloads, [json!(["BTC_USDT"]), json!(["ETH_USDT"])]);
+    let rows: Vec<Decoded> = read_days(dir.path())
+        .into_iter()
+        .flat_map(|d| d.1)
+        .collect();
+    let books = rows
+        .iter()
+        .filter(|d| matches!(d, Decoded::Book { sym, .. } if sym == "BTC_USDT"))
+        .count();
+    assert!(books > 20, "записей книги: {books}");
+    let acks = rows
+        .iter()
+        .filter(
+            |d| matches!(d, Decoded::Raw { frame, .. } if frame.contains(r#""event":"subscribe""#)),
+        )
+        .count();
+    assert_eq!(acks, 2, "два ответа на подписку записаны как пришли");
 }
 
 // ---- метрики ----
@@ -3606,6 +4077,7 @@ fn default_lines_have_no_ipv6_entrance_without_the_flag() {
         ("bybit", Arc::new(Bybit)),
         ("okx", Arc::new(Okx::default())),
         ("bingx", Arc::new(Bingx::default())),
+        ("gate", Arc::new(Gate::default())),
     ] {
         let off = lines_of(exch.as_ref(), &run_args(&[], name)).unwrap();
         assert!(
@@ -3618,8 +4090,8 @@ fn default_lines_have_no_ipv6_entrance_without_the_flag() {
         let on = lines_of(exch.as_ref(), &run_args(&["--allow-ipv6"], name)).unwrap();
         assert_eq!(
             on.iter().flatten().any(|e| e.family == Family::V6),
-            name != "binance",
-            "{name}: с флагом запасной IPv6 возвращается (Binance IPv6-входа нет)"
+            !matches!(name, "binance" | "gate"),
+            "{name}: с флагом запасной IPv6 возвращается (у Binance и Gate IPv6-входа нет)"
         );
     }
     let bn = Binance;

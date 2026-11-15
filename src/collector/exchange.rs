@@ -1,6 +1,6 @@
 //! Контракт адаптера биржи для ядра коллектора: только специфика биржи — адреса, подписка, пул, разбор кадра.
 //!
-//! Ядро (`session`, `shard`, `writer`) биржу не знает; адаптеры — `binance.rs`, `bybit.rs`, `okx.rs`.
+//! Ядро (`session`, `shard`, `writer`) биржу не знает; адаптеры — `binance.rs`, `bybit.rs`, `okx.rs`, `bingx.rs`, `gate.rs`.
 
 use std::net::IpAddr;
 use std::time::Duration;
@@ -151,5 +151,9 @@ pub trait Exchange: Send + Sync {
     /// на 30-й секунде): сессия отвечает сразу и кадр дальше не передаёт — это сердцебиение, не данные.
     fn heartbeat_reply(&self, _frame: &[u8]) -> Option<&'static str> {
         None
+    }
+    /// Дополнительные заголовки запроса WebSocket-рукопожатия (Gate: `X-Gate-Size-Decimal: 1` — иначе размеры приходят числом, усечённым до целого).
+    fn ws_headers(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
     }
 }

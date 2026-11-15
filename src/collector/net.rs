@@ -632,6 +632,7 @@ pub fn ws_connect(
     url: &str,
     host: &str,
     tls: bool,
+    headers: &[(&str, &str)],
 ) -> Result<(WebSocket<Conn>, Response), String> {
     tcp.set_read_timeout(Some(HANDSHAKE_TIMEOUT))
         .map_err(|e| e.to_string())?;
@@ -646,9 +647,18 @@ pub fn ws_connect(
     } else {
         Conn::Plain(RxSock::new(tcp))
     };
-    let req = url
+    let mut req = url
         .into_client_request()
         .map_err(|e| format!("запрос {url}: {e}"))?;
+    for (k, v) in headers {
+        let (Ok(name), Ok(val)) = (
+            tungstenite::http::HeaderName::from_bytes(k.as_bytes()),
+            tungstenite::http::HeaderValue::from_str(v),
+        ) else {
+            return Err(format!("заголовок запроса {k}"));
+        };
+        req.headers_mut().insert(name, val);
+    }
     let cfg = tungstenite::protocol::WebSocketConfig::default().read_buffer_size(WS_READ_BUFFER);
     match tungstenite::client::client_with_config(req, conn, Some(cfg)) {
         Ok(ok) => Ok(ok),
