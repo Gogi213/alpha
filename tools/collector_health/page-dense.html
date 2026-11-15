@@ -57,7 +57,7 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 .ctl .cols-btn .bd{position:absolute;top:-5px;right:-5px;min-width:14px;height:14px;padding:0 4px;border-radius:7px;background:var(--positive);color:var(--background);font:600 10px/14px var(--font-mono);text-align:center}
 .ctl .cols-btn svg{width:14px;height:14px;flex:none}
 .ctl .cols-btn[aria-expanded=true]{color:var(--foreground);background:var(--on-bg);box-shadow:inset 0 0 0 1px var(--on-line)}
-#colpop{position:absolute;z-index:50;width:288px;max-height:calc(100vh - 80px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;padding:12px;display:grid;gap:10px;background:var(--card);color:var(--foreground);border-radius:24px;box-shadow:0 0 0 1px #ffffff1a,0 10px 15px -3px #0000001a,0 4px 6px -4px #0000001a;font:400 12px/16px var(--font-sans)}
+#colpop{position:absolute;z-index:50;width:288px;max-height:calc(100vh - 104px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;padding:12px;display:grid;gap:10px;background:var(--card);color:var(--foreground);border-radius:24px;box-shadow:0 0 0 1px #ffffff1a,0 10px 15px -3px #0000001a,0 4px 6px -4px #0000001a;font:400 12px/16px var(--font-sans)}
 #colpop header{display:grid;gap:4px}
 #colpop h4{margin:0;font-size:14px;line-height:20px;font-weight:500}
 #colpop p{margin:0;color:var(--muted-foreground)}
@@ -90,7 +90,7 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 /* таблица (sp-dt): заголовок 11 px muted, строка 28 px, числа — Geist Mono tabular, разделитель строк — border 70 % */
 .tw{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card);overflow:hidden;min-width:480px;max-width:100%}
 table.a{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed}
-table.a th{font-weight:500;font-size:11px;line-height:13px;letter-spacing:.01em;color:var(--muted-foreground);text-align:right;vertical-align:bottom;height:60px;padding:0 6px 6px 2px;cursor:pointer;white-space:normal;user-select:none;background:var(--card);border-bottom:1px solid var(--border)}
+table.a th{font-weight:500;font-size:10px;line-height:12px;letter-spacing:.01em;color:var(--muted-foreground);text-align:right;vertical-align:bottom;height:60px;padding:0 6px 6px 2px;cursor:pointer;white-space:normal;user-select:none;background:var(--card);border-bottom:1px solid var(--border)}
 table.a th.l,table.a td.l{padding-left:6px}
 table.a thead tr:first-child th:first-child,table.a td:first-child{padding-left:12px}
 table.a thead tr:first-child th:last-child,table.a td:last-child{padding-right:12px}
@@ -294,7 +294,7 @@ const at=(a,k)=>a?a[k]:null;
 const zx=(r,w,k)=>{const a=r[w];const e=a?a[tI()]:null;return e?e[k]:null};   /* круги выбранного θ: [медиана, p95, число] */
 /* столбцы: скрытые ключи — в localStorage (по умолчанию видны все); монета и пара бирж — всегда; ширины — доли прежней сетки, сумма видимых = 100 % */
 const CKEY='alpha.arb.cols.hidden',FIXED=['c','p'],HIDEABLE=['v0','v1','size','max','n0','n1','n2','n3','b0','b1','b2','tau','net','z','x','xn'];
-const WT={c:56,p:150,v0:52,v1:52,size:76,max:76,n0:50,n1:50,n2:50,n3:54,b0:52,b1:52,b2:52,tau:66,net:66,z:74,x:74,xn:54};   /* доли сетки — взяты как минимальные ширины столбцов в px (при 1180 px окна режим «выбросы» занимает всю карточку); у карточки ширина делится между столбцами пропорционально */
+const WT={c:56,p:148,v0:52,v1:52,size:75,max:75,n0:50,n1:50,n2:50,n3:54,b0:52,b1:52,b2:52,tau:65,net:65,z:70,x:70,xn:56};   /* доли сетки — взяты как минимальные ширины столбцов в px (при 1180 px окна режим «выбросы» занимает всю карточку); у карточки ширина делится между столбцами пропорционально */
 /* фильтры строк: в localStorage (ключа нет — все выключены; null — фильтр выключен, число (в т.ч. 0 и отрицательное) — включён): оборот каждой из двух бирж пары от N млн $; расхождение, выбросы за сутки,
    «после комиссий» и оба круга — от N; схождение — до N с. Расхождение, схождение, «после комиссий» и круги — по тому, что показано в столбце (медиана, в режиме «выбросы» — p95); без пар с биржами-«снимками» */
 const FKEY='alpha.arb.filters',SNAP=new Set(['bingx']);
@@ -427,7 +427,7 @@ function head(){
   const C=vis(cols()),sum=C.reduce((s,c)=>s+WT[c.k],0),pa=$('p-a'),cs=getComputedStyle(pa),Wc=pa.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
   /* у каждого столбца своя ширина — целые px, доля сетки от ширины карточки; столбец «расхождение» — по содержимому (одна доля в обоих режимах), сетка режима приводится к 100 %; остаток округления — столбцу «пара бирж», при любом наборе видимых. Скрытые места не раздают: карточка сжимается до суммы видимых, слева */
   if(Wc>2){
-    const Wi=Wc-2,A=cols(),tot=A.reduce((s,c)=>s+WT[c.k],0),w={};A.forEach(c=>w[c.k]=Math.round(WT[c.k]*Wi/tot));
+    const Wi=Wc-2,A=cols(),tot=A.reduce((s,c)=>s+WT[c.k],0),w={};A.forEach(c=>w[c.k]=Math.floor(WT[c.k]*Wi/tot));
     w.p+=Wi-A.reduce((s,c)=>s+w[c.k],0);
     $('cg').innerHTML=C.map(c=>'<col style="width:'+w[c.k]+'px">').join('');
     $('tw').style.width=C.length===A.length?'':(C.reduce((s,c)=>s+w[c.k],0)+2)+'px';

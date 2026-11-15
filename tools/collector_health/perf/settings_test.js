@@ -167,7 +167,7 @@ const snap = () => document.fonts.ready.then(() => {
   let rr = await rendered();
   const withB = rr.filter(r => /BingX/.test(r.pair));
   check('метка «снимки»: есть у каждой показанной пары с BingX, ровно одна', withB.length > 0 && withB.every(r => r.sn === 1) && rr.filter(r => !/BingX/.test(r.pair)).every(r => r.sn === 0), withB.length + ' пар с BingX');
-  const sn0 = await pg.$('#tb i.sn'); await sn0.hover(); await pg.waitForTimeout(350);
+  const sn0 = await pg.$('#tb i.sn'); await sn0.hover(); await pg.waitForTimeout(700);
   let tp = await pg.$eval('#htip', e => ({ o: getComputedStyle(e).opacity, t: e.textContent, r: (r => [r.left, r.right, r.top, r.bottom])(e.getBoundingClientRect()), w: innerWidth }));
   check('подсказка метки «снимки»', +tp.o > 0.9 && /BingX/.test(tp.t) && tp.r[0] >= 0 && tp.r[1] <= tp.w, JSON.stringify(tp));
   await pg.mouse.move(5, 5); await pg.waitForTimeout(150); check('подсказка метки уходит', await pg.$eval('#htip', e => getComputedStyle(e).opacity) === '0');
@@ -220,14 +220,14 @@ const snap = () => document.fonts.ready.then(() => {
   await pg.click('#ctl [data-m="out"]'); await pg.waitForTimeout(120);
   const ord3 = await pg.$$eval('#th th', e => e.map(t => t.dataset.k)); check('режим «выбросы»: те же столбцы в конце', ord3.slice(HAS ? -5 : -2).join() === (HAS ? 'tau,net,z,x,xn' : 'tau,net'), ord3.join());
   if (HAS) {
-  const heads = await pg.$$eval('#th th', e => e.filter(t => ['z', 'x', 'xn'].includes(t.dataset.k)).map(t => t.textContent.replace(/\s+/g, ' ').trim()));
-  check('режим «выбросы»: подписи кругов с p95 и θ 0,2 %', /круг до нуля, p95/.test(heads[0]) && /круг из − в \+, p95/.test(heads[1]) && heads.every(h => /θ 0,2 %/.test(h)), JSON.stringify(heads));
+  const heads = await pg.$$eval('#th th', e => e.filter(t => ['z', 'x', 'xn'].includes(t.dataset.k)).map(t => t.querySelector('.hl').innerHTML.replace(/<i class="ar">.*?<\/i>/, '').replace(/<br>/g, ' ')));
+  check('режим «выбросы»: подписи кругов с p95 и θ 0,2 %', /до нуля, p95/.test(heads[0]) && /из − в \+, p95/.test(heads[1]) && heads.every(h => /θ 0,2 %/.test(h)), JSON.stringify(heads));
   for (const k of ['z', 'x']) { const c = await cellsOf(k); check('режим «выбросы» ' + k + ': ячейки = p95 по данным', c.n > 0 && c.bad === 0, JSON.stringify(c)) }
   }
   await pg.click('#ctl [data-m="med"]'); await pg.waitForTimeout(120);
   if (HAS) {
-  const heads2 = await pg.$$eval('#th th', e => e.filter(t => ['z', 'x', 'xn'].includes(t.dataset.k)).map(t => t.textContent.replace(/\s+/g, ' ').trim()));
-  check('режим «медиана»: подписи', /^после комиссий, % круг до нуля θ 0,2 %$/.test(heads2[0]) && /^после комиссий, % круг из − в \+ θ 0,2 %$/.test(heads2[1]) && /^кругов из − в \+ за сутки θ 0,2 %$/.test(heads2[2]), JSON.stringify(heads2));
+  const heads2 = await pg.$$eval('#th th', e => e.filter(t => ['z', 'x', 'xn'].includes(t.dataset.k)).map(t => t.querySelector('.hl').innerHTML.replace(/<i class="ar">.*?<\/i>/, '').replace(/<br>/g, ' ')));
+  check('режим «медиана»: подписи', /^после комиссий, % до нуля θ 0,2 %$/.test(heads2[0]) && /^после комиссий, % из − в \+ θ 0,2 %$/.test(heads2[1]) && /^кругов из − в \+ за сутки θ 0,2 %$/.test(heads2[2]), JSON.stringify(heads2));
   }
   const pos = await pg.evaluate(() => { const rows = [...document.querySelectorAll('#tb tr.r')].slice(0, 200); const idx = k => [...document.querySelectorAll('#th th')].findIndex(t => t.dataset.k === k); let bad = 0; for (const tr of rows) for (const k of ['net', 'z', 'x']) { if (idx(k) < 0) continue; const c = tr.children[idx(k)], t = c.textContent.trim(); if ((t[0] === '+') !== c.classList.contains('pos')) bad++ } return bad });
   check('зелёным («pos») подсвечены только положительные net, z, x', pos === 0, pos);
