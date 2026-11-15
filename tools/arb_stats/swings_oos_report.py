@@ -241,10 +241,10 @@ _BOOKS = {}
 BWORK = "/data/swings/b/parsed"
 
 
-def depth_med(D, k, iN):
-    """Глубина кругов пары: $ на лучшем уровне (меньше из двух ног) на входе и выходе круга, минимум из двух; медиана и p10 по качелям пары (L = 300)."""
+def depth_med(D, k, iN, L=300):
+    """Глубина кругов пары: $ на лучшем уровне (меньше из двух ног) на входе и выходе круга, минимум из двух; медиана и p10 по качелям пары (L по умолчанию 300 мс)."""
     coin, a, b = k
-    tc, dur, gr, side = D["pairs"][k]["sw"][(iN, 300)]
+    tc, dur, gr, side = D["pairs"][k]["sw"][(iN, L)]
     if not len(tc):
         return None, None
     if "meta" not in _BOOKS:
