@@ -11,6 +11,8 @@ Per run (events of the run + records on disk with rx time in [t0, t1)):
     book_given_trade = share of the run's trade cells (symbol, E-second) that also have a book record (absolute check, no second run needed);
   with --pool / --covered-ms (single-run steps): mark coverage = absolute — every pool symbol has a mark record every second (`!markPrice@arr@1s`), a gap > 1.5 s between
     consecutive records (from --covered-ms to t1) counts (gap - 1 s) missing seconds; mark_cov = 1 - missing / (symbols * seconds); 100 % means no gap.
+  with --mark-free (Gate: `futures.tickers` pushes about every second but only when something changed, so a silent second is not a loss): no gap criterion; mark_records, symbols with a record and the
+    per-symbol gap quantiles (p50 / p99 / max of the gap between consecutive records, s) are reported, the loss check of marks is restcheck.py gate (REST mark-price candles).
 """
 import argparse
 import glob
@@ -85,7 +87,18 @@ def mark_gaps(marks, pool, covered, t1):
     return missing / 1000, none, gapped
 
 
-def disk(root, t0, t1, pool=None, covered=0):
+def mark_cadence(marks, pool):
+    """Gate: marks come only on change — no gap criterion; per-symbol gap between consecutive records (s): quantiles over all gaps, number of symbols with a record."""
+    gaps = []
+    for sym in pool:
+        ts = sorted(set(marks.get(sym, ())))
+        gaps += [(b - a) / 1000 for a, b in zip(ts, ts[1:])]
+    gaps.sort()
+    q =(lambda p: round(gaps[min(len(gaps) - 1, int(len(gaps) * p))], 2)) if gaps else (lambda p: None)
+    return {"mark_records": sum(len(set(v)) for v in marks.values()), "mark_symbols_with_records": len(marks), "mark_symbols": len(pool), "mark_gap_p50_s": q(0.5), "mark_gap_p99_s": q(0.99), "mark_gap_max_s": gaps[-1] if gaps else None}
+
+
+def disk(root, t0, t1, pool=None, covered=0, mark_free=False):
     lags, late, late_cov, n = Counter(), 0, 0, 0
     cells_any, cells_timely, trade_cells = set(), set(), set()
     marks = {}
@@ -117,7 +130,9 @@ def disk(root, t0, t1, pool=None, covered=0):
                     cells_timely.add((r["s"], sec))
     out = {"book_n": n, "lag_p50": count_percentile(lags, 0.5), "lag_p99": count_percentile(lags, 0.99), "lag_max": max(lags, default=None), "late": late, "late_after_covered": late_cov,
            "late_share": round(late / n, 4) if n else None}
-    if pool:
+    if pool and mark_free:
+        out.update(mark_cadence(marks, pool))
+    elif pool:
         miss_s, none, gapped = mark_gaps(marks, pool, covered, t1)
         expected = len(pool) * max(1, t1 - covered) / 1000
         out.update(mark_symbols=len(pool), mark_missing_s=round(miss_s, 1), mark_symbols_without_records=none, mark_symbols_with_gap=gapped, mark_cov=round(1 - miss_s / expected, 6))
@@ -131,13 +146,14 @@ def main():
     ap.add_argument("--t1", type=int, required=True)
     ap.add_argument("--pool", help="pool-*.json of the run: mark coverage of these symbols (needs --covered-ms)")
     ap.add_argument("--covered-ms", type=int, default=0, help="from when every shard had a live session (coverage.py first_connected max + 3 s)")
+    ap.add_argument("--mark-free", action="store_true", help="Gate: marks come only on change — report their cadence instead of the gap criterion")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     pool = {x.upper() for x in json.load(open(a.pool))["pool"]} if a.pool else None
     runs, cells = {}, {}
     for spec in a.run:
         label, root = spec.split("=", 1)
-        d, any_, timely, trades = disk(root, a.t0, a.t1, pool, a.covered_ms or a.t0)
+        d, any_, timely, trades = disk(root, a.t0, a.t1, pool, a.covered_ms or a.t0, a.mark_free)
         runs[label] = {**events(root, a.t0, a.t1), **d}
         cells[label] = (any_, timely)
         runs[label]["book_given_trade"] = round(len(trades & any_) / len(trades), 4) if trades else None

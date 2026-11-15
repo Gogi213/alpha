@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # G-022 turbo: step ladder of the FULL collector — ONE process at a time (owner 13.11: «просто проводим тестирование по плану. от меньшего к большему как шли»).
-#   [EXCH=binance|bybit|okx|bingx] [ROOT=<run root, default /data/turbo-probe>] [TOOLS=<this directory on srv>] steps.sh <tag> <binary> "<flags>" "<steps: N or full ...>" [<windows per step, default 3>]
+#   [EXCH=binance|bybit|okx|bingx|gate] [ROOT=<run root, default /data/turbo-probe>] [TOOLS=<this directory on srv>] steps.sh <tag> <binary> "<flags>" "<steps: N or full ...>" [<windows per step, default 3>]
 # A step = top-N symbols of the pool by 24h volume (`full` = the whole pool), 3 windows x 3 min, each window a fresh process (`collect run --lanes 2`; Binance: budget <= 280 within the exchange's
 # 300 / 5 min, OKX: the built-in 2 connects per second), 20 s pause between windows. Per window: coverage.py, abwin.py (events, book lag, late, mark coverage), restcheck.py (REST trades), CPU (cgroup)
 # -> stepsum.py verdict line. status.txt: one line per window and `STEP <N> OK|FAIL`; stops at the first not clean window (STOPPED line, exit 1).
@@ -10,10 +10,13 @@
 # BingX (EXCH=bingx): REST keeps no trade history (the last 1000 trades of a symbol), so the oracle cannot be deferred: right after the window end (T0 + 181 s, the window itself is over, the process only
 # finishes its last 6 s) `bxsnap.py` takes a REST snapshot of every pool symbol (≈ 22 s for 892 symbols at 40 requests/s); `restcheck.py bingx` then compares it with the files offline (+ id continuity of the whole pool).
 # "covered" for BingX = the latest `subscribed` event + 3 s (one subscribe message per topic: a shard of 200 topics is fully subscribed 4 s after its connection).
+# Gate (EXCH=gate): REST keeps the full trade history by time -> RESTPASS=defer like OKX (`restpass.sh` after the ladder, `restcheck.py gate` over every symbol of the window + mark-price candles);
+# marks come only on change (no gap-per-second criterion): abwin.py --mark-free. Steps beyond the pool (all 1051 contracts): FLAGS "--min-quote-volume 0" and steps "320 640 full" (pool-full = every contract).
 # Background unit (systemd-run), never in the ssh session (В-147); nothing else of the same exchange may run on srv meanwhile.
 set -u -o pipefail
 EXCH="${EXCH:-binance}"
 [ "$EXCH" = bingx ] && COVERKEY=subscribed
+MARKFLAG=""; [ "$EXCH" = gate ] && MARKFLAG="--mark-free"
 TAG="$1"; BIN="$2"; FLAGS="$3"; STEPS="$4"; NWIN="${5:-3}"
 D=${ROOT:-/data/turbo-probe}/$TAG; mkdir -p "$D"
 PY=/root/bnws-venv/bin/python; S=${TOOLS:-/data/turbo-probe/src/tools/turbo}
@@ -22,7 +25,8 @@ if [ ! -s "$D/pool-full.json" ]; then
   if [ "$EXCH" = binance ]; then
     cp /data/turbo-probe/ab1/pool.json "$D/pool-full.json"
   else
-    "$BIN" collect run --exchange "$EXCH" --root "$D/poolprep" --pool-only > "$D/poolprep.log" 2>&1
+    # shellcheck disable=SC2086
+    "$BIN" collect run --exchange "$EXCH" --root "$D/poolprep" --pool-only $FLAGS > "$D/poolprep.log" 2>&1   # FLAGS: e.g. `--min-quote-volume 0` (Gate steps beyond the pool); --pool-only exits before any shard
     cp "$D"/poolprep/pool-*.json "$D/pool-full.json"
   fi
 fi
@@ -61,7 +65,7 @@ window() {  # label npool
   T1=$(( T0 + 180000 ))
   $PY "$S/coverage.py" "$W/data" --window-s 180 --out "$W/cov.json" > "$W/cov.log" 2>&1
   TC=$($PY -c "import json; c=json.load(open('$W/cov.json')); m=c['first_${COVERKEY:-connected}_s']['max']; print($T0 + int(((m if m is not None else 180) + 3) * 1000))")
-  $PY "$S/abwin.py" --run "X=$W/data" --t0 "$T0" --t1 "$T1" --pool "$D/pool-$NP.json" --covered-ms "$TC" --out "$W/win.json" > "$W/win.log" 2>&1
+  $PY "$S/abwin.py" --run "X=$W/data" --t0 "$T0" --t1 "$T1" --pool "$D/pool-$NP.json" --covered-ms "$TC" $MARKFLAG --out "$W/win.json" > "$W/win.log" 2>&1
   NS=25; [ "$NP" != full ] && [ "$NP" -lt 25 ] && NS="$NP"
   if [ "$EXCH" = bingx ]; then
     $PY "$S/restcheck.py" bingx "$W/data" "$T0" "$T1" --snap "$W/rest-snap.json.gz" --covered-ms "$TC" --out "$W/rest.json" > "$W/rest.log" 2>&1

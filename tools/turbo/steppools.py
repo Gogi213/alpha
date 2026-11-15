@@ -14,7 +14,7 @@ if qv:
 else:
     rank = {s: i for i, s in enumerate(json.load(open("/data/turbo-probe/l1/symbols.json")))}
     pool = sorted(pool, key=lambda s: rank.get(s, 10**6))
-for n in (10, 20, 40, 80, 160, 320):
+for n in (10, 20, 40, 80, 160, 320, 640):
     sub = {"pool": pool[:n]}
     for k in ("meta", "qv"):
         if k in full:
