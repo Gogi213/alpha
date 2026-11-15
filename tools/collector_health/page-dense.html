@@ -39,7 +39,7 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 .ctl .g>span{color:var(--muted-foreground);font-size:11px;line-height:14px}
 .ctl .g .grp{display:inline-flex;gap:2px;height:28px;padding:2px;border-radius:14px;background:var(--muted)}
 .ctl .cnt{display:inline-block;width:144px;color:var(--muted-foreground);font:400 11px/14px var(--font-mono);white-space:nowrap}
-.ctl .upd{margin-left:auto;color:var(--muted-foreground);font:400 11px/14px var(--font-mono);white-space:nowrap}
+.ctl .upd{color:var(--muted-foreground);font:400 11px/14px var(--font-mono);white-space:nowrap}
 .tg button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;height:28px;padding:0 8px;border-radius:9999px;color:var(--muted-foreground);font:500 12px/16px var(--font-sans)}
 .flt button,.ctl .solo{box-shadow:inset 0 0 0 1px var(--input)}
 .flt button:hover,.ctl .solo:hover{color:var(--foreground);box-shadow:inset 0 0 0 1px var(--muted-foreground)}
@@ -48,6 +48,26 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 .ctl .grp button:hover{color:var(--foreground)}
 .ctl .grp button.on{color:var(--foreground);background:color-mix(in oklab,var(--input) 30%,transparent);box-shadow:inset 0 0 0 1px var(--input),0 1px 2px #0000000d}
 .ctl .solo{padding:0 10px}
+/* «Столбцы»: кнопка и поповер как «Колонки» у Spreader (248 px, отступ 12, зазор 10, радиус 24, кольцо 1 px белым 10 %, галочка 16 px) */
+.ctl .cols-btn{margin-left:auto;gap:6px;padding:0 10px}
+.ctl .cols-btn svg{width:14px;height:14px;flex:none}
+.ctl .cols-btn[aria-expanded=true]{color:var(--foreground);background:var(--on-bg);box-shadow:inset 0 0 0 1px var(--on-line)}
+#colpop{position:absolute;z-index:50;width:248px;padding:12px;display:grid;gap:10px;background:var(--card);color:var(--foreground);border-radius:24px;box-shadow:0 0 0 1px #ffffff1a,0 10px 15px -3px #0000001a,0 4px 6px -4px #0000001a;font:400 12px/16px var(--font-sans)}
+#colpop header{display:grid;gap:4px}
+#colpop h4{margin:0;font-size:14px;line-height:20px;font-weight:500}
+#colpop p{margin:0;color:var(--muted-foreground)}
+#colpop .list{display:grid;gap:7px}
+#colpop label.lab{display:flex;align-items:center;gap:8px;font-weight:500;line-height:12px;cursor:pointer;user-select:none}
+#colpop label.lab.fx{cursor:default}
+#colpop input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:none;width:16px;height:16px;margin:0;border-radius:5px;border:1px solid color-mix(in oklab,var(--input) 90%,transparent);background:color-mix(in oklab,var(--input) 90%,transparent) center/12px no-repeat;cursor:inherit}
+#colpop input[type=checkbox]:checked{border-color:var(--positive);background-color:var(--positive);background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d1013' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>")}
+#colpop input[type=checkbox]:disabled{opacity:.5}
+#colpop input[type=checkbox]:focus-visible,#colpop footer button:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+#colpop footer{display:flex;justify-content:space-between;align-items:center}
+#colpop .h{font-size:11px;line-height:14px;color:var(--muted-foreground)}
+#colpop footer button{all:unset;box-sizing:border-box;cursor:pointer;height:24px;padding:0 8px;border-radius:9999px;box-shadow:inset 0 0 0 1px var(--border);font:500 12px/16px var(--font-sans);display:inline-flex;align-items:center}
+#colpop footer button:hover:not(:disabled){background:var(--muted)}
+#colpop footer button:disabled{opacity:.5;cursor:default}
 /* таблица (sp-dt): заголовок 11 px muted, строка 28 px, числа — Geist Mono tabular, разделитель строк — border 70 % */
 .tw{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card);overflow:hidden}
 table.a{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed}
@@ -127,6 +147,7 @@ dt{font-size:10px;line-height:13px;color:var(--muted-foreground)}dd{margin:1px 0
 <div class="pend" id="pend" hidden></div>
 <div class="tw" id="tw"><table class="a" id="tab"><colgroup id="cg"></colgroup><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 </section>
+<div id="colpop" hidden role="dialog" aria-label="Столбцы"></div>
 
 <script>
 const cv0=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -247,7 +268,14 @@ let st={pair:'all',sort:'size',dir:-1,open:null,mode:'med',hide:false};
 let ROWH=28,CHH=293,OVER=3,win={a:0,b:-1};
 const CH=new Map(),PEND=new Map();
 const at=(a,k)=>a?a[k]:null;
-const W=[6.8,10.2,6.5,6.5,7.6,7.6,5.8,5.8,5.8,5.8,5.8,5.8,5.8,7.4,6.8];
+/* столбцы: скрытые ключи — в localStorage (по умолчанию видны все); монета и пара бирж — всегда; ширины — доли прежней сетки, сумма видимых = 100 % */
+const CKEY='alpha.arb.cols.hidden',FIXED=['c','p'],HIDEABLE=['v0','v1','size','max','n0','n1','n2','n3','b0','b1','b2','tau','net'];
+const WT={c:6.8,p:10.2,v0:6.5,v1:6.5,size:7.6,max:7.6,n0:5.8,n1:5.8,n2:5.8,n3:5.8,b0:5.8,b1:5.8,b2:5.8,tau:7.4,net:6.8};
+const hid=new Set();try{(JSON.parse(localStorage.getItem(CKEY)||'[]')||[]).forEach(k=>{if(HIDEABLE.includes(k))hid.add(k)})}catch(e){}
+const saveCols=()=>{try{if(hid.size)localStorage.setItem(CKEY,JSON.stringify([...hid]));else localStorage.removeItem(CKEY)}catch(e){}};
+const vis=C=>C.filter(c=>FIXED.includes(c.k)||!hid.has(c.k));
+const gc=C=>C.reduce((s,c)=>s+(c.span||1),0);
+let NC=15,colKey='',popOpen=false;
 /* колонки: kk — имя массива ключей сортировки, v — значение для ячейки */
 function cols(){
   const o=st.mode==='out',m=st.mode;
@@ -295,11 +323,24 @@ function ctl(){
   const key=st.pair==='all'?'all':st.pair,ne=EMPTY[key]||0,tot=TOT[key]||0;
   $('ctl').innerHTML='<div class="g"><span>счёт</span><div class="grp">'+btn('data-m','med',st.mode==='med','медиана')+btn('data-m','out',st.mode==='out','выбросы')+'</div></div>'
     +'<div class="g">'+btn('data-hide','1',st.hide,'скрыть пустые','solo')+'<span class="cnt">'+(st.hide?'скрыто ':'пустых: ')+ne+' из '+tot+'</span></div>'
+    +'<button data-cols="1" data-t="Столбцы" class="solo cols-btn" aria-haspopup="dialog" aria-controls="colpop" aria-expanded="'+popOpen+'">'+COLICON+'Столбцы</button>'
     +'<span class="upd">'+(A&&A.t1?'данные по '+hm(A.t1/1000):'')+'</span>';
 }
-function head(){
+const COLICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>';
+/* если сортировка по столбцу, которого нет (скрыт или нет в этом режиме) — «расхождение», иначе первый видимый */
+function fixSort(){const V=vis(cols());if(V.some(c=>c.k===st.sort))return;const f=V.find(c=>c.k==='size')||V.find(c=>!FIXED.includes(c.k));if(f){st.sort=f.k;st.dir=f.k==='tau'?1:-1}else{st.sort='c';st.dir=1}}
+/* поповер «Столбцы» */
+function popHtml(){
   const C=cols();
-  $('cg').innerHTML=W.map(w=>'<col style="width:'+w+'%">').join('');
+  return '<header><h4>Столбцы</h4><p>Сохраняется в этом браузере.</p></header><div class="list">'+C.map(c=>{const fx=FIXED.includes(c.k);return '<label class="lab'+(fx?' fx':'')+'"><input type="checkbox" data-ck="'+c.k+'"'+(fx||!hid.has(c.k)?' checked':'')+(fx?' disabled':'')+'>'+c.t.replace(/<br>/g,' ')+(fx?' · всегда показана':'')+'</label>'}).join('')+'</div><footer><span class="h" id="colcnt"></span><button data-reset="1" id="colreset">по умолчанию</button></footer>';
+}
+function popFoot(){const C=cols();$('colcnt').textContent='Показано: '+vis(C).length+' из '+C.length;$('colreset').disabled=!hid.size}
+function placePop(){const b=document.querySelector('#ctl [data-cols]'),p=$('colpop');if(!b)return;const r=b.getBoundingClientRect();p.style.top=(r.bottom+window.scrollY+4)+'px';p.style.left=Math.max(8,r.right+window.scrollX-p.offsetWidth)+'px'}
+function setPop(on){popOpen=on;const p=$('colpop');p.hidden=!on;if(on){p.innerHTML=popHtml();popFoot();placePop()}const b=document.querySelector('#ctl [data-cols]');if(b)b.setAttribute('aria-expanded',on)}
+function colsChanged(){fixSort();head();refresh();popFoot()}
+function head(){
+  const C=vis(cols()),tot=C.reduce((s,c)=>s+WT[c.k]*(c.span||1),0);
+  $('cg').innerHTML=C.map(c=>('<col style="width:'+(WT[c.k]/tot*100).toFixed(3)+'%">').repeat(c.span||1)).join('');
   const th=c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'"'+(c.span?' colspan="'+c.span+'"':'')+'><span class="hl">'+c.t+'<i class="ar">'+(c.k===st.sort?(st.dir<0?'↓':'↑'):'')+'</i></span></th>';
   $('th').innerHTML='<tr>'+C.map(th).join('')+'</tr>';
 }
@@ -312,18 +353,18 @@ function buildView(){
   view=out;
 }
 function rowHtml(r,C){
-  if(r._m===st.mode)return r._h;
+  if(r._m===colKey)return r._h;
   const none=r.cnt[3]===0;let s='<tr class="r" data-k="'+esc(r.k)+'"><td class="l c">'+esc(r.c)+'</td><td class="l p">'+r.pl+'</td>';
   for(let j=2;j<C.length;j++){const c=C[j],x=c.v(r),nn=x==null;
     const cl=none&&!c.sub||nn?'none':x===0&&/^[nb]\d$/.test(c.k)?'z':c.k==='net'&&x>0?'pos':'';
     s+='<td'+(c.span?' colspan="'+c.span+'"':'')+(cl?' class="'+cl+'"':'')+'>'+(nn?'—':c.f(x))+'</td>'}
-  r._m=st.mode;r._h=s+'</tr>';return r._h;
+  r._m=colKey;r._h=s+'</tr>';return r._h;
 }
-const CHROW='<tr class="ch"><td colspan="15"><div class="box"><div class="lg"><span><i style="border-color:'+ACC+'"></i>Sell, максимум за 3 мин</span><span><i style="border-color:'+INK+'"></i>Buy, минимум за 3 мин</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр</span></div><div class="cwrap"><canvas id="cv"></canvas><div class="ld" id="ld">загрузка…</div><div id="tip2" class="pop"></div></div></div></td></tr>';
-const sp=h=>'<tr class="sp"><td colspan="15" style="height:'+h+'px"></td></tr>';
+const chRow=()=>'<tr class="ch"><td colspan="'+NC+'"><div class="box"><div class="lg"><span><i style="border-color:'+ACC+'"></i>Sell, максимум за 3 мин</span><span><i style="border-color:'+INK+'"></i>Buy, минимум за 3 мин</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр</span></div><div class="cwrap"><canvas id="cv"></canvas><div class="ld" id="ld">загрузка…</div><div id="tip2" class="pop"></div></div></div></td></tr>';
+const sp=h=>'<tr class="sp"><td colspan="'+NC+'" style="height:'+h+'px"></td></tr>';
 /* рисуем только строки у окна просмотра: над ними и под ними — пустые строки нужной высоты, высота таблицы та же, что у полной */
 function paint(){
-  const tb=$('tb'),n=view.length,C=cols();
+  const tb=$('tb'),n=view.length,C=vis(cols());NC=gc(C);colKey=st.mode+'|'+[...hid].sort().join(',');
   const oi=st.open?view.findIndex(i=>R[i].k===st.open):-1,ex=oi>=0?CHH:0;
   const y=i=>i*ROWH+(oi>=0&&i>oi?CHH:0);
   const idx=v=>{if(oi<0||v<(oi+1)*ROWH)return Math.floor(v/ROWH);if(v<(oi+1)*ROWH+CHH)return oi;return Math.floor((v-CHH)/ROWH)};
@@ -332,7 +373,7 @@ function paint(){
   let h='';
   if(n){
     h+=sp(y(a));
-    for(let p=a;p<=b;p++){h+=rowHtml(R[view[p]],C);if(p===oi)h+=CHROW}
+    for(let p=a;p<=b;p++){h+=rowHtml(R[view[p]],C);if(p===oi)h+=chRow()}
     h+=sp(n*ROWH+ex-y(b+1));
   }
   tb.innerHTML=h;win={a,b};
@@ -414,7 +455,7 @@ async function load(){
   schedule(changed);
 }
 function clk(){const t=Date.now()/1000;$('clock').textContent=dm(t)+' · '+hm(t)}
-function tab(a,keep){$('p-a').hidden=!a;$('p-h').hidden=a;$('tab-a').classList.toggle('on',a);$('tab-h').classList.toggle('on',!a);
+function tab(a,keep){if(!a&&popOpen)setPop(false);$('p-a').hidden=!a;$('p-h').hidden=a;$('tab-a').classList.toggle('on',a);$('tab-h').classList.toggle('on',!a);
   if(!keep)history.replaceState(null,'',a?'#arb':'#health');
   clk();
   if(a){load();if(st.open)paint()}else if(window.load)window.load()}
@@ -422,19 +463,24 @@ $('tab-a').onclick=()=>tab(true);$('tab-h').onclick=()=>tab(false);
 /* делегирование: один обработчик на панель, на заголовок и на тело таблицы */
 $('flt').onclick=e=>{const b=e.target.closest('button');if(!b)return;st.pair=b.dataset.p;st.open=null;flt();ctl();refresh()};
 $('ctl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
-  if(b.dataset.m){st.mode=b.dataset.m;if(!cols().some(c=>c.k===st.sort))st.sort='size'}else st.hide=!st.hide;
+  if(b.dataset.cols){setPop(!popOpen);return}
+  if(b.dataset.m){st.mode=b.dataset.m;fixSort();if(popOpen){$('colpop').innerHTML=popHtml();popFoot()}}else st.hide=!st.hide;
   ctl();head();refresh()};
+$('colpop').onchange=e=>{const i=e.target.closest('input[data-ck]');if(!i)return;if(i.checked)hid.delete(i.dataset.ck);else hid.add(i.dataset.ck);saveCols();colsChanged()};
+$('colpop').onclick=e=>{if(!e.target.closest('button[data-reset]'))return;hid.clear();saveCols();$('colpop').querySelectorAll('input[data-ck]').forEach(i=>i.checked=true);colsChanged()};
+document.addEventListener('mousedown',e=>{if(popOpen&&!e.target.closest('#colpop,#ctl [data-cols]'))setPop(false)});
+document.addEventListener('keydown',e=>{if(popOpen&&e.key==='Escape'){setPop(false);const b=document.querySelector('#ctl [data-cols]');if(b)b.focus()}});
 $('th').onclick=e=>{const h=e.target.closest('th');if(!h||!h.dataset.k)return;const k=h.dataset.k;if(st.sort===k)st.dir*=-1;else{st.sort=k;st.dir=(k==='c'||k==='p'||k==='tau')?1:-1}head();refresh()};
 let hv=0;
 $('tb').onclick=e=>{const tr=e.target.closest('tr.r');if(!tr)return;const k=tr.dataset.k;st.open=st.open===k?null:k;paint();if(st.open){const cv=$('cv');if(cv)cv.scrollIntoView({block:'nearest'})}};
 $('tb').onmouseover=e=>{const tr=e.target.closest('tr.r');if(!tr)return;clearTimeout(hv);const k=tr.dataset.k;hv=setTimeout(()=>{const r=R.find(x=>x.k===k);if(r)fetchChart(r).catch(()=>{})},150)};
 window.addEventListener('scroll',onScroll,{passive:true});
-window.addEventListener('resize',()=>{if(!$('p-a').hidden&&view.length)paint()});
+window.addEventListener('resize',()=>{if(popOpen)placePop();if(!$('p-a').hidden&&view.length)paint()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(pollT);else{clk();if(!$('p-a').hidden)load();else if(window.load)window.load()}});
 setInterval(()=>{if(!document.hidden)clk()},30000);
-flt();ctl();head();
+fixSort();flt();ctl();head();
 if(/^#(health|.*tip=)/.test(location.hash))tab(false,true);else tab(true,true);
-window._arb={st,cols,paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
+window._arb={st,cols,vis,hid,paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
 })();
 </script>
 </body>
