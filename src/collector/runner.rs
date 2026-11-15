@@ -561,7 +561,6 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     );
     let mut next = Instant::now() + Duration::from_secs(STATS_PERIOD_S);
     let (mut next_limit, mut applied) = (Instant::now(), limit);
-    let mut applied_limit = limit;
     while !stop.load(Relaxed) {
         std::thread::sleep(Duration::from_millis(200));
         if let (Some(f), true) = (&args.budget_file, Instant::now() >= next_limit) {
@@ -570,7 +569,6 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                 budget.set_limit(n);
                 println!("connect budget {applied} -> {n}");
                 applied = n;
-                applied_limit = n;
                 budget.set_urgent_reserve(urgent_reserve(n, stream_sets.len(), window));
             }
         }
@@ -586,8 +584,8 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                     println!("pool refresh failed: {e}");
                 }
                 Ok(t) => {
-                    let applied = lp.apply(&t, now);
-                    for op in applied.ops {
+                    let review = lp.apply(&t, now);
+                    for op in review.ops {
                         match op {
                             Op::Append { slot, streams } => {
                                 if let Some(Some(set)) = stream_sets.get(slot) {
@@ -619,21 +617,17 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                             }
                         }
                     }
-                    if !applied.changes.is_empty() {
-                        let a = applied.changes.iter().filter(|c| c.add).count();
+                    if !review.changes.is_empty() {
+                        let a = review.changes.iter().filter(|c| c.add).count();
                         println!(
                             "pool refresh: +{a} -{} -> {} symbols, {} shards",
-                            applied.changes.len() - a,
+                            review.changes.len() - a,
                             lp.state.len(),
                             stream_sets.len()
                         );
                     }
                     ctx.pool = lp.lower_pool();
-                    budget.set_urgent_reserve(urgent_reserve(
-                        applied_limit,
-                        stream_sets.len(),
-                        window,
-                    ));
+                    budget.set_urgent_reserve(urgent_reserve(applied, stream_sets.len(), window));
                 }
             }
             ctx.live = Some(lp.health());

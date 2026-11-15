@@ -3,7 +3,7 @@
 
   top10_pool.py <binance|bybit> <out.json> [--min-qv 300000]
 
-Файл: {"pool": [имена по алфавиту], "qv": {имя: оборот $}, "top10": [10 крупнейших по обороту]} — `steppools.py` режет его на pool-10.json (= ровно прежний исключённый топ-10) и pool-full.json.
+Файл: {"pool": [имена по алфавиту], "qv": {имя: оборот $}, "top10": [10 крупнейших по обороту], "low": [до 8 символов чуть ниже порога]} — `steppools.py` режет его на pool-10.json (= ровно прежний исключённый топ-10) и pool-full.json.
 Только публичный REST; на ПК владельца не запускать (srv).
 """
 import argparse
@@ -45,7 +45,8 @@ def main():
     qv = binance() if a.exchange == "binance" else bybit()
     ranked = sorted(qv, key=lambda s: (-qv[s], s))
     pool = sorted(s for s in qv if qv[s] >= a.min_qv)
-    json.dump({"pool": pool, "qv": {s: qv[s] for s in pool}, "top10": ranked[:10]}, open(a.out, "w"))
+    low = [s for s in ranked if 20_000 <= qv[s] < a.min_qv][:8]   # под порогом, но торгуются: для проверки снятия по гистерезису (poolsmoke.sh)
+    json.dump({"pool": pool, "qv": {s: qv[s] for s in pool}, "top10": ranked[:10], "low": low}, open(a.out, "w"))
     print(a.exchange, "pool", len(pool), "top10", ranked[:10])
 
 
