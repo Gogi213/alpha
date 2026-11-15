@@ -1,8 +1,8 @@
 """Макет вкладки «Арбитраж» в стиле shadcn (тёмная тема) одним HTML-файлом на настоящих данных живой вкладки.
 
-python build_shadcn_mockup.py <page-shadcn.html> <arb.json> <chart.jsonl> <v3.json> <turnover.json> <pools.json> <fonts-dir> <выход.html>
+python build_shadcn_mockup.py <page-shadcn.html> <arb.json> <chart.jsonl> <v3.json> <turnover.json> <fonts-dir> <выход.html>
 Страница та же, что пойдёт в бой (tools/collector_health/page-shadcn.html); подменяется только fetch (/api/arb, /api/arb/chart, /api/v3) — данными снимка,
-шрифты Inter вшиваются data-URI. В строки таблицы добавляется v = [$ первой биржи, $ второй] за окно arb.json, в корень — tot = {биржа: [$ всех монет сбора, монет, исключено топ, имена]}.
+шрифты Inter вшиваются data-URI. В строки таблицы добавляется v = [$ первой биржи, $ второй] за окно arb.json.
 """
 import base64
 import gzip
@@ -16,10 +16,9 @@ def b64(b):
     return base64.b64encode(b).decode()
 
 
-def main(page, arb, chart, v3, turn, pools, fonts, out):
+def main(page, arb, chart, v3, turn, fonts, out):
     A = json.loads(Path(arb).read_text(encoding="utf-8"))
     T = json.loads(Path(turn).read_text())
-    P = json.loads(Path(pools).read_text())
     coin = T["coin"]
     miss = 0
     for r in A["rows"]:
@@ -28,11 +27,6 @@ def main(page, arb, chart, v3, turn, pools, fonts, out):
         if va is None or vb is None:
             miss += 1
         r["v"] = [round(va[0]) if va else 0, round(vb[0]) if vb else 0]
-    A["tot"] = {}
-    for ex in A["names"]:
-        usd = sum(x[0] for x in T["sym"][ex].values())
-        ex_names = P.get(ex, [])
-        A["tot"][ex] = [round(usd), len(T["sym"][ex]), len(ex_names), [s.removesuffix("USDT") for s in ex_names]]
     A["vwin"] = T["win"]["page"]
     html = Path(page).read_text(encoding="utf-8")
     for tag, f in (("cyrillic", "inter-cyrillic-wght-normal.woff2"), ("latin", "inter-latin-wght-normal.woff2")):
@@ -64,8 +58,8 @@ window.fetch=async(u)=>{
     assert html.count("<script>") == 2
     html = html.replace("<script>", shim + "<script>", 1).replace("<title>Сбор данных</title>", "<title>Сбор данных — макет shadcn</title>")
     Path(out).write_text(html, encoding="utf-8")
-    print({"rows": len(A["rows"]), "rows_without_turnover": miss, "bytes": len(html), "chart_gz": len(cz), "tot": {k: v[:3] for k, v in A["tot"].items()}})
+    print({"rows": len(A["rows"]), "rows_without_turnover": miss, "bytes": len(html), "chart_gz": len(cz)})
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:9])
+    main(*sys.argv[1:8])
