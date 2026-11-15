@@ -22,7 +22,7 @@ with open(d / "chart-1.jsonl", "wb") as f:
         line = (json.dumps({"S": dt["S"], "B": dt["B"], "C": dt["C"]}, separators=(",", ":")) + "\n").encode()
         f.write(line)
         n = r["n"]
-        rows.append({"c": r["c"], "a": r["a"], "b": r["b"], "cnt": [round(r["h"]), round(r["h"] * 4), round(r["h"] * 6), n], "pk": r["pk"], "tau": r["tau"],
+        rows.append({"c": r["c"], "a": r["a"], "b": r["b"], "cnt": [round(r["h"]), round(r["h"] * 4), round(r["h"] * 6), n], "big": [n // 4, n // 9, n // 30] if r["i"] % 7 else None, "pk": r["pk"], "tau": r["tau"],
                      "net": r["net"], "o": off, "l": len(line)})
         off += len(line)
 gen = int(time.time() * 1000)

@@ -188,6 +188,17 @@ def analyze_pair(A, B, t0, t1):
     return row, bars, res_eps, {"hS": hS, "hB": hB, "hM": hM, "hDev": hDev}
 
 
+BIG_BPS = (30.0, 50.0, 100.0)   # «выбросы»: пик эпизода ≥ 0,3 / 0,5 / 1 % (эпизод порога комиссий с таким пиком — это эпизод порога θ, выход тот же)
+
+
+def big_counts(rows, t1):
+    """Число эпизодов порога комиссий с началом за последние 24 ч, пик которых достиг BIG_BPS (rows — как в ep_table_stats)."""
+    t = np.array([r[0] for r in rows], np.int64)
+    pk = np.array([r[4] for r in rows], float)
+    k = t >= t1 - 86_400_000
+    return [int((k & (pk >= th)).sum()) for th in BIG_BPS]
+
+
 def ep_table_stats(rows, fee=FEE_RT_BPS):
     """Сводка эпизодов одной пары для таблицы вкладки: rows — эпизоды порога комиссий (как в analyze_pair).
     -> {n, pk: [медиана, p95, макс] пика, tau: [медиана, p95] времени схождения (с, по вышедшим), net: [медиана, p95] круга минус комиссии (bps)};

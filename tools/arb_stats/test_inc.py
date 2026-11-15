@@ -156,10 +156,19 @@ def assert_same(got, want, ctx=None):
         return
     assert got is not None, ctx
     assert got["cnt"] == want["cnt"], (ctx, got["cnt"], want["cnt"])
+    assert got["big"] == want["big"], (ctx, got["big"], want["big"])
     for k in ("n", "pk", "tau", "net"):
         assert got["st"][k] == want["st"][k], (ctx, k, got["st"][k], want["st"][k])
     for k in ("S", "B", "C"):
         assert got[k] == want[k], (ctx, k)
+
+
+def test_big_counts_by_start_and_peak():
+    t1, day = 10 * 86_400_000, 86_400_000
+    ep = lambda start, peak: (start, 1, 1000, False, peak, 5.0, 1.0)  # noqa: E731
+    rows = [ep(t1 - day, 30.0), ep(t1 - day - 1, 200.0), ep(t1 - 1000, 49.9), ep(t1 - 5000, 50.0), ep(t1 - 7000, 100.0), ep(t1, 12.6)]
+    assert core.big_counts(rows, t1) == [4, 2, 1]      # начало ≥ t1 − 24 ч; пик ≥ 30 / 50 / 100 bps включительно
+    assert core.big_counts([], t1) == [0, 0, 0]
 
 
 def scenario(seed, n=9000, k_shocks=9, gap=None, every=(1, 7)):

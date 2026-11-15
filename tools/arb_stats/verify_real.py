@@ -16,8 +16,9 @@ import arb_live  # noqa: E402
 
 def diff(a, b):
     out = []
-    if a["cnt"] != b["cnt"]:
-        out.append(("cnt", a["cnt"], b["cnt"]))
+    for k in ("cnt", "big"):
+        if a[k] != b[k]:
+            out.append((k, a[k], b[k]))
     for k in ("n", "pk", "tau", "net"):
         if a["st"][k] != b["st"][k]:
             out.append((k, a["st"][k], b["st"][k]))

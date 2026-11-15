@@ -16,7 +16,7 @@ import core  # noqa: E402
 def det_of(cnt, base):
     n = 4
     st = core.ep_table_stats([(0, 1, 2000, False, 20.0 + base, 30.0, 1.0), (0, 1, 4000, False, 40.0 + base, 20.0, 1.0)])
-    return {"cnt": cnt, "st": st, "S": [base * 10 + i for i in range(n)], "B": [-base * 10 - i for i in range(n)], "C": [None, 0, 0, 5]}
+    return {"cnt": cnt, "big": [base, 0, 0], "st": st, "S": [base * 10 + i for i in range(n)], "B": [-base * 10 - i for i in range(n)], "C": [None, 0, 0, 5]}
 
 
 def test_outputs_roundtrip_through_api(tmp_path):
@@ -25,7 +25,7 @@ def test_outputs_roundtrip_through_api(tmp_path):
     assert n == 2
     api = arb_api.Arb(tmp_path)
     doc = json.loads(api.table()[0])
-    assert [r["c"] for r in doc["rows"]] == ["AAA", "BBB"] and doc["rows"][0]["cnt"] == [1, 4, 6, 24] and doc["rows"][0]["pk"] == [31.0, 40.0, 41.0]
+    assert [r["c"] for r in doc["rows"]] == ["AAA", "BBB"] and doc["rows"][0]["cnt"] == [1, 4, 6, 24] and doc["rows"][0]["big"] == [1, 0, 0] and doc["rows"][0]["pk"] == [31.0, 40.0, 41.0]
     assert doc["rows"][1]["net"][0] == 25.0 - core.FEE_RT_BPS    # круги 30 и 20 → медиана 25
     ch = json.loads(api.chart("c=BBB&a=bybit&b=okx"))
     assert ch["S"] == [20, 21, 22, 23] and ch["B"] == [-20, -21, -22, -23] and ch["C"] == [None, 0, 0, 5] and ch["t0"] == 1000 and ch["slot"] == 180

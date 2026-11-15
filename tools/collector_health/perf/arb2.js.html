@@ -9,6 +9,9 @@ const dm=t=>{const d=gm(t);return pad(d.getUTCDate())+'.'+pad(d.getUTCMonth()+1)
 /* без Intl: первый вызов Intl.NumberFormat('ru') грузит данные локали (десятки мс) */
 const nf=(v,d=1)=>{let s=v.toFixed(d);const i=s.indexOf('.'),a=i<0?s:s.slice(0,i),f=i<0?'':','+s.slice(i+1);return a.replace(/\B(?=(\d{3})+(?!\d))/g,' ')+f};
 const sg=v=>v==null?'—':(v>0?'+':v<0?'−':'')+nf(Math.abs(v),1);
+/* расхождения и итоги приходят в bps, на странице — в %: 1 bps = 0,01 % */
+const pc=v=>nf(v/100,Math.abs(v)<1000?3:2);
+const sgp=v=>v==null?'—':(v>0?'+':v<0?'−':'')+pc(Math.abs(v));
 function dur(s){if(s==null)return '—';if(s<1)return nf(s*1000,0)+' мс';if(s<60)return nf(s,s<10?1:0)+' с';if(s<3600)return nf(s/60,s<600?1:0)+' мин';return nf(s/3600,1)+' ч'}
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 let A=null,R=[],K={},EMPTY={},TOT={},view=[],etag=null;
@@ -16,22 +19,23 @@ let st={pair:'all',sort:'size',dir:-1,open:null,mode:'med',hide:false};
 let ROWH=42,CHH=349,OVER=3,win={a:0,b:-1};
 const CH=new Map(),PEND=new Map();
 const at=(a,k)=>a?a[k]:null;
-const W=[11,14,11,11,7,7,7,8,12,12];
+const W=[9.8,11.9,8.2,8.2,6.2,6.2,6.2,6.3,6.5,6.5,6.5,7.4,10.1];
 /* колонки: kk — имя массива ключей сортировки, v — значение для ячейки */
 function cols(){
   const o=st.mode==='out',m=st.mode;
-  const cnt=(i,t)=>({k:'n'+i,kk:'n'+i,t:'эпизодов<br>'+t,v:r=>r.cnt[i],f:v=>nf(v,0),z:1});
+  const cnt=(i,t)=>({k:'n'+i,kk:'n'+i,t:'эпизодов<br>'+t,v:r=>r.cnt[i],f:v=>nf(v,0)});
+  const big=(i,t)=>({k:'b'+i,kk:'b'+i,t:'выбросов<br>≥ '+t+' %<br>за сутки',v:r=>r.big?r.big[i]:null,f:v=>nf(v,0)});
   return [{k:'c',kk:'c',t:'монета',l:1},{k:'p',kk:'p',t:'пара бирж',l:1}].concat(o?[
-    {k:'size',kk:'size|out',t:'расхождение<br>p95, bps',v:r=>at(r.pk,1),f:v=>nf(v,1)},
-    {k:'max',kk:'max',t:'расхождение<br>макс, bps',v:r=>at(r.pk,2),f:v=>nf(v,1)}
+    {k:'size',kk:'size|out',t:'расхождение<br>p95, %',v:r=>at(r.pk,1),f:pc},
+    {k:'max',kk:'max',t:'расхождение<br>макс, %',v:r=>at(r.pk,2),f:pc}
   ]:[
-    {k:'size',kk:'size|med',t:'расхождение, bps',span:2,v:r=>at(r.pk,0),f:v=>nf(v,1)}
-  ]).concat([cnt(0,'за 1 ч'),cnt(1,'за 4 ч'),cnt(2,'за 6 ч'),cnt(3,'за 1 сут')]).concat(o?[
+    {k:'size',kk:'size|med',t:'расхождение, %',span:2,v:r=>at(r.pk,0),f:pc}
+  ]).concat([cnt(0,'за 1 ч'),cnt(1,'за 4 ч'),cnt(2,'за 6 ч'),cnt(3,'за 1 сут'),big(0,'0,3'),big(1,'0,5'),big(2,'1')]).concat(o?[
     {k:'tau',kk:'tau|out',t:'схождение<br>p95',v:r=>at(r.tau,1),f:dur},
-    {k:'net',kk:'net|out',t:'после комиссий<br>p95, bps',v:r=>at(r.net,1),f:sg}
+    {k:'net',kk:'net|out',t:'после комиссий<br>p95, %',v:r=>at(r.net,1),f:sgp}
   ]:[
     {k:'tau',kk:'tau|med',t:'схождение,<br>медиана',v:r=>at(r.tau,0),f:dur},
-    {k:'net',kk:'net|med',t:'после комиссий,<br>bps',v:r=>at(r.net,0),f:sg}
+    {k:'net',kk:'net|med',t:'после комиссий,<br>%',v:r=>at(r.net,0),f:sgp}
   ]);
 }
 /* данные пришли: строки, массивы ключей сортировки (один раз), счётчики пустых */
@@ -42,6 +46,7 @@ function setData(j){
   R=A.rows;
   const f=(name,fn,nul)=>{const a=new Float64Array(n);for(let i=0;i<n;i++){const x=fn(R[i]);a[i]=x==null?nul:x}K[name]=a};
   f('n0',r=>r.cnt[0],0);f('n1',r=>r.cnt[1],0);f('n2',r=>r.cnt[2],0);f('n3',r=>r.cnt[3],0);
+  f('b0',r=>at(r.big,0),-1);f('b1',r=>at(r.big,1),-1);f('b2',r=>at(r.big,2),-1);
   f('size|med',r=>at(r.pk,0),-1e9);f('size|out',r=>at(r.pk,1),-1e9);f('max',r=>at(r.pk,2),-1e9);
   f('tau|med',r=>at(r.tau,0),1e12);f('tau|out',r=>at(r.tau,1),1e12);
   f('net|med',r=>at(r.net,0),-1e9);f('net|out',r=>at(r.net,1),-1e9);
@@ -79,11 +84,11 @@ function rowHtml(r,C){
   if(r._m===st.mode)return r._h;
   const none=r.cnt[3]===0;let s='<tr class="r" data-k="'+esc(r.k)+'"><td class="l c">'+esc(r.c)+'</td><td class="l p">'+r.pl+'</td>';
   for(let j=2;j<C.length;j++){const c=C[j],x=c.v(r),nn=x==null;
-    s+='<td'+(c.span?' colspan="'+c.span+'"':'')+(((none||nn)&&!c.z)||(none&&c.z)?' class="none"':'')+'>'+(nn?'—':c.f(x))+'</td>'}
+    s+='<td'+(c.span?' colspan="'+c.span+'"':'')+(none||nn?' class="none"':'')+'>'+(nn?'—':c.f(x))+'</td>'}
   r._m=st.mode;r._h=s+'</tr>';return r._h;
 }
-const CHROW='<tr class="ch"><td colspan="10"><div class="lg"><span><i style="border-color:'+ACC+'"></i>Sell, максимум за 3 мин</span><span><i style="border-color:'+INK+'"></i>Buy, минимум за 3 мин</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр</span></div><div class="cwrap"><canvas id="cv"></canvas><div class="ld" id="ld">загрузка…</div><div id="tip2" style="position:absolute;pointer-events:none;background:#1d1d1b;color:#fff;border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;white-space:nowrap;opacity:0;z-index:5"></div></div></td></tr>';
-const sp=h=>'<tr class="sp"><td colspan="10" style="height:'+h+'px"></td></tr>';
+const CHROW='<tr class="ch"><td colspan="13"><div class="lg"><span><i style="border-color:'+ACC+'"></i>Sell, максимум за 3 мин</span><span><i style="border-color:'+INK+'"></i>Buy, минимум за 3 мин</span><span><i style="border-color:'+MUT+';border-top-style:dotted"></i>центр</span></div><div class="cwrap"><canvas id="cv"></canvas><div class="ld" id="ld">загрузка…</div><div id="tip2" style="position:absolute;pointer-events:none;background:#1d1d1b;color:#fff;border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;white-space:nowrap;opacity:0;z-index:5"></div></div></td></tr>';
+const sp=h=>'<tr class="sp"><td colspan="13" style="height:'+h+'px"></td></tr>';
 /* рисуем только строки у окна просмотра: над ними и под ними — пустые строки нужной высоты, высота таблицы та же, что у полной */
 function paint(){
   const tb=$('tb'),n=view.length,C=cols();
@@ -133,7 +138,7 @@ function drawChart(){
   const X=i=>L+(i+.5)*step/(t1-t0)*pw,Y=v=>T+ph-(v-lo)/(hi-lo)*ph;
   c.strokeStyle=LINE;c.fillStyle=MUT;c.lineWidth=1;c.textAlign='right';
   const spn=hi-lo,raw=spn/5,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p,tk=(m<1.5?1:m<3?2:m<7?5:10)*p;
-  for(let v=Math.ceil(lo/tk)*tk;v<=hi;v+=tk){const y=Y(v);c.beginPath();c.moveTo(L,y);c.lineTo(W-Rr,y);c.stroke();c.fillText((v<0?'−':'')+nf(Math.abs(v),tk<1?1:0),L-6,y+4)}
+  for(let v=Math.ceil(lo/tk)*tk;v<=hi;v+=tk){const y=Y(v);c.beginPath();c.moveTo(L,y);c.lineTo(W-Rr,y);c.stroke();c.fillText((v<0?'−':'')+nf(Math.abs(v)/100,tk<1?3:tk<10?2:1),L-6,y+4)}
   if(lo<0&&hi>0){c.strokeStyle=MUT;c.beginPath();c.moveTo(L,Y(0));c.lineTo(W-Rr,Y(0));c.stroke()}
   const long=t1-t0>20*3600,lab=t=>long?dm(t)+' '+hm(t):hm(t);
   c.fillStyle=MUT;for(let i=0;i<=4;i++){c.textAlign=i===0?'left':i===4?'right':'center';c.fillText(lab(t0+(t1-t0)*i/4),L+pw*i/4,H-7)}
@@ -142,7 +147,7 @@ function drawChart(){
   const tip=$('tip2');
   cv.onmousemove=e=>{const rc=cv.getBoundingClientRect(),x=e.clientX-rc.left;let i=Math.round((x-L)/pw*(t1-t0)/step-.5);i=Math.max(0,Math.min(n-1,i));
     if(d.S[i]==null){tip.style.opacity=0;return}
-    tip.innerHTML='<b>'+(long?dm(t0+i*step)+' ':'')+hm(t0+i*step)+'</b><br>Sell макс '+sg(d.S[i]/10)+'<br>Buy мин '+sg(d.B[i]/10)+(d.C[i]==null?'':'<br>центр '+sg(d.C[i]/10));
+    tip.innerHTML='<b>'+(long?dm(t0+i*step)+' ':'')+hm(t0+i*step)+'</b><br>Sell макс '+sgp(d.S[i]/10)+' %<br>Buy мин '+sgp(d.B[i]/10)+' %'+(d.C[i]==null?'':'<br>центр '+sgp(d.C[i]/10)+' %');
     tip.style.opacity=1;const w=tip.offsetWidth,cx=Math.min(Math.max(X(i)-w/2,0),rc.width-w);tip.style.left=cx+'px';tip.style.top=(Y(d.S[i]/10)>ph/2?T+4:ph-60)+'px'};
   cv.onmouseleave=()=>tip.style.opacity=0;
 }

@@ -94,7 +94,7 @@ def hook(row, bars, eps, hist):
     ts = np.array([r[0] for r in e], np.int64)
     cnt = [int((ts >= t1 - h * 3600_000).sum()) for h in PERIODS_H]
     S, B, C = core.chart_slots(bars, t0 // 60000, int(np.ceil((t1 - t0) / (core.SLOT_MIN * 60000))))
-    return {"cnt": cnt, "st": core.ep_table_stats(e), "S": S, "B": B, "C": C}
+    return {"cnt": cnt, "big": core.big_counts(e, t1), "st": core.ep_table_stats(e), "S": S, "B": B, "C": C}
 
 
 def r1(v):
@@ -111,7 +111,7 @@ def write_outputs(live, gen, t0, t1, det, period=3600):
             line = (json.dumps({"S": d["S"], "B": d["B"], "C": d["C"]}, separators=(",", ":")) + "\n").encode()
             f.write(line)
             s = d["st"]
-            rows.append({"c": k[0], "a": k[1], "b": k[2], "cnt": d["cnt"],
+            rows.append({"c": k[0], "a": k[1], "b": k[2], "cnt": d["cnt"], "big": d["big"],
                          "pk": s["pk"] and [r1(x) for x in s["pk"]], "tau": s["tau"] and [round(x, 3) for x in s["tau"]],
                          "net": s["net"] and [r1(x) for x in s["net"]], "o": off, "l": len(line)})
             off += len(line)

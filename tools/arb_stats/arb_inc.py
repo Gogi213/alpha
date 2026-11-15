@@ -326,4 +326,4 @@ def result(ps, t0, t1, periods_h, alive=None):
     if getattr(ps, "cache", None) is None or ps.cache[0] != sig:
         ps.cache = (sig, core.ep_table_stats(eps))
     S, B, C = slots(ps, t0 // 60000, int(np.ceil((t1 - t0) / (core.SLOT_MIN * 60000))), np.ones(len(ps.mid), bool) if alive is None else alive)
-    return {"cnt": cnt, "st": ps.cache[1], "S": S, "B": B, "C": C}
+    return {"cnt": cnt, "big": core.big_counts(eps, t1), "st": ps.cache[1], "S": S, "B": B, "C": C}
