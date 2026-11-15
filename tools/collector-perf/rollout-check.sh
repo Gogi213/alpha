@@ -6,6 +6,7 @@ case $EX in
   bybit) H=/data/turbo-probe/soak-bybit/health.json ;;
   okx) H=/data/collect/okx/health.json ;;
   bingx) H=/data/collect/bingx/health.json ;;
+  gate) H=/data/collect/gate/health.json ;;
 esac
 python3 - $H $EX <<'PY'
 import json, sys, time

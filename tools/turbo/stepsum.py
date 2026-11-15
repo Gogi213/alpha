@@ -65,9 +65,11 @@ def main():
         reasons.append(f"REST extra {t['extra_in_file']}")
     if gate and t.get("cells_missing_after_covered"):
         reasons.append(f"symbol-second cells without a recorded trade after covered {t['cells_missing_after_covered']} of {t.get('cells_rest_after_covered')}")
-    if gate and t.get("mark_out_of_range", 0) > 0.01 * max(t.get("mark_judged", 0), 1):  # assigned: the candle series differs from the stream's by a few price steps (measured 0.07 % outside the 3-bucket range)
+    if gate and t.get("mark_out_of_range", 0) > 0.05 * max(t.get("mark_judged", 0), 1):  # assigned 5 %: the candle series is sampled differently from the stream's (fast moves: the stream is 2–3 price steps ahead); measured 0–1.0 % outside the 3-bucket range, a systematic error would be far above
         reasons.append(f"recorded marks outside the REST candles {t['mark_out_of_range']} of {t.get('mark_judged')}")
-    if gate and t.get("mark_missed_after_covered"):
+    # assigned 1 %: `futures.tickers` pushes only when a ticker field changes, and the candle series is finer than the stream's (measured 15.11: a quiet contract's candle moves by 1–7 price steps while the stream
+    # keeps the old mark; 0–0.11 % of the moved cells, always low-volume symbols); a stall or a lost batch would miss tens of cells at once
+    if gate and t.get("mark_missed_after_covered", 0) > 0.01 * max(t.get("mark_moving_after_covered", 0), 1):
         reasons.append(f"mark candles that moved without a recorded mark after covered {t['mark_missed_after_covered']} of {t.get('mark_moving_after_covered')}")
     if cov["uncovered_after_first_s_total"] > 0:
         reasons.append(f"no live session {cov['uncovered_after_first_s_total']} shard-s")
