@@ -1,8 +1,9 @@
 """Взгляд на одну монету пары Bybit (A) – OKX (B) по событиям книг (мс): исполнимые Sell/Buy, уровень, спреды, круги против комиссий.
 
-Запуск: python3 skhynix_look.py <каталог книг parsed/> <t0_мс> <t1_мс> <выход.json> <выход_ряда.npz> [A-символ B-символ [t1_вкладки_мс]]
+Запуск: python3 pair_look.py <каталог книг parsed/ (несколько — через «:», дубли записей снимаются)> <t0_мс> <t1_мс> <выход.json> <выход_ряда.npz> [A-символ B-символ [t1_вкладки_мс]]
+Переменная KRX=1 — добавить режимы торгов KRX и окрестность закрытия (только для акций SK hynix; даты зашиты под окно 13–15.11.2026)
 Sell = bid_A / ask_B − 1, Buy = ask_A / bid_B − 1 (viking xarb_base §2), в bps; время — E биржи; уровень c — 60-мин центр вкладки (core.rolling_centre).
-Книги берутся без снятия повторов цены (размер на лучшем уровне меняется и при той же цене), снимаются только пустые и пересечённые записи.
+В разобранных книгах (parse_book / parse_inc) запись есть только при смене пары (bid, ask) (повторы цены сняты при разборе, кроме опоздавших > 2 с): размер на лучшем уровне — на момент смены цены, изменения одного размера между сменами цены не записаны. Здесь снимаются только пустые и пересечённые записи.
 Два способа счёта кругов против комиссий F (bps) на исполнимых ценах:
   (I) как на вкладке: вход — Sell − c ≥ F (или c − Buy ≥ F), выход — середина вернулась к c; чистая прибыль = Sell_вход − Buy_выход − F;
   (II) наилучший круг задним числом: зигзаг по Sell (верхушки) и Buy (впадины) с размахом ≥ F; вход и выход — экстремумы, цена исполнима.
@@ -10,6 +11,7 @@ Sell = bid_A / ask_B − 1, Buy = ask_A / bid_B − 1 (viking xarb_base §2), в
 """
 import glob
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -25,16 +27,18 @@ BLK = 3_600_000
 
 
 def load(work, ex, sym, unit):
-    fs = sorted(glob.glob(str(Path(work, ex, sym + ".*.npz"))))
+    fs = sorted(f for d in work.split(":") for f in glob.glob(str(Path(d, ex, sym + ".*.npz"))))
     parts = [dict(np.load(f)) for f in fs]
     a = {k: np.concatenate([p[k] for p in parts]) for k in ("e", "rx", "bid", "ask", "bsz", "asz")}
-    o = np.lexsort((a["rx"], a["e"]))
+    o = np.lexsort((a["asz"], a["bsz"], a["ask"], a["bid"], a["rx"], a["e"]))
     a = {k: v[o] for k, v in a.items()}
     n_raw = len(a["e"])
+    dup = np.r_[False, np.all([a[k][1:] == a[k][:-1] for k in ("e", "rx", "bid", "ask", "bsz", "asz")], axis=0)]   # одна запись из двух разборов с перекрытием
+    a = {k: v[~dup] for k, v in a.items()}
     ok = (a["bid"] > 0) & (a["ask"] > 0) & (a["bid"] <= a["ask"])
     a = {k: v[ok] for k, v in a.items()}
     a["dbid"], a["dask"] = a["bsz"] * a["bid"] * unit, a["asz"] * a["ask"] * unit
-    return a, {"files": len(fs), "raw": n_raw, "bad": int((~ok).sum())}
+    return a, {"files": len(fs), "raw": n_raw, "dup": int(dup.sum()), "bad": int((~ok).sum())}
 
 
 def tick_of(a):
@@ -91,6 +95,18 @@ def episodes_centre(T, S, Bu, c, dS, dBu, t0, t1, F):
                     r[f"rt{L}"] = bool((Sv[k] - Bv[j] if dirn == 1 else Sv[j] - Bv[k]) >= F)
             rows.append(r)
     rows.sort(key=lambda r: r["t"])
+    return rows
+
+
+def enrich(rows, T, tA, tB, midA, midB):
+    """К эпизодам (I): какая биржа дала событие входа и на сколько bps сдвинулась середина каждой биржи за 1 с до входа."""
+    for r in rows:
+        i = int(np.searchsorted(T, r["t"]))
+        j = max(int(np.searchsorted(T, r["t"] - 1000, "right")) - 1, 0)
+        r["evA"] = bool(np.searchsorted(tA, r["t"]) < len(tA) and tA[np.searchsorted(tA, r["t"])] == r["t"])
+        r["evB"] = bool(np.searchsorted(tB, r["t"]) < len(tB) and tB[np.searchsorted(tB, r["t"])] == r["t"])
+        r["dA_bps"] = float((midA[i] / midA[j] - 1) * 1e4)
+        r["dB_bps"] = float((midB[i] / midB[j] - 1) * 1e4)
     return rows
 
 
@@ -216,6 +232,7 @@ def main(work, t0, t1, out_json, out_npz, symA="SKHYNIXUSDT", symB="SKHYNIX-USDT
     dS = np.minimum(A["dbid"][ia], B["dask"][ib])     # $ на лучших уровнях для входа/выхода по Sell: продать A по биду, купить B по оферу
     dBu = np.minimum(A["dask"][ia], B["dbid"][ib])
     spA, spB = (A["ask"][ia] - A["bid"][ia]) / tkA, (B["ask"][ib] - B["bid"][ib]) / tkB
+    midA, midB = (A["bid"][ia] + A["ask"][ia]) / 2, (B["bid"][ib] + B["ask"][ib]) / 2
     res["n_pair_events"] = int(len(T))
     res["n_pair_events_window"] = int((T >= t0).sum())
     res["first_T"], res["last_T"] = int(T[0]), int(T[-1])
@@ -260,33 +277,37 @@ def main(work, t0, t1, out_json, out_npz, symA="SKHYNIXUSDT", symB="SKHYNIX-USDT
         hours.append({"h": int(hs), "nA": int(((tA >= hs) & (tA < hs + BLK)).sum()), "nB": int(((tB >= hs) & (tB < hs + BLK)).sum()),
                       "M50": wq(M[m], d_, (0.5,))[0], "S50": wq(S[m], d_, (0.5,))[0], "Bu50": wq(Bu[m], d_, (0.5,))[0], "S99": wq(S[m], d_, (0.99,))[0], "Bu01": wq(Bu[m], d_, (0.01,))[0],
                       "Smax": float(S[m].max()), "Bumin": float(Bu[m].min()), "H50": wq(H[m], d_, (0.5,))[0], "spA50": wq(spA[m], d_, (0.5,))[0], "spB50": wq(spB[m], d_, (0.5,))[0],
-                      "c_end": float(c[okc][-1]) if okc.any() else None, "partial": bool(hs < t0 < hs + BLK)})
+                      "c_end": float(c[okc][-1]) if okc.any() else None, "partial": bool(hs < t0 < hs + BLK),
+                      "px50": wq(midA[m], d_, (0.5,))[0], "rng_pct": float((midA[m].max() - midA[m].min()) / np.median(midA[m]) * 100),
+                      "dS50": wq(dS[m], d_, (0.5,))[0], "dBu50": wq(dBu[m], d_, (0.5,))[0]})
     res["hours"] = hours
     # эпизоды: считаются от первого события с известным центром / от начала ряда, в итог окна идут только с t ≥ t0
     days = (t1 - t0) / 86_400_000
     t_v = res["centre_first_valid"]
     res["I"], res["II"], eps_all = {}, {}, {}
     for name, F in FEES.items():
-        rows = episodes_centre(T, S, Bu, c, dS, dBu, t_v, t1, F)
+        rows = enrich(episodes_centre(T, S, Bu, c, dS, dBu, t_v, t1, F), T, tA, tB, midA, midB)
         eps_all[name] = rows
         res["I"][name] = summarize_I([r for r in rows if r["t"] >= t0], F, days)
         zz = zigzag(T, S, Bu, dS, dBu, int(T[0]), t1, F)
         eps_all[name + "_II"] = zz
         res["II"][name] = summarize_II([r for r in zz if r["t"] >= t0], F, days)
-    # режимы (UTC): торги KRX (пн–пт 00:00–06:30 UTC; в ряду есть только пятница 13.11 с 04:44), после закрытия в будни, выходные
-    fri_close, sat0 = 1794551400000, 1794614400000   # 13.11 06:30 UTC; 14.11 00:00 UTC
-    reg = {"krx_open_fri": (int(T[0]), fri_close), "fri_after_close": (fri_close, sat0), "weekend": (sat0, int(t1))}
-    res["regimes"] = {}
-    for rn, (a_, b_) in reg.items():
-        m = (T >= a_) & (T < b_)
-        d_ = dt[m]
-        res["regimes"][rn] = {
-            "from": a_, "to": b_, "h": float((b_ - a_) / 3.6e6), "nA": int(((tA >= a_) & (tA < b_)).sum()), "nB": int(((tB >= a_) & (tB < b_)).sum()),
-            "M_q": wq(M[m], d_, (0.05, 0.5, 0.95)), "S_q": wq(S[m], d_, (0.01, 0.5, 0.99)), "Bu_q": wq(Bu[m], d_, (0.01, 0.5, 0.99)),
-            "Smax": float(S[m].max()), "Bumin": float(Bu[m].min()), "H_med": wq(H[m], d_, (0.5,))[0],
-            "spA": wq(spA[m], d_, (0.5, 0.9)), "spB": wq(spB[m], d_, (0.5, 0.9)), "spA_share1": float(d_[spA[m] <= 1.5].sum() / d_.sum()),
-            "dS_med": wq(dS[m], d_, (0.5,))[0], "dBu_med": wq(dBu[m], d_, (0.5,))[0],
-            "I": {n: int(sum(a_ <= r["t"] < b_ for r in eps_all[n])) for n in FEES}, "II": {n: int(sum(a_ <= r["t"] < b_ for r in eps_all[n + "_II"])) for n in FEES}}
+    fri_close = 1794551400000   # 13.11 06:30 UTC
+    if os.environ.get("KRX"):
+        # режимы (UTC): торги KRX (пн–пт 00:00–06:30 UTC; в ряду есть только пятница 13.11 с 04:44), после закрытия в будни, выходные
+        sat0 = 1794614400000   # 14.11 00:00 UTC
+        reg = {"krx_open_fri": (int(T[0]), fri_close), "fri_after_close": (fri_close, sat0), "weekend": (sat0, int(t1))}
+        res["regimes"] = {}
+        for rn, (a_, b_) in reg.items():
+            m = (T >= a_) & (T < b_)
+            d_ = dt[m]
+            res["regimes"][rn] = {
+                "from": a_, "to": b_, "h": float((b_ - a_) / 3.6e6), "nA": int(((tA >= a_) & (tA < b_)).sum()), "nB": int(((tB >= a_) & (tB < b_)).sum()),
+                "M_q": wq(M[m], d_, (0.05, 0.5, 0.95)), "S_q": wq(S[m], d_, (0.01, 0.5, 0.99)), "Bu_q": wq(Bu[m], d_, (0.01, 0.5, 0.99)),
+                "Smax": float(S[m].max()), "Bumin": float(Bu[m].min()), "H_med": wq(H[m], d_, (0.5,))[0],
+                "spA": wq(spA[m], d_, (0.5, 0.9)), "spB": wq(spB[m], d_, (0.5, 0.9)), "spA_share1": float(d_[spA[m] <= 1.5].sum() / d_.sum()),
+                "dS_med": wq(dS[m], d_, (0.5,))[0], "dBu_med": wq(dBu[m], d_, (0.5,))[0],
+                "I": {n: int(sum(a_ <= r["t"] < b_ for r in eps_all[n])) for n in FEES}, "II": {n: int(sum(a_ <= r["t"] < b_ for r in eps_all[n + "_II"])) for n in FEES}}
     # блоки по 6 ч от границ суток GMT+4 (20:00, 02:00, 08:00, 14:00 UTC), обрезаны окном [t0, t1)
     b6 = []
     for bs in range((t0 - 20 * BLK) // (6 * BLK) * (6 * BLK) + 20 * BLK, int(t1), 6 * BLK):
@@ -300,17 +321,18 @@ def main(work, t0, t1, out_json, out_npz, symA="SKHYNIXUSDT", symB="SKHYNIX-USDT
                    "spA50": wq(spA[m], d_, (0.5,))[0], "spB50": wq(spB[m], d_, (0.5,))[0], "c_mean": wmean(c[m & ~np.isnan(c)], dt[m & ~np.isnan(c)]),
                    "I": {n: int(sum(a_ <= r["t"] < b_ for r in eps_all[n])) for n in FEES}, "II": {n: int(sum(a_ <= r["t"] < b_ for r in eps_all[n + "_II"])) for n in FEES}})
     res["blocks6"] = b6
-    # окрестность закрытия KRX 13.11 06:30 UTC: корзины по 10 мин, 05:30–07:30 UTC
-    cl = []
-    for hs in range(fri_close - 60 * 60_000, fri_close + 60 * 60_000, 600_000):
-        m = (T >= hs) & (T < hs + 600_000)
-        if m.sum() < 2:
-            continue
-        d_ = dt[m]
-        cl.append({"t": hs, "nA": int(((tA >= hs) & (tA < hs + 600_000)).sum()), "nB": int(((tB >= hs) & (tB < hs + 600_000)).sum()), "M50": wq(M[m], d_, (0.5,))[0],
-                   "S50": wq(S[m], d_, (0.5,))[0], "Bu50": wq(Bu[m], d_, (0.5,))[0], "Smax": float(S[m].max()), "Bumin": float(Bu[m].min()), "H50": wq(H[m], d_, (0.5,))[0],
-                   "spA50": wq(spA[m], d_, (0.5,))[0], "spB50": wq(spB[m], d_, (0.5,))[0]})
-    res["close10"] = cl
+    if os.environ.get("KRX"):
+        # окрестность закрытия KRX 13.11 06:30 UTC: корзины по 10 мин, 05:30–07:30 UTC
+        cl = []
+        for hs in range(fri_close - 60 * 60_000, fri_close + 60 * 60_000, 600_000):
+            m = (T >= hs) & (T < hs + 600_000)
+            if m.sum() < 2:
+                continue
+            d_ = dt[m]
+            cl.append({"t": hs, "nA": int(((tA >= hs) & (tA < hs + 600_000)).sum()), "nB": int(((tB >= hs) & (tB < hs + 600_000)).sum()), "M50": wq(M[m], d_, (0.5,))[0],
+                       "S50": wq(S[m], d_, (0.5,))[0], "Bu50": wq(Bu[m], d_, (0.5,))[0], "Smax": float(S[m].max()), "Bumin": float(Bu[m].min()), "H50": wq(H[m], d_, (0.5,))[0],
+                       "spA50": wq(spA[m], d_, (0.5,))[0], "spB50": wq(spB[m], d_, (0.5,))[0]})
+        res["close10"] = cl
     # сверка со вкладкой: последние 24 ч до t1_tab
     if t1_tab:
         rows = episodes_centre(T, S, Bu, c, dS, dBu, t1_tab - 86_400_000, t1_tab, FEES["taker4"])
