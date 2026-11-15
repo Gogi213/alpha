@@ -530,6 +530,7 @@ fn reentry_modes_consume_level_per_protocol() {
             t: t as u32,
             day: (t / 1440) as u16,
             idx: ticks.len() as u32 + 1,
+            ws: false,
         });
         ticks.push(tk(t, 0, 99.6, false));
         ticks.push(tk(t, 10_000, 99.8, false)); // сигнал
@@ -628,4 +629,213 @@ fn pk_death_is_permanent() {
     on.sig.lv.pk = true;
     on.sig.ban = false;
     assert_eq!(cand_minutes(c, &on, Side::Long), vec![BORN + 50]);
+}
+
+// ───────────── §13.13: `ap` (подход с правильной стороны) и `pb` (прокол убивает уровень на сделке) ─────────────
+
+/// Сигналы монеты TEST стороны `side` по сделкам `days` = [(сутки, сделки)]; без `ap`/`pb` — как прежде.
+fn ap_signals(
+    c: Cols,
+    p: &Params,
+    side: Side,
+    days: Vec<(usize, Vec<Tick>)>,
+) -> (Vec<TSig>, TickCtr) {
+    let s = sym(c);
+    let mut m = HashMap::new();
+    for (d, v) in days {
+        m.insert(("TEST".to_string(), d), Arc::new(v));
+    }
+    let src = MemSrc(m);
+    let jobs = vec![(p.sig.clone(), side)];
+    let mut outs = vec![Vec::new()];
+    let mut ctrs = vec![TickCtr::default()];
+    signals_for_coin(&s, 0, &jobs, &src, &mut outs, &mut ctrs);
+    (outs.remove(0), ctrs.remove(0))
+}
+
+fn sig_minutes(v: &[TSig]) -> Vec<usize> {
+    v.iter().map(|s| s.t as usize).collect()
+}
+
+/// Мир на двух минутах: `t1` — цена у уровня 100,025 (high 100,30 → дошла до уровня), `t2 = t1 + 1` — зона входа
+/// (99,7249 … 100,025). `flip` зеркалит мир для шорта (цена → 200 − цена); вторая часть — конструктор сделок мира.
+fn ap_world(t1: usize, flip: bool) -> (Cols, impl Fn(usize, u32, f64, bool) -> Tick) {
+    let mut c = level_world();
+    set(&mut c, t1, 99.0, 100.30, 98.9, 99.90); // закрытие минуты ниже уровня: часовой бар не закрывается за ним
+    set(&mut c, t1 + 1, 99.90, 99.95, 99.85, 99.95);
+    let f = move |m: usize, ms: u32, price: f64, bm: bool| -> Tick {
+        tk(m, ms, if flip { 200.0 - price } else { price }, bm)
+    };
+    (if flip { mirror(&c, 200.0) } else { c }, f)
+}
+
+fn ap_params(ap: u8) -> Params {
+    let mut p = lv_params();
+    p.sig.ban = false; // ложный пробой по закрытиям минут не мешает: проверяется только `ap`
+    p.sig.ap = ap;
+    p
+}
+
+#[test]
+fn ap_rejects_signal_when_price_came_into_the_zone_from_above() {
+    for (flip, side) in [(false, Side::Long), (true, Side::Short)] {
+        let t1 = BORN + 100;
+        let t2 = t1 + 1;
+        let day = t1 / 1440;
+        assert_eq!(day, t2 / 1440);
+        let (c, f) = ap_world(t1, flip);
+        let above = vec![
+            f(t1, 0, 99.0, false),
+            f(t1, 10_000, 100.30, false), // дошла до уровня
+            f(t1, 20_000, 100.10, true),
+            f(t2, 0, 99.90, true), // вернулась в зону сверху
+            f(t2, 10_000, 99.85, true),
+            f(t2, 20_000, 99.95, false), // сигнал (зелёная, в зоне)
+        ];
+        let (s0, c0) = ap_signals(c.clone(), &ap_params(0), side, vec![(day, above.clone())]);
+        assert_eq!(sig_minutes(&s0), vec![t2], "ap=0: сигнал есть, как прежде");
+        assert!(!s0[0].ws);
+        assert_eq!(c0.ap_wrong, 0);
+        let (s1, c1) = ap_signals(c.clone(), &ap_params(1), side, vec![(day, above.clone())]);
+        assert!(
+            s1.is_empty(),
+            "ap=1: цена пришла в зону сверху — сигнал отвергнут"
+        );
+        assert_eq!(c1.ap_wrong, 1);
+        assert_eq!(c1.signals, [0, 0]);
+        let (s2, c2) = ap_signals(c, &ap_params(2), side, vec![(day, above)]);
+        assert_eq!(sig_minutes(&s2), vec![t2], "ap=2: не отвергает");
+        assert!(s2[0].ws, "ap=2: метка «пришла сверху»");
+        assert_eq!(c2.ap_wrong, 1);
+    }
+}
+
+#[test]
+fn ap_accepts_approach_from_below_and_recovery_below_the_zone() {
+    for (flip, side) in [(false, Side::Long), (true, Side::Short)] {
+        let t1 = BORN + 100;
+        let t2 = t1 + 1;
+        let day = t1 / 1440;
+        let (c, f) = ap_world(t1, flip);
+        let tail = |v: &mut Vec<Tick>| {
+            v.push(f(t2, 0, 99.90, true));
+            v.push(f(t2, 10_000, 99.85, true));
+            v.push(f(t2, 20_000, 99.95, false));
+        };
+        // подход снизу: последняя сделка вне зоны — ниже зоны
+        let mut below = vec![f(t1, 0, 99.0, false), f(t1, 10_000, 99.3, false)];
+        tail(&mut below);
+        let (s, cn) = ap_signals(c.clone(), &ap_params(1), side, vec![(day, below)]);
+        assert_eq!(sig_minutes(&s), vec![t2]);
+        assert_eq!(cn.ap_wrong, 0);
+        // сверху → ушла ниже зоны → снова подошла снизу: решает последнее внезонное состояние — «ниже зоны»
+        let mut again = vec![
+            f(t1, 0, 99.0, false),
+            f(t1, 10_000, 100.30, false),
+            f(t1, 20_000, 99.2, true),
+        ];
+        tail(&mut again);
+        let (s, cn) = ap_signals(c.clone(), &ap_params(1), side, vec![(day, again)]);
+        assert_eq!(sig_minutes(&s), vec![t2]);
+        assert_eq!(cn.ap_wrong, 0);
+        // решающей сделки нет (все предыдущие — в зоне, прошлых суток нет) → принимается
+        let mut none = vec![f(t1, 0, 99.9, false), f(t1, 10_000, 99.95, false)];
+        tail(&mut none);
+        let (s, _) = ap_signals(c, &ap_params(1), side, vec![(day, none)]);
+        assert_eq!(
+            sig_minutes(&s),
+            vec![t1, t2],
+            "сигнал есть и в t1 (99,95 выше открытия минуты)"
+        );
+    }
+}
+
+#[test]
+fn ap_looks_back_across_the_day_boundary() {
+    for (flip, side) in [(false, Side::Long), (true, Side::Short)] {
+        let t2 = 17 * 1440; // первая минута суток
+        let t1 = t2 - 1; // последняя минута прошлых суток
+        assert!(t1 > BORN);
+        let (c, f) = ap_world(t1, flip);
+        let today = vec![
+            f(t2, 0, 99.90, true),
+            f(t2, 10_000, 99.85, true),
+            f(t2, 20_000, 99.95, false),
+        ];
+        let prev_above = vec![
+            f(t1, 0, 99.0, false),
+            f(t1, 10_000, 100.30, false),
+            f(t1, 50_000, 100.10, true),
+        ];
+        let days = |prev: Vec<Tick>| vec![(16, prev), (17, today.clone())];
+        let (s, cn) = ap_signals(c.clone(), &ap_params(1), side, days(prev_above.clone()));
+        assert!(s.is_empty(), "до полуночи цена дошла до уровня → сверху");
+        assert_eq!(cn.ap_wrong, 1);
+        let (s, _) = ap_signals(c.clone(), &ap_params(0), side, days(prev_above));
+        assert_eq!(sig_minutes(&s), vec![t2]);
+        let prev_below = vec![
+            f(t1, 0, 100.30, false),
+            f(t1, 10_000, 99.0, false),
+            f(t1, 50_000, 99.1, true),
+        ];
+        let (s, _) = ap_signals(c.clone(), &ap_params(1), side, days(prev_below));
+        assert_eq!(
+            sig_minutes(&s),
+            vec![t2],
+            "до полуночи последним внезонным было «ниже зоны»"
+        );
+        // прошлых суток нет вовсе — решающей сделки нет → принимается
+        let (s, _) = ap_signals(c, &ap_params(1), side, vec![(17, today)]);
+        assert_eq!(sig_minutes(&s), vec![t2]);
+    }
+}
+
+#[test]
+fn pb_trade_at_or_beyond_level_kills_it_from_next_minute() {
+    // минута BORN+50: high на 0,005 % выше уровня (без `pb` уровень жив: прокол ≪ τ, запрет ложного пробоя выключен);
+    // минута прокола остаётся кандидатом (сигнал до прокола возможен), следующая — нет; смерть необратима
+    let mut c = level_world();
+    set(&mut c, BORN + 50, 99.85, 100.030, 99.84, 99.95);
+    for m in BORN + 51..BORN + 70 {
+        set(&mut c, m, 99.85, 99.95, 99.84, 99.95);
+    }
+    let mut off = lv_params();
+    off.sig.ban = false;
+    let mut on = off.clone();
+    on.sig.pb = true;
+    let all: Vec<usize> = (BORN + 50..BORN + 70).collect();
+    assert_eq!(cand_minutes(c.clone(), &off, Side::Long), all);
+    assert_eq!(cand_minutes(c.clone(), &on, Side::Long), vec![BORN + 50]);
+    // касание ровно уровня (100,025) — тоже «дошла»
+    let mut t = level_world();
+    set(&mut t, BORN + 50, 99.85, 100.025, 99.84, 99.95);
+    set(&mut t, BORN + 51, 99.85, 99.95, 99.84, 99.95);
+    assert_eq!(
+        cand_minutes(t.clone(), &off, Side::Long),
+        vec![BORN + 50, BORN + 51]
+    );
+    assert_eq!(cand_minutes(t, &on, Side::Long), vec![BORN + 50]);
+    // на 0,001 ниже уровня — жив
+    let mut u = level_world();
+    set(&mut u, BORN + 50, 99.85, 100.024, 99.84, 99.95);
+    set(&mut u, BORN + 51, 99.85, 99.95, 99.84, 99.95);
+    assert_eq!(cand_minutes(u, &on, Side::Long), vec![BORN + 50, BORN + 51]);
+    // шорт — зеркально
+    let m = mirror(&c, 200.0);
+    assert_eq!(cand_minutes(m.clone(), &off, Side::Short), all);
+    assert_eq!(cand_minutes(m, &on, Side::Short), vec![BORN + 50]);
+}
+
+#[test]
+fn ap_and_pb_keys_parse_validate_and_default_off() {
+    let base = Params::base();
+    assert_eq!(base.sig.ap, 0);
+    assert!(!base.sig.pb);
+    let (_, p) = super::params::parse_variant("v ap=1 pb=1").expect("разбор");
+    assert_eq!(p.sig.ap, 1);
+    assert!(p.sig.pb);
+    assert!(super::params::parse_variant("v ap=3").is_err());
+    // ключи — часть SigCfg: задания сигналов с разными ap/pb различаются
+    let (_, q) = super::params::parse_variant("v").expect("разбор");
+    assert_ne!(p.sig, q.sig);
 }

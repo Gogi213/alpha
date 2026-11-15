@@ -33,6 +33,11 @@ pub struct SigCfg {
     pub f_pm: i64,
     pub r_min: usize,
     pub ban: bool,
+    /// §13.13: подход к уровню с правильной стороны — 0 выкл.; 1 — отвергать сигнал, пришедший в зону сверху (назад по сделкам:
+    /// первая, дошедшая до уровня, решает «сверху», первая ниже зоны — «снизу»); 2 — только пометить (`ws`). Только `breakout tick`.
+    pub ap: u8,
+    /// §13.13: сделка на уровне или за ним (high ≥ цены версии) убивает уровень со следующей минуты. Только `breakout tick`.
+    pub pb: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +111,8 @@ impl Params {
                 f_pm: pm(0.1),
                 r_min: 15,
                 ban: true,
+                ap: 0,
+                pb: false,
             },
             exit: ExitCfg {
                 natr_p: 30,
@@ -159,6 +166,8 @@ impl Params {
             "f" => self.sig.f_pm = pm(f),
             "r" => self.sig.r_min = u,
             "ban" => self.sig.ban = b,
+            "ap" => self.sig.ap = u.min(255) as u8,
+            "pb" => self.sig.pb = b,
             "n_tp" => self.exit.n_tp = u,
             "t_low" => self.exit.t_low_m = pm(f),
             "t_high" => self.exit.t_high_m = pm(f),
@@ -193,6 +202,9 @@ impl Params {
         }
         if self.exit.t_low_m >= self.exit.t_high_m {
             bail!("t_low должен быть меньше t_high (лестница тейков идёт вверх)");
+        }
+        if self.sig.ap > 2 {
+            bail!("ap ∈ {{0, 1, 2}}");
         }
         if self.port.reentry > 2 {
             bail!("reentry ∈ {{0, 1, 2}}");

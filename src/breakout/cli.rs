@@ -256,6 +256,9 @@ fn run(
         if v.1.sig.lv.pk {
             bail!("pk считает только `breakout tick`: {line}");
         }
+        if v.1.sig.ap != 0 || v.1.sig.pb {
+            bail!("ap и pb считает только `breakout tick`: {line}");
+        }
         vs.push(v);
     }
     if vs.is_empty() {

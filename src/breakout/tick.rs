@@ -30,6 +30,12 @@ use std::sync::{Arc, Mutex};
 /// Счётчик опции `pk` (§13.11, диагностика): уровни, убитые минутным проколом > τ, которых запрет ложного пробоя к этой минуте не убил.
 pub static PK_MINUTE_KILLED: AtomicU64 = AtomicU64::new(0);
 
+/// Счётчик опции `pb` (§13.13, диагностика): уровни, убитые сделкой на уровне или за ним, которых запрет ложного пробоя к этой минуте не убил.
+pub static PB_KILLED: AtomicU64 = AtomicU64::new(0);
+
+/// Опция `ap` (§13.13): сколько суток назад искать решающую сделку.
+pub const AP_LOOKBACK_DAYS: usize = 3;
+
 pub const DAY_MS: i64 = 86_400_000;
 
 /// Одна агрегированная сделка: цена ×1e8, время — мс от начала суток файла, `bm` = `is_buyer_maker`
@@ -300,6 +306,8 @@ pub struct TSig {
     pub t: u32,
     pub day: u16,
     pub idx: u32,
+    /// §13.13 (`ap = 2`): цена пришла в зону сверху (сигнал помечен, не отвергнут).
+    pub ws: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -307,12 +315,15 @@ pub struct TickCtr {
     pub cands: u64,
     pub signals: [u64; 2],
     pub missing_days: u64,
+    /// §13.13: сигналов, пришедших в зону сверху (при `ap = 1` отвергнуты, при `ap = 2` помечены).
+    pub ap_wrong: u64,
 }
 
 impl TickCtr {
     pub fn add(&mut self, o: &TickCtr) {
         self.cands += o.cands;
         self.missing_days += o.missing_days;
+        self.ap_wrong += o.ap_wrong;
         for h in 0..2 {
             self.signals[h] += o.signals[h];
         }
@@ -398,6 +409,13 @@ pub fn candidates(sym: &Sym, levels: &[Level], cfg: &SigCfg, side: Side, out: &m
                 }
                 forbidden = true;
             }
+            // §13.13 (`pb`): сделка минуты на уровне или за ним (high ≥ цены версии) убивает уровень со следующей минуты
+            if cfg.pb && hi >= lp {
+                if !forbidden {
+                    PB_KILLED.fetch_add(1, Ordering::Relaxed);
+                }
+                forbidden = true;
+            }
         }
     }
 }
@@ -479,6 +497,16 @@ pub fn signals_for_coin(
             let dmax = (cfg.e_pm * 1000).min(cfg.track_pm * 1000);
             if let Some((k, dist)) = first_signal(&ticks, from, to, side.s(), c.lp, dmax, cfg.color)
             {
+                let mut ws = false;
+                if cfg.ap != 0
+                    && came_from_above(src, &sym.name, day, &ticks, k, side.s(), (c.lp, dmax))
+                {
+                    ctrs[j].ap_wrong += 1;
+                    if cfg.ap == 1 {
+                        continue;
+                    }
+                    ws = true;
+                }
                 outs[j].push(TSig {
                     ms: day as i64 * DAY_MS + i64::from(ticks[k].off),
                     sym: si,
@@ -487,11 +515,50 @@ pub fn signals_for_coin(
                     t: c.t,
                     day: day as u16,
                     idx: k as u32,
+                    ws,
                 });
                 ctrs[j].signals[half_of_day(day)] += 1;
             }
         }
     }
+}
+
+/// §13.13 (`ap`): сигнал по сделке `k` суток `day` пришёл в зону сверху? Назад по сделкам монеты (не дальше
+/// `AP_LOOKBACK_DAYS` суток): решает первая сделка, которая дошла до уровня (`p ≥ lp` — цена пришла сверху → `true`)
+/// или стоит ниже зоны (`dist > dmax` — подход снизу → `false`); сделки внутри зоны не решают; решающей нет → `false`.
+/// `zone` = (цена уровня в длинной раме, `dmax` ×1e8).
+pub fn came_from_above(
+    src: &dyn TradeSrc,
+    name: &str,
+    day: usize,
+    ticks: &[Tick],
+    k: usize,
+    s: i64,
+    zone: (i64, i64),
+) -> bool {
+    let (lp, dmax) = zone;
+    let decide = |tk: &Tick| -> Option<bool> {
+        let p = s * tk.px;
+        if p >= lp {
+            return Some(true);
+        }
+        let dist = (i128::from(lp - p) * i128::from(SCALE) / i128::from(lp.abs())) as i64;
+        (dist > dmax).then_some(false)
+    };
+    if let Some(r) = ticks[..k].iter().rev().find_map(decide) {
+        return r;
+    }
+    for back in 1..=AP_LOOKBACK_DAYS {
+        let Some(d) = day.checked_sub(back) else {
+            break;
+        };
+        if let Some(v) = src.day(name, d) {
+            if let Some(r) = v.iter().rev().find_map(decide) {
+                return r;
+            }
+        }
+    }
+    false
 }
 
 /// Порядок обработки (§13.2): время сделки, расстояние до уровня, монета по алфавиту, уровень.
@@ -837,6 +904,8 @@ pub struct TickTrade {
     pub legs: Vec<TLeg>,
     pub natr_e8: i64,
     pub dist: u32,
+    /// §13.13: сигнал помечен `ap = 2` (цена пришла в зону сверху).
+    pub ws: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -981,6 +1050,7 @@ pub fn run_tick(
             legs: tr.legs.clone(),
             natr_e8: natr,
             dist: sg.dist,
+            ws: sg.ws,
         });
     }
     res

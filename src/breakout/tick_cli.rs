@@ -79,7 +79,7 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
             .iter()
             .rposition(|(m, _)| *m <= x.sig_min)
             .unwrap_or(0);
-        let rec = serde_json::json!({
+        let mut rec = serde_json::json!({
             "i": i, "sym": sym.name, "side": side.name(), "level": x.level,
             "born": lv.born, "end": lv.end, "first_bar": lv.first_bar,
             "level_px_e8": lv.segs[si].1, "members": lv.mem[si],
@@ -89,6 +89,9 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
             "legs": x.legs.iter().map(|l| serde_json::json!([l.ms, l.px, l.u, l.maker])).collect::<Vec<_>>(),
             "gross": x.gross, "fees": x.fees, "funding": x.funding, "net": x.net,
         });
+        if p.sig.ap != 0 {
+            rec["ws"] = serde_json::Value::Bool(x.ws);
+        }
         t.push_str(&rec.to_string());
         t.push('\n');
     }
@@ -171,6 +174,12 @@ pub fn run(
             super::tick::PK_MINUTE_KILLED.load(Relaxed)
         );
     }
+    if vs.iter().any(|(_, p)| p.sig.pb) {
+        eprintln!(
+            "pb (§13.13): уровней убито сделкой на уровне или за ним {}",
+            super::tick::PB_KILLED.load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
     let ls = src.stat.lock().map(|g| g.clone()).unwrap_or_default();
     eprintln!(
         "фаза 1 готова за {:.1} с; файлов {}, строк {}, не по порядку {}, вне суток {}, плохих строк {}, ошибок {}",
@@ -220,12 +229,15 @@ pub fn run(
                 mb,
                 if n > 0 { stops as f64 / n as f64 } else { 0.0 }
             );
-            let meta = serde_json::json!({
+            let mut meta = serde_json::json!({
                 "trades": n, "hard_stops": stops, "net_total": total_net,
                 "rej_[consumed,busy,coin_pause,global_pause,cap,no_outcome]": r.rej,
                 "signals_AB": ctr[j].signals, "cand_minutes": ctr[j].cands,
                 "missing_days": ctr[j].missing_days, "signals_total": sigs[j].len(),
             });
+            if p.sig.ap != 0 {
+                meta["ap_wrong_signals"] = ctr[j].ap_wrong.into();
+            }
             let k = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             eprintln!(
                 "[{k}/{total}] {id} {}  {:.0} с",
