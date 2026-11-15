@@ -877,7 +877,7 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 #modal.fit img{max-width:100%;max-height:calc(100vh - 44px)}#modal:not(.fit) img{max-width:none;max-height:none}
 </style></head><body>
 <header><h1>П-42 · пробой уровня · сделки базы b0 (тики 4 мс, 566 монет, 15.09–13.11)</h1>
-<div class="sub">Одна сделка — одна строка. Клик по строке — график (откроется на входе, широкую картинку листать мышью/колесом с Shift); ← → листают отфильтрованный список, Esc — закрыть, Z — вписать в окно / полный размер. Время — GMT+4; позиция $500; комиссии по тарифу владельца.</div></header>
+<div class="sub">Одна сделка — одна строка. Клик по строке — график (откроется на входе, широкую картинку листать мышью/колесом с Shift); ← → листают отфильтрованный список, Esc — закрыть, Z — вписать в окно / полный размер. Время — GMT+4; позиция $500; комиссии по тарифу владельца. Графики: вход — линия на цене входа (зелёная лонг / красная шорт), тейки — тонкие зелёные отрезки, трейл — бирюзовый, стоп — красный пунктир; подписи и касания — справа. __PKNOTE__</div></header>
 <div class="bar" id="bar">
 <label>Монета<input type="text" id="f_sym" placeholder="BTC…"></label>
 <label>Сторона<select id="f_side"><option value="">все</option><option value="long">лонг</option><option value="short">шорт</option></select></label>
@@ -887,6 +887,7 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 <label>Дата с<input type="date" id="f_d1"></label><label>по<input type="date" id="f_d2"></label>
 <label>Уровень<select id="f_cross"><option value="">не важно</option><option value="1">пересёк ≤30 мин</option><option value="0">не пересёк</option></select></label>
 <label>Флаг уровня<select id="f_flag"><option value="">не важно</option><option value="any">любой</option><option value="none">нет флагов</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option><option>F</option><option>G</option><option value="A_post">A после рождения</option></select></label>
+<label>pk=1<select id="f_pk"><option value="">не важно</option><option value="0">сделка исчезает</option><option value="1">остаётся</option></select></label>
 <button id="reset">Сброс</button><span id="cnt"></span></div>
 <details id="st" open><summary>Флаги уровня A–G — статистика (клик по строке — фильтр, клик по id — три примера)</summary><div id="stb"></div></details>
 <table><thead><tr id="hdr"></tr></thead><tbody id="tb"></tbody></table>
@@ -895,18 +896,18 @@ th.l,td.l{text-align:left}th .ar{color:var(--acc)}tbody tr{cursor:pointer}tbody 
 const D=__DATA__;
 const COLS=[["#","n",0],["Монета","sym",1],["Сторона","side_ru",1],["Вход (GMT+4)","entry_gmt4",1],["Исход","outcome",1],["Тейков","takes",0],["$ итог","net_usd",0],["бп итог","net_bps",0],
 ["Держали","hold_s",0],["NATR %","natr_pct",0],["До уровня, бп","dist_entry_bps",0],["Возраст ур., ч","age_h",0],["Пивотов","n_pivots",0],["Касаний","touches",0],["MFE 30м, бп","mfe_30m_bps",0],["MAE 30м, бп","mae_30m_bps",0],["Пересёк","crossed",1],
-["A","flag_A",2],["B","flag_B",2],["C","flag_C",2],["D","flag_D",2],["E","flag_E",2],["F","flag_F",2],["G","flag_G",2]];
+["pk=1","pkx",2],["A","flag_A",2],["B","flag_B",2],["C","flag_C",2],["D","flag_D",2],["E","flag_E",2],["F","flag_F",2],["G","flag_G",2]];
 const FT=__FLAGTXT__,ST=__FLAGS__;
 const OUTR={stop:"стоп","be":"безубыток",trail:"трейл",forced:"принуд."};
-D.forEach((d,i)=>{d.n=i+1;d.side_ru=d.side==="long"?"лонг":"шорт";d.age_h=d.level_age_min/60;d.crossed=d.crossed_30m?"да":"нет";d.date=d.entry_gmt4.slice(0,10)});
+D.forEach((d,i)=>{d.n=i+1;d.side_ru=d.side==="long"?"лонг":"шорт";d.age_h=d.level_age_min/60;d.crossed=d.crossed_30m?"да":"нет";d.date=d.entry_gmt4.slice(0,10);d.pkx=d.pk===0});
 const fmtDur=s=>{s=Math.round(s);if(s<60)return s+" с";if(s<3600)return Math.floor(s/60)+" мин "+String(s%60).padStart(2,"0")+" с";const h=Math.floor(s/3600);if(h<48)return h+" ч "+String(Math.floor(s%3600/60)).padStart(2,"0")+" мин";return Math.floor(h/24)+" сут. "+(h%24)+" ч"};
 const outs=[...new Set(D.map(d=>d.exit_kind))];const so=document.getElementById("f_out");outs.forEach(o=>{const e=document.createElement("option");e.value=o;e.textContent=OUTR[o]||o;so.appendChild(e)});
 let sk="entry_gmt4",sd=1,view=[],nav=[],cur=-1;
-const hdr=document.getElementById("hdr");COLS.forEach(([t,k,l])=>{const th=document.createElement("th");th.className=l===1?"l":l===2?"flh":"";if(l===2)th.title=FT[k.slice(5)];th.innerHTML=t+' <span class="ar"></span>';th.onclick=()=>{if(sk===k)sd=-sd;else{sk=k;sd=1}render()};th.dataset.k=k;hdr.appendChild(th)});
+const hdr=document.getElementById("hdr");COLS.forEach(([t,k,l])=>{const th=document.createElement("th");th.className=l===1?"l":l===2?"flh":"";if(l===2)th.title=k==="pkx"?"pk=1: сделка исчезает под опцией движка pk (уровень умирает от прокола с первого пивота)":FT[k.slice(5)];th.innerHTML=t+' <span class="ar"></span>';th.onclick=()=>{if(sk===k)sd=-sd;else{sk=k;sd=1}render()};th.dataset.k=k;hdr.appendChild(th)});
 const $=id=>document.getElementById(id);
-function filt(){const q=$("f_sym").value.trim().toUpperCase(),sd_=$("f_side").value,o=$("f_out").value,h=$("f_half").value,mn=$("f_min").value,mx=$("f_max").value,d1=$("f_d1").value,d2=$("f_d2").value,c=$("f_cross").value,fg=$("f_flag").value;
-return D.filter(d=>(!fg||(fg==="any"?d.n_flags>0:fg==="none"?d.n_flags===0:d["flag_"+fg]))&&(!q||d.sym.includes(q))&&(!sd_||d.side===sd_)&&(!o||d.exit_kind===o)&&(!h||d.half===h)&&(mn===""||d.net_usd>=+mn)&&(mx===""||d.net_usd<=+mx)&&(!d1||d.date>=d1)&&(!d2||d.date<=d2)&&(c===""||(c==="1")===d.crossed_30m))}
-function cell(d,k){const v=d[k];if(k.startsWith("flag_"))return v?"<b>●</b>":"";switch(k){case"net_usd":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(2)}</span>`;case"net_bps":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(1)}</span>`;
+function filt(){const q=$("f_sym").value.trim().toUpperCase(),sd_=$("f_side").value,o=$("f_out").value,h=$("f_half").value,mn=$("f_min").value,mx=$("f_max").value,d1=$("f_d1").value,d2=$("f_d2").value,c=$("f_cross").value,fg=$("f_flag").value,pk=$("f_pk").value;
+return D.filter(d=>(!fg||(fg==="any"?d.n_flags>0:fg==="none"?d.n_flags===0:d["flag_"+fg]))&&(!q||d.sym.includes(q))&&(!sd_||d.side===sd_)&&(!o||d.exit_kind===o)&&(!h||d.half===h)&&(mn===""||d.net_usd>=+mn)&&(mx===""||d.net_usd<=+mx)&&(!d1||d.date>=d1)&&(!d2||d.date<=d2)&&(c===""||(c==="1")===d.crossed_30m)&&(pk===""||(pk==="0")===d.pkx))}
+function cell(d,k){const v=d[k];if(k.startsWith("flag_")||k==="pkx")return v?"<b>●</b>":"";switch(k){case"net_usd":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(2)}</span>`;case"net_bps":return `<span class="${v>=0?"pos":"neg"}">${v.toFixed(1)}</span>`;
 case"outcome":return `<span class="tag t-${d.exit_kind}">${OUTR[d.exit_kind]||d.exit_kind}${d.takes>0&&d.exit_kind!=="forced"?" + тейки":""}</span>`;case"hold_s":return fmtDur(v);case"entry_gmt4":return v.slice(8,10)+"."+v.slice(5,7)+" "+v.slice(11,19);
 case"natr_pct":case"age_h":return v.toFixed(2);case"dist_entry_bps":case"mfe_30m_bps":case"mae_30m_bps":return v==null?"—":v.toFixed(1);default:return v==null?"—":v}}
 function render(){view=filt();view.sort((a,b)=>{const x=a[sk],y=b[sk];return (x<y?-1:x>y?1:0)*sd||a.n-b.n});
@@ -914,16 +915,16 @@ document.querySelectorAll("#hdr th").forEach(th=>th.querySelector(".ar").textCon
 $("tb").innerHTML=view.map((d,i)=>"<tr data-i='"+i+"'>"+COLS.map(([t,k,l])=>`<td class="${l===1?"l":l===2?"fl":""}">${cell(d,k)}</td>`).join("")+"</tr>").join("");
 const s=view.reduce((a,d)=>a+d.net_usd,0);$("cnt").textContent=`${view.length} из ${D.length} · сумма ${s.toFixed(2)} $ · средняя ${view.length?(s/view.length).toFixed(2):"—"} $`;}
 const byId=Object.fromEntries(D.map(d=>[d.id,d]));
-(function(){const rows=[...("ABCDEFG".split("")).map(c=>[c,c+" — "+FT[c]]),["A_post","A после рождения уровня (подмножество A)"],["any","любой флаг"],["none","без флагов"],["all","все сделки"]];
+(function(){const rows=[...("ABCDEFG".split("")).map(c=>[c,c+" — "+FT[c]]),["A_post","A после рождения уровня (подмножество A)"],...(ST.pk?[["pk","pk=1: сделка исчезает (прокол уровня с первого пивота)"]]:[]),["any","любой флаг"],["none","без флагов"],["all","все сделки"]];
 let h="<table><thead><tr><th class='l'>Флаг</th><th>сделок</th><th>лонг</th><th>шорт</th><th>сумма $</th><th>средняя $</th><th>прибыльных</th><th class='l'>примеры (id · значение метрики · $)</th></tr></thead><tbody>";
 rows.forEach(([k,t])=>{const s=ST[k];h+=`<tr class="fr" data-k="${k}"><td class="l">${t}</td><td>${s.n}</td><td>${s.n_long}</td><td>${s.n_short}</td><td class="${s.sum_usd>=0?"pos":"neg"}">${s.sum_usd.toFixed(2)}</td><td>${s.mean_usd==null?"—":s.mean_usd.toFixed(3)}</td><td>${s.win==null?"—":(s.win*100).toFixed(1)+" %"}</td><td class="l">${(s.examples||[]).map((e,j)=>`<a data-k="${k}" data-j="${j}">${e.id}</a>${e.v} · ${e.net>=0?"+":""}${e.net}`).join(" &nbsp; ")}</td></tr>`});
 $("stb").innerHTML=h+"</tbody></table>";
 $("stb").onclick=e=>{const a=e.target.closest("a");if(a){e.stopPropagation();nav=ST[a.dataset.k].examples.map(x=>byId[x.id]);open(+a.dataset.j);return}
-const tr=e.target.closest("tr.fr");if(tr&&["A","B","C","D","E","F","G","A_post","any","none"].includes(tr.dataset.k)){$("f_flag").value=tr.dataset.k;render()}else if(tr){$("f_flag").value="";render()}}})();
+const tr=e.target.closest("tr.fr");if(tr&&tr.dataset.k==="pk"){$("f_flag").value="";$("f_pk").value="0";render()}else if(tr&&["A","B","C","D","E","F","G","A_post","any","none"].includes(tr.dataset.k)){$("f_flag").value=tr.dataset.k;$("f_pk").value="";render()}else if(tr){$("f_flag").value="";$("f_pk").value="";render()}}})();
 $("tb").onclick=e=>{const tr=e.target.closest("tr");if(tr){nav=view;open(+tr.dataset.i)}};
 function flagLine(d){if(!d.n_flags)return " · флагов уровня нет";const t=[];if(d.flag_A)t.push(`A прокол ${d.pierce_over_bps.toFixed(1)} бп, закрытий за уровнем ${d.pierce_close_n}`+(d.flag_A_post?` (после рождения: ${d.pierce_over_bps_post.toFixed(1)} бп, ${d.pierce_close_n_post})`:" (только до рождения уровня)"));if(d.flag_B)t.push(`B пивоты ${d.min_pivot_gap_min} мин друг от друга`);if(d.flag_C)t.push(`C уровень известен ${d.level_known_min} мин`);if(d.flag_D)t.push(`D диапазон ${d.spike_range_natr.toFixed(1)} NATR`);if(d.flag_E)t.push(`E разброс ${d.pivot_spread_bps.toFixed(1)} бп`+(d.level_vs_mean_e8?`, цена ≠ среднему на ${d.level_vs_mean_e8} e8`:""));if(d.flag_F)t.push(`F пивот не экстремум (${d.pivot_not_extreme_n})`);if(d.flag_G)t.push(`G закрытий за уровнем ${d.late_close_beyond_n}, до ${d.late_close_over_bps.toFixed(1)} бп`);return " · флаги: "+t.join("; ")}
 function open(i){if(i<0||i>=nav.length)return;cur=i;const d=nav[i];const im=$("m_i"),iw=document.querySelector(".imgw");im.onload=()=>{iw.scrollLeft=Math.max(0,(d.ex||0)-iw.clientWidth*0.35);iw.scrollTop=0};im.src="charts/"+d.id+".png";$("m_a").href="charts/"+d.id+".png";$("m_t").textContent=`${d.sym} ${d.side_ru} ${d.entry_gmt4.slice(0,19)}`;
-$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${nav.length}`+flagLine(d);$("modal").classList.add("on")}
+$("m_s").textContent=`${d.net_usd.toFixed(2)} $ · ${d.net_bps.toFixed(1)} бп · ${OUTR[d.exit_kind]} · держали ${fmtDur(d.hold_s)} · касаний ${d.touches} · ${i+1}/${nav.length}`+flagLine(d)+(d.pkx?" · pk=1: сделки нет":"");$("modal").classList.add("on")}
 document.addEventListener("keydown",e=>{if(!$("modal").classList.contains("on"))return;if(e.key==="Escape")$("modal").classList.remove("on");else if(e.key==="ArrowRight")open(cur+1);else if(e.key==="ArrowLeft")open(cur-1);else if(e.key==="z"||e.key==="Z")$("modal").classList.toggle("fit")});
 $("modal").onclick=e=>{if(e.target.id==="modal"||e.target.classList.contains("imgw"))$("modal").classList.remove("on")};
 document.querySelectorAll(".bar input,.bar select").forEach(el=>el.oninput=render);$("reset").onclick=()=>{document.querySelectorAll(".bar input,.bar select").forEach(el=>el.value="");render()};
@@ -985,6 +986,16 @@ def cmd_index(a):
         if fn.startswith("_meta_"):
             meta.update(json.load(open(os.path.join(cdir, fn))))
     data = [{k: r[k] for k in keep} for r in rows]
+    pknote, gone = "", set()
+    if a.pk:  # опция движка pk=1 (§13.11): сделка базы b0, которой нет среди сделок b0pk, — «исчезает»
+        pk_keys = {(r["sym"], r["side"], r["entry_ms"]) for r in load_trades(a.pk)}
+        base = {r["id"]: (r["sym"], r["side"], r["entry_ms"]) for r in load_trades(a.detail)}
+        gone = {i for i, k in base.items() if k not in pk_keys}
+        new = len(pk_keys - set(base.values()))
+        for d in data:
+            d["pk"] = 0 if d["id"] in gone else 1
+        pknote = (f"pk=1 (§13.11): из {len(data)} сделок исчезает {len(gone)}, остаётся {len(data) - len(gone)}; "
+                  f"новых сделок под pk=1 — {new} (графиков нет).")
     for d in data:
         m = meta.get(d["id"])
         d["ex"], d["w"] = (m[2], m[0]) if m else (0, 0)
@@ -994,10 +1005,12 @@ def cmd_index(a):
                 d[k] = round(v, 4)
     os.makedirs(a.pub, exist_ok=True)
     st = flagstats(rows)
+    if gone:
+        st["pk"] = _agg([x for x in rows if x["id"] in gone])
     json.dump(st, open(os.path.join(a.work, "flagstats.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     open(os.path.join(a.work, "flagstats.md"), "w", encoding="utf-8").write(flagstats_md(st))
     html = INDEX_HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False)).replace("__FLAGS__", json.dumps(st, ensure_ascii=False)) \
-        .replace("__FLAGTXT__", json.dumps(FLAG_TXT, ensure_ascii=False))
+        .replace("__FLAGTXT__", json.dumps(FLAG_TXT, ensure_ascii=False)).replace("__PKNOTE__", pknote)
     open(os.path.join(a.pub, "index.html"), "w", encoding="utf-8").write(html)
     for fn in ("features.csv", "features.jsonl", "flagstats.md", "flagstats.json"):
         with open(os.path.join(a.work, fn), "rb") as fi, open(os.path.join(a.pub, fn), "wb") as fo:
@@ -1014,6 +1027,7 @@ def main():
     p.add_argument("detail"); p.add_argument("work"); p.add_argument("--only"); p.add_argument("--out", required=True); p.add_argument("--tag", default="all")
     p = sub.add_parser("index")
     p.add_argument("work"); p.add_argument("pub"); p.add_argument("--charts")
+    p.add_argument("--detail", default="out"); p.add_argument("--pk", help="каталог с b0_lx4/<сторона>-detail.jsonl сделок под pk=1")
     p = sub.add_parser("flagstats")
     p.add_argument("work")
     a = ap.parse_args()
