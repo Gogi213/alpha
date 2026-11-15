@@ -2,7 +2,7 @@
 
 python3 turnover_verify.py <url /api/arb> [монеты через запятую; по умолчанию BTC,SOL,ZORA] [допуск, по умолчанию 0.10]
 Берёт строки /api/arb (v = [$ первой биржи, $ второй] за окно vwin), собирает оборот монеты по биржам и сравнивает с тикером биржи (Binance/BingX — quoteVolume,
-Bybit — turnover24h, Gate — volume_24h_quote; OKX отдаёт объём в монете, а не в $ — в таблице «—»). Окна тикера и страницы не совпадают на минуты, поэтому допуск ±10 % по умолчанию.
+Bybit — turnover24h, Gate — 1-минутные свечи Gate за окно (данные Gate короче суток); OKX отдаёт объём в монете, а не в $ — в таблице «—»). Окна тикера и страницы не совпадают на минуты, поэтому допуск ±10 % по умолчанию.
 Код выхода 0 — у всех проверяемых (монета, биржа) отношение в допуске и у ≥ 90 % строк есть v.
 """
 import json
@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import norm  # noqa: E402
+from common import MINRUN_EX, norm  # noqa: E402
 from turnover_check import tick  # noqa: E402
 
 URLS = {
@@ -33,6 +33,19 @@ def fetch_tickers():
     return out
 
 
+def gate_candles(coins, win):
+    """Gate: данные Gate короче суток (с MINRUN_EX), 24-часовой тикер несравним — оборот монеты по 1-минутным свечам Gate (sum, $) за то же окно: с первой целой минуты данных (или начала окна) до последней целой минуты окна."""
+    f = max((MINRUN_EX["gate"] // 60 + 1) * 60, win[0] // 1000 // 60 * 60 + 60)
+    out = {}
+    for c in coins:
+        u = f"https://fx-api.gateio.ws/api/v4/futures/usdt/candlesticks?contract={c}_USDT&interval=1m&from={f}&to={win[1] // 1000 - 60}"
+        try:
+            out[c] = sum(float(x["sum"]) for x in json.loads(urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=30).read()))
+        except Exception:
+            pass
+    return out
+
+
 def main(url, coins, tol):
     doc = json.loads(urllib.request.urlopen(url, timeout=30).read())
     rows = doc["rows"]
@@ -46,10 +59,14 @@ def main(url, coins, tol):
     tk = fetch_tickers()
     theirs = {}
     for ex in URLS:
+        if ex == "gate":
+            continue
         for s, v in tick(ex, tk).items():
             c = norm(ex, s, {s: {"displayName": s}})[0]
             if c in coins and v[2] is not None:
                 theirs.setdefault(c, {})[ex] = v[2]
+    for c, v in gate_candles(coins, doc["vwin"]).items():
+        theirs.setdefault(c, {})["gate"] = v
     ok = withv >= 0.9 * len(rows)
     print("монета биржа | страница $ | тикер $ | страница / тикер")
     for c in sorted(coins):
