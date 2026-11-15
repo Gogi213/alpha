@@ -65,6 +65,11 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 #colpop h5{margin:0;font:500 11px/14px var(--font-sans);color:var(--muted-foreground);letter-spacing:.02em}
 #colpop section{display:grid;gap:8px}
 #colpop .flt{display:grid;gap:6px}
+#colpop .seg{display:flex;gap:2px;height:28px;padding:2px;border-radius:14px;background:var(--muted)}
+#colpop .seg button{all:unset;box-sizing:border-box;cursor:pointer;flex:1;display:inline-flex;align-items:center;justify-content:center;height:24px;border-radius:9999px;color:var(--muted-foreground);font:500 12px/16px var(--font-sans)}
+#colpop .seg button:hover{color:var(--foreground)}
+#colpop .seg button.on{color:var(--foreground);background:color-mix(in oklab,var(--input) 30%,transparent);box-shadow:inset 0 0 0 1px var(--input),0 1px 2px #0000000d}
+#colpop .seg button:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
 #colpop .fr{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:500;line-height:16px}
 #colpop .fr input[type=text]{width:64px;height:24px;padding:0 8px;border:0;border-radius:var(--radius-md);background:var(--muted);color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border);font:400 12px/16px var(--font-mono);text-align:right;outline:none}
 #colpop .fr input[type=text]::placeholder{color:var(--muted-foreground);opacity:.6}
@@ -85,7 +90,8 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 /* таблица (sp-dt): заголовок 11 px muted, строка 28 px, числа — Geist Mono tabular, разделитель строк — border 70 % */
 .tw{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card);overflow:hidden;min-width:480px;max-width:100%}
 table.a{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed}
-table.a th{font-weight:500;font-size:11px;line-height:13px;letter-spacing:.01em;color:var(--muted-foreground);text-align:right;vertical-align:bottom;height:60px;padding:0 6px 6px;cursor:pointer;white-space:normal;user-select:none;background:var(--card);border-bottom:1px solid var(--border)}
+table.a th{font-weight:500;font-size:11px;line-height:13px;letter-spacing:.01em;color:var(--muted-foreground);text-align:right;vertical-align:bottom;height:60px;padding:0 6px 6px 2px;cursor:pointer;white-space:normal;user-select:none;background:var(--card);border-bottom:1px solid var(--border)}
+table.a th.l,table.a td.l{padding-left:6px}
 table.a thead tr:first-child th:first-child,table.a td:first-child{padding-left:12px}
 table.a thead tr:first-child th:last-child,table.a td:last-child{padding-right:12px}
 table.a th.l,table.a td.l{text-align:left}
@@ -93,7 +99,7 @@ table.a th:hover,table.a th.on{color:var(--foreground)}
 table.a td i.un{display:inline-block;width:22px;margin-left:4px;text-align:left;font-style:normal;color:var(--muted-foreground);font-family:var(--font-mono);font-size:11px}
 .hl{position:relative;display:inline-block}
 .hl .ar{position:absolute;left:100%;bottom:0;margin-left:3px;font-style:normal;font-size:10px;color:var(--foreground)}
-table.a td{padding:0 6px;height:28px;text-align:right;border-bottom:1px solid color-mix(in oklab,var(--border) 70%,transparent);font:400 12px/16px var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--card)}
+table.a td{padding:0 6px 0 2px;height:28px;text-align:right;border-bottom:1px solid color-mix(in oklab,var(--border) 70%,transparent);font:400 12px/16px var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--card)}
 table.a td.l{font-family:var(--font-sans)}
 table.a tr.r{cursor:pointer}
 table.a tr.r:hover td{background:var(--muted)}
@@ -285,15 +291,23 @@ let st={sort:'n3',dir:-1,open:null,mode:'med',hide:false};   /* порядок �
 let ROWH=28,CHH=293,OVER=3,win={a:0,b:-1};
 const CH=new Map(),PEND=new Map();
 const at=(a,k)=>a?a[k]:null;
+const zx=(r,w,k)=>{const a=r[w];const e=a?a[tI()]:null;return e?e[k]:null};   /* круги выбранного θ: [медиана, p95, число] */
 /* столбцы: скрытые ключи — в localStorage (по умолчанию видны все); монета и пара бирж — всегда; ширины — доли прежней сетки, сумма видимых = 100 % */
-const CKEY='alpha.arb.cols.hidden',FIXED=['c','p'],HIDEABLE=['v0','v1','size','max','n0','n1','n2','n3','b0','b1','b2','tau','net','net2'];
-const WT={c:60,p:152,v0:56,v1:56,size:86,max:86,n0:57,n1:57,n2:57,n3:57,b0:60,b1:60,b2:60,tau:70,net:72,net2:90};   /* доли сетки — взяты как минимальные ширины столбцов в px (при 1180 px окна режим «выбросы» занимает всю карточку); у карточки ширина делится между столбцами пропорционально */
-/* фильтры строк: в localStorage (ключа нет — все выключены); эпизодов за сутки от N; оборот каждой из двух бирж пары от N млн $; расхождение от N % (по столбцу «расхождение»: медиана пика, в режиме «выбросы» — p95); без пар с биржами-«снимками» */
+const CKEY='alpha.arb.cols.hidden',FIXED=['c','p'],HIDEABLE=['v0','v1','size','max','n0','n1','n2','n3','b0','b1','b2','tau','net','z','x','xn'];
+const WT={c:56,p:150,v0:52,v1:52,size:76,max:76,n0:50,n1:50,n2:50,n3:54,b0:52,b1:52,b2:52,tau:66,net:66,z:74,x:74,xn:54};   /* доли сетки — взяты как минимальные ширины столбцов в px (при 1180 px окна режим «выбросы» занимает всю карточку); у карточки ширина делится между столбцами пропорционально */
+/* фильтры строк: в localStorage (ключа нет — все выключены; null — фильтр выключен, число (в т.ч. 0 и отрицательное) — включён): оборот каждой из двух бирж пары от N млн $; расхождение, выбросы за сутки,
+   «после комиссий» и оба круга — от N; схождение — до N с. Расхождение, схождение, «после комиссий» и круги — по тому, что показано в столбце (медиана, в режиме «выбросы» — p95); без пар с биржами-«снимками» */
 const FKEY='alpha.arb.filters',SNAP=new Set(['bingx']);
-const FL={ep:0,v:0,gap:0,snap:false};
-try{const o=JSON.parse(localStorage.getItem(FKEY)||'{}')||{};for(const k of ['ep','v','gap'])if(typeof o[k]==='number'&&isFinite(o[k])&&o[k]>0)FL[k]=o[k];if(o.snap===true)FL.snap=true}catch(e){}
-const flN=()=>(FL.ep>0)+(FL.v>0)+(FL.gap>0)+(FL.snap?1:0);
+const FKS=['v','gap','b0','b1','b2','tau','net','z','x'],FNEG=['net','z','x'];   /* FNEG — можно отрицательное; у остальных ≥ 0 */
+const FL={snap:false};FKS.forEach(k=>FL[k]=null);
+try{const o=JSON.parse(localStorage.getItem(FKEY)||'{}')||{};for(const k of FKS)if(typeof o[k]==='number'&&isFinite(o[k])&&(FNEG.includes(k)||o[k]>=0))FL[k]=o[k];if(o.snap===true)FL.snap=true}catch(e){}
+const flN=()=>FKS.filter(k=>FL[k]!=null).length+(FL.snap?1:0);
 const saveFl=()=>{try{if(flN())localStorage.setItem(FKEY,JSON.stringify(FL));else localStorage.removeItem(FKEY)}catch(e){}};
+/* порог θ кругов, bps: из arb.json (thetas), выбор — в localStorage; по умолчанию 0,2 % */
+const THKEY='alpha.arb.theta',THDEF=[10,15,20,30,50],THD=20;
+let TH=THD;try{const v=Number(JSON.parse(localStorage.getItem(THKEY)||'null'));if(THDEF.includes(v))TH=v}catch(e){}
+const thetas=()=>(A&&A.thetas&&A.thetas.length?A.thetas:THDEF),thLab=t=>String(t/100).replace('.',','),tI=()=>{const i=thetas().indexOf(TH);return i<0?Math.max(0,thetas().indexOf(THD)):i};
+const saveTh=()=>{try{if(TH!==THD)localStorage.setItem(THKEY,JSON.stringify(TH));else localStorage.removeItem(THKEY)}catch(e){}};
 /* биржи: скрытые id — в localStorage (по умолчанию выбраны все, новая биржа появляется выбранной); в таблице пары, у которых выбраны ОБЕ биржи; выбранных не меньше XMIN */
 const XKEY='alpha.arb.ex.hidden',XMIN=2;
 const xhid=new Set();try{(JSON.parse(localStorage.getItem(XKEY)||'[]')||[]).forEach(k=>{if(typeof k==='string')xhid.add(k)})}catch(e){}
@@ -304,7 +318,7 @@ const hid=new Set();try{(JSON.parse(localStorage.getItem(CKEY)||'[]')||[]).forEa
 const saveCols=()=>{try{if(hid.size)localStorage.setItem(CKEY,JSON.stringify([...hid]));else localStorage.removeItem(CKEY)}catch(e){}};
 const vis=C=>C.filter(c=>FIXED.includes(c.k)||!hid.has(c.k));
 const gc=C=>C.length;
-let NC=15,colKey='',popOpen=false;
+let NC=17,colKey='',popOpen=false;
 /* подсказки к заголовкам (наведение): что число значит и при каких допущениях посчитано — по разбору математики критиком 15.11 (arb-math-review-2026-11-15) */
 const H={
   c:'Тикер монеты. Пара бирж не считается, если отношение цен вне 0,9–1,1: под одним тикером разные активы.',
@@ -315,7 +329,9 @@ const H={
   b:'Эпизоды за 24 ч, у которых пик отклонения достиг указанного порога.',
   t:'Время от входа до возврата середины к центру, по вышедшим эпизодам. Короче ≈ 0,1 с — в пределах точности сведения часов двух бирж.',
   f:'Верхняя граница: вход (Sell) и выход (Buy) в ту же миллисекунду по лучшей цене, время биржи, объём не ограничен; минус комиссия 0,126 % (4 тейкерские ноги по 0,0315 % — тариф владельца на всех биржах).',
-  f2:'Тот же круг, но вход и выход исполняются через 250 мс после сигнала по ценам того момента (лаг srv ↔ биржа туда и обратно). Эпизоды, у которых цены через 250 мс ещё не известны, не входят. Комиссия та же.',
+  z:'Круг до нуля: вход, когда исполнимая цена ушла от центра на θ; выход — середина вернулась к центру. Вход и выход по исполнимым ценам того момента (Sell и Buy), без задержки; минус комиссия 0,126 %.',
+  x:'Круг из минуса в плюс: вход, когда исполнимая цена ушла от центра на θ; выход — исполнимая цена другой стороны ушла от центра на θ в противоположную сторону. Новый вход — после возврата середины к центру. Цены и комиссия — как у круга до нуля.',
+  xn:'Закрытых кругов «из минуса в плюс» за последние 24 ч (по времени входа).',
   sn:'Книга BingX приходит снимками по таймеру (≈ 3 в секунду): вход в эпизод почти всегда — движение другой биржи при устаревшем снимке BingX (возраст p50 ≈ 0,2 с). Эпизоды таких пар могут быть артефактом снимков.'
 };
 /* колонки: kk — имя массива ключей сортировки, v — значение для ячейки, h — подсказка */
@@ -325,6 +341,7 @@ function cols(){
   const big=(i,t)=>({k:'b'+i,kk:'b'+i,t:'выбросов<br>≥ '+t+' %<br>за сутки',h:H.b,v:r=>r.big?r.big[i]:null,f:v=>nf(v,0)});
   const vol=(i,t)=>({k:'v'+i,kk:'v'+i,t:t,h:H.v,sub:1,v:r=>r.v?r.v[i]:null,f:mn});
   const q=o?' В режиме «выбросы» — p95 по эпизодам.':' Показана медиана по эпизодам.';
+  const tl=thLab(thetas()[tI()]),xn={k:'xn',kk:'xn',t:'кругов<br>из − в +<br>за сутки<br>θ '+tl+' %',h:H.xn,circ:1,v:r=>zx(r,'x',2),f:v=>nf(v,0)};
   return [{k:'c',kk:'c',t:'монета',h:H.c,l:1},{k:'p',kk:'p',t:'пара бирж',h:H.p,l:1},vol(0,'1-я биржа,<br>млн'),vol(1,'2-я биржа,<br>млн')].concat(o?[
     {k:'size',kk:'size|out',t:'расхождение<br>p95, %',h:H.s+q,v:r=>at(r.pk,1),f:pc},
     {k:'max',kk:'max',t:'расхождение<br>макс, %',h:H.s+' Здесь — максимум пика по эпизодам.',v:r=>at(r.pk,2),f:pc}
@@ -333,12 +350,21 @@ function cols(){
   ]).concat([cnt(0,'за 1 ч'),cnt(1,'за 4 ч'),cnt(2,'за 6 ч'),cnt(3,'за 1 сут'),big(0,'0,3'),big(1,'0,5'),big(2,'1')]).concat(o?[
     {k:'tau',kk:'tau|out',t:'схождение<br>p95',h:H.t+q,v:r=>at(r.tau,1),f:dur},
     {k:'net',kk:'net|out',t:'после комиссий<br>p95, %',h:H.f+q,v:r=>at(r.net,1),f:sgp},
-    {k:'net2',kk:'net2|out',t:'после комиссий<br>через 250 мс, p95, %',h:H.f2+q,v:r=>at(r.net250,1),f:sgp}
+    {k:'z',kk:'z|out',t:'после<br>комиссий, %<br>до нуля, p95<br>θ '+tl+' %',h:H.z+q,circ:1,v:r=>zx(r,'z',1),f:sgp},
+    {k:'x',kk:'x|out',t:'после<br>комиссий, %<br>из − в +, p95<br>θ '+tl+' %',h:H.x+q,circ:1,v:r=>zx(r,'x',1),f:sgp},
+    xn
   ]:[
     {k:'tau',kk:'tau|med',t:'схождение,<br>медиана',h:H.t+q,v:r=>at(r.tau,0),f:dur},
     {k:'net',kk:'net|med',t:'после комиссий,<br>%',h:H.f+q,v:r=>at(r.net,0),f:sgp},
-    {k:'net2',kk:'net2|med',t:'после комиссий<br>через 250 мс, %',h:H.f2+q,v:r=>at(r.net250,0),f:sgp}
+    {k:'z',kk:'z|med',t:'после<br>комиссий, %<br>до нуля<br>θ '+tl+' %',h:H.z+q,circ:1,v:r=>zx(r,'z',0),f:sgp},
+    {k:'x',kk:'x|med',t:'после<br>комиссий, %<br>из − в +<br>θ '+tl+' %',h:H.x+q,circ:1,v:r=>zx(r,'x',0),f:sgp},
+    xn
   ]);
+}
+/* ключи сортировки столбцов, зависящих от θ: пересчитываются при смене θ */
+function kTh(){
+  const n=R.length,f=(name,fn,nul)=>{const a=new Float64Array(n);for(let i=0;i<n;i++){const x=fn(R[i]);a[i]=x==null?nul:x}K[name]=a};
+  f('z|med',r=>zx(r,'z',0),-1e9);f('z|out',r=>zx(r,'z',1),-1e9);f('x|med',r=>zx(r,'x',0),-1e9);f('x|out',r=>zx(r,'x',1),-1e9);f('xn',r=>zx(r,'x',2),-1);
 }
 /* данные пришли: строки, массивы ключей сортировки (один раз), счётчики пустых */
 function setData(j){
@@ -353,7 +379,7 @@ function setData(j){
   f('size|med',r=>at(r.pk,0),-1e9);f('size|out',r=>at(r.pk,1),-1e9);f('max',r=>at(r.pk,2),-1e9);
   f('tau|med',r=>at(r.tau,0),1e12);f('tau|out',r=>at(r.tau,1),1e12);
   f('net|med',r=>at(r.net,0),-1e9);f('net|out',r=>at(r.net,1),-1e9);
-  f('net2|med',r=>at(r.net250,0),-1e9);f('net2|out',r=>at(r.net250,1),-1e9);
+  kTh();
   const rank=(name,lab)=>{const L=R.map(lab),idx=R.map((_,i)=>i).sort((x,y)=>L[x]<L[y]?-1:L[x]>L[y]?1:x-y);const a=new Float64Array(n);idx.forEach((i,p)=>a[i]=p);K[name]=a};
   rank('c',r=>r.c);rank('p',r=>N[r.a]+N[r.b]);
   for(let i=0;i<n;i++){const r=R[i];r.i=i;r.k=r.c+'|'+r.a+'|'+r.b;r.pc=r.a+'|'+r.b;const nm=x=>esc(N[x])+(SNAP.has(x)?'<i class="sn" data-sn="1">снимки</i>':'');r.pl=nm(r.a)+' → '+nm(r.b);const e=r.cnt[3]===0?1:0;
@@ -379,18 +405,19 @@ const COLICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 /* если сортировка по столбцу, которого нет (скрыт или нет в этом режиме) — «расхождение», иначе первый видимый */
 function fixSort(){const V=vis(cols());if(V.some(c=>c.k===st.sort))return;const f=V.find(c=>c.k==='size')||V.find(c=>!FIXED.includes(c.k));if(f){st.sort=f.k;st.dir=f.k==='tau'?1:-1}else{st.sort='c';st.dir=1}}
 /* поповер «Настройки»: фильтры строк и столбцы */
-const fnum=v=>v>0?String(v).replace('.',','):'';
+const fnum=v=>v==null?'':String(v).replace('.',',').replace('-','−');
 function popHtml(){
-  const C=cols();
-  const fr=(k,l,ph)=>'<label class="fr">'+l+'<input type="text" inputmode="decimal" autocomplete="off" data-fk="'+k+'" value="'+fnum(FL[k])+'" placeholder="'+ph+'" aria-label="'+l+'"></label>';
-  return '<header><h4>Настройки</h4><p>Сохраняется в этом браузере.</p></header>'
-    +'<section><h5>Фильтры строк</h5><div class="flt">'+fr('ep','эпизодов за сутки ≥','0')+fr('v','оборот каждой биржи, млн $ ≥','0')+fr('gap','расхождение, % ≥','0')
-    +'<label class="lab"><input type="checkbox" data-fs="1"'+(FL.snap?' checked':'')+'>скрыть пары с BingX (снимки)</label></div>'
-    +'<p class="h">«Расхождение» — по тому, что показано в столбце: медиана пика, в режиме «выбросы» — p95.</p></section>'
+  const C=cols(),ti=tI();
+  const fr=(k,l)=>'<label class="fr">'+l+'<input type="text" inputmode="decimal" autocomplete="off" data-fk="'+k+'" value="'+fnum(FL[k])+'" placeholder="—" aria-label="'+l+'"></label>';
+  return '<header><h4>Настройки</h4></header>'
+    +'<section><h5>Порог θ, %</h5><div class="seg" role="group" aria-label="Порог θ, %">'+thetas().map((t,i)=>'<button data-th="'+t+'" class="'+(i===ti?'on':'')+'" aria-pressed="'+(i===ti)+'">'+thLab(t)+'</button>').join('')+'</div></section>'
+    +'<section><h5>Фильтры строк</h5><div class="flt">'+fr('v','оборот каждой биржи, млн $ ≥')+fr('gap','расхождение, % ≥')+fr('b0','выбросов ≥ 0,3 %, за сутки ≥')+fr('b1','выбросов ≥ 0,5 %, за сутки ≥')+fr('b2','выбросов ≥ 1 %, за сутки ≥')
+    +fr('tau','схождение, с ≤')+fr('net','после комиссий, % ≥')+fr('z','круг до нуля, % ≥')+fr('x','круг из − в +, % ≥')
+    +'<label class="lab"><input type="checkbox" data-fs="1"'+(FL.snap?' checked':'')+'>скрыть пары с BingX (снимки)</label></div></section>'
     +'<section><h5>Столбцы</h5><div class="list">'+C.map(c=>{const fx=FIXED.includes(c.k);return '<label class="lab'+(fx?' fx':'')+'"><input type="checkbox" data-ck="'+c.k+'"'+(fx||!hid.has(c.k)?' checked':'')+(fx?' disabled':'')+'>'+c.t.replace(/<br>/g,' ')+(fx?' · всегда показана':'')+'</label>'}).join('')+'</div></section>'
     +'<footer><span class="h"><span id="colcnt"></span><span id="rowcnt"></span></span><button data-reset="1" id="colreset">по умолчанию</button></footer>';
 }
-function popFoot(){const C=cols();$('colcnt').textContent='Показано: '+vis(C).length+' из '+C.length;$('rowcnt').textContent='Строк: '+nf(view.length,0)+' из '+nf(R.length,0);$('colreset').disabled=!hid.size&&!flN()}
+function popFoot(){const C=cols();$('colcnt').textContent='Показано: '+vis(C).length+' из '+C.length;$('rowcnt').textContent='Строк: '+nf(view.length,0)+' из '+nf(R.length,0);$('colreset').disabled=!hid.size&&!flN()&&TH===THD}
 function placePop(){const b=document.querySelector('#ctl [data-cols]'),p=$('colpop');if(!b)return;const r=b.getBoundingClientRect();p.style.top=(r.bottom+window.scrollY+4)+'px';p.style.left=Math.max(8,r.right+window.scrollX-p.offsetWidth)+'px'}
 function setPop(on){popOpen=on;const p=$('colpop');p.hidden=!on;if(on){p.innerHTML=popHtml();popFoot();placePop()}const b=document.querySelector('#ctl [data-cols]');if(b)b.setAttribute('aria-expanded',on)}
 function colsChanged(){fixSort();head();refresh();popFoot()}
@@ -412,10 +439,15 @@ function head(){
 /* порядок строк: выбранные биржи (обе у пары) и «скрыть пустые», сортировка по готовому массиву ключей */
 function buildView(){
   const C=cols();let col=C.find(c=>c.k===st.sort);if(!col){st.sort='size';col=C.find(c=>c.k==='size')}
-  const ka=K[col.kk],d=st.dir,out=[],fv=FL.v*1e6,fg=FL.gap*100,gi=st.mode==='out'?1:0;
+  const ka=K[col.kk],d=st.dir,out=[],fv=FL.v==null?null:FL.v*1e6,gi=st.mode==='out'?1:0,p100=k=>FL[k]==null?null:FL[k]*100;
+  const fg=p100('gap'),fn=p100('net'),fz=p100('z'),fx=p100('x'),ft=FL.tau;
   for(let i=0;i<R.length;i++){const r=R[i];
     if(!(XS.has(r.a)&&XS.has(r.b))||st.hide&&r.cnt[3]===0)continue;
-    if(FL.ep&&r.cnt[3]<FL.ep||fv&&!(r.v&&r.v[0]>=fv&&r.v[1]>=fv)||fg&&!(r.pk&&r.pk[gi]>=fg)||FL.snap&&(SNAP.has(r.a)||SNAP.has(r.b)))continue;
+    if(fv!=null&&!(r.v&&r.v[0]>=fv&&r.v[1]>=fv)||fg!=null&&!(r.pk&&r.pk[gi]>=fg)||FL.snap&&(SNAP.has(r.a)||SNAP.has(r.b)))continue;
+    if(FL.b0!=null&&!(r.big&&r.big[0]>=FL.b0)||FL.b1!=null&&!(r.big&&r.big[1]>=FL.b1)||FL.b2!=null&&!(r.big&&r.big[2]>=FL.b2))continue;
+    if(ft!=null&&!(r.tau&&r.tau[gi]<=ft)||fn!=null&&!(r.net&&r.net[gi]>=fn))continue;
+    if(fz!=null){const v=zx(r,'z',gi);if(!(v!=null&&v>=fz))continue}
+    if(fx!=null){const v=zx(r,'x',gi);if(!(v!=null&&v>=fx))continue}
     out.push(i)}
   out.sort((x,y)=>{const v=ka[x]-ka[y];return v?v*d:x-y});
   view=out;
@@ -424,7 +456,7 @@ function rowHtml(r,C){
   if(r._m===colKey)return r._h;
   const none=r.cnt[3]===0;let s='<tr class="r" data-k="'+esc(r.k)+'"><td class="l c">'+esc(r.c)+'</td><td class="l p">'+r.pl+'</td>';
   for(let j=2;j<C.length;j++){const c=C[j],x=c.v(r),nn=x==null;
-    const cl=none&&!c.sub||nn?'none':x===0&&/^[nb]\d$/.test(c.k)?'z':(c.k==='net'||c.k==='net2')&&x>0?'pos':'';
+    const cl=none&&!c.sub&&!c.circ||nn?'none':x===0&&/^([nb]\d|xn)$/.test(c.k)?'z':(c.k==='net'||c.k==='z'||c.k==='x')&&x>0?'pos':'';
     s+='<td'+(c.span?' colspan="'+c.span+'"':'')+(cl?' class="'+cl+'"':'')+'>'+(nn?'—':c.f(x))+'</td>'}
   r._m=colKey;r._h=s+'</tr>';return r._h;
 }
@@ -432,7 +464,7 @@ const chRow=()=>'<tr class="ch"><td colspan="'+NC+'"><div class="box"><div class
 const sp=h=>'<tr class="sp"><td colspan="'+NC+'" style="height:'+h+'px"></td></tr>';
 /* рисуем только строки у окна просмотра: над ними и под ними — пустые строки нужной высоты, высота таблицы та же, что у полной */
 function paint(){
-  const tb=$('tb'),n=view.length,C=vis(cols());NC=gc(C);colKey=st.mode+'|'+[...hid].sort().join(',');
+  const tb=$('tb'),n=view.length,C=vis(cols());NC=gc(C);colKey=st.mode+'|'+TH+'|'+[...hid].sort().join(',');
   const oi=st.open?view.findIndex(i=>R[i].k===st.open):-1,ex=oi>=0?CHH:0;
   const y=i=>i*ROWH+(oi>=0&&i>oi?CHH:0);
   const idx=v=>{if(oi<0||v<(oi+1)*ROWH)return Math.floor(v/ROWH);if(v<(oi+1)*ROWH+CHH)return oi;return Math.floor((v-CHH)/ROWH)};
@@ -542,9 +574,12 @@ $('colpop').onchange=e=>{
   if(e.target.closest('input[data-fs]')){FL.snap=e.target.checked;fltChanged();return}
   const i=e.target.closest('input[data-ck]');if(!i)return;if(i.checked)hid.delete(i.dataset.ck);else hid.add(i.dataset.ck);saveCols();colsChanged()};
 $('colpop').oninput=e=>{const i=e.target.closest('input[data-fk]');if(!i)return;
-  const raw=i.value.trim().replace(',','.').replace(/\s/g,''),x=raw===''?0:Number(raw),ok=raw===''||(isFinite(x)&&x>=0);
-  i.classList.toggle('bad',!ok);if(!ok)return;FL[i.dataset.fk]=x;fltChanged()};
-$('colpop').onclick=e=>{if(!e.target.closest('button[data-reset]'))return;hid.clear();saveCols();FL.ep=FL.v=FL.gap=0;FL.snap=false;saveFl();st.open=null;$('colpop').innerHTML=popHtml();ctl();colsChanged()};
+  const k=i.dataset.fk,raw=i.value.trim().replace(',','.').replace('−','-').replace(/\s/g,''),x=raw===''?null:Number(raw),ok=raw===''||(raw!=='-'&&isFinite(x)&&(FNEG.includes(k)||x>=0));
+  i.classList.toggle('bad',!ok&&raw!=='-');if(!ok)return;FL[k]=x;fltChanged()};
+/* θ: пересчёт ключей сортировки, заголовки и ячейки столбцов кругов; открытый график закрывается, как при смене набора строк */
+function setTh(t){if(t===TH)return;TH=t;saveTh();kTh();st.open=null;$('colpop').innerHTML=popHtml();ctl();colsChanged()}
+$('colpop').onclick=e=>{const tb=e.target.closest('button[data-th]');if(tb){setTh(Number(tb.dataset.th));return}
+  if(!e.target.closest('button[data-reset]'))return;hid.clear();saveCols();FKS.forEach(k=>FL[k]=null);FL.snap=false;saveFl();TH=THD;saveTh();kTh();st.open=null;$('colpop').innerHTML=popHtml();ctl();colsChanged()};
 document.addEventListener('mousedown',e=>{if(popOpen&&!e.target.closest('#colpop,#ctl [data-cols]'))setPop(false)});
 document.addEventListener('keydown',e=>{if(popOpen&&e.key==='Escape'){setPop(false);const b=document.querySelector('#ctl [data-cols]');if(b)b.focus()}});
 /* подсказки: к заголовку столбца и к метке «снимки» — через 180 мс после наведения, под элементом; уходят при уходе курсора, клике, прокрутке */
@@ -567,7 +602,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeou
 setInterval(()=>{if(!document.hidden)clk()},30000);
 fixSort();exs();ctl();head();
 if(/^#(health|.*tip=)/.test(location.hash))tab(false,true);else tab(true,true);
-window._arb={st,cols,vis,hid,xhid,FL,flN,SNAP,get sel(){return[...XS]},get ids(){return A&&A.names?Object.keys(A.names):[]},paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
+window._arb={st,cols,vis,hid,xhid,FL,flN,SNAP,get TH(){return TH},setTh,thetas,get sel(){return[...XS]},get ids(){return A&&A.names?Object.keys(A.names):[]},paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
 })();
 </script>
 </body>
