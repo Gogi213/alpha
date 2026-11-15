@@ -7,12 +7,14 @@
 (медиана по минутным барам за окно 60 мин, нужно ≥ max(3, окно/2) баров). Уровни — LEVELS viking (5…30 bps), плюс порог комиссий.
 """
 import warnings
+from array import array
 
 import numpy as np
 
 FEE_RT_BPS = 12.6                                # 4 тейкерских ноги × 3,5 bps × 0,9 (preferences п.12, В-47/71/88)
 LEVELS = [5.0, 10.0, FEE_RT_BPS, 15.0, 20.0, 30.0]   # bps: уровни viking + порог комиссий
-DELAY_MS = 250                                   # «после комиссий через 250 мс»: вход и выход исполняются через 250 мс после сигнала по ценам того момента (разбор математики Д1, лаг srv ↔ биржа туда и обратно)
+STALE_MS = 60_000                                # нога без записи книги дольше 60 с — котировки нет: строки пары в это время не создаются (иначе дыра сбора выглядит расхождением)
+THETAS = (10.0, 15.0, 20.0, 30.0, 50.0)          # bps: пороги θ кругов «до нуля» и «из минуса в плюс» (0,1 / 0,15 / 0,2 / 0,3 / 0,5 %); на странице выбирается один
 CAP_MS = 60_000                                  # вес интервала не больше 60 с (viking spread_stats)
 WIN_MIN = 60                                     # окно центра, мин (viking: авто-центр по умолчанию 60)
 NEED_BARS = 30                                   # viking: need = max(3, окно // 2)
@@ -23,14 +25,21 @@ EDGE_X = [0.0, 0.5, 1, 2, 3, 5, 7.5, 10, 12.6, 15, 20, 30, 50, 100, 200]        
 
 
 def clean(a):
-    """Сортировка по (E, приём), снятие подряд идущих повторов цены и негодных записей. a — dict массивов."""
+    """Сортировка по (E, приём), снятие негодных записей и подряд идущих повторов цены. a — dict массивов.
+    Запись после паузы > STALE_MS остаётся и при той же цене (книга была без записей — пауза видна). hold[i] — время последней сырой записи серии, которую открыла запись i:
+    котировка записи i живёт до hold[i] + STALE_MS (pair_series)."""
     o = np.lexsort((a["rx"], a["e"]))
     a = {k: v[o] for k, v in a.items()}
     ok = (a["bid"] > 0) & (a["ask"] > 0) & (a["bid"] <= a["ask"])
     a = {k: v[ok] for k, v in a.items()}
-    if len(a["e"]) > 1:
-        ch = np.r_[True, (a["bid"][1:] != a["bid"][:-1]) | (a["ask"][1:] != a["ask"][:-1])]
-        a = {k: v[ch] for k, v in a.items()}
+    e = a["e"]
+    ch = np.ones(len(e), bool)
+    if len(e) > 1:
+        ch[1:] = (a["bid"][1:] != a["bid"][:-1]) | (a["ask"][1:] != a["ask"][:-1]) | (np.diff(e) > STALE_MS)
+    idx = np.flatnonzero(ch)
+    hold = np.r_[e[idx[1:] - 1], e[-1:]]
+    a = {k: v[ch] for k, v in a.items()}
+    a["hold"] = hold
     return a
 
 
@@ -46,14 +55,19 @@ def rx_view(a):
     return a
 
 
-def pair_series(A, B, t1):
-    """Объединённый ряд по моментам изменения любой из двух сторон: (T, S, Bu, ia, ib). Только где есть обе стороны."""
+def pair_series(A, B, t1, stale_ms=STALE_MS):
+    """Объединённый ряд по моментам изменения любой из двух сторон: (T, S, Bu, ia, ib). Только где есть обе стороны и у каждой за последние STALE_MS была запись книги
+    (A["hold"] — время последней сырой записи серии; нет — берётся время самой записи). stale_ms=None — без ограничения (прежнее поведение: книга переносится вперёд навсегда;
+    так считают исследовательские модули maker / outlier, чьи отчёты и тесты на этом стоят)."""
     tA, tB = A["e"], B["e"]
     T = np.union1d(tA, tB)
     ia = np.searchsorted(tA, T, "right") - 1
     ib = np.searchsorted(tB, T, "right") - 1
     ok = (ia >= 0) & (ib >= 0) & (T < t1)
     T, ia, ib = T[ok], ia[ok], ib[ok]
+    if stale_ms is not None:
+        ok = (T - A.get("hold", tA)[ia] <= stale_ms) & (T - B.get("hold", tB)[ib] <= stale_ms)
+        T, ia, ib = T[ok], ia[ok], ib[ok]
     S = (A["bid"][ia] / B["ask"][ib] - 1.0) * 1e4
     Bu = (A["ask"][ia] / B["bid"][ib] - 1.0) * 1e4
     return T, S, Bu, ia, ib
@@ -125,10 +139,9 @@ def runs(T, mask, tend):
     return [(int(T[a]), int(Tn[b + 1] - T[a]), int(a), int(b)) for a, b in zip(st, en)]
 
 
-def analyze_pair(A, B, t0, t1, hold_ms=0):
-    """Полная статистика пары за окно [t0, t1) мс. Возвращает (строка, бары, список эпизодов) или None, если данных мало.
-    hold_ms > 0 — круг с задержкой исполнения (8-е поле эпизода): автомат идёт по строкам раньше t1 − hold_ms (цены через hold_ms после сигнала должны быть уже известны),
-    как у arb_inc, который держит хвост строк до следующего прохода; при hold_ms = 0 — как раньше, поле None."""
+def analyze_pair(A, B, t0, t1):
+    """Полная статистика пары за окно [t0, t1) мс. Возвращает (строка, бары, эпизоды по порогам, гистограммы) или None, если данных мало.
+    В эпизодах, кроме порогов LEVELS, ключ "circ" — Circles: круги «до нуля» и «из минуса в плюс» по THETAS."""
     T, S, Bu, ia, ib = pair_series(A, B, t1)
     if len(T) < 50:
         return None
@@ -173,11 +186,9 @@ def analyze_pair(A, B, t0, t1, hold_ms=0):
         row["edge_q"] = wquant(whist(mx, dv), (0.95, 0.99, 0.999))
         ep_out = []
         Mv = (Sv + Bv) / 2
-        if hold_ms:                                    # строки автомата — раньше t1 − hold_ms; цены через hold_ms — по всем строкам окна (состояние пары на T + hold_ms)
-            nm = int(np.searchsorted(Tv, t1 - hold_ms, "left"))
-            kd = np.searchsorted(Tw, Tv[:nm] + hold_ms, "right") - 1
-            Sd, Bd = Sw[kd], Bw[kd]
-            Tv, Sv, Bv, cv, depv, Es, Eb, Mv = (x[:nm] for x in (Tv, Sv, Bv, cv, depv, Es, Eb, Mv))
+        circ = Circles()
+        circ.step(Tv, Sv, Bv, cv)
+        res_eps["circ"] = circ
         for li, th in enumerate(LEVELS):
             rows = []
             # вход: исполнимая цена на th bps выгоднее центра; выход (схождение): середина вернулась к центру
@@ -185,17 +196,146 @@ def analyze_pair(A, B, t0, t1, hold_ms=0):
                 for i, j in episodes(Tv, ent, ex):
                     jj = j if j >= 0 else len(Tv) - 1
                     tau = int(Tv[j] - Tv[i]) if j >= 0 else int(t1 - Tv[i])
-                    gross = g250 = None
+                    gross = None
                     if j >= 0:   # круг: вход по исполнимой цене, выход исполнимой ценой в момент схождения (до комиссий)
                         gross = float(Sv[i] - Bv[j]) if dirn == 1 else float(Sv[j] - Bv[i])
-                        if hold_ms:
-                            g250 = float(Sd[i] - Bd[j]) if dirn == 1 else float(Sd[j] - Bd[i])
-                    rows.append((int(Tv[i]), dirn, tau, j < 0, float(e[i:jj + 1].max()), gross, float(depv[i]), g250))
+                    rows.append((int(Tv[i]), dirn, tau, j < 0, float(e[i:jj + 1].max()), gross, float(depv[i])))
             ep_out.append(rows)
             res_eps[th] = rows
         row["eps"] = [_ep_summary(r) for r in ep_out]
     bars = {"m0": int(mins[0]), "mins": (mins - int(mins[0])).astype(int), "n": nb, "S": sb, "B": bb, "centre_m0": m0, "centre": cen}
     return row, bars, res_eps, {"hS": hS, "hB": hB, "hM": hM, "hDev": hDev}
+
+
+class Acc:
+    """Закрытые круги: время входа (мс) и валовый итог (bps, до комиссий). Компактно: 16 байт на круг."""
+
+    __slots__ = ("t", "g")
+
+    def __init__(self):
+        self.t = array("q")
+        self.g = array("d")
+
+    def add(self, t, g):
+        self.t.append(t)
+        self.g.append(g)
+
+    def arr(self):
+        return np.frombuffer(self.t, np.int64), np.frombuffer(self.g, np.float64)
+
+    def prune(self, cut):
+        """Выбрасывает круги, вошедшие раньше cut. -> True, если что-то выброшено."""
+        t, g = self.arr()
+        k = t >= cut
+        if k.all():
+            return False
+        self.t, self.g = array("q", t[k].tolist()), array("d", g[k].tolist())
+        return True
+
+
+def _next(ix, k):
+    """Первый элемент отсортированного ix, не меньший k; −1 — нет."""
+    p = int(np.searchsorted(ix, k, "left"))
+    return int(ix[p]) if p < len(ix) else -1
+
+
+def zero_step(op, d, Tv, Sv, Bv, ei, xi, acc):
+    """Круги «до нуля» одного направления по строкам куска: вход — первая строка из ei (отклонение исполнимой цены от центра ≥ θ), выход — первая строка из xi после входа
+    (середина вернулась к центру); валовый итог = Sell входа − Buy выхода (d = 1) или Sell выхода − Buy входа (d = −1). op — открытый круг [T_вход, Sell, Buy] с прошлого куска
+    или None. Закрытые — в acc (время входа, итог). -> новый op."""
+    k = 0
+    if op is not None:
+        if not len(xi):
+            return op
+        j = int(xi[0])
+        acc.add(op[0], float(op[1] - Bv[j]) if d == 1 else float(Sv[j] - op[2]))
+        op, k = None, int(np.searchsorted(ei, j, "right"))
+    while k < len(ei):
+        i = int(ei[k])
+        q = int(np.searchsorted(xi, i, "right"))
+        if q >= len(xi):
+            return [int(Tv[i]), float(Sv[i]), float(Bv[i])]
+        j = int(xi[q])
+        acc.add(int(Tv[i]), float(Sv[i] - Bv[j]) if d == 1 else float(Sv[j] - Bv[i]))
+        k = int(np.searchsorted(ei, j, "right"))
+    return None
+
+
+def cross_step(st, e1, e2, up, dn, Tv, Sv, Bv, acc):
+    """Круг «из минуса в плюс» (метод владельца): вход, когда исполнимая цена ушла от центра на θ (e1 — Sell ≥ c + θ, позиция +1: продали A / купили B; e2 — Buy ≤ c − θ, позиция −1),
+    выход — когда исполнимая цена ДРУГОЙ стороны ушла от центра на θ в противоположную сторону (позиция +1 закрывается на e2, −1 — на e1); итог до комиссий = Sell − Buy по входу и выходу.
+    После выхода новый вход — только когда середина вернулась через центр (up: середина ≥ центра после выхода из позиции +1; dn: ≤ центра после −1), иначе выход открыл бы обратную позицию
+    той же сделкой («переворот»). e1, e2, up, dn — индексы строк куска. st = [режим, сторона, T_вход, Sell_вход, Buy_вход] меняется на месте;
+    режим 0 — готов к входу, 1 / 2 — ждёт возврата середины сверху (после +1) / снизу (после −1), 3 — в позиции."""
+    mode, side, t_in, s_in, b_in = st
+    n, k = len(Tv), 0
+    while k < n:
+        if mode in (1, 2):
+            r = _next(up if mode == 1 else dn, k)
+            if r < 0:
+                break
+            k, mode = r, 0
+        if mode == 0:
+            i1, i2 = _next(e1, k), _next(e2, k)
+            if i1 < 0 and i2 < 0:
+                break
+            if i2 < 0 or (i1 >= 0 and i1 < i2):
+                side, i = 1, i1
+            else:
+                side, i = -1, i2
+            t_in, s_in, b_in = int(Tv[i]), float(Sv[i]), float(Bv[i])
+            mode, k = 3, i
+        j = _next(e2 if side == 1 else e1, k)
+        if j < 0:
+            break
+        acc.add(t_in, float(s_in - Bv[j]) if side == 1 else float(Sv[j] - b_in))
+        mode, k = (1 if side == 1 else 2), j
+    st[:] = [mode, side, t_in, s_in, b_in]
+
+
+class Circles:
+    """Круги по порогам THETAS для пары: «до нуля» (вход при отклонении ≥ θ, выход при возврате середины к центру — как эпизоды порога комиссий, но порог θ) и «из минуса в плюс»
+    (cross_step). Исполнение и комиссия — как у столбца «после комиссий»: вход и выход по исполнимой цене в момент сигнала, без задержки, минус FEE_RT_BPS.
+    step() принимает строки с известным центром по порядку времени и продолжает с прошлого куска (полный счёт — один кусок, инкрементальный — по проходам)."""
+
+    __slots__ = ("zop", "zacc", "xst", "xacc", "ver")
+
+    def __init__(self):
+        self.zop = {th: [None, None] for th in THETAS}              # открытый круг «до нуля»: направление +1 / −1
+        self.zacc = {th: Acc() for th in THETAS}
+        self.xst = {th: [0, 0, 0, 0.0, 0.0] for th in THETAS}
+        self.xacc = {th: Acc() for th in THETAS}
+        self.ver = 0                                                # меняется, когда меняются закрытые круги (сводку пересчитывать только тогда)
+
+    def step(self, Tv, Sv, Bv, cv):
+        if not len(Tv):
+            return
+        Es, Eb, Dm = Sv - cv, cv - Bv, (Sv + Bv) / 2 - cv
+        up, dn = np.flatnonzero(Dm >= 0), np.flatnonzero(Dm <= 0)      # середина не ниже / не выше центра: выход «до нуля» позиций −1 / +1 и разрешение нового входа после «из минуса в плюс»
+        for th in THETAS:
+            na, nb = len(self.zacc[th].t), len(self.xacc[th].t)
+            e1, e2 = np.flatnonzero(Es >= th), np.flatnonzero(Eb >= th)
+            zo = self.zop[th]
+            zo[0] = zero_step(zo[0], 1, Tv, Sv, Bv, e1, dn, self.zacc[th])
+            zo[1] = zero_step(zo[1], -1, Tv, Sv, Bv, e2, up, self.zacc[th])
+            cross_step(self.xst[th], e1, e2, up, dn, Tv, Sv, Bv, self.xacc[th])
+            if len(self.zacc[th].t) != na or len(self.xacc[th].t) != nb:
+                self.ver += 1
+
+    def prune(self, cut):
+        for acc in (*self.zacc.values(), *self.xacc.values()):
+            if acc.prune(cut):
+                self.ver += 1
+
+    def stats(self):
+        """-> (z, x): по THETAS [медиана, p95 круга минус комиссии (bps), число закрытых кругов] или None, если кругов нет."""
+        def one(acc):
+            t, g = acc.arr()
+            if not len(g):
+                return None
+            net = g - FEE_RT_BPS
+            return [float(np.median(net)), float(np.percentile(net, 95)), int(len(g))]
+        return [one(self.zacc[th]) for th in THETAS], [one(self.xacc[th]) for th in THETAS]
 
 
 BIG_BPS = (30.0, 50.0, 100.0)   # «выбросы»: пик эпизода ≥ 0,3 / 0,5 / 1 % (эпизод порога комиссий с таким пиком — это эпизод порога θ, выход тот же)
@@ -211,19 +351,16 @@ def big_counts(rows, t1):
 
 def ep_table_stats(rows, fee=FEE_RT_BPS):
     """Сводка эпизодов одной пары для таблицы вкладки: rows — эпизоды порога комиссий (как в analyze_pair).
-    -> {n, pk: [медиана, p95, макс] пика, tau: [медиана, p95] времени схождения (с, по вышедшим), net: [медиана, p95] круга минус комиссии (bps),
-    net250: то же для круга с исполнением через DELAY_MS (8-е поле эпизода; эпизоды без него — старые или открытые — не входят)};
+    -> {n, pk: [медиана, p95, макс] пика, tau: [медиана, p95] времени схождения (с, по вышедшим), net: [медиана, p95] круга минус комиссии (bps)};
     поле None, если данных нет. Круг считается только по вышедшим эпизодам."""
     if not rows:
-        return {"n": 0, "pk": None, "tau": None, "net": None, "net250": None}
+        return {"n": 0, "pk": None, "tau": None, "net": None}
     pk = np.array([r[4] for r in rows], float)
     tau = np.array([r[2] for r in rows if not r[3]], float) / 1000
     gr = np.array([r[5] for r in rows if r[5] is not None], float) - fee
-    g2 = np.array([r[7] for r in rows if len(r) > 7 and r[7] is not None], float) - fee
     return {"n": len(rows), "pk": [float(np.median(pk)), float(np.percentile(pk, 95)), float(pk.max())],
             "tau": [float(np.median(tau)), float(np.percentile(tau, 95))] if len(tau) else None,
-            "net": [float(np.median(gr)), float(np.percentile(gr, 95))] if len(gr) else None,
-            "net250": [float(np.median(g2)), float(np.percentile(g2, 95))] if len(g2) else None}
+            "net": [float(np.median(gr)), float(np.percentile(gr, 95))] if len(gr) else None}
 
 
 def chart_slots(b, tmin0, n):

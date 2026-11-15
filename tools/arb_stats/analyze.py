@@ -61,7 +61,7 @@ def work_coin(coin):
             if not 0.9 < ratio < 1.1:
                 mism.append({"coin": coin, "A": ea, "B": eb, "ratio": ratio})
                 continue
-            r = core.analyze_pair(arrs[ea], arrs[eb], g["t0"], g["t1"], hold_ms=g.get("hold_ms", 0))
+            r = core.analyze_pair(arrs[ea], arrs[eb], g["t0"], g["t1"])
             if r is None:
                 continue
             row, bars, eps, hist = r
@@ -71,9 +71,9 @@ def work_coin(coin):
     return coin, rows, det, mism, {ex: {k: v for k, v in i.items()} for ex, i in info.items()}
 
 
-def compute(work, day, t0, t1, clock, hook=None, par=3, hold_ms=0):
+def compute(work, day, t0, t1, clock, hook=None, par=3):
     """Счёт по всем парам: (строки, детали, несовпадения, сведения по монетам, число монет).
-    hook(row, bars, eps, hist) — если задан, подменяет тяжёлые детали пары на то, что вернёт (живая вкладка). hold_ms — задержка исполнения для круга (core.analyze_pair)."""
+    hook(row, bars, eps, hist) — если задан, подменяет тяжёлые детали пары на то, что вернёт (живая вкладка)."""
     symmap = build_symmap(day)
     meta = {ex: load_pool(ex, day)[1] for ex in EXCHANGES}
     coins = {}
@@ -83,7 +83,7 @@ def compute(work, day, t0, t1, clock, hook=None, par=3, hold_ms=0):
             exact = norm(ex, sym)[0] == coin   # две записи одной монеты на бирже (MASK / NULLMASK): берётся та, чьё имя совпадает
             if cur is None or (exact and not cur[2]):
                 coins[coin][ex] = (sym, mult, exact)
-    G.update({"work": work, "t0": t0, "t1": t1, "clock": clock, "coins": coins, "meta": meta, "hook": hook, "hold_ms": hold_ms})
+    G.update({"work": work, "t0": t0, "t1": t1, "clock": clock, "coins": coins, "meta": meta, "hook": hook})
     with Pool(par) as p:
         res = p.map(work_coin, sorted(coins), chunksize=4)
     rows, det, mism, info = [], {}, [], {}

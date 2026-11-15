@@ -131,7 +131,7 @@ class Env:
                     ma, mb = float(np.median((clean[a]["bid"] + clean[a]["ask"]) / 2)), float(np.median((clean[b]["bid"] + clean[b]["ask"]) / 2))
                     if not 0.9 < ma / mb < 1.1:
                         continue
-                    r = arb_inc.core.analyze_pair(clean[a], clean[b], t0, t_b, hold_ms=arb_inc.core.DELAY_MS)
+                    r = arb_inc.core.analyze_pair(clean[a], clean[b], t0, t_b)
                     if r is None:
                         continue
                     analyze.G.update({"t0": t0, "t1": t_b})

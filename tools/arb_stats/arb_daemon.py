@@ -141,7 +141,7 @@ def to_sym_arrays(a, mult, unit):
 
 # --- мир: всё состояние службы ---------------------------------------------------------------------------------------
 
-VERSION = 2                  # формат состояния: 2 — плотные минутные ряды пар и живые минуты бирж (график «как было»)
+VERSION = 3                  # формат состояния: 2 — плотные минутные ряды пар и живые минуты бирж (график «как было»); 3 — запись символа с временем последней сырой записи серии (hold), круги пары по порогам THETAS
 
 
 def new_world():
@@ -220,7 +220,7 @@ def advance(W, coins, t_b):
         carry0[key] = s.carry
         b = s.take(W.t_a if W.t_a is not None else t_b - 10 ** 12, t_b)
         batch[key] = b
-        if b is not None:
+        if b is not None and len(b["e"]):
             nb += 1
             alive.setdefault(key[0], []).append(np.unique(b["e"] // MIN))
             if s.mid is None:

@@ -87,7 +87,7 @@ def parse_all(live, now_ms, par):
 
 
 def hook(row, bars, eps, hist):
-    """Что оставляем от пары: числа за 1/4/6/24 ч, сводка эпизодов порога комиссий и ряд графика. Нет центра — пары нет."""
+    """Что оставляем от пары: числа за 1/4/6/24 ч, сводка эпизодов порога комиссий, круги по порогам THETAS и ряд графика. Нет центра — пары нет."""
     if core.FEE_RT_BPS not in eps:
         return None
     t0, t1 = analyze.G["t0"], analyze.G["t1"]
@@ -95,11 +95,17 @@ def hook(row, bars, eps, hist):
     ts = np.array([r[0] for r in e], np.int64)
     cnt = [int((ts >= t1 - h * 3600_000).sum()) for h in PERIODS_H]
     S, B, C = core.chart_slots(bars, t0 // 60000, int(np.ceil((t1 - t0) / (core.SLOT_MIN * 60000))))
-    return {"cnt": cnt, "big": core.big_counts(e, t1), "st": core.ep_table_stats(e), "S": S, "B": B, "C": C}
+    z, x = eps["circ"].stats()
+    return {"cnt": cnt, "big": core.big_counts(e, t1), "st": core.ep_table_stats(e), "z": z, "x": x, "S": S, "B": B, "C": C}
 
 
 def r1(v):
     return None if v is None else round(v, 1)
+
+
+def circ(v):
+    """Круги по THETAS: [[медиана, p95 (bps, 1 знак), число за сутки] или None]; весь список None — None (экономит место в arb.json)."""
+    return None if all(x is None for x in v) else [x and [r1(x[0]), r1(x[1]), x[2]] for x in v]
 
 
 def write_outputs(live, gen, t0, t1, det, period=3600):
@@ -114,10 +120,10 @@ def write_outputs(live, gen, t0, t1, det, period=3600):
             s = d["st"]
             rows.append({"c": k[0], "a": k[1], "b": k[2], "cnt": d["cnt"], "big": d["big"],
                          "pk": s["pk"] and [r1(x) for x in s["pk"]], "tau": s["tau"] and [round(x, 3) for x in s["tau"]],
-                         "net": s["net"] and [r1(x) for x in s["net"]], "net250": s["net250"] and [r1(x) for x in s["net250"]], "o": off, "l": len(line)})
+                         "net": s["net"] and [r1(x) for x in s["net"]], "z": circ(d["z"]), "x": circ(d["x"]), "o": off, "l": len(line)})
             off += len(line)
     os.replace(Path(live, chart + ".tmp"), Path(live, chart))
-    doc = {"gen": gen, "t0": t0, "t1": t1, "start": START_MS, "slot": core.SLOT_MIN * 60, "fee": core.FEE_RT_BPS, "chart": chart,
+    doc = {"gen": gen, "t0": t0, "t1": t1, "start": START_MS, "slot": core.SLOT_MIN * 60, "fee": core.FEE_RT_BPS, "thetas": core.THETAS, "chart": chart,
            "names": NAMES, "written": int(time.time() * 1000), "period": period, "rows": rows}
     tmp = Path(live, "arb.json.tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
@@ -151,7 +157,7 @@ def main(live, par=3):
     t_parse = time.time()
     removed = sum(parse_inc.prune(str(Path(live, "state")), str(Path(live, "parsed")), ex, t1 - WINDOW_MS - WARM_MS) for ex in EXCHANGES)
     _, day = symmap_for(days_between(now, now)[0])
-    _, det, _, _, coins = analyze.compute(str(Path(live, "parsed")), day, t0, t1, "e", hook=hook, par=par, hold_ms=core.DELAY_MS)
+    _, det, _, _, coins = analyze.compute(str(Path(live, "parsed")), day, t0, t1, "e", hook=hook, par=par)
     det = {k: v for k, v in det.items() if v}
     n = write_outputs(live, now, t0, t1, det)
     print(json.dumps({"files": files, "kept": kept, "removed": removed, "coins": len(coins), "pairs": n, "t0": t0, "t1": t1,

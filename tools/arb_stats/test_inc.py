@@ -101,7 +101,7 @@ def full_result(A_raw, B_raw, start, t1, alive=None):
     """Эталон: таблица — полный счёт (clean + analyze_pair + hook) по всем записям, пришедшим к моменту прохода; график — ref_chart.
     alive — (alive_a, alive_b) множества живых минут; по умолчанию все минуты живые."""
     A, B = core.clean(dict(A_raw)), core.clean(dict(B_raw))
-    r = core.analyze_pair(A, B, start, t1, hold_ms=core.DELAY_MS)
+    r = core.analyze_pair(A, B, start, t1)
     if r is None:
         return None
     analyze.G.update({"t0": start, "t1": t1})
@@ -157,8 +157,10 @@ def assert_same(got, want, ctx=None):
     assert got is not None, ctx
     assert got["cnt"] == want["cnt"], (ctx, got["cnt"], want["cnt"])
     assert got["big"] == want["big"], (ctx, got["big"], want["big"])
-    for k in ("n", "pk", "tau", "net", "net250"):
+    for k in ("n", "pk", "tau", "net"):
         assert got["st"][k] == want["st"][k], (ctx, k, got["st"][k], want["st"][k])
+    for k in ("z", "x"):                                                                  # круги по порогам THETAS: инкрементальный счёт = полный
+        assert got[k] == want[k], (ctx, k, got[k], want[k])
     for k in ("S", "B", "C"):
         assert got[k] == want[k], (ctx, k)
 
@@ -246,10 +248,11 @@ class _Gap:
 
 
 def test_illiquid_pair_chart_has_no_holes():
-    """Владелец 15.11: «дырки в графике» (GE Bybit→BingX): у обеих сторон мало записей — слоты без записей не должны быть пустыми."""
+    """Владелец 15.11: «дырки в графике» (GE Bybit→BingX): у обеих сторон мало записей — слоты без записей не должны быть пустыми.
+    С котировкой на 60 с (core.STALE_MS) пара с записью реже раза в минуту строк не имеет совсем, поэтому «малая» — ≈ 2–3 записи в минуту: минуты и слоты без строк остаются."""
     rng = np.random.default_rng(21)
-    A = make_symbol(rng, 150, 100.0, lambda t: np.zeros(len(t)), dup=0.0, bad=0.0)       # ~50 записей в час
-    B = make_symbol(rng, 150, 100.0, basis_of(shocks(rng, 3, 0.25)), dup=0.0, bad=0.0)
+    A = make_symbol(rng, 420, 100.0, lambda t: np.zeros(len(t)), dup=0.0, bad=0.0)       # ≈ 140 записей в час
+    B = make_symbol(rng, 420, 100.0, basis_of(shocks(rng, 3, 0.25)), dup=0.0, bad=0.0)
     start = T_BEGIN + 70 * MIN
     times = np.array([T_BEGIN + 3 * 3600_000 + 5 * MIN], np.int64)
     got, t_b = final_chart(A, B, start, times)
@@ -258,9 +261,6 @@ def test_illiquid_pair_chart_has_no_holes():
         v = got[k]
         first = next(i for i, x in enumerate(v) if x is not None)
         assert all(x is not None for x in v[first:]), (k, [i for i, x in enumerate(v) if x is None][:10])
-    ca, cb = core.clean(dict(A)), core.clean(dict(B))
-    old = core.chart_slots(core.analyze_pair(ca, cb, start, t_b)[1], start // 60000, len(got["S"]))
-    assert sum(x is None for x in old[0][old[0].index(next(x for x in old[0] if x is not None)):]) > 0    # прежняя выборка давала дыры
     assert_same(got, full_result(A, B, start, t_b), "illiquid")                           # и совпадает с эталоном по определению
 
 
@@ -278,47 +278,25 @@ def test_collector_gap_breaks_the_line_only_there():
             assert v is not None, j                                  # вне провала дыр нет
 
 
-def delayed_stream():
-    """Рукотворный поток: B стоит на паритете; A мигает раз в секунду между двумя близкими паритетами (так у каждой минуты есть строки и центр известен) — центр = середина нечётной секунды,
-    выход «середина ≤ центр» наступает при первой же нечётной секунде. Поверх: вспышка A +30 bps с 70:59.900 (граница прохода 71:00 — за 100 мс до цены через 250 мс), с 71:00.100 половина вспышки
-    (+13,0 bps, выше порога 12,6), с 71:03.000 мигание возвращается (выход), с 71:03.100 до 71:05.000 A на 3 bps ниже паритета (цена выхода через 250 мс). Время — от начала суток T0."""
-    T0 = (1_794_000_000_000 // 86_400_000 + 1) * 86_400_000
-    at = lambda m, s: T0 + m * 60_000 + int(round(s * 1000))   # noqa: E731
-    flick = ((100.0, 100.02), (100.01, 100.03))
-    over = {at(70, 59.9): (100.3, 100.32), at(71, 0.1): (100.15, 100.17), at(71, 3.0): None, at(71, 3.1): (99.95, 99.97), at(71, 5.0): None}     # None — мигание
-    times = np.array(sorted(set(range(T0, T0 + 100 * 60_000, 1000)) | set(over)), np.int64)
-    mode, bid, ask = None, [], []
-    for t in times:
-        t = int(t)
-        mode = over.get(t, mode) if t in over else mode
-        q = flick[(t - T0) // 1000 % 2] if mode is None else mode
-        bid.append(q[0])
-        ask.append(q[1])
-    A = {"e": times, "rx": times + 20, "bid": np.array(bid), "ask": np.array(ask), "dep": np.full(len(times), 5.0)}
-    B = {"e": np.array([T0], np.int64), "rx": np.array([T0 + 20], np.int64), "bid": np.array([100.0]), "ask": np.array([100.02]), "dep": np.array([5.0])}
-    return A, B, T0, at
+def test_sym_take_hold_and_refresh_across_passes():
+    s = arb_inc.Sym()
+
+    def ing(e, bid):
+        s.ingest(np.array(e, np.int64), np.array(e, np.int64) + 5, np.array(bid, float), np.array(bid, float) + 0.1, np.full(len(e), 5.0))
+    ing([1000, 2000, 3000], [1.0, 1.0, 1.1])
+    b = s.take(0, 2500)                                       # 1000 принята, 2000 — повтор цены: серия живёт до 2000
+    assert b["e"].tolist() == [1000] and b["hold"].tolist() == [2000] and s.carry[4] == 2000 and b["h0"] is None
+    ing([4000, 5000], [1.1, 1.1])
+    b = s.take(2500, 4500)                                    # 3000 — смена цены, 4000 — повтор; серия carry (1000) закончилась на 2000
+    assert b["e"].tolist() == [3000] and b["hold"].tolist() == [4000] and b["h0"] == 2000
+    b = s.take(4500, 6000)                                    # только повтор: принятых нет, серия продлена до 5000
+    assert len(b["e"]) == 0 and b["h0"] == 5000 and s.carry[4] == 5000
+    ing([5000 + 61_000], [1.1])                               # та же цена после паузы 61 с > 60 с: запись остаётся, серия carry закончилась на 5000
+    b = s.take(6000, 10 ** 6)
+    assert b["e"].tolist() == [66_000] and b["h0"] == 5000 and b["hold"].tolist() == [66_000]
 
 
-def test_delayed_circle_value_and_pass_boundary():
-    A, B, T0, at = delayed_stream()
-    start = at(40, 0)
-    want = (100.15 / 100.02 - 1) * 1e4 - (99.97 / 100.0 - 1) * 1e4        # Sell через 250 мс после входа − Buy через 250 мс после выхода
-    gross = (100.3 / 100.02 - 1) * 1e4 - (100.03 / 100.0 - 1) * 1e4        # круг без задержки: Sell входа − Buy выхода (в 71:03.000 A мигает в состоянии 100,01 / 100,03)
-    A_c, B_c = dict(A, lag=np.zeros(len(A["e"]), np.int32)), dict(B, lag=np.zeros(1, np.int32))        # без core.clean: повторы сетки — те же состояния, строки полного счёта их держат
-    r = core.analyze_pair(A_c, B_c, start, T0 + 100 * 60_000, hold_ms=core.DELAY_MS)
-    ep = [x for x in r[2][core.FEE_RT_BPS] if x[1] == 1]
-    assert len(ep) == 1 and ep[0][0] == at(70, 59.9) and ep[0][2] == 3100 and not ep[0][3]
-    assert abs(ep[0][5] - gross) < 1e-9 and abs(ep[0][7] - want) < 1e-9
-    for cuts in ((100,), (71, 100), (71, 72, 100)):                      # один проход и проходы с границей 71:00 / 72:00 дают те же эпизоды
-        sa, sb, ps = arb_inc.Sym(), arb_inc.Sym(), arb_inc.Pair()
-        sa.ingest(A["e"], A["rx"], A["bid"], A["ask"], A["dep"])
-        sb.ingest(B["e"], B["rx"], B["bid"], B["ask"], B["dep"])
-        t_a = T0 - 10 ** 12
-        for k in cuts:
-            t_b = T0 + k * 60_000
-            ca, cb = sa.carry, sb.carry
-            arb_inc.advance_pair(ps, arb_inc.with_carry(ca, sa.take(t_a, t_b)), arb_inc.with_carry(cb, sb.take(t_a, t_b)), start, t_b // 60000)
-            t_a = t_b
-        e = [x for x in ps.closed if x[1] == 1]
-        assert len(e) == 1 and e[0][0] == at(70, 59.9) and abs(e[0][5] - gross) < 1e-9 and abs(e[0][7] - want) < 1e-9, (cuts, e)
-        assert ps.tail is None or len(ps.tail[0]) == 0 or ps.tail[0][0] >= t_a - core.DELAY_MS
+def test_scenario_has_real_circles_in_both_methods():
+    A, B, start, times = scenario(1)
+    got, _ = final_chart(A, B, start, times)
+    assert got is not None and any(v is not None for v in got["z"]) and any(v is not None for v in got["x"]), (got["z"], got["x"])

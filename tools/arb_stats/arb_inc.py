@@ -13,10 +13,10 @@
 до первой записи пары линии нет. Прежний core.chart_slots берёт только минуты с записями — для живой вкладки устарел.
 Состояние пары (всё, что нужно для продолжения): плотные ряды минут окна (закрытие середины, максимум Sell, минимум Buy, центр, число строк
 с центром), последнее состояние Sell/Buy, закрытые эпизоды порога комиссий, открытый эпизод по каждому направлению (вход, пик на сейчас,
-цены входа). Состояние символа: последняя принятая запись до границы (carry) и ещё не обработанные записи (pend).
-Круг с исполнением через core.DELAY_MS («после комиссий через 250 мс», 8-е поле эпизода): цены сторон берутся по состоянию пары на T_вход + 250 мс и T_выход + 250 мс.
-Чтобы эти цены были известны точно (запись следующего прохода может прийти раньше T + 250 мс), автомат идёт по строкам раньше границы прохода − 250 мс, а строки последних
-250 мс (все, и без центра) держатся в хвосте пары (tail) до следующего прохода — как у core.analyze_pair(hold_ms=DELAY_MS), так таблица остаётся равной полному счёту.
+цены входа), круги по порогам core.THETAS (core.Circles: «до нуля» и «из минуса в плюс»). Состояние символа: последняя принятая запись до границы (carry) и ещё не обработанные записи (pend).
+Котировка ноги живёт core.STALE_MS (60 с) после последней СЫРОЙ записи книги: повторы цены снимаются, но запоминается время последней записи серии (hold), и после паузы > 60 с запись
+остаётся при любой цене (как core.clean). Строки пары, где у одной из ног котировки нет, не создаются — дыра сбора не выглядит расхождением. Открытый эпизод/круг при этом не обрывается:
+выход возможен на первой строке после паузы (по ценам, которые тогда были).
 """
 import warnings
 
@@ -28,15 +28,16 @@ TH = core.FEE_RT_BPS
 MIN_MS = 60_000
 NEED_EVENTS = 20            # как в analyze.work_coin: символ с меньшим числом событий пропускается
 EMPTY = np.empty(0)
+EMPTY_I = np.empty(0, np.int64)
 
 
 class Sym:
-    """Поток символа: pend — сырые записи (e, rx, bid, ask, dep) с e ≥ t_a; carry — последняя принятая (сохранённая после снятия повторов)."""
+    """Поток символа: pend — сырые записи (e, rx, bid, ask, dep) с e ≥ t_a; carry — последняя принятая (сохранённая после снятия повторов) и время последней сырой записи её серии."""
 
     __slots__ = ("carry", "pend", "n", "mid", "late")
 
     def __init__(self):
-        self.carry = None       # (e, bid, ask, dep) или None
+        self.carry = None       # (e, bid, ask, dep, hold) или None; hold — время последней сырой записи серии (повторы цены)
         self.pend = None        # dict массивов или None
         self.n = 0              # принятых записей всего (для правила «≥ 20»)
         self.mid = None         # медиана середины — для проверки «одна монета» (0,9 < ratio < 1,1)
@@ -50,7 +51,9 @@ class Sym:
             self.pend = {k: np.concatenate([self.pend[k], a[k]]) for k in a}
 
     def take(self, t_a, t_b):
-        """Принятые записи с e в [t_a, t_b): отсортированы, без негодных и повторов; carry обновляется. -> dict(e, bid, ask, dep) или None."""
+        """Принятые записи с e в [t_a, t_b): отсортированы, без негодных и повторов (запись после паузы > STALE_MS остаётся); carry обновляется.
+        -> dict(e, bid, ask, dep, hold, h0) или None (сырых записей нет): hold[i] — время последней сырой записи серии, открытой записью i; h0 — то же для серии carry
+        (повторы в начале куска её продлевают). Принятых может не быть (только повторы) — тогда массивы пусты, h0 обновлён."""
         p = self.pend
         if p is None or not len(p["e"]):
             return None
@@ -74,26 +77,30 @@ class Sym:
         if not len(e):
             return None
         if self.carry is None:
-            ch = np.r_[True, (bid[1:] != bid[:-1]) | (ask[1:] != ask[:-1])]
+            ch = np.r_[True, (bid[1:] != bid[:-1]) | (ask[1:] != ask[:-1]) | (np.diff(e) > core.STALE_MS)]
         else:
-            pb, pa = self.carry[1], self.carry[2]
-            pbid, pask = np.r_[pb, bid[:-1]], np.r_[pa, ask[:-1]]
-            ch = (bid != pbid) | (ask != pask)
-        if not ch.any():
-            return None
-        e, bid, ask, dep = e[ch], bid[ch], ask[ch], dep[ch]
-        self.carry = (int(e[-1]), float(bid[-1]), float(ask[-1]), float(dep[-1]))
+            ch = (bid != np.r_[self.carry[1], bid[:-1]]) | (ask != np.r_[self.carry[2], ask[:-1]]) | (e - np.r_[self.carry[4], e[:-1]] > core.STALE_MS)
+        idx = np.flatnonzero(ch)
+        last = int(e[-1])
+        if not len(idx):
+            self.carry = (*self.carry[:4], last)
+            return {"e": EMPTY_I, "bid": EMPTY, "ask": EMPTY, "dep": EMPTY, "hold": EMPTY_I, "h0": last}
+        h0 = None if self.carry is None else int(e[idx[0] - 1]) if idx[0] > 0 else self.carry[4]     # серия carry: до первой принятой записи; без carry серии нет
+        hold = np.r_[e[idx[1:] - 1], last]
+        e, bid, ask, dep = e[idx], bid[idx], ask[idx], dep[idx]
+        self.carry = (int(e[-1]), float(bid[-1]), float(ask[-1]), float(dep[-1]), last)
         self.n += len(e)
-        return {"e": e, "bid": bid, "ask": ask, "dep": dep}
+        return {"e": e, "bid": bid, "ask": ask, "dep": dep, "hold": hold, "h0": h0}
 
 
 def with_carry(carry, b):
-    """Массивы символа на проход: запись-носитель (последняя до границы) + новые. -> (число носителей 0/1, e, bid, ask, dep); None — данных нет совсем."""
+    """Массивы символа на проход: запись-носитель (последняя до границы) + новые. -> (число носителей 0/1, e, bid, ask, dep, hold); None — данных нет совсем.
+    hold носителя — с учётом повторов цены в этом проходе (b["h0"])."""
     if b is None:
         return None if carry is None else (1, *(np.array([x]) for x in carry))
     if carry is None:
-        return 0, b["e"], b["bid"], b["ask"], b["dep"]
-    return 1, np.r_[carry[0], b["e"]], np.r_[carry[1], b["bid"]], np.r_[carry[2], b["ask"]], np.r_[carry[3], b["dep"]]
+        return 0, b["e"], b["bid"], b["ask"], b["dep"], b["hold"]
+    return 1, np.r_[carry[0], b["e"]], np.r_[carry[1], b["bid"]], np.r_[carry[2], b["ask"]], np.r_[carry[3], b["dep"]], np.r_[b["h0"], b["hold"]]
 
 
 class Alive:
@@ -147,7 +154,7 @@ class Alive:
 
 
 class Pair:
-    __slots__ = ("m0", "mid", "hi", "lo", "cen", "nv", "sc", "bc", "closed", "open", "cache", "tail")
+    __slots__ = ("m0", "mid", "hi", "lo", "cen", "nv", "sc", "bc", "closed", "open", "cache", "circ")
 
     def __init__(self):
         self.m0 = None                          # минута начала плотных рядов (None — рядов ещё нет); ряды идут подряд, минута за минутой
@@ -157,10 +164,10 @@ class Pair:
         self.cen = EMPTY                        # центр минуты (NaN — нет), считается для каждой минуты
         self.nv = np.empty(0, np.int64)         # строк с известным центром и T ≥ START в минуте
         self.sc = self.bc = None                # Sell/Buy на конец последней минуты (состояние переходит в следующую)
-        self.closed = []                        # закрытые эпизоды: (T_вход, напр., τ мс, False, пик, круг, глубина, круг через 250 мс)
-        self.open = {1: None, -1: None}         # открытый эпизод: [T_вход, S_вход, B_вход, пик, глубина, S через 250 мс после входа, B через 250 мс после входа]
-        self.cache = None                       # (подпись эпизодов, сводка) — сводка пересчитывается, только когда эпизоды изменились
-        self.tail = None                        # строки последних 250 мс до границы прохода (T, S, Bu, c, dep) — их автомат пройдёт в следующий проход
+        self.closed = []                        # закрытые эпизоды: (T_вход, напр., τ мс, False, пик, круг, глубина)
+        self.open = {1: None, -1: None}         # открытый эпизод: [T_вход, S_вход, B_вход, пик, глубина]
+        self.cache = None                       # (подпись эпизодов и кругов, сводка эпизодов, круги «до нуля», круги «из минуса в плюс») — пересчитывается, только когда они изменились
+        self.circ = core.Circles()              # круги по порогам THETAS
 
 
 def ffill(x, init):
@@ -184,9 +191,8 @@ def centres(tail, mid_new):
     return c
 
 
-def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex, Sd, Bd):
-    """Один проход автомата входов/выходов одного направления по валидным строкам. Дописывает закрытые эпизоды в ps.closed, обновляет ps.open[d].
-    Sd, Bd — Sell и Buy пары через DELAY_MS после каждой строки (по состоянию пары на T + DELAY_MS)."""
+def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex):
+    """Один проход автомата входов/выходов одного направления по валидным строкам. Дописывает закрытые эпизоды в ps.closed, обновляет ps.open[d]."""
     k0 = 0
     st = ps.open[d]
     if st is not None:
@@ -197,8 +203,7 @@ def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex, Sd, Bd):
         j = int(xi[0])
         pk = max(st[3], float(e[: j + 1].max()))
         gross = float(st[1] - Bv[j]) if d == 1 else float(Sv[j] - st[2])
-        g250 = (float(st[5] - Bd[j]) if d == 1 else float(Sd[j] - st[6])) if len(st) > 5 else None     # состояние старого формата — без круга через 250 мс
-        ps.closed.append((st[0], d, int(Tv[j] - st[0]), False, pk, gross, st[4], g250))
+        ps.closed.append((st[0], d, int(Tv[j] - st[0]), False, pk, gross, st[4]))
         ps.open[d] = None
         k0 = j + 1
         if k0 >= len(Tv):
@@ -206,12 +211,11 @@ def machine(ps, d, Tv, Sv, Bv, cv, depv, e, ent, ex, Sd, Bd):
     for i, j in core.episodes(Tv[k0:], ent[k0:], ex[k0:]):
         i += k0
         if j < 0:
-            ps.open[d] = [int(Tv[i]), float(Sv[i]), float(Bv[i]), float(e[i:].max()), float(depv[i]), float(Sd[i]), float(Bd[i])]
+            ps.open[d] = [int(Tv[i]), float(Sv[i]), float(Bv[i]), float(e[i:].max()), float(depv[i])]
             break
         j += k0
         gross = float(Sv[i] - Bv[j]) if d == 1 else float(Sv[j] - Bv[i])
-        g250 = float(Sd[i] - Bd[j]) if d == 1 else float(Sd[j] - Bd[i])
-        ps.closed.append((int(Tv[i]), d, int(Tv[j] - Tv[i]), False, float(e[i: j + 1].max()), gross, float(depv[i]), g250))
+        ps.closed.append((int(Tv[i]), d, int(Tv[j] - Tv[i]), False, float(e[i: j + 1].max()), gross, float(depv[i])))
 
 
 def advance_pair(ps, A, B, start_ms, k_to):
@@ -220,13 +224,15 @@ def advance_pair(ps, A, B, start_ms, k_to):
     start_ms — начало окна статистики (строки раньше греют центр). Минуты без строк получают перенесённое состояние Sell/Buy."""
     T = None
     if A is not None and B is not None:
-        nA, tA, bA, aA, dA = A
-        nB, tB, bB, aB, dB = B
+        nA, tA, bA, aA, dA, hA = A
+        nB, tB, bB, aB, dB, hB = B
         T = np.union1d(tA[nA:], tB[nB:])
         if len(T):
             ia = np.searchsorted(tA, T, "right") - 1
             ib = np.searchsorted(tB, T, "right") - 1
             ok = (ia >= 0) & (ib >= 0)
+            T, ia, ib = T[ok], ia[ok], ib[ok]
+            ok = (T - hA[ia] <= core.STALE_MS) & (T - hB[ib] <= core.STALE_MS)         # у каждой ноги за последние 60 с была сырая запись книги
             T, ia, ib = T[ok], ia[ok], ib[ok]
     has_rows = T is not None and len(T) > 0
     if ps.m0 is None:
@@ -262,35 +268,19 @@ def advance_pair(ps, A, B, start_ms, k_to):
     ps.mid, ps.hi, ps.lo, ps.cen, ps.nv = (np.r_[o, n] for o, n in ((ps.mid, mid), (ps.hi, hi), (ps.lo, lo), (ps.cen, cen), (ps.nv, nv)))
     ps.sc = None if np.isnan(fs[-1]) else float(fs[-1])
     ps.bc = None if np.isnan(fb[-1]) else float(fb[-1])
-    cut = k_to * MIN_MS - core.DELAY_MS
     if has_rows:
-        run_machine(ps, T, S, Bu, c, dep, start_ms, cut)
-    else:
-        run_machine(ps, None, None, None, None, None, start_ms, cut)
+        run_machine(ps, T, S, Bu, c, dep, start_ms)
 
 
-def run_machine(ps, T, S, Bu, c, dep, start_ms, cut):
-    """Автомат по строкам раньше cut (граница прохода − DELAY_MS): хвост прошлого прохода + новые строки (T … dep — все строки прохода, c — NaN без центра).
-    Остальные строки — в хвост пары на следующий проход."""
-    tl = getattr(ps, "tail", None)
-    if T is None:
-        if tl is None:
-            return
-        T, S, Bu, c, dep = tl
-    elif tl is not None:
-        T, S, Bu, c, dep = (np.r_[a, b] for a, b in zip(tl, (T, S, Bu, c, dep)))
-    n = int(np.searchsorted(T, cut, "left"))
-    ps.tail = tuple(x[n:] for x in (T, S, Bu, c, dep)) if n < len(T) else None
-    if not n:
-        return
-    kd = np.searchsorted(T, T[:n] + core.DELAY_MS, "right") - 1            # состояние пары на T + DELAY_MS: последняя строка не позже (строки — все моменты изменения обеих сторон)
-    Sd, Bd = S[kd], Bu[kd]
-    v = ~np.isnan(c[:n]) & (T[:n] >= start_ms)
+def run_machine(ps, T, S, Bu, c, dep, start_ms):
+    """Автоматы по строкам прохода (T … dep — все строки прохода, c — NaN без центра): эпизоды порога комиссий и круги по порогам THETAS."""
+    v = ~np.isnan(c) & (T >= start_ms)
     if v.any():
-        Tv, Sv, Bv, cv, dv, Sdv, Bdv = T[:n][v], S[:n][v], Bu[:n][v], c[:n][v], dep[:n][v], Sd[v], Bd[v]
+        Tv, Sv, Bv, cv, dv = T[v], S[v], Bu[v], c[v], dep[v]
         Es, Eb, M = Sv - cv, cv - Bv, (Sv + Bv) / 2
-        machine(ps, 1, Tv, Sv, Bv, cv, dv, Es, Es >= TH, M <= cv, Sdv, Bdv)
-        machine(ps, -1, Tv, Sv, Bv, cv, dv, Eb, Eb >= TH, M >= cv, Sdv, Bdv)
+        machine(ps, 1, Tv, Sv, Bv, cv, dv, Es, Es >= TH, M <= cv)
+        machine(ps, -1, Tv, Sv, Bv, cv, dv, Eb, Eb >= TH, M >= cv)
+        ps.circ.step(Tv, Sv, Bv, cv)
 
 
 def prune(ps, t1, window_ms=24 * 3600_000):
@@ -301,6 +291,7 @@ def prune(ps, t1, window_ms=24 * 3600_000):
             ps.mid, ps.hi, ps.lo, ps.cen, ps.nv = (x[k:] for x in (ps.mid, ps.hi, ps.lo, ps.cen, ps.nv))
             ps.m0 += k
     ps.closed = [r for r in ps.closed if r[0] >= t1 - window_ms]
+    ps.circ.prune(t1 - window_ms)
 
 
 def slots(ps, tmin0, n, alive):
@@ -354,8 +345,8 @@ def result(ps, t0, t1, periods_h, alive=None):
             eps.append((o[0], d, int(t1 - o[0]), True, o[3], None, o[4], None))
     ts = np.array([r[0] for r in eps], np.int64)
     cnt = [int((ts >= t1 - h * 3600_000).sum()) for h in periods_h]
-    sig = (len(eps), ts.min() if len(ts) else None, ts.max() if len(ts) else None, tuple(ps.open[1] or ()), tuple(ps.open[-1] or ()))
-    if getattr(ps, "cache", None) is None or ps.cache[0] != sig:
-        ps.cache = (sig, core.ep_table_stats(eps))
+    sig = (len(eps), ts.min() if len(ts) else None, ts.max() if len(ts) else None, tuple(ps.open[1] or ()), tuple(ps.open[-1] or ()), ps.circ.ver)
+    if ps.cache is None or ps.cache[0] != sig:
+        ps.cache = (sig, core.ep_table_stats(eps), *ps.circ.stats())
     S, B, C = slots(ps, t0 // 60000, int(np.ceil((t1 - t0) / (core.SLOT_MIN * 60000))), np.ones(len(ps.mid), bool) if alive is None else alive)
-    return {"cnt": cnt, "big": core.big_counts(eps, t1), "st": ps.cache[1], "S": S, "B": B, "C": C}
+    return {"cnt": cnt, "big": core.big_counts(eps, t1), "st": ps.cache[1], "z": ps.cache[2], "x": ps.cache[3], "S": S, "B": B, "C": C}
