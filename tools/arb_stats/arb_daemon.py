@@ -50,6 +50,8 @@ def log(**kw):
 class Reader:
     """Один открытый файл book<N>: распаковщик и позиция живут между проходами. Состояние st — как в parse_inc (off, cum, last, done)."""
 
+    consume = staticmethod(parse_inc.consume)     # разбор записей: книги; TradeReader (arb_turnover.py) подставляет разбор сделок
+
     def __init__(self, path, st):
         self.path, self.st = path, st
         self.f = self.dobj = None
@@ -82,7 +84,7 @@ class Reader:
         self.buf = blob[end:]
         if not end:
             return 0
-        return parse_inc.consume(io.BytesIO(blob[:end]), self.st, want, keep_from, arrs)[0]
+        return self.consume(io.BytesIO(blob[:end]), self.st, want, keep_from, arrs)[0]
 
     def read(self, want, keep_from, arrs):
         """Дочитывает файл: записи — в arrs {символ (bytes): массивы}. -> число записей."""
