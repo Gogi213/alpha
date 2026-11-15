@@ -109,9 +109,13 @@ class Env:
                 raw[(ex, name)] = {"e": e, "rx": rx, "bid": bid, "ask": ask, "dep": dep}
         out = {}
         t0 = max(self.start, t_b - arb_live.WINDOW_MS)
+        cleaned = {k: arb_inc.core.clean(dict(v)) for k, v in raw.items()}
+        alive = {ex: set() for ex in common.EXCHANGES}
+        for (ex, _), c in cleaned.items():
+            alive[ex] |= ti.alive_minutes(c, t_b)
         for coin, per in coins.items():
             exs = [ex for ex in common.EXCHANGES if ex in per and (ex, per[ex][0]) in raw]
-            clean = {ex: arb_inc.core.clean(dict(raw[(ex, per[ex][0])])) for ex in exs}
+            clean = {ex: cleaned[(ex, per[ex][0])] for ex in exs}
             exs = [ex for ex in exs if len(clean[ex]["e"]) >= 20]
             for i in range(len(exs)):
                 for j in range(i + 1, len(exs)):
@@ -125,6 +129,7 @@ class Env:
                     analyze.G.update({"t0": t0, "t1": t_b})
                     d = arb_live.hook(*r)
                     if d:
+                        d["S"], d["B"], d["C"] = ti.ref_chart(clean[a], clean[b], t0, t_b, alive[a], alive[b])
                         out[(coin, a, b)] = d
         return out
 
