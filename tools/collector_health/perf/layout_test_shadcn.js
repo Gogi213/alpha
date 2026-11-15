@@ -12,7 +12,7 @@ const snap = () => document.fonts.ready.then(() => {
   if (!document.getElementById('p-a').hidden) {
     const ch = document.getElementById('cards-h'); if (ch) o['cards-h'] = R(ch);
     q('#cards .card', (e, i) => o['card' + i] = R(e));
-    q('#flt button', (e, i) => o['flt' + i] = R(e));
+    q('#ex button', (e, i) => o['ex' + i] = R(e));
     q('#ctl button', (e, i) => o['ctl:' + e.dataset.t] = R(e));
     const cnt = document.querySelector('#ctl .cnt'); if (cnt) o['cnt'] = R(cnt);
     const upd = document.querySelector('#ctl .upd'); if (upd) o['upd'] = R(upd);
@@ -32,7 +32,7 @@ const snap = () => document.fonts.ready.then(() => {
   await pg.goto(url); await pg.waitForSelector('#tab tr.r');
   const res = [], fails = [];
   const check = (name, ok, info) => { if (!ok) fails.push(name + (info ? ' — ' + info : '')) };
-  const act = async (name, fn, verify) => {
+  const act = async (name, fn, verify, arg) => {
     await pg.evaluate(() => window.scrollTo(0, 0));
     const a = await pg.evaluate(snap); await fn(); await pg.waitForTimeout(150);
     await pg.evaluate(() => window.scrollTo(0, 0));
@@ -47,7 +47,7 @@ const snap = () => document.fonts.ready.then(() => {
       if (d > mx) { mx = d; worst = k }
     }
     res.push([name, mx, worst]);
-    if (verify) { const v = await pg.evaluate(verify); check(name, v === true, String(v)) }
+    if (verify) { const v = await pg.evaluate(verify, arg); check(name, v === true, String(v)) }
   };
   const click = sel => pg.click(sel);
   const state = () => pg.evaluate(() => { const A = window._arb; return { st: { ...A.st }, n: A.view.length } });
@@ -60,13 +60,13 @@ const snap = () => document.fonts.ready.then(() => {
   await act('hide on (out)', () => click('#ctl button[data-hide]'), () => window._arb.st.hide && window._arb.view.every(i => window._arb.rows[i].cnt[3] > 0));
   await act('hide off (out)', () => click('#ctl button[data-hide]'), () => !window._arb.st.hide);
   await act('mode med', () => click('#ctl button[data-m="med"]'), () => window._arb.st.mode === 'med' && document.querySelector('#tab th[data-k="max"]') == null);
-  // фильтры пар
-  const pairs = await pg.$$eval('#flt button', e => e.map(x => x.dataset.p));
-  for (let i = 1; i < pairs.length; i++) {
-    const p = pairs[i];
-    await act('pair ' + p, () => pg.click('#flt button:nth-child(' + (i + 1) + ')'), () => { const A = window._arb; return A.view.length > 0 && A.view.every(j => A.rows[j].pc === A.st.pair) });
+  // чипы бирж: каждая выключается и включается (все комбинации — exchange_chips_test.js)
+  const exs = await pg.$$eval('#ex button', e => e.map(x => x.dataset.x));
+  check('есть чипы бирж', exs.length >= 3 && await pg.$('#flt') == null, exs.join(','));
+  for (const x of exs) {
+    await act('exchange off ' + x, () => click('#ex [data-x="' + x + '"]'), x => { const A = window._arb; return !A.sel.includes(x) && A.sel.length === A.ids.length - 1 && A.view.length > 0 && A.view.every(j => A.sel.includes(A.rows[j].a) && A.sel.includes(A.rows[j].b)) }, x);
+    await act('exchange on ' + x, () => click('#ex [data-x="' + x + '"]'), x => { const A = window._arb; return A.sel.includes(x) && A.sel.length === A.ids.length && A.view.length === A.rows.length }, x);
   }
-  await act('pair all', () => click('#flt button:nth-child(1)'), () => window._arb.st.pair === 'all' && window._arb.view.length === window._arb.rows.length);
   // сортировки: каждая колонка, оба направления, оба режима
   for (const mode of ['med', 'out']) {
     await click('#ctl button[data-m="' + mode + '"]');
@@ -108,7 +108,7 @@ const snap = () => document.fonts.ready.then(() => {
   check('health tooltip', await pg.evaluate(() => +getComputedStyle(document.getElementById('tip')).opacity === 1));
   await click('#tab-a'); await pg.waitForTimeout(400);
   const a2 = await pg.evaluate(snap);
-  let back = 0; for (const k of ['h1', 'tab0', 'tab1', 'clock', 'card0', 'card3', 'flt0', 'th:c', 'table']) if (topBefore[k] && a2[k]) back = Math.max(back, ...topBefore[k].map((x, i) => (k === 'table' && i === 3) ? 0 : Math.abs(x - a2[k][i])));
+  let back = 0; for (const k of ['h1', 'tab0', 'tab1', 'clock', 'card0', 'card3', 'ex0', 'ex4', 'th:c', 'table']) if (topBefore[k] && a2[k]) back = Math.max(back, ...topBefore[k].map((x, i) => (k === 'table' && i === 3) ? 0 : Math.abs(x - a2[k][i])));
   res.push(['tab Здоровье → Арбитраж (вернулись)', back, 'после возврата']);
   check('tab arb', await pg.evaluate(() => !document.getElementById('p-a').hidden && document.getElementById('tab-a').classList.contains('on')));
   let bad = 0;

@@ -10,7 +10,7 @@ const snap = () => document.fonts.ready.then(() => {
   const h1 = document.querySelector('.top h1'); if (h1) o.h1 = R(h1);
   q('.tabs button', (e, i) => o['tab' + i] = R(e));
   o.clock = R(document.getElementById('clock'));
-  q('#flt button', (e, i) => o['flt' + i] = R(e));
+  q('#ex button', (e, i) => o['ex' + i] = R(e));
   q('#ctl button', e => o['ctl:' + e.dataset.t] = R(e));
   const cnt = document.querySelector('#ctl .cnt'); if (cnt) o.cnt = R(cnt);
   const upd = document.querySelector('#ctl .upd'); if (upd) o.upd = R(upd);

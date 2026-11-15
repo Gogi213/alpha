@@ -31,9 +31,13 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 .tabs button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;height:24px;min-width:24px;padding:0 10px;border-radius:9999px;font:500 12px/16px var(--font-sans);color:var(--muted-foreground)}
 .tabs button:hover{color:var(--foreground)}
 .tabs button.on{color:var(--foreground);background:color-mix(in oklab,var(--input) 30%,transparent);box-shadow:inset 0 0 0 1px var(--input),0 1px 2px #0000000d}
-.tabs button:focus-visible,.tg button:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
-/* фильтр пар: ряд «таблеток» (sp-seg[data-kinds]), 28 px; включённая — зелёный фон 10 % и кольцо 80 % */
-.flt{display:flex;gap:6px;margin:0 0 8px;flex-wrap:nowrap;height:28px;align-items:center}
+.tabs button:focus-visible,.tg button:focus-visible,.ex button:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+/* биржи: чипы с множественным выбором в верхней панели, 24 px, кольцо вместо рамки (размер не меняется); включённая — зелёный фон 10 % и кольцо 80 %; последние две включённые — без отклика (минимум 2) */
+.ex{display:flex;align-items:center;gap:4px;margin-left:4px;flex:none}
+.ex button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;height:24px;padding:0 8px;border-radius:9999px;font:500 12px/16px var(--font-sans);color:var(--muted-foreground);box-shadow:inset 0 0 0 1px var(--input)}
+.ex button:not([aria-disabled=true]):hover{color:var(--foreground);box-shadow:inset 0 0 0 1px var(--muted-foreground)}
+.ex button.on{color:var(--foreground);background:var(--on-bg);box-shadow:inset 0 0 0 1px var(--on-line)}
+.ex button[aria-disabled=true]{cursor:default}
 .ctl{display:flex;gap:12px;margin:0 0 8px;align-items:center;height:28px}
 .ctl .g{display:flex;align-items:center;gap:8px}
 .ctl .g>span{color:var(--muted-foreground);font-size:11px;line-height:14px}
@@ -41,9 +45,9 @@ body{margin:0;background:var(--background);color:var(--foreground);font:12px/16p
 .ctl .cnt{display:inline-block;width:144px;color:var(--muted-foreground);font:400 11px/14px var(--font-mono);white-space:nowrap}
 .ctl .upd{color:var(--muted-foreground);font:400 11px/14px var(--font-mono);white-space:nowrap}
 .tg button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;height:28px;padding:0 8px;border-radius:9999px;color:var(--muted-foreground);font:500 12px/16px var(--font-sans)}
-.flt button,.ctl .solo{box-shadow:inset 0 0 0 1px var(--input)}
-.flt button:hover,.ctl .solo:hover{color:var(--foreground);box-shadow:inset 0 0 0 1px var(--muted-foreground)}
-.flt button.on,.ctl .solo.on{color:var(--foreground);background:var(--on-bg);box-shadow:inset 0 0 0 1px var(--on-line)}
+.ctl .solo{box-shadow:inset 0 0 0 1px var(--input)}
+.ctl .solo:hover{color:var(--foreground);box-shadow:inset 0 0 0 1px var(--muted-foreground)}
+.ctl .solo.on{color:var(--foreground);background:var(--on-bg);box-shadow:inset 0 0 0 1px var(--on-line)}
 .ctl .grp button{height:24px;min-width:24px;padding:0 10px}
 .ctl .grp button:hover{color:var(--foreground)}
 .ctl .grp button.on{color:var(--foreground);background:color-mix(in oklab,var(--input) 30%,transparent);box-shadow:inset 0 0 0 1px var(--input),0 1px 2px #0000000d}
@@ -135,14 +139,13 @@ dt{font-size:10px;line-height:13px;color:var(--muted-foreground)}dd{margin:1px 0
 </style>
 </head>
 <body>
-<div class="top"><h1>Сбор данных</h1><nav class="tabs"><button id="tab-a" data-t="Арбитраж" class="on">Арбитраж</button><button id="tab-h" data-t="Здоровье">Здоровье</button></nav><div class="t" id="clock"></div></div>
+<div class="top"><h1>Сбор данных</h1><nav class="tabs"><button id="tab-a" data-t="Арбитраж" class="on">Арбитраж</button><button id="tab-h" data-t="Здоровье">Здоровье</button></nav><div class="ex" id="ex" role="group" aria-label="Биржи"></div><div class="t" id="clock"></div></div>
 <section id="p-h" hidden>
 <div class="cap">потеряно за час</div>
 <div class="wrap" id="wrap"><div id="tip" class="pop"></div><div id="rows"></div><div class="axis" id="axis"></div></div>
 </section>
 
 <section id="p-a">
-<div class="flt tg" id="flt"></div>
 <div class="ctl tg" id="ctl"></div>
 <div class="pend" id="pend" hidden></div>
 <div class="tw" id="tw"><table class="a" id="tab"><colgroup id="cg"></colgroup><thead id="th"></thead><tbody id="tb"></tbody></table></div>
@@ -264,13 +267,19 @@ const sgp=v=>v==null?'—':(v>0?'+':v<0?'−':'')+pc(Math.abs(v));
 function dur(s){if(s==null)return '—';const u=(n,t)=>n+'<i class="un">'+t+'</i>';if(s<1)return u(nf(s*1000,0),'мс');if(s<60)return u(nf(s,1),'с');if(s<3600)return u(nf(s/60,1),'мин');return u(nf(s/3600,1),'ч')}
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 let A=null,R=[],K={},EMPTY={},TOT={},view=[],etag=null;
-let st={pair:'all',sort:'size',dir:-1,open:null,mode:'med',hide:false};
+let st={sort:'size',dir:-1,open:null,mode:'med',hide:false};
 let ROWH=28,CHH=293,OVER=3,win={a:0,b:-1};
 const CH=new Map(),PEND=new Map();
 const at=(a,k)=>a?a[k]:null;
 /* столбцы: скрытые ключи — в localStorage (по умолчанию видны все); монета и пара бирж — всегда; ширины — доли прежней сетки, сумма видимых = 100 % */
 const CKEY='alpha.arb.cols.hidden',FIXED=['c','p'],HIDEABLE=['v0','v1','size','max','n0','n1','n2','n3','b0','b1','b2','tau','net'];
 const WT={c:6.8,p:10.2,v0:6.5,v1:6.5,size:7.6,max:7.6,n0:5.8,n1:5.8,n2:5.8,n3:5.8,b0:5.8,b1:5.8,b2:5.8,tau:7.4,net:6.8};
+/* биржи: скрытые id — в localStorage (по умолчанию выбраны все, новая биржа появляется выбранной); в таблице пары, у которых выбраны ОБЕ биржи; выбранных не меньше XMIN */
+const XKEY='alpha.arb.ex.hidden',XMIN=2;
+const xhid=new Set();try{(JSON.parse(localStorage.getItem(XKEY)||'[]')||[]).forEach(k=>{if(typeof k==='string')xhid.add(k)})}catch(e){}
+const saveEx=()=>{try{if(xhid.size)localStorage.setItem(XKEY,JSON.stringify([...xhid]));else localStorage.removeItem(XKEY)}catch(e){}};
+let XS=new Set();
+function exSel(){const ids=A&&A.names?Object.keys(A.names):[];let s=ids.filter(k=>!xhid.has(k));if(ids.length>=XMIN&&s.length<XMIN){xhid.clear();saveEx();s=ids}XS=new Set(s)}
 const hid=new Set();try{(JSON.parse(localStorage.getItem(CKEY)||'[]')||[]).forEach(k=>{if(HIDEABLE.includes(k))hid.add(k)})}catch(e){}
 const saveCols=()=>{try{if(hid.size)localStorage.setItem(CKEY,JSON.stringify([...hid]));else localStorage.removeItem(CKEY)}catch(e){}};
 const vis=C=>C.filter(c=>FIXED.includes(c.k)||!hid.has(c.k));
@@ -297,7 +306,7 @@ function cols(){
 }
 /* данные пришли: строки, массивы ключей сортировки (один раз), счётчики пустых */
 function setData(j){
-  A=j;R=[];K={};EMPTY={};TOT={};
+  A=j;R=[];K={};EMPTY={};TOT={};exSel();
   if(!A.rows)return;
   const n=A.rows.length,N=A.names;
   R=A.rows;
@@ -311,16 +320,19 @@ function setData(j){
   const rank=(name,lab)=>{const L=R.map(lab),idx=R.map((_,i)=>i).sort((x,y)=>L[x]<L[y]?-1:L[x]>L[y]?1:x-y);const a=new Float64Array(n);idx.forEach((i,p)=>a[i]=p);K[name]=a};
   rank('c',r=>r.c);rank('p',r=>N[r.a]+N[r.b]);
   for(let i=0;i<n;i++){const r=R[i];r.i=i;r.k=r.c+'|'+r.a+'|'+r.b;r.pc=r.a+'|'+r.b;r.pl=N[r.a]+' → '+N[r.b];const e=r.cnt[3]===0?1:0;
-    EMPTY.all=(EMPTY.all||0)+e;TOT.all=(TOT.all||0)+1;EMPTY[r.pc]=(EMPTY[r.pc]||0)+e;TOT[r.pc]=(TOT[r.pc]||0)+1}
+    EMPTY[r.pc]=(EMPTY[r.pc]||0)+e;TOT[r.pc]=(TOT[r.pc]||0)+1}
   if(st.open&&!R.some(r=>r.k===st.open))st.open=null;
 }
 function btn(attr,val,on,t,cls){return '<button '+attr+'="'+val+'" data-t="'+t+'" class="'+(on?'on':'')+(cls?' '+cls:'')+'">'+t+'</button>'}
-function flt(){
-  const pairs=R.length?[...new Set(R.map(r=>r.pc))]:[];
-  $('flt').innerHTML=btn('data-p','all',st.pair==='all','Все')+pairs.map(p=>{const[a,b]=p.split('|');return btn('data-p',p,st.pair===p,A.names[a]+' → '+A.names[b])}).join('');
+/* чипы бирж: кнопки строятся при смене набора бирж, дальше только классы (фокус не теряется); при XMIN выбранных они не откликаются */
+function exs(){
+  const ids=A&&A.names?Object.keys(A.names):[],key=ids.join(','),el=$('ex'),lock=XS.size<=XMIN;
+  if(el.dataset.k!==key){el.dataset.k=key;el.innerHTML=ids.map(k=>btn('data-x',esc(k),true,esc(A.names[k]))).join('')}
+  el.querySelectorAll('button').forEach(b=>{const on=XS.has(b.dataset.x);b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);
+    if(on&&lock){b.setAttribute('aria-disabled','true');b.title='Выбрано минимум '+XMIN+' биржи'}else{b.removeAttribute('aria-disabled');b.removeAttribute('title')}});
 }
 function ctl(){
-  const key=st.pair==='all'?'all':st.pair,ne=EMPTY[key]||0,tot=TOT[key]||0;
+  let ne=0,tot=0;for(const p in TOT){const[a,b]=p.split('|');if(XS.has(a)&&XS.has(b)){ne+=EMPTY[p]||0;tot+=TOT[p]}}
   $('ctl').innerHTML='<div class="g"><span>счёт</span><div class="grp">'+btn('data-m','med',st.mode==='med','медиана')+btn('data-m','out',st.mode==='out','выбросы')+'</div></div>'
     +'<div class="g">'+btn('data-hide','1',st.hide,'скрыть пустые','solo')+'<span class="cnt">'+(st.hide?'скрыто ':'пустых: ')+ne+' из '+tot+'</span></div>'
     +'<button data-cols="1" data-t="Столбцы" class="solo cols-btn" aria-haspopup="dialog" aria-controls="colpop" aria-expanded="'+popOpen+'">'+COLICON+'Столбцы</button>'
@@ -353,11 +365,11 @@ function head(){
   const th=c=>'<th data-k="'+c.k+'" class="'+(c.l?'l ':'')+(c.k===st.sort?'on':'')+'"'+(c.span?' colspan="'+c.span+'"':'')+'><span class="hl">'+c.t+'<i class="ar">'+(c.k===st.sort?(st.dir<0?'↓':'↑'):'')+'</i></span></th>';
   $('th').innerHTML='<tr>'+C.map(th).join('')+'</tr>';
 }
-/* порядок строк: фильтр пары и «скрыть пустые», сортировка по готовому массиву ключей */
+/* порядок строк: выбранные биржи (обе у пары) и «скрыть пустые», сортировка по готовому массиву ключей */
 function buildView(){
   const C=cols();let col=C.find(c=>c.k===st.sort);if(!col){st.sort='size';col=C.find(c=>c.k==='size')}
   const ka=K[col.kk],d=st.dir,out=[];
-  for(let i=0;i<R.length;i++){const r=R[i];if((st.pair==='all'||r.pc===st.pair)&&!(st.hide&&r.cnt[3]===0))out.push(i)}
+  for(let i=0;i<R.length;i++){const r=R[i];if(XS.has(r.a)&&XS.has(r.b)&&!(st.hide&&r.cnt[3]===0))out.push(i)}
   out.sort((x,y)=>{const v=ka[x]-ka[y];return v?v*d:x-y});
   view=out;
 }
@@ -458,19 +470,21 @@ async function load(){
     if(dt)skew=dt-Date.now();
     if(!(A&&et&&et===etag)){
       performance.mark('arb-resp');const j=await r.json();etag=et;changed=true;performance.mark('arb-json');
-      setData(j);performance.mark('arb-setdata');show();flt();ctl();head();if(R.length)refresh();performance.mark('arb-painted')
+      setData(j);performance.mark('arb-setdata');show();exs();ctl();head();if(R.length)refresh();performance.mark('arb-painted')
     }
   }catch(e){if(!A){A={};show()}}
   schedule(changed);
 }
 function clk(){const t=Date.now()/1000;$('clock').textContent=dm(t)+' · '+hm(t)}
-function tab(a,keep){if(!a&&popOpen)setPop(false);$('p-a').hidden=!a;$('p-h').hidden=a;$('tab-a').classList.toggle('on',a);$('tab-h').classList.toggle('on',!a);
+function tab(a,keep){if(!a&&popOpen)setPop(false);$('p-a').hidden=!a;$('ex').hidden=!a;$('p-h').hidden=a;$('tab-a').classList.toggle('on',a);$('tab-h').classList.toggle('on',!a);
   if(!keep)history.replaceState(null,'',a?'#arb':'#health');
   clk();
   if(a){head();load();if(st.open)paint()}else if(window.load)window.load()}
 $('tab-a').onclick=()=>tab(true);$('tab-h').onclick=()=>tab(false);
 /* делегирование: один обработчик на панель, на заголовок и на тело таблицы */
-$('flt').onclick=e=>{const b=e.target.closest('button');if(!b)return;st.pair=b.dataset.p;st.open=null;flt();ctl();refresh()};
+$('ex').onclick=e=>{const b=e.target.closest('button');if(!b)return;const k=b.dataset.x;
+  if(XS.has(k)){if(XS.size<=XMIN)return;xhid.add(k)}else xhid.delete(k);
+  saveEx();exSel();st.open=null;exs();ctl();refresh()};
 $('ctl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   if(b.dataset.cols){setPop(!popOpen);return}
   if(b.dataset.m){st.mode=b.dataset.m;fixSort();if(popOpen){$('colpop').innerHTML=popHtml();popFoot()}}else st.hide=!st.hide;
@@ -487,9 +501,9 @@ window.addEventListener('scroll',onScroll,{passive:true});
 window.addEventListener('resize',()=>{if(popOpen)placePop();if(!$('p-a').hidden){head();if(view.length)paint()}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(pollT);else{clk();if(!$('p-a').hidden)load();else if(window.load)window.load()}});
 setInterval(()=>{if(!document.hidden)clk()},30000);
-fixSort();flt();ctl();head();
+fixSort();exs();ctl();head();
 if(/^#(health|.*tip=)/.test(location.hash))tab(false,true);else tab(true,true);
-window._arb={st,cols,vis,hid,paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
+window._arb={st,cols,vis,hid,xhid,get sel(){return[...XS]},get ids(){return A&&A.names?Object.keys(A.names):[]},paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
 })();
 </script>
 </body>
