@@ -306,7 +306,8 @@ const saveFl=()=>{try{if(flN())localStorage.setItem(FKEY,JSON.stringify(FL));els
 /* порог θ кругов, bps: из arb.json (thetas), выбор — в localStorage; по умолчанию 0,2 % */
 const THKEY='alpha.arb.theta',THDEF=[10,15,20,30,50],THD=20;
 let TH=THD;try{const v=Number(JSON.parse(localStorage.getItem(THKEY)||'null'));if(THDEF.includes(v))TH=v}catch(e){}
-const thetas=()=>(A&&A.thetas&&A.thetas.length?A.thetas:THDEF),thLab=t=>String(t/100).replace('.',','),tI=()=>{const i=thetas().indexOf(TH);return i<0?Math.max(0,thetas().indexOf(THD)):i};
+const hasC=()=>!!(A&&A.thetas&&A.thetas.length),CIRC=['z','x','xn'];   /* круги и θ — только если счёт их отдаёт (в arb.json есть thetas): страница идёт раньше пересчёта состояния */
+const thetas=()=>(hasC()?A.thetas:THDEF),thLab=t=>String(t/100).replace('.',','),tI=()=>{const i=thetas().indexOf(TH);return i<0?Math.max(0,thetas().indexOf(THD)):i};
 const saveTh=()=>{try{if(TH!==THD)localStorage.setItem(THKEY,JSON.stringify(TH));else localStorage.removeItem(THKEY)}catch(e){}};
 /* биржи: скрытые id — в localStorage (по умолчанию выбраны все, новая биржа появляется выбранной); в таблице пары, у которых выбраны ОБЕ биржи; выбранных не меньше XMIN */
 const XKEY='alpha.arb.ex.hidden',XMIN=2;
@@ -342,7 +343,7 @@ function cols(){
   const vol=(i,t)=>({k:'v'+i,kk:'v'+i,t:t,h:H.v,sub:1,v:r=>r.v?r.v[i]:null,f:mn});
   const q=o?' В режиме «выбросы» — p95 по эпизодам.':' Показана медиана по эпизодам.';
   const tl=thLab(thetas()[tI()]),xn={k:'xn',kk:'xn',t:'кругов<br>из − в +<br>за сутки<br>θ '+tl+' %',h:H.xn,circ:1,v:r=>zx(r,'x',2),f:v=>nf(v,0)};
-  return [{k:'c',kk:'c',t:'монета',h:H.c,l:1},{k:'p',kk:'p',t:'пара бирж',h:H.p,l:1},vol(0,'1-я биржа,<br>млн'),vol(1,'2-я биржа,<br>млн')].concat(o?[
+  const L=[{k:'c',kk:'c',t:'монета',h:H.c,l:1},{k:'p',kk:'p',t:'пара бирж',h:H.p,l:1},vol(0,'1-я биржа,<br>млн'),vol(1,'2-я биржа,<br>млн')].concat(o?[
     {k:'size',kk:'size|out',t:'расхождение<br>p95, %',h:H.s+q,v:r=>at(r.pk,1),f:pc},
     {k:'max',kk:'max',t:'расхождение<br>макс, %',h:H.s+' Здесь — максимум пика по эпизодам.',v:r=>at(r.pk,2),f:pc}
   ]:[
@@ -360,6 +361,7 @@ function cols(){
     {k:'x',kk:'x|med',t:'после<br>комиссий, %<br>из − в +<br>θ '+tl+' %',h:H.x+q,circ:1,v:r=>zx(r,'x',0),f:sgp},
     xn
   ]);
+  return hasC()?L:L.filter(c=>!CIRC.includes(c.k));
 }
 /* ключи сортировки столбцов, зависящих от θ: пересчитываются при смене θ */
 function kTh(){
@@ -410,9 +412,9 @@ function popHtml(){
   const C=cols(),ti=tI();
   const fr=(k,l)=>'<label class="fr">'+l+'<input type="text" inputmode="decimal" autocomplete="off" data-fk="'+k+'" value="'+fnum(FL[k])+'" placeholder="—" aria-label="'+l+'"></label>';
   return '<header><h4>Настройки</h4></header>'
-    +'<section><h5>Порог θ, %</h5><div class="seg" role="group" aria-label="Порог θ, %">'+thetas().map((t,i)=>'<button data-th="'+t+'" class="'+(i===ti?'on':'')+'" aria-pressed="'+(i===ti)+'">'+thLab(t)+'</button>').join('')+'</div></section>'
+    +(hasC()?'<section><h5>Порог θ, %</h5><div class="seg" role="group" aria-label="Порог θ, %">'+thetas().map((t,i)=>'<button data-th="'+t+'" class="'+(i===ti?'on':'')+'" aria-pressed="'+(i===ti)+'">'+thLab(t)+'</button>').join('')+'</div></section>':'')
     +'<section><h5>Фильтры строк</h5><div class="flt">'+fr('v','оборот каждой биржи, млн $ ≥')+fr('gap','расхождение, % ≥')+fr('b0','выбросов ≥ 0,3 %, за сутки ≥')+fr('b1','выбросов ≥ 0,5 %, за сутки ≥')+fr('b2','выбросов ≥ 1 %, за сутки ≥')
-    +fr('tau','схождение, с ≤')+fr('net','после комиссий, % ≥')+fr('z','круг до нуля, % ≥')+fr('x','круг из − в +, % ≥')
+    +fr('tau','схождение, с ≤')+fr('net','после комиссий, % ≥')+(hasC()?fr('z','круг до нуля, % ≥')+fr('x','круг из − в +, % ≥'):'')
     +'<label class="lab"><input type="checkbox" data-fs="1"'+(FL.snap?' checked':'')+'>скрыть пары с BingX (снимки)</label></div></section>'
     +'<section><h5>Столбцы</h5><div class="list">'+C.map(c=>{const fx=FIXED.includes(c.k);return '<label class="lab'+(fx?' fx':'')+'"><input type="checkbox" data-ck="'+c.k+'"'+(fx||!hid.has(c.k)?' checked':'')+(fx?' disabled':'')+'>'+c.t.replace(/<br>/g,' ')+(fx?' · всегда показана':'')+'</label>'}).join('')+'</div></section>'
     +'<footer><span class="h"><span id="colcnt"></span><span id="rowcnt"></span></span><button data-reset="1" id="colreset">по умолчанию</button></footer>';
@@ -440,7 +442,7 @@ function head(){
 function buildView(){
   const C=cols();let col=C.find(c=>c.k===st.sort);if(!col){st.sort='size';col=C.find(c=>c.k==='size')}
   const ka=K[col.kk],d=st.dir,out=[],fv=FL.v==null?null:FL.v*1e6,gi=st.mode==='out'?1:0,p100=k=>FL[k]==null?null:FL[k]*100;
-  const fg=p100('gap'),fn=p100('net'),fz=p100('z'),fx=p100('x'),ft=FL.tau;
+  const fg=p100('gap'),fn=p100('net'),fz=hasC()?p100('z'):null,fx=hasC()?p100('x'):null,ft=FL.tau;
   for(let i=0;i<R.length;i++){const r=R[i];
     if(!(XS.has(r.a)&&XS.has(r.b))||st.hide&&r.cnt[3]===0)continue;
     if(fv!=null&&!(r.v&&r.v[0]>=fv&&r.v[1]>=fv)||fg!=null&&!(r.pk&&r.pk[gi]>=fg)||FL.snap&&(SNAP.has(r.a)||SNAP.has(r.b)))continue;
@@ -602,7 +604,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeou
 setInterval(()=>{if(!document.hidden)clk()},30000);
 fixSort();exs();ctl();head();
 if(/^#(health|.*tip=)/.test(location.hash))tab(false,true);else tab(true,true);
-window._arb={st,cols,vis,hid,xhid,FL,flN,SNAP,get TH(){return TH},setTh,thetas,get sel(){return[...XS]},get ids(){return A&&A.names?Object.keys(A.names):[]},paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
+window._arb={st,cols,vis,hid,xhid,FL,flN,SNAP,hasC,get TH(){return TH},setTh,thetas,get sel(){return[...XS]},get ids(){return A&&A.names?Object.keys(A.names):[]},paint,refresh,setData,buildView,head,get view(){return view},get rows(){return R}};
 })();
 </script>
 </body>

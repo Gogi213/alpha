@@ -63,6 +63,7 @@ const snap = () => document.fonts.ready.then(() => {
     return (k[0] === 'b' ? String(Math.round(x)) : String(Math.round(x * 1000) / 1000)).replace('.', ',') }, [k, q]);
 
   await fresh();
+  const HAS = await pg.evaluate(() => window._arb.hasC());   // круги и θ — только если arb.json их отдаёт
   // --- кнопка, поповер, порядок по умолчанию
   const lab = await pg.$eval('#ctl [data-cols]', e => e.textContent.trim());
   check('кнопка называется «Настройки»', lab === 'Настройки', lab);
@@ -74,11 +75,11 @@ const snap = () => document.fonts.ready.then(() => {
   check('первая строка — максимум эпизодов за сутки, порядок по убыванию', ord.bad === 0 && ord.top === ord.max, JSON.stringify(ord));
   await openPop(); s = await state();
   const pop = await pg.$eval('#colpop', e => ({ h: [...e.querySelectorAll('h5')].map(x => x.textContent), p: e.querySelectorAll('p').length, txt: e.textContent, seg: [...e.querySelectorAll('.seg button')].map(x => x.textContent), fk: [...e.querySelectorAll('input[data-fk]')].map(x => x.dataset.fk), lab: [...e.querySelectorAll('label.fr')].map(x => x.textContent.trim()) }));
-  check('поповер: θ — пять кнопок 0,1 / 0,15 / 0,2 / 0,3 / 0,5, выбрана 0,2', JSON.stringify(pop.seg) === JSON.stringify(['0,1', '0,15', '0,2', '0,3', '0,5']) && JSON.stringify(s.segOn) === '["0,2"]', JSON.stringify([pop.seg, s.segOn]));
-  check('поповер: девять полей фильтров, флажок BingX', JSON.stringify(pop.fk) === JSON.stringify(['v', 'gap', 'b0', 'b1', 'b2', 'tau', 'net', 'z', 'x']) && await pg.$('#colpop input[data-fs]') != null, JSON.stringify(pop.fk));
+  check('поповер: θ — пять кнопок 0,1 / 0,15 / 0,2 / 0,3 / 0,5, выбрана 0,2 (нет кругов в данных — секции нет)', JSON.stringify(pop.seg) === JSON.stringify(HAS ? ['0,1', '0,15', '0,2', '0,3', '0,5'] : []) && JSON.stringify(s.segOn) === (HAS ? '["0,2"]' : '[]'), JSON.stringify([pop.seg, s.segOn]));
+  check('поповер: поля фильтров (девять; без кругов — семь), флажок BingX', JSON.stringify(pop.fk) === JSON.stringify(['v', 'gap', 'b0', 'b1', 'b2', 'tau', 'net'].concat(HAS ? ['z', 'x'] : [])) && await pg.$('#colpop input[data-fs]') != null, JSON.stringify(pop.fk));
   check('поповер: «эпизодов за сутки» нет, пояснений нет (ни абзацев, ни «Сохраняется…», ни «Расхождение — по тому…»)', pop.p === 0 && !/эпизодов за сутки ≥|Сохраняется|по тому, что показано/.test(pop.txt), JSON.stringify([pop.p, pop.lab]));
   check('поповер: подписи полей короткие (≤ 36 знаков)', pop.lab.every(x => x.length <= 36), JSON.stringify(pop.lab.filter(x => x.length > 36)));
-  check('поповер: столбцы — 17 флажков (в режиме «медиана»)', await pg.$$eval('#colpop input[data-ck]', e => e.length) === 17);
+  check('поповер: столбцы — 17 флажков (в режиме «медиана»; без кругов — 14)', await pg.$$eval('#colpop input[data-ck]', e => e.length) === (HAS ? 17 : 14));
   check('поповер: «по умолчанию» выключена', s.resetOff === true);
   check('поповер: заголовок «Настройки»', await pg.$eval('#colpop h4', e => e.textContent) === 'Настройки');
   check('поповер: счётчик строк', /^Строк: [\d  ]+ из [\d  ]+$/.test(s.rowcnt), s.rowcnt);
@@ -90,8 +91,8 @@ const snap = () => document.fonts.ready.then(() => {
   for (const mode of ['med', 'out']) {
     await resetAll(); await pg.click('#ctl [data-m="' + mode + '"]'); await pg.waitForTimeout(150);
     const cases = [['оборот', { v: await thr('v', 0.5) }], ['расхождение', { gap: await thr('gap', 0.5) }], ['выбросов 0,3', { b0: await thr('b0', 0.8) }], ['выбросов 0,5', { b1: await thr('b1', 0.9) }], ['выбросов 1', { b2: await thr('b2', 0.95) }],
-      ['схождение ≤', { tau: await thr('tau', 0.5) }], ['после комиссий', { net: await thr('net', 0.5) }], ['круг до нуля', { z: await thr('z', 0.5) }], ['круг из − в +', { x: await thr('x', 0.5) }]];
-    cases.push(['все вместе', { v: await thr('v', 0.3), gap: await thr('gap', 0.3), b0: '1', tau: await thr('tau', 0.8), net: await thr('net', 0.3), z: await thr('z', 0.3), x: await thr('x', 0.3) }]);
+      ['схождение ≤', { tau: await thr('tau', 0.5) }], ['после комиссий', { net: await thr('net', 0.5) }], ...(HAS ? [['круг до нуля', { z: await thr('z', 0.5) }], ['круг из − в +', { x: await thr('x', 0.5) }]] : [])];
+    cases.push(['все вместе', { v: await thr('v', 0.3), gap: await thr('gap', 0.3), b0: '1', tau: await thr('tau', 0.8), net: await thr('net', 0.3), ...(HAS ? { z: await thr('z', 0.3), x: await thr('x', 0.3) } : {}) }]);
     for (const [name, f] of cases) {
       await openPop();
       for (const [k, v] of Object.entries(f)) await setIn(k, v);
@@ -119,8 +120,9 @@ const snap = () => document.fonts.ready.then(() => {
   await setIn('net', ''); await setIn('v', '0'); s = await state(); check('«оборот ≥ 0»: фильтр включён, строк столько же, значок 1', s.FL.v === 0 && s.n === 1 && s.badge === '1');
   await resetAll();
 
+  if (HAS) {
   // --- порог θ: каждая кнопка — заголовки, значения, сортировка, localStorage, перезагрузка
-  const cellsOf = (k) => pg.evaluate((k) => { const A = window._arb, ti = A.thetas().indexOf(A.TH), gi = A.st.mode === 'out' ? 1 : 0, idx = [...document.querySelectorAll('#th th')].findIndex(t => t.dataset.k === k);
+  var cellsOf = (k) => pg.evaluate((k) => { const A = window._arb, ti = A.thetas().indexOf(A.TH), gi = A.st.mode === 'out' ? 1 : 0, idx = [...document.querySelectorAll('#th th')].findIndex(t => t.dataset.k === k);
     const rows = [...document.querySelectorAll('#tb tr.r')].slice(0, 150), fmt = v => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + (Math.abs(v) / 100).toFixed(3).replace('.', ',');
     let bad = 0, ex = ''; for (const tr of rows) { const r = A.rows.find(x => x.k === tr.dataset.k), e = k === 'xn' ? (r.x && r.x[ti] ? r.x[ti][2] : null) : (r[k] && r[k][ti] ? r[k][ti][gi] : null);
       const want = k === 'xn' ? (e == null ? '—' : String(e)) : fmt(e), got = tr.children[idx].textContent.trim().replace(/\u00a0/g, ' ').replace(/ /g, ''); if (got !== want.replace(/ /g, '')) { bad++; ex = got + ' ≠ ' + want } }
@@ -158,6 +160,8 @@ const snap = () => document.fonts.ready.then(() => {
   }
   await fresh({ [TK]: '15' }); s = await state(); check('ключ θ = 15 → 0,15', s.TH === 15);
 
+  }
+
   // --- BingX: метка «снимки», фильтр
   await fresh();
   let rr = await rendered();
@@ -178,7 +182,7 @@ const snap = () => document.fonts.ready.then(() => {
   await setIn('b0', '2'); await setIn('gap', '0,18');
   await pg.reload(); await pg.waitForSelector('#tab tr.r'); await pg.waitForTimeout(150); s = await state();
   check('после перезагрузки фильтры те же', s.FL.b0 === 2 && s.FL.gap === 0.18 && s.FL.snap === true && s.FL.v === null && s.n === 3 && s.badge === '3' && s.view === s.exp, JSON.stringify(s.FL));
-  await openPop(); s = await state(); check('после перезагрузки поля заполнены', JSON.stringify(s.inputs) === JSON.stringify(['', '0,18', '2', '', '', '', '', '', '']) && s.snapChk === true, JSON.stringify(s.inputs));
+  await openPop(); s = await state(); check('после перезагрузки поля заполнены', JSON.stringify(s.inputs) === JSON.stringify((() => { const a = Array(HAS ? 9 : 7).fill(''); a[1] = '0,18'; a[2] = '2'; return a })()) && s.snapChk === true, JSON.stringify(s.inputs));
   await pg.fill('#colpop [data-fk="v"]', 'abc'); await pg.waitForTimeout(100);
   check('неверный ввод: поле красное, фильтр не менялся', await pg.$eval('#colpop [data-fk="v"]', e => e.classList.contains('bad')) && (await state()).FL.v === null);
   await pg.fill('#colpop [data-fk="v"]', '-3'); await pg.waitForTimeout(100); check('минус в обороте: поле красное, фильтр не включён', await pg.$eval('#colpop [data-fk="v"]', e => e.classList.contains('bad')) && (await state()).FL.v === null);
@@ -189,8 +193,8 @@ const snap = () => document.fonts.ready.then(() => {
   }
   await fresh({ [FK]: JSON.stringify({ ep: 20, v: 1, gap: 0.2, snap: true }) }); s = await state();
   check('прежний формат ключа (ep, v, gap, snap): ep отброшен, остальное прочитано', s.FL.v === 1 && s.FL.gap === 0.2 && s.FL.snap === true && !('ep' in s.FL) && s.n === 3 && s.view === s.exp, JSON.stringify(s.FL));
-  await fresh({ [FK]: JSON.stringify({ net: -0.3, z: 0, x: 0.05, tau: 4, b2: 1 }) }); s = await state();
-  check('ключ с новыми полями (минус, ноль) читается', s.FL.net === -0.3 && s.FL.z === 0 && s.FL.x === 0.05 && s.FL.tau === 4 && s.FL.b2 === 1 && s.n === 5 && s.view === s.exp && (await badRows()) === 0, JSON.stringify(s.FL));
+  await fresh({ [FK]: JSON.stringify(HAS ? { net: -0.3, z: 0, x: 0.05, tau: 4, b2: 1 } : { net: -0.3, tau: 4, b2: 1 }) }); s = await state();
+  check('ключ с новыми полями (минус, ноль) читается', s.FL.net === -0.3 && (!HAS || (s.FL.z === 0 && s.FL.x === 0.05)) && s.FL.tau === 4 && s.FL.b2 === 1 && s.n === (HAS ? 5 : 3) && s.view === s.exp && (await badRows()) === 0, JSON.stringify(s.FL));
   await fresh({ [CK]: JSON.stringify(['net2', 'z', 'abc']) }); s = await pg.evaluate(() => [...window._arb.hid]); check('скрытые столбцы: net2 (его больше нет) и мусор отброшены, z скрыт', JSON.stringify(s) === '["z"]', JSON.stringify(s));
 
   // --- подсказки заголовков
@@ -212,20 +216,24 @@ const snap = () => document.fonts.ready.then(() => {
   await pg.click('#th th[data-k="n3"]'); await pg.waitForTimeout(100);
 
   // --- порядок и состав столбцов
-  const ord2 = await pg.$$eval('#th th', e => e.map(t => t.dataset.k)); check('порядок столбцов: … tau, net, z, x, xn', ord2.slice(-5).join() === 'tau,net,z,x,xn', ord2.join());
+  const ord2 = await pg.$$eval('#th th', e => e.map(t => t.dataset.k)); check('порядок столбцов: … tau, net (, z, x, xn)', ord2.slice(HAS ? -5 : -2).join() === (HAS ? 'tau,net,z,x,xn' : 'tau,net') && !ord2.includes('net2'), ord2.join());
   await pg.click('#ctl [data-m="out"]'); await pg.waitForTimeout(120);
-  const ord3 = await pg.$$eval('#th th', e => e.map(t => t.dataset.k)); check('режим «выбросы»: те же столбцы кругов в конце', ord3.slice(-5).join() === 'tau,net,z,x,xn', ord3.join());
+  const ord3 = await pg.$$eval('#th th', e => e.map(t => t.dataset.k)); check('режим «выбросы»: те же столбцы в конце', ord3.slice(HAS ? -5 : -2).join() === (HAS ? 'tau,net,z,x,xn' : 'tau,net'), ord3.join());
+  if (HAS) {
   const heads = await pg.$$eval('#th th', e => e.filter(t => ['z', 'x', 'xn'].includes(t.dataset.k)).map(t => t.textContent.replace(/\s+/g, ' ').trim()));
   check('режим «выбросы»: подписи кругов с p95 и θ 0,2 %', /круг до нуля, p95/.test(heads[0]) && /круг из − в \+, p95/.test(heads[1]) && heads.every(h => /θ 0,2 %/.test(h)), JSON.stringify(heads));
   for (const k of ['z', 'x']) { const c = await cellsOf(k); check('режим «выбросы» ' + k + ': ячейки = p95 по данным', c.n > 0 && c.bad === 0, JSON.stringify(c)) }
+  }
   await pg.click('#ctl [data-m="med"]'); await pg.waitForTimeout(120);
+  if (HAS) {
   const heads2 = await pg.$$eval('#th th', e => e.filter(t => ['z', 'x', 'xn'].includes(t.dataset.k)).map(t => t.textContent.replace(/\s+/g, ' ').trim()));
   check('режим «медиана»: подписи', /^после комиссий, % круг до нуля θ 0,2 %$/.test(heads2[0]) && /^после комиссий, % круг из − в \+ θ 0,2 %$/.test(heads2[1]) && /^кругов из − в \+ за сутки θ 0,2 %$/.test(heads2[2]), JSON.stringify(heads2));
-  const pos = await pg.evaluate(() => { const rows = [...document.querySelectorAll('#tb tr.r')].slice(0, 200); const idx = k => [...document.querySelectorAll('#th th')].findIndex(t => t.dataset.k === k); let bad = 0; for (const tr of rows) for (const k of ['net', 'z', 'x']) { const c = tr.children[idx(k)], t = c.textContent.trim(); if ((t[0] === '+') !== c.classList.contains('pos')) bad++ } return bad });
+  }
+  const pos = await pg.evaluate(() => { const rows = [...document.querySelectorAll('#tb tr.r')].slice(0, 200); const idx = k => [...document.querySelectorAll('#th th')].findIndex(t => t.dataset.k === k); let bad = 0; for (const tr of rows) for (const k of ['net', 'z', 'x']) { if (idx(k) < 0) continue; const c = tr.children[idx(k)], t = c.textContent.trim(); if ((t[0] === '+') !== c.classList.contains('pos')) bad++ } return bad });
   check('зелёным («pos») подсвечены только положительные net, z, x', pos === 0, pos);
 
   // --- ничего не обрезано: заголовки и ячейки, оба режима, при θ 0,2 и 0,5
-  for (const t of [20, 50]) for (const mode of ['med', 'out']) {
+  for (const t of HAS ? [20, 50] : [20]) for (const mode of ['med', 'out']) {
     await pg.evaluate((t) => window._arb.setTh(t), t); await pg.click('#ctl [data-m="' + mode + '"]'); await pg.waitForTimeout(150);
     const cl = await pg.evaluate(() => {
       const th_ = [], tall = [], td_ = []; const tr = document.querySelector('#th tr').children;
