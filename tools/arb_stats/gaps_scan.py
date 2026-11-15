@@ -1,4 +1,4 @@
-"""Пропуски сбора по биржам: события книг ликвидных монет (BTC, ETH, SOL, XRP, DOGE) из <parsed>/<биржа>/ — интервалы без единой записи по всем пяти ≥ G секунд.
+"""Пропуски сбора по биржам: события книг самых «толстых» символов биржи (N = 8 по размеру разобранных кусков; у Binance и Bybit в пуле нет BTC/ETH) из <parsed>/<биржа>/ — интервалы без единой записи по всем ≥ G секунд.
 
 Запуск: python3 gaps_scan.py <каталог parsed книг> <t0_мс> <t1_мс> <выход.json> [G_с=15]
 Пишет {биржа: [[начало_мс, конец_мс], …]} (время E биржи) и печатает сводку: число пропусков, суммарная длина, доля окна, самые длинные. Файл читает outlier_run.py (переменная DEAD).
@@ -13,27 +13,34 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from arb_live import symmap_for  # noqa: E402
 from common import EXCHANGES  # noqa: E402
 
-LIQ = ("BTC", "ETH", "SOL", "XRP", "DOGE")
+TOP_N = 8
 
 
 def fmt(ms):
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%d.%m %H:%M:%S")
 
 
+def busiest(parsed, ex, n=TOP_N):
+    """Символы биржи с наибольшим объёмом разобранных кусков (по размеру файлов)."""
+    size = {}
+    for f in glob.glob(str(Path(parsed, ex, "*.npz"))):
+        sym = Path(f).name.split(".")[0]
+        size[sym] = size.get(sym, 0) + Path(f).stat().st_size
+    return sorted(size, key=size.get, reverse=True)[:n]
+
+
 def main(parsed, t0, t1, out, g_s=15):
-    sm, _ = symmap_for(datetime.fromtimestamp(t1 / 1000, timezone.utc).date().isoformat())
     res = {}
     for ex in EXCHANGES:
-        syms = [s for s, (coin, mult) in sm[ex].items() if coin in LIQ and mult == 1.0]
+        syms = busiest(parsed, ex)
         ev = []
         for s in syms:
             for f in glob.glob(str(Path(parsed, ex, s + ".*.npz"))):
                 ev.append(np.load(f)["e"])
         if not ev:
-            print(ex, "нет данных по", LIQ)
+            print(ex, "нет данных")
             res[ex] = [[t0, t1]]
             continue
         e = np.sort(np.concatenate(ev))
@@ -50,7 +57,7 @@ def main(parsed, t0, t1, out, g_s=15):
         res[ex] = gaps
         tot = sum(b - a for a, b in gaps) / 1000
         top = sorted(gaps, key=lambda x: x[0] - x[1])[:6]
-        print(f"{ex}: символов {len(syms)}, первая запись {fmt(first)}, последняя {fmt(last)}, пропусков ≥ {g_s} с: {len(gaps)}, всего {tot:.0f} с ({tot * 1000 / (t1 - t0) * 100:.3f} % окна)")
+        print(f"{ex}: символы {','.join(syms)}, первая запись {fmt(first)}, последняя {fmt(last)}, пропусков ≥ {g_s} с: {len(gaps)}, всего {tot:.0f} с ({tot * 1000 / (t1 - t0) * 100:.3f} % окна)")
         for a, b in top:
             print(f"    {fmt(a)} → {fmt(b)}  ({(b - a) / 1000:.0f} с)")
     Path(out).write_text(json.dumps(res), encoding="utf-8")
