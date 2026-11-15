@@ -132,7 +132,7 @@ def delta_table(d, by, mode, g, title):
                 dd = [a[f"d{i}"] - b[f"d{i}"] for i in range(nd)]
                 cells.append(f"{usd(a['usd_cap'] - b['usd_cap'])} ({sum(x > 0 for x in dd)}/{nd})")
             print(f"| {th / 100:g} % | {lat} | {usd(b['usd_cap'])} | " + " | ".join(cells) + " |")
-    print(f"\nВ скобках — в скольких из {nd} суток окна (GMT+4, первые и последние — неполные) сумма $/сут выхода выше прежнего «к центру».\n")
+    print(f"\nВ скобках — в скольких из {nd} суток окна (GMT+4; первые сутки неполные — 13,8 ч) сумма $/сут выхода выше прежнего «к центру».\n")
 
 
 def per_day(d, by, mode, lat, g, title):
