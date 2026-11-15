@@ -58,14 +58,14 @@ def test_sell_fill_hedge_slippage_and_taker_close():
     assert q < 100.3 and abs(float(cand[3][0]) - 100.0) < 1e-12
     r, un = maker.simulate(P, cand, 50, "tt")
     assert un == 0 and len(r) == 1
-    t, side, edge, slip, size, net, hold = r[0]
+    t, side, edge, slip, size, net, hold, gross, div = r[0]
     assert side == 1 and t == T_FILL
     assert abs(slip - 5.0) < 1e-6                          # (100.05/100.0 − 1)·1e4
     assert abs(edge - (q / 100.05 - 1) * 1e4) < 1e-9
     # закрытие: первая точка пары, где середина ≤ центра, — на T_FILL+5000; исполнение +50 мс по ценам этого момента
     close = (100.05 / 99.9 - 1) * 1e4                      # купить M по оферу 100.05, продать H по биду 99.9
     assert abs(net - (edge - close - maker.FEE_TT)) < 1e-6
-    assert size == 100.0 and hold == 5050
+    assert size == 1000.0 and hold == 5050   # размер — полный объём лучшего уровня H (в тесте 1000)
 
 
 def test_touch_is_not_a_fill():
@@ -99,7 +99,7 @@ def test_maker_close_waits_for_trade_through_and_pays_maker_fees():
     cand = maker.candidates(P2, maker.THETAS[0])
     assert cand[0][0] == T_FILL and cand[1][0] == 1
     r, un = maker.simulate(P2, cand, 50, "mt")
-    t, side, edge, slip, size, net, hold = r[0]
+    t, side, edge, slip, size, net, hold, gross, div = r[0]
     qc = float(P2["close"][1][1][0])
     assert abs(qc - min(99.9 * (1 + float(P2["cq"][2]) / 1e4), P2["aM"][2] - P2["tick"])) < 1e-9
     assert hold == 2000 + 50                               # первая сделка за ценой — T_FILL+2000, хедж +50

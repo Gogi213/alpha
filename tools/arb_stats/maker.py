@@ -34,7 +34,7 @@ VARIANTS = ("tt", "mt")
 SIZE_USD = 100.0
 EPS = 1e-9
 PERIODS_H = (1, 4, 6, 24)
-COLS = ("t", "side", "edge", "slip", "size", "net", "hold")   # t — время сделки на M (мс), side +1 — продали на M
+COLS = ("t", "side", "edge", "slip", "size", "net", "hold", "gross", "div")   # t — время сделки на M (мс), side +1 — продали на M
 
 
 def tick_of(*arrs):
@@ -85,13 +85,13 @@ def candidates(P, theta):
     fs, fb = P["valid"] & (p > qs * (1 + EPS)), P["valid"] & (p < qb * (1 - EPS))
     k = np.flatnonzero(fs | fb)
     s = np.where(fs[k], 1, -1)
-    return P["tr_e"][k], s, np.where(fs[k], qs[k], qb[k]), np.where(fs[k], P["aH"][k], P["bH"][k])
+    return P["tr_e"][k], s, np.where(fs[k], qs[k], qb[k]), np.where(fs[k], P["aH"][k], P["bH"][k]), c[k]
 
 
 def simulate(P, cand, lat, variant):
     """Круги одной настройки. -> массив (n, 7) по COLS и число незакрытых (0/1: после него позиция висит до конца данных)."""
     M, H, T, t0, t1 = P["M"], P["H"], P["T"], P["t0"], P["t1"]
-    ct, cs, cq, cref = cand
+    ct, cs, cq, cref, cc = cand
     out = []
     free = t0
     unclosed = 0
@@ -111,7 +111,8 @@ def simulate(P, cand, lat, variant):
             hp, top = H["bid"][ih], H["dbid"][ih]
             slip = (cref[k] / hp - 1) * 1e4
         edge = (q / hp - 1) * 1e4
-        size = min(SIZE_USD, float(top))
+        div = side * (edge - float(cc[k]))     # расхождение входа к центру, bps (в сторону входа)
+        size = float(top)                      # полный объём лучшего уровня H, $ (потолок 100 USDT — при подсчёте)
         gross, flat = None, None
         if variant == "tt":
             idx = P["idx"][side]
@@ -139,10 +140,10 @@ def simulate(P, cand, lat, variant):
                         gross = (cp[j] / H["ask"][ih2] - 1) * 1e4 - edge
                     flat, fee = th2, FEE_MT
         if gross is None:
-            out.append((tf, side, edge, slip, size, np.nan, np.nan))
+            out.append((tf, side, edge, slip, size, np.nan, np.nan, np.nan, div))
             unclosed = 1
             break
-        out.append((tf, side, edge, slip, size, gross - fee, flat - tf))
+        out.append((tf, side, edge, slip, size, gross - fee, flat - tf, gross, div))
         free = flat + P["D"]
     return np.array(out, float).reshape(-1, len(COLS)), unclosed
 
@@ -156,13 +157,24 @@ def summarize(r, unclosed, t0, t1):
     t = r[:, 0]
     cl = r[~np.isnan(r[:, 5])]
     win_h = (t1 - t0) / 3600_000
-    net, size = cl[:, 5], cl[:, 4]
+    net, size = cl[:, 5], np.minimum(cl[:, 4], SIZE_USD)
     return {"n": int(len(r)), "closed": int(len(cl)), "unclosed": int(unclosed),
             "fills": [int((t >= t1 - h * 3600_000).sum()) for h in PERIODS_H],
             "net": [pq(net, 50), pq(net, 95)], "pos": float((net > 0).mean()) if len(net) else None,
             "slip": [pq(r[:, 3], 50), pq(r[:, 3], 95)], "hold_s": [pq(cl[:, 6] / 1000, 50), pq(cl[:, 6] / 1000, 95)],
             "usd_day": float((size * net / 1e4).sum() / (win_h / 24)), "edge_med": pq(r[:, 2], 50),
             "size_med": pq(r[:, 4], 50)}
+
+
+def rounds_for(P, thetas, lats, variants=VARIANTS):
+    """Круги по сетке (θ, L, вариант) без сводок: {(θ, L, вариант): (массив кругов, не закрыто)}."""
+    out = {}
+    for th in thetas:
+        cand = candidates(P, th)
+        for lat in lats:
+            for var in variants:
+                out[(th, lat, var)] = simulate(P, cand, lat, var)
+    return out
 
 
 def run_pair(P):
