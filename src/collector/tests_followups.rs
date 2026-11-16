@@ -1001,9 +1001,10 @@ fn a_windowed_exchange_fetches_the_gap_that_leaves_the_rest_window_first() {
         (Some(1000), ["HUGE", "HOT", "CALM"]),
         (None, ["CALM", "HOT", "HUGE"]),
     ] {
-        let order = std::sync::Mutex::new(Vec::<String>::new());
-        let fetch = |q: &PageReq<'_>| {
-            order.lock().unwrap().push(q.symbol.to_string());
+        let order = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen = Arc::clone(&order);
+        let fetch = move |q: &PageReq<'_>| {
+            seen.lock().unwrap().push(q.symbol.to_string());
             Some(Ok(TradePage::new((q.lo..=q.hi).map(trade).collect(), None)))
         };
         let (st, _) = run_work_w(
@@ -1035,8 +1036,8 @@ fn the_id_tracker_confirms_a_gap_after_the_exchange_confirm_time() {
     d.on_span(1, b"ETH", 14, 14, 2_000, 2_000);
     assert!(d.scan(2_000 + CONFIRM_MS - 1_001, "trade00").is_empty());
     assert_eq!(d.scan(2_000 + CONFIRM_MS, "trade00").len(), 1);
-    assert_eq!(super::bingx::Bingx.gap_confirm_ms(), 2_000);
-    assert_eq!(super::bingx::Bingx.trade_window(), Some(1000));
+    assert_eq!(super::bingx::Bingx::default().gap_confirm_ms(), 2_000);
+    assert_eq!(super::bingx::Bingx::default().trade_window(), Some(1000));
     assert_eq!(Binance.gap_confirm_ms(), CONFIRM_MS);
     assert_eq!(Binance.trade_window(), None);
 }
