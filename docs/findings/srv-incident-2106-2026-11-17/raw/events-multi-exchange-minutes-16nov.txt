@@ -1,0 +1,14 @@
+13:47 {'binance': 121, 'bingx': 39, 'bybit': 36, 'gate': 43, 'okx': 18}
+13:48 {'binance': 20, 'bingx': 4, 'bybit': 2, 'gate': 10, 'okx': 5}
+13:49 {'binance': 79, 'bingx': 31, 'bybit': 20, 'gate': 22, 'okx': 17}
+13:51 {'binance': 102, 'bingx': 38, 'bybit': 35, 'gate': 8, 'okx': 18}
+18:55 {'binance': 81, 'gate': 22, 'okx': 2}
+21:06 {'binance': 253, 'bingx': 56, 'bybit': 33, 'gate': 82, 'okx': 51}
+21:15 {'binance': 139, 'bingx': 13, 'bybit': 12, 'gate': 56, 'okx': 4}
+21:25 {'binance': 176, 'bingx': 13, 'bybit': 14, 'gate': 64, 'okx': 12}
+21:34 {'binance': 199, 'bingx': 4, 'bybit': 10, 'gate': 74}
+21:48 {'binance': 127, 'bingx': 6, 'bybit': 7, 'gate': 37, 'okx': 2}
+22:03 {'binance': 113, 'bingx': 2, 'bybit': 2, 'gate': 43}
+22:04 {'binance': 43, 'bingx': 1, 'bybit': 3, 'gate': 12}
+22:16 {'binance': 111, 'bingx': 2, 'gate': 37, 'okx': 1}
+минут-эпизодов: 13

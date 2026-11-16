@@ -1,0 +1,13 @@
+окно | длит. с | netwatch плохих с | события (timeout+ping_degraded+gap+path_rejected_rtt) по биржам | мин. msgs/медиана по биржам | хост steal% / sys% / idle% (среднее, макс.)
+xz6_CPU | 102 | 1 | BN=0 BB=0 OK=0 BX=0 GT=0 | BN=0.77 BB=0.80 OK=0.89 BX=1.00 GT=0.73 | steal 6.8/7.2  sys 14.6/30.6  idle 6.0/64.4
+dd6_syscalls | 81 | 2 | BN=0 BB=0 OK=0 BX=0 GT=0 | BN=0.77 BB=0.79 OK=0.91 BX=0.99 GT=0.46 | steal 1.4/2.9  sys 27.5/30.9  idle 16.7/63.7
+mmap6_pgfault | 81 | 0 | BN=0 BB=0 OK=0 BX=0 GT=0 | BN=1.05 BB=0.94 OK=0.96 BX=1.00 GT=0.58 | steal 1.7/3.3  sys 58.7/63.4  idle 9.7/14.5
+W1_copies | 354 | 39 | BN=290 BB=12 OK=4 BX=13 GT=97 | BN=0.01 BB=0.67 OK=0.65 BX=0.89 GT=0.00 | steal 2.4/12.6  sys 25.1/40.2  idle 17.9/22.4
+W2_copies | 354 | 6 | BN=144 BB=0 OK=0 BX=0 GT=4 | BN=0.19 BB=0.77 OK=0.76 BX=0.99 GT=0.25 | steal 2.5/13.3  sys 11.2/12.2  idle 61.2/66.5
+W3_copies | 443 | 32 | BN=260 BB=10 OK=0 BX=4 GT=93 | BN=0.02 BB=0.78 OK=0.89 BX=0.93 GT=0.02 | steal 3.9/13.6  sys 6.7/30.6  idle 57.3/82.2
+W4_copies | 558 | 33 | BN=260 BB=10 OK=0 BX=4 GT=93 | BN=0.02 BB=0.79 OK=0.89 BX=0.93 GT=0.02 | steal 2.4/13.6  sys 16.5/63.4  idle 52.7/82.2
+W5_copies | 554 | 29 | BN=242 BB=0 OK=1 BX=2 GT=82 | BN=0.03 BB=0.72 OK=0.90 BX=0.86 GT=0.02 | steal 3.1/13.6  sys 9.1/12.3  idle 13.8/18.3
+hold-tol | 1221 | 136 | BN=1115 BB=60 OK=68 BX=84 GT=325 | BN=0.00 BB=0.67 OK=0.56 BX=0.71 GT=0.00 | steal 2.3/13.3  sys 19.4/43.2  idle 36.4/72.4
+before | 2137 | 32 | BN=44 BB=0 OK=2 BX=0 GT=14 | BN=1.02 BB=1.01 OK=1.05 BX=1.00 GT=1.20 | steal 4.3/20.9  sys 6.1/10.8  idle 12.7/79.2
+quiet_2140_2146 | 361 | 3 | BN=0 BB=0 OK=0 BX=0 GT=0 | BN=0.67 BB=0.83 OK=0.93 BX=0.99 GT=0.73 | steal 2.6/10.3  sys 4.8/7.3  idle 65.2/80.3
+quiet_2220_2255 | 2101 | 24 | BN=85 BB=0 OK=0 BX=0 GT=6 | BN=0.37 BB=0.53 OK=0.84 BX=0.86 GT=0.47 | steal 2.6/14.1  sys 7.5/19.8  idle 42.3/71.1

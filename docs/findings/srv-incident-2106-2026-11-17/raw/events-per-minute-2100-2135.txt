@@ -1,0 +1,89 @@
+### binance: 8643 событий
+21:00 {'slow_pong': 4}
+21:05 {'gap': 23, 'gap_end': 10, 'ping_degraded': 1, 'slow_pong': 3, 'timeout': 1}
+21:06 {'connected': 12, 'error': 5, 'gap': 77, 'gap_end': 87, 'path_reject_capped': 16, 'path_rejected': 1, 'path_rejected_rtt': 136, 'ping_degraded': 52, 'replace_deferred': 25, 'storm_hold': 24, 'subscribed': 12, 'timeout': 65}
+21:07 {'connected': 30, 'error': 30, 'gap': 2, 'gap_end': 5, 'path_ok': 35, 'path_reject_capped': 4, 'path_rejected': 4, 'path_switch': 8, 'slow_pong': 2, 'subscribed': 30, 'ws_end': 30}
+21:08 {'connected': 7, 'path_ok': 8, 'subscribed': 7}
+21:09 {'connected': 5, 'path_ok': 5, 'path_switch': 12, 'replace_forced': 5, 'subscribed': 5}
+21:11 {'connected': 20, 'path_ok': 20, 'path_switch': 18, 'slow_pong': 2, 'subscribed': 20}
+21:12 {'connected': 57, 'error': 11, 'gap': 4, 'gap_end': 4, 'path_ok': 27, 'path_rejected': 6, 'path_rejected_rtt': 4, 'path_switch': 1, 'ping_degraded': 2, 'replace_deferred': 15, 'slow_pong': 88, 'storm_abort': 24, 'storm_hold': 12, 'subscribed': 57, 'timeout': 74, 'ws_end': 11}
+21:13 {'path_ok': 4, 'path_switch': 20, 'replace_deferred': 3}
+21:15 {'connected': 24, 'error': 21, 'gap': 64, 'gap_end': 64, 'path_ok': 7, 'path_reject_capped': 1, 'path_rejected_rtt': 25, 'ping_degraded': 51, 'replace_deferred': 8, 'replace_forced': 565, 'slow_pong': 6, 'storm_abort': 14, 'storm_hold': 27, 'subscribed': 24, 'timeout': 63, 'ws_end': 17}
+21:16 {'connected': 24, 'error': 3, 'gap': 1, 'path_ok': 14, 'path_reject_capped': 2, 'path_rejected': 6, 'path_switch': 6, 'replace_deferred': 1, 'replace_forced': 2196, 'slow_pong': 38, 'subscribed': 24, 'timeout': 1, 'ws_end': 3}
+21:17 {'connected': 10, 'gap_end': 1, 'path_ok': 27, 'path_rejected_rtt': 1, 'path_switch': 18, 'replace_forced': 21, 'slow_pong': 4, 'subscribed': 10}
+21:18 {'connected': 49, 'gap': 4, 'gap_end': 4, 'path_rejected': 11, 'path_rejected_rtt': 7, 'path_switch': 8, 'ping_degraded': 3, 'replace_capped': 10, 'replace_deferred': 18, 'replace_forced': 82, 'slow_pong': 67, 'storm_abort': 27, 'storm_hold': 9, 'subscribed': 49, 'timeout': 70}
+21:19 {'connected': 31, 'error': 2, 'gap': 17, 'gap_end': 9, 'path_ok': 3, 'path_reject_capped': 4, 'path_rejected': 31, 'path_rejected_rtt': 15, 'path_switch': 2, 'ping_degraded': 33, 'replace_forced': 956, 'slow_pong': 54, 'storm_hold': 3, 'subscribed': 31, 'timeout': 76, 'ws_end': 2}
+21:20 {'connected': 19, 'gap': 3, 'gap_end': 5, 'path_ok': 20, 'path_reject_capped': 1, 'path_rejected': 7, 'path_switch': 17, 'ping_degraded': 1, 'replace_deferred': 7, 'replace_forced': 368, 'slow_pong': 2, 'subscribed': 19, 'timeout': 2}
+21:21 {'connected': 21, 'gap_end': 6, 'path_switch': 3, 'replace_deferred': 1, 'replace_forced': 305, 'subscribed': 21}
+21:22 {'connected': 3, 'path_ok': 24, 'path_switch': 21, 'replace_forced': 97, 'subscribed': 3}
+21:23 {'connected': 3, 'path_rejected': 2, 'path_switch': 3, 'replace_forced': 1, 'slow_pong': 1, 'subscribed': 3}
+21:24 {'connected': 4, 'path_ok': 5, 'path_switch': 4, 'subscribed': 4}
+21:25 {'connected': 25, 'gap': 65, 'gap_end': 62, 'path_ok': 1, 'path_reject_capped': 2, 'path_rejected': 1, 'path_rejected_rtt': 55, 'ping_degraded': 52, 'replace_deferred': 27, 'slow_pong': 6, 'storm_hold': 26, 'subscribed': 23, 'timeout': 69}
+21:26 {'connected': 28, 'error': 20, 'gap_end': 3, 'path_ok': 42, 'path_rejected': 7, 'path_switch': 25, 'slow_pong': 11, 'storm_hold': 1, 'subscribed': 30, 'ws_end': 20}
+21:27 {'connected': 2, 'path_ok': 2, 'subscribed': 2}
+21:28 {'connected': 16, 'path_ok': 12, 'path_rejected': 1, 'path_switch': 2, 'replace_forced': 15, 'slow_pong': 2, 'subscribed': 16}
+21:29 {'path_ok': 3, 'path_switch': 15}
+21:30 {'connected': 2, 'path_ok': 2, 'subscribed': 2}
+21:31 {'path_switch': 2}
+21:34 {'connected': 50, 'error': 26, 'gap': 61, 'gap_end': 61, 'path_ok': 19, 'path_reject_capped': 6, 'path_rejected': 3, 'path_rejected_rtt': 80, 'path_switch': 1, 'ping_degraded': 50, 'replace_deferred': 23, 'slow_pong': 15, 'storm_abort': 8, 'storm_hold': 21, 'subscribed': 50, 'timeout': 69, 'ws_end': 26}
+### bybit: 326 событий
+21:04 {'pool_delta': 6}
+21:05 {'slow_pong': 10}
+21:06 {'connected': 15, 'path_ok': 1, 'path_rejected': 10, 'path_rejected_rtt': 11, 'path_switch': 1, 'ping_degraded': 11, 'slow_pong': 20, 'subscribed': 14, 'timeout': 11}
+21:07 {'connected': 1, 'path_ok': 5, 'path_switch': 5, 'subscribed': 2}
+21:09 {'pool_delta': 6}
+21:14 {'pool_delta': 6}
+21:15 {'connected': 9, 'path_ok': 5, 'path_rejected': 4, 'path_rejected_rtt': 2, 'ping_degraded': 5, 'slow_pong': 17, 'subscribed': 9, 'timeout': 5}
+21:16 {'path_switch': 5}
+21:18 {'gap': 1, 'gap_end': 1}
+21:19 {'pause_check': 1}
+21:25 {'connected': 11, 'path_rejected': 4, 'ping_degraded': 7, 'slow_pong': 20, 'subscribed': 11, 'timeout': 7}
+21:26 {'connected': 1, 'path_ok': 7, 'path_rejected': 1, 'path_rejected_rtt': 1, 'path_switch': 7, 'subscribed': 1}
+21:29 {'pool_delta': 6}
+21:34 {'connected': 6, 'path_ok': 4, 'path_rejected': 2, 'path_rejected_rtt': 2, 'ping_degraded': 4, 'pool_delta': 7, 'slow_pong': 8, 'subscribed': 6, 'timeout': 4}
+### okx: 262 событий
+21:05 {'slow_pong': 6}
+21:06 {'connected': 23, 'error': 1, 'path_ok': 12, 'path_reject_capped': 2, 'path_rejected': 8, 'path_rejected_rtt': 17, 'path_switch': 5, 'ping_degraded': 17, 'slow_pong': 23, 'subscribed': 23, 'timeout': 17}
+21:07 {'path_ok': 3, 'path_switch': 10}
+21:08 {'path_switch': 2, 'switch_timeout': 2}
+21:11 {'connected': 2, 'gap': 1, 'gap_end': 1, 'subscribed': 2}
+21:12 {'slow_pong': 1}
+21:15 {'connected': 3, 'path_ok': 3, 'path_switch': 1, 'ping_degraded': 2, 'slow_pong': 15, 'subscribed': 3, 'timeout': 2}
+21:16 {'path_switch': 2}
+21:25 {'connected': 6, 'path_rejected': 2, 'path_rejected_rtt': 4, 'ping_degraded': 4, 'slow_pong': 12, 'subscribed': 6, 'timeout': 4}
+21:26 {'connected': 1, 'path_ok': 5, 'path_switch': 5, 'ping_degraded': 1, 'subscribed': 1, 'timeout': 1}
+21:34 {'slow_pong': 1}
+### bingx: 418 событий
+21:05 {'gap': 1, 'gap_end': 1, 'slow_pong': 19}
+21:06 {'connected': 25, 'gap': 1, 'gap_end': 1, 'path_ok': 10, 'path_reject_capped': 2, 'path_rejected': 10, 'path_rejected_rtt': 18, 'path_switch': 6, 'ping_degraded': 19, 'slow_pong': 68, 'subscribed': 24, 'timeout': 19}
+21:07 {'connected': 1, 'path_ok': 6, 'path_switch': 10, 'subscribed': 2}
+21:08 {'path_switch': 2, 'switch_timeout': 2}
+21:11 {'connected': 2, 'path_ok': 2, 'subscribed': 2}
+21:15 {'connected': 5, 'path_ok': 4, 'path_rejected_rtt': 5, 'ping_degraded': 4, 'slow_pong': 38, 'subscribed': 5, 'timeout': 4}
+21:16 {'path_ok': 1, 'path_switch': 5}
+21:25 {'connected': 5, 'path_rejected': 1, 'path_rejected_rtt': 5, 'ping_degraded': 4, 'slow_pong': 37, 'subscribed': 4, 'timeout': 4}
+21:26 {'path_ok': 4, 'path_switch': 4, 'subscribed': 1}
+21:34 {'connected': 2, 'path_ok': 2, 'ping_degraded': 2, 'slow_pong': 15, 'subscribed': 2, 'timeout': 2}
+### gate: 1178 событий
+21:05 {'gap': 10, 'gap_end': 5}
+21:06 {'connected': 4, 'error': 2, 'gap': 25, 'gap_end': 28, 'path_reject_capped': 6, 'path_rejected': 1, 'path_rejected_rtt': 46, 'ping_degraded': 18, 'storm_hold': 9, 'subscribed': 4, 'timeout': 18}
+21:07 {'connected': 8, 'error': 6, 'gap_end': 2, 'path_ok': 9, 'path_rejected': 2, 'path_switch': 3, 'slow_pong': 1, 'subscribed': 8, 'ws_end': 6}
+21:08 {'connected': 6, 'path_switch': 6, 'subscribed': 6, 'switch_timeout': 6}
+21:09 {'path_ok': 6, 'path_switch': 6}
+21:11 {'connected': 6, 'path_ok': 6, 'slow_pong': 1, 'subscribed': 6}
+21:12 {'connected': 15, 'error': 2, 'path_ok': 9, 'path_rejected': 6, 'path_rejected_rtt': 2, 'ping_degraded': 7, 'slow_pong': 33, 'subscribed': 15, 'timeout': 7, 'ws_end': 2}
+21:13 {'path_switch': 7}
+21:15 {'connected': 13, 'error': 5, 'gap': 23, 'gap_end': 23, 'path_ok': 5, 'path_reject_capped': 2, 'path_rejected': 1, 'path_rejected_rtt': 20, 'ping_degraded': 18, 'slow_pong': 4, 'storm_hold': 9, 'subscribed': 13, 'timeout': 18, 'ws_end': 5}
+21:16 {'path_ok': 6, 'path_switch': 7, 'ping_degraded': 1, 'slow_pong': 12, 'timeout': 1}
+21:17 {'connected': 9, 'path_ok': 9, 'path_switch': 9, 'subscribed': 9, 'switch_timeout': 2}
+21:18 {'connected': 15, 'path_rejected': 3, 'path_rejected_rtt': 1, 'ping_degraded': 10, 'slow_pong': 44, 'storm_abort': 12, 'storm_hold': 11, 'subscribed': 10, 'timeout': 10}
+21:19 {'connected': 2, 'error': 2, 'ping_degraded': 3, 'slow_pong': 16, 'storm_hold': 1, 'subscribed': 2, 'timeout': 3, 'ws_end': 2}
+21:20 {'connected': 9, 'error': 1, 'path_ok': 8, 'path_rejected': 1, 'path_switch': 7, 'slow_pong': 6, 'subscribed': 9, 'ws_end': 1}
+21:21 {'connected': 2, 'path_ok': 2, 'path_switch': 2, 'subscribed': 2}
+21:22 {'connected': 2, 'path_ok': 2, 'path_switch': 2, 'subscribed': 2}
+21:25 {'connected': 5, 'error': 2, 'gap': 20, 'gap_end': 19, 'path_reject_capped': 2, 'path_rejected_rtt': 28, 'ping_degraded': 18, 'slow_pong': 2, 'storm_hold': 8, 'subscribed': 5, 'timeout': 18}
+21:26 {'connected': 7, 'error': 5, 'gap_end': 1, 'path_ok': 12, 'path_switch': 7, 'subscribed': 7, 'ws_end': 5}
+21:27 {'connected': 6, 'path_ok': 6, 'path_switch': 2, 'subscribed': 6, 'switch_timeout': 2}
+21:28 {'path_switch': 6}
+21:30 {'connected': 2, 'path_ok': 2, 'subscribed': 2}
+21:34 {'connected': 10, 'error': 4, 'gap': 19, 'gap_end': 19, 'path_ok': 4, 'path_reject_capped': 4, 'path_rejected': 1, 'path_rejected_rtt': 38, 'ping_degraded': 18, 'slow_pong': 6, 'storm_hold': 8, 'subscribed': 10, 'timeout': 18, 'ws_end': 4}

@@ -1,0 +1,172 @@
+### binance: слотов 240
+21:06:00 shards=27 qlag_p99max=  1425.4 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.6мс ring_blocked=0 msgs=1027 lag_p50 med=120
+21:06:10 shards=27 qlag_p99max=  9830.4 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.7мс ring_blocked=0 msgs=476 lag_p50 med=120
+21:06:20 shards=27 qlag_p99max= 26476.5 msgs_ratio=0.01 busy_max=    0.1мс handoff=    0.0мс disk_w=   0.5мс ring_blocked=0 msgs=663 lag_p50 med=120
+21:06:30 shards=27 qlag_p99max= 34078.7 msgs_ratio=0.00 busy_max=    0.0мс handoff=    0.0мс disk_w=   1.0мс ring_blocked=0 msgs=288 lag_p50 med=120
+21:06:40 shards=27 qlag_p99max= 50855.9 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.6мс ring_blocked=0 msgs=646 lag_p50 med=120
+21:06:50 shards=27 qlag_p99max= 62390.3 msgs_ratio=0.09 busy_max=    0.1мс handoff=    0.1мс disk_w=   1.4мс ring_blocked=0 msgs=8022 lag_p50 med=46662
+21:07:00 shards=27 qlag_p99max= 70254.6 msgs_ratio=1.24 busy_max=    8.4мс handoff=    3.5мс disk_w=  29.2мс ring_blocked=0 msgs=110377 lag_p50 med=54002
+21:07:10 shards=27 qlag_p99max= 74448.9 msgs_ratio=1.88 busy_max=    3.4мс handoff=    1.1мс disk_w=   5.4мс ring_blocked=0 msgs=167067 lag_p50 med=49807
+21:07:20 shards=27 qlag_p99max= 93323.3 msgs_ratio=1.65 busy_max=    4.9мс handoff=    4.9мс disk_w=  10.3мс ring_blocked=0 msgs=146910 lag_p50 med=44564
+21:07:30 shards=27 qlag_p99max=  1687.6 msgs_ratio=1.69 busy_max=    8.2мс handoff=    0.8мс disk_w=   7.9мс ring_blocked=0 msgs=150210 lag_p50 med=26476
+21:12:10 shards=27 qlag_p99max=  1040.4 msgs_ratio=0.25 busy_max=   10.0мс handoff=    0.1мс disk_w=   1.6мс ring_blocked=0 msgs=22129 lag_p50 med=118
+21:12:20 shards=27 qlag_p99max=  1130.5 msgs_ratio=0.25 busy_max=    0.6мс handoff=    0.2мс disk_w=   8.0мс ring_blocked=0 msgs=22548 lag_p50 med=120
+21:12:30 shards=27 qlag_p99max=  1040.4 msgs_ratio=1.63 busy_max=    2.6мс handoff=    1.1мс disk_w=  13.8мс ring_blocked=0 msgs=144589 lag_p50 med=190
+21:12:40 shards=27 qlag_p99max=  1040.4 msgs_ratio=2.01 busy_max=    3.0мс handoff=    0.7мс disk_w=  25.0мс ring_blocked=0 msgs=178580 lag_p50 med=680
+21:12:50 shards=27 qlag_p99max=  1040.4 msgs_ratio=1.26 busy_max=    7.7мс handoff=    0.5мс disk_w=  15.4мс ring_blocked=0 msgs=111978 lag_p50 med=1884
+21:13:00 shards=27 qlag_p99max=  1040.4 msgs_ratio=1.01 busy_max=    2.0мс handoff=    2.0мс disk_w=   9.0мс ring_blocked=0 msgs=89790 lag_p50 med=356
+21:15:10 shards=27 qlag_p99max=  4096.0 msgs_ratio=0.05 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.7мс ring_blocked=0 msgs=4376 lag_p50 med=118
+21:15:20 shards=27 qlag_p99max= 19136.5 msgs_ratio=0.01 busy_max=    0.1мс handoff=    0.0мс disk_w=   0.6мс ring_blocked=0 msgs=938 lag_p50 med=118
+21:15:30 shards=27 qlag_p99max= 25952.3 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.3мс ring_blocked=0 msgs=1184 lag_p50 med=118
+21:15:40 shards=27 qlag_p99max= 28049.4 msgs_ratio=1.03 busy_max=    1.9мс handoff=    0.2мс disk_w=  12.6мс ring_blocked=0 msgs=91247 lag_p50 med=4260
+21:15:50 shards=27 qlag_p99max= 24379.4 msgs_ratio=1.76 busy_max=    4.4мс handoff=    2.3мс disk_w=  16.2мс ring_blocked=0 msgs=156659 lag_p50 med=12452
+21:16:00 shards=27 qlag_p99max= 23330.8 msgs_ratio=0.89 busy_max=    8.4мс handoff=    1.7мс disk_w=   9.2мс ring_blocked=0 msgs=79165 lag_p50 med=15335
+21:16:10 shards=27 qlag_p99max=  2981.9 msgs_ratio=0.95 busy_max=    2.8мс handoff=    2.8мс disk_w=   8.0мс ring_blocked=0 msgs=84630 lag_p50 med=8323
+21:18:30 shards=27 qlag_p99max=   991.2 msgs_ratio=0.25 busy_max=    1.3мс handoff=    0.1мс disk_w=   1.5мс ring_blocked=0 msgs=22278 lag_p50 med=118
+21:18:40 shards=27 qlag_p99max=  1654.8 msgs_ratio=0.22 busy_max=    0.5мс handoff=    0.2мс disk_w=   2.1мс ring_blocked=0 msgs=19829 lag_p50 med=120
+21:18:50 shards=27 qlag_p99max=  3506.2 msgs_ratio=0.27 busy_max=    0.2мс handoff=    0.1мс disk_w=   1.6мс ring_blocked=0 msgs=24303 lag_p50 med=126
+21:19:00 shards=27 qlag_p99max=  3506.2 msgs_ratio=0.24 busy_max=    0.6мс handoff=    0.2мс disk_w=   1.7мс ring_blocked=0 msgs=21621 lag_p50 med=162
+21:19:10 shards=27 qlag_p99max=  3506.2 msgs_ratio=0.21 busy_max=    0.9мс handoff=    0.2мс disk_w=   1.7мс ring_blocked=0 msgs=18287 lag_p50 med=2654
+21:19:20 shards=27 qlag_p99max=  3506.2 msgs_ratio=0.20 busy_max=    0.2мс handoff=    0.1мс disk_w=  10.7мс ring_blocked=0 msgs=17785 lag_p50 med=15860
+21:19:30 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.25 busy_max=    0.2мс handoff=    0.1мс disk_w=   1.4мс ring_blocked=0 msgs=22037 lag_p50 med=18088
+21:19:40 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.22 busy_max=    1.0мс handoff=    0.1мс disk_w=   3.5мс ring_blocked=0 msgs=19259 lag_p50 med=6750
+21:19:50 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.22 busy_max=    0.5мс handoff=    0.1мс disk_w=   3.2мс ring_blocked=0 msgs=19699 lag_p50 med=4915
+21:20:00 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.18 busy_max=    2.2мс handoff=    0.5мс disk_w=  40.4мс ring_blocked=0 msgs=16339 lag_p50 med=1753
+21:20:10 shards=27 qlag_p99max=   532.5 msgs_ratio=0.20 busy_max=    0.4мс handoff=    0.3мс disk_w=   3.3мс ring_blocked=0 msgs=18130 lag_p50 med=647
+21:20:20 shards=27 qlag_p99max=   495.6 msgs_ratio=0.32 busy_max=    2.0мс handoff=    0.5мс disk_w=   4.5мс ring_blocked=0 msgs=28163 lag_p50 med=128
+21:20:30 shards=27 qlag_p99max=   315.4 msgs_ratio=0.22 busy_max=    0.3мс handoff=    0.1мс disk_w=   1.6мс ring_blocked=0 msgs=19580 lag_p50 med=126
+21:20:40 shards=27 qlag_p99max=   251.9 msgs_ratio=0.35 busy_max=    0.4мс handoff=    0.4мс disk_w=   2.2мс ring_blocked=0 msgs=30846 lag_p50 med=124
+21:20:50 shards=27 qlag_p99max=   251.9 msgs_ratio=0.30 busy_max=    0.5мс handoff=    0.1мс disk_w=  11.5мс ring_blocked=0 msgs=26907 lag_p50 med=124
+21:21:00 shards=27 qlag_p99max=   251.9 msgs_ratio=0.35 busy_max=    1.7мс handoff=    1.7мс disk_w=  18.4мс ring_blocked=0 msgs=31339 lag_p50 med=122
+21:21:10 shards=27 qlag_p99max=   251.9 msgs_ratio=0.27 busy_max=    0.5мс handoff=    0.1мс disk_w=   1.9мс ring_blocked=0 msgs=24381 lag_p50 med=120
+21:21:20 shards=27 qlag_p99max=   251.9 msgs_ratio=0.23 busy_max=    0.2мс handoff=    0.1мс disk_w=   2.2мс ring_blocked=0 msgs=20026 lag_p50 med=118
+21:21:30 shards=27 qlag_p99max=   243.7 msgs_ratio=0.33 busy_max=    0.5мс handoff=    0.1мс disk_w=   1.7мс ring_blocked=0 msgs=29014 lag_p50 med=116
+21:21:40 shards=27 qlag_p99max=   243.7 msgs_ratio=0.24 busy_max=    0.3мс handoff=    0.1мс disk_w=   6.3мс ring_blocked=0 msgs=21668 lag_p50 med=116
+21:25:30 shards=27 qlag_p99max=  4522.0 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.3мс ring_blocked=0 msgs=1226 lag_p50 med=118
+21:25:40 shards=27 qlag_p99max=  5177.3 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.5мс ring_blocked=0 msgs=775 lag_p50 med=118
+21:25:50 shards=27 qlag_p99max=  9568.3 msgs_ratio=0.01 busy_max=    0.1мс handoff=    0.0мс disk_w=   1.0мс ring_blocked=0 msgs=1025 lag_p50 med=118
+21:26:00 shards=27 qlag_p99max= 37224.4 msgs_ratio=1.35 busy_max=    1.7мс handoff=    0.2мс disk_w=   5.5мс ring_blocked=0 msgs=120453 lag_p50 med=231
+21:26:10 shards=27 qlag_p99max= 36175.9 msgs_ratio=2.74 busy_max=    3.3мс handoff=    1.4мс disk_w=   3.6мс ring_blocked=0 msgs=243450 lag_p50 med=11928
+21:26:20 shards=27 qlag_p99max= 31195.1 msgs_ratio=1.54 busy_max=    1.7мс handoff=    1.4мс disk_w=   4.2мс ring_blocked=0 msgs=136888 lag_p50 med=6881
+21:26:30 shards=27 qlag_p99max=  1851.4 msgs_ratio=1.38 busy_max=    1.7мс handoff=    0.1мс disk_w=   2.9мс ring_blocked=0 msgs=122467 lag_p50 med=154
+21:34:10 shards=27 qlag_p99max=  8192.0 msgs_ratio=0.04 busy_max=    0.1мс handoff=    0.0мс disk_w=   3.7мс ring_blocked=0 msgs=3540 lag_p50 med=118
+21:34:20 shards=27 qlag_p99max=  8192.0 msgs_ratio=0.01 busy_max=    0.1мс handoff=    0.0мс disk_w=   0.3мс ring_blocked=0 msgs=1274 lag_p50 med=118
+21:34:30 shards=27 qlag_p99max= 24379.4 msgs_ratio=0.02 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.3мс ring_blocked=0 msgs=1934 lag_p50 med=118
+21:34:40 shards=27 qlag_p99max= 36175.9 msgs_ratio=1.27 busy_max=    3.2мс handoff=    1.0мс disk_w=   6.3мс ring_blocked=0 msgs=112634 lag_p50 med=3310
+21:34:50 shards=27 qlag_p99max= 31719.4 msgs_ratio=2.07 busy_max=    1.8мс handoff=    0.4мс disk_w=   5.4мс ring_blocked=0 msgs=183984 lag_p50 med=14549
+21:35:00 shards=27 qlag_p99max=  5439.5 msgs_ratio=1.98 busy_max=   13.9мс handoff=    0.5мс disk_w=  21.7мс ring_blocked=0 msgs=176312 lag_p50 med=14549
+21:35:10 shards=27 qlag_p99max=  4522.0 msgs_ratio=1.08 busy_max=    0.6мс handoff=    0.6мс disk_w=   3.3мс ring_blocked=0 msgs=96216 lag_p50 med=7799
+  всего слотов 240; queue_lag_p99 max по слотам: медиана 307.2, p95 28049.4, макс 93323.3
+### bybit: слотов 240
+21:05:50 shards=18 qlag_p99max=  1458.2 msgs_ratio=0.98 busy_max=    1.3мс handoff=    0.3мс disk_w=   1.9мс ring_blocked=0 msgs=33443 lag_p50 med=112
+21:06:00 shards=18 qlag_p99max=  1458.2 msgs_ratio=0.97 busy_max=    0.4мс handoff=    0.1мс disk_w=   2.8мс ring_blocked=0 msgs=32904 lag_p50 med=113
+21:06:10 shards=18 qlag_p99max=  2048.0 msgs_ratio=1.04 busy_max=    0.2мс handoff=    0.1мс disk_w=   3.3мс ring_blocked=0 msgs=35426 lag_p50 med=122
+21:06:20 shards=18 qlag_p99max=  2048.0 msgs_ratio=0.95 busy_max=    0.3мс handoff=    0.1мс disk_w=   3.5мс ring_blocked=0 msgs=32191 lag_p50 med=213
+21:06:30 shards=18 qlag_p99max=  2048.0 msgs_ratio=0.95 busy_max=    0.3мс handoff=    0.2мс disk_w=   7.3мс ring_blocked=0 msgs=32307 lag_p50 med=221
+21:06:40 shards=18 qlag_p99max=  3309.6 msgs_ratio=0.93 busy_max=    0.3мс handoff=    0.2мс disk_w=   2.3мс ring_blocked=0 msgs=31568 lag_p50 med=229
+21:06:50 shards=18 qlag_p99max=  2261.0 msgs_ratio=1.13 busy_max=    1.9мс handoff=    0.6мс disk_w=   2.2мс ring_blocked=0 msgs=38398 lag_p50 med=219
+21:07:00 shards=18 qlag_p99max=  1556.5 msgs_ratio=1.09 busy_max=    3.6мс handoff=    3.6мс disk_w=  20.7мс ring_blocked=0 msgs=37204 lag_p50 med=213
+21:07:10 shards=18 qlag_p99max=  1523.7 msgs_ratio=1.14 busy_max=    1.3мс handoff=    0.3мс disk_w=   4.1мс ring_blocked=0 msgs=38814 lag_p50 med=201
+21:25:20 shards=18 qlag_p99max=  1392.6 msgs_ratio=0.90 busy_max=    0.3мс handoff=    0.2мс disk_w=   7.9мс ring_blocked=0 msgs=30495 lag_p50 med=110
+21:25:30 shards=18 qlag_p99max=  1425.4 msgs_ratio=0.87 busy_max=    0.1мс handoff=    0.1мс disk_w=   1.4мс ring_blocked=0 msgs=29648 lag_p50 med=112
+21:25:40 shards=18 qlag_p99max=  1425.4 msgs_ratio=0.76 busy_max=    0.2мс handoff=    0.1мс disk_w=   0.6мс ring_blocked=0 msgs=25720 lag_p50 med=114
+21:25:50 shards=18 qlag_p99max=  1425.4 msgs_ratio=1.32 busy_max=    1.4мс handoff=    0.1мс disk_w=   4.3мс ring_blocked=0 msgs=44829 lag_p50 med=118
+21:26:00 shards=18 qlag_p99max=  1425.4 msgs_ratio=1.53 busy_max=    4.0мс handoff=    3.0мс disk_w=   4.1мс ring_blocked=0 msgs=52116 lag_p50 med=125
+21:26:10 shards=18 qlag_p99max=  1392.6 msgs_ratio=1.44 busy_max=    0.4мс handoff=    0.4мс disk_w=   3.6мс ring_blocked=0 msgs=48840 lag_p50 med=121
+21:34:30 shards=18 qlag_p99max=  2195.5 msgs_ratio=1.22 busy_max=    3.2мс handoff=    0.1мс disk_w=   4.7мс ring_blocked=0 msgs=41580 lag_p50 med=114
+21:34:40 shards=18 qlag_p99max=  2195.5 msgs_ratio=1.29 busy_max=    1.9мс handoff=    0.2мс disk_w=   4.2мс ring_blocked=0 msgs=43723 lag_p50 med=112
+21:34:50 shards=18 qlag_p99max=  2195.5 msgs_ratio=0.97 busy_max=    0.3мс handoff=    0.3мс disk_w=   1.9мс ring_blocked=0 msgs=32907 lag_p50 med=113
+21:35:00 shards=18 qlag_p99max=  2195.5 msgs_ratio=1.11 busy_max=    0.7мс handoff=    0.2мс disk_w=   5.8мс ring_blocked=0 msgs=37738 lag_p50 med=113
+21:35:10 shards=18 qlag_p99max=  2195.5 msgs_ratio=0.97 busy_max=    1.1мс handoff=    0.1мс disk_w=  12.7мс ring_blocked=0 msgs=32967 lag_p50 med=110
+  всего слотов 240; queue_lag_p99 max по слотам: медиана 33.3, p95 1523.7, макс 3309.6
+### okx: слотов 240
+21:05:50 shards=12 qlag_p99max=  1228.8 msgs_ratio=0.68 busy_max=    0.3мс handoff=    0.1мс disk_w=   4.8мс ring_blocked=0 msgs=46145 lag_p50 med=128
+21:06:00 shards=12 qlag_p99max=  1523.7 msgs_ratio=0.56 busy_max=    0.2мс handoff=    0.1мс disk_w=   3.8мс ring_blocked=0 msgs=38069 lag_p50 med=128
+21:06:10 shards=12 qlag_p99max=  1687.6 msgs_ratio=0.74 busy_max=    0.5мс handoff=    0.2мс disk_w=   1.0мс ring_blocked=0 msgs=50881 lag_p50 med=133
+21:06:20 shards=12 qlag_p99max=  3440.6 msgs_ratio=0.83 busy_max=    0.5мс handoff=    0.3мс disk_w=   1.6мс ring_blocked=0 msgs=56697 lag_p50 med=182
+21:06:30 shards=12 qlag_p99max=  3440.6 msgs_ratio=0.82 busy_max=    1.3мс handoff=    0.1мс disk_w=   3.9мс ring_blocked=0 msgs=56010 lag_p50 med=278
+21:06:40 shards=12 qlag_p99max=  3440.6 msgs_ratio=0.93 busy_max=    1.9мс handoff=    0.2мс disk_w=   1.8мс ring_blocked=0 msgs=63830 lag_p50 med=307
+21:06:50 shards=12 qlag_p99max=  2195.5 msgs_ratio=2.02 busy_max=    8.6мс handoff=    8.6мс disk_w=  11.0мс ring_blocked=0 msgs=138249 lag_p50 med=270
+21:07:00 shards=12 qlag_p99max=  1818.6 msgs_ratio=1.65 busy_max=   12.2мс handoff=    1.3мс disk_w=  13.6мс ring_blocked=0 msgs=112970 lag_p50 med=256
+21:07:10 shards=12 qlag_p99max=  1622.0 msgs_ratio=1.10 busy_max=    3.1мс handoff=    0.5мс disk_w=   4.1мс ring_blocked=0 msgs=75440 lag_p50 med=184
+21:07:20 shards=12 qlag_p99max=  1556.5 msgs_ratio=1.01 busy_max=    4.1мс handoff=    1.0мс disk_w=  14.3мс ring_blocked=0 msgs=68684 lag_p50 med=133
+21:07:30 shards=12 qlag_p99max=  1163.3 msgs_ratio=1.99 busy_max=    2.5мс handoff=    1.1мс disk_w=   3.3мс ring_blocked=0 msgs=135952 lag_p50 med=127
+  всего слотов 240; queue_lag_p99 max по слотам: медиана 25.3, p95 974.8, макс 3440.6
+### bingx: слотов 240
+21:05:50 shards=15 qlag_p99max=  1065.0 msgs_ratio=0.73 busy_max=   15.2мс handoff=    0.7мс disk_w=   2.5мс ring_blocked=0 msgs=51423 lag_p50 med=87
+21:06:00 shards=15 qlag_p99max=  3768.3 msgs_ratio=0.71 busy_max=    3.8мс handoff=    0.1мс disk_w=   2.2мс ring_blocked=0 msgs=49777 lag_p50 med=87
+21:06:10 shards=15 qlag_p99max=  4259.8 msgs_ratio=0.75 busy_max=    0.9мс handoff=    0.1мс disk_w=   1.3мс ring_blocked=0 msgs=53037 lag_p50 med=91
+21:06:20 shards=15 qlag_p99max=  4259.8 msgs_ratio=0.89 busy_max=    2.3мс handoff=    0.1мс disk_w=   1.9мс ring_blocked=0 msgs=62908 lag_p50 med=199
+21:06:30 shards=15 qlag_p99max=  4259.8 msgs_ratio=0.96 busy_max=    4.4мс handoff=    0.2мс disk_w=   3.7мс ring_blocked=0 msgs=67383 lag_p50 med=307
+21:06:40 shards=15 qlag_p99max=  4259.8 msgs_ratio=0.93 busy_max=    4.0мс handoff=    0.1мс disk_w=   2.4мс ring_blocked=0 msgs=65692 lag_p50 med=406
+21:06:50 shards=15 qlag_p99max=  4259.8 msgs_ratio=1.31 busy_max=    2.1мс handoff=    1.4мс disk_w=   3.5мс ring_blocked=0 msgs=91991 lag_p50 med=397
+21:07:00 shards=15 qlag_p99max=  3702.8 msgs_ratio=1.36 busy_max=   13.6мс handoff=    0.8мс disk_w=  14.1мс ring_blocked=0 msgs=95324 lag_p50 med=332
+21:07:10 shards=15 qlag_p99max=  2195.5 msgs_ratio=1.23 busy_max=   20.3мс handoff=    4.4мс disk_w=   7.3мс ring_blocked=0 msgs=86422 lag_p50 med=260
+21:07:20 shards=15 qlag_p99max=  1753.1 msgs_ratio=1.09 busy_max=    4.2мс handoff=    2.9мс disk_w=   6.7мс ring_blocked=0 msgs=76678 lag_p50 med=130
+21:07:30 shards=15 qlag_p99max=  1523.7 msgs_ratio=1.07 busy_max=    4.1мс handoff=    1.8мс disk_w=   4.2мс ring_blocked=0 msgs=75172 lag_p50 med=108
+21:07:40 shards=15 qlag_p99max=  1294.3 msgs_ratio=0.93 busy_max=   11.0мс handoff=    1.2мс disk_w=   3.6мс ring_blocked=0 msgs=65566 lag_p50 med=106
+21:15:10 shards=15 qlag_p99max=  1458.2 msgs_ratio=0.89 busy_max=    2.2мс handoff=    0.1мс disk_w=   2.6мс ring_blocked=0 msgs=62645 lag_p50 med=91
+21:15:20 shards=15 qlag_p99max=  3768.3 msgs_ratio=0.92 busy_max=    6.1мс handoff=    2.6мс disk_w=   8.3мс ring_blocked=0 msgs=64396 lag_p50 med=95
+21:15:30 shards=15 qlag_p99max=  3768.3 msgs_ratio=0.93 busy_max=    4.5мс handoff=    0.9мс disk_w=  13.2мс ring_blocked=0 msgs=65486 lag_p50 med=190
+21:15:40 shards=15 qlag_p99max=  3375.1 msgs_ratio=1.48 busy_max=    7.1мс handoff=    0.3мс disk_w=   6.3мс ring_blocked=0 msgs=104328 lag_p50 med=190
+21:15:50 shards=15 qlag_p99max=  3375.1 msgs_ratio=1.19 busy_max=    8.6мс handoff=    0.2мс disk_w=   8.1мс ring_blocked=0 msgs=83812 lag_p50 med=190
+21:16:00 shards=15 qlag_p99max=  3375.1 msgs_ratio=1.19 busy_max=    6.3мс handoff=    1.1мс disk_w=  15.4мс ring_blocked=0 msgs=83805 lag_p50 med=114
+21:16:10 shards=15 qlag_p99max=  3375.1 msgs_ratio=1.10 busy_max=    5.6мс handoff=    3.2мс disk_w=   2.5мс ring_blocked=0 msgs=77325 lag_p50 med=99
+21:16:20 shards=15 qlag_p99max=  3375.1 msgs_ratio=1.01 busy_max=   20.3мс handoff=    1.5мс disk_w=   3.9мс ring_blocked=0 msgs=70831 lag_p50 med=97
+21:25:30 shards=15 qlag_p99max=  1949.7 msgs_ratio=0.91 busy_max=    1.0мс handoff=    0.1мс disk_w=   5.7мс ring_blocked=0 msgs=63889 lag_p50 med=93
+21:25:40 shards=15 qlag_p99max=  1949.7 msgs_ratio=0.89 busy_max=    2.3мс handoff=    0.1мс disk_w=   1.2мс ring_blocked=0 msgs=62717 lag_p50 med=97
+21:25:50 shards=15 qlag_p99max=  4096.0 msgs_ratio=1.01 busy_max=    2.2мс handoff=    0.1мс disk_w=   1.2мс ring_blocked=0 msgs=71244 lag_p50 med=174
+21:26:00 shards=15 qlag_p99max=  4096.0 msgs_ratio=1.46 busy_max=    5.5мс handoff=    0.1мс disk_w=  38.6мс ring_blocked=0 msgs=102595 lag_p50 med=190
+21:26:10 shards=15 qlag_p99max=  4096.0 msgs_ratio=1.18 busy_max=    6.2мс handoff=    0.7мс disk_w=   1.1мс ring_blocked=0 msgs=82901 lag_p50 med=190
+21:26:20 shards=15 qlag_p99max=  4096.0 msgs_ratio=1.16 busy_max=    6.1мс handoff=    0.2мс disk_w=   3.5мс ring_blocked=0 msgs=81444 lag_p50 med=120
+21:26:30 shards=15 qlag_p99max=  1949.7 msgs_ratio=1.09 busy_max=    1.3мс handoff=    0.1мс disk_w=   1.1мс ring_blocked=0 msgs=76686 lag_p50 med=101
+21:34:10 shards=15 qlag_p99max=  1130.5 msgs_ratio=0.96 busy_max=    1.3мс handoff=    0.1мс disk_w=   2.3мс ring_blocked=0 msgs=67847 lag_p50 med=89
+21:34:20 shards=15 qlag_p99max=  1130.5 msgs_ratio=0.93 busy_max=    0.6мс handoff=    0.2мс disk_w=   1.8мс ring_blocked=0 msgs=65322 lag_p50 med=91
+21:34:30 shards=15 qlag_p99max=  1163.3 msgs_ratio=0.99 busy_max=    0.6мс handoff=    0.2мс disk_w=   1.1мс ring_blocked=0 msgs=69814 lag_p50 med=99
+21:34:40 shards=15 qlag_p99max=  1130.5 msgs_ratio=1.23 busy_max=   11.7мс handoff=    0.3мс disk_w=   6.0мс ring_blocked=0 msgs=86220 lag_p50 med=158
+21:34:50 shards=15 qlag_p99max=  1130.5 msgs_ratio=1.10 busy_max=    3.1мс handoff=    0.1мс disk_w=   9.4мс ring_blocked=0 msgs=77445 lag_p50 med=154
+21:35:00 shards=15 qlag_p99max=  1024.0 msgs_ratio=1.10 busy_max=   11.0мс handoff=    0.5мс disk_w=  20.2мс ring_blocked=0 msgs=77057 lag_p50 med=99
+  всего слотов 240; queue_lag_p99 max по слотам: медиана 44.5, p95 3768.3, макс 4259.8
+### gate: слотов 240
+21:05:50 shards= 9 qlag_p99max=  1065.0 msgs_ratio=0.92 busy_max=    0.1мс handoff=    0.1мс disk_w=   0.6мс ring_blocked=0 msgs=15118 lag_p50 med=122
+21:06:00 shards= 9 qlag_p99max=  1818.6 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.2мс ring_blocked=0 msgs=164 lag_p50 med=122
+21:06:10 shards= 9 qlag_p99max= 19136.5 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.2мс ring_blocked=0 msgs=121 lag_p50 med=122
+21:06:20 shards= 9 qlag_p99max= 19136.5 msgs_ratio=0.00 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.2мс ring_blocked=0 msgs=53 lag_p50 med=124
+21:06:30 shards= 9 qlag_p99max= 41418.8 msgs_ratio=0.01 busy_max=    0.1мс handoff=    0.1мс disk_w=   0.5мс ring_blocked=0 msgs=142 lag_p50 med=122
+21:06:40 shards= 9 qlag_p99max= 49807.4 msgs_ratio=0.02 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.7мс ring_blocked=0 msgs=335 lag_p50 med=133
+21:06:50 shards= 9 qlag_p99max= 62390.3 msgs_ratio=0.08 busy_max=    0.1мс handoff=    0.0мс disk_w=   0.4мс ring_blocked=0 msgs=1270 lag_p50 med=51904
+21:07:00 shards= 9 qlag_p99max= 68157.4 msgs_ratio=1.02 busy_max=    1.3мс handoff=    0.1мс disk_w=   8.2мс ring_blocked=0 msgs=16691 lag_p50 med=31719
+21:07:10 shards= 9 qlag_p99max= 55050.2 msgs_ratio=1.66 busy_max=    3.5мс handoff=    0.0мс disk_w=  11.1мс ring_blocked=0 msgs=27240 lag_p50 med=31719
+21:07:20 shards= 9 qlag_p99max=  3440.6 msgs_ratio=2.31 busy_max=    3.3мс handoff=    0.1мс disk_w=   3.3мс ring_blocked=0 msgs=38004 lag_p50 med=30671
+21:12:10 shards= 9 qlag_p99max=   729.1 msgs_ratio=0.28 busy_max=    0.5мс handoff=    0.1мс disk_w=   4.3мс ring_blocked=0 msgs=4662 lag_p50 med=122
+21:12:20 shards= 9 qlag_p99max=   745.5 msgs_ratio=0.45 busy_max=    0.6мс handoff=    0.3мс disk_w=   2.4мс ring_blocked=0 msgs=7383 lag_p50 med=126
+21:15:10 shards= 9 qlag_p99max=  1130.5 msgs_ratio=0.07 busy_max=    0.0мс handoff=    0.0мс disk_w=  12.1мс ring_blocked=0 msgs=1068 lag_p50 med=120
+21:15:20 shards= 9 qlag_p99max=  5570.6 msgs_ratio=0.02 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.2мс ring_blocked=0 msgs=288 lag_p50 med=120
+21:15:30 shards= 9 qlag_p99max= 11141.1 msgs_ratio=0.00 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.1мс ring_blocked=0 msgs=46 lag_p50 med=120
+21:15:40 shards= 9 qlag_p99max= 33292.3 msgs_ratio=0.59 busy_max=    3.1мс handoff=    0.8мс disk_w=   3.9мс ring_blocked=0 msgs=9622 lag_p50 med=4391
+21:15:50 shards= 9 qlag_p99max= 39321.6 msgs_ratio=2.52 busy_max=    4.5мс handoff=    0.1мс disk_w=   5.2мс ring_blocked=0 msgs=41449 lag_p50 med=10355
+21:16:00 shards= 9 qlag_p99max= 38273.0 msgs_ratio=1.37 busy_max=   10.2мс handoff=    2.2мс disk_w=   4.7мс ring_blocked=0 msgs=22419 lag_p50 med=14025
+21:16:10 shards= 9 qlag_p99max=  1228.8 msgs_ratio=1.35 busy_max=    0.4мс handoff=    0.1мс disk_w=   5.2мс ring_blocked=0 msgs=22199 lag_p50 med=4391
+21:18:30 shards= 9 qlag_p99max=   974.8 msgs_ratio=0.29 busy_max=    0.1мс handoff=    0.1мс disk_w=   0.9мс ring_blocked=0 msgs=4688 lag_p50 med=122
+21:18:40 shards= 9 qlag_p99max=  1654.8 msgs_ratio=0.38 busy_max=    0.5мс handoff=    0.1мс disk_w=   1.6мс ring_blocked=0 msgs=6285 lag_p50 med=126
+21:18:50 shards= 9 qlag_p99max=  1654.8 msgs_ratio=0.47 busy_max=    0.5мс handoff=    0.1мс disk_w=   2.2мс ring_blocked=0 msgs=7800 lag_p50 med=137
+21:19:00 shards= 9 qlag_p99max=  1884.2 msgs_ratio=0.29 busy_max=    0.2мс handoff=    0.0мс disk_w=   4.9мс ring_blocked=0 msgs=4796 lag_p50 med=248
+21:19:10 shards= 9 qlag_p99max=  1884.2 msgs_ratio=0.24 busy_max=    0.2мс handoff=    0.1мс disk_w=   0.5мс ring_blocked=0 msgs=3908 lag_p50 med=2130
+21:19:20 shards= 9 qlag_p99max=  1884.2 msgs_ratio=0.31 busy_max=    0.3мс handoff=    0.1мс disk_w=   0.7мс ring_blocked=0 msgs=5126 lag_p50 med=8061
+21:19:30 shards= 9 qlag_p99max=  1024.0 msgs_ratio=0.54 busy_max=    0.5мс handoff=    0.1мс disk_w=   0.6мс ring_blocked=0 msgs=8814 lag_p50 med=6881
+21:25:30 shards= 9 qlag_p99max=  2129.9 msgs_ratio=0.04 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.4мс ring_blocked=0 msgs=666 lag_p50 med=120
+21:25:40 shards= 9 qlag_p99max=  2129.9 msgs_ratio=0.01 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.2мс ring_blocked=0 msgs=245 lag_p50 med=120
+21:25:50 shards= 9 qlag_p99max=  2981.9 msgs_ratio=0.02 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.3мс ring_blocked=0 msgs=287 lag_p50 med=122
+21:26:00 shards= 9 qlag_p99max= 19136.5 msgs_ratio=1.70 busy_max=    3.6мс handoff=    0.3мс disk_w=   2.2мс ring_blocked=0 msgs=27904 lag_p50 med=5177
+21:26:10 shards= 9 qlag_p99max= 12189.7 msgs_ratio=2.31 busy_max=    0.4мс handoff=    0.1мс disk_w=   1.0мс ring_blocked=0 msgs=37965 lag_p50 med=14811
+21:26:20 shards= 9 qlag_p99max=  2654.2 msgs_ratio=1.39 busy_max=    0.7мс handoff=    0.7мс disk_w=   1.3мс ring_blocked=0 msgs=22866 lag_p50 med=14549
+21:34:10 shards= 9 qlag_p99max=  8519.7 msgs_ratio=0.12 busy_max=    0.1мс handoff=    0.0мс disk_w=   1.3мс ring_blocked=0 msgs=1998 lag_p50 med=122
+21:34:20 shards= 9 qlag_p99max= 10616.8 msgs_ratio=0.03 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.3мс ring_blocked=0 msgs=469 lag_p50 med=122
+21:34:30 shards= 9 qlag_p99max= 10879.0 msgs_ratio=0.02 busy_max=    0.0мс handoff=    0.0мс disk_w=   0.4мс ring_blocked=0 msgs=372 lag_p50 med=122
+21:34:40 shards= 9 qlag_p99max= 32768.0 msgs_ratio=1.21 busy_max=    2.4мс handoff=    0.1мс disk_w=   1.3мс ring_blocked=0 msgs=19829 lag_p50 med=11141
+21:34:50 shards= 9 qlag_p99max= 32768.0 msgs_ratio=1.72 busy_max=    0.3мс handoff=    0.1мс disk_w=   5.0мс ring_blocked=0 msgs=28244 lag_p50 med=13763
+21:35:00 shards= 9 qlag_p99max= 27525.1 msgs_ratio=1.39 busy_max=    0.4мс handoff=    0.4мс disk_w=   9.5мс ring_blocked=0 msgs=22748 lag_p50 med=13763
+21:37:00 shards= 9 qlag_p99max=    32.0 msgs_ratio=0.50 busy_max=    8.7мс handoff=    0.0мс disk_w=  10.2мс ring_blocked=0 msgs=8195 lag_p50 med=122
+21:37:10 shards= 9 qlag_p99max=    80.9 msgs_ratio=0.50 busy_max=    2.3мс handoff=    0.1мс disk_w=   5.4мс ring_blocked=0 msgs=8187 lag_p50 med=124
+21:37:30 shards= 9 qlag_p99max=    12.7 msgs_ratio=0.44 busy_max=    0.2мс handoff=    0.1мс disk_w=   3.3мс ring_blocked=0 msgs=7212 lag_p50 med=124
+  всего слотов 240; queue_lag_p99 max по слотам: медиана 231.4, p95 19136.5, макс 68157.4

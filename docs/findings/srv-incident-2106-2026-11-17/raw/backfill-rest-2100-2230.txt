@@ -1,0 +1,25 @@
+### binance: файлов 2, пропусков в окне 339
+  21:05 {'gaps': 45, 'ids': 3062, 'got': 3062, 'absent': 0, 'lost': 0, 'st_ok': 45}
+  21:06 {'gaps': 10, 'ids': 730, 'got': 730, 'absent': 0, 'lost': 0, 'st_ok': 10}
+  21:07 {'gaps': 63, 'ids': 3636, 'got': 3636, 'absent': 0, 'lost': 0, 'st_ok': 63}
+  21:14 {'gaps': 1, 'ids': 2, 'got': 2, 'absent': 0, 'lost': 0, 'st_ok': 1}
+  21:15 {'gaps': 21, 'ids': 382, 'got': 382, 'absent': 0, 'lost': 0, 'st_ok': 21}
+  21:25 {'gaps': 3, 'ids': 69, 'got': 69, 'absent': 0, 'lost': 0, 'st_ok': 3}
+  21:46 {'gaps': 1, 'ids': 19, 'got': 19, 'absent': 0, 'lost': 0, 'st_ok': 1}
+  21:47 {'gaps': 123, 'ids': 2665, 'got': 2665, 'absent': 0, 'lost': 0, 'st_ok': 123}
+  21:48 {'gaps': 61, 'ids': 3156, 'got': 3156, 'absent': 0, 'lost': 0, 'st_ok': 61}
+  22:03 {'gaps': 2, 'ids': 94, 'got': 94, 'absent': 0, 'lost': 0, 'st_ok': 2}
+  22:04 {'gaps': 1, 'ids': 44, 'got': 44, 'absent': 0, 'lost': 0, 'st_ok': 1}
+  22:15 {'gaps': 8, 'ids': 524, 'got': 524, 'absent': 0, 'lost': 0, 'st_ok': 8}
+  ИТОГО {'gaps': 339, 'ids': 14383, 'got': 14383, 'absent': 0, 'lost': 0, 'st_ok': 339}
+### bybit: файлов 0, пропусков в окне 0
+  ИТОГО {}
+### okx: файлов 0, пропусков в окне 0
+  ИТОГО {}
+### bingx: файлов 1, пропусков в окне 0
+  ИТОГО {}
+### gate: файлов 3, пропусков в окне 4
+  21:18 {'gaps': 1, 'ids': 1, 'got': 0, 'absent': 1, 'lost': 0, 'st_absent': 1}
+  21:25 {'gaps': 2, 'ids': 139, 'got': 139, 'absent': 0, 'lost': 0, 'st_ok': 2}
+  21:34 {'gaps': 1, 'ids': 14, 'got': 14, 'absent': 0, 'lost': 0, 'st_ok': 1}
+  ИТОГО {'gaps': 4, 'ids': 154, 'got': 153, 'absent': 1, 'lost': 0, 'st_absent': 1, 'st_ok': 3}
