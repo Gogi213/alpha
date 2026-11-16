@@ -71,8 +71,9 @@ def duration_hist(df, th, view, mask=None):
     return h
 
 
-def filter_table(df, th, view, thrs=(1, 5, 60, 600)):
-    """Снятие по причинам: «слой» — первая сработавшая причина (по порядку), «затронуто» — независимые флаги. Колонки — пороги длительности."""
+def filter_table(df, th, view, thrs=(1, 5, 60, 600), layer_col="layer", keep_col="keep", stale_col="f_stale"):
+    """Снятие по причинам: «слой» — первая сработавшая причина (по порядку), «затронуто» — независимые флаги. Колонки — пороги длительности.
+    layer_col / keep_col / stale_col — прочтение «устарела»: по сырью (layer, keep, f_stale) или по цене (layer_p, keep_p, f_stale_price)."""
     sub = df[(df["th"] == th) & (df["view"] == view)]
     rows = []
     for name in ("всего",) + FILTERS + ("остаётся",):
@@ -82,9 +83,9 @@ def filter_table(df, th, view, thrs=(1, 5, 60, 600)):
             if name == "всего":
                 r.append(f"{len(s)}")
             elif name == "остаётся":
-                r.append(f"{int(s['keep'].sum())}")
+                r.append(f"{int(s[keep_col].sum())}")
             else:
-                r.append(f"{int((s['layer'] == name).sum())} ({int(s['f_' + name].sum())})")
+                r.append(f"{int((s[layer_col] == name).sum())} ({int(s[stale_col if name == 'stale' else 'f_' + name].sum())})")
         rows.append(r)
     return pd.DataFrame(rows, columns=["причина: слой (затронуто)"] + [f"≥ {fmt_s(t)}" for t in thrs])
 
@@ -131,7 +132,7 @@ def cases_csv(df, path):
                         "начало_UTC": t.dt.strftime("%Y-%m-%d %H:%M:%S.%f").str[:-3], "начало_GMT+4": (t + pd.Timedelta(hours=4)).dt.strftime("%Y-%m-%d %H:%M:%S.%f").str[:-3],
                         "длительность_с": (df["dur"] / 1000).round(3), "не_закончился_до_конца_окна": df["open"], "разрыв_в_начале_bps": df["edge0"].round(1), "разрыв_макс_bps": df["edgemax"].round(1),
                         "центр_bps": df["c0"].round(1), "размер_вершины_$": df["size0"].round(0), "возраст_A_с": (df["ageA"] / 1000).round(2), "возраст_B_с": (df["ageB"] / 1000).round(2),
-                        "обновлений_A": df["nA"], "обновлений_B": df["nB"], "слой_снятия": df["layer"], "остаётся": df["keep"].astype(int)})
+                        "обновлений_A": df["nA"], "обновлений_B": df["nB"], "слой_снятия": df["layer"], "остаётся": df["keep"].astype(int), "слой_снятия_по_цене": df["layer_p"], "остаётся_по_цене": df["keep_p"].astype(int)})
     out.sort_values(["монета", "биржа_A", "биржа_B", "вид", "θ_%", "начало_UTC"]).to_csv(path, index=False, encoding="utf-8")
 
 

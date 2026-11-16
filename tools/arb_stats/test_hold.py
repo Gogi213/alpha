@@ -100,3 +100,32 @@ def test_max_gap_raw_liveness():
     assert hf.max_gap(e, 2000, 10_000, pad=1000) == 6500            # 3000 → 9500
     assert hf.max_gap(e, 12_000, 20_000, pad=1000) == 10_000        # записей нет: от a − pad до b + pad = 9
     assert hf.max_gap(e, 1500, 2500, pad=500) == 1000
+
+
+def test_tolerant_bridges_short_dips_only():
+    # B стоит на 100/100.1; A: 3 с на 101, провал 0,4 с, 3 с на 101, провал 1,2 с, 2 с на 101
+    t0 = 1_000_000
+    ev_a = [(t0 + 1000 * k, 100.0, 100.1) for k in range(60)]
+    ev_a += [(t0 + 60_000, 101.0, 101.1), (t0 + 63_000, 100.0, 100.1), (t0 + 63_400, 101.0, 101.1), (t0 + 66_400, 100.0, 100.1),
+             (t0 + 67_600, 101.0, 101.1), (t0 + 69_600, 100.0, 100.1), (t0 + 90_000, 100.0, 100.12)]
+    A, B = book(ev_a), book([(t0 - 1000, 100.0, 100.1)])
+    strict = hs.scan_pair(A, B, t0, t0 + 120_000, tol=0, sim=False)["eps"][(50.0, "z")]
+    assert [row[hs.CI["dur"]] for row in strict] == [3000.0, 3000.0, 2000.0]
+    tol = hs.scan_pair(A, B, t0, t0 + 120_000, tol=1000, sim=False)["eps"][(50.0, "z")]
+    assert [row[hs.CI["dur"]] for row in tol] == [6400.0, 2000.0]                  # провал 0,4 с склеен, провал 1,2 с — нет
+    assert tol[0][hs.CI["ndip"]] == 1 and tol[0][hs.CI["tdip"]] == 400.0 and tol[1][hs.CI["ndip"]] == 0
+    assert strict[0][hs.CI["ndip"]] == 0
+
+
+def test_funding_over_hold_signs_and_bounds():
+    import pandas as pd
+    import hold_filter as hf
+    df = pd.DataFrame({"exA": ["bybit", "bybit"], "symA": ["XUSDT", "XUSDT"], "exB": ["okx", "okx"], "symB": ["X-USDT-SWAP", "X-USDT-SWAP"], "side": [1, -1]})
+    one = lambda pay: {"b": np.array([1]), "p": np.array([1.0]), "pay": pay}  # noqa: E731
+    marks = {"bybit": {"XUSDT": one([[1000, 0.0001], [9000, 0.0002]])}, "okx": {"X-USDT-SWAP": one([[1000, 0.00005]])}}
+    f, n = hf.funding_over_hold(df, marks, np.array([500.0, 500.0]), np.array([2000.0, 2000.0]))
+    assert n.tolist() == [2, 2] and abs(f[0] - (0.0001 - 0.00005) * 1e4) < 1e-9 and abs(f[1] + f[0]) < 1e-9     # продаём A, покупаем B: получаем ставку A, платим ставку B; обратная сторона — знак минус
+    f, n = hf.funding_over_hold(df.iloc[:1], marks, np.array([1000.0]), np.array([9000.0]))                     # окно (tx, te]: 1000 не входит, 9000 входит
+    assert n.tolist() == [1] and abs(f[0] - 0.0002 * 1e4) < 1e-9
+    f, n = hf.funding_over_hold(df.iloc[:1], {}, np.array([0.0]), np.array([1.0]))
+    assert np.isnan(f[0]) and np.isnan(n[0])                                                                      # выплаты символов не записаны — неизвестно

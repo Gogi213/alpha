@@ -3,7 +3,7 @@
 Флаги (независимые; слой — по порядку):
   gap     — эпизод ± 2 мин пересекает пропуск сбора биржи любой из ног (gaps_scan ≥ 15 с, dead.json), обрыв Binance 15.11 18:12:18–18:14:20 UTC, обрыв пути 16.11 12:50–12:53 (UTC), или
             участок аудита collect-gap по символу ноги (границы −60 с / +120 с, как в проверке arb-cross-exit);
-  stale   — любая нога молчала > 5 с в какой-то момент эпизода (слово владельца «нога устарела > 5 с»): по сырым записям книги, включая смены размера (hold_raw.py); stale_price — буквально «лучшая цена не менялась > 5 с»; stale60 — цена не менялась > 60 с;
+  stale   — (два прочтения: layer/keep — по сырью, layer_p/keep_p — по цене) любая нога молчала > 5 с в какой-то момент эпизода (слово владельца «нога устарела > 5 с»): по сырым записям книги, включая смены размера (hold_raw.py); stale_price — буквально «лучшая цена не менялась > 5 с»; stale60 — цена не менялась > 60 с;
   contract— (от нуля) медиана разрыва пары за окно ≥ θ/2: пара весь период стоит со сдвигом (другой контракт: множитель, одноимённая другая монета, индекс), эпизод — не событие, а уровень;
   tradfi  — биржа любой ноги относит символ к акциям / ETF / сырью / форексу / индексу И момент начала вне сессии (акции, ETF: вне пн–пт 14:30–21:00 UTC; сырьё, форекс, индекс: сб–вс);
   delist  — статус любой ноги «делистинг» (Binance SETTLING и поставка ≤ 3 суток от эпизода; Gate in_delisting; Bybit/Binance поставка раньше эпизода), пред-листинг;
@@ -205,12 +205,44 @@ def apply(tab, symstatus, dead, audit, marks, raw=None):
     df["mark_known"] = np.isfinite(conf)
     df["f_trend"] = (df["view"] == "c") & (df["trend"] >= th / 2)
     df["f_bingx"] = (exA == "bingx") | (exB == "bingx")
-    layer = np.full(n, "", object)
-    for f in reversed(FILTERS):
-        layer[df[f"f_{f}"].to_numpy()] = f
-    df["layer"] = layer
-    df["keep"] = layer == ""
+    for suffix, stale_col in (("", "f_stale"), ("_p", "f_stale_price")):      # два прочтения «устарела»: молчание ноги > 5 с по сырью / лучшая цена не менялась > 5 с
+        layer = np.full(n, "", object)
+        for f in reversed(FILTERS):
+            layer[df[stale_col if f == "stale" else f"f_{f}"].to_numpy()] = f
+        df[f"layer{suffix}"] = layer
+        df[f"keep{suffix}"] = layer == ""
     return df
+
+
+def funding_over_hold(df, marks, tx, te):
+    """Фандинг за удержание позиции [tx, te] по записанным выплатам (hold_marks: «pay» = [T, ставка]): -> (bps, число выплат), NaN — выплаты символов не записаны.
+    Сторона +1 = продаём A, покупаем B: получаем ставку A, платим ставку B (у минус стороны наоборот); bps = side · (Σ ставок A − Σ ставок B) · 1e4 по выплатам T ∈ (tx, te]."""
+    n = len(df)
+    side = df["side"].to_numpy()
+    fund, npay = np.zeros(n), np.zeros(n)
+    known = np.ones(n, bool)
+    for ex_col, sym_col, sg in (("exA", "symA", 1.0), ("exB", "symB", -1.0)):
+        for (ex, sym), ii in df.groupby([ex_col, sym_col]).indices.items():
+            d = marks.get(ex, {}).get(sym)
+            if d is None or not d["b"].size:
+                known[ii] = False
+                continue
+            pay = d["pay"]
+            if not pay:
+                continue
+            tf = np.array([x[0] for x in pay], np.int64)
+            rf = np.array([x[1] for x in pay], float)
+            o = np.argsort(tf)
+            tf, rf = tf[o], rf[o]
+            cr = np.r_[0.0, np.cumsum(rf)]
+            lo = np.searchsorted(tf, tx[ii], "right")
+            hi = np.searchsorted(tf, te[ii], "right")
+            fund[ii] += sg * (cr[hi] - cr[lo]) * 1e4 * side[ii]
+            npay[ii] += hi - lo
+    bad = ~known | ~np.isfinite(tx) | ~np.isfinite(te)
+    fund[bad] = np.nan
+    npay[bad] = np.nan
+    return fund, npay
 
 
 def need_windows(df, pad=10_000):

@@ -1,7 +1,8 @@
 """Пересчёт исполнимости ТОЛЬКО на оставшихся после фильтров эпизодах (hold_filter: keep): позиции убранных «фальшивых» эпизодов не должны занимать пару.
 
 Тот же ряд пары и тот же hold_scan.simulate (одна позиция на пару и настройку, потолок удержания 1 ч), но по строкам выбранного подмножества.
-Запуск: python3 hold_resim.py <flagged.pkl> <книги (с parsed/)> <выход.pkl> [PAR]; подмножества: keep — остаток по правилу «молчание по сырым записям», lit — остаток при буквальном правиле «цена ноги не менялась > 5 с».
+Запуск: python3 hold_resim.py <flagged.pkl> <книги (с parsed/)> <выход.pkl> [PAR] [marks.pkl,marks-old.pkl]; подмножества: keep — остаток по правилу «молчание по сырым записям», keep_p — остаток при буквальном правиле «цена ноги не менялась > 5 с».
+Если даны marks — к каждой настройке исполнения добавляются <выход>_<d>_fund (фандинг за удержание, bps) и <выход>_<d>_npay (число выплат).
 Выход: {"keep": DataFrame, "lit": DataFrame} — строки подмножества с пересчитанными столбцами <выход>_<d>_<поле> (индекс как в таблице).
 """
 import pickle
@@ -20,7 +21,7 @@ import maker_run  # noqa: E402
 from hold_common import CAP_MS, unit_of  # noqa: E402
 
 G = {}
-SUBSETS = ("keep", "lit")
+SUBSETS = ("keep", "keep_p")
 
 
 def series(A, B, t1):
@@ -45,7 +46,7 @@ def work_pair(key):
     for name in SUBSETS:
         s = sub[sub[name]]
         for (th, view), grp in s.groupby(["th", "view"]):
-            eps = grp[list(hs.COLS)].to_numpy()
+            eps = grp.reindex(columns=list(hs.COLS)).to_numpy()
             o = np.argsort(eps[:, hs.CI["t"]], kind="stable")
             eps, ids = eps[o], grp.index.to_numpy()[o]
             for d in hs.DELAYS:
@@ -55,11 +56,10 @@ def work_pair(key):
     return res
 
 
-def main(flagp, bwork, out, par=5):
+def main(flagp, bwork, out, par=5, marks="-"):
     from hold_common import build_coins
     tab = pickle.load(open(flagp, "rb"))
     df = tab["df"]
-    df["lit"] = df["keep"] & ~df["f_stale_price"]
     days = ["2026-11-13", "2026-11-14", "2026-11-15", "2026-11-16"]
     coins, _ = build_coins(str(Path(bwork, "parsed")), days)
     need = df[df["keep"]].groupby(["coin", "exA", "exB"]).indices
@@ -81,9 +81,17 @@ def main(flagp, bwork, out, par=5):
             if nm == name:
                 part[col] = pd.concat(lst)
         outd[name] = part
+    if marks != "-":
+        from hold_filter import funding_over_hold, load_marks
+        mk = load_marks(marks)
+        for name, part in outd.items():
+            for kind in hs.KINDS:
+                for d in hs.DELAYS:
+                    pre = f"{kind}_{d // 1000}_"
+                    part[pre + "fund"], part[pre + "npay"] = funding_over_hold(part, mk, part[pre + "tx"].to_numpy(), part[pre + "te"].to_numpy())
     pickle.dump(outd, open(out, "wb"), protocol=4)
     print({n: len(v) for n, v in outd.items()}, round(time.time() - t))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 5)
+    main(sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 5, sys.argv[5] if len(sys.argv) > 5 else "-")

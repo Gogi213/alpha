@@ -8,7 +8,9 @@
 Исполнимость (simulate): на каждом эпизоде вход по сигналу первого момента с задержкой d = 1/3/5 с на обеих ногах по реальной книге того момента (вход происходит, даже если расхождение уже ушло),
 выход тейкером через d после сигнала выхода «к центру» (c-t), «к нулю» (z-t) или «из − в +» (x1-t: противоположный разрыв ≥ θ от базы вида — центра или нуля), не дольше 1 ч удержания (потом закрытие по рынку); одна позиция на пару и настройку;
 комиссия круга 4 × 3,15 = 12,6 bps. Результат по эпизоду: net, gross (bps), размер вершины на входе ($), моменты исполнения входа и выхода (мс), цена входа (bps), центр на входе.
-Запуск: python3 hold_scan.py <каталог книг (с parsed/<биржа>/)> <t0_мс> <t1_мс> <выход> [PAR]; пишет <выход>.partNNN по 50 монет (склейка — hold_table.py); переменные: COINS (проба), MAXTASKS.
+Допускающий вариант (HOLD_TOL_MS > 0): провал ниже порога короче HOLD_TOL_MS, между двумя участками «условие верно», эпизод не рвёт (мерцание тонких книг); столбцы ndip / tdip — число и суммарная длина провалов внутри.
+HOLD_SIM=0 — без исполнимости (только эпизоды): она считается потом на оставшихся (hold_resim.py).
+Запуск: python3 hold_scan.py <каталог книг (с parsed/<биржа>/)> <t0_мс> <t1_мс> <выход> [PAR]; пишет <выход>.partNNN по 50 монет (склейка — hold_table.py); переменные: COINS (проба), MAXTASKS, HOLD_TOL_MS, HOLD_SIM.
 """
 import os
 import pickle
@@ -25,7 +27,7 @@ import core  # noqa: E402
 import maker_run  # noqa: E402
 from hold_common import CAP_MS, EX5, FEE_RT_BPS, THETAS, build_coins, day_edges, unit_of  # noqa: E402
 
-COLS = ("t", "dur", "side", "open", "i0", "ageA", "ageB", "nA", "nB", "size0", "sizemin", "edge0", "edgemax", "c0", "trend", "price", "priceB", "spA", "spB", "npts")
+COLS = ("t", "dur", "side", "open", "i0", "ageA", "ageB", "nA", "nB", "size0", "sizemin", "edge0", "edgemax", "c0", "trend", "price", "priceB", "spA", "spB", "npts", "ndip", "tdip")
 CI = {c: i for i, c in enumerate(COLS)}
 MIN_KEEP_MS = 1000
 SHORT_MS = (1, 10, 50, 100, 250, 500)
@@ -33,6 +35,8 @@ DELAYS = (1000, 3000, 5000)
 KINDS = ("c-t", "z-t", "x1-t")
 SIM_COLS = ("net", "gross", "size", "tx", "te", "edge_tx", "c_tx", "how")   # how: 1 — закрыт по правилу выхода, 2 — по потолку удержания
 HOLD_CAP_MS = 3_600_000                    # потолок удержания позиции: 1 ч (дольше — закрытие по рынку), иначе «не закрыт» блокировал бы пару до конца окна
+TOL_MS = int(os.environ.get("HOLD_TOL_MS", "0"))      # 0 — строгие эпизоды; > 0 — допускающий вариант (провалы короче TOL_MS не рвут эпизод)
+DO_SIM = os.environ.get("HOLD_SIM", "1") != "0"
 MISMATCH_BPS = 1000.0                      # медиана разрыва пары ≥ 10 % — другой контракт (множитель, одноимённая другая монета): эпизодов не считаем
 G = {}
 
@@ -43,6 +47,22 @@ def runs_of(mask):
     return np.flatnonzero(d == 1), np.flatnonzero(d == -1) - 1
 
 
+def bridge_dips(cond, T, Tn, tol):
+    """Заполняет провалы (участки cond = False) короче tol мс, лежащие между двумя участками cond = True. -> (cond с заполненными провалами, вес-время заполненного по моментам ряда, начала провалов 0/1)."""
+    n = len(cond)
+    wdip, dstart = np.zeros(n), np.zeros(n)
+    if tol <= 0 or n < 3:
+        return cond, wdip, dstart
+    st, en = runs_of(~cond)
+    ok = (st > 0) & (en < n - 1) & ((Tn[en] - T[st]) < tol)
+    out = cond.copy()
+    for a, b in zip(st[ok], en[ok]):
+        out[a:b + 1] = True
+        wdip[a:b + 1] = (Tn - T)[a:b + 1]
+        dstart[a] = 1.0
+    return out, wdip, dstart
+
+
 def reduce_runs(x, st, en, op):
     """op (maximum/minimum) по x[st[k]:en[k]+1] для каждого участка."""
     idx = np.empty(2 * len(st), np.int64)
@@ -50,8 +70,10 @@ def reduce_runs(x, st, en, op):
     return op.reduceat(np.r_[x, x[-1:]], idx)[0::2]
 
 
-def scan_pair(A, B, t0, t1, thetas=THETAS):
+def scan_pair(A, B, t0, t1, thetas=THETAS, tol=None, sim=None):
     """-> dict {eps: {(θ, вид): массив (n, len(COLS))}, nruns: {(θ, вид): участков ≥ SHORT_MS мс}, sim: {(θ, вид): {(d, выход): массив (n, SIM_COLS)}}, …} или None."""
+    tol = TOL_MS if tol is None else tol
+    sim = DO_SIM if sim is None else sim
     T, S, Bu, ia, ib = core.pair_series(A, B, t1)
     n = len(T)
     if n < 50:
@@ -98,6 +120,8 @@ def scan_pair(A, B, t0, t1, thetas=THETAS):
                     cond = inw & (edge[view][side] >= th)
                 if not cond.any():
                     continue
+                cond, wdip, dstart = bridge_dips(cond, T, Tn, tol)
+                cw, cd = np.r_[0.0, np.cumsum(wdip)], np.r_[0.0, np.cumsum(dstart)]
                 st, en = runs_of(cond)
                 dur = (Tn[en] - T[st]).astype(float)
                 for k, ms in enumerate(SHORT_MS):
@@ -107,6 +131,7 @@ def scan_pair(A, B, t0, t1, thetas=THETAS):
                     continue
                 st, en, dur = st[keep], en[keep], dur[keep]
                 m = len(st)
+                ndip, tdip = cd[en + 1] - cd[st], cw[en + 1] - cw[st]
                 c0 = cT[st] if view == "c" else np.full(m, np.nan)
                 k0 = T[st] // 60000 - m0
                 trend = np.where(view == "c", med10[np.clip(k0, 0, len(med10) - 1)] - cT[st], np.nan) * side
@@ -114,12 +139,12 @@ def scan_pair(A, B, t0, t1, thetas=THETAS):
                     T[st], dur, np.full(m, side), (en == n - 1).astype(float), st,
                     reduce_runs(endA, st, en, np.maximum), reduce_runs(endB, st, en, np.maximum),
                     ia[en] - ia[st], ib[en] - ib[st], size[side][st], reduce_runs(size[side], st, en, np.minimum),
-                    edge[view][side][st], reduce_runs(edge[view][side], st, en, np.maximum), c0, trend, midA[st], midB[st], spA[st], spB[st], en - st + 1])
+                    edge[view][side][st], reduce_runs(edge[view][side], st, en, np.maximum), c0, trend, midA[st], midB[st], spA[st], spB[st], en - st + 1, ndip, tdip])
             out["nruns"][(th, view)] = nshort
             eps = np.vstack(recs) if recs else np.zeros((0, len(COLS)))
             eps = eps[np.argsort(eps[:, CI["t"]], kind="stable")]
             out["eps"][(th, view)] = eps
-            if len(eps):
+            if len(eps) and sim:
                 out["sim"][(th, view)] = {(d, kind): simulate(A, B, T, S, Bu, M, cT, t1, th, view, eps, d, kind, cache) for d in DELAYS for kind in KINDS}
     return out
 

@@ -28,7 +28,7 @@ def build(scans):
                 df.insert(0, "exB", b)
                 df.insert(0, "exA", a)
                 df.insert(0, "coin", coin)
-                for (d, kind), arr in r["sim"][(th, view)].items():
+                for (d, kind), arr in r["sim"].get((th, view), {}).items():
                     for ci, c in enumerate(hs.SIM_COLS):
                         df[f"{kind}_{d // 1000}_{c}"] = arr[:, ci]
                 rows.append(df)
