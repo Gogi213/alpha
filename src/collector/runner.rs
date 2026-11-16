@@ -636,7 +636,8 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         pool: pool.iter().map(|s| s.to_lowercase()).collect(),
         version: super::VERSION.to_string(),
         live: live.as_ref().map(LivePool::health),
-        book_window_ms: i64::try_from(args.book_window_s.saturating_mul(1000)).unwrap_or(i64::MAX),
+        book_window_ms: i64::try_from(args.book_window_s.max(60).saturating_mul(1000))
+            .unwrap_or(i64::MAX),
     };
     let mut metrics: Vec<_> = handles.iter().map(|h| Arc::clone(&h.metrics)).collect();
     // REST-опрос оборота — отдельный поток (запрос блокирующий, до 30 с): основной цикл не ждёт, результат приходит по каналу
