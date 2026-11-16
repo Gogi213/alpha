@@ -50,7 +50,7 @@ def main():
     rows = []
     for s, v in bx["coverage"].items():
         for p, x in v["pairs"].items():
-            rows.append([s, p, x["n"], f(x["i_minus_j_p5"]), f(x["i_minus_j_p50"], 2), f(x["i_minus_j_p95"]), f(x["min_pair_minus_prod_p50"], 2)])
+            rows.append([s, p.replace("|", "+"), x["n"], f(x["i_minus_j_p5"]), f(x["i_minus_j_p50"], 2), f(x["i_minus_j_p95"]), f(x["min_pair_minus_prod_p50"], 2)])
     print(table(["set", "pair", "n", "i−j p5", "i−j p50", "i−j p95", "min(pair)−prod p50"], rows))
     print("\n### lag p50 by 10 min\n")
     tt = bx["lag_p50_by_10min"]

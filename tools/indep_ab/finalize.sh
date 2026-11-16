@@ -33,7 +33,7 @@ date -u > "$OUT/stopped-at.txt"
 (python3 analyze.py binance --from $F --to $TN --json "$OUT/an-binance-full.json" > "$OUT/an-binance-full.out" 2> "$OUT/an-binance-full.err"; log "analyze binance rc=$?") &
 export FINE=1
 prof() { # $1 = outdir, $2.. = epoch hours; prints one line per (exchange, kind)
-  out=$1; shift; hours="$*"
+  out=$1; shift; hours="$*"; mkdir -p "$out"
   for spec in "okx /data/collect/okx/data" "bybit /data/turbo-probe/soak-bybit/data" "gate /data/collect/gate/data" "bingx /data/collect/bingx/data" "binance /data/collect/binance/data"; do
     set -- $spec
     for kind in trade book; do echo "$1 $2 $kind $out $hours"; done
