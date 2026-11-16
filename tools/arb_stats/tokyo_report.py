@@ -1,6 +1,6 @@
 """Таблицы отчёта arb-tokyo-latency по tokyo_run.py: жизнь расхождения, $/сут и рейтинг по задержке L, безубыточная задержка L* по парам, сдвиг часов.
 
-Запуск: python3 tokyo_report.py <tokyo.pkl> <каталог выхода> [shift.pkl]   — пишет tables.md и pairs.csv (пары с плюсом при L = 1 мс).
+Запуск: python3 tokyo_report.py <tokyo.pkl> <каталог выхода> [shift.pkl]   — пишет tables.md и pairs.csv (настройки с L* подряд (рейтинг) ≥ 5 мс) и life.csv (жизнь расхождения по парам).
 Всё в % (1 bps = 0,01 %) и в $. Рейтинг и плацебо — как в outlier_report: кругов ≥ окно_ч / 6 и медиана чистого итога круга > 0 (плацебо — < 0) в каждых сутках окна (GMT+4).
 L*: «сумма» — наибольшая L сетки, при которой n ≥ окно_ч / 6 и чистая сумма по кругам > 0; «рейтинг» — то же с условием рейтинга; «подряд» — плюс при всех L сетки от 1 мс до L (L = 0 не считается: мгновенное исполнение).
 """
@@ -136,7 +136,7 @@ def lstar_tables(d, per, out, win_h):
                     exn[(thr, mode, dm, ex)][f"{x}–{y}"] += 1
         mx, ct = lstar(ser, lats, win_h, "sum")
         mr, cr = lstar(ser, lats, win_h, "rated")
-        if ct is not None:
+        if cr is not None and cr >= 5 and g == "ok":
             u = {L: (ser[L]["usd_cap"] if L in ser else None) for L in (1, 5, 10)}
             rows_csv.append([mode, coin, x, y, th / 100, ex, dm, g, ct, mx, cr, mr] + [None if u[L] is None else round(u[L], 2) for L in (1, 5, 10)]
                             + [ser[1]["n"] if 1 in ser else None, ser[1]["net_med_d"] if 1 in ser else None, ser[1]["usd_cap_d"] if 1 in ser else None])
@@ -144,10 +144,8 @@ def lstar_tables(d, per, out, win_h):
     print("Пара считается по каждой настройке отдельно (θ, выход); «подряд» — плюс при всех L от 1 мс до L*. «сумма» — чистая сумма кругов > 0 при n ≥ окно_ч/6; «рейтинг» — как рейтинг; «плацебо» — те же условия с обратным знаком.\n", file=out)
     print("| режим | группа | θ, % | выход | D | L* подряд ≥ 1 / 5 / 10 (сумма) | то же (рейтинг) | то же (плацебо) | L* наибольшая ≥ 5 / 10 (сумма) |", file=out)
     print("|---|---|---|---|---|---|---|---|---|", file=out)
-    for key in sorted(k[:5] for k in cnt):
+    for key in sorted({k[:5] for k in cnt}):
         mode, g, th, ex, dm = key
-        if len(set(k[:5] for k in cnt)) and key not in {k[:5] for k in cnt}:
-            continue
         c = lambda kind, p: cnt[(*key, kind)][p]   # noqa: E731
         print(f"| {mode} | {g} | {th / 100:g} | {ex} | {dm} | " + " / ".join(str(c("sum", f"ct{t}")) for t in (1, 5, 10)) + " | "
               + " / ".join(str(c("rated", f"ct{t}")) for t in (1, 5, 10)) + " | " + " / ".join(str(c("plac", f"ct{t}")) for t in (1, 5, 10)) + " | "
@@ -235,6 +233,13 @@ def main(pkl, outdir, shift=None):
                 w.writerow(["режим", "монета", "нога 1", "нога 2", "θ, %", "выход", "D", "группа", "L* подряд (сумма), мс", "L* наибольшая (сумма), мс", "L* подряд (рейтинг), мс",
                             "L* наибольшая (рейтинг), мс", "$/сут L=1", "$/сут L=5", "$/сут L=10", "кругов L=1", "медиана круга по суткам L=1, bps", "$/сут по суткам L=1"])
                 w.writerows(rows_csv)
+        if d["life"]:
+            with open(od / "life.csv", "w", newline="", encoding="utf-8") as f:
+                w = csv.writer(f)
+                w.writerow(["монета", "нога 1", "нога 2", "θ, %", "эпизодов", "p10, мс", "p50, мс", "p90, мс"] + [f"дольше {L} мс, %" for L in d["lats"][1:]] + ["доля времени с расхождением, %"])
+                for (coin, a, b), r in sorted(d["life"].items()):
+                    for th, v in sorted(r["th"].items()):
+                        w.writerow([coin, a, b, th / 100, v["n"]] + [round(x, 1) for x in v["q"]] + [round(100 * x, 1) for x in v["surv"][1:]] + [round(100 * v["share_t"], 3)])
         if shift:
             shift_tables(pickle.load(open(shift, "rb")), out, win_h)
 

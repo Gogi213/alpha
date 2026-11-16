@@ -30,7 +30,7 @@ import outlier_run as orun  # noqa: E402
 from arb_live import symmap_for  # noqa: E402
 from common import EXCHANGES, load_pool, norm  # noqa: E402
 
-CAP_MS = 60_000
+CAP_MS = int(os.environ.get("CAP_MS", 60_000))      # CAP_MS в окружении — только для сверки с прежним отчётом (отсечка выключена огромным значением)
 THETAS = (10.0, 15.0, 20.0, 30.0, 50.0, 75.0, 100.0)
 LATS = (0, 1, 2, 5, 10, 20, 50)
 LIFE_BPD, LIFE_N = 40, 320            # гистограмма жизни: log10(мс) × 40, 0 … 8 декад
@@ -210,8 +210,9 @@ def main(bwork, twork, t0, t1, out, par=5):
                 coins[coin][ex] = (sym, mult, exact)
     dead = json.load(open(os.environ["DEAD"])) if os.environ.get("DEAD") else {}
     s = int(datetime(2026, 11, 15, 18, 12, 18, tzinfo=timezone.utc).timestamp() * 1000)
-    dead.setdefault("binance", []).append([s, s + 122_000])         # обрыв Binance 15.11 18:12:18–18:14:20 UTC (проверка arb-cross-exit, §2)
-    dead["binance"].sort()
+    if not os.environ.get("NO_BINANCE_GAP"):
+        dead.setdefault("binance", []).append([s, s + 122_000])         # обрыв Binance 15.11 18:12:18–18:14:20 UTC (проверка arb-cross-exit, §2)
+    dead.get("binance", []).sort()
     thetas = tuple(float(x) for x in os.environ["THETAS"].split(",")) if os.environ.get("THETAS") else THETAS
     modes = os.environ.get("MODES", "life,tt,mk").split(",")
     shifts = tuple(int(x) for x in os.environ["SHIFTS"].split(",")) if os.environ.get("SHIFTS") else (0,)
