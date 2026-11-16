@@ -1,0 +1,2 @@
+остаточных строк 279 (>=2 номеров: 12); проверяется 150
+ИТОГО {'exists_on_exchange': 0, 'not_on_exchange': 150, 'err': 0, 'ids_exists': 0, 'ids_not': 162}

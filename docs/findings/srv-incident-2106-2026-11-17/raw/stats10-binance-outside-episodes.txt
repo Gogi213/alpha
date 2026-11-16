@@ -1,0 +1,23 @@
+## 21:18:30 21:22:30
+21:18:40 shards=27 qlag_p99max=  1654.8 msgs_ratio=0.89 busy_max=    0.5мс handoff=    0.2мс disk_w=   2.1мс ring_blocked=0 msgs=19829 lag_p50 med=120
+21:18:50 shards=27 qlag_p99max=  3506.2 msgs_ratio=1.10 busy_max=    0.2мс handoff=    0.1мс disk_w=   1.6мс ring_blocked=0 msgs=24303 lag_p50 med=126
+21:19:00 shards=27 qlag_p99max=  3506.2 msgs_ratio=0.98 busy_max=    0.6мс handoff=    0.2мс disk_w=   1.7мс ring_blocked=0 msgs=21621 lag_p50 med=162
+21:19:10 shards=27 qlag_p99max=  3506.2 msgs_ratio=0.83 busy_max=    0.9мс handoff=    0.2мс disk_w=   1.7мс ring_blocked=0 msgs=18287 lag_p50 med=2654
+21:19:20 shards=27 qlag_p99max=  3506.2 msgs_ratio=0.80 busy_max=    0.2мс handoff=    0.1мс disk_w=  10.7мс ring_blocked=0 msgs=17785 lag_p50 med=15860
+21:19:30 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.99 busy_max=    0.2мс handoff=    0.1мс disk_w=   1.4мс ring_blocked=0 msgs=22037 lag_p50 med=18088
+21:19:40 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.87 busy_max=    1.0мс handoff=    0.1мс disk_w=   3.5мс ring_blocked=0 msgs=19259 lag_p50 med=6750
+21:19:50 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.89 busy_max=    0.5мс handoff=    0.1мс disk_w=   3.2мс ring_blocked=0 msgs=19699 lag_p50 med=4915
+21:20:00 shards=27 qlag_p99max=  1720.3 msgs_ratio=0.74 busy_max=    2.2мс handoff=    0.5мс disk_w=  40.4мс ring_blocked=0 msgs=16339 lag_p50 med=1753
+  всего слотов 24; queue_lag_p99 max по слотам: медиана 495.6, p95 3506.2, макс 3506.2
+## 21:48:50 21:53:30
+21:48:50 shards=27 qlag_p99max=  1589.2 msgs_ratio=3.11 busy_max=    3.6мс handoff=    0.1мс disk_w=   7.2мс ring_blocked=0 msgs=79801 lag_p50 med=43516
+21:50:20 shards=27 qlag_p99max=  1622.0 msgs_ratio=0.79 busy_max=    1.6мс handoff=    0.0мс disk_w=   3.0мс ring_blocked=0 msgs=20375 lag_p50 med=17039
+21:50:30 shards=27 qlag_p99max=  1622.0 msgs_ratio=1.25 busy_max=    4.0мс handoff=    4.0мс disk_w=   0.9мс ring_blocked=0 msgs=31965 lag_p50 med=18612
+21:51:40 shards=27 qlag_p99max=   274.4 msgs_ratio=0.44 busy_max=    0.3мс handoff=    0.1мс disk_w=   2.1мс ring_blocked=0 msgs=11265 lag_p50 med=126
+21:51:50 shards=27 qlag_p99max=   512.0 msgs_ratio=0.37 busy_max=    0.2мс handoff=    0.0мс disk_w=   4.2мс ring_blocked=0 msgs=9397 lag_p50 med=133
+21:52:00 shards=27 qlag_p99max=   827.4 msgs_ratio=0.41 busy_max=    0.1мс handoff=    0.1мс disk_w=   1.9мс ring_blocked=0 msgs=10499 lag_p50 med=133
+  всего слотов 28; queue_lag_p99 max по слотам: медиана 512.0, p95 1622.0, макс 1622.0
+## 22:19:30 22:21:30
+22:19:40 shards=27 qlag_p99max=   712.7 msgs_ratio=0.46 busy_max=    0.1мс handoff=    0.1мс disk_w=   8.3мс ring_blocked=0 msgs=24355 lag_p50 med=137
+22:20:10 shards=27 qlag_p99max=  1458.2 msgs_ratio=1.67 busy_max=    1.0мс handoff=    0.0мс disk_w=   8.0мс ring_blocked=0 msgs=87444 lag_p50 med=14811
+  всего слотов 12; queue_lag_p99 max по слотам: медиана 696.3, p95 1458.2, макс 1458.2
