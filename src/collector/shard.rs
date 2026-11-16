@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 
 use super::budget::{Budget, Cap};
+use super::codec::Kind;
 use super::events::{now_ms, replay_lists, EventLog};
 use super::exchange::{Entrance, Exchange, Family, ShardPlan};
 use super::metrics::{us_to_ms, Hist, ShardMetrics, WindowSnap, STATS_PERIOD_S};
@@ -35,7 +36,7 @@ use super::writer::{ShardWriter, WriterCfg};
 pub const SHORT_SESSION: Duration = Duration::from_secs(60);
 pub const FAIL_LIMIT: u32 = 3;
 /// Нижний порог паузы данных шарда, мс.
-const GAP_TIMEOUT_MS: u64 = 3000;
+pub(crate) const GAP_TIMEOUT_MS: u64 = 3000;
 /// Порог паузы шарда = max(`GAP_TIMEOUT_MS`, `GAP_K` × обычный наибольший разрыв шарда): у разреженного шарда (Bybit trade03: p50 наибольшего разрыва за 10 с — 1,1 с, p99 — 3,4 с)
 /// 3 с лежит в хвосте обычного распределения, и пауза «потеря» красила бы столбик без потери данных (`docs/findings/health-red-slots-2026-11-16.md` §B). Назначаемое (Судье).
 const GAP_K: u64 = 2;
@@ -734,13 +735,53 @@ pub fn spawn_shard(
     })
 }
 
+/// Пауза данных шарда по приёму кадров (мс UTC): начало — приём последнего кадра до паузы, конец — приём первого кадра после неё.
+struct GapSpan {
+    start_ms: i64,
+    end_ms: i64,
+    /// `false` — пауза закончилась обрывом соединений, кадра после неё нет: конец оценён как `start + наибольшее молчание на тике` (раньше настоящего).
+    end_exact: bool,
+    /// p99 лага прихода сделок шарда на обнаружении паузы (мс вверх); `None` — записей нет.
+    lag_p99_ms: Option<i64>,
+}
+
+/// p99 лага прихода сделок шарда за последние 60 с, мс вверх; `None` — записей нет.
+fn trade_lag_p99_ms(m: &ShardMetrics) -> Option<i64> {
+    let h = m.writer().lag_in.get(Kind::Trade.idx())?.snapshot(now_ms());
+    h.percentile(0.99)
+        .map(|us| i64::try_from(us.div_ceil(1000)).unwrap_or(i64::MAX))
+}
+
+/// Конец паузы по приёму: кадр, которым кончилось молчание (`ShardMetrics::gap_resume_ms`), если он после начала; иначе (обрыв соединений) — `start + peak_ms`, неточный.
+fn gap_end_ms(m: &ShardMetrics, start_ms: i64, peak_ms: u64) -> (i64, bool) {
+    let resumed = m.gap_resume_ms.load(Relaxed);
+    if resumed > start_ms {
+        (resumed, true)
+    } else {
+        (
+            start_ms.saturating_add(i64::try_from(peak_ms).unwrap_or(0)),
+            false,
+        )
+    }
+}
+
+fn gap_span(m: &ShardMetrics, start_ms: i64, peak_ms: u64, lag_p99_ms: Option<i64>) -> GapSpan {
+    let (end_ms, end_exact) = gap_end_ms(m, start_ms, peak_ms);
+    GapSpan {
+        start_ms,
+        end_ms,
+        end_exact,
+        lag_p99_ms,
+    }
+}
+
 /// Пауза данных закончилась: длительность — в поминутный ряд (`gap_spans`) и в журнал (`gap_end`).
-fn end_gap(sh: &Arc<Shared>, start_ms: i64, total_ms: u64) {
-    let total = i64::try_from(total_ms).unwrap_or(i64::MAX);
+fn end_gap(sh: &Arc<Shared>, g: &GapSpan) {
+    let (start_ms, total) = (g.start_ms, (g.end_ms - g.start_ms).max(0));
     sh.metrics.lists().gap_spans.push_back((start_ms, total));
     sh.events.emit(
         "gap_end",
-        json!({"gap_total_ms": total, "gap_start_ms": start_ms}),
+        json!({"gap_total_ms": total, "gap_start_ms": start_ms, "gap_end_ms": g.end_ms, "end_exact": g.end_exact}),
     );
     // шард сделок биржи без номера сделки: пауза — потеря или тишина рынка, решает REST (`pausecheck`); итог — в событие `pause_check` и на страницу
     if let Some(pc) = sh.pause_check.as_ref() {
@@ -749,7 +790,9 @@ fn end_gap(sh: &Arc<Shared>, start_ms: i64, total_ms: u64) {
             shard: sh.plan.name.clone(),
             streams: sh.streams.snapshot().1,
             start_ms,
-            end_ms: start_ms + total,
+            end_ms: g.end_ms,
+            end_exact: g.end_exact,
+            lag_p99_ms: g.lag_p99_ms,
             emit: Box::new(move |ev, f| sh2.events.emit(ev, f)),
         });
     }
@@ -839,8 +882,8 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
     let stats_path = opts.root.join(format!("stats-{}.jsonl", sh.plan.name));
     let mut gap_thr = GapThreshold::new(gap_seed(&opts.root, &sh.plan.name));
     let mut in_gap = false;
-    // пауза данных: начало (мс) и наибольшее наблюдаемое молчание (мс) — длительность пишется при возврате кадров
-    let (mut gap_start, mut gap_peak) = (0i64, 0u64);
+    // пауза данных: приём последнего кадра до неё (мс UTC), наибольшее наблюдаемое молчание (мс) и p99 лага сделок на обнаружении — конец берётся по приёму первого кадра после (`gap_resume_ms`)
+    let (mut gap_start, mut gap_peak, mut gap_lag) = (0i64, 0u64, None::<i64>);
     let mut late = std::collections::VecDeque::<f64>::with_capacity(8);
     let mut prev = Instant::now();
     let mut last_stats = Instant::now();
@@ -866,7 +909,18 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
             } else if gap > thr {
                 in_gap = true;
                 m.in_gap.store(true, Relaxed);
-                gap_start = now_ms() - i64::try_from(gap).unwrap_or(0);
+                let stamped = m.last_frame_ms.load(Relaxed);
+                gap_start = if stamped > 0 {
+                    stamped
+                } else {
+                    now_ms() - i64::try_from(gap).unwrap_or(0)
+                };
+                // лаг — до конца паузы: в окне 60 с ещё нет пачки, задержанной паузой
+                gap_lag = sh
+                    .pause_check
+                    .is_some()
+                    .then(|| trade_lag_p99_ms(m))
+                    .flatten();
                 m.gap_since_ms.store(gap_start, Relaxed);
                 gap_peak = gap;
                 m.lists().gaps.push_back(now_ms());
@@ -877,7 +931,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                 );
             } else {
                 if in_gap {
-                    end_gap(sh, gap_start, gap_peak);
+                    end_gap(sh, &gap_span(m, gap_start, gap_peak, gap_lag));
                 }
                 in_gap = false;
                 m.in_gap.store(false, Relaxed);
@@ -885,7 +939,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
             }
         } else {
             if in_gap {
-                end_gap(sh, gap_start, gap_peak);
+                end_gap(sh, &gap_span(m, gap_start, gap_peak, gap_lag));
             }
             in_gap = false;
             m.in_gap.store(false, Relaxed);

@@ -4,12 +4,13 @@ usage: incident.py <биржа> <с epoch> <по epoch> [--detail]; читает
 import collections
 import glob
 import json
+import os
 import sys
 import time
 
 EX, T0, T1 = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
 DETAIL = "--detail" in sys.argv
-ROOT = {"binance": "/data/collect/binance/data", "bybit": "/data/turbo-probe/soak-bybit/data", "okx": "/data/collect/okx/data", "bingx": "/data/collect/bingx/data"}[EX]
+ROOT = os.environ.get("INCIDENT_ROOT") or {"binance": "/data/collect/binance/data", "bybit": "/data/turbo-probe/soak-bybit/data", "okx": "/data/collect/okx/data", "bingx": "/data/collect/bingx/data"}[EX]
 hm = lambda t: time.strftime("%H:%M:%S", time.gmtime(t))
 ev = []
 for f in glob.glob(ROOT + "/events-*.jsonl"):

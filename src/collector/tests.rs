@@ -3155,6 +3155,16 @@ fn count_events(dir: &Path, name: &str) -> usize {
         .count()
 }
 
+/// События шарда с этим именем по порядку записи (`events-book00.jsonl`).
+fn events_named(dir: &Path, name: &str) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(dir.join("events-book00.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|e| e["ev"] == name)
+        .collect()
+}
+
 #[test]
 fn replacement_session_overlaps_without_gap_or_duplicates() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3469,7 +3479,6 @@ fn uncovered_shard_accepts_a_slow_path_at_once_and_upgrades_later() {
         std::thread::sleep(Duration::from_millis(20));
     }
     let first_data = t0.elapsed();
-    let rejected_at_first_data = count_events(dir.path(), "path_rejected_rtt");
     // дальше линия пробует улучшить путь: замена идёт через проверку и отбраковывается по RTT
     while count_events(dir.path(), "path_rejected_rtt") < 2
         && t0.elapsed() < Duration::from_secs(20)
@@ -3487,8 +3496,21 @@ fn uncovered_shard_accepts_a_slow_path_at_once_and_upgrades_later() {
         first_data < Duration::from_secs(3),
         "данные пошли сразу: {first_data:?}"
     );
-    assert_eq!(rejected_at_first_data, 0, "первая сессия не отбракована");
-    assert!(count_events(dir.path(), "path_slow_accepted") >= 1);
+    // первая сессия не отбракована: по номеру сессии, не по счёту событий в момент сотой записи — первая замена идёт через ≥ 250 мс после подключения (шаг линии),
+    // а сотая запись на нагруженной машине приходит и позже (так тест падал в гейте: счёт на тот момент уже был 1)
+    let first = events_named(dir.path(), "connected")[0]["session"].clone();
+    let rejected = events_named(dir.path(), "path_rejected_rtt");
+    assert!(
+        rejected.iter().all(|e| e["session"] != first),
+        "первая сессия {first} не отбракована: {rejected:?}"
+    );
+    let accepted = events_named(dir.path(), "path_slow_accepted");
+    assert!(
+        accepted
+            .iter()
+            .any(|e| e["session"] == first && e["why"] == "uncovered"),
+        "первая сессия принята как медленная при пустом шарде: {accepted:?}"
+    );
     assert!(
         count_events(dir.path(), "path_rejected_rtt") >= 2,
         "замена пробует лучший путь"

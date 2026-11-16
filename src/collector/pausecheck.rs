@@ -4,7 +4,8 @@
 //! в час: четыре паузы 16.11 сверены по REST `recent-trade` и свечам 1 м — сделок биржи внутри нет, записи полны (`docs/findings/collect-followups-deploy-2026-11-16.md`).
 //! Здесь та же сверка делается сама, в отдельном потоке (не в событийном цикле), для каждой закончившейся паузы шарда сделок:
 //! - запрос уходит из `shard::end_gap`; поток по символам шарда берёт из REST время биржи последних 1 000 сделок (`Exchange::trade_times`);
-//! - окно проверки — внутренность паузы без `EDGE_MS` с каждого края: последняя сделка до паузы и первая после неё несут время биржи на лаг прихода (≈ 0,1 с) раньше границ паузы — они доставлены, не потеря;
+//! - окно проверки `[приём последнего кадра до паузы, приём первого кадра после − p99 лага сделок шарда]` (концы — по приёму кадров, не по тику надзора; p99 измерен на обнаружении паузы, нет — `LAG_FALLBACK_MS`):
+//!   доставленная запись несёт время биржи на лаг прихода раньше приёма, поэтому последняя сделка до паузы и первая после неё (лаг ≤ p99) в окно не входят — они доставлены, не потеря; пустое окно — `Unverified`;
 //! - есть сделка биржи в окне — `Loss` (потеря: красит строку); все символы проверены и сделок нет — `Quiet` (тишина рынка, не красит); REST не ответил, окно не покрыто ответом, пауза старше `MAX_AGE_MS` — `Unverified` (красит:
 //!   тишина не доказана);
 //! - отказ по частоте (HTTP 429/418, `retCode` 10006/10018, HTTP 403 у Bybit — бан IP на 10 минут) ставит на паузу весь поток, попытка не тратится; запросы идут не чаще раза в `MIN_CALL_GAP`.
@@ -22,8 +23,8 @@ use serde_json::{json, Value};
 
 use super::exchange::{Exchange, RestError};
 
-/// Край паузы, не входящий в окно проверки, мс: лаг прихода Bybit p99 — 124 мс (выкладка 16.11), край — в 4 раза шире; назначаемое (Судье).
-pub const EDGE_MS: i64 = 500;
+/// Лаг прихода сделок, мс, когда p99 шарда измерить нечем (нет записей в окне 60 с на обнаружении паузы); измеренный p99 `trade01` Bybit 16.11 — 133 мс; назначаемое (Судье).
+pub const LAG_FALLBACK_MS: i64 = 500;
 /// Не чаще одного запроса к REST за это время: 6,7 запроса/с на IP при лимите Bybit 600 за 5 с (общем со всеми запросами с адреса).
 pub const MIN_CALL_GAP: Duration = Duration::from_millis(150);
 /// Пауза старше этого не проверяется: `recent-trade` отдаёт 1 000 последних сделок символа, окно паузы из них уходит; назначаемое (Судье).
@@ -63,12 +64,17 @@ impl Verdict {
 /// Куда писать итог проверки: событие шарда (имя, поля).
 pub type Emit = Box<dyn Fn(&str, Value) + Send>;
 
-/// Пауза, которую надо проверить: шард, его потоки на момент конца паузы, границы (мс UTC, приём), куда писать итог.
+/// Пауза, которую надо проверить: шард, его потоки на момент конца паузы, границы (мс UTC, приём кадров), куда писать итог.
 pub struct PauseReq {
     pub shard: String,
     pub streams: Vec<String>,
+    /// Приём последнего кадра до паузы.
     pub start_ms: i64,
+    /// Приём первого кадра после паузы; при `end_exact == false` (пауза закончилась обрывом соединений) — оценка `start + наибольшее молчание на тике`, раньше настоящего конца.
     pub end_ms: i64,
+    pub end_exact: bool,
+    /// p99 лага прихода сделок шарда на обнаружении паузы (мс вверх); `None` — `LAG_FALLBACK_MS`.
+    pub lag_p99_ms: Option<i64>,
     pub emit: Emit,
 }
 
@@ -80,6 +86,9 @@ pub struct Outcome {
     pub unknown: usize,
     pub in_window: usize,
     pub why: &'static str,
+    /// Применённый лаг (мс) и окно `[lo, hi]` (мс UTC).
+    pub lag_used_ms: i64,
+    pub window: (i64, i64),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -228,7 +237,7 @@ impl PauseCheck {
             self.stats.judged(req.start_ms, ms, Verdict::Unverified);
             (req.emit)(
                 "pause_check",
-                json!({"verdict": "unverified", "why": "queue_full", "pause_start_ms": req.start_ms, "pause_end_ms": req.end_ms}),
+                json!({"verdict": "unverified", "why": "queue_full", "pause_start_ms": req.start_ms, "pause_end_ms": req.end_ms, "end_exact": req.end_exact}),
             );
             return;
         }
@@ -320,6 +329,7 @@ pub(crate) fn work(
             json!({
                 "verdict": v.name(), "why": o.why, "pause_start_ms": req.start_ms, "pause_end_ms": req.end_ms, "pause_ms": ms,
                 "symbols": o.symbols, "checked": o.checked, "unknown": o.unknown, "trades_in_window": o.in_window,
+                "end_exact": req.end_exact, "lag_p99_ms": req.lag_p99_ms, "lag_used_ms": o.lag_used_ms, "window_lo": o.window.0, "window_hi": o.window.1,
             }),
         );
     }
@@ -352,9 +362,15 @@ pub(crate) fn check(
         symbols: req.streams.len(),
         ..Outcome::default()
     };
-    let (mut lo, mut hi) = (req.start_ms + EDGE_MS, req.end_ms - EDGE_MS);
+    o.lag_used_ms = req.lag_p99_ms.unwrap_or(LAG_FALLBACK_MS);
+    let (lo, hi) = (req.start_ms, req.end_ms - o.lag_used_ms);
+    o.window = (lo, hi);
     if hi <= lo {
-        (lo, hi) = (req.start_ms, req.end_ms);
+        // пауза не длиннее лага: окно пусто, тишина не доказана
+        o.unknown = o.symbols;
+        o.verdict = Some(Verdict::Unverified);
+        o.why = "window_empty";
+        return o;
     }
     for stream in &req.streams {
         let mut attempts = 0;

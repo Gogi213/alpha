@@ -1046,6 +1046,14 @@ fn gap_seed_reads_the_tail_of_stats_and_skips_bad_lines() {
 
 /// Шард на локальном источнике; источник молчит `pause` секунд после первых кадров; `seed` — прежняя статистика шарда (`stats-book00.jsonl`). Возвращает события `gap`.
 fn gaps_after_pause(seed: &[u64], pause: Duration) -> Vec<Value> {
+    events_after_pause(seed, pause)
+        .into_iter()
+        .filter(|e| e["ev"] == "gap")
+        .collect()
+}
+
+/// То же, все события шарда (`events-book00.jsonl`).
+fn events_after_pause(seed: &[u64], pause: Duration) -> Vec<Value> {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let (stop_src, paused) = (
@@ -1096,8 +1104,29 @@ fn gaps_after_pause(seed: &[u64], pause: Duration) -> Vec<Value> {
         .unwrap_or_default()
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter(|e| e["ev"] == "gap")
         .collect()
+}
+
+/// Конец паузы — по приёму первого кадра после неё (`gap_resume_ms`), начало — по приёму последнего до неё: длина события `gap_end` не короче настоящего молчания источника, а не тика надзора.
+#[test]
+fn the_pause_ends_at_the_first_frame_received_after_it() {
+    let pause = Duration::from_millis(4500);
+    let ev = events_after_pause(&[], pause);
+    let ends: Vec<&Value> = ev.iter().filter(|e| e["ev"] == "gap_end").collect();
+    assert_eq!(ends.len(), 1, "{ev:?}");
+    let e = ends[0];
+    let (start, end, total) = (
+        e["gap_start_ms"].as_i64().unwrap(),
+        e["gap_end_ms"].as_i64().unwrap(),
+        e["gap_total_ms"].as_i64().unwrap(),
+    );
+    assert_eq!(e["end_exact"], true, "{e}");
+    assert_eq!(total, end - start);
+    // источник молчал 4,5 с (плюс ≤ 100 мс, пока флаг паузы увидит поток): молчание по приёму не короче
+    assert!(
+        (4400..6000).contains(&total),
+        "молчание по приёму {total} мс против паузы источника 4500 мс: {e}"
+    );
 }
 
 #[test]

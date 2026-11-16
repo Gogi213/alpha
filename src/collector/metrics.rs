@@ -322,6 +322,8 @@ pub struct ShardMetrics {
     pub bytes: AtomicU64,
     pub last_frame_ms: AtomicI64,
     pub last_frame_mono_ms: AtomicU64,
+    /// Приём (мс UTC) кадра, которым закончилось молчание шарда не короче `GAP_TIMEOUT_MS` (0 — не было): конец паузы по приёму, не по тику надзора; пишет поток приёма на кадре, читает надзор.
+    pub gap_resume_ms: AtomicI64,
     /// По линиям (до `MAX_LANES`): время последнего кадра линии, мс UTC (0 — кадров не было), и здорова ли сессия линии (открыта, не испорчена, не медленная).
     pub lane_last_ms: [AtomicI64; super::writer::MAX_LANES],
     pub lane_ok: [AtomicBool; super::writer::MAX_LANES],
@@ -360,6 +362,7 @@ impl ShardMetrics {
             bytes: AtomicU64::new(0),
             last_frame_ms: AtomicI64::new(0),
             last_frame_mono_ms: AtomicU64::new(0),
+            gap_resume_ms: AtomicI64::new(0),
             lane_last_ms: std::array::from_fn(|_| AtomicI64::new(0)),
             lane_ok: std::array::from_fn(|_| AtomicBool::new(false)),
             lane_carry: std::array::from_fn(|_| AtomicBool::new(false)),

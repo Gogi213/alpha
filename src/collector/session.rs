@@ -822,8 +822,13 @@ impl Rx {
         if let Some(l) = m.lane_last_ms.get(usize::from(self.lane)) {
             l.store(rx.div_euclid(1_000_000), Relaxed);
         }
-        m.last_frame_mono_ms
-            .store(super::shard::mono_ms_at(t_read), Relaxed);
+        let mono = super::shard::mono_ms_at(t_read);
+        let prev = m.last_frame_mono_ms.load(Relaxed);
+        if prev > 0 && mono.saturating_sub(prev) >= super::shard::GAP_TIMEOUT_MS {
+            // молчание ≥ порога закончилось этим кадром: конец паузы по приёму (`shard::supervise` берёт его как конец)
+            m.gap_resume_ms.store(rx.div_euclid(1_000_000), Relaxed);
+        }
+        m.last_frame_mono_ms.store(mono, Relaxed);
         if n.is_multiple_of(RECVQ_EVERY) {
             if let Some(q) = net::recv_q(ws.get_ref().tcp()) {
                 m.recvq_samples.fetch_add(1, Relaxed);

@@ -243,6 +243,117 @@ fn spread_plans_put_the_heaviest_symbols_on_different_shards_and_keep_every_stre
     );
 }
 
+/// Первый запуск без `pool-state.json` (нет измеренной нагрузки): раскладка — прежняя, не по обороту; вид с измерением раскладывается, без измерения — прежний.
+#[test]
+fn spread_plans_keep_the_plain_layout_for_kinds_without_measured_load() {
+    let exch = Binance;
+    let (pool, _) = two_hot_pool();
+    let qv: BTreeMap<String, f64> = pool
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.clone(), 1e6 * f64::from(u32::try_from(i + 1).unwrap())))
+        .collect();
+    let plans = exch.plan(&pool, &kinds(), 20);
+    // оборот есть, измерений нет: прежняя раскладка (алфавитная), а не по обороту
+    let w = Weights::new(Rates::default(), &qv);
+    assert!(w.informative() && !w.measured("book"));
+    assert_eq!(spread_plans(&exch, &plans, &pool, &kinds(), 20, &w), plans);
+    // измерена только книга: сделки остаются прежними, книга — по нагрузке
+    let (_, w) = two_hot_pool();
+    let out = spread_plans(&exch, &plans, &pool, &kinds(), 20, &w);
+    let streams = |ps: &[super::exchange::ShardPlan], p: &str| {
+        ps.iter()
+            .filter(|s| s.name.starts_with(p))
+            .map(|s| s.streams.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(streams(&out, "trade"), streams(&plans, "trade"));
+    assert_ne!(streams(&out, "book"), streams(&plans, "book"));
+}
+
+/// Разовый прогон на srv: оценка нагрузки шардов BingX (`Layout::loads()` по измеренным весам `pool-state.json`) при трёх раскладках — прежней (алфавит, до 16.11 07:02), по обороту
+/// (первый запуск `3835be7b` без состояния) и по измеренной нагрузке (следующий запуск). Запуск (srv, процесс не нужен):
+/// `BX_ROOT=/data/collect/bingx/data BX_POOL=pool-2026-11-16-1794812546.json cargo test --release bingx_layout_loads -- --ignored --nocapture`
+#[test]
+#[ignore = "прогон на srv по данным BingX: env BX_ROOT, BX_POOL"]
+fn bingx_layout_loads_before_after_report() {
+    use super::bingx::Bingx;
+    let (Ok(root), Ok(pool_file)) = (std::env::var("BX_ROOT"), std::env::var("BX_POOL")) else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    let pf: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(pool_file)).unwrap()).unwrap();
+    let pool: Vec<String> = pf["pool"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let qv: BTreeMap<String, f64> = pf["qv"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.as_f64().unwrap()))
+        .collect();
+    let saved = SavedState::load(&root).unwrap();
+    let exch = Bingx::default();
+    let kinds = kinds();
+    let measured = Weights::new(saved.rates.clone(), &qv);
+    // раскладка первого запуска `3835be7b`: без измерений вес символа — оборот × 1e-6 у всех видов; сейчас вид без измерений остаётся прежним, поэтому тот же вес подаётся как «измеренный»
+    let mut as_rates = Rates::default();
+    for kind in &kinds {
+        for (sym, v) in &qv {
+            as_rates.set(kind, &sym.to_lowercase(), v * 1e-6);
+        }
+    }
+    let turnover = Weights::new(as_rates, &qv);
+    let plain = exch.plan(&pool, &kinds, 0);
+    let by_turnover = spread_plans(&exch, &plain, &pool, &kinds, 0, &turnover);
+    let by_rates = spread_plans(&exch, &plain, &pool, &kinds, 0, &measured);
+    println!(
+        "пул {} символов; измерено: книга {} сделки {} mark {}",
+        pool.len(),
+        measured.measured("book"),
+        measured.measured("trade"),
+        measured.measured("mark")
+    );
+    for (title, plans) in [
+        ("алфавит (до 07:02)", &plain),
+        (
+            "по обороту: так раскладывал первый запуск 3835be7b",
+            &by_turnover,
+        ),
+        ("по измеренной нагрузке", &by_rates),
+    ] {
+        let mut layout = Layout::new(&exch, plans, &pool, &kinds, 0);
+        layout.set_weights(measured.clone());
+        let loads = layout.loads();
+        println!("== {title}");
+        for kind in ["book", "trade", "mark"] {
+            let rows: Vec<String> = layout
+                .slots()
+                .iter()
+                .zip(&loads)
+                .filter(|(s, _)| s.kind == kind)
+                .map(|(s, l)| format!("{} {} пот. {:.1}", s.name, s.streams, l))
+                .collect();
+            let ls: Vec<f64> = layout
+                .slots()
+                .iter()
+                .zip(&loads)
+                .filter(|(s, _)| s.kind == kind)
+                .map(|(_, l)| *l)
+                .collect();
+            let (mx, mn) = (
+                ls.iter().copied().fold(f64::MIN, f64::max),
+                ls.iter().copied().fold(f64::MAX, f64::min),
+            );
+            println!("  {kind}: {} | макс/мин {:.2}", rows.join("; "), mx / mn);
+        }
+    }
+}
+
 #[test]
 fn a_new_symbol_goes_to_the_lightest_shard_and_a_shard_over_the_cap_is_not_filled() {
     let exch = Binance;
@@ -1278,9 +1389,14 @@ fn preq(start_ms: i64, end_ms: i64, symbols: usize) -> PauseReq {
             .collect(),
         start_ms,
         end_ms,
+        end_exact: true,
+        lag_p99_ms: Some(LAG_P99),
         emit: Box::new(|_, _| {}),
     }
 }
+
+/// p99 лага сделок шарда в проверках: измеренный `trade01` Bybit 16.11 (процесс `3835be7b`, 1 509 106 записей) — 133 мс.
+const LAG_P99: i64 = 133;
 
 fn quick() -> pausecheck::WorkCfg {
     pausecheck::WorkCfg {
@@ -1297,7 +1413,7 @@ fn run_check(req: &PauseReq, fetch: pausecheck::FetchFn<'_>) -> (pausecheck::Out
     (o, st)
 }
 
-/// Пауза 4 с, окно проверки — внутренность без `EDGE_MS` с краёв; последняя сделка до паузы и первая после неё (лаг ≈ 0,1 с) в окно не входят.
+/// Пауза 4 с, окно проверки `[start, end − p99 лага]` (концы — приём кадров); последняя сделка до паузы и первая после неё (лаг ≈ 0,1 с ≤ p99) в окно не входят.
 #[test]
 fn a_pause_with_no_exchange_trades_inside_is_market_silence_and_the_edges_do_not_count() {
     let now = super::events::now_ms();
@@ -1307,18 +1423,151 @@ fn a_pause_with_no_exchange_trades_inside_is_market_silence_and_the_edges_do_not
     let (o, st) = run_check(&req, &fetch);
     assert_eq!(o.verdict, Some(Verdict::Quiet));
     assert_eq!((o.checked, o.unknown, o.in_window), (5, 0, 0));
+    assert_eq!(o.window, (s, e - LAG_P99));
     assert_eq!(st.rest_requests.load(Relaxed), 5);
-    // край: сделка в первых 500 мс паузы окно не открывает, на 501-й мс — открывает
+    // начало: сделка на мс приёма последнего кадра — в окне, на мс раньше — доставлена до паузы
     let at = |t: i64| move |_: &str| Some(Ok(vec![s - 60_000, t]));
+    assert_eq!(run_check(&req, &at(s - 1)).0.verdict, Some(Verdict::Quiet));
+    assert_eq!(run_check(&req, &at(s)).0.verdict, Some(Verdict::Loss));
+    // конец: окно кончается за p99 лага до приёма первого кадра после паузы
     assert_eq!(
-        run_check(&req, &at(s + pausecheck::EDGE_MS - 1)).0.verdict,
+        run_check(&req, &at(e - LAG_P99 + 1)).0.verdict,
         Some(Verdict::Quiet)
     );
-    let (o, _) = run_check(&req, &at(s + pausecheck::EDGE_MS + 1));
+    let (o, _) = run_check(&req, &at(e - LAG_P99));
     assert_eq!(
         (o.verdict, o.in_window),
         (Some(Verdict::Loss), 1),
         "сделка биржи внутри паузы — потеря"
+    );
+}
+
+/// Пять реальных пауз `trade01` Bybit 16.11 (srv, процесс `3835be7b`; `tools/collect_gap/real_pauses.py`): `gap_start_ms` надзора, `start + gap_total_ms`, приём и время биржи последней записи до паузы, то же первой после.
+const REAL_PAUSES: [[i64; 6]; 5] = [
+    [
+        1_794_811_416_603,
+        1_794_811_420_113,
+        1_794_811_416_591,
+        1_794_811_416_485,
+        1_794_811_420_268,
+        1_794_811_420_161,
+    ],
+    [
+        1_794_812_144_854,
+        1_794_812_148_548,
+        1_794_812_144_837,
+        1_794_812_144_731,
+        1_794_812_149_010,
+        1_794_812_148_903,
+    ],
+    [
+        1_794_815_156_398,
+        1_794_815_159_463,
+        1_794_815_156_383,
+        1_794_815_156_272,
+        1_794_815_159_594,
+        1_794_815_159_487,
+    ],
+    [
+        1_794_816_767_437,
+        1_794_816_770_737,
+        1_794_816_767_424,
+        1_794_816_767_318,
+        1_794_816_770_920,
+        1_794_816_770_809,
+    ],
+    [
+        1_794_818_433_616,
+        1_794_818_436_790,
+        1_794_818_433_593,
+        1_794_818_433_486,
+        1_794_818_437_130,
+        1_794_818_437_023,
+    ],
+];
+
+/// Окно по приёму кадров на пяти реальных паузах: крайние доставленные записи (время биржи последней до и первой после паузы) в окно не входят, середина паузы и сделки у самых краёв окна — входят;
+/// прежнее окно (тик надзора, по 500 мс с краёв) на тех же паузах кончалось на 0,5–1,0 с раньше и сделку в хвосте паузы пропускало бы.
+#[test]
+fn the_window_on_five_real_pauses_excludes_the_delivered_edge_trades_and_covers_the_pause() {
+    let now = super::events::now_ms();
+    for (i, p) in REAL_PAUSES.iter().enumerate() {
+        let [tick_s, tick_e, last_rx, last_e, first_rx, first_e] = *p;
+        // сдвиг к «сейчас»: сверка отказывает паузам старше `MAX_AGE_MS`; разности — реальные
+        let off = now - 20_000 - last_rx;
+        let sh = |t: i64| t + off;
+        let req = preq(sh(last_rx), sh(first_rx), 3);
+        let old = |t: i64| (sh(tick_s) + 500..=sh(tick_e) - 500).contains(&t);
+        let older = sh(last_rx) - 60_000;
+        // в REST — только краевые доставленные сделки (они же в файле): тишина
+        let (o, _) = run_check(&req, &|_| {
+            Some(Ok(vec![
+                older,
+                sh(last_e),
+                sh(first_e),
+                sh(first_rx) + 5_000,
+            ]))
+        });
+        assert_eq!(
+            (o.verdict, o.in_window, o.window),
+            (
+                Some(Verdict::Quiet),
+                0,
+                (sh(last_rx), sh(first_rx) - LAG_P99)
+            ),
+            "пауза {} (по тику {} мс, по приёму {} мс)",
+            i + 1,
+            tick_e - tick_s,
+            first_rx - last_rx
+        );
+        // сделка в середине паузы — потеря
+        let mid = sh(last_rx + (first_rx - last_rx) / 2);
+        let (o, _) = run_check(&req, &|_| Some(Ok(vec![older, mid])));
+        assert_eq!(
+            (o.verdict, o.in_window),
+            (Some(Verdict::Loss), 1),
+            "пауза {}",
+            i + 1
+        );
+        // сделка в хвосте паузы (после тика, до конца окна) — потеря; прежнее окно её не видело
+        let tail = sh(first_rx) - LAG_P99 - 1;
+        assert!(!old(tail), "пауза {}: хвост не в прежнем окне", i + 1);
+        let (o, _) = run_check(&req, &|_| Some(Ok(vec![older, tail])));
+        assert_eq!(
+            (o.verdict, o.in_window),
+            (Some(Verdict::Loss), 1),
+            "пауза {}",
+            i + 1
+        );
+        // на мс позже окна (доставленная после паузы сделка с лагом ≤ p99) — не потеря
+        let (o, _) = run_check(&req, &|_| Some(Ok(vec![older, sh(first_rx) - LAG_P99 + 1])));
+        assert_eq!(o.verdict, Some(Verdict::Quiet), "пауза {}", i + 1);
+        // лаг краевых записей — в пределах p99, иначе таблица не про то
+        assert!(first_rx - first_e <= LAG_P99 && last_rx - last_e <= LAG_P99);
+    }
+}
+
+/// Пауза не длиннее лага — окно пусто, тишина не доказана, запросов нет; лага нет — запасной.
+#[test]
+fn an_empty_window_is_unverified_and_a_missing_lag_falls_back() {
+    let now = super::events::now_ms();
+    let (s, e) = (now - 20_000, now - 19_900);
+    let (o, st) = run_check(&preq(s, e, 3), &|_| Some(Ok(vec![s - 60_000])));
+    assert_eq!(
+        (o.verdict, o.why, o.unknown),
+        (Some(Verdict::Unverified), "window_empty", 3)
+    );
+    assert_eq!(st.rest_requests.load(Relaxed), 0);
+    let mut req = preq(now - 20_000, now - 16_000, 2);
+    req.lag_p99_ms = None;
+    let (o, _) = run_check(&req, &|_| Some(Ok(vec![req.start_ms - 60_000])));
+    assert_eq!(
+        (o.verdict, o.lag_used_ms, o.window.1),
+        (
+            Some(Verdict::Quiet),
+            pausecheck::LAG_FALLBACK_MS,
+            req.end_ms - pausecheck::LAG_FALLBACK_MS
+        )
     );
 }
 
