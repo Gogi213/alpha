@@ -63,13 +63,22 @@ def decode_prod(path, want_syms, kinds, t_from_ns, t_to_ns):
     return out
 
 
-def prod_files(root, prefixes, t_from, day_list):
+def prod_files(root, prefixes, t_from, t_to, day_list, want_syms=None):
+    """Files of runs that overlap [t_from, t_to] (run id in the name = start epoch s; mtime = last write); with want_syms
+    only files whose first ~8 MB of text mention one of the symbols (each shard carries a fixed symbol set)."""
+    import re
     files = []
     for day in day_list:
         for pre in prefixes:
             for f in sorted(glob.glob(f"{root}/{day}/{pre}*.tsv.zst")):
-                if os.path.getmtime(f) >= t_from - 7200:  # skip runs that ended long before the window
-                    files.append(f)
+                m = re.search(r"-(\d+)\.tsv\.zst$", f)
+                if not m or int(m.group(1)) > t_to or os.path.getmtime(f) < t_from - 60:
+                    continue
+                if want_syms is not None:
+                    head = subprocess.run(f"zstd -dc '{f}' 2>/dev/null | head -c 8000000", shell=True, capture_output=True).stdout
+                    if not any(b"	" + s.encode() + b"	" in head for s in want_syms):
+                        continue
+                files.append(f)
     return files
 
 
@@ -167,7 +176,7 @@ def bingx(a):
     # prod rows for the two symbol sets
     symsets = {n: [l.strip() for l in open(p) if l.strip()] for n, p in SETS.items()}
     allsyms = set(sum(symsets.values(), []))
-    files = prod_files(BINGX_PROD, ["trade0"], t_from, days_between(t_from, t_to))
+    files = prod_files(BINGX_PROD, ["trade0"], t_from, t_to, days_between(t_from, t_to), allsyms)
     rows = []
     for f in files:
         rows += decode_prod(f, allsyms, "t", t_from * 10**9, t_to * 10**9)
@@ -274,7 +283,7 @@ def binance(a):
     ind["uk"] = (ind["u"] - ind["k"]) / 1e6
     ind["t"] = ind["k"] / 1e9
     syms = set(ind["sym"].unique())
-    files = prod_files(BINANCE_PROD, ["book", "trade"], t_from, days_between(t_from, t_to))
+    files = prod_files(BINANCE_PROD, ["book", "trade"], t_from, t_to, days_between(t_from, t_to), syms)
     rows = []
     for f in files:
         kind = "b" if os.path.basename(f).startswith("book") else "t"
