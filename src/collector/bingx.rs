@@ -16,7 +16,8 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, TradeSeq, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, RestTrade, ShardPlan, TradePage,
+    TradeSeq, Turnover,
 };
 use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, slots};
@@ -25,6 +26,40 @@ const REST: &str = "https://open-api.bingx.com/openApi/swap/v2/quote";
 const HOST: &str = "open-api-swap.bingx.com";
 const PATH: &str = "/swap-market";
 const UA: &str = "alpha-collector/bingx";
+/// Страница REST `quote/trades` (максимум биржи 1000).
+const TRADES_PAGE: usize = 1000;
+
+/// Ответ `quote/trades` → страница дозапроса `lo..=hi` (порядок в ответе не по номерам; дальше назад запросить нельзя — `rest = None`).
+pub(crate) fn parse_trades_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<TradePage, String> {
+    if v.get("code").and_then(serde_json::Value::as_i64) != Some(0) {
+        return Err(format!("quote/trades: {}", v.to_string().chars().take(160).collect::<String>()));
+    }
+    let arr = v.get("data").and_then(serde_json::Value::as_array).ok_or("quote/trades: no data")?;
+    let mut trades = Vec::new();
+    for x in arr {
+        let id: i64 = x.get("fillId").and_then(serde_json::Value::as_str).and_then(|s| s.parse().ok()).ok_or("quote/trades: fillId")?;
+        if id < lo || id > hi {
+            continue;
+        }
+        let text = |k: &str| {
+            x.get(k)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| format!("quote/trades: no {k}"))
+        };
+        trades.push(RestTrade {
+            id,
+            t_ms: x.get("time").and_then(serde_json::Value::as_i64).ok_or("quote/trades: no time")?,
+            p: text("price")?,
+            q: text("qty")?,
+            f: id,
+            l: id,
+            m: x.get("isBuyerMaker").and_then(serde_json::Value::as_bool).ok_or("quote/trades: no isBuyerMaker")?,
+        });
+    }
+    trades.sort_by_key(|t| t.id);
+    Ok(TradePage { trades, rest: None })
+}
 /// Тем на соединение: максимум биржи (документация и замер W5: 200 приняты, на 201-ю — ответ `80403`, соединение живёт).
 pub const MAX_TOPICS: usize = 200;
 const META_KEYS: [&str; 10] = [
@@ -209,6 +244,12 @@ impl Exchange for Bingx {
 
     fn name(&self) -> &'static str {
         "bingx"
+    }
+
+    /// REST `quote/trades?symbol=&limit=1000`: только последние сделки (запроса по номеру нет): годны номера `lo..=hi`, что ещё в окне ответа; старше — потеряны.
+    fn trade_page(&self, symbol: &str, lo: i64, hi: i64) -> Option<Result<TradePage, String>> {
+        let url = format!("{REST}/trades?symbol={symbol}&limit={TRADES_PAGE}");
+        Some(http_get_json_ua(&url, Some(UA)).and_then(|v| parse_trades_page(&v, lo, hi)))
     }
 
     fn kinds(&self) -> &'static [&'static str] {

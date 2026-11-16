@@ -48,6 +48,15 @@ pub fn http_get_json(url: &str) -> Result<serde_json::Value, String> {
 
 /// То же со своим `User-Agent`: OKX за Cloudflare отвечает `403 error code: 1010` на запрос без него (замер 12.11).
 pub fn http_get_json_ua(url: &str, user_agent: Option<&str>) -> Result<serde_json::Value, String> {
+    http_get_json_with(url, user_agent, &[])
+}
+
+/// То же с дополнительными заголовками запроса (Gate: `X-Gate-Size-Decimal: 1` — иначе размеры приходят целыми).
+pub fn http_get_json_with(
+    url: &str,
+    user_agent: Option<&str>,
+    headers: &[(&str, &str)],
+) -> Result<serde_json::Value, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -58,8 +67,11 @@ pub fn http_get_json_ua(url: &str, user_agent: Option<&str>) -> Result<serde_jso
             builder = builder.user_agent(ua);
         }
         let client = builder.build().map_err(|e| e.to_string())?;
-        let resp = client
-            .get(url)
+        let mut req = client.get(url);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| format!("{url}: {e}"))?;

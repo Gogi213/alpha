@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use super::exchange::{Exchange, RestTrade, TradeSeq};
+use super::exchange::{Exchange, RestTrade, TradePage, TradeSeq};
 use super::writer::day_string;
 
 /// Пропуск номеров подтверждается, если за это время номера не пришли (другая линия и замена при перекрытии приносят их за секунды); назначаемое (Судье).
@@ -38,11 +38,30 @@ pub const MAX_GAP_IDS: i64 = 100_000;
 /// Не чаще одного запроса к REST за это время (Binance `aggTrades` — вес 20 из 2 400 в минуту на IP, общий с опросом пула; 0,67 запроса/с — 800 в минуту).
 pub const MIN_CALL_GAP: Duration = Duration::from_millis(1500);
 /// Попыток на пропуск и ожидание перед следующей (после сбоя REST).
-const RETRY_DELAYS: [Duration; 3] = [
+pub const RETRY_DELAYS: [Duration; 3] = [
     Duration::from_secs(20),
     Duration::from_secs(60),
     Duration::from_secs(300),
 ];
+
+/// Источник страниц дозапроса: `(символ, от, до)` → страница (`Exchange::trade_page`); в проверках подменяется.
+pub type FetchFn<'a> = &'a dyn Fn(&str, i64, i64) -> Option<Result<TradePage, String>>;
+
+/// Темп и повторы потока дозапроса (в проверках сокращаются).
+#[derive(Clone, Debug)]
+pub struct WorkCfg {
+    pub min_call_gap: Duration,
+    pub retry: Vec<Duration>,
+}
+
+impl Default for WorkCfg {
+    fn default() -> Self {
+        Self {
+            min_call_gap: MIN_CALL_GAP,
+            retry: RETRY_DELAYS.to_vec(),
+        }
+    }
+}
 
 /// Подтверждённая потеря: номера `lo..=hi` символа не пришли.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -216,7 +235,7 @@ impl BackfillStats {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e.chars().take(200).collect());
     }
 
-    fn lost(&self, now_ms: i64, ids: u64) {
+    pub fn lost(&self, now_ms: i64, ids: u64) {
         self.ids_lost.fetch_add(ids, Relaxed);
         let mut l = self
             .lost_log
@@ -274,7 +293,7 @@ struct Job {
 }
 
 /// Файл дозапроса: сутки (UTC) — свой каталог, как у файлов ws; кадры zstd дописываются по пачке (читать с `read_across_frames`).
-struct OutFile {
+pub(crate) struct OutFile {
     root: PathBuf,
     exchange: &'static str,
     run_id: i64,
@@ -283,6 +302,16 @@ struct OutFile {
 }
 
 impl OutFile {
+    pub(crate) fn new(root: PathBuf, exchange: &'static str, run_id: i64) -> Self {
+        Self {
+            root,
+            exchange,
+            run_id,
+            day: None,
+            file: None,
+        }
+    }
+
     fn write(&mut self, now_ms: i64, lines: &str) {
         let day = now_ms.div_euclid(86_400_000);
         let mut text = String::new();
@@ -335,14 +364,9 @@ pub fn spawn(
     let join = std::thread::Builder::new()
         .name("backfill".into())
         .spawn(move || {
-            let mut out = OutFile {
-                root,
-                exchange: name,
-                run_id,
-                day: None,
-                file: None,
-            };
-            work(&exch, &rx, &st, &mut out, &stop);
+            let mut out = OutFile::new(root, name, run_id);
+            let fetch = |s: &str, lo: i64, hi: i64| exch.trade_page(s, lo, hi);
+            work(&fetch, &WorkCfg::default(), &rx, &st, &mut out, &stop);
         })
         .ok()?;
     Some((Backfill { tx, stats, seq }, join))
@@ -352,15 +376,18 @@ fn wall_ms() -> i64 {
     super::events::now_ms()
 }
 
-fn work(
-    exch: &Arc<dyn Exchange>,
+pub(crate) fn work(
+    fetch: FetchFn<'_>,
+    cfg: &WorkCfg,
     rx: &Receiver<GapReq>,
     st: &Arc<BackfillStats>,
     out: &mut OutFile,
     stop: &Arc<AtomicBool>,
 ) {
     let mut queue: VecDeque<Job> = VecDeque::new();
-    let mut last_call = Instant::now().checked_sub(MIN_CALL_GAP).unwrap_or_else(Instant::now);
+    let mut last_call = Instant::now()
+        .checked_sub(cfg.min_call_gap)
+        .unwrap_or_else(Instant::now);
     while !stop.load(Relaxed) {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(req) => queue.push_back(Job {
@@ -402,12 +429,12 @@ fn work(
             finish(st, out, &job, status_of(job.got, ids, false), ids - job.got);
             continue;
         };
-        if now.duration_since(last_call) < MIN_CALL_GAP {
-            std::thread::sleep(MIN_CALL_GAP.saturating_sub(now.duration_since(last_call)));
+        if now.duration_since(last_call) < cfg.min_call_gap {
+            std::thread::sleep(cfg.min_call_gap.saturating_sub(now.duration_since(last_call)));
         }
         last_call = Instant::now();
         st.rest_requests.fetch_add(1, Relaxed);
-        match exch.trade_page(&job.req.symbol, lo, hi) {
+        match fetch(&job.req.symbol, lo, hi) {
             None => finish(st, out, &job, "unsupported", ids),
             Some(Ok(page)) => {
                 job.attempts = 0;
@@ -423,7 +450,7 @@ fn work(
             }
             Some(Err(e)) => {
                 st.error(&e);
-                if let Some(d) = RETRY_DELAYS.get(job.attempts) {
+                if let Some(d) = cfg.retry.get(job.attempts) {
                     job.attempts += 1;
                     job.not_before = Instant::now() + *d;
                     queue.push_back(job);

@@ -135,6 +135,14 @@ pub struct TradePage {
     pub rest: Option<(i64, i64)>,
 }
 
+/// Что осталось запросить после страницы «от новых к старым» (OKX, Gate: запрос «старше номера»): страница полная и самый старый номер в ней выше `lo` — продолжать от него.
+pub fn next_range_desc(raw_len: usize, limit: usize, oldest: Option<i64>, lo: i64) -> Option<(i64, i64)> {
+    match oldest {
+        Some(o) if raw_len >= limit && o > lo => Some((lo, o - 1)),
+        _ => None,
+    }
+}
+
 /// Лаг прихода, мс: приём (нс) − время биржи (мс); разность в целых нс, затем в мс — точно (f64 не держит нс эпохи).
 #[allow(clippy::cast_precision_loss)]
 pub fn lag_ms(rx_ns: i64, e_ms: i64) -> f64 {

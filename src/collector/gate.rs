@@ -18,15 +18,46 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, TradeSeq, Turnover,
+    lag_ms, next_range_desc, Entrance, Exchange, Family, Out, Parsed, Parser, RestTrade, ShardPlan,
+    TradePage, TradeSeq, Turnover,
 };
-use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
+use super::pool::{balanced_chunks, http_get_json_ua, http_get_json_with, rank_pool};
 use super::scan::{each_elem, parse_object, pick, slots, Val};
 
 const REST: &str = "https://api.gateio.ws/api/v4/futures/usdt";
 const HOST: &str = "fx-ws.gateio.ws";
 const PATH: &str = "/v4/ws/usdt";
 const UA: &str = "alpha-collector/gate";
+/// Страница REST `trades` (максимум биржи 1000).
+const TRADES_PAGE: usize = 1000;
+
+/// Ответ `trades` → страница дозапроса `lo..=hi`: `size` со знаком (минус — продажа, как в записи ws `m`), в файл — модуль строкой; время — секунды с долей.
+pub(crate) fn parse_trades_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<TradePage, String> {
+    let arr = v.as_array().ok_or_else(|| format!("trades: not an array: {}", v.to_string().chars().take(160).collect::<String>()))?;
+    let (mut trades, mut oldest) = (Vec::new(), None::<i64>);
+    for x in arr {
+        let id = x.get("id").and_then(serde_json::Value::as_i64).ok_or("trades: no id")?;
+        oldest = Some(oldest.map_or(id, |o| o.min(id)));
+        if id < lo || id > hi {
+            continue;
+        }
+        let size = x.get("size").and_then(serde_json::Value::as_str).ok_or("trades: no size")?;
+        let secs = x.get("create_time_ms").and_then(serde_json::Value::as_f64).ok_or("trades: no create_time_ms")?;
+        #[allow(clippy::cast_possible_truncation)]
+        let t_ms = (secs * 1000.0).round() as i64;
+        trades.push(RestTrade {
+            id,
+            t_ms,
+            p: x.get("price").and_then(serde_json::Value::as_str).ok_or("trades: no price")?.to_string(),
+            q: size.trim_start_matches('-').to_string(),
+            f: id,
+            l: id,
+            m: size.starts_with('-'),
+        });
+    }
+    let rest = next_range_desc(arr.len(), TRADES_PAGE, oldest, lo);
+    Ok(TradePage { trades, rest })
+}
 /// Контрактов на соединение: назначаемое. Лимита подписок у Gate нет (в документации — ни числа, ни слова; замер 15.11: 1 051 контракт × 3 канала на одном
 /// соединении подписались без ошибок), потолок ищет лестница.
 pub const PER_CONN: usize = 100;
@@ -278,6 +309,18 @@ impl Exchange for Gate {
 
     fn name(&self) -> &'static str {
         "gate"
+    }
+
+    /// REST `trades?contract=&last_id=<номер>&limit=1000`: сделки старше номера, от новых к старым; `last_id = hi + 1` отдаёт номера `≤ hi`.
+    fn trade_page(&self, symbol: &str, lo: i64, hi: i64) -> Option<Result<TradePage, String>> {
+        let url = format!(
+            "{REST}/trades?contract={symbol}&limit={TRADES_PAGE}&last_id={}",
+            hi + 1
+        );
+        Some(
+            http_get_json_with(&url, Some(UA), self.ws_headers())
+                .and_then(|v| parse_trades_page(&v, lo, hi)),
+        )
     }
 
     fn kinds(&self) -> &'static [&'static str] {
