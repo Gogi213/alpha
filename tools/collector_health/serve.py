@@ -38,7 +38,8 @@ def row_state(doc, age_s, thr):
         return "bad", "данные за минуту не пришли ни по одному символу"
     if stale_s is None:
         return "warn", "порог устаревания файла не задан"
-    if sym["with_data_1m"] < sym["subscribed"]:
+    # сборка с независимым счётчиком (`book_window_s`) считает «не подписано» по кадрам книги за окно; минутное окно для неё — только число
+    if sym["with_data_1m"] < sym["subscribed"] and "book_window_s" not in sym:
         return "warn", "данные за минуту пришли не по всем символам"
     if sym.get("not_subscribed"):
         return "warn", f"не подписано символов выше порога по REST: {sym['not_subscribed']}"

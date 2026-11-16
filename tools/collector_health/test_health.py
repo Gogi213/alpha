@@ -228,3 +228,63 @@ def test_v3_bar_is_flagged_by_minute_late_threshold_and_row_by_hour_threshold(tm
     root = str(tmp_path)
     assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, {"late_1h_flag": 5000})["ok"] is True
     assert v3.exchange_row("bingx", "BingX", h, root, time.time(), 0, None)["ok"] is False
+
+
+def _row(tmp_path, h):
+    import time
+    import v3
+    base = {"ts_ms": int(time.time() * 1000), "ws": {}, "fresh": {"kinds": {}}}
+    return v3.exchange_row("binance", "Binance", {**base, **h}, str(tmp_path), time.time(), 0, None)
+
+
+def test_independent_not_subscribed_does_not_turn_red_on_quiet_symbols(tmp_path):
+    # Binance 16.11: 521 из 522 «с данными за минуту» — тихие символы молчат по минуте и дольше; независимый счётчик (кадры книги за 10 мин) — 0
+    quiet = {"subscribed": 522, "with_data_1m": 521, "not_subscribed": 0, "not_subscribed_qv_usd": 0, "book_window_s": 600}
+    r = _row(tmp_path, {"symbols": quiet, "pool": {"rest_age_s": 20}})
+    assert not r["live_bad"] and r["ok"], r["detail"]["not_subscribed"]
+    # прежняя сборка без счётчика: красит, как раньше
+    r = _row(tmp_path, {"symbols": {"subscribed": 522, "with_data_1m": 521}})
+    assert r["live_bad"]
+    # независимый счётчик нашёл символы без записей — красный, список в подробностях
+    bad = {**quiet, "not_subscribed": 2, "not_subscribed_qv_usd": 6_000_000, "not_subscribed_top": [["BTCUSDT", 4e9], ["AUSDT", 1e6]]}
+    r = _row(tmp_path, {"symbols": bad, "pool": {"rest_age_s": 20}})
+    assert r["live_bad"] and not r["ok"] and r["detail"]["not_subscribed_top"][0][0] == "BTCUSDT"
+    # первые минуты после запуска: счётчика ещё нет (null) — не красный
+    r = _row(tmp_path, {"symbols": {**quiet, "not_subscribed": None, "not_subscribed_qv_usd": None}})
+    assert not r["live_bad"] and r["detail"]["not_subscribed"] is None
+
+
+def test_budget_alarm_storm_and_backfill_show_on_the_row(tmp_path):
+    h = {"symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600},
+         "connect_budget": {"used": 265, "limit": 280, "waiting": 0, "alarm": True},
+         "storm": {"on": True, "episodes": 2, "holds": 14, "aborts": 3},
+         "backfill": {"enabled": True, "ids_confirmed": 8081, "ids_backfilled": 8081, "ids_lost": 0, "open_ids": 0},
+         "ws": {"gaps_1h": 4}}
+    r = _row(tmp_path, h)
+    assert r["budget_bad"] and not r["ok"]
+    assert r["detail"]["budget"] == [265, 280, 0, True] and r["detail"]["storm"] == [True, 2, 14, 3]
+    assert r["detail"]["backfill"] == [8081, 8081, 0, 0]
+    # бюджет в норме: паузы шардов при дозапросе потерей не считаются
+    h["connect_budget"] = {"used": 100, "limit": 280, "waiting": 0, "alarm": False}
+    r = _row(tmp_path, h)
+    assert not r["budget_bad"] and r["ok"] and r["detail"]["pause_gaps_1h"] == 4
+    # без дозапроса паузы красят, как раньше
+    h.pop("backfill")
+    assert not _row(tmp_path, h)["ok"]
+
+
+def test_lost_ids_in_the_series_color_the_bar_and_the_row(tmp_path):
+    import json as _json
+    import time
+    now = time.time()
+    m = int(now) // 60 - 3
+    (tmp_path / "series-minutes.jsonl").write_text("\n".join([
+        _json.dumps({"start": int(now) - 3600, "version": "x"}),
+        _json.dumps({"t": m * 60, "lost_ms": 0, "pause_ms": 9000, "lost_ids": 8081, "gaps": 1, "late": [0, 0, 0, 0], "to": [0, 0]}),
+    ]) + "\n", encoding="utf-8")
+    import v3
+    h = {"ts_ms": int(now * 1000), "symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600}, "ws": {}, "fresh": {"kinds": {}},
+         "backfill": {"enabled": True, "ids_confirmed": 8081, "ids_backfilled": 0, "ids_lost": 8081, "open_ids": 0}}
+    r = v3.exchange_row("binance", "Binance", h, str(tmp_path), now, 0, None)
+    assert r["lost_ids_1h"] == 8081 and not r["ok"]
+    assert any(b[0] == 1 and b[7] == 8081 for b in r["bars"])

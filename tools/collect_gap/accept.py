@@ -62,7 +62,7 @@ def main():
         last = after[-1]
         p = last.get('pool') or {}
         out['now'] = {'ts': last['ts'], 'ver': last['ver'], 'symbols': last['symbols'], 'shards': last['shards'], 'ws': last['ws'],
-                      'pool': {k: p.get(k) for k in ('pool', 'rest_eligible', 'rest_symbols', 'rest_age_s', 'errors', 'last_error', 'not_subscribed', 'missing_at_poll',
+                      'pool': {k: p.get(k) for k in ('pool', 'rest_eligible', 'rest_symbols', 'rest_age_s', 'errors', 'last_error', 'not_subscribed', 'not_in_layout', 'missing_at_poll',
                                                       'added_total', 'removed_total', 'spawned_shards', 'remove_blocked')}}
         out['loss_delta_after'] = {k: delta(after, k) for k in ('sink_blocks_dropped', 'sink_errors', 'rx_clamped')}
         out['ring_full_after'] = after[-1].get('ring_full_total')

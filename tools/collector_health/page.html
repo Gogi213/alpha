@@ -67,12 +67,16 @@ function detailEx(r){
   const items=[
     kv('потеряно, с','за час '+f1(r.lost_1h_s)+' · за сутки '+f1(d.lost_24h_s)),
     kv('провалы',gl),
+    ...(d.backfill?[kv('потеряно номеров сделок, сутки','за час '+(r.lost_ids_1h||0).toLocaleString('ru')+' · подтверждено '+(d.backfill[0]||0).toLocaleString('ru')+' · дозапрошено '+(d.backfill[1]||0).toLocaleString('ru')+' · потеряно '+(d.backfill[2]||0).toLocaleString('ru')+' · в работе '+(d.backfill[3]||0).toLocaleString('ru')+(d.pause_gaps_1h?' · паузы шардов за час '+d.pause_gaps_1h+' (не потеря)':''))]:[]),
     kv('записи позже 2 с','за час '+(d.late_1h||0).toLocaleString('ru')+' · за сутки '+(d.late_24h||0).toLocaleString('ru')+(d.late_max_1h_s?' · макс. '+Math.round(d.late_max_1h_s)+' с':'')),
     kv('таймауты, сутки','пинг пропал '+(d.to_alive_24h??'—')+' · линия молчала '+(d.to_silent_24h??'—')),
     kv('переподключений за час',d.reconnects_1h??'—'),
     kv('сборка',esc((d.version||'?').slice(0,8))+' с '+hm(d.started)),
     kv('монет · сообщений/с',(d.symbols[0]??'—')+'/'+(d.symbols[1]??'—')+' · '+(d.msgs_s||0).toLocaleString('ru')),
     ...(d.not_subscribed?[kv('не подписано (REST)',d.not_subscribed[0]+(d.not_subscribed[0]?' · оборот '+Math.round((d.not_subscribed[1]||0)/1e6*10)/10+' млн $':'')+(d.not_subscribed[2]==null?'':' · опрос '+d.not_subscribed[2]+' с назад'))]:[]),
+    ...(d.not_subscribed&&d.not_subscribed[0]&&(d.not_subscribed_top||[]).length?[kv('без записи книги',d.not_subscribed_top.map(x=>esc(x[0])).join(', '))]:[]),
+    ...(d.budget?[kv('бюджет подключений',(d.budget[0]??'—')+' из '+(d.budget[1]??'—')+(d.budget[2]?' · ждут '+d.budget[2]:'')+(d.budget[3]?' · ТРЕВОГА: бюджет исчерпан':''))]:[]),
+    ...(d.storm&&(d.storm[0]||d.storm[1])?[kv('стоянка всей биржи',(d.storm[0]?'идёт · ':'')+'эпизодов '+(d.storm[1]||0)+' · линий удержано '+(d.storm[2]||0)+' · замен прекращено '+(d.storm[3]||0))]:[]),
     kv('задержка прихода p50/p99',(d.lag_in[0]??'—')+' / '+(d.lag_in[1]??'—')+' мс'),
     kv('пинг WS p50/макс',(d.ping[0]??'—')+' / '+(d.ping[1]??'—')+' мс'),
     kv('CPU, ядер',d.cpu==null?'—':String(d.cpu).replace('.',',')),
@@ -120,6 +124,7 @@ function show(el){
   else{
     const lost=d[1]/1000,late=d[2];
     h+='<br>'+(lost>0?'<span class="a">потеряно '+f1(lost)+' с</span>':'потеряно 0 с');
+    if(d[7])h+='<br><span class="a">потеряно номеров сделок '+d[7].toLocaleString('ru')+'</span>';
     h+='<br>'+(late==null?'<span class="m">опоздавшие записи —</span>':(late>0?(d[6]?'<span class="a">опоздавшие записи '+late.toLocaleString('ru')+'</span>':'опоздавшие записи '+late.toLocaleString('ru')):'опоздавшие записи 0'));
     h+='<br>таймауты '+(d[3]+d[4])+((d[3]+d[4])?' <span class="m">· пинг пропал '+d[3]+' · молчала '+d[4]+'</span>':'');
     if(d[5])h+='<br><span class="m">перезапуск сборки</span>';
