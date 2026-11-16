@@ -16,7 +16,7 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, TradeSeq, Turnover,
 };
 use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, slots, Small, Val};
@@ -328,6 +328,11 @@ fn first_ts(frame: &[u8]) -> Option<i64> {
 }
 
 impl Exchange for Okx {
+    /// Запись агрегата OKX покрывает номера `f..=l` (`tradeId` последней сделки и их число): сплошные по инструменту (проверка 16.11: 2,37 млн записей, 0 подтверждённых пропусков за 30 с).
+    fn trade_seq(&self) -> Option<TradeSeq> {
+        Some(TradeSeq::FL)
+    }
+
     fn name(&self) -> &'static str {
         "okx"
     }

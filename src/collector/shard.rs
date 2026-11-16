@@ -144,6 +144,8 @@ pub struct ShardOpts {
     pub rx_hold: Duration,
     /// Режим «стоянка всей биржи» процесса (`runner` оценивает его по шардам); `None` — замены как раньше.
     pub storm: Option<Arc<super::storm::Storm>>,
+    /// Поиск пропусков номеров сделок и дозапрос (`backfill::spawn`); `None` — не ищется.
+    pub backfill: Option<super::backfill::Backfill>,
 }
 
 impl ShardOpts {
@@ -179,6 +181,7 @@ impl ShardOpts {
             kernel_stamp: false,
             rx_hold: Duration::ZERO,
             storm: None,
+            backfill: None,
         }
     }
 }
@@ -590,6 +593,12 @@ pub fn spawn_shard(
     let mut writer = ShardWriter::new(cfg, Arc::clone(exch), Arc::clone(&metrics), stx, rrx);
     writer.set_sort_batch(opts.kernel_stamp);
     writer.set_hold(opts.rx_hold);
+    if let Some(b) = opts.backfill.clone() {
+        // только шарды сделок: у книги и mark сплошного номера нет
+        if plan.name.starts_with("trade") {
+            writer.set_backfill(b);
+        }
+    }
     let streams = Arc::new(StreamSet::new(plan.streams.clone()));
     let sh = Arc::new(Shared {
         exch: Arc::clone(exch),

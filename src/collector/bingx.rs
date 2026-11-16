@@ -16,7 +16,7 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, TradeSeq, Turnover,
 };
 use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, slots};
@@ -202,6 +202,11 @@ fn exch_ms(frame: &[u8]) -> Option<i64> {
 }
 
 impl Exchange for Bingx {
+    /// Номер сделки BingX `t` сплошной по символу (проверка 16.11: 2,67 млн записей, 1 подтверждённый пропуск в 1 номер).
+    fn trade_seq(&self) -> Option<TradeSeq> {
+        Some(TradeSeq::A)
+    }
+
     fn name(&self) -> &'static str {
         "bingx"
     }

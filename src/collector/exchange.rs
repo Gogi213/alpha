@@ -107,6 +107,34 @@ pub struct Turnover {
     pub meta: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
+/// Каким числом запись сделки несёт сплошной номер биржи по символу: по нему находятся пропуски (потерянные сделки при сбросе соединений).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TradeSeq {
+    /// Запись `a` — один номер (Binance aggTrade id, BingX, Gate).
+    A,
+    /// Запись покрывает номера `f..=l` (OKX: агрегат из `count` сделок, `tradeId` последней).
+    FL,
+}
+
+/// Сделка из REST для дозапроса: номер биржи, время, цена и размер строками как пришли (В-172), `f`/`l` — как в записи ws, `m` — покупатель мейкер.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RestTrade {
+    pub id: i64,
+    pub t_ms: i64,
+    pub p: String,
+    pub q: String,
+    pub f: i64,
+    pub l: i64,
+    pub m: bool,
+}
+
+/// Одна страница дозапроса: сделки внутри запрошенного диапазона и что осталось запросить (`None` — диапазон закрыт: дальше биржа ничего не отдаст).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TradePage {
+    pub trades: Vec<RestTrade>,
+    pub rest: Option<(i64, i64)>,
+}
+
 /// Лаг прихода, мс: приём (нс) − время биржи (мс); разность в целых нс, затем в мс — точно (f64 не держит нс эпохи).
 #[allow(clippy::cast_precision_loss)]
 pub fn lag_ms(rx_ns: i64, e_ms: i64) -> f64 {
@@ -164,6 +192,21 @@ pub trait Exchange: Send + Sync {
     /// Виды, чьи потоки не зависят от пула (Binance `mark`: один поток на все символы): символ в них не докладывается и не снимается.
     fn pool_free_kinds(&self) -> &'static [&'static str] {
         &[]
+    }
+    /// У записей сделок этой биржи есть сплошной номер по символу: писатель ищет пропуски номеров (подтверждённая потеря) и просит дозапрос (`backfill`). `None` — номера нет
+    /// (Bybit: UUID) или он не сплошной.
+    fn trade_seq(&self) -> Option<TradeSeq> {
+        None
+    }
+    /// Страница дозапроса потерянных сделок `lo..=hi` символа из REST (в событийный цикл не входит: зовёт отдельный поток); `None` — у биржи нет запроса по номеру,
+    /// пропуск остаётся потерей.
+    fn trade_page(
+        &self,
+        _symbol: &str,
+        _lo: i64,
+        _hi: i64,
+    ) -> Option<Result<TradePage, String>> {
+        None
     }
     /// Метаданные символов пула (размер контракта и т. п.) — в `pool-<день>.json` рядом с пулом; заполняется `load_pool`.
     fn pool_meta(&self) -> Option<serde_json::Value> {

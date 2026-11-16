@@ -18,7 +18,7 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, TradeSeq, Turnover,
 };
 use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
 use super::scan::{each_elem, parse_object, pick, slots, Val};
@@ -271,6 +271,11 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 impl Exchange for Gate {
+    /// Номер сделки Gate сплошной по контракту (проверка 16.11: 0,9 млн записей, 6 подтверждённых пропусков / 8 номеров, все у AKE_USDT).
+    fn trade_seq(&self) -> Option<TradeSeq> {
+        Some(TradeSeq::A)
+    }
+
     fn name(&self) -> &'static str {
         "gate"
     }

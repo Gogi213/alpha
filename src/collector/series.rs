@@ -60,6 +60,8 @@ pub struct SeriesWriter {
     file: Option<File>,
     /// последняя записанная минута (или минута запуска): писать с `last + 1`
     last: i64,
+    /// Биржа с поиском пропусков номеров сделок: потеря в ряду — только подтверждённый и не дозапрошенный пропуск номеров, паузы шарда — отдельно (`pause_ms`).
+    backfill: Option<Arc<super::backfill::BackfillStats>>,
 }
 
 impl SeriesWriter {
@@ -85,13 +87,23 @@ impl SeriesWriter {
                 .open(&path)
                 .ok()
         });
-        let mut w = Self { path, file, last };
+        let mut w = Self {
+            path,
+            file,
+            last,
+            backfill: None,
+        };
         w.line(&json!({"start": now_ms / 1000, "version": version}).to_string());
         w
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Потеря в ряду — по номерам сделок (`BackfillStats`), а не по паузам шардов.
+    pub fn set_backfill(&mut self, b: Arc<super::backfill::BackfillStats>) {
+        self.backfill = Some(b);
     }
 
     fn line(&mut self, s: &str) {
@@ -106,9 +118,19 @@ impl SeriesWriter {
         while self.last + 1 < cur {
             self.last += 1;
             let r = minute_row(shards, self.last);
-            let s = json!({
-                "t": self.last * 60, "lost_ms": r.lost_ms, "gaps": r.gaps, "late": r.late, "to": [r.to_alive, r.to_silent],
-            })
+            let s = match &self.backfill {
+                // `lost_ms` — паузы шардов минуты, но только если в минуте окончательно потеряны номера сделок; `pause_ms` — все паузы; `lost_ids` — потерянные номера
+                Some(b) => {
+                    let lost_ids = b.lost_between(self.last * MIN_MS, (self.last + 1) * MIN_MS);
+                    json!({
+                        "t": self.last * 60, "lost_ms": if lost_ids > 0 { r.lost_ms } else { 0 }, "pause_ms": r.lost_ms, "lost_ids": lost_ids,
+                        "gaps": r.gaps, "late": r.late, "to": [r.to_alive, r.to_silent],
+                    })
+                }
+                None => json!({
+                    "t": self.last * 60, "lost_ms": r.lost_ms, "gaps": r.gaps, "late": r.late, "to": [r.to_alive, r.to_silent],
+                }),
+            }
             .to_string();
             self.line(&s);
         }

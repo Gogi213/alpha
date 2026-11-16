@@ -223,6 +223,8 @@ struct Core {
     prev: (u32, u8),
     cmp_prev: (u32, u8),
     cur_age_ns: i64,
+    /// Поиск пропусков номеров сделок и канал запросов дозапроса (биржи со сплошным номером, `Exchange::trade_seq`).
+    tracker: Option<(super::backfill::IdTracker, super::backfill::Backfill)>,
 }
 
 impl Core {
@@ -341,6 +343,13 @@ impl Core {
             st.dups += 1;
             return;
         }
+        if let (Some((ids, b)), Rec::Trade(t)) = (self.tracker.as_mut(), rec) {
+            let (lo, hi) = match b.seq {
+                super::exchange::TradeSeq::A => (t.a, t.a),
+                super::exchange::TradeSeq::FL => (t.f, t.l),
+            };
+            ids.on_span(id.sid, t.sym, lo, hi, rx.div_euclid(NS_PER_MS));
+        }
         self.ensure_file(rx);
         if let Some(s) = self.syms.get_mut(sid) {
             self.enc.record(&mut self.block, rx, &mut s.enc, rec);
@@ -455,6 +464,7 @@ impl ShardWriter {
             prev: (0, 0),
             cmp_prev: (0, 0),
             cur_age_ns: 0,
+            tracker: None,
         };
         Self {
             core,
@@ -558,6 +568,11 @@ impl ShardWriter {
         }
     }
 
+    /// Включить поиск пропусков номеров сделок: подтверждённые идут в поток дозапроса (`backfill::spawn`).
+    pub fn set_backfill(&mut self, b: super::backfill::Backfill) {
+        self.core.tracker = Some((super::backfill::IdTracker::default(), b));
+    }
+
     /// Сортировать пачку такта по `rx` (стабильно): при ядерных метках запись из двух линий в одной пачке берётся с меньшей меткой.
     pub fn set_sort_batch(&mut self, on: bool) {
         self.core.sort_batch = on;
@@ -594,6 +609,15 @@ impl ShardWriter {
                 self.core.cut_block();
             }
             self.rotate_by_clock(now_ns);
+        }
+        if let Some((ids, b)) = self.core.tracker.as_mut() {
+            for g in ids.scan(now_ns.div_euclid(NS_PER_MS), &self.core.cfg.shard) {
+                b.stats.gaps_confirmed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                b.stats
+                    .ids_confirmed
+                    .fetch_add(u64::try_from(g.ids()).unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+                let _ = b.tx.send(g);
+            }
         }
         if done {
             self.core.cut_block();

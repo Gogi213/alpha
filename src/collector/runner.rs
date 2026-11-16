@@ -32,6 +32,7 @@ use super::net;
 use super::okx::Okx;
 use super::reactor::{spawn_reactor, spawn_reactor_inline, ReactorCfg};
 use super::series::SeriesWriter;
+use super::backfill;
 use super::session::StreamSet;
 use super::storm::{self, Storm};
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
@@ -309,6 +310,7 @@ fn health_json(
     host: &mut HostInfo,
     budget: &Budget,
     storm: &Storm,
+    backfill: Option<&backfill::Backfill>,
 ) -> serde_json::Value {
     host.refresh();
     let mut v = build(metrics, ctx, now_ms(), sampler);
@@ -317,6 +319,13 @@ fn health_json(
         // тревога «бюджет подключений исчерпан» и режим «стоянка всей биржи» — на страницу здоровья
         o.insert("connect_budget".to_string(), budget.snapshot(Instant::now()).json());
         o.insert("storm".to_string(), storm.json(now_ms()));
+        o.insert(
+            "backfill".to_string(),
+            backfill.map_or_else(
+                || json!({"enabled": false}),
+                |b| b.stats.json(true, now_ms()),
+            ),
+        );
     }
     if let (Some((r, _)), Some(o)) = (reactor, v.as_object_mut()) {
         o.insert("reactor".to_string(), r.stats.json());
@@ -481,6 +490,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     opts.lazy = args.lazy;
     let storm = Storm::new();
     opts.storm = Some(Arc::clone(&storm));
+
     opts.pong_only_degrades = !args.no_pong_only_degrade;
     opts.no_ping = args.no_ping;
     opts.cold_probe = args.cold_probe;
@@ -506,6 +516,14 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     }
     let stop = Arc::new(AtomicBool::new(false));
     watch_signals(&stop);
+    // дозапрос потерянных сделок: биржи со сплошным номером сделки (Binance, OKX, BingX, Gate); отдельный поток, отдельный файл `backfill-*.tsv.zst`
+    let backfill = backfill::spawn(
+        Arc::clone(&exch),
+        args.root.clone(),
+        run_id,
+        Arc::clone(&stop),
+    );
+    opts.backfill = backfill.as_ref().map(|(b, _)| b.clone());
     let limit = args.connect_budget.unwrap_or(match args.exchange {
         ExchangeName::Binance => BINANCE_LIMIT,
         ExchangeName::Bybit => LIMIT,
@@ -632,6 +650,9 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let mut sampler = ProcSampler::default();
     let mut host = HostInfo::new();
     let mut series = SeriesWriter::open(&args.root, now_ms(), super::VERSION);
+    if let Some((b, _)) = &backfill {
+        series.set_backfill(Arc::clone(&b.stats));
+    }
     let (t0, deadline) = (
         Instant::now(),
         (args.duration_s > 0).then(|| Duration::from_secs(args.duration_s)),
@@ -734,6 +755,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                     &mut host,
                     &budget,
                     &storm,
+                    backfill.as_ref().map(|(b, _)| b),
                 ),
             );
             series.flush(&metrics, now_ms());
@@ -750,11 +772,15 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                     &mut host,
                     &budget,
                     &storm,
+                    backfill.as_ref().map(|(b, _)| b),
                 ),
     );
     series.flush(&metrics, now_ms());
     for h in handles {
         h.join();
+    }
+    if let Some((_, j)) = backfill {
+        let _ = j.join();
     }
     if let Some((w, j)) = mark_worker {
         w.quit();

@@ -10,7 +10,8 @@ use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, RestTrade, ShardPlan, TradePage,
+    TradeSeq, Turnover,
 };
 use super::pool::{balanced_chunks, http_get_json, rank_pool};
 use super::scan::{each_elem, parse_object, slots, Val};
@@ -190,6 +191,54 @@ fn wrap(stream: Option<&[u8]>, elems: &[u8]) -> Vec<u8> {
     w
 }
 
+/// Размер страницы REST `aggTrades` (максимум биржи).
+const AGG_PAGE: usize = 1000;
+
+/// Ответ `aggTrades` → страница дозапроса `lo..=hi`: номера вне диапазона пропускаются; страница короче максимума — дальше номеров нет, оставшееся не запрашивается.
+pub(crate) fn parse_agg_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<TradePage, String> {
+    let arr = v.as_array().ok_or_else(|| {
+        format!(
+            "aggTrades: not an array: {}",
+            v.to_string().chars().take(120).collect::<String>()
+        )
+    })?;
+    let mut trades = Vec::new();
+    let mut last = lo - 1;
+    for x in arr {
+        let int = |k: &str| {
+            x.get(k)
+                .and_then(serde_json::Value::as_i64)
+                .ok_or_else(|| format!("aggTrades: no {k}"))
+        };
+        let text = |k: &str| {
+            x.get(k)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| format!("aggTrades: no {k}"))
+        };
+        let id = int("a")?;
+        last = last.max(id);
+        if id < lo || id > hi {
+            continue;
+        }
+        trades.push(RestTrade {
+            id,
+            t_ms: int("T")?,
+            p: text("p")?,
+            q: text("q")?,
+            f: int("f")?,
+            l: int("l")?,
+            m: x.get("m").and_then(serde_json::Value::as_bool).ok_or("aggTrades: no m")?,
+        });
+    }
+    let rest = if arr.len() < AGG_PAGE || last >= hi {
+        None
+    } else {
+        Some((last + 1, hi))
+    };
+    Ok(TradePage { trades, rest })
+}
+
 /// Потолок средней нагрузки на шард Binance, кадров/с (см. `Exchange::shard_rate_cap`): 0,8 от 5 700 (чисто) с поправкой на пик/среднее 2,5.
 pub const BINANCE_SHARD_RATE_CAP: f64 = 1_800.0;
 
@@ -267,6 +316,21 @@ impl Exchange for Binance {
     /// `mark` — один поток `!markPrice@arr@1s` на все символы: от пула не зависит.
     fn pool_free_kinds(&self) -> &'static [&'static str] {
         &["mark"]
+    }
+
+    /// Номер агрегированной сделки `a` сплошной по символу (проверка 16.11: 2,19 млн записей, 0 подтверждённых пропусков за 30 с).
+    fn trade_seq(&self) -> Option<TradeSeq> {
+        Some(TradeSeq::A)
+    }
+
+    /// REST `aggTrades?symbol=&fromId=&limit=1000`: сделки от номера `lo`, ограничиваются `hi`.
+    fn trade_page(&self, symbol: &str, lo: i64, hi: i64) -> Option<Result<TradePage, String>> {
+        Some(
+            http_get_json(&format!(
+                "{REST}/fapi/v1/aggTrades?symbol={symbol}&fromId={lo}&limit={AGG_PAGE}"
+            ))
+            .and_then(|v| parse_agg_page(&v, lo, hi)),
+        )
     }
 
     /// Предел шарда измерен 16.11 (`docs/findings/collect-pool-fix-2026-11-16.md` §2): биржа рвала соединение при 7,4 тыс. сообщ./с на шард, без сбросов — до 5,7 тыс. (пики 10-с окон).
