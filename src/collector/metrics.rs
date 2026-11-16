@@ -249,8 +249,8 @@ pub struct WriterStats {
     pub lag_in: [Rolling; 3],
     /// сколько кадр прождал в очереди до писателя
     pub queue_lag: Rolling,
-    /// символ (как в кадре) → (имя в нижнем регистре, мс последнего кадра)
-    pub seen: std::collections::HashMap<Box<[u8]>, (String, i64)>,
+    /// символ (как в кадре) → (имя в нижнем регистре, мс последнего кадра, кадров с начала процесса: по обеим линиям, как `ShardMetrics::frames`)
+    pub seen: std::collections::HashMap<Box<[u8]>, (String, i64, u64)>,
     pub records: u64,
     pub dups: u64,
     pub raw: u64,
@@ -325,6 +325,9 @@ pub struct ShardMetrics {
     /// По линиям (до `MAX_LANES`): время последнего кадра линии, мс UTC (0 — кадров не было), и здорова ли сессия линии (открыта, не испорчена, не медленная).
     pub lane_last_ms: [AtomicI64; super::writer::MAX_LANES],
     pub lane_ok: [AtomicBool; super::writer::MAX_LANES],
+    /// Открытая сессия линии испорчена (`PathWatch::is_degraded`) и шард в паузе данных: вход оценки «стоянка всей биржи» (`storm`).
+    pub lane_bad: [AtomicBool; super::writer::MAX_LANES],
+    pub in_gap: AtomicBool,
     pub connected: AtomicI64,
     /// Recv-Q ядра (FIONREAD) в моменты чтения: максимум за окно статистики, байт
     pub recvq_max: AtomicU64,
@@ -357,6 +360,8 @@ impl ShardMetrics {
             last_frame_mono_ms: AtomicU64::new(0),
             lane_last_ms: std::array::from_fn(|_| AtomicI64::new(0)),
             lane_ok: std::array::from_fn(|_| AtomicBool::new(false)),
+            lane_bad: std::array::from_fn(|_| AtomicBool::new(false)),
+            in_gap: AtomicBool::new(false),
             connected: AtomicI64::new(0),
             recvq_max: AtomicU64::new(0),
             recvq_samples: AtomicU64::new(0),

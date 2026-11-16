@@ -5,7 +5,7 @@
 //! делали отбраковка пути, замены и переподключения. Лимиты бирж и запас — назначаемое.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,37 @@ pub struct Budget {
     /// Места каждого правила, которые занимают только подключения шардов без единого соединения (замены, вторые линии и отбраковки их не трогают):
     /// после обрыва связи шарды переподключаются сразу, а не ждут, пока окно освободит место (Binance 15.11 18:12, `docs/findings/collect-gap-audit-2026-11-16.md` §3.2).
     urgent_reserve: AtomicUsize,
+    /// Счётчики ожидания для тревоги «бюджет исчерпан»: подключений, которым не хватило места сразу; сколько ждут сейчас; суммарное ожидание, мс.
+    waits: AtomicU64,
+    waiting: AtomicUsize,
+    wait_ms: AtomicU64,
+}
+
+/// Состояние бюджета для health (`connect_budget`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BudgetSnap {
+    pub limit: usize,
+    pub window_s: u64,
+    pub used: usize,
+    pub urgent_reserve: usize,
+    pub waiting: usize,
+    pub waits_total: u64,
+    pub wait_s_total: u64,
+}
+
+impl BudgetSnap {
+    /// Тревога: занято не меньше 90 % лимита или есть подключения, ждущие места.
+    pub fn alarm(&self) -> bool {
+        self.waiting > 0 || self.used * 10 >= self.limit * 9
+    }
+
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "limit": self.limit, "window_s": self.window_s, "used": self.used, "free": self.limit.saturating_sub(self.used),
+            "urgent_reserve": self.urgent_reserve, "waiting": self.waiting, "waits_total": self.waits_total, "wait_s_total": self.wait_s_total,
+            "alarm": self.alarm(),
+        })
+    }
 }
 
 impl Budget {
@@ -50,6 +81,28 @@ impl Budget {
             reserve: AtomicUsize::new(0),
             urgent: AtomicUsize::new(0),
             urgent_reserve: AtomicUsize::new(0),
+            waits: AtomicU64::new(0),
+            waiting: AtomicUsize::new(0),
+            wait_ms: AtomicU64::new(0),
+        }
+    }
+
+    /// Лимит, занятость и ожидание основного правила — в health.
+    pub fn snapshot(&self, now: Instant) -> BudgetSnap {
+        let (limit, window) = self
+            .rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .first()
+            .map_or((0, Duration::ZERO), |r| (r.limit, r.window));
+        BudgetSnap {
+            limit,
+            window_s: window.as_secs(),
+            used: self.used(now),
+            urgent_reserve: self.urgent_reserve(),
+            waiting: self.waiting.load(Relaxed),
+            waits_total: self.waits.load(Relaxed),
+            wait_s_total: self.wait_ms.load(Relaxed) / 1000,
         }
     }
 
@@ -155,6 +208,7 @@ impl Budget {
     pub fn acquire(&self, stops: &[&AtomicBool], uncovered: &dyn Fn() -> bool) -> Option<Duration> {
         let t0 = Instant::now();
         let mut counted = false;
+        let mut waited = false;
         let out = loop {
             if stops.iter().any(|s| s.load(Relaxed)) {
                 break None;
@@ -178,11 +232,23 @@ impl Budget {
             };
             match wait {
                 None => break Some(t0.elapsed()),
-                Some(w) => std::thread::sleep(
-                    w.min(Duration::from_millis(500)) + Duration::from_millis(10),
-                ),
+                Some(w) => {
+                    if !waited {
+                        waited = true;
+                        self.waits.fetch_add(1, Relaxed);
+                        self.waiting.fetch_add(1, Relaxed);
+                    }
+                    std::thread::sleep(w.min(Duration::from_millis(500)) + Duration::from_millis(10));
+                }
             }
         };
+        if waited {
+            self.waiting.fetch_sub(1, Relaxed);
+            self.wait_ms.fetch_add(
+                u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                Relaxed,
+            );
+        }
         if counted {
             self.urgent.fetch_sub(1, Relaxed);
         }

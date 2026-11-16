@@ -684,10 +684,11 @@ fn sort_key(i: &Item) -> i64 {
 fn touch_seen(st: &mut WriterStats, sym: &[u8], rx_ms: i64) {
     if let Some(e) = st.seen.get_mut(sym) {
         e.1 = rx_ms;
+        e.2 += 1;
     } else {
         st.seen.insert(
             sym.into(),
-            (String::from_utf8_lossy(sym).to_lowercase(), rx_ms),
+            (String::from_utf8_lossy(sym).to_lowercase(), rx_ms, 1),
         );
     }
 }

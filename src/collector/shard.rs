@@ -27,6 +27,7 @@ use super::session::{
     self, Outcome, Shared, StreamSet, CONNECT_RTT_MAX_MS, PING_PERIOD, PING_TIMEOUT,
 };
 use super::sink::{run_sink, sink_channel};
+use super::storm::{self, StormGate};
 use super::worker::{spawn_worker, WorkerHandle};
 use super::writer::{ShardWriter, WriterCfg};
 
@@ -141,6 +142,8 @@ pub struct ShardOpts {
     pub kernel_stamp: bool,
     /// Выдержка записей перед записью при ядерных метках (`--rx-hold-ms`): сортировка с запаздыванием вместо поднятия `rx`.
     pub rx_hold: Duration,
+    /// Режим «стоянка всей биржи» процесса (`runner` оценивает его по шардам); `None` — замены как раньше.
+    pub storm: Option<Arc<super::storm::Storm>>,
 }
 
 impl ShardOpts {
@@ -175,6 +178,7 @@ impl ShardOpts {
             reactor: default_reactor(),
             kernel_stamp: false,
             rx_hold: Duration::ZERO,
+            storm: None,
         }
     }
 }
@@ -413,6 +417,9 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         if let Some(a) = sh.metrics.lane_ok.get(lane.k) {
             a.store(open && !bad && !slow_raw, Relaxed);
         }
+        if let Some(a) = sh.metrics.lane_bad.get(lane.k) {
+            a.store(open && bad, Relaxed);
+        }
         if !bad {
             bad_since = None;
         } else if bad_since.is_none_or(|(s, _)| s != cur.seq) {
@@ -446,6 +453,22 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             ),
             LazyDecision::Replace => {}
         }
+        // стоянка всей биржи: новые линии на том же пути так же плохи, замены только съедают бюджет — старая линия держится, кроме одной пробной на шард (возрастная пересменка идёт)
+        if !old
+            && storm::gate(sh.storm.as_deref(), &sh.storm_probe, Instant::now()) == StormGate::Hold
+        {
+            if capped != Some(cur.seq) {
+                capped = Some(cur.seq);
+                if let Some(st) = sh.storm.as_deref() {
+                    st.note_hold();
+                }
+                sh.events.emit(
+                    "storm_hold",
+                    json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
+                );
+            }
+            continue;
+        }
         // потолок замен пути на шард: возрастная пересменка идёт всегда (биржа рвёт старую сессию), остальные — не чаще `REPLACE_CAP` за `CAP_WINDOW`
         if !old && !sh.replace_cap.take(Instant::now()) {
             if capped != Some(cur.seq) {
@@ -472,11 +495,25 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         let t0 = Instant::now();
         // строгая замена испорченного пути ждёт быстрый путь сколько нужно: старая сессия остаётся (медленная лучше разрыва)
         let patient = strict.is_some() && bad;
+        let storm_on = || sh.storm.as_deref().is_some_and(storm::Storm::is_on);
         while !accepted.load(Relaxed)
             && !sh.stop.load(Relaxed)
             && (patient || t0.elapsed() < opts.switch_wait)
+            && !(storm_on() && !old)
         {
             thread::sleep(Duration::from_millis(100));
+        }
+        if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) && !old && storm_on() {
+            // режим включился, пока замена искала путь: поиск прекращается, старая линия несёт поток
+            if let Some(st) = sh.storm.as_deref() {
+                st.note_abort();
+            }
+            sh.events.emit(
+                "storm_abort",
+                json!({"session": seq, "kept_session": cur.seq}),
+            );
+            finish(nxt);
+            continue;
         }
         if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) {
             if slow {
@@ -575,6 +612,8 @@ pub fn spawn_shard(
         rtt_max_ms: opts.rtt_max_ms,
         cold_probe: opts.cold_probe,
         reactor: opts.reactor.clone(),
+        storm: opts.storm.clone(),
+        storm_probe: Cap::new(1, super::storm::PROBE_PERIOD),
     });
     let health: Arc<Vec<AtomicBool>> = Arc::new(
         (0..entrances.len())
@@ -790,6 +829,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                 gap_peak = gap_peak.max(gap);
             } else if gap > thr {
                 in_gap = true;
+                m.in_gap.store(true, Relaxed);
                 gap_start = now_ms() - i64::try_from(gap).unwrap_or(0);
                 gap_peak = gap;
                 m.lists().gaps.push_back(now_ms());
@@ -803,12 +843,14 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                     end_gap(sh, gap_start, gap_peak);
                 }
                 in_gap = false;
+                m.in_gap.store(false, Relaxed);
             }
         } else {
             if in_gap {
                 end_gap(sh, gap_start, gap_peak);
             }
             in_gap = false;
+            m.in_gap.store(false, Relaxed);
         }
         if last_stats.elapsed() >= Duration::from_secs(STATS_PERIOD_S) {
             last_stats = Instant::now();

@@ -16,7 +16,7 @@ use super::budget::{Budget, Cap};
 use super::bybit::Bybit;
 use super::exchange::{Entrance, Exchange, Family, ShardPlan, Turnover};
 use super::gate::Gate;
-use super::health::{build, HealthCtx, PoolHealth, ProcSampler};
+use super::health::{build, Eligible, HealthCtx, PoolHealth, ProcSampler};
 use super::livepool::{kind_of, Layout, LivePool, Op, PoolFile, PoolState};
 use super::okx::Okx;
 use super::session::StreamSet;
@@ -374,7 +374,7 @@ fn live_pool_logs_every_change_with_a_timestamp_in_the_run_file() {
     assert_eq!(a.ops.len(), 2, "книга и сделки");
     let h = lp.health();
     assert_eq!(
-        (h.pool, h.eligible, h.not_subscribed, h.missing_at_poll),
+        (h.pool, h.eligible, h.not_in_layout, h.missing_at_poll),
         (41, 41, 0, 1)
     );
     assert!((h.missing_at_poll_qv_usd - 165_800_000.0).abs() < 1.0);
@@ -1123,8 +1123,29 @@ fn health_reports_what_rest_sees_against_the_subscription() {
         last_ok_ms: 900_000,
         rest_symbols: 600,
         eligible: 520,
-        not_subscribed: 3,
-        not_subscribed_qv_usd: 1_234_567.4,
+        not_in_layout: 3,
+        not_in_layout_qv_usd: 1_234_567.4,
+        elig: Arc::new(vec![
+            Eligible {
+                lower: "bardusdt".into(),
+                name: "BARDUSDT".into(),
+                qv: 165_800_000.2,
+                since_ms: 0,
+            },
+            Eligible {
+                lower: "ethusdt".into(),
+                name: "ETHUSDT".into(),
+                qv: 9_500_000_000.0,
+                since_ms: 0,
+            },
+            // добавлен минуту назад — окно ещё не прошло, не считается
+            Eligible {
+                lower: "newusdt".into(),
+                name: "NEWUSDT".into(),
+                qv: 400_000.0,
+                since_ms: 900_000,
+            },
+        ]),
         missing_at_poll: 3,
         missing_at_poll_qv_usd: 1_234_567.4,
         missing_top: vec![("BARDUSDT".into(), 165_800_000.2)],
@@ -1138,10 +1159,15 @@ fn health_reports_what_rest_sees_against_the_subscription() {
         pool: HashSet::new(),
         version: "t".into(),
         live: Some(live),
+        book_window_ms: 600_000,
     };
     let v = build(&[], &ctx, 960_000, &mut ProcSampler::default());
-    assert_eq!(v["symbols"]["not_subscribed"], 3);
-    assert_eq!(v["symbols"]["not_subscribed_qv_usd"], 1_234_567.0);
+    // раскладка — наша структура: «не в раскладке» отдельно от независимого счётчика
+    assert_eq!(v["symbols"]["not_in_layout"], 3);
+    assert_eq!(v["pool"]["not_in_layout"], 3);
+    // без шардов процесс «моложе окна»: независимый счётчик ещё не считается, но ключ окна есть — страница отличает эту сборку от прежней
+    assert_eq!(v["symbols"]["book_window_s"], 600);
+    assert!(v["symbols"]["not_subscribed"].is_null());
     assert_eq!(v["pool"]["rest_eligible"], 520);
     assert_eq!(v["pool"]["rest_age_s"], 60);
     assert_eq!(v["pool"]["missing_top"][0][0], "BARDUSDT");
@@ -1152,6 +1178,7 @@ fn health_reports_what_rest_sees_against_the_subscription() {
         pool: HashSet::new(),
         version: "t".into(),
         live: None,
+        book_window_ms: 600_000,
     };
     let v = build(&[], &ctx, 960_000, &mut ProcSampler::default());
     assert!(v["pool"].is_null() && v["symbols"].get("not_subscribed").is_none());

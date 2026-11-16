@@ -137,6 +137,30 @@ pub struct HealthCtx {
     pub version: String,
     /// Пересмотр пула без перезапуска (`livepool`): сверка REST-оборота с подпиской; `None` — пул фиксирован на старте.
     pub live: Option<PoolHealth>,
+    /// Окно «есть запись книги», мс: символ из состава REST без кадра книги за это время — «не подписан» (`DEFAULT_BOOK_WINDOW_S`).
+    pub book_window_ms: i64,
+}
+
+/// Окно по умолчанию для независимого счётчика «не подписано», с: самый тихий символ Binance за 70 мин (PREDICTUSDT) молчал по книге и сделкам до 218 с, поэтому окно 60 с
+/// («с данными за минуту») красило биржу без потери данных; 10 мин держат паузы тихих символов (назначаемое, Судье).
+pub const DEFAULT_BOOK_WINDOW_S: u64 = 600;
+
+/// Символ из состава REST (оборот выше порога): с какого момента он должен писать книгу (старт процесса или добавление пересмотром).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Eligible {
+    pub lower: String,
+    pub name: String,
+    pub qv: f64,
+    pub since_ms: i64,
+}
+
+/// Итог независимой сверки: символы состава REST без записи книги за окно.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NoBook {
+    pub checked: usize,
+    pub missing: usize,
+    pub qv_usd: f64,
+    pub top: Vec<(String, f64)>,
 }
 
 /// Сверка пула с биржей (`livepool::LivePool::health`): что REST считает торгуемым выше порога против того, что подписано.
@@ -151,9 +175,12 @@ pub struct PoolHealth {
     /// Контрактов в ответе REST и из них с оборотом ≥ порога.
     pub rest_symbols: usize,
     pub eligible: usize,
-    /// Выше порога по последнему REST, но не в подписке сейчас (после применения пересмотра обычно 0: сбой REST или раскладки).
-    pub not_subscribed: usize,
-    pub not_subscribed_qv_usd: f64,
+    /// Выше порога по последнему REST, но нет в раскладке по шардам сейчас (после применения пересмотра обычно 0: сбой REST или раскладки). Раскладка — наша
+    /// структура, а не биржа: подписка считалась «пустой по построению»; «не подписано» для страницы — независимая сверка `no_book`.
+    pub not_in_layout: usize,
+    pub not_in_layout_qv_usd: f64,
+    /// Состав REST с метками, с которых символ обязан писать книгу (для `no_book`).
+    pub elig: Arc<Vec<Eligible>>,
     /// Выше порога, но не в подписке на момент опроса (до применения): сколько символов состав не успел поймать за период.
     pub missing_at_poll: usize,
     pub missing_at_poll_qv_usd: f64,
@@ -163,6 +190,11 @@ pub struct PoolHealth {
     pub spawned_shards: u64,
     pub remove_blocked: u64,
     pub pool: usize,
+    /// Нагрузка: символов с измеренной нагрузкой, оценка самого тяжёлого шарда (кадров/с по сумме символов), его имя и шарды выше потолка биржи (`Exchange::shard_rate_cap`).
+    pub rates_tracked: usize,
+    pub max_shard_load: f64,
+    pub max_shard: String,
+    pub over_cap: Vec<String>,
 }
 
 impl PoolHealth {
@@ -171,11 +203,44 @@ impl PoolHealth {
             "refresh_s": self.refresh_s, "hold_s": self.hold_s, "pool": self.pool, "rest_symbols": self.rest_symbols, "rest_eligible": self.eligible,
             "last_ok_ms": self.last_ok_ms, "last_try_ms": self.last_try_ms, "rest_age_s": (self.last_ok_ms > 0).then(|| (now_ms - self.last_ok_ms).max(0) / 1000),
             "errors": self.errors, "last_error": self.last_error,
-            "not_subscribed": self.not_subscribed, "not_subscribed_qv_usd": self.not_subscribed_qv_usd.round(),
+            "not_in_layout": self.not_in_layout, "not_in_layout_qv_usd": self.not_in_layout_qv_usd.round(),
             "missing_at_poll": self.missing_at_poll, "missing_at_poll_qv_usd": self.missing_at_poll_qv_usd.round(),
             "missing_top": self.missing_top.iter().map(|(s, v)| json!([s, v.round()])).collect::<Vec<_>>(),
             "added_total": self.added_total, "removed_total": self.removed_total, "spawned_shards": self.spawned_shards, "remove_blocked": self.remove_blocked,
+            "rates_tracked": self.rates_tracked, "max_shard_load": self.max_shard_load.round(), "max_shard": self.max_shard, "over_cap": self.over_cap,
         })
+    }
+}
+
+impl PoolHealth {
+    /// Независимый счётчик «не подписано»: символы состава REST (выше порога) без записи книги за окно `window_ms` по кадрам книжных шардов, а не по раскладке.
+    /// Символ считается с момента `since_ms` + окно (только что добавленному дают то же окно на первую запись). `None` — опроса REST ещё не было.
+    pub fn no_book(
+        &self,
+        book_seen: &HashSet<String>,
+        now_ms: i64,
+        window_ms: i64,
+    ) -> Option<NoBook> {
+        if self.last_ok_ms <= 0 {
+            return None;
+        }
+        let mut r = NoBook::default();
+        let mut miss: Vec<(String, f64)> = Vec::new();
+        for e in self.elig.iter() {
+            if now_ms - e.since_ms < window_ms {
+                continue;
+            }
+            r.checked += 1;
+            if !book_seen.contains(&e.lower) {
+                r.missing += 1;
+                r.qv_usd += e.qv;
+                miss.push((e.name.clone(), e.qv));
+            }
+        }
+        miss.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        miss.truncate(10);
+        r.top = miss;
+        Some(r)
     }
 }
 
@@ -194,6 +259,7 @@ pub fn build(
 ) -> Value {
     let (hour, day) = (now_ms - HOUR_MS, now_ms - DAY_MS);
     let mut with_data: HashSet<String> = HashSet::new();
+    let mut book_seen: HashSet<String> = HashSet::new();
     let mut lag_in = Hist::new();
     let mut lag_in_kind = [Hist::new(), Hist::new(), Hist::new()];
     let mut lag_out = Hist::new();
@@ -242,11 +308,15 @@ pub fn build(
             pings.extend(l.pings.iter().map(|p| p.1));
             l.trim(now_ms);
         }
+        let is_book = super::livepool::kind_of(&m.name) == "book";
         let (shard_lag, shard_clamp_p99) = {
             let mut w = m.writer();
-            for (low, last) in w.seen.values() {
+            for (low, last, _) in w.seen.values() {
                 if now_ms - last <= WINDOW_S * 1000 && ctx.pool.contains(low) {
                     with_data.insert(low.clone());
+                }
+                if is_book && now_ms - last <= ctx.book_window_ms {
+                    book_seen.insert(low.clone());
                 }
             }
             let mut sl = Hist::new();
@@ -342,10 +412,24 @@ pub fn build(
     let [t_rec, t_dup, t_raw, t_rawc, t_rows, t_clamp] = totals;
     let mut symbols = json!({"subscribed": ctx.pool.len(), "with_data_1m": with_data.len()});
     if let (Some(l), Some(o)) = (ctx.live.as_ref(), symbols.as_object_mut()) {
-        o.insert("not_subscribed".into(), json!(l.not_subscribed));
+        o.insert("not_in_layout".into(), json!(l.not_in_layout));
+        // независимый счётчик: по кадрам книги за окно, не по раскладке; ключ `book_window_s` есть всегда — страница по нему отличает эту сборку от прежней
+        o.insert("book_window_s".into(), json!(ctx.book_window_ms / 1000));
+        let warm = now_ms - started < ctx.book_window_ms;
+        let nb = if warm {
+            None
+        } else {
+            l.no_book(&book_seen, now_ms, ctx.book_window_ms)
+        };
+        o.insert("not_subscribed".into(), json!(nb.as_ref().map(|n| n.missing)));
         o.insert(
             "not_subscribed_qv_usd".into(),
-            json!(l.not_subscribed_qv_usd.round()),
+            json!(nb.as_ref().map(|n| n.qv_usd.round())),
+        );
+        o.insert("rest_checked".into(), json!(nb.as_ref().map(|n| n.checked)));
+        o.insert(
+            "not_subscribed_top".into(),
+            json!(nb.map(|n| n.top.iter().map(|(s, v)| json!([s, v.round()])).collect::<Vec<_>>())),
         );
     }
     let by_class: serde_json::Map<String, Value> = p

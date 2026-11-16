@@ -2954,6 +2954,7 @@ fn shard_end_to_end_on_local_websocket() {
         pool: ["btcusdt".to_string()].into(),
         version: "test".into(),
         live: None,
+        book_window_ms: 600_000,
     };
     let health = build(
         &[Arc::clone(&metrics)],
@@ -4189,6 +4190,7 @@ fn restart_replays_counters_from_the_event_log() {
         pool: HashSet::new(),
         version: "t".into(),
         live: None,
+        book_window_ms: 600_000,
     };
     let v = build(&[m], &ctx, now, &mut ProcSampler::default());
     let w = &v["ws"];

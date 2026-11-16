@@ -21,10 +21,11 @@ use super::bybit::Bybit;
 use super::events::now_ms;
 use super::exchange::{Entrance, Exchange, Family, Turnover};
 use super::gate::Gate;
-use super::health::{build, write_atomic, HealthCtx, ProcSampler};
+use super::health::{build, write_atomic, HealthCtx, ProcSampler, DEFAULT_BOOK_WINDOW_S};
 use super::hostinfo::HostInfo;
 use super::livepool::{
-    Layout, LivePool, Op, PoolFile, PoolState, DEFAULT_HOLD_S, DEFAULT_REFRESH_S,
+    kind_of, spread_plans, Layout, LivePool, Op, PoolFile, PoolState, SavedState, Weights,
+    DEFAULT_HOLD_S, DEFAULT_REFRESH_S,
 };
 use super::metrics::STATS_PERIOD_S;
 use super::net;
@@ -32,6 +33,7 @@ use super::okx::Okx;
 use super::reactor::{spawn_reactor, spawn_reactor_inline, ReactorCfg};
 use super::series::SeriesWriter;
 use super::session::StreamSet;
+use super::storm::{self, Storm};
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
 use super::worker::spawn_worker;
 
@@ -58,6 +60,8 @@ const BINGX_WINDOW: Duration = Duration::from_secs(1);
 /// Назначаемое: 5 в секунду (полный пул — 18 соединений за ≈ 4 с).
 const GATE_LIMIT: usize = 5;
 const GATE_WINDOW: Duration = Duration::from_secs(1);
+/// Первые минуты после запуска режим «стоянка всей биржи» не оценивается: шарды ещё подключаются.
+const STORM_WARMUP: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Args)]
 pub struct RunArgs {
@@ -93,6 +97,10 @@ pub struct RunArgs {
     /// Гистерезис выхода из пула, с: символ остаётся в подписке, пока его оборот ниже порога не держится столько секунд подряд (по умолчанию сутки).
     #[arg(long, default_value_t = DEFAULT_HOLD_S)]
     pub pool_hold_s: u64,
+    /// Окно независимого счётчика «не подписано», с: символ из состава REST без кадра книги за это время — не подписан (по умолчанию 600; страница здоровья красит по нему,
+    /// а не по «данные за минуту»: тихие символы молчат по минуте и дольше без потери данных).
+    #[arg(long, default_value_t = DEFAULT_BOOK_WINDOW_S)]
+    pub book_window_s: u64,
     /// Подключений к бирже за 5 мин на процесс (по умолчанию: Binance — 280 из лимита биржи 300 на IP, замер маршрута 12.11: отбраковка медленных
     /// путей съедает до 3 из 4 подключений; Bybit — `LIMIT`; OKX — за 1 с, `OKX_LIMIT`; BingX — за 1 с, `BINGX_LIMIT`; Gate — за 1 с, `GATE_LIMIT`). Отбракованные подключения считаются.
     #[arg(long)]
@@ -299,11 +307,16 @@ fn health_json(
     sampler: &mut ProcSampler,
     reactor: Option<&(super::reactor::ReactorHandle, std::thread::JoinHandle<()>)>,
     host: &mut HostInfo,
+    budget: &Budget,
+    storm: &Storm,
 ) -> serde_json::Value {
     host.refresh();
     let mut v = build(metrics, ctx, now_ms(), sampler);
     if let Some(o) = v.as_object_mut() {
         o.insert("host".to_string(), host.json());
+        // тревога «бюджет подключений исчерпан» и режим «стоянка всей биржи» — на страницу здоровья
+        o.insert("connect_budget".to_string(), budget.snapshot(Instant::now()).json());
+        o.insert("storm".to_string(), storm.json(now_ms()));
     }
     if let (Some((r, _)), Some(o)) = (reactor, v.as_object_mut()) {
         o.insert("reactor".to_string(), r.stats.json());
@@ -318,6 +331,21 @@ fn urgent_reserve(limit: usize, shards: usize, window: Duration) -> usize {
     } else {
         shards.saturating_mul(2).min(limit / 3)
     }
+}
+
+/// Счётчики кадров по символам со всех шардов: (вид шарда, символ в нижнем регистре, кадров с начала процесса) — вход измерения нагрузки (`LivePool::observe`).
+fn frame_counts(metrics: &[Arc<super::metrics::ShardMetrics>]) -> Vec<(String, String, u64)> {
+    let mut v = Vec::new();
+    for m in metrics {
+        let kind = kind_of(&m.name).to_string();
+        let w = m.writer();
+        v.extend(
+            w.seen
+                .values()
+                .map(|(low, _, n)| (kind.clone(), low.clone(), *n)),
+        );
+    }
+    v
 }
 
 pub fn run(args: &RunArgs) -> anyhow::Result<()> {
@@ -338,10 +366,6 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         }
     };
     let run_id = now_ms().div_euclid(1000);
-    let mut pool_json = json!({"ts_ms": now_ms(), "min_quote_volume": args.min_quote_volume, "top_excluded": top, "pool": pool});
-    if let (Some(serde_json::Value::Object(extra)), Some(o)) = (extra, pool_json.as_object_mut()) {
-        o.extend(extra);
-    }
     // пул запуска — свой файл `pool-<день>-<запуск>.json` с метками времени; прежний `pool-<день>.json` пишется тем же документом для читателей по имени
     let refresh_s = args.pool_refresh_s.unwrap_or(if args.pool_file.is_some() {
         0
@@ -349,6 +373,31 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         DEFAULT_REFRESH_S
     });
     let live_on = refresh_s > 0 && args.only_shards.is_none();
+    // перезапуск не сокращает выдержку: символы прежнего запуска, что держались под порогом меньше `--pool-hold-s`, возвращаются в пул с прежними метками;
+    // оборот REST на старте — и проверка, что контракт ещё торгуется, и оценка нагрузки для раскладки
+    let mut pool = pool;
+    let mut held: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    let mut start_qv: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+    if live_on {
+        match exch.load_turnover() {
+            Ok(t) => {
+                if let Some(saved) = SavedState::load(&args.root) {
+                    held = saved.held(&pool, now_ms(), args.pool_hold_s, &t.qv);
+                    if !held.is_empty() {
+                        pool.extend(held.keys().cloned());
+                        pool.sort();
+                    }
+                }
+                start_qv = t.qv;
+            }
+            Err(e) => println!("start turnover failed (held symbols and load weights skipped): {e}"),
+        }
+    }
+    let mut pool_json = json!({"ts_ms": now_ms(), "min_quote_volume": args.min_quote_volume, "top_excluded": top, "pool": pool,
+                               "held_from_previous_run": held.keys().collect::<Vec<_>>()});
+    if let (Some(serde_json::Value::Object(extra)), Some(o)) = (extra, pool_json.as_object_mut()) {
+        o.extend(extra);
+    }
     let pool_file = PoolFile::create(
         &args.root,
         run_id,
@@ -384,20 +433,45 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         plans.retain(|p| keep.contains(p.name.as_str()));
     }
     let mut live = live_on.then(|| {
+        // состояние прежнего запуска: метки выдержки и измеренная нагрузка; оборот REST — для оценки нагрузки символов без измерений
+        let saved = SavedState::load(&args.root).unwrap_or_default();
+        let weights = Weights::new(saved.rates.clone(), &start_qv);
+        let mut layout_plans = plans.clone();
+        if weights.informative() {
+            layout_plans = spread_plans(
+                exch.as_ref(),
+                &plans,
+                &pool,
+                &kinds,
+                args.streams_per_conn,
+                &weights,
+            );
+            plans = layout_plans.clone();
+        }
+        let mut layout = Layout::new(
+            exch.as_ref(),
+            &layout_plans,
+            &pool,
+            &kinds,
+            args.streams_per_conn,
+        );
+        layout.set_weights(weights);
         LivePool::new(
             Arc::clone(&exch),
-            PoolState::new(
+            PoolState::seeded(
                 &pool,
                 now_ms(),
                 args.min_quote_volume,
                 top_exclude,
                 args.pool_hold_s,
+                &held,
             ),
-            Layout::new(exch.as_ref(), &plans, &pool, &kinds, args.streams_per_conn),
+            layout,
             Some(pool_file),
             refresh_s,
             args.pool_hold_s,
         )
+        .with_state(args.root.clone(), saved.rates)
     });
     let lines = lines_of(exch.as_ref(), args).map_err(anyhow::Error::msg)?;
     let mut opts = ShardOpts::new(args.root.clone(), run_id);
@@ -405,6 +479,8 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     opts.max_age = Duration::from_secs(args.max_age_s.max(30));
     opts.never_slow = args.never_slow;
     opts.lazy = args.lazy;
+    let storm = Storm::new();
+    opts.storm = Some(Arc::clone(&storm));
     opts.pong_only_degrades = !args.no_pong_only_degrade;
     opts.no_ping = args.no_ping;
     opts.cold_probe = args.cold_probe;
@@ -527,6 +603,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         pool: pool.iter().map(|s| s.to_lowercase()).collect(),
         version: super::VERSION.to_string(),
         live: live.as_ref().map(LivePool::health),
+        book_window_ms: i64::try_from(args.book_window_s.saturating_mul(1000)).unwrap_or(i64::MAX),
     };
     let mut metrics: Vec<_> = handles.iter().map(|h| Arc::clone(&h.metrics)).collect();
     // REST-опрос оборота — отдельный поток (запрос блокирующий, до 30 с): основной цикл не ждёт, результат приходит по каналу
@@ -575,6 +652,14 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         if deadline.is_some_and(|d| t0.elapsed() >= d) {
             stop.store(true, Relaxed);
         }
+        // «стоянка всей биржи»: шард испорчен, если стоят данные, линия испорчена или соединений нет; первые 2 мин после запуска не оцениваются (идёт подключение)
+        if t0.elapsed() >= STORM_WARMUP {
+            let bad = metrics
+                .iter()
+                .filter(|m| m.connected.load(Relaxed) <= 0 || storm::impaired(m))
+                .count();
+            storm.evaluate(bad, metrics.len(), now_ms());
+        }
         while let Ok(msg) = refresh_rx.try_recv() {
             let Some(lp) = live.as_mut() else { continue };
             let now = now_ms();
@@ -584,6 +669,11 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                     println!("pool refresh failed: {e}");
                 }
                 Ok(t) => {
+                    let counts = frame_counts(&metrics);
+                    lp.observe(
+                        now,
+                        counts.iter().map(|(k, s, n)| (k.as_str(), s.as_str(), *n)),
+                    );
                     let review = lp.apply(&t, now);
                     for op in review.ops {
                         match op {
@@ -636,7 +726,15 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
             next += Duration::from_secs(STATS_PERIOD_S);
             let _ = write_atomic(
                 &health_path,
-                &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref(), &mut host),
+                &health_json(
+                    &metrics,
+                    &ctx,
+                    &mut sampler,
+                    reactor.as_ref(),
+                    &mut host,
+                    &budget,
+                    &storm,
+                ),
             );
             series.flush(&metrics, now_ms());
         }
@@ -644,7 +742,15 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     println!("stopping");
     let _ = write_atomic(
         &health_path,
-        &health_json(&metrics, &ctx, &mut sampler, reactor.as_ref(), &mut host),
+        &health_json(
+                    &metrics,
+                    &ctx,
+                    &mut sampler,
+                    reactor.as_ref(),
+                    &mut host,
+                    &budget,
+                    &storm,
+                ),
     );
     series.flush(&metrics, now_ms());
     for h in handles {

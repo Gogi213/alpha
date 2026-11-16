@@ -143,6 +143,9 @@ pub struct Shared {
     pub cold_probe: bool,
     /// Реактор процесса: готовые соединения читает он (один поток на все сокеты), а не поток сессии; `None` — поток на соединение.
     pub reactor: Option<ReactorHandle>,
+    /// Режим «стоянка всей биржи» процесса (`None` — не оценивается) и потолок «одна пробная замена на шард» в нём.
+    pub storm: Option<Arc<super::storm::Storm>>,
+    pub storm_probe: Cap,
 }
 
 impl Shared {

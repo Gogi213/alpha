@@ -190,6 +190,9 @@ fn wrap(stream: Option<&[u8]>, elems: &[u8]) -> Vec<u8> {
     w
 }
 
+/// Потолок средней нагрузки на шард Binance, кадров/с (см. `Exchange::shard_rate_cap`): 0,8 от 5 700 (чисто) с поправкой на пик/среднее 2,5.
+pub const BINANCE_SHARD_RATE_CAP: f64 = 1_800.0;
+
 impl Exchange for Binance {
     fn name(&self) -> &'static str {
         "binance"
@@ -264,6 +267,13 @@ impl Exchange for Binance {
     /// `mark` — один поток `!markPrice@arr@1s` на все символы: от пула не зависит.
     fn pool_free_kinds(&self) -> &'static [&'static str] {
         &["mark"]
+    }
+
+    /// Предел шарда измерен 16.11 (`docs/findings/collect-pool-fix-2026-11-16.md` §2): биржа рвала соединение при 7,4 тыс. сообщ./с на шард, без сбросов — до 5,7 тыс. (пики 10-с окон).
+    /// Потолок — по среднему за период опроса: пик 10-с окна у шардов Binance в 2,4–2,5 раза выше среднего (book03 1 828 → 4 310, book05 2 023 → 3 750 за час), поэтому
+    /// 0,8 × 5 700 / 2,5 ≈ 1 800 кадров/с в среднем. Назначаемое (Судье).
+    fn shard_rate_cap(&self, _kind: &str) -> Option<f64> {
+        Some(BINANCE_SHARD_RATE_CAP)
     }
 
     fn sub_period(&self) -> Duration {
