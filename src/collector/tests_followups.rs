@@ -14,7 +14,7 @@ use super::backfill::{
 };
 use super::binance::{parse_agg_page, Binance};
 use super::budget::{Budget, Cap};
-use super::exchange::{next_range_desc, Exchange, RestTrade, TradePage};
+use super::exchange::{next_range_desc, Exchange, PageReq, RestError, RestTrade, TradePage};
 use super::health::{build, Eligible, HealthCtx, PoolHealth, ProcSampler};
 use super::livepool::{
     spread_plans, Layout, LivePool, Op, PoolState, RateTracker, Rates, SavedState, Weights,
@@ -58,15 +58,31 @@ fn not_subscribed_counts_rest_eligible_symbols_without_a_book_frame_in_the_windo
         ("BTCUSDT", now - 5_000),
         // тихий символ: последний кадр 5 мин назад — в окне 10 мин, не потеря (до этого окно 60 с красило его)
         ("THINUSDT", now - 300_000),
-        // молчит 11 мин — не подписан
+        // книга молчит 11 мин, но сделки по символу после неё шли — книга обязана была прийти: не подписан
         ("DEADUSDT", now - 660_000),
+        // книга молчит 20 мин, сделок нет — тихий символ (акции и индексы при закрытом рынке): не красит
+        ("QUIETUSDT", now - 1_200_000),
+        // сделка была до последнего кадра книги — книга опередила её, молчание без новых сделок
+        ("OLDTRADEUSDT", now - 700_000),
     ]);
+    let tr = ShardMetrics::new("trade00", 0, 64, 16);
+    for (sym, last) in [
+        ("DEADUSDT", now - 5_000),
+        ("OLDTRADEUSDT", now - 800_000),
+        ("BTCUSDT", now - 1_000),
+    ] {
+        tr.writer()
+            .seen
+            .insert(sym.as_bytes().into(), (sym.to_lowercase(), last, 5));
+    }
     let live = PoolHealth {
         last_ok_ms: now - 30_000,
         elig: Arc::new(vec![
             elig("BTCUSDT", 0),
             elig("THINUSDT", 0),
             elig("DEADUSDT", 0),
+            elig("QUIETUSDT", 0),
+            elig("OLDTRADEUSDT", 0),
             // в составе REST, кадров книги нет вовсе — не подписан, оборот в счётчике
             Eligible {
                 qv: 5_000_000.0,
@@ -86,16 +102,16 @@ fn not_subscribed_counts_rest_eligible_symbols_without_a_book_frame_in_the_windo
         live: Some(live),
         book_window_ms: 600_000,
     };
-    let v = build(&[m], &ctx, now, &mut ProcSampler::default());
+    let v = build(&[m, tr], &ctx, now, &mut ProcSampler::default());
     let s = &v["symbols"];
     assert_eq!(s["book_window_s"], 600);
-    assert_eq!(s["rest_checked"], 4, "новый символ ещё не проверяется");
+    assert_eq!(s["rest_checked"], 6, "новый символ ещё не проверяется");
     assert_eq!(s["not_subscribed"], 2);
     assert_eq!(s["not_subscribed_qv_usd"], 6_000_000.0);
     assert_eq!(s["not_subscribed_top"][0][0], "NOFRAMEUSDT");
     assert_eq!(s["not_subscribed_top"][1][0], "DEADUSDT");
-    // «с данными за минуту» — прежнее число, на красный не влияет
-    assert_eq!(s["with_data_1m"], 1);
+    // «с данными за минуту» — прежнее число (книга или сделки за минуту), на красный не влияет
+    assert_eq!(s["with_data_1m"], 2);
 }
 
 #[test]
@@ -411,7 +427,7 @@ fn in_a_storm_a_shard_gets_one_probe_replacement_and_then_holds_its_old_line() {
     s.evaluate(5, 6, 0);
     assert_eq!(
         storm::gate(Some(&s), &probe, now),
-        StormGate::Open,
+        StormGate::Probe,
         "пробная"
     );
     assert_eq!(storm::gate(Some(&s), &probe, now), StormGate::Hold);
@@ -419,14 +435,64 @@ fn in_a_storm_a_shard_gets_one_probe_replacement_and_then_holds_its_old_line() {
         storm::gate(Some(&s), &probe, now + Duration::from_secs(10)),
         StormGate::Hold
     );
-    // шард с испорченной линией или паузой данных — испорчен
+}
+
+/// Шард испорчен, когда стоят данные (пауза) или ни одна его линия не несёт поток; испорченная линия при здоровом партнёре шард не портит (Б1: иначе режим держал сам себя).
+#[test]
+fn a_shard_is_impaired_only_with_a_data_pause_or_no_carrying_line() {
     let m = ShardMetrics::new("book00", 0, 64, 16);
+    assert!(
+        storm::impaired(&m),
+        "нет ни одной линии — шард без соединения"
+    );
+    m.lane_carry[0].store(true, Relaxed);
+    m.lane_carry[1].store(true, Relaxed);
     assert!(!storm::impaired(&m));
-    m.lane_bad[1].store(true, Relaxed);
+    // вторая линия испорчена или закрыта, первая несёт: шард не испорчен
+    m.lane_carry[1].store(false, Relaxed);
+    assert!(!storm::impaired(&m));
+    // обе не несут
+    m.lane_carry[0].store(false, Relaxed);
     assert!(storm::impaired(&m));
-    m.lane_bad[1].store(false, Relaxed);
+    // пауза данных портит и при несущих линиях
+    m.lane_carry[0].store(true, Relaxed);
     m.in_gap.store(true, Relaxed);
     assert!(storm::impaired(&m));
+}
+
+/// Воспроизведение Б1 (проверка 16.11, прогон по событиям 14–16.11, Gate 15.11 15:28): у каждого из 9 шардов одна линия испорчена (`ping_degraded`), вторая здорова. Режим держит замены
+/// испорченных линий; по прежнему правилу («испорчена хоть одна линия») все 9 шардов остаются «испорченными», пока линии не закрыты, — режим не выключается. По новому правилу шард
+/// испорчен, только если у него нет здоровой линии: режим выключается через минуту, хотя испорченные линии не заменены.
+#[test]
+fn storm_does_not_hold_itself_when_each_shard_keeps_one_healthy_line() {
+    let shards: Vec<_> = (0..9)
+        .map(|i| ShardMetrics::new(&format!("book{i:02}"), 0, 64, 16))
+        .collect();
+    // линия 0 испорчена (открыта, не несёт), линия 1 здорова (несёт)
+    for m in &shards {
+        m.lane_carry[0].store(false, Relaxed);
+        m.lane_carry[1].store(true, Relaxed);
+    }
+    // прежнее правило: любая испорченная открытая линия портит шард
+    let old_count = shards.len();
+    let new_count = shards.iter().filter(|m| storm::impaired(m)).count();
+    assert_eq!(
+        new_count, 0,
+        "по новому правилу ни одного: партнёр несёт поток"
+    );
+    // всплеск: у всех шардов обе линии не несли — режим включён; затем здоровая линия вернулась, испорченные не заменены
+    let s = Storm::default();
+    s.evaluate(9, 9, 0);
+    assert!(s.is_on());
+    s.evaluate(new_count, 9, 5_000);
+    assert!(s.is_on(), "минуты ещё не прошло");
+    s.evaluate(new_count, 9, 70_000);
+    assert!(!s.is_on(), "режим выключился");
+    // по прежнему правилу число испорченных не падает, пока линии не закрыты, — режим держал бы сам себя
+    let s_old = Storm::default();
+    s_old.evaluate(9, 9, 0);
+    s_old.evaluate(old_count, 9, 70_000);
+    assert!(s_old.is_on());
 }
 
 #[test]
@@ -457,23 +523,64 @@ fn budget_alarm_fires_at_ninety_percent_or_when_a_connection_waits() {
     assert_eq!(b.snapshot(Instant::now()).waiting, 0);
 }
 
+/// P3: у секундных правил (OKX и BingX 2/с, Gate 5/с) заполнение и короткое ожидание — норма; тревога — подключение ждёт места ≥ 30 с. У окон от 60 с — как прежде.
+#[test]
+fn budget_alarm_for_a_one_second_rule_needs_a_wait_of_thirty_seconds() {
+    use super::budget::BudgetSnap;
+    let snap =
+        |window_s: u64, used: usize, limit: usize, waiting: usize, max_wait_s: u64| BudgetSnap {
+            limit,
+            window_s,
+            used,
+            urgent_reserve: 0,
+            waiting,
+            max_wait_s,
+            waits_total: 1,
+            wait_s_total: 0,
+        };
+    // OKX: два подключения в одну секунду — 100 % лимита, третье ждёт 5 с (старт процесса) — не тревога
+    assert!(!snap(1, 2, 2, 0, 0).alarm());
+    assert!(!snap(1, 2, 2, 1, 5).alarm());
+    assert!(
+        !snap(1, 5, 5, 3, 29).alarm(),
+        "Gate: 29 с ожидания — ещё нет"
+    );
+    assert!(snap(1, 2, 2, 1, 30).alarm());
+    // Binance и Bybit (5 мин): 90 % или ожидание — как раньше
+    assert!(snap(300, 252, 280, 0, 0).alarm());
+    assert!(!snap(300, 251, 280, 0, 0).alarm());
+    assert!(snap(300, 10, 280, 1, 0).alarm());
+    // живой счётчик ожидания: секунды самого давнего ожидающего
+    let b = Arc::new(Budget::new(1, Duration::from_secs(300)));
+    assert!(b.try_take(Instant::now()).is_none());
+    let stop = Arc::new(AtomicBool::new(false));
+    let (b2, stop2) = (Arc::clone(&b), Arc::clone(&stop));
+    let h = std::thread::spawn(move || b2.acquire(&[&stop2], &|| false));
+    std::thread::sleep(Duration::from_millis(150));
+    let later = Instant::now() + Duration::from_secs(31);
+    assert!(b.snapshot(later).max_wait_s >= 30);
+    stop.store(true, Relaxed);
+    assert!(h.join().unwrap().is_none());
+    assert_eq!(b.snapshot(Instant::now()).max_wait_s, 0);
+}
+
 // ---- пропуски номеров сделок ----
 
 #[test]
 fn reordered_ids_are_not_a_gap_but_a_missing_range_is_confirmed_after_the_window() {
     let mut t = IdTracker::default();
-    t.on_span(0, b"BTCUSDT", 100, 100, 0);
-    t.on_span(0, b"BTCUSDT", 103, 103, 10);
+    t.on_span(0, b"BTCUSDT", 100, 100, 0, 0);
+    t.on_span(0, b"BTCUSDT", 103, 103, 10, 10);
     assert_eq!(t.pending(), 1);
     // 101 и 102 пришли позже (другая линия): пропуск закрыт по частям
-    t.on_span(0, b"BTCUSDT", 102, 102, 20);
-    t.on_span(0, b"BTCUSDT", 101, 101, 30);
+    t.on_span(0, b"BTCUSDT", 102, 102, 20, 20);
+    t.on_span(0, b"BTCUSDT", 101, 101, 30, 30);
     assert_eq!(t.pending(), 0);
     assert_eq!(t.reordered, 2);
     assert!(t.scan(CONFIRM_MS * 10, "trade00").is_empty());
     // настоящий пропуск 106..108
-    t.on_span(0, b"BTCUSDT", 104, 105, 1_000);
-    t.on_span(0, b"BTCUSDT", 109, 110, 2_000);
+    t.on_span(0, b"BTCUSDT", 104, 105, 1_000, 1_000);
+    t.on_span(0, b"BTCUSDT", 109, 110, 2_000, 2_000);
     assert!(
         t.scan(2_000 + CONFIRM_MS - 1_001, "trade00").is_empty(),
         "ещё не подтверждён"
@@ -486,24 +593,28 @@ fn reordered_ids_are_not_a_gap_but_a_missing_range_is_confirmed_after_the_window
             symbol: "BTCUSDT".into(),
             lo: 106,
             hi: 108,
-            found_ms: 2_000
+            found_ms: 2_000,
+            // последняя сделка перед пропуском (номер 105) принята в 1 000, первая после (109) — в 2 000: минута потери — по первому
+            gap_ms: 1_000,
+            t_before_ms: 1_000,
+            t_after_ms: 2_000,
         }]
     );
     assert_eq!(g[0].ids(), 3);
     assert_eq!(t.pending(), 0);
     // раз в секунду, не чаще
-    t.on_span(0, b"BTCUSDT", 120, 120, 3_000);
+    t.on_span(0, b"BTCUSDT", 120, 120, 3_000, 3_000);
     assert!(t.scan(2_000 + CONFIRM_MS + 10, "trade00").is_empty());
 }
 
 #[test]
 fn a_late_record_can_split_a_pending_range_and_symbols_are_independent() {
     let mut t = IdTracker::default();
-    t.on_span(1, b"A", 1, 1, 0);
-    t.on_span(2, b"B", 50, 50, 0);
-    t.on_span(1, b"A", 11, 11, 10); // пропуск 2..=10
-    t.on_span(2, b"B", 51, 51, 10);
-    t.on_span(1, b"A", 5, 6, 20); // середина: остаются 2..=4 и 7..=10
+    t.on_span(1, b"A", 1, 1, 0, 0);
+    t.on_span(2, b"B", 50, 50, 0, 0);
+    t.on_span(1, b"A", 11, 11, 10, 10); // пропуск 2..=10
+    t.on_span(2, b"B", 51, 51, 10, 10);
+    t.on_span(1, b"A", 5, 6, 20, 20); // середина: остаются 2..=4 и 7..=10
     let g = t.scan(10 + CONFIRM_MS + 20, "trade01");
     assert_eq!(
         g.iter().map(|x| (x.lo, x.hi)).collect::<Vec<_>>(),
@@ -515,8 +626,8 @@ fn a_late_record_can_split_a_pending_range_and_symbols_are_independent() {
 #[test]
 fn a_numbering_jump_and_a_pending_overflow_are_counted_not_tracked() {
     let mut t = IdTracker::default();
-    t.on_span(0, b"X", 1, 1, 0);
-    t.on_span(0, b"X", 10_000_000, 10_000_000, 1);
+    t.on_span(0, b"X", 1, 1, 0, 0);
+    t.on_span(0, b"X", 10_000_000, 10_000_000, 1, 1);
     assert_eq!(
         (t.pending(), t.jumps),
         (0, 1),
@@ -525,7 +636,7 @@ fn a_numbering_jump_and_a_pending_overflow_are_counted_not_tracked() {
     let mut id = 10_000_000;
     for _ in 0..(MAX_PENDING_PER_SYMBOL + 3) {
         id += 2;
-        t.on_span(0, b"X", id, id, 2);
+        t.on_span(0, b"X", id, id, 2, 2);
     }
     assert_eq!(t.pending(), MAX_PENDING_PER_SYMBOL);
     assert_eq!(t.overflow, 3);
@@ -649,7 +760,7 @@ fn trade(id: i64) -> RestTrade {
     }
 }
 
-type FetchSync = dyn Fn(&str, i64, i64) -> Option<Result<TradePage, String>> + Sync;
+type FetchSync = dyn Fn(&PageReq<'_>) -> Option<Result<TradePage, RestError>> + Sync;
 
 fn run_work(
     reqs: Vec<GapReq>,
@@ -689,6 +800,9 @@ fn gap(lo: i64, hi: i64) -> GapReq {
         lo,
         hi,
         found_ms: 1_700_000_000_000,
+        gap_ms: 1_699_999_990_000,
+        t_before_ms: 1_699_999_990_000,
+        t_after_ms: 1_700_000_000_000,
     }
 }
 
@@ -696,12 +810,12 @@ fn gap(lo: i64, hi: i64) -> GapReq {
 fn backfill_writes_rest_trades_to_its_own_marked_file_and_counts_what_is_still_lost() {
     use std::sync::atomic::Ordering::Relaxed as R;
     // у биржи есть номера 10, 11, 13; 12 и 14 нет — потеря
-    let fetch = |_: &str, lo: i64, hi: i64| {
-        assert_eq!((lo, hi), (10, 14));
-        Some(Ok(TradePage {
-            trades: vec![trade(10), trade(11), trade(13)],
-            rest: None,
-        }))
+    let fetch = |q: &PageReq<'_>| {
+        assert_eq!((q.lo, q.hi), (10, 14));
+        Some(Ok(TradePage::new(
+            vec![trade(10), trade(11), trade(13)],
+            None,
+        )))
     };
     let (st, lines) = run_work(vec![gap(10, 14)], &fetch, |s| {
         s.ids_backfilled.load(R) + s.ids_lost.load(R) == 5
@@ -710,6 +824,13 @@ fn backfill_writes_rest_trades_to_its_own_marked_file_and_counts_what_is_still_l
     assert_eq!(st.ids_lost.load(R), 2);
     assert_eq!(st.trades_written.load(R), 3);
     assert_eq!(st.lost_between(0, i64::MAX / 2), 2);
+    // потеря — в минуте пропуска (`gap_ms`), а не в момент итога дозапроса
+    assert_eq!(
+        st.lost_between(1_699_999_990_000, 1_699_999_990_001),
+        2,
+        "время пропуска"
+    );
+    assert_eq!(st.lost_between(1_700_000_000_000, i64::MAX / 2), 0);
     assert!(
         lines[0].starts_with("rh\t") && lines[0].contains("not websocket data"),
         "{}",
@@ -754,18 +875,16 @@ fn backfill_writes_rest_trades_to_its_own_marked_file_and_counts_what_is_still_l
 fn backfill_pages_through_a_range_and_retries_a_rest_error() {
     use std::sync::atomic::Ordering::Relaxed as R;
     let calls = std::sync::atomic::AtomicUsize::new(0);
-    let fetch = move |_: &str, lo: i64, hi: i64| {
+    let fetch = move |q: &PageReq<'_>| {
+        let (lo, hi) = (q.lo, q.hi);
         let n = calls.fetch_add(1, R);
         match n {
-            0 => Some(Err("HTTP 429".to_string())),
-            1 => Some(Ok(TradePage {
-                trades: (lo..lo + 3).map(trade).collect(),
-                rest: Some((lo + 3, hi)),
-            })),
-            _ => Some(Ok(TradePage {
-                trades: (lo..=hi).map(trade).collect(),
-                rest: None,
-            })),
+            0 => Some(Err(RestError::from("HTTP 500"))),
+            1 => Some(Ok(TradePage::new(
+                (lo..lo + 3).map(trade).collect(),
+                Some((lo + 3, hi)),
+            ))),
+            _ => Some(Ok(TradePage::new((lo..=hi).map(trade).collect(), None))),
         }
     };
     let (st, lines) = run_work(vec![gap(100, 105)], &fetch, |s| {
@@ -782,11 +901,11 @@ fn backfill_pages_through_a_range_and_retries_a_rest_error() {
 #[test]
 fn backfill_gives_up_after_the_retries_and_marks_unsupported_and_too_large_gaps_as_lost() {
     use std::sync::atomic::Ordering::Relaxed as R;
-    let fetch = |sym: &str, _: i64, _: i64| {
-        if sym == "NOSUPPORT" {
+    let fetch = |q: &PageReq<'_>| {
+        if q.symbol == "NOSUPPORT" {
             None
         } else {
-            Some(Err("HTTP 500".to_string()))
+            Some(Err(RestError::from("HTTP 500")))
         }
     };
     let mut nosupport = gap(1, 4);
@@ -883,14 +1002,17 @@ fn series_minutes_count_loss_only_from_confirmed_unrecovered_ids_when_backfill_i
     let dir = tempfile::tempdir().unwrap();
     let min = 60_000i64;
     let m = ShardMetrics::new("trade00", 0, 64, 16);
-    // паузы в двух минутах: 101 — с потерей номеров, 102 — без (сделки дозапрошены или не терялись)
+    let book = ShardMetrics::new("book00", 0, 64, 16);
+    // паузы шарда сделок в двух минутах: 101 — с потерей номеров, 102 — без (сделки дозапрошены или не терялись); пауза шарда книги в минуте 103
     m.lists().gap_spans.push_back((101 * min + 1_000, 3_500));
     m.lists().gap_spans.push_back((102 * min + 1_000, 4_000));
+    book.lists().gap_spans.push_back((103 * min + 1_000, 2_000));
     let stats = Arc::new(BackfillStats::default());
+    // время пропуска, не итога дозапроса: потеря в минуте 101 даже если итог пришёл позже
     stats.lost(101 * min + 30_000, 8_081);
     let mut w = super::series::SeriesWriter::open(dir.path(), 100 * min + 5_000, "abc1234");
     w.set_backfill(Arc::clone(&stats));
-    w.flush(std::slice::from_ref(&m), 104 * min + 10_000);
+    w.flush(&[Arc::clone(&m), Arc::clone(&book)], 104 * min + 10_000);
     let rows: Vec<serde_json::Value> = std::fs::read_to_string(w.path())
         .unwrap()
         .lines()
@@ -904,7 +1026,8 @@ fn series_minutes_count_loss_only_from_confirmed_unrecovered_ids_when_backfill_i
             rows[0]["pause_ms"].as_i64(),
             rows[0]["lost_ids"].as_i64()
         ),
-        (Some(3_500), Some(3_500), Some(8_081))
+        (Some(0), Some(3_500), Some(8_081)),
+        "пауза шарда сделок — не потеря, потеря сделок видна по номерам (минута пропуска)"
     );
     assert_eq!(
         (
@@ -914,5 +1037,184 @@ fn series_minutes_count_loss_only_from_confirmed_unrecovered_ids_when_backfill_i
         ),
         (Some(0), Some(4_000), Some(0)),
         "пауза без потери номеров — не потеря"
+    );
+    // Б2: пауза шарда книги дозапросом не восстанавливается — потеря и у бирж с дозапросом
+    assert_eq!(
+        (
+            rows[2]["lost_ms"].as_i64(),
+            rows[2]["pause_ms"].as_i64(),
+            rows[2]["lost_ids"].as_i64()
+        ),
+        (Some(2_000), Some(2_000), Some(0))
+    );
+}
+
+// ---- проверка 16.11: П2 (нет на бирже), П5 (отказ по частоте), страницы по времени ----
+
+fn gate_item(id: i64, t_s: f64) -> serde_json::Value {
+    json!({"id": id, "contract": "AKE_USDT", "create_time": t_s, "create_time_ms": t_s, "size": "1", "price": "0.01"})
+}
+
+/// Номера Gate не сплошные (16.11: 1 000 сделок на 1 004 номера у AKE_USDT): то, чего нет в странице, покрывающей пропуск с обеих сторон, — «нет на бирже», не потеря.
+#[test]
+fn ids_missing_inside_a_page_that_covers_the_gap_on_both_sides_are_absent_at_the_exchange_not_lost()
+{
+    use std::sync::atomic::Ordering::Relaxed as R;
+    // у биржи есть 98, 99, 103, 104, 108, 109; пропуск у нас 100..=107
+    let raw = json!([
+        gate_item(109, 1_000.9),
+        gate_item(108, 1_000.8),
+        gate_item(104, 1_000.4),
+        gate_item(103, 1_000.3),
+        gate_item(99, 999.9),
+        gate_item(98, 999.8)
+    ]);
+    let p = super::gate::parse_trades_page(&raw, 100, 107).unwrap();
+    assert_eq!(
+        p.trades.iter().map(|t| t.id).collect::<Vec<_>>(),
+        vec![104, 103]
+    );
+    assert_eq!(p.covered, Some((100, 107)), "страница шире пропуска");
+    assert_eq!(p.rest, None);
+    let fetch = {
+        let raw = raw.clone();
+        move |q: &PageReq<'_>| {
+            Some(super::gate::parse_trades_page(&raw, q.lo, q.hi).map_err(RestError::from))
+        }
+    };
+    let (st, lines) = run_work(vec![gap(100, 107)], &fetch, |s| {
+        s.ids_backfilled.load(R) + s.ids_absent.load(R) + s.ids_lost.load(R) == 8
+    });
+    assert_eq!(
+        (
+            st.ids_backfilled.load(R),
+            st.ids_absent.load(R),
+            st.ids_lost.load(R)
+        ),
+        (2, 6, 0)
+    );
+    let rg = lines.iter().find(|l| l.starts_with("rg\t")).unwrap();
+    let f: Vec<&str> = rg.split('\t').collect();
+    assert_eq!((f[6], f[7], f[10]), ("2", "absent", "6"), "{rg}");
+    let j = st.json(true, 0);
+    assert_eq!(
+        (j["ids_absent"].as_i64(), j["ids_lost"].as_i64()),
+        (Some(6), Some(0))
+    );
+    // страница не доходит до пропуска сверху (самый новый номер ниже `hi`): непокрытое — потеря
+    let short = json!([
+        gate_item(104, 1_000.4),
+        gate_item(103, 1_000.3),
+        gate_item(99, 999.9)
+    ]);
+    let p = super::gate::parse_trades_page(&short, 100, 107).unwrap();
+    assert_eq!(p.covered, Some((100, 104)));
+}
+
+/// Gate: страница полная — продолжать ниже самого старого номера, `to` следующего запроса — его время; секунда с > 1 000 сделок выше пропуска не зацикливает запрос.
+#[test]
+fn gate_time_pages_continue_below_the_oldest_id_and_never_loop_on_a_crowded_second() {
+    let full = |top: i64, t0: f64| -> serde_json::Value {
+        json!((0..1000)
+            .map(|i| gate_item(top - i, t0 - f64::from(i32::try_from(i).unwrap()) / 1000.0))
+            .collect::<Vec<_>>())
+    };
+    // первый запрос: номера 5 000..=4 001 (все выше нижней границы 3 000 и ниже верхней 5 000+)
+    let p = super::gate::parse_trades_page(&full(5_000, 2_000.0), 3_000, 5_000).unwrap();
+    assert_eq!(p.trades.len(), 1000);
+    assert_eq!(p.rest, Some((3_000, 4_000)));
+    assert_eq!(p.covered, Some((4_001, 5_000)));
+    assert_eq!(
+        p.next_to_ms,
+        Some(1_999_001),
+        "время самого старого номера страницы (4 001), мс"
+    );
+    // следующая страница: пересечение (та же секунда) отсекается по новой верхней границе 4 000
+    let p2 = super::gate::parse_trades_page(&full(4_005, 1_999.0), 3_000, 4_000).unwrap();
+    assert_eq!(p2.trades.first().map(|t| t.id), Some(4_000));
+    assert_eq!(p2.rest, Some((3_000, 3_005)));
+    assert_eq!(p2.covered, Some((3_006, 4_000)));
+    // все 1 000 номеров страницы выше `hi`: сдвига вниз нет — конец (иначе запрос зациклился бы)
+    let p3 = super::gate::parse_trades_page(&full(9_000, 2_000.0), 3_000, 4_000).unwrap();
+    assert_eq!((p3.trades.len(), p3.rest, p3.covered), (0, None, None));
+}
+
+#[test]
+fn okx_binance_and_bingx_pages_report_what_they_cover() {
+    // Binance: `fromId = lo` — всё от `lo` до последнего номера страницы
+    let v = json!([
+        {"a": 10, "p": "1", "q": "1", "f": 1, "l": 1, "T": 1, "m": true},
+        {"a": 12, "p": "1", "q": "1", "f": 2, "l": 2, "T": 2, "m": true}
+    ]);
+    let p = parse_agg_page(&v, 10, 14).unwrap();
+    assert_eq!(
+        p.covered,
+        Some((10, 12)),
+        "11 у биржи нет; 13–14 — не известно"
+    );
+    // OKX: `after = hi + 1` — от самого старого номера страницы до `hi`
+    let okx = json!({"code": "0", "msg": "", "data": [
+        {"instId": "X", "tradeId": "21", "px": "1", "sz": "1", "side": "buy", "ts": "1", "source": "0"},
+        {"instId": "X", "tradeId": "18", "px": "1", "sz": "1", "side": "buy", "ts": "1", "source": "0"}]});
+    let p = super::okx::parse_history_page(&okx, 15, 22).unwrap();
+    assert_eq!(
+        p.covered,
+        Some((18, 22)),
+        "сверху до `hi` — у биржи нет; ниже 18 — не известно"
+    );
+    // BingX: окно последних сделок — только между самым старым и самым новым номером окна
+    let bingx = json!({"code": 0, "msg": "", "data": [
+        {"time": 3, "isBuyerMaker": false, "price": "1", "qty": "1", "fillId": "30", "ts": 3},
+        {"time": 1, "isBuyerMaker": false, "price": "1", "qty": "1", "fillId": "27", "ts": 1}]});
+    let p = super::bingx::parse_trades_page(&bingx, 20, 40).unwrap();
+    assert_eq!(p.covered, Some((27, 30)));
+}
+
+/// П5: 429/418 (OKX `50011`) ставят на паузу весь поток дозапроса: ни этот пропуск, ни другие не запрашиваются, пока не пройдёт срок; попытка задачи не тратится; счётчик в health.
+#[test]
+fn a_rate_limit_answer_pauses_the_whole_backfill_thread_and_does_not_spend_an_attempt() {
+    use std::sync::atomic::Ordering::Relaxed as R;
+    let calls = Arc::new(std::sync::Mutex::new(Vec::<(Instant, i64)>::new()));
+    let calls2 = Arc::clone(&calls);
+    let fetch = move |q: &PageReq<'_>| {
+        let mut c = calls2.lock().unwrap();
+        c.push((Instant::now(), q.lo));
+        if c.len() == 1 {
+            return Some(Err(RestError::limited(
+                "HTTP 429".to_string(),
+                Some(Duration::from_millis(600)),
+            )));
+        }
+        Some(Ok(TradePage::new((q.lo..=q.hi).map(trade).collect(), None)))
+    };
+    // два пропуска в очереди: второй не должен уйти в REST внутри паузы
+    let (st, _) = run_work(vec![gap(10, 12), gap(20, 22)], &fetch, |s| {
+        s.ids_backfilled.load(R) == 6
+    });
+    let c = calls.lock().unwrap();
+    assert_eq!(c.len(), 3, "429, затем оба пропуска по разу: {:?}", c.len());
+    assert!(
+        c[1].0.duration_since(c[0].0) >= Duration::from_millis(600),
+        "после 429 запросов нет, пока не прошёл срок: {:?}",
+        c[1].0.duration_since(c[0].0)
+    );
+    assert_eq!((st.rate_limited.load(R), st.ids_lost.load(R)), (1, 0));
+    assert_eq!(st.rest_errors.load(R), 1);
+    assert_eq!(st.json(true, 0)["rate_limited"], 1);
+}
+
+#[test]
+fn rate_limit_statuses_and_okx_code_are_recognised() {
+    assert!(super::pool::is_rate_limit_status(429) && super::pool::is_rate_limit_status(418));
+    assert!(!super::pool::is_rate_limit_status(500) && !super::pool::is_rate_limit_status(403));
+    let e =
+        super::okx::page_from_response(&json!({"code": "50011", "msg": "Too Many Requests"}), 1, 2)
+            .unwrap_err();
+    assert_eq!(e.limited, Some(super::exchange::RATE_LIMIT_PAUSE));
+    assert!(
+        super::okx::page_from_response(&json!({"code": "50001", "msg": "x"}), 1, 2)
+            .unwrap_err()
+            .limited
+            .is_none()
     );
 }

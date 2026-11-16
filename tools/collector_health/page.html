@@ -67,7 +67,7 @@ function detailEx(r){
   const items=[
     kv('потеряно, с','за час '+f1(r.lost_1h_s)+' · за сутки '+f1(d.lost_24h_s)),
     kv('провалы',gl),
-    ...(d.backfill?[kv('потеряно номеров сделок, сутки','за час '+(r.lost_ids_1h||0).toLocaleString('ru')+' · подтверждено '+(d.backfill[0]||0).toLocaleString('ru')+' · дозапрошено '+(d.backfill[1]||0).toLocaleString('ru')+' · потеряно '+(d.backfill[2]||0).toLocaleString('ru')+' · в работе '+(d.backfill[3]||0).toLocaleString('ru')+(d.pause_gaps_1h?' · паузы шардов за час '+d.pause_gaps_1h+' (не потеря)':''))]:[]),
+    ...(d.backfill?[kv('потеряно номеров сделок, сутки','за час '+(r.lost_ids_1h||0).toLocaleString('ru')+' · подтверждено '+(d.backfill[0]||0).toLocaleString('ru')+' · дозапрошено '+(d.backfill[1]||0).toLocaleString('ru')+' · нет на бирже '+(d.backfill[4]||0).toLocaleString('ru')+' · потеряно '+(d.backfill[2]||0).toLocaleString('ru')+' · в работе '+(d.backfill[3]||0).toLocaleString('ru')+(d.pause_gaps_1h>(d.pause_gaps_nontrade_1h||0)?' · паузы шардов сделок за час '+(d.pause_gaps_1h-(d.pause_gaps_nontrade_1h||0))+' (не потеря)':'')+(d.pause_gaps_nontrade_1h?' · ПАУЗЫ шардов книги и mark за час '+d.pause_gaps_nontrade_1h+' (потеря)':'')+(d.backfill[5]?' · отказов по частоте '+d.backfill[5]+(d.backfill[6]?', запросы стоят ещё '+d.backfill[6]+' с':''):''))]:[]),
     kv('записи позже 2 с','за час '+(d.late_1h||0).toLocaleString('ru')+' · за сутки '+(d.late_24h||0).toLocaleString('ru')+(d.late_max_1h_s?' · макс. '+Math.round(d.late_max_1h_s)+' с':'')),
     kv('таймауты, сутки','пинг пропал '+(d.to_alive_24h??'—')+' · линия молчала '+(d.to_silent_24h??'—')),
     kv('переподключений за час',d.reconnects_1h??'—'),

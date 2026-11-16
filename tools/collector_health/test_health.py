@@ -141,7 +141,8 @@ def test_http_api_and_page(tmp_path):
         api = json.load(urllib.request.urlopen(base + "/api/health"))
         assert [r["exchange"] for r in api["rows"]] == ["binance", "bybit"]
         assert api["rows"][0]["state"] == "ok" and api["rows"][1]["state"] == "off"
-        assert "Здоровье коллекторов" in urllib.request.urlopen(base + "/").read().decode()
+        page = urllib.request.urlopen(base + "/").read().decode()
+        assert "<title>Сбор данных</title>" in page and "/api/v3" in page  # страница v3 (13.11); прежнюю отдаёт /api/health как данные
     finally:
         srv.shutdown()
 
@@ -165,7 +166,8 @@ def test_row_without_fresh_field_is_ok_and_empty(tmp_path):
 
 
 def test_entrance_switch_in_hour_is_warn_and_passes_through(tmp_path):
-    """G-022: линия перешла на запасной вход за час — строка жёлтая; за сутки были, за час нет — зелёная; поле старого health.json отсутствует — не ошибка. Столбец есть на странице."""
+    """G-022: линия перешла на запасной вход за час — строка /api/health жёлтая; за сутки были, за час нет — зелёная; поле старого health.json отсутствует — не ошибка.
+    Страница v3 (13.11) переходов на запасной вход не показывает — столбца «Смена входа» в ней нет; сигнал остаётся только в /api/health."""
     ws = dict(doc()["ws"], entrance_switches_1h=2, entrance_switches_24h=3)
     put(tmp_path, "binance", doc(ws=ws))
     put(tmp_path, "bybit", doc(ws=dict(ws, entrance_switches_1h=0)))
@@ -175,7 +177,7 @@ def test_entrance_switch_in_hour_is_warn_and_passes_through(tmp_path):
     put(tmp_path, "bybit", doc())
     assert by_ex(serve.collect(tmp_path, NOW, EXPECTED, THR))["bybit"]["state"] == "ok"
     page = (Path(serve.__file__).resolve().parent / "page.html").read_text(encoding="utf-8")
-    assert "Смена входа" in page and "entrance_switches_1h" in page and page.count('colspan="12"') == 2
+    assert "Смена входа" not in page and "/api/v3" in page
 
 
 def test_hour_acceptance_file_in_health_dir_is_not_a_row(tmp_path):
@@ -258,17 +260,24 @@ def test_budget_alarm_storm_and_backfill_show_on_the_row(tmp_path):
     h = {"symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600},
          "connect_budget": {"used": 265, "limit": 280, "waiting": 0, "alarm": True},
          "storm": {"on": True, "episodes": 2, "holds": 14, "aborts": 3},
-         "backfill": {"enabled": True, "ids_confirmed": 8081, "ids_backfilled": 8081, "ids_lost": 0, "open_ids": 0},
-         "ws": {"gaps_1h": 4}}
+         "backfill": {"enabled": True, "ids_confirmed": 8081, "ids_backfilled": 8000, "ids_absent": 81, "ids_lost": 0, "open_ids": 0, "rate_limited": 1, "paused_s": 40},
+         "ws": {"gaps_1h": 4, "gaps_1h_nontrade": 0}}
     r = _row(tmp_path, h)
     assert r["budget_bad"] and not r["ok"]
     assert r["detail"]["budget"] == [265, 280, 0, True] and r["detail"]["storm"] == [True, 2, 14, 3]
-    assert r["detail"]["backfill"] == [8081, 8081, 0, 0]
-    # бюджет в норме: паузы шардов при дозапросе потерей не считаются
+    assert r["detail"]["backfill"] == [8081, 8000, 0, 0, 81, 1, 40]
+    # бюджет в норме: паузы шардов сделок при дозапросе потерей не считаются
     h["connect_budget"] = {"used": 100, "limit": 280, "waiting": 0, "alarm": False}
     r = _row(tmp_path, h)
-    assert not r["budget_bad"] and r["ok"] and r["detail"]["pause_gaps_1h"] == 4
+    assert not r["budget_bad"] and r["ok"] and r["detail"]["pause_gaps_1h"] == 4 and r["detail"]["pause_gaps_nontrade_1h"] == 0
+    # Б2: пауза шарда книги или mark дозапросом не восстанавливается — красная и при дозапросе
+    h["ws"] = {"gaps_1h": 4, "gaps_1h_nontrade": 1}
+    assert not _row(tmp_path, h)["ok"]
+    # сборка без поля `gaps_1h_nontrade` (прежний health): все паузы красят, как раньше
+    h["ws"] = {"gaps_1h": 4}
+    assert not _row(tmp_path, h)["ok"]
     # без дозапроса паузы красят, как раньше
+    h["ws"] = {"gaps_1h": 4, "gaps_1h_nontrade": 0}
     h.pop("backfill")
     assert not _row(tmp_path, h)["ok"]
 

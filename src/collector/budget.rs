@@ -12,6 +12,10 @@ use std::time::{Duration, Instant};
 pub const WINDOW: Duration = Duration::from_secs(300);
 /// Назначаемое (Судье): 2/3 лимита биржи 300; запас 100 — на неучтённое (другие клиенты с этого IP, граница окна, ручные пробы).
 pub const LIMIT: usize = 200;
+/// Окно правила, с которого тревога по заполнению (90 %) осмысленна: у секундных правил (OKX и BingX 2/с, Gate 5/с) два подключения в одну секунду — уже 100 %, и ожидание третьего — норма
+/// (старт OKX ≈ 5 с, пачка сбросов BingX из 5–17 подключений ≈ 8,5 с); там тревога — подключение ждёт места дольше `SEC_RULE_WAIT_ALARM_S`.
+pub const FILL_ALARM_MIN_WINDOW_S: u64 = 60;
+pub const SEC_RULE_WAIT_ALARM_S: u64 = 30;
 
 struct Rule {
     limit: usize,
@@ -32,6 +36,8 @@ pub struct Budget {
     waits: AtomicU64,
     waiting: AtomicUsize,
     wait_ms: AtomicU64,
+    /// Начала идущих сейчас ожиданий: самое давнее — «ждёт дольше» тревоги секундных правил.
+    wait_starts: Mutex<Vec<Instant>>,
 }
 
 /// Состояние бюджета для health (`connect_budget`).
@@ -42,20 +48,27 @@ pub struct BudgetSnap {
     pub used: usize,
     pub urgent_reserve: usize,
     pub waiting: usize,
+    /// Сколько секунд ждёт самое давнее из ждущих сейчас подключений.
+    pub max_wait_s: u64,
     pub waits_total: u64,
     pub wait_s_total: u64,
 }
 
 impl BudgetSnap {
-    /// Тревога: занято не меньше 90 % лимита или есть подключения, ждущие места.
+    /// Тревога. Правило с окном от `FILL_ALARM_MIN_WINDOW_S` (Binance 280 и Bybit 200 за 5 мин): занято не меньше 90 % лимита или есть подключения, ждущие места.
+    /// Секундное правило: подключение ждёт места не меньше `SEC_RULE_WAIT_ALARM_S` (заполнение и короткое ожидание у него обычны).
     pub fn alarm(&self) -> bool {
-        self.waiting > 0 || self.used * 10 >= self.limit * 9
+        if self.window_s >= FILL_ALARM_MIN_WINDOW_S {
+            self.waiting > 0 || self.used * 10 >= self.limit * 9
+        } else {
+            self.max_wait_s >= SEC_RULE_WAIT_ALARM_S
+        }
     }
 
     pub fn json(&self) -> serde_json::Value {
         serde_json::json!({
             "limit": self.limit, "window_s": self.window_s, "used": self.used, "free": self.limit.saturating_sub(self.used),
-            "urgent_reserve": self.urgent_reserve, "waiting": self.waiting, "waits_total": self.waits_total, "wait_s_total": self.wait_s_total,
+            "urgent_reserve": self.urgent_reserve, "waiting": self.waiting, "max_wait_s": self.max_wait_s, "waits_total": self.waits_total, "wait_s_total": self.wait_s_total,
             "alarm": self.alarm(),
         })
     }
@@ -84,6 +97,7 @@ impl Budget {
             waits: AtomicU64::new(0),
             waiting: AtomicUsize::new(0),
             wait_ms: AtomicU64::new(0),
+            wait_starts: Mutex::new(Vec::new()),
         }
     }
 
@@ -101,6 +115,14 @@ impl Budget {
             used: self.used(now),
             urgent_reserve: self.urgent_reserve(),
             waiting: self.waiting.load(Relaxed),
+            max_wait_s: self
+                .wait_starts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .map(|t| now.saturating_duration_since(*t).as_secs())
+                .max()
+                .unwrap_or(0),
             waits_total: self.waits.load(Relaxed),
             wait_s_total: self.wait_ms.load(Relaxed) / 1000,
         }
@@ -237,6 +259,10 @@ impl Budget {
                         waited = true;
                         self.waits.fetch_add(1, Relaxed);
                         self.waiting.fetch_add(1, Relaxed);
+                        self.wait_starts
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .push(t0);
                     }
                     std::thread::sleep(
                         w.min(Duration::from_millis(500)) + Duration::from_millis(10),
@@ -246,6 +272,14 @@ impl Budget {
         };
         if waited {
             self.waiting.fetch_sub(1, Relaxed);
+            let mut starts = self
+                .wait_starts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(i) = starts.iter().position(|t| *t == t0) {
+                starts.swap_remove(i);
+            }
+            drop(starts);
             self.wait_ms.fetch_add(
                 u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
                 Relaxed,

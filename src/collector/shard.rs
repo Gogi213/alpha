@@ -420,8 +420,8 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         if let Some(a) = sh.metrics.lane_ok.get(lane.k) {
             a.store(open && !bad && !slow_raw, Relaxed);
         }
-        if let Some(a) = sh.metrics.lane_bad.get(lane.k) {
-            a.store(open && bad, Relaxed);
+        if let Some(a) = sh.metrics.lane_carry.get(lane.k) {
+            a.store(open && !bad, Relaxed);
         }
         if !bad {
             bad_since = None;
@@ -457,9 +457,12 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             LazyDecision::Replace => {}
         }
         // стоянка всей биржи: новые линии на том же пути так же плохи, замены только съедают бюджет — старая линия держится, кроме одной пробной на шард (возрастная пересменка идёт)
-        if !old
-            && storm::gate(sh.storm.as_deref(), &sh.storm_probe, Instant::now()) == StormGate::Hold
-        {
+        let gate = if old {
+            StormGate::Open
+        } else {
+            storm::gate(sh.storm.as_deref(), &sh.storm_probe, Instant::now())
+        };
+        if gate == StormGate::Hold {
             if capped != Some(cur.seq) {
                 capped = Some(cur.seq);
                 if let Some(st) = sh.storm.as_deref() {
@@ -498,7 +501,9 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         let t0 = Instant::now();
         // строгая замена испорченного пути ждёт быстрый путь сколько нужно: старая сессия остаётся (медленная лучше разрыва)
         let patient = strict.is_some() && bad;
-        let storm_on = || !old && sh.storm.as_deref().is_some_and(storm::Storm::is_on);
+        // пробная замена режимом не прекращается; прекращается только замена, начатая до включения режима
+        let probe = gate == StormGate::Probe;
+        let storm_on = || !old && !probe && sh.storm.as_deref().is_some_and(storm::Storm::is_on);
         while !accepted.load(Relaxed)
             && !sh.stop.load(Relaxed)
             && (patient || t0.elapsed() < opts.switch_wait)

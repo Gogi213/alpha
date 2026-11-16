@@ -3,6 +3,8 @@
 //!
 //! Строка минуты: `{"t":<сек начала минуты>,"lost_ms":N,"gaps":n,"late":[book,trade,mark,raw],"to":[pong_only,silent]}`.
 //! Сумма по шардам: `lost_ms` — шард-миллисекунды без данных (паузы ≥ 3 с, длительность — до первого кадра после, шаг 0,5 с).
+//! У бирж с дозапросом сделок (`backfill`) пауза шарда сделок не потеря — сделки возвращает REST, потеря видна по номерам: `lost_ids` — окончательно потерянные номера по минуте пропуска,
+//! `pause_ms` — паузы всех шардов, `lost_ms` — только паузы шардов книги и mark (их ничем не восстановить: красные, как раньше).
 //! Метка запуска: `{"start":<сек>,"version":"<хеш коммита>"}` — рестарт виден на оси без разбора `events`.
 //! Минута без строки — процесса не было (нет журнала). Неполная минута запуска и остановки не пишется.
 
@@ -21,6 +23,8 @@ const MIN_MS: i64 = 60_000;
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct MinuteRow {
     pub lost_ms: i64,
+    /// Из `lost_ms` — паузы шардов сделок.
+    pub trade_ms: i64,
     pub gaps: u64,
     pub late: [u64; 4],
     pub to_alive: u64,
@@ -32,12 +36,16 @@ pub fn minute_row(shards: &[Arc<ShardMetrics>], minute: i64) -> MinuteRow {
     let (a, b) = (minute * MIN_MS, (minute + 1) * MIN_MS);
     let mut r = MinuteRow::default();
     for m in shards {
+        let is_trade = super::livepool::kind_of(&m.name) == "trade";
         {
             let l = m.lists();
             for &(t, ms) in &l.gap_spans {
                 if (a..b).contains(&t) {
                     r.gaps += 1;
                     r.lost_ms += ms;
+                    if is_trade {
+                        r.trade_ms += ms;
+                    }
                 }
             }
             let n = |dq: &std::collections::VecDeque<i64>| {
@@ -60,7 +68,7 @@ pub struct SeriesWriter {
     file: Option<File>,
     /// последняя записанная минута (или минута запуска): писать с `last + 1`
     last: i64,
-    /// Биржа с поиском пропусков номеров сделок: потеря в ряду — только подтверждённый и не дозапрошенный пропуск номеров, паузы шарда — отдельно (`pause_ms`).
+    /// Биржа с поиском пропусков номеров сделок: потеря сделок в ряду — только подтверждённый и не дозапрошенный пропуск номеров, паузы шардов сделок — отдельно (`pause_ms`).
     backfill: Option<Arc<super::backfill::BackfillStats>>,
 }
 
@@ -101,7 +109,7 @@ impl SeriesWriter {
         &self.path
     }
 
-    /// Потеря в ряду — по номерам сделок (`BackfillStats`), а не по паузам шардов.
+    /// Потеря сделок в ряду — по номерам (`BackfillStats`), а не по паузам шардов сделок.
     pub fn set_backfill(&mut self, b: Arc<super::backfill::BackfillStats>) {
         self.backfill = Some(b);
     }
@@ -119,11 +127,12 @@ impl SeriesWriter {
             self.last += 1;
             let r = minute_row(shards, self.last);
             let s = match &self.backfill {
-                // `lost_ms` — паузы шардов минуты, но только если в минуте окончательно потеряны номера сделок; `pause_ms` — все паузы; `lost_ids` — потерянные номера
+                // `lost_ms` — паузы шардов книги и mark (дозапросом не восстанавливаются: потеря на всех биржах); паузы шардов сделок — в `pause_ms` вместе с остальными, потеря сделок — `lost_ids`
+                // (минута пропуска — приём последней сделки перед ним, не итог дозапроса)
                 Some(b) => {
                     let lost_ids = b.lost_between(self.last * MIN_MS, (self.last + 1) * MIN_MS);
                     json!({
-                        "t": self.last * 60, "lost_ms": if lost_ids > 0 { r.lost_ms } else { 0 }, "pause_ms": r.lost_ms, "lost_ids": lost_ids,
+                        "t": self.last * 60, "lost_ms": r.lost_ms - r.trade_ms, "pause_ms": r.lost_ms, "lost_ids": lost_ids,
                         "gaps": r.gaps, "late": r.late, "to": [r.to_alive, r.to_silent],
                     })
                 }

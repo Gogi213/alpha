@@ -212,12 +212,19 @@ impl PoolHealth {
     }
 }
 
+/// Сделка символа, записанная не раньше чем через столько мс после его последнего кадра книги, при молчащей книге означает «книга не пришла»: сделка на лучшей цене меняет её размер, кадр книги
+/// следует за сделкой за миллисекунды (запас — порядок записи двух шардов).
+const TRADE_AFTER_BOOK_MS: i64 = 1_000;
+
 impl PoolHealth {
-    /// Независимый счётчик «не подписано»: символы состава REST (выше порога) без записи книги за окно `window_ms` по кадрам книжных шардов, а не по раскладке.
-    /// Символ считается с момента `since_ms` + окно (только что добавленному дают то же окно на первую запись). `None` — опроса REST ещё не было.
+    /// Независимый счётчик «не подписано»: символы состава REST (выше порога) без кадра книги за окно `window_ms` по кадрам книжных шардов, а не по раскладке, и при этом
+    /// либо без единого кадра книги с момента, когда символ обязан писать (`since_ms`), либо с записанной после его последнего кадра книги сделкой по этому символу. Тихий символ без сделок (акции и индексы Gate
+    /// при закрытом рынке молчат по книге до 778 с — проверка 16.11) не считается: молчание книги без сделок — не пропавшая подписка. Символ считается с момента `since_ms` + окно
+    /// (только что добавленному дают то же окно на первую запись). `book_last` и `trade_last` — мс последнего кадра символа (нижний регистр) в книжных и в шардах сделок. `None` — опроса REST ещё не было.
     pub fn no_book(
         &self,
-        book_seen: &HashSet<String>,
+        book_last: &HashMap<String, i64>,
+        trade_last: &HashMap<String, i64>,
         now_ms: i64,
         window_ms: i64,
     ) -> Option<NoBook> {
@@ -231,7 +238,21 @@ impl PoolHealth {
                 continue;
             }
             r.checked += 1;
-            if !book_seen.contains(&e.lower) {
+            // кадр книги, пришедший, когда символ уже обязан был писать
+            let book = book_last
+                .get(&e.lower)
+                .copied()
+                .filter(|t| *t >= e.since_ms);
+            if book.is_some_and(|t| now_ms - t <= window_ms) {
+                continue;
+            }
+            let dead = match book {
+                None => true,
+                Some(b) => trade_last
+                    .get(&e.lower)
+                    .is_some_and(|t| *t >= b + TRADE_AFTER_BOOK_MS),
+            };
+            if dead {
                 r.missing += 1;
                 r.qv_usd += e.qv;
                 miss.push((e.name.clone(), e.qv));
@@ -259,7 +280,8 @@ pub fn build(
 ) -> Value {
     let (hour, day) = (now_ms - HOUR_MS, now_ms - DAY_MS);
     let mut with_data: HashSet<String> = HashSet::new();
-    let mut book_seen: HashSet<String> = HashSet::new();
+    let mut book_last: HashMap<String, i64> = HashMap::new();
+    let mut trade_last: HashMap<String, i64> = HashMap::new();
     let mut lag_in = Hist::new();
     let mut lag_in_kind = [Hist::new(), Hist::new(), Hist::new()];
     let mut lag_out = Hist::new();
@@ -273,6 +295,8 @@ pub fn build(
     let (mut to, mut ts, mut gp, mut rc, mut es, mut ps) = (
         [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2],
     );
+    // паузы шардов книги и mark: дозапрос сделок их не восстанавливает — потеря у бирж с дозапросом; паузы шардов сделок там потерей не считаются
+    let mut gp_data = [0u64; 2];
     let (mut last_frame, mut last_write, mut started) = (0i64, 0i64, i64::MAX);
     let mut totals = [0u64; 6];
     let (mut sink_errors, mut files_closed, mut blocks_dropped) = (0u64, 0u64, 0u64);
@@ -283,6 +307,7 @@ pub fn build(
         (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
     let mut per_shard = Vec::new();
     for m in shards {
+        let is_trade_shard = super::livepool::kind_of(&m.name) == "trade";
         started = started.min(m.started_ms);
         connections += m.connected.load(std::sync::atomic::Ordering::Relaxed);
         last_frame = last_frame.max(m.last_frame_ms.load(std::sync::atomic::Ordering::Relaxed));
@@ -304,6 +329,9 @@ pub fn build(
                         *a += c(dq);
                     }
                 }
+                if let (false, Some(a)) = (is_trade_shard, gp_data.get_mut(i)) {
+                    *a += c(&l.gaps);
+                }
             }
             pings.extend(l.pings.iter().map(|p| p.1));
             l.trim(now_ms);
@@ -315,8 +343,16 @@ pub fn build(
                 if now_ms - last <= WINDOW_S * 1000 && ctx.pool.contains(low) {
                     with_data.insert(low.clone());
                 }
-                if is_book && now_ms - last <= ctx.book_window_ms {
-                    book_seen.insert(low.clone());
+                let slot = if is_book {
+                    Some(&mut book_last)
+                } else if is_trade_shard {
+                    Some(&mut trade_last)
+                } else {
+                    None
+                };
+                if let Some(m) = slot {
+                    let e = m.entry(low.clone()).or_insert(0);
+                    *e = (*e).max(*last);
                 }
             }
             let mut sl = Hist::new();
@@ -406,6 +442,7 @@ pub fn build(
     let [to1, to24] = to;
     let [ts1, ts24] = ts;
     let [gp1, gp24] = gp;
+    let [gpd1, gpd24] = gp_data;
     let [rc1, rc24] = rc;
     let [es1, es24] = es;
     let [ps1, ps24] = ps;
@@ -419,7 +456,7 @@ pub fn build(
         let nb = if warm {
             None
         } else {
-            l.no_book(&book_seen, now_ms, ctx.book_window_ms)
+            l.no_book(&book_last, &trade_last, now_ms, ctx.book_window_ms)
         };
         o.insert(
             "not_subscribed".into(),
@@ -458,7 +495,7 @@ pub fn build(
             "timeouts_1h": to1, "timeouts_24h": to24,
             // таймаут = ping без pong ≥ 10 с; «канал молчит» — и данных за те же 10 с нет, «pong нет, данные живы» — остальные
             "timeouts_alive_1h": to1.saturating_sub(ts1), "timeouts_alive_24h": to24.saturating_sub(ts24), "timeouts_silent_1h": ts1, "timeouts_silent_24h": ts24,
-            "gaps_1h": gp1, "gaps_24h": gp24, "reconnects_1h": rc1, "reconnects_24h": rc24,
+            "gaps_1h": gp1, "gaps_24h": gp24, "gaps_1h_nontrade": gpd1, "gaps_24h_nontrade": gpd24, "reconnects_1h": rc1, "reconnects_24h": rc24,
             "entrance_switches_1h": es1, "entrance_switches_24h": es24, "path_switches_1h": ps1, "path_switches_24h": ps24,
         },
         "fresh": {"late_ms": LATE_MS, "kinds": kinds},

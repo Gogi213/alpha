@@ -6,6 +6,8 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use super::exchange::RestError;
+
 /// `qv` — {символ: оборот за сутки, $} уже отобранных контрактов. Топ — по убыванию оборота (при равенстве — по имени);
 /// пул — отсортированные имена с оборотом ≥ `min_qv`.
 pub fn rank_pool(
@@ -57,26 +59,56 @@ pub fn http_get_json_with(
     user_agent: Option<&str>,
     headers: &[(&str, &str)],
 ) -> Result<serde_json::Value, String> {
+    http_get_rest(url, user_agent, headers).map_err(|e| e.msg)
+}
+
+/// GET → JSON для дозапроса: сбой несёт признак «отказ по частоте» (HTTP 429/418 и срок из `Retry-After`) — поток дозапроса по нему встаёт целиком.
+pub fn http_get_rest(
+    url: &str,
+    user_agent: Option<&str>,
+    headers: &[(&str, &str)],
+) -> Result<serde_json::Value, RestError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| RestError::from(e.to_string()))?;
     rt.block_on(async {
         let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
         if let Some(ua) = user_agent {
             builder = builder.user_agent(ua);
         }
-        let client = builder.build().map_err(|e| e.to_string())?;
+        let client = builder
+            .build()
+            .map_err(|e| RestError::from(e.to_string()))?;
         let mut req = client.get(url);
         for (k, v) in headers {
             req = req.header(*k, *v);
         }
-        let resp = req.send().await.map_err(|e| format!("{url}: {e}"))?;
-        if !resp.status().is_success() {
-            return Err(format!("{url}: HTTP {}", resp.status()));
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| RestError::from(format!("{url}: {e}")))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let msg = format!("{url}: HTTP {status}");
+            if is_rate_limit_status(status.as_u16()) {
+                let retry_after = resp
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|s| s.trim().parse::<u64>().ok())
+                    .map(Duration::from_secs);
+                return Err(RestError::limited(msg, retry_after));
+            }
+            return Err(RestError::from(msg));
         }
         resp.json::<serde_json::Value>()
             .await
-            .map_err(|e| format!("{url}: {e}"))
+            .map_err(|e| RestError::from(format!("{url}: {e}")))
     })
+}
+
+/// HTTP-статусы «слишком часто»: 429 и 418 (Binance: бан IP после продолжения запросов при 429).
+pub fn is_rate_limit_status(code: u16) -> bool {
+    code == 429 || code == 418
 }

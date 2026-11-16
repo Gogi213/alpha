@@ -10,10 +10,10 @@ use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, RestTrade, ShardPlan, TradePage,
-    TradeSeq, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, PageReq, Parsed, Parser, RestError, RestTrade,
+    ShardPlan, TradePage, TradeSeq, Turnover,
 };
-use super::pool::{balanced_chunks, http_get_json, rank_pool};
+use super::pool::{balanced_chunks, http_get_json, http_get_rest, rank_pool};
 use super::scan::{each_elem, parse_object, slots, Val};
 
 const REST: &str = "https://fapi.binance.com";
@@ -238,7 +238,12 @@ pub(crate) fn parse_agg_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<
     } else {
         Some((last + 1, hi))
     };
-    Ok(TradePage { trades, rest })
+    // запрос `fromId=lo` отдаёт сделки с номером не меньше `lo` подряд: всё между `lo` и последним номером страницы, чего в ней нет, у биржи отсутствует
+    let covered = (last >= lo).then(|| (lo, last.min(hi)));
+    Ok(TradePage {
+        covered,
+        ..TradePage::new(trades, rest)
+    })
 }
 
 /// Потолок средней нагрузки на шард Binance, кадров/с (см. `Exchange::shard_rate_cap`): 0,8 от 5 700 (чисто) с поправкой на пик/среднее 2,5.
@@ -326,12 +331,17 @@ impl Exchange for Binance {
     }
 
     /// REST `aggTrades?symbol=&fromId=&limit=1000`: сделки от номера `lo`, ограничиваются `hi`.
-    fn trade_page(&self, symbol: &str, lo: i64, hi: i64) -> Option<Result<TradePage, String>> {
+    fn trade_page(&self, q: &PageReq<'_>) -> Option<Result<TradePage, RestError>> {
         Some(
-            http_get_json(&format!(
-                "{REST}/fapi/v1/aggTrades?symbol={symbol}&fromId={lo}&limit={AGG_PAGE}"
-            ))
-            .and_then(|v| parse_agg_page(&v, lo, hi)),
+            http_get_rest(
+                &format!(
+                    "{REST}/fapi/v1/aggTrades?symbol={}&fromId={}&limit={AGG_PAGE}",
+                    q.symbol, q.lo
+                ),
+                None,
+                &[],
+            )
+            .and_then(|v| parse_agg_page(&v, q.lo, q.hi).map_err(RestError::from)),
         )
     }
 

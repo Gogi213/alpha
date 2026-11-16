@@ -348,7 +348,7 @@ impl Core {
                 super::exchange::TradeSeq::A => (t.a, t.a),
                 super::exchange::TradeSeq::FL => (t.f, t.l),
             };
-            ids.on_span(id.sid, t.sym, lo, hi, rx.div_euclid(NS_PER_MS));
+            ids.on_span(id.sid, t.sym, lo, hi, rx.div_euclid(NS_PER_MS), t.t);
         }
         self.ensure_file(rx);
         if let Some(s) = self.syms.get_mut(sid) {

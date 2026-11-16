@@ -3894,6 +3894,67 @@ fn missing_pong_is_a_timeout_and_degraded_even_with_live_data() {
     assert!(metrics.writer().records > 100, "поток шёл");
 }
 
+/// Б1 (проверка 16.11): в режиме «стоянка» пробная замена испорченной линии не прекращается режимом и доходит до `path_switch`; следующая замена (проба уже была) держится (`storm_hold`).
+/// Прежний код прекращал пробную замену на первой же итерации ожидания (`storm_abort`) — ни одна испорченная линия не менялась никогда.
+#[test]
+fn storm_probe_replacement_is_not_aborted_and_the_degraded_line_is_switched() {
+    use super::storm::Storm;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let stop_src = Arc::new(AtomicBool::new(false));
+    // источник не отвечает pong: линия портится (`ping_degraded`), кадры идут — замена проходит проверку пути
+    let src = spawn_mute(listener, Arc::clone(&stop_src), None);
+    let dir = tempfile::tempdir().unwrap();
+    let (mut opts, plan) = book_shard(dir.path(), port, (0.2, 0.5));
+    opts.ping = (Duration::from_millis(500), Duration::from_secs(1));
+    opts.overlap = Duration::from_millis(300);
+    let storm = Storm::new();
+    storm.evaluate(9, 9, 0); // режим включён и не выключится: оценок больше нет
+    assert!(storm.is_on());
+    opts.storm = Some(Arc::clone(&storm));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(50, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    while count_events(dir.path(), "storm_hold") < 1 && t0.elapsed() < Duration::from_secs(40) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    assert_eq!(
+        count_events(dir.path(), "storm_abort"),
+        0,
+        "пробную замену режим не прекращает"
+    );
+    assert!(
+        count_events(dir.path(), "path_switch") >= 1,
+        "пробная замена дошла до смены линии"
+    );
+    assert!(
+        count_events(dir.path(), "storm_hold") >= 1,
+        "после пробы следующая замена держится"
+    );
+    assert_eq!(
+        count_events(dir.path(), "path_switch"),
+        1,
+        "одна проба на шард за период"
+    );
+    let j = storm.json(0);
+    assert_eq!(j["aborts"], 0);
+    assert!(j["holds"].as_u64().unwrap() >= 1);
+}
+
 /// Ни pong, ни кадров — путь испорчен: помечается `degraded` (шард откроет замену).
 #[test]
 fn silence_without_pong_marks_the_session_degraded() {
@@ -4245,6 +4306,7 @@ fn series_minute_row_counts_lost_late_and_timeouts() {
         r,
         super::series::MinuteRow {
             lost_ms: 6_500,
+            trade_ms: 0,
             gaps: 2,
             late: [1, 1, 1, 0],
             to_alive: 1,

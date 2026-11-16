@@ -16,10 +16,10 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, next_range_desc, Entrance, Exchange, Family, Out, Parsed, Parser, RestTrade, ShardPlan,
-    TradePage, TradeSeq, Turnover,
+    lag_ms, next_range_desc, Entrance, Exchange, Family, Out, PageReq, Parsed, Parser, RestError,
+    RestTrade, ShardPlan, TradePage, TradeSeq, Turnover,
 };
-use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
+use super::pool::{balanced_chunks, http_get_json_ua, http_get_rest, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, slots, Small, Val};
 
 const REST: &str = "https://www.okx.com";
@@ -29,6 +29,21 @@ const PATH: &str = "/ws/v5/public";
 const UA: &str = "alpha-collector/okx";
 /// Страница REST `history-trades` — максимум биржи.
 const HIST_PAGE: usize = 100;
+
+/// Ответ `history-trades` с проверкой частоты: код `50011` («слишком часто», при HTTP 200 тоже) — поток дозапроса встаёт целиком; остальное — как `parse_history_page`.
+pub(crate) fn page_from_response(
+    v: &serde_json::Value,
+    lo: i64,
+    hi: i64,
+) -> Result<TradePage, RestError> {
+    if v.get("code").and_then(serde_json::Value::as_str) == Some("50011") {
+        return Err(RestError::limited(
+            format!("history-trades: {v}").chars().take(160).collect(),
+            None,
+        ));
+    }
+    parse_history_page(v, lo, hi).map_err(RestError::from)
+}
 
 /// Ответ `history-trades` → страница дозапроса `lo..=hi`: у каждой сделки свой `tradeId`; `m` — продавец-агрессор (как в записи ws).
 pub(crate) fn parse_history_page(
@@ -71,7 +86,12 @@ pub(crate) fn parse_history_page(
         });
     }
     let rest = next_range_desc(arr.len(), HIST_PAGE, oldest, lo);
-    Ok(TradePage { trades, rest })
+    // запрос `after = hi + 1` отдаёт сделки с номером не больше `hi`, от новых к старым: от самого старого номера страницы до `hi` всё, чего в ней нет, у биржи отсутствует
+    let covered = oldest.map(|o| (o.max(lo), hi)).filter(|(a, b)| a <= b);
+    Ok(TradePage {
+        covered,
+        ..TradePage::new(trades, rest)
+    })
 }
 const SUB_BATCH: usize = 100;
 const SUFFIX: &[u8] = b"-SWAP";
@@ -385,12 +405,13 @@ impl Exchange for Okx {
     }
 
     /// REST `history-trades?type=1&after=<номер>`: сделки старше номера, от новых к старым, до 100 за запрос; запрос `after = hi + 1` отдаёт номера `≤ hi`.
-    fn trade_page(&self, symbol: &str, lo: i64, hi: i64) -> Option<Result<TradePage, String>> {
+    fn trade_page(&self, q: &PageReq<'_>) -> Option<Result<TradePage, RestError>> {
         let url = format!(
-            "{REST}/api/v5/market/history-trades?instId={symbol}&type=1&after={}&limit={HIST_PAGE}",
-            hi + 1
+            "{REST}/api/v5/market/history-trades?instId={}&type=1&after={}&limit={HIST_PAGE}",
+            q.symbol,
+            q.hi + 1
         );
-        Some(http_get_json_ua(&url, Some(UA)).and_then(|v| parse_history_page(&v, lo, hi)))
+        Some(http_get_rest(&url, Some(UA), &[]).and_then(|v| page_from_response(&v, q.lo, q.hi)))
     }
 
     fn kinds(&self) -> &'static [&'static str] {

@@ -18,10 +18,10 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, next_range_desc, Entrance, Exchange, Family, Out, Parsed, Parser, RestTrade, ShardPlan,
-    TradePage, TradeSeq, Turnover,
+    lag_ms, next_range_desc, Entrance, Exchange, Family, Out, PageReq, Parsed, Parser, RestError,
+    RestTrade, ShardPlan, TradePage, TradeSeq, Turnover,
 };
-use super::pool::{balanced_chunks, http_get_json_ua, http_get_json_with, rank_pool};
+use super::pool::{balanced_chunks, http_get_json_ua, http_get_rest, rank_pool};
 use super::scan::{each_elem, parse_object, pick, slots, Val};
 
 const REST: &str = "https://api.gateio.ws/api/v4/futures/usdt";
@@ -31,7 +31,9 @@ const UA: &str = "alpha-collector/gate";
 /// Страница REST `trades` (максимум биржи 1000).
 const TRADES_PAGE: usize = 1000;
 
-/// Ответ `trades` → страница дозапроса `lo..=hi`: `size` со знаком (минус — продажа, как в записи ws `m`), в файл — модуль строкой; время — секунды с долей.
+/// Ответ `trades` (запрос по времени, от новых к старым) → страница дозапроса `lo..=hi`: `size` со знаком (минус — продажа, как в записи ws `m`), в файл — модуль строкой; время — секунды с долей.
+/// Страница полная (`TRADES_PAGE`) и самый старый номер выше `lo` — продолжать ниже него (`next_to_ms` — его время): запрос `to` в секундах, поэтому номера той же секунды придут снова и отсекаются по `hi`.
+/// Номера Gate не сплошные (проверка 16.11: у AKE_USDT 1 000 сделок на 1 004 номера): от самого старого до самого нового номера страницы то, чего в ней нет, у биржи отсутствует (`covered`).
 pub(crate) fn parse_trades_page(
     v: &serde_json::Value,
     lo: i64,
@@ -43,13 +45,22 @@ pub(crate) fn parse_trades_page(
             v.to_string().chars().take(160).collect::<String>()
         )
     })?;
-    let (mut trades, mut oldest) = (Vec::new(), None::<i64>);
+    let (mut trades, mut oldest, mut newest) = (Vec::new(), None::<(i64, i64)>, None::<i64>);
     for x in arr {
         let id = x
             .get("id")
             .and_then(serde_json::Value::as_i64)
             .ok_or("trades: no id")?;
-        oldest = Some(oldest.map_or(id, |o| o.min(id)));
+        let secs = x
+            .get("create_time_ms")
+            .and_then(serde_json::Value::as_f64)
+            .ok_or("trades: no create_time_ms")?;
+        #[allow(clippy::cast_possible_truncation)]
+        let t_ms = (secs * 1000.0).round() as i64;
+        if oldest.is_none_or(|(o, _)| id < o) {
+            oldest = Some((id, t_ms));
+        }
+        newest = Some(newest.map_or(id, |n| n.max(id)));
         if id < lo || id > hi {
             continue;
         }
@@ -57,12 +68,6 @@ pub(crate) fn parse_trades_page(
             .get("size")
             .and_then(serde_json::Value::as_str)
             .ok_or("trades: no size")?;
-        let secs = x
-            .get("create_time_ms")
-            .and_then(serde_json::Value::as_f64)
-            .ok_or("trades: no create_time_ms")?;
-        #[allow(clippy::cast_possible_truncation)]
-        let t_ms = (secs * 1000.0).round() as i64;
         trades.push(RestTrade {
             id,
             t_ms,
@@ -76,9 +81,21 @@ pub(crate) fn parse_trades_page(
             m: size.starts_with('-'),
         });
     }
-    let rest = next_range_desc(arr.len(), TRADES_PAGE, oldest, lo);
-    Ok(TradePage { trades, rest })
+    // следующая страница — только если она сдвигается ниже уже запрошенного (иначе секунда с > 1 000 сделок зациклила бы запрос)
+    let rest = next_range_desc(arr.len(), TRADES_PAGE, oldest.map(|o| o.0), lo)
+        .filter(|(_, top)| *top < hi);
+    let covered = oldest
+        .zip(newest)
+        .map(|((o, _), n)| (o.max(lo), n.min(hi)))
+        .filter(|(a, b)| a <= b);
+    let next_to_ms = rest.and(oldest.map(|o| o.1));
+    Ok(TradePage {
+        covered,
+        next_to_ms,
+        ..TradePage::new(trades, rest)
+    })
 }
+
 /// Контрактов на соединение: назначаемое. Лимита подписок у Gate нет (в документации — ни числа, ни слова; замер 15.11: 1 051 контракт × 3 канала на одном
 /// соединении подписались без ошибок), потолок ищет лестница.
 pub const PER_CONN: usize = 100;
@@ -323,7 +340,8 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 impl Exchange for Gate {
-    /// Номер сделки Gate сплошной по контракту (проверка 16.11: 0,9 млн записей, 6 подтверждённых пропусков / 8 номеров, все у AKE_USDT).
+    /// Номер сделки Gate подряд по контракту, но не сплошной: биржа пропускает отдельные `id`, и в REST их тоже нет (проверка 16.11: 6 «потерь» AKE_USDT — 8 номеров — у биржи отсутствуют, у AKE 1 000 сделок на 1 004 номера):
+    /// такие номера дозапрос относит к «нет на бирже», не к потере (`TradePage::covered`).
     fn trade_seq(&self) -> Option<TradeSeq> {
         Some(TradeSeq::A)
     }
@@ -332,15 +350,18 @@ impl Exchange for Gate {
         "gate"
     }
 
-    /// REST `trades?contract=&last_id=<номер>&limit=1000`: сделки старше номера, от новых к старым; `last_id = hi + 1` отдаёт номера `≤ hi`.
-    fn trade_page(&self, symbol: &str, lo: i64, hi: i64) -> Option<Result<TradePage, String>> {
+    /// REST `trades?contract=&from=<с>&to=<с>&limit=1000`: сделки между сделкой перед пропуском и сделкой после, от новых к старым (при переполнении страницы остаются новейшие).
+    /// `last_id` не годится: достаёт назад на 100–2 000 номеров (≈ 4–5 мин), запрос по времени — на часы (проверка 16.11).
+    fn trade_page(&self, q: &PageReq<'_>) -> Option<Result<TradePage, RestError>> {
         let url = format!(
-            "{REST}/trades?contract={symbol}&limit={TRADES_PAGE}&last_id={}",
-            hi + 1
+            "{REST}/trades?contract={}&limit={TRADES_PAGE}&from={}&to={}",
+            q.symbol,
+            q.t_from_ms.div_euclid(1000),
+            (q.t_to_ms + 999).div_euclid(1000)
         );
         Some(
-            http_get_json_with(&url, Some(UA), self.ws_headers())
-                .and_then(|v| parse_trades_page(&v, lo, hi)),
+            http_get_rest(&url, Some(UA), self.ws_headers())
+                .and_then(|v| parse_trades_page(&v, q.lo, q.hi).map_err(RestError::from)),
         )
     }
 

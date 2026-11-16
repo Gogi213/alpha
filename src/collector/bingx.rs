@@ -16,10 +16,10 @@ use serde_json::{json, Map, Value};
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, RestTrade, ShardPlan, TradePage,
-    TradeSeq, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, PageReq, Parsed, Parser, RestError, RestTrade,
+    ShardPlan, TradePage, TradeSeq, Turnover,
 };
-use super::pool::{balanced_chunks, http_get_json_ua, rank_pool};
+use super::pool::{balanced_chunks, http_get_json_ua, http_get_rest, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, slots};
 
 const REST: &str = "https://open-api.bingx.com/openApi/swap/v2/quote";
@@ -45,13 +45,14 @@ pub(crate) fn parse_trades_page(
         .get("data")
         .and_then(serde_json::Value::as_array)
         .ok_or("quote/trades: no data")?;
-    let mut trades = Vec::new();
+    let (mut trades, mut raw_ids) = (Vec::new(), Vec::new());
     for x in arr {
         let id: i64 = x
             .get("fillId")
             .and_then(serde_json::Value::as_str)
             .and_then(|s| s.parse().ok())
             .ok_or("quote/trades: fillId")?;
+        raw_ids.push(id);
         if id < lo || id > hi {
             continue;
         }
@@ -77,7 +78,17 @@ pub(crate) fn parse_trades_page(
         });
     }
     trades.sort_by_key(|t| t.id);
-    Ok(TradePage { trades, rest: None })
+    // окно ответа — последние сделки подряд: между самым старым и самым новым номером окна всё, чего нет в ответе, у биржи отсутствует; старше окна — не известно
+    let covered = raw_ids
+        .iter()
+        .min()
+        .zip(raw_ids.iter().max())
+        .map(|(a, b)| (*a.max(&lo), *b.min(&hi)))
+        .filter(|(a, b)| a <= b);
+    Ok(TradePage {
+        covered,
+        ..TradePage::new(trades, None)
+    })
 }
 /// Тем на соединение: максимум биржи (документация и замер W5: 200 приняты, на 201-ю — ответ `80403`, соединение живёт).
 pub const MAX_TOPICS: usize = 200;
@@ -266,9 +277,12 @@ impl Exchange for Bingx {
     }
 
     /// REST `quote/trades?symbol=&limit=1000`: только последние сделки (запроса по номеру нет): годны номера `lo..=hi`, что ещё в окне ответа; старше — потеряны.
-    fn trade_page(&self, symbol: &str, lo: i64, hi: i64) -> Option<Result<TradePage, String>> {
-        let url = format!("{REST}/trades?symbol={symbol}&limit={TRADES_PAGE}");
-        Some(http_get_json_ua(&url, Some(UA)).and_then(|v| parse_trades_page(&v, lo, hi)))
+    fn trade_page(&self, q: &PageReq<'_>) -> Option<Result<TradePage, RestError>> {
+        let url = format!("{REST}/trades?symbol={}&limit={TRADES_PAGE}", q.symbol);
+        Some(
+            http_get_rest(&url, Some(UA), &[])
+                .and_then(|v| parse_trades_page(&v, q.lo, q.hi).map_err(RestError::from)),
+        )
     }
 
     fn kinds(&self) -> &'static [&'static str] {

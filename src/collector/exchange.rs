@@ -128,11 +128,68 @@ pub struct RestTrade {
     pub m: bool,
 }
 
+/// Что просим у REST: номера `lo..=hi` символа и время вокруг пропуска — `t_from_ms` (сделка перед пропуском) и `t_to_ms` (сделка после), мс биржи; по времени ищет Gate (у `last_id` глубина мала).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PageReq<'a> {
+    pub symbol: &'a str,
+    pub lo: i64,
+    pub hi: i64,
+    pub t_from_ms: i64,
+    pub t_to_ms: i64,
+}
+
 /// Одна страница дозапроса: сделки внутри запрошенного диапазона и что осталось запросить (`None` — диапазон закрыт: дальше биржа ничего не отдаст).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TradePage {
     pub trades: Vec<RestTrade>,
     pub rest: Option<(i64, i64)>,
+    /// Номера `from..=to`, о которых страница отвечает целиком: каждый номер оттуда, которого нет в `trades`, у биржи отсутствует (не потеря). `None` — страница ничего не гарантирует.
+    pub covered: Option<(i64, i64)>,
+    /// Верхняя граница времени (мс биржи) для следующей страницы — у запросов по времени (Gate); `None` — не меняется.
+    pub next_to_ms: Option<i64>,
+}
+
+impl TradePage {
+    pub fn new(trades: Vec<RestTrade>, rest: Option<(i64, i64)>) -> Self {
+        Self {
+            trades,
+            rest,
+            covered: None,
+            next_to_ms: None,
+        }
+    }
+}
+
+/// Сбой REST дозапроса. `limited` — биржа отказала по частоте (HTTP 429/418, OKX `50011`): поток дозапроса встаёт целиком на это время (`Retry-After`, иначе `RATE_LIMIT_PAUSE`): продолжение после 429
+/// ведёт к бану IP (Binance 418), а бан ломает и опрос пула, и старт процесса.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RestError {
+    pub msg: String,
+    pub limited: Option<Duration>,
+}
+
+/// Пауза потока дозапроса после отказа по частоте, если биржа не назвала срок.
+pub const RATE_LIMIT_PAUSE: Duration = Duration::from_secs(60);
+
+impl RestError {
+    pub fn limited(msg: String, retry_after: Option<Duration>) -> Self {
+        Self {
+            msg,
+            limited: Some(retry_after.unwrap_or(RATE_LIMIT_PAUSE)),
+        }
+    }
+}
+
+impl From<String> for RestError {
+    fn from(msg: String) -> Self {
+        Self { msg, limited: None }
+    }
+}
+
+impl From<&str> for RestError {
+    fn from(msg: &str) -> Self {
+        Self::from(msg.to_string())
+    }
 }
 
 /// Что осталось запросить после страницы «от новых к старым» (OKX, Gate: запрос «старше номера»): страница полная и самый старый номер в ней выше `lo` — продолжать от него.
@@ -213,7 +270,7 @@ pub trait Exchange: Send + Sync {
     }
     /// Страница дозапроса потерянных сделок `lo..=hi` символа из REST (в событийный цикл не входит: зовёт отдельный поток); `None` — у биржи нет запроса по номеру,
     /// пропуск остаётся потерей.
-    fn trade_page(&self, _symbol: &str, _lo: i64, _hi: i64) -> Option<Result<TradePage, String>> {
+    fn trade_page(&self, _q: &PageReq<'_>) -> Option<Result<TradePage, RestError>> {
         None
     }
     /// Метаданные символов пула (размер контракта и т. п.) — в `pool-<день>.json` рядом с пулом; заполняется `load_pool`.

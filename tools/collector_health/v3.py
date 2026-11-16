@@ -245,8 +245,10 @@ def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
     budget = h.get("connect_budget") or {}
     storm = h.get("storm") or {}
     budget_bad = bool(budget.get("alarm"))   # занято ≥ 90 % бюджета подключений или подключения ждут места
-    # коллекторы с дозапросом считают потерей только подтверждённый и не дозапрошенный пропуск номеров сделок: паузы шардов (gaps_1h) красным не красят
-    ok = not live_bad and lost_1h == 0 and lost_ids_1h == 0 and not late_bad and (bool(bf.get("enabled")) or not ws.get("gaps_1h")) and not budget_bad
+    # коллекторы с дозапросом считают потерей сделок только подтверждённый и не дозапрошенный пропуск номеров: паузы шардов сделок красным не красят. Паузы шардов книги и mark
+    # (`gaps_1h_nontrade`) дозапрос не восстанавливает — они красят строку на всех биржах; у сборки без поля — все паузы (как раньше)
+    pause_bad = ws.get("gaps_1h_nontrade", ws.get("gaps_1h")) if bf.get("enabled") else ws.get("gaps_1h")
+    ok = not live_bad and lost_1h == 0 and lost_ids_1h == 0 and not late_bad and not pause_bad and not budget_bad
     gaps = sorted(((m, c[0]) for m, c in mins.items() if c[0] > 0), reverse=True)[:6]
     shards = h.get("shards") or []
     proc = h.get("process") or {}
@@ -261,8 +263,8 @@ def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
             "not_subscribed_top": sym.get("not_subscribed_top") or [],
             "budget": [budget.get("used"), budget.get("limit"), budget.get("waiting"), bool(budget.get("alarm"))] if budget else None,
             "storm": [bool(storm.get("on")), storm.get("episodes"), storm.get("holds"), storm.get("aborts")] if storm else None,
-            "backfill": [bf.get("ids_confirmed"), bf.get("ids_backfilled"), bf.get("ids_lost"), bf.get("open_ids")] if bf.get("enabled") else None,
-            "pause_gaps_1h": ws.get("gaps_1h"),
+            "backfill": [bf.get("ids_confirmed"), bf.get("ids_backfilled"), bf.get("ids_lost"), bf.get("open_ids"), bf.get("ids_absent", 0), bf.get("rate_limited", 0), bf.get("paused_s", 0)] if bf.get("enabled") else None,
+            "pause_gaps_1h": ws.get("gaps_1h"), "pause_gaps_nontrade_1h": ws.get("gaps_1h_nontrade"),
             "msgs_s": round(sum(s.get("msgs_10s", 0) for s in shards) / 10), "lag_in": [h.get("lag_in_ms", {}).get("p50"), h.get("lag_in_ms", {}).get("p99")],
             "ping": [ws.get("ping_ms", {}).get("p50"), ws.get("ping_ms", {}).get("max")], "cpu": proc.get("cpu_cores"),
             "log_from": min((m for m in mins), default=None) and min(mins) * MIN,
