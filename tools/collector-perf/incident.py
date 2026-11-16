@@ -57,5 +57,7 @@ print("series-minutes (потеряно мс, поздних [book,trade,mark,ra
 for ln in open(ROOT + "/series-minutes.jsonl"):
     j = json.loads(ln)
     if "t" in j and T0 - 60 <= j["t"] <= T1:
-        if j.get("lost_ms") or sum(j["late"]) or j.get("to", [0, 0]) != [0, 0]:
-            print(f"  {hm(j['t'])} lost_ms {j.get('lost_ms')} late {j['late']} таймауты {j.get('to')} gaps {j.get('gaps')}")
+        # поздняя строка потери (`lost_ids_late` / `lost_ms_late`, 16.11) несёт только `t` и эти поля — без `late` и `lost_ms`
+        late = j.get("late") or [0, 0, 0, 0]
+        if j.get("lost_ms") or j.get("lost_ids_late") or j.get("lost_ms_late") or sum(late) or j.get("to", [0, 0]) != [0, 0]:
+            print(f"  {hm(j['t'])} lost_ms {j.get('lost_ms')} late {late} таймауты {j.get('to')} gaps {j.get('gaps')} lost_ids_late {j.get('lost_ids_late')} lost_ms_late {j.get('lost_ms_late')}")
