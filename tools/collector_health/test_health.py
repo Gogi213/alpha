@@ -341,6 +341,25 @@ def test_late_series_rows_add_to_the_minute_and_color_the_bar(tmp_path):
     assert r["lost_ids_1h"] == 63 and r["lost_1h_s"] == 6.0 and not r["ok"]
     assert any(b[0] == 1 and b[7] >= 42 for b in r["bars"])
 
+def test_late_pause_rows_add_lost_ms_and_never_replace_the_minute_row(tmp_path):
+    # 16.11, происшествие 12:50: пауза шарда, закончившаяся после строки её минуты, — поздняя строка с `gaps_late` / `pause_ms_late` / `lost_ms_late`;
+    # строка без `lost_ms_late` (только `pause_ms_late`) тоже поздняя: иначе она заменила бы строку минуты нулями
+    import json as _json
+    import time
+    import v3
+    now = time.time()
+    m = int(now) // 60 - 5
+    rows = [
+        {"start": int(now) - 3600, "version": "x"},
+        {"t": m * 60, "lost_ms": 1000, "pause_ms": 1000, "lost_ids": 0, "gaps": 1, "late": [0, 0, 0, 0], "to": [0, 0]},
+        {"t": m * 60, "lost_ms_late": 1250000, "gaps_late": 10, "pause_ms_late": 1875000},
+        {"t": m * 60, "pause_ms_late": 125000, "gaps_late": 1},
+    ]
+    (tmp_path / "series-minutes.jsonl").write_text("\n".join(_json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    mins, _ = v3.read_series(str(tmp_path))
+    assert mins[m][0] == 1_251_000 and mins[m][4] == 0, mins[m]
+
+
 def _bybit_row(tmp_path, pc, ws):
     h = {"symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600}, "ws": ws}
     if pc is not None:

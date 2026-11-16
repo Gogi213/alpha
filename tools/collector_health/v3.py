@@ -45,10 +45,14 @@ def tail_lines(path, max_bytes):
     return lines[1:] if size > max_bytes else lines
 
 
+LATE_KEYS = ("lost_ids_late", "lost_ms_late", "gaps_late", "pause_ms_late")
+
+
 def read_series(root):
     """(минуты {минута: [lost_ms, late[4], to_alive, to_silent, lost_ids]}, метки запуска [(сек, версия)]). `lost_ids` — номера сделок, окончательно потерянные в минуту
-    (коллекторы с дозапросом, G-022); у прежних сборок поля нет — 0. Поздняя потеря — отдельная строка той же минуты `{"t", "lost_ids_late", "lost_ms_late"}` (итог дозапроса или
-    вердикт проверки паузы по REST приходит после строки минуты): складывается со строкой минуты (нет строки — минута запуска — создаётся пустая)."""
+    (коллекторы с дозапросом, G-022); у прежних сборок поля нет — 0. Поздняя потеря — отдельная строка той же минуты `{"t", "lost_ids_late", "lost_ms_late", "gaps_late", "pause_ms_late"}`
+    (итог дозапроса, вердикт проверки паузы по REST или конец многоминутной паузы приходят после строки минуты): складывается со строкой минуты (нет строки — минута запуска — создаётся пустая).
+    Поздняя строка — любая без `lost_ms` с одним из этих полей: иначе строка паузы без `lost_ms_late` заменила бы собой строку минуты."""
     rows, starts, late = {}, [], defaultdict(lambda: [0, 0])
     for ln in tail_lines(os.path.join(root, "series-minutes.jsonl"), 400_000):
         try:
@@ -57,7 +61,7 @@ def read_series(root):
             continue
         if "start" in v:
             starts.append((v["start"], v.get("version", "")))
-        elif "t" in v and "lost_ms" not in v and ("lost_ids_late" in v or "lost_ms_late" in v):
+        elif "t" in v and "lost_ms" not in v and any(k in v for k in LATE_KEYS):
             c = late[v["t"] // MIN]
             c[0] += v.get("lost_ms_late", 0)
             c[1] += v.get("lost_ids_late", 0)

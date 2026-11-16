@@ -55,6 +55,8 @@ pub type FetchFn<'a> = &'a dyn Fn(&PageReq<'_>) -> Option<Result<TradePage, Rest
 pub struct WorkCfg {
     pub min_call_gap: Duration,
     pub retry: Vec<Duration>,
+    /// Сколько последних сделок символа отдаёт REST (`Exchange::trade_window`): с окном очередь идёт по срокам (`GapReq::deadline_ms`), без — по порядку.
+    pub window: Option<i64>,
 }
 
 impl Default for WorkCfg {
@@ -62,6 +64,7 @@ impl Default for WorkCfg {
         Self {
             min_call_gap: MIN_CALL_GAP,
             retry: RETRY_DELAYS.to_vec(),
+            window: None,
         }
     }
 }
@@ -85,6 +88,14 @@ pub struct GapReq {
 impl GapReq {
     pub fn ids(&self) -> i64 {
         self.hi - self.lo + 1
+    }
+
+    /// Срок (мс UTC), к которому старший номер пропуска, если REST отдаёт только последние `window` сделок символа, начнёт уходить из окна: найден + (окно − номеров) / темп, где темп — номеров пропуска за его длительность
+    /// (приём последней сделки до пропуска → приём сделки после). Пропуск не меньше окна — срок уже наступил: часть уходит из окна с каждой сделкой, запрос — первым.
+    pub fn deadline_ms(&self, window: i64) -> i64 {
+        let n = self.ids().max(1);
+        let dur = (self.found_ms - self.gap_ms).max(1);
+        self.found_ms + (window - n).max(0).saturating_mul(dur) / n
     }
 }
 
@@ -114,6 +125,8 @@ pub struct IdTracker {
     syms: HashMap<u32, SymIds>,
     pending: usize,
     next_scan_ms: i64,
+    /// Через сколько мс пропуск подтверждается; 0 — `CONFIRM_MS` (`Default`).
+    confirm_ms: i64,
     /// Счётчики для отчёта: закрытые без дозапроса (пришли позже), отброшенные при переполнении, разрывы нумерации.
     pub reordered: u64,
     pub overflow: u64,
@@ -121,6 +134,14 @@ pub struct IdTracker {
 }
 
 impl IdTracker {
+    /// Трекер с подтверждением биржи (`Exchange::gap_confirm_ms`).
+    pub fn with_confirm(confirm_ms: i64) -> Self {
+        Self {
+            confirm_ms,
+            ..Self::default()
+        }
+    }
+
     pub fn pending(&self) -> usize {
         self.pending
     }
@@ -171,12 +192,17 @@ impl IdTracker {
         }
     }
 
-    /// Раз в секунду (только пока есть открытые пропуски): пропуски старше `CONFIRM_MS` — подтверждённые потери.
+    /// Раз в секунду (только пока есть открытые пропуски): пропуски старше `CONFIRM_MS` (у биржи — свой срок) — подтверждённые потери.
     pub fn scan(&mut self, now_ms: i64, shard: &str) -> Vec<GapReq> {
         if self.pending == 0 || now_ms < self.next_scan_ms {
             return Vec::new();
         }
         self.next_scan_ms = now_ms + 1000;
+        let confirm_ms = if self.confirm_ms > 0 {
+            self.confirm_ms
+        } else {
+            CONFIRM_MS
+        };
         let mut out = Vec::new();
         for s in self.syms.values_mut() {
             if s.pending.is_empty() {
@@ -184,7 +210,7 @@ impl IdTracker {
             }
             let sym = String::from_utf8_lossy(&s.sym).into_owned();
             s.pending.retain(|r| {
-                if now_ms - r.since_ms >= CONFIRM_MS {
+                if now_ms - r.since_ms >= confirm_ms {
                     out.push(GapReq {
                         shard: shard.to_string(),
                         symbol: sym.clone(),
@@ -340,6 +366,8 @@ pub struct Backfill {
 
 struct Job {
     req: GapReq,
+    /// Срок окна REST (`GapReq::deadline_ms`); `i64::MAX` — у биржи без окна (очередь по порядку).
+    deadline_ms: i64,
     attempts: usize,
     not_before: Instant,
     /// Ещё не запрошенная часть диапазона, сколько номеров уже получено, номера, о которых страницы ответили целиком (`TradePage::covered`), и границы времени следующего запроса.
@@ -351,8 +379,9 @@ struct Job {
 }
 
 impl Job {
-    fn new(req: GapReq) -> Self {
+    fn new(req: GapReq, window: Option<i64>) -> Self {
         Self {
+            deadline_ms: window.map_or(i64::MAX, |w| req.deadline_ms(w)),
             rest: Some((req.lo, req.hi)),
             attempts: 0,
             not_before: Instant::now(),
@@ -434,6 +463,7 @@ pub fn spawn(
     stop: Arc<AtomicBool>,
 ) -> Option<(Backfill, JoinHandle<()>)> {
     let seq = exch.trade_seq()?;
+    let window = exch.trade_window();
     let (tx, rx) = channel::<GapReq>();
     let stats = Arc::new(BackfillStats::default());
     let st = Arc::clone(&stats);
@@ -443,7 +473,11 @@ pub fn spawn(
         .spawn(move || {
             let mut out = OutFile::new(root, name, run_id);
             let fetch = |q: &PageReq<'_>| exch.trade_page(q);
-            work(&fetch, &WorkCfg::default(), &rx, &st, &mut out, &stop);
+            let cfg = WorkCfg {
+                window,
+                ..WorkCfg::default()
+            };
+            work(&fetch, &cfg, &rx, &st, &mut out, &stop);
         })
         .ok()?;
     Some((Backfill { tx, stats, seq }, join))
@@ -469,7 +503,7 @@ pub(crate) fn work(
     let mut paused_until: Option<Instant> = None;
     while !stop.load(Relaxed) {
         match rx.recv_timeout(Duration::from_millis(200)) {
-            Ok(req) => queue.push_back(Job::new(req)),
+            Ok(req) => queue.push_back(Job::new(req, cfg.window)),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 if queue.is_empty() {
@@ -479,7 +513,7 @@ pub(crate) fn work(
             }
         }
         while let Ok(req) = rx.try_recv() {
-            queue.push_back(Job::new(req));
+            queue.push_back(Job::new(req, cfg.window));
         }
         let now = Instant::now();
         if let Some(p) = paused_until {
@@ -488,7 +522,14 @@ pub(crate) fn work(
             }
             paused_until = None;
         }
-        let Some(pos) = queue.iter().position(|j| j.not_before <= now) else {
+        // следующим — готовый к запросу пропуск с ближайшим сроком окна (без окна сроки равны — первый по порядку, как раньше)
+        let Some(pos) = queue
+            .iter()
+            .enumerate()
+            .filter(|(_, j)| j.not_before <= now)
+            .min_by_key(|(i, j)| (j.deadline_ms, *i))
+            .map(|(i, _)| i)
+        else {
             continue;
         };
         let Some(mut job) = queue.remove(pos) else {

@@ -925,6 +925,15 @@ fn run_work(
     fetch: &FetchSync,
     done: impl Fn(&BackfillStats) -> bool,
 ) -> (Arc<BackfillStats>, Vec<String>) {
+    run_work_w(reqs, fetch, done, None)
+}
+
+fn run_work_w(
+    reqs: Vec<GapReq>,
+    fetch: &FetchSync,
+    done: impl Fn(&BackfillStats) -> bool,
+    window: Option<i64>,
+) -> (Arc<BackfillStats>, Vec<String>) {
     let dir = tempfile::tempdir().unwrap();
     let (tx, rx) = channel();
     let st = Arc::new(BackfillStats::default());
@@ -933,6 +942,7 @@ fn run_work(
     let cfg = WorkCfg {
         min_call_gap: Duration::from_millis(1),
         retry: vec![Duration::from_millis(30), Duration::from_millis(30)],
+        window,
     };
     for r in reqs {
         tx.send(r).unwrap();
@@ -962,6 +972,73 @@ fn gap(lo: i64, hi: i64) -> GapReq {
         t_before_ms: 1_699_999_990_000,
         t_after_ms: 1_700_000_000_000,
     }
+}
+
+/// Происшествие 16.11 12:50 (BingX, REST отдаёт 1 000 последних сделок): очередь шла по порядку подтверждения, горячие символы (ETH, HYPE) ждали 3–6 мин и теряли номера (4 084 из 46 049).
+/// С окном очередь идёт по сроку выхода пропуска из окна: горячий символ (много номеров за короткий пропуск) — раньше спокойного, хотя подтверждён позже; без окна — по порядку, как раньше.
+#[test]
+fn a_windowed_exchange_fetches_the_gap_that_leaves_the_rest_window_first() {
+    use std::sync::atomic::Ordering::Relaxed as R;
+    let mk = |sym: &str, lo: i64, hi: i64, gap_s: i64| GapReq {
+        symbol: sym.into(),
+        lo,
+        hi,
+        gap_ms: 1_700_000_000_000 - gap_s * 1000,
+        ..gap(lo, hi)
+    };
+    // «CALM»: 100 номеров за 100 с (срок найден + 900 с), «HOT»: 100 номеров за 5 с (+ 45 с), «HUGE»: пропуск не меньше окна — срок уже наступил
+    let reqs = || {
+        vec![
+            mk("CALM", 1_000, 1_099, 100),
+            mk("HOT", 2_000, 2_099, 5),
+            mk("HUGE", 3_000, 4_199, 100),
+        ]
+    };
+    assert_eq!(reqs()[1].deadline_ms(1000), 1_700_000_000_000 + 45_000);
+    assert_eq!(reqs()[0].deadline_ms(1000), 1_700_000_000_000 + 900_000);
+    assert_eq!(reqs()[2].deadline_ms(1000), 1_700_000_000_000);
+    for (window, want) in [
+        (Some(1000), ["HUGE", "HOT", "CALM"]),
+        (None, ["CALM", "HOT", "HUGE"]),
+    ] {
+        let order = std::sync::Mutex::new(Vec::<String>::new());
+        let fetch = |q: &PageReq<'_>| {
+            order.lock().unwrap().push(q.symbol.to_string());
+            Some(Ok(TradePage::new((q.lo..=q.hi).map(trade).collect(), None)))
+        };
+        let (st, _) = run_work_w(
+            reqs(),
+            &fetch,
+            |s| s.ids_backfilled.load(R) == 100 + 100 + 1_200,
+            window,
+        );
+        assert_eq!(st.ids_lost.load(R), 0);
+        assert_eq!(*order.lock().unwrap(), want, "окно {window:?}");
+    }
+}
+
+/// Подтверждение пропуска у биржи свой срок (`Exchange::gap_confirm_ms`): BingX — 2 с вместо 10 с; трекер по умолчанию — `CONFIRM_MS`.
+#[test]
+fn the_id_tracker_confirms_a_gap_after_the_exchange_confirm_time() {
+    let mut t = IdTracker::with_confirm(2_000);
+    t.on_span(1, b"ETH", 10, 10, 1_000, 1_000);
+    t.on_span(1, b"ETH", 14, 14, 2_000, 2_000);
+    assert!(
+        t.scan(3_999, "trade00").is_empty(),
+        "2 с с прихода ещё не прошли"
+    );
+    let g = t.scan(5_000, "trade00");
+    assert_eq!((g.len(), g[0].lo, g[0].hi), (1, 11, 13));
+    // тот же пропуск у трекера по умолчанию ждёт `CONFIRM_MS`
+    let mut d = IdTracker::default();
+    d.on_span(1, b"ETH", 10, 10, 1_000, 1_000);
+    d.on_span(1, b"ETH", 14, 14, 2_000, 2_000);
+    assert!(d.scan(2_000 + CONFIRM_MS - 1_001, "trade00").is_empty());
+    assert_eq!(d.scan(2_000 + CONFIRM_MS, "trade00").len(), 1);
+    assert_eq!(super::bingx::Bingx.gap_confirm_ms(), 2_000);
+    assert_eq!(super::bingx::Bingx.trade_window(), Some(1000));
+    assert_eq!(Binance.gap_confirm_ms(), CONFIRM_MS);
+    assert_eq!(Binance.trade_window(), None);
 }
 
 #[test]
@@ -1878,6 +1955,102 @@ fn series_minutes_count_a_trade_pause_as_loss_only_with_a_bad_rest_verdict() {
         })
         .collect();
     assert_eq!(late, vec![(102, 4_000)]);
+}
+
+/// Происшествие 16.11 12:50 (BingX: 15 пауз по ≈ 125 с, `lost_ms` 0 во всех строках): пауза шарда кончается после записи строки её минуты начала — поздняя строка той же минуты
+/// (`lost_ms_late`, `gaps_late`, у бирж с `pause_ms` — и `pause_ms_late`), ровно один раз; пауза, кончившаяся до записи строки, поздней строки не даёт; паузы шардов сделок биржи с дозапросом в `lost_ms_late` не входят.
+#[test]
+fn a_pause_that_ends_after_its_minute_row_is_written_as_a_late_row_once() {
+    let min = 60_000i64;
+    // биржа без дозапроса и проверки REST: в `lost_ms` входят все паузы
+    let dir = tempfile::tempdir().unwrap();
+    let book = ShardMetrics::new("book00", 0, 64, 16);
+    let trade = ShardMetrics::new("trade00", 0, 64, 16);
+    let shards = [Arc::clone(&book), Arc::clone(&trade)];
+    let mut w = super::series::SeriesWriter::open(dir.path(), 100 * min + 5_000, "abc1234");
+    // пауза минуты 101 кончилась до записи строки — в строке
+    book.lists()
+        .gap_spans
+        .push_back((101 * min + 10_000, 3_000));
+    w.flush(&shards, 103 * min + 10_000);
+    let rows = series_rows(&w);
+    assert_eq!(rows[0]["lost_ms"], 3_000);
+    assert!(rows.iter().all(|r| r.get("lost_ms_late").is_none()));
+    // многоминутная пауза минуты 102 кончилась позже (строка минуты 102 записана с lost_ms 0)
+    book.lists()
+        .gap_spans
+        .push_back((102 * min + 9_000, 125_000));
+    trade
+        .lists()
+        .gap_spans
+        .push_back((102 * min + 9_000, 120_000));
+    w.flush(&shards, 103 * min + 20_000);
+    w.flush(&shards, 103 * min + 30_000);
+    let late: Vec<serde_json::Value> = series_rows(&w)
+        .into_iter()
+        .filter(|r| r.get("lost_ms_late").is_some())
+        .collect();
+    assert_eq!(late.len(), 1, "одна строка на минуту, ровно один раз");
+    assert_eq!(
+        (
+            late[0]["t"].as_i64(),
+            late[0]["lost_ms_late"].as_i64(),
+            late[0]["gaps_late"].as_i64()
+        ),
+        (Some(102 * 60), Some(245_000), Some(2))
+    );
+    assert!(
+        late[0].get("pause_ms_late").is_none(),
+        "у биржи без `pause_ms` поля нет"
+    );
+    // пауза в минуте запуска (строки у минуты нет) — тоже поздней строкой
+    book.lists()
+        .gap_spans
+        .push_back((100 * min + 40_000, 7_000));
+    w.flush(&shards, 104 * min + 1_000);
+    assert!(series_rows(&w)
+        .iter()
+        .any(|r| r["t"] == 100 * 60 && r["lost_ms_late"] == 7_000 && r["gaps_late"] == 1));
+
+    // биржа с дозапросом: паузы шардов сделок — в `pause_ms_late`, в `lost_ms_late` — только книга и mark
+    let dir = tempfile::tempdir().unwrap();
+    let book = ShardMetrics::new("book00", 0, 64, 16);
+    let trade = ShardMetrics::new("trade00", 0, 64, 16);
+    let shards = [Arc::clone(&book), Arc::clone(&trade)];
+    let mut w = super::series::SeriesWriter::open(dir.path(), 100 * min + 5_000, "abc1234");
+    w.set_backfill(Arc::new(BackfillStats::default()));
+    w.flush(&shards, 103 * min + 10_000);
+    trade
+        .lists()
+        .gap_spans
+        .push_back((102 * min + 9_000, 125_000));
+    w.flush(&shards, 103 * min + 20_000);
+    let r = series_rows(&w)
+        .into_iter()
+        .find(|r| r.get("gaps_late").is_some())
+        .unwrap();
+    assert_eq!(
+        (
+            r["lost_ms_late"].as_i64(),
+            r["pause_ms_late"].as_i64(),
+            r["gaps_late"].as_i64()
+        ),
+        (Some(0), Some(125_000), Some(1)),
+        "пауза шарда сделок не потеря: номера возвращает REST; `lost_ms_late` есть всегда (прежняя страница узнаёт по нему поздние строки)"
+    );
+    book.lists()
+        .gap_spans
+        .push_back((102 * min + 11_000, 125_000));
+    w.flush(&shards, 103 * min + 30_000);
+    let r = series_rows(&w)
+        .into_iter()
+        .filter(|r| r.get("gaps_late").is_some())
+        .nth(1)
+        .unwrap();
+    assert_eq!(
+        (r["lost_ms_late"].as_i64(), r["pause_ms_late"].as_i64()),
+        (Some(125_000), Some(125_000))
+    );
 }
 
 /// Повторная проверка 16.11, п. 7 (Binance `over_cap` [book00] 08:23: оценка 2 068 > потолка 1 800): шард выше потолка новых символов не получает, пачка новых символов открывает один

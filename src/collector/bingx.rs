@@ -28,6 +28,9 @@ const PATH: &str = "/swap-market";
 const UA: &str = "alpha-collector/bingx";
 /// Страница REST `quote/trades` (максимум биржи 1000).
 const TRADES_PAGE: usize = 1000;
+/// Подтверждение пропуска номеров сделок (мс): перестановки линий закрываются за ≤ 0,71 с (замер 16.11: 10 464 пропущенных номера за 54 мин до происшествия, ни один — позже 0,71 с),
+/// 2 с — 2,8 запаса; назначаемое (решение — Судье).
+const BINGX_CONFIRM_MS: i64 = 2_000;
 
 /// Ответ `quote/trades` → страница дозапроса `lo..=hi` (порядок в ответе не по номерам; дальше назад запросить нельзя — `rest = None`).
 pub(crate) fn parse_trades_page(
@@ -270,6 +273,16 @@ impl Exchange for Bingx {
     /// Номер сделки BingX `t` сплошной по символу (проверка 16.11: 2,67 млн записей, 1 подтверждённый пропуск в 1 номер).
     fn trade_seq(&self) -> Option<TradeSeq> {
         Some(TradeSeq::A)
+    }
+
+    /// REST видит только последние `TRADES_PAGE` сделок символа: у горячих символов окно уходит за минуты (происшествие 16.11 12:50: из 46 049 номеров 4 084 потеряны в очереди, `bfwindow.py`).
+    fn trade_window(&self) -> Option<i64> {
+        Some(i64::try_from(TRADES_PAGE).unwrap_or(1000))
+    }
+
+    /// Подтверждение пропуска — `BINGX_CONFIRM_MS` вместо 10 с: чем раньше запрос, тем больше номеров ещё в окне REST.
+    fn gap_confirm_ms(&self) -> i64 {
+        BINGX_CONFIRM_MS
     }
 
     fn name(&self) -> &'static str {

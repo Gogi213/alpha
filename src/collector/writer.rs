@@ -570,7 +570,8 @@ impl ShardWriter {
 
     /// Включить поиск пропусков номеров сделок: подтверждённые идут в поток дозапроса (`backfill::spawn`).
     pub fn set_backfill(&mut self, b: super::backfill::Backfill) {
-        self.core.tracker = Some((super::backfill::IdTracker::default(), b));
+        let confirm_ms = self.exch.gap_confirm_ms();
+        self.core.tracker = Some((super::backfill::IdTracker::with_confirm(confirm_ms), b));
     }
 
     /// Сортировать пачку такта по `rx` (стабильно): при ядерных метках запись из двух линий в одной пачке берётся с меньшей меткой.

@@ -6,6 +6,8 @@
 //! У бирж с дозапросом сделок (`backfill`) пауза шарда сделок не потеря — сделки возвращает REST, потеря видна по номерам: `lost_ids` — окончательно потерянные номера по минуте пропуска,
 //! `pause_ms` — паузы всех шардов, `lost_ms` — только паузы шардов книги и mark (их ничем не восстановить: красные, как раньше).
 //! Потеря, итог которой пришёл после записи строки минуты (итог дозапроса, вердикт проверки паузы REST), — отдельная строка той же минуты `{"t":…,"lost_ids_late":n,"lost_ms_late":мс}`: страница добавляет её к минуте.
+//! Пауза шарда, закончившаяся после записи строки её минуты начала (многоминутная: строка минуты пишется один раз, до конца паузы), — та же поздняя строка с полями
+//! `gaps_late` (число), `lost_ms_late` (мс, что вошли бы в `lost_ms` строки) и `pause_ms_late` (мс всех пауз; только у бирж с `pause_ms` в строке).
 //! Метка запуска: `{"start":<сек>,"version":"<хеш коммита>"}` — рестарт виден на оси без разбора `events`.
 //! Минута без строки — процесса не было (нет журнала). Неполная минута запуска и остановки не пишется.
 
@@ -67,13 +69,20 @@ pub fn minute_row(shards: &[Arc<ShardMetrics>], minute: i64) -> MinuteRow {
 /// Минут, для которых помнится учтённое в записанной строке: потеря, дошедшая позже, пишется отдельной строкой (3 часа — с запасом на очередь и повторы дозапроса).
 const BOOKED_MIN: usize = 180;
 
-/// Что уже учтено в записанной строке минуты.
+/// Что уже учтено в записанной строке минуты (и в её поздних строках).
 #[derive(Debug)]
 struct Booked {
     minute: i64,
     ids: u64,
     ms: i64,
+    /// паузы шардов, начавшиеся в минуте: число, мс в `lost_ms`, мс всех пауз
+    gaps: u64,
+    gap_lost_ms: i64,
+    gap_ms: i64,
 }
+
+/// Паузы шардов по минуте начала: (число, мс в `lost_ms` строки, мс всех пауз).
+type GapTotals = (u64, i64, i64);
 
 pub struct SeriesWriter {
     path: PathBuf,
@@ -123,6 +132,9 @@ impl SeriesWriter {
                 minute: last,
                 ids: 0,
                 ms: 0,
+                gaps: 0,
+                gap_lost_ms: 0,
+                gap_ms: 0,
             })
             .collect(),
             seen: (0, 0),
@@ -162,36 +174,98 @@ impl SeriesWriter {
         )
     }
 
-    /// Итог дозапроса и вердикт проверки паузы приходят после строки минуты (она пишется один раз, по завершении минуты): разница с учтённым в строке — отдельной строкой той же минуты
-    /// `{"t": <минута потери>, "lost_ids_late": n, "lost_ms_late": мс}` (Н1 повторной проверки); страница добавляет её к столбику минуты.
-    fn late_rows(&mut self) {
+    /// В строке минуты есть `pause_ms` (биржа с дозапросом или проверкой REST): в `lost_ms` паузы шардов сделок не входят.
+    fn split_pause(&self) -> bool {
+        self.backfill.is_some() || self.pause_check.is_some()
+    }
+
+    /// Паузы шардов, начавшиеся в минутах `from..=to`, по минуте начала — как их считает `minute_row`. Паузы одного шарда не пересекаются и лежат по началу, поэтому обход с конца кончается на первой более ранней минуте.
+    fn gap_totals(
+        &self,
+        shards: &[Arc<ShardMetrics>],
+        from: i64,
+        to: i64,
+    ) -> std::collections::HashMap<i64, GapTotals> {
+        let split = self.split_pause();
+        let mut out: std::collections::HashMap<i64, GapTotals> = std::collections::HashMap::new();
+        for m in shards {
+            let counts_as_loss = !(split && super::livepool::kind_of(&m.name) == "trade");
+            let l = m.lists();
+            for &(t, ms) in l.gap_spans.iter().rev() {
+                let minute = t.div_euclid(MIN_MS);
+                if minute < from {
+                    break;
+                }
+                if minute > to {
+                    continue;
+                }
+                let e = out.entry(minute).or_default();
+                e.0 += 1;
+                if counts_as_loss {
+                    e.1 += ms;
+                }
+                e.2 += ms;
+            }
+        }
+        out
+    }
+
+    /// Итог дозапроса, вердикт проверки паузы и конец многоминутной паузы приходят после строки минуты (она пишется один раз, по завершении минуты): разница с учтённым в строке — отдельной строкой той же минуты
+    /// `{"t": <минута потери>, "lost_ids_late": n, "lost_ms_late": мс, "gaps_late": n, "pause_ms_late": мс}` (Н1 повторной проверки; паузы шардов — 16.11, происшествие 12:50); страница добавляет её к столбику минуты.
+    /// `lost_ms_late` есть в строке паузы всегда (даже 0): прежняя страница узнаёт поздние строки по нему и не заменит ими строку минуты.
+    fn late_rows(&mut self, shards: &[Arc<ShardMetrics>]) {
         let now = (
             self.backfill.as_ref().map_or(0, |b| b.lost_events()),
             self.pause_check.as_ref().map_or(0, |p| p.bad_events()),
         );
-        if now == self.seen {
-            return;
-        }
+        let losses_changed = now != self.seen;
         self.seen = now;
+        let (Some(first), Some(last)) = (
+            self.booked.front().map(|b| b.minute),
+            self.booked.back().map(|b| b.minute),
+        ) else {
+            return;
+        };
+        let gaps = self.gap_totals(shards, first, last);
+        let split = self.split_pause();
         let minutes: Vec<i64> = self.booked.iter().map(|b| b.minute).collect();
         for (i, minute) in minutes.into_iter().enumerate() {
-            let (ids, ms) = self.losses(minute);
+            let (ids, ms) = if losses_changed {
+                self.losses(minute)
+            } else {
+                (0, 0)
+            };
+            let g = gaps.get(&minute).copied().unwrap_or_default();
             let Some(b) = self.booked.get_mut(i) else {
                 continue;
             };
             let (d_ids, d_ms) = (ids.saturating_sub(b.ids), (ms - b.ms).max(0));
-            if d_ids == 0 && d_ms == 0 {
+            let (d_gaps, d_lost, d_pause) = (
+                g.0.saturating_sub(b.gaps),
+                (g.1 - b.gap_lost_ms).max(0),
+                (g.2 - b.gap_ms).max(0),
+            );
+            if d_ids == 0 && d_ms == 0 && d_gaps == 0 {
                 continue;
             }
             b.ids = b.ids.max(ids);
             b.ms = b.ms.max(ms);
+            b.gaps = b.gaps.max(g.0);
+            b.gap_lost_ms = b.gap_lost_ms.max(g.1);
+            b.gap_ms = b.gap_ms.max(g.2);
             let mut row = serde_json::Map::new();
             row.insert("t".into(), json!(minute * 60));
             if d_ids > 0 {
                 row.insert("lost_ids_late".into(), json!(d_ids));
             }
-            if d_ms > 0 {
-                row.insert("lost_ms_late".into(), json!(d_ms));
+            if d_ms + d_lost > 0 || d_gaps > 0 {
+                row.insert("lost_ms_late".into(), json!(d_ms + d_lost));
+            }
+            if d_gaps > 0 {
+                row.insert("gaps_late".into(), json!(d_gaps));
+                if split {
+                    row.insert("pause_ms_late".into(), json!(d_pause));
+                }
             }
             self.line(&serde_json::Value::Object(row).to_string());
         }
@@ -199,7 +273,7 @@ impl SeriesWriter {
 
     /// Дописать завершённые минуты до `now_ms` (текущая минута неполная — не пишется).
     pub fn flush(&mut self, shards: &[Arc<ShardMetrics>], now_ms: i64) {
-        self.late_rows();
+        self.late_rows(shards);
         let cur = now_ms.div_euclid(MIN_MS);
         while self.last + 1 < cur {
             self.last += 1;
@@ -221,10 +295,18 @@ impl SeriesWriter {
             }
             .to_string();
             self.line(&s);
+            let split = self.split_pause();
             self.booked.push_back(Booked {
                 minute: self.last,
                 ids: lost_ids,
                 ms: bad_trade_ms,
+                gaps: r.gaps,
+                gap_lost_ms: if split {
+                    r.lost_ms - r.trade_ms
+                } else {
+                    r.lost_ms
+                },
+                gap_ms: r.lost_ms,
             });
             while self.booked.len() > BOOKED_MIN {
                 self.booked.pop_front();
