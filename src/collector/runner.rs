@@ -363,6 +363,9 @@ fn health_json(
     if let (Some((r, _)), Some(o)) = (reactor, v.as_object_mut()) {
         o.insert("reactor".to_string(), r.stats.json());
     }
+    if let Some(o) = v.as_object_mut() {
+        o.insert("gzip".to_string(), super::gzip::stats_json());
+    }
     v
 }
 

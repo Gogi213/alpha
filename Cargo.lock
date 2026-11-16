@@ -26,6 +26,7 @@ dependencies = [
  "chrono",
  "clap",
  "corosensei",
+ "crc32fast",
  "csv",
  "flate2",
  "futures",

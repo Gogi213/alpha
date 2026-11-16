@@ -1,0 +1,8 @@
+/data/tk580/abrep2.py:8: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  day0 = datetime.datetime.utcfromtimestamp(ss("A", "t1")["ts"]).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+== P0 quiet: 100 s, host idle 70.7% steal 3.21% nice 3.0%
+  Nice 0 : frames/s 1763, on-CPU 9.1%, runq wait 1.6 ms/s, wakeups/s 99, involuntary switches/s 1.2, queue_lag_p99 median 11.1 p90 12.4 max 12.9 (n 70)
+  Nice -10: frames/s 1761, on-CPU 9.1%, runq wait 1.8 ms/s, wakeups/s 99, involuntary switches/s 1.3, queue_lag_p99 median 11.1 p90 13.7 max 19.2 (n 70)
+== P1 load: 101 s, host idle 0.2% steal 6.81% nice 66.8%
+  Nice 0 : frames/s 1751, on-CPU 6.2%, runq wait 80.5 ms/s, wakeups/s 107, involuntary switches/s 19.1, queue_lag_p99 median 12.2 p90 20.7 max 22.8 (n 63)
+  Nice -10: frames/s 1928, on-CPU 6.0%, runq wait 85.2 ms/s, wakeups/s 105, involuntary switches/s 16.7, queue_lag_p99 median 14.0 p90 21.2 max 30.0 (n 70)

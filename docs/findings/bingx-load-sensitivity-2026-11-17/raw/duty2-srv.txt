@@ -1,0 +1,12 @@
+no hogs, unpinned         run1: mean 10794 ns, book p50 1235 ns, 1.313 GHz
+no hogs, unpinned         run2: mean 12178 ns, book p50 1309 ns, 1.422 GHz
+   host idle 12.92 nice 60.06 sys 8.83
+8 hogs (cpu0-7), unpinned run1: mean 8288 ns, book p50 988 ns, 1.568 GHz
+8 hogs (cpu0-7), unpinned run2: mean 8791 ns, book p50 989 ns, 1.462 GHz
+   host idle 0.00 nice 60.53 sys 17.84
+8 hogs (cpu0-7), bench->7 run1: mean 9754 ns, book p50 1120 ns, 1.637 GHz
+8 hogs (cpu0-7), bench->7 run2: mean 7851 ns, book p50 1008 ns, 1.569 GHz
+   host idle 0.00 nice 63.17 sys 15.88
+7 hogs (cpu0-6), bench->7 reserved run1: mean 10383 ns, book p50 1164 ns, 1.720 GHz
+7 hogs (cpu0-6), bench->7 reserved run2: mean 12401 ns, book p50 1180 ns, 1.396 GHz
+   host idle 0.46 nice 63.14 sys 13.96

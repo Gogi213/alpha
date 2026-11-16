@@ -1,0 +1,150 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 18K of event 'cycles:P'
+# Event count (approx.): 21863773149
+#
+# Overhead  Command          Shared Object         Symbol                                                                                                                                                                                                                                               
+# ........  ...............  ....................  .....................................................................................................................................................................................................................................................
+#
+    18.13%  rx-reactor       alpha-collect-bingx   [.] build_decode_table.constprop.1
+     6.79%  rx-reactor       alpha-collect-bingx   [.] deflate_decompress_bmi2
+     1.63%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::scan::parse_object
+     1.51%  rx-reactor       libc.so.6             [.] 0x000000000016be13
+     1.43%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::reactor::run
+     1.39%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::writer::ShardWriter::step
+     1.34%  rx-reactor       [kernel.kallsyms]     [k] entry_SYSRETQ_unsafe_stack
+     1.33%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::scan::Cur::nested
+     1.28%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::scan::Cur::value
+     1.26%  rx-reactor       alpha-collect-bingx   [.] <alpha::collector::writer::Sink as alpha::collector::exchange::Out>::rec
+     0.91%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::codec::Encoder::record
+     0.84%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::ring::RingTx::push
+     0.78%  rx-reactor       alpha-collect-bingx   [.] build_decode_table.constprop.0
+     0.71%  rx-reactor       libc.so.6             [.] malloc
+     0.69%  rx-reactor       alpha-collect-bingx   [.] rustls::conn::ConnectionCore<Data>::process_new_packets
+     0.67%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::session::Rx::deliver
+     0.61%  rx-reactor       alpha-collect-bingx   [.] hashbrown::rustc_entry::<impl hashbrown::map::HashMap<K,V,S,A>>::rustc_entry
+     0.59%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::scan::slots
+     0.59%  rx-reactor       [kernel.kallsyms]     [k] rep_movs_alternative
+     0.58%  rx-reactor       [kernel.kallsyms]     [k] entry_SYSCALL_64
+     0.58%  rx-reactor       alpha-collect-bingx   [.] hashbrown::map::HashMap<K,V,S,A>::get_mut
+     0.57%  rx-reactor       [kernel.kallsyms]     [k] syscall_return_via_sysret
+     0.55%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::bingx::trades
+     0.54%  rx-reactor       alpha-collect-bingx   [.] _aesni_ctr32_ghash_6x
+     0.53%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::ring::RingRx::take
+     0.51%  sk-book03        alpha-collect-bingx   [.] ZSTD_compressBlock_fast_extDict_generic.constprop.0
+     0.50%  rx-reactor       alpha-collect-bingx   [.] tungstenite::protocol::frame::FrameCodec::read_frame
+     0.49%  rx-reactor       libc.so.6             [.] 0x000000000016ae39
+     0.48%  rx-reactor       alpha-collect-bingx   [.] rustls::conn::ConnectionCommon<Data>::complete_io
+     0.47%  sk-book01        alpha-collect-bingx   [.] ZSTD_compressBlock_fast_extDict_generic.constprop.0
+     0.47%  rx-reactor       alpha-collect-bingx   [.] tungstenite::protocol::frame::frame::FrameHeader::parse_internal
+     0.44%  rx-reactor       alpha-collect-bingx   [.] crc32_x86_pclmulqdq_avx
+     0.44%  rx-reactor       alpha-collect-bingx   [.] bytes::bytes_mut::shared_v_drop
+     0.44%  rx-reactor       alpha-collect-bingx   [.] <alpha::collector::net::RxSock as std::io::Read>::read
+     0.44%  rx-reactor       alpha-collect-bingx   [.] tungstenite::protocol::WebSocketContext::read
+     0.43%  sk-book04        alpha-collect-bingx   [.] ZSTD_compressBlock_fast_extDict_generic.constprop.0
+     0.42%  rx-reactor       alpha-collect-bingx   [.] <rustls::crypto::ring::tls13::Tls13MessageDecrypter as rustls::crypto::cipher::MessageDecrypter>::decrypt
+     0.42%  sk-book02        alpha-collect-bingx   [.] ZSTD_compressBlock_fast_extDict_generic.constprop.0
+     0.41%  sk-book00        alpha-collect-bingx   [.] ZSTD_compressBlock_fast_extDict_generic.constprop.0
+     0.39%  rx-reactor       alpha-collect-bingx   [.] <alpha::collector::bingx::BingxParser as alpha::collector::exchange::Parser>::parse
+     0.39%  rx-reactor       [kernel.kallsyms]     [k] fdget
+     0.37%  rx-reactor       alpha-collect-bingx   [.] ring_core_0_17_14__gcm_ghash_avx
+     0.36%  rx-reactor       [kernel.kallsyms]     [k] aa_sk_perm
+     0.35%  rx-reactor       alpha-collect-bingx   [.] ring_core_0_17_14__aes_hw_ctr32_encrypt_blocks
+     0.33%  rx-reactor       [vdso]                [.] 0x0000000000000d9e
+     0.32%  rx-reactor       alpha-collect-bingx   [.] <rustls::stream::Stream<C,T> as std::io::Read>::read
+     0.30%  rx-reactor       libc.so.6             [.] 0x000000000016b2c0
+     0.29%  rx-reactor       [kernel.kallsyms]     [k] __tcp_transmit_skb
+     0.29%  rx-reactor       [kernel.kallsyms]     [k] pvclock_clocksource_read_nowd
+     0.27%  rx-reactor       [kernel.kallsyms]     [k] __check_object_size
+     0.27%  rx-reactor       [kernel.kallsyms]     [k] __irqentry_text_end
+     0.27%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::session::Rx::message
+     0.27%  rx-reactor       [kernel.kallsyms]     [k] tcp_recvmsg_locked
+     0.26%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::scan::Val::int
+     0.26%  rx-reactor       [kernel.kallsyms]     [k] start_xmit
+     0.25%  rx-reactor       [kernel.kallsyms]     [k] clear_page_erms
+     0.25%  rx-reactor       [kernel.kallsyms]     [k] iowrite16
+     0.24%  rx-reactor       [kernel.kallsyms]     [k] __raw_callee_save___pv_queued_spin_unlock
+     0.24%  rx-reactor       [kernel.kallsyms]     [k] kvm_clock_get_cycles
+     0.24%  rx-reactor       [kernel.kallsyms]     [k] __irqentry_text_start
+     0.23%  rx-reactor       [kernel.kallsyms]     [k] ____sys_recvmsg
+     0.23%  rx-reactor       libc.so.6             [.] cfree
+     0.21%  rx-reactor       [kernel.kallsyms]     [k] virtqueue_add_split
+     0.21%  rx-reactor       alpha-collect-bingx   [.] _RNvCsdBezzDwma51_7___rustc12___rust_alloc
+     0.20%  rx-reactor       [kernel.kallsyms]     [k] futex_wake
+     0.20%  rx-reactor       alpha-collect-bingx   [.] rustls::record_layer::RecordLayer::decrypt_incoming
+     0.20%  rx-reactor       alpha-collect-bingx   [.] rustls::msgs::message::outbound::read_opaque_message_header
+     0.20%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::bingx::book
+     0.20%  rx-reactor       [kernel.kallsyms]     [k] put_cmsg
+     0.20%  rx-reactor       alpha-collect-bingx   [.] rustls::msgs::deframer::buffers::DeframerVecBuffer::read
+     0.19%  rx-reactor       libc.so.6             [.] clock_gettime
+     0.19%  rx-reactor       alpha-collect-bingx   [.] <rustls::msgs::deframer::DeframerIter as core::iter::traits::iterator::Iterator>::next
+     0.19%  rx-reactor       [kernel.kallsyms]     [k] kmem_cache_alloc_node_noprof
+     0.18%  rx-reactor       alpha-collect-bingx   [.] ring::aead::aes_gcm::aeshwclmulmovbe::open
+     0.18%  rx-reactor       [kernel.kallsyms]     [k] ip_finish_output2
+     0.18%  rx-reactor       [kernel.kallsyms]     [k] do_syscall_64
+     0.17%  rx-reactor       libc.so.6             [.] 0x000000000016bd8d
+     0.17%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::net::sys::skip_stamped
+     0.17%  rx-reactor       alpha-collect-bingx   [.] ring::aead::algorithm::aes_gcm_open
+     0.17%  rx-reactor       [kernel.kallsyms]     [k] timerqueue_add
+     0.17%  rx-reactor       [kernel.kallsyms]     [k] _raw_spin_lock
+     0.17%  rx-reactor       [kernel.kallsyms]     [k] memset_orig
+     0.17%  rx-reactor       libc.so.6             [.] 0x000000000016b2cd
+     0.17%  rx-reactor       [kernel.kallsyms]     [k] net_rx_action
+     0.17%  rx-reactor       [kernel.kallsyms]     [k] tcp_recvmsg
+     0.17%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::gzip::Gunzip::unpack
+     0.16%  rx-reactor       [kernel.kallsyms]     [k] virtqueue_get_buf_ctx_split
+     0.16%  rx-reactor       [kernel.kallsyms]     [k] sock_poll
+     0.16%  rx-reactor       [kernel.kallsyms]     [k] __dev_queue_xmit
+     0.16%  rx-reactor       alpha-collect-bingx   [.] <alpha::collector::bingx::Bingx as alpha::collector::exchange::Exchange>::symbol
+     0.15%  rx-reactor       [kernel.kallsyms]     [k] __pv_queued_spin_lock_slowpath
+     0.15%  rx-reactor       alpha-collect-bingx   [.] bytes::bytes_mut::BytesMut::split_to
+     0.15%  rx-reactor       alpha-collect-bingx   [.] core::ptr::drop_in_place<rustls::error::Error>
+     0.15%  rx-reactor       [kernel.kallsyms]     [k] nft_do_chain
+     0.14%  rx-reactor       [kernel.kallsyms]     [k] __mod_memcg_state
+     0.14%  rx-reactor       [kernel.kallsyms]     [k] ktime_get
+     0.14%  rx-reactor       [kernel.kallsyms]     [k] __sys_recvmsg
+     0.14%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::session::Rx::tick
+     0.14%  rx-reactor       [kernel.kallsyms]     [k] receive_buf
+     0.14%  rx-reactor       alpha-collect-bingx   [.] ring::aead::aes_gcm::open
+     0.13%  rx-reactor       alpha-collect-bingx   [.] rustls::common_state::CommonState::take_received_plaintext
+     0.13%  rx-reactor       [kernel.kallsyms]     [k] __sk_dst_check
+     0.13%  rx-reactor       alpha-collect-bingx   [.] _ZN71_$LT$core..hash..sip..Hasher$LT$S$GT$$u20$as$u20$core..hash..Hasher$GT$5write17h43acea0cc0e24e64E.llvm.15952371007539179670
+     0.13%  rx-reactor       [kernel.kallsyms]     [k] x64_sys_call
+     0.13%  rx-reactor       libc.so.6             [.] 0x000000000016b3fb
+     0.13%  rx-reactor       [kernel.kallsyms]     [k] sched_balance_update_blocked_averages
+     0.13%  rx-reactor       alpha-collect-bingx   [.] core::hash::BuildHasher::hash_one
+     0.12%  rx-reactor       alpha-collect-bingx   [.] ring_core_0_17_14__aesni_gcm_decrypt
+     0.12%  rx-reactor       libc.so.6             [.] 0x000000000016b442
+     0.12%  rx-reactor       [kernel.kallsyms]     [k] native_apic_msr_eoi
+     0.12%  rx-reactor       [kernel.kallsyms]     [k] tcp_recv_timestamp
+     0.12%  rx-reactor       [kernel.kallsyms]     [k] ep_poll_callback
+     0.12%  rx-reactor       [kernel.kallsyms]     [k] __alloc_skb
+     0.12%  rx-reactor       libc.so.6             [.] 0x000000000016b3ab
+     0.12%  rx-reactor       [kernel.kallsyms]     [k] kfree
+     0.12%  rx-reactor       [kernel.kallsyms]     [k] copy_msghdr_from_user
+     0.12%  rx-reactor       [kernel.kallsyms]     [k] __skb_datagram_iter
+     0.11%  rx-reactor       libc.so.6             [.] 0x000000000016ae20
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] tcp_established_options
+     0.11%  rx-reactor       alpha-collect-bingx   [.] rustls::vecbuf::ChunkVecBuffer::is_full
+     0.11%  rx-reactor       alpha-collect-bingx   [.] std::time::SystemTime::duration_since
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] hook_file_ioctl
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] tcp_rcv_established
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] ep_item_poll.isra.0
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] ___sys_recvmsg
+     0.11%  rx-reactor       alpha-collect-bingx   [.] std::sys::pal::unix::time::Timespec::sub_timespec
+     0.11%  rx-reactor       libc.so.6             [.] recvmsg
+     0.11%  rx-reactor       alpha-collect-bingx   [.] <rustls::msgs::message::Message as core::convert::TryFrom<rustls::msgs::message::inbound::InboundPlainMessage>>::try_from
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] __virt_addr_valid
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] __put_user_nocheck_4
+     0.11%  rx-reactor       [kernel.kallsyms]     [k] entry_SYSCALL_64_safe_stack
+     0.11%  rx-reactor       alpha-collect-bingx   [.] rustls::vecbuf::ChunkVecBuffer::read
+     0.10%  rx-reactor       alpha-collect-bingx   [.] ring::cpu::intel::featureflags::get_or_init
+     0.10%  rx-reactor       [kernel.kallsyms]     [k] __list_del_entry_valid_or_report
+     0.10%  rx-reactor       alpha-collect-bingx   [.] rustls::common_state::CommonState::current_io_state
+     0.10%  rx-reactor       alpha-collect-bingx   [.] <tungstenite::protocol::frame::coding::OpCode as core::convert::From<u8>>::from
+     0.10%  rx-reactor       libc.so.6             [.] 0x000000000016aea0
+     0.10%  rx-reactor       alpha-collect-bingx   [.] rustls::conn::InboundUnborrowedMessage::reborrow
+     0.10%  rx-reactor       alpha-collect-bingx   [.] alpha::collector::scan::slots

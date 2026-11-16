@@ -4,6 +4,7 @@ use clap::Subcommand;
 
 use super::bench::{run as bench_run, BenchArgs};
 use super::compare::{run as compare_run, stamp_err, CompareArgs, StampErrArgs};
+use super::gzbench::{run as gzbench_run, GzBenchArgs};
 use super::ladder::{run as ladder_run, LadderArgs};
 use super::replay::{run as replay_run, ReplayArgs};
 use super::runner::{run, RunArgs};
@@ -19,6 +20,8 @@ pub enum CollectCommand {
     Ladder(LadderArgs),
     /// Замеры на малом: разбор, кодировщик, очередь, zstd (выбор архитектуры).
     Bench(BenchArgs),
+    /// Стенд разжатия gzip-кадров BingX на записанных кадрах биржи: ns/кадр декодеров, загрязнение кэша, фоновая нагрузка (TK-580).
+    Gzbench(GzBenchArgs),
     /// Повтор записанных кадров (`capture-<шард>.tsv`) через настоящий писатель: CPU на миллион кадров, хеш содержимого (G-022 collector-perf).
     Replay(ReplayArgs),
     /// Сравнение двух каталогов вывода (бок о бок): записи без rx, содержимое, распределение rx_b − rx_a.
@@ -33,6 +36,7 @@ pub fn dispatch(cmd: CollectCommand) -> anyhow::Result<()> {
         CollectCommand::Synth(a) => synth_run(&a),
         CollectCommand::Ladder(a) => ladder_run(&a),
         CollectCommand::Replay(a) => replay_run(&a),
+        CollectCommand::Gzbench(a) => gzbench_run(&a),
         CollectCommand::Stamperr(a) => {
             stamp_err(&a);
             Ok(())

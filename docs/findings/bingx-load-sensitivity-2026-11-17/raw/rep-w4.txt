@@ -1,0 +1,12 @@
+== P0 quiet: 81 s, host idle 75.8% steal 1.87% nice 0.2% sys 4.3%
+  old  Nice 0 : frames/s 1267, on-CPU 6.9%, runq wait 0.7 ms/s, wakeups/s 98, involuntary sw/s 0.6, queue_lag_p99 median 10.9 p90 28.9 max 153.6 (n 40)
+  new  Nice 0 : frames/s 1272, on-CPU 6.3%, runq wait 0.7 ms/s, wakeups/s 99, involuntary sw/s 0.5, queue_lag_p99 median 10.6 p90 11.6 max 14.7 (n 40)
+  new  Nice -10: frames/s 1268, on-CPU 6.6%, runq wait 0.6 ms/s, wakeups/s 99, involuntary sw/s 0.7, queue_lag_p99 median 10.6 p90 12.4 max 14.2 (n 35)
+== P1 syscall storm nice19: 81 s, host idle 10.6% steal 1.35% nice 44.1% sys 30.0%
+  old  Nice 0 : frames/s 1420, on-CPU 6.8%, runq wait 46.5 ms/s, wakeups/s 109, involuntary sw/s 15.3, queue_lag_p99 median 12.9 p90 22.8 max 58.9 (n 40)
+  new  Nice 0 : frames/s 1266, on-CPU 6.0%, runq wait 42.7 ms/s, wakeups/s 108, involuntary sw/s 13.0, queue_lag_p99 median 11.6 p90 14.0 max 14.0 (n 37)
+  new  Nice -10: frames/s 1263, on-CPU 6.0%, runq wait 45.5 ms/s, wakeups/s 109, involuntary sw/s 13.8, queue_lag_p99 median 12.4 p90 21.8 max 23.8 (n 40)
+== P2 page-fault storm nice19: 81 s, host idle 9.5% steal 1.75% nice 12.3% sys 61.8%
+  old  Nice 0 : frames/s 1266, on-CPU 6.9%, runq wait 53.6 ms/s, wakeups/s 108, involuntary sw/s 15.1, queue_lag_p99 median 15.2 p90 58.9 max 58.9 (n 40)
+  new  Nice 0 : frames/s 1266, on-CPU 6.3%, runq wait 53.2 ms/s, wakeups/s 108, involuntary sw/s 13.8, queue_lag_p99 median 14.0 p90 17.2 max 17.7 (n 38)
+  new  Nice -10: frames/s 1265, on-CPU 6.1%, runq wait 52.6 ms/s, wakeups/s 107, involuntary sw/s 12.7, queue_lag_p99 median 13.4 p90 39.4 max 39.4 (n 40)

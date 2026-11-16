@@ -1,0 +1,16 @@
+no hogs, unpinned run1: mean 4796 ns, 2.587 GHz
+no hogs, unpinned run2: mean 4565 ns, 2.604 GHz
+no hogs, unpinned run3: mean 4809 ns, 2.614 GHz
+   host idle 90.7% (vmstat)
+4 hogs on cpu0-3, bench unpinned run1: mean 4731 ns, 2.407 GHz
+4 hogs on cpu0-3, bench unpinned run2: mean 4776 ns, 2.409 GHz
+4 hogs on cpu0-3, bench unpinned run3: mean 5090 ns, 2.283 GHz
+   host idle 6.9% (vmstat)
+4 hogs on cpu0-3, bench pinned to 3 run1: mean 5002 ns, 2.498 GHz
+4 hogs on cpu0-3, bench pinned to 3 run2: mean 4810 ns, 2.516 GHz
+4 hogs on cpu0-3, bench pinned to 3 run3: mean 4902 ns, 2.542 GHz
+   host idle 6.9% (vmstat)
+3 hogs on cpu0-2, bench pinned to 3 (reserved) run1: mean 4990 ns, 2.433 GHz
+3 hogs on cpu0-2, bench pinned to 3 (reserved) run2: mean 5197 ns, 2.518 GHz
+3 hogs on cpu0-2, bench pinned to 3 (reserved) run3: mean 4773 ns, 2.573 GHz
+   host idle 20.5% (vmstat)

@@ -1,0 +1,25 @@
+== duty 0us sleep 0us
+libdeflate  все: средн    4627 p50   5154 p90   5626 p99  14538 нс | book p50   5220 | trade p50   5369 | mark p50    602
+           2098.56 msec task-clock                       #    0.996 CPUs utilized             
+        5314962337      cycles                           #    2.533 GHz                       
+        9044065666      instructions                     #    1.70  insn per cycle            
+       2.108012223 seconds time elapsed
+== duty 4000us sleep 6000us
+libdeflate  все: средн    4931 p50   5217 p90   5856 p99  15237 нс | book p50   5303 | trade p50   5494 | mark p50    611
+           2160.12 msec task-clock                       #    0.414 CPUs utilized             
+        5404274281      cycles                           #    2.502 GHz                       
+        9053647117      instructions                     #    1.68  insn per cycle            
+       5.221798821 seconds time elapsed
+== duty 0us sleep 0us
+libdeflate  все: средн    4534 p50   5160 p90   5498 p99  12015 нс | book p50   5225 | trade p50   5365 | mark p50    590
+           2068.04 msec task-clock                       #    0.993 CPUs utilized             
+        5218862767      cycles                           #    2.524 GHz                       
+        9041109700      instructions                     #    1.73  insn per cycle            
+       2.081688391 seconds time elapsed
+== duty 4000us sleep 6000us
+libdeflate  все: средн    4639 p50   5180 p90   5629 p99  15450 нс | book p50   5251 | trade p50   5420 | mark p50    603
+           2118.52 msec task-clock                       #    0.422 CPUs utilized             
+        5405372851      cycles                           #    2.551 GHz                       
+        9048335410      instructions                     #    1.67  insn per cycle            
+       5.017242838 seconds time elapsed
+/opt/alpha-compute/tk580/duty.sh: line 9: mpstat: command not found

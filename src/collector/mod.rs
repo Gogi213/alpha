@@ -36,10 +36,12 @@ pub mod events;
 pub mod exchange;
 pub mod fresh;
 pub mod gate;
+pub mod gzbench;
 pub mod gzip;
 pub mod hash;
 pub mod health;
 pub mod hostinfo;
+pub mod inflate;
 pub mod ladder;
 pub mod livepool;
 pub mod metrics;
@@ -73,6 +75,8 @@ pub const VERSION: &str = match option_env!("ALPHA_COMMIT") {
 mod tests;
 #[cfg(test)]
 mod tests_followups;
+#[cfg(test)]
+mod tests_gzip;
 #[cfg(test)]
 mod tests_perf;
 #[cfg(test)]
