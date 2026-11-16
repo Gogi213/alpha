@@ -78,6 +78,8 @@ mod tests_followups;
 #[cfg(test)]
 mod tests_gzip;
 #[cfg(test)]
+mod tests_gzip_review;
+#[cfg(test)]
 mod tests_perf;
 #[cfg(test)]
 mod tests_pool;
