@@ -171,7 +171,10 @@ fn weights_fall_back_to_turnover_times_measured_rate_per_dollar() {
         .into();
     let w = Weights::new(rates, &qv);
     assert_eq!(w.weight("book", "AUSDT"), 100.0);
-    assert!((w.weight("book", "CUSDT") - 200.0).abs() < 1e-9, "оборот × 1e-4 кадров/с на $");
+    assert!(
+        (w.weight("book", "CUSDT") - 200.0).abs() < 1e-9,
+        "оборот × 1e-4 кадров/с на $"
+    );
     assert!(w.measured("book") && !w.measured("trade"));
     // без измерений — условные единицы: оборот в млн $, порядок сохраняется
     let w = Weights::new(Rates::default(), &qv);
@@ -208,7 +211,11 @@ fn spread_plans_put_the_heaviest_symbols_on_different_shards_and_keep_every_stre
         v.sort();
         v
     };
-    assert_eq!(all(&out), all(&plans), "ни один поток не потерян и не удвоен");
+    assert_eq!(
+        all(&out),
+        all(&plans),
+        "ни один поток не потерян и не удвоен"
+    );
     for (a, b) in out.iter().zip(&plans) {
         assert_eq!((&a.name, &a.endpoint), (&b.name, &b.endpoint));
         assert!(a.streams.len() <= 20, "{}: {}", a.name, a.streams.len());
@@ -240,14 +247,22 @@ fn a_new_symbol_goes_to_the_lightest_shard_and_a_shard_over_the_cap_is_not_fille
     let ops = layout.add_symbol(&exch, "ZZZUSDT");
     assert_eq!(layout.slots()[book_slot(&ops).unwrap()].name, "book01");
     // все шарды книги выше потолка Binance (1 800 кадров/с) с новым тяжёлым символом — открывается новый шард, занятый не набивается
-    let mut r = rates_of("book", &[("AAAUSDT", 1_500.0), ("AABUSDT", 1_400.0), ("YYYUSDT", 1_000.0)]);
+    let mut r = rates_of(
+        "book",
+        &[
+            ("AAAUSDT", 1_500.0),
+            ("AABUSDT", 1_400.0),
+            ("YYYUSDT", 1_000.0),
+        ],
+    );
     for s in names(30) {
         r.set("book", &s.to_lowercase(), 100.0);
     }
     layout.set_weights(Weights::new(r, &BTreeMap::new()));
     let ops = layout.add_symbol(&exch, "YYYUSDT");
     assert!(
-        ops.iter().any(|o| matches!(o, Op::Spawn { plan, .. } if plan.name == "book02")),
+        ops.iter()
+            .any(|o| matches!(o, Op::Spawn { plan, .. } if plan.name == "book02")),
         "{ops:?}"
     );
 }
@@ -275,9 +290,14 @@ fn without_weights_placement_is_the_old_least_streams_rule() {
 #[test]
 fn saved_state_round_trips_and_keeps_only_symbols_still_inside_the_hold() {
     let dir = tempfile::tempdir().unwrap();
-    let marks: BTreeMap<String, i64> = [("AUSDT", 1_000), ("BUSDT", 50_000_000), ("OLDUSDT", 100), ("GONEUSDT", 49_000_000)]
-        .map(|(s, t)| (s.to_string(), t))
-        .into();
+    let marks: BTreeMap<String, i64> = [
+        ("AUSDT", 1_000),
+        ("BUSDT", 50_000_000),
+        ("OLDUSDT", 100),
+        ("GONEUSDT", 49_000_000),
+    ]
+    .map(|(s, t)| (s.to_string(), t))
+    .into();
     SavedState::save(
         dir.path(),
         60_000_000,
@@ -310,7 +330,11 @@ fn restart_seeded_with_a_held_symbol_does_not_shorten_its_hold() {
     let pool = vec!["AUSDT".to_string(), "HELDUSDT".to_string()];
     let mut st = PoolState::seeded(&pool, 50_000_000, 300_000.0, 0, 86_400, &held);
     assert_eq!(st.marks().get("AUSDT"), Some(&50_000_000));
-    assert_eq!(st.marks().get("HELDUSDT"), Some(&1_000), "метка прежнего запуска, не момент старта");
+    assert_eq!(
+        st.marks().get("HELDUSDT"),
+        Some(&1_000),
+        "метка прежнего запуска, не момент старта"
+    );
     // оборот HELD под порогом, с метки прошло > 24 ч: символ снимается сразу, а не ещё через сутки
     let qv: BTreeMap<String, f64> = [("AUSDT", 1e6), ("HELDUSDT", 1e3)]
         .map(|(s, v)| (s.to_string(), v))
@@ -378,10 +402,18 @@ fn in_a_storm_a_shard_gets_one_probe_replacement_and_then_holds_its_old_line() {
     let probe = Cap::new(1, storm::PROBE_PERIOD);
     let s = Storm::default();
     let now = Instant::now();
-    assert_eq!(storm::gate(Some(&s), &probe, now), StormGate::Open, "режим выключен");
+    assert_eq!(
+        storm::gate(Some(&s), &probe, now),
+        StormGate::Open,
+        "режим выключен"
+    );
     assert_eq!(storm::gate(None, &probe, now), StormGate::Open);
     s.evaluate(5, 6, 0);
-    assert_eq!(storm::gate(Some(&s), &probe, now), StormGate::Open, "пробная");
+    assert_eq!(
+        storm::gate(Some(&s), &probe, now),
+        StormGate::Open,
+        "пробная"
+    );
     assert_eq!(storm::gate(Some(&s), &probe, now), StormGate::Hold);
     assert_eq!(
         storm::gate(Some(&s), &probe, now + Duration::from_secs(10)),
@@ -442,7 +474,10 @@ fn reordered_ids_are_not_a_gap_but_a_missing_range_is_confirmed_after_the_window
     // настоящий пропуск 106..108
     t.on_span(0, b"BTCUSDT", 104, 105, 1_000);
     t.on_span(0, b"BTCUSDT", 109, 110, 2_000);
-    assert!(t.scan(2_000 + CONFIRM_MS - 1_001, "trade00").is_empty(), "ещё не подтверждён");
+    assert!(
+        t.scan(2_000 + CONFIRM_MS - 1_001, "trade00").is_empty(),
+        "ещё не подтверждён"
+    );
     let g = t.scan(2_000 + CONFIRM_MS, "trade00");
     assert_eq!(
         g,
@@ -482,7 +517,11 @@ fn a_numbering_jump_and_a_pending_overflow_are_counted_not_tracked() {
     let mut t = IdTracker::default();
     t.on_span(0, b"X", 1, 1, 0);
     t.on_span(0, b"X", 10_000_000, 10_000_000, 1);
-    assert_eq!((t.pending(), t.jumps), (0, 1), "разрыв нумерации — не потеря");
+    assert_eq!(
+        (t.pending(), t.jumps),
+        (0, 1),
+        "разрыв нумерации — не потеря"
+    );
     let mut id = 10_000_000;
     for _ in 0..(MAX_PENDING_PER_SYMBOL + 3) {
         id += 2;
@@ -514,7 +553,10 @@ fn binance_agg_trades_page_keeps_the_requested_range_and_asks_for_more_only_afte
             m: false
         }]
     );
-    assert_eq!(p.rest, None, "страница короче максимума — дальше номеров нет");
+    assert_eq!(
+        p.rest, None,
+        "страница короче максимума — дальше номеров нет"
+    );
     // полная страница, диапазон не закрыт — продолжать от следующего номера
     let full: Vec<_> = (0..1000)
         .map(|i| json!({"a": 100 + i, "p": "1", "q": "1", "f": i, "l": i, "T": 1, "m": true}))
@@ -531,17 +573,29 @@ fn okx_gate_and_bingx_pages_parse_real_responses() {
         {"instId": "BTC-USDT-SWAP", "tradeId": "3086834322", "px": "64831.5", "sz": "2.1", "side": "buy", "ts": "1794802151904", "source": "0"}]});
     let p = super::okx::parse_history_page(&okx, 3086834322, 3086834323).unwrap();
     assert_eq!(p.trades.len(), 2);
-    assert!(p.trades[0].m && !p.trades[1].m, "sell — покупатель мейкер, как в записи ws");
-    assert_eq!((p.trades[0].p.as_str(), p.trades[0].q.as_str()), ("64831.5", "0.45"));
+    assert!(
+        p.trades[0].m && !p.trades[1].m,
+        "sell — покупатель мейкер, как в записи ws"
+    );
+    assert_eq!(
+        (p.trades[0].p.as_str(), p.trades[0].q.as_str()),
+        ("64831.5", "0.45")
+    );
     assert_eq!(p.rest, None);
-    assert!(super::okx::parse_history_page(&json!({"code": "50011", "msg": "Rate limit"}), 1, 2).is_err());
+    assert!(
+        super::okx::parse_history_page(&json!({"code": "50011", "msg": "Rate limit"}), 1, 2)
+            .is_err()
+    );
 
     let gate = json!([
         {"id": 40019879, "contract": "AKE_USDT", "create_time": 1794802149.414, "create_time_ms": 1794802149.414, "size": "-3", "price": "0.0093552"},
         {"id": 40019878, "contract": "AKE_USDT", "create_time": 1794802145.414, "create_time_ms": 1794802145.414, "size": "2", "price": "0.0093473"}]);
     let p = super::gate::parse_trades_page(&gate, 40019878, 40019879).unwrap();
     assert_eq!(p.trades.len(), 2);
-    assert_eq!((p.trades[0].q.as_str(), p.trades[0].m, p.trades[0].t_ms), ("3", true, 1794802149414));
+    assert_eq!(
+        (p.trades[0].q.as_str(), p.trades[0].m, p.trades[0].t_ms),
+        ("3", true, 1794802149414)
+    );
     assert_eq!((p.trades[1].q.as_str(), p.trades[1].m), ("2", false));
 
     let bingx = json!({"code": 0, "msg": "", "data": [
@@ -549,7 +603,11 @@ fn okx_gate_and_bingx_pages_parse_real_responses() {
         {"time": 1794802011333i64, "isBuyerMaker": true, "price": "64903.9", "qty": "0.0003", "quoteQty": "19.47", "fillId": "762054343", "ts": 1794802011333i64},
         {"time": 1794802011533i64, "isBuyerMaker": true, "price": "64903.9", "qty": "0.0011", "quoteQty": "71.39", "fillId": "762054345", "ts": 1794802011533i64}]});
     let p = super::bingx::parse_trades_page(&bingx, 762054344, 762054345).unwrap();
-    assert_eq!(p.trades.iter().map(|t| t.id).collect::<Vec<_>>(), vec![762054344, 762054345], "по возрастанию номера, диапазон соблюдён");
+    assert_eq!(
+        p.trades.iter().map(|t| t.id).collect::<Vec<_>>(),
+        vec![762054344, 762054345],
+        "по возрастанию номера, диапазон соблюдён"
+    );
     assert_eq!(p.rest, None, "дальше назад запросить нельзя");
 
     // страница «от новых к старым»: продолжать, если полная и самый старый выше нижней границы
@@ -566,7 +624,10 @@ fn read_backfill_file(root: &std::path::Path) -> Vec<String> {
     for day in std::fs::read_dir(root).unwrap().flatten() {
         for f in std::fs::read_dir(day.path()).unwrap().flatten() {
             let name = f.file_name().to_string_lossy().into_owned();
-            assert!(name.starts_with("backfill-binance-7"), "отдельный файл с пометкой: {name}");
+            assert!(
+                name.starts_with("backfill-binance-7"),
+                "отдельный файл с пометкой: {name}"
+            );
             let z = std::fs::read(f.path()).unwrap();
             // кадры дописываются по пачке: читать через границы кадров
             let text = String::from_utf8(zstd::stream::decode_all(&z[..]).unwrap()).unwrap();
@@ -588,9 +649,11 @@ fn trade(id: i64) -> RestTrade {
     }
 }
 
+type FetchSync = dyn Fn(&str, i64, i64) -> Option<Result<TradePage, String>> + Sync;
+
 fn run_work(
     reqs: Vec<GapReq>,
-    fetch: &(dyn Fn(&str, i64, i64) -> Option<Result<TradePage, String>> + Sync),
+    fetch: &FetchSync,
     done: impl Fn(&BackfillStats) -> bool,
 ) -> (Arc<BackfillStats>, Vec<String>) {
     let dir = tempfile::tempdir().unwrap();
@@ -647,23 +710,51 @@ fn backfill_writes_rest_trades_to_its_own_marked_file_and_counts_what_is_still_l
     assert_eq!(st.ids_lost.load(R), 2);
     assert_eq!(st.trades_written.load(R), 3);
     assert_eq!(st.lost_between(0, i64::MAX / 2), 2);
-    assert!(lines[0].starts_with("rh\t") && lines[0].contains("not websocket data"), "{}", lines[0]);
+    assert!(
+        lines[0].starts_with("rh\t") && lines[0].contains("not websocket data"),
+        "{}",
+        lines[0]
+    );
     let rt: Vec<&String> = lines.iter().filter(|l| l.starts_with("rt\t")).collect();
     assert_eq!(rt.len(), 3);
     let f: Vec<&str> = rt[0].split('\t').collect();
-    assert_eq!(&f[2..], ["ETHUSDT", "10", "1700000000010", "1.5", "2", "10", "10", "1", "10", "14"]);
+    assert_eq!(
+        &f[2..],
+        [
+            "ETHUSDT",
+            "10",
+            "1700000000010",
+            "1.5",
+            "2",
+            "10",
+            "10",
+            "1",
+            "10",
+            "14"
+        ]
+    );
     let rg = lines.iter().find(|l| l.starts_with("rg\t")).unwrap();
     let f: Vec<&str> = rg.split('\t').collect();
-    assert_eq!((f[2], f[3], f[4], f[6], f[7], f[9]), ("ETHUSDT", "10", "14", "3", "partial", "trade02"));
+    assert_eq!(
+        (f[2], f[3], f[4], f[6], f[7], f[9]),
+        ("ETHUSDT", "10", "14", "3", "partial", "trade02")
+    );
     let j = st.json(true, 0);
-    assert_eq!((j["ids_backfilled"].as_i64(), j["ids_lost"].as_i64(), j["open_ids"].as_i64()), (Some(3), Some(2), Some(0)));
+    assert_eq!(
+        (
+            j["ids_backfilled"].as_i64(),
+            j["ids_lost"].as_i64(),
+            j["open_ids"].as_i64()
+        ),
+        (Some(3), Some(2), Some(0))
+    );
 }
 
 #[test]
 fn backfill_pages_through_a_range_and_retries_a_rest_error() {
     use std::sync::atomic::Ordering::Relaxed as R;
     let calls = std::sync::atomic::AtomicUsize::new(0);
-    let fetch = |_: &str, lo: i64, hi: i64| {
+    let fetch = move |_: &str, lo: i64, hi: i64| {
         let n = calls.fetch_add(1, R);
         match n {
             0 => Some(Err("HTTP 429".to_string())),
@@ -683,7 +774,9 @@ fn backfill_pages_through_a_range_and_retries_a_rest_error() {
     assert_eq!((st.ids_backfilled.load(R), st.ids_lost.load(R)), (6, 0));
     assert_eq!(st.rest_errors.load(R), 1);
     assert_eq!(st.rest_requests.load(R), 3);
-    assert!(lines.iter().any(|l| l.starts_with("rg\t") && l.contains("\tok\t")));
+    assert!(lines
+        .iter()
+        .any(|l| l.starts_with("rg\t") && l.contains("\tok\t")));
 }
 
 #[test]
@@ -703,7 +796,11 @@ fn backfill_gives_up_after_the_retries_and_marks_unsupported_and_too_large_gaps_
     assert_eq!(st.ids_backfilled.load(R), 0);
     assert_eq!(st.ids_lost.load(R), 200_007);
     assert_eq!(st.rest_errors.load(R), 3, "первая попытка и два повтора");
-    let status = |s: &str| lines.iter().any(|l| l.starts_with("rg\t") && l.contains(&format!("\t{s}\t")));
+    let status = |s: &str| {
+        lines
+            .iter()
+            .any(|l| l.starts_with("rg\t") && l.contains(&format!("\t{s}\t")))
+    };
     assert!(status("failed") && status("unsupported") && status("too_large"));
 }
 
@@ -737,7 +834,8 @@ fn the_writer_requests_a_backfill_only_for_a_trade_id_gap_that_stays_open_after_
         block_max: 4096,
         clock,
     };
-    let mut w = super::writer::ShardWriter::new(cfg, Arc::new(Binance), Arc::clone(&metrics), stx, rx);
+    let mut w =
+        super::writer::ShardWriter::new(cfg, Arc::new(Binance), Arc::clone(&metrics), stx, rx);
     let (btx, brx) = channel();
     let stats = Arc::new(BackfillStats::default());
     w.set_backfill(super::backfill::Backfill {
@@ -769,7 +867,9 @@ fn the_writer_requests_a_backfill_only_for_a_trade_id_gap_that_stays_open_after_
     w.step(&mut scratch);
     let got: Vec<GapReq> = brx.try_iter().collect();
     assert_eq!(
-        got.iter().map(|g| (g.symbol.as_str(), g.lo, g.hi, g.shard.as_str())).collect::<Vec<_>>(),
+        got.iter()
+            .map(|g| (g.symbol.as_str(), g.lo, g.hi, g.shard.as_str()))
+            .collect::<Vec<_>>(),
         vec![("BTCUSDT", 3, 3, "trade00"), ("BTCUSDT", 5, 5, "trade00")]
     );
     assert_eq!(stats.gaps_confirmed.load(Relaxed), 2);
@@ -799,11 +899,19 @@ fn series_minutes_count_loss_only_from_confirmed_unrecovered_ids_when_backfill_i
         .collect();
     assert_eq!(rows.len(), 3);
     assert_eq!(
-        (rows[0]["lost_ms"].as_i64(), rows[0]["pause_ms"].as_i64(), rows[0]["lost_ids"].as_i64()),
+        (
+            rows[0]["lost_ms"].as_i64(),
+            rows[0]["pause_ms"].as_i64(),
+            rows[0]["lost_ids"].as_i64()
+        ),
         (Some(3_500), Some(3_500), Some(8_081))
     );
     assert_eq!(
-        (rows[1]["lost_ms"].as_i64(), rows[1]["pause_ms"].as_i64(), rows[1]["lost_ids"].as_i64()),
+        (
+            rows[1]["lost_ms"].as_i64(),
+            rows[1]["pause_ms"].as_i64(),
+            rows[1]["lost_ids"].as_i64()
+        ),
         (Some(0), Some(4_000), Some(0)),
         "пауза без потери номеров — не потеря"
     );

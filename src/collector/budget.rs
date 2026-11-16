@@ -238,7 +238,9 @@ impl Budget {
                         self.waits.fetch_add(1, Relaxed);
                         self.waiting.fetch_add(1, Relaxed);
                     }
-                    std::thread::sleep(w.min(Duration::from_millis(500)) + Duration::from_millis(10));
+                    std::thread::sleep(
+                        w.min(Duration::from_millis(500)) + Duration::from_millis(10),
+                    );
                 }
             }
         };

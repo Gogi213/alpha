@@ -30,14 +30,28 @@ const UA: &str = "alpha-collector/bingx";
 const TRADES_PAGE: usize = 1000;
 
 /// Ответ `quote/trades` → страница дозапроса `lo..=hi` (порядок в ответе не по номерам; дальше назад запросить нельзя — `rest = None`).
-pub(crate) fn parse_trades_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<TradePage, String> {
+pub(crate) fn parse_trades_page(
+    v: &serde_json::Value,
+    lo: i64,
+    hi: i64,
+) -> Result<TradePage, String> {
     if v.get("code").and_then(serde_json::Value::as_i64) != Some(0) {
-        return Err(format!("quote/trades: {}", v.to_string().chars().take(160).collect::<String>()));
+        return Err(format!(
+            "quote/trades: {}",
+            v.to_string().chars().take(160).collect::<String>()
+        ));
     }
-    let arr = v.get("data").and_then(serde_json::Value::as_array).ok_or("quote/trades: no data")?;
+    let arr = v
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("quote/trades: no data")?;
     let mut trades = Vec::new();
     for x in arr {
-        let id: i64 = x.get("fillId").and_then(serde_json::Value::as_str).and_then(|s| s.parse().ok()).ok_or("quote/trades: fillId")?;
+        let id: i64 = x
+            .get("fillId")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| s.parse().ok())
+            .ok_or("quote/trades: fillId")?;
         if id < lo || id > hi {
             continue;
         }
@@ -49,12 +63,17 @@ pub(crate) fn parse_trades_page(v: &serde_json::Value, lo: i64, hi: i64) -> Resu
         };
         trades.push(RestTrade {
             id,
-            t_ms: x.get("time").and_then(serde_json::Value::as_i64).ok_or("quote/trades: no time")?,
+            t_ms: x
+                .get("time")
+                .and_then(serde_json::Value::as_i64)
+                .ok_or("quote/trades: no time")?,
             p: text("price")?,
             q: text("qty")?,
             f: id,
             l: id,
-            m: x.get("isBuyerMaker").and_then(serde_json::Value::as_bool).ok_or("quote/trades: no isBuyerMaker")?,
+            m: x.get("isBuyerMaker")
+                .and_then(serde_json::Value::as_bool)
+                .ok_or("quote/trades: no isBuyerMaker")?,
         });
     }
     trades.sort_by_key(|t| t.id);

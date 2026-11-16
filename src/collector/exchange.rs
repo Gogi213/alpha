@@ -136,7 +136,12 @@ pub struct TradePage {
 }
 
 /// Что осталось запросить после страницы «от новых к старым» (OKX, Gate: запрос «старше номера»): страница полная и самый старый номер в ней выше `lo` — продолжать от него.
-pub fn next_range_desc(raw_len: usize, limit: usize, oldest: Option<i64>, lo: i64) -> Option<(i64, i64)> {
+pub fn next_range_desc(
+    raw_len: usize,
+    limit: usize,
+    oldest: Option<i64>,
+    lo: i64,
+) -> Option<(i64, i64)> {
     match oldest {
         Some(o) if raw_len >= limit && o > lo => Some((lo, o - 1)),
         _ => None,
@@ -208,12 +213,7 @@ pub trait Exchange: Send + Sync {
     }
     /// Страница дозапроса потерянных сделок `lo..=hi` символа из REST (в событийный цикл не входит: зовёт отдельный поток); `None` — у биржи нет запроса по номеру,
     /// пропуск остаётся потерей.
-    fn trade_page(
-        &self,
-        _symbol: &str,
-        _lo: i64,
-        _hi: i64,
-    ) -> Option<Result<TradePage, String>> {
+    fn trade_page(&self, _symbol: &str, _lo: i64, _hi: i64) -> Option<Result<TradePage, String>> {
         None
     }
     /// Метаданные символов пула (размер контракта и т. п.) — в `pool-<день>.json` рядом с пулом; заполняется `load_pool`.

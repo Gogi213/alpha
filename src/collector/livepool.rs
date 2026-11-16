@@ -550,10 +550,11 @@ pub fn spread_plans(
             if free.contains(&kind) || sp.streams.is_empty() {
                 continue;
             }
-            items
-                .entry(kind.to_string())
-                .or_default()
-                .push((w.weight(kind, sym), sym.clone(), sp.streams));
+            items.entry(kind.to_string()).or_default().push((
+                w.weight(kind, sym),
+                sym.clone(),
+                sp.streams,
+            ));
         }
     }
     struct Bin {

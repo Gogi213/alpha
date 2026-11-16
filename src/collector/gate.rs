@@ -32,23 +32,44 @@ const UA: &str = "alpha-collector/gate";
 const TRADES_PAGE: usize = 1000;
 
 /// Ответ `trades` → страница дозапроса `lo..=hi`: `size` со знаком (минус — продажа, как в записи ws `m`), в файл — модуль строкой; время — секунды с долей.
-pub(crate) fn parse_trades_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<TradePage, String> {
-    let arr = v.as_array().ok_or_else(|| format!("trades: not an array: {}", v.to_string().chars().take(160).collect::<String>()))?;
+pub(crate) fn parse_trades_page(
+    v: &serde_json::Value,
+    lo: i64,
+    hi: i64,
+) -> Result<TradePage, String> {
+    let arr = v.as_array().ok_or_else(|| {
+        format!(
+            "trades: not an array: {}",
+            v.to_string().chars().take(160).collect::<String>()
+        )
+    })?;
     let (mut trades, mut oldest) = (Vec::new(), None::<i64>);
     for x in arr {
-        let id = x.get("id").and_then(serde_json::Value::as_i64).ok_or("trades: no id")?;
+        let id = x
+            .get("id")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or("trades: no id")?;
         oldest = Some(oldest.map_or(id, |o| o.min(id)));
         if id < lo || id > hi {
             continue;
         }
-        let size = x.get("size").and_then(serde_json::Value::as_str).ok_or("trades: no size")?;
-        let secs = x.get("create_time_ms").and_then(serde_json::Value::as_f64).ok_or("trades: no create_time_ms")?;
+        let size = x
+            .get("size")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("trades: no size")?;
+        let secs = x
+            .get("create_time_ms")
+            .and_then(serde_json::Value::as_f64)
+            .ok_or("trades: no create_time_ms")?;
         #[allow(clippy::cast_possible_truncation)]
         let t_ms = (secs * 1000.0).round() as i64;
         trades.push(RestTrade {
             id,
             t_ms,
-            p: x.get("price").and_then(serde_json::Value::as_str).ok_or("trades: no price")?.to_string(),
+            p: x.get("price")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("trades: no price")?
+                .to_string(),
             q: size.trim_start_matches('-').to_string(),
             f: id,
             l: id,

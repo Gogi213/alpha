@@ -612,10 +612,13 @@ impl ShardWriter {
         }
         if let Some((ids, b)) = self.core.tracker.as_mut() {
             for g in ids.scan(now_ns.div_euclid(NS_PER_MS), &self.core.cfg.shard) {
-                b.stats.gaps_confirmed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 b.stats
-                    .ids_confirmed
-                    .fetch_add(u64::try_from(g.ids()).unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+                    .gaps_confirmed
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                b.stats.ids_confirmed.fetch_add(
+                    u64::try_from(g.ids()).unwrap_or(0),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 let _ = b.tx.send(g);
             }
         }

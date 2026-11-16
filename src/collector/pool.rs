@@ -71,10 +71,7 @@ pub fn http_get_json_with(
         for (k, v) in headers {
             req = req.header(*k, *v);
         }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("{url}: {e}"))?;
+        let resp = req.send().await.map_err(|e| format!("{url}: {e}"))?;
         if !resp.status().is_success() {
             return Err(format!("{url}: HTTP {}", resp.status()));
         }

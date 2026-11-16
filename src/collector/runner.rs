@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use clap::{Args, ValueEnum};
 use serde_json::json;
 
+use super::backfill;
 use super::binance::Binance;
 use super::bingx::Bingx;
 use super::budget::{Budget, LIMIT, WINDOW};
@@ -32,10 +33,9 @@ use super::net;
 use super::okx::Okx;
 use super::reactor::{spawn_reactor, spawn_reactor_inline, ReactorCfg};
 use super::series::SeriesWriter;
-use super::backfill;
 use super::session::StreamSet;
-use super::storm::{self, Storm};
 use super::shard::{spawn_shard, ShardHandle, ShardOpts};
+use super::storm::{self, Storm};
 use super::worker::spawn_worker;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -301,6 +301,13 @@ fn load_pool_file(path: &std::path::Path) -> Result<(Vec<String>, serde_json::Va
     Ok((pool, serde_json::Value::Object(extra)))
 }
 
+/// Разделы health, которые собирает процесс, а не шарды: бюджет подключений, режим «стоянка всей биржи», дозапрос сделок.
+struct Extras<'a> {
+    budget: &'a Budget,
+    storm: &'a Storm,
+    backfill: Option<&'a backfill::Backfill>,
+}
+
 /// health.json процесса: раздел шардов + (если есть реактор) раздел `reactor`.
 fn health_json(
     metrics: &[Arc<super::metrics::ShardMetrics>],
@@ -308,16 +315,22 @@ fn health_json(
     sampler: &mut ProcSampler,
     reactor: Option<&(super::reactor::ReactorHandle, std::thread::JoinHandle<()>)>,
     host: &mut HostInfo,
-    budget: &Budget,
-    storm: &Storm,
-    backfill: Option<&backfill::Backfill>,
+    extras: &Extras<'_>,
 ) -> serde_json::Value {
+    let Extras {
+        budget,
+        storm,
+        backfill,
+    } = *extras;
     host.refresh();
     let mut v = build(metrics, ctx, now_ms(), sampler);
     if let Some(o) = v.as_object_mut() {
         o.insert("host".to_string(), host.json());
         // тревога «бюджет подключений исчерпан» и режим «стоянка всей биржи» — на страницу здоровья
-        o.insert("connect_budget".to_string(), budget.snapshot(Instant::now()).json());
+        o.insert(
+            "connect_budget".to_string(),
+            budget.snapshot(Instant::now()).json(),
+        );
         o.insert("storm".to_string(), storm.json(now_ms()));
         o.insert(
             "backfill".to_string(),
@@ -399,7 +412,9 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                 }
                 start_qv = t.qv;
             }
-            Err(e) => println!("start turnover failed (held symbols and load weights skipped): {e}"),
+            Err(e) => {
+                println!("start turnover failed (held symbols and load weights skipped): {e}")
+            }
         }
     }
     let mut pool_json = json!({"ts_ms": now_ms(), "min_quote_volume": args.min_quote_volume, "top_excluded": top, "pool": pool,
@@ -753,9 +768,11 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                     &mut sampler,
                     reactor.as_ref(),
                     &mut host,
-                    &budget,
-                    &storm,
-                    backfill.as_ref().map(|(b, _)| b),
+                    &Extras {
+                        budget: &budget,
+                        storm: &storm,
+                        backfill: backfill.as_ref().map(|(b, _)| b),
+                    },
                 ),
             );
             series.flush(&metrics, now_ms());
@@ -765,15 +782,17 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     let _ = write_atomic(
         &health_path,
         &health_json(
-                    &metrics,
-                    &ctx,
-                    &mut sampler,
-                    reactor.as_ref(),
-                    &mut host,
-                    &budget,
-                    &storm,
-                    backfill.as_ref().map(|(b, _)| b),
-                ),
+            &metrics,
+            &ctx,
+            &mut sampler,
+            reactor.as_ref(),
+            &mut host,
+            &Extras {
+                budget: &budget,
+                storm: &storm,
+                backfill: backfill.as_ref().map(|(b, _)| b),
+            },
+        ),
     );
     series.flush(&metrics, now_ms());
     for h in handles {

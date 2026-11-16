@@ -421,7 +421,10 @@ pub fn build(
         } else {
             l.no_book(&book_seen, now_ms, ctx.book_window_ms)
         };
-        o.insert("not_subscribed".into(), json!(nb.as_ref().map(|n| n.missing)));
+        o.insert(
+            "not_subscribed".into(),
+            json!(nb.as_ref().map(|n| n.missing)),
+        );
         o.insert(
             "not_subscribed_qv_usd".into(),
             json!(nb.as_ref().map(|n| n.qv_usd.round())),
@@ -429,7 +432,11 @@ pub fn build(
         o.insert("rest_checked".into(), json!(nb.as_ref().map(|n| n.checked)));
         o.insert(
             "not_subscribed_top".into(),
-            json!(nb.map(|n| n.top.iter().map(|(s, v)| json!([s, v.round()])).collect::<Vec<_>>())),
+            json!(nb.map(|n| n
+                .top
+                .iter()
+                .map(|(s, v)| json!([s, v.round()]))
+                .collect::<Vec<_>>())),
         );
     }
     let by_class: serde_json::Map<String, Value> = p

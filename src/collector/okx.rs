@@ -31,9 +31,16 @@ const UA: &str = "alpha-collector/okx";
 const HIST_PAGE: usize = 100;
 
 /// Ответ `history-trades` → страница дозапроса `lo..=hi`: у каждой сделки свой `tradeId`; `m` — продавец-агрессор (как в записи ws).
-pub(crate) fn parse_history_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<TradePage, String> {
+pub(crate) fn parse_history_page(
+    v: &serde_json::Value,
+    lo: i64,
+    hi: i64,
+) -> Result<TradePage, String> {
     if v.get("code").and_then(serde_json::Value::as_str) != Some("0") {
-        return Err(format!("history-trades: {}", v.to_string().chars().take(160).collect::<String>()));
+        return Err(format!(
+            "history-trades: {}",
+            v.to_string().chars().take(160).collect::<String>()
+        ));
     }
     let arr = v
         .get("data")
@@ -46,7 +53,9 @@ pub(crate) fn parse_history_page(v: &serde_json::Value, lo: i64, hi: i64) -> Res
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| format!("history-trades: no {k}"))
         };
-        let id: i64 = text("tradeId")?.parse().map_err(|_| "history-trades: tradeId")?;
+        let id: i64 = text("tradeId")?
+            .parse()
+            .map_err(|_| "history-trades: tradeId")?;
         oldest = Some(oldest.map_or(id, |o| o.min(id)));
         if id < lo || id > hi {
             continue;

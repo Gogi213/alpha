@@ -232,7 +232,8 @@ impl BackfillStats {
         *self
             .last_error
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e.chars().take(200).collect());
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(e.chars().take(200).collect());
     }
 
     pub fn lost(&self, now_ms: i64, ids: u64) {
@@ -321,7 +322,10 @@ impl OutFile {
             self.file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(dir.join(format!("backfill-{}-{}.tsv.zst", self.exchange, self.run_id)))
+                .open(dir.join(format!(
+                    "backfill-{}-{}.tsv.zst",
+                    self.exchange, self.run_id
+                )))
                 .ok();
             self.day = Some(day);
             text.push_str(&format!(
@@ -430,7 +434,10 @@ pub(crate) fn work(
             continue;
         };
         if now.duration_since(last_call) < cfg.min_call_gap {
-            std::thread::sleep(cfg.min_call_gap.saturating_sub(now.duration_since(last_call)));
+            std::thread::sleep(
+                cfg.min_call_gap
+                    .saturating_sub(now.duration_since(last_call)),
+            );
         }
         last_call = Instant::now();
         st.rest_requests.fetch_add(1, Relaxed);
@@ -442,7 +449,13 @@ pub(crate) fn work(
                 write_trades(st, out, &job.req, &page.trades);
                 job.rest = page.rest.filter(|(a, b)| a <= b);
                 if job.rest.is_none() {
-                    finish(st, out, &job, status_of(job.got, ids, false), (ids - job.got).max(0));
+                    finish(
+                        st,
+                        out,
+                        &job,
+                        status_of(job.got, ids, false),
+                        (ids - job.got).max(0),
+                    );
                 } else {
                     job.not_before = Instant::now();
                     queue.push_front(job);

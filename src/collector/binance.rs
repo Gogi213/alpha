@@ -228,7 +228,9 @@ pub(crate) fn parse_agg_page(v: &serde_json::Value, lo: i64, hi: i64) -> Result<
             q: text("q")?,
             f: int("f")?,
             l: int("l")?,
-            m: x.get("m").and_then(serde_json::Value::as_bool).ok_or("aggTrades: no m")?,
+            m: x.get("m")
+                .and_then(serde_json::Value::as_bool)
+                .ok_or("aggTrades: no m")?,
         });
     }
     let rest = if arr.len() < AGG_PAGE || last >= hi {

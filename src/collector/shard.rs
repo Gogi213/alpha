@@ -498,15 +498,15 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
         let t0 = Instant::now();
         // строгая замена испорченного пути ждёт быстрый путь сколько нужно: старая сессия остаётся (медленная лучше разрыва)
         let patient = strict.is_some() && bad;
-        let storm_on = || sh.storm.as_deref().is_some_and(storm::Storm::is_on);
+        let storm_on = || !old && sh.storm.as_deref().is_some_and(storm::Storm::is_on);
         while !accepted.load(Relaxed)
             && !sh.stop.load(Relaxed)
             && (patient || t0.elapsed() < opts.switch_wait)
-            && !(storm_on() && !old)
+            && !storm_on()
         {
             thread::sleep(Duration::from_millis(100));
         }
-        if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) && !old && storm_on() {
+        if !accepted.load(Relaxed) && !sh.stop.load(Relaxed) && storm_on() {
             // режим включился, пока замена искала путь: поиск прекращается, старая линия несёт поток
             if let Some(st) = sh.storm.as_deref() {
                 st.note_abort();
