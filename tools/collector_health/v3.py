@@ -248,12 +248,15 @@ def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
     # коллекторы с дозапросом считают потерей сделок только подтверждённый и не дозапрошенный пропуск номеров: паузы шардов сделок красным не красят. Паузы шардов книги и mark
     # (`gaps_1h_nontrade`) дозапрос не восстанавливает — они красят строку на всех биржах; у сборки без поля — все паузы (как раньше)
     pause_bad = ws.get("gaps_1h_nontrade", ws.get("gaps_1h")) if bf.get("enabled") else ws.get("gaps_1h")
-    ok = not live_bad and lost_1h == 0 and lost_ids_1h == 0 and not late_bad and not pause_bad and not budget_bad
+    # итог дозапроса приходит позже строки минуты ряда (она пишется один раз): поздняя потеря в ряд не попадает. health считает номера, окончательно потерянные в
+    # пропусках за последний час, по времени пропуска на каждый снимок — красим по нему (Н1 проверки), ряд остаётся для столбиков
+    bf_lost_1h = int(bf.get("ids_lost_1h") or 0) if bf.get("enabled") else 0
+    ok = not live_bad and lost_1h == 0 and lost_ids_1h == 0 and bf_lost_1h == 0 and not late_bad and not pause_bad and not budget_bad
     gaps = sorted(((m, c[0]) for m, c in mins.items() if c[0] > 0), reverse=True)[:6]
     shards = h.get("shards") or []
     proc = h.get("process") or {}
     return {
-        "id": ex, "name": name, "ok": ok, "live_bad": live_bad, "late_bad": late_bad, "budget_bad": budget_bad, "lost_1h_s": round(lost_1h, 1), "lost_ids_1h": lost_ids_1h, "bars": bars, "restarts": restarts,
+        "id": ex, "name": name, "ok": ok, "live_bad": live_bad, "late_bad": late_bad, "budget_bad": budget_bad, "lost_1h_s": round(lost_1h, 1), "lost_ids_1h": lost_ids_1h, "backfill_lost_1h": bf_lost_1h, "bars": bars, "restarts": restarts,
         "detail": {
             "lost_24h_s": round(lost_24h, 1), "gaps": [[m * MIN, ms] for m, ms in gaps], "late_1h": late_1h, "late_24h": late_24h,
             "late_max_1h_s": max([k.get("max_1h_ms") or 0 for k in fresh.values()] or [0]) / 1000,

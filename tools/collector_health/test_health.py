@@ -297,3 +297,18 @@ def test_lost_ids_in_the_series_color_the_bar_and_the_row(tmp_path):
     r = v3.exchange_row("binance", "Binance", h, str(tmp_path), now, 0, None)
     assert r["lost_ids_1h"] == 8081 and not r["ok"]
     assert any(b[0] == 1 and b[7] == 8081 for b in r["bars"])
+
+
+def test_late_backfill_loss_from_health_turns_the_row_red_without_a_series_row(tmp_path):
+    # Н1 проверки: итог дозапроса приходит после записи минуты — в ряду потери нет, health (`ids_lost_1h`, по времени пропуска) её показывает
+    bf = {"enabled": True, "ids_confirmed": 500, "ids_backfilled": 400, "ids_absent": 0, "ids_lost": 100, "open_ids": 0, "ids_lost_1h": 100}
+    h = {"symbols": {"subscribed": 3, "with_data_1m": 3, "not_subscribed": 0, "book_window_s": 600}, "backfill": bf}
+    r = _row(tmp_path, h)
+    assert r["lost_ids_1h"] == 0 and r["backfill_lost_1h"] == 100 and not r["ok"]
+    # потеря старше часа (`ids_lost` растёт, `ids_lost_1h` = 0) строку не красит
+    assert _row(tmp_path, {**h, "backfill": {**bf, "ids_lost_1h": 0}})["ok"]
+    # дозапрос выключен или сборка без поля: не красит
+    assert _row(tmp_path, {**h, "backfill": {**bf, "enabled": False}})["ok"]
+    b2 = dict(bf)
+    b2.pop("ids_lost_1h")
+    assert _row(tmp_path, {**h, "backfill": b2})["ok"]
