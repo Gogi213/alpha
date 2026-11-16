@@ -20,7 +20,7 @@ use super::health::{build, HealthCtx, PoolHealth, ProcSampler};
 use super::livepool::{kind_of, Layout, LivePool, Op, PoolFile, PoolState};
 use super::okx::Okx;
 use super::session::StreamSet;
-use super::shard::{spawn_shard, ShardOpts};
+use super::shard::{gap_seed, spawn_shard, GapThreshold, ShardOpts};
 
 const H: i64 = 3_600_000;
 
@@ -825,6 +825,10 @@ fn binance_storm_1218_starves_dead_shards_without_the_reserve_and_not_with_it() 
     );
     // новый порядок: резерв 2 × 27 шардов и потолок отбраковок 6 на шард за 5 мин
     let (used_new, wait_new, ok_new) = storm(54, true);
+    let (used_res, wait_res, ok_res) = storm(54, false);
+    eprintln!(
+        "storm 18:12 (модель): без резерва и потолков — бюджет занят бурей {used_old}/280, оборвавшиеся линии ждут {wait_old:.1} с; резерв 54 + потолок отбраковок 6 — {used_new}/280, ожидание {wait_new:.1} с; только резерв — {used_res}/280, ожидание {wait_res:.1} с"
+    );
     assert_eq!(ok_new, 16);
     assert!(
         wait_new <= 0.2,
@@ -836,12 +840,15 @@ fn binance_storm_1218_starves_dead_shards_without_the_reserve_and_not_with_it() 
     );
     assert!(used_new < used_old);
     // резерв без потолка тоже спасает оборвавшиеся шарды (потолок — второй рубеж, не единственный)
-    let (_, wait_res, ok_res) = storm(54, false);
     assert!(ok_res == 16 && wait_res <= 0.2, "{wait_res}");
 }
 
 /// Источник кадров книги Binance: каждые 2 мс запись `u` подряд (как `spawn_tape` в tests.rs; здесь свой, чтобы модуль не зависел от приватных помощников).
-fn tape_server(listener: TcpListener, stop: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
+fn tape_server(
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         listener.set_nonblocking(true).unwrap();
         let mut conns = Vec::new();
@@ -849,12 +856,17 @@ fn tape_server(listener: TcpListener, stop: Arc<AtomicBool>) -> std::thread::Joi
             match listener.accept() {
                 Ok((s, _)) => {
                     s.set_nonblocking(false).unwrap();
-                    let stop = Arc::clone(&stop);
+                    let (stop, paused) = (Arc::clone(&stop), Arc::clone(&paused));
                     conns.push(std::thread::spawn(move || {
                         let Ok(mut ws) = tungstenite::accept(s) else { return };
                         ws.get_ref().set_read_timeout(Some(Duration::from_millis(2))).unwrap();
                         let mut u = 0i64;
                         while !stop.load(Relaxed) {
+                            if paused.load(Relaxed) {
+                                // тишина источника: читаем (pong на наш пинг идёт), кадров не шлём
+                                let _ = ws.read();
+                                continue;
+                            }
                             u += 1;
                             let e = super::events::now_ms();
                             let f = format!(
@@ -897,7 +909,11 @@ fn covered_shard_stops_trying_new_paths_after_the_reject_cap_and_keeps_its_data_
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let stop_src = Arc::new(AtomicBool::new(false));
-    let src = tape_server(listener, Arc::clone(&stop_src));
+    let src = tape_server(
+        listener,
+        Arc::clone(&stop_src),
+        Arc::new(AtomicBool::new(false)),
+    );
     let dir = tempfile::tempdir().unwrap();
     let plan = ShardPlan {
         name: "book00".into(),
@@ -950,6 +966,150 @@ fn covered_shard_stops_trying_new_paths_after_the_reject_cap_and_keeps_its_data_
         "за паузу новых подключений нет: бюджет не тратится"
     );
     assert!(r1 > r0, "старая сессия несёт поток");
+}
+
+// ---- порог паузы шарда по его истории ----
+
+fn gap_hist(parts: &[(usize, u64)]) -> Vec<u64> {
+    parts
+        .iter()
+        .flat_map(|&(n, v)| std::iter::repeat_n(v, n))
+        .collect()
+}
+
+#[test]
+fn gap_threshold_stays_at_the_floor_for_busy_shards_and_short_history() {
+    assert_eq!(GapThreshold::new(Vec::<u64>::new()).ms(), 3000);
+    // меньше 60 окон — истории нет, даже если разрывы большие
+    assert_eq!(GapThreshold::new(gap_hist(&[(59, 5000)])).ms(), 3000);
+    // оживлённый шард: наибольшие разрывы окон 0,3 с
+    assert_eq!(GapThreshold::new(gap_hist(&[(300, 300)])).ms(), 3000);
+    // 2 × p95 = 2 × 1,2 с < 3 с
+    assert_eq!(GapThreshold::new(gap_hist(&[(300, 1200)])).ms(), 3000);
+}
+
+#[test]
+fn gap_threshold_of_a_thin_shard_is_twice_its_usual_largest_gap() {
+    // Bybit trade03 15.11 22 UTC: p50 наибольшего разрыва за 10 с 1,1 с, p99 — 3,4 с (хвост 5 % окон) → порог 6,8 с, пауза 3,3 с — норма шарда
+    let g = GapThreshold::new(gap_hist(&[(190, 1100), (10, 3400)]));
+    assert_eq!(g.ms(), 6800);
+    // настоящая остановка длиннее порога по-прежнему считается
+    assert!(12_000 > g.ms());
+}
+
+#[test]
+fn gap_threshold_ignores_rare_outages_and_caps_the_baseline() {
+    // 0,5 % окон — остановка 30 с: p95 приходится на обычный разрыв
+    let g = GapThreshold::new(gap_hist(&[(995, 800), (5, 30_000)]));
+    assert_eq!(g.ms(), 3000);
+    // если остановок 10 % окон, «обычным» они не становятся: база не выше 10 с → порог не выше 20 с
+    let g = GapThreshold::new(gap_hist(&[(900, 800), (100, 30_000)]));
+    assert_eq!(g.ms(), 20_000);
+}
+
+#[test]
+fn gap_threshold_follows_new_windows_and_forgets_after_a_day() {
+    let mut g = GapThreshold::new(gap_hist(&[(59, 3000)]));
+    assert_eq!(g.ms(), 3000);
+    g.push(3000); // 60-е окно: история есть, p95 = 3 с → порог 6 с
+    assert_eq!(g.ms(), 6000);
+    for _ in 0..8_640 {
+        g.push(200);
+    }
+    assert_eq!(
+        g.ms(),
+        3000,
+        "через сутки спокойных окон порог вернулся к нижнему"
+    );
+}
+
+#[test]
+fn gap_seed_reads_the_tail_of_stats_and_skips_bad_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(
+        gap_seed(dir.path(), "trade03").is_empty(),
+        "файла нет — истории нет"
+    );
+    let mut body = String::from("не json\n{\"msgs\": 5}\n");
+    for i in 0..5u64 {
+        body.push_str(&format!(
+            "{{\"ts_ms\": {i}, \"max_gap_ms\": {}}}\n",
+            1000 + i
+        ));
+    }
+    std::fs::write(dir.path().join("stats-trade03.jsonl"), body).unwrap();
+    assert_eq!(
+        gap_seed(dir.path(), "trade03"),
+        vec![1000, 1001, 1002, 1003, 1004]
+    );
+}
+
+/// Шард на локальном источнике; источник молчит `pause` секунд после первых кадров; `seed` — прежняя статистика шарда (`stats-book00.jsonl`). Возвращает события `gap`.
+fn gaps_after_pause(seed: &[u64], pause: Duration) -> Vec<Value> {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (stop_src, paused) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let src = tape_server(listener, Arc::clone(&stop_src), Arc::clone(&paused));
+    let dir = tempfile::tempdir().unwrap();
+    let body: String = seed
+        .iter()
+        .map(|g| format!("{{\"max_gap_ms\": {g}}}\n"))
+        .collect();
+    std::fs::write(dir.path().join("stats-book00.jsonl"), body).unwrap();
+    let plan = ShardPlan {
+        name: "book00".into(),
+        endpoint: "public".into(),
+        streams: vec!["btcusdt@bookTicker".into()],
+    };
+    let mut opts = ShardOpts::new(dir.path().to_path_buf(), 1_794_000_000);
+    (opts.tls, opts.port, opts.flush, opts.probe_window) =
+        (false, port, Duration::from_millis(30), (0.2, 0.5));
+    let exch: Arc<dyn Exchange> = Arc::new(Binance);
+    let stop = Arc::new(AtomicBool::new(false));
+    let budget = Arc::new(Budget::new(100, Duration::from_secs(300)));
+    let h = spawn_shard(
+        &exch,
+        &plan,
+        &[vec![Entrance::new("127.0.0.1", Family::V4)]],
+        &opts,
+        &budget,
+        &stop,
+    )
+    .unwrap();
+    let metrics = Arc::clone(&h.metrics);
+    let t0 = Instant::now();
+    while metrics.writer().records < 50 && t0.elapsed() < Duration::from_secs(15) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    paused.store(true, Relaxed);
+    std::thread::sleep(pause);
+    paused.store(false, Relaxed);
+    std::thread::sleep(Duration::from_millis(1500));
+    stop.store(true, Relaxed);
+    h.join();
+    stop_src.store(true, Relaxed);
+    src.join().unwrap();
+    std::fs::read_to_string(dir.path().join("events-book00.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|e| e["ev"] == "gap")
+        .collect()
+}
+
+#[test]
+fn a_pause_inside_the_shards_usual_range_is_not_a_gap_but_the_same_pause_on_a_fresh_shard_is() {
+    // шард без истории: порог 3 с, пауза 4,5 с — потеря, как раньше
+    let fresh = gaps_after_pause(&[], Duration::from_millis(4500));
+    assert_eq!(fresh.len(), 1, "{fresh:?}");
+    assert_eq!(fresh[0]["thr_ms"], 3000);
+    // разреженный шард: порог 6,8 с по его истории — та же пауза не потеря
+    let thin = gap_hist(&[(190, 1100), (10, 3400)]);
+    let g = gaps_after_pause(&thin, Duration::from_millis(4500));
+    assert!(g.is_empty(), "{g:?}");
 }
 
 // ---- health ----

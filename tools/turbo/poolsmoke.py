@@ -17,7 +17,7 @@ import os
 import subprocess
 import sys
 
-TYPES = {"b": 4, "t": 4, "m": 3}   # индекс столбца символа: b/t — [тип, dns, lag, ET, sym…], m — [тип, dns, lag, sym…]
+TYPES = {"b": 4, "t": 4}   # индекс столбца символа: [тип, dns, lag, ET, sym…]; `m` не берём: у Binance один поток mark на все символы, у остальных он идёт и без пересмотра пула
 
 
 def rows(path):
@@ -34,6 +34,8 @@ def main():
     pool = json.load(open(pf))
     changes = pool.get("changes", [])
     first, last, cnt = {}, {}, collections.Counter()
+    removed_syms = {c["symbol"] for c in changes if c["op"] == "remove"}
+    times = collections.defaultdict(list)   # время записей снятых символов: после снятия до возможного повторного входа (оборот вернулся выше порога) записей быть не должно
     acks = collections.Counter()
     ack_samples = {}
     for f in sorted(glob.glob(os.path.join(root, "20*", "*.tsv.zst"))):
@@ -50,6 +52,8 @@ def main():
                 first[s] = min(first.get(s, ms), ms)
                 last[s] = max(last.get(s, ms), ms)
                 cnt[s] += 1
+                if s in removed_syms:
+                    times[s].append(ms)
             elif k == "r" and len(r) > 2:
                 fr = r[2]
                 low = fr.lower()
@@ -71,8 +75,10 @@ def main():
             added.append({"symbol": s, "changed_ms": ts, "first_record_ms": f, "latency_s": None if f is None else round((f - ts) / 1000, 1), "records": cnt.get(s, 0)})
         else:
             l = last.get(s)
-            after = None if l is None else (1 if l > ts + 5000 else 0)
-            removed.append({"symbol": s, "changed_ms": ts, "last_record_ms": l, "last_minus_change_s": None if l is None else round((l - ts) / 1000, 1), "records_after_5s": after})
+            readd = min((x["ts_ms"] for x in changes if x["symbol"] == s and x["op"] == "add" and x["ts_ms"] > ts), default=None)
+            after = sum(1 for m in times.get(s, ()) if m > ts + 5000 and (readd is None or m < readd))
+            removed.append({"symbol": s, "changed_ms": ts, "last_record_ms": l, "last_minus_change_s": None if l is None else round((l - ts) / 1000, 1),
+                            "readded_ms": readd, "records_after_5s": after})
     ev = collections.Counter()
     deltas = []
     started = collections.Counter()

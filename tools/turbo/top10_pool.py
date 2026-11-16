@@ -45,7 +45,7 @@ def main():
     qv = binance() if a.exchange == "binance" else bybit()
     ranked = sorted(qv, key=lambda s: (-qv[s], s))
     pool = sorted(s for s in qv if qv[s] >= a.min_qv)
-    low = [s for s in ranked if 20_000 <= qv[s] < a.min_qv][:8]   # под порогом, но торгуются: для проверки снятия по гистерезису (poolsmoke.sh)
+    low = [s for s in ranked if 0 < qv[s] < a.min_qv][:8]   # под порогом, но торгуются: для проверки снятия по гистерезису (poolsmoke.sh)
     json.dump({"pool": pool, "qv": {s: qv[s] for s in pool}, "top10": ranked[:10], "low": low}, open(a.out, "w"))
     print(a.exchange, "pool", len(pool), "top10", ranked[:10])
 

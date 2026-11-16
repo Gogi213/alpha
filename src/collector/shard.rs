@@ -33,7 +33,17 @@ use super::writer::{ShardWriter, WriterCfg};
 /// Короткая сессия — не дольше этого; `FAIL_LIMIT` коротких подряд → вход меняется (назначаемое, g022-integrate).
 pub const SHORT_SESSION: Duration = Duration::from_secs(60);
 pub const FAIL_LIMIT: u32 = 3;
+/// Нижний порог паузы данных шарда, мс.
 const GAP_TIMEOUT_MS: u64 = 3000;
+/// Порог паузы шарда = max(`GAP_TIMEOUT_MS`, `GAP_K` × обычный наибольший разрыв шарда): у разреженного шарда (Bybit trade03: p50 наибольшего разрыва за 10 с — 1,1 с, p99 — 3,4 с)
+/// 3 с лежит в хвосте обычного распределения, и пауза «потеря» красила бы столбик без потери данных (`docs/findings/health-red-slots-2026-11-16.md` §B). Назначаемое (Судье).
+const GAP_K: u64 = 2;
+/// «Обычный наибольший разрыв» — p95 наибольших разрывов 10-с окон шарда за сутки (8 640 окон; остановки приёма Binance и Gate — ≈ 1,7 % окон, на p95 не влияют), но не больше этого: пауза дольше 10 с никогда не «обычная».
+const GAP_Q_PCT: usize = 95;
+const GAP_BASE_CAP_MS: u64 = 10_000;
+const GAP_HIST_WINDOWS: usize = 8_640;
+/// Пока окон меньше (свежий шард без истории), порог — нижний.
+const GAP_MIN_WINDOWS: usize = 60;
 const GAP_TICK: Duration = Duration::from_millis(500);
 /// Пауза перед новой попыткой улучшить путь сессии, принятой без проверки, после неудачной.
 const UPGRADE_RETRY: Duration = Duration::from_secs(60);
@@ -670,9 +680,89 @@ fn end_gap(sh: &Arc<Shared>, start_ms: i64, total_ms: u64) {
     );
 }
 
+/// Порог паузы данных шарда по его собственной истории (см. `GAP_K`): наибольшие разрывы 10-с окон за сутки, из них p95.
+pub(crate) struct GapThreshold {
+    hist: std::collections::VecDeque<u64>,
+    thr_ms: u64,
+}
+
+impl GapThreshold {
+    pub(crate) fn new(seed: impl IntoIterator<Item = u64>) -> Self {
+        let mut g = Self {
+            hist: seed.into_iter().collect(),
+            thr_ms: GAP_TIMEOUT_MS,
+        };
+        while g.hist.len() > GAP_HIST_WINDOWS {
+            g.hist.pop_front();
+        }
+        g.recompute();
+        g
+    }
+
+    /// Наибольший разрыв только что закончившегося окна.
+    pub(crate) fn push(&mut self, max_gap_ms: u64) {
+        if self.hist.len() == GAP_HIST_WINDOWS {
+            self.hist.pop_front();
+        }
+        self.hist.push_back(max_gap_ms);
+        self.recompute();
+    }
+
+    pub(crate) fn ms(&self) -> u64 {
+        self.thr_ms
+    }
+
+    fn recompute(&mut self) {
+        if self.hist.len() < GAP_MIN_WINDOWS {
+            self.thr_ms = GAP_TIMEOUT_MS;
+            return;
+        }
+        let mut v: Vec<u64> = self.hist.iter().copied().collect();
+        v.sort_unstable();
+        let base = v
+            .get((v.len() * GAP_Q_PCT / 100).min(v.len() - 1))
+            .copied()
+            .unwrap_or(0);
+        self.thr_ms = GAP_TIMEOUT_MS.max(GAP_K * base.min(GAP_BASE_CAP_MS));
+    }
+}
+
+/// Наибольшие разрывы окон шарда за сутки из хвоста его `stats-<шард>.jsonl` (прежние запуски того же корня): порог не начинается с нуля после перезапуска.
+pub(crate) fn gap_seed(root: &std::path::Path, shard: &str) -> Vec<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(root.join(format!("stats-{shard}.jsonl"))) else {
+        return Vec::new();
+    };
+    // сутки окон по 10 с, строка ≈ 0,7 КБ: хвост 8 МБ покрывает с запасом
+    let tail: u64 = 8 << 20;
+    let len = f.metadata().map_or(0, |m| m.len());
+    let mut buf = Vec::new();
+    if f.seek(SeekFrom::Start(len.saturating_sub(tail))).is_err()
+        || f.read_to_end(&mut buf).is_err()
+    {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines = text.lines();
+    if len > tail {
+        lines.next(); // обрезанная первая строка
+    }
+    let v: Vec<u64> = lines
+        .filter_map(|l| {
+            serde_json::from_str::<serde_json::Value>(l)
+                .ok()?
+                .get("max_gap_ms")?
+                .as_u64()
+        })
+        .collect();
+    let skip = v.len().saturating_sub(GAP_HIST_WINDOWS);
+    v.into_iter().skip(skip).collect()
+}
+
 /// Надзор шарда до остановки: пауза данных (gap — только диагностика), строка статистики и сторож пути раз в период.
 fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
     let stats_path = opts.root.join(format!("stats-{}.jsonl", sh.plan.name));
+    let mut gap_thr = GapThreshold::new(gap_seed(&opts.root, &sh.plan.name));
     let mut in_gap = false;
     // пауза данных: начало (мс) и наибольшее наблюдаемое молчание (мс) — длительность пишется при возврате кадров
     let (mut gap_start, mut gap_peak) = (0i64, 0u64);
@@ -695,9 +785,10 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
         if last > 0 && m.connected.load(Relaxed) > 0 {
             let gap = mono_ms().saturating_sub(last);
             max_gap = max_gap.max(gap);
-            if gap > GAP_TIMEOUT_MS && in_gap {
+            let thr = gap_thr.ms();
+            if gap > thr && in_gap {
                 gap_peak = gap_peak.max(gap);
-            } else if gap > GAP_TIMEOUT_MS {
+            } else if gap > thr {
                 in_gap = true;
                 gap_start = now_ms() - i64::try_from(gap).unwrap_or(0);
                 gap_peak = gap;
@@ -705,7 +796,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                 let loop_late = late.iter().copied().fold(0.0, f64::max);
                 sh.events.emit(
                     "gap",
-                    json!({"loop_late_ms": (loop_late * 1000.0).round(), "gap_ms": gap}),
+                    json!({"loop_late_ms": (loop_late * 1000.0).round(), "gap_ms": gap, "thr_ms": thr}),
                 );
             } else {
                 if in_gap {
@@ -723,6 +814,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
             last_stats = Instant::now();
             sh.watch().judge();
             let w = m.take_window(now_ms(), max_gap);
+            gap_thr.push(max_gap);
             max_gap = 0;
             let cpu = m.cpu_seconds();
             let cpu_frac =
@@ -733,7 +825,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                 .append(true)
                 .open(&stats_path)
             {
-                let _ = writeln!(f, "{}", stats_line(m, &w, cpu_frac));
+                let _ = writeln!(f, "{}", stats_line(m, &w, cpu_frac, gap_thr.ms()));
             }
             m.lists().trim(now_ms());
         }
@@ -741,7 +833,12 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
 }
 
 /// Строка статистики окна (формат Python-ядра + поля обратного давления).
-fn stats_line(m: &ShardMetrics, w: &WindowSnap, cpu_frac: f64) -> serde_json::Value {
+fn stats_line(
+    m: &ShardMetrics,
+    w: &WindowSnap,
+    cpu_frac: f64,
+    gap_thr_ms: u64,
+) -> serde_json::Value {
     let now = now_ms();
     let (lag, dups, q_p99, lanes) = {
         let st = m.writer();
@@ -757,7 +854,7 @@ fn stats_line(m: &ShardMetrics, w: &WindowSnap, cpu_frac: f64) -> serde_json::Va
         )
     };
     json!({
-        "ts_ms": now, "msgs": w.frames, "bytes": w.bytes, "max_gap_ms": w.max_gap_ms,
+        "ts_ms": now, "msgs": w.frames, "bytes": w.bytes, "max_gap_ms": w.max_gap_ms, "gap_thr_ms": gap_thr_ms,
         "lag_p50_ms": lag.percentile(0.5).map(us_to_ms), "lag_p99_ms": lag.percentile(0.99).map(us_to_ms), "dups": dups, "cpu_frac": (cpu_frac * 1000.0).round() / 1000.0,
         "ring_depth_max": w.ring_depth_max, "ring_full": w.ring_full, "ring_blocked_ms": w.ring_blocked_ms,
         "queue_lag_p99_ms": q_p99.map(us_to_ms), "recvq_max": w.recvq_max, "recvq_behind": w.recvq_behind, "busy_max_us": w.busy_max_us,

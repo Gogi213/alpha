@@ -17,6 +17,7 @@ set -u -o pipefail
 EXCH="${EXCH:-binance}"
 case "$EXCH" in bingx|gate) COVERKEY=subscribed ;; esac   # bingx: 200 topics x 20 ms = 4 s; gate: 1 051 contracts per connection = 10–11 s (reactor ticks of 10 ms; ladder4), 100 per connection ≈ 1 s
 MARKFLAG=""; [ "$EXCH" = gate ] && MARKFLAG="--mark-free"
+[ "$EXCH" = bybit ] && MARKFLAG="--mark-free"   # Bybit `tickers` — дельты только при изменении (у тихих символов минуты без записи mark — норма биржи, не потеря); 16.11 pool-fix
 TAG="$1"; BIN="$2"; FLAGS="$3"; STEPS="$4"; NWIN="${5:-3}"
 D=${ROOT:-/data/turbo-probe}/$TAG; mkdir -p "$D"
 PY=/root/bnws-venv/bin/python; S=${TOOLS:-/data/turbo-probe/src/tools/turbo}
