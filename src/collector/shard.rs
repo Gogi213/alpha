@@ -27,7 +27,7 @@ use super::session::{
     self, Outcome, Shared, StreamSet, CONNECT_RTT_MAX_MS, PING_PERIOD, PING_TIMEOUT,
 };
 use super::sink::{run_sink, sink_channel};
-use super::storm::{self, StormGate};
+use super::storm::{self, Admit, StormGate};
 use super::worker::{spawn_worker, WorkerHandle};
 use super::writer::{ShardWriter, WriterCfg};
 
@@ -146,6 +146,8 @@ pub struct ShardOpts {
     pub storm: Option<Arc<super::storm::Storm>>,
     /// Поиск пропусков номеров сделок и дозапрос (`backfill::spawn`); `None` — не ищется.
     pub backfill: Option<super::backfill::Backfill>,
+    /// Проверка пауз шардов сделок по REST (`pausecheck::spawn`); `None` — не проверяются.
+    pub pause_check: Option<super::pausecheck::PauseCheck>,
 }
 
 impl ShardOpts {
@@ -182,6 +184,7 @@ impl ShardOpts {
             rx_hold: Duration::ZERO,
             storm: None,
             backfill: None,
+            pause_check: None,
         }
     }
 }
@@ -456,36 +459,40 @@ fn lane_main(sh: &Arc<Shared>, lane: &Arc<Lane>, opts: &ShardOpts, seq0: u32) {
             ),
             LazyDecision::Replace => {}
         }
-        // стоянка всей биржи: новые линии на том же пути так же плохи, замены только съедают бюджет — старая линия держится, кроме одной пробной на шард (возрастная пересменка идёт)
-        let gate = if old {
-            StormGate::Open
-        } else {
-            storm::gate(sh.storm.as_deref(), &sh.storm_probe, Instant::now())
-        };
-        if gate == StormGate::Hold {
-            if capped != Some(cur.seq) {
-                capped = Some(cur.seq);
-                if let Some(st) = sh.storm.as_deref() {
-                    st.note_hold();
+        // стоянка всей биржи: новые линии на том же пути так же плохи, замены только съедают бюджет — старая линия держится, кроме одной пробной на шард (возрастная пересменка идёт);
+        // потолок замен пути на шард: возрастная пересменка идёт всегда (биржа рвёт старую сессию), остальные — не чаще `REPLACE_CAP` за `CAP_WINDOW`; пробная замена, упёршаяся в потолок, не сгорает
+        let gate = match storm::admit(
+            old,
+            sh.storm.as_deref(),
+            &sh.storm_probe,
+            &sh.replace_cap,
+            Instant::now(),
+        ) {
+            Admit::Go(g) => g,
+            Admit::Hold => {
+                if capped != Some(cur.seq) {
+                    capped = Some(cur.seq);
+                    if let Some(st) = sh.storm.as_deref() {
+                        st.note_hold();
+                    }
+                    sh.events.emit(
+                        "storm_hold",
+                        json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
+                    );
                 }
-                sh.events.emit(
-                    "storm_hold",
-                    json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
-                );
+                continue;
             }
-            continue;
-        }
-        // потолок замен пути на шард: возрастная пересменка идёт всегда (биржа рвёт старую сессию), остальные — не чаще `REPLACE_CAP` за `CAP_WINDOW`
-        if !old && !sh.replace_cap.take(Instant::now()) {
-            if capped != Some(cur.seq) {
-                capped = Some(cur.seq);
-                sh.events.emit(
-                    "replace_capped",
-                    json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
-                );
+            Admit::Capped => {
+                if capped != Some(cur.seq) {
+                    capped = Some(cur.seq);
+                    sh.events.emit(
+                        "replace_capped",
+                        json!({"line": lane.k, "session": cur.seq, "degraded": bad}),
+                    );
+                }
+                continue;
             }
-            continue;
-        }
+        };
         // замена, не принимающая медленный путь: для испорченного и медленного пути, не для возрастной пересменки (её старую сессию биржа всё равно рвёт)
         let strict = (opts.never_slow && !old).then_some(opts.strict_pause);
         seq = seq.wrapping_add(1);
@@ -628,6 +635,10 @@ pub fn spawn_shard(
         reactor: opts.reactor.clone(),
         storm: opts.storm.clone(),
         storm_probe: Cap::new(1, super::storm::PROBE_PERIOD),
+        pause_check: opts
+            .pause_check
+            .clone()
+            .filter(|_| super::livepool::kind_of(&plan.name) == "trade"),
     });
     let health: Arc<Vec<AtomicBool>> = Arc::new(
         (0..entrances.len())
@@ -731,6 +742,17 @@ fn end_gap(sh: &Arc<Shared>, start_ms: i64, total_ms: u64) {
         "gap_end",
         json!({"gap_total_ms": total, "gap_start_ms": start_ms}),
     );
+    // шард сделок биржи без номера сделки: пауза — потеря или тишина рынка, решает REST (`pausecheck`); итог — в событие `pause_check` и на страницу
+    if let Some(pc) = sh.pause_check.as_ref() {
+        let sh2 = Arc::clone(sh);
+        pc.submit(super::pausecheck::PauseReq {
+            shard: sh.plan.name.clone(),
+            streams: sh.streams.snapshot().1,
+            start_ms,
+            end_ms: start_ms + total,
+            emit: Box::new(move |ev, f| sh2.events.emit(ev, f)),
+        });
+    }
 }
 
 /// Порог паузы данных шарда по его собственной истории (см. `GAP_K`): наибольшие разрывы 10-с окон за сутки, из них p95.
@@ -845,6 +867,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                 in_gap = true;
                 m.in_gap.store(true, Relaxed);
                 gap_start = now_ms() - i64::try_from(gap).unwrap_or(0);
+                m.gap_since_ms.store(gap_start, Relaxed);
                 gap_peak = gap;
                 m.lists().gaps.push_back(now_ms());
                 let loop_late = late.iter().copied().fold(0.0, f64::max);
@@ -858,6 +881,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
                 }
                 in_gap = false;
                 m.in_gap.store(false, Relaxed);
+                m.gap_since_ms.store(0, Relaxed);
             }
         } else {
             if in_gap {
@@ -865,6 +889,7 @@ fn supervise(sh: &Arc<Shared>, opts: &ShardOpts) {
             }
             in_gap = false;
             m.in_gap.store(false, Relaxed);
+            m.gap_since_ms.store(0, Relaxed);
         }
         if last_stats.elapsed() >= Duration::from_secs(STATS_PERIOD_S) {
             last_stats = Instant::now();

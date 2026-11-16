@@ -12,10 +12,10 @@ use serde_json::json;
 
 use super::codec::{Book, Mark, Rec, Trade};
 use super::exchange::{
-    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, ShardPlan, Turnover,
+    lag_ms, Entrance, Exchange, Family, Out, Parsed, Parser, RestError, ShardPlan, Turnover,
 };
 use super::hash::fnv;
-use super::pool::{balanced_chunks, http_get_json, rank_pool};
+use super::pool::{balanced_chunks, http_get_json, http_get_rest, rank_pool};
 use super::scan::{each_elem, parse_i64, parse_object, pick, single_pair, slots, Obj, Small};
 
 const REST: &str = "https://api.bybit.com";
@@ -372,6 +372,53 @@ impl Exchange for Bybit {
             meta: BTreeMap::new(),
         })
     }
+
+    fn pause_check(&self) -> bool {
+        true
+    }
+
+    fn trade_times(&self, stream: &str) -> Option<Result<Vec<i64>, RestError>> {
+        let sym = stream.strip_prefix("publicTrade.")?;
+        let url = format!("{REST}/v5/market/recent-trade?category=linear&symbol={sym}&limit=1000");
+        Some(match http_get_rest(&url, None, &[]) {
+            // 403 у Bybit — бан IP за частоту (ждать не меньше 10 минут) или запрет страны: оба раза запросы стоят
+            Err(e) if e.limited.is_none() && e.msg.contains("HTTP 403") => {
+                Err(RestError::limited(e.msg, Some(FORBIDDEN_PAUSE)))
+            }
+            Err(e) => Err(e),
+            Ok(v) => parse_recent_trade_times(&v),
+        })
+    }
+}
+
+/// Пауза запросов после HTTP 403 Bybit.
+const FORBIDDEN_PAUSE: Duration = Duration::from_secs(600);
+
+/// `recent-trade`: время биржи (мс) каждой сделки ответа. `retCode` 10006 / 10018 — отказ по частоте (запросы встают целиком).
+pub fn parse_recent_trade_times(v: &serde_json::Value) -> Result<Vec<i64>, RestError> {
+    let code = v.get("retCode").and_then(serde_json::Value::as_i64);
+    if matches!(code, Some(10006 | 10018)) {
+        return Err(RestError::limited(
+            format!("recent-trade: retCode {}", code.unwrap_or(0)),
+            None,
+        ));
+    }
+    if code != Some(0) {
+        return Err(RestError::from(format!("recent-trade: retCode {code:?}")));
+    }
+    let list = v
+        .get("result")
+        .and_then(|r| r.get("list"))
+        .and_then(serde_json::Value::as_array)
+        .ok_or("recent-trade: нет result.list")?;
+    list.iter()
+        .map(|t| {
+            t.get("time")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|s| s.parse::<i64>().ok())
+                .ok_or_else(|| RestError::from("recent-trade: нет time"))
+        })
+        .collect()
 }
 
 /// `{"op": <операция>, "args": [...]}` пачками по `SUB_BATCH` тем.

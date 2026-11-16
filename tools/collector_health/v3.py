@@ -20,6 +20,7 @@ MIN = 60
 ICMP = ("gateway", "neutral")
 NET_BAD = 0.15          # слот сети красный при ≥ 15 % потерянных замеров (принято координатором 13.11)
 NET_MIN_N = 100         # слот сети без замеров (меньше N) — «нет журнала»
+ONGOING_RED_S = 60      # идущая пауза шарда сделок дольше этого — красит строку, не дожидаясь вердикта REST (он придёт по её концу)
 SYN_MS = 700            # TCP-замер дольше — потерян SYN (повтор через 1 с)
 NET_NAMES = [("gateway", "шлюз srv"), ("neutral", "Google"), ("binance", "Binance"), ("bybit", "Bybit"), ("okx", "OKX"), ("bingx", "BingX")]
 
@@ -46,8 +47,9 @@ def tail_lines(path, max_bytes):
 
 def read_series(root):
     """(минуты {минута: [lost_ms, late[4], to_alive, to_silent, lost_ids]}, метки запуска [(сек, версия)]). `lost_ids` — номера сделок, окончательно потерянные в минуту
-    (коллекторы с дозапросом, G-022); у прежних сборок поля нет — 0."""
-    rows, starts = {}, []
+    (коллекторы с дозапросом, G-022); у прежних сборок поля нет — 0. Поздняя потеря — отдельная строка той же минуты `{"t", "lost_ids_late", "lost_ms_late"}` (итог дозапроса или
+    вердикт проверки паузы по REST приходит после строки минуты): складывается со строкой минуты (нет строки — минута запуска — создаётся пустая)."""
+    rows, starts, late = {}, [], defaultdict(lambda: [0, 0])
     for ln in tail_lines(os.path.join(root, "series-minutes.jsonl"), 400_000):
         try:
             v = json.loads(ln)
@@ -55,9 +57,17 @@ def read_series(root):
             continue
         if "start" in v:
             starts.append((v["start"], v.get("version", "")))
+        elif "t" in v and "lost_ms" not in v and ("lost_ids_late" in v or "lost_ms_late" in v):
+            c = late[v["t"] // MIN]
+            c[0] += v.get("lost_ms_late", 0)
+            c[1] += v.get("lost_ids_late", 0)
         elif "t" in v:
             to = v.get("to") or [0, 0]
             rows[v["t"] // MIN] = [v.get("lost_ms", 0), list(v.get("late") or [0, 0, 0, 0]), to[0], to[1], v.get("lost_ids", 0)]
+    for m, (ms, ids) in late.items():
+        r = rows.setdefault(m, [0, [0, 0, 0, 0], 0, 0, 0])
+        r[0] += ms
+        r[4] += ids
     return rows, starts
 
 
@@ -248,6 +258,12 @@ def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
     # коллекторы с дозапросом считают потерей сделок только подтверждённый и не дозапрошенный пропуск номеров: паузы шардов сделок красным не красят. Паузы шардов книги и mark
     # (`gaps_1h_nontrade`) дозапрос не восстанавливает — они красят строку на всех биржах; у сборки без поля — все паузы (как раньше)
     pause_bad = ws.get("gaps_1h_nontrade", ws.get("gaps_1h")) if bf.get("enabled") else ws.get("gaps_1h")
+    # биржа без номера сделки, но с проверкой пауз шардов сделок по REST (Bybit): пауза сделок — потеря, только если на бирже внутри неё были сделки (или тишина не доказана); тишина рынка не красит.
+    # Паузы шардов книги и mark — потеря, как были. У сборки без `pause_check` — все паузы красят, как раньше
+    pc = h.get("pause_check") or {}
+    pc_on = bool(pc.get("enabled")) and not bf.get("enabled")
+    if pc_on:
+        pause_bad = (ws.get("gaps_1h_nontrade") or 0) + int(pc.get("loss_1h") or 0) + int(pc.get("unverified_1h") or 0) + (1 if int(pc.get("ongoing_s") or 0) > ONGOING_RED_S else 0)
     # итог дозапроса приходит позже строки минуты ряда (она пишется один раз): поздняя потеря в ряд не попадает. health считает номера, окончательно потерянные в
     # пропусках за последний час, по времени пропуска на каждый снимок — красим по нему (Н1 проверки), ряд остаётся для столбиков
     bf_lost_1h = int(bf.get("ids_lost_1h") or 0) if bf.get("enabled") else 0
@@ -268,6 +284,7 @@ def exchange_row(ex, name, health, root, now, s0_shared, thr=None):
             "storm": [bool(storm.get("on")), storm.get("episodes"), storm.get("holds"), storm.get("aborts")] if storm else None,
             "backfill": [bf.get("ids_confirmed"), bf.get("ids_backfilled"), bf.get("ids_lost"), bf.get("open_ids"), bf.get("ids_absent", 0), bf.get("rate_limited", 0), bf.get("paused_s", 0)] if bf.get("enabled") else None,
             "pause_gaps_1h": ws.get("gaps_1h"), "pause_gaps_nontrade_1h": ws.get("gaps_1h_nontrade"),
+            "pause_check": [pc.get("quiet_1h", 0), pc.get("loss_1h", 0), pc.get("unverified_1h", 0), pc.get("pending", 0), pc.get("ongoing_s", 0), pc.get("rate_limited", 0), pc.get("paused_s", 0)] if pc_on else None,
             "msgs_s": round(sum(s.get("msgs_10s", 0) for s in shards) / 10), "lag_in": [h.get("lag_in_ms", {}).get("p50"), h.get("lag_in_ms", {}).get("p99")],
             "ping": [ws.get("ping_ms", {}).get("p50"), ws.get("ping_ms", {}).get("max")], "cpu": proc.get("cpu_cores"),
             "log_from": min((m for m in mins), default=None) and min(mins) * MIN,

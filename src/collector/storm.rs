@@ -107,3 +107,33 @@ pub fn gate(storm: Option<&Storm>, probe: &Cap, now: Instant) -> StormGate {
         _ => StormGate::Open,
     }
 }
+
+/// Решение для линии, которой нужна замена пути, с учётом потолка замен.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Admit {
+    /// Замену открывать; `Probe` — пробная замена режима «стоянка».
+    Go(StormGate),
+    /// Режим держит старую линию.
+    Hold,
+    /// Потолок замен пути шарда исчерпан.
+    Capped,
+}
+
+/// Допуск замены: возрастная пересменка идёт всегда; остальные проходят режим «стоянка» (`storm`, пробная — `probe`) и потолок замен (`replace`).
+/// Пробная замена, не прошедшая потолок замен, возвращается в `probe`: потолок не сжигает её на `PROBE_PERIOD` (проверка 16.11).
+pub fn admit(old: bool, storm: Option<&Storm>, probe: &Cap, replace: &Cap, now: Instant) -> Admit {
+    if old {
+        return Admit::Go(StormGate::Open);
+    }
+    let gate = gate(storm, probe, now);
+    if gate == StormGate::Hold {
+        return Admit::Hold;
+    }
+    if !replace.take(now) {
+        if gate == StormGate::Probe {
+            probe.refund(now);
+        }
+        return Admit::Capped;
+    }
+    Admit::Go(gate)
+}

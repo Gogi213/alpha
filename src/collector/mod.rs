@@ -46,6 +46,7 @@ pub mod metrics;
 pub mod net;
 pub mod okx;
 pub mod path;
+pub mod pausecheck;
 pub mod pkttap;
 pub mod pool;
 pub mod reactor;

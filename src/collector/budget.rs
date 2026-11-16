@@ -333,6 +333,14 @@ impl Cap {
         true
     }
 
+    /// Вернуть место, занятое `take` в момент `now`, если событие не состоялось (пробная замена режима «стоянка», упёршаяся в потолок замен): окно не тратится впустую.
+    pub fn refund(&self, now: Instant) {
+        let mut g = self.pruned(now);
+        if let Some(i) = g.iter().rposition(|t| *t == now) {
+            g.remove(i);
+        }
+    }
+
     /// Записать событие, уже случившееся (отбраковка пути): потолок не отказывает, но следующее событие подождёт `wait`.
     pub fn note(&self, now: Instant) {
         self.pruned(now).push_back(now);

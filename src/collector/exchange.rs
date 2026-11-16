@@ -273,6 +273,14 @@ pub trait Exchange: Send + Sync {
     fn trade_page(&self, _q: &PageReq<'_>) -> Option<Result<TradePage, RestError>> {
         None
     }
+    /// Проверка пауз шарда сделок по REST (`pausecheck`): у биржи нет номера сделки и дозапроса (Bybit: UUID), пауза шарда сделок — тишина рынка или потеря, решает REST.
+    fn pause_check(&self) -> bool {
+        false
+    }
+    /// Время биржи (мс) последних сделок символа потока `stream` из REST (`recent-trade`, 1 000 последних): вход проверки пауз; в событийный цикл не входит. `None` — у биржи нет.
+    fn trade_times(&self, _stream: &str) -> Option<Result<Vec<i64>, RestError>> {
+        None
+    }
     /// Метаданные символов пула (размер контракта и т. п.) — в `pool-<день>.json` рядом с пулом; заполняется `load_pool`.
     fn pool_meta(&self) -> Option<serde_json::Value> {
         None

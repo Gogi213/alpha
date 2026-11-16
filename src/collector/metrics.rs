@@ -328,6 +328,8 @@ pub struct ShardMetrics {
     /// Линия несёт поток: её текущая сессия открыта и не испорчена (`PathWatch::is_degraded`); медленная несёт. Вход оценки «стоянка всей биржи» (`storm`): шард испорчен, когда не несёт ни одна линия.
     pub lane_carry: [AtomicBool; super::writer::MAX_LANES],
     pub in_gap: AtomicBool,
+    /// Начало идущей паузы данных (мс UTC), 0 — паузы нет: `pausecheck` показывает самую долгую идущую паузу шарда сделок.
+    pub gap_since_ms: AtomicI64,
     pub connected: AtomicI64,
     /// Recv-Q ядра (FIONREAD) в моменты чтения: максимум за окно статистики, байт
     pub recvq_max: AtomicU64,
@@ -362,6 +364,7 @@ impl ShardMetrics {
             lane_ok: std::array::from_fn(|_| AtomicBool::new(false)),
             lane_carry: std::array::from_fn(|_| AtomicBool::new(false)),
             in_gap: AtomicBool::new(false),
+            gap_since_ms: AtomicI64::new(0),
             connected: AtomicI64::new(0),
             recvq_max: AtomicU64::new(0),
             recvq_samples: AtomicU64::new(0),

@@ -146,6 +146,8 @@ pub struct Shared {
     /// Режим «стоянка всей биржи» процесса (`None` — не оценивается) и потолок «одна пробная замена на шард» в нём.
     pub storm: Option<Arc<super::storm::Storm>>,
     pub storm_probe: Cap,
+    /// Проверка паузы шарда сделок по REST (только шарды сделок биржи с такой проверкой); `None` — пауза не проверяется.
+    pub pause_check: Option<super::pausecheck::PauseCheck>,
 }
 
 impl Shared {

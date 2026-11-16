@@ -239,6 +239,8 @@ pub struct BackfillStats {
     pub ids_absent: AtomicU64,
     /// Окончательная потеря: не удалось получить (сбои REST, слишком крупный пропуск, старше окна ответа, у биржи нет запроса).
     pub ids_lost: AtomicU64,
+    /// Сколько раз записана окончательная потеря (`lost`) — ряд минут по нему узнаёт, что итог пришёл после записи строки минуты (Н1).
+    lost_events: AtomicU64,
     pub rest_requests: AtomicU64,
     pub rest_errors: AtomicU64,
     pub trades_written: AtomicU64,
@@ -272,6 +274,13 @@ impl BackfillStats {
         while l.len() > 100_000 {
             l.pop_front();
         }
+        drop(l);
+        self.lost_events.fetch_add(1, Relaxed);
+    }
+
+    /// Число записанных окончательных потерь; растёт после записи в журнал потерь (`lost_between` его уже видит).
+    pub fn lost_events(&self) -> u64 {
+        self.lost_events.load(Relaxed)
     }
 
     /// Отказ по частоте: весь поток стоит `d` с `now_ms`.

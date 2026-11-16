@@ -1,19 +1,24 @@
 """Страница здоровья коллекторов G-022 (TK-529, В-134).
 
 Читает /data/health/<биржа>.json (формат — docs/findings/collector-health-format-2026-11-11.md),
-отдаёт page.html, /api/health (прежняя страница, page.html.prev-v3) и /api/v3 (столбики по 15 минут, v3.py). Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
+отдаёт page.html, /api/health (прежняя страница, page.html.prev-v3), /api/v3 (столбики по 15 минут, v3.py) и вкладку «Арбитраж»:
+/api/arb (таблица) и /api/arb/chart?c=&a=&b= (график пары) — из каталога --arb-dir, который пишут tools/arb_stats/arb_daemon.py и arb_turnover.py (arb_api.py); /fonts/<имя>.woff2 — шрифты Geist из fonts/. Только стандартная библиотека. Порядок бирж и подписи — exchanges.json,
 пороги — thresholds.json (числа назначает Судья; нет файла — строка жёлтая «порог не задан»).
 Новая биржа = новый файл в каталоге: строка появляется без правки страницы. Файлы с "kind" ≠ "collector" пропускаются.
 """
 import argparse
+import gzip
+import hashlib
 import json
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import arb_api
 import v3
 
 HERE = Path(__file__).resolve().parent
+FONTS = frozenset(f"geist{m}-{sc}-wght-normal.woff2" for m in ("", "-mono") for sc in ("latin", "cyrillic"))   # шрифты страницы (SIL OFL), каталог fonts/ рядом с serve.py
 SCHEMAS = (1, 2)  # 2 — Rust-коллектор (alpha collect): схема 1 + backpressure, process, totals, shards
 
 
@@ -38,11 +43,8 @@ def row_state(doc, age_s, thr):
         return "bad", "данные за минуту не пришли ни по одному символу"
     if stale_s is None:
         return "warn", "порог устаревания файла не задан"
-    # сборка с независимым счётчиком (`book_window_s`) считает «не подписано» по кадрам книги за окно; минутное окно для неё — только число
-    if sym["with_data_1m"] < sym["subscribed"] and "book_window_s" not in sym:
+    if sym["with_data_1m"] < sym["subscribed"]:
         return "warn", "данные за минуту пришли не по всем символам"
-    if sym.get("not_subscribed"):
-        return "warn", f"не подписано символов выше порога по REST: {sym['not_subscribed']}"
     ws = doc["ws"]
     if ws["timeouts_1h"] or ws["reconnects_1h"]:
         return "warn", "за час были таймауты или переподключения"
@@ -95,33 +97,93 @@ def collect(health_dir, now_ms, expected, thr):
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"   # соединение не закрывается после каждого ответа: страница ходит за данными несколько раз подряд
+    timeout = 30                    # висящее без запросов соединение освобождает поток
+    disable_nagle_algorithm = True  # TCP_NODELAY: без него второй write (тело) ждёт ACK первого (заголовки) — до 200 мс на Windows-клиенте
+    wbufsize = 1 << 16              # заголовки и тело уходят одним пакетом (сброс — в конце запроса, handle_one_request)
     health_dir = Path("/data/health")
     expected = []
     thresholds = None
     roots = {}
     net = None
+    arb = None
+    _page = (None, None)            # (метка файла, (тело, etag, сжатое тело))
+    _v3 = (0.0, None)               # (когда посчитан, тело): ответ /api/v3 не чаще раза в 5 с
 
-    def _send(self, code, body, ctype):
+    def _send(self, code, body, ctype, etag=None, gz=None):
+        """Ответ с gzip (если клиент принимает) и ETag/304. etag — готовая метка (иначе хеш тела), gz — готовое сжатое тело."""
+        if code == 200:
+            etag = etag or '"%s"' % hashlib.md5(body).hexdigest()[:20]
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+        enc = None
+        if len(body) > 600 and "gzip" in self.headers.get("Accept-Encoding", ""):
+            body, enc = gz or gzip.compress(body, 5), "gzip"
         self.send_response(code)
         self.send_header("Content-Type", ctype)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "no-cache" if code == 200 else "no-store")
+        self.send_header("Vary", "Accept-Encoding")
+        if code == 200:
+            self.send_header("ETag", etag)
+        if enc:
+            self.send_header("Content-Encoding", enc)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def _page_bytes(self):
+        p = HERE / "page.html"
+        st = p.stat()
+        mark = (st.st_mtime_ns, st.st_size)
+        if Handler._page[0] != mark:
+            body = p.read_bytes()
+            Handler._page = (mark, (body, '"%s"' % hashlib.md5(body).hexdigest()[:20], gzip.compress(body, 6)))
+        return Handler._page[1]
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        js = "application/json; charset=utf-8"
         if path == "/api/health":
             rows = collect(self.health_dir, int(time.time() * 1000), self.expected, self.thresholds)
-            self._send(200, json.dumps({"rows": rows}, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+            self._send(200, json.dumps({"rows": rows}, ensure_ascii=False).encode(), js)
         elif path == "/api/v3":
+            t, body = Handler._v3
+            if body is None or time.time() - t > 5:
+                try:
+                    body = json.dumps(v3.payload(self.health_dir, self.expected, self.roots, self.net, thr=self.thresholds), ensure_ascii=False).encode()
+                except Exception as e:  # страница не должна падать от одного кривого файла
+                    body = json.dumps({"error": repr(e)}).encode()
+                Handler._v3 = (time.time(), body)
+            self._send(200, body, js)
+        elif path == "/api/arb":
+            body, etag, gz = self.arb.table()
+            self._send(200, body, js, etag, gz)
+        elif path == "/api/arb/chart":
+            body = self.arb.chart(self.path.split("?", 1)[1] if "?" in self.path else "")
+            if body is None:
+                self._send(404, b'{"error":"no such pair"}', js)
+            else:
+                self._send(200, body, js)
+        elif path.startswith("/fonts/") and path[7:] in FONTS:
             try:
-                body = v3.payload(self.health_dir, self.expected, self.roots, self.net, thr=self.thresholds)
-            except Exception as e:  # страница не должна падать от одного кривого файла
-                body = {"error": repr(e)}
-            self._send(200, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+                body = (HERE / "fonts" / path[7:]).read_bytes()
+            except OSError:
+                self._send(404, b"not found", "text/plain")
+                return
+            self.send_response(200)           # woff2 уже сжат: без gzip; имя файла не меняется — кэш на год
+            self.send_header("Content-Type", "font/woff2")
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif path in ("/", "/index.html"):
-            self._send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
+            body, etag, gz = self._page_bytes()
+            self._send(200, body, "text/html; charset=utf-8", etag, gz)
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -138,12 +200,14 @@ def main():
     ap.add_argument("--thresholds", default=str(HERE / "thresholds.json"))
     ap.add_argument("--roots", default=str(HERE / "roots.json"))
     ap.add_argument("--netwatch", default="/data/netwatch")
+    ap.add_argument("--arb-dir", default="/data/arb-tab/live")
     a = ap.parse_args()
     Handler.health_dir = Path(a.health_dir)
     Handler.expected = load_json(a.exchanges) or []
     Handler.thresholds = load_json(a.thresholds)
     Handler.roots = load_json(a.roots) or {}
     Handler.net = v3.Net(a.netwatch)
+    Handler.arb = arb_api.Arb(a.arb_dir)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 
 

@@ -437,6 +437,53 @@ fn in_a_storm_a_shard_gets_one_probe_replacement_and_then_holds_its_old_line() {
     );
 }
 
+/// Проверка 16.11 (пробная замена): потолок замен не должен сжигать пробную замену режима — иначе шард без замены ещё 300 с, а потолок её так и не пропустил.
+#[test]
+fn the_replace_cap_does_not_burn_the_storm_probe() {
+    use storm::{admit, Admit};
+    let now = Instant::now();
+    let s = Storm::default();
+    s.evaluate(5, 6, 0);
+    let probe = Cap::new(1, storm::PROBE_PERIOD);
+    let replace = Cap::new(1, Duration::from_secs(300));
+    assert!(replace.take(now), "потолок замен исчерпан");
+    // потолок отказал: пробная возвращена и достаётся следующей попытке
+    assert_eq!(admit(false, Some(&s), &probe, &replace, now), Admit::Capped);
+    assert_eq!(admit(false, Some(&s), &probe, &replace, now), Admit::Capped);
+    // место в потолке освободилось: проходит пробная замена, следующая — держится
+    let later = now + Duration::from_secs(301);
+    assert_eq!(
+        admit(false, Some(&s), &probe, &replace, later),
+        Admit::Go(StormGate::Probe)
+    );
+    assert_eq!(admit(false, Some(&s), &probe, &replace, later), Admit::Hold);
+    // возрастная пересменка идёт всегда и ничего не занимает
+    let (probe, replace) = (
+        Cap::new(1, storm::PROBE_PERIOD),
+        Cap::new(1, Duration::from_secs(300)),
+    );
+    assert_eq!(
+        admit(true, Some(&s), &probe, &replace, later),
+        Admit::Go(StormGate::Open)
+    );
+    assert!(probe.take(later) && replace.take(later));
+    // режим выключен: пробная не нужна, потолок решает сам
+    let off = Storm::default();
+    let (probe, replace) = (
+        Cap::new(1, storm::PROBE_PERIOD),
+        Cap::new(1, Duration::from_secs(300)),
+    );
+    assert_eq!(
+        admit(false, Some(&off), &probe, &replace, later),
+        Admit::Go(StormGate::Open)
+    );
+    assert_eq!(
+        admit(false, Some(&off), &probe, &replace, later),
+        Admit::Capped
+    );
+    assert!(probe.take(later), "пробная не тронута");
+}
+
 /// Шард испорчен, когда стоят данные (пауза) или ни одна его линия не несёт поток; испорченная линия при здоровом партнёре шард не портит (Б1: иначе режим держал сам себя).
 #[test]
 fn a_shard_is_impaired_only_with_a_data_pause_or_no_carrying_line() {
@@ -1216,5 +1263,414 @@ fn rate_limit_statuses_and_okx_code_are_recognised() {
             .unwrap_err()
             .limited
             .is_none()
+    );
+}
+
+// ---- проверка пауз шарда сделок по REST (Bybit, 16.11) и поздние потери в ряду минут (Н1) ----
+
+use super::pausecheck::{self, PauseReq, PauseStats, Verdict};
+
+fn preq(start_ms: i64, end_ms: i64, symbols: usize) -> PauseReq {
+    PauseReq {
+        shard: "trade01".into(),
+        streams: (0..symbols)
+            .map(|i| format!("publicTrade.S{i}USDT"))
+            .collect(),
+        start_ms,
+        end_ms,
+        emit: Box::new(|_, _| {}),
+    }
+}
+
+fn quick() -> pausecheck::WorkCfg {
+    pausecheck::WorkCfg {
+        min_call_gap: Duration::ZERO,
+        retry: Vec::new(),
+    }
+}
+
+fn run_check(req: &PauseReq, fetch: pausecheck::FetchFn<'_>) -> (pausecheck::Outcome, PauseStats) {
+    let st = PauseStats::default();
+    let stop = AtomicBool::new(false);
+    let mut last = Instant::now();
+    let o = pausecheck::check(fetch, &quick(), req, &st, &stop, &mut last);
+    (o, st)
+}
+
+/// Пауза 4 с, окно проверки — внутренность без `EDGE_MS` с краёв; последняя сделка до паузы и первая после неё (лаг ≈ 0,1 с) в окно не входят.
+#[test]
+fn a_pause_with_no_exchange_trades_inside_is_market_silence_and_the_edges_do_not_count() {
+    let now = super::events::now_ms();
+    let (s, e) = (now - 20_000, now - 16_000);
+    let req = preq(s, e, 5);
+    let fetch = |_: &str| Some(Ok(vec![s - 60_000, s - 100, e - 100, e + 5_000]));
+    let (o, st) = run_check(&req, &fetch);
+    assert_eq!(o.verdict, Some(Verdict::Quiet));
+    assert_eq!((o.checked, o.unknown, o.in_window), (5, 0, 0));
+    assert_eq!(st.rest_requests.load(Relaxed), 5);
+    // край: сделка в первых 500 мс паузы окно не открывает, на 501-й мс — открывает
+    let at = |t: i64| move |_: &str| Some(Ok(vec![s - 60_000, t]));
+    assert_eq!(
+        run_check(&req, &at(s + pausecheck::EDGE_MS - 1)).0.verdict,
+        Some(Verdict::Quiet)
+    );
+    let (o, _) = run_check(&req, &at(s + pausecheck::EDGE_MS + 1));
+    assert_eq!(
+        (o.verdict, o.in_window),
+        (Some(Verdict::Loss), 1),
+        "сделка биржи внутри паузы — потеря"
+    );
+}
+
+#[test]
+fn a_trade_inside_the_pause_ends_the_check_at_that_symbol() {
+    let now = super::events::now_ms();
+    let (s, e) = (now - 20_000, now - 16_000);
+    let req = preq(s, e, 10);
+    let fetch = |sym: &str| {
+        Some(Ok(if sym.ends_with("S3USDT") {
+            vec![s - 60_000, s + 2_000]
+        } else {
+            vec![s - 60_000]
+        }))
+    };
+    let (o, st) = run_check(&req, &fetch);
+    assert_eq!((o.verdict, o.checked), (Some(Verdict::Loss), 4));
+    assert_eq!(
+        st.rest_requests.load(Relaxed),
+        4,
+        "остальные символы не нужны"
+    );
+}
+
+/// Не доказано — не тишина: сбой REST, окно не покрыто ответом (самая старая сделка ответа позже начала окна), пауза старше `MAX_AGE_MS`.
+#[test]
+fn an_unproven_pause_is_unverified_and_colors_like_a_loss() {
+    let now = super::events::now_ms();
+    let (s, e) = (now - 20_000, now - 16_000);
+    let req = preq(s, e, 3);
+    // окно не покрыто: 1 000 последних сделок символа новее начала окна, внутри окна их нет
+    let (o, _) = run_check(&req, &|_| Some(Ok(vec![e + 1_000, e + 2_000])));
+    assert_eq!(
+        (o.verdict, o.unknown, o.why),
+        (Some(Verdict::Unverified), 3, "not_proven")
+    );
+    // сбой REST (повторов нет): символы неизвестны
+    let (o, st) = run_check(&req, &|_| Some(Err(RestError::from("boom"))));
+    assert_eq!((o.verdict, o.unknown), (Some(Verdict::Unverified), 3));
+    assert_eq!(st.rest_errors.load(Relaxed), 3);
+    // нет проверки у биржи
+    let (o, _) = run_check(&req, &|_| None);
+    assert_eq!(
+        (o.verdict, o.why),
+        (Some(Verdict::Unverified), "unsupported")
+    );
+    // слишком старая пауза: REST уже не видит её окна
+    let old = preq(
+        now - pausecheck::MAX_AGE_MS - 5_000,
+        now - pausecheck::MAX_AGE_MS - 1_000,
+        3,
+    );
+    let (o, st) = run_check(&old, &|_| Some(Ok(vec![])));
+    assert_eq!((o.verdict, o.why), (Some(Verdict::Unverified), "too_old"));
+    assert_eq!(st.rest_requests.load(Relaxed), 0);
+    // символ без сделок вовсе — окно покрыто (сделок на бирже нет)
+    let (o, _) = run_check(&req, &|_| Some(Ok(vec![])));
+    assert_eq!(o.verdict, Some(Verdict::Quiet));
+    assert!(Verdict::Loss.is_bad() && Verdict::Unverified.is_bad() && !Verdict::Quiet.is_bad());
+}
+
+/// Отказ по частоте ставит на паузу весь поток и не тратит попытку символа; запросы идут не чаще `min_call_gap`.
+#[test]
+fn a_rate_limit_pauses_the_check_and_the_symbol_is_asked_again() {
+    use std::sync::atomic::AtomicUsize;
+    let now = super::events::now_ms();
+    let (s, e) = (now - 20_000, now - 16_000);
+    let req = preq(s, e, 3);
+    let calls = AtomicUsize::new(0);
+    let fetch = |_: &str| {
+        let n = calls.fetch_add(1, Relaxed);
+        Some(if n == 1 {
+            Err(RestError::limited(
+                "429".into(),
+                Some(Duration::from_millis(30)),
+            ))
+        } else {
+            Ok(vec![s - 60_000])
+        })
+    };
+    let t0 = Instant::now();
+    let (o, st) = run_check(&req, &fetch);
+    assert!(t0.elapsed() >= Duration::from_millis(30));
+    assert_eq!((o.verdict, o.checked), (Some(Verdict::Quiet), 3));
+    assert_eq!(
+        (
+            st.rest_requests.load(Relaxed),
+            st.rate_limited.load(Relaxed)
+        ),
+        (4, 1),
+        "три символа и один повтор после отказа"
+    );
+    // минимум между запросами
+    let cfg = pausecheck::WorkCfg {
+        min_call_gap: Duration::from_millis(20),
+        retry: Vec::new(),
+    };
+    let st = PauseStats::default();
+    let stop = AtomicBool::new(false);
+    let mut last = Instant::now();
+    let t0 = Instant::now();
+    pausecheck::check(
+        &|_| Some(Ok(vec![s - 60_000])),
+        &cfg,
+        &req,
+        &st,
+        &stop,
+        &mut last,
+    );
+    assert!(
+        t0.elapsed() >= Duration::from_millis(55),
+        "3 запроса не чаще 1 за 20 мс"
+    );
+}
+
+/// Поток: очередь → вердикт в счётчики, журнал и событие шарда.
+#[test]
+fn the_pause_check_thread_judges_queued_pauses_and_reports_them() {
+    use std::sync::atomic::AtomicU64;
+    let now = super::events::now_ms();
+    let (s, e) = (now - 20_000, now - 16_000);
+    let st = Arc::new(PauseStats::default());
+    let queued = Arc::new(AtomicU64::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = channel::<PauseReq>();
+    let events = Arc::new(std::sync::Mutex::new(
+        Vec::<(String, serde_json::Value)>::new(),
+    ));
+    let (st2, q2, stop2) = (Arc::clone(&st), Arc::clone(&queued), Arc::clone(&stop));
+    let j = std::thread::spawn(move || {
+        let fetch = |_: &str| Some(Ok(vec![s - 60_000]));
+        pausecheck::work(&fetch, &quick(), &rx, &st2, &q2, &stop2);
+    });
+    let ev = Arc::clone(&events);
+    let mut req = preq(s, e, 2);
+    req.emit = Box::new(move |name, f| ev.lock().unwrap().push((name.to_string(), f)));
+    st.requested.fetch_add(1, Relaxed);
+    queued.fetch_add(1, Relaxed);
+    tx.send(req).unwrap();
+    let t0 = Instant::now();
+    while st.pending() > 0 && t0.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stop.store(true, Relaxed);
+    j.join().unwrap();
+    assert_eq!(st.pending(), 0);
+    assert_eq!(queued.load(Relaxed), 0);
+    let got = events.lock().unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, "pause_check");
+    assert_eq!(got[0].1["verdict"], "quiet");
+    assert_eq!(got[0].1["pause_start_ms"], s);
+    let j = st.json(now, 0);
+    assert_eq!(
+        (
+            j["quiet_1h"].as_u64(),
+            j["loss_1h"].as_u64(),
+            j["unverified_1h"].as_u64(),
+            j["pending"].as_u64()
+        ),
+        (Some(1), Some(0), Some(0), Some(0))
+    );
+    assert_eq!(
+        st.bad_ms_between(0, i64::MAX),
+        0,
+        "тишина рынка в потерю не входит"
+    );
+    st.judged(s, 4_000, Verdict::Loss);
+    st.judged(s + 1, 3_000, Verdict::Unverified);
+    assert_eq!((st.bad_ms_between(s, s + 2), st.bad_events()), (7_000, 2));
+}
+
+#[test]
+fn bybit_recent_trade_answer_is_parsed_and_rate_limit_codes_stop_the_requests() {
+    use super::bybit::{parse_recent_trade_times, Bybit};
+    let ok = json!({"retCode": 0, "result": {"list": [{"time": "1794812547123", "execId": "a"}, {"time": "1794812546000"}]}});
+    assert_eq!(
+        parse_recent_trade_times(&ok).unwrap(),
+        vec![1_794_812_547_123, 1_794_812_546_000]
+    );
+    for code in [10006, 10018] {
+        let e = parse_recent_trade_times(&json!({"retCode": code})).unwrap_err();
+        assert!(e.limited.is_some(), "retCode {code}");
+    }
+    let e = parse_recent_trade_times(&json!({"retCode": 10001})).unwrap_err();
+    assert!(e.limited.is_none());
+    assert!(
+        parse_recent_trade_times(&json!({"retCode": 0, "result": {"list": [{"x": 1}]}})).is_err()
+    );
+    assert!(Bybit.pause_check() && Bybit.trade_times("tickers.BTCUSDT").is_none());
+    assert!(!Binance.pause_check());
+}
+
+fn series_rows(w: &super::series::SeriesWriter) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(w.path())
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .filter(|v| v.get("t").is_some())
+        .collect()
+}
+
+/// Н1 повторной проверки: итог дозапроса приходит после строки минуты — он пишется строкой той же минуты `lost_ids_late` ровно один раз (ни потерь, ни двойного счёта).
+#[test]
+fn a_loss_that_arrives_after_its_minute_row_is_written_as_a_late_row_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let min = 60_000i64;
+    let m = ShardMetrics::new("trade00", 0, 64, 16);
+    let stats = Arc::new(BackfillStats::default());
+    let mut w = super::series::SeriesWriter::open(dir.path(), 100 * min + 5_000, "abc1234");
+    w.set_backfill(Arc::clone(&stats));
+    // потеря минуты 101 пришла до записи её строки — в строке, поздней строки нет
+    stats.lost(101 * min + 30_000, 7);
+    w.flush(&[Arc::clone(&m)], 103 * min + 10_000);
+    assert_eq!(
+        series_rows(&w)
+            .iter()
+            .map(|r| r["lost_ids"].as_i64())
+            .collect::<Vec<_>>(),
+        vec![Some(7), Some(0)]
+    );
+    // итоги дозапроса пришли позже: минуты 101 и 102 уже записаны
+    stats.lost(101 * min + 40_000, 5);
+    stats.lost(102 * min + 1_000, 11);
+    w.flush(&[Arc::clone(&m)], 103 * min + 20_000);
+    w.flush(&[Arc::clone(&m)], 103 * min + 30_000);
+    let late: Vec<(i64, i64)> = series_rows(&w)
+        .iter()
+        .filter(|r| r.get("lost_ids_late").is_some())
+        .map(|r| {
+            (
+                r["t"].as_i64().unwrap() / 60,
+                r["lost_ids_late"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        late,
+        vec![(101, 5), (102, 11)],
+        "по минуте потери, разница с учтённым"
+    );
+    // минута, ещё не записанная, берёт потерю в свою строку, поздней строки не будет
+    stats.lost(103 * min + 50_000, 3);
+    w.flush(&[Arc::clone(&m)], 105 * min + 1_000);
+    let rows = series_rows(&w);
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r.get("lost_ids_late").is_some())
+            .count(),
+        2
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|r| r["t"] == 103 * 60 && r.get("lost_ids").is_some())
+            .map(|r| r["lost_ids"].as_i64()),
+        Some(Some(3))
+    );
+    // потеря в минуте запуска: строки у минуты нет — поздняя строка её запишет
+    stats.lost(100 * min + 50_000, 2);
+    w.flush(&[Arc::clone(&m)], 105 * min + 2_000);
+    assert!(series_rows(&w)
+        .iter()
+        .any(|r| r["t"] == 100 * 60 && r["lost_ids_late"] == 2));
+}
+
+/// Ряд минут биржи с проверкой REST: паузы шардов сделок с вердиктом «тишина» в `lost_ms` не входят, «потеря» — входит (в строку или поздней строкой `lost_ms_late`), книга и mark — как были.
+#[test]
+fn series_minutes_count_a_trade_pause_as_loss_only_with_a_bad_rest_verdict() {
+    let dir = tempfile::tempdir().unwrap();
+    let min = 60_000i64;
+    let tr = ShardMetrics::new("trade00", 0, 64, 16);
+    let book = ShardMetrics::new("book00", 0, 64, 16);
+    tr.lists().gap_spans.push_back((101 * min + 1_000, 3_500));
+    tr.lists().gap_spans.push_back((102 * min + 1_000, 4_000));
+    book.lists().gap_spans.push_back((101 * min + 2_000, 2_000));
+    let ps = Arc::new(PauseStats::default());
+    ps.judged(101 * min + 1_000, 3_500, Verdict::Quiet);
+    let mut w = super::series::SeriesWriter::open(dir.path(), 100 * min + 5_000, "abc1234");
+    w.set_pause_check(Arc::clone(&ps));
+    let shards = [Arc::clone(&tr), Arc::clone(&book)];
+    w.flush(&shards, 103 * min + 10_000);
+    let rows = series_rows(&w);
+    assert_eq!(
+        (rows[0]["lost_ms"].as_i64(), rows[0]["pause_ms"].as_i64()),
+        (Some(2_000), Some(5_500)),
+        "минута 101: тишина рынка не потеря, пауза книги — потеря"
+    );
+    assert_eq!(
+        (rows[1]["lost_ms"].as_i64(), rows[1]["pause_ms"].as_i64()),
+        (Some(0), Some(4_000))
+    );
+    assert!(
+        rows[0].get("lost_ids").is_none(),
+        "у биржи без дозапроса поля нет"
+    );
+    // вердикт по паузе минуты 102 пришёл после строки минуты — поздняя строка, один раз
+    ps.judged(102 * min + 1_000, 4_000, Verdict::Loss);
+    w.flush(&shards, 103 * min + 20_000);
+    w.flush(&shards, 103 * min + 30_000);
+    let late: Vec<(i64, i64)> = series_rows(&w)
+        .iter()
+        .filter(|r| r.get("lost_ms_late").is_some())
+        .map(|r| {
+            (
+                r["t"].as_i64().unwrap() / 60,
+                r["lost_ms_late"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(late, vec![(102, 4_000)]);
+}
+
+/// Повторная проверка 16.11, п. 7 (Binance `over_cap` [book00] 08:23: оценка 2 068 > потолка 1 800): шард выше потолка новых символов не получает, пачка новых символов открывает один
+/// новый шард (не по шарду на символ), а уже подписанные символы не двигаются — раскладка меняется только `add_symbol` / `remove_symbol`, новые веса операций не дают.
+#[test]
+fn a_shard_over_the_cap_takes_no_new_symbols_a_burst_spawns_one_shard_and_nothing_is_moved() {
+    let exch = Binance;
+    let (pool, w) = two_hot_pool();
+    let plans = exch.plan(&pool, &kinds(), 20);
+    let mut layout = Layout::new(&exch, &plans, &pool, &kinds(), 20);
+    layout.set_weights(w);
+    assert!(layout.loads()[0] > 1_800.0, "book00 выше потолка");
+    let (mut spawns, mut appends_to_hot, mut removes) = (0, 0, 0);
+    let mut appended_to: Vec<usize> = Vec::new();
+    for i in 0..10 {
+        for op in layout.add_symbol(&exch, &format!("NEW{i}USDT")) {
+            match op {
+                Op::Spawn { plan, .. } if plan.name.starts_with("book") => spawns += 1,
+                Op::Spawn { .. } => {}
+                Op::Append { slot, streams } if streams[0].ends_with("@bookTicker") => {
+                    appends_to_hot += usize::from(slot == 0);
+                    appended_to.push(slot);
+                }
+                Op::Remove { .. } => removes += 1,
+                Op::Append { .. } => {}
+            }
+        }
+    }
+    assert_eq!(appends_to_hot, 0, "book00 новых символов не получает");
+    assert_eq!(removes, 0);
+    assert_eq!(spawns, 1, "пачка из 10 символов — один новый шард книги");
+    // свежие веса (каждый опрос REST) раскладку не трогают: операций нет, символы остаются где были
+    let before = layout.loads();
+    let slots_before: Vec<usize> = layout.slots().iter().map(|s| s.streams).collect();
+    let mut r = rates_of("book", &[("AAAUSDT", 100.0), ("AABUSDT", 100.0)]);
+    for s in names(30) {
+        r.set("book", &s.to_lowercase(), 400.0);
+    }
+    layout.set_weights(Weights::new(r, &BTreeMap::new()));
+    assert_ne!(layout.loads(), before, "оценки изменились");
+    assert_eq!(
+        layout.slots().iter().map(|s| s.streams).collect::<Vec<_>>(),
+        slots_before
     );
 }

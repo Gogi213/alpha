@@ -1728,8 +1728,13 @@ fn bingx_session_unpacks_gzip_answers_ping_and_does_not_write_heartbeats() {
         &stop,
     )
     .unwrap();
+    // стоп — по тому, что проверяется ниже (записи писателя), а не по времени: три Pong приходят через ≈ 0,3 с, и при шаге источника 5 мс и холодном пути записей к тому моменту могло
+    // быть меньше 21 (на srv ≈ каждый второй прогон). Всё, что писатель принял до остановки, при `join` попадает в файл
+    let metrics = Arc::clone(&h.metrics);
     let t0 = Instant::now();
-    while ponged.load(Relaxed) < 3 && t0.elapsed() < Duration::from_secs(20) {
+    while (ponged.load(Relaxed) < 3 || metrics.writer().records < 60)
+        && t0.elapsed() < Duration::from_secs(20)
+    {
         std::thread::sleep(Duration::from_millis(50));
     }
     stop.store(true, Relaxed);

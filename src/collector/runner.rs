@@ -31,6 +31,7 @@ use super::livepool::{
 use super::metrics::STATS_PERIOD_S;
 use super::net;
 use super::okx::Okx;
+use super::pausecheck;
 use super::reactor::{spawn_reactor, spawn_reactor_inline, ReactorCfg};
 use super::series::SeriesWriter;
 use super::session::StreamSet;
@@ -306,6 +307,7 @@ struct Extras<'a> {
     budget: &'a Budget,
     storm: &'a Storm,
     backfill: Option<&'a backfill::Backfill>,
+    pause_check: Option<&'a pausecheck::PauseCheck>,
 }
 
 /// health.json процесса: раздел шардов + (если есть реактор) раздел `reactor`.
@@ -321,6 +323,7 @@ fn health_json(
         budget,
         storm,
         backfill,
+        pause_check,
     } = *extras;
     host.refresh();
     let mut v = build(metrics, ctx, now_ms(), sampler);
@@ -337,6 +340,23 @@ fn health_json(
             backfill.map_or_else(
                 || json!({"enabled": false}),
                 |b| b.stats.json(true, now_ms()),
+            ),
+        );
+        // паузы шардов сделок проверяет REST: тишина рынка не красит, потеря и «не проверено» красят; идущая пауза — самая долгая, с
+        let now = now_ms();
+        let ongoing_s = metrics
+            .iter()
+            .filter(|m| super::livepool::kind_of(&m.name) == "trade")
+            .map(|m| m.gap_since_ms.load(std::sync::atomic::Ordering::Relaxed))
+            .filter(|&t| t > 0)
+            .map(|t| u64::try_from((now - t).max(0) / 1000).unwrap_or(0))
+            .max()
+            .unwrap_or(0);
+        o.insert(
+            "pause_check".to_string(),
+            pause_check.map_or_else(
+                || json!({"enabled": false}),
+                |p| p.stats.json(now, ongoing_s),
             ),
         );
     }
@@ -539,6 +559,9 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         Arc::clone(&stop),
     );
     opts.backfill = backfill.as_ref().map(|(b, _)| b.clone());
+    // проверка пауз шардов сделок по REST: биржи без номера сделки (Bybit); отдельный поток
+    let pause_check = pausecheck::spawn(Arc::clone(&exch), Arc::clone(&stop));
+    opts.pause_check = pause_check.as_ref().map(|(p, _)| p.clone());
     let limit = args.connect_budget.unwrap_or(match args.exchange {
         ExchangeName::Binance => BINANCE_LIMIT,
         ExchangeName::Bybit => LIMIT,
@@ -669,6 +692,9 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
     if let Some((b, _)) = &backfill {
         series.set_backfill(Arc::clone(&b.stats));
     }
+    if let Some((p, _)) = &pause_check {
+        series.set_pause_check(Arc::clone(&p.stats));
+    }
     let (t0, deadline) = (
         Instant::now(),
         (args.duration_s > 0).then(|| Duration::from_secs(args.duration_s)),
@@ -773,6 +799,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                         budget: &budget,
                         storm: &storm,
                         backfill: backfill.as_ref().map(|(b, _)| b),
+                        pause_check: pause_check.as_ref().map(|(p, _)| p),
                     },
                 ),
             );
@@ -792,6 +819,7 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
                 budget: &budget,
                 storm: &storm,
                 backfill: backfill.as_ref().map(|(b, _)| b),
+                pause_check: pause_check.as_ref().map(|(p, _)| p),
             },
         ),
     );
@@ -800,6 +828,9 @@ pub fn run(args: &RunArgs) -> anyhow::Result<()> {
         h.join();
     }
     if let Some((_, j)) = backfill {
+        let _ = j.join();
+    }
+    if let Some((_, j)) = pause_check {
         let _ = j.join();
     }
     if let Some((w, j)) = mark_worker {
