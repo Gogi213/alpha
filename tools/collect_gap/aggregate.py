@@ -87,7 +87,7 @@ def main():
     minute0 = a.t_start // 60
     nmin = a.t_end // 60 - minute0
     files = sorted(glob.glob(os.path.join(a.root, '2026-*', '*.tsv.zst')))
-    files = [f for f in files if a.only in os.path.basename(f)]
+    files = [f for f in files if a.only in os.path.basename(f) and not os.path.basename(f).startswith('backfill-')]   # файлы дозапроса — не данные ws
     # дни до t_start пропускаем по имени каталога
     day_lo = time.strftime('%Y-%m-%d', time.gmtime(a.t_start))
     files = [f for f in files if os.path.basename(os.path.dirname(f)) >= day_lo]

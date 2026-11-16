@@ -21,7 +21,7 @@ def page_rows():
     try:
         with urllib.request.urlopen('http://127.0.0.1:8088/api/v3', timeout=6) as r:
             d = json.loads(r.read())
-        return {x['id']: {k: x.get(k) for k in ('ok', 'live_bad', 'late_bad', 'lost_1h_s')} for x in d['rows']}
+        return {x['id']: {k: x.get(k) for k in ('ok', 'live_bad', 'late_bad', 'budget_bad', 'lost_1h_s', 'lost_ids_1h', 'backfill_lost_1h')} for x in d['rows']}
     except Exception as e:  # noqa
         return {'_err': str(e)[:80]}
 
@@ -37,7 +37,8 @@ def snap(ex, h, rows):
         'started_ms': h.get('started_ms'), 'symbols': h.get('symbols'),
         'totals': {k: t.get(k) for k in ('records', 'dups', 'sink_blocks_dropped', 'sink_errors', 'rx_clamped', 'raw')},
         'ring_full_total': (bp.get('ring') or {}).get('full_events_total'), 'ring_blocked_ms': (bp.get('ring') or {}).get('blocked_ms_total'),
-        'ws': {k: ws.get(k) for k in ('connections', 'gaps_1h', 'gaps_24h', 'reconnects_1h', 'timeouts_1h', 'timeouts_silent_1h', 'path_switches_1h')},
+        'ws': {k: ws.get(k) for k in ('connections', 'gaps_1h', 'gaps_1h_nontrade', 'gaps_24h', 'reconnects_1h', 'timeouts_1h', 'timeouts_silent_1h', 'path_switches_1h')},
+        'backfill': h.get('backfill'), 'storm': h.get('storm'), 'connect_budget': h.get('connect_budget'),
         'lag_in': h.get('lag_in_ms'), 'lag_in_kind': {k: {'p50': v.get('p50'), 'p99': v.get('p99')} for k, v in (h.get('lag_in_by_kind_ms') or {}).items()},
         'queue_lag': bp.get('queue_lag_ms'), 'late_1h': {k: v.get('late_1h') for k, v in fresh.items()},
         'shards': {'n': len(sh), 'lt2': sum(1 for s in sh if s.get('connected', 0) < 2), 'lt1': sum(1 for s in sh if s.get('connected', 0) < 1),
