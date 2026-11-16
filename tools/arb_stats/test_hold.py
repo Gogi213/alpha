@@ -129,3 +129,26 @@ def test_funding_over_hold_signs_and_bounds():
     assert n.tolist() == [1] and abs(f[0] - 0.0002 * 1e4) < 1e-9
     f, n = hf.funding_over_hold(df.iloc[:1], {}, np.array([0.0]), np.array([1.0]))
     assert np.isnan(f[0]) and np.isnan(n[0])                                                                      # выплаты символов не записаны — неизвестно
+
+
+def test_need_extra_subtracts_covered_windows():
+    import pandas as pd
+    import hold_filter as hf
+    df = pd.DataFrame({"f_gap": [False], "f_contract": [False], "f_tradfi": [False], "f_delist": [False], "ageA": [9000.0], "ageB": [0.0],
+                       "exA": ["bybit"], "symA": ["XUSDT"], "exB": ["okx"], "symB": ["X"], "t": [100_000.0], "dur": [2000.0]})
+    new = hf.need_windows(df, pad=10_000)
+    assert new == {("bybit", "XUSDT"): [(89_000, 112_000 + 1000)]}
+    old = {("bybit", "XUSDT"): [(80_000, 95_000), (105_000, 106_000)]}
+    ex = hf.need_extra(df, old)
+    assert ex == {("bybit", "XUSDT"): [(95_000, 105_000), (106_000, 113_000)]}
+    assert hf.need_extra(df, {("bybit", "XUSDT"): [(0, 200_000)]}) == {}
+
+
+def test_trade_row_live_gap_at_entry():
+    import pandas as pd
+    import hold_stats as hs_
+    c = hs_.sim_cols(1, "c-t")
+    sub = pd.DataFrame({"side": [1, -1, 1, -1], "day": [0, 0, 0, 0], c["net"]: [1.0, 2.0, -3.0, -4.0], c["gross"]: [13.6, 14.6, 9.6, 8.6], c["size"]: [100.0] * 4, c["tx"]: [1.0] * 4,
+                        c["edge_tx"]: [60.0, -70.0, 40.0, -40.0], c["c_tx"]: [0.0] * 4, c["te"]: [2.0] * 4, c["how"]: [1.0] * 4})
+    r = hs_.trade_row(sub, 1, "c-t", 1.0, 1, 50.0, "z")
+    assert r["разрыв ≥ θ на входе, %"] == 50.0 and r["net при живом разрыве, медиана bps"] == 1.5      # сторона +1: Sell = 60 ≥ 50; сторона −1: −Buy = 70 ≥ 50; остальные два — разрыв 40 < 50

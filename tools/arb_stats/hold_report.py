@@ -29,6 +29,9 @@ def counts_combined(df, tab, cov, th, v):
         k = hst.counts_by_threshold(df[df[keep]], tab, cov, th, v)
         cols.update({f"{tag}: эпизодов": k["эпизодов"], f"{tag}: пар": k["пар"], f"{tag}: эп./сут": k["эпизодов/сут"], f"{tag}: пар с ≥ 1 эп./сут": k["пар с ≥ 1 эп./сут"],
                      f"{tag}: пар с эпизодом каждые сутки": k["пар с эпизодом каждые сутки"]})
+        if keep == "keep":
+            nb = hst.counts_by_threshold(df[df[keep] & ~df["f_bingx"]], tab, cov, th, v)
+            cols.update({"сырьё без BingX: эпизодов": nb["эпизодов"], "сырьё без BingX: пар": nb["пар"]})
     return pd.DataFrame(cols)
 
 
@@ -98,6 +101,25 @@ def funding_row(sub, d, kind):
             "фандинг на круг, bps (среднее по всем)": round(float(f.mean()), 3)}
 
 
+def per_day_table(df, tab, th, v, keep):
+    """Устойчивость по суткам GMT+4: эпизодов и пар с эпизодами ≥ 5 с / ≥ 60 с по каждым суткам окна (до фильтров и после)."""
+    days = tab["days"]
+    sub = df[(df["th"] == th) & (df["view"] == v)]
+    rows = []
+    for d in range(len(days) - 1):
+        lab = pd.to_datetime(days[d] + 4 * 3_600_000, unit="ms").strftime("%d.%m")
+        hrs = (min(days[d + 1], tab["t1"]) - days[d]) / 3_600_000
+        s = sub[sub["day"] == d]
+        k = s[s[keep]]
+        r = {"сутки (GMT+4)": lab, "часов окна": round(hrs, 1)}
+        for thr in (5, 60):
+            r[f"до: эпизодов ≥ {thr} с"] = int((s["dur"] >= thr * 1000).sum())
+            r[f"после: эпизодов ≥ {thr} с"] = int((k["dur"] >= thr * 1000).sum())
+            r[f"после: пар ≥ {thr} с"] = int(k[k["dur"] >= thr * 1000].groupby(["coin", "exA", "exB"]).ngroups)
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
 def main(flagp, resimp, out_md, out_pairs, out_cases):
     tab = pickle.load(open(flagp, "rb"))
     df = tab["df"]
@@ -117,6 +139,10 @@ def main(flagp, resimp, out_md, out_pairs, out_cases):
     for th in THETAS:
         for v in VIEWS:
             L += [f"### Распределение длительности — {combo_name(th, v)}", hst.md(dist_table(df, th, v)), ""]
+    for th in THETAS:
+        for v in VIEWS:
+            for keep, (nm, _, _) in READ.items():
+                L += [f"### По суткам, остаток («{nm}») — {combo_name(th, v)}", hst.md(per_day_table(df, tab, th, v, keep)), ""]
     for th in THETAS:
         for v in VIEWS:
             for keep, (nm, _, _) in READ.items():

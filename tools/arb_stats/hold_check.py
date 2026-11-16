@@ -65,8 +65,8 @@ def read_rows(path, wants):
 def derive(rowsA, rowsB, mA, mB, th, side, t_hit):
     """Независимая прогонка: состояния ног по (E, rx), событие = любое E; эпизод = подряд идущие события с разрывом ≥ θ, содержащий t_hit.
     -> dict(t, dur, edgemax, dips (список провалов < 1 с внутри допускающего эпизода), tol_dur, nbefore, nafter, rows) или None."""
-    rowsA = sorted(r for r in rowsA if 0 < r[2] <= r[3])
-    rowsB = sorted(r for r in rowsB if 0 < r[2] <= r[3])
+    rowsA = sorted((r for r in rowsA if 0 < r[2] <= r[3]), key=lambda r: (r[0], r[1]))      # порядок (E, приём); при равенстве — порядок строк в файле (последняя запись — состояние)
+    rowsB = sorted((r for r in rowsB if 0 < r[2] <= r[3]), key=lambda r: (r[0], r[1]))
     if not rowsA or not rowsB:
         return None
     eA, eB = [r[0] for r in rowsA], [r[0] for r in rowsB]
@@ -147,12 +147,12 @@ def main_raw(flagp, bwork, n, seed, outp):
     jobs = {}
     for i in ids:
         r = df.loc[i]
-        lo, hi = int(r["t"]) - 3_600_000, int(r["t"] + r["dur"]) + 60_000
+        lo, hi = int(r["t"] - max(r["ageA"], r["ageB"])) - 120_000, int(r["t"] + r["dur"]) + 60_000      # назад — до последней записи ноги перед эпизодом (наибольший возраст ноги за эпизод ≥ возраста в первый момент)
         for ex, sym in ((r["exA"], r["symA"]), (r["exB"], r["symB"])):
             for f in files_for(parsed, ex, sym, lo, hi):
                 jobs.setdefault((ex, f), {}).setdefault(sym.encode(), []).append((lo, hi))
     rows = {}
-    for (ex, f), w in jobs.items():
+    for (ex, f), w in sorted(jobs.items(), key=lambda kv: kv[0][1]):          # файлы по имени — как куски разбора (порядок строк внутри равного (E, приём) тот же)
         for s, v in read_rows(f, w).items():
             rows.setdefault((ex, s.decode()), []).extend(v)
         print("read", f, flush=True)

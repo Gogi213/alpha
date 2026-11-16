@@ -256,6 +256,47 @@ def need_windows(df, pad=10_000):
     return need
 
 
+def need_extra(df, old_need, pad=10_000):
+    """Окна сырых записей для df за вычетом уже покрытых окнами old_need (другой вариант эпизодов): -> {(биржа, символ): [(от, до), …]} только непокрытое."""
+    new = need_windows(df, pad)
+    out = {}
+    for key, iv in new.items():
+        old = sorted(old_need.get(key, []))
+        os_, oe = ([x[0] for x in merge_iv(old)], [x[1] for x in merge_iv(old)]) if old else ([], [])
+        for a, b in iv:
+            cur = a
+            i = np.searchsorted(oe, a, "right") if oe else 0
+            while i < len(os_) and os_[i] <= b and cur <= b:
+                if os_[i] > cur:
+                    out.setdefault(key, []).append((cur, os_[i]))
+                cur = max(cur, oe[i])
+                i += 1
+            if cur < b:
+                out.setdefault(key, []).append((cur, b))
+    return out
+
+
+def merge_iv(iv):
+    out = []
+    for a, b in sorted(iv):
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def load_raw(spec):
+    """Один или несколько pkl hold_raw через запятую -> объединённый словарь {(биржа, символ): отсортированные E}; «-» — нет."""
+    if spec == "-":
+        return None
+    out = {}
+    for path in spec.split(","):
+        for k, v in pickle.load(open(path, "rb")).items():
+            out[k] = v if k not in out else np.union1d(out[k], v)
+    return out
+
+
 def load_marks(spec):
     """Один или несколько pkl hold_marks через запятую (старые и новые запуски сборщика) -> склеенный словарь; «-» — нет."""
     out = {}
@@ -277,16 +318,16 @@ def load_marks(spec):
 def main(tabp, symp, deadp, auditp, marksp, rawp, out):
     tab = pickle.load(open(tabp, "rb"))
     marks = load_marks(marksp)
-    raw = pickle.load(open(rawp, "rb")) if rawp != "-" else None
+    raw = load_raw(rawp)
     df = apply(tab, json.load(open(symp)), json.load(open(deadp)), load_audit(auditp), marks, raw)
     pickle.dump({**tab, "df": df}, open(out, "wb"), protocol=4)
     print({"episodes": len(df), "keep": int(df["keep"].sum()), **{f: int(df[f"f_{f}"].sum()) for f in FILTERS}})
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "need":     # hold_filter.py need <flagged.pkl> <need.pkl>
+    if sys.argv[1] == "need":     # hold_filter.py need <flagged.pkl> <need.pkl> [<прежний need.pkl>] — с третьим аргументом только окна, не покрытые прежним
         d = pickle.load(open(sys.argv[2], "rb"))["df"]
-        nw = need_windows(d)
+        nw = need_extra(d, pickle.load(open(sys.argv[4], "rb"))) if len(sys.argv) > 4 else need_windows(d)
         pickle.dump(nw, open(sys.argv[3], "wb"))
         print({"keys": len(nw), "windows": sum(len(v) for v in nw.values())})
     else:

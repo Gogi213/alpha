@@ -95,7 +95,7 @@ def sim_cols(d, kind):
     return {c: p + c for c in ("net", "gross", "size", "tx", "te", "edge_tx", "c_tx", "how")}
 
 
-def trade_row(sub, d, kind, win_days, n_days=4):
+def trade_row(sub, d, kind, win_days, n_days=4, th=None, view=None):
     c = sim_cols(d, kind)
     net, gross, size = sub[c["net"]].to_numpy(), sub[c["gross"]].to_numpy(), sub[c["size"]].to_numpy()
     entered = np.isfinite(sub[c["tx"]].to_numpy())
@@ -106,7 +106,14 @@ def trade_row(sub, d, kind, win_days, n_days=4):
     days = sub["day"].to_numpy()
     per_day = [usd[days == k].sum() for k in range(n_days)]
     how = sub[c["how"]].to_numpy()
-    return {"эпизодов": len(sub), "вошли": int(entered.sum()), "закрыто по правилу": int((closed & (how == 1)).sum()), "по потолку 1 ч": int((closed & (how == 2)).sum()),
+    out = {}
+    if th is not None:                     # разрыв на момент входа ещё не меньше порога? (для «от центра» — относительно центра на входе)
+        ex = sub["side"].to_numpy() * (sub[c["edge_tx"]].to_numpy() - (sub[c["c_tx"]].to_numpy() if view == "c" else 0.0))      # сторона −1: edge_tx — «Buy» (отрицательный при расхождении)
+        with np.errstate(invalid="ignore"):
+            live = entered & (ex >= th)
+        lc = live & closed
+        out = {"разрыв ≥ θ на входе, %": round(100 * float(live.sum()) / max(int(entered.sum()), 1), 1), "net при живом разрыве, медиана bps": round(float(np.median(net[lc])), 1) if lc.any() else None}
+    return {"эпизодов": len(sub), "вошли": int(entered.sum()), **out, "закрыто по правилу": int((closed & (how == 1)).sum()), "по потолку 1 ч": int((closed & (how == 2)).sum()),
             "net, медиана bps": round(float(np.median(net[closed])), 1) if closed.any() else None, "доля круга > 0": round(float((net[closed] > 0).mean()), 2) if closed.any() else None,
             "$/сут": round(float(usd.sum() / win_days), 1), "плацебо $/сут": round(float(plc.sum() / win_days), 1), "суток с плюсом": f"{int((np.array(per_day) > 0).sum())} из {len(per_day)}"}
 
@@ -119,7 +126,7 @@ def trade_table(df, tab, th, view, mask=None, delays=DELAYS_S, kinds=KINDS):
     rows = []
     for d in delays:
         for kind in kinds:
-            r = trade_row(sub, d, kind, win_days, len(tab["days"]) - 1)
+            r = trade_row(sub, d, kind, win_days, len(tab["days"]) - 1, th, view)
             rows.append({"задержка, с": d, "выход": KIND_RU[kind], **r})
     return pd.DataFrame(rows)
 
