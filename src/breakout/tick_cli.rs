@@ -165,6 +165,7 @@ fn write_detail(dir: &Path, syms: &[Sym], side: Side, p: &Params, r: &TickResult
             rec["old_entry_px_e8"] = px.into();
         }
         if let Some(t2) = &x.lot2 {
+            rec["kind1"] = x.kind1.name().into();
             rec["lot2"] = serde_json::json!({
                 "entry_ms": t2.entry_ms, "entry_px_e8": t2.entry_px, "exit_ms": t2.exit_ms,
                 "kind": t2.kind.name(), "takes": t2.takes,

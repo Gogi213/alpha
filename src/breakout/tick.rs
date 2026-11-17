@@ -1385,6 +1385,8 @@ pub struct TickTrade {
     pub old_entry: Option<(i64, i64)>,
     /// §13.19 (`e2`): второй лот (свой вход, ноги, выход); `entry_ms`, `entry_px`, `legs` выше — лот 1, `exit_ms` — последний выход.
     pub lot2: Option<TickOut>,
+    /// §13.19: вид выхода лота 1 (при `lot2` поле `kind` — вид сделки целиком).
+    pub kind1: ExitKind,
 }
 
 #[derive(Debug, Clone)]
@@ -1620,6 +1622,7 @@ pub fn run_tick(
             } else {
                 None
             },
+            kind1: tr.kind,
             lot2: tr2,
         });
     }
