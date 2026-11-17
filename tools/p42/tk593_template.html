@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>П-42 · CatBoost на пулах</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#fafafa;--fg:#09090b;--muted:#f4f4f5;--mfg:#71717a;--border:#e4e4e7;--accent:#2563eb;--z300:#d4d4d8;--z400:#a1a1aa;--z500:#71717a;--z600:#52525b;--z700:#3f3f46;--r:12px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+.top{padding:36px 0 18px}
+h1{margin:0;font-size:22px;font-weight:650;letter-spacing:-.02em}
+.sub{margin:6px 0 0;color:var(--mfg);font-size:13px}
+.bar{position:sticky;top:0;z-index:5;background:rgba(250,250,250,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);margin:0 -24px;padding:10px 24px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.tabs{display:inline-flex;background:var(--muted);padding:4px;border-radius:9px}
+.tabs button{border:0;background:transparent;padding:6px 18px;border-radius:6px;font:500 13px inherit;color:var(--mfg);cursor:pointer}
+.tabs button[aria-selected=true]{background:#fff;color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.nav{display:flex;gap:2px;flex-wrap:wrap}
+.nav button{border:0;background:transparent;padding:5px 10px;border-radius:6px;font:500 12.5px inherit;color:var(--mfg);cursor:pointer}
+.nav button:hover{background:var(--muted);color:var(--fg)}
+section{margin-top:44px;scroll-margin-top:70px}
+section.first{margin-top:28px}
+h2{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}
+.desc{margin:3px 0 14px;color:var(--mfg);font-size:13px;max-width:78ch}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:940px){.grid2{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.04);min-width:0}
+.card-h{padding:14px 20px 0;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.card-h b{font-size:14px;font-weight:600}
+.card-h span{color:var(--mfg);font-size:12px}
+.card-b{padding:10px 20px 18px}
+.cap{color:var(--mfg);font-size:12px;margin:10px 0 2px}
+.cap:first-child{margin-top:0}
+table{width:100%;border-collapse:collapse}
+th{font-weight:500;color:var(--mfg);text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;white-space:nowrap}
+td:first-child{min-width:250px}
+td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.num{text-align:right}
+th.num{text-align:right}
+.muted{color:var(--mfg)}
+.small{font-size:12px}
+.strong{font-weight:600}
+.badge{display:inline-flex;align-items:center;border-radius:6px;padding:2px 10px;font-size:12px;font-weight:600;border:1px solid var(--border);background:var(--muted);color:var(--z700);white-space:nowrap}
+.badge.ok{background:var(--accent);border-color:var(--accent);color:#fff}
+.verd{display:flex;gap:12px;align-items:baseline;padding:12px 20px;border-top:1px solid var(--border)}
+.verd .small{flex:1}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--z600);margin:0 0 4px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+svg{display:block;overflow:visible}
+svg text{font:11px Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--mfg)}
+svg text.k{fill:var(--fg)}
+#tip{position:fixed;display:none;pointer-events:none;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.1);padding:8px 10px;font-size:12px;z-index:50;max-width:280px;line-height:1.45}
+#tip .t{font-weight:600;margin-bottom:2px}
+#tip .r{display:flex;justify-content:space-between;gap:14px}
+.grey{opacity:.4}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>П-42 · CatBoost на признаках уровня</h1>
+    <p class="sub" id="sub"></p>
+  </div>
+  <div class="bar"><div class="tabs" id="tabs" role="tablist"></div><div class="nav" id="nav"></div></div>
+  <div id="view"></div>
+</div>
+<div id="tip"></div>
+<script id="data" type="application/json">/*__DATA__*/</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const NS = 'http://www.w3.org/2000/svg';
+const MINUS = '−';
+const ACC = '#2563eb';
+const MODELS = [['CB3', 'CB3 · глубина 3'], ['LOGIT', 'Логистика'], ['CB1', 'CB1 · глубина 1'], ['TURN', 'Только оборот']];
+const STY = {CB3: {c: ACC, w: 2.25, d: null}, LOGIT: {c: '#52525b', w: 1.5, d: null}, CB1: {c: '#a1a1aa', w: 1.5, d: '5 3'}, TURN: {c: '#c4c4cc', w: 1.5, d: '1.5 3'}};
+const SHORT = {CB3: 'CB3', LOGIT: 'логистика', CB1: 'CB1', TURN: 'оборот'};
+const SIDE = {long: 'Лонг', short: 'Шорт'};
+const FNAME = {lturn24: 'turn24h (lg)'};
+const fn = f => FNAME[f] || f;
+
+const el = (t, a = {}, kids = []) => {
+  const e = document.createElementNS(NS, t);
+  for (const k in a) if (a[k] != null) e.setAttribute(k, a[k]);
+  (Array.isArray(kids) ? kids : [kids]).forEach(c => c != null && e.append(c));
+  return e;
+};
+const h = (t, a = {}, kids = []) => {
+  const e = document.createElement(t);
+  for (const k in a) if (a[k] != null) { if (k === 'class') e.className = a[k]; else if (k === 'html') e.innerHTML = a[k]; else e.setAttribute(k, a[k]); }
+  (Array.isArray(kids) ? kids : [kids]).forEach(c => c != null && e.append(c));
+  return e;
+};
+const sc = (d0, d1, r0, r1) => v => r0 + (v - d0) / (d1 - d0) * (r1 - r0);
+function num(v, d = 3, sign = false) {
+  if (v == null || v !== v) return '—';
+  const s = Math.abs(v).toFixed(d).replace('.', ',');
+  const z = +s === 0;
+  return (v < 0 && !z ? MINUS : (sign && !z ? '+' : '')) + s;
+}
+const pct = (v, d = 1) => num(v * 100, d) + ' %';
+const ints = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+function ticks(lo, hi, n = 5) {
+  const raw = (hi - lo) / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), nm = raw / mag;
+  const step = (nm < 1.5 ? 1 : nm < 3 ? 2 : nm < 7 ? 5 : 10) * mag, out = [];
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) out.push(+v.toPrecision(12));
+  return out;
+}
+const rng = (a, pad = 0.06) => { let lo = Math.min(...a), hi = Math.max(...a); const p = (hi - lo) * pad || 0.01; return [lo - p, hi + p]; };
+
+// ── tooltip
+const tip = document.getElementById('tip');
+function moveTip(ev) {
+  const r = tip.getBoundingClientRect();
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - 14;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hover(node, fn_) {
+  node.addEventListener('mouseenter', e => { tip.innerHTML = typeof fn_ === 'function' ? fn_(e) : fn_; tip.style.display = 'block'; moveTip(e); });
+  node.addEventListener('mousemove', e => { if (typeof fn_ === 'function') tip.innerHTML = fn_(e); moveTip(e); });
+  node.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+const trow = (k, v) => `<div class="r"><span class="muted">${k}</span><span>${v}</span></div>`;
+
+// ── plot frame
+function plot(o) {
+  const w = o.w || 540, hh = o.h || 280, m = Object.assign({l: 46, r: 12, t: 18, b: 30}, o.m);
+  const svg = el('svg', {viewBox: `0 0 ${w} ${hh}`, width: '100%', role: 'img', 'data-chart': o.id || null});
+  const X = sc(o.xd[0], o.xd[1], m.l, w - m.r), Y = sc(o.yd[0], o.yd[1], hh - m.b, m.t);
+  (o.yt || ticks(o.yd[0], o.yd[1], 5)).forEach(v => {
+    svg.append(el('line', {x1: m.l, x2: w - m.r, y1: Y(v), y2: Y(v), stroke: '#efeff1'}));
+    svg.append(el('text', {x: m.l - 7, y: Y(v) + 3.5, 'text-anchor': 'end'}, (o.yf || String)(v)));
+  });
+  (o.xt || ticks(o.xd[0], o.xd[1], 5)).forEach(v => svg.append(el('text', {x: X(v), y: hh - m.b + 15, 'text-anchor': 'middle'}, (o.xf || String)(v))));
+  svg.append(el('line', {x1: m.l, x2: w - m.r, y1: hh - m.b, y2: hh - m.b, stroke: '#d4d4d8'}));
+  if (o.ylab) svg.append(el('text', {x: 0, y: 9}, o.ylab));
+  if (o.xlab) svg.append(el('text', {x: w - m.r, y: hh - 2, 'text-anchor': 'end'}, o.xlab));
+  return {svg, X, Y, w, h: hh, m};
+}
+function overlay(p, nIdx, xOf, tipFn) {
+  const {svg, w, h: hh, m} = p;
+  const vl = el('line', {y1: m.t, y2: hh - m.b, stroke: '#a1a1aa', 'stroke-dasharray': '3 3', visibility: 'hidden'});
+  const r = el('rect', {x: m.l, y: m.t, width: w - m.l - m.r, height: hh - m.t - m.b, fill: 'transparent'});
+  svg.append(vl, r);
+  const idxOf = ev => {
+    const b = svg.getBoundingClientRect(), x = (ev.clientX - b.left) / b.width * w;
+    return Math.max(0, Math.min(nIdx - 1, Math.round(((x - m.l) / (w - m.l - m.r)) * (nIdx - 1))));
+  };
+  r.addEventListener('mouseenter', e => { vl.setAttribute('visibility', 'visible'); tip.style.display = 'block'; });
+  r.addEventListener('mousemove', e => { const i = idxOf(e); vl.setAttribute('x1', p.X(xOf(i))); vl.setAttribute('x2', p.X(xOf(i))); tip.innerHTML = tipFn(i); moveTip(e); });
+  r.addEventListener('mouseleave', () => { vl.setAttribute('visibility', 'hidden'); tip.style.display = 'none'; });
+}
+function dot(p, g, id, i, x, y, o = {}) {
+  const c = el('circle', {cx: p.X(x), cy: p.Y(y), r: o.r || 4, fill: o.fill || ACC, stroke: o.stroke || '#fff', 'stroke-width': o.sw == null ? 2 : o.sw, 'data-chart': id, 'data-i': i, 'data-x': +x.toPrecision(7), 'data-y': y == null ? null : +y.toPrecision(7)});
+  g.append(c);
+  if (o.tip) { const t = el('circle', {cx: p.X(x), cy: p.Y(y), r: 11, fill: 'transparent'}); hover(t, o.tip); g.append(t); }
+  return c;
+}
+function legend(items) {
+  return h('div', {class: 'legend'}, items.map(([sw, label]) => h('span', {}, [sw, label])));
+}
+function swLine(c, w = 2, d = null) { return el('svg', {width: 22, height: 10, viewBox: '0 0 22 10'}, [el('line', {x1: 0, x2: 22, y1: 5, y2: 5, stroke: c, 'stroke-width': w, 'stroke-dasharray': d})]); }
+function swBox(c) { return el('svg', {width: 10, height: 10, viewBox: '0 0 10 10'}, [el('rect', {width: 10, height: 10, rx: 2, fill: c})]); }
+function swDot(c, hollow) { return el('svg', {width: 10, height: 10, viewBox: '0 0 10 10'}, [el('circle', {cx: 5, cy: 5, r: 4, fill: hollow ? '#fff' : c, stroke: c, 'stroke-width': 1.5})]); }
+
+// ── ROC
+function rocChart(c) {
+  const id = 'roc';
+  const p = plot({id, w: 540, h: 300, xd: [0, 1], yd: [0, 1], xf: v => num(v, 1), yf: v => num(v, 1), ylab: 'доля пойманных пробоев (TPR)', xlab: 'доля ложных (FPR)', m: {t: 20}});
+  p.svg.append(el('line', {x1: p.X(0), y1: p.Y(0), x2: p.X(1), y2: p.Y(1), stroke: '#d4d4d8', 'stroke-dasharray': '3 3'}));
+  const f = D.roc_fpr;
+  [...MODELS].reverse().forEach(([k]) => {
+    const s = STY[k], t = c.roc[k].tpr;
+    p.svg.append(el('path', {d: t.map((v, i) => (i ? 'L' : 'M') + p.X(f[i]).toFixed(1) + ' ' + p.Y(v).toFixed(1)).join(''), fill: 'none', stroke: s.c, 'stroke-width': s.w, 'stroke-dasharray': s.d, 'stroke-linejoin': 'round', 'data-chart': id + '.' + k, 'data-ys': t.join(',')}));
+  });
+  overlay(p, f.length, i => f[i], i => `<div class="t">FPR ${num(f[i], 2)}</div>` + MODELS.map(([k, n]) => trow(n, 'TPR ' + num(c.roc[k].tpr[i], 3))).join(''));
+  const wrap = h('div', {});
+  wrap.append(legend(MODELS.map(([k, n]) => [swLine(STY[k].c, STY[k].w, STY[k].d), `${n} · AUC ${num(c.roc[k].auc, 3)}`])), p.svg);
+  return wrap;
+}
+
+// ── децили: доля пробоев и контроль
+function decileChart(c) {
+  const id = 'decile', dc = c.deciles;
+  const top = Math.max(...dc.map(d => Math.max(d.y_hi, d.c)), c.base_y) * 1.08;
+  const p = plot({id, w: 540, h: 290, xd: [0, 10], yd: [0, top], xt: [], yf: v => num(v * 100, 0) + ' %', ylab: 'доля пробоев', m: {t: 20, b: 34}});
+  dc.forEach((d, i) => p.svg.append(el('text', {x: p.X(i + .5), y: p.h - p.m.b + 15, 'text-anchor': 'middle'}, i + 1)));
+  p.svg.append(el('text', {x: p.X(5), y: p.h - 3, 'text-anchor': 'middle'}, 'дециль оценки CB3 (1 — низкая, 10 — высокая)'));
+  p.svg.append(el('line', {x1: p.X(0), x2: p.X(10), y1: p.Y(c.base_y), y2: p.Y(c.base_y), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  dc.forEach((d, i) => {
+    const x0 = p.X(i + .15), x1 = p.X(i + .85), y0 = p.Y(0), y1 = p.Y(d.y);
+    const r = el('rect', {x: x0, y: y1, width: x1 - x0, height: y0 - y1, rx: 3, fill: ACC, 'fill-opacity': .88, 'data-chart': id + '.y', 'data-i': i, 'data-y': +d.y.toPrecision(7), 'data-n': d.n, 'data-k': d.k});
+    g.append(r);
+    g.append(el('line', {x1: p.X(i + .5), x2: p.X(i + .5), y1: p.Y(d.y_lo), y2: p.Y(d.y_hi), stroke: '#52525b', 'stroke-width': 1}));
+    g.append(el('line', {x1: x0 - 2, x2: x1 + 2, y1: p.Y(d.c), y2: p.Y(d.c), stroke: '#09090b', 'stroke-width': 2.25, 'data-chart': id + '.c', 'data-i': i, 'data-y': +d.c.toPrecision(7)}));
+    const hit = el('rect', {x: p.X(i), y: p.m.t, width: p.X(1) - p.X(0), height: p.h - p.m.t - p.m.b, fill: 'transparent'});
+    hover(hit, `<div class="t">Дециль ${i + 1} · n ${ints(d.n)}</div>` + trow('пробоев', `${ints(d.k)} (${pct(d.y, 1)})`) + trow('95 % Уилсон', `${pct(d.y_lo, 1)} … ${pct(d.y_hi, 1)}`) + trow('контроль', pct(d.c, 1)) + trow('оценка CB3, среднее', pct(d.pred, 1)));
+    g.append(hit);
+  });
+  p.svg.append(g);
+  c.tertile_cut_q.forEach((q, j) => {
+    p.svg.append(el('line', {x1: p.X(q * 10), x2: p.X(q * 10), y1: p.m.t, y2: p.h - p.m.b, stroke: '#52525b', 'stroke-width': 1, 'stroke-dasharray': '2 3', 'data-chart': id + '.cut', 'data-i': j, 'data-x': +(q * 10).toPrecision(7)}));
+    p.svg.append(el('text', {x: p.X(q * 10) + 4, y: p.m.t + 8, class: 'k'}, j ? '2/3' : '1/3'));
+  });
+  const wrap = h('div', {});
+  wrap.append(legend([[swBox(ACC), 'доля пробоев'], [swLine('#09090b', 2.25), 'доля в контроле у тех же эпизодов'], [swLine('#a1a1aa', 1.5, '4 3'), `все эпизоды · ${pct(c.base_y, 1)}`], [swLine('#52525b', 1, '2 3'), 'границы терцилей обучающей половины']]), p.svg);
+  return wrap;
+}
+
+// ── калибровка
+function calibChart(c) {
+  const id = 'calib', dc = c.deciles;
+  const top = Math.max(...dc.map(d => Math.max(d.y_hi, d.pred))) * 1.08;
+  const p = plot({id, w: 540, h: 300, xd: [0, top], yd: [0, top], xf: v => num(v * 100, 0) + ' %', yf: v => num(v * 100, 0) + ' %', ylab: 'наблюдаемая доля пробоев', xlab: 'предсказанная вероятность (среднее в дециле)', m: {t: 20, b: 34}});
+  p.svg.append(el('line', {x1: p.X(0), y1: p.Y(0), x2: p.X(top), y2: p.Y(top), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  dc.forEach((d, i) => {
+    g.append(el('line', {x1: p.X(d.pred), x2: p.X(d.pred), y1: p.Y(d.y_lo), y2: p.Y(d.y_hi), stroke: '#a1a1aa', 'stroke-width': 1}));
+    dot(p, g, id, i, d.pred, d.y, {tip: `<div class="t">Дециль ${i + 1} · n ${ints(d.n)}</div>` + trow('предсказано', pct(d.pred, 2)) + trow('наблюдено', `${pct(d.y, 2)} (${ints(d.k)} пробоев)`) + trow('95 % Уилсон', `${pct(d.y_lo, 1)} … ${pct(d.y_hi, 1)}`)});
+  });
+  p.svg.append(g);
+  const wrap = h('div', {});
+  wrap.append(legend([[swDot(ACC), 'децили оценки CB3 на проверочной половине'], [swLine('#a1a1aa', 1.5, '4 3'), 'идеальная калибровка']]), p.svg);
+  return wrap;
+}
+
+// ── горизонтальные столбцы (важность, SHAP)
+function hbars(id, rows, o) {
+  const rh = 22, w = 540, lw = o.lw || 150, m = {l: lw, r: 60, t: 4, b: 22}, hh = rows.length * rh + m.t + m.b;
+  const vals = rows.map(r => r.v), lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  const X = sc(lo, hi, m.l, w - m.r), svg = el('svg', {viewBox: `0 0 ${w} ${hh}`, width: '100%', role: 'img', 'data-chart': id});
+  svg.append(el('line', {x1: X(0), x2: X(0), y1: m.t, y2: hh - m.b, stroke: '#d4d4d8'}));
+  rows.forEach((r, i) => {
+    const y = m.t + i * rh, x0 = X(0), x1 = X(r.v);
+    svg.append(el('text', {x: m.l - 8, y: y + rh / 2 + 4, 'text-anchor': 'end', class: 'k'}, r.label));
+    svg.append(el('rect', {x: Math.min(x0, x1), y: y + 4, width: Math.max(1, Math.abs(x1 - x0)), height: rh - 8, rx: 3, fill: o.color || ACC, 'fill-opacity': r.v < 0 ? .35 : .88, 'data-chart': id, 'data-i': i, 'data-label': r.key, 'data-y': +r.v.toPrecision(7)}));
+    svg.append(el('text', {x: (r.v < 0 ? x0 : x1) + 6, y: y + rh / 2 + 4}, o.fmt(r.v)));
+    const hit = el('rect', {x: 0, y, width: w, height: rh, fill: 'transparent'});
+    hover(hit, `<div class="t">${r.label}</div>` + trow(o.metric, o.fmt(r.v)));
+    svg.append(hit);
+  });
+  svg.append(el('text', {x: m.l, y: hh - 5}, o.axis));
+  return svg;
+}
+function importance(c, cell) {
+  const perm = cell.perm.slice().sort((a, b) => b.auc_drop - a.auc_drop);
+  const shap = cell.shap;
+  const wrap = h('div', {});
+  wrap.append(h('div', {class: 'cap'}, 'Падение AUC при перемешивании признака · проверочная половина, среднее 5 перемешиваний; порядок найден на ней же'));
+  wrap.append(hbars('perm', perm.map(r => ({key: r.feature, label: fn(r.feature), v: r.auc_drop})), {fmt: v => num(v, 4, true), metric: 'падение AUC', axis: 'вправо — признак важнее; влево — после перемешивания AUC не упал'}));
+  wrap.append(h('div', {class: 'cap'}, 'Топ-10 пар по взаимодействию SHAP из 66 · проверочная половина, 2·среднее |φ|, ×10⁻³; отобраны на ней же'));
+  wrap.append(hbars('shap', shap.map(r => ({key: r.f1 + '|' + r.f2, label: fn(r.f1) + ' × ' + fn(r.f2), v: r.mean_abs * 1e3})), {fmt: v => num(v, 2), metric: 'взаимодействие, ×10⁻³', axis: '×10⁻³ в логите', lw: 200, color: '#52525b'}));
+  return wrap;
+}
+
+// ── кривая обучения
+function lcChart(c) {
+  const id = 'lc', L = c.lc, n = L.train.length;
+  const tail = [...L.train.slice(19), ...L.val.slice(19)];
+  const p = plot({id, w: 540, h: 290, xd: [0, n], yd: rng(tail, .12), yf: v => num(v, 3), xf: v => String(v), ylab: 'logloss (шкала с 20-й итерации)', xlab: 'итерация', m: {t: 20, l: 50}});
+  const mk = (a, col, w, key) => p.svg.append(el('path', {d: a.map((v, i) => (i ? 'L' : 'M') + p.X(i + 1).toFixed(1) + ' ' + p.Y(v).toFixed(1)).join(''), fill: 'none', stroke: col, 'stroke-width': w, 'stroke-linejoin': 'round', 'data-chart': id + '.' + key, 'data-ys': a.join(',')}));
+  const cid = 'clip' + Math.random().toString(36).slice(2, 8);
+  p.svg.append(el('clipPath', {id: cid}, [el('rect', {x: p.m.l, y: p.m.t, width: p.w - p.m.l - p.m.r, height: p.h - p.m.t - p.m.b})]));
+  mk(L.train, '#a1a1aa', 1.75, 'train'); mk(L.val, ACC, 2.25, 'val');
+  p.svg.querySelectorAll('path[data-chart^="lc."]').forEach(x => x.setAttribute('clip-path', `url(#${cid})`));
+  p.svg.append(el('line', {x1: p.X(L.stop), x2: p.X(L.stop), y1: p.m.t, y2: p.h - p.m.b, stroke: '#09090b', 'stroke-dasharray': '3 3', 'data-chart': id + '.stop', 'data-x': L.stop}));
+  p.svg.append(el('text', {x: p.X(L.stop) + 5, y: p.m.t + 9, class: 'k'}, 'остановка ' + L.stop));
+  overlay(p, n, i => i + 1, i => `<div class="t">Итерация ${i + 1}</div>` + trow('обучение', num(L.train[i], 4)) + trow('проверка', num(L.val[i], 4)));
+  const wrap = h('div', {});
+  wrap.append(legend([[swLine('#a1a1aa', 1.75), 'обучающая половина'], [swLine(ACC, 2.25), 'проверочная половина'], [swLine('#09090b', 1, '3 3'), `число итераций CB3 (${L.stop}) — по 5 блокам обучающей половины`]]), p.svg);
+  return wrap;
+}
+
+// ── переобучение
+function overfitChart(c) {
+  const id = 'overfit', o = c.overfit, f = o.folds;
+  const cats = [{l: 'в выборке', v: o.models.CB3.train, k: 'train'}, ...f.map((x, i) => ({l: 'блок ' + (i + 1), v: x.auc, k: 'fold', f: x})), {l: 'проверка', v: o.models.CB3.val, k: 'val'}];
+  const lo = 0.5, hi = Math.max(...cats.map(x => x.v)) + 0.02;
+  const p = plot({id, w: 540, h: 250, xd: [-.5, cats.length - .5], yd: [lo, hi], xt: [], yf: v => num(v, 2), ylab: 'AUC CB3', m: {t: 20, b: 28}});
+  cats.forEach((x, i) => p.svg.append(el('text', {x: p.X(i), y: p.h - p.m.b + 15, 'text-anchor': 'middle'}, x.l)));
+  p.svg.append(el('line', {x1: p.m.l, x2: p.w - p.m.r, y1: p.Y(.5), y2: p.Y(.5), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  cats.forEach((x, i) => {
+    g.append(el('line', {x1: p.X(i), x2: p.X(i), y1: p.Y(.5), y2: p.Y(x.v), stroke: x.k === 'fold' ? '#a1a1aa' : x.k === 'train' ? '#52525b' : ACC, 'stroke-width': 1.5}));
+    const t = x.k === 'fold' ? `<div class="t">Блок ${cats.indexOf(x)} · сутки ${x.f.days[0]}…${x.f.days[1]}</div>` + trow('AUC', num(x.v, 3)) + trow('эпизодов / пробоев', `${ints(x.f.n)} / ${ints(x.f.k)}`) + trow('итерация остановки', x.f.iters) : `<div class="t">${x.k === 'train' ? 'Обучающая половина (в выборке)' : 'Проверочная половина'}</div>` + trow('AUC', num(x.v, 3));
+    dot(p, g, id, i, i, x.v, {fill: x.k === 'fold' ? '#fff' : x.k === 'train' ? '#52525b' : ACC, stroke: x.k === 'fold' ? '#71717a' : '#fff', sw: x.k === 'fold' ? 1.75 : 2, r: 5, tip: t});
+  });
+  p.svg.append(g);
+  const wrap = h('div', {});
+  wrap.append(legend([[swDot('#52525b'), 'обучающая половина, в выборке'], [swDot('#71717a', true), 'блок ранней остановки: итерация выбрана на самом блоке'], [swDot(ACC), 'проверочная половина']]), p.svg);
+  const tb = h('table', {style: 'margin-top:6px'});
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'AUC'), h('th', {class: 'num'}, 'в выборке'), h('th', {class: 'num'}, 'проверка'), h('th', {class: 'num'}, 'разрыв')])));
+  const tbody = h('tbody');
+  MODELS.slice(0, 3).forEach(([k, n]) => {
+    const m = o.models[k];
+    tbody.append(h('tr', {'data-model': k}, [h('td', {class: k === 'CB3' ? 'strong' : ''}, n), h('td', {class: 'num', 'data-f': 'train'}, num(m.train, 3)), h('td', {class: 'num', 'data-f': 'val'}, num(m.val, 3)), h('td', {class: 'num', 'data-f': 'gap'}, num(m.train - m.val, 3, true))]));
+  });
+  tb.append(tbody);
+  wrap.append(tb);
+  return wrap;
+}
+
+// ── страты
+function strataChart(items, kind, cell) {
+  const id = 'strata.' + kind, nI = items.length, w = 540;
+  const pw = {l: 46, r: 12};
+  const panels = [{k: 'auc', h: 140, t: 20}, {k: 'delta', h: 140, t: 26}, {k: 'n', h: 58, t: 24}];
+  const gap = 14, axisH = kind === 'day' ? 24 : 46;
+  const H = panels.reduce((s, p) => s + p.h + p.t + gap, 0) + axisH - gap;
+  const svg = el('svg', {viewBox: `0 0 ${w} ${H}`, width: '100%', role: 'img', 'data-chart': id});
+  const X = sc(-.5, nI - .5, pw.l, w - pw.r);
+  const vals = k => items.flatMap(s => k === 'auc' ? [s.auc_cb3, s.auc_cb3_lo, s.auc_cb3_hi, s.auc_logit] : [s.delta, s.delta_lo, s.delta_hi]).filter(v => v != null);
+  let y0 = 0;
+  const ybase = {};
+  panels.forEach(pn => {
+    const top = y0 + pn.t, bot = top + pn.h;
+    ybase[pn.k] = [top, bot];
+    let lo, hi;
+    if (pn.k === 'auc') { const v = vals('auc'); lo = Math.min(.5, ...v); hi = Math.max(.5, ...v); }
+    else if (pn.k === 'delta') { const v = vals('delta'); lo = Math.min(0, ...v); hi = Math.max(0.02, ...v); }
+    else { lo = 0; hi = Math.max(...items.map(s => s.n), 300); }
+    const pad = (hi - lo) * .06; if (pn.k !== 'n') { lo -= pad; hi += pad; } else hi *= 1.08;
+    const Y = sc(lo, hi, bot, top);
+    pn.Y = Y;
+    const fm = pn.k === 'n' ? (v => ints(Math.round(v))) : (v => num(v, pn.k === 'auc' ? 2 : 2, pn.k === 'delta'));
+    (pn.k === 'n' ? ticks(0, hi, 2) : ticks(lo, hi, 4)).forEach(t => {
+      svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: Y(t), y2: Y(t), stroke: '#efeff1'}));
+      svg.append(el('text', {x: pw.l - 7, y: Y(t) + 3.5, 'text-anchor': 'end'}, fm(t)));
+    });
+    svg.append(el('text', {x: 0, y: top - 12}, pn.k === 'auc' ? 'AUC на проверке · точка — CB3 (95 % по монетам), кольцо — логистика' : pn.k === 'delta' ? 'ΔAUC = CB3 − логистика · 95 % по монетам · пунктир — порог +0,02' : 'эпизодов в страте · пунктир — 300'));
+    svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: bot, y2: bot, stroke: '#d4d4d8'}));
+    y0 = bot + gap;
+  });
+  const [, nBot] = ybase.n;
+  // опорные линии
+  const pa = panels[0], pd = panels[1], pn_ = panels[2];
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pa.Y(.5), y2: pa.Y(.5), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pd.Y(0), y2: pd.Y(0), stroke: '#a1a1aa', 'stroke-dasharray': '4 3'}));
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pd.Y(.02), y2: pd.Y(.02), stroke: ACC, 'stroke-dasharray': '4 3'}));
+  svg.append(el('line', {x1: pw.l, x2: w - pw.r, y1: pn_.Y(300), y2: pn_.Y(300), stroke: '#71717a', 'stroke-dasharray': '4 3'}));
+  const g = el('g');
+  items.forEach((s, i) => {
+    const gc = s.small ? 'grey' : '';
+    const x = X(i), bw = Math.min(26, (w - pw.l - pw.r) / nI * .62);
+    const grp = el('g', {class: gc});
+    if (s.auc_cb3_lo != null) grp.append(el('line', {x1: x, x2: x, y1: pa.Y(s.auc_cb3_lo), y2: pa.Y(s.auc_cb3_hi), stroke: '#71717a', 'stroke-width': 1.25}));
+    if (s.auc_logit != null) grp.append(el('circle', {cx: x, cy: pa.Y(s.auc_logit), r: kind === 'day' ? 3.2 : 4.5, fill: '#fff', stroke: '#52525b', 'stroke-width': 1.5, 'data-chart': id + '.auc_logit', 'data-i': i, 'data-y': +s.auc_logit.toPrecision(7)}));
+    if (s.auc_cb3 != null) grp.append(el('circle', {cx: x, cy: pa.Y(s.auc_cb3), r: kind === 'day' ? 2.6 : 4, fill: s.small ? '#71717a' : ACC, 'data-chart': id + '.auc_cb3', 'data-i': i, 'data-n': s.n, 'data-k': s.k, 'data-y': +s.auc_cb3.toPrecision(7)}));
+    if (s.delta_lo != null) grp.append(el('line', {x1: x, x2: x, y1: pd.Y(s.delta_lo), y2: pd.Y(s.delta_hi), stroke: '#71717a', 'stroke-width': 1.25}));
+    if (s.delta != null) grp.append(el('circle', {cx: x, cy: pd.Y(s.delta), r: kind === 'day' ? 2.6 : 4, fill: s.small ? '#71717a' : ACC, 'data-chart': id + '.delta', 'data-i': i, 'data-y': +s.delta.toPrecision(7), 'data-lo': s.delta_lo == null ? null : +s.delta_lo.toPrecision(7), 'data-hi': s.delta_hi == null ? null : +s.delta_hi.toPrecision(7)}));
+    grp.append(el('rect', {x: x - bw / 2, y: pn_.Y(s.n), width: bw, height: pn_.Y(0) - pn_.Y(s.n), rx: 2, fill: s.small ? '#a1a1aa' : '#d4d4d8', 'data-chart': id + '.n', 'data-i': i, 'data-y': s.n}));
+    g.append(grp);
+    const hit = el('rect', {x: x - (w - pw.l - pw.r) / nI / 2, y: ybase.auc[0], width: (w - pw.l - pw.r) / nI, height: nBot - ybase.auc[0], fill: 'transparent'});
+    const ttl = kind === 'day' ? `сутки ${s.day} · ${s.date.slice(8)}.${s.date.slice(5, 7)}` : `${strataName(kind)} · ${s.label} (${s.rangeLabel})`;
+    hover(hit, `<div class="t">${ttl}</div>` + trow('эпизодов / пробоев', `${ints(s.n)} / ${ints(s.k)}`) + (s.small ? '<div class="muted">меньше 300 эпизодов</div>' : '') + trow('AUC CB3', `${num(s.auc_cb3, 3)}` + (s.auc_cb3_lo == null ? '' : ` [${num(s.auc_cb3_lo, 3)}; ${num(s.auc_cb3_hi, 3)}]`)) + trow('AUC логистика', num(s.auc_logit, 3)) + trow('ΔAUC', num(s.delta, 3, true) + (s.delta_lo == null ? '' : ` [${num(s.delta_lo, 3, true)}; ${num(s.delta_hi, 3, true)}]`)));
+    g.append(hit);
+    // подписи оси
+    if (kind === 'day') { if (i % 5 === 0 || i === nI - 1) svg.append(el('text', {x, y: nBot + 15, 'text-anchor': 'middle'}, s.date.slice(8) + '.' + s.date.slice(5, 7))); }
+    else {
+      svg.append(el('text', {x, y: nBot + 15, 'text-anchor': 'middle', class: 'k'}, {L: 'низкий', M: 'средний', H: 'высокий'}[s.label]));
+      svg.append(el('text', {x, y: nBot + 28, 'text-anchor': 'middle'}, s.rangeLabel));
+      svg.append(el('text', {x, y: nBot + 41, 'text-anchor': 'middle'}, `n ${ints(s.n)} · k ${ints(s.k)}`));
+    }
+  });
+  svg.append(g);
+  return svg;
+}
+const strataName = k => ({lturn24: 'оборот за сутки', natr_bp: 'NATR', age_h: 'возраст уровня'}[k] || k);
+function strataFor(cell, kind) {
+  const items = cell.strata[kind].map(s => Object.assign({}, s));
+  if (kind !== 'day') {
+    const q = v => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2)).replace('.', ',');
+    const money = v => { const x = Math.pow(10, v); return x >= 1e9 ? q(x / 1e9) + ' млрд' : x >= 1e6 ? q(x / 1e6) + ' млн' : q(x / 1e3) + ' тыс'; };
+    const f = {lturn24: money, natr_bp: v => q(v) + ' бп', age_h: v => q(v) + ' ч'}[kind];
+    items.forEach(s => { s.rangeLabel = s.label === 'L' ? '≤ ' + f(s.cut_lo) : s.label === 'M' ? f(s.cut_lo) + '…' + f(s.cut_hi) : '> ' + f(s.cut_hi); });
+  }
+  const wrap = h('div', {});
+  wrap.append(strataChart(items, kind, cell));
+  return wrap;
+}
+
+// ── сводка
+function strip(lo, hi, d) {
+  const w = 170, a = -0.03, b = 0.045, X = sc(a, b, 6, w - 6);
+  const svg = el('svg', {viewBox: `0 0 ${w} 30`, width: w, height: 30, role: 'img'});
+  svg.append(el('line', {x1: X(0), x2: X(0), y1: 3, y2: 19, stroke: '#a1a1aa'}));
+  svg.append(el('line', {x1: X(.02), x2: X(.02), y1: 3, y2: 19, stroke: ACC, 'stroke-dasharray': '3 2', 'stroke-width': 1.5}));
+  svg.append(el('line', {x1: X(Math.max(a, lo)), x2: X(Math.min(b, hi)), y1: 11, y2: 11, stroke: '#3f3f46', 'stroke-width': 1.75}));
+  svg.append(el('circle', {cx: X(d), cy: 11, r: 3.8, fill: '#09090b'}));
+  svg.append(el('text', {x: X(0), y: 29, 'text-anchor': 'middle'}, '0'));
+  svg.append(el('text', {x: X(.02), y: 29, 'text-anchor': 'middle', fill: ACC, style: 'fill:' + ACC}, '+0,02'));
+  return svg;
+}
+function summary(side) {
+  const S = D.sides[side], card = h('div', {class: 'card'});
+  const tb = h('table');
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Направление'), ...MODELS.map(([k, n]) => h('th', {class: 'num'}, 'AUC ' + SHORT[k])), h('th', {}, 'ΔAUC CB3 − логистика · 95 % по монетам · порог +0,02')])));
+  const body = h('tbody');
+  ['A->B', 'B->A'].forEach(dk => {
+    const c = S.dirs[dk], dl = c.delta;
+    body.append(h('tr', {'data-dir': dk}, [
+      h('td', {}, [h('div', {class: 'strong'}, dk.replace('->', ' → ')), h('div', {class: 'muted small'}, `обучение ${c.train_half} · проверка ${c.val_half} · ${ints(c.n_T)} эпизодов, ${ints(c.k_T)} пробоев`)]),
+      ...MODELS.map(([k]) => h('td', {class: 'num' + (k === 'CB3' ? ' strong' : ''), 'data-f': 'auc_' + k}, num(c.auc[k], 3))),
+      h('td', {}, h('div', {style: 'display:flex;align-items:center;gap:12px'}, [strip(dl.lo, dl.hi, dl.delta), h('div', {}, [h('div', {class: 'strong', 'data-f': 'delta'}, num(dl.delta, 3, true)), h('div', {class: 'muted small', 'data-f': 'ci'}, `[${num(dl.lo, 3, true)}; ${num(dl.hi, 3, true)}]`)])]))
+    ]));
+  });
+  tb.append(body);
+  card.append(h('div', {style: 'padding:6px 8px 4px;overflow-x:auto'}, tb));
+  const V = S.verdict;
+  const badge = (ok, t) => h('span', {class: 'badge' + (ok ? ' ok' : '')}, t);
+  card.append(h('div', {class: 'verd'}, [badge(V.a.ok, '(а) ' + (V.a.ok ? 'выполнено' : 'не выполнено')), h('div', {class: 'small muted'}, `Модель: дерево глубины 3 лучше логистики на ≥ +0,02 AUC с нижней границей > 0 в обоих направлениях. A → B ${num(V.a.d[0].delta, 3, true)} [${num(V.a.d[0].lo, 3, true)}; ${num(V.a.d[0].hi, 3, true)}], B → A ${num(V.a.d[1].delta, 3, true)} [${num(V.a.d[1].lo, 3, true)}; ${num(V.a.d[1].hi, 3, true)}].`)]));
+  card.append(h('div', {class: 'verd'}, [badge(V.b.ok, '(б) ' + (V.b.ok ? 'выполнено' : 'не выполнено')), h('div', {class: 'small muted'}, `Правило: подтверждённых клеток пар — A → B ${V.b.confirmed[0]}, B → A ${V.b.confirmed[1]}; ядро признаков — ${D.meta.core_n} из ${D.meta.core_n}${D.meta.core_fallback ? ' (пары ядра не дали)' : ''}.`)]));
+  return card;
+}
+
+// ── U1r
+function u1rCard(side) {
+  const S = D.sides[side], card = h('div', {class: 'card'});
+  const tb = h('table');
+  tb.append(h('thead', {}, h('tr', {}, [h('th', {}, 'Направление'), h('th', {class: 'num'}, 'эпизодов'), h('th', {class: 'num'}, 'пробоев'), ...MODELS.map(([k, n]) => h('th', {class: 'num'}, 'AUC ' + SHORT[k]))])));
+  const body = h('tbody');
+  ['A->B', 'B->A'].forEach(dk => {
+    const u = S.dirs[dk].u1r;
+    body.append(h('tr', {'data-dir': dk}, [h('td', {class: 'strong'}, dk.replace('->', ' → ')), h('td', {class: 'num', 'data-f': 'n'}, ints(u.n)), h('td', {class: 'num', 'data-f': 'k'}, ints(u.k)), ...MODELS.map(([k]) => h('td', {class: 'num' + (k === 'CB3' ? ' strong' : ''), 'data-f': 'auc_' + k}, num(u[k], 3)))]));
+  });
+  tb.append(body);
+  card.append(h('div', {style: 'padding:6px 8px 4px;overflow-x:auto'}, tb));
+  return card;
+}
+
+// ── сборка страницы
+const SECTIONS = [
+  ['roc', 'ROC-кривые', 'Как хорошо оценка отделяет эпизоды с пробоем от остальных на проверочной половине: чем выше кривая над диагональю, тем лучше.', (c) => rocChart(c)],
+  ['lift', 'Доля пробоев по децилям оценки', 'Проверочная половина, поделённая по оценке CB3 на 10 равных групп: столбец — доля пробоев в группе, чёрточка — доля в контроле у тех же эпизодов.', (c) => decileChart(c)],
+  ['calib', 'Калибровка', 'Совпадает ли предсказанная вероятность с наблюдаемой долей пробоев: точки на пунктире — совпадает.', (c) => calibChart(c)],
+  ['imp', 'Важность признаков и взаимодействия', 'Какие из 12 признаков держат оценку CB3 и какие пары признаков дают ей взаимодействие.', (c, cell) => importance(c, cell)],
+  ['lc', 'Кривая обучения', 'Logloss CB3 на обучающей и на проверочной половине по числу деревьев; вертикаль — выбранное число итераций.', (c) => lcChart(c)],
+  ['over', 'Переобучение', 'AUC CB3 на обучающей половине (в выборке), на пяти блоках суток ранней остановки и на проверочной половине; разрыв «в выборке − проверка» по трём моделям.', (c) => overfitChart(c)],
+  ['strata-day', 'Устойчивость по суткам', 'AUC на проверке и ΔAUC (CB3 − логистика) по каждым суткам проверочной половины; серые — меньше 300 эпизодов.', (c) => strataFor(c, 'day')],
+  ['strata-turn', 'Страты по обороту', 'AUC и ΔAUC по трети суточного оборота в USDT (границы терцилей — с обучающей половины); серые — меньше 300 эпизодов.', (c) => strataFor(c, 'lturn24')],
+  ['strata-natr', 'Страты по NATR', 'AUC и ΔAUC по трети NATR (границы терцилей — с обучающей половины); серые — меньше 300 эпизодов.', (c) => strataFor(c, 'natr_bp')],
+  ['strata-age', 'Страты по возрасту уровня', 'AUC и ΔAUC по трети возраста уровня (границы терцилей — с обучающей половины); серые — меньше 300 эпизодов.', (c) => strataFor(c, 'age_h')]
+];
+const NAV = [['sum', 'Сводка'], ['roc', 'ROC'], ['lift', 'Децили'], ['calib', 'Калибровка'], ['imp', 'Важность'], ['lc', 'Кривая обучения'], ['over', 'Переобучение'], ['strata-day', 'Страты'], ['u1r', 'Пул U1r']];
+
+function section(id, title, desc, first) {
+  return h('section', {id: 'sec-' + id, class: first ? 'first' : ''}, [h('h2', {}, title), h('p', {class: 'desc'}, desc)]);
+}
+function render(side) {
+  const view = document.getElementById('view');
+  view.replaceChildren();
+  const sum = section('sum', 'Сводка', 'AUC четырёх моделей на проверочной половине, разница CB3 − логистика с интервалом по монетам против порога +0,02 и итог по критериям (а) и (б).', true);
+  sum.append(summary(side));
+  view.append(sum);
+  SECTIONS.forEach(([id, title, desc, fn_]) => {
+    const s = section(id, title, desc);
+    const grid = h('div', {class: 'grid2'});
+    ['A->B', 'B->A'].forEach(dk => {
+      const cell = D.sides[side].dirs[dk];
+      const card = h('div', {class: 'card', 'data-dir': dk});
+      card.append(h('div', {class: 'card-h'}, [h('b', {}, dk.replace('->', ' → ')), h('span', {}, `обучение ${cell.train_half} · проверка ${cell.val_half}`)]));
+      card.append(h('div', {class: 'card-b'}, fn_(cell, cell)));
+      grid.append(card);
+    });
+    s.append(grid);
+    view.append(s);
+  });
+  const u = section('u1r', 'Пул U1r', 'Тот же ряд AUC на эпизодах проверочной половины, где включён пул (U1r); число эпизодов и пробоев — рядом.');
+  u.append(u1rCard(side));
+  view.append(u);
+}
+function init() {
+  const m = D.meta;
+  document.getElementById('sub').textContent = `Пул U0, метка «пробой» (O3, 60 мин). Половины: A — сутки ${m.halfA[0]}…${m.halfA[1]}, B — сутки ${m.halfB[0]}…${m.halfB[1]}; сутки ${m.embargo_day} исключены. Признаков ${m.core_n}. Каждое направление — обучение на одной половине, проверка на другой.`;
+  const tabs = document.getElementById('tabs');
+  Object.keys(D.sides).forEach(side => {
+    const b = h('button', {role: 'tab', 'data-side': side, 'aria-selected': 'false'}, SIDE[side]);
+    b.onclick = () => select(side);
+    tabs.append(b);
+  });
+  const nav = document.getElementById('nav');
+  NAV.forEach(([id, t]) => { const b = h('button', {}, t); b.onclick = () => document.getElementById('sec-' + id).scrollIntoView(); nav.append(b); });
+  select(location.hash === '#short' ? 'short' : 'long');
+}
+function select(side) {
+  document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.side === side));
+  history.replaceState(null, '', '#' + side);
+  render(side);
+}
+init();
+</script>
+</body>
+</html>
